@@ -84,6 +84,7 @@ export default function App() {
     Number(localStorage.getItem("atelier-studio.chatFontSize") ?? 15),
   );
   const [showSettings, setShowSettings] = useState(false);
+  const [dragging, setDragging] = useState(false);
   // chapitres épinglés par thread : {index, label} (persistés)
   const [pins, setPins] = useState<Record<string, { index: number; label: string }[]>>(() => {
     try {
@@ -386,7 +387,7 @@ export default function App() {
   );
 
   return (
-    <div className="app-row">
+    <div className={`app-row ${dragging ? "dragging" : ""}`}>
       {compact && (
         <Rail
           projects={projects}
@@ -437,7 +438,7 @@ export default function App() {
           onSetMeta={(root, m) => setProjMeta((prev) => ({ ...prev, [root]: m }))}
         />
       </Panel>
-      <PanelResizeHandle className="handle" />
+      <PanelResizeHandle className="handle" onDragging={setDragging} />
       </>)}
       <Panel minSize={30}>
         {showSettings && (
@@ -543,7 +544,7 @@ export default function App() {
       </Panel>
       {showAtelier && atelierUrl && (
         <>
-          <PanelResizeHandle className="handle" />
+          <PanelResizeHandle className="handle" onDragging={setDragging} />
           <Panel defaultSize={38} minSize={20}>
             <AtelierPane
               url={atelierUrl}

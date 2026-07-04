@@ -233,3 +233,6 @@ html, body, #root, .app { height: 100vh;
   border: 1px solid #333a45; border-radius: 8px; padding: 4px 10px; white-space: nowrap;
   max-width: 320px; overflow: hidden; text-overflow: ellipsis; }
 .chapter-tick:hover .chapter-label { display: block; }
+/* pendant le drag des séparateurs, les iframes ne volent plus la souris */
+.app-row.dragging iframe { pointer-events: none; }
+.handle:hover, .handle[data-resize-handle-active] { background: #5b9dff; }
