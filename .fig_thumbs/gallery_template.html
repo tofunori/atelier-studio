@@ -232,6 +232,7 @@
     #folder{max-width:130px}
     .chip{padding-inline:6px}
   }
+.embOnly{display:none}
 </style>
 </head>
 <body>
@@ -338,6 +339,11 @@ document.addEventListener('click',e=>{
   else if(act==='more'){ e.stopImmediatePropagation(); cardMenu(el, rel); }
   else if(act==='rate') setRate(rel, +el.dataset.n, e);
   else if(act==='copy'){ navigator.clipboard.writeText(rel); el.textContent='✓'; setTimeout(()=>el.textContent='Path',1200); }
+  else if(act==='chat'){
+    window.top.postMessage({type:'atelier-add-to-chat',
+      text:'__ROOT__/'+rel+'\nFichier joint depuis la galerie atelier — lis-le (outil Read) avant de répondre.'},'*');
+    el.textContent='✓'; setTimeout(()=>el.textContent='Chat',1200);
+  }
 });
 document.addEventListener('change',e=>{
   const el=e.target.closest('.wfsel'); if(!el) return;
@@ -1082,6 +1088,7 @@ function render(){
       <div class="hov">
         <button data-act="open" data-rel="${escA(f.rel)}" title="Open with default app">Open</button>
         <button data-act="copy" data-rel="${escA(f.rel)}" title="Copy path">Path</button>
+        <button data-act="chat" data-rel="${escA(f.rel)}" class="embOnly" title="Joindre au chat de Studio">Chat</button>
         ${(imgExt(f.ext)||f.ext==='pdf')?`<button data-act="src" data-rel="${escA(f.rel)}" title="Open the script that generated this figure">&lt;/&gt;</button>`:''}
         ${imgExt(f.ext)?`<button data-act="board" data-rel="${escA(f.rel)}" title="Send this figure to the whiteboard">▦</button>`:''}
         <button data-act="fav" data-rel="${escA(f.rel)}" class="${isFav?'on':''}" title="${isFav?'Remove favorite':'Add favorite'}">${isFav?'★':'☆'}</button>
@@ -1313,7 +1320,8 @@ function annotInit(){
   });
   document.getElementById('annotUndo').onclick=()=>{annotStrokes.pop();annotRenumber();if(!annotStrokes.length)annotSent=true;document.getElementById('annotNote').style.display='none';annotRedraw();};
   document.getElementById('annotClear').onclick=()=>{annotStrokes=[];annotSent=true;document.getElementById('annotNote').style.display='none';annotRedraw();};
-  const ANNOT_EMBEDDED=(function(){try{return window.self!==window.top;}catch(e){return true;}})();
+  const ANNOT_EMBEDDED=(function(){try{return window.self!==window.top;
+  if(ANNOT_EMBEDDED){const st=document.createElement('style');st.textContent='.embOnly{display:inline-block !important}';document.head.appendChild(st);}}catch(e){return true;}})();
   async function annotPost(direct){
     const f=lbList[lbIdx], img=document.getElementById('lbImg');
     const scale=Math.min(1, 2200/img.naturalWidth);
