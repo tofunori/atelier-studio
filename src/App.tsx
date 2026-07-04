@@ -56,6 +56,8 @@ export default function App() {
   const [attachment, setAttachment] = useState<{ label: string; text: string } | null>(null);
   const [atelierReload, setAtelierReload] = useState(0);
   const lastInjected = useRef<string | null>(null);
+  const [atelierTabs, setAtelierTabs] = useState<{ id: string; url: string; title: string }[]>([]);
+  const [activeTab, setActiveTab] = useState<string>("gallery");
   const [activeId, setActiveId] = useState<string | null>(null);
   const [atelierUrls, setAtelierUrls] = useState<Record<string, string>>({});
   const [showAtelier, setShowAtelier] = useState(true);
@@ -119,6 +121,20 @@ export default function App() {
   // "Add to chat" direct depuis atelier (iframe → postMessage)
   useEffect(() => {
     const onMsg = (e: MessageEvent) => {
+      if (e.data?.type === "atelier-open-tab" && typeof e.data.url === "string") {
+        const origin = (e.origin && e.origin !== "null") ? e.origin : "";
+        const abs = e.data.url.startsWith("http") ? e.data.url : origin + e.data.url;
+        setAtelierTabs((tabs) => {
+          const existing = tabs.find((t) => t.url === abs);
+          if (existing) {
+            setActiveTab(existing.id);
+            return tabs;
+          }
+          const id = crypto.randomUUID();
+          setActiveTab(id);
+          return [...tabs, { id, url: abs, title: e.data.title ?? "fichier" }];
+        });
+      }
       if (e.data?.type === "atelier-add-to-chat" && typeof e.data.text === "string") {
         lastInjected.current = e.data.text;
         setAttachment({ label: attachmentLabel(e.data.text), text: e.data.text });
@@ -323,6 +339,13 @@ export default function App() {
           <Panel defaultSize={38} minSize={20}>
             <AtelierPane
               url={atelierUrl}
+              tabs={atelierTabs}
+              activeTab={activeTab}
+              onSelectTab={setActiveTab}
+              onCloseTab={(id) => {
+                setAtelierTabs((tabs) => tabs.filter((t) => t.id !== id));
+                setActiveTab((cur) => (cur === id ? "gallery" : cur));
+              }}
               reloadKey={atelierReload}
               onHardReload={() => {
                 if (!activeProject) return;

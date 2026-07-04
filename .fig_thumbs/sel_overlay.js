@@ -106,7 +106,7 @@ function __ct(){try{return JSON.parse(localStorage.getItem('claudeTargetV1')||'n
     fetch('/quote', {method:'POST', headers:{'Content-Type':'application/json'},
       body: JSON.stringify({rel: REL, page: '', text: selText, comment: comment || '', direct: true, target: __ct(), embed: EMBEDDED})})
       .then(function(r){ return r.json(); })
-      .then(function(j){ if (EMBEDDED && j && j.message) window.parent.postMessage({type: 'atelier-add-to-chat', text: j.message}, '*');
+      .then(function(j){ if (EMBEDDED && j && j.message) window.top.postMessage({type: 'atelier-add-to-chat', text: j.message}, '*');
         go.textContent = '✓'; setTimeout(function(){ go.textContent = '↑'; pillTa.value = ''; hideAll(); }, 1200); })
       .catch(function(){ go.textContent = '!'; setTimeout(function(){ go.textContent = '↑'; }, 1600); });
   }

@@ -300,7 +300,7 @@
           target: getTarget(), embed: EMBEDDED,
           notes: strokes.filter(function(s){ return s.note; }).map(function(s){ return {n: s.n, text: s.note}; })})});
       var j = await r.json();
-      if (EMBEDDED && j && j.message) window.parent.postMessage({type: 'atelier-add-to-chat', text: j.message}, '*');
+      if (EMBEDDED && j && j.message) window.top.postMessage({type: 'atelier-add-to-chat', text: j.message}, '*');
       return j;
     }
 

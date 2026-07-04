@@ -781,6 +781,17 @@ async function lbShow(i){
   if(i<0||i>=lbList.length) return;
   lbIdx=i; const f=lbList[i]; lb().classList.remove('annot');
   const isTex=f.ext==='tex', isPdf=f.ext==='pdf', isMd=f.ext==='md', isCode=codeExt(f.ext), isSvg=f.ext==='svg', isVid=videoExt(f.ext);
+  // Embarqué dans Atelier Studio : les fichiers texte/code s'ouvrent dans un
+  // ONGLET Studio (la galerie reste navigable), pas dans la lightbox.
+  if(ANNOT_EMBEDDED && (isTex||isMd||isCode)){
+    let u;
+    if(isTex) u='/.fig_thumbs/latex_studio.html?path='+encodeURIComponent('__ROOT__/'+f.rel)+'&v=__VER__';
+    else if(isMd) u='/.fig_thumbs/md_viewer.html?path='+encodeURIComponent('__ROOT__/'+f.rel)+'&file='+encodeURIComponent(f.rel)+'&v=__VER__';
+    else u='/.fig_thumbs/code_editor.html?path='+encodeURIComponent('__ROOT__/'+f.rel)+'&v=__VER__';
+    window.top.postMessage({type:'atelier-open-tab', url:u, title:f.name}, '*');
+    lbIdx=-1;
+    return;
+  }
   const img=document.getElementById('lbImg'), pdf=document.getElementById('lbPdf'), vid=document.getElementById('lbVid');
   const vw=isPdf||isMd||isCode||isSvg;
   img.style.display=(vw||isVid)?'none':'';
@@ -1303,6 +1314,7 @@ function annotInit(){
   });
   document.getElementById('annotUndo').onclick=()=>{annotStrokes.pop();annotRenumber();if(!annotStrokes.length)annotSent=true;document.getElementById('annotNote').style.display='none';annotRedraw();};
   document.getElementById('annotClear').onclick=()=>{annotStrokes=[];annotSent=true;document.getElementById('annotNote').style.display='none';annotRedraw();};
+  const ANNOT_EMBEDDED=(function(){try{return window.self!==window.top;}catch(e){return true;}})();
   async function annotPost(direct){
     const f=lbList[lbIdx], img=document.getElementById('lbImg');
     const scale=Math.min(1, 2200/img.naturalWidth);
@@ -1313,9 +1325,11 @@ function annotInit(){
     const r=await fetch('/save',{method:'POST',
       headers:{'Content-Type':'application/json'},
       body:JSON.stringify({name:f.name,dataURL:out.toDataURL('image/png'),direct:!!direct,
-        target:claudeTarget(),
+        target:claudeTarget(),embed:ANNOT_EMBEDDED,
         notes:annotStrokes.filter(s=>s.note).map(s=>({n:s.n,text:s.note}))})});
-    return await r.json();
+    const j=await r.json();
+    if(ANNOT_EMBEDDED&&j&&j.message)window.top.postMessage({type:'atelier-add-to-chat',text:j.message},'*');
+    return j;
   }
   document.getElementById('annotPillCancel').onclick=async function(){
     const n=annotStrokes.filter(s=>s.note).length;
@@ -1329,6 +1343,7 @@ function annotInit(){
   }
   (function(){
     const btn=document.getElementById('annotPillTarget'), menu=document.getElementById('tgMenu');
+    if(ANNOT_EMBEDDED)btn.style.display='none';
     const mark=()=>btn.classList.toggle('set', !!claudeTarget());
     mark();
     btn.onclick=async e=>{
