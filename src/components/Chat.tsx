@@ -404,9 +404,28 @@ export default function Chat(p: {
             )}
           </div>
         )}
+        <div className="ta-wrap">
+        <div className="ta-backdrop" aria-hidden="true">
+          {(() => {
+            const m = /^(\/[\w:-]+)([\s\S]*)$/.exec(text);
+            if (m) {
+              return (
+                <>
+                  <span className="slash-cmd">{m[1]}</span>
+                  {m[2]}
+                </>
+              );
+            }
+            return text;
+          })()}
+        </div>
         <textarea
           value={text}
           onChange={(e) => setText(e.target.value)}
+          onScroll={(e) => {
+            const bd = e.currentTarget.parentElement?.querySelector(".ta-backdrop");
+            if (bd) bd.scrollTop = e.currentTarget.scrollTop;
+          }}
           onPaste={(e) => {
             for (const item of e.clipboardData.items) {
               if (item.type.startsWith("image/")) {
@@ -451,6 +470,7 @@ export default function Chat(p: {
           rows={2}
           placeholder="Demande n'importe quoi — /skills et CLAUDE.md chargés"
         />
+        </div>
         <div className="composer-bar">
           <button type="button" className="ghost" title="Joindre des fichiers" onClick={attachFiles}>
             +

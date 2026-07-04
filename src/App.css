@@ -398,3 +398,12 @@ input[type="range"].slider::-webkit-slider-thumb:hover { transform: scale(1.15);
 /* skill/slash command chargée : token en bleu */
 .slash-cmd { color: #5b9dff; background: rgba(91,157,255,0.12); border-radius: 6px;
   padding: 1px 6px; font-weight: 500; }
+/* calque de coloration du composer (token slash bleu pendant la saisie) */
+.ta-wrap { position: relative; display: flex; flex-direction: column; }
+.ta-wrap textarea { position: relative; z-index: 2; background: transparent;
+  color: transparent; caret-color: var(--fg); }
+.ta-wrap textarea::placeholder { color: var(--muted2); }
+.ta-backdrop { position: absolute; inset: 0; z-index: 1; overflow: hidden;
+  white-space: pre-wrap; word-break: break-word; pointer-events: none;
+  color: var(--fg); font-size: 14px; line-height: 1.45;
+  font-family: inherit; }
