@@ -66,6 +66,23 @@ export default function BrowserTab(p: {
         <button className="ghost" disabled={idx <= 0} onClick={() => go(-1)} title="Précédent">←</button>
         <button className="ghost" disabled={idx >= stack.length - 1} onClick={() => go(1)} title="Suivant">→</button>
         <button className="ghost" onClick={() => setReloadKey((n) => n + 1)} title="Recharger">↻</button>
+        <button
+          className="ghost"
+          title="Add to chat : sélectionne du texte dans la page, ⌘C, puis clique ici"
+          onClick={async () => {
+            try {
+              const text = await navigator.clipboard.readText();
+              if (!text.trim()) return;
+              window.dispatchEvent(new CustomEvent("browser-add-to-chat", {
+                detail: { text: text.trim(), url: url ?? "" },
+              }));
+            } catch {}
+          }}
+        >
+          <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3">
+            <path d="M14 8c0 3-2.7 5.2-6 5.2-.8 0-1.6-.1-2.3-.4L2.5 14l1-2.6C2.6 10.5 2 9.3 2 8c0-3 2.7-5.2 6-5.2S14 5 14 8z" />
+          </svg>
+        </button>
         <input
           className="browser-url"
           placeholder="Rechercher ou entrer une URL"

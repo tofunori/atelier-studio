@@ -317,6 +317,24 @@ export default function App() {
       .catch((e) => console.error("start_atelier:", e));
   }, [activeProject]);
 
+  // "Add to chat" depuis le Browser (presse-papier + URL de la page)
+  useEffect(() => {
+    const onBrowserAdd = (e: Event) => {
+      const { text, url } = (e as CustomEvent).detail as { text: string; url: string };
+      let name = "extrait web";
+      try { name = url ? new URL(url).hostname : name; } catch {}
+      setAttachments((l) =>
+        addAttachment(l, {
+          name,
+          lines: null,
+          text: `Extrait copié depuis ${url || "une page web"} :\n> ${text.split("\n").join("\n> ")}`,
+        }),
+      );
+    };
+    window.addEventListener("browser-add-to-chat", onBrowserAdd);
+    return () => window.removeEventListener("browser-add-to-chat", onBrowserAdd);
+  }, []);
+
   // "Add to chat" direct depuis atelier (iframe → postMessage)
   useEffect(() => {
     const onMsg = (e: MessageEvent) => {

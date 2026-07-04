@@ -111,6 +111,18 @@
     border-radius:2px;text-decoration:none}
   #diffPane .dDel{background:rgba(224,108,117,.14);color:#e09aa0;text-decoration:line-through;border-radius:2px}
   #diffGrp button.on{background:var(--accent);color:#10151d;border-color:var(--accent)}
+  /* palette LaTeX/code plus riche (par-dessus material-darker) */
+  .cm-s-material-darker .cm-tag{color:#7aa2f7}                 /* \commandes */
+  .cm-s-material-darker .cm-bracket{color:#e0b74a}             /* { } [ ] */
+  .cm-s-material-darker .cm-atom{color:#b587d6}                /* noms d'environnements */
+  .cm-s-material-darker .cm-string{color:#8fd3a7}              /* math $…$ */
+  .cm-s-material-darker .cm-comment{color:#6b7482;font-style:italic}
+  .cm-s-material-darker .cm-number{color:#e8a35a}
+  .cm-s-material-darker .cm-keyword{color:#d97757}
+  .cm-s-material-darker .cm-builtin{color:#7aa2f7}
+  .cm-s-material-darker .cm-variable-2{color:#9db4d0}
+  .cm-s-material-darker .cm-def{color:#e0b74a}
+  .cm-s-material-darker span.cm-error{background:transparent;color:#e09aa0}
 </style>
 <script>
 function __ct(){try{return JSON.parse(localStorage.getItem('claudeTargetV1')||'null')}catch(e){return null}}(function(){var T={'Default':{bg:'#202024',card:'#27272a',card2:'#1f1f23',txt:'#e4e4e7',muted:'#a1a1aa',accent:'#5b9dff',border:'#3f3f46'},'Codex One':{bg:'#202024',card:'#2f343f',card2:'#21252b',txt:'#abb2bf',muted:'#7f848e',accent:'#4d78cc',border:'#3e4451'},'Dracula':{bg:'#282a36',card:'#343746',card2:'#21222c',txt:'#f8f8f2',muted:'#9aa0b3',accent:'#bd93f9',border:'#44475a'},'Nord':{bg:'#2e3440',card:'#3b4252',card2:'#272c36',txt:'#e5e9f0',muted:'#9aa3b2',accent:'#88c0d0',border:'#434c5e'}};var t;try{t=T[localStorage.getItem('figTheme')];}catch(e){}t=t||T['Default'];var r=document.documentElement.style;for(var k in t)r.setProperty('--'+k,t[k]);})();</script>
@@ -145,8 +157,8 @@ function __ct(){try{return JSON.parse(localStorage.getItem('claudeTargetV1')||'n
     <button id="diffTag" title="Voir le diff de cette version">&#177; v1</button>
     <button id="diffNext" title="Version suivante">&#8250;</button>
     <button id="diffRestore" title="Rétablir la version affichée sur le disque">Rétablir</button>
-  <span style="display:none">
   </span>
+  <span style="display:none"></span>
   <span class="grp pdfonly">
     <button id="reloadPdf" title="Recharger le PDF">&#8635;</button>
   </span>
@@ -401,12 +413,19 @@ async function load(){
     }
     const lines=[]; for(let i=from;i<=to;i++) lines.push(cm.getLine(i));
     const indent=(lines[0].match(/^\s*/)||[""])[0];
-    const words=lines.map(l=>l.trim()).join(" ").split(/\s+/).filter(Boolean);
+    // préserver un préfixe de commentaire commun (% latex, # py/r/jl, // js)
+    const cm0=(lines[0].match(/^\s*([%#]+|\/\/)\s?/)||[])[1] || "";
+    const allComment = cm0 && lines.every(l => !l.trim() || l.trim().startsWith(cm0));
+    const prefix = allComment ? indent + cm0 + " " : indent;
+    const strip = (l) => allComment
+      ? l.replace(new RegExp("^\\s*" + cm0.replace(/[%/]/g, "\\$&") + "\\s?"), "").trim()
+      : l.trim();
+    const words=lines.map(strip).join(" ").split(/\s+/).filter(Boolean);
     const out=[]; let curL="";
     for(const w of words){
-      if(!curL) curL=indent+w;
+      if(!curL) curL=prefix+w;
       else if((curL+" "+w).length<=col) curL+=" "+w;
-      else { out.push(curL); curL=indent+w; }
+      else { out.push(curL); curL=prefix+w; }
     }
     if(curL) out.push(curL);
     cm.replaceRange(out.join("\n"), {line:from,ch:0}, {line:to,ch:cm.getLine(to).length});
@@ -817,6 +836,39 @@ function toggleDiff(show){
   if(!diffShown && cm) cm.refresh();
 }
 document.getElementById("diffTag").onclick = () => toggleDiff();
+// Add to chat sur sélection DANS le panneau diff (mode Studio)
+if(window.self !== window.top){
+  const dPill = document.createElement("button");
+  dPill.innerHTML = '<svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" style="vertical-align:-2px"><path d="M14 8c0 3-2.7 5.2-6 5.2-.8 0-1.6-.1-2.3-.4L2.5 14l1-2.6C2.6 10.5 2 9.3 2 8c0-3 2.7-5.2 6-5.2S14 5 14 8z"/></svg>&nbsp; Add to chat';
+  dPill.style.cssText = "position:fixed;z-index:9999;display:none;background:#2c313a;color:#e6e6e6;"
+    + "border:1px solid #3a414d;border-radius:999px;padding:7px 14px;font-size:13px;cursor:pointer;"
+    + "box-shadow:0 6px 18px rgba(0,0,0,.5);font-family:-apple-system,sans-serif";
+  document.body.appendChild(dPill);
+  let dSel = "";
+  dPill.addEventListener("mousedown", (e) => {
+    e.preventDefault(); e.stopPropagation();
+    if(!dSel) return;
+    fetch("/quote", {method:"POST", headers:{"Content-Type":"application/json"},
+      body: JSON.stringify({rel: path, page: "", text: dSel, comment: "", direct: true, embed: true})})
+      .then(r => r.json())
+      .then(j => { if(j && j.message) window.top.postMessage({type:"atelier-add-to-chat", text:j.message}, "*"); })
+      .catch(() => {});
+    dPill.style.display = "none";
+    try{ window.getSelection().removeAllRanges(); }catch(err){}
+  });
+  diffPane.addEventListener("mouseup", () => {
+    setTimeout(() => {
+      const sel = window.getSelection();
+      const t = sel ? String(sel).trim() : "";
+      if(!t || !sel || sel.rangeCount === 0){ dPill.style.display = "none"; dSel = ""; return; }
+      dSel = t;
+      const rect = sel.getRangeAt(0).getBoundingClientRect();
+      dPill.style.left = Math.max(8, rect.left + rect.width/2 - 55) + "px";
+      dPill.style.top = Math.max(8, rect.top - 42) + "px";
+      dPill.style.display = "block";
+    }, 0);
+  });
+}
 document.getElementById("diffPrev").onclick = () => { if(diffIdx > 0){ diffIdx--; updateDiffTag(); renderDiff(); toggleDiff(true); } };
 document.getElementById("diffNext").onclick = () => { if(diffIdx < DIFF_VERSIONS.length - 1){ diffIdx++; updateDiffTag(); renderDiff(); toggleDiff(true); } };
 document.getElementById("diffRestore").onclick = async () => {
