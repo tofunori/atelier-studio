@@ -68,6 +68,10 @@ export default function App() {
   const [atelierReload, setAtelierReload] = useState(0);
   const lastInjected = useRef<string | null>(null);
   const [atelierTabs, setAtelierTabs] = useState<{ id: string; url: string; title: string }[]>([]);
+  const atelierTabsRef = useRef(atelierTabs);
+  useEffect(() => {
+    atelierTabsRef.current = atelierTabs;
+  }, [atelierTabs]);
   const [chatFontSize, setChatFontSize] = useState<number>(() =>
     Number(localStorage.getItem("atelier-studio.chatFontSize") ?? 15),
   );
@@ -144,16 +148,16 @@ export default function App() {
       if (e.data?.type === "atelier-open-tab" && typeof e.data.url === "string") {
         const origin = (e.origin && e.origin !== "null") ? e.origin : "";
         const abs = e.data.url.startsWith("http") ? e.data.url : origin + e.data.url;
-        setAtelierTabs((tabs) => {
-          const existing = tabs.find((t) => t.url === abs);
-          if (existing) {
-            setActiveTab(existing.id);
-            return tabs;
-          }
+        // pas de setState imbriqué (StrictMode double-exécute les updaters) :
+        // on lit l'état courant via la ref pour décider, puis on commit les deux.
+        const existing = atelierTabsRef.current.find((t) => t.url === abs);
+        if (existing) {
+          setActiveTab(existing.id);
+        } else {
           const id = crypto.randomUUID();
+          setAtelierTabs((tabs) => [...tabs, { id, url: abs, title: e.data.title ?? "fichier" }]);
           setActiveTab(id);
-          return [...tabs, { id, url: abs, title: e.data.title ?? "fichier" }];
-        });
+        }
       }
       if (e.data?.type === "atelier-add-to-chat" && typeof e.data.text === "string") {
         lastInjected.current = e.data.text;
