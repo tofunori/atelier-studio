@@ -388,3 +388,10 @@ input[type="range"].slider::-webkit-slider-thumb:hover { transform: scale(1.15);
 .side-top { display: flex; align-items: center; min-height: 22px; }
 .side-top .flex { flex: 1; }
 .side-top .compact-btn { display: inline-flex; padding: 3px 6px; }
+.mp-hd { display: flex; align-items: center; gap: 6px; }
+.mp-end { margin-left: auto; display: inline-flex; align-items: center; gap: 8px; }
+.mp-check { margin-left: 0; }
+.mp-star { color: var(--muted2); cursor: pointer; font-size: 13px; opacity: 0;
+  transition: opacity 0.12s; }
+.mp-item:hover .mp-star { opacity: 1; }
+.mp-star.on { opacity: 1; color: #e0b74a; }

@@ -119,6 +119,24 @@ export default function Chat(p: {
   const [selIdx, setSelIdx] = useState(0);
   const [quote, setQuote] = useState<{ x: number; y: number; text: string } | null>(null);
   const [menuOpen, setMenuOpen] = useState(false);
+  const [favModels, setFavModels] = useState<string[]>(() => {
+    try { return JSON.parse(localStorage.getItem("atelier-studio.favModels") ?? "[]"); }
+    catch { return []; }
+  });
+  function toggleFavModel(key: string) {
+    setFavModels((f) => {
+      const n = f.includes(key) ? f.filter((x) => x !== key) : [...f, key];
+      localStorage.setItem("atelier-studio.favModels", JSON.stringify(n));
+      return n;
+    });
+  }
+  function sortByFav<T extends { id: string }>(list: T[], prov: string): T[] {
+    return [...list].sort((a, b) => {
+      const fa = favModels.includes(prov + ":" + a.id) ? 0 : 1;
+      const fb = favModels.includes(prov + ":" + b.id) ? 0 : 1;
+      return fa - fb;
+    });
+  }
 
   useEffect(() => {
     if (!menuOpen) return;
@@ -476,20 +494,41 @@ export default function Chat(p: {
             </button>
             {menuOpen && (
               <div className="mp-menu">
-                <div className="mp-hd">Provider</div>
-                {(["claude", "codex"] as const).map((pv) => (
-                  <div key={pv} className="mp-item" onClick={() => { setProvider(pv); setModel(""); setEffort(""); }}>
-                    <ProviderIcon provider={pv} />
-                    <span>{pv === "claude" ? "Claude" : "Codex"}</span>
-                    {provider === pv && <span className="mp-check">✓</span>}
-                  </div>
-                ))}
-                <div className="mp-sep" />
-                <div className="mp-hd">Modèle</div>
-                {MODELS[provider].map((m) => (
-                  <div key={m.id} className="mp-item" onClick={() => setModel(m.id)}>
-                    <span>{m.label}</span>
-                    {model === m.id && <span className="mp-check">✓</span>}
+                {(["claude", "codex"] as const).map((pv, pi) => (
+                  <div key={pv}>
+                    {pi > 0 && <div className="mp-sep" />}
+                    <div className="mp-hd">
+                      <ProviderIcon provider={pv} size={11} /> {pv === "claude" ? "Claude" : "Codex"}
+                    </div>
+                    {sortByFav(MODELS[pv], pv).map((m) => {
+                      const key = pv + ":" + m.id;
+                      const active = provider === pv && model === m.id;
+                      const fav = favModels.includes(key);
+                      return (
+                        <div
+                          key={key}
+                          className="mp-item"
+                          onClick={() => {
+                            if (provider !== pv) { setEffort(""); }
+                            setProvider(pv);
+                            setModel(m.id);
+                          }}
+                        >
+                          <ProviderIcon provider={pv} />
+                          <span>{m.label}</span>
+                          <span className="mp-end">
+                            {active && <span className="mp-check">✓</span>}
+                            <span
+                              className={`mp-star ${fav ? "on" : ""}`}
+                              title={fav ? "Retirer des favoris" : "Ajouter aux favoris"}
+                              onClick={(e) => { e.stopPropagation(); toggleFavModel(key); }}
+                            >
+                              {fav ? "★" : "☆"}
+                            </span>
+                          </span>
+                        </div>
+                      );
+                    })}
                   </div>
                 ))}
                 <div className="mp-sep" />
