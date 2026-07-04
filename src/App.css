@@ -302,3 +302,9 @@ pre, code, .msg pre, .msg code { font-family: var(--code-font); }
 .sidebar li { padding: var(--pad-y, 6px) 8px; }
 .sidebar button { padding: var(--pad-y, 6px); }
 .set-row { padding: calc(var(--pad-y, 6px) + 8px) 16px; }
+.seg { display: inline-flex; background: var(--bg-ctl); border-radius: 9px; padding: 3px; gap: 2px; }
+.seg button { background: transparent; border: none; color: var(--muted); padding: 5px 12px;
+  border-radius: 7px; cursor: pointer; font-size: 12.5px; }
+.seg button.on { background: var(--bg); color: var(--fg); }
+input[type="color"] { width: 40px; height: 28px; border: 1px solid var(--border2);
+  border-radius: 6px; background: transparent; padding: 1px; cursor: pointer; }

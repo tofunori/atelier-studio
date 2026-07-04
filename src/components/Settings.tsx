@@ -133,7 +133,66 @@ export default function SettingsPage(p: {
         {section === "apparence" && (
           <>
             <h1>Apparence</h1>
-            <p className="set-sub">Typographie et mise en page du chat.</p>
+            <p className="set-sub">Thème, couleurs, typographie et mise en page.</p>
+            <Row title="Thème" desc="System suit le réglage macOS.">
+              <div className="seg">
+                {(["light", "dark", "system"] as const).map((t) => (
+                  <button key={t} className={s.theme === t ? "on" : ""}
+                    onClick={() => set({ theme: t })}>
+                    {t === "light" ? "Light" : t === "dark" ? "Dark" : "System"}
+                  </button>
+                ))}
+              </div>
+            </Row>
+            <Row title="Accent" desc="Couleur d'accent (boutons, pastilles, envoi).">
+              <input type="color" value={s.accentColor || "#e8823a"}
+                onChange={(e) => set({ accentColor: e.target.value })} />
+              <button className="set-btn" onClick={() => set({ accentColor: "" })}>Reset</button>
+            </Row>
+            <Row title="Fond" desc="Couleur de fond principale.">
+              <input type="color" value={s.bgColor || "#212429"}
+                onChange={(e) => set({ bgColor: e.target.value })} />
+              <button className="set-btn" onClick={() => set({ bgColor: "" })}>Reset</button>
+            </Row>
+            <Row title="Texte" desc="Couleur du texte principal.">
+              <input type="color" value={s.fgColor || "#e8eaed"}
+                onChange={(e) => set({ fgColor: e.target.value })} />
+              <button className="set-btn" onClick={() => set({ fgColor: "" })}>Reset</button>
+            </Row>
+            <Row title="Police UI" desc="Nom d'une police installée (vide = Inter).">
+              <input className="set-text" placeholder="Inter" value={s.uiFont}
+                onChange={(e) => set({ uiFont: e.target.value })} />
+            </Row>
+            <Row title="Police code" desc="Monospace pour les blocs de code (vide = système).">
+              <input className="set-text" placeholder="JetBrains Mono" value={s.codeFont}
+                onChange={(e) => set({ codeFont: e.target.value })} />
+            </Row>
+            <Row title="Densité" desc="Espacement de la sidebar et des listes.">
+              <div className="seg">
+                {(["compact", "comfortable", "spacious"] as const).map((d) => (
+                  <button key={d} className={s.density === d ? "on" : ""}
+                    onClick={() => set({ density: d })}>
+                    {d === "compact" ? "Compact" : d === "comfortable" ? "Confort" : "Spacieux"}
+                  </button>
+                ))}
+              </div>
+            </Row>
+            <Row title="Taille de base" desc="Toute l'UI est proportionnelle à cette valeur.">
+              <input type="range" min={12} max={18} step={0.5} value={s.baseFontSize}
+                onChange={(e) => set({ baseFontSize: Number(e.target.value) })} />
+              <span className="set-val">{s.baseFontSize}px</span>
+            </Row>
+            <Row title="Lissage de police" desc="Antialiasing macOS (texte plus fin).">
+              <input type="checkbox" checked={s.fontSmoothing}
+                onChange={(e) => set({ fontSmoothing: e.target.checked })} />
+            </Row>
+            <Row title="Format d'heure" desc="Horodatage des messages.">
+              <select value={s.timeFormat} onChange={(e) => set({ timeFormat: e.target.value as any })}>
+                <option value="system">Système</option>
+                <option value="24h">24 h</option>
+                <option value="12h">12 h (AM/PM)</option>
+              </select>
+            </Row>
             <Row title="Taille du texte du chat">
               <input type="range" min={12} max={19} step={0.5} value={s.chatFontSize}
                 onChange={(e) => set({ chatFontSize: Number(e.target.value) })} />

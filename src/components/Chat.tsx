@@ -31,6 +31,13 @@ const EFFORTS: Record<string, string[]> = {
   codex: ["", "minimal", "low", "medium", "high", "xhigh"],
 };
 
+function fmtTime(ts: number, fmt?: "system" | "24h" | "12h") {
+  const opts: Intl.DateTimeFormatOptions = { hour: "2-digit", minute: "2-digit" };
+  if (fmt === "24h") opts.hour12 = false;
+  if (fmt === "12h") opts.hour12 = true;
+  return new Date(ts).toLocaleTimeString([], opts);
+}
+
 function Working({ since }: { since: number }) {
   const [, tick] = useState(0);
   useEffect(() => {
@@ -78,6 +85,7 @@ export default function Chat(p: {
     defaultModel: { claude: string; codex: string };
     defaultEffort: { claude: string; codex: string };
     defaultPermissionMode: string;
+    timeFormat?: "system" | "24h" | "12h";
   };
   pins: { index: number; label: string }[];
   onTogglePin: (index: number, label: string) => void;
@@ -216,7 +224,7 @@ export default function Chat(p: {
                 <div className="msg-actions">
                   {e.ts && (
                     <span className="msg-time">
-                      {new Date(e.ts).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+                      {fmtTime(e.ts, p.defaults.timeFormat)}
                     </span>
                   )}
                   <button title="Copier" onClick={() => navigator.clipboard.writeText(e.text)}>⧉</button>
@@ -235,7 +243,7 @@ export default function Chat(p: {
                 <div className="msg-actions">
                   {"ts" in e && e.ts && (
                     <span className="msg-time">
-                      {new Date(e.ts).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+                      {fmtTime(e.ts, p.defaults.timeFormat)}
                     </span>
                   )}
                   <button title="Copier" onClick={() => navigator.clipboard.writeText(e.text)}>⧉</button>
