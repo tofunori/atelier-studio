@@ -54,9 +54,10 @@ export default function Chat(p: {
   files: string[];
   injectText: string | null;
   onInjected: () => void;
-  attachment: { name: string; lines: string | null; text: string } | null;
+  attachment: { name: string; lines: string | null; text: string; imageUrl?: string } | null;
   onClearAttachment: () => void;
   onQuote: (text: string) => void;
+  onPasteImage: (dataURL: string) => void;
   onStop: () => void;
   disabled: boolean;
   onSubmit: (
@@ -210,7 +211,15 @@ export default function Chat(p: {
             ))}
           </ul>
         )}
-        {p.attachment && (
+        {p.attachment && p.attachment.imageUrl ? (
+          <div className="img-chip">
+            <img src={p.attachment.imageUrl} alt={p.attachment.name} />
+            <button type="button" className="img-chip-x" onClick={p.onClearAttachment}>
+              ✕
+            </button>
+            <span className="img-chip-name">{p.attachment.name}</span>
+          </div>
+        ) : p.attachment && (
           <div className="chip">
             <span className="chip-ico">📄</span>
             <span className="chip-label">{p.attachment.name}</span>
@@ -223,6 +232,19 @@ export default function Chat(p: {
         <textarea
           value={text}
           onChange={(e) => setText(e.target.value)}
+          onPaste={(e) => {
+            for (const item of e.clipboardData.items) {
+              if (item.type.startsWith("image/")) {
+                e.preventDefault();
+                const file = item.getAsFile();
+                if (!file) continue;
+                const reader = new FileReader();
+                reader.onload = () => p.onPasteImage(String(reader.result));
+                reader.readAsDataURL(file);
+                return;
+              }
+            }
+          }}
           onKeyDown={(e) => {
             if (suggestions.length > 0) {
               if (e.key === "ArrowDown") {

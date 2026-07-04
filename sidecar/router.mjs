@@ -12,6 +12,17 @@ export async function route(msg, ctx) {
       if (prov?.interrupt) await prov.interrupt(msg.threadId);
       break;
     }
+    case "saveImage": {
+      // image collée (⌘V) : dataURL → PNG sur disque, chemin renvoyé au client
+      const m = /^data:image\/(\w+);base64,(.+)$/.exec(msg.dataURL ?? "");
+      if (!m) {
+        ctx.send({ type: "error", message: "dataURL d'image invalide" });
+        break;
+      }
+      const path = ctx.saveImage(m[1], m[2]);
+      ctx.send({ type: "imageSaved", path });
+      break;
+    }
     case "ping":
       ctx.send({ type: "pong" });
       break;

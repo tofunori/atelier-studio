@@ -181,3 +181,13 @@ html, body, #root, .app { height: 100vh;
   color: #8a919e; font-size: 12px; padding: 5px 12px; cursor: pointer; white-space: nowrap; }
 .queue-btn:hover:not(:disabled) { color: #fff; border-color: #5b9dff; }
 .send.steer { background: #e8823a; color: #1e2126; }
+.img-chip { position: relative; width: 72px; height: 72px; border-radius: 12px;
+  overflow: hidden; border: 1px solid #3a414d; align-self: flex-start; margin-bottom: 2px; }
+.img-chip img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.img-chip-x { position: absolute; top: 3px; right: 3px; width: 20px; height: 20px;
+  border-radius: 50%; border: none; background: rgba(20,22,26,0.85); color: #cfd4dc;
+  font-size: 11px; cursor: pointer; display: flex; align-items: center; justify-content: center; }
+.img-chip-x:hover { color: #e06c75; }
+.img-chip-name { position: absolute; bottom: 0; left: 0; right: 0; font-size: 10px;
+  padding: 2px 4px; background: rgba(20,22,26,0.8); color: #cfd4dc;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: center; }

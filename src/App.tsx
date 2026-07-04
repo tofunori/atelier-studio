@@ -18,7 +18,7 @@ import "./App.css";
 
 const PROJECTS_KEY = "atelier-studio.projects";
 
-export type Attachment = { name: string; lines: string | null; text: string };
+export type Attachment = { name: string; lines: string | null; text: string; imageUrl?: string };
 
 // « /chemin/avec espaces/CLAUDE.md (p.L11-224) : « … » » → {name: CLAUDE.md, lines: 11-224}
 function parseAttachment(text: string): Attachment {
@@ -68,6 +68,7 @@ export default function App() {
   const [attachment, setAttachment] = useState<Attachment | null>(null);
   const [atelierReload, setAtelierReload] = useState(0);
   const lastInjected = useRef<string | null>(null);
+  const pendingPaste = useRef<string | null>(null); // dataURL en attente de sauvegarde
   const [atelierTabs, setAtelierTabs] = useState<{ id: string; url: string; title: string }[]>([]);
   const atelierTabsRef = useRef(atelierTabs);
   useEffect(() => {
@@ -128,6 +129,16 @@ export default function App() {
         }));
       }
       if (msg.type === "annotation" && msg.text !== lastInjected.current) setAnnotation(msg.text);
+      if (msg.type === "imageSaved") {
+        const name = msg.path.split("/").pop() ?? "image.png";
+        setAttachment({
+          name,
+          lines: null,
+          text: `Image collée par l'utilisateur : ${msg.path}\nLis ce fichier image (outil Read) avant de répondre.`,
+          imageUrl: pendingPaste.current ?? undefined,
+        });
+        pendingPaste.current = null;
+      }
       if (msg.type === "commands") setCommands(msg.commands);
       if (msg.type === "files") setFiles(msg.files);
       if (msg.type === "error") console.error("sidecar:", msg.message);
@@ -419,6 +430,12 @@ export default function App() {
           onStop={() => {
             if (activeId && ws.current?.readyState === 1) {
               ws.current.send(JSON.stringify({ type: "interrupt", threadId: activeId }));
+            }
+          }}
+          onPasteImage={(dataURL) => {
+            if (ws.current?.readyState === 1) {
+              pendingPaste.current = dataURL;
+              ws.current.send(JSON.stringify({ type: "saveImage", dataURL }));
             }
           }}
           onQuote={(text) =>

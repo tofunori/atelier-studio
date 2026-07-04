@@ -1,5 +1,6 @@
 import { WebSocketServer } from "ws";
 import { homedir } from "node:os";
+import { mkdirSync, writeFileSync } from "node:fs";
 import { route } from "./router.mjs";
 import { ThreadStore } from "./store.mjs";
 import * as catalog from "./catalog.mjs";
@@ -12,6 +13,14 @@ const store = new ThreadStore(
   `${homedir()}/Library/Application Support/atelier-studio/threads.json`,
 );
 const providers = { claude, codex };
+
+const PASTE_DIR = `${homedir()}/Library/Application Support/atelier-studio/pasted`;
+function saveImage(ext, base64) {
+  mkdirSync(PASTE_DIR, { recursive: true });
+  const path = `${PASTE_DIR}/coller-${Date.now()}.${ext === "jpeg" ? "jpg" : ext}`;
+  writeFileSync(path, Buffer.from(base64, "base64"));
+  return path;
+}
 
 const wss = new WebSocketServer({ host: "127.0.0.1", port: 0 });
 
@@ -38,6 +47,7 @@ wss.on("connection", (ws) => {
     providers,
     catalog,
     history,
+    saveImage,
   };
   ws.on("message", async (data) => {
     let msg;
