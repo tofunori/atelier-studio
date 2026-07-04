@@ -1,4 +1,7 @@
+import { useEffect, useRef, useState } from "react";
 import { Thread } from "../lib/ws";
+
+type Menu = { x: number; y: number; threadId: string };
 
 export default function Sidebar(p: {
   projects: string[];
@@ -9,7 +12,29 @@ export default function Sidebar(p: {
   onSelectProject: (root: string) => void;
   onSelect: (threadId: string, projectRoot: string) => void;
   onNew: (projectRoot: string) => void;
+  onDelete: (threadId: string) => void;
+  onRename: (threadId: string, title: string) => void;
 }) {
+  const [menu, setMenu] = useState<Menu | null>(null);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editText, setEditText] = useState("");
+  const editRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    const close = () => setMenu(null);
+    window.addEventListener("click", close);
+    return () => window.removeEventListener("click", close);
+  }, []);
+
+  useEffect(() => {
+    if (editingId) editRef.current?.focus();
+  }, [editingId]);
+
+  function commitRename() {
+    if (editingId && editText.trim()) p.onRename(editingId, editText.trim());
+    setEditingId(null);
+  }
+
   return (
     <div className="sidebar">
       <div className="section">Projets</div>
@@ -43,9 +68,28 @@ export default function Sidebar(p: {
                   key={t.id}
                   className={t.id === p.activeId ? "active" : ""}
                   onClick={() => p.onSelect(t.id, root)}
+                  onContextMenu={(e) => {
+                    e.preventDefault();
+                    setMenu({ x: e.clientX, y: e.clientY, threadId: t.id });
+                  }}
                 >
                   <span className={`dot ${t.provider}`} />
-                  <span className="title">{t.title}</span>
+                  {editingId === t.id ? (
+                    <input
+                      ref={editRef}
+                      className="rename"
+                      value={editText}
+                      onChange={(e) => setEditText(e.target.value)}
+                      onBlur={commitRename}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") commitRename();
+                        if (e.key === "Escape") setEditingId(null);
+                      }}
+                      onClick={(e) => e.stopPropagation()}
+                    />
+                  ) : (
+                    <span className="title">{t.title}</span>
+                  )}
                   {t.status === "running" && <span className="spinner">⟳</span>}
                 </li>
               ))}
@@ -54,6 +98,29 @@ export default function Sidebar(p: {
         );
       })}
       <button onClick={p.onAddProject}>+ Ajouter un projet…</button>
+      {menu && (
+        <div className="ctx-menu" style={{ left: menu.x, top: menu.y }}>
+          <div
+            onClick={() => {
+              const t = p.threads.find((x) => x.id === menu.threadId);
+              setEditText(t?.title ?? "");
+              setEditingId(menu.threadId);
+              setMenu(null);
+            }}
+          >
+            ✏️ Renommer
+          </div>
+          <div
+            className="danger"
+            onClick={() => {
+              p.onDelete(menu.threadId);
+              setMenu(null);
+            }}
+          >
+            🗑 Supprimer
+          </div>
+        </div>
+      )}
     </div>
   );
 }

@@ -229,6 +229,25 @@ export default function App() {
           onSelectProject={setActiveProject}
           onSelect={selectThread}
           onNew={newThread}
+          onDelete={(threadId) => {
+            setDraftThreads((p) => p.filter((t) => t.id !== threadId));
+            setEvents((p) => {
+              const { [threadId]: _, ...rest } = p;
+              return rest;
+            });
+            if (activeId === threadId) setActiveId(null);
+            if (ws.current?.readyState === 1) {
+              ws.current.send(JSON.stringify({ type: "deleteThread", threadId }));
+            }
+          }}
+          onRename={(threadId, title) => {
+            setDraftThreads((p) =>
+              p.map((t) => (t.id === threadId ? { ...t, title } : t)),
+            );
+            if (ws.current?.readyState === 1) {
+              ws.current.send(JSON.stringify({ type: "renameThread", threadId, title }));
+            }
+          }}
         />
       </Panel>
       <PanelResizeHandle className="handle" />

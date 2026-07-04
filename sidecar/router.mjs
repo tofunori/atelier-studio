@@ -11,6 +11,18 @@ export async function route(msg, ctx) {
       ctx.send({ type: "files", projectRoot: msg.projectRoot,
         files: ctx.catalog.listFiles(msg.projectRoot) });
       break;
+    case "deleteThread": {
+      ctx.store.delete(msg.threadId);
+      (ctx.broadcast ?? ctx.send)({ type: "threads", threads: ctx.store.list() });
+      break;
+    }
+    case "renameThread": {
+      if (ctx.store.get(msg.threadId)) {
+        ctx.store.upsert({ id: msg.threadId, title: msg.title });
+      }
+      (ctx.broadcast ?? ctx.send)({ type: "threads", threads: ctx.store.list() });
+      break;
+    }
     case "getHistory": {
       const t = ctx.store.get(msg.threadId);
       if (!t?.sessionId) {

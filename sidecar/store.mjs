@@ -19,6 +19,11 @@ export class ThreadStore {
   get(id) {
     return this.threads.get(id);
   }
+  delete(id) {
+    this.threads.delete(id);
+    mkdirSync(dirname(this.filePath), { recursive: true });
+    writeFileSync(this.filePath, JSON.stringify(this.list(), null, 2));
+  }
   upsert(patch) {
     const prev = this.threads.get(patch.id) ?? {};
     const t = { ...prev, ...patch, updatedAt: new Date().toISOString() };

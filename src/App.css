@@ -71,3 +71,11 @@ html, body, #root, .app { height: 100vh; font-family: -apple-system, sans-serif;
   padding: 5px 10px; border-radius: 6px; cursor: pointer; font-size: 13px; }
 .suggest li.sel, .suggest li:hover { background: #2c313a; }
 .suggest .hint { color: #6b7482; font-size: 11px; }
+.ctx-menu { position: fixed; z-index: 100; background: #1b1f26;
+  border: 1px solid #333a45; border-radius: 10px; padding: 4px; min-width: 150px;
+  box-shadow: 0 8px 24px rgba(0,0,0,0.5); }
+.ctx-menu div { padding: 6px 10px; border-radius: 6px; cursor: pointer; font-size: 13px; }
+.ctx-menu div:hover { background: #2c313a; }
+.ctx-menu .danger:hover { background: #4a2328; color: #e06c75; }
+.rename { flex: 1; background: #2c313a; border: 1px solid #4a5462; border-radius: 4px;
+  color: inherit; font-size: 13px; padding: 2px 6px; outline: none; }
