@@ -786,7 +786,7 @@ async function lbShow(i){
   if((window.self!==window.top) && (isTex||isMd||isCode)){
     // Studio : éditeur UNIFIÉ (interface latex_studio — wrap, rewrap, pilule
     // Add to chat, auto-reload) pour tex, md et code.
-    const u='/.fig_thumbs/latex_studio.html?path='+encodeURIComponent('/Users/tofunori/Documents/atelier-studio/'+f.rel)+'&v=1783195500';
+    const u='/.fig_thumbs/latex_studio.html?path='+encodeURIComponent('/Users/tofunori/Documents/atelier-studio/'+f.rel)+'&v=1783195505';
     window.top.postMessage({type:'atelier-open-tab', url:u, title:f.name}, '*');
     lbIdx=-1;
     return;
@@ -799,11 +799,11 @@ async function lbShow(i){
   if(!isVid && vid.getAttribute('src')){vid.pause();vid.removeAttribute('src');vid.load();}  // stop playback when leaving a video
   lb().classList.toggle('vw', vw);  // full-window editor/viewer
   if(isVid){vid.src=f.rel+'?v='+f.mtime;img.src='';pdf.src='';}
-  else if(isTex){pdf.src='/.fig_thumbs/latex_studio.html?path='+encodeURIComponent('/Users/tofunori/Documents/atelier-studio/'+f.rel)+'&v=1783195500';img.src='';}
-  else if(isPdf){pdf.src='/.fig_thumbs/pdf_viewer.html?file='+encodeURIComponent(f.rel)+'&v=1783195500';img.src='';}
-  else if(isMd){pdf.src='/.fig_thumbs/md_viewer.html?path='+encodeURIComponent('/Users/tofunori/Documents/atelier-studio/'+f.rel)+'&file='+encodeURIComponent(f.rel)+'&v=1783195500';img.src='';}
-  else if(isCode){pdf.src='/.fig_thumbs/code_editor.html?path='+encodeURIComponent('/Users/tofunori/Documents/atelier-studio/'+f.rel)+'&v=1783195500';img.src='';}
-  else if(isSvg){pdf.src='/.fig_thumbs/svg_viewer.html?file='+encodeURIComponent(f.rel)+'&v=1783195500';img.src='';}
+  else if(isTex){pdf.src='/.fig_thumbs/latex_studio.html?path='+encodeURIComponent('/Users/tofunori/Documents/atelier-studio/'+f.rel)+'&v=1783195505';img.src='';}
+  else if(isPdf){pdf.src='/.fig_thumbs/pdf_viewer.html?file='+encodeURIComponent(f.rel)+'&v=1783195505';img.src='';}
+  else if(isMd){pdf.src='/.fig_thumbs/md_viewer.html?path='+encodeURIComponent('/Users/tofunori/Documents/atelier-studio/'+f.rel)+'&file='+encodeURIComponent(f.rel)+'&v=1783195505';img.src='';}
+  else if(isCode){pdf.src='/.fig_thumbs/code_editor.html?path='+encodeURIComponent('/Users/tofunori/Documents/atelier-studio/'+f.rel)+'&v=1783195505';img.src='';}
+  else if(isSvg){pdf.src='/.fig_thumbs/svg_viewer.html?file='+encodeURIComponent(f.rel)+'&v=1783195505';img.src='';}
   else{img.src=f.rel+'?v='+f.mtime;pdf.src='';}
   document.getElementById('lbCap').innerHTML=
     `<b>${esc(f.name)}</b><span>${esc(f.folder)}</span><span>${esc(f.mdate)}</span><a href="${escA(f.rel)}" target="_blank">open original</a>`+
