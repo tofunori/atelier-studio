@@ -2,7 +2,7 @@ import { query } from "@anthropic-ai/claude-agent-sdk";
 
 // settingSources: charge CLAUDE.md, skills (/recherche, /loop…), hooks et MCP
 // de l'utilisateur et du projet — même harnais que le CLI Claude Code.
-export async function run({ cwd, prompt, sessionId, onEvent }) {
+export async function run({ cwd, prompt, sessionId, model, effort, onEvent }) {
   let sid = sessionId ?? null;
   const q = query({
     prompt,
@@ -10,6 +10,8 @@ export async function run({ cwd, prompt, sessionId, onEvent }) {
       cwd,
       permissionMode: "bypassPermissions",
       settingSources: ["user", "project"],
+      ...(model ? { model } : {}),
+      ...(effort ? { effort } : {}),
       ...(sessionId ? { resume: sessionId } : {}),
     },
   });

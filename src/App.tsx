@@ -33,7 +33,12 @@ export default function App() {
   const [atelierUrls, setAtelierUrls] = useState<Record<string, string>>({});
   const [showAtelier, setShowAtelier] = useState(true);
 
+  const connectedOnce = useRef(false);
   useEffect(() => {
+    // React StrictMode monte l'effet 2× en dev → sans ce garde, 2 connexions
+    // WS reçoivent chaque broadcast et tout apparaît en double.
+    if (connectedOnce.current) return;
+    connectedOnce.current = true;
     connectSidecar((msg) => {
       if (msg.type === "threads") setThreads(msg.threads);
       if (msg.type === "event")
@@ -102,7 +107,12 @@ export default function App() {
     setActiveProject(projectRoot);
   }
 
-  function submit(prompt: string, provider: "claude" | "codex") {
+  function submit(
+    prompt: string,
+    provider: "claude" | "codex",
+    model: string,
+    effort: string,
+  ) {
     if (!activeProject || !activeId) return;
     const id = activeId;
     setEvents((p) => ({
@@ -135,7 +145,14 @@ export default function App() {
       return;
     }
     if (ws.current) {
-      sendPrompt(ws.current, { threadId: id, projectRoot: activeProject, provider, prompt });
+      sendPrompt(ws.current, {
+        threadId: id,
+        projectRoot: activeProject,
+        provider,
+        prompt,
+        ...(model ? { model } : {}),
+        ...(effort ? { effort } : {}),
+      });
       // le sidecar prend le relais : retirer le brouillon local homonyme
       setDraftThreads((p) => p.filter((t) => t.id !== id));
     }

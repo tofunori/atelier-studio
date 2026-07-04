@@ -30,9 +30,15 @@ export async function connectSidecar(onMessage: Handler): Promise<WebSocket> {
   return ws;
 }
 
-export function sendPrompt(
-  ws: WebSocket,
-  t: { threadId: string; projectRoot: string; provider: string; prompt: string },
-) {
+export type SendOptions = {
+  threadId: string;
+  projectRoot: string;
+  provider: string;
+  prompt: string;
+  model?: string;
+  effort?: string;
+};
+
+export function sendPrompt(ws: WebSocket, t: SendOptions) {
   ws.send(JSON.stringify({ type: "send", ...t }));
 }
