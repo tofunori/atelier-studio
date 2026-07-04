@@ -235,4 +235,4 @@ html, body, #root, .app { height: 100vh;
 .chapter-tick:hover .chapter-label { display: block; }
 /* pendant le drag des séparateurs, les iframes ne volent plus la souris */
 .app-row.dragging iframe { pointer-events: none; }
-.handle:hover, .handle[data-resize-handle-active] { background: #5b9dff; }
+.handle[data-resize-handle-active] { background: #4a5462; }
