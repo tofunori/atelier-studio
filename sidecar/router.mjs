@@ -4,6 +4,13 @@ export async function route(msg, ctx) {
     case "ping":
       ctx.send({ type: "pong" });
       break;
+    case "listCommands":
+      ctx.send({ type: "commands", commands: ctx.catalog.listCommands(msg.projectRoot) });
+      break;
+    case "listFiles":
+      ctx.send({ type: "files", projectRoot: msg.projectRoot,
+        files: ctx.catalog.listFiles(msg.projectRoot) });
+      break;
     case "listThreads":
       ctx.send({ type: "threads", threads: ctx.store.list() });
       break;

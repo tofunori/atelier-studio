@@ -43,3 +43,10 @@ export type SendOptions = {
 export function sendPrompt(ws: WebSocket, t: SendOptions) {
   ws.send(JSON.stringify({ type: "send", ...t }));
 }
+
+export function requestCatalog(ws: WebSocket, projectRoot: string) {
+  ws.send(JSON.stringify({ type: "listCommands", projectRoot }));
+  ws.send(JSON.stringify({ type: "listFiles", projectRoot }));
+}
+
+export type Command = { name: string; source: string };
