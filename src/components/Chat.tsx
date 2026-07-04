@@ -70,7 +70,7 @@ export default function Chat(p: {
         })}
       </div>
       <form
-        className="input"
+        className="composer"
         onSubmit={(ev) => {
           ev.preventDefault();
           if (!text.trim()) return;
@@ -78,38 +78,62 @@ export default function Chat(p: {
           setText("");
         }}
       >
-        <select
-          value={provider}
-          onChange={(e) => {
-            setProvider(e.target.value as any);
-            setModel("");
-            setEffort("");
-          }}
-        >
-          <option value="claude">Claude</option>
-          <option value="codex">Codex</option>
-        </select>
-        <select value={model} onChange={(e) => setModel(e.target.value)}>
-          {MODELS[provider].map((m) => (
-            <option key={m.id} value={m.id}>
-              {m.label}
-            </option>
-          ))}
-        </select>
-        <select value={effort} onChange={(e) => setEffort(e.target.value)}>
-          {EFFORTS[provider].map((lvl) => (
-            <option key={lvl} value={lvl}>
-              {lvl === "" ? "Effort par défaut" : lvl}
-            </option>
-          ))}
-        </select>
-        <input
+        <textarea
           value={text}
           onChange={(e) => setText(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" && !e.shiftKey) {
+              e.preventDefault();
+              (e.currentTarget.form as HTMLFormElement).requestSubmit();
+            }
+          }}
           disabled={p.disabled}
-          placeholder="Demande quelque chose… (/skills et CLAUDE.md chargés)"
+          rows={2}
+          placeholder="Demande n'importe quoi — /skills et CLAUDE.md chargés"
         />
-        <button disabled={p.disabled}>↑</button>
+        <div className="composer-bar">
+          <button type="button" className="ghost" title="Joindre (bientôt)">
+            +
+          </button>
+          <span className="access">🛡 Full access</span>
+          <span className="flex" />
+          <span className="model-pick">
+            <span className={`dot ${provider}`} />
+            <select
+              className="bare"
+              value={provider}
+              onChange={(e) => {
+                setProvider(e.target.value as any);
+                setModel("");
+                setEffort("");
+              }}
+            >
+              <option value="claude">Claude</option>
+              <option value="codex">Codex</option>
+            </select>
+            <select className="bare" value={model} onChange={(e) => setModel(e.target.value)}>
+              {MODELS[provider].map((m) => (
+                <option key={m.id} value={m.id}>
+                  {m.label}
+                </option>
+              ))}
+            </select>
+            <select
+              className="bare dim"
+              value={effort}
+              onChange={(e) => setEffort(e.target.value)}
+            >
+              {EFFORTS[provider].map((lvl) => (
+                <option key={lvl} value={lvl}>
+                  {lvl === "" ? "effort auto" : lvl}
+                </option>
+              ))}
+            </select>
+          </span>
+          <button className="send" disabled={p.disabled} title="Envoyer">
+            ↑
+          </button>
+        </div>
       </form>
     </div>
   );
