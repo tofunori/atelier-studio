@@ -84,6 +84,17 @@ export default function App() {
     Number(localStorage.getItem("atelier-studio.chatFontSize") ?? 15),
   );
   const [showSettings, setShowSettings] = useState(false);
+  // chapitres épinglés par thread : {index, label} (persistés)
+  const [pins, setPins] = useState<Record<string, { index: number; label: string }[]>>(() => {
+    try {
+      return JSON.parse(localStorage.getItem("atelier-studio.pins") ?? "{}");
+    } catch {
+      return {};
+    }
+  });
+  useEffect(() => {
+    localStorage.setItem("atelier-studio.pins", JSON.stringify(pins));
+  }, [pins]);
   const [compact, setCompact] = useState(() => localStorage.getItem("atelier-studio.compact") === "1");
   const [projMeta, setProjMeta] = useState<Record<string, ProjMeta>>(() => {
     try {
@@ -481,6 +492,21 @@ export default function App() {
               ws.current.send(JSON.stringify({ type: "revert", threadId: id, text }));
             }
             if (edit) setInjectText(text);
+          }}
+          pins={activeId ? (pins[activeId] ?? []) : []}
+          onTogglePin={(index, label) => {
+            if (!activeId) return;
+            const id = activeId;
+            setPins((p) => {
+              const cur = p[id] ?? [];
+              const exists = cur.find((c) => c.index === index);
+              return {
+                ...p,
+                [id]: exists
+                  ? cur.filter((c) => c.index !== index)
+                  : [...cur, { index, label }].sort((a, b) => a.index - b.index),
+              };
+            });
           }}
           onEditSend={(index, oldText, newText) => {
             if (!activeId) return;

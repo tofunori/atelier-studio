@@ -221,3 +221,15 @@ html, body, #root, .app { height: 100vh;
 .quote-pill { display: inline-flex; align-items: center; }
 .tool-tick { color: #5a616d; }
 .chips-row { display: flex; flex-wrap: wrap; gap: 6px; align-items: flex-end; }
+/* rail de chapitres épinglés */
+.chat { position: relative; }
+.chapters { position: absolute; top: 16px; right: 8px; z-index: 40;
+  display: flex; flex-direction: column; gap: 10px; align-items: flex-end; }
+.chapter-tick { display: flex; align-items: center; gap: 8px; cursor: pointer;
+  flex-direction: row-reverse; }
+.chapter-bar { width: 18px; height: 3px; border-radius: 2px; background: #5a616d; }
+.chapter-tick:hover .chapter-bar { background: #e8eaed; }
+.chapter-label { display: none; font-size: 12px; color: #cfd4dc; background: #1b1f26;
+  border: 1px solid #333a45; border-radius: 8px; padding: 4px 10px; white-space: nowrap;
+  max-width: 320px; overflow: hidden; text-overflow: ellipsis; }
+.chapter-tick:hover .chapter-label { display: block; }

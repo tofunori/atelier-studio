@@ -47,6 +47,18 @@ function Working({ since }: { since: number }) {
 
 type Suggestion = { insert: string; label: string; hint?: string };
 
+function PinBtn({ pinned, onClick }: { pinned: boolean; onClick: () => void }) {
+  return (
+    <button title={pinned ? "Désépingler le chapitre" : "Épingler comme chapitre"} onClick={onClick}
+      style={pinned ? { color: "#e8823a" } : undefined}>
+      <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4">
+        <path d="M9.5 2.5l4 4-3 1-2.5 4.5-4-4L8.5 5.5l1-3z" />
+        <path d="M5.5 10.5L2.5 13.5" />
+      </svg>
+    </button>
+  );
+}
+
 export default function Chat(p: {
   events: AgentEvent[];
   workingSince: number | null;
@@ -61,6 +73,8 @@ export default function Chat(p: {
   onStop: () => void;
   onRevert: (index: number, text: string, edit: boolean) => void;
   onEditSend: (index: number, oldText: string, newText: string) => void;
+  pins: { index: number; label: string }[];
+  onTogglePin: (index: number, label: string) => void;
   disabled: boolean;
   onSubmit: (
     prompt: string,
@@ -143,7 +157,7 @@ export default function Chat(p: {
         {p.events.map((e, i) => {
           if (e.kind === "user")
             return (
-              <div key={i} className="user-wrap">
+              <div key={i} id={`msg-${i}`} className="user-wrap">
                 {e.imageUrl && <img className="user-img" src={e.imageUrl} alt="" />}
                 {e.label && <div className="user-label">{e.label}</div>}
                 {editing?.index === i ? (
@@ -194,12 +208,13 @@ export default function Chat(p: {
                   <button title="Copier" onClick={() => navigator.clipboard.writeText(e.text)}>⧉</button>
                   <button title="Éditer et renvoyer" onClick={() => setEditing({ index: i, text: e.text })}>✎</button>
                   <button title="Revert : rembobiner avant ce message" onClick={() => p.onRevert(i, e.text, false)}>↩</button>
+                  <PinBtn pinned={p.pins.some((c) => c.index === i)} onClick={() => p.onTogglePin(i, e.text.slice(0, 44))} />
                 </div>
               </div>
             );
           if (e.kind === "text")
             return (
-              <div key={i} className="msg-wrap">
+              <div key={i} id={`msg-${i}`} className="msg-wrap">
                 <div className="msg">
                   <ReactMarkdown>{e.text}</ReactMarkdown>
                 </div>
@@ -210,6 +225,7 @@ export default function Chat(p: {
                     </span>
                   )}
                   <button title="Copier" onClick={() => navigator.clipboard.writeText(e.text)}>⧉</button>
+                  <PinBtn pinned={p.pins.some((c) => c.index === i)} onClick={() => p.onTogglePin(i, e.text.replace(/[#*>`]/g, "").trim().slice(0, 44))} />
                 </div>
               </div>
             );
@@ -240,6 +256,23 @@ export default function Chat(p: {
           </div>
         )}
       </div>
+      {p.pins.length > 0 && (
+        <div className="chapters">
+          {p.pins.map((c) => (
+            <div
+              key={c.index}
+              className="chapter-tick"
+              title={c.label}
+              onClick={() =>
+                document.getElementById(`msg-${c.index}`)?.scrollIntoView({ behavior: "smooth", block: "start" })
+              }
+            >
+              <span className="chapter-bar" />
+              <span className="chapter-label">{c.label}</span>
+            </div>
+          ))}
+        </div>
+      )}
       {quote && (
         <button
           className="quote-pill"
