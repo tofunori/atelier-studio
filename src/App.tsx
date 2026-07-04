@@ -17,15 +17,26 @@ import "./App.css";
 
 const PROJECTS_KEY = "atelier-studio.projects";
 
-// « /chemin/CLAUDE.md (p.L11-224) : « … » » → « CLAUDE.md (L11-224) »
-function attachmentLabel(text: string): string {
-  const first = text.split("\n")[0];
-  const m = /^(\S+)(?:\s*\((?:p\.)?(L?[\d:.,-]+)\))?/.exec(first);
-  if (m && m[1].length > 1) {
-    const base = m[1].split("/").pop() || m[1];
-    return m[2] ? `${base} (${m[2]})` : base;
+export type Attachment = { name: string; lines: string | null; text: string };
+
+// « /chemin/avec espaces/CLAUDE.md (p.L11-224) : « … » » → {name: CLAUDE.md, lines: 11-224}
+function parseAttachment(text: string): Attachment {
+  const first = text.split("\n")[0].trim();
+  // format viewer : <chemin> (p.LX-Y|p.N) : « … »   — chemin peut contenir des espaces
+  let m = /^(.+?)\s*\((?:p\.)?(L?[\d:.,\-–]+)\)\s*:?/.exec(first);
+  if (m) {
+    return {
+      name: m[1].split("/").pop() || m[1],
+      lines: m[2].replace(/^L/, ""),
+      text,
+    };
   }
-  return first.slice(0, 60) || "citation";
+  // format annotation image : <chemin.png> …
+  if (first.includes("/")) {
+    const tok = first.split(/\s+/).find((t) => t.includes("/")) ?? first;
+    return { name: tok.split("/").pop() || tok, lines: null, text };
+  }
+  return { name: first.slice(0, 60) || "citation", lines: null, text };
 }
 
 function loadProjects(): string[] {
@@ -53,7 +64,7 @@ export default function App() {
   const [files, setFiles] = useState<string[]>([]);
   const [annotation, setAnnotation] = useState<string | null>(null);
   const [injectText, setInjectText] = useState<string | null>(null);
-  const [attachment, setAttachment] = useState<{ label: string; text: string } | null>(null);
+  const [attachment, setAttachment] = useState<Attachment | null>(null);
   const [atelierReload, setAtelierReload] = useState(0);
   const lastInjected = useRef<string | null>(null);
   const [atelierTabs, setAtelierTabs] = useState<{ id: string; url: string; title: string }[]>([]);
@@ -146,7 +157,7 @@ export default function App() {
       }
       if (e.data?.type === "atelier-add-to-chat" && typeof e.data.text === "string") {
         lastInjected.current = e.data.text;
-        setAttachment({ label: attachmentLabel(e.data.text), text: e.data.text });
+        setAttachment(parseAttachment(e.data.text));
         setAnnotation(null); // pas de bannière en double
       }
     };
@@ -209,7 +220,9 @@ export default function App() {
     if (!activeProject) return;
     // pièce jointe (annotation/sélection atelier) : préfixée au prompt envoyé
     const fullPrompt = attachment ? `${attachment.text}\n\n${prompt}`.trim() : prompt;
-    const shownPrompt = attachment ? `📎 *${attachment.label}*\n\n${prompt}` : prompt;
+    const shownPrompt = attachment
+      ? `📎 *${attachment.name}${attachment.lines ? ` (lines ${attachment.lines})` : ""}*\n\n${prompt}`
+      : prompt;
     setAttachment(null);
     // pas de thread sélectionné → en créer un à la volée
     let id = activeId;
@@ -338,7 +351,7 @@ export default function App() {
             <span className="annot-text">✏️ {annotation.split("\n")[0].slice(0, 90)}</span>
             <button
               onClick={() => {
-                setAttachment({ label: attachmentLabel(annotation), text: annotation });
+                setAttachment(parseAttachment(annotation));
                 setAnnotation(null);
               }}
             >
@@ -360,7 +373,8 @@ export default function App() {
           onClearAttachment={() => setAttachment(null)}
           onQuote={(text) =>
             setAttachment({
-              label: `« ${text.slice(0, 50)}${text.length > 50 ? "…" : ""} »`,
+              name: `« ${text.slice(0, 50)}${text.length > 50 ? "…" : ""} »`,
+              lines: null,
               text: `Citation de la conversation :\n> ${text.split("\n").join("\n> ")}`,
             })
           }

@@ -109,7 +109,8 @@ html, body, #root, .app { height: 100vh;
 .chip { display: inline-flex; align-items: center; gap: 6px; align-self: flex-start;
   background: #2c313a; border: 1px solid #3a414d; border-radius: 8px;
   padding: 4px 8px; font-size: 12px; color: #cfd4dc; margin-bottom: 2px; }
-.chip .chip-label { color: #9db4d0; }
+.chip .chip-label { color: #e8eaed; font-weight: 500; }
+.chip .chip-lines { color: #8a919e; }
 .chip .ghost { background: transparent; border: none; color: #6b7482;
   cursor: pointer; padding: 0 2px; }
 .atab { display: inline-flex; align-items: center; gap: 6px; background: transparent;

@@ -54,7 +54,7 @@ export default function Chat(p: {
   files: string[];
   injectText: string | null;
   onInjected: () => void;
-  attachment: { label: string; text: string } | null;
+  attachment: { name: string; lines: string | null; text: string } | null;
   onClearAttachment: () => void;
   onQuote: (text: string) => void;
   disabled: boolean;
@@ -204,7 +204,8 @@ export default function Chat(p: {
         {p.attachment && (
           <div className="chip">
             <span className="chip-ico">📄</span>
-            <span className="chip-label">{p.attachment.label}</span>
+            <span className="chip-label">{p.attachment.name}</span>
+            {p.attachment.lines && <span className="chip-lines">(lines {p.attachment.lines})</span>}
             <button type="button" className="ghost" onClick={p.onClearAttachment}>
               ✕
             </button>
