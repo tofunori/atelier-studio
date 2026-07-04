@@ -4,6 +4,7 @@ import { route } from "./router.mjs";
 import { ThreadStore } from "./store.mjs";
 import * as catalog from "./catalog.mjs";
 import * as history from "./history.mjs";
+import { watchAnnotations } from "./annotations.mjs";
 import * as claude from "./providers/claude.mjs";
 import * as codex from "./providers/codex.mjs";
 
@@ -26,6 +27,8 @@ function broadcast(obj) {
 wss.on("listening", () => {
   console.log(JSON.stringify({ port: wss.address().port }));
 });
+
+watchAnnotations(broadcast);
 
 wss.on("connection", (ws) => {
   const ctx = {

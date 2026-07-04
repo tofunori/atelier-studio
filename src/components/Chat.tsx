@@ -52,6 +52,8 @@ export default function Chat(p: {
   workingSince: number | null;
   commands: { name: string; source: string }[];
   files: string[];
+  injectText: string | null;
+  onInjected: () => void;
   disabled: boolean;
   onSubmit: (
     prompt: string,
@@ -67,6 +69,14 @@ export default function Chat(p: {
   const [effort, setEffort] = useState("");
   const [permissionMode, setPermissionMode] = useState("bypassPermissions");
   const [selIdx, setSelIdx] = useState(0);
+
+  // texte injecté depuis l'extérieur (annotation atelier, sélection…)
+  useEffect(() => {
+    if (p.injectText != null) {
+      setText(p.injectText);
+      p.onInjected();
+    }
+  }, [p.injectText]);
 
   // autocomplétion : "/xxx" en début de message → skills ; "@xxx" (dernier mot) → fichiers
   let suggestions: Suggestion[] = [];

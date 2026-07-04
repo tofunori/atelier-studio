@@ -40,6 +40,9 @@ export default function App() {
   const [workingSince, setWorkingSince] = useState<Record<string, number | null>>({});
   const [commands, setCommands] = useState<Command[]>([]);
   const [files, setFiles] = useState<string[]>([]);
+  const [annotation, setAnnotation] = useState<string | null>(null);
+  const [injectText, setInjectText] = useState<string | null>(null);
+  const [atelierReload, setAtelierReload] = useState(0);
   const [activeId, setActiveId] = useState<string | null>(null);
   const [atelierUrls, setAtelierUrls] = useState<Record<string, string>>({});
   const [showAtelier, setShowAtelier] = useState(true);
@@ -59,6 +62,8 @@ export default function App() {
         }));
         if (msg.event.kind === "done" || msg.event.kind === "error") {
           setWorkingSince((p) => ({ ...p, [msg.threadId]: null }));
+          // l'agent a peut-être régénéré des figures → recharger atelier
+          if (msg.event.kind === "done") setAtelierReload((n) => n + 1);
         }
       }
       if (msg.type === "history") {
@@ -67,6 +72,7 @@ export default function App() {
           [msg.threadId]: prev[msg.threadId]?.length ? prev[msg.threadId] : msg.events,
         }));
       }
+      if (msg.type === "annotation") setAnnotation(msg.text);
       if (msg.type === "commands") setCommands(msg.commands);
       if (msg.type === "files") setFiles(msg.files);
       if (msg.type === "error") console.error("sidecar:", msg.message);
@@ -252,11 +258,29 @@ export default function App() {
       </Panel>
       <PanelResizeHandle className="handle" />
       <Panel minSize={30}>
+        {annotation && (
+          <div className="annot-banner">
+            <span className="annot-text">✏️ {annotation.split("\n")[0].slice(0, 90)}</span>
+            <button
+              onClick={() => {
+                setInjectText(annotation);
+                setAnnotation(null);
+              }}
+            >
+              Envoyer à l'agent
+            </button>
+            <button className="ghost" onClick={() => setAnnotation(null)}>
+              ✕
+            </button>
+          </div>
+        )}
         <Chat
           events={activeId ? (events[activeId] ?? []) : []}
           workingSince={activeId ? (workingSince[activeId] ?? null) : null}
           commands={commands}
           files={files}
+          injectText={injectText}
+          onInjected={() => setInjectText(null)}
           disabled={!activeProject}
           onSubmit={submit}
         />
@@ -265,7 +289,7 @@ export default function App() {
         <>
           <PanelResizeHandle className="handle" />
           <Panel defaultSize={38} minSize={20}>
-            <AtelierPane url={atelierUrl} />
+            <AtelierPane url={atelierUrl} reloadKey={atelierReload} />
           </Panel>
         </>
       )}

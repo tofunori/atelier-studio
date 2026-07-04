@@ -79,3 +79,20 @@ html, body, #root, .app { height: 100vh; font-family: -apple-system, sans-serif;
 .ctx-menu .danger:hover { background: #4a2328; color: #e06c75; }
 .rename { flex: 1; background: #2c313a; border: 1px solid #4a5462; border-radius: 4px;
   color: inherit; font-size: 13px; padding: 2px 6px; outline: none; }
+.annot-banner { display: flex; align-items: center; gap: 10px; margin: 10px 16px 0;
+  padding: 8px 12px; background: #2a2420; border: 1px solid #5a4632;
+  border-radius: 10px; font-size: 13px; }
+.annot-banner .annot-text { flex: 1; overflow: hidden; text-overflow: ellipsis;
+  white-space: nowrap; color: #e0c9a6; }
+.annot-banner button { background: #e8825a; color: #1e2126; border: none;
+  border-radius: 6px; padding: 4px 10px; cursor: pointer; font-size: 12px; }
+.annot-banner .ghost { background: transparent; color: #8a919e; }
+.atelier-wrap { display: flex; flex-direction: column; height: 100%; }
+.atelier-bar { display: flex; align-items: center; gap: 4px; padding: 4px 8px;
+  background: #16181d; border-bottom: 1px solid #2c313a; }
+.atelier-bar .atelier-title { font-size: 12px; color: #8a919e; }
+.atelier-bar .flex { flex: 1; }
+.atelier-bar .ghost { background: transparent; border: none; color: #8a919e;
+  cursor: pointer; font-size: 14px; padding: 2px 6px; border-radius: 4px; }
+.atelier-bar .ghost:hover { background: #2c313a; }
+.atelier-body { position: relative; flex: 1; min-height: 0; }
