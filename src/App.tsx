@@ -236,6 +236,9 @@ export default function App() {
       if (msg.type === "commands") setCommands(msg.commands);
       if (msg.type === "files") setFiles(msg.files);
       if (msg.type === "error") console.error("sidecar:", msg.message);
+    }, (next) => {
+      ws.current = next;
+      if (activeIdRef.current === null) return;
     })
       .then((s) => {
         ws.current = s;

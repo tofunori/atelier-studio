@@ -9,7 +9,16 @@ static PORT: Mutex<Option<u16>> = Mutex::new(None);
 pub fn sidecar_port(app: tauri::AppHandle) -> Result<u16, String> {
     let mut guard = PORT.lock().unwrap();
     if let Some(p) = *guard {
-        return Ok(p);
+        // le sidecar peut être mort (kill, crash) : vérifier avant de réutiliser
+        let alive = std::net::TcpStream::connect_timeout(
+            &format!("127.0.0.1:{p}").parse().unwrap(),
+            std::time::Duration::from_millis(400),
+        )
+        .is_ok();
+        if alive {
+            return Ok(p);
+        }
+        *guard = None;
     }
     // dev : sidecar/ à la racine du repo (cwd = src-tauri) ; bundle : ressources
     let dev_script = std::env::current_dir()

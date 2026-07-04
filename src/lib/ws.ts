@@ -25,7 +25,10 @@ export type Thread = {
 
 type Handler = (msg: any) => void;
 
-export async function connectSidecar(onMessage: Handler): Promise<WebSocket> {
+export async function connectSidecar(
+  onMessage: Handler,
+  onReconnect?: (ws: WebSocket) => void,
+): Promise<WebSocket> {
   const port = await invoke<number>("sidecar_port");
   const ws = new WebSocket(`ws://127.0.0.1:${port}`);
   ws.onmessage = (e) => onMessage(JSON.parse(e.data));
@@ -34,6 +37,15 @@ export async function connectSidecar(onMessage: Handler): Promise<WebSocket> {
     ws.onerror = rej;
   });
   ws.send(JSON.stringify({ type: "listThreads" }));
+  // reconnexion auto : sidecar tué/crashé → sidecar_port respawn + nouveau WS
+  ws.onclose = () => {
+    const retry = () => {
+      connectSidecar(onMessage, onReconnect)
+        .then((next) => onReconnect?.(next))
+        .catch(() => setTimeout(retry, 3000));
+    };
+    setTimeout(retry, 1000);
+  };
   return ws;
 }
 
