@@ -395,3 +395,6 @@ input[type="range"].slider::-webkit-slider-thumb:hover { transform: scale(1.15);
   transition: opacity 0.12s; }
 .mp-item:hover .mp-star { opacity: 1; }
 .mp-star.on { opacity: 1; color: #e0b74a; }
+/* skill/slash command chargée : token en bleu */
+.slash-cmd { color: #5b9dff; background: rgba(91,157,255,0.12); border-radius: 6px;
+  padding: 1px 6px; font-weight: 500; }

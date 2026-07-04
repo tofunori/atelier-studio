@@ -249,7 +249,20 @@ export default function Chat(p: {
                     </div>
                   </div>
                 ) : (
-                  <div className="user-bubble">{e.text}</div>
+                  <div className="user-bubble">
+                    {(() => {
+                      const m = /^(\/[\w:-]+)([\s\S]*)$/.exec(e.text);
+                      if (m) {
+                        return (
+                          <>
+                            <span className="slash-cmd">{m[1]}</span>
+                            {m[2]}
+                          </>
+                        );
+                      }
+                      return e.text;
+                    })()}
+                  </div>
                 )}
                 <div className="msg-actions">
                   {e.ts && (
