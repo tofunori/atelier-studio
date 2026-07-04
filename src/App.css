@@ -318,3 +318,6 @@ input[type="range"].slider::-webkit-slider-thumb { -webkit-appearance: none; wid
 input[type="range"].slider::-webkit-slider-thumb:hover { transform: scale(1.15); }
 .settings-btn { display: flex; align-items: center; gap: 8px; color: var(--muted); }
 .settings-btn:hover { color: var(--fg); }
+.section-actions { display: flex; gap: 2px; }
+.section-actions .compact-btn { padding: 2px 7px; border-radius: 6px; font-size: 13px; }
+.section-actions .compact-btn:hover { background: var(--bg-ctl); color: var(--fg); }

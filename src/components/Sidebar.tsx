@@ -66,9 +66,14 @@ export default function Sidebar(p: {
     <div className="sidebar">
       <div className="section">
         Projets
-        <button className="mini compact-btn" title="Barre compacte" onClick={p.onCompact}>
-          «
-        </button>
+        <span className="section-actions">
+          <button className="mini compact-btn" title="Ajouter un projet" onClick={p.onAddProject}>
+            +
+          </button>
+          <button className="mini compact-btn" title="Barre compacte" onClick={p.onCompact}>
+            «
+          </button>
+        </span>
       </div>
       {p.projects.map((root) => {
         const name = root.split("/").pop();
@@ -154,7 +159,6 @@ export default function Sidebar(p: {
           </div>
         );
       })}
-      <button onClick={p.onAddProject}>+ Ajouter un projet…</button>
       <span className="side-flex" />
       <button className="settings-btn" title="Réglages" onClick={p.onSettings}>
         <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3">
