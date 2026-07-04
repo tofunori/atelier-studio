@@ -802,9 +802,9 @@ async function lbShow(i){
   if((window.self!==window.top) && (isTex||isMd||isCode||isPdf)){
     // Studio : latex_studio pour tex/code ; éditeur WYSIWYG pour markdown
     let u;
-    if(isPdf) u='/.fig_thumbs/pdf_viewer.html?file='+encodeURIComponent(f.rel)+'&v=1783208644';
-    else if(isMd) u='/.fig_thumbs/md_studio.html?path='+encodeURIComponent('/Users/tofunori/Documents/atelier-studio/'+f.rel)+'&v=1783208644';
-    else u='/.fig_thumbs/latex_studio.html?path='+encodeURIComponent('/Users/tofunori/Documents/atelier-studio/'+f.rel)+'&v=1783208644';
+    if(isPdf) u='/.fig_thumbs/pdf_viewer.html?file='+encodeURIComponent(f.rel)+'&v=1783208674';
+    else if(isMd) u='/.fig_thumbs/md_studio.html?path='+encodeURIComponent('/Users/tofunori/Documents/atelier-studio/'+f.rel)+'&v=1783208674';
+    else u='/.fig_thumbs/latex_studio.html?path='+encodeURIComponent('/Users/tofunori/Documents/atelier-studio/'+f.rel)+'&v=1783208674';
     window.top.postMessage({type:'atelier-open-tab', url:u, title:f.name}, '*');
     lbIdx=-1;
     return;
@@ -817,11 +817,11 @@ async function lbShow(i){
   if(!isVid && vid.getAttribute('src')){vid.pause();vid.removeAttribute('src');vid.load();}  // stop playback when leaving a video
   lb().classList.toggle('vw', vw);  // full-window editor/viewer
   if(isVid){vid.src=f.rel+'?v='+f.mtime;img.src='';pdf.src='';}
-  else if(isTex){pdf.src='/.fig_thumbs/latex_studio.html?path='+encodeURIComponent('/Users/tofunori/Documents/atelier-studio/'+f.rel)+'&v=1783208644';img.src='';}
-  else if(isPdf){pdf.src='/.fig_thumbs/pdf_viewer.html?file='+encodeURIComponent(f.rel)+'&v=1783208644';img.src='';}
-  else if(isMd){pdf.src='/.fig_thumbs/md_viewer.html?path='+encodeURIComponent('/Users/tofunori/Documents/atelier-studio/'+f.rel)+'&file='+encodeURIComponent(f.rel)+'&v=1783208644';img.src='';}
-  else if(isCode){pdf.src='/.fig_thumbs/code_editor.html?path='+encodeURIComponent('/Users/tofunori/Documents/atelier-studio/'+f.rel)+'&v=1783208644';img.src='';}
-  else if(isSvg){pdf.src='/.fig_thumbs/svg_viewer.html?file='+encodeURIComponent(f.rel)+'&v=1783208644';img.src='';}
+  else if(isTex){pdf.src='/.fig_thumbs/latex_studio.html?path='+encodeURIComponent('/Users/tofunori/Documents/atelier-studio/'+f.rel)+'&v=1783208674';img.src='';}
+  else if(isPdf){pdf.src='/.fig_thumbs/pdf_viewer.html?file='+encodeURIComponent(f.rel)+'&v=1783208674';img.src='';}
+  else if(isMd){pdf.src='/.fig_thumbs/md_viewer.html?path='+encodeURIComponent('/Users/tofunori/Documents/atelier-studio/'+f.rel)+'&file='+encodeURIComponent(f.rel)+'&v=1783208674';img.src='';}
+  else if(isCode){pdf.src='/.fig_thumbs/code_editor.html?path='+encodeURIComponent('/Users/tofunori/Documents/atelier-studio/'+f.rel)+'&v=1783208674';img.src='';}
+  else if(isSvg){pdf.src='/.fig_thumbs/svg_viewer.html?file='+encodeURIComponent(f.rel)+'&v=1783208674';img.src='';}
   else{img.src=f.rel+'?v='+f.mtime;pdf.src='';}
   document.getElementById('lbCap').innerHTML=
     `<b>${esc(f.name)}</b><span>${esc(f.folder)}</span><span>${esc(f.mdate)}</span><a href="${escA(f.rel)}" target="_blank">open original</a>`+
@@ -1346,7 +1346,9 @@ function annotInit(){
       }
     }, true);
   }
-  if(ANNOT_EMBEDDED){const st=document.createElement('style');st.textContent='.embOnly{display:inline-block !important} .embHide{display:none !important}';document.head.appendChild(st);}
+  if(ANNOT_EMBEDDED){const st=document.createElement('style');st.textContent='.embOnly{display:inline-block !important} .embHide{display:none !important}'
+      +':root{--bg:#212429;--card:#262b31;--card2:#2c313a;--txt:#e8eaed;--muted:#8a919e;--faint:#6b7482;--border:#333a45;--border-strong:#3f4652;--accent:#e8823a;--accent-soft:#3a2c20}'
+      +'body{font-family:\'Inter Variable\',-apple-system,sans-serif}';document.head.appendChild(st);}
   async function annotPost(direct){
     const f=lbList[lbIdx], img=document.getElementById('lbImg');
     const scale=Math.min(1, 2200/img.naturalWidth);

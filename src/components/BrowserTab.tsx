@@ -37,7 +37,7 @@ export default function BrowserTab(p: {
       // pas une URL → recherche (DuckDuckGo lite, iframe-friendly)
       u = /^[\w.-]+\.[a-z]{2,}(\/|$)/i.test(u) || u.startsWith("localhost")
         ? "http://" + u.replace(/^http:\/\//, "")
-        : `https://lite.duckduckgo.com/lite/?q=${encodeURIComponent(u)}`;
+        : `https://www.google.com/search?igu=1&q=${encodeURIComponent(u)}`;
       if (u.startsWith("http://localhost") || /^http:\/\/[\w.-]+\.[a-z]{2,}/i.test(u)) {
         u = u.replace(/^http:\/\/(?!localhost|127\.)/, "https://");
       }
