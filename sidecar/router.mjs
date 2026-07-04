@@ -121,7 +121,7 @@ export async function route(msg, ctx) {
         // session persistante ; steer/queue = priority native du SDK ('now'/'next')
         p.send({
           threadId,
-          cwd: projectRoot,
+          cwd: projectRoot || process.env.HOME,
           prompt,
           sessionId: prev?.sessionId ?? null,
           model,
@@ -160,7 +160,7 @@ export async function route(msg, ctx) {
       // fire-and-forget : plusieurs threads streament en parallèle
       p.run({
         threadId,
-        cwd: projectRoot,
+        cwd: projectRoot || process.env.HOME,
         prompt,
         sessionId: prev?.sessionId ?? null,
         model,

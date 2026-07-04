@@ -18,6 +18,7 @@ export default function Sidebar(p: {
   onSelectProject: (root: string) => void;
   onSelect: (threadId: string, projectRoot: string) => void;
   onNew: (projectRoot: string) => void;
+  onNewChat: () => void;
   onDelete: (threadId: string) => void;
   onRename: (threadId: string, title: string) => void;
   onSettings: () => void;
@@ -28,11 +29,11 @@ export default function Sidebar(p: {
   const [menu, setMenu] = useState<Menu | null>(null);
   const [projMenu, setProjMenu] = useState<{ root: string; x: number; y: number } | null>(null);
   const [labelDraft, setLabelDraft] = useState("");
-  const [secClosed, setSecClosed] = useState<{ fav: boolean; proj: boolean }>(() => {
-    try { return JSON.parse(localStorage.getItem("atelier-studio.sections") ?? '{"fav":false,"proj":false}'); }
-    catch { return { fav: false, proj: false }; }
+  const [secClosed, setSecClosed] = useState<{ fav: boolean; proj: boolean; chats: boolean }>(() => {
+    try { return JSON.parse(localStorage.getItem("atelier-studio.sections") ?? '{"fav":false,"proj":false,"chats":false}'); }
+    catch { return { fav: false, proj: false, chats: false }; }
   });
-  function toggleSec(k: "fav" | "proj") {
+  function toggleSec(k: "fav" | "proj" | "chats") {
     setSecClosed((s) => {
       const n = { ...s, [k]: !s[k] };
       localStorage.setItem("atelier-studio.sections", JSON.stringify(n));
@@ -81,7 +82,7 @@ export default function Sidebar(p: {
       {p.favorites.length > 0 && (
         <>
           <div className="section sec-toggle" onClick={() => toggleSec("fav")}>
-            <span className="chev">{secClosed.fav ? "▸" : "▾"}</span> Favoris
+            <span><span className="chev">{secClosed.fav ? "▸" : "▾"}</span> Favoris</span>
           </div>
           <ul className="fav-list" style={{ display: secClosed.fav ? "none" : undefined }}>
             {p.favorites
@@ -203,6 +204,37 @@ export default function Sidebar(p: {
           </div>
         );
       })}
+      <div className="section sec-toggle" onClick={() => toggleSec("chats")}>
+        <span><span className="chev">{secClosed.chats ? "▸" : "▾"}</span> Chats</span>
+        <span className="section-actions" onClick={(e) => e.stopPropagation()}>
+          <button className="mini compact-btn" title="Nouveau chat sans projet" onClick={p.onNewChat}>
+            +
+          </button>
+        </span>
+      </div>
+      {!secClosed.chats && (
+        <ul className="fav-list">
+          {p.threads
+            .filter((t) => !t.projectRoot)
+            .map((t) => (
+              <li
+                key={t.id}
+                className={t.id === p.activeId ? "active" : ""}
+                onClick={() => p.onSelect(t.id, "")}
+                onContextMenu={(e) => {
+                  e.preventDefault();
+                  setMenu({ x: e.clientX, y: e.clientY, threadId: t.id });
+                }}
+              >
+                <span className={`prov-ico ${t.status === "running" ? "busy" : ""}`}>
+                  <ProviderIcon provider={t.provider} />
+                  {p.unread.has(t.id) && <span className="unread-badge" />}
+                </span>
+                <span className="title">{t.title}</span>
+              </li>
+            ))}
+        </ul>
+      )}
       <span className="side-flex" />
       <button className="settings-btn" title="Réglages" onClick={p.onSettings}>
         <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3">

@@ -64,6 +64,7 @@ export default function App() {
   );
   const [threads, setThreads] = useState<Thread[]>([]);
   const threadsRef = useRef<Thread[]>([]);
+  const allThreadsRef = useRef<Thread[]>([]);
   // threads locaux (pas encore connus du sidecar) — nouveaux chats vides
   const [draftThreads, setDraftThreads] = useState<Thread[]>([]);
   const [events, setEvents] = useState<Record<string, AgentEvent[]>>({});
@@ -322,6 +323,25 @@ export default function App() {
     setActiveProject(root);
   }
 
+  function newChat() {
+    const id = crypto.randomUUID();
+    setDraftThreads((p) => [
+      {
+        id,
+        projectRoot: "",
+        title: "nouveau chat",
+        provider: "claude" as const,
+        sessionId: null,
+        status: "idle" as const,
+        updatedAt: new Date().toISOString(),
+      },
+      ...p,
+    ]);
+    setActiveId(id);
+    activeIdRef.current = id;
+    setEvents((p) => ({ ...p, [id]: [] }));
+  }
+
   function newThread(projectRoot: string) {
     const id = crypto.randomUUID();
     setDraftThreads((p) => [
@@ -345,6 +365,13 @@ export default function App() {
   function selectThread(threadId: string, projectRoot: string) {
     setActiveId(threadId);
     activeIdRef.current = threadId;
+    if (!projectRoot) {
+      setUnread((u) => { const n = new Set(u); n.delete(threadId); return n; });
+      if (!events[threadId]?.length && ws.current?.readyState === 1) {
+        ws.current.send(JSON.stringify({ type: "getHistory", threadId }));
+      }
+      return;
+    }
     setUnread((u) => {
       if (!u.has(threadId)) return u;
       const n = new Set(u);
@@ -366,7 +393,9 @@ export default function App() {
     permissionMode: string,
     mode: "steer" | "queue" = "steer",
   ) {
-    if (!activeProject) return;
+    const activeThread = allThreadsRef.current.find((t) => t.id === activeId);
+    const threadRoot = activeThread ? activeThread.projectRoot : (activeProject ?? "");
+    if (!activeId && !activeProject) return;
     // pièce jointe (annotation/sélection atelier) : préfixée au prompt envoyé
     const fullPrompt = attachments.length
       ? `${attachments.map((a) => a.text).join("\n\n")}\n\n${prompt}`.trim()
@@ -395,7 +424,7 @@ export default function App() {
       setDraftThreads((p) => [
         {
           id: id as string,
-          projectRoot: activeProject,
+          projectRoot: activeProject ?? "",
           title: prompt.slice(0, 40),
           provider,
           sessionId: null,
@@ -439,7 +468,7 @@ export default function App() {
     if (ws.current) {
       sendPrompt(ws.current, {
         threadId: id,
-        projectRoot: activeProject,
+        projectRoot: threadRoot,
         provider,
         prompt: fullPrompt,
         ...(model ? { model } : {}),
@@ -454,6 +483,7 @@ export default function App() {
 
   const knownIds = new Set(threads.map((t) => t.id));
   const allThreads = [...draftThreads.filter((t) => !knownIds.has(t.id)), ...threads];
+  allThreadsRef.current = allThreads;
   const atelierUrl = activeProject ? atelierUrls[activeProject] : null;
 
   const runningProjects = new Set(
@@ -504,6 +534,7 @@ export default function App() {
           onSelectProject={setActiveProject}
           onSelect={selectThread}
           onNew={newThread}
+          onNewChat={newChat}
           onDelete={(threadId) => {
             setDraftThreads((p) => p.filter((t) => t.id !== threadId));
             setEvents((p) => {
@@ -612,7 +643,7 @@ export default function App() {
               }),
             )
           }
-          disabled={!activeProject}
+          disabled={!activeProject && !activeId}
           onSubmit={submit}
         />
       </Panel>
