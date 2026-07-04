@@ -35,6 +35,25 @@ export async function route(msg, ctx) {
       ctx.send({ type: "imageSaved", path });
       break;
     }
+    case "forkThread": {
+      // nouveau thread qui bifurque de la session d'un autre (fork au prochain send)
+      const src = ctx.store.get(msg.fromThreadId);
+      if (!src?.sessionId || src.provider !== "claude") {
+        ctx.send({ type: "error", message: "fork indisponible pour ce chat" });
+        break;
+      }
+      ctx.store.upsert({
+        id: msg.newThreadId,
+        projectRoot: src.projectRoot,
+        provider: "claude",
+        title: "⑂ " + (src.title ?? "fork"),
+        sessionId: src.sessionId,
+        forkPending: true,
+        status: "idle",
+      });
+      (ctx.broadcast ?? ctx.send)({ type: "threads", threads: ctx.store.list() });
+      break;
+    }
     case "revert": {
       // rewind : ferme la session, repère le point avant le message donné ;
       // le prochain send reprendra avec resumeSessionAt (API documentée)
@@ -107,7 +126,19 @@ export async function route(msg, ctx) {
         break;
       }
       const emit = ctx.broadcast ?? ctx.send;
-      const prev = ctx.store.get(threadId);
+      let prev = ctx.store.get(threadId);
+      // changement de provider en cours de thread : les sessions ne sont PAS
+      // interchangeables (un UUID Claude n'est pas un thread Codex). On repart
+      // sur une session neuve du nouveau provider, l'historique visuel reste.
+      if (prev?.provider && prev.provider !== provider && prev.sessionId) {
+        if (prev.provider === "claude" && ctx.providers.claude.endSession) {
+          ctx.providers.claude.endSession(threadId);
+        }
+        ctx.store.upsert({ id: threadId, sessionId: null, resumeAt: null });
+        prev = ctx.store.get(threadId);
+        emit({ type: "event", threadId, event: { kind: "tool",
+          name: `changement de provider → nouvelle session ${provider} (l'autre agent ne partage pas sa mémoire)` } });
+      }
       ctx.store.upsert({
         id: threadId,
         projectRoot,
@@ -129,7 +160,9 @@ export async function route(msg, ctx) {
           permissionMode,
           mode: msg.mode,
           resumeAt: prev?.resumeAt ?? null,
-          onSession: (sessionId) => ctx.store.upsert({ id: threadId, sessionId, resumeAt: null }),
+          fork: prev?.forkPending ?? false,
+          onSession: (sessionId) =>
+            ctx.store.upsert({ id: threadId, sessionId, resumeAt: null, forkPending: false }),
           onEvent: (event) => {
             emit({ type: "event", threadId, event });
             if (event.kind === "done" || event.kind === "error") {

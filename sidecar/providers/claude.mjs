@@ -51,6 +51,7 @@ export function send({
   permissionMode,
   mode, // "steer" | "queue"
   resumeAt, // uuid : rewind via resumeSessionAt (API documentée)
+  fork, // true : bifurquer en une NOUVELLE session (forkSession)
   onEvent,
   onSession,
 }) {
@@ -98,6 +99,7 @@ export function send({
       ...(effort ? { effort } : {}),
       ...(sessionId ? { resume: sessionId } : {}),
       ...(sessionId && resumeAt ? { resumeSessionAt: resumeAt } : {}),
+      ...(sessionId && fork ? { forkSession: true } : {}),
     },
   });
 
