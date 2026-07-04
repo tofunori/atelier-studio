@@ -46,6 +46,24 @@ function addAttachment(list: Attachment[], a: Attachment): Attachment[] {
   return list.some((x) => x.text === a.text) ? list : [...list, a];
 }
 
+// handoff inter-provider : sérialise la conversation visible (bornée) pour
+// que le nouveau provider reprenne avec le contexte — façon Synara.
+function buildHandoff(events: AgentEvent[], fromProvider: string): string {
+  const lines: string[] = [];
+  for (const e of events) {
+    if (e.kind === "user") lines.push(`Utilisateur : ${e.text}`);
+    else if (e.kind === "text") lines.push(`Agent (${fromProvider}) : ${e.text}`);
+  }
+  let transcript = lines.join("\n\n");
+  const MAX = 12000;
+  if (transcript.length > MAX) transcript = "[…début tronqué…]\n" + transcript.slice(-MAX);
+  return (
+    "Tu reprends une conversation commencée avec un autre agent. " +
+    "Voici le fil jusqu'ici — prends-le comme contexte acquis, ne le résume pas, ne le répète pas :\n\n" +
+    "---\n" + transcript + "\n---\n\n"
+  );
+}
+
 function loadProjects(): string[] {
   try {
     return JSON.parse(localStorage.getItem(PROJECTS_KEY) ?? "[]");
@@ -399,10 +417,18 @@ export default function App() {
     const activeThread = allThreadsRef.current.find((t) => t.id === activeId);
     const threadRoot = activeThread ? activeThread.projectRoot : (activeProject ?? "");
     if (!activeId && !activeProject) return;
+    // handoff : le thread a un historique sous un AUTRE provider → réinjecter le fil
+    const priorEvents = activeId ? (events[activeId] ?? []) : [];
+    const isSwitch =
+      activeThread && activeThread.sessionId && activeThread.provider !== provider &&
+      priorEvents.length > 0;
+    const handoff = isSwitch ? buildHandoff(priorEvents, activeThread!.provider) : "";
     // pièce jointe (annotation/sélection atelier) : préfixée au prompt envoyé
-    const fullPrompt = attachments.length
-      ? `${attachments.map((a) => a.text).join("\n\n")}\n\n${prompt}`.trim()
-      : prompt;
+    const fullPrompt =
+      handoff +
+      (attachments.length
+        ? `${attachments.map((a) => a.text).join("\n\n")}\n\n${prompt}`.trim()
+        : prompt);
     const userEvent = {
       kind: "user" as const,
       text: prompt,
