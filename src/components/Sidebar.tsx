@@ -157,7 +157,11 @@ export default function Sidebar(p: {
       <button onClick={p.onAddProject}>+ Ajouter un projet…</button>
       <span className="side-flex" />
       <button className="settings-btn" title="Réglages" onClick={p.onSettings}>
-        Réglages
+        <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3">
+          <circle cx="8" cy="8" r="2.6" />
+          <path d="M8 1.8v1.7M8 12.5v1.7M1.8 8h1.7M12.5 8h1.7M3.6 3.6l1.2 1.2M11.2 11.2l1.2 1.2M12.4 3.6l-1.2 1.2M4.8 11.2l-1.2 1.2" />
+        </svg>
+        <span>Réglages</span>
       </button>
       {projMenu && (
         <div

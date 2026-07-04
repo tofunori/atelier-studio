@@ -308,3 +308,13 @@ pre, code, .msg pre, .msg code { font-family: var(--code-font); }
 .seg button.on { background: var(--bg); color: var(--fg); }
 input[type="color"] { width: 40px; height: 28px; border: 1px solid var(--border2);
   border-radius: 6px; background: transparent; padding: 1px; cursor: pointer; }
+/* sliders fins et sobres */
+input[type="range"].slider { -webkit-appearance: none; appearance: none; width: 170px;
+  height: 4px; border-radius: 2px; outline: none; cursor: pointer;
+  background: linear-gradient(to right, var(--muted2) 0 var(--p, 50%), var(--bg-ctl) var(--p, 50%) 100%); }
+input[type="range"].slider::-webkit-slider-thumb { -webkit-appearance: none; width: 14px;
+  height: 14px; border-radius: 50%; background: var(--fg2); border: none;
+  box-shadow: 0 1px 4px rgba(0,0,0,0.4); transition: transform 0.1s; }
+input[type="range"].slider::-webkit-slider-thumb:hover { transform: scale(1.15); }
+.settings-btn { display: flex; align-items: center; gap: 8px; color: var(--muted); }
+.settings-btn:hover { color: var(--fg); }

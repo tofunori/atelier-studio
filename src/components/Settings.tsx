@@ -23,6 +23,22 @@ const CODEX_MODELS = [
   { id: "gpt-5.1-codex-mini", label: "Codex mini" },
 ];
 
+function Slider(p: {
+  min: number; max: number; step: number; value: number;
+  onChange: (v: number) => void;
+}) {
+  const pct = ((p.value - p.min) / (p.max - p.min)) * 100;
+  return (
+    <input
+      type="range"
+      className="slider"
+      min={p.min} max={p.max} step={p.step} value={p.value}
+      style={{ ["--p" as any]: `${pct}%` }}
+      onChange={(e) => p.onChange(Number(e.target.value))}
+    />
+  );
+}
+
 function Row(p: { title: string; desc?: string; children: React.ReactNode }) {
   return (
     <div className="set-row">
@@ -178,8 +194,7 @@ export default function SettingsPage(p: {
               </div>
             </Row>
             <Row title="Taille de base" desc="Toute l'UI est proportionnelle à cette valeur.">
-              <input type="range" min={12} max={18} step={0.5} value={s.baseFontSize}
-                onChange={(e) => set({ baseFontSize: Number(e.target.value) })} />
+              <Slider min={12} max={18} step={0.5} value={s.baseFontSize} onChange={(v) => set({ baseFontSize: v })} />
               <span className="set-val">{s.baseFontSize}px</span>
             </Row>
             <Row title="Lissage de police" desc="Antialiasing macOS (texte plus fin).">
@@ -194,18 +209,15 @@ export default function SettingsPage(p: {
               </select>
             </Row>
             <Row title="Taille du texte du chat">
-              <input type="range" min={12} max={19} step={0.5} value={s.chatFontSize}
-                onChange={(e) => set({ chatFontSize: Number(e.target.value) })} />
+              <Slider min={12} max={19} step={0.5} value={s.chatFontSize} onChange={(v) => set({ chatFontSize: v })} />
               <span className="set-val">{s.chatFontSize}px</span>
             </Row>
             <Row title="Largeur de la colonne de lecture">
-              <input type="range" min={560} max={1100} step={20} value={s.chatWidth}
-                onChange={(e) => set({ chatWidth: Number(e.target.value) })} />
+              <Slider min={560} max={1100} step={20} value={s.chatWidth} onChange={(v) => set({ chatWidth: v })} />
               <span className="set-val">{s.chatWidth}px</span>
             </Row>
             <Row title="Interligne">
-              <input type="range" min={1.4} max={2.0} step={0.05} value={s.chatLineHeight}
-                onChange={(e) => set({ chatLineHeight: Number(e.target.value) })} />
+              <Slider min={1.4} max={2.0} step={0.05} value={s.chatLineHeight} onChange={(v) => set({ chatLineHeight: v })} />
               <span className="set-val">{s.chatLineHeight.toFixed(2)}</span>
             </Row>
           </>
