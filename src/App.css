@@ -24,7 +24,7 @@ html, body, #root, .app { height: 100vh;
   flex-direction: column; gap: 14px; }
 .messages > * { max-width: 760px; width: 100%; margin-left: auto; margin-right: auto; }
 .empty { color: #8a919e; padding-top: 24px; }
-.msg { line-height: 1.7; font-size: 15px; color: #dde1e6; }
+.msg { line-height: 1.7; font-size: var(--chat-fs, 15px); color: #dde1e6; }
 .msg p { margin: 0 0 10px; } .msg p:last-child { margin-bottom: 0; }
 .msg ul, .msg ol { margin: 6px 0 10px; padding-left: 22px; }
 .msg li { margin: 3px 0; }
@@ -119,3 +119,14 @@ html, body, #root, .app { height: 100vh;
 .atab-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .atab-x { color: #6b7482; padding: 0 2px; border-radius: 3px; }
 .atab-x:hover { color: #e06c75; }
+
+.side-flex { flex: 1; }
+.settings-btn { text-align: left; }
+.settings-pop { position: absolute; z-index: 60; bottom: 90px; left: 24px;
+  background: #1b1f26; border: 1px solid #333a45; border-radius: 12px;
+  padding: 14px; display: flex; flex-direction: column; gap: 10px;
+  box-shadow: 0 8px 24px rgba(0,0,0,0.5); font-size: 13px; }
+.settings-row { display: flex; align-items: center; gap: 10px; }
+.settings-val { color: #8a919e; width: 44px; text-align: right; }
+.settings-pop .ghost { background: transparent; border: none; color: #8a919e;
+  cursor: pointer; align-self: flex-end; }

@@ -57,6 +57,15 @@ export default function App() {
   const [atelierReload, setAtelierReload] = useState(0);
   const lastInjected = useRef<string | null>(null);
   const [atelierTabs, setAtelierTabs] = useState<{ id: string; url: string; title: string }[]>([]);
+  const [chatFontSize, setChatFontSize] = useState<number>(() =>
+    Number(localStorage.getItem("atelier-studio.chatFontSize") ?? 15),
+  );
+  const [showSettings, setShowSettings] = useState(false);
+
+  useEffect(() => {
+    localStorage.setItem("atelier-studio.chatFontSize", String(chatFontSize));
+    document.documentElement.style.setProperty("--chat-fs", `${chatFontSize}px`);
+  }, [chatFontSize]);
   const [activeTab, setActiveTab] = useState<string>("gallery");
   const [activeId, setActiveId] = useState<string | null>(null);
   const [atelierUrls, setAtelierUrls] = useState<Record<string, string>>({});
@@ -300,10 +309,30 @@ export default function App() {
               ws.current.send(JSON.stringify({ type: "renameThread", threadId, title }));
             }
           }}
+          onSettings={() => setShowSettings((v) => !v)}
         />
       </Panel>
       <PanelResizeHandle className="handle" />
       <Panel minSize={30}>
+        {showSettings && (
+          <div className="settings-pop">
+            <div className="settings-row">
+              <span>Taille du texte du chat</span>
+              <input
+                type="range"
+                min={12}
+                max={19}
+                step={0.5}
+                value={chatFontSize}
+                onChange={(e) => setChatFontSize(Number(e.target.value))}
+              />
+              <span className="settings-val">{chatFontSize}px</span>
+            </div>
+            <button className="ghost" onClick={() => setShowSettings(false)}>
+              Fermer
+            </button>
+          </div>
+        )}
         {annotation && (
           <div className="annot-banner">
             <span className="annot-text">✏️ {annotation.split("\n")[0].slice(0, 90)}</span>

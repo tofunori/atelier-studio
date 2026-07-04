@@ -14,6 +14,7 @@ export default function Sidebar(p: {
   onNew: (projectRoot: string) => void;
   onDelete: (threadId: string) => void;
   onRename: (threadId: string, title: string) => void;
+  onSettings: () => void;
 }) {
   const [menu, setMenu] = useState<Menu | null>(null);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -98,6 +99,10 @@ export default function Sidebar(p: {
         );
       })}
       <button onClick={p.onAddProject}>+ Ajouter un projet…</button>
+      <span className="side-flex" />
+      <button className="settings-btn" title="Réglages" onClick={p.onSettings}>
+        ⚙ Réglages
+      </button>
       {menu && (
         <div className="ctx-menu" style={{ left: menu.x, top: menu.y }}>
           <div
