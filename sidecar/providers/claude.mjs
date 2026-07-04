@@ -126,7 +126,21 @@ export function send({
           }
         }
         if (msg.type === "result") {
-          s.onEvent({ kind: "done", ok: msg.subtype === "success", result: msg.result ?? "" });
+          const u = msg.usage ?? {};
+          s.onEvent({
+            kind: "done",
+            ok: msg.subtype === "success",
+            result: msg.result ?? "",
+            usage: {
+              context:
+                (u.input_tokens ?? 0) +
+                (u.cache_read_input_tokens ?? 0) +
+                (u.cache_creation_input_tokens ?? 0),
+              output: u.output_tokens ?? 0,
+              cost: msg.total_cost_usd ?? null,
+              turns: msg.num_turns ?? null,
+            },
+          });
         }
       }
     } catch (e) {

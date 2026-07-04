@@ -68,6 +68,9 @@ export default function App() {
   const [draftThreads, setDraftThreads] = useState<Thread[]>([]);
   const [events, setEvents] = useState<Record<string, AgentEvent[]>>({});
   const [workingSince, setWorkingSince] = useState<Record<string, number | null>>({});
+  const [usageByThread, setUsageByThread] = useState<
+    Record<string, { context: number; output: number; cost: number | null; turns: number | null }>
+  >({});
   const [commands, setCommands] = useState<Command[]>([]);
   const [files, setFiles] = useState<string[]>([]);
   const [annotation, setAnnotation] = useState<string | null>(null);
@@ -178,6 +181,9 @@ export default function App() {
           ...prev,
           [msg.threadId]: [...(prev[msg.threadId] ?? []), { ...msg.event, ts: Date.now() }],
         }));
+        if (msg.event.kind === "done" && msg.event.usage) {
+          setUsageByThread((p) => ({ ...p, [msg.threadId]: msg.event.usage }));
+        }
         if (msg.event.kind === "done" || msg.event.kind === "error") {
           setWorkingSince((p) => ({ ...p, [msg.threadId]: null }));
           if (msg.threadId !== activeIdRef.current) {
@@ -545,6 +551,7 @@ export default function App() {
         <Chat
           events={activeId ? (events[activeId] ?? []) : []}
           workingSince={activeId ? (workingSince[activeId] ?? null) : null}
+          usage={activeId ? (usageByThread[activeId] ?? null) : null}
           commands={commands}
           files={files}
           defaults={settings}

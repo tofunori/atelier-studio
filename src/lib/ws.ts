@@ -4,7 +4,13 @@ export type AgentEvent =
   | { kind: "user"; text: string; imageUrl?: string; label?: string; ts?: number }
   | { kind: "text"; text: string; ts?: number }
   | { kind: "tool"; name: string }
-  | { kind: "done"; ok: boolean; result: string }
+  | {
+      kind: "done";
+      ok: boolean;
+      result: string;
+      usage?: { context: number; output: number; cost: number | null; turns: number | null };
+      ts?: number;
+    }
   | { kind: "error"; message: string };
 
 export type Thread = {

@@ -27,7 +27,12 @@ export async function run({ threadId, cwd, prompt, sessionId, model, effort, onE
       if (ev.type === "item.completed" && ev.item?.type === "command_execution") {
         onEvent({ kind: "tool", name: ev.item.command ?? "commande" });
       }
-      if (ev.type === "turn.completed") onEvent({ kind: "done", ok: true, result: "" });
+      if (ev.type === "turn.completed") {
+        const u = ev.usage ?? {};
+        onEvent({ kind: "done", ok: true, result: "", usage: {
+          context: (u.input_tokens ?? 0) + (u.cached_input_tokens ?? 0),
+          output: u.output_tokens ?? 0, cost: null, turns: null } });
+      }
       if (ev.type === "turn.failed") {
         onEvent({ kind: "error", message: ev.error?.message ?? "échec" });
       }

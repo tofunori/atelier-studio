@@ -372,3 +372,14 @@ input[type="range"].slider::-webkit-slider-thumb:hover { transform: scale(1.15);
 .atab[draggable="true"]:active { cursor: grabbing; }
 .atab-x { cursor: pointer; }
 .atab { cursor: pointer; }
+/* anneau de contexte + popover */
+.ctx-ring-wrap { position: relative; display: inline-flex; align-items: center;
+  padding: 4px; border-radius: 6px; cursor: default; }
+.ctx-ring-wrap:hover { background: var(--bg-ctl); }
+.ctx-pop { display: none; position: absolute; bottom: 30px; right: -10px; width: 240px;
+  background: var(--bg-pop); border: 1px solid var(--border); border-radius: 12px;
+  padding: 12px 14px; box-shadow: 0 12px 32px rgba(0,0,0,0.5);
+  flex-direction: column; gap: 6px; font-size: 12.5px; color: var(--fg2); z-index: 95; }
+.ctx-pop b { color: var(--muted); font-weight: 600; font-size: 11.5px;
+  text-transform: uppercase; letter-spacing: 0.05em; }
+.ctx-ring-wrap:hover .ctx-pop { display: flex; }

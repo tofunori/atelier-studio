@@ -79,6 +79,7 @@ export default function Chat(p: {
   onQuote: (text: string) => void;
   onPasteImage: (dataURL: string) => void;
   onStop: () => void;
+  usage: { context: number; output: number; cost: number | null; turns: number | null } | null;
   onRevert: (index: number, text: string, edit: boolean) => void;
   onEditSend: (index: number, oldText: string, newText: string) => void;
   defaults: {
@@ -433,6 +434,34 @@ export default function Chat(p: {
             ))}
           </select>
           <span className="flex" />
+          {p.usage && (
+            <span className="ctx-ring-wrap">
+              {(() => {
+                const WINDOW = 200_000;
+                const pct = Math.min(100, Math.round((p.usage.context / WINDOW) * 100));
+                const r = 6.5, c = 2 * Math.PI * r;
+                return (
+                  <>
+                    <svg className="ctx-ring" width="18" height="18" viewBox="0 0 18 18">
+                      <circle cx="9" cy="9" r={r} fill="none" stroke="var(--bg-ctl)" strokeWidth="2.4" />
+                      <circle cx="9" cy="9" r={r} fill="none"
+                        stroke={pct > 80 ? "#e06c75" : pct > 60 ? "#e0b74a" : "var(--muted)"}
+                        strokeWidth="2.4" strokeLinecap="round"
+                        strokeDasharray={`${(pct / 100) * c} ${c}`}
+                        transform="rotate(-90 9 9)" />
+                    </svg>
+                    <span className="ctx-pop">
+                      <b>Fenêtre de contexte</b>
+                      <span>{pct}% · {Math.round(p.usage.context / 1000)}k / 200k utilisés</span>
+                      <span>Sortie dernier tour : {Math.round(p.usage.output / 1000 * 10) / 10}k tokens</span>
+                      {p.usage.turns != null && <span>Tours de session : {p.usage.turns}</span>}
+                      {p.usage.cost != null && <span>Coût session : ${p.usage.cost.toFixed(2)}</span>}
+                    </span>
+                  </>
+                );
+              })()}
+            </span>
+          )}
           <span className="model-pick" onClick={(e) => e.stopPropagation()}>
             <button
               type="button"
