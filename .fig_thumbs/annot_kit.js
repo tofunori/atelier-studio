@@ -246,12 +246,14 @@
     bar.querySelector('.akUndo').onclick = function(){ strokes.pop(); renumber(); note.style.display = 'none'; redraw(); };
     bar.querySelector('.akClear').onclick = function(){ strokes = []; note.style.display = 'none'; redraw(); };
 
+    var EMBEDDED = (function(){ try { return window.self !== window.top; } catch(e){ return true; } })();
     // --- explicit Claude-session target (shared across viewers via localStorage) ---
     function getTarget(){
       try{ return JSON.parse(localStorage.getItem('claudeTargetV1') || 'null'); }catch(e){ return null; }
     }
     function markTg(){ pill.querySelector('.tg').classList.toggle('set', !!getTarget()); }
     markTg();
+    if (EMBEDDED) pill.querySelector('.tg').style.display = 'none';
     pill.querySelector('.tg').onclick = async function(e){
       e.stopPropagation();
       var cur = getTarget();
@@ -295,9 +297,11 @@
       redraw(x, base.w / overlay.width);
       var r = await fetch('/save', {method: 'POST', headers: {'Content-Type': 'application/json'},
         body: JSON.stringify({name: host.name(), dataURL: out.toDataURL('image/png'), direct: !!direct,
-          target: getTarget(),
+          target: getTarget(), embed: EMBEDDED,
           notes: strokes.filter(function(s){ return s.note; }).map(function(s){ return {n: s.n, text: s.note}; })})});
-      return await r.json();
+      var j = await r.json();
+      if (EMBEDDED && j && j.message) window.parent.postMessage({type: 'atelier-add-to-chat', text: j.message}, '*');
+      return j;
     }
 
     pill.querySelector('.x').onclick = function(){

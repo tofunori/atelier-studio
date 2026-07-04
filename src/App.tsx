@@ -43,6 +43,7 @@ export default function App() {
   const [annotation, setAnnotation] = useState<string | null>(null);
   const [injectText, setInjectText] = useState<string | null>(null);
   const [atelierReload, setAtelierReload] = useState(0);
+  const lastInjected = useRef<string | null>(null);
   const [activeId, setActiveId] = useState<string | null>(null);
   const [atelierUrls, setAtelierUrls] = useState<Record<string, string>>({});
   const [showAtelier, setShowAtelier] = useState(true);
@@ -72,7 +73,7 @@ export default function App() {
           [msg.threadId]: prev[msg.threadId]?.length ? prev[msg.threadId] : msg.events,
         }));
       }
-      if (msg.type === "annotation") setAnnotation(msg.text);
+      if (msg.type === "annotation" && msg.text !== lastInjected.current) setAnnotation(msg.text);
       if (msg.type === "commands") setCommands(msg.commands);
       if (msg.type === "files") setFiles(msg.files);
       if (msg.type === "error") console.error("sidecar:", msg.message);
@@ -102,6 +103,19 @@ export default function App() {
       .then((url) => setAtelierUrls((p) => ({ ...p, [activeProject]: url })))
       .catch((e) => console.error("start_atelier:", e));
   }, [activeProject]);
+
+  // "Add to chat" direct depuis atelier (iframe → postMessage)
+  useEffect(() => {
+    const onMsg = (e: MessageEvent) => {
+      if (e.data?.type === "atelier-add-to-chat" && typeof e.data.text === "string") {
+        lastInjected.current = e.data.text;
+        setInjectText(e.data.text);
+        setAnnotation(null); // pas de bannière en double
+      }
+    };
+    window.addEventListener("message", onMsg);
+    return () => window.removeEventListener("message", onMsg);
+  }, []);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {

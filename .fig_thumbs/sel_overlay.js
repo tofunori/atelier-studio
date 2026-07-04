@@ -97,14 +97,17 @@ function __ct(){try{return JSON.parse(localStorage.getItem('claudeTargetV1')||'n
   // clicks on the bar must not destroy the selection — except the textarea, which needs focus
   pill.addEventListener('mousedown', function(e){ if (e.target !== pillTa) e.preventDefault(); });
 
+  var EMBEDDED = (function(){ try { return window.self !== window.top; } catch(e){ return true; } })();
+
   function send(){
     var go = pill.querySelector('.go');
     var comment = pillTa.value.trim();
     go.textContent = '⏳';
     fetch('/quote', {method:'POST', headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({rel: REL, page: '', text: selText, comment: comment || '', direct: true, target: __ct()})})
+      body: JSON.stringify({rel: REL, page: '', text: selText, comment: comment || '', direct: true, target: __ct(), embed: EMBEDDED})})
       .then(function(r){ return r.json(); })
-      .then(function(){ go.textContent = '✓'; setTimeout(function(){ go.textContent = '↑'; pillTa.value = ''; hideAll(); }, 1200); })
+      .then(function(j){ if (EMBEDDED && j && j.message) window.parent.postMessage({type: 'atelier-add-to-chat', text: j.message}, '*');
+        go.textContent = '✓'; setTimeout(function(){ go.textContent = '↑'; pillTa.value = ''; hideAll(); }, 1200); })
       .catch(function(){ go.textContent = '!'; setTimeout(function(){ go.textContent = '↑'; }, 1600); });
   }
 
@@ -130,6 +133,7 @@ function __ct(){try{return JSON.parse(localStorage.getItem('claudeTargetV1')||'n
     function esc(s){ return String(s).replace(/[&<>"]/g, function(c){
       return { '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;' }[c]; }); }
     var tgtBtn = pill.querySelector('.tgt');
+    if (EMBEDDED) tgtBtn.style.display = 'none';
     function markTgt(){ tgtBtn.classList.toggle('set', !!__ct()); }
     markTgt();
     tgMenu.addEventListener('mousedown', function(e){ e.preventDefault(); });   // keep selection
