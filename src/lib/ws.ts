@@ -38,6 +38,7 @@ export type SendOptions = {
   model?: string;
   effort?: string;
   permissionMode?: string;
+  mode?: "steer" | "queue";
 };
 
 export function sendPrompt(ws: WebSocket, t: SendOptions) {

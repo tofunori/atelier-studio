@@ -71,6 +71,14 @@ export async function route(msg, ctx) {
       emit({ type: "threads", threads: ctx.store.list() });
 
       if (provider === "claude") {
+        // choix utilisateur : queue explicite → attendre la fin du tour en cours
+        if (prev?.status === "running" && msg.mode === "queue") {
+          const q = pending.get(threadId) ?? [];
+          q.push({ ...msg, mode: undefined });
+          pending.set(threadId, q);
+          emit({ type: "event", threadId, event: { kind: "tool", name: "⏳ message en file d'attente" } });
+          break;
+        }
         // session persistante : send() = nouveau tour OU steering si run en cours
         p.send({
           threadId,
@@ -89,6 +97,11 @@ export async function route(msg, ctx) {
                 status: event.kind === "done" ? "done" : "idle",
               });
               emit({ type: "threads", threads: ctx.store.list() });
+              // dépiler la file d'attente explicite
+              const q = pending.get(threadId);
+              const next = q?.shift();
+              if (q && q.length === 0) pending.delete(threadId);
+              if (next) route(next, ctx);
             }
           },
         });

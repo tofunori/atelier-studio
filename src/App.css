@@ -177,3 +177,7 @@ html, body, #root, .app { height: 100vh;
 .stop-btn { background: transparent; border: 1px solid #3a414d; border-radius: 999px;
   color: #8a919e; font-size: 12px; padding: 3px 12px; cursor: pointer; }
 .stop-btn:hover { color: #e06c75; border-color: #e06c75; }
+.queue-btn { background: transparent; border: 1px solid #3a414d; border-radius: 999px;
+  color: #8a919e; font-size: 12px; padding: 5px 12px; cursor: pointer; white-space: nowrap; }
+.queue-btn:hover:not(:disabled) { color: #fff; border-color: #5b9dff; }
+.send.steer { background: #e8823a; color: #1e2126; }

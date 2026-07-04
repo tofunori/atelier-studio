@@ -236,6 +236,7 @@ export default function App() {
     model: string,
     effort: string,
     permissionMode: string,
+    mode: "steer" | "queue" = "steer",
   ) {
     if (!activeProject) return;
     // pièce jointe (annotation/sélection atelier) : préfixée au prompt envoyé
@@ -301,6 +302,7 @@ export default function App() {
         ...(model ? { model } : {}),
         ...(effort ? { effort } : {}),
         ...(permissionMode ? { permissionMode } : {}),
+        mode,
       });
       // le sidecar prend le relais : retirer le brouillon local homonyme
       setDraftThreads((p) => p.filter((t) => t.id !== id));

@@ -65,6 +65,7 @@ export default function Chat(p: {
     model: string,
     effort: string,
     permissionMode: string,
+    mode: "steer" | "queue",
   ) => void;
 }) {
   const [text, setText] = useState("");
@@ -188,7 +189,7 @@ export default function Chat(p: {
         onSubmit={(ev) => {
           ev.preventDefault();
           if (!text.trim()) return;
-          p.onSubmit(text, provider, model, effort, permissionMode);
+          p.onSubmit(text, provider, model, effort, permissionMode, "steer");
           setText("");
         }}
       >
@@ -302,9 +303,30 @@ export default function Chat(p: {
               ))}
             </select>
           </span>
-          <button className="send" disabled={p.disabled} title="Envoyer">
-            ↑
-          </button>
+          {p.workingSince != null ? (
+            <>
+              <button
+                type="button"
+                className="queue-btn"
+                disabled={p.disabled || !text.trim()}
+                title="Mettre en file : envoyé après le tour en cours"
+                onClick={() => {
+                  if (!text.trim()) return;
+                  p.onSubmit(text, provider, model, effort, permissionMode, "queue");
+                  setText("");
+                }}
+              >
+                ⏱ Queue
+              </button>
+              <button className="send steer" disabled={p.disabled} title="Steer : injecté immédiatement dans le tour en cours">
+                ↑
+              </button>
+            </>
+          ) : (
+            <button className="send" disabled={p.disabled} title="Envoyer">
+              ↑
+            </button>
+          )}
         </div>
       </form>
     </div>
