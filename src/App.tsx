@@ -289,7 +289,20 @@ export default function App() {
         <>
           <PanelResizeHandle className="handle" />
           <Panel defaultSize={38} minSize={20}>
-            <AtelierPane url={atelierUrl} reloadKey={atelierReload} />
+            <AtelierPane
+              url={atelierUrl}
+              reloadKey={atelierReload}
+              onHardReload={() => {
+                if (!activeProject) return;
+                // relance start_atelier : redémarre le serveur s'il est mort
+                invoke<string>("start_atelier", { root: activeProject })
+                  .then((url) => {
+                    setAtelierUrls((p) => ({ ...p, [activeProject]: url }));
+                    setAtelierReload((n) => n + 1);
+                  })
+                  .catch((e) => console.error("start_atelier:", e));
+              }}
+            />
           </Panel>
         </>
       )}
