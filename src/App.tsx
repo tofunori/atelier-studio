@@ -358,6 +358,12 @@ export default function App() {
           onInjected={() => setInjectText(null)}
           attachment={attachment}
           onClearAttachment={() => setAttachment(null)}
+          onQuote={(text) =>
+            setAttachment({
+              label: `« ${text.slice(0, 50)}${text.length > 50 ? "…" : ""} »`,
+              text: `Citation de la conversation :\n> ${text.split("\n").join("\n> ")}`,
+            })
+          }
           disabled={!activeProject}
           onSubmit={submit}
         />

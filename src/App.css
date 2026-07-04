@@ -130,3 +130,8 @@ html, body, #root, .app { height: 100vh;
 .settings-val { color: #8a919e; width: 44px; text-align: right; }
 .settings-pop .ghost { background: transparent; border: none; color: #8a919e;
   cursor: pointer; align-self: flex-end; }
+.quote-pill { position: fixed; z-index: 80; transform: translateX(-50%);
+  background: #2c313a; color: #e6e6e6; border: 1px solid #3a414d;
+  border-radius: 999px; padding: 6px 14px; font-size: 13px; cursor: pointer;
+  box-shadow: 0 6px 18px rgba(0,0,0,0.5); }
+.quote-pill:hover { background: #3a414d; }

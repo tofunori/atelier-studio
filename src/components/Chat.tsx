@@ -56,6 +56,7 @@ export default function Chat(p: {
   onInjected: () => void;
   attachment: { label: string; text: string } | null;
   onClearAttachment: () => void;
+  onQuote: (text: string) => void;
   disabled: boolean;
   onSubmit: (
     prompt: string,
@@ -71,6 +72,21 @@ export default function Chat(p: {
   const [effort, setEffort] = useState("");
   const [permissionMode, setPermissionMode] = useState("bypassPermissions");
   const [selIdx, setSelIdx] = useState(0);
+  const [quote, setQuote] = useState<{ x: number; y: number; text: string } | null>(null);
+
+  // « Add to chat » sur sélection de texte dans les messages
+  function onMessagesMouseUp() {
+    setTimeout(() => {
+      const sel = window.getSelection();
+      const text = sel?.toString().trim() ?? "";
+      if (!text || !sel || sel.rangeCount === 0) {
+        setQuote(null);
+        return;
+      }
+      const rect = sel.getRangeAt(0).getBoundingClientRect();
+      setQuote({ x: rect.left + rect.width / 2, y: rect.top, text });
+    }, 0);
+  }
 
   // texte injecté depuis l'extérieur (annotation atelier, sélection…)
   useEffect(() => {
@@ -114,7 +130,7 @@ export default function Chat(p: {
   }
   return (
     <div className="chat">
-      <div className="messages">
+      <div className="messages" onMouseUp={onMessagesMouseUp}>
         {p.events.length === 0 && (
           <div className="empty">Salut ! Comment je peux t'aider aujourd'hui ?</div>
         )}
@@ -145,6 +161,20 @@ export default function Chat(p: {
         })}
         {p.workingSince != null && <Working since={p.workingSince} />}
       </div>
+      {quote && (
+        <button
+          className="quote-pill"
+          style={{ left: quote.x, top: quote.y - 40 }}
+          onMouseDown={(e) => {
+            e.preventDefault();
+            p.onQuote(quote.text);
+            setQuote(null);
+            window.getSelection()?.removeAllRanges();
+          }}
+        >
+          💬 Add to chat
+        </button>
+      )}
       <form
         className="composer"
         onSubmit={(ev) => {
