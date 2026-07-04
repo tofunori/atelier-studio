@@ -481,3 +481,6 @@ button.ghost:disabled { opacity: 0.35; cursor: default; }
   display: inline-flex; align-items: center; gap: 7px; cursor: pointer; }
 .term-bar .atab.on, .atelier-bar .atab.on { background: var(--bg-ctl); color: var(--fg); }
 .term-bar .atab:hover, .atelier-bar .atab:hover { color: var(--fg2); }
+.browser-tab { width: 100%; min-width: 0; }
+.browser-frame { width: 100%; min-height: 0; }
+.browser-bar { min-width: 0; }

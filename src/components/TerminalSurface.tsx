@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Terminal from "./Terminal";
 
 type Term = { id: string; n: number };
@@ -20,8 +20,10 @@ export default function TerminalSurface(p: {
     return t;
   }
 
-  // premier affichage : créer Terminal 1
-  if (p.visible && terms.length === 0) addTerm();
+  // premier affichage : créer Terminal 1 (jamais pendant le rendu)
+  useEffect(() => {
+    if (p.visible && terms.length === 0) addTerm();
+  }, [p.visible]);
 
   function closeActive() {
     if (!activeId) return;

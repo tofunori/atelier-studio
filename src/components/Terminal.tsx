@@ -13,12 +13,26 @@ export default function Terminal(p: {
   const xtermRef = useRef<XTerm | null>(null);
   const fitRef = useRef<FitAddon | null>(null);
   const opened = useRef(false);
+  // la closure du mount capturerait un ws périmé (null) : toujours passer par la ref
+  const wsRef = useRef(p.ws);
+  wsRef.current = p.ws;
+
+  function wsSend(obj: unknown) {
+    if (wsRef.current?.readyState === 1) wsRef.current.send(JSON.stringify(obj));
+  }
+
+  function tryOpen() {
+    const term = xtermRef.current;
+    if (opened.current || !term || wsRef.current?.readyState !== 1) return;
+    opened.current = true;
+    wsSend({ type: "termOpen", termId: p.termId, cwd: p.cwd, cols: term.cols, rows: term.rows });
+  }
 
   useEffect(() => {
     if (!ref.current || xtermRef.current) return;
     const term = new XTerm({
       fontSize: 13,
-      fontFamily: "var(--code-font, ui-monospace, Menlo, monospace)",
+      fontFamily: "Menlo, Monaco, 'Courier New', monospace",
       cursorBlink: true,
       theme: {
         background: "#1a1d22",
@@ -34,14 +48,8 @@ export default function Terminal(p: {
     xtermRef.current = term;
     fitRef.current = fit;
 
-    term.onData((data) => {
-      p.ws?.readyState === 1 &&
-        p.ws.send(JSON.stringify({ type: "termInput", termId: p.termId, data }));
-    });
-    term.onResize(({ cols, rows }) => {
-      p.ws?.readyState === 1 &&
-        p.ws.send(JSON.stringify({ type: "termResize", termId: p.termId, cols, rows }));
-    });
+    term.onData((data) => wsSend({ type: "termInput", termId: p.termId, data }));
+    term.onResize(({ cols, rows }) => wsSend({ type: "termResize", termId: p.termId, cols, rows }));
 
     // flux de données routé par App via CustomEvent
     const onData = (e: Event) => term.write((e as CustomEvent).detail);
@@ -49,33 +57,44 @@ export default function Terminal(p: {
     window.addEventListener(`term-data:${p.termId}`, onData);
     window.addEventListener(`term-exit:${p.termId}`, onExit);
 
-    // ouvrir le PTY
-    if (!opened.current && p.ws?.readyState === 1) {
-      opened.current = true;
-      p.ws.send(
-        JSON.stringify({
-          type: "termOpen",
-          termId: p.termId,
-          cwd: p.cwd,
-          cols: term.cols,
-          rows: term.rows,
-        }),
-      );
-    }
+    // ouvrir le PTY (avec retry si le WS n'est pas encore prêt)
+    tryOpen();
+    const retry = setInterval(() => {
+      if (opened.current) { clearInterval(retry); return; }
+      tryOpen();
+    }, 500);
 
     const onWinResize = () => fit.fit();
     window.addEventListener("resize", onWinResize);
+    // le drag des séparateurs ne déclenche pas window.resize : observer le conteneur
+    const ro = new ResizeObserver(() => fit.fit());
+    ro.observe(ref.current);
     return () => {
+      clearInterval(retry);
+      ro.disconnect();
       window.removeEventListener(`term-data:${p.termId}`, onData);
       window.removeEventListener(`term-exit:${p.termId}`, onExit);
       window.removeEventListener("resize", onWinResize);
     };
   }, []);
 
-  // re-mesurer quand l'onglet redevient visible
+  // re-mesurer quand l'onglet redevient visible + focus
   useEffect(() => {
-    if (p.visible) setTimeout(() => fitRef.current?.fit(), 30);
-  }, [p.visible]);
+    if (p.visible) {
+      setTimeout(() => {
+        fitRef.current?.fit();
+        xtermRef.current?.focus();
+      }, 30);
+      tryOpen();
+    }
+  }, [p.visible, p.ws]);
 
-  return <div ref={ref} className="term-host" style={{ display: p.visible ? "block" : "none" }} />;
+  return (
+    <div
+      ref={ref}
+      className="term-host"
+      style={{ display: p.visible ? "block" : "none" }}
+      onClick={() => xtermRef.current?.focus()}
+    />
+  );
 }

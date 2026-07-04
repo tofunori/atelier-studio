@@ -16,6 +16,7 @@
 <script src="/.fig_thumbs/pdfjs/pdf.min.js"></script>
 <script src="/.fig_thumbs/marked.min.js"></script>
 <script src="/.fig_thumbs/purify.min.js"></script>
+<script src="/.fig_thumbs/diff.min.js"></script>
 <style>
 :root{--bg:#202024;--card:#27272a;--card2:#1f1f23;--txt:#e4e4e7;--muted:#a1a1aa;--accent:#5b9dff;--border:#3f3f46}
   html,body{margin:0;height:100%;background:var(--bg);color:var(--txt);
@@ -103,6 +104,13 @@
   #tgMenu .it .t{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
   #tgMenu .it.on .t{color:#8ab4ff}
 #mdModeSeg button.mdon{background:var(--accent);color:#10151d;border-color:var(--accent)}
+  #diffPane{display:none;position:absolute;inset:0;z-index:50;overflow:auto;background:var(--bg,#212429);
+    padding:18px 22px;font-family:ui-monospace,Menlo,monospace;font-size:12.5px;line-height:1.7;
+    white-space:pre-wrap;word-break:break-word;color:#cfd4dc}
+  #diffPane .dAdd{background:rgba(52,201,142,.16);color:#7fe0b4;border-bottom:1px solid rgba(52,201,142,.6);
+    border-radius:2px;text-decoration:none}
+  #diffPane .dDel{background:rgba(224,108,117,.14);color:#e09aa0;text-decoration:line-through;border-radius:2px}
+  #diffGrp button.on{background:var(--accent);color:#10151d;border-color:var(--accent)}
 </style>
 <script>
 function __ct(){try{return JSON.parse(localStorage.getItem('claudeTargetV1')||'null')}catch(e){return null}}(function(){var T={'Default':{bg:'#202024',card:'#27272a',card2:'#1f1f23',txt:'#e4e4e7',muted:'#a1a1aa',accent:'#5b9dff',border:'#3f3f46'},'Codex One':{bg:'#202024',card:'#2f343f',card2:'#21252b',txt:'#abb2bf',muted:'#7f848e',accent:'#4d78cc',border:'#3e4451'},'Dracula':{bg:'#282a36',card:'#343746',card2:'#21222c',txt:'#f8f8f2',muted:'#9aa0b3',accent:'#bd93f9',border:'#44475a'},'Nord':{bg:'#2e3440',card:'#3b4252',card2:'#272c36',txt:'#e5e9f0',muted:'#9aa3b2',accent:'#88c0d0',border:'#434c5e'}};var t;try{t=T[localStorage.getItem('figTheme')];}catch(e){}t=t||T['Default'];var r=document.documentElement.style;for(var k in t)r.setProperty('--'+k,t[k]);})();</script>
@@ -131,6 +139,14 @@ function __ct(){try{return JSON.parse(localStorage.getItem('claudeTargetV1')||'n
     <button id="togglePdf" title="Vue scindée éditeur + PDF">Split</button>
     <button id="popPdf" title="Ouvrir le PDF dans un onglet séparé — synctex actif (clic PDF &#8594; ligne source ici)">PDF &#8599;</button>
   </span>
+  <span class="sep"></span>
+  <span class="grp" id="diffGrp" style="display:none">
+    <button id="diffPrev" title="Version précédente">&#8249;</button>
+    <button id="diffTag" title="Voir le diff de cette version">&#177; v1</button>
+    <button id="diffNext" title="Version suivante">&#8250;</button>
+    <button id="diffRestore" title="Rétablir la version affichée sur le disque">Rétablir</button>
+  <span style="display:none">
+  </span>
   <span class="grp pdfonly">
     <button id="reloadPdf" title="Recharger le PDF">&#8635;</button>
   </span>
@@ -150,8 +166,9 @@ function __ct(){try{return JSON.parse(localStorage.getItem('claudeTargetV1')||'n
   <span><b>Sélection de texte</b> &#8594; pastille : annoter / envoyer à Claude</span>
   <span><b>Esc</b> annule la sélection</span>
 </div>
-<div id="split">
+<div id="split" style="position:relative">
   <div id="left"></div>
+  <div id="diffPane"></div>
   <div id="right"><div id="marker"></div></div>
 </div>
 <div id="picker"><div id="pickerBox">
@@ -698,9 +715,11 @@ setInterval(async () => {
     const j = await r.json();
     if(j.mtime && Math.abs(j.mtime - diskMtime) > 0.001){
       diskMtime = j.mtime;
+      const before = cm.getValue();
       const cur = cm.getCursor(), s = cm.getScrollInfo();
       cm.setValue(j.text); cm.setCursor(cur); cm.scrollTo(s.left, s.top);
       dirty = false; setState("ok", "reloaded (modified on disk)");
+      diffPush(before, j.text);
     }
   }catch(e){}
 }, 2000);
@@ -761,6 +780,54 @@ document.getElementById("picker").onclick = e => { if(e.target.id === "picker") 
 document.addEventListener("keydown", e => { if(e.key === "Escape") document.getElementById("picker").classList.remove("show"); });
 
 document.getElementById("openFile").onclick = () => pickerShow();
+
+// ---- diff de versions (modifications de l'agent) : ± vN + ‹ › + Rétablir ----
+const DIFF_VERSIONS = []; // {before, after, ts}
+let diffIdx = -1, diffShown = false;
+const diffPane = document.getElementById("diffPane");
+const diffGrp = document.getElementById("diffGrp");
+function escH(x){ return x.replace(/[&<>]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;"}[c])); }
+function diffPush(before, after){
+  if(before === after) return;
+  DIFF_VERSIONS.push({before, after, ts: Date.now()});
+  diffIdx = DIFF_VERSIONS.length - 1;
+  diffGrp.style.display = "";
+  updateDiffTag();
+  renderDiff();
+  if(!diffShown) toggleDiff(true);
+}
+function updateDiffTag(){
+  document.getElementById("diffTag").innerHTML = "&#177; v" + (diffIdx + 2);
+  document.getElementById("diffPrev").disabled = diffIdx <= 0;
+  document.getElementById("diffNext").disabled = diffIdx >= DIFF_VERSIONS.length - 1;
+}
+function renderDiff(){
+  const v = DIFF_VERSIONS[diffIdx];
+  if(!v) return;
+  const parts = Diff.diffWordsWithSpace(v.before, v.after);
+  diffPane.innerHTML = parts.map(pt =>
+    pt.added ? '<span class="dAdd">' + escH(pt.value) + "</span>" :
+    pt.removed ? '<span class="dDel">' + escH(pt.value) + "</span>" :
+    escH(pt.value)).join("");
+}
+function toggleDiff(show){
+  diffShown = show ?? !diffShown;
+  diffPane.style.display = diffShown ? "block" : "none";
+  document.getElementById("diffTag").classList.toggle("on", diffShown);
+  if(!diffShown && cm) cm.refresh();
+}
+document.getElementById("diffTag").onclick = () => toggleDiff();
+document.getElementById("diffPrev").onclick = () => { if(diffIdx > 0){ diffIdx--; updateDiffTag(); renderDiff(); toggleDiff(true); } };
+document.getElementById("diffNext").onclick = () => { if(diffIdx < DIFF_VERSIONS.length - 1){ diffIdx++; updateDiffTag(); renderDiff(); toggleDiff(true); } };
+document.getElementById("diffRestore").onclick = async () => {
+  const v = DIFF_VERSIONS[diffIdx];
+  if(!v) return;
+  const r = await fetch("/codesave", {method:"POST", headers:{"Content-Type":"application/json"},
+    body: JSON.stringify({path, text: v.before, mtime: diskMtime})});
+  const j = await r.json();
+  if(!j.error){ diskMtime = j.mtime; cm.setValue(v.before); dirty = false;
+    toggleDiff(false); setState("ok", "version restaurée"); }
+};
 </script>
 </body>
 </html>
