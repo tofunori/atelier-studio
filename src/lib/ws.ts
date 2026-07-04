@@ -37,6 +37,7 @@ export type SendOptions = {
   prompt: string;
   model?: string;
   effort?: string;
+  permissionMode?: string;
 };
 
 export function sendPrompt(ws: WebSocket, t: SendOptions) {

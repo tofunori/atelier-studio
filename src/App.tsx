@@ -112,6 +112,7 @@ export default function App() {
     provider: "claude" | "codex",
     model: string,
     effort: string,
+    permissionMode: string,
   ) {
     if (!activeProject || !activeId) return;
     const id = activeId;
@@ -152,6 +153,7 @@ export default function App() {
         prompt,
         ...(model ? { model } : {}),
         ...(effort ? { effort } : {}),
+        ...(permissionMode ? { permissionMode } : {}),
       });
       // le sidecar prend le relais : retirer le brouillon local homonyme
       setDraftThreads((p) => p.filter((t) => t.id !== id));

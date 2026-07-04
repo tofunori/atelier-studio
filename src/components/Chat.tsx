@@ -1,6 +1,14 @@
 import { useState } from "react";
 import ReactMarkdown from "react-markdown";
+import { open } from "@tauri-apps/plugin-dialog";
 import { AgentEvent } from "../lib/ws";
+
+const PERMISSION_MODES = [
+  { id: "bypassPermissions", label: "🛡 Full access" },
+  { id: "acceptEdits", label: "✏️ Accept edits" },
+  { id: "default", label: "🔒 Ask (default)" },
+  { id: "plan", label: "📋 Plan mode" },
+];
 
 const MODELS: Record<string, { id: string; label: string }[]> = {
   claude: [
@@ -31,12 +39,21 @@ export default function Chat(p: {
     provider: "claude" | "codex",
     model: string,
     effort: string,
+    permissionMode: string,
   ) => void;
 }) {
   const [text, setText] = useState("");
   const [provider, setProvider] = useState<"claude" | "codex">("claude");
   const [model, setModel] = useState("");
   const [effort, setEffort] = useState("");
+  const [permissionMode, setPermissionMode] = useState("bypassPermissions");
+
+  async function attachFiles() {
+    const picked = await open({ multiple: true });
+    if (!picked) return;
+    const paths = Array.isArray(picked) ? picked : [picked];
+    setText((t) => `${t}${t && !t.endsWith(" ") ? " " : ""}${paths.map((p) => `@${p}`).join(" ")} `);
+  }
   return (
     <div className="chat">
       <div className="messages">
@@ -74,7 +91,7 @@ export default function Chat(p: {
         onSubmit={(ev) => {
           ev.preventDefault();
           if (!text.trim()) return;
-          p.onSubmit(text, provider, model, effort);
+          p.onSubmit(text, provider, model, effort, permissionMode);
           setText("");
         }}
       >
@@ -92,10 +109,20 @@ export default function Chat(p: {
           placeholder="Demande n'importe quoi — /skills et CLAUDE.md chargés"
         />
         <div className="composer-bar">
-          <button type="button" className="ghost" title="Joindre (bientôt)">
+          <button type="button" className="ghost" title="Joindre des fichiers" onClick={attachFiles}>
             +
           </button>
-          <span className="access">🛡 Full access</span>
+          <select
+            className="bare access"
+            value={permissionMode}
+            onChange={(e) => setPermissionMode(e.target.value)}
+          >
+            {PERMISSION_MODES.map((m) => (
+              <option key={m.id} value={m.id}>
+                {m.label}
+              </option>
+            ))}
+          </select>
           <span className="flex" />
           <span className="model-pick">
             <span className={`dot ${provider}`} />
