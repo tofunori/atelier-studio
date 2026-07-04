@@ -17,6 +17,7 @@ const MODELS: Record<string, { id: string; label: string }[]> = {
     { id: "claude-fable-5", label: "Fable 5" },
     { id: "claude-opus-4-8", label: "Opus 4.8" },
     { id: "claude-sonnet-5", label: "Sonnet 5" },
+    { id: "claude-sonnet-5[1m]", label: "Sonnet 5 · 1M" },
     { id: "claude-haiku-4-5-20251001", label: "Haiku 4.5" },
   ],
   codex: [
@@ -437,7 +438,7 @@ export default function Chat(p: {
           {p.usage && (
             <span className="ctx-ring-wrap">
               {(() => {
-                const WINDOW = 200_000;
+                const WINDOW = model.includes("[1m]") ? 1_000_000 : 200_000;
                 const pct = Math.min(100, Math.round((p.usage.context / WINDOW) * 100));
                 const r = 6.5, c = 2 * Math.PI * r;
                 return (
@@ -452,7 +453,7 @@ export default function Chat(p: {
                     </svg>
                     <span className="ctx-pop">
                       <b>Fenêtre de contexte</b>
-                      <span>{pct}% · {Math.round(p.usage.context / 1000)}k / 200k utilisés</span>
+                      <span>{pct}% · {Math.round(p.usage.context / 1000)}k / {WINDOW === 1_000_000 ? "1M" : "200k"} utilisés</span>
                       <span>Sortie dernier tour : {Math.round(p.usage.output / 1000 * 10) / 10}k tokens</span>
                       {p.usage.turns != null && <span>Tours de session : {p.usage.turns}</span>}
                       {p.usage.cost != null && <span>Coût session : ${p.usage.cost.toFixed(2)}</span>}
