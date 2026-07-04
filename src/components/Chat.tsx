@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import { open } from "@tauri-apps/plugin-dialog";
 import { AgentEvent } from "../lib/ws";
@@ -31,8 +31,23 @@ const EFFORTS: Record<string, string[]> = {
   codex: ["", "minimal", "low", "medium", "high", "xhigh"],
 };
 
+function Working({ since }: { since: number }) {
+  const [, tick] = useState(0);
+  useEffect(() => {
+    const t = setInterval(() => tick((n) => n + 1), 1000);
+    return () => clearInterval(t);
+  }, []);
+  const secs = Math.max(1, Math.round((Date.now() - since) / 1000));
+  return (
+    <div className="working">
+      <span className="working-label">Working</span> for {secs}s
+    </div>
+  );
+}
+
 export default function Chat(p: {
   events: AgentEvent[];
+  workingSince: number | null;
   disabled: boolean;
   onSubmit: (
     prompt: string,
@@ -85,6 +100,7 @@ export default function Chat(p: {
             </div>
           );
         })}
+        {p.workingSince != null && <Working since={p.workingSince} />}
       </div>
       <form
         className="composer"

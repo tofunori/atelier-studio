@@ -62,3 +62,6 @@ html, body, #root, .app { height: 100vh; font-family: -apple-system, sans-serif;
   background: #3a414d; color: #e6e6e6; font-size: 15px; cursor: pointer; }
 .send:hover:not(:disabled) { background: #4a5462; }
 .send:disabled { opacity: 0.4; cursor: default; }
+.working { color: #8a919e; font-size: 14px; padding: 4px 0; }
+.working-label { color: #6b7482; animation: pulse 1.4s ease-in-out infinite; }
+@keyframes pulse { 0%,100% { opacity: 0.5; } 50% { opacity: 1; } }
