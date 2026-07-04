@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { Thread } from "../lib/ws";
+import { PROJ_COLORS } from "./Rail";
 
 type Menu = { x: number; y: number; threadId: string };
 
@@ -17,8 +18,11 @@ export default function Sidebar(p: {
   onSettings: () => void;
   onCompact: () => void;
   projMeta: Record<string, { color?: string; label?: string }>;
+  onSetMeta: (root: string, meta: { color?: string; label?: string }) => void;
 }) {
   const [menu, setMenu] = useState<Menu | null>(null);
+  const [projMenu, setProjMenu] = useState<{ root: string; x: number; y: number } | null>(null);
+  const [labelDraft, setLabelDraft] = useState("");
   const [collapsed, setCollapsed] = useState<string[]>(() => {
     try {
       return JSON.parse(localStorage.getItem("atelier-studio.collapsed") ?? "[]");
@@ -39,7 +43,10 @@ export default function Sidebar(p: {
   const editRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
-    const close = () => setMenu(null);
+    const close = () => {
+      setMenu(null);
+      setProjMenu(null);
+    };
     window.addEventListener("click", close);
     return () => window.removeEventListener("click", close);
   }, []);
@@ -71,7 +78,12 @@ export default function Sidebar(p: {
               className={`project-name ${active ? "active" : ""}`}
               onClick={() => p.onSelectProject(root)}
               onDoubleClick={() => toggleCollapse(root)}
-              title="Double-clic : replier/déplier les chats"
+              onContextMenu={(e) => {
+                e.preventDefault();
+                setLabelDraft(p.projMeta[root]?.label ?? "");
+                setProjMenu({ root, x: e.clientX, y: e.clientY });
+              }}
+              title="Double-clic : replier/déplier — clic droit : couleur/icône"
             >
               <span className="chev">{collapsed.includes(root) ? "▸" : "▾"}</span>
               <span
@@ -134,6 +146,51 @@ export default function Sidebar(p: {
       <button className="settings-btn" title="Réglages" onClick={p.onSettings}>
         ⚙ Réglages
       </button>
+      {projMenu && (
+        <div
+          className="rail-menu"
+          style={{ left: projMenu.x, top: projMenu.y, position: "fixed" }}
+          onClick={(e) => e.stopPropagation()}
+        >
+          <div className="rail-menu-title">{projMenu.root.split("/").pop()}</div>
+          <div className="swatches">
+            {PROJ_COLORS.map((c) => (
+              <span
+                key={c}
+                className="swatch"
+                style={{ background: c }}
+                onClick={() =>
+                  p.onSetMeta(projMenu.root, { ...p.projMeta[projMenu.root], color: c })
+                }
+              />
+            ))}
+            <span
+              className="swatch none"
+              title="Sans couleur"
+              onClick={() =>
+                p.onSetMeta(projMenu.root, { ...p.projMeta[projMenu.root], color: undefined })
+              }
+            >
+              ∅
+            </span>
+          </div>
+          <input
+            placeholder="Lettre ou emoji (ex. 🧊)"
+            value={labelDraft}
+            maxLength={2}
+            onChange={(e) => setLabelDraft(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") {
+                p.onSetMeta(projMenu.root, {
+                  ...p.projMeta[projMenu.root],
+                  label: labelDraft || undefined,
+                });
+                setProjMenu(null);
+              }
+            }}
+          />
+        </div>
+      )}
       {menu && (
         <div className="ctx-menu" style={{ left: menu.x, top: menu.y }}>
           <div
