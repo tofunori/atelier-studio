@@ -79,6 +79,15 @@ export default function Sidebar(p: {
 
   return (
     <div className="sidebar">
+      <div className="side-top">
+        <span className="flex" />
+        <button className="mini compact-btn" title="Barre compacte" onClick={p.onCompact}>
+          <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.2">
+            <rect x="1.8" y="2.8" width="12.4" height="10.4" rx="2.6" />
+            <path d="M5.6 3v10" />
+          </svg>
+        </button>
+      </div>
       {p.favorites.length > 0 && (
         <>
           <div className="section sec-toggle" onClick={() => toggleSec("fav")}>
@@ -111,9 +120,6 @@ export default function Sidebar(p: {
         <span className="section-actions" onClick={(e) => e.stopPropagation()}>
           <button className="mini compact-btn" title="Ajouter un projet" onClick={p.onAddProject}>
             +
-          </button>
-          <button className="mini compact-btn" title="Barre compacte" onClick={p.onCompact}>
-            «
           </button>
         </span>
       </div>

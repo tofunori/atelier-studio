@@ -385,3 +385,6 @@ input[type="range"].slider::-webkit-slider-thumb:hover { transform: scale(1.15);
 .ctx-ring-wrap:hover .ctx-pop { display: flex; }
 .sec-toggle { cursor: pointer; user-select: none; }
 .sec-toggle:hover { color: var(--fg2); }
+.side-top { display: flex; align-items: center; min-height: 22px; }
+.side-top .flex { flex: 1; }
+.side-top .compact-btn { display: inline-flex; padding: 3px 6px; }
