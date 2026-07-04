@@ -150,46 +150,52 @@
   .lbBtn:hover{color:#fff}
   #lbPrev{left:6px} #lbNext{right:6px}
   #annotBar{position:fixed;top:12px;left:50%;transform:translateX(-50%);z-index:102;display:none;
-            gap:6px;align-items:center;background:rgba(20,23,30,.95);border:1px solid var(--border);
-            border-radius:10px;padding:6px 10px}
+            gap:2px;align-items:center;background:rgba(26,29,34,.92);backdrop-filter:blur(10px);
+            border:1px solid #333a45;border-radius:10px;padding:4px 6px}
   #lb.annot #annotBar{display:flex}
-  #annotBar button{padding:5px 9px;font-size:13px}
-  #annotBar button.sel{background:var(--border);color:#fff;border-color:var(--border)}
-  #annotBar input[type=color]{width:30px;height:28px;border:none;background:none;cursor:pointer;padding:0}
+  #annotBar button{padding:0;width:26px;height:24px;font-size:12px;background:transparent;
+      border:none;border-radius:6px;color:#8a919e;display:inline-flex;align-items:center;justify-content:center}
+  #annotBar button:hover{background:#2c313a;color:#e8eaed;border:none}
+  #annotBar button.sel{background:#2c313a;color:#e8eaed;border:none}
+  #annotBar input[type=color]{width:15px;height:15px;border:1px solid rgba(255,255,255,.18);
+      border-radius:5px;background:none;cursor:pointer;padding:0;-webkit-appearance:none}
+  #annotBar input[type=color]::-webkit-color-swatch-wrapper{padding:0}
+  #annotBar input[type=color]::-webkit-color-swatch{border:none;border-radius:4px}
   #lbWrap{position:relative;cursor:default}
   #annotCv{position:absolute;inset:0;display:none;touch-action:none}
   /* Note card, "message bar" style: numéro · champ · icône supprimer · ✓ rond.
      (Échap annule, Entrée enregistre — pas de boutons texte.) */
-  #annotNote{position:fixed;z-index:103;display:none;align-items:center;gap:10px;min-width:320px;max-width:460px;
-      background:#1d2026;border:1px solid #343842;border-radius:24px;padding:8px 8px 8px 16px;
-      box-shadow:0 12px 36px rgba(0,0,0,.45)}
-  #annotNote .nb{color:#8ab4ff;font-size:12px;font-weight:700;flex:none}
+  #annotNote{position:fixed;z-index:103;display:none;align-items:stretch;gap:0;min-width:340px;max-width:480px;
+      background:#1a1d22;border:1px solid #333a45;border-radius:10px;padding:0;overflow:hidden;
+      box-shadow:0 8px 24px rgba(0,0,0,.45)}
+  #annotNote .nb{color:#8a919e;font-size:12px;font-weight:600;flex:none;display:flex;align-items:center;
+      padding:0 12px;background:#262b31;border-right:1px solid #333a45}
   #annotNote textarea{flex:1;background:transparent;border:none;outline:none;color:var(--txt);
-      font-size:13px;line-height:1.45;padding:0;resize:none;font-family:inherit;height:20px;max-height:120px}
-  #annotNote textarea::placeholder{color:#6d7480}
-  #annotNote .del{width:26px;height:26px;border-radius:50%;background:none;border:none;color:#6d7480;
+      font-size:13px;line-height:1.45;padding:10px 12px;resize:none;font-family:inherit;height:20px;max-height:120px;align-self:center}
+  #annotNote textarea::placeholder{color:#6b7482}
+  #annotNote .del{width:36px;border-radius:0;background:none;border:none;border-left:1px solid #333a45;color:#6b7482;
       cursor:pointer;display:flex;align-items:center;justify-content:center;flex:none;padding:0}
-  #annotNote .del:hover{color:#ff7a76}
-  #annotNote .del svg{width:14px;height:14px;stroke:currentColor;fill:none;stroke-width:1.6;
+  #annotNote .del:hover{background:#2c313a;color:#ff8a8a}
+  #annotNote .del svg{width:13px;height:13px;stroke:currentColor;fill:none;stroke-width:1.3;
       stroke-linecap:round;stroke-linejoin:round}
-  #annotNote .anSave{width:30px;height:30px;border-radius:50%;background:#e8eaed;color:#15171b;border:none;
-      font-size:14px;font-weight:700;cursor:pointer;display:flex;align-items:center;justify-content:center;
+  #annotNote .anSave{width:36px;border-radius:0;background:none;color:#cfd4dc;border:none;border-left:1px solid #333a45;
+      font-size:13px;font-weight:500;cursor:pointer;display:flex;align-items:center;justify-content:center;
       flex:none;font-family:inherit}
-  #annotNote .anSave:hover{background:#fff}
+  #annotNote .anSave:hover{background:#2c313a;color:#fff}
   #annotPill{position:fixed;bottom:26px;left:50%;transform:translateX(-50%);z-index:102;display:none;
-      align-items:center;gap:12px;background:rgba(24,27,34,.97);border:1px solid #3a4150;border-radius:28px;
-      padding:7px 7px 7px 18px;box-shadow:0 10px 36px rgba(0,0,0,.5);color:var(--txt);font-size:13.5px}
+      align-items:center;gap:2px;background:rgba(26,29,34,.92);backdrop-filter:blur(10px);
+      border:1px solid #333a45;border-radius:10px;
+      padding:4px;box-shadow:0 8px 24px rgba(0,0,0,.45);color:#8a919e;font-size:12.5px}
   #lb.annot #annotPill.on{display:flex}
-  #annotPill .ic{font-size:15px;color:#9aa3b2}
-  #annotPill button{width:40px;height:40px;border-radius:50%;border:none;background:#c96442;color:#fff;
-      font-size:19px;cursor:pointer;display:flex;align-items:center;justify-content:center;flex:none}
-  #annotPill button:hover{background:#e0714a}
-  #annotPill button.x{width:34px;height:34px;background:transparent;border:1px solid #3a4150;
-      color:#9aa3b2;font-size:14px}
-  #annotPill button.x:hover{background:transparent;border-color:#5b6575;color:#fff}
-  #annotPill button#annotPillTarget{width:34px;height:34px;background:transparent;border:1px solid #3a4150;
-      color:#9aa3b2;font-size:14px}
-  #annotPill button#annotPillTarget:hover,#annotPill button#annotPillTarget.set{background:transparent;border-color:#5b9dff;color:#5b9dff}
+  #annotPill .ic{display:none}
+  #annotPill button{height:28px;width:auto;padding:0 10px;border-radius:7px;border:none;background:transparent;
+      color:#cfd4dc;font-size:13px;cursor:pointer;display:flex;align-items:center;justify-content:center;flex:none}
+  #annotPill button:hover{background:#2c313a;color:#fff}
+  #annotPill button.x{width:auto;height:28px;background:transparent;border:none;color:#6b7482;font-size:12px}
+  #annotPill button.x:hover{background:#2c313a;border:none;color:#e8eaed}
+  #annotPill button#annotPillTarget{width:auto;height:28px;background:transparent;border:none;
+      color:#6b7482;font-size:12px}
+  #annotPill button#annotPillTarget:hover,#annotPill button#annotPillTarget.set{background:#2c313a;border:none;color:#5b9dff}
   #tgMenu .it{display:flex;gap:8px;align-items:center;padding:7px 9px;border-radius:8px;cursor:pointer}
   #tgMenu .it:hover{background:rgba(255,255,255,.06)}
   #tgMenu .it .app{flex:none;font-size:10px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;
@@ -241,7 +247,7 @@
     <svg class="logo" width="19" height="19" viewBox="0 0 24 24" fill="currentColor" aria-label="Gallery"><rect x="2" y="2" width="9.5" height="13.5" rx="1.6"/><rect x="2" y="17" width="9.5" height="5" rx="1.6"/><rect x="13.5" y="2" width="8.5" height="5" rx="1.6"/><rect x="13.5" y="9" width="8.5" height="13" rx="1.6"/></svg>
     <span class="wm">Atelier</span>
     <span class="proj">atelier-studio</span>
-    <span class="stat">71 files · 2026-07-04 18:24</span>
+    <span class="stat">71 files · 2026-07-04 18:35</span>
   </div>
   <div class="controls">
     <span class="chip" id="searchChip" title="Search by name or folder (press /)" tabindex="0"><svg width="12" height="12" viewBox="0 0 16 16" fill="none" aria-hidden="true"><circle cx="7" cy="7" r="5" stroke="currentColor" stroke-width="1.6"/><path d="M11 11l3.2 3.2" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg> Search</span>
@@ -796,9 +802,9 @@ async function lbShow(i){
   if((window.self!==window.top) && (isTex||isMd||isCode||isPdf)){
     // Studio : latex_studio pour tex/code ; éditeur WYSIWYG pour markdown
     let u;
-    if(isPdf) u='/.fig_thumbs/pdf_viewer.html?file='+encodeURIComponent(f.rel)+'&v=1783203870';
-    else if(isMd) u='/.fig_thumbs/md_studio.html?path='+encodeURIComponent('/Users/tofunori/Documents/atelier-studio/'+f.rel)+'&v=1783203870';
-    else u='/.fig_thumbs/latex_studio.html?path='+encodeURIComponent('/Users/tofunori/Documents/atelier-studio/'+f.rel)+'&v=1783203870';
+    if(isPdf) u='/.fig_thumbs/pdf_viewer.html?file='+encodeURIComponent(f.rel)+'&v=1783204540';
+    else if(isMd) u='/.fig_thumbs/md_studio.html?path='+encodeURIComponent('/Users/tofunori/Documents/atelier-studio/'+f.rel)+'&v=1783204540';
+    else u='/.fig_thumbs/latex_studio.html?path='+encodeURIComponent('/Users/tofunori/Documents/atelier-studio/'+f.rel)+'&v=1783204540';
     window.top.postMessage({type:'atelier-open-tab', url:u, title:f.name}, '*');
     lbIdx=-1;
     return;
@@ -811,11 +817,11 @@ async function lbShow(i){
   if(!isVid && vid.getAttribute('src')){vid.pause();vid.removeAttribute('src');vid.load();}  // stop playback when leaving a video
   lb().classList.toggle('vw', vw);  // full-window editor/viewer
   if(isVid){vid.src=f.rel+'?v='+f.mtime;img.src='';pdf.src='';}
-  else if(isTex){pdf.src='/.fig_thumbs/latex_studio.html?path='+encodeURIComponent('/Users/tofunori/Documents/atelier-studio/'+f.rel)+'&v=1783203870';img.src='';}
-  else if(isPdf){pdf.src='/.fig_thumbs/pdf_viewer.html?file='+encodeURIComponent(f.rel)+'&v=1783203870';img.src='';}
-  else if(isMd){pdf.src='/.fig_thumbs/md_viewer.html?path='+encodeURIComponent('/Users/tofunori/Documents/atelier-studio/'+f.rel)+'&file='+encodeURIComponent(f.rel)+'&v=1783203870';img.src='';}
-  else if(isCode){pdf.src='/.fig_thumbs/code_editor.html?path='+encodeURIComponent('/Users/tofunori/Documents/atelier-studio/'+f.rel)+'&v=1783203870';img.src='';}
-  else if(isSvg){pdf.src='/.fig_thumbs/svg_viewer.html?file='+encodeURIComponent(f.rel)+'&v=1783203870';img.src='';}
+  else if(isTex){pdf.src='/.fig_thumbs/latex_studio.html?path='+encodeURIComponent('/Users/tofunori/Documents/atelier-studio/'+f.rel)+'&v=1783204540';img.src='';}
+  else if(isPdf){pdf.src='/.fig_thumbs/pdf_viewer.html?file='+encodeURIComponent(f.rel)+'&v=1783204540';img.src='';}
+  else if(isMd){pdf.src='/.fig_thumbs/md_viewer.html?path='+encodeURIComponent('/Users/tofunori/Documents/atelier-studio/'+f.rel)+'&file='+encodeURIComponent(f.rel)+'&v=1783204540';img.src='';}
+  else if(isCode){pdf.src='/.fig_thumbs/code_editor.html?path='+encodeURIComponent('/Users/tofunori/Documents/atelier-studio/'+f.rel)+'&v=1783204540';img.src='';}
+  else if(isSvg){pdf.src='/.fig_thumbs/svg_viewer.html?file='+encodeURIComponent(f.rel)+'&v=1783204540';img.src='';}
   else{img.src=f.rel+'?v='+f.mtime;pdf.src='';}
   document.getElementById('lbCap').innerHTML=
     `<b>${esc(f.name)}</b><span>${esc(f.folder)}</span><span>${esc(f.mdate)}</span><a href="${escA(f.rel)}" target="_blank">open original</a>`+
