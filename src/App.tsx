@@ -252,6 +252,9 @@ export default function App() {
         );
         pendingPaste.current = null;
       }
+      if (msg.type === "localServers") {
+        window.dispatchEvent(new CustomEvent("local-servers", { detail: msg.servers }));
+      }
       if (msg.type === "termData") {
         window.dispatchEvent(new CustomEvent(`term-data:${msg.termId}`, { detail: msg.data }));
       }
