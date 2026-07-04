@@ -23,13 +23,25 @@ fn ping(port: u16) -> bool {
 }
 
 #[tauri::command]
-pub fn start_atelier(root: String) -> Result<String, String> {
+pub fn start_atelier(root: String, gallery_dir: Option<String>) -> Result<String, String> {
     let root_path = Path::new(&root);
     let port = project_port(root_path);
     if !ping(port) {
-        let gallery = dirs::home_dir()
-            .ok_or("no home")?
-            .join("Documents/cmux-gallery/cmux_gallery.py");
+        let home = dirs::home_dir().ok_or("no home")?;
+        let dir = gallery_dir
+            .filter(|s| !s.trim().is_empty())
+            .map(|s| {
+                if let Some(stripped) = s.strip_prefix("~/") {
+                    home.join(stripped)
+                } else {
+                    std::path::PathBuf::from(s)
+                }
+            })
+            .unwrap_or_else(|| home.join("Documents/cmux-gallery"));
+        let gallery = dir.join("cmux_gallery.py");
+        if !gallery.exists() {
+            return Err(format!("cmux_gallery.py introuvable dans {}", dir.display()));
+        }
         Command::new("python3")
             .env("ATELIER_STUDIO", "1") // serveur en mode Studio : aucun push cmux/muxy/orca
             .arg(gallery)

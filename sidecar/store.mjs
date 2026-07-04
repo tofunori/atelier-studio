@@ -27,6 +27,7 @@ export class ThreadStore {
   upsert(patch) {
     const prev = this.threads.get(patch.id) ?? {};
     const t = { ...prev, ...patch, updatedAt: new Date().toISOString() };
+    if (!t.createdAt) t.createdAt = t.updatedAt;
     this.threads.set(t.id, t);
     mkdirSync(dirname(this.filePath), { recursive: true });
     writeFileSync(this.filePath, JSON.stringify(this.list(), null, 2));

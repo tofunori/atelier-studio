@@ -8,6 +8,7 @@ export default function Sidebar(p: {
   projects: string[];
   threads: Thread[];
   unread: Set<string>;
+  threadOrder: "recent" | "manual";
   activeProject: string | null;
   activeId: string | null;
   onAddProject: () => void;
@@ -71,7 +72,13 @@ export default function Sidebar(p: {
       </div>
       {p.projects.map((root) => {
         const name = root.split("/").pop();
-        const threads = p.threads.filter((t) => t.projectRoot === root);
+        const threads = p.threads
+          .filter((t) => t.projectRoot === root)
+          .sort((a, b) =>
+            p.threadOrder === "manual"
+              ? ((a as any).createdAt ?? a.updatedAt ?? "").localeCompare((b as any).createdAt ?? b.updatedAt ?? "")
+              : 0,
+          );
         const active = root === p.activeProject;
         return (
           <div key={root} className="project">

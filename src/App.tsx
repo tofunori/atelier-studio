@@ -14,6 +14,8 @@ import Sidebar from "./components/Sidebar";
 import Rail, { ProjMeta } from "./components/Rail";
 import Chat from "./components/Chat";
 import AtelierPane from "./components/AtelierPane";
+import SettingsPage from "./components/Settings";
+import { loadSettings, saveSettings, Settings } from "./lib/settings";
 import "./App.css";
 
 const PROJECTS_KEY = "atelier-studio.projects";
@@ -80,10 +82,17 @@ export default function App() {
   useEffect(() => {
     atelierTabsRef.current = atelierTabs;
   }, [atelierTabs]);
-  const [chatFontSize, setChatFontSize] = useState<number>(() =>
-    Number(localStorage.getItem("atelier-studio.chatFontSize") ?? 15),
-  );
+  const [settings, setSettings] = useState<Settings>(loadSettings);
   const [showSettings, setShowSettings] = useState(false);
+  const settingsRef = useRef(settings);
+  useEffect(() => {
+    settingsRef.current = settings;
+    saveSettings(settings);
+    const r = document.documentElement.style;
+    r.setProperty("--chat-fs", `${settings.chatFontSize}px`);
+    r.setProperty("--chat-w", `${settings.chatWidth}px`);
+    r.setProperty("--chat-lh", String(settings.chatLineHeight));
+  }, [settings]);
   const [dragging, setDragging] = useState(false);
   const [unread, setUnread] = useState<Set<string>>(new Set());
   const activeIdRef = useRef<string | null>(null);
@@ -114,10 +123,6 @@ export default function App() {
     localStorage.setItem("atelier-studio.projMeta", JSON.stringify(projMeta));
   }, [projMeta]);
 
-  useEffect(() => {
-    localStorage.setItem("atelier-studio.chatFontSize", String(chatFontSize));
-    document.documentElement.style.setProperty("--chat-fs", `${chatFontSize}px`);
-  }, [chatFontSize]);
   const [activeTab, setActiveTab] = useState<string>("gallery");
   const [activeId, setActiveId] = useState<string | null>(null);
   const [atelierUrls, setAtelierUrls] = useState<Record<string, string>>({});
@@ -145,7 +150,7 @@ export default function App() {
             setUnread((u) => new Set(u).add(msg.threadId));
           }
           // l'agent a peut-être régénéré des figures → recharger atelier
-          if (msg.event.kind === "done") setAtelierReload((n) => n + 1);
+          if (msg.event.kind === "done" && settingsRef.current.autoRefreshAtelier) setAtelierReload((n) => n + 1);
         }
       }
       if (msg.type === "history") {
@@ -212,7 +217,7 @@ export default function App() {
   // (ré)ouvre le serveur atelier du projet actif
   useEffect(() => {
     if (!activeProject || atelierUrls[activeProject]) return;
-    invoke<string>("start_atelier", { root: activeProject })
+    invoke<string>("start_atelier", { root: activeProject, galleryDir: settingsRef.current.galleryPath })
       .then((url) => setAtelierUrls((p) => ({ ...p, [activeProject]: url })))
       .catch((e) => console.error("start_atelier:", e));
   }, [activeProject]);
@@ -399,6 +404,17 @@ export default function App() {
     allThreads.filter((t) => t.status === "running").map((t) => t.projectRoot),
   );
 
+  if (showSettings) {
+    return (
+      <SettingsPage
+        settings={settings}
+        onChange={setSettings}
+        onClose={() => setShowSettings(false)}
+        ws={ws.current}
+      />
+    );
+  }
+
   return (
     <div className={`app-row ${dragging ? "dragging" : ""}`}>
       {compact && (
@@ -421,6 +437,7 @@ export default function App() {
           projects={projects}
           threads={allThreads}
           unread={unread}
+          threadOrder={settings.threadOrder}
           activeProject={activeProject}
           activeId={activeId}
           onAddProject={addProject}
@@ -455,25 +472,6 @@ export default function App() {
       <PanelResizeHandle className="handle" onDragging={setDragging} />
       </>)}
       <Panel minSize={30}>
-        {showSettings && (
-          <div className="settings-pop">
-            <div className="settings-row">
-              <span>Taille du texte du chat</span>
-              <input
-                type="range"
-                min={12}
-                max={19}
-                step={0.5}
-                value={chatFontSize}
-                onChange={(e) => setChatFontSize(Number(e.target.value))}
-              />
-              <span className="settings-val">{chatFontSize}px</span>
-            </div>
-            <button className="ghost" onClick={() => setShowSettings(false)}>
-              Fermer
-            </button>
-          </div>
-        )}
         {annotation && (
           <div className="annot-banner">
             <span className="annot-text">{annotation.split("\n")[0].slice(0, 90)}</span>
@@ -495,6 +493,7 @@ export default function App() {
           workingSince={activeId ? (workingSince[activeId] ?? null) : null}
           commands={commands}
           files={files}
+          defaults={settings}
           injectText={injectText}
           onInjected={() => setInjectText(null)}
           attachments={attachments}
@@ -573,7 +572,7 @@ export default function App() {
               onHardReload={() => {
                 if (!activeProject) return;
                 // relance start_atelier : redémarre le serveur s'il est mort
-                invoke<string>("start_atelier", { root: activeProject })
+                invoke<string>("start_atelier", { root: activeProject, galleryDir: settingsRef.current.galleryPath })
                   .then((url) => {
                     setAtelierUrls((p) => ({ ...p, [activeProject]: url }));
                     setAtelierReload((n) => n + 1);

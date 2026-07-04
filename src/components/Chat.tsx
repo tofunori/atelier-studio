@@ -73,6 +73,12 @@ export default function Chat(p: {
   onStop: () => void;
   onRevert: (index: number, text: string, edit: boolean) => void;
   onEditSend: (index: number, oldText: string, newText: string) => void;
+  defaults: {
+    defaultProvider: "claude" | "codex";
+    defaultModel: { claude: string; codex: string };
+    defaultEffort: { claude: string; codex: string };
+    defaultPermissionMode: string;
+  };
   pins: { index: number; label: string }[];
   onTogglePin: (index: number, label: string) => void;
   disabled: boolean;
@@ -90,6 +96,14 @@ export default function Chat(p: {
   const [model, setModel] = useState("");
   const [effort, setEffort] = useState("");
   const [permissionMode, setPermissionMode] = useState("bypassPermissions");
+
+  // appliquer les défauts des réglages (au montage et quand ils changent)
+  useEffect(() => {
+    setProvider(p.defaults.defaultProvider);
+    setModel(p.defaults.defaultModel[p.defaults.defaultProvider] ?? "");
+    setEffort(p.defaults.defaultEffort[p.defaults.defaultProvider] ?? "");
+    setPermissionMode(p.defaults.defaultPermissionMode);
+  }, [p.defaults]);
   const [selIdx, setSelIdx] = useState(0);
   const [quote, setQuote] = useState<{ x: number; y: number; text: string } | null>(null);
   const [editing, setEditing] = useState<{ index: number; text: string } | null>(null);

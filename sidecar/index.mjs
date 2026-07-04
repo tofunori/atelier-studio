@@ -14,7 +14,47 @@ const store = new ThreadStore(
 );
 const providers = { claude, codex };
 
+import { readdirSync, rmSync, existsSync } from "node:fs";
+import { execFile } from "node:child_process";
+
 const PASTE_DIR = `${homedir()}/Library/Application Support/atelier-studio/pasted`;
+
+function status() {
+  let pastedCount = 0;
+  try {
+    pastedCount = existsSync(PASTE_DIR) ? readdirSync(PASTE_DIR).length : 0;
+  } catch {}
+  return { port: wss.address()?.port ?? null, pastedCount, pasteDir: PASTE_DIR };
+}
+
+function clearPasted() {
+  let n = 0;
+  try {
+    if (existsSync(PASTE_DIR)) {
+      for (const f of readdirSync(PASTE_DIR)) {
+        rmSync(`${PASTE_DIR}/${f}`);
+        n++;
+      }
+    }
+  } catch {}
+  return n;
+}
+
+function cliVersion(bin) {
+  return new Promise((resolve) => {
+    execFile(bin, ["--version"], { timeout: 8000 }, (err, stdout) => {
+      resolve(err ? null : String(stdout).trim().split("\n")[0]);
+    });
+  });
+}
+
+async function providerStatus() {
+  const [claudeV, codexV] = await Promise.all([cliVersion("claude"), cliVersion("codex")]);
+  return [
+    { id: "claude", label: "Claude Code", version: claudeV, ok: !!claudeV },
+    { id: "codex", label: "Codex", version: codexV, ok: !!codexV },
+  ];
+}
 function saveImage(ext, base64) {
   mkdirSync(PASTE_DIR, { recursive: true });
   const path = `${PASTE_DIR}/coller-${Date.now()}.${ext === "jpeg" ? "jpg" : ext}`;
@@ -48,6 +88,9 @@ wss.on("connection", (ws) => {
     catalog,
     history,
     saveImage,
+    status,
+    clearPasted,
+    providerStatus,
   };
   ws.on("message", async (data) => {
     let msg;

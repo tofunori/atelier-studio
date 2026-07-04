@@ -12,6 +12,18 @@ export async function route(msg, ctx) {
       if (prov?.interrupt) await prov.interrupt(msg.threadId);
       break;
     }
+    case "status": {
+      ctx.send({ type: "status", ...ctx.status() });
+      break;
+    }
+    case "providerStatus": {
+      ctx.send({ type: "providerStatus", providers: await ctx.providerStatus() });
+      break;
+    }
+    case "clearPasted": {
+      ctx.send({ type: "pastedCleared", removed: ctx.clearPasted() });
+      break;
+    }
     case "saveImage": {
       // image collée (⌘V) : dataURL → PNG sur disque, chemin renvoyé au client
       const m = /^data:image\/(\w+);base64,(.+)$/.exec(msg.dataURL ?? "");
