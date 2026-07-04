@@ -28,6 +28,7 @@ function loadProjects(): string[] {
 export default function App() {
   const ws = useRef<WebSocket | null>(null);
   const [mock, setMock] = useState(false);
+  const [wsReady, setWsReady] = useState(false);
   const [projects, setProjects] = useState<string[]>(loadProjects);
   const [activeProject, setActiveProject] = useState<string | null>(
     loadProjects()[0] ?? null,
@@ -66,6 +67,7 @@ export default function App() {
     })
       .then((s) => {
         ws.current = s;
+        setWsReady(true);
       })
       .catch(() => setMock(true));
   }, []);
@@ -76,10 +78,10 @@ export default function App() {
 
   // catalogue skills + fichiers du projet actif (pour les menus / et @)
   useEffect(() => {
-    if (activeProject && ws.current?.readyState === 1) {
+    if (activeProject && wsReady && ws.current?.readyState === 1) {
       requestCatalog(ws.current, activeProject);
     }
-  }, [activeProject, mock]);
+  }, [activeProject, wsReady]);
 
   // (ré)ouvre le serveur atelier du projet actif
   useEffect(() => {
