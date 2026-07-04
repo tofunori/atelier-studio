@@ -2,8 +2,11 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::time::Duration;
 
-/// Même algo que cmux_gallery.py::project_port : md5 du realpath en grand
-/// entier, mod 1000, + 8790 — port stable par projet (8790–9789).
+/// Espace de ports PROPRE à Studio (18790-19789) : même hash que
+/// cmux_gallery.py mais base décalée — le serveur Studio (isolé, ATELIER_STUDIO=1)
+/// coexiste avec le serveur cmux normal (8790-9789) du même projet.
+const STUDIO_PORT_BASE: u16 = 18790;
+
 pub fn project_port(root: &Path) -> u16 {
     let real: PathBuf = std::fs::canonicalize(root).unwrap_or_else(|_| root.to_path_buf());
     let digest = md5::compute(real.to_string_lossy().as_bytes());
@@ -11,7 +14,7 @@ pub fn project_port(root: &Path) -> u16 {
         .0
         .iter()
         .fold(0u64, |acc, b| (acc * 256 + *b as u64) % 1000);
-    8790 + rem as u16
+    STUDIO_PORT_BASE + rem as u16
 }
 
 fn ping(port: u16) -> bool {
@@ -34,6 +37,8 @@ pub fn start_atelier(root: String) -> Result<String, String> {
             .arg("--root")
             .arg(&root)
             .arg("--no-open")
+            .arg("--port")
+            .arg(port.to_string())
             .spawn()
             .map_err(|e| e.to_string())?;
         // le serveur se détache ; attendre qu'il réponde (build de la galerie inclus)
@@ -58,7 +63,7 @@ mod tests {
     fn port_is_stable_and_in_range() {
         let p = project_port(Path::new("/tmp"));
         assert_eq!(p, project_port(Path::new("/tmp")));
-        assert!((8790..=9789).contains(&p));
+        assert!((18790..=19789).contains(&p));
     }
 }
 
@@ -70,6 +75,6 @@ mod cross_tests {
         let p = project_port(Path::new(
             "/Users/tofunori/Documents/UTQR/Master/Albedo-Modis-Pipeline-Analysis",
         ));
-        assert_eq!(p, 9000); // valeur calculée par cmux_gallery.py::project_port
+        assert_eq!(p, 19000); // hash python 9000 + base Studio décalée (18790 vs 8790)
     }
 }
