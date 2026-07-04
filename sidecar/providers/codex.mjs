@@ -21,6 +21,13 @@ export async function run({ threadId, cwd, prompt, sessionId, model, effort, onE
   try {
     const { events } = await thread.runStreamed(prompt, turnOptions);
     for await (const ev of events) {
+      // feedback en direct : items démarrés (commande, raisonnement…)
+      if (ev.type === "item.started" && ev.item?.type === "command_execution") {
+        onEvent({ kind: "tool", name: (ev.item.command ?? "commande") + " …" });
+      }
+      if (ev.type === "item.started" && ev.item?.type === "reasoning") {
+        onEvent({ kind: "tool", name: "réflexion…" });
+      }
       if (ev.type === "item.completed" && ev.item?.type === "agent_message") {
         onEvent({ kind: "text", text: ev.item.text ?? "" });
       }
