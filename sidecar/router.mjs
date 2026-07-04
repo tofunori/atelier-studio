@@ -8,7 +8,7 @@ export async function route(msg, ctx) {
       ctx.send({ type: "threads", threads: ctx.store.list() });
       break;
     case "send": {
-      const { threadId, projectRoot, provider, prompt, title, model, effort } = msg;
+      const { threadId, projectRoot, provider, prompt, title, model, effort, permissionMode } = msg;
       const p = ctx.providers?.[provider];
       if (!p) {
         ctx.send({ type: "error", threadId, message: `provider inconnu: ${provider}` });
@@ -32,6 +32,7 @@ export async function route(msg, ctx) {
         sessionId: prev?.sessionId ?? null,
         model,
         effort,
+        permissionMode,
         onEvent: (event) => emit({ type: "event", threadId, event }),
       })
         .then(({ sessionId }) => {

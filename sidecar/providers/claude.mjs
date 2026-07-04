@@ -2,13 +2,16 @@ import { query } from "@anthropic-ai/claude-agent-sdk";
 
 // settingSources: charge CLAUDE.md, skills (/recherche, /loop…), hooks et MCP
 // de l'utilisateur et du projet — même harnais que le CLI Claude Code.
-export async function run({ cwd, prompt, sessionId, model, effort, onEvent }) {
+// Un prompt commençant par "/" est traité comme slash command par le harnais.
+export async function run({ cwd, prompt, sessionId, model, effort, permissionMode, onEvent }) {
   let sid = sessionId ?? null;
+  const mode = permissionMode || "bypassPermissions";
   const q = query({
     prompt,
     options: {
       cwd,
-      permissionMode: "bypassPermissions",
+      permissionMode: mode,
+      ...(mode === "bypassPermissions" ? { allowDangerouslySkipPermissions: true } : {}),
       settingSources: ["user", "project"],
       ...(model ? { model } : {}),
       ...(effort ? { effort } : {}),
