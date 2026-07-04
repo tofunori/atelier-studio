@@ -35,6 +35,29 @@ export async function route(msg, ctx) {
       ctx.send({ type: "imageSaved", path });
       break;
     }
+    case "exportThread": {
+      const t = ctx.store.get(msg.threadId);
+      if (!t) { ctx.send({ type: "error", message: "thread introuvable" }); break; }
+      let events = msg.events ?? [];
+      if (t.provider === "claude" && t.sessionId) {
+        try { events = await ctx.history.claudeHistory(t.sessionId, t.projectRoot); } catch {}
+      }
+      const md = [
+        `# ${t.title ?? "conversation"}`,
+        ``,
+        `- Provider : ${t.provider}`,
+        `- Projet : ${t.projectRoot || "(aucun)"}`,
+        `- Session : ${t.sessionId ?? "-"}`,
+        `- Exporté : ${new Date().toISOString()}`,
+        ``,
+        ...events.map((e) =>
+          e.kind === "user" ? `**Utilisateur :**\n\n${e.text}\n` :
+          e.kind === "text" ? `**Agent :**\n\n${e.text}\n` : ""),
+      ].filter(Boolean).join("\n");
+      const path = ctx.exportThread(t, events, md);
+      ctx.send({ type: "exported", threadId: msg.threadId, path });
+      break;
+    }
     case "forkThread": {
       // nouveau thread qui bifurque de la session d'un autre (fork au prochain send)
       const src = ctx.store.get(msg.fromThreadId);

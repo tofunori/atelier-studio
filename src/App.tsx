@@ -251,6 +251,13 @@ export default function App() {
         );
         pendingPaste.current = null;
       }
+      if (msg.type === "exported") {
+        setEvents((p) => ({
+          ...p,
+          [msg.threadId]: [...(p[msg.threadId] ?? []),
+            { kind: "text", text: `Conversation exportée : \`${msg.path}\` (+ .json)`, ts: Date.now() }],
+        }));
+      }
       if (msg.type === "commands") setCommands(msg.commands);
       if (msg.type === "files") setFiles(msg.files);
       if (msg.type === "error") console.error("sidecar:", msg.message);
@@ -417,6 +424,17 @@ export default function App() {
     const activeThread = allThreadsRef.current.find((t) => t.id === activeId);
     const threadRoot = activeThread ? activeThread.projectRoot : (activeProject ?? "");
     if (!activeId && !activeProject) return;
+    // /export : archive locale (pas d'appel agent)
+    if (prompt.trim() === "/export" && activeId) {
+      if (ws.current?.readyState === 1) {
+        ws.current.send(JSON.stringify({
+          type: "exportThread",
+          threadId: activeId,
+          events: (events[activeId] ?? []).filter((ev) => ev.kind === "user" || ev.kind === "text"),
+        }));
+      }
+      return;
+    }
     // handoff : le thread a un historique sous un AUTRE provider → réinjecter le fil
     const priorEvents = activeId ? (events[activeId] ?? []) : [];
     const isSwitch =
@@ -707,6 +725,13 @@ export default function App() {
                   savePinned(next);
                   return next;
                 });
+              }}
+              onOpenUrl={(u) => {
+                const existing = atelierTabsRef.current.find((t) => t.url === u);
+                if (existing) { setActiveTab(existing.id); return; }
+                const id = crypto.randomUUID();
+                setAtelierTabs((tabs) => [...tabs, { id, url: u, title: new URL(u).hostname }]);
+                setActiveTab(id);
               }}
               onPinTab={(id) => {
                 setAtelierTabs((tabs) => {

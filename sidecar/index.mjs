@@ -48,6 +48,16 @@ function cliVersion(bin) {
   });
 }
 
+function exportThread(thread, events, markdown) {
+  const dir = `${homedir()}/Downloads`;
+  const safe = String(thread.title ?? "conversation").replace(/[^\w\u00C0-\u017F -]/g, "").slice(0, 60).trim() || "conversation";
+  const stamp = new Date().toISOString().slice(0, 16).replace(/[:T]/g, "-");
+  const base = `${dir}/atelier-${safe}-${stamp}`;
+  writeFileSync(`${base}.md`, markdown);
+  writeFileSync(`${base}.json`, JSON.stringify({ thread, events }, null, 2));
+  return `${base}.md`;
+}
+
 async function providerStatus() {
   const [claudeV, codexV] = await Promise.all([cliVersion("claude"), cliVersion("codex")]);
   return [
@@ -91,6 +101,7 @@ wss.on("connection", (ws) => {
     status,
     clearPasted,
     providerStatus,
+    exportThread,
   };
   ws.on("message", async (data) => {
     let msg;

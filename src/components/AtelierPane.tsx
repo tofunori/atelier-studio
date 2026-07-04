@@ -7,6 +7,7 @@ const TAB_COLORS = ["#e05d5d", "#e8823a", "#8b5cf6", "#3b82f6", "#22b07d", "#e0b
 
 export default function AtelierPane({
   url,
+  onOpenUrl,
   files,
   onOpenFile,
   onPinTab,
@@ -31,7 +32,10 @@ export default function AtelierPane({
   onPinTab: (id: string) => void;
   onColorTab: (id: string, color?: string) => void;
   onReorderTabs: (ids: string[]) => void;
+  onOpenUrl: (url: string) => void;
 }) {
+  const [urlPrompt, setUrlPrompt] = useState(false);
+  const [urlText, setUrlText] = useState("");
   const [dragId, setDragId] = useState<string | null>(null);
   const [overId, setOverId] = useState<string | null>(null);
 
@@ -101,6 +105,28 @@ export default function AtelierPane({
             </span>
           </button>
         ))}
+        <button className="ghost" title="Ouvrir une URL dans un onglet" onClick={() => setUrlPrompt((v) => !v)}>
+          +
+        </button>
+        {urlPrompt && (
+          <input
+            className="url-input"
+            autoFocus
+            placeholder="https://…  (Entrée)"
+            value={urlText}
+            onChange={(e) => setUrlText(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Escape") setUrlPrompt(false);
+              if (e.key === "Enter" && urlText.trim()) {
+                let u = urlText.trim();
+                if (!/^https?:\/\//.test(u)) u = "https://" + u;
+                onOpenUrl(u);
+                setUrlText("");
+                setUrlPrompt(false);
+              }
+            }}
+          />
+        )}
         <span className="flex" />
         <button
           className={`ghost ${showExplorer ? "on" : ""}`}

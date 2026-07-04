@@ -410,3 +410,5 @@ input[type="range"].slider::-webkit-slider-thumb:hover { transform: scale(1.15);
 /* version sans padding : mêmes métriques que le texte de la textarea */
 .slash-cmd-inline { color: #5b9dff; background: rgba(91,157,255,0.12);
   border-radius: 4px; }
+.url-input { width: 260px; background: var(--bg-ctl); border: 1px solid var(--border);
+  border-radius: 7px; color: inherit; padding: 3px 10px; font-size: 12.5px; outline: none; }
