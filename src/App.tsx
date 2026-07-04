@@ -576,6 +576,31 @@ export default function App() {
           <Panel defaultSize={38} minSize={20}>
             <AtelierPane
               url={atelierUrl}
+              files={files}
+              onOpenFile={(rel) => {
+                if (!atelierUrl || !activeProject) return;
+                const origin = new URL(atelierUrl).origin;
+                const ext = rel.split(".").pop()?.toLowerCase() ?? "";
+                const name = rel.split("/").pop() ?? rel;
+                let url: string;
+                if (ext === "pdf") {
+                  url = `${origin}/.fig_thumbs/pdf_viewer.html?file=${encodeURIComponent(rel)}`;
+                } else if (["png", "jpg", "jpeg", "gif", "svg", "webp"].includes(ext)) {
+                  url = `${origin}/${rel}`;
+                } else {
+                  url = `${origin}/.fig_thumbs/latex_studio.html?path=${encodeURIComponent(
+                    `${activeProject}/${rel}`,
+                  )}`;
+                }
+                const existing = atelierTabsRef.current.find((t) => t.url === url);
+                if (existing) {
+                  setActiveTab(existing.id);
+                } else {
+                  const id = crypto.randomUUID();
+                  setAtelierTabs((tabs) => [...tabs, { id, url, title: name }]);
+                  setActiveTab(id);
+                }
+              }}
               tabs={atelierTabs}
               activeTab={activeTab}
               onSelectTab={setActiveTab}

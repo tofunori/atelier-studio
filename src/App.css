@@ -321,3 +321,20 @@ input[type="range"].slider::-webkit-slider-thumb:hover { transform: scale(1.15);
 .section-actions { display: flex; gap: 2px; }
 .section-actions .compact-btn { padding: 2px 7px; border-radius: 6px; font-size: 13px; }
 .section-actions .compact-btn:hover { background: var(--bg-ctl); color: var(--fg); }
+/* explorateur de fichiers */
+.atelier-split { display: flex; flex: 1; min-height: 0; }
+.atelier-split .atelier-body { flex: 1; }
+.explorer { width: 230px; flex-shrink: 0; border-left: 1px solid var(--border);
+  background: var(--bg-side); display: flex; flex-direction: column; }
+.exp-search { margin: 8px; padding: 6px 10px; background: var(--bg-ctl);
+  border: 1px solid var(--border); border-radius: 8px; color: inherit;
+  font-size: 12.5px; outline: none; }
+.exp-tree { flex: 1; overflow-y: auto; padding-bottom: 12px; font-size: 12.5px; }
+.exp-row { display: flex; align-items: center; gap: 5px; padding: 3px 8px;
+  cursor: pointer; color: var(--fg2); white-space: nowrap; }
+.exp-row:hover { background: var(--bg-ctl); }
+.exp-chev { color: var(--muted2); font-size: 9px; width: 10px; flex-shrink: 0; }
+.exp-file .exp-name { color: var(--muted); }
+.exp-file:hover .exp-name { color: var(--fg); }
+.exp-name { overflow: hidden; text-overflow: ellipsis; }
+.atelier-bar .ghost.on { background: var(--bg-ctl); color: var(--fg); }

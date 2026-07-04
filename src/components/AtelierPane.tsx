@@ -1,9 +1,13 @@
+import { useState } from "react";
 import { openUrl } from "@tauri-apps/plugin-opener";
+import Explorer from "./Explorer";
 
 type Tab = { id: string; url: string; title: string };
 
 export default function AtelierPane({
   url,
+  files,
+  onOpenFile,
   tabs,
   activeTab,
   onSelectTab,
@@ -18,7 +22,10 @@ export default function AtelierPane({
   onCloseTab: (id: string) => void;
   reloadKey: number;
   onHardReload: () => void;
+  files: string[];
+  onOpenFile: (rel: string) => void;
 }) {
+  const [showExplorer, setShowExplorer] = useState(false);
   const current = tabs.find((t) => t.id === activeTab);
   return (
     <div className="atelier-wrap">
@@ -55,6 +62,15 @@ export default function AtelierPane({
           </button>
         ))}
         <span className="flex" />
+        <button
+          className={`ghost ${showExplorer ? "on" : ""}`}
+          title="Explorateur de fichiers"
+          onClick={() => setShowExplorer((v) => !v)}
+        >
+          <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3">
+            <path d="M1.8 4.2c0-.7.5-1.2 1.2-1.2h3l1.4 1.6h5.6c.7 0 1.2.5 1.2 1.2v6c0 .7-.5 1.2-1.2 1.2H3c-.7 0-1.2-.5-1.2-1.2v-7.6z" />
+          </svg>
+        </button>
         <button className="ghost" title="Recharger (relance le serveur si mort)" onClick={onHardReload}>
           ↻
         </button>
@@ -66,6 +82,7 @@ export default function AtelierPane({
           ⧉
         </button>
       </div>
+      <div className="atelier-split">
       <div className="atelier-body">
         {/* la galerie reste montée (état préservé) ; les onglets aussi */}
         <iframe
@@ -84,6 +101,8 @@ export default function AtelierPane({
             title={t.title}
           />
         ))}
+      </div>
+      {showExplorer && <Explorer files={files} onOpen={onOpenFile} />}
       </div>
     </div>
   );
