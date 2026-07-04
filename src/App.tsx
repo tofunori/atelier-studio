@@ -182,7 +182,8 @@ export default function App() {
   const [activeTab, setActiveTab] = useState<string>("gallery");
   const [activeId, setActiveId] = useState<string | null>(null);
   const [atelierUrls, setAtelierUrls] = useState<Record<string, string>>({});
-  const [showAtelier, setShowAtelier] = useState(true);
+  const [layout, setLayout] = useState<"split" | "chat" | "atelier">("split");
+  const showAtelier = layout !== "chat";
 
   const connectedOnce = useRef(false);
   useEffect(() => {
@@ -343,8 +344,11 @@ export default function App() {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.metaKey && e.shiftKey && e.key.toLowerCase() === "a") {
-        setShowAtelier((v) => !v);
+        setLayout((l) => (l === "chat" ? "split" : "chat"));
       }
+      if (e.metaKey && !e.shiftKey && e.key === "1") setLayout("chat");
+      if (e.metaKey && !e.shiftKey && e.key === "2") setLayout("atelier");
+      if (e.metaKey && !e.shiftKey && e.key === "0") setLayout("split");
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
@@ -615,7 +619,8 @@ export default function App() {
       </Panel>
       <PanelResizeHandle className="handle" onDragging={setDragging} />
       </>)}
-      <Panel id="chat" order={2} minSize={30}>
+      <Panel id="chat" order={2} minSize={layout === "atelier" ? 0 : 30}
+        style={{ display: layout === "atelier" ? "none" : undefined }}>
         {annotation && (
           <div className="annot-banner">
             <span className="annot-text">{annotation.split("\n")[0].slice(0, 90)}</span>
@@ -693,6 +698,8 @@ export default function App() {
             setActiveId(newId);
             activeIdRef.current = newId;
           }}
+          layout={layout}
+          onToggleExpand={() => setLayout((l) => (l === "chat" ? "split" : "chat"))}
           onStop={() => {
             if (activeId && ws.current?.readyState === 1) {
               ws.current.send(JSON.stringify({ type: "interrupt", threadId: activeId }));
@@ -723,6 +730,8 @@ export default function App() {
           <Panel id="atelier" order={3} defaultSize={38} minSize={20}>
             <AtelierPane
               url={atelierUrl}
+              layout={layout}
+              onToggleExpand={() => setLayout((l) => (l === "atelier" ? "split" : "atelier"))}
               projectRoot={activeProject ?? ""}
               files={files}
               onReorderTabs={(ids) => {

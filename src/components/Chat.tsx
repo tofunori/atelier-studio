@@ -86,6 +86,8 @@ export default function Chat(p: {
   onQuote: (text: string) => void;
   onPasteImage: (dataURL: string) => void;
   onStop: () => void;
+  layout: "split" | "chat" | "atelier";
+  onToggleExpand: () => void;
   usage: { context: number; output: number; cost: number | null; turns: number | null } | null;
   onRevert: (index: number, text: string, edit: boolean) => void;
   onFork: (index: number) => void;
@@ -226,6 +228,14 @@ export default function Chat(p: {
   }
   return (
     <div className="chat">
+      <button className="expand-btn" title={p.layout === "chat" ? "Restaurer le split (⌘0)" : "Chat pleine largeur (⌘1)"}
+        onClick={p.onToggleExpand}>
+        {p.layout === "chat" ? (
+          <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.2"><path d="M6 2H2v4M10 14h4v-4M2 6l4-4M14 10l-4 4"/></svg>
+        ) : (
+          <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.2"><path d="M2 6V2h4M14 10v4h-4M2 2l4.5 4.5M14 14l-4.5-4.5"/></svg>
+        )}
+      </button>
       <div className="messages" onMouseUp={onMessagesMouseUp}>
         {p.events.length === 0 && (
           <div className="empty">Salut ! Comment je peux t'aider aujourd'hui ?</div>

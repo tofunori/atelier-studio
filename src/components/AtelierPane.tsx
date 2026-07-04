@@ -7,7 +7,7 @@ import TerminalSurface from "./TerminalSurface";
 type Tab = { id: string; url: string; title: string; color?: string; pinned?: boolean; kind?: "term"; cwd?: string };
 const TAB_COLORS = ["#e05d5d", "#e8823a", "#8b5cf6", "#3b82f6", "#22b07d", "#e0b74a"];
 
-type Surface = "atelier" | "explorer" | "browser" | "terminal";
+type Surface = "atelier" | "browser" | "terminal";
 
 const SURFACES: { id: Surface; label: string; icon: React.ReactNode }[] = [
   {
@@ -19,15 +19,6 @@ const SURFACES: { id: Surface; label: string; icon: React.ReactNode }[] = [
         <rect x="9.3" y="1.5" width="5.2" height="5.2" rx="1" />
         <rect x="1.5" y="9.3" width="5.2" height="5.2" rx="1" />
         <rect x="9.3" y="9.3" width="5.2" height="5.2" rx="1" />
-      </svg>
-    ),
-  },
-  {
-    id: "explorer",
-    label: "Explorer",
-    icon: (
-      <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.2">
-        <path d="M1.8 4.2c0-.7.5-1.2 1.2-1.2h3l1.4 1.6h5.6c.7 0 1.2.5 1.2 1.2v6c0 .7-.5 1.2-1.2 1.2H3c-.7 0-1.2-.5-1.2-1.2v-7.6z" />
       </svg>
     ),
   },
@@ -68,6 +59,8 @@ export default function AtelierPane({
   onCloseTab,
   reloadKey,
   onHardReload,
+  layout,
+  onToggleExpand,
 }: {
   url: string;
   projectRoot: string;
@@ -83,8 +76,11 @@ export default function AtelierPane({
   onColorTab: (id: string, color?: string) => void;
   onReorderTabs: (ids: string[]) => void;
   ws: WebSocket | null;
+  layout: "split" | "chat" | "atelier";
+  onToggleExpand: () => void;
 }) {
   const [surface, setSurface] = useState<Surface>("atelier");
+  const [showExplorer, setShowExplorer] = useState(false);
   const [visited, setVisited] = useState<Set<Surface>>(new Set(["atelier"]));
   const [dragId, setDragId] = useState<string | null>(null);
   const [overId, setOverId] = useState<string | null>(null);
@@ -130,8 +126,21 @@ export default function AtelierPane({
           </button>
         ))}
         <span className="flex" />
+        <button className="ghost" title={layout === "atelier" ? "Restaurer le split (⌘0)" : "Atelier pleine largeur (⌘2)"} onClick={onToggleExpand}>
+          {layout === "atelier" ? (
+            <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.2"><path d="M6 2H2v4M10 14h4v-4M2 6l4-4M14 10l-4 4"/></svg>
+          ) : (
+            <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.2"><path d="M2 6V2h4M14 10v4h-4M2 2l4.5 4.5M14 14l-4.5-4.5"/></svg>
+          )}
+        </button>
         {surface === "atelier" && (
           <>
+            <button className={`ghost ${showExplorer ? "on" : ""}`} title="Explorateur de fichiers"
+              onClick={() => setShowExplorer((v) => !v)}>
+              <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.2">
+                <path d="M1.8 4.2c0-.7.5-1.2 1.2-1.2h3l1.4 1.6h5.6c.7 0 1.2.5 1.2 1.2v6c0 .7-.5 1.2-1.2 1.2H3c-.7 0-1.2-.5-1.2-1.2v-7.6z" />
+              </svg>
+            </button>
             <button className="ghost" title="Recharger (relance le serveur si mort)" onClick={onHardReload}>↻</button>
             <button className="ghost" title="Ouvrir dans le navigateur" onClick={() => openUrl(current?.url ?? url)}>⧉</button>
           </>
@@ -168,6 +177,7 @@ export default function AtelierPane({
             </button>
           ))}
         </div>
+        <div className="atelier-split">
         <div className="atelier-body">
           <iframe
             key={reloadKey}
@@ -186,20 +196,9 @@ export default function AtelierPane({
             />
           ))}
         </div>
-      </div>
-
-      {/* ---- surface Explorer : arbre pleine hauteur ---- */}
-      {visited.has("explorer") && (
-        <div className="surface-body" style={{ display: surface === "explorer" ? "flex" : "none" }}>
-          <Explorer
-            files={files}
-            onOpen={(rel) => {
-              onOpenFile(rel);
-              switchSurface("atelier");
-            }}
-          />
+        {showExplorer && <Explorer files={files} onOpen={onOpenFile} />}
         </div>
-      )}
+      </div>
 
       {/* ---- surface Browser ---- */}
       {visited.has("browser") && (

@@ -431,7 +431,7 @@ input[type="range"].slider::-webkit-slider-thumb:hover { transform: scale(1.15);
 .surf.on { background: var(--bg-ctl); color: var(--fg); }
 .surface-body { display: flex; flex-direction: column; flex: 1; min-height: 0; }
 .surface-body .atelier-body { position: relative; flex: 1; min-height: 0; }
-.surface-body .explorer { width: 100%; border-left: none; }
+
 /* surfaces terminal */
 .term-surface { flex-direction: column; flex: 1; min-height: 0; }
 .term-bar { display: flex; align-items: center; gap: 4px; padding: 5px 8px;
@@ -462,3 +462,9 @@ input[type="range"].slider::-webkit-slider-thumb:hover { transform: scale(1.15);
 .bh-card-sub { font-size: 12.5px; color: var(--muted); margin-top: 2px; }
 .bh-dot { margin-left: auto; width: 10px; height: 10px; border-radius: 50%; background: #34c98e; }
 .bh-card-txt { flex: 1; }
+.expand-btn { position: absolute; top: 8px; right: 10px; z-index: 45;
+  background: transparent; border: none; color: var(--muted2); cursor: pointer;
+  padding: 4px 6px; border-radius: 6px; }
+.expand-btn:hover { background: var(--bg-ctl); color: var(--fg); }
+
+.surface-body .atelier-split { display: flex; flex: 1; min-height: 0; }
