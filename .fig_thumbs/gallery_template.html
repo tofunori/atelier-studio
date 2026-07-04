@@ -694,11 +694,15 @@ function cardMenu(anchor, rel){
   m.innerHTML='<div class="mhd">'+esc(f.name)+'</div>'
     +'<div class="mi" style="cursor:default">'+rateRow(rel)+'</div>'
     +'<div class="mhd sep"></div>'
+    +(ANNOT_EMBEDDED?'<div class="mi"><span class="lbl" data-cact="src">Open script &lt;/&gt;</span></div>'
+      +'<div class="mi"><span class="lbl" data-cact="board">Send to whiteboard</span></div>':'')
     +'<div class="mi"><span class="lbl" data-cact="hide">'+(isHid?'Unhide':'Hide')+'</span></div>'
     +'<div class="mi clr"><span class="lbl" data-cact="del">Move to Trash</span></div>';
   m.addEventListener('click',e=>e.stopPropagation());
   placeMenu(m, anchor);
   m.querySelectorAll('[data-act="rate"]').forEach(sp=>{ sp.onclick=ev=>{ setRate(rel, +sp.dataset.n, ev); closeFloat(); }; });
+  const _src=m.querySelector('[data-cact="src"]'); if(_src) _src.onclick=()=>{ closeFloat(); findScript(rel); };
+  const _bd=m.querySelector('[data-cact="board"]'); if(_bd) _bd.onclick=()=>{ closeFloat(); sendToBoard(rel, anchor); };
   m.querySelector('[data-cact="hide"]').onclick=()=>{ closeFloat(); toggleHide(rel); };
   m.querySelector('[data-cact="del"]').onclick=()=>{ closeFloat(); delOne(rel); };
 }
@@ -1089,8 +1093,8 @@ function render(){
         <button data-act="open" data-rel="${escA(f.rel)}" title="Open with default app">Open</button>
         <button data-act="copy" data-rel="${escA(f.rel)}" title="Copy path">Path</button>
         <button data-act="chat" data-rel="${escA(f.rel)}" class="embOnly" title="Joindre au chat de Studio">Chat</button>
-        ${(imgExt(f.ext)||f.ext==='pdf')?`<button data-act="src" data-rel="${escA(f.rel)}" title="Open the script that generated this figure">&lt;/&gt;</button>`:''}
-        ${imgExt(f.ext)?`<button data-act="board" data-rel="${escA(f.rel)}" title="Send this figure to the whiteboard">▦</button>`:''}
+        ${(imgExt(f.ext)||f.ext==='pdf')?`<button data-act="src" data-rel="${escA(f.rel)}" class="embHide" title="Open the script that generated this figure">&lt;/&gt;</button>`:''}
+        ${imgExt(f.ext)?`<button data-act="board" data-rel="${escA(f.rel)}" class="embHide" title="Send this figure to the whiteboard">▦</button>`:''}
         <button data-act="fav" data-rel="${escA(f.rel)}" class="${isFav?'on':''}" title="${isFav?'Remove favorite':'Add favorite'}">${isFav?'★':'☆'}</button>
         <button data-act="more" data-rel="${escA(f.rel)}" title="Rating, hide, delete">⋯</button>
       </div>
@@ -1320,8 +1324,8 @@ function annotInit(){
   });
   document.getElementById('annotUndo').onclick=()=>{annotStrokes.pop();annotRenumber();if(!annotStrokes.length)annotSent=true;document.getElementById('annotNote').style.display='none';annotRedraw();};
   document.getElementById('annotClear').onclick=()=>{annotStrokes=[];annotSent=true;document.getElementById('annotNote').style.display='none';annotRedraw();};
-  const ANNOT_EMBEDDED=(function(){try{return window.self!==window.top;
-  if(ANNOT_EMBEDDED){const st=document.createElement('style');st.textContent='.embOnly{display:inline-block !important}';document.head.appendChild(st);}}catch(e){return true;}})();
+  const ANNOT_EMBEDDED=(function(){try{return window.self!==window.top;}catch(e){return true;}})();
+  if(ANNOT_EMBEDDED){const st=document.createElement('style');st.textContent='.embOnly{display:inline-block !important} .embHide{display:none !important}';document.head.appendChild(st);}
   async function annotPost(direct){
     const f=lbList[lbIdx], img=document.getElementById('lbImg');
     const scale=Math.min(1, 2200/img.naturalWidth);
