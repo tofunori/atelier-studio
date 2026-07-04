@@ -700,7 +700,7 @@ function cardMenu(anchor, rel){
   m.innerHTML='<div class="mhd">'+esc(f.name)+'</div>'
     +'<div class="mi" style="cursor:default">'+rateRow(rel)+'</div>'
     +'<div class="mhd sep"></div>'
-    +(ANNOT_EMBEDDED?'<div class="mi"><span class="lbl" data-cact="src">Open script &lt;/&gt;</span></div>'
+    +((window.self!==window.top)?'<div class="mi"><span class="lbl" data-cact="src">Open script &lt;/&gt;</span></div>'
       +'<div class="mi"><span class="lbl" data-cact="board">Send to whiteboard</span></div>':'')
     +'<div class="mi"><span class="lbl" data-cact="hide">'+(isHid?'Unhide':'Hide')+'</span></div>'
     +'<div class="mi clr"><span class="lbl" data-cact="del">Move to Trash</span></div>';

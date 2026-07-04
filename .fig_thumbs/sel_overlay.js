@@ -1,4 +1,5 @@
 function __ct(){try{return JSON.parse(localStorage.getItem('claudeTargetV1')||'null')}catch(e){return null}}
+  var EMBEDDED = (function(){ try { return window.self !== window.top; } catch(e){ return true; } })();
 /* sel_overlay.js — select text in a project HTML report → annotate → send to Claude.
    Injected by fig_annotate_server into project .html files (never the gallery index
    or the /.fig_thumbs viewers, which have their own selection systems).
@@ -109,7 +110,6 @@ function __ct(){try{return JSON.parse(localStorage.getItem('claudeTargetV1')||'n
   }
 
 
-  var EMBEDDED = (function(){ try { return window.self !== window.top; } catch(e){ return true; } })();
 
   function send(){
     var go = pill.querySelector('.go');

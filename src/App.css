@@ -370,3 +370,5 @@ input[type="range"].slider::-webkit-slider-thumb:hover { transform: scale(1.15);
 .atab.drop-target { box-shadow: inset 2px 0 0 var(--blue, #5b9dff); }
 .atab[draggable="true"] { cursor: grab; }
 .atab[draggable="true"]:active { cursor: grabbing; }
+.atab-x { cursor: pointer; }
+.atab { cursor: pointer; }
