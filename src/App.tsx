@@ -122,6 +122,13 @@ export default function App() {
   }, [settings]);
   const [dragging, setDragging] = useState(false);
   const [unread, setUnread] = useState<Set<string>>(new Set());
+  const [favorites, setFavorites] = useState<string[]>(() => {
+    try { return JSON.parse(localStorage.getItem("atelier-studio.favorites") ?? "[]"); }
+    catch { return []; }
+  });
+  useEffect(() => {
+    localStorage.setItem("atelier-studio.favorites", JSON.stringify(favorites));
+  }, [favorites]);
   const activeIdRef = useRef<string | null>(null);
   // chapitres épinglés par thread : {index, label} (persistés)
   const [pins, setPins] = useState<Record<string, { index: number; label: string }[]>>(() => {
@@ -480,6 +487,10 @@ export default function App() {
           projects={projects}
           threads={allThreads}
           unread={unread}
+          favorites={favorites}
+          onToggleFavorite={(id) =>
+            setFavorites((f) => (f.includes(id) ? f.filter((x) => x !== id) : [...f, id]))
+          }
           threadOrder={settings.threadOrder}
           activeProject={activeProject}
           activeId={activeId}

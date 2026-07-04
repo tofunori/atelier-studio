@@ -9,6 +9,8 @@ export default function Sidebar(p: {
   projects: string[];
   threads: Thread[];
   unread: Set<string>;
+  favorites: string[];
+  onToggleFavorite: (id: string) => void;
   threadOrder: "recent" | "manual";
   activeProject: string | null;
   activeId: string | null;
@@ -65,6 +67,31 @@ export default function Sidebar(p: {
 
   return (
     <div className="sidebar">
+      {p.favorites.length > 0 && (
+        <>
+          <div className="section">Favoris</div>
+          <ul className="fav-list">
+            {p.favorites
+              .map((id) => p.threads.find((t) => t.id === id))
+              .filter((t): t is Thread => !!t)
+              .map((t) => (
+                <li
+                  key={t.id}
+                  className={t.id === p.activeId ? "active" : ""}
+                  onClick={() => p.onSelect(t.id, t.projectRoot)}
+                  onContextMenu={(e) => {
+                    e.preventDefault();
+                    setMenu({ x: e.clientX, y: e.clientY, threadId: t.id });
+                  }}
+                >
+                  <span className="prov-ico"><ProviderIcon provider={t.provider} /></span>
+                  <span className="title">{t.title}</span>
+                  <span className="fav-star">★</span>
+                </li>
+              ))}
+          </ul>
+        </>
+      )}
       <div className="section">
         Projets
         <span className="section-actions">
@@ -227,6 +254,14 @@ export default function Sidebar(p: {
             }}
           >
             Renommer
+          </div>
+          <div
+            onClick={() => {
+              p.onToggleFavorite(menu.threadId);
+              setMenu(null);
+            }}
+          >
+            {p.favorites.includes(menu.threadId) ? "Retirer des favoris" : "Ajouter aux favoris"}
           </div>
           <div
             className="danger"
