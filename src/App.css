@@ -338,3 +338,4 @@ input[type="range"].slider::-webkit-slider-thumb:hover { transform: scale(1.15);
 .exp-file:hover .exp-name { color: var(--fg); }
 .exp-name { overflow: hidden; text-overflow: ellipsis; }
 .atelier-bar .ghost.on { background: var(--bg-ctl); color: var(--fg); }
+.exp-ico { flex-shrink: 0; opacity: 0.85; }

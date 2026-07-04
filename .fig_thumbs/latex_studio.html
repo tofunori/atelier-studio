@@ -14,6 +14,8 @@
 <script src="/.fig_thumbs/cm/julia.min.js"></script>
 <script src="/.fig_thumbs/cm/shell.min.js"></script>
 <script src="/.fig_thumbs/pdfjs/pdf.min.js"></script>
+<script src="/.fig_thumbs/marked.min.js"></script>
+<script src="/.fig_thumbs/purify.min.js"></script>
 <style>
 :root{--bg:#202024;--card:#27272a;--card2:#1f1f23;--txt:#e4e4e7;--muted:#a1a1aa;--accent:#5b9dff;--border:#3f3f46}
   html,body{margin:0;height:100%;background:var(--bg);color:var(--txt);
@@ -59,7 +61,7 @@
   .CodeMirror-focused .CodeMirror-selected{background:transparent !important}
   .CodeMirror-selectedtext{background:rgba(91,157,255,.45) !important;box-shadow:none !important;border-radius:2px}
   /* last selection sent to Claude: persistent marker */
-  .cm-clsel{background:rgba(255,213,74,.16);box-shadow:0 1px 0 rgba(255,213,74,.4)}
+  .cm-clsel{background:rgba(91,157,255,.28);border-radius:2px}
   #picker{position:fixed;inset:0;background:rgba(0,0,0,.55);display:none;z-index:200;
           align-items:flex-start;justify-content:center;padding-top:8vh}
   #picker.show{display:flex}
@@ -179,6 +181,31 @@ if(!IS_TEX){
   ["build","togglePdf","popPdf","reloadPdf"].forEach(id => {
     const el = document.getElementById(id); if(el) el.style.display = "none";
   });
+  const IS_MD = __EXT === "md";
+  if(IS_MD){
+    // split éditeur | aperçu rendu (comme tex|PDF)
+    const r = document.getElementById("right");
+    if(r){
+      r.innerHTML = '<div id="mdprev" style="max-width:820px;margin:0 auto;padding:28px 32px;'
+        + 'font-family:var(--ui-font,-apple-system,sans-serif);font-size:14.5px;line-height:1.65;color:#d6dae0"></div>';
+      const prev = document.getElementById("mdprev");
+      const render = () => {
+        try{ prev.innerHTML = DOMPurify.sanitize(marked.parse(cm.getValue())); }catch(e){}
+      };
+      // cm est créé après le fetch du fichier : attendre qu'il existe
+      (function initMd(){
+        if(!cm){ setTimeout(initMd, 100); return; }
+        let mdT=null;
+        cm.on("change", () => { clearTimeout(mdT); mdT = setTimeout(render, 300); });
+        render();
+      })();
+    }
+  } else {
+    // pas d'aperçu pour les autres : l'éditeur prend toute la largeur
+    const r = document.getElementById("right"); if(r) r.style.display = "none";
+    const l = document.getElementById("left");
+    if(l){ l.style.width = "100%"; l.style.borderRight = "none"; }
+  }
   document.title = (path || "").split("/").pop();
 }
 const _base = path ? path.split("/").pop() : "(no file)";
@@ -243,7 +270,10 @@ async function load(){
             page: "L" + (f.line+1) + "-" + (t.line+1)
           })}).catch(()=>{});
         selPillShow(f, t, sel);
-      } else { selHide(); }
+      } else {
+        selHide();
+        if(window._clMark){ window._clMark.clear(); window._clMark = null; }
+      }
     }, 200);
   });
   applyWrap(wrapSel.value);
@@ -458,6 +488,7 @@ function selSend(){
     body: JSON.stringify({rel: path, page: lastSel.page, text: lastSel.text, comment: comment || "", direct: true, target: __ct(), embed: __EMB})})
     .then(r => r.json())
     .then(j => { if(__EMB && j && j.message) window.top.postMessage({type:'atelier-add-to-chat', text:j.message}, '*');
+      if(window._clMark){ window._clMark.clear(); window._clMark = null; }
       go.textContent = "✓"; setTimeout(() => { go.textContent = "↑"; selTa.value = ""; selHide(); }, 1200); })
     .catch(() => { go.textContent = "!"; setTimeout(() => { go.textContent = "↑"; }, 1600); });
 }
