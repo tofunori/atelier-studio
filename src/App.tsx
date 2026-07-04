@@ -488,7 +488,7 @@ export default function App() {
       )}
     <PanelGroup direction="horizontal" className="app">
       {!compact && (<>
-      <Panel defaultSize={16} minSize={12}>
+      <Panel id="sidebar" order={1} defaultSize={16} minSize={12}>
         <Sidebar
           projects={projects}
           threads={allThreads}
@@ -531,7 +531,7 @@ export default function App() {
       </Panel>
       <PanelResizeHandle className="handle" onDragging={setDragging} />
       </>)}
-      <Panel minSize={30}>
+      <Panel id="chat" order={2} minSize={30}>
         {annotation && (
           <div className="annot-banner">
             <span className="annot-text">{annotation.split("\n")[0].slice(0, 90)}</span>
@@ -619,7 +619,7 @@ export default function App() {
       {showAtelier && atelierUrl && (
         <>
           <PanelResizeHandle className="handle" onDragging={setDragging} />
-          <Panel defaultSize={38} minSize={20}>
+          <Panel id="atelier" order={3} defaultSize={38} minSize={20}>
             <AtelierPane
               url={atelierUrl}
               files={files}
