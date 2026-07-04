@@ -435,7 +435,7 @@ export default function App() {
         )}
         {annotation && (
           <div className="annot-banner">
-            <span className="annot-text">✏️ {annotation.split("\n")[0].slice(0, 90)}</span>
+            <span className="annot-text">{annotation.split("\n")[0].slice(0, 90)}</span>
             <button
               onClick={() => {
                 setAttachment(parseAttachment(annotation));
