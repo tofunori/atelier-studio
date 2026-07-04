@@ -15,6 +15,8 @@ export default function Sidebar(p: {
   onDelete: (threadId: string) => void;
   onRename: (threadId: string, title: string) => void;
   onSettings: () => void;
+  onCompact: () => void;
+  projMeta: Record<string, { color?: string; label?: string }>;
 }) {
   const [menu, setMenu] = useState<Menu | null>(null);
   const [collapsed, setCollapsed] = useState<string[]>(() => {
@@ -53,7 +55,12 @@ export default function Sidebar(p: {
 
   return (
     <div className="sidebar">
-      <div className="section">Projets</div>
+      <div className="section">
+        Projets
+        <button className="mini compact-btn" title="Barre compacte" onClick={p.onCompact}>
+          «
+        </button>
+      </div>
       {p.projects.map((root) => {
         const name = root.split("/").pop();
         const threads = p.threads.filter((t) => t.projectRoot === root);
@@ -66,7 +73,14 @@ export default function Sidebar(p: {
               onDoubleClick={() => toggleCollapse(root)}
               title="Double-clic : replier/déplier les chats"
             >
-              <span className="chev">{collapsed.includes(root) ? "▸" : "▾"}</span> {name}
+              <span className="chev">{collapsed.includes(root) ? "▸" : "▾"}</span>
+              <span
+                className="proj-badge"
+                style={{ background: p.projMeta[root]?.color ?? "#2c313a" }}
+              >
+                {p.projMeta[root]?.label ?? (name?.charAt(0).toUpperCase() || "?")}
+              </span>
+              {name}
               {active && (
                 <button
                   className="mini"

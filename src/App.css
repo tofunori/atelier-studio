@@ -137,3 +137,39 @@ html, body, #root, .app { height: 100vh;
   box-shadow: 0 6px 18px rgba(0,0,0,0.5); }
 .quote-pill:hover { background: #3a414d; }
 .chev { color: #6b7482; font-size: 10px; width: 10px; display: inline-block; }
+/* rail compacte façon Muxy */
+.app-row { display: flex; height: 100vh; }
+.app-row .app { flex: 1; }
+.rail { width: 54px; flex-shrink: 0; background: #16181c; display: flex;
+  flex-direction: column; align-items: center; gap: 8px; padding: 10px 0;
+  border-right: 1px solid #2c313a; position: relative; }
+.rail .flex { flex: 1; }
+.rail-btn { width: 34px; height: 34px; border-radius: 9px; border: none;
+  background: #2c313a; color: #8a919e; font-size: 15px; cursor: pointer; }
+.rail-btn:hover { color: #fff; }
+.rail-proj { position: relative; width: 36px; height: 36px; border-radius: 10px;
+  border: 2px solid transparent; color: #fff; font-size: 15px; font-weight: 600;
+  cursor: pointer; display: flex; align-items: center; justify-content: center; }
+.rail-proj.on { border-color: #5b9dff; box-shadow: 0 0 0 2px rgba(91,157,255,0.25); }
+.rail-dot { position: absolute; top: -2px; right: -2px; width: 9px; height: 9px;
+  border-radius: 50%; background: #e8823a; border: 2px solid #16181c; }
+.rail-menu { position: fixed; left: 60px; z-index: 120; background: #1b1f26;
+  border: 1px solid #333a45; border-radius: 12px; padding: 12px; width: 200px;
+  display: flex; flex-direction: column; gap: 10px;
+  box-shadow: 0 8px 24px rgba(0,0,0,0.5); }
+.rail-menu-title { font-size: 12px; color: #8a919e; overflow: hidden;
+  text-overflow: ellipsis; white-space: nowrap; }
+.swatches { display: flex; flex-wrap: wrap; gap: 6px; }
+.swatch { width: 22px; height: 22px; border-radius: 6px; cursor: pointer;
+  display: inline-flex; align-items: center; justify-content: center;
+  color: #8a919e; font-size: 12px; }
+.swatch:hover { outline: 2px solid #5b9dff; }
+.swatch.none { background: #2c313a; }
+.rail-menu input { background: #2c313a; border: 1px solid #3a414d; border-radius: 6px;
+  color: inherit; padding: 5px 8px; font-size: 12px; outline: none; }
+.proj-badge { width: 18px; height: 18px; border-radius: 5px; display: inline-flex;
+  align-items: center; justify-content: center; font-size: 11px; font-weight: 600;
+  color: #fff; flex-shrink: 0; }
+.section { display: flex; align-items: center; justify-content: space-between; }
+.compact-btn { background: transparent; border: none; color: #6b7482;
+  cursor: pointer; font-size: 14px; }

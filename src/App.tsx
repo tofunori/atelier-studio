@@ -11,6 +11,7 @@ import {
   Command,
 } from "./lib/ws";
 import Sidebar from "./components/Sidebar";
+import Rail, { ProjMeta } from "./components/Rail";
 import Chat from "./components/Chat";
 import AtelierPane from "./components/AtelierPane";
 import "./App.css";
@@ -76,6 +77,21 @@ export default function App() {
     Number(localStorage.getItem("atelier-studio.chatFontSize") ?? 15),
   );
   const [showSettings, setShowSettings] = useState(false);
+  const [compact, setCompact] = useState(() => localStorage.getItem("atelier-studio.compact") === "1");
+  const [projMeta, setProjMeta] = useState<Record<string, ProjMeta>>(() => {
+    try {
+      return JSON.parse(localStorage.getItem("atelier-studio.projMeta") ?? "{}");
+    } catch {
+      return {};
+    }
+  });
+
+  useEffect(() => {
+    localStorage.setItem("atelier-studio.compact", compact ? "1" : "0");
+  }, [compact]);
+  useEffect(() => {
+    localStorage.setItem("atelier-studio.projMeta", JSON.stringify(projMeta));
+  }, [projMeta]);
 
   useEffect(() => {
     localStorage.setItem("atelier-studio.chatFontSize", String(chatFontSize));
@@ -295,8 +311,27 @@ export default function App() {
   const allThreads = [...draftThreads.filter((t) => !knownIds.has(t.id)), ...threads];
   const atelierUrl = activeProject ? atelierUrls[activeProject] : null;
 
+  const runningProjects = new Set(
+    allThreads.filter((t) => t.status === "running").map((t) => t.projectRoot),
+  );
+
   return (
+    <div className="app-row">
+      {compact && (
+        <Rail
+          projects={projects}
+          activeProject={activeProject}
+          meta={projMeta}
+          running={runningProjects}
+          onSelectProject={setActiveProject}
+          onAddProject={addProject}
+          onExpand={() => setCompact(false)}
+          onSettings={() => setShowSettings((v) => !v)}
+          onSetMeta={(root, m) => setProjMeta((p) => ({ ...p, [root]: m }))}
+        />
+      )}
     <PanelGroup direction="horizontal" className="app">
+      {!compact && (<>
       <Panel defaultSize={16} minSize={12}>
         <Sidebar
           projects={projects}
@@ -327,9 +362,12 @@ export default function App() {
             }
           }}
           onSettings={() => setShowSettings((v) => !v)}
+          onCompact={() => setCompact(true)}
+          projMeta={projMeta}
         />
       </Panel>
       <PanelResizeHandle className="handle" />
+      </>)}
       <Panel minSize={30}>
         {showSettings && (
           <div className="settings-pop">
@@ -415,5 +453,6 @@ export default function App() {
         </>
       )}
     </PanelGroup>
+    </div>
   );
 }
