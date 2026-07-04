@@ -57,6 +57,11 @@ function Working({ since }: { since: number }) {
 
 type Suggestion = { insert: string; label: string; hint?: string };
 
+function isValidSkill(token: string, commands: { name: string }[]): boolean {
+  const name = token.replace(/^\//, "");
+  return commands.some((cmd) => cmd.name === name);
+}
+
 function PinBtn({ pinned, onClick }: { pinned: boolean; onClick: () => void }) {
   return (
     <button title={pinned ? "Désépingler le chapitre" : "Épingler comme chapitre"} onClick={onClick}
@@ -252,7 +257,7 @@ export default function Chat(p: {
                   <div className="user-bubble">
                     {(() => {
                       const m = /^(\/[\w:-]+)([\s\S]*)$/.exec(e.text);
-                      if (m) {
+                      if (m && isValidSkill(m[1], p.commands)) {
                         return (
                           <>
                             <span className="slash-cmd">{m[1]}</span>
@@ -408,7 +413,7 @@ export default function Chat(p: {
         <div className="ta-backdrop" aria-hidden="true">
           {(() => {
             const m = /^(\/[\w:-]+)([\s\S]*)$/.exec(text);
-            if (m) {
+            if (m && isValidSkill(m[1], p.commands)) {
               return (
                 <>
                   <span className="slash-cmd-inline">{m[1]}</span>
