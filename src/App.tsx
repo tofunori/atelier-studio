@@ -29,6 +29,7 @@ export default function App() {
   // threads locaux (pas encore connus du sidecar) — nouveaux chats vides
   const [draftThreads, setDraftThreads] = useState<Thread[]>([]);
   const [events, setEvents] = useState<Record<string, AgentEvent[]>>({});
+  const [workingSince, setWorkingSince] = useState<Record<string, number | null>>({});
   const [activeId, setActiveId] = useState<string | null>(null);
   const [atelierUrls, setAtelierUrls] = useState<Record<string, string>>({});
   const [showAtelier, setShowAtelier] = useState(true);
@@ -41,11 +42,15 @@ export default function App() {
     connectedOnce.current = true;
     connectSidecar((msg) => {
       if (msg.type === "threads") setThreads(msg.threads);
-      if (msg.type === "event")
+      if (msg.type === "event") {
         setEvents((prev) => ({
           ...prev,
           [msg.threadId]: [...(prev[msg.threadId] ?? []), msg.event],
         }));
+        if (msg.event.kind === "done" || msg.event.kind === "error") {
+          setWorkingSince((p) => ({ ...p, [msg.threadId]: null }));
+        }
+      }
       if (msg.type === "error") console.error("sidecar:", msg.message);
     })
       .then((s) => {
@@ -137,6 +142,7 @@ export default function App() {
       ...p,
       [id]: [...(p[id] ?? []), { kind: "text", text: `**Toi :** ${prompt}` }],
     }));
+    setWorkingSince((p) => ({ ...p, [id as string]: Date.now() }));
     if (mock) {
       setDraftThreads((p) =>
         p.map((t) =>
@@ -199,6 +205,7 @@ export default function App() {
       <Panel minSize={30}>
         <Chat
           events={activeId ? (events[activeId] ?? []) : []}
+          workingSince={activeId ? (workingSince[activeId] ?? null) : null}
           disabled={!activeProject}
           onSubmit={submit}
         />
