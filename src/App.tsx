@@ -629,6 +629,10 @@ export default function App() {
                   url = `${origin}/.fig_thumbs/pdf_viewer.html?file=${encodeURIComponent(rel)}`;
                 } else if (["png", "jpg", "jpeg", "gif", "svg", "webp"].includes(ext)) {
                   url = `${origin}/${rel}`;
+                } else if (ext === "md") {
+                  url = `${origin}/.fig_thumbs/md_studio.html?path=${encodeURIComponent(
+                    `${activeProject}/${rel}`,
+                  )}`;
                 } else {
                   url = `${origin}/.fig_thumbs/latex_studio.html?path=${encodeURIComponent(
                     `${activeProject}/${rel}`,

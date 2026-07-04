@@ -1,0 +1,159 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<title>md studio</title>
+<link rel="stylesheet" href="/.fig_thumbs/toastui/toastui-editor.min.css">
+<link rel="stylesheet" href="/.fig_thumbs/toastui/toastui-editor-dark.min.css">
+<script src="/.fig_thumbs/toastui/toastui-editor-all.min.js"></script>
+<style>
+  :root{--bg:#212429;--bar:#1a1d22;--border:#333a45;--fg:#e8eaed;--muted:#8a919e}
+  html,body{margin:0;height:100%;background:var(--bg);color:var(--fg);
+    font-family:-apple-system,'SF Pro Text',sans-serif}
+  #bar{display:flex;align-items:center;gap:8px;padding:6px 10px;background:var(--bar);
+    border-bottom:1px solid var(--border);font-size:13px}
+  #fname{font-weight:600}
+  #state{color:var(--muted);font-size:12px}
+  #state.dirty{color:#ffd54a}
+  #bar button{background:#2c313a;border:1px solid var(--border);border-radius:7px;
+    color:var(--fg);padding:4px 12px;cursor:pointer;font-size:12.5px}
+  #bar button:hover{border-color:#4a5462}
+  #ed{height:calc(100vh - 41px)}
+  .toastui-editor-dark .toastui-editor-defaultUI{border:none}
+  .toastui-editor-dark .toastui-editor-defaultUI-toolbar{background:var(--bar)}
+  .toastui-editor-dark .ProseMirror, .toastui-editor-dark .toastui-editor-contents{
+    font-size:15px;line-height:1.65}
+  .toastui-editor-dark .toastui-editor-ww-container,
+  .toastui-editor-dark .toastui-editor-main{background:var(--bg)}
+</style>
+</head>
+<body>
+<div id="bar">
+  <span id="fname"></span>
+  <span id="state">chargement…</span>
+  <span style="flex:1"></span>
+  <button id="save">Save ⌘S</button>
+</div>
+<div id="ed"></div>
+<script>
+const path = new URLSearchParams(location.search).get("path");
+document.getElementById("fname").textContent = (path || "").split("/").pop();
+const stateEl = document.getElementById("state");
+let diskMtime = 0, dirty = false, editor = null, loading = true;
+
+function setState(cls, txt){ stateEl.className = cls; stateEl.textContent = txt; }
+
+fetch("/code?path=" + encodeURIComponent(path)).then(r => r.json()).then(j => {
+  diskMtime = j.mtime;
+  editor = new toastui.Editor({
+    el: document.getElementById("ed"),
+    initialValue: j.text,
+    initialEditType: "wysiwyg",
+    previewStyle: "tab",
+    height: "100%",
+    theme: "dark",
+    usageStatistics: false,
+    hideModeSwitch: false,
+    toolbarItems: [
+      ["heading", "bold", "italic", "strike"],
+      ["hr", "quote"],
+      ["ul", "ol", "task"],
+      ["table", "link", "image", "code", "codeblock"],
+    ],
+  });
+  editor.on("change", () => {
+    if(loading) return;
+    dirty = true; setState("dirty", "modifié");
+  });
+  setTimeout(() => { loading = false; }, 300);
+  setState("", "");
+});
+
+async function save(){
+  if(!editor) return;
+  const r = await fetch("/codesave", {method:"POST", headers:{"Content-Type":"application/json"},
+    body: JSON.stringify({path, text: editor.getMarkdown(), mtime: diskMtime})});
+  const j = await r.json();
+  if(j.error === "conflit"){ setState("dirty", "conflit disque — re-⌘S pour écraser"); diskMtime = j.mtime; return; }
+  diskMtime = j.mtime; dirty = false; setState("", "sauvegardé " + new Date().toLocaleTimeString());
+}
+document.getElementById("save").onclick = save;
+document.addEventListener("keydown", (e) => {
+  if((e.metaKey || e.ctrlKey) && e.key === "s"){ e.preventDefault(); save(); }
+});
+
+// reload auto si Claude modifie le fichier sur disque (buffer propre seulement)
+setInterval(async () => {
+  try{
+    const j = await (await fetch("/code?path=" + encodeURIComponent(path) + "&statonly=1")).json();
+    if(j.mtime && Math.abs(j.mtime - diskMtime) > 0.001){
+      if(dirty){ setState("dirty", "le fichier a changé sur disque (Claude ?)"); return; }
+      const full = await (await fetch("/code?path=" + encodeURIComponent(path))).json();
+      loading = true;
+      diskMtime = full.mtime;
+      editor.setMarkdown(full.text, false);
+      setTimeout(() => { loading = false; }, 300);
+      setState("", "rechargé (modifié sur disque)");
+    }
+  }catch(e){}
+}, 2000);
+
+// « Add to chat » sur sélection (mode Studio)
+if(window.self !== window.top){
+  const pill = document.createElement("button");
+  pill.innerHTML = '<svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" style="vertical-align:-2px"><path d="M14 8c0 3-2.7 5.2-6 5.2-.8 0-1.6-.1-2.3-.4L2.5 14l1-2.6C2.6 10.5 2 9.3 2 8c0-3 2.7-5.2 6-5.2S14 5 14 8z"/></svg>&nbsp; Add to chat';
+  pill.style.cssText = "position:fixed;z-index:9999;display:none;background:#2c313a;color:#e6e6e6;"
+    + "border:1px solid #3a414d;border-radius:999px;padding:7px 14px;font-size:13px;cursor:pointer;"
+    + "box-shadow:0 6px 18px rgba(0,0,0,.5);font-family:-apple-system,sans-serif";
+  document.body.appendChild(pill);
+  let selTxt = "";
+  pill.addEventListener("mousedown", (e) => {
+    e.preventDefault(); e.stopPropagation();
+    if(!selTxt) return;
+    let page = "";
+    try{
+      const src = editor ? editor.getMarkdown() : "";
+      const words = selTxt.split(/\s+/).filter(Boolean);
+      const flat = (x) => x.replace(/[#*_`>\[\]()!-]/g, "").replace(/\s+/g, " ");
+      const srcFlat = flat(src);
+      const i0 = srcFlat.indexOf(flat(words.slice(0, 4).join(" ")));
+      const i1 = srcFlat.indexOf(flat(words.slice(-4).join(" ")), Math.max(0, i0));
+      if(i0 >= 0){
+        const lineOf = (idx) => {
+          let seen = 0, line = 1;
+          for(const ln of src.split("\n")){
+            seen += flat(ln).length + 1;
+            if(seen > idx) return line;
+            line++;
+          }
+          return line;
+        };
+        const a = lineOf(i0), b = i1 >= 0 ? lineOf(i1) : a;
+        page = "L" + a + (b > a ? "-" + b : "");
+      }
+    }catch(err){}
+    fetch("/quote", {method:"POST", headers:{"Content-Type":"application/json"},
+      body: JSON.stringify({rel: path, page, text: selTxt, comment: "", direct: true, embed: true})})
+      .then(r => r.json())
+      .then(j => { if(j && j.message) window.top.postMessage({type:"atelier-add-to-chat", text:j.message}, "*"); })
+      .catch(() => {});
+    pill.style.display = "none";
+    try{ window.getSelection().removeAllRanges(); }catch(err){}
+  });
+  document.addEventListener("mouseup", (e) => {
+    if(e.target === pill) return;
+    setTimeout(() => {
+      const sel = window.getSelection();
+      const t = sel ? String(sel).trim() : "";
+      if(!t || !sel || sel.rangeCount === 0){ pill.style.display = "none"; selTxt = ""; return; }
+      selTxt = t;
+      const rect = sel.getRangeAt(0).getBoundingClientRect();
+      pill.style.left = Math.max(8, rect.left + rect.width / 2 - 55) + "px";
+      pill.style.top = Math.max(8, rect.top - 42) + "px";
+      pill.style.display = "block";
+    }, 0);
+  });
+}
+</script>
+</body>
+</html>

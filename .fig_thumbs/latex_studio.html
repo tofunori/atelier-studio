@@ -226,6 +226,67 @@ if(!IS_TEX){
         mdApply(localStorage.getItem("mdViewMode") || "edit");
       }
       setTimeout(initMd, 0);
+      // « Add to chat » sur sélection dans l'APERÇU rendu (mode Studio)
+      if(window.self !== window.top){
+        const pillBtn = document.createElement("button");
+        pillBtn.innerHTML = '<svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" style="vertical-align:-2px"><path d="M14 8c0 3-2.7 5.2-6 5.2-.8 0-1.6-.1-2.3-.4L2.5 14l1-2.6C2.6 10.5 2 9.3 2 8c0-3 2.7-5.2 6-5.2S14 5 14 8z"/></svg>&nbsp; Add to chat';
+        pillBtn.style.cssText = "position:fixed;z-index:9999;display:none;background:#2c313a;"
+          + "color:#e6e6e6;border:1px solid #3a414d;border-radius:999px;padding:7px 14px;"
+          + "font-size:13px;cursor:pointer;box-shadow:0 6px 18px rgba(0,0,0,.5);"
+          + "font-family:-apple-system,sans-serif";
+        document.body.appendChild(pillBtn);
+        let selTxt = "";
+        pillBtn.addEventListener("mousedown", (e) => {
+          e.preventDefault(); e.stopPropagation();
+          if(!selTxt) return;
+          // retrouver les lignes source : le rendu enlève la syntaxe md, on
+          // cherche les premiers/derniers mots de la sélection dans la source
+          let page = "";
+          try{
+            const src = cm ? cm.getValue() : "";
+            const words = selTxt.split(/\s+/).filter(Boolean);
+            const head = words.slice(0, 4).join(" ");
+            const tail = words.slice(-4).join(" ");
+            const flat = (x) => x.replace(/[#*_`>\[\]()!-]/g, "").replace(/\s+/g, " ");
+            const srcFlat = flat(src);
+            const i0 = srcFlat.indexOf(flat(head));
+            const i1 = srcFlat.indexOf(flat(tail), Math.max(0, i0));
+            if(i0 >= 0){
+              // reconvertir les index aplatis en numéros de ligne approximatifs
+              const lineOf = (idx) => {
+                let seen = 0, line = 1;
+                for(const ln of src.split("\n")){
+                  seen += flat(ln).length + 1;
+                  if(seen > idx) return line;
+                  line++;
+                }
+                return line;
+              };
+              const a = lineOf(i0), b = i1 >= 0 ? lineOf(i1) : a;
+              page = "L" + a + (b > a ? "-" + b : "");
+            }
+          }catch(err){}
+          fetch("/quote", {method:"POST", headers:{"Content-Type":"application/json"},
+            body: JSON.stringify({rel: path, page: page, text: selTxt, comment: "", direct: true, embed: true})})
+            .then(r => r.json())
+            .then(j => { if(j && j.message) window.top.postMessage({type:"atelier-add-to-chat", text:j.message}, "*"); })
+            .catch(() => {});
+          pillBtn.style.display = "none";
+          try{ window.getSelection().removeAllRanges(); }catch(err){}
+        });
+        r.addEventListener("mouseup", () => {
+          setTimeout(() => {
+            const sel = window.getSelection();
+            const t = sel ? String(sel).trim() : "";
+            if(!t || !sel || sel.rangeCount === 0){ pillBtn.style.display = "none"; selTxt = ""; return; }
+            selTxt = t;
+            const rect = sel.getRangeAt(0).getBoundingClientRect();
+            pillBtn.style.left = Math.max(8, rect.left + rect.width/2 - 55) + "px";
+            pillBtn.style.top = Math.max(8, rect.top - 42) + "px";
+            pillBtn.style.display = "block";
+          }, 0);
+        });
+      }
     }
   } else {
     // pas d'aperçu pour les autres : l'éditeur prend toute la largeur
