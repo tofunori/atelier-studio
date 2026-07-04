@@ -468,3 +468,16 @@ input[type="range"].slider::-webkit-slider-thumb:hover { transform: scale(1.15);
 .expand-btn:hover { background: var(--bg-ctl); color: var(--fg); }
 
 .surface-body .atelier-split { display: flex; flex: 1; min-height: 0; }
+/* ghost générique (surface-bar, term-bar, browser-bar…) — plus de boutons natifs blancs */
+button.ghost { background: transparent; border: none; color: var(--muted2);
+  cursor: pointer; font-size: 14px; padding: 3px 7px; border-radius: 6px;
+  display: inline-flex; align-items: center; justify-content: center; }
+button.ghost:hover { background: var(--bg-ctl); color: var(--fg); }
+button.ghost.on { background: var(--bg-ctl); color: var(--fg); }
+button.ghost:disabled { opacity: 0.35; cursor: default; }
+/* onglets (atelier-bar ET term-bar) — pilule discrète façon Synara */
+.term-bar .atab, .atelier-bar .atab { background: transparent; border: none;
+  color: var(--muted); font-size: 12.5px; padding: 5px 11px; border-radius: 8px;
+  display: inline-flex; align-items: center; gap: 7px; cursor: pointer; }
+.term-bar .atab.on, .atelier-bar .atab.on { background: var(--bg-ctl); color: var(--fg); }
+.term-bar .atab:hover, .atelier-bar .atab:hover { color: var(--fg2); }
