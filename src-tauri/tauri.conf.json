@@ -32,7 +32,8 @@
       "icons/icon.ico"
     ],
     "resources": {
-      "../sidecar/": "sidecar/"
+      "../sidecar/": "sidecar/",
+      "icons/Assets.car": "Assets.car"
     }
   }
 }
