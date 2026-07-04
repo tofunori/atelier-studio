@@ -85,6 +85,8 @@ export default function App() {
   );
   const [showSettings, setShowSettings] = useState(false);
   const [dragging, setDragging] = useState(false);
+  const [unread, setUnread] = useState<Set<string>>(new Set());
+  const activeIdRef = useRef<string | null>(null);
   // chapitres épinglés par thread : {index, label} (persistés)
   const [pins, setPins] = useState<Record<string, { index: number; label: string }[]>>(() => {
     try {
@@ -139,6 +141,9 @@ export default function App() {
         }));
         if (msg.event.kind === "done" || msg.event.kind === "error") {
           setWorkingSince((p) => ({ ...p, [msg.threadId]: null }));
+          if (msg.threadId !== activeIdRef.current) {
+            setUnread((u) => new Set(u).add(msg.threadId));
+          }
           // l'agent a peut-être régénéré des figures → recharger atelier
           if (msg.event.kind === "done") setAtelierReload((n) => n + 1);
         }
@@ -272,11 +277,19 @@ export default function App() {
     ]);
     setActiveProject(projectRoot);
     setActiveId(id);
+    activeIdRef.current = id;
     setEvents((p) => ({ ...p, [id]: [] }));
   }
 
   function selectThread(threadId: string, projectRoot: string) {
     setActiveId(threadId);
+    activeIdRef.current = threadId;
+    setUnread((u) => {
+      if (!u.has(threadId)) return u;
+      const n = new Set(u);
+      n.delete(threadId);
+      return n;
+    });
     setActiveProject(projectRoot);
     // conversation pas encore en mémoire → recharger l'historique de la session
     if (!events[threadId]?.length && ws.current?.readyState === 1) {
@@ -407,6 +420,7 @@ export default function App() {
         <Sidebar
           projects={projects}
           threads={allThreads}
+          unread={unread}
           activeProject={activeProject}
           activeId={activeId}
           onAddProject={addProject}

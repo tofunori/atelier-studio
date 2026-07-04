@@ -236,3 +236,7 @@ html, body, #root, .app { height: 100vh;
 /* pendant le drag des séparateurs, les iframes ne volent plus la souris */
 .app-row.dragging iframe { pointer-events: none; }
 .handle[data-resize-handle-active] { background: #4a5462; }
+/* thread terminé pendant qu'on regardait ailleurs : pastille verte pulsée */
+.dot.unread { background: #34c98e !important; animation: unreadPulse 1.6s ease-in-out infinite; }
+@keyframes unreadPulse { 0%,100% { box-shadow: 0 0 0 0 rgba(52,201,142,0.5); }
+  50% { box-shadow: 0 0 0 4px rgba(52,201,142,0); } }

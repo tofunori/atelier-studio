@@ -7,6 +7,7 @@ type Menu = { x: number; y: number; threadId: string };
 export default function Sidebar(p: {
   projects: string[];
   threads: Thread[];
+  unread: Set<string>;
   activeProject: string | null;
   activeId: string | null;
   onAddProject: () => void;
@@ -117,7 +118,7 @@ export default function Sidebar(p: {
                     setMenu({ x: e.clientX, y: e.clientY, threadId: t.id });
                   }}
                 >
-                  <span className={`dot ${t.provider}`} />
+                  <span className={`dot ${t.provider} ${p.unread.has(t.id) ? "unread" : ""}`} />
                   {editingId === t.id ? (
                     <input
                       ref={editRef}
