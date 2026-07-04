@@ -114,7 +114,7 @@ export default function App() {
       if (msg.type === "event") {
         setEvents((prev) => ({
           ...prev,
-          [msg.threadId]: [...(prev[msg.threadId] ?? []), msg.event],
+          [msg.threadId]: [...(prev[msg.threadId] ?? []), { ...msg.event, ts: Date.now() }],
         }));
         if (msg.event.kind === "done" || msg.event.kind === "error") {
           setWorkingSince((p) => ({ ...p, [msg.threadId]: null }));
@@ -252,9 +252,15 @@ export default function App() {
     if (!activeProject) return;
     // pièce jointe (annotation/sélection atelier) : préfixée au prompt envoyé
     const fullPrompt = attachment ? `${attachment.text}\n\n${prompt}`.trim() : prompt;
-    const shownPrompt = attachment
-      ? `📎 *${attachment.name}${attachment.lines ? ` (lines ${attachment.lines})` : ""}*\n\n${prompt}`
-      : prompt;
+    const userEvent = {
+      kind: "user" as const,
+      text: prompt,
+      ts: Date.now(),
+      ...(attachment?.imageUrl ? { imageUrl: attachment.imageUrl } : {}),
+      ...(attachment && !attachment.imageUrl
+        ? { label: `${attachment.name}${attachment.lines ? ` (lines ${attachment.lines})` : ""}` }
+        : {}),
+    };
     setAttachment(null);
     // pas de thread sélectionné → en créer un à la volée
     let id = activeId;
@@ -276,7 +282,7 @@ export default function App() {
     }
     setEvents((p) => ({
       ...p,
-      [id]: [...(p[id] ?? []), { kind: "text", text: `**Toi :** ${shownPrompt}` }],
+      [id]: [...(p[id] ?? []), userEvent],
     }));
     setWorkingSince((p) => ({ ...p, [id as string]: Date.now() }));
     if (mock) {
@@ -427,6 +433,15 @@ export default function App() {
           onInjected={() => setInjectText(null)}
           attachment={attachment}
           onClearAttachment={() => setAttachment(null)}
+          onRevert={(index, text, edit) => {
+            if (!activeId) return;
+            const id = activeId;
+            setEvents((p) => ({ ...p, [id]: (p[id] ?? []).slice(0, index) }));
+            if (ws.current?.readyState === 1) {
+              ws.current.send(JSON.stringify({ type: "revert", threadId: id, text }));
+            }
+            if (edit) setInjectText(text);
+          }}
           onStop={() => {
             if (activeId && ws.current?.readyState === 1) {
               ws.current.send(JSON.stringify({ type: "interrupt", threadId: activeId }));

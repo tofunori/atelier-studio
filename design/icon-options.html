@@ -1,0 +1,169 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<title>Atelier Studio — Options d'icône</title>
+<style>
+  :root { color-scheme: dark; }
+  body {
+    margin: 0; padding: 48px 32px;
+    background: linear-gradient(160deg,#101014,#1a1a22);
+    font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", sans-serif;
+    color: #e8e8ee; min-height: 100vh;
+  }
+  h1 { font-weight: 700; font-size: 28px; margin: 0 0 6px; }
+  p.sub { color:#9a9aa8; margin:0 0 40px; font-size:15px; }
+  .grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(260px,1fr)); gap:36px; max-width:1200px; }
+  .card { background:#1d1d26; border:1px solid #2c2c38; border-radius:20px; padding:28px; text-align:center; }
+  .card h2 { font-size:17px; margin:20px 0 6px; }
+  .card p { font-size:13px; color:#9a9aa8; margin:0; line-height:1.5; }
+  .icon { width:160px; height:160px; margin:0 auto; filter: drop-shadow(0 10px 24px rgba(0,0,0,.5)); }
+  .dockrow { display:flex; justify-content:center; gap:10px; margin-top:18px; align-items:flex-end; }
+  .dockrow svg { width:48px; height:48px; }
+  .tag { display:inline-block; margin-top:12px; font-size:11px; letter-spacing:.08em; color:#7dd3fc; background:#0c2733; border-radius:99px; padding:3px 10px; }
+</style>
+</head>
+<body>
+<h1>Atelier Studio — options d'icône</h1>
+<p class="sub">Squircle macOS 26 · aperçu grand format + taille Dock. Dis-moi laquelle (ou un mix).</p>
+
+<!-- Shared defs -->
+<svg width="0" height="0" style="position:absolute">
+  <defs>
+    <clipPath id="sq" clipPathUnits="objectBoundingBox">
+      <path d="M0.5,0 C0.85,0 1,0.15 1,0.5 C1,0.85 0.85,1 0.5,1 C0.15,1 0,0.85 0,0.5 C0,0.15 0.15,0 0.5,0 Z"/>
+    </clipPath>
+    <linearGradient id="gA" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#2b3a67"/><stop offset="1" stop-color="#12121a"/>
+    </linearGradient>
+    <linearGradient id="gWarm" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#f59e0b"/><stop offset="1" stop-color="#ec4899"/>
+    </linearGradient>
+    <linearGradient id="gCool" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#38bdf8"/><stop offset="1" stop-color="#818cf8"/>
+    </linearGradient>
+    <linearGradient id="gDark" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#23232e"/><stop offset="1" stop-color="#0e0e14"/>
+    </linearGradient>
+    <linearGradient id="gPaper" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#faf7f0"/><stop offset="1" stop-color="#e8e2d4"/>
+    </linearGradient>
+  </defs>
+</svg>
+
+<div class="grid">
+
+  <!-- OPTION 1 : Cadre + courbe -->
+  <div class="card">
+    <svg class="icon" viewBox="0 0 100 100">
+      <g clip-path="url(#sq)">
+        <rect width="100" height="100" fill="url(#gDark)"/>
+        <rect x="18" y="20" width="64" height="52" rx="6" fill="url(#gPaper)"/>
+        <rect x="18" y="20" width="64" height="52" rx="6" fill="none" stroke="#b8860b" stroke-width="3"/>
+        <polyline points="26,60 38,46 48,52 60,34 74,42" fill="none" stroke="url(#gCool)" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+        <circle cx="60" cy="34" r="3.5" fill="#f472b6"/>
+        <rect x="34" y="78" width="32" height="4" rx="2" fill="#3a3a48"/>
+      </g>
+    </svg>
+    <h2>1 · Le Tableau</h2>
+    <p>Cadre doré de galerie contenant une courbe scientifique — littéralement ce que fait l'app : exposer tes figures.</p>
+    <div class="dockrow"><svg viewBox="0 0 100 100"><use href="#o1"/><g clip-path="url(#sq)"><rect width="100" height="100" fill="url(#gDark)"/><rect x="18" y="20" width="64" height="52" rx="6" fill="url(#gPaper)"/><rect x="18" y="20" width="64" height="52" rx="6" fill="none" stroke="#b8860b" stroke-width="3"/><polyline points="26,60 38,46 48,52 60,34 74,42" fill="none" stroke="url(#gCool)" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/><circle cx="60" cy="34" r="3.5" fill="#f472b6"/><rect x="34" y="78" width="32" height="4" rx="2" fill="#3a3a48"/></g></svg></div>
+    <span class="tag">GALERIE + SCIENCE</span>
+  </div>
+
+  <!-- OPTION 2 : Palette / pinceau -->
+  <div class="card">
+    <svg class="icon" viewBox="0 0 100 100">
+      <g clip-path="url(#sq)">
+        <rect width="100" height="100" fill="url(#gA)"/>
+        <path d="M50 18 C70 18 84 32 84 48 C84 58 76 62 68 62 L60 62 C56 62 54 65 56 69 C58 74 56 82 48 82 C30 82 16 66 16 48 C16 31 31 18 50 18 Z" fill="url(#gPaper)"/>
+        <circle cx="36" cy="36" r="5" fill="#38bdf8"/>
+        <circle cx="55" cy="30" r="5" fill="#f59e0b"/>
+        <circle cx="70" cy="42" r="5" fill="#ec4899"/>
+        <circle cx="30" cy="54" r="5" fill="#34d399"/>
+      </g>
+    </svg>
+    <h2>2 · La Palette</h2>
+    <p>Palette de peintre classique, couleurs vives sur fond nuit — l'« atelier » au sens artistique, lisible instantanément.</p>
+    <div class="dockrow"><svg viewBox="0 0 100 100"><g clip-path="url(#sq)"><rect width="100" height="100" fill="url(#gA)"/><path d="M50 18 C70 18 84 32 84 48 C84 58 76 62 68 62 L60 62 C56 62 54 65 56 69 C58 74 56 82 48 82 C30 82 16 66 16 48 C16 31 31 18 50 18 Z" fill="url(#gPaper)"/><circle cx="36" cy="36" r="5" fill="#38bdf8"/><circle cx="55" cy="30" r="5" fill="#f59e0b"/><circle cx="70" cy="42" r="5" fill="#ec4899"/><circle cx="30" cy="54" r="5" fill="#34d399"/></g></svg></div>
+    <span class="tag">ARTISTIQUE</span>
+  </div>
+
+  <!-- OPTION 3 : Monogramme A -->
+  <div class="card">
+    <svg class="icon" viewBox="0 0 100 100">
+      <g clip-path="url(#sq)">
+        <rect width="100" height="100" fill="url(#gDark)"/>
+        <path d="M50 22 L74 78 L63 78 L50 44 L37 78 L26 78 Z" fill="url(#gWarm)"/>
+        <rect x="40" y="60" width="20" height="7" rx="3.5" fill="url(#gCool)"/>
+      </g>
+    </svg>
+    <h2>3 · Monogramme « A »</h2>
+    <p>« A » d'Atelier en dégradé chaud, barre en dégradé froid — minimaliste, très lisible en petit, style pro.</p>
+    <div class="dockrow"><svg viewBox="0 0 100 100"><g clip-path="url(#sq)"><rect width="100" height="100" fill="url(#gDark)"/><path d="M50 22 L74 78 L63 78 L50 44 L37 78 L26 78 Z" fill="url(#gWarm)"/><rect x="40" y="60" width="20" height="7" rx="3.5" fill="url(#gCool)"/></g></svg></div>
+    <span class="tag">MINIMALISTE</span>
+  </div>
+
+  <!-- OPTION 4 : Chevalet -->
+  <div class="card">
+    <svg class="icon" viewBox="0 0 100 100">
+      <g clip-path="url(#sq)">
+        <rect width="100" height="100" fill="url(#gA)"/>
+        <line x1="50" y1="24" x2="28" y2="84" stroke="#c8a15a" stroke-width="5" stroke-linecap="round"/>
+        <line x1="50" y1="24" x2="72" y2="84" stroke="#c8a15a" stroke-width="5" stroke-linecap="round"/>
+        <line x1="50" y1="40" x2="50" y2="84" stroke="#a8823f" stroke-width="5" stroke-linecap="round"/>
+        <rect x="26" y="30" width="48" height="36" rx="4" fill="url(#gPaper)"/>
+        <polyline points="32,56 42,44 50,50 60,38 68,46" fill="none" stroke="url(#gWarm)" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round"/>
+      </g>
+    </svg>
+    <h2>4 · Le Chevalet</h2>
+    <p>Chevalet portant une toile-figure : l'atelier au travail. Bon compromis art + science, silhouette unique dans un Dock.</p>
+    <div class="dockrow"><svg viewBox="0 0 100 100"><g clip-path="url(#sq)"><rect width="100" height="100" fill="url(#gA)"/><line x1="50" y1="24" x2="28" y2="84" stroke="#c8a15a" stroke-width="5" stroke-linecap="round"/><line x1="50" y1="24" x2="72" y2="84" stroke="#c8a15a" stroke-width="5" stroke-linecap="round"/><line x1="50" y1="40" x2="50" y2="84" stroke="#a8823f" stroke-width="5" stroke-linecap="round"/><rect x="26" y="30" width="48" height="36" rx="4" fill="url(#gPaper)"/><polyline points="32,56 42,44 50,50 60,38 68,46" fill="none" stroke="url(#gWarm)" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round"/></g></svg></div>
+    <span class="tag">ATELIER AU TRAVAIL</span>
+  </div>
+
+  <!-- OPTION 5 : Grille de figures -->
+  <div class="card">
+    <svg class="icon" viewBox="0 0 100 100">
+      <g clip-path="url(#sq)">
+        <rect width="100" height="100" fill="url(#gDark)"/>
+        <rect x="20" y="20" width="27" height="34" rx="5" fill="#38bdf8" opacity="0.9"/>
+        <rect x="53" y="20" width="27" height="22" rx="5" fill="#f59e0b" opacity="0.9"/>
+        <rect x="53" y="48" width="27" height="32" rx="5" fill="#ec4899" opacity="0.9"/>
+        <rect x="20" y="60" width="27" height="20" rx="5" fill="#34d399" opacity="0.9"/>
+        <polyline points="25,44 31,34 37,39 43,28" fill="none" stroke="#0b2537" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+        <circle cx="66" cy="31" r="6" fill="none" stroke="#5c3a05" stroke-width="3"/>
+        <rect x="58" y="66" width="4" height="9" fill="#5c1032"/><rect x="65" y="58" width="4" height="17" fill="#5c1032"/><rect x="72" y="62" width="4" height="13" fill="#5c1032"/>
+        <line x1="25" y1="70" x2="42" y2="70" stroke="#0b3b28" stroke-width="3" stroke-linecap="round"/>
+        <line x1="25" y1="75" x2="36" y2="75" stroke="#0b3b28" stroke-width="3" stroke-linecap="round"/>
+      </g>
+    </svg>
+    <h2>5 · La Grille (bento)</h2>
+    <p>Mosaïque de mini-figures colorées, comme la galerie elle-même — moderne, coloré, représente la fonction réelle de l'app.</p>
+    <div class="dockrow"><svg viewBox="0 0 100 100"><g clip-path="url(#sq)"><rect width="100" height="100" fill="url(#gDark)"/><rect x="20" y="20" width="27" height="34" rx="5" fill="#38bdf8" opacity="0.9"/><rect x="53" y="20" width="27" height="22" rx="5" fill="#f59e0b" opacity="0.9"/><rect x="53" y="48" width="27" height="32" rx="5" fill="#ec4899" opacity="0.9"/><rect x="20" y="60" width="27" height="20" rx="5" fill="#34d399" opacity="0.9"/></g></svg></div>
+    <span class="tag">GALERIE MODERNE</span>
+  </div>
+
+  <!-- OPTION 6 : Pinceau + courbe -->
+  <div class="card">
+    <svg class="icon" viewBox="0 0 100 100">
+      <g clip-path="url(#sq)">
+        <rect width="100" height="100" fill="url(#gDark)"/>
+        <path d="M24 68 C36 60 40 48 52 44 C64 40 70 32 78 24" fill="none" stroke="url(#gWarm)" stroke-width="8" stroke-linecap="round"/>
+        <path d="M24 68 C36 60 40 48 52 44 C64 40 70 32 78 24" fill="none" stroke="#fff" stroke-width="1.5" stroke-linecap="round" opacity="0.35"/>
+        <circle cx="24" cy="68" r="4" fill="#f59e0b"/>
+        <circle cx="52" cy="44" r="4" fill="#f472b6"/>
+        <circle cx="78" cy="24" r="4" fill="#ec4899"/>
+        <line x1="20" y1="80" x2="80" y2="80" stroke="#3a3a48" stroke-width="3" stroke-linecap="round"/>
+        <line x1="20" y1="80" x2="20" y2="20" stroke="#3a3a48" stroke-width="3" stroke-linecap="round"/>
+      </g>
+    </svg>
+    <h2>6 · Le Coup de pinceau</h2>
+    <p>Une courbe de données peinte comme un coup de pinceau sur des axes discrets — la fusion art + science la plus directe.</p>
+    <div class="dockrow"><svg viewBox="0 0 100 100"><g clip-path="url(#sq)"><rect width="100" height="100" fill="url(#gDark)"/><path d="M24 68 C36 60 40 48 52 44 C64 40 70 32 78 24" fill="none" stroke="url(#gWarm)" stroke-width="8" stroke-linecap="round"/><circle cx="24" cy="68" r="4" fill="#f59e0b"/><circle cx="52" cy="44" r="4" fill="#f472b6"/><circle cx="78" cy="24" r="4" fill="#ec4899"/><line x1="20" y1="80" x2="80" y2="80" stroke="#3a3a48" stroke-width="3" stroke-linecap="round"/><line x1="20" y1="80" x2="20" y2="20" stroke="#3a3a48" stroke-width="3" stroke-linecap="round"/></g></svg></div>
+    <span class="tag">ART + DONNÉES</span>
+  </div>
+
+</div>
+</body>
+</html>

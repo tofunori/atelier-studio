@@ -1,7 +1,8 @@
 import { invoke } from "@tauri-apps/api/core";
 
 export type AgentEvent =
-  | { kind: "text"; text: string }
+  | { kind: "user"; text: string; imageUrl?: string; label?: string; ts?: number }
+  | { kind: "text"; text: string; ts?: number }
   | { kind: "tool"; name: string }
   | { kind: "done"; ok: boolean; result: string }
   | { kind: "error"; message: string };

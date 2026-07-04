@@ -23,6 +23,15 @@ export function isActive(threadId) {
   return sessions.has(threadId);
 }
 
+/** Ferme proprement la session streaming d'un thread (pour rewind/revert). */
+export function endSession(threadId) {
+  const s = sessions.get(threadId);
+  if (s) {
+    s.close();
+    sessions.delete(threadId);
+  }
+}
+
 export async function interrupt(threadId) {
   const s = sessions.get(threadId);
   if (s?.q?.interrupt) {
@@ -41,6 +50,7 @@ export function send({
   effort,
   permissionMode,
   mode, // "steer" | "queue"
+  resumeAt, // uuid : rewind via resumeSessionAt (API documentée)
   onEvent,
   onSession,
 }) {
@@ -87,6 +97,7 @@ export function send({
       ...(model ? { model } : {}),
       ...(effort ? { effort } : {}),
       ...(sessionId ? { resume: sessionId } : {}),
+      ...(sessionId && resumeAt ? { resumeSessionAt: resumeAt } : {}),
     },
   });
 

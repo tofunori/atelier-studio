@@ -59,6 +59,7 @@ export default function Chat(p: {
   onQuote: (text: string) => void;
   onPasteImage: (dataURL: string) => void;
   onStop: () => void;
+  onRevert: (index: number, text: string, edit: boolean) => void;
   disabled: boolean;
   onSubmit: (
     prompt: string,
@@ -138,10 +139,38 @@ export default function Chat(p: {
           <div className="empty">Salut ! Comment je peux t'aider aujourd'hui ?</div>
         )}
         {p.events.map((e, i) => {
+          if (e.kind === "user")
+            return (
+              <div key={i} className="user-wrap">
+                {e.imageUrl && <img className="user-img" src={e.imageUrl} alt="" />}
+                {e.label && <div className="user-label">📎 {e.label}</div>}
+                <div className="user-bubble">{e.text}</div>
+                <div className="msg-actions">
+                  {e.ts && (
+                    <span className="msg-time">
+                      {new Date(e.ts).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+                    </span>
+                  )}
+                  <button title="Copier" onClick={() => navigator.clipboard.writeText(e.text)}>⧉</button>
+                  <button title="Éditer et renvoyer (rembobine la conversation)" onClick={() => p.onRevert(i, e.text, true)}>✎</button>
+                  <button title="Revert : rembobiner avant ce message" onClick={() => p.onRevert(i, e.text, false)}>↩</button>
+                </div>
+              </div>
+            );
           if (e.kind === "text")
             return (
-              <div key={i} className="msg">
-                <ReactMarkdown>{e.text}</ReactMarkdown>
+              <div key={i} className="msg-wrap">
+                <div className="msg">
+                  <ReactMarkdown>{e.text}</ReactMarkdown>
+                </div>
+                <div className="msg-actions">
+                  {"ts" in e && e.ts && (
+                    <span className="msg-time">
+                      {new Date(e.ts).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+                    </span>
+                  )}
+                  <button title="Copier" onClick={() => navigator.clipboard.writeText(e.text)}>⧉</button>
+                </div>
               </div>
             );
           if (e.kind === "tool")
