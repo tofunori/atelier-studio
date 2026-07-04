@@ -360,3 +360,5 @@ input[type="range"].slider::-webkit-slider-thumb:hover { transform: scale(1.15);
 .mp-item:hover { background: var(--bg-ctl); }
 .mp-check { margin-left: auto; color: var(--fg); }
 .mp-sep { height: 1px; background: var(--border); margin: 6px 4px; }
+.atab-dot { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; }
+.atab-pin { color: var(--muted2); font-size: 11px; }

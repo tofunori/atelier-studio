@@ -2,12 +2,15 @@ import { useState } from "react";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import Explorer from "./Explorer";
 
-type Tab = { id: string; url: string; title: string };
+type Tab = { id: string; url: string; title: string; color?: string; pinned?: boolean };
+const TAB_COLORS = ["#e05d5d", "#e8823a", "#8b5cf6", "#3b82f6", "#22b07d", "#e0b74a"];
 
 export default function AtelierPane({
   url,
   files,
   onOpenFile,
+  onPinTab,
+  onColorTab,
   tabs,
   activeTab,
   onSelectTab,
@@ -24,8 +27,17 @@ export default function AtelierPane({
   onHardReload: () => void;
   files: string[];
   onOpenFile: (rel: string) => void;
+  onPinTab: (id: string) => void;
+  onColorTab: (id: string, color?: string) => void;
 }) {
   const [showExplorer, setShowExplorer] = useState(false);
+  const [tabMenu, setTabMenu] = useState<{ id: string; x: number; y: number } | null>(null);
+
+  useState(() => {
+    const close = () => setTabMenu(null);
+    window.addEventListener("click", close);
+    return undefined;
+  });
   const current = tabs.find((t) => t.id === activeTab);
   return (
     <div className="atelier-wrap">
@@ -47,8 +59,14 @@ export default function AtelierPane({
             key={t.id}
             className={`atab ${activeTab === t.id ? "on" : ""}`}
             onClick={() => onSelectTab(t.id)}
+            onContextMenu={(e) => {
+              e.preventDefault();
+              setTabMenu({ id: t.id, x: e.clientX, y: e.clientY });
+            }}
             title={t.title}
           >
+            {t.color && <span className="atab-dot" style={{ background: t.color }} />}
+            {t.pinned && <span className="atab-pin">⌖</span>}
             <span className="atab-title">{t.title}</span>
             <span
               className="atab-x"
@@ -82,6 +100,24 @@ export default function AtelierPane({
           ⧉
         </button>
       </div>
+      {tabMenu && (
+        <div className="ctx-menu" style={{ left: tabMenu.x, top: tabMenu.y, position: "fixed", zIndex: 200 }}
+          onClick={(e) => e.stopPropagation()}>
+          <div onClick={() => { onPinTab(tabMenu.id); setTabMenu(null); }}>
+            {tabs.find((t) => t.id === tabMenu.id)?.pinned ? "Désépingler" : "Épingler l'onglet"}
+          </div>
+          <div className="swatches" style={{ padding: "6px 10px" }}>
+            {TAB_COLORS.map((col) => (
+              <span key={col} className="swatch" style={{ background: col }}
+                onClick={() => { onColorTab(tabMenu.id, col); setTabMenu(null); }} />
+            ))}
+            <span className="swatch none" onClick={() => { onColorTab(tabMenu.id, undefined); setTabMenu(null); }}>∅</span>
+          </div>
+          <div className="danger" onClick={() => { onCloseTab(tabMenu.id); setTabMenu(null); }}>
+            Fermer
+          </div>
+        </div>
+      )}
       <div className="atelier-split">
       <div className="atelier-body">
         {/* la galerie reste montée (état préservé) ; les onglets aussi */}

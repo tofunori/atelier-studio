@@ -102,6 +102,7 @@
       color:#8ab4ff;border:1px solid #33415e;border-radius:5px;padding:1px 5px}
   #tgMenu .it .t{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
   #tgMenu .it.on .t{color:#8ab4ff}
+#mdModeSeg button.mdon{background:var(--accent);color:#10151d;border-color:var(--accent)}
 </style>
 <script>
 function __ct(){try{return JSON.parse(localStorage.getItem('claudeTargetV1')||'null')}catch(e){return null}}(function(){var T={'Default':{bg:'#202024',card:'#27272a',card2:'#1f1f23',txt:'#e4e4e7',muted:'#a1a1aa',accent:'#5b9dff',border:'#3f3f46'},'Codex One':{bg:'#202024',card:'#2f343f',card2:'#21252b',txt:'#abb2bf',muted:'#7f848e',accent:'#4d78cc',border:'#3e4451'},'Dracula':{bg:'#282a36',card:'#343746',card2:'#21222c',txt:'#f8f8f2',muted:'#9aa0b3',accent:'#bd93f9',border:'#44475a'},'Nord':{bg:'#2e3440',card:'#3b4252',card2:'#272c36',txt:'#e5e9f0',muted:'#9aa3b2',accent:'#88c0d0',border:'#434c5e'}};var t;try{t=T[localStorage.getItem('figTheme')];}catch(e){}t=t||T['Default'];var r=document.documentElement.style;for(var k in t)r.setProperty('--'+k,t[k]);})();</script>
@@ -194,6 +195,27 @@ if(!IS_TEX){
       const render = () => {
         try{ prev.innerHTML = DOMPurify.sanitize(marked.parse(cm.getValue())); }catch(e){}
       };
+      // modes markdown : Édition (défaut) | Split | Aperçu
+      const l = document.getElementById("left");
+      function mdApply(mode){
+        localStorage.setItem("mdViewMode", mode);
+        if(mode === "edit"){ r.style.display = "none"; l.style.display = "flex"; l.style.width = "100%"; l.style.borderRight = "none"; }
+        else if(mode === "preview"){ r.style.display = "block"; l.style.display = "none"; }
+        else { r.style.display = "block"; l.style.display = "flex"; l.style.width = "50%"; l.style.borderRight = "1px solid var(--border)"; }
+        document.querySelectorAll("#mdModeSeg button").forEach(b =>
+          b.classList.toggle("mdon", b.dataset.m === mode));
+        if(cm) setTimeout(() => cm.refresh(), 60);
+      }
+      const wrapGrp = document.getElementById("wrapSel")?.closest(".grp");
+      if(wrapGrp){
+        wrapGrp.insertAdjacentHTML("afterend",
+          '<span class="sep editonly"></span><span class="grp editonly" id="mdModeSeg">'
+          + '<button data-m="edit" title="Édition seule">Édition</button>'
+          + '<button data-m="split" title="Éditeur + aperçu">Split</button>'
+          + '<button data-m="preview" title="Aperçu seul">Aperçu</button></span>');
+        document.querySelectorAll("#mdModeSeg button").forEach(b =>
+          b.onclick = () => mdApply(b.dataset.m));
+      }
       // cm est déclaré (let) plus bas puis créé après le fetch : différer le
       // premier appel (appel immédiat = TDZ ReferenceError qui tue le script)
       function initMd(){
@@ -201,6 +223,7 @@ if(!IS_TEX){
         let mdT=null;
         cm.on("change", () => { clearTimeout(mdT); mdT = setTimeout(render, 300); });
         render();
+        mdApply(localStorage.getItem("mdViewMode") || "edit");
       }
       setTimeout(initMd, 0);
     }

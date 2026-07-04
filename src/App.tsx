@@ -77,7 +77,19 @@ export default function App() {
   const lastInjected = useRef<string | null>(null);
   const pendingPaste = useRef<string | null>(null); // dataURL en attente de sauvegarde
   const pendingResend = useRef<{ threadId: string; prompt: string } | null>(null);
-  const [atelierTabs, setAtelierTabs] = useState<{ id: string; url: string; title: string }[]>([]);
+  const [atelierTabs, setAtelierTabs] = useState<
+    { id: string; url: string; title: string; color?: string; pinned?: boolean }[]
+  >([]);
+
+  // onglets épinglés persistés par projet
+  function savePinned(tabs: typeof atelierTabs) {
+    if (!activeProject) return;
+    const store = JSON.parse(localStorage.getItem("atelier-studio.pinnedTabs") ?? "{}");
+    store[activeProject] = tabs
+      .filter((t) => t.pinned)
+      .map((t) => ({ url: t.url, title: t.title, color: t.color }));
+    localStorage.setItem("atelier-studio.pinnedTabs", JSON.stringify(store));
+  }
   const atelierTabsRef = useRef(atelierTabs);
   useEffect(() => {
     atelierTabsRef.current = atelierTabs;
@@ -233,7 +245,23 @@ export default function App() {
   useEffect(() => {
     if (!activeProject || atelierUrls[activeProject]) return;
     invoke<string>("start_atelier", { root: activeProject, galleryDir: settingsRef.current.galleryPath })
-      .then((url) => setAtelierUrls((p) => ({ ...p, [activeProject]: url })))
+      .then((url) => {
+        setAtelierUrls((p) => ({ ...p, [activeProject]: url }));
+        // restaurer les onglets épinglés de ce projet
+        try {
+          const store = JSON.parse(localStorage.getItem("atelier-studio.pinnedTabs") ?? "{}");
+          const pinned: { url: string; title: string; color?: string }[] = store[activeProject] ?? [];
+          if (pinned.length) {
+            setAtelierTabs((tabs) => {
+              const have = new Set(tabs.map((t) => t.url));
+              const news = pinned
+                .filter((pt) => !have.has(pt.url))
+                .map((pt) => ({ id: crypto.randomUUID(), ...pt, pinned: true }));
+              return [...tabs, ...news];
+            });
+          }
+        } catch {}
+      })
       .catch((e) => console.error("start_atelier:", e));
   }, [activeProject]);
 
@@ -577,6 +605,20 @@ export default function App() {
             <AtelierPane
               url={atelierUrl}
               files={files}
+              onPinTab={(id) => {
+                setAtelierTabs((tabs) => {
+                  const next = tabs.map((t) => (t.id === id ? { ...t, pinned: !t.pinned } : t));
+                  savePinned(next);
+                  return next;
+                });
+              }}
+              onColorTab={(id, color) => {
+                setAtelierTabs((tabs) => {
+                  const next = tabs.map((t) => (t.id === id ? { ...t, color } : t));
+                  savePinned(next);
+                  return next;
+                });
+              }}
               onOpenFile={(rel) => {
                 if (!atelierUrl || !activeProject) return;
                 const origin = new URL(atelierUrl).origin;
@@ -605,7 +647,11 @@ export default function App() {
               activeTab={activeTab}
               onSelectTab={setActiveTab}
               onCloseTab={(id) => {
-                setAtelierTabs((tabs) => tabs.filter((t) => t.id !== id));
+                setAtelierTabs((tabs) => {
+                  const next = tabs.filter((t) => t.id !== id);
+                  savePinned(next);
+                  return next;
+                });
                 setActiveTab((cur) => (cur === id ? "gallery" : cur));
               }}
               reloadKey={atelierReload}
