@@ -88,6 +88,7 @@ export default function Chat(p: {
   onStop: () => void;
   usage: { context: number; output: number; cost: number | null; turns: number | null } | null;
   onRevert: (index: number, text: string, edit: boolean) => void;
+  onFork: (index: number) => void;
   onEditSend: (index: number, oldText: string, newText: string) => void;
   defaults: {
     defaultProvider: "claude" | "codex";
@@ -295,6 +296,7 @@ export default function Chat(p: {
                     </span>
                   )}
                   <button title="Copier" onClick={() => navigator.clipboard.writeText(e.text)}>⧉</button>
+                  <button title="Fork : nouveau chat à partir d'ici" onClick={() => p.onFork(i)}>⑂</button>
                   <PinBtn pinned={p.pins.some((c) => c.index === i)} onClick={() => p.onTogglePin(i, e.text.replace(/[#*>`]/g, "").trim().slice(0, 44))} />
                 </div>
               </div>

@@ -626,6 +626,23 @@ export default function App() {
               ws.current.send(JSON.stringify({ type: "revert", threadId: id, text: oldText }));
             }
           }}
+          onFork={(index) => {
+            if (!activeId) return;
+            const src = allThreadsRef.current.find((t) => t.id === activeId);
+            if (!src || src.provider !== "claude") return;
+            const newId = crypto.randomUUID();
+            // copie locale de l'historique jusqu'au point de fork
+            setEvents((p) => ({ ...p, [newId]: (p[activeId] ?? []).slice(0, index + 1) }));
+            if (ws.current?.readyState === 1) {
+              ws.current.send(JSON.stringify({
+                type: "forkThread",
+                newThreadId: newId,
+                fromThreadId: activeId,
+              }));
+            }
+            setActiveId(newId);
+            activeIdRef.current = newId;
+          }}
           onStop={() => {
             if (activeId && ws.current?.readyState === 1) {
               ws.current.send(JSON.stringify({ type: "interrupt", threadId: activeId }));
