@@ -8,16 +8,20 @@ export function interrupt(threadId) {
 }
 
 export async function run({ threadId, cwd, prompt, sessionId, model, effort, onEvent }) {
-  const thread = sessionId
-    ? codex.resumeThread(sessionId, { workingDirectory: cwd, skipGitRepoCheck: true })
-    : codex.startThread({ workingDirectory: cwd, skipGitRepoCheck: true });
-  const ctrl = new AbortController();
-  if (threadId) controllers.set(threadId, ctrl);
-  const turnOptions = {
-    signal: ctrl.signal,
+  // model / effort / sandbox = ThreadOptions (doc officielle) ; TurnOptions = signal seulement
+  const threadOpts = {
+    workingDirectory: cwd,
+    skipGitRepoCheck: true,
+    sandboxMode: "danger-full-access",
     ...(model ? { model } : {}),
     ...(effort ? { modelReasoningEffort: effort } : {}),
   };
+  const thread = sessionId
+    ? codex.resumeThread(sessionId, threadOpts)
+    : codex.startThread(threadOpts);
+  const ctrl = new AbortController();
+  if (threadId) controllers.set(threadId, ctrl);
+  const turnOptions = { signal: ctrl.signal };
   try {
     const { events } = await thread.runStreamed(prompt, turnOptions);
     for await (const ev of events) {

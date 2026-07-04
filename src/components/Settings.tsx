@@ -19,9 +19,10 @@ const CLAUDE_MODELS = [
 ];
 const CODEX_MODELS = [
   { id: "", label: "Défaut CLI" },
-  { id: "gpt-5.2-codex", label: "GPT-5.2 Codex" },
-  { id: "gpt-5.2", label: "GPT-5.2" },
-  { id: "gpt-5.1-codex-mini", label: "Codex mini" },
+  { id: "gpt-5.5", label: "GPT-5.5" },
+  { id: "gpt-5.4", label: "GPT-5.4" },
+  { id: "gpt-5.4-mini", label: "GPT-5.4 mini" },
+  { id: "gpt-5.3-codex-spark", label: "Codex Spark" },
 ];
 
 function Slider(p: {
