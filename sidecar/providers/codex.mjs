@@ -1,27 +1,45 @@
 import { Codex } from "@openai/codex-sdk";
 
 const codex = new Codex();
+const controllers = new Map(); // threadId -> AbortController
 
-export async function run({ cwd, prompt, sessionId, model, effort, onEvent }) {
+export function interrupt(threadId) {
+  controllers.get(threadId)?.abort();
+}
+
+export async function run({ threadId, cwd, prompt, sessionId, model, effort, onEvent }) {
   const thread = sessionId
     ? codex.resumeThread(sessionId, { workingDirectory: cwd, skipGitRepoCheck: true })
     : codex.startThread({ workingDirectory: cwd, skipGitRepoCheck: true });
+  const ctrl = new AbortController();
+  if (threadId) controllers.set(threadId, ctrl);
   const turnOptions = {
+    signal: ctrl.signal,
     ...(model ? { model } : {}),
     ...(effort ? { modelReasoningEffort: effort } : {}),
   };
-  const { events } = await thread.runStreamed(prompt, turnOptions);
-  for await (const ev of events) {
-    if (ev.type === "item.completed" && ev.item?.type === "agent_message") {
-      onEvent({ kind: "text", text: ev.item.text ?? "" });
+  try {
+    const { events } = await thread.runStreamed(prompt, turnOptions);
+    for await (const ev of events) {
+      if (ev.type === "item.completed" && ev.item?.type === "agent_message") {
+        onEvent({ kind: "text", text: ev.item.text ?? "" });
+      }
+      if (ev.type === "item.completed" && ev.item?.type === "command_execution") {
+        onEvent({ kind: "tool", name: ev.item.command ?? "commande" });
+      }
+      if (ev.type === "turn.completed") onEvent({ kind: "done", ok: true, result: "" });
+      if (ev.type === "turn.failed") {
+        onEvent({ kind: "error", message: ev.error?.message ?? "échec" });
+      }
     }
-    if (ev.type === "item.completed" && ev.item?.type === "command_execution") {
-      onEvent({ kind: "tool", name: ev.item.command ?? "commande" });
+  } catch (e) {
+    if (ctrl.signal.aborted) {
+      onEvent({ kind: "done", ok: false, result: "interrompu" });
+    } else {
+      throw e;
     }
-    if (ev.type === "turn.completed") onEvent({ kind: "done", ok: true, result: "" });
-    if (ev.type === "turn.failed") {
-      onEvent({ kind: "error", message: ev.error?.message ?? "échec" });
-    }
+  } finally {
+    if (threadId) controllers.delete(threadId);
   }
   return { sessionId: thread.id ?? sessionId };
 }

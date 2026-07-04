@@ -8,9 +8,8 @@ export async function route(msg, ctx) {
   switch (msg.type) {
     case "interrupt": {
       const t = ctx.store.get(msg.threadId);
-      if (t?.provider === "claude" && ctx.providers.claude.interrupt) {
-        await ctx.providers.claude.interrupt(msg.threadId);
-      }
+      const prov = t?.provider && ctx.providers[t.provider];
+      if (prov?.interrupt) await prov.interrupt(msg.threadId);
       break;
     }
     case "ping":
