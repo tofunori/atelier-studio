@@ -88,10 +88,25 @@ export default function App() {
   useEffect(() => {
     settingsRef.current = settings;
     saveSettings(settings);
-    const r = document.documentElement.style;
+    const root = document.documentElement;
+    const r = root.style;
     r.setProperty("--chat-fs", `${settings.chatFontSize}px`);
     r.setProperty("--chat-w", `${settings.chatWidth}px`);
     r.setProperty("--chat-lh", String(settings.chatLineHeight));
+    // thème
+    const sysDark = window.matchMedia("(prefers-color-scheme: dark)").matches;
+    const theme = settings.theme === "system" ? (sysDark ? "dark" : "light") : settings.theme;
+    root.setAttribute("data-theme", theme);
+    root.setAttribute("data-density", settings.density);
+    root.style.fontSize = `${settings.baseFontSize}px`;
+    root.classList.toggle("no-smoothing", !settings.fontSmoothing);
+    const setOrClear = (name: string, val: string) =>
+      val ? r.setProperty(name, val) : r.removeProperty(name);
+    setOrClear("--accent", settings.accentColor);
+    setOrClear("--bg", settings.bgColor);
+    setOrClear("--fg", settings.fgColor);
+    setOrClear("--ui-font", settings.uiFont ? `'${settings.uiFont}', 'Inter Variable', sans-serif` : "");
+    setOrClear("--code-font", settings.codeFont ? `'${settings.codeFont}', ui-monospace, monospace` : "");
   }, [settings]);
   const [dragging, setDragging] = useState(false);
   const [unread, setUnread] = useState<Set<string>>(new Set());

@@ -9,6 +9,16 @@ export type Settings = {
   chatLineHeight: number;
   galleryPath: string;
   autoRefreshAtelier: boolean;
+  theme: "dark" | "light" | "system";
+  accentColor: string;
+  bgColor: string;
+  fgColor: string;
+  uiFont: string;
+  codeFont: string;
+  density: "compact" | "comfortable" | "spacious";
+  baseFontSize: number;
+  fontSmoothing: boolean;
+  timeFormat: "system" | "24h" | "12h";
 };
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -22,6 +32,16 @@ export const DEFAULT_SETTINGS: Settings = {
   chatLineHeight: 1.7,
   galleryPath: "~/Documents/cmux-gallery",
   autoRefreshAtelier: true,
+  theme: "dark",
+  accentColor: "",
+  bgColor: "",
+  fgColor: "",
+  uiFont: "",
+  codeFont: "",
+  density: "comfortable",
+  baseFontSize: 15,
+  fontSmoothing: true,
+  timeFormat: "system",
 };
 
 const KEY = "atelier-studio.settings";
