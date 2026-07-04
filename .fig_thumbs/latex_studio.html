@@ -116,6 +116,7 @@ function __ct(){try{return JSON.parse(localStorage.getItem('claudeTargetV1')||'n
       <option value="100">Wrap: 100</option>
       <option value="120">Wrap: 120</option>
     </select>
+    <button id="rewrapBtn" title="Rewrap : reformate le paragraphe (ou la sélection) à 80 colonnes — Alt+Q">&#9166;80</button>
   </span>
   <span class="sep editonly"></span>
   <span class="grp editonly">
@@ -198,6 +199,13 @@ async function load(){
   if(j.error) return setState("err", j.error);
   recentsAdd(path);
   diskMtime = j.mtime;
+  // re-mesurer CodeMirror quand le panneau est redimensionné (sinon les
+  // retours de ligne gardent l'ancienne largeur et l'affichage se décale)
+  let __rsT=null;
+  window.addEventListener("resize", () => {
+    clearTimeout(__rsT);
+    __rsT=setTimeout(() => { if(cm) cm.refresh(); }, 120);
+  });
   cm = CodeMirror(document.getElementById("left"), {
     value: j.text, mode: "stex", theme: "material-darker",
     lineNumbers: true, lineWrapping: true, viewportMargin: 50, styleSelectedText: true
@@ -223,6 +231,50 @@ async function load(){
     }, 200);
   });
   applyWrap(wrapSel.value);
+  // Rewrap façon VS Code (extension Rewrap, Alt+Q) : reformate RÉELLEMENT le
+  // paragraphe courant (ou la sélection) à 80 colonnes — chaque ligne visible
+  // redevient une vraie ligne numérotée.
+  function rewrapPar(){
+    // colonne = largeur visible du panneau (moins gutter/marge), bornée 40-120 :
+    // après rewrap, chaque ligne rentre dans le panneau → un numéro par ligne
+    const gutter = cm.getGutterElement().offsetWidth;
+    const col = Math.max(40, Math.min(120,
+      Math.floor((cm.getWrapperElement().clientWidth - gutter - 16) / cm.defaultCharWidth())));
+    let from, to;
+    if(cm.somethingSelected()){
+      from = cm.getCursor("from").line; to = cm.getCursor("to").line;
+    } else {
+      const cur = cm.getCursor().line, last = cm.lineCount()-1;
+      from = cur; while(from>0 && cm.getLine(from-1).trim()!=="") from--;
+      to = cur; while(to<last && cm.getLine(to+1).trim()!=="") to++;
+    }
+    const lines=[]; for(let i=from;i<=to;i++) lines.push(cm.getLine(i));
+    const indent=(lines[0].match(/^\s*/)||[""])[0];
+    const words=lines.map(l=>l.trim()).join(" ").split(/\s+/).filter(Boolean);
+    const out=[]; let curL="";
+    for(const w of words){
+      if(!curL) curL=indent+w;
+      else if((curL+" "+w).length<=col) curL+=" "+w;
+      else { out.push(curL); curL=indent+w; }
+    }
+    if(curL) out.push(curL);
+    cm.replaceRange(out.join("\n"), {line:from,ch:0}, {line:to,ch:cm.getLine(to).length});
+  }
+  cm.addKeyMap({"Alt-Q": rewrapPar});
+  document.getElementById("rewrapBtn").onclick = () => { rewrapPar(); cm.focus(); };
+
+  // Rewrap façon VS Code : les lignes repliées s'alignent sous le début du
+  // texte de la ligne (indentation préservée), pas sous le gutter.
+  (function(){
+    const basePad = 4;
+    cm.on("renderLine", function(cm, line, elt){
+      const off = CodeMirror.countColumn(line.text, null, cm.getOption("tabSize")) * cm.defaultCharWidth();
+      elt.style.textIndent = "-" + off + "px";
+      elt.style.paddingLeft = (basePad + off) + "px";
+    });
+    cm.refresh();
+  })();
+
   // initial loadPdf is triggered by the /texroot resolution (single-trigger rule)
 }
 
@@ -470,7 +522,14 @@ new ResizeObserver(() => {
 }).observe(rightEl);
 document.getElementById("popPdf").onclick = () => {
   // synctex-aware PDF tab (same studio in mode=pdf; BroadcastChannel links the two)
-  window.open("/.fig_thumbs/latex_studio.html?path=" + encodeURIComponent(path) + "&mode=pdf", "_blank");
+  const __pdfUrl = "/.fig_thumbs/latex_studio.html?path=" + encodeURIComponent(path) + "&mode=pdf";
+  if(window.self !== window.top){
+    // embarqué dans Atelier Studio : ouvrir dans un onglet du panneau
+    window.top.postMessage({type:'atelier-open-tab', url: __pdfUrl,
+      title: (path.split("/").pop() || "PDF") + " — PDF"}, '*');
+  } else {
+    window.open(__pdfUrl, "_blank");
+  }
   applyPdfVisible(false);
 };
 if(!isPdfMode && localStorage.getItem("texPdfVisible") === "0") applyPdfVisible(false);
