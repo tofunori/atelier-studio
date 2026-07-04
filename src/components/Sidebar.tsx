@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Thread } from "../lib/ws";
 import { PROJ_COLORS } from "./Rail";
+import { ProviderIcon } from "./icons";
 
 type Menu = { x: number; y: number; threadId: string };
 
@@ -130,7 +131,10 @@ export default function Sidebar(p: {
                     setMenu({ x: e.clientX, y: e.clientY, threadId: t.id });
                   }}
                 >
-                  <span className={`dot ${t.provider} ${p.unread.has(t.id) ? "unread" : ""} ${t.status === "running" ? "busy" : ""}`} />
+                  <span className={`prov-ico ${t.status === "running" ? "busy" : ""}`}>
+                    <ProviderIcon provider={t.provider} />
+                    {p.unread.has(t.id) && <span className="unread-badge" />}
+                  </span>
                   {editingId === t.id ? (
                     <input
                       ref={editRef}

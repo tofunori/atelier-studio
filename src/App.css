@@ -339,3 +339,24 @@ input[type="range"].slider::-webkit-slider-thumb:hover { transform: scale(1.15);
 .exp-name { overflow: hidden; text-overflow: ellipsis; }
 .atelier-bar .ghost.on { background: var(--bg-ctl); color: var(--fg); }
 .exp-ico { flex-shrink: 0; opacity: 0.85; }
+.prov-ico { position: relative; display: inline-flex; flex-shrink: 0; }
+.prov-ico.busy { animation: busyBreathe 1.4s ease-in-out infinite; }
+.unread-badge { position: absolute; top: -3px; right: -4px; width: 7px; height: 7px;
+  border-radius: 50%; background: #34c98e; border: 1.5px solid var(--bg-side);
+  animation: unreadPulse 1.6s ease-in-out infinite; }
+/* menu modèle/effort façon Synara */
+.model-pick { position: relative; }
+.mp-btn { display: inline-flex; align-items: center; gap: 7px; background: transparent;
+  border: none; color: var(--fg2); font-size: 13px; cursor: pointer; padding: 4px 8px;
+  border-radius: 8px; }
+.mp-btn:hover { background: var(--bg-ctl); }
+.mp-dim { color: var(--muted); }
+.mp-menu { position: absolute; bottom: 34px; right: 0; min-width: 220px; z-index: 90;
+  background: var(--bg-pop); border: 1px solid var(--border); border-radius: 14px;
+  padding: 8px; box-shadow: 0 12px 32px rgba(0,0,0,0.5); max-height: 420px; overflow-y: auto; }
+.mp-hd { font-size: 11.5px; color: var(--muted2); padding: 6px 10px 4px; }
+.mp-item { display: flex; align-items: center; gap: 8px; padding: 7px 10px;
+  border-radius: 8px; cursor: pointer; font-size: 13.5px; color: var(--fg2); }
+.mp-item:hover { background: var(--bg-ctl); }
+.mp-check { margin-left: auto; color: var(--fg); }
+.mp-sep { height: 1px; background: var(--border); margin: 6px 4px; }

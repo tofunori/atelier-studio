@@ -37,8 +37,8 @@
   .chip.off{opacity:.45}
   #sort,#folder{flex:0 1 auto;min-width:90px}
   #rescan{width:32px;padding:0;display:inline-flex;align-items:center;justify-content:center;
-        background:var(--accent);border-color:var(--accent);color:#10151d}
-  #rescan:hover{filter:brightness(1.08)}
+        color:var(--muted)}
+  #rescan:hover{color:var(--txt)}
   #rescan svg{display:block}
   .menu{position:fixed;z-index:60;display:none;flex-direction:column;gap:2px;
         background:var(--card);border:1px solid var(--border);border-radius:10px;padding:7px;min-width:min(200px,calc(100vw - 16px));max-width:min(360px,calc(100vw - 16px));
@@ -266,7 +266,7 @@
     <span class="chip" id="viewChip" title="Settings — server health, theme, archives, hidden, auto-hide rules">Settings &#9662;</span>
     <div id="viewMenu" class="menu"></div>
     <button id="quoteClear" style="display:none" title="Clear the annotation pending in the Claude statusline">Clear annotation</button>
-    <button id="rescan" title="Rescan — rebuild the gallery index and reload" aria-label="Rescan"><svg width="15" height="15" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M13.6 8a5.6 5.6 0 1 1-1.64-3.96" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/><path d="M12.2 1.6v2.8H9.4" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+    <button id="rescan" title="Rescan — rebuild the gallery index and reload" aria-label="Rescan"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M2.6 6.2A5.6 5.6 0 0 1 12.9 4.6M13.4 9.8A5.6 5.6 0 0 1 3.1 11.4" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/><path d="M12.9 1.8v2.8h-2.8M3.1 14.2v-2.8h2.8" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
     <span id="rateFilter" style="display:none"></span>
     <button id="cmpSel" style="display:none" title="Show the selected images stacked, to compare">Compare (0)</button>
     <button id="hideSel" style="display:none" title="Hide the selected files from the gallery (reversible)">Hide (0)</button>
@@ -1325,6 +1325,19 @@ function annotInit(){
   document.getElementById('annotUndo').onclick=()=>{annotStrokes.pop();annotRenumber();if(!annotStrokes.length)annotSent=true;document.getElementById('annotNote').style.display='none';annotRedraw();};
   document.getElementById('annotClear').onclick=()=>{annotStrokes=[];annotSent=true;document.getElementById('annotNote').style.display='none';annotRedraw();};
   const ANNOT_EMBEDDED=(function(){try{return window.self!==window.top;}catch(e){return true;}})();
+  if(ANNOT_EMBEDDED){
+    // fichiers html : ouvrir en onglet Studio (target=_blank ne marche pas en iframe)
+    document.addEventListener('click', function(e){
+      const a = e.target.closest('a[target="_blank"]');
+      if(!a) return;
+      const href = a.getAttribute('href') || '';
+      if(/\.html?(\?|$)/i.test(href)){
+        e.preventDefault();
+        window.top.postMessage({type:'atelier-open-tab', url:'/'+href.replace(/^\//,''),
+          title:(href.split('/').pop()||'page').split('?')[0]}, '*');
+      }
+    }, true);
+  }
   if(ANNOT_EMBEDDED){const st=document.createElement('style');st.textContent='.embOnly{display:inline-block !important} .embHide{display:none !important}';document.head.appendChild(st);}
   async function annotPost(direct){
     const f=lbList[lbIdx], img=document.getElementById('lbImg');

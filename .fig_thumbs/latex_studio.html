@@ -186,19 +186,23 @@ if(!IS_TEX){
     // split éditeur | aperçu rendu (comme tex|PDF)
     const r = document.getElementById("right");
     if(r){
-      r.innerHTML = '<div id="mdprev" style="max-width:820px;margin:0 auto;padding:28px 32px;'
-        + 'font-family:var(--ui-font,-apple-system,sans-serif);font-size:14.5px;line-height:1.65;color:#d6dae0"></div>';
+      // ne PAS écraser #right (le #marker qu'il contient est référencé plus bas)
+      r.insertAdjacentHTML("beforeend",
+        '<div id="mdprev" style="max-width:820px;margin:0 auto;padding:28px 32px;'
+        + 'font-family:var(--ui-font,-apple-system,sans-serif);font-size:14.5px;line-height:1.65;color:#d6dae0"></div>');
       const prev = document.getElementById("mdprev");
       const render = () => {
         try{ prev.innerHTML = DOMPurify.sanitize(marked.parse(cm.getValue())); }catch(e){}
       };
-      // cm est créé après le fetch du fichier : attendre qu'il existe
-      (function initMd(){
+      // cm est déclaré (let) plus bas puis créé après le fetch : différer le
+      // premier appel (appel immédiat = TDZ ReferenceError qui tue le script)
+      function initMd(){
         if(!cm){ setTimeout(initMd, 100); return; }
         let mdT=null;
         cm.on("change", () => { clearTimeout(mdT); mdT = setTimeout(render, 300); });
         render();
-      })();
+      }
+      setTimeout(initMd, 0);
     }
   } else {
     // pas d'aperçu pour les autres : l'éditeur prend toute la largeur

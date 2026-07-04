@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import { open } from "@tauri-apps/plugin-dialog";
 import { AgentEvent } from "../lib/ws";
+import { ProviderIcon } from "./icons";
 
 const PERMISSION_MODES = [
   { id: "bypassPermissions", label: "Full access" },
@@ -114,6 +115,14 @@ export default function Chat(p: {
   }, [p.defaults]);
   const [selIdx, setSelIdx] = useState(0);
   const [quote, setQuote] = useState<{ x: number; y: number; text: string } | null>(null);
+  const [menuOpen, setMenuOpen] = useState(false);
+
+  useEffect(() => {
+    if (!menuOpen) return;
+    const close = () => setMenuOpen(false);
+    window.addEventListener("click", close);
+    return () => window.removeEventListener("click", close);
+  }, [menuOpen]);
   const [editing, setEditing] = useState<{ index: number; text: string } | null>(null);
 
   // « Add to chat » sur sélection de texte dans les messages
@@ -424,38 +433,44 @@ export default function Chat(p: {
             ))}
           </select>
           <span className="flex" />
-          <span className="model-pick">
-            <span className={`dot ${provider}`} />
-            <select
-              className="bare"
-              value={provider}
-              onChange={(e) => {
-                setProvider(e.target.value as any);
-                setModel("");
-                setEffort("");
-              }}
+          <span className="model-pick" onClick={(e) => e.stopPropagation()}>
+            <button
+              type="button"
+              className="mp-btn"
+              onClick={() => setMenuOpen((v) => !v)}
             >
-              <option value="claude">Claude</option>
-              <option value="codex">Codex</option>
-            </select>
-            <select className="bare" value={model} onChange={(e) => setModel(e.target.value)}>
-              {MODELS[provider].map((m) => (
-                <option key={m.id} value={m.id}>
-                  {m.label}
-                </option>
-              ))}
-            </select>
-            <select
-              className="bare dim"
-              value={effort}
-              onChange={(e) => setEffort(e.target.value)}
-            >
-              {EFFORTS[provider].map((lvl) => (
-                <option key={lvl} value={lvl}>
-                  {lvl === "" ? "effort auto" : lvl}
-                </option>
-              ))}
-            </select>
+              <ProviderIcon provider={provider} />
+              <span>{MODELS[provider].find((m) => m.id === model)?.label ?? "Modèle par défaut"}</span>
+              <span className="mp-dim">{effort === "" ? "auto" : effort}</span>
+            </button>
+            {menuOpen && (
+              <div className="mp-menu">
+                <div className="mp-hd">Provider</div>
+                {(["claude", "codex"] as const).map((pv) => (
+                  <div key={pv} className="mp-item" onClick={() => { setProvider(pv); setModel(""); setEffort(""); }}>
+                    <ProviderIcon provider={pv} />
+                    <span>{pv === "claude" ? "Claude" : "Codex"}</span>
+                    {provider === pv && <span className="mp-check">✓</span>}
+                  </div>
+                ))}
+                <div className="mp-sep" />
+                <div className="mp-hd">Modèle</div>
+                {MODELS[provider].map((m) => (
+                  <div key={m.id} className="mp-item" onClick={() => setModel(m.id)}>
+                    <span>{m.label}</span>
+                    {model === m.id && <span className="mp-check">✓</span>}
+                  </div>
+                ))}
+                <div className="mp-sep" />
+                <div className="mp-hd">Effort</div>
+                {EFFORTS[provider].map((lvl) => (
+                  <div key={lvl} className="mp-item" onClick={() => setEffort(lvl)}>
+                    <span>{lvl === "" ? "Auto (défaut)" : lvl.charAt(0).toUpperCase() + lvl.slice(1)}</span>
+                    {effort === lvl && <span className="mp-check">✓</span>}
+                  </div>
+                ))}
+              </div>
+            )}
           </span>
           {p.workingSince != null ? (
             <>
