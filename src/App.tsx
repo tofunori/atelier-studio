@@ -17,6 +17,17 @@ import "./App.css";
 
 const PROJECTS_KEY = "atelier-studio.projects";
 
+// « /chemin/CLAUDE.md (p.L11-224) : « … » » → « CLAUDE.md (L11-224) »
+function attachmentLabel(text: string): string {
+  const first = text.split("\n")[0];
+  const m = /^(\S+?)(?:\s*\((?:p\.)?(L?[\d:.,-]+)\))?(?:\s*:)?/.exec(first);
+  if (m) {
+    const base = m[1].split("/").pop() ?? m[1];
+    return m[2] ? `${base} (${m[2]})` : base;
+  }
+  return first.slice(0, 60);
+}
+
 function loadProjects(): string[] {
   try {
     return JSON.parse(localStorage.getItem(PROJECTS_KEY) ?? "[]");
@@ -42,6 +53,7 @@ export default function App() {
   const [files, setFiles] = useState<string[]>([]);
   const [annotation, setAnnotation] = useState<string | null>(null);
   const [injectText, setInjectText] = useState<string | null>(null);
+  const [attachment, setAttachment] = useState<{ label: string; text: string } | null>(null);
   const [atelierReload, setAtelierReload] = useState(0);
   const lastInjected = useRef<string | null>(null);
   const [activeId, setActiveId] = useState<string | null>(null);
@@ -109,7 +121,7 @@ export default function App() {
     const onMsg = (e: MessageEvent) => {
       if (e.data?.type === "atelier-add-to-chat" && typeof e.data.text === "string") {
         lastInjected.current = e.data.text;
-        setInjectText(e.data.text);
+        setAttachment({ label: attachmentLabel(e.data.text), text: e.data.text });
         setAnnotation(null); // pas de bannière en double
       }
     };
@@ -170,6 +182,10 @@ export default function App() {
     permissionMode: string,
   ) {
     if (!activeProject) return;
+    // pièce jointe (annotation/sélection atelier) : préfixée au prompt envoyé
+    const fullPrompt = attachment ? `${attachment.text}\n\n${prompt}`.trim() : prompt;
+    const shownPrompt = attachment ? `📎 *${attachment.label}*\n\n${prompt}` : prompt;
+    setAttachment(null);
     // pas de thread sélectionné → en créer un à la volée
     let id = activeId;
     if (!id) {
@@ -190,7 +206,7 @@ export default function App() {
     }
     setEvents((p) => ({
       ...p,
-      [id]: [...(p[id] ?? []), { kind: "text", text: `**Toi :** ${prompt}` }],
+      [id]: [...(p[id] ?? []), { kind: "text", text: `**Toi :** ${shownPrompt}` }],
     }));
     setWorkingSince((p) => ({ ...p, [id as string]: Date.now() }));
     if (mock) {
@@ -223,7 +239,7 @@ export default function App() {
         threadId: id,
         projectRoot: activeProject,
         provider,
-        prompt,
+        prompt: fullPrompt,
         ...(model ? { model } : {}),
         ...(effort ? { effort } : {}),
         ...(permissionMode ? { permissionMode } : {}),
@@ -277,7 +293,7 @@ export default function App() {
             <span className="annot-text">✏️ {annotation.split("\n")[0].slice(0, 90)}</span>
             <button
               onClick={() => {
-                setInjectText(annotation);
+                setAttachment({ label: attachmentLabel(annotation), text: annotation });
                 setAnnotation(null);
               }}
             >
@@ -295,6 +311,8 @@ export default function App() {
           files={files}
           injectText={injectText}
           onInjected={() => setInjectText(null)}
+          attachment={attachment}
+          onClearAttachment={() => setAttachment(null)}
           disabled={!activeProject}
           onSubmit={submit}
         />

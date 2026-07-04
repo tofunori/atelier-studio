@@ -54,6 +54,8 @@ export default function Chat(p: {
   files: string[];
   injectText: string | null;
   onInjected: () => void;
+  attachment: { label: string; text: string } | null;
+  onClearAttachment: () => void;
   disabled: boolean;
   onSubmit: (
     prompt: string,
@@ -168,6 +170,15 @@ export default function Chat(p: {
               </li>
             ))}
           </ul>
+        )}
+        {p.attachment && (
+          <div className="chip">
+            <span className="chip-ico">📄</span>
+            <span className="chip-label">{p.attachment.label}</span>
+            <button type="button" className="ghost" onClick={p.onClearAttachment}>
+              ✕
+            </button>
+          </div>
         )}
         <textarea
           value={text}

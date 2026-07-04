@@ -28,6 +28,7 @@ pub fn start_atelier(root: String) -> Result<String, String> {
             .ok_or("no home")?
             .join("Documents/cmux-gallery/cmux_gallery.py");
         Command::new("python3")
+            .env("ATELIER_STUDIO", "1") // serveur en mode Studio : aucun push cmux/muxy/orca
             .arg(gallery)
             .arg("run")
             .arg("--root")
