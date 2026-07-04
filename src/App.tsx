@@ -114,8 +114,25 @@ export default function App() {
     effort: string,
     permissionMode: string,
   ) {
-    if (!activeProject || !activeId) return;
-    const id = activeId;
+    if (!activeProject) return;
+    // pas de thread sélectionné → en créer un à la volée
+    let id = activeId;
+    if (!id) {
+      id = crypto.randomUUID();
+      setDraftThreads((p) => [
+        {
+          id: id as string,
+          projectRoot: activeProject,
+          title: prompt.slice(0, 40),
+          provider,
+          sessionId: null,
+          status: "idle" as const,
+          updatedAt: new Date().toISOString(),
+        },
+        ...p,
+      ]);
+      setActiveId(id);
+    }
     setEvents((p) => ({
       ...p,
       [id]: [...(p[id] ?? []), { kind: "text", text: `**Toi :** ${prompt}` }],
@@ -182,7 +199,7 @@ export default function App() {
       <Panel minSize={30}>
         <Chat
           events={activeId ? (events[activeId] ?? []) : []}
-          disabled={!activeProject || !activeId}
+          disabled={!activeProject}
           onSubmit={submit}
         />
       </Panel>
