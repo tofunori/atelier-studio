@@ -383,3 +383,5 @@ input[type="range"].slider::-webkit-slider-thumb:hover { transform: scale(1.15);
 .ctx-pop b { color: var(--muted); font-weight: 600; font-size: 11.5px;
   text-transform: uppercase; letter-spacing: 0.05em; }
 .ctx-ring-wrap:hover .ctx-pop { display: flex; }
+.sec-toggle { cursor: pointer; user-select: none; }
+.sec-toggle:hover { color: var(--fg2); }

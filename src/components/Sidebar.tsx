@@ -28,6 +28,17 @@ export default function Sidebar(p: {
   const [menu, setMenu] = useState<Menu | null>(null);
   const [projMenu, setProjMenu] = useState<{ root: string; x: number; y: number } | null>(null);
   const [labelDraft, setLabelDraft] = useState("");
+  const [secClosed, setSecClosed] = useState<{ fav: boolean; proj: boolean }>(() => {
+    try { return JSON.parse(localStorage.getItem("atelier-studio.sections") ?? '{"fav":false,"proj":false}'); }
+    catch { return { fav: false, proj: false }; }
+  });
+  function toggleSec(k: "fav" | "proj") {
+    setSecClosed((s) => {
+      const n = { ...s, [k]: !s[k] };
+      localStorage.setItem("atelier-studio.sections", JSON.stringify(n));
+      return n;
+    });
+  }
   const [collapsed, setCollapsed] = useState<string[]>(() => {
     try {
       return JSON.parse(localStorage.getItem("atelier-studio.collapsed") ?? "[]");
@@ -69,8 +80,10 @@ export default function Sidebar(p: {
     <div className="sidebar">
       {p.favorites.length > 0 && (
         <>
-          <div className="section">Favoris</div>
-          <ul className="fav-list">
+          <div className="section sec-toggle" onClick={() => toggleSec("fav")}>
+            <span className="chev">{secClosed.fav ? "▸" : "▾"}</span> Favoris
+          </div>
+          <ul className="fav-list" style={{ display: secClosed.fav ? "none" : undefined }}>
             {p.favorites
               .map((id) => p.threads.find((t) => t.id === id))
               .filter((t): t is Thread => !!t)
@@ -92,9 +105,9 @@ export default function Sidebar(p: {
           </ul>
         </>
       )}
-      <div className="section">
-        Projets
-        <span className="section-actions">
+      <div className="section sec-toggle" onClick={() => toggleSec("proj")}>
+        <span><span className="chev">{secClosed.proj ? "▸" : "▾"}</span> Projets</span>
+        <span className="section-actions" onClick={(e) => e.stopPropagation()}>
           <button className="mini compact-btn" title="Ajouter un projet" onClick={p.onAddProject}>
             +
           </button>
@@ -103,7 +116,7 @@ export default function Sidebar(p: {
           </button>
         </span>
       </div>
-      {p.projects.map((root) => {
+      {!secClosed.proj && p.projects.map((root) => {
         const name = root.split("/").pop();
         const threads = p.threads
           .filter((t) => t.projectRoot === root)
