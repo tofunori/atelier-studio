@@ -57,6 +57,7 @@ export default function App() {
     loadProjects()[0] ?? null,
   );
   const [threads, setThreads] = useState<Thread[]>([]);
+  const threadsRef = useRef<Thread[]>([]);
   // threads locaux (pas encore connus du sidecar) — nouveaux chats vides
   const [draftThreads, setDraftThreads] = useState<Thread[]>([]);
   const [events, setEvents] = useState<Record<string, AgentEvent[]>>({});
@@ -69,6 +70,7 @@ export default function App() {
   const [atelierReload, setAtelierReload] = useState(0);
   const lastInjected = useRef<string | null>(null);
   const pendingPaste = useRef<string | null>(null); // dataURL en attente de sauvegarde
+  const pendingResend = useRef<{ threadId: string; prompt: string } | null>(null);
   const [atelierTabs, setAtelierTabs] = useState<{ id: string; url: string; title: string }[]>([]);
   const atelierTabsRef = useRef(atelierTabs);
   useEffect(() => {
@@ -110,7 +112,10 @@ export default function App() {
     if (connectedOnce.current) return;
     connectedOnce.current = true;
     connectSidecar((msg) => {
-      if (msg.type === "threads") setThreads(msg.threads);
+      if (msg.type === "threads") {
+        setThreads(msg.threads);
+        threadsRef.current = msg.threads;
+      }
       if (msg.type === "event") {
         setEvents((prev) => ({
           ...prev,
@@ -129,6 +134,26 @@ export default function App() {
         }));
       }
       if (msg.type === "annotation" && msg.text !== lastInjected.current) setAnnotation(msg.text);
+      if (msg.type === "reverted") {
+        const pr = pendingResend.current;
+        if (pr && pr.threadId === msg.threadId) {
+          pendingResend.current = null;
+          setEvents((p) => ({
+            ...p,
+            [pr.threadId]: [...(p[pr.threadId] ?? []), { kind: "user", text: pr.prompt, ts: Date.now() }],
+          }));
+          setWorkingSince((p) => ({ ...p, [pr.threadId]: Date.now() }));
+          const th = threadsRef.current.find((t) => t.id === pr.threadId);
+          if (ws.current?.readyState === 1) {
+            sendPrompt(ws.current, {
+              threadId: pr.threadId,
+              projectRoot: th?.projectRoot ?? "",
+              provider: th?.provider ?? "claude",
+              prompt: pr.prompt,
+            });
+          }
+        }
+      }
       if (msg.type === "imageSaved") {
         const name = msg.path.split("/").pop() ?? "image.png";
         setAttachment({
@@ -441,6 +466,15 @@ export default function App() {
               ws.current.send(JSON.stringify({ type: "revert", threadId: id, text }));
             }
             if (edit) setInjectText(text);
+          }}
+          onEditSend={(index, oldText, newText) => {
+            if (!activeId) return;
+            const id = activeId;
+            setEvents((p) => ({ ...p, [id]: (p[id] ?? []).slice(0, index) }));
+            pendingResend.current = { threadId: id, prompt: newText };
+            if (ws.current?.readyState === 1) {
+              ws.current.send(JSON.stringify({ type: "revert", threadId: id, text: oldText }));
+            }
           }}
           onStop={() => {
             if (activeId && ws.current?.readyState === 1) {

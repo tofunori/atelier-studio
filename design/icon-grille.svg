@@ -1,0 +1,35 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <defs>
+    <linearGradient id="gDark" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#23232e"/><stop offset="1" stop-color="#0e0e14"/>
+    </linearGradient>
+    <clipPath id="sq">
+      <!-- macOS squircle, 100px margin -->
+      <path d="M512,100 C806,100 924,218 924,512 C924,806 806,924 512,924 C218,924 100,806 100,512 C100,218 218,100 512,100 Z"/>
+    </clipPath>
+    <filter id="shadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="10" stdDeviation="18" flood-color="#000" flood-opacity="0.35"/>
+    </filter>
+  </defs>
+  <g clip-path="url(#sq)">
+    <rect width="1024" height="1024" fill="url(#gDark)"/>
+    <!-- bento tiles (scaled from 100 → 824 inner box: x' = 100 + v*8.24) -->
+    <g filter="url(#shadow)">
+      <rect x="265" y="265" width="222" height="280" rx="41" fill="#38bdf8"/>
+      <rect x="537" y="265" width="222" height="181" rx="41" fill="#f59e0b"/>
+      <rect x="537" y="496" width="222" height="263" rx="41" fill="#ec4899"/>
+      <rect x="265" y="595" width="222" height="164" rx="41" fill="#34d399"/>
+    </g>
+    <!-- mini line chart in blue tile -->
+    <polyline points="306,462 355,380 405,421 454,331" fill="none" stroke="#0b2537" stroke-width="25" stroke-linecap="round" stroke-linejoin="round"/>
+    <!-- circle (scatter/pie) in amber tile -->
+    <circle cx="644" cy="355" r="50" fill="none" stroke="#5c3a05" stroke-width="25"/>
+    <!-- bar chart in pink tile -->
+    <rect x="578" y="644" width="33" height="74" rx="10" fill="#5c1032"/>
+    <rect x="636" y="578" width="33" height="140" rx="10" fill="#5c1032"/>
+    <rect x="694" y="611" width="33" height="107" rx="10" fill="#5c1032"/>
+    <!-- text lines in green tile -->
+    <line x1="306" y1="660" x2="446" y2="660" stroke="#0b3b28" stroke-width="25" stroke-linecap="round"/>
+    <line x1="306" y1="710" x2="397" y2="710" stroke="#0b3b28" stroke-width="25" stroke-linecap="round"/>
+  </g>
+</svg>

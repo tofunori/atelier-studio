@@ -60,6 +60,7 @@ export default function Chat(p: {
   onPasteImage: (dataURL: string) => void;
   onStop: () => void;
   onRevert: (index: number, text: string, edit: boolean) => void;
+  onEditSend: (index: number, oldText: string, newText: string) => void;
   disabled: boolean;
   onSubmit: (
     prompt: string,
@@ -77,6 +78,7 @@ export default function Chat(p: {
   const [permissionMode, setPermissionMode] = useState("bypassPermissions");
   const [selIdx, setSelIdx] = useState(0);
   const [quote, setQuote] = useState<{ x: number; y: number; text: string } | null>(null);
+  const [editing, setEditing] = useState<{ index: number; text: string } | null>(null);
 
   // « Add to chat » sur sélection de texte dans les messages
   function onMessagesMouseUp() {
@@ -144,7 +146,45 @@ export default function Chat(p: {
               <div key={i} className="user-wrap">
                 {e.imageUrl && <img className="user-img" src={e.imageUrl} alt="" />}
                 {e.label && <div className="user-label">📎 {e.label}</div>}
-                <div className="user-bubble">{e.text}</div>
+                {editing?.index === i ? (
+                  <div className="edit-box">
+                    <textarea
+                      autoFocus
+                      value={editing.text}
+                      rows={Math.min(8, Math.max(2, editing.text.split("\n").length))}
+                      onChange={(ev) => setEditing({ index: i, text: ev.target.value })}
+                      onKeyDown={(ev) => {
+                        if (ev.key === "Escape") setEditing(null);
+                        if (ev.key === "Enter" && !ev.shiftKey) {
+                          ev.preventDefault();
+                          if (editing.text.trim()) {
+                            p.onEditSend(i, e.text, editing.text);
+                            setEditing(null);
+                          }
+                        }
+                      }}
+                    />
+                    <div className="edit-actions">
+                      <button type="button" className="edit-cancel" onClick={() => setEditing(null)}>
+                        Cancel
+                      </button>
+                      <button
+                        type="button"
+                        className="edit-send"
+                        onClick={() => {
+                          if (editing.text.trim()) {
+                            p.onEditSend(i, e.text, editing.text);
+                            setEditing(null);
+                          }
+                        }}
+                      >
+                        Send
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="user-bubble">{e.text}</div>
+                )}
                 <div className="msg-actions">
                   {e.ts && (
                     <span className="msg-time">
@@ -152,7 +192,7 @@ export default function Chat(p: {
                     </span>
                   )}
                   <button title="Copier" onClick={() => navigator.clipboard.writeText(e.text)}>⧉</button>
-                  <button title="Éditer et renvoyer (rembobine la conversation)" onClick={() => p.onRevert(i, e.text, true)}>✎</button>
+                  <button title="Éditer et renvoyer" onClick={() => setEditing({ index: i, text: e.text })}>✎</button>
                   <button title="Revert : rembobiner avant ce message" onClick={() => p.onRevert(i, e.text, false)}>↩</button>
                 </div>
               </div>
