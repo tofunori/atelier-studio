@@ -1,0 +1,557 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>LaTeX Studio</title>
+<link rel="stylesheet" href="/.fig_thumbs/cm/codemirror.min.css">
+<link rel="stylesheet" href="/.fig_thumbs/cm/material-darker.min.css">
+<script src="/.fig_thumbs/cm/codemirror.min.js"></script>
+<script src="/.fig_thumbs/cm/mark-selection.min.js"></script>
+<script src="/.fig_thumbs/cm/stex.min.js"></script>
+<script src="/.fig_thumbs/pdfjs/pdf.min.js"></script>
+<style>
+:root{--bg:#202024;--card:#27272a;--card2:#1f1f23;--txt:#e4e4e7;--muted:#a1a1aa;--accent:#5b9dff;--border:#3f3f46}
+  html,body{margin:0;height:100%;background:var(--bg);color:var(--txt);
+            font-family:-apple-system,sans-serif;display:flex;flex-direction:column;overflow:hidden}
+  header{background:var(--card);border-bottom:1px solid var(--border);padding:6px 10px;
+         display:flex;gap:6px;align-items:center;font-size:12.5px;flex-shrink:0;
+         overflow:hidden;white-space:nowrap}
+  header .grp{display:flex;gap:4px;align-items:center;flex:none}
+  header .sep{width:1px;height:18px;background:var(--border);flex:none;margin:0 3px}
+  header button{background:transparent;color:var(--muted);border:1px solid var(--border);
+                border-radius:6px;padding:0 10px;height:26px;font-size:12px;cursor:pointer;flex:none}
+  header button:hover{color:var(--txt);border-color:#5b6575}
+  header button.on{background:var(--border);color:var(--txt)}
+  header select{background:transparent;color:var(--txt);border:1px solid var(--border);
+                border-radius:6px;padding:0 6px;height:26px;font-size:12px;cursor:pointer;flex:none}
+  #build{background:var(--border);color:var(--txt);border-color:var(--border)}
+  #build:hover{background:#5b5b63;border-color:#5b5b63}
+  #fname{font-size:12.5px;max-width:150px;overflow:hidden;text-overflow:ellipsis;flex:none}
+  #ddot{color:#ffd54a;display:none;flex:none}
+  #state{color:var(--muted);flex:1;min-width:0;text-align:right;overflow:hidden;
+         text-overflow:ellipsis;white-space:nowrap}
+  #state.err{color:#ff6b6b}
+  #state.ok{color:#7ec97e}
+  #state.dirty{color:#ffd54a}
+  #helpPop{position:fixed;top:44px;right:10px;z-index:400;display:none;flex-direction:column;gap:7px;
+           background:var(--card);border:1px solid var(--border);border-radius:10px;padding:12px 16px;
+           font-size:12px;color:var(--muted);box-shadow:0 8px 30px rgba(0,0,0,.5);line-height:1.5}
+  #helpPop b{color:var(--txt);font-weight:600}
+  .pdfmode .editonly{display:none!important}
+  body:not(.pdfmode) .pdfonly{display:none!important}
+  .pdfmode #left{display:none}
+  #split{flex:1;display:flex;min-height:0}
+  #left{width:50%;display:flex;flex-direction:column;border-right:1px solid var(--border);min-width:0;background:#212121}
+  #right{flex:1;overflow:auto;background:var(--card2);position:relative;scrollbar-gutter:stable}
+  .CodeMirror{flex:1;height:auto;font-size:13px;font-family:"SF Mono",Menlo,monospace;line-height:1.5}
+  .pdfpage{position:relative;margin:10px auto;background:#fff;box-shadow:0 2px 10px rgba(0,0,0,.5);cursor:crosshair}
+  .pdfpage canvas{display:block}
+  #marker{position:absolute;left:0;right:0;height:22px;background:rgba(91,157,255,.25);
+          border-left:3px solid var(--accent);pointer-events:none;display:none;z-index:5}
+  .cm-syncline{background:rgba(91,157,255,.18)}
+  /* selection hugs the text (mark-selection) instead of filling the whole line */
+  .CodeMirror .CodeMirror-selected{background:transparent !important}
+  .CodeMirror-focused .CodeMirror-selected{background:transparent !important}
+  .CodeMirror-selectedtext{background:rgba(91,157,255,.45) !important;box-shadow:none !important;border-radius:2px}
+  /* last selection sent to Claude: persistent marker */
+  .cm-clsel{background:rgba(255,213,74,.16);box-shadow:0 1px 0 rgba(255,213,74,.4)}
+  #picker{position:fixed;inset:0;background:rgba(0,0,0,.55);display:none;z-index:200;
+          align-items:flex-start;justify-content:center;padding-top:8vh}
+  #picker.show{display:flex}
+  #pickerBox{background:var(--card);border:1px solid var(--border);border-radius:10px;width:520px;
+             max-height:70vh;display:flex;flex-direction:column;overflow:hidden;
+             box-shadow:0 8px 40px rgba(0,0,0,.6)}
+  #pickerPath{padding:10px 14px;font-size:11.5px;color:var(--muted);border-bottom:1px solid var(--border);
+              white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  #pickerList{overflow-y:auto;flex:1}
+  #pickerList div{padding:7px 14px;font-size:13px;cursor:pointer;display:flex;gap:8px}
+  #pickerList div:hover{background:var(--border)}
+  #pickerList .d{color:var(--accent)}
+  /* selection pill + annotation card (same language as the gallery/HTML overlay) */
+  #selPill{position:fixed;z-index:300;display:none;align-items:center;gap:10px;min-width:320px;max-width:460px;
+      background:#1d2026;border:1px solid #343842;border-radius:24px;padding:8px 8px 8px 16px;
+      box-shadow:0 12px 36px rgba(0,0,0,.45);color:var(--txt);font-size:13px;user-select:none;-webkit-user-select:none}
+  #selPill .nb{font-size:14px;flex:none;line-height:1}
+  #selPill textarea{flex:1;background:transparent;border:none;outline:none;color:var(--txt);
+      font-size:13px;line-height:1.45;padding:0;resize:none;font-family:inherit;height:20px;max-height:120px}
+  #selPill textarea::placeholder{color:#6d7480}
+  #selPill button{border:none;cursor:pointer;display:flex;align-items:center;justify-content:center}
+  #selPill .del{width:26px;height:26px;border-radius:50%;background:none;color:#6d7480;flex:none;padding:0}
+  #selPill .del:hover{color:#ff7a76}
+  #selPill .del svg{width:14px;height:14px;stroke:currentColor;fill:none;stroke-width:1.6;
+      stroke-linecap:round;stroke-linejoin:round}
+  #selPill .tgt{width:28px;height:28px;border-radius:50%;background:transparent;
+      border:1px solid #3a4150;color:var(--muted);font-size:14px;flex:none}
+  #selPill .tgt:hover,#selPill .tgt.set{border-color:#5b9dff;color:#5b9dff}
+  #selPill .go{width:32px;height:32px;border-radius:50%;background:#c96442;color:#fff;font-size:16px;flex:none}
+  #selPill .go:hover{background:#e0714a}
+  #tgMenu{position:fixed;z-index:302;display:none;flex-direction:column;min-width:240px;max-width:400px;
+      background:rgba(24,27,34,.98);border:1px solid #3a4150;border-radius:12px;padding:6px;
+      box-shadow:0 14px 48px rgba(0,0,0,.55);color:var(--txt);font-size:12.5px}
+  #tgMenu .hd{font-size:10.5px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;padding:5px 9px 3px}
+  #tgMenu .it{display:flex;gap:8px;align-items:center;padding:7px 9px;border-radius:8px;cursor:pointer}
+  #tgMenu .it:hover{background:rgba(255,255,255,.06)}
+  #tgMenu .it .app{flex:none;font-size:10px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;
+      color:#8ab4ff;border:1px solid #33415e;border-radius:5px;padding:1px 5px}
+  #tgMenu .it .t{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  #tgMenu .it.on .t{color:#8ab4ff}
+</style>
+<script>
+function __ct(){try{return JSON.parse(localStorage.getItem('claudeTargetV1')||'null')}catch(e){return null}}(function(){var T={'Default':{bg:'#202024',card:'#27272a',card2:'#1f1f23',txt:'#e4e4e7',muted:'#a1a1aa',accent:'#5b9dff',border:'#3f3f46'},'Codex One':{bg:'#202024',card:'#2f343f',card2:'#21252b',txt:'#abb2bf',muted:'#7f848e',accent:'#4d78cc',border:'#3e4451'},'Dracula':{bg:'#282a36',card:'#343746',card2:'#21222c',txt:'#f8f8f2',muted:'#9aa0b3',accent:'#bd93f9',border:'#44475a'},'Nord':{bg:'#2e3440',card:'#3b4252',card2:'#272c36',txt:'#e5e9f0',muted:'#9aa3b2',accent:'#88c0d0',border:'#434c5e'}};var t;try{t=T[localStorage.getItem('figTheme')];}catch(e){}t=t||T['Default'];var r=document.documentElement.style;for(var k in t)r.setProperty('--'+k,t[k]);})();</script>
+</head>
+<body>
+<header>
+  <b id="fname"></b><span id="ddot" title="Modifications non sauvegardées">&#9679;</span>
+  <span class="grp editonly">
+    <button id="build" title="Compiler (&#8984;B)">Compile</button>
+    <button id="saveBtn" title="Sauvegarder (&#8984;S)">Save</button>
+    <button id="openFile" title="Ouvrir un autre fichier">Open&hellip;</button>
+  </span>
+  <span class="sep editonly"></span>
+  <span class="grp editonly">
+    <select id="wrapSel" title="Retour à la ligne">
+      <option value="win">Wrap: window</option>
+      <option value="off">Wrap: off</option>
+      <option value="80">Wrap: 80</option>
+      <option value="100">Wrap: 100</option>
+      <option value="120">Wrap: 120</option>
+    </select>
+  </span>
+  <span class="sep editonly"></span>
+  <span class="grp editonly">
+    <button id="togglePdf" title="Vue scindée éditeur + PDF">Split</button>
+    <button id="popPdf" title="Ouvrir le PDF dans un onglet séparé — synctex actif (clic PDF &#8594; ligne source ici)">PDF &#8599;</button>
+  </span>
+  <span class="grp pdfonly">
+    <button id="reloadPdf" title="Recharger le PDF">&#8635;</button>
+  </span>
+  <span class="sep"></span>
+  <span class="grp">
+    <button id="zoomOut" title="Zoom arrière">&#8722;</button>
+    <button id="zoomFit" title="Ajuster à la largeur">&#10530;</button>
+    <button id="zoomIn" title="Zoom avant">+</button>
+  </span>
+  <span id="state"></span>
+  <button id="helpBtn" title="Raccourcis clavier">?</button>
+</header>
+<div id="helpPop">
+  <span><b>&#8984;S</b> sauvegarder &nbsp;&middot;&nbsp; <b>&#8984;B</b> compiler</span>
+  <span><b>&#8984;J</b> position source &#8594; PDF (vue scindée et onglet PDF)</span>
+  <span><b>Clic dans le PDF</b> &#8594; saute à la ligne source (synctex)</span>
+  <span><b>Sélection de texte</b> &#8594; pastille : annoter / envoyer à Claude</span>
+  <span><b>Esc</b> annule la sélection</span>
+</div>
+<div id="split">
+  <div id="left"></div>
+  <div id="right"><div id="marker"></div></div>
+</div>
+<div id="picker"><div id="pickerBox">
+  <div id="pickerPath"></div>
+  <div id="pickerList"></div>
+</div></div>
+<div id="selPill"><span class="nb">&#128172;</span><textarea rows="1" placeholder="Ajouter une annotation&hellip;"></textarea><button class="del" title="Annuler la sélection (&Eacute;chap)"><svg viewBox="0 0 14 14"><path d="M2 3.5h10M5.5 3.5V2.2c0-.4.3-.7.7-.7h1.6c.4 0 .7.3.7.7v1.3M3.5 3.5l.6 8.1c0 .5.4.9.9.9h4c.5 0 .9-.4.9-.9l.6-8.1M5.8 6v4M8.2 6v4"/></svg></button><button class="tgt" title="Choisir la session Claude cible">&#9678;</button><button class="go" title="Envoyer la sélection à la session Claude (Entr&eacute;e)">&#8593;</button></div>
+<div id="tgMenu"></div>
+<script>
+pdfjsLib.GlobalWorkerOptions.workerSrc = "/.fig_thumbs/pdfjs/pdf.worker.min.js";
+const path = new URLSearchParams(location.search).get("path");
+const isPdfMode = new URLSearchParams(location.search).get("mode") === "pdf";
+// cross-tab sync (editor tab <-> PDF tab): synctex jumps + reload after compile
+const bc = ("BroadcastChannel" in window && path) ? new BroadcastChannel("latexstudio:" + path) : null;
+let pdfPath = path ? path.replace(/\.tex$/, ".pdf") : null;
+// single initial-load trigger: resolve the real PDF path first, THEN load once
+// (two concurrent getDocument() calls can deadlock pdf.js worker startup)
+if(path) fetch("/texroot?path=" + encodeURIComponent(path)).then(r=>r.json()).then(j=>{
+  if(j.pdf) pdfPath = j.pdf;
+  loadPdf();
+}).catch(()=>{ loadPdf(); });
+const _base = path ? path.split("/").pop() : "(no file)";
+document.getElementById("fname").textContent = _base;
+document.title = isPdfMode ? _base + " — PDF" : _base;
+
+let cm = null, diskMtime = 0, dirty = false, pdfDoc = null, pageEls = [], pdfVps = [];
+let zoom = parseFloat(localStorage.getItem("texZoom") || "1");
+const stateEl = document.getElementById("state");
+const setState = (cls, txt) => { stateEl.className = cls; stateEl.textContent = txt; stateEl.title = txt; };
+const ddot = document.getElementById("ddot");
+
+// word wrap (VS Code-style): off | window | fixed column (80/100/120)
+const wrapSel = document.getElementById("wrapSel");
+function applyWrap(v){
+  localStorage.setItem("cmWrap", v);
+  const fixed = /^\d+$/.test(v);
+  if(cm){
+    const w = cm.getWrapperElement();
+    // gap beside a capped editor stays #212121 (the editor's own colour, set on #left)
+    // instead of a black panel; thin border marks the chosen column
+    w.style.maxWidth = fixed ? ("calc(" + v + "ch + 70px)") : "";
+    w.style.borderRight = fixed ? "1px solid #33384a" : "";
+    cm.setOption("lineWrapping", v !== "off");
+    cm.refresh();
+  }
+}
+wrapSel.value = localStorage.getItem("cmWrap") || "win";
+wrapSel.onchange = () => applyWrap(wrapSel.value);
+
+async function load(){
+  const r = await fetch("/code?path=" + encodeURIComponent(path));
+  const j = await r.json();
+  if(j.error) return setState("err", j.error);
+  recentsAdd(path);
+  diskMtime = j.mtime;
+  cm = CodeMirror(document.getElementById("left"), {
+    value: j.text, mode: "stex", theme: "material-darker",
+    lineNumbers: true, lineWrapping: true, viewportMargin: 50, styleSelectedText: true
+  });
+  cm.on("change", (_, ch) => { if(ch.origin !== "setValue"){ dirty = true; ddot.style.display = "inline"; setState("dirty", "modified"); } });
+  let selT = null;
+  cm.on("cursorActivity", () => {
+    clearTimeout(selT);
+    selT = setTimeout(() => {
+      const sel = cm.getSelection();
+      const f = cm.getCursor("from"), t = cm.getCursor("to");
+      if(sel && sel.trim()){
+        if(window._clMark) window._clMark.clear();
+        window._clMark = cm.markText(f, t, {className: "cm-clsel"});
+        fetch("/selinfo", {method:"POST", headers:{"Content-Type":"application/json"},
+          body: JSON.stringify({
+            lines: t.line - f.line + 1, words: sel.trim().split(/\s+/).length,
+            text: sel, rel: path, name: path.split("/").pop(),
+            page: "L" + (f.line+1) + "-" + (t.line+1)
+          })}).catch(()=>{});
+        selPillShow(f, t, sel);
+      } else { selHide(); }
+    }, 200);
+  });
+  applyWrap(wrapSel.value);
+  // initial loadPdf is triggered by the /texroot resolution (single-trigger rule)
+}
+
+async function save(){
+  const r = await fetch("/codesave", {method:"POST", headers:{"Content-Type":"application/json"},
+    body: JSON.stringify({path, text: cm.getValue(), mtime: diskMtime})});
+  const j = await r.json();
+  if(j.error === "conflit"){ setState("err", "disk conflict — re-⌘S to overwrite"); diskMtime = j.mtime; return false; }
+  diskMtime = j.mtime; dirty = false; ddot.style.display = "none"; setState("ok", "saved");
+  return true;
+}
+
+async function compile(){
+  if(dirty && !(await save())) return;
+  setState("dirty", "compiling…");
+  const r = await fetch("/compile", {method:"POST", headers:{"Content-Type":"application/json"},
+    body: JSON.stringify({path})});
+  const j = await r.json();
+  if(!j.ok) return setState("err", "✗ " + (j.error || "failed"));
+  if(j.pdf) pdfPath = j.pdf;
+  setState("ok", "✓ compiled " + new Date().toLocaleTimeString());
+  loadPdf();
+  if(bc) bc.postMessage({t: "compiled"});   // PDF tabs reload themselves
+}
+
+let _pdfToken = 0;
+async function loadPdf(){
+  const tok = ++_pdfToken;
+  try{
+    const doc = await pdfjsLib.getDocument({url: "/raw?path=" + encodeURIComponent(pdfPath) + "&t=" + Date.now(),
+      standardFontDataUrl: "/.fig_thumbs/pdfjs/standard_fonts/", cMapUrl: "/.fig_thumbs/pdfjs/cmaps/", cMapPacked: true}).promise;
+    if(tok !== _pdfToken) return;
+    pdfDoc = doc;
+    const right = document.getElementById("right");
+    const scroll = right.scrollTop;
+    [...right.querySelectorAll(".pdfpage")].forEach(e => e.remove());
+    pageEls = []; pdfVps = [];
+    _lastW = right.clientWidth;
+    const w = (right.clientWidth - 24) * zoom;
+    for(let n = 1; n <= doc.numPages; n++){
+      if(tok !== _pdfToken) return;
+      const page = await doc.getPage(n);
+      const base = page.getViewport({scale: 1});
+      const scale = w / base.width;
+      const vp = page.getViewport({scale});
+      const div = document.createElement("div");
+      div.className = "pdfpage"; div.dataset.page = n;
+      div.style.width = vp.width + "px"; div.style.height = vp.height + "px";
+      const cv = document.createElement("canvas");
+      cv.width = vp.width * devicePixelRatio; cv.height = vp.height * devicePixelRatio;
+      cv.style.width = vp.width + "px"; cv.style.height = vp.height + "px";
+      div.appendChild(cv);
+      right.appendChild(div);
+      pageEls[n] = div; pdfVps[n] = {scale, h: base.height};
+      const ctx = cv.getContext("2d");
+      ctx.scale(devicePixelRatio, devicePixelRatio);
+      await page.render({canvasContext: ctx, viewport: vp, intent: "print"}).promise;
+      div.onclick = e => {
+        const r2 = div.getBoundingClientRect();
+        synctexEdit(n, (e.clientX - r2.left) / pdfVps[n].scale, (e.clientY - r2.top) / pdfVps[n].scale);
+      };
+    }
+    right.scrollTop = scroll;
+  }catch(e){ console.warn("loadPdf:", e); /* souvent: pas encore de PDF */ }
+}
+
+function showMarker(page, y0){
+  if(!pageEls[page]) return false;
+  const el = pageEls[page], vp = pdfVps[page];
+  const y = y0 * vp.scale;
+  const marker = document.getElementById("marker");
+  el.appendChild(marker);
+  marker.style.top = (y - 14) + "px";
+  marker.style.display = "block";
+  el.scrollIntoView({block:"nearest"});
+  document.getElementById("right").scrollTop = el.offsetTop + y - document.getElementById("right").clientHeight/2;
+  setTimeout(() => marker.style.display = "none", 2500);
+  return true;
+}
+
+async function synctexView(){
+  if(!cm) return;
+  const line = cm.getCursor().line + 1;
+  const r = await fetch("/synctex", {method:"POST", headers:{"Content-Type":"application/json"},
+    body: JSON.stringify({dir:"view", tex: path, pdf: pdfPath, line})});
+  const j = await r.json();
+  if(!j.page) return setState("err", "synctex: no match");
+  if(bc) bc.postMessage({t: "view", page: j.page, y: j.y});   // separate PDF tabs scroll too
+  if(pdfDoc && !showMarker(j.page, j.y) ) setState("err", "synctex: page not rendered");
+}
+
+let lastSyncLine = null;
+function jumpToLine(line){
+  if(!cm) return;
+  const ln = line - 1;
+  cm.setCursor({line: ln, ch: 0});
+  cm.scrollIntoView({line: ln, ch: 0}, 120);
+  if(lastSyncLine !== null) cm.removeLineClass(lastSyncLine, "background", "cm-syncline");
+  cm.addLineClass(ln, "background", "cm-syncline");
+  lastSyncLine = ln;
+  cm.focus();
+}
+async function synctexEdit(page, x, y){
+  const r = await fetch("/synctex", {method:"POST", headers:{"Content-Type":"application/json"},
+    body: JSON.stringify({dir:"edit", tex: path, pdf: pdfPath, page, x, y})});
+  const j = await r.json();
+  if(!j.line) return setState("err", "synctex: no match");
+  if(cm) jumpToLine(j.line);
+  if(bc) bc.postMessage({t: "jump", line: j.line});   // editor tab jumps when we're the PDF tab
+}
+if(bc) bc.onmessage = e => {
+  const m = e.data || {};
+  if(isPdfMode){
+    if(m.t === "compiled") loadPdf();
+    else if(m.t === "view") showMarker(m.page, m.y);
+  } else if(m.t === "jump"){
+    jumpToLine(m.line);
+  }
+};
+
+// --- selection pill: annotate + send directly to the Claude session (same flow
+//     as the figure pill and the HTML report overlay; /quote with direct:true) ---
+const selPill = document.getElementById("selPill");
+const selTa = selPill.querySelector("textarea");
+let lastSel = null;
+function selPillShow(f, t, sel){
+  // don't reposition/steal focus while the user is typing a comment
+  if(selPill.style.display === "flex" && (document.activeElement === selTa || selTa.value)) return;
+  lastSel = {text: sel, page: "L" + (f.line+1) + "-" + (t.line+1)};
+  const c = cm.charCoords(t, "window");
+  selPill.style.display = "flex";
+  const w = selPill.offsetWidth, h = selPill.offsetHeight;
+  let x = Math.min(Math.max(8, c.left - w/2), innerWidth - w - 8);
+  let y = c.bottom + 10;
+  if(y + h > innerHeight - 8) y = c.top - h - 10;
+  selPill.style.left = x + "px"; selPill.style.top = Math.max(8, y) + "px";
+}
+function selHide(){ selPill.style.display = "none"; }
+function selCancel(){
+  selHide(); lastSel = null; selTa.value = "";
+  if(cm) cm.setCursor(cm.getCursor());
+  if(window._clMark){ window._clMark.clear(); window._clMark = null; }
+  fetch("/selinfo", {method:"POST", headers:{"Content-Type":"application/json"},
+    body: JSON.stringify({lines:0, words:0})}).catch(()=>{});
+}
+function selSend(){
+  if(!lastSel) return;
+  const comment = selTa.value.trim();
+  const go = selPill.querySelector(".go");
+  go.textContent = "⏳";
+  fetch("/quote", {method:"POST", headers:{"Content-Type":"application/json"},
+    body: JSON.stringify({rel: path, page: lastSel.page, text: lastSel.text, comment: comment || "", direct: true, target: __ct()})})
+    .then(r => r.json())
+    .then(() => { go.textContent = "✓"; setTimeout(() => { go.textContent = "↑"; selTa.value = ""; selHide(); }, 1200); })
+    .catch(() => { go.textContent = "!"; setTimeout(() => { go.textContent = "↑"; }, 1600); });
+}
+// clicks on the bar must not destroy the selection — except the textarea, which needs focus
+selPill.addEventListener("mousedown", e => { if(e.target !== selTa) e.preventDefault(); });
+selPill.querySelector(".go").onclick = () => selSend();
+selPill.querySelector(".del").onclick = e => { e.stopPropagation(); selCancel(); };
+/* ---- Claude-session target picker (stores localStorage 'claudeTargetV1') ---- */
+(function(){
+  const esc = s => String(s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+  const tgtBtn = selPill.querySelector(".tgt"), tgMenu = document.getElementById("tgMenu");
+  const markTgt = () => tgtBtn.classList.toggle("set", !!__ct());
+  markTgt();
+  tgMenu.addEventListener("mousedown", e => e.preventDefault());
+  tgtBtn.onclick = async e => {
+    e.stopPropagation();
+    const cur = __ct();
+    let html = '<div class="hd">Envoyer vers</div>'
+      + '<div class="it' + (cur ? '' : ' on') + '" data-i="-1"><span class="app">auto</span>'
+      + '<span class="t">Session du projet (auto)</span></div>';
+    try{
+      const j = await (await fetch("/claude-targets")).json();
+      (j.targets || []).forEach((t, i) => {
+        const on = cur && cur.app === t.app && cur.id === t.id;
+        html += '<div class="it' + (on ? ' on' : '') + '" data-i="' + i + '"><span class="app">'
+          + esc(t.app) + '</span><span class="t">' + esc(t.title || t.id)
+          + (t.inProject ? '' : ' — ' + esc(String(t.cwd || '').split('/').pop())) + '</span></div>';
+      });
+      tgMenu.innerHTML = html;
+      tgMenu.style.display = "flex";
+      const r = tgtBtn.getBoundingClientRect();
+      tgMenu.style.left = Math.max(8, Math.min(r.left - 120, innerWidth - tgMenu.offsetWidth - 8)) + "px";
+      tgMenu.style.top = Math.max(8, r.top - tgMenu.offsetHeight - 10) + "px";
+      tgMenu.querySelectorAll(".it").forEach(it => {
+        it.onclick = ev => {
+          ev.stopPropagation();
+          const i = +it.dataset.i;
+          if(i < 0) localStorage.removeItem("claudeTargetV1");
+          else localStorage.setItem("claudeTargetV1", JSON.stringify({app:j.targets[i].app, id:j.targets[i].id, title:j.targets[i].title}));
+          markTgt(); tgMenu.style.display = "none";
+        };
+      });
+      document.addEventListener("click", function h(){ tgMenu.style.display = "none"; document.removeEventListener("click", h); });
+    }catch(err){ console.warn("claude-targets failed", err); }
+  };
+})();
+selTa.addEventListener("input", () => { selTa.style.height = "20px"; selTa.style.height = Math.min(120, selTa.scrollHeight) + "px"; });
+selTa.addEventListener("keydown", e => {
+  e.stopPropagation();
+  if(e.key === "Enter" && !e.shiftKey){ e.preventDefault(); selSend(); }
+  else if(e.key === "Escape"){ e.preventDefault(); selCancel(); }
+});
+
+document.getElementById("build").onclick = compile;
+document.getElementById("saveBtn").onclick = () => save();
+document.getElementById("reloadPdf").onclick = () => loadPdf();
+const helpPop = document.getElementById("helpPop");
+document.getElementById("helpBtn").onclick = e => {
+  e.stopPropagation();
+  helpPop.style.display = helpPop.style.display === "flex" ? "none" : "flex";
+};
+document.addEventListener("click", () => { helpPop.style.display = "none"; });
+const rightEl = document.getElementById("right");
+function applyPdfVisible(v){
+  if(isPdfMode) return;                       // PDF tab: the PDF pane is the whole view
+  rightEl.style.display = v ? "" : "none";
+  document.getElementById("left").style.width = v ? "50%" : "100%";
+  document.getElementById("left").style.borderRight = v ? "" : "none";
+  document.getElementById("togglePdf").classList.toggle("on", v);
+  localStorage.setItem("texPdfVisible", v ? "1" : "0");
+  if(cm) cm.refresh();
+}
+document.getElementById("togglePdf").onclick = () => applyPdfVisible(rightEl.style.display === "none");
+function setZoom(z){
+  zoom = Math.max(0.4, Math.min(3, z));
+  localStorage.setItem("texZoom", zoom);
+  loadPdf();
+}
+document.getElementById("zoomIn").onclick = () => setZoom(zoom * 1.2);
+document.getElementById("zoomOut").onclick = () => setZoom(zoom / 1.2);
+document.getElementById("zoomFit").onclick = () => setZoom(1);
+let _rzT = null, _lastW = 0;
+new ResizeObserver(() => {
+  clearTimeout(_rzT);
+  _rzT = setTimeout(() => {
+    const w = rightEl.clientWidth;
+    if(pdfDoc && Math.abs(w - _lastW) > 8){ _lastW = w; loadPdf(); }
+  }, 500);
+}).observe(rightEl);
+document.getElementById("popPdf").onclick = () => {
+  // synctex-aware PDF tab (same studio in mode=pdf; BroadcastChannel links the two)
+  window.open("/.fig_thumbs/latex_studio.html?path=" + encodeURIComponent(path) + "&mode=pdf", "_blank");
+  applyPdfVisible(false);
+};
+if(!isPdfMode && localStorage.getItem("texPdfVisible") === "0") applyPdfVisible(false);
+document.addEventListener("keydown", e => {
+  if(e.key === "Escape"){
+    if(cm) selCancel();
+    return;
+  }
+  if((e.metaKey || e.ctrlKey) && e.key === "s" && cm){ e.preventDefault(); save(); }
+  if((e.metaKey || e.ctrlKey) && e.key === "b" && cm){ e.preventDefault(); compile(); }
+  if((e.metaKey || e.ctrlKey) && e.key === "j" && cm){ e.preventDefault(); synctexView(); }
+});
+
+// reload if Claude edits the .tex on disk
+setInterval(async () => {
+  if(dirty || !cm) return;
+  try{
+    const r = await fetch("/code?path=" + encodeURIComponent(path));
+    const j = await r.json();
+    if(j.mtime && Math.abs(j.mtime - diskMtime) > 0.001){
+      diskMtime = j.mtime;
+      const cur = cm.getCursor(), s = cm.getScrollInfo();
+      cm.setValue(j.text); cm.setCursor(cur); cm.scrollTo(s.left, s.top);
+      dirty = false; setState("ok", "reloaded (modified on disk)");
+    }
+  }catch(e){}
+}, 2000);
+
+if(path && isPdfMode){
+  document.body.classList.add("pdfmode");
+  setState("ok", "clic dans le PDF → ligne source dans l'onglet éditeur");
+  // initial loadPdf is triggered by the /texroot resolution above
+} else if(path) load();
+else {
+  setState("ok", "choose a .tex file");
+  pickerShow("");
+}
+
+
+// recent files (shared between studio and editor via localStorage)
+function recentsGet(){ try{return JSON.parse(localStorage.getItem("studioRecents")||"[]")}catch(e){return []} }
+function recentsAdd(p){
+  let r = recentsGet().filter(x => x !== p);
+  r.unshift(p); r = r.slice(0, 10);
+  localStorage.setItem("studioRecents", JSON.stringify(r));
+}
+function openTarget(target){
+  const page = target.endsWith(".tex") ? "latex_studio.html" : "code_editor.html";
+  location.href = "/.fig_thumbs/" + page + "?path=" + encodeURIComponent(target);
+}
+// --- mini file explorer (Open button) ---
+const EDITABLE = /\.(tex|sty|bib|py|r|R|md|jl|sh|bash|txt|csv|json|yaml|yml|toml)$/;
+const esc = s => String(s).replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+async function pickerShow(dir){
+  const r = await fetch("/ls?dir=" + encodeURIComponent(dir || (path ? path.replace(/\/[^/]*$/, "") : "")));
+  const j = await r.json();
+  if(j.error) return;
+  document.getElementById("picker").classList.add("show");
+  document.getElementById("pickerPath").textContent = j.path.replace(/^\/Users\/[^/]+/, "~");
+  const list = document.getElementById("pickerList");
+  list.innerHTML = "";
+  const mk = (label, cls, fn) => {
+    const d = document.createElement("div");
+    d.innerHTML = label; d.className = cls; d.onclick = fn;
+    list.appendChild(d);
+  };
+  const rec = recentsGet().filter(p => p !== path);
+  if(rec.length){
+    rec.forEach(p => mk("&#128337; " + esc(p.split("/").pop()) +
+      ' <span style="color:var(--muted);font-size:11px">' + esc(p.replace(/^\/Users\/[^/]+\/Documents\//, "").replace(/\/[^/]*$/, "")) + "</span>",
+      "", () => openTarget(p)));
+    const sep = document.createElement("div");
+    sep.style.cssText = "border-bottom:1px solid var(--border);margin:4px 0;padding:0;height:1px;cursor:default";
+    list.appendChild(sep);
+  }
+  if(j.parent) mk("&#8617; ..", "d", () => pickerShow(j.parent));
+  j.items.filter(i => i.dir).forEach(i => mk("&#128193; " + esc(i.name), "d", () => pickerShow(j.path + "/" + i.name)));
+  j.items.filter(i => !i.dir && EDITABLE.test(i.name)).forEach(i =>
+    mk(esc(i.name), "", () => openTarget(j.path + "/" + i.name)));
+}
+document.getElementById("picker").onclick = e => { if(e.target.id === "picker") e.target.classList.remove("show"); };
+document.addEventListener("keydown", e => { if(e.key === "Escape") document.getElementById("picker").classList.remove("show"); });
+
+document.getElementById("openFile").onclick = () => pickerShow();
+</script>
+</body>
+</html>

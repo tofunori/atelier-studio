@@ -8,37 +8,29 @@ import Chat from "./components/Chat";
 import AtelierPane from "./components/AtelierPane";
 import "./App.css";
 
-// Tant que le sidecar n'existe pas (plomberie en cours), l'UI tourne en mode
-// mock : threads factices + réponse simulée, pour valider le look & feel.
-const MOCK_THREADS: Thread[] = [
-  {
-    id: "mock-1",
-    projectRoot: "",
-    title: "alo",
-    provider: "claude",
-    sessionId: null,
-    status: "running",
-    updatedAt: new Date().toISOString(),
-  },
-  {
-    id: "mock-2",
-    projectRoot: "",
-    title: "alo",
-    provider: "codex",
-    sessionId: null,
-    status: "done",
-    updatedAt: new Date().toISOString(),
-  },
-];
+const PROJECTS_KEY = "atelier-studio.projects";
+
+function loadProjects(): string[] {
+  try {
+    return JSON.parse(localStorage.getItem(PROJECTS_KEY) ?? "[]");
+  } catch {
+    return [];
+  }
+}
 
 export default function App() {
   const ws = useRef<WebSocket | null>(null);
   const [mock, setMock] = useState(false);
+  const [projects, setProjects] = useState<string[]>(loadProjects);
+  const [activeProject, setActiveProject] = useState<string | null>(
+    loadProjects()[0] ?? null,
+  );
   const [threads, setThreads] = useState<Thread[]>([]);
+  // threads locaux (pas encore connus du sidecar) — nouveaux chats vides
+  const [draftThreads, setDraftThreads] = useState<Thread[]>([]);
   const [events, setEvents] = useState<Record<string, AgentEvent[]>>({});
   const [activeId, setActiveId] = useState<string | null>(null);
-  const [projectRoot, setProjectRoot] = useState<string | null>(null);
-  const [atelierUrl, setAtelierUrl] = useState<string | null>(null);
+  const [atelierUrls, setAtelierUrls] = useState<Record<string, string>>({});
   const [showAtelier, setShowAtelier] = useState(true);
 
   useEffect(() => {
@@ -54,11 +46,20 @@ export default function App() {
       .then((s) => {
         ws.current = s;
       })
-      .catch(() => {
-        setMock(true);
-        setThreads(MOCK_THREADS);
-      });
+      .catch(() => setMock(true));
   }, []);
+
+  useEffect(() => {
+    localStorage.setItem(PROJECTS_KEY, JSON.stringify(projects));
+  }, [projects]);
+
+  // (ré)ouvre le serveur atelier du projet actif
+  useEffect(() => {
+    if (!activeProject || atelierUrls[activeProject]) return;
+    invoke<string>("start_atelier", { root: activeProject })
+      .then((url) => setAtelierUrls((p) => ({ ...p, [activeProject]: url })))
+      .catch((e) => console.error("start_atelier:", e));
+  }, [activeProject]);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -70,33 +71,54 @@ export default function App() {
     return () => window.removeEventListener("keydown", onKey);
   }, []);
 
-  async function openProject() {
+  async function addProject() {
     const root = await open({ directory: true });
     if (typeof root !== "string") return;
-    setProjectRoot(root);
-    try {
-      setAtelierUrl(await invoke<string>("start_atelier", { root }));
-    } catch (e) {
-      console.error("start_atelier:", e);
-    }
+    setProjects((p) => (p.includes(root) ? p : [...p, root]));
+    setActiveProject(root);
   }
 
-  function newThread() {
-    if (!projectRoot) return;
+  function newThread(projectRoot: string) {
     const id = crypto.randomUUID();
+    setDraftThreads((p) => [
+      {
+        id,
+        projectRoot,
+        title: "nouveau chat",
+        provider: "claude" as const,
+        sessionId: null,
+        status: "idle" as const,
+        updatedAt: new Date().toISOString(),
+      },
+      ...p,
+    ]);
+    setActiveProject(projectRoot);
     setActiveId(id);
     setEvents((p) => ({ ...p, [id]: [] }));
   }
 
+  function selectThread(threadId: string, projectRoot: string) {
+    setActiveId(threadId);
+    setActiveProject(projectRoot);
+  }
+
   function submit(prompt: string, provider: "claude" | "codex") {
-    if (!projectRoot || !activeId) return;
+    if (!activeProject || !activeId) return;
+    const id = activeId;
     setEvents((p) => ({
       ...p,
-      [activeId]: [...(p[activeId] ?? []), { kind: "text", text: `**Toi :** ${prompt}` }],
+      [id]: [...(p[id] ?? []), { kind: "text", text: `**Toi :** ${prompt}` }],
     }));
     if (mock) {
-      const id = activeId;
+      setDraftThreads((p) =>
+        p.map((t) =>
+          t.id === id ? { ...t, title: prompt.slice(0, 40), status: "running" } : t,
+        ),
+      );
       setTimeout(() => {
+        setDraftThreads((p) =>
+          p.map((t) => (t.id === id ? { ...t, status: "done" } : t)),
+        );
         setEvents((p) => ({
           ...p,
           [id]: [
@@ -113,38 +135,27 @@ export default function App() {
       return;
     }
     if (ws.current) {
-      sendPrompt(ws.current, { threadId: activeId, projectRoot, provider, prompt });
+      sendPrompt(ws.current, { threadId: id, projectRoot: activeProject, provider, prompt });
+      // le sidecar prend le relais : retirer le brouillon local homonyme
+      setDraftThreads((p) => p.filter((t) => t.id !== id));
     }
   }
 
-  const visibleThreads = threads.filter(
-    (t) => mock || !projectRoot || t.projectRoot === projectRoot,
-  );
-  const shownThreads =
-    activeId && !threads.some((t) => t.id === activeId)
-      ? [
-          {
-            id: activeId,
-            projectRoot: projectRoot ?? "",
-            title: "nouveau thread",
-            provider: "claude" as const,
-            sessionId: null,
-            status: "idle" as const,
-            updatedAt: new Date().toISOString(),
-          },
-          ...visibleThreads,
-        ]
-      : visibleThreads;
+  const knownIds = new Set(threads.map((t) => t.id));
+  const allThreads = [...draftThreads.filter((t) => !knownIds.has(t.id)), ...threads];
+  const atelierUrl = activeProject ? atelierUrls[activeProject] : null;
 
   return (
     <PanelGroup direction="horizontal" className="app">
       <Panel defaultSize={16} minSize={12}>
         <Sidebar
-          threads={shownThreads}
-          projectRoot={projectRoot}
+          projects={projects}
+          threads={allThreads}
+          activeProject={activeProject}
           activeId={activeId}
-          onOpenProject={openProject}
-          onSelect={setActiveId}
+          onAddProject={addProject}
+          onSelectProject={setActiveProject}
+          onSelect={selectThread}
           onNew={newThread}
         />
       </Panel>
@@ -152,7 +163,7 @@ export default function App() {
       <Panel minSize={30}>
         <Chat
           events={activeId ? (events[activeId] ?? []) : []}
-          disabled={!projectRoot || !activeId}
+          disabled={!activeProject || !activeId}
           onSubmit={submit}
         />
       </Panel>

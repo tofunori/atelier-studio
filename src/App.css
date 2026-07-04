@@ -32,3 +32,12 @@ html, body, #root, .app { height: 100vh; font-family: -apple-system, sans-serif;
 .input select, .input button { background: #2c313a; color: inherit;
   border: none; border-radius: 8px; padding: 0 10px; cursor: pointer; }
 .atelier { width: 100%; height: 100%; border: none; background: #fff; }
+.section { color: #8a919e; font-size: 11px; text-transform: uppercase;
+  letter-spacing: 0.5px; padding: 4px 2px; }
+.project { display: flex; flex-direction: column; gap: 2px; }
+.project-name { padding: 6px 8px; border-radius: 6px; cursor: pointer;
+  font-size: 13px; display: flex; align-items: center; gap: 6px; }
+.project-name.active { background: #232830; }
+.project-name .mini { margin-left: auto; padding: 0 8px; font-size: 14px;
+  line-height: 20px; }
+.project ul { padding-left: 14px; }
