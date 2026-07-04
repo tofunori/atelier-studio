@@ -616,6 +616,14 @@ export default function App() {
             <AtelierPane
               url={atelierUrl}
               files={files}
+              onReorderTabs={(ids) => {
+                setAtelierTabs((tabs) => {
+                  const byId = new Map(tabs.map((t) => [t.id, t]));
+                  const next = ids.map((id) => byId.get(id)!).filter(Boolean);
+                  savePinned(next);
+                  return next;
+                });
+              }}
               onPinTab={(id) => {
                 setAtelierTabs((tabs) => {
                   const next = tabs.map((t) => (t.id === id ? { ...t, pinned: !t.pinned } : t));

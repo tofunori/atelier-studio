@@ -11,6 +11,7 @@ export default function AtelierPane({
   onOpenFile,
   onPinTab,
   onColorTab,
+  onReorderTabs,
   tabs,
   activeTab,
   onSelectTab,
@@ -29,7 +30,22 @@ export default function AtelierPane({
   onOpenFile: (rel: string) => void;
   onPinTab: (id: string) => void;
   onColorTab: (id: string, color?: string) => void;
+  onReorderTabs: (ids: string[]) => void;
 }) {
+  const [dragId, setDragId] = useState<string | null>(null);
+  const [overId, setOverId] = useState<string | null>(null);
+
+  function dropOn(targetId: string) {
+    if (!dragId || dragId === targetId) { setDragId(null); setOverId(null); return; }
+    const ids = tabs.map((t) => t.id);
+    const from = ids.indexOf(dragId);
+    const to = ids.indexOf(targetId);
+    if (from < 0 || to < 0) return;
+    ids.splice(to, 0, ids.splice(from, 1)[0]);
+    onReorderTabs(ids);
+    setDragId(null);
+    setOverId(null);
+  }
   const [showExplorer, setShowExplorer] = useState(false);
   const [tabMenu, setTabMenu] = useState<{ id: string; x: number; y: number } | null>(null);
 
@@ -57,8 +73,14 @@ export default function AtelierPane({
         {tabs.map((t) => (
           <button
             key={t.id}
-            className={`atab ${activeTab === t.id ? "on" : ""}`}
+            className={`atab ${activeTab === t.id ? "on" : ""} ${overId === t.id && dragId && dragId !== t.id ? "drop-target" : ""}`}
             onClick={() => onSelectTab(t.id)}
+            draggable
+            onDragStart={(e) => { setDragId(t.id); e.dataTransfer.effectAllowed = "move"; }}
+            onDragOver={(e) => { e.preventDefault(); setOverId(t.id); }}
+            onDragLeave={() => setOverId((o) => (o === t.id ? null : o))}
+            onDrop={(e) => { e.preventDefault(); dropOn(t.id); }}
+            onDragEnd={() => { setDragId(null); setOverId(null); }}
             onContextMenu={(e) => {
               e.preventDefault();
               setTabMenu({ id: t.id, x: e.clientX, y: e.clientY });

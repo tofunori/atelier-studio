@@ -793,10 +793,12 @@ async function lbShow(i){
   const isTex=f.ext==='tex', isPdf=f.ext==='pdf', isMd=f.ext==='md', isCode=codeExt(f.ext), isSvg=f.ext==='svg', isVid=videoExt(f.ext);
   // Embarqué dans Atelier Studio : les fichiers texte/code s'ouvrent dans un
   // ONGLET Studio (la galerie reste navigable), pas dans la lightbox.
-  if((window.self!==window.top) && (isTex||isMd||isCode)){
+  if((window.self!==window.top) && (isTex||isMd||isCode||isPdf)){
     // Studio : latex_studio pour tex/code ; éditeur WYSIWYG pour markdown
-    const u=(isMd?'/.fig_thumbs/md_studio.html?path=':'/.fig_thumbs/latex_studio.html?path=')
-      +encodeURIComponent('__ROOT__/'+f.rel)+'&v=__VER__';
+    let u;
+    if(isPdf) u='/.fig_thumbs/pdf_viewer.html?file='+encodeURIComponent(f.rel)+'&v=__VER__';
+    else if(isMd) u='/.fig_thumbs/md_studio.html?path='+encodeURIComponent('__ROOT__/'+f.rel)+'&v=__VER__';
+    else u='/.fig_thumbs/latex_studio.html?path='+encodeURIComponent('__ROOT__/'+f.rel)+'&v=__VER__';
     window.top.postMessage({type:'atelier-open-tab', url:u, title:f.name}, '*');
     lbIdx=-1;
     return;

@@ -367,3 +367,6 @@ input[type="range"].slider::-webkit-slider-thumb:hover { transform: scale(1.15);
   display: flex; gap: 6px; align-items: center; font-size: 13px; }
 .fav-list li.active { background: var(--bg-ctl); }
 .fav-star { margin-left: auto; color: #e0b74a; font-size: 11px; }
+.atab.drop-target { box-shadow: inset 2px 0 0 var(--blue, #5b9dff); }
+.atab[draggable="true"] { cursor: grab; }
+.atab[draggable="true"]:active { cursor: grabbing; }

@@ -16,6 +16,25 @@
   .textLayer{position:absolute;inset:0;overflow:hidden;line-height:1;opacity:1;user-select:none}
   .textLayer span{position:absolute;color:transparent;white-space:pre;transform-origin:0 0;cursor:text}
   .textLayer span.hl{background:rgba(91,157,255,.45);border-radius:2px}
+  .pdfhl{position:absolute;border-radius:2px;mix-blend-mode:multiply;cursor:pointer}
+  .pdfnote{position:absolute;cursor:pointer;background:#1b1f26;border:1px solid #333a45;
+    border-radius:6px;padding:2px 3px;box-shadow:0 2px 8px rgba(0,0,0,.4)}
+  #pdftools{display:flex;align-items:center;gap:2px}
+  #pdftools button{width:26px;height:24px;display:inline-flex;align-items:center;justify-content:center}
+  #pdftools button.ton{background:#2c313a !important;color:#e8eaed !important}
+  #pdftools .cdot{width:13px;height:13px;border-radius:4px;cursor:pointer;margin:0 1px;
+    border:1px solid rgba(255,255,255,.15)}
+  #pdftools .cdot.con{outline:2px solid #5b9dff}
+  #annotPop{position:fixed;z-index:9999;display:none;background:#1b1f26;border:1px solid #333a45;
+    border-radius:12px;padding:10px;box-shadow:0 10px 28px rgba(0,0,0,.55);
+    font-family:-apple-system,sans-serif;font-size:13px;color:#e6e6e6;width:230px}
+  #annotPop input{width:100%;box-sizing:border-box;background:#2c313a;border:1px solid #3a414d;
+    border-radius:7px;color:inherit;padding:5px 8px;font-size:12.5px;outline:none;margin-bottom:8px}
+  #annotPop .row{display:flex;gap:6px;align-items:center}
+  #annotPop .sw{width:16px;height:16px;border-radius:5px;cursor:pointer}
+  #annotPop button{background:#2c313a;border:1px solid #3a414d;border-radius:7px;color:#e6e6e6;
+    padding:4px 10px;cursor:pointer;font-size:12px}
+  #annotPop .del{color:#ff8a8a;margin-left:auto}
   #sendBtn{position:fixed;display:none;z-index:100;background:var(--border);color:var(--txt);border:1px solid var(--border);
            border-radius:8px;padding:8px 14px;font-size:13px;cursor:pointer;box-shadow:0 2px 10px rgba(0,0,0,.5)}
   .muted{color:var(--muted)}
@@ -65,7 +84,8 @@ function __ct(){try{return JSON.parse(localStorage.getItem('claudeTargetV1')||'n
 </header>
 <div id="pages"></div>
 <button id="sendBtn">➜ Claude</button>
-<div id="selPill"><span class="nb">&#128172;</span><textarea rows="1" placeholder="Ajouter une annotation&hellip;"></textarea><button class="del" title="Annuler la sélection (&Eacute;chap)"><svg viewBox="0 0 14 14"><path d="M2 3.5h10M5.5 3.5V2.2c0-.4.3-.7.7-.7h1.6c.4 0 .7.3.7.7v1.3M3.5 3.5l.6 8.1c0 .5.4.9.9.9h4c.5 0 .9-.4.9-.9l.6-8.1M5.8 6v4M8.2 6v4"/></svg></button><button class="tgt" title="Choisir la session Claude cible">&#9678;</button><button class="go" title="Envoyer la sélection à la session Claude (Entr&eacute;e)">&#8593;</button></div>
+<div id="selPill"><span class="nb">&#128172;</span><textarea rows="1" placeholder="Ajouter une annotation&hellip;"></textarea><button class="del" title="Annuler la sélection (&Eacute;chap)"><svg viewBox="0 0 14 14"><path d="M2 3.5h10M5.5 3.5V2.2c0-.4.3-.7.7-.7h1.6c.4 0 .7.3.7.7v1.3M3.5 3.5l.6 8.1c0 .5.4.9.9.9h4c.5 0 .9-.4.9-.9l.6-8.1M5.8 6v4M8.2 6v4"/></svg></button><button class="tgt" title="Choisir la session Claude cible">&#9678;</button><button class="hlt" title="Surligner (persistant)">&#9998;</button><button class="go" title="Envoyer la sélection à la session Claude (Entr&eacute;e)">&#8593;</button></div>
+<div id="annotPop"></div>
 <div id="tgMenu"></div>
 <script>
 pdfjsLib.GlobalWorkerOptions.workerSrc = "/.fig_thumbs/pdfjs/pdf.worker.min.js";
@@ -108,6 +128,7 @@ async function main(){
     const tc = await page.getTextContent();
     buildTextLayer(tc, tl, vp);
     tl._order = readingOrder(tl, vp.width);
+    drawAnnots(div, n);
   }
 }
 
@@ -404,6 +425,173 @@ function setAnnot(on){
 annotBtn.onclick = () => setAnnot(!annotOn);
 
 if(rel) main();
+
+// ---- surlignages persistants (sidecar JSON via /pdfannot) ----
+let PDF_ANNOTS = [];
+fetch("/pdfannot?rel=" + encodeURIComponent(rel)).then(r=>r.json())
+  .then(j => { PDF_ANNOTS = j.annots || [];
+    document.querySelectorAll(".pg").forEach(pg => drawAnnots(pg, +pg.dataset.page)); })
+  .catch(()=>{});
+function saveAnnots(){
+  fetch("/pdfannot", {method:"POST", headers:{"Content-Type":"application/json"},
+    body: JSON.stringify({rel, annots: PDF_ANNOTS})}).catch(()=>{});
+}
+function drawAnnots(pgDiv, n){
+  pgDiv.querySelectorAll(".pdfhl").forEach(el => el.remove());
+  for(const a of PDF_ANNOTS){
+    if(+a.page !== +n) continue;
+    for(const rc of a.rects){
+      const el = document.createElement("div");
+      el.className = "pdfhl";
+      el.style.left = (rc[0]*100)+"%"; el.style.top = (rc[1]*100)+"%";
+      el.style.width = (rc[2]*100)+"%"; el.style.height = (rc[3]*100)+"%";
+      const col = a.color || "rgba(255,213,74,.4)";
+      const solid = col.replace(/,\s*\.?\d+\)/, ",.95)");
+      if(a.kind === "ul"){ el.style.background = "transparent"; el.style.borderBottom = "2px solid " + solid; }
+      else if(a.kind === "st"){ el.style.background = "linear-gradient(transparent 46%," + solid + " 46%," + solid + " 58%,transparent 58%)"; }
+      else if(a.kind === "note"){ el.style.background = "transparent"; }
+      else { el.style.background = col; }
+      if(a.note) el.title = a.note;
+      el.onclick = (e) => { e.stopPropagation(); annotMenu(a, e.clientX, e.clientY); };
+      pgDiv.appendChild(el);
+    }
+    if(a.kind === "note" && a.pin){
+      const pin = document.createElement("div");
+      pin.className = "pdfnote";
+      pin.style.left = (a.pin[0]*100)+"%"; pin.style.top = (a.pin[1]*100)+"%";
+      pin.innerHTML = '<svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="#e0b74a" stroke-width="1.4"><path d="M3 2.5h10v8H8l-3 3v-3H3v-8z"/></svg>';
+      if(a.note) pin.title = a.note;
+      pin.onclick = (e) => { e.stopPropagation(); annotMenu(a, e.clientX, e.clientY); };
+      pgDiv.appendChild(pin);
+    }
+  }
+}
+const HL_COLORS = ["rgba(255,213,74,.40)","rgba(120,220,140,.40)","rgba(120,170,255,.40)","rgba(255,140,160,.40)"];
+function addHighlightFromSel(kind, color){
+  kind = kind || "hl"; color = color || HL_COLORS[0];
+  const spans = [...document.querySelectorAll(".textLayer span.hl")];
+  if(!spans.length) return;
+  const byPage = new Map();
+  for(const sp of spans){
+    const pg = sp.closest(".pg"); if(!pg) continue;
+    const key = pg.dataset.page;
+    if(!byPage.has(key)) byPage.set(key, {pg, rects: [], texts: []});
+    const pr = pg.getBoundingClientRect(), r = sp.getBoundingClientRect();
+    byPage.get(key).rects.push([(r.left-pr.left)/pr.width, (r.top-pr.top)/pr.height,
+      r.width/pr.width, r.height/pr.height]);
+    byPage.get(key).texts.push(sp.textContent);
+  }
+  for(const [pgNum, g] of byPage){
+    const a = {id: Date.now() + "-" + pgNum, page: +pgNum, rects: g.rects,
+      text: g.texts.join(" ").replace(/\s+/g," ").trim(),
+      kind: kind, color: color, note: ""};
+    PDF_ANNOTS.push(a);
+    drawAnnots(g.pg, +pgNum);
+  }
+  saveAnnots();
+  clearHl(); selHide();
+  try{ window.getSelection().removeAllRanges(); }catch(e){}
+}
+document.querySelector("#selPill .hlt").onclick = () => addHighlightFromSel();
+const annotPop = document.getElementById("annotPop");
+function annotMenu(a, x, y){
+  annotPop.innerHTML = '<input placeholder="Note… (Entrée)" value="' +
+      String(a.note||"").replace(/["&<>]/g, c => ({'"':'&quot;','&':'&amp;','<':'&lt;','>':'&gt;'}[c])) + '">' +
+    '<div class="row">' +
+    HL_COLORS.map(c => '<span class="sw" style="background:'+c.replace(",.40",",.85")+'" data-c="'+c+'"></span>').join("") +
+    '<button class="send2">&rarr; chat</button><button class="del">Suppr</button></div>';
+  annotPop.style.left = Math.min(x, window.innerWidth-250)+"px";
+  annotPop.style.top = (y+10)+"px";
+  annotPop.style.display = "block";
+  const inp = annotPop.querySelector("input");
+  inp.onkeydown = (e) => { if(e.key==="Enter"){ a.note = inp.value; saveAnnots(); annotPop.style.display="none"; } };
+  annotPop.querySelectorAll(".sw").forEach(sw => sw.onclick = () => {
+    a.color = sw.dataset.c; saveAnnots();
+    document.querySelectorAll(".pg").forEach(pg => drawAnnots(pg, +pg.dataset.page));
+  });
+  annotPop.querySelector(".send2").onclick = () => {
+    const payload = {rel, page: String(a.page), text: a.text, comment: a.note || "", direct: true, embed: true};
+    fetch("/quote", {method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify(payload)})
+      .then(r=>r.json())
+      .then(j => { if(j && j.message && window.self !== window.top)
+        window.top.postMessage({type:"atelier-add-to-chat", text:j.message}, "*"); })
+      .catch(()=>{});
+    annotPop.style.display = "none";
+  };
+  annotPop.querySelector(".del").onclick = () => {
+    PDF_ANNOTS = PDF_ANNOTS.filter(x => x.id !== a.id);
+    saveAnnots();
+    document.querySelectorAll(".pg").forEach(pg => drawAnnots(pg, +pg.dataset.page));
+    annotPop.style.display = "none";
+  };
+}
+document.addEventListener("click", (e) => {
+  if(!annotPop.contains(e.target) && !e.target.classList.contains("pdfhl"))
+    annotPop.style.display = "none";
+});
+
+// mode Studio : barre d'outils compacte et sobre + outils d'annotation
+let TOOL = null, TOOL_COLOR_IDX = 0;
+if(window.self !== window.top){
+  const hd = document.querySelector("header");
+  const tools = document.createElement("span");
+  tools.id = "pdftools";
+  tools.innerHTML =
+    '<button data-t="" class="ton" title="Sélection"><svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><path d="M4 2l8 6.5-3.4.6 2 3.9-1.8.9-2-3.9L4 12V2z"/></svg></button>'
+    + '<button data-t="hl" title="Surligneur : sélectionne du texte pour surligner"><svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><path d="M2 13.5h5M4.5 11L10 3.5l2.5 2L7 13H4.5v-2z"/></svg></button>'
+    + '<button data-t="ul" title="Souligner"><svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><path d="M4 2.5v6a4 4 0 008 0v-6M3 13.5h10"/></svg></button>'
+    + '<button data-t="st" title="Barrer"><svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><path d="M4 3h8M4 13h8M2 8h12"/></svg></button>'
+    + '<button data-t="note" title="Note : clique sur la page"><svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><path d="M3 2.5h10v8H8l-3 3v-3H3v-8z"/></svg></button>'
+    + '<span style="width:6px"></span>'
+    + HL_COLORS.map((c,i)=>'<span class="cdot'+(i===0?' con':'')+'" data-i="'+i+'" style="background:'+c.replace(",.40",",.85")+'"></span>').join("");
+  const fn = document.getElementById("fname");
+  fn.after(tools);
+  tools.querySelectorAll("button").forEach(b => b.onclick = () => {
+    TOOL = b.dataset.t || null;
+    tools.querySelectorAll("button").forEach(o => o.classList.toggle("ton", o === b));
+  });
+  tools.querySelectorAll(".cdot").forEach(d => d.onclick = () => {
+    TOOL_COLOR_IDX = +d.dataset.i;
+    tools.querySelectorAll(".cdot").forEach(o => o.classList.toggle("con", o === d));
+  });
+  // outil actif : la sélection annote directement (pas de pilule)
+  document.addEventListener("mouseup", () => {
+    if(!TOOL || TOOL === "note") return;
+    setTimeout(() => {
+      if(document.querySelectorAll(".textLayer span.hl").length){
+        addHighlightFromSel(TOOL, HL_COLORS[TOOL_COLOR_IDX]);
+      }
+    }, 30);
+  });
+  // outil note : clic sur la page = pastille de note
+  document.addEventListener("click", (e) => {
+    if(TOOL !== "note") return;
+    const pg = e.target.closest(".pg");
+    if(!pg || e.target.closest(".pdfhl") || e.target.closest(".pdfnote")) return;
+    const pr = pg.getBoundingClientRect();
+    const a = {id: Date.now()+"-n", page: +pg.dataset.page, rects: [],
+      pin: [(e.clientX-pr.left)/pr.width, (e.clientY-pr.top)/pr.height],
+      kind: "note", color: HL_COLORS[TOOL_COLOR_IDX], text: "", note: ""};
+    PDF_ANNOTS.push(a); saveAnnots(); drawAnnots(pg, +pg.dataset.page);
+    annotMenu(a, e.clientX, e.clientY);
+  });
+}
+if(window.self !== window.top){
+  const st = document.createElement("style");
+  st.textContent = `
+    header{background:#1a1d22 !important;border-bottom:1px solid #333a45 !important;
+      padding:4px 10px !important;min-height:0 !important;gap:10px}
+    header #fname{font-weight:500;font-size:12.5px;color:#cfd4dc}
+    header .muted{display:none}
+    header #selinfo{color:#8a919e !important;font-size:11.5px}
+    header #status{font-size:11.5px}
+    header button{background:transparent !important;border:none !important;
+      color:#8a919e !important;font-size:12.5px !important;padding:3px 8px !important;
+      border-radius:6px !important;cursor:pointer;box-shadow:none !important}
+    header button:hover{background:#2c313a !important;color:#e8eaed !important}
+  `;
+  document.head.appendChild(st);
+}
 </script>
 </body>
 </html>
