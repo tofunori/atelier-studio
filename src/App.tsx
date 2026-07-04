@@ -723,6 +723,7 @@ export default function App() {
           <Panel id="atelier" order={3} defaultSize={38} minSize={20}>
             <AtelierPane
               url={atelierUrl}
+              projectRoot={activeProject ?? ""}
               files={files}
               onReorderTabs={(ids) => {
                 setAtelierTabs((tabs) => {
@@ -733,21 +734,6 @@ export default function App() {
                 });
               }}
               ws={ws.current}
-              onOpenTerminal={() => {
-                const id = crypto.randomUUID();
-                setAtelierTabs((tabs) => [...tabs, {
-                  id, url: `term:${id}`, title: "Terminal",
-                  kind: "term" as const, cwd: activeProject ?? "",
-                }]);
-                setActiveTab(id);
-              }}
-              onOpenUrl={(u) => {
-                const existing = atelierTabsRef.current.find((t) => t.url === u);
-                if (existing) { setActiveTab(existing.id); return; }
-                const id = crypto.randomUUID();
-                setAtelierTabs((tabs) => [...tabs, { id, url: u, title: new URL(u).hostname }]);
-                setActiveTab(id);
-              }}
               onPinTab={(id) => {
                 setAtelierTabs((tabs) => {
                   const next = tabs.map((t) => (t.id === id ? { ...t, pinned: !t.pinned } : t));
