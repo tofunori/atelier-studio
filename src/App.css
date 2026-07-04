@@ -240,3 +240,9 @@ html, body, #root, .app { height: 100vh;
 .dot.unread { background: #34c98e !important; animation: unreadPulse 1.6s ease-in-out infinite; }
 @keyframes unreadPulse { 0%,100% { box-shadow: 0 0 0 0 rgba(52,201,142,0.5); }
   50% { box-shadow: 0 0 0 4px rgba(52,201,142,0); } }
+/* indicateur "agent au travail" : pastille qui respire + arc orbital */
+.dot.busy { animation: busyBreathe 1.4s ease-in-out infinite; }
+@keyframes busyBreathe { 0%,100% { transform: scale(1); opacity: 1; }
+  50% { transform: scale(1.35); opacity: 0.7; } }
+.arc { margin-left: auto; animation: arcSpin 0.9s linear infinite; flex-shrink: 0; }
+@keyframes arcSpin { to { transform: rotate(360deg); } }

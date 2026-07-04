@@ -118,7 +118,7 @@ export default function Sidebar(p: {
                     setMenu({ x: e.clientX, y: e.clientY, threadId: t.id });
                   }}
                 >
-                  <span className={`dot ${t.provider} ${p.unread.has(t.id) ? "unread" : ""}`} />
+                  <span className={`dot ${t.provider} ${p.unread.has(t.id) ? "unread" : ""} ${t.status === "running" ? "busy" : ""}`} />
                   {editingId === t.id ? (
                     <input
                       ref={editRef}
@@ -135,7 +135,12 @@ export default function Sidebar(p: {
                   ) : (
                     <span className="title">{t.title}</span>
                   )}
-                  {t.status === "running" && <span className="spinner">⟳</span>}
+                  {t.status === "running" && (
+                    <svg className="arc" width="13" height="13" viewBox="0 0 16 16" fill="none">
+                      <circle cx="8" cy="8" r="6" stroke="#3a414d" strokeWidth="2" />
+                      <path d="M14 8a6 6 0 0 0-6-6" stroke="#e8823a" strokeWidth="2" strokeLinecap="round" />
+                    </svg>
+                  )}
                 </li>
               ))}
             </ul>
