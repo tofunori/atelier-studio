@@ -411,7 +411,7 @@ export default function Chat(p: {
             if (m) {
               return (
                 <>
-                  <span className="slash-cmd">{m[1]}</span>
+                  <span className="slash-cmd-inline">{m[1]}</span>
                   {m[2]}
                 </>
               );

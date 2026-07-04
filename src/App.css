@@ -407,3 +407,6 @@ input[type="range"].slider::-webkit-slider-thumb:hover { transform: scale(1.15);
   white-space: pre-wrap; word-break: break-word; pointer-events: none;
   color: var(--fg); font-size: 14px; line-height: 1.45;
   font-family: inherit; }
+/* version sans padding : mêmes métriques que le texte de la textarea */
+.slash-cmd-inline { color: #5b9dff; background: rgba(91,157,255,0.12);
+  border-radius: 4px; }
