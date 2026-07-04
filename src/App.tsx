@@ -2,7 +2,14 @@ import { useEffect, useRef, useState } from "react";
 import { Panel, PanelGroup, PanelResizeHandle } from "react-resizable-panels";
 import { invoke } from "@tauri-apps/api/core";
 import { open } from "@tauri-apps/plugin-dialog";
-import { connectSidecar, sendPrompt, Thread, AgentEvent } from "./lib/ws";
+import {
+  connectSidecar,
+  sendPrompt,
+  requestCatalog,
+  Thread,
+  AgentEvent,
+  Command,
+} from "./lib/ws";
 import Sidebar from "./components/Sidebar";
 import Chat from "./components/Chat";
 import AtelierPane from "./components/AtelierPane";
@@ -30,6 +37,8 @@ export default function App() {
   const [draftThreads, setDraftThreads] = useState<Thread[]>([]);
   const [events, setEvents] = useState<Record<string, AgentEvent[]>>({});
   const [workingSince, setWorkingSince] = useState<Record<string, number | null>>({});
+  const [commands, setCommands] = useState<Command[]>([]);
+  const [files, setFiles] = useState<string[]>([]);
   const [activeId, setActiveId] = useState<string | null>(null);
   const [atelierUrls, setAtelierUrls] = useState<Record<string, string>>({});
   const [showAtelier, setShowAtelier] = useState(true);
@@ -51,6 +60,8 @@ export default function App() {
           setWorkingSince((p) => ({ ...p, [msg.threadId]: null }));
         }
       }
+      if (msg.type === "commands") setCommands(msg.commands);
+      if (msg.type === "files") setFiles(msg.files);
       if (msg.type === "error") console.error("sidecar:", msg.message);
     })
       .then((s) => {
@@ -62,6 +73,13 @@ export default function App() {
   useEffect(() => {
     localStorage.setItem(PROJECTS_KEY, JSON.stringify(projects));
   }, [projects]);
+
+  // catalogue skills + fichiers du projet actif (pour les menus / et @)
+  useEffect(() => {
+    if (activeProject && ws.current?.readyState === 1) {
+      requestCatalog(ws.current, activeProject);
+    }
+  }, [activeProject, mock]);
 
   // (ré)ouvre le serveur atelier du projet actif
   useEffect(() => {
@@ -206,6 +224,8 @@ export default function App() {
         <Chat
           events={activeId ? (events[activeId] ?? []) : []}
           workingSince={activeId ? (workingSince[activeId] ?? null) : null}
+          commands={commands}
+          files={files}
           disabled={!activeProject}
           onSubmit={submit}
         />

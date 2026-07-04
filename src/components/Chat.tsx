@@ -45,9 +45,13 @@ function Working({ since }: { since: number }) {
   );
 }
 
+type Suggestion = { insert: string; label: string; hint?: string };
+
 export default function Chat(p: {
   events: AgentEvent[];
   workingSince: number | null;
+  commands: { name: string; source: string }[];
+  files: string[];
   disabled: boolean;
   onSubmit: (
     prompt: string,
@@ -62,6 +66,33 @@ export default function Chat(p: {
   const [model, setModel] = useState("");
   const [effort, setEffort] = useState("");
   const [permissionMode, setPermissionMode] = useState("bypassPermissions");
+  const [selIdx, setSelIdx] = useState(0);
+
+  // autocomplétion : "/xxx" en début de message → skills ; "@xxx" (dernier mot) → fichiers
+  let suggestions: Suggestion[] = [];
+  const slashMatch = /^\/([\w:-]*)$/.exec(text);
+  const atMatch = /(^|\s)@([\w./-]*)$/.exec(text);
+  if (slashMatch) {
+    const q = slashMatch[1].toLowerCase();
+    suggestions = p.commands
+      .filter((c) => c.name.toLowerCase().includes(q))
+      .slice(0, 12)
+      .map((c) => ({ insert: `/${c.name} `, label: `/${c.name}`, hint: c.source }));
+  } else if (atMatch) {
+    const q = atMatch[2].toLowerCase();
+    suggestions = p.files
+      .filter((f) => f.toLowerCase().includes(q))
+      .slice(0, 12)
+      .map((f) => ({
+        insert: text.slice(0, atMatch.index) + atMatch[1] + `@${f} `,
+        label: f,
+      }));
+  }
+
+  function applySuggestion(s: Suggestion) {
+    setText(s.insert);
+    setSelIdx(0);
+  }
 
   async function attachFiles() {
     const picked = await open({ multiple: true });
@@ -111,10 +142,48 @@ export default function Chat(p: {
           setText("");
         }}
       >
+        {suggestions.length > 0 && (
+          <ul className="suggest">
+            {suggestions.map((s, i) => (
+              <li
+                key={s.label}
+                className={i === selIdx ? "sel" : ""}
+                onMouseDown={(e) => {
+                  e.preventDefault();
+                  applySuggestion(s);
+                }}
+              >
+                <span>{s.label}</span>
+                {s.hint && <span className="hint">{s.hint}</span>}
+              </li>
+            ))}
+          </ul>
+        )}
         <textarea
           value={text}
           onChange={(e) => setText(e.target.value)}
           onKeyDown={(e) => {
+            if (suggestions.length > 0) {
+              if (e.key === "ArrowDown") {
+                e.preventDefault();
+                setSelIdx((i) => (i + 1) % suggestions.length);
+                return;
+              }
+              if (e.key === "ArrowUp") {
+                e.preventDefault();
+                setSelIdx((i) => (i - 1 + suggestions.length) % suggestions.length);
+                return;
+              }
+              if (e.key === "Tab" || e.key === "Enter") {
+                e.preventDefault();
+                applySuggestion(suggestions[Math.min(selIdx, suggestions.length - 1)]);
+                return;
+              }
+              if (e.key === "Escape") {
+                setText((t) => t + " ");
+                return;
+              }
+            }
             if (e.key === "Enter" && !e.shiftKey) {
               e.preventDefault();
               (e.currentTarget.form as HTMLFormElement).requestSubmit();

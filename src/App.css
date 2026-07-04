@@ -65,3 +65,9 @@ html, body, #root, .app { height: 100vh; font-family: -apple-system, sans-serif;
 .working { color: #8a919e; font-size: 14px; padding: 4px 0; }
 .working-label { color: #6b7482; animation: pulse 1.4s ease-in-out infinite; }
 @keyframes pulse { 0%,100% { opacity: 0.5; } 50% { opacity: 1; } }
+.suggest { list-style: none; padding: 4px; margin: 0 0 4px; background: #1b1f26;
+  border: 1px solid #333a45; border-radius: 10px; max-height: 260px; overflow-y: auto; }
+.suggest li { display: flex; justify-content: space-between; gap: 12px;
+  padding: 5px 10px; border-radius: 6px; cursor: pointer; font-size: 13px; }
+.suggest li.sel, .suggest li:hover { background: #2c313a; }
+.suggest .hint { color: #6b7482; font-size: 11px; }
