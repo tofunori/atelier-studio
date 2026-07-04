@@ -20,12 +20,12 @@ const PROJECTS_KEY = "atelier-studio.projects";
 // « /chemin/CLAUDE.md (p.L11-224) : « … » » → « CLAUDE.md (L11-224) »
 function attachmentLabel(text: string): string {
   const first = text.split("\n")[0];
-  const m = /^(\S+?)(?:\s*\((?:p\.)?(L?[\d:.,-]+)\))?(?:\s*:)?/.exec(first);
-  if (m) {
-    const base = m[1].split("/").pop() ?? m[1];
+  const m = /^(\S+)(?:\s*\((?:p\.)?(L?[\d:.,-]+)\))?/.exec(first);
+  if (m && m[1].length > 1) {
+    const base = m[1].split("/").pop() || m[1];
     return m[2] ? `${base} (${m[2]})` : base;
   }
-  return first.slice(0, 60);
+  return first.slice(0, 60) || "citation";
 }
 
 function loadProjects(): string[] {

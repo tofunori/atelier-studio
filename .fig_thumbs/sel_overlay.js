@@ -100,12 +100,12 @@ function __ct(){try{return JSON.parse(localStorage.getItem('claudeTargetV1')||'n
   // pas de commentaire ni corbeille, le texte part en puce dans le composer.
   if (EMBEDDED){
     var __go = pill.querySelector('.go');
-    var __ta = pill.querySelector('textarea');
-    var __del = pill.querySelector('.del');
-    if (__go){ __go.innerHTML = '&#128172; Add to chat';
-      __go.style.cssText = 'width:auto;min-width:0;border-radius:999px;padding:0 14px;font-size:13px;height:30px;white-space:nowrap'; }
-    if (__ta) __ta.style.display = 'none';
-    if (__del) __del.style.display = 'none';
+    ['textarea','.del','.tgt','.nb'].forEach(function(sel){
+      var el = pill.querySelector(sel); if (el) el.style.display = 'none';
+    });
+    pill.style.cssText += ';background:transparent;border:none;box-shadow:none;padding:0;min-width:0;width:auto';
+    if (__go){ __go.innerHTML = '&#128172;&nbsp; Add to chat';
+      __go.style.cssText = 'width:auto;min-width:0;height:auto;border-radius:999px;padding:7px 14px;font-size:13px;white-space:nowrap;background:#2c313a;color:#e6e6e6;border:1px solid #3a414d;box-shadow:0 6px 18px rgba(0,0,0,0.5);cursor:pointer'; }
   }
 
 
