@@ -8,12 +8,14 @@ import { query } from "@anthropic-ai/claude-agent-sdk";
 
 const sessions = new Map(); // threadId -> {push, q, onEvent, close}
 
-function userMsg(text) {
+function userMsg(text, priority) {
+  // forme documentée de SDKUserMessage ; priority 'now' = steer immédiat,
+  // 'next' = après le tour en cours (queue native du harnais)
   return {
     type: "user",
-    session_id: "",
     parent_tool_use_id: null,
     message: { role: "user", content: [{ type: "text", text }] },
+    ...(priority ? { priority } : {}),
   };
 }
 
@@ -38,14 +40,21 @@ export function send({
   model,
   effort,
   permissionMode,
+  mode, // "steer" | "queue"
   onEvent,
   onSession,
 }) {
   let s = sessions.get(threadId);
   if (s) {
-    // session ouverte : steering (si run en cours) ou tour suivant
+    // session ouverte : priority native du SDK (now = steer, next = queue) ;
+    // model/permission changeables en cours de session (API documentée)
     s.onEvent = onEvent;
-    s.push(userMsg(prompt));
+    if (model && model !== s.model) { s.q.setModel(model).catch(() => {}); s.model = model; }
+    if (permissionMode && permissionMode !== s.permissionMode) {
+      s.q.setPermissionMode(permissionMode).catch(() => {});
+      s.permissionMode = permissionMode;
+    }
+    s.push(userMsg(prompt, mode === "queue" ? "next" : "now"));
     return;
   }
 
@@ -67,13 +76,13 @@ export function send({
     }
   }
 
-  const mode = permissionMode || "bypassPermissions";
+  const permMode = permissionMode || "bypassPermissions";
   const q = query({
     prompt: input(),
     options: {
       cwd,
-      permissionMode: mode,
-      ...(mode === "bypassPermissions" ? { allowDangerouslySkipPermissions: true } : {}),
+      permissionMode: permMode,
+      ...(permMode === "bypassPermissions" ? { allowDangerouslySkipPermissions: true } : {}),
       settingSources: ["user", "project"],
       ...(model ? { model } : {}),
       ...(effort ? { effort } : {}),
@@ -85,6 +94,8 @@ export function send({
     push,
     q,
     onEvent,
+    model,
+    permissionMode: permissionMode || "bypassPermissions",
     close: () => {
       closed = true;
       if (notify) notify();

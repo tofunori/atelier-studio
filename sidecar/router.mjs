@@ -71,15 +71,7 @@ export async function route(msg, ctx) {
       emit({ type: "threads", threads: ctx.store.list() });
 
       if (provider === "claude") {
-        // choix utilisateur : queue explicite → attendre la fin du tour en cours
-        if (prev?.status === "running" && msg.mode === "queue") {
-          const q = pending.get(threadId) ?? [];
-          q.push({ ...msg, mode: undefined });
-          pending.set(threadId, q);
-          emit({ type: "event", threadId, event: { kind: "tool", name: "⏳ message en file d'attente" } });
-          break;
-        }
-        // session persistante : send() = nouveau tour OU steering si run en cours
+        // session persistante ; steer/queue = priority native du SDK ('now'/'next')
         p.send({
           threadId,
           cwd: projectRoot,
@@ -88,6 +80,7 @@ export async function route(msg, ctx) {
           model,
           effort,
           permissionMode,
+          mode: msg.mode,
           onSession: (sessionId) => ctx.store.upsert({ id: threadId, sessionId }),
           onEvent: (event) => {
             emit({ type: "event", threadId, event });
