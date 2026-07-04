@@ -173,3 +173,7 @@ html, body, #root, .app { height: 100vh;
 .section { display: flex; align-items: center; justify-content: space-between; }
 .compact-btn { background: transparent; border: none; color: #6b7482;
   cursor: pointer; font-size: 14px; }
+.working-row { display: flex; align-items: center; gap: 14px; }
+.stop-btn { background: transparent; border: 1px solid #3a414d; border-radius: 999px;
+  color: #8a919e; font-size: 12px; padding: 3px 12px; cursor: pointer; }
+.stop-btn:hover { color: #e06c75; border-color: #e06c75; }

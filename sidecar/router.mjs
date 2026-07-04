@@ -1,6 +1,18 @@
 // ctx: { send(obj), store, providers, broadcast(obj) }
+
+// file d'attente par thread pour les providers SANS steering (Codex) :
+// les messages envoyés pendant un run partent automatiquement au tour suivant.
+const pending = new Map(); // threadId -> [msg...]
+
 export async function route(msg, ctx) {
   switch (msg.type) {
+    case "interrupt": {
+      const t = ctx.store.get(msg.threadId);
+      if (t?.provider === "claude" && ctx.providers.claude.interrupt) {
+        await ctx.providers.claude.interrupt(msg.threadId);
+      }
+      break;
+    }
     case "ping":
       ctx.send({ type: "pong" });
       break;
@@ -58,6 +70,40 @@ export async function route(msg, ctx) {
         status: "running",
       });
       emit({ type: "threads", threads: ctx.store.list() });
+
+      if (provider === "claude") {
+        // session persistante : send() = nouveau tour OU steering si run en cours
+        p.send({
+          threadId,
+          cwd: projectRoot,
+          prompt,
+          sessionId: prev?.sessionId ?? null,
+          model,
+          effort,
+          permissionMode,
+          onSession: (sessionId) => ctx.store.upsert({ id: threadId, sessionId }),
+          onEvent: (event) => {
+            emit({ type: "event", threadId, event });
+            if (event.kind === "done" || event.kind === "error") {
+              ctx.store.upsert({
+                id: threadId,
+                status: event.kind === "done" ? "done" : "idle",
+              });
+              emit({ type: "threads", threads: ctx.store.list() });
+            }
+          },
+        });
+        break;
+      }
+
+      // providers sans steering (Codex) : file d'attente
+      if (prev?.status === "running") {
+        const q = pending.get(threadId) ?? [];
+        q.push(msg);
+        pending.set(threadId, q);
+        emit({ type: "event", threadId, event: { kind: "tool", name: "⏳ message en file d'attente" } });
+        break;
+      }
       // fire-and-forget : plusieurs threads streament en parallèle
       p.run({
         threadId,
@@ -77,6 +123,12 @@ export async function route(msg, ctx) {
           ctx.store.upsert({ id: threadId, status: "idle" });
           emit({ type: "event", threadId, event: { kind: "error", message: String(e) } });
           emit({ type: "threads", threads: ctx.store.list() });
+        })
+        .finally(() => {
+          const q = pending.get(threadId);
+          const next = q?.shift();
+          if (q && q.length === 0) pending.delete(threadId);
+          if (next) route(next, ctx);
         });
       break;
     }

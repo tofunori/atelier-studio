@@ -57,6 +57,7 @@ export default function Chat(p: {
   attachment: { name: string; lines: string | null; text: string } | null;
   onClearAttachment: () => void;
   onQuote: (text: string) => void;
+  onStop: () => void;
   disabled: boolean;
   onSubmit: (
     prompt: string,
@@ -159,7 +160,14 @@ export default function Chat(p: {
             </div>
           );
         })}
-        {p.workingSince != null && <Working since={p.workingSince} />}
+        {p.workingSince != null && (
+          <div className="working-row">
+            <Working since={p.workingSince} />
+            <button type="button" className="stop-btn" title="Interrompre" onClick={p.onStop}>
+              ■ Stop
+            </button>
+          </div>
+        )}
       </div>
       {quote && (
         <button

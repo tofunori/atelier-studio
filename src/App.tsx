@@ -414,6 +414,11 @@ export default function App() {
           onInjected={() => setInjectText(null)}
           attachment={attachment}
           onClearAttachment={() => setAttachment(null)}
+          onStop={() => {
+            if (activeId && ws.current?.readyState === 1) {
+              ws.current.send(JSON.stringify({ type: "interrupt", threadId: activeId }));
+            }
+          }}
           onQuote={(text) =>
             setAttachment({
               name: `« ${text.slice(0, 50)}${text.length > 50 ? "…" : ""} »`,

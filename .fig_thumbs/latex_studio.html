@@ -8,6 +8,11 @@
 <script src="/.fig_thumbs/cm/codemirror.min.js"></script>
 <script src="/.fig_thumbs/cm/mark-selection.min.js"></script>
 <script src="/.fig_thumbs/cm/stex.min.js"></script>
+<script src="/.fig_thumbs/cm/python.min.js"></script>
+<script src="/.fig_thumbs/cm/r.min.js"></script>
+<script src="/.fig_thumbs/cm/markdown.min.js"></script>
+<script src="/.fig_thumbs/cm/julia.min.js"></script>
+<script src="/.fig_thumbs/cm/shell.min.js"></script>
 <script src="/.fig_thumbs/pdfjs/pdf.min.js"></script>
 <style>
 :root{--bg:#202024;--card:#27272a;--card2:#1f1f23;--txt:#e4e4e7;--muted:#a1a1aa;--accent:#5b9dff;--border:#3f3f46}
@@ -158,13 +163,24 @@ const path = new URLSearchParams(location.search).get("path");
 const isPdfMode = new URLSearchParams(location.search).get("mode") === "pdf";
 // cross-tab sync (editor tab <-> PDF tab): synctex jumps + reload after compile
 const bc = ("BroadcastChannel" in window && path) ? new BroadcastChannel("latexstudio:" + path) : null;
+const __EXT = (path || "").split(".").pop().toLowerCase();
+const IS_TEX = __EXT === "tex";
+const __CM_MODE = ({tex:"stex", py:"python", r:"r", md:"markdown", jl:"julia",
+  sh:"shell", bash:"shell", zsh:"shell", json:{name:"javascript",json:true},
+  js:"javascript", csv:null, txt:null})[__EXT] ?? "stex";
 let pdfPath = path ? path.replace(/\.tex$/, ".pdf") : null;
 // single initial-load trigger: resolve the real PDF path first, THEN load once
 // (two concurrent getDocument() calls can deadlock pdf.js worker startup)
 if(path) fetch("/texroot?path=" + encodeURIComponent(path)).then(r=>r.json()).then(j=>{
   if(j.pdf) pdfPath = j.pdf;
-  loadPdf();
-}).catch(()=>{ loadPdf(); });
+  if(IS_TEX) loadPdf();
+}).catch(()=>{ if(IS_TEX) loadPdf(); });
+if(!IS_TEX){
+  ["build","togglePdf","popPdf","reloadPdf"].forEach(id => {
+    const el = document.getElementById(id); if(el) el.style.display = "none";
+  });
+  document.title = (path || "").split("/").pop();
+}
 const _base = path ? path.split("/").pop() : "(no file)";
 document.getElementById("fname").textContent = _base;
 document.title = isPdfMode ? _base + " — PDF" : _base;
@@ -207,7 +223,7 @@ async function load(){
     __rsT=setTimeout(() => { if(cm) cm.refresh(); }, 120);
   });
   cm = CodeMirror(document.getElementById("left"), {
-    value: j.text, mode: "stex", theme: "material-darker",
+    value: j.text, mode: __CM_MODE, theme: "material-darker",
     lineNumbers: true, lineWrapping: true, viewportMargin: 50, styleSelectedText: true
   });
   cm.on("change", (_, ch) => { if(ch.origin !== "setValue"){ dirty = true; ddot.style.display = "inline"; setState("dirty", "modified"); } });
@@ -551,7 +567,7 @@ document.addEventListener("keydown", e => {
     return;
   }
   if((e.metaKey || e.ctrlKey) && e.key === "s" && cm){ e.preventDefault(); save(); }
-  if((e.metaKey || e.ctrlKey) && e.key === "b" && cm){ e.preventDefault(); compile(); }
+  if((e.metaKey || e.ctrlKey) && e.key === "b" && cm && IS_TEX){ e.preventDefault(); compile(); }
   if((e.metaKey || e.ctrlKey) && e.key === "j" && cm){ e.preventDefault(); synctexView(); }
 });
 
