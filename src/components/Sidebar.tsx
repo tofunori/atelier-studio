@@ -82,9 +82,9 @@ export default function Sidebar(p: {
       <div className="side-top">
         <span className="flex" />
         <button className="mini compact-btn" title="Barre compacte" onClick={p.onCompact}>
-          <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.2">
-            <rect x="1.8" y="2.8" width="12.4" height="10.4" rx="2.6" />
-            <path d="M5.6 3v10" />
+          <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.1" opacity="0.7">
+            <rect x="2.2" y="3.6" width="11.6" height="8.8" rx="2.2" />
+            <path d="M5.4 6v4" />
           </svg>
         </button>
       </div>
