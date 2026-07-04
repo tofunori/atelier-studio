@@ -18,6 +18,9 @@ const CLAUDE_MODELS = [
   { id: "claude-sonnet-5[1m]", label: "Sonnet 5 · 1M" },
   { id: "claude-haiku-4-5-20251001", label: "Haiku 4.5" },
 ];
+const CLAUDE_EFFORTS = ["", "low", "medium", "high", "xhigh", "max"];
+const CODEX_EFFORTS = ["", "minimal", "low", "medium", "high", "xhigh"];
+
 const CODEX_MODELS = [
   { id: "", label: "Défaut CLI" },
   { id: "gpt-5.5", label: "GPT-5.5" },
@@ -131,6 +134,14 @@ export default function SettingsPage(p: {
               <select value={s.defaultEffort.claude}
                 onChange={(e) => set({ defaultEffort: { ...s.defaultEffort, claude: e.target.value } })}>
                 {["", "low", "medium", "high", "xhigh", "max"].map((l) => (
+                  <option key={l} value={l}>{l === "" ? "auto" : l}</option>
+                ))}
+              </select>
+            </Row>
+            <Row title="Effort Codex par défaut">
+              <select value={s.defaultEffort.codex}
+                onChange={(e) => set({ defaultEffort: { ...s.defaultEffort, codex: e.target.value } })}>
+                {CODEX_EFFORTS.map((l) => (
                   <option key={l} value={l}>{l === "" ? "auto" : l}</option>
                 ))}
               </select>
@@ -250,6 +261,33 @@ export default function SettingsPage(p: {
                 setSlugText("");
               }}>+ Ajouter</button>
             </Row>
+            <p className="set-sub" style={{ marginTop: 24 }}>Effort par modèle — prioritaire sur l'effort par défaut quand ce modèle est sélectionné.</p>
+            {([
+              ...CLAUDE_MODELS.filter((m) => m.id).map((m) => ({ provider: "claude" as const, ...m })),
+              ...CODEX_MODELS.filter((m) => m.id).map((m) => ({ provider: "codex" as const, ...m })),
+              ...s.customModels.map((m) => ({ provider: m.provider, id: m.id, label: m.id })),
+            ]).map((m) => {
+              const key = m.provider + ":" + m.id;
+              const efforts = m.provider === "claude" ? CLAUDE_EFFORTS : CODEX_EFFORTS;
+              return (
+                <Row key={key} title={m.label} desc={m.provider === "claude" ? "Claude" : "Codex"}>
+                  <select
+                    value={s.modelEfforts[key] ?? ""}
+                    onChange={(e) => {
+                      const next = { ...s.modelEfforts };
+                      if (e.target.value) next[key] = e.target.value;
+                      else delete next[key];
+                      set({ modelEfforts: next });
+                    }}
+                  >
+                    {efforts.map((l) => (
+                      <option key={l} value={l}>{l === "" ? "défaut provider" : l}</option>
+                    ))}
+                  </select>
+                </Row>
+              );
+            })}
+            <p className="set-sub" style={{ marginTop: 24 }}>Slugs personnalisés enregistrés :</p>
             {s.customModels.map((m, i) => (
               <Row key={i} title={m.id} desc={m.provider === "claude" ? "Claude" : "Codex"}>
                 <button className="set-btn" onClick={() =>

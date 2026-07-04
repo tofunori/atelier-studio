@@ -97,6 +97,7 @@ export default function Chat(p: {
     defaultPermissionMode: string;
     timeFormat?: "system" | "24h" | "12h";
     customModels?: { provider: "claude" | "codex"; id: string }[];
+    modelEfforts?: Record<string, string>;
   };
   pins: { index: number; label: string }[];
   onTogglePin: (index: number, label: string) => void;
@@ -116,11 +117,21 @@ export default function Chat(p: {
   const [effort, setEffort] = useState("");
   const [permissionMode, setPermissionMode] = useState("bypassPermissions");
 
+  function effortFor(pv: "claude" | "codex", modelId: string): string {
+    return (
+      p.defaults.modelEfforts?.[pv + ":" + modelId] ??
+      p.defaults.defaultEffort[pv] ??
+      ""
+    );
+  }
+
   // appliquer les défauts des réglages (au montage et quand ils changent)
   useEffect(() => {
-    setProvider(p.defaults.defaultProvider);
-    setModel(p.defaults.defaultModel[p.defaults.defaultProvider] ?? "");
-    setEffort(p.defaults.defaultEffort[p.defaults.defaultProvider] ?? "");
+    const pv = p.defaults.defaultProvider;
+    const m = p.defaults.defaultModel[pv] ?? "";
+    setProvider(pv);
+    setModel(m);
+    setEffort(effortFor(pv, m));
     setPermissionMode(p.defaults.defaultPermissionMode);
   }, [p.defaults]);
   const [selIdx, setSelIdx] = useState(0);
@@ -556,9 +567,9 @@ export default function Chat(p: {
                           key={key}
                           className="mp-item"
                           onClick={() => {
-                            if (provider !== pv) { setEffort(""); }
                             setProvider(pv);
                             setModel(m.id);
+                            setEffort(effortFor(pv, m.id));
                           }}
                         >
                           <ProviderIcon provider={pv} />
