@@ -100,7 +100,7 @@ export default function App() {
   const pendingPaste = useRef<string | null>(null); // dataURL en attente de sauvegarde
   const pendingResend = useRef<{ threadId: string; prompt: string } | null>(null);
   const [atelierTabs, setAtelierTabs] = useState<
-    { id: string; url: string; title: string; color?: string; pinned?: boolean }[]
+    { id: string; url: string; title: string; color?: string; pinned?: boolean; kind?: "term"; cwd?: string }[]
   >([]);
 
   // onglets épinglés persistés par projet
@@ -250,6 +250,12 @@ export default function App() {
           }),
         );
         pendingPaste.current = null;
+      }
+      if (msg.type === "termData") {
+        window.dispatchEvent(new CustomEvent(`term-data:${msg.termId}`, { detail: msg.data }));
+      }
+      if (msg.type === "termExit") {
+        window.dispatchEvent(new CustomEvent(`term-exit:${msg.termId}`));
       }
       if (msg.type === "exported") {
         setEvents((p) => ({
@@ -726,6 +732,15 @@ export default function App() {
                   return next;
                 });
               }}
+              ws={ws.current}
+              onOpenTerminal={() => {
+                const id = crypto.randomUUID();
+                setAtelierTabs((tabs) => [...tabs, {
+                  id, url: `term:${id}`, title: "Terminal",
+                  kind: "term" as const, cwd: activeProject ?? "",
+                }]);
+                setActiveTab(id);
+              }}
               onOpenUrl={(u) => {
                 const existing = atelierTabsRef.current.find((t) => t.url === u);
                 if (existing) { setActiveTab(existing.id); return; }
@@ -779,6 +794,10 @@ export default function App() {
               activeTab={activeTab}
               onSelectTab={setActiveTab}
               onCloseTab={(id) => {
+                const t = atelierTabsRef.current.find((x) => x.id === id);
+                if (t?.kind === "term" && ws.current?.readyState === 1) {
+                  ws.current.send(JSON.stringify({ type: "termClose", termId: id }));
+                }
                 setAtelierTabs((tabs) => {
                   const next = tabs.filter((t) => t.id !== id);
                   savePinned(next);

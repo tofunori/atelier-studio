@@ -35,6 +35,22 @@ export async function route(msg, ctx) {
       ctx.send({ type: "imageSaved", path });
       break;
     }
+    case "termOpen": {
+      ctx.terminal.open(msg, ctx.broadcast ?? ctx.send);
+      break;
+    }
+    case "termInput": {
+      ctx.terminal.input(msg.termId, msg.data);
+      break;
+    }
+    case "termResize": {
+      ctx.terminal.resize(msg.termId, msg.cols, msg.rows);
+      break;
+    }
+    case "termClose": {
+      ctx.terminal.close(msg.termId);
+      break;
+    }
     case "exportThread": {
       const t = ctx.store.get(msg.threadId);
       if (!t) { ctx.send({ type: "error", message: "thread introuvable" }); break; }

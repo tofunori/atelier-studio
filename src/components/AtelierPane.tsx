@@ -1,13 +1,16 @@
 import { useState } from "react";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import Explorer from "./Explorer";
+import Terminal from "./Terminal";
 
-type Tab = { id: string; url: string; title: string; color?: string; pinned?: boolean };
+type Tab = { id: string; url: string; title: string; color?: string; pinned?: boolean; kind?: "term"; cwd?: string };
 const TAB_COLORS = ["#e05d5d", "#e8823a", "#8b5cf6", "#3b82f6", "#22b07d", "#e0b74a"];
 
 export default function AtelierPane({
   url,
   onOpenUrl,
+  onOpenTerminal,
+  ws,
   files,
   onOpenFile,
   onPinTab,
@@ -33,9 +36,12 @@ export default function AtelierPane({
   onColorTab: (id: string, color?: string) => void;
   onReorderTabs: (ids: string[]) => void;
   onOpenUrl: (url: string) => void;
+  onOpenTerminal: () => void;
+  ws: WebSocket | null;
 }) {
   const [urlPrompt, setUrlPrompt] = useState(false);
   const [urlText, setUrlText] = useState("");
+  const [plusMenu, setPlusMenu] = useState(false);
   const [dragId, setDragId] = useState<string | null>(null);
   const [overId, setOverId] = useState<string | null>(null);
 
@@ -105,9 +111,23 @@ export default function AtelierPane({
             </span>
           </button>
         ))}
-        <button className="ghost" title="Ouvrir une URL dans un onglet" onClick={() => setUrlPrompt((v) => !v)}>
-          +
-        </button>
+        <span className="plus-wrap" onClick={(e) => e.stopPropagation()}>
+          <button className="ghost" title="Nouvel onglet" onClick={() => setPlusMenu((v) => !v)}>
+            +
+          </button>
+          {plusMenu && (
+            <div className="plus-menu">
+              <div onClick={() => { setPlusMenu(false); setUrlPrompt(true); }}>
+                <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.2"><circle cx="8" cy="8" r="6.2"/><path d="M1.8 8h12.4M8 1.8c2.2 2 2.2 10.4 0 12.4M8 1.8c-2.2 2-2.2 10.4 0 12.4"/></svg>
+                Browser
+              </div>
+              <div onClick={() => { setPlusMenu(false); onOpenTerminal(); }}>
+                <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.2"><rect x="1.8" y="2.8" width="12.4" height="10.4" rx="2"/><path d="M4.5 6l2.2 2-2.2 2M8.5 10.5h3"/></svg>
+                Terminal
+              </div>
+            </div>
+          )}
+        </span>
         {urlPrompt && (
           <input
             className="url-input"
@@ -176,15 +196,19 @@ export default function AtelierPane({
           src={url}
           title="atelier"
         />
-        {tabs.map((t) => (
-          <iframe
-            key={t.id}
-            className="atelier"
-            style={{ display: activeTab === t.id ? "block" : "none" }}
-            src={t.url}
-            title={t.title}
-          />
-        ))}
+        {tabs.map((t) =>
+          t.kind === "term" ? (
+            <Terminal key={t.id} termId={t.id} cwd={t.cwd ?? ""} ws={ws} visible={activeTab === t.id} />
+          ) : (
+            <iframe
+              key={t.id}
+              className="atelier"
+              style={{ display: activeTab === t.id ? "block" : "none" }}
+              src={t.url}
+              title={t.title}
+            />
+          ),
+        )}
       </div>
       {showExplorer && <Explorer files={files} onOpen={onOpenFile} />}
       </div>

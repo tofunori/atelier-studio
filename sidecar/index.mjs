@@ -6,6 +6,7 @@ import { ThreadStore } from "./store.mjs";
 import * as catalog from "./catalog.mjs";
 import * as history from "./history.mjs";
 import { watchAnnotations } from "./annotations.mjs";
+import * as terminal from "./terminal.mjs";
 import * as claude from "./providers/claude.mjs";
 import * as codex from "./providers/codex.mjs";
 
@@ -102,6 +103,7 @@ wss.on("connection", (ws) => {
     clearPasted,
     providerStatus,
     exportThread,
+    terminal,
   };
   ws.on("message", async (data) => {
     let msg;
