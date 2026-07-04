@@ -220,3 +220,4 @@ html, body, #root, .app { height: 100vh;
 
 .quote-pill { display: inline-flex; align-items: center; }
 .tool-tick { color: #5a616d; }
+.chips-row { display: flex; flex-wrap: wrap; gap: 6px; align-items: flex-end; }

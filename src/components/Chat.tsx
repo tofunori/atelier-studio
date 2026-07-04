@@ -54,8 +54,8 @@ export default function Chat(p: {
   files: string[];
   injectText: string | null;
   onInjected: () => void;
-  attachment: { name: string; lines: string | null; text: string; imageUrl?: string } | null;
-  onClearAttachment: () => void;
+  attachments: { name: string; lines: string | null; text: string; imageUrl?: string }[];
+  onRemoveAttachment: (index: number) => void;
   onQuote: (text: string) => void;
   onPasteImage: (dataURL: string) => void;
   onStop: () => void;
@@ -283,21 +283,27 @@ export default function Chat(p: {
             ))}
           </ul>
         )}
-        {p.attachment && p.attachment.imageUrl ? (
-          <div className="img-chip">
-            <img src={p.attachment.imageUrl} alt={p.attachment.name} />
-            <button type="button" className="img-chip-x" onClick={p.onClearAttachment}>
-              ✕
-            </button>
-            <span className="img-chip-name">{p.attachment.name}</span>
-          </div>
-        ) : p.attachment && (
-          <div className="chip">
-            <span className="chip-label">{p.attachment.name}</span>
-            {p.attachment.lines && <span className="chip-lines">(lines {p.attachment.lines})</span>}
-            <button type="button" className="ghost" onClick={p.onClearAttachment}>
-              ✕
-            </button>
+        {p.attachments.length > 0 && (
+          <div className="chips-row">
+            {p.attachments.map((a, i) =>
+              a.imageUrl ? (
+                <div key={i} className="img-chip">
+                  <img src={a.imageUrl} alt={a.name} />
+                  <button type="button" className="img-chip-x" onClick={() => p.onRemoveAttachment(i)}>
+                    ✕
+                  </button>
+                  <span className="img-chip-name">{a.name}</span>
+                </div>
+              ) : (
+                <div key={i} className="chip">
+                  <span className="chip-label">{a.name}</span>
+                  {a.lines && <span className="chip-lines">(lines {a.lines})</span>}
+                  <button type="button" className="ghost" onClick={() => p.onRemoveAttachment(i)}>
+                    ✕
+                  </button>
+                </div>
+              ),
+            )}
           </div>
         )}
         <textarea

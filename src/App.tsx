@@ -40,6 +40,10 @@ function parseAttachment(text: string): Attachment {
   return { name: first.slice(0, 60) || "citation", lines: null, text };
 }
 
+function addAttachment(list: Attachment[], a: Attachment): Attachment[] {
+  return list.some((x) => x.text === a.text) ? list : [...list, a];
+}
+
 function loadProjects(): string[] {
   try {
     return JSON.parse(localStorage.getItem(PROJECTS_KEY) ?? "[]");
@@ -66,7 +70,7 @@ export default function App() {
   const [files, setFiles] = useState<string[]>([]);
   const [annotation, setAnnotation] = useState<string | null>(null);
   const [injectText, setInjectText] = useState<string | null>(null);
-  const [attachment, setAttachment] = useState<Attachment | null>(null);
+  const [attachments, setAttachments] = useState<Attachment[]>([]);
   const [atelierReload, setAtelierReload] = useState(0);
   const lastInjected = useRef<string | null>(null);
   const pendingPaste = useRef<string | null>(null); // dataURL en attente de sauvegarde
@@ -156,12 +160,14 @@ export default function App() {
       }
       if (msg.type === "imageSaved") {
         const name = msg.path.split("/").pop() ?? "image.png";
-        setAttachment({
-          name,
-          lines: null,
-          text: `Image collée par l'utilisateur : ${msg.path}\nLis ce fichier image (outil Read) avant de répondre.`,
-          imageUrl: pendingPaste.current ?? undefined,
-        });
+        setAttachments((l) =>
+          addAttachment(l, {
+            name,
+            lines: null,
+            text: `Image collée par l'utilisateur : ${msg.path}\nLis ce fichier image (outil Read) avant de répondre.`,
+            imageUrl: pendingPaste.current ?? undefined,
+          }),
+        );
         pendingPaste.current = null;
       }
       if (msg.type === "commands") setCommands(msg.commands);
@@ -213,7 +219,7 @@ export default function App() {
       }
       if (e.data?.type === "atelier-add-to-chat" && typeof e.data.text === "string") {
         lastInjected.current = e.data.text;
-        setAttachment(parseAttachment(e.data.text));
+        setAttachments((l) => addAttachment(l, parseAttachment(e.data.text)));
         setAnnotation(null); // pas de bannière en double
       }
     };
@@ -276,17 +282,26 @@ export default function App() {
   ) {
     if (!activeProject) return;
     // pièce jointe (annotation/sélection atelier) : préfixée au prompt envoyé
-    const fullPrompt = attachment ? `${attachment.text}\n\n${prompt}`.trim() : prompt;
+    const fullPrompt = attachments.length
+      ? `${attachments.map((a) => a.text).join("\n\n")}\n\n${prompt}`.trim()
+      : prompt;
     const userEvent = {
       kind: "user" as const,
       text: prompt,
       ts: Date.now(),
-      ...(attachment?.imageUrl ? { imageUrl: attachment.imageUrl } : {}),
-      ...(attachment && !attachment.imageUrl
-        ? { label: `${attachment.name}${attachment.lines ? ` (lines ${attachment.lines})` : ""}` }
+      ...(attachments.some((a) => a.imageUrl)
+        ? { imageUrl: attachments.find((a) => a.imageUrl)!.imageUrl }
+        : {}),
+      ...(attachments.some((a) => !a.imageUrl)
+        ? {
+            label: attachments
+              .filter((a) => !a.imageUrl)
+              .map((a) => `${a.name}${a.lines ? ` (lines ${a.lines})` : ""}`)
+              .join(" · "),
+          }
         : {}),
     };
-    setAttachment(null);
+    setAttachments([]);
     // pas de thread sélectionné → en créer un à la volée
     let id = activeId;
     if (!id) {
@@ -438,7 +453,7 @@ export default function App() {
             <span className="annot-text">{annotation.split("\n")[0].slice(0, 90)}</span>
             <button
               onClick={() => {
-                setAttachment(parseAttachment(annotation));
+                setAttachments((l) => addAttachment(l, parseAttachment(annotation)));
                 setAnnotation(null);
               }}
             >
@@ -456,8 +471,8 @@ export default function App() {
           files={files}
           injectText={injectText}
           onInjected={() => setInjectText(null)}
-          attachment={attachment}
-          onClearAttachment={() => setAttachment(null)}
+          attachments={attachments}
+          onRemoveAttachment={(i) => setAttachments((l) => l.filter((_, j) => j !== i))}
           onRevert={(index, text, edit) => {
             if (!activeId) return;
             const id = activeId;
@@ -488,11 +503,13 @@ export default function App() {
             }
           }}
           onQuote={(text) =>
-            setAttachment({
-              name: `« ${text.slice(0, 50)}${text.length > 50 ? "…" : ""} »`,
-              lines: null,
-              text: `Citation de la conversation :\n> ${text.split("\n").join("\n> ")}`,
-            })
+            setAttachments((l) =>
+              addAttachment(l, {
+                name: `« ${text.slice(0, 50)}${text.length > 50 ? "…" : ""} »`,
+                lines: null,
+                text: `Citation de la conversation :\n> ${text.split("\n").join("\n> ")}`,
+              }),
+            )
           }
           disabled={!activeProject}
           onSubmit={submit}
