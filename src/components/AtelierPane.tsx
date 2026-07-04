@@ -27,7 +27,13 @@ export default function AtelierPane({
           className={`atab ${activeTab === "gallery" ? "on" : ""}`}
           onClick={() => onSelectTab("gallery")}
         >
-          🖼 galerie
+          <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4">
+            <rect x="1.5" y="1.5" width="5.2" height="5.2" rx="1" />
+            <rect x="9.3" y="1.5" width="5.2" height="5.2" rx="1" />
+            <rect x="1.5" y="9.3" width="5.2" height="5.2" rx="1" />
+            <rect x="9.3" y="9.3" width="5.2" height="5.2" rx="1" />
+          </svg>
+          galerie
         </button>
         {tabs.map((t) => (
           <button
