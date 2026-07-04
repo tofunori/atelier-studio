@@ -49,6 +49,39 @@ function cliVersion(bin) {
   });
 }
 
+// scan des serveurs locaux pour la page "nouvel onglet" du navigateur
+import net from "node:net";
+const SCAN_PORTS = [
+  1420, 3000, 3001, 4173, 4321, 5173, 5174, 8000, 8080, 8081, 8484, 8501,
+  8765, 8787, 8888, 9091, 8790, 8791, 8792, 8793, 8794, 8795,
+  ...Array.from({ length: 12 }, (_, k) => 18790 + k),
+  19000, 19175, 19359,
+];
+function tcpAlive(port) {
+  return new Promise((resolve) => {
+    const s = net.createConnection({ port, host: "127.0.0.1", timeout: 250 });
+    s.on("connect", () => { s.destroy(); resolve(true); });
+    s.on("error", () => resolve(false));
+    s.on("timeout", () => { s.destroy(); resolve(false); });
+  });
+}
+async function htmlTitle(port) {
+  try {
+    const ctl = new AbortController();
+    const t = setTimeout(() => ctl.abort(), 600);
+    const r = await fetch(`http://127.0.0.1:${port}/`, { signal: ctl.signal });
+    clearTimeout(t);
+    const text = (await r.text()).slice(0, 4000);
+    const m = /<title[^>]*>([^<]*)<\/title>/i.exec(text);
+    return m ? m[1].trim() : null;
+  } catch { return null; }
+}
+async function scanLocal() {
+  const alive = (await Promise.all(SCAN_PORTS.map(async (p) => (await tcpAlive(p)) ? p : null)))
+    .filter(Boolean);
+  return Promise.all(alive.map(async (port) => ({ port, title: await htmlTitle(port) })));
+}
+
 function exportThread(thread, events, markdown) {
   const dir = `${homedir()}/Downloads`;
   const safe = String(thread.title ?? "conversation").replace(/[^\w\u00C0-\u017F -]/g, "").slice(0, 60).trim() || "conversation";
@@ -104,6 +137,7 @@ wss.on("connection", (ws) => {
     providerStatus,
     exportThread,
     terminal,
+    scanLocal,
   };
   ws.on("message", async (data) => {
     let msg;

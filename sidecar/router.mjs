@@ -35,6 +35,10 @@ export async function route(msg, ctx) {
       ctx.send({ type: "imageSaved", path });
       break;
     }
+    case "scanLocal": {
+      ctx.send({ type: "localServers", servers: await ctx.scanLocal() });
+      break;
+    }
     case "termOpen": {
       ctx.terminal.open(msg, ctx.broadcast ?? ctx.send);
       break;

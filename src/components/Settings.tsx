@@ -69,6 +69,8 @@ export default function SettingsPage(p: {
   const [status, setStatus] = useState<{ port: number | null; pastedCount: number; pasteDir: string } | null>(null);
   const [provs, setProvs] = useState<{ id: string; label: string; version: string | null; ok: boolean }[] | null>(null);
   const s = p.settings;
+  const customModels = s.customModels ?? [];
+  const modelEfforts = s.modelEfforts ?? {};
   const set = (patch: Partial<S>) => p.onChange({ ...s, ...patch });
 
   useEffect(() => {
@@ -251,13 +253,13 @@ export default function SettingsPage(p: {
                 onChange={(e) => setSlugText(e.target.value)}
                 onKeyDown={(e) => {
                   if (e.key === "Enter" && slugText.trim()) {
-                    set({ customModels: [...s.customModels, { provider: slugProv, id: slugText.trim() }] });
+                    set({ customModels: [...customModels, { provider: slugProv, id: slugText.trim() }] });
                     setSlugText("");
                   }
                 }} />
               <button className="set-btn" onClick={() => {
                 if (!slugText.trim()) return;
-                set({ customModels: [...s.customModels, { provider: slugProv, id: slugText.trim() }] });
+                set({ customModels: [...customModels, { provider: slugProv, id: slugText.trim() }] });
                 setSlugText("");
               }}>+ Ajouter</button>
             </Row>
@@ -265,16 +267,16 @@ export default function SettingsPage(p: {
             {([
               ...CLAUDE_MODELS.filter((m) => m.id).map((m) => ({ provider: "claude" as const, ...m })),
               ...CODEX_MODELS.filter((m) => m.id).map((m) => ({ provider: "codex" as const, ...m })),
-              ...s.customModels.map((m) => ({ provider: m.provider, id: m.id, label: m.id })),
+              ...customModels.map((m) => ({ provider: m.provider, id: m.id, label: m.id })),
             ]).map((m) => {
               const key = m.provider + ":" + m.id;
               const efforts = m.provider === "claude" ? CLAUDE_EFFORTS : CODEX_EFFORTS;
               return (
                 <Row key={key} title={m.label} desc={m.provider === "claude" ? "Claude" : "Codex"}>
                   <select
-                    value={s.modelEfforts[key] ?? ""}
+                    value={modelEfforts[key] ?? ""}
                     onChange={(e) => {
-                      const next = { ...s.modelEfforts };
+                      const next = { ...modelEfforts };
                       if (e.target.value) next[key] = e.target.value;
                       else delete next[key];
                       set({ modelEfforts: next });
@@ -288,14 +290,14 @@ export default function SettingsPage(p: {
               );
             })}
             <p className="set-sub" style={{ marginTop: 24 }}>Slugs personnalisés enregistrés :</p>
-            {s.customModels.map((m, i) => (
-              <Row key={i} title={m.id} desc={m.provider === "claude" ? "Claude" : "Codex"}>
+            {customModels.map((m, i) => (
+              <Row key={m.provider + ":" + m.id + ":" + i} title={m.id} desc={m.provider === "claude" ? "Claude" : "Codex"}>
                 <button className="set-btn" onClick={() =>
-                  set({ customModels: s.customModels.filter((_, j) => j !== i) })
+                  set({ customModels: customModels.filter((_, j) => j !== i) })
                 }>Retirer</button>
               </Row>
             ))}
-            {s.customModels.length === 0 && (
+            {customModels.length === 0 && (
               <p className="set-sub">Aucun slug personnalisé pour l'instant.</p>
             )}
           </>
