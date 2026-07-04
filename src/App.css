@@ -217,3 +217,6 @@ html, body, #root, .app { height: 100vh;
   color: #cfd4dc; padding: 5px 16px; cursor: pointer; font-size: 13px; }
 .edit-send { background: #e8eaed; border: none; border-radius: 999px; color: #1e2126;
   padding: 5px 18px; cursor: pointer; font-size: 13px; font-weight: 600; }
+
+.quote-pill { display: inline-flex; align-items: center; }
+.tool-tick { color: #5a616d; }

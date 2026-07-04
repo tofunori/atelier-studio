@@ -144,7 +144,7 @@ export default function Sidebar(p: {
       <button onClick={p.onAddProject}>+ Ajouter un projet…</button>
       <span className="side-flex" />
       <button className="settings-btn" title="Réglages" onClick={p.onSettings}>
-        ⚙ Réglages
+        Réglages
       </button>
       {projMenu && (
         <div
@@ -201,7 +201,7 @@ export default function Sidebar(p: {
               setMenu(null);
             }}
           >
-            ✏️ Renommer
+            Renommer
           </div>
           <div
             className="danger"
@@ -210,7 +210,7 @@ export default function Sidebar(p: {
               setMenu(null);
             }}
           >
-            🗑 Supprimer
+            Supprimer
           </div>
         </div>
       )}

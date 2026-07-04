@@ -4,10 +4,10 @@ import { open } from "@tauri-apps/plugin-dialog";
 import { AgentEvent } from "../lib/ws";
 
 const PERMISSION_MODES = [
-  { id: "bypassPermissions", label: "🛡 Full access" },
-  { id: "acceptEdits", label: "✏️ Accept edits" },
-  { id: "default", label: "🔒 Ask (default)" },
-  { id: "plan", label: "📋 Plan mode" },
+  { id: "bypassPermissions", label: "Full access" },
+  { id: "acceptEdits", label: "Accept edits" },
+  { id: "default", label: "Ask (default)" },
+  { id: "plan", label: "Plan mode" },
 ];
 
 const MODELS: Record<string, { id: string; label: string }[]> = {
@@ -145,7 +145,7 @@ export default function Chat(p: {
             return (
               <div key={i} className="user-wrap">
                 {e.imageUrl && <img className="user-img" src={e.imageUrl} alt="" />}
-                {e.label && <div className="user-label">📎 {e.label}</div>}
+                {e.label && <div className="user-label">{e.label}</div>}
                 {editing?.index === i ? (
                   <div className="edit-box">
                     <textarea
@@ -216,7 +216,7 @@ export default function Chat(p: {
           if (e.kind === "tool")
             return (
               <div key={i} className="tool">
-                🔧 {e.name}
+                <span className="tool-tick">▸</span> {e.name}
               </div>
             );
           if (e.kind === "error")
@@ -251,7 +251,10 @@ export default function Chat(p: {
             window.getSelection()?.removeAllRanges();
           }}
         >
-          💬 Add to chat
+          <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3">
+            <path d="M14 8c0 3-2.7 5.2-6 5.2-.8 0-1.6-.1-2.3-.4L2.5 14l1-2.6C2.6 10.5 2 9.3 2 8c0-3 2.7-5.2 6-5.2S14 5 14 8z" />
+          </svg>
+          &nbsp;Add to chat
         </button>
       )}
       <form
@@ -290,7 +293,6 @@ export default function Chat(p: {
           </div>
         ) : p.attachment && (
           <div className="chip">
-            <span className="chip-ico">📄</span>
             <span className="chip-label">{p.attachment.name}</span>
             {p.attachment.lines && <span className="chip-lines">(lines {p.attachment.lines})</span>}
             <button type="button" className="ghost" onClick={p.onClearAttachment}>
