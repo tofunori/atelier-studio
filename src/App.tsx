@@ -61,6 +61,12 @@ export default function App() {
           setWorkingSince((p) => ({ ...p, [msg.threadId]: null }));
         }
       }
+      if (msg.type === "history") {
+        setEvents((prev) => ({
+          ...prev,
+          [msg.threadId]: prev[msg.threadId]?.length ? prev[msg.threadId] : msg.events,
+        }));
+      }
       if (msg.type === "commands") setCommands(msg.commands);
       if (msg.type === "files") setFiles(msg.files);
       if (msg.type === "error") console.error("sidecar:", msg.message);
@@ -130,6 +136,10 @@ export default function App() {
   function selectThread(threadId: string, projectRoot: string) {
     setActiveId(threadId);
     setActiveProject(projectRoot);
+    // conversation pas encore en mémoire → recharger l'historique de la session
+    if (!events[threadId]?.length && ws.current?.readyState === 1) {
+      ws.current.send(JSON.stringify({ type: "getHistory", threadId }));
+    }
   }
 
   function submit(

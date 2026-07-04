@@ -11,6 +11,21 @@ export async function route(msg, ctx) {
       ctx.send({ type: "files", projectRoot: msg.projectRoot,
         files: ctx.catalog.listFiles(msg.projectRoot) });
       break;
+    case "getHistory": {
+      const t = ctx.store.get(msg.threadId);
+      if (!t?.sessionId) {
+        ctx.send({ type: "history", threadId: msg.threadId, events: [] });
+        break;
+      }
+      if (t.provider !== "claude") {
+        // historique Codex non supporté v1
+        ctx.send({ type: "history", threadId: msg.threadId, events: [] });
+        break;
+      }
+      const events = await ctx.history.claudeHistory(t.sessionId, t.projectRoot);
+      ctx.send({ type: "history", threadId: msg.threadId, events });
+      break;
+    }
     case "listThreads":
       ctx.send({ type: "threads", threads: ctx.store.list() });
       break;

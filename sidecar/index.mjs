@@ -3,6 +3,7 @@ import { homedir } from "node:os";
 import { route } from "./router.mjs";
 import { ThreadStore } from "./store.mjs";
 import * as catalog from "./catalog.mjs";
+import * as history from "./history.mjs";
 import * as claude from "./providers/claude.mjs";
 import * as codex from "./providers/codex.mjs";
 
@@ -33,6 +34,7 @@ wss.on("connection", (ws) => {
     store,
     providers,
     catalog,
+    history,
   };
   ws.on("message", async (data) => {
     let msg;
