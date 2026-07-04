@@ -17,6 +17,21 @@ export default function Sidebar(p: {
   onSettings: () => void;
 }) {
   const [menu, setMenu] = useState<Menu | null>(null);
+  const [collapsed, setCollapsed] = useState<string[]>(() => {
+    try {
+      return JSON.parse(localStorage.getItem("atelier-studio.collapsed") ?? "[]");
+    } catch {
+      return [];
+    }
+  });
+
+  function toggleCollapse(root: string) {
+    setCollapsed((c) => {
+      const next = c.includes(root) ? c.filter((r) => r !== root) : [...c, root];
+      localStorage.setItem("atelier-studio.collapsed", JSON.stringify(next));
+      return next;
+    });
+  }
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editText, setEditText] = useState("");
   const editRef = useRef<HTMLInputElement>(null);
@@ -48,8 +63,10 @@ export default function Sidebar(p: {
             <div
               className={`project-name ${active ? "active" : ""}`}
               onClick={() => p.onSelectProject(root)}
+              onDoubleClick={() => toggleCollapse(root)}
+              title="Double-clic : replier/déplier les chats"
             >
-              📁 {name}
+              <span className="chev">{collapsed.includes(root) ? "▸" : "▾"}</span> {name}
               {active && (
                 <button
                   className="mini"
@@ -63,7 +80,7 @@ export default function Sidebar(p: {
                 </button>
               )}
             </div>
-            <ul>
+            <ul style={{ display: collapsed.includes(root) ? "none" : undefined }}>
               {threads.map((t) => (
                 <li
                   key={t.id}

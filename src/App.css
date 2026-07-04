@@ -135,3 +135,4 @@ html, body, #root, .app { height: 100vh;
   border-radius: 999px; padding: 6px 14px; font-size: 13px; cursor: pointer;
   box-shadow: 0 6px 18px rgba(0,0,0,0.5); }
 .quote-pill:hover { background: #3a414d; }
+.chev { color: #6b7482; font-size: 10px; width: 10px; display: inline-block; }

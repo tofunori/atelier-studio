@@ -96,6 +96,18 @@ function __ct(){try{return JSON.parse(localStorage.getItem('claudeTargetV1')||'n
 
   // clicks on the bar must not destroy the selection — except the textarea, which needs focus
   pill.addEventListener('mousedown', function(e){ if (e.target !== pillTa) e.preventDefault(); });
+  // Mode Studio : pilule simple « Add to chat » (comme la sélection du chat) —
+  // pas de commentaire ni corbeille, le texte part en puce dans le composer.
+  if (EMBEDDED){
+    var __go = pill.querySelector('.go');
+    var __ta = pill.querySelector('textarea');
+    var __del = pill.querySelector('.del');
+    if (__go){ __go.innerHTML = '&#128172; Add to chat';
+      __go.style.cssText = 'width:auto;min-width:0;border-radius:999px;padding:0 14px;font-size:13px;height:30px;white-space:nowrap'; }
+    if (__ta) __ta.style.display = 'none';
+    if (__del) __del.style.display = 'none';
+  }
+
 
   var EMBEDDED = (function(){ try { return window.self !== window.top; } catch(e){ return true; } })();
 
