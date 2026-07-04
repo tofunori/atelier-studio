@@ -4,6 +4,7 @@ import { Settings as S, DEFAULT_SETTINGS } from "../lib/settings";
 const SECTIONS = [
   { id: "general", label: "Général" },
   { id: "apparence", label: "Apparence" },
+  { id: "modeles", label: "Modèles" },
   { id: "atelier", label: "Atelier" },
   { id: "providers", label: "Providers" },
   { id: "avance", label: "Avancé" },
@@ -60,6 +61,8 @@ export default function SettingsPage(p: {
   ws: WebSocket | null;
 }) {
   const [section, setSection] = useState("general");
+  const [slugProv, setSlugProv] = useState<"claude" | "codex">("codex");
+  const [slugText, setSlugText] = useState("");
   const [status, setStatus] = useState<{ port: number | null; pastedCount: number; pasteDir: string } | null>(null);
   const [provs, setProvs] = useState<{ id: string; label: string; version: string | null; ok: boolean }[] | null>(null);
   const s = p.settings;
@@ -222,6 +225,41 @@ export default function SettingsPage(p: {
               <Slider min={1.4} max={2.0} step={0.05} value={s.chatLineHeight} onChange={(v) => set({ chatLineHeight: v })} />
               <span className="set-val">{s.chatLineHeight.toFixed(2)}</span>
             </Row>
+          </>
+        )}
+        {section === "modeles" && (
+          <>
+            <h1>Modèles</h1>
+            <p className="set-sub">Slugs de modèles personnalisés — ils apparaissent dans le menu modèle du chat.</p>
+            <Row title="Ajouter un slug" desc="Identifiant exact accepté par le provider (ex. gpt-5.6-preview, claude-opus-5).">
+              <select value={slugProv} onChange={(e) => setSlugProv(e.target.value as any)}>
+                <option value="claude">Claude</option>
+                <option value="codex">Codex</option>
+              </select>
+              <input className="set-text" placeholder="gpt-6.7-codex-ultra-preview" value={slugText}
+                onChange={(e) => setSlugText(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" && slugText.trim()) {
+                    set({ customModels: [...s.customModels, { provider: slugProv, id: slugText.trim() }] });
+                    setSlugText("");
+                  }
+                }} />
+              <button className="set-btn" onClick={() => {
+                if (!slugText.trim()) return;
+                set({ customModels: [...s.customModels, { provider: slugProv, id: slugText.trim() }] });
+                setSlugText("");
+              }}>+ Ajouter</button>
+            </Row>
+            {s.customModels.map((m, i) => (
+              <Row key={i} title={m.id} desc={m.provider === "claude" ? "Claude" : "Codex"}>
+                <button className="set-btn" onClick={() =>
+                  set({ customModels: s.customModels.filter((_, j) => j !== i) })
+                }>Retirer</button>
+              </Row>
+            ))}
+            {s.customModels.length === 0 && (
+              <p className="set-sub">Aucun slug personnalisé pour l'instant.</p>
+            )}
           </>
         )}
         {section === "atelier" && (

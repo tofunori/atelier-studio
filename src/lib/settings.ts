@@ -19,6 +19,7 @@ export type Settings = {
   baseFontSize: number;
   fontSmoothing: boolean;
   timeFormat: "system" | "24h" | "12h";
+  customModels: { provider: "claude" | "codex"; id: string }[];
 };
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -42,6 +43,7 @@ export const DEFAULT_SETTINGS: Settings = {
   baseFontSize: 15,
   fontSmoothing: true,
   timeFormat: "system",
+  customModels: [],
 };
 
 const KEY = "atelier-studio.settings";
@@ -57,6 +59,7 @@ export function loadSettings(): Settings {
       ...stored,
       defaultModel: { ...DEFAULT_SETTINGS.defaultModel, ...stored.defaultModel },
       defaultEffort: { ...DEFAULT_SETTINGS.defaultEffort, ...stored.defaultEffort },
+      customModels: stored.customModels ?? [],
     };
   } catch {
     return DEFAULT_SETTINGS;

@@ -96,6 +96,7 @@ export default function Chat(p: {
     defaultEffort: { claude: string; codex: string };
     defaultPermissionMode: string;
     timeFormat?: "system" | "24h" | "12h";
+    customModels?: { provider: "claude" | "codex"; id: string }[];
   };
   pins: { index: number; label: string }[];
   onTogglePin: (index: number, label: string) => void;
@@ -135,6 +136,12 @@ export default function Chat(p: {
       localStorage.setItem("atelier-studio.favModels", JSON.stringify(n));
       return n;
     });
+  }
+  function modelsFor(pv: "claude" | "codex") {
+    const customs = (p.defaults.customModels ?? [])
+      .filter((m) => m.provider === pv)
+      .map((m) => ({ id: m.id, label: m.id }));
+    return [...MODELS[pv], ...customs];
   }
   function sortByFav<T extends { id: string }>(list: T[], prov: string): T[] {
     return [...list].sort((a, b) => {
@@ -529,7 +536,7 @@ export default function Chat(p: {
               onClick={() => setMenuOpen((v) => !v)}
             >
               <ProviderIcon provider={provider} />
-              <span>{MODELS[provider].find((m) => m.id === model)?.label ?? "Modèle par défaut"}</span>
+              <span>{modelsFor(provider).find((m) => m.id === model)?.label ?? "Modèle par défaut"}</span>
               <span className="mp-dim">{effort === "" ? "auto" : effort}</span>
             </button>
             {menuOpen && (
@@ -540,7 +547,7 @@ export default function Chat(p: {
                     <div className="mp-hd">
                       <ProviderIcon provider={pv} size={11} /> {pv === "claude" ? "Claude" : "Codex"}
                     </div>
-                    {sortByFav(MODELS[pv], pv).map((m) => {
+                    {sortByFav(modelsFor(pv), pv).map((m) => {
                       const key = pv + ":" + m.id;
                       const active = provider === pv && model === m.id;
                       const fav = favModels.includes(key);
