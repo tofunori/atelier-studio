@@ -1,5 +1,32 @@
 import { getSessionMessages } from "@anthropic-ai/claude-agent-sdk";
 
+function userText(msg) {
+  const c = msg?.content;
+  if (typeof c === "string") return c;
+  if (Array.isArray(c)) {
+    return c.filter((b) => b.type === "text").map((b) => b.text).join("\n");
+  }
+  return "";
+}
+
+/** Point de rewind : uuid du message précédant le message utilisateur `text`
+ *  (null = début de session ; found=false si introuvable). */
+export async function findRevertPoint(sessionId, cwd, text) {
+  const msgs = await getSessionMessages(sessionId, cwd ? { dir: cwd } : undefined);
+  let target = -1;
+  for (let i = msgs.length - 1; i >= 0; i--) {
+    if (msgs[i].type === "user" && userText(msgs[i].message).trim() === text.trim()) {
+      target = i;
+      break;
+    }
+  }
+  if (target < 0) return { found: false };
+  for (let j = target - 1; j >= 0; j--) {
+    if (msgs[j].uuid) return { found: true, uuid: msgs[j].uuid };
+  }
+  return { found: true, uuid: null };
+}
+
 /** Reconstruit les events d'affichage depuis une session Claude persistée. */
 export async function claudeHistory(sessionId, cwd) {
   const msgs = await getSessionMessages(sessionId, cwd ? { dir: cwd } : undefined);
@@ -21,7 +48,7 @@ export async function claudeHistory(sessionId, cwd) {
       text = text.trim();
       // filtrer les injections systèmes (reminders, etc.)
       if (text && !text.startsWith("<")) {
-        events.push({ kind: "text", text: `**Toi :** ${text}` });
+        events.push({ kind: "user", text });
       }
     }
     if (m.type === "assistant" && Array.isArray(msg.content)) {

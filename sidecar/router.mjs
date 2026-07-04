@@ -23,6 +23,30 @@ export async function route(msg, ctx) {
       ctx.send({ type: "imageSaved", path });
       break;
     }
+    case "revert": {
+      // rewind : ferme la session, repère le point avant le message donné ;
+      // le prochain send reprendra avec resumeSessionAt (API documentée)
+      const t = ctx.store.get(msg.threadId);
+      if (!t || t.provider !== "claude" || !t.sessionId) {
+        ctx.send({ type: "error", threadId: msg.threadId, message: "revert indisponible" });
+        break;
+      }
+      ctx.providers.claude.endSession(msg.threadId);
+      const pt = await ctx.history.findRevertPoint(t.sessionId, t.projectRoot, msg.text);
+      if (!pt.found) {
+        ctx.send({ type: "error", threadId: msg.threadId, message: "message introuvable dans la session" });
+        break;
+      }
+      if (pt.uuid) {
+        ctx.store.upsert({ id: msg.threadId, resumeAt: pt.uuid, status: "idle" });
+      } else {
+        // revert du tout premier message → session neuve
+        ctx.store.upsert({ id: msg.threadId, sessionId: null, resumeAt: null, status: "idle" });
+      }
+      ctx.send({ type: "reverted", threadId: msg.threadId });
+      (ctx.broadcast ?? ctx.send)({ type: "threads", threads: ctx.store.list() });
+      break;
+    }
     case "ping":
       ctx.send({ type: "pong" });
       break;
@@ -92,7 +116,8 @@ export async function route(msg, ctx) {
           effort,
           permissionMode,
           mode: msg.mode,
-          onSession: (sessionId) => ctx.store.upsert({ id: threadId, sessionId }),
+          resumeAt: prev?.resumeAt ?? null,
+          onSession: (sessionId) => ctx.store.upsert({ id: threadId, sessionId, resumeAt: null }),
           onEvent: (event) => {
             emit({ type: "event", threadId, event });
             if (event.kind === "done" || event.kind === "error") {
