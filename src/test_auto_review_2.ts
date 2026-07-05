@@ -43,3 +43,14 @@ export function estValide(code: number): boolean {
   }
   return false;
 }
+
+// Bug volontaire ajouté pour test : boucle infinie potentielle (mauvaise condition d'arrêt)
+export function compteAReculons(depart: number): number[] {
+  const resultat: number[] = [];
+  let i = depart;
+  while (i !== 0) {
+    resultat.push(i);
+    i -= 2; // si depart est impair, n'atteint jamais 0 -> boucle infinie
+  }
+  return resultat;
+}

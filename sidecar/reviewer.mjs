@@ -47,7 +47,9 @@ export async function reviewTurn({ entry, responseText, diffs, cfg, providers })
       sessionId: null, // session NEUVE : le reviewer ne voit que le dossier qu'on lui donne
       model: cfg?.model || "gpt-5.5",
       effort: cfg?.effort || "high",
-      permissionMode: "default",
+      permissionMode: "plan",  // Claude : pas d'action
+      sandbox: "read-only",     // Codex : pas d'exploration agentique, juste répondre
+      timeoutMs: 90000,
       onEvent: (e) => {
         if (e.kind === "text") lastText = e.text;
         if (e.kind === "stream_set") lastText = e.text;

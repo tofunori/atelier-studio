@@ -75,11 +75,11 @@ export function buildCodexInput({ prompt, inputs, imagePath, attachments }) {
   ];
 }
 
-export function buildThreadOptions({ cwd, model, effort, webSearch, additionalDirectories }) {
+export function buildThreadOptions({ cwd, model, effort, webSearch, additionalDirectories, sandbox }) {
   return {
     workingDirectory: cwd,
     skipGitRepoCheck: true,
-    sandboxMode: "danger-full-access",
+    sandboxMode: sandbox ?? "danger-full-access",
     ...(model ? { model } : {}),
     ...(effort ? { modelReasoningEffort: effort } : {}),
     ...(webSearch ? { webSearchMode: webSearch === "cached" ? "cached" : "live" } : {}),
@@ -105,15 +105,18 @@ export async function run({
   effort,
   webSearch,
   additionalDirectories,
+  sandbox,
+  timeoutMs,
   onEvent,
 }) {
   // model / effort / sandbox = ThreadOptions (doc officielle) ; TurnOptions = signal seulement
-  const threadOpts = buildThreadOptions({ cwd, model, effort, webSearch, additionalDirectories });
+  const threadOpts = buildThreadOptions({ cwd, model, effort, webSearch, additionalDirectories, sandbox });
   const thread = sessionId
     ? codex.resumeThread(sessionId, threadOpts)
     : codex.startThread(threadOpts);
   const ctrl = new AbortController();
   if (threadId) controllers.set(threadId, ctrl);
+  const timer = timeoutMs ? setTimeout(() => ctrl.abort(), timeoutMs) : null;
   const turnOptions = { signal: ctrl.signal };
   try {
     const input = buildCodexInput({ prompt, inputs, imagePath, attachments });
@@ -214,6 +217,7 @@ export async function run({
       throw e;
     }
   } finally {
+    if (timer) clearTimeout(timer);
     if (threadId) controllers.delete(threadId);
   }
   return { sessionId: thread.id ?? sessionId };

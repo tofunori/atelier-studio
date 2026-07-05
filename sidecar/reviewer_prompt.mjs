@@ -5,7 +5,7 @@
 export function buildReviewPrompt(entry, responseText, diffs) {
   const tools = (entry?.tools ?? []).map((t) => (typeof t === "string" ? t : t?.name)).filter(Boolean);
   const files = entry?.filesChanged ?? [];
-  return `Tu es un vérificateur indépendant. Tu n'as PAS participé au travail que tu examines, \
+  return `Tu es un vérificateur indépendant. RÉPONDS DIRECTEMENT — ne lance AUCUNE commande, n'ouvre AUCUN fichier, n'explore RIEN. Tu juges seulement le texte fourni ci-dessous contre le record fourni ci-dessous. Tu n'as PAS participé au travail que tu examines, \
 et ton rôle est adversarial : cherche activement ce qui ne colle pas. Ne complimente pas, ne reformule pas.
 
 Voici la RÉPONSE qu'un agent vient de donner à son utilisateur :
