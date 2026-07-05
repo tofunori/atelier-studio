@@ -1028,28 +1028,6 @@ export default function App() {
           ws={ws.current}
         />
         <CommandPalette open={paletteOpen} items={paletteItems} onClose={() => setPaletteOpen(false)} />
-      <QuickAsk
-        open={qaOpen}
-        draft={qaDraft}
-        onClose={() => setQaOpen(false)}
-        onInject={(text) => {
-          setAttachments((l) => addAttachment(l, { name: "⚡ Quick Ask", lines: null, text }));
-        }}
-        onPromote={(qaId, title) => {
-          const newId = crypto.randomUUID();
-          if (ws.current?.readyState === 1) {
-            ws.current.send(JSON.stringify({
-              type: "qaPromote", qaId, newThreadId: newId, title,
-              projectRoot: activeProject ?? "",
-            }));
-            setTimeout(() => {
-              setActiveId(newId);
-              activeIdRef.current = newId;
-              ws.current?.send(JSON.stringify({ type: "getHistory", threadId: newId }));
-            }, 250);
-          }
-        }}
-      />
       {usageOpen && <div className="ur-overlay" onClick={() => setUsageOpen(false)}>
         <UsagePopover open={usageOpen} onClose={() => setUsageOpen(false)} />
       </div>}
