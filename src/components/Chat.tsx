@@ -3,7 +3,16 @@ import ReactMarkdown from "react-markdown";
 import { open } from "@tauri-apps/plugin-dialog";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { AgentEvent } from "../lib/ws";
-import { ProviderIcon } from "./icons";
+import {
+  CloseIcon,
+  CollapseIcon,
+  CopyIcon,
+  ExpandIcon,
+  ForkIcon,
+  PlusIcon,
+  ProviderIcon,
+  ResumeIcon,
+} from "./icons";
 
 const PERMISSION_MODES = [
   { id: "bypassPermissions", label: "Full access" },
@@ -108,6 +117,7 @@ function Working({ since }: { since: number }) {
   const secs = Math.max(1, Math.round((Date.now() - since) / 1000));
   return (
     <div className="working">
+      <span className="working-spin" aria-hidden="true" />
       <span className="working-label">Working</span> for {secs}s
     </div>
   );
@@ -153,6 +163,8 @@ export default function Chat(p: {
   onRevert: (index: number, text: string, edit: boolean) => void;
   onFork: (index: number) => void;
   onEditSend: (index: number, oldText: string, newText: string) => void;
+  onNewChat: () => void;
+  onOpenProject: () => void;
   defaults: {
     defaultProvider: "claude" | "codex";
     defaultModel: { claude: string; codex: string };
@@ -373,19 +385,42 @@ export default function Chat(p: {
     else tools.forEach((tool, offset) => renderedEvents.push({ type: "event", event: tool, index: i + offset }));
     i = end - 1;
   }
+  const currentTool = [...p.events].reverse().find((e) => e.kind === "tool_update" || e.kind === "tool");
+  const currentToolName =
+    currentTool?.kind === "tool_update" ? currentTool.name :
+    currentTool?.kind === "tool" ? currentTool.name : "";
+  const selectedModelLabel = modelsFor(provider).find((m) => m.id === model)?.label ?? model;
+  const modelButtonLabel = model ? selectedModelLabel : "auto";
+  const modelSuffix = effort ? ` · ${effort}` : "";
 
   return (
     <div className="chat">
       <button className="expand-btn" title={p.layout === "chat" ? "Restaurer le split (⌘0)" : "Chat pleine largeur (⌘1)"}
         onClick={p.onToggleExpand}>
-        {p.layout === "chat" ? (
-          <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.2"><path d="M6 2H2v4M10 14h4v-4M2 6l4-4M14 10l-4 4"/></svg>
-        ) : (
-          <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.2"><path d="M2 6V2h4M14 10v4h-4M2 2l4.5 4.5M14 14l-4.5-4.5"/></svg>
-        )}
+        {p.layout === "chat" ? <CollapseIcon /> : <ExpandIcon />}
       </button>
       <div className="messages" ref={messagesRef} onMouseUp={onMessagesMouseUp}>
-        {p.events.length === 0 && (
+        {!p.threadId && (
+          <div className="empty-card">
+            <div className="empty-title">Prêt pour une session</div>
+            <div className="empty-actions">
+              <button type="button" className="empty-action" onClick={p.onNewChat}>
+                Nouveau chat
+              </button>
+              <button
+                type="button"
+                className="empty-action"
+                onClick={() => window.dispatchEvent(new CustomEvent("atelier-open-resume", { detail: { provider: "claude" } }))}
+              >
+                <ResumeIcon /> Reprendre une session
+              </button>
+              <button type="button" className="empty-action" onClick={p.onOpenProject}>
+                Ouvrir un projet
+              </button>
+            </div>
+          </div>
+        )}
+        {p.threadId && p.events.length === 0 && (
           <div className="empty">Salut ! Comment je peux t'aider aujourd'hui ?</div>
         )}
         {renderedEvents.map((item) => {
@@ -485,7 +520,9 @@ export default function Chat(p: {
                       {fmtTime(e.ts, p.defaults.timeFormat)}
                     </span>
                   )}
-                  <button title="Copier" onClick={() => navigator.clipboard.writeText(e.text)}>⧉</button>
+                  <button title="Copier" onClick={() => navigator.clipboard.writeText(e.text)}>
+                    <CopyIcon />
+                  </button>
                   <button title="Éditer et renvoyer" onClick={() => setEditing({ index: i, text: e.text })}>✎</button>
                   <button title="Revert : rembobiner avant ce message" onClick={() => p.onRevert(i, e.text, false)}>↩</button>
                   <PinBtn pinned={p.pins.some((c) => c.index === i)} onClick={() => p.onTogglePin(i, e.text.slice(0, 44))} />
@@ -513,8 +550,12 @@ export default function Chat(p: {
                       {fmtTime(e.ts, p.defaults.timeFormat)}
                     </span>
                   )}
-                  <button title="Copier" onClick={() => navigator.clipboard.writeText(e.text)}>⧉</button>
-                  <button title="Fork : nouveau chat à partir d'ici" onClick={() => p.onFork(i)}>⑂</button>
+                  <button title="Copier" onClick={() => navigator.clipboard.writeText(e.text)}>
+                    <CopyIcon />
+                  </button>
+                  <button title="Fork : nouveau chat à partir d'ici" onClick={() => p.onFork(i)}>
+                    <ForkIcon />
+                  </button>
                   <PinBtn pinned={p.pins.some((c) => c.index === i)} onClick={() => p.onTogglePin(i, e.text.replace(/[#*>`]/g, "").trim().slice(0, 44))} />
                 </div>
               </div>
@@ -564,8 +605,16 @@ export default function Chat(p: {
           return null;
         })}
         {p.workingSince != null && (
-          <div className="working-row">
-            <Working since={p.workingSince} />
+          <div className="working-stack">
+            <div className="working-row">
+              <Working since={p.workingSince} />
+            </div>
+            {currentToolName && (
+              <div className="working-tool">
+                <span className="working-spin" aria-hidden="true" />
+                <span>{currentToolName}</span>
+              </div>
+            )}
             <button type="button" className="stop-btn" title="Interrompre" onClick={p.onStop}>
               ■ Stop
             </button>
@@ -667,7 +716,7 @@ export default function Chat(p: {
             <span className="goal-label">Goal</span>
             <span className="goal-cond">{p.goal.slice(0, 80)}{p.goal.length > 80 ? "…" : ""}</span>
             <button type="button" className="ghost" title="Effacer le goal (/goal clear)"
-              onClick={p.onClearGoal}>✕</button>
+              onClick={p.onClearGoal}><CloseIcon /></button>
           </div>
         )}
         {p.attachments.length > 0 && (
@@ -677,7 +726,7 @@ export default function Chat(p: {
                 <div key={i} className="img-chip">
                   <img src={a.imageUrl} alt={a.name} />
                   <button type="button" className="img-chip-x" onClick={() => p.onRemoveAttachment(i)}>
-                    ✕
+                    <CloseIcon />
                   </button>
                   <span className="img-chip-name">{a.name}</span>
                 </div>
@@ -686,7 +735,7 @@ export default function Chat(p: {
                   <span className="chip-label">{a.name}</span>
                   {a.lines && <span className="chip-lines">(lines {a.lines})</span>}
                   <button type="button" className="ghost" onClick={() => p.onRemoveAttachment(i)}>
-                    ✕
+                    <CloseIcon />
                   </button>
                 </div>
               ),
@@ -764,7 +813,7 @@ export default function Chat(p: {
         <div className="composer-bar">
           <span className="plus-wrap" onClick={(e) => e.stopPropagation()}>
             <button type="button" className="ghost" title="Ajouter…" onClick={() => setPlusOpen((v) => !v)}>
-              +
+              <PlusIcon />
             </button>
             {plusOpen && (
               <div className="mp-menu plus-up">
@@ -787,7 +836,7 @@ export default function Chat(p: {
             )}
           </span>
           <select
-            className="bare access"
+            className={`bare access ${permissionMode === "plan" ? "accent" : ""}`}
             value={permissionMode}
             onChange={(e) => setPermissionMode(e.target.value)}
           >
@@ -833,8 +882,7 @@ export default function Chat(p: {
               onClick={() => setMenuOpen((v) => !v)}
             >
               <ProviderIcon provider={provider} />
-              <span>{modelsFor(provider).find((m) => m.id === model)?.label ?? "Modèle par défaut"}</span>
-              <span className="mp-dim">{effort === "" ? "auto" : effort}</span>
+              <span className={!model ? "mp-dim" : undefined}>{modelButtonLabel}{modelSuffix}</span>
             </button>
             {menuOpen && (
               <div className="mp-menu">

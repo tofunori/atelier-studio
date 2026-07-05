@@ -1,8 +1,9 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import Explorer from "./Explorer";
 import BrowserTab from "./BrowserTab";
 import TerminalSurface from "./TerminalSurface";
+import { CloseIcon, CollapseIcon, ExpandIcon, OpenIcon, RefreshIcon } from "./icons";
 
 type Tab = { id: string; url: string; title: string; color?: string; pinned?: boolean; kind?: "term"; cwd?: string };
 const TAB_COLORS = ["#e05d5d", "#e8823a", "#8b5cf6", "#3b82f6", "#22b07d", "#e0b74a"];
@@ -85,6 +86,11 @@ export default function AtelierPane({
   const [dragId, setDragId] = useState<string | null>(null);
   const [overId, setOverId] = useState<string | null>(null);
   const [tabMenu, setTabMenu] = useState<{ id: string; x: number; y: number } | null>(null);
+  const [galleryLoaded, setGalleryLoaded] = useState(false);
+
+  useEffect(() => {
+    setGalleryLoaded(false);
+  }, [url, reloadKey]);
 
   function switchSurface(s: Surface) {
     setSurface(s);
@@ -127,11 +133,7 @@ export default function AtelierPane({
         ))}
         <span className="flex" />
         <button className="ghost" title={layout === "atelier" ? "Restaurer le split (⌘0)" : "Atelier pleine largeur (⌘2)"} onClick={onToggleExpand}>
-          {layout === "atelier" ? (
-            <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.2"><path d="M6 2H2v4M10 14h4v-4M2 6l4-4M14 10l-4 4"/></svg>
-          ) : (
-            <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.2"><path d="M2 6V2h4M14 10v4h-4M2 2l4.5 4.5M14 14l-4.5-4.5"/></svg>
-          )}
+          {layout === "atelier" ? <CollapseIcon /> : <ExpandIcon />}
         </button>
         {surface === "atelier" && (
           <>
@@ -141,8 +143,12 @@ export default function AtelierPane({
                 <path d="M1.8 4.2c0-.7.5-1.2 1.2-1.2h3l1.4 1.6h5.6c.7 0 1.2.5 1.2 1.2v6c0 .7-.5 1.2-1.2 1.2H3c-.7 0-1.2-.5-1.2-1.2v-7.6z" />
               </svg>
             </button>
-            <button className="ghost" title="Recharger (relance le serveur si mort)" onClick={onHardReload}>↻</button>
-            <button className="ghost" title="Ouvrir dans le navigateur" onClick={() => openUrl(current?.url ?? url)}>⧉</button>
+            <button className="ghost" title="Recharger (relance le serveur si mort)" onClick={onHardReload}>
+              <RefreshIcon />
+            </button>
+            <button className="ghost" title="Ouvrir dans le navigateur" onClick={() => openUrl(current?.url ?? url)}>
+              <OpenIcon />
+            </button>
           </>
         )}
       </div>
@@ -173,19 +179,34 @@ export default function AtelierPane({
               {t.color && <span className="atab-dot" style={{ background: t.color }} />}
               {t.pinned && <span className="atab-pin">⌖</span>}
               <span className="atab-title">{t.title}</span>
-              <span className="atab-x" onClick={(e) => { e.stopPropagation(); onCloseTab(t.id); }}>✕</span>
+              <span className="atab-x" onClick={(e) => { e.stopPropagation(); onCloseTab(t.id); }}>
+                <CloseIcon />
+              </span>
             </button>
           ))}
         </div>
         <div className="atelier-split">
         <div className="atelier-body">
-          <iframe
-            key={reloadKey}
-            className="atelier"
-            style={{ display: activeTab === "gallery" ? "block" : "none" }}
-            src={url}
-            title="atelier"
-          />
+          {activeTab === "gallery" && !galleryLoaded && (
+            <div className="atelier-skeleton">
+              <div className="atelier-skeleton-grid">
+                {Array.from({ length: 6 }).map((_, i) => (
+                  <span key={i} />
+                ))}
+              </div>
+              <div className="atelier-skeleton-text">Démarrage de l'atelier…</div>
+            </div>
+          )}
+          {url && (
+            <iframe
+              key={reloadKey}
+              className="atelier"
+              style={{ display: activeTab === "gallery" && galleryLoaded ? "block" : "none" }}
+              src={url}
+              title="atelier"
+              onLoad={() => setGalleryLoaded(true)}
+            />
+          )}
           {tabs.filter((t) => t.kind !== "term").map((t) => (
             <iframe
               key={t.id}

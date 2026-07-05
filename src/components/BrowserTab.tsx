@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 
 import { wsSend } from "../lib/wsBus";
+import { CloseIcon, RefreshIcon } from "./icons";
 
 type LocalServer = { port: number; title: string | null };
 
@@ -137,7 +138,9 @@ export default function BrowserTab(p: {
       <div className="browser-bar">
         <button className="ghost" onClick={() => invoke("browser_eval", { js: "history.back()" })} title="Précédent">←</button>
         <button className="ghost" onClick={() => invoke("browser_eval", { js: "history.forward()" })} title="Suivant">→</button>
-        <button className="ghost" onClick={() => invoke("browser_eval", { js: "location.reload()" })} title="Recharger">↻</button>
+        <button className="ghost" onClick={() => invoke("browser_eval", { js: "location.reload()" })} title="Recharger">
+          <RefreshIcon />
+        </button>
         <button
           className="ghost"
           title="Add to chat : sélectionne dans la page, ⌘C, puis clique ici"
@@ -173,15 +176,30 @@ export default function BrowserTab(p: {
               urlRef.current = null;
               setInput("");
               scan();
-            }}>✕</button>
+            }}><CloseIcon /></button>
         )}
       </div>
       <div className="browser-body" ref={areaRef}>
         {!url && (
           <div className="browser-home">
+            <div className="browser-search-card">
+              <input
+                className="browser-home-search"
+                placeholder="Rechercher ou entrer une URL"
+                value={input}
+                onChange={(e) => setInput(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") navigate(input);
+                }}
+                autoComplete="off"
+              />
+              <div className="browser-home-muted">Recherche web, URL ou serveur local.</div>
+            </div>
             <div className="bh-row">
               <span className="bh-title">Local</span>
-              <button className="ghost" title="Re-scanner" onClick={scan}>↻</button>
+              <button className="ghost" title="Re-scanner" onClick={scan}>
+                <RefreshIcon />
+              </button>
             </div>
             {servers === null && <div className="bh-empty">Scan des ports locaux…</div>}
             {servers?.length === 0 && <div className="bh-empty">Aucun serveur local détecté.</div>}

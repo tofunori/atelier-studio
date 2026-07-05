@@ -17,6 +17,7 @@ import Chat from "./components/Chat";
 import Banner from "./components/Banner";
 import AtelierPane from "./components/AtelierPane";
 import SettingsPage from "./components/Settings";
+import { CloseIcon } from "./components/icons";
 import { loadSettings, saveSettings, Settings } from "./lib/settings";
 import { THEME_PRESETS, presetById } from "./lib/themes";
 import {
@@ -935,7 +936,7 @@ export default function App() {
               Envoyer à l'agent
             </button>
             <button className="ghost" onClick={() => setAnnotation(null)}>
-              ✕
+              <CloseIcon />
             </button>
           </div>
         )}
@@ -1014,6 +1015,8 @@ export default function App() {
             setActiveId(newId);
             activeIdRef.current = newId;
           }}
+          onNewChat={newChat}
+          onOpenProject={addProject}
           layout={layout}
           onToggleExpand={() => setLayout((l) => (l === "chat" ? "split" : "chat"))}
           onStop={() => {
@@ -1040,12 +1043,12 @@ export default function App() {
           onSubmit={submit}
         />
       </Panel>
-      {showAtelier && atelierUrl && (
+      {showAtelier && activeProject && (
         <>
           <PanelResizeHandle className="handle" onDragging={setDragging} />
           <Panel id="atelier" order={3} defaultSize={38} minSize={20}>
             <AtelierPane
-              url={atelierUrl}
+              url={atelierUrl ?? ""}
               layout={layout}
               onToggleExpand={() => setLayout((l) => (l === "atelier" ? "split" : "atelier"))}
               projectRoot={activeProject ?? ""}
