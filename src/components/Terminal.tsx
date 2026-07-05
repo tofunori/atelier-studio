@@ -1,6 +1,9 @@
 import { useEffect, useRef } from "react";
 import { Terminal as XTerm } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
+import { WebglAddon } from "@xterm/addon-webgl";
+import { WebLinksAddon } from "@xterm/addon-web-links";
+import { openUrl } from "@tauri-apps/plugin-opener";
 import "@xterm/xterm/css/xterm.css";
 import { wsSend, wsReady } from "../lib/wsBus";
 
@@ -25,18 +28,29 @@ export default function Terminal(p: {
     if (!ref.current || xtermRef.current) return;
     const term = new XTerm({
       fontSize: 13,
-      fontFamily: "Menlo, Monaco, 'Courier New', monospace",
+      fontFamily: "'JetBrainsMono Nerd Font', 'MesloLGS NF', 'Hack Nerd Font', Menlo, Monaco, monospace",
       cursorBlink: true,
+      cursorStyle: "bar",
+      scrollback: 10000,
+      macOptionIsMeta: true,
+      allowProposedApi: true,
       theme: {
         background: "#1a1d22",
         foreground: "#e8eaed",
         cursor: "#e8823a",
         selectionBackground: "rgba(91,157,255,0.35)",
+        black: "#1a1d22", red: "#e06c75", green: "#98c379", yellow: "#e5c07b",
+        blue: "#61afef", magenta: "#c678dd", cyan: "#56b6c2", white: "#dcdfe4",
+        brightBlack: "#5a616d", brightRed: "#ff7a85", brightGreen: "#a9d47f",
+        brightYellow: "#f0ca79", brightBlue: "#74bdf7", brightMagenta: "#d894e8",
+        brightCyan: "#6cd0dd", brightWhite: "#ffffff",
       },
     });
     const fit = new FitAddon();
     term.loadAddon(fit);
+    term.loadAddon(new WebLinksAddon((_e, uri) => openUrl(uri)));
     term.open(ref.current);
+    try { term.loadAddon(new WebglAddon()); } catch {} // fallback canvas si WebGL indispo
     fit.fit();
     xtermRef.current = term;
     fitRef.current = fit;
