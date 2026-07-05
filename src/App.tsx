@@ -526,13 +526,12 @@ export default function App() {
       setQaMode("open");
     };
     const onQaToggle = () => {
-      setQaMode((mode) => {
-        if (mode === "open") return "min";
-        if (mode === "min") return "open";
-        setQaDraft("");
-        setQaContext("");
-        return "open";
-      });
+      const mode = qaModeRef.current;
+      if (mode === "open") { setQaMode("min"); return; }
+      if (mode === "min") { setQaMode("open"); return; }
+      setQaDraft("");
+      setQaContext("");
+      setQaMode("open");
     };
     window.addEventListener("quick-ask-toggle", onQaToggle);
     const onUsageToggle = () => setUsageOpen((v) => !v);
@@ -741,13 +740,10 @@ export default function App() {
       if (e.metaKey && e.altKey && e.key.toLowerCase() === "k") {
         e.preventDefault();
         // toggle : minimisé → rouvre la conversation ; ouvert → minimise ; fermé → neuf
-        setQaMode((mode) => {
-          if (mode === "open") return "min";
-          if (mode === "min") return "open";
-          setQaDraft("");
-          setQaContext("");
-          return "open";
-        });
+        const m = qaModeRef.current;
+        if (m === "open") setQaMode("min");
+        else if (m === "min") setQaMode("open");
+        else { setQaDraft(""); setQaContext(""); setQaMode("open"); }
         return;
       }
       if (e.metaKey && !e.shiftKey && ["k", "p"].includes(e.key.toLowerCase())) {
