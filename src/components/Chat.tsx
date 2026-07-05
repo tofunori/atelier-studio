@@ -566,6 +566,35 @@ export default function Chat(p: {
         onClick={p.onToggleExpand}>
         {p.layout === "chat" ? <CollapseIcon /> : <ExpandIcon />}
       </button>
+      {p.threadId && review && (
+        <div className={`reviewer-bar v-${review.status === "running" ? "running" : review.verdict}`}>
+          <svg className="rb-ico" width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M8 1.8l5 2v4c0 3.2-2.2 5.4-5 6.4-2.8-1-5-3.2-5-6.4v-4z" />
+            {review.verdict === "ok" && <path d="M5.8 8l1.6 1.6L10.5 6.3" />}
+          </svg>
+          <span className="rb-name">Reviewer</span>
+          <span className="rb-dot">·</span>
+          {review.status === "running" ? (
+            <span className="rb-verdict running"><span className="rb-spin" /> {t("review.running")}</span>
+          ) : review.verdict === "ok" ? (
+            <span className="rb-verdict ok">{t("review.ok-bar")}</span>
+          ) : review.verdict === "issues" ? (
+            <span className="rb-verdict warn" onClick={() => {
+              setReviewOpen(true);
+              document.getElementById("last-done")?.scrollIntoView({ behavior: "smooth", block: "center" });
+            }}>{t("review.issues", { n: review.issues?.length ?? 0 })}</span>
+          ) : (
+            <span className="rb-verdict">{t("review.inconclusive")}</span>
+          )}
+          {review.status === "done" && review.checks != null && review.checks > 0 && (
+            <>
+              <span className="rb-dot">·</span>
+              <span className="rb-checks">{t("review.checks", { n: review.checks })}</span>
+            </>
+          )}
+          <button className="rb-close" title={t("action.close")} onClick={() => setReview(null)}>✕</button>
+        </div>
+      )}
       <div
         className="messages"
         ref={messagesRef}
@@ -575,34 +604,6 @@ export default function Chat(p: {
           setShowJump(el.scrollHeight - el.scrollTop - el.clientHeight > 300);
         }}
       >
-        {p.threadId && review && (
-          <div className={`reviewer-bar v-${review.status === "running" ? "running" : review.verdict}`}>
-            <svg className="rb-ico" width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M8 1.8l5 2v4c0 3.2-2.2 5.4-5 6.4-2.8-1-5-3.2-5-6.4v-4z" />
-              {review.verdict === "ok" && <path d="M5.8 8l1.6 1.6L10.5 6.3" />}
-            </svg>
-            <span className="rb-name">Reviewer</span>
-            <span className="rb-dot">·</span>
-            {review.status === "running" ? (
-              <span className="rb-verdict running"><span className="rb-spin" /> {t("review.running")}</span>
-            ) : review.verdict === "ok" ? (
-              <span className="rb-verdict ok">{t("review.ok-bar")}</span>
-            ) : review.verdict === "issues" ? (
-              <span className="rb-verdict warn" onClick={() => {
-                setReviewOpen(true);
-                document.getElementById("last-done")?.scrollIntoView({ behavior: "smooth", block: "center" });
-              }}>{t("review.issues", { n: review.issues?.length ?? 0 })}</span>
-            ) : (
-              <span className="rb-verdict">{t("review.inconclusive")}</span>
-            )}
-            {review.status === "done" && review.checks != null && review.checks > 0 && (
-              <>
-                <span className="rb-dot">·</span>
-                <span className="rb-checks">{t("review.checks", { n: review.checks })}</span>
-              </>
-            )}
-          </div>
-        )}
         {!p.threadId && (
           <div className="empty-card">
             <div className="empty-title">{t("chat.empty-ready")}</div>
