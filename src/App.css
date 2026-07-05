@@ -505,3 +505,4 @@ button.ghost:disabled { opacity: 0.35; cursor: default; }
 .goal-pill .goal-cond { color: var(--muted); overflow: hidden; text-overflow: ellipsis;
   white-space: nowrap; max-width: 420px; }
 .goal-pill .ghost { padding: 0 2px; font-size: 11px; }
+.ta-wrap textarea { min-height: 22px; height: 22px; }
