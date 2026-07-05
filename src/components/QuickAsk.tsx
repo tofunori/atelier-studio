@@ -148,7 +148,6 @@ export default function QuickAsk({
 
   // événements de la session éphémère
   useEffect(() => {
-    if (!open) return;
     const onEvent = (e: Event) => {
       const { qaId: id, event } = (e as CustomEvent).detail;
       if (id !== qaId) return;
@@ -180,7 +179,7 @@ export default function QuickAsk({
     };
     window.addEventListener("qa-event", onEvent);
     return () => window.removeEventListener("qa-event", onEvent);
-  }, [open, qaId]);
+  }, [qaId]);
 
   useEffect(() => {
     bodyRef.current?.scrollTo({ top: bodyRef.current.scrollHeight });
@@ -294,7 +293,7 @@ export default function QuickAsk({
               )}
             </div>
           ))}
-          {busy && !msgs[msgs.length - 1]?.streaming && (
+          {busy && msgs[msgs.length - 1]?.role !== "assistant" && (
             <div className="qa-busy" aria-label="…">
               <span /><span /><span />
             </div>
