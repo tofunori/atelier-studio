@@ -3,6 +3,7 @@ import ReactMarkdown from "react-markdown";
 import { open } from "@tauri-apps/plugin-dialog";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { AgentEvent } from "../lib/ws";
+import { eventLabel, t } from "../lib/i18n";
 import {
   CloseIcon,
   CollapseIcon,
@@ -15,22 +16,22 @@ import {
 } from "./icons";
 
 const PERMISSION_MODES = [
-  { id: "bypassPermissions", label: "Full access" },
-  { id: "acceptEdits", label: "Accept edits" },
-  { id: "default", label: "Ask (default)" },
-  { id: "plan", label: "Plan mode" },
+  { id: "bypassPermissions", labelKey: "permission.full" },
+  { id: "acceptEdits", labelKey: "permission.accept-edits" },
+  { id: "default", labelKey: "action.ask-default" },
+  { id: "plan", labelKey: "permission.plan" },
 ];
 
 const MODELS: Record<string, { id: string; label: string }[]> = {
   claude: [
-    { id: "", label: "Modèle par défaut" },
+    { id: "", label: "__default" },
     { id: "claude-fable-5", label: "Fable 5" },
     { id: "claude-opus-4-8", label: "Opus 4.8" },
     { id: "claude-sonnet-5", label: "Sonnet 5" },
     { id: "claude-haiku-4-5-20251001", label: "Haiku 4.5" },
   ],
   codex: [
-    { id: "", label: "Modèle par défaut" },
+    { id: "", label: "__default" },
     { id: "gpt-5.5", label: "GPT-5.5" },
     { id: "gpt-5.4", label: "GPT-5.4" },
     { id: "gpt-5.4-mini", label: "GPT-5.4 mini" },
@@ -74,9 +75,9 @@ const MD_COMPONENTS = {
           <button type="button" className="codeblock-copy"
             onClick={(e) => {
               navigator.clipboard.writeText(raw);
-              const b = e.currentTarget; b.textContent = "copié";
-              setTimeout(() => { b.textContent = "copier"; }, 1200);
-            }}>copier</button>
+              const b = e.currentTarget; b.textContent = t("chat.output-copied");
+              setTimeout(() => { b.textContent = t("chat.output-copy"); }, 1200);
+            }}>{t("chat.output-copy")}</button>
         </div>
         <pre>{props.children}</pre>
       </div>
@@ -91,7 +92,7 @@ const MD_COMPONENTS = {
     const ref = FILE_REF.test(label) ? label : FILE_REF.test(href) ? href : null;
     if (ref)
       return (
-        <button className="file-ref" onClick={() => openFileRef(ref)} title={`Ouvrir ${ref}`}>
+        <button className="file-ref" onClick={() => openFileRef(ref)} title={t("action.open-file", { ref })}>
           <svg width="10" height="10" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5">
             <path d="M4 1.8h5.2L13 5.6v8.6H4z" /><path d="M9 1.8v4h4" />
           </svg>
@@ -112,7 +113,7 @@ const MD_COMPONENTS = {
     const txt = mdText(props.children);
     if (!props.className && FILE_REF.test(txt) && txt.includes(":"))
       return (
-        <button className="file-ref" onClick={() => openFileRef(txt)} title={`Ouvrir ${txt}`}>
+        <button className="file-ref" onClick={() => openFileRef(txt)} title={t("action.open-file", { ref: txt })}>
           <svg width="10" height="10" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5">
             <path d="M4 1.8h5.2L13 5.6v8.6H4z" /><path d="M9 1.8v4h4" />
           </svg>
@@ -140,7 +141,7 @@ function Working({ since }: { since: number }) {
   return (
     <div className="working">
       <span className="working-spin" aria-hidden="true" />
-      <span className="working-label">Working</span> for {secs}s
+      <span className="working-label">{t("chat.working")}</span> {t("chat.working-for", { secs })}
     </div>
   );
 }
@@ -154,7 +155,7 @@ function isValidSkill(token: string, commands: { name: string }[]): boolean {
 
 function PinBtn({ pinned, onClick }: { pinned: boolean; onClick: () => void }) {
   return (
-    <button title={pinned ? "Désépingler le chapitre" : "Épingler comme chapitre"} onClick={onClick}
+    <button title={pinned ? t("action.unpin-chapter") : t("action.pin-chapter")} onClick={onClick}
       style={pinned ? { color: "#e8823a" } : undefined}>
       <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4">
         <path d="M9.5 2.5l4 4-3 1-2.5 4.5-4-4L8.5 5.5l1-3z" />
@@ -324,6 +325,9 @@ export default function Chat(p: {
       .map((m) => ({ id: m.id, label: m.id }));
     return [...MODELS[pv], ...customs];
   }
+  function modelLabel(model: { label: string }) {
+    return model.label === "__default" ? t("chat.model-default") : model.label;
+  }
   function sortByFav<T extends { id: string }>(list: T[], prov: string): T[] {
     return [...list].sort((a, b) => {
       const fa = favModels.includes(prov + ":" + a.id) ? 0 : 1;
@@ -415,41 +419,42 @@ export default function Chat(p: {
   }
   const currentTool = [...p.events].reverse().find((e) => e.kind === "tool_update" || e.kind === "tool");
   const currentToolName =
-    currentTool?.kind === "tool_update" ? currentTool.name :
-    currentTool?.kind === "tool" ? currentTool.name : "";
-  const selectedModelLabel = modelsFor(provider).find((m) => m.id === model)?.label ?? model;
-  const modelButtonLabel = model ? selectedModelLabel : "auto";
+    currentTool?.kind === "tool_update" ? eventLabel(currentTool.name) :
+    currentTool?.kind === "tool" ? eventLabel(currentTool.name) : "";
+  const selectedModel = modelsFor(provider).find((m) => m.id === model);
+  const selectedModelLabel = selectedModel ? modelLabel(selectedModel) : model;
+  const modelButtonLabel = model ? selectedModelLabel : t("chat.model-auto");
   const modelSuffix = effort ? ` · ${effort}` : "";
 
   return (
     <div className="chat">
-      <button className="expand-btn" title={p.layout === "chat" ? "Restaurer le split (⌘0)" : "Chat pleine largeur (⌘1)"}
+      <button className="expand-btn" title={p.layout === "chat" ? t("action.restore-split-chat") : t("chat.full")}
         onClick={p.onToggleExpand}>
         {p.layout === "chat" ? <CollapseIcon /> : <ExpandIcon />}
       </button>
       <div className="messages" ref={messagesRef} onMouseUp={onMessagesMouseUp}>
         {!p.threadId && (
           <div className="empty-card">
-            <div className="empty-title">Prêt pour une session</div>
+            <div className="empty-title">{t("chat.empty-ready")}</div>
             <div className="empty-actions">
               <button type="button" className="empty-action" onClick={p.onNewChat}>
-                Nouveau chat
+                {t("action.new-chat")}
               </button>
               <button
                 type="button"
                 className="empty-action"
                 onClick={() => window.dispatchEvent(new CustomEvent("atelier-open-resume", { detail: { provider: "claude" } }))}
               >
-                <ResumeIcon /> Reprendre une session
+                <ResumeIcon /> {t("action.resume-session")}
               </button>
               <button type="button" className="empty-action" onClick={p.onOpenProject}>
-                Ouvrir un projet
+                {t("action.open-project")}
               </button>
             </div>
           </div>
         )}
         {p.threadId && p.events.length === 0 && (
-          <div className="empty">Salut ! Comment je peux t'aider aujourd'hui ?</div>
+          <div className="empty">{t("chat.empty")}</div>
         )}
         {renderedEvents.map((item) => {
           if (item.type === "tools") {
@@ -469,13 +474,13 @@ export default function Chat(p: {
                   }
                 >
                   <span className="tool-tick">{open ? "▾" : "▸"}</span>
-                  {item.tools.length} outils utilisés
+                  {t("chat.tools-used", { count: item.tools.length })}
                 </button>
                 {open && (
                   <div className="tool-group-list">
                     {item.tools.map((tool, offset) => (
                       <div key={offset} className="tool">
-                        <span className="tool-tick">▸</span> {tool.name}
+                        <span className="tool-tick">▸</span> {eventLabel(tool.name)}
                       </div>
                     ))}
                   </div>
@@ -510,7 +515,7 @@ export default function Chat(p: {
                     />
                     <div className="edit-actions">
                       <button type="button" className="edit-cancel" onClick={() => setEditing(null)}>
-                        Cancel
+                        {t("action.cancel")}
                       </button>
                       <button
                         type="button"
@@ -522,7 +527,7 @@ export default function Chat(p: {
                           }
                         }}
                       >
-                        Send
+                        {t("action.send")}
                       </button>
                     </div>
                   </div>
@@ -548,11 +553,11 @@ export default function Chat(p: {
                       {fmtTime(e.ts, p.defaults.timeFormat)}
                     </span>
                   )}
-                  <button title="Copier" onClick={() => navigator.clipboard.writeText(e.text)}>
+                  <button title={t("action.copy")} onClick={() => navigator.clipboard.writeText(e.text)}>
                     <CopyIcon />
                   </button>
-                  <button title="Éditer et renvoyer" onClick={() => setEditing({ index: i, text: e.text })}>✎</button>
-                  <button title="Revert : rembobiner avant ce message" onClick={() => p.onRevert(i, e.text, false)}>↩</button>
+                  <button title={t("action.edit-resend")} onClick={() => setEditing({ index: i, text: e.text })}>✎</button>
+                  <button title={t("chat.revert-title")} onClick={() => p.onRevert(i, e.text, false)}>↩</button>
                   <PinBtn pinned={p.pins.some((c) => c.index === i)} onClick={() => p.onTogglePin(i, e.text.slice(0, 44))} />
                 </div>
               </div>
@@ -578,10 +583,10 @@ export default function Chat(p: {
                       {fmtTime(e.ts, p.defaults.timeFormat)}
                     </span>
                   )}
-                  <button title="Copier" onClick={() => navigator.clipboard.writeText(e.text)}>
+                  <button title={t("action.copy")} onClick={() => navigator.clipboard.writeText(e.text)}>
                     <CopyIcon />
                   </button>
-                  <button title="Fork : nouveau chat à partir d'ici" onClick={() => p.onFork(i)}>
+                  <button title={t("action.fork")} onClick={() => p.onFork(i)}>
                     <ForkIcon />
                   </button>
                   <PinBtn pinned={p.pins.some((c) => c.index === i)} onClick={() => p.onTogglePin(i, e.text.replace(/[#*>`]/g, "").trim().slice(0, 44))} />
@@ -591,7 +596,7 @@ export default function Chat(p: {
           if (e.kind === "tool")
             return (
               <div key={i} className="tool">
-                <span className="tool-tick">▸</span> {e.name}
+                <span className="tool-tick">▸</span> {eventLabel(e.name)}
               </div>
             );
           if (e.kind === "tool_update") {
@@ -600,7 +605,7 @@ export default function Chat(p: {
               <div key={i} className="tool-output">
                 <div className="tool-output-head">
                   <span className="tool-tick">▸</span>
-                  <span>{e.name}</span>
+                  <span>{eventLabel(e.name)}</span>
                   {e.status && <span className="tool-status">{e.status}</span>}
                 </div>
                 {output.trim() && <pre>{output}</pre>}
@@ -627,7 +632,7 @@ export default function Chat(p: {
           if (e.kind === "done")
             return (
               <div key={i} className="done">
-                {e.ok ? "✓ terminé" : "✗ échec"}
+                {e.ok ? t("chat.done-ok") : t("chat.done-fail")}
               </div>
             );
           return null;
@@ -643,8 +648,8 @@ export default function Chat(p: {
                 <span>{currentToolName}</span>
               </div>
             )}
-            <button type="button" className="stop-btn" title="Interrompre" onClick={p.onStop}>
-              ■ Stop
+            <button type="button" className="stop-btn" title={t("action.interrupt")} onClick={p.onStop}>
+              ■ {t("action.stop")}
             </button>
           </div>
         )}
@@ -679,7 +684,7 @@ export default function Chat(p: {
             <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3">
               <path d="M10.5 2.5l3 3L6 13H3v-3z" /><path d="M9 4l3 3" />
             </svg>
-            Highlight
+            {t("chat.highlight")}
           </button>
           <button
             onMouseDown={(e) => {
@@ -692,7 +697,7 @@ export default function Chat(p: {
             <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3">
               <path d="M4 2.5v5a4 4 0 008 0v-5" /><path d="M3.5 13.5h9" />
             </svg>
-            Underline
+            {t("chat.underline")}
           </button>
           <button
             onMouseDown={(e) => {
@@ -705,7 +710,7 @@ export default function Chat(p: {
             <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3">
               <path d="M14 8c0 3-2.7 5.2-6 5.2-.8 0-1.6-.1-2.3-.4L2.5 14l1-2.6C2.6 10.5 2 9.3 2 8c0-3 2.7-5.2 6-5.2S14 5 14 8z" />
             </svg>
-            Add to chat
+            {t("action.add-to-chat")}
           </button>
         </div>
       )}
@@ -741,9 +746,9 @@ export default function Chat(p: {
               <circle cx="8" cy="8" r="6.2" />
               <circle cx="8" cy="8" r="2.2" fill="currentColor" stroke="none" />
             </svg>
-            <span className="goal-label">Goal</span>
+            <span className="goal-label">{t("chat.goal")}</span>
             <span className="goal-cond">{p.goal.slice(0, 80)}{p.goal.length > 80 ? "…" : ""}</span>
-            <button type="button" className="ghost" title="Effacer le goal (/goal clear)"
+            <button type="button" className="ghost" title={t("chat.goal-clear")}
               onClick={p.onClearGoal}><CloseIcon /></button>
           </div>
         )}
@@ -761,7 +766,7 @@ export default function Chat(p: {
               ) : (
                 <div key={i} className="chip">
                   <span className="chip-label">{a.name}</span>
-                  {a.lines && <span className="chip-lines">(lines {a.lines})</span>}
+                  {a.lines && <span className="chip-lines">{t("chat.lines", { lines: a.lines })}</span>}
                   <button type="button" className="ghost" onClick={() => p.onRemoveAttachment(i)}>
                     <CloseIcon />
                   </button>
@@ -770,7 +775,10 @@ export default function Chat(p: {
             )}
           </div>
         )}
-        <div className="ta-wrap">
+        <div className={`ta-wrap ${(() => {
+          const m = /^(\/[\w:-]+)/.exec(text);
+          return m && isValidSkill(m[1], p.commands) ? "slash-active" : "";
+        })()}`}>
         <div className="ta-backdrop" aria-hidden="true">
           {(() => {
             const m = /^(\/[\w:-]+)([\s\S]*)$/.exec(text);
@@ -835,12 +843,12 @@ export default function Chat(p: {
           }}
           disabled={p.disabled}
           rows={1}
-          placeholder="Demande n'importe quoi — /skills et CLAUDE.md chargés"
+          placeholder={t("chat.placeholder")}
         />
         </div>
         <div className="composer-bar">
           <span className="plus-wrap" onClick={(e) => e.stopPropagation()}>
-            <button type="button" className="ghost" title="Ajouter…" onClick={() => setPlusOpen((v) => !v)}>
+            <button type="button" className="ghost" title={t("action.add-file-image")} onClick={() => setPlusOpen((v) => !v)}>
               <PlusIcon />
             </button>
             {plusOpen && (
@@ -849,7 +857,7 @@ export default function Chat(p: {
                   <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3">
                     <path d="M13.5 7.5l-5 5a3.2 3.2 0 0 1-4.5-4.5l5.5-5.5a2.2 2.2 0 0 1 3.1 3.1l-5.5 5.5a1.1 1.1 0 0 1-1.6-1.6l5-5" />
                   </svg>
-                  <span>Ajouter une image / un fichier</span>
+                  <span>{t("action.add-file-image")}</span>
                 </div>
                 <div className="mp-item" onClick={() => setPermissionMode(permissionMode === "plan" ? "bypassPermissions" : "plan")}>
                   <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3">
@@ -870,7 +878,7 @@ export default function Chat(p: {
           >
             {PERMISSION_MODES.map((m) => (
               <option key={m.id} value={m.id}>
-                {m.label}
+                {t(m.labelKey as any)}
               </option>
             ))}
           </select>
@@ -893,11 +901,11 @@ export default function Chat(p: {
                         transform="rotate(-90 9 9)" />
                     </svg>
                     <span className="ctx-pop">
-                      <b>Fenêtre de contexte</b>
-                      <span>{pct}% · {Math.round(p.usage.context / 1000)}k / {WINDOW >= 1_000_000 ? "1M" : Math.round(WINDOW / 1000) + "k"} utilisés</span>
-                      <span>Sortie dernier tour : {Math.round(p.usage.output / 1000 * 10) / 10}k tokens</span>
-                      {p.usage.turns != null && <span>Tours de session : {p.usage.turns}</span>}
-                      {p.usage.cost != null && <span>Coût session : ${p.usage.cost.toFixed(2)}</span>}
+                      <b>{t("chat.context-window")}</b>
+                      <span>{t("chat.context-used", { pct, used: Math.round(p.usage.context / 1000), window: WINDOW >= 1_000_000 ? "1M" : Math.round(WINDOW / 1000) + "k" })}</span>
+                      <span>{t("chat.last-output", { tokens: Math.round(p.usage.output / 1000 * 10) / 10 })}</span>
+                      {p.usage.turns != null && <span>{t("chat.session-turns", { turns: p.usage.turns })}</span>}
+                      {p.usage.cost != null && <span>{t("chat.cost", { cost: p.usage.cost.toFixed(2) })}</span>}
                     </span>
                   </>
                 );
@@ -936,12 +944,12 @@ export default function Chat(p: {
                           }}
                         >
                           <ProviderIcon provider={pv} />
-                          <span>{m.label}</span>
+                          <span>{modelLabel(m)}</span>
                           <span className="mp-end">
                             {active && <span className="mp-check">✓</span>}
                             <span
                               className={`mp-star ${fav ? "on" : ""}`}
-                              title={fav ? "Retirer des favoris" : "Ajouter aux favoris"}
+                              title={fav ? t("action.remove-favorite") : t("action.add-favorite")}
                               onClick={(e) => { e.stopPropagation(); toggleFavModel(key); }}
                             >
                               {fav ? "★" : "☆"}
@@ -955,9 +963,9 @@ export default function Chat(p: {
                 {provider === "claude" && (
                   <>
                     <div className="mp-sep" />
-                    <div className="mp-hd">Contexte</div>
+                    <div className="mp-hd">{t("chat.context")}</div>
                     {[
-                      { id: "200k", label: "200k (défaut)", on: !model.includes("[1m]") },
+                      { id: "200k", label: t("chat.context-200k"), on: !model.includes("[1m]") },
                       { id: "1m", label: "1M", on: model.includes("[1m]") },
                     ].map((ctx) => (
                       <div key={ctx.id} className="mp-item"
@@ -975,10 +983,10 @@ export default function Chat(p: {
                   </>
                 )}
                 <div className="mp-sep" />
-                <div className="mp-hd">Effort</div>
+                <div className="mp-hd">{t("chat.effort")}</div>
                 {EFFORTS[provider].map((lvl) => {
                   const labels: Record<string, string> = {
-                    "": "Auto (défaut)", low: "Low", medium: "Medium", high: "High",
+                    "": t("common.auto-default"), low: "Low", medium: "Medium", high: "High",
                     xhigh: "Extra High", max: "Max", minimal: "Minimal",
                   };
                   return (
@@ -997,21 +1005,21 @@ export default function Chat(p: {
                 type="button"
                 className="queue-btn"
                 disabled={p.disabled || !text.trim()}
-                title="Mettre en file : envoyé après le tour en cours"
+                title={t("action.queue-title")}
                 onClick={() => {
                   if (!text.trim()) return;
                   p.onSubmit(text, provider, model, effort, permissionMode, "queue");
                   setText("");
                 }}
               >
-                ⏱ Queue
+                ⏱ {t("action.queue")}
               </button>
-              <button className="send steer" disabled={p.disabled} title="Steer : injecté immédiatement dans le tour en cours">
+              <button className="send steer" disabled={p.disabled} title={t("action.send-now")}>
                 ↑
               </button>
             </>
           ) : (
-            <button className="send" disabled={p.disabled} title="Envoyer">
+            <button className="send" disabled={p.disabled} title={t("action.send")}>
               ↑
             </button>
           )}
