@@ -15,6 +15,12 @@ const store = new ThreadStore(
 );
 const providers = { claude, codex };
 
+// au démarrage, aucune session ne tourne : purger les statuts "running"
+// persistés par un sidecar précédent (spinner fantôme dans la sidebar)
+for (const t of store.list()) {
+  if (t.status === "running") store.upsert({ id: t.id, status: "idle" });
+}
+
 import { readdirSync, rmSync, existsSync } from "node:fs";
 import { execFile } from "node:child_process";
 
