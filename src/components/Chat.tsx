@@ -253,6 +253,34 @@ export default function Chat(p: {
   const [selIdx, setSelIdx] = useState(0);
   const [quote, setQuote] = useState<{ x: number; y: number; text: string } | null>(null);
   const [showJump, setShowJump] = useState(false);
+  const [tickPos, setTickPos] = useState<Record<number, number>>({});
+
+  function resolvePinEl(index: number, label?: string): HTMLElement | null {
+    let el = document.getElementById(`msg-${index}`);
+    if (!el && label) {
+      const needle = label.slice(0, 30).toLowerCase();
+      el = ([...document.querySelectorAll(".user-wrap, .msg-wrap")].find((n) =>
+        (n.textContent ?? "").toLowerCase().includes(needle)
+      ) as HTMLElement) ?? null;
+    }
+    return el;
+  }
+
+  // minimap : chaque marque à la hauteur proportionnelle de son message
+  useEffect(() => {
+    const id = requestAnimationFrame(() => {
+      const scroller = messagesRef.current;
+      if (!scroller) return;
+      const total = Math.max(1, scroller.scrollHeight);
+      const pos: Record<number, number> = {};
+      for (const pin of p.pins) {
+        const el = resolvePinEl(pin.index, pin.label);
+        if (el) pos[pin.index] = Math.min(0.97, Math.max(0.01, el.offsetTop / total));
+      }
+      setTickPos(pos);
+    });
+    return () => cancelAnimationFrame(id);
+  }, [p.pins, p.events.length, p.threadId]);
   const [pinMenu, setPinMenu] = useState<{ index: number; x: number; y: number } | null>(null);
   useEffect(() => {
     if (!pinMenu) return;
@@ -690,17 +718,9 @@ export default function Chat(p: {
             <div
               key={c.index}
               className="chapter-tick"
+              style={{ top: `${(tickPos[c.index] ?? 0.5) * 100}%` }}
               onClick={() => {
-                let el = document.getElementById(`msg-${c.index}`);
-                if (!el && c.label) {
-                  // après rechargement, les indexes peuvent avoir glissé (l'historique
-                  // reconstruit omet les événements outils) : retrouver par contenu
-                  const needle = c.label.slice(0, 30).toLowerCase();
-                  el = [...document.querySelectorAll(".user-wrap, .msg-wrap")].find((n) =>
-                    (n.textContent ?? "").toLowerCase().includes(needle)
-                  ) as HTMLElement ?? null;
-                }
-                el?.scrollIntoView({ behavior: "smooth", block: "start" });
+                resolvePinEl(c.index, c.label)?.scrollIntoView({ behavior: "smooth", block: "start" });
               }}
               onContextMenu={(e) => {
                 e.preventDefault();
