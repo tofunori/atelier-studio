@@ -148,7 +148,22 @@ function Working({ since }: { since: number }) {
   );
 }
 
-type Suggestion = { insert: string; label: string; hint?: string };
+function FileTypeIcon({ ext }: { ext: string }) {
+  if (ext === "local")
+    return (
+      <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3">
+        <rect x="2" y="3" width="12" height="8" rx="1.5" /><path d="M5.5 13.5h5" />
+      </svg>
+    );
+  const label = ext === "pdf" ? "PDF" : ["md", "markdown"].includes(ext) ? "M↓"
+    : ["py"].includes(ext) ? "PY" : ["tex"].includes(ext) ? "TX"
+    : ["png", "jpg", "jpeg", "svg", "gif", "webp"].includes(ext) ? "IMG"
+    : ["json"].includes(ext) ? "{}" : "<>";
+  const color = ext === "pdf" ? "#e06c75" : ["png", "jpg", "jpeg", "svg", "gif", "webp"].includes(ext) ? "#98c379" : "var(--muted2)";
+  return <span className="ftype" style={{ color }}>{label}</span>;
+}
+
+type Suggestion = { insert: string; label: string; hint?: string; section?: string; icon?: string };
 
 function isValidSkill(token: string, commands: { name: string }[]): boolean {
   const name = token.replace(/^\//, "");
@@ -180,6 +195,7 @@ export default function Chat(p: {
   threadId: string | null;
   onPasteImage: (dataURL: string) => void;
   onStop: () => void;
+  onAttachPath?: (path: string) => void;
   goal: string | null;
   onClearGoal: () => void;
   layout: "split" | "chat" | "atelier";
@@ -426,16 +442,41 @@ export default function Chat(p: {
       .map((c) => ({ insert: `/${c.name} `, label: `/${c.name}`, hint: c.source }));
   } else if (atMatch) {
     const q = atMatch[2].toLowerCase();
-    suggestions = p.files
-      .filter((f) => f.toLowerCase().includes(q))
-      .slice(0, 12)
-      .map((f) => ({
-        insert: text.slice(0, atMatch.index) + atMatch[1] + `@${f} `,
-        label: f,
-      }));
+    const base = text.slice(0, atMatch.index) + atMatch[1];
+    suggestions = [];
+    if ("local".startsWith(q) || q === "") {
+      suggestions.push({ insert: "__browse__", label: "@local", hint: t("at.browse"), section: t("at.local"), icon: "local" });
+    }
+    suggestions.push(
+      ...p.files
+        .filter((f) => f.toLowerCase().includes(q))
+        .slice(0, 10)
+        .map((f) => {
+          const name = f.split("/").pop() ?? f;
+          const dir = f.includes("/") ? f.slice(0, f.lastIndexOf("/")) : "";
+          return {
+            insert: base + `@${f} `,
+            label: name,
+            hint: dir,
+            section: t("at.files"),
+            icon: f.split(".").pop()?.toLowerCase() ?? "",
+          };
+        })
+    );
   }
 
-  function applySuggestion(s: Suggestion) {
+  async function applySuggestion(s: Suggestion) {
+    if (s.insert === "__browse__") {
+      const picked = await open({ multiple: true });
+      if (picked) {
+        const arr = Array.isArray(picked) ? picked : [picked];
+        // retirer le @… en cours puis attacher les fichiers choisis
+        setText((cur) => cur.replace(/(^|\s)@[\w./-]*$/, "$1"));
+        for (const path of arr) p.onAttachPath?.(path as string);
+      }
+      setSelIdx(0);
+      return;
+    }
     setText(s.insert);
     setSelIdx(0);
   }
@@ -862,17 +903,24 @@ export default function Chat(p: {
         {suggestions.length > 0 && (
           <ul className="suggest">
             {suggestions.map((s, i) => (
-              <li
-                key={s.label}
-                className={i === selIdx ? "sel" : ""}
-                onMouseDown={(e) => {
-                  e.preventDefault();
-                  applySuggestion(s);
-                }}
-              >
-                <span>{s.label}</span>
-                {s.hint && <span className="hint">{s.hint}</span>}
-              </li>
+              <React.Fragment key={s.insert + s.label}>
+                {s.section && (i === 0 || suggestions[i - 1].section !== s.section) && (
+                  <li className="suggest-section">{s.section}</li>
+                )}
+                <li
+                  className={i === selIdx ? "sel" : ""}
+                  onMouseDown={(e) => {
+                    e.preventDefault();
+                    applySuggestion(s);
+                  }}
+                >
+                  <span className="suggest-main">
+                    {s.icon && <FileTypeIcon ext={s.icon} />}
+                    <b>{s.label}</b>
+                  </span>
+                  {s.hint && <span className="hint">{s.hint}</span>}
+                </li>
+              </React.Fragment>
             ))}
           </ul>
         )}
