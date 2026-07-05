@@ -19,6 +19,12 @@ import AtelierPane from "./components/AtelierPane";
 import SettingsPage from "./components/Settings";
 import { loadSettings, saveSettings, Settings } from "./lib/settings";
 import { THEME_PRESETS, presetById } from "./lib/themes";
+import {
+  atelierTargetOrigin,
+  isTrustedAtelierMessage,
+  withAtelierNonce,
+  type AtelierOutboundMessage,
+} from "./lib/ipc";
 import "./App.css";
 
 const PROJECTS_KEY = "atelier-studio.projects";
@@ -76,6 +82,8 @@ function loadProjects(): string[] {
 }
 
 export default function App() {
+  const atelierNonceRef = useRef(crypto.randomUUID());
+  const atelierNonce = atelierNonceRef.current;
   const ws = useRef<WebSocket | null>(null);
   const [mock, setMock] = useState(false);
   const [wsReady, setWsReady] = useState(false);
@@ -147,8 +155,15 @@ export default function App() {
     // propager aux iframes atelier (galerie, viewers)
     setTimeout(() => {
       document.querySelectorAll("iframe.atelier").forEach((f) => {
-        (f as HTMLIFrameElement).contentWindow?.postMessage(
-          { type: "atelier-theme", vars: presetById(settings.themePreset).vars }, "*");
+        const iframe = f as HTMLIFrameElement;
+        const targetOrigin = atelierTargetOrigin(iframe.src);
+        if (!targetOrigin) return;
+        const message: AtelierOutboundMessage = {
+          type: "atelier-theme",
+          nonce: atelierNonce,
+          vars: presetById(settings.themePreset).vars,
+        };
+        iframe.contentWindow?.postMessage(message, targetOrigin);
       });
     }, 50);
     // preset : pose toutes les variables ; "atelier" = valeurs de la feuille
@@ -410,8 +425,9 @@ export default function App() {
     if (!activeProject || atelierUrls[activeProject]) return;
     invoke<string>("start_atelier", { root: activeProject, galleryDir: settingsRef.current.galleryPath })
       .then((url) => {
+        const nonceUrl = withAtelierNonce(url, atelierNonce);
         setAppBanner((b) => b?.text.startsWith("start_atelier:") ? null : b);
-        setAtelierUrls((p) => ({ ...p, [activeProject]: url }));
+        setAtelierUrls((p) => ({ ...p, [activeProject]: nonceUrl }));
         // restaurer les onglets épinglés de ce projet
         try {
           const store = JSON.parse(localStorage.getItem("atelier-studio.pinnedTabs") ?? "{}");
@@ -421,7 +437,7 @@ export default function App() {
               const have = new Set(tabs.map((t) => t.url));
               const news = pinned
                 .filter((pt) => !have.has(pt.url))
-                .map((pt) => ({ id: crypto.randomUUID(), ...pt, pinned: true }));
+                .map((pt) => ({ id: crypto.randomUUID(), ...pt, url: withAtelierNonce(pt.url, atelierNonce), pinned: true }));
               return [...tabs, ...news];
             });
           }
@@ -459,13 +475,21 @@ export default function App() {
   // "Add to chat" direct depuis atelier (iframe → postMessage)
   useEffect(() => {
     const onMsg = (e: MessageEvent) => {
-      if (e.data?.type === "atelier-theme-request" && e.source) {
-        (e.source as Window).postMessage(
-          { type: "atelier-theme", vars: presetById(settingsRef.current.themePreset).vars }, "*");
+      if (!isTrustedAtelierMessage(e, atelierNonce)) {
+        if (import.meta.env.DEV) console.warn("Message atelier ignoré", e.origin, e.data);
+        return;
       }
-      if (e.data?.type === "atelier-open-tab" && typeof e.data.url === "string") {
-        const origin = (e.origin && e.origin !== "null") ? e.origin : "";
-        const abs = e.data.url.startsWith("http") ? e.data.url : origin + e.data.url;
+      const data = e.data;
+      if (data.type === "atelier-theme-request" && e.source) {
+        const message: AtelierOutboundMessage = {
+          type: "atelier-theme",
+          nonce: atelierNonce,
+          vars: presetById(settingsRef.current.themePreset).vars,
+        };
+        (e.source as Window).postMessage(message, e.origin);
+      }
+      if (data.type === "atelier-open-tab") {
+        const abs = withAtelierNonce(data.url.startsWith("http") ? data.url : e.origin + data.url, atelierNonce);
         // pas de setState imbriqué (StrictMode double-exécute les updaters) :
         // on lit l'état courant via la ref pour décider, puis on commit les deux.
         const existing = atelierTabsRef.current.find((t) => t.url === abs);
@@ -473,14 +497,25 @@ export default function App() {
           setActiveTab(existing.id);
         } else {
           const id = crypto.randomUUID();
-          setAtelierTabs((tabs) => [...tabs, { id, url: abs, title: e.data.title ?? "fichier" }]);
+          setAtelierTabs((tabs) => [...tabs, { id, url: abs, title: data.title ?? "fichier" }]);
           setActiveTab(id);
         }
       }
-      if (e.data?.type === "atelier-add-to-chat" && typeof e.data.text === "string") {
-        lastInjected.current = e.data.text;
-        setAttachments((l) => addAttachment(l, parseAttachment(e.data.text)));
+      if (data.type === "atelier-add-to-chat") {
+        lastInjected.current = data.text;
+        setAttachments((l) => addAttachment(l, parseAttachment(data.text)));
         setAnnotation(null); // pas de bannière en double
+      }
+      if (data.type === "browser-add-to-chat") {
+        let name = "extrait web";
+        try { name = data.url ? new URL(data.url).hostname : name; } catch {}
+        setAttachments((l) =>
+          addAttachment(l, {
+            name,
+            lines: null,
+            text: `Extrait copié depuis ${data.url || "une page web"} :\n> ${data.text.split("\n").join("\n> ")}`,
+          }),
+        );
       }
     };
     window.addEventListener("message", onMsg);
@@ -504,6 +539,7 @@ export default function App() {
     } else {
       url = `${origin}/.fig_thumbs/latex_studio.html?path=${encodeURIComponent(`${activeProject}/${rel}`)}${lineQ}`;
     }
+    url = withAtelierNonce(url, atelierNonce);
     const baseUrl = url.replace(/&line=[^&]*/, "");
     const existing = atelierTabsRef.current.find((t) => t.url.replace(/&line=[^&]*/, "") === baseUrl);
     if (existing) {
@@ -1059,8 +1095,9 @@ export default function App() {
                 // relance start_atelier : redémarre le serveur s'il est mort
                 invoke<string>("start_atelier", { root: activeProject, galleryDir: settingsRef.current.galleryPath })
                   .then((url) => {
+                    const nonceUrl = withAtelierNonce(url, atelierNonce);
                     setAppBanner((b) => b?.text.startsWith("start_atelier:") ? null : b);
-                    setAtelierUrls((p) => ({ ...p, [activeProject]: url }));
+                    setAtelierUrls((p) => ({ ...p, [activeProject]: nonceUrl }));
                     setAtelierReload((n) => n + 1);
                   })
                   .catch((e) => {
