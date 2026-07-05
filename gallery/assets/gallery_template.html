@@ -70,7 +70,10 @@
   .menu .mlink{cursor:pointer;color:var(--muted);font-size:11.5px}
   .menu .mlink:hover{color:var(--accent)}
   .count{color:var(--muted);font-size:12px;margin-left:auto}
-  main{padding:20px;display:grid;grid-template-columns:repeat(auto-fill,minmax(225px,1fr));gap:16px}
+  main{padding:20px;display:grid;grid-template-columns:repeat(auto-fill,minmax(185px,1fr));gap:16px}
+  /* panneau étroit : cartes plus compactes, jamais une seule colonne géante */
+  @media (max-width:520px){ main{padding:12px;gap:12px;grid-template-columns:repeat(auto-fill,minmax(150px,1fr))} }
+  @media (max-width:340px){ main{grid-template-columns:repeat(auto-fill,minmax(130px,1fr))} .thumb,.ph,.snip{height:110px} }
   .card{background:var(--card);border:1px solid var(--border);border-radius:9px;overflow:hidden;
         display:flex;flex-direction:column;transition:border-color .12s,box-shadow .12s}
   .card:hover{border-color:var(--border-strong);box-shadow:var(--shadow)}
