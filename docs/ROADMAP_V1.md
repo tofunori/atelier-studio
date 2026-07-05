@@ -77,3 +77,23 @@
 **Général**
 - Raccourcis affichés dans les tooltips (⌘0/1/2, ⌘K…).
 - Densité : le mode compact existe dans Réglages — l'exposer aussi via le menu View.
+
+## Axe produit — « recherche reproductible » (revue GPT-5.5 Pro, tri 2026-07-05)
+
+Colonne vertébrale retenue, dans l'ordre (après le lot UI) :
+
+1. **Run Ledger** — chaque tour d'agent = entrée d'expérience : prompt, provider/modèle,
+   coût, fichiers modifiés (file_change), commandes, figures générées, résultat.
+   Version automatisée du guardrail « Source Map manuscrit ».
+2. **Surface Git** (déjà P1) — état, diff review, snapshot avant chaque tour ; nourrit №4.
+3. **Figure Lab** — comparaison avant/après des figures régénérées (slider, overlay),
+   « demander pourquoi la courbe a changé », « garder cette version ».
+4. **Reproduce this result** — depuis une figure/réponse : retrouver script, données,
+   commit, prompt, commandes ; verdict reproduction OK/différente/impossible.
+
+Deuxième vague : Context Cart (poids tokens + packs par projet), Review par l'autre
+agent (bouton sur le handoff existant), Lab Notebook (dérivé du ledger),
+Secret/PII Guard (scan local dans submit()), badge trusted/untrusted sur contenu web.
+
+Écartés volontairement (trop plateforme vs thèse) : MCP Hub visuel, Playbook Builder,
+Permission Simulator (couvert par canUseTool + permissions par projet).
