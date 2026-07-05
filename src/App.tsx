@@ -373,6 +373,7 @@ export default function App() {
           const th = threadsRef.current.find((t) => t.id === pr.threadId);
           if (ws.current?.readyState === 1) {
             sendPrompt(ws.current, {
+        autoReview: settingsRef.current.autoReview,
               threadId: pr.threadId,
               projectRoot: th?.projectRoot ?? "",
               provider: th?.provider ?? "claude",
@@ -454,6 +455,9 @@ export default function App() {
       if (msg.type === "qaPromoteError") {
         window.dispatchEvent(new CustomEvent("qa-promote-error", { detail: msg }));
       }
+      if (msg.type === "reviewResult") {
+        window.dispatchEvent(new CustomEvent("review-result", { detail: msg }));
+      }
       if (msg.type === "qaEvent") {
         window.dispatchEvent(new CustomEvent("qa-event", { detail: msg }));
       }
@@ -525,6 +529,13 @@ export default function App() {
       setQaContext((d.context as string) ?? "");
       setQaMode("open");
     };
+    const onRequestReview = (e: Event) => {
+      const threadId = (e as CustomEvent).detail?.threadId;
+      if (threadId && ws.current?.readyState === 1) {
+        ws.current.send(JSON.stringify({ type: "requestReview", threadId, autoReview: settingsRef.current.autoReview }));
+      }
+    };
+    window.addEventListener("request-review", onRequestReview);
     const onQaToggle = () => {
       const mode = qaModeRef.current;
       if (mode === "open") { setQaMode("min"); return; }
@@ -541,6 +552,7 @@ export default function App() {
     window.addEventListener("quick-ask-open", onQaOpen);
     window.addEventListener("atelier-add-to-chat-citation", onCitation);
     return () => {
+      window.removeEventListener("request-review", onRequestReview);
       window.removeEventListener("open-palette", onOpenPalette);
       window.removeEventListener("quick-ask-toggle", onQaToggle);
       window.removeEventListener("usage-toggle", onUsageToggle);
@@ -959,6 +971,7 @@ export default function App() {
     }
     if (ws.current) {
       sendPrompt(ws.current, {
+        autoReview: settingsRef.current.autoReview,
         threadId: id,
         projectRoot: threadRoot,
         provider,

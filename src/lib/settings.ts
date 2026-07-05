@@ -9,6 +9,13 @@ export type Settings = {
   chatLineHeight: number;
   galleryPath: string;
   autoRefreshAtelier: boolean;
+  autoReview: {
+    enabled: boolean;
+    provider: "claude" | "codex";
+    model: string;
+    effort: string;
+    trigger: "always" | "files-changed" | "manual";
+  };
   language: "fr" | "en" | "system";
   theme: "dark" | "light" | "system";
   themePreset: string;
@@ -38,6 +45,7 @@ export const DEFAULT_SETTINGS: Settings = {
   chatLineHeight: 1.7,
   galleryPath: "~/Documents/cmux-gallery",
   autoRefreshAtelier: true,
+  autoReview: { enabled: false, provider: "codex", model: "gpt-5.5", effort: "high", trigger: "files-changed" },
   language: "system",
   theme: "dark",
   themePreset: "atelier",
@@ -68,6 +76,7 @@ export function loadSettings(): Settings {
       ...(legacyFs ? { chatFontSize: Number(legacyFs) } : {}),
       ...stored,
       defaultModel: { ...DEFAULT_SETTINGS.defaultModel, ...stored.defaultModel },
+      autoReview: { ...DEFAULT_SETTINGS.autoReview, ...(stored as any).autoReview },
       defaultEffort: { ...DEFAULT_SETTINGS.defaultEffort, ...stored.defaultEffort },
       customModels: stored.customModels ?? [],
       modelEfforts: stored.modelEfforts ?? {},

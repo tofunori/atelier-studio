@@ -8,6 +8,7 @@ import { writeFileAtomic } from "./store.mjs";
 // file d'attente par thread pour les providers SANS steering (Codex) :
 // les messages envoyés pendant un run partent automatiquement au tour suivant.
 const pending = new Map(); // threadId -> [msg...]
+const lastTurnByThread = new Map(); // threadId -> { entry, responseText, diffs }
 let retitleAllRunning = false;
 
 const DEFAULT_APP_DIR = join(homedir(), "Library", "Application Support", "atelier-studio");
@@ -147,6 +148,52 @@ function collectTool(tools, event) {
       exitCode: event.exitCode ?? null,
     });
   }
+}
+
+async function buildReviewInput(ctx, turn) {
+  let filesChanged = [];
+  let diffs = "";
+  if (turn.projectRoot && turn.snapshotSha && ctx.gitops?.changedSince) {
+    try {
+      filesChanged = await ctx.gitops.changedSince(turn.projectRoot, turn.snapshotSha);
+      if (filesChanged.length) diffs = await ctx.gitops.diff(turn.projectRoot, null);
+    } catch {}
+  }
+  const entry = {
+    provider: turn.provider,
+    model: turn.model ?? null,
+    promptExcerpt: String(turn.prompt ?? "").slice(0, 500),
+    tools: turn.tools,
+    filesChanged,
+  };
+  return { entry, responseText: turn.lastText ?? "", diffs: String(diffs).slice(0, 12000) };
+}
+
+async function runReview(ctx, emit, threadId, input, cfg) {
+  emit({ type: "reviewResult", threadId, status: "running" });
+  const verdict = await ctx.reviewer.reviewTurn({
+    ...input,
+    cfg,
+    providers: ctx.providers,
+  });
+  emit({ type: "reviewResult", threadId, status: "done", ...verdict });
+}
+
+function maybeAutoReview(ctx, emit, turn, cfg) {
+  if (!ctx.reviewer || !cfg?.enabled) {
+    // mémoriser quand même le tour pour un requestReview manuel
+    buildReviewInput(ctx, turn).then((input) => lastTurnByThread.set(turn.threadId, { input }));
+    return;
+  }
+  buildReviewInput(ctx, turn)
+    .then((input) => {
+      lastTurnByThread.set(turn.threadId, { input });
+      const trigger = cfg.trigger ?? "files-changed";
+      if (trigger === "manual") return;
+      if (trigger === "files-changed" && !input.entry.filesChanged.length) return;
+      return runReview(ctx, emit, turn.threadId, input, cfg);
+    })
+    .catch(() => {});
 }
 
 async function appendLedgerForDone(ctx, turn, event) {
@@ -479,6 +526,16 @@ export async function route(msg, ctx) {
     case "listThreads":
       ctx.send({ type: "threads", threads: ctx.store.list() });
       break;
+    case "requestReview": {
+      const saved = lastTurnByThread.get(msg.threadId);
+      if (!saved) {
+        ctx.send({ type: "reviewResult", threadId: msg.threadId, status: "done", verdict: "unavailable", issues: [] });
+        break;
+      }
+      const cfg = msg.autoReview ?? { provider: "codex", model: "gpt-5.5", effort: "high" };
+      runReview(ctx, (m) => (ctx.broadcast ?? ctx.send)(m), msg.threadId, saved.input, cfg).catch(() => {});
+      break;
+    }
     case "getUsage": {
       const claudeRl = (await ctx.providers?.claude?.rateLimitsAsync?.()) ?? ctx.providers?.claude?.rateLimits?.() ?? null;
       const codexRl = ctx.providers?.codex?.rateLimits?.() ?? null;
@@ -574,7 +631,7 @@ export async function route(msg, ctx) {
         // session persistante ; steer/queue = priority native du SDK ('now'/'next')
         const tools = [];
         const snapshotSha = await snapshotBeforeProvider(ctx, threadId);
-        const turn = { threadId, projectRoot, provider, model, effort, prompt, tools, snapshotSha };
+        const turn = { threadId, projectRoot, provider, model, effort, prompt, tools, snapshotSha, lastText: "" };
         p.send({
           threadId,
           cwd: projectRoot || process.env.HOME,
@@ -590,8 +647,10 @@ export async function route(msg, ctx) {
             ctx.store.upsert({ id: threadId, sessionId, resumeAt: null, forkPending: false }),
           onEvent: (event) => {
             collectTool(tools, event);
+            if (event.kind === "text") turn.lastText = event.text;
             emit({ type: "event", threadId, event });
             if (event.kind === "done") emitGitChanged(ctx, threadId, projectRoot);
+            if (event.kind === "done") maybeAutoReview(ctx, emit, turn, msg.autoReview);
             if (event.kind === "done") appendLedgerForDone(ctx, turn, event).catch((e) => {
               ctx.send({ type: "error", threadId, message: `ledger: ${String(e)}` });
             });
@@ -626,7 +685,7 @@ export async function route(msg, ctx) {
       // fire-and-forget : plusieurs threads streament en parallèle
       const tools = [];
       const snapshotSha = await snapshotBeforeProvider(ctx, threadId);
-      const turn = { threadId, projectRoot, provider, model, effort, prompt, tools, snapshotSha };
+      const turn = { threadId, projectRoot, provider, model, effort, prompt, tools, snapshotSha, lastText: "" };
       p.run({
         threadId,
         cwd: projectRoot || process.env.HOME,
@@ -642,8 +701,10 @@ export async function route(msg, ctx) {
         additionalDirectories: msg.additionalDirectories,
         onEvent: (event) => {
           collectTool(tools, event);
+          if (event.kind === "text") turn.lastText = event.text;
           emit({ type: "event", threadId, event });
           if (event.kind === "done") emitGitChanged(ctx, threadId, projectRoot);
+          if (event.kind === "done") maybeAutoReview(ctx, emit, turn, msg.autoReview);
           if (event.kind === "done") appendLedgerForDone(ctx, turn, event).catch((e) => {
             ctx.send({ type: "error", threadId, message: `ledger: ${String(e)}` });
           });

@@ -8,6 +8,7 @@ const SECTIONS = [
   { id: "general", labelKey: "settings.general" },
   { id: "apparence", labelKey: "settings.appearance" },
   { id: "modeles", labelKey: "settings.models" },
+  { id: "review", labelKey: "settings.review" },
   { id: "atelier", labelKey: "settings.atelier" },
   { id: "providers", labelKey: "settings.providers" },
   { id: "avance", labelKey: "settings.advanced" },
@@ -366,6 +367,43 @@ export default function SettingsPage(p: {
             {customModels.length === 0 && (
               <p className="set-sub">{t("settings.no-custom-models")}</p>
             )}
+          </>
+        )}
+        {section === "review" && (
+          <>
+            <h1>{t("settings.review")}</h1>
+            <p className="set-sub">{t("settings.review-sub")}</p>
+            <Row title={t("settings.autoreview-enable")} desc={t("settings.autoreview-enable-desc")}>
+              <input
+                type="checkbox"
+                checked={s.autoReview.enabled}
+                onChange={(e) => set({ autoReview: { ...s.autoReview, enabled: e.target.checked } })}
+              />
+            </Row>
+            <Row title={t("settings.autoreview-agent")} desc={t("settings.autoreview-agent-desc")}>
+              <select
+                value={`${s.autoReview.provider}:${s.autoReview.model}:${s.autoReview.effort}`}
+                onChange={(e) => {
+                  const [provider, model, effort] = e.target.value.split(":");
+                  set({ autoReview: { ...s.autoReview, provider: provider as "claude" | "codex", model, effort } });
+                }}
+              >
+                <option value="codex:gpt-5.5:high">GPT-5.5 · high</option>
+                <option value="codex:gpt-5.5:medium">GPT-5.5 · medium</option>
+                <option value="claude:claude-opus-4-8:high">Opus 4.8 · high</option>
+                <option value="claude:claude-sonnet-5:high">Sonnet 5 · high</option>
+              </select>
+            </Row>
+            <Row title={t("settings.autoreview-trigger")}>
+              <select
+                value={s.autoReview.trigger}
+                onChange={(e) => set({ autoReview: { ...s.autoReview, trigger: e.target.value as "always" | "files-changed" | "manual" } })}
+              >
+                <option value="files-changed">{t("settings.autoreview-files")}</option>
+                <option value="always">{t("settings.autoreview-always")}</option>
+                <option value="manual">{t("settings.autoreview-manual")}</option>
+              </select>
+            </Row>
           </>
         )}
         {section === "atelier" && (

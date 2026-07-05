@@ -11,6 +11,7 @@ import { watchAnnotations } from "./annotations.mjs";
 import { watchFile } from "node:fs";
 import * as terminal from "./terminal.mjs";
 import * as sessions from "./sessions.mjs";
+import * as reviewer from "./reviewer.mjs";
 import * as gitops from "./gitops.mjs";
 import * as ledger from "./ledger.mjs";
 import * as zotero from "./zotero.mjs";
@@ -247,6 +248,7 @@ wss.on("connection", (ws) => {
     exportThread,
     terminal,
     sessions,
+    reviewer,
     gitops,
     ledger,
     zotero,

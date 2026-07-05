@@ -74,6 +74,7 @@ export type SendOptions = {
   mode?: "steer" | "queue";
   webSearch?: boolean;
   additionalDirectories?: string[];
+  autoReview?: { enabled: boolean; provider: string; model: string; effort: string; trigger: string };
 };
 
 export function sendPrompt(ws: WebSocket, t: SendOptions) {

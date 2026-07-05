@@ -1151,3 +1151,17 @@ body.dragging iframe { pointer-events: none; }
 .project-name:hover .proj-icon, .project-name.active .proj-icon { color: var(--fg2); }
 .emoji-cell { color: var(--muted); }
 .emoji-cell:hover { color: var(--fg); }
+/* ===== auto-review : badge + détail ===== */
+.review-badge { margin-left: 10px; font-size: 11px; padding: 2px 9px; border-radius: 999px;
+  border: 1px solid var(--border); color: var(--muted); cursor: default; }
+.review-badge.v-running { animation: pulse 1.8s ease-in-out infinite; }
+.review-badge.v-ok { color: #98c379; border-color: color-mix(in srgb, #98c379 40%, transparent); }
+.review-badge.v-issues { color: #e0b74a; border-color: color-mix(in srgb, #e0b74a 45%, transparent);
+  cursor: pointer; }
+.review-badge.v-issues:hover { background: color-mix(in srgb, #e0b74a 10%, transparent); }
+.review-detail { margin-top: 8px; display: flex; flex-direction: column; gap: 8px;
+  font-size: 12.5px; }
+.review-issue { border-left: 2px solid var(--border2); padding: 2px 0 2px 10px; }
+.review-issue.s-high { border-left-color: #e06c75; }
+.ri-claim { color: var(--fg2); font-style: italic; }
+.ri-problem { color: var(--muted); margin-top: 2px; }

@@ -283,6 +283,17 @@ export default function Chat(p: {
   const [selIdx, setSelIdx] = useState(0);
   const [quote, setQuote] = useState<{ x: number; y: number; text: string } | null>(null);
   const [showJump, setShowJump] = useState(false);
+  const [review, setReview] = useState<{ status: string; verdict?: string; issues?: { claim: string; problem: string; severity: string }[] } | null>(null);
+  const [reviewOpen, setReviewOpen] = useState(false);
+  useEffect(() => setReview(null), [p.threadId]);
+  useEffect(() => {
+    const onReview = (e: Event) => {
+      const msg = (e as CustomEvent).detail;
+      if (msg.threadId === p.threadId) setReview(msg);
+    };
+    window.addEventListener("review-result", onReview);
+    return () => window.removeEventListener("review-result", onReview);
+  }, [p.threadId]);
   const [tickPos, setTickPos] = useState<Record<number, number>>({});
 
   function resolvePinEl(index: number, label?: string, anchor?: string): HTMLElement | null {
@@ -759,12 +770,35 @@ export default function Chat(p: {
                 ⚠ {e.message}
               </div>
             );
-          if (e.kind === "done")
+          if (e.kind === "done") {
+            const isLastDone = !p.events.slice(i + 1).some((x) => x.kind === "done");
             return (
               <div key={i} className="done">
                 {e.ok ? t("chat.done-ok") : t("chat.done-fail")}
+                {isLastDone && review && (
+                  <span
+                    className={`review-badge v-${review.status === "running" ? "running" : review.verdict}`}
+                    onClick={() => review.issues?.length && setReviewOpen((v) => !v)}
+                  >
+                    {review.status === "running" ? t("review.running")
+                      : review.verdict === "ok" ? t("review.ok")
+                      : review.verdict === "issues" ? t("review.issues", { n: review.issues?.length ?? 0 })
+                      : t("review.inconclusive")}
+                  </span>
+                )}
+                {isLastDone && reviewOpen && review?.issues?.length ? (
+                  <div className="review-detail">
+                    {review.issues.map((iss, k) => (
+                      <div key={k} className={`review-issue s-${iss.severity}`}>
+                        <div className="ri-claim">« {iss.claim} »</div>
+                        <div className="ri-problem">{iss.problem}</div>
+                      </div>
+                    ))}
+                  </div>
+                ) : null}
               </div>
             );
+          }
           return null;
         })}
         {p.workingSince != null && (
