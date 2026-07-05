@@ -690,9 +690,18 @@ export default function Chat(p: {
             <div
               key={c.index}
               className="chapter-tick"
-              onClick={() =>
-                document.getElementById(`msg-${c.index}`)?.scrollIntoView({ behavior: "smooth", block: "start" })
-              }
+              onClick={() => {
+                let el = document.getElementById(`msg-${c.index}`);
+                if (!el && c.label) {
+                  // après rechargement, les indexes peuvent avoir glissé (l'historique
+                  // reconstruit omet les événements outils) : retrouver par contenu
+                  const needle = c.label.slice(0, 30).toLowerCase();
+                  el = [...document.querySelectorAll(".user-wrap, .msg-wrap")].find((n) =>
+                    (n.textContent ?? "").toLowerCase().includes(needle)
+                  ) as HTMLElement ?? null;
+                }
+                el?.scrollIntoView({ behavior: "smooth", block: "start" });
+              }}
               onContextMenu={(e) => {
                 e.preventDefault();
                 e.stopPropagation();
