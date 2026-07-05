@@ -224,7 +224,7 @@ export default function App() {
   }, [favorites]);
   const activeIdRef = useRef<string | null>(null);
   // chapitres épinglés par thread : {index, label} (persistés)
-  const [pins, setPins] = useState<Record<string, { index: number; label: string; color?: string; style?: string }[]>>(() => {
+  const [pins, setPins] = useState<Record<string, { index: number; label: string; anchor?: string; color?: string; style?: string }[]>>(() => {
     try {
       return JSON.parse(localStorage.getItem("atelier-studio.pins") ?? "{}");
     } catch {
@@ -1243,7 +1243,7 @@ export default function App() {
                 ...p,
                 [id]: exists
                   ? cur.filter((c) => c.index !== index)
-                  : [...cur, { index, label }].sort((a, b) => a.index - b.index),
+                  : [...cur, { index, label, anchor: label }].sort((a, b) => a.index - b.index),
               };
             });
           }}

@@ -285,10 +285,11 @@ export default function Chat(p: {
   const [showJump, setShowJump] = useState(false);
   const [tickPos, setTickPos] = useState<Record<number, number>>({});
 
-  function resolvePinEl(index: number, label?: string): HTMLElement | null {
+  function resolvePinEl(index: number, label?: string, anchor?: string): HTMLElement | null {
     let el = document.getElementById(`msg-${index}`);
-    if (!el && label) {
-      const needle = label.slice(0, 30).toLowerCase();
+    const key = anchor || label;
+    if (!el && key) {
+      const needle = key.slice(0, 30).toLowerCase();
       el = ([...document.querySelectorAll(".user-wrap, .msg-wrap")].find((n) =>
         (n.textContent ?? "").toLowerCase().includes(needle)
       ) as HTMLElement) ?? null;
@@ -301,7 +302,7 @@ export default function Chat(p: {
     const id = requestAnimationFrame(() => {
       const pos: Record<number, number> = {};
       for (const pin of p.pins) {
-        const el = resolvePinEl(pin.index, pin.label);
+        const el = resolvePinEl(pin.index, pin.label, (pin as any).anchor);
         if (el) pos[pin.index] = el.offsetTop;
       }
       setTickPos(pos);
@@ -790,7 +791,7 @@ export default function Chat(p: {
               key={c.index}
               className="chapter-tick"
               onClick={() => {
-                resolvePinEl(c.index, c.label)?.scrollIntoView({ behavior: "smooth", block: "start" });
+                resolvePinEl(c.index, c.label, (c as any).anchor)?.scrollIntoView({ behavior: "smooth", block: "start" });
               }}
               onContextMenu={(e) => {
                 e.preventDefault();
