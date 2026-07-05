@@ -218,3 +218,31 @@ export async function run({
   }
   return { sessionId: thread.id ?? sessionId };
 }
+
+/** Rate limits OpenAI du rollout le plus récent (primary=5h, secondary=hebdo). */
+export function rateLimits() {
+  try {
+    const base = join(homedir(), ".codex", "sessions");
+    if (!existsSync(base)) return null;
+    let newest = null;
+    const walk = (d, depth) => {
+      if (depth > 4) return;
+      for (const e of readdirSync(d)) {
+        const p = join(d, e);
+        const st = statSync(p);
+        if (st.isDirectory()) walk(p, depth + 1);
+        else if (e.endsWith(".jsonl") && (!newest || st.mtimeMs > newest.m)) newest = { p, m: st.mtimeMs };
+      }
+    };
+    walk(base, 0);
+    if (!newest) return null;
+    const lines = readFileSync(newest.p, "utf8").trim().split("\n");
+    for (let i = lines.length - 1; i >= 0; i--) {
+      try {
+        const pl = JSON.parse(lines[i]).payload;
+        if (pl?.type === "token_count" && pl.rate_limits) return { ts: newest.m, data: pl.rate_limits };
+      } catch {}
+    }
+  } catch {}
+  return null;
+}

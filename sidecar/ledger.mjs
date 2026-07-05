@@ -50,3 +50,18 @@ export async function get(projectRoot, limit = 200, opts = {}) {
     .filter(Boolean)
     .reverse();
 }
+
+import { readdirSync as _rd } from "node:fs";
+/** Entrées récentes tous projets confondus (pour l'usage global). */
+export async function getAll(limit = 500) {
+  const out = [];
+  try {
+    const dir = ledgerDir();
+    for (const f of _rd(dir)) {
+      if (!f.endsWith(".jsonl")) continue;
+      const lines = readFileSync(join(dir, f), "utf8").trim().split("\n").slice(-limit);
+      for (const line of lines) { try { out.push(JSON.parse(line)); } catch {} }
+    }
+  } catch {}
+  return out.sort((a, b) => String(b.ts).localeCompare(String(a.ts))).slice(0, limit);
+}

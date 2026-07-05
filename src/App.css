@@ -985,3 +985,32 @@ body.dragging iframe { pointer-events: none; }
 .qa-esc { margin-left: auto; color: var(--muted2); font-size: 11px; }
 .qa-zap-btn { color: var(--accent) !important; opacity: 0.75; }
 .qa-zap-btn:hover { opacity: 1; }
+/* ===== usage (option B : anneaux) ===== */
+.side-foot { display: flex; gap: 4px; align-items: center; }
+.foot-ib { width: 32px; height: 30px; display: inline-flex; align-items: center;
+  justify-content: center; border-radius: 8px; position: relative;
+  background: transparent !important; }
+.foot-ib:hover { background: var(--bg-ctl) !important; }
+.usage-dot { position: absolute; top: 4px; right: 4px; width: 6px; height: 6px;
+  border-radius: 50%; background: transparent; }
+.ur-overlay { position: fixed; inset: 0; z-index: 280; }
+.ur-pop { position: fixed; left: 14px; bottom: 52px; width: 290px; z-index: 285;
+  background: var(--bg-pop); border: 1px solid var(--border2); border-radius: 14px;
+  box-shadow: 0 16px 44px rgba(0,0,0,0.4); padding: 14px; font-size: 12px;
+  --u-ok: #98c379; --u-warn: #e0b74a; --u-hot: #e06c75; }
+.ur-pop h4 { margin: 0 0 10px; font-size: 11px; letter-spacing: 0.08em;
+  text-transform: uppercase; color: var(--muted2); font-weight: 600; }
+.ur-rings { display: flex; justify-content: space-around; gap: 8px; padding: 2px 0 6px; }
+.ur-ring { text-align: center; }
+.ur-ring svg { margin: 0 auto 3px; display: block; }
+.ur-v { font-size: 13.5px; font-weight: 600; color: var(--fg);
+  font-variant-numeric: tabular-nums; }
+.ur-l { font-size: 10px; color: var(--muted2); white-space: nowrap; }
+.ur-models { border-top: 1px solid var(--border); margin-top: 10px; padding-top: 8px; }
+.ur-mrow { display: flex; justify-content: space-between; padding: 2.5px 0;
+  font-size: 11.5px; color: var(--fg2); font-variant-numeric: tabular-nums; }
+.ur-mrow em { font-style: normal; color: var(--muted2); }
+.ur-reset { display: flex; gap: 12px; font-size: 10.5px; color: var(--muted2); margin-top: 9px; }
+.ur-empty { color: var(--muted); font-size: 12px; padding: 6px 0; }
+.ur-close { position: absolute; top: 10px; right: 12px; background: transparent; border: none;
+  color: var(--muted2); font-size: 10.5px; cursor: pointer; }

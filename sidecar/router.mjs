@@ -479,6 +479,25 @@ export async function route(msg, ctx) {
     case "listThreads":
       ctx.send({ type: "threads", threads: ctx.store.list() });
       break;
+    case "getUsage": {
+      const claudeRl = ctx.providers?.claude?.rateLimits?.() ?? null;
+      const codexRl = ctx.providers?.codex?.rateLimits?.() ?? null;
+      // par-modèle aujourd'hui, tous projets confondus (ledger)
+      const models = {};
+      try {
+        const entries = await ctx.ledger.getAll?.(500) ?? [];
+        const today = new Date().toDateString();
+        for (const e of entries) {
+          if (new Date(e.ts).toDateString() !== today) continue;
+          const k = e.model || e.provider || "?";
+          models[k] ??= { turns: 0, output: 0 };
+          models[k].turns += 1;
+          models[k].output += e.usage?.output ?? 0;
+        }
+      } catch {}
+      ctx.send({ type: "usage", claude: claudeRl, codex: codexRl, models });
+      break;
+    }
     case "quickAsk": {
       // session éphémère : hors ThreadStore, hors ledger, hors snapshot git
       const { qaId, prompt, provider = "claude", model, effort } = msg;

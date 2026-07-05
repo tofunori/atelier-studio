@@ -326,10 +326,19 @@ export default function Sidebar(p: {
         </ul>
       )}
       </div>
-      <button className="settings-btn" title={t("action.settings")} onClick={p.onSettings}>
-        <SettingsIcon size={14} />
-        <span>{t("sidebar.settings")}</span>
-      </button>
+      <div className="side-foot">
+        <button className="ghost foot-ib" title={t("action.settings")} onClick={p.onSettings}>
+          <SettingsIcon size={14} />
+        </button>
+        <button className="ghost foot-ib usage-ib" title={t("usage.title")}
+          onClick={() => window.dispatchEvent(new CustomEvent("usage-toggle"))}>
+          <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round">
+            <circle cx="8" cy="8" r="6" strokeOpacity="0.25" />
+            <path d="M8 2a6 6 0 0 1 5.6 3.9" />
+          </svg>
+          <span className="usage-dot" id="usage-dot" />
+        </button>
+      </div>
       {resumeOpen && (
         <div className="rail-menu resume-pop" onClick={(e) => e.stopPropagation()}>
           <div className="rail-menu-title">{t("sidebar.resume-title")}</div>

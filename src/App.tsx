@@ -19,6 +19,7 @@ import AtelierPane from "./components/AtelierPane";
 import SettingsPage from "./components/Settings";
 import CommandPalette from "./components/CommandPalette";
 import QuickAsk from "./components/QuickAsk";
+import UsagePopover, { worstOf } from "./components/UsagePopover";
 import { CloseIcon } from "./components/icons";
 import { loadSettings, saveSettings, Settings } from "./lib/settings";
 import { THEME_PRESETS, presetById } from "./lib/themes";
@@ -207,6 +208,7 @@ export default function App() {
   const [unread, setUnread] = useState<Set<string>>(new Set());
   const [goals, setGoals] = useState<Record<string, string>>({});
   const [qaOpen, setQaOpen] = useState(false);
+  const [usageOpen, setUsageOpen] = useState(false);
   const [qaDraft, setQaDraft] = useState(""); // threadId -> condition
   const [favorites, setFavorites] = useState<string[]>(() => {
     try { return JSON.parse(localStorage.getItem("atelier-studio.favorites") ?? "[]"); }
@@ -435,6 +437,15 @@ export default function App() {
             { kind: "text", text: t("action.exported", { path: msg.path }), ts: Date.now() }],
         }));
       }
+      if (msg.type === "usage") {
+        window.dispatchEvent(new CustomEvent("usage-data", { detail: msg }));
+        const worst = worstOf(msg as any);
+        const dot = document.getElementById("usage-dot");
+        if (dot) {
+          dot.style.background = worst == null ? "transparent"
+            : worst >= 85 ? "#e06c75" : worst >= 60 ? "#e0b74a" : "#98c379";
+        }
+      }
       if (msg.type === "qaEvent") {
         window.dispatchEvent(new CustomEvent("qa-event", { detail: msg }));
       }
@@ -497,9 +508,12 @@ export default function App() {
       setQaDraft(((e as CustomEvent).detail?.draft as string) ?? "");
       setQaOpen(true);
     };
+    const onUsageToggle = () => setUsageOpen((v) => !v);
+    window.addEventListener("usage-toggle", onUsageToggle);
     window.addEventListener("quick-ask-open", onQaOpen);
     window.addEventListener("atelier-add-to-chat-citation", onCitation);
     return () => {
+      window.removeEventListener("usage-toggle", onUsageToggle);
       window.removeEventListener("quick-ask-open", onQaOpen);
       window.removeEventListener("atelier-add-to-chat-citation", onCitation);
     };
@@ -926,6 +940,14 @@ export default function App() {
   const knownIds = new Set(threads.map((t) => t.id));
   const allThreads = [...draftThreads.filter((t) => !knownIds.has(t.id)), ...threads];
   allThreadsRef.current = allThreads;
+  useEffect(() => {
+    if (!wsReady) return;
+    const send = () => ws.current?.readyState === 1 && ws.current.send(JSON.stringify({ type: "getUsage" }));
+    send();
+    const iv = setInterval(send, 300000);
+    return () => clearInterval(iv);
+  }, [wsReady]);
+
   const atelierUrl = activeProject ? atelierUrls[activeProject] : null;
 
   // le serveur galerie peut mourir (kill, reboot) : sonde 15 s → relance
@@ -1028,6 +1050,9 @@ export default function App() {
           }
         }}
       />
+      {usageOpen && <div className="ur-overlay" onClick={() => setUsageOpen(false)}>
+        <UsagePopover open={usageOpen} onClose={() => setUsageOpen(false)} />
+      </div>}
       </>
     );
   }
@@ -1360,6 +1385,9 @@ export default function App() {
           }
         }}
       />
+      {usageOpen && <div className="ur-overlay" onClick={() => setUsageOpen(false)}>
+        <UsagePopover open={usageOpen} onClose={() => setUsageOpen(false)} />
+      </div>}
     </div>
   );
 }

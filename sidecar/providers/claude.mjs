@@ -193,6 +193,9 @@ export function send({
     try {
       for await (const msg of q) {
         if (msg.type === "system" && msg.subtype === "init") onSession?.(msg.session_id);
+        if (msg.type === "rate_limit_event" || msg.type === "rate_limits") {
+          try { globalThis.__claudeRateLimits = { ts: Date.now(), data: msg.rate_limits ?? msg.data ?? msg }; } catch {}
+        }
         if (msg.type === "stream_event") {
           const ev = msg.event;
           if (ev?.type === "content_block_delta" && ev.delta?.type === "text_delta") {
@@ -258,4 +261,8 @@ export async function run(opts) {
       },
     });
   });
+}
+
+export function rateLimits() {
+  return globalThis.__claudeRateLimits ?? null;
 }
