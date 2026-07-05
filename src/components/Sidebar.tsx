@@ -292,7 +292,9 @@ export default function Sidebar(p: {
             >
               <span className="chev">{collapsed.includes(root) ? "▸" : "▾"}</span>
               {p.projMeta[root]?.label?.startsWith("icon:") ? (
-                <span className="proj-icon"><ProjIcon name={p.projMeta[root]!.label!.slice(5)} /></span>
+                <span className="proj-icon" style={p.projMeta[root]?.color ? { color: p.projMeta[root]!.color } : undefined}>
+                  <ProjIcon name={p.projMeta[root]!.label!.slice(5)} />
+                </span>
               ) : p.projMeta[root]?.label ? (
                 <span className="proj-emoji">{p.projMeta[root]?.label}</span>
               ) : (
