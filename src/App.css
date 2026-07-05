@@ -1165,3 +1165,22 @@ body.dragging iframe { pointer-events: none; }
 .review-issue.s-high { border-left-color: #e06c75; }
 .ri-claim { color: var(--fg2); font-style: italic; }
 .ri-problem { color: var(--muted); margin-top: 2px; }
+/* ===== barre reviewer (A) épinglée en haut du fil ===== */
+.reviewer-bar { position: sticky; top: 0; z-index: 12; display: flex; align-items: center;
+  gap: 9px; padding: 8px 14px; margin: -24px -24px 14px; background: var(--bg-card);
+  border-bottom: 1px solid var(--border); font-size: 12px; backdrop-filter: blur(6px); }
+.reviewer-bar .rb-ico { flex-shrink: 0; color: var(--muted); }
+.reviewer-bar.v-ok .rb-ico { color: #98c379; }
+.reviewer-bar.v-issues .rb-ico { color: #e0b74a; }
+.rb-name { color: var(--fg2); font-weight: 550; }
+.rb-dot { color: var(--muted2); }
+.rb-verdict { color: var(--muted); display: inline-flex; align-items: center; gap: 6px; }
+.rb-verdict.ok { color: #98c379; }
+.rb-verdict.warn { color: #e0b74a; cursor: pointer; }
+.rb-verdict.warn:hover { text-decoration: underline; }
+.rb-verdict.running { color: var(--muted); }
+.rb-checks { color: var(--muted2); }
+.rb-spin { width: 10px; height: 10px; border: 1.6px solid var(--border2);
+  border-top-color: var(--muted); border-radius: 50%; display: inline-block;
+  animation: spin 0.8s linear infinite; }
+@media (prefers-reduced-motion: reduce) { .rb-spin { animation: none; } }
