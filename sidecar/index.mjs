@@ -1,4 +1,6 @@
 import { WebSocketServer } from "ws";
+import { createServer } from "node:http";
+import { readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { route } from "./router.mjs";
@@ -32,7 +34,7 @@ function status() {
   try {
     pastedCount = existsSync(PASTE_DIR) ? readdirSync(PASTE_DIR).length : 0;
   } catch {}
-  return { port: wss.address()?.port ?? null, pastedCount, pasteDir: PASTE_DIR };
+  return { port: httpServer.address()?.port ?? null, pastedCount, pasteDir: PASTE_DIR };
 }
 
 function clearPasted() {
@@ -130,7 +132,33 @@ function saveImage(ext, base64) {
   return path;
 }
 
-const wss = new WebSocketServer({ host: "127.0.0.1", port: 0 });
+// État UI partagé dev/prod (projets, réglages, favoris…) — les deux origines
+// (localhost:1420 et tauri://) ont des localStorage séparés.
+const UI_PATH = `${homedir()}/Library/Application Support/atelier-studio/ui.json`;
+const httpServer = createServer((req, res) => {
+  res.setHeader("access-control-allow-origin", "*");
+  res.setHeader("access-control-allow-methods", "GET,POST,OPTIONS");
+  res.setHeader("access-control-allow-headers", "content-type");
+  if (req.method === "OPTIONS") { res.end(); return; }
+  if (req.url === "/uistate" && req.method === "GET") {
+    res.setHeader("content-type", "application/json");
+    try { res.end(readFileSync(UI_PATH)); } catch { res.end("{}"); }
+    return;
+  }
+  if (req.url === "/uistate" && req.method === "POST") {
+    let body = "";
+    req.on("data", (c) => (body += c));
+    req.on("end", () => {
+      try { JSON.parse(body); writeFileSync(UI_PATH, body); } catch {}
+      res.end("ok");
+    });
+    return;
+  }
+  res.statusCode = 404;
+  res.end();
+});
+const wss = new WebSocketServer({ server: httpServer });
+httpServer.listen(0, "127.0.0.1");
 
 // broadcast: les events d'un run en cours atteignent tous les clients,
 // y compris après un reload de la fenêtre (nouvelle connexion WS).
@@ -141,8 +169,8 @@ function broadcast(obj) {
   }
 }
 
-wss.on("listening", () => {
-  console.log(JSON.stringify({ port: wss.address().port }));
+httpServer.on("listening", () => {
+  console.log(JSON.stringify({ port: httpServer.address().port }));
 });
 
 watchAnnotations(broadcast);

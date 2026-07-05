@@ -1,14 +1,10 @@
 import { Codex } from "@openai/codex-sdk";
 import { execSync } from "node:child_process";
-import { existsSync } from "node:fs";
-
+// CLI système d'abord (mêmes versions/config que l'utilisateur) ; binaire
+// embarqué du SDK en secours (absent du bundle allégé).
 let CODEX_BIN = null;
 try {
-  const req = (await import("node:module")).createRequire(import.meta.url);
-  const pkg = req.resolve("@openai/codex-sdk/package.json").replace(/package\.json$/, "");
-  if (!existsSync(pkg + "../codex-darwin-arm64")) {
-    CODEX_BIN = execSync("command -v codex", { encoding: "utf8" }).trim() || null;
-  }
+  CODEX_BIN = execSync("command -v codex", { encoding: "utf8" }).trim() || null;
 } catch {}
 
 

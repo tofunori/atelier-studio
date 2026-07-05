@@ -1,15 +1,10 @@
 import { query } from "@anthropic-ai/claude-agent-sdk";
 import { execSync } from "node:child_process";
-import { existsSync } from "node:fs";
 
 // Bundle allégé : le binaire embarqué du SDK est retiré → utiliser le CLI système.
 let CLAUDE_BIN = null;
 try {
-  const req = (await import("node:module")).createRequire(import.meta.url);
-  const pkg = req.resolve("@anthropic-ai/claude-agent-sdk/package.json").replace(/package\.json$/, "");
-  if (!existsSync(pkg + "../claude-agent-sdk-darwin-arm64")) {
-    CLAUDE_BIN = execSync("command -v claude", { encoding: "utf8" }).trim() || null;
-  }
+  CLAUDE_BIN = execSync("command -v claude", { encoding: "utf8" }).trim() || null;
 } catch {}
 
 
