@@ -1381,7 +1381,6 @@ export default function App() {
         draft={qaDraft}
         context={qaContext}
         onMinimize={() => setQaMode("min")}
-        onRestore={() => setQaMode("open")}
         onClose={() => setQaMode("closed")}
         onInject={(text) => {
           setAttachments((l) => addAttachment(l, { name: "Quick Ask", lines: null, text }));

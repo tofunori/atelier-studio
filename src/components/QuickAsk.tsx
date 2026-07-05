@@ -32,7 +32,6 @@ export default function QuickAsk({
   draft,
   context,
   onMinimize,
-  onRestore,
   onClose,
   onInject,
   onPromote,
@@ -42,7 +41,6 @@ export default function QuickAsk({
   draft: string;
   context?: string;
   onMinimize: () => void;
-  onRestore: () => void;
   onClose: () => void;
   onInject: (text: string) => void;
   onPromote: (qaId: string, title: string) => void;
