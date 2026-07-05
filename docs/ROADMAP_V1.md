@@ -162,3 +162,17 @@ Friction #1 (2026-07-05) — **passe typographique du chat** : rythme vertical d
 liens accent désaturé, blockquote filet fin, réponses agent sans fond (texte nu).
 À faire dès que le repo est libre (touche Chat.tsx — conflit avec chantier #0 en cours).
 Refactor App.tsx en hooks : à glisser dans le chantier qui le touche le plus (probablement #3).
+
+## Auto-review (inspiré du Reviewer de Claude Science, ajouté 2026-07-05)
+
+Automatisation du guardrail « vérificateur indépendant » de Thierry. Le Run Ledger
+est le record d'exécution ; le reviewer vérifie les claims de la réponse contre lui.
+- Réglages → Agents : toggle Auto-review (global + par projet), modèle du reviewer
+  (défaut Haiku), déclencheur (chaque réponse / runs modifiant des fichiers / manuel).
+- Après un done éligible : run one-shot INDÉPENDANT (session séparée ; voit la
+  réponse, l'entrée ledger, les diffs) → verdict structuré.
+- Chat : badge discret ✓ vérifié / ⚠ n incohérences (cliquable → détails +
+  « demander la correction ») ; bouton Vérifier au survol de toute réponse.
+- Plus tard : critères custom par projet (règles MIXED_MODELS pour la thèse).
+Chantier suivant après ⌘K — Codex : plomberie sidecar/settings ; Claude : prompt
+du reviewer + badge.
