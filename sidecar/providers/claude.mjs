@@ -122,10 +122,20 @@ export function send({
       for await (const msg of q) {
         if (msg.type === "system" && msg.subtype === "init") onSession?.(msg.session_id);
         if (msg.type === "assistant") {
+          const au = msg.message?.usage;
+          if (au) {
+            s.lastCtx =
+              (au.input_tokens ?? 0) +
+              (au.cache_read_input_tokens ?? 0) +
+              (au.cache_creation_input_tokens ?? 0);
+          }
           for (const block of msg.message.content ?? []) {
             if (block.type === "text") s.onEvent({ kind: "text", text: block.text });
             if (block.type === "tool_use") s.onEvent({ kind: "tool", name: block.name });
           }
+        }
+        if (msg.type === "system" && msg.subtype === "compact_boundary") {
+          s.onEvent({ kind: "tool", name: "contexte compacté automatiquement" });
         }
         if (msg.type === "result") {
           const u = msg.usage ?? {};
@@ -134,10 +144,10 @@ export function send({
             ok: msg.subtype === "success",
             result: msg.result ?? "",
             usage: {
-              context:
-                (u.input_tokens ?? 0) +
+              context: s.lastCtx ??
+                ((u.input_tokens ?? 0) +
                 (u.cache_read_input_tokens ?? 0) +
-                (u.cache_creation_input_tokens ?? 0),
+                (u.cache_creation_input_tokens ?? 0)),
               output: u.output_tokens ?? 0,
               cost: msg.total_cost_usd ?? null,
               turns: msg.num_turns ?? null,
