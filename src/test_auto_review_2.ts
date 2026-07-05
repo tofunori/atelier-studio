@@ -54,3 +54,16 @@ export function compteAReculons(depart: number): number[] {
   }
   return resultat;
 }
+
+// Bug volontaire ajouté pour test : index hors limites (pas de vérification de tableau vide)
+export function premierEtDernier(arr: number[]): { premier: number; dernier: number } {
+  return {
+    premier: arr[0],
+    dernier: arr[arr.length - 1],
+  };
+}
+
+// Bug volontaire ajouté pour test : fuite potentielle - setInterval jamais nettoyé
+export function demarrerPolling(callback: () => void): void {
+  setInterval(callback, 1000); // pas de clearInterval, pas de référence retournée
+}
