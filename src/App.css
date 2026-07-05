@@ -23,7 +23,7 @@ html, body, #root, .app { height: 100vh; overflow: hidden;
   -webkit-font-smoothing: antialiased; }
 .handle { width: 4px; background: var(--bg-ctl); }
 .sidebar { padding: 12px 10px; display: flex; flex-direction: column; gap: 8px;
-  height: 100%; background: var(--bg-side); font-size: 13.5px;
+  height: 100%; background: var(--bg-side); font-size: 13.5px; color: var(--fg2);
   min-height: 0; overflow: hidden; }
 .side-scroll { flex: 1; min-height: 0; overflow-y: auto; display: flex;
   flex-direction: column; gap: 8px; scrollbar-width: thin; }
@@ -34,7 +34,9 @@ html, body, #root, .app { height: 100vh; overflow: hidden;
 .sidebar li { padding: 6px 8px; border-radius: 6px; cursor: pointer;
   display: flex; gap: 6px; align-items: center; font-size: 13px; }
 .sidebar li.active { background: var(--bg-ctl); }
-.sidebar li .title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sidebar li.active .title { color: var(--fg); }
+.sidebar li:hover .title { color: var(--fg); }
+.sidebar li .title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--fg2); }
 .thread-copy { min-width: 0; flex: 1; display: flex; flex-direction: column; gap: 1px; }
 .thread-date { color: var(--muted2); font-size: 11px; line-height: 1.15; white-space: nowrap;
   overflow: hidden; text-overflow: ellipsis; }
@@ -133,7 +135,8 @@ html, body, #root, .app { height: 100vh; overflow: hidden;
 .project-name .proj-icon, .project-name .proj-dot, .project-name .proj-emoji {
   width: 16px; flex-shrink: 0; display: inline-flex; justify-content: center; }
 .project-name > .mini { margin-left: auto; flex-shrink: 0; }
-.project-name.active { background: var(--bg-card); }
+.project-name.active { background: var(--bg-card); color: var(--fg); }
+.project-name:hover { color: var(--fg); }
 .project-name .mini { margin-left: auto; padding: 0 8px; font-size: 14px;
   line-height: 20px; }
 .project ul { padding-left: 14px; }
