@@ -148,7 +148,7 @@ export default function BrowserTab(p: {
           {servers?.map((s) => (
             <div key={s.port} className="bh-card" onClick={() => navigate(`http://localhost:${s.port}`)}>
               <div className="bh-card-txt">
-                <div className="bh-card-title">{s.title || `Serveur local`}</div>
+                <div className="bh-card-title">{s.title || `localhost:${s.port}`}</div>
                 <div className="bh-card-sub">localhost:{s.port}</div>
               </div>
               <span className="bh-dot" />

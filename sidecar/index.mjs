@@ -51,11 +51,11 @@ function cliVersion(bin) {
 
 // scan des serveurs locaux pour la page "nouvel onglet" du navigateur
 import net from "node:net";
+// ports UTILES seulement : pas le dev-server de l'app (1420) ni les serveurs
+// de galerie atelier (879x/187xx-19xxx) déjà affichés dans le panneau Atelier
 const SCAN_PORTS = [
-  1420, 3000, 3001, 4173, 4321, 5173, 5174, 8000, 8080, 8081, 8484, 8501,
-  8765, 8787, 8888, 9091, 8790, 8791, 8792, 8793, 8794, 8795,
-  ...Array.from({ length: 12 }, (_, k) => 18790 + k),
-  19000, 19175, 19359,
+  3000, 3001, 4173, 4321, 5173, 5174, 8000, 8080, 8081, 8484, 8501,
+  8765, 8787, 8888, 9091,
 ];
 function tcpAlive(port) {
   return new Promise((resolve) => {
