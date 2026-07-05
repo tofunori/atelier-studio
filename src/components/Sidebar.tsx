@@ -104,6 +104,30 @@ export default function Sidebar(p: {
     setEditingId(null);
   }
 
+  function startRename(t: Thread) {
+    setEditText(t.title);
+    setEditingId(t.id);
+  }
+
+  function titleEditor(t: Thread) {
+    return editingId === t.id ? (
+      <input
+        ref={editRef}
+        className="rename"
+        value={editText}
+        onChange={(e) => setEditText(e.target.value)}
+        onBlur={commitRename}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") commitRename();
+          if (e.key === "Escape") setEditingId(null);
+        }}
+        onClick={(e) => e.stopPropagation()}
+      />
+    ) : (
+      <span className="title" title={t.title}>{niceTitle(t.title)}</span>
+    );
+  }
+
   return (
     <div className="sidebar">
       <div className="side-top">
@@ -129,13 +153,17 @@ export default function Sidebar(p: {
                   key={t.id}
                   className={t.id === p.activeId ? "active" : ""}
                   onClick={() => p.onSelect(t.id, t.projectRoot)}
+                  onDoubleClick={(e) => {
+                    e.stopPropagation();
+                    startRename(t);
+                  }}
                   onContextMenu={(e) => {
                     e.preventDefault();
                     setMenu({ x: e.clientX, y: e.clientY, threadId: t.id });
                   }}
                 >
                   <span className="prov-ico"><ProviderIcon provider={t.provider} /></span>
-                  <span className="title" title={t.title}>{niceTitle(t.title)}</span>
+                  {titleEditor(t)}
                   <span className="fav-star">★</span>
                 </li>
               ))}
@@ -200,6 +228,10 @@ export default function Sidebar(p: {
                   key={t.id}
                   className={t.id === p.activeId ? "active" : ""}
                   onClick={() => p.onSelect(t.id, root)}
+                  onDoubleClick={(e) => {
+                    e.stopPropagation();
+                    startRename(t);
+                  }}
                   onContextMenu={(e) => {
                     e.preventDefault();
                     setMenu({ x: e.clientX, y: e.clientY, threadId: t.id });
@@ -209,22 +241,7 @@ export default function Sidebar(p: {
                     <ProviderIcon provider={t.provider} />
                     {p.unread.has(t.id) && <span className="unread-badge" />}
                   </span>
-                  {editingId === t.id ? (
-                    <input
-                      ref={editRef}
-                      className="rename"
-                      value={editText}
-                      onChange={(e) => setEditText(e.target.value)}
-                      onBlur={commitRename}
-                      onKeyDown={(e) => {
-                        if (e.key === "Enter") commitRename();
-                        if (e.key === "Escape") setEditingId(null);
-                      }}
-                      onClick={(e) => e.stopPropagation()}
-                    />
-                  ) : (
-                    <span className="title" title={t.title}>{niceTitle(t.title)}</span>
-                  )}
+                  {titleEditor(t)}
                   {t.status === "running" && (
                     <svg className="arc" width="13" height="13" viewBox="0 0 16 16" fill="none">
                       <circle cx="8" cy="8" r="6" stroke="#3a414d" strokeWidth="2" />
@@ -258,6 +275,10 @@ export default function Sidebar(p: {
                 key={t.id}
                 className={t.id === p.activeId ? "active" : ""}
                 onClick={() => p.onSelect(t.id, "")}
+                onDoubleClick={(e) => {
+                  e.stopPropagation();
+                  startRename(t);
+                }}
                 onContextMenu={(e) => {
                   e.preventDefault();
                   setMenu({ x: e.clientX, y: e.clientY, threadId: t.id });
@@ -267,7 +288,7 @@ export default function Sidebar(p: {
                   <ProviderIcon provider={t.provider} />
                   {p.unread.has(t.id) && <span className="unread-badge" />}
                 </span>
-                <span className="title" title={t.title}>{niceTitle(t.title)}</span>
+                {titleEditor(t)}
               </li>
             ))}
         </ul>

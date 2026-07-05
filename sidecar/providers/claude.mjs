@@ -49,6 +49,35 @@ export async function interrupt(threadId) {
   }
 }
 
+export async function titleConversation(firstMessage) {
+  const prompt =
+    "Donne un titre de 3-6 mots pour cette conversation : " +
+    String(firstMessage ?? "").slice(0, 1200);
+  let title = "";
+  const q = query({
+    prompt,
+    options: {
+      maxTurns: 1,
+      model: "claude-haiku-4-5-20251001",
+      ...(CLAUDE_BIN ? { pathToClaudeCodeExecutable: CLAUDE_BIN } : {}),
+      settingSources: ["user"],
+    },
+  });
+  let resultTitle = "";
+  for await (const msg of q) {
+    if (msg.type === "result" && msg.result) resultTitle = msg.result;
+    if (msg.type === "assistant") {
+      for (const block of msg.message?.content ?? []) {
+        if (block.type === "text") title += block.text;
+      }
+    }
+  }
+  return (title || resultTitle)
+    .replace(/^["'«\s]+|["'»\s.]+$/g, "")
+    .replace(/\s+/g, " ")
+    .slice(0, 70);
+}
+
 export function send({
   threadId,
   cwd,

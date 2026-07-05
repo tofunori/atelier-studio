@@ -4,6 +4,17 @@
 // les messages envoyés pendant un run partent automatiquement au tour suivant.
 const pending = new Map(); // threadId -> [msg...]
 
+async function maybeTitleThread(ctx, emit, threadId, firstMessage) {
+  const t = ctx.store.get(threadId);
+  if (!t || t.title !== String(firstMessage ?? "").slice(0, 40)) return;
+  const title = await ctx.providers?.claude?.titleConversation?.(firstMessage);
+  if (!title) return;
+  const fresh = ctx.store.get(threadId);
+  if (fresh?.title !== String(firstMessage ?? "").slice(0, 40)) return;
+  ctx.store.upsert({ id: threadId, title });
+  emit({ type: "threads", threads: ctx.store.list() });
+}
+
 export async function route(msg, ctx) {
   switch (msg.type) {
     case "interrupt": {
@@ -236,6 +247,9 @@ export async function route(msg, ctx) {
                 status: event.kind === "done" ? "done" : "idle",
               });
               emit({ type: "threads", threads: ctx.store.list() });
+              if (event.kind === "done" && event.ok !== false) {
+                maybeTitleThread(ctx, emit, threadId, prompt).catch(() => {});
+              }
               // dépiler la file d'attente explicite
               const q = pending.get(threadId);
               const next = q?.shift();
@@ -269,6 +283,7 @@ export async function route(msg, ctx) {
         .then(({ sessionId }) => {
           ctx.store.upsert({ id: threadId, sessionId, status: "done" });
           emit({ type: "threads", threads: ctx.store.list() });
+          maybeTitleThread(ctx, emit, threadId, prompt).catch(() => {});
         })
         .catch((e) => {
           ctx.store.upsert({ id: threadId, status: "idle" });
