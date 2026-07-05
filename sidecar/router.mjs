@@ -274,10 +274,15 @@ export async function route(msg, ctx) {
         threadId,
         cwd: projectRoot || process.env.HOME,
         prompt,
+        inputs: msg.inputs,
+        imagePath: msg.imagePath,
+        attachments: msg.attachments,
         sessionId: prev?.sessionId ?? null,
         model,
         effort,
         permissionMode,
+        webSearch: msg.webSearch,
+        additionalDirectories: msg.additionalDirectories,
         onEvent: (event) => emit({ type: "event", threadId, event }),
       })
         .then(({ sessionId }) => {
