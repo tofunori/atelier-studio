@@ -1101,3 +1101,7 @@ body.dragging iframe { pointer-events: none; }
 .rail, .git-head, .biblio-filters, .qa-head, .qa-foot {
   user-select: none; -webkit-user-select: none; }
 .sidebar input, .sidebar textarea { user-select: text; -webkit-user-select: text; }
+.pin-rename { margin: 8px 10px 4px; width: calc(100% - 20px); background: var(--bg-ctl);
+  border: 1px solid var(--border); border-radius: 7px; color: var(--fg);
+  padding: 5px 9px; font-size: 12px; outline: none; box-sizing: border-box; }
+.pin-rename:focus { border-color: var(--border2); }

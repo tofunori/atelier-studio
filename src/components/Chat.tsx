@@ -230,7 +230,7 @@ export default function Chat(p: {
     modelEfforts?: Record<string, string>;
   };
   pins: { index: number; label: string; color?: string; style?: string }[];
-  onStylePin: (index: number, patch: { color?: string; style?: string }) => void;
+  onStylePin: (index: number, patch: { color?: string; style?: string; label?: string }) => void;
   onTogglePin: (index: number, label: string) => void;
   disabled: boolean;
   onSubmit: (
@@ -810,6 +810,25 @@ export default function Chat(p: {
       {pinMenu && (
         <div className="ctx-menu pin-menu" style={{ position: "fixed", left: pinMenu.x, top: pinMenu.y, zIndex: 200 }}
           onClick={(e) => e.stopPropagation()}>
+          <input
+            className="pin-rename"
+            defaultValue={p.pins.find((x) => x.index === pinMenu.index)?.label ?? ""}
+            placeholder={t("chat.pin-rename")}
+            autoFocus
+            onKeyDown={(e) => {
+              if (e.key === "Enter") {
+                const v = (e.target as HTMLInputElement).value.trim();
+                if (v) p.onStylePin(pinMenu.index, { label: v });
+                setPinMenu(null);
+              }
+              if (e.key === "Escape") setPinMenu(null);
+            }}
+            onBlur={(e) => {
+              const v = e.target.value.trim();
+              const cur = p.pins.find((x) => x.index === pinMenu.index)?.label ?? "";
+              if (v && v !== cur) p.onStylePin(pinMenu.index, { label: v });
+            }}
+          />
           <div className="swatches" style={{ padding: "6px 10px" }}>
             {["#e05d5d", "#e8823a", "#e0b74a", "#22b07d", "#3b82f6", "#8b5cf6"].map((col) => (
               <span key={col} className="swatch" style={{ background: col }}
