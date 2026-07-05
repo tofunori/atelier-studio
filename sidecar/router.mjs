@@ -170,13 +170,14 @@ async function buildReviewInput(ctx, turn) {
 }
 
 async function runReview(ctx, emit, threadId, input, cfg) {
-  emit({ type: "reviewResult", threadId, status: "running" });
+  const checks = (input.entry?.tools?.length ?? 0) + (input.entry?.filesChanged?.length ?? 0);
+  emit({ type: "reviewResult", threadId, status: "running", model: cfg?.model ?? null });
   const verdict = await ctx.reviewer.reviewTurn({
     ...input,
     cfg,
     providers: ctx.providers,
   });
-  emit({ type: "reviewResult", threadId, status: "done", ...verdict });
+  emit({ type: "reviewResult", threadId, status: "done", model: cfg?.model ?? null, checks, ...verdict });
 }
 
 function maybeAutoReview(ctx, emit, turn, cfg) {
