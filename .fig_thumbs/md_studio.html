@@ -5,6 +5,14 @@
 <title>md studio</title>
 <link rel="stylesheet" href="/.fig_thumbs/toastui/toastui-editor.min.css">
 <link rel="stylesheet" href="/.fig_thumbs/toastui/toastui-editor-dark.min.css">
+<script>(function(){
+  try{ var m=(location.hash||'').match(/atelier_nonce=([\w-]+)/); if(m) sessionStorage.setItem('atelier_nonce', m[1]); }catch(e){}
+  /* nonce IPC : inclus dans chaque message vers l'app hôte ; l'app rejette sans lui */
+  window.__atelierPost = function(p){
+    try{ p = Object.assign({}, p, {nonce: sessionStorage.getItem('atelier_nonce')||''}); }catch(e){}
+    try{ window.top.postMessage(p, '*'); }catch(e){}
+  };
+})();</script>
 <script src="/.fig_thumbs/toastui/toastui-editor-all.min.js"></script>
 <style>
   :root{--bg:#212429;--bar:#1a1d22;--border:#333a45;--fg:#e8eaed;--muted:#8a919e}
@@ -150,7 +158,7 @@ if(window.self !== window.top){
     fetch("/quote", {method:"POST", headers:{"Content-Type":"application/json"},
       body: JSON.stringify({rel: path, page, text: selTxt, comment: "", direct: true, embed: true})})
       .then(r => r.json())
-      .then(j => { if(j && j.message) window.top.postMessage({type:"atelier-add-to-chat", text:j.message}, "*"); })
+      .then(j => { if(j && j.message) __atelierPost({type:"atelier-add-to-chat", text:j.message}); })
       .catch(() => {});
     pill.style.display = "none";
     try{ window.getSelection().removeAllRanges(); }catch(err){}

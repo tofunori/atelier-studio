@@ -5,6 +5,14 @@
 <title>LaTeX Studio</title>
 <link rel="stylesheet" href="/.fig_thumbs/cm/codemirror.min.css">
 <link rel="stylesheet" href="/.fig_thumbs/cm/material-darker.min.css">
+<script>(function(){
+  try{ var m=(location.hash||'').match(/atelier_nonce=([\w-]+)/); if(m) sessionStorage.setItem('atelier_nonce', m[1]); }catch(e){}
+  /* nonce IPC : inclus dans chaque message vers l'app hôte ; l'app rejette sans lui */
+  window.__atelierPost = function(p){
+    try{ p = Object.assign({}, p, {nonce: sessionStorage.getItem('atelier_nonce')||''}); }catch(e){}
+    try{ window.top.postMessage(p, '*'); }catch(e){}
+  };
+})();</script>
 <script src="/.fig_thumbs/cm/codemirror.min.js"></script>
 <script src="/.fig_thumbs/cm/mark-selection.min.js"></script>
 <script src="/.fig_thumbs/cm/stex.min.js"></script>
@@ -13,6 +21,7 @@
 <script src="/.fig_thumbs/cm/markdown.min.js"></script>
 <script src="/.fig_thumbs/cm/julia.min.js"></script>
 <script src="/.fig_thumbs/cm/shell.min.js"></script>
+<script src="/.fig_thumbs/cm/javascript.min.js"></script>
 <script src="/.fig_thumbs/pdfjs/pdf.min.js"></script>
 <script src="/.fig_thumbs/marked.min.js"></script>
 <script src="/.fig_thumbs/purify.min.js"></script>
@@ -61,6 +70,7 @@
   .CodeMirror .CodeMirror-selected{background:transparent !important}
   .CodeMirror-focused .CodeMirror-selected{background:transparent !important}
   .CodeMirror-selectedtext{background:rgba(91,157,255,.45) !important;box-shadow:none !important;border-radius:2px}
+  .cm-line-flash{background:rgba(91,157,255,.18) !important;transition:background .6s}
   /* last selection sent to Claude: persistent marker */
   .cm-clsel{background:rgba(91,157,255,.28);border-radius:2px}
   #picker{position:fixed;inset:0;background:rgba(0,0,0,.55);display:none;z-index:200;
@@ -199,7 +209,9 @@ const __EXT = (path || "").split(".").pop().toLowerCase();
 const IS_TEX = __EXT === "tex";
 const __CM_MODE = ({tex:"stex", py:"python", r:"r", md:"markdown", jl:"julia",
   sh:"shell", bash:"shell", zsh:"shell", json:{name:"javascript",json:true},
-  js:"javascript", csv:null, txt:null})[__EXT] ?? "stex";
+  js:"javascript", mjs:"javascript", cjs:"javascript",
+  ts:{name:"javascript",typescript:true}, tsx:{name:"javascript",typescript:true},
+  jsx:"javascript", csv:null, txt:null})[__EXT] ?? null;
 let pdfPath = path ? path.replace(/\.tex$/, ".pdf") : null;
 // single initial-load trigger: resolve the real PDF path first, THEN load once
 // (two concurrent getDocument() calls can deadlock pdf.js worker startup)
@@ -298,7 +310,7 @@ if(!IS_TEX){
           fetch("/quote", {method:"POST", headers:{"Content-Type":"application/json"},
             body: JSON.stringify({rel: path, page: page, text: selTxt, comment: "", direct: true, embed: true})})
             .then(r => r.json())
-            .then(j => { if(j && j.message) window.top.postMessage({type:"atelier-add-to-chat", text:j.message}, "*"); })
+            .then(j => { if(j && j.message) __atelierPost({type:"atelier-add-to-chat", text:j.message}); })
             .catch(() => {});
           pillBtn.style.display = "none";
           try{ window.getSelection().removeAllRanges(); }catch(err){}
@@ -371,6 +383,20 @@ async function load(){
     lineNumbers: true, lineWrapping: true, viewportMargin: 50, styleSelectedText: true
   });
   cm.on("change", (_, ch) => { if(ch.origin !== "setValue"){ dirty = true; ddot.style.display = "inline"; setState("dirty", "modified"); } });
+  // ?line=N (ou N-M) : sauter à la ligne et la surligner brièvement (liens fichier:ligne du chat)
+  const __lineParam = new URLSearchParams(location.search).get("line");
+  if(__lineParam){
+    const mm = /^(\d+)(?:-(\d+))?$/.exec(__lineParam);
+    if(mm){
+      const l1 = Math.max(0, parseInt(mm[1],10)-1), l2 = mm[2] ? parseInt(mm[2],10)-1 : l1;
+      setTimeout(() => {
+        cm.setCursor({line:l1, ch:0});
+        cm.scrollIntoView({line:Math.min(l2+3, cm.lineCount()-1), ch:0}, 120);
+        for(let ln=l1; ln<=Math.min(l2, cm.lineCount()-1); ln++) cm.addLineClass(ln, "background", "cm-line-flash");
+        setTimeout(() => { for(let ln=l1; ln<=Math.min(l2, cm.lineCount()-1); ln++) cm.removeLineClass(ln, "background", "cm-line-flash"); }, 2600);
+      }, 60);
+    }
+  }
   let selT = null;
   cm.on("cursorActivity", () => {
     clearTimeout(selT);
@@ -611,7 +637,7 @@ function selSend(){
   fetch("/quote", {method:"POST", headers:{"Content-Type":"application/json"},
     body: JSON.stringify({rel: path, page: lastSel.page, text: lastSel.text, comment: comment || "", direct: true, target: __ct(), embed: __EMB})})
     .then(r => r.json())
-    .then(j => { if(__EMB && j && j.message) window.top.postMessage({type:'atelier-add-to-chat', text:j.message}, '*');
+    .then(j => { if(__EMB && j && j.message) __atelierPost({type:'atelier-add-to-chat', text:j.message});
       if(window._clMark){ window._clMark.clear(); window._clMark = null; }
       go.textContent = "✓"; setTimeout(() => { go.textContent = "↑"; selTa.value = ""; selHide(); }, 1200); })
     .catch(() => { go.textContent = "!"; setTimeout(() => { go.textContent = "↑"; }, 1600); });
@@ -708,8 +734,8 @@ document.getElementById("popPdf").onclick = () => {
   const __pdfUrl = "/.fig_thumbs/latex_studio.html?path=" + encodeURIComponent(path) + "&mode=pdf";
   if(window.self !== window.top){
     // embarqué dans Atelier Studio : ouvrir dans un onglet du panneau
-    window.top.postMessage({type:'atelier-open-tab', url: __pdfUrl,
-      title: (path.split("/").pop() || "PDF") + " — PDF"}, '*');
+    __atelierPost({type:'atelier-open-tab', url: __pdfUrl,
+      title: (path.split("/").pop() || "PDF") + " — PDF"});
   } else {
     window.open(__pdfUrl, "_blank");
   }
@@ -851,7 +877,7 @@ if(window.self !== window.top){
     fetch("/quote", {method:"POST", headers:{"Content-Type":"application/json"},
       body: JSON.stringify({rel: path, page: "", text: dSel, comment: "", direct: true, embed: true})})
       .then(r => r.json())
-      .then(j => { if(j && j.message) window.top.postMessage({type:"atelier-add-to-chat", text:j.message}, "*"); })
+      .then(j => { if(j && j.message) __atelierPost({type:"atelier-add-to-chat", text:j.message}); })
       .catch(() => {});
     dPill.style.display = "none";
     try{ window.getSelection().removeAllRanges(); }catch(err){}

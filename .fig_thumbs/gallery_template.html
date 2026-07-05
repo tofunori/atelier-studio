@@ -326,6 +326,15 @@
 </div></div>
 <footer>Double-click a thumbnail or "Open" to view the file. This file must stay at the project root for the links to work. Click Rescan to refresh.</footer>
 <script>
+(function(){
+  try{ var m=(location.hash||'').match(/atelier_nonce=([\w-]+)/); if(m) sessionStorage.setItem('atelier_nonce', m[1]); }catch(e){}
+  /* nonce IPC : inclus dans chaque message vers l'app hôte ; l'app rejette sans lui */
+  window.__atelierPost = function(p){
+    try{ p = Object.assign({}, p, {nonce: sessionStorage.getItem('atelier_nonce')||''}); }catch(e){}
+    try{ window.top.postMessage(p, '*'); }catch(e){}
+  };
+})();
+
 const FILES = __DATA__;
 // Filenames are untrusted: escape for text (esc) and attributes (escA), and route
 // every card handler through delegation on data-* (never JS-string interpolation).
@@ -346,8 +355,8 @@ document.addEventListener('click',e=>{
   else if(act==='rate') setRate(rel, +el.dataset.n, e);
   else if(act==='copy'){ navigator.clipboard.writeText(rel); el.textContent='✓'; setTimeout(()=>el.textContent='Path',1200); }
   else if(act==='chat'){
-    window.top.postMessage({type:'atelier-add-to-chat',
-      text:'__ROOT__/'+rel+'\nFichier joint depuis la galerie atelier — lis-le (outil Read) avant de répondre.'},'*');
+    __atelierPost({type:'atelier-add-to-chat',
+      text:'__ROOT__/'+rel+'\nFichier joint depuis la galerie atelier — lis-le (outil Read) avant de répondre.'});
     el.textContent='✓'; setTimeout(()=>el.textContent='Chat',1200);
   }
 });
@@ -765,6 +774,11 @@ function toolOpenTab(endpoint, page){
   // fall back to the in-page lightbox viewer if that fails. Both muxy and orca
   // can run at once — tell the server which app hosts THIS gallery so the tab
   // opens here (?orcaFs=1 is stamped on the URL by the Orca launcher).
+  // Atelier Studio : la galerie est en iframe — ouvrir un onglet Studio direct
+  if(window.self!==window.top){
+    try{ __atelierPost({type:'atelier-open-tab', url:'/.fig_thumbs/'+page+'/index.html',
+      title: page==='whiteboard'?'board':'notes'}); return; }catch(e){}
+  }
   const host=new URLSearchParams(location.search).get('orcaFs')==='1'?'orca':'';  // ''=laisser le serveur choisir (cmux d'abord)
   const fb=()=>toolOpenLightbox(page);
   fetch(endpoint,{method:'POST',headers:{'Content-Type':'application/json'},
@@ -805,7 +819,7 @@ async function lbShow(i){
     if(isPdf) u='/.fig_thumbs/pdf_viewer.html?file='+encodeURIComponent(f.rel)+'&v=__VER__';
     else if(isMd) u='/.fig_thumbs/md_studio.html?path='+encodeURIComponent('__ROOT__/'+f.rel)+'&v=__VER__';
     else u='/.fig_thumbs/latex_studio.html?path='+encodeURIComponent('__ROOT__/'+f.rel)+'&v=__VER__';
-    window.top.postMessage({type:'atelier-open-tab', url:u, title:f.name}, '*');
+    __atelierPost({type:'atelier-open-tab', url:u, title:f.name});
     lbIdx=-1;
     return;
   }
@@ -1341,8 +1355,8 @@ function annotInit(){
       const href = a.getAttribute('href') || '';
       if(/\.html?(\?|$)/i.test(href)){
         e.preventDefault();
-        window.top.postMessage({type:'atelier-open-tab', url:'/'+href.replace(/^\//,''),
-          title:(href.split('/').pop()||'page').split('?')[0]}, '*');
+        __atelierPost({type:'atelier-open-tab', url:'/'+href.replace(/^\//,''),
+          title:(href.split('/').pop()||'page').split('?')[0]});
       }
     }, true);
   }
@@ -1356,7 +1370,7 @@ function annotInit(){
         '--border2':'--border-strong','--accent':'--accent'};
       for(var k in map){ if(v[k]) document.documentElement.style.setProperty(map[k], v[k]); }
     });
-    window.top.postMessage({type:'atelier-theme-request'}, '*');
+    __atelierPost({type:'atelier-theme-request'});
   }
   if(ANNOT_EMBEDDED){const st=document.createElement('style');st.textContent='.embOnly{display:inline-block !important} .embHide{display:none !important}'
       +':root{--bg:#212429;--card:#262b31;--card2:#2c313a;--txt:#e8eaed;--muted:#8a919e;--faint:#6b7482;--border:#333a45;--border-strong:#3f4652;--accent:#e8823a;--accent-soft:#3a2c20}'
@@ -1374,7 +1388,7 @@ function annotInit(){
         target:claudeTarget(),embed:ANNOT_EMBEDDED,
         notes:annotStrokes.filter(s=>s.note).map(s=>({n:s.n,text:s.note}))})});
     const j=await r.json();
-    if(ANNOT_EMBEDDED&&j&&j.message)window.top.postMessage({type:'atelier-add-to-chat',text:j.message},'*');
+    if(ANNOT_EMBEDDED&&j&&j.message)__atelierPost({type:'atelier-add-to-chat',text:j.message});
     return j;
   }
   document.getElementById('annotPillCancel').onclick=async function(){

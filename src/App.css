@@ -716,6 +716,8 @@ button.ghost.danger, button.ghost.danger:hover { color: #d98c8f; background: rgb
 .biblio-surface { flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(260px, 300px) minmax(0, 1fr);
   background: var(--bg); color: var(--fg2); }
 .biblio-surface.no-reader { grid-template-columns: minmax(0, 1fr); }
+.biblio-surface.no-list { grid-template-columns: minmax(0, 1fr); }
+.biblio-list-toggle { flex-shrink: 0; }
 .biblio-surface.no-reader .biblio-left { border-right: none; }
 .biblio-surface.no-reader .biblio-title { font-size: 13.5px; }
 .biblio-left { min-width: 0; border-right: 1px solid var(--border); background: var(--bg-side);

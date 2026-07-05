@@ -1,3 +1,11 @@
+(function(){
+  try{ var m=(location.hash||'').match(/atelier_nonce=([\w-]+)/); if(m) sessionStorage.setItem('atelier_nonce', m[1]); }catch(e){}
+  /* nonce IPC : inclus dans chaque message vers l'app hôte ; l'app rejette sans lui */
+  window.__atelierPost = function(p){
+    try{ p = Object.assign({}, p, {nonce: sessionStorage.getItem('atelier_nonce')||''}); }catch(e){}
+    try{ window.top.postMessage(p, '*'); }catch(e){}
+  };
+})();
 /* annot_kit.js — Claude-Science-style annotation kit shared by the viewers.
    Faithful generalization of the gallery lightbox annotation (the visual and
    functional reference, which keeps its own copy): dashed ellipse / arrow /
@@ -300,7 +308,7 @@
           target: getTarget(), embed: EMBEDDED,
           notes: strokes.filter(function(s){ return s.note; }).map(function(s){ return {n: s.n, text: s.note}; })})});
       var j = await r.json();
-      if (EMBEDDED && j && j.message) window.top.postMessage({type: 'atelier-add-to-chat', text: j.message}, '*');
+      if (EMBEDDED && j && j.message) __atelierPost({type: 'atelier-add-to-chat', text: j.message});
       return j;
     }
 

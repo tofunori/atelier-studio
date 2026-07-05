@@ -1,3 +1,11 @@
+(function(){
+  try{ var m=(location.hash||'').match(/atelier_nonce=([\w-]+)/); if(m) sessionStorage.setItem('atelier_nonce', m[1]); }catch(e){}
+  /* nonce IPC : inclus dans chaque message vers l'app hôte ; l'app rejette sans lui */
+  window.__atelierPost = function(p){
+    try{ p = Object.assign({}, p, {nonce: sessionStorage.getItem('atelier_nonce')||''}); }catch(e){}
+    try{ window.top.postMessage(p, '*'); }catch(e){}
+  };
+})();
 function __ct(){try{return JSON.parse(localStorage.getItem('claudeTargetV1')||'null')}catch(e){return null}}
   var EMBEDDED = (function(){ try { return window.self !== window.top; } catch(e){ return true; } })();
 /* sel_overlay.js — select text in a project HTML report → annotate → send to Claude.
@@ -118,7 +126,7 @@ function __ct(){try{return JSON.parse(localStorage.getItem('claudeTargetV1')||'n
     fetch('/quote', {method:'POST', headers:{'Content-Type':'application/json'},
       body: JSON.stringify({rel: REL, page: '', text: selText, comment: comment || '', direct: true, target: __ct(), embed: EMBEDDED})})
       .then(function(r){ return r.json(); })
-      .then(function(j){ if (EMBEDDED && j && j.message) window.top.postMessage({type: 'atelier-add-to-chat', text: j.message}, '*');
+      .then(function(j){ if (EMBEDDED && j && j.message) __atelierPost({type: 'atelier-add-to-chat', text: j.message});
         go.textContent = '✓'; setTimeout(function(){ go.textContent = '↑'; pillTa.value = ''; hideAll(); }, 1200); })
       .catch(function(){ go.textContent = '!'; setTimeout(function(){ go.textContent = '↑'; }, 1600); });
   }

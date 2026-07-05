@@ -94,9 +94,17 @@ export default function BiblioSurface({
   const [selectedKey, setSelectedKey] = useState<string | null>(persisted.key);
   const [error, setError] = useState<string | null>(null);
   const [readerOpen, setReaderOpen] = useState(() => localStorage.getItem("atelier-studio.biblio.reader") !== "0");
+  const [listOpen, setListOpen] = useState(() => localStorage.getItem("atelier-studio.biblio.list") !== "0");
+  function toggleList() {
+    setListOpen((v) => {
+      localStorage.setItem("atelier-studio.biblio.list", v ? "0" : "1");
+      return !v;
+    });
+  }
   function toggleReader() {
     setReaderOpen((v) => {
       localStorage.setItem("atelier-studio.biblio.reader", v ? "0" : "1");
+      if (v && !listOpen) { localStorage.setItem("atelier-studio.biblio.list", "1"); setListOpen(true); }
       return !v;
     });
   }
@@ -172,7 +180,8 @@ export default function BiblioSurface({
   }
 
   return (
-    <div className={`biblio-surface ${readerOpen ? "" : "no-reader"}`}>
+    <div className={`biblio-surface ${readerOpen ? "" : "no-reader"} ${listOpen ? "" : "no-list"}`}>
+      {listOpen && (
       <aside className="biblio-left">
         <div className="biblio-search-row">
           <BookIcon />
@@ -241,9 +250,14 @@ export default function BiblioSurface({
           ))}
         </div>
       </aside>
+      )}
       {readerOpen && (
       <section className="biblio-reader">
         <div className="biblio-reader-head">
+          <button className="ghost biblio-list-toggle" title={listOpen ? "Masquer la liste (lecture)" : "Afficher la liste"}
+            onClick={toggleList}>
+            <PanelIcon />
+          </button>
           <div className="biblio-reader-title">
             <span>{selected?.title ?? "Bibliothèque"}</span>
             {selected && <small>{creatorLine(selected)}</small>}

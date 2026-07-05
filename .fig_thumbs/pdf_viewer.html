@@ -3,6 +3,14 @@
 <head>
 <meta charset="utf-8">
 <title>PDF — select and send to Claude</title>
+<script>(function(){
+  try{ var m=(location.hash||'').match(/atelier_nonce=([\w-]+)/); if(m) sessionStorage.setItem('atelier_nonce', m[1]); }catch(e){}
+  /* nonce IPC : inclus dans chaque message vers l'app hôte ; l'app rejette sans lui */
+  window.__atelierPost = function(p){
+    try{ p = Object.assign({}, p, {nonce: sessionStorage.getItem('atelier_nonce')||''}); }catch(e){}
+    try{ window.top.postMessage(p, '*'); }catch(e){}
+  };
+})();</script>
 <script src="/.fig_thumbs/pdfjs/pdf.min.js"></script>
 <script src="annot_kit.js"></script>
 <style>
@@ -266,7 +274,7 @@ btn.onclick = async () => {
       headers:{"Content-Type":"application/json"},
       body: JSON.stringify({rel, page: selPage, text, embed: __EMB})});
     const j = await r.json();
-    if(__EMB && j && j.message) window.top.postMessage({type:'atelier-add-to-chat', text:j.message}, '*');
+    if(__EMB && j && j.message) __atelierPost({type:'atelier-add-to-chat', text:j.message});
     document.getElementById("status").textContent =
       j.sentToClaude ? "Pasted into Claude ✓" : "Copied to clipboard ✓";
   }catch(e){
@@ -321,7 +329,7 @@ function selSend(){
   fetch("/quote", {method:"POST", headers:{"Content-Type":"application/json"},
     body: JSON.stringify({rel, page: selPage, text, comment: comment || "", direct: true, target: __ct(), embed: __EMB})})
     .then(r => r.json())
-    .then(j => { if(__EMB && j && j.message) window.top.postMessage({type:'atelier-add-to-chat', text:j.message}, '*');
+    .then(j => { if(__EMB && j && j.message) __atelierPost({type:'atelier-add-to-chat', text:j.message});
       go.textContent = "✓"; setTimeout(() => { go.textContent = "↑"; selTa.value = ""; selHide(); }, 1200); })
     .catch(() => { go.textContent = "!"; setTimeout(() => { go.textContent = "↑"; }, 1600); });
 }
@@ -514,7 +522,7 @@ function annotMenu(a, x, y){
     fetch("/quote", {method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify(payload)})
       .then(r=>r.json())
       .then(j => { if(j && j.message && window.self !== window.top)
-        window.top.postMessage({type:"atelier-add-to-chat", text:j.message}, "*"); })
+        __atelierPost({type:"atelier-add-to-chat", text:j.message}); })
       .catch(()=>{});
     annotPop.style.display = "none";
   };
