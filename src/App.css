@@ -1042,3 +1042,11 @@ body.dragging iframe { pointer-events: none; }
   width: 7px; height: 7px; border-right: 2px solid var(--border2);
   border-bottom: 2px solid var(--border2); border-radius: 1px; }
 .qa-overlay { pointer-events: auto; }
+/* puce de contexte du Quick Ask (sélection injectée, sobre) */
+.qa-ctx { display: flex; align-items: center; gap: 8px; margin: 0 14px 8px;
+  padding: 5px 11px; background: var(--bg-ctl); border: 1px solid var(--border);
+  border-radius: 9px; font-size: 11.5px; color: var(--muted); }
+.qa-ctx-txt { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.qa-ctx button { background: transparent; border: none; color: var(--muted2);
+  cursor: pointer; font-size: 11px; padding: 0 2px; }
+.qa-ctx button:hover { color: var(--fg); }

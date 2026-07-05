@@ -211,7 +211,8 @@ export default function App() {
   const [goals, setGoals] = useState<Record<string, string>>({});
   const [qaOpen, setQaOpen] = useState(false);
   const [usageOpen, setUsageOpen] = useState(false);
-  const [qaDraft, setQaDraft] = useState(""); // threadId -> condition
+  const [qaDraft, setQaDraft] = useState("");
+  const [qaContext, setQaContext] = useState(""); // threadId -> condition
   const [favorites, setFavorites] = useState<string[]>(() => {
     try { return JSON.parse(localStorage.getItem("atelier-studio.favorites") ?? "[]"); }
     catch { return []; }
@@ -510,7 +511,9 @@ export default function App() {
       );
     };
     const onQaOpen = (e: Event) => {
-      setQaDraft(((e as CustomEvent).detail?.draft as string) ?? "");
+      const d = (e as CustomEvent).detail ?? {};
+      setQaDraft((d.draft as string) ?? "");
+      setQaContext((d.context as string) ?? "");
       setQaOpen(true);
     };
     const onUsageToggle = () => setUsageOpen((v) => !v);
@@ -1356,6 +1359,7 @@ export default function App() {
       <QuickAsk
         open={qaOpen}
         draft={qaDraft}
+        context={qaContext}
         onClose={() => setQaOpen(false)}
         onInject={(text) => {
           setAttachments((l) => addAttachment(l, { name: "Quick Ask", lines: null, text }));

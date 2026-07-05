@@ -29,12 +29,14 @@ const QA_MODELS: QaModel[] = [
 export default function QuickAsk({
   open,
   draft,
+  context,
   onClose,
   onInject,
   onPromote,
 }: {
   open: boolean;
   draft: string;
+  context?: string;
   onClose: () => void;
   onInject: (text: string) => void;
   onPromote: (qaId: string, title: string) => void;
@@ -43,6 +45,7 @@ export default function QuickAsk({
   const [msgs, setMsgs] = useState<QaMsg[]>([]);
   const [text, setText] = useState("");
   const [busy, setBusy] = useState(false);
+  const [ctx, setCtx] = useState("");
   const [modelIdx, setModelIdx] = useState(() => {
     const n = Number(localStorage.getItem("atelier-studio.qaModel") ?? "0");
     return Number.isFinite(n) && n >= 0 && n < QA_MODELS.length ? n : 0;
@@ -102,6 +105,7 @@ export default function QuickAsk({
     setQaId(crypto.randomUUID());
     setMsgs([]);
     setText(draft);
+    setCtx(context ?? "");
     setBusy(false);
     setRecentsOpen(false);
     setPromoteErr(null);
@@ -173,7 +177,11 @@ export default function QuickAsk({
     setMsgs((prev) => [...prev, { role: "user", text: q }]);
     setText("");
     setBusy(true);
-    wsSend({ type: "quickAsk", qaId, prompt: q, provider: m.provider, model: m.model, effort: m.effort });
+    const prompt = ctx
+      ? `Contexte (extrait d'une autre conversation) :\n"""\n${ctx}\n"""\n\n${q}`
+      : q;
+    if (ctx) setCtx("");
+    wsSend({ type: "quickAsk", qaId, prompt, provider: m.provider, model: m.model, effort: m.effort });
   }
 
   const lastAnswer = [...msgs].reverse().find((x) => x.role === "assistant" && !x.text.startsWith("⚠"));
@@ -244,6 +252,12 @@ export default function QuickAsk({
           ))}
           {busy && <div className="qa-busy">…</div>}
         </div>
+        {ctx && (
+          <div className="qa-ctx" title={ctx}>
+            <span className="qa-ctx-txt">{ctx.slice(0, 90)}{ctx.length > 90 ? "…" : ""}</span>
+            <button type="button" onClick={() => setCtx("")}>✕</button>
+          </div>
+        )}
         <textarea
           ref={inputRef}
           className="qa-input"

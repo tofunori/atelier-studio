@@ -796,7 +796,7 @@ export default function Chat(p: {
           <button
             onMouseDown={(e) => {
               e.preventDefault();
-              window.dispatchEvent(new CustomEvent("quick-ask-open", { detail: { draft: quote.text } }));
+              window.dispatchEvent(new CustomEvent("quick-ask-open", { detail: { context: quote.text } }));
               setQuote(null);
               window.getSelection()?.removeAllRanges();
             }}
