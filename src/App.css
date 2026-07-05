@@ -977,7 +977,14 @@ body.dragging iframe { pointer-events: none; }
   color: var(--muted2); font-size: 12px; cursor: pointer; opacity: 0; }
 .qa-msg.assistant:hover .qa-inject-one { opacity: 1; }
 .qa-inject-one:hover { color: var(--fg); background: var(--bg-ctl); }
-.qa-busy { color: var(--muted2); }
+.qa-busy { display: flex; gap: 4px; padding: 2px 0; }
+.qa-busy span { width: 5px; height: 5px; border-radius: 50%; background: var(--muted2);
+  animation: qaThink 1.2s ease-in-out infinite; }
+.qa-busy span:nth-child(2) { animation-delay: 0.15s; }
+.qa-busy span:nth-child(3) { animation-delay: 0.3s; }
+@keyframes qaThink { 0%, 60%, 100% { opacity: 0.35; transform: translateY(0); }
+  30% { opacity: 1; transform: translateY(-3px); } }
+@media (prefers-reduced-motion: reduce) { .qa-busy span { animation: none; opacity: 0.7; } }
 .qa-input { margin: 0 16px 12px; border: 1px solid var(--border); border-radius: 12px;
   padding: 10px 14px; font: inherit; font-size: 13.5px; line-height: 1.5;
   background: var(--bg-card); color: var(--fg); resize: none; outline: none; }
@@ -1082,3 +1089,6 @@ body.dragging iframe { pointer-events: none; }
   flex-shrink: 0; display: inline-flex; align-items: center; justify-content: center; }
 .ftype.neutral { color: var(--muted); background: var(--bg-ctl); }
 .at-mention { color: #7aa8e8; background: rgba(122,168,232,0.13); border-radius: 5px; }
+/* menu @ option A : glyphes SVG teintés */
+.fglyph { width: 17px; height: 17px; display: inline-flex; align-items: center;
+  justify-content: center; flex-shrink: 0; }

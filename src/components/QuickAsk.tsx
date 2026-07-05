@@ -294,7 +294,11 @@ export default function QuickAsk({
               )}
             </div>
           ))}
-          {busy && <div className="qa-busy">…</div>}
+          {busy && !msgs[msgs.length - 1]?.streaming && (
+            <div className="qa-busy" aria-label="…">
+              <span /><span /><span />
+            </div>
+          )}
         </div>
         {ctx && (
           <div className="qa-ctx" title={ctx}>
