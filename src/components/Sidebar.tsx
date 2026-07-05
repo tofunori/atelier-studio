@@ -6,6 +6,15 @@ import { ProviderIcon } from "./icons";
 
 type Menu = { x: number; y: number; threadId: string };
 
+// titre lisible : un titre qui est un chemin absolu devient "…/nom-de-fichier"
+function niceTitle(t: string): string {
+  const m = /^(\/[\w~. -]+(?:\/[\w~. -]+)+)([\s\S]*)$/.exec(t.trim());
+  if (!m) return t;
+  const base = m[1].split("/").filter(Boolean).pop() ?? m[1];
+  const rest = m[2].trim();
+  return rest ? `${base} — ${rest.slice(0, 40)}` : base;
+}
+
 export default function Sidebar(p: {
   projects: string[];
   threads: Thread[];
@@ -126,7 +135,7 @@ export default function Sidebar(p: {
                   }}
                 >
                   <span className="prov-ico"><ProviderIcon provider={t.provider} /></span>
-                  <span className="title">{t.title}</span>
+                  <span className="title" title={t.title}>{niceTitle(t.title)}</span>
                   <span className="fav-star">★</span>
                 </li>
               ))}
@@ -214,7 +223,7 @@ export default function Sidebar(p: {
                       onClick={(e) => e.stopPropagation()}
                     />
                   ) : (
-                    <span className="title">{t.title}</span>
+                    <span className="title" title={t.title}>{niceTitle(t.title)}</span>
                   )}
                   {t.status === "running" && (
                     <svg className="arc" width="13" height="13" viewBox="0 0 16 16" fill="none">
@@ -258,7 +267,7 @@ export default function Sidebar(p: {
                   <ProviderIcon provider={t.provider} />
                   {p.unread.has(t.id) && <span className="unread-badge" />}
                 </span>
-                <span className="title">{t.title}</span>
+                <span className="title" title={t.title}>{niceTitle(t.title)}</span>
               </li>
             ))}
         </ul>
