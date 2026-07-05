@@ -142,6 +142,7 @@ export default function Chat(p: {
   attachments: { name: string; lines: string | null; text: string; imageUrl?: string }[];
   onRemoveAttachment: (index: number) => void;
   onQuote: (text: string) => void;
+  threadId: string | null;
   onPasteImage: (dataURL: string) => void;
   onStop: () => void;
   goal: string | null;
@@ -207,6 +208,56 @@ export default function Chat(p: {
   }, [p.defaults]);
   const [selIdx, setSelIdx] = useState(0);
   const [quote, setQuote] = useState<{ x: number; y: number; text: string } | null>(null);
+
+  // ---- marques persistantes (Highlight / Underline) sur les réponses ----
+  type Mark = { text: string; kind: "hl" | "ul" };
+  const [marks, setMarks] = useState<Mark[]>([]);
+  const messagesRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!p.threadId) { setMarks([]); return; }
+    try {
+      setMarks(JSON.parse(localStorage.getItem("atelier-studio.marks." + p.threadId) ?? "[]"));
+    } catch { setMarks([]); }
+  }, [p.threadId]);
+  function saveMarks(next: Mark[]) {
+    setMarks(next);
+    if (p.threadId) localStorage.setItem("atelier-studio.marks." + p.threadId, JSON.stringify(next));
+  }
+  function toggleMark(text: string, kind: "hl" | "ul") {
+    const t = text.trim();
+    if (!t) return;
+    const existing = marks.find((m) => m.text === t && m.kind === kind);
+    saveMarks(existing ? marks.filter((m) => m !== existing) : [...marks, { text: t, kind }]);
+  }
+  // applique les marques via la CSS Custom Highlight API (aucune chirurgie DOM)
+  useEffect(() => {
+    const H = (window as any).Highlight;
+    const reg = (CSS as any).highlights;
+    if (!H || !reg || !messagesRef.current) return;
+    const find = (needle: string): Range[] => {
+      const out: Range[] = [];
+      const root = messagesRef.current!;
+      const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+      // concatène les nœuds texte par message pour retrouver le passage même s'il
+      // traverse du gras/des liens : on cherche nœud par nœud (couvre la majorité)
+      let n: Node | null;
+      while ((n = walker.nextNode())) {
+        const idx = (n.textContent ?? "").indexOf(needle);
+        if (idx >= 0) {
+          const r = document.createRange();
+          r.setStart(n, idx);
+          r.setEnd(n, idx + needle.length);
+          out.push(r);
+        }
+      }
+      return out;
+    };
+    const hl = new H(), ul = new H();
+    for (const m of marks) for (const r of find(m.text)) (m.kind === "hl" ? hl : ul).add(r);
+    reg.set("chat-hl", hl);
+    reg.set("chat-ul", ul);
+    return () => { reg.delete("chat-hl"); reg.delete("chat-ul"); };
+  }, [marks, p.events]);
   const [menuOpen, setMenuOpen] = useState(false);
   const [plusOpen, setPlusOpen] = useState(false);
 
@@ -313,7 +364,7 @@ export default function Chat(p: {
           <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.2"><path d="M2 6V2h4M14 10v4h-4M2 2l4.5 4.5M14 14l-4.5-4.5"/></svg>
         )}
       </button>
-      <div className="messages" onMouseUp={onMessagesMouseUp}>
+      <div className="messages" ref={messagesRef} onMouseUp={onMessagesMouseUp}>
         {p.events.length === 0 && (
           <div className="empty">Salut ! Comment je peux t'aider aujourd'hui ?</div>
         )}
@@ -451,21 +502,47 @@ export default function Chat(p: {
         </div>
       )}
       {quote && (
-        <button
-          className="quote-pill"
-          style={{ left: quote.x, top: quote.y - 40 }}
-          onMouseDown={(e) => {
-            e.preventDefault();
-            p.onQuote(quote.text);
-            setQuote(null);
-            window.getSelection()?.removeAllRanges();
-          }}
-        >
-          <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3">
-            <path d="M14 8c0 3-2.7 5.2-6 5.2-.8 0-1.6-.1-2.3-.4L2.5 14l1-2.6C2.6 10.5 2 9.3 2 8c0-3 2.7-5.2 6-5.2S14 5 14 8z" />
-          </svg>
-          &nbsp;Add to chat
-        </button>
+        <div className="sel-toolbar" style={{ left: quote.x, top: quote.y - 44 }}>
+          <button
+            onMouseDown={(e) => {
+              e.preventDefault();
+              toggleMark(quote.text, "hl");
+              setQuote(null);
+              window.getSelection()?.removeAllRanges();
+            }}
+          >
+            <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3">
+              <path d="M10.5 2.5l3 3L6 13H3v-3z" /><path d="M9 4l3 3" />
+            </svg>
+            Highlight
+          </button>
+          <button
+            onMouseDown={(e) => {
+              e.preventDefault();
+              toggleMark(quote.text, "ul");
+              setQuote(null);
+              window.getSelection()?.removeAllRanges();
+            }}
+          >
+            <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3">
+              <path d="M4 2.5v5a4 4 0 008 0v-5" /><path d="M3.5 13.5h9" />
+            </svg>
+            Underline
+          </button>
+          <button
+            onMouseDown={(e) => {
+              e.preventDefault();
+              p.onQuote(quote.text);
+              setQuote(null);
+              window.getSelection()?.removeAllRanges();
+            }}
+          >
+            <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3">
+              <path d="M14 8c0 3-2.7 5.2-6 5.2-.8 0-1.6-.1-2.3-.4L2.5 14l1-2.6C2.6 10.5 2 9.3 2 8c0-3 2.7-5.2 6-5.2S14 5 14 8z" />
+            </svg>
+            Add to chat
+          </button>
+        </div>
       )}
       <form
         className="composer"

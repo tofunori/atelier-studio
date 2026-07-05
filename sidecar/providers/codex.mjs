@@ -1,6 +1,18 @@
 import { Codex } from "@openai/codex-sdk";
+import { execSync } from "node:child_process";
+import { existsSync } from "node:fs";
 
-const codex = new Codex();
+let CODEX_BIN = null;
+try {
+  const req = (await import("node:module")).createRequire(import.meta.url);
+  const pkg = req.resolve("@openai/codex-sdk/package.json").replace(/package\.json$/, "");
+  if (!existsSync(pkg + "../codex-darwin-arm64")) {
+    CODEX_BIN = execSync("command -v codex", { encoding: "utf8" }).trim() || null;
+  }
+} catch {}
+
+
+const codex = new Codex(CODEX_BIN ? { codexPathOverride: CODEX_BIN } : {});
 const controllers = new Map(); // threadId -> AbortController
 
 export function interrupt(threadId) {

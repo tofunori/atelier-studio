@@ -1,0 +1,34 @@
+name: release
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+jobs:
+  build-macos:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22 }
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: swatinem/rust-cache@v2
+        with: { workspaces: src-tauri }
+      - name: Install frontend deps
+        run: npm ci
+      - name: Install sidecar deps (pour le staging)
+        run: cd sidecar && npm ci
+      - name: Build + bundle
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tagName: ${{ github.ref_name }}
+          releaseName: "Atelier Studio ${{ github.ref_name }}"
+          releaseBody: |
+            Beta macOS (Apple Silicon). App non signée : après installation,
+            lancer `xattr -cr "/Applications/Atelier.app"` pour passer Gatekeeper.
+            Prérequis : Claude Code CLI (>= 2.1.139), Codex CLI, Node.js >= 20,
+            Python 3 + clone de cmux-gallery (~/Documents/cmux-gallery).
+          releaseDraft: true
+          prerelease: true
