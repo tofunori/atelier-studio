@@ -210,6 +210,8 @@ export default function App() {
   const [unread, setUnread] = useState<Set<string>>(new Set());
   const [goals, setGoals] = useState<Record<string, string>>({});
   const [qaMode, setQaMode] = useState<"closed" | "open" | "min">("closed");
+  const qaModeRef = useRef<"closed" | "open" | "min">("closed");
+  qaModeRef.current = qaMode;
   const [usageOpen, setUsageOpen] = useState(false);
   const [qaDraft, setQaDraft] = useState("");
   const [qaContext, setQaContext] = useState(""); // threadId -> condition
@@ -512,6 +514,13 @@ export default function App() {
     };
     const onQaOpen = (e: Event) => {
       const d = (e as CustomEvent).detail ?? {};
+      // un Quick Ask vit déjà (ouvert ou minimisé) : y ajouter le contexte
+      // au lieu d'écraser la conversation
+      if (qaModeRef.current !== "closed" && d.context) {
+        window.dispatchEvent(new CustomEvent("qa-add-context", { detail: { text: d.context } }));
+        setQaMode("open");
+        return;
+      }
       setQaDraft((d.draft as string) ?? "");
       setQaContext((d.context as string) ?? "");
       setQaMode("open");

@@ -135,6 +135,17 @@ export default function QuickAsk({
     return () => window.removeEventListener("qa-promote-error", onErr);
   }, [open, qaId]);
 
+  // contexte ajouté depuis le chat principal pendant qu'une conversation vit
+  useEffect(() => {
+    const onAdd = (e: Event) => {
+      const txt = ((e as CustomEvent).detail?.text as string) ?? "";
+      if (txt) setCtx(txt);
+      window.setTimeout(() => inputRef.current?.focus(), 0);
+    };
+    window.addEventListener("qa-add-context", onAdd);
+    return () => window.removeEventListener("qa-add-context", onAdd);
+  }, []);
+
   // événements de la session éphémère
   useEffect(() => {
     if (!open) return;
