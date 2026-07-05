@@ -299,6 +299,7 @@ export default function Chat(p: {
     return () => window.removeEventListener("click", close);
   }, [menuOpen]);
   const [editing, setEditing] = useState<{ index: number; text: string } | null>(null);
+  const [openToolGroups, setOpenToolGroups] = useState<Set<number>>(new Set());
 
   // « Add to chat » sur sélection de texte dans les messages
   function onMessagesMouseUp() {
@@ -354,6 +355,25 @@ export default function Chat(p: {
     const paths = Array.isArray(picked) ? picked : [picked];
     setText((t) => `${t}${t && !t.endsWith(" ") ? " " : ""}${paths.map((p) => `@${p}`).join(" ")} `);
   }
+
+  const renderedEvents: (
+    | { type: "event"; event: AgentEvent; index: number }
+    | { type: "tools"; tools: Extract<AgentEvent, { kind: "tool" }>[]; index: number }
+  )[] = [];
+  for (let i = 0; i < p.events.length; i++) {
+    const e = p.events[i];
+    if (e.kind !== "tool") {
+      renderedEvents.push({ type: "event", event: e, index: i });
+      continue;
+    }
+    let end = i + 1;
+    while (end < p.events.length && p.events[end].kind === "tool") end++;
+    const tools = p.events.slice(i, end) as Extract<AgentEvent, { kind: "tool" }>[];
+    if (tools.length >= 4) renderedEvents.push({ type: "tools", tools, index: i });
+    else tools.forEach((tool, offset) => renderedEvents.push({ type: "event", event: tool, index: i + offset }));
+    i = end - 1;
+  }
+
   return (
     <div className="chat">
       <button className="expand-btn" title={p.layout === "chat" ? "Restaurer le split (⌘0)" : "Chat pleine largeur (⌘1)"}
@@ -368,7 +388,40 @@ export default function Chat(p: {
         {p.events.length === 0 && (
           <div className="empty">Salut ! Comment je peux t'aider aujourd'hui ?</div>
         )}
-        {p.events.map((e, i) => {
+        {renderedEvents.map((item) => {
+          if (item.type === "tools") {
+            const open = openToolGroups.has(item.index);
+            return (
+              <div key={`tools-${item.index}`} className="tool-group">
+                <button
+                  type="button"
+                  className="tool-group-row"
+                  onClick={() =>
+                    setOpenToolGroups((prev) => {
+                      const next = new Set(prev);
+                      if (next.has(item.index)) next.delete(item.index);
+                      else next.add(item.index);
+                      return next;
+                    })
+                  }
+                >
+                  <span className="tool-tick">{open ? "▾" : "▸"}</span>
+                  {item.tools.length} outils utilisés
+                </button>
+                {open && (
+                  <div className="tool-group-list">
+                    {item.tools.map((tool, offset) => (
+                      <div key={offset} className="tool">
+                        <span className="tool-tick">▸</span> {tool.name}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            );
+          }
+          const e = item.event;
+          const i = item.index;
           if (e.kind === "user")
             return (
               <div key={i} id={`msg-${i}`} className="user-wrap">
