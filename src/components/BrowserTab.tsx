@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { WebviewWindow } from "@tauri-apps/api/webviewWindow";
+import { wsSend } from "../lib/wsBus";
 
 type LocalServer = { port: number; title: string | null };
 
@@ -20,7 +21,7 @@ export default function BrowserTab(p: {
   const urlRef = useRef<string | null>(null);
 
   function scan() {
-    if (p.ws?.readyState === 1) p.ws.send(JSON.stringify({ type: "scanLocal" }));
+    if (!wsSend({ type: "scanLocal" })) setTimeout(scan, 700);
   }
 
   useEffect(() => {
@@ -59,8 +60,8 @@ export default function BrowserTab(p: {
     setUrl(u);
     urlRef.current = u;
     setBlocked(false);
-    if (!u.includes("localhost") && !u.includes("127.0.0.1") && p.ws?.readyState === 1) {
-      p.ws.send(JSON.stringify({ type: "checkFrame", url: u }));
+    if (!u.includes("localhost") && !u.includes("127.0.0.1")) {
+      wsSend({ type: "checkFrame", url: u });
     }
     setInput(u);
     try {

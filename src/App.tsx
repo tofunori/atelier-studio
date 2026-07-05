@@ -12,6 +12,7 @@ import {
 } from "./lib/ws";
 import Sidebar from "./components/Sidebar";
 import Rail, { ProjMeta } from "./components/Rail";
+import { setWs } from "./lib/wsBus";
 import Chat from "./components/Chat";
 import AtelierPane from "./components/AtelierPane";
 import SettingsPage from "./components/Settings";
@@ -276,10 +277,11 @@ export default function App() {
       if (msg.type === "error") console.error("sidecar:", msg.message);
     }, (next) => {
       ws.current = next;
-      if (activeIdRef.current === null) return;
+      setWs(next);
     })
       .then((s) => {
         ws.current = s;
+        setWs(s);
         setWsReady(true);
       })
       .catch(() => setMock(true));

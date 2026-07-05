@@ -2,6 +2,7 @@ import { useEffect, useRef } from "react";
 import { Terminal as XTerm } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import "@xterm/xterm/css/xterm.css";
+import { wsSend, wsReady } from "../lib/wsBus";
 
 export default function Terminal(p: {
   termId: string;
@@ -13,17 +14,9 @@ export default function Terminal(p: {
   const xtermRef = useRef<XTerm | null>(null);
   const fitRef = useRef<FitAddon | null>(null);
   const opened = useRef(false);
-  // la closure du mount capturerait un ws périmé (null) : toujours passer par la ref
-  const wsRef = useRef(p.ws);
-  wsRef.current = p.ws;
-
-  function wsSend(obj: unknown) {
-    if (wsRef.current?.readyState === 1) wsRef.current.send(JSON.stringify(obj));
-  }
-
   function tryOpen() {
     const term = xtermRef.current;
-    if (opened.current || !term || wsRef.current?.readyState !== 1) return;
+    if (opened.current || !term || !wsReady()) return;
     opened.current = true;
     wsSend({ type: "termOpen", termId: p.termId, cwd: p.cwd, cols: term.cols, rows: term.rows });
   }
@@ -87,7 +80,7 @@ export default function Terminal(p: {
       }, 30);
       tryOpen();
     }
-  }, [p.visible, p.ws]);
+  }, [p.visible]);
 
   return (
     <div

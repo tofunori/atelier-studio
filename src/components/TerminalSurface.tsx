@@ -1,5 +1,10 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+
+function useRefBool() {
+  return useRef(false);
+}
 import Terminal from "./Terminal";
+import { wsSend } from "../lib/wsBus";
 
 type Term = { id: string; n: number };
 
@@ -20,16 +25,18 @@ export default function TerminalSurface(p: {
     return t;
   }
 
-  // premier affichage : créer Terminal 1 (jamais pendant le rendu)
+  // premier affichage : créer Terminal 1 (garde anti-double StrictMode)
+  const booted = useRefBool();
   useEffect(() => {
-    if (p.visible && terms.length === 0) addTerm();
+    if (p.visible && !booted.current) {
+      booted.current = true;
+      addTerm();
+    }
   }, [p.visible]);
 
   function closeActive() {
     if (!activeId) return;
-    if (p.ws?.readyState === 1) {
-      p.ws.send(JSON.stringify({ type: "termClose", termId: activeId }));
-    }
+    wsSend({ type: "termClose", termId: activeId });
     setTerms((l) => {
       const next = l.filter((t) => t.id !== activeId);
       setActiveId(next.length ? next[next.length - 1].id : null);
