@@ -1090,5 +1090,4 @@ body.dragging iframe { pointer-events: none; }
 .ftype.neutral { color: var(--muted); background: var(--bg-ctl); }
 .at-mention { color: #7aa8e8; background: rgba(122,168,232,0.13); border-radius: 5px; }
 /* menu @ option A : glyphes SVG teintés */
-.fglyph { width: 17px; height: 17px; display: inline-flex; align-items: center;
-  justify-content: center; flex-shrink: 0; }
+.fglyph { width: 16px; height: 16px; flex-shrink: 0; display: inline-flex; align-items: center; justify-content: center; }

@@ -148,34 +148,33 @@ function Working({ since }: { since: number }) {
   );
 }
 
+const FICONS = import.meta.glob("../assets/ficons/*.svg", { eager: true, query: "?url", import: "default" }) as Record<string, string>;
+function ficon(name: string): string | null {
+  return FICONS[`../assets/ficons/${name}.svg`] ?? null;
+}
+const EXT_ICON: Record<string, string> = {
+  py: "python", md: "markdown", markdown: "markdown", json: "json",
+  js: "javascript", mjs: "javascript", cjs: "javascript",
+  ts: "typescript", tsx: "react", jsx: "react",
+  pdf: "pdf", png: "image", jpg: "image", jpeg: "image", gif: "image", webp: "image", svg: "image",
+  tex: "tex", bib: "tex", r: "r", jl: "julia", css: "css", html: "html",
+  sh: "console", zsh: "console", bash: "console", csv: "table", tsv: "table",
+  yml: "yaml", yaml: "yaml", toml: "toml", txt: "document", log: "document",
+  gitignore: "git",
+};
 function FileTypeIcon({ ext }: { ext: string }) {
-  // option A : glyphes SVG trait fin, teintés par famille (façon Synara)
-  const S = (color: string, children: React.ReactNode) => (
-    <span className="fglyph">
-      <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke={color}
-        strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-        {children}
-      </svg>
-    </span>
-  );
   if (ext === "local")
-    return S("var(--muted)", <><rect x="2" y="3" width="12" height="8" rx="1.5" /><path d="M5.5 13.5h5" /></>);
-  if (ext === "dir")
-    return S("var(--muted)", <path d="M1.8 4.2c0-.7.5-1.2 1.2-1.2h3l1.4 1.6h5.6c.7 0 1.2.5 1.2 1.2v6c0 .7-.5 1.2-1.2 1.2H3c-.7 0-1.2-.5-1.2-1.2v-7.6z" />);
-  const CODE_COLORS: Record<string, string> = {
-    py: "#61afef", js: "#e0b74a", mjs: "#e0b74a", ts: "#61afef", tsx: "#61afef",
-    jl: "#c678dd", r: "#61afef", sh: "#98c379", css: "#c678dd", html: "#e8823a",
-    json: "#e0b74a",
-  };
-  if (ext === "pdf")
-    return S("#e06c75", <><path d="M4 1.8h5.2L13 5.6v8.6H4z" /><path d="M9 1.8v4h4" /><path d="M6 9.5h4M6 11.5h3" /></>);
-  if (ext === "md" || ext === "markdown")
-    return S("#61afef", <><rect x="2" y="3.5" width="12" height="9" rx="1.5" /><path d="M4.5 10V6.5l1.7 2 1.7-2V10M11 10V6.5M9.5 8.4L11 10l1.5-1.6" /></>);
-  if (ext === "tex")
-    return S("#98c379", <><path d="M4 1.8h5.2L13 5.6v8.6H4z" /><path d="M9 1.8v4h4" /><path d="M6 9h4M6 11h4" /></>);
-  if (["png", "jpg", "jpeg", "svg", "gif", "webp"].includes(ext))
-    return S("#98c379", <><rect x="2" y="2.5" width="12" height="11" rx="1.5" /><circle cx="5.8" cy="6.2" r="1.2" /><path d="M2.5 11.5l3.5-3 2.5 2.2 2.7-2.7 2.3 2.3" /></>);
-  return S(CODE_COLORS[ext] ?? "var(--muted2)", <path d="M5.5 4L2.5 8l3 4M10.5 4l3 4-3 4" />);
+    return (
+      <span className="fglyph">
+        <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="var(--muted)" strokeWidth="1.3">
+          <rect x="2" y="3" width="12" height="8" rx="1.5" /><path d="M5.5 13.5h5" />
+        </svg>
+      </span>
+    );
+  const name = ext === "dir" ? "folder" : EXT_ICON[ext] ?? "file";
+  const url = ficon(name);
+  if (!url) return <span className="fglyph" />;
+  return <img className="fglyph" src={url} alt="" width={16} height={16} />;
 }
 
 type Suggestion = { insert: string; label: string; hint?: string; section?: string; icon?: string; keep?: boolean };
