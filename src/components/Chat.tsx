@@ -17,7 +17,6 @@ const MODELS: Record<string, { id: string; label: string }[]> = {
     { id: "claude-fable-5", label: "Fable 5" },
     { id: "claude-opus-4-8", label: "Opus 4.8" },
     { id: "claude-sonnet-5", label: "Sonnet 5" },
-    { id: "claude-sonnet-5[1m]", label: "Sonnet 5 · 1M" },
     { id: "claude-haiku-4-5-20251001", label: "Haiku 4.5" },
   ],
   codex: [
@@ -623,14 +622,42 @@ export default function Chat(p: {
                     })}
                   </div>
                 ))}
+                {provider === "claude" && (
+                  <>
+                    <div className="mp-sep" />
+                    <div className="mp-hd">Contexte</div>
+                    {[
+                      { id: "200k", label: "200k (défaut)", on: !model.includes("[1m]") },
+                      { id: "1m", label: "1M", on: model.includes("[1m]") },
+                    ].map((ctx) => (
+                      <div key={ctx.id} className="mp-item"
+                        onClick={() => {
+                          if (ctx.id === "1m" && !model.includes("[1m]")) {
+                            setModel((model || "claude-sonnet-5") + "[1m]");
+                          } else if (ctx.id === "200k" && model.includes("[1m]")) {
+                            setModel(model.replace(/\[1m\]$/, ""));
+                          }
+                        }}>
+                        <span>{ctx.label}</span>
+                        {ctx.on && <span className="mp-check">✓</span>}
+                      </div>
+                    ))}
+                  </>
+                )}
                 <div className="mp-sep" />
                 <div className="mp-hd">Effort</div>
-                {EFFORTS[provider].map((lvl) => (
-                  <div key={lvl} className="mp-item" onClick={() => setEffort(lvl)}>
-                    <span>{lvl === "" ? "Auto (défaut)" : lvl.charAt(0).toUpperCase() + lvl.slice(1)}</span>
-                    {effort === lvl && <span className="mp-check">✓</span>}
-                  </div>
-                ))}
+                {EFFORTS[provider].map((lvl) => {
+                  const labels: Record<string, string> = {
+                    "": "Auto (défaut)", low: "Low", medium: "Medium", high: "High",
+                    xhigh: "Extra High", max: "Max", minimal: "Minimal",
+                  };
+                  return (
+                    <div key={lvl} className="mp-item" onClick={() => setEffort(lvl)}>
+                      <span>{labels[lvl] ?? lvl}</span>
+                      {effort === lvl && <span className="mp-check">✓</span>}
+                    </div>
+                  );
+                })}
               </div>
             )}
           </span>
