@@ -771,6 +771,17 @@ export default function Chat(p: {
           <button
             onMouseDown={(e) => {
               e.preventDefault();
+              window.dispatchEvent(new CustomEvent("quick-ask-open", { detail: { draft: quote.text } }));
+              setQuote(null);
+              window.getSelection()?.removeAllRanges();
+            }}
+          >
+            <ZapIcon />
+            {t("qa.title")}
+          </button>
+          <button
+            onMouseDown={(e) => {
+              e.preventDefault();
               p.onQuote(quote.text);
               setQuote(null);
               window.getSelection()?.removeAllRanges();

@@ -524,7 +524,11 @@ export async function route(msg, ctx) {
     }
     case "qaPromote": {
       const s = ctx.qaSessions?.get(msg.qaId);
-      if (!s) { ctx.send({ type: "error", message: "session quick ask introuvable" }); break; }
+      if (!s) {
+        ctx.send({ type: "qaPromoteError", qaId: msg.qaId,
+          message: "session éphémère expirée — pose une nouvelle question puis promeus" });
+        break;
+      }
       ctx.store.upsert({
         id: msg.newThreadId,
         projectRoot: msg.projectRoot ?? "",

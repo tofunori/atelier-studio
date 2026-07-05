@@ -5,6 +5,18 @@ import { ProviderIcon, ZapIcon } from "./icons";
 import { wsSend } from "../lib/wsBus";
 
 type QaMsg = { role: "user" | "assistant"; text: string; streaming?: boolean };
+type QaRecent = { qaId: string; ts: number; msgs: QaMsg[] };
+const RECENTS_KEY = "atelier-studio.qaRecents";
+
+function loadRecents(): QaRecent[] {
+  try { return JSON.parse(localStorage.getItem(RECENTS_KEY) ?? "[]"); } catch { return []; }
+}
+function saveRecent(qaId: string, msgs: QaMsg[]) {
+  if (!msgs.some((m) => m.role === "assistant")) return;
+  const clean = msgs.map((m) => ({ role: m.role, text: m.text }));
+  const rest = loadRecents().filter((r) => r.qaId !== qaId);
+  localStorage.setItem(RECENTS_KEY, JSON.stringify([{ qaId, ts: Date.now(), msgs: clean }, ...rest].slice(0, 20)));
+}
 type QaModel = { provider: "claude" | "codex"; model: string; effort: string; label: string };
 
 const QA_MODELS: QaModel[] = [
@@ -27,7 +39,7 @@ export default function QuickAsk({
   onInject: (text: string) => void;
   onPromote: (qaId: string, title: string) => void;
 }) {
-  const [qaId, setQaId] = useState(() => crypto.randomUUID());
+  const [qaId, setQaId] = useState<string>(() => crypto.randomUUID());
   const [msgs, setMsgs] = useState<QaMsg[]>([]);
   const [text, setText] = useState("");
   const [busy, setBusy] = useState(false);
@@ -35,6 +47,8 @@ export default function QuickAsk({
     const n = Number(localStorage.getItem("atelier-studio.qaModel") ?? "0");
     return Number.isFinite(n) && n >= 0 && n < QA_MODELS.length ? n : 0;
   });
+  const [recentsOpen, setRecentsOpen] = useState(false);
+  const [promoteErr, setPromoteErr] = useState<string | null>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const bodyRef = useRef<HTMLDivElement>(null);
 
@@ -45,8 +59,25 @@ export default function QuickAsk({
     setMsgs([]);
     setText(draft);
     setBusy(false);
+    setRecentsOpen(false);
+    setPromoteErr(null);
     window.setTimeout(() => inputRef.current?.focus(), 0);
   }, [open]);
+
+  function close() {
+    saveRecent(qaId, msgs);
+    onClose();
+  }
+
+  useEffect(() => {
+    if (!open) return;
+    const onErr = (e: Event) => {
+      const d = (e as CustomEvent).detail;
+      if (d.qaId === qaId) setPromoteErr(d.message);
+    };
+    window.addEventListener("qa-promote-error", onErr);
+    return () => window.removeEventListener("qa-promote-error", onErr);
+  }, [open, qaId]);
 
   // événements de la session éphémère
   useEffect(() => {
@@ -104,12 +135,18 @@ export default function QuickAsk({
   const lastAnswer = [...msgs].reverse().find((x) => x.role === "assistant" && !x.text.startsWith("⚠"));
 
   return (
-    <div className="qa-overlay" onClick={onClose}>
+    <div className="qa-overlay" onClick={close}>
       <div className="qa-pop" onClick={(e) => e.stopPropagation()}>
         <div className="qa-head">
           <span className="qa-zap"><ZapIcon /></span>
           <span>{t("qa.title")}</span>
           <span className="qa-eph">{t("qa.ephemeral")}</span>
+          <button className="qa-recents-btn" title={t("qa.recents")}
+            onClick={() => setRecentsOpen((v) => !v)}>
+            <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round">
+              <circle cx="8" cy="8" r="6.2" /><path d="M8 4.5V8l2.5 1.5" />
+            </svg>
+          </button>
           <button
             className="qa-model"
             title={t("qa.switch-model")}
@@ -123,6 +160,21 @@ export default function QuickAsk({
             {m.label}
           </button>
         </div>
+        {recentsOpen && (
+          <div className="qa-recents">
+            {loadRecents().length === 0 && <div className="qa-empty">{t("qa.no-recents")}</div>}
+            {loadRecents().map((r) => (
+              <button key={r.qaId} className="qa-recent-row" onClick={() => {
+                setQaId(r.qaId);
+                setMsgs(r.msgs);
+                setRecentsOpen(false);
+              }}>
+                <span className="qa-recent-q">{r.msgs.find((m) => m.role === "user")?.text.slice(0, 60) ?? "—"}</span>
+                <span className="qa-recent-ts">{new Date(r.ts).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</span>
+              </button>
+            ))}
+          </div>
+        )}
         <div className="qa-body" ref={bodyRef}>
           {msgs.length === 0 && <div className="qa-empty">{t("qa.hint")}</div>}
           {msgs.map((msg, i) => (
@@ -132,7 +184,7 @@ export default function QuickAsk({
                   <ReactMarkdown>{msg.text}</ReactMarkdown>
                   {!msg.streaming && !msg.text.startsWith("⚠") && (
                     <button className="qa-inject-one" title={t("qa.inject")}
-                      onClick={() => { onInject(msg.text); onClose(); }}>
+                      onClick={() => { onInject(msg.text); close(); }}>
                       ↰
                     </button>
                   )}
@@ -153,19 +205,21 @@ export default function QuickAsk({
           onChange={(e) => setText(e.target.value)}
           onKeyDown={(e) => {
             if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); ask(); }
-            if (e.key === "Escape") onClose();
+            if (e.key === "Escape") close();
           }}
         />
         <div className="qa-foot">
-          <button disabled={!lastAnswer} onClick={() => { if (lastAnswer) { onInject(lastAnswer.text); onClose(); } }}>
+          <button disabled={!lastAnswer} onClick={() => { if (lastAnswer) { onInject(lastAnswer.text); close(); } }}>
             ↰ {t("qa.inject")}
           </button>
-          <button disabled={msgs.length === 0} onClick={() => {
+          <button disabled={msgs.length === 0 || busy} onClick={() => {
+            saveRecent(qaId, msgs);
             onPromote(qaId, msgs.find((x) => x.role === "user")?.text.slice(0, 40) ?? "Quick Ask");
             onClose();
           }}>
             ⤴ {t("qa.promote")}
           </button>
+          {promoteErr && <span className="qa-promote-err">{promoteErr}</span>}
           <span className="qa-esc">esc</span>
         </div>
       </div>

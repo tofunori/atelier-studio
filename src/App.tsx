@@ -448,6 +448,9 @@ export default function App() {
             : worst >= 85 ? "#e06c75" : worst >= 60 ? "#e0b74a" : "#98c379";
         }
       }
+      if (msg.type === "qaPromoteError") {
+        window.dispatchEvent(new CustomEvent("qa-promote-error", { detail: msg }));
+      }
       if (msg.type === "qaEvent") {
         window.dispatchEvent(new CustomEvent("qa-event", { detail: msg }));
       }
@@ -1362,7 +1365,7 @@ export default function App() {
           if (ws.current?.readyState === 1) {
             ws.current.send(JSON.stringify({
               type: "qaPromote", qaId, newThreadId: newId, title,
-              projectRoot: activeProject ?? "",
+              projectRoot: "",
             }));
             setTimeout(() => {
               setActiveId(newId);

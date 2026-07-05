@@ -143,6 +143,8 @@ const fr = {
   "qa.promote": "Promouvoir en chat",
   "qa.switch-model": "Changer de modèle",
   "qa.open": "Question rapide",
+  "qa.recents": "Récents",
+  "qa.no-recents": "Aucun Quick Ask récent.",
 
   "chat.jump-last-message": "Mon dernier message",
   "chat.unpin": "Retirer la marque",
@@ -457,6 +459,8 @@ const en: Record<keyof typeof fr, string> = {
   "qa.promote": "Promote to chat",
   "qa.switch-model": "Switch model",
   "qa.open": "Quick question",
+  "qa.recents": "Recents",
+  "qa.no-recents": "No recent Quick Asks.",
 
   "chat.jump-last-message": "Your last message",
   "chat.unpin": "Remove mark",
