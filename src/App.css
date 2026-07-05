@@ -114,6 +114,13 @@ html, body, #root, .app { height: 100vh;
 .annot-banner button { background: #e8825a; color: var(--bg); border: none;
   border-radius: 6px; padding: 4px 10px; cursor: pointer; font-size: 12px; }
 .annot-banner .ghost { background: transparent; color: var(--muted); }
+.top-banner { display: flex; align-items: center; gap: 10px; margin: 10px 16px 0;
+  padding: 8px 12px; background: var(--bg-card); border: 1px solid var(--accent);
+  border-radius: 8px; font-size: 13px; color: var(--fg2); }
+.top-banner-text { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.top-banner button { background: var(--bg-ctl); color: var(--fg); border: 1px solid var(--border2);
+  border-radius: 6px; padding: 4px 10px; cursor: pointer; font-size: 12px; }
+.top-banner .ghost { background: transparent; color: var(--muted); padding: 4px 7px; }
 .atelier-wrap { display: flex; flex-direction: column; height: 100%; }
 .atelier-bar { display: flex; align-items: center; gap: 4px; padding: 4px 8px;
   background: var(--bg-side); border-bottom: 1px solid var(--bg-ctl); }
@@ -237,6 +244,12 @@ html, body, #root, .app { height: 100vh;
 
 .quote-pill { display: inline-flex; align-items: center; }
 .tool-tick { color: var(--muted2); }
+.tool-group { color: var(--muted); font-size: 12px; }
+.tool-group-row { display: inline-flex; align-items: center; gap: 4px;
+  background: transparent; border: none; color: var(--muted); padding: 0; cursor: pointer;
+  font: inherit; }
+.tool-group-row:hover { color: var(--fg2); }
+.tool-group-list { display: flex; flex-direction: column; gap: 4px; margin-top: 6px; padding-left: 14px; }
 .chips-row { display: flex; flex-wrap: wrap; gap: 6px; align-items: flex-end; }
 /* rail de chapitres épinglés */
 .chat { position: relative; }

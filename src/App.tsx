@@ -14,6 +14,7 @@ import Sidebar from "./components/Sidebar";
 import Rail, { ProjMeta } from "./components/Rail";
 import { setWs } from "./lib/wsBus";
 import Chat from "./components/Chat";
+import Banner from "./components/Banner";
 import AtelierPane from "./components/AtelierPane";
 import SettingsPage from "./components/Settings";
 import { loadSettings, saveSettings, Settings } from "./lib/settings";
@@ -98,6 +99,12 @@ export default function App() {
   const [injectText, setInjectText] = useState<string | null>(null);
   const [attachments, setAttachments] = useState<Attachment[]>([]);
   const [atelierReload, setAtelierReload] = useState(0);
+  const [appBanner, setAppBanner] = useState<{
+    text: string;
+    actionLabel?: string;
+    onAction?: () => void;
+    closable?: boolean;
+  } | null>(null);
   const lastInjected = useRef<string | null>(null);
   const pendingPaste = useRef<string | null>(null); // dataURL en attente de sauvegarde
   const pendingResend = useRef<{ threadId: string; prompt: string } | null>(null);
@@ -234,6 +241,13 @@ export default function App() {
         if (msg.event.kind === "done" && msg.event.usage) {
           setUsageByThread((p) => ({ ...p, [msg.threadId]: msg.event.usage }));
         }
+        if (msg.event.kind === "done" && msg.event.ok === false &&
+            /login|auth|credentials/i.test(msg.event.result ?? "")) {
+          setAppBanner({
+            text: "Lance `codex login` (ou `claude login`) dans le Terminal",
+            closable: true,
+          });
+        }
         if (msg.event.kind === "done" || msg.event.kind === "error") {
           setWorkingSince((p) => ({ ...p, [msg.threadId]: null }));
           if (msg.threadId !== activeIdRef.current) {
@@ -310,13 +324,21 @@ export default function App() {
     }, (next) => {
       ws.current = next;
       setWs(next);
+      setAppBanner((b) => b?.text === "Sidecar déconnecté, reconnexion…" ? null : b);
+      setWsReady(true);
+    }, () => {
+      setWsReady(false);
+      setAppBanner({ text: "Sidecar déconnecté, reconnexion…" });
     })
       .then((s) => {
         ws.current = s;
         setWs(s);
         setWsReady(true);
       })
-      .catch(() => setMock(true));
+      .catch(() => {
+        setMock(true);
+        setAppBanner({ text: "Sidecar déconnecté, reconnexion…" });
+      });
   }, []);
 
   useEffect(() => {
@@ -335,6 +357,7 @@ export default function App() {
     if (!activeProject || atelierUrls[activeProject]) return;
     invoke<string>("start_atelier", { root: activeProject, galleryDir: settingsRef.current.galleryPath })
       .then((url) => {
+        setAppBanner((b) => b?.text.startsWith("start_atelier:") ? null : b);
         setAtelierUrls((p) => ({ ...p, [activeProject]: url }));
         // restaurer les onglets épinglés de ce projet
         try {
@@ -351,7 +374,15 @@ export default function App() {
           }
         } catch {}
       })
-      .catch((e) => console.error("start_atelier:", e));
+      .catch((e) => {
+        console.error("start_atelier:", e);
+        setAppBanner({
+          text: `start_atelier: ${String(e)}`,
+          actionLabel: "Réglages",
+          onAction: () => setShowSettings(true),
+          closable: true,
+        });
+      });
   }, [activeProject]);
 
   // "Add to chat" depuis le Browser (presse-papier + URL de la page)
@@ -804,6 +835,14 @@ export default function App() {
             </button>
           </div>
         )}
+        {appBanner && (
+          <Banner
+            text={appBanner.text}
+            actionLabel={appBanner.actionLabel}
+            onAction={appBanner.onAction}
+            onClose={appBanner.closable ? () => setAppBanner(null) : undefined}
+          />
+        )}
         <Chat
           threadId={activeId}
           events={activeId ? (events[activeId] ?? []) : []}
@@ -952,10 +991,19 @@ export default function App() {
                 // relance start_atelier : redémarre le serveur s'il est mort
                 invoke<string>("start_atelier", { root: activeProject, galleryDir: settingsRef.current.galleryPath })
                   .then((url) => {
+                    setAppBanner((b) => b?.text.startsWith("start_atelier:") ? null : b);
                     setAtelierUrls((p) => ({ ...p, [activeProject]: url }));
                     setAtelierReload((n) => n + 1);
                   })
-                  .catch((e) => console.error("start_atelier:", e));
+                  .catch((e) => {
+                    console.error("start_atelier:", e);
+                    setAppBanner({
+                      text: `start_atelier: ${String(e)}`,
+                      actionLabel: "Réglages",
+                      onAction: () => setShowSettings(true),
+                      closable: true,
+                    });
+                  });
               }}
             />
           </Panel>
