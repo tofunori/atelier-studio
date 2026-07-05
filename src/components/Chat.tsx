@@ -266,16 +266,13 @@ export default function Chat(p: {
     return el;
   }
 
-  // minimap : chaque marque à la hauteur proportionnelle de son message
+  // ordre chronologique réel (position du message), affichage groupé en haut
   useEffect(() => {
     const id = requestAnimationFrame(() => {
-      const scroller = messagesRef.current;
-      if (!scroller) return;
-      const total = Math.max(1, scroller.scrollHeight);
       const pos: Record<number, number> = {};
       for (const pin of p.pins) {
         const el = resolvePinEl(pin.index, pin.label);
-        if (el) pos[pin.index] = Math.min(0.97, Math.max(0.01, el.offsetTop / total));
+        if (el) pos[pin.index] = el.offsetTop;
       }
       setTickPos(pos);
     });
@@ -714,11 +711,10 @@ export default function Chat(p: {
       </div>
       {p.pins.length > 0 && (
         <div className="chapters">
-          {p.pins.map((c) => (
+          {[...p.pins].sort((a, b) => (tickPos[a.index] ?? a.index) - (tickPos[b.index] ?? b.index)).map((c) => (
             <div
               key={c.index}
               className="chapter-tick"
-              style={{ top: `${(tickPos[c.index] ?? 0.5) * 100}%` }}
               onClick={() => {
                 resolvePinEl(c.index, c.label)?.scrollIntoView({ behavior: "smooth", block: "start" });
               }}
