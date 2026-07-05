@@ -9,14 +9,28 @@ import { PlusIcon, ProviderIcon, ResumeIcon, SettingsIcon, SidebarIcon } from ".
 type Menu = { x: number; y: number; threadId: string };
 
 // titre lisible : un titre qui est un chemin absolu devient "…/nom-de-fichier"
-function niceTitle(t: string): string {
-  const m = /^(\/[\w~. -]+(?:\/[\w~. -]+)+)([\s\S]*)$/.exec(t.trim());
-  if (!m) return t;
+function niceTitle(value: unknown): string {
+  const raw = typeof value === "string" ? value.trim() : "";
+  const title = raw || "Sans titre";
+  const m = /^(\/[\w~. -]+(?:\/[\w~. -]+)+)([\s\S]*)$/.exec(title);
+  if (!m) return title;
   const base = m[1].split("/").filter(Boolean).pop() ?? m[1];
   const rest = m[2].trim();
   return rest ? `${base} — ${rest.slice(0, 40)}` : base;
 }
 
+function threadRoot(t: Thread): string {
+  return typeof (t as any).projectRoot === "string" ? (t as any).projectRoot : "";
+}
+
+function rawThreadTitle(t: Thread): string {
+  const raw = (t as any).title;
+  return typeof raw === "string" && raw.trim() ? raw : "Sans titre";
+}
+
+function threadTitle(t: Thread): string {
+  return niceTitle(rawThreadTitle(t));
+}
 
 const PROJ_ICONS: Record<string, string> = {
   mountain: "M1.5 12.5L6 4l3 5.5L11 6l3.5 6.5z",
@@ -169,7 +183,7 @@ export default function Sidebar(p: {
   }
 
   function startRename(t: Thread) {
-    setEditText(t.title);
+    setEditText(rawThreadTitle(t));
     setEditingId(t.id);
   }
 
@@ -188,7 +202,7 @@ export default function Sidebar(p: {
         onClick={(e) => e.stopPropagation()}
       />
     ) : (
-      <span className="title" title={t.title}>{niceTitle(t.title)}</span>
+      <span className="title" title={rawThreadTitle(t)}>{threadTitle(t)}</span>
     );
   }
 
@@ -241,7 +255,7 @@ export default function Sidebar(p: {
                 <li
                   key={t.id}
                   className={t.id === p.activeId ? "active" : ""}
-                  onClick={() => p.onSelect(t.id, t.projectRoot)}
+                  onClick={() => p.onSelect(t.id, threadRoot(t))}
                   onDoubleClick={(e) => {
                     e.stopPropagation();
                     startRename(t);
@@ -270,7 +284,7 @@ export default function Sidebar(p: {
       {!secClosed.proj && p.projects.map((root) => {
         const name = root.split("/").pop();
         const threads = p.threads
-          .filter((t) => t.projectRoot === root)
+          .filter((t) => threadRoot(t) === root)
           .sort((a, b) =>
             p.threadOrder === "manual"
               ? ((a as any).createdAt ?? a.updatedAt ?? "").localeCompare((b as any).createdAt ?? b.updatedAt ?? "")
@@ -381,7 +395,7 @@ export default function Sidebar(p: {
       {!secClosed.chats && (
         <ul className="fav-list">
           {p.threads
-            .filter((t) => !t.projectRoot)
+            .filter((t) => !threadRoot(t))
             .map((t) => (
               <li
                 key={t.id}
@@ -523,7 +537,7 @@ export default function Sidebar(p: {
           <div
             onClick={() => {
               const t = p.threads.find((x) => x.id === menu.threadId);
-              setEditText(t?.title ?? "");
+              setEditText(t ? rawThreadTitle(t) : "");
               setEditingId(menu.threadId);
               setMenu(null);
             }}

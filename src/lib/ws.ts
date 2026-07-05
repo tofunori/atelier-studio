@@ -41,7 +41,13 @@ export async function connectSidecar(
   const { port, token } = await invoke<SidecarInfo>("sidecar_port");
   const q = token ? `?token=${encodeURIComponent(token)}` : "";
   const ws = new WebSocket(`ws://127.0.0.1:${port}${q}`);
-  ws.onmessage = (e) => onMessage(JSON.parse(e.data));
+  ws.onmessage = (e) => {
+    try {
+      onMessage(JSON.parse(String(e.data)));
+    } catch (error) {
+      console.warn("sidecar: message non JSON ignoré", e.data, error);
+    }
+  };
   await new Promise((res, rej) => {
     ws.onopen = res;
     ws.onerror = rej;

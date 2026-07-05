@@ -6,6 +6,63 @@ import App from "./App";
 
 type SidecarInfo = { port: number; token?: string };
 
+function fatalText(error: unknown) {
+  if (!(error instanceof Error)) return String(error);
+  const head = `${error.name}: ${error.message}`;
+  if (!error.stack) return head;
+  return error.stack.includes(error.message) ? error.stack : `${head}\n${error.stack}`;
+}
+
+function renderFatal(error: unknown) {
+  const root = document.getElementById("root");
+  if (!root) return;
+  root.innerHTML = "";
+  const box = document.createElement("div");
+  box.style.cssText = [
+    "min-height:100vh",
+    "padding:28px",
+    "background:#212429",
+    "color:#e8eaed",
+    "font:13px/1.5 ui-monospace,SFMono-Regular,Menlo,monospace",
+    "white-space:pre-wrap",
+  ].join(";");
+  box.textContent = `Atelier n'a pas pu afficher l'interface.\n\n${fatalText(error)}`;
+  root.appendChild(box);
+}
+
+class BootBoundary extends React.Component<React.PropsWithChildren, { error: unknown }> {
+  state = { error: null };
+
+  static getDerivedStateFromError(error: unknown) {
+    return { error };
+  }
+
+  componentDidCatch(error: unknown) {
+    console.error("Atelier render error:", error);
+  }
+
+  render() {
+    if (this.state.error) {
+      return (
+        <div style={{
+          minHeight: "100vh",
+          padding: 28,
+          background: "#212429",
+          color: "#e8eaed",
+          font: "13px/1.5 ui-monospace,SFMono-Regular,Menlo,monospace",
+          whiteSpace: "pre-wrap",
+        }}>
+          {`Atelier n'a pas pu afficher l'interface.\n\n${fatalText(this.state.error)}`}
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
+
+window.addEventListener("error", (event) => renderFatal(event.error ?? event.message));
+window.addEventListener("unhandledrejection", (event) => renderFatal(event.reason));
+
 // Hydrate le localStorage depuis l'état UI partagé du sidecar (ui.json) AVANT
 // le rendu — dev (localhost:1420) et app buildée (tauri://) ont des stockages
 // séparés ; sans ça, l'app buildée démarre vierge (projets, réglages, favoris).
@@ -53,13 +110,16 @@ async function boot() {
         }).catch(() => {});
       }, 500);
     };
-  } catch {
+  } catch (error) {
     // sidecar indisponible : démarrage normal sur le localStorage local
+    console.warn("Atelier boot sans hydratation sidecar:", error);
   }
   ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
     <React.StrictMode>
-      <App />
+      <BootBoundary>
+        <App />
+      </BootBoundary>
     </React.StrictMode>,
   );
 }
-boot();
+boot().catch(renderFatal);

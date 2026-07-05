@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { ThreadStore } from "./store.mjs";
-import { mkdtempSync } from "node:fs";
+import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -23,5 +23,18 @@ describe("ThreadStore", () => {
     s.upsert({ id: "t1", title: "b", status: "running" });
     expect(s.list()).toHaveLength(1);
     expect(s.get("t1").title).toBe("b");
+  });
+  it("normalise les anciens threads incomplets", () => {
+    const file = join(mkdtempSync(join(tmpdir(), "as-")), "threads.json");
+    writeFileSync(file, JSON.stringify([{ id: "legacy", sessionId: "019f33d1-efe4", status: "done" }]));
+    const s = new ThreadStore(file);
+    expect(s.get("legacy")).toMatchObject({
+      id: "legacy",
+      projectRoot: "",
+      provider: "claude",
+      title: "Session 019f33d1",
+      sessionId: "019f33d1-efe4",
+      status: "done",
+    });
   });
 });
