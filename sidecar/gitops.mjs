@@ -212,10 +212,21 @@ export async function revertFile(root, filePath) {
   if (existsSync(absolute)) rmSync(absolute, { recursive: true, force: true });
 }
 
-export async function commit(root, message) {
+export async function commit(root, message, files = null) {
   const realRoot = confinedRoot(root);
   await ensureRepo(realRoot);
-  await git(realRoot, ["commit", "-m", String(message ?? "")]);
+  const msg = String(message ?? "").trim();
+  if (!msg) throw new Error("message de commit vide");
+  if (Array.isArray(files) && files.length) {
+    // modèle cases à cocher : stager exactement les fichiers choisis
+    const rels = files.map((f) => assertRelativePath(realRoot, f));
+    await git(realRoot, ["add", "--", ...rels]);
+  } else {
+    // rien de coché explicitement : vérifier qu'il y a quelque chose de stagé
+    const { stdout } = await git(realRoot, ["diff", "--cached", "--name-only"]);
+    if (!stdout.trim()) throw new Error("rien à commiter (aucun fichier sélectionné/stagé)");
+  }
+  await git(realRoot, ["commit", "-m", msg]);
   const { stdout } = await git(realRoot, ["rev-parse", "HEAD"]);
   return stdout.trim();
 }

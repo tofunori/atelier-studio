@@ -405,9 +405,13 @@ export async function route(msg, ctx) {
     }
     case "gitCommit": {
       const root = gitRootFor(ctx, msg);
-      const hash = await ctx.gitops.commit(root, msg.message);
-      emitGitChanged(ctx, msg.threadId, root);
-      ctx.send({ type: "gitCommitDone", projectRoot: root, hash });
+      try {
+        const hash = await ctx.gitops.commit(root, msg.message, msg.files ?? null);
+        emitGitChanged(ctx, msg.threadId, root);
+        ctx.send({ type: "gitCommitDone", projectRoot: root, hash });
+      } catch (e) {
+        ctx.send({ type: "gitCommitError", projectRoot: root, message: String(e?.message ?? e) });
+      }
       break;
     }
     case "gitUndoLastTurn": {
