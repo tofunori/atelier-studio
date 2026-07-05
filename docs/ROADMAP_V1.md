@@ -123,8 +123,18 @@ Permission Simulator (couvert par canUseTool + permissions par projet).
 Atelier devient l'environnement quotidien de Thierry. Protocole :
 - Point d'entrée unique dès maintenant ; cmux = filet de secours seulement.
 - Chaque friction rencontrée = item de backlog (petits travaux, pipeline Codex+revue).
-- [ ] **Pont « ma sélection » en mode Studio (opt-in)** : réécrire
-  `~/.claude/fig-selection.json` depuis la galerie Studio (sans push de sessions ni
-  statusline) pour que les sessions Claude Code CLI lancées dans le terminal
-  d'Atelier gardent le réflexe « ma sélection ».
+- [x] **Pont « ma sélection »** : DÉJÀ FONCTIONNEL en Studio (vérifié 2026-07-05) —
+  tous les viewers poussent /selinfo → `~/.claude/fig-selection.json` ; l'isolation
+  Studio ne coupe que les push de sessions et la statusline. Les sessions CLI dans
+  le terminal d'Atelier ont donc déjà le réflexe « ma sélection ».
 - Déclencheur de la vendorisation (phase 1 galerie) : une semaine sans ouvrir cmux.
+
+## Distribution & providers (2026-07-05)
+
+- [ ] **P1 — Node embarqué** : binaire node en sidecar Tauri (~40 Mo) — dernière
+  dépendance runtime après la vendorisation galerie. Auth claude/codex = irréductible.
+- [ ] **P2 — Providers via endpoints compatibles Anthropic** : profils DeepSeek /
+  GLM (z.ai) via ANTHROPIC_BASE_URL + ANTHROPIC_AUTH_TOKEN par thread → même harnais
+  agentique (outils, fichiers, terminal). Clés API dans Réglages. Équivalent Codex :
+  model_providers en config.
+- [ ] P2 — binaires SDK ré-embarqués (option "lourde" +460 Mo) si distribution large.
