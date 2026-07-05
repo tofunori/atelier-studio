@@ -479,6 +479,45 @@ export async function route(msg, ctx) {
     case "listThreads":
       ctx.send({ type: "threads", threads: ctx.store.list() });
       break;
+    case "quickAsk": {
+      // session éphémère : hors ThreadStore, hors ledger, hors snapshot git
+      const { qaId, prompt, provider = "claude", model, effort } = msg;
+      const p = ctx.providers?.[provider];
+      if (!p) { ctx.send({ type: "qaEvent", qaId, event: { kind: "error", message: "provider inconnu" } }); break; }
+      ctx.qaSessions ??= new Map();
+      const prev = ctx.qaSessions.get(qaId);
+      const emitQa = (event) => ctx.send({ type: "qaEvent", qaId, event });
+      p.run({
+        threadId: null,
+        cwd: process.env.HOME,
+        prompt,
+        sessionId: prev?.sessionId ?? null,
+        model: model || undefined,
+        effort: effort || undefined,
+        permissionMode: "default",
+        onEvent: emitQa,
+      })
+        .then(({ sessionId }) => {
+          if (sessionId) ctx.qaSessions.set(qaId, { provider, sessionId });
+        })
+        .catch((e) => emitQa({ kind: "error", message: String(e?.message ?? e) }));
+      break;
+    }
+    case "qaPromote": {
+      const s = ctx.qaSessions?.get(msg.qaId);
+      if (!s) { ctx.send({ type: "error", message: "session quick ask introuvable" }); break; }
+      ctx.store.upsert({
+        id: msg.newThreadId,
+        projectRoot: msg.projectRoot ?? "",
+        provider: s.provider,
+        title: "⚡ " + (msg.title ?? "Quick Ask"),
+        sessionId: s.sessionId,
+        status: "idle",
+      });
+      ctx.qaSessions.delete(msg.qaId);
+      (ctx.broadcast ?? ctx.send)({ type: "threads", threads: ctx.store.list() });
+      break;
+    }
     case "send": {
       const { threadId, projectRoot, provider, prompt, title, model, effort, permissionMode } = msg;
       const p = ctx.providers?.[provider];

@@ -935,6 +935,11 @@ export default function Chat(p: {
                 return;
               }
             }
+            if (e.key === "Enter" && e.altKey) {
+              e.preventDefault();
+              window.dispatchEvent(new CustomEvent("quick-ask-open", { detail: { draft: text } }));
+              return;
+            }
             if (e.key === "Enter" && !e.shiftKey) {
               e.preventDefault();
               (e.currentTarget.form as HTMLFormElement).requestSubmit();

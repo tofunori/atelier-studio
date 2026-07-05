@@ -470,16 +470,21 @@ if(rel) main();
 
 // ---- surlignages persistants (sidecar JSON via /pdfannot) ----
 let PDF_ANNOTS = [];
-fetch("/pdfannot?rel=" + encodeURIComponent(rel)).then(r=>r.json())
-  .then(j => { PDF_ANNOTS = j.annots || [];
-    document.querySelectorAll(".pg").forEach(pg => drawAnnots(pg, +pg.dataset.page)); })
-  .catch(()=>{});
+let ANNOTS_LOADED = false;  // garde anti-écrasement : jamais de POST avant un GET réussi
+function loadAnnots(attempt){
+  fetch("/pdfannot?rel=" + encodeURIComponent(rel)).then(r=>r.json())
+    .then(j => { PDF_ANNOTS = j.annots || []; ANNOTS_LOADED = true;
+      document.querySelectorAll(".pg").forEach(pg => drawAnnots(pg, +pg.dataset.page)); })
+    .catch(()=>{ if((attempt||0) < 10) setTimeout(()=>loadAnnots((attempt||0)+1), 2000); });
+}
+loadAnnots(0);
 function saveAnnots(){
+  if(!ANNOTS_LOADED) return;  // le store contient peut-être des annots pas encore chargées
   fetch("/pdfannot", {method:"POST", headers:{"Content-Type":"application/json"},
     body: JSON.stringify({rel, annots: PDF_ANNOTS})}).catch(()=>{});
 }
 function drawAnnots(pgDiv, n){
-  pgDiv.querySelectorAll(".pdfhl").forEach(el => el.remove());
+  pgDiv.querySelectorAll(".pdfhl, .pdfnote").forEach(el => el.remove());
   for(const a of PDF_ANNOTS){
     if(+a.page !== +n) continue;
     for(const rc of a.rects){

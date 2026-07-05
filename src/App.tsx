@@ -18,6 +18,7 @@ import Banner from "./components/Banner";
 import AtelierPane from "./components/AtelierPane";
 import SettingsPage from "./components/Settings";
 import CommandPalette from "./components/CommandPalette";
+import QuickAsk from "./components/QuickAsk";
 import { CloseIcon } from "./components/icons";
 import { loadSettings, saveSettings, Settings } from "./lib/settings";
 import { THEME_PRESETS, presetById } from "./lib/themes";
@@ -204,7 +205,9 @@ export default function App() {
   }, [settings]);
   const [dragging, setDragging] = useState(false);
   const [unread, setUnread] = useState<Set<string>>(new Set());
-  const [goals, setGoals] = useState<Record<string, string>>({}); // threadId -> condition
+  const [goals, setGoals] = useState<Record<string, string>>({});
+  const [qaOpen, setQaOpen] = useState(false);
+  const [qaDraft, setQaDraft] = useState(""); // threadId -> condition
   const [favorites, setFavorites] = useState<string[]>(() => {
     try { return JSON.parse(localStorage.getItem("atelier-studio.favorites") ?? "[]"); }
     catch { return []; }
@@ -432,6 +435,9 @@ export default function App() {
             { kind: "text", text: t("action.exported", { path: msg.path }), ts: Date.now() }],
         }));
       }
+      if (msg.type === "qaEvent") {
+        window.dispatchEvent(new CustomEvent("qa-event", { detail: msg }));
+      }
       if (msg.type === "zoteroChanged") {
         window.dispatchEvent(new CustomEvent("zotero-changed"));
       }
@@ -487,8 +493,16 @@ export default function App() {
         }),
       );
     };
+    const onQaOpen = (e: Event) => {
+      setQaDraft(((e as CustomEvent).detail?.draft as string) ?? "");
+      setQaOpen(true);
+    };
+    window.addEventListener("quick-ask-open", onQaOpen);
     window.addEventListener("atelier-add-to-chat-citation", onCitation);
-    return () => window.removeEventListener("atelier-add-to-chat-citation", onCitation);
+    return () => {
+      window.removeEventListener("quick-ask-open", onQaOpen);
+      window.removeEventListener("atelier-add-to-chat-citation", onCitation);
+    };
   }, []);
 
   useEffect(() => {
@@ -675,6 +689,12 @@ export default function App() {
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
+      if (e.metaKey && e.altKey && e.key.toLowerCase() === "k") {
+        e.preventDefault();
+        setQaDraft("");
+        setQaOpen(true);
+        return;
+      }
       if (e.metaKey && !e.shiftKey && ["k", "p"].includes(e.key.toLowerCase())) {
         e.preventDefault();
         setPaletteOpen((open) => !open);
@@ -986,6 +1006,28 @@ export default function App() {
           ws={ws.current}
         />
         <CommandPalette open={paletteOpen} items={paletteItems} onClose={() => setPaletteOpen(false)} />
+      <QuickAsk
+        open={qaOpen}
+        draft={qaDraft}
+        onClose={() => setQaOpen(false)}
+        onInject={(text) => {
+          setAttachments((l) => addAttachment(l, { name: "⚡ Quick Ask", lines: null, text }));
+        }}
+        onPromote={(qaId, title) => {
+          const newId = crypto.randomUUID();
+          if (ws.current?.readyState === 1) {
+            ws.current.send(JSON.stringify({
+              type: "qaPromote", qaId, newThreadId: newId, title,
+              projectRoot: activeProject ?? "",
+            }));
+            setTimeout(() => {
+              setActiveId(newId);
+              activeIdRef.current = newId;
+              ws.current?.send(JSON.stringify({ type: "getHistory", threadId: newId }));
+            }, 250);
+          }
+        }}
+      />
       </>
     );
   }
@@ -1296,6 +1338,28 @@ export default function App() {
       )}
     </PanelGroup>
     <CommandPalette open={paletteOpen} items={paletteItems} onClose={() => setPaletteOpen(false)} />
+      <QuickAsk
+        open={qaOpen}
+        draft={qaDraft}
+        onClose={() => setQaOpen(false)}
+        onInject={(text) => {
+          setAttachments((l) => addAttachment(l, { name: "⚡ Quick Ask", lines: null, text }));
+        }}
+        onPromote={(qaId, title) => {
+          const newId = crypto.randomUUID();
+          if (ws.current?.readyState === 1) {
+            ws.current.send(JSON.stringify({
+              type: "qaPromote", qaId, newThreadId: newId, title,
+              projectRoot: activeProject ?? "",
+            }));
+            setTimeout(() => {
+              setActiveId(newId);
+              activeIdRef.current = newId;
+              ws.current?.send(JSON.stringify({ type: "getHistory", threadId: newId }));
+            }, 250);
+          }
+        }}
+      />
     </div>
   );
 }
