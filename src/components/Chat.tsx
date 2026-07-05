@@ -736,17 +736,35 @@ export default function Chat(p: {
         </div>
       )}
       {showJump && (
-        <button
-          type="button"
-          className="jump-bottom"
-          title={t("chat.jump-bottom")}
-          onClick={() => {
-            const el = messagesRef.current;
-            if (el) el.scrollTo({ top: el.scrollHeight, behavior: "smooth" });
-          }}
-        >
-          <ArrowDownIcon />
-        </button>
+        <div className="jump-pill">
+          <button
+            type="button"
+            title={t("chat.jump-last-message")}
+            onClick={() => {
+              const el = messagesRef.current;
+              if (!el) return;
+              const bubbles = el.querySelectorAll(".user-wrap");
+              const last = bubbles[bubbles.length - 1] as HTMLElement | undefined;
+              if (last) last.scrollIntoView({ behavior: "smooth", block: "start" });
+            }}
+          >
+            <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M3.6 9.8L8 5.4l4.4 4.4" />
+            </svg>
+            <span>{t("chat.jump-last-message")}</span>
+          </button>
+          <span className="jump-sep" />
+          <button
+            type="button"
+            title={t("chat.jump-bottom")}
+            onClick={() => {
+              const el = messagesRef.current;
+              if (el) el.scrollTo({ top: el.scrollHeight, behavior: "smooth" });
+            }}
+          >
+            <ArrowDownIcon />
+          </button>
+        </div>
       )}
       <form
         className="composer"
