@@ -1,5 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import { getCurrentWebview } from "@tauri-apps/api/webview";
+import { getCurrentWindow } from "@tauri-apps/api/window";
 import { wsSend } from "../lib/wsBus";
 
 type LocalServer = { port: number; title: string | null };
@@ -17,6 +19,17 @@ export default function BrowserTab(p: {
   const scanned = useRef(false);
   const areaRef = useRef<HTMLDivElement>(null);
   const urlRef = useRef<string | null>(null);
+  const offsetRef = useRef({ x: 0, y: 0 });
+
+  // la position d'un child webview est relative à la FENÊTRE (barre de titre
+  // incluse) : mesurer où commence la webview principale pour compenser
+  async function measureOffset() {
+    try {
+      const pos = await getCurrentWebview().position();
+      const scale = await getCurrentWindow().scaleFactor();
+      offsetRef.current = { x: pos.x / scale, y: pos.y / scale };
+    } catch {}
+  }
 
   function scan() {
     if (!wsSend({ type: "scanLocal" })) setTimeout(scan, 700);
@@ -25,7 +38,12 @@ export default function BrowserTab(p: {
   function rect() {
     const r = areaRef.current?.getBoundingClientRect();
     if (!r || r.width < 10) return null;
-    return { x: r.left, y: r.top, w: r.width, h: r.height };
+    return {
+      x: r.left + offsetRef.current.x,
+      y: r.top + offsetRef.current.y,
+      w: r.width,
+      h: r.height,
+    };
   }
 
   function syncBounds() {
@@ -34,6 +52,7 @@ export default function BrowserTab(p: {
   }
 
   function navigate(raw: string) {
+    measureOffset().then(() => setTimeout(syncBounds, 60));
     let u = raw.trim();
     if (!u) return;
     if (!/^https?:\/\//.test(u)) {
@@ -98,6 +117,7 @@ export default function BrowserTab(p: {
     if (!scanned.current) {
       scanned.current = true;
       scan();
+      measureOffset();
     }
     return () => window.removeEventListener("local-servers", onServers);
   }, []);
