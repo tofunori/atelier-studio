@@ -193,6 +193,12 @@ export default function Chat(p: {
   useEffect(() => {
     const ta = taRef.current;
     if (!ta) return;
+    // champ vide : hauteur CSS fixe, sans mesure — sous WebKit le placeholder
+    // compte dans scrollHeight et gonfle la boîte au montage (largeur pas prête)
+    if (text === "") {
+      ta.style.height = "";
+      return;
+    }
     ta.style.height = "auto";
     ta.style.height = Math.min(ta.scrollHeight, 220) + "px";
   }, [text]);
