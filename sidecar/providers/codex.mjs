@@ -24,19 +24,24 @@ export async function run({ threadId, cwd, prompt, sessionId, model, effort, onE
   const turnOptions = { signal: ctrl.signal };
   try {
     const { events } = await thread.runStreamed(prompt, turnOptions);
+    // affichage SOBRE : une seule ligne par commande (au démarrage, tronquée),
+    // pas de doublon à la complétion, un seul "réflexion…" consécutif
+    let lastTool = "";
+    const emitTool = (name) => {
+      if (name === lastTool) return;
+      lastTool = name;
+      onEvent({ kind: "tool", name });
+    };
     for await (const ev of events) {
-      // feedback en direct : items démarrés (commande, raisonnement…)
       if (ev.type === "item.started" && ev.item?.type === "command_execution") {
-        onEvent({ kind: "tool", name: (ev.item.command ?? "commande") + " …" });
+        const cmd = String(ev.item.command ?? "commande").replace(/\s+/g, " ").trim();
+        emitTool(cmd.length > 64 ? cmd.slice(0, 64) + "…" : cmd);
       }
       if (ev.type === "item.started" && ev.item?.type === "reasoning") {
-        onEvent({ kind: "tool", name: "réflexion…" });
+        emitTool("réflexion…");
       }
       if (ev.type === "item.completed" && ev.item?.type === "agent_message") {
         onEvent({ kind: "text", text: ev.item.text ?? "" });
-      }
-      if (ev.type === "item.completed" && ev.item?.type === "command_execution") {
-        onEvent({ kind: "tool", name: ev.item.command ?? "commande" });
       }
       if (ev.type === "turn.completed") {
         const u = ev.usage ?? {};
