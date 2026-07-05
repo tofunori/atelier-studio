@@ -1216,3 +1216,13 @@ body.dragging iframe { pointer-events: none; }
   background: transparent; border: 1px solid var(--border); color: var(--muted);
   border-radius: 999px; padding: 2px 11px; font-size: 11px; cursor: pointer; }
 .done-verify:hover { color: var(--fg2); border-color: var(--border2); }
+/* menu reviewer : détail "vérifié contre" + verdict ok */
+.rm-ok { color: #98c379; font-size: 12.5px; }
+.rm-checked { border-top: 1px solid var(--border); padding-top: 8px; margin-top: 2px;
+  display: flex; flex-direction: column; gap: 3px; }
+.rm-checked-h { color: var(--muted); font-size: 11px; text-transform: uppercase;
+  letter-spacing: 0.04em; margin-bottom: 2px; }
+.rm-checked-row { color: var(--fg2); font-size: 12px; font-family: ui-monospace, Menlo, monospace;
+  display: flex; gap: 8px; align-items: baseline; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rm-ck-kind { color: var(--muted2); font-size: 10px; text-transform: uppercase; flex: none;
+  font-family: -apple-system, sans-serif; letter-spacing: 0.03em; }

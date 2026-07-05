@@ -170,14 +170,19 @@ async function buildReviewInput(ctx, turn) {
 }
 
 async function runReview(ctx, emit, threadId, input, cfg) {
-  const checks = (input.entry?.tools?.length ?? 0) + (input.entry?.filesChanged?.length ?? 0);
+  // détail de ce qui a été confronté au record : outils lancés + fichiers modifiés
+  const checkedTools = (input.entry?.tools ?? [])
+    .map((t) => (typeof t === "string" ? t : t?.name)).filter(Boolean);
+  const checkedFiles = input.entry?.filesChanged ?? [];
+  const checks = checkedTools.length + checkedFiles.length;
   emit({ type: "reviewResult", threadId, status: "running", model: cfg?.model ?? null });
   const verdict = await ctx.reviewer.reviewTurn({
     ...input,
     cfg,
     providers: ctx.providers,
   });
-  emit({ type: "reviewResult", threadId, status: "done", model: cfg?.model ?? null, checks, ...verdict });
+  emit({ type: "reviewResult", threadId, status: "done", model: cfg?.model ?? null,
+    checks, checkedTools, checkedFiles, ...verdict });
 }
 
 function maybeAutoReview(ctx, emit, turn, cfg) {

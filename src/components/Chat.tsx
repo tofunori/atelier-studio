@@ -284,7 +284,7 @@ export default function Chat(p: {
   const [selIdx, setSelIdx] = useState(0);
   const [quote, setQuote] = useState<{ x: number; y: number; text: string } | null>(null);
   const [showJump, setShowJump] = useState(false);
-  const [review, setReview] = useState<{ status: string; verdict?: string; model?: string; checks?: number; issues?: { claim: string; problem: string; severity: string; fix?: string }[] } | null>(null);
+  const [review, setReview] = useState<{ status: string; verdict?: string; model?: string; checks?: number; issues?: { claim: string; problem: string; severity: string; fix?: string }[]; checkedTools?: string[]; checkedFiles?: string[] } | null>(null);
   const [reviewOpen, setReviewOpen] = useState(false);
   const [barOpen, setBarOpen] = useState(false);
   const [fixing, setFixing] = useState(false);
@@ -575,8 +575,8 @@ export default function Chat(p: {
       {p.threadId && review && (
         <div className="reviewer-wrap">
           <button
-            className={`reviewer-bar v-${review.status === "running" ? "running" : review.verdict} ${(review.issues?.length || fixing) ? "clickable" : ""}`}
-            onClick={() => (review.issues?.length || fixing) && setBarOpen((v) => !v)}
+            className={`reviewer-bar v-${review.status === "running" ? "running" : review.verdict} ${review.status === "done" ? "clickable" : ""}`}
+            onClick={() => review.status === "done" && setBarOpen((v) => !v)}
           >
             <svg className="rb-ico" width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round">
               <path d="M8 1.8l5 2v4c0 3.2-2.2 5.4-5 6.4-2.8-1-5-3.2-5-6.4v-4z" />
@@ -601,29 +601,46 @@ export default function Chat(p: {
                 <span className="rb-checks">{t("review.checks", { n: review.checks })}</span>
               </>
             )}
-            {(review.issues?.length || fixing) ? <span className="rb-chevron">{barOpen ? "▴" : "▾"}</span> : null}
+            {review.status === "done" ? <span className="rb-chevron">{barOpen ? "▴" : "▾"}</span> : null}
             <span className="rb-close" title={t("action.close")} onClick={(e) => { e.stopPropagation(); setReview(null); }}>✕</span>
           </button>
-          {barOpen && review.issues?.length ? (
+          {barOpen && review.status === "done" ? (
             <div className="reviewer-menu">
-              {review.issues.map((iss, k) => (
-                <div key={k} className={`rm-issue s-${iss.severity}`}>
-                  <div className="rm-claim">« {iss.claim} »</div>
-                  <div className="rm-problem">{iss.problem}</div>
-                  {(iss as any).fix && <div className="rm-fix">→ {(iss as any).fix}</div>}
+              {review.issues?.length ? (
+                <>
+                  {review.issues.map((iss, k) => (
+                    <div key={k} className={`rm-issue s-${iss.severity}`}>
+                      <div className="rm-claim">« {iss.claim} »</div>
+                      <div className="rm-problem">{iss.problem}</div>
+                      {iss.fix && <div className="rm-fix">→ {iss.fix}</div>}
+                    </div>
+                  ))}
+                  <button
+                    className="rm-correct"
+                    disabled={fixing}
+                    onClick={() => {
+                      setFixing(true);
+                      setBarOpen(false);
+                      window.dispatchEvent(new CustomEvent("correct-issues", { detail: { threadId: p.threadId, issues: review.issues } }));
+                    }}
+                  >
+                    {fixing ? t("review.fixing") : t("review.correct")}
+                  </button>
+                </>
+              ) : (
+                <div className="rm-ok">{t("review.ok-detail")}</div>
+              )}
+              {(review.checkedTools?.length || review.checkedFiles?.length) ? (
+                <div className="rm-checked">
+                  <div className="rm-checked-h">{t("review.checked-against")}</div>
+                  {review.checkedFiles?.map((f, k) => (
+                    <div key={"f" + k} className="rm-checked-row"><span className="rm-ck-kind">fichier</span> {f}</div>
+                  ))}
+                  {review.checkedTools?.map((tl, k) => (
+                    <div key={"t" + k} className="rm-checked-row"><span className="rm-ck-kind">outil</span> {tl}</div>
+                  ))}
                 </div>
-              ))}
-              <button
-                className="rm-correct"
-                disabled={fixing}
-                onClick={() => {
-                  setFixing(true);
-                  setBarOpen(false);
-                  window.dispatchEvent(new CustomEvent("correct-issues", { detail: { threadId: p.threadId, issues: review.issues } }));
-                }}
-              >
-                {fixing ? t("review.fixing") : t("review.correct")}
-              </button>
+              ) : null}
             </div>
           ) : null}
         </div>
