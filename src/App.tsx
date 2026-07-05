@@ -183,6 +183,13 @@ export default function App() {
     localStorage.setItem("atelier-studio.pins", JSON.stringify(pins));
   }, [pins]);
   const [compact, setCompact] = useState(() => localStorage.getItem("atelier-studio.compact") === "1");
+  // largeur FIXE de la sidebar (px) : hors PanelGroup pour ne pas gonfler
+  // quand le panneau atelier passe en pleine largeur
+  const [sideW, setSideW] = useState(() => {
+    const v = Number(localStorage.getItem("atelier-studio.sideW"));
+    return v >= 180 && v <= 420 ? v : 250;
+  });
+  useEffect(() => { localStorage.setItem("atelier-studio.sideW", String(sideW)); }, [sideW]);
   const [projMeta, setProjMeta] = useState<Record<string, ProjMeta>>(() => {
     try {
       return JSON.parse(localStorage.getItem("atelier-studio.projMeta") ?? "{}");
@@ -694,9 +701,8 @@ export default function App() {
           onSetMeta={(root, m) => setProjMeta((p) => ({ ...p, [root]: m }))}
         />
       )}
-    <PanelGroup direction="horizontal" className="app">
-      {!compact && (<>
-      <Panel id="sidebar" order={1} defaultSize={16} minSize={12}>
+      {!compact && (
+      <div className="side-fixed" style={{ width: sideW }}>
         <Sidebar
           projects={projects}
           threads={allThreads}
@@ -756,9 +762,30 @@ export default function App() {
           projMeta={projMeta}
           onSetMeta={(root, m) => setProjMeta((prev) => ({ ...prev, [root]: m }))}
         />
-      </Panel>
-      <PanelResizeHandle className="handle" onDragging={setDragging} />
-      </>)}
+      </div>
+      )}
+      {!compact && (
+        <div
+          className="handle side-handle"
+          onMouseDown={(e) => {
+            e.preventDefault();
+            const startX = e.clientX;
+            const startW = sideW;
+            setDragging(true);
+            const move = (ev: MouseEvent) => {
+              setSideW(Math.min(420, Math.max(180, startW + ev.clientX - startX)));
+            };
+            const up = () => {
+              setDragging(false);
+              window.removeEventListener("mousemove", move);
+              window.removeEventListener("mouseup", up);
+            };
+            window.addEventListener("mousemove", move);
+            window.addEventListener("mouseup", up);
+          }}
+        />
+      )}
+    <PanelGroup direction="horizontal" className="app">
       <Panel id="chat" order={2} minSize={layout === "atelier" ? 0 : 30}
         style={{ display: layout === "atelier" ? "none" : undefined }}>
         {annotation && (

@@ -531,3 +531,6 @@ button.ghost:disabled { opacity: 0.35; cursor: default; }
   padding: 1px 7px; margin: 0 1px; cursor: pointer; line-height: 1.5; }
 .file-ref:hover { border-color: var(--accent); color: var(--fg); }
 .file-ref svg { opacity: 0.6; flex-shrink: 0; }
+/* sidebar hors PanelGroup : largeur fixe, poignée de resize manuelle */
+.side-fixed { flex-shrink: 0; height: 100vh; overflow: hidden; }
+.side-handle { cursor: col-resize; flex-shrink: 0; }
