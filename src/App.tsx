@@ -111,6 +111,8 @@ export default function App() {
   // threads locaux (pas encore connus du sidecar) — nouveaux chats vides
   const [draftThreads, setDraftThreads] = useState<Thread[]>([]);
   const [events, setEvents] = useState<Record<string, AgentEvent[]>>({});
+  const eventsRef = useRef<Record<string, AgentEvent[]>>({});
+  eventsRef.current = events;
   const [workingSince, setWorkingSince] = useState<Record<string, number | null>>({});
   const workingSinceRef = useRef<Record<string, number | null>>({});
   workingSinceRef.current = workingSince;
@@ -131,7 +133,7 @@ export default function App() {
   } | null>(null);
   const lastInjected = useRef<string | null>(null);
   const pendingPaste = useRef<string | null>(null); // dataURL en attente de sauvegarde
-  const pendingResend = useRef<{ threadId: string; prompt: string } | null>(null);
+  const pendingResend = useRef<{ threadId: string; prompt: string; snapshot: any[] } | null>(null);
   const [atelierTabs, setAtelierTabs] = useState<
     { id: string; url: string; title: string; color?: string; pinned?: boolean; kind?: "term"; cwd?: string }[]
   >([]);
@@ -481,7 +483,30 @@ export default function App() {
       }
       if (msg.type === "commands") setCommands(msg.commands);
       if (msg.type === "files") setFiles(msg.files);
-      if (msg.type === "error") console.error("sidecar:", msg.message);
+      if (msg.type === "error") {
+        console.error("sidecar:", msg.message);
+        const pr = pendingResend.current;
+        if (pr && pr.threadId === msg.threadId) {
+          // le rewind a échoué (Codex, ou message introuvable) : ne PAS perdre le
+          // message — restaurer l'historique tronqué puis renvoyer le nouveau texte
+          pendingResend.current = null;
+          const th = threadsRef.current.find((t) => t.id === pr.threadId);
+          setEvents((p) => ({
+            ...p,
+            [pr.threadId]: [...pr.snapshot, { kind: "user", text: pr.prompt, ts: Date.now() }],
+          }));
+          setWorkingSince((p) => ({ ...p, [pr.threadId]: Date.now() }));
+          if (ws.current?.readyState === 1) {
+            sendPrompt(ws.current, {
+              autoReview: settingsRef.current.autoReview,
+              threadId: pr.threadId,
+              projectRoot: th?.projectRoot ?? "",
+              provider: th?.provider ?? "claude",
+              prompt: pr.prompt,
+            });
+          }
+        }
+      }
     }, (next) => {
       ws.current = next;
       setWs(next);
@@ -1283,8 +1308,9 @@ export default function App() {
           onEditSend={(index, oldText, newText) => {
             if (!activeId) return;
             const id = activeId;
+            const snapshot = eventsRef.current[id] ?? [];
             setEvents((p) => ({ ...p, [id]: (p[id] ?? []).slice(0, index) }));
-            pendingResend.current = { threadId: id, prompt: newText };
+            pendingResend.current = { threadId: id, prompt: newText, snapshot };
             if (ws.current?.readyState === 1) {
               ws.current.send(JSON.stringify({ type: "revert", threadId: id, text: oldText }));
             }
