@@ -3,6 +3,7 @@ import { Thread } from "../lib/ws";
 import { PROJ_COLORS } from "./Rail";
 import { wsSend } from "../lib/wsBus";
 import { t } from "../lib/i18n";
+const tr = t; // alias : t est masqué par les threads dans les .map
 import { PlusIcon, ProviderIcon, ResumeIcon, SettingsIcon, SidebarIcon } from "./icons";
 
 type Menu = { x: number; y: number; threadId: string };
@@ -274,6 +275,23 @@ export default function Sidebar(p: {
                     {p.unread.has(t.id) && <span className="unread-badge" />}
                   </span>
                   {threadLabel(t)}
+                  <span className="row-actions" onClick={(e) => e.stopPropagation()}>
+                    <button
+                      className={`row-act ${p.favorites.includes(t.id) ? "on" : ""}`}
+                      title={p.favorites.includes(t.id) ? tr("action.remove-favorite") : tr("action.add-favorite")}
+                      onClick={() => p.onToggleFavorite(t.id)}
+                    >
+                      <svg width="11" height="11" viewBox="0 0 16 16" fill={p.favorites.includes(t.id) ? "currentColor" : "none"} stroke="currentColor" strokeWidth="1.2">
+                        <path d="M8 1.8l1.9 3.9 4.3.6-3.1 3 .7 4.3L8 11.6l-3.8 2 .7-4.3-3.1-3 4.3-.6z" />
+                      </svg>
+                    </button>
+                    <button className="row-act danger" title={tr("action.delete")}
+                      onClick={() => p.onDelete(t.id)}>
+                      <svg width="11" height="11" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round">
+                        <path d="M4 4l8 8M12 4l-8 8" />
+                      </svg>
+                    </button>
+                  </span>
                   {t.status === "running" && (
                     <svg className="arc" width="13" height="13" viewBox="0 0 16 16" fill="none">
                       <circle cx="8" cy="8" r="6" stroke="#3a414d" strokeWidth="2" />

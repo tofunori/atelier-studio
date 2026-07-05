@@ -76,11 +76,13 @@ export function BranchIcon({ size = 13 }: IconProps) {
 }
 
 export function BookIcon({ size = 13 }: IconProps) {
+  // étagère : deux livres droits + un incliné
   return (
     <StrokeIcon size={size}>
-      <path d="M3.1 2.5h3.4c.9 0 1.5.6 1.5 1.5v9.5c0-.8-.6-1.3-1.5-1.3H3.1z" />
-      <path d="M12.9 2.5H9.5C8.6 2.5 8 3.1 8 4v9.5c0-.8.6-1.3 1.5-1.3h3.4z" />
-      <path d="M8 4v9.5" />
+      <path d="M2.5 2.5h2.6v11H2.5z" />
+      <path d="M5.1 2.5h2.6v11H5.1z" />
+      <path d="M8.6 3.3l2.5-.7 2.9 10.6-2.5.7z" />
+      <path d="M2.5 11h5.2" />
     </StrokeIcon>
   );
 }

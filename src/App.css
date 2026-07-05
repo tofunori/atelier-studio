@@ -1105,3 +1105,14 @@ body.dragging iframe { pointer-events: none; }
   border: 1px solid var(--border); border-radius: 7px; color: var(--fg);
   padding: 5px 9px; font-size: 12px; outline: none; box-sizing: border-box; }
 .pin-rename:focus { border-color: var(--border2); }
+/* actions au survol des rangées de chats */
+.sidebar li { position: relative; }
+.row-actions { position: absolute; right: 6px; top: 50%; transform: translateY(-50%);
+  display: none; gap: 2px; background: inherit; }
+.sidebar li:hover .row-actions { display: inline-flex; }
+.row-act { width: 22px; height: 22px; display: inline-flex; align-items: center;
+  justify-content: center; border: none; border-radius: 6px;
+  background: transparent !important; color: var(--muted2); cursor: pointer; padding: 0 !important; }
+.row-act:hover { background: var(--bg-ctl) !important; color: var(--fg); }
+.row-act.on { color: #e0b74a; }
+.row-act.danger:hover { color: #e06c75; }
