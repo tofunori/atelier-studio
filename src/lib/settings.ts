@@ -22,6 +22,8 @@ export type Settings = {
   timeFormat: "system" | "24h" | "12h";
   customModels: { provider: "claude" | "codex"; id: string }[];
   modelEfforts: Record<string, string>; // "provider:modelId" -> effort
+  webSearch: boolean;
+  additionalDirectories: string;
 };
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -48,6 +50,8 @@ export const DEFAULT_SETTINGS: Settings = {
   timeFormat: "system",
   customModels: [],
   modelEfforts: {},
+  webSearch: false,
+  additionalDirectories: "",
 };
 
 const KEY = "atelier-studio.settings";

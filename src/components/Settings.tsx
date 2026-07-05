@@ -158,6 +158,14 @@ export default function SettingsPage(p: {
                 <option value="plan">Plan mode</option>
               </select>
             </Row>
+            <Row title="Web search Codex" desc="Passe webSearchMode=live aux nouveaux tours Codex.">
+              <input type="checkbox" checked={s.webSearch}
+                onChange={(e) => set({ webSearch: e.target.checked })} />
+            </Row>
+            <Row title="Dossiers additionnels Codex" desc="Un chemin par ligne, passé à additionalDirectories.">
+              <textarea className="set-text" rows={3} value={s.additionalDirectories}
+                onChange={(e) => set({ additionalDirectories: e.target.value })} />
+            </Row>
             <Row title="Ordre des chats" desc="Dans la sidebar, sous chaque projet.">
               <select value={s.threadOrder} onChange={(e) => set({ threadOrder: e.target.value as any })}>
                 <option value="recent">Récents d'abord</option>

@@ -23,7 +23,7 @@ import "./App.css";
 
 const PROJECTS_KEY = "atelier-studio.projects";
 
-export type Attachment = { name: string; lines: string | null; text: string; imageUrl?: string };
+export type Attachment = { name: string; lines: string | null; text: string; imageUrl?: string; path?: string };
 
 // « /chemin/avec espaces/CLAUDE.md (p.L11-224) : « … » » → {name: CLAUDE.md, lines: 11-224}
 function parseAttachment(text: string): Attachment {
@@ -230,6 +230,10 @@ export default function App() {
         threadsRef.current = msg.threads;
       }
       if (msg.type === "event") {
+        if (msg.event.kind === "started") {
+          setWorkingSince((p) => ({ ...p, [msg.threadId]: p[msg.threadId] ?? Date.now() }));
+          return;
+        }
         setEvents((prev) => {
           const list = [...(prev[msg.threadId] ?? [])];
           const ev = msg.event;
@@ -254,6 +258,26 @@ export default function App() {
           }
           if (ev.kind === "text" && last?.kind === "streaming") {
             list[list.length - 1] = { ...ev, ts: Date.now() };
+            return { ...prev, [msg.threadId]: list };
+          }
+          if (ev.kind === "tool_update") {
+            const idx = list.findIndex((item) => item.kind === "tool_update" && item.id === ev.id);
+            const next = { ...ev, ts: Date.now() } as AgentEvent;
+            if (idx >= 0) list[idx] = next;
+            else list.push(next);
+            return { ...prev, [msg.threadId]: list };
+          }
+          if (ev.kind === "todos") {
+            let idx = -1;
+            for (let i = list.length - 1; i >= 0; i--) {
+              if (list[i].kind === "todos") {
+                idx = i;
+                break;
+              }
+            }
+            const next = { ...ev, ts: Date.now() } as AgentEvent;
+            if (idx >= 0) list[idx] = next;
+            else list.push(next);
             return { ...prev, [msg.threadId]: list };
           }
           // fin de tour : une bulle streaming orpheline devient un texte définitif
@@ -320,6 +344,7 @@ export default function App() {
             lines: null,
             text: `Image collée par l'utilisateur : ${msg.path}\nLis ce fichier image (outil Read) avant de répondre.`,
             imageUrl: pendingPaste.current ?? undefined,
+            path: msg.path,
           }),
         );
         pendingPaste.current = null;
@@ -660,6 +685,17 @@ export default function App() {
           }
         : {}),
     };
+    const imagePaths = attachments.map((a) => a.path).filter(Boolean) as string[];
+    const codexInputs = provider === "codex" && imagePaths.length
+      ? [
+          { type: "text" as const, text: fullPrompt },
+          ...imagePaths.map((path) => ({ type: "local_image" as const, path })),
+        ]
+      : undefined;
+    const additionalDirectories = settingsRef.current.additionalDirectories
+      .split(/\r?\n|,/)
+      .map((dir) => dir.trim())
+      .filter(Boolean);
     setAttachments([]);
     // pas de thread sélectionné → en créer un à la volée
     let id = activeId;
@@ -715,9 +751,13 @@ export default function App() {
         projectRoot: threadRoot,
         provider,
         prompt: fullPrompt,
+        ...(codexInputs ? { inputs: codexInputs } : {}),
+        ...(imagePaths.length ? { attachments: imagePaths.map((path) => ({ path })) } : {}),
         ...(model ? { model } : {}),
         ...(effort ? { effort } : {}),
         ...(permissionMode ? { permissionMode } : {}),
+        ...(provider === "codex" && settingsRef.current.webSearch ? { webSearch: true } : {}),
+        ...(provider === "codex" && additionalDirectories.length ? { additionalDirectories } : {}),
         mode,
       });
       // le sidecar prend le relais : retirer le brouillon local homonyme

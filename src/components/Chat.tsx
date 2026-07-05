@@ -525,6 +525,30 @@ export default function Chat(p: {
                 <span className="tool-tick">▸</span> {e.name}
               </div>
             );
+          if (e.kind === "tool_update") {
+            const output = e.output.length > 6000 ? "[...]\n" + e.output.slice(-6000) : e.output;
+            return (
+              <div key={i} className="tool-output">
+                <div className="tool-output-head">
+                  <span className="tool-tick">▸</span>
+                  <span>{e.name}</span>
+                  {e.status && <span className="tool-status">{e.status}</span>}
+                </div>
+                {output.trim() && <pre>{output}</pre>}
+              </div>
+            );
+          }
+          if (e.kind === "todos")
+            return (
+              <div key={i} className="todos">
+                {e.items.map((todo, idx) => (
+                  <div key={idx} className={todo.completed ? "todo done" : "todo"}>
+                    <span className="todo-box">{todo.completed ? "✓" : ""}</span>
+                    <span>{todo.text}</span>
+                  </div>
+                ))}
+              </div>
+            );
           if (e.kind === "error")
             return (
               <div key={i} className="error">

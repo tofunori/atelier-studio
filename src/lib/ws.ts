@@ -8,7 +8,10 @@ export type AgentEvent =
   | { kind: "delta"; text: string; ts?: number }
   | { kind: "stream_set"; text: string; ts?: number }
   | { kind: "streaming"; text: string; ts?: number }
+  | { kind: "started"; ts?: number }
   | { kind: "tool"; name: string }
+  | { kind: "tool_update"; id: string; name: string; output: string; status?: string; exitCode?: number; ts?: number }
+  | { kind: "todos"; items: { text: string; completed: boolean }[]; ts?: number }
   | {
       kind: "done";
       ok: boolean;
@@ -62,10 +65,15 @@ export type SendOptions = {
   projectRoot: string;
   provider: string;
   prompt: string;
+  inputs?: ({ type: "text"; text: string } | { type: "local_image"; path: string })[];
+  imagePath?: string;
+  attachments?: { path?: string; imagePath?: string }[];
   model?: string;
   effort?: string;
   permissionMode?: string;
   mode?: "steer" | "queue";
+  webSearch?: boolean;
+  additionalDirectories?: string[];
 };
 
 export function sendPrompt(ws: WebSocket, t: SendOptions) {
