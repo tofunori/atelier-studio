@@ -272,6 +272,41 @@ export async function run(opts) {
   });
 }
 
+
+let __oauthCache = { ts: 0, data: null };
+async function fetchOAuthUsage() {
+  if (Date.now() - __oauthCache.ts < 60000) return __oauthCache.data;
+  try {
+    const creds = JSON.parse(readFileSync(`${process.env.HOME}/.claude/.credentials.json`, "utf8"));
+    const tok = creds?.claudeAiOauth?.accessToken;
+    if (!tok) return null;
+    const r = await fetch("https://api.anthropic.com/api/oauth/usage", {
+      headers: { Authorization: `Bearer ${tok}`, "anthropic-beta": "oauth-2025-04-20" },
+      signal: AbortSignal.timeout(8000),
+    });
+    if (!r.ok) return null; // token expiré (401) ou rate-limit (429) : repli
+    const j = await r.json();
+    __oauthCache = { ts: Date.now(), data: j };
+    return j;
+  } catch { return null; }
+}
+
+/** Version asynchrone : OAuth usage (les vrais %) avec repli sur les rate_limit_event. */
+export async function rateLimitsAsync() {
+  const oauth = await fetchOAuthUsage();
+  if (oauth) {
+    // formats possibles : {five_hour:{utilization,resets_at}, seven_day:{...}} ou similaires
+    const pick = (o) => o ? {
+      used_percent: o.utilization != null ? (o.utilization > 1.5 ? o.utilization : o.utilization * 100) : null,
+      resets_at: o.resets_at ?? o.resetsAt ?? null,
+    } : null;
+    const five = oauth.five_hour ?? oauth.fiveHour ?? oauth.session ?? null;
+    const week = oauth.seven_day ?? oauth.sevenDay ?? oauth.weekly ?? oauth.seven_day_sonnet ?? null;
+    if (five || week) return { ts: Date.now(), data: { primary: pick(five), secondary: pick(week) }, raw: oauth };
+  }
+  return rateLimits();
+}
+
 export function rateLimits() {
   let store = globalThis.__claudeRL;
   if (!store) {

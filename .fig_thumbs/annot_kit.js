@@ -252,7 +252,7 @@
       };
     });
     bar.querySelector('.akUndo').onclick = function(){ strokes.pop(); renumber(); note.style.display = 'none'; redraw(); };
-    bar.querySelector('.akClear').onclick = function(){ strokes = []; note.style.display = 'none'; redraw(); };
+    bar.querySelector('.akClear').onclick = function(){ strokes = []; shutdown(); };
 
     var EMBEDDED = (function(){ try { return window.self !== window.top; } catch(e){ return true; } })();
     // --- explicit Claude-session target (shared across viewers via localStorage) ---
@@ -312,8 +312,14 @@
       return j;
     }
 
+    function shutdown(){
+      enabled = false; cur = null;
+      bar.classList.remove('on'); pill.classList.remove('on');
+      note.style.display = 'none'; overlay.style.pointerEvents = 'none';
+      redraw();
+    }
     pill.querySelector('.x').onclick = function(){
-      strokes = []; note.style.display = 'none'; redraw();
+      strokes = []; shutdown();
     };
     pill.querySelector('.go').onclick = async function(){
       var go = this;
@@ -321,17 +327,19 @@
       try{
         await send(true);
         go.textContent = '✓';
-        strokes = []; setTimeout(function(){ go.textContent = '↑'; redraw(); }, 1500);
+        strokes = []; setTimeout(function(){ go.textContent = '↑'; shutdown(); }, 1500);
       }catch(e){
         go.textContent = '!';
         setTimeout(function(){ go.textContent = '↑'; }, 1800);
       }
     };
 
+    document.addEventListener('keydown', function(e){
+      if (e.key === 'Escape' && enabled) shutdown();
+    });
     var api = {
       enable: function(){ enabled = true; bar.classList.add('on'); overlay.style.pointerEvents = 'auto'; redraw(); },
-      disable: function(){ enabled = false; cur = null; bar.classList.remove('on'); pill.classList.remove('on');
-                           note.style.display = 'none'; overlay.style.pointerEvents = 'none'; },
+      disable: shutdown,
       toggle: function(){ enabled ? api.disable() : api.enable(); return enabled; },
       get enabled(){ return enabled; },
       hasNotes: function(){ return strokes.some(function(s){ return s.note; }); },

@@ -480,7 +480,7 @@ export async function route(msg, ctx) {
       ctx.send({ type: "threads", threads: ctx.store.list() });
       break;
     case "getUsage": {
-      const claudeRl = ctx.providers?.claude?.rateLimits?.() ?? null;
+      const claudeRl = (await ctx.providers?.claude?.rateLimitsAsync?.()) ?? ctx.providers?.claude?.rateLimits?.() ?? null;
       const codexRl = ctx.providers?.codex?.rateLimits?.() ?? null;
       // par-modèle aujourd'hui, tous projets confondus (ledger)
       const models = {};
