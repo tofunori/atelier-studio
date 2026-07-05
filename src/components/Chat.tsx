@@ -86,6 +86,8 @@ export default function Chat(p: {
   onQuote: (text: string) => void;
   onPasteImage: (dataURL: string) => void;
   onStop: () => void;
+  goal: string | null;
+  onClearGoal: () => void;
   layout: "split" | "chat" | "atelier";
   onToggleExpand: () => void;
   usage: { context: number; output: number; cost: number | null; turns: number | null } | null;
@@ -424,6 +426,18 @@ export default function Chat(p: {
               </li>
             ))}
           </ul>
+        )}
+        {p.goal && (
+          <div className="goal-pill" title={p.goal}>
+            <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3">
+              <circle cx="8" cy="8" r="6.2" />
+              <circle cx="8" cy="8" r="2.2" fill="currentColor" stroke="none" />
+            </svg>
+            <span className="goal-label">Goal</span>
+            <span className="goal-cond">{p.goal.slice(0, 80)}{p.goal.length > 80 ? "…" : ""}</span>
+            <button type="button" className="ghost" title="Effacer le goal (/goal clear)"
+              onClick={p.onClearGoal}>✕</button>
+          </div>
         )}
         {p.attachments.length > 0 && (
           <div className="chips-row">

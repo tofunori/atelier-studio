@@ -496,3 +496,12 @@ button.ghost:disabled { opacity: 0.35; cursor: default; }
   border: 1px solid rgba(128,128,128,0.25); }
 .theme-strip span { flex: 1; }
 .browser-body { flex: 1; min-height: 0; position: relative; overflow-y: auto; }
+/* pilule ◎ Goal (goal actif dans la session) */
+.goal-pill { display: inline-flex; align-items: center; gap: 8px; align-self: flex-start;
+  background: rgba(122,162,247,0.10); border: 1px solid rgba(122,162,247,0.35);
+  border-radius: 999px; padding: 5px 12px; font-size: 12.5px; color: #9db4e8;
+  margin-bottom: 2px; }
+.goal-pill .goal-label { font-weight: 600; }
+.goal-pill .goal-cond { color: var(--muted); overflow: hidden; text-overflow: ellipsis;
+  white-space: nowrap; max-width: 420px; }
+.goal-pill .ghost { padding: 0 2px; font-size: 11px; }

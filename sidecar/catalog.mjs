@@ -3,6 +3,8 @@ import { join } from "node:path";
 import { homedir } from "node:os";
 import { execSync } from "node:child_process";
 
+const BUILTINS = ["goal", "loop", "clear", "compact", "model", "memory", "review", "context"];
+
 /** Skills + slash commands visibles pour un projet (user + projet). */
 export function listCommands(projectRoot) {
   const out = new Map();

@@ -162,6 +162,7 @@ export default function App() {
   }, [settings]);
   const [dragging, setDragging] = useState(false);
   const [unread, setUnread] = useState<Set<string>>(new Set());
+  const [goals, setGoals] = useState<Record<string, string>>({}); // threadId -> condition
   const [favorites, setFavorites] = useState<string[]>(() => {
     try { return JSON.parse(localStorage.getItem("atelier-studio.favorites") ?? "[]"); }
     catch { return []; }
@@ -219,6 +220,10 @@ export default function App() {
           ...prev,
           [msg.threadId]: [...(prev[msg.threadId] ?? []), { ...msg.event, ts: Date.now() }],
         }));
+        if (msg.event.kind === "done" && typeof msg.event.result === "string" &&
+            /goal (atteint|achieved|accompli|complete)/i.test(msg.event.result)) {
+          setGoals((g) => { const { [msg.threadId]: _, ...rest } = g; return rest; });
+        }
         if (msg.event.kind === "done" && msg.event.usage) {
           setUsageByThread((p) => ({ ...p, [msg.threadId]: msg.event.usage }));
         }
@@ -481,6 +486,18 @@ export default function App() {
     const activeThread = allThreadsRef.current.find((t) => t.id === activeId);
     const threadRoot = activeThread ? activeThread.projectRoot : (activeProject ?? "");
     if (!activeId && !activeProject) return;
+    // /goal : suivre l'état pour la pilule ◎ Goal (la commande part normalement à Claude)
+    if (activeId && /^\/goal(\s|$)/.test(prompt.trim())) {
+      const arg = prompt.trim().replace(/^\/goal\s*/, "");
+      if (["clear", "stop", "off", "reset", "none", "cancel"].includes(arg.toLowerCase()) ) {
+        setGoals((g) => { const { [activeId]: _, ...rest } = g; return rest; });
+      } else if (arg) {
+        setGoals((g) => ({ ...g, [activeId]: arg }));
+      }
+    }
+    if (activeId && prompt.trim() === "/clear") {
+      setGoals((g) => { const { [activeId]: _, ...rest } = g; return rest; });
+    }
     // /export : archive locale (pas d'appel agent)
     if (prompt.trim() === "/export" && activeId) {
       if (ws.current?.readyState === 1) {
@@ -688,6 +705,11 @@ export default function App() {
           events={activeId ? (events[activeId] ?? []) : []}
           workingSince={activeId ? (workingSince[activeId] ?? null) : null}
           usage={activeId ? (usageByThread[activeId] ?? null) : null}
+          goal={activeId ? (goals[activeId] ?? null) : null}
+          onClearGoal={() => {
+            if (!activeId) return;
+            setGoals((g) => { const { [activeId]: _, ...rest } = g; return rest; });
+          }}
           commands={commands}
           files={files}
           defaults={settings}
