@@ -729,8 +729,14 @@ export default function App() {
       }
       if (e.metaKey && e.altKey && e.key.toLowerCase() === "k") {
         e.preventDefault();
-        setQaDraft("");
-        setQaMode("open");
+        // toggle : minimisé → rouvre la conversation ; ouvert → minimise ; fermé → neuf
+        setQaMode((mode) => {
+          if (mode === "open") return "min";
+          if (mode === "min") return "open";
+          setQaDraft("");
+          setQaContext("");
+          return "open";
+        });
         return;
       }
       if (e.metaKey && !e.shiftKey && ["k", "p"].includes(e.key.toLowerCase())) {

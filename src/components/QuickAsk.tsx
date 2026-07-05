@@ -184,15 +184,7 @@ export default function QuickAsk({
   useEffect(() => {
     bodyRef.current?.scrollTo({ top: bodyRef.current.scrollHeight });
   }, [msgs]);
-
-  if (minimized)
-    return (
-      <button className="qa-minipill" onClick={onRestore} title={t("qa.title")}>
-        <ZapIcon />
-        <span>{t("qa.title")}</span>
-        {busy && <span className="qa-minidot" />}
-      </button>
-    );
+  if (minimized) return null;
   if (!open) return null;
 
   const m = QA_MODELS[modelIdx];
