@@ -451,7 +451,7 @@ export default function App() {
         addAttachment(l, {
           name: label,
           lines: null,
-          text: `Référence Zotero : ${detail.text}`,
+          text: detail.text,
         }),
       );
     };

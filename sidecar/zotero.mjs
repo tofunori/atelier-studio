@@ -48,6 +48,14 @@ const BASE_SQL = `
        JOIN fields f ON f.fieldID = d.fieldID AND f.fieldName = 'publicationTitle'
        JOIN itemDataValues v ON v.valueID = d.valueID
      WHERE d.itemID = i.itemID) AS publication,
+    (SELECT v.value FROM itemData d
+       JOIN fields f ON f.fieldID = d.fieldID AND f.fieldName = 'DOI'
+       JOIN itemDataValues v ON v.valueID = d.valueID
+     WHERE d.itemID = i.itemID) AS doi,
+    (SELECT v.value FROM itemData d
+       JOIN fields f ON f.fieldID = d.fieldID AND f.fieldName = 'abstractNote'
+       JOIN itemDataValues v ON v.valueID = d.valueID
+     WHERE d.itemID = i.itemID) AS abstract,
     (SELECT GROUP_CONCAT(c.lastName, ', ') FROM itemCreators ic
        JOIN creators c ON c.creatorID = ic.creatorID
      WHERE ic.itemID = i.itemID ORDER BY ic.orderIndex) AS creators,
@@ -74,6 +82,8 @@ function rowToItem(r) {
     creators: r.creators ?? "",
     year,
     publication: r.publication ?? "",
+    doi: r.doi ?? "",
+    abstract: r.abstract ?? "",
     tags,
     hasPdf: !!r.pdfPath,
     pdfKey: r.pdfKey ?? null,

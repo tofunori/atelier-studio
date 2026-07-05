@@ -175,13 +175,21 @@ export default function BiblioSurface({
   function citeSelected() {
     if (!selected) return;
     const label = selected.citeKey ? `@${selected.citeKey}` : `@${selected.key}`;
+    const s = selected as ZoteroItem & { doi?: string; abstract?: string };
+    const pdfPath = s.pdfKey && s.pdfFile
+      ? `~/Zotero/storage/${s.pdfKey}/${s.pdfFile}` : null;
+    const lines = [
+      `Référence (bibliothèque Zotero locale — tout est déjà ici, n'ouvre PAS Zotero) :`,
+      `- Titre : ${s.title}`,
+      `- Auteurs : ${s.creators}${s.year ? ` (${s.year})` : ""}`,
+      s.publication ? `- Revue : ${s.publication}` : null,
+      s.doi ? `- DOI : ${s.doi}` : null,
+      `- Clé de citation : ${label}`,
+      pdfPath ? `- PDF (lisible directement avec Read) : ${pdfPath}` : `- Pas de PDF attaché`,
+      s.abstract ? `- Résumé : ${s.abstract.slice(0, 900)}` : null,
+    ].filter(Boolean).join("\n");
     window.dispatchEvent(new CustomEvent("atelier-add-to-chat-citation", {
-      detail: {
-        text: `${label} — ${selected.title}`,
-        key: selected.key,
-        citeKey: selected.citeKey,
-        title: selected.title,
-      },
+      detail: { text: lines, key: s.key, citeKey: s.citeKey, title: s.title },
     }));
   }
 
