@@ -1,19 +1,20 @@
 import { useEffect, useState } from "react";
 import { Settings as S, DEFAULT_SETTINGS } from "../lib/settings";
 import { THEME_PRESETS } from "../lib/themes";
+import { setLanguage, t } from "../lib/i18n";
 import { PlusIcon } from "./icons";
 
 const SECTIONS = [
-  { id: "general", label: "Général" },
-  { id: "apparence", label: "Apparence" },
-  { id: "modeles", label: "Modèles" },
-  { id: "atelier", label: "Atelier" },
-  { id: "providers", label: "Providers" },
-  { id: "avance", label: "Avancé" },
+  { id: "general", labelKey: "settings.general" },
+  { id: "apparence", labelKey: "settings.appearance" },
+  { id: "modeles", labelKey: "settings.models" },
+  { id: "atelier", labelKey: "settings.atelier" },
+  { id: "providers", labelKey: "settings.providers" },
+  { id: "avance", labelKey: "settings.advanced" },
 ];
 
 const CLAUDE_MODELS = [
-  { id: "", label: "Défaut CLI" },
+  { id: "", labelKey: "common.default-cli" },
   { id: "claude-fable-5", label: "Fable 5" },
   { id: "claude-opus-4-8", label: "Opus 4.8" },
   { id: "claude-sonnet-5", label: "Sonnet 5" },
@@ -24,12 +25,16 @@ const CLAUDE_EFFORTS = ["", "low", "medium", "high", "xhigh", "max"];
 const CODEX_EFFORTS = ["", "minimal", "low", "medium", "high", "xhigh"];
 
 const CODEX_MODELS = [
-  { id: "", label: "Défaut CLI" },
+  { id: "", labelKey: "common.default-cli" },
   { id: "gpt-5.5", label: "GPT-5.5" },
   { id: "gpt-5.4", label: "GPT-5.4" },
   { id: "gpt-5.4-mini", label: "GPT-5.4 mini" },
   { id: "gpt-5.3-codex-spark", label: "Codex Spark" },
 ];
+
+function modelLabel(m: { label?: string; labelKey?: "common.default-cli" }) {
+  return m.labelKey ? t(m.labelKey) : m.label ?? "";
+}
 
 function Slider(p: {
   min: number; max: number; step: number; value: number;
@@ -87,7 +92,7 @@ export default function SettingsPage(p: {
         p.ws!.send(JSON.stringify({ type: "status" }));
       }
       if (m.type === "retitleAllDone") {
-        setRetitleStatus(m.running ? "Déjà en cours" : `${m.renamed} titre(s) régénéré(s)`);
+        setRetitleStatus(m.running ? t("settings.retitle-running") : t("settings.retitle-done", { count: m.renamed }));
       }
     };
     p.ws.addEventListener("message", onMsg);
@@ -100,7 +105,7 @@ export default function SettingsPage(p: {
     <div className="settings-page">
       <div className="set-nav">
         <button className="set-back" onClick={p.onClose}>
-          ← Retour à l'app
+          {t("settings.back")}
         </button>
         {SECTIONS.map((sec) => (
           <button
@@ -108,38 +113,52 @@ export default function SettingsPage(p: {
             className={`set-nav-item ${section === sec.id ? "on" : ""}`}
             onClick={() => setSection(sec.id)}
           >
-            {sec.label}
+            {t(sec.labelKey as any)}
           </button>
         ))}
         <span className="flex" />
         <button className="set-restore" onClick={() => p.onChange({ ...DEFAULT_SETTINGS })}>
-          Restaurer les défauts
+          {t("action.restore-defaults")}
         </button>
       </div>
       <div className="set-body">
         {section === "general" && (
           <>
-            <h1>Général</h1>
-            <p className="set-sub">Provider, modèle et permissions par défaut des nouveaux messages.</p>
-            <Row title="Provider par défaut" desc="Utilisé pour les nouveaux chats.">
+            <h1>{t("settings.general")}</h1>
+            <p className="set-sub">{t("settings.general-sub")}</p>
+            <Row title={t("language.label")}>
+              <select
+                value={s.language}
+                onChange={(e) => {
+                  const language = e.target.value as S["language"];
+                  setLanguage(language);
+                  set({ language });
+                }}
+              >
+                <option value="fr">{t("language.fr")}</option>
+                <option value="en">{t("language.en")}</option>
+                <option value="system">{t("language.system")}</option>
+              </select>
+            </Row>
+            <Row title={t("settings.default-provider")} desc={t("settings.default-provider-desc")}>
               <select value={s.defaultProvider} onChange={(e) => set({ defaultProvider: e.target.value as any })}>
                 <option value="claude">Claude</option>
                 <option value="codex">Codex</option>
               </select>
             </Row>
-            <Row title="Modèle Claude par défaut">
+            <Row title={t("settings.default-claude-model")}>
               <select value={s.defaultModel.claude}
                 onChange={(e) => set({ defaultModel: { ...s.defaultModel, claude: e.target.value } })}>
-                {CLAUDE_MODELS.map((m) => <option key={m.id} value={m.id}>{m.label}</option>)}
+                {CLAUDE_MODELS.map((m) => <option key={m.id} value={m.id}>{modelLabel(m)}</option>)}
               </select>
             </Row>
-            <Row title="Modèle Codex par défaut">
+            <Row title={t("settings.default-codex-model")}>
               <select value={s.defaultModel.codex}
                 onChange={(e) => set({ defaultModel: { ...s.defaultModel, codex: e.target.value } })}>
-                {CODEX_MODELS.map((m) => <option key={m.id} value={m.id}>{m.label}</option>)}
+                {CODEX_MODELS.map((m) => <option key={m.id} value={m.id}>{modelLabel(m)}</option>)}
               </select>
             </Row>
-            <Row title="Effort Claude par défaut">
+            <Row title={t("settings.default-claude-effort")}>
               <select value={s.defaultEffort.claude}
                 onChange={(e) => set({ defaultEffort: { ...s.defaultEffort, claude: e.target.value } })}>
                 {["", "low", "medium", "high", "xhigh", "max"].map((l) => (
@@ -147,7 +166,7 @@ export default function SettingsPage(p: {
                 ))}
               </select>
             </Row>
-            <Row title="Effort Codex par défaut">
+            <Row title={t("settings.default-codex-effort")}>
               <select value={s.defaultEffort.codex}
                 onChange={(e) => set({ defaultEffort: { ...s.defaultEffort, codex: e.target.value } })}>
                 {CODEX_EFFORTS.map((l) => (
@@ -155,38 +174,38 @@ export default function SettingsPage(p: {
                 ))}
               </select>
             </Row>
-            <Row title="Mode de permission par défaut" desc="Full access = aucun prompt d'approbation.">
+            <Row title={t("settings.permission-default")} desc={t("settings.permission-default-desc")}>
               <select value={s.defaultPermissionMode} onChange={(e) => set({ defaultPermissionMode: e.target.value })}>
                 <option value="bypassPermissions">Full access</option>
                 <option value="acceptEdits">Accept edits</option>
-                <option value="default">Ask (default)</option>
+                <option value="default">{t("action.ask-default")}</option>
                 <option value="plan">Plan mode</option>
               </select>
             </Row>
-            <Row title="Web search Codex" desc="Passe webSearchMode=live aux nouveaux tours Codex.">
+            <Row title={t("settings.web-search")} desc={t("settings.web-search-desc")}>
               <input type="checkbox" checked={s.webSearch}
                 onChange={(e) => set({ webSearch: e.target.checked })} />
             </Row>
-            <Row title="Dossiers additionnels Codex" desc="Un chemin par ligne, passé à additionalDirectories.">
+            <Row title={t("settings.additional-dirs")} desc={t("settings.additional-dirs-desc")}>
               <textarea className="set-text" rows={3} value={s.additionalDirectories}
                 onChange={(e) => set({ additionalDirectories: e.target.value })} />
             </Row>
-            <Row title="Ordre des chats" desc="Dans la sidebar, sous chaque projet.">
+            <Row title={t("settings.thread-order")} desc={t("settings.thread-order-desc")}>
               <select value={s.threadOrder} onChange={(e) => set({ threadOrder: e.target.value as any })}>
-                <option value="recent">Récents d'abord</option>
-                <option value="manual">Ordre de création</option>
+                <option value="recent">{t("settings.thread-order-recent")}</option>
+                <option value="manual">{t("settings.thread-order-manual")}</option>
               </select>
             </Row>
-            <Row title="Titres de chats" desc="Régénère les titres bruts ou dupliqués depuis le premier message utilisateur.">
+            <Row title={t("settings.chat-titles")} desc={t("settings.chat-titles-desc")}>
               <button
                 className="set-btn"
                 disabled={p.ws?.readyState !== 1}
                 onClick={() => {
-                  setRetitleStatus("En cours…");
+                  setRetitleStatus(t("settings.running"));
                   p.ws?.send(JSON.stringify({ type: "retitleAll" }));
                 }}
               >
-                Régénérer les titres de chats
+                {t("action.generate-chat-titles")}
               </button>
               {retitleStatus && <span className="set-val wide">{retitleStatus}</span>}
             </Row>
@@ -194,10 +213,10 @@ export default function SettingsPage(p: {
         )}
         {section === "apparence" && (
           <>
-            <h1>Apparence</h1>
-            <p className="set-sub">Thème, couleurs, typographie et mise en page.</p>
+            <h1>{t("settings.appearance")}</h1>
+            <p className="set-sub">{t("settings.appearance-sub")}</p>
             <div className="theme-gallery">
-              <input className="set-text" placeholder="Rechercher un thème…" value={themeQuery}
+              <input className="set-text" placeholder={t("settings.search-theme")} value={themeQuery}
                 onChange={(e) => setThemeQuery(e.target.value)} style={{ width: "100%", marginBottom: 10 }} />
               {THEME_PRESETS
                 .filter((t) => t.name.toLowerCase().includes(themeQuery.toLowerCase()))
@@ -215,73 +234,73 @@ export default function SettingsPage(p: {
                   </div>
                 ))}
             </div>
-            <Row title="Thème" desc="System suit le réglage macOS.">
+            <Row title={t("settings.theme")} desc={t("settings.theme-desc")}>
               <div className="seg">
-                {(["light", "dark", "system"] as const).map((t) => (
-                  <button key={t} className={s.theme === t ? "on" : ""}
-                    onClick={() => set({ theme: t })}>
-                    {t === "light" ? "Light" : t === "dark" ? "Dark" : "System"}
+                {(["light", "dark", "system"] as const).map((themeOption) => (
+                  <button key={themeOption} className={s.theme === themeOption ? "on" : ""}
+                    onClick={() => set({ theme: themeOption })}>
+                    {themeOption === "light" ? t("settings.theme-light") : themeOption === "dark" ? t("settings.theme-dark") : t("settings.theme-system")}
                   </button>
                 ))}
               </div>
             </Row>
-            <Row title="Accent" desc="Couleur d'accent (boutons, pastilles, envoi).">
+            <Row title={t("settings.accent")} desc={t("settings.accent-desc")}>
               <input type="color" value={s.accentColor || "#e8823a"}
                 onChange={(e) => set({ accentColor: e.target.value })} />
-              <button className="set-btn" onClick={() => set({ accentColor: "" })}>Reset</button>
+              <button className="set-btn" onClick={() => set({ accentColor: "" })}>{t("action.reset")}</button>
             </Row>
-            <Row title="Fond" desc="Couleur de fond principale.">
+            <Row title={t("settings.bg")} desc={t("settings.bg-desc")}>
               <input type="color" value={s.bgColor || "#212429"}
                 onChange={(e) => set({ bgColor: e.target.value })} />
-              <button className="set-btn" onClick={() => set({ bgColor: "" })}>Reset</button>
+              <button className="set-btn" onClick={() => set({ bgColor: "" })}>{t("action.reset")}</button>
             </Row>
-            <Row title="Texte" desc="Couleur du texte principal.">
+            <Row title={t("settings.text")} desc={t("settings.text-desc")}>
               <input type="color" value={s.fgColor || "#e8eaed"}
                 onChange={(e) => set({ fgColor: e.target.value })} />
-              <button className="set-btn" onClick={() => set({ fgColor: "" })}>Reset</button>
+              <button className="set-btn" onClick={() => set({ fgColor: "" })}>{t("action.reset")}</button>
             </Row>
-            <Row title="Police UI" desc="Nom d'une police installée (vide = Inter).">
+            <Row title={t("settings.ui-font")} desc={t("settings.ui-font-desc")}>
               <input className="set-text" placeholder="Inter" value={s.uiFont}
                 onChange={(e) => set({ uiFont: e.target.value })} />
             </Row>
-            <Row title="Police code" desc="Monospace pour les blocs de code (vide = système).">
+            <Row title={t("settings.code-font")} desc={t("settings.code-font-desc")}>
               <input className="set-text" placeholder="JetBrains Mono" value={s.codeFont}
                 onChange={(e) => set({ codeFont: e.target.value })} />
             </Row>
-            <Row title="Densité" desc="Espacement de la sidebar et des listes.">
+            <Row title={t("settings.density")} desc={t("settings.density-desc")}>
               <div className="seg">
                 {(["compact", "comfortable", "spacious"] as const).map((d) => (
                   <button key={d} className={s.density === d ? "on" : ""}
                     onClick={() => set({ density: d })}>
-                    {d === "compact" ? "Compact" : d === "comfortable" ? "Confort" : "Spacieux"}
+                    {d === "compact" ? t("settings.density-compact") : d === "comfortable" ? t("settings.density-comfortable") : t("settings.density-spacious")}
                   </button>
                 ))}
               </div>
             </Row>
-            <Row title="Taille de base" desc="Toute l'UI est proportionnelle à cette valeur.">
+            <Row title={t("settings.base-size")} desc={t("settings.base-size-desc")}>
               <Slider min={12} max={18} step={0.5} value={s.baseFontSize} onChange={(v) => set({ baseFontSize: v })} />
               <span className="set-val">{s.baseFontSize}px</span>
             </Row>
-            <Row title="Lissage de police" desc="Antialiasing macOS (texte plus fin).">
+            <Row title={t("settings.smoothing")} desc={t("settings.smoothing-desc")}>
               <input type="checkbox" checked={s.fontSmoothing}
                 onChange={(e) => set({ fontSmoothing: e.target.checked })} />
             </Row>
-            <Row title="Format d'heure" desc="Horodatage des messages.">
+            <Row title={t("settings.time-format")} desc={t("settings.time-format-desc")}>
               <select value={s.timeFormat} onChange={(e) => set({ timeFormat: e.target.value as any })}>
-                <option value="system">Système</option>
+                <option value="system">{t("language.system")}</option>
                 <option value="24h">24 h</option>
                 <option value="12h">12 h (AM/PM)</option>
               </select>
             </Row>
-            <Row title="Taille du texte du chat">
+            <Row title={t("settings.chat-text-size")}>
               <Slider min={12} max={19} step={0.5} value={s.chatFontSize} onChange={(v) => set({ chatFontSize: v })} />
               <span className="set-val">{s.chatFontSize}px</span>
             </Row>
-            <Row title="Largeur de la colonne de lecture">
+            <Row title={t("settings.reading-width")}>
               <Slider min={560} max={1100} step={20} value={s.chatWidth} onChange={(v) => set({ chatWidth: v })} />
               <span className="set-val">{s.chatWidth}px</span>
             </Row>
-            <Row title="Interligne">
+            <Row title={t("settings.interline")}>
               <Slider min={1.4} max={2.0} step={0.05} value={s.chatLineHeight} onChange={(v) => set({ chatLineHeight: v })} />
               <span className="set-val">{s.chatLineHeight.toFixed(2)}</span>
             </Row>
@@ -289,14 +308,14 @@ export default function SettingsPage(p: {
         )}
         {section === "modeles" && (
           <>
-            <h1>Modèles</h1>
-            <p className="set-sub">Slugs de modèles personnalisés — ils apparaissent dans le menu modèle du chat.</p>
-            <Row title="Ajouter un slug" desc="Identifiant exact accepté par le provider (ex. gpt-5.6-preview, claude-opus-5).">
+            <h1>{t("settings.models")}</h1>
+            <p className="set-sub">{t("settings.models-sub")}</p>
+            <Row title={t("settings.slug-add")} desc={t("settings.slug-add-desc")}>
               <select value={slugProv} onChange={(e) => setSlugProv(e.target.value as any)}>
                 <option value="claude">Claude</option>
                 <option value="codex">Codex</option>
               </select>
-              <input className="set-text" placeholder="gpt-6.7-codex-ultra-preview" value={slugText}
+              <input className="set-text" placeholder={t("settings.slug-placeholder")} value={slugText}
                 onChange={(e) => setSlugText(e.target.value)}
                 onKeyDown={(e) => {
                   if (e.key === "Enter" && slugText.trim()) {
@@ -308,9 +327,9 @@ export default function SettingsPage(p: {
                 if (!slugText.trim()) return;
                 set({ customModels: [...customModels, { provider: slugProv, id: slugText.trim() }] });
                 setSlugText("");
-              }}><PlusIcon /> Ajouter</button>
+              }}><PlusIcon /> {t("action.add")}</button>
             </Row>
-            <p className="set-sub" style={{ marginTop: 24 }}>Effort par modèle — prioritaire sur l'effort par défaut quand ce modèle est sélectionné.</p>
+            <p className="set-sub" style={{ marginTop: 24 }}>{t("settings.model-effort-sub")}</p>
             {([
               ...CLAUDE_MODELS.filter((m) => m.id).map((m) => ({ provider: "claude" as const, ...m })),
               ...CODEX_MODELS.filter((m) => m.id).map((m) => ({ provider: "codex" as const, ...m })),
@@ -319,7 +338,7 @@ export default function SettingsPage(p: {
               const key = m.provider + ":" + m.id;
               const efforts = m.provider === "claude" ? CLAUDE_EFFORTS : CODEX_EFFORTS;
               return (
-                <Row key={key} title={m.label} desc={m.provider === "claude" ? "Claude" : "Codex"}>
+                <Row key={key} title={modelLabel(m)} desc={m.provider === "claude" ? "Claude" : "Codex"}>
                   <select
                     value={modelEfforts[key] ?? ""}
                     onChange={(e) => {
@@ -330,34 +349,34 @@ export default function SettingsPage(p: {
                     }}
                   >
                     {efforts.map((l) => (
-                      <option key={l} value={l}>{l === "" ? "défaut provider" : l}</option>
+                      <option key={l} value={l}>{l === "" ? t("common.provider-default") : l}</option>
                     ))}
                   </select>
                 </Row>
               );
             })}
-            <p className="set-sub" style={{ marginTop: 24 }}>Slugs personnalisés enregistrés :</p>
+            <p className="set-sub" style={{ marginTop: 24 }}>{t("settings.slug-saved")}</p>
             {customModels.map((m, i) => (
               <Row key={m.provider + ":" + m.id + ":" + i} title={m.id} desc={m.provider === "claude" ? "Claude" : "Codex"}>
                 <button className="set-btn" onClick={() =>
                   set({ customModels: customModels.filter((_, j) => j !== i) })
-                }>Retirer</button>
+                }>{t("action.remove")}</button>
               </Row>
             ))}
             {customModels.length === 0 && (
-              <p className="set-sub">Aucun slug personnalisé pour l'instant.</p>
+              <p className="set-sub">{t("settings.no-custom-models")}</p>
             )}
           </>
         )}
         {section === "atelier" && (
           <>
-            <h1>Atelier</h1>
-            <p className="set-sub">Intégration de la galerie cmux-gallery.</p>
-            <Row title="Dossier cmux-gallery" desc="Doit contenir cmux_gallery.py. Prend effet au prochain démarrage de serveur.">
+            <h1>{t("settings.atelier")}</h1>
+            <p className="set-sub">{t("settings.atelier-sub")}</p>
+            <Row title={t("settings.gallery-folder")} desc={t("settings.gallery-folder-desc")}>
               <input className="set-text" value={s.galleryPath}
                 onChange={(e) => set({ galleryPath: e.target.value })} />
             </Row>
-            <Row title="Rechargement auto" desc="Recharger le panneau atelier quand un agent termine (figures régénérées).">
+            <Row title={t("settings.auto-refresh")} desc={t("settings.auto-refresh-desc")}>
               <input type="checkbox" checked={s.autoRefreshAtelier}
                 onChange={(e) => set({ autoRefreshAtelier: e.target.checked })} />
             </Row>
@@ -365,29 +384,29 @@ export default function SettingsPage(p: {
         )}
         {section === "providers" && (
           <>
-            <h1>Providers</h1>
-            <p className="set-sub">CLIs détectés sur cette machine (les sessions utilisent tes logins existants).</p>
-            {provs === null && <div className="set-row-desc">Vérification…</div>}
+            <h1>{t("settings.providers")}</h1>
+            <p className="set-sub">{t("settings.providers-sub")}</p>
+            {provs === null && <div className="set-row-desc">{t("settings.checking")}</div>}
             {provs?.map((pr) => (
-              <Row key={pr.id} title={pr.label} desc={pr.ok ? pr.version ?? "" : "introuvable sur le PATH"}>
-                <span className={`set-badge ${pr.ok ? "ok" : "ko"}`}>{pr.ok ? "détecté" : "absent"}</span>
+              <Row key={pr.id} title={pr.label} desc={pr.ok ? pr.version ?? "" : t("settings.path-missing")}>
+                <span className={`set-badge ${pr.ok ? "ok" : "ko"}`}>{pr.ok ? t("settings.detected") : t("settings.absent")}</span>
               </Row>
             ))}
           </>
         )}
         {section === "avance" && (
           <>
-            <h1>Avancé</h1>
-            <p className="set-sub">Diagnostic et maintenance.</p>
-            <Row title="Sidecar" desc={status ? `WebSocket sur le port ${status.port}` : "…"}>
+            <h1>{t("settings.advanced")}</h1>
+            <p className="set-sub">{t("settings.advanced-sub")}</p>
+            <Row title={t("settings.sidecar")} desc={status ? t("settings.sidecar-desc", { port: status.port }) : "…"}>
               <span className={`set-badge ${p.ws?.readyState === 1 ? "ok" : "ko"}`}>
-                {p.ws?.readyState === 1 ? "connecté" : "déconnecté"}
+                {p.ws?.readyState === 1 ? t("settings.connected") : t("settings.disconnected")}
               </span>
             </Row>
-            <Row title="Images collées" desc={status ? `${status.pastedCount} fichier(s) — ${status.pasteDir}` : "…"}>
+            <Row title={t("settings.pasted-images")} desc={status ? t("settings.pasted-images-desc", { count: status.pastedCount, dir: status.pasteDir }) : "…"}>
               <button className="set-btn"
                 onClick={() => p.ws?.readyState === 1 && p.ws.send(JSON.stringify({ type: "clearPasted" }))}>
-                Vider
+                {t("action.clear")}
               </button>
             </Row>
           </>

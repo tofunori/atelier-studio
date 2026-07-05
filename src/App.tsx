@@ -20,6 +20,7 @@ import SettingsPage from "./components/Settings";
 import { CloseIcon } from "./components/icons";
 import { loadSettings, saveSettings, Settings } from "./lib/settings";
 import { THEME_PRESETS, presetById } from "./lib/themes";
+import { setLanguage, t } from "./lib/i18n";
 import {
   atelierTargetOrigin,
   isTrustedAtelierMessage,
@@ -140,6 +141,7 @@ export default function App() {
   useEffect(() => {
     settingsRef.current = settings;
     saveSettings(settings);
+    setLanguage(settings.language);
     const root = document.documentElement;
     const r = root.style;
     r.setProperty("--chat-fs", `${settings.chatFontSize}px`);
@@ -406,7 +408,7 @@ export default function App() {
         setEvents((p) => ({
           ...p,
           [msg.threadId]: [...(p[msg.threadId] ?? []),
-            { kind: "text", text: `Conversation exportée : \`${msg.path}\` (+ .json)`, ts: Date.now() }],
+            { kind: "text", text: t("action.exported", { path: msg.path }), ts: Date.now() }],
         }));
       }
       if (msg.type === "zoteroChanged") {
@@ -421,11 +423,11 @@ export default function App() {
     }, (next) => {
       ws.current = next;
       setWs(next);
-      setAppBanner((b) => b?.text === "Sidecar déconnecté, reconnexion…" ? null : b);
+      setAppBanner((b) => b?.text === t("app.sidecar-disconnected") ? null : b);
       setWsReady(true);
     }, () => {
       setWsReady(false);
-      setAppBanner({ text: "Sidecar déconnecté, reconnexion…" });
+      setAppBanner({ text: t("app.sidecar-disconnected") });
     })
       .then((s) => {
         ws.current = s;
@@ -434,7 +436,7 @@ export default function App() {
       })
       .catch(() => {
         setMock(true);
-        setAppBanner({ text: "Sidecar déconnecté, reconnexion…" });
+        setAppBanner({ text: t("app.sidecar-disconnected") });
       });
   }, []);
 
@@ -497,7 +499,7 @@ export default function App() {
         console.error("start_atelier:", e);
         setAppBanner({
           text: `start_atelier: ${String(e)}`,
-          actionLabel: "Réglages",
+          actionLabel: t("app.start-settings"),
           onAction: () => setShowSettings(true),
           closable: true,
         });
@@ -665,7 +667,7 @@ export default function App() {
       {
         id,
         projectRoot: "",
-        title: "nouveau chat",
+        title: t("app.new-chat-title"),
         provider: "claude" as const,
         sessionId: null,
         status: "idle" as const,
@@ -684,7 +686,7 @@ export default function App() {
       {
         id,
         projectRoot,
-        title: "nouveau chat",
+        title: t("app.new-chat-title"),
         provider: "claude" as const,
         sessionId: null,
         status: "idle" as const,
@@ -832,10 +834,10 @@ export default function App() {
           ...p,
           [id]: [
             ...(p[id] ?? []),
-            { kind: "tool", name: "Bash (simulé)" },
+            { kind: "tool", name: t("app.mock-tool") },
             {
               kind: "text",
-              text: `*(mode mock — ${provider} sera branché à la fin de la plomberie)*\n\nVoici à quoi ressemblera une réponse **markdown** de l'agent.`,
+              text: t("app.mock-response", { provider }),
             },
             { kind: "done", ok: true, result: "" },
           ],
@@ -994,7 +996,7 @@ export default function App() {
                 setAnnotation(null);
               }}
             >
-              Envoyer à l'agent
+              {t("action.send-agent")}
             </button>
             <button className="ghost" onClick={() => setAnnotation(null)}>
               <CloseIcon />
@@ -1169,7 +1171,7 @@ export default function App() {
                     console.error("start_atelier:", e);
                     setAppBanner({
                       text: `start_atelier: ${String(e)}`,
-                      actionLabel: "Réglages",
+                      actionLabel: t("app.start-settings"),
                       onAction: () => setShowSettings(true),
                       closable: true,
                     });

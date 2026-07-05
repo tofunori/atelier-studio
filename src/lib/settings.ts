@@ -9,6 +9,7 @@ export type Settings = {
   chatLineHeight: number;
   galleryPath: string;
   autoRefreshAtelier: boolean;
+  language: "fr" | "en" | "system";
   theme: "dark" | "light" | "system";
   themePreset: string;
   accentColor: string;
@@ -37,6 +38,7 @@ export const DEFAULT_SETTINGS: Settings = {
   chatLineHeight: 1.7,
   galleryPath: "~/Documents/cmux-gallery",
   autoRefreshAtelier: true,
+  language: "system",
   theme: "dark",
   themePreset: "atelier",
   accentColor: "",

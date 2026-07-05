@@ -1,4 +1,5 @@
 import { CloseIcon } from "./icons";
+import { t } from "../lib/i18n";
 
 export default function Banner(p: {
   text: string;
@@ -15,7 +16,7 @@ export default function Banner(p: {
         </button>
       )}
       {p.onClose && (
-        <button type="button" className="ghost" onClick={p.onClose} aria-label="Fermer">
+        <button type="button" className="ghost" onClick={p.onClose} aria-label={t("action.close")}>
           <CloseIcon />
         </button>
       )}

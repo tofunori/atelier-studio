@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { Thread } from "../lib/ws";
 import { PROJ_COLORS } from "./Rail";
 import { wsSend } from "../lib/wsBus";
+import { t } from "../lib/i18n";
 import { PlusIcon, ProviderIcon, ResumeIcon, SettingsIcon, SidebarIcon } from "./icons";
 
 type Menu = { x: number; y: number; threadId: string };
@@ -19,13 +20,13 @@ function relativeDate(value?: string): string {
   const ts = value ? new Date(value).getTime() : NaN;
   if (!Number.isFinite(ts)) return "";
   const diff = Date.now() - ts;
-  if (diff < 60_000) return "à l'instant";
+  if (diff < 60_000) return t("time.just-now");
   const min = Math.floor(diff / 60_000);
-  if (min < 60) return `il y a ${min} min`;
+  if (min < 60) return t("time.minutes-ago", { count: min });
   const hours = Math.floor(min / 60);
-  if (hours < 24) return `il y a ${hours} h`;
+  if (hours < 24) return t("time.hours-ago", { count: hours });
   const days = Math.floor(hours / 24);
-  if (days === 1) return "hier";
+  if (days === 1) return t("time.yesterday");
   if (days < 7) return `${days} j`;
   return new Date(ts).toLocaleDateString([], { day: "2-digit", month: "2-digit" });
 }
@@ -165,14 +166,14 @@ export default function Sidebar(p: {
     <div className="sidebar">
       <div className="side-top">
         <span className="flex" />
-        <button className="mini compact-btn" title="Barre compacte" onClick={p.onCompact}>
+        <button className="mini compact-btn" title={t("action.collapse-sidebar")} onClick={p.onCompact}>
           <SidebarIcon />
         </button>
       </div>
       {p.favorites.length > 0 && (
         <>
           <div className="section sec-toggle" onClick={() => toggleSec("fav")}>
-            <span><span className="chev">{secClosed.fav ? "▸" : "▾"}</span> Favoris</span>
+            <span><span className="chev">{secClosed.fav ? "▸" : "▾"}</span> {t("sidebar.favorites")}</span>
           </div>
           <ul className="fav-list" style={{ display: secClosed.fav ? "none" : undefined }}>
             {p.favorites
@@ -201,9 +202,9 @@ export default function Sidebar(p: {
         </>
       )}
       <div className="section sec-toggle" onClick={() => toggleSec("proj")}>
-        <span><span className="chev">{secClosed.proj ? "▸" : "▾"}</span> Projets</span>
+        <span><span className="chev">{secClosed.proj ? "▸" : "▾"}</span> {t("sidebar.projects")}</span>
         <span className="section-actions" onClick={(e) => e.stopPropagation()}>
-          <button className="mini compact-btn" title="Ajouter un projet" onClick={p.onAddProject}>
+          <button className="mini compact-btn" title={t("action.add-project")} onClick={p.onAddProject}>
             <PlusIcon />
           </button>
         </span>
@@ -229,7 +230,7 @@ export default function Sidebar(p: {
                 setLabelDraft(p.projMeta[root]?.label ?? "");
                 setProjMenu({ root, x: e.clientX, y: e.clientY });
               }}
-              title="Double-clic : replier/déplier — clic droit : couleur/icône"
+              title={t("action.toggle-project")}
             >
               <span className="chev">{collapsed.includes(root) ? "▸" : "▾"}</span>
               <span
@@ -242,7 +243,7 @@ export default function Sidebar(p: {
               {active && (
                 <button
                   className="mini"
-                  title="Nouveau chat"
+                  title={t("action.new-chat")}
                   onClick={(e) => {
                     e.stopPropagation();
                     p.onNew(root);
@@ -285,13 +286,13 @@ export default function Sidebar(p: {
         );
       })}
       <div className="section sec-toggle" onClick={() => toggleSec("chats")}>
-        <span><span className="chev">{secClosed.chats ? "▸" : "▾"}</span> Chats</span>
+        <span><span className="chev">{secClosed.chats ? "▸" : "▾"}</span> {t("sidebar.chats")}</span>
         <span className="section-actions" onClick={(e) => e.stopPropagation()}>
-          <button className="mini compact-btn" title="Reprendre une session existante (Claude/Codex)"
+          <button className="mini compact-btn" title={t("action.resume-session-existing")}
             onClick={() => openResume("claude")}>
             <ResumeIcon />
           </button>
-          <button className="mini compact-btn" title="Nouveau chat sans projet" onClick={p.onNewChat}>
+          <button className="mini compact-btn" title={t("sidebar.new-chat-no-project")} onClick={p.onNewChat}>
             <PlusIcon />
           </button>
         </span>
@@ -324,13 +325,13 @@ export default function Sidebar(p: {
         </ul>
       )}
       <span className="side-flex" />
-      <button className="settings-btn" title="Réglages" onClick={p.onSettings}>
+      <button className="settings-btn" title={t("action.settings")} onClick={p.onSettings}>
         <SettingsIcon size={14} />
-        <span>Réglages</span>
+        <span>{t("sidebar.settings")}</span>
       </button>
       {resumeOpen && (
         <div className="rail-menu resume-pop" onClick={(e) => e.stopPropagation()}>
-          <div className="rail-menu-title">Reprendre une session</div>
+          <div className="rail-menu-title">{t("sidebar.resume-title")}</div>
           <div className="seg">
             {(["claude", "codex"] as const).map((pv) => (
               <button key={pv} className={resumeProv === pv ? "on" : ""} onClick={() => openResume(pv)}>
@@ -339,8 +340,8 @@ export default function Sidebar(p: {
             ))}
           </div>
           <div className="resume-list">
-            {sessions === null && <div className="bh-empty">Chargement…</div>}
-            {sessions?.length === 0 && <div className="bh-empty">Aucune session trouvée.</div>}
+            {sessions === null && <div className="bh-empty">{t("sidebar.loading")}</div>}
+            {sessions?.length === 0 && <div className="bh-empty">{t("sidebar.no-session")}</div>}
             {sessions?.map((s) => (
               <div key={s.id} className="resume-item"
                 onClick={() => {
@@ -355,7 +356,7 @@ export default function Sidebar(p: {
               </div>
             ))}
           </div>
-          <button className="set-btn" onClick={() => setResumeOpen(false)}>Fermer</button>
+          <button className="set-btn" onClick={() => setResumeOpen(false)}>{t("sidebar.close")}</button>
         </div>
       )}
       {projMenu && (
@@ -378,7 +379,7 @@ export default function Sidebar(p: {
             ))}
             <span
               className="swatch none"
-              title="Sans couleur"
+              title={t("sidebar.without-color")}
               onClick={() =>
                 p.onSetMeta(projMenu.root, { ...p.projMeta[projMenu.root], color: undefined })
               }
@@ -387,7 +388,7 @@ export default function Sidebar(p: {
             </span>
           </div>
           <input
-            placeholder="Lettre ou emoji (ex. 🧊)"
+            placeholder={t("sidebar.label-placeholder")}
             value={labelDraft}
             maxLength={2}
             onChange={(e) => setLabelDraft(e.target.value)}
@@ -413,7 +414,7 @@ export default function Sidebar(p: {
               setMenu(null);
             }}
           >
-            Renommer
+            {t("action.rename")}
           </div>
           <div
             onClick={() => {
@@ -421,7 +422,7 @@ export default function Sidebar(p: {
               setMenu(null);
             }}
           >
-            {p.favorites.includes(menu.threadId) ? "Retirer des favoris" : "Ajouter aux favoris"}
+            {p.favorites.includes(menu.threadId) ? t("action.remove-favorite") : t("action.add-favorite")}
           </div>
           <div
             onClick={() => {
@@ -436,7 +437,7 @@ export default function Sidebar(p: {
               setMenu(null);
             }}
           >
-            Copier la commande resume (CLI)
+            {t("action.copy-resume")}
           </div>
           <div
             className="danger"
@@ -445,7 +446,7 @@ export default function Sidebar(p: {
               setMenu(null);
             }}
           >
-            Supprimer
+            {t("action.delete")}
           </div>
         </div>
       )}

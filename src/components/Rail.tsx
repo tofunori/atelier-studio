@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { t } from "../lib/i18n";
 import { PlusIcon, SettingsIcon, SidebarIcon } from "./icons";
 
 export type ProjMeta = { color?: string; label?: string };
@@ -30,7 +31,7 @@ export default function Rail(p: {
 
   return (
     <div className="rail" onClick={() => setMenu(null)}>
-      <button className="rail-btn" title="Déplier la sidebar" onClick={p.onExpand}>
+      <button className="rail-btn" title={t("action.expand-sidebar")} onClick={p.onExpand}>
         <SidebarIcon />
       </button>
       {p.projects.map((root) => {
@@ -55,11 +56,11 @@ export default function Rail(p: {
           </button>
         );
       })}
-      <button className="rail-btn" title="Ajouter un projet" onClick={p.onAddProject}>
+      <button className="rail-btn" title={t("action.add-project")} onClick={p.onAddProject}>
         <PlusIcon />
       </button>
       <span className="flex" />
-      <button className="rail-btn" title="Réglages" onClick={p.onSettings}>
+      <button className="rail-btn" title={t("action.settings")} onClick={p.onSettings}>
         <SettingsIcon />
       </button>
       {menu && (
@@ -76,14 +77,14 @@ export default function Rail(p: {
             ))}
             <span
               className="swatch none"
-              title="Sans couleur"
+              title={t("sidebar.without-color")}
               onClick={() => p.onSetMeta(menu.root, { ...p.meta[menu.root], color: undefined })}
             >
               ∅
             </span>
           </div>
           <input
-            placeholder="Lettre ou emoji (ex. 🧊)"
+            placeholder={t("sidebar.label-placeholder")}
             value={labelDraft}
             maxLength={2}
             onChange={(e) => setLabelDraft(e.target.value)}

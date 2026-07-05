@@ -5,6 +5,7 @@ import BrowserTab from "./BrowserTab";
 import GitSurface from "./GitSurface";
 import TerminalSurface from "./TerminalSurface";
 import BiblioSurface from "./BiblioSurface";
+import { t } from "../lib/i18n";
 import { BookIcon, BranchIcon, CloseIcon, CollapseIcon, ExpandIcon, OpenIcon, RefreshIcon } from "./icons";
 
 type Tab = { id: string; url: string; title: string; color?: string; pinned?: boolean; kind?: "term"; cwd?: string };
@@ -12,10 +13,10 @@ const TAB_COLORS = ["#e05d5d", "#e8823a", "#8b5cf6", "#3b82f6", "#22b07d", "#e0b
 
 type Surface = "atelier" | "browser" | "terminal" | "git" | "biblio";
 
-const SURFACES: { id: Surface; label: string; icon: React.ReactNode }[] = [
+const SURFACES: { id: Surface; labelKey: "atelier.surface" | "atelier.browser" | "atelier.terminal" | "atelier.git" | "atelier.biblio"; icon: React.ReactNode }[] = [
   {
     id: "atelier",
-    label: "Atelier",
+    labelKey: "atelier.surface",
     icon: (
       <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3">
         <rect x="1.5" y="1.5" width="5.2" height="5.2" rx="1" />
@@ -27,7 +28,7 @@ const SURFACES: { id: Surface; label: string; icon: React.ReactNode }[] = [
   },
   {
     id: "browser",
-    label: "Browser",
+    labelKey: "atelier.browser",
     icon: (
       <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.2">
         <circle cx="8" cy="8" r="6.2" />
@@ -37,7 +38,7 @@ const SURFACES: { id: Surface; label: string; icon: React.ReactNode }[] = [
   },
   {
     id: "terminal",
-    label: "Terminal",
+    labelKey: "atelier.terminal",
     icon: (
       <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.2">
         <rect x="1.8" y="2.8" width="12.4" height="10.4" rx="2" />
@@ -47,12 +48,12 @@ const SURFACES: { id: Surface; label: string; icon: React.ReactNode }[] = [
   },
   {
     id: "git",
-    label: "Git",
+    labelKey: "atelier.git",
     icon: <BranchIcon />,
   },
   {
     id: "biblio",
-    label: "Bibliothèque",
+    labelKey: "atelier.biblio",
     icon: <BookIcon />,
   },
 ];
@@ -168,26 +169,26 @@ export default function AtelierPane({
             onClick={() => switchSurface(s.id)}
           >
             {s.icon}
-            <span className="surf-label">{s.label}</span>
+            <span className="surf-label">{t(s.labelKey)}</span>
             {s.id === "git" && gitCount > 0 && <span className="surf-badge">{gitCount}</span>}
           </button>
         ))}
         <span className="flex" />
-        <button className="ghost" title={layout === "atelier" ? "Restaurer le split (⌘0)" : "Atelier pleine largeur (⌘2)"} onClick={onToggleExpand}>
+        <button className="ghost" title={layout === "atelier" ? t("action.restore-split-atelier") : t("atelier.full")} onClick={onToggleExpand}>
           {layout === "atelier" ? <CollapseIcon /> : <ExpandIcon />}
         </button>
         {surface === "atelier" && (
           <>
-            <button className={`ghost ${showExplorer ? "on" : ""}`} title="Explorateur de fichiers"
+            <button className={`ghost ${showExplorer ? "on" : ""}`} title={t("atelier.file-explorer")}
               onClick={() => setShowExplorer((v) => !v)}>
               <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.2">
                 <path d="M1.8 4.2c0-.7.5-1.2 1.2-1.2h3l1.4 1.6h5.6c.7 0 1.2.5 1.2 1.2v6c0 .7-.5 1.2-1.2 1.2H3c-.7 0-1.2-.5-1.2-1.2v-7.6z" />
               </svg>
             </button>
-            <button className="ghost" title="Recharger (relance le serveur si mort)" onClick={onHardReload}>
+            <button className="ghost" title={t("action.refresh-hard")} onClick={onHardReload}>
               <RefreshIcon />
             </button>
-            <button className="ghost" title="Ouvrir dans le navigateur" onClick={() => openUrl(current?.url ?? url)}>
+            <button className="ghost" title={t("action.open-browser")} onClick={() => openUrl(current?.url ?? url)}>
               <OpenIcon />
             </button>
           </>
@@ -198,7 +199,7 @@ export default function AtelierPane({
       <div className="surface-body" style={{ display: surface === "atelier" ? "flex" : "none" }}>
         <div className="atelier-bar">
           <button className={`atab ${activeTab === "gallery" ? "on" : ""}`} onClick={() => onSelectTab("gallery")}>
-            galerie
+            {t("atelier.gallery")}
           </button>
           {tabs.filter((t) => t.kind !== "term").map((t) => (
             <button
@@ -235,7 +236,7 @@ export default function AtelierPane({
                   <span key={i} />
                 ))}
               </div>
-              <div className="atelier-skeleton-text">Démarrage de l'atelier…</div>
+              <div className="atelier-skeleton-text">{t("atelier.loading")}</div>
             </div>
           )}
           {url && (
@@ -290,7 +291,7 @@ export default function AtelierPane({
         <div className="ctx-menu" style={{ left: tabMenu.x, top: tabMenu.y, position: "fixed", zIndex: 200 }}
           onClick={(e) => e.stopPropagation()}>
           <div onClick={() => { onPinTab(tabMenu.id); setTabMenu(null); }}>
-            {tabs.find((t) => t.id === tabMenu.id)?.pinned ? "Désépingler" : "Épingler l'onglet"}
+            {tabs.find((t) => t.id === tabMenu.id)?.pinned ? t("action.unpin-tab") : t("action.pin-tab")}
           </div>
           <div className="swatches" style={{ padding: "6px 10px" }}>
             {TAB_COLORS.map((col) => (
@@ -300,7 +301,7 @@ export default function AtelierPane({
             <span className="swatch none" onClick={() => { onColorTab(tabMenu.id, undefined); setTabMenu(null); }}>∅</span>
           </div>
           <div className="danger" onClick={() => { onCloseTab(tabMenu.id); setTabMenu(null); }}>
-            Fermer
+            {t("action.close-tab")}
           </div>
         </div>
       )}
