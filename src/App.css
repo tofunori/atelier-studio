@@ -292,13 +292,12 @@ html, body, #root, .app { height: 100vh; overflow: hidden;
   min-width: 0; color: var(--muted2); font-size: 12.5px; line-height: 1.3;
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis; animation: pulse 1.8s ease-in-out infinite; }
 .working-tool span:last-child { overflow: hidden; text-overflow: ellipsis; }
-.stop-hint { background: transparent; border: none; color: var(--muted2); font-size: 11.5px;
-  padding: 2px 4px; cursor: pointer; align-self: flex-start; display: flex; gap: 6px;
-  align-items: center; }
-.stop-hint kbd { background: var(--bg-ctl); border: 1px solid var(--border); border-radius: 5px;
-  padding: 0 6px; font-size: 10.5px; font-family: inherit; color: var(--muted); }
-.stop-hint:hover { color: #e06c75; }
-.stop-hint:hover kbd { border-color: #e06c75; color: #e06c75; }
+.stop-hint { background: transparent; border: none; color: var(--muted2); font-size: 11px;
+  padding: 2px 0; cursor: pointer; display: inline-flex; gap: 6px; align-items: center;
+  justify-self: start; grid-column: 1; }
+.stop-hint kbd { background: var(--bg-ctl); border: 1px solid var(--border); border-radius: 4px;
+  padding: 0 5px; font-size: 10px; font-family: inherit; color: var(--muted2); line-height: 1.5; }
+.stop-hint:hover, .stop-hint:hover kbd { color: var(--fg2); border-color: var(--border2); }
 .queue-btn { background: transparent; border: 1px solid var(--border2); border-radius: 999px;
   color: var(--muted); font-size: 12px; padding: 5px 12px; cursor: pointer; white-space: nowrap; }
 .queue-btn:hover:not(:disabled) { color: #fff; border-color: #5b9dff; }

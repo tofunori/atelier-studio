@@ -111,6 +111,8 @@ export default function App() {
   const [draftThreads, setDraftThreads] = useState<Thread[]>([]);
   const [events, setEvents] = useState<Record<string, AgentEvent[]>>({});
   const [workingSince, setWorkingSince] = useState<Record<string, number | null>>({});
+  const workingSinceRef = useRef<Record<string, number | null>>({});
+  workingSinceRef.current = workingSince;
   const [usageByThread, setUsageByThread] = useState<
     Record<string, { context: number; output: number; cost: number | null; turns: number | null }>
   >({});
@@ -703,6 +705,13 @@ export default function App() {
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape" && !qaOpen && !paletteOpen && !usageOpen) {
+        const id = activeIdRef.current;
+        if (id && workingSinceRef.current[id] != null && ws.current?.readyState === 1) {
+          ws.current.send(JSON.stringify({ type: "interrupt", threadId: id }));
+          return;
+        }
+      }
       if (e.metaKey && e.altKey && e.key.toLowerCase() === "k") {
         e.preventDefault();
         setQaDraft("");
