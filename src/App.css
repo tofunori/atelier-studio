@@ -1168,10 +1168,11 @@ body.dragging iframe { pointer-events: none; }
 .review-issue.s-high { border-left-color: #e06c75; }
 .ri-claim { color: var(--fg2); font-style: italic; }
 .ri-problem { color: var(--muted); margin-top: 2px; }
-/* ===== barre reviewer (A) épinglée en haut du fil ===== */
-.reviewer-bar { position: sticky; top: 0; z-index: 12; display: flex; align-items: center;
-  gap: 9px; padding: 8px 14px; margin: -24px -24px 14px; background: var(--bg-card);
-  border-bottom: 1px solid var(--border); font-size: 12px; backdrop-filter: blur(6px); }
+/* ===== barre reviewer (A) ancrée en haut du chat ===== */
+.reviewer-bar { appearance: none; -webkit-appearance: none; display: flex; align-items: center;
+  gap: 9px; width: 100%; padding: 9px 16px; margin: 0; background: var(--bg-side);
+  border: none; border-bottom: 1px solid var(--border); font: inherit; font-size: 12px;
+  color: var(--fg); text-align: left; box-sizing: border-box; }
 .reviewer-bar .rb-ico { flex-shrink: 0; color: var(--muted); }
 .reviewer-bar.v-ok .rb-ico { color: #98c379; }
 .reviewer-bar.v-issues .rb-ico { color: #e0b74a; }
@@ -1190,8 +1191,8 @@ body.dragging iframe { pointer-events: none; }
 
 /* menu déroulant de la barre reviewer + correction */
 .reviewer-wrap { position: relative; flex-shrink: 0; z-index: 12; }
-.reviewer-bar { width: 100%; text-align: left; }
 .reviewer-bar.clickable { cursor: pointer; }
+.reviewer-bar.clickable:hover { background: var(--bg-ctl); }
 .rb-chevron { color: var(--muted2); font-size: 9px; margin-left: 4px; }
 .reviewer-menu { position: absolute; top: 100%; left: 0; right: 0; z-index: 30;
   background: var(--bg-pop); border: 1px solid var(--border2); border-top: none;
