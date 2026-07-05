@@ -409,6 +409,9 @@ export default function App() {
             { kind: "text", text: `Conversation exportée : \`${msg.path}\` (+ .json)`, ts: Date.now() }],
         }));
       }
+      if (msg.type === "zoteroChanged") {
+        window.dispatchEvent(new CustomEvent("zotero-changed"));
+      }
       if (msg.type === "sessions") {
         window.dispatchEvent(new CustomEvent("sessions-list", { detail: msg.sessions }));
       }

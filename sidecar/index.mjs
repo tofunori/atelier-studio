@@ -8,6 +8,7 @@ import { ThreadStore, writeFileAtomic } from "./store.mjs";
 import * as catalog from "./catalog.mjs";
 import * as history from "./history.mjs";
 import { watchAnnotations } from "./annotations.mjs";
+import { watchFile } from "node:fs";
 import * as terminal from "./terminal.mjs";
 import * as sessions from "./sessions.mjs";
 import * as gitops from "./gitops.mjs";
@@ -220,6 +221,14 @@ function broadcast(obj) {
 httpServer.on("listening", () => {
   console.log(JSON.stringify({ port: httpServer.address().port }));
 });
+
+// papier ajouté/modifié dans Zotero → la Bibliothèque se rafraîchit toute seule
+try {
+  const zoteroDb = `${homedir()}/Zotero/zotero.sqlite`;
+  watchFile(zoteroDb, { interval: 4000 }, () => {
+    broadcast({ type: "zoteroChanged" });
+  });
+} catch {}
 
 watchAnnotations(broadcast);
 

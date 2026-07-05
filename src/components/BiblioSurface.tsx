@@ -133,15 +133,21 @@ export default function BiblioSurface({
       const msg = (e as CustomEvent).detail as { key: string; fav: boolean };
       setItems((prev) => prev.map((item) => (item.key === msg.key ? { ...item, fav: msg.fav } : item)));
     };
+    const onChanged = () => {
+      send(ws, { type: "zoteroSearch", query, collectionId: filter === "collection" ? collectionId : null });
+      send(ws, { type: "zoteroCollections" });
+    };
+    window.addEventListener("zotero-changed", onChanged);
     window.addEventListener("zotero-items", onItems);
     window.addEventListener("zotero-collections", onCollections);
     window.addEventListener("zotero-fav", onFav);
     return () => {
+      window.removeEventListener("zotero-changed", onChanged);
       window.removeEventListener("zotero-items", onItems);
       window.removeEventListener("zotero-collections", onCollections);
       window.removeEventListener("zotero-fav", onFav);
     };
-  }, [selectedKey]);
+  }, [selectedKey, ws, query, filter, collectionId]);
 
   useEffect(() => {
     send(ws, { type: "zoteroCollections" });
