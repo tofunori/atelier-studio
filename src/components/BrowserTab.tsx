@@ -1,7 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import { getCurrentWebview } from "@tauri-apps/api/webview";
-import { getCurrentWindow } from "@tauri-apps/api/window";
+
 import { wsSend } from "../lib/wsBus";
 
 type LocalServer = { port: number; title: string | null };
@@ -19,15 +18,21 @@ export default function BrowserTab(p: {
   const scanned = useRef(false);
   const areaRef = useRef<HTMLDivElement>(null);
   const urlRef = useRef<string | null>(null);
-  const offsetRef = useRef({ x: 0, y: 0 });
+  // correction d'origine auto-calibrée : on demande une position, on relit la
+  // position réelle, l'écart devient la correction (indépendant des conventions
+  // de coordonnées Tauri/macOS)
+  const corrRef = useRef({ x: 0, y: 0 });
 
-  // la position d'un child webview est relative à la FENÊTRE (barre de titre
-  // incluse) : mesurer où commence la webview principale pour compenser
-  async function measureOffset() {
+  async function calibrate(wanted: { x: number; y: number }) {
     try {
-      const pos = await getCurrentWebview().position();
-      const scale = await getCurrentWindow().scaleFactor();
-      offsetRef.current = { x: pos.x / scale, y: pos.y / scale };
+      const [ax, ay] = await invoke<[number, number]>("browser_probe");
+      const dx = wanted.x - ax;
+      const dy = wanted.y - ay;
+      if (Math.abs(dx) > 1 || Math.abs(dy) > 1) {
+        corrRef.current = { x: corrRef.current.x + dx, y: corrRef.current.y + dy };
+        const r = rect();
+        if (r) await invoke("browser_bounds", r);
+      }
     } catch {}
   }
 
@@ -39,8 +44,8 @@ export default function BrowserTab(p: {
     const r = areaRef.current?.getBoundingClientRect();
     if (!r || r.width < 10) return null;
     return {
-      x: r.left + offsetRef.current.x,
-      y: r.top + offsetRef.current.y,
+      x: r.left + corrRef.current.x,
+      y: r.top + corrRef.current.y,
       w: r.width,
       h: r.height,
     };
@@ -52,7 +57,6 @@ export default function BrowserTab(p: {
   }
 
   function navigate(raw: string) {
-    measureOffset().then(() => setTimeout(syncBounds, 60));
     let u = raw.trim();
     if (!u) return;
     if (!/^https?:\/\//.test(u)) {
@@ -63,8 +67,13 @@ export default function BrowserTab(p: {
     setUrl(u);
     urlRef.current = u;
     setInput(u);
-    const r = rect();
-    if (r) invoke("browser_show", { url: u, ...r }).catch(() => {});
+    const r0 = areaRef.current?.getBoundingClientRect();
+    if (r0) {
+      const wanted = { x: r0.left + corrRef.current.x, y: r0.top + corrRef.current.y };
+      invoke("browser_show", { url: u, x: wanted.x, y: wanted.y, w: r0.width, h: r0.height })
+        .then(() => setTimeout(() => calibrate({ x: r0.left, y: r0.top }), 150))
+        .catch(() => {});
+    }
     try {
       p.onTitle(new URL(u).hostname || "browser");
     } catch {}
@@ -117,7 +126,6 @@ export default function BrowserTab(p: {
     if (!scanned.current) {
       scanned.current = true;
       scan();
-      measureOffset();
     }
     return () => window.removeEventListener("local-servers", onServers);
   }, []);

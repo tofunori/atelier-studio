@@ -16,7 +16,8 @@ pub fn run() {
             browser::browser_hide,
             browser::browser_show_again,
             browser::browser_eval,
-            browser::browser_url
+            browser::browser_url,
+            browser::browser_probe
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

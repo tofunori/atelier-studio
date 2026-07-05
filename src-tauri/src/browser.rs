@@ -70,3 +70,16 @@ pub fn browser_url(app: AppHandle) -> Result<String, String> {
     }
     Ok(String::new())
 }
+
+#[tauri::command]
+pub fn browser_probe(app: AppHandle) -> Result<(f64, f64), String> {
+    if let Some(wv) = find_webview(&app) {
+        let pos = wv.position().map_err(|e| e.to_string())?;
+        let scale = app
+            .get_window("main")
+            .and_then(|w| w.scale_factor().ok())
+            .unwrap_or(1.0);
+        return Ok((pos.x as f64 / scale, pos.y as f64 / scale));
+    }
+    Err("pas de webview".into())
+}
