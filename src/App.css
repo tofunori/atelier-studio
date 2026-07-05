@@ -1075,3 +1075,10 @@ body.dragging iframe { pointer-events: none; }
 .qa-minipill:hover { color: var(--fg); border-color: var(--muted2); }
 .qa-minidot { width: 7px; height: 7px; border-radius: 50%; background: var(--accent);
   animation: pulse 1.6s ease-in-out infinite; }
+/* menu @ : icônes colorées + lignes aérées + mention pilule */
+.suggest li { padding: 7px 10px; border-radius: 8px; }
+.ftype { font-size: 9px; font-weight: 650; letter-spacing: 0.02em; border: none;
+  border-radius: 5px; padding: 2px 5px; min-width: 20px; text-align: center;
+  flex-shrink: 0; display: inline-flex; align-items: center; justify-content: center; }
+.ftype.neutral { color: var(--muted); background: var(--bg-ctl); }
+.at-mention { color: #7aa8e8; background: rgba(122,168,232,0.13); border-radius: 5px; }

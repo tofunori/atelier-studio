@@ -151,19 +151,38 @@ function Working({ since }: { since: number }) {
 function FileTypeIcon({ ext }: { ext: string }) {
   if (ext === "local")
     return (
-      <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3">
-        <rect x="2" y="3" width="12" height="8" rx="1.5" /><path d="M5.5 13.5h5" />
-      </svg>
+      <span className="ftype neutral">
+        <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3">
+          <rect x="2" y="3" width="12" height="8" rx="1.5" /><path d="M5.5 13.5h5" />
+        </svg>
+      </span>
     );
-  const label = ext === "pdf" ? "PDF" : ["md", "markdown"].includes(ext) ? "M↓"
-    : ["py"].includes(ext) ? "PY" : ["tex"].includes(ext) ? "TX"
-    : ["png", "jpg", "jpeg", "svg", "gif", "webp"].includes(ext) ? "IMG"
-    : ["json"].includes(ext) ? "{}" : "<>";
-  const color = ext === "pdf" ? "#e06c75" : ["png", "jpg", "jpeg", "svg", "gif", "webp"].includes(ext) ? "#98c379" : "var(--muted2)";
-  return <span className="ftype" style={{ color }}>{label}</span>;
+  if (ext === "dir")
+    return (
+      <span className="ftype neutral">
+        <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3">
+          <path d="M1.8 4.2c0-.7.5-1.2 1.2-1.2h3l1.4 1.6h5.6c.7 0 1.2.5 1.2 1.2v6c0 .7-.5 1.2-1.2 1.2H3c-.7 0-1.2-.5-1.2-1.2v-7.6z" />
+        </svg>
+      </span>
+    );
+  const map: Record<string, [string, string]> = {
+    py: ["Py", "#61afef"], md: ["M↓", "#61afef"], markdown: ["M↓", "#61afef"],
+    tex: ["Tx", "#98c379"], pdf: ["PDF", "#e06c75"],
+    js: ["JS", "#e0b74a"], mjs: ["JS", "#e0b74a"], ts: ["TS", "#61afef"], tsx: ["TS", "#61afef"],
+    json: ["{}", "#e0b74a"], css: ["#", "#c678dd"], html: ["<>", "#e8823a"],
+    png: ["IMG", "#98c379"], jpg: ["IMG", "#98c379"], jpeg: ["IMG", "#98c379"],
+    svg: ["IMG", "#98c379"], gif: ["IMG", "#98c379"], webp: ["IMG", "#98c379"],
+    sh: ["$", "#98c379"], jl: ["Jl", "#c678dd"], r: ["R", "#61afef"],
+  };
+  const [label, color] = map[ext] ?? ["<>", "var(--muted2)"];
+  return (
+    <span className="ftype" style={{ color, background: `color-mix(in srgb, ${color} 14%, transparent)` }}>
+      {label}
+    </span>
+  );
 }
 
-type Suggestion = { insert: string; label: string; hint?: string; section?: string; icon?: string };
+type Suggestion = { insert: string; label: string; hint?: string; section?: string; icon?: string; keep?: boolean };
 
 function isValidSkill(token: string, commands: { name: string }[]): boolean {
   const name = token.replace(/^\//, "");
@@ -447,6 +466,25 @@ export default function Chat(p: {
     if ("local".startsWith(q) || q === "") {
       suggestions.push({ insert: "__browse__", label: "@local", hint: t("at.browse"), section: t("at.local"), icon: "local" });
     }
+    // dossiers correspondants (clic = descendre dedans, l'autocomplétion continue)
+    const dirSet = new Set<string>();
+    for (const f of p.files) {
+      const parts = f.split("/");
+      for (let d = 1; d < parts.length; d++) {
+        const dir = parts.slice(0, d).join("/");
+        if (dir.toLowerCase().includes(q)) dirSet.add(dir);
+      }
+    }
+    suggestions.push(
+      ...[...dirSet].sort((a, b) => a.length - b.length).slice(0, 4).map((dir) => ({
+        insert: base + `@${dir}/`,
+        label: dir.split("/").pop() ?? dir,
+        hint: dir.includes("/") ? dir.slice(0, dir.lastIndexOf("/")) : "",
+        section: t("at.files"),
+        icon: "dir",
+        keep: true,
+      }))
+    );
     suggestions.push(
       ...p.files
         .filter((f) => f.toLowerCase().includes(q))
@@ -961,7 +999,9 @@ export default function Chat(p: {
         )}
         <div className={`ta-wrap ${(() => {
           const m = /^(\/[\w:-]+)/.exec(text);
-          return m && isValidSkill(m[1], p.commands) ? "slash-active" : "";
+          if (m && isValidSkill(m[1], p.commands)) return "slash-active";
+          if (/(^|\s)@[\w./-]+/.test(text)) return "slash-active";
+          return "";
         })()}`}>
         <div className="ta-backdrop" aria-hidden="true">
           {(() => {
@@ -973,6 +1013,15 @@ export default function Chat(p: {
                   {m[2]}
                 </>
               );
+            }
+            // mentions @fichier → pilules bleues
+            const parts = text.split(/((?:^|\s)@[\w./-]+)/g);
+            if (parts.length > 1) {
+              return parts.map((seg, k) => {
+                const mm = /^(\s?)(@[\w./-]+)$/.exec(seg);
+                if (mm) return <React.Fragment key={k}>{mm[1]}<span className="at-mention">{mm[2]}</span></React.Fragment>;
+                return <React.Fragment key={k}>{seg}</React.Fragment>;
+              });
             }
             return text;
           })()}
