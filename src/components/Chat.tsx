@@ -177,7 +177,21 @@ function FileTypeIcon({ ext }: { ext: string }) {
   return <img className="fglyph" src={url} alt="" width={16} height={16} />;
 }
 
-type Suggestion = { insert: string; label: string; hint?: string; section?: string; icon?: string; keep?: boolean };
+type Suggestion = {
+  insert: string;
+  label: string;
+  hint?: string;
+  section?: string;
+  icon?: string;
+  keep?: boolean;
+  attachPath?: string;
+};
+
+function mentionLabel(path: string) {
+  const clean = path.replace(/^@/, "").replace(/\/+$/, "");
+  const name = clean.split("/").filter(Boolean).pop() ?? clean;
+  return `@${name || clean}${path.endsWith("/") ? "/" : ""}`;
+}
 
 function isValidSkill(token: string, commands: { name: string }[]): boolean {
   const name = token.replace(/^\//, "");
@@ -508,11 +522,12 @@ export default function Chat(p: {
           const name = f.split("/").pop() ?? f;
           const dir = f.includes("/") ? f.slice(0, f.lastIndexOf("/")) : "";
           return {
-            insert: base + `@${f} `,
+            insert: base + `${mentionLabel(f)} `,
             label: name,
             hint: dir,
             section: t("at.files"),
             icon: f.split(".").pop()?.toLowerCase() ?? "",
+            attachPath: f,
           };
         })
     );
@@ -530,6 +545,7 @@ export default function Chat(p: {
       setSelIdx(0);
       return;
     }
+    if (s.attachPath) p.onAttachPath?.(s.attachPath);
     setText(s.insert);
     setSelIdx(0);
   }
@@ -538,7 +554,8 @@ export default function Chat(p: {
     const picked = await open({ multiple: true });
     if (!picked) return;
     const paths = Array.isArray(picked) ? picked : [picked];
-    setText((t) => `${t}${t && !t.endsWith(" ") ? " " : ""}${paths.map((p) => `@${p}`).join(" ")} `);
+    setText((t) => `${t}${t && !t.endsWith(" ") ? " " : ""}${paths.map((p) => mentionLabel(p as string)).join(" ")} `);
+    for (const path of paths) p.onAttachPath?.(path as string);
   }
 
   const renderedEvents: (
@@ -1173,7 +1190,7 @@ export default function Chat(p: {
             if (parts.length > 1) {
               return parts.map((seg, k) => {
                 const mm = /^(\s?)(@[\w./-]+)$/.exec(seg);
-                if (mm) return <React.Fragment key={k}>{mm[1]}<span className="at-mention">{mm[2]}</span></React.Fragment>;
+                if (mm) return <React.Fragment key={k}>{mm[1]}<span className="at-mention">{mentionLabel(mm[2])}</span></React.Fragment>;
                 return <React.Fragment key={k}>{seg}</React.Fragment>;
               });
             }
