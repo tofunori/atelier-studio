@@ -63,6 +63,28 @@ function mdText(children: any): string {
 
 // composants markdown : liens externes stylés + réfs fichier:ligne cliquables
 const MD_COMPONENTS = {
+  pre: (props: any) => {
+    const child = props.children?.props ?? {};
+    const lang = /language-(\w+)/.exec(String(child.className ?? ""))?.[1] ?? "";
+    const raw = mdText(child.children);
+    return (
+      <div className="codeblock">
+        <div className="codeblock-bar">
+          <span className="codeblock-lang">{lang}</span>
+          <button type="button" className="codeblock-copy"
+            onClick={(e) => {
+              navigator.clipboard.writeText(raw);
+              const b = e.currentTarget; b.textContent = "copié";
+              setTimeout(() => { b.textContent = "copier"; }, 1200);
+            }}>copier</button>
+        </div>
+        <pre>{props.children}</pre>
+      </div>
+    );
+  },
+  table: (props: any) => (
+    <div className="md-table"><table>{props.children}</table></div>
+  ),
   a: (props: any) => {
     const label = mdText(props.children);
     const href = String(props.href ?? "");
