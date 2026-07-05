@@ -195,9 +195,15 @@ html, body, #root, .app { height: 100vh;
 /* pilules icône-seule quand le panneau est étroit (container query) */
 .surface-bar { container-type: inline-size; overflow-x: auto; scrollbar-width: none; }
 .surface-bar::-webkit-scrollbar { display: none; }
-@container (max-width: 640px) {
-  .surf .surf-label { display: none; }
-  .surf { padding: 5px 9px; }
+/* dégradation progressive : les pilules INACTIVES perdent leur libellé d'abord,
+   la pilule active le garde (repère de position) ; tout-icône en dernier recours */
+@container (max-width: 760px) {
+  .surf:not(.on) .surf-label { display: none; }
+  .surf:not(.on) { padding: 5px 9px; }
+}
+@container (max-width: 380px) {
+  .surf.on .surf-label { display: none; }
+  .surf.on { padding: 5px 9px; }
 }
 .atelier-bar { display: flex; align-items: center; gap: 4px; padding: 4px 8px;
   background: var(--bg-side); border-bottom: 1px solid var(--bg-ctl); }
