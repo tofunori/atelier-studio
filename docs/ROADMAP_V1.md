@@ -98,19 +98,22 @@ Secret/PII Guard (scan local dans submit()), badge trusted/untrusted sur contenu
 Écartés volontairement (trop plateforme vs thèse) : MCP Hub visuel, Playbook Builder,
 Permission Simulator (couvert par canUseTool + permissions par projet).
 
-## Intégration galerie (revue externe, tri 2026-07-05)
+## Intégration galerie (décision 2026-07-05 : détachement complet de cmux-gallery)
 
-- [ ] **P1 — Bundler la galerie au build** : `scripts/stage-gallery.sh` (miroir de
-  stage-sidecar) snapshotte le repo voisin `~/Documents/cmux-gallery` dans les
-  ressources Tauri (`gallery-dist`) ; `atelier.rs` cherche d'abord le clone local
-  (dev), sinon la copie bundlée. La SOURCE DE VÉRITÉ reste le repo cmux-gallery
-  (partagé avec cmux/muxy) — jamais de fork du code dans Atelier.
+- [ ] **P1 — Phase 1 : vendoriser** : copier la galerie DANS ce repo (`gallery/`),
+  bundlée au build ; tailler le code pour Studio (retirer mode cmux/muxy/orca,
+  statusline, push externes). Le repo cmux-gallery vit sa vie séparément —
+  divergence assumée, les améliorations ne circulent plus.
+- [ ] **P2 — Phase 2 : porter le serveur Python → sidecar Node, route par route**
+  (scan/index, /thumb via sips/rsvg, /pdfannot, /embed, /zotero, compile latexmk).
+  Les viewers (latex_studio, pdf_viewer, md_studio, annot_kit) restent du HTML/JS
+  statique servi tel quel. Quand la dernière route tombe, Python disparaît des
+  prérequis.
 - [ ] **P1 — Doctor** (déjà listé) : détecte aussi python3 (plus garanti sans CLT)
   et propose le chemin galerie.
-- **Écarté pour l'instant — réécriture React de l'UI galerie** : l'iframe donne déjà
-  thème synchronisé + IPC nonce + Add to chat ; les viewers (latex_studio/pdf_viewer/
-  md_studio) sont des acquis vanilla JS éprouvés. Coût/bénéfice défavorable tant que
-  Bibliothèque, langue et split ne sont pas livrés.
+- **Écarté DÉFINITIVEMENT — réécriture React de l'existant** : thème/IPC/Add to chat
+  déjà intégrés ; viewers = acquis éprouvés. Règle : le NEUF (ex. Figure Lab) peut
+  naître en React ; le vieux ne se réécrit pas.
 - **Écarté — migration Rust du backend galerie** : sur-ingénierie mono-utilisateur.
   Si la dépendance Python bloque un jour la distribution : binaire PyInstaller
   bien avant une réécriture.
