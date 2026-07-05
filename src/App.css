@@ -845,3 +845,21 @@ button.ghost.danger, button.ghost.danger:hover { color: #d98c8f; background: rgb
 .pane-row { flex: 1; min-height: 0; display: flex; }
 .pane-surfaces { flex: 1; min-width: 0; min-height: 0; display: flex; flex-direction: column; }
 .pane-surfaces > * { flex: 1; min-height: 0; }
+/* ===== split 2 panes façon cmux ===== */
+.pane-surfaces { position: relative; }
+.pane-slot { flex-direction: column; }
+.pane-slot + .pane-slot, .pane-slot ~ .pane-slot { }
+.pane-divider { width: 4px; cursor: col-resize; flex: 0 0 4px; background: transparent;
+  border-left: 1px solid var(--border); transition: background 0.12s; }
+.pane-divider:hover { background: var(--border2); }
+.pane-close { position: absolute; top: 6px; right: 6px; z-index: 55;
+  width: 22px; height: 22px; border-radius: 6px; border: 1px solid var(--border);
+  background: var(--bg-card); color: var(--muted); display: flex; align-items: center;
+  justify-content: center; cursor: pointer; }
+.pane-close:hover { color: var(--fg); border-color: var(--border2); }
+.drop-overlay { position: absolute; inset: 0; z-index: 90; display: flex; }
+.drop-zone { flex: 1; border: 2px solid transparent; border-radius: 10px; margin: 6px;
+  transition: background 0.1s, border-color 0.1s; }
+.drop-zone.hot { background: rgba(91,157,255,0.14); border-color: rgba(91,157,255,0.55); }
+.surf.second { border-bottom: 2px solid var(--border2); }
+body.dragging iframe { pointer-events: none; }

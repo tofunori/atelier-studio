@@ -96,6 +96,21 @@ export default function AtelierPane({
   onToggleExpand: () => void;
 }) {
   const [surface, setSurface] = useState<Surface>("atelier");
+  // split 2 panes : surface secondaire + largeur (%) du pane primaire, par projet
+  const splitKey = `atelier-studio.split.${projectRoot}`;
+  const [second, setSecond] = useState<Surface | null>(() => {
+    try { return (JSON.parse(localStorage.getItem(splitKey) ?? "{}").second ?? null); }
+    catch { return null; }
+  });
+  const [pct, setPct] = useState<number>(() => {
+    try { return JSON.parse(localStorage.getItem(splitKey) ?? "{}").pct ?? 50; }
+    catch { return 50; }
+  });
+  const [dragSurf, setDragSurf] = useState<Surface | null>(null);
+  const [dropHint, setDropHint] = useState<"left" | "right" | null>(null);
+  useEffect(() => {
+    localStorage.setItem(splitKey, JSON.stringify({ second, pct }));
+  }, [second, pct, splitKey]);
   const [showExplorer, setShowExplorer] = useState(() => localStorage.getItem("atelier-studio.explorer") === "1");
   useEffect(() => {
     const onSwitch = (e: Event) => {
@@ -145,8 +160,46 @@ export default function AtelierPane({
   }, [projectRoot, ws]);
 
   function switchSurface(s: Surface) {
+    if (s === second) {
+      // cliquer la pilule de la surface secondaire : échanger les panes
+      setSecond(surface);
+    }
     setSurface(s);
     setVisited((v) => new Set(v).add(s));
+  }
+  function openSecond(s: Surface) {
+    setVisited((v) => new Set(v).add(s));
+    if (s === surface) return; // déjà en primaire
+    setSecond(s);
+  }
+  const shown = (id: Surface) => id === surface || id === second;
+  function slotStyle(id: Surface): React.CSSProperties {
+    if (!shown(id)) return { display: "none" };
+    const isPrimary = id === surface;
+    return {
+      display: "flex",
+      order: isPrimary ? 0 : 2,
+      flex: second ? `0 0 calc(${isPrimary ? pct : 100 - pct}% - 2px)` : "1 1 auto",
+      minWidth: 0,
+      minHeight: 0,
+    };
+  }
+  function startDivider(e: React.MouseEvent) {
+    e.preventDefault();
+    const row = (e.currentTarget.parentElement as HTMLElement);
+    const rect = row.getBoundingClientRect();
+    document.body.classList.add("dragging");
+    const move = (ev: MouseEvent) => {
+      const p = ((ev.clientX - rect.left) / rect.width) * 100;
+      setPct(Math.min(80, Math.max(20, p)));
+    };
+    const up = () => {
+      document.body.classList.remove("dragging");
+      window.removeEventListener("mousemove", move);
+      window.removeEventListener("mouseup", up);
+    };
+    window.addEventListener("mousemove", move);
+    window.addEventListener("mouseup", up);
   }
 
   function dropOn(targetId: string) {
@@ -176,8 +229,11 @@ export default function AtelierPane({
         {SURFACES.map((s) => (
           <button
             key={s.id}
-            className={`surf ${surface === s.id ? "on" : ""}`}
+            className={`surf ${surface === s.id ? "on" : ""} ${second === s.id ? "second" : ""}`}
             onClick={() => switchSurface(s.id)}
+            draggable
+            onDragStart={(e) => { setDragSurf(s.id); e.dataTransfer.effectAllowed = "move"; }}
+            onDragEnd={() => { setDragSurf(null); setDropHint(null); }}
           >
             {s.icon}
             <span className="surf-label">{t(s.labelKey)}</span>
@@ -207,9 +263,9 @@ export default function AtelierPane({
       </div>
 
       <div className="pane-row">
-      <div className="pane-surfaces">
+      <div className="pane-surfaces" style={{ flexDirection: "row" }}>
       {/* ---- surface Atelier : galerie + onglets fichiers ---- */}
-      <div className="surface-body" style={{ display: surface === "atelier" ? "flex" : "none" }}>
+      <div className="surface-body pane-slot" style={slotStyle("atelier")}>
         <div className="atelier-bar">
           <button className={`atab ${activeTab === "gallery" ? "on" : ""}`} onClick={() => onSelectTab("gallery")}>
             {t("atelier.gallery")}
@@ -277,25 +333,62 @@ export default function AtelierPane({
 
       {/* ---- surface Browser ---- */}
       {visited.has("browser") && (
-        <BrowserTab tabId="main-browser" visible={surface === "browser"} onTitle={() => {}} />
+        <div className="pane-slot" style={slotStyle("browser")}>
+          <BrowserTab tabId="main-browser" visible={shown("browser")} onTitle={() => {}} />
+        </div>
       )}
 
       {/* ---- surface Terminal ---- */}
       {visited.has("terminal") && (
-        <TerminalSurface ws={ws} cwd={projectRoot} visible={surface === "terminal"} />
+        <div className="pane-slot" style={slotStyle("terminal")}>
+          <TerminalSurface ws={ws} cwd={projectRoot} visible={shown("terminal")} />
+        </div>
       )}
 
       {/* ---- surface Git ---- */}
       {visited.has("git") && (
-        <div className="surface-body" style={{ display: surface === "git" ? "flex" : "none" }}>
+        <div className="surface-body pane-slot" style={slotStyle("git")}>
           <GitSurface ws={ws} projectRoot={projectRoot} activeThreadId={activeThreadId} />
         </div>
       )}
 
       {/* ---- surface Bibliothèque ---- */}
       {visited.has("biblio") && (
-        <div className="surface-body" style={{ display: surface === "biblio" ? "flex" : "none" }}>
+        <div className="surface-body pane-slot" style={slotStyle("biblio")}>
           <BiblioSurface ws={ws} projectRoot={projectRoot} galleryUrl={url} />
+        </div>
+      )}
+
+      {second && <div className="pane-divider" style={{ order: 1 }} onMouseDown={startDivider} />}
+      {second && (
+        <button className="pane-close" title={t("action.close")}
+          onClick={() => setSecond(null)}>
+          <CloseIcon size={11} />
+        </button>
+      )}
+
+      {dragSurf && (
+        <div className="drop-overlay">
+          <div
+            className={`drop-zone ${dropHint === "left" ? "hot" : ""}`}
+            onDragOver={(e) => { e.preventDefault(); setDropHint("left"); }}
+            onDragLeave={() => setDropHint((h) => (h === "left" ? null : h))}
+            onDrop={(e) => {
+              e.preventDefault();
+              if (dragSurf) { setVisited((v) => new Set(v).add(dragSurf)); setSurface(dragSurf); if (second === dragSurf) setSecond(null); }
+              setDragSurf(null); setDropHint(null);
+            }}
+          />
+          <div
+            className={`drop-zone ${dropHint === "right" ? "hot" : ""}`}
+            onDragOver={(e) => { e.preventDefault(); setDropHint("right"); }}
+            onDragLeave={() => setDropHint((h) => (h === "right" ? null : h))}
+            onDrop={(e) => {
+              e.preventDefault();
+              if (dragSurf) openSecond(dragSurf);
+              setDragSurf(null); setDropHint(null);
+            }}
+          />
         </div>
       )}
       </div>
