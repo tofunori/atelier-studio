@@ -1346,6 +1346,18 @@ function annotInit(){
       }
     }, true);
   }
+  if(ANNOT_EMBEDDED){
+    // thème dynamique poussé par Studio (variables mappées sur celles de la galerie)
+    window.addEventListener('message', function(e){
+      if(!e.data || e.data.type !== 'atelier-theme') return;
+      var v = e.data.vars || {};
+      var map = {'--bg':'--bg','--bg-card':'--card','--bg-ctl':'--card2','--fg':'--txt',
+        '--muted':'--muted','--muted2':'--faint','--border':'--border',
+        '--border2':'--border-strong','--accent':'--accent'};
+      for(var k in map){ if(v[k]) document.documentElement.style.setProperty(map[k], v[k]); }
+    });
+    window.top.postMessage({type:'atelier-theme-request'}, '*');
+  }
   if(ANNOT_EMBEDDED){const st=document.createElement('style');st.textContent='.embOnly{display:inline-block !important} .embHide{display:none !important}'
       +':root{--bg:#212429;--card:#262b31;--card2:#2c313a;--txt:#e8eaed;--muted:#8a919e;--faint:#6b7482;--border:#333a45;--border-strong:#3f4652;--accent:#e8823a;--accent-soft:#3a2c20}'
       +'body{font-family:\'Inter Variable\',-apple-system,sans-serif}';document.head.appendChild(st);}

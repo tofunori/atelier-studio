@@ -6,6 +6,8 @@ import { WebLinksAddon } from "@xterm/addon-web-links";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import "@xterm/xterm/css/xterm.css";
 import { wsSend, wsReady } from "../lib/wsBus";
+import { xtermThemeFor } from "../lib/themes";
+import { loadSettings } from "../lib/settings";
 
 export default function Terminal(p: {
   termId: string;
@@ -35,17 +37,7 @@ export default function Terminal(p: {
       scrollback: 10000,
       macOptionIsMeta: true,
       allowProposedApi: true,
-      theme: {
-        background: "#1a1d22",
-        foreground: "#e8eaed",
-        cursor: "#e8823a",
-        selectionBackground: "rgba(91,157,255,0.35)",
-        black: "#1a1d22", red: "#e06c75", green: "#98c379", yellow: "#e5c07b",
-        blue: "#61afef", magenta: "#c678dd", cyan: "#56b6c2", white: "#dcdfe4",
-        brightBlack: "#5a616d", brightRed: "#ff7a85", brightGreen: "#a9d47f",
-        brightYellow: "#f0ca79", brightBlue: "#74bdf7", brightMagenta: "#d894e8",
-        brightCyan: "#6cd0dd", brightWhite: "#ffffff",
-      },
+      theme: xtermThemeFor(loadSettings().themePreset),
     });
     const fit = new FitAddon();
     term.loadAddon(fit);
@@ -73,6 +65,10 @@ export default function Terminal(p: {
       tryOpen();
     }, 500);
 
+    const onTheme = (e: Event) => {
+      term.options.theme = xtermThemeFor((e as CustomEvent).detail as string);
+    };
+    window.addEventListener("app-theme-changed", onTheme);
     const onWinResize = () => fit.fit();
     window.addEventListener("resize", onWinResize);
     // le drag des séparateurs ne déclenche pas window.resize : observer le conteneur
@@ -84,6 +80,7 @@ export default function Terminal(p: {
       window.removeEventListener(`term-data:${p.termId}`, onData);
       window.removeEventListener(`term-exit:${p.termId}`, onExit);
       window.removeEventListener("resize", onWinResize);
+      window.removeEventListener("app-theme-changed", onTheme);
     };
   }, []);
 

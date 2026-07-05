@@ -17,7 +17,7 @@ import Chat from "./components/Chat";
 import AtelierPane from "./components/AtelierPane";
 import SettingsPage from "./components/Settings";
 import { loadSettings, saveSettings, Settings } from "./lib/settings";
-import { THEME_PRESETS } from "./lib/themes";
+import { THEME_PRESETS, presetById } from "./lib/themes";
 import "./App.css";
 
 const PROJECTS_KEY = "atelier-studio.projects";
@@ -136,6 +136,14 @@ export default function App() {
       ? (preset.dark ? "dark" : "light")
       : settings.theme === "system" ? (sysDark ? "dark" : "light") : settings.theme;
     root.setAttribute("data-theme", theme);
+    window.dispatchEvent(new CustomEvent("app-theme-changed", { detail: settings.themePreset }));
+    // propager aux iframes atelier (galerie, viewers)
+    setTimeout(() => {
+      document.querySelectorAll("iframe.atelier").forEach((f) => {
+        (f as HTMLIFrameElement).contentWindow?.postMessage(
+          { type: "atelier-theme", vars: presetById(settings.themePreset).vars }, "*");
+      });
+    }, 50);
     // preset : pose toutes les variables ; "atelier" = valeurs de la feuille
     for (const k of ["--bg","--bg-side","--bg-pop","--bg-card","--bg-ctl","--border","--border2","--fg","--fg2","--muted","--muted2","--accent"]) {
       if (preset && preset.id !== "atelier") r.setProperty(k, preset.vars[k]);
@@ -352,6 +360,10 @@ export default function App() {
   // "Add to chat" direct depuis atelier (iframe → postMessage)
   useEffect(() => {
     const onMsg = (e: MessageEvent) => {
+      if (e.data?.type === "atelier-theme-request" && e.source) {
+        (e.source as Window).postMessage(
+          { type: "atelier-theme", vars: presetById(settingsRef.current.themePreset).vars }, "*");
+      }
       if (e.data?.type === "atelier-open-tab" && typeof e.data.url === "string") {
         const origin = (e.origin && e.origin !== "null") ? e.origin : "";
         const abs = e.data.url.startsWith("http") ? e.data.url : origin + e.data.url;
