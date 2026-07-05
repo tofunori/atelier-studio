@@ -98,6 +98,14 @@ export default function AtelierPane({
   const [surface, setSurface] = useState<Surface>("atelier");
   const [showExplorer, setShowExplorer] = useState(() => localStorage.getItem("atelier-studio.explorer") === "1");
   useEffect(() => {
+    const onSwitch = (e: Event) => {
+      const s = (e as CustomEvent).detail?.surface;
+      if (s) switchSurface(s);
+    };
+    window.addEventListener("switch-surface", onSwitch);
+    return () => window.removeEventListener("switch-surface", onSwitch);
+  });
+  useEffect(() => {
     localStorage.setItem("atelier-studio.explorer", showExplorer ? "1" : "0");
   }, [showExplorer]);
   const [visited, setVisited] = useState<Set<Surface>>(new Set(["atelier"]));

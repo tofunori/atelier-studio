@@ -615,6 +615,8 @@ export default function App() {
       setActiveTab(id);
     }
     setLayout((l) => (l === "chat" ? "split" : l));
+    // l'onglet vit dans la surface Atelier : y basculer si on est ailleurs
+    window.dispatchEvent(new CustomEvent("switch-surface", { detail: { surface: "atelier" } }));
   }
   const openFileTabRef = useRef(openFileTab);
   openFileTabRef.current = openFileTab;
