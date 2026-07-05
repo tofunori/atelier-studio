@@ -1207,3 +1207,8 @@ body.dragging iframe { pointer-events: none; }
   margin-top: 2px; }
 .rm-correct:hover:not(:disabled) { background: color-mix(in srgb, var(--accent) 12%, transparent); }
 .rm-correct:disabled { opacity: 0.5; cursor: default; }
+/* bouton "Vérifier ce tour" (manuel, auto-review off) */
+.done-verify { margin-left: 12px; display: inline-flex; align-items: center; gap: 6px;
+  background: transparent; border: 1px solid var(--border); color: var(--muted);
+  border-radius: 999px; padding: 2px 11px; font-size: 11px; cursor: pointer; }
+.done-verify:hover { color: var(--fg2); border-color: var(--border2); }

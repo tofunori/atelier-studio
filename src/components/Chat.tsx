@@ -838,6 +838,22 @@ export default function Chat(p: {
             return (
               <div key={i} id={isLastDone ? "last-done" : undefined} className="done">
                 {e.ok ? t("chat.done-ok") : t("chat.done-fail")}
+                {isLastDone && !review && (
+                  <button
+                    className="done-verify"
+                    title={t("review.verify")}
+                    onClick={() => {
+                      setReview({ status: "running" });
+                      window.dispatchEvent(new CustomEvent("request-review", { detail: { threadId: p.threadId } }));
+                    }}
+                  >
+                    <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round">
+                      <path d="M8 1.8l5 2v4c0 3.2-2.2 5.4-5 6.4-2.8-1-5-3.2-5-6.4v-4z" />
+                      <path d="M5.8 8l1.6 1.6L10.5 6.3" />
+                    </svg>
+                    {t("review.verify-now")}
+                  </button>
+                )}
                 {isLastDone && review && (
                   <span
                     className={`review-badge v-${review.status === "running" ? "running" : review.verdict}`}
