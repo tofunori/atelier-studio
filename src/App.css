@@ -192,6 +192,13 @@ html, body, #root, .app { height: 100vh;
   border-radius: 6px; padding: 4px 10px; cursor: pointer; font-size: 12px; }
 .top-banner .ghost { background: transparent; color: var(--muted); padding: 4px 7px; }
 .atelier-wrap { display: flex; flex-direction: column; height: 100%; }
+/* pilules icône-seule quand le panneau est étroit (container query) */
+.surface-bar { container-type: inline-size; overflow-x: auto; scrollbar-width: none; }
+.surface-bar::-webkit-scrollbar { display: none; }
+@container (max-width: 640px) {
+  .surf .surf-label { display: none; }
+  .surf { padding: 5px 9px; }
+}
 .atelier-bar { display: flex; align-items: center; gap: 4px; padding: 4px 8px;
   background: var(--bg-side); border-bottom: 1px solid var(--bg-ctl); }
 .atelier-bar .atelier-title { font-size: 12px; color: var(--muted); }

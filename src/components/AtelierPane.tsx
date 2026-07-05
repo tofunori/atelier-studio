@@ -168,7 +168,7 @@ export default function AtelierPane({
             onClick={() => switchSurface(s.id)}
           >
             {s.icon}
-            {s.label}
+            <span className="surf-label">{s.label}</span>
             {s.id === "git" && gitCount > 0 && <span className="surf-badge">{gitCount}</span>}
           </button>
         ))}

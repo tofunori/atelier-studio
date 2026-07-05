@@ -86,7 +86,7 @@ function __ct(){try{return JSON.parse(localStorage.getItem('claudeTargetV1')||'n
 <header>
   <b id="fname">PDF</b>
   <span class="muted">Highlight a passage — Claude can access it automatically ("my selection")</span>
-  <button id="annotBtn" title="Annoter la page courante (dessiner + envoyer à Claude)">&#9998; Annoter</button>
+  <button id="annotBtn" title="Annoter la page courante (dessiner + envoyer à Claude)">&#9998;<span class="lbl"> Annoter</span></button>
   <span id="selinfo" style="margin-left:auto;color:#ffd54a"></span>
   <span class="muted" id="status"></span>
 </header>
@@ -115,7 +115,30 @@ async function main(){
     return;
   }
   const wrap = document.getElementById("pages");
-  const scale = Math.min(1.6, (window.innerWidth - 60) / 612);
+  // resize du panneau (split replié/déplié, fenêtre) → re-render à la bonne largeur,
+  // en conservant la position de lecture (ratio de scroll)
+  (function(){
+    // WebKit ne délivre pas toujours 'resize' à l'iframe quand le divider du
+    // panneau bouge : on sonde la largeur périodiquement (imparable et léger)
+    let lastW = window.innerWidth, stable = 0;
+    setInterval(function(){
+      const w = window.innerWidth;
+      if (Math.abs(w - lastW) >= 40) { lastW = w; stable = 0; return; }
+      if (Math.abs(w - lastW) < 40 && stable >= 0) {
+        // largeur stabilisée : re-render si différente de celle du rendu
+        if (Math.abs(w - RENDER_W) >= 40 && ++stable >= 2) {
+          try {
+            const el = document.scrollingElement || document.documentElement;
+            sessionStorage.setItem("pdfv_scroll_" + location.search,
+              String(el.scrollTop / Math.max(1, el.scrollHeight)));
+          } catch(e){}
+          location.reload();
+        }
+      }
+    }, 400);
+  })();
+  const RENDER_W = window.innerWidth;
+  const scale = Math.min(2.4, (window.innerWidth - 60) / 612);
   for(let n = 1; n <= pdf.numPages; n++){
     const page = await pdf.getPage(n);
     const vp = page.getViewport({scale});
@@ -138,6 +161,15 @@ async function main(){
     tl._order = readingOrder(tl, vp.width);
     drawAnnots(div, n);
   }
+  try {
+    const k = "pdfv_scroll_" + location.search;
+    const r = parseFloat(sessionStorage.getItem(k));
+    if (r > 0) {
+      sessionStorage.removeItem(k);
+      const el = document.scrollingElement || document.documentElement;
+      el.scrollTop = r * el.scrollHeight;
+    }
+  } catch(e){}
 }
 
 // Couche texte maison : un span par item, largeur EXACTE tiree du PDF
@@ -597,6 +629,15 @@ if(window.self !== window.top){
       color:#8a919e !important;font-size:12.5px !important;padding:3px 8px !important;
       border-radius:6px !important;cursor:pointer;box-shadow:none !important}
     header button:hover{background:#2c313a !important;color:#e8eaed !important}
+    header{flex-wrap:nowrap !important}
+    header #fname{display:none}  /* titre déjà dans l'entête Bibliothèque/onglet */
+    #pdftools{flex-shrink:0}
+    @media (max-width: 640px){
+      header #annotBtn span.lbl{display:none}
+    }
+    @media (max-width: 440px){
+      header #selinfo{display:none}
+    }
   `;
   document.head.appendChild(st);
 }
