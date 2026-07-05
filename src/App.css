@@ -298,7 +298,8 @@ html, body, #root, .app { height: 100vh; overflow: hidden;
 .working-row { display: flex; align-items: center; gap: 14px; min-width: 0; }
 .working-tool { grid-column: 1 / -1; display: inline-flex; align-items: center; gap: 7px;
   min-width: 0; color: var(--muted2); font-size: 12.5px; line-height: 1.3;
-  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; animation: pulse 1.8s ease-in-out infinite; }
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.working-tool-glyph { width: 10px; flex-shrink: 0; color: var(--muted2); text-align: center; }
 .working-tool span:last-child { overflow: hidden; text-overflow: ellipsis; }
 .stop-hint { background: transparent; border: none; color: var(--muted2); font-size: 11px;
   padding: 2px 0; cursor: pointer; display: inline-flex; gap: 6px; align-items: center;

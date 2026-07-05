@@ -887,7 +887,7 @@ export default function Chat(p: {
             </div>
             {currentToolName && (
               <div className="working-tool">
-                <span className="working-spin" aria-hidden="true" />
+                <span className="working-tool-glyph" aria-hidden="true">↳</span>
                 <span>{currentToolName}</span>
               </div>
             )}

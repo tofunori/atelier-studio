@@ -360,6 +360,9 @@ export async function route(msg, ctx) {
       (ctx.broadcast ?? ctx.send)({ type: "threads", threads: ctx.store.list() });
       break;
     }
+    case "clientLog":
+      (ctx.broadcast ?? ctx.send)({ type: "clientLog", note: String(msg.note ?? "").slice(0, 300) });
+      break;
     case "ping":
       ctx.send({ type: "pong" });
       break;

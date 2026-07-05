@@ -575,8 +575,10 @@ export default function App() {
     window.addEventListener("autoreview-toggle", onAutoReviewToggle);
     const onCorrectIssues = (e: Event) => {
       const { threadId, issues } = (e as CustomEvent).detail ?? {};
+      ws.current?.send(JSON.stringify({ type: "clientLog", note: `correct-issues reçu tid=${String(threadId).slice(0,8)} issues=${Array.isArray(issues)?issues.length:"?"}` }));
       if (!threadId || !Array.isArray(issues) || !issues.length) return;
       const th = threadsRef.current.find((t) => t.id === threadId);
+      ws.current?.send(JSON.stringify({ type: "clientLog", note: `guards: th=${!!th} wsReady=${ws.current?.readyState}` }));
       if (!th || ws.current?.readyState !== 1) return;
       const lines = issues.map((i: any, k: number) =>
         `${k + 1}. « ${i.claim} » → ${i.problem}${i.fix ? ` (correction : ${i.fix})` : ""}`).join("\n");
