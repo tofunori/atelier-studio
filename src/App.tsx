@@ -525,11 +525,22 @@ export default function App() {
       setQaContext((d.context as string) ?? "");
       setQaMode("open");
     };
+    const onQaToggle = () => {
+      setQaMode((mode) => {
+        if (mode === "open") return "min";
+        if (mode === "min") return "open";
+        setQaDraft("");
+        setQaContext("");
+        return "open";
+      });
+    };
+    window.addEventListener("quick-ask-toggle", onQaToggle);
     const onUsageToggle = () => setUsageOpen((v) => !v);
     window.addEventListener("usage-toggle", onUsageToggle);
     window.addEventListener("quick-ask-open", onQaOpen);
     window.addEventListener("atelier-add-to-chat-citation", onCitation);
     return () => {
+      window.removeEventListener("quick-ask-toggle", onQaToggle);
       window.removeEventListener("usage-toggle", onUsageToggle);
       window.removeEventListener("quick-ask-open", onQaOpen);
       window.removeEventListener("atelier-add-to-chat-citation", onCitation);

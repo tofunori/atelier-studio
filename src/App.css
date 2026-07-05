@@ -282,7 +282,7 @@ html, body, #root, .app { height: 100vh; overflow: hidden;
 .swatch.none { background: var(--bg-ctl); }
 .rail-menu input { background: var(--bg-ctl); border: 1px solid var(--border2); border-radius: 6px;
   color: inherit; padding: 5px 8px; font-size: 12px; outline: none; }
-.proj-badge { width: 18px; height: 18px; border-radius: 5px; display: inline-flex;
+.proj-badge { width: 24px; height: 24px; border-radius: 7px; font-size: 13px; display: inline-flex;
   align-items: center; justify-content: center; font-size: 11px; font-weight: 600;
   color: #fff; flex-shrink: 0; }
 .section { display: flex; align-items: center; justify-content: space-between; }
@@ -471,6 +471,7 @@ input[type="range"].slider::-webkit-slider-thumb:hover { transform: scale(1.15);
 .atelier-bar .ghost.on { background: var(--bg-ctl); color: var(--fg); }
 .exp-ico { flex-shrink: 0; opacity: 0.85; }
 .prov-ico { position: relative; display: inline-flex; flex-shrink: 0; }
+.prov-ico svg { width: 11px; height: 11px; }
 .prov-ico.busy { animation: busyBreathe 1.4s ease-in-out infinite; }
 .unread-badge { position: absolute; top: -3px; right: -4px; width: 7px; height: 7px;
   border-radius: 50%; background: #34c98e; border: 1.5px solid var(--bg-side);
