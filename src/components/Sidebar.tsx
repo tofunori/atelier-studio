@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { Thread } from "../lib/ws";
 import { PROJ_COLORS } from "./Rail";
 import { wsSend } from "../lib/wsBus";
-import { ProviderIcon } from "./icons";
+import { PlusIcon, ProviderIcon, ResumeIcon, SettingsIcon, SidebarIcon } from "./icons";
 
 type Menu = { x: number; y: number; threadId: string };
 
@@ -13,6 +13,21 @@ function niceTitle(t: string): string {
   const base = m[1].split("/").filter(Boolean).pop() ?? m[1];
   const rest = m[2].trim();
   return rest ? `${base} — ${rest.slice(0, 40)}` : base;
+}
+
+function relativeDate(value?: string): string {
+  const ts = value ? new Date(value).getTime() : NaN;
+  if (!Number.isFinite(ts)) return "";
+  const diff = Date.now() - ts;
+  if (diff < 60_000) return "à l'instant";
+  const min = Math.floor(diff / 60_000);
+  if (min < 60) return `il y a ${min} min`;
+  const hours = Math.floor(min / 60);
+  if (hours < 24) return `il y a ${hours} h`;
+  const days = Math.floor(hours / 24);
+  if (days === 1) return "hier";
+  if (days < 7) return `${days} j`;
+  return new Date(ts).toLocaleDateString([], { day: "2-digit", month: "2-digit" });
 }
 
 export default function Sidebar(p: {
@@ -49,6 +64,15 @@ export default function Sidebar(p: {
     window.addEventListener("sessions-list", onSessions);
     return () => window.removeEventListener("sessions-list", onSessions);
   }, []);
+
+  useEffect(() => {
+    const onOpenResume = (e: Event) => {
+      const provider = (e as CustomEvent).detail?.provider === "codex" ? "codex" : "claude";
+      openResume(provider);
+    };
+    window.addEventListener("atelier-open-resume", onOpenResume);
+    return () => window.removeEventListener("atelier-open-resume", onOpenResume);
+  }, [p.activeProject]);
 
   function openResume(prov: "claude" | "codex") {
     setResumeProv(prov);
@@ -128,15 +152,21 @@ export default function Sidebar(p: {
     );
   }
 
+  function threadLabel(t: Thread) {
+    return (
+      <span className="thread-copy">
+        {titleEditor(t)}
+        <span className="thread-date">{relativeDate(t.updatedAt)}</span>
+      </span>
+    );
+  }
+
   return (
     <div className="sidebar">
       <div className="side-top">
         <span className="flex" />
         <button className="mini compact-btn" title="Barre compacte" onClick={p.onCompact}>
-          <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.1" opacity="0.7">
-            <rect x="2.2" y="3.6" width="11.6" height="8.8" rx="2.2" />
-            <path d="M5.4 6v4" />
-          </svg>
+          <SidebarIcon />
         </button>
       </div>
       {p.favorites.length > 0 && (
@@ -163,7 +193,7 @@ export default function Sidebar(p: {
                   }}
                 >
                   <span className="prov-ico"><ProviderIcon provider={t.provider} /></span>
-                  {titleEditor(t)}
+                  {threadLabel(t)}
                   <span className="fav-star">★</span>
                 </li>
               ))}
@@ -174,7 +204,7 @@ export default function Sidebar(p: {
         <span><span className="chev">{secClosed.proj ? "▸" : "▾"}</span> Projets</span>
         <span className="section-actions" onClick={(e) => e.stopPropagation()}>
           <button className="mini compact-btn" title="Ajouter un projet" onClick={p.onAddProject}>
-            +
+            <PlusIcon />
           </button>
         </span>
       </div>
@@ -218,7 +248,7 @@ export default function Sidebar(p: {
                     p.onNew(root);
                   }}
                 >
-                  +
+                  <PlusIcon />
                 </button>
               )}
             </div>
@@ -241,7 +271,7 @@ export default function Sidebar(p: {
                     <ProviderIcon provider={t.provider} />
                     {p.unread.has(t.id) && <span className="unread-badge" />}
                   </span>
-                  {titleEditor(t)}
+                  {threadLabel(t)}
                   {t.status === "running" && (
                     <svg className="arc" width="13" height="13" viewBox="0 0 16 16" fill="none">
                       <circle cx="8" cy="8" r="6" stroke="#3a414d" strokeWidth="2" />
@@ -259,10 +289,10 @@ export default function Sidebar(p: {
         <span className="section-actions" onClick={(e) => e.stopPropagation()}>
           <button className="mini compact-btn" title="Reprendre une session existante (Claude/Codex)"
             onClick={() => openResume("claude")}>
-            ⤓
+            <ResumeIcon />
           </button>
           <button className="mini compact-btn" title="Nouveau chat sans projet" onClick={p.onNewChat}>
-            +
+            <PlusIcon />
           </button>
         </span>
       </div>
@@ -288,17 +318,14 @@ export default function Sidebar(p: {
                   <ProviderIcon provider={t.provider} />
                   {p.unread.has(t.id) && <span className="unread-badge" />}
                 </span>
-                {titleEditor(t)}
+                {threadLabel(t)}
               </li>
             ))}
         </ul>
       )}
       <span className="side-flex" />
       <button className="settings-btn" title="Réglages" onClick={p.onSettings}>
-        <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3">
-          <circle cx="8" cy="8" r="2.6" />
-          <path d="M8 1.8v1.7M8 12.5v1.7M1.8 8h1.7M12.5 8h1.7M3.6 3.6l1.2 1.2M11.2 11.2l1.2 1.2M12.4 3.6l-1.2 1.2M4.8 11.2l-1.2 1.2" />
-        </svg>
+        <SettingsIcon size={14} />
         <span>Réglages</span>
       </button>
       {resumeOpen && (
