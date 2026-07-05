@@ -71,3 +71,38 @@ export async function listSessions(provider, projectRoot) {
   }
   return out;
 }
+
+/** Historique d'un rollout Codex → événements affichables. */
+export async function codexHistory(sessionId) {
+  const base = join(homedir(), ".codex", "sessions");
+  if (!existsSync(base)) return [];
+  let file = null;
+  const walk = (d, depth) => {
+    if (file || depth > 4) return;
+    for (const e of readdirSync(d)) {
+      const p = join(d, e);
+      if (statSync(p).isDirectory()) walk(p, depth + 1);
+      else if (e.includes(sessionId) && e.endsWith(".jsonl")) { file = p; return; }
+    }
+  };
+  walk(base, 0);
+  if (!file) return [];
+  const events = [];
+  const rl = readline.createInterface({ input: createReadStream(file) });
+  for await (const line of rl) {
+    try {
+      const d = JSON.parse(line);
+      const p = d.payload ?? d;
+      if (p.type === "user_message" && p.message) {
+        const t = String(p.message).trim();
+        if (t && !t.startsWith("<") && !t.startsWith("# AGENTS")) {
+          events.push({ kind: "user", text: t });
+        }
+      }
+      if (p.type === "agent_message" && p.message) {
+        events.push({ kind: "text", text: String(p.message) });
+      }
+    } catch {}
+  }
+  return events;
+}

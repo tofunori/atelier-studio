@@ -172,8 +172,8 @@ export async function route(msg, ctx) {
         break;
       }
       if (t.provider !== "claude") {
-        // historique Codex non supporté v1
-        ctx.send({ type: "history", threadId: msg.threadId, events: [] });
+        const events = await ctx.sessions.codexHistory(t.sessionId);
+        ctx.send({ type: "history", threadId: msg.threadId, events });
         break;
       }
       const events = await ctx.history.claudeHistory(t.sessionId, t.projectRoot);
