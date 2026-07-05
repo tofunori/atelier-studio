@@ -335,9 +335,20 @@ export async function route(msg, ctx) {
     }
     case "generateCommitMsg": {
       const root = gitRootFor(ctx, msg);
-      const diff = await ctx.gitops.diff(root, null);
-      const message = await ctx.providers?.claude?.commitMessage?.(diff);
-      ctx.send({ type: "commitMsg", projectRoot: root, message: message ?? "" });
+      try {
+        const st = await ctx.gitops.status(root);
+        const diff = await ctx.gitops.diff(root, null);
+        // git diff HEAD ignore les fichiers non suivis (??) : toujours donner
+        // la liste des fichiers au modèle, le diff en complément
+        const fileList = st.files.map((f) => `${f.status} ${f.path}`).join("\n");
+        const payload = `Fichiers modifiés :\n${fileList}\n\n${diff}`;
+        const message = st.files.length
+          ? await ctx.providers?.claude?.commitMessage?.(payload)
+          : "";
+        ctx.send({ type: "commitMsg", projectRoot: root, message: message ?? "" });
+      } catch (e) {
+        ctx.send({ type: "commitMsg", projectRoot: root, message: "", error: String(e?.message ?? e) });
+      }
       break;
     }
     case "getLedger": {
