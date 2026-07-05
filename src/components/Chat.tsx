@@ -677,8 +677,8 @@ export default function Chat(p: {
                 <span>{currentToolName}</span>
               </div>
             )}
-            <button type="button" className="stop-btn" title={t("action.interrupt")} onClick={p.onStop}>
-              ■ {t("action.stop")}
+            <button type="button" className="stop-hint" title={t("action.interrupt")} onClick={p.onStop}>
+              <kbd>esc</kbd> {t("action.interrupt")}
             </button>
           </div>
         )}
@@ -934,6 +934,11 @@ export default function Chat(p: {
                 setText((t) => t + " ");
                 return;
               }
+            }
+            if (e.key === "Escape" && p.workingSince != null) {
+              e.preventDefault();
+              p.onStop();
+              return;
             }
             if (e.key === "Enter" && e.altKey) {
               e.preventDefault();
