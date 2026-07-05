@@ -1096,6 +1096,7 @@ body.dragging iframe { pointer-events: none; }
 .fglyph { width: 16px; height: 16px; flex-shrink: 0; display: inline-flex; align-items: center; justify-content: center; }
 
 /* les double-clics sur les en-têtes/toggles ne sélectionnent pas le texte */
-.sec-toggle, .section, .side-top, .surf, .atab, .rail-btn, .chapter-tick,
-.side-item, .proj-row, .thread-row, .suggest li, .mp-item, .seg button {
+.sidebar, .surface-bar, .atelier-bar, .chapters, .suggest, .mp-menu, .seg,
+.rail, .git-head, .biblio-filters, .qa-head, .qa-foot {
   user-select: none; -webkit-user-select: none; }
+.sidebar input, .sidebar textarea { user-select: text; -webkit-user-select: text; }
