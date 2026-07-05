@@ -884,14 +884,21 @@ export default function App() {
   // le serveur galerie peut mourir (kill, reboot) : sonde 15 s → relance
   useEffect(() => {
     if (!activeProject || !atelierUrl) return;
+    let fails = 0;
     const iv = setInterval(async () => {
       try {
-        await fetch(atelierUrl, { method: "HEAD", mode: "no-cors" });
+        await fetch(atelierUrl, { method: "HEAD", mode: "no-cors", cache: "no-store" });
+        fails = 0;
       } catch {
-        setAtelierUrls((p) => {
-          const { [activeProject]: _, ...rest } = p;
-          return rest; // l'effet start_atelier se redéclenche
-        });
+        // 2 échecs consécutifs requis : un redémarrage de serveur (~8s de build)
+        // ne doit pas déclencher une relance en boucle
+        if (++fails >= 2) {
+          fails = 0;
+          setAtelierUrls((p) => {
+            const { [activeProject]: _, ...rest } = p;
+            return rest; // l'effet start_atelier se redéclenche
+          });
+        }
       }
     }, 15000);
     return () => clearInterval(iv);
