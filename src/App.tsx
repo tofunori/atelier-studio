@@ -377,6 +377,22 @@ export default function App() {
       if (msg.type === "termExit") {
         window.dispatchEvent(new CustomEvent(`term-exit:${msg.termId}`));
       }
+      if (msg.type === "gitStatus") {
+        window.dispatchEvent(new CustomEvent("git-status", { detail: msg }));
+      }
+      if (msg.type === "gitDiff") {
+        window.dispatchEvent(new CustomEvent("git-diff", { detail: msg }));
+      }
+      if (msg.type === "commitMsg") {
+        window.dispatchEvent(new CustomEvent("commit-msg", { detail: msg }));
+      }
+      if (msg.type === "ledger") {
+        window.dispatchEvent(new CustomEvent("ledger", { detail: msg }));
+      }
+      if (msg.type === "gitChanged" || msg.type === "gitStageDone" || msg.type === "gitUnstageDone" ||
+          msg.type === "gitRevertFileDone" || msg.type === "gitCommitDone" || msg.type === "gitUndoLastTurnDone") {
+        window.dispatchEvent(new CustomEvent("git-changed", { detail: msg }));
+      }
       if (msg.type === "exported") {
         setEvents((p) => ({
           ...p,
@@ -576,6 +592,18 @@ export default function App() {
     };
     window.addEventListener("chat-open-file", onOpen);
     return () => window.removeEventListener("chat-open-file", onOpen);
+  }, []);
+
+  useEffect(() => {
+    const onOpenThread = (e: Event) => {
+      const { threadId } = (e as CustomEvent).detail as { threadId: string };
+      const thread = allThreadsRef.current.find((t) => t.id === threadId);
+      if (!thread) return;
+      selectThread(thread.id, thread.projectRoot);
+      setLayout((l) => (l === "atelier" ? "split" : l));
+    };
+    window.addEventListener("open-thread", onOpenThread);
+    return () => window.removeEventListener("open-thread", onOpenThread);
   }, []);
 
   useEffect(() => {
@@ -1052,6 +1080,7 @@ export default function App() {
               layout={layout}
               onToggleExpand={() => setLayout((l) => (l === "atelier" ? "split" : "atelier"))}
               projectRoot={activeProject ?? ""}
+              activeThreadId={activeId}
               files={files}
               onReorderTabs={(ids) => {
                 setAtelierTabs((tabs) => {

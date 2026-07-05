@@ -163,6 +163,19 @@ export async function diff(root, filePath = null) {
   return text;
 }
 
+export async function changedSince(root, sha) {
+  const realRoot = confinedRoot(root);
+  await ensureRepo(realRoot);
+  if (!/^[0-9a-fA-F]{4,64}$/.test(String(sha ?? ""))) throw new Error("sha invalide");
+  await git(realRoot, ["cat-file", "-e", `${sha}^{commit}`]);
+  const { stdout } = await git(realRoot, ["diff", "--name-only", sha, "--"]);
+  const changed = stdout.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+  for (const file of (await status(realRoot)).files) {
+    if (file.status === "?") changed.push(file.path);
+  }
+  return [...new Set(changed)];
+}
+
 export async function stageFile(root, filePath) {
   const realRoot = confinedRoot(root);
   await ensureRepo(realRoot);

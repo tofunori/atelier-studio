@@ -88,14 +88,54 @@ function emitGitChanged(ctx, threadId, projectRoot) {
 
 async function snapshotBeforeProvider(ctx, threadId) {
   const root = ctx.store.get(threadId)?.projectRoot;
-  if (!root || !ctx.gitops?.isRepo || !ctx.gitops?.snapshot) return;
+  if (!root || !ctx.gitops?.isRepo || !ctx.gitops?.snapshot) return null;
   try {
-    if (!(await ctx.gitops.isRepo(root))) return;
+    if (!(await ctx.gitops.isRepo(root))) return null;
     const lastSnapshot = await ctx.gitops.snapshot(root);
     ctx.store.upsert({ id: threadId, lastSnapshot });
+    return lastSnapshot;
   } catch (e) {
     console.warn("[atelier] git snapshot impossible:", e);
+    return null;
   }
+}
+
+function collectTool(tools, event) {
+  if (event.kind === "tool") {
+    tools.push({ name: event.name });
+  }
+  if (event.kind === "tool_update") {
+    tools.push({
+      id: event.id,
+      name: event.name,
+      status: event.status ?? null,
+      exitCode: event.exitCode ?? null,
+    });
+  }
+}
+
+async function appendLedgerForDone(ctx, turn, event) {
+  if (!ctx.ledger?.append || event.kind !== "done") return;
+  const thread = ctx.store.get(turn.threadId);
+  let filesChanged = [];
+  if (turn.projectRoot && turn.snapshotSha && ctx.gitops?.changedSince) {
+    try {
+      filesChanged = await ctx.gitops.changedSince(turn.projectRoot, turn.snapshotSha);
+    } catch {}
+  }
+  await ctx.ledger.append(turn.projectRoot, {
+    ts: new Date().toISOString(),
+    threadId: turn.threadId,
+    threadTitle: thread?.title ?? null,
+    provider: turn.provider,
+    model: turn.model ?? null,
+    effort: turn.effort ?? null,
+    promptExcerpt: String(turn.prompt ?? "").slice(0, 500),
+    usage: event.usage ?? null,
+    tools: turn.tools,
+    filesChanged,
+    snapshotSha: turn.snapshotSha ?? null,
+  });
 }
 
 export async function route(msg, ctx) {
@@ -258,6 +298,19 @@ export async function route(msg, ctx) {
         diff: await ctx.gitops.diff(root, msg.path ?? null) });
       break;
     }
+    case "generateCommitMsg": {
+      const root = gitRootFor(ctx, msg);
+      const diff = await ctx.gitops.diff(root, null);
+      const message = await ctx.providers?.claude?.commitMessage?.(diff);
+      ctx.send({ type: "commitMsg", projectRoot: root, message: message ?? "" });
+      break;
+    }
+    case "getLedger": {
+      const root = gitRootFor(ctx, msg);
+      const entries = await ctx.ledger.get(root, msg.limit ?? 200);
+      ctx.send({ type: "ledger", projectRoot: root, entries });
+      break;
+    }
     case "gitStage": {
       const root = gitRootFor(ctx, msg);
       await ctx.gitops.stageFile(root, msg.path);
@@ -372,7 +425,9 @@ export async function route(msg, ctx) {
 
       if (provider === "claude") {
         // session persistante ; steer/queue = priority native du SDK ('now'/'next')
-        await snapshotBeforeProvider(ctx, threadId);
+        const tools = [];
+        const snapshotSha = await snapshotBeforeProvider(ctx, threadId);
+        const turn = { threadId, projectRoot, provider, model, effort, prompt, tools, snapshotSha };
         p.send({
           threadId,
           cwd: projectRoot || process.env.HOME,
@@ -387,8 +442,12 @@ export async function route(msg, ctx) {
           onSession: (sessionId) =>
             ctx.store.upsert({ id: threadId, sessionId, resumeAt: null, forkPending: false }),
           onEvent: (event) => {
+            collectTool(tools, event);
             emit({ type: "event", threadId, event });
             if (event.kind === "done") emitGitChanged(ctx, threadId, projectRoot);
+            if (event.kind === "done") appendLedgerForDone(ctx, turn, event).catch((e) => {
+              ctx.send({ type: "error", threadId, message: `ledger: ${String(e)}` });
+            });
             if (event.kind === "done" || event.kind === "error") {
               ctx.store.upsert({
                 id: threadId,
@@ -418,7 +477,9 @@ export async function route(msg, ctx) {
         break;
       }
       // fire-and-forget : plusieurs threads streament en parallèle
-      await snapshotBeforeProvider(ctx, threadId);
+      const tools = [];
+      const snapshotSha = await snapshotBeforeProvider(ctx, threadId);
+      const turn = { threadId, projectRoot, provider, model, effort, prompt, tools, snapshotSha };
       p.run({
         threadId,
         cwd: projectRoot || process.env.HOME,
@@ -433,8 +494,12 @@ export async function route(msg, ctx) {
         webSearch: msg.webSearch,
         additionalDirectories: msg.additionalDirectories,
         onEvent: (event) => {
+          collectTool(tools, event);
           emit({ type: "event", threadId, event });
           if (event.kind === "done") emitGitChanged(ctx, threadId, projectRoot);
+          if (event.kind === "done") appendLedgerForDone(ctx, turn, event).catch((e) => {
+            ctx.send({ type: "error", threadId, message: `ledger: ${String(e)}` });
+          });
         },
       })
         .then(({ sessionId }) => {

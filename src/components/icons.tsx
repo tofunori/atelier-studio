@@ -63,6 +63,27 @@ export function ForkIcon({ size = 13 }: IconProps) {
   );
 }
 
+export function BranchIcon({ size = 13 }: IconProps) {
+  return (
+    <StrokeIcon size={size}>
+      <circle cx="4" cy="4" r="1.6" />
+      <circle cx="12" cy="4" r="1.6" />
+      <circle cx="4" cy="12" r="1.6" />
+      <path d="M4 5.6v4.8" />
+      <path d="M5.6 4h2.2c1.4 0 2.2.8 2.2 2.2V8" />
+    </StrokeIcon>
+  );
+}
+
+export function LedgerIcon({ size = 13 }: IconProps) {
+  return (
+    <StrokeIcon size={size}>
+      <path d="M4 2.5h7.2c.8 0 1.4.6 1.4 1.4v8.2c0 .8-.6 1.4-1.4 1.4H4c-.8 0-1.4-.6-1.4-1.4V3.9c0-.8.6-1.4 1.4-1.4z" />
+      <path d="M5.2 5.4h5.4M5.2 8h5.4M5.2 10.6h3.2" />
+    </StrokeIcon>
+  );
+}
+
 export function CloseIcon({ size = 13 }: IconProps) {
   return (
     <StrokeIcon size={size}>

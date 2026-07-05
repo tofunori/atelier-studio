@@ -69,6 +69,17 @@ describe("gitops", () => {
     expect(existsSync(join(root, "appeared.txt"))).toBe(false);
   });
 
+  it("liste les fichiers changés depuis un snapshot", async () => {
+    const root = await makeRepo();
+    const sha = await gitops.snapshot(root);
+    writeFileSync(join(root, "tracked file.txt"), "changed\n");
+    writeFileSync(join(root, "new file.txt"), "new\n");
+
+    const changed = await gitops.changedSince(root, sha);
+
+    expect(changed).toEqual(expect.arrayContaining(["tracked file.txt", "new file.txt"]));
+  });
+
   it("retourne un diff non vide incluant les fichiers non suivis", async () => {
     const root = await makeRepo();
     writeFileSync(join(root, "tracked file.txt"), "changed\n");

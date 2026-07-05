@@ -78,6 +78,37 @@ export async function titleConversation(firstMessage) {
     .slice(0, 70);
 }
 
+export async function commitMessage(diff) {
+  const body = String(diff ?? "").slice(0, 8000);
+  const prompt =
+    "Rédige un message de commit Git concis en français, une seule ligne, " +
+    "impératif ou descriptif court, sans guillemets ni markdown. Diff:\n\n" +
+    body;
+  let text = "";
+  const q = query({
+    prompt,
+    options: {
+      maxTurns: 1,
+      model: "claude-haiku-4-5-20251001",
+      ...(CLAUDE_BIN ? { pathToClaudeCodeExecutable: CLAUDE_BIN } : {}),
+      settingSources: ["user"],
+    },
+  });
+  let resultText = "";
+  for await (const msg of q) {
+    if (msg.type === "result" && msg.result) resultText = msg.result;
+    if (msg.type === "assistant") {
+      for (const block of msg.message?.content ?? []) {
+        if (block.type === "text") text += block.text;
+      }
+    }
+  }
+  return (text || resultText)
+    .replace(/^["'«\s]+|["'»\s.]+$/g, "")
+    .replace(/\s+/g, " ")
+    .slice(0, 120);
+}
+
 export function send({
   threadId,
   cwd,

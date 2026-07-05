@@ -2,13 +2,14 @@ import { useEffect, useState } from "react";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import Explorer from "./Explorer";
 import BrowserTab from "./BrowserTab";
+import GitSurface from "./GitSurface";
 import TerminalSurface from "./TerminalSurface";
-import { CloseIcon, CollapseIcon, ExpandIcon, OpenIcon, RefreshIcon } from "./icons";
+import { BranchIcon, CloseIcon, CollapseIcon, ExpandIcon, OpenIcon, RefreshIcon } from "./icons";
 
 type Tab = { id: string; url: string; title: string; color?: string; pinned?: boolean; kind?: "term"; cwd?: string };
 const TAB_COLORS = ["#e05d5d", "#e8823a", "#8b5cf6", "#3b82f6", "#22b07d", "#e0b74a"];
 
-type Surface = "atelier" | "browser" | "terminal";
+type Surface = "atelier" | "browser" | "terminal" | "git";
 
 const SURFACES: { id: Surface; label: string; icon: React.ReactNode }[] = [
   {
@@ -43,11 +44,17 @@ const SURFACES: { id: Surface; label: string; icon: React.ReactNode }[] = [
       </svg>
     ),
   },
+  {
+    id: "git",
+    label: "Git",
+    icon: <BranchIcon />,
+  },
 ];
 
 export default function AtelierPane({
   url,
   projectRoot,
+  activeThreadId,
   ws,
   files,
   onOpenFile,
@@ -65,6 +72,7 @@ export default function AtelierPane({
 }: {
   url: string;
   projectRoot: string;
+  activeThreadId: string | null;
   tabs: Tab[];
   activeTab: string;
   onSelectTab: (id: string) => void;
@@ -87,10 +95,36 @@ export default function AtelierPane({
   const [overId, setOverId] = useState<string | null>(null);
   const [tabMenu, setTabMenu] = useState<{ id: string; x: number; y: number } | null>(null);
   const [galleryLoaded, setGalleryLoaded] = useState(false);
+  const [gitCount, setGitCount] = useState(0);
 
   useEffect(() => {
     setGalleryLoaded(false);
   }, [url, reloadKey]);
+
+  useEffect(() => {
+    const request = () => {
+      if (ws?.readyState === WebSocket.OPEN && projectRoot) {
+        ws.send(JSON.stringify({ type: "gitStatus", projectRoot }));
+      }
+    };
+    request();
+    const timer = window.setInterval(request, 15000);
+    const onStatus = (e: Event) => {
+      const msg = (e as CustomEvent).detail;
+      if (msg.projectRoot === projectRoot) setGitCount(msg.status?.files?.length ?? 0);
+    };
+    const onChanged = (e: Event) => {
+      const msg = (e as CustomEvent).detail;
+      if (!msg.projectRoot || msg.projectRoot === projectRoot) request();
+    };
+    window.addEventListener("git-status", onStatus);
+    window.addEventListener("git-changed", onChanged);
+    return () => {
+      window.clearInterval(timer);
+      window.removeEventListener("git-status", onStatus);
+      window.removeEventListener("git-changed", onChanged);
+    };
+  }, [projectRoot, ws]);
 
   function switchSurface(s: Surface) {
     setSurface(s);
@@ -129,6 +163,7 @@ export default function AtelierPane({
           >
             {s.icon}
             {s.label}
+            {s.id === "git" && gitCount > 0 && <span className="surf-badge">{gitCount}</span>}
           </button>
         ))}
         <span className="flex" />
@@ -229,6 +264,13 @@ export default function AtelierPane({
       {/* ---- surface Terminal ---- */}
       {visited.has("terminal") && (
         <TerminalSurface ws={ws} cwd={projectRoot} visible={surface === "terminal"} />
+      )}
+
+      {/* ---- surface Git ---- */}
+      {visited.has("git") && (
+        <div className="surface-body" style={{ display: surface === "git" ? "flex" : "none" }}>
+          <GitSurface ws={ws} projectRoot={projectRoot} activeThreadId={activeThreadId} />
+        </div>
       )}
 
       {tabMenu && (

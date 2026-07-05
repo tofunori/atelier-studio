@@ -11,6 +11,7 @@ import { watchAnnotations } from "./annotations.mjs";
 import * as terminal from "./terminal.mjs";
 import * as sessions from "./sessions.mjs";
 import * as gitops from "./gitops.mjs";
+import * as ledger from "./ledger.mjs";
 import * as claude from "./providers/claude.mjs";
 import * as codex from "./providers/codex.mjs";
 
@@ -237,6 +238,7 @@ wss.on("connection", (ws) => {
     terminal,
     sessions,
     gitops,
+    ledger,
     scanLocal,
     checkFrame,
   };
