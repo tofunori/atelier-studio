@@ -1,5 +1,12 @@
-import { readFileSync, writeFileSync, mkdirSync, existsSync } from "node:fs";
+import { readFileSync, writeFileSync, mkdirSync, existsSync, renameSync } from "node:fs";
 import { dirname } from "node:path";
+
+export function writeFileAtomic(filePath, data) {
+  mkdirSync(dirname(filePath), { recursive: true });
+  const tmp = `${filePath}.${process.pid}.${Date.now()}.tmp`;
+  writeFileSync(tmp, data);
+  renameSync(tmp, filePath);
+}
 
 export class ThreadStore {
   constructor(filePath) {
@@ -21,16 +28,14 @@ export class ThreadStore {
   }
   delete(id) {
     this.threads.delete(id);
-    mkdirSync(dirname(this.filePath), { recursive: true });
-    writeFileSync(this.filePath, JSON.stringify(this.list(), null, 2));
+    writeFileAtomic(this.filePath, JSON.stringify(this.list(), null, 2));
   }
   upsert(patch) {
     const prev = this.threads.get(patch.id) ?? {};
     const t = { ...prev, ...patch, updatedAt: new Date().toISOString() };
     if (!t.createdAt) t.createdAt = t.updatedAt;
     this.threads.set(t.id, t);
-    mkdirSync(dirname(this.filePath), { recursive: true });
-    writeFileSync(this.filePath, JSON.stringify(this.list(), null, 2));
+    writeFileAtomic(this.filePath, JSON.stringify(this.list(), null, 2));
     return t;
   }
 }

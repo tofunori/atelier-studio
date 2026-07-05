@@ -48,3 +48,7 @@ export function close(termId) {
   } catch {}
   terms.delete(termId);
 }
+
+export function closeAll() {
+  for (const termId of [...terms.keys()]) close(termId);
+}
