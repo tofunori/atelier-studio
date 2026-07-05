@@ -327,8 +327,19 @@ export default function Chat(p: {
       .map((m) => ({ id: m.id, label: m.id }));
     return [...MODELS[pv], ...customs];
   }
-  function modelLabel(model: { label: string }) {
-    return model.label === "__default" ? t("chat.model-default") : model.label;
+  function resolvedDefaultLabel(pv: "claude" | "codex"): string {
+    const id = p.defaults.defaultModel[pv] ?? "";
+    if (!id) return t("common.default-cli");
+    const known = [...MODELS[pv], ...(p.defaults.customModels ?? [])
+      .filter((m) => m.provider === pv).map((m) => ({ id: m.id, label: m.id }))]
+      .find((m) => m.id === id);
+    const eff = p.defaults.defaultEffort?.[pv];
+    return (known?.label && known.label !== "__default" ? known.label : id) + (eff ? ` · ${eff}` : "");
+  }
+  function modelLabel(model: { label: string }, pv?: "claude" | "codex") {
+    if (model.label !== "__default") return model.label;
+    // « Défaut » seul est amnésique : afficher ce qu'il résout réellement
+    return `${t("chat.model-default")} — ${resolvedDefaultLabel(pv ?? provider)}`;
   }
   function sortByFav<T extends { id: string }>(list: T[], prov: string): T[] {
     return [...list].sort((a, b) => {
@@ -425,7 +436,7 @@ export default function Chat(p: {
     currentTool?.kind === "tool" ? eventLabel(currentTool.name) : "";
   const selectedModel = modelsFor(provider).find((m) => m.id === model);
   const selectedModelLabel = selectedModel ? modelLabel(selectedModel) : model;
-  const modelButtonLabel = model ? selectedModelLabel : t("chat.model-auto");
+  const modelButtonLabel = model ? selectedModelLabel : resolvedDefaultLabel(provider);
   const modelSuffix = effort ? ` · ${effort}` : "";
 
   return (
@@ -967,7 +978,7 @@ export default function Chat(p: {
                           }}
                         >
                           <ProviderIcon provider={pv} />
-                          <span>{modelLabel(m)}</span>
+                          <span>{modelLabel(m, pv)}</span>
                           <span className="mp-end">
                             {active && <span className="mp-check">✓</span>}
                             <span
