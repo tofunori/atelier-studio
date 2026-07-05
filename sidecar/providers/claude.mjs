@@ -194,12 +194,15 @@ export function send({
     try {
       for await (const msg of q) {
         if (msg.type === "system" && msg.subtype === "init") onSession?.(msg.session_id);
-        if (msg.type === "rate_limit_event" || msg.type === "rate_limits") {
+        if (msg.type === "rate_limit_event" && msg.rate_limit_info) {
           try {
-            globalThis.__claudeRateLimits = { ts: Date.now(), data: msg.rate_limits ?? msg.data ?? msg };
+            // un événement PAR type de limite (five_hour, seven_day…) : accumuler
+            const info = msg.rate_limit_info;
+            const store = globalThis.__claudeRL ?? (globalThis.__claudeRL = {});
+            store[info.rateLimitType ?? "five_hour"] = { ...info, ts: Date.now() };
             const dir = `${process.env.HOME}/Library/Application Support/atelier-studio`;
             mkdirSync(dir, { recursive: true });
-            writeFileSync(`${dir}/usage-claude.json`, JSON.stringify(globalThis.__claudeRateLimits));
+            writeFileSync(`${dir}/usage-claude.json`, JSON.stringify(store));
           } catch {}
         }
         if (msg.type === "stream_event") {
@@ -270,9 +273,16 @@ export async function run(opts) {
 }
 
 export function rateLimits() {
-  if (globalThis.__claudeRateLimits) return globalThis.__claudeRateLimits;
-  try {
-    return JSON.parse(readFileSync(
-      `${process.env.HOME}/Library/Application Support/atelier-studio/usage-claude.json`, "utf8"));
-  } catch { return null; }
+  let store = globalThis.__claudeRL;
+  if (!store) {
+    try {
+      store = JSON.parse(readFileSync(
+        `${process.env.HOME}/Library/Application Support/atelier-studio/usage-claude.json`, "utf8"));
+    } catch { return null; }
+  }
+  if (store.primary || store.data) return store; // très vieux format : tel quel
+  const pct = (u) => (u == null ? null : u > 1.5 ? u : u * 100);
+  const week = store.seven_day ?? store.seven_day_sonnet ?? store.seven_day_opus ?? null;
+  const toLimit = (x) => x ? { used_percent: pct(x.utilization), resets_at: x.resetsAt ?? null, status: x.status } : null;
+  return { ts: Date.now(), data: { primary: toLimit(store.five_hour), secondary: toLimit(week) } };
 }

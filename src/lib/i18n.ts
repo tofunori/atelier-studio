@@ -135,6 +135,7 @@ const fr = {
   "usage.codex-week": "Codex · sem.",
   "usage.today": "Aujourd'hui",
   "usage.turns": "tours",
+  "usage.claude-partial": "Claude ne publie son % qu'à l'approche des seuils — le reset est suivi.",
   "usage.empty": "Pas encore de données — lance un message Claude et Codex pour remplir les jauges.",
 
   "qa.hint": "Question rapide — rien n'est conservé, sauf si tu injectes ou promeus.",
@@ -451,6 +452,7 @@ const en: Record<keyof typeof fr, string> = {
   "usage.codex-week": "Codex · week",
   "usage.today": "Today",
   "usage.turns": "turns",
+  "usage.claude-partial": "Claude only reports its % near thresholds — reset time is tracked.",
   "usage.empty": "No data yet — send a Claude and a Codex message to fill the gauges.",
 
   "qa.hint": "Quick question — nothing is kept unless you inject or promote.",

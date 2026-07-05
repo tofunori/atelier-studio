@@ -101,6 +101,9 @@ export default function UsagePopover({ open, onClose }: { open: boolean; onClose
         {cl.primary?.resets_at && <span>Claude 5 h : {fmtReset(cl.primary.resets_at)}</span>}
         {cx.primary?.resets_at && <span>Codex 5 h : {fmtReset(cx.primary.resets_at)}</span>}
       </div>
+      {usage?.claude && cl.primary && cl.primary.used_percent == null && (
+        <div className="ur-empty">{t("usage.claude-partial")}</div>
+      )}
       {!usage?.claude && !usage?.codex && (
         <div className="ur-empty">{t("usage.empty")}</div>
       )}
