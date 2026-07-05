@@ -167,8 +167,11 @@ Refactor App.tsx en hooks : à glisser dans le chantier qui le touche le plus (p
 
 Automatisation du guardrail « vérificateur indépendant » de Thierry. Le Run Ledger
 est le record d'exécution ; le reviewer vérifie les claims de la réponse contre lui.
-- Réglages → Agents : toggle Auto-review (global + par projet), modèle du reviewer
-  (défaut Haiku), déclencheur (chaque réponse / runs modifiant des fichiers / manuel).
+- Réglages → Agents : toggle Auto-review (global + par projet), agent du reviewer
+  = provider+modèle+effort au choix — **défaut : GPT-5.5 · high (Codex)**, choix de
+  Thierry : le reviewer doit être un agent FORT et d'une autre famille que l'exécutant
+  (vraie indépendance cross-provider) ; déclencheur (chaque réponse / runs modifiant
+  des fichiers / manuel).
 - Après un done éligible : run one-shot INDÉPENDANT (session séparée ; voit la
   réponse, l'entrée ledger, les diffs) → verdict structuré.
 - Chat : badge discret ✓ vérifié / ⚠ n incohérences (cliquable → détails +
