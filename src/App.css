@@ -1061,3 +1061,17 @@ body.dragging iframe { pointer-events: none; }
   white-space: nowrap; max-width: 45%; }
 .ftype { font-size: 9px; font-weight: 700; letter-spacing: 0.02em; border: 1px solid currentColor;
   border-radius: 4px; padding: 0.5px 3px; opacity: 0.85; flex-shrink: 0; }
+/* Quick Ask coexistant : overlay libre + pilule minimisée */
+.qa-overlay.free { background: transparent; pointer-events: none; }
+.qa-overlay.free .qa-pop { pointer-events: auto; }
+.qa-min { background: transparent; border: none; color: var(--muted2); font-size: 13px;
+  cursor: pointer; padding: 0 6px; }
+.qa-min:hover { color: var(--fg); }
+.qa-minipill { position: fixed; right: 18px; bottom: 96px; z-index: 290;
+  display: flex; align-items: center; gap: 7px; padding: 7px 14px;
+  background: var(--bg-card); border: 1px solid var(--border2); border-radius: 999px;
+  color: var(--fg2); font-size: 12.5px; cursor: pointer;
+  box-shadow: 0 4px 16px rgba(0,0,0,0.3); }
+.qa-minipill:hover { color: var(--fg); border-color: var(--muted2); }
+.qa-minidot { width: 7px; height: 7px; border-radius: 50%; background: var(--accent);
+  animation: pulse 1.6s ease-in-out infinite; }

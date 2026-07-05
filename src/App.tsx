@@ -209,7 +209,7 @@ export default function App() {
   const [dragging, setDragging] = useState(false);
   const [unread, setUnread] = useState<Set<string>>(new Set());
   const [goals, setGoals] = useState<Record<string, string>>({});
-  const [qaOpen, setQaOpen] = useState(false);
+  const [qaMode, setQaMode] = useState<"closed" | "open" | "min">("closed");
   const [usageOpen, setUsageOpen] = useState(false);
   const [qaDraft, setQaDraft] = useState("");
   const [qaContext, setQaContext] = useState(""); // threadId -> condition
@@ -514,7 +514,7 @@ export default function App() {
       const d = (e as CustomEvent).detail ?? {};
       setQaDraft((d.draft as string) ?? "");
       setQaContext((d.context as string) ?? "");
-      setQaOpen(true);
+      setQaMode("open");
     };
     const onUsageToggle = () => setUsageOpen((v) => !v);
     window.addEventListener("usage-toggle", onUsageToggle);
@@ -711,7 +711,7 @@ export default function App() {
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape" && !qaOpen && !paletteOpen && !usageOpen) {
+      if (e.key === "Escape" && qaMode !== "open" && !paletteOpen && !usageOpen) {
         const id = activeIdRef.current;
         if (id && workingSinceRef.current[id] != null && ws.current?.readyState === 1) {
           ws.current.send(JSON.stringify({ type: "interrupt", threadId: id }));
@@ -721,7 +721,7 @@ export default function App() {
       if (e.metaKey && e.altKey && e.key.toLowerCase() === "k") {
         e.preventDefault();
         setQaDraft("");
-        setQaOpen(true);
+        setQaMode("open");
         return;
       }
       if (e.metaKey && !e.shiftKey && ["k", "p"].includes(e.key.toLowerCase())) {
@@ -1361,10 +1361,13 @@ export default function App() {
     </PanelGroup>
     <CommandPalette open={paletteOpen} items={paletteItems} onClose={() => setPaletteOpen(false)} />
       <QuickAsk
-        open={qaOpen}
+        open={qaMode === "open"}
+        minimized={qaMode === "min"}
         draft={qaDraft}
         context={qaContext}
-        onClose={() => setQaOpen(false)}
+        onMinimize={() => setQaMode("min")}
+        onRestore={() => setQaMode("open")}
+        onClose={() => setQaMode("closed")}
         onInject={(text) => {
           setAttachments((l) => addAttachment(l, { name: "Quick Ask", lines: null, text }));
         }}

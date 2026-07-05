@@ -28,15 +28,21 @@ const QA_MODELS: QaModel[] = [
 
 export default function QuickAsk({
   open,
+  minimized,
   draft,
   context,
+  onMinimize,
+  onRestore,
   onClose,
   onInject,
   onPromote,
 }: {
   open: boolean;
+  minimized: boolean;
   draft: string;
   context?: string;
+  onMinimize: () => void;
+  onRestore: () => void;
   onClose: () => void;
   onInject: (text: string) => void;
   onPromote: (qaId: string, title: string) => void;
@@ -100,8 +106,10 @@ export default function QuickAsk({
   const bodyRef = useRef<HTMLDivElement>(null);
 
   // ouverture : reset de session, pré-remplissage du brouillon
+  const wasMin = useRef(false);
   useEffect(() => {
-    if (!open) return;
+    if (!open) { wasMin.current = minimized; return; }
+    if (wasMin.current) { wasMin.current = false; inputRef.current?.focus(); return; }
     setQaId(crypto.randomUUID());
     setMsgs([]);
     setText(draft);
@@ -167,6 +175,14 @@ export default function QuickAsk({
     bodyRef.current?.scrollTo({ top: bodyRef.current.scrollHeight });
   }, [msgs]);
 
+  if (minimized)
+    return (
+      <button className="qa-minipill" onClick={onRestore} title={t("qa.title")}>
+        <ZapIcon />
+        <span>{t("qa.title")}</span>
+        {busy && <span className="qa-minidot" />}
+      </button>
+    );
   if (!open) return null;
 
   const m = QA_MODELS[modelIdx];
@@ -187,7 +203,7 @@ export default function QuickAsk({
   const lastAnswer = [...msgs].reverse().find((x) => x.role === "assistant" && !x.text.startsWith("⚠"));
 
   return (
-    <div className="qa-overlay" onClick={close}>
+    <div className={`qa-overlay ${box ? "free" : ""}`} onClick={box ? undefined : close}>
       <div
         className={`qa-pop ${box ? "free" : ""}`}
         ref={popRef}
@@ -203,6 +219,7 @@ export default function QuickAsk({
               <circle cx="8" cy="8" r="6.2" /><path d="M8 4.5V8l2.5 1.5" />
             </svg>
           </button>
+          <button className="qa-min" title="—" onClick={onMinimize}>—</button>
           <button
             className="qa-model"
             title={t("qa.switch-model")}
