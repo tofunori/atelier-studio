@@ -396,6 +396,60 @@ export default function App() {
     return () => window.removeEventListener("message", onMsg);
   }, []);
 
+  // ouvrir un fichier du projet dans un onglet atelier (explorer, liens fichier:ligne du chat)
+  function openFileTab(rel: string, line?: string | null) {
+    if (!atelierUrl || !activeProject) return;
+    const origin = new URL(atelierUrl).origin;
+    const ext = rel.split(".").pop()?.toLowerCase() ?? "";
+    const name = rel.split("/").pop() ?? rel;
+    const lineQ = line ? `&line=${encodeURIComponent(line)}` : "";
+    let url: string;
+    if (ext === "pdf") {
+      url = `${origin}/.fig_thumbs/pdf_viewer.html?file=${encodeURIComponent(rel)}`;
+    } else if (["png", "jpg", "jpeg", "gif", "svg", "webp"].includes(ext)) {
+      url = `${origin}/${rel}`;
+    } else if (ext === "md") {
+      url = `${origin}/.fig_thumbs/md_studio.html?path=${encodeURIComponent(`${activeProject}/${rel}`)}`;
+    } else {
+      url = `${origin}/.fig_thumbs/latex_studio.html?path=${encodeURIComponent(`${activeProject}/${rel}`)}${lineQ}`;
+    }
+    const baseUrl = url.replace(/&line=[^&]*/, "");
+    const existing = atelierTabsRef.current.find((t) => t.url.replace(/&line=[^&]*/, "") === baseUrl);
+    if (existing) {
+      // même fichier déjà ouvert : re-cibler la ligne demandée si besoin
+      if (existing.url !== url) {
+        setAtelierTabs((tabs) => tabs.map((t) => (t.id === existing.id ? { ...t, url } : t)));
+      }
+      setActiveTab(existing.id);
+    } else {
+      const id = crypto.randomUUID();
+      setAtelierTabs((tabs) => [...tabs, { id, url, title: name }]);
+      setActiveTab(id);
+    }
+    setLayout((l) => (l === "chat" ? "split" : l));
+  }
+  const openFileTabRef = useRef(openFileTab);
+  openFileTabRef.current = openFileTab;
+  const filesRef = useRef(files);
+  filesRef.current = files;
+
+  // clic sur une réf "fichier.tex:31" dans une réponse du chat
+  useEffect(() => {
+    const onOpen = (e: Event) => {
+      const { rel, line } = (e as CustomEvent).detail as { rel: string; line: string | null };
+      // résoudre un nom nu ("main.tex") contre l'arborescence du projet
+      let target = rel.replace(/^\.\//, "");
+      const list = filesRef.current;
+      if (!list.includes(target)) {
+        const hit = list.find((f) => f === target || f.endsWith("/" + target));
+        if (hit) target = hit;
+      }
+      openFileTabRef.current(target, line);
+    };
+    window.addEventListener("chat-open-file", onOpen);
+    return () => window.removeEventListener("chat-open-file", onOpen);
+  }, []);
+
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.metaKey && e.shiftKey && e.key.toLowerCase() === "a") {
@@ -848,34 +902,7 @@ export default function App() {
                   return next;
                 });
               }}
-              onOpenFile={(rel) => {
-                if (!atelierUrl || !activeProject) return;
-                const origin = new URL(atelierUrl).origin;
-                const ext = rel.split(".").pop()?.toLowerCase() ?? "";
-                const name = rel.split("/").pop() ?? rel;
-                let url: string;
-                if (ext === "pdf") {
-                  url = `${origin}/.fig_thumbs/pdf_viewer.html?file=${encodeURIComponent(rel)}`;
-                } else if (["png", "jpg", "jpeg", "gif", "svg", "webp"].includes(ext)) {
-                  url = `${origin}/${rel}`;
-                } else if (ext === "md") {
-                  url = `${origin}/.fig_thumbs/md_studio.html?path=${encodeURIComponent(
-                    `${activeProject}/${rel}`,
-                  )}`;
-                } else {
-                  url = `${origin}/.fig_thumbs/latex_studio.html?path=${encodeURIComponent(
-                    `${activeProject}/${rel}`,
-                  )}`;
-                }
-                const existing = atelierTabsRef.current.find((t) => t.url === url);
-                if (existing) {
-                  setActiveTab(existing.id);
-                } else {
-                  const id = crypto.randomUUID();
-                  setAtelierTabs((tabs) => [...tabs, { id, url, title: name }]);
-                  setActiveTab(id);
-                }
-              }}
+              onOpenFile={(rel) => openFileTab(rel)}
               tabs={atelierTabs}
               activeTab={activeTab}
               onSelectTab={setActiveTab}

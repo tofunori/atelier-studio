@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import { open } from "@tauri-apps/plugin-dialog";
+import { openUrl } from "@tauri-apps/plugin-opener";
 import { AgentEvent } from "../lib/ws";
 import { ProviderIcon } from "./icons";
 
@@ -31,6 +32,55 @@ const MODELS: Record<string, { id: string; label: string }[]> = {
 const EFFORTS: Record<string, string[]> = {
   claude: ["", "low", "medium", "high", "xhigh", "max"],
   codex: ["", "minimal", "low", "medium", "high", "xhigh"],
+};
+
+// réf. fichier type "main.tex:31", "sections/method.tex:60-74", "script.py"
+const FILE_REF = /^[\w~./-]*[\w-]\.(tex|py|jl|md|r|R|bib|json|toml|yaml|yml|sh|js|ts|tsx|jsx|css|html|txt|csv|sql|rs|mjs|ipynb)(:\d+(?:-\d+)?)?$/;
+
+function openFileRef(ref: string) {
+  const m = /^(.+?)(?::(\d+(?:-\d+)?))?$/.exec(ref.trim());
+  if (!m) return;
+  window.dispatchEvent(new CustomEvent("chat-open-file", { detail: { rel: m[1], line: m[2] ?? null } }));
+}
+
+// composants markdown : liens externes stylés + réfs fichier:ligne cliquables
+const MD_COMPONENTS = {
+  a: (props: any) => {
+    const label = String(props.children?.[0] ?? props.children ?? "");
+    const href = String(props.href ?? "");
+    const ref = FILE_REF.test(label) ? label : FILE_REF.test(href) ? href : null;
+    if (ref)
+      return (
+        <button className="file-ref" onClick={() => openFileRef(ref)} title={`Ouvrir ${ref}`}>
+          <svg width="10" height="10" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5">
+            <path d="M4 1.8h5.2L13 5.6v8.6H4z" /><path d="M9 1.8v4h4" />
+          </svg>
+          {label}
+        </button>
+      );
+    return (
+      <a
+        className="md-link"
+        href={href}
+        onClick={(e) => { e.preventDefault(); if (/^https?:/.test(href)) openUrl(href); }}
+      >
+        {props.children}
+      </a>
+    );
+  },
+  code: (props: any) => {
+    const txt = String(props.children?.[0] ?? "");
+    if (!props.className && FILE_REF.test(txt) && txt.includes(":"))
+      return (
+        <button className="file-ref" onClick={() => openFileRef(txt)} title={`Ouvrir ${txt}`}>
+          <svg width="10" height="10" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5">
+            <path d="M4 1.8h5.2L13 5.6v8.6H4z" /><path d="M9 1.8v4h4" />
+          </svg>
+          {txt}
+        </button>
+      );
+    return <code className={props.className}>{props.children}</code>;
+  },
 };
 
 function fmtTime(ts: number, fmt?: "system" | "24h" | "12h") {
@@ -333,7 +383,7 @@ export default function Chat(p: {
             return (
               <div key={i} id={`msg-${i}`} className="msg-wrap">
                 <div className="msg">
-                  <ReactMarkdown>{e.text}</ReactMarkdown>
+                  <ReactMarkdown components={MD_COMPONENTS as any}>{e.text}</ReactMarkdown>
                 </div>
                 <div className="msg-actions">
                   {"ts" in e && e.ts && (
