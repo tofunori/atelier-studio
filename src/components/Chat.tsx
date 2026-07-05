@@ -149,6 +149,14 @@ export default function Chat(p: {
   const [selIdx, setSelIdx] = useState(0);
   const [quote, setQuote] = useState<{ x: number; y: number; text: string } | null>(null);
   const [menuOpen, setMenuOpen] = useState(false);
+  const [plusOpen, setPlusOpen] = useState(false);
+
+  useEffect(() => {
+    if (!plusOpen) return;
+    const close = () => setPlusOpen(false);
+    window.addEventListener("click", close);
+    return () => window.removeEventListener("click", close);
+  }, [plusOpen]);
   const [favModels, setFavModels] = useState<string[]>(() => {
     try { return JSON.parse(localStorage.getItem("atelier-studio.favModels") ?? "[]"); }
     catch { return []; }
@@ -530,9 +538,30 @@ export default function Chat(p: {
         />
         </div>
         <div className="composer-bar">
-          <button type="button" className="ghost" title="Joindre des fichiers" onClick={attachFiles}>
-            +
-          </button>
+          <span className="plus-wrap" onClick={(e) => e.stopPropagation()}>
+            <button type="button" className="ghost" title="Ajouter…" onClick={() => setPlusOpen((v) => !v)}>
+              +
+            </button>
+            {plusOpen && (
+              <div className="mp-menu plus-up">
+                <div className="mp-item" onClick={() => { setPlusOpen(false); attachFiles(); }}>
+                  <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3">
+                    <path d="M13.5 7.5l-5 5a3.2 3.2 0 0 1-4.5-4.5l5.5-5.5a2.2 2.2 0 0 1 3.1 3.1l-5.5 5.5a1.1 1.1 0 0 1-1.6-1.6l5-5" />
+                  </svg>
+                  <span>Ajouter une image / un fichier</span>
+                </div>
+                <div className="mp-item" onClick={() => setPermissionMode(permissionMode === "plan" ? "bypassPermissions" : "plan")}>
+                  <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3">
+                    <path d="M2.5 4h2M6.5 4h7M2.5 8h2M6.5 8h7M2.5 12h2M6.5 12h7" />
+                  </svg>
+                  <span>Plan mode</span>
+                  <span className={`toggle ${permissionMode === "plan" ? "on" : ""}`}>
+                    <span className="knob" />
+                  </span>
+                </div>
+              </div>
+            )}
+          </span>
           <select
             className="bare access"
             value={permissionMode}

@@ -506,3 +506,10 @@ button.ghost:disabled { opacity: 0.35; cursor: default; }
   white-space: nowrap; max-width: 420px; }
 .goal-pill .ghost { padding: 0 2px; font-size: 11px; }
 .ta-wrap textarea { min-height: 22px; height: 22px; }
+.plus-up { bottom: 34px; left: 0; right: auto; min-width: 240px; }
+.toggle { margin-left: auto; width: 32px; height: 18px; border-radius: 999px;
+  background: var(--bg-ctl); position: relative; transition: background 0.15s; flex-shrink: 0; }
+.toggle .knob { position: absolute; top: 2px; left: 2px; width: 14px; height: 14px;
+  border-radius: 50%; background: var(--muted); transition: all 0.15s; }
+.toggle.on { background: var(--accent); }
+.toggle.on .knob { left: 16px; background: #fff; }
