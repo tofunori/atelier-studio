@@ -170,6 +170,7 @@ export default function Sidebar(p: {
           <SidebarIcon />
         </button>
       </div>
+      <div className="side-scroll">
       {p.favorites.length > 0 && (
         <>
           <div className="section sec-toggle" onClick={() => toggleSec("fav")}>
@@ -324,7 +325,7 @@ export default function Sidebar(p: {
             ))}
         </ul>
       )}
-      <span className="side-flex" />
+      </div>
       <button className="settings-btn" title={t("action.settings")} onClick={p.onSettings}>
         <SettingsIcon size={14} />
         <span>{t("sidebar.settings")}</span>

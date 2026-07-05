@@ -23,7 +23,10 @@ html, body, #root, .app { height: 100vh;
   -webkit-font-smoothing: antialiased; }
 .handle { width: 4px; background: var(--bg-ctl); }
 .sidebar { padding: 12px 10px; display: flex; flex-direction: column; gap: 8px;
-  height: 100%; background: var(--bg-side); font-size: 13.5px; }
+  height: 100%; background: var(--bg-side); font-size: 13.5px;
+  min-height: 0; overflow: hidden; }
+.side-scroll { flex: 1; min-height: 0; overflow-y: auto; display: flex;
+  flex-direction: column; gap: 8px; scrollbar-width: thin; }
 .sidebar button { padding: 6px; background: var(--bg-ctl); color: inherit;
   border: none; border-radius: 6px; cursor: pointer; font-size: 13px; }
 .sidebar button:disabled { opacity: 0.4; cursor: default; }
