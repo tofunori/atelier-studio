@@ -363,6 +363,8 @@ html, body, #root, .app { height: 100vh; overflow: hidden;
 /* bord gauche : le bord droit reste à la scrollbar et au bouton plein écran */
 .chapters { position: absolute; top: 24px; left: 10px; z-index: 40;
   width: 16px; display: flex; flex-direction: column; gap: 10px; align-items: center; }
+/* décaler sous la barre Reviewer quand elle est présente (sinon chevauchement) */
+.chapters.below-reviewer { top: 60px; }
 /* ligne-guide courte derrière le groupe */
 .chapters::before { content: ""; position: absolute; top: 4px; bottom: 4px; left: 50%;
   width: 1px; background: var(--border); }

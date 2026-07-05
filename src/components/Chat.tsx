@@ -898,7 +898,7 @@ export default function Chat(p: {
         )}
       </div>
       {p.pins.length > 0 && (
-        <div className="chapters">
+        <div className={`chapters${p.threadId && review ? " below-reviewer" : ""}`}>
           {[...p.pins].sort((a, b) => (tickPos[a.index] ?? a.index) - (tickPos[b.index] ?? b.index)).map((c) => (
             <div
               key={c.index}
