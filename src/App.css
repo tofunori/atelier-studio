@@ -282,9 +282,7 @@ html, body, #root, .app { height: 100vh; overflow: hidden;
 .swatch.none { background: var(--bg-ctl); }
 .rail-menu input { background: var(--bg-ctl); border: 1px solid var(--border2); border-radius: 6px;
   color: inherit; padding: 5px 8px; font-size: 12px; outline: none; }
-.proj-badge { width: 24px; height: 24px; border-radius: 7px; font-size: 13px; display: inline-flex;
-  align-items: center; justify-content: center; font-size: 11px; font-weight: 600;
-  color: #fff; flex-shrink: 0; }
+.proj-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
 .section { display: flex; align-items: center; justify-content: space-between; }
 .compact-btn { background: transparent; border: none; color: var(--muted2);
   cursor: pointer; font-size: 14px; }
@@ -1108,11 +1106,26 @@ body.dragging iframe { pointer-events: none; }
 /* actions au survol des rangées de chats */
 .sidebar li { position: relative; }
 .row-actions { position: absolute; right: 6px; top: 50%; transform: translateY(-50%);
-  display: none; gap: 2px; background: inherit; }
-.sidebar li:hover .row-actions { display: inline-flex; }
+  display: inline-flex; gap: 2px; opacity: 0; transition: opacity 0.15s;
+  background: linear-gradient(90deg, transparent, var(--bg-ctl) 30%);
+  padding-left: 14px; pointer-events: none; }
+.sidebar li:hover .row-actions { opacity: 1; pointer-events: auto; }
 .row-act { width: 22px; height: 22px; display: inline-flex; align-items: center;
   justify-content: center; border: none; border-radius: 6px;
   background: transparent !important; color: var(--muted2); cursor: pointer; padding: 0 !important; }
 .row-act:hover { background: var(--bg-ctl) !important; color: var(--fg); }
 .row-act.on { color: #e0b74a; }
 .row-act.danger:hover { color: #e06c75; }
+
+/* sidebar plate (option A) */
+.side-actions { display: flex; flex-direction: column; gap: 1px; margin-bottom: 4px; }
+.item-action { display: flex; align-items: center; gap: 10px; padding: 6px 10px;
+  border-radius: 8px; color: var(--fg2); cursor: pointer; font-size: 13px; }
+.item-action:hover { background: var(--bg-ctl); color: var(--fg); }
+.item-action svg { color: var(--muted); }
+.item-kbd { margin-left: auto; font-size: 10.5px; color: var(--muted2); }
+.project-name { border-radius: 8px; padding: 6px 10px; }
+.project-name.active { background: transparent; }
+.project-name:hover { background: var(--bg-ctl); }
+.thread-date { display: none; }
+.sidebar li { font-size: 12.5px; }

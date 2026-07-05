@@ -533,12 +533,15 @@ export default function App() {
       setQaContext("");
       setQaMode("open");
     };
+    const onOpenPalette = () => setPaletteOpen(true);
+    window.addEventListener("open-palette", onOpenPalette);
     window.addEventListener("quick-ask-toggle", onQaToggle);
     const onUsageToggle = () => setUsageOpen((v) => !v);
     window.addEventListener("usage-toggle", onUsageToggle);
     window.addEventListener("quick-ask-open", onQaOpen);
     window.addEventListener("atelier-add-to-chat-citation", onCitation);
     return () => {
+      window.removeEventListener("open-palette", onOpenPalette);
       window.removeEventListener("quick-ask-toggle", onQaToggle);
       window.removeEventListener("usage-toggle", onUsageToggle);
       window.removeEventListener("quick-ask-open", onQaOpen);

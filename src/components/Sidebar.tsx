@@ -156,9 +156,8 @@ export default function Sidebar(p: {
 
   function threadLabel(t: Thread) {
     return (
-      <span className="thread-copy">
+      <span className="thread-copy" title={relativeDate(t.updatedAt)}>
         {titleEditor(t)}
-        <span className="thread-date">{relativeDate(t.updatedAt)}</span>
       </span>
     );
   }
@@ -172,6 +171,25 @@ export default function Sidebar(p: {
         </button>
       </div>
       <div className="side-scroll">
+      <div className="side-actions">
+        <div className="item-action" onClick={p.onNewChat}>
+          <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M11.5 2.5l2 2L6 12l-2.7.7L4 10z" />
+          </svg>
+          {t("action.new-chat")}
+        </div>
+        <div className="item-action" onClick={() => window.dispatchEvent(new CustomEvent("open-palette"))}>
+          <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round">
+            <circle cx="7" cy="7" r="4.4" /><path d="M10.4 10.4L14 14" />
+          </svg>
+          {t("sidebar.search")}
+          <span className="item-kbd">⌘K</span>
+        </div>
+        <div className="item-action" onClick={() => openResume("claude")}>
+          <ResumeIcon size={14} />
+          {t("sidebar.resume-session")}
+        </div>
+      </div>
       {p.favorites.length > 0 && (
         <>
           <div className="section sec-toggle" onClick={() => toggleSec("fav")}>
@@ -236,11 +254,9 @@ export default function Sidebar(p: {
             >
               <span className="chev">{collapsed.includes(root) ? "▸" : "▾"}</span>
               <span
-                className="proj-badge"
-                style={{ background: p.projMeta[root]?.color ?? "#2c313a" }}
-              >
-                {p.projMeta[root]?.label ?? (name?.charAt(0).toUpperCase() || "?")}
-              </span>
+                className="proj-dot"
+                style={{ background: p.projMeta[root]?.color ?? "var(--muted2)" }}
+              />
               {name}
               {active && (
                 <button
