@@ -21,6 +21,7 @@ export function extractVerdict(text) {
                 claim: String(i?.claim ?? "").slice(0, 300),
                 problem: String(i?.problem ?? "").slice(0, 400),
                 severity: i?.severity === "high" ? "high" : "low",
+                fix: i?.fix ? String(i.fix).slice(0, 300) : undefined,
               }))
             : [],
         };

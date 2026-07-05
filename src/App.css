@@ -1187,3 +1187,23 @@ body.dragging iframe { pointer-events: none; }
   border-top-color: var(--muted); border-radius: 50%; display: inline-block;
   animation: spin 0.8s linear infinite; }
 @media (prefers-reduced-motion: reduce) { .rb-spin { animation: none; } }
+
+/* menu déroulant de la barre reviewer + correction */
+.reviewer-wrap { position: relative; flex-shrink: 0; z-index: 12; }
+.reviewer-bar { width: 100%; text-align: left; }
+.reviewer-bar.clickable { cursor: pointer; }
+.rb-chevron { color: var(--muted2); font-size: 9px; margin-left: 4px; }
+.reviewer-menu { position: absolute; top: 100%; left: 0; right: 0; z-index: 30;
+  background: var(--bg-pop); border: 1px solid var(--border2); border-top: none;
+  border-radius: 0 0 12px 12px; padding: 10px 14px; display: flex; flex-direction: column;
+  gap: 10px; box-shadow: 0 12px 30px rgba(0,0,0,0.4); max-height: 340px; overflow-y: auto; }
+.rm-issue { border-left: 2px solid var(--border2); padding: 2px 0 2px 10px; font-size: 12.5px; }
+.rm-issue.s-high { border-left-color: #e06c75; }
+.rm-claim { color: var(--fg2); font-style: italic; }
+.rm-problem { color: var(--muted); margin-top: 2px; }
+.rm-fix { color: #98c379; margin-top: 3px; font-size: 12px; }
+.rm-correct { align-self: flex-start; background: transparent; border: 1px solid var(--accent);
+  color: var(--accent); border-radius: 8px; padding: 5px 14px; font-size: 12.5px; cursor: pointer;
+  margin-top: 2px; }
+.rm-correct:hover:not(:disabled) { background: color-mix(in srgb, var(--accent) 12%, transparent); }
+.rm-correct:disabled { opacity: 0.5; cursor: default; }

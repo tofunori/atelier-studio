@@ -67,3 +67,21 @@ export function premierEtDernier(arr: number[]): { premier: number; dernier: num
 export function demarrerPolling(callback: () => void): void {
   setInterval(callback, 1000); // pas de clearInterval, pas de référence retournée
 }
+
+// Bug volontaire ajouté pour test : mauvais opérateur, division entière attendue mais % utilisé
+export function moitie(n: number): number {
+  return n % 2; // devrait être n / 2
+}
+
+// Bug volontaire ajouté pour test : clé d'objet dynamique non échappée -> prototype pollution possible
+export function fusionner(cible: any, source: Record<string, any>): any {
+  for (const cle in source) {
+    cible[cle] = source[cle]; // pas de vérification de "__proto__" ou "constructor"
+  }
+  return cible;
+}
+
+// Bug volontaire ajouté pour test : comparaison de floats avec ===
+export function estEgalArgent(a: number, b: number): boolean {
+  return a === b; // problème classique d'arrondi flottant (0.1 + 0.2 !== 0.3)
+}

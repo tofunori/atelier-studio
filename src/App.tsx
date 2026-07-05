@@ -470,6 +470,9 @@ export default function App() {
         window.dispatchEvent(new CustomEvent("review-result", { detail: msg }));
         if (msg.status === "done" && msg.verdict === "issues") {
           notifyReview({ threadId: msg.threadId, issues: (msg.issues ?? []).map((i: any) => i.claim) }).catch(() => {});
+          if (settingsRef.current.autoReview.autofix && (msg.issues ?? []).length) {
+            window.dispatchEvent(new CustomEvent("correct-issues", { detail: { threadId: msg.threadId, issues: msg.issues } }));
+          }
         }
       }
       if (msg.type === "qaEvent") {
@@ -570,6 +573,28 @@ export default function App() {
       setSettings((s) => ({ ...s, autoReview: { ...s.autoReview, enabled: !s.autoReview.enabled } }));
     };
     window.addEventListener("autoreview-toggle", onAutoReviewToggle);
+    const onCorrectIssues = (e: Event) => {
+      const { threadId, issues } = (e as CustomEvent).detail ?? {};
+      if (!threadId || !Array.isArray(issues) || !issues.length) return;
+      const th = threadsRef.current.find((t) => t.id === threadId);
+      if (!th || ws.current?.readyState !== 1) return;
+      const lines = issues.map((i: any, k: number) =>
+        `${k + 1}. « ${i.claim} » → ${i.problem}${i.fix ? ` (correction : ${i.fix})` : ""}`).join("\n");
+      const prompt = `Un vérificateur indépendant a relevé ces problèmes dans ton dernier travail :\n${lines}\n\nCorrige-les CONCRÈTEMENT dans les fichiers concernés (ne te contente pas d'expliquer). Confirme brièvement chaque correction appliquée.`;
+      setEvents((p) => ({
+        ...p,
+        [threadId]: [...(p[threadId] ?? []), { kind: "user", text: "⟳ Correction demandée par le vérificateur", ts: Date.now() }],
+      }));
+      setWorkingSince((p) => ({ ...p, [threadId]: Date.now() }));
+      sendPrompt(ws.current, {
+        autoReview: settingsRef.current.autoReview,
+        threadId,
+        projectRoot: th.projectRoot ?? "",
+        provider: th.provider ?? "claude",
+        prompt,
+      });
+    };
+    window.addEventListener("correct-issues", onCorrectIssues);
     const onRequestReview = (e: Event) => {
       const threadId = (e as CustomEvent).detail?.threadId;
       if (threadId && ws.current?.readyState === 1) {
@@ -594,6 +619,7 @@ export default function App() {
     window.addEventListener("atelier-add-to-chat-citation", onCitation);
     return () => {
       window.removeEventListener("autoreview-toggle", onAutoReviewToggle);
+      window.removeEventListener("correct-issues", onCorrectIssues);
       window.removeEventListener("request-review", onRequestReview);
       window.removeEventListener("open-palette", onOpenPalette);
       window.removeEventListener("quick-ask-toggle", onQaToggle);

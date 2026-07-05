@@ -18,7 +18,14 @@ Voici le RECORD D'EXÉCUTION réel de ce tour (source de vérité) :
 - Fichiers réellement modifiés : ${files.length ? files.join(", ") : "AUCUN"}
 ${diffs ? `--- DIFFS DES MODIFICATIONS ---\n${String(diffs).slice(0, 12000)}\n--- FIN DIFFS ---` : ""}
 
-Vérifie UNIQUEMENT la cohérence entre la réponse et le record. Cherche :
+Vérifie DEUX choses :
+A) la cohérence entre la réponse et le record (voir liste ci-dessous) ;
+B) les BUGS DE CORRECTION réels et évidents dans le code modifié (le diff) : erreurs de logique,
+   off-by-one, effets de bord non voulus, oublis de multiplication/condition, mauvais index,
+   type incorrect, valeur de retour fausse. Ne signale QUE ce que tu vois dans le diff, pas des
+   suppositions sur du code non montré.
+
+Pour la cohérence (A), cherche :
 1. Un résultat présenté comme fait/calculé/testé alors qu'aucun outil correspondant n'a tourné.
 2. Un fichier décrit comme modifié/créé qui n'apparaît pas dans les fichiers modifiés (et inversement : des modifications non mentionnées).
 3. Une valeur, un chiffre ou un nom cité dans la réponse qui contredit le contenu des diffs.
@@ -29,6 +36,6 @@ Ce que tu NE fais PAS : juger la qualité du code, proposer des améliorations, 
 critiquer des choix de méthode. Un écart mineur de formulation n'est pas une incohérence.
 
 Réponds EXCLUSIVEMENT avec un objet JSON, sans markdown autour :
-{"verdict": "ok" | "issues", "issues": [{"claim": "<l'affirmation de la réponse, citée courte>", "problem": "<ce que le record montre réellement>", "severity": "low" | "high"}]}
+{"verdict": "ok" | "issues", "issues": [{"claim": "<l'affirmation OU l'endroit du code concerné, court>", "problem": "<le problème>", "severity": "low" | "high", "fix": "<correction concrète à appliquer, en une phrase>"}]}
 "verdict":"ok" si et seulement si aucune incohérence trouvée — et c'est un résultat fréquent et acceptable : ne fabrique pas de problème pour paraître utile.`;
 }

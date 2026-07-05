@@ -284,13 +284,19 @@ export default function Chat(p: {
   const [selIdx, setSelIdx] = useState(0);
   const [quote, setQuote] = useState<{ x: number; y: number; text: string } | null>(null);
   const [showJump, setShowJump] = useState(false);
-  const [review, setReview] = useState<{ status: string; verdict?: string; model?: string; checks?: number; issues?: { claim: string; problem: string; severity: string }[] } | null>(null);
+  const [review, setReview] = useState<{ status: string; verdict?: string; model?: string; checks?: number; issues?: { claim: string; problem: string; severity: string; fix?: string }[] } | null>(null);
   const [reviewOpen, setReviewOpen] = useState(false);
+  const [barOpen, setBarOpen] = useState(false);
+  const [fixing, setFixing] = useState(false);
+  useEffect(() => { setBarOpen(false); setFixing(false); }, [p.threadId]);
   useEffect(() => setReview(null), [p.threadId]);
   useEffect(() => {
     const onReview = (e: Event) => {
       const msg = (e as CustomEvent).detail;
-      if (msg.threadId === p.threadId) setReview(msg);
+      if (msg.threadId === p.threadId) {
+        setReview(msg);
+        if (msg.status === "done") setFixing(false);
+      }
     };
     window.addEventListener("review-result", onReview);
     return () => window.removeEventListener("review-result", onReview);
@@ -567,32 +573,59 @@ export default function Chat(p: {
         {p.layout === "chat" ? <CollapseIcon /> : <ExpandIcon />}
       </button>
       {p.threadId && review && (
-        <div className={`reviewer-bar v-${review.status === "running" ? "running" : review.verdict}`}>
-          <svg className="rb-ico" width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round">
-            <path d="M8 1.8l5 2v4c0 3.2-2.2 5.4-5 6.4-2.8-1-5-3.2-5-6.4v-4z" />
-            {review.verdict === "ok" && <path d="M5.8 8l1.6 1.6L10.5 6.3" />}
-          </svg>
-          <span className="rb-name">Reviewer</span>
-          <span className="rb-dot">·</span>
-          {review.status === "running" ? (
-            <span className="rb-verdict running"><span className="rb-spin" /> {t("review.running")}</span>
-          ) : review.verdict === "ok" ? (
-            <span className="rb-verdict ok">{t("review.ok-bar")}</span>
-          ) : review.verdict === "issues" ? (
-            <span className="rb-verdict warn" onClick={() => {
-              setReviewOpen(true);
-              document.getElementById("last-done")?.scrollIntoView({ behavior: "smooth", block: "center" });
-            }}>{t("review.issues", { n: review.issues?.length ?? 0 })}</span>
-          ) : (
-            <span className="rb-verdict">{t("review.inconclusive")}</span>
-          )}
-          {review.status === "done" && review.checks != null && review.checks > 0 && (
-            <>
-              <span className="rb-dot">·</span>
-              <span className="rb-checks">{t("review.checks", { n: review.checks })}</span>
-            </>
-          )}
-          <button className="rb-close" title={t("action.close")} onClick={() => setReview(null)}>✕</button>
+        <div className="reviewer-wrap">
+          <button
+            className={`reviewer-bar v-${review.status === "running" ? "running" : review.verdict} ${(review.issues?.length || fixing) ? "clickable" : ""}`}
+            onClick={() => (review.issues?.length || fixing) && setBarOpen((v) => !v)}
+          >
+            <svg className="rb-ico" width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M8 1.8l5 2v4c0 3.2-2.2 5.4-5 6.4-2.8-1-5-3.2-5-6.4v-4z" />
+              {review.verdict === "ok" && <path d="M5.8 8l1.6 1.6L10.5 6.3" />}
+            </svg>
+            <span className="rb-name">Reviewer</span>
+            <span className="rb-dot">·</span>
+            {fixing ? (
+              <span className="rb-verdict running"><span className="rb-spin" /> {t("review.fixing")}</span>
+            ) : review.status === "running" ? (
+              <span className="rb-verdict running"><span className="rb-spin" /> {t("review.running")}</span>
+            ) : review.verdict === "ok" ? (
+              <span className="rb-verdict ok">{t("review.ok-bar")}</span>
+            ) : review.verdict === "issues" ? (
+              <span className="rb-verdict warn">{t("review.issues", { n: review.issues?.length ?? 0 })}</span>
+            ) : (
+              <span className="rb-verdict">{t("review.inconclusive")}</span>
+            )}
+            {review.status === "done" && !fixing && review.checks != null && review.checks > 0 && (
+              <>
+                <span className="rb-dot">·</span>
+                <span className="rb-checks">{t("review.checks", { n: review.checks })}</span>
+              </>
+            )}
+            {(review.issues?.length || fixing) ? <span className="rb-chevron">{barOpen ? "▴" : "▾"}</span> : null}
+            <span className="rb-close" title={t("action.close")} onClick={(e) => { e.stopPropagation(); setReview(null); }}>✕</span>
+          </button>
+          {barOpen && review.issues?.length ? (
+            <div className="reviewer-menu">
+              {review.issues.map((iss, k) => (
+                <div key={k} className={`rm-issue s-${iss.severity}`}>
+                  <div className="rm-claim">« {iss.claim} »</div>
+                  <div className="rm-problem">{iss.problem}</div>
+                  {(iss as any).fix && <div className="rm-fix">→ {(iss as any).fix}</div>}
+                </div>
+              ))}
+              <button
+                className="rm-correct"
+                disabled={fixing}
+                onClick={() => {
+                  setFixing(true);
+                  setBarOpen(false);
+                  window.dispatchEvent(new CustomEvent("correct-issues", { detail: { threadId: p.threadId, issues: review.issues } }));
+                }}
+              >
+                {fixing ? t("review.fixing") : t("review.correct")}
+              </button>
+            </div>
+          ) : null}
         </div>
       )}
       <div

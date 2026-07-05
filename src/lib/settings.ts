@@ -15,6 +15,7 @@ export type Settings = {
     model: string;
     effort: string;
     trigger: "always" | "files-changed" | "manual";
+    autofix: boolean;
   };
   language: "fr" | "en" | "system";
   theme: "dark" | "light" | "system";
@@ -45,7 +46,7 @@ export const DEFAULT_SETTINGS: Settings = {
   chatLineHeight: 1.7,
   galleryPath: "", // vide = galerie embarquée (gallery/ du repo ou ressource bundlée)
   autoRefreshAtelier: true,
-  autoReview: { enabled: false, provider: "codex", model: "gpt-5.5", effort: "high", trigger: "files-changed" },
+  autoReview: { enabled: false, provider: "codex", model: "gpt-5.5", effort: "high", trigger: "files-changed", autofix: false },
   language: "system",
   theme: "dark",
   themePreset: "atelier",
