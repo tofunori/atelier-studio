@@ -205,7 +205,7 @@ function __ct(){try{return JSON.parse(localStorage.getItem('claudeTargetV1')||'n
   var akBtn = document.createElement('button');
   akBtn.id = 'csel-annot-btn';
   akBtn.title = 'Dessiner des annotations sur ce document';
-  akBtn.textContent = '✎';                 // ✎
+  akBtn.innerHTML = '<svg viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"><path d="M11.3 2.5l2.2 2.2L5.8 12.4l-3 .8.8-3zM10 3.8l2.2 2.2"/></svg>';
   document.body.appendChild(akBtn);
 
   var akOverlay = document.createElement('canvas');
@@ -265,7 +265,7 @@ function __ct(){try{return JSON.parse(localStorage.getItem('claudeTargetV1')||'n
       var on = annot.toggle();
       akBtn.classList.toggle('on', on);
       if (on){ hideAll(); sizeOverlay(); }         // don't fight the text-selection pill
-    }).catch(function(){ akBtn.textContent = '!'; setTimeout(function(){ akBtn.textContent = '✎'; }, 1600); });
+    }).catch(function(){ akBtn.textContent = '!'; setTimeout(function(){ akBtn.innerHTML = '<svg viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"><path d="M11.3 2.5l2.2 2.2L5.8 12.4l-3 .8.8-3zM10 3.8l2.2 2.2"/></svg>'; }, 1600); });
   });
 
   window.addEventListener('resize', function(){ if (annot && annot.enabled) sizeOverlay(); });
