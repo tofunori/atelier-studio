@@ -138,3 +138,22 @@ Atelier devient l'environnement quotidien de Thierry. Protocole :
   agentique (outils, fichiers, terminal). Clés API dans Réglages. Équivalent Codex :
   model_providers en config.
 - [ ] P2 — binaires SDK ré-embarqués (option "lourde" +460 Mo) si distribution large.
+
+## PLAN D'EXÉCUTION CONSOLIDÉ (2026-07-05) — ordre de travail
+
+Pipeline standard : brief → Codex implémente → revue Claude → push → test Thierry.
+
+| # | Chantier | Contenu | Taille |
+|---|----------|---------|--------|
+| 0 | **Git + Run Ledger** (EN COURS chez Codex) | module git, snapshot avant chaque tour, undo, surface Git, ledger JSONL, vue Journal | L |
+| 1 | **Bibliothèque Zotero (option B complète)** | routes router (zotero déjà prêt), surface split réfs/lecteur, favoris ⭐, panneau Notes, Citer dans le chat | L |
+| 2 | **Langue FR/EN** | extraction t() ~150 chaînes, réglage Langue, events sidecar en codes | M |
+| 3 | **Split drag façon cmux** | drag pilule → zones surbrillance → 2 panes max, presets par écran (Simple/Duo/Lecture) | M-L |
+| 4 | **Vendorisation galerie (phase 1)** | déclencheur : 1 semaine sans cmux ; copie dans le repo + taille Studio-only | M |
+| 5 | **Distribution v0.2** | node embarqué, Doctor, auto-update, release | M |
+| 6 | **Run Ledger suite** : Figure Lab (avant/après) puis Reproduce | React neuf autorisé ici | L |
+| 7 | **Providers DeepSeek/GLM** (endpoints Anthropic-compat) | profils + clés en Réglages | M |
+| 8 | **Portage serveur galerie → Node (phase 2)** | route par route, Python disparaît | L étalé |
+
+En continu : frictions de la bascule quotidienne = petits items intercalés en tête de file.
+Refactor App.tsx en hooks : à glisser dans le chantier qui le touche le plus (probablement #3).
