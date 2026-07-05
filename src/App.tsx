@@ -36,13 +36,26 @@ import "./App.css";
 
 const PROJECTS_KEY = "atelier-studio.projects";
 
-export type Attachment = { name: string; lines: string | null; text: string; imageUrl?: string; path?: string };
+export type Attachment = {
+  name: string;
+  lines: string | null;
+  text: string;
+  imageUrl?: string;
+  path?: string;
+  kind?: "file" | "folder" | "zotero" | "quote";
+  preview?: { title: string; rows: { label: string; value: string }[] };
+};
 type ZoteroPaletteItem = {
   key: string;
   title: string;
   creators?: string;
   year?: string;
   citeKey?: string;
+  publication?: string;
+  doi?: string;
+  abstract?: string;
+  hasPdf?: boolean;
+  pdfFile?: string | null;
 };
 
 // « /chemin/avec espaces/CLAUDE.md (p.L11-224) : « … » » → {name: CLAUDE.md, lines: 11-224}
@@ -154,6 +167,13 @@ export default function App() {
   const [settings, setSettings] = useState<Settings>(loadSettings);
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [zoteroItems, setZoteroItems] = useState<ZoteroPaletteItem[]>([]);
+  const [recentFiles, setRecentFiles] = useState<string[]>(() => {
+    try {
+      return JSON.parse(localStorage.getItem("atelier-studio.recentFiles") ?? "[]");
+    } catch {
+      return [];
+    }
+  });
   const [, setLanguageRev] = useState(0);
   const [showSettings, setShowSettings] = useState(false);
   const settingsRef = useRef(settings);
@@ -747,8 +767,19 @@ export default function App() {
   }, []);
 
   // ouvrir un fichier du projet dans un onglet atelier (explorer, liens fichier:ligne du chat)
+  function rememberFile(rel: string) {
+    const clean = rel.trim();
+    if (!clean) return;
+    setRecentFiles((current) => {
+      const next = [clean, ...current.filter((item) => item !== clean)].slice(0, 24);
+      localStorage.setItem("atelier-studio.recentFiles", JSON.stringify(next));
+      return next;
+    });
+  }
+
   function openFileTab(rel: string, line?: string | null) {
     if (!atelierUrl || !activeProject) return;
+    rememberFile(rel);
     const origin = new URL(atelierUrl).origin;
     const ext = rel.split(".").pop()?.toLowerCase() ?? "";
     const name = rel.split("/").pop() ?? rel;
@@ -1298,6 +1329,8 @@ export default function App() {
           }}
           commands={commands}
           files={files}
+          recentFiles={recentFiles.filter((file) => files.includes(file)).slice(0, 12)}
+          zoteroItems={zoteroItems}
           defaults={settings}
           injectText={injectText}
           onInjected={() => setInjectText(null)}
@@ -1368,7 +1401,78 @@ export default function App() {
           onToggleExpand={() => setLayout((l) => (l === "chat" ? "split" : "chat"))}
           onAttachPath={(path) => {
             const name = path.split("/").pop() ?? path;
-            setAttachments((l) => addAttachment(l, { name, lines: null, text: `Fichier joint (chemin local, lisible avec Read) : ${path}` }));
+            if (!path.startsWith("/")) rememberFile(path);
+            setAttachments((l) => addAttachment(l, {
+              name,
+              lines: null,
+              path,
+              kind: "file",
+              text: `Fichier joint (chemin local, lisible avec Read) : ${path}`,
+              preview: {
+                title: name,
+                rows: [
+                  { label: "Type", value: "File" },
+                  { label: "Path", value: path },
+                ],
+              },
+            }));
+          }}
+          onAttachFolder={(folder) => {
+            const prefix = folder.endsWith("/") ? folder : `${folder}/`;
+            const excluded = /(^|\/)(node_modules|dist|build|target|\.git|\.next|\.vite|coverage)\//;
+            const included = files
+              .filter((file) => file.startsWith(prefix) && !excluded.test(file))
+              .slice(0, 60);
+            const omitted = Math.max(0, files.filter((file) => file.startsWith(prefix)).length - included.length);
+            const name = prefix.split("/").filter(Boolean).pop() ?? prefix;
+            setAttachments((l) => addAttachment(l, {
+              name: `${name}/`,
+              lines: included.length ? `${included.length} files${omitted ? `, +${omitted}` : ""}` : "empty",
+              path: prefix,
+              kind: "folder",
+              text: [
+                `Dossier joint comme contexte : ${prefix}`,
+                "Contenu non injecté automatiquement; lis les fichiers précis avec Read si nécessaire.",
+                included.length ? `Fichiers indexés${omitted ? ` (premiers ${included.length}, ${omitted} autres omis)` : ""} :` : "Aucun fichier indexé dans ce dossier.",
+                ...included.map((file) => `- ${file}`),
+              ].join("\n"),
+              preview: {
+                title: `${name}/`,
+                rows: [
+                  { label: "Type", value: "Folder context" },
+                  { label: "Files", value: `${included.length}${omitted ? ` shown, ${omitted} omitted` : ""}` },
+                  { label: "Path", value: prefix },
+                ],
+              },
+            }));
+          }}
+          onAttachZotero={(key) => {
+            const item = zoteroItems.find((entry) => entry.key === key);
+            if (!item) return;
+            const label = item.citeKey ? `@${item.citeKey}` : `@${item.key}`;
+            setAttachments((l) => addAttachment(l, {
+              name: label,
+              lines: item.year || null,
+              kind: "zotero",
+              text: [
+                `Référence Zotero : ${label}`,
+                `Titre : ${item.title}`,
+                item.creators ? `Auteurs : ${item.creators}` : null,
+                item.year ? `Année : ${item.year}` : null,
+                item.publication ? `Publication : ${item.publication}` : null,
+                item.doi ? `DOI : ${item.doi}` : null,
+                item.pdfFile ? `PDF Zotero : ${item.pdfFile}` : null,
+              ].filter(Boolean).join("\n"),
+              preview: {
+                title: item.title || label,
+                rows: [
+                  { label: "Citation", value: label },
+                  ...(item.creators ? [{ label: "Authors", value: item.creators }] : []),
+                  ...(item.year ? [{ label: "Year", value: item.year }] : []),
+                  ...(item.doi ? [{ label: "DOI", value: item.doi }] : []),
+                ],
+              },
+            }));
           }}
           onStop={() => {
             if (activeId && ws.current?.readyState === 1) {
@@ -1386,6 +1490,7 @@ export default function App() {
               addAttachment(l, {
                 name: `« ${text.slice(0, 50)}${text.length > 50 ? "…" : ""} »`,
                 lines: null,
+                kind: "quote",
                 text: `Citation de la conversation :\n> ${text.split("\n").join("\n> ")}`,
               }),
             )

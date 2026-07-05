@@ -185,6 +185,30 @@ type Suggestion = {
   icon?: string;
   keep?: boolean;
   attachPath?: string;
+  attachFolder?: string;
+  attachZoteroKey?: string;
+};
+
+type ChatAttachment = {
+  name: string;
+  lines: string | null;
+  text: string;
+  imageUrl?: string;
+  path?: string;
+  kind?: "file" | "folder" | "zotero" | "quote";
+  preview?: { title: string; rows: { label: string; value: string }[] };
+};
+
+type ChatZoteroItem = {
+  key: string;
+  title: string;
+  creators?: string;
+  year?: string;
+  citeKey?: string;
+  publication?: string;
+  doi?: string;
+  hasPdf?: boolean;
+  pdfFile?: string | null;
 };
 
 function mentionLabel(path: string) {
@@ -215,15 +239,19 @@ export default function Chat(p: {
   workingSince: number | null;
   commands: { name: string; source: string }[];
   files: string[];
+  recentFiles: string[];
+  zoteroItems: ChatZoteroItem[];
   injectText: string | null;
   onInjected: () => void;
-  attachments: { name: string; lines: string | null; text: string; imageUrl?: string }[];
+  attachments: ChatAttachment[];
   onRemoveAttachment: (index: number) => void;
   onQuote: (text: string) => void;
   threadId: string | null;
   onPasteImage: (dataURL: string) => void;
   onStop: () => void;
   onAttachPath?: (path: string) => void;
+  onAttachFolder?: (folder: string) => void;
+  onAttachZotero?: (key: string) => void;
   goal: string | null;
   onClearGoal: () => void;
   layout: "split" | "chat" | "atelier";
@@ -455,6 +483,7 @@ export default function Chat(p: {
   }, [menuOpen]);
   const [editing, setEditing] = useState<{ index: number; text: string } | null>(null);
   const [openToolGroups, setOpenToolGroups] = useState<Set<number>>(new Set());
+  const [contextPackOpen, setContextPackOpen] = useState(false);
 
   // « Add to chat » sur sélection de texte dans les messages
   function onMessagesMouseUp() {
@@ -478,10 +507,10 @@ export default function Chat(p: {
     }
   }, [p.injectText]);
 
-  // autocomplétion : "/xxx" en début de message → skills ; "@xxx" (dernier mot) → fichiers
+  // autocomplétion : "/xxx" en début de message → skills ; "@xxx" (dernier mot) → fichiers/références
   let suggestions: Suggestion[] = [];
   const slashMatch = /^\/([\w:-]*)$/.exec(text);
-  const atMatch = /(^|\s)@([\w./-]*)$/.exec(text);
+  const atMatch = /(^|\s)@([\w./:-]*)$/.exec(text);
   if (slashMatch) {
     const q = slashMatch[1].toLowerCase();
     suggestions = p.commands
@@ -494,6 +523,52 @@ export default function Chat(p: {
     suggestions = [];
     if ("local".startsWith(q) || q === "") {
       suggestions.push({ insert: "__browse__", label: "@local", hint: t("at.browse"), section: t("at.local"), icon: "local" });
+    }
+    if ("recent".startsWith(q) || q.startsWith("recent")) {
+      if (q === "" || q === "recent") {
+        suggestions.push({ insert: base + "@recent:", label: "@recent", hint: t("at.recent-hint"), section: t("at.smart"), icon: "file", keep: true });
+      }
+      const recentQuery = q.startsWith("recent:") ? q.slice("recent:".length) : "";
+      suggestions.push(
+        ...p.recentFiles
+          .filter((file) => !recentQuery || file.toLowerCase().includes(recentQuery))
+          .slice(0, 8)
+          .map((file) => ({
+            insert: base + `${mentionLabel(file)} `,
+            label: file.split("/").pop() ?? file,
+            hint: file,
+            section: t("at.recent"),
+            icon: file.split(".").pop()?.toLowerCase() ?? "",
+            attachPath: file,
+          })),
+      );
+    }
+    if ("zotero".startsWith(q) || q.startsWith("zotero")) {
+      if (q === "" || q === "zotero") {
+        suggestions.push({ insert: base + "@zotero:", label: "@zotero", hint: t("at.zotero-hint"), section: t("at.smart"), icon: "bib", keep: true });
+      }
+      const zoteroQuery = q.startsWith("zotero:") ? q.slice("zotero:".length) : "";
+      const terms = zoteroQuery.split(/\s+/).filter(Boolean);
+      suggestions.push(
+        ...p.zoteroItems
+          .filter((item) => {
+            if (!terms.length) return true;
+            const hay = `${item.title} ${item.creators ?? ""} ${item.year ?? ""} ${item.citeKey ?? ""} ${item.key}`.toLowerCase();
+            return terms.every((term) => hay.includes(term));
+          })
+          .slice(0, 8)
+          .map((item) => {
+            const label = item.citeKey ? `@${item.citeKey}` : `@${item.key}`;
+            return {
+              insert: base + `${label} `,
+              label,
+              hint: [item.title, item.year].filter(Boolean).join(" · "),
+              section: "Zotero",
+              icon: "bib",
+              attachZoteroKey: item.key,
+            };
+          }),
+      );
     }
     // dossiers correspondants (clic = descendre dedans, l'autocomplétion continue)
     const dirSet = new Set<string>();
@@ -511,7 +586,7 @@ export default function Chat(p: {
         hint: dir.includes("/") ? dir.slice(0, dir.lastIndexOf("/")) : "",
         section: t("at.files"),
         icon: "dir",
-        keep: true,
+        attachFolder: dir,
       }))
     );
     suggestions.push(
@@ -539,13 +614,15 @@ export default function Chat(p: {
       if (picked) {
         const arr = Array.isArray(picked) ? picked : [picked];
         // retirer le @… en cours puis attacher les fichiers choisis
-        setText((cur) => cur.replace(/(^|\s)@[\w./-]*$/, "$1"));
+        setText((cur) => cur.replace(/(^|\s)@[\w./:-]*$/, "$1"));
         for (const path of arr) p.onAttachPath?.(path as string);
       }
       setSelIdx(0);
       return;
     }
     if (s.attachPath) p.onAttachPath?.(s.attachPath);
+    if (s.attachFolder) p.onAttachFolder?.(s.attachFolder);
+    if (s.attachZoteroKey) p.onAttachZotero?.(s.attachZoteroKey);
     setText(s.insert);
     setSelIdx(0);
   }
@@ -557,6 +634,55 @@ export default function Chat(p: {
     setText((t) => `${t}${t && !t.endsWith(" ") ? " " : ""}${paths.map((p) => mentionLabel(p as string)).join(" ")} `);
     for (const path of paths) p.onAttachPath?.(path as string);
   }
+
+  const attachmentLabels = new Set(
+    p.attachments.flatMap((a) => {
+      const nameLabel = a.name.startsWith("@") ? a.name.replace(/\/+$/, "") : `@${a.name.replace(/\/+$/, "")}`;
+      return [
+        nameLabel,
+        ...(a.path ? [mentionLabel(a.path).replace(/\/+$/, "")] : []),
+      ];
+    }),
+  );
+  const unresolvedMentions = [...text.matchAll(/(^|\s)@([\w./:-]+)/g)]
+    .map((m) => `@${m[2].replace(/\/+$/, "")}`)
+    .filter((token) => token && !token.endsWith(":") && token !== "@local" && !attachmentLabels.has(token));
+  const contextCounts = p.attachments.reduce(
+    (acc, item) => {
+      if (item.imageUrl) acc.images += 1;
+      else if (item.kind === "folder") acc.folders += 1;
+      else if (item.kind === "zotero") acc.zotero += 1;
+      else if (item.kind === "quote") acc.quotes += 1;
+      else acc.files += 1;
+      return acc;
+    },
+    { files: 0, folders: 0, zotero: 0, quotes: 0, images: 0 },
+  );
+  const contextWarnings = [
+    ...(unresolvedMentions.length
+      ? [t("context.warn-unresolved", { count: unresolvedMentions.length })]
+      : []),
+    ...(p.attachments.length >= 10
+      ? [t("context.warn-many", { count: p.attachments.length })]
+      : []),
+    ...(p.attachments.some((a) => a.kind === "folder" && /\+|omitted|omis/.test(a.lines ?? ""))
+      ? [t("context.warn-folder-truncated")]
+      : []),
+  ];
+  const contextSummary = [
+    contextCounts.files ? t("context.files", { count: contextCounts.files }) : null,
+    contextCounts.folders ? t("context.folders", { count: contextCounts.folders }) : null,
+    contextCounts.zotero ? t("context.zotero", { count: contextCounts.zotero }) : null,
+    contextCounts.images ? t("context.images", { count: contextCounts.images }) : null,
+    contextCounts.quotes ? t("context.quotes", { count: contextCounts.quotes }) : null,
+  ].filter(Boolean).join(" · ") || t("context.none");
+  const contextKindLabel = (item: ChatAttachment) => {
+    if (item.imageUrl) return t("context.kind-image");
+    if (item.kind === "folder") return t("context.kind-folder");
+    if (item.kind === "zotero") return t("context.kind-zotero");
+    if (item.kind === "quote") return t("context.kind-quote");
+    return t("context.kind-file");
+  };
 
   const renderedEvents: (
     | { type: "event"; event: AgentEvent; index: number }
@@ -1145,6 +1271,54 @@ export default function Chat(p: {
               onClick={p.onClearGoal}><CloseIcon /></button>
           </div>
         )}
+        {(p.attachments.length > 0 || unresolvedMentions.length > 0) && (
+          <div className={`context-pack ${contextPackOpen ? "open" : ""}`}>
+            <button
+              type="button"
+              className="context-pack-head"
+              onClick={() => setContextPackOpen((v) => !v)}
+              aria-expanded={contextPackOpen}
+            >
+              <span className="context-pack-mark">◆</span>
+              <span className="context-pack-title">{t("context.title")}</span>
+              <span className="context-pack-summary">{contextSummary}</span>
+              {contextWarnings.length > 0 && <span className="context-pack-warn">{contextWarnings.length}</span>}
+              <span className="context-pack-chevron">{contextPackOpen ? "▴" : "▾"}</span>
+            </button>
+            {contextPackOpen && (
+              <div className="context-pack-body">
+                <div className="context-pack-meta">
+                  {t("context.draft", { count: text.trim().length })}
+                </div>
+                {contextWarnings.length > 0 && (
+                  <div className="context-pack-warnings">
+                    {contextWarnings.map((warning, i) => (
+                      <div key={i} className="context-warning">⚠ {warning}</div>
+                    ))}
+                  </div>
+                )}
+                {p.attachments.length > 0 ? (
+                  <div className="context-items">
+                    {p.attachments.map((a, i) => (
+                      <div key={`${a.text}-${i}`} className="context-item">
+                        <span className={`context-kind k-${a.imageUrl ? "image" : a.kind ?? "file"}`}>
+                          {contextKindLabel(a)}
+                        </span>
+                        <span className="context-name">{a.name}</span>
+                        {a.lines && <span className="context-lines">{a.lines}</span>}
+                        <button type="button" className="context-remove" onClick={() => p.onRemoveAttachment(i)}>
+                          <CloseIcon />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="context-empty">{t("context.no-attachments")}</div>
+                )}
+              </div>
+            )}
+          </div>
+        )}
         {p.attachments.length > 0 && (
           <div className="chips-row">
             {p.attachments.map((a, i) =>
@@ -1160,6 +1334,17 @@ export default function Chat(p: {
                 <div key={i} className="chip">
                   <span className="chip-label">{a.name}</span>
                   {a.lines && <span className="chip-lines">{t("chat.lines", { lines: a.lines })}</span>}
+                  {a.preview && (
+                    <span className="chip-preview" role="tooltip">
+                      <strong>{a.preview.title}</strong>
+                      {a.preview.rows.map((row, j) => (
+                        <span key={j} className="chip-preview-row">
+                          <em>{row.label}</em>
+                          <span>{row.value}</span>
+                        </span>
+                      ))}
+                    </span>
+                  )}
                   <button type="button" className="ghost" onClick={() => p.onRemoveAttachment(i)}>
                     <CloseIcon />
                   </button>
@@ -1171,7 +1356,7 @@ export default function Chat(p: {
         <div className={`ta-wrap ${(() => {
           const m = /^(\/[\w:-]+)/.exec(text);
           if (m && isValidSkill(m[1], p.commands)) return "slash-active";
-          if (/(^|\s)@[\w./-]+/.test(text)) return "slash-active";
+          if (/(^|\s)@[\w./:-]+/.test(text)) return "slash-active";
           return "";
         })()}`}>
         <div className="ta-backdrop" aria-hidden="true">
@@ -1186,10 +1371,10 @@ export default function Chat(p: {
               );
             }
             // mentions @fichier → pilules bleues
-            const parts = text.split(/((?:^|\s)@[\w./-]+)/g);
+            const parts = text.split(/((?:^|\s)@[\w./:-]+)/g);
             if (parts.length > 1) {
               return parts.map((seg, k) => {
-                const mm = /^(\s?)(@[\w./-]+)$/.exec(seg);
+                const mm = /^(\s?)(@[\w./:-]+)$/.exec(seg);
                 if (mm) return <React.Fragment key={k}>{mm[1]}<span className="at-mention">{mentionLabel(mm[2])}</span></React.Fragment>;
                 return <React.Fragment key={k}>{seg}</React.Fragment>;
               });
