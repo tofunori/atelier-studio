@@ -1086,10 +1086,6 @@ export default function Chat(p: {
         </div>
         <div className="composer-bar">
           <span className="plus-wrap" onClick={(e) => e.stopPropagation()}>
-            <button type="button" className="ghost qa-zap-btn" title={t("qa.open") + " (⌥⌘K)"}
-              onClick={() => window.dispatchEvent(new CustomEvent("quick-ask-open", { detail: { draft: text } }))}>
-              <ZapIcon />
-            </button>
             <button type="button" className="ghost" title={t("action.add-file-image")} onClick={() => setPlusOpen((v) => !v)}>
               <PlusIcon />
             </button>
