@@ -156,4 +156,9 @@ Pipeline standard : brief → Codex implémente → revue Claude → push → te
 | 8 | **Portage serveur galerie → Node (phase 2)** | route par route, Python disparaît | L étalé |
 
 En continu : frictions de la bascule quotidienne = petits items intercalés en tête de file.
+Friction #1 (2026-07-05) — **passe typographique du chat** : rythme vertical délibéré
+(paragraphes/listes/titres), titres échelle chat (## ≈ 15px semibold), texte courant
+~680px (~70 car.), tableaux (bordures fines, tabular-nums, scroll-x), code inline pilule,
+liens accent désaturé, blockquote filet fin, réponses agent sans fond (texte nu).
+À faire dès que le repo est libre (touche Chat.tsx — conflit avec chantier #0 en cours).
 Refactor App.tsx en hooks : à glisser dans le chantier qui le touche le plus (probablement #3).
