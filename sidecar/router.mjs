@@ -75,6 +75,29 @@ async function maybeTitleThread(ctx, emit, threadId, firstMessage) {
   emit({ type: "threads", threads: ctx.store.list() });
 }
 
+function gitRootFor(ctx, msg) {
+  const thread = msg.threadId ? ctx.store?.get(msg.threadId) : null;
+  const root = msg.root ?? msg.projectRoot ?? thread?.projectRoot;
+  if (!root) throw new Error("projectRoot requis");
+  return root;
+}
+
+function emitGitChanged(ctx, threadId, projectRoot) {
+  (ctx.broadcast ?? ctx.send)({ type: "gitChanged", threadId, projectRoot });
+}
+
+async function snapshotBeforeProvider(ctx, threadId) {
+  const root = ctx.store.get(threadId)?.projectRoot;
+  if (!root || !ctx.gitops?.isRepo || !ctx.gitops?.snapshot) return;
+  try {
+    if (!(await ctx.gitops.isRepo(root))) return;
+    const lastSnapshot = await ctx.gitops.snapshot(root);
+    ctx.store.upsert({ id: threadId, lastSnapshot });
+  } catch (e) {
+    console.warn("[atelier] git snapshot impossible:", e);
+  }
+}
+
 export async function route(msg, ctx) {
   switch (msg.type) {
     case "interrupt": {
@@ -224,6 +247,56 @@ export async function route(msg, ctx) {
       ctx.send({ type: "files", projectRoot: msg.projectRoot,
         files: ctx.catalog.listFiles(msg.projectRoot) });
       break;
+    case "gitStatus": {
+      const root = gitRootFor(ctx, msg);
+      ctx.send({ type: "gitStatus", projectRoot: root, status: await ctx.gitops.status(root) });
+      break;
+    }
+    case "gitDiff": {
+      const root = gitRootFor(ctx, msg);
+      ctx.send({ type: "gitDiff", projectRoot: root, path: msg.path ?? null,
+        diff: await ctx.gitops.diff(root, msg.path ?? null) });
+      break;
+    }
+    case "gitStage": {
+      const root = gitRootFor(ctx, msg);
+      await ctx.gitops.stageFile(root, msg.path);
+      emitGitChanged(ctx, msg.threadId, root);
+      ctx.send({ type: "gitStageDone", projectRoot: root, path: msg.path });
+      break;
+    }
+    case "gitUnstage": {
+      const root = gitRootFor(ctx, msg);
+      await ctx.gitops.unstageFile(root, msg.path);
+      emitGitChanged(ctx, msg.threadId, root);
+      ctx.send({ type: "gitUnstageDone", projectRoot: root, path: msg.path });
+      break;
+    }
+    case "gitRevertFile": {
+      const root = gitRootFor(ctx, msg);
+      await ctx.gitops.revertFile(root, msg.path);
+      emitGitChanged(ctx, msg.threadId, root);
+      ctx.send({ type: "gitRevertFileDone", projectRoot: root, path: msg.path });
+      break;
+    }
+    case "gitCommit": {
+      const root = gitRootFor(ctx, msg);
+      const hash = await ctx.gitops.commit(root, msg.message);
+      emitGitChanged(ctx, msg.threadId, root);
+      ctx.send({ type: "gitCommitDone", projectRoot: root, hash });
+      break;
+    }
+    case "gitUndoLastTurn": {
+      const t = ctx.store.get(msg.threadId);
+      if (!t?.projectRoot || !t.lastSnapshot) {
+        ctx.send({ type: "error", threadId: msg.threadId, message: "snapshot introuvable" });
+        break;
+      }
+      await ctx.gitops.restore(t.projectRoot, t.lastSnapshot);
+      emitGitChanged(ctx, msg.threadId, t.projectRoot);
+      ctx.send({ type: "gitUndoLastTurnDone", threadId: msg.threadId, sha: t.lastSnapshot });
+      break;
+    }
     case "deleteThread": {
       ctx.store.delete(msg.threadId);
       (ctx.broadcast ?? ctx.send)({ type: "threads", threads: ctx.store.list() });
@@ -299,6 +372,7 @@ export async function route(msg, ctx) {
 
       if (provider === "claude") {
         // session persistante ; steer/queue = priority native du SDK ('now'/'next')
+        await snapshotBeforeProvider(ctx, threadId);
         p.send({
           threadId,
           cwd: projectRoot || process.env.HOME,
@@ -314,6 +388,7 @@ export async function route(msg, ctx) {
             ctx.store.upsert({ id: threadId, sessionId, resumeAt: null, forkPending: false }),
           onEvent: (event) => {
             emit({ type: "event", threadId, event });
+            if (event.kind === "done") emitGitChanged(ctx, threadId, projectRoot);
             if (event.kind === "done" || event.kind === "error") {
               ctx.store.upsert({
                 id: threadId,
@@ -343,6 +418,7 @@ export async function route(msg, ctx) {
         break;
       }
       // fire-and-forget : plusieurs threads streament en parallèle
+      await snapshotBeforeProvider(ctx, threadId);
       p.run({
         threadId,
         cwd: projectRoot || process.env.HOME,
@@ -356,7 +432,10 @@ export async function route(msg, ctx) {
         permissionMode,
         webSearch: msg.webSearch,
         additionalDirectories: msg.additionalDirectories,
-        onEvent: (event) => emit({ type: "event", threadId, event }),
+        onEvent: (event) => {
+          emit({ type: "event", threadId, event });
+          if (event.kind === "done") emitGitChanged(ctx, threadId, projectRoot);
+        },
       })
         .then(({ sessionId }) => {
           ctx.store.upsert({ id: threadId, sessionId, status: "done" });

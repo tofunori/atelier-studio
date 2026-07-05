@@ -10,6 +10,7 @@ import * as history from "./history.mjs";
 import { watchAnnotations } from "./annotations.mjs";
 import * as terminal from "./terminal.mjs";
 import * as sessions from "./sessions.mjs";
+import * as gitops from "./gitops.mjs";
 import * as claude from "./providers/claude.mjs";
 import * as codex from "./providers/codex.mjs";
 
@@ -235,6 +236,7 @@ wss.on("connection", (ws) => {
     exportThread,
     terminal,
     sessions,
+    gitops,
     scanLocal,
     checkFrame,
   };
