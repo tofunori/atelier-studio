@@ -1,3 +1,5 @@
+import { CloseIcon } from "./icons";
+
 export default function Banner(p: {
   text: string;
   actionLabel?: string;
@@ -14,7 +16,7 @@ export default function Banner(p: {
       )}
       {p.onClose && (
         <button type="button" className="ghost" onClick={p.onClose} aria-label="Fermer">
-          x
+          <CloseIcon />
         </button>
       )}
     </div>

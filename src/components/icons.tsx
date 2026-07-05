@@ -1,4 +1,25 @@
 // Icônes providers — approximations sobres (starburst Anthropic, nœud OpenAI)
+import type { ReactNode } from "react";
+
+type IconProps = { size?: number };
+
+function StrokeIcon({ size = 13, children }: IconProps & { children: ReactNode }) {
+  return (
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 16 16"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.3"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      {children}
+    </svg>
+  );
+}
 
 export function ClaudeIcon({ size = 13 }: { size?: number }) {
   return (
@@ -20,4 +41,102 @@ export function CodexIcon({ size = 13 }: { size?: number }) {
 
 export function ProviderIcon({ provider, size = 13 }: { provider: string; size?: number }) {
   return provider === "codex" ? <CodexIcon size={size} /> : <ClaudeIcon size={size} />;
+}
+
+export function ResumeIcon({ size = 13 }: IconProps) {
+  return (
+    <StrokeIcon size={size}>
+      <path d="M8 2.2v7.2" />
+      <path d="M5.2 6.8L8 9.6l2.8-2.8" />
+      <path d="M3 12.8h10" />
+    </StrokeIcon>
+  );
+}
+
+export function ForkIcon({ size = 13 }: IconProps) {
+  return (
+    <StrokeIcon size={size}>
+      <path d="M4.2 3.2v3.4c0 1.1.9 2 2 2H8" />
+      <path d="M4.2 12.8V9.4c0-1.1.9-2 2-2H8" />
+      <path d="M8 4.5l3.8 3.5L8 11.5" />
+    </StrokeIcon>
+  );
+}
+
+export function CloseIcon({ size = 13 }: IconProps) {
+  return (
+    <StrokeIcon size={size}>
+      <path d="M4.2 4.2l7.6 7.6M11.8 4.2l-7.6 7.6" />
+    </StrokeIcon>
+  );
+}
+
+export function RefreshIcon({ size = 13 }: IconProps) {
+  return (
+    <StrokeIcon size={size}>
+      <path d="M12.7 6.1A4.8 4.8 0 1 0 11.2 11" />
+      <path d="M12.8 2.8v3.3H9.5" />
+    </StrokeIcon>
+  );
+}
+
+export function CopyIcon({ size = 13 }: IconProps) {
+  return (
+    <StrokeIcon size={size}>
+      <rect x="5.2" y="3.2" width="7.2" height="7.2" rx="1.4" />
+      <path d="M3.6 5.6H2.8c-.7 0-1.2.5-1.2 1.2v5.4c0 .7.5 1.2 1.2 1.2h5.4c.7 0 1.2-.5 1.2-1.2v-.8" />
+    </StrokeIcon>
+  );
+}
+
+export function OpenIcon({ size = 13 }: IconProps) {
+  return (
+    <StrokeIcon size={size}>
+      <path d="M6.2 3.2H3.8c-.8 0-1.4.6-1.4 1.4v7.6c0 .8.6 1.4 1.4 1.4h7.6c.8 0 1.4-.6 1.4-1.4V9.8" />
+      <path d="M9 2.5h4.5V7" />
+      <path d="M8.2 7.8l5.1-5.1" />
+    </StrokeIcon>
+  );
+}
+
+export function PlusIcon({ size = 13 }: IconProps) {
+  return (
+    <StrokeIcon size={size}>
+      <path d="M8 3.2v9.6M3.2 8h9.6" />
+    </StrokeIcon>
+  );
+}
+
+export function ExpandIcon({ size = 13 }: IconProps) {
+  return (
+    <StrokeIcon size={size}>
+      <path d="M6 2H2v4M10 14h4v-4M2 6l4-4M14 10l-4 4" />
+    </StrokeIcon>
+  );
+}
+
+export function CollapseIcon({ size = 13 }: IconProps) {
+  return (
+    <StrokeIcon size={size}>
+      <path d="M2 6V2h4M14 10v4h-4M2 2l4.5 4.5M14 14l-4.5-4.5" />
+    </StrokeIcon>
+  );
+}
+
+export function SettingsIcon({ size = 13 }: IconProps) {
+  return (
+    <StrokeIcon size={size}>
+      <circle cx="8" cy="8" r="2.4" />
+      <path d="M8 2v1.5M8 12.5V14M2 8h1.5M12.5 8H14M3.7 3.7l1.1 1.1M11.2 11.2l1.1 1.1M12.3 3.7l-1.1 1.1M4.8 11.2l-1.1 1.1" />
+    </StrokeIcon>
+  );
+}
+
+export function SidebarIcon({ size = 13 }: IconProps) {
+  return (
+    <StrokeIcon size={size}>
+      <rect x="2.2" y="3" width="11.6" height="10" rx="2" />
+      <path d="M5.4 3v10" />
+    </StrokeIcon>
+  );
 }

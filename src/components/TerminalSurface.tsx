@@ -5,6 +5,7 @@ function useRefBool() {
 }
 import Terminal from "./Terminal";
 import { wsSend } from "../lib/wsBus";
+import { PlusIcon } from "./icons";
 
 type Term = { id: string; n: number };
 
@@ -63,7 +64,9 @@ export default function TerminalSurface(p: {
             Terminal {t.n}
           </button>
         ))}
-        <button className="ghost" title="Nouveau terminal" onClick={() => addTerm()}>+</button>
+        <button className="ghost" title="Nouveau terminal" onClick={() => addTerm()}>
+          <PlusIcon />
+        </button>
         <span className="flex" />
         <button className={`ghost ${layout === "cols" ? "on" : ""}`} title="Split vertical" onClick={() => split("cols")}>
           <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.2"><rect x="1.8" y="2.8" width="12.4" height="10.4" rx="2"/><path d="M8 3v10"/></svg>

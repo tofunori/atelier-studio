@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { PlusIcon, SettingsIcon, SidebarIcon } from "./icons";
 
 export type ProjMeta = { color?: string; label?: string };
 
@@ -30,7 +31,7 @@ export default function Rail(p: {
   return (
     <div className="rail" onClick={() => setMenu(null)}>
       <button className="rail-btn" title="Déplier la sidebar" onClick={p.onExpand}>
-        »
+        <SidebarIcon />
       </button>
       {p.projects.map((root) => {
         const m = p.meta[root];
@@ -55,11 +56,11 @@ export default function Rail(p: {
         );
       })}
       <button className="rail-btn" title="Ajouter un projet" onClick={p.onAddProject}>
-        +
+        <PlusIcon />
       </button>
       <span className="flex" />
       <button className="rail-btn" title="Réglages" onClick={p.onSettings}>
-        ⚙
+        <SettingsIcon />
       </button>
       {menu && (
         <div className="rail-menu" style={{ top: menu.y }} onClick={(e) => e.stopPropagation()}>
