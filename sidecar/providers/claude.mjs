@@ -133,6 +133,7 @@ export function send({
       ...(permMode === "bypassPermissions" ? { allowDangerouslySkipPermissions: true } : {}),
       ...(CLAUDE_BIN ? { pathToClaudeCodeExecutable: CLAUDE_BIN } : {}),
       settingSources: ["user", "project"],
+      includePartialMessages: true,
       ...(model ? { model } : {}),
       ...(effort ? { effort } : {}),
       ...(sessionId ? { resume: sessionId } : {}),
@@ -159,6 +160,12 @@ export function send({
     try {
       for await (const msg of q) {
         if (msg.type === "system" && msg.subtype === "init") onSession?.(msg.session_id);
+        if (msg.type === "stream_event") {
+          const ev = msg.event;
+          if (ev?.type === "content_block_delta" && ev.delta?.type === "text_delta") {
+            s.onEvent({ kind: "delta", text: ev.delta.text });
+          }
+        }
         if (msg.type === "assistant") {
           const au = msg.message?.usage;
           if (au) {

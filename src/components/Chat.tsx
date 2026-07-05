@@ -492,6 +492,15 @@ export default function Chat(p: {
                 </div>
               </div>
             );
+          if (e.kind === "streaming")
+            return (
+              <div key={i} className="msg-wrap">
+                <div className="msg">
+                  <ReactMarkdown components={MD_COMPONENTS as any}>{e.text}</ReactMarkdown>
+                  <span className="stream-caret" />
+                </div>
+              </div>
+            );
           if (e.kind === "text")
             return (
               <div key={i} id={`msg-${i}`} className="msg-wrap">
@@ -522,11 +531,13 @@ export default function Chat(p: {
                 ⚠ {e.message}
               </div>
             );
-          return (
-            <div key={i} className="done">
-              {e.ok ? "✓ terminé" : "✗ échec"}
-            </div>
-          );
+          if (e.kind === "done")
+            return (
+              <div key={i} className="done">
+                {e.ok ? "✓ terminé" : "✗ échec"}
+              </div>
+            );
+          return null;
         })}
         {p.workingSince != null && (
           <div className="working-row">

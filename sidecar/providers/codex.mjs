@@ -48,8 +48,21 @@ export async function run({ threadId, cwd, prompt, sessionId, model, effort, onE
       if (ev.type === "item.started" && ev.item?.type === "reasoning") {
         emitTool("réflexion…");
       }
+      if (ev.type === "item.updated" && ev.item?.type === "agent_message") {
+        onEvent({ kind: "stream_set", text: ev.item.text ?? "" });
+      }
       if (ev.type === "item.completed" && ev.item?.type === "agent_message") {
         onEvent({ kind: "text", text: ev.item.text ?? "" });
+      }
+      if (ev.type === "item.completed" && ev.item?.type === "file_change") {
+        const files = (ev.item.changes ?? []).map((ch) => ch.path?.split("/").pop()).filter(Boolean);
+        emitTool(files.length ? `modifie ${files.slice(0, 3).join(", ")}${files.length > 3 ? "…" : ""}` : "modifie des fichiers");
+      }
+      if (ev.type === "item.started" && ev.item?.type === "web_search") {
+        emitTool(`recherche web : ${String(ev.item.query ?? "").slice(0, 50)}`);
+      }
+      if (ev.type === "item.completed" && ev.item?.type === "mcp_tool_call") {
+        emitTool(`outil ${ev.item.tool ?? "mcp"}`);
       }
       if (ev.type === "turn.completed") {
         const u = ev.usage ?? {};

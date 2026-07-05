@@ -5,6 +5,9 @@ type SidecarInfo = { port: number; token?: string };
 export type AgentEvent =
   | { kind: "user"; text: string; imageUrl?: string; label?: string; ts?: number }
   | { kind: "text"; text: string; ts?: number }
+  | { kind: "delta"; text: string; ts?: number }
+  | { kind: "stream_set"; text: string; ts?: number }
+  | { kind: "streaming"; text: string; ts?: number }
   | { kind: "tool"; name: string }
   | {
       kind: "done";

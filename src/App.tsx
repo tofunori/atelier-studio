@@ -230,10 +230,38 @@ export default function App() {
         threadsRef.current = msg.threads;
       }
       if (msg.type === "event") {
-        setEvents((prev) => ({
-          ...prev,
-          [msg.threadId]: [...(prev[msg.threadId] ?? []), { ...msg.event, ts: Date.now() }],
-        }));
+        setEvents((prev) => {
+          const list = [...(prev[msg.threadId] ?? [])];
+          const ev = msg.event;
+          const last = list[list.length - 1];
+          // texte en cours de frappe : accumuler (delta) ou remplacer (stream_set),
+          // puis le message final "text" remplace la bulle streaming
+          if (ev.kind === "delta") {
+            if (last?.kind === "streaming") {
+              list[list.length - 1] = { ...last, text: (last as any).text + ev.text };
+            } else {
+              list.push({ kind: "streaming", text: ev.text, ts: Date.now() } as any);
+            }
+            return { ...prev, [msg.threadId]: list };
+          }
+          if (ev.kind === "stream_set") {
+            if (last?.kind === "streaming") {
+              list[list.length - 1] = { ...last, text: ev.text };
+            } else {
+              list.push({ kind: "streaming", text: ev.text, ts: Date.now() } as any);
+            }
+            return { ...prev, [msg.threadId]: list };
+          }
+          if (ev.kind === "text" && last?.kind === "streaming") {
+            list[list.length - 1] = { ...ev, ts: Date.now() };
+            return { ...prev, [msg.threadId]: list };
+          }
+          // fin de tour : une bulle streaming orpheline devient un texte définitif
+          if ((ev.kind === "done" || ev.kind === "error") && last?.kind === "streaming") {
+            list[list.length - 1] = { kind: "text", text: (last as any).text, ts: Date.now() } as any;
+          }
+          return { ...prev, [msg.threadId]: [...list, { ...ev, ts: Date.now() }] };
+        });
         if (msg.event.kind === "done" && typeof msg.event.result === "string" &&
             /goal (atteint|achieved|accompli|complete)/i.test(msg.event.result)) {
           setGoals((g) => { const { [msg.threadId]: _, ...rest } = g; return rest; });
