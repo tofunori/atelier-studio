@@ -288,7 +288,8 @@ export default function Chat(p: {
   const [reviewOpen, setReviewOpen] = useState(false);
   const [barOpen, setBarOpen] = useState(false);
   const [fixing, setFixing] = useState(false);
-  useEffect(() => { setBarOpen(false); setFixing(false); }, [p.threadId]);
+  const [reviewMin, setReviewMin] = useState(false);
+  useEffect(() => { setBarOpen(false); setFixing(false); setReviewMin(false); }, [p.threadId]);
   useEffect(() => setReview(null), [p.threadId]);
   useEffect(() => {
     const onReview = (e: Event) => {
@@ -572,7 +573,14 @@ export default function Chat(p: {
         onClick={p.onToggleExpand}>
         {p.layout === "chat" ? <CollapseIcon /> : <ExpandIcon />}
       </button>
-      {p.threadId && review && (
+      {p.threadId && review && reviewMin && (
+        <button
+          className={`reviewer-strip v-${review.status === "running" ? "running" : review.verdict}`}
+          title={t("review.expand")}
+          onClick={() => setReviewMin(false)}
+        />
+      )}
+      {p.threadId && review && !reviewMin && (
         <div className="reviewer-wrap">
           <button
             className={`reviewer-bar v-${review.status === "running" ? "running" : review.verdict} ${review.status === "done" ? "clickable" : ""}`}
@@ -602,6 +610,7 @@ export default function Chat(p: {
               </>
             )}
             {review.status === "done" ? <span className="rb-chevron">{barOpen ? "▴" : "▾"}</span> : null}
+            <span className="rb-min" title={t("review.minimize")} onClick={(e) => { e.stopPropagation(); setBarOpen(false); setReviewMin(true); }}>–</span>
             <span className="rb-close" title={t("action.close")} onClick={(e) => { e.stopPropagation(); setReview(null); }}>✕</span>
           </button>
           {barOpen && review.status === "done" ? (

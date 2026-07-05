@@ -1173,7 +1173,7 @@ body.dragging iframe { pointer-events: none; }
 .ri-problem { color: var(--muted); margin-top: 2px; }
 /* ===== barre reviewer (A) ancrée en haut du chat ===== */
 .reviewer-bar { appearance: none; -webkit-appearance: none; display: flex; align-items: center;
-  gap: 8px; width: 100%; padding: 9px 12px 9px 13px; margin: 0; background: var(--bg-side);
+  gap: 8px; width: 100%; padding: 9px 46px 9px 13px; margin: 0; background: var(--bg-side);
   border: none; border-bottom: 1px solid var(--border); border-left: 2.5px solid var(--border2);
   font: inherit; font-size: 12px; color: var(--fg); text-align: left; box-sizing: border-box;
   transition: background .16s ease, border-left-color .16s ease; }
@@ -1202,7 +1202,8 @@ body.dragging iframe { pointer-events: none; }
 @media (prefers-reduced-motion: reduce) { .rb-spin { animation: none; } }
 
 /* menu déroulant de la barre reviewer + correction */
-.reviewer-wrap { position: relative; flex-shrink: 0; z-index: 12; }
+/* au-dessus des marques de chapitre (z-index 40) : le menu déroulant doit les couvrir */
+.reviewer-wrap { position: relative; flex-shrink: 0; z-index: 50; }
 .reviewer-bar.clickable { cursor: pointer; }
 .reviewer-bar.clickable:hover { filter: brightness(1.06); }
 .rb-chevron { color: var(--muted2); font-size: 9px; margin-left: auto; transition: color .12s; }
@@ -1241,3 +1242,17 @@ body.dragging iframe { pointer-events: none; }
   display: flex; gap: 8px; align-items: baseline; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .rm-ck-kind { color: var(--muted2); font-size: 10px; text-transform: uppercase; flex: none;
   font-family: -apple-system, sans-serif; letter-spacing: 0.03em; }
+
+/* bouton réduire (–) : même discrétion que le ✕ */
+.rb-min { flex: none; color: var(--muted2); font-size: 15px; line-height: 1; padding: 0 5px 2px;
+  border-radius: 5px; opacity: 0; transition: opacity .14s, color .12s, background .12s; }
+.reviewer-bar:hover .rb-min { opacity: .5; }
+.rb-min:hover { opacity: 1 !important; color: var(--fg2); background: var(--bg-ctl); }
+/* état réduit : fin liseré coloré cliquable, garde l'indicateur d'état */
+.reviewer-strip { appearance: none; -webkit-appearance: none; display: block; width: 100%;
+  height: 4px; margin: 0; padding: 0; border: none; cursor: pointer; flex-shrink: 0;
+  background: var(--border2); transition: height .12s, filter .12s; }
+.reviewer-strip:hover { height: 6px; filter: brightness(1.2); }
+.reviewer-strip.v-ok { background: #98c379; }
+.reviewer-strip.v-issues { background: #e0b74a; }
+.reviewer-strip.v-running { background: var(--muted2); }
