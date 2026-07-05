@@ -332,6 +332,8 @@ const selTa = selPill.querySelector("textarea");
       __go.style.cssText = 'width:auto;min-width:0;height:auto;border-radius:999px;padding:7px 14px;font-size:13px;white-space:nowrap;background:#2c313a;color:#e6e6e6;border:1px solid #3a414d;box-shadow:0 6px 18px rgba(0,0,0,0.5);cursor:pointer'; }
   }
 
+const __goHTML = (window.self!==window.top && selPill.querySelector('.go')) ? selPill.querySelector('.go').innerHTML : null;
+function goReset(go){ if (__goHTML) go.innerHTML = __goHTML; else go.textContent = "↑"; }
 function selPillShow(hls){
   const text = hlText();
   if(!text){ selHide(); return; }
@@ -362,8 +364,8 @@ function selSend(){
     body: JSON.stringify({rel, page: selPage, text, comment: comment || "", direct: true, target: __ct(), embed: __EMB})})
     .then(r => r.json())
     .then(j => { if(__EMB && j && j.message) __atelierPost({type:'atelier-add-to-chat', text:j.message});
-      go.textContent = "✓"; setTimeout(() => { go.textContent = "↑"; selTa.value = ""; selHide(); }, 1200); })
-    .catch(() => { go.textContent = "!"; setTimeout(() => { go.textContent = "↑"; }, 1600); });
+      go.textContent = "✓"; setTimeout(() => { goReset(go); selTa.value = ""; selHide(); }, 1200); })
+    .catch(() => { go.textContent = "!"; setTimeout(() => { goReset(go); }, 1600); });
 }
 // clicks on the bar must not destroy the selection — except the textarea, which needs focus
 selPill.addEventListener("mousedown", e => { if(e.target !== selTa) e.preventDefault(); });

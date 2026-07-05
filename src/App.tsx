@@ -881,6 +881,22 @@ export default function App() {
   allThreadsRef.current = allThreads;
   const atelierUrl = activeProject ? atelierUrls[activeProject] : null;
 
+  // le serveur galerie peut mourir (kill, reboot) : sonde 15 s → relance
+  useEffect(() => {
+    if (!activeProject || !atelierUrl) return;
+    const iv = setInterval(async () => {
+      try {
+        await fetch(atelierUrl, { method: "HEAD", mode: "no-cors" });
+      } catch {
+        setAtelierUrls((p) => {
+          const { [activeProject]: _, ...rest } = p;
+          return rest; // l'effet start_atelier se redéclenche
+        });
+      }
+    }, 15000);
+    return () => clearInterval(iv);
+  }, [activeProject, atelierUrl]);
+
   const runningProjects = new Set(
     allThreads.filter((t) => t.status === "running").map((t) => t.projectRoot),
   );
