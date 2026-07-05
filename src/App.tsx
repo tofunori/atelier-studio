@@ -391,6 +391,9 @@ export default function App() {
       if (msg.type === "gitDiff") {
         window.dispatchEvent(new CustomEvent("git-diff", { detail: msg }));
       }
+      if (msg.type === "gitCommitError") {
+        window.dispatchEvent(new CustomEvent("git-commit-error", { detail: msg }));
+      }
       if (msg.type === "commitMsg") {
         window.dispatchEvent(new CustomEvent("commit-msg", { detail: msg }));
       }

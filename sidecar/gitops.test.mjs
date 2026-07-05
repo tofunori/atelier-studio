@@ -35,8 +35,8 @@ describe("gitops", () => {
     expect(status.ahead).toBe(0);
     expect(status.behind).toBe(0);
     expect(status.files).toEqual(expect.arrayContaining([
-      { path: "tracked file.txt", status: ".M" },
-      { path: "new file.txt", status: "?" },
+      expect.objectContaining({ path: "tracked file.txt", status: ".M" }),
+      expect.objectContaining({ path: "new file.txt", status: "?" }),
     ]));
   });
 

@@ -138,7 +138,22 @@ export async function status(root) {
   const realRoot = confinedRoot(root);
   await ensureRepo(realRoot);
   const { stdout } = await git(realRoot, ["status", "--porcelain=v2", "--branch", "-z"]);
-  return parseStatus(stdout);
+  const parsed = parseStatus(stdout);
+  // ±lignes par fichier (les non suivis n'ont pas de numstat HEAD)
+  if (await hasHead(realRoot)) {
+    try {
+      const { stdout: ns } = await git(realRoot, ["diff", "--numstat", "HEAD", "--"]);
+      const stats = {};
+      for (const line of ns.split("\n")) {
+        const [a, d, ...p] = line.split("\t");
+        if (p.length) stats[p.join("\t")] = { add: Number(a) || 0, del: Number(d) || 0 };
+      }
+      for (const f of parsed.files) {
+        if (stats[f.path]) { f.add = stats[f.path].add; f.del = stats[f.path].del; }
+      }
+    } catch {}
+  }
+  return parsed;
 }
 
 export async function diff(root, filePath = null) {

@@ -6,6 +6,9 @@ export const LANGUAGE_CHANGED_EVENT = "app-language-changed";
 
 const fr = {
   "action.add": "Ajouter",
+  "git.commit-n": "Commit {n} fichier{plural}",
+  "git.new-file": "nouveau",
+  "git.no-selection": "Aucun fichier coché",
   "action.add-favorite": "Ajouter aux favoris",
   "action.add-file-image": "Ajouter une image / un fichier",
   "action.add-project": "Ajouter un projet",
@@ -96,6 +99,7 @@ const fr = {
   "biblio.no-project": "Ouvre un projet pour activer le lecteur",
   "biblio.placeholder": "Sélectionne une référence.",
   "biblio.search": "Rechercher",
+  "chat.jump-bottom": "Aller en bas",
   "biblio.search-aria": "Rechercher dans Zotero",
   "biblio.title": "Bibliothèque",
   "biblio.cite": "Citer dans le chat",
@@ -270,6 +274,9 @@ const fr = {
 
 const en: Record<keyof typeof fr, string> = {
   "action.add": "Add",
+  "git.commit-n": "Commit {n} file{plural}",
+  "git.new-file": "new",
+  "git.no-selection": "No file checked",
   "action.add-favorite": "Add to favorites",
   "action.add-file-image": "Add image / file",
   "action.add-project": "Add project",
@@ -360,6 +367,7 @@ const en: Record<keyof typeof fr, string> = {
   "biblio.no-project": "Open a project to enable the reader",
   "biblio.placeholder": "Select a reference.",
   "biblio.search": "Search",
+  "chat.jump-bottom": "Jump to bottom",
   "biblio.search-aria": "Search Zotero",
   "biblio.title": "Library",
   "biblio.cite": "Cite in chat",

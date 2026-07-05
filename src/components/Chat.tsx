@@ -13,6 +13,7 @@ import {
   PlusIcon,
   ProviderIcon,
   ResumeIcon,
+  ArrowDownIcon,
 } from "./icons";
 
 const PERMISSION_MODES = [
@@ -249,6 +250,7 @@ export default function Chat(p: {
   }, [p.defaults]);
   const [selIdx, setSelIdx] = useState(0);
   const [quote, setQuote] = useState<{ x: number; y: number; text: string } | null>(null);
+  const [showJump, setShowJump] = useState(false);
 
   // ---- marques persistantes (Highlight / Underline) sur les réponses ----
   type Mark = { text: string; kind: "hl" | "ul" };
@@ -432,7 +434,15 @@ export default function Chat(p: {
         onClick={p.onToggleExpand}>
         {p.layout === "chat" ? <CollapseIcon /> : <ExpandIcon />}
       </button>
-      <div className="messages" ref={messagesRef} onMouseUp={onMessagesMouseUp}>
+      <div
+        className="messages"
+        ref={messagesRef}
+        onMouseUp={onMessagesMouseUp}
+        onScroll={(e) => {
+          const el = e.currentTarget;
+          setShowJump(el.scrollHeight - el.scrollTop - el.clientHeight > 300);
+        }}
+      >
         {!p.threadId && (
           <div className="empty-card">
             <div className="empty-title">{t("chat.empty-ready")}</div>
@@ -713,6 +723,19 @@ export default function Chat(p: {
             {t("action.add-to-chat")}
           </button>
         </div>
+      )}
+      {showJump && (
+        <button
+          type="button"
+          className="jump-bottom"
+          title={t("chat.jump-bottom")}
+          onClick={() => {
+            const el = messagesRef.current;
+            if (el) el.scrollTo({ top: el.scrollHeight, behavior: "smooth" });
+          }}
+        >
+          <ArrowDownIcon />
+        </button>
       )}
       <form
         className="composer"

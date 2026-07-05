@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { eventLabel, t } from "../lib/i18n";
 import { BranchIcon, LedgerIcon, RefreshIcon } from "./icons";
 
-type GitFile = { path: string; status: string; originalPath?: string };
+type GitFile = { path: string; status: string; originalPath?: string; add?: number; del?: number };
 type GitStatus = { branch: string | null; ahead: number; behind: number; files: GitFile[] };
 type LedgerEntry = {
   ts: string;
@@ -29,10 +29,6 @@ function shortStatus(file: GitFile) {
   if (file.status.includes("D")) return "D";
   if (file.status.includes("M")) return "M";
   return file.status.trim() || "?";
-}
-
-function isStaged(file: GitFile) {
-  return file.status !== "?" && file.status[0] !== ".";
 }
 
 function formatCost(cost?: number | null) {
@@ -77,6 +73,10 @@ export default function GitSurface({
   const [generating, setGenerating] = useState(false);
   const [undoArmed, setUndoArmed] = useState(false);
   const [restorePath, setRestorePath] = useState<string | null>(null);
+  const [unchecked, setUnchecked] = useState<Set<string>>(new Set());
+  const [commitError, setCommitError] = useState<string | null>(null);
+  const [menuPath, setMenuPath] = useState<string | null>(null);
+  const [headMenu, setHeadMenu] = useState(false);
   const [entries, setEntries] = useState<LedgerEntry[]>([]);
   const [expanded, setExpanded] = useState<string | null>(null);
   const [filter, setFilter] = useState("");
@@ -112,12 +112,21 @@ export default function GitSurface({
         if (mode === "journal") refreshLedger();
       }
     };
+    const onCommitError = (e: Event) => {
+      const msg = (e as CustomEvent).detail;
+      if (msg.projectRoot === projectRoot) setCommitError(msg.message ?? null);
+    };
+    const onChangedClear = () => setCommitError(null);
+    window.addEventListener("git-commit-error", onCommitError);
+    window.addEventListener("git-changed", onChangedClear);
     window.addEventListener("git-status", onStatus);
     window.addEventListener("git-diff", onDiff);
     window.addEventListener("commit-msg", onMsg);
     window.addEventListener("ledger", onLedger);
     window.addEventListener("git-changed", onChanged);
     return () => {
+      window.removeEventListener("git-commit-error", onCommitError);
+      window.removeEventListener("git-changed", onChangedClear);
       window.removeEventListener("git-status", onStatus);
       window.removeEventListener("git-diff", onDiff);
       window.removeEventListener("commit-msg", onMsg);
@@ -160,6 +169,7 @@ export default function GitSurface({
   }, [filteredEntries]);
 
   const files = status?.files ?? [];
+  const CHECKED = files.filter((f) => !unchecked.has(f.path));
 
   return (
     <div className="git-surface">
@@ -173,24 +183,35 @@ export default function GitSurface({
           <button className={mode === "git" ? "on" : ""} onClick={() => setMode("git")}>Git</button>
           <button className={mode === "journal" ? "on" : ""} onClick={() => setMode("journal")}>{t("git.journal")}</button>
         </div>
-        <button className="ghost git-icon-btn" title={t("action.refresh")} onClick={mode === "git" ? refreshGit : refreshLedger}>
-          <RefreshIcon />
-        </button>
-        <button
-          className={`ghost git-undo ${undoArmed ? "danger" : ""}`}
-          disabled={!activeThreadId}
-          onClick={() => {
-            if (!activeThreadId) return;
-            if (!undoArmed) {
-              setUndoArmed(true);
-              return;
-            }
-            setUndoArmed(false);
-            send(ws, { type: "gitUndoLastTurn", threadId: activeThreadId });
-          }}
-        >
-          {undoArmed ? t("action.confirm-undo") : t("action.undo-agent-turn")}
-        </button>
+        {status && (status.ahead > 0 || status.behind > 0) && (
+          <span className="git-muted git-sync">
+            {status.ahead > 0 ? `↑${status.ahead}` : ""}{status.behind > 0 ? ` ↓${status.behind}` : ""}
+          </span>
+        )}
+        <span className="git-headmenu-wrap" onClick={(e) => e.stopPropagation()}>
+          <button className="ghost git-icon-btn" title="⋯" onClick={() => { setHeadMenu((v) => !v); setUndoArmed(false); }}>
+            ⋯
+          </button>
+          {headMenu && (
+            <div className="mp-menu git-headmenu">
+              <div className="mp-item" onClick={() => { (mode === "git" ? refreshGit : refreshLedger)(); setHeadMenu(false); }}>
+                <RefreshIcon /> <span>{t("action.refresh")}</span>
+              </div>
+              <div
+                className={`mp-item ${undoArmed ? "danger" : ""} ${!activeThreadId ? "disabled" : ""}`}
+                onClick={() => {
+                  if (!activeThreadId) return;
+                  if (!undoArmed) { setUndoArmed(true); return; }
+                  setUndoArmed(false);
+                  setHeadMenu(false);
+                  send(ws, { type: "gitUndoLastTurn", threadId: activeThreadId });
+                }}
+              >
+                <span>{undoArmed ? t("action.confirm-undo") : t("action.undo-agent-turn")}</span>
+              </div>
+            </div>
+          )}
+        </span>
       </div>
 
       {mode === "git" ? (
@@ -198,33 +219,52 @@ export default function GitSurface({
           <div className="git-files">
             {files.length === 0 && <div className="git-empty">{t("git.empty")}</div>}
             {files.map((file) => (
-              <div key={file.path} className="git-file">
-                <button className="git-file-row" onClick={() => selectFile(file.path)}>
-                  <span className={`git-status s-${shortStatus(file).replace("??", "untracked")}`}>
-                    {shortStatus(file)}
+              <div key={file.path} className={`git-file ${/\.bak|~$|\.log$|\.aux$/.test(file.path) ? "dim" : ""}`}>
+                <div className="git-file-line">
+                  <input
+                    type="checkbox"
+                    checked={!unchecked.has(file.path)}
+                    onChange={() => setUnchecked((u) => {
+                      const n = new Set(u);
+                      if (n.has(file.path)) n.delete(file.path); else n.add(file.path);
+                      return n;
+                    })}
+                    onClick={(e) => e.stopPropagation()}
+                  />
+                  <button className="git-file-row" onClick={() => selectFile(file.path)}>
+                    <span className={`git-status s-${shortStatus(file).replace("??", "untracked")}`}>
+                      {shortStatus(file)}
+                    </span>
+                    <span className="git-path">{file.path}</span>
+                    <span className="git-stats">
+                      {file.status === "?" ? t("git.new-file") : (
+                        <>
+                          {file.add != null && <em className="plus">+{file.add}</em>}
+                          {file.del != null && file.del > 0 && <em className="minus">−{file.del}</em>}
+                        </>
+                      )}
+                    </span>
+                  </button>
+                  <span className="git-file-menu-wrap" onClick={(e) => e.stopPropagation()}>
+                    <button className="ghost git-icon-btn" onClick={() => { setMenuPath(menuPath === file.path ? null : file.path); setRestorePath(null); }}>
+                      ⋯
+                    </button>
+                    {menuPath === file.path && (
+                      <div className="mp-menu git-filemenu">
+                        <div
+                          className={`mp-item ${restorePath === file.path ? "danger" : ""}`}
+                          onClick={() => {
+                            if (restorePath !== file.path) { setRestorePath(file.path); return; }
+                            setRestorePath(null);
+                            setMenuPath(null);
+                            send(ws, { type: "gitRevertFile", projectRoot, path: file.path });
+                          }}
+                        >
+                          <span>{restorePath === file.path ? t("action.confirm") : t("action.restore")}</span>
+                        </div>
+                      </div>
+                    )}
                   </span>
-                  <span className="git-path">{file.path}</span>
-                </button>
-                <div className="git-file-actions">
-                  <button className="ghost" onClick={() => send(ws, { type: "gitStage", projectRoot, path: file.path })}>
-                    {t("action.stage")}
-                  </button>
-                  <button className="ghost" disabled={!isStaged(file)} onClick={() => send(ws, { type: "gitUnstage", projectRoot, path: file.path })}>
-                    {t("action.unstage")}
-                  </button>
-                  <button
-                    className={`ghost ${restorePath === file.path ? "danger" : ""}`}
-                    onClick={() => {
-                      if (restorePath !== file.path) {
-                        setRestorePath(file.path);
-                        return;
-                      }
-                      setRestorePath(null);
-                      send(ws, { type: "gitRevertFile", projectRoot, path: file.path });
-                    }}
-                  >
-                    {restorePath === file.path ? t("action.confirm") : t("action.restore")}
-                  </button>
                 </div>
                 {selected === file.path && (
                   <pre className="git-diff">
@@ -236,29 +276,41 @@ export default function GitSurface({
               </div>
             ))}
           </div>
-          <div className="git-commit">
-            <input
-              value={commitMsg}
-              onChange={(e) => setCommitMsg(e.target.value)}
-              placeholder={t("git.commit-placeholder")}
-            />
-            <button
-              className="ghost"
-              disabled={generating || files.length === 0}
-              onClick={() => {
-                setGenerating(true);
-                send(ws, { type: "generateCommitMsg", projectRoot });
-              }}
-            >
-              {generating ? "..." : t("action.generate-commit-message")}
-            </button>
-            <button
-              className="set-btn"
-              disabled={!commitMsg.trim()}
-              onClick={() => send(ws, { type: "gitCommit", projectRoot, message: commitMsg.trim() })}
-            >
-              {t("action.commit")}
-            </button>
+          <div className="git-commit-zone">
+            <div className="git-commit">
+              <input
+                value={commitMsg}
+                onChange={(e) => setCommitMsg(e.target.value)}
+                placeholder={t("git.commit-placeholder")}
+              />
+              <button
+                className="ghost git-icon-btn"
+                title={t("action.generate-commit-message")}
+                disabled={generating || files.length === 0}
+                onClick={() => {
+                  setGenerating(true);
+                  setCommitError(null);
+                  send(ws, { type: "generateCommitMsg", projectRoot });
+                }}
+              >
+                {generating ? "…" : "✨"}
+              </button>
+              <button
+                className="set-btn"
+                disabled={!commitMsg.trim() || CHECKED.length === 0}
+                onClick={() => {
+                  setCommitError(null);
+                  send(ws, {
+                    type: "gitCommit", projectRoot, message: commitMsg.trim(),
+                    files: CHECKED.map((f) => f.path),
+                  });
+                  setCommitMsg("");
+                }}
+              >
+                {t("git.commit-n", { n: CHECKED.length, plural: CHECKED.length > 1 ? "s" : "" })}
+              </button>
+            </div>
+            {commitError && <div className="git-commit-error">{commitError}</div>}
           </div>
         </>
       ) : (

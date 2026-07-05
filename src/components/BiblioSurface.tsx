@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { t } from "../lib/i18n";
-import { BookIcon, PanelIcon, RefreshIcon, StarIcon } from "./icons";
+import { CloseIcon, PanelIcon, SearchIcon, StarIcon } from "./icons";
 
 type ZoteroItem = {
   key: string;
@@ -199,20 +199,13 @@ export default function BiblioSurface({
       {listOpen && (
       <aside className="biblio-left">
         <div className="biblio-search-row">
-          <BookIcon />
+          <span className="biblio-search-icon"><SearchIcon /></span>
           <input
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             placeholder={t("biblio.search")}
-            aria-label={t("biblio.search-aria")}
+            aria-label={t("biblio.search")}
           />
-          <button className={`ghost ${readerOpen ? "on" : ""}`} title={readerOpen ? t("action.close-reader") : t("action.open-reader")}
-            onClick={toggleReader}>
-            <PanelIcon />
-          </button>
-          <button className="ghost" title={t("action.refresh")} onClick={() => send(ws, { type: "zoteroSearch", query, collectionId: filter === "collection" ? collectionId : null })}>
-            <RefreshIcon />
-          </button>
         </div>
         <div className="biblio-filters">
           <button className={filter === "all" ? "on" : ""} onClick={() => setFilter("all")}>{t("biblio.all")}</button>
@@ -279,6 +272,9 @@ export default function BiblioSurface({
           </div>
           <button className="ghost biblio-cite" disabled={!selected} onClick={citeSelected}>
             {t("biblio.cite")}
+          </button>
+          <button className="ghost git-icon-btn" title={t("action.close-reader")} onClick={toggleReader}>
+            <CloseIcon />
           </button>
         </div>
         <div className="biblio-frame-wrap">

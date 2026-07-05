@@ -189,3 +189,21 @@ export function PanelIcon({ size = 13 }: { size?: number }) {
     </svg>
   );
 }
+
+export function SearchIcon({ size = 13 }: { size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 16 16" fill="none" stroke="currentColor"
+      strokeWidth="1.3" strokeLinecap="round" aria-hidden="true">
+      <circle cx="7" cy="7" r="4.4" /><path d="M10.4 10.4L14 14" />
+    </svg>
+  );
+}
+
+export function ArrowDownIcon({ size = 14 }: { size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 16 16" fill="none" stroke="currentColor"
+      strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M8 3v10M3.6 8.8L8 13.2l4.4-4.4" />
+    </svg>
+  );
+}
