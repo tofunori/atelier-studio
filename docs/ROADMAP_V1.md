@@ -117,3 +117,14 @@ Permission Simulator (couvert par canUseTool + permissions par projet).
 - **Écarté — migration Rust du backend galerie** : sur-ingénierie mono-utilisateur.
   Si la dépendance Python bloque un jour la distribution : binaire PyInstaller
   bien avant une réécriture.
+
+## Bascule quotidienne (objectif 2026-07-05)
+
+Atelier devient l'environnement quotidien de Thierry. Protocole :
+- Point d'entrée unique dès maintenant ; cmux = filet de secours seulement.
+- Chaque friction rencontrée = item de backlog (petits travaux, pipeline Codex+revue).
+- [ ] **Pont « ma sélection » en mode Studio (opt-in)** : réécrire
+  `~/.claude/fig-selection.json` depuis la galerie Studio (sans push de sessions ni
+  statusline) pour que les sessions Claude Code CLI lancées dans le terminal
+  d'Atelier gardent le réflexe « ma sélection ».
+- Déclencheur de la vendorisation (phase 1 galerie) : une semaine sans ouvrir cmux.
