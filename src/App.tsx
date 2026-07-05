@@ -20,6 +20,7 @@ import SettingsPage from "./components/Settings";
 import CommandPalette from "./components/CommandPalette";
 import QuickAsk from "./components/QuickAsk";
 import UsagePopover, { worstOf } from "./components/UsagePopover";
+import { init as initNotify, notifyRunDone, notifyReview } from "./lib/notify";
 import { CloseIcon } from "./components/icons";
 import { loadSettings, saveSettings, Settings } from "./lib/settings";
 import { THEME_PRESETS, presetById } from "./lib/themes";
@@ -213,6 +214,7 @@ export default function App() {
   const qaModeRef = useRef<"closed" | "open" | "min">("closed");
   qaModeRef.current = qaMode;
   const [usageOpen, setUsageOpen] = useState(false);
+  useEffect(() => { initNotify().catch(() => {}); }, []);
   const [qaDraft, setQaDraft] = useState("");
   const [qaContext, setQaContext] = useState(""); // threadId -> condition
   const [favorites, setFavorites] = useState<string[]>(() => {
@@ -347,6 +349,13 @@ export default function App() {
         }
         if (msg.event.kind === "done" || msg.event.kind === "error") {
           setWorkingSince((p) => ({ ...p, [msg.threadId]: null }));
+          const th = allThreadsRef.current?.find?.((x: any) => x.id === msg.threadId);
+          notifyRunDone({
+            threadId: msg.threadId,
+            title: th?.title ?? "Agent",
+            ok: msg.event.kind === "done" && msg.event.ok !== false,
+            summary: String(msg.event.result ?? "").slice(0, 120),
+          }).catch(() => {});
           if (msg.threadId !== activeIdRef.current) {
             setUnread((u) => new Set(u).add(msg.threadId));
           }
@@ -457,6 +466,9 @@ export default function App() {
       }
       if (msg.type === "reviewResult") {
         window.dispatchEvent(new CustomEvent("review-result", { detail: msg }));
+        if (msg.status === "done" && msg.verdict === "issues") {
+          notifyReview({ threadId: msg.threadId, issues: (msg.issues ?? []).map((i: any) => i.claim) }).catch(() => {});
+        }
       }
       if (msg.type === "qaEvent") {
         window.dispatchEvent(new CustomEvent("qa-event", { detail: msg }));
