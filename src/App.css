@@ -165,12 +165,15 @@ html, body, #root, .app { height: 100vh; overflow: hidden;
   border-top-color: var(--muted); display: inline-block; animation: spin 1s linear infinite; flex-shrink: 0; }
 .working-label { color: var(--muted2); animation: pulse 1.4s ease-in-out infinite; }
 @keyframes pulse { 0%,100% { opacity: 0.5; } 50% { opacity: 1; } }
-.suggest { list-style: none; padding: 4px; margin: 0 0 4px; background: var(--bg-pop);
-  border: 1px solid var(--border); border-radius: 10px; max-height: 260px; overflow-y: auto; }
-.suggest li { display: flex; justify-content: space-between; gap: 12px;
-  padding: 5px 10px; border-radius: 6px; cursor: pointer; font-size: 13px; }
+.suggest { list-style: none; padding: 5px; margin: 0 0 4px;
+  background: color-mix(in srgb, var(--bg-side) 82%, black); border: 1px solid var(--border);
+  border-radius: 12px; max-height: 320px; overflow-y: auto;
+  box-shadow: 0 10px 30px rgba(0,0,0,0.35); }
+.suggest li { display: flex; justify-content: space-between; align-items: center; gap: 12px;
+  padding: 5.5px 10px; border-radius: 8px; cursor: pointer; font-size: 12.5px; }
 .suggest li.sel, .suggest li:hover { background: var(--bg-ctl); }
-.suggest .hint { color: var(--muted2); font-size: 11px; }
+.suggest .hint { color: var(--muted2); font-size: 11px; flex-shrink: 1;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 45%; }
 .ctx-menu { position: fixed; z-index: 100; background: var(--bg-pop);
   border: 1px solid var(--border); border-radius: 10px; padding: 4px; min-width: 150px;
   box-shadow: 0 8px 24px rgba(0,0,0,0.5); }
@@ -1058,12 +1061,12 @@ body.dragging iframe { pointer-events: none; }
   cursor: pointer; font-size: 11px; padding: 0 2px; }
 .qa-ctx button:hover { color: var(--fg); }
 /* menu @ façon Synara */
-.suggest-section { font-size: 10.5px; letter-spacing: 0.07em; text-transform: uppercase;
-  color: var(--muted2); padding: 6px 10px 3px; cursor: default; }
+.suggest-section { font-size: 10px; letter-spacing: 0.08em; text-transform: uppercase;
+  color: var(--muted2); padding: 6px 10px 2px; cursor: default; }
 .suggest-section:hover { background: transparent !important; }
 .suggest-main { display: flex; align-items: center; gap: 8px; min-width: 0; }
-.suggest-main b { font-weight: 550; color: var(--fg); overflow: hidden;
-  text-overflow: ellipsis; white-space: nowrap; }
+.suggest-main b { font-weight: 450; color: var(--fg2); font-size: 12.5px;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .suggest .hint { flex-shrink: 1; overflow: hidden; text-overflow: ellipsis;
   white-space: nowrap; max-width: 45%; }
 .ftype { font-size: 9px; font-weight: 700; letter-spacing: 0.02em; border: 1px solid currentColor;
