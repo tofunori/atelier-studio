@@ -1107,9 +1107,12 @@ body.dragging iframe { pointer-events: none; }
 .sidebar li { position: relative; }
 .row-actions { position: absolute; right: 6px; top: 50%; transform: translateY(-50%);
   display: inline-flex; gap: 2px; opacity: 0; transition: opacity 0.15s;
-  background: linear-gradient(90deg, transparent, var(--bg-ctl) 30%);
-  padding-left: 14px; pointer-events: none; }
+  pointer-events: none; }
 .sidebar li:hover .row-actions { opacity: 1; pointer-events: auto; }
+/* le titre cède la place aux actions au survol (ellipsis, pas de superposition) */
+.sidebar li .thread-copy { min-width: 0; overflow: hidden; }
+.sidebar li .thread-copy > * { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; display: block; }
+.sidebar li:hover .thread-copy { margin-right: 50px; }
 .row-act { width: 22px; height: 22px; display: inline-flex; align-items: center;
   justify-content: center; border: none; border-radius: 6px;
   background: transparent !important; color: var(--muted2); cursor: pointer; padding: 0 !important; }
