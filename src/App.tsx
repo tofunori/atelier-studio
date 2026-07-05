@@ -294,6 +294,9 @@ export default function App() {
             { kind: "text", text: `Conversation exportée : \`${msg.path}\` (+ .json)`, ts: Date.now() }],
         }));
       }
+      if (msg.type === "sessions") {
+        window.dispatchEvent(new CustomEvent("sessions-list", { detail: msg.sessions }));
+      }
       if (msg.type === "commands") setCommands(msg.commands);
       if (msg.type === "files") setFiles(msg.files);
       if (msg.type === "error") console.error("sidecar:", msg.message);
@@ -656,6 +659,25 @@ export default function App() {
           onSelect={selectThread}
           onNew={newThread}
           onNewChat={newChat}
+          onImportSession={(provider, sessionId, title) => {
+            const newId = crypto.randomUUID();
+            if (ws.current?.readyState === 1) {
+              ws.current.send(JSON.stringify({
+                type: "importSession",
+                newThreadId: newId,
+                provider,
+                sessionId,
+                title,
+                projectRoot: provider === "claude" ? (activeProject ?? "") : (activeProject ?? ""),
+              }));
+              // charger l'historique (Claude) une fois le thread créé
+              setTimeout(() => {
+                setActiveId(newId);
+                activeIdRef.current = newId;
+                ws.current?.send(JSON.stringify({ type: "getHistory", threadId: newId }));
+              }, 250);
+            }
+          }}
           onDelete={(threadId) => {
             setDraftThreads((p) => p.filter((t) => t.id !== threadId));
             setEvents((p) => {

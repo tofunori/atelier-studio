@@ -83,6 +83,23 @@ export async function route(msg, ctx) {
       ctx.send({ type: "exported", threadId: msg.threadId, path });
       break;
     }
+    case "listSessions": {
+      const sessions = await ctx.sessions.listSessions(msg.provider, msg.projectRoot);
+      ctx.send({ type: "sessions", provider: msg.provider, sessions });
+      break;
+    }
+    case "importSession": {
+      ctx.store.upsert({
+        id: msg.newThreadId,
+        projectRoot: msg.projectRoot ?? "",
+        provider: msg.provider,
+        title: "⤓ " + (msg.title ?? msg.sessionId.slice(0, 8)),
+        sessionId: msg.sessionId,
+        status: "idle",
+      });
+      (ctx.broadcast ?? ctx.send)({ type: "threads", threads: ctx.store.list() });
+      break;
+    }
     case "forkThread": {
       // nouveau thread qui bifurque de la session d'un autre (fork au prochain send)
       const src = ctx.store.get(msg.fromThreadId);

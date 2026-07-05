@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Thread } from "../lib/ws";
 import { PROJ_COLORS } from "./Rail";
+import { wsSend } from "../lib/wsBus";
 import { ProviderIcon } from "./icons";
 
 type Menu = { x: number; y: number; threadId: string };
@@ -19,6 +20,7 @@ export default function Sidebar(p: {
   onSelect: (threadId: string, projectRoot: string) => void;
   onNew: (projectRoot: string) => void;
   onNewChat: () => void;
+  onImportSession: (provider: "claude" | "codex", sessionId: string, title: string) => void;
   onDelete: (threadId: string) => void;
   onRename: (threadId: string, title: string) => void;
   onSettings: () => void;
@@ -29,6 +31,22 @@ export default function Sidebar(p: {
   const [menu, setMenu] = useState<Menu | null>(null);
   const [projMenu, setProjMenu] = useState<{ root: string; x: number; y: number } | null>(null);
   const [labelDraft, setLabelDraft] = useState("");
+  const [resumeOpen, setResumeOpen] = useState(false);
+  const [resumeProv, setResumeProv] = useState<"claude" | "codex">("claude");
+  const [sessions, setSessions] = useState<{ id: string; title: string; mtime: number }[] | null>(null);
+
+  useEffect(() => {
+    const onSessions = (e: Event) => setSessions((e as CustomEvent).detail);
+    window.addEventListener("sessions-list", onSessions);
+    return () => window.removeEventListener("sessions-list", onSessions);
+  }, []);
+
+  function openResume(prov: "claude" | "codex") {
+    setResumeProv(prov);
+    setSessions(null);
+    setResumeOpen(true);
+    wsSend({ type: "listSessions", provider: prov, projectRoot: p.activeProject ?? "" });
+  }
   const [secClosed, setSecClosed] = useState<{ fav: boolean; proj: boolean; chats: boolean }>(() => {
     try { return JSON.parse(localStorage.getItem("atelier-studio.sections") ?? '{"fav":false,"proj":false,"chats":false}'); }
     catch { return { fav: false, proj: false, chats: false }; }
@@ -213,6 +231,10 @@ export default function Sidebar(p: {
       <div className="section sec-toggle" onClick={() => toggleSec("chats")}>
         <span><span className="chev">{secClosed.chats ? "▸" : "▾"}</span> Chats</span>
         <span className="section-actions" onClick={(e) => e.stopPropagation()}>
+          <button className="mini compact-btn" title="Reprendre une session existante (Claude/Codex)"
+            onClick={() => openResume("claude")}>
+            ⤓
+          </button>
           <button className="mini compact-btn" title="Nouveau chat sans projet" onClick={p.onNewChat}>
             +
           </button>
@@ -249,6 +271,36 @@ export default function Sidebar(p: {
         </svg>
         <span>Réglages</span>
       </button>
+      {resumeOpen && (
+        <div className="rail-menu resume-pop" onClick={(e) => e.stopPropagation()}>
+          <div className="rail-menu-title">Reprendre une session</div>
+          <div className="seg">
+            {(["claude", "codex"] as const).map((pv) => (
+              <button key={pv} className={resumeProv === pv ? "on" : ""} onClick={() => openResume(pv)}>
+                {pv === "claude" ? "Claude" : "Codex"}
+              </button>
+            ))}
+          </div>
+          <div className="resume-list">
+            {sessions === null && <div className="bh-empty">Chargement…</div>}
+            {sessions?.length === 0 && <div className="bh-empty">Aucune session trouvée.</div>}
+            {sessions?.map((s) => (
+              <div key={s.id} className="resume-item"
+                onClick={() => {
+                  p.onImportSession(resumeProv, s.id, s.title);
+                  setResumeOpen(false);
+                }}>
+                <span className="resume-title">{s.title}</span>
+                <span className="resume-date">
+                  {new Date(s.mtime).toLocaleDateString([], { day: "2-digit", month: "2-digit" })}{" "}
+                  {new Date(s.mtime).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+                </span>
+              </div>
+            ))}
+          </div>
+          <button className="set-btn" onClick={() => setResumeOpen(false)}>Fermer</button>
+        </div>
+      )}
       {projMenu && (
         <div
           className="rail-menu"
