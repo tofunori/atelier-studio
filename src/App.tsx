@@ -587,7 +587,9 @@ export default function App() {
       }));
       setWorkingSince((p) => ({ ...p, [threadId]: Date.now() }));
       sendPrompt(ws.current, {
-        autoReview: settingsRef.current.autoReview,
+        // re-vérifier TOUJOURS le tour de correction, même si l'auto-review est
+        // off ou que le trigger ne matche pas — sinon le spinner tourne à l'infini
+        autoReview: { ...settingsRef.current.autoReview, enabled: true, trigger: "always" },
         threadId,
         projectRoot: th.projectRoot ?? "",
         provider: th.provider ?? "claude",
