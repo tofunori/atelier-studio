@@ -119,7 +119,7 @@ export async function run({
     const input = buildCodexInput({ prompt, inputs, imagePath, attachments });
     const { events } = await thread.runStreamed(input, turnOptions);
     // affichage SOBRE : une seule ligne par commande (au démarrage, tronquée),
-    // pas de doublon à la complétion, un seul "réflexion…" consécutif
+    // pas de doublon à la complétion, un seul état de réflexion consécutif
     let lastTool = "";
     const emitTool = (name) => {
       if (name === lastTool) return;
@@ -157,7 +157,7 @@ export async function run({
         emitTool(commandName(ev.item));
       }
       if (ev.type === "item.started" && ev.item?.type === "reasoning") {
-        emitTool("réflexion…");
+        emitTool("__thinking");
       }
       if (
         (ev.type === "item.started" || ev.type === "item.updated" || ev.type === "item.completed") &&
@@ -182,7 +182,7 @@ export async function run({
       }
       if (ev.type === "item.completed" && ev.item?.type === "file_change") {
         const files = (ev.item.changes ?? []).map((ch) => ch.path?.split("/").pop()).filter(Boolean);
-        emitTool(files.length ? `modifie ${files.slice(0, 3).join(", ")}${files.length > 3 ? "…" : ""}` : "modifie des fichiers");
+        emitTool(files.length ? `__edits:${files.slice(0, 3).join(", ")}${files.length > 3 ? "…" : ""}` : "__edits:");
       }
       if (ev.type === "item.started" && ev.item?.type === "web_search") {
         emitTool(`recherche web : ${String(ev.item.query ?? "").slice(0, 50)}`);
@@ -201,7 +201,7 @@ export async function run({
           output: u.output_tokens ?? 0, cost: null, turns: null } });
       }
       if (ev.type === "turn.failed") {
-        onEvent({ kind: "error", message: ev.error?.message ?? "échec" });
+        onEvent({ kind: "error", message: ev.error?.message ?? "failed" });
       }
       if (ev.type === "error") {
         onEvent({ kind: "error", message: ev.message ?? "erreur Codex" });

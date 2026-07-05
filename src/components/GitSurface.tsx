@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { eventLabel, t } from "../lib/i18n";
 import { BranchIcon, LedgerIcon, RefreshIcon } from "./icons";
 
 type GitFile = { path: string; status: string; originalPath?: string };
@@ -42,7 +43,7 @@ function formatCost(cost?: number | null) {
 
 function dayKey(ts: string) {
   const d = new Date(ts);
-  if (Number.isNaN(d.getTime())) return "Date inconnue";
+  if (Number.isNaN(d.getTime())) return t("git.date-unknown");
   return d.toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" });
 }
 
@@ -165,14 +166,14 @@ export default function GitSurface({
       <div className="git-head">
         <div className="git-title">
           <BranchIcon size={14} />
-          <span>{status?.branch ?? "repo"}</span>
-          <span className="git-muted">{files.length} fichier{files.length > 1 ? "s" : ""}</span>
+          <span>{status?.branch ?? t("git.branch-fallback")}</span>
+          <span className="git-muted">{t("git.files", { count: files.length, plural: files.length > 1 ? "s" : "" })}</span>
         </div>
         <div className="seg">
           <button className={mode === "git" ? "on" : ""} onClick={() => setMode("git")}>Git</button>
-          <button className={mode === "journal" ? "on" : ""} onClick={() => setMode("journal")}>Journal</button>
+          <button className={mode === "journal" ? "on" : ""} onClick={() => setMode("journal")}>{t("git.journal")}</button>
         </div>
-        <button className="ghost git-icon-btn" title="Rafraîchir" onClick={mode === "git" ? refreshGit : refreshLedger}>
+        <button className="ghost git-icon-btn" title={t("action.refresh")} onClick={mode === "git" ? refreshGit : refreshLedger}>
           <RefreshIcon />
         </button>
         <button
@@ -188,14 +189,14 @@ export default function GitSurface({
             send(ws, { type: "gitUndoLastTurn", threadId: activeThreadId });
           }}
         >
-          {undoArmed ? "Confirmer l'annulation" : "Annuler le dernier tour d'agent"}
+          {undoArmed ? t("action.confirm-undo") : t("action.undo-agent-turn")}
         </button>
       </div>
 
       {mode === "git" ? (
         <>
           <div className="git-files">
-            {files.length === 0 && <div className="git-empty">Aucune modification.</div>}
+            {files.length === 0 && <div className="git-empty">{t("git.empty")}</div>}
             {files.map((file) => (
               <div key={file.path} className="git-file">
                 <button className="git-file-row" onClick={() => selectFile(file.path)}>
@@ -206,10 +207,10 @@ export default function GitSurface({
                 </button>
                 <div className="git-file-actions">
                   <button className="ghost" onClick={() => send(ws, { type: "gitStage", projectRoot, path: file.path })}>
-                    Stage
+                    {t("action.stage")}
                   </button>
                   <button className="ghost" disabled={!isStaged(file)} onClick={() => send(ws, { type: "gitUnstage", projectRoot, path: file.path })}>
-                    Unstage
+                    {t("action.unstage")}
                   </button>
                   <button
                     className={`ghost ${restorePath === file.path ? "danger" : ""}`}
@@ -222,14 +223,14 @@ export default function GitSurface({
                       send(ws, { type: "gitRevertFile", projectRoot, path: file.path });
                     }}
                   >
-                    {restorePath === file.path ? "Confirmer" : "Restaurer"}
+                    {restorePath === file.path ? t("action.confirm") : t("action.restore")}
                   </button>
                 </div>
                 {selected === file.path && (
                   <pre className="git-diff">
                     {diff ? diff.split("\n").map((line, i) => (
                       <span key={`${i}-${line}`} className={diffClass(line)}>{line || " "}</span>
-                    )) : <span className="git-muted">Diff vide.</span>}
+                    )) : <span className="git-muted">{t("git.diff-empty")}</span>}
                   </pre>
                 )}
               </div>
@@ -239,7 +240,7 @@ export default function GitSurface({
             <input
               value={commitMsg}
               onChange={(e) => setCommitMsg(e.target.value)}
-              placeholder="Message de commit"
+              placeholder={t("git.commit-placeholder")}
             />
             <button
               className="ghost"
@@ -249,14 +250,14 @@ export default function GitSurface({
                 send(ws, { type: "generateCommitMsg", projectRoot });
               }}
             >
-              {generating ? "..." : "Message par l'agent"}
+              {generating ? "..." : t("action.generate-commit-message")}
             </button>
             <button
               className="set-btn"
               disabled={!commitMsg.trim()}
               onClick={() => send(ws, { type: "gitCommit", projectRoot, message: commitMsg.trim() })}
             >
-              Commit
+              {t("action.commit")}
             </button>
           </div>
         </>
@@ -264,9 +265,9 @@ export default function GitSurface({
         <div className="ledger-view">
           <div className="ledger-filter">
             <LedgerIcon />
-            <input value={filter} onChange={(e) => setFilter(e.target.value)} placeholder="Filtrer le journal" />
+            <input value={filter} onChange={(e) => setFilter(e.target.value)} placeholder={t("git.filter-placeholder")} />
           </div>
-          {grouped.length === 0 && <div className="git-empty">Aucune entrée.</div>}
+          {grouped.length === 0 && <div className="git-empty">{t("git.entries-empty")}</div>}
           {grouped.map(([day, dayEntries]) => (
             <div key={day} className="ledger-day">
               <div className="ledger-day-title">{day}</div>
@@ -277,26 +278,26 @@ export default function GitSurface({
                   <div key={rowId} className="ledger-entry">
                     <button className="ledger-row" onClick={() => setExpanded(isOpen ? null : rowId)}>
                       <span className="ledger-time">{timeKey(entry.ts)}</span>
-                      <span>{entry.provider ?? "agent"}</span>
-                      <span className="ledger-prompt">{entry.promptExcerpt || entry.threadTitle || "Tour agent"}</span>
+                      <span>{entry.provider ?? t("common.agent")}</span>
+                      <span className="ledger-prompt">{entry.promptExcerpt || entry.threadTitle || t("git.agent-turn")}</span>
                       <span>{formatCost(entry.usage?.cost)}</span>
-                      <span>{entry.filesChanged?.length ?? 0} fichiers</span>
+                      <span>{t("git.files-count", { count: entry.filesChanged?.length ?? 0 })}</span>
                     </button>
                     {isOpen && (
                       <div className="ledger-detail">
                         <div className="ledger-detail-row">
-                          <span>Fichiers</span>
+                          <span>{t("git.files-label")}</span>
                           <span>{entry.filesChanged?.join(", ") || "—"}</span>
                         </div>
                         <div className="ledger-detail-row">
-                          <span>Outils</span>
-                          <span>{entry.tools?.map((tool) => tool.name).filter(Boolean).join(", ") || "—"}</span>
+                          <span>{t("git.tools")}</span>
+                          <span>{entry.tools?.map((tool) => tool.name ? eventLabel(tool.name) : null).filter(Boolean).join(", ") || "—"}</span>
                         </div>
                         <button
                           className="ghost"
                           onClick={() => window.dispatchEvent(new CustomEvent("open-thread", { detail: { threadId: entry.threadId } }))}
                         >
-                          Ouvrir le chat
+                          {t("action.open-chat")}
                         </button>
                       </div>
                     )}

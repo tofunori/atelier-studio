@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { t } from "../lib/i18n";
 import { BookIcon, PanelIcon, RefreshIcon, StarIcon } from "./icons";
 
 type ZoteroItem = {
@@ -73,7 +74,7 @@ function pdfViewerUrl(item: ZoteroItem, galleryUrl: string): string | null {
 }
 
 function creatorLine(item: ZoteroItem): string {
-  return [item.creators || "Auteur inconnu", item.year].filter(Boolean).join(" · ");
+  return [item.creators || t("common.unknown-author"), item.year].filter(Boolean).join(" · ");
 }
 
 export default function BiblioSurface({
@@ -202,20 +203,20 @@ export default function BiblioSurface({
           <input
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            placeholder="Rechercher"
-            aria-label="Rechercher dans Zotero"
+            placeholder={t("biblio.search")}
+            aria-label={t("biblio.search-aria")}
           />
-          <button className={`ghost ${readerOpen ? "on" : ""}`} title={readerOpen ? "Fermer le lecteur" : "Ouvrir le lecteur"}
+          <button className={`ghost ${readerOpen ? "on" : ""}`} title={readerOpen ? t("action.close-reader") : t("action.open-reader")}
             onClick={toggleReader}>
             <PanelIcon />
           </button>
-          <button className="ghost" title="Rafraîchir" onClick={() => send(ws, { type: "zoteroSearch", query, collectionId: filter === "collection" ? collectionId : null })}>
+          <button className="ghost" title={t("action.refresh")} onClick={() => send(ws, { type: "zoteroSearch", query, collectionId: filter === "collection" ? collectionId : null })}>
             <RefreshIcon />
           </button>
         </div>
         <div className="biblio-filters">
-          <button className={filter === "all" ? "on" : ""} onClick={() => setFilter("all")}>Tous</button>
-          <button className={filter === "fav" ? "on" : ""} onClick={() => setFilter("fav")} aria-label="Favoris">
+          <button className={filter === "all" ? "on" : ""} onClick={() => setFilter("all")}>{t("biblio.all")}</button>
+          <button className={filter === "fav" ? "on" : ""} onClick={() => setFilter("fav")} aria-label={t("biblio.favorites")}>
             <StarIcon />
           </button>
           <select
@@ -225,9 +226,9 @@ export default function BiblioSurface({
               setCollectionId(value);
               setFilter(value ? "collection" : "all");
             }}
-            aria-label="Collection Zotero"
+            aria-label={t("biblio.collection-aria")}
           >
-            <option value="">Collection</option>
+            <option value="">{t("biblio.collection")}</option>
             {collections.map((collection) => (
               <option key={collection.id} value={String(collection.id)}>
                 {collection.name}
@@ -237,7 +238,7 @@ export default function BiblioSurface({
         </div>
         {error && <div className="biblio-empty">{error}</div>}
         <div className="biblio-list">
-          {!error && visibleItems.length === 0 && <div className="biblio-empty">Aucune référence.</div>}
+          {!error && visibleItems.length === 0 && <div className="biblio-empty">{t("biblio.empty")}</div>}
           {visibleItems.map((item) => (
             <div
               key={item.key}
@@ -255,7 +256,7 @@ export default function BiblioSurface({
               <button
                 type="button"
                 className={`biblio-star ${item.fav ? "on" : ""}`}
-                aria-label={item.fav ? "Retirer des favoris" : "Ajouter aux favoris"}
+                aria-label={item.fav ? t("action.remove-favorite") : t("action.add-favorite")}
                 onClick={() => toggleFav(item)}
               >
                 <StarIcon />
@@ -268,23 +269,23 @@ export default function BiblioSurface({
       {readerOpen && (
       <section className="biblio-reader">
         <div className="biblio-reader-head">
-          <button className="ghost biblio-list-toggle" title={listOpen ? "Masquer la liste (lecture)" : "Afficher la liste"}
+          <button className="ghost biblio-list-toggle" title={listOpen ? t("action.hide-list") : t("action.open-list")}
             onClick={toggleList}>
             <PanelIcon />
           </button>
           <div className="biblio-reader-title">
-            <span>{selected?.title ?? "Bibliothèque"}</span>
+            <span>{selected?.title ?? t("biblio.title")}</span>
             {selected && <small>{creatorLine(selected)}</small>}
           </div>
           <button className="ghost biblio-cite" disabled={!selected} onClick={citeSelected}>
-            Citer dans le chat
+            {t("biblio.cite")}
           </button>
         </div>
         <div className="biblio-frame-wrap">
-          {!selected && <div className="biblio-placeholder">Sélectionne une référence.</div>}
-          {selected && !selected.hasPdf && <div className="biblio-placeholder">Pas de PDF attaché.</div>}
+          {!selected && <div className="biblio-placeholder">{t("biblio.placeholder")}</div>}
+          {selected && !selected.hasPdf && <div className="biblio-placeholder">{t("biblio.no-pdf")}</div>}
           {selected?.hasPdf && !galleryUrl && (
-            <div className="biblio-placeholder">Ouvre un projet pour activer le lecteur</div>
+            <div className="biblio-placeholder">{t("biblio.no-project")}</div>
           )}
           {selected?.hasPdf && galleryUrl && selectedViewerUrl && (
             <iframe className="biblio-frame" src={selectedViewerUrl} title={selected.title} />

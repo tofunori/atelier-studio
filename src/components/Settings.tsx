@@ -32,8 +32,8 @@ const CODEX_MODELS = [
   { id: "gpt-5.3-codex-spark", label: "Codex Spark" },
 ];
 
-function modelLabel(m: { label?: string; labelKey?: "common.default-cli" }) {
-  return m.labelKey ? t(m.labelKey) : m.label ?? "";
+function modelLabel(m: { label?: string; labelKey?: string }) {
+  return m.labelKey === "common.default-cli" ? t("common.default-cli") : m.label ?? "";
 }
 
 function Slider(p: {
@@ -176,10 +176,10 @@ export default function SettingsPage(p: {
             </Row>
             <Row title={t("settings.permission-default")} desc={t("settings.permission-default-desc")}>
               <select value={s.defaultPermissionMode} onChange={(e) => set({ defaultPermissionMode: e.target.value })}>
-                <option value="bypassPermissions">Full access</option>
-                <option value="acceptEdits">Accept edits</option>
+                <option value="bypassPermissions">{t("permission.full")}</option>
+                <option value="acceptEdits">{t("permission.accept-edits")}</option>
                 <option value="default">{t("action.ask-default")}</option>
-                <option value="plan">Plan mode</option>
+                <option value="plan">{t("permission.plan")}</option>
               </select>
             </Row>
             <Row title={t("settings.web-search")} desc={t("settings.web-search-desc")}>

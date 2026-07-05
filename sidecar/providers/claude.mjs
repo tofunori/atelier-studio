@@ -211,7 +211,7 @@ export function send({
           }
         }
         if (msg.type === "system" && msg.subtype === "compact_boundary") {
-          s.onEvent({ kind: "tool", name: "contexte compacté automatiquement" });
+          s.onEvent({ kind: "tool", name: "__compacted" });
         }
         if (msg.type === "result") {
           const u = msg.usage ?? {};

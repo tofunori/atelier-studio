@@ -863,7 +863,7 @@ export default function Chat(p: {
                   <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3">
                     <path d="M2.5 4h2M6.5 4h7M2.5 8h2M6.5 8h7M2.5 12h2M6.5 12h7" />
                   </svg>
-                  <span>Plan mode</span>
+                  <span>{t("permission.plan")}</span>
                   <span className={`toggle ${permissionMode === "plan" ? "on" : ""}`}>
                     <span className="knob" />
                   </span>

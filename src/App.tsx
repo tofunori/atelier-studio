@@ -136,8 +136,14 @@ export default function App() {
     atelierTabsRef.current = atelierTabs;
   }, [atelierTabs]);
   const [settings, setSettings] = useState<Settings>(loadSettings);
+  const [, setLanguageRev] = useState(0);
   const [showSettings, setShowSettings] = useState(false);
   const settingsRef = useRef(settings);
+  useEffect(() => {
+    const onLanguage = () => setLanguageRev((n) => n + 1);
+    window.addEventListener("app-language-changed", onLanguage);
+    return () => window.removeEventListener("app-language-changed", onLanguage);
+  }, []);
   useEffect(() => {
     settingsRef.current = settings;
     saveSettings(settings);
@@ -314,7 +320,7 @@ export default function App() {
         if (msg.event.kind === "done" && msg.event.ok === false &&
             /login|auth|credentials/i.test(msg.event.result ?? "")) {
           setAppBanner({
-            text: "Lance `codex login` (ou `claude login`) dans le Terminal",
+            text: t("app.login-banner"),
             closable: true,
           });
         }

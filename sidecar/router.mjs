@@ -486,8 +486,7 @@ export async function route(msg, ctx) {
         }
         ctx.store.upsert({ id: threadId, sessionId: null, resumeAt: null });
         prev = ctx.store.get(threadId);
-        emit({ type: "event", threadId, event: { kind: "tool",
-          name: `changement de provider → nouvelle session ${provider} (l'autre agent ne partage pas sa mémoire)` } });
+        emit({ type: "event", threadId, event: { kind: "tool", name: `__provider-switch:${provider}` } });
       }
       ctx.store.upsert({
         id: threadId,
@@ -548,7 +547,7 @@ export async function route(msg, ctx) {
         const q = pending.get(threadId) ?? [];
         q.push(msg);
         pending.set(threadId, q);
-        emit({ type: "event", threadId, event: { kind: "tool", name: "⏳ message en file d'attente" } });
+        emit({ type: "event", threadId, event: { kind: "tool", name: "__queued" } });
         break;
       }
       // fire-and-forget : plusieurs threads streament en parallèle
