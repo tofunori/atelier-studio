@@ -202,7 +202,7 @@ export default function AtelierPane({
 
       {/* ---- surface Browser ---- */}
       {visited.has("browser") && (
-        <BrowserTab tabId="main-browser" ws={ws} visible={surface === "browser"} onTitle={() => {}} />
+        <BrowserTab tabId="main-browser" visible={surface === "browser"} onTitle={() => {}} />
       )}
 
       {/* ---- surface Terminal ---- */}

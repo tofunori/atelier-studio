@@ -494,3 +494,4 @@ button.ghost:disabled { opacity: 0.35; cursor: default; }
 .theme-strip { flex: 1; display: flex; height: 18px; border-radius: 5px; overflow: hidden;
   border: 1px solid rgba(128,128,128,0.25); }
 .theme-strip span { flex: 1; }
+.browser-body { flex: 1; min-height: 0; position: relative; overflow-y: auto; }
