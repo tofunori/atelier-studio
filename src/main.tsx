@@ -4,14 +4,17 @@ import ReactDOM from "react-dom/client";
 import { invoke } from "@tauri-apps/api/core";
 import App from "./App";
 
+type SidecarInfo = { port: number; token?: string };
+
 // Hydrate le localStorage depuis l'état UI partagé du sidecar (ui.json) AVANT
 // le rendu — dev (localhost:1420) et app buildée (tauri://) ont des stockages
 // séparés ; sans ça, l'app buildée démarre vierge (projets, réglages, favoris).
 async function boot() {
   try {
-    const port = await invoke<number>("sidecar_port");
+    const { port, token } = await invoke<SidecarInfo>("sidecar_port");
+    const headers = token ? { "x-atelier-token": token } : undefined;
     const snap: Record<string, string> = await (
-      await fetch(`http://127.0.0.1:${port}/uistate`)
+      await fetch(`http://127.0.0.1:${port}/uistate`, { headers })
     ).json();
     // ui.json est autoritaire : le write-through le garde à jour depuis la
     // dernière app utilisée (dev ou buildée) — on écrase toujours au boot.
@@ -28,7 +31,11 @@ async function boot() {
           const key = localStorage.key(i)!;
           if (key.startsWith("atelier-studio")) all[key] = localStorage.getItem(key)!;
         }
-        fetch(`http://127.0.0.1:${port}/uistate`, { method: "POST", body: JSON.stringify(all) }).catch(() => {});
+        fetch(`http://127.0.0.1:${port}/uistate`, {
+          method: "POST",
+          headers,
+          body: JSON.stringify(all),
+        }).catch(() => {});
       }, 500);
     };
   } catch {

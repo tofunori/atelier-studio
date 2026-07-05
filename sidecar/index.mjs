@@ -4,7 +4,7 @@ import { readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { route } from "./router.mjs";
-import { ThreadStore } from "./store.mjs";
+import { ThreadStore, writeFileAtomic } from "./store.mjs";
 import * as catalog from "./catalog.mjs";
 import * as history from "./history.mjs";
 import { watchAnnotations } from "./annotations.mjs";
@@ -13,10 +13,26 @@ import * as sessions from "./sessions.mjs";
 import * as claude from "./providers/claude.mjs";
 import * as codex from "./providers/codex.mjs";
 
-const store = new ThreadStore(
-  `${homedir()}/Library/Application Support/atelier-studio/threads.json`,
-);
+const APP_DIR = `${homedir()}/Library/Application Support/atelier-studio`;
+const PID_FILE = `${APP_DIR}/sidecar.pid`;
+mkdirSync(APP_DIR, { recursive: true });
+
+function pidAlive(pid) {
+  try { process.kill(pid, 0); return true; } catch { return false; }
+}
+
+try {
+  const oldPid = Number(readFileSync(PID_FILE, "utf8"));
+  if (oldPid && oldPid !== process.pid && pidAlive(oldPid)) process.kill(oldPid, "SIGTERM");
+} catch {}
+writeFileAtomic(PID_FILE, String(process.pid));
+
+const store = new ThreadStore(`${APP_DIR}/threads.json`);
 const providers = { claude, codex };
+const ATELIER_TOKEN = process.env.ATELIER_TOKEN;
+if (!ATELIER_TOKEN) {
+  console.warn("[atelier] ATELIER_TOKEN absent: mode dev, HTTP/WS acceptés sans token");
+}
 
 // au démarrage, aucune session ne tourne : purger les statuts "running"
 // persistés par un sidecar précédent (spinner fantôme dans la sidebar)
@@ -28,6 +44,19 @@ import { readdirSync, rmSync, existsSync } from "node:fs";
 import { execFile } from "node:child_process";
 
 const PASTE_DIR = `${homedir()}/Library/Application Support/atelier-studio/pasted`;
+
+function cleanup() {
+  try { terminal.closeAll(); } catch {}
+  try {
+    if (Number(readFileSync(PID_FILE, "utf8")) === process.pid) rmSync(PID_FILE);
+  } catch {}
+}
+
+process.once("SIGTERM", () => {
+  cleanup();
+  process.exit(0);
+});
+process.once("exit", cleanup);
 
 function status() {
   let pastedCount = 0;
@@ -134,22 +163,31 @@ function saveImage(ext, base64) {
 
 // État UI partagé dev/prod (projets, réglages, favoris…) — les deux origines
 // (localhost:1420 et tauri://) ont des localStorage séparés.
-const UI_PATH = `${homedir()}/Library/Application Support/atelier-studio/ui.json`;
+const UI_PATH = `${APP_DIR}/ui.json`;
+function httpAuthorized(req) {
+  return !ATELIER_TOKEN || req.headers["x-atelier-token"] === ATELIER_TOKEN;
+}
 const httpServer = createServer((req, res) => {
   res.setHeader("access-control-allow-origin", "*");
   res.setHeader("access-control-allow-methods", "GET,POST,OPTIONS");
-  res.setHeader("access-control-allow-headers", "content-type");
+  res.setHeader("access-control-allow-headers", "content-type,x-atelier-token");
   if (req.method === "OPTIONS") { res.end(); return; }
-  if (req.url === "/uistate" && req.method === "GET") {
+  if (!httpAuthorized(req)) {
+    res.statusCode = 401;
+    res.end("unauthorized");
+    return;
+  }
+  const url = new URL(req.url ?? "/", "http://127.0.0.1");
+  if (url.pathname === "/uistate" && req.method === "GET") {
     res.setHeader("content-type", "application/json");
     try { res.end(readFileSync(UI_PATH)); } catch { res.end("{}"); }
     return;
   }
-  if (req.url === "/uistate" && req.method === "POST") {
+  if (url.pathname === "/uistate" && req.method === "POST") {
     let body = "";
     req.on("data", (c) => (body += c));
     req.on("end", () => {
-      try { JSON.parse(body); writeFileSync(UI_PATH, body); } catch {}
+      try { JSON.parse(body); writeFileAtomic(UI_PATH, body); } catch {}
       res.end("ok");
     });
     return;
@@ -157,7 +195,14 @@ const httpServer = createServer((req, res) => {
   res.statusCode = 404;
   res.end();
 });
-const wss = new WebSocketServer({ server: httpServer });
+const wss = new WebSocketServer({
+  server: httpServer,
+  verifyClient: ({ req }) => {
+    if (!ATELIER_TOKEN) return true;
+    const url = new URL(req.url ?? "/", "ws://127.0.0.1");
+    return url.searchParams.get("token") === ATELIER_TOKEN;
+  },
+});
 httpServer.listen(0, "127.0.0.1");
 
 // broadcast: les events d'un run en cours atteignent tous les clients,
