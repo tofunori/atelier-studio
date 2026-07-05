@@ -222,9 +222,11 @@ export async function commit(root, message, files = null) {
     const rels = files.map((f) => assertRelativePath(realRoot, f));
     await git(realRoot, ["add", "--", ...rels]);
   } else {
-    // rien de coché explicitement : vérifier qu'il y a quelque chose de stagé
-    const { stdout } = await git(realRoot, ["diff", "--cached", "--name-only"]);
-    if (!stdout.trim()) throw new Error("rien à commiter (aucun fichier sélectionné/stagé)");
+    // aucun choix explicite : comportement par défaut = commiter TOUTES les
+    // modifications visibles (l'UI cases à cocher affinera ensuite)
+    const st = await status(realRoot);
+    if (!st.files.length) throw new Error("rien à commiter");
+    await git(realRoot, ["add", "-A"]);
   }
   await git(realRoot, ["commit", "-m", msg]);
   const { stdout } = await git(realRoot, ["rev-parse", "HEAD"]);
