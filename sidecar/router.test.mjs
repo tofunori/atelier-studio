@@ -1,4 +1,7 @@
 import { describe, it, expect } from "vitest";
+import { mkdtempSync, readFileSync } from "node:fs";
+import { join } from "node:path";
+import { tmpdir } from "node:os";
 import { route } from "./router.mjs";
 
 describe("route", () => {
@@ -11,6 +14,48 @@ describe("route", () => {
     const sent = [];
     await route({ type: "nope" }, { send: (m) => sent.push(m) });
     expect(sent[0].type).toBe("error");
+  });
+  it("répond zotero-introuvable quand la base Zotero manque", async () => {
+    const sent = [];
+    await route(
+      { type: "zoteroSearch", query: "albedo" },
+      { send: (m) => sent.push(m), zotero: { available: () => false } },
+    );
+    expect(sent[0]).toEqual({ type: "zoteroItems", items: [], error: "zotero-introuvable" });
+  });
+  it("ajoute citeKey et fav aux résultats Zotero", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "atelier-zotero-"));
+    const favsPath = join(dir, "zotero-favs.json");
+    const sent = [];
+    const item = {
+      key: "ABC12345",
+      title: "Smoke deposition",
+      creators: "Smith",
+      year: "2024",
+      publication: "",
+      tags: [],
+      hasPdf: true,
+      pdfKey: "PDF12345",
+      pdfFile: "paper.pdf",
+    };
+    await route({ type: "zoteroFav", key: item.key, on: true }, {
+      send: (m) => sent.push(m),
+      zoteroFavsPath: favsPath,
+    });
+    await route({ type: "zoteroSearch", query: "smoke" }, {
+      send: (m) => sent.push(m),
+      zoteroFavsPath: favsPath,
+      zotero: {
+        available: () => true,
+        search: () => [item],
+        citeKey: () => "smith2024",
+      },
+    });
+    expect(JSON.parse(readFileSync(favsPath, "utf8"))).toEqual([item.key]);
+    expect(sent.at(-1)).toMatchObject({
+      type: "zoteroItems",
+      items: [{ key: item.key, citeKey: "smith2024", fav: true }],
+    });
   });
   it("retitre les conversations aux titres bruts ou dupliqués", async () => {
     const threads = new Map([

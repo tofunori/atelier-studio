@@ -389,6 +389,15 @@ export default function App() {
       if (msg.type === "ledger") {
         window.dispatchEvent(new CustomEvent("ledger", { detail: msg }));
       }
+      if (msg.type === "zoteroItems") {
+        window.dispatchEvent(new CustomEvent("zotero-items", { detail: msg }));
+      }
+      if (msg.type === "zoteroCollections") {
+        window.dispatchEvent(new CustomEvent("zotero-collections", { detail: msg }));
+      }
+      if (msg.type === "zoteroFav") {
+        window.dispatchEvent(new CustomEvent("zotero-fav", { detail: msg }));
+      }
       if (msg.type === "gitChanged" || msg.type === "gitStageDone" || msg.type === "gitUnstageDone" ||
           msg.type === "gitRevertFileDone" || msg.type === "gitCommitDone" || msg.type === "gitUndoLastTurnDone") {
         window.dispatchEvent(new CustomEvent("git-changed", { detail: msg }));
@@ -424,6 +433,27 @@ export default function App() {
         setMock(true);
         setAppBanner({ text: "Sidecar déconnecté, reconnexion…" });
       });
+  }, []);
+
+  useEffect(() => {
+    const onCitation = (e: Event) => {
+      const detail = (e as CustomEvent).detail as {
+        text: string;
+        key: string;
+        citeKey?: string;
+        title?: string;
+      };
+      const label = detail.citeKey ? `@${detail.citeKey}` : `@${detail.key}`;
+      setAttachments((l) =>
+        addAttachment(l, {
+          name: label,
+          lines: null,
+          text: `Référence Zotero : ${detail.text}`,
+        }),
+      );
+    };
+    window.addEventListener("atelier-add-to-chat-citation", onCitation);
+    return () => window.removeEventListener("atelier-add-to-chat-citation", onCitation);
   }, []);
 
   useEffect(() => {

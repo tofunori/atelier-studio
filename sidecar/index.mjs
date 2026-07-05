@@ -12,6 +12,7 @@ import * as terminal from "./terminal.mjs";
 import * as sessions from "./sessions.mjs";
 import * as gitops from "./gitops.mjs";
 import * as ledger from "./ledger.mjs";
+import * as zotero from "./zotero.mjs";
 import * as claude from "./providers/claude.mjs";
 import * as codex from "./providers/codex.mjs";
 
@@ -239,6 +240,7 @@ wss.on("connection", (ws) => {
     sessions,
     gitops,
     ledger,
+    zotero,
     scanLocal,
     checkFrame,
   };

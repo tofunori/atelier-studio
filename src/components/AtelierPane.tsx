@@ -4,12 +4,13 @@ import Explorer from "./Explorer";
 import BrowserTab from "./BrowserTab";
 import GitSurface from "./GitSurface";
 import TerminalSurface from "./TerminalSurface";
-import { BranchIcon, CloseIcon, CollapseIcon, ExpandIcon, OpenIcon, RefreshIcon } from "./icons";
+import BiblioSurface from "./BiblioSurface";
+import { BookIcon, BranchIcon, CloseIcon, CollapseIcon, ExpandIcon, OpenIcon, RefreshIcon } from "./icons";
 
 type Tab = { id: string; url: string; title: string; color?: string; pinned?: boolean; kind?: "term"; cwd?: string };
 const TAB_COLORS = ["#e05d5d", "#e8823a", "#8b5cf6", "#3b82f6", "#22b07d", "#e0b74a"];
 
-type Surface = "atelier" | "browser" | "terminal" | "git";
+type Surface = "atelier" | "browser" | "terminal" | "git" | "biblio";
 
 const SURFACES: { id: Surface; label: string; icon: React.ReactNode }[] = [
   {
@@ -48,6 +49,11 @@ const SURFACES: { id: Surface; label: string; icon: React.ReactNode }[] = [
     id: "git",
     label: "Git",
     icon: <BranchIcon />,
+  },
+  {
+    id: "biblio",
+    label: "Bibliothèque",
+    icon: <BookIcon />,
   },
 ];
 
@@ -270,6 +276,13 @@ export default function AtelierPane({
       {visited.has("git") && (
         <div className="surface-body" style={{ display: surface === "git" ? "flex" : "none" }}>
           <GitSurface ws={ws} projectRoot={projectRoot} activeThreadId={activeThreadId} />
+        </div>
+      )}
+
+      {/* ---- surface Bibliothèque ---- */}
+      {visited.has("biblio") && (
+        <div className="surface-body" style={{ display: surface === "biblio" ? "flex" : "none" }}>
+          <BiblioSurface ws={ws} projectRoot={projectRoot} galleryUrl={url} />
         </div>
       )}
 

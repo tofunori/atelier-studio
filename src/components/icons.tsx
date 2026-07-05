@@ -75,6 +75,24 @@ export function BranchIcon({ size = 13 }: IconProps) {
   );
 }
 
+export function BookIcon({ size = 13 }: IconProps) {
+  return (
+    <StrokeIcon size={size}>
+      <path d="M3.1 2.5h3.4c.9 0 1.5.6 1.5 1.5v9.5c0-.8-.6-1.3-1.5-1.3H3.1z" />
+      <path d="M12.9 2.5H9.5C8.6 2.5 8 3.1 8 4v9.5c0-.8.6-1.3 1.5-1.3h3.4z" />
+      <path d="M8 4v9.5" />
+    </StrokeIcon>
+  );
+}
+
+export function StarIcon({ size = 13 }: IconProps) {
+  return (
+    <StrokeIcon size={size}>
+      <path d="M8 2.2l1.7 3.5 3.8.6-2.8 2.7.7 3.8L8 11l-3.4 1.8.7-3.8-2.8-2.7 3.8-.6z" />
+    </StrokeIcon>
+  );
+}
+
 export function LedgerIcon({ size = 13 }: IconProps) {
   return (
     <StrokeIcon size={size}>

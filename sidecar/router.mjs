@@ -1,9 +1,44 @@
+import { mkdirSync, readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { homedir } from "node:os";
+import { writeFileAtomic } from "./store.mjs";
+
 // ctx: { send(obj), store, providers, broadcast(obj) }
 
 // file d'attente par thread pour les providers SANS steering (Codex) :
 // les messages envoyés pendant un run partent automatiquement au tour suivant.
 const pending = new Map(); // threadId -> [msg...]
 let retitleAllRunning = false;
+
+const DEFAULT_APP_DIR = join(homedir(), "Library", "Application Support", "atelier-studio");
+
+function zoteroFavsPath(ctx) {
+  return ctx.zoteroFavsPath ?? join(DEFAULT_APP_DIR, "zotero-favs.json");
+}
+
+function loadZoteroFavs(ctx) {
+  try {
+    const raw = JSON.parse(readFileSync(zoteroFavsPath(ctx), "utf8"));
+    return new Set(Array.isArray(raw) ? raw.filter((key) => typeof key === "string") : []);
+  } catch {
+    return new Set();
+  }
+}
+
+function saveZoteroFavs(ctx, favs) {
+  const path = zoteroFavsPath(ctx);
+  mkdirSync(dirname(path), { recursive: true });
+  writeFileAtomic(path, JSON.stringify([...favs].sort(), null, 2));
+}
+
+function withZoteroMeta(ctx, items) {
+  const favs = loadZoteroFavs(ctx);
+  return items.map((item) => ({
+    ...item,
+    citeKey: ctx.zotero?.citeKey?.(item) ?? "",
+    fav: favs.has(item.key),
+  }));
+}
 
 function titleKey(title) {
   return String(title ?? "").trim();
@@ -309,6 +344,42 @@ export async function route(msg, ctx) {
       const root = gitRootFor(ctx, msg);
       const entries = await ctx.ledger.get(root, msg.limit ?? 200);
       ctx.send({ type: "ledger", projectRoot: root, entries });
+      break;
+    }
+    case "zoteroSearch": {
+      if (!ctx.zotero?.available?.()) {
+        ctx.send({ type: "zoteroItems", items: [], error: "zotero-introuvable" });
+        break;
+      }
+      const items = ctx.zotero.search({
+        query: msg.query ?? "",
+        tag: msg.tag ?? null,
+        collectionId: msg.collectionId ?? null,
+        limit: msg.limit ?? 400,
+      });
+      ctx.send({ type: "zoteroItems", items: withZoteroMeta(ctx, items) });
+      break;
+    }
+    case "zoteroCollections": {
+      if (!ctx.zotero?.available?.()) {
+        ctx.send({ type: "zoteroCollections", collections: [], error: "zotero-introuvable" });
+        break;
+      }
+      ctx.send({ type: "zoteroCollections", collections: ctx.zotero.collections() });
+      break;
+    }
+    case "zoteroFav": {
+      const key = String(msg.key ?? "").trim();
+      if (!key) {
+        ctx.send({ type: "error", message: "clé Zotero requise" });
+        break;
+      }
+      const favs = loadZoteroFavs(ctx);
+      const on = msg.on !== false;
+      if (on) favs.add(key);
+      else favs.delete(key);
+      saveZoteroFavs(ctx, favs);
+      ctx.send({ type: "zoteroFav", key, fav: favs.has(key) });
       break;
     }
     case "gitStage": {
