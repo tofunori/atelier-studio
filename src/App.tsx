@@ -805,6 +805,7 @@ export default function App() {
           </div>
         )}
         <Chat
+          threadId={activeId}
           events={activeId ? (events[activeId] ?? []) : []}
           workingSince={activeId ? (workingSince[activeId] ?? null) : null}
           usage={activeId ? (usageByThread[activeId] ?? null) : null}

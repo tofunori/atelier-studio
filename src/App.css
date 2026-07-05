@@ -534,3 +534,14 @@ button.ghost:disabled { opacity: 0.35; cursor: default; }
 /* sidebar hors PanelGroup : largeur fixe, poignée de resize manuelle */
 .side-fixed { flex-shrink: 0; height: 100vh; overflow: hidden; }
 .side-handle { cursor: col-resize; flex-shrink: 0; }
+/* barre de sélection (Highlight / Underline / Add to chat) façon Synara */
+.sel-toolbar { position: fixed; transform: translateX(-50%); z-index: 120;
+  display: flex; align-items: center; gap: 2px; padding: 4px 6px;
+  background: var(--bg-pop); border: 1px solid var(--border);
+  border-radius: 999px; box-shadow: 0 8px 24px rgba(0,0,0,0.45); }
+.sel-toolbar button { display: inline-flex; align-items: center; gap: 6px;
+  background: transparent; border: none; color: var(--fg2); font-size: 13px;
+  padding: 5px 10px; border-radius: 999px; cursor: pointer; }
+.sel-toolbar button:hover { background: var(--bg-ctl); color: var(--fg); }
+::highlight(chat-hl) { background: color-mix(in srgb, var(--accent) 32%, transparent); }
+::highlight(chat-ul) { text-decoration: underline; text-decoration-color: var(--accent); text-underline-offset: 3px; }
