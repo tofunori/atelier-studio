@@ -179,3 +179,13 @@ export function SidebarIcon({ size = 13 }: IconProps) {
     </StrokeIcon>
   );
 }
+
+export function PanelIcon({ size = 13 }: { size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 16 16" fill="none" stroke="currentColor"
+      strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <rect x="1.8" y="2.8" width="12.4" height="10.4" rx="2" />
+      <path d="M9.8 2.8v10.4" />
+    </svg>
+  );
+}

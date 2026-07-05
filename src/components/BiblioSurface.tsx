@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { BookIcon, RefreshIcon, StarIcon } from "./icons";
+import { BookIcon, PanelIcon, RefreshIcon, StarIcon } from "./icons";
 
 type ZoteroItem = {
   key: string;
@@ -93,6 +93,13 @@ export default function BiblioSurface({
   const [collectionId, setCollectionId] = useState<string | null>(persisted.collectionId);
   const [selectedKey, setSelectedKey] = useState<string | null>(persisted.key);
   const [error, setError] = useState<string | null>(null);
+  const [readerOpen, setReaderOpen] = useState(() => localStorage.getItem("atelier-studio.biblio.reader") !== "0");
+  function toggleReader() {
+    setReaderOpen((v) => {
+      localStorage.setItem("atelier-studio.biblio.reader", v ? "0" : "1");
+      return !v;
+    });
+  }
 
   useEffect(() => {
     const timer = window.setTimeout(() => setQuery(search.trim()), 200);
@@ -165,7 +172,7 @@ export default function BiblioSurface({
   }
 
   return (
-    <div className="biblio-surface">
+    <div className={`biblio-surface ${readerOpen ? "" : "no-reader"}`}>
       <aside className="biblio-left">
         <div className="biblio-search-row">
           <BookIcon />
@@ -175,6 +182,10 @@ export default function BiblioSurface({
             placeholder="Rechercher"
             aria-label="Rechercher dans Zotero"
           />
+          <button className={`ghost ${readerOpen ? "on" : ""}`} title={readerOpen ? "Fermer le lecteur" : "Ouvrir le lecteur"}
+            onClick={toggleReader}>
+            <PanelIcon />
+          </button>
           <button className="ghost" title="Rafraîchir" onClick={() => send(ws, { type: "zoteroSearch", query, collectionId: filter === "collection" ? collectionId : null })}>
             <RefreshIcon />
           </button>
@@ -212,7 +223,7 @@ export default function BiblioSurface({
               <button
                 type="button"
                 className="biblio-main-button"
-                onClick={() => setSelectedKey(item.key)}
+                onClick={() => { setSelectedKey(item.key); if (!readerOpen && item.hasPdf) toggleReader(); }}
                 title={item.title}
               >
                 <span className="biblio-title">{item.title}</span>
@@ -230,6 +241,7 @@ export default function BiblioSurface({
           ))}
         </div>
       </aside>
+      {readerOpen && (
       <section className="biblio-reader">
         <div className="biblio-reader-head">
           <div className="biblio-reader-title">
@@ -251,6 +263,7 @@ export default function BiblioSurface({
           )}
         </div>
       </section>
+      )}
     </div>
   );
 }
