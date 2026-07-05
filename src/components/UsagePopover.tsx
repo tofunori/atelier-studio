@@ -62,8 +62,15 @@ export default function UsagePopover({ open, onClose }: { open: boolean; onClose
   }, []);
 
   useEffect(() => {
-    if (open) wsSend({ type: "getUsage" });
-  }, [open]);
+    if (!open || usage) return;
+    wsSend({ type: "getUsage" });
+    let tries = 0;
+    const iv = setInterval(() => {
+      if (tries++ > 8) { clearInterval(iv); return; }
+      wsSend({ type: "getUsage" });
+    }, 1200);
+    return () => clearInterval(iv);
+  }, [open, usage == null]);
 
   if (!open) return null;
   const cl: { primary?: Limit; secondary?: Limit } = usage?.claude?.data ?? {};

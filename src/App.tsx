@@ -1346,7 +1346,7 @@ export default function App() {
         draft={qaDraft}
         onClose={() => setQaOpen(false)}
         onInject={(text) => {
-          setAttachments((l) => addAttachment(l, { name: "⚡ Quick Ask", lines: null, text }));
+          setAttachments((l) => addAttachment(l, { name: "Quick Ask", lines: null, text }));
         }}
         onPromote={(qaId, title) => {
           const newId = crypto.randomUUID();

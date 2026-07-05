@@ -1,5 +1,6 @@
 import { query } from "@anthropic-ai/claude-agent-sdk";
 import { execSync } from "node:child_process";
+import { readFileSync, writeFileSync, mkdirSync } from "node:fs";
 
 // Bundle allégé : le binaire embarqué du SDK est retiré → utiliser le CLI système.
 let CLAUDE_BIN = null;
@@ -194,7 +195,12 @@ export function send({
       for await (const msg of q) {
         if (msg.type === "system" && msg.subtype === "init") onSession?.(msg.session_id);
         if (msg.type === "rate_limit_event" || msg.type === "rate_limits") {
-          try { globalThis.__claudeRateLimits = { ts: Date.now(), data: msg.rate_limits ?? msg.data ?? msg }; } catch {}
+          try {
+            globalThis.__claudeRateLimits = { ts: Date.now(), data: msg.rate_limits ?? msg.data ?? msg };
+            const dir = `${process.env.HOME}/Library/Application Support/atelier-studio`;
+            mkdirSync(dir, { recursive: true });
+            writeFileSync(`${dir}/usage-claude.json`, JSON.stringify(globalThis.__claudeRateLimits));
+          } catch {}
         }
         if (msg.type === "stream_event") {
           const ev = msg.event;
@@ -264,5 +270,9 @@ export async function run(opts) {
 }
 
 export function rateLimits() {
-  return globalThis.__claudeRateLimits ?? null;
+  if (globalThis.__claudeRateLimits) return globalThis.__claudeRateLimits;
+  try {
+    return JSON.parse(readFileSync(
+      `${process.env.HOME}/Library/Application Support/atelier-studio/usage-claude.json`, "utf8"));
+  } catch { return null; }
 }

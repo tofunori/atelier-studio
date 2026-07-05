@@ -529,7 +529,7 @@ export async function route(msg, ctx) {
         id: msg.newThreadId,
         projectRoot: msg.projectRoot ?? "",
         provider: s.provider,
-        title: "⚡ " + (msg.title ?? "Quick Ask"),
+        title: "Quick Ask — " + (msg.title ?? ""),
         sessionId: s.sessionId,
         status: "idle",
       });

@@ -207,3 +207,12 @@ export function ArrowDownIcon({ size = 14 }: { size?: number }) {
     </svg>
   );
 }
+
+export function ZapIcon({ size = 13 }: { size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 16 16" fill="none" stroke="currentColor"
+      strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M8.8 1.8L3.6 9h3.6l-.9 5.2L11.5 7H7.9l.9-5.2z" />
+    </svg>
+  );
+}

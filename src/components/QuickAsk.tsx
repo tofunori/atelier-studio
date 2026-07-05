@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import { t } from "../lib/i18n";
-import { ProviderIcon } from "./icons";
+import { ProviderIcon, ZapIcon } from "./icons";
 import { wsSend } from "../lib/wsBus";
 
 type QaMsg = { role: "user" | "assistant"; text: string; streaming?: boolean };
@@ -107,7 +107,7 @@ export default function QuickAsk({
     <div className="qa-overlay" onClick={onClose}>
       <div className="qa-pop" onClick={(e) => e.stopPropagation()}>
         <div className="qa-head">
-          <span className="qa-zap">⚡</span>
+          <span className="qa-zap"><ZapIcon /></span>
           <span>{t("qa.title")}</span>
           <span className="qa-eph">{t("qa.ephemeral")}</span>
           <button
