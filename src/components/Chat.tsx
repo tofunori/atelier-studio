@@ -700,7 +700,7 @@ export default function Chat(p: {
             >
               <span
                 className={`chapter-bar st-${c.style ?? "bar"}`}
-                style={c.color ? { background: c.color } : undefined}
+                style={c.color ? { borderColor: c.color, background: `color-mix(in srgb, ${c.color} 25%, transparent)` } : undefined}
               />
               <span className="chapter-label">{c.label}</span>
             </div>
