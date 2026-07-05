@@ -138,17 +138,30 @@ export default function BiblioSurface({
       send(ws, { type: "zoteroSearch", query, collectionId: filter === "collection" ? collectionId : null });
       send(ws, { type: "zoteroCollections" });
     };
+    const onSelect = (e: Event) => {
+      const key = (e as CustomEvent).detail?.key;
+      if (typeof key !== "string") return;
+      setFilter("all");
+      setCollectionId(null);
+      setSelectedKey(key);
+      if (!readerOpen) {
+        localStorage.setItem("atelier-studio.biblio.reader", "1");
+        setReaderOpen(true);
+      }
+    };
     window.addEventListener("zotero-changed", onChanged);
     window.addEventListener("zotero-items", onItems);
     window.addEventListener("zotero-collections", onCollections);
     window.addEventListener("zotero-fav", onFav);
+    window.addEventListener("biblio-select", onSelect);
     return () => {
       window.removeEventListener("zotero-changed", onChanged);
       window.removeEventListener("zotero-items", onItems);
       window.removeEventListener("zotero-collections", onCollections);
       window.removeEventListener("zotero-fav", onFav);
+      window.removeEventListener("biblio-select", onSelect);
     };
-  }, [selectedKey, ws, query, filter, collectionId]);
+  }, [selectedKey, ws, query, filter, collectionId, readerOpen]);
 
   useEffect(() => {
     send(ws, { type: "zoteroCollections" });

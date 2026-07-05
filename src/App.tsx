@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Panel, PanelGroup, PanelResizeHandle } from "react-resizable-panels";
 import { invoke } from "@tauri-apps/api/core";
 import { open } from "@tauri-apps/plugin-dialog";
@@ -17,10 +17,12 @@ import Chat from "./components/Chat";
 import Banner from "./components/Banner";
 import AtelierPane from "./components/AtelierPane";
 import SettingsPage from "./components/Settings";
+import CommandPalette from "./components/CommandPalette";
 import { CloseIcon } from "./components/icons";
 import { loadSettings, saveSettings, Settings } from "./lib/settings";
 import { THEME_PRESETS, presetById } from "./lib/themes";
 import { setLanguage, t } from "./lib/i18n";
+import { buildItems } from "./lib/palette";
 import {
   atelierTargetOrigin,
   isTrustedAtelierMessage,
@@ -32,6 +34,13 @@ import "./App.css";
 const PROJECTS_KEY = "atelier-studio.projects";
 
 export type Attachment = { name: string; lines: string | null; text: string; imageUrl?: string; path?: string };
+type ZoteroPaletteItem = {
+  key: string;
+  title: string;
+  creators?: string;
+  year?: string;
+  citeKey?: string;
+};
 
 // « /chemin/avec espaces/CLAUDE.md (p.L11-224) : « … » » → {name: CLAUDE.md, lines: 11-224}
 function parseAttachment(text: string): Attachment {
@@ -136,6 +145,8 @@ export default function App() {
     atelierTabsRef.current = atelierTabs;
   }, [atelierTabs]);
   const [settings, setSettings] = useState<Settings>(loadSettings);
+  const [paletteOpen, setPaletteOpen] = useState(false);
+  const [zoteroItems, setZoteroItems] = useState<ZoteroPaletteItem[]>([]);
   const [, setLanguageRev] = useState(0);
   const [showSettings, setShowSettings] = useState(false);
   const settingsRef = useRef(settings);
@@ -401,6 +412,7 @@ export default function App() {
         window.dispatchEvent(new CustomEvent("ledger", { detail: msg }));
       }
       if (msg.type === "zoteroItems") {
+        setZoteroItems(msg.items ?? []);
         window.dispatchEvent(new CustomEvent("zotero-items", { detail: msg }));
       }
       if (msg.type === "zoteroCollections") {
@@ -447,6 +459,15 @@ export default function App() {
         setMock(true);
         setAppBanner({ text: t("app.sidecar-disconnected") });
       });
+  }, []);
+
+  useEffect(() => {
+    const onZoteroItems = (e: Event) => {
+      const detail = (e as CustomEvent).detail as { items?: ZoteroPaletteItem[] };
+      setZoteroItems(detail.items ?? []);
+    };
+    window.addEventListener("zotero-items", onZoteroItems);
+    return () => window.removeEventListener("zotero-items", onZoteroItems);
   }, []);
 
   useEffect(() => {
@@ -654,6 +675,12 @@ export default function App() {
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
+      if (e.metaKey && !e.shiftKey && ["k", "p"].includes(e.key.toLowerCase())) {
+        e.preventDefault();
+        setPaletteOpen((open) => !open);
+        return;
+      }
+      if (e.key === "Escape") setPaletteOpen(false);
       if (e.metaKey && e.shiftKey && e.key.toLowerCase() === "a") {
         setLayout((l) => (l === "chat" ? "split" : "chat"));
       }
@@ -908,14 +935,58 @@ export default function App() {
     allThreads.filter((t) => t.status === "running").map((t) => t.projectRoot),
   );
 
+  const paletteItems = useMemo(() => buildItems({
+    files,
+    threads: allThreads,
+    zotero: zoteroItems,
+    t,
+    actions: {
+      newChat: () => activeProject ? newThread(activeProject) : newChat(),
+      openResume: () => window.dispatchEvent(new CustomEvent("atelier-open-resume", { detail: { provider: "claude" } })),
+      switchSurface: (surface) => {
+        setLayout((layout) => (layout === "chat" ? "split" : layout));
+        window.dispatchEvent(new CustomEvent("switch-surface", { detail: { surface } }));
+      },
+      setLayout,
+      openSettings: () => setShowSettings(true),
+      retitleAll: () => ws.current?.readyState === 1 && ws.current.send(JSON.stringify({ type: "retitleAll" })),
+      nextTheme: () => {
+        setSettings((current) => {
+          const index = Math.max(0, THEME_PRESETS.findIndex((preset) => preset.id === current.themePreset));
+          const next = THEME_PRESETS[(index + 1) % THEME_PRESETS.length];
+          return { ...current, themePreset: next.id };
+        });
+      },
+      openFile: (rel) => openFileTab(rel),
+      openThread: (threadId, projectRoot) => {
+        if (projectRoot !== undefined) selectThread(threadId, projectRoot);
+        else {
+          setActiveId(threadId);
+          activeIdRef.current = threadId;
+        }
+        setLayout((layout) => (layout === "atelier" ? "split" : layout));
+      },
+      selectZotero: (key) => {
+        setLayout((layout) => (layout === "chat" ? "split" : layout));
+        window.dispatchEvent(new CustomEvent("switch-surface", { detail: { surface: "biblio" } }));
+        window.setTimeout(() => {
+          window.dispatchEvent(new CustomEvent("biblio-select", { detail: { key } }));
+        }, 0);
+      },
+    },
+  }), [activeProject, allThreads, files, zoteroItems]);
+
   if (showSettings) {
     return (
-      <SettingsPage
-        settings={settings}
-        onChange={setSettings}
-        onClose={() => setShowSettings(false)}
-        ws={ws.current}
-      />
+      <>
+        <SettingsPage
+          settings={settings}
+          onChange={setSettings}
+          onClose={() => setShowSettings(false)}
+          ws={ws.current}
+        />
+        <CommandPalette open={paletteOpen} items={paletteItems} onClose={() => setPaletteOpen(false)} />
+      </>
     );
   }
 
@@ -1216,6 +1287,7 @@ export default function App() {
         </>
       )}
     </PanelGroup>
+    <CommandPalette open={paletteOpen} items={paletteItems} onClose={() => setPaletteOpen(false)} />
     </div>
   );
 }

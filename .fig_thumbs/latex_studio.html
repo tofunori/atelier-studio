@@ -54,15 +54,18 @@
          overflow:hidden;white-space:nowrap}
   header .grp{display:flex;gap:4px;align-items:center;flex:none}
   header .sep{width:1px;height:18px;background:var(--border);flex:none;margin:0 3px}
-  header button{background:transparent;color:var(--muted);border:1px solid var(--border);
+  header button{background:transparent;color:var(--muted);border:1px solid transparent;
                 border-radius:6px;padding:0 10px;height:26px;font-size:12px;cursor:pointer;flex:none}
-  header button:hover{color:var(--txt);border-color:#5b6575}
+  header button:hover{color:var(--txt);background:rgba(255,255,255,0.06)}
   header button.on{background:var(--border);color:var(--txt)}
   header select{background:transparent;color:var(--txt);border:1px solid var(--border);
                 border-radius:6px;padding:0 6px;height:26px;font-size:12px;cursor:pointer;flex:none}
   #build{background:var(--border);color:var(--txt);border-color:var(--border)}
   #build:hover{background:#5b5b63;border-color:#5b5b63}
-  #fname{font-size:12.5px;max-width:150px;overflow:hidden;text-overflow:ellipsis;flex:none}
+  #fname{font-size:12.5px;font-weight:500;color:#cfd4dc;max-width:260px;overflow:hidden;text-overflow:ellipsis;flex:none;white-space:nowrap}
+  header .sep{display:none}
+  #findBtn,#moreBtn{width:26px;height:24px;display:inline-flex;align-items:center;justify-content:center;padding:0}
+  header .grp:has(#findBtn){margin-left:auto}
   #ddot{color:#ffd54a;display:none;flex:none}
   #state{color:var(--muted);flex:1;min-width:0;text-align:right;overflow:hidden;
          text-overflow:ellipsis;white-space:nowrap}
@@ -221,7 +224,7 @@ function __ct(){try{return JSON.parse(localStorage.getItem('claudeTargetV1')||'n
     <button id="reloadPdf" title="Recharger le PDF">&#8635;</button>
   </span>
   <span class="sep"></span>
-  <span class="grp">
+  <span class="grp pdfonly">
     <button id="zoomOut" title="Zoom arrière">&#8722;</button>
     <button id="zoomFit" title="Ajuster à la largeur">&#10530;</button>
     <button id="zoomIn" title="Zoom avant">+</button>
@@ -231,12 +234,13 @@ function __ct(){try{return JSON.parse(localStorage.getItem('claudeTargetV1')||'n
     <button id="moreBtn" title="Plus&hellip;">&#8943;</button>
   </span>
   <span id="state"></span>
-  <button id="helpBtn" title="Raccourcis clavier">?</button>
+  <button id="helpBtn" title="Raccourcis clavier" style="display:none">?</button>
   <div id="morePop" style="display:none">
     <div data-act="save">Sauvegarder <em>&#8984;S</em></div>
     <div data-act="open">Ouvrir un fichier&hellip;</div>
     <div data-act="rewrap">Rewrap paragraphe <em>&#8997;Q</em></div>
     <div data-act="wrap">Wrap : <span id="moreWrapVal"></span></div>
+    <div data-act="help">Raccourcis clavier</div>
   </div>
 </header>
 <div id="helpPop">
@@ -670,6 +674,10 @@ if(bc) bc.onmessage = e => {
 // --- selection pill: annotate + send directly to the Claude session (same flow
 //     as the figure pill and the HTML report overlay; /quote with direct:true) ---
 const selPill = document.getElementById("selPill");
+const __goHTML0 = (window.self!==window.top && selPill.querySelector('.go')) ? null : null; // rempli après restyle
+let __goHTML = null;
+function goReset(go){ if (__goHTML) go.innerHTML = __goHTML; else go.textContent = "↑"; }
+setTimeout(function(){ var g = selPill.querySelector('.go'); if (window.self!==window.top && g) __goHTML = g.innerHTML; }, 0);
 const selTa = selPill.querySelector("textarea");
   // Mode Studio : pilule simple « Add to chat » (comme la sélection du chat) —
   // pas de commentaire ni corbeille, le texte part en puce dans le composer.
@@ -715,8 +723,8 @@ function selSend(){
     .then(r => r.json())
     .then(j => { if(__EMB && j && j.message) __atelierPost({type:'atelier-add-to-chat', text:j.message});
       if(window._clMark){ window._clMark.clear(); window._clMark = null; }
-      go.textContent = "✓"; setTimeout(() => { go.textContent = "↑"; selTa.value = ""; selHide(); }, 1200); })
-    .catch(() => { go.textContent = "!"; setTimeout(() => { go.textContent = "↑"; }, 1600); });
+      go.textContent = "✓"; setTimeout(() => { goReset(go); selTa.value = ""; selHide(); }, 1200); })
+    .catch(() => { go.textContent = "!"; setTimeout(() => { goReset(go); }, 1600); });
 }
 // clicks on the bar must not destroy the selection — except the textarea, which needs focus
 selPill.addEventListener("mousedown", e => { if(e.target !== selTa) e.preventDefault(); });
@@ -1032,6 +1040,7 @@ document.getElementById("diffRestore").onclick = async () => {
     if (act === "save") document.getElementById("saveBtn").click();
     if (act === "open") document.getElementById("openFile").click();
     if (act === "rewrap") document.getElementById("rewrapBtn").click();
+    if (act === "help") document.getElementById("helpBtn").click();
     if (act === "wrap") { sbWrap.onclick(); return; }
     if (act !== "wrap") morePop.style.display = "none";
   };
