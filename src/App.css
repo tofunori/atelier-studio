@@ -1050,3 +1050,14 @@ body.dragging iframe { pointer-events: none; }
 .qa-ctx button { background: transparent; border: none; color: var(--muted2);
   cursor: pointer; font-size: 11px; padding: 0 2px; }
 .qa-ctx button:hover { color: var(--fg); }
+/* menu @ façon Synara */
+.suggest-section { font-size: 10.5px; letter-spacing: 0.07em; text-transform: uppercase;
+  color: var(--muted2); padding: 6px 10px 3px; cursor: default; }
+.suggest-section:hover { background: transparent !important; }
+.suggest-main { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.suggest-main b { font-weight: 550; color: var(--fg); overflow: hidden;
+  text-overflow: ellipsis; white-space: nowrap; }
+.suggest .hint { flex-shrink: 1; overflow: hidden; text-overflow: ellipsis;
+  white-space: nowrap; max-width: 45%; }
+.ftype { font-size: 9px; font-weight: 700; letter-spacing: 0.02em; border: 1px solid currentColor;
+  border-radius: 4px; padding: 0.5px 3px; opacity: 0.85; flex-shrink: 0; }

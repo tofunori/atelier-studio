@@ -1255,6 +1255,10 @@ export default function App() {
           onOpenProject={addProject}
           layout={layout}
           onToggleExpand={() => setLayout((l) => (l === "chat" ? "split" : "chat"))}
+          onAttachPath={(path) => {
+            const name = path.split("/").pop() ?? path;
+            setAttachments((l) => addAttachment(l, { name, lines: null, text: `Fichier joint (chemin local, lisible avec Read) : ${path}` }));
+          }}
           onStop={() => {
             if (activeId && ws.current?.readyState === 1) {
               ws.current.send(JSON.stringify({ type: "interrupt", threadId: activeId }));
