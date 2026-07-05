@@ -13,9 +13,9 @@ async function boot() {
     const snap: Record<string, string> = await (
       await fetch(`http://127.0.0.1:${port}/uistate`)
     ).json();
-    for (const [k, v] of Object.entries(snap)) {
-      if (localStorage.getItem(k) === null) localStorage.setItem(k, v);
-    }
+    // ui.json est autoritaire : le write-through le garde à jour depuis la
+    // dernière app utilisée (dev ou buildée) — on écrase toujours au boot.
+    for (const [k, v] of Object.entries(snap)) localStorage.setItem(k, v);
     // write-through débouncé : toute écriture repart vers ui.json
     const orig = localStorage.setItem.bind(localStorage);
     let t: ReturnType<typeof setTimeout>;
