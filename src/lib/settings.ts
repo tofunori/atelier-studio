@@ -29,8 +29,8 @@ export type Settings = {
 
 export const DEFAULT_SETTINGS: Settings = {
   defaultProvider: "claude",
-  defaultModel: { claude: "", codex: "" },
-  defaultEffort: { claude: "", codex: "" },
+  defaultModel: { claude: "claude-fable-5", codex: "gpt-5.5" },
+  defaultEffort: { claude: "low", codex: "medium" },
   defaultPermissionMode: "bypassPermissions",
   threadOrder: "recent",
   chatFontSize: 15,

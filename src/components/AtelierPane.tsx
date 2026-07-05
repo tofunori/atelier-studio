@@ -96,7 +96,10 @@ export default function AtelierPane({
   onToggleExpand: () => void;
 }) {
   const [surface, setSurface] = useState<Surface>("atelier");
-  const [showExplorer, setShowExplorer] = useState(false);
+  const [showExplorer, setShowExplorer] = useState(() => localStorage.getItem("atelier-studio.explorer") === "1");
+  useEffect(() => {
+    localStorage.setItem("atelier-studio.explorer", showExplorer ? "1" : "0");
+  }, [showExplorer]);
   const [visited, setVisited] = useState<Set<Surface>>(new Set(["atelier"]));
   const [dragId, setDragId] = useState<string | null>(null);
   const [overId, setOverId] = useState<string | null>(null);
