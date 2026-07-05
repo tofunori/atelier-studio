@@ -179,12 +179,6 @@ export default function AtelierPane({
         </button>
         {surface === "atelier" && (
           <>
-            <button className={`ghost ${showExplorer ? "on" : ""}`} title={t("atelier.file-explorer")}
-              onClick={() => setShowExplorer((v) => !v)}>
-              <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.2">
-                <path d="M1.8 4.2c0-.7.5-1.2 1.2-1.2h3l1.4 1.6h5.6c.7 0 1.2.5 1.2 1.2v6c0 .7-.5 1.2-1.2 1.2H3c-.7 0-1.2-.5-1.2-1.2v-7.6z" />
-              </svg>
-            </button>
             <button className="ghost" title={t("action.refresh-hard")} onClick={onHardReload}>
               <RefreshIcon />
             </button>
@@ -193,8 +187,16 @@ export default function AtelierPane({
             </button>
           </>
         )}
+        <button className={`ghost ${showExplorer ? "on" : ""}`} title={t("atelier.file-explorer")}
+          onClick={() => setShowExplorer((v) => !v)}>
+          <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.2">
+            <path d="M1.8 4.2c0-.7.5-1.2 1.2-1.2h3l1.4 1.6h5.6c.7 0 1.2.5 1.2 1.2v6c0 .7-.5 1.2-1.2 1.2H3c-.7 0-1.2-.5-1.2-1.2v-7.6z" />
+          </svg>
+        </button>
       </div>
 
+      <div className="pane-row">
+      <div className="pane-surfaces">
       {/* ---- surface Atelier : galerie + onglets fichiers ---- */}
       <div className="surface-body" style={{ display: surface === "atelier" ? "flex" : "none" }}>
         <div className="atelier-bar">
@@ -259,7 +261,6 @@ export default function AtelierPane({
             />
           ))}
         </div>
-        {showExplorer && <Explorer files={files} onOpen={onOpenFile} />}
         </div>
       </div>
 
@@ -286,6 +287,9 @@ export default function AtelierPane({
           <BiblioSurface ws={ws} projectRoot={projectRoot} galleryUrl={url} />
         </div>
       )}
+      </div>
+      {showExplorer && <Explorer files={files} onOpen={onOpenFile} />}
+      </div>
 
       {tabMenu && (
         <div className="ctx-menu" style={{ left: tabMenu.x, top: tabMenu.y, position: "fixed", zIndex: 200 }}
