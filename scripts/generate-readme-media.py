@@ -23,8 +23,8 @@ BLUE = "#79a7ff"
 GREEN = "#98c379"
 
 
-def font(size: int, bold: bool = False) -> ImageFont.FreeTypeFont:
-    candidates = [
+def font(size: int, bold: bool = False, candidates: list[str] | None = None) -> ImageFont.FreeTypeFont:
+    candidates = candidates or [
         "/System/Library/Fonts/SFNS.ttf",
         "/System/Library/Fonts/Supplemental/Arial Unicode.ttf",
         "/Library/Fonts/Arial Unicode.ttf",
@@ -50,6 +50,26 @@ F22 = font(22)
 F24 = font(24)
 F28 = font(28)
 F40 = font(40)
+F52_DISPLAY = font(
+    52,
+    candidates=[
+        "/System/Library/Fonts/NewYorkItalic.ttf",
+        "/System/Library/Fonts/Supplemental/Didot.ttc",
+        "/System/Library/Fonts/Avenir Next.ttc",
+    ],
+)
+F96_DISPLAY = font(
+    96,
+    candidates=[
+        "/System/Library/Fonts/NewYork.ttf",
+        "/System/Library/Fonts/Supplemental/Didot.ttc",
+        "/System/Library/Fonts/Avenir Next.ttc",
+    ],
+)
+
+
+def centered(draw, xy, s, fill=TEXT2, f=F16):
+    draw.text(xy, s, fill=fill, font=f, anchor="mm")
 
 
 def rr(draw: ImageDraw.ImageDraw, box, radius=10, fill=None, outline=None, width=1):
@@ -62,6 +82,55 @@ def text(draw, xy, s, fill=TEXT2, f=F16, anchor=None):
 
 def dot(draw, x, y, c):
     draw.ellipse((x, y, x + 18, y + 18), fill=c)
+
+
+def draw_banner() -> Image.Image:
+    img = Image.new("RGB", (1600, 520), "#11151b")
+    d = ImageDraw.Draw(img)
+
+    for y in range(520):
+        mix = y / 520
+        r = int(17 + 19 * mix)
+        g = int(21 + 15 * mix)
+        b = int(27 + 10 * mix)
+        d.line((0, y, 1600, y), fill=(r, g, b))
+
+    d.rectangle((0, 0, 1600, 520), outline="#2c3440", width=2)
+    d.line((92, 438, 796, 438), fill="#e8823a", width=3)
+    d.line((92, 444, 610, 444), fill="#79a7ff", width=1)
+
+    text(d, (92, 82), "NATIVE RESEARCH WORKSPACE", "#94a0ad", F15)
+    text(d, (90, 156), "Atelier Studio", TEXT, F96_DISPLAY)
+    text(d, (98, 276), "Read. Code. Annotate. Steer agents.", "#f0f2f5", F52_DISPLAY)
+    text(d, (98, 356), "A macOS studio for papers, figures, terminals, sessions, and context.", TEXT2, F24)
+
+    rr(d, (1060, 72, 1488, 424), 28, fill="#20242a", outline="#435061", width=2)
+    d.rectangle((1060, 72, 1488, 122), fill="#191d23")
+    dot(d, 1086, 88, "#ff5f57")
+    dot(d, 1120, 88, "#ffbd2e")
+    dot(d, 1154, 88, "#28c840")
+    text(d, (1206, 88), "Atelier", TEXT2, F18)
+
+    rr(d, (1094, 156, 1228, 194), 10, fill="#2b313b", outline="#465160")
+    centered(d, (1161, 175), "Chat", TEXT, F15)
+    rr(d, (1244, 156, 1378, 194), 10, fill="#242a32", outline="#38414d")
+    centered(d, (1311, 175), "Figures", TEXT2, F15)
+    rr(d, (1094, 222, 1454, 260), 10, fill="#171a1f", outline="#38414d")
+    text(d, (1120, 232), "Working for 3s", "#aab2bd", F16)
+    d.ellipse((1128, 276, 1142, 290), outline=ACCENT, width=2)
+    text(d, (1160, 270), "Tool call complete · new Codex session ready", MUTED, F15)
+
+    cards = [
+        (1094, 316, "Paper", BLUE),
+        (1214, 316, "Terminal", GREEN),
+        (1334, 316, "Zotero", ACCENT),
+    ]
+    for x, y, label, color in cards:
+        rr(d, (x, y, x + 96, y + 62), 12, fill="#252b33", outline="#3c4653")
+        d.rectangle((x + 18, y + 18, x + 34, y + 34), outline=color, width=2)
+        centered(d, (x + 48, y + 46), label, TEXT2, F13)
+
+    return img
 
 
 def draw_window() -> Image.Image:
@@ -78,13 +147,13 @@ def draw_window() -> Image.Image:
     # Sidebar
     d.rectangle((0, 52, 300, H), fill=SIDE)
     d.line((300, 52, 300, H), fill="#2b3038", width=2)
-    actions = [("✎", "Nouveau chat"), ("⌕", "Rechercher"), ("⇩", "Reprendre une session")]
+    actions = [("✎", "New chat"), ("⌕", "Search"), ("⇩", "Resume session")]
     y = 116
     for icon, label in actions:
         text(d, (28, y), icon, MUTED, F18)
         text(d, (58, y), label, TEXT2, F17)
         y += 44
-    text(d, (28, 272), "▾  PROJETS", MUTED, F12)
+    text(d, (28, 272), "▾  PROJECTS", MUTED, F12)
     projects = [
         ("atelier-studio", BLUE, True),
         ("Climate paper", ACCENT, False),
@@ -119,13 +188,13 @@ def draw_window() -> Image.Image:
     d.rectangle((300, 52, 970, H), fill=BG)
     d.line((970, 52, 970, H), fill="#2b3038", width=2)
     rr(d, (448, 116, 910, 220), 20, fill=PANEL2)
-    text(d, (478, 142), "Référence Zotero : @williamson2021", TEXT, F18)
-    text(d, (478, 178), "vois tu mon article", TEXT2, F18)
+    text(d, (478, 142), "Zotero reference: @williamson2021", TEXT, F18)
+    text(d, (478, 178), "can you see my paper?", TEXT2, F18)
 
     paragraphs = [
-        "Je vérifie la référence et j’ouvre le contexte du projet.",
-        "La fiche Zotero est trouvée, puis liée au brouillon scientifique.",
-        "Oui, je le vois. Je peux maintenant citer, inspecter et annoter.",
+        "I am checking the reference and opening the project context.",
+        "The Zotero card is found, then linked to the scientific draft.",
+        "Yes, I can see it. I can now cite, inspect, and annotate.",
     ]
     y = 282
     for p in paragraphs:
@@ -138,10 +207,10 @@ def draw_window() -> Image.Image:
     # Working state
     d.ellipse((344, 96, 356, 108), outline=MUTED2, width=2)
     text(d, (370, 92), "Working for 3s", MUTED, F18)
-    text(d, (370, 126), "↳ changement de provider → nouvelle session codex", MUTED2, F15)
+    text(d, (370, 126), "↳ provider switch → new Codex session", MUTED2, F15)
 
     rr(d, (326, H - 112, 938, H - 36), 16, fill="#252b33", outline="#38414d")
-    text(d, (350, H - 82), "Demande n'importe quoi — /skills et CLAUDE.md chargés", MUTED, F16)
+    text(d, (350, H - 82), "Ask anything — /skills and CLAUDE.md loaded", MUTED, F16)
     text(d, (356, H - 44), "⚡   +    Full access", TEXT2, F15)
     d.ellipse((896, H - 74, 930, H - 40), fill="#566171")
     text(d, (913, H - 64), "↑", TEXT, F20, anchor="mm")
@@ -245,14 +314,14 @@ def save_gif(name: str, base: Image.Image, focuses: list[tuple[tuple[int, int, i
     )
 
 
-def draw_bibliotheque() -> Image.Image:
+def draw_library() -> Image.Image:
     img = Image.new("RGB", (1200, 760), "#20242a")
     d = ImageDraw.Draw(img)
     d.rectangle((0, 0, 1200, 58), fill="#1b1e24")
     dot(d, 22, 20, "#ff5f57")
     dot(d, 54, 20, "#ffbd2e")
     dot(d, 86, 20, "#28c840")
-    text(d, (128, 22), "Atelier · Bibliotheque", TEXT2, F18)
+    text(d, (128, 22), "Atelier · Library", TEXT2, F18)
 
     d.rectangle((0, 58, 250, 760), fill=SIDE)
     text(d, (28, 100), "COLLECTIONS", MUTED, F12)
@@ -273,7 +342,7 @@ def draw_bibliotheque() -> Image.Image:
         y += 42
 
     d.rectangle((250, 58, 760, 760), fill=BG)
-    text(d, (286, 98), "Bibliotheque Zotero", TEXT, F24)
+    text(d, (286, 98), "Zotero Library", TEXT, F24)
     rr(d, (286, 138, 728, 180), 10, fill="#252b33", outline=BORDER)
     text(d, (310, 150), "Search title, DOI, author, citekey...", MUTED, F15)
     rows = [
@@ -315,13 +384,14 @@ def draw_bibliotheque() -> Image.Image:
 
 
 def main() -> None:
+    draw_banner().save(OUT / "atelier-banner.png", quality=95)
     base = draw_window()
     base.save(OUT / "atelier-hero.png", quality=95)
     crop_resize(base, (0, 52, 970, H), width=1100).save(OUT / "chat-workspace.png", quality=94)
     crop_resize(base, (970, 52, W, H), width=900).save(OUT / "atelier-gallery.png", quality=94)
     crop_resize(base, (0, 52, 330, H), width=520).save(OUT / "sidebar-projects.png", quality=94)
     crop_resize(base, (326, 820, 938, H - 20), width=900).save(OUT / "composer.png", quality=94)
-    draw_bibliotheque().save(OUT / "bibliotheque-zotero.png", quality=94)
+    draw_library().save(OUT / "library-zotero.png", quality=94)
     save_gif(
         "atelier-tour.gif",
         base,

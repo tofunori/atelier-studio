@@ -1,11 +1,9 @@
-# Atelier Studio
-
 <p align="center">
-  <img src="docs/media/atelier-hero.png" alt="Atelier Studio interface" width="100%">
+  <img src="docs/media/atelier-banner.png" alt="Atelier Studio banner" width="100%">
 </p>
 
 <p align="center">
-  <strong>Un poste de travail macOS pour lire, coder, annoter et piloter des agents dans le meme espace.</strong>
+  <strong>A native macOS workspace for reading, coding, annotating, and steering agents in one place.</strong>
 </p>
 
 <p align="center">
@@ -16,82 +14,82 @@
   <img alt="Status" src="https://img.shields.io/badge/status-beta-e8823a?style=flat-square">
 </p>
 
-Atelier Studio combine un chat multi-agent, une galerie scientifique, un navigateur, un terminal, des lecteurs/editeurs de fichiers et une couche de contexte projet. L'idee est simple: garder le raisonnement, les figures, les fichiers et les outils de verification dans une seule fenetre native.
+Atelier Studio brings multi-agent chat, a scientific gallery, a browser, a terminal, file viewers/editors, and project-aware context into one native window. The goal is simple: keep reasoning, figures, files, references, and verification tools close enough that serious work can stay in flow.
 
-## Apercu
+## Overview
 
 <p align="center">
-  <img src="docs/media/atelier-tour.gif" alt="Tour anime des sections Atelier Studio" width="92%">
+  <img src="docs/media/atelier-tour.gif" alt="Animated tour of Atelier Studio sections" width="92%">
 </p>
 
-Atelier est organise en trois zones:
+Atelier is organized around three working areas:
 
-- **Sidebar projet** pour les dossiers, sessions, favoris et reprises de conversations.
-- **Chat agentique** pour Claude/Codex, les pieces jointes, goals, citations et controles de run.
-- **Atelier vivant** pour explorer les figures, ouvrir des fichiers, annoter, comparer et renvoyer du contexte au chat.
+- **Project sidebar** for folders, sessions, favorites, and resumed conversations.
+- **Agent chat** for Claude/Codex, attachments, goals, citations, and run controls.
+- **Live atelier** for browsing figures, opening files, annotating, comparing, and sending context back into the chat.
 
-## Ce Que Ca Fait
+## What It Does
 
 <table>
   <tr>
     <td width="52%">
-      <h3>Chat multi-agent</h3>
-      <p>Claude et Codex dans le meme fil, avec reprise de sessions CLI, pieces jointes, images collees, fork, revert, goals, stop, jauge de contexte et auto-review.</p>
-      <p>Le statut de travail reste lisible: le tour actif garde son indicateur, tandis que les appels outils sont presentes comme une ligne secondaire stable.</p>
+      <h3>Multi-agent chat</h3>
+      <p>Claude and Codex in the same thread, with CLI session resume, attachments, pasted images, fork, revert, goals, stop controls, context usage, and auto-review.</p>
+      <p>The active turn keeps the main working indicator, while tool calls are shown as stable secondary lines so the interface stays calm while work is happening.</p>
     </td>
     <td width="48%"><img src="docs/media/chat-workspace.png" alt="Chat workspace"></td>
   </tr>
   <tr>
     <td width="52%">
-      <h3>Atelier scientifique</h3>
-      <p>Une galerie de figures isolee par projet, des viewers PDF/SVG/images, un editeur LaTeX/Markdown/code, des annotations persistantes et un bouton Add to chat partout ou le contexte doit remonter.</p>
+      <h3>Scientific atelier</h3>
+      <p>A per-project figure gallery, PDF/SVG/image viewers, LaTeX/Markdown/code editors, persistent annotations, and an Add to chat action wherever context needs to move back into the conversation.</p>
     </td>
     <td width="48%"><img src="docs/media/atelier-gallery.png" alt="Atelier gallery"></td>
   </tr>
   <tr>
     <td width="52%">
-      <h3>Navigation de travail</h3>
-      <p>Sessions par projet, favoris, reprise de runs existants, titres nettoyes et fallback robuste pour les anciens historiques incomplets.</p>
+      <h3>Project navigation</h3>
+      <p>Project-scoped sessions, favorites, resumed runs, cleaned thread titles, and robust fallbacks for older history entries that are missing newer metadata.</p>
     </td>
     <td width="48%"><img src="docs/media/sidebar-projects.png" alt="Sidebar projects"></td>
   </tr>
   <tr>
     <td width="52%">
-      <h3>Bibliotheque Zotero</h3>
-      <p>Recherche bibliographique locale, collections, fiches de reference, citekeys, BibTeX et injection directe dans le chat pour garder les sources dans le meme flux que l'analyse.</p>
+      <h3>Zotero library</h3>
+      <p>Local reference search, collections, reference cards, citekeys, BibTeX, and direct chat insertion so sources stay in the same workflow as analysis.</p>
     </td>
-    <td width="48%"><img src="docs/media/bibliotheque-zotero.png" alt="Bibliotheque Zotero"></td>
+    <td width="48%"><img src="docs/media/library-zotero.png" alt="Zotero library"></td>
   </tr>
 </table>
 
-## Workflow Agentique
+## Agentic Workflow
 
 <p align="center">
-  <img src="docs/media/agent-flow.gif" alt="Animation du workflow agentique Atelier" width="92%">
+  <img src="docs/media/agent-flow.gif" alt="Animated Atelier agent workflow" width="92%">
 </p>
 
-Le sidecar Node coordonne les agents, le terminal, la galerie, les sessions, l'historique, les usages, les revues et les evenements temps reel. Le frontend reste reactif meme si une source externe est indisponible: les erreurs de boot et de messages sidecar sont bornee et affichees proprement au lieu de laisser une fenetre vide.
+The Node sidecar coordinates agents, terminal sessions, the gallery, conversation history, usage, review state, and real-time events. The frontend stays responsive even when an external source misbehaves: boot failures and malformed sidecar messages are bounded and displayed instead of leaving a blank window.
 
-## Surfaces Incluses
+## Included Surfaces
 
 | Surface | Role |
 |---|---|
-| Chat | Claude, Codex, prompts enrichis, images, citations, goals, fork/revert, stop |
-| Atelier | Galerie de figures, onglets, viewers, editeurs, annotations, Add to chat |
-| Browser | Webview native pour pages locales ou web, avec contexte copiable vers le chat |
-| Terminal | PTY integre, themes ANSI, WebGL, splits |
-| Git | Statut, diff, staging, commit helpers |
-| Bibliotheque | Recherche Zotero locale, collections, BibTeX, citekeys et injection de references |
-| Settings | Themes, modeles, permissions, auto-review, chemins additionnels |
+| Chat | Claude, Codex, enriched prompts, images, citations, goals, fork/revert, stop |
+| Atelier | Figure gallery, tabs, viewers, editors, annotations, Add to chat |
+| Browser | Native webview for local or web pages, with copyable context for chat |
+| Terminal | Integrated PTY, ANSI themes, WebGL, splits |
+| Git | Status, diff, staging, commit helpers |
+| Library | Local Zotero search, collections, BibTeX, citekeys, reference insertion |
+| Settings | Themes, models, permissions, auto-review, extra workspace paths |
 
 ## Architecture
 
 ```text
 src/                 React 19 UI
-src-tauri/           Shell macOS Tauri 2 + commandes natives
-sidecar/             Serveur Node: agents, WS, terminal, sessions, git, Zotero
-gallery/             Galerie/editeurs embarques et assets cmux-gallery
-docs/media/          Captures et animations du README
+src-tauri/           macOS Tauri 2 shell + native commands
+sidecar/             Node server: agents, WS, terminal, sessions, git, Zotero
+gallery/             Embedded gallery/editors and cmux-gallery assets
+docs/media/          README screenshots and animations
 ```
 
 ```mermaid
@@ -105,29 +103,29 @@ flowchart LR
   GALLERY --> FILES["Project files, figures, PDFs"]
 ```
 
-## Prerequis
+## Requirements
 
-| Outil | Pourquoi |
+| Tool | Why |
 |---|---|
-| macOS Apple Silicon | cible actuelle de l'app native |
-| Node.js >= 20 | frontend, sidecar, tooling |
-| Rust + Tauri prerequisites | build du shell macOS |
-| Claude Code CLI connecte | moteur Claude et reprise de sessions |
-| Codex CLI connecte | moteur Codex |
-| Python 3 | galerie et outils auxiliaires |
+| macOS Apple Silicon | Current native target |
+| Node.js >= 20 | Frontend, sidecar, tooling |
+| Rust + Tauri prerequisites | macOS shell build |
+| Signed-in Claude Code CLI | Claude engine and session resume |
+| Signed-in Codex CLI | Codex engine |
+| Python 3 | Gallery and helper tooling |
 
-## Installation Beta
+## Beta Installation
 
-1. Telecharger le `.dmg` depuis la derniere release GitHub.
-2. Glisser Atelier dans Applications.
-3. Si macOS bloque l'app non signee:
+1. Download the `.dmg` from the latest GitHub release.
+2. Drag Atelier into Applications.
+3. If macOS blocks the unsigned app:
 
 ```bash
 xattr -cr /Applications/Atelier.app
 open /Applications/Atelier.app
 ```
 
-## Developpement
+## Development
 
 ```bash
 npm install
@@ -135,13 +133,13 @@ npm install
 npm run tauri dev
 ```
 
-Build production:
+Production build:
 
 ```bash
 npm run tauri build
 ```
 
-Le bundle embarque le sidecar Node et la galerie. Les CLIs Claude/Codex restent ceux du systeme afin de reutiliser les connexions et permissions existantes.
+The app bundle includes the Node sidecar and gallery. Claude/Codex remain the system CLIs so existing sign-ins and permissions are reused.
 
 ## Verification
 
@@ -150,21 +148,21 @@ npx vite build
 (cd sidecar && npm test)
 ```
 
-Le typecheck complet peut echouer si des fichiers de test volontairement invalides sont presents dans `src/test_auto_review_*.ts`; ces fichiers servent aux scenarios d'auto-review et ne representent pas forcement une regression applicative.
+The full TypeScript check can fail when intentionally invalid `src/test_auto_review_*.ts` files are present. Those files exercise auto-review scenarios and do not necessarily represent an application regression.
 
-## Regenerer Les Medias
+## Regenerate Media
 
-Les images du README sont generees sans donnees utilisateur reelles.
+README images are generated without real user data.
 
 ```bash
 python3 scripts/generate-readme-media.py
 ```
 
-Cela recree les PNG/GIF dans `docs/media/`.
+This recreates the PNG/GIF assets in `docs/media/`.
 
-## Limitations Connues
+## Known Limitations
 
-- Beta macOS Apple Silicon.
-- Steer Codex depend des capacites exposees par le SDK/CLI disponible localement.
-- Les annotations PDF sont stockees a cote des fichiers, pas gravees dans le PDF.
-- Les captures du README sont des demos nettoyees, pas des conversations utilisateur reelles.
+- Beta release for macOS Apple Silicon.
+- Codex steering depends on the capabilities exposed by the locally available SDK/CLI.
+- PDF annotations are stored beside files, not burned into the PDF.
+- README screenshots are cleaned demo composites, not real user conversations.
