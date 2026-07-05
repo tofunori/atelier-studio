@@ -10,6 +10,7 @@ export type Settings = {
   galleryPath: string;
   autoRefreshAtelier: boolean;
   theme: "dark" | "light" | "system";
+  themePreset: string;
   accentColor: string;
   bgColor: string;
   fgColor: string;
@@ -35,6 +36,7 @@ export const DEFAULT_SETTINGS: Settings = {
   galleryPath: "~/Documents/cmux-gallery",
   autoRefreshAtelier: true,
   theme: "dark",
+  themePreset: "atelier",
   accentColor: "",
   bgColor: "",
   fgColor: "",

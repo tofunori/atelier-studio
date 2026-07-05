@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { Settings as S, DEFAULT_SETTINGS } from "../lib/settings";
+import { THEME_PRESETS } from "../lib/themes";
 
 const SECTIONS = [
   { id: "general", label: "Général" },
@@ -66,6 +67,7 @@ export default function SettingsPage(p: {
   const [section, setSection] = useState("general");
   const [slugProv, setSlugProv] = useState<"claude" | "codex">("codex");
   const [slugText, setSlugText] = useState("");
+  const [themeQuery, setThemeQuery] = useState("");
   const [status, setStatus] = useState<{ port: number | null; pastedCount: number; pasteDir: string } | null>(null);
   const [provs, setProvs] = useState<{ id: string; label: string; version: string | null; ok: boolean }[] | null>(null);
   const s = p.settings;
@@ -168,6 +170,25 @@ export default function SettingsPage(p: {
           <>
             <h1>Apparence</h1>
             <p className="set-sub">Thème, couleurs, typographie et mise en page.</p>
+            <div className="theme-gallery">
+              <input className="set-text" placeholder="Rechercher un thème…" value={themeQuery}
+                onChange={(e) => setThemeQuery(e.target.value)} style={{ width: "100%", marginBottom: 10 }} />
+              {THEME_PRESETS
+                .filter((t) => t.name.toLowerCase().includes(themeQuery.toLowerCase()))
+                .map((t) => (
+                  <div key={t.id}
+                    className={`theme-row ${s.themePreset === t.id ? "on" : ""}`}
+                    onClick={() => set({ themePreset: t.id })}>
+                    <span className="theme-name">{t.name}</span>
+                    <span className="theme-strip">
+                      {["--bg","--bg-side","--bg-card","--bg-ctl","--border","--fg2","--muted","--accent"].map((k) => (
+                        <span key={k} style={{ background: t.vars[k] }} />
+                      ))}
+                    </span>
+                    {s.themePreset === t.id && <span className="mp-check">✓</span>}
+                  </div>
+                ))}
+            </div>
             <Row title="Thème" desc="System suit le réglage macOS.">
               <div className="seg">
                 {(["light", "dark", "system"] as const).map((t) => (

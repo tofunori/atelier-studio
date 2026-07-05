@@ -17,6 +17,7 @@ import Chat from "./components/Chat";
 import AtelierPane from "./components/AtelierPane";
 import SettingsPage from "./components/Settings";
 import { loadSettings, saveSettings, Settings } from "./lib/settings";
+import { THEME_PRESETS } from "./lib/themes";
 import "./App.css";
 
 const PROJECTS_KEY = "atelier-studio.projects";
@@ -130,8 +131,16 @@ export default function App() {
     r.setProperty("--chat-lh", String(settings.chatLineHeight));
     // thème
     const sysDark = window.matchMedia("(prefers-color-scheme: dark)").matches;
-    const theme = settings.theme === "system" ? (sysDark ? "dark" : "light") : settings.theme;
+    const preset = THEME_PRESETS.find((t) => t.id === settings.themePreset);
+    const theme = preset
+      ? (preset.dark ? "dark" : "light")
+      : settings.theme === "system" ? (sysDark ? "dark" : "light") : settings.theme;
     root.setAttribute("data-theme", theme);
+    // preset : pose toutes les variables ; "atelier" = valeurs de la feuille
+    for (const k of ["--bg","--bg-side","--bg-pop","--bg-card","--bg-ctl","--border","--border2","--fg","--fg2","--muted","--muted2","--accent"]) {
+      if (preset && preset.id !== "atelier") r.setProperty(k, preset.vars[k]);
+      else r.removeProperty(k);
+    }
     root.setAttribute("data-density", settings.density);
     root.style.fontSize = `${settings.baseFontSize}px`;
     root.classList.toggle("no-smoothing", !settings.fontSmoothing);

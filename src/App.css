@@ -484,3 +484,13 @@ button.ghost:disabled { opacity: 0.35; cursor: default; }
 .browser-tab { width: 100%; min-width: 0; }
 .browser-frame { width: 100%; min-height: 0; }
 .browser-bar { min-width: 0; }
+/* galerie de thèmes */
+.theme-gallery { margin-bottom: 18px; }
+.theme-row { display: flex; align-items: center; gap: 14px; padding: 10px 14px;
+  border: 1px solid transparent; border-radius: 10px; cursor: pointer; }
+.theme-row:hover { background: var(--bg-card); }
+.theme-row.on { border-color: var(--border2); background: var(--bg-card); }
+.theme-name { width: 170px; font-size: 13.5px; }
+.theme-strip { flex: 1; display: flex; height: 18px; border-radius: 5px; overflow: hidden;
+  border: 1px solid rgba(128,128,128,0.25); }
+.theme-strip span { flex: 1; }
