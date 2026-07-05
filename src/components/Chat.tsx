@@ -43,10 +43,19 @@ function openFileRef(ref: string) {
   window.dispatchEvent(new CustomEvent("chat-open-file", { detail: { rel: m[1], line: m[2] ?? null } }));
 }
 
+// texte complet des enfants markdown (string, tableau, éléments imbriqués)
+function mdText(children: any): string {
+  if (children == null) return "";
+  if (typeof children === "string" || typeof children === "number") return String(children);
+  if (Array.isArray(children)) return children.map(mdText).join("");
+  if (typeof children === "object" && children.props) return mdText(children.props.children);
+  return "";
+}
+
 // composants markdown : liens externes stylés + réfs fichier:ligne cliquables
 const MD_COMPONENTS = {
   a: (props: any) => {
-    const label = String(props.children?.[0] ?? props.children ?? "");
+    const label = mdText(props.children);
     const href = String(props.href ?? "");
     const ref = FILE_REF.test(label) ? label : FILE_REF.test(href) ? href : null;
     if (ref)
@@ -69,7 +78,7 @@ const MD_COMPONENTS = {
     );
   },
   code: (props: any) => {
-    const txt = String(props.children?.[0] ?? "");
+    const txt = mdText(props.children);
     if (!props.className && FILE_REF.test(txt) && txt.includes(":"))
       return (
         <button className="file-ref" onClick={() => openFileRef(txt)} title={`Ouvrir ${txt}`}>
