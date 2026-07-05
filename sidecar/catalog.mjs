@@ -27,6 +27,9 @@ export function listCommands(projectRoot) {
     scan(join(projectRoot, ".claude/skills"), "skills");
     scan(join(projectRoot, ".claude/commands"), "commands");
   }
+  for (const name of BUILTINS) {
+    if (!out.has(name)) out.set(name, { name, source: "builtin" });
+  }
   return [...out.values()].sort((a, b) => a.name.localeCompare(b.name));
 }
 

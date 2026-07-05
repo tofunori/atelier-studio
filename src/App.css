@@ -401,10 +401,11 @@ input[type="range"].slider::-webkit-slider-thumb:hover { transform: scale(1.15);
 /* calque de coloration du composer (token slash bleu pendant la saisie) */
 .ta-wrap { position: relative; display: flex; flex-direction: column; }
 .ta-wrap textarea { position: relative; z-index: 2; background: transparent;
-  color: transparent; caret-color: var(--fg); }
+  color: transparent; caret-color: var(--fg); overflow-y: auto; max-height: 220px;
+  overflow-wrap: break-word; }
 .ta-wrap textarea::placeholder { color: var(--muted2); }
 .ta-backdrop { position: absolute; inset: 0; z-index: 1; overflow: hidden;
-  white-space: pre-wrap; word-break: break-word; pointer-events: none;
+  white-space: pre-wrap; overflow-wrap: break-word; pointer-events: none;
   color: var(--fg); font-size: 14px; line-height: 1.45;
   font-family: inherit; }
 /* version sans padding : mêmes métriques que le texte de la textarea */

@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import { open } from "@tauri-apps/plugin-dialog";
 import { AgentEvent } from "../lib/ws";
@@ -114,6 +114,15 @@ export default function Chat(p: {
   ) => void;
 }) {
   const [text, setText] = useState("");
+  const taRef = useRef<HTMLTextAreaElement>(null);
+  // resync la hauteur quand le texte change autrement que par frappe
+  // (suggestion appliquée, envoi qui vide la boîte…)
+  useEffect(() => {
+    const ta = taRef.current;
+    if (!ta) return;
+    ta.style.height = "auto";
+    ta.style.height = Math.min(ta.scrollHeight, 220) + "px";
+  }, [text]);
   const [provider, setProvider] = useState<"claude" | "codex">("claude");
   const [model, setModel] = useState("");
   const [effort, setEffort] = useState("");
@@ -455,6 +464,7 @@ export default function Chat(p: {
           })()}
         </div>
         <textarea
+          ref={taRef}
           value={text}
           onChange={(e) => setText(e.target.value)}
           onScroll={(e) => {
