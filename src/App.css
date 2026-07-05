@@ -351,13 +351,27 @@ html, body, #root, .app { height: 100vh; overflow: hidden;
 /* bord gauche : le bord droit reste à la scrollbar et au bouton plein écran */
 .chapters { position: absolute; top: 16px; left: 8px; z-index: 40;
   display: flex; flex-direction: column; gap: 10px; align-items: flex-start; }
-.chapter-tick { display: flex; align-items: center; gap: 8px; cursor: pointer; }
-.chapter-bar { width: 18px; height: 3px; border-radius: 2px; background: var(--muted2); }
-.chapter-tick:hover .chapter-bar { background: var(--fg); }
-.chapter-label { display: none; font-size: 12px; color: var(--fg2); background: var(--bg-pop);
+.chapter-tick { position: relative; display: flex; align-items: center; cursor: pointer;
+  padding: 4px 6px 4px 0; /* zone de clic stable, plus grande que la barre */ }
+.chapter-bar { background: var(--muted2); opacity: 0.75; transition: opacity 0.12s; }
+.chapter-tick:hover .chapter-bar { opacity: 1; }
+/* styles de marque */
+.chapter-bar.st-bar { width: 18px; height: 3px; border-radius: 2px; }
+.chapter-bar.st-dot { width: 8px; height: 8px; border-radius: 50%; }
+.chapter-bar.st-square { width: 8px; height: 8px; border-radius: 2px; }
+.chapter-bar.st-flag { width: 4px; height: 14px; border-radius: 2px; }
+/* label en position ABSOLUE : n'entre jamais dans le layout → zéro déplacement au survol */
+.chapter-label { position: absolute; left: calc(100% + 8px); top: 50%; transform: translateY(-50%);
+  opacity: 0; pointer-events: none; transition: opacity 0.1s;
+  font-size: 12px; color: var(--fg2); background: var(--bg-pop);
   border: 1px solid var(--border); border-radius: 8px; padding: 4px 10px; white-space: nowrap;
-  max-width: 320px; overflow: hidden; text-overflow: ellipsis; }
-.chapter-tick:hover .chapter-label { display: block; }
+  max-width: 320px; overflow: hidden; text-overflow: ellipsis; z-index: 45; }
+.chapter-tick:hover .chapter-label { opacity: 1; }
+.pin-style-btn { background: transparent; border: 1px solid var(--border); border-radius: 6px;
+  width: 30px; height: 24px; display: inline-flex; align-items: center; justify-content: center;
+  cursor: pointer; }
+.pin-style-btn:hover { border-color: var(--border2); background: var(--bg-ctl); }
+.pin-style-btn .chapter-bar { opacity: 1; }
 /* pendant le drag des séparateurs, les iframes ne volent plus la souris */
 .app-row.dragging iframe { pointer-events: none; }
 .handle[data-resize-handle-active] { background: var(--border2); }

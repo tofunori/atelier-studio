@@ -214,7 +214,7 @@ export default function App() {
   }, [favorites]);
   const activeIdRef = useRef<string | null>(null);
   // chapitres épinglés par thread : {index, label} (persistés)
-  const [pins, setPins] = useState<Record<string, { index: number; label: string }[]>>(() => {
+  const [pins, setPins] = useState<Record<string, { index: number; label: string; color?: string; style?: string }[]>>(() => {
     try {
       return JSON.parse(localStorage.getItem("atelier-studio.pins") ?? "{}");
     } catch {
@@ -1143,6 +1143,14 @@ export default function App() {
             if (edit) setInjectText(text);
           }}
           pins={activeId ? (pins[activeId] ?? []) : []}
+          onStylePin={(index, patch) => {
+            if (!activeId) return;
+            const id = activeId;
+            setPins((p) => ({
+              ...p,
+              [id]: (p[id] ?? []).map((c) => (c.index === index ? { ...c, ...patch } : c)),
+            }));
+          }}
           onTogglePin={(index, label) => {
             if (!activeId) return;
             const id = activeId;

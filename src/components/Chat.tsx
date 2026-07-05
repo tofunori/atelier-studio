@@ -198,7 +198,8 @@ export default function Chat(p: {
     customModels?: { provider: "claude" | "codex"; id: string }[];
     modelEfforts?: Record<string, string>;
   };
-  pins: { index: number; label: string }[];
+  pins: { index: number; label: string; color?: string; style?: string }[];
+  onStylePin: (index: number, patch: { color?: string; style?: string }) => void;
   onTogglePin: (index: number, label: string) => void;
   disabled: boolean;
   onSubmit: (
@@ -251,6 +252,13 @@ export default function Chat(p: {
   const [selIdx, setSelIdx] = useState(0);
   const [quote, setQuote] = useState<{ x: number; y: number; text: string } | null>(null);
   const [showJump, setShowJump] = useState(false);
+  const [pinMenu, setPinMenu] = useState<{ index: number; x: number; y: number } | null>(null);
+  useEffect(() => {
+    if (!pinMenu) return;
+    const close = () => setPinMenu(null);
+    window.addEventListener("click", close);
+    return () => window.removeEventListener("click", close);
+  }, [pinMenu]);
 
   // ---- marques persistantes (Highlight / Underline) sur les réponses ----
   type Mark = { text: string; kind: "hl" | "ul" };
@@ -681,15 +689,54 @@ export default function Chat(p: {
             <div
               key={c.index}
               className="chapter-tick"
-              title={c.label}
               onClick={() =>
                 document.getElementById(`msg-${c.index}`)?.scrollIntoView({ behavior: "smooth", block: "start" })
               }
+              onContextMenu={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                setPinMenu({ index: c.index, x: e.clientX, y: e.clientY });
+              }}
             >
-              <span className="chapter-bar" />
+              <span
+                className={`chapter-bar st-${c.style ?? "bar"}`}
+                style={c.color ? { background: c.color } : undefined}
+              />
               <span className="chapter-label">{c.label}</span>
             </div>
           ))}
+        </div>
+      )}
+      {pinMenu && (
+        <div className="ctx-menu pin-menu" style={{ position: "fixed", left: pinMenu.x, top: pinMenu.y, zIndex: 200 }}
+          onClick={(e) => e.stopPropagation()}>
+          <div className="swatches" style={{ padding: "6px 10px" }}>
+            {["#e05d5d", "#e8823a", "#e0b74a", "#22b07d", "#3b82f6", "#8b5cf6"].map((col) => (
+              <span key={col} className="swatch" style={{ background: col }}
+                onClick={() => { p.onStylePin(pinMenu.index, { color: col }); setPinMenu(null); }} />
+            ))}
+            <span className="swatch none" onClick={() => { p.onStylePin(pinMenu.index, { color: undefined }); setPinMenu(null); }}>∅</span>
+          </div>
+          <div className="pin-styles" style={{ display: "flex", gap: 6, padding: "2px 10px 8px" }}>
+            {[
+              { id: "bar", el: <span className="chapter-bar st-bar" style={{ background: "var(--fg2)" }} /> },
+              { id: "dot", el: <span className="chapter-bar st-dot" style={{ background: "var(--fg2)" }} /> },
+              { id: "square", el: <span className="chapter-bar st-square" style={{ background: "var(--fg2)" }} /> },
+              { id: "flag", el: <span className="chapter-bar st-flag" style={{ background: "var(--fg2)" }} /> },
+            ].map((st) => (
+              <button key={st.id} type="button" className="pin-style-btn"
+                onClick={() => { p.onStylePin(pinMenu.index, { style: st.id }); setPinMenu(null); }}>
+                {st.el}
+              </button>
+            ))}
+          </div>
+          <div className="danger" onClick={() => {
+            const pin = p.pins.find((x) => x.index === pinMenu.index);
+            if (pin) p.onTogglePin(pinMenu.index, pin.label);
+            setPinMenu(null);
+          }}>
+            {t("chat.unpin")}
+          </div>
         </div>
       )}
       {quote && (
