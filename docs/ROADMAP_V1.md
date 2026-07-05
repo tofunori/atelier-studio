@@ -179,3 +179,14 @@ est le record d'exécution ; le reviewer vérifie les claims de la réponse cont
 - Plus tard : critères custom par projet (règles MIXED_MODELS pour la thèse).
 Chantier suivant après ⌘K — Codex : plomberie sidecar/settings ; Claude : prompt
 du reviewer + badge.
+
+## Vendorisation galerie — PHASE 1 FAITE (2026-07-05, déclencheur court-circuité par Thierry)
+
+- `gallery/` vit dans CE repo (copie de cmux-gallery sans .git/artefacts, 12 Mo).
+- Résolution : réglage galleryPath (override) → `../gallery` (dev) → ressource bundlée
+  (prod, stage-gallery.sh) → `~/Documents/cmux-gallery` (legacy).
+- RÈGLE À PARTIR DE MAINTENANT : toute modif galerie (viewers, serveur, annotations)
+  se fait dans `atelier-studio/gallery/` et se commite ICI. Le repo cmux-gallery ne
+  sert plus qu'à cmux/muxy — divergence assumée, ne plus y pousser de fixes Studio.
+- Phase 2 (à venir) : tailler le mode non-Studio, puis porter le serveur vers le
+  sidecar Node route par route (Python disparaît).
