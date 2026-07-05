@@ -140,7 +140,6 @@ export default function QuickAsk({
         <div className="qa-head">
           <span className="qa-zap"><ZapIcon /></span>
           <span>{t("qa.title")}</span>
-          <span className="qa-eph">{t("qa.ephemeral")}</span>
           <button className="qa-recents-btn" title={t("qa.recents")}
             onClick={() => setRecentsOpen((v) => !v)}>
             <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round">
@@ -199,7 +198,7 @@ export default function QuickAsk({
         <textarea
           ref={inputRef}
           className="qa-input"
-          rows={1}
+          rows={Math.min(6, Math.max(1, text.split("\n").length, Math.ceil(text.length / 60)))}
           value={text}
           placeholder={t("qa.placeholder")}
           onChange={(e) => setText(e.target.value)}
