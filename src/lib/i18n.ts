@@ -143,6 +143,7 @@ const fr = {
 
   "qa.hint": "Question rapide — rien n'est conservé, sauf si tu injectes ou promeus.",
   "qa.placeholder": "Question… (↵ envoyer, esc fermer)",
+  "qa.clear": "Nouvelle conversation (efface)",
   "qa.inject": "Injecter dans le chat",
   "qa.promote": "Promouvoir en chat",
   "qa.switch-model": "Changer de modèle",
@@ -463,6 +464,7 @@ const en: Record<keyof typeof fr, string> = {
 
   "qa.hint": "Quick question — nothing is kept unless you inject or promote.",
   "qa.placeholder": "Ask… (↵ send, esc close)",
+  "qa.clear": "New conversation (clears)",
   "qa.inject": "Inject into chat",
   "qa.promote": "Promote to chat",
   "qa.switch-model": "Switch model",

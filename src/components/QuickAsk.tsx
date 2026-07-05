@@ -230,6 +230,22 @@ export default function QuickAsk({
               <circle cx="8" cy="8" r="6.2" /><path d="M8 4.5V8l2.5 1.5" />
             </svg>
           </button>
+          <button
+            className="qa-recents-btn"
+            title={t("qa.clear")}
+            onClick={() => {
+              setQaId(crypto.randomUUID());
+              setMsgs([]);
+              setCtx("");
+              setText("");
+              setBusy(false);
+              window.setTimeout(() => inputRef.current?.focus(), 0);
+            }}
+          >
+            <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round">
+              <path d="M3 4h10M6.5 4V2.8c0-.4.3-.8.8-.8h1.4c.5 0 .8.4.8.8V4M4.5 4l.7 8.4c0 .5.4.8.9.8h3.8c.5 0 .9-.3.9-.8L11.5 4" />
+            </svg>
+          </button>
           <button className="qa-min" title="—" onClick={onMinimize}>—</button>
           <button
             className="qa-model"
