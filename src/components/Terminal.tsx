@@ -22,6 +22,7 @@ export default function Terminal(p: {
     if (opened.current || !term || !wsReady()) return;
     opened.current = true;
     wsSend({ type: "termOpen", termId: p.termId, cwd: p.cwd, cols: term.cols, rows: term.rows });
+    setTimeout(() => term.focus(), 100);
   }
 
   useEffect(() => {
@@ -52,6 +53,7 @@ export default function Terminal(p: {
     term.open(ref.current);
     try { term.loadAddon(new WebglAddon()); } catch {} // fallback canvas si WebGL indispo
     fit.fit();
+    term.focus();
     xtermRef.current = term;
     fitRef.current = fit;
 
@@ -101,7 +103,7 @@ export default function Terminal(p: {
       ref={ref}
       className="term-host"
       style={{ display: p.visible ? "block" : "none" }}
-      onClick={() => xtermRef.current?.focus()}
+      onMouseDown={() => setTimeout(() => xtermRef.current?.focus(), 0)}
     />
   );
 }
