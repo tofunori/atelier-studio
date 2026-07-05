@@ -97,3 +97,20 @@ Secret/PII Guard (scan local dans submit()), badge trusted/untrusted sur contenu
 
 Écartés volontairement (trop plateforme vs thèse) : MCP Hub visuel, Playbook Builder,
 Permission Simulator (couvert par canUseTool + permissions par projet).
+
+## Intégration galerie (revue externe, tri 2026-07-05)
+
+- [ ] **P1 — Bundler la galerie au build** : `scripts/stage-gallery.sh` (miroir de
+  stage-sidecar) snapshotte le repo voisin `~/Documents/cmux-gallery` dans les
+  ressources Tauri (`gallery-dist`) ; `atelier.rs` cherche d'abord le clone local
+  (dev), sinon la copie bundlée. La SOURCE DE VÉRITÉ reste le repo cmux-gallery
+  (partagé avec cmux/muxy) — jamais de fork du code dans Atelier.
+- [ ] **P1 — Doctor** (déjà listé) : détecte aussi python3 (plus garanti sans CLT)
+  et propose le chemin galerie.
+- **Écarté pour l'instant — réécriture React de l'UI galerie** : l'iframe donne déjà
+  thème synchronisé + IPC nonce + Add to chat ; les viewers (latex_studio/pdf_viewer/
+  md_studio) sont des acquis vanilla JS éprouvés. Coût/bénéfice défavorable tant que
+  Bibliothèque, langue et split ne sont pas livrés.
+- **Écarté — migration Rust du backend galerie** : sur-ingénierie mono-utilisateur.
+  Si la dépendance Python bloque un jour la distribution : binaire PyInstaller
+  bien avant une réécriture.
