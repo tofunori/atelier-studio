@@ -1,0 +1,688 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>PDF — select and send to Claude</title>
+<script>(function(){
+  try{ var m=(location.hash||'').match(/atelier_nonce=([\w-]+)/); if(m) sessionStorage.setItem('atelier_nonce', m[1]); }catch(e){}
+  /* nonce IPC : inclus dans chaque message vers l'app hôte ; l'app rejette sans lui */
+  window.__atelierPost = function(p){
+    try{ p = Object.assign({}, p, {nonce: sessionStorage.getItem('atelier_nonce')||''}); }catch(e){}
+    try{ window.top.postMessage(p, '*'); }catch(e){}
+  };
+})();</script>
+<script src="/.fig_thumbs/pdfjs/pdf.min.js"></script>
+<script src="annot_kit.js"></script>
+<style>
+  :root{--bg:#202024;--card:#27272a;--card2:#1f1f23;--txt:#e4e4e7;--muted:#a1a1aa;--accent:#5b9dff;--border:#3f3f46}
+  body{margin:0;background:var(--bg);color:var(--txt);font-family:-apple-system,sans-serif}
+  header{position:sticky;top:0;z-index:10;background:var(--card);border-bottom:1px solid var(--border);
+         padding:10px 16px;display:flex;gap:12px;align-items:center;font-size:13px}
+  #pages{display:flex;flex-direction:column;align-items:center;gap:14px;padding:16px}
+  .pg{position:relative;background:#fff;box-shadow:0 2px 14px rgba(0,0,0,.5)}
+  .pg canvas{display:block}
+  .textLayer{position:absolute;inset:0;overflow:hidden;line-height:1;opacity:1;user-select:none}
+  .textLayer span{position:absolute;color:transparent;white-space:pre;transform-origin:0 0;cursor:text}
+  .textLayer span.hl{background:rgba(91,157,255,.45);border-radius:2px}
+  .pdfhl{position:absolute;border-radius:2px;mix-blend-mode:multiply;cursor:pointer}
+  .pdfnote{position:absolute;cursor:pointer;background:#1b1f26;border:1px solid #333a45;
+    border-radius:6px;padding:2px 3px;box-shadow:0 2px 8px rgba(0,0,0,.4)}
+  #pdftools{display:flex;align-items:center;gap:2px}
+  #pdftools button{width:26px;height:24px;display:inline-flex;align-items:center;justify-content:center}
+  #pdftools button.ton{background:#2c313a !important;color:#e8eaed !important}
+  #pdftools .cdot{width:13px;height:13px;border-radius:4px;cursor:pointer;margin:0 1px;
+    border:1px solid rgba(255,255,255,.15)}
+  #pdftools .cdot.con{outline:2px solid #5b9dff}
+  #annotPop{position:fixed;z-index:9999;display:none;background:#1b1f26;border:1px solid #333a45;
+    border-radius:12px;padding:10px;box-shadow:0 10px 28px rgba(0,0,0,.55);
+    font-family:-apple-system,sans-serif;font-size:13px;color:#e6e6e6;width:230px}
+  #annotPop input{width:100%;box-sizing:border-box;background:#2c313a;border:1px solid #3a414d;
+    border-radius:7px;color:inherit;padding:5px 8px;font-size:12.5px;outline:none;margin-bottom:8px}
+  #annotPop .row{display:flex;gap:6px;align-items:center}
+  #annotPop .sw{width:16px;height:16px;border-radius:5px;cursor:pointer}
+  #annotPop button{background:#2c313a;border:1px solid #3a414d;border-radius:7px;color:#e6e6e6;
+    padding:4px 10px;cursor:pointer;font-size:12px}
+  #annotPop .del{color:#ff8a8a;margin-left:auto}
+  #sendBtn{position:fixed;display:none;z-index:100;background:var(--border);color:var(--txt);border:1px solid var(--border);
+           border-radius:8px;padding:8px 14px;font-size:13px;cursor:pointer;box-shadow:0 2px 10px rgba(0,0,0,.5)}
+  .muted{color:var(--muted)}
+  /* selection pill + annotation card (same language as the gallery/HTML overlay) */
+  #selPill{position:fixed;z-index:300;display:none;align-items:center;gap:10px;min-width:320px;max-width:460px;
+      background:#1d2026;border:1px solid #343842;border-radius:24px;padding:8px 8px 8px 16px;
+      box-shadow:0 12px 36px rgba(0,0,0,.45);color:var(--txt);font-size:13px;user-select:none;-webkit-user-select:none}
+  #selPill .nb{font-size:14px;flex:none;line-height:1}
+  #selPill textarea{flex:1;background:transparent;border:none;outline:none;color:var(--txt);
+      font-size:13px;line-height:1.45;padding:0;resize:none;font-family:inherit;height:20px;max-height:120px}
+  #selPill textarea::placeholder{color:#6d7480}
+  #selPill button{border:none;cursor:pointer;display:flex;align-items:center;justify-content:center}
+  #selPill .del{width:26px;height:26px;border-radius:50%;background:none;color:#6d7480;flex:none;padding:0}
+  #selPill .del:hover{color:#ff7a76}
+  #selPill .del svg{width:14px;height:14px;stroke:currentColor;fill:none;stroke-width:1.6;
+      stroke-linecap:round;stroke-linejoin:round}
+  #selPill .tgt{width:28px;height:28px;border-radius:50%;background:transparent;
+      border:1px solid #3a4150;color:var(--muted);font-size:14px;flex:none}
+  #selPill .tgt:hover,#selPill .tgt.set{border-color:#5b9dff;color:#5b9dff}
+  #selPill .go{width:32px;height:32px;border-radius:50%;background:#c96442;color:#fff;font-size:16px;flex:none}
+  #selPill .go:hover{background:#e0714a}
+  #tgMenu{position:fixed;z-index:302;display:none;flex-direction:column;min-width:240px;max-width:400px;
+      background:rgba(24,27,34,.98);border:1px solid #3a4150;border-radius:12px;padding:6px;
+      box-shadow:0 14px 48px rgba(0,0,0,.55);color:var(--txt);font-size:12.5px}
+  #tgMenu .hd{font-size:10.5px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;padding:5px 9px 3px}
+  #tgMenu .it{display:flex;gap:8px;align-items:center;padding:7px 9px;border-radius:8px;cursor:pointer}
+  #tgMenu .it:hover{background:rgba(255,255,255,.06)}
+  #tgMenu .it .app{flex:none;font-size:10px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;
+      color:#8ab4ff;border:1px solid #33415e;border-radius:5px;padding:1px 5px}
+  #tgMenu .it .t{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  #tgMenu .it.on .t{color:#8ab4ff}
+  #annotBtn{margin-left:12px;background:var(--border);color:var(--txt);border:1px solid var(--border);
+      border-radius:8px;padding:6px 12px;font-size:13px;cursor:pointer;white-space:nowrap}
+  #annotBtn:hover{border-color:#5b6575}
+  #annotBtn.on{background:#c96442;border-color:#c96442;color:#fff}
+</style>
+<script>
+function __ct(){try{return JSON.parse(localStorage.getItem('claudeTargetV1')||'null')}catch(e){return null}}(function(){var T={'Default':{bg:'#202024',card:'#27272a',card2:'#1f1f23',txt:'#e4e4e7',muted:'#a1a1aa',accent:'#5b9dff',border:'#3f3f46'},'Codex One':{bg:'#202024',card:'#2f343f',card2:'#21252b',txt:'#abb2bf',muted:'#7f848e',accent:'#4d78cc',border:'#3e4451'},'Dracula':{bg:'#282a36',card:'#343746',card2:'#21222c',txt:'#f8f8f2',muted:'#9aa0b3',accent:'#bd93f9',border:'#44475a'},'Nord':{bg:'#2e3440',card:'#3b4252',card2:'#272c36',txt:'#e5e9f0',muted:'#9aa3b2',accent:'#88c0d0',border:'#434c5e'}};var t;try{t=T[localStorage.getItem('figTheme')];}catch(e){}t=t||T['Default'];var r=document.documentElement.style;for(var k in t)r.setProperty('--'+k,t[k]);})();</script>
+</head>
+<body>
+<header>
+  <b id="fname">PDF</b>
+  <span class="muted">Highlight a passage — Claude can access it automatically ("my selection")</span>
+  <button id="annotBtn" title="Annoter la page courante (dessiner + envoyer à Claude)"><svg viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"><path d="M11.3 2.5l2.2 2.2L5.8 12.4l-3 .8.8-3zM10 3.8l2.2 2.2"/></svg><span class="lbl"> Annoter</span></button>
+  <span id="selinfo" style="margin-left:auto;color:#ffd54a"></span>
+  <span class="muted" id="status"></span>
+</header>
+<div id="pages"></div>
+<button id="sendBtn">➜ Claude</button>
+<div id="selPill"><span class="nb">&#128172;</span><textarea rows="1" placeholder="Ajouter une annotation&hellip;"></textarea><button class="del" title="Annuler la sélection (&Eacute;chap)"><svg viewBox="0 0 14 14"><path d="M2 3.5h10M5.5 3.5V2.2c0-.4.3-.7.7-.7h1.6c.4 0 .7.3.7.7v1.3M3.5 3.5l.6 8.1c0 .5.4.9.9.9h4c.5 0 .9-.4.9-.9l.6-8.1M5.8 6v4M8.2 6v4"/></svg></button><button class="tgt" title="Choisir la session Claude cible">&#9678;</button><button class="hlt" title="Surligner (persistant)"><svg viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"><path d="M11.3 2.5l2.2 2.2L5.8 12.4l-3 .8.8-3zM10 3.8l2.2 2.2"/></svg></button><button class="go" title="Envoyer la sélection à la session Claude (Entr&eacute;e)">&#8593;</button></div>
+<div id="annotPop"></div>
+<div id="tgMenu"></div>
+<script>
+pdfjsLib.GlobalWorkerOptions.workerSrc = "/.fig_thumbs/pdfjs/pdf.worker.min.js";
+
+const rel = new URLSearchParams(location.search).get("file");
+document.getElementById("fname").textContent = rel ? rel.split("/").pop() : "(no file)";
+let selPage = 1;
+
+async function main(){
+  let pdf;
+  try {
+    pdf = await pdfjsLib.getDocument({url: "/" + rel,
+      standardFontDataUrl: "/.fig_thumbs/pdfjs/standard_fonts/",
+      cMapUrl: "/.fig_thumbs/pdfjs/cmaps/", cMapPacked: true}).promise;
+  } catch(e) {
+    const p = document.getElementById("pages");
+    p.textContent = "Unable to load PDF: " + (rel || "") + " — " + ((e && e.message) || e);  // textContent = XSS-safe
+    p.style.cssText = "color:#ff6b6b;padding:40px;text-align:center;font-family:-apple-system,sans-serif";
+    return;
+  }
+  const wrap = document.getElementById("pages");
+  // resize du panneau (split replié/déplié, fenêtre) → re-render à la bonne largeur,
+  // en conservant la position de lecture (ratio de scroll)
+  (function(){
+    // WebKit ne délivre pas toujours 'resize' à l'iframe quand le divider du
+    // panneau bouge : on sonde la largeur périodiquement (imparable et léger)
+    let lastW = window.innerWidth, stable = 0;
+    setInterval(function(){
+      const w = window.innerWidth;
+      if (Math.abs(w - lastW) >= 40) { lastW = w; stable = 0; return; }
+      if (Math.abs(w - lastW) < 40 && stable >= 0) {
+        // largeur stabilisée : re-render si différente de celle du rendu
+        if (Math.abs(w - RENDER_W) >= 40 && ++stable >= 2) {
+          try {
+            const el = document.scrollingElement || document.documentElement;
+            sessionStorage.setItem("pdfv_scroll_" + location.search,
+              String(el.scrollTop / Math.max(1, el.scrollHeight)));
+          } catch(e){}
+          location.reload();
+        }
+      }
+    }, 400);
+  })();
+  const RENDER_W = window.innerWidth;
+  const scale = Math.min(2.4, (window.innerWidth - 60) / 612);
+  for(let n = 1; n <= pdf.numPages; n++){
+    const page = await pdf.getPage(n);
+    const vp = page.getViewport({scale});
+    const div = document.createElement("div");
+    div.className = "pg"; div.dataset.page = n;
+    div.style.width = vp.width + "px"; div.style.height = vp.height + "px";
+    const cv = document.createElement("canvas");
+    cv.width = vp.width * devicePixelRatio; cv.height = vp.height * devicePixelRatio;
+    cv.style.width = vp.width + "px"; cv.style.height = vp.height + "px";
+    div.appendChild(cv);
+    const tl = document.createElement("div");
+    tl.className = "textLayer";
+    div.appendChild(tl);
+    wrap.appendChild(div);
+    const ctx = cv.getContext("2d");
+    ctx.scale(devicePixelRatio, devicePixelRatio);
+    await page.render({canvasContext: ctx, viewport: vp, intent: "print"}).promise;
+    const tc = await page.getTextContent();
+    buildTextLayer(tc, tl, vp);
+    tl._order = readingOrder(tl, vp.width);
+    drawAnnots(div, n);
+  }
+  try {
+    const k = "pdfv_scroll_" + location.search;
+    const r = parseFloat(sessionStorage.getItem(k));
+    if (r > 0) {
+      sessionStorage.removeItem(k);
+      const el = document.scrollingElement || document.documentElement;
+      el.scrollTop = r * el.scrollHeight;
+    }
+  } catch(e){}
+}
+
+// Couche texte maison : un span par item, largeur EXACTE tiree du PDF
+// (item.width), glyphes etires par scaleX — plus de boites trop larges.
+const _measureCv = document.createElement("canvas");
+const _measureCtx = _measureCv.getContext("2d");
+function buildTextLayer(tc, tl, vp){
+  for(const item of tc.items){
+    if(!item.str || !item.str.trim()) continue;
+    const tx = pdfjsLib.Util.transform(vp.transform, item.transform);
+    const fontSize = Math.hypot(tx[2], tx[3]);
+    const w = item.width * vp.scale;
+    if(fontSize <= 0 || w <= 0) continue;
+    const s = document.createElement("span");
+    s.textContent = item.str;
+    s.style.left = tx[4] + "px";
+    s.style.top = (tx[5] - fontSize) + "px";
+    s.style.fontSize = fontSize + "px";
+    s.style.fontFamily = "sans-serif";
+    s.dataset.l = tx[4]; s.dataset.t = tx[5] - fontSize; s.dataset.r = tx[4] + w;
+    _measureCtx.font = fontSize + "px sans-serif";
+    const nat = _measureCtx.measureText(item.str).width;
+    if(nat > 0) s.style.transform = "scaleX(" + (w / nat) + ")";
+    tl.appendChild(s);
+  }
+}
+
+// Column reading order: find the vertical gutter (an x band crossed by almost
+// no span) and sort column by column, then (y, x).
+function readingOrder(tl, pageW){
+  const spans = [...tl.querySelectorAll("span")].filter(s => s.textContent.trim());
+  const boxes = spans.map(s => ({s,
+    l: parseFloat(s.dataset.l), t: parseFloat(s.dataset.t), r: parseFloat(s.dataset.r)}));
+  // detection de gouttiere sur les spans etroits seulement
+  // (les lignes pleine largeur — titres, pieds de page — sont ignorees)
+  const narrow = boxes.filter(b => (b.r - b.l) <= pageW*0.55);
+  let bestX = null, bestCross = Infinity;
+  for(let x = pageW*0.35; x <= pageW*0.65; x += pageW*0.01){
+    const cross = narrow.reduce((n,b)=> n + (b.l < x-6 && b.r > x+6 ? 1 : 0), 0);
+    if(cross < bestCross){ bestCross = cross; bestX = x; }
+  }
+  const twoCols = narrow.length > 10 && bestCross <= Math.max(2, narrow.length*0.05);
+  const key = b => {
+    const wide = (b.r - b.l) > pageW*0.55;
+    const col = (twoCols && !wide && (b.l + b.r)/2 >= bestX) ? 1 : 0;
+    return [col, Math.round(b.t/4), b.l];
+  };
+  boxes.sort((a,b)=>{
+    const ka = key(a), kb = key(b);
+    return ka[0]-kb[0] || ka[1]-kb[1] || ka[2]-kb[2];
+  });
+  return boxes.map(b => b.s);
+}
+
+const btn = document.getElementById("sendBtn");
+let anchorIdx = null, dragLayer = null, layerSpans = [];
+function clearHl(){
+  document.querySelectorAll(".textLayer span.hl").forEach(s=>s.classList.remove("hl"));
+  document.getElementById("selinfo").textContent = "";
+}
+let _selPushT = null;
+function pushSelInfo(lines, words, text){
+  clearTimeout(_selPushT);
+  _selPushT = setTimeout(()=>{
+    fetch("/selinfo", {method:"POST", headers:{"Content-Type":"application/json"},
+      body: JSON.stringify({lines, words, text: text||"", rel, name: rel?rel.split("/").pop():"", page: selPage})
+    }).catch(()=>{});
+  }, 150);
+}
+function updateSelInfo(){
+  const hl = [...document.querySelectorAll(".textLayer span.hl")];
+  if(!hl.length) return;
+  const rows = new Set(hl.map(s => s.closest(".pg").dataset.page + ":" + Math.round(parseFloat(s.dataset.t)/4)));
+  const words = hl.map(s => s.textContent).join(" ").trim().split(/\s+/).length;
+  pushSelInfo(rows.size, words, hl.map(s=>s.textContent).join(" ").replace(/\s+/g," ").trim());
+}
+function spanAt(tl, x, y){
+  // span under the pointer, else the nearest one on the same line
+  const el = document.elementFromPoint(x, y);
+  if(el && el.tagName === "SPAN" && el.closest(".textLayer") === tl && el.textContent.trim()) return el;
+  let best = null, bd = 1e9;
+  for(const s of layerSpans){
+    const b = s.getBoundingClientRect();
+    if(y < b.top - 4 || y > b.bottom + 4) continue;
+    const dx = x < b.left ? b.left - x : (x > b.right ? x - b.right : 0);
+    if(dx < bd){ bd = dx; best = s; }
+  }
+  return best;
+}
+document.addEventListener("pointerdown", e => {
+  if(e.target.closest("#selPill")) return;  // the bar: keep selection
+  const tl = e.target.closest(".textLayer");
+  btn.style.display = "none";
+  selHide();
+  clearHl();
+  if(!tl) return;
+  dragLayer = tl;
+  layerSpans = tl._order || [...tl.querySelectorAll("span")].filter(s => s.textContent.trim());
+  const s = spanAt(tl, e.clientX, e.clientY);
+  anchorIdx = s ? layerSpans.indexOf(s) : null;
+  e.preventDefault();
+});
+document.addEventListener("pointermove", e => {
+  if(anchorIdx === null || !dragLayer) return;
+  const s = spanAt(dragLayer, e.clientX, e.clientY);
+  if(!s) return;
+  const i = layerSpans.indexOf(s);
+  const a = Math.min(anchorIdx, i), b = Math.max(anchorIdx, i);
+  layerSpans.forEach((sp, k) => sp.classList.toggle("hl", k >= a && k <= b));
+  updateSelInfo();
+});
+document.addEventListener("pointerup", e => {
+  if(anchorIdx === null || !dragLayer) return;
+  anchorIdx = null;
+  layerSpansLast = layerSpans;
+  const hls = layerSpans.filter(s => s.classList.contains("hl"));
+  if(!hls.length){ dragLayer = null; return; }
+  const pg = dragLayer.closest(".pg");
+  if(pg) selPage = pg.dataset.page;
+  dragLayer = null;
+  layerSpansLast = layerSpans;
+  selPillShow(hls);
+});
+function hlText(){
+  const spans = layerSpansLast.filter(s => s.classList.contains("hl"));
+  return spans.map(s => s.textContent).join(" ").replace(/\s+/g, " ").trim();
+}
+let layerSpansLast = [];
+btn.onclick = async () => {
+  const text = hlText();
+  btn.textContent = "⏳";
+  try{
+    const r = await fetch("/quote", {method:"POST",
+      headers:{"Content-Type":"application/json"},
+      body: JSON.stringify({rel, page: selPage, text, embed: __EMB})});
+    const j = await r.json();
+    if(__EMB && j && j.message) __atelierPost({type:'atelier-add-to-chat', text:j.message});
+    document.getElementById("status").textContent =
+      j.sentToClaude ? "Pasted into Claude ✓" : "Copied to clipboard ✓";
+  }catch(e){
+    document.getElementById("status").textContent = "Server error";
+  }
+  btn.textContent = "➜ Claude"; btn.style.display = "none";
+  setTimeout(()=>document.getElementById("status").textContent="", 3000);
+};
+
+// --- selection pill: annotate + send directly to the Claude session (same flow
+//     as the LaTeX studio pill and the HTML report overlay; /quote with direct:true) ---
+const selPill = document.getElementById("selPill");
+const selTa = selPill.querySelector("textarea");
+  // Mode Studio : pilule simple « Add to chat » (comme la sélection du chat) —
+  // pas de commentaire ni corbeille, le texte part en puce dans le composer.
+  if (window.self!==window.top){
+    var __go = selPill.querySelector('.go');
+    ['textarea','.del','.tgt','.nb'].forEach(function(sel){
+      var el = selPill.querySelector(sel); if (el) el.style.display = 'none';
+    });
+    selPill.style.cssText += ';background:transparent;border:none;box-shadow:none;padding:0;min-width:0;width:auto';
+    if (__go){ __go.innerHTML = '<svg width=\'13\' height=\'13\' viewBox=\'0 0 16 16\' fill=\'none\' stroke=\'currentColor\' stroke-width=\'1.3\' style=\'vertical-align:-2px\'><path d=\'M14 8c0 3-2.7 5.2-6 5.2-.8 0-1.6-.1-2.3-.4L2.5 14l1-2.6C2.6 10.5 2 9.3 2 8c0-3 2.7-5.2 6-5.2S14 5 14 8z\'/></svg>&nbsp; Add to chat';
+      __go.style.cssText = 'width:auto;min-width:0;height:auto;border-radius:999px;padding:7px 14px;font-size:13px;white-space:nowrap;background:#2c313a;color:#e6e6e6;border:1px solid #3a414d;box-shadow:0 6px 18px rgba(0,0,0,0.5);cursor:pointer'; }
+  }
+
+const __goHTML = (window.self!==window.top && selPill.querySelector('.go')) ? selPill.querySelector('.go').innerHTML : null;
+function goReset(go){ if (__goHTML) go.innerHTML = __goHTML; else go.textContent = "↑"; }
+function selPillShow(hls){
+  const text = hlText();
+  if(!text){ selHide(); return; }
+  // union rect of the highlighted spans (viewport coords)
+  let l = Infinity, r = -Infinity, top = Infinity, bot = -Infinity;
+  hls.forEach(s => { const b = s.getBoundingClientRect();
+    l = Math.min(l, b.left); r = Math.max(r, b.right); top = Math.min(top, b.top); bot = Math.max(bot, b.bottom); });
+  selPill.style.display = "flex";
+  const w = selPill.offsetWidth, h = selPill.offsetHeight;
+  let x = Math.min(Math.max(8, (l + r)/2 - w/2), innerWidth - w - 8);
+  let y = bot + 10;
+  if(y + h > innerHeight - 8) y = top - h - 10;
+  selPill.style.left = x + "px"; selPill.style.top = Math.max(8, y) + "px";
+}
+function selHide(){ selPill.style.display = "none"; }
+function selCancel(){ selHide(); selTa.value = ""; clearHl();
+  fetch("/selinfo", {method:"POST", headers:{"Content-Type":"application/json"},
+    body: JSON.stringify({lines:0, words:0})}).catch(()=>{});
+}
+const __EMB=(function(){try{return window.self!==window.top;}catch(e){return true;}})();
+function selSend(){
+  const text = hlText();
+  if(!text) return;
+  const comment = selTa.value.trim();
+  const go = selPill.querySelector(".go");
+  go.textContent = "⏳";
+  fetch("/quote", {method:"POST", headers:{"Content-Type":"application/json"},
+    body: JSON.stringify({rel, page: selPage, text, comment: comment || "", direct: true, target: __ct(), embed: __EMB})})
+    .then(r => r.json())
+    .then(j => { if(__EMB && j && j.message) __atelierPost({type:'atelier-add-to-chat', text:j.message});
+      go.textContent = "✓"; setTimeout(() => { goReset(go); selTa.value = ""; selHide(); }, 1200); })
+    .catch(() => { go.textContent = "!"; setTimeout(() => { goReset(go); }, 1600); });
+}
+// clicks on the bar must not destroy the selection — except the textarea, which needs focus
+selPill.addEventListener("mousedown", e => { if(e.target !== selTa) e.preventDefault(); });
+selPill.querySelector(".go").onclick = () => selSend();
+selPill.querySelector(".del").onclick = e => { e.stopPropagation(); selCancel(); };
+/* ---- Claude-session target picker (stores localStorage 'claudeTargetV1') ---- */
+(function(){
+  const esc = s => String(s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+  const tgtBtn = selPill.querySelector(".tgt"), tgMenu = document.getElementById("tgMenu");
+  if(__EMB) tgtBtn.style.display = "none";
+  const markTgt = () => tgtBtn.classList.toggle("set", !!__ct());
+  markTgt();
+  tgMenu.addEventListener("mousedown", e => e.preventDefault());
+  tgtBtn.onclick = async e => {
+    e.stopPropagation();
+    const cur = __ct();
+    let html = '<div class="hd">Envoyer vers</div>'
+      + '<div class="it' + (cur ? '' : ' on') + '" data-i="-1"><span class="app">auto</span>'
+      + '<span class="t">Session du projet (auto)</span></div>';
+    try{
+      const j = await (await fetch("/claude-targets")).json();
+      (j.targets || []).forEach((t, i) => {
+        const on = cur && cur.app === t.app && cur.id === t.id;
+        html += '<div class="it' + (on ? ' on' : '') + '" data-i="' + i + '"><span class="app">'
+          + esc(t.app) + '</span><span class="t">' + esc(t.title || t.id)
+          + (t.inProject ? '' : ' — ' + esc(String(t.cwd || '').split('/').pop())) + '</span></div>';
+      });
+      tgMenu.innerHTML = html;
+      tgMenu.style.display = "flex";
+      const r = tgtBtn.getBoundingClientRect();
+      tgMenu.style.left = Math.max(8, Math.min(r.left - 120, innerWidth - tgMenu.offsetWidth - 8)) + "px";
+      tgMenu.style.top = Math.max(8, r.top - tgMenu.offsetHeight - 10) + "px";
+      tgMenu.querySelectorAll(".it").forEach(it => {
+        it.onclick = ev => {
+          ev.stopPropagation();
+          const i = +it.dataset.i;
+          if(i < 0) localStorage.removeItem("claudeTargetV1");
+          else localStorage.setItem("claudeTargetV1", JSON.stringify({app:j.targets[i].app, id:j.targets[i].id, title:j.targets[i].title}));
+          markTgt(); tgMenu.style.display = "none";
+        };
+      });
+      document.addEventListener("click", function h(){ tgMenu.style.display = "none"; document.removeEventListener("click", h); });
+    }catch(err){ console.warn("claude-targets failed", err); }
+  };
+})();
+selTa.addEventListener("input", () => { selTa.style.height = "20px"; selTa.style.height = Math.min(120, selTa.scrollHeight) + "px"; });
+selTa.addEventListener("keydown", e => {
+  e.stopPropagation();
+  if(e.key === "Enter" && !e.shiftKey){ e.preventDefault(); selSend(); }
+  else if(e.key === "Escape"){ e.preventDefault(); selCancel(); }
+});
+document.addEventListener("keydown", e => { if(e.key === "Escape") selCancel(); });
+
+// --- drawn annotation (shared AnnotKit): one transparent overlay per page,
+//     activated on the page most visible in the viewport ---
+const annotBtn = document.getElementById("annotBtn");
+const annotKits = new Map();   // page number (string) -> {overlay, api, cv}
+let annotOn = false;
+function visiblePage(){
+  let best = null, bestVis = -1;
+  const vh = window.innerHeight;
+  for(const pg of document.querySelectorAll(".pg")){
+    const r = pg.getBoundingClientRect();
+    const vis = Math.max(0, Math.min(r.bottom, vh) - Math.max(r.top, 0));
+    if(vis > bestVis){ bestVis = vis; best = pg; }
+  }
+  return best;
+}
+function kitFor(pg){
+  const n = pg.dataset.page;
+  if(annotKits.has(n)) return annotKits.get(n);
+  const cv = pg.querySelector("canvas");
+  const overlay = document.createElement("canvas");
+  overlay.width = cv.width; overlay.height = cv.height;   // device-pixel space, matches the pdf.js canvas
+  overlay.style.cssText = "position:absolute;left:0;top:0;touch-action:none;pointer-events:none;"
+    + "width:" + cv.style.width + ";height:" + cv.style.height;
+  pg.appendChild(overlay);
+  const api = AnnotKit.create({
+    overlay: overlay,
+    exportBase: function(){ return {src: cv, w: cv.width, h: cv.height}; },
+    name: function(){ return (rel ? rel.split("/").pop() : "pdf") + "-p" + n; }
+  });
+  const rec = {overlay: overlay, api: api, cv: cv};
+  annotKits.set(n, rec);
+  return rec;
+}
+function setAnnot(on){
+  if(on){
+    const pg = visiblePage();
+    if(!pg) return;
+    for(const rec of annotKits.values()) rec.api.disable();   // one active page at a time
+    kitFor(pg).api.enable();
+    annotOn = true; annotBtn.classList.add("on");
+  } else {
+    for(const rec of annotKits.values()) rec.api.disable();
+    annotOn = false; annotBtn.classList.remove("on");
+  }
+}
+annotBtn.onclick = () => setAnnot(!annotOn);
+
+if(rel) main();
+
+// ---- surlignages persistants (sidecar JSON via /pdfannot) ----
+let PDF_ANNOTS = [];
+let ANNOTS_LOADED = false;  // garde anti-écrasement : jamais de POST avant un GET réussi
+function loadAnnots(attempt){
+  fetch("/pdfannot?rel=" + encodeURIComponent(rel)).then(r=>r.json())
+    .then(j => { PDF_ANNOTS = j.annots || []; ANNOTS_LOADED = true;
+      document.querySelectorAll(".pg").forEach(pg => drawAnnots(pg, +pg.dataset.page)); })
+    .catch(()=>{ if((attempt||0) < 10) setTimeout(()=>loadAnnots((attempt||0)+1), 2000); });
+}
+loadAnnots(0);
+function saveAnnots(){
+  if(!ANNOTS_LOADED) return;  // le store contient peut-être des annots pas encore chargées
+  fetch("/pdfannot", {method:"POST", headers:{"Content-Type":"application/json"},
+    body: JSON.stringify({rel, annots: PDF_ANNOTS})}).catch(()=>{});
+}
+function drawAnnots(pgDiv, n){
+  pgDiv.querySelectorAll(".pdfhl, .pdfnote").forEach(el => el.remove());
+  for(const a of PDF_ANNOTS){
+    if(+a.page !== +n) continue;
+    for(const rc of a.rects){
+      const el = document.createElement("div");
+      el.className = "pdfhl";
+      el.style.left = (rc[0]*100)+"%"; el.style.top = (rc[1]*100)+"%";
+      el.style.width = (rc[2]*100)+"%"; el.style.height = (rc[3]*100)+"%";
+      const col = a.color || "rgba(255,213,74,.4)";
+      const solid = col.replace(/,\s*\.?\d+\)/, ",.95)");
+      if(a.kind === "ul"){ el.style.background = "transparent"; el.style.borderBottom = "2px solid " + solid; }
+      else if(a.kind === "st"){ el.style.background = "linear-gradient(transparent 46%," + solid + " 46%," + solid + " 58%,transparent 58%)"; }
+      else if(a.kind === "note"){ el.style.background = "transparent"; }
+      else { el.style.background = col; }
+      if(a.note) el.title = a.note;
+      el.onclick = (e) => { e.stopPropagation(); annotMenu(a, e.clientX, e.clientY); };
+      pgDiv.appendChild(el);
+    }
+    if(a.kind === "note" && a.pin){
+      const pin = document.createElement("div");
+      pin.className = "pdfnote";
+      pin.style.left = (a.pin[0]*100)+"%"; pin.style.top = (a.pin[1]*100)+"%";
+      pin.innerHTML = '<svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="#e0b74a" stroke-width="1.4"><path d="M3 2.5h10v8H8l-3 3v-3H3v-8z"/></svg>';
+      if(a.note) pin.title = a.note;
+      pin.onclick = (e) => { e.stopPropagation(); annotMenu(a, e.clientX, e.clientY); };
+      pgDiv.appendChild(pin);
+    }
+  }
+}
+const HL_COLORS = ["rgba(255,213,74,.40)","rgba(120,220,140,.40)","rgba(120,170,255,.40)","rgba(255,140,160,.40)"];
+function addHighlightFromSel(kind, color){
+  kind = kind || "hl"; color = color || HL_COLORS[0];
+  const spans = [...document.querySelectorAll(".textLayer span.hl")];
+  if(!spans.length) return;
+  const byPage = new Map();
+  for(const sp of spans){
+    const pg = sp.closest(".pg"); if(!pg) continue;
+    const key = pg.dataset.page;
+    if(!byPage.has(key)) byPage.set(key, {pg, rects: [], texts: []});
+    const pr = pg.getBoundingClientRect(), r = sp.getBoundingClientRect();
+    byPage.get(key).rects.push([(r.left-pr.left)/pr.width, (r.top-pr.top)/pr.height,
+      r.width/pr.width, r.height/pr.height]);
+    byPage.get(key).texts.push(sp.textContent);
+  }
+  let lastA = null, lastRect = null;
+  for(const [pgNum, g] of byPage){
+    const a = {id: Date.now() + "-" + pgNum, page: +pgNum, rects: g.rects,
+      text: g.texts.join(" ").replace(/\s+/g," ").trim(),
+      kind: kind, color: color, note: ""};
+    PDF_ANNOTS.push(a);
+    drawAnnots(g.pg, +pgNum);
+    lastA = a;
+    const pr = g.pg.getBoundingClientRect();
+    const rc = g.rects[g.rects.length - 1];
+    lastRect = { x: pr.left + rc[0] * pr.width, y: pr.top + (rc[1] + rc[3]) * pr.height };
+  }
+  saveAnnots();
+  clearHl(); selHide();
+  try{ window.getSelection().removeAllRanges(); }catch(e){}
+  // popup d'édition immédiat sur la dernière annotation créée (note/couleur/chat/suppr)
+  if (lastA && lastRect) annotMenu(lastA, lastRect.x, lastRect.y);
+}
+document.querySelector("#selPill .hlt").onclick = () => addHighlightFromSel();
+const annotPop = document.getElementById("annotPop");
+function annotMenu(a, x, y){
+  annotPop.innerHTML = '<input placeholder="Note… (Entrée)" value="' +
+      String(a.note||"").replace(/["&<>]/g, c => ({'"':'&quot;','&':'&amp;','<':'&lt;','>':'&gt;'}[c])) + '">' +
+    '<div class="row">' +
+    HL_COLORS.map(c => '<span class="sw" style="background:'+c.replace(",.40",",.85")+'" data-c="'+c+'"></span>').join("") +
+    '<button class="send2">&rarr; chat</button><button class="del">Suppr</button></div>';
+  annotPop.style.left = Math.min(x, window.innerWidth-250)+"px";
+  annotPop.style.top = (y+10)+"px";
+  annotPop.style.display = "block";
+  const inp = annotPop.querySelector("input");
+  inp.onkeydown = (e) => { if(e.key==="Enter"){ a.note = inp.value; saveAnnots(); annotPop.style.display="none"; } };
+  annotPop.querySelectorAll(".sw").forEach(sw => sw.onclick = () => {
+    a.color = sw.dataset.c; saveAnnots();
+    document.querySelectorAll(".pg").forEach(pg => drawAnnots(pg, +pg.dataset.page));
+  });
+  annotPop.querySelector(".send2").onclick = () => {
+    const payload = {rel, page: String(a.page), text: a.text, comment: a.note || "", direct: true, embed: true};
+    fetch("/quote", {method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify(payload)})
+      .then(r=>r.json())
+      .then(j => { if(j && j.message && window.self !== window.top)
+        __atelierPost({type:"atelier-add-to-chat", text:j.message}); })
+      .catch(()=>{});
+    annotPop.style.display = "none";
+  };
+  annotPop.querySelector(".del").onclick = () => {
+    PDF_ANNOTS = PDF_ANNOTS.filter(x => x.id !== a.id);
+    saveAnnots();
+    document.querySelectorAll(".pg").forEach(pg => drawAnnots(pg, +pg.dataset.page));
+    annotPop.style.display = "none";
+  };
+}
+document.addEventListener("click", (e) => {
+  if(!annotPop.contains(e.target) && !e.target.classList.contains("pdfhl"))
+    annotPop.style.display = "none";
+});
+
+// mode Studio : barre d'outils compacte et sobre + outils d'annotation
+let TOOL = null, TOOL_COLOR_IDX = 0;
+if(window.self !== window.top){
+  const hd = document.querySelector("header");
+  const tools = document.createElement("span");
+  tools.id = "pdftools";
+  tools.innerHTML =
+    '<button data-t="" class="ton" title="Sélection"><svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><path d="M4 2l8 6.5-3.4.6 2 3.9-1.8.9-2-3.9L4 12V2z"/></svg></button>'
+    + '<button data-t="hl" title="Surligneur : sélectionne du texte pour surligner"><svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><path d="M2 13.5h5M4.5 11L10 3.5l2.5 2L7 13H4.5v-2z"/></svg></button>'
+    + '<button data-t="ul" title="Souligner"><svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><path d="M4 2.5v6a4 4 0 008 0v-6M3 13.5h10"/></svg></button>'
+    + '<button data-t="st" title="Barrer"><svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><path d="M4 3h8M4 13h8M2 8h12"/></svg></button>'
+    + '<button data-t="note" title="Note : clique sur la page"><svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><path d="M3 2.5h10v8H8l-3 3v-3H3v-8z"/></svg></button>'
+    + '<span style="width:6px"></span>'
+    + '<button id="annPrev" title="Annotation précédente"><svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M10 3L5.5 8 10 13"/></svg></button>'
+    + '<button id="annNext" title="Annotation suivante"><svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M6 3l4.5 5L6 13"/></svg></button>'
+    + '<span style="width:6px"></span>'
+    + HL_COLORS.map((c,i)=>'<span class="cdot'+(i===0?' con':'')+'" data-i="'+i+'" style="background:'+c.replace(",.40",",.85")+'"></span>').join("");
+  const fn = document.getElementById("fname");
+  fn.after(tools);
+  let annIdx = -1;
+  function gotoAnn(dir){
+    const sorted = [...PDF_ANNOTS].sort((a, b) =>
+      (+a.page - +b.page) || ((a.rects[0]?.[1] ?? (a.pin?.[1] ?? 0)) - (b.rects[0]?.[1] ?? (b.pin?.[1] ?? 0))));
+    if (!sorted.length) return;
+    annIdx = (annIdx + dir + sorted.length) % sorted.length;
+    const a = sorted[annIdx];
+    const pg = document.querySelector('.pg[data-page="' + a.page + '"]');
+    if (!pg) return;
+    const rel = a.rects[0]?.[1] ?? a.pin?.[1] ?? 0;
+    const el = document.scrollingElement || document.documentElement;
+    el.scrollTo({ top: pg.offsetTop + rel * pg.offsetHeight - 90, behavior: "smooth" });
+    // flash discret sur les rectangles de l'annotation
+    setTimeout(() => {
+      pg.querySelectorAll(".pdfhl, .pdfnote").forEach((n) => {
+        if (n.title === (a.note || "") || true) return;
+      });
+      drawAnnots(pg, +a.page);
+      const els = [...pg.querySelectorAll(".pdfhl, .pdfnote")];
+      els.forEach((n) => { n.style.transition = "outline 0.2s"; });
+    }, 300);
+  }
+  const prevB = tools.querySelector("#annPrev"), nextB = tools.querySelector("#annNext");
+  if (prevB) prevB.onclick = (e) => { e.stopPropagation(); gotoAnn(-1); };
+  if (nextB) nextB.onclick = (e) => { e.stopPropagation(); gotoAnn(1); };
+  tools.querySelectorAll("button").forEach(b => b.onclick = () => {
+    TOOL = b.dataset.t || null;
+    tools.querySelectorAll("button").forEach(o => o.classList.toggle("ton", o === b));
+  });
+  tools.querySelectorAll(".cdot").forEach(d => d.onclick = () => {
+    TOOL_COLOR_IDX = +d.dataset.i;
+    tools.querySelectorAll(".cdot").forEach(o => o.classList.toggle("con", o === d));
+  });
+  // outil actif : la sélection annote directement (pas de pilule)
+  document.addEventListener("mouseup", () => {
+    if(!TOOL || TOOL === "note") return;
+    setTimeout(() => {
+      if(document.querySelectorAll(".textLayer span.hl").length){
+        addHighlightFromSel(TOOL, HL_COLORS[TOOL_COLOR_IDX]);
+      }
+    }, 30);
+  });
+  // outil note : clic sur la page = pastille de note
+  document.addEventListener("click", (e) => {
+    if(TOOL !== "note") return;
+    const pg = e.target.closest(".pg");
+    if(!pg || e.target.closest(".pdfhl") || e.target.closest(".pdfnote")) return;
+    const pr = pg.getBoundingClientRect();
+    const a = {id: Date.now()+"-n", page: +pg.dataset.page, rects: [],
+      pin: [(e.clientX-pr.left)/pr.width, (e.clientY-pr.top)/pr.height],
+      kind: "note", color: HL_COLORS[TOOL_COLOR_IDX], text: "", note: ""};
+    PDF_ANNOTS.push(a); saveAnnots(); drawAnnots(pg, +pg.dataset.page);
+    annotMenu(a, e.clientX, e.clientY);
+  });
+}
+if(window.self !== window.top){
+  const st = document.createElement("style");
+  st.textContent = `
+    header{background:#1a1d22 !important;border-bottom:1px solid #333a45 !important;
+      padding:4px 10px !important;min-height:0 !important;gap:10px}
+    header #fname{font-weight:500;font-size:12.5px;color:#cfd4dc}
+    header .muted{display:none}
+    header #selinfo{color:#8a919e !important;font-size:11.5px}
+    header #status{font-size:11.5px}
+    header button{background:transparent !important;border:none !important;
+      color:#8a919e !important;font-size:12.5px !important;padding:3px 8px !important;
+      border-radius:6px !important;cursor:pointer;box-shadow:none !important}
+    header button:hover{background:#2c313a !important;color:#e8eaed !important}
+    header{flex-wrap:nowrap !important}
+    header #fname{display:none}  /* titre déjà dans l'entête Bibliothèque/onglet */
+    #pdftools{flex-shrink:0}
+    @media (max-width: 640px){
+      header #annotBtn span.lbl{display:none}
+    }
+    @media (max-width: 440px){
+      header #selinfo{display:none}
+    }
+  `;
+  document.head.appendChild(st);
+}
+</script>
+</body>
+</html>

@@ -1,0 +1,29 @@
+{
+  "$schema": "https://raw.githubusercontent.com/manaflow-ai/cmux/main/web/data/cmux.schema.json",
+  "schemaVersion": 1,
+  "actions": {
+    "project-gallery": {
+      "type": "workspaceCommand",
+      "title": "Project Gallery",
+      "commandName": "Project Gallery",
+      "icon": { "type": "symbol", "name": "photo.on.rectangle.angled" },
+      "palette": true
+    }
+  },
+  "commands": [
+    {
+      "name": "Project Gallery",
+      "description": "Build + open the artifact gallery; click a card to open the file in cmux",
+      "workspace": {
+        "name": "Gallery",
+        "cwd": ".",
+        "layout": {
+          "direction": "vertical",
+          "children": [
+            { "pane": { "surfaces": [ { "type": "terminal", "name": "gallery", "command": "cmux-gallery run --root ." } ] } }
+          ]
+        }
+      }
+    }
+  ]
+}

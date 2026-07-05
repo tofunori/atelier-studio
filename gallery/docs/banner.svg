@@ -1,0 +1,76 @@
+<svg width="1280" height="300" viewBox="0 0 1280 300" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="atelier">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#1c1c20"/>
+      <stop offset="1" stop-color="#0f0f12"/>
+    </linearGradient>
+    <linearGradient id="acc" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#5b9dff"/>
+      <stop offset="1" stop-color="#7c5cff"/>
+    </linearGradient>
+    <style>
+      .wm   { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", sans-serif; }
+      .mono { font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace; }
+    </style>
+  </defs>
+
+  <rect width="1280" height="300" fill="url(#bg)"/>
+  <rect width="1280" height="4" fill="url(#acc)"/>
+
+  <!-- logo glyph: gallery frame -->
+  <g transform="translate(96,108)">
+    <rect x="0" y="0" width="84" height="84" rx="16" fill="none" stroke="url(#acc)" stroke-width="5"/>
+    <line x1="42" y1="6" x2="42" y2="78" stroke="url(#acc)" stroke-width="5"/>
+  </g>
+
+  <!-- wordmark + tagline -->
+  <text class="wm" x="212" y="150" font-size="62" font-weight="700" fill="#f4f4f5">atelier<tspan fill="#5b9dff">.</tspan></text>
+  <text class="wm" x="214" y="192" font-size="23" fill="#a1a1aa">Artifact gallery · whiteboard · notes · annotations</text>
+  <text class="mono" x="214" y="232" font-size="15" fill="#6b7280">for cmux · Muxy · Orca &#160;·&#160; figures · PDFs · code · annotate · export</text>
+
+  <!-- thumbnail-grid motif (a little gallery of mini plots) -->
+  <g transform="translate(872,70)">
+    <!-- card 1: line plot -->
+    <g transform="translate(0,0)">
+      <rect width="118" height="74" rx="10" fill="#26262b" stroke="#3a3a42" stroke-width="1"/>
+      <polyline points="12,56 32,40 52,48 72,22 96,30 106,18" fill="none" stroke="#5b9dff" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
+    </g>
+    <!-- card 2: bars -->
+    <g transform="translate(132,0)">
+      <rect width="118" height="74" rx="10" fill="#26262b" stroke="#3a3a42" stroke-width="1"/>
+      <rect x="16" y="40" width="14" height="22" rx="2" fill="#7c5cff"/>
+      <rect x="38" y="28" width="14" height="34" rx="2" fill="#7c5cff"/>
+      <rect x="60" y="18" width="14" height="44" rx="2" fill="#7c5cff"/>
+      <rect x="82" y="34" width="14" height="28" rx="2" fill="#7c5cff"/>
+    </g>
+    <!-- card 3: heatmap -->
+    <g transform="translate(264,0)">
+      <rect width="118" height="74" rx="10" fill="#26262b" stroke="#3a3a42" stroke-width="1"/>
+      <g transform="translate(20,16)">
+        <rect x="0"  y="0"  width="18" height="14" rx="2" fill="#2a4a7a"/>
+        <rect x="20" y="0"  width="18" height="14" rx="2" fill="#5b9dff"/>
+        <rect x="40" y="0"  width="18" height="14" rx="2" fill="#9b6bff"/>
+        <rect x="60" y="0"  width="18" height="14" rx="2" fill="#3a5a8a"/>
+        <rect x="0"  y="16" width="18" height="14" rx="2" fill="#7c5cff"/>
+        <rect x="20" y="16" width="18" height="14" rx="2" fill="#2a4a7a"/>
+        <rect x="40" y="16" width="18" height="14" rx="2" fill="#5b9dff"/>
+        <rect x="60" y="16" width="18" height="14" rx="2" fill="#9b6bff"/>
+      </g>
+    </g>
+    <!-- card 4: scatter -->
+    <g transform="translate(66,90)">
+      <rect width="118" height="74" rx="10" fill="#26262b" stroke="#3a3a42" stroke-width="1"/>
+      <g fill="#5b9dff">
+        <circle cx="24" cy="50" r="3.4"/><circle cx="40" cy="42" r="3.4"/><circle cx="52" cy="46" r="3.4"/>
+        <circle cx="66" cy="30" r="3.4"/><circle cx="80" cy="34" r="3.4"/><circle cx="94" cy="22" r="3.4"/>
+      </g>
+      <line x1="16" y1="58" x2="104" y2="18" stroke="#7c5cff" stroke-width="2" stroke-dasharray="4 3"/>
+    </g>
+    <!-- card 5: video (play) -->
+    <g transform="translate(198,90)">
+      <rect width="118" height="74" rx="10" fill="#26262b" stroke="#3a3a42" stroke-width="1"/>
+      <circle cx="59" cy="37" r="17" fill="#18181b" stroke="#a1a1aa" stroke-width="1.5"/>
+      <path d="M54,29 L70,37 L54,45 Z" fill="#e4e4e7"/>
+    </g>
+  </g>
+</svg>

@@ -1,0 +1,17 @@
+{
+  "name": "notes-src",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build"
+  },
+  "dependencies": {
+    "@milkdown/crepe": "^7.21.2",
+    "@milkdown/kit": "^7.21.2"
+  },
+  "devDependencies": {
+    "vite": "^5.4.11"
+  }
+}

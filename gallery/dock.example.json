@@ -1,0 +1,11 @@
+{
+  "controls": [
+    {
+      "id": "gallery",
+      "title": "Project Gallery",
+      "command": "cmux-gallery serve --root .",
+      "cwd": ".",
+      "height": 200
+    }
+  ]
+}

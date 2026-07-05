@@ -1,0 +1,20 @@
+# generated output (per project, not part of the tool)
+figures_index.html
+project_gallery.html
+.fig_thumbs/
+.project_gallery_thumbs/
+annotations/
+
+# Node / Playwright test artifacts
+node_modules/
+test-results/
+playwright-report/
+
+# test fixture
+example/
+
+# python / editor cruft
+__pycache__/
+*.pyc
+*.bak
+.DS_Store

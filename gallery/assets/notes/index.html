@@ -1,0 +1,109 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Notes</title>
+    <style>
+      :root { --toolbar-h: 40px; }
+      html, body, #app { margin: 0; padding: 0; width: 100%; }
+      html, body { height: 100%; overflow: hidden; background: #1b1d1e; }
+
+      /* ---- Top toolbar ---- */
+      #toolbar {
+        position: fixed; top: 0; left: 0; right: 0; z-index: 900;
+        height: var(--toolbar-h); box-sizing: border-box;
+        display: flex; align-items: center; gap: 2px;
+        padding: 0 8px; overflow-x: auto; overflow-y: hidden;
+        background: #202223;
+        border-bottom: 1px solid #3a3a3e;
+        font: 13px/1 -apple-system, system-ui, sans-serif;
+        -webkit-user-select: none; user-select: none;
+      }
+      #toolbar button {
+        display: inline-flex; align-items: center; justify-content: center;
+        min-width: 30px; height: 28px; padding: 0 7px; flex: 0 0 auto;
+        background: transparent; color: #c9ccce;
+        border: 1px solid transparent; border-radius: 5px;
+        font: inherit; font-size: 13px; cursor: pointer;
+        transition: background .12s, color .12s, border-color .12s;
+      }
+      #toolbar button:hover { background: #2c2f31; color: #fff; border-color: #3a3a3e; }
+      #toolbar button:active { background: #3a3d40; }
+      #toolbar button b { font-weight: 700; }
+      #toolbar button i { font-style: italic; }
+      #toolbar button s { text-decoration: line-through; }
+      #toolbar .sep { flex: 0 0 auto; width: 1px; height: 18px; background: #3a3a3e; margin: 0 5px; }
+      #toolbar .spacer { flex: 1 1 auto; }
+      /* Formatting buttons dimmed + inert in source mode */
+      #toolbar.source-mode button[data-fmt] { opacity: .35; pointer-events: none; }
+      #toolbar button.mode { min-width: 32px; }
+      #toolbar button.mode.active { background: #3a3d40; color: #fff; border-color: #4a4d50; }
+
+      /* ---- Editor sits below the toolbar ---- */
+      #app { position: fixed; top: var(--toolbar-h); left: 0; right: 0; bottom: 0; overflow: auto; }
+      /* Crepe only paints its own content height — stretch it to fill the page */
+      #app .milkdown, #app .milkdown > div { min-height: calc(100vh - var(--toolbar-h)); }
+
+      /* ---- Sober sans-serif typography (Orca-like) ---- */
+      #app .milkdown {
+        --crepe-font-default: -apple-system, system-ui, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+        --crepe-font-title: -apple-system, system-ui, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+      }
+      #app .milkdown h1 { font-size: 1.9em; font-weight: 600; }
+      #app .milkdown h2 { font-size: 1.5em; font-weight: 600; }
+      #app .milkdown h3 { font-size: 1.2em; font-weight: 600; }
+
+      /* ---- Raw markdown source mode ---- */
+      #source {
+        position: fixed; top: var(--toolbar-h); left: 0; right: 0; bottom: 0;
+        display: none; box-sizing: border-box;
+        margin: 0 auto; width: 100%; max-width: 860px;
+        padding: 24px; border: 0; outline: none; resize: none;
+        background: #1b1d1e; color: #d4d7d9;
+        font: 13px/1.6 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+        white-space: pre; overflow: auto;
+      }
+      body.source-mode #app { display: none; }
+      body.source-mode #source { display: block; }
+
+      #save-indicator {
+        position: fixed; top: calc(var(--toolbar-h) + 8px); right: 14px; z-index: 1000;
+        font: 12px/1.4 -apple-system, system-ui, sans-serif;
+        color: #fff; background: #c0392b; padding: 4px 10px;
+        border-radius: 6px; box-shadow: 0 1px 4px rgba(0,0,0,.4);
+        display: none;
+      }
+      #save-indicator.show { display: block; }
+    </style>
+    <script type="module" crossorigin src="./assets/index-DldPR6R5.js"></script>
+    <link rel="stylesheet" crossorigin href="./assets/index-bu9bMUcL.css">
+  </head>
+  <body>
+    <div id="toolbar" role="toolbar" aria-label="Formatting">
+      <button data-fmt data-cmd="paragraph" title="Paragraph">¶</button>
+      <button data-fmt data-cmd="h1" title="Heading 1">H1</button>
+      <button data-fmt data-cmd="h2" title="Heading 2">H2</button>
+      <button data-fmt data-cmd="h3" title="Heading 3">H3</button>
+      <span class="sep"></span>
+      <button data-fmt data-cmd="bold" title="Bold"><b>B</b></button>
+      <button data-fmt data-cmd="italic" title="Italic"><i>I</i></button>
+      <button data-fmt data-cmd="strike" title="Strikethrough"><s>S</s></button>
+      <span class="sep"></span>
+      <button data-fmt data-cmd="bullet" title="Bullet list">&bull;</button>
+      <button data-fmt data-cmd="ordered" title="Ordered list">1.</button>
+      <button data-fmt data-cmd="task" title="Task list">&#9745;</button>
+      <button data-fmt data-cmd="quote" title="Blockquote">&#10078;</button>
+      <button data-fmt data-cmd="code" title="Code block">&lt;/&gt;</button>
+      <button data-fmt data-cmd="link" title="Link">&#128279;</button>
+      <button data-fmt data-cmd="hr" title="Divider">&mdash;</button>
+      <span class="spacer"></span>
+      <span class="sep"></span>
+      <button class="mode" data-mode="source" title="Markdown source">&#10216;/&#10217;</button>
+      <button class="mode active" data-mode="rich" title="Rich editing">&#9998;</button>
+    </div>
+    <div id="app"></div>
+    <textarea id="source" spellcheck="false" aria-label="Markdown source"></textarea>
+    <div id="save-indicator">save failed</div>
+  </body>
+</html>

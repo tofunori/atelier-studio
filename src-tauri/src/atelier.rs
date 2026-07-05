@@ -1,6 +1,7 @@
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::time::Duration;
+use tauri::Manager;
 
 /// Espace de ports PROPRE à Studio (18790-19789) : même hash que
 /// cmux_gallery.py mais base décalée — le serveur Studio (isolé, ATELIER_STUDIO=1)
@@ -23,7 +24,7 @@ fn ping(port: u16) -> bool {
 }
 
 #[tauri::command]
-pub fn start_atelier(root: String, gallery_dir: Option<String>) -> Result<String, String> {
+pub fn start_atelier(app: tauri::AppHandle, root: String, gallery_dir: Option<String>) -> Result<String, String> {
     let root_path = Path::new(&root);
     let port = project_port(root_path);
     if !ping(port) {
@@ -37,7 +38,24 @@ pub fn start_atelier(root: String, gallery_dir: Option<String>) -> Result<String
                     std::path::PathBuf::from(s)
                 }
             })
-            .unwrap_or_else(|| home.join("Documents/cmux-gallery"));
+            .unwrap_or_else(|| {
+                // galerie VENDORISÉE : gallery/ du repo en dev, ressource bundlée en prod
+                let dev = std::env::current_dir()
+                    .map(|d| d.join("../gallery"))
+                    .unwrap_or_default();
+                let bundled = app
+                    .path()
+                    .resource_dir()
+                    .map(|r| r.join("gallery"))
+                    .unwrap_or_default();
+                if dev.join("cmux_gallery.py").exists() {
+                    dev
+                } else if bundled.join("cmux_gallery.py").exists() {
+                    bundled
+                } else {
+                    home.join("Documents/cmux-gallery") // legacy fallback
+                }
+            });
         let gallery = dir.join("cmux_gallery.py");
         if !gallery.exists() {
             return Err(format!("cmux_gallery.py introuvable dans {}", dir.display()));

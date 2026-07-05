@@ -43,7 +43,7 @@ export const DEFAULT_SETTINGS: Settings = {
   chatFontSize: 15,
   chatWidth: 760,
   chatLineHeight: 1.7,
-  galleryPath: "~/Documents/cmux-gallery",
+  galleryPath: "", // vide = galerie embarquée (gallery/ du repo ou ressource bundlée)
   autoRefreshAtelier: true,
   autoReview: { enabled: false, provider: "codex", model: "gpt-5.5", effort: "high", trigger: "files-changed" },
   language: "system",

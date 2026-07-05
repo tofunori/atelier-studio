@@ -1,0 +1,1084 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>LaTeX Studio</title>
+<link rel="stylesheet" href="/.fig_thumbs/cm/codemirror.min.css">
+<link rel="stylesheet" href="/.fig_thumbs/cm/material-darker.min.css">
+<script>(function(){
+  try{ var m=(location.hash||'').match(/atelier_nonce=([\w-]+)/); if(m) sessionStorage.setItem('atelier_nonce', m[1]); }catch(e){}
+  /* nonce IPC : inclus dans chaque message vers l'app hôte ; l'app rejette sans lui */
+  window.__atelierPost = function(p){
+    try{ p = Object.assign({}, p, {nonce: sessionStorage.getItem('atelier_nonce')||''}); }catch(e){}
+    try{ window.top.postMessage(p, '*'); }catch(e){}
+  };
+})();</script>
+<script src="/.fig_thumbs/cm/codemirror.min.js"></script>
+<link rel="stylesheet" href="/.fig_thumbs/cm/addon/dialog.css">
+<link rel="stylesheet" href="/.fig_thumbs/cm/addon/foldgutter.css">
+<link rel="stylesheet" href="/.fig_thumbs/cm/addon/matchesonscrollbar.css">
+<script src="/.fig_thumbs/cm/addon/dialog.js"></script>
+<script src="/.fig_thumbs/cm/addon/searchcursor.js"></script>
+<script src="/.fig_thumbs/cm/addon/search.js"></script>
+<script src="/.fig_thumbs/cm/addon/jump-to-line.js"></script>
+<script src="/.fig_thumbs/cm/addon/annotatescrollbar.js"></script>
+<script src="/.fig_thumbs/cm/addon/matchesonscrollbar.js"></script>
+<script src="/.fig_thumbs/cm/addon/match-highlighter.js"></script>
+<script src="/.fig_thumbs/cm/addon/matchbrackets.js"></script>
+<script src="/.fig_thumbs/cm/addon/closebrackets.js"></script>
+<script src="/.fig_thumbs/cm/addon/foldcode.js"></script>
+<script src="/.fig_thumbs/cm/addon/foldgutter.js"></script>
+<script src="/.fig_thumbs/cm/addon/brace-fold.js"></script>
+<script src="/.fig_thumbs/cm/addon/indent-fold.js"></script>
+<script src="/.fig_thumbs/cm/addon/comment-fold.js"></script>
+<script src="/.fig_thumbs/cm/addon/markdown-fold.js"></script>
+<script src="/.fig_thumbs/cm/addon/xml-fold.js"></script>
+<script src="/.fig_thumbs/cm/mark-selection.min.js"></script>
+<script src="/.fig_thumbs/cm/stex.min.js"></script>
+<script src="/.fig_thumbs/cm/python.min.js"></script>
+<script src="/.fig_thumbs/cm/r.min.js"></script>
+<script src="/.fig_thumbs/cm/markdown.min.js"></script>
+<script src="/.fig_thumbs/cm/julia.min.js"></script>
+<script src="/.fig_thumbs/cm/shell.min.js"></script>
+<script src="/.fig_thumbs/cm/javascript.min.js"></script>
+<script src="/.fig_thumbs/pdfjs/pdf.min.js"></script>
+<script src="/.fig_thumbs/marked.min.js"></script>
+<script src="/.fig_thumbs/purify.min.js"></script>
+<script src="/.fig_thumbs/diff.min.js"></script>
+<style>
+:root{--bg:#202024;--card:#27272a;--card2:#1f1f23;--txt:#e4e4e7;--muted:#a1a1aa;--accent:#5b9dff;--border:#3f3f46}
+  html,body{margin:0;height:100%;background:var(--bg);color:var(--txt);
+            font-family:-apple-system,sans-serif;display:flex;flex-direction:column;overflow:hidden}
+  header{background:var(--card);border-bottom:1px solid var(--border);padding:6px 10px;
+         display:flex;gap:6px;align-items:center;font-size:12.5px;flex-shrink:0;
+         overflow:hidden;white-space:nowrap}
+  header .grp{display:flex;gap:4px;align-items:center;flex:none}
+  header .sep{width:1px;height:18px;background:var(--border);flex:none;margin:0 3px}
+  header button{background:transparent;color:var(--muted);border:1px solid transparent;
+                border-radius:6px;padding:0 10px;height:26px;font-size:12px;cursor:pointer;flex:none}
+  header button:hover{color:var(--txt);background:rgba(255,255,255,0.06)}
+  header button.on{background:var(--border);color:var(--txt)}
+  header select{background:transparent;color:var(--txt);border:1px solid var(--border);
+                border-radius:6px;padding:0 6px;height:26px;font-size:12px;cursor:pointer;flex:none}
+  #build{background:var(--border);color:var(--txt);border-color:var(--border)}
+  #build:hover{background:#5b5b63;border-color:#5b5b63}
+  #fname{font-size:12.5px;font-weight:500;color:#cfd4dc;max-width:260px;overflow:hidden;text-overflow:ellipsis;flex:none;white-space:nowrap}
+  header .sep{display:none}
+  #findBtn,#moreBtn{width:26px;height:24px;display:inline-flex;align-items:center;justify-content:center;padding:0}
+  header .grp:has(#findBtn){margin-left:auto}
+  #ddot{color:#ffd54a;display:none;flex:none}
+  #state{color:var(--muted);flex:1;min-width:0;text-align:right;overflow:hidden;
+         text-overflow:ellipsis;white-space:nowrap}
+  #state.err{color:#ff6b6b}
+  #state.ok{color:#7ec97e}
+  #state.dirty{color:#ffd54a}
+  #helpPop{position:fixed;top:44px;right:10px;z-index:400;display:none;flex-direction:column;gap:7px;
+           background:var(--card);border:1px solid var(--border);border-radius:10px;padding:12px 16px;
+           font-size:12px;color:var(--muted);box-shadow:0 8px 30px rgba(0,0,0,.5);line-height:1.5}
+  #helpPop b{color:var(--txt);font-weight:600}
+  .pdfmode .editonly{display:none!important}
+  body:not(.pdfmode) .pdfonly{display:none!important}
+  .pdfmode #left{display:none}
+  #split{flex:1;display:flex;min-height:0}
+  #left{width:50%;display:flex;flex-direction:column;border-right:1px solid var(--border);min-width:0;background:#212121}
+  #right{flex:1;overflow:auto;background:var(--card2);position:relative;scrollbar-gutter:stable}
+  .CodeMirror{flex:1;height:auto;font-size:13px;font-family:"SF Mono",Menlo,monospace;line-height:1.5}
+  .pdfpage{position:relative;margin:10px auto;background:#fff;box-shadow:0 2px 10px rgba(0,0,0,.5);cursor:crosshair}
+  .pdfpage canvas{display:block}
+  #marker{position:absolute;left:0;right:0;height:22px;background:rgba(91,157,255,.25);
+          border-left:3px solid var(--accent);pointer-events:none;display:none;z-index:5}
+  .cm-syncline{background:rgba(91,157,255,.18)}
+  /* selection hugs the text (mark-selection) instead of filling the whole line */
+  .CodeMirror .CodeMirror-selected{background:transparent !important}
+  .CodeMirror-focused .CodeMirror-selected{background:transparent !important}
+  .CodeMirror-selectedtext{background:rgba(91,157,255,.45) !important;box-shadow:none !important;border-radius:2px}
+  .cm-line-flash{background:rgba(91,157,255,.18) !important;transition:background .6s}
+  /* last selection sent to Claude: persistent marker */
+  .cm-clsel{background:rgba(91,157,255,.28);border-radius:2px}
+  #picker{position:fixed;inset:0;background:rgba(0,0,0,.55);display:none;z-index:200;
+          align-items:flex-start;justify-content:center;padding-top:8vh}
+  #picker.show{display:flex}
+  #pickerBox{background:var(--card);border:1px solid var(--border);border-radius:10px;width:520px;
+             max-height:70vh;display:flex;flex-direction:column;overflow:hidden;
+             box-shadow:0 8px 40px rgba(0,0,0,.6)}
+  #pickerPath{padding:10px 14px;font-size:11.5px;color:var(--muted);border-bottom:1px solid var(--border);
+              white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  #pickerList{overflow-y:auto;flex:1}
+  #pickerList div{padding:7px 14px;font-size:13px;cursor:pointer;display:flex;gap:8px}
+  #pickerList div:hover{background:var(--border)}
+  #pickerList .d{color:var(--accent)}
+  /* selection pill + annotation card (same language as the gallery/HTML overlay) */
+  #selPill{position:fixed;z-index:300;display:none;align-items:center;gap:10px;min-width:320px;max-width:460px;
+      background:#1d2026;border:1px solid #343842;border-radius:24px;padding:8px 8px 8px 16px;
+      box-shadow:0 12px 36px rgba(0,0,0,.45);color:var(--txt);font-size:13px;user-select:none;-webkit-user-select:none}
+  #selPill .nb{font-size:14px;flex:none;line-height:1}
+  #selPill textarea{flex:1;background:transparent;border:none;outline:none;color:var(--txt);
+      font-size:13px;line-height:1.45;padding:0;resize:none;font-family:inherit;height:20px;max-height:120px}
+  #selPill textarea::placeholder{color:#6d7480}
+  #selPill button{border:none;cursor:pointer;display:flex;align-items:center;justify-content:center}
+  #selPill .del{width:26px;height:26px;border-radius:50%;background:none;color:#6d7480;flex:none;padding:0}
+  #selPill .del:hover{color:#ff7a76}
+  #selPill .del svg{width:14px;height:14px;stroke:currentColor;fill:none;stroke-width:1.6;
+      stroke-linecap:round;stroke-linejoin:round}
+  #selPill .tgt{width:28px;height:28px;border-radius:50%;background:transparent;
+      border:1px solid #3a4150;color:var(--muted);font-size:14px;flex:none}
+  #selPill .tgt:hover,#selPill .tgt.set{border-color:#5b9dff;color:#5b9dff}
+  #selPill .go{width:32px;height:32px;border-radius:50%;background:#c96442;color:#fff;font-size:16px;flex:none}
+  #selPill .go:hover{background:#e0714a}
+  #tgMenu{position:fixed;z-index:302;display:none;flex-direction:column;min-width:240px;max-width:400px;
+      background:rgba(24,27,34,.98);border:1px solid #3a4150;border-radius:12px;padding:6px;
+      box-shadow:0 14px 48px rgba(0,0,0,.55);color:var(--txt);font-size:12.5px}
+  #tgMenu .hd{font-size:10.5px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;padding:5px 9px 3px}
+  #tgMenu .it{display:flex;gap:8px;align-items:center;padding:7px 9px;border-radius:8px;cursor:pointer}
+  #tgMenu .it:hover{background:rgba(255,255,255,.06)}
+  #tgMenu .it .app{flex:none;font-size:10px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;
+      color:#8ab4ff;border:1px solid #33415e;border-radius:5px;padding:1px 5px}
+  #tgMenu .it .t{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  #tgMenu .it.on .t{color:#8ab4ff}
+#mdModeSeg button.mdon{background:var(--accent);color:#10151d;border-color:var(--accent)}
+  #diffPane{display:none;position:absolute;inset:0;z-index:50;overflow:auto;background:var(--bg,#212429);
+    padding:18px 22px;font-family:ui-monospace,Menlo,monospace;font-size:12.5px;line-height:1.7;
+    white-space:pre-wrap;word-break:break-word;color:#cfd4dc}
+  #diffPane .dAdd{background:rgba(52,201,142,.16);color:#7fe0b4;border-bottom:1px solid rgba(52,201,142,.6);
+    border-radius:2px;text-decoration:none}
+  #diffPane .dDel{background:rgba(224,108,117,.14);color:#e09aa0;text-decoration:line-through;border-radius:2px}
+  #diffGrp button.on{background:var(--accent);color:#10151d;border-color:var(--accent)}
+  /* palette LaTeX/code plus riche (par-dessus material-darker) */
+  .cm-s-material-darker .cm-tag{color:#7aa2f7}                 /* \commandes */
+  .cm-s-material-darker .cm-bracket{color:#e0b74a}             /* { } [ ] */
+  .cm-s-material-darker .cm-atom{color:#b587d6}                /* noms d'environnements */
+  .cm-s-material-darker .cm-string{color:#8fd3a7}              /* math $…$ */
+  .cm-s-material-darker .cm-comment{color:#6b7482;font-style:italic}
+  .cm-s-material-darker .cm-number{color:#e8a35a}
+  .cm-s-material-darker .cm-keyword{color:#d97757}
+  .cm-s-material-darker .cm-builtin{color:#7aa2f7}
+  .cm-s-material-darker .cm-variable-2{color:#9db4d0}
+  .cm-s-material-darker .cm-def{color:#e0b74a}
+  .cm-s-material-darker span.cm-error{background:transparent;color:#e09aa0}
+
+/* ---- option B : status bar + menus (sobre) ---- */
+#statusbar{display:flex;gap:16px;align-items:center;padding:2px 12px;min-height:22px;
+  background:#1a1d22;border-top:1px solid #333a45;font-size:11px;color:#8a919e;
+  font-variant-numeric:tabular-nums}
+#statusbar span{cursor:default}
+#sbWrap:hover,#sbLint:hover{color:#e8eaed;cursor:pointer}
+#sbLint.err{color:#e06c75}
+#sbLint.ok{color:#98c379}
+#morePop{position:fixed;top:40px;right:10px;z-index:400;background:#1b1f26;
+  border:1px solid #333a45;border-radius:10px;padding:5px;min-width:220px;
+  box-shadow:0 8px 24px rgba(0,0,0,.5);font-size:12.5px;color:#cfd4dc}
+#morePop div{padding:6px 10px;border-radius:7px;cursor:pointer;display:flex;justify-content:space-between;gap:14px}
+#morePop div:hover{background:#2c313a}
+#morePop em{font-style:normal;color:#6b7482;font-size:11px}
+#lintPane{max-height:140px;overflow-y:auto;background:#1a1d22;border-top:1px solid #333a45;
+  font:11.5px/1.6 ui-monospace,Menlo,monospace;padding:4px 0}
+#lintPane div{padding:1px 12px;cursor:pointer;color:#cfd4dc}
+#lintPane div:hover{background:#2c313a}
+#lintPane .lc{color:#e06c75;margin-right:8px}
+.CodeMirror-dialog{background:#1b1f26 !important;border-bottom:1px solid #333a45 !important;
+  color:#cfd4dc !important;padding:5px 10px !important;font-size:12.5px}
+.CodeMirror-dialog input{background:#2c313a !important;border:1px solid #3f4652 !important;
+  border-radius:6px !important;color:#e8eaed !important;padding:3px 8px !important;
+  font-family:inherit !important;outline:none}
+.CodeMirror-search-hint{color:#6b7482 !important}
+.cm-matchhighlight{background:rgba(91,157,255,0.14)}
+.CodeMirror-focused .cm-matchhighlight{background:rgba(91,157,255,0.14)}
+.CodeMirror-foldgutter{width:12px}
+.CodeMirror-foldgutter-open:after,.CodeMirror-foldgutter-folded:after{color:#6b7482;font-size:10px}
+.lint-gutter-err{color:#e06c75;font-size:10px;line-height:1}
+.cm-lint-line{border-bottom:1px dotted rgba(224,108,117,.7)}
+</style>
+<script>
+function __ct(){try{return JSON.parse(localStorage.getItem('claudeTargetV1')||'null')}catch(e){return null}}(function(){var T={'Default':{bg:'#202024',card:'#27272a',card2:'#1f1f23',txt:'#e4e4e7',muted:'#a1a1aa',accent:'#5b9dff',border:'#3f3f46'},'Codex One':{bg:'#202024',card:'#2f343f',card2:'#21252b',txt:'#abb2bf',muted:'#7f848e',accent:'#4d78cc',border:'#3e4451'},'Dracula':{bg:'#282a36',card:'#343746',card2:'#21222c',txt:'#f8f8f2',muted:'#9aa0b3',accent:'#bd93f9',border:'#44475a'},'Nord':{bg:'#2e3440',card:'#3b4252',card2:'#272c36',txt:'#e5e9f0',muted:'#9aa3b2',accent:'#88c0d0',border:'#434c5e'}};var t;try{t=T[localStorage.getItem('figTheme')];}catch(e){}t=t||T['Default'];var r=document.documentElement.style;for(var k in t)r.setProperty('--'+k,t[k]);})();</script>
+</head>
+<body>
+<header>
+  <b id="fname"></b><span id="ddot" title="Modifications non sauvegardées">&#9679;</span>
+  <span class="grp editonly">
+    <button id="build" title="Compiler (&#8984;B)">Compile</button>
+    <button id="saveBtn" title="Sauvegarder (&#8984;S)" style="display:none">Save</button>
+    <button id="openFile" title="Ouvrir un autre fichier" style="display:none">Open&hellip;</button>
+    <select id="wrapSel" title="Retour à la ligne" style="display:none">
+      <option value="win">Wrap: window</option>
+      <option value="off">Wrap: off</option>
+      <option value="80">Wrap: 80</option>
+      <option value="100">Wrap: 100</option>
+      <option value="120">Wrap: 120</option>
+    </select>
+    <button id="rewrapBtn" style="display:none">&#9166;80</button>
+  </span>
+  <span class="sep editonly"></span>
+  <span class="grp editonly">
+    <button id="togglePdf" title="Vue scindée éditeur + PDF">Split</button>
+    <button id="popPdf" title="Ouvrir le PDF dans un onglet séparé — synctex actif (clic PDF &#8594; ligne source ici)">PDF &#8599;</button>
+  </span>
+  <span class="sep"></span>
+  <span class="grp" id="diffGrp" style="display:none">
+    <button id="diffPrev" title="Version précédente">&#8249;</button>
+    <button id="diffTag" title="Voir le diff de cette version">&#177; v1</button>
+    <button id="diffNext" title="Version suivante">&#8250;</button>
+    <button id="diffRestore" title="Rétablir la version affichée sur le disque">Rétablir</button>
+  </span>
+  <span style="display:none"></span>
+  <span class="grp pdfonly">
+    <button id="reloadPdf" title="Recharger le PDF">&#8635;</button>
+  </span>
+  <span class="sep"></span>
+  <span class="grp pdfonly">
+    <button id="zoomOut" title="Zoom arrière">&#8722;</button>
+    <button id="zoomFit" title="Ajuster à la largeur">&#10530;</button>
+    <button id="zoomIn" title="Zoom avant">+</button>
+  </span>
+  <span class="grp editonly">
+    <button id="findBtn" title="Rechercher (&#8984;F)"><svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><circle cx="7" cy="7" r="4.4"/><path d="M10.4 10.4L14 14"/></svg></button>
+    <button id="moreBtn" title="Plus&hellip;">&#8943;</button>
+  </span>
+  <span id="state"></span>
+  <button id="helpBtn" title="Raccourcis clavier" style="display:none">?</button>
+  <div id="morePop" style="display:none">
+    <div data-act="save">Sauvegarder <em>&#8984;S</em></div>
+    <div data-act="open">Ouvrir un fichier&hellip;</div>
+    <div data-act="rewrap">Rewrap paragraphe <em>&#8997;Q</em></div>
+    <div data-act="wrap">Wrap : <span id="moreWrapVal"></span></div>
+    <div data-act="help">Raccourcis clavier</div>
+  </div>
+</header>
+<div id="helpPop">
+  <span><b>&#8984;S</b> sauvegarder &nbsp;&middot;&nbsp; <b>&#8984;B</b> compiler</span>
+  <span><b>&#8984;J</b> position source &#8594; PDF (vue scindée et onglet PDF)</span>
+  <span><b>Clic dans le PDF</b> &#8594; saute à la ligne source (synctex)</span>
+  <span><b>Sélection de texte</b> &#8594; pastille : annoter / envoyer à Claude</span>
+  <span><b>Esc</b> annule la sélection</span>
+</div>
+<div id="statusbar" class="editonly">
+  <span id="sbPos">Ln 1, Col 1</span>
+  <span id="sbMode"></span>
+  <span id="sbWrap" title="Cliquer pour changer le retour à la ligne"></span>
+  <span id="sbLint" style="display:none"></span>
+  <span style="flex:1"></span>
+  <span id="sbSaved"></span>
+</div>
+<div id="lintPane" style="display:none"></div>
+<div id="split" style="position:relative">
+  <div id="left"></div>
+  <div id="diffPane"></div>
+  <div id="right"><div id="marker"></div></div>
+</div>
+<div id="picker"><div id="pickerBox">
+  <div id="pickerPath"></div>
+  <div id="pickerList"></div>
+</div></div>
+<div id="selPill"><span class="nb">&#128172;</span><textarea rows="1" placeholder="Ajouter une annotation&hellip;"></textarea><button class="del" title="Annuler la sélection (&Eacute;chap)"><svg viewBox="0 0 14 14"><path d="M2 3.5h10M5.5 3.5V2.2c0-.4.3-.7.7-.7h1.6c.4 0 .7.3.7.7v1.3M3.5 3.5l.6 8.1c0 .5.4.9.9.9h4c.5 0 .9-.4.9-.9l.6-8.1M5.8 6v4M8.2 6v4"/></svg></button><button class="tgt" title="Choisir la session Claude cible">&#9678;</button><button class="go" title="Envoyer la sélection à la session Claude (Entr&eacute;e)">&#8593;</button></div>
+<div id="tgMenu"></div>
+<script>
+pdfjsLib.GlobalWorkerOptions.workerSrc = "/.fig_thumbs/pdfjs/pdf.worker.min.js";
+const path = new URLSearchParams(location.search).get("path");
+const isPdfMode = new URLSearchParams(location.search).get("mode") === "pdf";
+// cross-tab sync (editor tab <-> PDF tab): synctex jumps + reload after compile
+const bc = ("BroadcastChannel" in window && path) ? new BroadcastChannel("latexstudio:" + path) : null;
+const __EXT = (path || "").split(".").pop().toLowerCase();
+const IS_TEX = __EXT === "tex";
+const __CM_MODE = ({tex:"stex", py:"python", r:"r", md:"markdown", jl:"julia",
+  sh:"shell", bash:"shell", zsh:"shell", json:{name:"javascript",json:true},
+  js:"javascript", mjs:"javascript", cjs:"javascript",
+  ts:{name:"javascript",typescript:true}, tsx:{name:"javascript",typescript:true},
+  jsx:"javascript", csv:null, txt:null})[__EXT] ?? null;
+let pdfPath = path ? path.replace(/\.tex$/, ".pdf") : null;
+// single initial-load trigger: resolve the real PDF path first, THEN load once
+// (two concurrent getDocument() calls can deadlock pdf.js worker startup)
+if(path) fetch("/texroot?path=" + encodeURIComponent(path)).then(r=>r.json()).then(j=>{
+  if(j.pdf) pdfPath = j.pdf;
+  if(IS_TEX) loadPdf();
+}).catch(()=>{ if(IS_TEX) loadPdf(); });
+if(!IS_TEX){
+  ["build","togglePdf","popPdf","reloadPdf"].forEach(id => {
+    const el = document.getElementById(id); if(el) el.style.display = "none";
+  });
+  const IS_MD = __EXT === "md";
+  if(IS_MD){
+    // split éditeur | aperçu rendu (comme tex|PDF)
+    const r = document.getElementById("right");
+    if(r){
+      // ne PAS écraser #right (le #marker qu'il contient est référencé plus bas)
+      r.insertAdjacentHTML("beforeend",
+        '<div id="mdprev" style="max-width:820px;margin:0 auto;padding:28px 32px;'
+        + 'font-family:var(--ui-font,-apple-system,sans-serif);font-size:14.5px;line-height:1.65;color:#d6dae0"></div>');
+      const prev = document.getElementById("mdprev");
+      const render = () => {
+        try{ prev.innerHTML = DOMPurify.sanitize(marked.parse(cm.getValue())); }catch(e){}
+      };
+      // modes markdown : Édition (défaut) | Split | Aperçu
+      const l = document.getElementById("left");
+      function mdApply(mode){
+        localStorage.setItem("mdViewMode", mode);
+        if(mode === "edit"){ r.style.display = "none"; l.style.display = "flex"; l.style.width = "100%"; l.style.borderRight = "none"; }
+        else if(mode === "preview"){ r.style.display = "block"; l.style.display = "none"; }
+        else { r.style.display = "block"; l.style.display = "flex"; l.style.width = "50%"; l.style.borderRight = "1px solid var(--border)"; }
+        document.querySelectorAll("#mdModeSeg button").forEach(b =>
+          b.classList.toggle("mdon", b.dataset.m === mode));
+        if(cm) setTimeout(() => cm.refresh(), 60);
+      }
+      const wrapGrp = document.getElementById("wrapSel")?.closest(".grp");
+      if(wrapGrp){
+        wrapGrp.insertAdjacentHTML("afterend",
+          '<span class="sep editonly"></span><span class="grp editonly" id="mdModeSeg">'
+          + '<button data-m="edit" title="Édition seule">Édition</button>'
+          + '<button data-m="split" title="Éditeur + aperçu">Split</button>'
+          + '<button data-m="preview" title="Aperçu seul">Aperçu</button></span>');
+        document.querySelectorAll("#mdModeSeg button").forEach(b =>
+          b.onclick = () => mdApply(b.dataset.m));
+      }
+      // cm est déclaré (let) plus bas puis créé après le fetch : différer le
+      // premier appel (appel immédiat = TDZ ReferenceError qui tue le script)
+      function initMd(){
+        if(!cm){ setTimeout(initMd, 100); return; }
+        let mdT=null;
+        cm.on("change", () => { clearTimeout(mdT); mdT = setTimeout(render, 300); });
+        render();
+        mdApply(localStorage.getItem("mdViewMode") || "edit");
+      }
+      setTimeout(initMd, 0);
+      // « Add to chat » sur sélection dans l'APERÇU rendu (mode Studio)
+      if(window.self !== window.top){
+        const pillBtn = document.createElement("button");
+        pillBtn.innerHTML = '<svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" style="vertical-align:-2px"><path d="M14 8c0 3-2.7 5.2-6 5.2-.8 0-1.6-.1-2.3-.4L2.5 14l1-2.6C2.6 10.5 2 9.3 2 8c0-3 2.7-5.2 6-5.2S14 5 14 8z"/></svg>&nbsp; Add to chat';
+        pillBtn.style.cssText = "position:fixed;z-index:9999;display:none;background:#2c313a;"
+          + "color:#e6e6e6;border:1px solid #3a414d;border-radius:999px;padding:7px 14px;"
+          + "font-size:13px;cursor:pointer;box-shadow:0 6px 18px rgba(0,0,0,.5);"
+          + "font-family:-apple-system,sans-serif";
+        document.body.appendChild(pillBtn);
+        let selTxt = "";
+        pillBtn.addEventListener("mousedown", (e) => {
+          e.preventDefault(); e.stopPropagation();
+          if(!selTxt) return;
+          // retrouver les lignes source : le rendu enlève la syntaxe md, on
+          // cherche les premiers/derniers mots de la sélection dans la source
+          let page = "";
+          try{
+            const src = cm ? cm.getValue() : "";
+            const words = selTxt.split(/\s+/).filter(Boolean);
+            const head = words.slice(0, 4).join(" ");
+            const tail = words.slice(-4).join(" ");
+            const flat = (x) => x.replace(/[#*_`>\[\]()!-]/g, "").replace(/\s+/g, " ");
+            const srcFlat = flat(src);
+            const i0 = srcFlat.indexOf(flat(head));
+            const i1 = srcFlat.indexOf(flat(tail), Math.max(0, i0));
+            if(i0 >= 0){
+              // reconvertir les index aplatis en numéros de ligne approximatifs
+              const lineOf = (idx) => {
+                let seen = 0, line = 1;
+                for(const ln of src.split("\n")){
+                  seen += flat(ln).length + 1;
+                  if(seen > idx) return line;
+                  line++;
+                }
+                return line;
+              };
+              const a = lineOf(i0), b = i1 >= 0 ? lineOf(i1) : a;
+              page = "L" + a + (b > a ? "-" + b : "");
+            }
+          }catch(err){}
+          fetch("/quote", {method:"POST", headers:{"Content-Type":"application/json"},
+            body: JSON.stringify({rel: path, page: page, text: selTxt, comment: "", direct: true, embed: true})})
+            .then(r => r.json())
+            .then(j => { if(j && j.message) __atelierPost({type:"atelier-add-to-chat", text:j.message}); })
+            .catch(() => {});
+          pillBtn.style.display = "none";
+          try{ window.getSelection().removeAllRanges(); }catch(err){}
+        });
+        r.addEventListener("mouseup", () => {
+          setTimeout(() => {
+            const sel = window.getSelection();
+            const t = sel ? String(sel).trim() : "";
+            if(!t || !sel || sel.rangeCount === 0){ pillBtn.style.display = "none"; selTxt = ""; return; }
+            selTxt = t;
+            const rect = sel.getRangeAt(0).getBoundingClientRect();
+            pillBtn.style.left = Math.max(8, rect.left + rect.width/2 - 55) + "px";
+            pillBtn.style.top = Math.max(8, rect.top - 42) + "px";
+            pillBtn.style.display = "block";
+          }, 0);
+        });
+      }
+    }
+  } else {
+    // pas d'aperçu pour les autres : l'éditeur prend toute la largeur
+    const r = document.getElementById("right"); if(r) r.style.display = "none";
+    const l = document.getElementById("left");
+    if(l){ l.style.width = "100%"; l.style.borderRight = "none"; }
+  }
+  document.title = (path || "").split("/").pop();
+}
+const _base = path ? path.split("/").pop() : "(no file)";
+document.getElementById("fname").textContent = _base;
+document.title = isPdfMode ? _base + " — PDF" : _base;
+
+let cm = null, diskMtime = 0, dirty = false, pdfDoc = null, pageEls = [], pdfVps = [];
+let zoom = parseFloat(localStorage.getItem("texZoom") || "1");
+const stateEl = document.getElementById("state");
+const setState = (cls, txt) => { stateEl.className = cls; stateEl.textContent = txt; stateEl.title = txt; };
+const ddot = document.getElementById("ddot");
+
+// word wrap (VS Code-style): off | window | fixed column (80/100/120)
+const wrapSel = document.getElementById("wrapSel");
+function applyWrap(v){
+  localStorage.setItem("cmWrap", v);
+  const fixed = /^\d+$/.test(v);
+  if(cm){
+    const w = cm.getWrapperElement();
+    // gap beside a capped editor stays #212121 (the editor's own colour, set on #left)
+    // instead of a black panel; thin border marks the chosen column
+    w.style.maxWidth = fixed ? ("calc(" + v + "ch + 70px)") : "";
+    w.style.borderRight = fixed ? "1px solid #33384a" : "";
+    cm.setOption("lineWrapping", v !== "off");
+    cm.refresh();
+  }
+}
+wrapSel.value = localStorage.getItem("cmWrap") || "win";
+wrapSel.onchange = () => applyWrap(wrapSel.value);
+
+async function load(){
+  const r = await fetch("/code?path=" + encodeURIComponent(path));
+  const j = await r.json();
+  if(j.error) return setState("err", j.error);
+  recentsAdd(path);
+  diskMtime = j.mtime;
+  // re-mesurer CodeMirror quand le panneau est redimensionné (sinon les
+  // retours de ligne gardent l'ancienne largeur et l'affichage se décale)
+  let __rsT=null;
+  window.addEventListener("resize", () => {
+    clearTimeout(__rsT);
+    __rsT=setTimeout(() => { if(cm) cm.refresh(); }, 120);
+  });
+  cm = CodeMirror(document.getElementById("left"), {
+    value: j.text, mode: __CM_MODE, theme: "material-darker",
+    lineNumbers: true, lineWrapping: true, viewportMargin: 50, styleSelectedText: true,
+    matchBrackets: true, autoCloseBrackets: true,
+    foldGutter: true, gutters: ["CodeMirror-linenumbers", "CodeMirror-foldgutter"],
+    highlightSelectionMatches: { annotateScrollbar: true, minChars: 3 }
+  });
+  cm.on("cursorActivity", () => {
+    const c = cm.getCursor();
+    const el = document.getElementById("sbPos");
+    if (el) el.textContent = "Ln " + (c.line + 1) + ", Col " + (c.ch + 1);
+  });
+  cm.on("change", (_, ch) => { if(ch.origin !== "setValue"){ dirty = true; ddot.style.display = "inline"; setState("dirty", "modified"); } });
+  // ?line=N (ou N-M) : sauter à la ligne et la surligner brièvement (liens fichier:ligne du chat)
+  const __lineParam = new URLSearchParams(location.search).get("line");
+  if(__lineParam){
+    const mm = /^(\d+)(?:-(\d+))?$/.exec(__lineParam);
+    if(mm){
+      const l1 = Math.max(0, parseInt(mm[1],10)-1), l2 = mm[2] ? parseInt(mm[2],10)-1 : l1;
+      setTimeout(() => {
+        cm.setCursor({line:l1, ch:0});
+        cm.scrollIntoView({line:Math.min(l2+3, cm.lineCount()-1), ch:0}, 120);
+        for(let ln=l1; ln<=Math.min(l2, cm.lineCount()-1); ln++) cm.addLineClass(ln, "background", "cm-line-flash");
+        setTimeout(() => { for(let ln=l1; ln<=Math.min(l2, cm.lineCount()-1); ln++) cm.removeLineClass(ln, "background", "cm-line-flash"); }, 2600);
+      }, 60);
+    }
+  }
+  let selT = null;
+  cm.on("cursorActivity", () => {
+    clearTimeout(selT);
+    selT = setTimeout(() => {
+      const sel = cm.getSelection();
+      const f = cm.getCursor("from"), t = cm.getCursor("to");
+      if(sel && sel.trim()){
+        if(window._clMark) window._clMark.clear();
+        window._clMark = cm.markText(f, t, {className: "cm-clsel"});
+        fetch("/selinfo", {method:"POST", headers:{"Content-Type":"application/json"},
+          body: JSON.stringify({
+            lines: t.line - f.line + 1, words: sel.trim().split(/\s+/).length,
+            text: sel, rel: path, name: path.split("/").pop(),
+            page: "L" + (f.line+1) + "-" + (t.line+1)
+          })}).catch(()=>{});
+        selPillShow(f, t, sel);
+      } else {
+        selHide();
+        if(window._clMark){ window._clMark.clear(); window._clMark = null; }
+      }
+    }, 200);
+  });
+  applyWrap(wrapSel.value);
+  // Rewrap façon VS Code (extension Rewrap, Alt+Q) : reformate RÉELLEMENT le
+  // paragraphe courant (ou la sélection) à 80 colonnes — chaque ligne visible
+  // redevient une vraie ligne numérotée.
+  function rewrapPar(){
+    // colonne = largeur visible du panneau (moins gutter/marge), bornée 40-120 :
+    // après rewrap, chaque ligne rentre dans le panneau → un numéro par ligne
+    const gutter = cm.getGutterElement().offsetWidth;
+    const col = Math.max(40, Math.min(120,
+      Math.floor((cm.getWrapperElement().clientWidth - gutter - 16) / cm.defaultCharWidth())));
+    let from, to;
+    if(cm.somethingSelected()){
+      from = cm.getCursor("from").line; to = cm.getCursor("to").line;
+    } else {
+      const cur = cm.getCursor().line, last = cm.lineCount()-1;
+      from = cur; while(from>0 && cm.getLine(from-1).trim()!=="") from--;
+      to = cur; while(to<last && cm.getLine(to+1).trim()!=="") to++;
+    }
+    const lines=[]; for(let i=from;i<=to;i++) lines.push(cm.getLine(i));
+    const indent=(lines[0].match(/^\s*/)||[""])[0];
+    // préserver un préfixe de commentaire commun (% latex, # py/r/jl, // js)
+    const cm0=(lines[0].match(/^\s*([%#]+|\/\/)\s?/)||[])[1] || "";
+    const allComment = cm0 && lines.every(l => !l.trim() || l.trim().startsWith(cm0));
+    const prefix = allComment ? indent + cm0 + " " : indent;
+    const strip = (l) => allComment
+      ? l.replace(new RegExp("^\\s*" + cm0.replace(/[%/]/g, "\\$&") + "\\s?"), "").trim()
+      : l.trim();
+    const words=lines.map(strip).join(" ").split(/\s+/).filter(Boolean);
+    const out=[]; let curL="";
+    for(const w of words){
+      if(!curL) curL=prefix+w;
+      else if((curL+" "+w).length<=col) curL+=" "+w;
+      else { out.push(curL); curL=prefix+w; }
+    }
+    if(curL) out.push(curL);
+    cm.replaceRange(out.join("\n"), {line:from,ch:0}, {line:to,ch:cm.getLine(to).length});
+  }
+  cm.addKeyMap({"Alt-Q": rewrapPar});
+  document.getElementById("rewrapBtn").onclick = () => { rewrapPar(); cm.focus(); };
+
+  // Rewrap façon VS Code : les lignes repliées s'alignent sous le début du
+  // texte de la ligne (indentation préservée), pas sous le gutter.
+  (function(){
+    const basePad = 4;
+    cm.on("renderLine", function(cm, line, elt){
+      const off = CodeMirror.countColumn(line.text, null, cm.getOption("tabSize")) * cm.defaultCharWidth();
+      elt.style.textIndent = "-" + off + "px";
+      elt.style.paddingLeft = (basePad + off) + "px";
+    });
+    cm.refresh();
+  })();
+
+  // initial loadPdf is triggered by the /texroot resolution (single-trigger rule)
+}
+
+async function save(){
+  const r = await fetch("/codesave", {method:"POST", headers:{"Content-Type":"application/json"},
+    body: JSON.stringify({path, text: cm.getValue(), mtime: diskMtime})});
+  const j = await r.json();
+  if(j.error === "conflit"){ setState("err", "disk conflict — re-⌘S to overwrite"); diskMtime = j.mtime; return false; }
+  diskMtime = j.mtime; dirty = false; ddot.style.display = "none"; setState("ok", "saved");
+  if (window.__onSaved) window.__onSaved();
+  return true;
+}
+
+async function compile(){
+  if(dirty && !(await save())) return;
+  setState("dirty", "compiling…");
+  const r = await fetch("/compile", {method:"POST", headers:{"Content-Type":"application/json"},
+    body: JSON.stringify({path})});
+  const j = await r.json();
+  if(!j.ok) return setState("err", "✗ " + (j.error || "failed"));
+  if(j.pdf) pdfPath = j.pdf;
+  setState("ok", "✓ compiled " + new Date().toLocaleTimeString());
+  loadPdf();
+  if(bc) bc.postMessage({t: "compiled"});   // PDF tabs reload themselves
+}
+
+let _pdfToken = 0;
+async function loadPdf(){
+  const tok = ++_pdfToken;
+  try{
+    const doc = await pdfjsLib.getDocument({url: "/raw?path=" + encodeURIComponent(pdfPath) + "&t=" + Date.now(),
+      standardFontDataUrl: "/.fig_thumbs/pdfjs/standard_fonts/", cMapUrl: "/.fig_thumbs/pdfjs/cmaps/", cMapPacked: true}).promise;
+    if(tok !== _pdfToken) return;
+    pdfDoc = doc;
+    const right = document.getElementById("right");
+    const scroll = right.scrollTop;
+    [...right.querySelectorAll(".pdfpage")].forEach(e => e.remove());
+    pageEls = []; pdfVps = [];
+    _lastW = right.clientWidth;
+    const w = (right.clientWidth - 24) * zoom;
+    for(let n = 1; n <= doc.numPages; n++){
+      if(tok !== _pdfToken) return;
+      const page = await doc.getPage(n);
+      const base = page.getViewport({scale: 1});
+      const scale = w / base.width;
+      const vp = page.getViewport({scale});
+      const div = document.createElement("div");
+      div.className = "pdfpage"; div.dataset.page = n;
+      div.style.width = vp.width + "px"; div.style.height = vp.height + "px";
+      const cv = document.createElement("canvas");
+      cv.width = vp.width * devicePixelRatio; cv.height = vp.height * devicePixelRatio;
+      cv.style.width = vp.width + "px"; cv.style.height = vp.height + "px";
+      div.appendChild(cv);
+      right.appendChild(div);
+      pageEls[n] = div; pdfVps[n] = {scale, h: base.height};
+      const ctx = cv.getContext("2d");
+      ctx.scale(devicePixelRatio, devicePixelRatio);
+      await page.render({canvasContext: ctx, viewport: vp, intent: "print"}).promise;
+      div.onclick = e => {
+        const r2 = div.getBoundingClientRect();
+        synctexEdit(n, (e.clientX - r2.left) / pdfVps[n].scale, (e.clientY - r2.top) / pdfVps[n].scale);
+      };
+    }
+    right.scrollTop = scroll;
+  }catch(e){ console.warn("loadPdf:", e); /* souvent: pas encore de PDF */ }
+}
+
+function showMarker(page, y0){
+  if(!pageEls[page]) return false;
+  const el = pageEls[page], vp = pdfVps[page];
+  const y = y0 * vp.scale;
+  const marker = document.getElementById("marker");
+  el.appendChild(marker);
+  marker.style.top = (y - 14) + "px";
+  marker.style.display = "block";
+  el.scrollIntoView({block:"nearest"});
+  document.getElementById("right").scrollTop = el.offsetTop + y - document.getElementById("right").clientHeight/2;
+  setTimeout(() => marker.style.display = "none", 2500);
+  return true;
+}
+
+async function synctexView(){
+  if(!cm) return;
+  const line = cm.getCursor().line + 1;
+  const r = await fetch("/synctex", {method:"POST", headers:{"Content-Type":"application/json"},
+    body: JSON.stringify({dir:"view", tex: path, pdf: pdfPath, line})});
+  const j = await r.json();
+  if(!j.page) return setState("err", "synctex: no match");
+  if(bc) bc.postMessage({t: "view", page: j.page, y: j.y});   // separate PDF tabs scroll too
+  if(pdfDoc && !showMarker(j.page, j.y) ) setState("err", "synctex: page not rendered");
+}
+
+let lastSyncLine = null;
+function jumpToLine(line){
+  if(!cm) return;
+  const ln = line - 1;
+  cm.setCursor({line: ln, ch: 0});
+  cm.scrollIntoView({line: ln, ch: 0}, 120);
+  if(lastSyncLine !== null) cm.removeLineClass(lastSyncLine, "background", "cm-syncline");
+  cm.addLineClass(ln, "background", "cm-syncline");
+  lastSyncLine = ln;
+  cm.focus();
+}
+async function synctexEdit(page, x, y){
+  const r = await fetch("/synctex", {method:"POST", headers:{"Content-Type":"application/json"},
+    body: JSON.stringify({dir:"edit", tex: path, pdf: pdfPath, page, x, y})});
+  const j = await r.json();
+  if(!j.line) return setState("err", "synctex: no match");
+  if(cm) jumpToLine(j.line);
+  if(bc) bc.postMessage({t: "jump", line: j.line});   // editor tab jumps when we're the PDF tab
+}
+if(bc) bc.onmessage = e => {
+  const m = e.data || {};
+  if(isPdfMode){
+    if(m.t === "compiled") loadPdf();
+    else if(m.t === "view") showMarker(m.page, m.y);
+  } else if(m.t === "jump"){
+    jumpToLine(m.line);
+  }
+};
+
+// --- selection pill: annotate + send directly to the Claude session (same flow
+//     as the figure pill and the HTML report overlay; /quote with direct:true) ---
+const selPill = document.getElementById("selPill");
+const __goHTML0 = (window.self!==window.top && selPill.querySelector('.go')) ? null : null; // rempli après restyle
+let __goHTML = null;
+function goReset(go){ if (__goHTML) go.innerHTML = __goHTML; else go.textContent = "↑"; }
+setTimeout(function(){ var g = selPill.querySelector('.go'); if (window.self!==window.top && g) __goHTML = g.innerHTML; }, 0);
+const selTa = selPill.querySelector("textarea");
+  // Mode Studio : pilule simple « Add to chat » (comme la sélection du chat) —
+  // pas de commentaire ni corbeille, le texte part en puce dans le composer.
+  if (window.self!==window.top){
+    var __go = selPill.querySelector('.go');
+    ['textarea','.del','.tgt','.nb'].forEach(function(sel){
+      var el = selPill.querySelector(sel); if (el) el.style.display = 'none';
+    });
+    selPill.style.cssText += ';background:transparent;border:none;box-shadow:none;padding:0;min-width:0;width:auto';
+    if (__go){ __go.innerHTML = '<svg width=\'13\' height=\'13\' viewBox=\'0 0 16 16\' fill=\'none\' stroke=\'currentColor\' stroke-width=\'1.3\' style=\'vertical-align:-2px\'><path d=\'M14 8c0 3-2.7 5.2-6 5.2-.8 0-1.6-.1-2.3-.4L2.5 14l1-2.6C2.6 10.5 2 9.3 2 8c0-3 2.7-5.2 6-5.2S14 5 14 8z\'/></svg>&nbsp; Add to chat';
+      __go.style.cssText = 'width:auto;min-width:0;height:auto;border-radius:999px;padding:7px 14px;font-size:13px;white-space:nowrap;background:#2c313a;color:#e6e6e6;border:1px solid #3a414d;box-shadow:0 6px 18px rgba(0,0,0,0.5);cursor:pointer'; }
+  }
+
+let lastSel = null;
+function selPillShow(f, t, sel){
+  // don't reposition/steal focus while the user is typing a comment
+  if(selPill.style.display === "flex" && (document.activeElement === selTa || selTa.value)) return;
+  lastSel = {text: sel, page: "L" + (f.line+1) + "-" + (t.line+1)};
+  const c = cm.charCoords(t, "window");
+  selPill.style.display = "flex";
+  const w = selPill.offsetWidth, h = selPill.offsetHeight;
+  let x = Math.min(Math.max(8, c.left - w/2), innerWidth - w - 8);
+  let y = c.bottom + 10;
+  if(y + h > innerHeight - 8) y = c.top - h - 10;
+  selPill.style.left = x + "px"; selPill.style.top = Math.max(8, y) + "px";
+}
+function selHide(){ selPill.style.display = "none"; }
+function selCancel(){
+  selHide(); lastSel = null; selTa.value = "";
+  if(cm) cm.setCursor(cm.getCursor());
+  if(window._clMark){ window._clMark.clear(); window._clMark = null; }
+  fetch("/selinfo", {method:"POST", headers:{"Content-Type":"application/json"},
+    body: JSON.stringify({lines:0, words:0})}).catch(()=>{});
+}
+const __EMB=(function(){try{return window.self!==window.top;}catch(e){return true;}})();
+function selSend(){
+  if(!lastSel) return;
+  const comment = selTa.value.trim();
+  const go = selPill.querySelector(".go");
+  go.textContent = "⏳";
+  fetch("/quote", {method:"POST", headers:{"Content-Type":"application/json"},
+    body: JSON.stringify({rel: path, page: lastSel.page, text: lastSel.text, comment: comment || "", direct: true, target: __ct(), embed: __EMB})})
+    .then(r => r.json())
+    .then(j => { if(__EMB && j && j.message) __atelierPost({type:'atelier-add-to-chat', text:j.message});
+      if(window._clMark){ window._clMark.clear(); window._clMark = null; }
+      go.textContent = "✓"; setTimeout(() => { goReset(go); selTa.value = ""; selHide(); }, 1200); })
+    .catch(() => { go.textContent = "!"; setTimeout(() => { goReset(go); }, 1600); });
+}
+// clicks on the bar must not destroy the selection — except the textarea, which needs focus
+selPill.addEventListener("mousedown", e => { if(e.target !== selTa) e.preventDefault(); });
+selPill.querySelector(".go").onclick = () => selSend();
+selPill.querySelector(".del").onclick = e => { e.stopPropagation(); selCancel(); };
+/* ---- Claude-session target picker (stores localStorage 'claudeTargetV1') ---- */
+(function(){
+  const esc = s => String(s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+  const tgtBtn = selPill.querySelector(".tgt"), tgMenu = document.getElementById("tgMenu");
+  if(__EMB) tgtBtn.style.display = "none";
+  const markTgt = () => tgtBtn.classList.toggle("set", !!__ct());
+  markTgt();
+  tgMenu.addEventListener("mousedown", e => e.preventDefault());
+  tgtBtn.onclick = async e => {
+    e.stopPropagation();
+    const cur = __ct();
+    let html = '<div class="hd">Envoyer vers</div>'
+      + '<div class="it' + (cur ? '' : ' on') + '" data-i="-1"><span class="app">auto</span>'
+      + '<span class="t">Session du projet (auto)</span></div>';
+    try{
+      const j = await (await fetch("/claude-targets")).json();
+      (j.targets || []).forEach((t, i) => {
+        const on = cur && cur.app === t.app && cur.id === t.id;
+        html += '<div class="it' + (on ? ' on' : '') + '" data-i="' + i + '"><span class="app">'
+          + esc(t.app) + '</span><span class="t">' + esc(t.title || t.id)
+          + (t.inProject ? '' : ' — ' + esc(String(t.cwd || '').split('/').pop())) + '</span></div>';
+      });
+      tgMenu.innerHTML = html;
+      tgMenu.style.display = "flex";
+      const r = tgtBtn.getBoundingClientRect();
+      tgMenu.style.left = Math.max(8, Math.min(r.left - 120, innerWidth - tgMenu.offsetWidth - 8)) + "px";
+      tgMenu.style.top = Math.max(8, r.top - tgMenu.offsetHeight - 10) + "px";
+      tgMenu.querySelectorAll(".it").forEach(it => {
+        it.onclick = ev => {
+          ev.stopPropagation();
+          const i = +it.dataset.i;
+          if(i < 0) localStorage.removeItem("claudeTargetV1");
+          else localStorage.setItem("claudeTargetV1", JSON.stringify({app:j.targets[i].app, id:j.targets[i].id, title:j.targets[i].title}));
+          markTgt(); tgMenu.style.display = "none";
+        };
+      });
+      document.addEventListener("click", function h(){ tgMenu.style.display = "none"; document.removeEventListener("click", h); });
+    }catch(err){ console.warn("claude-targets failed", err); }
+  };
+})();
+selTa.addEventListener("input", () => { selTa.style.height = "20px"; selTa.style.height = Math.min(120, selTa.scrollHeight) + "px"; });
+selTa.addEventListener("keydown", e => {
+  e.stopPropagation();
+  if(e.key === "Enter" && !e.shiftKey){ e.preventDefault(); selSend(); }
+  else if(e.key === "Escape"){ e.preventDefault(); selCancel(); }
+});
+
+document.getElementById("build").onclick = compile;
+document.getElementById("saveBtn").onclick = () => save();
+document.getElementById("reloadPdf").onclick = () => loadPdf();
+const helpPop = document.getElementById("helpPop");
+document.getElementById("helpBtn").onclick = e => {
+  e.stopPropagation();
+  helpPop.style.display = helpPop.style.display === "flex" ? "none" : "flex";
+};
+document.addEventListener("click", () => { helpPop.style.display = "none"; });
+const rightEl = document.getElementById("right");
+function applyPdfVisible(v){
+  if(isPdfMode) return;                       // PDF tab: the PDF pane is the whole view
+  rightEl.style.display = v ? "" : "none";
+  document.getElementById("left").style.width = v ? "50%" : "100%";
+  document.getElementById("left").style.borderRight = v ? "" : "none";
+  document.getElementById("togglePdf").classList.toggle("on", v);
+  localStorage.setItem("texPdfVisible", v ? "1" : "0");
+  if(cm) cm.refresh();
+}
+document.getElementById("togglePdf").onclick = () => applyPdfVisible(rightEl.style.display === "none");
+function setZoom(z){
+  zoom = Math.max(0.4, Math.min(3, z));
+  localStorage.setItem("texZoom", zoom);
+  loadPdf();
+}
+document.getElementById("zoomIn").onclick = () => setZoom(zoom * 1.2);
+document.getElementById("zoomOut").onclick = () => setZoom(zoom / 1.2);
+document.getElementById("zoomFit").onclick = () => setZoom(1);
+let _rzT = null, _lastW = 0;
+new ResizeObserver(() => {
+  clearTimeout(_rzT);
+  _rzT = setTimeout(() => {
+    const w = rightEl.clientWidth;
+    if(pdfDoc && Math.abs(w - _lastW) > 8){ _lastW = w; loadPdf(); }
+  }, 500);
+}).observe(rightEl);
+document.getElementById("popPdf").onclick = () => {
+  // synctex-aware PDF tab (same studio in mode=pdf; BroadcastChannel links the two)
+  const __pdfUrl = "/.fig_thumbs/latex_studio.html?path=" + encodeURIComponent(path) + "&mode=pdf";
+  if(window.self !== window.top){
+    // embarqué dans Atelier Studio : ouvrir dans un onglet du panneau
+    __atelierPost({type:'atelier-open-tab', url: __pdfUrl,
+      title: (path.split("/").pop() || "PDF") + " — PDF"});
+  } else {
+    window.open(__pdfUrl, "_blank");
+  }
+  applyPdfVisible(false);
+};
+if(!isPdfMode && localStorage.getItem("texPdfVisible") === "0") applyPdfVisible(false);
+document.addEventListener("keydown", e => {
+  if(e.key === "Escape"){
+    if(cm) selCancel();
+    return;
+  }
+  if((e.metaKey || e.ctrlKey) && e.key === "s" && cm){ e.preventDefault(); save(); }
+  if((e.metaKey || e.ctrlKey) && e.key === "b" && cm && IS_TEX){ e.preventDefault(); compile(); }
+  if((e.metaKey || e.ctrlKey) && e.key === "j" && cm){ e.preventDefault(); synctexView(); }
+});
+
+// reload if Claude edits the .tex on disk
+setInterval(async () => {
+  if(dirty || !cm) return;
+  try{
+    const r = await fetch("/code?path=" + encodeURIComponent(path));
+    const j = await r.json();
+    if(j.mtime && Math.abs(j.mtime - diskMtime) > 0.001){
+      diskMtime = j.mtime;
+      const before = cm.getValue();
+      const cur = cm.getCursor(), s = cm.getScrollInfo();
+      cm.setValue(j.text); cm.setCursor(cur); cm.scrollTo(s.left, s.top);
+      dirty = false; setState("ok", "reloaded (modified on disk)");
+      diffPush(before, j.text);
+    }
+  }catch(e){}
+}, 2000);
+
+if(path && isPdfMode){
+  document.body.classList.add("pdfmode");
+  setState("ok", "clic dans le PDF → ligne source dans l'onglet éditeur");
+  // initial loadPdf is triggered by the /texroot resolution above
+} else if(path) load();
+else {
+  setState("ok", "choose a .tex file");
+  pickerShow("");
+}
+
+
+// recent files (shared between studio and editor via localStorage)
+function recentsGet(){ try{return JSON.parse(localStorage.getItem("studioRecents")||"[]")}catch(e){return []} }
+function recentsAdd(p){
+  let r = recentsGet().filter(x => x !== p);
+  r.unshift(p); r = r.slice(0, 10);
+  localStorage.setItem("studioRecents", JSON.stringify(r));
+}
+function openTarget(target){
+  const page = target.endsWith(".tex") ? "latex_studio.html" : "code_editor.html";
+  location.href = "/.fig_thumbs/" + page + "?path=" + encodeURIComponent(target);
+}
+// --- mini file explorer (Open button) ---
+const EDITABLE = /\.(tex|sty|bib|py|r|R|md|jl|sh|bash|txt|csv|json|yaml|yml|toml)$/;
+const esc = s => String(s).replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+async function pickerShow(dir){
+  const r = await fetch("/ls?dir=" + encodeURIComponent(dir || (path ? path.replace(/\/[^/]*$/, "") : "")));
+  const j = await r.json();
+  if(j.error) return;
+  document.getElementById("picker").classList.add("show");
+  document.getElementById("pickerPath").textContent = j.path.replace(/^\/Users\/[^/]+/, "~");
+  const list = document.getElementById("pickerList");
+  list.innerHTML = "";
+  const mk = (label, cls, fn) => {
+    const d = document.createElement("div");
+    d.innerHTML = label; d.className = cls; d.onclick = fn;
+    list.appendChild(d);
+  };
+  const rec = recentsGet().filter(p => p !== path);
+  if(rec.length){
+    rec.forEach(p => mk("&#128337; " + esc(p.split("/").pop()) +
+      ' <span style="color:var(--muted);font-size:11px">' + esc(p.replace(/^\/Users\/[^/]+\/Documents\//, "").replace(/\/[^/]*$/, "")) + "</span>",
+      "", () => openTarget(p)));
+    const sep = document.createElement("div");
+    sep.style.cssText = "border-bottom:1px solid var(--border);margin:4px 0;padding:0;height:1px;cursor:default";
+    list.appendChild(sep);
+  }
+  if(j.parent) mk("&#8617; ..", "d", () => pickerShow(j.parent));
+  j.items.filter(i => i.dir).forEach(i => mk("&#128193; " + esc(i.name), "d", () => pickerShow(j.path + "/" + i.name)));
+  j.items.filter(i => !i.dir && EDITABLE.test(i.name)).forEach(i =>
+    mk(esc(i.name), "", () => openTarget(j.path + "/" + i.name)));
+}
+document.getElementById("picker").onclick = e => { if(e.target.id === "picker") e.target.classList.remove("show"); };
+document.addEventListener("keydown", e => { if(e.key === "Escape") document.getElementById("picker").classList.remove("show"); });
+
+document.getElementById("openFile").onclick = () => pickerShow();
+
+// ---- diff de versions (modifications de l'agent) : ± vN + ‹ › + Rétablir ----
+const DIFF_VERSIONS = []; // {before, after, ts}
+let diffIdx = -1, diffShown = false;
+const diffPane = document.getElementById("diffPane");
+const diffGrp = document.getElementById("diffGrp");
+function escH(x){ return x.replace(/[&<>]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;"}[c])); }
+function diffPush(before, after){
+  if(before === after) return;
+  DIFF_VERSIONS.push({before, after, ts: Date.now()});
+  diffIdx = DIFF_VERSIONS.length - 1;
+  diffGrp.style.display = "";
+  updateDiffTag();
+  renderDiff();
+  if(!diffShown) toggleDiff(true);
+}
+function updateDiffTag(){
+  document.getElementById("diffTag").innerHTML = "&#177; v" + (diffIdx + 2);
+  document.getElementById("diffPrev").disabled = diffIdx <= 0;
+  document.getElementById("diffNext").disabled = diffIdx >= DIFF_VERSIONS.length - 1;
+}
+function renderDiff(){
+  const v = DIFF_VERSIONS[diffIdx];
+  if(!v) return;
+  const parts = Diff.diffWordsWithSpace(v.before, v.after);
+  diffPane.innerHTML = parts.map(pt =>
+    pt.added ? '<span class="dAdd">' + escH(pt.value) + "</span>" :
+    pt.removed ? '<span class="dDel">' + escH(pt.value) + "</span>" :
+    escH(pt.value)).join("");
+}
+function toggleDiff(show){
+  diffShown = show ?? !diffShown;
+  diffPane.style.display = diffShown ? "block" : "none";
+  document.getElementById("diffTag").classList.toggle("on", diffShown);
+  if(!diffShown && cm) cm.refresh();
+}
+document.getElementById("diffTag").onclick = () => toggleDiff();
+// Add to chat sur sélection DANS le panneau diff (mode Studio)
+if(window.self !== window.top){
+  const dPill = document.createElement("button");
+  dPill.innerHTML = '<svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" style="vertical-align:-2px"><path d="M14 8c0 3-2.7 5.2-6 5.2-.8 0-1.6-.1-2.3-.4L2.5 14l1-2.6C2.6 10.5 2 9.3 2 8c0-3 2.7-5.2 6-5.2S14 5 14 8z"/></svg>&nbsp; Add to chat';
+  dPill.style.cssText = "position:fixed;z-index:9999;display:none;background:#2c313a;color:#e6e6e6;"
+    + "border:1px solid #3a414d;border-radius:999px;padding:7px 14px;font-size:13px;cursor:pointer;"
+    + "box-shadow:0 6px 18px rgba(0,0,0,.5);font-family:-apple-system,sans-serif";
+  document.body.appendChild(dPill);
+  let dSel = "";
+  dPill.addEventListener("mousedown", (e) => {
+    e.preventDefault(); e.stopPropagation();
+    if(!dSel) return;
+    fetch("/quote", {method:"POST", headers:{"Content-Type":"application/json"},
+      body: JSON.stringify({rel: path, page: "", text: dSel, comment: "", direct: true, embed: true})})
+      .then(r => r.json())
+      .then(j => { if(j && j.message) __atelierPost({type:"atelier-add-to-chat", text:j.message}); })
+      .catch(() => {});
+    dPill.style.display = "none";
+    try{ window.getSelection().removeAllRanges(); }catch(err){}
+  });
+  diffPane.addEventListener("mouseup", () => {
+    setTimeout(() => {
+      const sel = window.getSelection();
+      const t = sel ? String(sel).trim() : "";
+      if(!t || !sel || sel.rangeCount === 0){ dPill.style.display = "none"; dSel = ""; return; }
+      dSel = t;
+      const rect = sel.getRangeAt(0).getBoundingClientRect();
+      dPill.style.left = Math.max(8, rect.left + rect.width/2 - 55) + "px";
+      dPill.style.top = Math.max(8, rect.top - 42) + "px";
+      dPill.style.display = "block";
+    }, 0);
+  });
+}
+document.getElementById("diffPrev").onclick = () => { if(diffIdx > 0){ diffIdx--; updateDiffTag(); renderDiff(); toggleDiff(true); } };
+document.getElementById("diffNext").onclick = () => { if(diffIdx < DIFF_VERSIONS.length - 1){ diffIdx++; updateDiffTag(); renderDiff(); toggleDiff(true); } };
+document.getElementById("diffRestore").onclick = async () => {
+  const v = DIFF_VERSIONS[diffIdx];
+  if(!v) return;
+  const r = await fetch("/codesave", {method:"POST", headers:{"Content-Type":"application/json"},
+    body: JSON.stringify({path, text: v.before, mtime: diskMtime})});
+  const j = await r.json();
+  if(!j.error){ diskMtime = j.mtime; cm.setValue(v.before); dirty = false;
+    toggleDiff(false); setState("ok", "version restaurée"); }
+};
+
+// ===== option B : status bar, menu ⋯, lint ruff =====
+(function(){
+  const sbMode = document.getElementById("sbMode");
+  const sbWrap = document.getElementById("sbWrap");
+  const sbSaved = document.getElementById("sbSaved");
+  const sbLint = document.getElementById("sbLint");
+  const lintPane = document.getElementById("lintPane");
+  const morePop = document.getElementById("morePop");
+  const moreBtn = document.getElementById("moreBtn");
+  if (!sbMode) return;
+  sbMode.textContent = ({stex:"LaTeX", python:"Python", r:"R", markdown:"Markdown",
+    julia:"Julia", shell:"Shell"})[typeof __CM_MODE === "string" ? __CM_MODE : "javascript"]
+    ?? (__EXT || "").toUpperCase() ?? "";
+  const WRAPS = ["win", "off", "80", "100", "120"];
+  function wrapLabel(){ 
+    const v = localStorage.getItem("cmWrap") || "win";
+    return "Wrap: " + (v === "win" ? "window" : v);
+  }
+  function refreshWrap(){
+    sbWrap.textContent = wrapLabel();
+    const mv = document.getElementById("moreWrapVal");
+    if (mv) mv.textContent = wrapLabel().replace("Wrap: ", "");
+  }
+  refreshWrap();
+  sbWrap.onclick = () => {
+    const cur = localStorage.getItem("cmWrap") || "win";
+    const next = WRAPS[(WRAPS.indexOf(cur) + 1) % WRAPS.length];
+    const sel = document.getElementById("wrapSel");
+    if (sel) { sel.value = next; sel.onchange(); } 
+    refreshWrap();
+  };
+  // heure de sauvegarde (hook posé dans saveNow)
+  window.__onSaved = function(){
+    sbSaved.textContent = "sauvegardé " + new Date().toLocaleTimeString([], {hour:"2-digit", minute:"2-digit"});
+    runLint();
+  };
+  // menu ⋯
+  moreBtn.onclick = (e) => {
+    e.stopPropagation();
+    morePop.style.display = morePop.style.display === "none" ? "block" : "none";
+    refreshWrap();
+  };
+  document.addEventListener("click", () => { morePop.style.display = "none"; });
+  morePop.onclick = (e) => {
+    e.stopPropagation();
+    const act = e.target.closest("[data-act]")?.dataset.act;
+    if (act === "save") document.getElementById("saveBtn").click();
+    if (act === "open") document.getElementById("openFile").click();
+    if (act === "rewrap") document.getElementById("rewrapBtn").click();
+    if (act === "help") document.getElementById("helpBtn").click();
+    if (act === "wrap") { sbWrap.onclick(); return; }
+    if (act !== "wrap") morePop.style.display = "none";
+  };
+  const findBtn = document.getElementById("findBtn");
+  if (findBtn) findBtn.onclick = () => { if (window.cm) cm.execCommand("findPersistent"); };
+  // ---- lint ruff (.py, au save) ----
+  let lintMarks = [];
+  async function runLint(){
+    if (__EXT !== "py" || !window.cm) return;
+    try {
+      const r = await fetch("/lint?path=" + encodeURIComponent(path));
+      const j = await r.json();
+      lintMarks.forEach((m) => m.clear && m.clear());
+      lintMarks = [];
+      cm.clearGutter("CodeMirror-linenumbers");
+      if (!j.available) { sbLint.style.display = "none"; return; }
+      const diags = j.diagnostics || [];
+      sbLint.style.display = "inline";
+      sbLint.className = diags.length ? "err" : "ok";
+      sbLint.textContent = diags.length ? ("\u2717 " + diags.length + " ruff") : "\u2713 ruff";
+      lintPane.innerHTML = "";
+      for (const d of diags) {
+        const line = Math.max(0, (d.row || 1) - 1);
+        lintMarks.push(cm.markText({line, ch: 0}, {line, ch: cm.getLine(line)?.length ?? 0},
+          {className: "cm-lint-line", title: d.code + " " + d.message}));
+        const row = document.createElement("div");
+        row.innerHTML = '<span class="lc">' + d.row + '</span>' + d.code + " " + d.message;
+        row.onclick = () => { cm.setCursor({line, ch: 0}); cm.focus(); };
+        lintPane.appendChild(row);
+      }
+      if (!diags.length) lintPane.style.display = "none";
+    } catch {}
+  }
+  sbLint.onclick = () => {
+    lintPane.style.display = lintPane.style.display === "none" ? "block" : "none";
+  };
+  setTimeout(runLint, 800);
+})();
+</script>
+</body>
+</html>
