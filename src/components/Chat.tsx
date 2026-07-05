@@ -525,7 +525,7 @@ export default function Chat(p: {
             }
           }}
           disabled={p.disabled}
-          rows={2}
+          rows={1}
           placeholder="Demande n'importe quoi — /skills et CLAUDE.md chargés"
         />
         </div>

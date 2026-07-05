@@ -65,10 +65,10 @@ html, body, #root, .app { height: 100vh;
   line-height: 20px; }
 .project ul { padding-left: 14px; }
 /* Composer style Synara */
-.composer { margin: 12px auto 18px; width: calc(100% - 32px); max-width: 760px;
+.composer { margin: 10px auto 14px; width: calc(100% - 32px); max-width: 760px;
   background: var(--bg-card); border: 1px solid var(--border);
-  border-radius: 16px; padding: 12px 14px 10px; display: flex; flex-direction: column;
-  gap: 8px; }
+  border-radius: 14px; padding: 9px 12px 7px; display: flex; flex-direction: column;
+  gap: 5px; }
 .composer:focus-within { border-color: var(--border2); }
 .composer textarea { background: transparent; border: none; outline: none; resize: none;
   color: inherit; font: inherit; font-size: 14px; line-height: 1.45; }
