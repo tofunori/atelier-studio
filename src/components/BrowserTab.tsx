@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { WebviewWindow } from "@tauri-apps/api/webviewWindow";
 
 type LocalServer = { port: number; title: string | null };
 
@@ -14,7 +15,9 @@ export default function BrowserTab(p: {
   const [idx, setIdx] = useState(-1);
   const [reloadKey, setReloadKey] = useState(0);
   const [servers, setServers] = useState<LocalServer[] | null>(null);
+  const [blocked, setBlocked] = useState(false);
   const scanned = useRef(false);
+  const urlRef = useRef<string | null>(null);
 
   function scan() {
     if (p.ws?.readyState === 1) p.ws.send(JSON.stringify({ type: "scanLocal" }));
@@ -22,12 +25,20 @@ export default function BrowserTab(p: {
 
   useEffect(() => {
     const onServers = (e: Event) => setServers((e as CustomEvent).detail);
+    const onFrame = (e: Event) => {
+      const d = (e as CustomEvent).detail as { url: string; blocked: boolean };
+      if (d.url === urlRef.current) setBlocked(d.blocked);
+    };
     window.addEventListener("local-servers", onServers);
+    window.addEventListener("frame-checked", onFrame);
     if (!scanned.current) {
       scanned.current = true;
       scan();
     }
-    return () => window.removeEventListener("local-servers", onServers);
+    return () => {
+      window.removeEventListener("local-servers", onServers);
+      window.removeEventListener("frame-checked", onFrame);
+    };
   }, []);
 
   function navigate(raw: string) {
@@ -46,6 +57,11 @@ export default function BrowserTab(p: {
     setStack(next);
     setIdx(next.length - 1);
     setUrl(u);
+    urlRef.current = u;
+    setBlocked(false);
+    if (!u.includes("localhost") && !u.includes("127.0.0.1") && p.ws?.readyState === 1) {
+      p.ws.send(JSON.stringify({ type: "checkFrame", url: u }));
+    }
     setInput(u);
     try {
       p.onTitle(new URL(u).hostname || "browser");
@@ -94,7 +110,32 @@ export default function BrowserTab(p: {
           onFocus={(e) => e.target.select()}
         />
       </div>
-      {url ? (
+      {url && blocked ? (
+        <div className="browser-home">
+          <div className="bh-card" style={{ cursor: "default" }}>
+            <div className="bh-card-txt">
+              <div className="bh-card-title">Ce site refuse l'intégration</div>
+              <div className="bh-card-sub">
+                {(() => { try { return new URL(url).hostname; } catch { return url; } })()} bloque
+                l'affichage embarqué (X-Frame-Options).
+              </div>
+            </div>
+            <button
+              className="set-btn"
+              onClick={() => {
+                new WebviewWindow(`browser-${Date.now()}`, {
+                  url,
+                  title: (() => { try { return new URL(url).hostname; } catch { return "Browser"; } })(),
+                  width: 1100,
+                  height: 800,
+                });
+              }}
+            >
+              Ouvrir dans une fenêtre
+            </button>
+          </div>
+        </div>
+      ) : url ? (
         <iframe key={`${url}-${reloadKey}`} className="browser-frame" src={url} title="browser" />
       ) : (
         <div className="browser-home">

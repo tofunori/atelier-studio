@@ -1,5 +1,15 @@
 import pty from "node-pty";
 import { homedir } from "node:os";
+import { chmodSync } from "node:fs";
+import { createRequire } from "node:module";
+
+// bug connu node-pty 1.1.0 : le prebuild spawn-helper perd son bit exécutable
+// à l'installation npm → "posix_spawnp failed". On le répare au chargement.
+try {
+  const req = createRequire(import.meta.url);
+  const dir = req.resolve("node-pty/package.json").replace(/package\.json$/, "");
+  chmodSync(`${dir}prebuilds/darwin-arm64/spawn-helper`, 0o755);
+} catch {}
 
 // Terminaux PTY par onglet Studio (shell de login, cwd = projet)
 const terms = new Map(); // termId -> pty

@@ -8,6 +8,9 @@
   "permissions": [
     "core:default",
     "opener:default",
-    "dialog:default"
+    "dialog:default",
+    "core:webview:allow-create-webview-window",
+    "core:window:default",
+    "core:webview:default"
   ]
 }

@@ -35,6 +35,11 @@ export async function route(msg, ctx) {
       ctx.send({ type: "imageSaved", path });
       break;
     }
+    case "checkFrame": {
+      const res = await ctx.checkFrame(msg.url);
+      ctx.send({ type: "frameChecked", url: msg.url, blocked: res.blocked });
+      break;
+    }
     case "scanLocal": {
       ctx.send({ type: "localServers", servers: await ctx.scanLocal() });
       break;

@@ -76,6 +76,23 @@ async function htmlTitle(port) {
     return m ? m[1].trim() : null;
   } catch { return null; }
 }
+async function checkFrame(url) {
+  try {
+    const ctl = new AbortController();
+    const t = setTimeout(() => ctl.abort(), 3000);
+    const r = await fetch(url, { signal: ctl.signal, redirect: "follow" });
+    clearTimeout(t);
+    const xfo = (r.headers.get("x-frame-options") || "").toLowerCase();
+    const csp = (r.headers.get("content-security-policy") || "").toLowerCase();
+    const blocked =
+      xfo.includes("deny") || xfo.includes("sameorigin") ||
+      (csp.includes("frame-ancestors") && !csp.includes("frame-ancestors *"));
+    return { blocked };
+  } catch {
+    return { blocked: false };
+  }
+}
+
 async function scanLocal() {
   const alive = (await Promise.all(SCAN_PORTS.map(async (p) => (await tcpAlive(p)) ? p : null)))
     .filter(Boolean);
@@ -138,6 +155,7 @@ wss.on("connection", (ws) => {
     exportThread,
     terminal,
     scanLocal,
+    checkFrame,
   };
   ws.on("message", async (data) => {
     let msg;

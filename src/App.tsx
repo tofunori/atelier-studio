@@ -252,6 +252,9 @@ export default function App() {
         );
         pendingPaste.current = null;
       }
+      if (msg.type === "frameChecked") {
+        window.dispatchEvent(new CustomEvent("frame-checked", { detail: msg }));
+      }
       if (msg.type === "localServers") {
         window.dispatchEvent(new CustomEvent("local-servers", { detail: msg.servers }));
       }
