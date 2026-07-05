@@ -73,6 +73,8 @@ export async function titleConversation(firstMessage) {
     }
   }
   return (title || resultTitle)
+    .replace(/\*\*/g, "")
+    .replace(/^(titre( proposé)?\s*:?)\s*/i, "")
     .replace(/^["'«\s]+|["'»\s.]+$/g, "")
     .replace(/\s+/g, " ")
     .slice(0, 70);
