@@ -315,6 +315,21 @@ export default function Sidebar(p: {
             {p.favorites.includes(menu.threadId) ? "Retirer des favoris" : "Ajouter aux favoris"}
           </div>
           <div
+            onClick={() => {
+              const t = p.threads.find((x) => x.id === menu.threadId);
+              if (t?.sessionId) {
+                const cmd =
+                  t.provider === "codex"
+                    ? `codex resume ${t.sessionId}`
+                    : `cd ${JSON.stringify(t.projectRoot || "~")} && claude --resume ${t.sessionId}`;
+                navigator.clipboard.writeText(cmd);
+              }
+              setMenu(null);
+            }}
+          >
+            Copier la commande resume (CLI)
+          </div>
+          <div
             className="danger"
             onClick={() => {
               p.onDelete(menu.threadId);
