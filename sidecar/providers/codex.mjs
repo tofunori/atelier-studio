@@ -1,4 +1,40 @@
 import { Codex } from "@openai/codex-sdk";
+import { readFileSync, readdirSync, statSync, existsSync } from "node:fs";
+import { homedir } from "node:os";
+import { join } from "node:path";
+
+/** Dernier token_count du rollout d'un thread : vrai contexte + fenêtre modèle. */
+function lastTokenCount(sessionId) {
+  try {
+    const base = join(homedir(), ".codex", "sessions");
+    let file = null;
+    const walk = (d, depth) => {
+      if (file || depth > 4) return;
+      for (const e of readdirSync(d).sort().reverse()) {
+        const p = join(d, e);
+        if (statSync(p).isDirectory()) walk(p, depth + 1);
+        else if (e.includes(sessionId) && e.endsWith(".jsonl")) { file = p; return; }
+      }
+    };
+    if (!existsSync(base)) return null;
+    walk(base, 0);
+    if (!file) return null;
+    const lines = readFileSync(file, "utf8").trim().split("\n");
+    for (let i = lines.length - 1; i >= 0; i--) {
+      try {
+        const p = JSON.parse(lines[i]).payload;
+        if (p?.type === "token_count" && p.info) {
+          return {
+            context: p.info.last_token_usage?.total_tokens ?? null,
+            window: p.info.model_context_window ?? null,
+            output: p.info.total_token_usage?.output_tokens ?? null,
+          };
+        }
+      } catch {}
+    }
+  } catch {}
+  return null;
+}
 import { execSync } from "node:child_process";
 // CLI système d'abord (mêmes versions/config que l'utilisateur) ; binaire
 // embarqué du SDK en secours (absent du bundle allégé).
@@ -156,8 +192,12 @@ export async function run({
       }
       if (ev.type === "turn.completed") {
         const u = ev.usage ?? {};
+        // usage du SDK = cumul de tous les appels du tour (contexte recompté) ;
+        // le rollout donne le VRAI dernier état + la fenêtre du modèle
+        const tc = lastTokenCount(thread.id);
         onEvent({ kind: "done", ok: true, result: "", usage: {
-          context: (u.input_tokens ?? 0) + (u.cached_input_tokens ?? 0),
+          context: tc?.context ?? (u.input_tokens ?? 0),
+          window: tc?.window ?? null,
           output: u.output_tokens ?? 0, cost: null, turns: null } });
       }
       if (ev.type === "turn.failed") {
