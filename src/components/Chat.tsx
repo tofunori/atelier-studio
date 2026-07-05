@@ -228,6 +228,7 @@ export default function Chat(p: {
     timeFormat?: "system" | "24h" | "12h";
     customModels?: { provider: "claude" | "codex"; id: string }[];
     modelEfforts?: Record<string, string>;
+    autoReview?: { enabled: boolean };
   };
   pins: { index: number; label: string; color?: string; style?: string }[];
   onStylePin: (index: number, patch: { color?: string; style?: string; label?: string }) => void;
@@ -1161,6 +1162,18 @@ export default function Chat(p: {
                   </svg>
                   <span>{t("permission.plan")}</span>
                   <span className={`toggle ${permissionMode === "plan" ? "on" : ""}`}>
+                    <span className="knob" />
+                  </span>
+                </div>
+                <div className="mp-item" onClick={() =>
+                  window.dispatchEvent(new CustomEvent("autoreview-toggle"))
+                }>
+                  <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M8 1.8l5 2v4c0 3.2-2.2 5.4-5 6.4-2.8-1-5-3.2-5-6.4v-4z" />
+                    <path d="M5.8 8l1.6 1.6L10.5 6.3" />
+                  </svg>
+                  <span>Auto-review</span>
+                  <span className={`toggle ${p.defaults.autoReview?.enabled ? "on" : ""}`}>
                     <span className="knob" />
                   </span>
                 </div>

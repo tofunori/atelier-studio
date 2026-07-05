@@ -541,6 +541,10 @@ export default function App() {
       setQaContext((d.context as string) ?? "");
       setQaMode("open");
     };
+    const onAutoReviewToggle = () => {
+      setSettings((s) => ({ ...s, autoReview: { ...s.autoReview, enabled: !s.autoReview.enabled } }));
+    };
+    window.addEventListener("autoreview-toggle", onAutoReviewToggle);
     const onRequestReview = (e: Event) => {
       const threadId = (e as CustomEvent).detail?.threadId;
       if (threadId && ws.current?.readyState === 1) {
@@ -564,6 +568,7 @@ export default function App() {
     window.addEventListener("quick-ask-open", onQaOpen);
     window.addEventListener("atelier-add-to-chat-citation", onCitation);
     return () => {
+      window.removeEventListener("autoreview-toggle", onAutoReviewToggle);
       window.removeEventListener("request-review", onRequestReview);
       window.removeEventListener("open-palette", onOpenPalette);
       window.removeEventListener("quick-ask-toggle", onQaToggle);
