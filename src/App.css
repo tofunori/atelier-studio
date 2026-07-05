@@ -1132,3 +1132,12 @@ body.dragging iframe { pointer-events: none; }
 .project-name:hover { background: var(--bg-ctl); }
 .thread-date { display: none; }
 .sidebar li { font-size: 12.5px; }
+/* picker d'icônes de projet */
+.proj-emoji { width: 16px; font-size: 13px; line-height: 1; flex-shrink: 0; text-align: center; }
+.emoji-grid { display: grid; grid-template-columns: repeat(8, 1fr); gap: 2px;
+  margin: 8px 0 6px; max-width: 236px; }
+.emoji-cell { width: 27px; height: 27px; display: inline-flex; align-items: center;
+  justify-content: center; border-radius: 7px; cursor: pointer; font-size: 14px; }
+.emoji-cell:hover { background: var(--bg-ctl); }
+.emoji-cell.on { background: var(--bg-ctl); outline: 1px solid var(--border2); }
+.emoji-cell.none { color: var(--muted2); font-size: 12px; }

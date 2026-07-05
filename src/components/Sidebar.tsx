@@ -253,10 +253,14 @@ export default function Sidebar(p: {
               title={t("action.toggle-project")}
             >
               <span className="chev">{collapsed.includes(root) ? "▸" : "▾"}</span>
-              <span
-                className="proj-dot"
-                style={{ background: p.projMeta[root]?.color ?? "var(--muted2)" }}
-              />
+              {p.projMeta[root]?.label ? (
+                <span className="proj-emoji">{p.projMeta[root]?.label}</span>
+              ) : (
+                <span
+                  className="proj-dot"
+                  style={{ background: p.projMeta[root]?.color ?? "var(--muted2)" }}
+                />
+              )}
               {name}
               {active && (
                 <button
@@ -427,6 +431,32 @@ export default function Sidebar(p: {
               onClick={() =>
                 p.onSetMeta(projMenu.root, { ...p.projMeta[projMenu.root], color: undefined })
               }
+            >
+              ∅
+            </span>
+          </div>
+          <div className="emoji-grid">
+            {["🏔","❄️","🌡️","🔥","🛰️","📊","📈","🗺️","🧊","⛰️","🌋","🌍",
+              "💧","☀️","🌨️","🌲","📄","📚","📝","✏️","🔬","🧪","⚗️","🧮",
+              "💻","⚙️","🧠","🎯","🚀","🧭","📦","🗂️"].map((em) => (
+              <span
+                key={em}
+                className={`emoji-cell ${p.projMeta[projMenu.root]?.label === em ? "on" : ""}`}
+                onClick={() => {
+                  p.onSetMeta(projMenu.root, { ...p.projMeta[projMenu.root], label: em });
+                  setProjMenu(null);
+                }}
+              >
+                {em}
+              </span>
+            ))}
+            <span
+              className="emoji-cell none"
+              title={t("sidebar.without-color")}
+              onClick={() => {
+                p.onSetMeta(projMenu.root, { ...p.projMeta[projMenu.root], label: undefined });
+                setProjMenu(null);
+              }}
             >
               ∅
             </span>
