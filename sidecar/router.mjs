@@ -3,6 +3,66 @@
 // file d'attente par thread pour les providers SANS steering (Codex) :
 // les messages envoyés pendant un run partent automatiquement au tour suivant.
 const pending = new Map(); // threadId -> [msg...]
+let retitleAllRunning = false;
+
+function titleKey(title) {
+  return String(title ?? "").trim();
+}
+
+function isPathLikeTitle(title, thread) {
+  const t = titleKey(title);
+  if (!t) return false;
+  if (/^(\/|~\/|[A-Za-z]:[\\/])/.test(t)) return true;
+  const root = titleKey(thread?.projectRoot);
+  return !!root && t === root.slice(0, 40);
+}
+
+function isRawThreadTitle(thread, duplicateTitles) {
+  const t = titleKey(thread?.title);
+  if (!t) return false;
+  return isPathLikeTitle(t, thread) || duplicateTitles.has(t);
+}
+
+async function firstUserMessageForThread(ctx, thread) {
+  if (!thread?.sessionId) return "";
+  let events = [];
+  if (thread.provider === "claude") {
+    events = await ctx.history?.claudeHistory?.(thread.sessionId, thread.projectRoot) ?? [];
+  } else if (thread.provider === "codex") {
+    events = await ctx.sessions?.codexHistory?.(thread.sessionId) ?? [];
+  }
+  return events.find((event) => event.kind === "user" && event.text?.trim())?.text?.trim() ?? "";
+}
+
+async function retitleAllThreads(ctx) {
+  const emit = ctx.broadcast ?? ctx.send;
+  const titleCounts = new Map();
+  for (const thread of ctx.store.list()) {
+    const key = titleKey(thread.title);
+    if (key) titleCounts.set(key, (titleCounts.get(key) ?? 0) + 1);
+  }
+  const duplicateTitles = new Set(
+    [...titleCounts.entries()].filter(([, count]) => count > 1).map(([title]) => title),
+  );
+  const candidates = ctx.store.list().filter((thread) => isRawThreadTitle(thread, duplicateTitles));
+  let renamed = 0;
+  for (const thread of candidates) {
+    try {
+      const firstMessage = await firstUserMessageForThread(ctx, thread);
+      if (!firstMessage) continue;
+      const title = await ctx.providers?.claude?.titleConversation?.(firstMessage);
+      if (!title) continue;
+      const fresh = ctx.store.get(thread.id);
+      if (!fresh || !isRawThreadTitle(fresh, duplicateTitles)) continue;
+      ctx.store.upsert({ id: thread.id, title }, { preserveUpdatedAt: true });
+      renamed += 1;
+      emit({ type: "threads", threads: ctx.store.list() });
+    } catch (e) {
+      ctx.send({ type: "error", threadId: thread.id, message: `retitrage impossible: ${String(e)}` });
+    }
+  }
+  ctx.send({ type: "retitleAllDone", scanned: candidates.length, renamed });
+}
 
 async function maybeTitleThread(ctx, emit, threadId, firstMessage) {
   const t = ctx.store.get(threadId);
@@ -167,6 +227,19 @@ export async function route(msg, ctx) {
     case "deleteThread": {
       ctx.store.delete(msg.threadId);
       (ctx.broadcast ?? ctx.send)({ type: "threads", threads: ctx.store.list() });
+      break;
+    }
+    case "retitleAll": {
+      if (retitleAllRunning) {
+        ctx.send({ type: "retitleAllDone", scanned: 0, renamed: 0, running: true });
+        break;
+      }
+      retitleAllRunning = true;
+      try {
+        await retitleAllThreads(ctx);
+      } finally {
+        retitleAllRunning = false;
+      }
       break;
     }
     case "renameThread": {

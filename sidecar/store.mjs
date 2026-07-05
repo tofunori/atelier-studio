@@ -30,9 +30,13 @@ export class ThreadStore {
     this.threads.delete(id);
     writeFileAtomic(this.filePath, JSON.stringify(this.list(), null, 2));
   }
-  upsert(patch) {
+  upsert(patch, opts = {}) {
     const prev = this.threads.get(patch.id) ?? {};
-    const t = { ...prev, ...patch, updatedAt: new Date().toISOString() };
+    const t = {
+      ...prev,
+      ...patch,
+      updatedAt: opts.preserveUpdatedAt && prev.updatedAt ? prev.updatedAt : new Date().toISOString(),
+    };
     if (!t.createdAt) t.createdAt = t.updatedAt;
     this.threads.set(t.id, t);
     writeFileAtomic(this.filePath, JSON.stringify(this.list(), null, 2));

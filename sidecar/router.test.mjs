@@ -12,4 +12,70 @@ describe("route", () => {
     await route({ type: "nope" }, { send: (m) => sent.push(m) });
     expect(sent[0].type).toBe("error");
   });
+  it("retitre les conversations aux titres bruts ou dupliqués", async () => {
+    const threads = new Map([
+      ["a", {
+        id: "a",
+        title: "/Users/tofunori/projet",
+        provider: "claude",
+        projectRoot: "/Users/tofunori/projet",
+        sessionId: "s-a",
+        updatedAt: "2026-01-01T00:00:00.000Z",
+      }],
+      ["b", {
+        id: "b",
+        title: "allo",
+        provider: "codex",
+        projectRoot: "",
+        sessionId: "s-b",
+        updatedAt: "2026-01-02T00:00:00.000Z",
+      }],
+      ["c", {
+        id: "c",
+        title: "allo",
+        provider: "claude",
+        projectRoot: "",
+        sessionId: "s-c",
+        updatedAt: "2026-01-03T00:00:00.000Z",
+      }],
+      ["d", {
+        id: "d",
+        title: "Titre propre",
+        provider: "claude",
+        projectRoot: "",
+        sessionId: "s-d",
+        updatedAt: "2026-01-04T00:00:00.000Z",
+      }],
+    ]);
+    const emitted = [];
+    const ctx = {
+      send: (m) => emitted.push(m),
+      broadcast: (m) => emitted.push(m),
+      store: {
+        list: () => [...threads.values()].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)),
+        get: (id) => threads.get(id),
+        upsert: (patch) => threads.set(patch.id, { ...threads.get(patch.id), ...patch }),
+      },
+      providers: {
+        claude: {
+          titleConversation: async (text) => `Titre ${text.slice(0, 5)}`,
+        },
+      },
+      history: {
+        claudeHistory: async (sessionId) => [{ kind: "user", text: `claude ${sessionId}` }],
+      },
+      sessions: {
+        codexHistory: async (sessionId) => [{ kind: "user", text: `codex ${sessionId}` }],
+      },
+    };
+
+    await route({ type: "retitleAll" }, ctx);
+
+    expect(threads.get("a").title).toBe("Titre claud");
+    expect(threads.get("b").title).toBe("Titre codex");
+    expect(threads.get("c").title).toBe("Titre claud");
+    expect(threads.get("d").title).toBe("Titre propre");
+    expect(emitted.filter((m) => m.type === "threads")).toHaveLength(3);
+    expect(emitted.at(-1)).toMatchObject({ type: "retitleAllDone", scanned: 3, renamed: 3 });
+  });
 });

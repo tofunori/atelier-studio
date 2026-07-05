@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { Settings as S, DEFAULT_SETTINGS } from "../lib/settings";
 import { THEME_PRESETS } from "../lib/themes";
+import { PlusIcon } from "./icons";
 
 const SECTIONS = [
   { id: "general", label: "Général" },
@@ -70,6 +71,7 @@ export default function SettingsPage(p: {
   const [themeQuery, setThemeQuery] = useState("");
   const [status, setStatus] = useState<{ port: number | null; pastedCount: number; pasteDir: string } | null>(null);
   const [provs, setProvs] = useState<{ id: string; label: string; version: string | null; ok: boolean }[] | null>(null);
+  const [retitleStatus, setRetitleStatus] = useState("");
   const s = p.settings;
   const customModels = s.customModels ?? [];
   const modelEfforts = s.modelEfforts ?? {};
@@ -83,6 +85,9 @@ export default function SettingsPage(p: {
       if (m.type === "providerStatus") setProvs(m.providers);
       if (m.type === "pastedCleared") {
         p.ws!.send(JSON.stringify({ type: "status" }));
+      }
+      if (m.type === "retitleAllDone") {
+        setRetitleStatus(m.running ? "Déjà en cours" : `${m.renamed} titre(s) régénéré(s)`);
       }
     };
     p.ws.addEventListener("message", onMsg);
@@ -171,6 +176,19 @@ export default function SettingsPage(p: {
                 <option value="recent">Récents d'abord</option>
                 <option value="manual">Ordre de création</option>
               </select>
+            </Row>
+            <Row title="Titres de chats" desc="Régénère les titres bruts ou dupliqués depuis le premier message utilisateur.">
+              <button
+                className="set-btn"
+                disabled={p.ws?.readyState !== 1}
+                onClick={() => {
+                  setRetitleStatus("En cours…");
+                  p.ws?.send(JSON.stringify({ type: "retitleAll" }));
+                }}
+              >
+                Régénérer les titres de chats
+              </button>
+              {retitleStatus && <span className="set-val wide">{retitleStatus}</span>}
             </Row>
           </>
         )}
@@ -290,7 +308,7 @@ export default function SettingsPage(p: {
                 if (!slugText.trim()) return;
                 set({ customModels: [...customModels, { provider: slugProv, id: slugText.trim() }] });
                 setSlugText("");
-              }}>+ Ajouter</button>
+              }}><PlusIcon /> Ajouter</button>
             </Row>
             <p className="set-sub" style={{ marginTop: 24 }}>Effort par modèle — prioritaire sur l'effort par défaut quand ce modèle est sélectionné.</p>
             {([
