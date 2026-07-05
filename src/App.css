@@ -1034,3 +1034,12 @@ body.dragging iframe { pointer-events: none; }
 .qa-recent-q { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .qa-recent-ts { color: var(--muted2); font-size: 10.5px; flex-shrink: 0; }
 .qa-promote-err { color: #e06c75; font-size: 11px; }
+/* Quick Ask déplaçable/redimensionnable */
+.qa-pop { position: relative; }
+.qa-pop.free { margin: 0; }
+.qa-resize { position: absolute; right: 0; bottom: 0; width: 16px; height: 16px;
+  cursor: nwse-resize; }
+.qa-resize::after { content: ""; position: absolute; right: 4px; bottom: 4px;
+  width: 7px; height: 7px; border-right: 2px solid var(--border2);
+  border-bottom: 2px solid var(--border2); border-radius: 1px; }
+.qa-overlay { pointer-events: auto; }

@@ -50,6 +50,50 @@ export default function QuickAsk({
   const [recentsOpen, setRecentsOpen] = useState(false);
   const [promoteErr, setPromoteErr] = useState<string | null>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
+  const popRef = useRef<HTMLDivElement>(null);
+  const [box, setBox] = useState<{ x: number; y: number; w: number; h: number } | null>(() => {
+    try { return JSON.parse(localStorage.getItem("atelier-studio.qaBox") ?? "null"); }
+    catch { return null; }
+  });
+  function saveBox(b: { x: number; y: number; w: number; h: number }) {
+    setBox(b);
+    localStorage.setItem("atelier-studio.qaBox", JSON.stringify(b));
+  }
+  function startDrag(e: React.MouseEvent) {
+    if ((e.target as HTMLElement).closest("button")) return;
+    e.preventDefault();
+    const el = popRef.current;
+    if (!el) return;
+    const r = el.getBoundingClientRect();
+    const ox = e.clientX - r.left, oy = e.clientY - r.top;
+    const move = (ev: MouseEvent) => {
+      saveBox({
+        x: Math.min(window.innerWidth - 120, Math.max(0, ev.clientX - ox)),
+        y: Math.min(window.innerHeight - 80, Math.max(0, ev.clientY - oy)),
+        w: r.width, h: r.height,
+      });
+    };
+    const up = () => { window.removeEventListener("mousemove", move); window.removeEventListener("mouseup", up); };
+    window.addEventListener("mousemove", move);
+    window.addEventListener("mouseup", up);
+  }
+  function startResize(e: React.MouseEvent) {
+    e.preventDefault();
+    e.stopPropagation();
+    const el = popRef.current;
+    if (!el) return;
+    const r = el.getBoundingClientRect();
+    const move = (ev: MouseEvent) => {
+      saveBox({
+        x: r.left, y: r.top,
+        w: Math.max(380, ev.clientX - r.left),
+        h: Math.max(240, ev.clientY - r.top),
+      });
+    };
+    const up = () => { window.removeEventListener("mousemove", move); window.removeEventListener("mouseup", up); };
+    window.addEventListener("mousemove", move);
+    window.addEventListener("mouseup", up);
+  }
   const bodyRef = useRef<HTMLDivElement>(null);
 
   // ouverture : reset de session, pré-remplissage du brouillon
@@ -136,8 +180,13 @@ export default function QuickAsk({
 
   return (
     <div className="qa-overlay" onClick={close}>
-      <div className="qa-pop" onClick={(e) => e.stopPropagation()}>
-        <div className="qa-head">
+      <div
+        className={`qa-pop ${box ? "free" : ""}`}
+        ref={popRef}
+        onClick={(e) => e.stopPropagation()}
+        style={box ? { position: "fixed", left: box.x, top: box.y, width: box.w, height: box.h, maxHeight: "none" } : undefined}
+      >
+        <div className="qa-head" onMouseDown={startDrag} style={{ cursor: "move" }}>
           <span className="qa-zap"><ZapIcon /></span>
           <span>{t("qa.title")}</span>
           <button className="qa-recents-btn" title={t("qa.recents")}
@@ -221,6 +270,7 @@ export default function QuickAsk({
           {promoteErr && <span className="qa-promote-err">{promoteErr}</span>}
           <span className="qa-esc">esc</span>
         </div>
+        <div className="qa-resize" onMouseDown={startResize} />
       </div>
     </div>
   );
