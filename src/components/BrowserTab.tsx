@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 
 import { wsSend } from "../lib/wsBus";
+import { t } from "../lib/i18n";
 import { CloseIcon, RefreshIcon } from "./icons";
 
 type LocalServer = { port: number; title: string | null };
@@ -136,14 +137,14 @@ export default function BrowserTab(p: {
   return (
     <div className="browser-tab" style={{ display: p.visible ? "flex" : "none" }}>
       <div className="browser-bar">
-        <button className="ghost" onClick={() => invoke("browser_eval", { js: "history.back()" })} title="Précédent">←</button>
-        <button className="ghost" onClick={() => invoke("browser_eval", { js: "history.forward()" })} title="Suivant">→</button>
-        <button className="ghost" onClick={() => invoke("browser_eval", { js: "location.reload()" })} title="Recharger">
+        <button className="ghost" onClick={() => invoke("browser_eval", { js: "history.back()" })} title={t("browser.back")}>←</button>
+        <button className="ghost" onClick={() => invoke("browser_eval", { js: "history.forward()" })} title={t("browser.forward")}>→</button>
+        <button className="ghost" onClick={() => invoke("browser_eval", { js: "location.reload()" })} title={t("action.reload")}>
           <RefreshIcon />
         </button>
         <button
           className="ghost"
-          title="Add to chat : sélectionne dans la page, ⌘C, puis clique ici"
+          title={t("action.search-web-add")}
           onClick={async () => {
             try {
               const text = await navigator.clipboard.readText();
@@ -160,7 +161,7 @@ export default function BrowserTab(p: {
         </button>
         <input
           className="browser-url"
-          placeholder="Rechercher ou entrer une URL"
+          placeholder={t("browser.placeholder")}
           value={input}
           onChange={(e) => setInput(e.target.value)}
           onKeyDown={(e) => {
@@ -169,7 +170,7 @@ export default function BrowserTab(p: {
           onFocus={(e) => e.target.select()}
         />
         {url && (
-          <button className="ghost" title="Fermer la page (retour à l'accueil)"
+          <button className="ghost" title={t("browser.close-home")}
             onClick={() => {
               invoke("browser_hide", {}).catch(() => {});
               setUrl(null);
@@ -185,7 +186,7 @@ export default function BrowserTab(p: {
             <div className="browser-search-card">
               <input
                 className="browser-home-search"
-                placeholder="Rechercher ou entrer une URL"
+                placeholder={t("browser.placeholder")}
                 value={input}
                 onChange={(e) => setInput(e.target.value)}
                 onKeyDown={(e) => {
@@ -193,16 +194,16 @@ export default function BrowserTab(p: {
                 }}
                 autoComplete="off"
               />
-              <div className="browser-home-muted">Recherche web, URL ou serveur local.</div>
+              <div className="browser-home-muted">{t("browser.home-muted")}</div>
             </div>
             <div className="bh-row">
-              <span className="bh-title">Local</span>
-              <button className="ghost" title="Re-scanner" onClick={scan}>
+              <span className="bh-title">{t("browser.local")}</span>
+              <button className="ghost" title={t("action.rescan")} onClick={scan}>
                 <RefreshIcon />
               </button>
             </div>
-            {servers === null && <div className="bh-empty">Scan des ports locaux…</div>}
-            {servers?.length === 0 && <div className="bh-empty">Aucun serveur local détecté.</div>}
+            {servers === null && <div className="bh-empty">{t("browser.scanning")}</div>}
+            {servers?.length === 0 && <div className="bh-empty">{t("browser.empty")}</div>}
             {servers?.map((s) => (
               <div key={s.port} className="bh-card" onClick={() => navigate(`http://localhost:${s.port}`)}>
                 <div className="bh-card-txt">
