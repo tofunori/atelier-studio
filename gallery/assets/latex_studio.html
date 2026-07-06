@@ -47,6 +47,7 @@
 <script src="/.fig_thumbs/diff.min.js"></script>
 <link rel="stylesheet" href="/.fig_thumbs/katex/katex.min.css">
 <script src="/.fig_thumbs/katex/katex.min.js"></script>
+<script src="/.fig_thumbs/texvisual.min.js"></script>
 <style>
 :root{--bg:#212429;--card:#1a1d22;--card2:#1a1d22;--txt:#e8eaed;--muted:#8a919e;--accent:#e8823a;--border:#333a45;--border-strong:#3f4652}
   html,body{margin:0;height:100%;background:var(--bg);color:var(--txt);
@@ -200,6 +201,20 @@
 .lint-gutter-err{color:#e06c75;font-size:10px;line-height:1}
 .cm-lint-line{border-bottom:1px dotted rgba(224,108,117,.7)}
 
+  /* ===== mode Visuel (éditeur CM6, source décorée façon Overleaf) ===== */
+  #texvis{display:none;height:100%;overflow:auto}
+  #right.visual .pdfpage,#right.visual #marker,#right.visual #texread{display:none!important}
+  #right.visual #texvis{display:block}
+  #texvis .tv-b{font-weight:650;color:#f2f4f7}
+  #texvis .tv-i{font-style:italic}
+  #texvis .tv-tt{font-family:var(--code-font,monospace);font-size:.88em;background:rgba(255,255,255,.06);border-radius:4px;padding:0 3px}
+  #texvis .tv-todo{color:#e0726a;font-weight:600}
+  #texvis .tv-cite{color:var(--accent);font-size:.9em}
+  #texvis .tv-comment{color:#6b7482;font-style:italic}
+  #texvis .cm-line.tv-h1{font-size:24px;font-weight:600;letter-spacing:-.01em}
+  #texvis .cm-line.tv-h2{font-size:19px;font-weight:600;letter-spacing:-.01em}
+  #texvis .cm-line.tv-h3{font-size:16px;font-weight:600}
+  #texvis .tv-math .katex{font-size:1.03em}
   /* ===== mode Lecture (rendu LaTeX-prose façon Claude Science) ===== */
   #texread{display:none;max-width:760px;margin:0 auto;padding:36px 40px 120px;
     font-family:Charter,Georgia,"Times New Roman",serif;font-size:17px;line-height:1.7;color:#e6e8ec}
@@ -1043,6 +1058,47 @@ if(IS_TEX && window.katex){
     if(cm) setTimeout(()=>cm.refresh(), 60);
   }
   readBtn.onclick = () => setRead(!readOn);
+
+  // ===== mode Visuel : CM6 éditable (source décorée) — CM5 reste le pivot =====
+  right.insertAdjacentHTML("beforeend", '<div id="texvis"></div>');
+  const visBtn = document.createElement("button");
+  visBtn.id = "visBtn"; visBtn.title = "Vue Visuel — édite la source rendue (math, gras, todos), façon Overleaf";
+  visBtn.textContent = "Visuel";
+  readBtn.insertAdjacentElement("afterend", visBtn);
+  let visOn = false, visEd = null, visSyncT = null, visSyncing = false;
+  function setVis(on){
+    visOn = on;
+    right.classList.toggle("visual", on);
+    visBtn.classList.toggle("on", on);
+    localStorage.setItem("texVisMode", on ? "1" : "0");
+    if(on){
+      if(readOn) setRead(false);
+      if(right.style.display === "none") applyPdfVisible(true);
+      // plein panneau : cacher l’éditeur code (CM5 reste le pivot caché)
+      document.getElementById("left").style.display = "none";
+      if(!visEd){
+        visEd = TexVisual.create(document.getElementById("texvis"), cm.getValue(), {
+          onChange: (v) => {
+            clearTimeout(visSyncT);
+            visSyncT = setTimeout(() => {
+              visSyncing = true; cm.setValue(v); visSyncing = false;
+              // setValue est exclu du handler dirty (origin) → marquer ici
+              dirty = true; ddot.style.display = "inline"; setState("dirty", "modified");
+            }, 250);
+          },
+        });
+      } else {
+        visEd.setValue(cm.getValue());
+      }
+    } else {
+      document.getElementById("left").style.display = "flex";
+      if(cm) setTimeout(() => cm.refresh(), 60);
+    }
+  }
+  visBtn.onclick = () => setVis(!visOn);
+  splitBtn.addEventListener("click", () => { if(visOn) setVis(false); });
+  document.getElementById("popPdf")?.addEventListener("click", () => { if(visOn) setVis(false); });
+  readBtn.addEventListener("click", () => { if(visOn && readOn) { right.classList.remove("visual"); visBtn.classList.remove("on"); visOn=false; } });
   // sortir de Lecture si on repasse au PDF
   splitBtn.addEventListener("click", () => { if(readOn) setRead(false); });
   document.getElementById("popPdf")?.addEventListener("click", () => { if(readOn) setRead(false); });
