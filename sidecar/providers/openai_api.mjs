@@ -28,6 +28,7 @@ export function loadApiProviderConfigs(configFile = CONFIG_FILE) {
         baseURL: String(p.baseURL).replace(/\/+$/, ""),
         apiKey: p.apiKey ?? null,
         apiKeyEnv: p.apiKeyEnv ?? null,
+        protocol: p.protocol === "anthropic" ? "anthropic" : "openai",
         models: p.models.map(String),
         defaultModel: String(p.defaultModel ?? p.models[0]),
       }));
@@ -117,6 +118,40 @@ export function parseSseChunk(chunk, carry = "") {
   return { events, rest };
 }
 
+// Protocole Anthropic (/v1/messages) — GLM, MiniMax et autres services
+// "Claude-Code-compatibles". Events SSE: message_start, content_block_delta
+// (text_delta | thinking_delta), message_delta (usage), message_stop, error.
+export function parseAnthropicSseChunk(chunk, carry = "") {
+  const text = carry + chunk;
+  const lines = text.split(/\r?\n/);
+  const rest = lines.pop() ?? "";
+  const events = [];
+  for (const line of lines) {
+    if (!line.startsWith("data:")) continue;
+    const data = line.slice(5).trim();
+    if (!data) continue;
+    let obj;
+    try { obj = JSON.parse(data); } catch { continue; }
+    if (obj.type === "content_block_delta") {
+      const d = obj.delta ?? {};
+      if (d.type === "text_delta" && d.text) events.push({ kind: "delta", text: d.text });
+      else if (d.type === "thinking_delta" && d.thinking) events.push({ kind: "thinking_delta", text: d.thinking });
+    } else if (obj.type === "message_start") {
+      const u = obj.message?.usage;
+      if (u) events.push({ kind: "usage", usage: { context: u.input_tokens ?? 0, output: 0, cost: null, turns: null } });
+    } else if (obj.type === "message_delta") {
+      const u = obj.usage;
+      if (u) events.push({
+        kind: "usage",
+        usage: { context: u.input_tokens ?? null, output: u.output_tokens ?? 0, cost: null, turns: null },
+      });
+    } else if (obj.type === "error") {
+      events.push({ kind: "error", message: String(obj.error?.message ?? JSON.stringify(obj.error)) });
+    }
+  }
+  return { events, rest };
+}
+
 // ---------------------------------------------------------------------------
 // Fabrique un provider runtime au contrat du router (run/interrupt/status)
 // ---------------------------------------------------------------------------
@@ -133,24 +168,40 @@ export function makeApiProvider(cfg) {
     const sid = sessionId || randomUUID();
     const history = loadHistory(sid);
     const userMessage = { role: "user", content: String(prompt ?? "") };
-    const body = {
-      model: model || cfg.defaultModel,
-      messages: [...history, userMessage],
-      stream: true,
-      stream_options: { include_usage: true },
-    };
+    const anthropic = cfg.protocol === "anthropic";
+    const body = anthropic
+      ? {
+        model: model || cfg.defaultModel,
+        max_tokens: 8192,
+        messages: [...history, userMessage],
+        stream: true,
+      }
+      : {
+        model: model || cfg.defaultModel,
+        messages: [...history, userMessage],
+        stream: true,
+        stream_options: { include_usage: true },
+      };
 
     const controller = new AbortController();
     controllers.set(threadId, controller);
     let fullText = "";
     let usage = { context: 0, output: 0, cost: null, turns: null };
     try {
-      const res = await fetch(`${cfg.baseURL}/chat/completions`, {
-        method: "POST",
-        headers: {
+      const url = anthropic ? `${cfg.baseURL}/v1/messages` : `${cfg.baseURL}/chat/completions`;
+      const headers = anthropic
+        ? {
+          "Content-Type": "application/json",
+          "x-api-key": apiKey,
+          "anthropic-version": "2023-06-01",
+        }
+        : {
           "Content-Type": "application/json",
           Authorization: `Bearer ${apiKey}`,
-        },
+        };
+      const res = await fetch(url, {
+        method: "POST",
+        headers,
         body: JSON.stringify(body),
         signal: controller.signal,
       });
@@ -159,12 +210,23 @@ export function makeApiProvider(cfg) {
         throw new Error(`${cfg.label} HTTP ${res.status}: ${detail}`);
       }
       const decoder = new TextDecoder();
+      const parse = anthropic ? parseAnthropicSseChunk : parseSseChunk;
       let carry = "";
       for await (const chunk of res.body) {
-        const parsed = parseSseChunk(decoder.decode(chunk, { stream: true }), carry);
+        const parsed = parse(decoder.decode(chunk, { stream: true }), carry);
         carry = parsed.rest;
         for (const event of parsed.events) {
-          if (event.kind === "usage") { usage = event.usage; continue; }
+          if (event.kind === "usage") {
+            // Anthropic répartit l'usage sur message_start (input) et
+            // message_delta (output) : fusionner sans écraser par des null
+            usage = {
+              context: event.usage.context ?? usage.context,
+              output: event.usage.output ?? usage.output,
+              cost: event.usage.cost ?? usage.cost,
+              turns: null,
+            };
+            continue;
+          }
           if (event.kind === "error") throw new Error(event.message);
           if (event.kind === "delta") fullText += event.text;
           onEvent?.(event);
