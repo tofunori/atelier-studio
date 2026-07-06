@@ -551,6 +551,18 @@ async function load(){
     cm.refresh();
   })();
 
+  // Le divider du panneau (Bibliothèque/atelier) redimensionne l'iframe SANS
+  // émettre de 'resize' fenêtre dans WebKit → CodeMirror gardait son ancien
+  // calcul de wrap/hauteur et la gouttière se décalait (un numéro toutes les
+  // 2 lignes). ResizeObserver capte TOUTE variation de largeur, drag inclus.
+  (function(){
+    let raf = 0;
+    const doRefresh = () => { raf = 0; if(cm) cm.refresh(); };
+    const ro = new ResizeObserver(() => { if(!raf) raf = requestAnimationFrame(doRefresh); });
+    const leftEl = document.getElementById("left");
+    if(leftEl) ro.observe(leftEl);
+  })();
+
   // initial loadPdf is triggered by the /texroot resolution (single-trigger rule)
 }
 
