@@ -152,6 +152,18 @@
   #tgMenu .it .t{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
   #tgMenu .it.on .t{color:#8ab4ff}
 #mdModeSeg button.mdon{background:var(--accent);color:#10151d;border-color:var(--accent)}
+  #diffPane .dHead{position:sticky;top:0;display:flex;align-items:center;gap:10px;padding:7px 14px;
+    background:var(--card);border-bottom:1px solid var(--border);font-family:var(--ui-font,-apple-system,sans-serif);
+    font-size:12px;color:var(--muted);z-index:5}
+  #diffPane .dHead b{color:var(--txt);font-weight:600}
+  #diffPane .dHead .dx{margin-left:auto;background:transparent;border:1px solid var(--border);border-radius:6px;
+    color:var(--muted);cursor:pointer;padding:2px 10px;font-size:12px}
+  #diffPane .dHead .dx:hover{color:var(--txt);border-color:var(--border-strong)}
+  #diffPane .dBody{padding:12px 16px;white-space:pre-wrap}
+  #diffPane .dFold{display:block;color:var(--faint,#6b7482);background:var(--card2);border:1px dashed var(--border);
+    border-radius:6px;text-align:center;padding:3px 0;margin:6px 0;cursor:pointer;font-size:11px;
+    font-family:var(--ui-font,-apple-system,sans-serif)}
+  #diffPane .dFold:hover{color:var(--muted)}
   #diffPane{display:none;position:absolute;inset:0;z-index:50;overflow:auto;background:var(--bg,#212429);
     padding:18px 22px;font-family:ui-monospace,Menlo,monospace;font-size:13px;line-height:1.7;
     white-space:pre-wrap;word-break:break-word;color:#cfd4dc}
@@ -1348,10 +1360,28 @@ function renderDiff(){
   const v = DIFF_VERSIONS[diffIdx];
   if(!v) return;
   const parts = Diff.diffWordsWithSpace(v.before, v.after);
-  diffPane.innerHTML = parts.map(pt =>
-    pt.added ? '<span class="dAdd">' + escH(pt.value) + "</span>" :
-    pt.removed ? '<span class="dDel">' + escH(pt.value) + "</span>" :
-    escH(pt.value)).join("");
+  const body = parts.map(pt => {
+    if(pt.added)   return '<span class="dAdd">' + escH(pt.value) + "</span>";
+    if(pt.removed) return '<span class="dDel">' + escH(pt.value) + "</span>";
+    // passage identique long → replié (on ne montre que le voisinage des changements)
+    const lines = pt.value.split("\n");
+    if(lines.length > 12){
+      const head = lines.slice(0, 3).join("\n"), tail = lines.slice(-3).join("\n");
+      const hidden = lines.slice(3, -3).join("\n");
+      return escH(head) + '<span class="dFold" data-full="' + escH(hidden).replace(/"/g,"&quot;") + '">⋯ ' + (lines.length - 6) + ' lignes identiques — cliquer pour afficher ⋯</span>' + escH(tail);
+    }
+    return escH(pt.value);
+  }).join("");
+  const when = new Date(v.ts).toLocaleTimeString();
+  diffPane.innerHTML = '<div class="dHead"><b>Comparaison</b> v' + (diffIdx + 2) + "/" + (DIFF_VERSIONS.length + 1)
+    + ' · ' + when + ' · <span class="dDel">supprimé</span> <span class="dAdd">ajouté</span>'
+    + '<button class="dx">Fermer — retour à l\u2019éditeur</button></div><div class="dBody">' + body + "</div>";
+  diffPane.querySelector(".dx").onclick = () => toggleDiff(false);
+  diffPane.querySelectorAll(".dFold").forEach(f => f.onclick = () => {
+    const t = document.createTextNode(f.dataset.full ? f.dataset.full.replace(/&quot;/g,"\"") : "");
+    const pre = document.createElement("span"); pre.textContent = f.getAttribute("data-full") ?? "";
+    f.replaceWith(pre);
+  });
 }
 function toggleDiff(show){
   diffShown = show ?? !diffShown;
