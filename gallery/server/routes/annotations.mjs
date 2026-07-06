@@ -329,7 +329,8 @@ export async function handleAnnotationPost(req, res, url) {
     try {
       const payload = await readJsonRequest(req);
       const p = selectionFile();
-      if (payload.lines) {
+      // truthiness Python : [] est falsy — un tableau vide efface la sélection
+      if (Array.isArray(payload.lines) ? payload.lines.length > 0 : payload.lines) {
         payload.ts = Date.now() / 1000;
         fs.writeFileSync(p, JSON.stringify(payload));
       } else if (fs.existsSync(p)) {

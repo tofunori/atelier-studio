@@ -17,6 +17,7 @@ import {
 
 const THIS_DIR = path.dirname(fileURLToPath(import.meta.url));
 const BUILDER = path.join(THIS_DIR, "..", "builder.mjs");
+const DATA_FILE = path.join(PROJECT, "figures_data.json");
 
 function stateDefault() {
   return {
@@ -98,7 +99,19 @@ export async function handleCoreGet(req, res, url) {
       return sendJson(res, 400, { error: `bad request: ${String(error.message || error)}` });
     }
   }
-  if (pathname === "/ls") {
+  if (pathname === "/data") {
+    try {
+      if (!fs.existsSync(DATA_FILE)) return sendJson(res, 404, { error: "not found" });
+      return sendBuffer(res, 200, fs.readFileSync(DATA_FILE), {
+        "Content-Type": "application/json",
+        "Access-Control-Allow-Origin": "*",
+        "Cache-Control": "no-cache",
+      });
+    } catch (error) {
+      return sendJson(res, 500, { error: String(error.message || error) });
+    }
+  }
+  if (pathname === "/ls" && url.search) { // python: startswith("/ls?") — /ls nu = 404
     try {
       const d = safePath(url.searchParams.get("dir") ?? PROJECT) || PROJECT;
       if (!fs.existsSync(d) || !fs.statSync(d).isDirectory()) {
@@ -220,7 +233,7 @@ export async function handleCorePost(req, res, url) {
   if (pathname === "/rescan") {
     const r = await spawnCollect(process.execPath, [BUILDER], {
       cwd: PROJECT,
-      env: { ...process.env, GALLERY_ROOT: PROJECT },
+      env: { ...process.env, GALLERY_ROOT: PROJECT, GALLERY_DATA_ONLY: "1" },
       detached: true,
       timeoutMs: 300000,
     });

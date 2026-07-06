@@ -189,6 +189,8 @@ export function serveBuffer(res, code, data, headers = {}) {
   return true;
 }
 
+export const sendBuffer = serveBuffer;
+
 export function readRequestBody(req, limit = 128 * 1024 * 1024) {
   return new Promise((resolve, reject) => {
     const chunks = [];

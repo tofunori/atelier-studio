@@ -14,7 +14,9 @@ import {
   serveFile,
 } from "./shared.mjs";
 import { handleAnnotationGet, handleAnnotationPost } from "./routes/annotations.mjs";
+import { handleBoardsGet, handleBoardsPost } from "./routes/boards.mjs";
 import { handleCoreGet, handleCorePost } from "./routes/core.mjs";
+import { handleEditorsGet, handleEditorsPost } from "./routes/editors.mjs";
 
 const VIDEO_EXTS = new Set([".mp4", ".m4v", ".mov", ".webm"]);
 
@@ -86,10 +88,12 @@ function maybeInjectSelectionOverlay(req, res, file, urlPath) {
   } catch {
     return false;
   }
-  const tag = Buffer.from('<script defer src="/.fig_thumbs/sel_overlay.js?v=3"></script>');
-  const lower = body.toString("utf8").toLowerCase();
-  const i = lower.lastIndexOf("</body>");
-  body = i === -1 ? Buffer.concat([body, tag]) : Buffer.concat([body.subarray(0, i), tag, body.subarray(i)]);
+  const tag = '<script defer src="/.fig_thumbs/sel_overlay.js?v=3"></script>';
+  // index CARACTÈRES vs BYTES : le HTML contient des multi-octets (« ») —
+  // on splice en string, jamais un index string dans un Buffer
+  const text = body.toString("utf8");
+  const i = text.toLowerCase().lastIndexOf("</body>");
+  body = Buffer.from(i === -1 ? text + tag : text.slice(0, i) + tag + text.slice(i), "utf8");
   return serveBuffer(res, 200, body, {
     "Content-Type": "text/html; charset=utf-8",
     "Cache-Control": "no-cache",
@@ -127,6 +131,8 @@ async function route(req, res) {
     if (req.method === "GET" || req.method === "HEAD") {
       if (req.method === "GET" && await handleAnnotationGet(req, res, url)) return true;
       if (req.method === "GET" && await handleCoreGet(req, res, url)) return true;
+      if (req.method === "GET" && await handleEditorsGet(req, res, url)) return true;
+      if (req.method === "GET" && await handleBoardsGet(req, res, url)) return true;
       if (handleStatic(req, res, url)) return true;
       return sendEmpty(res, 404);
     }
@@ -136,6 +142,8 @@ async function route(req, res) {
       }
       if (await handleAnnotationPost(req, res, url)) return true;
       if (await handleCorePost(req, res, url)) return true;
+      if (await handleEditorsPost(req, res, url)) return true;
+      if (await handleBoardsPost(req, res, url)) return true;
       return sendJson(res, 404, { error: "not found" });
     }
     return sendEmpty(res, 405);

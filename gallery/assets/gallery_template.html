@@ -250,7 +250,7 @@
     <svg class="logo" width="19" height="19" viewBox="0 0 24 24" fill="currentColor" aria-label="Gallery"><rect x="2" y="2" width="9.5" height="13.5" rx="1.6"/><rect x="2" y="17" width="9.5" height="5" rx="1.6"/><rect x="13.5" y="2" width="8.5" height="5" rx="1.6"/><rect x="13.5" y="9" width="8.5" height="13" rx="1.6"/></svg>
     <span class="wm">__WORDMARK__</span>
     <span class="proj">__PROJECT__</span>
-    <span class="stat">__COUNT__ files · __GEN__</span>
+    <span id="galleryStat" class="stat">__COUNT__ files · __GEN__</span>
   </div>
   <div class="controls">
     <span class="chip" id="searchChip" title="Search by name or folder (press /)" tabindex="0"><svg width="12" height="12" viewBox="0 0 16 16" fill="none" aria-hidden="true"><circle cx="7" cy="7" r="5" stroke="currentColor" stroke-width="1.6"/><path d="M11 11l3.2 3.2" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg> Search</span>
@@ -338,7 +338,37 @@
   };
 })();
 
-const FILES = __DATA__;
+const INLINE_FILES = __DATA__;
+let FILES = Array.isArray(INLINE_FILES) ? INLINE_FILES : [];
+let FOLDERS = Array.isArray(__FOLDERS__) ? __FOLDERS__ : [];
+let SEED_FAVS = Array.isArray(__FAVS__) ? __FAVS__ : [];
+let galleryDataLoaded = Array.isArray(INLINE_FILES);
+function foldersFromFiles(files){
+  return [...new Set((files||[]).map(f=>f.folder||'.'))].sort();
+}
+function applyGalleryData(data){
+  if(Array.isArray(data)) data={files:data};
+  if(!data || !Array.isArray(data.files)) return;
+  FILES = data.files;
+  FOLDERS = Array.isArray(data.folders) ? data.folders : foldersFromFiles(FILES);
+  SEED_FAVS = Array.isArray(data.favs) ? data.favs : [];
+  galleryDataLoaded = true;
+  if(data.title) document.title=data.title;
+  const wm=document.querySelector('.brand .wm'); if(wm && data.wordmark) wm.textContent=data.wordmark;
+  const pj=document.querySelector('.brand .proj'); if(pj && data.project) pj.textContent=data.project;
+  const stat=document.getElementById('galleryStat');
+  if(stat) stat.textContent=(data.countLabel || String(FILES.length))+' files · '+(data.gen||'');
+  if(typeof favs!=='undefined'){
+    SEED_FAVS.forEach(f=>favs.add(f));
+    saveFavs();
+    document.getElementById('favChip').textContent='★ Favorites ('+favs.size+')';
+  }
+  if(typeof populateFolders==='function') populateFolders();
+  if(typeof render==='function') render();
+}
+if(!galleryDataLoaded){
+  fetch('/data',{cache:'no-store'}).then(r=>r.ok?r.json():null).then(applyGalleryData).catch(()=>{});
+}
 // Filenames are untrusted: escape for text (esc) and attributes (escA), and route
 // every card handler through delegation on data-* (never JS-string interpolation).
 function esc(s){return String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));}
@@ -367,7 +397,6 @@ document.addEventListener('change',e=>{
   const el=e.target.closest('.wfsel'); if(!el) return;
   setWorkflow(el.dataset.rel, el.value);
 });
-const SEED_FAVS = __FAVS__;
 let favs = new Set(JSON.parse(localStorage.getItem('figFavs')||'[]'));
 SEED_FAVS.forEach(f=>favs.add(f));
 const saveFavs = ()=>localStorage.setItem('figFavs', JSON.stringify([...favs]));
@@ -1011,7 +1040,6 @@ function toggleFav(rel, el){
   document.getElementById('favChip').textContent='★ Favorites ('+favs.size+')';
   render();
 }
-const FOLDERS = __FOLDERS__;
 const DEFAULT_EXTS = {png:true,jpg:true,jpeg:true,svg:true,mp4:true,m4v:true,mov:true,webm:true,pdf:false,html:false,docx:false,xlsx:false,xls:false,csv:false,md:false,py:false,r:false,jl:false,tex:false,sh:false};
 const exts = Object.assign({}, DEFAULT_EXTS, JSON.parse(localStorage.getItem('figExts')||'{}'));
 const saveExts = ()=>localStorage.setItem('figExts', JSON.stringify(exts));
@@ -1048,7 +1076,13 @@ fmtChip.onclick=e=>{ e.stopPropagation(); buildFmtMenu(); menuToggle(fmtMenu, fm
 fmtChipLabel();
 
 const fsel = document.getElementById('folder');
-FOLDERS.forEach(f=>{const o=document.createElement('option');o.value=f;o.textContent=f;fsel.appendChild(o);});
+function populateFolders(){
+  const keep=fsel.value;
+  fsel.innerHTML='';
+  FOLDERS.forEach(f=>{const o=document.createElement('option');o.value=f;o.textContent=f;fsel.appendChild(o);});
+  if(FOLDERS.includes(keep)) fsel.value=keep;
+}
+populateFolders();
 
 // lazily fetch code snippets only for cards that scroll into view (data stays light)
 const snipObserver = new IntersectionObserver((entries,obs)=>{

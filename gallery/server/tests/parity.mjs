@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { spawn } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import fs from "node:fs";
 import http from "node:http";
 import os from "node:os";
@@ -81,6 +81,9 @@ function writeFixture(root) {
   fs.writeFileSync(path.join(root, "notes.md"), "# Notes\n\nalpha\n");
   fs.mkdirSync(path.join(root, "nested"));
   fs.writeFileSync(path.join(root, "nested", "data.md"), "nested\n");
+  fs.writeFileSync(path.join(root, "main.tex"), "\\documentclass{article}\n\\begin{document}\n\\input{section}\n\\end{document}\n");
+  fs.writeFileSync(path.join(root, "section.tex"), "Section body\n");
+  fs.writeFileSync(path.join(root, "figure.svg"), "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"10\" height=\"10\"><rect width=\"10\" height=\"10\"/></svg>\n");
 }
 
 function pngDimensions(buf) {
@@ -88,14 +91,87 @@ function pngDimensions(buf) {
   return [buf.readUInt32BE(16), buf.readUInt32BE(20)];
 }
 
+function assertJsonClose(a, b, ctx) {
+  if (typeof a === "number" && typeof b === "number") {
+    assert.ok(Math.abs(a - b) < 1e-3, `${ctx}: ${a} !== ${b}`);
+    return;
+  }
+  if (Array.isArray(a) && Array.isArray(b)) {
+    assert.equal(a.length, b.length, `${ctx} length`);
+    a.forEach((v, i) => assertJsonClose(v, b[i], `${ctx}[${i}]`));
+    return;
+  }
+  if (a && b && typeof a === "object" && typeof b === "object") {
+    assert.deepEqual(Object.keys(a).sort(), Object.keys(b).sort(), `${ctx} keys`);
+    for (const k of Object.keys(a)) assertJsonClose(a[k], b[k], `${ctx}.${k}`);
+    return;
+  }
+  assert.deepEqual(a, b, ctx);
+}
+
 function assertSameRoute(route, py, node) {
   assert.equal(node.status, py.status, `${route} status`);
-  assert.deepEqual(node.body, py.body, `${route} body`);
+  // parité stricte des corps sur les succès ; sur les erreurs, seule la
+  // sémantique compte (la page d'erreur HTML de BaseHTTPRequestHandler
+  // n'est pas un contrat — le front ne la lit jamais)
+  if (py.status < 400) {
+    // JSON : comparaison structurelle avec tolérance sur les flottants
+    // (mtime : getmtime() Python et mtimeMs/1000 Node divergent à la 6e décimale)
+    let pj = null, nj = null;
+    try { pj = JSON.parse(py.body.toString()); nj = JSON.parse(node.body.toString()); } catch {}
+    if (pj !== null && nj !== null) assertJsonClose(nj, pj, route);
+    else assert.deepEqual(node.body, py.body, `${route} body`);
+  }
+}
+
+function findChrome() {
+  for (const p of [
+    "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+    "/Applications/Chromium.app/Contents/MacOS/Chromium",
+  ]) {
+    if (fs.existsSync(p)) return p;
+  }
+  for (const name of ["google-chrome", "chromium-browser", "chromium", "chrome"]) {
+    const r = spawnSync("which", [name], { encoding: "utf8" });
+    if (r.status === 0 && r.stdout.trim()) return r.stdout.trim().split(/\r?\n/)[0];
+  }
+  return null;
+}
+
+function renderCardsWithChrome(chrome, url) {
+  const r = spawnSync(chrome, [
+    "--headless=new",
+    "--disable-gpu",
+    "--virtual-time-budget=3000",
+    "--dump-dom",
+    url,
+  ], { encoding: "utf8", timeout: 10000 });
+  assert.equal(r.status, 0, `chrome render ${url}: ${r.stderr}`);
+  return [...r.stdout.matchAll(/data-act="lb" data-rel="([^"]+)"/g)].map((m) => m[1]).sort();
+}
+
+function inlineHtmlFromTemplate(root, payload) {
+  const template = fs.readFileSync(path.join(GALLERY_DIR, "assets", "gallery_template.html"), "utf8");
+  const escHtml = (s) => String(s).replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;");
+  const rootJs = root.replaceAll("\\", "\\\\").replaceAll("'", "\\'").replaceAll("\n", "\\n").replaceAll("\r", "").replaceAll("</", "<\\/");
+  return template
+    .replaceAll("__TITLE__", escHtml(payload.title))
+    .replaceAll("__WORDMARK__", escHtml(payload.wordmark))
+    .replaceAll("__PROJECT__", escHtml(payload.project))
+    .replaceAll("__COUNT__", payload.countLabel)
+    .replaceAll("__GEN__", payload.gen)
+    .replaceAll("__VER__", payload.ver)
+    .replaceAll("__DATA__", JSON.stringify(payload.files).replaceAll("</", "<\\/"))
+    .replaceAll("__FOLDERS__", JSON.stringify(payload.folders).replaceAll("</", "<\\/"))
+    .replaceAll("__FAVS__", JSON.stringify(payload.favs).replaceAll("</", "<\\/"))
+    .replaceAll("__ROOT__", rootJs);
 }
 
 async function main() {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), "gallery-node-parity-"));
-  const home = fs.mkdtempSync(path.join(os.tmpdir(), "gallery-node-home-"));
+  // realpath : /var → /private/var sur macOS ; en prod GALLERY_ROOT n'est jamais
+  // un symlink, on normalise pour que les deux serveurs voient le même chemin
+  const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "gallery-node-parity-")));
+  const home = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "gallery-node-home-")));
   fs.mkdirSync(path.join(home, ".claude"), { recursive: true });
   writeFixture(root);
   const pyPort = await freePort();
@@ -129,6 +205,11 @@ async function main() {
       `/snippet?path=${encodeURIComponent("script.py")}&n=2`,
       "/pdfannot?rel=doc.pdf",
       "/quote",
+      "/rev",
+      `/texroot?path=${encodeURIComponent("section.tex")}`,
+      `/code?path=${encodeURIComponent("script.py")}`,
+      `/findscript?stem=${encodeURIComponent("alpha")}`,
+      `/lint?path=${encodeURIComponent(path.join(root, "script.py"))}`,
     ];
     for (const route of routes) {
       const [pyRes, nodeRes] = await Promise.all([request(pyPort, route), request(nodePort, route)]);
@@ -204,7 +285,24 @@ async function main() {
     assert.equal(r.status, 200, "POST /rescan");
     assert.equal(JSON.parse(r.body.toString()).ok, true);
     assert.equal(fs.existsSync(path.join(root, "figures_index.html")), true);
+    assert.equal(fs.existsSync(path.join(root, "figures_data.json")), true);
     assert.equal((fs.readFileSync(path.join(root, "figures_index.html"), "utf8").match(/<\/script>/g) || []).length, 1);
+    assert.equal(fs.readFileSync(path.join(root, "figures_index.html"), "utf8").includes('"plot.png"'), false, "shell has no inline scanned data");
+    r = await request(nodePort, "/data");
+    assert.equal(r.status, 200, "GET /data");
+    assert.equal(r.headers["cache-control"], "no-cache", "GET /data no-cache");
+    const payload = JSON.parse(r.body.toString());
+    assert.ok(payload.files.some((f) => f.rel === "plot.png"), "data includes plot.png");
+    const inlineHtml = inlineHtmlFromTemplate(root, payload);
+    fs.writeFileSync(path.join(root, "figures_inline.html"), inlineHtml);
+    const chrome = findChrome();
+    if (chrome) {
+      assert.deepEqual(
+        renderCardsWithChrome(chrome, `http://127.0.0.1:${nodePort}/figures_index.html`),
+        renderCardsWithChrome(chrome, `http://127.0.0.1:${nodePort}/figures_inline.html`),
+        "fetched and inline data modes render the same cards",
+      );
+    }
     r = await request(nodePort, "/");
     assert.equal(r.status, 200, "node / serves figures_index.html after rescan");
 

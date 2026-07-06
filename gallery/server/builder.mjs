@@ -26,6 +26,7 @@ const EXCLUDE_PARTS = new Set([
 ]);
 const ARCHIVE_HINTS = ["_archive", "menage_", "/tmp/", "tmp_dir", "/tmp", "raqdps_tests"];
 const SELF = "figures_index.html";
+const DATA_SELF = "figures_data.json";
 const SNIP_EXTS = new Set([".py", ".r", ".jl", ".sh", ".tex", ".md", ".csv"]);
 const SHOW_FRAMES = Boolean(process.env.GALLERY_SHOW_FRAMES);
 const THUMB_DIR = path.join(ROOT, ".fig_thumbs");
@@ -265,27 +266,49 @@ function loadGalleryTemplate() {
   return fs.readFileSync(path.join(GALLERY_DIR, "assets", "gallery_template.html"), "utf8");
 }
 
-export async function buildGallery() {
-  const rows = await scan();
-  await prewarmImageThumbs(rows);
-  const folders = [...new Set(rows.map((r) => r.folder))].sort();
+function galleryPayload(rows) {
   const gen = dateString(Math.floor(Date.now() / 1000));
-  const wordmark = htmlEscape(process.env.GALLERY_TITLE || "Atelier");
-  const project = htmlEscape(path.basename(ROOT.replace(/\/+$/, "")) || "project");
+  const wordmark = process.env.GALLERY_TITLE || "Atelier";
+  const project = path.basename(ROOT.replace(/\/+$/, "")) || "project";
+  const folders = [...new Set(rows.map((r) => r.folder))].sort();
+  const favs = [...cmuxFavorites()].sort();
+  return {
+    files: rows,
+    folders,
+    favs,
+    root: ROOT,
+    title: `${wordmark} \u00b7 ${project}`,
+    wordmark,
+    project,
+    count: rows.length,
+    countLabel: countString(rows.length),
+    gen,
+    ver: String(Math.floor(Date.now() / 1000)),
+  };
+}
+
+function writeData(payload) {
+  const out = path.join(ROOT, DATA_SELF);
+  const tmp = `${out}.tmp.${process.pid}.${Date.now()}`;
+  fs.writeFileSync(tmp, `${JSON.stringify(payload)}\n`, "utf8");
+  fs.renameSync(tmp, out);
+  return out;
+}
+
+function writeShell(payload) {
+  const wordmark = htmlEscape(payload.wordmark);
+  const project = htmlEscape(payload.project);
   const rootJs = ROOT.replaceAll("\\", "\\\\").replaceAll("'", "\\'").replaceAll("\n", "\\n").replaceAll("\r", "").replaceAll("</", "<\\/");
-  const dataJson = JSON.stringify(rows).replaceAll("</", "<\\/");
-  const folderJson = JSON.stringify(folders).replaceAll("</", "<\\/");
-  const favJson = JSON.stringify([...cmuxFavorites()].sort()).replaceAll("</", "<\\/");
   const html = loadGalleryTemplate()
     .replaceAll("__TITLE__", `${wordmark} \u00b7 ${project}`)
     .replaceAll("__WORDMARK__", wordmark)
     .replaceAll("__PROJECT__", project)
-    .replaceAll("__COUNT__", countString(rows.length))
-    .replaceAll("__GEN__", gen)
-    .replaceAll("__VER__", String(Math.floor(Date.now() / 1000)))
-    .replaceAll("__DATA__", dataJson)
-    .replaceAll("__FOLDERS__", folderJson)
-    .replaceAll("__FAVS__", favJson)
+    .replaceAll("__COUNT__", payload.countLabel)
+    .replaceAll("__GEN__", payload.gen)
+    .replaceAll("__VER__", payload.ver)
+    .replaceAll("__DATA__", "null")
+    .replaceAll("__FOLDERS__", "null")
+    .replaceAll("__FAVS__", "null")
     .replaceAll("__ROOT__", rootJs);
   const nClose = (html.match(/<\/script>/g) || []).length;
   if (nClose !== 1) {
@@ -293,8 +316,28 @@ export async function buildGallery() {
   }
   const out = path.join(ROOT, SELF);
   fs.writeFileSync(out, html);
-  console.log(`[${gen}] ${rows.length} files indexed -> ${out}`);
   return out;
+}
+
+function shellSupportsData(file) {
+  try {
+    const html = fs.readFileSync(file, "utf8");
+    return html.includes("const INLINE_FILES =") && html.includes("fetch('/data'");
+  } catch {
+    return false;
+  }
+}
+
+export async function buildGallery(options = {}) {
+  const rows = await scan();
+  await prewarmImageThumbs(rows);
+  const payload = galleryPayload(rows);
+  const dataOut = writeData(payload);
+  const shellOut = path.join(ROOT, SELF);
+  const dataOnly = options.dataOnly ?? Boolean(process.env.GALLERY_DATA_ONLY);
+  if (!dataOnly || !shellSupportsData(shellOut)) writeShell(payload);
+  console.log(`[${payload.gen}] ${rows.length} files indexed -> ${dataOut}`);
+  return dataOut;
 }
 
 if (fileURLToPath(import.meta.url) === path.resolve(process.argv[1] || "")) {
