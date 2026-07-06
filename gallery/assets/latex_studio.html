@@ -76,7 +76,7 @@
   #state{color:var(--muted);flex:1;min-width:0;text-align:right;overflow:hidden;
          text-overflow:ellipsis;white-space:nowrap}
   #state.err{color:#ff6b6b}
-  #state.ok{color:#8fbf72}
+  #state.ok{color:var(--muted)}
   #state.hint{color:var(--muted)}
   #state.dirty{color:var(--muted)}
   #helpPop{position:fixed;top:44px;right:10px;z-index:400;display:none;flex-direction:column;gap:7px;
@@ -504,7 +504,11 @@ document.title = isPdfMode ? _base + " — PDF" : _base;
 let cm = null, diskMtime = 0, dirty = false, lastSavedText = null, pdfDoc = null, pageEls = [], pdfVps = [];
 let zoom = parseFloat(localStorage.getItem("texZoom") || "1");
 const stateEl = document.getElementById("state");
-const setState = (cls, txt) => { stateEl.className = cls; stateEl.textContent = txt; stateEl.title = txt; };
+let __stT = null;
+const setState = (cls, txt) => { stateEl.className = cls; stateEl.textContent = txt; stateEl.title = txt;
+  clearTimeout(__stT);
+  if(cls === "ok") __stT = setTimeout(() => { if(stateEl.className === "ok") stateEl.textContent = ""; }, 2500);
+};
 const ddot = document.getElementById("ddot");
 
 // word wrap (VS Code-style): off | window | fixed column (80/100/120)
