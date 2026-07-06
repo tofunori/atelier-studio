@@ -724,7 +724,7 @@ async function synctexView(){
   const r = await fetch("/synctex", {method:"POST", headers:{"Content-Type":"application/json"},
     body: JSON.stringify({dir:"view", tex: path, pdf: pdfPath, line})});
   const j = await r.json();
-  if(!j.page) return setState("err", "synctex: no match");
+  if(!j.page) return setState("hint", "synctex : pas de correspondance ici");
   if(bc) bc.postMessage({t: "view", page: j.page, y: j.y});   // separate PDF tabs scroll too
   if(pdfDoc && !showMarker(j.page, j.y) ) setState("err", "synctex: page not rendered");
 }
@@ -744,7 +744,7 @@ async function synctexEdit(page, x, y){
   const r = await fetch("/synctex", {method:"POST", headers:{"Content-Type":"application/json"},
     body: JSON.stringify({dir:"edit", tex: path, pdf: pdfPath, page, x, y})});
   const j = await r.json();
-  if(!j.line) return setState("err", "synctex: no match");
+  if(!j.line) return setState("hint", "synctex : pas de correspondance ici");
   if(cm) jumpToLine(j.line);
   if(bc) bc.postMessage({t: "jump", line: j.line});   // editor tab jumps when we're the PDF tab
 }
