@@ -283,9 +283,44 @@ export default function App() {
 
   const [activeTab, setActiveTab] = useState<string>("gallery");
   const [activeId, setActiveId] = useState<string | null>(null);
+  activeIdRef.current = activeId;
+  const activeProjectRef = useRef(activeProject);
+  activeProjectRef.current = activeProject;
   const [atelierUrls, setAtelierUrls] = useState<Record<string, string>>({});
   const [layout, setLayout] = useState<"split" | "chat" | "atelier">("split");
   const showAtelier = layout !== "chat";
+
+  function ensureThreadForContext(title: string): string {
+    const existing = activeIdRef.current;
+    if (existing) return existing;
+    const id = crypto.randomUUID();
+    const projectRoot = activeProjectRef.current ?? "";
+    setDraftThreads((p) => [
+      {
+        id,
+        projectRoot,
+        title: title || t("app.context-chat-title"),
+        provider: "claude" as const,
+        sessionId: null,
+        status: "idle" as const,
+        updatedAt: new Date().toISOString(),
+      },
+      ...p,
+    ]);
+    setActiveId(id);
+    activeIdRef.current = id;
+    setEvents((p) => ({ ...p, [id]: p[id] ?? [] }));
+    return id;
+  }
+
+  function attachContextToChat(text: string) {
+    const attachment = parseAttachment(text);
+    ensureThreadForContext(attachment.name || t("app.context-chat-title"));
+    lastInjected.current = text;
+    setAttachments((l) => addAttachment(l, attachment));
+    setAnnotation(null);
+    setLayout((l) => (l === "atelier" ? "split" : l));
+  }
 
   const connectedOnce = useRef(false);
   useEffect(() => {
@@ -791,9 +826,7 @@ export default function App() {
         }
       }
       if (data.type === "atelier-add-to-chat") {
-        lastInjected.current = data.text;
-        setAttachments((l) => addAttachment(l, parseAttachment(data.text)));
-        setAnnotation(null); // pas de bannière en double
+        attachContextToChat(data.text);
       }
       if (data.type === "browser-add-to-chat") {
         let name = "extrait web";
@@ -1086,6 +1119,7 @@ export default function App() {
         ...p,
       ]);
       setActiveId(id);
+      activeIdRef.current = id;
     }
     setEvents((p) => ({
       ...p,
@@ -1343,8 +1377,7 @@ export default function App() {
             <span className="annot-text">{annotation.split("\n")[0].slice(0, 90)}</span>
             <button
               onClick={() => {
-                setAttachments((l) => addAttachment(l, parseAttachment(annotation)));
-                setAnnotation(null);
+                attachContextToChat(annotation);
               }}
             >
               {t("action.send-agent")}

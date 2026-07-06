@@ -345,7 +345,7 @@ btn.onclick = async () => {
     const j = await r.json();
     if(__EMB && j && j.message) __atelierPost({type:'atelier-add-to-chat', text:j.message});
     document.getElementById("status").textContent =
-      j.sentToClaude ? "Pasted into Claude ✓" : "Copied to clipboard ✓";
+      __EMB ? "Added to chat ✓" : (j.sentToClaude ? "Pasted into Claude ✓" : "Copied to clipboard ✓");
   }catch(e){
     document.getElementById("status").textContent = "Server error";
   }

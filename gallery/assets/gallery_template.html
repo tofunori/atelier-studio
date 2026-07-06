@@ -1569,7 +1569,7 @@ function annotInit(){
       const j=await annotPost(true);
       annotSent=true;
       this.textContent='✓';
-      lbl.textContent=j.submitted?'Envoyé à la session ✓':'Collé dans Claude ✓';
+      lbl.textContent=ANNOT_EMBEDDED?'Added to chat ✓':(j.submitted?'Sent to session ✓':'Pasted into Claude ✓');
     }catch(e){
       this.textContent='!';
       lbl.textContent='Serveur off — démarrer le serveur';
