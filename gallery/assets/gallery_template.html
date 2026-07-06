@@ -19,6 +19,18 @@
   .chip.dest:hover{background:var(--card2);border-color:var(--border)}
   #searchChip{display:none}
   #q.collapsed{width:auto;flex:1;min-width:170px;max-width:340px;opacity:1;pointer-events:auto}
+  /* selects custom : le popup natif macOS est remplacé par un menu maison */
+  .csel-btn{display:inline-flex;align-items:center;gap:7px;height:30px;padding:0 26px 0 11px;
+    border-radius:6px;border:1px solid var(--border);background:var(--card);color:var(--txt);
+    font-size:13px;cursor:pointer;position:relative;white-space:nowrap}
+  .csel-btn::after{content:"";position:absolute;right:10px;top:50%;width:8px;height:5px;transform:translateY(-40%);
+    background:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='8' height='5' viewBox='0 0 10 6'><path d='M1 1l4 4 4-4' fill='none' stroke='%238a919e' stroke-width='1.4' stroke-linecap='round' stroke-linejoin='round'/></svg>") no-repeat center}
+  .csel-btn:hover{border-color:var(--border-strong)}
+  .csel-menu{position:fixed;z-index:120;min-width:170px;max-height:340px;overflow-y:auto}
+  .csel-menu div{display:flex;align-items:center;gap:8px;padding:6px 10px;border-radius:6px;cursor:pointer;font-size:13px;white-space:nowrap}
+  .csel-menu div:hover{background:var(--card2)}
+  .csel-menu div .ck{width:12px;flex:none;color:var(--accent);opacity:0}
+  .csel-menu div.on .ck{opacity:1}
   .seg{display:inline-flex;border:1px solid var(--border);border-radius:6px;overflow:hidden}
   .seg button{border:none;background:transparent;color:var(--muted);font-size:11px;padding:4px 9px;cursor:pointer}
   .seg button.on{background:var(--card2);color:var(--txt)}
@@ -389,6 +401,40 @@ if(!galleryDataLoaded){
   if(g && !g.children.length) g.innerHTML='<div class="skel"></div>'.repeat(10);
   fetch('/data',{cache:'no-store'}).then(r=>r.ok?r.json():null).then(applyGalleryData).catch(()=>{});
 }
+// selects custom : cache le natif, bouton + menu maison, proxy vers le <select>
+(function(){
+  document.querySelectorAll('select#sort, select#folder').forEach(sel=>{
+    sel.style.display='none';
+    const btn=document.createElement('button');
+    btn.type='button'; btn.className='csel-btn';
+    const sync=()=>{ btn.textContent=sel.options[sel.selectedIndex]?.text ?? ''; };
+    sel.insertAdjacentElement('afterend',btn); sync();
+    sel.addEventListener('change',sync);
+    new MutationObserver(sync).observe(sel,{childList:true}); // options repeuplées (folders)
+    let menu=null;
+    const close=()=>{ if(menu){menu.remove();menu=null;document.removeEventListener('mousedown',out,true);} };
+    const out=e=>{ if(menu && !menu.contains(e.target) && e.target!==btn) close(); };
+    btn.addEventListener('click',()=>{
+      if(menu){close();return;}
+      menu=document.createElement('div'); menu.className='menu csel-menu'; menu.style.display='block';
+      [...sel.options].forEach((o,i)=>{
+        const it=document.createElement('div');
+        if(i===sel.selectedIndex) it.classList.add('on');
+        it.innerHTML='<span class="ck">✓</span>';
+        it.appendChild(document.createTextNode(o.text));
+        it.onclick=()=>{ sel.selectedIndex=i; sel.dispatchEvent(new Event('change',{bubbles:true})); close(); };
+        menu.appendChild(it);
+      });
+      document.body.appendChild(menu);
+      const r=btn.getBoundingClientRect(), mh=Math.min(340, menu.scrollHeight||340);
+      const below=innerHeight-r.bottom-8>=mh;
+      menu.style.left=Math.min(r.left, innerWidth-menu.offsetWidth-8)+'px';
+      menu.style.top=(below?r.bottom+4:Math.max(8,r.top-mh-4))+'px';
+      document.addEventListener('mousedown',out,true);
+    });
+    document.addEventListener('keydown',e=>{ if(e.key==='Escape') close(); });
+  });
+})();
 // densité S/M/L persistée
 (function(){
   const seg=document.getElementById('densitySeg'); if(!seg) return;
