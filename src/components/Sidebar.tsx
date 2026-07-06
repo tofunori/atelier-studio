@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { confirm as tauriConfirm } from "@tauri-apps/plugin-dialog";
+import { revealItemInDir, openUrl } from "@tauri-apps/plugin-opener";
 import { Thread } from "../lib/ws";
 import { PROJ_COLORS } from "./Rail";
 import { wsSend } from "../lib/wsBus";
@@ -144,6 +145,7 @@ export default function Sidebar(p: {
   onNewChat: () => void;
   onImportSession: (provider: "claude" | "codex", sessionId: string, title: string) => void;
   onDelete: (threadId: string) => void;
+  onRemoveProject: (root: string) => void;
   onRename: (threadId: string, title: string) => void;
   onSettings: () => void;
   onCompact: () => void;
@@ -154,6 +156,7 @@ export default function Sidebar(p: {
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const selAnchor = useRef<string | null>(null);
   const [projMenu, setProjMenu] = useState<{ root: string; x: number; y: number } | null>(null);
+  const [projActMenu, setProjActMenu] = useState<{ root: string; x: number; y: number } | null>(null);
   const [resumeOpen, setResumeOpen] = useState(false);
   const [resumeProv, setResumeProv] = useState<"claude" | "codex">("claude");
   const [sessions, setSessions] = useState<{ id: string; title: string; mtime: number }[] | null>(null);
@@ -213,6 +216,7 @@ export default function Sidebar(p: {
     const close = () => {
       setMenu(null);
       setProjMenu(null);
+      setProjActMenu(null);
     };
     window.addEventListener("click", close);
     return () => window.removeEventListener("click", close);
@@ -422,7 +426,7 @@ export default function Sidebar(p: {
               onDoubleClick={() => toggleCollapse(root)}
               onContextMenu={(e) => {
                 e.preventDefault();
-                setProjMenu({ root, x: e.clientX, y: e.clientY });
+                setProjActMenu({ root, x: e.clientX, y: e.clientY });
               }}
               title={t("action.toggle-project")}
             >
@@ -440,18 +444,30 @@ export default function Sidebar(p: {
                 />
               )}
               {name}
-              {active && (
+              <span className="proj-acts" onClick={(e) => e.stopPropagation()}>
                 <button
-                  className="mini"
-                  title={t("action.new-chat")}
+                  className="proj-act"
+                  title={tr("project.actions")}
                   onClick={(e) => {
-                    e.stopPropagation();
-                    p.onNew(root);
+                    const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
+                    setProjActMenu(projActMenu?.root === root ? null : { root, x: r.left, y: r.bottom + 4 });
                   }}
                 >
-                  <PlusIcon />
+                  <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor">
+                    <circle cx="3.2" cy="8" r="1.2" /><circle cx="8" cy="8" r="1.2" /><circle cx="12.8" cy="8" r="1.2" />
+                  </svg>
                 </button>
-              )}
+                <button
+                  className="proj-act"
+                  title={t("action.new-chat")}
+                  onClick={() => p.onNew(root)}
+                >
+                  <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M13.5 8.5v4a1.5 1.5 0 0 1-1.5 1.5H4a1.5 1.5 0 0 1-1.5-1.5V4A1.5 1.5 0 0 1 4 2.5h4" />
+                    <path d="M12.3 2.3l1.4 1.4L8 9.4l-2 .6.6-2z" />
+                  </svg>
+                </button>
+              </span>
             </div>
             <ul style={{ display: collapsed.includes(root) ? "none" : undefined }}>
               {withRecencySections(threads).map((row, index) => {
@@ -601,6 +617,39 @@ export default function Sidebar(p: {
             ))}
           </div>
           <button className="set-btn" onClick={() => setResumeOpen(false)}>{t("sidebar.close")}</button>
+        </div>
+      )}
+      {projActMenu && (
+        <div className="pmenu" style={{ left: projActMenu.x, top: projActMenu.y, position: "fixed" }}
+          onClick={(e) => e.stopPropagation()}>
+          <button className="pmenu-item" onClick={() => { p.onNew(projActMenu.root); setProjActMenu(null); }}>
+            <svg viewBox="0 0 16 16"><path d="M13.5 8.5v4a1.5 1.5 0 0 1-1.5 1.5H4a1.5 1.5 0 0 1-1.5-1.5V4A1.5 1.5 0 0 1 4 2.5h4" /><path d="M12.3 2.3l1.4 1.4L8 9.4l-2 .6.6-2z" /></svg>
+            {t("action.new-chat")}
+          </button>
+          <button className="pmenu-item" onClick={() => {
+            const root = projActMenu.root;
+            revealItemInDir(root).catch(() => openUrl("file://" + root).catch(() => {}));
+            setProjActMenu(null);
+          }}>
+            <svg viewBox="0 0 16 16"><path d="M1.8 4.2c0-.7.5-1.2 1.2-1.2h3l1.4 1.6h5.6c.7 0 1.2.5 1.2 1.2v6c0 .7-.5 1.2-1.2 1.2H3c-.7 0-1.2-.5-1.2-1.2z" /></svg>
+            {tr("project.reveal-finder")}
+          </button>
+          <button className="pmenu-item" onClick={() => {
+            setProjMenu({ root: projActMenu.root, x: projActMenu.x, y: projActMenu.y });
+            setProjActMenu(null);
+          }}>
+            <svg viewBox="0 0 16 16"><path d="M8 1.8a6.2 6.2 0 1 0 0 12.4c1 0 1.4-.6 1.4-1.3 0-.6-.4-1-.4-1.6 0-.8.6-1.3 1.5-1.3h1.2c1.4 0 2.5-1.1 2.5-2.4C14.2 4.2 11.4 1.8 8 1.8z" /><circle cx="5" cy="6" r=".7" /><circle cx="8.2" cy="4.6" r=".7" /><circle cx="11" cy="6.4" r=".7" /></svg>
+            {tr("project.customize")}
+          </button>
+          <button className="pmenu-item" onClick={() => { toggleCollapse(projActMenu.root); setProjActMenu(null); }}>
+            <svg viewBox="0 0 16 16"><path d="M4 6.5L8 10l4-3.5" /></svg>
+            {collapsed.includes(projActMenu.root) ? tr("project.expand") : tr("project.collapse")}
+          </button>
+          <div className="pmenu-sep" />
+          <button className="pmenu-item danger" onClick={() => { p.onRemoveProject(projActMenu.root); setProjActMenu(null); }}>
+            <svg viewBox="0 0 16 16"><path d="M4.5 4.5l7 7M11.5 4.5l-7 7" /></svg>
+            {tr("project.remove")}
+          </button>
         </div>
       )}
       {projMenu && (

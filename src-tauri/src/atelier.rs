@@ -87,6 +87,7 @@ pub fn start_atelier(
     app: tauri::AppHandle,
     root: String,
     gallery_dir: Option<String>,
+    gallery_exts: Option<String>,
 ) -> Result<String, String> {
     let root_path = Path::new(&root);
     let port = project_port(root_path);
@@ -159,6 +160,7 @@ pub fn start_atelier(
         Command::new(node)
             .env("ATELIER_STUDIO", "1")
             .env("GALLERY_ROOT", &root)
+            .env("GALLERY_EXTS", gallery_exts.as_deref().unwrap_or(""))
             .env("FIG_PORT", port.to_string())
             .env("ATELIER_APP_VERSION", identity::APP_VERSION)
             .env("ATELIER_BUNDLE_HASH", bundle_hash.as_deref().unwrap_or(""))

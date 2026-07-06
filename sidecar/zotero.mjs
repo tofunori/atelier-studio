@@ -35,7 +35,7 @@ function ensureFresh() {
 }
 
 const BASE_SQL = `
-  SELECT i.itemID, i.key,
+  SELECT i.itemID, i.key, i.dateAdded,
     (SELECT v.value FROM itemData d
        JOIN fields f ON f.fieldID = d.fieldID AND f.fieldName = 'title'
        JOIN itemDataValues v ON v.valueID = d.valueID
@@ -78,6 +78,7 @@ function rowToItem(r) {
   const tags = (r.tags ?? "").split("").filter(Boolean);
   return {
     key: r.key,
+    dateAdded: r.dateAdded ?? "",
     title: r.title ?? "(sans titre)",
     creators: r.creators ?? "",
     year,

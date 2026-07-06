@@ -4,6 +4,7 @@ import { CloseIcon, PanelIcon, SearchIcon, StarIcon } from "./icons";
 
 type ZoteroItem = {
   key: string;
+  dateAdded: string;
   title: string;
   creators: string;
   year: string;
@@ -96,6 +97,21 @@ export default function BiblioSurface({
   const [error, setError] = useState<string | null>(null);
   const [readerOpen, setReaderOpen] = useState(() => localStorage.getItem("atelier-studio.biblio.reader") !== "0");
   const [listOpen, setListOpen] = useState(() => localStorage.getItem("atelier-studio.biblio.list") !== "0");
+  const [pdfOnly, setPdfOnly] = useState(() => localStorage.getItem("atelier-studio.biblio.pdfOnly") === "1");
+  function togglePdfOnly() {
+    setPdfOnly((v) => {
+      localStorage.setItem("atelier-studio.biblio.pdfOnly", v ? "0" : "1");
+      return !v;
+    });
+  }
+  const [sortBy, setSortBy] = useState<"added" | "year" | "author" | "title">(() => {
+    const v = localStorage.getItem("atelier-studio.biblio.sort");
+    return v === "year" || v === "author" || v === "title" ? v : "added";
+  });
+  function changeSort(v: "added" | "year" | "author" | "title") {
+    localStorage.setItem("atelier-studio.biblio.sort", v);
+    setSortBy(v);
+  }
   function toggleList() {
     setListOpen((v) => {
       localStorage.setItem("atelier-studio.biblio.list", v ? "0" : "1");
@@ -176,7 +192,16 @@ export default function BiblioSurface({
     });
   }, [ws, query, filter, collectionId]);
 
-  const visibleItems = filter === "fav" ? items.filter((item) => item.fav) : items;
+  const modeItems = filter === "fav" ? items.filter((item) => item.fav) : items;
+  const filteredItems = pdfOnly ? modeItems.filter((item) => item.hasPdf) : modeItems;
+  const visibleItems = useMemo(() => {
+    const list = [...filteredItems];
+    if (sortBy === "added") list.sort((a, b) => (b.dateAdded || "").localeCompare(a.dateAdded || ""));
+    if (sortBy === "year") list.sort((a, b) => (Number(b.year) || 0) - (Number(a.year) || 0));
+    if (sortBy === "author") list.sort((a, b) => (a.creators || "\uffff").localeCompare(b.creators || "\uffff", undefined, { sensitivity: "base" }));
+    if (sortBy === "title") list.sort((a, b) => a.title.localeCompare(b.title, undefined, { sensitivity: "base" }));
+    return list;
+  }, [filteredItems, sortBy]);
   const selected = visibleItems.find((item) => item.key === selectedKey) ?? null;
   const selectedViewerUrl = selected?.hasPdf && galleryUrl ? pdfViewerUrl(selected, galleryUrl) : null;
 
@@ -210,8 +235,33 @@ export default function BiblioSurface({
     }));
   }
 
+  const [listW, setListW] = useState(() => {
+    const v = Number(localStorage.getItem("atelier-studio.biblioListW"));
+    return Number.isFinite(v) && v >= 220 && v <= 560 ? v : 300;
+  });
+  function startListResize(e: React.MouseEvent) {
+    e.preventDefault();
+    const startX = e.clientX;
+    const startW = listW;
+    document.body.classList.add("dragging");
+    const move = (ev: MouseEvent) => {
+      const w = Math.min(560, Math.max(220, startW + ev.clientX - startX));
+      setListW(w);
+    };
+    const up = (ev: MouseEvent) => {
+      const w = Math.min(560, Math.max(220, startW + ev.clientX - startX));
+      localStorage.setItem("atelier-studio.biblioListW", String(w));
+      document.body.classList.remove("dragging");
+      window.removeEventListener("mousemove", move);
+      window.removeEventListener("mouseup", up);
+    };
+    window.addEventListener("mousemove", move);
+    window.addEventListener("mouseup", up);
+  }
+
   return (
-    <div className={`biblio-surface ${readerOpen ? "" : "no-reader"} ${listOpen ? "" : "no-list"}`}>
+    <div className={`biblio-surface ${readerOpen ? "" : "no-reader"} ${listOpen ? "" : "no-list"}`}
+      style={listOpen && readerOpen ? { gridTemplateColumns: `${listW}px 4px minmax(0, 1fr)` } : undefined}>
       {listOpen && (
       <aside className="biblio-left">
         <div className="biblio-search-row">
@@ -228,6 +278,13 @@ export default function BiblioSurface({
           <button className={filter === "fav" ? "on" : ""} onClick={() => setFilter("fav")} aria-label={t("biblio.favorites")}>
             <StarIcon />
           </button>
+          <button className={pdfOnly ? "on" : ""} onClick={togglePdfOnly}
+            title={t("biblio.pdf-only")} aria-label={t("biblio.pdf-only")}>
+            <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M4 1.8h5.2L13 5.6v8.6H4z" /><path d="M9 1.8v4h4" />
+              <path d="M6 9.2h4M6 11.2h2.5" />
+            </svg>
+          </button>
           <select
             value={filter === "collection" ? collectionId ?? "" : ""}
             onChange={(e) => {
@@ -243,6 +300,18 @@ export default function BiblioSurface({
                 {collection.name}
               </option>
             ))}
+          </select>
+          <select
+            className="biblio-sort"
+            value={sortBy}
+            onChange={(e) => changeSort(e.target.value as "added" | "year" | "author" | "title")}
+            aria-label={t("biblio.sort-aria")}
+            title={t("biblio.sort-aria")}
+          >
+            <option value="added">{t("biblio.sort-added")}</option>
+            <option value="year">{t("biblio.sort-year")}</option>
+            <option value="author">{t("biblio.sort-author")}</option>
+            <option value="title">{t("biblio.sort-title")}</option>
           </select>
         </div>
         {error && <div className="biblio-empty">{error}</div>}
@@ -274,6 +343,9 @@ export default function BiblioSurface({
           ))}
         </div>
       </aside>
+      )}
+      {listOpen && readerOpen && (
+        <div className="pane-divider" onMouseDown={startListResize} />
       )}
       {readerOpen && (
       <section className="biblio-reader">

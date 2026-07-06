@@ -274,6 +274,18 @@ export async function route(msg, ctx) {
       ctx.send({ type: "pastedCleared", removed: ctx.clearPasted() });
       break;
     }
+    case "listPasted": {
+      ctx.send({ type: "pastedList", files: ctx.listPasted() });
+      break;
+    }
+    case "getSettings": {
+      ctx.send({ type: "settingsFile", settings: ctx.readSettingsFile() });
+      break;
+    }
+    case "saveSettings": {
+      ctx.send({ type: "settingsSaved", ok: ctx.writeSettingsFile(msg.settings) });
+      break;
+    }
     case "saveImage": {
       // image collée (⌘V) : dataURL → PNG sur disque, chemin renvoyé au client
       const m = /^data:image\/(\w+);base64,(.+)$/.exec(msg.dataURL ?? "");

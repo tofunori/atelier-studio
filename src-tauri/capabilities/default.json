@@ -8,6 +8,10 @@
   "permissions": [
     "core:default",
     "opener:default",
+    {
+      "identifier": "opener:allow-reveal-item-in-dir",
+      "allow": [{ "path": "**" }]
+    },
     "notification:default",
     "dialog:default",
     "dialog:allow-confirm",

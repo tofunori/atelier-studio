@@ -54,6 +54,44 @@ function Slider(p: {
   );
 }
 
+function Toggle(p: { checked: boolean; onChange: (v: boolean) => void }) {
+  return (
+    <button
+      type="button"
+      role="switch"
+      aria-checked={p.checked}
+      className={`switch ${p.checked ? "on" : ""}`}
+      onClick={() => p.onChange(!p.checked)}
+    >
+      <span className="switch-knob" />
+    </button>
+  );
+}
+
+// pastille couleur façon Codex : fond = couleur, hex lisible par-dessus
+function hexLuma(hex: string): number {
+  const m = /^#?([0-9a-f]{6})$/i.exec(hex.trim());
+  if (!m) return 0;
+  const n = parseInt(m[1], 16);
+  return (0.299 * ((n >> 16) & 255) + 0.587 * ((n >> 8) & 255) + 0.114 * (n & 255)) / 255;
+}
+function ColorField(p: { value: string; fallback: string; onChange: (v: string) => void; onReset: () => void }) {
+  const v = p.value || p.fallback;
+  const dark = hexLuma(v) > 0.55;
+  return (
+    <>
+      <label className="color-pill" style={{ background: v, color: dark ? "#1c1e22" : "#f4f5f7" }}>
+        <input type="color" value={v} onChange={(e) => p.onChange(e.target.value)} />
+        <span className="color-dot" />
+        {v.toUpperCase()}
+      </label>
+      {p.value && (
+        <button className="set-btn quiet" onClick={p.onReset}>{t("action.reset")}</button>
+      )}
+    </>
+  );
+}
+
 function Row(p: { title: string; desc?: string; children: React.ReactNode }) {
   return (
     <div className="set-row">
@@ -66,11 +104,22 @@ function Row(p: { title: string; desc?: string; children: React.ReactNode }) {
   );
 }
 
+// groupe = étiquette discrète + carte arrondie contenant des rangées séparées par des filets
+function Group(p: { label?: string; children: React.ReactNode }) {
+  return (
+    <div className="set-group">
+      {p.label && <div className="set-group-label">{p.label}</div>}
+      <div className="set-card">{p.children}</div>
+    </div>
+  );
+}
+
 export default function SettingsPage(p: {
   settings: S;
   onChange: (s: S) => void;
   onClose: () => void;
   ws: WebSocket | null;
+  projects?: string[];
 }) {
   const [section, setSection] = useState("general");
   const [slugProv, setSlugProv] = useState<"claude" | "codex">("codex");
@@ -79,6 +128,7 @@ export default function SettingsPage(p: {
   const [status, setStatus] = useState<{ port: number | null; pastedCount: number; pasteDir: string } | null>(null);
   const [provs, setProvs] = useState<{ id: string; label: string; version: string | null; ok: boolean }[] | null>(null);
   const [retitleStatus, setRetitleStatus] = useState("");
+  const [pasted, setPasted] = useState<{ name: string; size: number; mtime: number; dataURL?: string }[] | null>(null);
   const s = p.settings;
   const customModels = s.customModels ?? [];
   const modelEfforts = s.modelEfforts ?? {};
@@ -92,7 +142,9 @@ export default function SettingsPage(p: {
       if (m.type === "providerStatus") setProvs(m.providers);
       if (m.type === "pastedCleared") {
         p.ws!.send(JSON.stringify({ type: "status" }));
+        p.ws!.send(JSON.stringify({ type: "listPasted" }));
       }
+      if (m.type === "pastedList") setPasted(m.files ?? []);
       if (m.type === "retitleAllDone") {
         setRetitleStatus(m.running ? t("settings.retitle-running") : t("settings.retitle-done", { count: m.renamed }));
       }
@@ -100,8 +152,31 @@ export default function SettingsPage(p: {
     p.ws.addEventListener("message", onMsg);
     p.ws.send(JSON.stringify({ type: "status" }));
     p.ws.send(JSON.stringify({ type: "providerStatus" }));
+    p.ws.send(JSON.stringify({ type: "listPasted" }));
     return () => p.ws?.removeEventListener("message", onMsg);
   }, [p.ws]);
+
+  const themeMatches = THEME_PRESETS.filter((th) =>
+    th.name.toLowerCase().includes(themeQuery.toLowerCase()));
+  const currentTheme = themeMatches.find((th) => th.id === s.themePreset);
+  const otherThemes = themeMatches.filter((th) => th.id !== s.themePreset);
+
+  function themeRow(th: (typeof THEME_PRESETS)[number]) {
+    const on = s.themePreset === th.id;
+    return (
+      <div key={th.id}
+        className={`theme-row ${on ? "on" : ""}`}
+        onClick={() => set({ themePreset: th.id })}>
+        <span className="theme-name">{th.name}</span>
+        <span className="theme-strip">
+          {["--bg", "--bg-side", "--bg-card", "--bg-ctl", "--border", "--fg2", "--muted", "--accent"].map((k) => (
+            <span key={k} style={{ background: th.vars[k] }} />
+          ))}
+        </span>
+        <span className="theme-check">{on ? "✓" : ""}</span>
+      </div>
+    );
+  }
 
   return (
     <div className="settings-page">
@@ -128,359 +203,406 @@ export default function SettingsPage(p: {
           <>
             <h1>{t("settings.general")}</h1>
             <p className="set-sub">{t("settings.general-sub")}</p>
-            <Row title={t("language.label")}>
-              <Select
-                title={t("language.label")}
-                value={s.language}
-                onChange={(value) => {
-                  const language = value as S["language"];
-                  setLanguage(language);
-                  set({ language });
-                }}
-                options={[
-                  { value: "fr", label: t("language.fr") },
-                  { value: "en", label: t("language.en") },
-                  { value: "system", label: t("language.system") },
-                ]}
-              />
-            </Row>
-            <Row title={t("settings.default-provider")} desc={t("settings.default-provider-desc")}>
-              <Select
-                title={t("settings.default-provider")}
-                value={s.defaultProvider}
-                onChange={(value) => set({ defaultProvider: value as S["defaultProvider"] })}
-                options={[
-                  { value: "claude", label: "Claude" },
-                  { value: "codex", label: "Codex" },
-                ]}
-              />
-            </Row>
-            <Row title={t("settings.default-claude-model")}>
-              <Select
-                title={t("settings.default-claude-model")}
-                value={s.defaultModel.claude}
-                onChange={(value) => set({ defaultModel: { ...s.defaultModel, claude: value } })}
-                options={CLAUDE_MODELS.map((m) => ({ value: m.id, label: modelLabel(m) }))}
-              />
-            </Row>
-            <Row title={t("settings.default-codex-model")}>
-              <Select
-                title={t("settings.default-codex-model")}
-                value={s.defaultModel.codex}
-                onChange={(value) => set({ defaultModel: { ...s.defaultModel, codex: value } })}
-                options={CODEX_MODELS.map((m) => ({ value: m.id, label: modelLabel(m) }))}
-              />
-            </Row>
-            <Row title={t("settings.default-claude-effort")}>
-              <Select
-                title={t("settings.default-claude-effort")}
-                value={s.defaultEffort.claude}
-                onChange={(value) => set({ defaultEffort: { ...s.defaultEffort, claude: value } })}
-                options={["", "low", "medium", "high", "xhigh", "max"].map((l) => ({ value: l, label: l === "" ? "auto" : l }))}
-              />
-            </Row>
-            <Row title={t("settings.default-codex-effort")}>
-              <Select
-                title={t("settings.default-codex-effort")}
-                value={s.defaultEffort.codex}
-                onChange={(value) => set({ defaultEffort: { ...s.defaultEffort, codex: value } })}
-                options={CODEX_EFFORTS.map((l) => ({ value: l, label: l === "" ? "auto" : l }))}
-              />
-            </Row>
-            <Row title={t("settings.permission-default")} desc={t("settings.permission-default-desc")}>
-              <Select
-                title={t("settings.permission-default")}
-                value={s.defaultPermissionMode}
-                onChange={(value) => set({ defaultPermissionMode: value })}
-                options={[
-                  { value: "bypassPermissions", label: t("permission.full") },
-                  { value: "acceptEdits", label: t("permission.accept-edits") },
-                  { value: "default", label: t("action.ask-default") },
-                  { value: "plan", label: t("permission.plan") },
-                ]}
-              />
-            </Row>
-            <Row title={t("settings.web-search")} desc={t("settings.web-search-desc")}>
-              <input type="checkbox" checked={s.webSearch}
-                onChange={(e) => set({ webSearch: e.target.checked })} />
-            </Row>
-            <Row title={t("settings.additional-dirs")} desc={t("settings.additional-dirs-desc")}>
-              <textarea className="set-text" rows={3} value={s.additionalDirectories}
-                onChange={(e) => set({ additionalDirectories: e.target.value })} />
-            </Row>
-            <Row title={t("settings.thread-order")} desc={t("settings.thread-order-desc")}>
-              <Select
-                title={t("settings.thread-order")}
-                value={s.threadOrder}
-                onChange={(value) => set({ threadOrder: value as S["threadOrder"] })}
-                options={[
-                  { value: "recent", label: t("settings.thread-order-recent") },
-                  { value: "manual", label: t("settings.thread-order-manual") },
-                ]}
-              />
-            </Row>
-            <Row title={t("settings.chat-titles")} desc={t("settings.chat-titles-desc")}>
-              <button
-                className="set-btn"
-                disabled={p.ws?.readyState !== 1}
-                onClick={() => {
-                  setRetitleStatus(t("settings.running"));
-                  p.ws?.send(JSON.stringify({ type: "retitleAll" }));
-                }}
-              >
-                {t("action.generate-chat-titles")}
-              </button>
-              {retitleStatus && <span className="set-val wide">{retitleStatus}</span>}
-            </Row>
+            <Group>
+              <Row title={t("language.label")}>
+                <Select
+                  title={t("language.label")}
+                  value={s.language}
+                  onChange={(value) => {
+                    const language = value as S["language"];
+                    setLanguage(language);
+                    set({ language });
+                  }}
+                  options={[
+                    { value: "fr", label: t("language.fr") },
+                    { value: "en", label: t("language.en") },
+                    { value: "system", label: t("language.system") },
+                  ]}
+                />
+              </Row>
+            </Group>
+            <Group label={t("settings.group.agents")}>
+              <Row title={t("settings.default-provider")} desc={t("settings.default-provider-desc")}>
+                <Select
+                  title={t("settings.default-provider")}
+                  value={s.defaultProvider}
+                  onChange={(value) => set({ defaultProvider: value as S["defaultProvider"] })}
+                  options={[
+                    { value: "claude", label: "Claude" },
+                    { value: "codex", label: "Codex" },
+                  ]}
+                />
+              </Row>
+              <Row title={t("settings.default-claude-model")}>
+                <Select
+                  title={t("settings.default-claude-model")}
+                  value={s.defaultModel.claude}
+                  onChange={(value) => set({ defaultModel: { ...s.defaultModel, claude: value } })}
+                  options={CLAUDE_MODELS.map((m) => ({ value: m.id, label: modelLabel(m) }))}
+                />
+              </Row>
+              <Row title={t("settings.default-codex-model")}>
+                <Select
+                  title={t("settings.default-codex-model")}
+                  value={s.defaultModel.codex}
+                  onChange={(value) => set({ defaultModel: { ...s.defaultModel, codex: value } })}
+                  options={CODEX_MODELS.map((m) => ({ value: m.id, label: modelLabel(m) }))}
+                />
+              </Row>
+              <Row title={t("settings.default-claude-effort")}>
+                <Select
+                  title={t("settings.default-claude-effort")}
+                  value={s.defaultEffort.claude}
+                  onChange={(value) => set({ defaultEffort: { ...s.defaultEffort, claude: value } })}
+                  options={CLAUDE_EFFORTS.map((l) => ({ value: l, label: l === "" ? "auto" : l }))}
+                />
+              </Row>
+              <Row title={t("settings.default-codex-effort")}>
+                <Select
+                  title={t("settings.default-codex-effort")}
+                  value={s.defaultEffort.codex}
+                  onChange={(value) => set({ defaultEffort: { ...s.defaultEffort, codex: value } })}
+                  options={CODEX_EFFORTS.map((l) => ({ value: l, label: l === "" ? "auto" : l }))}
+                />
+              </Row>
+            </Group>
+            <Group label={t("settings.group.tools")}>
+              <Row title={t("settings.permission-default")} desc={t("settings.permission-default-desc")}>
+                <Select
+                  title={t("settings.permission-default")}
+                  value={s.defaultPermissionMode}
+                  onChange={(value) => set({ defaultPermissionMode: value })}
+                  options={[
+                    { value: "bypassPermissions", label: t("permission.full") },
+                    { value: "acceptEdits", label: t("permission.accept-edits") },
+                    { value: "default", label: t("action.ask-default") },
+                    { value: "plan", label: t("permission.plan") },
+                  ]}
+                />
+              </Row>
+              <Row title={t("settings.web-search")} desc={t("settings.web-search-desc")}>
+                <Toggle checked={s.webSearch} onChange={(v) => set({ webSearch: v })} />
+              </Row>
+              <Row title={t("settings.additional-dirs")} desc={t("settings.additional-dirs-desc")}>
+                <textarea className="set-text" rows={3} value={s.additionalDirectories}
+                  onChange={(e) => set({ additionalDirectories: e.target.value })} />
+              </Row>
+            </Group>
+            <Group label={t("settings.group.conversations")}>
+              <Row title={t("settings.thread-order")} desc={t("settings.thread-order-desc")}>
+                <Select
+                  title={t("settings.thread-order")}
+                  value={s.threadOrder}
+                  onChange={(value) => set({ threadOrder: value as S["threadOrder"] })}
+                  options={[
+                    { value: "recent", label: t("settings.thread-order-recent") },
+                    { value: "manual", label: t("settings.thread-order-manual") },
+                  ]}
+                />
+              </Row>
+              <Row title={t("settings.chat-titles")} desc={t("settings.chat-titles-desc")}>
+                {retitleStatus && <span className="set-val wide">{retitleStatus}</span>}
+                <button
+                  className="set-btn"
+                  disabled={p.ws?.readyState !== 1}
+                  onClick={() => {
+                    setRetitleStatus(t("settings.running"));
+                    p.ws?.send(JSON.stringify({ type: "retitleAll" }));
+                  }}
+                >
+                  {t("action.generate-chat-titles")}
+                </button>
+              </Row>
+            </Group>
           </>
         )}
         {section === "apparence" && (
           <>
             <h1>{t("settings.appearance")}</h1>
             <p className="set-sub">{t("settings.appearance-sub")}</p>
-            <div className="theme-gallery">
-              <input className="set-text" placeholder={t("settings.search-theme")} value={themeQuery}
-                onChange={(e) => setThemeQuery(e.target.value)} style={{ width: "100%", marginBottom: 10 }} />
-              {THEME_PRESETS
-                .filter((t) => t.name.toLowerCase().includes(themeQuery.toLowerCase()))
-                .map((t) => (
-                  <div key={t.id}
-                    className={`theme-row ${s.themePreset === t.id ? "on" : ""}`}
-                    onClick={() => set({ themePreset: t.id })}>
-                    <span className="theme-name">{t.name}</span>
-                    <span className="theme-strip">
-                      {["--bg","--bg-side","--bg-card","--bg-ctl","--border","--fg2","--muted","--accent"].map((k) => (
-                        <span key={k} style={{ background: t.vars[k] }} />
-                      ))}
-                    </span>
-                    {s.themePreset === t.id && <span className="mp-check">✓</span>}
-                  </div>
-                ))}
+            <div className="set-group">
+              <div className="set-group-label">{t("settings.group.theme")}</div>
+              <input className="theme-search" placeholder={t("settings.search-theme")} value={themeQuery}
+                onChange={(e) => setThemeQuery(e.target.value)} />
+              <div className="theme-gallery">
+                {currentTheme && <div className="theme-current">{themeRow(currentTheme)}</div>}
+                {otherThemes.map(themeRow)}
+              </div>
             </div>
-            <Row title={t("settings.theme")} desc={t("settings.theme-desc")}>
-              <div className="seg">
-                {(["light", "dark", "system"] as const).map((themeOption) => (
-                  <button key={themeOption} className={s.theme === themeOption ? "on" : ""}
-                    onClick={() => set({ theme: themeOption })}>
-                    {themeOption === "light" ? t("settings.theme-light") : themeOption === "dark" ? t("settings.theme-dark") : t("settings.theme-system")}
-                  </button>
-                ))}
-              </div>
-            </Row>
-            <Row title={t("settings.accent")} desc={t("settings.accent-desc")}>
-              <input type="color" value={s.accentColor || "#e8823a"}
-                onChange={(e) => set({ accentColor: e.target.value })} />
-              <button className="set-btn" onClick={() => set({ accentColor: "" })}>{t("action.reset")}</button>
-            </Row>
-            <Row title={t("settings.bg")} desc={t("settings.bg-desc")}>
-              <input type="color" value={s.bgColor || "#212429"}
-                onChange={(e) => set({ bgColor: e.target.value })} />
-              <button className="set-btn" onClick={() => set({ bgColor: "" })}>{t("action.reset")}</button>
-            </Row>
-            <Row title={t("settings.text")} desc={t("settings.text-desc")}>
-              <input type="color" value={s.fgColor || "#e8eaed"}
-                onChange={(e) => set({ fgColor: e.target.value })} />
-              <button className="set-btn" onClick={() => set({ fgColor: "" })}>{t("action.reset")}</button>
-            </Row>
-            <Row title={t("settings.ui-font")} desc={t("settings.ui-font-desc")}>
-              <input className="set-text" placeholder="Inter" value={s.uiFont}
-                onChange={(e) => set({ uiFont: e.target.value })} />
-            </Row>
-            <Row title={t("settings.code-font")} desc={t("settings.code-font-desc")}>
-              <input className="set-text" placeholder="JetBrains Mono" value={s.codeFont}
-                onChange={(e) => set({ codeFont: e.target.value })} />
-            </Row>
-            <Row title={t("settings.density")} desc={t("settings.density-desc")}>
-              <div className="seg">
-                {(["compact", "comfortable", "spacious"] as const).map((d) => (
-                  <button key={d} className={s.density === d ? "on" : ""}
-                    onClick={() => set({ density: d })}>
-                    {d === "compact" ? t("settings.density-compact") : d === "comfortable" ? t("settings.density-comfortable") : t("settings.density-spacious")}
-                  </button>
-                ))}
-              </div>
-            </Row>
-            <Row title={t("settings.base-size")} desc={t("settings.base-size-desc")}>
-              <Slider min={12} max={18} step={0.5} value={s.baseFontSize} onChange={(v) => set({ baseFontSize: v })} />
-              <span className="set-val">{s.baseFontSize}px</span>
-            </Row>
-            <Row title={t("settings.smoothing")} desc={t("settings.smoothing-desc")}>
-              <input type="checkbox" checked={s.fontSmoothing}
-                onChange={(e) => set({ fontSmoothing: e.target.checked })} />
-            </Row>
-            <Row title={t("settings.time-format")} desc={t("settings.time-format-desc")}>
-              <Select
-                title={t("settings.time-format")}
-                value={s.timeFormat}
-                onChange={(value) => set({ timeFormat: value as S["timeFormat"] })}
-                options={[
-                  { value: "system", label: t("language.system") },
-                  { value: "24h", label: "24 h" },
-                  { value: "12h", label: "12 h (AM/PM)" },
-                ]}
-              />
-            </Row>
-            <Row title={t("settings.chat-text-size")}>
-              <Slider min={12} max={19} step={0.5} value={s.chatFontSize} onChange={(v) => set({ chatFontSize: v })} />
-              <span className="set-val">{s.chatFontSize}px</span>
-            </Row>
-            <Row title={t("settings.reading-width")}>
-              <Slider min={560} max={1100} step={20} value={s.chatWidth} onChange={(v) => set({ chatWidth: v })} />
-              <span className="set-val">{s.chatWidth}px</span>
-            </Row>
-            <Row title={t("settings.interline")}>
-              <Slider min={1.4} max={2.0} step={0.05} value={s.chatLineHeight} onChange={(v) => set({ chatLineHeight: v })} />
-              <span className="set-val">{s.chatLineHeight.toFixed(2)}</span>
-            </Row>
+            <Group>
+              <Row title={t("settings.theme")} desc={t("settings.theme-desc")}>
+                <div className="seg">
+                  {(["light", "dark", "system"] as const).map((themeOption) => (
+                    <button key={themeOption} className={s.theme === themeOption ? "on" : ""}
+                      onClick={() => set({ theme: themeOption })}>
+                      {themeOption === "light" ? t("settings.theme-light") : themeOption === "dark" ? t("settings.theme-dark") : t("settings.theme-system")}
+                    </button>
+                  ))}
+                </div>
+              </Row>
+            </Group>
+            <Group label={t("settings.group.colors")}>
+              <Row title={t("settings.accent")} desc={t("settings.accent-desc")}>
+                <ColorField value={s.accentColor} fallback="#e8823a"
+                  onChange={(v) => set({ accentColor: v })} onReset={() => set({ accentColor: "" })} />
+              </Row>
+              <Row title={t("settings.bg")} desc={t("settings.bg-desc")}>
+                <ColorField value={s.bgColor} fallback="#212429"
+                  onChange={(v) => set({ bgColor: v })} onReset={() => set({ bgColor: "" })} />
+              </Row>
+              <Row title={t("settings.text")} desc={t("settings.text-desc")}>
+                <ColorField value={s.fgColor} fallback="#e8eaed"
+                  onChange={(v) => set({ fgColor: v })} onReset={() => set({ fgColor: "" })} />
+              </Row>
+            </Group>
+            <Group label={t("settings.group.typography")}>
+              <Row title={t("settings.ui-font")} desc={t("settings.ui-font-desc")}>
+                <input className="set-text" placeholder="Inter" value={s.uiFont}
+                  onChange={(e) => set({ uiFont: e.target.value })} />
+              </Row>
+              <Row title={t("settings.code-font")} desc={t("settings.code-font-desc")}>
+                <input className="set-text" placeholder="JetBrains Mono" value={s.codeFont}
+                  onChange={(e) => set({ codeFont: e.target.value })} />
+              </Row>
+              <Row title={t("settings.base-size")} desc={t("settings.base-size-desc")}>
+                <Slider min={12} max={18} step={0.5} value={s.baseFontSize} onChange={(v) => set({ baseFontSize: v })} />
+                <span className="set-val">{s.baseFontSize}px</span>
+              </Row>
+              <Row title={t("settings.smoothing")} desc={t("settings.smoothing-desc")}>
+                <Toggle checked={s.fontSmoothing} onChange={(v) => set({ fontSmoothing: v })} />
+              </Row>
+            </Group>
+            <Group label={t("settings.group.layout")}>
+              <Row title={t("settings.density")} desc={t("settings.density-desc")}>
+                <div className="seg">
+                  {(["compact", "comfortable", "spacious"] as const).map((d) => (
+                    <button key={d} className={s.density === d ? "on" : ""}
+                      onClick={() => set({ density: d })}>
+                      {d === "compact" ? t("settings.density-compact") : d === "comfortable" ? t("settings.density-comfortable") : t("settings.density-spacious")}
+                    </button>
+                  ))}
+                </div>
+              </Row>
+              <Row title={t("settings.chat-text-size")}>
+                <Slider min={12} max={19} step={0.5} value={s.chatFontSize} onChange={(v) => set({ chatFontSize: v })} />
+                <span className="set-val">{s.chatFontSize}px</span>
+              </Row>
+              <Row title={t("settings.reading-width")}>
+                <Slider min={560} max={1100} step={20} value={s.chatWidth} onChange={(v) => set({ chatWidth: v })} />
+                <span className="set-val">{s.chatWidth}px</span>
+              </Row>
+              <Row title={t("settings.interline")}>
+                <Slider min={1.4} max={2.0} step={0.05} value={s.chatLineHeight} onChange={(v) => set({ chatLineHeight: v })} />
+                <span className="set-val">{s.chatLineHeight.toFixed(2)}</span>
+              </Row>
+              <Row title={t("settings.time-format")} desc={t("settings.time-format-desc")}>
+                <Select
+                  title={t("settings.time-format")}
+                  value={s.timeFormat}
+                  onChange={(value) => set({ timeFormat: value as S["timeFormat"] })}
+                  options={[
+                    { value: "system", label: t("language.system") },
+                    { value: "24h", label: "24 h" },
+                    { value: "12h", label: "12 h (AM/PM)" },
+                  ]}
+                />
+              </Row>
+            </Group>
           </>
         )}
         {section === "modeles" && (
           <>
             <h1>{t("settings.models")}</h1>
             <p className="set-sub">{t("settings.models-sub")}</p>
-            <Row title={t("settings.slug-add")} desc={t("settings.slug-add-desc")}>
-              <Select
-                title={t("settings.slug-add")}
-                value={slugProv}
-                onChange={(value) => setSlugProv(value as "claude" | "codex")}
-                options={[
-                  { value: "claude", label: "Claude" },
-                  { value: "codex", label: "Codex" },
-                ]}
-              />
-              <input className="set-text" placeholder={t("settings.slug-placeholder")} value={slugText}
-                onChange={(e) => setSlugText(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter" && slugText.trim()) {
-                    set({ customModels: [...customModels, { provider: slugProv, id: slugText.trim() }] });
-                    setSlugText("");
-                  }
-                }} />
-              <button className="set-btn" onClick={() => {
-                if (!slugText.trim()) return;
-                set({ customModels: [...customModels, { provider: slugProv, id: slugText.trim() }] });
-                setSlugText("");
-              }}><PlusIcon /> {t("action.add")}</button>
-            </Row>
-            <p className="set-sub" style={{ marginTop: 24 }}>{t("settings.model-effort-sub")}</p>
-            {([
-              ...CLAUDE_MODELS.filter((m) => m.id).map((m) => ({ provider: "claude" as const, ...m })),
-              ...CODEX_MODELS.filter((m) => m.id).map((m) => ({ provider: "codex" as const, ...m })),
-              ...customModels.map((m) => ({ provider: m.provider, id: m.id, label: m.id })),
-            ]).map((m) => {
-              const key = m.provider + ":" + m.id;
-              const efforts = m.provider === "claude" ? CLAUDE_EFFORTS : CODEX_EFFORTS;
-              return (
-                <Row key={key} title={modelLabel(m)} desc={m.provider === "claude" ? "Claude" : "Codex"}>
-                  <Select
-                    title={modelLabel(m)}
-                    value={modelEfforts[key] ?? ""}
-                    onChange={(value) => {
-                      const next = { ...modelEfforts };
-                      if (value) next[key] = value;
-                      else delete next[key];
-                      set({ modelEfforts: next });
-                    }}
-                    options={efforts.map((l) => ({ value: l, label: l === "" ? t("common.provider-default") : l }))}
-                  />
-                </Row>
-              );
-            })}
-            <p className="set-sub" style={{ marginTop: 24 }}>{t("settings.slug-saved")}</p>
-            {customModels.map((m, i) => (
-              <Row key={m.provider + ":" + m.id + ":" + i} title={m.id} desc={m.provider === "claude" ? "Claude" : "Codex"}>
-                <button className="set-btn" onClick={() =>
-                  set({ customModels: customModels.filter((_, j) => j !== i) })
-                }>{t("action.remove")}</button>
+            <Group>
+              <Row title={t("settings.slug-add")} desc={t("settings.slug-add-desc")}>
+                <Select
+                  title={t("settings.slug-add")}
+                  value={slugProv}
+                  onChange={(value) => setSlugProv(value as "claude" | "codex")}
+                  options={[
+                    { value: "claude", label: "Claude" },
+                    { value: "codex", label: "Codex" },
+                  ]}
+                />
+                <input className="set-text" placeholder={t("settings.slug-placeholder")} value={slugText}
+                  onChange={(e) => setSlugText(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" && slugText.trim()) {
+                      set({ customModels: [...customModels, { provider: slugProv, id: slugText.trim() }] });
+                      setSlugText("");
+                    }
+                  }} />
+                <button className="set-btn" onClick={() => {
+                  if (!slugText.trim()) return;
+                  set({ customModels: [...customModels, { provider: slugProv, id: slugText.trim() }] });
+                  setSlugText("");
+                }}><PlusIcon /> {t("action.add")}</button>
               </Row>
-            ))}
-            {customModels.length === 0 && (
-              <p className="set-sub">{t("settings.no-custom-models")}</p>
-            )}
+            </Group>
+            <Group label={t("settings.model-effort-sub")}>
+              {([
+                ...CLAUDE_MODELS.filter((m) => m.id).map((m) => ({ provider: "claude" as const, ...m })),
+                ...CODEX_MODELS.filter((m) => m.id).map((m) => ({ provider: "codex" as const, ...m })),
+                ...customModels.map((m) => ({ provider: m.provider, id: m.id, label: m.id })),
+              ]).map((m) => {
+                const key = m.provider + ":" + m.id;
+                const efforts = m.provider === "claude" ? CLAUDE_EFFORTS : CODEX_EFFORTS;
+                return (
+                  <Row key={key} title={modelLabel(m)} desc={m.provider === "claude" ? "Claude" : "Codex"}>
+                    <Select
+                      title={modelLabel(m)}
+                      value={modelEfforts[key] ?? ""}
+                      onChange={(value) => {
+                        const next = { ...modelEfforts };
+                        if (value) next[key] = value;
+                        else delete next[key];
+                        set({ modelEfforts: next });
+                      }}
+                      options={efforts.map((l) => ({ value: l, label: l === "" ? t("common.provider-default") : l }))}
+                    />
+                  </Row>
+                );
+              })}
+            </Group>
+            <div className="set-group">
+              <div className="set-group-label">{t("settings.slug-saved")}</div>
+              {customModels.length > 0 ? (
+                <div className="set-card">
+                  {customModels.map((m, i) => (
+                    <Row key={m.provider + ":" + m.id + ":" + i} title={m.id} desc={m.provider === "claude" ? "Claude" : "Codex"}>
+                      <button className="set-btn quiet" onClick={() =>
+                        set({ customModels: customModels.filter((_, j) => j !== i) })
+                      }>{t("action.remove")}</button>
+                    </Row>
+                  ))}
+                </div>
+              ) : (
+                <p className="set-empty">{t("settings.no-custom-models")}</p>
+              )}
+            </div>
           </>
         )}
         {section === "review" && (
           <>
             <h1>{t("settings.review")}</h1>
             <p className="set-sub">{t("settings.review-sub")}</p>
-            <Row title={t("settings.autoreview-enable")} desc={t("settings.autoreview-enable-desc")}>
-              <input
-                type="checkbox"
-                checked={s.autoReview.enabled}
-                onChange={(e) => set({ autoReview: { ...s.autoReview, enabled: e.target.checked } })}
-              />
-            </Row>
-            <Row title={t("settings.autoreview-agent")} desc={t("settings.autoreview-agent-desc")}>
-              <Select
-                title={t("settings.autoreview-agent")}
-                value={`${s.autoReview.provider}:${s.autoReview.model}:${s.autoReview.effort}`}
-                onChange={(value) => {
-                  const [provider, model, effort] = value.split(":");
-                  set({ autoReview: { ...s.autoReview, provider: provider as "claude" | "codex", model, effort } });
-                }}
-                options={[
-                  { value: "codex:gpt-5.5:high", label: "GPT-5.5 · high" },
-                  { value: "codex:gpt-5.5:medium", label: "GPT-5.5 · medium" },
-                  { value: "claude:claude-opus-4-8:high", label: "Opus 4.8 · high" },
-                  { value: "claude:claude-sonnet-5:high", label: "Sonnet 5 · high" },
-                ]}
-              />
-            </Row>
-            <Row title={t("settings.autoreview-trigger")}>
-              <Select
-                title={t("settings.autoreview-trigger")}
-                value={s.autoReview.trigger}
-                onChange={(value) => set({ autoReview: { ...s.autoReview, trigger: value as "always" | "files-changed" | "manual" } })}
-                options={[
-                  { value: "files-changed", label: t("settings.autoreview-files") },
-                  { value: "always", label: t("settings.autoreview-always") },
-                  { value: "manual", label: t("settings.autoreview-manual") },
-                ]}
-              />
-            </Row>
+            <Group>
+              <Row title={t("settings.autoreview-enable")} desc={t("settings.autoreview-enable-desc")}>
+                <Toggle checked={s.autoReview.enabled}
+                  onChange={(v) => set({ autoReview: { ...s.autoReview, enabled: v } })} />
+              </Row>
+              <Row title={t("settings.autoreview-agent")} desc={t("settings.autoreview-agent-desc")}>
+                <Select
+                  title={t("settings.autoreview-agent")}
+                  value={`${s.autoReview.provider}:${s.autoReview.model}:${s.autoReview.effort}`}
+                  onChange={(value) => {
+                    const [provider, model, effort] = value.split(":");
+                    set({ autoReview: { ...s.autoReview, provider: provider as "claude" | "codex", model, effort } });
+                  }}
+                  options={[
+                    { value: "codex:gpt-5.5:high", label: "GPT-5.5 · high" },
+                    { value: "codex:gpt-5.5:medium", label: "GPT-5.5 · medium" },
+                    { value: "claude:claude-opus-4-8:high", label: "Opus 4.8 · high" },
+                    { value: "claude:claude-sonnet-5:high", label: "Sonnet 5 · high" },
+                  ]}
+                />
+              </Row>
+              <Row title={t("settings.autoreview-trigger")}>
+                <Select
+                  title={t("settings.autoreview-trigger")}
+                  value={s.autoReview.trigger}
+                  onChange={(value) => set({ autoReview: { ...s.autoReview, trigger: value as "always" | "files-changed" | "manual" } })}
+                  options={[
+                    { value: "files-changed", label: t("settings.autoreview-files") },
+                    { value: "always", label: t("settings.autoreview-always") },
+                    { value: "manual", label: t("settings.autoreview-manual") },
+                  ]}
+                />
+              </Row>
+            </Group>
           </>
         )}
         {section === "atelier" && (
           <>
             <h1>{t("settings.atelier")}</h1>
             <p className="set-sub">{t("settings.atelier-sub")}</p>
-            <Row title={t("settings.gallery-folder")} desc={t("settings.gallery-folder-desc")}>
-              <input className="set-text" value={s.galleryPath}
-                onChange={(e) => set({ galleryPath: e.target.value })} />
-            </Row>
-            <Row title={t("settings.auto-refresh")} desc={t("settings.auto-refresh-desc")}>
-              <input type="checkbox" checked={s.autoRefreshAtelier}
-                onChange={(e) => set({ autoRefreshAtelier: e.target.checked })} />
-            </Row>
+            <Group>
+              <Row title={t("settings.gallery-folder")} desc={t("settings.gallery-folder-desc")}>
+                <input className="set-text" value={s.galleryPath}
+                  onChange={(e) => set({ galleryPath: e.target.value })} />
+              </Row>
+              <Row title={t("settings.auto-refresh")} desc={t("settings.auto-refresh-desc")}>
+                <Toggle checked={s.autoRefreshAtelier} onChange={(v) => set({ autoRefreshAtelier: v })} />
+              </Row>
+            </Group>
+            <Group label={t("settings.group.gallery-exts")}>
+              <Row title={t("settings.gallery-exts-default")} desc={t("settings.gallery-exts-desc")}>
+                <input className="set-text" placeholder="png, svg, pdf, html, md…" value={s.galleryExts}
+                  onChange={(e) => set({ galleryExts: e.target.value })} />
+              </Row>
+              {(p.projects ?? []).map((root) => (
+                <Row key={root} title={root.split("/").pop() ?? root} desc={root}>
+                  <input className="set-text" placeholder={s.galleryExts || t("settings.gallery-exts-inherit")}
+                    value={(s.galleryExtsByProject ?? {})[root] ?? ""}
+                    onChange={(e) => {
+                      const next = { ...(s.galleryExtsByProject ?? {}) };
+                      if (e.target.value.trim()) next[root] = e.target.value;
+                      else delete next[root];
+                      set({ galleryExtsByProject: next });
+                    }} />
+                </Row>
+              ))}
+            </Group>
           </>
         )}
         {section === "providers" && (
           <>
             <h1>{t("settings.providers")}</h1>
             <p className="set-sub">{t("settings.providers-sub")}</p>
-            {provs === null && <div className="set-row-desc">{t("settings.checking")}</div>}
-            {provs?.map((pr) => (
-              <Row key={pr.id} title={pr.label} desc={pr.ok ? pr.version ?? "" : t("settings.path-missing")}>
-                <span className={`set-badge ${pr.ok ? "ok" : "ko"}`}>{pr.ok ? t("settings.detected") : t("settings.absent")}</span>
-              </Row>
-            ))}
+            {provs === null && <p className="set-empty">{t("settings.checking")}</p>}
+            {provs && (
+              <Group>
+                {provs.map((pr) => (
+                  <Row key={pr.id} title={pr.label} desc={pr.ok ? pr.version ?? "" : t("settings.path-missing")}>
+                    <span className={`set-badge ${pr.ok ? "ok" : "ko"}`}>{pr.ok ? t("settings.detected") : t("settings.absent")}</span>
+                  </Row>
+                ))}
+              </Group>
+            )}
           </>
         )}
         {section === "avance" && (
           <>
             <h1>{t("settings.advanced")}</h1>
             <p className="set-sub">{t("settings.advanced-sub")}</p>
-            <Row title={t("settings.sidecar")} desc={status ? t("settings.sidecar-desc", { port: status.port }) : "…"}>
-              <span className={`set-badge ${p.ws?.readyState === 1 ? "ok" : "ko"}`}>
-                {p.ws?.readyState === 1 ? t("settings.connected") : t("settings.disconnected")}
-              </span>
-            </Row>
-            <Row title={t("settings.pasted-images")} desc={status ? t("settings.pasted-images-desc", { count: status.pastedCount, dir: status.pasteDir }) : "…"}>
-              <button className="set-btn"
-                onClick={() => p.ws?.readyState === 1 && p.ws.send(JSON.stringify({ type: "clearPasted" }))}>
-                {t("action.clear")}
-              </button>
-            </Row>
+            <Group>
+              <Row title={t("settings.sidecar")} desc={status ? t("settings.sidecar-desc", { port: status.port }) : "…"}>
+                <span className={`set-badge ${p.ws?.readyState === 1 ? "ok" : "ko"}`}>
+                  {p.ws?.readyState === 1 ? t("settings.connected") : t("settings.disconnected")}
+                </span>
+              </Row>
+              <Row title={t("settings.pasted-images")} desc={status ? t("settings.pasted-images-desc", { count: status.pastedCount, dir: status.pasteDir }) : "…"}>
+                <button className="set-btn quiet"
+                  onClick={() => p.ws?.readyState === 1 && p.ws.send(JSON.stringify({ type: "clearPasted" }))}>
+                  {t("action.clear")}
+                </button>
+              </Row>
+              {pasted && pasted.length > 0 && (
+                <div className="pasted-grid">
+                  {pasted.map((f) => (
+                    <figure key={f.name} className="pasted-thumb" title={`${f.name} — ${(f.size / 1024).toFixed(0)} KB`}>
+                      {f.dataURL ? (
+                        <img src={f.dataURL} alt={f.name} loading="lazy" />
+                      ) : (
+                        <span className="pasted-ext">{f.name.split(".").pop()?.toUpperCase()}</span>
+                      )}
+                      <figcaption>{f.name}</figcaption>
+                    </figure>
+                  ))}
+                </div>
+              )}
+            </Group>
           </>
         )}
       </div>

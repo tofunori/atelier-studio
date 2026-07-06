@@ -605,7 +605,7 @@ function updateDelBtn(){
   const ex = document.getElementById('exportSel');
   ex.style.display = selSet.size ? '' : 'none';
   ex.textContent = '⤓ Export (' + selSet.size + ') ▾';
-  b.textContent = '🗑 Delete (' + selSet.size + ')';
+  b.innerHTML = '<svg width="11" height="11" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" style="vertical-align:-1px;margin-right:5px"><path d="M2.5 4h11M6.5 4V2.5h3V4M4 4l.8 9.5h6.4L12 4M6.5 7v4M9.5 7v4"/></svg>Delete (' + selSet.size + ')';
 }
 function toggleSel(rel, el, e){
   // Shift-click selects every card between the last-clicked one and this one (display order).

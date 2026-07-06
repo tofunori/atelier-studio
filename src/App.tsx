@@ -22,7 +22,7 @@ import QuickAsk from "./components/QuickAsk";
 import UsagePopover, { worstOf } from "./components/UsagePopover";
 import { init as initNotify, notifyRunDone, notifyReview } from "./lib/notify";
 import { CloseIcon } from "./components/icons";
-import { loadSettings, saveSettings, Settings } from "./lib/settings";
+import { loadSettings, saveSettings, Settings, ProviderId, DEFAULT_SETTINGS } from "./lib/settings";
 import { THEME_PRESETS, presetById } from "./lib/themes";
 import { setLanguage, t } from "./lib/i18n";
 import { buildItems } from "./lib/palette";
@@ -230,6 +230,13 @@ export default function App() {
     setOrClear("--fg", settings.fgColor);
     setOrClear("--ui-font", settings.uiFont ? `'${settings.uiFont}', 'Inter Variable', sans-serif` : "");
     setOrClear("--code-font", settings.codeFont ? `'${settings.codeFont}', ui-monospace, monospace` : "");
+    // miroir disque via sidecar : les réglages survivent au redémarrage/mise à jour
+    const mirror = setTimeout(() => {
+      if (ws.current?.readyState === 1) {
+        ws.current.send(JSON.stringify({ type: "saveSettings", settings }));
+      }
+    }, 600);
+    return () => clearTimeout(mirror);
   }, [settings]);
   const [dragging, setDragging] = useState(false);
   const [unread, setUnread] = useState<Set<string>>(new Set());
@@ -366,6 +373,7 @@ export default function App() {
             setMock(false);
             setAppBanner((b) => b?.text === t("app.sidecar-disconnected") ? null : b);
             setWsReady(true);
+            s.send(JSON.stringify({ type: "getSettings" }));
           })
           .catch(() => {
             setMock(true);
@@ -376,6 +384,16 @@ export default function App() {
       }, delay);
     };
     const handleMessage = (msg: any) => {
+      if (msg.type === "settingsFile") {
+        const hasLocal = localStorage.getItem("atelier-studio.settings") !== null;
+        if (msg.settings && !hasLocal) {
+          // webview vierge (mise à jour, reset WebKit) : le fichier disque fait foi
+          setSettings({ ...DEFAULT_SETTINGS, ...msg.settings });
+        } else if (ws.current?.readyState === 1) {
+          // sinon pousser l'état courant vers le fichier pour l'amorcer
+          ws.current.send(JSON.stringify({ type: "saveSettings", settings: settingsRef.current }));
+        }
+      }
       if (msg.type === "threads") {
         setThreads(msg.threads);
         threadsRef.current = msg.threads;
@@ -801,7 +819,7 @@ export default function App() {
   // (ré)ouvre le serveur atelier du projet actif
   useEffect(() => {
     if (!activeProject || atelierUrls[activeProject]) return;
-    invoke<string>("start_atelier", { root: activeProject, galleryDir: settingsRef.current.galleryPath })
+    invoke<string>("start_atelier", { root: activeProject, galleryDir: settingsRef.current.galleryPath, galleryExts: (settingsRef.current.galleryExtsByProject?.[activeProject] ?? "") || settingsRef.current.galleryExts || "" })
       .then((url) => {
         const nonceUrl = withAtelierNonce(url, atelierNonce);
         setAppBanner((b) => b?.text.startsWith("start_atelier:") ? null : b);
@@ -1097,7 +1115,7 @@ export default function App() {
 
   function submit(
     prompt: string,
-    provider: "claude" | "codex",
+    provider: ProviderId,
     model: string,
     effort: string,
     permissionMode: string,
@@ -1346,6 +1364,7 @@ export default function App() {
           onChange={setSettings}
           onClose={() => setShowSettings(false)}
           ws={ws.current}
+          projects={projects}
         />
         <CommandPalette open={paletteOpen} items={paletteItems} onClose={() => setPaletteOpen(false)} />
       {usageOpen && <div className="ur-overlay" onClick={() => setUsageOpen(false)}>
@@ -1410,6 +1429,10 @@ export default function App() {
                 ws.current?.send(JSON.stringify({ type: "getHistory", threadId: newId }));
               }, 250);
             }
+          }}
+          onRemoveProject={(root) => {
+            setProjects((prev) => prev.filter((r) => r !== root));
+            if (activeProject === root) setActiveProject(null);
           }}
           onDelete={(threadId) => {
             setDraftThreads((p) => p.filter((t) => t.id !== threadId));
@@ -1493,7 +1516,7 @@ export default function App() {
           files={files}
           recentFiles={recentFiles.filter((file) => files.includes(file)).slice(0, 12)}
           zoteroItems={zoteroItems}
-          defaults={settings}
+          defaults={settings as any}
           injectText={injectText}
           onInjected={() => setInjectText(null)}
           attachments={attachments}
@@ -1723,7 +1746,7 @@ export default function App() {
               onHardReload={() => {
                 if (!activeProject) return;
                 // relance start_atelier : redémarre le serveur s'il est mort
-                invoke<string>("start_atelier", { root: activeProject, galleryDir: settingsRef.current.galleryPath })
+                invoke<string>("start_atelier", { root: activeProject, galleryDir: settingsRef.current.galleryPath, galleryExts: (settingsRef.current.galleryExtsByProject?.[activeProject] ?? "") || settingsRef.current.galleryExts || "" })
                   .then((url) => {
                     const nonceUrl = withAtelierNonce(url, atelierNonce);
                     setAppBanner((b) => b?.text.startsWith("start_atelier:") ? null : b);
