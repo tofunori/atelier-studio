@@ -8,13 +8,13 @@
   html,body{margin:0;height:100%;background:var(--bg);color:var(--txt);
             font-family:-apple-system,BlinkMacSystemFont,sans-serif;display:flex;flex-direction:column;overflow:hidden}
   header{background:var(--card);border-bottom:1px solid var(--border);padding:8px 84px 8px 14px;
-         display:flex;gap:8px;align-items:center;font-size:12.5px;flex-shrink:0;flex-wrap:wrap}
+         display:flex;gap:8px;align-items:center;font-size:13px;flex-shrink:0;flex-wrap:wrap}
   #fname{font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:42%;min-width:0;flex:1 1 0}
-  #msinfo{color:#22c55e;font-size:11.5px;white-space:nowrap}
+  #msinfo{color:#22c55e;font-size:12px;white-space:nowrap}
   /* uniform "pro" toolbar: every control the same height + style */
   header button,header select{height:30px;box-sizing:border-box;display:inline-flex;align-items:center;gap:6px;
-        background:var(--border);color:var(--txt);border:1px solid var(--border);border-radius:7px;padding:0 13px;
-        font-size:12.5px;font-family:inherit;cursor:pointer;white-space:nowrap}
+        background:var(--border);color:var(--txt);border:1px solid var(--border);border-radius:6px;padding:0 13px;
+        font-size:13px;font-family:inherit;cursor:pointer;white-space:nowrap}
   header button:hover{background:#52525b}
   header select{padding:0 8px}
   #lassotoggle.on{background:#ffce3a;color:#000;border-color:#ffce3a;font-weight:600}
@@ -26,7 +26,7 @@
   #annotbtn.on{background:#c96442;color:#fff;border-color:#c96442;font-weight:600}
   #annotcv{position:absolute;touch-action:none;pointer-events:none;z-index:60}
   body.addmode #plot svg, body.addmode #plot svg *{cursor:text}
-  .txtedit{position:absolute;z-index:50;pointer-events:auto;font:13px -apple-system,BlinkMacSystemFont,sans-serif;padding:2px 6px;border:2px solid var(--accent);border-radius:5px;background:#fff;color:#111;box-shadow:0 4px 18px rgba(0,0,0,.45)}
+  .txtedit{position:absolute;z-index:50;pointer-events:auto;font:13px -apple-system,BlinkMacSystemFont,sans-serif;padding:2px 6px;border:2px solid var(--accent);border-radius:6px;background:#fff;color:#111;box-shadow:0 4px 18px rgba(0,0,0,.45)}
   #stagewrap{flex:1;overflow:auto;padding:16px;box-sizing:border-box}
   #stage{position:relative;width:100%}
   #plot{width:100%;line-height:0}
@@ -39,7 +39,7 @@
   #ov{position:absolute;inset:0;pointer-events:none}
   .hbox{position:absolute;border:2px solid #5b9dff;border-radius:2px;background:rgba(91,157,255,.10);pointer-events:none}
   .movehi{position:absolute;outline:2px solid #22c55e;background:rgba(34,197,94,.10);pointer-events:none;border-radius:2px}
-  .selbox{position:absolute;border:1px solid var(--accent);pointer-events:none;border-radius:1px}
+  .selbox{position:absolute;border:1px solid var(--accent);pointer-events:none;border-radius:2px}
   .selhandle{position:absolute;width:11px;height:11px;margin:-6px 0 0 -6px;background:#fff;border:1.5px solid var(--accent);border-radius:2px;pointer-events:auto;box-sizing:border-box;z-index:2}
   .lassosvg polyline{fill:rgba(91,157,255,.14);stroke:#5b9dff;stroke-width:1.5;stroke-dasharray:5 3;stroke-linejoin:round}
   .lassosvg circle{fill:#5b9dff;stroke:#fff;stroke-width:1.5}
