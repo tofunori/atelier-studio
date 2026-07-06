@@ -8,7 +8,7 @@ import { PlusIcon, ProviderIcon, ResumeIcon, SettingsIcon, SidebarIcon } from ".
 
 type Menu = { x: number; y: number; threadId: string };
 type RecencyBucket = "today" | "yesterday" | "last7" | "older";
-type RecencyRow =
+export type RecencyRow =
   | { kind: "section"; bucket: RecencyBucket }
   | { kind: "thread"; thread: Thread };
 
@@ -34,7 +34,7 @@ function rawThreadTitle(t: Thread): string {
   return typeof raw === "string" && raw.trim() ? raw : "Sans titre";
 }
 
-function threadTitle(t: Thread): string {
+export function threadTitle(t: Thread): string {
   return niceTitle(rawThreadTitle(t));
 }
 
@@ -52,7 +52,7 @@ function threadRecencyBucket(thread: Thread): RecencyBucket {
   return "older";
 }
 
-function recencyLabelKey(bucket: RecencyBucket) {
+export function recencyLabelKey(bucket: RecencyBucket) {
   switch (bucket) {
     case "today": return "sidebar.recency.today";
     case "yesterday": return "sidebar.recency.yesterday";
@@ -61,7 +61,7 @@ function recencyLabelKey(bucket: RecencyBucket) {
   }
 }
 
-function withRecencySections(threads: Thread[]): RecencyRow[] {
+export function withRecencySections(threads: Thread[]): RecencyRow[] {
   const rows: RecencyRow[] = [];
   let current: RecencyBucket | null = null;
   for (const thread of threads) {

@@ -1529,3 +1529,32 @@ body.dragging iframe { pointer-events: none; }
   padding: 5px 8px; color: var(--fg); font-size: var(--fs-m); outline: none; }
 .goal-editor input:focus { border-color: color-mix(in srgb, var(--fg) 30%, transparent); }
 .goal-editor button { font-size: var(--fs-s); }
+/* ===== flyout du rail (chats d'un projet en mode compact, façon Discord) ===== */
+.fly-backdrop { position: fixed; inset: 0; z-index: 60; }
+.rail-flyout { position: fixed; left: 54px; top: 0; bottom: 0; width: 236px; z-index: 61;
+  background: var(--bg-pop); border-right: 1px solid var(--border2); box-shadow: var(--elev);
+  display: flex; flex-direction: column; padding: 8px;
+  animation: fly-in 140ms ease; transform-origin: left; }
+@keyframes fly-in { from { opacity: 0; transform: translateX(-8px); } to { opacity: 1; transform: none; } }
+@media (prefers-reduced-motion: reduce) { .rail-flyout { animation: none; } }
+.fly-head { display: flex; align-items: center; gap: 4px; padding: 4px 6px 8px;
+  border-bottom: 1px solid var(--border); margin-bottom: 4px; }
+.fly-name { font-size: var(--fs-l); font-weight: 600; color: var(--fg); letter-spacing: -0.01em;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; }
+.fly-pin { background: transparent; border: none; color: var(--muted2); cursor: pointer;
+  padding: 3px 5px; border-radius: var(--r-s); display: inline-flex; flex: none;
+  transition: color var(--ease), background var(--ease); }
+.fly-pin:hover { color: var(--fg2); background: var(--bg-ctl); }
+.fly-pin.on { color: var(--accent); }
+.fly-list { flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 1px;
+  scrollbar-width: thin; }
+.fly-sect { font-size: var(--fs-xs); letter-spacing: 0.08em; text-transform: uppercase;
+  color: var(--muted2); padding: 9px 8px 3px; }
+.fly-chat { display: flex; align-items: center; gap: 7px; padding: 5px 8px; min-height: 28px;
+  background: transparent; border: none; border-radius: var(--r-s); font: inherit;
+  font-size: var(--fs-m); color: var(--fg2); cursor: pointer; text-align: left; width: 100%;
+  transition: background var(--ease), color var(--ease); }
+.fly-chat:hover { background: var(--bg-ctl); color: var(--fg); }
+.fly-chat.on { background: var(--bg-ctl); color: var(--fg); }
+.fly-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; }
+.fly-empty { color: var(--muted2); font-size: var(--fs-m); padding: 14px 8px; text-align: center; }

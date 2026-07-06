@@ -1272,6 +1272,10 @@ export default function App() {
           activeProject={activeProject}
           meta={projMeta}
           running={runningProjects}
+          threads={allThreads}
+          activeId={activeId}
+          unread={unread}
+          onSelectThread={(id) => { const th = allThreads.find((t) => t.id === id); if (th) selectThread(id, th.projectRoot); }}
           onSelectProject={setActiveProject}
           onAddProject={addProject}
           onExpand={() => setCompact(false)}
