@@ -24,4 +24,4 @@ Toute valeur visuelle vient des tokens — **ne jamais inventer de valeur locale
 - Tests sidecar : `cd sidecar && npx vitest run`.
 - Ne pas pusher sans demande explicite.
 - `npm run tauri dev` ne survit PAS lancé depuis un harness d'agent — seul Thierry le lance depuis son terminal.
-- La galerie vendorisée vit dans `gallery/` — toute modif galerie se commit ICI, jamais dans `~/Documents/cmux-gallery`.
+- La galerie vendorisée vit dans `gallery/` — toute modif galerie se commit ICI, jamais dans `~/Documents/cmux-gallery`. Son `assets/gallery_template.html` suit le MÊME système de design (tailles 10/11/12/13/15 + 18-34 display viewer, rayons 6/10, poids 500/600) ; après toute modif du template, reporter sur `src-tauri/gallery-dist/` et sur le `figures_index.html` servi (ou relancer un rescan).
