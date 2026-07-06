@@ -11,10 +11,18 @@
   <img alt="Tauri" src="https://img.shields.io/badge/Tauri-2-24c8db?style=flat-square&logo=tauri&logoColor=white">
   <img alt="React" src="https://img.shields.io/badge/React-19-61dafb?style=flat-square&logo=react&logoColor=111827">
   <img alt="Sidecar" src="https://img.shields.io/badge/Sidecar-Node.js-3c873a?style=flat-square&logo=node.js&logoColor=white">
-  <img alt="Status" src="https://img.shields.io/badge/status-beta-e8823a?style=flat-square">
+  <img alt="Status" src="https://img.shields.io/badge/release-1.0-3c873a?style=flat-square">
 </p>
 
 Atelier Studio brings multi-agent chat, a scientific gallery, a browser, a terminal, file viewers/editors, and project-aware context into one native window. The goal is simple: keep reasoning, figures, files, references, and verification tools close enough that serious work can stay in flow.
+
+## What's new in 1.0
+
+- **Fully self-contained**: the gallery server now runs on Node — no Python required. Download, drag to Applications, done.
+- **Design system across the whole app**: unified type scale, radii, motion, shadows — chat, panels, settings, gallery and all viewers share one visual language.
+- **Chat at parity with the CLIs**: Claude runs with the full Claude Code system prompt (cwd, git status, memory); Codex uses your local CLI. Syntax-highlighted code blocks, grouped tool runs, inline diffs.
+- **Gallery, redesigned**: always-visible search, destination tabs, S/M/L density, hover actions that never cover the figure, skeleton loading, instant rescans (shell + data split).
+- **Independent reviewer (optional)**: verify any agent turn against its execution record, with one-click fixes.
 
 ## Overview
 
@@ -112,9 +120,8 @@ flowchart LR
 | Rust + Tauri prerequisites | macOS shell build |
 | Signed-in Claude Code CLI | Claude engine and session resume |
 | Signed-in Codex CLI | Codex engine |
-| Python 3 | Gallery and helper tooling |
 
-## Beta Installation
+## Installation
 
 1. Download the `.dmg` from the latest GitHub release.
 2. Drag Atelier into Applications.
@@ -162,7 +169,7 @@ This recreates the PNG/GIF assets in `docs/media/`.
 
 ## Known Limitations
 
-- Beta release for macOS Apple Silicon.
+- macOS Apple Silicon only (Intel build possible via CI matrix).
 - Codex steering depends on the capabilities exposed by the locally available SDK/CLI.
 - PDF annotations are stored beside files, not burned into the PDF.
 - README screenshots are cleaned demo composites, not real user conversations.

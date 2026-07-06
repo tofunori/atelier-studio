@@ -29,9 +29,9 @@ jobs:
           tagName: ${{ github.ref_name }}
           releaseName: "Atelier Studio ${{ github.ref_name }}"
           releaseBody: |
-            Beta macOS (Apple Silicon). App non signée : après installation,
+            macOS (Apple Silicon). App non signée : après installation,
             lancer `xattr -cr "/Applications/Atelier.app"` pour passer Gatekeeper.
-            Prérequis : Claude Code CLI (>= 2.1.139), Codex CLI, Node.js >= 20,
-            Python 3 + clone de cmux-gallery (~/Documents/cmux-gallery).
+            Prérequis : Claude Code CLI (>= 2.1.139), Codex CLI, Node.js >= 20.
+            La galerie est embarquée et tourne en Node — plus aucune dépendance Python.
           releaseDraft: true
-          prerelease: true
+          prerelease: false
