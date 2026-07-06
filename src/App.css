@@ -234,7 +234,7 @@ html, body, #root, .app { height: 100vh; overflow: hidden;
   .surf.on .surf-label { display: none; }
   .surf.on { padding: 5px 9px; }
 }
-.atelier-bar { display: flex; align-items: center; gap: 4px; padding: 4px 8px;
+.atelier-bar { display: flex; align-items: center; gap: 4px; padding: 0 10px; min-height: 36px;
   background: var(--bg-side); border-bottom: 1px solid var(--bg-ctl); }
 .atelier-bar .atelier-title { font-size: var(--fs-m); color: var(--muted); }
 .atelier-bar .flex { flex: 1; }
