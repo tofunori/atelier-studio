@@ -1453,3 +1453,15 @@ body.dragging iframe { pointer-events: none; }
 .gds-cell.void { background: color-mix(in srgb, var(--bg-side) 55%, transparent); }
 .gds-cell.hunk { color: #9db4d0; background: rgba(157,180,208,0.08); }
 .gds-cell.ctx { color: var(--fg2); }
+/* chips de citations groupées par source */
+.chip-grouped { position: relative; }
+.chip-count { font-size: var(--fs-xs); color: var(--accent); border: 1px solid color-mix(in srgb, var(--accent) 45%, transparent);
+  border-radius: var(--r-pill); padding: 0 6px; cursor: pointer; font-variant-numeric: tabular-nums; flex: none; }
+.chip-group-pop { position: absolute; bottom: calc(100% + 6px); left: 0; z-index: 60; min-width: 230px;
+  background: var(--bg-pop); border: 1px solid var(--border2); border-radius: var(--r-m);
+  box-shadow: var(--elev); padding: 6px; display: flex; flex-direction: column; gap: 2px;
+  animation: pop-in 130ms ease; }
+.cgp-row { display: flex; align-items: center; gap: 8px; padding: 3px 6px; border-radius: var(--r-s); font-size: var(--fs-m); }
+.cgp-row:hover { background: var(--bg-ctl); }
+.cgp-n { color: var(--muted2); font-variant-numeric: tabular-nums; flex: none; }
+.cgp-txt { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--fg2); }
