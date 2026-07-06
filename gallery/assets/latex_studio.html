@@ -843,7 +843,8 @@ document.addEventListener("click", (e) => {
     const c = texcAll.find(x => x.id === id);
     if(c){ texcCur = c; texcShow(c, false); return; }
   }
-  if(!texcPop.contains(e.target)) texcPop.style.display = "none";
+  // ignorer le clic qui vient d ouvrir (bouton Commenter dans la pilule de sélection)
+  if(!texcPop.contains(e.target) && !e.target.closest("#selPill")) texcPop.style.display = "none";
 });
 // charger quand cm est prêt
 (function waitCmC(){ if(cm){ texcLoad(); } else setTimeout(waitCmC, 150); })();
