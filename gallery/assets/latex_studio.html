@@ -420,6 +420,11 @@ const setState = (cls, txt) => { stateEl.className = cls; stateEl.textContent = 
 const ddot = document.getElementById("ddot");
 
 // word wrap (VS Code-style): off | window | fixed column (80/100/120)
+// parité VS Code : wrap désactivé par défaut. L'ancien défaut "win" re-coupait
+// les sources déjà retournées à la ligne en dur → « paragraphes brisés ». Bascule
+// unique win→off pour les réglages hérités ; un choix explicite reste respecté.
+try { if(localStorage.getItem("cmWrap")==="win" && !localStorage.getItem("cmWrapMig")){
+  localStorage.setItem("cmWrap","off"); localStorage.setItem("cmWrapMig","1"); } } catch(e){}
 const wrapSel = document.getElementById("wrapSel");
 function applyWrap(v){
   localStorage.setItem("cmWrap", v);
@@ -434,7 +439,7 @@ function applyWrap(v){
     cm.refresh();
   }
 }
-wrapSel.value = localStorage.getItem("cmWrap") || "win";
+wrapSel.value = localStorage.getItem("cmWrap") || "off";
 wrapSel.onchange = () => applyWrap(wrapSel.value);
 
 async function load(){
@@ -1019,7 +1024,7 @@ document.getElementById("diffRestore").onclick = async () => {
     ?? (__EXT || "").toUpperCase() ?? "";
   const WRAPS = ["win", "off", "80", "100", "120"];
   function wrapLabel(){ 
-    const v = localStorage.getItem("cmWrap") || "win";
+    const v = localStorage.getItem("cmWrap") || "off";
     return "Wrap: " + (v === "win" ? "window" : v);
   }
   function refreshWrap(){
@@ -1029,7 +1034,7 @@ document.getElementById("diffRestore").onclick = async () => {
   }
   refreshWrap();
   sbWrap.onclick = () => {
-    const cur = localStorage.getItem("cmWrap") || "win";
+    const cur = localStorage.getItem("cmWrap") || "off";
     const next = WRAPS[(WRAPS.indexOf(cur) + 1) % WRAPS.length];
     const sel = document.getElementById("wrapSel");
     if (sel) { sel.value = next; sel.onchange(); } 
