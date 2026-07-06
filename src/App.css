@@ -493,8 +493,19 @@ html, body, #root, .app { height: 100vh; overflow: hidden;
 .set-body { flex: 1; overflow-y: auto; padding: 40px 48px; max-width: 860px; }
 .set-body h1 { font-size: var(--fs-xl); margin: 0 0 6px; }
 .set-sub { color: var(--muted); font-size: var(--fs-l); margin: 0 0 24px; }
+.set-sub ~ .set-sub { font-size: var(--fs-xs); text-transform: uppercase; letter-spacing: 0.08em;
+  color: var(--muted2); margin: 24px 0 8px; }
+/* rangées fusionnées en groupes (façon macOS/Codex app) : filets internes,
+   coins arrondis seulement en tête/queue de groupe — un <p> ou <h1> coupe le groupe */
 .set-row { display: flex; align-items: center; gap: 20px; padding: 14px 16px;
-  background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--r-m); margin-bottom: 10px; }
+  background: var(--bg-card); border: 1px solid var(--border); border-top: none;
+  border-radius: 0; margin: 0; }
+:not(.set-row) + .set-row, .set-body .set-row:first-child {
+  border-top: 1px solid var(--border);
+  border-top-left-radius: var(--r-m); border-top-right-radius: var(--r-m); }
+.set-row:has(+ :not(.set-row)), .set-row:last-child {
+  border-bottom-left-radius: var(--r-m); border-bottom-right-radius: var(--r-m);
+  margin-bottom: 20px; }
 .set-row-txt { flex: 1; }
 .set-row-title { font-size: var(--fs-l); }
 .set-row-desc { font-size: var(--fs-m); color: var(--muted); margin-top: 2px; }
