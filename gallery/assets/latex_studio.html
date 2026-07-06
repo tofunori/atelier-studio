@@ -301,11 +301,11 @@ function __ct(){try{return JSON.parse(localStorage.getItem('claudeTargetV1')||'n
     <button id="popPdf" title="Ouvrir le PDF dans un onglet séparé — synctex actif (clic PDF &#8594; ligne source ici)">PDF &#8599;</button>
   </span>
   <span class="sep"></span>
-  <span class="grp" id="diffGrp" style="display:none">
-    <button id="diffPrev" title="Version précédente">&#8249;</button>
-    <button id="diffTag" title="Historique des modifications — afficher/masquer le diff"><svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"><rect x="2.5" y="1.5" width="11" height="13" rx="2"/><path d="M8 5.2v4M6 7.2h4M6 11h4"/></svg></button>
-    <button id="diffNext" title="Version suivante">&#8250;</button>
-    <button id="diffRestore" title="Rétablir la version affichée sur le disque">Rétablir</button>
+  <span class="grp" id="diffGrp">
+    <button id="diffPrev" style="display:none" title="Version précédente">&#8249;</button>
+    <button id="diffTag" disabled style="opacity:.4" title="Historique des modifications — vide pour l’instant (⌘S ou une modif de l’agent crée une version)"><svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"><rect x="2.5" y="1.5" width="11" height="13" rx="2"/><path d="M8 5.2v4M6 7.2h4M6 11h4"/></svg></button>
+    <button id="diffNext" style="display:none" title="Version suivante">&#8250;</button>
+    <button id="diffRestore" style="display:none" title="Rétablir la version affichée sur le disque">Rétablir</button>
   </span>
   <span style="display:none"></span>
   <span class="grp pdfonly">
@@ -1346,6 +1346,9 @@ function diffPush(before, after){
   DIFF_VERSIONS.push({before, after, ts: Date.now()});
   diffIdx = DIFF_VERSIONS.length - 1;
   diffGrp.style.display = "";
+  const tg = document.getElementById("diffTag");
+  tg.disabled = false; tg.style.opacity = "";
+  ["diffPrev","diffNext","diffRestore"].forEach(id => document.getElementById(id).style.display = "");
   updateDiffTag();
   renderDiff();
   if(!diffShown) toggleDiff(true);
