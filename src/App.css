@@ -1470,3 +1470,12 @@ body.dragging iframe { pointer-events: none; }
 /* bouton effort séparé du bouton modèle */
 .mp-btn.mp-effort { padding: 2px 8px; font-size: var(--fs-s); color: var(--muted); }
 .mp-btn.mp-effort:hover { color: var(--fg2); }
+/* pilule @citekey — la clé de citation EST le bouton */
+.biblio-citekey { display: inline-flex; align-items: center; gap: 6px; flex: none;
+  background: transparent; border: 1px solid var(--border2); border-radius: var(--r-pill);
+  color: var(--muted); font-family: var(--code-font); font-size: var(--fs-m);
+  padding: 3px 12px; cursor: pointer; transition: color var(--ease), border-color var(--ease); }
+.biblio-citekey:hover:not(:disabled) { color: var(--fg); border-color: var(--border-strong, var(--border2)); }
+.biblio-citekey:disabled { opacity: 0.4; cursor: default; }
+.biblio-citekey.ok { color: #98c379; border-color: #98c379; }
+.biblio-citekey svg { flex: none; opacity: 0.7; }

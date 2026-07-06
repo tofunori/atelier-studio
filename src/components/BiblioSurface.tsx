@@ -186,7 +186,10 @@ export default function BiblioSurface({
     send(ws, { type: "zoteroFav", key: item.key, on: next });
   }
 
+  const [cited, setCited] = useState(false);
   function citeSelected() {
+    setCited(true);
+    window.setTimeout(() => setCited(false), 1600);
     if (!selected) return;
     const label = selected.citeKey ? `@${selected.citeKey}` : `@${selected.key}`;
     const s = selected as ZoteroItem & { doi?: string; abstract?: string };
@@ -283,8 +286,12 @@ export default function BiblioSurface({
             <span>{selected?.title ?? t("biblio.title")}</span>
             {selected && <small>{creatorLine(selected)}</small>}
           </div>
-          <button className="ghost biblio-cite" disabled={!selected} onClick={citeSelected}>
-            {t("biblio.cite")}
+          <button className={`biblio-citekey ${cited ? "ok" : ""}`} disabled={!selected}
+            title={t("biblio.cite-tip")} onClick={citeSelected}>
+            <svg width="11" height="11" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
+              <path d="M3 9.5C3 6.5 4.8 4.4 7 3.5l.6 1.2c-1.4.7-2.3 1.8-2.5 3 .2-.1.5-.2.9-.2 1.1 0 2 .9 2 2s-.9 2.1-2.1 2.1C4.4 11.6 3 10.8 3 9.5zm6.5 0c0-3 1.8-5.1 4-6l.6 1.2c-1.4.7-2.3 1.8-2.5 3 .2-.1.5-.2.9-.2 1.1 0 2 .9 2 2s-.9 2.1-2.1 2.1c-1.5 0-2.9-.8-2.9-2.1z"/>
+            </svg>
+            <span>{cited ? "✓" : (selected ? `@${selected.citeKey || selected.key}` : "@…")}</span>
           </button>
           <button className="ghost git-icon-btn" title={t("action.close-reader")} onClick={toggleReader}>
             <CloseIcon />
