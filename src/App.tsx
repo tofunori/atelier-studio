@@ -7,6 +7,7 @@ import {
   sendPrompt,
   requestCatalog,
   Thread,
+  ThreadGoal,
   AgentEvent,
   Command,
 } from "./lib/ws";
@@ -106,6 +107,49 @@ function loadProjects(): string[] {
   } catch {
     return [];
   }
+}
+
+const CLEAR_GOAL_ACTIONS = new Set(["clear", "stop", "off", "reset", "none", "cancel", "delete", "remove"]);
+const PAUSE_GOAL_ACTIONS = new Set(["pause", "paused"]);
+const RESUME_GOAL_ACTIONS = new Set(["resume", "continue", "active"]);
+
+type GoalCommand = { action: "set" | "clear" | "pause" | "resume"; text?: string };
+
+function parseGoalCommand(prompt: string): GoalCommand | null {
+  const m = /^\/goal(?:\s+([\s\S]*))?$/.exec(prompt.trim());
+  if (!m) return null;
+  const arg = (m[1] ?? "").trim();
+  if (!arg) return null;
+  const key = arg.toLowerCase();
+  if (CLEAR_GOAL_ACTIONS.has(key)) return { action: "clear" };
+  if (PAUSE_GOAL_ACTIONS.has(key)) return { action: "pause" };
+  if (RESUME_GOAL_ACTIONS.has(key)) return { action: "resume" };
+  return { action: "set", text: arg };
+}
+
+function nextGoalState(prev: ThreadGoal | null, cmd: GoalCommand): ThreadGoal | null {
+  const now = new Date().toISOString();
+  if (cmd.action === "clear") return null;
+  if (cmd.action === "pause") return prev ? { ...prev, status: "paused", updatedAt: now } : null;
+  if (cmd.action === "resume") return prev ? { ...prev, status: "active", updatedAt: now } : null;
+  const text = (cmd.text ?? "").trim();
+  if (!text) return prev;
+  return {
+    text,
+    status: "active",
+    createdAt: prev?.text === text ? prev.createdAt : now,
+    updatedAt: now,
+  };
+}
+
+function goalPromptPrefix(goal: ThreadGoal | null, isGoalCommand: boolean): string {
+  if (isGoalCommand || !goal || goal.status !== "active") return "";
+  return [
+    "Contexte Atelier (non visible dans le fil):",
+    `Goal actif du thread: ${goal.text}`,
+    "Garde ce goal comme objectif prioritaire pour ce tour. Ne le recopie pas sauf si l'utilisateur le demande.",
+    "",
+  ].join("\n");
 }
 
 export default function App() {
@@ -231,7 +275,9 @@ export default function App() {
   }, [settings]);
   const [dragging, setDragging] = useState(false);
   const [unread, setUnread] = useState<Set<string>>(new Set());
-  const [goals, setGoals] = useState<Record<string, string>>({});
+  const [goals, setGoals] = useState<Record<string, ThreadGoal>>({});
+  const goalsRef = useRef<Record<string, ThreadGoal>>({});
+  goalsRef.current = goals;
   const [qaMode, setQaMode] = useState<"closed" | "open" | "min">("closed");
   const qaModeRef = useRef<"closed" | "open" | "min">("closed");
   qaModeRef.current = qaMode;
@@ -258,6 +304,29 @@ export default function App() {
   useEffect(() => {
     localStorage.setItem("atelier-studio.pins", JSON.stringify(pins));
   }, [pins]);
+
+  function applyGoalLocal(threadId: string, goal: ThreadGoal | null) {
+    setGoals((prev) => {
+      if (!goal) {
+        const { [threadId]: _, ...rest } = prev;
+        return rest;
+      }
+      return { ...prev, [threadId]: goal };
+    });
+  }
+
+  function sendGoalUpdate(threadId: string, cmd: GoalCommand) {
+    const prev = goalsRef.current[threadId] ?? null;
+    applyGoalLocal(threadId, nextGoalState(prev, cmd));
+    if (ws.current?.readyState === 1) {
+      ws.current.send(JSON.stringify({
+        type: "setGoal",
+        threadId,
+        action: cmd.action,
+        ...(cmd.text ? { text: cmd.text } : {}),
+      }));
+    }
+  }
   const [compact, setCompact] = useState(() => localStorage.getItem("atelier-studio.compact") === "1");
   // largeur FIXE de la sidebar (px) : hors PanelGroup pour ne pas gonfler
   // quand le panneau atelier passe en pleine largeur
@@ -332,8 +401,22 @@ export default function App() {
       if (msg.type === "threads") {
         setThreads(msg.threads);
         threadsRef.current = msg.threads;
+        setGoals((prev) => {
+          const next = { ...prev };
+          for (const thread of msg.threads as Thread[]) {
+            if (thread.goal) next[thread.id] = thread.goal;
+          }
+          return next;
+        });
+      }
+      if (msg.type === "goal") {
+        applyGoalLocal(msg.threadId, msg.goal ?? null);
       }
       if (msg.type === "event") {
+        if (msg.event.kind === "goal") {
+          applyGoalLocal(msg.threadId, msg.event.goal ?? null);
+          return;
+        }
         if (msg.event.kind === "started") {
           setWorkingSince((p) => ({ ...p, [msg.threadId]: p[msg.threadId] ?? Date.now() }));
           return;
@@ -413,7 +496,7 @@ export default function App() {
         });
         if (msg.event.kind === "done" && typeof msg.event.result === "string" &&
             /goal (atteint|achieved|accompli|complete)/i.test(msg.event.result)) {
-          setGoals((g) => { const { [msg.threadId]: _, ...rest } = g; return rest; });
+          sendGoalUpdate(msg.threadId, { action: "clear" });
         }
         if (msg.event.kind === "done" && msg.event.usage) {
           setUsageByThread((p) => ({ ...p, [msg.threadId]: msg.event.usage }));
@@ -1039,20 +1122,12 @@ export default function App() {
     const activeThread = allThreadsRef.current.find((t) => t.id === activeId);
     const threadRoot = activeThread ? activeThread.projectRoot : (activeProject ?? "");
     if (!activeId && !activeProject) return;
-    // /goal : suivre l'état pour la pilule ◎ Goal (la commande part normalement à Claude)
-    if (activeId && /^\/goal(\s|$)/.test(prompt.trim())) {
-      const arg = prompt.trim().replace(/^\/goal\s*/, "");
-      if (["clear", "stop", "off", "reset", "none", "cancel"].includes(arg.toLowerCase()) ) {
-        setGoals((g) => { const { [activeId]: _, ...rest } = g; return rest; });
-      } else if (arg) {
-        setGoals((g) => ({ ...g, [activeId]: arg }));
-      }
-    }
-    if (activeId && prompt.trim() === "/clear") {
-      setGoals((g) => { const { [activeId]: _, ...rest } = g; return rest; });
-    }
+    const trimmed = prompt.trim();
+    const goalCommand = parseGoalCommand(trimmed);
+    const clearGoalCommand: GoalCommand | null = trimmed === "/clear" ? { action: "clear" } : null;
+    const pendingGoalCommand = goalCommand ?? clearGoalCommand;
     // /export : archive locale (pas d'appel agent)
-    if (prompt.trim() === "/export" && activeId) {
+    if (trimmed === "/export" && activeId) {
       if (ws.current?.readyState === 1) {
         ws.current.send(JSON.stringify({
           type: "exportThread",
@@ -1068,12 +1143,6 @@ export default function App() {
       activeThread && activeThread.sessionId && activeThread.provider !== provider &&
       priorEvents.length > 0;
     const handoff = isSwitch ? buildHandoff(priorEvents, activeThread!.provider) : "";
-    // pièce jointe (annotation/sélection atelier) : préfixée au prompt envoyé
-    const fullPrompt =
-      handoff +
-      (attachments.length
-        ? `${attachments.map((a) => a.text).join("\n\n")}\n\n${prompt}`.trim()
-        : prompt);
     const userEvent = {
       kind: "user" as const,
       text: prompt,
@@ -1091,17 +1160,10 @@ export default function App() {
         : {}),
     };
     const imagePaths = attachments.map((a) => a.path).filter(Boolean) as string[];
-    const codexInputs = provider === "codex" && imagePaths.length
-      ? [
-          { type: "text" as const, text: fullPrompt },
-          ...imagePaths.map((path) => ({ type: "local_image" as const, path })),
-        ]
-      : undefined;
     const additionalDirectories = settingsRef.current.additionalDirectories
       .split(/\r?\n|,/)
       .map((dir) => dir.trim())
       .filter(Boolean);
-    setAttachments([]);
     // pas de thread sélectionné → en créer un à la volée
     let id = activeId;
     if (!id) {
@@ -1121,6 +1183,24 @@ export default function App() {
       setActiveId(id);
       activeIdRef.current = id;
     }
+    const previousGoal = goalsRef.current[id] ?? null;
+    const effectiveGoal = pendingGoalCommand
+      ? nextGoalState(previousGoal, pendingGoalCommand)
+      : previousGoal;
+    if (pendingGoalCommand) applyGoalLocal(id, effectiveGoal);
+    // pièce jointe (annotation/sélection atelier) : préfixée au prompt envoyé.
+    // Le goal actif est injecté comme contexte caché côté provider, sans bruit dans le fil visible.
+    const promptBody = attachments.length
+      ? `${attachments.map((a) => a.text).join("\n\n")}\n\n${prompt}`.trim()
+      : prompt;
+    const fullPrompt = handoff + goalPromptPrefix(effectiveGoal, Boolean(goalCommand)) + promptBody;
+    const codexInputs = provider === "codex" && imagePaths.length
+      ? [
+          { type: "text" as const, text: fullPrompt },
+          ...imagePaths.map((path) => ({ type: "local_image" as const, path })),
+        ]
+      : undefined;
+    setAttachments([]);
     setEvents((p) => ({
       ...p,
       [id]: [...(p[id] ?? []), userEvent],
@@ -1167,6 +1247,14 @@ export default function App() {
         ...(provider === "codex" && additionalDirectories.length ? { additionalDirectories } : {}),
         mode,
       });
+      if (pendingGoalCommand) {
+        ws.current.send(JSON.stringify({
+          type: "setGoal",
+          threadId: id,
+          action: pendingGoalCommand.action,
+          ...(pendingGoalCommand.text ? { text: pendingGoalCommand.text } : {}),
+        }));
+      }
       // le sidecar prend le relais : retirer le brouillon local homonyme
       setDraftThreads((p) => p.filter((t) => t.id !== id));
     }
@@ -1403,7 +1491,15 @@ export default function App() {
           goal={activeId ? (goals[activeId] ?? null) : null}
           onClearGoal={() => {
             if (!activeId) return;
-            setGoals((g) => { const { [activeId]: _, ...rest } = g; return rest; });
+            sendGoalUpdate(activeId, { action: "clear" });
+          }}
+          onPauseGoal={() => {
+            if (!activeId) return;
+            sendGoalUpdate(activeId, { action: "pause" });
+          }}
+          onResumeGoal={() => {
+            if (!activeId) return;
+            sendGoalUpdate(activeId, { action: "resume" });
           }}
           commands={commands}
           files={files}

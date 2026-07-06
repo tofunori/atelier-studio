@@ -4,7 +4,7 @@ import remarkGfm from "remark-gfm";
 import hljs from "highlight.js/lib/common";
 import { open } from "@tauri-apps/plugin-dialog";
 import { openUrl } from "@tauri-apps/plugin-opener";
-import { AgentEvent } from "../lib/ws";
+import { AgentEvent, ThreadGoal } from "../lib/ws";
 import { wsSend } from "../lib/wsBus";
 import { eventLabel, t } from "../lib/i18n";
 import {
@@ -13,9 +13,14 @@ import {
   CopyIcon,
   ExpandIcon,
   ForkIcon,
+  PauseCircleIcon,
+  PencilIcon,
+  PlayCircleIcon,
   PlusIcon,
   ProviderIcon,
   ResumeIcon,
+  TargetIcon,
+  TrashIcon,
   ArrowDownIcon,
   ZapIcon,
 } from "./icons";
@@ -448,6 +453,77 @@ function PinBtn({ pinned, onClick }: { pinned: boolean; onClick: () => void }) {
   );
 }
 
+function formatGoalElapsed(goal: ThreadGoal, now: number): string {
+  const start = Date.parse(goal.createdAt || goal.updatedAt);
+  if (!Number.isFinite(start)) return "";
+  const seconds = Math.max(0, Math.floor((now - start) / 1000));
+  if (seconds < 60) return `${seconds}s`;
+  const minutes = Math.floor(seconds / 60);
+  if (minutes < 60) return `${minutes}m`;
+  const hours = Math.floor(minutes / 60);
+  return `${hours}h`;
+}
+
+function GoalBar({
+  goal,
+  onEdit,
+  onPause,
+  onResume,
+  onClear,
+}: {
+  goal: ThreadGoal;
+  onEdit: () => void;
+  onPause: () => void;
+  onResume: () => void;
+  onClear: () => void;
+}) {
+  const [now, setNow] = useState(Date.now());
+  useEffect(() => {
+    if (goal.status !== "active") return;
+    const id = window.setInterval(() => setNow(Date.now()), 1000);
+    return () => window.clearInterval(id);
+  }, [goal.status, goal.createdAt]);
+  const elapsed = goal.status === "active" ? formatGoalElapsed(goal, now) : t("chat.goal-paused-short");
+  return (
+    <div className={`goal-strip ${goal.status === "paused" ? "paused" : ""}`} title={goal.text}>
+      <span className="goal-strip-icon"><TargetIcon size={15} /></span>
+      <span className="goal-copy">
+        <span className="goal-prefix">
+          {goal.status === "paused" ? t("chat.goal-paused") : t("chat.goal-pursuing")}
+        </span>
+        <span className="goal-text">{goal.text}</span>
+        {elapsed && (
+          <>
+            <span className="goal-dot">·</span>
+            <span className="goal-time">{elapsed}</span>
+          </>
+        )}
+      </span>
+      <span className="goal-actions">
+        <button type="button" className="goal-action" title={t("chat.goal-edit")}
+          aria-label={t("chat.goal-edit")} onClick={onEdit}>
+          <PencilIcon />
+        </button>
+        {goal.status === "active" ? (
+          <button type="button" className="goal-action" title={t("chat.goal-pause")}
+            aria-label={t("chat.goal-pause")} onClick={onPause}>
+            <PauseCircleIcon />
+          </button>
+        ) : (
+          <button type="button" className="goal-action" title={t("chat.goal-resume")}
+            aria-label={t("chat.goal-resume")} onClick={onResume}>
+            <PlayCircleIcon />
+          </button>
+        )}
+        <button type="button" className="goal-action" title={t("chat.goal-clear")}
+          aria-label={t("chat.goal-clear")} onClick={onClear}>
+          <TrashIcon />
+        </button>
+      </span>
+    </div>
+  );
+}
+
 export default function Chat(p: {
   events: AgentEvent[];
   workingSince: number | null;
@@ -466,8 +542,10 @@ export default function Chat(p: {
   onAttachPath?: (path: string) => void;
   onAttachFolder?: (folder: string) => void;
   onAttachZotero?: (key: string) => void;
-  goal: string | null;
+  goal: ThreadGoal | null;
   onClearGoal: () => void;
+  onPauseGoal: () => void;
+  onResumeGoal: () => void;
   layout: "split" | "chat" | "atelier";
   onToggleExpand: () => void;
   usage: { context: number; output: number; cost: number | null; turns: number | null } | null;
@@ -1457,16 +1535,16 @@ export default function Chat(p: {
           </ul>
         )}
         {p.goal && (
-          <div className="goal-pill" title={p.goal}>
-            <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3">
-              <circle cx="8" cy="8" r="6.2" />
-              <circle cx="8" cy="8" r="2.2" fill="currentColor" stroke="none" />
-            </svg>
-            <span className="goal-label">{t("chat.goal")}</span>
-            <span className="goal-cond">{p.goal.slice(0, 80)}{p.goal.length > 80 ? "…" : ""}</span>
-            <button type="button" className="ghost" title={t("chat.goal-clear")}
-              onClick={p.onClearGoal}><CloseIcon /></button>
-          </div>
+          <GoalBar
+            goal={p.goal}
+            onEdit={() => {
+              setText(`/goal ${p.goal?.text ?? ""}`.trimEnd());
+              requestAnimationFrame(() => taRef.current?.focus());
+            }}
+            onPause={p.onPauseGoal}
+            onResume={p.onResumeGoal}
+            onClear={p.onClearGoal}
+          />
         )}
         {p.attachments.length > 0 && (
           <div className="chips-row">

@@ -57,6 +57,41 @@ describe("route", () => {
       items: [{ key: item.key, citeKey: "smith2024", fav: true }],
     });
   });
+  it("met à jour le goal d'un thread", async () => {
+    const thread = {
+      id: "t1",
+      title: "a",
+      provider: "codex",
+      projectRoot: "",
+      sessionId: null,
+      status: "idle",
+      updatedAt: "2026-01-01T00:00:00.000Z",
+      goal: null,
+    };
+    const emitted = [];
+    const ctx = {
+      send: (m) => emitted.push(m),
+      broadcast: (m) => emitted.push(m),
+      store: {
+        list: () => [thread],
+        get: (id) => (id === thread.id ? thread : null),
+        upsert: (patch) => Object.assign(thread, patch),
+      },
+    };
+
+    await route({ type: "setGoal", threadId: "t1", text: "finir M37", action: "set" }, ctx);
+    expect(thread.goal).toMatchObject({ text: "finir M37", status: "active" });
+    expect(emitted.some((m) => m.type === "goal" && m.goal?.text === "finir M37")).toBe(true);
+
+    await route({ type: "setGoal", threadId: "t1", action: "pause" }, ctx);
+    expect(thread.goal.status).toBe("paused");
+
+    await route({ type: "setGoal", threadId: "t1", action: "resume" }, ctx);
+    expect(thread.goal.status).toBe("active");
+
+    await route({ type: "setGoal", threadId: "t1", action: "clear" }, ctx);
+    expect(thread.goal).toBeNull();
+  });
   it("retitre les conversations aux titres bruts ou dupliqués", async () => {
     const threads = new Map([
       ["a", {

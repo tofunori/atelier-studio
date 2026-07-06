@@ -13,6 +13,9 @@ const lastTurnByThread = new Map(); // threadId -> { entry, responseText, diffs 
 let retitleAllRunning = false;
 
 const DEFAULT_APP_DIR = join(homedir(), "Library", "Application Support", "atelier-studio");
+const CLEAR_GOAL_ACTIONS = new Set(["clear", "stop", "off", "reset", "none", "cancel", "delete", "remove"]);
+const PAUSE_GOAL_ACTIONS = new Set(["pause", "paused"]);
+const RESUME_GOAL_ACTIONS = new Set(["resume", "continue", "active"]);
 
 function zoteroFavsPath(ctx) {
   return ctx.zoteroFavsPath ?? join(DEFAULT_APP_DIR, "zotero-favs.json");
@@ -135,6 +138,50 @@ function gitRootFor(ctx, msg) {
 
 function emitGitChanged(ctx, threadId, projectRoot) {
   (ctx.broadcast ?? ctx.send)({ type: "gitChanged", threadId, projectRoot });
+}
+
+function buildGoal(prevGoal, action, text) {
+  const now = new Date().toISOString();
+  const normalized = String(action ?? "").trim().toLowerCase();
+  if (CLEAR_GOAL_ACTIONS.has(normalized)) return null;
+  if (PAUSE_GOAL_ACTIONS.has(normalized)) {
+    if (!prevGoal) return null;
+    return { ...prevGoal, status: "paused", updatedAt: now };
+  }
+  if (RESUME_GOAL_ACTIONS.has(normalized)) {
+    if (!prevGoal) return null;
+    return { ...prevGoal, status: "active", updatedAt: now };
+  }
+  const goalText = String(text ?? "").trim();
+  if (!goalText) return prevGoal ?? null;
+  return {
+    text: goalText,
+    status: "active",
+    createdAt: prevGoal?.text === goalText && prevGoal?.createdAt ? prevGoal.createdAt : now,
+    updatedAt: now,
+  };
+}
+
+function emitGoal(ctx, threadId, goal) {
+  const emit = ctx.broadcast ?? ctx.send;
+  emit({ type: "goal", threadId, goal });
+  emit({ type: "threads", threads: ctx.store.list() });
+}
+
+function applyGoal(ctx, threadId, action, text) {
+  const thread = ctx.store.get(threadId);
+  if (!thread) throw new Error("thread introuvable");
+  const goal = buildGoal(thread.goal, action, text);
+  ctx.store.upsert({ id: threadId, goal });
+  emitGoal(ctx, threadId, goal);
+  return goal;
+}
+
+function applyProviderGoal(ctx, threadId, goal) {
+  const thread = ctx.store.get(threadId);
+  if (!thread) return;
+  ctx.store.upsert({ id: threadId, goal });
+  emitGoal(ctx, threadId, goal);
 }
 
 async function filesChangedSinceTurn(ctx, turn) {
@@ -288,6 +335,14 @@ export async function route(msg, ctx) {
     case "checkFrame": {
       const res = await ctx.checkFrame(msg.url);
       ctx.send({ type: "frameChecked", url: msg.url, blocked: res.blocked });
+      break;
+    }
+    case "setGoal": {
+      try {
+        applyGoal(ctx, msg.threadId, msg.action ?? "set", msg.text);
+      } catch (e) {
+        ctx.send({ type: "error", threadId: msg.threadId, message: String(e) });
+      }
       break;
     }
     case "scanLocal": {
@@ -712,6 +767,10 @@ export async function route(msg, ctx) {
             collectTool(tools, event);
             if (event.kind === "text") turn.lastText = event.text;
             const outEvent = await enrichDoneEvent(ctx, turn, event);
+            if (outEvent.kind === "goal") {
+              applyProviderGoal(ctx, threadId, outEvent.goal);
+              return;
+            }
             emit({ type: "event", threadId, event: outEvent });
             if (event.kind === "done") emitGitChanged(ctx, threadId, projectRoot);
             if (event.kind === "done") maybeAutoReview(ctx, emit, turn, msg.autoReview);
@@ -767,6 +826,10 @@ export async function route(msg, ctx) {
           collectTool(tools, event);
           if (event.kind === "text") turn.lastText = event.text;
           const outEvent = await enrichDoneEvent(ctx, turn, event);
+          if (outEvent.kind === "goal") {
+            applyProviderGoal(ctx, threadId, outEvent.goal);
+            return;
+          }
           emit({ type: "event", threadId, event: outEvent });
           if (event.kind === "done") emitGitChanged(ctx, threadId, projectRoot);
           if (event.kind === "done") maybeAutoReview(ctx, emit, turn, msg.autoReview);

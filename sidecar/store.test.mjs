@@ -37,4 +37,18 @@ describe("ThreadStore", () => {
       status: "done",
     });
   });
+  it("persiste et normalise le goal d'un thread", () => {
+    const file = join(mkdtempSync(join(tmpdir(), "as-")), "threads.json");
+    const s = new ThreadStore(file);
+    s.upsert({
+      id: "t1",
+      title: "a",
+      goal: { text: " finir la tranche ", status: "waiting" },
+    });
+    const s2 = new ThreadStore(file);
+    expect(s2.get("t1").goal).toMatchObject({
+      text: "finir la tranche",
+      status: "active",
+    });
+  });
 });

@@ -26,6 +26,7 @@ export type AgentEvent =
   | { kind: "tool"; name: string; detail?: string }
   | { kind: "tool_update"; id: string; name: string; output: string; status?: string; exitCode?: number; ts?: number }
   | { kind: "todos"; items: { text: string; completed: boolean }[]; ts?: number }
+  | { kind: "goal"; goal: ThreadGoal | null; ts?: number }
   | {
       kind: "done";
       ok: boolean;
@@ -37,6 +38,13 @@ export type AgentEvent =
     }
   | { kind: "error"; message: string };
 
+export type ThreadGoal = {
+  text: string;
+  status: "active" | "paused";
+  createdAt: string;
+  updatedAt: string;
+};
+
 export type Thread = {
   id: string;
   projectRoot: string;
@@ -45,6 +53,7 @@ export type Thread = {
   sessionId: string | null;
   status: "idle" | "running" | "done";
   updatedAt: string;
+  goal?: ThreadGoal | null;
 };
 
 type Handler = (msg: any) => void;
