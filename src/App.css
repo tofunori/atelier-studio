@@ -178,6 +178,36 @@ html, body, #root, .app { height: 100vh; overflow: hidden;
   padding: 2px 4px; }
 .bare.dim { color: var(--muted); }
 .bare:hover { color: #fff; }
+.custom-select { display: inline-flex; min-width: 0; color: var(--fg2); font-size: var(--fs-l); }
+.custom-select-trigger { display: inline-flex; align-items: center; justify-content: space-between; gap: 8px;
+  min-width: 148px; min-height: 30px; background: var(--bg-ctl); border: 1px solid var(--border2);
+  border-radius: var(--r-s); color: inherit; padding: 6px 10px; font: inherit; font-size: var(--fs-l);
+  cursor: pointer; outline: none; transition: background var(--ease), color var(--ease), border-color var(--ease), box-shadow var(--ease); }
+.custom-select.compact .custom-select-trigger { min-width: 0; min-height: 24px; background: transparent;
+  border-color: transparent; padding: 2px 4px; }
+.custom-select-trigger:hover, .custom-select-trigger[aria-expanded="true"] { background: var(--bg-ctl); color: var(--fg); }
+.custom-select-trigger:focus-visible { border-color: var(--border2); box-shadow: 0 0 0 1px var(--border2); }
+.custom-select-label { min-width: 0; display: inline-flex; align-items: center; gap: 6px; overflow: hidden; }
+.custom-select-label span:last-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.custom-select-icon, .custom-select-option-icon { display: inline-flex; align-items: center; justify-content: center;
+  flex: none; color: var(--muted); }
+.custom-select-chevron { flex: none; color: var(--muted); }
+.custom-select-menu { position: fixed; z-index: 260; background: var(--bg-pop); border: 1px solid var(--border2);
+  border-radius: var(--r-m); box-shadow: var(--elev); padding: 4px; overflow-y: auto;
+  animation: pop-in 130ms ease; transform-origin: top; }
+.custom-select-menu.top { transform-origin: bottom; }
+.custom-select-option { width: 100%; display: grid; grid-template-columns: 14px minmax(0, 1fr);
+  align-items: center; gap: 8px; background: transparent; border: none; border-radius: var(--r-s);
+  color: var(--fg2); cursor: pointer; font: inherit; font-size: var(--fs-l); padding: 7px 8px;
+  text-align: left; transition: background var(--ease), color var(--ease); }
+.custom-select-option.has-icon { grid-template-columns: 14px 16px minmax(0, 1fr); }
+.custom-select-option:hover, .custom-select-option.active, .custom-select-option[aria-selected="true"] {
+  background: var(--bg-ctl); color: var(--fg); }
+.custom-select-check { width: 14px; height: 14px; display: inline-flex; align-items: center; justify-content: center;
+  color: var(--fg); }
+.custom-select-option-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.composer-bar .custom-select.compact { color: var(--muted); }
+.composer-bar .custom-select.compact[data-value="plan"] { color: var(--accent); }
 .send { width: 30px; height: 30px; border-radius: var(--r-pill); border: none;
   background: var(--border2); color: var(--fg); font-size: var(--fs-xl); cursor: pointer; }
 .send:hover:not(:disabled) { background: var(--border2); }
@@ -1361,11 +1391,12 @@ body.dragging iframe { pointer-events: none; }
 .sidebar li, .ctx-menu div, .suggest li, .mp-menu div, .seg button,
 .codeblock-copy, .tool-group-row, .turn-diff-toggle, .empty-action {
   transition: background var(--ease), color var(--ease), border-color var(--ease); }
-.ctx-menu, .mp-menu, .ur-pop, .reviewer-menu, .suggest {
+.ctx-menu, .mp-menu, .ur-pop, .reviewer-menu, .suggest, .custom-select-menu {
   animation: pop-in 130ms ease; transform-origin: top; }
+.custom-select-menu.top { transform-origin: bottom; }
 @keyframes pop-in { from { opacity: 0; transform: translateY(-3px); } to { opacity: 1; transform: none; } }
 @media (prefers-reduced-motion: reduce) {
-  .ctx-menu, .mp-menu, .ur-pop, .reviewer-menu, .suggest { animation: none; } }
+  .ctx-menu, .mp-menu, .ur-pop, .reviewer-menu, .suggest, .custom-select-menu { animation: none; } }
 
 /* streaming vivant : le label respire (shimmer) pendant que l'agent travaille */
 .working-label { background: linear-gradient(90deg, var(--muted) 30%, var(--fg) 50%, var(--muted) 70%);

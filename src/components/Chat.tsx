@@ -18,6 +18,7 @@ import {
   ArrowDownIcon,
   ZapIcon,
 } from "./icons";
+import { Select } from "./Select";
 
 const PERMISSION_MODES = [
   { id: "bypassPermissions", labelKey: "permission.full" },
@@ -1612,17 +1613,13 @@ export default function Chat(p: {
               </div>
             )}
           </span>
-          <select
-            className={`bare access ${permissionMode === "plan" ? "accent" : ""}`}
+          <Select
+            compact
+            title={t("settings.permission-default")}
             value={permissionMode}
-            onChange={(e) => setPermissionMode(e.target.value)}
-          >
-            {PERMISSION_MODES.map((m) => (
-              <option key={m.id} value={m.id}>
-                {t(m.labelKey as any)}
-              </option>
-            ))}
-          </select>
+            onChange={setPermissionMode}
+            options={PERMISSION_MODES.map((m) => ({ value: m.id, label: t(m.labelKey as any) }))}
+          />
           <span className="flex" />
           {p.usage && (
             <span className="ctx-ring-wrap">

@@ -3,6 +3,7 @@ import { Settings as S, DEFAULT_SETTINGS } from "../lib/settings";
 import { THEME_PRESETS } from "../lib/themes";
 import { setLanguage, t } from "../lib/i18n";
 import { PlusIcon } from "./icons";
+import { Select } from "./Select";
 
 const SECTIONS = [
   { id: "general", labelKey: "settings.general" },
@@ -128,60 +129,76 @@ export default function SettingsPage(p: {
             <h1>{t("settings.general")}</h1>
             <p className="set-sub">{t("settings.general-sub")}</p>
             <Row title={t("language.label")}>
-              <select
+              <Select
+                title={t("language.label")}
                 value={s.language}
-                onChange={(e) => {
-                  const language = e.target.value as S["language"];
+                onChange={(value) => {
+                  const language = value as S["language"];
                   setLanguage(language);
                   set({ language });
                 }}
-              >
-                <option value="fr">{t("language.fr")}</option>
-                <option value="en">{t("language.en")}</option>
-                <option value="system">{t("language.system")}</option>
-              </select>
+                options={[
+                  { value: "fr", label: t("language.fr") },
+                  { value: "en", label: t("language.en") },
+                  { value: "system", label: t("language.system") },
+                ]}
+              />
             </Row>
             <Row title={t("settings.default-provider")} desc={t("settings.default-provider-desc")}>
-              <select value={s.defaultProvider} onChange={(e) => set({ defaultProvider: e.target.value as any })}>
-                <option value="claude">Claude</option>
-                <option value="codex">Codex</option>
-              </select>
+              <Select
+                title={t("settings.default-provider")}
+                value={s.defaultProvider}
+                onChange={(value) => set({ defaultProvider: value as S["defaultProvider"] })}
+                options={[
+                  { value: "claude", label: "Claude" },
+                  { value: "codex", label: "Codex" },
+                ]}
+              />
             </Row>
             <Row title={t("settings.default-claude-model")}>
-              <select value={s.defaultModel.claude}
-                onChange={(e) => set({ defaultModel: { ...s.defaultModel, claude: e.target.value } })}>
-                {CLAUDE_MODELS.map((m) => <option key={m.id} value={m.id}>{modelLabel(m)}</option>)}
-              </select>
+              <Select
+                title={t("settings.default-claude-model")}
+                value={s.defaultModel.claude}
+                onChange={(value) => set({ defaultModel: { ...s.defaultModel, claude: value } })}
+                options={CLAUDE_MODELS.map((m) => ({ value: m.id, label: modelLabel(m) }))}
+              />
             </Row>
             <Row title={t("settings.default-codex-model")}>
-              <select value={s.defaultModel.codex}
-                onChange={(e) => set({ defaultModel: { ...s.defaultModel, codex: e.target.value } })}>
-                {CODEX_MODELS.map((m) => <option key={m.id} value={m.id}>{modelLabel(m)}</option>)}
-              </select>
+              <Select
+                title={t("settings.default-codex-model")}
+                value={s.defaultModel.codex}
+                onChange={(value) => set({ defaultModel: { ...s.defaultModel, codex: value } })}
+                options={CODEX_MODELS.map((m) => ({ value: m.id, label: modelLabel(m) }))}
+              />
             </Row>
             <Row title={t("settings.default-claude-effort")}>
-              <select value={s.defaultEffort.claude}
-                onChange={(e) => set({ defaultEffort: { ...s.defaultEffort, claude: e.target.value } })}>
-                {["", "low", "medium", "high", "xhigh", "max"].map((l) => (
-                  <option key={l} value={l}>{l === "" ? "auto" : l}</option>
-                ))}
-              </select>
+              <Select
+                title={t("settings.default-claude-effort")}
+                value={s.defaultEffort.claude}
+                onChange={(value) => set({ defaultEffort: { ...s.defaultEffort, claude: value } })}
+                options={["", "low", "medium", "high", "xhigh", "max"].map((l) => ({ value: l, label: l === "" ? "auto" : l }))}
+              />
             </Row>
             <Row title={t("settings.default-codex-effort")}>
-              <select value={s.defaultEffort.codex}
-                onChange={(e) => set({ defaultEffort: { ...s.defaultEffort, codex: e.target.value } })}>
-                {CODEX_EFFORTS.map((l) => (
-                  <option key={l} value={l}>{l === "" ? "auto" : l}</option>
-                ))}
-              </select>
+              <Select
+                title={t("settings.default-codex-effort")}
+                value={s.defaultEffort.codex}
+                onChange={(value) => set({ defaultEffort: { ...s.defaultEffort, codex: value } })}
+                options={CODEX_EFFORTS.map((l) => ({ value: l, label: l === "" ? "auto" : l }))}
+              />
             </Row>
             <Row title={t("settings.permission-default")} desc={t("settings.permission-default-desc")}>
-              <select value={s.defaultPermissionMode} onChange={(e) => set({ defaultPermissionMode: e.target.value })}>
-                <option value="bypassPermissions">{t("permission.full")}</option>
-                <option value="acceptEdits">{t("permission.accept-edits")}</option>
-                <option value="default">{t("action.ask-default")}</option>
-                <option value="plan">{t("permission.plan")}</option>
-              </select>
+              <Select
+                title={t("settings.permission-default")}
+                value={s.defaultPermissionMode}
+                onChange={(value) => set({ defaultPermissionMode: value })}
+                options={[
+                  { value: "bypassPermissions", label: t("permission.full") },
+                  { value: "acceptEdits", label: t("permission.accept-edits") },
+                  { value: "default", label: t("action.ask-default") },
+                  { value: "plan", label: t("permission.plan") },
+                ]}
+              />
             </Row>
             <Row title={t("settings.web-search")} desc={t("settings.web-search-desc")}>
               <input type="checkbox" checked={s.webSearch}
@@ -192,10 +209,15 @@ export default function SettingsPage(p: {
                 onChange={(e) => set({ additionalDirectories: e.target.value })} />
             </Row>
             <Row title={t("settings.thread-order")} desc={t("settings.thread-order-desc")}>
-              <select value={s.threadOrder} onChange={(e) => set({ threadOrder: e.target.value as any })}>
-                <option value="recent">{t("settings.thread-order-recent")}</option>
-                <option value="manual">{t("settings.thread-order-manual")}</option>
-              </select>
+              <Select
+                title={t("settings.thread-order")}
+                value={s.threadOrder}
+                onChange={(value) => set({ threadOrder: value as S["threadOrder"] })}
+                options={[
+                  { value: "recent", label: t("settings.thread-order-recent") },
+                  { value: "manual", label: t("settings.thread-order-manual") },
+                ]}
+              />
             </Row>
             <Row title={t("settings.chat-titles")} desc={t("settings.chat-titles-desc")}>
               <button
@@ -287,11 +309,16 @@ export default function SettingsPage(p: {
                 onChange={(e) => set({ fontSmoothing: e.target.checked })} />
             </Row>
             <Row title={t("settings.time-format")} desc={t("settings.time-format-desc")}>
-              <select value={s.timeFormat} onChange={(e) => set({ timeFormat: e.target.value as any })}>
-                <option value="system">{t("language.system")}</option>
-                <option value="24h">24 h</option>
-                <option value="12h">12 h (AM/PM)</option>
-              </select>
+              <Select
+                title={t("settings.time-format")}
+                value={s.timeFormat}
+                onChange={(value) => set({ timeFormat: value as S["timeFormat"] })}
+                options={[
+                  { value: "system", label: t("language.system") },
+                  { value: "24h", label: "24 h" },
+                  { value: "12h", label: "12 h (AM/PM)" },
+                ]}
+              />
             </Row>
             <Row title={t("settings.chat-text-size")}>
               <Slider min={12} max={19} step={0.5} value={s.chatFontSize} onChange={(v) => set({ chatFontSize: v })} />
@@ -312,10 +339,15 @@ export default function SettingsPage(p: {
             <h1>{t("settings.models")}</h1>
             <p className="set-sub">{t("settings.models-sub")}</p>
             <Row title={t("settings.slug-add")} desc={t("settings.slug-add-desc")}>
-              <select value={slugProv} onChange={(e) => setSlugProv(e.target.value as any)}>
-                <option value="claude">Claude</option>
-                <option value="codex">Codex</option>
-              </select>
+              <Select
+                title={t("settings.slug-add")}
+                value={slugProv}
+                onChange={(value) => setSlugProv(value as "claude" | "codex")}
+                options={[
+                  { value: "claude", label: "Claude" },
+                  { value: "codex", label: "Codex" },
+                ]}
+              />
               <input className="set-text" placeholder={t("settings.slug-placeholder")} value={slugText}
                 onChange={(e) => setSlugText(e.target.value)}
                 onKeyDown={(e) => {
@@ -340,19 +372,17 @@ export default function SettingsPage(p: {
               const efforts = m.provider === "claude" ? CLAUDE_EFFORTS : CODEX_EFFORTS;
               return (
                 <Row key={key} title={modelLabel(m)} desc={m.provider === "claude" ? "Claude" : "Codex"}>
-                  <select
+                  <Select
+                    title={modelLabel(m)}
                     value={modelEfforts[key] ?? ""}
-                    onChange={(e) => {
+                    onChange={(value) => {
                       const next = { ...modelEfforts };
-                      if (e.target.value) next[key] = e.target.value;
+                      if (value) next[key] = value;
                       else delete next[key];
                       set({ modelEfforts: next });
                     }}
-                  >
-                    {efforts.map((l) => (
-                      <option key={l} value={l}>{l === "" ? t("common.provider-default") : l}</option>
-                    ))}
-                  </select>
+                    options={efforts.map((l) => ({ value: l, label: l === "" ? t("common.provider-default") : l }))}
+                  />
                 </Row>
               );
             })}
@@ -381,28 +411,32 @@ export default function SettingsPage(p: {
               />
             </Row>
             <Row title={t("settings.autoreview-agent")} desc={t("settings.autoreview-agent-desc")}>
-              <select
+              <Select
+                title={t("settings.autoreview-agent")}
                 value={`${s.autoReview.provider}:${s.autoReview.model}:${s.autoReview.effort}`}
-                onChange={(e) => {
-                  const [provider, model, effort] = e.target.value.split(":");
+                onChange={(value) => {
+                  const [provider, model, effort] = value.split(":");
                   set({ autoReview: { ...s.autoReview, provider: provider as "claude" | "codex", model, effort } });
                 }}
-              >
-                <option value="codex:gpt-5.5:high">GPT-5.5 · high</option>
-                <option value="codex:gpt-5.5:medium">GPT-5.5 · medium</option>
-                <option value="claude:claude-opus-4-8:high">Opus 4.8 · high</option>
-                <option value="claude:claude-sonnet-5:high">Sonnet 5 · high</option>
-              </select>
+                options={[
+                  { value: "codex:gpt-5.5:high", label: "GPT-5.5 · high" },
+                  { value: "codex:gpt-5.5:medium", label: "GPT-5.5 · medium" },
+                  { value: "claude:claude-opus-4-8:high", label: "Opus 4.8 · high" },
+                  { value: "claude:claude-sonnet-5:high", label: "Sonnet 5 · high" },
+                ]}
+              />
             </Row>
             <Row title={t("settings.autoreview-trigger")}>
-              <select
+              <Select
+                title={t("settings.autoreview-trigger")}
                 value={s.autoReview.trigger}
-                onChange={(e) => set({ autoReview: { ...s.autoReview, trigger: e.target.value as "always" | "files-changed" | "manual" } })}
-              >
-                <option value="files-changed">{t("settings.autoreview-files")}</option>
-                <option value="always">{t("settings.autoreview-always")}</option>
-                <option value="manual">{t("settings.autoreview-manual")}</option>
-              </select>
+                onChange={(value) => set({ autoReview: { ...s.autoReview, trigger: value as "always" | "files-changed" | "manual" } })}
+                options={[
+                  { value: "files-changed", label: t("settings.autoreview-files") },
+                  { value: "always", label: t("settings.autoreview-always") },
+                  { value: "manual", label: t("settings.autoreview-manual") },
+                ]}
+              />
             </Row>
           </>
         )}
