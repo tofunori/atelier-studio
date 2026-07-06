@@ -1467,3 +1467,6 @@ body.dragging iframe { pointer-events: none; }
 .cgp-txt { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--fg2); }
 
 .chip-doc { flex: none; color: var(--muted2); }
+/* bouton effort séparé du bouton modèle */
+.mp-btn.mp-effort { padding: 2px 8px; font-size: var(--fs-s); color: var(--muted); }
+.mp-btn.mp-effort:hover { color: var(--fg2); }

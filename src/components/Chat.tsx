@@ -588,6 +588,7 @@ export default function Chat(p: {
     return () => { reg.delete("chat-hl"); reg.delete("chat-ul"); };
   }, [marks, p.events]);
   const [menuOpen, setMenuOpen] = useState(false);
+  const [effortMenuOpen, setEffortMenuOpen] = useState(false);
   const [plusOpen, setPlusOpen] = useState(false);
 
   useEffect(() => {
@@ -636,11 +637,11 @@ export default function Chat(p: {
   }
 
   useEffect(() => {
-    if (!menuOpen) return;
-    const close = () => setMenuOpen(false);
+    if (!menuOpen && !effortMenuOpen) return;
+    const close = () => { setMenuOpen(false); setEffortMenuOpen(false); };
     window.addEventListener("click", close);
     return () => window.removeEventListener("click", close);
-  }, [menuOpen]);
+  }, [menuOpen, effortMenuOpen]);
   const [editing, setEditing] = useState<{ index: number; text: string } | null>(null);
   const [openToolGroups, setOpenToolGroups] = useState<Set<number>>(new Set());
 
@@ -818,7 +819,6 @@ export default function Chat(p: {
   const selectedModel = modelsFor(provider).find((m) => m.id === model);
   const selectedModelLabel = selectedModel ? modelLabel(selectedModel) : model;
   const modelButtonLabel = model ? selectedModelLabel : resolvedDefaultLabel(provider);
-  const modelSuffix = effort ? ` · ${effort}` : "";
 
   function renderToolLine(e: Extract<AgentEvent, { kind: "tool" | "tool_update" }>, key: React.Key) {
     if (e.kind === "tool") {
@@ -1647,10 +1647,10 @@ export default function Chat(p: {
             <button
               type="button"
               className="mp-btn"
-              onClick={() => setMenuOpen((v) => !v)}
+              onClick={() => { setMenuOpen((v) => !v); setEffortMenuOpen(false); }}
             >
               <ProviderIcon provider={provider} />
-              <span className={!model ? "mp-dim" : undefined}>{modelButtonLabel}{modelSuffix}</span>
+              <span className={!model ? "mp-dim" : undefined}>{modelButtonLabel}</span>
             </button>
             {menuOpen && (
               <div className="mp-menu">
@@ -1713,7 +1713,20 @@ export default function Chat(p: {
                     ))}
                   </>
                 )}
-                <div className="mp-sep" />
+              </div>
+            )}
+          </span>
+          <span className="model-pick" onClick={(e) => e.stopPropagation()}>
+            <button
+              type="button"
+              className="mp-btn mp-effort"
+              title={t("chat.effort")}
+              onClick={() => { setEffortMenuOpen((v) => !v); setMenuOpen(false); }}
+            >
+              <span className={!effort ? "mp-dim" : undefined}>{effort || t("common.auto-default")}</span>
+            </button>
+            {effortMenuOpen && (
+              <div className="mp-menu">
                 <div className="mp-hd">{t("chat.effort")}</div>
                 {EFFORTS[provider].map((lvl) => {
                   const labels: Record<string, string> = {
@@ -1721,7 +1734,7 @@ export default function Chat(p: {
                     xhigh: "Extra High", max: "Max", minimal: "Minimal",
                   };
                   return (
-                    <div key={lvl} className="mp-item" onClick={() => setEffort(lvl)}>
+                    <div key={lvl} className="mp-item" onClick={() => { setEffort(lvl); setEffortMenuOpen(false); }}>
                       <span>{labels[lvl] ?? lvl}</span>
                       {effort === lvl && <span className="mp-check">✓</span>}
                     </div>
