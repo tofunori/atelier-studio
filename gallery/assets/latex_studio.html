@@ -302,9 +302,8 @@ function __ct(){try{return JSON.parse(localStorage.getItem('claudeTargetV1')||'n
   </span>
   <span class="sep"></span>
   <span class="grp" id="diffGrp" style="display:none">
-    <span class="dg-label" title="Historique des modifications de cette session (par l'agent ou toi)">Modifs</span>
     <button id="diffPrev" title="Version précédente">&#8249;</button>
-    <button id="diffTag" title="Afficher/masquer le diff de cette version">v1</button>
+    <button id="diffTag" title="Historique des modifications — afficher/masquer le diff"><svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"><rect x="2.5" y="1.5" width="11" height="13" rx="2"/><path d="M8 5.2v4M6 7.2h4M6 11h4"/></svg></button>
     <button id="diffNext" title="Version suivante">&#8250;</button>
     <button id="diffRestore" title="Rétablir la version affichée sur le disque">Rétablir</button>
   </span>
@@ -1352,7 +1351,7 @@ function diffPush(before, after){
   if(!diffShown) toggleDiff(true);
 }
 function updateDiffTag(){
-  document.getElementById("diffTag").textContent = "v" + (diffIdx + 2) + "/" + (DIFF_VERSIONS.length + 1);
+  document.getElementById("diffTag").title = "Modifications — version " + (diffIdx + 2) + "/" + (DIFF_VERSIONS.length + 1) + " (cliquer : voir le diff)";
   document.getElementById("diffPrev").disabled = diffIdx <= 0;
   document.getElementById("diffNext").disabled = diffIdx >= DIFF_VERSIONS.length - 1;
 }
