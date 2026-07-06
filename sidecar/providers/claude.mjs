@@ -163,6 +163,10 @@ export function send({
     prompt: input(),
     options: {
       cwd,
+      // prompt de base de Claude Code (outils, conventions, sections dynamiques
+      // cwd/git/mémoire) — sans ce preset le SDK démarre avec un system prompt
+      // vide ; settingSources charge CLAUDE.md/skills PAR-DESSUS, pas à la place
+      systemPrompt: { type: "preset", preset: "claude_code" },
       permissionMode: permMode,
       ...(permMode === "bypassPermissions" ? { allowDangerouslySkipPermissions: true } : {}),
       ...(CLAUDE_BIN ? { pathToClaudeCodeExecutable: CLAUDE_BIN } : {}),
