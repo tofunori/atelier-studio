@@ -151,7 +151,6 @@ export default function Sidebar(p: {
 }) {
   const [menu, setMenu] = useState<Menu | null>(null);
   const [projMenu, setProjMenu] = useState<{ root: string; x: number; y: number } | null>(null);
-  const [labelDraft, setLabelDraft] = useState("");
   const [resumeOpen, setResumeOpen] = useState(false);
   const [resumeProv, setResumeProv] = useState<"claude" | "codex">("claude");
   const [sessions, setSessions] = useState<{ id: string; title: string; mtime: number }[] | null>(null);
@@ -342,7 +341,6 @@ export default function Sidebar(p: {
               onDoubleClick={() => toggleCollapse(root)}
               onContextMenu={(e) => {
                 e.preventDefault();
-                setLabelDraft(p.projMeta[root]?.label ?? "");
                 setProjMenu({ root, x: e.clientX, y: e.clientY });
               }}
               title={t("action.toggle-project")}
