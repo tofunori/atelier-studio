@@ -20,6 +20,8 @@ Toute valeur visuelle vient des tokens — **ne jamais inventer de valeur locale
 
 ## Contraintes techniques
 
+- **Relance de l'app : suivre docs/PROTOCOLE_RELANCE.md À LA LETTRE** (kill exhaustif tauri-app + sidecar + serveurs galerie, build, vérif) — ne jamais improviser.
+
 - `npx tsc --noEmit` et `npx vite build` doivent passer (ignorer `src/test_auto_review*.ts`).
 - Tests sidecar : `cd sidecar && npx vitest run`.
 - Ne pas pusher sans demande explicite.

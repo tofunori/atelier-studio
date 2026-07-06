@@ -1,0 +1,70 @@
+# Protocole de relance d'Atelier Studio (agents : Codex, Claude, forks)
+
+**À suivre EXACTEMENT après toute modification. Aucune improvisation.**
+Le non-respect crée des zombies (serveurs galerie/sidecar orphelins) qui servent
+du vieux code et font croire que le fix « ne marche pas ».
+
+## Ce qu'il faut savoir (2 min)
+
+- L'app buildée = `src-tauri/target/release/bundle/macos/Atelier.app`.
+  Son process s'appelle **`tauri-app`** (PAS « Atelier ») → `pkill -x Atelier` ne matche jamais.
+- 3 familles de process : l'app (`tauri-app`), le **sidecar** (`Resources/sidecar/index.mjs`),
+  les **serveurs galerie** (`node …/server/main.mjs`, un par projet ouvert — ils SURVIVENT
+  aux relances et l'app les réutilise → zombies = vieux code servi).
+- `npm run tauri dev` ne survit PAS lancé par un agent (reaping du harness).
+  Seul Thierry le lance depuis son terminal. Les agents utilisent le BUILD.
+- Vite dev sert `src/` en direct, mais l'app buildée fige tout au build :
+  **aucun changement n'est visible sans rebuild.**
+- La galerie a 2 copies : source `gallery/` (à committer) et bundle
+  `src-tauri/gallery-dist/` (régénéré par `scripts/stage-gallery.sh`).
+  Modifier `gallery/assets/*` sans restager = bundle périmé.
+
+## Protocole (copier-coller)
+
+```bash
+cd ~/Documents/atelier-studio
+
+# 1. VÉRIFICATIONS (obligatoires avant tout build)
+npx tsc --noEmit          # doit passer
+npx vite build            # doit passer
+(cd sidecar && npx vitest run)   # 19+ tests verts
+# si gallery/server touché :
+(cd gallery && node server/tests/parity.mjs)   # « parity: ok »
+
+# 2. TUER TOUT (l'ordre importe peu, l'exhaustivité oui)
+pkill -9 -f tauri-app
+pkill -9 -f "Resources/sidecar/index.mjs"
+pkill -9 -f "sidecar/index.mjs"
+for p in $(lsof -nP -iTCP -sTCP:LISTEN 2>/dev/null | grep node | awk '{print $2}' | sort -u); do
+  case "$(ps -p $p -o command= 2>/dev/null)" in *"server/main.mjs"*) kill -9 $p;; esac
+done
+sleep 1
+
+# 3. BUILD (stage-gallery/stage-sidecar sont dans beforeBuildCommand — automatiques)
+rm -rf src-tauri/target/release/bundle/dmg   # sinon bundle_dmg.sh échoue parfois (exit 1 cosmétique)
+npm run tauri build > /tmp/tauri-build.log 2>&1
+# exit 0 attendu ; exit 1 acceptable UNIQUEMENT si la seule erreur est bundle_dmg.sh
+grep -iE "error" /tmp/tauri-build.log | grep -v dmg   # doit être VIDE
+
+# 4. RELANCER + VÉRIFIER (jamais « open » seul sans vérif)
+open src-tauri/target/release/bundle/macos/Atelier.app
+sleep 4
+pgrep -f tauri-app >/dev/null && echo "OK" || echo "ÉCHEC — investiguer, ne pas réessayer en boucle"
+```
+
+## Interdits
+
+- ❌ `pkill -x Atelier` / `pgrep -x Atelier` (mauvais nom de process)
+- ❌ `open Atelier.app` sans avoir tué l'existant (active le zombie, ne relance rien)
+- ❌ builder sans avoir tué les serveurs galerie (ils serviront le vieux code)
+- ❌ `npm run tauri dev` depuis un agent (meurt en ~2 min, laisse des orphelins sur :1420)
+- ❌ modifier `src-tauri/gallery-dist/` directement (écrasé au prochain stage — modifier `gallery/`)
+- ❌ conclure « le fix ne marche pas » sans avoir vérifié qu'AUCUN zombie ne sert l'ancien code
+
+## Diagnostic express « je ne vois pas mon changement »
+
+```bash
+ls -la src-tauri/target/release/bundle/macos/Atelier.app/Contents/MacOS/tauri-app  # binaire frais ?
+pgrep -fl "server/main.mjs"   # serveurs galerie : leurs process datent de quand ?
+ps -o lstart= -p <pid>        # un lstart antérieur au build = zombie → kill -9
+```
