@@ -780,9 +780,18 @@ export default function Chat(p: {
       setSelIdx(0);
       return;
     }
-    if (s.attachPath) p.onAttachPath?.(s.attachPath);
+    // pièce jointe « feuille » (fichier / citation) : la PUCE représente la
+    // référence — retirer le @token tapé au lieu de laisser « @main.tex » en
+    // double dans le message
+    if (s.attachPath || s.attachZoteroKey) {
+      if (s.attachPath) p.onAttachPath?.(s.attachPath);
+      if (s.attachZoteroKey) p.onAttachZotero?.(s.attachZoteroKey);
+      setText((cur) => cur.replace(/(^|\s)@[\w./:-]*$/, "$1"));
+      setSelIdx(0);
+      return;
+    }
+    // navigation (dossier, @recent:/@zotero:…) : on garde le texte pour continuer
     if (s.attachFolder) p.onAttachFolder?.(s.attachFolder);
-    if (s.attachZoteroKey) p.onAttachZotero?.(s.attachZoteroKey);
     setText(s.insert);
     setSelIdx(0);
   }
