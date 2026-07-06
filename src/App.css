@@ -1455,7 +1455,7 @@ body.dragging iframe { pointer-events: none; }
 .gds-cell.ctx { color: var(--fg2); }
 /* chips de citations groupées par source */
 .chip-grouped { position: relative; }
-.chip-count { font-size: var(--fs-xs); color: var(--accent); border: 1px solid color-mix(in srgb, var(--accent) 45%, transparent);
+.chip-count { font-size: var(--fs-xs); color: var(--muted); border: 1px solid var(--border2);
   border-radius: var(--r-pill); padding: 0 6px; cursor: pointer; font-variant-numeric: tabular-nums; flex: none; }
 .chip-group-pop { position: absolute; bottom: calc(100% + 6px); left: 0; z-index: 60; min-width: 230px;
   background: var(--bg-pop); border: 1px solid var(--border2); border-radius: var(--r-m);
@@ -1465,3 +1465,5 @@ body.dragging iframe { pointer-events: none; }
 .cgp-row:hover { background: var(--bg-ctl); }
 .cgp-n { color: var(--muted2); font-variant-numeric: tabular-nums; flex: none; }
 .cgp-txt { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--fg2); }
+
+.chip-doc { flex: none; color: var(--muted2); }

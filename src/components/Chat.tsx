@@ -261,6 +261,14 @@ function fmtTime(ts: number, fmt?: "system" | "24h" | "12h") {
   return new Date(ts).toLocaleTimeString([], opts);
 }
 
+/** « Williamson et al. - 2025 - Temperature… .pdf » → « Williamson et al. 2025 » ; sinon nom court. */
+function citeLabel(name: string): string {
+  const base = name.replace(/\.[a-z0-9]+$/i, "");
+  const m = /^(.{2,60}?)\s+-\s+(\d{4})\s+-\s+/.exec(base);
+  if (m) return `${m[1]} ${m[2]}`;
+  return base.length > 34 ? base.slice(0, 33) + "…" : base;
+}
+
 function formatPermInput(tool: string, input: Record<string, unknown>): string {
   const one = (v: unknown) => String(v ?? "").slice(0, 400);
   if (tool === "Bash") return one((input as any).command);
@@ -1418,9 +1426,13 @@ export default function Chat(p: {
                 const many = g.idxs.length > 1;
                 return (
                   <div key={g.name} className={`chip ${many ? "chip-grouped" : ""}`}>
-                    <span className="chip-label" onClick={() => many && setOpenChipGroup(openChipGroup === g.name ? null : g.name)}
+                    <svg className="chip-doc" width="11" height="13" viewBox="0 0 11 13" fill="none" stroke="currentColor" strokeWidth="1.1" strokeLinecap="round">
+                      <rect x="0.8" y="0.8" width="9.4" height="11.4" rx="1.6" />
+                      <path d="M3 4.4h5M3 6.8h5M3 9.2h3.4" />
+                    </svg>
+                    <span className="chip-label" title={a.name} onClick={() => many && setOpenChipGroup(openChipGroup === g.name ? null : g.name)}
                       style={many ? { cursor: "pointer" } : undefined}>
-                      {a.name}
+                      {citeLabel(a.name)}
                     </span>
                     {many ? <span className="chip-count" onClick={() => setOpenChipGroup(openChipGroup === g.name ? null : g.name)}>×{g.idxs.length}</span>
                       : a.lines && <span className="chip-lines">{t("chat.lines", { lines: a.lines })}</span>}
