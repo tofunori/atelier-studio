@@ -162,6 +162,10 @@ export async function run({
       if (ev.type === "item.started" && ev.item?.type === "reasoning") {
         emitTool("__thinking");
       }
+      // le SDK livre le TEXTE du raisonnement — même rendu que le thinking Claude
+      if (ev.type === "item.completed" && ev.item?.type === "reasoning" && ev.item.text) {
+        onEvent({ kind: "thinking", text: ev.item.text });
+      }
       if (
         (ev.type === "item.started" || ev.type === "item.updated" || ev.type === "item.completed") &&
         ev.item?.type === "todo_list"
