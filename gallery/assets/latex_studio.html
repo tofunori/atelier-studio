@@ -81,9 +81,18 @@
   body:not(.pdfmode) .pdfonly{display:none!important}
   .pdfmode #left{display:none}
   #split{flex:1;display:flex;min-height:0}
-  #left{width:50%;display:flex;flex-direction:column;border-right:1px solid var(--border);min-width:0;background:#212121}
+  #left{width:50%;display:flex;flex-direction:column;border-right:1px solid var(--border);min-width:0;background:#1e2126}
   #right{flex:1;overflow:auto;background:var(--card2);position:relative;scrollbar-gutter:stable}
-  .CodeMirror{flex:1;height:auto;font-size:13px;font-family:"SF Mono",Menlo,monospace;line-height:1.5}
+  .CodeMirror{flex:1;height:auto;font-size:13px;font-family:"SF Mono",Menlo,monospace;line-height:1.62;background:#1e2126;color:var(--txt)}
+  /* craft éditeur : respiration, ligne active, gouttière lisible, curseur accent */
+  .CodeMirror-lines{padding:10px 0}
+  .CodeMirror pre.CodeMirror-line,.CodeMirror pre.CodeMirror-line-like{padding:0 14px 0 10px}
+  .CodeMirror-gutters{background:#1e2126;border-right:1px solid transparent}
+  .CodeMirror-linenumber{color:#565e6b;padding:0 12px 0 8px;font-size:12px}
+  .cm-activeline{background:rgba(255,255,255,.035)}
+  .cm-activeline-gutter .CodeMirror-linenumber{color:var(--txt)}
+  .CodeMirror-cursor{border-left:2px solid var(--accent)}
+  .CodeMirror-matchingbracket{color:var(--accent)!important;font-weight:600;border-bottom:1px solid var(--accent)}
   .pdfpage{position:relative;margin:10px auto;background:#fff;box-shadow:0 2px 10px rgba(0,0,0,.5);cursor:crosshair}
   .pdfpage canvas{display:block}
   #marker{position:absolute;left:0;right:0;height:22px;background:rgba(232,130,58,.22);
@@ -466,6 +475,19 @@ async function load(){
     const c = cm.getCursor();
     const el = document.getElementById("sbPos");
     if (el) el.textContent = "Ln " + (c.line + 1) + ", Col " + (c.ch + 1);
+  });
+  // ligne active (VS Code) : surbrillance discrète + numéro de ligne courant en clair
+  let __activeLn = null;
+  cm.on("cursorActivity", () => {
+    const l = cm.getCursor().line;
+    if (l === __activeLn) return;
+    if (__activeLn != null) {
+      cm.removeLineClass(__activeLn, "background", "cm-activeline");
+      cm.removeLineClass(__activeLn, "gutter", "cm-activeline-gutter");
+    }
+    cm.addLineClass(l, "background", "cm-activeline");
+    cm.addLineClass(l, "gutter", "cm-activeline-gutter");
+    __activeLn = l;
   });
   cm.on("change", (_, ch) => { if(ch.origin !== "setValue"){ dirty = true; ddot.style.display = "inline"; setState("dirty", "modified"); } });
   // ?line=N (ou N-M) : sauter à la ligne et la surligner brièvement (liens fichier:ligne du chat)
