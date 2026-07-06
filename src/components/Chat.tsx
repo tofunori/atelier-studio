@@ -1834,23 +1834,29 @@ export default function Chat(p: {
             >
               <span className={!effort ? "mp-dim" : undefined}>{effort || t("common.auto-default")}</span>
             </button>
-            {effortMenuOpen && (
-              <div className="mp-menu">
-                <div className="mp-hd">{t("chat.effort")}</div>
-                {EFFORTS[provider].map((lvl) => {
-                  const labels: Record<string, string> = {
-                    "": t("common.auto-default"), low: "Low", medium: "Medium", high: "High",
-                    xhigh: "Extra High", max: "Max", minimal: "Minimal",
-                  };
-                  return (
-                    <div key={lvl} className="mp-item" onClick={() => { setEffort(lvl); setEffortMenuOpen(false); }}>
-                      <span>{labels[lvl] ?? lvl}</span>
-                      {effort === lvl && <span className="mp-check">✓</span>}
-                    </div>
-                  );
-                })}
-              </div>
-            )}
+            {effortMenuOpen && (() => {
+              const lvls = EFFORTS[provider];
+              const labels: Record<string, string> = {
+                "": t("common.auto-default"), low: "Low", medium: "Medium", high: "High",
+                xhigh: "Extra High", max: "Max", minimal: "Minimal",
+              };
+              const idx = Math.max(0, lvls.indexOf(effort));
+              return (
+                <div className="mp-menu effort-pop">
+                  <div className="ef-title">{t("chat.effort")} <b>{labels[effort] ?? effort}</b></div>
+                  <div className="ef-scale"><span>{t("effort.faster")}</span><span>{t("effort.smarter")}</span></div>
+                  <div className="ef-track">
+                    {lvls.map((lvl, i) => (
+                      <button key={lvl} type="button"
+                        className={`ef-stop ${i === idx ? "on" : ""} ${i < idx ? "past" : ""} ${i === lvls.length - 1 ? "last" : ""}`}
+                        title={labels[lvl] ?? lvl}
+                        onClick={() => { setEffort(lvl); setEffortMenuOpen(false); }}
+                      />
+                    ))}
+                  </div>
+                </div>
+              );
+            })()}
           </span>
           {p.workingSince != null ? (
             <>

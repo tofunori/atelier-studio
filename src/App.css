@@ -1563,3 +1563,22 @@ body.dragging iframe { pointer-events: none; }
   border: 1px solid var(--border2); border-radius: var(--r-s); color: var(--fg);
   padding: 4px 8px; font: inherit; font-size: var(--fs-m); text-align: center; outline: none; }
 .icon-letter:focus { border-color: var(--accent); }
+/* ===== popover effort façon Claude Code desktop ===== */
+.effort-pop { padding: 12px 14px 14px; min-width: 240px; }
+.ef-title { font-size: var(--fs-l); color: var(--muted); margin-bottom: 8px; }
+.ef-title b { color: var(--fg); font-weight: 600; }
+.ef-scale { display: flex; justify-content: space-between; font-size: var(--fs-m);
+  color: var(--muted); margin-bottom: 7px; }
+.ef-track { display: flex; align-items: center; background: var(--bg-side);
+  border-radius: var(--r-pill); padding: 4px; gap: 0; }
+.ef-stop { flex: 1; height: 22px; background: transparent; border: none; cursor: pointer;
+  position: relative; padding: 0; }
+.ef-stop::before { content: ""; position: absolute; left: 50%; top: 50%; width: 5px; height: 5px;
+  border-radius: 50%; background: var(--muted2); transform: translate(-50%, -50%);
+  transition: background var(--ease); }
+.ef-stop.past { background: var(--bg-ctl); }
+.ef-stop:first-child.past, .ef-stop.past:first-child { border-radius: var(--r-pill) 0 0 var(--r-pill); }
+.ef-stop.on::before { width: 16px; height: 16px; background: var(--fg2); box-shadow: 0 1px 4px rgba(0,0,0,.4); }
+.ef-stop.last::before { background: var(--accent); }
+.ef-stop.on.last::before { background: var(--accent); }
+.ef-stop:hover::before { background: var(--fg2); }
