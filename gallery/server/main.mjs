@@ -20,8 +20,25 @@ import { handleEditorsGet, handleEditorsPost } from "./routes/editors.mjs";
 
 const VIDEO_EXTS = new Set([".mp4", ".m4v", ".mov", ".webm"]);
 
+let __shellCheckAt = 0;
+function ensureFreshShell() {
+  // coquille périmée si le template a changé (rebuild de l'app pendant que ce
+  // serveur tournait) — vérif au plus 1×/5s, régénération instantanée sans scan
+  const now = Date.now();
+  if (now - __shellCheckAt < 5000) return;
+  __shellCheckAt = now;
+  try {
+    const tpl = path.join(ASSETS_DIR, "gallery_template.html");
+    const shell = path.join(PROJECT, "figures_index.html");
+    if (fs.existsSync(shell) && fs.statSync(tpl).mtimeMs > fs.statSync(shell).mtimeMs) {
+      import("./builder.mjs").then((b) => { if (b.rebuildShellOnly()) console.error("[gallery] coquille régénérée (GET)"); });
+    }
+  } catch {}
+}
+
 function projectStaticPath(urlPath) {
   const decoded = decodeURIComponent(urlPath === "/" ? "/figures_index.html" : urlPath);
+  if (urlPath === "/") ensureFreshShell();
   const rel = decoded.replace(/^\/+/, "");
   return safePath(rel);
 }

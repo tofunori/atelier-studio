@@ -70,6 +70,9 @@
         color:var(--muted)}
   #rescan:hover{color:var(--txt)}
   #rescan svg{display:block}
+  #rescan.spinning svg{animation:rescan-spin .9s linear infinite;color:var(--accent)}
+  @keyframes rescan-spin{to{transform:rotate(360deg)}}
+  @media (prefers-reduced-motion:reduce){#rescan.spinning svg{animation:none;opacity:.5}}
   .menu{position:fixed;z-index:60;display:none;flex-direction:column;gap:2px;
         background:var(--card);border:1px solid var(--border);border-radius:10px;padding:7px;min-width:min(200px,calc(100vw - 16px));max-width:min(360px,calc(100vw - 16px));
         max-height:62vh;overflow:auto;box-shadow:0 8px 28px rgba(0,0,0,.5)}
@@ -1295,14 +1298,15 @@ quoteCheck(); setInterval(quoteCheck, 30000);
 checkHealth(); setInterval(checkHealth, 60000);
 quoteBtn.onclick=async()=>{await fetch('/clear-quote',{method:'POST'}).catch(()=>{}); quoteBtn.style.display='none';};
 document.getElementById('rescan').onclick=async function(){
-  this.textContent='⏳ scanning…';
+  if(this.classList.contains('spinning')) return;
+  this.classList.add('spinning');
   try{
     const r=await fetch('/rescan',{method:'POST'});
     const j=await r.json();
     if(j.ok){ location.reload(); return; }
-    this.textContent='✗ error';
-  }catch(e){ this.textContent='server off'; }
-  setTimeout(()=>this.textContent='↻ Rescan',2000);
+    this.title='Rescan — erreur, réessayer';
+  }catch(e){ this.title='Rescan — serveur injoignable'; }
+  this.classList.remove('spinning');
 };
 document.getElementById('delSel').onclick=async function(){
   if(!selSet.size) return;
