@@ -48,6 +48,23 @@
   #pickerList div{padding:7px 14px;font-size:13px;cursor:pointer;display:flex;gap:8px}
   #pickerList div:hover{background:var(--border)}
   #pickerList .d{color:var(--accent)}
+
+  /* ===== thème code « atelier » (surcharge material-darker) ===== */
+  .cm-s-material-darker.CodeMirror{background:#1e2126;color:#d8d3c8}
+  .cm-s-material-darker .cm-keyword{color:#e8823a}
+  .cm-s-material-darker .cm-def{color:#d8d3c8}
+  .cm-s-material-darker .cm-variable{color:#d8d3c8}
+  .cm-s-material-darker .cm-variable-2{color:#c9c3b6}
+  .cm-s-material-darker .cm-property{color:#c9c3b6}
+  .cm-s-material-darker .cm-string{color:#5fb0a5}
+  .cm-s-material-darker .cm-string-2{color:#5fb0a5}
+  .cm-s-material-darker .cm-number{color:#5fb0a5}
+  .cm-s-material-darker .cm-atom{color:#5fb0a5}
+  .cm-s-material-darker .cm-builtin{color:#7fbcb2}
+  .cm-s-material-darker .cm-operator{color:#9a958a}
+  .cm-s-material-darker .cm-comment{color:#8a919e;font-style:italic}
+  .cm-s-material-darker .cm-meta{color:#9a958a}
+  .cm-s-material-darker .cm-qualifier{color:#7fbcb2}
 </style>
 <script>(function(){var T={'Default':{bg:'#202024',card:'#27272a',card2:'#1f1f23',txt:'#e4e4e7',muted:'#a1a1aa',accent:'#5b9dff',border:'#3f3f46'},'Codex One':{bg:'#202024',card:'#2f343f',card2:'#21252b',txt:'#abb2bf',muted:'#7f848e',accent:'#4d78cc',border:'#3e4451'},'Dracula':{bg:'#282a36',card:'#343746',card2:'#21222c',txt:'#f8f8f2',muted:'#9aa0b3',accent:'#bd93f9',border:'#44475a'},'Nord':{bg:'#2e3440',card:'#3b4252',card2:'#272c36',txt:'#e5e9f0',muted:'#9aa3b2',accent:'#88c0d0',border:'#434c5e'}};var t;try{t=T[localStorage.getItem('figTheme')];}catch(e){}t=t||T['Default'];var r=document.documentElement.style;for(var k in t)r.setProperty('--'+k,t[k]);})();</script>
 </head>

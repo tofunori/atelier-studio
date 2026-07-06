@@ -175,9 +175,26 @@
   #diffGrp button.on{background:var(--border);color:var(--txt)}
   #diffGrp .dg-label{color:var(--faint,#6b7482);font-size:11px;letter-spacing:.05em;text-transform:uppercase;margin-right:2px}
   /* palette LaTeX/code plus riche (par-dessus material-darker) */
-  .cm-s-material-darker .cm-tag{color:#7aa2f7}                 /* \commandes */
+
+  /* ===== thème code « atelier » (surcharge material-darker) ===== */
+  .cm-s-material-darker.CodeMirror{background:#1e2126;color:#d8d3c8}
+  .cm-s-material-darker .cm-keyword{color:#e8823a}
+  .cm-s-material-darker .cm-def{color:#d8d3c8}
+  .cm-s-material-darker .cm-variable{color:#d8d3c8}
+  .cm-s-material-darker .cm-variable-2{color:#c9c3b6}
+  .cm-s-material-darker .cm-property{color:#c9c3b6}
+  .cm-s-material-darker .cm-string{color:#5fb0a5}
+  .cm-s-material-darker .cm-string-2{color:#5fb0a5}
+  .cm-s-material-darker .cm-number{color:#5fb0a5}
+  .cm-s-material-darker .cm-atom{color:#5fb0a5}
+  .cm-s-material-darker .cm-builtin{color:#7fbcb2}
+  .cm-s-material-darker .cm-operator{color:#9a958a}
+  .cm-s-material-darker .cm-comment{color:#8a919e;font-style:italic}
+  .cm-s-material-darker .cm-meta{color:#9a958a}
+  .cm-s-material-darker .cm-qualifier{color:#7fbcb2}
+  .cm-s-material-darker .cm-tag{color:#e8823a}                 /* \commandes */
   .cm-s-material-darker .cm-bracket{color:#e0b74a}             /* { } [ ] */
-  .cm-s-material-darker .cm-atom{color:#b587d6}                /* noms d'environnements */
+  .cm-s-material-darker .cm-atom{color:#7fbcb2}                /* noms d'environnements */
   .cm-s-material-darker .cm-string{color:#8fd3a7}              /* math $…$ */
   .cm-s-material-darker .cm-comment{color:#6b7482;font-style:italic}
   .cm-s-material-darker .cm-number{color:#e8a35a}
