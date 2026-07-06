@@ -1841,18 +1841,27 @@ export default function Chat(p: {
                 xhigh: "Extra High", max: "Max", minimal: "Minimal",
               };
               const idx = Math.max(0, lvls.indexOf(effort));
+              // slider continu : glisser déplace le pouce, le libellé suit en direct
+              const pick = (e: React.PointerEvent) => {
+                const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
+                const i = Math.min(lvls.length - 1, Math.max(0,
+                  Math.round(((e.clientX - r.left) / r.width) * (lvls.length - 1))));
+                if (lvls[i] !== effort) setEffort(lvls[i]);
+              };
               return (
                 <div className="mp-menu effort-pop">
                   <div className="ef-title">{t("chat.effort")} <b>{labels[effort] ?? effort}</b></div>
                   <div className="ef-scale"><span>{t("effort.faster")}</span><span>{t("effort.smarter")}</span></div>
-                  <div className="ef-track">
+                  <div className="ef-track"
+                    onPointerDown={(e) => { (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId); pick(e); }}
+                    onPointerMove={(e) => { if (e.buttons) pick(e); }}
+                  >
+                    <div className="ef-fill" style={{ width: `${(idx / (lvls.length - 1)) * 100}%` }} />
                     {lvls.map((lvl, i) => (
-                      <button key={lvl} type="button"
-                        className={`ef-stop ${i === idx ? "on" : ""} ${i < idx ? "past" : ""} ${i === lvls.length - 1 ? "last" : ""}`}
-                        title={labels[lvl] ?? lvl}
-                        onClick={() => { setEffort(lvl); setEffortMenuOpen(false); }}
-                      />
+                      <span key={lvl} className={`ef-dot ${i === lvls.length - 1 ? "last" : ""}`}
+                        style={{ left: `${(i / (lvls.length - 1)) * 100}%` }} />
                     ))}
+                    <div className="ef-thumb" style={{ left: `${(idx / (lvls.length - 1)) * 100}%` }} />
                   </div>
                 </div>
               );
