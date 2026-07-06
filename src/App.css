@@ -1530,7 +1530,7 @@ body.dragging iframe { pointer-events: none; }
 .goal-editor input:focus { border-color: color-mix(in srgb, var(--fg) 30%, transparent); }
 .goal-editor button { font-size: var(--fs-s); }
 /* ===== flyout du rail (chats d'un projet en mode compact, façon Discord) ===== */
-.fly-backdrop { position: fixed; inset: 0; z-index: 60; }
+.fly-backdrop { position: fixed; inset: 0 0 0 54px; z-index: 60; } /* ne couvre PAS le rail : les clics sur les icônes passent */
 .rail-flyout { position: fixed; left: 54px; top: 0; bottom: 0; width: 236px; z-index: 61;
   background: var(--bg-pop); border-right: 1px solid var(--border2); box-shadow: var(--elev);
   display: flex; flex-direction: column; padding: 8px;
