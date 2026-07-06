@@ -115,31 +115,40 @@ async function main(){
     return;
   }
   const wrap = document.getElementById("pages");
-  // resize du panneau (split replié/déplié, fenêtre) → re-render à la bonne largeur,
-  // en conservant la position de lecture (ratio de scroll)
+  // resize du panneau, façon vraie app :
+  // - PENDANT le drag : transform:scale() CSS sur la colonne (GPU — canvas, texte
+  //   et annotations restent parfaitement alignés, zéro re-layout, 60 fps)
+  // - une fois la largeur STABLE : re-rendu net EN PLACE (pas de location.reload)
   (function(){
-    // WebKit ne délivre pas toujours 'resize' à l'iframe quand le divider du
-    // panneau bouge : on sonde la largeur périodiquement (imparable et léger)
-    let lastW = window.innerWidth, stable = 0;
-    setInterval(function(){
+    let lastW = window.innerWidth, stableTicks = 0, rendering = false;
+    setInterval(async function(){
       const w = window.innerWidth;
-      if (Math.abs(w - lastW) >= 40) { lastW = w; stable = 0; return; }
-      if (Math.abs(w - lastW) < 40 && stable >= 0) {
-        // largeur stabilisée : re-render si différente de celle du rendu
-        if (Math.abs(w - RENDER_W) >= 40 && ++stable >= 2) {
-          try {
-            const el = document.scrollingElement || document.documentElement;
-            sessionStorage.setItem("pdfv_scroll_" + location.search,
-              String(el.scrollTop / Math.max(1, el.scrollHeight)));
-          } catch(e){}
-          location.reload();
-        }
+      if (w !== lastW) { lastW = w; stableTicks = 0; }
+      else stableTicks++;
+      if (rendering) return;
+      const k = (w - 60) / Math.max(1, RENDER_W - 60);
+      if (Math.abs(w - RENDER_W) < 8) { wrap.style.transform = ""; return; }
+      // suivi fluide pendant le drag
+      wrap.style.transformOrigin = "top center";
+      wrap.style.transform = "scale(" + k + ")";
+      // stabilisé (≈450 ms sans changement) → re-rendu net
+      if (stableTicks >= 3) {
+        rendering = true;
+        const el = document.scrollingElement || document.documentElement;
+        const ratio = el.scrollTop / Math.max(1, el.scrollHeight);
+        try { await renderAll(); } catch(e){}
+        wrap.style.transform = "";
+        el.scrollTop = ratio * el.scrollHeight;
+        rendering = false; stableTicks = 0;
       }
-    }, 400);
+    }, 150);
   })();
-  const RENDER_W = window.innerWidth;
-  const scale = Math.min(2.4, (window.innerWidth - 60) / 612);
-  for(let n = 1; n <= pdf.numPages; n++){
+  let RENDER_W = window.innerWidth;
+  async function renderAll(){
+    RENDER_W = window.innerWidth;
+    const scale = Math.min(2.4, (window.innerWidth - 60) / 612);
+    wrap.innerHTML = "";
+    for(let n = 1; n <= pdf.numPages; n++){
     const page = await pdf.getPage(n);
     const vp = page.getViewport({scale});
     const div = document.createElement("div");
@@ -160,7 +169,9 @@ async function main(){
     buildTextLayer(tc, tl, vp);
     tl._order = readingOrder(tl, vp.width);
     drawAnnots(div, n);
+    }
   }
+  await renderAll();
   try {
     const k = "pdfv_scroll_" + location.search;
     const r = parseFloat(sessionStorage.getItem(k));
