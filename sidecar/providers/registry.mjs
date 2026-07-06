@@ -42,13 +42,33 @@ const PROVIDERS = [
   },
 ];
 
+import { loadApiProviderConfigs } from "./openai_api.mjs";
+
+// Providers API (OpenRouter, GLM, …) déclarés dans APP_DIR/api_providers.json :
+// chat pur, pas d'outils ni d'accès projet, resume local via historique rejoué.
+function listApiProviders() {
+  return loadApiProviderConfigs().map((cfg) => ({
+    id: cfg.id,
+    label: cfg.label,
+    kind: "api",
+    bin: null,
+    defaultModel: cfg.defaultModel,
+    models: [...cfg.models],
+    efforts: [],
+    capabilities: { resume: true, steering: false, goals: false },
+  }));
+}
+
 export function listProviders() {
-  return PROVIDERS.map((p) => ({
+  const builtins = PROVIDERS.map((p) => ({
     ...p,
+    kind: "cli",
     models: [...p.models],
     efforts: [...p.efforts],
     capabilities: { ...p.capabilities },
   }));
+  const ids = new Set(builtins.map((p) => p.id));
+  return [...builtins, ...listApiProviders().filter((p) => !ids.has(p.id))];
 }
 
 export function getProvider(id) {

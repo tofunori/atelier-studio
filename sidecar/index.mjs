@@ -23,6 +23,7 @@ import * as claude from "./providers/claude.mjs";
 import * as codex from "./providers/codex.mjs";
 import * as grok from "./providers/grok.mjs";
 import { listProviders } from "./providers/registry.mjs";
+import { loadApiProviderConfigs, makeApiProvider } from "./providers/openai_api.mjs";
 import { resolveBin, enrichPath } from "./bin_resolver.mjs";
 enrichPath(); // PATH Finder minimal → complété pour tous les spawns
 
@@ -43,6 +44,10 @@ writeFileAtomic(PID_FILE, String(process.pid));
 
 const store = new ThreadStore(`${APP_DIR}/threads.json`);
 const providers = { claude, codex, grok };
+// providers API OpenAI-compatible (api_providers.json) — chat pur, runtime dédié
+for (const cfg of loadApiProviderConfigs()) {
+  if (!providers[cfg.id]) providers[cfg.id] = makeApiProvider(cfg);
+}
 const ATELIER_TOKEN = process.env.ATELIER_TOKEN;
 const STARTED_AT = new Date().toISOString();
 const ATELIER_APP_VERSION = process.env.ATELIER_APP_VERSION || "dev";
@@ -276,8 +281,12 @@ function exportThread(thread, events, markdown) {
 
 async function providerStatus() {
   return Promise.all(listProviders().map(async (provider) => {
+    if (provider.kind === "api") {
+      const st = providers[provider.id]?.status?.() ?? { ok: false };
+      return { id: provider.id, label: provider.label, version: st.ok ? "api" : null, ok: st.ok, kind: "api" };
+    }
     const version = await cliVersion(provider.bin);
-    return { id: provider.id, label: provider.label, version, ok: !!version };
+    return { id: provider.id, label: provider.label, version, ok: !!version, kind: "cli" };
   }));
 }
 function saveImage(ext, base64) {
