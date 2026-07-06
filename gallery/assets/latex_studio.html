@@ -204,6 +204,20 @@
 .lint-gutter-err{color:#e06c75;font-size:10px;line-height:1}
 .cm-lint-line{border-bottom:1px dotted rgba(224,108,117,.7)}
 
+  /* ===== console de compilation ===== */
+  #texlog{display:none;flex-shrink:0;max-height:38%;background:var(--card2);border-top:1px solid var(--border);
+    flex-direction:column;min-height:120px}
+  #texlog.open{display:flex}
+  #texlog .tl-head{display:flex;align-items:center;gap:8px;padding:5px 12px;border-bottom:1px solid var(--border);
+    font-size:12px;color:var(--muted);flex-shrink:0}
+  #texlog .tl-head b{color:var(--txt);font-weight:600}
+  #texlog .tl-close{margin-left:auto;background:transparent;border:none;color:var(--muted);cursor:pointer;padding:2px 6px;border-radius:6px}
+  #texlog .tl-close:hover{background:var(--border);color:var(--txt)}
+  #texlog pre{flex:1;overflow:auto;margin:0;padding:10px 14px;font:11.5px/1.55 var(--code-font,"SF Mono",Menlo,monospace);
+    color:var(--muted);white-space:pre-wrap;word-break:break-word}
+  #texlog .tl-err{color:#e0726a;font-weight:600}
+  #texlog .tl-warn{color:#d7b47a}
+  #texlog .tl-jump{color:var(--accent);cursor:pointer;text-decoration:underline}
   /* ===== mode Visuel (éditeur CM6, source décorée façon Overleaf) ===== */
   #texvis{display:none;height:100%;overflow:auto}
   #right.visual .pdfpage,#right.visual #marker,#right.visual #texread{display:none!important}
@@ -307,6 +321,7 @@ function __ct(){try{return JSON.parse(localStorage.getItem('claudeTargetV1')||'n
   <span><b>Sélection de texte</b> &#8594; pastille : annoter / envoyer à Claude</span>
   <span><b>Esc</b> annule la sélection</span>
 </div>
+<div id="texlog"><div class="tl-head"><b>Compilation</b><span id="tlStatus"></span><button class="tl-close" id="tlClose">✕</button></div><pre id="tlBody"></pre></div>
 <div id="statusbar" class="editonly">
   <span id="sbPos">Ln 1, Col 1</span>
   <span id="sbMode"></span>
@@ -656,12 +671,44 @@ async function compile(){
   const r = await fetch("/compile", {method:"POST", headers:{"Content-Type":"application/json"},
     body: JSON.stringify({path})});
   const j = await r.json();
-  if(!j.ok) return setState("err", "✗ " + (j.error || "failed"));
+  showCompileLog(j);
+  if(!j.ok) return setState("err", "✗ compilation échouée — voir la console");
   if(j.pdf) pdfPath = j.pdf;
   setState("ok", "✓ compiled " + new Date().toLocaleTimeString());
   loadPdf();
   if(bc) bc.postMessage({t: "compiled"});   // PDF tabs reload themselves
 }
+
+// console de compilation : log complet, erreurs en rouge, l.<n> cliquable → ligne source
+function showCompileLog(j){
+  const el = document.getElementById("texlog"), body = document.getElementById("tlBody");
+  document.getElementById("tlStatus").textContent = j.ok ? "· réussie" : "· échec";
+  const esc = (t) => t.replace(/&/g,"&amp;").replace(/</g,"&lt;");
+  const html = esc(String(j.log || j.error || "(pas de log)"))
+    .split("\n").map(line => {
+      let cls = "";
+      if(/^!|Fatal error|Emergency stop/.test(line)) cls = "tl-err";
+      else if(/^LaTeX Warning|^Package .* Warning|Overfull|Underfull/.test(line)) cls = "tl-warn";
+      const withJump = line.replace(/\bl\.(\d+)/g, (m,n)=>`<span class="tl-jump" data-l="${n}">l.${n}</span>`)
+                           .replace(/lines? (\d+)/g, (m,n)=>`<span class="tl-jump" data-l="${n}">${m}</span>`);
+      return cls ? `<span class="${cls}">${withJump}</span>` : withJump;
+    }).join("\n");
+  body.innerHTML = html;
+  el.classList.toggle("open", !j.ok);   // s'ouvre à l'échec, se ferme si succès
+  if(!j.ok){ const firstErr = body.querySelector(".tl-err"); if(firstErr) firstErr.scrollIntoView({block:"start"}); }
+}
+document.getElementById("tlClose").onclick = () => document.getElementById("texlog").classList.remove("open");
+document.getElementById("tlBody").addEventListener("click", (e) => {
+  const t = e.target.closest(".tl-jump"); if(!t || !cm) return;
+  const ln = parseInt(t.dataset.l, 10) - 1;
+  cm.setCursor({line: ln, ch: 0}); cm.focus(); cm.scrollIntoView({line: ln, ch: 0}, 120);
+});
+// l'état "✗ …" devient cliquable pour rouvrir la console
+document.getElementById("state").style.cursor = "pointer";
+document.getElementById("state").addEventListener("click", () => {
+  const el = document.getElementById("texlog");
+  if(document.getElementById("tlBody").textContent) el.classList.toggle("open");
+});
 
 let _pdfToken = 0;
 async function loadPdf(){

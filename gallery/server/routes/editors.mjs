@@ -564,7 +564,16 @@ export async function handleEditorsPost(req, res, url) {
         const lines = (r.out || "").split(/\r?\n/).filter((line) => line.startsWith("!") || line.includes("Error"));
         err = lines.slice(0, 8).join("\n") || (r.out || "").slice(-1500);
       }
-      return sendJson(res, 200, { ok, pdf: ok ? pdf : null, root, error: err });
+      // le stdout de latexmk ne contient pas les erreurs TeX : elles sont dans le .log
+      let log = (r.out || "");
+      if (!ok) {
+        try {
+          const texlog = fs.readFileSync(`${root.replace(/\.[^.]*$/, "")}.log`, "latin1");
+          const bang = texlog.indexOf("\n!");
+          log = (bang >= 0 ? texlog.slice(bang + 1) : texlog.slice(-8000)) + "\n\n--- latexmk ---\n" + log;
+        } catch {}
+      }
+      return sendJson(res, 200, { ok, pdf: ok ? pdf : null, root, error: err, log: log.slice(-20000) });
     } catch (error) {
       return sendJson(res, 400, { error: `bad request: ${String(error.message || error)}` });
     }
