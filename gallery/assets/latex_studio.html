@@ -803,7 +803,9 @@ function texcOpen(sel){
   texcCur = { id: "c" + Date.now(), from: sel.from, to: sel.to, text: String(sel.text).slice(0, 300), comment: "" };
   texcShow(texcCur, true);
 }
+let texcOpenedAt = 0;
 function texcShow(c, isNew){
+  texcOpenedAt = Date.now();
   texcPop.querySelector(".tc-quote").textContent = "« " + c.text.slice(0, 140) + (c.text.length > 140 ? "…" : "") + " »";
   texcPop.querySelector("textarea").value = c.comment || "";
   texcPop.querySelector(".tc-del").style.display = isNew ? "none" : "";
@@ -844,6 +846,8 @@ document.addEventListener("click", (e) => {
     if(c){ texcCur = c; texcShow(c, false); return; }
   }
   // ignorer le clic qui vient d ouvrir (bouton Commenter dans la pilule de sélection)
+  // le mousedown d ouverture cache la pilule → le click suivant atterrit ailleurs : ignorer 350ms
+  if(Date.now() - texcOpenedAt < 350) return;
   if(!texcPop.contains(e.target) && !e.target.closest("#selPill")) texcPop.style.display = "none";
 });
 // charger quand cm est prêt
