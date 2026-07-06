@@ -233,7 +233,8 @@ export async function handleCorePost(req, res, url) {
   if (pathname === "/rescan") {
     const r = await spawnCollect(process.execPath, [BUILDER], {
       cwd: PROJECT,
-      env: { ...process.env, GALLERY_ROOT: PROJECT, GALLERY_DATA_ONLY: "1" },
+      // coquille + data : la coquille est triviale à régénérer et suit le template
+      env: { ...process.env, GALLERY_ROOT: PROJECT },
       detached: true,
       timeoutMs: 300000,
     });

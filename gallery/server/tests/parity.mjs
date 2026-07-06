@@ -223,7 +223,8 @@ async function main() {
     assert.deepEqual(pngDimensions(nodeThumb.body), pngDimensions(pyThumb.body), "thumb dimensions");
 
     const rootRes = await request(nodePort, "/");
-    assert.equal(rootRes.status, 404, "node / mirrors missing index before rescan");
+    // boot-build : le serveur bâtit la galerie au démarrage si absente
+    assert.equal(rootRes.status, 200, "node / serves the boot-built index");
 
     let r = await request(nodePort, "/state", {
       method: "POST",

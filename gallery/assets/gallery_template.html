@@ -14,15 +14,27 @@
   header{position:sticky;top:0;z-index:10;background:var(--card);background:color-mix(in srgb,var(--card) 92%,transparent);backdrop-filter:blur(8px);
          border-bottom:1px solid var(--border);padding:10px 16px 9px}
   .brand{display:flex;align-items:center;gap:9px;margin-bottom:9px;flex-wrap:wrap}
+  .brand-sp{flex:1}
+  .chip.dest{background:transparent;border-color:transparent}
+  .chip.dest:hover{background:var(--card2);border-color:var(--border)}
+  #searchChip{display:none}
+  #q.collapsed{width:auto;flex:1;min-width:170px;max-width:340px;opacity:1;pointer-events:auto}
+  .seg{display:inline-flex;border:1px solid var(--border);border-radius:6px;overflow:hidden}
+  .seg button{border:none;background:transparent;color:var(--muted);font-size:11px;padding:4px 9px;cursor:pointer}
+  .seg button.on{background:var(--card2);color:var(--txt)}
+  .skel{background:var(--card);border:1px solid var(--border);border-radius:10px;overflow:hidden;height:214px;position:relative}
+  .skel::after{content:"";position:absolute;inset:0;background:linear-gradient(100deg,transparent 30%,color-mix(in srgb,var(--txt) 5%,transparent) 50%,transparent 70%);background-size:200% 100%;animation:skshine 1.4s linear infinite}
+  @keyframes skshine{from{background-position:200% 0}to{background-position:-200% 0}}
+  @media (prefers-reduced-motion:reduce){.skel::after{animation:none}}
   .brand .logo{color:var(--txt);align-self:center;display:block}
   .brand .wm{font-size:15px;font-weight:600;letter-spacing:-.01em}
   .brand .proj{font-size:12px;color:var(--muted);font-family:ui-monospace,SFMono-Regular,Menlo,monospace}
-  .brand .stat{margin-left:auto;font-size:12px;color:var(--faint);font-variant-numeric:tabular-nums}
+  .brand .stat{margin-left:4px;font-size:12px;color:var(--faint);font-variant-numeric:tabular-nums}
   .controls{display:flex;flex-wrap:wrap;gap:6px;align-items:center}
   input[type=search]{flex:1;min-width:190px;padding:0 12px;border-radius:6px;border:1px solid var(--border);
         background:var(--bg);color:var(--txt);font-size:13px;height:30px}
   input[type=search]:focus{outline:none;border-color:var(--accent)}
-  input[type=search].collapsed{display:none}
+  input[type=search].collapsed{display:block} /* recherche toujours visible (design pass) */
   #searchChip.on{border-color:var(--accent);color:var(--accent)}
   select,button{padding:0 11px;border-radius:6px;border:1px solid var(--border);background:var(--card);
         color:var(--txt);font-size:12px;font-weight:500;font-family:inherit;cursor:pointer;height:30px;line-height:1.2}
@@ -70,19 +82,19 @@
   .menu .mlink{cursor:pointer;color:var(--muted);font-size:12px}
   .menu .mlink:hover{color:var(--accent)}
   .count{color:var(--muted);font-size:12px;margin-left:auto}
-  main{padding:20px;display:grid;grid-template-columns:repeat(auto-fill,minmax(185px,1fr));gap:16px}
+  main{padding:20px;display:grid;grid-template-columns:repeat(auto-fill,minmax(var(--card-min,185px),1fr));gap:16px}
   /* panneau étroit : cartes plus compactes, jamais une seule colonne géante */
   @media (max-width:520px){ main{padding:12px;gap:12px;grid-template-columns:repeat(auto-fill,minmax(150px,1fr))} }
   @media (max-width:340px){ main{grid-template-columns:repeat(auto-fill,minmax(130px,1fr))} .thumb,.ph,.snip{height:110px} }
   .card{background:var(--card);border:1px solid var(--border);border-radius:10px;overflow:hidden;
         display:flex;flex-direction:column;transition:border-color .12s,box-shadow .12s}
   .card:hover{border-color:var(--border-strong);box-shadow:var(--shadow)}
-  .thumb{height:150px;background:#fff;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:center;overflow:hidden}
+  .thumb{height:var(--thumb-h,150px);background:#fff;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:center;overflow:hidden}
   .thumb img{max-width:100%;max-height:100%;object-fit:contain}
-  .ph{height:150px;display:flex;flex-direction:column;align-items:center;justify-content:center;
+  .ph{height:var(--thumb-h,150px);display:flex;flex-direction:column;align-items:center;justify-content:center;
       background:var(--card2);color:var(--muted);gap:6px}
   .ph .ext{font-size:30px;font-weight:600;letter-spacing:1px}
-  .snip{height:150px;overflow:hidden;background:var(--card2);padding:9px 11px;
+  .snip{height:var(--thumb-h,150px);overflow:hidden;background:var(--card2);padding:9px 11px;
         font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:10px;
         line-height:1.4;color:#9aa6b6;white-space:pre;tab-size:2;
         -webkit-mask-image:linear-gradient(#000 72%,transparent);mask-image:linear-gradient(#000 72%,transparent)}
@@ -99,7 +111,10 @@
   .tag.hid{background:#3a3a44;color:#aab}
   .card.hid{opacity:.5}
   .card.hid:hover{opacity:1}
-  .hov{position:absolute;top:6px;right:6px;z-index:4;display:none;gap:4px}
+  /* actions au survol : bandeau sur la zone MÉTA (jamais par-dessus la figure) */
+  .hov{position:absolute;bottom:0;left:0;right:0;z-index:4;display:none;gap:3px;
+       padding:7px 8px;background:var(--card);border-top:1px solid var(--border);
+       align-items:center;justify-content:flex-start;flex-wrap:nowrap;overflow:hidden}
   .card:hover .hov{display:flex}
   .hov button{height:26px;min-width:26px;padding:0 8px;font-size:11px;line-height:1;cursor:pointer;
         background:var(--card);border:1px solid var(--border);border-radius:6px;color:var(--muted);box-shadow:var(--shadow)}
@@ -251,6 +266,10 @@
     <span class="wm">__WORDMARK__</span>
     <span class="proj">__PROJECT__</span>
     <span id="galleryStat" class="stat">__COUNT__ files · __GEN__</span>
+    <span class="brand-sp"></span>
+    <span class="chip dest" id="boardChip" title="Open the project whiteboard (tldraw)">Board</span>
+    <span class="chip dest" id="notesChip" title="Open the project notes (markdown)">Notes</span>
+    <span class="chip dest" id="viewChip" title="Settings — server health, theme, archives, hidden, auto-hide rules">Settings &#9662;</span>
   </div>
   <div class="controls">
     <span class="chip" id="searchChip" title="Search by name or folder (press /)" tabindex="0"><svg width="12" height="12" viewBox="0 0 16 16" fill="none" aria-hidden="true"><circle cx="7" cy="7" r="5" stroke="currentColor" stroke-width="1.6"/><path d="M11 11l3.2 3.2" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg> Search</span>
@@ -270,9 +289,7 @@
     <span class="chip off" id="favChip">&#9733; Favorites</span>
     <span class="chip" id="collChip" title="Collections and shortlists">Collections &#9662;</span>
     <div id="collMenu" class="menu"></div>
-    <span class="chip" id="boardChip" title="Open the project whiteboard (tldraw)">Board</span>
-    <span class="chip" id="notesChip" title="Open the project notes (markdown)">Notes</span>
-    <span class="chip" id="viewChip" title="Settings — server health, theme, archives, hidden, auto-hide rules">Settings &#9662;</span>
+    <span class="seg" id="densitySeg" title="Card density"><button data-d="s">S</button><button data-d="m" class="on">M</button><button data-d="l">L</button></span>
     <div id="viewMenu" class="menu"></div>
     <button id="quoteClear" style="display:none" title="Clear the annotation pending in the Claude statusline">Clear annotation</button>
     <button id="rescan" title="Rescan — rebuild the gallery index and reload" aria-label="Rescan"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M2.6 6.2A5.6 5.6 0 0 1 12.9 4.6M13.4 9.8A5.6 5.6 0 0 1 3.1 11.4" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/><path d="M12.9 1.8v2.8h-2.8M3.1 14.2v-2.8h2.8" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
@@ -367,10 +384,33 @@ function applyGalleryData(data){
   if(typeof render==='function') render();
 }
 if(!galleryDataLoaded){
+  // skeleton pendant le chargement des données (coquille)
+  const g=document.getElementById('grid');
+  if(g && !g.children.length) g.innerHTML='<div class="skel"></div>'.repeat(10);
   fetch('/data',{cache:'no-store'}).then(r=>r.ok?r.json():null).then(applyGalleryData).catch(()=>{});
 }
+// densité S/M/L persistée
+(function(){
+  const seg=document.getElementById('densitySeg'); if(!seg) return;
+  const D={s:['150px','110px'],m:['185px','150px'],l:['240px','190px']};
+  function apply(d){ const v=D[d]||D.m;
+    document.documentElement.style.setProperty('--card-min',v[0]);
+    document.documentElement.style.setProperty('--thumb-h',v[1]);
+    seg.querySelectorAll('button').forEach(b=>b.classList.toggle('on',b.dataset.d===d)); }
+  seg.addEventListener('click',e=>{ const d=e.target.dataset?.d; if(!d) return;
+    localStorage.setItem('galleryDensity',d); apply(d); });
+  apply(localStorage.getItem('galleryDensity')||'m');
+})();
 // Filenames are untrusted: escape for text (esc) and attributes (escA), and route
 // every card handler through delegation on data-* (never JS-string interpolation).
+function truncMid(name,max){
+  if(name.length<=max) return name;
+  const dot=name.lastIndexOf('.');
+  const ext=dot>0?name.slice(dot):'';
+  const stem=dot>0?name.slice(0,dot):name;
+  const keep=max-ext.length-1;
+  return stem.slice(0,Math.ceil(keep*0.6))+'…'+stem.slice(-Math.floor(keep*0.4))+ext;
+}
 function esc(s){return String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));}
 function escA(s){return String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
 document.addEventListener('click',e=>{
@@ -1158,7 +1198,7 @@ function render(){
         <button data-act="more" data-rel="${escA(f.rel)}" title="Rating, hide, delete">⋯</button>
       </div>
       <div class="meta">
-        <div class="nm" title="${escA(f.name)}">${esc(f.name)}</div>
+        <div class="nm" title="${escA(f.name)}">${esc(truncMid(f.name,42))}</div>
         <div class="row2">${isFav?'<span class="fv">★</span>':''}${rt?`<span class="rt">★${rt}</span>`:''}${arch}${hidTag}<span class="mf" title="${escA(f.folder)}">${esc(f.folder)}</span><span class="md" title="created ${escA(f.bdate)} · modified ${escA(f.mdate)}">${sort.startsWith('btime')?esc(f.bdate):esc(f.mdate)}</span><span class="md">${fmtSize(f.size)}</span></div>
       </div>
     </div>`;
