@@ -38,6 +38,13 @@ export default function Rail(p: {
   const [labelDraft, setLabelDraft] = useState("");
   const [fly, setFly] = useState<string | null>(null);   // projet dont le flyout est ouvert
   const [pinned, setPinned] = useState(false);
+  const hoverT = { current: 0 } as { current: number };
+  const openOnHover = (root: string) => {
+    if (pinned) return;
+    window.clearTimeout(hoverT.current);
+    hoverT.current = window.setTimeout(() => setFly(root), 250);
+  };
+  const cancelHover = () => window.clearTimeout(hoverT.current);
 
   return (
     <div className="rail" onClick={() => setMenu(null)}>
@@ -54,9 +61,12 @@ export default function Rail(p: {
             style={{ "--proj-c": m?.color ?? "transparent" } as React.CSSProperties}
             title={root.split("/").pop()}
             onClick={() => {
+              cancelHover();
               p.onSelectProject(root);
               setFly(fly === root && !pinned ? null : root);
             }}
+            onMouseEnter={() => openOnHover(root)}
+            onMouseLeave={cancelHover}
             onContextMenu={(e) => {
               e.preventDefault();
               e.stopPropagation();

@@ -565,6 +565,21 @@ export default function Sidebar(p: {
                 <ProjIcon name={name} size={14} />
               </span>
             ))}
+            <input
+              className="icon-letter"
+              placeholder="Aa"
+              maxLength={2}
+              defaultValue={p.projMeta[projMenu.root]?.label?.startsWith("icon:") ? "" : p.projMeta[projMenu.root]?.label ?? ""}
+              title={t("sidebar.letter-title")}
+              onClick={(e) => e.stopPropagation()}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  const v = (e.target as HTMLInputElement).value.trim();
+                  p.onSetMeta(projMenu.root, { ...p.projMeta[projMenu.root], label: v || undefined });
+                  setProjMenu(null);
+                }
+              }}
+            />
             <span
               className="emoji-cell none"
               title={t("sidebar.without-color")}
