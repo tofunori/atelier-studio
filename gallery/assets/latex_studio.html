@@ -61,21 +61,24 @@
                 border-radius:6px;padding:0 10px;height:26px;font-size:12px;cursor:pointer;flex:none}
   header button:hover{color:var(--txt);background:var(--border)}
   header button.on{background:var(--border);color:var(--txt)}
+  .modeseg{display:inline-flex;border:1px solid var(--border);border-radius:6px;overflow:hidden;flex:none}
+  .modeseg button{border:none!important;border-radius:0!important;height:24px;padding:0 10px;font-size:12px}
+  .modeseg button.on{background:var(--border);color:var(--txt)}
   header select{background:transparent;color:var(--txt);border:1px solid var(--border);
                 border-radius:6px;padding:0 6px;height:26px;font-size:12px;cursor:pointer;flex:none}
-  #build{background:var(--accent);color:#fff;border-color:var(--accent);font-weight:500}
-  #build:hover{filter:brightness(1.08)}
+  #build{background:transparent;color:var(--txt);border:1px solid var(--border);font-weight:500}
+  #build:hover{border-color:var(--accent);color:var(--accent)}
   #fname{font-size:13px;font-weight:600;letter-spacing:-.01em;color:var(--txt);max-width:260px;overflow:hidden;text-overflow:ellipsis;flex:none;white-space:nowrap}
   header .sep{display:none}
   #findBtn,#moreBtn{width:26px;height:24px;display:inline-flex;align-items:center;justify-content:center;padding:0}
   header .grp:has(#findBtn){margin-left:auto}
-  #ddot{color:#ffd54a;display:none;flex:none}
+  #ddot{color:var(--accent);display:none;flex:none}
   #state{color:var(--muted);flex:1;min-width:0;text-align:right;overflow:hidden;
          text-overflow:ellipsis;white-space:nowrap}
   #state.err{color:#ff6b6b}
   #state.ok{color:#8fbf72}
   #state.hint{color:var(--muted)}
-  #state.dirty{color:#ffd54a}
+  #state.dirty{color:var(--muted)}
   #helpPop{position:fixed;top:44px;right:10px;z-index:400;display:none;flex-direction:column;gap:7px;
            background:var(--card);border:1px solid var(--border);border-radius:10px;padding:12px 16px;
            font-size:12px;color:var(--muted);box-shadow:0 8px 30px rgba(0,0,0,.5);line-height:1.5}
@@ -1065,6 +1068,10 @@ if(IS_TEX && window.katex){
   visBtn.id = "visBtn"; visBtn.title = "Vue Visuel — édite la source rendue (math, gras, todos), façon Overleaf";
   visBtn.textContent = "Visuel";
   readBtn.insertAdjacentElement("afterend", visBtn);
+  // Split/Lecture/Visuel = un contrôle segmenté (ce sont des modes exclusifs)
+  const seg = document.createElement("span"); seg.className = "modeseg";
+  splitBtn.parentNode.insertBefore(seg, splitBtn);
+  seg.appendChild(splitBtn); seg.appendChild(readBtn); seg.appendChild(visBtn);
   let visOn = false, visEd = null, visSyncT = null, visSyncing = false;
   function setVis(on){
     visOn = on;
