@@ -503,6 +503,26 @@ export async function route(msg, ctx) {
       ctx.send({ type: "gitRevertFileDone", projectRoot: root, path: msg.path });
       break;
     }
+    case "gitPush": {
+      const root = gitRootFor(ctx, msg);
+      try { const out = await ctx.gitops.push(root); ctx.send({ type: "gitSyncDone", op: "push", projectRoot: root, out }); }
+      catch (e) { ctx.send({ type: "gitSyncDone", op: "push", projectRoot: root, error: String(e.message || e) }); }
+      emitGitChanged(ctx, msg.threadId, root);
+      break;
+    }
+    case "gitPull": {
+      const root = gitRootFor(ctx, msg);
+      try { const out = await ctx.gitops.pull(root); ctx.send({ type: "gitSyncDone", op: "pull", projectRoot: root, out }); }
+      catch (e) { ctx.send({ type: "gitSyncDone", op: "pull", projectRoot: root, error: String(e.message || e) }); }
+      emitGitChanged(ctx, msg.threadId, root);
+      break;
+    }
+    case "gitIgnore": {
+      const root = gitRootFor(ctx, msg);
+      try { await ctx.gitops.ignorePattern(root, String(msg.pattern ?? "")); } catch (e) { ctx.send({ type: "error", message: String(e) }); }
+      emitGitChanged(ctx, msg.threadId, root);
+      break;
+    }
     case "gitCommit": {
       const root = gitRootFor(ctx, msg);
       try {

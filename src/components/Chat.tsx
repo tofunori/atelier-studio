@@ -634,7 +634,6 @@ export default function Chat(p: {
   }, [menuOpen]);
   const [editing, setEditing] = useState<{ index: number; text: string } | null>(null);
   const [openToolGroups, setOpenToolGroups] = useState<Set<number>>(new Set());
-  const [contextPackOpen, setContextPackOpen] = useState(false);
 
   // « Add to chat » sur sélection de texte dans les messages
   function onMessagesMouseUp() {
@@ -785,55 +784,6 @@ export default function Chat(p: {
     setText((t) => `${t}${t && !t.endsWith(" ") ? " " : ""}${paths.map((p) => mentionLabel(p as string)).join(" ")} `);
     for (const path of paths) p.onAttachPath?.(path as string);
   }
-
-  const attachmentLabels = new Set(
-    p.attachments.flatMap((a) => {
-      const nameLabel = a.name.startsWith("@") ? a.name.replace(/\/+$/, "") : `@${a.name.replace(/\/+$/, "")}`;
-      return [
-        nameLabel,
-        ...(a.path ? [mentionLabel(a.path).replace(/\/+$/, "")] : []),
-      ];
-    }),
-  );
-  const unresolvedMentions = [...text.matchAll(/(^|\s)@([\w./:-]+)/g)]
-    .map((m) => `@${m[2].replace(/\/+$/, "")}`)
-    .filter((token) => token && !token.endsWith(":") && token !== "@local" && !attachmentLabels.has(token));
-  const contextCounts = p.attachments.reduce(
-    (acc, item) => {
-      if (item.imageUrl) acc.images += 1;
-      else if (item.kind === "folder") acc.folders += 1;
-      else if (item.kind === "zotero") acc.zotero += 1;
-      else if (item.kind === "quote") acc.quotes += 1;
-      else acc.files += 1;
-      return acc;
-    },
-    { files: 0, folders: 0, zotero: 0, quotes: 0, images: 0 },
-  );
-  const contextWarnings = [
-    ...(unresolvedMentions.length
-      ? [t("context.warn-unresolved", { count: unresolvedMentions.length })]
-      : []),
-    ...(p.attachments.length >= 10
-      ? [t("context.warn-many", { count: p.attachments.length })]
-      : []),
-    ...(p.attachments.some((a) => a.kind === "folder" && /\+|omitted|omis/.test(a.lines ?? ""))
-      ? [t("context.warn-folder-truncated")]
-      : []),
-  ];
-  const contextSummary = [
-    contextCounts.files ? t("context.files", { count: contextCounts.files }) : null,
-    contextCounts.folders ? t("context.folders", { count: contextCounts.folders }) : null,
-    contextCounts.zotero ? t("context.zotero", { count: contextCounts.zotero }) : null,
-    contextCounts.images ? t("context.images", { count: contextCounts.images }) : null,
-    contextCounts.quotes ? t("context.quotes", { count: contextCounts.quotes }) : null,
-  ].filter(Boolean).join(" · ") || t("context.none");
-  const contextKindLabel = (item: ChatAttachment) => {
-    if (item.imageUrl) return t("context.kind-image");
-    if (item.kind === "folder") return t("context.kind-folder");
-    if (item.kind === "zotero") return t("context.kind-zotero");
-    if (item.kind === "quote") return t("context.kind-quote");
-    return t("context.kind-file");
-  };
 
   const renderedEvents: (
     | { type: "event"; event: AgentEvent; index: number }
@@ -1441,54 +1391,6 @@ export default function Chat(p: {
             <span className="goal-cond">{p.goal.slice(0, 80)}{p.goal.length > 80 ? "…" : ""}</span>
             <button type="button" className="ghost" title={t("chat.goal-clear")}
               onClick={p.onClearGoal}><CloseIcon /></button>
-          </div>
-        )}
-        {(p.attachments.length > 0 || unresolvedMentions.length > 0) && (
-          <div className={`context-pack ${contextPackOpen ? "open" : ""}`}>
-            <button
-              type="button"
-              className="context-pack-head"
-              onClick={() => setContextPackOpen((v) => !v)}
-              aria-expanded={contextPackOpen}
-            >
-              <span className="context-pack-mark">◆</span>
-              <span className="context-pack-title">{t("context.title")}</span>
-              <span className="context-pack-summary">{contextSummary}</span>
-              {contextWarnings.length > 0 && <span className="context-pack-warn">{contextWarnings.length}</span>}
-              <span className="context-pack-chevron">{contextPackOpen ? "▴" : "▾"}</span>
-            </button>
-            {contextPackOpen && (
-              <div className="context-pack-body">
-                <div className="context-pack-meta">
-                  {t("context.draft", { count: text.trim().length })}
-                </div>
-                {contextWarnings.length > 0 && (
-                  <div className="context-pack-warnings">
-                    {contextWarnings.map((warning, i) => (
-                      <div key={i} className="context-warning">⚠ {warning}</div>
-                    ))}
-                  </div>
-                )}
-                {p.attachments.length > 0 ? (
-                  <div className="context-items">
-                    {p.attachments.map((a, i) => (
-                      <div key={`${a.text}-${i}`} className="context-item">
-                        <span className={`context-kind k-${a.imageUrl ? "image" : a.kind ?? "file"}`}>
-                          {contextKindLabel(a)}
-                        </span>
-                        <span className="context-name">{a.name}</span>
-                        {a.lines && <span className="context-lines">{a.lines}</span>}
-                        <button type="button" className="context-remove" onClick={() => p.onRemoveAttachment(i)}>
-                          <CloseIcon />
-                        </button>
-                      </div>
-                    ))}
-                  </div>
-                ) : (
-                  <div className="context-empty">{t("context.no-attachments")}</div>
-                )}
-              </div>
-            )}
           </div>
         )}
         {p.attachments.length > 0 && (

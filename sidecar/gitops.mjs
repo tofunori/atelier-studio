@@ -248,6 +248,32 @@ export async function commit(root, message, files = null) {
   return stdout.trim();
 }
 
+export async function push(root) {
+  const realRoot = confinedRoot(root);
+  await ensureRepo(realRoot);
+  const { stdout, stderr } = await git(realRoot, ["push"], { timeoutMs: 60000 });
+  return (stdout + stderr).trim();
+}
+
+export async function pull(root) {
+  const realRoot = confinedRoot(root);
+  await ensureRepo(realRoot);
+  // ff-only : jamais de merge surprise déclenché depuis l'UI
+  const { stdout, stderr } = await git(realRoot, ["pull", "--ff-only"], { timeoutMs: 60000 });
+  return (stdout + stderr).trim();
+}
+
+export async function ignorePattern(root, pattern) {
+  const realRoot = confinedRoot(root);
+  await ensureRepo(realRoot);
+  const p = `${realRoot}/.gitignore`;
+  const { readFileSync, writeFileSync, existsSync } = await import("node:fs");
+  const cur = existsSync(p) ? readFileSync(p, "utf8") : "";
+  if (cur.split("\n").includes(pattern)) return "déjà présent";
+  writeFileSync(p, cur + (cur.endsWith("\n") || !cur ? "" : "\n") + pattern + "\n");
+  return "ajouté";
+}
+
 export async function snapshot(root) {
   const realRoot = confinedRoot(root);
   await ensureRepo(realRoot);
