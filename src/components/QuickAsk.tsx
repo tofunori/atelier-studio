@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 import { t } from "../lib/i18n";
 import { ProviderIcon, ZapIcon } from "./icons";
 import { wsSend } from "../lib/wsBus";
@@ -270,7 +271,7 @@ export default function QuickAsk({
             <div key={i} className={`qa-msg ${msg.role}`}>
               {msg.role === "assistant" ? (
                 <>
-                  <ReactMarkdown>{msg.text}</ReactMarkdown>
+                  <ReactMarkdown remarkPlugins={[remarkGfm]}>{msg.text}</ReactMarkdown>
                   {!msg.streaming && !msg.text.startsWith("⚠") && (
                     <button className="qa-inject-one" title={t("qa.inject")}
                       onClick={() => { onInject(msg.text); close(); }}>

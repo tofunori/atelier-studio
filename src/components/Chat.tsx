@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 import hljs from "highlight.js/lib/common";
 import { open } from "@tauri-apps/plugin-dialog";
 import { openUrl } from "@tauri-apps/plugin-opener";
@@ -1107,7 +1108,7 @@ export default function Chat(p: {
             return (
               <div key={i} className="msg-wrap">
                 <div className="msg">
-                  <ReactMarkdown components={MD_COMPONENTS as any}>{e.text}</ReactMarkdown>
+                  <ReactMarkdown remarkPlugins={[remarkGfm]} components={MD_COMPONENTS as any}>{e.text}</ReactMarkdown>
                   <span className="stream-caret" />
                 </div>
               </div>
@@ -1116,7 +1117,7 @@ export default function Chat(p: {
             return (
               <div key={i} id={`msg-${i}`} className="msg-wrap">
                 <div className="msg">
-                  <ReactMarkdown components={MD_COMPONENTS as any}>{e.text}</ReactMarkdown>
+                  <ReactMarkdown remarkPlugins={[remarkGfm]} components={MD_COMPONENTS as any}>{e.text}</ReactMarkdown>
                 </div>
                 <div className="msg-actions">
                   {"ts" in e && e.ts && (
