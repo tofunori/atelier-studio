@@ -12,6 +12,7 @@ function standardDirs() {
   const dirs = [
     "/opt/homebrew/bin",
     "/usr/local/bin",
+    "/Applications/cmux.app/Contents/Resources/bin",
     join(home, ".local", "bin"),
     join(home, ".volta", "bin"),
     join(home, ".claude", "local"), // installation locale de claude code

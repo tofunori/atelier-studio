@@ -53,7 +53,7 @@ export type Thread = {
   id: string;
   projectRoot: string;
   title: string;
-  provider: "claude" | "codex";
+  provider: string;
   sessionId: string | null;
   status: "idle" | "running" | "done";
   updatedAt: string;

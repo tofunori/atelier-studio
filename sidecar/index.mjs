@@ -21,6 +21,8 @@ import * as ledger from "./ledger.mjs";
 import * as zotero from "./zotero.mjs";
 import * as claude from "./providers/claude.mjs";
 import * as codex from "./providers/codex.mjs";
+import * as grok from "./providers/grok.mjs";
+import { listProviders } from "./providers/registry.mjs";
 import { resolveBin, enrichPath } from "./bin_resolver.mjs";
 enrichPath(); // PATH Finder minimal → complété pour tous les spawns
 
@@ -40,7 +42,7 @@ try {
 writeFileAtomic(PID_FILE, String(process.pid));
 
 const store = new ThreadStore(`${APP_DIR}/threads.json`);
-const providers = { claude, codex };
+const providers = { claude, codex, grok };
 const ATELIER_TOKEN = process.env.ATELIER_TOKEN;
 const STARTED_AT = new Date().toISOString();
 const ATELIER_APP_VERSION = process.env.ATELIER_APP_VERSION || "dev";
@@ -87,10 +89,61 @@ for (const t of store.list()) {
   if (t.status === "running") store.upsert({ id: t.id, status: "idle" });
 }
 
-import { readdirSync, rmSync, existsSync } from "node:fs";
+import { readdirSync, rmSync, existsSync, statSync } from "node:fs";
 import { execFile } from "node:child_process";
 
 const PASTE_DIR = `${homedir()}/Library/Application Support/atelier-studio/pasted`;
+const SETTINGS_FILE = `${APP_DIR}/settings.json`;
+
+// miroir disque des réglages UI : survit aux redémarrages/mises à jour même si
+// le localStorage du webview est perdu (rebuild, signature ad-hoc, reset WebKit)
+function readSettingsFile() {
+  try {
+    return JSON.parse(readFileSync(SETTINGS_FILE, "utf8"));
+  } catch {
+    return null;
+  }
+}
+function writeSettingsFile(settings) {
+  if (!settings || typeof settings !== "object" || Array.isArray(settings)) return false;
+  try {
+    writeFileAtomic(SETTINGS_FILE, JSON.stringify(settings, null, 1));
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+const IMG_EXTS = new Set(["png", "jpg", "jpeg", "gif", "webp"]);
+function listPasted() {
+  const files = [];
+  try {
+    if (!existsSync(PASTE_DIR)) return files;
+    const entries = readdirSync(PASTE_DIR)
+      .map((name) => {
+        try {
+          const st = statSync(`${PASTE_DIR}/${name}`);
+          return st.isFile() ? { name, size: st.size, mtime: st.mtimeMs } : null;
+        } catch {
+          return null;
+        }
+      })
+      .filter(Boolean)
+      .sort((a, b) => b.mtime - a.mtime)
+      .slice(0, 48);
+    for (const entry of entries) {
+      const ext = entry.name.split(".").pop()?.toLowerCase() ?? "";
+      if (IMG_EXTS.has(ext) && entry.size <= 4_000_000) {
+        try {
+          const mime = ext === "jpg" ? "jpeg" : ext;
+          entry.dataURL = `data:image/${mime};base64,${readFileSync(`${PASTE_DIR}/${entry.name}`).toString("base64")}`;
+        } catch {}
+      }
+      files.push(entry);
+    }
+  } catch {}
+  return files;
+}
 
 function cleanup() {
   try { terminal.closeAll(); } catch {}
@@ -139,12 +192,24 @@ function clearPasted() {
   return n;
 }
 
+function versionFromPath(bin, binPath) {
+  if (bin === "gemini") {
+    try {
+      const real = fs.realpathSync(binPath);
+      const m = /\/gemini-cli\/([^/]+)\//.exec(real);
+      if (m?.[1]) return `gemini ${m[1]}`;
+    } catch {}
+  }
+  return null;
+}
+
 function cliVersion(bin) {
   const path = resolveBin(bin);
   if (!path) return Promise.resolve(null);
   return new Promise((resolve) => {
     execFile(path, ["--version"], { timeout: 8000 }, (err, stdout) => {
-      resolve(err ? null : String(stdout).trim().split("\n")[0]);
+      const version = err ? null : String(stdout).trim().split("\n")[0];
+      resolve(version || versionFromPath(bin, path));
     });
   });
 }
@@ -210,11 +275,10 @@ function exportThread(thread, events, markdown) {
 }
 
 async function providerStatus() {
-  const [claudeV, codexV] = await Promise.all([cliVersion("claude"), cliVersion("codex")]);
-  return [
-    { id: "claude", label: "Claude Code", version: claudeV, ok: !!claudeV },
-    { id: "codex", label: "Codex", version: codexV, ok: !!codexV },
-  ];
+  return Promise.all(listProviders().map(async (provider) => {
+    const version = await cliVersion(provider.bin);
+    return { id: provider.id, label: provider.label, version, ok: !!version };
+  }));
 }
 function saveImage(ext, base64) {
   mkdirSync(PASTE_DIR, { recursive: true });
@@ -243,6 +307,16 @@ const httpServer = createServer((req, res) => {
   if (url.pathname === "/health" && req.method === "GET") {
     res.setHeader("content-type", "application/json");
     res.end(JSON.stringify(health()));
+    return;
+  }
+  if (url.pathname === "/providers" && req.method === "GET") {
+    res.setHeader("content-type", "application/json");
+    providerStatus()
+      .then((providers) => res.end(JSON.stringify(providers)))
+      .catch(() => {
+        res.statusCode = 500;
+        res.end(JSON.stringify([]));
+      });
     return;
   }
   if (url.pathname === "/uistate" && req.method === "GET") {
@@ -312,6 +386,9 @@ wss.on("connection", (ws) => {
     saveImage,
     status,
     clearPasted,
+    listPasted,
+    readSettingsFile,
+    writeSettingsFile,
     providerStatus,
     exportThread,
     terminal,
