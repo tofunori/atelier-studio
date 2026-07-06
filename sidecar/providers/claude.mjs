@@ -3,6 +3,31 @@ import { execSync } from "node:child_process";
 import { readFileSync, writeFileSync, mkdirSync } from "node:fs";
 
 // Bundle allégé : le binaire embarqué du SDK est retiré → utiliser le CLI système.
+/** Détail court d'un tool_use pour l'affichage (Bash(git status), Edit(file.py)…). */
+export function toolDetail(name, input) {
+  if (!input || typeof input !== "object") return "";
+  const first = (v) => String(v ?? "").split("\n")[0].slice(0, 80);
+  if (name === "Bash") return first(input.command);
+  if (["Read", "Edit", "Write", "NotebookEdit"].includes(name)) {
+    const p = String(input.file_path ?? "");
+    return p.length > 60 ? "…" + p.slice(-59) : p;
+  }
+  if (name === "Grep") return first(input.pattern);
+  if (name === "Glob") return first(input.pattern);
+  if (name === "WebFetch" || name === "WebSearch") return first(input.url ?? input.query);
+  if (name === "Task" || name === "Agent") return first(input.description ?? input.prompt);
+  return "";
+}
+
+import { appendFileSync } from "node:fs";
+const LOG_DIR = `${process.env.HOME}/Library/Logs/atelier-studio`;
+function logStderr(data) {
+  try {
+    mkdirSync(LOG_DIR, { recursive: true });
+    appendFileSync(`${LOG_DIR}/claude-cli.log`, data);
+  } catch {}
+}
+
 let CLAUDE_BIN = null;
 try {
   CLAUDE_BIN = execSync("command -v claude", { encoding: "utf8" }).trim() || null;
@@ -120,6 +145,7 @@ export function send({
   model,
   effort,
   permissionMode,
+  onPermissionRequest,
   mode, // "steer" | "queue"
   resumeAt, // uuid : rewind via resumeSessionAt (API documentée)
   fork, // true : bifurquer en une NOUVELLE session (forkSession)
@@ -172,6 +198,20 @@ export function send({
       ...(CLAUDE_BIN ? { pathToClaudeCodeExecutable: CLAUDE_BIN } : {}),
       settingSources: ["user", "project"],
       includePartialMessages: true,
+      stderr: logStderr,
+      // mode Ask : le SDK demande la permission — on relaie au front et on attend
+      ...(onPermissionRequest ? {
+        canUseTool: async (toolName, input, { signal }) => {
+          try {
+            const allow = await onPermissionRequest({ toolName, input, signal });
+            return allow
+              ? { behavior: "allow", updatedInput: input }
+              : { behavior: "deny", message: "Refusé par l'utilisateur dans Atelier." };
+          } catch {
+            return { behavior: "deny", message: "Demande de permission expirée." };
+          }
+        },
+      } : {}),
       ...(model ? { model } : {}),
       ...(effort ? { effort } : {}),
       ...(sessionId ? { resume: sessionId } : {}),
@@ -214,6 +254,9 @@ export function send({
           if (ev?.type === "content_block_delta" && ev.delta?.type === "text_delta") {
             s.onEvent({ kind: "delta", text: ev.delta.text });
           }
+          if (ev?.type === "content_block_delta" && ev.delta?.type === "thinking_delta" && ev.delta.thinking) {
+            s.onEvent({ kind: "thinking_delta", text: ev.delta.thinking });
+          }
         }
         if (msg.type === "assistant") {
           const au = msg.message?.usage;
@@ -225,7 +268,8 @@ export function send({
           }
           for (const block of msg.message.content ?? []) {
             if (block.type === "text") s.onEvent({ kind: "text", text: block.text });
-            if (block.type === "tool_use") s.onEvent({ kind: "tool", name: block.name });
+            if (block.type === "thinking" && block.thinking) s.onEvent({ kind: "thinking", text: block.thinking });
+            if (block.type === "tool_use") s.onEvent({ kind: "tool", name: block.name, detail: toolDetail(block.name, block.input) });
           }
         }
         if (msg.type === "system" && msg.subtype === "compact_boundary") {

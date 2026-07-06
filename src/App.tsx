@@ -309,6 +309,20 @@ export default function App() {
           const last = list[list.length - 1];
           // texte en cours de frappe : accumuler (delta) ou remplacer (stream_set),
           // puis le message final "text" remplace la bulle streaming
+          if (ev.kind === "thinking_delta") {
+            if (last?.kind === "thinking_live") {
+              list[list.length - 1] = { ...last, text: (last as any).text + ev.text };
+            } else {
+              list.push({ kind: "thinking_live", text: ev.text, ts: Date.now() } as any);
+            }
+            return { ...prev, [msg.threadId]: list };
+          }
+          if (ev.kind === "thinking") {
+            // bloc final : remplace le live s'il existe, sinon s'ajoute
+            if (last?.kind === "thinking_live") list[list.length - 1] = { kind: "thinking", text: ev.text, ts: Date.now() } as any;
+            else list.push({ kind: "thinking", text: ev.text, ts: Date.now() } as any);
+            return { ...prev, [msg.threadId]: list };
+          }
           if (ev.kind === "delta") {
             if (last?.kind === "streaming") {
               list[list.length - 1] = { ...last, text: (last as any).text + ev.text };
@@ -486,6 +500,16 @@ export default function App() {
       if (msg.type === "qaPromoteError") {
         window.dispatchEvent(new CustomEvent("qa-promote-error", { detail: msg }));
       }
+      if (msg.type === "permissionRequest") {
+        setEvents((p) => ({
+          ...p,
+          [msg.threadId]: [...(p[msg.threadId] ?? []), {
+            kind: "permission", requestId: msg.requestId, toolName: msg.toolName,
+            input: msg.input, answered: null, ts: Date.now(),
+          } as any],
+        }));
+        notifyRunDone({ threadId: msg.threadId, title: "Permission demandée", ok: true, summary: msg.toolName }).catch(() => {});
+      }
       if (msg.type === "reviewResult") {
         window.dispatchEvent(new CustomEvent("review-result", { detail: msg }));
         if (msg.status === "done" && msg.verdict === "issues") {
@@ -618,6 +642,16 @@ export default function App() {
         prompt,
       });
     };
+    const onPermAnswer = (e: Event) => {
+      const { threadId, requestId, allow } = (e as CustomEvent).detail ?? {};
+      ws.current?.send(JSON.stringify({ type: "permissionResponse", requestId, allow }));
+      setEvents((p) => ({
+        ...p,
+        [threadId]: (p[threadId] ?? []).map((ev: any) =>
+          ev.kind === "permission" && ev.requestId === requestId ? { ...ev, answered: allow } : ev),
+      }));
+    };
+    window.addEventListener("permission-answer", onPermAnswer);
     window.addEventListener("correct-issues", onCorrectIssues);
     const onRequestReview = (e: Event) => {
       const threadId = (e as CustomEvent).detail?.threadId;
@@ -643,6 +677,7 @@ export default function App() {
     window.addEventListener("atelier-add-to-chat-citation", onCitation);
     return () => {
       window.removeEventListener("autoreview-toggle", onAutoReviewToggle);
+      window.removeEventListener("permission-answer", onPermAnswer);
       window.removeEventListener("correct-issues", onCorrectIssues);
       window.removeEventListener("request-review", onRequestReview);
       window.removeEventListener("open-palette", onOpenPalette);

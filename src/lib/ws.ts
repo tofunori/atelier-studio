@@ -6,10 +6,14 @@ export type AgentEvent =
   | { kind: "user"; text: string; imageUrl?: string; label?: string; ts?: number }
   | { kind: "text"; text: string; ts?: number }
   | { kind: "delta"; text: string; ts?: number }
+  | { kind: "thinking_delta"; text: string; ts?: number }
+  | { kind: "thinking"; text: string; ts?: number }
+  | { kind: "thinking_live"; text: string; ts?: number }
+  | { kind: "permission"; requestId: string; toolName: string; input?: Record<string, unknown>; answered: boolean | null; ts?: number }
   | { kind: "stream_set"; text: string; ts?: number }
   | { kind: "streaming"; text: string; ts?: number }
   | { kind: "started"; ts?: number }
-  | { kind: "tool"; name: string }
+  | { kind: "tool"; name: string; detail?: string }
   | { kind: "tool_update"; id: string; name: string; output: string; status?: string; exitCode?: number; ts?: number }
   | { kind: "todos"; items: { text: string; completed: boolean }[]; ts?: number }
   | {

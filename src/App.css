@@ -1418,3 +1418,37 @@ body.dragging iframe { pointer-events: none; }
   background: var(--accent); border-color: var(--accent); }
 .set-row-ctl input[type="checkbox"]:checked::after, .mp-menu input[type="checkbox"]:checked::after {
   transform: translateX(14px); background: #fff; }
+/* ===== thinking (raisonnement du modèle) ===== */
+.thinking { margin: 2px 0; }
+.thinking-head { appearance: none; background: transparent; border: none; display: flex;
+  align-items: baseline; gap: 6px; padding: 2px 0; cursor: pointer; font: inherit;
+  font-size: var(--fs-m); color: var(--muted); max-width: 100%; text-align: left; }
+.thinking-label { font-style: italic; flex: none; }
+.thinking.live .thinking-label { animation: pulse 1.4s ease-in-out infinite; }
+.thinking-preview { color: var(--muted2); font-style: italic; overflow: hidden;
+  text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.thinking-body { margin: 4px 0 6px 18px; padding: 8px 12px; border-left: 2px solid var(--border2);
+  color: var(--muted); font-size: var(--fs-l); font-style: italic; white-space: pre-wrap;
+  line-height: 1.55; }
+/* ===== carte permission (mode Ask) ===== */
+.perm-card { border: 1px solid var(--border2); border-left: 2.5px solid var(--accent);
+  border-radius: var(--r-m); padding: 10px 14px; margin: 6px 0; background: var(--bg-card);
+  max-width: 560px; }
+.perm-card.answered { opacity: 0.75; border-left-color: var(--border2); }
+.perm-head { display: flex; align-items: center; gap: 8px; font-size: var(--fs-l);
+  color: var(--fg); font-weight: 500; }
+.perm-head svg { color: var(--accent); flex: none; }
+.perm-input { margin: 8px 0 0; padding: 7px 10px; background: var(--bg-side);
+  border-radius: var(--r-s); font-family: var(--code-font); font-size: var(--fs-m);
+  color: var(--fg2); white-space: pre-wrap; word-break: break-all; max-height: 120px; overflow-y: auto; }
+.perm-actions { display: flex; gap: 8px; margin-top: 10px; }
+.perm-allow, .perm-deny { border-radius: var(--r-s); padding: 5px 16px; font-size: var(--fs-l);
+  cursor: pointer; font: inherit; }
+.perm-allow { background: var(--accent); border: 1px solid var(--accent); color: #fff; }
+.perm-allow:hover { filter: brightness(1.1); }
+.perm-deny { background: transparent; border: 1px solid var(--border2); color: var(--muted); }
+.perm-deny:hover { color: var(--fg2); border-color: var(--border-strong, var(--border2)); }
+.perm-verdict { margin-top: 8px; font-size: var(--fs-m); color: var(--muted); }
+/* détail d'outil (Bash(git status)) */
+.tool-detail { color: var(--muted2); font-family: var(--code-font); font-size: var(--fs-s);
+  margin-left: 6px; }

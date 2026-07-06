@@ -8,6 +8,7 @@ import { writeFileAtomic } from "./store.mjs";
 // file d'attente par thread pour les providers SANS steering (Codex) :
 // les messages envoyés pendant un run partent automatiquement au tour suivant.
 const pending = new Map(); // threadId -> [msg...]
+const permWaiters = new Map(); // requestId -> resolve(bool)
 const lastTurnByThread = new Map(); // threadId -> { entry, responseText, diffs }
 let retitleAllRunning = false;
 
@@ -109,6 +110,20 @@ async function maybeTitleThread(ctx, emit, threadId, firstMessage) {
   if (fresh?.title !== String(firstMessage ?? "").slice(0, 40)) return;
   ctx.store.upsert({ id: threadId, title });
   emit({ type: "threads", threads: ctx.store.list() });
+}
+
+/** Mode Ask : relaie la demande de permission au front et attend la réponse (120 s max). */
+function makePermissionRelay(ctx, emit, threadId, permissionMode) {
+  if (permissionMode !== "default") return undefined;
+  return ({ toolName, input, signal }) => new Promise((resolve) => {
+    const requestId = `perm-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    const timer = setTimeout(() => { permWaiters.delete(requestId); resolve(false); }, 120000);
+    permWaiters.set(requestId, (allow) => { clearTimeout(timer); resolve(allow); });
+    signal?.addEventListener?.("abort", () => {
+      if (permWaiters.has(requestId)) { permWaiters.delete(requestId); clearTimeout(timer); resolve(false); }
+    });
+    emit({ type: "permissionRequest", threadId, requestId, toolName, input });
+  });
 }
 
 function gitRootFor(ctx, msg) {
@@ -381,6 +396,11 @@ export async function route(msg, ctx) {
     case "clientLog":
       (ctx.broadcast ?? ctx.send)({ type: "clientLog", note: String(msg.note ?? "").slice(0, 300) });
       break;
+    case "permissionResponse": {
+      const w = permWaiters.get(msg.requestId);
+      if (w) { permWaiters.delete(msg.requestId); w(!!msg.allow); }
+      break;
+    }
     case "ping":
       ctx.send({ type: "pong" });
       break;
@@ -662,6 +682,7 @@ export async function route(msg, ctx) {
           model,
           effort,
           permissionMode,
+          onPermissionRequest: makePermissionRelay(ctx, emit, threadId, permissionMode),
           mode: msg.mode,
           resumeAt: prev?.resumeAt ?? null,
           fork: prev?.forkPending ?? false,

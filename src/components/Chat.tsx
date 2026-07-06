@@ -260,6 +260,29 @@ function fmtTime(ts: number, fmt?: "system" | "24h" | "12h") {
   return new Date(ts).toLocaleTimeString([], opts);
 }
 
+function formatPermInput(tool: string, input: Record<string, unknown>): string {
+  const one = (v: unknown) => String(v ?? "").slice(0, 400);
+  if (tool === "Bash") return one((input as any).command);
+  if ((input as any).file_path) return one((input as any).file_path);
+  const s = JSON.stringify(input, null, 1);
+  return s.length > 400 ? s.slice(0, 400) + "…" : s;
+}
+
+function ThinkingBlock({ text, live }: { text: string; live: boolean }) {
+  const [open, setOpen] = useState(false);
+  const preview = text.replace(/\s+/g, " ").slice(-140);
+  return (
+    <div className={`thinking ${live ? "live" : ""}`}>
+      <button type="button" className="thinking-head" onClick={() => setOpen((v) => !v)}>
+        <span className="tool-tick">{open ? "▾" : "▸"}</span>
+        <span className="thinking-label">{live ? t("chat.thinking-live") : t("chat.thinking")}</span>
+        {!open && <span className="thinking-preview">{preview}</span>}
+      </button>
+      {open && <div className="thinking-body">{text}</div>}
+    </div>
+  );
+}
+
 function Working({ since }: { since: number }) {
   const [, tick] = useState(0);
   useEffect(() => {
@@ -842,6 +865,7 @@ export default function Chat(p: {
       return (
         <div key={key} className="tool">
           <span className="tool-tick">▸</span> {eventLabel(e.name)}
+          {e.detail ? <span className="tool-detail">({e.detail})</span> : null}
         </div>
       );
     }
@@ -1108,6 +1132,26 @@ export default function Chat(p: {
                   </button>
                   <PinBtn pinned={p.pins.some((c) => c.index === i)} onClick={() => p.onTogglePin(i, e.text.replace(/[#*>`]/g, "").trim().slice(0, 44))} />
                 </div>
+              </div>
+            );
+          if (e.kind === "thinking_live" || e.kind === "thinking")
+            return <ThinkingBlock key={i} text={e.text} live={e.kind === "thinking_live"} />;
+          if (e.kind === "permission")
+            return (
+              <div key={i} className={`perm-card ${e.answered != null ? "answered" : ""}`}>
+                <div className="perm-head">
+                  <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"><path d="M8 1.8l5 2v4c0 3.2-2.2 5.4-5 6.4-2.8-1-5-3.2-5-6.4v-4z"/></svg>
+                  <span>{t("perm.ask", { tool: e.toolName })}</span>
+                </div>
+                {e.input ? <pre className="perm-input">{formatPermInput(e.toolName, e.input)}</pre> : null}
+                {e.answered == null ? (
+                  <div className="perm-actions">
+                    <button className="perm-allow" onClick={() => window.dispatchEvent(new CustomEvent("permission-answer", { detail: { threadId: p.threadId, requestId: e.requestId, allow: true } }))}>{t("perm.allow")}</button>
+                    <button className="perm-deny" onClick={() => window.dispatchEvent(new CustomEvent("permission-answer", { detail: { threadId: p.threadId, requestId: e.requestId, allow: false } }))}>{t("perm.deny")}</button>
+                  </div>
+                ) : (
+                  <div className="perm-verdict">{e.answered ? t("perm.allowed") : t("perm.denied")}</div>
+                )}
               </div>
             );
           if (e.kind === "tool" || e.kind === "tool_update") return renderToolLine(e, i);
