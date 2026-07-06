@@ -22,6 +22,40 @@ function send(ws: WebSocket | null, msg: Record<string, unknown>) {
   if (ws?.readyState === WebSocket.OPEN) ws.send(JSON.stringify(msg));
 }
 
+type GitGroup = "staged" | "changes" | "untracked";
+function fileGroups(f: GitFile): GitGroup[] {
+  if (f.status === "?" || f.status === "!") return ["untracked"];
+  const gs: GitGroup[] = [];
+  if (f.status[0] && f.status[0] !== ".") gs.push("staged");
+  if (f.status[1] && f.status[1] !== ".") gs.push("changes");
+  return gs.length ? gs : ["changes"];
+}
+
+/** Diff unifié → rangées 2 colonnes (suppressions appariées aux ajouts). */
+function splitRows(diff: string): { l: string; r: string; lc: string; rc: string }[] {
+  const rows: { l: string; r: string; lc: string; rc: string }[] = [];
+  const lines = diff.split("\n");
+  let dels: string[] = [], adds: string[] = [];
+  const flush = () => {
+    const n = Math.max(dels.length, adds.length);
+    for (let i = 0; i < n; i++) rows.push({
+      l: dels[i] ?? "", lc: dels[i] != null ? "del" : "void",
+      r: adds[i] ?? "", rc: adds[i] != null ? "add" : "void",
+    });
+    dels = []; adds = [];
+  };
+  for (const line of lines) {
+    if (/^(diff |index |--- |\+\+\+ )/.test(line)) continue;
+    if (line.startsWith("@@")) { flush(); rows.push({ l: line, r: line, lc: "hunk", rc: "hunk" }); continue; }
+    if (line.startsWith("-")) { dels.push(line.slice(1)); continue; }
+    if (line.startsWith("+")) { adds.push(line.slice(1)); continue; }
+    flush();
+    rows.push({ l: line.slice(1) || " ", r: line.slice(1) || " ", lc: "ctx", rc: "ctx" });
+  }
+  flush();
+  return rows;
+}
+
 function shortStatus(file: GitFile) {
   if (file.status === "?") return "U"; // untracked, façon VS Code — jamais « ?? » brut
   if (file.status.includes("R")) return "R";
@@ -69,6 +103,10 @@ export default function GitSurface({
   const [status, setStatus] = useState<GitStatus | null>(null);
   const [selected, setSelected] = useState<string | null>(null);
   const [diff, setDiff] = useState("");
+  const [splitView, setSplitView] = useState(false);
+  const [closedGroups, setClosedGroups] = useState<Set<string>>(new Set());
+  const [syncBusy, setSyncBusy] = useState<"push" | "pull" | null>(null);
+  const [syncNote, setSyncNote] = useState("");
   const [commitMsg, setCommitMsg] = useState("");
   const [generating, setGenerating] = useState(false);
   const [undoArmed, setUndoArmed] = useState(false);
@@ -120,6 +158,13 @@ export default function GitSurface({
     window.addEventListener("git-commit-error", onCommitError);
     window.addEventListener("git-changed", onChangedClear);
     window.addEventListener("git-status", onStatus);
+    const onSync = (e: Event) => {
+      const d = (e as CustomEvent).detail;
+      setSyncBusy(null);
+      setSyncNote(d.error ? `${d.op}: ${d.error}` : (d.out || `${d.op} ✓`));
+      window.setTimeout(() => setSyncNote(""), 6000);
+    };
+    window.addEventListener("git-sync-done", onSync);
     window.addEventListener("git-diff", onDiff);
     window.addEventListener("commit-msg", onMsg);
     window.addEventListener("ledger", onLedger);
@@ -128,6 +173,7 @@ export default function GitSurface({
       window.removeEventListener("git-commit-error", onCommitError);
       window.removeEventListener("git-changed", onChangedClear);
       window.removeEventListener("git-status", onStatus);
+      window.removeEventListener("git-sync-done", onSync);
       window.removeEventListener("git-diff", onDiff);
       window.removeEventListener("commit-msg", onMsg);
       window.removeEventListener("ledger", onLedger);
@@ -183,9 +229,16 @@ export default function GitSurface({
           <button className={mode === "git" ? "on" : ""} onClick={() => setMode("git")}>Git</button>
           <button className={mode === "journal" ? "on" : ""} onClick={() => setMode("journal")}>{t("git.journal")}</button>
         </div>
-        {status && (status.ahead > 0 || status.behind > 0) && (
-          <span className="git-muted git-sync">
-            {status.ahead > 0 ? `↑${status.ahead}` : ""}{status.behind > 0 ? ` ↓${status.behind}` : ""}
+        {status && (
+          <span className="git-sync-ctl">
+            <button className="ghost git-icon-btn" disabled={syncBusy != null || !status.ahead}
+              title={t("git.push")} onClick={() => { setSyncBusy("push"); send(ws, { type: "gitPush", projectRoot }); }}>
+              {syncBusy === "push" ? "…" : `↑${status.ahead || ""}`}
+            </button>
+            <button className="ghost git-icon-btn" disabled={syncBusy != null || !status.behind}
+              title={t("git.pull")} onClick={() => { setSyncBusy("pull"); send(ws, { type: "gitPull", projectRoot }); }}>
+              {syncBusy === "pull" ? "…" : `↓${status.behind || ""}`}
+            </button>
           </span>
         )}
         <span className="git-headmenu-wrap" onClick={(e) => e.stopPropagation()}>
@@ -217,8 +270,22 @@ export default function GitSurface({
       {mode === "git" ? (
         <>
           <div className="git-files">
+            {syncNote && <div className="git-syncnote">{syncNote}</div>}
             {files.length === 0 && <div className="git-empty">{t("git.empty")}</div>}
-            {files.map((file) => (
+            {(["staged", "changes", "untracked"] as GitGroup[]).map((grp) => {
+              const inGrp = files.filter((f) => fileGroups(f).includes(grp));
+              if (!inGrp.length) return null;
+              const closed = closedGroups.has(grp);
+              return (
+                <div key={grp} className="git-group">
+                  <button className="git-group-h" onClick={() => setClosedGroups((s) => {
+                    const n = new Set(s); if (n.has(grp)) n.delete(grp); else n.add(grp); return n;
+                  })}>
+                    <span className="chev">{closed ? "▸" : "▾"}</span>
+                    <span>{t(`git.group-${grp}` as any)}</span>
+                    <span className="git-group-n">{inGrp.length}</span>
+                  </button>
+                  {!closed && inGrp.map((file) => (
               <div key={file.path} className={`git-file ${/\.bak|~$|\.log$|\.aux$/.test(file.path) ? "dim" : ""}`}>
                 <div className="git-file-line">
                   <input
@@ -262,19 +329,56 @@ export default function GitSurface({
                         >
                           <span>{restorePath === file.path ? t("action.confirm") : t("action.restore")}</span>
                         </div>
+                        <div className="mp-item" onClick={() => {
+                          setMenuPath(null);
+                          send(ws, { type: "gitIgnore", projectRoot, pattern: file.path });
+                        }}>
+                          <span>{t("git.ignore-file")}</span>
+                        </div>
+                        {file.path.includes("/") && (
+                          <div className="mp-item" onClick={() => {
+                            setMenuPath(null);
+                            send(ws, { type: "gitIgnore", projectRoot, pattern: file.path.split("/")[0] + "/" });
+                          }}>
+                            <span>{t("git.ignore-dir", { dir: file.path.split("/")[0] + "/" })}</span>
+                          </div>
+                        )}
                       </div>
                     )}
                   </span>
                 </div>
                 {selected === file.path && (
-                  <pre className="git-diff">
-                    {diff ? diff.split("\n").map((line, i) => (
-                      <span key={`${i}-${line}`} className={diffClass(line)}>{line || " "}</span>
-                    )) : <span className="git-muted">{t("git.diff-empty")}</span>}
-                  </pre>
+                  <div className="git-diff-wrap">
+                    <div className="git-diff-bar">
+                      <span className="seg seg-mini">
+                        <button className={!splitView ? "on" : ""} onClick={() => setSplitView(false)}>{t("git.unified")}</button>
+                        <button className={splitView ? "on" : ""} onClick={() => setSplitView(true)}>{t("git.split")}</button>
+                      </span>
+                    </div>
+                    {!diff ? <pre className="git-diff"><span className="git-muted">{t("git.diff-empty")}</span></pre>
+                    : !splitView ? (
+                      <pre className="git-diff">
+                        {diff.split("\n").map((line, i) => (
+                          <span key={`${i}-${line}`} className={diffClass(line)}>{line || " "}</span>
+                        ))}
+                      </pre>
+                    ) : (
+                      <div className="git-diff-split">
+                        {splitRows(diff).map((r, i) => (
+                          <div key={i} className="gds-row">
+                            <span className={`gds-cell ${r.lc}`}>{r.l || " "}</span>
+                            <span className={`gds-cell ${r.rc}`}>{r.r || " "}</span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
                 )}
               </div>
-            ))}
+                  ))}
+                </div>
+              );
+            })}
           </div>
           <div className="git-commit-zone">
             <div className="git-commit">

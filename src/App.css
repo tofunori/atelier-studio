@@ -1431,3 +1431,25 @@ body.dragging iframe { pointer-events: none; }
 /* détail d'outil (Bash(git status)) */
 .tool-detail { color: var(--muted2); font-family: var(--code-font); font-size: var(--fs-s);
   margin-left: 6px; }
+/* ===== panneau Git : groupes, sync, split ===== */
+.git-group-h { appearance: none; width: 100%; display: flex; align-items: center; gap: 6px;
+  background: transparent; border: none; padding: 8px 6px 3px; cursor: pointer; font: inherit;
+  font-size: var(--fs-xs); letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted2); }
+.git-group-h:hover { color: var(--muted); }
+.git-group-n { color: var(--muted2); font-variant-numeric: tabular-nums; }
+.git-sync-ctl { display: inline-flex; gap: 2px; margin-left: 4px; }
+.git-sync-ctl button { font-variant-numeric: tabular-nums; font-size: var(--fs-m); }
+.git-sync-ctl button:disabled { opacity: 0.35; cursor: default; }
+.git-syncnote { color: var(--muted); font-size: var(--fs-m); padding: 6px 8px;
+  border-bottom: 1px solid var(--border); white-space: pre-wrap; }
+.git-diff-bar { display: flex; justify-content: flex-end; padding: 4px 6px 0; }
+.seg-mini button { font-size: var(--fs-xs); padding: 2px 8px; }
+.git-diff-split { max-height: 340px; overflow: auto; font-family: var(--code-font);
+  font-size: var(--fs-s); line-height: 1.5; margin: 4px 0 8px; border-top: 1px solid var(--border); }
+.gds-row { display: grid; grid-template-columns: 1fr 1fr; min-width: max-content; }
+.gds-cell { padding: 0 8px; white-space: pre; min-width: 0; border-left: 1px solid var(--border); }
+.gds-cell.del { color: #e06c75; background: rgba(224,108,117,0.10); }
+.gds-cell.add { color: #98c379; background: rgba(152,195,121,0.10); }
+.gds-cell.void { background: color-mix(in srgb, var(--bg-side) 55%, transparent); }
+.gds-cell.hunk { color: #9db4d0; background: rgba(157,180,208,0.08); }
+.gds-cell.ctx { color: var(--fg2); }
