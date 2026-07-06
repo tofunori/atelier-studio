@@ -490,7 +490,7 @@ const _base = path ? path.split("/").pop() : "(no file)";
 document.getElementById("fname").textContent = _base;
 document.title = isPdfMode ? _base + " — PDF" : _base;
 
-let cm = null, diskMtime = 0, dirty = false, pdfDoc = null, pageEls = [], pdfVps = [];
+let cm = null, diskMtime = 0, dirty = false, lastSavedText = null, pdfDoc = null, pageEls = [], pdfVps = [];
 let zoom = parseFloat(localStorage.getItem("texZoom") || "1");
 const stateEl = document.getElementById("state");
 const setState = (cls, txt) => { stateEl.className = cls; stateEl.textContent = txt; stateEl.title = txt; };
@@ -532,6 +532,7 @@ async function load(){
     clearTimeout(__rsT);
     __rsT=setTimeout(() => { if(cm) cm.refresh(); }, 120);
   });
+  lastSavedText = j.text;
   cm = CodeMirror(document.getElementById("left"), {
     value: j.text, mode: __CM_MODE, theme: "material-darker",
     lineNumbers: true, lineWrapping: true, viewportMargin: 50, styleSelectedText: true,
@@ -667,6 +668,10 @@ async function save(){
   const j = await r.json();
   if(j.error === "conflit"){ setState("err", "disk conflict — re-⌘S to overwrite"); diskMtime = j.mtime; return false; }
   diskMtime = j.mtime; dirty = false; ddot.style.display = "none"; setState("ok", "saved");
+  // versionner AUSSI tes propres modifications (une version par sauvegarde)
+  const savedNow = cm.getValue();
+  if(lastSavedText !== null && typeof diffPush === "function") diffPush(lastSavedText, savedNow);
+  lastSavedText = savedNow;
   if (window.__onSaved) window.__onSaved();
   return true;
 }
@@ -1257,6 +1262,7 @@ setInterval(async () => {
       cm.setValue(j.text); cm.setCursor(cur); cm.scrollTo(s.left, s.top);
       dirty = false; setState("ok", "reloaded (modified on disk)");
       diffPush(before, j.text);
+      lastSavedText = j.text;
     }
   }catch(e){}
 }, 2000);
