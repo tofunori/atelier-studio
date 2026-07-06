@@ -14,7 +14,7 @@ async function git(root, args) {
 
 async function makeRepo() {
   const root = mkdtempSync(join(tmpdir(), "atelier-gitops-"));
-  await git(root, ["init"]);
+  await git(root, ["init", "-b", "main"]);
   await git(root, ["config", "user.email", "tester@example.com"]);
   await git(root, ["config", "user.name", "Tester"]);
   writeFileSync(join(root, "tracked file.txt"), "initial\n");

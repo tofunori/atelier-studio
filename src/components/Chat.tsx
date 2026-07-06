@@ -335,6 +335,33 @@ function ActivityCard({ event, live }: { event: Extract<AgentEvent, { kind: "act
   );
 }
 
+function toolOutputSummary(output: string) {
+  const clean = output.trim();
+  if (!clean) return "";
+  const lines = clean.split(/\r?\n/).length;
+  const chars = clean.length;
+  const size = chars >= 1000 ? `${Math.round(chars / 100) / 10}k chars` : `${chars} chars`;
+  return lines > 1 ? `${lines} lines · ${size}` : size;
+}
+
+function ToolOutputLine({ event }: { event: Extract<AgentEvent, { kind: "tool_update" }> }) {
+  const output = event.output.length > 6000 ? "[...]\n" + event.output.slice(-6000) : event.output;
+  const failed = Boolean(event.exitCode && event.exitCode !== 0) || event.status === "failed";
+  const [open, setOpen] = useState(failed);
+  const summary = toolOutputSummary(output);
+  return (
+    <div className={`tool-output ${open ? "open" : "collapsed"} ${failed ? "failed" : ""}`}>
+      <button type="button" className="tool-output-head" onClick={() => setOpen((v) => !v)}>
+        <span className="tool-tick">{open ? "▾" : "▸"}</span>
+        <span className="tool-output-name">{eventLabel(event.name)}</span>
+        {summary && <span className="tool-output-summary">{summary}</span>}
+        {event.status && <span className="tool-status">{event.status}</span>}
+      </button>
+      {open && output.trim() && <pre>{output}</pre>}
+    </div>
+  );
+}
+
 const FICONS = import.meta.glob("../assets/ficons/*.svg", { eager: true, query: "?url", import: "default" }) as Record<string, string>;
 function ficon(name: string): string | null {
   return FICONS[`../assets/ficons/${name}.svg`] ?? null;
@@ -876,17 +903,7 @@ export default function Chat(p: {
         </div>
       );
     }
-    const output = e.output.length > 6000 ? "[...]\n" + e.output.slice(-6000) : e.output;
-    return (
-      <div key={key} className="tool-output">
-        <div className="tool-output-head">
-          <span className="tool-tick">▸</span>
-          <span>{eventLabel(e.name)}</span>
-          {e.status && <span className="tool-status">{e.status}</span>}
-        </div>
-        {output.trim() && <pre>{output}</pre>}
-      </div>
-    );
+    return <ToolOutputLine key={key} event={e} />;
   }
 
   return (
