@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { t } from "../lib/i18n";
 import { PlusIcon, SettingsIcon, SidebarIcon } from "./icons";
 import { ProjIcon, threadTitle, recencyLabelKey, withRecencySections } from "./Sidebar";
@@ -42,9 +42,16 @@ export default function Rail(p: {
   const openOnHover = (root: string) => {
     if (pinned) return;
     window.clearTimeout(hoverT.current);
+    // un flyout déjà ouvert ? bascule immédiate (navigation entre projets)
+    if (fly) { setFly(root); return; }
     hoverT.current = window.setTimeout(() => setFly(root), 250);
   };
   const cancelHover = () => window.clearTimeout(hoverT.current);
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") setFly(null); };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
 
   return (
     <div className="rail" onClick={() => setMenu(null)}>
@@ -63,7 +70,7 @@ export default function Rail(p: {
             onClick={() => {
               cancelHover();
               p.onSelectProject(root);
-              setFly(fly === root && !pinned ? null : root);
+              setFly(root); // le clic ne ferme jamais — fermeture: choix d'un chat, clic dehors, Échap
             }}
             onMouseEnter={() => openOnHover(root)}
             onMouseLeave={cancelHover}
