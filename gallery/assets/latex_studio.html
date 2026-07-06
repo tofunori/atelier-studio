@@ -236,6 +236,19 @@
 .lint-gutter-err{color:#e06c75;font-size:10px;line-height:1}
 .cm-lint-line{border-bottom:1px dotted rgba(224,108,117,.7)}
 
+  /* ===== plan du document ===== */
+  #outline{display:none;position:absolute;top:6px;left:8px;z-index:70;width:250px;max-height:70%;
+    background:var(--card);border:1px solid var(--border-strong,#3f4652);border-radius:10px;
+    box-shadow:0 10px 34px rgba(0,0,0,.4);overflow-y:auto;padding:6px}
+  #outline.open{display:block}
+  #outline .oh{font-size:10px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);padding:4px 8px 6px}
+  #outline .oi{display:block;width:100%;text-align:left;background:transparent;border:none;color:var(--muted);
+    font:12.5px/1.5 -apple-system,sans-serif;padding:3px 8px;border-radius:6px;cursor:pointer;
+    overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  #outline .oi:hover{background:var(--card2);color:var(--txt)}
+  #outline .oi.on{color:var(--accent)}
+  #outline .l2{padding-left:20px}
+  #outline .l3{padding-left:32px;font-size:12px}
   /* ===== console de compilation ===== */
   #texlog{display:none;flex-shrink:0;max-height:38%;background:var(--card2);border-top:1px solid var(--border);
     flex-direction:column;min-height:120px}
@@ -337,6 +350,7 @@ function __ct(){try{return JSON.parse(localStorage.getItem('claudeTargetV1')||'n
     <button id="zoomIn" title="Zoom avant">+</button>
   </span>
   <span class="grp editonly">
+    <button id="outlineBtn" title="Plan du document (&#8984;&#8679;O)"><svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"><path d="M5.5 3.5h8M5.5 8h8M5.5 12.5h8M2 3.5h.01M2 8h.01M2 12.5h.01"/></svg></button>
     <button id="findBtn" title="Rechercher (&#8984;F)"><svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><circle cx="7" cy="7" r="4.4"/><path d="M10.4 10.4L14 14"/></svg></button>
     <button id="moreBtn" title="Plus&hellip;">&#8943;</button>
   </span>
@@ -357,6 +371,7 @@ function __ct(){try{return JSON.parse(localStorage.getItem('claudeTargetV1')||'n
   <span><b>Sélection de texte</b> &#8594; pastille : annoter / envoyer à Claude</span>
   <span><b>Esc</b> annule la sélection</span>
 </div>
+<div id="outline"></div>
 <div id="texlog"><div class="tl-head"><b>Compilation</b><span id="tlStatus"></span><button class="tl-chat" id="tlChat" title="Envoyer le log au chat"><svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" style="vertical-align:-2px"><path d="M14 8c0 3-2.7 5.2-6 5.2-.8 0-1.6-.1-2.3-.4L2.5 14l1-2.6C2.6 10.5 2 9.3 2 8c0-3 2.7-5.2 6-5.2S14 5 14 8z"/></svg>&nbsp;Add to chat</button><button class="tl-close" id="tlClose">✕</button></div><pre id="tlBody"></pre></div>
 <div id="statusbar" class="editonly">
   <span id="sbPos">Ln 1, Col 1</span>
@@ -744,6 +759,42 @@ function showCompileLog(j){
   el.classList.toggle("open", !j.ok);   // s'ouvre à l'échec, se ferme si succès
   if(!j.ok){ const firstErr = body.querySelector(".tl-err"); if(firstErr) firstErr.scrollIntoView({block:"start"}); }
 }
+// ---- plan du document : \section/\subsection → navigation ----
+const outlineEl = document.getElementById("outline");
+function buildOutline(){
+  if(!cm) return;
+  const lines = cm.getValue().split("\n");
+  const items = [];
+  const RE = /^\s*\\(section|subsection|subsubsection)\*?\{([^{}]*)\}/;
+  lines.forEach((ln, i) => { const m = RE.exec(ln); if(m) items.push({lvl:{section:1,subsection:2,subsubsection:3}[m[1]], t:m[2], line:i}); });
+  const cur = cm.getCursor().line;
+  let active = -1;
+  items.forEach((it, k) => { if(it.line <= cur) active = k; });
+  outlineEl.innerHTML = '<div class="oh">Plan</div>' + (items.length
+    ? items.map((it,k)=>`<button class="oi l${it.lvl}${k===active?" on":""}" data-l="${it.line}">${it.t.replace(/[&<>]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;"}[c]))}</button>`).join("")
+    : '<div class="oi" style="cursor:default">aucune section</div>');
+}
+function toggleOutline(force){
+  const open = force ?? !outlineEl.classList.contains("open");
+  outlineEl.classList.toggle("open", open);
+  if(open) buildOutline();
+}
+outlineEl.addEventListener("click", (e) => {
+  const b = e.target.closest(".oi[data-l]"); if(!b) return;
+  const ln = parseInt(b.dataset.l, 10);
+  cm.setCursor({line: ln, ch: 0}); cm.focus();
+  cm.scrollIntoView({line: ln, ch: 0}, 80);
+  toggleOutline(false);
+});
+document.getElementById("outlineBtn").onclick = () => toggleOutline();
+document.addEventListener("keydown", (e) => {
+  if((e.metaKey||e.ctrlKey) && e.shiftKey && (e.key==="o"||e.key==="O")){ e.preventDefault(); toggleOutline(); }
+  if(e.key==="Escape") toggleOutline(false);
+});
+document.addEventListener("mousedown", (e) => {
+  if(outlineEl.classList.contains("open") && !outlineEl.contains(e.target) && e.target.id!=="outlineBtn" && !e.target.closest("#outlineBtn"))
+    toggleOutline(false);
+});
 document.getElementById("tlClose").onclick = () => document.getElementById("texlog").classList.remove("open");
 // « Add to chat » : envoie le log de compilation au chat de l'app hôte.
 // Sélection dans la console → seulement la sélection ; sinon la fin du log (les erreurs y sont).
