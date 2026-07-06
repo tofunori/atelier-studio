@@ -157,6 +157,16 @@ async function route(req, res) {
 import { spawnSync } from "node:child_process";
 const shellPath = path.join(PROJECT, "figures_index.html");
 const dataPath = path.join(PROJECT, "figures_data.json");
+// coquille périmée (template mis à jour par un rebuild de l'app) → régénérer
+// la coquille SEULE depuis les données existantes (instantané, pas de rescan)
+try {
+  const tpl = path.join(path.dirname(new URL(import.meta.url).pathname), "..", "assets", "gallery_template.html");
+  if (fs.existsSync(shellPath) && fs.existsSync(dataPath) &&
+      fs.statSync(tpl).mtimeMs > fs.statSync(shellPath).mtimeMs) {
+    const { rebuildShellOnly } = await import("./builder.mjs");
+    if (rebuildShellOnly()) console.error("[gallery] coquille régénérée (template plus récent)");
+  }
+} catch {}
 if (!fs.existsSync(shellPath) || !fs.existsSync(dataPath)) {
   const builder = path.join(path.dirname(new URL(import.meta.url).pathname), "builder.mjs");
   const r = spawnSync(process.execPath, [builder], {

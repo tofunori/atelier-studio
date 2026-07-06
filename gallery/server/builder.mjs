@@ -328,6 +328,17 @@ function shellSupportsData(file) {
   }
 }
 
+/** Régénère la COQUILLE seule depuis figures_data.json existant (pas de scan). */
+export function rebuildShellOnly() {
+  const dataPath = path.join(ROOT, "figures_data.json");
+  if (!fs.existsSync(dataPath)) return false;
+  try {
+    const payload = JSON.parse(fs.readFileSync(dataPath, "utf8"));
+    writeShell(payload);
+    return true;
+  } catch { return false; }
+}
+
 export async function buildGallery(options = {}) {
   const rows = await scan();
   await prewarmImageThumbs(rows);

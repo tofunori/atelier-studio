@@ -31,6 +31,12 @@
   .csel-menu div:hover{background:var(--card2)}
   .csel-menu div .ck{width:12px;flex:none;color:var(--accent);opacity:0}
   .csel-menu div.on .ck{opacity:1}
+  .fmt-cats{display:flex;flex-wrap:wrap;gap:6px;padding:6px 10px 8px;max-width:280px}
+  .fmt-cat{border:1px solid var(--border);border-radius:999px;background:transparent;color:var(--muted);
+    font-size:12px;padding:4px 12px;cursor:pointer}
+  .fmt-cat:hover{border-color:var(--border-strong)}
+  .fmt-cat.on{background:var(--card2);color:var(--txt);border-color:var(--border-strong)}
+  .fmt-cat.mix{color:var(--txt);border-style:dashed}
   .seg{display:inline-flex;border:1px solid var(--border);border-radius:6px;overflow:hidden}
   .seg button{border:none;background:transparent;color:var(--muted);font-size:11px;padding:4px 9px;cursor:pointer}
   .seg button.on{background:var(--card2);color:var(--txt)}
@@ -1140,22 +1146,36 @@ const TYPE_LIST = [['png','PNG'],['jpg','JPG'],['svg','SVG'],['mp4','Video (mp4/
 const fmtMenu=document.getElementById('fmtMenu'), fmtChip=document.getElementById('fmtChip');
 const typeGroup = e => e==='jpg'?['jpg','jpeg']:e==='mp4'?['mp4','m4v','mov','webm']:e==='xlsx'?['xlsx','xls']:[e];
 function fmtChipLabel(){
-  const n=TYPE_LIST.filter(([e])=>exts[e]).length;
-  fmtChip.innerHTML='Formats'+(n?' ('+n+')':'')+' &#9662;';
-  fmtChip.classList.toggle('off',!n);
+  const on=FMT_CATS.filter(([,ks])=>ks.some(k=>exts[k])).map(([lab])=>lab);
+  fmtChip.innerHTML=(on.length===0?'Formats':on.length<=2?on.join(' + '):'Formats ('+on.length+')')+' &#9662;';
+  fmtChip.classList.toggle('off',!on.length);
 }
+// 5 catégories au lieu de 15 lignes ; « Détail » déplie les types individuels
+const FMT_CATS = [
+  ['Images',   ['png','jpg','jpeg','svg']],
+  ['Vidéos',   ['mp4','m4v','mov','webm']],
+  ['Documents',['pdf','html','docx','md']],
+  ['Données',  ['csv','xlsx','xls']],
+  ['Code',     ['py','r','jl','tex','sh']],
+];
+let fmtDetail = false;
+const catState = (ks) => { const on = ks.filter(k=>exts[k]).length; return on===0?'off':on===ks.length?'on':'mix'; };
 function buildFmtMenu(){
-  fmtMenu.innerHTML='<div class="mhd">Show file types</div>'+
-    TYPE_LIST.map(([e,lab])=>`<div class="mi"><label class="lbl"><input type="checkbox" data-fmt="${e}" ${exts[e]?'checked':''}> ${lab}</label><span class="only" data-only="${e}" title="Show only this type">only</span></div>`).join('')+
-    '<div class="madd" style="justify-content:space-between;gap:10px"><span class="mlink" data-fmt-all="img">Images only</span><span class="mlink" data-fmt-all="reset">Reset</span></div>';
+  fmtMenu.innerHTML='<div class="mhd">Types de fichiers</div>'
+    + '<div class="fmt-cats">'
+    + FMT_CATS.map(([lab,ks],i)=>`<button class="fmt-cat ${catState(ks)}" data-cat="${i}">${lab}</button>`).join('')
+    + '</div>'
+    + `<div class="madd" style="justify-content:space-between;gap:10px"><span class="mlink" data-fmt-detail>${fmtDetail?'Masquer le détail':'Détail…'}</span><span class="mlink" data-fmt-all="reset">Réinitialiser</span></div>`
+    + (fmtDetail ? TYPE_LIST.map(([e,lab])=>`<div class="mi"><label class="lbl"><input type="checkbox" data-fmt="${e}" ${exts[e]?'checked':''}> ${lab}</label></div>`).join('') : '');
   fmtMenu.onclick=e=>e.stopPropagation();
+  fmtMenu.querySelectorAll('.fmt-cat').forEach(b=>{
+    b.onclick=()=>{ const ks=FMT_CATS[+b.dataset.cat][1]; const turnOn = catState(ks)!=='on';
+      ks.forEach(k=>exts[k]=turnOn); saveExts(); buildFmtMenu(); fmtChipLabel(); render(); };
+  });
   fmtMenu.querySelectorAll('input[data-fmt]').forEach(cb=>{
-    cb.onchange=()=>{ typeGroup(cb.dataset.fmt).forEach(k=>exts[k]=cb.checked); saveExts(); fmtChipLabel(); render(); };
+    cb.onchange=()=>{ typeGroup(cb.dataset.fmt).forEach(k=>exts[k]=cb.checked); saveExts(); fmtChipLabel(); buildFmtMenu(); render(); };
   });
-  fmtMenu.querySelectorAll('[data-only]').forEach(el=>{
-    el.onclick=()=>{ Object.keys(exts).forEach(k=>exts[k]=false); typeGroup(el.dataset.only).forEach(k=>exts[k]=true); saveExts(); buildFmtMenu(); fmtChipLabel(); render(); };
-  });
-  const ia=fmtMenu.querySelector('[data-fmt-all="img"]'); if(ia) ia.onclick=()=>{ Object.keys(exts).forEach(k=>exts[k]=false); ['png','jpg','jpeg','svg'].forEach(k=>exts[k]=true); saveExts(); buildFmtMenu(); fmtChipLabel(); render(); };
+  const dt=fmtMenu.querySelector('[data-fmt-detail]'); if(dt) dt.onclick=()=>{ fmtDetail=!fmtDetail; buildFmtMenu(); };
   const rs=fmtMenu.querySelector('[data-fmt-all="reset"]'); if(rs) rs.onclick=()=>{ Object.assign(exts, DEFAULT_EXTS); saveExts(); buildFmtMenu(); fmtChipLabel(); render(); };
 }
 fmtChip.onclick=e=>{ e.stopPropagation(); buildFmtMenu(); menuToggle(fmtMenu, fmtChip); };
