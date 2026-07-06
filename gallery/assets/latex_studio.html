@@ -45,6 +45,8 @@
 <script src="/.fig_thumbs/marked.min.js"></script>
 <script src="/.fig_thumbs/purify.min.js"></script>
 <script src="/.fig_thumbs/diff.min.js"></script>
+<link rel="stylesheet" href="/.fig_thumbs/katex/katex.min.css">
+<script src="/.fig_thumbs/katex/katex.min.js"></script>
 <style>
 :root{--bg:#212429;--card:#1a1d22;--card2:#1a1d22;--txt:#e8eaed;--muted:#8a919e;--accent:#e8823a;--border:#333a45;--border-strong:#3f4652}
   html,body{margin:0;height:100%;background:var(--bg);color:var(--txt);
@@ -197,6 +199,33 @@
 .CodeMirror-foldgutter-open:after,.CodeMirror-foldgutter-folded:after{color:#6b7482;font-size:10px}
 .lint-gutter-err{color:#e06c75;font-size:10px;line-height:1}
 .cm-lint-line{border-bottom:1px dotted rgba(224,108,117,.7)}
+
+  /* ===== mode Lecture (rendu LaTeX-prose façon Claude Science) ===== */
+  #texread{display:none;max-width:760px;margin:0 auto;padding:36px 40px 120px;
+    font-family:Charter,Georgia,"Times New Roman",serif;font-size:17px;line-height:1.7;color:#e6e8ec}
+  #right.reading .pdfpage,#right.reading #marker{display:none!important}
+  #right.reading #texread{display:block}
+  #texread h1{font-size:26px;font-weight:600;text-align:center;margin:0 0 22px;letter-spacing:-.01em}
+  #texread h2{font-size:20px;font-weight:600;margin:30px 0 12px;letter-spacing:-.01em}
+  #texread h3{font-size:17px;font-weight:600;margin:24px 0 10px}
+  #texread h4,#texread h5{font-size:15px;font-weight:600;margin:20px 0 8px;color:#c7ccd4}
+  #texread p{margin:0 0 15px}
+  #texread ul,#texread ol{margin:0 0 15px;padding-left:26px}
+  #texread li{margin:4px 0}
+  #texread strong{font-weight:650;color:#f2f4f7}
+  #texread code{font-family:var(--code-font,"SF Mono",Menlo,monospace);font-size:.88em;
+    background:rgba(255,255,255,.06);padding:1px 5px;border-radius:4px}
+  #texread [data-line]{cursor:text;transition:background .12s;border-radius:3px}
+  #texread [data-line]:hover{background:rgba(232,130,58,.07)}
+  #texread .tex-todo{color:#e0726a;font-weight:600}
+  #texread .tex-cite{color:var(--accent);font-variant:small-caps;font-size:.92em}
+  #texread .tex-ref{color:#8a919e}
+  #texread .tex-fn{color:var(--accent);cursor:help}
+  #texread .tex-env{color:#6b7482;font-style:italic;text-align:center;border:1px dashed #333a45;
+    border-radius:8px;padding:14px;margin:16px 0;font-family:var(--ui-font,sans-serif);font-size:13px}
+  #texread .tex-matherr{color:#e0726a;font-family:monospace;font-size:.9em}
+  #texread .katex{font-size:1.02em}
+  #texread .katex-display{margin:14px 0;overflow-x:auto;overflow-y:hidden}
 </style>
 <script>
 function __ct(){try{return JSON.parse(localStorage.getItem('claudeTargetV1')||'null')}catch(e){return null}}(function(){var T={'Default':{bg:'#202024',card:'#27272a',card2:'#1f1f23',txt:'#e4e4e7',muted:'#a1a1aa',accent:'#e8823a',border:'#3f3f46'},'Codex One':{bg:'#202024',card:'#2f343f',card2:'#21252b',txt:'#abb2bf',muted:'#7f848e',accent:'#4d78cc',border:'#3e4451'},'Dracula':{bg:'#282a36',card:'#343746',card2:'#21222c',txt:'#f8f8f2',muted:'#9aa0b3',accent:'#bd93f9',border:'#44475a'},'Nord':{bg:'#2e3440',card:'#3b4252',card2:'#272c36',txt:'#e5e9f0',muted:'#9aa3b2',accent:'#88c0d0',border:'#434c5e'}};var t;try{t=T[localStorage.getItem('figTheme')];}catch(e){}t=t||T['Default'];var r=document.documentElement.style;for(var k in t)r.setProperty('--'+k,t[k]);})();</script>
@@ -837,6 +866,208 @@ function applyPdfVisible(v){
   if(cm) cm.refresh();
 }
 document.getElementById("togglePdf").onclick = () => applyPdfVisible(rightEl.style.display === "none");
+
+// ===== mode Lecture : rendu LaTeX-prose (KaTeX) dans #right, façon Claude Science =====
+// Parseur LaTeX-prose → HTML (mode Lecture, façon Claude Science).
+// Ambition : rendre la PROSE lisible, pas compiler LaTeX. Dégradation gracieuse :
+// tout ce qu'on ne connaît pas garde son texte, jamais de crash.
+
+function texToHtml(src, katex) {
+  src = String(src || "");
+  // 1. corps entre \begin{document}..\end{document} si présent
+  const doc = /\\begin\{document\}([\s\S]*?)\\end\{document\}/.exec(src);
+  let body = doc ? doc[1] : src;
+
+  // 2. retirer commentaires (% non échappé jusqu'à la fin de ligne)
+  body = body.replace(/(^|[^\\])%.*$/gm, "$1");
+
+  // 3. protéger les maths : on remplace par des jetons, rendus KaTeX après
+  const math = [];
+  const stash = (tex, display) => { math.push({ tex: tex.trim(), display }); return `\x00M${math.length - 1}\x00`; };
+  body = body.replace(/\$\$([\s\S]+?)\$\$/g, (_, t) => stash(t, true));
+  body = body.replace(/\\\[([\s\S]+?)\\\]/g, (_, t) => stash(t, true));
+  body = body.replace(/\\begin\{(equation|align|equation\*|align\*|gather|gather\*)\}([\s\S]*?)\\end\{\1\}/g,
+    (_, env, t) => stash(t, true));
+  body = body.replace(/\$([^$]+?)\$/g, (_, t) => stash(t, false));
+  body = body.replace(/\\\(([\s\S]+?)\\\)/g, (_, t) => stash(t, false));
+
+  // util : échappe le HTML (le texte source n'est jamais du HTML)
+  const esc = (s) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+
+  // 4. découper en blocs par ligne, en suivant le numéro de ligne source
+  const lines = body.split("\n");
+  const blocks = []; // {type, html, line}
+  let para = [], paraLine = 0, list = null;
+  const flushPara = () => {
+    if (para.length) { blocks.push({ type: "p", text: para.join(" "), line: paraLine }); para = []; }
+  };
+  const flushList = () => { if (list) { blocks.push(list); list = null; } };
+
+  for (let i = 0; i < lines.length; i++) {
+    const raw = lines[i];
+    const line = raw.trim();
+    const ln = i + 1;
+    let m;
+    if (!line) { flushPara(); flushList(); continue; }
+    // titres
+    if ((m = /^\\(title|section|subsection|subsubsection|paragraph)\*?\{([\s\S]*?)\}\s*$/.exec(line))) {
+      flushPara(); flushList();
+      const tag = { title: "h1", section: "h2", subsection: "h3", subsubsection: "h4", paragraph: "h5" }[m[1]];
+      blocks.push({ type: "h", tag, text: m[2], line: ln }); continue;
+    }
+    if (/^\\(begin|end)\{(itemize|enumerate)\}/.test(line)) {
+      flushPara();
+      if (/^\\begin/.test(line)) { flushList(); list = { type: "list", ordered: /enumerate/.test(line), items: [], line: ln }; }
+      else flushList();
+      continue;
+    }
+    if ((m = /^\\item\s*([\s\S]*)$/.exec(line)) && list) { list.items.push({ text: m[1], line: ln }); continue; }
+    // environnements ignorés (rendus en encadré léger)
+    if ((m = /^\\begin\{(figure|table|tabular|tikzpicture|thebibliography|abstract)\*?\}/.exec(line))) {
+      flushPara(); flushList();
+      if (m[1] === "abstract") { blocks.push({ type: "h", tag: "h2", text: "Abstract", line: ln }); continue; }
+      // avaler jusqu'au \end correspondant
+      const envName = m[1];
+      let j = i + 1;
+      while (j < lines.length && !new RegExp("\\\\end\\{" + envName).test(lines[j])) j++;
+      if (envName !== "thebibliography")
+        blocks.push({ type: "env", name: envName, line: ln });
+      i = j; continue;
+    }
+    if (/^\\end\{abstract\}/.test(line)) { flushPara(); flushList(); continue; }
+    // lignes de commande pure sans prose (\maketitle, \newpage, \clearpage, \bibliography, \input...)
+    if (/^\\(maketitle|newpage|clearpage|pagebreak|bibliographystyle|bibliography|input|include|tableofcontents|noindent|centering|raggedright|hline|toprule|midrule|bottomrule)\b/.test(line)) {
+      continue;
+    }
+    // sinon : accumuler dans le paragraphe courant
+    if (!para.length) paraLine = ln;
+    para.push(line);
+  }
+  flushPara(); flushList();
+
+  // 5. rendu inline d'un fragment de texte LaTeX → HTML
+  function inline(t) {
+    t = esc(t);
+    // jetons math d'abord (déjà échappés par le \x00 qui survit à esc)
+    // (on les remplace en toute fin, après les commandes)
+    // typographie
+    t = t.replace(/---/g, "—").replace(/--/g, "–")
+         .replace(/``/g, "“").replace(/''/g, "”").replace(/`/g, "‘")
+         .replace(/~/g, " ")
+         .replace(/\\%/g, "%").replace(/\\&/g, "&amp;").replace(/\\_/g, "_")
+         .replace(/\\#/g, "#").replace(/\\\$/g, "$").replace(/\\ /g, " ")
+         .replace(/\\\\/g, "<br>").replace(/\\newline/g, "<br>");
+    // notes de brouillon : [[...]] et \todo{...}  → rouge
+    t = t.replace(/\[\[([\s\S]*?)\]\]/g, '<span class="tex-todo">[[$1]]</span>');
+    t = t.replace(/\\todo\{([\s\S]*?)\}/g, '<span class="tex-todo">$1</span>');
+    t = t.replace(/\\textcolor\{[^}]*\}\{([\s\S]*?)\}/g, '<span class="tex-todo">$1</span>');
+    // gras / italique / mono / souligné
+    for (let k = 0; k < 3; k++) { // imbrications simples
+      t = t.replace(/\\textbf\{([^{}]*)\}/g, "<strong>$1</strong>")
+           .replace(/\\(emph|textit|textsl)\{([^{}]*)\}/g, "<em>$2</em>")
+           .replace(/\\texttt\{([^{}]*)\}/g, "<code>$1</code>")
+           .replace(/\\underline\{([^{}]*)\}/g, "<u>$1</u>");
+    }
+    // citations / refs / labels
+    t = t.replace(/\\(cite[a-z]*|citep|citet)\{([^}]*)\}/g, '<span class="tex-cite">[$2]</span>');
+    t = t.replace(/\\(eqref|ref|autoref|cref|Cref)\{([^}]*)\}/g, '<span class="tex-ref">§$2</span>');
+    t = t.replace(/\\label\{[^}]*\}/g, "");
+    t = t.replace(/\\footnote\{([\s\S]*?)\}/g, '<sup class="tex-fn" title="$1">*</sup>');
+    t = t.replace(/\\(href)\{([^}]*)\}\{([^}]*)\}/g, '<a href="$2">$3</a>');
+    t = t.replace(/\\url\{([^}]*)\}/g, '<a href="$1">$1</a>');
+    // commande générique inconnue avec argument → garder l'argument
+    for (let k = 0; k < 4; k++) t = t.replace(/\\[a-zA-Z]+\*?\{([^{}]*)\}/g, "$1");
+    // commande sans argument → retirer
+    t = t.replace(/\\[a-zA-Z]+\*?/g, "");
+    // accolades résiduelles
+    t = t.replace(/[{}]/g, "");
+    return t;
+  }
+
+  // 6. rendre KaTeX dans un fragment déjà inliné
+  function withMath(html) {
+    return html.replace(/\x00M(\d+)\x00/g, (_, i) => {
+      const mm = math[Number(i)];
+      if (!mm) return "";
+      try { return katex.renderToString(mm.tex, { displayMode: mm.display, throwOnError: false, errorColor: "#e0726a" }); }
+      catch (e) { return '<span class="tex-matherr">' + esc(mm.tex) + "</span>"; }
+    });
+  }
+
+  // 7. assembler
+  const out = [];
+  for (const b of blocks) {
+    if (b.type === "h") out.push(`<${b.tag} data-line="${b.line}">${withMath(inline(b.text))}</${b.tag}>`);
+    else if (b.type === "p") out.push(`<p data-line="${b.line}">${withMath(inline(b.text))}</p>`);
+    else if (b.type === "list") {
+      const tag = b.ordered ? "ol" : "ul";
+      const items = b.items.map((it) => `<li data-line="${it.line}">${withMath(inline(it.text))}</li>`).join("");
+      out.push(`<${tag}>${items}</${tag}>`);
+    } else if (b.type === "env") {
+      out.push(`<div class="tex-env" data-line="${b.line}">[ ${b.name} ]</div>`);
+    }
+  }
+  return out.join("\n");
+}
+
+if(IS_TEX && window.katex){
+  const right = document.getElementById("right");
+  right.insertAdjacentHTML("beforeend", '<div id="texread"></div>');
+  const readEl = document.getElementById("texread");
+  // bouton Lecture dans la barre, à côté de Split
+  const splitBtn = document.getElementById("togglePdf");
+  const readBtn = document.createElement("button");
+  readBtn.id = "readBtn"; readBtn.title = "Vue Lecture — prose rendue (KaTeX), sans le code";
+  readBtn.textContent = "Lecture";
+  splitBtn.insertAdjacentElement("afterend", readBtn);
+
+  let readOn = false, rafR = 0;
+  function renderRead(){
+    rafR = 0;
+    try{ readEl.innerHTML = texToHtml(cm.getValue(), window.katex); }catch(e){ readEl.innerHTML = '<p style="color:#e0726a">Rendu impossible : '+String(e.message||e)+'</p>'; }
+  }
+  const scheduleRead = () => { if(readOn && !rafR) rafR = requestAnimationFrame(renderRead); };
+
+  function setRead(on){
+    readOn = on;
+    right.classList.toggle("reading", on);
+    readBtn.classList.toggle("on", on);
+    if(on){
+      // afficher le split éditeur | lecture ; masquer le PDF
+      if(right.style.display === "none") applyPdfVisible(true);
+      splitBtn.classList.remove("on");
+      renderRead();
+    } else {
+      right.classList.remove("reading");
+    }
+    if(cm) setTimeout(()=>cm.refresh(), 60);
+  }
+  readBtn.onclick = () => setRead(!readOn);
+  // sortir de Lecture si on repasse au PDF
+  splitBtn.addEventListener("click", () => { if(readOn) setRead(false); });
+  document.getElementById("popPdf")?.addEventListener("click", () => { if(readOn) setRead(false); });
+  // mise à jour en direct pendant la frappe — cm est créé dans load() (async),
+  // on attend qu'il existe avant de brancher le listener + restaurer le mode
+  (function waitCm(){
+    if(cm){ cm.on("change", scheduleRead);
+      if(localStorage.getItem("texReadMode") === "1") setRead(true);
+    } else setTimeout(waitCm, 100);
+  })();
+  // clic sur un bloc rendu → saute à la ligne source dans l'éditeur
+  readEl.addEventListener("click", (e) => {
+    const el = e.target.closest("[data-line]");
+    if(!el) return;
+    const ln = parseInt(el.getAttribute("data-line"), 10) - 1;
+    if(isNaN(ln)) return;
+    cm.setCursor({line: ln, ch: 0});
+    cm.focus();
+    cm.scrollIntoView({line: ln, ch: 0}, 100);
+  });
+  // persister le mode à chaque bascule
+  const _origSetRead = setRead;
+  setRead = (on)=>{ localStorage.setItem("texReadMode", on?"1":"0"); _origSetRead(on); };
+}
+
 function setZoom(z){
   zoom = Math.max(0.4, Math.min(3, z));
   localStorage.setItem("texZoom", zoom);
