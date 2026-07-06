@@ -2,6 +2,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import {
+  OUT_DIR,
   PROJECT,
   STUDIO,
   expandHome,
@@ -337,6 +338,38 @@ export async function handleAnnotationPost(req, res, url) {
         fs.rmSync(p);
       }
       return sendJson(res, 200, { ok: true });
+    } catch (error) {
+      return sendJson(res, 500, { error: String(error.message || error) });
+    }
+  }
+  if (pathname === "/save") {
+    try {
+      const payload = await readJsonRequest(req);
+      const name = String(payload.name || "figure").replace(/\.[^.]*$/, "").replace(/[^A-Za-z0-9_.-]/g, "_");
+      const dataURL = String(payload.dataURL || "");
+      const comma = dataURL.indexOf(",");
+      if (comma < 0) return sendJson(res, 400, { error: "dataURL invalide" });
+      const rawBuf = Buffer.from(dataURL.slice(comma + 1), "base64"); // décoder d'ABORD (un dataURL invalide ne doit pas laisser un PNG 0-octet)
+      fs.mkdirSync(OUT_DIR, { recursive: true });
+      const d = new Date();
+      const p2 = (n) => String(n).padStart(2, "0");
+      const stamp = `${d.getFullYear()}${p2(d.getMonth() + 1)}${p2(d.getDate())}-${p2(d.getHours())}${p2(d.getMinutes())}${p2(d.getSeconds())}`;
+      const outPath = path.join(OUT_DIR, `${name}_annot_${stamp}.png`);
+      fs.writeFileSync(outPath, rawBuf);
+      const notes = Array.isArray(payload.notes) ? payload.notes : [];
+      const direct = Boolean(payload.direct);
+      let msg = outPath;
+      if (notes.length) {
+        const lignes = notes.map((n) => `${n.n}. ${n.text}`).join("\n");
+        msg = `${outPath}\nAnnotations (badges num\u00e9rot\u00e9s sur l'image) :\n${lignes}`;
+      }
+      if (direct) {
+        msg += "\nApplique directement ces annotations : retrouve le script qui g\u00e9n\u00e8re cette figure, fais les corrections demand\u00e9es et r\u00e9g\u00e9n\u00e8re la figure.";
+      }
+      if (!STUDIO) { try { fs.writeFileSync(quoteFile(), msg); } catch {} }
+      if (payload.embed || STUDIO) return sendJson(res, 200, { embedded: true, message: msg });
+      // hors Studio : le push cmux/muxy/orca n'est pas requis pour l'app (Studio)
+      return sendJson(res, 200, { message: msg });
     } catch (error) {
       return sendJson(res, 500, { error: String(error.message || error) });
     }
