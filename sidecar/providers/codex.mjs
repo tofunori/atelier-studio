@@ -118,12 +118,39 @@ export async function run({
   if (threadId) controllers.set(threadId, ctrl);
   const timer = timeoutMs ? setTimeout(() => ctrl.abort(), timeoutMs) : null;
   const turnOptions = { signal: ctrl.signal };
+  const activityId = `codex-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`;
   try {
     const input = buildCodexInput({ prompt, inputs, imagePath, attachments });
     const { events } = await thread.runStreamed(input, turnOptions);
     // affichage SOBRE : une seule ligne par commande (au démarrage, tronquée),
     // pas de doublon à la complétion, un seul état de réflexion consécutif
     let lastTool = "";
+    let activity = {
+      kind: "activity",
+      id: activityId,
+      phase: "thinking",
+      title: "Thinking",
+      detail: "Preparing the next step",
+      status: "running",
+      steps: [],
+    };
+    const emitActivity = (patch = {}) => {
+      activity = {
+        ...activity,
+        ...patch,
+        steps: patch.steps ?? activity.steps,
+      };
+      const steps = activity.steps.map(({ key, ...step }) => step);
+      onEvent({ ...activity, steps });
+    };
+    const upsertStep = ({ key, title, detail, phase = "tool", status = "running" }) => {
+      const existing = activity.steps.findIndex((step) => step.key === key);
+      const step = { key, title, detail, phase, status, ts: Date.now() };
+      const steps = existing >= 0
+        ? activity.steps.map((item, idx) => (idx === existing ? { ...item, ...step } : item))
+        : [...activity.steps, step].slice(-8);
+      emitActivity({ title, detail, phase, status: status === "failed" ? "failed" : "running", steps });
+    };
     const emitTool = (name) => {
       if (name === lastTool) return;
       lastTool = name;
@@ -134,6 +161,16 @@ export async function run({
       return cmd.length > 64 ? cmd.slice(0, 64) + "…" : cmd;
     };
     const emitCommandUpdate = (item) => {
+      const status = item.status === "completed" || item.status === "succeeded"
+        ? (item.exit_code && item.exit_code !== 0 ? "failed" : "completed")
+        : item.status === "failed" ? "failed" : "running";
+      upsertStep({
+        key: `cmd:${item.id ?? commandName(item)}`,
+        title: status === "running" ? "Running command" : status === "failed" ? "Command failed" : "Command finished",
+        detail: commandName(item),
+        phase: "command",
+        status,
+      });
       onEvent({
         kind: "tool_update",
         id: item.id,
@@ -144,6 +181,13 @@ export async function run({
       });
     };
     const emitTodos = (item) => {
+      upsertStep({
+        key: "todos",
+        title: "Updating plan",
+        detail: `${(item.items ?? []).filter((todo) => todo.completed).length}/${(item.items ?? []).length} done`,
+        phase: "todo",
+        status: "running",
+      });
       onEvent({
         kind: "todos",
         items: (item.items ?? []).map((todo) => ({
@@ -155,11 +199,20 @@ export async function run({
     for await (const ev of events) {
       if (ev.type === "turn.started") {
         onEvent({ kind: "started" });
+        emitActivity();
       }
       if (ev.type === "item.started" && ev.item?.type === "command_execution") {
+        upsertStep({
+          key: `cmd:${ev.item.id ?? commandName(ev.item)}`,
+          title: "Running command",
+          detail: commandName(ev.item),
+          phase: "command",
+          status: "running",
+        });
         emitTool(commandName(ev.item));
       }
       if (ev.type === "item.started" && ev.item?.type === "reasoning") {
+        emitActivity({ phase: "thinking", title: "Thinking", detail: "Planning the next action", status: "running" });
         emitTool("__thinking");
       }
       // le SDK livre le TEXTE du raisonnement — même rendu que le thinking Claude
@@ -189,12 +242,33 @@ export async function run({
       }
       if (ev.type === "item.completed" && ev.item?.type === "file_change") {
         const files = (ev.item.changes ?? []).map((ch) => ch.path?.split("/").pop()).filter(Boolean);
+        upsertStep({
+          key: `edits:${files.join(",")}`,
+          title: "Applying edits",
+          detail: files.length ? files.slice(0, 3).join(", ") : "Files changed",
+          phase: "edit",
+          status: "completed",
+        });
         emitTool(files.length ? `__edits:${files.slice(0, 3).join(", ")}${files.length > 3 ? "…" : ""}` : "__edits:");
       }
       if (ev.type === "item.started" && ev.item?.type === "web_search") {
+        upsertStep({
+          key: `search:${String(ev.item.query ?? "")}`,
+          title: "Searching web",
+          detail: String(ev.item.query ?? "").slice(0, 80),
+          phase: "search",
+          status: "running",
+        });
         emitTool(`recherche web : ${String(ev.item.query ?? "").slice(0, 50)}`);
       }
       if (ev.type === "item.completed" && ev.item?.type === "mcp_tool_call") {
+        upsertStep({
+          key: `mcp:${ev.item.tool ?? "mcp"}`,
+          title: "Using tool",
+          detail: String(ev.item.tool ?? "mcp"),
+          phase: "tool",
+          status: "completed",
+        });
         emitTool(`outil ${ev.item.tool ?? "mcp"}`);
       }
       if (ev.type === "turn.completed") {
@@ -202,20 +276,29 @@ export async function run({
         // usage du SDK = cumul de tous les appels du tour (contexte recompté) ;
         // le rollout donne le VRAI dernier état + la fenêtre du modèle
         const tc = lastTokenCount(thread.id);
+        emitActivity({
+          title: "Finished",
+          detail: activity.steps.length ? `${activity.steps.length} actions` : "No tools used",
+          status: "completed",
+          phase: activity.phase,
+        });
         onEvent({ kind: "done", ok: true, result: "", usage: {
           context: tc?.context ?? (u.input_tokens ?? 0),
           window: tc?.window ?? null,
           output: u.output_tokens ?? 0, cost: null, turns: null } });
       }
       if (ev.type === "turn.failed") {
+        emitActivity({ title: "Failed", detail: ev.error?.message ?? "Codex failed", status: "failed" });
         onEvent({ kind: "error", message: ev.error?.message ?? "failed" });
       }
       if (ev.type === "error") {
+        emitActivity({ title: "Failed", detail: ev.message ?? "Codex error", status: "failed" });
         onEvent({ kind: "error", message: ev.message ?? "erreur Codex" });
       }
     }
   } catch (e) {
     if (ctrl.signal.aborted) {
+      onEvent({ kind: "activity", id: activityId, title: "Interrupted", detail: "Stopped by user", status: "failed" });
       onEvent({ kind: "done", ok: false, result: "interrompu" });
     } else {
       throw e;

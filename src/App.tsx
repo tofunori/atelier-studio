@@ -350,6 +350,13 @@ export default function App() {
             else list.push(next);
             return { ...prev, [msg.threadId]: list };
           }
+          if (ev.kind === "activity") {
+            const idx = list.findIndex((item) => item.kind === "activity" && item.id === ev.id);
+            const next = { ...ev, ts: Date.now() } as AgentEvent;
+            if (idx >= 0) list[idx] = next;
+            else list.push(next);
+            return { ...prev, [msg.threadId]: list };
+          }
           if (ev.kind === "todos") {
             let idx = -1;
             for (let i = list.length - 1; i >= 0; i--) {

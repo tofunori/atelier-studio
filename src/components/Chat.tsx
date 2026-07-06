@@ -307,6 +307,34 @@ function Working({ since }: { since: number }) {
   );
 }
 
+function ActivityCard({ event, live }: { event: Extract<AgentEvent, { kind: "activity" }>; live: boolean }) {
+  const [manualOpen, setManualOpen] = useState<boolean | null>(null);
+  const open = manualOpen ?? live;
+  const steps = event.steps ?? [];
+  return (
+    <div className={`activity-card ${event.status ?? "running"} ${live ? "live" : ""}`}>
+      <button type="button" className="activity-head" onClick={() => setManualOpen((v) => !(v ?? live))}>
+        <span className="activity-pulse" aria-hidden="true" />
+        <span className="activity-title">{event.title}</span>
+        {event.detail && <span className="activity-detail">{event.detail}</span>}
+        {steps.length > 0 && <span className="activity-count">{t("chat.actions-used", { count: steps.length })}</span>}
+        <span className="tool-tick">{open ? "▾" : "▸"}</span>
+      </button>
+      {open && steps.length > 0 && (
+        <div className="activity-steps">
+          {steps.map((step, idx) => (
+            <div key={`${step.title}-${idx}`} className={`activity-step ${step.status ?? "running"}`}>
+              <span className="activity-step-dot" aria-hidden="true" />
+              <span className="activity-step-title">{step.title}</span>
+              {step.detail && <span className="activity-step-detail">{step.detail}</span>}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 const FICONS = import.meta.glob("../assets/ficons/*.svg", { eager: true, query: "?url", import: "default" }) as Record<string, string>;
 function ficon(name: string): string | null {
   return FICONS[`../assets/ficons/${name}.svg`] ?? null;
@@ -643,7 +671,7 @@ export default function Chat(p: {
     return () => window.removeEventListener("click", close);
   }, [menuOpen, effortMenuOpen]);
   const [editing, setEditing] = useState<{ index: number; text: string } | null>(null);
-  const [openToolGroups, setOpenToolGroups] = useState<Set<number>>(new Set());
+  const [openToolGroups, setOpenToolGroups] = useState<Set<string>>(new Set());
 
   // « Add to chat » sur sélection de texte dans les messages
   function onMessagesMouseUp() {
@@ -806,7 +834,7 @@ export default function Chat(p: {
 
   const renderedEvents: (
     | { type: "event"; event: AgentEvent; index: number }
-    | { type: "actions"; actions: Extract<AgentEvent, { kind: "tool" | "tool_update" }>[]; index: number }
+    | { type: "actions"; actions: Extract<AgentEvent, { kind: "tool" | "tool_update" }>[]; index: number; key: string }
   )[] = [];
   for (let i = 0; i < p.events.length; i++) {
     const e = p.events[i];
@@ -817,7 +845,11 @@ export default function Chat(p: {
     let end = i + 1;
     while (end < p.events.length && (p.events[end].kind === "tool" || p.events[end].kind === "tool_update")) end++;
     const actions = p.events.slice(i, end) as Extract<AgentEvent, { kind: "tool" | "tool_update" }>[];
-    if (actions.length >= 4) renderedEvents.push({ type: "actions", actions, index: i });
+    const first = actions[0];
+    const groupKey = first?.kind === "tool_update"
+      ? `tools:${first.id}`
+      : `tools:${first?.name ?? i}:${i}`;
+    if (actions.length >= 4) renderedEvents.push({ type: "actions", actions, index: i, key: groupKey });
     else actions.forEach((action, offset) => renderedEvents.push({ type: "event", event: action, index: i + offset }));
     i = end - 1;
   }
@@ -825,6 +857,12 @@ export default function Chat(p: {
   const currentToolName =
     currentTool?.kind === "tool_update" ? eventLabel(currentTool.name) :
     currentTool?.kind === "tool" ? eventLabel(currentTool.name) : "";
+  const currentActivity = [...p.events].reverse().find((e) => e.kind === "activity") as Extract<AgentEvent, { kind: "activity" }> | undefined;
+  const currentActivityName = currentActivity?.status === "running"
+    ? [currentActivity.title, currentActivity.detail].filter(Boolean).join(" · ")
+    : "";
+  const currentWorkName = currentActivityName || currentToolName;
+  const activeToolGroupKey = [...renderedEvents].reverse().find((item) => item.type === "actions")?.key;
   const selectedModel = modelsFor(provider).find((m) => m.id === model);
   const selectedModelLabel = selectedModel ? modelLabel(selectedModel) : model;
   const modelButtonLabel = model ? selectedModelLabel : resolvedDefaultLabel(provider);
@@ -972,17 +1010,17 @@ export default function Chat(p: {
         )}
         {renderedEvents.map((item) => {
           if (item.type === "actions") {
-            const open = openToolGroups.has(item.index);
+            const open = openToolGroups.has(item.key) || (p.workingSince != null && item.key === activeToolGroupKey);
             return (
-              <div key={`tools-${item.index}`} className="tool-group">
+              <div key={item.key} className="tool-group">
                 <button
                   type="button"
                   className="tool-group-row"
                   onClick={() =>
                     setOpenToolGroups((prev) => {
                       const next = new Set(prev);
-                      if (next.has(item.index)) next.delete(item.index);
-                      else next.add(item.index);
+                      if (next.has(item.key)) next.delete(item.key);
+                      else next.add(item.key);
                       return next;
                     })
                   }
@@ -1105,6 +1143,8 @@ export default function Chat(p: {
             );
           if (e.kind === "thinking_live" || e.kind === "thinking")
             return <ThinkingBlock key={i} text={e.text} live={e.kind === "thinking_live"} />;
+          if (e.kind === "activity")
+            return <ActivityCard key={e.id} event={e} live={p.workingSince != null && e.status === "running"} />;
           if (e.kind === "permission")
             return (
               <div key={i} className={`perm-card ${e.answered != null ? "answered" : ""}`}>
@@ -1194,10 +1234,10 @@ export default function Chat(p: {
             <div className="working-row">
               <Working since={p.workingSince} />
             </div>
-            {currentToolName && (
+            {currentWorkName && (
               <div className="working-tool">
                 <span className="working-tool-glyph" aria-hidden="true">↳</span>
-                <span>{currentToolName}</span>
+                <span>{currentWorkName}</span>
               </div>
             )}
             <button type="button" className="stop-hint" title={t("action.interrupt")} onClick={p.onStop}>

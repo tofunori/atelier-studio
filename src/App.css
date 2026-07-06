@@ -417,6 +417,36 @@ html, body, #root, .app { height: 100vh; overflow: hidden;
   font: inherit; }
 .tool-group-row:hover { color: var(--fg2); }
 .tool-group-list { display: flex; flex-direction: column; gap: 4px; margin-top: 6px; padding-left: 14px; }
+.activity-card { max-width: min(760px, 100%); margin: 5px 0 8px; padding: 7px 9px;
+  border: 1px solid color-mix(in srgb, var(--border) 78%, transparent);
+  border-radius: 8px; background: color-mix(in srgb, var(--bg-ctl) 58%, transparent);
+  color: var(--muted); font-size: var(--fs-m); }
+.activity-card.completed { opacity: 0.78; }
+.activity-card.failed { border-color: rgba(224,108,117,0.36); }
+.activity-head { width: 100%; display: grid; grid-template-columns: 10px auto minmax(0, 1fr) auto auto;
+  align-items: center; gap: 7px; padding: 0; border: none; background: transparent;
+  color: inherit; font: inherit; text-align: left; cursor: pointer; }
+.activity-head:hover .activity-title { color: var(--fg2); }
+.activity-pulse { width: 7px; height: 7px; border-radius: var(--r-pill);
+  background: #7aa2f7; box-shadow: 0 0 0 3px rgba(122,162,247,0.08); }
+.activity-card.live .activity-pulse { animation: pulse 1.4s ease-in-out infinite; }
+.activity-card.completed .activity-pulse { background: #98c379; box-shadow: 0 0 0 3px rgba(152,195,121,0.08); }
+.activity-card.failed .activity-pulse { background: #e06c75; box-shadow: 0 0 0 3px rgba(224,108,117,0.08); }
+.activity-title { color: var(--fg2); font-weight: 600; white-space: nowrap; }
+.activity-detail { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted); }
+.activity-count { color: var(--muted2); white-space: nowrap; }
+.activity-steps { display: grid; gap: 4px; margin: 7px 0 1px 16px; animation: toolGroupIn 0.12s ease-out; }
+.activity-step { display: grid; grid-template-columns: 12px auto minmax(0, 1fr);
+  align-items: baseline; gap: 7px; min-height: 18px; }
+.activity-step-dot { width: 5px; height: 5px; border-radius: var(--r-pill); background: var(--muted2);
+  align-self: center; justify-self: center; }
+.activity-step.running .activity-step-dot { background: #7aa2f7; animation: pulse 1.4s ease-in-out infinite; }
+.activity-step.completed .activity-step-dot { background: #98c379; }
+.activity-step.failed .activity-step-dot { background: #e06c75; }
+.activity-step-title { color: var(--fg2); font-weight: 500; white-space: nowrap; }
+.activity-step-detail { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  color: var(--fg2); opacity: 0.72; }
+@keyframes toolGroupIn { from { opacity: 0; transform: translateY(-2px); } to { opacity: 1; transform: translateY(0); } }
 .turn-diff { margin-top: 6px; }
 .turn-diff-toggle { display: inline-flex; align-items: center; gap: 4px; background: transparent;
   border: none; color: var(--muted); padding: 0; cursor: pointer; font: inherit;

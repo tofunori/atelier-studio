@@ -13,6 +13,16 @@ export type AgentEvent =
   | { kind: "stream_set"; text: string; ts?: number }
   | { kind: "streaming"; text: string; ts?: number }
   | { kind: "started"; ts?: number }
+  | {
+      kind: "activity";
+      id: string;
+      phase?: "thinking" | "command" | "search" | "edit" | "tool" | "todo";
+      title: string;
+      detail?: string;
+      status?: "running" | "completed" | "failed";
+      steps?: { title: string; detail?: string; status?: "running" | "completed" | "failed"; phase?: string; ts?: number }[];
+      ts?: number;
+    }
   | { kind: "tool"; name: string; detail?: string }
   | { kind: "tool_update"; id: string; name: string; output: string; status?: string; exitCode?: number; ts?: number }
   | { kind: "todos"; items: { text: string; completed: boolean }[]; ts?: number }
