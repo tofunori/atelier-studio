@@ -295,6 +295,26 @@ function writeData(payload) {
   return out;
 }
 
+export function renderShellHtml(payload) {
+  const wordmark = htmlEscape(payload.wordmark);
+  const project = htmlEscape(payload.project);
+  const rootJs = ROOT.replaceAll("\\", "\\\\").replaceAll("'", "\\'").replaceAll("\n", "\\n").replaceAll("\r", "").replaceAll("</", "<\\/");
+  const html = loadGalleryTemplate()
+    .replaceAll("__TITLE__", `${wordmark} \u00b7 ${project}`)
+    .replaceAll("__WORDMARK__", wordmark)
+    .replaceAll("__PROJECT__", project)
+    .replaceAll("__COUNT__", payload.countLabel)
+    .replaceAll("__GEN__", payload.gen)
+    .replaceAll("__VER__", payload.ver)
+    .replaceAll("__DATA__", "null")
+    .replaceAll("__FOLDERS__", "null")
+    .replaceAll("__FAVS__", "null")
+    .replaceAll("__ROOT__", rootJs);
+  const nClose = (html.match(/<\/script>/g) || []).length;
+  if (nClose !== 1) throw new Error(`gallery: page has ${nClose} </script> (expected 1)`);
+  return html;
+}
+
 function writeShell(payload) {
   const wordmark = htmlEscape(payload.wordmark);
   const project = htmlEscape(payload.project);

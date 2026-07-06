@@ -36,6 +36,25 @@ function ensureFreshShell() {
   } catch {}
 }
 
+// GET / : la page est RENDUE À LA REQUÊTE depuis le template + figures_data.json —
+// plus jamais de coquille cuite périmée, quel que soit le projet ou l'âge du serveur
+let __liveShell = { key: "", html: null };
+async function serveLiveShell(res) {
+  try {
+    const tpl = path.join(ASSETS_DIR, "gallery_template.html");
+    const dataPath = path.join(PROJECT, "figures_data.json");
+    if (!fs.existsSync(dataPath)) return false;   // pas encore scanné → fallback fichier/boot-build
+    const key = fs.statSync(tpl).mtimeMs + ":" + fs.statSync(dataPath).mtimeMs;
+    if (__liveShell.key !== key) {
+      const { renderShellHtml } = await import("./builder.mjs");
+      const payload = JSON.parse(fs.readFileSync(dataPath, "utf8"));
+      __liveShell = { key, html: Buffer.from(renderShellHtml(payload), "utf8") };
+    }
+    serveBuffer(res, 200, __liveShell.html, { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-cache" });
+    return true;
+  } catch { return false; }
+}
+
 function projectStaticPath(urlPath) {
   const decoded = decodeURIComponent(urlPath === "/" ? "/figures_index.html" : urlPath);
   if (urlPath === "/") ensureFreshShell();
@@ -117,8 +136,9 @@ function maybeInjectSelectionOverlay(req, res, file, urlPath) {
   });
 }
 
-function handleStatic(req, res, url) {
+async function handleStatic(req, res, url) {
   const urlPath = url.pathname;
+  if (urlPath === "/" && req.method === "GET" && await serveLiveShell(res)) return true;
   let file = projectStaticPath(urlPath);
   if (!file || !fs.existsSync(file)) {
     const asset = assetFallbackPath(urlPath);
@@ -150,7 +170,7 @@ async function route(req, res) {
       if (req.method === "GET" && await handleCoreGet(req, res, url)) return true;
       if (req.method === "GET" && await handleEditorsGet(req, res, url)) return true;
       if (req.method === "GET" && await handleBoardsGet(req, res, url)) return true;
-      if (handleStatic(req, res, url)) return true;
+      if (await handleStatic(req, res, url)) return true;
       return sendEmpty(res, 404);
     }
     if (req.method === "POST") {
