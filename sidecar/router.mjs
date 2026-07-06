@@ -33,6 +33,11 @@ function saveZoteroFavs(ctx, favs) {
   writeFileAtomic(path, JSON.stringify([...favs].sort(), null, 2));
 }
 
+function paperDigestPath(ctx, slug) {
+  const dir = ctx.paperDigestDir ?? join(DEFAULT_APP_DIR, "paper-digests");
+  return join(dir, `${slug}.md`);
+}
+
 function withZoteroMeta(ctx, items) {
   const favs = loadZoteroFavs(ctx);
   return items.map((item) => ({
@@ -470,6 +475,26 @@ export async function route(msg, ctx) {
         limit: msg.limit ?? 400,
       });
       ctx.send({ type: "zoteroItems", items: withZoteroMeta(ctx, items) });
+      break;
+    }
+    case "zoteroDigest": {
+      const key = String(msg.key ?? "").trim();
+      const citeKey = String(msg.citeKey ?? "").trim();
+      const slug = (citeKey || key).replace(/[^A-Za-z0-9._-]/g, "");
+      const path = slug ? paperDigestPath(ctx, slug) : null;
+      let digest = null;
+      if (path) {
+        try { digest = readFileSync(path, "utf8").trim() || null; } catch { /* pas de digest en cache */ }
+      }
+      const pdfPath = ctx.zotero?.pdfAbsolutePath?.(msg.pdfKey, msg.pdfFile) ?? null;
+      ctx.send({ type: "zoteroDigest", key, citeKey, digest, path, pdfPath });
+      break;
+    }
+    case "zoteroAddPdf": {
+      const paths = (Array.isArray(msg.paths) ? msg.paths : [])
+        .filter((x) => typeof x === "string" && x.toLowerCase().endsWith(".pdf"));
+      const results = await ctx.zotero.addPdfs(paths);
+      ctx.send({ type: "zoteroAddResult", results });
       break;
     }
     case "zoteroCollections": {
