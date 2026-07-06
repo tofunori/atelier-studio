@@ -7,6 +7,8 @@
   --code-font: ui-monospace, 'SF Mono', Menlo, monospace;
   --fs-xs: 10px; --fs-s: 11px; --fs-m: 12px; --fs-l: 13px; --fs-xl: 15px;
   --r-s: 6px; --r-m: 10px; --r-pill: 999px;
+  --elev: 0 4px 18px rgba(0,0,0,.28), 0 1px 4px rgba(0,0,0,.18);
+  --ease: 140ms ease;
 }
 :root[data-theme="light"] {
   --bg: #f5f6f8; --bg-side: #ebedf1; --bg-pop: #ffffff; --bg-card: #ffffff;
@@ -40,7 +42,7 @@ html, body, #root, .app { height: 100vh; overflow: hidden;
 .sidebar li:hover .title { color: var(--fg); }
 .sidebar li .title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--fg2); }
 .thread-copy { min-width: 0; flex: 1; display: flex; flex-direction: column; gap: 1px; }
-.thread-date { color: var(--muted2); font-size: var(--fs-s); line-height: 1.15; white-space: nowrap;
+.thread-date { color: var(--muted2); font-size: var(--fs-s); line-height: 1.15; white-space: nowrap; font-variant-numeric: tabular-nums;
   overflow: hidden; text-overflow: ellipsis; }
 .dot { width: 8px; height: 8px; border-radius: var(--r-pill); flex-shrink: 0; }
 .dot.claude { background: #e8825a; } .dot.codex { background: #7aa2f7; }
@@ -70,9 +72,9 @@ html, body, #root, .app { height: 100vh; overflow: hidden;
 /* titres à l'échelle chat : ancres visuelles, pas des cris */
 .msg h1, .msg h2, .msg h3, .msg h4 { color: var(--fg); line-height: 1.35;
   margin: 18px 0 6px; }
-.msg h1 { font-size: var(--fs-xl); font-weight: 600; }
-.msg h2 { font-size: var(--fs-xl); font-weight: 600; }
-.msg h3 { font-size: var(--fs-xl); font-weight: 600; }
+.msg h1 { font-size: var(--fs-xl); font-weight: 600; letter-spacing: -0.01em; }
+.msg h2 { font-size: var(--fs-xl); font-weight: 600; letter-spacing: -0.01em; }
+.msg h3 { font-size: var(--fs-xl); font-weight: 600; letter-spacing: -0.01em; }
 .msg h4 { font-size: var(--fs-xl); font-weight: 600; letter-spacing: 0.02em; }
 .msg h1:first-child, .msg h2:first-child, .msg h3:first-child { margin-top: 2px; }
 .msg blockquote { margin: 8px 0; padding: 2px 0 2px 12px;
@@ -1331,3 +1333,13 @@ body.dragging iframe { pointer-events: none; }
 .reviewer-strip.v-ok { background: #98c379; }
 .reviewer-strip.v-issues { background: #e0b74a; }
 .reviewer-strip.v-running { background: var(--muted2); }
+
+/* ===== passe finition : motion homogène ===== */
+.sidebar li, .ctx-menu div, .suggest li, .mp-menu div, .seg button,
+.codeblock-copy, .tool-group-row, .turn-diff-toggle, .empty-action {
+  transition: background var(--ease), color var(--ease), border-color var(--ease); }
+.ctx-menu, .mp-menu, .ur-pop, .reviewer-menu, .suggest {
+  animation: pop-in 130ms ease; transform-origin: top; }
+@keyframes pop-in { from { opacity: 0; transform: translateY(-3px); } to { opacity: 1; transform: none; } }
+@media (prefers-reduced-motion: reduce) {
+  .ctx-menu, .mp-menu, .ur-pop, .reviewer-menu, .suggest { animation: none; } }
