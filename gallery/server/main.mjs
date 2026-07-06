@@ -152,6 +152,21 @@ async function route(req, res) {
   }
 }
 
+// premier lancement dans un projet : bâtir la galerie avant d'écouter
+// (parité avec cmux_gallery.py run, qui build puis sert)
+import { spawnSync } from "node:child_process";
+const shellPath = path.join(PROJECT, "figures_index.html");
+const dataPath = path.join(PROJECT, "figures_data.json");
+if (!fs.existsSync(shellPath) || !fs.existsSync(dataPath)) {
+  const builder = path.join(path.dirname(new URL(import.meta.url).pathname), "builder.mjs");
+  const r = spawnSync(process.execPath, [builder], {
+    cwd: PROJECT,
+    env: { ...process.env, GALLERY_ROOT: PROJECT },
+    timeout: 300000,
+  });
+  if (r.status !== 0) console.error("[gallery] build initial en échec:", String(r.stderr).slice(0, 400));
+}
+
 const port = choosePort(PROJECT);
 http.createServer((req, res) => {
   route(req, res);

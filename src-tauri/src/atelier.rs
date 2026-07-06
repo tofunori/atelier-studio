@@ -48,29 +48,43 @@ pub fn start_atelier(app: tauri::AppHandle, root: String, gallery_dir: Option<St
                     .resource_dir()
                     .map(|r| r.join("gallery"))
                     .unwrap_or_default();
-                if dev.join("cmux_gallery.py").exists() {
+                if dev.join("server/main.mjs").exists() || dev.join("cmux_gallery.py").exists() {
                     dev
-                } else if bundled.join("cmux_gallery.py").exists() {
+                } else if bundled.join("server/main.mjs").exists() || bundled.join("cmux_gallery.py").exists() {
                     bundled
                 } else {
                     home.join("Documents/cmux-gallery") // legacy fallback
                 }
             });
-        let gallery = dir.join("cmux_gallery.py");
-        if !gallery.exists() {
-            return Err(format!("cmux_gallery.py introuvable dans {}", dir.display()));
+        // moteur PRINCIPAL : serveur Node (app autonome, zéro dépendance python3) ;
+        // fallback python via ATELIER_GALLERY_ENGINE=python ou si server/main.mjs absent
+        let node_server = dir.join("server/main.mjs");
+        let force_python = std::env::var("ATELIER_GALLERY_ENGINE").is_ok_and(|v| v == "python");
+        if node_server.exists() && !force_python {
+            Command::new("node")
+                .env("ATELIER_STUDIO", "1")
+                .env("GALLERY_ROOT", &root)
+                .env("FIG_PORT", port.to_string())
+                .arg(&node_server)
+                .spawn()
+                .map_err(|e| e.to_string())?;
+        } else {
+            let gallery = dir.join("cmux_gallery.py");
+            if !gallery.exists() {
+                return Err(format!("ni server/main.mjs ni cmux_gallery.py dans {}", dir.display()));
+            }
+            Command::new("python3")
+                .env("ATELIER_STUDIO", "1") // serveur en mode Studio : aucun push cmux/muxy/orca
+                .arg(gallery)
+                .arg("run")
+                .arg("--root")
+                .arg(&root)
+                .arg("--no-open")
+                .arg("--port")
+                .arg(port.to_string())
+                .spawn()
+                .map_err(|e| e.to_string())?;
         }
-        Command::new("python3")
-            .env("ATELIER_STUDIO", "1") // serveur en mode Studio : aucun push cmux/muxy/orca
-            .arg(gallery)
-            .arg("run")
-            .arg("--root")
-            .arg(&root)
-            .arg("--no-open")
-            .arg("--port")
-            .arg(port.to_string())
-            .spawn()
-            .map_err(|e| e.to_string())?;
         // le serveur se détache ; attendre qu'il réponde (build de la galerie inclus)
         for _ in 0..60 {
             if ping(port) {
