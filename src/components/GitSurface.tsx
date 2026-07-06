@@ -23,7 +23,7 @@ function send(ws: WebSocket | null, msg: Record<string, unknown>) {
 }
 
 function shortStatus(file: GitFile) {
-  if (file.status === "?") return "??";
+  if (file.status === "?") return "U"; // untracked, façon VS Code — jamais « ?? » brut
   if (file.status.includes("R")) return "R";
   if (file.status.includes("A")) return "A";
   if (file.status.includes("D")) return "D";
@@ -232,7 +232,7 @@ export default function GitSurface({
                     onClick={(e) => e.stopPropagation()}
                   />
                   <button className="git-file-row" onClick={() => selectFile(file.path)}>
-                    <span className={`git-status s-${shortStatus(file).replace("??", "untracked")}`}>
+                    <span className={`git-status s-${shortStatus(file).replace("U", "untracked")}`}>
                       {shortStatus(file)}
                     </span>
                     <span className="git-path">{file.path}</span>
@@ -293,7 +293,12 @@ export default function GitSurface({
                   send(ws, { type: "generateCommitMsg", projectRoot });
                 }}
               >
-                {generating ? "…" : "✨"}
+                {generating ? "…" : (
+                  <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M8 2.2l1.2 3.4 3.4 1.2-3.4 1.2L8 11.4 6.8 8 3.4 6.8 6.8 5.6z" />
+                    <path d="M12.8 10.6l.55 1.55 1.55.55-1.55.55-.55 1.55-.55-1.55-1.55-.55 1.55-.55z" />
+                  </svg>
+                )}
               </button>
               <button
                 className="set-btn"
