@@ -21,6 +21,8 @@ import * as ledger from "./ledger.mjs";
 import * as zotero from "./zotero.mjs";
 import * as claude from "./providers/claude.mjs";
 import * as codex from "./providers/codex.mjs";
+import { resolveBin, enrichPath } from "./bin_resolver.mjs";
+enrichPath(); // PATH Finder minimal → complété pour tous les spawns
 
 const APP_DIR = `${homedir()}/Library/Application Support/atelier-studio`;
 const PID_FILE = `${APP_DIR}/sidecar.pid`;
@@ -138,8 +140,10 @@ function clearPasted() {
 }
 
 function cliVersion(bin) {
+  const path = resolveBin(bin);
+  if (!path) return Promise.resolve(null);
   return new Promise((resolve) => {
-    execFile(bin, ["--version"], { timeout: 8000 }, (err, stdout) => {
+    execFile(path, ["--version"], { timeout: 8000 }, (err, stdout) => {
       resolve(err ? null : String(stdout).trim().split("\n")[0]);
     });
   });

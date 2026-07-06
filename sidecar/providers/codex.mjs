@@ -2,16 +2,14 @@
 // Remplace l'ancien pont SDK (`codex exec`) : threads persistants côté serveur,
 // steering natif possible plus tard, et surtout accès aux GOALS
 // (thread/goal/set|get|clear + notifications thread/goal/updated).
-import { spawn, execSync } from "node:child_process";
+import { spawn } from "node:child_process";
 import { createInterface } from "node:readline";
 import { readFileSync, readdirSync, statSync, existsSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 
-let CODEX_BIN = "codex";
-try {
-  CODEX_BIN = execSync("command -v codex", { encoding: "utf8" }).trim() || "codex";
-} catch {}
+import { resolveBin } from "./../bin_resolver.mjs";
+const CODEX_BIN = resolveBin("codex") ?? "codex";
 
 // ---------------------------------------------------------------------------
 // Client JSON-RPC (une instance app-server partagée par tout le sidecar)
@@ -209,6 +207,18 @@ export function getGoal({ sessionId, cwd }) {
   return goalRequest("thread/goal/get", { sessionId, cwd });
 }
 
+/** Compaction native du contexte (thread/compact/start). */
+export async function compactThread({ sessionId, cwd }) {
+  if (!sessionId) throw new Error("compact : session Codex absente");
+  const srv = await ensureServer();
+  const codexId = await openThread(srv, {
+    sessionId,
+    threadOpts: buildThreadOptions({ cwd, sandbox: "read-only" }),
+    reuseLoaded: true,
+  });
+  await srv.request("thread/compact/start", { threadId: codexId });
+}
+
 export async function clearGoal({ sessionId, cwd }) {
   await goalRequest("thread/goal/clear", { sessionId, cwd });
   return null;
@@ -218,6 +228,24 @@ export async function clearGoal({ sessionId, cwd }) {
 // Tour d'agent
 // ---------------------------------------------------------------------------
 const activeTurns = new Map(); // atelier threadId -> { codexId, turnId }
+
+/** Steering natif : injecte un message dans le TOUR EN COURS (turn/steer).
+ * Retourne false s'il n'y a pas de tour actif ou si le tour vient de finir
+ * (expectedTurnId périmé) — l'appelant repasse alors par la file d'attente. */
+export async function steer({ threadId, prompt, inputs, imagePath, attachments }) {
+  const t = activeTurns.get(threadId);
+  if (!t?.turnId || !server) return false;
+  try {
+    await server.request("turn/steer", {
+      threadId: t.codexId,
+      input: buildCodexInput({ prompt, inputs, imagePath, attachments }),
+      expectedTurnId: t.turnId,
+    });
+    return true;
+  } catch {
+    return false; // tour terminé entre-temps → l'appelant met en file
+  }
+}
 
 export async function interrupt(threadId) {
   const t = activeTurns.get(threadId);

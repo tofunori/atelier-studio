@@ -81,6 +81,7 @@ export async function connectSidecar(
     ws.onerror = rej;
   });
   ws.send(JSON.stringify({ type: "listThreads" }));
+  ws.send(JSON.stringify({ type: "providerStatus" }));
   // reconnexion auto : sidecar tué/crashé → sidecar_port respawn + nouveau WS
   ws.onclose = () => {
     onDisconnect?.();

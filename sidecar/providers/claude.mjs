@@ -1,5 +1,4 @@
 import { query } from "@anthropic-ai/claude-agent-sdk";
-import { execSync } from "node:child_process";
 import { readFileSync, writeFileSync, mkdirSync } from "node:fs";
 
 // Bundle allégé : le binaire embarqué du SDK est retiré → utiliser le CLI système.
@@ -28,10 +27,8 @@ function logStderr(data) {
   } catch {}
 }
 
-let CLAUDE_BIN = null;
-try {
-  CLAUDE_BIN = execSync("command -v claude", { encoding: "utf8" }).trim() || null;
-} catch {}
+import { resolveBin } from "../bin_resolver.mjs";
+const CLAUDE_BIN = resolveBin("claude");
 
 
 // Sessions PERSISTANTES par thread (streaming input) :

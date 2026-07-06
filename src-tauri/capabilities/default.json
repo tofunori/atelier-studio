@@ -10,7 +10,10 @@
     "opener:default",
     "notification:default",
     "dialog:default",
+    "dialog:allow-confirm",
     "core:webview:allow-create-webview-window",
+    "core:window:allow-set-badge-count",
+    "core:window:allow-set-badge-label",
     "core:window:default",
     "core:webview:default"
   ]

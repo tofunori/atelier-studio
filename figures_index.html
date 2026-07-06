@@ -31,12 +31,18 @@
   .csel-menu div:hover{background:var(--card2)}
   .csel-menu div .ck{width:12px;flex:none;color:var(--accent);opacity:0}
   .csel-menu div.on .ck{opacity:1}
-  .fmt-cats{display:flex;flex-wrap:wrap;gap:6px;padding:6px 10px 8px;max-width:280px}
+  #fmtMenu{min-width:0;width:max-content;max-width:min(292px,calc(100vw - 16px));padding:8px 8px 9px}
+  #fmtMenu .mhd{padding:4px 8px 6px}
+  .fmt-cats{display:grid;grid-template-columns:repeat(2,max-content);gap:6px 7px;padding:5px 8px 9px;max-width:none}
   .fmt-cat{border:1px solid var(--border);border-radius:999px;background:transparent;color:var(--muted);
-    font-size:12px;padding:4px 12px;cursor:pointer}
+    font-size:11.5px;font-weight:500;height:28px;padding:0 10px;cursor:pointer;display:inline-flex;align-items:center;gap:6px}
+  .fmt-cat svg{width:13px;height:13px;display:block;flex:none;stroke:currentColor;stroke-width:1.45;
+    stroke-linecap:round;stroke-linejoin:round;fill:none;opacity:.82}
+  .fmt-cat span{line-height:1}
   .fmt-cat:hover{border-color:var(--border-strong)}
   .fmt-cat.on{background:var(--card2);color:var(--txt);border-color:var(--border-strong)}
   .fmt-cat.mix{color:var(--txt);border-style:dashed}
+  #fmtMenu .fmt-actions{margin-top:5px;padding:7px 8px 1px}
   .seg{display:inline-flex;border:1px solid var(--border);border-radius:6px;overflow:hidden}
   .seg button{border:none;background:transparent;color:var(--muted);font-size:11px;padding:4px 9px;cursor:pointer}
   .seg button.on{background:var(--card2);color:var(--txt)}
@@ -286,7 +292,7 @@
     <svg class="logo" width="19" height="19" viewBox="0 0 24 24" fill="currentColor" aria-label="Gallery"><rect x="2" y="2" width="9.5" height="13.5" rx="1.6"/><rect x="2" y="17" width="9.5" height="5" rx="1.6"/><rect x="13.5" y="2" width="8.5" height="5" rx="1.6"/><rect x="13.5" y="9" width="8.5" height="13" rx="1.6"/></svg>
     <span class="wm">Atelier</span>
     <span class="proj">atelier-studio</span>
-    <span id="galleryStat" class="stat">561 files · 2026-07-06 14:36</span>
+    <span id="galleryStat" class="stat">564 files · 2026-07-06 14:54</span>
     <span class="brand-sp"></span>
     <span class="chip dest" id="boardChip" title="Open the project whiteboard (tldraw)">Board</span>
     <span class="chip dest" id="notesChip" title="Open the project notes (markdown)">Notes</span>
@@ -943,9 +949,9 @@ async function lbShow(i){
   if((window.self!==window.top) && (isTex||isMd||isCode||isPdf)){
     // Studio : latex_studio pour tex/code ; éditeur WYSIWYG pour markdown
     let u;
-    if(isPdf) u='/.fig_thumbs/pdf_viewer.html?file='+encodeURIComponent(f.rel)+'&v=1783362981';
-    else if(isMd) u='/.fig_thumbs/md_studio.html?path='+encodeURIComponent('/Users/tofunori/Documents/atelier-studio/'+f.rel)+'&v=1783362981';
-    else u='/.fig_thumbs/latex_studio.html?path='+encodeURIComponent('/Users/tofunori/Documents/atelier-studio/'+f.rel)+'&v=1783362981';
+    if(isPdf) u='/.fig_thumbs/pdf_viewer.html?file='+encodeURIComponent(f.rel)+'&v=1783364069';
+    else if(isMd) u='/.fig_thumbs/md_studio.html?path='+encodeURIComponent('/Users/tofunori/Documents/atelier-studio/'+f.rel)+'&v=1783364069';
+    else u='/.fig_thumbs/latex_studio.html?path='+encodeURIComponent('/Users/tofunori/Documents/atelier-studio/'+f.rel)+'&v=1783364069';
     __atelierPost({type:'atelier-open-tab', url:u, title:f.name});
     lbIdx=-1;
     return;
@@ -958,11 +964,11 @@ async function lbShow(i){
   if(!isVid && vid.getAttribute('src')){vid.pause();vid.removeAttribute('src');vid.load();}  // stop playback when leaving a video
   lb().classList.toggle('vw', vw);  // full-window editor/viewer
   if(isVid){vid.src=f.rel+'?v='+f.mtime;img.src='';pdf.src='';}
-  else if(isTex){pdf.src='/.fig_thumbs/latex_studio.html?path='+encodeURIComponent('/Users/tofunori/Documents/atelier-studio/'+f.rel)+'&v=1783362981';img.src='';}
-  else if(isPdf){pdf.src='/.fig_thumbs/pdf_viewer.html?file='+encodeURIComponent(f.rel)+'&v=1783362981';img.src='';}
-  else if(isMd){pdf.src='/.fig_thumbs/md_viewer.html?path='+encodeURIComponent('/Users/tofunori/Documents/atelier-studio/'+f.rel)+'&file='+encodeURIComponent(f.rel)+'&v=1783362981';img.src='';}
-  else if(isCode){pdf.src='/.fig_thumbs/code_editor.html?path='+encodeURIComponent('/Users/tofunori/Documents/atelier-studio/'+f.rel)+'&v=1783362981';img.src='';}
-  else if(isSvg){pdf.src='/.fig_thumbs/svg_viewer.html?file='+encodeURIComponent(f.rel)+'&v=1783362981';img.src='';}
+  else if(isTex){pdf.src='/.fig_thumbs/latex_studio.html?path='+encodeURIComponent('/Users/tofunori/Documents/atelier-studio/'+f.rel)+'&v=1783364069';img.src='';}
+  else if(isPdf){pdf.src='/.fig_thumbs/pdf_viewer.html?file='+encodeURIComponent(f.rel)+'&v=1783364069';img.src='';}
+  else if(isMd){pdf.src='/.fig_thumbs/md_viewer.html?path='+encodeURIComponent('/Users/tofunori/Documents/atelier-studio/'+f.rel)+'&file='+encodeURIComponent(f.rel)+'&v=1783364069';img.src='';}
+  else if(isCode){pdf.src='/.fig_thumbs/code_editor.html?path='+encodeURIComponent('/Users/tofunori/Documents/atelier-studio/'+f.rel)+'&v=1783364069';img.src='';}
+  else if(isSvg){pdf.src='/.fig_thumbs/svg_viewer.html?file='+encodeURIComponent(f.rel)+'&v=1783364069';img.src='';}
   else{img.src=f.rel+'?v='+f.mtime;pdf.src='';}
   document.getElementById('lbCap').innerHTML=
     `<b>${esc(f.name)}</b><span>${esc(f.folder)}</span><span>${esc(f.mdate)}</span><a href="${escA(f.rel)}" target="_blank">open original</a>`+
@@ -1161,14 +1167,21 @@ const FMT_CATS = [
   ['Données',  ['csv','xlsx','xls']],
   ['Code',     ['py','r','jl','tex','sh']],
 ];
+const FMT_ICONS = {
+  Images:'<svg viewBox="0 0 16 16" aria-hidden="true"><rect x="2.5" y="3" width="11" height="10" rx="1.8"/><circle cx="6" cy="6.2" r="1"/><path d="M3.5 11l3.1-3 2.2 2 1.4-1.3 2.3 2.3"/></svg>',
+  'Vidéos':'<svg viewBox="0 0 16 16" aria-hidden="true"><rect x="2.5" y="4" width="8" height="8" rx="1.8"/><path d="M10.5 6.5l3-1.7v6.4l-3-1.7z"/></svg>',
+  Documents:'<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M4 2.5h5.2L12 5.3v8.2H4z"/><path d="M9.2 2.5v3H12"/><path d="M6 8.3h4M6 10.5h3"/></svg>',
+  'Données':'<svg viewBox="0 0 16 16" aria-hidden="true"><rect x="2.5" y="3" width="11" height="10" rx="1.6"/><path d="M2.5 6.5h11M2.5 9.5h11M6 3v10M10 3v10"/></svg>',
+  Code:'<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M6.2 5L3.4 8l2.8 3M9.8 5l2.8 3-2.8 3"/></svg>',
+};
 let fmtDetail = false;
 const catState = (ks) => { const on = ks.filter(k=>exts[k]).length; return on===0?'off':on===ks.length?'on':'mix'; };
 function buildFmtMenu(){
   fmtMenu.innerHTML='<div class="mhd">Types de fichiers</div>'
     + '<div class="fmt-cats">'
-    + FMT_CATS.map(([lab,ks],i)=>`<button class="fmt-cat ${catState(ks)}" data-cat="${i}">${lab}</button>`).join('')
+    + FMT_CATS.map(([lab,ks],i)=>`<button class="fmt-cat ${catState(ks)}" data-cat="${i}">${FMT_ICONS[lab]||''}<span>${lab}</span></button>`).join('')
     + '</div>'
-    + `<div class="madd" style="justify-content:space-between;gap:10px"><span class="mlink" data-fmt-detail>${fmtDetail?'Masquer le détail':'Détail…'}</span><span class="mlink" data-fmt-all="reset">Réinitialiser</span></div>`
+    + `<div class="madd fmt-actions" style="justify-content:space-between;gap:10px"><span class="mlink" data-fmt-detail>${fmtDetail?'Masquer le détail':'Détail…'}</span><span class="mlink" data-fmt-all="reset">Réinitialiser</span></div>`
     + (fmtDetail ? TYPE_LIST.map(([e,lab])=>`<div class="mi"><label class="lbl"><input type="checkbox" data-fmt="${e}" ${exts[e]?'checked':''}> ${lab}</label></div>`).join('') : '');
   fmtMenu.onclick=e=>e.stopPropagation();
   fmtMenu.querySelectorAll('.fmt-cat').forEach(b=>{

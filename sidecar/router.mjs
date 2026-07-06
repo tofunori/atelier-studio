@@ -660,6 +660,29 @@ export async function route(msg, ctx) {
       (ctx.broadcast ?? ctx.send)({ type: "threads", threads: ctx.store.list() });
       break;
     }
+    case "codexCompact": {
+      const t = ctx.store.get(msg.threadId);
+      if (!t?.sessionId || t.provider !== "codex") {
+        ctx.send({ type: "error", threadId: msg.threadId, message: "compact : session Codex absente" });
+        break;
+      }
+      try {
+        await ctx.providers.codex.compactThread({ sessionId: t.sessionId, cwd: t.projectRoot || process.env.HOME });
+        (ctx.broadcast ?? ctx.send)({ type: "event", threadId: msg.threadId,
+          event: { kind: "tool", name: "__compacted" } });
+      } catch (e) {
+        ctx.send({ type: "error", threadId: msg.threadId, message: `compact: ${String(e?.message ?? e)}` });
+      }
+      break;
+    }
+    case "codexClear": {
+      // nouveau thread Codex au prochain message ; l'historique visuel reste
+      if (ctx.store.get(msg.threadId)) ctx.store.upsert({ id: msg.threadId, sessionId: null });
+      (ctx.broadcast ?? ctx.send)({ type: "event", threadId: msg.threadId,
+        event: { kind: "tool", name: "__session-cleared" } });
+      (ctx.broadcast ?? ctx.send)({ type: "threads", threads: ctx.store.list() });
+      break;
+    }
     case "goalSet":
     case "goalGet":
     case "goalClear": {
@@ -681,7 +704,10 @@ export async function route(msg, ctx) {
           await codex.clearGoal(args);
         } else {
           const goal = await codex.getGoal(args);
-          if (goal) emit({ type: "event", threadId: msg.threadId, event: { kind: "goal", goal } });
+          // statut demandé explicitement (/goal sans argument) : répondre même sans goal
+          if (goal || msg.explicit) {
+            emit({ type: "event", threadId: msg.threadId, event: { kind: "goal", cleared: !goal, goal } });
+          }
         }
       } catch (e) {
         ctx.send({ type: "error", threadId: msg.threadId, message: `goal: ${String(e?.message ?? e)}` });
@@ -766,8 +792,13 @@ export async function route(msg, ctx) {
         break;
       }
 
-      // providers sans steering (Codex) : file d'attente
+      // Codex en cours : steering natif (turn/steer) d'abord, file d'attente en repli
       if (prev?.status === "running") {
+        if (p.steer && await p.steer({ threadId, prompt, inputs: msg.inputs,
+            imagePath: msg.imagePath, attachments: msg.attachments })) {
+          emit({ type: "event", threadId, event: { kind: "tool", name: "__steered" } });
+          break;
+        }
         const q = pending.get(threadId) ?? [];
         q.push(msg);
         pending.set(threadId, q);

@@ -26,6 +26,7 @@ import { loadSettings, saveSettings, Settings } from "./lib/settings";
 import { THEME_PRESETS, presetById } from "./lib/themes";
 import { setLanguage, t } from "./lib/i18n";
 import { buildItems } from "./lib/palette";
+import { setDockBadge } from "./lib/dockBadge";
 import {
   atelierTargetOrigin,
   isTrustedAtelierMessage,
@@ -145,6 +146,7 @@ export default function App() {
     closable?: boolean;
   } | null>(null);
   const lastInjected = useRef<string | null>(null);
+  const cliBannerText = useRef<string | null>(null); // bandeau « CLI manquant » actif
   const pendingPaste = useRef<string | null>(null); // dataURL en attente de sauvegarde
   const pendingResend = useRef<{ threadId: string; prompt: string; snapshot: any[] } | null>(null);
   const [atelierTabs, setAtelierTabs] = useState<
@@ -231,11 +233,15 @@ export default function App() {
   }, [settings]);
   const [dragging, setDragging] = useState(false);
   const [unread, setUnread] = useState<Set<string>>(new Set());
+  const [dockDone, setDockDone] = useState<Set<string>>(new Set());
   const [qaMode, setQaMode] = useState<"closed" | "open" | "min">("closed");
   const qaModeRef = useRef<"closed" | "open" | "min">("closed");
   qaModeRef.current = qaMode;
   const [usageOpen, setUsageOpen] = useState(false);
   useEffect(() => { initNotify().catch(() => {}); }, []);
+  useEffect(() => {
+    setDockBadge(dockDone.size).catch(() => {});
+  }, [dockDone]);
   const [qaDraft, setQaDraft] = useState("");
   const [qaContext, setQaContext] = useState(""); // threadId -> condition
   const [favorites, setFavorites] = useState<string[]>(() => {
@@ -338,7 +344,38 @@ export default function App() {
     // WS reçoivent chaque broadcast et tout apparaît en double.
     if (connectedOnce.current) return;
     connectedOnce.current = true;
-    connectSidecar((msg) => {
+    let cancelled = false;
+    let retryTimer: ReturnType<typeof setTimeout> | null = null;
+    const scheduleConnect = (delay = 0) => {
+      if (retryTimer) clearTimeout(retryTimer);
+      retryTimer = setTimeout(() => {
+        if (cancelled) return;
+        connectSidecar(handleMessage, (next) => {
+          ws.current = next;
+          setWs(next);
+          setMock(false);
+          setAppBanner((b) => b?.text === t("app.sidecar-disconnected") ? null : b);
+          setWsReady(true);
+        }, () => {
+          setWsReady(false);
+          setAppBanner({ text: t("app.sidecar-disconnected") });
+        })
+          .then((s) => {
+            ws.current = s;
+            setWs(s);
+            setMock(false);
+            setAppBanner((b) => b?.text === t("app.sidecar-disconnected") ? null : b);
+            setWsReady(true);
+          })
+          .catch(() => {
+            setMock(true);
+            setWsReady(false);
+            setAppBanner({ text: t("app.sidecar-disconnected") });
+            scheduleConnect(3000);
+          });
+      }, delay);
+    };
+    const handleMessage = (msg: any) => {
       if (msg.type === "threads") {
         setThreads(msg.threads);
         threadsRef.current = msg.threads;
@@ -433,6 +470,7 @@ export default function App() {
         }
         if (msg.event.kind === "done" || msg.event.kind === "error") {
           setWorkingSince((p) => ({ ...p, [msg.threadId]: null }));
+          setDockDone((u) => new Set(u).add(msg.threadId));
           const th = allThreadsRef.current?.find?.((x: any) => x.id === msg.threadId);
           notifyRunDone({
             threadId: msg.threadId,
@@ -440,7 +478,7 @@ export default function App() {
             ok: msg.event.kind === "done" && msg.event.ok !== false,
             summary: String(msg.event.result ?? "").slice(0, 120),
           }).catch(() => {});
-          if (msg.threadId !== activeIdRef.current) {
+          if (msg.threadId !== activeIdRef.current || document.hidden || !document.hasFocus()) {
             setUnread((u) => new Set(u).add(msg.threadId));
           }
           // l'agent a peut-être régénéré des figures → recharger atelier
@@ -551,6 +589,28 @@ export default function App() {
       if (msg.type === "qaPromoteError") {
         window.dispatchEvent(new CustomEvent("qa-promote-error", { detail: msg }));
       }
+      if (msg.type === "providerStatus") {
+        // lancé depuis le Finder, un CLI peut manquer malgré l'installation ;
+        // le sidecar résout PATH+dossiers standards — s'il dit non, c'est réel
+        const missing = (msg.providers ?? []).filter((p: any) => !p.ok);
+        if (missing.length) {
+          const labels = missing.map((p: any) => p.label).join(", ");
+          cliBannerText.current = t("app.cli-missing", { list: labels });
+          setAppBanner({
+            text: cliBannerText.current,
+            actionLabel: t("app.cli-missing-copy"),
+            onAction: () => {
+              const cmds = missing.map((p: any) =>
+                p.id === "claude" ? "npm install -g @anthropic-ai/claude-code" : "npm install -g @openai/codex");
+              navigator.clipboard?.writeText(cmds.join(" && "));
+            },
+            closable: true,
+          });
+        } else {
+          setAppBanner((b) => b && b.text === cliBannerText.current ? null : b);
+          cliBannerText.current = null;
+        }
+      }
       if (msg.type === "permissionRequest") {
         setEvents((p) => ({
           ...p,
@@ -605,24 +665,12 @@ export default function App() {
           }
         }
       }
-    }, (next) => {
-      ws.current = next;
-      setWs(next);
-      setAppBanner((b) => b?.text === t("app.sidecar-disconnected") ? null : b);
-      setWsReady(true);
-    }, () => {
-      setWsReady(false);
-      setAppBanner({ text: t("app.sidecar-disconnected") });
-    })
-      .then((s) => {
-        ws.current = s;
-        setWs(s);
-        setWsReady(true);
-      })
-      .catch(() => {
-        setMock(true);
-        setAppBanner({ text: t("app.sidecar-disconnected") });
-      });
+    };
+    scheduleConnect();
+    return () => {
+      cancelled = true;
+      if (retryTimer) clearTimeout(retryTimer);
+    };
   }, []);
 
   useEffect(() => {
@@ -784,17 +832,24 @@ export default function App() {
       });
   }, [activeProject]);
 
-  // "Add to chat" depuis le Browser (presse-papier + URL de la page)
+  // "Add to chat" depuis le Browser (sélection si possible, sinon page courante)
   useEffect(() => {
     const onBrowserAdd = (e: Event) => {
-      const { text, url } = (e as CustomEvent).detail as { text: string; url: string };
+      const { text, url, mode } = (e as CustomEvent).detail as {
+        text: string;
+        url?: string;
+        mode?: "selection" | "page";
+      };
       let name = "extrait web";
       try { name = url ? new URL(url).hostname : name; } catch {}
+      const body = mode === "page"
+        ? `Source web ajoutée au contexte :\n${text}`
+        : `Extrait copié depuis ${url || "une page web"} :\n> ${text.split("\n").join("\n> ")}`;
       setAttachments((l) =>
         addAttachment(l, {
           name,
           lines: null,
-          text: `Extrait copié depuis ${url || "une page web"} :\n> ${text.split("\n").join("\n> ")}`,
+          text: body,
         }),
       );
     };
@@ -1014,6 +1069,12 @@ export default function App() {
   function selectThread(threadId: string, projectRoot: string) {
     setActiveId(threadId);
     activeIdRef.current = threadId;
+    setDockDone((u) => {
+      if (!u.has(threadId)) return u;
+      const n = new Set(u);
+      n.delete(threadId);
+      return n;
+    });
     if (!projectRoot) {
       setUnread((u) => { const n = new Set(u); n.delete(threadId); return n; });
       if (!events[threadId]?.length && ws.current?.readyState === 1) {
@@ -1045,6 +1106,36 @@ export default function App() {
     const activeThread = allThreadsRef.current.find((t) => t.id === activeId);
     const threadRoot = activeThread ? activeThread.projectRoot : (activeProject ?? "");
     if (!activeId && !activeProject) return;
+    // /clear et /compact sur un thread CODEX : équivalents natifs app-server
+    const codexActive = activeId && (activeThread?.provider ?? provider) === "codex";
+    if (codexActive && ["/clear", "/compact"].includes(prompt.trim()) && ws.current?.readyState === 1) {
+      ws.current.send(JSON.stringify({
+        type: prompt.trim() === "/clear" ? "codexClear" : "codexCompact",
+        threadId: activeId,
+      }));
+      return;
+    }
+    // /goal sur un thread CODEX : goal natif app-server (set/clear/status),
+    // pas un message texte (codex exec n'interprète pas /goal). Côté Claude,
+    // /goal passe tel quel : la CLI a son goal natif (v2.1.139+).
+    const goalMatch = /^\/goal(?:\s+([\s\S]*))?$/.exec(prompt.trim());
+    if (goalMatch && codexActive) {
+      const arg = (goalMatch[1] ?? "").trim();
+      if (ws.current?.readyState === 1) {
+        const msg =
+          !arg ? { type: "goalGet", threadId: activeId, explicit: true } :
+          ["clear", "stop", "off", "reset", "none", "cancel"].includes(arg.toLowerCase())
+            ? { type: "goalClear", threadId: activeId }
+            : { type: "goalSet", threadId: activeId, objective: arg };
+        ws.current.send(JSON.stringify(msg));
+        // trace visible dans le fil : la commande tapée, comme un message
+        setEvents((p) => ({
+          ...p,
+          [activeId]: [...(p[activeId] ?? []), { kind: "user", text: prompt.trim(), ts: Date.now() } as any],
+        }));
+      }
+      return;
+    }
     // /export : archive locale (pas d'appel agent)
     if (prompt.trim() === "/export" && activeId) {
       if (ws.current?.readyState === 1) {

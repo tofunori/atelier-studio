@@ -31,12 +31,18 @@
   .csel-menu div:hover{background:var(--card2)}
   .csel-menu div .ck{width:12px;flex:none;color:var(--accent);opacity:0}
   .csel-menu div.on .ck{opacity:1}
-  .fmt-cats{display:flex;flex-wrap:wrap;gap:6px;padding:6px 10px 8px;max-width:280px}
+  #fmtMenu{min-width:0;width:max-content;max-width:min(292px,calc(100vw - 16px));padding:8px 8px 9px}
+  #fmtMenu .mhd{padding:4px 8px 6px}
+  .fmt-cats{display:grid;grid-template-columns:repeat(2,max-content);gap:6px 7px;padding:5px 8px 9px;max-width:none}
   .fmt-cat{border:1px solid var(--border);border-radius:999px;background:transparent;color:var(--muted);
-    font-size:12px;padding:4px 12px;cursor:pointer}
+    font-size:11.5px;font-weight:500;height:28px;padding:0 10px;cursor:pointer;display:inline-flex;align-items:center;gap:6px}
+  .fmt-cat svg{width:13px;height:13px;display:block;flex:none;stroke:currentColor;stroke-width:1.45;
+    stroke-linecap:round;stroke-linejoin:round;fill:none;opacity:.82}
+  .fmt-cat span{line-height:1}
   .fmt-cat:hover{border-color:var(--border-strong)}
   .fmt-cat.on{background:var(--card2);color:var(--txt);border-color:var(--border-strong)}
   .fmt-cat.mix{color:var(--txt);border-style:dashed}
+  #fmtMenu .fmt-actions{margin-top:5px;padding:7px 8px 1px}
   .seg{display:inline-flex;border:1px solid var(--border);border-radius:6px;overflow:hidden}
   .seg button{border:none;background:transparent;color:var(--muted);font-size:11px;padding:4px 9px;cursor:pointer}
   .seg button.on{background:var(--card2);color:var(--txt)}
@@ -1161,14 +1167,21 @@ const FMT_CATS = [
   ['Données',  ['csv','xlsx','xls']],
   ['Code',     ['py','r','jl','tex','sh']],
 ];
+const FMT_ICONS = {
+  Images:'<svg viewBox="0 0 16 16" aria-hidden="true"><rect x="2.5" y="3" width="11" height="10" rx="1.8"/><circle cx="6" cy="6.2" r="1"/><path d="M3.5 11l3.1-3 2.2 2 1.4-1.3 2.3 2.3"/></svg>',
+  'Vidéos':'<svg viewBox="0 0 16 16" aria-hidden="true"><rect x="2.5" y="4" width="8" height="8" rx="1.8"/><path d="M10.5 6.5l3-1.7v6.4l-3-1.7z"/></svg>',
+  Documents:'<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M4 2.5h5.2L12 5.3v8.2H4z"/><path d="M9.2 2.5v3H12"/><path d="M6 8.3h4M6 10.5h3"/></svg>',
+  'Données':'<svg viewBox="0 0 16 16" aria-hidden="true"><rect x="2.5" y="3" width="11" height="10" rx="1.6"/><path d="M2.5 6.5h11M2.5 9.5h11M6 3v10M10 3v10"/></svg>',
+  Code:'<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M6.2 5L3.4 8l2.8 3M9.8 5l2.8 3-2.8 3"/></svg>',
+};
 let fmtDetail = false;
 const catState = (ks) => { const on = ks.filter(k=>exts[k]).length; return on===0?'off':on===ks.length?'on':'mix'; };
 function buildFmtMenu(){
   fmtMenu.innerHTML='<div class="mhd">Types de fichiers</div>'
     + '<div class="fmt-cats">'
-    + FMT_CATS.map(([lab,ks],i)=>`<button class="fmt-cat ${catState(ks)}" data-cat="${i}">${lab}</button>`).join('')
+    + FMT_CATS.map(([lab,ks],i)=>`<button class="fmt-cat ${catState(ks)}" data-cat="${i}">${FMT_ICONS[lab]||''}<span>${lab}</span></button>`).join('')
     + '</div>'
-    + `<div class="madd" style="justify-content:space-between;gap:10px"><span class="mlink" data-fmt-detail>${fmtDetail?'Masquer le détail':'Détail…'}</span><span class="mlink" data-fmt-all="reset">Réinitialiser</span></div>`
+    + `<div class="madd fmt-actions" style="justify-content:space-between;gap:10px"><span class="mlink" data-fmt-detail>${fmtDetail?'Masquer le détail':'Détail…'}</span><span class="mlink" data-fmt-all="reset">Réinitialiser</span></div>`
     + (fmtDetail ? TYPE_LIST.map(([e,lab])=>`<div class="mi"><label class="lbl"><input type="checkbox" data-fmt="${e}" ${exts[e]?'checked':''}> ${lab}</label></div>`).join('') : '');
   fmtMenu.onclick=e=>e.stopPropagation();
   fmtMenu.querySelectorAll('.fmt-cat').forEach(b=>{

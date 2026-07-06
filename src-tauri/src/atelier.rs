@@ -155,7 +155,8 @@ pub fn start_atelier(
     }
 
     if use_node {
-        Command::new("node")
+        let node = crate::bin_resolver::node_bin()?;
+        Command::new(node)
             .env("ATELIER_STUDIO", "1")
             .env("GALLERY_ROOT", &root)
             .env("FIG_PORT", port.to_string())

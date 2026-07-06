@@ -3,7 +3,8 @@ import { join } from "node:path";
 import { homedir } from "node:os";
 import { execSync } from "node:child_process";
 
-const BUILTINS = ["loop", "clear", "compact", "model", "memory", "review", "context"];
+// vérifié sur session SDK live 2026-07-06 : model/memory ne sont PAS interprétées par le SDK
+const BUILTINS = ["goal", "loop", "clear", "compact", "review", "context"];
 
 /** Skills + slash commands visibles pour un projet (user + projet). */
 export function listCommands(projectRoot) {

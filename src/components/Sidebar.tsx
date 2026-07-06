@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { confirm as tauriConfirm } from "@tauri-apps/plugin-dialog";
 import { Thread } from "../lib/ws";
 import { PROJ_COLORS } from "./Rail";
 import { wsSend } from "../lib/wsBus";
@@ -150,6 +151,8 @@ export default function Sidebar(p: {
   onSetMeta: (root: string, meta: { color?: string; label?: string }) => void;
 }) {
   const [menu, setMenu] = useState<Menu | null>(null);
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const selAnchor = useRef<string | null>(null);
   const [projMenu, setProjMenu] = useState<{ root: string; x: number; y: number } | null>(null);
   const [resumeOpen, setResumeOpen] = useState(false);
   const [resumeProv, setResumeProv] = useState<"claude" | "codex">("claude");
@@ -229,6 +232,84 @@ export default function Sidebar(p: {
     setEditingId(t.id);
   }
 
+  // ordre visible des threads (favoris, puis projets, puis chats) pour la plage shift+clic
+  function visibleThreadIds(): string[] {
+    const ids: string[] = [];
+    if (!secClosed.fav) {
+      for (const id of p.favorites) if (p.threads.some((t) => t.id === id)) ids.push(id);
+    }
+    if (!secClosed.proj) {
+      for (const root of p.projects) {
+        if (collapsed.includes(root)) continue;
+        const threads = p.threads
+          .filter((t) => threadRoot(t) === root)
+          .sort((a, b) =>
+            p.threadOrder === "manual"
+              ? ((a as any).createdAt ?? a.updatedAt ?? "").localeCompare((b as any).createdAt ?? b.updatedAt ?? "")
+              : 0,
+          );
+        for (const t of threads) ids.push(t.id);
+      }
+    }
+    if (!secClosed.chats) {
+      for (const t of p.threads) if (!threadRoot(t)) ids.push(t.id);
+    }
+    return ids;
+  }
+
+  function handleThreadClick(e: React.MouseEvent, t: Thread, root: string) {
+    if (e.shiftKey) {
+      e.preventDefault();
+      const ids = visibleThreadIds();
+      const anchor = selAnchor.current && ids.includes(selAnchor.current) ? selAnchor.current : t.id;
+      const a = ids.indexOf(anchor);
+      const b = ids.indexOf(t.id);
+      const range = ids.slice(Math.min(a, b), Math.max(a, b) + 1);
+      setSelected((prev) => new Set([...prev, ...range]));
+      return;
+    }
+    if (e.metaKey || e.ctrlKey) {
+      e.preventDefault();
+      selAnchor.current = t.id;
+      setSelected((prev) => {
+        const next = new Set(prev);
+        if (next.has(t.id)) next.delete(t.id);
+        else next.add(t.id);
+        return next;
+      });
+      return;
+    }
+    selAnchor.current = t.id;
+    if (selected.size) setSelected(new Set());
+    p.onSelect(t.id, root);
+  }
+
+  async function deleteSelected(fallbackId: string) {
+    const ids = selected.size ? [...selected] : [fallbackId];
+    if (ids.length > 1) {
+      const ok = await tauriConfirm(tr("sidebar.delete-many-confirm", { count: ids.length }), { kind: "warning" }).catch(() => true);
+      if (!ok) return;
+    }
+    for (const id of ids) p.onDelete(id);
+    setSelected(new Set());
+    selAnchor.current = null;
+  }
+
+  useEffect(() => {
+    if (!selected.size) return;
+    const onKey = (e: KeyboardEvent) => {
+      const el = document.activeElement;
+      if (el && (el.tagName === "INPUT" || el.tagName === "TEXTAREA" || (el as HTMLElement).isContentEditable)) return;
+      if (e.key === "Escape") setSelected(new Set());
+      if (e.key === "Delete" || e.key === "Backspace") {
+        e.preventDefault();
+        void deleteSelected([...selected][0]);
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [selected]);
+
   function titleEditor(t: Thread) {
     return editingId === t.id ? (
       <input
@@ -296,8 +377,8 @@ export default function Sidebar(p: {
               .map((t) => (
                 <li
                   key={t.id}
-                  className={t.id === p.activeId ? "active" : ""}
-                  onClick={() => p.onSelect(t.id, threadRoot(t))}
+                  className={`${t.id === p.activeId ? "active" : ""} ${selected.has(t.id) ? "multi-sel" : ""}`}
+                  onClick={(e) => handleThreadClick(e, t, threadRoot(t))}
                   onDoubleClick={(e) => {
                     e.stopPropagation();
                     startRename(t);
@@ -385,8 +466,8 @@ export default function Sidebar(p: {
                 return (
                   <li
                     key={t.id}
-                    className={t.id === p.activeId ? "active" : ""}
-                    onClick={() => p.onSelect(t.id, root)}
+                    className={`${t.id === p.activeId ? "active" : ""} ${selected.has(t.id) ? "multi-sel" : ""}`}
+                    onClick={(e) => handleThreadClick(e, t, root)}
                     onDoubleClick={(e) => {
                       e.stopPropagation();
                       startRename(t);
@@ -412,7 +493,7 @@ export default function Sidebar(p: {
                         </svg>
                       </button>
                       <button className="row-act danger" title={tr("action.delete")}
-                        onClick={() => p.onDelete(t.id)}>
+                        onClick={() => deleteSelected(t.id)}>
                         <svg width="11" height="11" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round">
                           <path d="M4 4l8 8M12 4l-8 8" />
                         </svg>
@@ -457,8 +538,8 @@ export default function Sidebar(p: {
             return (
               <li
                 key={t.id}
-                className={t.id === p.activeId ? "active" : ""}
-                onClick={() => p.onSelect(t.id, "")}
+                className={`${t.id === p.activeId ? "active" : ""} ${selected.has(t.id) ? "multi-sel" : ""}`}
+                onClick={(e) => handleThreadClick(e, t, "")}
                 onDoubleClick={(e) => {
                   e.stopPropagation();
                   startRename(t);
@@ -629,11 +710,13 @@ export default function Sidebar(p: {
           <div
             className="danger"
             onClick={() => {
-              p.onDelete(menu.threadId);
+              deleteSelected(menu.threadId);
               setMenu(null);
             }}
           >
-            {t("action.delete")}
+            {selected.size > 1 && selected.has(menu.threadId)
+              ? tr("sidebar.delete-many", { count: selected.size })
+              : t("action.delete")}
           </div>
         </div>
       )}
