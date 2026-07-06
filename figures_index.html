@@ -31,6 +31,12 @@
   .csel-menu div:hover{background:var(--card2)}
   .csel-menu div .ck{width:12px;flex:none;color:var(--accent);opacity:0}
   .csel-menu div.on .ck{opacity:1}
+  .fmt-cats{display:flex;flex-wrap:wrap;gap:6px;padding:6px 10px 8px;max-width:280px}
+  .fmt-cat{border:1px solid var(--border);border-radius:999px;background:transparent;color:var(--muted);
+    font-size:12px;padding:4px 12px;cursor:pointer}
+  .fmt-cat:hover{border-color:var(--border-strong)}
+  .fmt-cat.on{background:var(--card2);color:var(--txt);border-color:var(--border-strong)}
+  .fmt-cat.mix{color:var(--txt);border-style:dashed}
   .seg{display:inline-flex;border:1px solid var(--border);border-radius:6px;overflow:hidden}
   .seg button{border:none;background:transparent;color:var(--muted);font-size:11px;padding:4px 9px;cursor:pointer}
   .seg button.on{background:var(--card2);color:var(--txt)}
@@ -64,6 +70,9 @@
         color:var(--muted)}
   #rescan:hover{color:var(--txt)}
   #rescan svg{display:block}
+  #rescan.spinning svg{animation:rescan-spin .9s linear infinite;color:var(--accent)}
+  @keyframes rescan-spin{to{transform:rotate(360deg)}}
+  @media (prefers-reduced-motion:reduce){#rescan.spinning svg{animation:none;opacity:.5}}
   .menu{position:fixed;z-index:60;display:none;flex-direction:column;gap:2px;
         background:var(--card);border:1px solid var(--border);border-radius:10px;padding:7px;min-width:min(200px,calc(100vw - 16px));max-width:min(360px,calc(100vw - 16px));
         max-height:62vh;overflow:auto;box-shadow:0 8px 28px rgba(0,0,0,.5)}
@@ -277,7 +286,7 @@
     <svg class="logo" width="19" height="19" viewBox="0 0 24 24" fill="currentColor" aria-label="Gallery"><rect x="2" y="2" width="9.5" height="13.5" rx="1.6"/><rect x="2" y="17" width="9.5" height="5" rx="1.6"/><rect x="13.5" y="2" width="8.5" height="5" rx="1.6"/><rect x="13.5" y="9" width="8.5" height="13" rx="1.6"/></svg>
     <span class="wm">Atelier</span>
     <span class="proj">atelier-studio</span>
-    <span id="galleryStat" class="stat">543 files · 2026-07-06 10:30</span>
+    <span id="galleryStat" class="stat">561 files · 2026-07-06 14:36</span>
     <span class="brand-sp"></span>
     <span class="chip dest" id="boardChip" title="Open the project whiteboard (tldraw)">Board</span>
     <span class="chip dest" id="notesChip" title="Open the project notes (markdown)">Notes</span>
@@ -934,9 +943,9 @@ async function lbShow(i){
   if((window.self!==window.top) && (isTex||isMd||isCode||isPdf)){
     // Studio : latex_studio pour tex/code ; éditeur WYSIWYG pour markdown
     let u;
-    if(isPdf) u='/.fig_thumbs/pdf_viewer.html?file='+encodeURIComponent(f.rel)+'&v=1783348256';
-    else if(isMd) u='/.fig_thumbs/md_studio.html?path='+encodeURIComponent('/Users/tofunori/Documents/atelier-studio/'+f.rel)+'&v=1783348256';
-    else u='/.fig_thumbs/latex_studio.html?path='+encodeURIComponent('/Users/tofunori/Documents/atelier-studio/'+f.rel)+'&v=1783348256';
+    if(isPdf) u='/.fig_thumbs/pdf_viewer.html?file='+encodeURIComponent(f.rel)+'&v=1783362981';
+    else if(isMd) u='/.fig_thumbs/md_studio.html?path='+encodeURIComponent('/Users/tofunori/Documents/atelier-studio/'+f.rel)+'&v=1783362981';
+    else u='/.fig_thumbs/latex_studio.html?path='+encodeURIComponent('/Users/tofunori/Documents/atelier-studio/'+f.rel)+'&v=1783362981';
     __atelierPost({type:'atelier-open-tab', url:u, title:f.name});
     lbIdx=-1;
     return;
@@ -949,11 +958,11 @@ async function lbShow(i){
   if(!isVid && vid.getAttribute('src')){vid.pause();vid.removeAttribute('src');vid.load();}  // stop playback when leaving a video
   lb().classList.toggle('vw', vw);  // full-window editor/viewer
   if(isVid){vid.src=f.rel+'?v='+f.mtime;img.src='';pdf.src='';}
-  else if(isTex){pdf.src='/.fig_thumbs/latex_studio.html?path='+encodeURIComponent('/Users/tofunori/Documents/atelier-studio/'+f.rel)+'&v=1783348256';img.src='';}
-  else if(isPdf){pdf.src='/.fig_thumbs/pdf_viewer.html?file='+encodeURIComponent(f.rel)+'&v=1783348256';img.src='';}
-  else if(isMd){pdf.src='/.fig_thumbs/md_viewer.html?path='+encodeURIComponent('/Users/tofunori/Documents/atelier-studio/'+f.rel)+'&file='+encodeURIComponent(f.rel)+'&v=1783348256';img.src='';}
-  else if(isCode){pdf.src='/.fig_thumbs/code_editor.html?path='+encodeURIComponent('/Users/tofunori/Documents/atelier-studio/'+f.rel)+'&v=1783348256';img.src='';}
-  else if(isSvg){pdf.src='/.fig_thumbs/svg_viewer.html?file='+encodeURIComponent(f.rel)+'&v=1783348256';img.src='';}
+  else if(isTex){pdf.src='/.fig_thumbs/latex_studio.html?path='+encodeURIComponent('/Users/tofunori/Documents/atelier-studio/'+f.rel)+'&v=1783362981';img.src='';}
+  else if(isPdf){pdf.src='/.fig_thumbs/pdf_viewer.html?file='+encodeURIComponent(f.rel)+'&v=1783362981';img.src='';}
+  else if(isMd){pdf.src='/.fig_thumbs/md_viewer.html?path='+encodeURIComponent('/Users/tofunori/Documents/atelier-studio/'+f.rel)+'&file='+encodeURIComponent(f.rel)+'&v=1783362981';img.src='';}
+  else if(isCode){pdf.src='/.fig_thumbs/code_editor.html?path='+encodeURIComponent('/Users/tofunori/Documents/atelier-studio/'+f.rel)+'&v=1783362981';img.src='';}
+  else if(isSvg){pdf.src='/.fig_thumbs/svg_viewer.html?file='+encodeURIComponent(f.rel)+'&v=1783362981';img.src='';}
   else{img.src=f.rel+'?v='+f.mtime;pdf.src='';}
   document.getElementById('lbCap').innerHTML=
     `<b>${esc(f.name)}</b><span>${esc(f.folder)}</span><span>${esc(f.mdate)}</span><a href="${escA(f.rel)}" target="_blank">open original</a>`+
@@ -1140,22 +1149,36 @@ const TYPE_LIST = [['png','PNG'],['jpg','JPG'],['svg','SVG'],['mp4','Video (mp4/
 const fmtMenu=document.getElementById('fmtMenu'), fmtChip=document.getElementById('fmtChip');
 const typeGroup = e => e==='jpg'?['jpg','jpeg']:e==='mp4'?['mp4','m4v','mov','webm']:e==='xlsx'?['xlsx','xls']:[e];
 function fmtChipLabel(){
-  const n=TYPE_LIST.filter(([e])=>exts[e]).length;
-  fmtChip.innerHTML='Formats'+(n?' ('+n+')':'')+' &#9662;';
-  fmtChip.classList.toggle('off',!n);
+  const on=FMT_CATS.filter(([,ks])=>ks.some(k=>exts[k])).map(([lab])=>lab);
+  fmtChip.innerHTML=(on.length===0?'Formats':on.length<=2?on.join(' + '):'Formats ('+on.length+')')+' &#9662;';
+  fmtChip.classList.toggle('off',!on.length);
 }
+// 5 catégories au lieu de 15 lignes ; « Détail » déplie les types individuels
+const FMT_CATS = [
+  ['Images',   ['png','jpg','jpeg','svg']],
+  ['Vidéos',   ['mp4','m4v','mov','webm']],
+  ['Documents',['pdf','html','docx','md']],
+  ['Données',  ['csv','xlsx','xls']],
+  ['Code',     ['py','r','jl','tex','sh']],
+];
+let fmtDetail = false;
+const catState = (ks) => { const on = ks.filter(k=>exts[k]).length; return on===0?'off':on===ks.length?'on':'mix'; };
 function buildFmtMenu(){
-  fmtMenu.innerHTML='<div class="mhd">Show file types</div>'+
-    TYPE_LIST.map(([e,lab])=>`<div class="mi"><label class="lbl"><input type="checkbox" data-fmt="${e}" ${exts[e]?'checked':''}> ${lab}</label><span class="only" data-only="${e}" title="Show only this type">only</span></div>`).join('')+
-    '<div class="madd" style="justify-content:space-between;gap:10px"><span class="mlink" data-fmt-all="img">Images only</span><span class="mlink" data-fmt-all="reset">Reset</span></div>';
+  fmtMenu.innerHTML='<div class="mhd">Types de fichiers</div>'
+    + '<div class="fmt-cats">'
+    + FMT_CATS.map(([lab,ks],i)=>`<button class="fmt-cat ${catState(ks)}" data-cat="${i}">${lab}</button>`).join('')
+    + '</div>'
+    + `<div class="madd" style="justify-content:space-between;gap:10px"><span class="mlink" data-fmt-detail>${fmtDetail?'Masquer le détail':'Détail…'}</span><span class="mlink" data-fmt-all="reset">Réinitialiser</span></div>`
+    + (fmtDetail ? TYPE_LIST.map(([e,lab])=>`<div class="mi"><label class="lbl"><input type="checkbox" data-fmt="${e}" ${exts[e]?'checked':''}> ${lab}</label></div>`).join('') : '');
   fmtMenu.onclick=e=>e.stopPropagation();
+  fmtMenu.querySelectorAll('.fmt-cat').forEach(b=>{
+    b.onclick=()=>{ const ks=FMT_CATS[+b.dataset.cat][1]; const turnOn = catState(ks)!=='on';
+      ks.forEach(k=>exts[k]=turnOn); saveExts(); buildFmtMenu(); fmtChipLabel(); render(); };
+  });
   fmtMenu.querySelectorAll('input[data-fmt]').forEach(cb=>{
-    cb.onchange=()=>{ typeGroup(cb.dataset.fmt).forEach(k=>exts[k]=cb.checked); saveExts(); fmtChipLabel(); render(); };
+    cb.onchange=()=>{ typeGroup(cb.dataset.fmt).forEach(k=>exts[k]=cb.checked); saveExts(); fmtChipLabel(); buildFmtMenu(); render(); };
   });
-  fmtMenu.querySelectorAll('[data-only]').forEach(el=>{
-    el.onclick=()=>{ Object.keys(exts).forEach(k=>exts[k]=false); typeGroup(el.dataset.only).forEach(k=>exts[k]=true); saveExts(); buildFmtMenu(); fmtChipLabel(); render(); };
-  });
-  const ia=fmtMenu.querySelector('[data-fmt-all="img"]'); if(ia) ia.onclick=()=>{ Object.keys(exts).forEach(k=>exts[k]=false); ['png','jpg','jpeg','svg'].forEach(k=>exts[k]=true); saveExts(); buildFmtMenu(); fmtChipLabel(); render(); };
+  const dt=fmtMenu.querySelector('[data-fmt-detail]'); if(dt) dt.onclick=()=>{ fmtDetail=!fmtDetail; buildFmtMenu(); };
   const rs=fmtMenu.querySelector('[data-fmt-all="reset"]'); if(rs) rs.onclick=()=>{ Object.assign(exts, DEFAULT_EXTS); saveExts(); buildFmtMenu(); fmtChipLabel(); render(); };
 }
 fmtChip.onclick=e=>{ e.stopPropagation(); buildFmtMenu(); menuToggle(fmtMenu, fmtChip); };
@@ -1275,14 +1298,15 @@ quoteCheck(); setInterval(quoteCheck, 30000);
 checkHealth(); setInterval(checkHealth, 60000);
 quoteBtn.onclick=async()=>{await fetch('/clear-quote',{method:'POST'}).catch(()=>{}); quoteBtn.style.display='none';};
 document.getElementById('rescan').onclick=async function(){
-  this.textContent='⏳ scanning…';
+  if(this.classList.contains('spinning')) return;
+  this.classList.add('spinning');
   try{
     const r=await fetch('/rescan',{method:'POST'});
     const j=await r.json();
     if(j.ok){ location.reload(); return; }
-    this.textContent='✗ error';
-  }catch(e){ this.textContent='server off'; }
-  setTimeout(()=>this.textContent='↻ Rescan',2000);
+    this.title='Rescan — erreur, réessayer';
+  }catch(e){ this.title='Rescan — serveur injoignable'; }
+  this.classList.remove('spinning');
 };
 document.getElementById('delSel').onclick=async function(){
   if(!selSet.size) return;
@@ -1569,7 +1593,7 @@ function annotInit(){
       const j=await annotPost(true);
       annotSent=true;
       this.textContent='✓';
-      lbl.textContent=j.submitted?'Envoyé à la session ✓':'Collé dans Claude ✓';
+      lbl.textContent=ANNOT_EMBEDDED?'Added to chat ✓':(j.submitted?'Sent to session ✓':'Pasted into Claude ✓');
     }catch(e){
       this.textContent='!';
       lbl.textContent='Serveur off — démarrer le serveur';
