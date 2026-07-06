@@ -1165,8 +1165,11 @@ const fsel = document.getElementById('folder');
 function populateFolders(){
   const keep=fsel.value;
   fsel.innerHTML='';
+  // l option « tous » (valeur vide) doit SURVIVRE au repeuplement — sinon le
+  // premier dossier devient le filtre actif et la galerie paraît vide
+  const all=document.createElement('option'); all.value=''; all.textContent='All folders'; fsel.appendChild(all);
   FOLDERS.forEach(f=>{const o=document.createElement('option');o.value=f;o.textContent=f;fsel.appendChild(o);});
-  if(FOLDERS.includes(keep)) fsel.value=keep;
+  fsel.value = FOLDERS.includes(keep) ? keep : '';
 }
 populateFolders();
 
