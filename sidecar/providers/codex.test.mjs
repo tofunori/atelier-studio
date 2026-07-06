@@ -1,9 +1,11 @@
 import { describe, expect, it } from "vitest";
 import { buildCodexInput, buildThreadOptions } from "./codex.mjs";
 
-describe("codex provider helpers", () => {
-  it("conserve une entrée texte simple sans image", () => {
-    expect(buildCodexInput({ prompt: "Salut" })).toBe("Salut");
+describe("codex provider helpers (app-server)", () => {
+  it("emballe une entrée texte simple au format UserInput", () => {
+    expect(buildCodexInput({ prompt: "Salut" })).toEqual([
+      { type: "text", text: "Salut", text_elements: [] },
+    ]);
   });
 
   it("construit une entrée structurée avec images locales", () => {
@@ -12,9 +14,9 @@ describe("codex provider helpers", () => {
       imagePath: "/tmp/a.png",
       attachments: [{ path: "/tmp/b.jpg" }, { imagePath: "/tmp/a.png" }],
     })).toEqual([
-      { type: "text", text: "Décris" },
-      { type: "local_image", path: "/tmp/a.png" },
-      { type: "local_image", path: "/tmp/b.jpg" },
+      { type: "text", text: "Décris", text_elements: [] },
+      { type: "localImage", path: "/tmp/a.png" },
+      { type: "localImage", path: "/tmp/b.jpg" },
     ]);
   });
 
@@ -26,12 +28,12 @@ describe("codex provider helpers", () => {
         { type: "local_image" },
       ],
     })).toEqual([
-      { type: "text", text: "Lis" },
-      { type: "local_image", path: "/tmp/ui.png" },
+      { type: "text", text: "Lis", text_elements: [] },
+      { type: "localImage", path: "/tmp/ui.png" },
     ]);
   });
 
-  it("expose les options de thread Codex optionnelles", () => {
+  it("expose les options de thread app-server", () => {
     expect(buildThreadOptions({
       cwd: "/repo",
       model: "gpt-5.5",
@@ -39,13 +41,19 @@ describe("codex provider helpers", () => {
       webSearch: true,
       additionalDirectories: ["/extra"],
     })).toEqual({
-      workingDirectory: "/repo",
-      skipGitRepoCheck: true,
-      sandboxMode: "danger-full-access",
+      cwd: "/repo",
       model: "gpt-5.5",
-      modelReasoningEffort: "high",
-      webSearchMode: "live",
-      additionalDirectories: ["/extra"],
+      approvalPolicy: "never",
+      sandbox: "danger-full-access",
+      config: {
+        web_search: "live",
+        sandbox_workspace_write: { writable_roots: ["/extra"] },
+      },
+      effortHint: "high",
     });
+  });
+
+  it("garde le sandbox demandé (reviewer read-only)", () => {
+    expect(buildThreadOptions({ cwd: "/repo", sandbox: "read-only" }).sandbox).toBe("read-only");
   });
 });

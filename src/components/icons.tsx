@@ -112,52 +112,6 @@ export function CloseIcon({ size = 13 }: IconProps) {
   );
 }
 
-export function TargetIcon({ size = 13 }: IconProps) {
-  return (
-    <StrokeIcon size={size}>
-      <circle cx="8" cy="8" r="5.6" />
-      <circle cx="8" cy="8" r="2.4" />
-      <path d="M8 1.8v2M8 12.2v2M1.8 8h2M12.2 8h2" />
-    </StrokeIcon>
-  );
-}
-
-export function PencilIcon({ size = 13 }: IconProps) {
-  return (
-    <StrokeIcon size={size}>
-      <path d="M10.8 2.7l2.5 2.5-6.9 6.9-3.1.8.8-3.1z" />
-      <path d="M9.5 4l2.5 2.5" />
-    </StrokeIcon>
-  );
-}
-
-export function PauseCircleIcon({ size = 13 }: IconProps) {
-  return (
-    <StrokeIcon size={size}>
-      <circle cx="8" cy="8" r="5.8" />
-      <path d="M6.4 5.7v4.6M9.6 5.7v4.6" />
-    </StrokeIcon>
-  );
-}
-
-export function PlayCircleIcon({ size = 13 }: IconProps) {
-  return (
-    <StrokeIcon size={size}>
-      <circle cx="8" cy="8" r="5.8" />
-      <path d="M6.7 5.6l4 2.4-4 2.4z" />
-    </StrokeIcon>
-  );
-}
-
-export function TrashIcon({ size = 13 }: IconProps) {
-  return (
-    <StrokeIcon size={size}>
-      <path d="M3.2 4.5h9.6M6.2 4.5V3.2h3.6v1.3M5 6v6.4c0 .7.5 1.2 1.2 1.2h3.6c.7 0 1.2-.5 1.2-1.2V6" />
-      <path d="M7 7.4v4M9 7.4v4" />
-    </StrokeIcon>
-  );
-}
-
 export function RefreshIcon({ size = 13 }: IconProps) {
   return (
     <StrokeIcon size={size}>

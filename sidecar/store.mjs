@@ -2,7 +2,6 @@ import { readFileSync, writeFileSync, mkdirSync, existsSync, renameSync } from "
 import { dirname } from "node:path";
 
 const VALID_STATUSES = new Set(["idle", "running", "done"]);
-const VALID_GOAL_STATUSES = new Set(["active", "paused"]);
 
 export function writeFileAtomic(filePath, data) {
   mkdirSync(dirname(filePath), { recursive: true });
@@ -31,21 +30,6 @@ function normalizeThread(raw) {
     status: VALID_STATUSES.has(raw.status) ? raw.status : "idle",
     updatedAt,
     createdAt: typeof raw.createdAt === "string" && raw.createdAt ? raw.createdAt : updatedAt,
-    goal: normalizeGoal(raw.goal),
-  };
-}
-
-function normalizeGoal(raw) {
-  if (!raw || typeof raw !== "object") return null;
-  const text = typeof raw.text === "string" ? raw.text.trim() : "";
-  if (!text) return null;
-  const updatedAt =
-    typeof raw.updatedAt === "string" && raw.updatedAt ? raw.updatedAt : new Date().toISOString();
-  return {
-    text,
-    status: VALID_GOAL_STATUSES.has(raw.status) ? raw.status : "active",
-    createdAt: typeof raw.createdAt === "string" && raw.createdAt ? raw.createdAt : updatedAt,
-    updatedAt,
   };
 }
 

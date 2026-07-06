@@ -1,9 +1,233 @@
-import { Codex } from "@openai/codex-sdk";
+// Provider Codex via `codex app-server` (JSON-RPC stdio, JSONL).
+// Remplace l'ancien pont SDK (`codex exec`) : threads persistants côté serveur,
+// steering natif possible plus tard, et surtout accès aux GOALS
+// (thread/goal/set|get|clear + notifications thread/goal/updated).
+import { spawn, execSync } from "node:child_process";
+import { createInterface } from "node:readline";
 import { readFileSync, readdirSync, statSync, existsSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 
-/** Dernier token_count du rollout d'un thread : vrai contexte + fenêtre modèle. */
+let CODEX_BIN = "codex";
+try {
+  CODEX_BIN = execSync("command -v codex", { encoding: "utf8" }).trim() || "codex";
+} catch {}
+
+// ---------------------------------------------------------------------------
+// Client JSON-RPC (une instance app-server partagée par tout le sidecar)
+// ---------------------------------------------------------------------------
+let server = null; // { proc, request(method, params), nextId }
+const pendingRpc = new Map(); // id -> { resolve, reject }
+const threadHandlers = new Map(); // codexThreadId -> (method, params) => void
+const threadOwners = new Map(); // codexThreadId -> atelier threadId
+const loadedThreads = new Set(); // codexThreadIds déjà démarrés/répris dans CE serveur
+const threadSandbox = new Map(); // codexThreadId -> sandbox du thread
+let goalEmitter = null; // (atelierThreadId|null, event) => void
+
+/** index.mjs enregistre ici le broadcast des événements goal hors-tour. */
+export function onGoal(cb) {
+  goalEmitter = cb;
+}
+
+function resetServerState(err) {
+  const e = err ?? new Error("codex app-server terminé");
+  for (const { reject } of pendingRpc.values()) reject(e);
+  pendingRpc.clear();
+  loadedThreads.clear();
+  threadSandbox.clear();
+  server = null;
+  // tours en cours : les terminer proprement, sinon le thread reste "running"
+  // et la file d'attente du router n'est jamais dépilée
+  for (const handler of [...threadHandlers.values()]) {
+    try {
+      handler("turn/completed", { turn: { status: "failed", error: { message: String(e.message ?? e) } } });
+    } catch {}
+  }
+  threadHandlers.clear();
+}
+
+// réponses automatiques aux demandes serveur : la politique d'approbation est
+// "never" et la sécurité vient du sandbox — on approuve donc ce qui passe.
+function answerServerRequest(msg) {
+  const m = msg.method ?? "";
+  if (m === "execCommandApproval" || m === "applyPatchApproval" ||
+      (m.startsWith("item/") && m.includes("requestApproval"))) {
+    // n'approuver que les threads full-access ; un thread read-only (reviewer)
+    // ne doit pas pouvoir escalader hors sandbox
+    const tid = msg.params?.threadId ?? msg.params?.conversationId ?? null;
+    const full = tid ? threadSandbox.get(tid) === "danger-full-access" : false;
+    return { decision: full ? "approved" : "denied" };
+  }
+  return {}; // réponse vide par défaut (mieux que laisser pendre la requête)
+}
+
+function dispatchNotification(msg) {
+  const params = msg.params ?? {};
+  const codexThreadId = params.threadId ?? params.thread?.id ?? null;
+  // goals : relayés aussi hors-tour (le front suit l'objectif en continu)
+  if (msg.method === "thread/goal/updated" || msg.method === "thread/goal/cleared") {
+    const ev = {
+      kind: "goal",
+      cleared: msg.method === "thread/goal/cleared",
+      goal: params.goal ?? null,
+    };
+    const owner = codexThreadId ? threadOwners.get(codexThreadId) : null;
+    goalEmitter?.(owner ?? null, ev);
+  }
+  if (!codexThreadId) return;
+  threadHandlers.get(codexThreadId)?.(msg.method, params);
+}
+
+async function ensureServer() {
+  if (server) return server;
+  const proc = spawn(CODEX_BIN, ["app-server"], { stdio: ["pipe", "pipe", "pipe"] });
+  proc.on("exit", () => resetServerState(new Error("codex app-server a quitté")));
+  proc.on("error", (e) => resetServerState(e));
+  proc.stderr.on("data", () => {}); // logs serveur ignorés (bruyants)
+  const rl = createInterface({ input: proc.stdout });
+  rl.on("line", (line) => {
+    let msg;
+    try { msg = JSON.parse(line); } catch { return; }
+    if (msg.id != null && msg.method) {
+      // requête serveur → client (approbations)
+      const result = answerServerRequest(msg);
+      proc.stdin.write(JSON.stringify({ id: msg.id, result }) + "\n");
+      return;
+    }
+    if (msg.id != null) {
+      const p = pendingRpc.get(msg.id);
+      if (!p) return;
+      pendingRpc.delete(msg.id);
+      if (msg.error) p.reject(new Error(msg.error.message ?? "erreur app-server"));
+      else p.resolve(msg.result);
+      return;
+    }
+    if (msg.method) dispatchNotification(msg);
+  });
+  let nextId = 1;
+  const request = (method, params) => new Promise((resolve, reject) => {
+    const id = nextId++;
+    pendingRpc.set(id, { resolve, reject });
+    proc.stdin.write(JSON.stringify({ id, method, params }) + "\n");
+  });
+  server = { proc, request };
+  await request("initialize", {
+    clientInfo: { name: "atelier-studio", title: "Atelier Studio", version: "0.1.0" },
+    capabilities: null,
+  });
+  proc.stdin.write(JSON.stringify({ method: "initialized" }) + "\n");
+  return server;
+}
+
+// ---------------------------------------------------------------------------
+// Helpers d'entrée / options (testés)
+// ---------------------------------------------------------------------------
+export function buildCodexInput({ prompt, inputs, imagePath, attachments }) {
+  const text = (t) => ({ type: "text", text: String(t ?? ""), text_elements: [] });
+  const image = (path) => ({ type: "localImage", path: String(path) });
+  if (Array.isArray(inputs) && inputs.length > 0) {
+    const clean = inputs
+      .map((input) => {
+        if (input?.type === "text") return text(input.text);
+        if ((input?.type === "local_image" || input?.type === "localImage") && input.path) {
+          return image(input.path);
+        }
+        return null;
+      })
+      .filter(Boolean);
+    return clean.length ? clean : [text(prompt)];
+  }
+  const imagePaths = new Set();
+  if (imagePath) imagePaths.add(String(imagePath));
+  for (const a of attachments ?? []) {
+    const path = a?.path ?? a?.imagePath;
+    if (path) imagePaths.add(String(path));
+  }
+  return [text(prompt), ...[...imagePaths].map(image)];
+}
+
+export function buildThreadOptions({ cwd, model, effort, webSearch, additionalDirectories, sandbox }) {
+  const config = {};
+  if (webSearch) config.web_search = webSearch === "cached" ? "cached" : "live";
+  if (Array.isArray(additionalDirectories) && additionalDirectories.length) {
+    config.sandbox_workspace_write = { writable_roots: additionalDirectories.map(String) };
+  }
+  return {
+    cwd: cwd ?? null,
+    model: model ?? null,
+    approvalPolicy: "never",
+    sandbox: sandbox ?? "danger-full-access",
+    ...(Object.keys(config).length ? { config } : {}),
+    ...(effort ? { effortHint: effort } : {}), // retiré avant l'appel RPC (turn/start)
+  };
+}
+
+async function openThread(srv, { sessionId, threadOpts, reuseLoaded = false }) {
+  const { effortHint, ...opts } = threadOpts;
+  let id;
+  if (sessionId) {
+    if (reuseLoaded && loadedThreads.has(sessionId)) return sessionId;
+    // thread/resume sur un thread déjà chargé = rejoin : on ré-applique ainsi
+    // les options du tour (sandbox, web_search, writable_roots)
+    const resp = await srv.request("thread/resume", { threadId: sessionId, ...opts });
+    id = resp?.thread?.id ?? sessionId;
+  } else {
+    const resp = await srv.request("thread/start", opts);
+    id = resp?.thread?.id;
+    if (!id) throw new Error("thread/start sans id");
+  }
+  loadedThreads.add(id);
+  threadSandbox.set(id, opts.sandbox ?? "danger-full-access");
+  return id;
+}
+
+// ---------------------------------------------------------------------------
+// Goals
+// ---------------------------------------------------------------------------
+async function goalRequest(method, { sessionId, cwd, ...rest }) {
+  if (!sessionId) throw new Error("goal : session Codex absente — envoie d'abord un message");
+  const srv = await ensureServer();
+  const codexId = await openThread(srv, {
+    sessionId,
+    threadOpts: buildThreadOptions({ cwd, sandbox: "read-only" }),
+    reuseLoaded: true, // ne pas écraser les options d'un thread déjà actif
+  });
+  const resp = await srv.request(method, { threadId: codexId, ...rest });
+  return resp?.goal ?? null;
+}
+
+export function setGoal({ sessionId, cwd, objective, status, tokenBudget }) {
+  return goalRequest("thread/goal/set", {
+    sessionId, cwd,
+    ...(objective != null ? { objective } : {}),
+    ...(status != null ? { status } : {}),
+    ...(tokenBudget != null ? { tokenBudget } : {}),
+  });
+}
+
+export function getGoal({ sessionId, cwd }) {
+  return goalRequest("thread/goal/get", { sessionId, cwd });
+}
+
+export async function clearGoal({ sessionId, cwd }) {
+  await goalRequest("thread/goal/clear", { sessionId, cwd });
+  return null;
+}
+
+// ---------------------------------------------------------------------------
+// Tour d'agent
+// ---------------------------------------------------------------------------
+const activeTurns = new Map(); // atelier threadId -> { codexId, turnId }
+
+export async function interrupt(threadId) {
+  const t = activeTurns.get(threadId);
+  if (!t?.turnId || !server) return;
+  try {
+    await server.request("turn/interrupt", { threadId: t.codexId, turnId: t.turnId });
+  } catch {}
+}
+
+/** Dernier token_count du rollout : secours si thread/tokenUsage/updated manque. */
 function lastTokenCount(sessionId) {
   try {
     const base = join(homedir(), ".codex", "sessions");
@@ -35,63 +259,6 @@ function lastTokenCount(sessionId) {
   } catch {}
   return null;
 }
-import { execSync } from "node:child_process";
-// CLI système d'abord (mêmes versions/config que l'utilisateur) ; binaire
-// embarqué du SDK en secours (absent du bundle allégé).
-let CODEX_BIN = null;
-try {
-  CODEX_BIN = execSync("command -v codex", { encoding: "utf8" }).trim() || null;
-} catch {}
-
-
-const codex = new Codex(CODEX_BIN ? { codexPathOverride: CODEX_BIN } : {});
-const controllers = new Map(); // threadId -> AbortController
-
-export function buildCodexInput({ prompt, inputs, imagePath, attachments }) {
-  if (Array.isArray(inputs) && inputs.length > 0) {
-    const clean = inputs
-      .map((input) => {
-        if (input?.type === "text") return { type: "text", text: String(input.text ?? "") };
-        if (input?.type === "local_image" && input.path) {
-          return { type: "local_image", path: String(input.path) };
-        }
-        return null;
-      })
-      .filter(Boolean);
-    return clean.length ? clean : String(prompt ?? "");
-  }
-
-  const imagePaths = new Set();
-  if (imagePath) imagePaths.add(String(imagePath));
-  for (const a of attachments ?? []) {
-    const path = a?.path ?? a?.imagePath;
-    if (path) imagePaths.add(String(path));
-  }
-  if (imagePaths.size === 0) return String(prompt ?? "");
-
-  return [
-    { type: "text", text: String(prompt ?? "") },
-    ...[...imagePaths].map((path) => ({ type: "local_image", path })),
-  ];
-}
-
-export function buildThreadOptions({ cwd, model, effort, webSearch, additionalDirectories, sandbox }) {
-  return {
-    workingDirectory: cwd,
-    skipGitRepoCheck: true,
-    sandboxMode: sandbox ?? "danger-full-access",
-    ...(model ? { model } : {}),
-    ...(effort ? { modelReasoningEffort: effort } : {}),
-    ...(webSearch ? { webSearchMode: webSearch === "cached" ? "cached" : "live" } : {}),
-    ...(Array.isArray(additionalDirectories) && additionalDirectories.length
-      ? { additionalDirectories: additionalDirectories.map(String) }
-      : {}),
-  };
-}
-
-export function interrupt(threadId) {
-  controllers.get(threadId)?.abort();
-}
 
 export async function run({
   threadId,
@@ -109,205 +276,252 @@ export async function run({
   timeoutMs,
   onEvent,
 }) {
-  // model / effort / sandbox = ThreadOptions (doc officielle) ; TurnOptions = signal seulement
+  const srv = await ensureServer();
   const threadOpts = buildThreadOptions({ cwd, model, effort, webSearch, additionalDirectories, sandbox });
-  const thread = sessionId
-    ? codex.resumeThread(sessionId, threadOpts)
-    : codex.startThread(threadOpts);
-  const ctrl = new AbortController();
-  if (threadId) controllers.set(threadId, ctrl);
-  const timer = timeoutMs ? setTimeout(() => ctrl.abort(), timeoutMs) : null;
-  const turnOptions = { signal: ctrl.signal };
+  const codexId = await openThread(srv, { sessionId, threadOpts });
+  if (threadId) threadOwners.set(codexId, threadId);
+
   const activityId = `codex-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`;
-  try {
-    const input = buildCodexInput({ prompt, inputs, imagePath, attachments });
-    const { events } = await thread.runStreamed(input, turnOptions);
-    // affichage SOBRE : une seule ligne par commande (au démarrage, tronquée),
-    // pas de doublon à la complétion, un seul état de réflexion consécutif
-    let lastTool = "";
-    let activity = {
-      kind: "activity",
-      id: activityId,
-      phase: "thinking",
-      title: "Thinking",
-      detail: "Preparing the next step",
-      status: "running",
-      steps: [],
-    };
-    const emitActivity = (patch = {}) => {
-      activity = {
-        ...activity,
-        ...patch,
-        steps: patch.steps ?? activity.steps,
-      };
-      const steps = activity.steps.map(({ key, ...step }) => step);
-      onEvent({ ...activity, steps });
-    };
-    const upsertStep = ({ key, title, detail, phase = "tool", status = "running" }) => {
-      const existing = activity.steps.findIndex((step) => step.key === key);
-      const step = { key, title, detail, phase, status, ts: Date.now() };
-      const steps = existing >= 0
-        ? activity.steps.map((item, idx) => (idx === existing ? { ...item, ...step } : item))
-        : [...activity.steps, step].slice(-8);
-      emitActivity({ title, detail, phase, status: status === "failed" ? "failed" : "running", steps });
-    };
-    const emitTool = (name) => {
-      if (name === lastTool) return;
-      lastTool = name;
-      onEvent({ kind: "tool", name });
-    };
-    const commandName = (item) => {
-      const cmd = String(item.command ?? "commande").replace(/\s+/g, " ").trim();
-      return cmd.length > 64 ? cmd.slice(0, 64) + "…" : cmd;
-    };
-    const emitCommandUpdate = (item) => {
-      const status = item.status === "completed" || item.status === "succeeded"
-        ? (item.exit_code && item.exit_code !== 0 ? "failed" : "completed")
-        : item.status === "failed" ? "failed" : "running";
-      upsertStep({
-        key: `cmd:${item.id ?? commandName(item)}`,
-        title: status === "running" ? "Running command" : status === "failed" ? "Command failed" : "Command finished",
-        detail: commandName(item),
-        phase: "command",
-        status,
-      });
-      onEvent({
-        kind: "tool_update",
-        id: item.id,
-        name: commandName(item),
-        output: String(item.aggregated_output ?? ""),
-        status: item.status,
-        exitCode: item.exit_code,
-      });
-    };
-    const emitTodos = (item) => {
-      upsertStep({
-        key: "todos",
-        title: "Updating plan",
-        detail: `${(item.items ?? []).filter((todo) => todo.completed).length}/${(item.items ?? []).length} done`,
-        phase: "todo",
-        status: "running",
-      });
-      onEvent({
-        kind: "todos",
-        items: (item.items ?? []).map((todo) => ({
-          text: String(todo.text ?? ""),
-          completed: Boolean(todo.completed),
-        })),
-      });
-    };
-    for await (const ev of events) {
-      if (ev.type === "turn.started") {
+  // affichage SOBRE : une seule ligne par commande, un seul état de réflexion
+  let lastTool = "";
+  let activity = {
+    kind: "activity",
+    id: activityId,
+    phase: "thinking",
+    title: "Thinking",
+    detail: "Preparing the next step",
+    status: "running",
+    steps: [],
+  };
+  const emitActivity = (patch = {}) => {
+    activity = { ...activity, ...patch, steps: patch.steps ?? activity.steps };
+    const steps = activity.steps.map(({ key, ...step }) => step);
+    onEvent({ ...activity, steps });
+  };
+  const upsertStep = ({ key, title, detail, phase = "tool", status = "running" }) => {
+    const existing = activity.steps.findIndex((step) => step.key === key);
+    const step = { key, title, detail, phase, status, ts: Date.now() };
+    const steps = existing >= 0
+      ? activity.steps.map((item, idx) => (idx === existing ? { ...item, ...step } : item))
+      : [...activity.steps, step].slice(-8);
+    emitActivity({ title, detail, phase, status: status === "failed" ? "failed" : "running", steps });
+  };
+  const emitTool = (name) => {
+    if (name === lastTool) return;
+    lastTool = name;
+    onEvent({ kind: "tool", name });
+  };
+  const commandName = (item) => {
+    const cmd = String(item.command ?? "commande").replace(/\s+/g, " ").trim();
+    return cmd.length > 64 ? cmd.slice(0, 64) + "…" : cmd;
+  };
+
+  let usage = null; // via thread/tokenUsage/updated
+  let streamText = "";
+  let doneEmitted = false;
+  let finished; // resolve du tour
+  const done = new Promise((resolve) => { finished = resolve; });
+
+  const handler = (method, params) => {
+    switch (method) {
+      case "turn/started": {
+        activeTurns.set(threadId ?? codexId, { codexId, turnId: params.turn?.id ?? null });
         onEvent({ kind: "started" });
         emitActivity();
+        break;
       }
-      if (ev.type === "item.started" && ev.item?.type === "command_execution") {
+      case "item/started": {
+        const item = params.item ?? {};
+        if (item.type === "commandExecution") {
+          upsertStep({
+            key: `cmd:${item.id ?? commandName(item)}`,
+            title: "Running command",
+            detail: commandName(item),
+            phase: "command",
+            status: "running",
+          });
+          emitTool(commandName(item));
+        }
+        if (item.type === "reasoning") {
+          emitActivity({ phase: "thinking", title: "Thinking", detail: "Planning the next action", status: "running" });
+          emitTool("__thinking");
+        }
+        if (item.type === "webSearch") {
+          upsertStep({
+            key: `search:${String(item.query ?? "")}`,
+            title: "Searching web",
+            detail: String(item.query ?? "").slice(0, 80),
+            phase: "search",
+            status: "running",
+          });
+          emitTool(`recherche web : ${String(item.query ?? "").slice(0, 50)}`);
+        }
+        break;
+      }
+      case "item/updated": {
+        const item = params.item ?? {};
+        if (item.type === "commandExecution") {
+          onEvent({
+            kind: "tool_update",
+            id: item.id,
+            name: commandName(item),
+            output: String(item.aggregatedOutput ?? ""),
+            status: item.status,
+            exitCode: item.exitCode ?? undefined,
+          });
+        }
+        break;
+      }
+      case "item/agentMessage/delta": {
+        streamText += String(params.delta ?? "");
+        onEvent({ kind: "stream_set", text: streamText });
+        break;
+      }
+      case "item/completed": {
+        const item = params.item ?? {};
+        if (item.type === "agentMessage") {
+          streamText = "";
+          onEvent({ kind: "text", text: item.text ?? "" });
+        }
+        if (item.type === "reasoning") {
+          const text = [...(item.content ?? []), ...(item.summary ?? [])].filter(Boolean).join("\n\n");
+          if (text) onEvent({ kind: "thinking", text });
+        }
+        if (item.type === "commandExecution") {
+          const status = item.status === "failed" || (item.exitCode != null && item.exitCode !== 0)
+            ? "failed" : "completed";
+          upsertStep({
+            key: `cmd:${item.id ?? commandName(item)}`,
+            title: status === "failed" ? "Command failed" : "Command finished",
+            detail: commandName(item),
+            phase: "command",
+            status,
+          });
+          onEvent({
+            kind: "tool_update",
+            id: item.id,
+            name: commandName(item),
+            output: String(item.aggregatedOutput ?? ""),
+            status: item.status,
+            exitCode: item.exitCode ?? undefined,
+          });
+        }
+        if (item.type === "fileChange") {
+          const files = (item.changes ?? []).map((ch) => ch.path?.split("/").pop()).filter(Boolean);
+          upsertStep({
+            key: `edits:${files.join(",")}`,
+            title: "Applying edits",
+            detail: files.length ? files.slice(0, 3).join(", ") : "Files changed",
+            phase: "edit",
+            status: "completed",
+          });
+          emitTool(files.length ? `__edits:${files.slice(0, 3).join(", ")}${files.length > 3 ? "…" : ""}` : "__edits:");
+        }
+        if (item.type === "mcpToolCall") {
+          upsertStep({
+            key: `mcp:${item.tool ?? "mcp"}`,
+            title: "Using tool",
+            detail: String(item.tool ?? "mcp"),
+            phase: "tool",
+            status: "completed",
+          });
+          emitTool(`outil ${item.tool ?? "mcp"}`);
+        }
+        break;
+      }
+      case "turn/plan/updated": {
+        const items = (params.plan ?? []).map((s) => ({
+          text: String(s.step ?? ""),
+          completed: s.status === "completed",
+        }));
         upsertStep({
-          key: `cmd:${ev.item.id ?? commandName(ev.item)}`,
-          title: "Running command",
-          detail: commandName(ev.item),
-          phase: "command",
+          key: "todos",
+          title: "Updating plan",
+          detail: `${items.filter((t) => t.completed).length}/${items.length} done`,
+          phase: "todo",
           status: "running",
         });
-        emitTool(commandName(ev.item));
+        onEvent({ kind: "todos", items });
+        break;
       }
-      if (ev.type === "item.started" && ev.item?.type === "reasoning") {
-        emitActivity({ phase: "thinking", title: "Thinking", detail: "Planning the next action", status: "running" });
-        emitTool("__thinking");
+      case "thread/tokenUsage/updated": {
+        const u = params.tokenUsage ?? {};
+        usage = {
+          context: u.last?.totalTokens ?? null,
+          window: u.modelContextWindow ?? null,
+          output: u.total?.outputTokens ?? null,
+        };
+        break;
       }
-      // le SDK livre le TEXTE du raisonnement — même rendu que le thinking Claude
-      if (ev.type === "item.completed" && ev.item?.type === "reasoning" && ev.item.text) {
-        onEvent({ kind: "thinking", text: ev.item.text });
+      case "error": {
+        if (params.willRetry) break;
+        emitActivity({ title: "Failed", detail: params.error?.message ?? "Codex error", status: "failed" });
+        onEvent({ kind: "error", message: params.error?.message ?? "erreur Codex" });
+        break;
       }
-      if (
-        (ev.type === "item.started" || ev.type === "item.updated" || ev.type === "item.completed") &&
-        ev.item?.type === "todo_list"
-      ) {
-        emitTodos(ev.item);
-      }
-      if (ev.type === "item.updated" && ev.item?.type === "agent_message") {
-        onEvent({ kind: "stream_set", text: ev.item.text ?? "" });
-      }
-      if (
-        (ev.type === "item.updated" || ev.type === "item.completed") &&
-        ev.item?.type === "command_execution"
-      ) {
-        emitCommandUpdate(ev.item);
-      }
-      if (ev.type === "item.completed" && ev.item?.type === "agent_message") {
-        onEvent({ kind: "text", text: ev.item.text ?? "" });
-      }
-      if (ev.type === "item.completed" && ev.item?.type === "error") {
-        onEvent({ kind: "error", message: ev.item.message ?? "erreur Codex" });
-      }
-      if (ev.type === "item.completed" && ev.item?.type === "file_change") {
-        const files = (ev.item.changes ?? []).map((ch) => ch.path?.split("/").pop()).filter(Boolean);
-        upsertStep({
-          key: `edits:${files.join(",")}`,
-          title: "Applying edits",
-          detail: files.length ? files.slice(0, 3).join(", ") : "Files changed",
-          phase: "edit",
-          status: "completed",
-        });
-        emitTool(files.length ? `__edits:${files.slice(0, 3).join(", ")}${files.length > 3 ? "…" : ""}` : "__edits:");
-      }
-      if (ev.type === "item.started" && ev.item?.type === "web_search") {
-        upsertStep({
-          key: `search:${String(ev.item.query ?? "")}`,
-          title: "Searching web",
-          detail: String(ev.item.query ?? "").slice(0, 80),
-          phase: "search",
-          status: "running",
-        });
-        emitTool(`recherche web : ${String(ev.item.query ?? "").slice(0, 50)}`);
-      }
-      if (ev.type === "item.completed" && ev.item?.type === "mcp_tool_call") {
-        upsertStep({
-          key: `mcp:${ev.item.tool ?? "mcp"}`,
-          title: "Using tool",
-          detail: String(ev.item.tool ?? "mcp"),
-          phase: "tool",
-          status: "completed",
-        });
-        emitTool(`outil ${ev.item.tool ?? "mcp"}`);
-      }
-      if (ev.type === "turn.completed") {
-        const u = ev.usage ?? {};
-        // usage du SDK = cumul de tous les appels du tour (contexte recompté) ;
-        // le rollout donne le VRAI dernier état + la fenêtre du modèle
-        const tc = lastTokenCount(thread.id);
+      case "turn/completed": {
+        const turn = params.turn ?? {};
+        if (turn.status === "failed") {
+          emitActivity({ title: "Failed", detail: turn.error?.message ?? "Codex failed", status: "failed" });
+          onEvent({ kind: "error", message: turn.error?.message ?? "failed" });
+          doneEmitted = true; // pas de done ok:true après une erreur (l'event error suffit)
+          finished({ ok: false });
+          break;
+        }
+        if (turn.status === "interrupted") {
+          onEvent({ kind: "activity", id: activityId, title: "Interrupted", detail: "Stopped by user", status: "failed" });
+          doneEmitted = true;
+          onEvent({ kind: "done", ok: false, result: "interrompu" });
+          finished({ ok: false, doneSent: true });
+          break;
+        }
+        const tc = usage ?? lastTokenCount(codexId);
         emitActivity({
           title: "Finished",
           detail: activity.steps.length ? `${activity.steps.length} actions` : "No tools used",
           status: "completed",
           phase: activity.phase,
         });
+        doneEmitted = true;
         onEvent({ kind: "done", ok: true, result: "", usage: {
-          context: tc?.context ?? (u.input_tokens ?? 0),
+          context: tc?.context ?? 0,
           window: tc?.window ?? null,
-          output: u.output_tokens ?? 0, cost: null, turns: null } });
-      }
-      if (ev.type === "turn.failed") {
-        emitActivity({ title: "Failed", detail: ev.error?.message ?? "Codex failed", status: "failed" });
-        onEvent({ kind: "error", message: ev.error?.message ?? "failed" });
-      }
-      if (ev.type === "error") {
-        emitActivity({ title: "Failed", detail: ev.message ?? "Codex error", status: "failed" });
-        onEvent({ kind: "error", message: ev.message ?? "erreur Codex" });
+          output: tc?.output ?? 0, cost: null, turns: null } });
+        finished({ ok: true, doneSent: true });
+        break;
       }
     }
-  } catch (e) {
-    if (ctrl.signal.aborted) {
-      onEvent({ kind: "activity", id: activityId, title: "Interrupted", detail: "Stopped by user", status: "failed" });
-      onEvent({ kind: "done", ok: false, result: "interrompu" });
-    } else {
-      throw e;
+  };
+
+  threadHandlers.set(codexId, handler);
+  const timer = timeoutMs
+    ? setTimeout(() => { interrupt(threadId ?? codexId).catch(() => {}); }, timeoutMs)
+    : null;
+  try {
+    const input = buildCodexInput({ prompt, inputs, imagePath, attachments });
+    // la réponse RPC arrive IMMÉDIATEMENT (turn inProgress) : elle donne le
+    // turnId (nécessaire à turn/interrupt) ; la vraie fin = turn/completed
+    const resp = await srv.request("turn/start", {
+      threadId: codexId,
+      input,
+      ...(model ? { model } : {}),
+      ...(effort ? { effort } : {}),
+      approvalPolicy: "never",
+    });
+    if (resp?.turn?.id) activeTurns.set(threadId ?? codexId, { codexId, turnId: resp.turn.id });
+    await done;
+    if (!doneEmitted) {
+      const tc = usage ?? lastTokenCount(codexId);
+      onEvent({ kind: "done", ok: true, result: "", usage: {
+        context: tc?.context ?? 0, window: tc?.window ?? null,
+        output: tc?.output ?? 0, cost: null, turns: null } });
     }
   } finally {
     if (timer) clearTimeout(timer);
-    if (threadId) controllers.delete(threadId);
+    threadHandlers.delete(codexId);
+    activeTurns.delete(threadId ?? codexId);
   }
-  return { sessionId: thread.id ?? sessionId };
+  return { sessionId: codexId };
 }
 
 /** Rate limits OpenAI du rollout le plus récent (primary=5h, secondary=hebdo). */

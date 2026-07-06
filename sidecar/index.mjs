@@ -233,6 +233,12 @@ try {
 
 watchAnnotations(broadcast);
 
+// notifications goal Codex (thread/goal/updated) → tous les clients ;
+// elles arrivent aussi hors-tour (goal mis à jour par le modèle en tâche de fond)
+codex.onGoal?.((threadId, event) => {
+  if (threadId) broadcast({ type: "event", threadId, event });
+});
+
 wss.on("connection", (ws) => {
   const ctx = {
     send: (obj) => ws.readyState === 1 && ws.send(JSON.stringify(obj)),

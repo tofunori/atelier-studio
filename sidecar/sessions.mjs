@@ -2,6 +2,7 @@ import { readdirSync, statSync, existsSync, createReadStream } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import readline from "node:readline";
+import { stripHandoff } from "./handoff.mjs";
 
 // Lister les sessions existantes (CLI + Studio) pour reprise.
 
@@ -94,7 +95,7 @@ export async function codexHistory(sessionId) {
       const d = JSON.parse(line);
       const p = d.payload ?? d;
       if (p.type === "user_message" && p.message) {
-        const t = String(p.message).trim();
+        const t = stripHandoff(String(p.message).trim());
         if (t && !t.startsWith("<") && !t.startsWith("# AGENTS")) {
           events.push({ kind: "user", text: t });
         }

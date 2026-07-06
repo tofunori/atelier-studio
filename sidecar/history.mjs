@@ -1,4 +1,5 @@
 import { getSessionMessages } from "@anthropic-ai/claude-agent-sdk";
+import { stripHandoff } from "./handoff.mjs";
 
 function userText(msg) {
   const c = msg?.content;
@@ -45,7 +46,7 @@ export async function claudeHistory(sessionId, cwd) {
           .map((b) => b.text)
           .join("\n");
       }
-      text = text.trim();
+      text = stripHandoff(text.trim());
       // filtrer les injections systèmes (reminders, etc.)
       if (text && !text.startsWith("<")) {
         events.push({ kind: "user", text });

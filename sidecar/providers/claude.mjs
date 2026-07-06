@@ -53,38 +53,6 @@ function userMsg(text, priority) {
   };
 }
 
-function firstGoalString(value, depth = 0) {
-  if (typeof value === "string") return value.trim();
-  if (!value || typeof value !== "object" || depth > 3) return "";
-  for (const key of ["goal", "text", "content", "description", "objective", "prompt"]) {
-    const found = firstGoalString(value[key], depth + 1);
-    if (found) return found;
-  }
-  if (Array.isArray(value)) {
-    for (const item of value) {
-      const found = firstGoalString(item, depth + 1);
-      if (found) return found;
-    }
-  }
-  return "";
-}
-
-function activeGoalEvent(msg) {
-  const text = firstGoalString(msg);
-  if (!text) return { kind: "goal", goal: null };
-  const rawStatus = String(msg.status ?? msg.state ?? msg.goal?.status ?? "").toLowerCase();
-  const now = new Date().toISOString();
-  return {
-    kind: "goal",
-    goal: {
-      text,
-      status: rawStatus.includes("pause") ? "paused" : "active",
-      createdAt: typeof msg.created_at === "string" ? msg.created_at : now,
-      updatedAt: typeof msg.updated_at === "string" ? msg.updated_at : now,
-    },
-  };
-}
-
 export function isActive(threadId) {
   return sessions.has(threadId);
 }
@@ -270,9 +238,6 @@ export function send({
     try {
       for await (const msg of q) {
         if (msg.type === "system" && msg.subtype === "init") onSession?.(msg.session_id);
-        if (msg.type === "active_goal") {
-          s.onEvent(activeGoalEvent(msg));
-        }
         if (msg.type === "rate_limit_event" && msg.rate_limit_info) {
           try {
             // un événement PAR type de limite (five_hour, seven_day…) : accumuler

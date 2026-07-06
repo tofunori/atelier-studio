@@ -4,7 +4,7 @@ import remarkGfm from "remark-gfm";
 import hljs from "highlight.js/lib/common";
 import { open } from "@tauri-apps/plugin-dialog";
 import { openUrl } from "@tauri-apps/plugin-opener";
-import { AgentEvent, ThreadGoal } from "../lib/ws";
+import { AgentEvent } from "../lib/ws";
 import { wsSend } from "../lib/wsBus";
 import { eventLabel, t } from "../lib/i18n";
 import {
@@ -13,14 +13,9 @@ import {
   CopyIcon,
   ExpandIcon,
   ForkIcon,
-  PauseCircleIcon,
-  PencilIcon,
-  PlayCircleIcon,
   PlusIcon,
   ProviderIcon,
   ResumeIcon,
-  TargetIcon,
-  TrashIcon,
   ArrowDownIcon,
   ZapIcon,
 } from "./icons";
@@ -453,77 +448,6 @@ function PinBtn({ pinned, onClick }: { pinned: boolean; onClick: () => void }) {
   );
 }
 
-function formatGoalElapsed(goal: ThreadGoal, now: number): string {
-  const start = Date.parse(goal.createdAt || goal.updatedAt);
-  if (!Number.isFinite(start)) return "";
-  const seconds = Math.max(0, Math.floor((now - start) / 1000));
-  if (seconds < 60) return `${seconds}s`;
-  const minutes = Math.floor(seconds / 60);
-  if (minutes < 60) return `${minutes}m`;
-  const hours = Math.floor(minutes / 60);
-  return `${hours}h`;
-}
-
-function GoalBar({
-  goal,
-  onEdit,
-  onPause,
-  onResume,
-  onClear,
-}: {
-  goal: ThreadGoal;
-  onEdit: () => void;
-  onPause: () => void;
-  onResume: () => void;
-  onClear: () => void;
-}) {
-  const [now, setNow] = useState(Date.now());
-  useEffect(() => {
-    if (goal.status !== "active") return;
-    const id = window.setInterval(() => setNow(Date.now()), 1000);
-    return () => window.clearInterval(id);
-  }, [goal.status, goal.createdAt]);
-  const elapsed = goal.status === "active" ? formatGoalElapsed(goal, now) : t("chat.goal-paused-short");
-  return (
-    <div className={`goal-strip ${goal.status === "paused" ? "paused" : ""}`} title={goal.text}>
-      <span className="goal-strip-icon"><TargetIcon size={15} /></span>
-      <span className="goal-copy">
-        <span className="goal-prefix">
-          {goal.status === "paused" ? t("chat.goal-paused") : t("chat.goal-pursuing")}
-        </span>
-        <span className="goal-text">{goal.text}</span>
-        {elapsed && (
-          <>
-            <span className="goal-dot">·</span>
-            <span className="goal-time">{elapsed}</span>
-          </>
-        )}
-      </span>
-      <span className="goal-actions">
-        <button type="button" className="goal-action" title={t("chat.goal-edit")}
-          aria-label={t("chat.goal-edit")} onClick={onEdit}>
-          <PencilIcon />
-        </button>
-        {goal.status === "active" ? (
-          <button type="button" className="goal-action" title={t("chat.goal-pause")}
-            aria-label={t("chat.goal-pause")} onClick={onPause}>
-            <PauseCircleIcon />
-          </button>
-        ) : (
-          <button type="button" className="goal-action" title={t("chat.goal-resume")}
-            aria-label={t("chat.goal-resume")} onClick={onResume}>
-            <PlayCircleIcon />
-          </button>
-        )}
-        <button type="button" className="goal-action" title={t("chat.goal-clear")}
-          aria-label={t("chat.goal-clear")} onClick={onClear}>
-          <TrashIcon />
-        </button>
-      </span>
-    </div>
-  );
-}
-
 export default function Chat(p: {
   events: AgentEvent[];
   workingSince: number | null;
@@ -542,10 +466,6 @@ export default function Chat(p: {
   onAttachPath?: (path: string) => void;
   onAttachFolder?: (folder: string) => void;
   onAttachZotero?: (key: string) => void;
-  goal: ThreadGoal | null;
-  onClearGoal: () => void;
-  onPauseGoal: () => void;
-  onResumeGoal: () => void;
   layout: "split" | "chat" | "atelier";
   onToggleExpand: () => void;
   usage: { context: number; output: number; cost: number | null; turns: number | null } | null;
@@ -568,6 +488,7 @@ export default function Chat(p: {
   onStylePin: (index: number, patch: { color?: string; style?: string; label?: string }) => void;
   onTogglePin: (index: number, label: string) => void;
   disabled: boolean;
+  onGoal?: (action: "set" | "clear", objective?: string) => void;
   onSubmit: (
     prompt: string,
     provider: "claude" | "codex",
@@ -723,6 +644,8 @@ export default function Chat(p: {
   const [menuOpen, setMenuOpen] = useState(false);
   const [effortMenuOpen, setEffortMenuOpen] = useState(false);
   const [plusOpen, setPlusOpen] = useState(false);
+  const [goalOpen, setGoalOpen] = useState(false);
+  const [goalText, setGoalText] = useState("");
 
   useEffect(() => {
     if (!plusOpen) return;
@@ -1270,6 +1193,25 @@ export default function Chat(p: {
                 ))}
               </div>
             );
+          if (e.kind === "goal")
+            return (
+              <div key={i} className={`goal-card ${e.cleared || !e.goal ? "cleared" : e.goal.status}`}>
+                <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round">
+                  <circle cx="8" cy="8" r="6" /><circle cx="8" cy="8" r="2.4" />
+                </svg>
+                {e.cleared || !e.goal ? (
+                  <span className="goal-obj">{t("goal.cleared")}</span>
+                ) : (
+                  <>
+                    <span className="goal-obj">{e.goal.objective}</span>
+                    <span className="goal-status">{t(`goal.status.${e.goal.status}` as Parameters<typeof t>[0])}</span>
+                    {e.goal.tokenBudget != null && (
+                      <span className="goal-budget">{Math.round((e.goal.tokensUsed ?? 0) / 1000)}k / {Math.round(e.goal.tokenBudget / 1000)}k</span>
+                    )}
+                  </>
+                )}
+              </div>
+            );
           if (e.kind === "error")
             return (
               <div key={i} className="error">
@@ -1510,6 +1452,33 @@ export default function Chat(p: {
           setText("");
         }}
       >
+        {goalOpen && (
+          <div className="goal-editor" onClick={(ev) => ev.stopPropagation()}>
+            <input
+              autoFocus
+              value={goalText}
+              onChange={(ev) => setGoalText(ev.target.value)}
+              placeholder={t("goal.placeholder")}
+              onKeyDown={(ev) => {
+                if (ev.key === "Enter") {
+                  ev.preventDefault();
+                  if (goalText.trim()) p.onGoal?.("set", goalText.trim());
+                  setGoalOpen(false);
+                  setGoalText("");
+                }
+                if (ev.key === "Escape") setGoalOpen(false);
+              }}
+            />
+            <button type="button" className="ghost" onClick={() => {
+              if (goalText.trim()) p.onGoal?.("set", goalText.trim());
+              setGoalOpen(false);
+              setGoalText("");
+            }}>{t("goal.set")}</button>
+            <button type="button" className="ghost" onClick={() => { p.onGoal?.("clear"); setGoalOpen(false); }}>
+              {t("goal.clear")}
+            </button>
+          </div>
+        )}
         {suggestions.length > 0 && (
           <ul className="suggest">
             {suggestions.map((s, i) => (
@@ -1533,18 +1502,6 @@ export default function Chat(p: {
               </React.Fragment>
             ))}
           </ul>
-        )}
-        {p.goal && (
-          <GoalBar
-            goal={p.goal}
-            onEdit={() => {
-              setText(`/goal ${p.goal?.text ?? ""}`.trimEnd());
-              requestAnimationFrame(() => taRef.current?.focus());
-            }}
-            onPause={p.onPauseGoal}
-            onResume={p.onResumeGoal}
-            onClear={p.onClearGoal}
-          />
         )}
         {p.attachments.length > 0 && (
           <div className="chips-row">
@@ -1747,6 +1704,14 @@ export default function Chat(p: {
                     <span className="knob" />
                   </span>
                 </div>
+                {provider === "codex" && p.onGoal && (
+                  <div className="mp-item" onClick={() => { setPlusOpen(false); setGoalOpen((v) => !v); }}>
+                    <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round">
+                      <circle cx="8" cy="8" r="6" /><circle cx="8" cy="8" r="2.4" />
+                    </svg>
+                    <span>{t("goal.menu")}</span>
+                  </div>
+                )}
               </div>
             )}
           </span>
