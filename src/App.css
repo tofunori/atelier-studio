@@ -1343,3 +1343,11 @@ body.dragging iframe { pointer-events: none; }
 @keyframes pop-in { from { opacity: 0; transform: translateY(-3px); } to { opacity: 1; transform: none; } }
 @media (prefers-reduced-motion: reduce) {
   .ctx-menu, .mp-menu, .ur-pop, .reviewer-menu, .suggest { animation: none; } }
+
+/* streaming vivant : le label respire (shimmer) pendant que l'agent travaille */
+.working-label { background: linear-gradient(90deg, var(--muted) 30%, var(--fg) 50%, var(--muted) 70%);
+  background-size: 200% 100%; -webkit-background-clip: text; background-clip: text;
+  -webkit-text-fill-color: transparent; animation: shimmer 1.8s linear infinite; }
+@keyframes shimmer { from { background-position: 200% 0; } to { background-position: -200% 0; } }
+@media (prefers-reduced-motion: reduce) {
+  .working-label { animation: none; -webkit-text-fill-color: currentColor; background: none; } }
