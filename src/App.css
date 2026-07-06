@@ -1374,3 +1374,16 @@ body.dragging iframe { pointer-events: none; }
 @keyframes shimmer { from { background-position: 200% 0; } to { background-position: -200% 0; } }
 @media (prefers-reduced-motion: reduce) {
   .working-label { animation: none; -webkit-text-fill-color: currentColor; background: none; } }
+/* ===== switches (remplace le rendu checkbox natif partout dans les réglages) ===== */
+.set-row-ctl input[type="checkbox"], .mp-menu input[type="checkbox"] {
+  appearance: none; -webkit-appearance: none; width: 34px; height: 20px; margin: 0;
+  border-radius: var(--r-pill); background: var(--bg-ctl); border: 1px solid var(--border2);
+  position: relative; cursor: pointer; transition: background var(--ease), border-color var(--ease);
+  flex: none; }
+.set-row-ctl input[type="checkbox"]::after, .mp-menu input[type="checkbox"]::after {
+  content: ""; position: absolute; top: 2px; left: 2px; width: 14px; height: 14px;
+  border-radius: 50%; background: var(--muted); transition: transform var(--ease), background var(--ease); }
+.set-row-ctl input[type="checkbox"]:checked, .mp-menu input[type="checkbox"]:checked {
+  background: var(--accent); border-color: var(--accent); }
+.set-row-ctl input[type="checkbox"]:checked::after, .mp-menu input[type="checkbox"]:checked::after {
+  transform: translateX(14px); background: #fff; }
