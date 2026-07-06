@@ -7,6 +7,12 @@ const tr = t; // alias : t est masqué par les threads dans les .map
 import { PlusIcon, ProviderIcon, ResumeIcon, SettingsIcon, SidebarIcon } from "./icons";
 
 type Menu = { x: number; y: number; threadId: string };
+type RecencyBucket = "today" | "yesterday" | "last7" | "older";
+type RecencyRow =
+  | { kind: "section"; bucket: RecencyBucket }
+  | { kind: "thread"; thread: Thread };
+
+const DAY_MS = 24 * 60 * 60 * 1000;
 
 // titre lisible : un titre qui est un chemin absolu devient "…/nom-de-fichier"
 function niceTitle(value: unknown): string {
@@ -30,6 +36,43 @@ function rawThreadTitle(t: Thread): string {
 
 function threadTitle(t: Thread): string {
   return niceTitle(rawThreadTitle(t));
+}
+
+function startOfLocalDay(value: Date): number {
+  return new Date(value.getFullYear(), value.getMonth(), value.getDate()).getTime();
+}
+
+function threadRecencyBucket(thread: Thread): RecencyBucket {
+  const ts = Date.parse(thread.updatedAt);
+  if (!Number.isFinite(ts)) return "older";
+  const ageDays = Math.floor((startOfLocalDay(new Date()) - startOfLocalDay(new Date(ts))) / DAY_MS);
+  if (ageDays <= 0) return "today";
+  if (ageDays === 1) return "yesterday";
+  if (ageDays < 7) return "last7";
+  return "older";
+}
+
+function recencyLabelKey(bucket: RecencyBucket) {
+  switch (bucket) {
+    case "today": return "sidebar.recency.today";
+    case "yesterday": return "sidebar.recency.yesterday";
+    case "last7": return "sidebar.recency.last7";
+    case "older": return "sidebar.recency.older";
+  }
+}
+
+function withRecencySections(threads: Thread[]): RecencyRow[] {
+  const rows: RecencyRow[] = [];
+  let current: RecencyBucket | null = null;
+  for (const thread of threads) {
+    const bucket = threadRecencyBucket(thread);
+    if (bucket !== current) {
+      rows.push({ kind: "section", bucket });
+      current = bucket;
+    }
+    rows.push({ kind: "thread", thread });
+  }
+  return rows;
 }
 
 const PROJ_ICONS: Record<string, string> = {
@@ -332,50 +375,60 @@ export default function Sidebar(p: {
               )}
             </div>
             <ul style={{ display: collapsed.includes(root) ? "none" : undefined }}>
-              {threads.map((t) => (
-                <li
-                  key={t.id}
-                  className={t.id === p.activeId ? "active" : ""}
-                  onClick={() => p.onSelect(t.id, root)}
-                  onDoubleClick={(e) => {
-                    e.stopPropagation();
-                    startRename(t);
-                  }}
-                  onContextMenu={(e) => {
-                    e.preventDefault();
-                    setMenu({ x: e.clientX, y: e.clientY, threadId: t.id });
-                  }}
-                >
-                  <span className={`prov-ico ${t.status === "running" ? "busy" : ""}`}>
-                    <ProviderIcon provider={t.provider} />
-                    {p.unread.has(t.id) && <span className="unread-badge" />}
-                  </span>
-                  {threadLabel(t)}
-                  <span className="row-actions" onClick={(e) => e.stopPropagation()}>
-                    <button
-                      className={`row-act ${p.favorites.includes(t.id) ? "on" : ""}`}
-                      title={p.favorites.includes(t.id) ? tr("action.remove-favorite") : tr("action.add-favorite")}
-                      onClick={() => p.onToggleFavorite(t.id)}
-                    >
-                      <svg width="11" height="11" viewBox="0 0 16 16" fill={p.favorites.includes(t.id) ? "currentColor" : "none"} stroke="currentColor" strokeWidth="1.2">
-                        <path d="M8 1.8l1.9 3.9 4.3.6-3.1 3 .7 4.3L8 11.6l-3.8 2 .7-4.3-3.1-3 4.3-.6z" />
+              {withRecencySections(threads).map((row, index) => {
+                if (row.kind === "section") {
+                  return (
+                    <li key={`${row.bucket}-${index}`} className="thread-recency-label" role="presentation">
+                      {tr(recencyLabelKey(row.bucket))}
+                    </li>
+                  );
+                }
+                const t = row.thread;
+                return (
+                  <li
+                    key={t.id}
+                    className={t.id === p.activeId ? "active" : ""}
+                    onClick={() => p.onSelect(t.id, root)}
+                    onDoubleClick={(e) => {
+                      e.stopPropagation();
+                      startRename(t);
+                    }}
+                    onContextMenu={(e) => {
+                      e.preventDefault();
+                      setMenu({ x: e.clientX, y: e.clientY, threadId: t.id });
+                    }}
+                  >
+                    <span className={`prov-ico ${t.status === "running" ? "busy" : ""}`}>
+                      <ProviderIcon provider={t.provider} />
+                      {p.unread.has(t.id) && <span className="unread-badge" />}
+                    </span>
+                    {threadLabel(t)}
+                    <span className="row-actions" onClick={(e) => e.stopPropagation()}>
+                      <button
+                        className={`row-act ${p.favorites.includes(t.id) ? "on" : ""}`}
+                        title={p.favorites.includes(t.id) ? tr("action.remove-favorite") : tr("action.add-favorite")}
+                        onClick={() => p.onToggleFavorite(t.id)}
+                      >
+                        <svg width="11" height="11" viewBox="0 0 16 16" fill={p.favorites.includes(t.id) ? "currentColor" : "none"} stroke="currentColor" strokeWidth="1.2">
+                          <path d="M8 1.8l1.9 3.9 4.3.6-3.1 3 .7 4.3L8 11.6l-3.8 2 .7-4.3-3.1-3 4.3-.6z" />
+                        </svg>
+                      </button>
+                      <button className="row-act danger" title={tr("action.delete")}
+                        onClick={() => p.onDelete(t.id)}>
+                        <svg width="11" height="11" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round">
+                          <path d="M4 4l8 8M12 4l-8 8" />
+                        </svg>
+                      </button>
+                    </span>
+                    {t.status === "running" && (
+                      <svg className="arc" width="13" height="13" viewBox="0 0 16 16" fill="none">
+                        <circle cx="8" cy="8" r="6" stroke="#3a414d" strokeWidth="2" />
+                        <path d="M14 8a6 6 0 0 0-6-6" stroke="#e8823a" strokeWidth="2" strokeLinecap="round" />
                       </svg>
-                    </button>
-                    <button className="row-act danger" title={tr("action.delete")}
-                      onClick={() => p.onDelete(t.id)}>
-                      <svg width="11" height="11" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round">
-                        <path d="M4 4l8 8M12 4l-8 8" />
-                      </svg>
-                    </button>
-                  </span>
-                  {t.status === "running" && (
-                    <svg className="arc" width="13" height="13" viewBox="0 0 16 16" fill="none">
-                      <circle cx="8" cy="8" r="6" stroke="#3a414d" strokeWidth="2" />
-                      <path d="M14 8a6 6 0 0 0-6-6" stroke="#e8823a" strokeWidth="2" strokeLinecap="round" />
-                    </svg>
-                  )}
-                </li>
-              ))}
+                    )}
+                  </li>
+                );
+              })}
             </ul>
           </div>
         );
@@ -394,9 +447,16 @@ export default function Sidebar(p: {
       </div>
       {!secClosed.chats && (
         <ul className="fav-list">
-          {p.threads
-            .filter((t) => !threadRoot(t))
-            .map((t) => (
+          {withRecencySections(p.threads.filter((t) => !threadRoot(t))).map((row, index) => {
+            if (row.kind === "section") {
+              return (
+                <li key={`${row.bucket}-${index}`} className="thread-recency-label" role="presentation">
+                  {tr(recencyLabelKey(row.bucket))}
+                </li>
+              );
+            }
+            const t = row.thread;
+            return (
               <li
                 key={t.id}
                 className={t.id === p.activeId ? "active" : ""}
@@ -416,7 +476,8 @@ export default function Sidebar(p: {
                 </span>
                 {threadLabel(t)}
               </li>
-            ))}
+            );
+          })}
         </ul>
       )}
       </div>

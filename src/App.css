@@ -1230,6 +1230,18 @@ body.dragging iframe { pointer-events: none; }
 .project-name:hover { background: var(--bg-ctl); }
 .thread-date { display: none; }
 .sidebar li { font-size: var(--fs-m); }
+.sidebar li.thread-recency-label {
+  display: block;
+  padding: 10px 8px 4px;
+  border-radius: 0;
+  cursor: default;
+  color: var(--muted2);
+  font-size: var(--fs-xs);
+  font-weight: 500;
+  line-height: 1.3;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
 /* picker d'icônes de projet */
 .proj-emoji { width: 16px; font-size: var(--fs-l); line-height: 1; flex-shrink: 0; text-align: center; }
 .emoji-grid { display: grid; grid-template-columns: repeat(6, 27px); gap: 3px;
