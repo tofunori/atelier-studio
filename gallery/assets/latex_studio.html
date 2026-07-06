@@ -83,6 +83,8 @@
            background:var(--card);border:1px solid var(--border);border-radius:10px;padding:12px 16px;
            font-size:12px;color:var(--muted);box-shadow:0 8px 30px rgba(0,0,0,.5);line-height:1.5}
   #helpPop b{color:var(--txt);font-weight:600}
+  @media (max-width: 640px){ #state{display:none} }
+  @media (max-width: 520px){ #popPdf .lbl, #build{padding:0 7px} header{gap:3px;padding:4px 6px} }
   .pdfmode .editonly{display:none!important}
   body:not(.pdfmode) .pdfonly{display:none!important}
   .pdfmode #left{display:none}
