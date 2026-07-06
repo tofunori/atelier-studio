@@ -1,6 +1,7 @@
 mod atelier;
-mod sidecar;
 mod browser;
+mod identity;
+mod sidecar;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -16,7 +17,9 @@ pub fn run() {
             browser::browser_bounds,
             browser::browser_hide,
             browser::browser_show_again,
+            browser::browser_close,
             browser::browser_eval,
+            browser::browser_capture_selection,
             browser::browser_url,
             browser::browser_probe
         ])

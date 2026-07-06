@@ -3,6 +3,8 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import {
   PROJECT,
+  APP_VERSION,
+  BUNDLE_HASH,
   ensureDir,
   md5,
   readJsonRequest,
@@ -11,6 +13,7 @@ import {
   sendEmpty,
   sendJson,
   serveFile,
+  STARTED_AT,
   spawnCollect,
   statMtimeSeconds,
 } from "../shared.mjs";
@@ -89,6 +92,19 @@ export async function handleCoreGet(req, res, url) {
   const pathname = url.pathname;
   if (pathname === "/ping") {
     return sendJson(res, 200, { ok: true, service: "fig-annotate", project: fs.realpathSync(PROJECT) });
+  }
+  if (pathname === "/health") {
+    return sendJson(res, 200, {
+      ok: true,
+      service: "atelier-gallery",
+      pid: process.pid,
+      port: Number.parseInt(process.env.FIG_PORT || "0", 10) || null,
+      startedAt: STARTED_AT,
+      projectRoot: fs.realpathSync(PROJECT),
+      appVersion: APP_VERSION,
+      bundleHash: BUNDLE_HASH,
+      tokenRequired: false,
+    });
   }
   if (pathname === "/state") {
     try {

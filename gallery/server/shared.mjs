@@ -13,6 +13,9 @@ export const PROJECT = realpathOrResolve(
 );
 export const STUDIO = Boolean(process.env.ATELIER_STUDIO);
 export const OUT_DIR = path.join(PROJECT, "annotations");
+export const STARTED_AT = new Date().toISOString();
+export const APP_VERSION = process.env.ATELIER_APP_VERSION || "dev";
+export const BUNDLE_HASH = process.env.ATELIER_BUNDLE_HASH || bundleFingerprint(GALLERY_DIR);
 
 export function expandHome(p) {
   if (!p) return p;
@@ -31,6 +34,38 @@ export function realpathOrResolve(p) {
 
 export function md5(text) {
   return crypto.createHash("md5").update(text).digest("hex");
+}
+
+export function bundleFingerprint(root) {
+  const files = [];
+  const ignored = new Set([
+    ".conductor",
+    ".fig_thumbs",
+    ".git",
+    ".pytest_cache",
+    "annotations",
+    "logs",
+    "node_modules",
+    "test-results",
+  ]);
+  function walk(dir) {
+    for (const name of fs.readdirSync(dir).sort()) {
+      if (ignored.has(name)) continue;
+      const p = path.join(dir, name);
+      const st = fs.statSync(p);
+      if (st.isDirectory()) walk(p);
+      else if (st.isFile()) files.push(p);
+    }
+  }
+  walk(root);
+  const h = crypto.createHash("md5");
+  for (const file of files.sort()) {
+    h.update(path.relative(root, file).split(path.sep).join("/"));
+    h.update("\0");
+    h.update(fs.readFileSync(file));
+    h.update("\0");
+  }
+  return h.digest("hex");
 }
 
 export function choosePort(root = PROJECT) {

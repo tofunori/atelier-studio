@@ -80,7 +80,7 @@ async function boot() {
   let port: number | null = null;
   let headers: Record<string, string> | undefined;
   try {
-    const info = await withTimeout(invoke<SidecarInfo>("sidecar_port"), 2500);
+    const info = await withTimeout(invoke<SidecarInfo>("sidecar_port"), 6000);
     port = info.port;
     headers = info.token ? { "x-atelier-token": info.token } : undefined;
   } catch (error) {

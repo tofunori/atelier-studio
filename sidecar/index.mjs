@@ -1,8 +1,12 @@
 import { WebSocketServer } from "ws";
 import { createServer } from "node:http";
+import crypto from "node:crypto";
+import * as fs from "node:fs";
 import { readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { mkdirSync, writeFileSync } from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { route } from "./router.mjs";
 import { ThreadStore, writeFileAtomic } from "./store.mjs";
 import * as catalog from "./catalog.mjs";
@@ -20,6 +24,7 @@ import * as codex from "./providers/codex.mjs";
 
 const APP_DIR = `${homedir()}/Library/Application Support/atelier-studio`;
 const PID_FILE = `${APP_DIR}/sidecar.pid`;
+const SIDECAR_DIR = path.dirname(fileURLToPath(import.meta.url));
 mkdirSync(APP_DIR, { recursive: true });
 
 function pidAlive(pid) {
@@ -35,8 +40,43 @@ writeFileAtomic(PID_FILE, String(process.pid));
 const store = new ThreadStore(`${APP_DIR}/threads.json`);
 const providers = { claude, codex };
 const ATELIER_TOKEN = process.env.ATELIER_TOKEN;
+const STARTED_AT = new Date().toISOString();
+const ATELIER_APP_VERSION = process.env.ATELIER_APP_VERSION || "dev";
+const ATELIER_BUNDLE_HASH = process.env.ATELIER_BUNDLE_HASH || bundleFingerprint(SIDECAR_DIR);
 if (!ATELIER_TOKEN) {
   console.warn("[atelier] ATELIER_TOKEN absent: mode dev, HTTP/WS acceptés sans token");
+}
+
+function bundleFingerprint(root) {
+  const files = [];
+  const ignored = new Set([
+    ".conductor",
+    ".fig_thumbs",
+    ".git",
+    ".pytest_cache",
+    "annotations",
+    "logs",
+    "node_modules",
+    "test-results",
+  ]);
+  function walk(dir) {
+    for (const name of fs.readdirSync(dir).sort()) {
+      if (ignored.has(name)) continue;
+      const p = path.join(dir, name);
+      const st = fs.statSync(p);
+      if (st.isDirectory()) walk(p);
+      else if (st.isFile()) files.push(p);
+    }
+  }
+  walk(root);
+  const h = crypto.createHash("md5");
+  for (const file of files.sort()) {
+    h.update(path.relative(root, file).split(path.sep).join("/"));
+    h.update("\0");
+    h.update(fs.readFileSync(file));
+    h.update("\0");
+  }
+  return h.digest("hex");
 }
 
 // au démarrage, aucune session ne tourne : purger les statuts "running"
@@ -69,6 +109,19 @@ function status() {
     pastedCount = existsSync(PASTE_DIR) ? readdirSync(PASTE_DIR).length : 0;
   } catch {}
   return { port: httpServer.address()?.port ?? null, pastedCount, pasteDir: PASTE_DIR };
+}
+
+function health() {
+  return {
+    ok: true,
+    service: "atelier-sidecar",
+    pid: process.pid,
+    port: httpServer.address()?.port ?? null,
+    startedAt: STARTED_AT,
+    appVersion: ATELIER_APP_VERSION,
+    bundleHash: ATELIER_BUNDLE_HASH,
+    tokenRequired: Boolean(ATELIER_TOKEN),
+  };
 }
 
 function clearPasted() {
@@ -183,6 +236,11 @@ const httpServer = createServer((req, res) => {
     return;
   }
   const url = new URL(req.url ?? "/", "http://127.0.0.1");
+  if (url.pathname === "/health" && req.method === "GET") {
+    res.setHeader("content-type", "application/json");
+    res.end(JSON.stringify(health()));
+    return;
+  }
   if (url.pathname === "/uistate" && req.method === "GET") {
     res.setHeader("content-type", "application/json");
     try { res.end(readFileSync(UI_PATH)); } catch { res.end("{}"); }
@@ -220,7 +278,7 @@ function broadcast(obj) {
 }
 
 httpServer.on("listening", () => {
-  console.log(JSON.stringify({ port: httpServer.address().port }));
+  console.log(JSON.stringify(health()));
 });
 
 // papier ajouté/modifié dans Zotero → la Bibliothèque se rafraîchit toute seule

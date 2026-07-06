@@ -21,7 +21,26 @@ function freePort() {
   });
 }
 
-function request(port, route, { method = "GET", body = null } = {}) {
+function transientNetworkError(error) {
+  return ["ECONNRESET", "EPIPE", "ECONNREFUSED"].includes(error?.code) ||
+    String(error?.message || "").includes("socket hang up");
+}
+
+async function request(port, route, options = {}) {
+  let lastError;
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    try {
+      return await requestOnce(port, route, options);
+    } catch (error) {
+      lastError = error;
+      if (!transientNetworkError(error) || attempt === 2) throw error;
+      await new Promise((resolve) => setTimeout(resolve, 150 * (attempt + 1)));
+    }
+  }
+  throw lastError;
+}
+
+function requestOnce(port, route, { method = "GET", body = null } = {}) {
   return new Promise((resolve, reject) => {
     const data = body === null ? null : Buffer.from(JSON.stringify(body));
     const req = http.request({
@@ -194,6 +213,17 @@ async function main() {
 
   try {
     await Promise.all([waitForPing(pyPort), waitForPing(nodePort)]);
+
+    const healthRes = await request(nodePort, "/health");
+    assert.equal(healthRes.status, 200, "GET /health status");
+    const health = JSON.parse(healthRes.body.toString());
+    assert.equal(health.service, "atelier-gallery");
+    assert.equal(health.projectRoot, root);
+    assert.equal(health.pid, node.pid);
+    assert.equal(health.tokenRequired, false);
+    assert.equal(typeof health.startedAt, "string");
+    assert.equal(typeof health.bundleHash, "string");
+    assert.ok(health.bundleHash.length >= 16, "health has bundle hash");
 
     const routes = [
       "/ping",
