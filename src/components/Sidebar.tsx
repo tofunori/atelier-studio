@@ -75,7 +75,7 @@ function withRecencySections(threads: Thread[]): RecencyRow[] {
   return rows;
 }
 
-const PROJ_ICONS: Record<string, string> = {
+export const PROJ_ICONS: Record<string, string> = {
   mountain: "M1.5 12.5L6 4l3 5.5L11 6l3.5 6.5z",
   snow: "M8 1.5v13M3 4l10 8M13 4L3 12M5.5 2.8L8 4.5l2.5-1.7M5.5 13.2L8 11.5l2.5 1.7",
   thermo: "M6.5 2.5a1.5 1.5 0 0 1 3 0v6a3 3 0 1 1-3 0zM8 6v5",
@@ -101,7 +101,7 @@ const PROJ_ICONS: Record<string, string> = {
   box: "M2.5 5L8 2l5.5 3v6L8 14l-5.5-3zM2.5 5L8 8l5.5-3M8 8v6",
   folder: "M1.8 4.2c0-.7.5-1.2 1.2-1.2h3l1.4 1.6h5.6c.7 0 1.2.5 1.2 1.2v6c0 .7-.5 1.2-1.2 1.2H3c-.7 0-1.2-.5-1.2-1.2v-7.6z",
 };
-function ProjIcon({ name, size = 13 }: { name: string; size?: number }) {
+export function ProjIcon({ name, size = 13 }: { name: string; size?: number }) {
   const d = PROJ_ICONS[name];
   if (!d) return null;
   return (

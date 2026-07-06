@@ -327,7 +327,7 @@ html, body, #root, .app { height: 100vh; overflow: hidden;
 /* rail compacte façon Muxy */
 .app-row { display: flex; height: 100vh; }
 .app-row .app { flex: 1; }
-.rail { width: 54px; flex-shrink: 0; background: var(--bg-side); display: flex;
+.rail { width: 54px; flex-shrink: 0; background: var(--bg-side); display: flex; overflow-y: auto; overflow-x: hidden; scrollbar-width: none;
   flex-direction: column; align-items: center; gap: 8px; padding: 10px 0;
   border-right: 1px solid var(--bg-ctl); position: relative; }
 .rail .flex { flex: 1; }
@@ -336,9 +336,15 @@ html, body, #root, .app { height: 100vh; overflow: hidden;
   display: inline-flex; align-items: center; justify-content: center; }
 .rail-btn:hover { color: #fff; }
 .rail-proj { position: relative; width: 36px; height: 36px; border-radius: var(--r-m);
-  border: 2px solid transparent; color: #fff; font-size: var(--fs-xl); font-weight: 600;
-  cursor: pointer; display: flex; align-items: center; justify-content: center; }
-.rail-proj.on { border-color: #5b9dff; box-shadow: 0 0 0 2px rgba(91,157,255,0.25); }
+  border: 1px solid transparent; background: var(--bg-ctl) !important; color: var(--fg2);
+  font-size: var(--fs-l); font-weight: 600; cursor: pointer; overflow: hidden;
+  display: flex; align-items: center; justify-content: center;
+  transition: border-color var(--ease), color var(--ease); }
+/* la couleur du projet = un fin liseré bas, pas un aplat criard */
+.rail-proj::after { content: ""; position: absolute; left: 6px; right: 6px; bottom: 3px;
+  height: 2.5px; border-radius: var(--r-pill); background: var(--proj-c, transparent); }
+.rail-proj:hover { color: var(--fg); border-color: var(--border2); }
+.rail-proj.on { border-color: var(--accent); color: var(--fg); }
 .rail-dot { position: absolute; top: -2px; right: -2px; width: 9px; height: 9px;
   border-radius: var(--r-pill); background: var(--accent); border: 2px solid var(--bg-side); }
 .rail-menu { position: fixed; left: 60px; z-index: 120; background: var(--bg-pop);

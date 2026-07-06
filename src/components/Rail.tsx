@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { t } from "../lib/i18n";
 import { PlusIcon, SettingsIcon, SidebarIcon } from "./icons";
+import { ProjIcon } from "./Sidebar";
 
 export type ProjMeta = { color?: string; label?: string };
 
@@ -10,7 +11,8 @@ export const PROJ_COLORS = [
 ];
 
 export function projInitial(root: string, meta?: ProjMeta) {
-  if (meta?.label) return meta.label;
+  // les labels « icon:* » sont des icônes (rendues à part) — jamais du texte
+  if (meta?.label && !meta.label.startsWith("icon:")) return meta.label.slice(0, 2);
   const name = root.split("/").pop() ?? "?";
   return name.charAt(0).toUpperCase();
 }
@@ -41,7 +43,7 @@ export default function Rail(p: {
           <button
             key={root}
             className={`rail-proj ${active ? "on" : ""}`}
-            style={{ background: m?.color ?? "#2c313a" }}
+            style={{ "--proj-c": m?.color ?? "transparent" } as React.CSSProperties}
             title={root.split("/").pop()}
             onClick={() => p.onSelectProject(root)}
             onContextMenu={(e) => {
@@ -51,7 +53,7 @@ export default function Rail(p: {
               setMenu({ root, y: e.clientY });
             }}
           >
-            {projInitial(root, m)}
+            {m?.label?.startsWith("icon:") ? <ProjIcon name={m.label.slice(5)} size={14} /> : projInitial(root, m)}
             {p.running.has(root) && <span className="rail-dot" />}
           </button>
         );
