@@ -158,7 +158,8 @@
   #diffPane .dAdd{background:rgba(52,201,142,.16);color:#7fe0b4;border-bottom:1px solid rgba(52,201,142,.6);
     border-radius:2px;text-decoration:none}
   #diffPane .dDel{background:rgba(224,108,117,.14);color:#e09aa0;text-decoration:line-through;border-radius:2px}
-  #diffGrp button.on{background:var(--accent);color:#10151d;border-color:var(--accent)}
+  #diffGrp button.on{background:var(--border);color:var(--txt)}
+  #diffGrp .dg-label{color:var(--faint,#6b7482);font-size:11px;letter-spacing:.05em;text-transform:uppercase;margin-right:2px}
   /* palette LaTeX/code plus riche (par-dessus material-darker) */
   .cm-s-material-darker .cm-tag{color:#7aa2f7}                 /* \commandes */
   .cm-s-material-darker .cm-bracket{color:#e0b74a}             /* { } [ ] */
@@ -213,6 +214,10 @@
   #texlog .tl-head b{color:var(--txt);font-weight:600}
   #texlog .tl-close{margin-left:auto;background:transparent;border:none;color:var(--muted);cursor:pointer;padding:2px 6px;border-radius:6px}
   #texlog .tl-close:hover{background:var(--border);color:var(--txt)}
+  #texlog .tl-chat{margin-left:auto;background:transparent;border:1px solid var(--border);color:var(--muted);
+    cursor:pointer;padding:2px 8px;border-radius:6px;font:11px var(--font,system-ui)}
+  #texlog .tl-chat:hover{background:var(--border);color:var(--txt)}
+  #texlog .tl-chat+.tl-close{margin-left:6px}
   #texlog pre{flex:1;overflow:auto;margin:0;padding:10px 14px;font:11.5px/1.55 var(--code-font,"SF Mono",Menlo,monospace);
     color:var(--muted);white-space:pre-wrap;word-break:break-word}
   #texlog .tl-err{color:#e0726a;font-weight:600}
@@ -285,8 +290,9 @@ function __ct(){try{return JSON.parse(localStorage.getItem('claudeTargetV1')||'n
   </span>
   <span class="sep"></span>
   <span class="grp" id="diffGrp" style="display:none">
+    <span class="dg-label" title="Historique des modifications de cette session (par l'agent ou toi)">Modifs</span>
     <button id="diffPrev" title="Version précédente">&#8249;</button>
-    <button id="diffTag" title="Voir le diff de cette version">&#177; v1</button>
+    <button id="diffTag" title="Afficher/masquer le diff de cette version">v1</button>
     <button id="diffNext" title="Version suivante">&#8250;</button>
     <button id="diffRestore" title="Rétablir la version affichée sur le disque">Rétablir</button>
   </span>
@@ -321,7 +327,7 @@ function __ct(){try{return JSON.parse(localStorage.getItem('claudeTargetV1')||'n
   <span><b>Sélection de texte</b> &#8594; pastille : annoter / envoyer à Claude</span>
   <span><b>Esc</b> annule la sélection</span>
 </div>
-<div id="texlog"><div class="tl-head"><b>Compilation</b><span id="tlStatus"></span><button class="tl-close" id="tlClose">✕</button></div><pre id="tlBody"></pre></div>
+<div id="texlog"><div class="tl-head"><b>Compilation</b><span id="tlStatus"></span><button class="tl-chat" id="tlChat" title="Envoyer le log au chat"><svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" style="vertical-align:-2px"><path d="M14 8c0 3-2.7 5.2-6 5.2-.8 0-1.6-.1-2.3-.4L2.5 14l1-2.6C2.6 10.5 2 9.3 2 8c0-3 2.7-5.2 6-5.2S14 5 14 8z"/></svg>&nbsp;Add to chat</button><button class="tl-close" id="tlClose">✕</button></div><pre id="tlBody"></pre></div>
 <div id="statusbar" class="editonly">
   <span id="sbPos">Ln 1, Col 1</span>
   <span id="sbMode"></span>
@@ -680,8 +686,10 @@ async function compile(){
 }
 
 // console de compilation : log complet, erreurs en rouge, l.<n> cliquable → ligne source
+let lastCompile = null; // {log, ok} — pour « Add to chat »
 function showCompileLog(j){
   const el = document.getElementById("texlog"), body = document.getElementById("tlBody");
+  lastCompile = { log: String(j.log || j.error || ""), ok: !!j.ok };
   document.getElementById("tlStatus").textContent = j.ok ? "· réussie" : "· échec";
   const esc = (t) => t.replace(/&/g,"&amp;").replace(/</g,"&lt;");
   const html = esc(String(j.log || j.error || "(pas de log)"))
@@ -698,6 +706,25 @@ function showCompileLog(j){
   if(!j.ok){ const firstErr = body.querySelector(".tl-err"); if(firstErr) firstErr.scrollIntoView({block:"start"}); }
 }
 document.getElementById("tlClose").onclick = () => document.getElementById("texlog").classList.remove("open");
+// « Add to chat » : envoie le log de compilation au chat de l'app hôte.
+// Sélection dans la console → seulement la sélection ; sinon la fin du log (les erreurs y sont).
+document.getElementById("tlChat").onclick = () => {
+  if(!lastCompile) return;
+  const sel = String(window.getSelection() || "").trim();
+  let extrait = sel;
+  if(!extrait){
+    const lines = lastCompile.log.split("\n");
+    extrait = lines.slice(-120).join("\n");
+    if(extrait.length > 6000) extrait = extrait.slice(-6000);
+  }
+  const nom = (path || "").split("/").pop() || "document.tex";
+  const statut = lastCompile.ok ? "réussie" : "ÉCHEC";
+  __atelierPost({type:"atelier-add-to-chat",
+    text: "Log de compilation LaTeX (" + statut + ") — " + nom + " :\n```\n" + extrait + "\n```"});
+  const b = document.getElementById("tlChat");
+  const prev = b.innerHTML; b.textContent = "✓ envoyé";
+  setTimeout(() => { b.innerHTML = prev; }, 1400);
+};
 document.getElementById("tlBody").addEventListener("click", (e) => {
   const t = e.target.closest(".tl-jump"); if(!t || !cm) return;
   const ln = parseInt(t.dataset.l, 10) - 1;
@@ -1307,7 +1334,7 @@ function diffPush(before, after){
   if(!diffShown) toggleDiff(true);
 }
 function updateDiffTag(){
-  document.getElementById("diffTag").innerHTML = "&#177; v" + (diffIdx + 2);
+  document.getElementById("diffTag").textContent = "v" + (diffIdx + 2) + "/" + (DIFF_VERSIONS.length + 1);
   document.getElementById("diffPrev").disabled = diffIdx <= 0;
   document.getElementById("diffNext").disabled = diffIdx >= DIFF_VERSIONS.length - 1;
 }
