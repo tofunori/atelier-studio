@@ -16,6 +16,8 @@ export type AgentEvent =
       kind: "done";
       ok: boolean;
       result: string;
+      projectRoot?: string;
+      filesChanged?: string[];
       usage?: { context: number; output: number; cost: number | null; turns: number | null };
       ts?: number;
     }

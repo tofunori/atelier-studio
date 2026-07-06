@@ -1,8 +1,10 @@
 import React, { useEffect, useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
+import hljs from "highlight.js/lib/common";
 import { open } from "@tauri-apps/plugin-dialog";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { AgentEvent } from "../lib/ws";
+import { wsSend } from "../lib/wsBus";
 import { eventLabel, t } from "../lib/i18n";
 import {
   CloseIcon,
@@ -64,27 +66,151 @@ function mdText(children: any): string {
   return "";
 }
 
+const LANG_ALIAS: Record<string, string> = {
+  cjs: "javascript",
+  console: "bash",
+  js: "javascript",
+  jsx: "javascript",
+  md: "markdown",
+  mjs: "javascript",
+  py: "python",
+  rb: "ruby",
+  rs: "rust",
+  sh: "bash",
+  shell: "bash",
+  ts: "typescript",
+  tsx: "typescript",
+  yml: "yaml",
+  zsh: "bash",
+};
+
+function escapeHtml(text: string): string {
+  return text
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
+
+function highlightCode(raw: string, lang: string): string {
+  const normalized = LANG_ALIAS[lang.toLowerCase()] ?? lang.toLowerCase();
+  try {
+    if (normalized && hljs.getLanguage(normalized)) {
+      return hljs.highlight(raw, { language: normalized, ignoreIllegals: true }).value;
+    }
+    return hljs.highlightAuto(raw).value;
+  } catch {
+    return escapeHtml(raw);
+  }
+}
+
+function MarkdownCodeBlock(props: any) {
+  const [copied, setCopied] = useState(false);
+  const child = props.children?.props ?? {};
+  const lang = /language-([\w-]+)/.exec(String(child.className ?? ""))?.[1] ?? "";
+  const raw = mdText(child.children);
+  const label = lang || "text";
+  const languageClass = label.replace(/[^\w-]/g, "");
+  const highlighted = highlightCode(raw, lang);
+  return (
+    <div className="codeblock">
+      <div className="codeblock-bar">
+        <span className="codeblock-lang">{label}</span>
+        <button
+          type="button"
+          className={`codeblock-copy${copied ? " copied" : ""}`}
+          title={copied ? t("chat.output-copied") : t("chat.output-copy")}
+          aria-label={copied ? t("chat.output-copied") : t("chat.output-copy")}
+          onClick={() => {
+            void navigator.clipboard.writeText(raw).then(() => {
+              setCopied(true);
+              setTimeout(() => setCopied(false), 1200);
+            });
+          }}
+        >
+          <CopyIcon size={12} />
+        </button>
+      </div>
+      <pre>
+        <code
+          className={`hljs language-${languageClass}`}
+          dangerouslySetInnerHTML={{ __html: highlighted }}
+        />
+      </pre>
+    </div>
+  );
+}
+
+function diffLineClass(line: string): string {
+  if (line.startsWith("@@")) return "hunk";
+  if (line.startsWith("+") && !line.startsWith("+++")) return "add";
+  if (line.startsWith("-") && !line.startsWith("---")) return "del";
+  return "";
+}
+
+function DoneDiffToggle({ event, threadId }: {
+  event: Extract<AgentEvent, { kind: "done" }>;
+  threadId: string | null;
+}) {
+  const files = event.filesChanged ?? [];
+  const [open, setOpen] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [diff, setDiff] = useState("");
+
+  useEffect(() => {
+    const onDiff = (ev: Event) => {
+      const msg = (ev as CustomEvent).detail;
+      if (event.projectRoot && msg.projectRoot !== event.projectRoot) return;
+      setDiff(String(msg.diff ?? ""));
+      setLoading(false);
+    };
+    window.addEventListener("git-diff", onDiff);
+    return () => window.removeEventListener("git-diff", onDiff);
+  }, [event.projectRoot]);
+
+  if (!files.length) return null;
+  return (
+    <div className="turn-diff">
+      <button
+        type="button"
+        className="turn-diff-toggle"
+        aria-expanded={open}
+        onClick={() => {
+          const next = !open;
+          setOpen(next);
+          if (!next || diff || loading) return;
+          setLoading(true);
+          const sent = wsSend({
+            type: "gitDiff",
+            threadId,
+            projectRoot: event.projectRoot,
+          });
+          if (!sent) setLoading(false);
+        }}
+      >
+        <span>{t("chat.files-modified", { count: files.length })}</span>
+        <span className="tool-tick">{open ? "▾" : "▸"}</span>
+      </button>
+      {open && (
+        <pre className="turn-diff-body">
+          {loading && !diff ? (
+            <span className="muted">{t("common.loading")}</span>
+          ) : diff.trim() ? (
+            diff.split("\n").map((line, idx) => (
+              <span key={idx} className={diffLineClass(line)}>{line || " "}</span>
+            ))
+          ) : (
+            <span className="muted">{t("git.diff-empty")}</span>
+          )}
+        </pre>
+      )}
+    </div>
+  );
+}
+
 // composants markdown : liens externes stylés + réfs fichier:ligne cliquables
 const MD_COMPONENTS = {
-  pre: (props: any) => {
-    const child = props.children?.props ?? {};
-    const lang = /language-(\w+)/.exec(String(child.className ?? ""))?.[1] ?? "";
-    const raw = mdText(child.children);
-    return (
-      <div className="codeblock">
-        <div className="codeblock-bar">
-          <span className="codeblock-lang">{lang}</span>
-          <button type="button" className="codeblock-copy"
-            onClick={(e) => {
-              navigator.clipboard.writeText(raw);
-              const b = e.currentTarget; b.textContent = t("chat.output-copied");
-              setTimeout(() => { b.textContent = t("chat.output-copy"); }, 1200);
-            }}>{t("chat.output-copy")}</button>
-        </div>
-        <pre>{props.children}</pre>
-      </div>
-    );
-  },
+  pre: MarkdownCodeBlock,
   table: (props: any) => (
     <div className="md-table"><table>{props.children}</table></div>
   ),
@@ -686,19 +812,19 @@ export default function Chat(p: {
 
   const renderedEvents: (
     | { type: "event"; event: AgentEvent; index: number }
-    | { type: "tools"; tools: Extract<AgentEvent, { kind: "tool" }>[]; index: number }
+    | { type: "actions"; actions: Extract<AgentEvent, { kind: "tool" | "tool_update" }>[]; index: number }
   )[] = [];
   for (let i = 0; i < p.events.length; i++) {
     const e = p.events[i];
-    if (e.kind !== "tool") {
+    if (e.kind !== "tool" && e.kind !== "tool_update") {
       renderedEvents.push({ type: "event", event: e, index: i });
       continue;
     }
     let end = i + 1;
-    while (end < p.events.length && p.events[end].kind === "tool") end++;
-    const tools = p.events.slice(i, end) as Extract<AgentEvent, { kind: "tool" }>[];
-    if (tools.length >= 4) renderedEvents.push({ type: "tools", tools, index: i });
-    else tools.forEach((tool, offset) => renderedEvents.push({ type: "event", event: tool, index: i + offset }));
+    while (end < p.events.length && (p.events[end].kind === "tool" || p.events[end].kind === "tool_update")) end++;
+    const actions = p.events.slice(i, end) as Extract<AgentEvent, { kind: "tool" | "tool_update" }>[];
+    if (actions.length >= 4) renderedEvents.push({ type: "actions", actions, index: i });
+    else actions.forEach((action, offset) => renderedEvents.push({ type: "event", event: action, index: i + offset }));
     i = end - 1;
   }
   const currentTool = [...p.events].reverse().find((e) => e.kind === "tool_update" || e.kind === "tool");
@@ -709,6 +835,27 @@ export default function Chat(p: {
   const selectedModelLabel = selectedModel ? modelLabel(selectedModel) : model;
   const modelButtonLabel = model ? selectedModelLabel : resolvedDefaultLabel(provider);
   const modelSuffix = effort ? ` · ${effort}` : "";
+
+  function renderToolLine(e: Extract<AgentEvent, { kind: "tool" | "tool_update" }>, key: React.Key) {
+    if (e.kind === "tool") {
+      return (
+        <div key={key} className="tool">
+          <span className="tool-tick">▸</span> {eventLabel(e.name)}
+        </div>
+      );
+    }
+    const output = e.output.length > 6000 ? "[...]\n" + e.output.slice(-6000) : e.output;
+    return (
+      <div key={key} className="tool-output">
+        <div className="tool-output-head">
+          <span className="tool-tick">▸</span>
+          <span>{eventLabel(e.name)}</span>
+          {e.status && <span className="tool-status">{e.status}</span>}
+        </div>
+        {output.trim() && <pre>{output}</pre>}
+      </div>
+    );
+  }
 
   return (
     <div className="chat">
@@ -830,7 +977,7 @@ export default function Chat(p: {
           <div className="empty">{t("chat.empty")}</div>
         )}
         {renderedEvents.map((item) => {
-          if (item.type === "tools") {
+          if (item.type === "actions") {
             const open = openToolGroups.has(item.index);
             return (
               <div key={`tools-${item.index}`} className="tool-group">
@@ -846,16 +993,12 @@ export default function Chat(p: {
                     })
                   }
                 >
+                  <span>{t("chat.actions-used", { count: item.actions.length })}</span>
                   <span className="tool-tick">{open ? "▾" : "▸"}</span>
-                  {t("chat.tools-used", { count: item.tools.length })}
                 </button>
                 {open && (
                   <div className="tool-group-list">
-                    {item.tools.map((tool, offset) => (
-                      <div key={offset} className="tool">
-                        <span className="tool-tick">▸</span> {eventLabel(tool.name)}
-                      </div>
-                    ))}
+                    {item.actions.map((action, offset) => renderToolLine(action, offset))}
                   </div>
                 )}
               </div>
@@ -966,25 +1109,7 @@ export default function Chat(p: {
                 </div>
               </div>
             );
-          if (e.kind === "tool")
-            return (
-              <div key={i} className="tool">
-                <span className="tool-tick">▸</span> {eventLabel(e.name)}
-              </div>
-            );
-          if (e.kind === "tool_update") {
-            const output = e.output.length > 6000 ? "[...]\n" + e.output.slice(-6000) : e.output;
-            return (
-              <div key={i} className="tool-output">
-                <div className="tool-output-head">
-                  <span className="tool-tick">▸</span>
-                  <span>{eventLabel(e.name)}</span>
-                  {e.status && <span className="tool-status">{e.status}</span>}
-                </div>
-                {output.trim() && <pre>{output}</pre>}
-              </div>
-            );
-          }
+          if (e.kind === "tool" || e.kind === "tool_update") return renderToolLine(e, i);
           if (e.kind === "todos")
             return (
               <div key={i} className="todos">
@@ -1044,6 +1169,7 @@ export default function Chat(p: {
                     ))}
                   </div>
                 ) : null}
+                <DoneDiffToggle event={e} threadId={p.threadId} />
               </div>
             );
           }

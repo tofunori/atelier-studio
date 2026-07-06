@@ -22,7 +22,8 @@
     "react": "^19.1.0",
     "react-dom": "^19.1.0",
     "react-markdown": "^10.1.0",
-    "react-resizable-panels": "^2.1.9"
+    "react-resizable-panels": "^2.1.9",
+    "highlight.js": "^11.11.1"
   },
   "devDependencies": {
     "@tauri-apps/cli": "^2",

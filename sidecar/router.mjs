@@ -122,6 +122,24 @@ function emitGitChanged(ctx, threadId, projectRoot) {
   (ctx.broadcast ?? ctx.send)({ type: "gitChanged", threadId, projectRoot });
 }
 
+async function filesChangedSinceTurn(ctx, turn) {
+  if (!turn.projectRoot || !turn.snapshotSha || !ctx.gitops?.changedSince) return [];
+  try {
+    return await ctx.gitops.changedSince(turn.projectRoot, turn.snapshotSha);
+  } catch {
+    return [];
+  }
+}
+
+async function enrichDoneEvent(ctx, turn, event) {
+  if (event.kind !== "done") return event;
+  return {
+    ...event,
+    projectRoot: turn.projectRoot,
+    filesChanged: await filesChangedSinceTurn(ctx, turn),
+  };
+}
+
 async function snapshotBeforeProvider(ctx, threadId) {
   const root = ctx.store.get(threadId)?.projectRoot;
   if (!root || !ctx.gitops?.isRepo || !ctx.gitops?.snapshot) return null;
@@ -155,7 +173,7 @@ async function buildReviewInput(ctx, turn) {
   let diffs = "";
   if (turn.projectRoot && turn.snapshotSha && ctx.gitops?.changedSince) {
     try {
-      filesChanged = await ctx.gitops.changedSince(turn.projectRoot, turn.snapshotSha);
+      filesChanged = await filesChangedSinceTurn(ctx, turn);
       if (filesChanged.length) diffs = await ctx.gitops.diff(turn.projectRoot, null);
     } catch {}
   }
@@ -205,12 +223,7 @@ function maybeAutoReview(ctx, emit, turn, cfg) {
 async function appendLedgerForDone(ctx, turn, event) {
   if (!ctx.ledger?.append || event.kind !== "done") return;
   const thread = ctx.store.get(turn.threadId);
-  let filesChanged = [];
-  if (turn.projectRoot && turn.snapshotSha && ctx.gitops?.changedSince) {
-    try {
-      filesChanged = await ctx.gitops.changedSince(turn.projectRoot, turn.snapshotSha);
-    } catch {}
-  }
+  const filesChanged = await filesChangedSinceTurn(ctx, turn);
   await ctx.ledger.append(turn.projectRoot, {
     ts: new Date().toISOString(),
     threadId: turn.threadId,
@@ -654,13 +667,14 @@ export async function route(msg, ctx) {
           fork: prev?.forkPending ?? false,
           onSession: (sessionId) =>
             ctx.store.upsert({ id: threadId, sessionId, resumeAt: null, forkPending: false }),
-          onEvent: (event) => {
+          onEvent: async (event) => {
             collectTool(tools, event);
             if (event.kind === "text") turn.lastText = event.text;
-            emit({ type: "event", threadId, event });
+            const outEvent = await enrichDoneEvent(ctx, turn, event);
+            emit({ type: "event", threadId, event: outEvent });
             if (event.kind === "done") emitGitChanged(ctx, threadId, projectRoot);
             if (event.kind === "done") maybeAutoReview(ctx, emit, turn, msg.autoReview);
-            if (event.kind === "done") appendLedgerForDone(ctx, turn, event).catch((e) => {
+            if (event.kind === "done") appendLedgerForDone(ctx, turn, outEvent).catch((e) => {
               ctx.send({ type: "error", threadId, message: `ledger: ${String(e)}` });
             });
             if (event.kind === "done" || event.kind === "error") {
@@ -708,13 +722,14 @@ export async function route(msg, ctx) {
         permissionMode,
         webSearch: msg.webSearch,
         additionalDirectories: msg.additionalDirectories,
-        onEvent: (event) => {
+        onEvent: async (event) => {
           collectTool(tools, event);
           if (event.kind === "text") turn.lastText = event.text;
-          emit({ type: "event", threadId, event });
+          const outEvent = await enrichDoneEvent(ctx, turn, event);
+          emit({ type: "event", threadId, event: outEvent });
           if (event.kind === "done") emitGitChanged(ctx, threadId, projectRoot);
           if (event.kind === "done") maybeAutoReview(ctx, emit, turn, msg.autoReview);
-          if (event.kind === "done") appendLedgerForDone(ctx, turn, event).catch((e) => {
+          if (event.kind === "done") appendLedgerForDone(ctx, turn, outEvent).catch((e) => {
             ctx.send({ type: "error", threadId, message: `ledger: ${String(e)}` });
           });
         },
