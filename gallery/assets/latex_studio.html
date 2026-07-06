@@ -46,7 +46,7 @@
 <script src="/.fig_thumbs/purify.min.js"></script>
 <script src="/.fig_thumbs/diff.min.js"></script>
 <style>
-:root{--bg:#202024;--card:#27272a;--card2:#1f1f23;--txt:#e4e4e7;--muted:#a1a1aa;--accent:#5b9dff;--border:#3f3f46}
+:root{--bg:#212429;--card:#1a1d22;--card2:#1a1d22;--txt:#e8eaed;--muted:#8a919e;--accent:#e8823a;--border:#333a45;--border-strong:#3f4652}
   html,body{margin:0;height:100%;background:var(--bg);color:var(--txt);
             font-family:-apple-system,sans-serif;display:flex;flex-direction:column;overflow:hidden}
   header{background:var(--card);border-bottom:1px solid var(--border);padding:6px 10px;
@@ -56,13 +56,13 @@
   header .sep{width:1px;height:18px;background:var(--border);flex:none;margin:0 3px}
   header button{background:transparent;color:var(--muted);border:1px solid transparent;
                 border-radius:6px;padding:0 10px;height:26px;font-size:12px;cursor:pointer;flex:none}
-  header button:hover{color:var(--txt);background:rgba(255,255,255,0.06)}
+  header button:hover{color:var(--txt);background:var(--border)}
   header button.on{background:var(--border);color:var(--txt)}
   header select{background:transparent;color:var(--txt);border:1px solid var(--border);
                 border-radius:6px;padding:0 6px;height:26px;font-size:12px;cursor:pointer;flex:none}
-  #build{background:var(--border);color:var(--txt);border-color:var(--border)}
-  #build:hover{background:#5b5b63;border-color:#5b5b63}
-  #fname{font-size:13px;font-weight:500;color:#cfd4dc;max-width:260px;overflow:hidden;text-overflow:ellipsis;flex:none;white-space:nowrap}
+  #build{background:var(--accent);color:#fff;border-color:var(--accent);font-weight:500}
+  #build:hover{filter:brightness(1.08)}
+  #fname{font-size:13px;font-weight:600;letter-spacing:-.01em;color:var(--txt);max-width:260px;overflow:hidden;text-overflow:ellipsis;flex:none;white-space:nowrap}
   header .sep{display:none}
   #findBtn,#moreBtn{width:26px;height:24px;display:inline-flex;align-items:center;justify-content:center;padding:0}
   header .grp:has(#findBtn){margin-left:auto}
@@ -70,7 +70,8 @@
   #state{color:var(--muted);flex:1;min-width:0;text-align:right;overflow:hidden;
          text-overflow:ellipsis;white-space:nowrap}
   #state.err{color:#ff6b6b}
-  #state.ok{color:#7ec97e}
+  #state.ok{color:#8fbf72}
+  #state.hint{color:var(--muted)}
   #state.dirty{color:#ffd54a}
   #helpPop{position:fixed;top:44px;right:10px;z-index:400;display:none;flex-direction:column;gap:7px;
            background:var(--card);border:1px solid var(--border);border-radius:10px;padding:12px 16px;
@@ -85,16 +86,16 @@
   .CodeMirror{flex:1;height:auto;font-size:13px;font-family:"SF Mono",Menlo,monospace;line-height:1.5}
   .pdfpage{position:relative;margin:10px auto;background:#fff;box-shadow:0 2px 10px rgba(0,0,0,.5);cursor:crosshair}
   .pdfpage canvas{display:block}
-  #marker{position:absolute;left:0;right:0;height:22px;background:rgba(91,157,255,.25);
+  #marker{position:absolute;left:0;right:0;height:22px;background:rgba(232,130,58,.22);
           border-left:3px solid var(--accent);pointer-events:none;display:none;z-index:5}
-  .cm-syncline{background:rgba(91,157,255,.18)}
+  .cm-syncline{background:rgba(232,130,58,.16)}
   /* selection hugs the text (mark-selection) instead of filling the whole line */
   .CodeMirror .CodeMirror-selected{background:transparent !important}
   .CodeMirror-focused .CodeMirror-selected{background:transparent !important}
-  .CodeMirror-selectedtext{background:rgba(91,157,255,.45) !important;box-shadow:none !important;border-radius:2px}
-  .cm-line-flash{background:rgba(91,157,255,.18) !important;transition:background .6s}
+  .CodeMirror-selectedtext{background:rgba(232,130,58,.38) !important;box-shadow:none !important;border-radius:2px}
+  .cm-line-flash{background:rgba(232,130,58,.16) !important;transition:background .6s}
   /* last selection sent to Claude: persistent marker */
-  .cm-clsel{background:rgba(91,157,255,.28);border-radius:2px}
+  .cm-clsel{background:rgba(232,130,58,.28);border-radius:2px}
   #picker{position:fixed;inset:0;background:rgba(0,0,0,.55);display:none;z-index:200;
           align-items:flex-start;justify-content:center;padding-top:8vh}
   #picker.show{display:flex}
@@ -122,7 +123,7 @@
       stroke-linecap:round;stroke-linejoin:round}
   #selPill .tgt{width:28px;height:28px;border-radius:50%;background:transparent;
       border:1px solid #3a4150;color:var(--muted);font-size:13px;flex:none}
-  #selPill .tgt:hover,#selPill .tgt.set{border-color:#5b9dff;color:#5b9dff}
+  #selPill .tgt:hover,#selPill .tgt.set{border-color:#e8823a;color:#e8823a}
   #selPill .go{width:32px;height:32px;border-radius:50%;background:#c96442;color:#fff;font-size:15px;flex:none}
   #selPill .go:hover{background:#e0714a}
   #tgMenu{position:fixed;z-index:302;display:none;flex-direction:column;min-width:240px;max-width:400px;
@@ -181,15 +182,15 @@
   border-radius:6px !important;color:#e8eaed !important;padding:3px 8px !important;
   font-family:inherit !important;outline:none}
 .CodeMirror-search-hint{color:#6b7482 !important}
-.cm-matchhighlight{background:rgba(91,157,255,0.14)}
-.CodeMirror-focused .cm-matchhighlight{background:rgba(91,157,255,0.14)}
+.cm-matchhighlight{background:rgba(232,130,58,0.14)}
+.CodeMirror-focused .cm-matchhighlight{background:rgba(232,130,58,0.14)}
 .CodeMirror-foldgutter{width:12px}
 .CodeMirror-foldgutter-open:after,.CodeMirror-foldgutter-folded:after{color:#6b7482;font-size:10px}
 .lint-gutter-err{color:#e06c75;font-size:10px;line-height:1}
 .cm-lint-line{border-bottom:1px dotted rgba(224,108,117,.7)}
 </style>
 <script>
-function __ct(){try{return JSON.parse(localStorage.getItem('claudeTargetV1')||'null')}catch(e){return null}}(function(){var T={'Default':{bg:'#202024',card:'#27272a',card2:'#1f1f23',txt:'#e4e4e7',muted:'#a1a1aa',accent:'#5b9dff',border:'#3f3f46'},'Codex One':{bg:'#202024',card:'#2f343f',card2:'#21252b',txt:'#abb2bf',muted:'#7f848e',accent:'#4d78cc',border:'#3e4451'},'Dracula':{bg:'#282a36',card:'#343746',card2:'#21222c',txt:'#f8f8f2',muted:'#9aa0b3',accent:'#bd93f9',border:'#44475a'},'Nord':{bg:'#2e3440',card:'#3b4252',card2:'#272c36',txt:'#e5e9f0',muted:'#9aa3b2',accent:'#88c0d0',border:'#434c5e'}};var t;try{t=T[localStorage.getItem('figTheme')];}catch(e){}t=t||T['Default'];var r=document.documentElement.style;for(var k in t)r.setProperty('--'+k,t[k]);})();</script>
+function __ct(){try{return JSON.parse(localStorage.getItem('claudeTargetV1')||'null')}catch(e){return null}}(function(){var T={'Default':{bg:'#202024',card:'#27272a',card2:'#1f1f23',txt:'#e4e4e7',muted:'#a1a1aa',accent:'#e8823a',border:'#3f3f46'},'Codex One':{bg:'#202024',card:'#2f343f',card2:'#21252b',txt:'#abb2bf',muted:'#7f848e',accent:'#4d78cc',border:'#3e4451'},'Dracula':{bg:'#282a36',card:'#343746',card2:'#21222c',txt:'#f8f8f2',muted:'#9aa0b3',accent:'#bd93f9',border:'#44475a'},'Nord':{bg:'#2e3440',card:'#3b4252',card2:'#272c36',txt:'#e5e9f0',muted:'#9aa3b2',accent:'#88c0d0',border:'#434c5e'}};var t;try{t=T[localStorage.getItem('figTheme')];}catch(e){}t=t||T['Default'];var r=document.documentElement.style;for(var k in t)r.setProperty('--'+k,t[k]);})();</script>
 </head>
 <body>
 <header>
@@ -855,7 +856,7 @@ setInterval(async () => {
 
 if(path && isPdfMode){
   document.body.classList.add("pdfmode");
-  setState("ok", "clic dans le PDF → ligne source dans l'onglet éditeur");
+  setState("hint", "clic dans le PDF → ligne source dans l'éditeur");
   // initial loadPdf is triggered by the /texroot resolution above
 } else if(path) load();
 else {
