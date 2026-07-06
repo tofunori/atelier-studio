@@ -23,6 +23,7 @@ import UsagePopover, { worstOf } from "./components/UsagePopover";
 import { init as initNotify, notifyRunDone, notifyReview } from "./lib/notify";
 import { CloseIcon } from "./components/icons";
 import { loadSettings, saveSettings, Settings, ProviderId, DEFAULT_SETTINGS } from "./lib/settings";
+import { ProviderInfo } from "./lib/providers";
 import { THEME_PRESETS, presetById } from "./lib/themes";
 import { setLanguage, t } from "./lib/i18n";
 import { buildItems } from "./lib/palette";
@@ -195,6 +196,7 @@ export default function App() {
     atelierTabsRef.current = atelierTabs;
   }, [atelierTabs]);
   const [settings, setSettings] = useState<Settings>(loadSettings);
+  const [providerList, setProviderList] = useState<ProviderInfo[]>([]);
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [zoteroItems, setZoteroItems] = useState<ZoteroPaletteItem[]>([]);
   const [recentFiles, setRecentFiles] = useState<string[]>(() => {
@@ -662,9 +664,11 @@ export default function App() {
         window.dispatchEvent(new CustomEvent("qa-promote-error", { detail: msg }));
       }
       if (msg.type === "providerStatus") {
+        setProviderList(msg.providers ?? []);
         // lancé depuis le Finder, un CLI peut manquer malgré l'installation ;
         // le sidecar résout PATH+dossiers standards — s'il dit non, c'est réel
-        const missing = (msg.providers ?? []).filter((p: any) => !p.ok);
+        // (les providers API sans clé ne sont pas des CLI manquants)
+        const missing = (msg.providers ?? []).filter((p: any) => !p.ok && p.kind !== "api");
         if (missing.length) {
           const labels = missing.map((p: any) => p.label).join(", ");
           cliBannerText.current = t("app.cli-missing", { list: labels });
@@ -1571,6 +1575,7 @@ export default function App() {
           recentFiles={recentFiles.filter((file) => files.includes(file)).slice(0, 12)}
           zoteroItems={zoteroItems}
           defaults={settings as any}
+          providers={providerList}
           injectText={injectText}
           onInjected={() => setInjectText(null)}
           attachments={attachments}

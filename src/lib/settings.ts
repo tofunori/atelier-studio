@@ -37,6 +37,8 @@ export type Settings = {
   modelEfforts: Record<string, string>; // "provider:modelId" -> effort
   webSearch: boolean;
   additionalDirectories: string;
+  providerOrder: ProviderId[]; // ordre du picker ([] = ordre du catalogue)
+  hiddenProviders: ProviderId[]; // masqués du picker (le provider du thread actif reste visible)
 };
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -69,6 +71,8 @@ export const DEFAULT_SETTINGS: Settings = {
   modelEfforts: {},
   webSearch: false,
   additionalDirectories: "",
+  providerOrder: [],
+  hiddenProviders: [],
 };
 
 const KEY = "atelier-studio.settings";

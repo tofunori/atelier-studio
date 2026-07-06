@@ -20,6 +20,7 @@ import {
   ZapIcon,
 } from "./icons";
 import { Select } from "./Select";
+import { ProviderInfo, orderedVisibleProviders } from "../lib/providers";
 
 const PERMISSION_MODES = [
   { id: "bypassPermissions", labelKey: "permission.full" },
@@ -475,15 +476,18 @@ export default function Chat(p: {
   onNewChat: () => void;
   onOpenProject: () => void;
   defaults: {
-    defaultProvider: "claude" | "codex";
-    defaultModel: { claude: string; codex: string };
-    defaultEffort: { claude: string; codex: string };
+    defaultProvider: string;
+    defaultModel: Record<string, string>;
+    defaultEffort: Record<string, string>;
     defaultPermissionMode: string;
     timeFormat?: "system" | "24h" | "12h";
-    customModels?: { provider: "claude" | "codex"; id: string }[];
+    customModels?: { provider: string; id: string }[];
     modelEfforts?: Record<string, string>;
     autoReview?: { enabled: boolean };
+    providerOrder?: string[];
+    hiddenProviders?: string[];
   };
+  providers?: ProviderInfo[];
   pins: { index: number; label: string; color?: string; style?: string }[];
   onStylePin: (index: number, patch: { color?: string; style?: string; label?: string }) => void;
   onTogglePin: (index: number, label: string) => void;
@@ -491,7 +495,7 @@ export default function Chat(p: {
   onGoal?: (action: "set" | "clear", objective?: string) => void;
   onSubmit: (
     prompt: string,
-    provider: "claude" | "codex",
+    provider: string,
     model: string,
     effort: string,
     permissionMode: string,
@@ -514,12 +518,12 @@ export default function Chat(p: {
     ta.style.height = "auto";
     ta.style.height = Math.min(ta.scrollHeight, 220) + "px";
   }, [text]);
-  const [provider, setProvider] = useState<"claude" | "codex">("claude");
+  const [provider, setProvider] = useState<string>("claude");
   const [model, setModel] = useState("");
   const [effort, setEffort] = useState("");
   const [permissionMode, setPermissionMode] = useState("bypassPermissions");
 
-  function effortFor(pv: "claude" | "codex", modelId: string): string {
+  function effortFor(pv: string, modelId: string): string {
     return (
       p.defaults.modelEfforts?.[pv + ":" + modelId] ??
       p.defaults.defaultEffort[pv] ??
@@ -664,22 +668,31 @@ export default function Chat(p: {
       return n;
     });
   }
-  function modelsFor(pv: "claude" | "codex") {
+  // modèles connus d'un provider : liste locale (claude/codex) sinon catalogue sidecar
+  function baseModelsFor(pv: string): { id: string; label: string }[] {
+    if (MODELS[pv]) return MODELS[pv];
+    const info = (p.providers ?? []).find((pr) => pr.id === pv);
+    return [
+      { id: "", label: "__default" },
+      ...(info?.models ?? []).map((id) => ({ id, label: id })),
+    ];
+  }
+  function modelsFor(pv: string) {
     const customs = (p.defaults.customModels ?? [])
       .filter((m) => m.provider === pv)
       .map((m) => ({ id: m.id, label: m.id }));
-    return [...MODELS[pv], ...customs];
+    return [...baseModelsFor(pv), ...customs];
   }
-  function resolvedDefaultLabel(pv: "claude" | "codex"): string {
+  function resolvedDefaultLabel(pv: string): string {
     const id = p.defaults.defaultModel[pv] ?? "";
     if (!id) return t("common.default-cli");
-    const known = [...MODELS[pv], ...(p.defaults.customModels ?? [])
+    const known = [...baseModelsFor(pv), ...(p.defaults.customModels ?? [])
       .filter((m) => m.provider === pv).map((m) => ({ id: m.id, label: m.id }))]
       .find((m) => m.id === id);
     const eff = p.defaults.defaultEffort?.[pv];
     return (known?.label && known.label !== "__default" ? known.label : id) + (eff ? ` · ${eff}` : "");
   }
-  function modelLabel(model: { label: string }, pv?: "claude" | "codex") {
+  function modelLabel(model: { label: string }, pv?: string) {
     if (model.label !== "__default") return model.label;
     // « Défaut » seul est amnésique : afficher ce qu'il résout réellement
     return `${t("chat.model-default")} — ${resolvedDefaultLabel(pv ?? provider)}`;
@@ -1763,11 +1776,19 @@ export default function Chat(p: {
             </button>
             {menuOpen && (
               <div className="mp-menu">
-                {(["claude", "codex"] as const).map((pv, pi) => (
+                {(orderedVisibleProviders(
+                  p.providers?.length ? p.providers : ([
+                    { id: "claude", label: "Claude", kind: "cli", version: null, ok: true, models: [], defaultModel: "", efforts: [] },
+                    { id: "codex", label: "Codex", kind: "cli", version: null, ok: true, models: [], defaultModel: "", efforts: [] },
+                  ] as ProviderInfo[]),
+                  { providerOrder: p.defaults.providerOrder ?? [], hiddenProviders: p.defaults.hiddenProviders ?? [] },
+                  provider,
+                )).map((info, pi) => { const pv = info.id; return (
                   <div key={pv}>
                     {pi > 0 && <div className="mp-sep" />}
                     <div className="mp-hd">
-                      <ProviderIcon provider={pv} size={11} /> {pv === "claude" ? "Claude" : "Codex"}
+                      <ProviderIcon provider={pv} size={11} /> {info.label}
+                      {info.kind === "api" && !info.ok && <span className="mp-dim"> · {t("settings.key-missing")}</span>}
                     </div>
                     {sortByFav(modelsFor(pv), pv).map((m) => {
                       const key = pv + ":" + m.id;
@@ -1799,7 +1820,7 @@ export default function Chat(p: {
                       );
                     })}
                   </div>
-                ))}
+                ); })}
                 {provider === "claude" && (
                   <>
                     <div className="mp-sep" />
@@ -1835,7 +1856,8 @@ export default function Chat(p: {
               <span className={!effort ? "mp-dim" : undefined}>{effort || t("common.auto-default")}</span>
             </button>
             {effortMenuOpen && (() => {
-              const lvls = EFFORTS[provider];
+              const catalogEfforts = (p.providers ?? []).find((pr) => pr.id === provider)?.efforts ?? [];
+              const lvls = EFFORTS[provider] ?? ["", ...catalogEfforts];
               const labels: Record<string, string> = {
                 "": t("common.auto-default"), low: "Low", medium: "Medium", high: "High",
                 xhigh: "Extra High", max: "Max", minimal: "Minimal",

@@ -126,7 +126,7 @@ export default function SettingsPage(p: {
   const [slugText, setSlugText] = useState("");
   const [themeQuery, setThemeQuery] = useState("");
   const [status, setStatus] = useState<{ port: number | null; pastedCount: number; pasteDir: string } | null>(null);
-  const [provs, setProvs] = useState<{ id: string; label: string; version: string | null; ok: boolean }[] | null>(null);
+  const [provs, setProvs] = useState<{ id: string; label: string; version: string | null; ok: boolean; kind?: "cli" | "api" }[] | null>(null);
   const [retitleStatus, setRetitleStatus] = useState("");
   const [pasted, setPasted] = useState<{ name: string; size: number; mtime: number; dataURL?: string }[] | null>(null);
   const s = p.settings;
@@ -561,15 +561,48 @@ export default function SettingsPage(p: {
             <h1>{t("settings.providers")}</h1>
             <p className="set-sub">{t("settings.providers-sub")}</p>
             {provs === null && <p className="set-empty">{t("settings.checking")}</p>}
-            {provs && (
-              <Group>
-                {provs.map((pr) => (
-                  <Row key={pr.id} title={pr.label} desc={pr.ok ? pr.version ?? "" : t("settings.path-missing")}>
-                    <span className={`set-badge ${pr.ok ? "ok" : "ko"}`}>{pr.ok ? t("settings.detected") : t("settings.absent")}</span>
-                  </Row>
-                ))}
-              </Group>
-            )}
+            {provs && (() => {
+              // ordre du picker : providerOrder d'abord, puis le reste dans l'ordre du catalogue
+              const order = s.providerOrder ?? [];
+              const hidden = new Set(s.hiddenProviders ?? []);
+              const sorted = [...provs].sort((a, b) => {
+                const ra = order.indexOf(a.id), rb = order.indexOf(b.id);
+                return (ra === -1 ? order.length + provs.findIndex((x) => x.id === a.id) : ra)
+                  - (rb === -1 ? order.length + provs.findIndex((x) => x.id === b.id) : rb);
+              });
+              const move = (id: string, dir: -1 | 1) => {
+                const ids = sorted.map((x) => x.id);
+                const i = ids.indexOf(id);
+                const j = i + dir;
+                if (j < 0 || j >= ids.length) return;
+                [ids[i], ids[j]] = [ids[j], ids[i]];
+                set({ providerOrder: ids });
+              };
+              return (
+                <Group>
+                  {sorted.map((pr, i) => (
+                    <Row key={pr.id} title={pr.label}
+                      desc={pr.ok
+                        ? (pr.kind === "api" ? t("settings.provider-api") : pr.version ?? "")
+                        : (pr.kind === "api" ? t("settings.key-missing") : t("settings.path-missing"))}>
+                      <span className={`set-badge ${pr.ok ? "ok" : "ko"}`}>
+                        {pr.ok ? t("settings.detected") : t("settings.absent")}
+                      </span>
+                      <button className="set-btn quiet" disabled={i === 0}
+                        title={t("settings.provider-up")} onClick={() => move(pr.id, -1)}>↑</button>
+                      <button className="set-btn quiet" disabled={i === sorted.length - 1}
+                        title={t("settings.provider-down")} onClick={() => move(pr.id, 1)}>↓</button>
+                      <Toggle checked={!hidden.has(pr.id)} onChange={(v) => {
+                        const next = new Set(s.hiddenProviders ?? []);
+                        if (v) next.delete(pr.id); else next.add(pr.id);
+                        set({ hiddenProviders: [...next] });
+                      }} />
+                    </Row>
+                  ))}
+                </Group>
+              );
+            })()}
+            <p className="set-sub">{t("settings.providers-visibility-sub")}</p>
           </>
         )}
         {section === "avance" && (

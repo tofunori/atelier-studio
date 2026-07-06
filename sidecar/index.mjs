@@ -281,12 +281,20 @@ function exportThread(thread, events, markdown) {
 
 async function providerStatus() {
   return Promise.all(listProviders().map(async (provider) => {
+    const base = {
+      id: provider.id,
+      label: provider.label,
+      kind: provider.kind,
+      models: provider.models,
+      defaultModel: provider.defaultModel,
+      efforts: provider.efforts,
+    };
     if (provider.kind === "api") {
       const st = providers[provider.id]?.status?.() ?? { ok: false };
-      return { id: provider.id, label: provider.label, version: st.ok ? "api" : null, ok: st.ok, kind: "api" };
+      return { ...base, version: st.ok ? "api" : null, ok: st.ok, keyMissing: !st.ok };
     }
     const version = await cliVersion(provider.bin);
-    return { id: provider.id, label: provider.label, version, ok: !!version, kind: "cli" };
+    return { ...base, version, ok: !!version };
   }));
 }
 function saveImage(ext, base64) {
