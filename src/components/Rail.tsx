@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { t } from "../lib/i18n";
 import { PlusIcon, SettingsIcon, SidebarIcon } from "./icons";
-import { ProjIcon, threadTitle, recencyLabelKey, withRecencySections } from "./Sidebar";
+import { PROJ_ICONS, ProjIcon, threadTitle, recencyLabelKey, withRecencySections } from "./Sidebar";
 import { ProviderIcon } from "./icons";
 import type { Thread } from "../lib/ws";
 
@@ -77,7 +77,7 @@ export default function Rail(p: {
             onContextMenu={(e) => {
               e.preventDefault();
               e.stopPropagation();
-              setLabelDraft(m?.label ?? "");
+              setLabelDraft(m?.label?.startsWith("icon:") ? "" : m?.label ?? "");
               setMenu({ root, y: e.clientY });
             }}
           >
@@ -147,17 +147,25 @@ export default function Rail(p: {
               ∅
             </span>
           </div>
+          <div className="emoji-grid">
+            {Object.keys(PROJ_ICONS).map((name) => (
+              <span key={name}
+                className={`emoji-cell ${p.meta[menu.root]?.label === "icon:" + name ? "on" : ""}`}
+                onClick={() => { p.onSetMeta(menu.root, { ...p.meta[menu.root], label: "icon:" + name }); setMenu(null); }}>
+                <ProjIcon name={name} size={14} />
+              </span>
+            ))}
+          </div>
           <input
-            placeholder={t("sidebar.label-placeholder")}
-            value={labelDraft}
+            className="icon-letter"
+            placeholder="Aa"
             maxLength={2}
+            value={labelDraft}
+            title={t("sidebar.letter-title")}
             onChange={(e) => setLabelDraft(e.target.value)}
             onKeyDown={(e) => {
               if (e.key === "Enter") {
-                p.onSetMeta(menu.root, {
-                  ...p.meta[menu.root],
-                  label: labelDraft || undefined,
-                });
+                p.onSetMeta(menu.root, { ...p.meta[menu.root], label: labelDraft || undefined });
                 setMenu(null);
               }
             }}

@@ -591,21 +591,6 @@ export default function Sidebar(p: {
               ∅
             </span>
           </div>
-          <input
-            placeholder={t("sidebar.label-placeholder")}
-            value={labelDraft}
-            maxLength={2}
-            onChange={(e) => setLabelDraft(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter") {
-                p.onSetMeta(projMenu.root, {
-                  ...p.projMeta[projMenu.root],
-                  label: labelDraft || undefined,
-                });
-                setProjMenu(null);
-              }
-            }}
-          />
         </div>
       )}
       {menu && (
