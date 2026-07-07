@@ -843,7 +843,7 @@ async function load(){
   lastSavedText = j.text;
   if (window.__ENGINE === "cm6") {
     cm = AtelierStudioCM6.createStudioEditor(document.getElementById("left"), {
-      value: j.text, ext: __EXT, wrap: localStorage.getItem("studioWrap") !== "off",
+      value: j.text, ext: __EXT, wrap: localStorage.getItem("cmWrap") !== "off",
       aiEnabled: () => localStorage.getItem("atelier.latex.cm6.ai") !== "0",
       onGhostState: (s) => setState("ok", s),
     });
