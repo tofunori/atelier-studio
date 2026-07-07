@@ -1,7 +1,7 @@
 // studio_editor.mjs — CM6 engine wearing a CM5 façade, sized to exactly the
 // API surface latex_studio.html uses (inventoried 2026-07-07). Not a general
 // CM5 shim: methods the page doesn't call don't exist here.
-import {EditorState, StateEffect, StateField, Compartment, Prec} from "@codemirror/state";
+import {EditorState, StateEffect, StateField, Compartment, Prec, Annotation} from "@codemirror/state";
 import {EditorView, Decoration, keymap, highlightActiveLine, highlightActiveLineGutter,
         lineNumbers, drawSelection} from "@codemirror/view";
 import {defaultKeymap, historyKeymap, history, indentWithTab} from "@codemirror/commands";
@@ -39,11 +39,12 @@ const addMark = StateEffect.define();     // {id, from, to, spec}
 const clearMark = StateEffect.define();   // id
 const addLineCls = StateEffect.define();  // {line, cls}  (0-based)
 const clearLineCls = StateEffect.define();// {line, cls}
+const setValueAnno = Annotation.define();
 const marksField = StateField.define({
   create: () => ({decos: Decoration.none, specs: new Map()}),
   update(value, tr) {
     let decos = value.decos.map(tr.changes);
-    const specs = value.specs;
+    const specs = new Map(value.specs);
     for (const e of tr.effects) {
       if (e.is(addMark)) {
         const {id, from, to, spec} = e.value;
@@ -114,7 +115,7 @@ export function createStudioEditor(parent, opts) {
         keymap.of([...closeBracketsKeymap, ...defaultKeymap, ...searchKeymap, ...historyKeymap, ...foldKeymap, indentWithTab]),
         EditorView.updateListener.of((u) => {
           if (u.docChanged) {
-            const origin = u.transactions.some((t) => t.isUserEvent("input.complete")) ? "+ghost" : "+input";
+            const origin = u.transactions.some((t) => t.annotation(setValueAnno)) ? "setValue" : u.transactions.some((t) => t.isUserEvent("input.complete")) ? "+ghost" : "+input";
             handlers.change.forEach((fn) => fn(facade, {origin}));
           }
           if (u.selectionSet || u.docChanged) handlers.cursorActivity.forEach((fn) => fn(facade));
@@ -141,13 +142,18 @@ export function createStudioEditor(parent, opts) {
     Pass,
     // --- content ---
     getValue: () => doc().toString(),
-    setValue: (text) => view.dispatch({changes: {from: 0, to: doc().length, insert: text}}),
+    setValue: (text) => view.dispatch({changes: {from: 0, to: doc().length, insert: text}, annotations: setValueAnno.of(true)}),
     getLine: (n) => (n >= 0 && n < doc().lines ? doc().line(n + 1).text : ""),
     lineCount: () => doc().lines,
     replaceRange: (text, from, to) =>
       view.dispatch({changes: {from: toOffset(from), to: to == null ? toOffset(from) : toOffset(to), insert: text}}),
     // --- cursor/selection ---
-    getCursor: () => toPos(view.state.selection.main.head),
+    getCursor: (dir) => {
+      const sel = view.state.selection.main;
+      const off = dir === "from" ? sel.from : dir === "to" ? sel.to
+        : dir === "anchor" ? sel.anchor : sel.head;
+      return toPos(off);
+    },
     setCursor: (pos) => view.dispatch({selection: {anchor: toOffset(pos)}}),
     somethingSelected: () => !view.state.selection.main.empty,
     getSelection: () => view.state.sliceDoc(view.state.selection.main.from, view.state.selection.main.to),
