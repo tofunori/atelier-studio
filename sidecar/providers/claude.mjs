@@ -28,7 +28,6 @@ function logStderr(data) {
 }
 
 import { resolveBin } from "../bin_resolver.mjs";
-import { claudeEnvForAgent } from "./agent_models.mjs";
 const CLAUDE_BIN = resolveBin("claude");
 
 
@@ -150,9 +149,7 @@ export function send({
   onEvent,
   onSession,
 }) {
-  const agent = claudeEnvForAgent(model);
-  const actualModel = agent?.model ?? model;
-  const env = agent?.env ? { ...process.env, ...agent.env } : undefined;
+  const actualModel = model;
   let s = sessions.get(threadId);
   if (s) {
     // session ouverte : priority native du SDK (now = steer, next = queue) ;
@@ -213,7 +210,6 @@ export function send({
           }
         },
       } : {}),
-      ...(env ? { env } : {}),
       ...(actualModel ? { model: actualModel } : {}),
       ...(effort ? { effort } : {}),
       ...(sessionId ? { resume: sessionId } : {}),

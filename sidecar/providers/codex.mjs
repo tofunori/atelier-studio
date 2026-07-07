@@ -9,11 +9,10 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 
 import { resolveBin } from "./../bin_resolver.mjs";
-import { codexConfigForAgent, codexProviderCliArgs, codexProviderEnv } from "./agent_models.mjs";
 const CODEX_BIN = resolveBin("codex") ?? "codex";
 
-export function buildCodexAppServerArgs(agentProviderConfigs) {
-  return ["app-server", ...codexProviderCliArgs(agentProviderConfigs)];
+export function buildCodexAppServerArgs() {
+  return ["app-server"];
 }
 
 // ---------------------------------------------------------------------------
@@ -85,7 +84,7 @@ async function ensureServer() {
   if (server) return server;
   const proc = spawn(CODEX_BIN, buildCodexAppServerArgs(), {
     stdio: ["pipe", "pipe", "pipe"],
-    env: { ...process.env, ...codexProviderEnv() },
+    env: { ...process.env },
   });
   proc.on("exit", () => resetServerState(new Error("codex app-server a quitté")));
   proc.on("error", (e) => resetServerState(e));
@@ -152,16 +151,9 @@ export function buildCodexInput({ prompt, inputs, imagePath, attachments }) {
   return [text(prompt), ...[...imagePaths].map(image)];
 }
 
-export function buildThreadOptions({ cwd, model, effort, webSearch, additionalDirectories, sandbox, agentProviderConfigs }) {
+export function buildThreadOptions({ cwd, model, effort, webSearch, additionalDirectories, sandbox }) {
   const config = {};
   let actualModel = model ?? null;
-  let actualModelProvider = null;
-  const agent = codexConfigForAgent(model, agentProviderConfigs);
-  if (agent) {
-    actualModel = agent.model;
-    actualModelProvider = agent.modelProvider;
-    Object.assign(config, agent.config);
-  }
   if (webSearch) config.web_search = webSearch === "cached" ? "cached" : "live";
   if (Array.isArray(additionalDirectories) && additionalDirectories.length) {
     config.sandbox_workspace_write = { writable_roots: additionalDirectories.map(String) };
@@ -169,7 +161,6 @@ export function buildThreadOptions({ cwd, model, effort, webSearch, additionalDi
   return {
     cwd: cwd ?? null,
     model: actualModel,
-    ...(actualModelProvider ? { modelProvider: actualModelProvider } : {}),
     approvalPolicy: "never",
     sandbox: sandbox ?? "danger-full-access",
     ...(Object.keys(config).length ? { config } : {}),

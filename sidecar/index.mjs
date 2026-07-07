@@ -294,7 +294,6 @@ async function providerStatus() {
       label: provider.label,
       kind: provider.kind,
       models: provider.models,
-      agentModels: provider.agentModels ?? [],
       modelReasoning: provider.modelReasoning ?? {},
       defaultModel: provider.defaultModel,
       efforts: provider.efforts,
@@ -320,6 +319,7 @@ const UI_PATH = `${APP_DIR}/ui.json`;
 function httpAuthorized(req) {
   return !ATELIER_TOKEN || req.headers["x-atelier-token"] === ATELIER_TOKEN;
 }
+
 const httpServer = createServer((req, res) => {
   res.setHeader("access-control-allow-origin", "*");
   res.setHeader("access-control-allow-methods", "GET,POST,OPTIONS");

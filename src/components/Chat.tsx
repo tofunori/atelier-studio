@@ -780,15 +780,10 @@ export default function Chat(p: {
   // modèles connus d'un provider : liste locale (claude/codex) sinon catalogue sidecar
   function baseModelsFor(pv: string): { id: string; label: string }[] {
     const info = (p.providers ?? []).find((pr) => pr.id === pv);
-    const agentModels = (info?.agentModels ?? []).map((m) => ({
-      id: m.id,
-      label: m.available === false ? `${m.label} · ${t("settings.key-missing")}` : m.label,
-    }));
-    if (MODELS[pv]) return [...MODELS[pv], ...agentModels];
+    if (MODELS[pv]) return MODELS[pv];
     return [
       { id: "", label: "__default" },
       ...(info?.models ?? []).map((id) => ({ id, label: id })),
-      ...agentModels,
     ];
   }
   function modelsFor(pv: string) {

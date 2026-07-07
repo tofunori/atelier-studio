@@ -9,15 +9,6 @@ export type ProviderInfo = {
   ok: boolean;
   keyMissing?: boolean;
   models: string[];
-  agentModels?: {
-    id: string;
-    label: string;
-    model: string;
-    runtime: string;
-    sourceProviderId: string;
-    sourceProviderLabel: string;
-    available?: boolean;
-  }[];
   modelReasoning?: Record<string, {
     supported_efforts?: string[] | null;
     default_effort?: string | null;

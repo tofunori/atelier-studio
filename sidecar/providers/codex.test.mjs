@@ -1,6 +1,5 @@
 import { describe, expect, it } from "vitest";
 import { buildCodexAppServerArgs, buildCodexInput, buildThreadOptions } from "./codex.mjs";
-import { encodeAgentModel } from "./agent_models.mjs";
 
 describe("codex provider helpers (app-server)", () => {
   it("emballe une entrée texte simple au format UserInput", () => {
@@ -58,52 +57,7 @@ describe("codex provider helpers (app-server)", () => {
     expect(buildThreadOptions({ cwd: "/repo", sandbox: "read-only" }).sandbox).toBe("read-only");
   });
 
-  it("place les choix agent Codex dans modelProvider et config", () => {
-    const model = encodeAgentModel({
-      runtime: "codex",
-      sourceProviderId: "openrouter",
-      model: "z-ai/glm-5.2",
-    });
-    expect(buildThreadOptions({
-      cwd: "/repo",
-      model,
-      agentProviderConfigs: [{
-        id: "openrouter",
-        label: "OpenRouter",
-        baseURL: "https://openrouter.ai/api/v1",
-        protocol: "openai",
-        apiKey: "sk-test",
-        models: ["z-ai/glm-5.2"],
-      }],
-    })).toMatchObject({
-      model: "z-ai/glm-5.2",
-      modelProvider: "openrouter",
-      config: {
-        model_provider: "openrouter",
-        model_providers: {
-          openrouter: {
-            base_url: "https://openrouter.ai/api/v1",
-            wire_api: "responses",
-            env_key: "ATELIER_CODEX_OPENROUTER_API_KEY",
-          },
-        },
-      },
-    });
-  });
-
-  it("lance le app-server avec les providers agent en config de demarrage", () => {
-    const args = buildCodexAppServerArgs([{
-      id: "openrouter",
-      label: "OpenRouter",
-      baseURL: "https://openrouter.ai/api/v1",
-      protocol: "openai",
-      apiKey: "sk-test",
-      models: ["z-ai/glm-5.2"],
-    }]);
-    const joined = args.join(" ");
-    expect(args[0]).toBe("app-server");
-    expect(joined).toContain('model_providers.openrouter.base_url="https://openrouter.ai/api/v1"');
-    expect(joined).toContain('model_providers.openrouter.env_key="ATELIER_CODEX_OPENROUTER_API_KEY"');
-    expect(joined).not.toContain("sk-test");
+  it("lance le app-server Codex sans providers externes globaux", () => {
+    expect(buildCodexAppServerArgs()).toEqual(["app-server"]);
   });
 });
