@@ -687,7 +687,7 @@ export async function handleEditorsPost(req, res, url) {
         cwd: PROJECT,
         env: claudeSuggestEnv(),
         input: latexSuggestPrompt({ before, after }),
-        timeoutMs: 9000,
+        timeoutMs: 20000,
       });
       if (r.timeout) return sendJson(res, 200, { ok: false, text: "", error: "claude timeout" });
       if (r.code !== 0) {
