@@ -434,7 +434,8 @@ if(!galleryDataLoaded){
     let menu=null;
     const close=()=>{ if(menu){menu.remove();menu=null;document.removeEventListener('mousedown',out,true);} };
     const out=e=>{ if(menu && !menu.contains(e.target) && e.target!==btn) close(); };
-    btn.addEventListener('click',()=>{
+    btn.addEventListener('click',e=>{
+      e.stopPropagation();
       if(menu){close();return;}
       menu=document.createElement('div'); menu.className='menu csel-menu'; menu.style.display='block';
       [...sel.options].forEach((o,i)=>{
