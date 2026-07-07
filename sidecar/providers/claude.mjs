@@ -230,6 +230,16 @@ export function send({
     },
   };
   sessions.set(threadId, s);
+
+  // onEvent du routeur est async : un rejet non attrapé tuerait le sidecar.
+  // On suit aussi si le DERNIER événement émis était terminal (done/error) —
+  // filet pour garantir un done/error même si la boucle se ferme sans result.
+  let sawTerminal = false;
+  const emit = (ev) => {
+    sawTerminal = ev.kind === "done" || ev.kind === "error";
+    try { Promise.resolve(s.onEvent(ev)).catch(() => {}); } catch {}
+  };
+
   push(userMsg(prompt));
 
   (async () => {
@@ -252,10 +262,10 @@ export function send({
         if (msg.type === "stream_event") {
           const ev = msg.event;
           if (ev?.type === "content_block_delta" && ev.delta?.type === "text_delta") {
-            s.onEvent({ kind: "delta", text: ev.delta.text });
+            emit({ kind: "delta", text: ev.delta.text });
           }
           if (ev?.type === "content_block_delta" && ev.delta?.type === "thinking_delta" && ev.delta.thinking) {
-            s.onEvent({ kind: "thinking_delta", text: ev.delta.thinking });
+            emit({ kind: "thinking_delta", text: ev.delta.thinking });
           }
         }
         if (msg.type === "assistant") {
@@ -267,8 +277,8 @@ export function send({
               (au.cache_creation_input_tokens ?? 0);
           }
           for (const block of msg.message.content ?? []) {
-            if (block.type === "text") s.onEvent({ kind: "text", text: block.text });
-            if (block.type === "thinking" && block.thinking) s.onEvent({ kind: "thinking", text: block.thinking });
+            if (block.type === "text") emit({ kind: "text", text: block.text });
+            if (block.type === "thinking" && block.thinking) emit({ kind: "thinking", text: block.thinking });
             if (block.type === "tool_use") {
               const editPath = ["Edit", "Write", "NotebookEdit"].includes(block.name)
                 ? String(block.input?.file_path ?? block.input?.notebook_path ?? "")
@@ -278,7 +288,7 @@ export function send({
                 // une fois le fichier réellement modifié sur disque
                 pendingEdits.set(block.id, { name: block.name, path: editPath });
               } else {
-                s.onEvent({ kind: "tool", name: block.name, detail: toolDetail(block.name, block.input) });
+                emit({ kind: "tool", name: block.name, detail: toolDetail(block.name, block.input) });
               }
             }
           }
@@ -289,18 +299,18 @@ export function send({
             const pe = pendingEdits.get(block.tool_use_id);
             pendingEdits.delete(block.tool_use_id);
             if (block.is_error) {
-              s.onEvent({ kind: "tool", name: pe.name, detail: toolDetail(pe.name, { file_path: pe.path }) });
+              emit({ kind: "tool", name: pe.name, detail: toolDetail(pe.name, { file_path: pe.path }) });
             } else {
-              s.onEvent({ kind: "edit", files: [pe.path] });
+              emit({ kind: "edit", files: [pe.path] });
             }
           }
         }
         if (msg.type === "system" && msg.subtype === "compact_boundary") {
-          s.onEvent({ kind: "tool", name: "__compacted" });
+          emit({ kind: "tool", name: "__compacted" });
         }
         if (msg.type === "result") {
           const u = msg.usage ?? {};
-          s.onEvent({
+          emit({
             kind: "done",
             ok: msg.subtype === "success",
             result: msg.result ?? "",
@@ -317,8 +327,13 @@ export function send({
         }
       }
     } catch (e) {
-      s.onEvent({ kind: "error", message: String(e) });
+      emit({ kind: "error", message: String(e) });
     } finally {
+      // filet : la boucle s'est fermée sans done/error final (session interrompue
+      // ou fermée par endSession pendant un tour) → sinon le thread reste "running"
+      if (!sawTerminal) {
+        emit({ kind: "error", message: "session terminée sans résultat (interrompue ou fermée)" });
+      }
       s.close();
       sessions.delete(threadId);
     }
