@@ -152,12 +152,31 @@ async function filesChangedSinceTurn(ctx, turn) {
 }
 
 async function enrichDoneEvent(ctx, turn, event) {
+  if (event.kind === "edit") return enrichEditEvent(ctx, turn, event);
   if (event.kind !== "done") return event;
   return {
     ...event,
     projectRoot: turn.projectRoot,
     filesChanged: await filesChangedSinceTurn(ctx, turn),
   };
+}
+
+/** Événement « edit » d'un provider : ±lignes par fichier via git numstat. */
+async function enrichEditEvent(ctx, turn, event) {
+  const root = turn.projectRoot || null;
+  const files = [];
+  for (const p of (event.files ?? []).slice(0, 20)) {
+    let rel = String(p ?? "");
+    if (root && rel.startsWith(root.endsWith("/") ? root : root + "/")) {
+      rel = rel.slice((root.endsWith("/") ? root : root + "/").length);
+    }
+    let add = null, del = null;
+    if (root && !rel.startsWith("/") && ctx.gitops?.numstat) {
+      try { ({ add, del } = await ctx.gitops.numstat(root, rel)); } catch {}
+    }
+    files.push({ path: rel, add, del });
+  }
+  return { kind: "edit", projectRoot: root, files, ts: Date.now() };
 }
 
 async function snapshotBeforeProvider(ctx, threadId) {

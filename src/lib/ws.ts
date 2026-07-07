@@ -24,6 +24,7 @@ export type AgentEvent =
       ts?: number;
     }
   | { kind: "tool"; name: string; detail?: string }
+  | { kind: "edit"; projectRoot?: string | null; files: { path: string; add: number | null; del: number | null }[]; ts?: number }
   | { kind: "tool_update"; id: string; name: string; output: string; status?: string; exitCode?: number; ts?: number }
   | { kind: "todos"; items: { text: string; completed: boolean }[]; ts?: number }
   | {

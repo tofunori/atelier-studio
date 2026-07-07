@@ -22,6 +22,16 @@ describe("openai-compatible SSE parsing", () => {
     expect(events).toEqual([{ kind: "thinking_delta", text: "hmm" }]);
   });
 
+  it("parses OpenRouter reasoning_details deltas", () => {
+    const { events } = parseSseChunk(
+      'data: {"choices":[{"delta":{"reasoning_details":[{"type":"reasoning.text","text":"step"},{"type":"reasoning.summary","summary":"sum"}]}}]}\n',
+    );
+    expect(events).toEqual([
+      { kind: "thinking_delta", text: "step" },
+      { kind: "thinking_delta", text: "sum" },
+    ]);
+  });
+
   it("parses final usage frame", () => {
     const { events } = parseSseChunk(
       'data: {"choices":[],"usage":{"prompt_tokens":10,"completion_tokens":5}}\n',
@@ -83,5 +93,13 @@ describe("anthropic-compatible SSE parsing", () => {
 describe("api provider config", () => {
   it("returns [] for a missing config file", () => {
     expect(loadApiProviderConfigs("/nonexistent/api_providers.json")).toEqual([]);
+  });
+
+  it("keeps reasoning metadata for object model entries", () => {
+    const file = new URL("./fixtures/api-providers-reasoning.json", import.meta.url);
+    const configs = loadApiProviderConfigs(file);
+    expect(configs[0].models).toEqual(["z-ai/glm-5.2", "plain/model"]);
+    expect(configs[0].modelReasoning["z-ai/glm-5.2"].default_effort).toBe("medium");
+    expect(configs[0].defaultModel).toBe("z-ai/glm-5.2");
   });
 });

@@ -294,6 +294,8 @@ async function providerStatus() {
       label: provider.label,
       kind: provider.kind,
       models: provider.models,
+      agentModels: provider.agentModels ?? [],
+      modelReasoning: provider.modelReasoning ?? {},
       defaultModel: provider.defaultModel,
       efforts: provider.efforts,
     };
@@ -422,6 +424,11 @@ wss.on("connection", (ws) => {
         if (!id || BUILTIN_PROVIDER_IDS.has(id)) throw new Error(`id provider invalide: ${entry.id}`);
         const configs = loadApiProviderConfigs();
         const existing = configs.find((c) => c.id === id);
+        const modelMetadata = entry.modelMetadata && typeof entry.modelMetadata === "object"
+          ? entry.modelMetadata
+          : {};
+        const modelIds = (Array.isArray(entry.models) ? entry.models : String(entry.models ?? "").split(","))
+          .map((m) => String(m).trim()).filter(Boolean);
         const next = {
           id,
           label: String(entry.label ?? id),
@@ -430,8 +437,10 @@ wss.on("connection", (ws) => {
           // clé vide → conserver l'existante (l'UI ne la connaît jamais)
           apiKey: entry.apiKey ? String(entry.apiKey) : existing?.apiKey ?? null,
           apiKeyEnv: entry.apiKeyEnv ? String(entry.apiKeyEnv) : existing?.apiKeyEnv ?? null,
-          models: (Array.isArray(entry.models) ? entry.models : String(entry.models ?? "").split(","))
-            .map((m) => String(m).trim()).filter(Boolean),
+          models: modelIds.map((modelId) => {
+            const meta = modelMetadata[modelId];
+            return meta?.reasoning ? { id: modelId, label: meta.label, reasoning: meta.reasoning } : modelId;
+          }),
           defaultModel: entry.defaultModel ? String(entry.defaultModel) : undefined,
         };
         if (!next.baseURL || !next.models.length) throw new Error("baseURL et au moins un modèle requis");

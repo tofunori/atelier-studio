@@ -461,6 +461,15 @@ html, body, #root, .app { height: 100vh; overflow: hidden;
 .activity-step-detail { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
   color: var(--fg2); opacity: 0.72; }
 @keyframes toolGroupIn { from { opacity: 0; transform: translateY(-2px); } to { opacity: 1; transform: translateY(0); } }
+/* ligne « fichier édité » : ✎ nom +N −N, dépliable en diff */
+.edit-lines { margin: 4px 0; }
+.edit-line-row { display: inline-flex; align-items: center; gap: 6px; background: transparent;
+  border: none; color: var(--muted); padding: 2px 0; cursor: pointer; font: inherit;
+  font-size: var(--fs-m); }
+.edit-line-row:hover { color: var(--fg2); }
+.edit-line-file { color: #7aa2f7; }
+.edit-line-add { color: #98c379; }
+.edit-line-del { color: #e06c75; }
 .turn-diff { margin-top: 6px; }
 .turn-diff-toggle { display: inline-flex; align-items: center; gap: 4px; background: transparent;
   border: none; color: var(--muted); padding: 0; cursor: pointer; font: inherit;
@@ -1069,16 +1078,19 @@ button.ghost.danger, button.ghost.danger:hover { color: #d98c8f; background: rgb
   border: 1px solid var(--border); border-radius: var(--r-m); color: inherit;
   padding: 7px 9px; font-size: var(--fs-m); outline: none; }
 .biblio-search-row input:focus { border-color: var(--border2); color: var(--fg); }
-.biblio-filters { display: flex; align-items: center; gap: 5px; padding: 7px 10px;
-  border-bottom: 1px solid var(--border); }
+.biblio-filters { display: flex; align-items: center; flex-wrap: wrap; gap: 5px; padding: 6px 10px;
+  min-height: 46px; box-sizing: border-box; border-bottom: 1px solid var(--border); }
 .biblio-filters button, .biblio-filters select { background: transparent; border: 1px solid transparent;
   color: var(--muted); border-radius: var(--r-m); padding: 5px 9px; font-size: var(--fs-m);
   cursor: pointer; min-height: 28px; }
 .biblio-filters button { display: inline-flex; align-items: center; justify-content: center; gap: 5px; }
-.biblio-filters select { min-width: 0; flex: 1; background: var(--bg-ctl); border-color: var(--border);
+.biblio-filters select { min-width: 72px; flex: 1 1 90px; background: var(--bg-ctl); border-color: var(--border);
   outline: none; }
 .biblio-filters button:hover, .biblio-filters button.on { background: var(--bg-ctl); color: var(--fg); }
 .biblio-filters select.biblio-sort { flex: 0 1 auto; min-width: 92px; max-width: 128px; }
+.biblio-add { flex-shrink: 0; }
+.biblio-add-note { padding: 6px 12px; font-size: var(--fs-s); color: var(--muted);
+  border-bottom: 1px solid var(--border); }
 .biblio-list { flex: 1; min-height: 0; overflow-y: auto; padding: 6px 6px 10px;
   display: flex; flex-direction: column; gap: 2px; }
 .biblio-empty { color: var(--muted); font-size: var(--fs-l); padding: 18px 12px; }

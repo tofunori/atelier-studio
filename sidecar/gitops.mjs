@@ -156,6 +156,36 @@ export async function status(root) {
   return parsed;
 }
 
+/** ±lignes d'un seul fichier vs HEAD ; fichier non suivi = tout en ajouts. */
+export async function numstat(root, filePath) {
+  const realRoot = confinedRoot(root);
+  await ensureRepo(realRoot);
+  const rel = assertRelativePath(realRoot, filePath);
+  const parse = (out) => {
+    const line = String(out ?? "").split("\n").find(Boolean);
+    if (!line) return null;
+    const [a, d] = line.split("\t");
+    return { add: Number(a) || 0, del: Number(d) || 0 };
+  };
+  if (await hasHead(realRoot)) {
+    try {
+      const { stdout } = await git(realRoot, ["diff", "--numstat", "HEAD", "--", rel]);
+      const r = parse(stdout);
+      if (r) return r;
+      // fichier suivi mais sans modification → 0/0 (ne pas retomber sur no-index)
+      await git(realRoot, ["ls-files", "--error-unmatch", "--", rel]);
+      return { add: 0, del: 0 };
+    } catch {}
+  }
+  try {
+    // --no-index sort avec code 1 quand les fichiers diffèrent
+    const { stdout } = await git(realRoot, ["diff", "--numstat", "--no-index", "--", "/dev/null", rel]);
+    return parse(stdout) ?? { add: 0, del: 0 };
+  } catch (e) {
+    return parse(e.stdout) ?? { add: 0, del: 0 };
+  }
+}
+
 export async function diff(root, filePath = null) {
   const realRoot = confinedRoot(root);
   await ensureRepo(realRoot);

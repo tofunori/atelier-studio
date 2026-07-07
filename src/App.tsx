@@ -270,15 +270,29 @@ export default function App() {
   }, [settings]);
   const [dragging, setDragging] = useState(false);
   const [unread, setUnread] = useState<Set<string>>(new Set());
-  const [dockDone, setDockDone] = useState<Set<string>>(new Set());
   const [qaMode, setQaMode] = useState<"closed" | "open" | "min">("closed");
   const qaModeRef = useRef<"closed" | "open" | "min">("closed");
   qaModeRef.current = qaMode;
   const [usageOpen, setUsageOpen] = useState(false);
   useEffect(() => { initNotify().catch(() => {}); }, []);
   useEffect(() => {
-    setDockBadge(dockDone.size).catch(() => {});
-  }, [dockDone]);
+    setDockBadge(unread.size).catch(() => {});
+  }, [unread]);
+  // retour de focus sur l'app : le thread affiché est de facto lu
+  useEffect(() => {
+    const clearActive = () => {
+      const id = activeIdRef.current;
+      if (!id) return;
+      setUnread((u) => {
+        if (!u.has(id)) return u;
+        const n = new Set(u);
+        n.delete(id);
+        return n;
+      });
+    };
+    window.addEventListener("focus", clearActive);
+    return () => window.removeEventListener("focus", clearActive);
+  }, []);
   const [qaDraft, setQaDraft] = useState("");
   const [qaContext, setQaContext] = useState(""); // threadId -> condition
   const [favorites, setFavorites] = useState<string[]>(() => {
@@ -518,7 +532,6 @@ export default function App() {
         }
         if (msg.event.kind === "done" || msg.event.kind === "error") {
           setWorkingSince((p) => ({ ...p, [msg.threadId]: null }));
-          setDockDone((u) => new Set(u).add(msg.threadId));
           const th = allThreadsRef.current?.find?.((x: any) => x.id === msg.threadId);
           notifyRunDone({
             threadId: msg.threadId,
@@ -1145,12 +1158,6 @@ export default function App() {
   function selectThread(threadId: string, projectRoot: string) {
     setActiveId(threadId);
     activeIdRef.current = threadId;
-    setDockDone((u) => {
-      if (!u.has(threadId)) return u;
-      const n = new Set(u);
-      n.delete(threadId);
-      return n;
-    });
     if (!projectRoot) {
       setUnread((u) => { const n = new Set(u); n.delete(threadId); return n; });
       if (!events[threadId]?.length && ws.current?.readyState === 1) {

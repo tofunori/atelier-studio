@@ -50,6 +50,7 @@ const EFFORTS: Record<string, string[]> = {
   claude: ["", "low", "medium", "high", "xhigh", "max"],
   codex: ["", "minimal", "low", "medium", "high", "xhigh"],
 };
+const API_REASONING_LEVELS = ["", "none", "minimal", "low", "medium", "high", "xhigh", "max"];
 
 // réf. fichier type "main.tex:31", "sections/method.tex:60-74", "script.py"
 const FILE_REF = /^[\w~./-]*[\w-]\.(tex|py|jl|md|r|R|bib|json|toml|yaml|yml|sh|js|ts|tsx|jsx|css|html|txt|csv|sql|rs|mjs|ipynb)(:\d+(?:-\d+)?)?$/;
@@ -208,6 +209,90 @@ function DoneDiffToggle({ event, threadId }: {
         </pre>
       )}
     </div>
+  );
+}
+
+// ligne « fichier édité » : nom + ±lignes, clic = diff du fichier déplié
+function EditLine({ event, threadId }: {
+  event: Extract<AgentEvent, { kind: "edit" }>;
+  threadId: string | null;
+}) {
+  const [openPath, setOpenPath] = useState<string | null>(null);
+  const [diffs, setDiffs] = useState<Record<string, string>>({});
+  const [loading, setLoading] = useState<string | null>(null);
+
+  useEffect(() => {
+    const onDiff = (ev: Event) => {
+      const msg = (ev as CustomEvent).detail;
+      if (!msg.path) return;
+      if (event.projectRoot && msg.projectRoot !== event.projectRoot) return;
+      setDiffs((d) => ({ ...d, [msg.path]: String(msg.diff ?? "") }));
+      setLoading((l) => (l === msg.path ? null : l));
+    };
+    window.addEventListener("git-diff", onDiff);
+    return () => window.removeEventListener("git-diff", onDiff);
+  }, [event.projectRoot]);
+
+  if (!event.files?.length) return null;
+  return (
+    <div className="edit-lines">
+      {event.files.map((f) => {
+        const base = f.path.split("/").pop() || f.path;
+        const open = openPath === f.path;
+        const diff = diffs[f.path];
+        return (
+          <div key={f.path} className="edit-line">
+            <button
+              type="button"
+              className="edit-line-row"
+              aria-expanded={open}
+              title={f.path}
+              onClick={() => {
+                const next = open ? null : f.path;
+                setOpenPath(next);
+                if (!next || diffs[f.path] != null || loading === f.path) return;
+                setLoading(f.path);
+                const sent = wsSend({
+                  type: "gitDiff",
+                  threadId,
+                  projectRoot: event.projectRoot,
+                  path: f.path,
+                });
+                if (!sent) setLoading(null);
+              }}
+            >
+              <PencilIcon />
+              <span className="edit-line-verb">{t("chat.edited")}</span>
+              <span className="edit-line-file">{base}</span>
+              {f.add != null && <span className="edit-line-add">+{f.add}</span>}
+              {f.del != null && <span className="edit-line-del">-{f.del}</span>}
+              <span className="tool-tick">{open ? "▾" : "▸"}</span>
+            </button>
+            {open && (
+              <pre className="turn-diff-body">
+                {loading === f.path && diff == null ? (
+                  <span className="muted">{t("common.loading")}</span>
+                ) : diff?.trim() ? (
+                  diff.split("\n").map((line, idx) => (
+                    <span key={idx} className={diffLineClass(line)}>{line || " "}</span>
+                  ))
+                ) : (
+                  <span className="muted">{t("git.diff-empty")}</span>
+                )}
+              </pre>
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+function PencilIcon() {
+  return (
+    <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M11.3 2.3l2.4 2.4L5.4 13H3v-2.4z" />
+    </svg>
   );
 }
 
@@ -523,6 +608,30 @@ export default function Chat(p: {
   const [effort, setEffort] = useState("");
   const [permissionMode, setPermissionMode] = useState("bypassPermissions");
 
+  function providerInfo(pv = provider) {
+    return (p.providers ?? []).find((pr) => pr.id === pv);
+  }
+
+  function resolvedModelId(pv = provider, modelId = model) {
+    return modelId || providerInfo(pv)?.defaultModel || "";
+  }
+
+  function autoReasoningLabel(info: ProviderInfo | undefined, modelId: string) {
+    const meta = info?.modelReasoning?.[modelId];
+    const d = meta?.default_effort && meta.default_effort !== "none" ? meta.default_effort : "";
+    return d ? `Auto (${d})` : t("common.auto-default");
+  }
+
+  function levelsFor(pv: string, modelId: string) {
+    const info = providerInfo(pv);
+    if (info?.kind !== "api") return EFFORTS[pv] ?? ["", ...(info?.efforts ?? [])];
+    const meta = info.modelReasoning?.[modelId];
+    const supported = Array.isArray(meta?.supported_efforts) && meta.supported_efforts.length
+      ? meta.supported_efforts.filter((lvl) => API_REASONING_LEVELS.includes(lvl))
+      : API_REASONING_LEVELS.slice(2);
+    return ["", ...(meta?.mandatory ? [] : ["none"]), ...supported.filter((lvl) => lvl !== "none")];
+  }
+
   function effortFor(pv: string, modelId: string): string {
     return (
       p.defaults.modelEfforts?.[pv + ":" + modelId] ??
@@ -670,11 +779,16 @@ export default function Chat(p: {
   }
   // modèles connus d'un provider : liste locale (claude/codex) sinon catalogue sidecar
   function baseModelsFor(pv: string): { id: string; label: string }[] {
-    if (MODELS[pv]) return MODELS[pv];
     const info = (p.providers ?? []).find((pr) => pr.id === pv);
+    const agentModels = (info?.agentModels ?? []).map((m) => ({
+      id: m.id,
+      label: m.available === false ? `${m.label} · ${t("settings.key-missing")}` : m.label,
+    }));
+    if (MODELS[pv]) return [...MODELS[pv], ...agentModels];
     return [
       { id: "", label: "__default" },
       ...(info?.models ?? []).map((id) => ({ id, label: id })),
+      ...agentModels,
     ];
   }
   function modelsFor(pv: string) {
@@ -1195,6 +1309,7 @@ export default function Chat(p: {
               </div>
             );
           if (e.kind === "tool" || e.kind === "tool_update") return renderToolLine(e, i);
+          if (e.kind === "edit") return <EditLine key={i} event={e} threadId={p.threadId} />;
           if (e.kind === "todos")
             return (
               <div key={i} className="todos">
@@ -1850,16 +1965,22 @@ export default function Chat(p: {
             <button
               type="button"
               className="mp-btn mp-effort"
-              title={t("chat.effort")}
+              title={providerInfo()?.kind === "api" ? t("chat.thinking") : t("chat.effort")}
               onClick={() => { setEffortMenuOpen((v) => !v); setMenuOpen(false); }}
             >
-              <span className={!effort ? "mp-dim" : undefined}>{effort || t("common.auto-default")}</span>
+              <span className={!effort ? "mp-dim" : undefined}>
+                {effort || (providerInfo()?.kind === "api"
+                  ? autoReasoningLabel(providerInfo(), resolvedModelId())
+                  : t("common.auto-default"))}
+              </span>
             </button>
             {effortMenuOpen && (() => {
-              const catalogEfforts = (p.providers ?? []).find((pr) => pr.id === provider)?.efforts ?? [];
-              const lvls = EFFORTS[provider] ?? ["", ...catalogEfforts];
+              const info = providerInfo();
+              const effortTitle = info?.kind === "api" ? t("chat.thinking") : t("chat.effort");
+              const lvls = levelsFor(provider, resolvedModelId());
               const labels: Record<string, string> = {
-                "": t("common.auto-default"), low: "Low", medium: "Medium", high: "High",
+                "": info?.kind === "api" ? autoReasoningLabel(info, resolvedModelId()) : t("common.auto-default"),
+                none: "Off", low: "Low", medium: "Medium", high: "High",
                 xhigh: "Extra High", max: "Max", minimal: "Minimal",
               };
               const idx = Math.max(0, lvls.indexOf(effort));
@@ -1872,7 +1993,7 @@ export default function Chat(p: {
               };
               return (
                 <div className="mp-menu effort-pop">
-                  <div className="ef-title">{t("chat.effort")} <b>{labels[effort] ?? effort}</b></div>
+                  <div className="ef-title">{effortTitle} <b>{labels[effort] ?? effort}</b></div>
                   <div className="ef-scale"><span>{t("effort.faster")}</span><span>{t("effort.smarter")}</span></div>
                   <div className="ef-track"
                     onPointerDown={(e) => { (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId); pick(e); }}

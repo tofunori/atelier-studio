@@ -43,6 +43,7 @@ const PROVIDERS = [
 ];
 
 import { loadApiProviderConfigs } from "./openai_api.mjs";
+import { listAgentModels } from "./agent_models.mjs";
 
 // Providers API (OpenRouter, GLM, …) déclarés dans APP_DIR/api_providers.json :
 // chat pur, pas d'outils ni d'accès projet, resume local via historique rejoué.
@@ -54,6 +55,7 @@ function listApiProviders() {
     bin: null,
     defaultModel: cfg.defaultModel,
     models: [...cfg.models],
+    modelReasoning: { ...(cfg.modelReasoning ?? {}) },
     efforts: [],
     capabilities: { resume: true, steering: false, goals: false },
   }));
@@ -64,6 +66,7 @@ export function listProviders() {
     ...p,
     kind: "cli",
     models: [...p.models],
+    agentModels: listAgentModels(p.id),
     efforts: [...p.efforts],
     capabilities: { ...p.capabilities },
   }));

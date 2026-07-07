@@ -131,12 +131,13 @@ export default function SettingsPage(p: {
   const [apiProvs, setApiProvs] = useState<{
     id: string; label: string; baseURL: string; protocol: "openai" | "anthropic";
     models: string[]; defaultModel: string; keySet: boolean; apiKeyEnv?: string | null;
+    modelReasoning?: Record<string, any>;
   }[]>([]);
   const [apiForm, setApiForm] = useState<{
     id: string; label: string; baseURL: string; protocol: "openai" | "anthropic";
-    apiKey: string; models: string;
+    apiKey: string; models: string; modelMetadata?: Record<string, { label?: string; reasoning?: any }>;
   } | null>(null);
-  const [apiModels, setApiModels] = useState<{ id: string; label: string }[] | null>(null);
+  const [apiModels, setApiModels] = useState<{ id: string; label: string; reasoning?: any }[] | null>(null);
   const [apiModelsError, setApiModelsError] = useState("");
   const [apiModelsBusy, setApiModelsBusy] = useState(false);
   const [apiModelsQuery, setApiModelsQuery] = useState("");
@@ -629,6 +630,8 @@ export default function SettingsPage(p: {
                   <button className="set-btn quiet" onClick={() => setApiForm({
                     id: ap.id, label: ap.label, baseURL: ap.baseURL, protocol: ap.protocol,
                     apiKey: "", models: ap.models.join(", "),
+                    modelMetadata: Object.fromEntries(Object.entries(ap.modelReasoning ?? {})
+                      .map(([modelId, reasoning]) => [modelId, { reasoning }])),
                   })}>{t("action.edit")}</button>
                   <button className="set-btn quiet" onClick={() =>
                     p.ws?.readyState === 1 && p.ws.send(JSON.stringify({ type: "deleteApiProvider", id: ap.id }))
@@ -638,7 +641,7 @@ export default function SettingsPage(p: {
               {!apiForm && (
                 <Row title={t("settings.api-add")} desc={t("settings.api-add-desc")}>
                   <button className="set-btn" onClick={() => setApiForm({
-                    id: "", label: "", baseURL: "", protocol: "openai", apiKey: "", models: "",
+                    id: "", label: "", baseURL: "", protocol: "openai", apiKey: "", models: "", modelMetadata: {},
                   })}>{t("action.add")}</button>
                 </Row>
               )}
@@ -679,7 +682,10 @@ export default function SettingsPage(p: {
                       const toggle = (id: string) => {
                         const next = new Set(selected);
                         if (next.has(id)) next.delete(id); else next.add(id);
-                        setApiForm({ ...apiForm, models: [...next].join(", ") });
+                        const model = apiModels.find((m) => m.id === id);
+                        const modelMetadata = { ...(apiForm.modelMetadata ?? {}) };
+                        if (model?.reasoning) modelMetadata[id] = { label: model.label, reasoning: model.reasoning };
+                        setApiForm({ ...apiForm, models: [...next].join(", "), modelMetadata });
                       };
                       return (
                         <div style={{ border: "1px solid var(--border)", borderRadius: 8, padding: 8 }}>
@@ -690,6 +696,7 @@ export default function SettingsPage(p: {
                               <label key={m.id} style={{ display: "flex", gap: 8, alignItems: "center", padding: "3px 4px", cursor: "pointer" }}>
                                 <input type="checkbox" checked={selected.has(m.id)} onChange={() => toggle(m.id)} />
                                 <span style={{ fontSize: 12.5 }}>{m.id}</span>
+                                {m.reasoning && <span className="set-badge ok">reasoning</span>}
                               </label>
                             ))}
                             {shown.length === 0 && <p className="set-empty">{t("settings.api-no-match")}</p>}

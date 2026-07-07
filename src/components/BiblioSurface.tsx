@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import { t } from "../lib/i18n";
 import { CloseIcon, PanelIcon, SearchIcon, StarIcon } from "./icons";
 
@@ -97,6 +98,39 @@ export default function BiblioSurface({
   const [error, setError] = useState<string | null>(null);
   const [readerOpen, setReaderOpen] = useState(() => localStorage.getItem("atelier-studio.biblio.reader") !== "0");
   const [listOpen, setListOpen] = useState(() => localStorage.getItem("atelier-studio.biblio.list") !== "0");
+  const [adding, setAdding] = useState(false);
+  const [addNote, setAddNote] = useState<string | null>(null);
+  async function addPdfs() {
+    const picked = await openDialog({ multiple: true, filters: [{ name: "PDF", extensions: ["pdf"] }] });
+    const paths = (Array.isArray(picked) ? picked : picked ? [picked] : []).filter((x): x is string => typeof x === "string");
+    if (!paths.length) return;
+    setAdding(true);
+    setAddNote(null);
+    send(ws, { type: "zoteroAddPdf", paths });
+  }
+  useEffect(() => {
+    const onAdd = (e: Event) => {
+      const results = ((e as CustomEvent).detail?.results ?? []) as { name: string; ok: boolean; error?: string; match?: string }[];
+      setAdding(false);
+      const ok = results.filter((r) => r.ok).length;
+      const dups = results.filter((r) => r.error === "duplicate");
+      const zoteroOff = results.some((r) => r.error === "zotero-off");
+      const parts: string[] = [];
+      if (ok) parts.push(t("biblio.add-done", { count: ok }));
+      if (dups.length === 1) parts.push(t("biblio.add-dup-one", { title: (dups[0].match ?? dups[0].name).slice(0, 60) }));
+      else if (dups.length > 1) parts.push(t("biblio.add-dup", { count: dups.length }));
+      if (zoteroOff) parts.push(t("biblio.add-zotero-off"));
+      setAddNote(parts.join(" · ") || null);
+      window.setTimeout(() => setAddNote(null), 8000);
+      // la reconnaissance des métadonnées prend quelques secondes : double refresh
+      if (ok) {
+        window.setTimeout(() => window.dispatchEvent(new CustomEvent("zotero-changed")), 2000);
+        window.setTimeout(() => window.dispatchEvent(new CustomEvent("zotero-changed")), 8000);
+      }
+    };
+    window.addEventListener("zotero-add-result", onAdd);
+    return () => window.removeEventListener("zotero-add-result", onAdd);
+  }, []);
   const [pdfOnly, setPdfOnly] = useState(() => localStorage.getItem("atelier-studio.biblio.pdfOnly") === "1");
   function togglePdfOnly() {
     setPdfOnly((v) => {
@@ -313,7 +347,16 @@ export default function BiblioSurface({
             <option value="author">{t("biblio.sort-author")}</option>
             <option value="title">{t("biblio.sort-title")}</option>
           </select>
+          <button className="biblio-add" onClick={addPdfs} disabled={adding}
+            title={t("biblio.add-pdf")} aria-label={t("biblio.add-pdf")}>
+            {adding ? "…" : (
+              <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round">
+                <path d="M8 3v10M3 8h10" />
+              </svg>
+            )}
+          </button>
         </div>
+        {addNote && <div className="biblio-add-note">{addNote}</div>}
         {error && <div className="biblio-empty">{error}</div>}
         <div className="biblio-list">
           {!error && visibleItems.length === 0 && <div className="biblio-empty">{t("biblio.empty")}</div>}

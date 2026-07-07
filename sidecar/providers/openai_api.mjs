@@ -13,6 +13,19 @@ const APP_DIR = `${homedir()}/Library/Application Support/atelier-studio`;
 const CONFIG_FILE = `${APP_DIR}/api_providers.json`;
 const SESSIONS_DIR = `${APP_DIR}/api_sessions`;
 const MAX_HISTORY_MESSAGES = 60; // fenêtre glissante rejouée à chaque tour
+const REASONING_EFFORTS = ["minimal", "low", "medium", "high", "xhigh", "max"];
+
+function normalizeModelEntry(model) {
+  if (typeof model === "string") return { id: model };
+  if (!model || typeof model !== "object") return null;
+  const id = String(model.id ?? model.name ?? "").trim();
+  if (!id) return null;
+  return {
+    id,
+    ...(model.label ? { label: String(model.label) } : {}),
+    ...(model.reasoning && typeof model.reasoning === "object" ? { reasoning: model.reasoning } : {}),
+  };
+}
 
 export function loadApiProviderConfigs(configFile = CONFIG_FILE) {
   if (!existsSync(configFile)) return [];
@@ -22,16 +35,23 @@ export function loadApiProviderConfigs(configFile = CONFIG_FILE) {
     if (!Array.isArray(list)) return [];
     return list
       .filter((p) => p?.id && p?.baseURL && Array.isArray(p?.models) && p.models.length)
-      .map((p) => ({
-        id: String(p.id),
-        label: String(p.label ?? p.id),
-        baseURL: String(p.baseURL).replace(/\/+$/, ""),
-        apiKey: p.apiKey ?? null,
-        apiKeyEnv: p.apiKeyEnv ?? null,
-        protocol: p.protocol === "anthropic" ? "anthropic" : "openai",
-        models: p.models.map(String),
-        defaultModel: String(p.defaultModel ?? p.models[0]),
-      }));
+      .map((p) => {
+        const entries = p.models.map(normalizeModelEntry).filter(Boolean);
+        const modelReasoning = Object.fromEntries(entries
+          .filter((m) => m.reasoning)
+          .map((m) => [m.id, m.reasoning]));
+        return {
+          id: String(p.id),
+          label: String(p.label ?? p.id),
+          baseURL: String(p.baseURL).replace(/\/+$/, ""),
+          apiKey: p.apiKey ?? null,
+          apiKeyEnv: p.apiKeyEnv ?? null,
+          protocol: p.protocol === "anthropic" ? "anthropic" : "openai",
+          models: entries.map((m) => m.id),
+          modelReasoning,
+          defaultModel: String(p.defaultModel ?? entries[0]?.id ?? ""),
+        };
+      });
   } catch {
     return [];
   }
@@ -43,7 +63,7 @@ export function writeApiProviderConfigs(providers, configFile = CONFIG_FILE) {
   try { chmodSync(configFile, 0o600); } catch {}
 }
 
-function resolveApiKey(cfg) {
+export function resolveApiKey(cfg) {
   if (cfg.apiKeyEnv && process.env[cfg.apiKeyEnv]) return process.env[cfg.apiKeyEnv];
   if (cfg.apiKey) return cfg.apiKey;
   return null;
@@ -65,7 +85,14 @@ export function loadHistory(sessionId) {
     if (!trimmed) continue;
     try {
       const m = JSON.parse(trimmed);
-      if (m?.role && typeof m.content === "string") messages.push({ role: m.role, content: m.content });
+      if (m?.role && typeof m.content === "string") {
+        messages.push({
+          role: m.role,
+          content: m.content,
+          ...(typeof m.reasoning === "string" && m.reasoning ? { reasoning: m.reasoning } : {}),
+          ...(Array.isArray(m.reasoning_details) ? { reasoning_details: m.reasoning_details } : {}),
+        });
+      }
     } catch {}
   }
   return messages.slice(-MAX_HISTORY_MESSAGES);
@@ -96,6 +123,12 @@ export function parseSseChunk(chunk, carry = "") {
     const reasoning = delta.reasoning ?? delta.reasoning_content;
     if (typeof reasoning === "string" && reasoning) {
       events.push({ kind: "thinking_delta", text: reasoning });
+    }
+    for (const detail of delta.reasoning_details ?? []) {
+      const text = detail?.text ?? detail?.summary ?? null;
+      if (typeof text === "string" && text) {
+        events.push({ kind: "thinking_delta", text });
+      }
     }
     if (typeof delta.content === "string" && delta.content) {
       events.push({ kind: "delta", text: delta.content });
@@ -181,9 +214,43 @@ export async function fetchAvailableModels(entry) {
   const json = await res.json();
   const list = Array.isArray(json?.data) ? json.data : Array.isArray(json?.models) ? json.models : [];
   return list
-    .map((m) => ({ id: String(m.id ?? m.name ?? ""), label: String(m.display_name ?? m.name ?? m.id ?? "") }))
+    .map((m) => ({
+      id: String(m.id ?? m.name ?? ""),
+      label: String(m.display_name ?? m.name ?? m.id ?? ""),
+      reasoning: m.reasoning && typeof m.reasoning === "object" ? m.reasoning : null,
+    }))
     .filter((m) => m.id)
     .sort((a, b) => a.id.localeCompare(b.id));
+}
+
+function modelLooksReasoningCapable(model) {
+  return /(^|\/|-)glm-5|deepseek.*r1|qwen.*(thinking|qwq)|grok|gemini-(3|2\.5)|(^|\/)o[134]|gpt-5/i
+    .test(String(model ?? ""));
+}
+
+function providerAcceptsReasoningParam(cfg) {
+  return /openrouter/i.test(cfg.baseURL);
+}
+
+function reasoningForRequest(cfg, model, effort) {
+  if (cfg.protocol !== "openai") return null;
+  const metadata = cfg.modelReasoning?.[model] ?? null;
+  const supported = Array.isArray(metadata?.supported_efforts) ? metadata.supported_efforts : null;
+  const normalizedEffort = String(effort ?? "").trim();
+  if (normalizedEffort === "none") return { effort: "none", exclude: false };
+  if (REASONING_EFFORTS.includes(normalizedEffort)) {
+    return { enabled: true, effort: normalizedEffort, exclude: false };
+  }
+  if (metadata?.mandatory || metadata?.default_enabled || supported || modelLooksReasoningCapable(model)) {
+    const defaultEffort = metadata?.default_effort && metadata.default_effort !== "none"
+      ? metadata.default_effort
+      : supported?.includes("medium") ? "medium" : supported?.at(-1) ?? "medium";
+    return { enabled: true, effort: defaultEffort, exclude: false };
+  }
+  if (providerAcceptsReasoningParam(cfg)) {
+    return { enabled: true, exclude: false };
+  }
+  return null;
 }
 
 // ---------------------------------------------------------------------------
@@ -192,7 +259,7 @@ export async function fetchAvailableModels(entry) {
 export function makeApiProvider(cfg) {
   const controllers = new Map(); // threadId -> AbortController
 
-  async function run({ threadId, prompt, sessionId, model, onEvent }) {
+  async function run({ threadId, prompt, sessionId, model, effort, onEvent }) {
     const apiKey = resolveApiKey(cfg);
     if (!apiKey) {
       const message = `clé API manquante pour ${cfg.label} (${cfg.apiKeyEnv ?? "apiKey"})`;
@@ -203,23 +270,27 @@ export function makeApiProvider(cfg) {
     const history = loadHistory(sid);
     const userMessage = { role: "user", content: String(prompt ?? "") };
     const anthropic = cfg.protocol === "anthropic";
+    const selectedModel = model || cfg.defaultModel;
+    const reasoning = reasoningForRequest(cfg, selectedModel, effort);
     const body = anthropic
       ? {
-        model: model || cfg.defaultModel,
+        model: selectedModel,
         max_tokens: 8192,
         messages: [...history, userMessage],
         stream: true,
       }
       : {
-        model: model || cfg.defaultModel,
+        model: selectedModel,
         messages: [...history, userMessage],
         stream: true,
         stream_options: { include_usage: true },
+        ...(reasoning ? { reasoning } : {}),
       };
 
     const controller = new AbortController();
     controllers.set(threadId, controller);
     let fullText = "";
+    let fullThinking = "";
     let usage = { context: 0, output: 0, cost: null, turns: null };
     try {
       const url = anthropic ? `${cfg.baseURL}/v1/messages` : `${cfg.baseURL}/chat/completions`;
@@ -263,17 +334,26 @@ export function makeApiProvider(cfg) {
           }
           if (event.kind === "error") throw new Error(event.message);
           if (event.kind === "delta") fullText += event.text;
+          if (event.kind === "thinking_delta") fullThinking += event.text;
           onEvent?.(event);
         }
       }
-      appendHistory(sid, [userMessage, { role: "assistant", content: fullText }]);
+      appendHistory(sid, [userMessage, {
+        role: "assistant",
+        content: fullText,
+        ...(fullThinking ? { reasoning: fullThinking } : {}),
+      }]);
       onEvent?.({ kind: "text", text: fullText });
       onEvent?.({ kind: "done", ok: true, result: fullText, usage });
       return { sessionId: sid };
     } catch (e) {
       if (controller.signal.aborted) {
         // tour interrompu : conserver ce qui a été produit
-        if (fullText) appendHistory(sid, [userMessage, { role: "assistant", content: fullText }]);
+        if (fullText || fullThinking) appendHistory(sid, [userMessage, {
+          role: "assistant",
+          content: fullText,
+          ...(fullThinking ? { reasoning: fullThinking } : {}),
+        }]);
         onEvent?.({ kind: "done", ok: false, result: fullText, usage });
         return { sessionId: sid };
       }

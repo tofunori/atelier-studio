@@ -9,7 +9,12 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 
 import { resolveBin } from "./../bin_resolver.mjs";
+import { codexConfigForAgent, codexProviderCliArgs, codexProviderEnv } from "./agent_models.mjs";
 const CODEX_BIN = resolveBin("codex") ?? "codex";
+
+export function buildCodexAppServerArgs(agentProviderConfigs) {
+  return ["app-server", ...codexProviderCliArgs(agentProviderConfigs)];
+}
 
 // ---------------------------------------------------------------------------
 // Client JSON-RPC (une instance app-server partagée par tout le sidecar)
@@ -78,7 +83,10 @@ function dispatchNotification(msg) {
 
 async function ensureServer() {
   if (server) return server;
-  const proc = spawn(CODEX_BIN, ["app-server"], { stdio: ["pipe", "pipe", "pipe"] });
+  const proc = spawn(CODEX_BIN, buildCodexAppServerArgs(), {
+    stdio: ["pipe", "pipe", "pipe"],
+    env: { ...process.env, ...codexProviderEnv() },
+  });
   proc.on("exit", () => resetServerState(new Error("codex app-server a quitté")));
   proc.on("error", (e) => resetServerState(e));
   proc.stderr.on("data", () => {}); // logs serveur ignorés (bruyants)
@@ -144,15 +152,24 @@ export function buildCodexInput({ prompt, inputs, imagePath, attachments }) {
   return [text(prompt), ...[...imagePaths].map(image)];
 }
 
-export function buildThreadOptions({ cwd, model, effort, webSearch, additionalDirectories, sandbox }) {
+export function buildThreadOptions({ cwd, model, effort, webSearch, additionalDirectories, sandbox, agentProviderConfigs }) {
   const config = {};
+  let actualModel = model ?? null;
+  let actualModelProvider = null;
+  const agent = codexConfigForAgent(model, agentProviderConfigs);
+  if (agent) {
+    actualModel = agent.model;
+    actualModelProvider = agent.modelProvider;
+    Object.assign(config, agent.config);
+  }
   if (webSearch) config.web_search = webSearch === "cached" ? "cached" : "live";
   if (Array.isArray(additionalDirectories) && additionalDirectories.length) {
     config.sandbox_workspace_write = { writable_roots: additionalDirectories.map(String) };
   }
   return {
     cwd: cwd ?? null,
-    model: model ?? null,
+    model: actualModel,
+    ...(actualModelProvider ? { modelProvider: actualModelProvider } : {}),
     approvalPolicy: "never",
     sandbox: sandbox ?? "danger-full-access",
     ...(Object.keys(config).length ? { config } : {}),
@@ -443,7 +460,9 @@ export async function run({
             phase: "edit",
             status: "completed",
           });
-          emitTool(files.length ? `__edits:${files.slice(0, 3).join(", ")}${files.length > 3 ? "…" : ""}` : "__edits:");
+          const paths = (item.changes ?? []).map((ch) => ch.path).filter(Boolean);
+          if (paths.length) onEvent({ kind: "edit", files: paths });
+          else emitTool("__edits:");
         }
         if (item.type === "mcpToolCall") {
           upsertStep({
