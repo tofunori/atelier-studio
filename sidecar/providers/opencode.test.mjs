@@ -15,10 +15,8 @@ describe("opencode provider stream normalization", () => {
       { kind: "started" },
       { kind: "delta", text: "OK" },
       {
-        kind: "done",
-        ok: true,
+        kind: "usage",
         sessionId: "ses_abc",
-        result: "",
         usage: { context: 56086, output: 1, cost: 0.05097910576, turns: null },
       },
     ]);
@@ -29,6 +27,27 @@ describe("opencode provider stream normalization", () => {
       .toEqual([{ kind: "delta", text: "hi" }]);
     expect(normalizeOpenCodeMessage({ type: "reasoning", part: { text: "hm" } }))
       .toEqual([{ kind: "thinking_delta", text: "hm" }]);
+    expect(normalizeOpenCodeMessage({
+      type: "tool_use",
+      part: {
+        tool: "glob",
+        callID: "call_1",
+        state: { status: "completed", title: "README.md", input: { pattern: "README.md" }, output: "README.md" },
+        metadata: { openrouter: { reasoning_details: [{ type: "reasoning.text", text: "je cherche" }] } },
+      },
+    })).toEqual([
+      { kind: "thinking_delta", text: "je cherche" },
+      {
+        kind: "tool_update",
+        id: "call_1",
+        name: "glob",
+        detail: "README.md",
+        input: { pattern: "README.md" },
+        output: "README.md",
+        status: "completed",
+        source: null,
+      },
+    ]);
     expect(normalizeOpenCodeMessage({ type: "error", error: { message: "boom" } }))
       .toEqual([{ kind: "error", message: "boom" }]);
     expect(normalizeOpenCodeMessage({ type: "unknown-future-event" })).toEqual([]);

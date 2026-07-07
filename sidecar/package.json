@@ -4,7 +4,8 @@
   "description": "",
   "main": "index.js",
   "scripts": {
-    "test": "vitest run"
+    "test": "vitest run",
+    "test:codex-live": "node scripts/codex_live_parity.mjs"
   },
   "keywords": [],
   "author": "",

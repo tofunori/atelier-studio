@@ -24,7 +24,7 @@ const CLAUDE_MODELS = [
   { id: "claude-haiku-4-5-20251001", label: "Haiku 4.5" },
 ];
 const CLAUDE_EFFORTS = ["", "low", "medium", "high", "xhigh", "max"];
-const CODEX_EFFORTS = ["", "minimal", "low", "medium", "high", "xhigh"];
+const CODEX_EFFORTS = ["", "low", "medium", "high", "xhigh"];
 
 const CODEX_MODELS = [
   { id: "", labelKey: "common.default-cli" },

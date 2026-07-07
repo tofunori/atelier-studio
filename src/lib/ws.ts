@@ -13,6 +13,7 @@ export type AgentEvent =
   | { kind: "stream_set"; text: string; ts?: number }
   | { kind: "streaming"; text: string; ts?: number }
   | { kind: "started"; ts?: number }
+  | { kind: "heartbeat"; elapsedMs?: number; ts?: number }
   | {
       kind: "activity";
       id: string;
@@ -25,7 +26,19 @@ export type AgentEvent =
     }
   | { kind: "tool"; name: string; detail?: string }
   | { kind: "edit"; projectRoot?: string | null; files: { path: string; add: number | null; del: number | null }[]; ts?: number }
-  | { kind: "tool_update"; id: string; name: string; output: string; status?: string; exitCode?: number; ts?: number }
+  | {
+      kind: "tool_update";
+      id: string;
+      name: string;
+      output: string;
+      status?: string;
+      exitCode?: number;
+      detail?: string;
+      input?: unknown;
+      source?: string | null;
+      ts?: number;
+    }
+  | { kind: "usage"; usage: { context: number | null; output: number | null; cost: number | null; turns: number | null }; ts?: number }
   | { kind: "todos"; items: { text: string; completed: boolean }[]; ts?: number }
   | {
       kind: "goal";

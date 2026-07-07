@@ -1,5 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { buildCodexAppServerArgs, buildCodexInput, buildThreadOptions } from "./codex.mjs";
+import {
+  buildApprovalResponse,
+  buildCodexAppServerArgs,
+  buildCodexInput,
+  buildServerRequestFallback,
+  buildThreadOptions,
+  normalizeCodexEffort,
+} from "./codex.mjs";
 
 describe("codex provider helpers (app-server)", () => {
   it("emballe une entrée texte simple au format UserInput", () => {
@@ -55,6 +62,42 @@ describe("codex provider helpers (app-server)", () => {
 
   it("garde le sandbox demandé (reviewer read-only)", () => {
     expect(buildThreadOptions({ cwd: "/repo", sandbox: "read-only" }).sandbox).toBe("read-only");
+  });
+
+  it("normalise l'effort Codex minimal vers low pour préserver les tool calls", () => {
+    expect(normalizeCodexEffort("minimal")).toBe("low");
+    expect(buildThreadOptions({ cwd: "/repo", effort: "minimal" }).effortHint).toBe("low");
+  });
+
+  it("répond aux approvals avec les enums attendus par chaque API Codex", () => {
+    expect(buildApprovalResponse("execCommandApproval", true)).toEqual({ decision: "approved" });
+    expect(buildApprovalResponse("execCommandApproval", false)).toEqual({ decision: "denied" });
+    expect(buildApprovalResponse("item/commandExecution/requestApproval", true)).toEqual({ decision: "accept" });
+    expect(buildApprovalResponse("item/fileChange/requestApproval", false)).toEqual({ decision: "decline" });
+  });
+
+  it("répond aux demandes de permissions additionnelles sans escalade hors full-access", () => {
+    const params = { permissions: { network: { enabled: true }, fileSystem: { read: ["/x"], write: ["/y"] } } };
+    expect(buildApprovalResponse("item/permissions/requestApproval", true, params)).toEqual({
+      permissions: params.permissions,
+      scope: "turn",
+      strictAutoReview: false,
+    });
+    expect(buildApprovalResponse("item/permissions/requestApproval", false, params)).toEqual({
+      permissions: {},
+      scope: "turn",
+      strictAutoReview: true,
+    });
+  });
+
+  it("renvoie des fallbacks structurés pour les server-requests client non supportées", () => {
+    expect(buildServerRequestFallback("item/tool/call")).toMatchObject({ success: false });
+    expect(buildServerRequestFallback("item/tool/requestUserInput")).toEqual({ answers: {} });
+    expect(buildServerRequestFallback("mcpServer/elicitation/request")).toEqual({
+      action: "decline",
+      content: null,
+      _meta: null,
+    });
   });
 
   it("lance le app-server Codex sans providers externes globaux", () => {
