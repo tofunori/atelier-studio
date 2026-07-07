@@ -128,6 +128,14 @@ export default function SettingsPage(p: {
   const [status, setStatus] = useState<{ port: number | null; pastedCount: number; pasteDir: string } | null>(null);
   const [provs, setProvs] = useState<{ id: string; label: string; version: string | null; ok: boolean; kind?: "cli" | "api" }[] | null>(null);
   const [retitleStatus, setRetitleStatus] = useState("");
+  const [apiProvs, setApiProvs] = useState<{
+    id: string; label: string; baseURL: string; protocol: "openai" | "anthropic";
+    models: string[]; defaultModel: string; keySet: boolean; apiKeyEnv?: string | null;
+  }[]>([]);
+  const [apiForm, setApiForm] = useState<{
+    id: string; label: string; baseURL: string; protocol: "openai" | "anthropic";
+    apiKey: string; models: string;
+  } | null>(null);
   const [pasted, setPasted] = useState<{ name: string; size: number; mtime: number; dataURL?: string }[] | null>(null);
   const s = p.settings;
   const customModels = s.customModels ?? [];
@@ -140,6 +148,7 @@ export default function SettingsPage(p: {
       const m = JSON.parse(e.data);
       if (m.type === "status") setStatus(m);
       if (m.type === "providerStatus") setProvs(m.providers);
+      if (m.type === "apiProviders") setApiProvs(m.providers ?? []);
       if (m.type === "pastedCleared") {
         p.ws!.send(JSON.stringify({ type: "status" }));
         p.ws!.send(JSON.stringify({ type: "listPasted" }));
@@ -152,6 +161,7 @@ export default function SettingsPage(p: {
     p.ws.addEventListener("message", onMsg);
     p.ws.send(JSON.stringify({ type: "status" }));
     p.ws.send(JSON.stringify({ type: "providerStatus" }));
+    p.ws.send(JSON.stringify({ type: "apiProviders" }));
     p.ws.send(JSON.stringify({ type: "listPasted" }));
     return () => p.ws?.removeEventListener("message", onMsg);
   }, [p.ws]);
@@ -603,6 +613,57 @@ export default function SettingsPage(p: {
               );
             })()}
             <p className="set-sub">{t("settings.providers-visibility-sub")}</p>
+            <Group label={t("settings.api-providers")}>
+              {apiProvs.map((ap) => (
+                <Row key={ap.id} title={ap.label}
+                  desc={`${ap.baseURL} · ${ap.protocol} · ${ap.models.length} ${t("settings.api-models-count")}${ap.keySet ? "" : " · " + t("settings.key-missing")}`}>
+                  <button className="set-btn quiet" onClick={() => setApiForm({
+                    id: ap.id, label: ap.label, baseURL: ap.baseURL, protocol: ap.protocol,
+                    apiKey: "", models: ap.models.join(", "),
+                  })}>{t("action.edit")}</button>
+                  <button className="set-btn quiet" onClick={() =>
+                    p.ws?.readyState === 1 && p.ws.send(JSON.stringify({ type: "deleteApiProvider", id: ap.id }))
+                  }>{t("action.delete")}</button>
+                </Row>
+              ))}
+              {!apiForm && (
+                <Row title={t("settings.api-add")} desc={t("settings.api-add-desc")}>
+                  <button className="set-btn" onClick={() => setApiForm({
+                    id: "", label: "", baseURL: "", protocol: "openai", apiKey: "", models: "",
+                  })}>{t("action.add")}</button>
+                </Row>
+              )}
+              {apiForm && (
+                <div className="set-row" style={{ display: "block" }}>
+                  <div style={{ display: "grid", gap: 8 }}>
+                    <input className="set-text" placeholder={t("settings.api-label-ph")} value={apiForm.label}
+                      onChange={(e) => setApiForm({ ...apiForm, label: e.target.value, id: apiForm.id || e.target.value.toLowerCase().replace(/[^a-z0-9_-]/g, "") })} />
+                    <input className="set-text" placeholder="https://openrouter.ai/api/v1" value={apiForm.baseURL}
+                      onChange={(e) => setApiForm({ ...apiForm, baseURL: e.target.value })} />
+                    <div style={{ display: "flex", gap: 8 }}>
+                      {(["openai", "anthropic"] as const).map((proto) => (
+                        <button key={proto} className={`set-btn quiet ${apiForm.protocol === proto ? "on" : ""}`}
+                          onClick={() => setApiForm({ ...apiForm, protocol: proto })}>
+                          {proto === "openai" ? "OpenAI (/chat/completions)" : "Anthropic (/v1/messages)"}
+                        </button>
+                      ))}
+                    </div>
+                    <input className="set-text" type="password" placeholder={t("settings.api-key-ph")} value={apiForm.apiKey}
+                      onChange={(e) => setApiForm({ ...apiForm, apiKey: e.target.value })} />
+                    <input className="set-text" placeholder={t("settings.api-models-ph")} value={apiForm.models}
+                      onChange={(e) => setApiForm({ ...apiForm, models: e.target.value })} />
+                    <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
+                      <button className="set-btn quiet" onClick={() => setApiForm(null)}>{t("action.cancel")}</button>
+                      <button className="set-btn" onClick={() => {
+                        if (p.ws?.readyState !== 1) return;
+                        p.ws.send(JSON.stringify({ type: "saveApiProvider", provider: apiForm }));
+                        setApiForm(null);
+                      }}>{t("action.save")}</button>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </Group>
           </>
         )}
         {section === "avance" && (

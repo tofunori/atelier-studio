@@ -23,7 +23,7 @@ import * as claude from "./providers/claude.mjs";
 import * as codex from "./providers/codex.mjs";
 import * as grok from "./providers/grok.mjs";
 import { listProviders } from "./providers/registry.mjs";
-import { loadApiProviderConfigs, makeApiProvider } from "./providers/openai_api.mjs";
+import { loadApiProviderConfigs, writeApiProviderConfigs, makeApiProvider } from "./providers/openai_api.mjs";
 import { resolveBin, enrichPath } from "./bin_resolver.mjs";
 enrichPath(); // PATH Finder minimal → complété pour tous les spawns
 
@@ -44,10 +44,18 @@ writeFileAtomic(PID_FILE, String(process.pid));
 
 const store = new ThreadStore(`${APP_DIR}/threads.json`);
 const providers = { claude, codex, grok };
-// providers API OpenAI-compatible (api_providers.json) — chat pur, runtime dédié
-for (const cfg of loadApiProviderConfigs()) {
-  if (!providers[cfg.id]) providers[cfg.id] = makeApiProvider(cfg);
+const BUILTIN_PROVIDER_IDS = new Set(Object.keys(providers).concat("gemini"));
+// providers API OpenAI-compatible (api_providers.json) — chat pur, runtime dédié.
+// Rechargeable à chaud quand l'UI ajoute/modifie un provider.
+function reloadApiProviders() {
+  for (const id of Object.keys(providers)) {
+    if (!BUILTIN_PROVIDER_IDS.has(id)) delete providers[id];
+  }
+  for (const cfg of loadApiProviderConfigs()) {
+    if (!providers[cfg.id]) providers[cfg.id] = makeApiProvider(cfg);
+  }
 }
+reloadApiProviders();
 const ATELIER_TOKEN = process.env.ATELIER_TOKEN;
 const STARTED_AT = new Date().toISOString();
 const ATELIER_APP_VERSION = process.env.ATELIER_APP_VERSION || "dev";
@@ -406,6 +414,35 @@ wss.on("connection", (ws) => {
     listPasted,
     readSettingsFile,
     writeSettingsFile,
+    apiProviders: {
+      // liste SANS les clés (l'UI ne voit que keySet)
+      list: () => loadApiProviderConfigs().map(({ apiKey, ...rest }) => ({ ...rest, keySet: !!apiKey || !!(rest.apiKeyEnv && process.env[rest.apiKeyEnv]) })),
+      save: (entry) => {
+        const id = String(entry.id ?? "").trim().toLowerCase().replace(/[^a-z0-9_-]/g, "");
+        if (!id || BUILTIN_PROVIDER_IDS.has(id)) throw new Error(`id provider invalide: ${entry.id}`);
+        const configs = loadApiProviderConfigs();
+        const existing = configs.find((c) => c.id === id);
+        const next = {
+          id,
+          label: String(entry.label ?? id),
+          baseURL: String(entry.baseURL ?? "").replace(/\/+$/, ""),
+          protocol: entry.protocol === "anthropic" ? "anthropic" : "openai",
+          // clé vide → conserver l'existante (l'UI ne la connaît jamais)
+          apiKey: entry.apiKey ? String(entry.apiKey) : existing?.apiKey ?? null,
+          apiKeyEnv: entry.apiKeyEnv ? String(entry.apiKeyEnv) : existing?.apiKeyEnv ?? null,
+          models: (Array.isArray(entry.models) ? entry.models : String(entry.models ?? "").split(","))
+            .map((m) => String(m).trim()).filter(Boolean),
+          defaultModel: entry.defaultModel ? String(entry.defaultModel) : undefined,
+        };
+        if (!next.baseURL || !next.models.length) throw new Error("baseURL et au moins un modèle requis");
+        writeApiProviderConfigs([...configs.filter((c) => c.id !== id), next]);
+        reloadApiProviders();
+      },
+      remove: (id) => {
+        writeApiProviderConfigs(loadApiProviderConfigs().filter((c) => c.id !== id));
+        reloadApiProviders();
+      },
+    },
     providerStatus,
     exportThread,
     terminal,

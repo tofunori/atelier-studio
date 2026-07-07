@@ -275,6 +275,26 @@ export async function route(msg, ctx) {
       ctx.send({ type: "providerStatus", providers: await ctx.providerStatus() });
       break;
     }
+    case "apiProviders": {
+      ctx.send({ type: "apiProviders", providers: ctx.apiProviders?.list() ?? [] });
+      break;
+    }
+    case "saveApiProvider": {
+      try {
+        ctx.apiProviders?.save(msg.provider ?? {});
+        ctx.send({ type: "apiProviders", providers: ctx.apiProviders?.list() ?? [] });
+        ctx.send({ type: "providerStatus", providers: await ctx.providerStatus() });
+      } catch (e) {
+        ctx.send({ type: "error", message: `provider API: ${String(e.message ?? e)}` });
+      }
+      break;
+    }
+    case "deleteApiProvider": {
+      ctx.apiProviders?.remove(String(msg.id ?? ""));
+      ctx.send({ type: "apiProviders", providers: ctx.apiProviders?.list() ?? [] });
+      ctx.send({ type: "providerStatus", providers: await ctx.providerStatus() });
+      break;
+    }
     case "clearPasted": {
       ctx.send({ type: "pastedCleared", removed: ctx.clearPasted() });
       break;
