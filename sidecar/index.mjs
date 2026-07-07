@@ -22,6 +22,7 @@ import * as zotero from "./zotero.mjs";
 import * as claude from "./providers/claude.mjs";
 import * as codex from "./providers/codex.mjs";
 import * as grok from "./providers/grok.mjs";
+import * as opencode from "./providers/opencode.mjs";
 import { listProviders } from "./providers/registry.mjs";
 import { loadApiProviderConfigs, writeApiProviderConfigs, makeApiProvider, fetchAvailableModels } from "./providers/openai_api.mjs";
 import { resolveBin, enrichPath } from "./bin_resolver.mjs";
@@ -43,7 +44,7 @@ try {
 writeFileAtomic(PID_FILE, String(process.pid));
 
 const store = new ThreadStore(`${APP_DIR}/threads.json`);
-const providers = { claude, codex, grok };
+const providers = { claude, codex, grok, opencode };
 const BUILTIN_PROVIDER_IDS = new Set(Object.keys(providers).concat("gemini"));
 // providers API OpenAI-compatible (api_providers.json) — chat pur, runtime dédié.
 // Rechargeable à chaud quand l'UI ajoute/modifie un provider.

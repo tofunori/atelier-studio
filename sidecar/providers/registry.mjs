@@ -32,6 +32,23 @@ const PROVIDERS = [
     capabilities: { resume: true, steering: false, goals: false },
   },
   {
+    id: "opencode",
+    label: "OpenCode",
+    bin: "opencode",
+    defaultModel: "openrouter/z-ai/glm-5.2",
+    models: [
+      "openrouter/z-ai/glm-5.2",
+      "openrouter/minimax/minimax-m3",
+      "openrouter/tencent/hy3:free",
+      "openrouter/qwen/qwen3-coder",
+      "openrouter/moonshotai/kimi-k2.7-code",
+      "openrouter/cohere/north-mini-code:free",
+      "openrouter/openrouter/auto",
+    ],
+    efforts: ["minimal", "low", "medium", "high", "xhigh", "max"],
+    capabilities: { resume: true, steering: false, goals: false },
+  },
+  {
     id: "gemini",
     label: "Gemini",
     bin: "gemini",

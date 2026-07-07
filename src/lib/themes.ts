@@ -26,7 +26,7 @@ const T = (
 export const THEME_PRESETS: ThemePreset[] = [
   T("atelier", "Atelier (défaut)", true,
     "#212429", "#1a1d22", "#1b1f26", "#262b31", "#2c313a",
-    "#333a45", "#3f4652", "#e8eaed", "#cfd4dc", "#8a919e", "#6b7482", "#e8823a",
+    "#333a45", "#3f4652", "#dbdfe5", "#b6bdc7", "#868d9a", "#646d7b", "#e8823a",
     ["#1a1d22", "#e06c75", "#98c379", "#e5c07b", "#61afef", "#c678dd", "#56b6c2", "#dcdfe4", "#5a616d", "#ff7a85", "#a9d47f", "#f0ca79", "#74bdf7", "#d894e8", "#6cd0dd", "#ffffff"]),
   T("onedark", "One Dark", true,
     "#282c34", "#21252b", "#21252b", "#2c313c", "#353b45",

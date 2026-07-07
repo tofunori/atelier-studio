@@ -114,6 +114,20 @@ export function ProjIcon({ name, size = 13 }: { name: string; size?: number }) {
   );
 }
 
+function shortTime(value?: string): string {
+  const ts = value ? new Date(value).getTime() : NaN;
+  if (!Number.isFinite(ts)) return "";
+  const min = Math.floor((Date.now() - ts) / 60_000);
+  if (min < 1) return "now";
+  if (min < 60) return `${min}m`;
+  const h = Math.floor(min / 60);
+  if (h < 24) return `${h}h`;
+  const d = Math.floor(h / 24);
+  if (d < 7) return `${d}j`;
+  if (d < 30) return `${Math.floor(d / 7)}sem`;
+  return `${Math.floor(d / 30)}mo`;
+}
+
 function relativeDate(value?: string): string {
   const ts = value ? new Date(value).getTime() : NaN;
   if (!Number.isFinite(ts)) return "";
@@ -157,6 +171,16 @@ export default function Sidebar(p: {
   const selAnchor = useRef<string | null>(null);
   const [projMenu, setProjMenu] = useState<{ root: string; x: number; y: number } | null>(null);
   const [projActMenu, setProjActMenu] = useState<{ root: string; x: number; y: number } | null>(null);
+  const [expandedRoots, setExpandedRoots] = useState<Set<string>>(new Set());
+  const PROJ_VISIBLE = 5;
+  function toggleExpanded(root: string) {
+    setExpandedRoots((prev) => {
+      const next = new Set(prev);
+      if (next.has(root)) next.delete(root);
+      else next.add(root);
+      return next;
+    });
+  }
   const [resumeOpen, setResumeOpen] = useState(false);
   const [resumeProv, setResumeProv] = useState<"claude" | "codex">("claude");
   const [sessions, setSessions] = useState<{ id: string; title: string; mtime: number }[] | null>(null);
@@ -252,7 +276,8 @@ export default function Sidebar(p: {
               ? ((a as any).createdAt ?? a.updatedAt ?? "").localeCompare((b as any).createdAt ?? b.updatedAt ?? "")
               : 0,
           );
-        for (const t of threads) ids.push(t.id);
+        const shown = expandedRoots.has(root) ? threads : threads.slice(0, PROJ_VISIBLE);
+        for (const t of shown) ids.push(t.id);
       }
     }
     if (!secClosed.chats) {
@@ -430,7 +455,6 @@ export default function Sidebar(p: {
               }}
               title={t("action.toggle-project")}
             >
-              <span className="chev">{collapsed.includes(root) ? "▸" : "▾"}</span>
               {p.projMeta[root]?.label?.startsWith("icon:") ? (
                 <span className="proj-icon" style={p.projMeta[root]?.color ? { color: p.projMeta[root]!.color } : undefined}>
                   <ProjIcon name={p.projMeta[root]!.label!.slice(5)} />
@@ -470,60 +494,56 @@ export default function Sidebar(p: {
               </span>
             </div>
             <ul style={{ display: collapsed.includes(root) ? "none" : undefined }}>
-              {withRecencySections(threads).map((row, index) => {
-                if (row.kind === "section") {
-                  return (
-                    <li key={`${row.bucket}-${index}`} className="thread-recency-label" role="presentation">
-                      {tr(recencyLabelKey(row.bucket))}
-                    </li>
-                  );
-                }
-                const t = row.thread;
-                return (
-                  <li
-                    key={t.id}
-                    className={`${t.id === p.activeId ? "active" : ""} ${selected.has(t.id) ? "multi-sel" : ""}`}
-                    onClick={(e) => handleThreadClick(e, t, root)}
-                    onDoubleClick={(e) => {
-                      e.stopPropagation();
-                      startRename(t);
-                    }}
-                    onContextMenu={(e) => {
-                      e.preventDefault();
-                      setMenu({ x: e.clientX, y: e.clientY, threadId: t.id });
-                    }}
-                  >
-                    <span className={`prov-ico ${t.status === "running" ? "busy" : ""}`}>
-                      <ProviderIcon provider={t.provider} />
-                      {p.unread.has(t.id) && <span className="unread-badge" />}
-                    </span>
-                    {threadLabel(t)}
-                    <span className="row-actions" onClick={(e) => e.stopPropagation()}>
-                      <button
-                        className={`row-act ${p.favorites.includes(t.id) ? "on" : ""}`}
-                        title={p.favorites.includes(t.id) ? tr("action.remove-favorite") : tr("action.add-favorite")}
-                        onClick={() => p.onToggleFavorite(t.id)}
-                      >
-                        <svg width="11" height="11" viewBox="0 0 16 16" fill={p.favorites.includes(t.id) ? "currentColor" : "none"} stroke="currentColor" strokeWidth="1.2">
-                          <path d="M8 1.8l1.9 3.9 4.3.6-3.1 3 .7 4.3L8 11.6l-3.8 2 .7-4.3-3.1-3 4.3-.6z" />
-                        </svg>
-                      </button>
-                      <button className="row-act danger" title={tr("action.delete")}
-                        onClick={() => deleteSelected(t.id)}>
-                        <svg width="11" height="11" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round">
-                          <path d="M4 4l8 8M12 4l-8 8" />
-                        </svg>
-                      </button>
-                    </span>
-                    {t.status === "running" && (
-                      <svg className="arc" width="13" height="13" viewBox="0 0 16 16" fill="none">
-                        <circle cx="8" cy="8" r="6" stroke="#3a414d" strokeWidth="2" />
-                        <path d="M14 8a6 6 0 0 0-6-6" stroke="#e8823a" strokeWidth="2" strokeLinecap="round" />
+              {(expandedRoots.has(root) ? threads : threads.slice(0, PROJ_VISIBLE)).map((t) => (
+                <li
+                  key={t.id}
+                  className={`proj-thread ${t.id === p.activeId ? "active" : ""} ${selected.has(t.id) ? "multi-sel" : ""}`}
+                  onClick={(e) => handleThreadClick(e, t, root)}
+                  onDoubleClick={(e) => {
+                    e.stopPropagation();
+                    startRename(t);
+                  }}
+                  onContextMenu={(e) => {
+                    e.preventDefault();
+                    setMenu({ x: e.clientX, y: e.clientY, threadId: t.id });
+                  }}
+                >
+                  {p.unread.has(t.id) && <span className="unread-dot" />}
+                  {threadLabel(t)}
+                  {t.status === "running" ? (
+                    <svg className="arc" width="13" height="13" viewBox="0 0 16 16" fill="none">
+                      <circle cx="8" cy="8" r="6" stroke="#3a414d" strokeWidth="2" />
+                      <path d="M14 8a6 6 0 0 0-6-6" stroke="#e8823a" strokeWidth="2" strokeLinecap="round" />
+                    </svg>
+                  ) : (
+                    <span className="row-time">{shortTime(t.updatedAt)}</span>
+                  )}
+                  <span className="row-actions" onClick={(e) => e.stopPropagation()}>
+                    <button
+                      className={`row-act ${p.favorites.includes(t.id) ? "on" : ""}`}
+                      title={p.favorites.includes(t.id) ? tr("action.remove-favorite") : tr("action.add-favorite")}
+                      onClick={() => p.onToggleFavorite(t.id)}
+                    >
+                      <svg width="11" height="11" viewBox="0 0 16 16" fill={p.favorites.includes(t.id) ? "currentColor" : "none"} stroke="currentColor" strokeWidth="1.2">
+                        <path d="M8 1.8l1.9 3.9 4.3.6-3.1 3 .7 4.3L8 11.6l-3.8 2 .7-4.3-3.1-3 4.3-.6z" />
                       </svg>
-                    )}
-                  </li>
-                );
-              })}
+                    </button>
+                    <button className="row-act danger" title={tr("action.delete")}
+                      onClick={() => deleteSelected(t.id)}>
+                      <svg width="11" height="11" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round">
+                        <path d="M4 4l8 8M12 4l-8 8" />
+                      </svg>
+                    </button>
+                  </span>
+                </li>
+              ))}
+              {threads.length > PROJ_VISIBLE && (
+                <li className="proj-more" onClick={() => toggleExpanded(root)}>
+                  {expandedRoots.has(root)
+                    ? tr("sidebar.show-less")
+                    : tr("sidebar.show-more", { count: threads.length - PROJ_VISIBLE })}
+                </li>
+              )}
             </ul>
           </div>
         );
