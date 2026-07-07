@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
-import { normalizeGrokMessage, parseGrokJsonl } from "./grok.mjs";
+import { normalizeGrokMessage, parseGrokJsonl, parseGrokModelsOutput } from "./grok.mjs";
 
 describe("grok provider stream normalization", () => {
   it("normalizes the real headless error fixture", () => {
@@ -46,5 +46,20 @@ describe("grok provider stream normalization", () => {
     const second = parseGrokJsonl('ta":"hi"}\n', first.rest);
     expect(second.events).toEqual([{ kind: "delta", text: "hi" }]);
     expect(second.rest).toBe("");
+  });
+
+  it("parses the real `grok models` listing shape", () => {
+    expect(parseGrokModelsOutput(`
+You are logged in with grok.com.
+
+Default model: grok-composer-2.5-fast
+
+Available models:
+  * grok-composer-2.5-fast (default)
+  - grok-build
+`)).toEqual({
+      defaultModel: "grok-composer-2.5-fast",
+      models: ["grok-composer-2.5-fast", "grok-build"],
+    });
   });
 });

@@ -289,13 +289,25 @@ function exportThread(thread, events, markdown) {
 
 async function providerStatus() {
   return Promise.all(listProviders().map(async (provider) => {
+    let models = provider.models;
+    let defaultModel = provider.defaultModel;
+    const dynamicModels = providers[provider.id]?.listModels;
+    if (typeof dynamicModels === "function") {
+      try {
+        const discovered = await dynamicModels();
+        if (Array.isArray(discovered?.models) && discovered.models.length) {
+          models = discovered.models;
+          defaultModel = discovered.defaultModel ?? discovered.models[0] ?? defaultModel;
+        }
+      } catch {}
+    }
     const base = {
       id: provider.id,
       label: provider.label,
       kind: provider.kind,
-      models: provider.models,
+      models,
       modelReasoning: provider.modelReasoning ?? {},
-      defaultModel: provider.defaultModel,
+      defaultModel,
       efforts: provider.efforts,
     };
     if (provider.kind === "api") {

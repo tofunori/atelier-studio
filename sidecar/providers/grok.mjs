@@ -1,8 +1,43 @@
-import { spawn } from "node:child_process";
+import { execFile, spawn } from "node:child_process";
 import { resolveBin } from "../bin_resolver.mjs";
 
 const GROK_BIN = resolveBin("grok") ?? "grok";
 const EFFORTS = new Set(["low", "medium", "high", "xhigh", "max"]);
+
+export function parseGrokModelsOutput(output) {
+  const lines = String(output ?? "").split(/\r?\n/);
+  const defaultModel = lines
+    .map((line) => /^Default model:\s*(\S+)/.exec(line)?.[1] ?? null)
+    .find(Boolean) ?? null;
+  const models = [];
+  for (const line of lines) {
+    const match = /^\s*[*-]\s+([^\s(]+)/.exec(line);
+    if (match?.[1]) models.push(match[1]);
+  }
+  const unique = [...new Set(models)];
+  return {
+    defaultModel: defaultModel ?? unique[0] ?? null,
+    models: unique,
+  };
+}
+
+export function listModels(timeoutMs = 5000) {
+  return new Promise((resolve, reject) => {
+    const child = execFile(GROK_BIN, ["models"], { timeout: timeoutMs }, (error, stdout, stderr) => {
+      if (error) {
+        reject(new Error(String(stderr || error.message || error).trim()));
+        return;
+      }
+      const parsed = parseGrokModelsOutput(stdout);
+      if (!parsed.models.length) {
+        reject(new Error("grok models: aucune liste de modèles détectée"));
+        return;
+      }
+      resolve(parsed);
+    });
+    child.stdin?.end?.();
+  });
+}
 
 function mapEffort(effort) {
   if (!effort) return null;
