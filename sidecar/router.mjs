@@ -289,6 +289,15 @@ export async function route(msg, ctx) {
       }
       break;
     }
+    case "listApiModels": {
+      try {
+        const models = await ctx.apiProviders.discoverModels(msg.provider ?? {});
+        ctx.send({ type: "apiModels", models });
+      } catch (e) {
+        ctx.send({ type: "apiModels", models: null, error: String(e.message ?? e) });
+      }
+      break;
+    }
     case "deleteApiProvider": {
       ctx.apiProviders?.remove(String(msg.id ?? ""));
       ctx.send({ type: "apiProviders", providers: ctx.apiProviders?.list() ?? [] });

@@ -136,6 +136,10 @@ export default function SettingsPage(p: {
     id: string; label: string; baseURL: string; protocol: "openai" | "anthropic";
     apiKey: string; models: string;
   } | null>(null);
+  const [apiModels, setApiModels] = useState<{ id: string; label: string }[] | null>(null);
+  const [apiModelsError, setApiModelsError] = useState("");
+  const [apiModelsBusy, setApiModelsBusy] = useState(false);
+  const [apiModelsQuery, setApiModelsQuery] = useState("");
   const [pasted, setPasted] = useState<{ name: string; size: number; mtime: number; dataURL?: string }[] | null>(null);
   const s = p.settings;
   const customModels = s.customModels ?? [];
@@ -149,6 +153,11 @@ export default function SettingsPage(p: {
       if (m.type === "status") setStatus(m);
       if (m.type === "providerStatus") setProvs(m.providers);
       if (m.type === "apiProviders") setApiProvs(m.providers ?? []);
+      if (m.type === "apiModels") {
+        setApiModelsBusy(false);
+        setApiModels(m.models ?? null);
+        setApiModelsError(m.error ?? "");
+      }
       if (m.type === "pastedCleared") {
         p.ws!.send(JSON.stringify({ type: "status" }));
         p.ws!.send(JSON.stringify({ type: "listPasted" }));
@@ -650,8 +659,47 @@ export default function SettingsPage(p: {
                     </div>
                     <input className="set-text" type="password" placeholder={t("settings.api-key-ph")} value={apiForm.apiKey}
                       onChange={(e) => setApiForm({ ...apiForm, apiKey: e.target.value })} />
-                    <input className="set-text" placeholder={t("settings.api-models-ph")} value={apiForm.models}
-                      onChange={(e) => setApiForm({ ...apiForm, models: e.target.value })} />
+                    <div style={{ display: "flex", gap: 8 }}>
+                      <input className="set-text" style={{ flex: 1 }} placeholder={t("settings.api-models-ph")} value={apiForm.models}
+                        onChange={(e) => setApiForm({ ...apiForm, models: e.target.value })} />
+                      <button className="set-btn quiet" disabled={apiModelsBusy} onClick={() => {
+                        if (p.ws?.readyState !== 1) return;
+                        setApiModelsBusy(true); setApiModels(null); setApiModelsError(""); setApiModelsQuery("");
+                        p.ws.send(JSON.stringify({ type: "listApiModels", provider: {
+                          id: apiForm.id, baseURL: apiForm.baseURL, protocol: apiForm.protocol,
+                          ...(apiForm.apiKey ? { apiKey: apiForm.apiKey } : {}),
+                        } }));
+                      }}>{apiModelsBusy ? "…" : t("settings.api-detect")}</button>
+                    </div>
+                    {apiModelsError && <p className="set-empty">{apiModelsError}</p>}
+                    {apiModels && (() => {
+                      const selected = new Set(apiForm.models.split(",").map((m) => m.trim()).filter(Boolean));
+                      const q = apiModelsQuery.toLowerCase();
+                      const shown = apiModels.filter((m) => !q || m.id.toLowerCase().includes(q)).slice(0, 200);
+                      const toggle = (id: string) => {
+                        const next = new Set(selected);
+                        if (next.has(id)) next.delete(id); else next.add(id);
+                        setApiForm({ ...apiForm, models: [...next].join(", ") });
+                      };
+                      return (
+                        <div style={{ border: "1px solid var(--border)", borderRadius: 8, padding: 8 }}>
+                          <input className="set-text" placeholder={t("settings.api-filter-ph")} value={apiModelsQuery}
+                            onChange={(e) => setApiModelsQuery(e.target.value)} />
+                          <div style={{ maxHeight: 220, overflowY: "auto", marginTop: 6 }}>
+                            {shown.map((m) => (
+                              <label key={m.id} style={{ display: "flex", gap: 8, alignItems: "center", padding: "3px 4px", cursor: "pointer" }}>
+                                <input type="checkbox" checked={selected.has(m.id)} onChange={() => toggle(m.id)} />
+                                <span style={{ fontSize: 12.5 }}>{m.id}</span>
+                              </label>
+                            ))}
+                            {shown.length === 0 && <p className="set-empty">{t("settings.api-no-match")}</p>}
+                          </div>
+                          <p className="set-sub" style={{ margin: "6px 0 0" }}>
+                            {t("settings.api-detect-count", { total: apiModels.length, sel: selected.size })}
+                          </p>
+                        </div>
+                      );
+                    })()}
                     <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
                       <button className="set-btn quiet" onClick={() => setApiForm(null)}>{t("action.cancel")}</button>
                       <button className="set-btn" onClick={() => {

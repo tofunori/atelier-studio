@@ -152,6 +152,40 @@ export function parseAnthropicSseChunk(chunk, carry = "") {
   return { events, rest };
 }
 
+// Découverte des modèles : GET /models (OpenAI) ou /v1/models (Anthropic).
+// `entry` = config partielle {baseURL, protocol, apiKey?|apiKeyEnv?|id?} ;
+// si `id` correspond à un provider configuré, sa clé stockée est utilisée.
+export async function fetchAvailableModels(entry) {
+  const configs = loadApiProviderConfigs();
+  const existing = entry.id ? configs.find((c) => c.id === entry.id) : null;
+  const cfg = {
+    baseURL: String(entry.baseURL ?? existing?.baseURL ?? "").replace(/\/+$/, ""),
+    protocol: (entry.protocol ?? existing?.protocol) === "anthropic" ? "anthropic" : "openai",
+    apiKey: entry.apiKey || existing?.apiKey || null,
+    apiKeyEnv: entry.apiKeyEnv ?? existing?.apiKeyEnv ?? null,
+  };
+  const apiKey = resolveApiKey(cfg);
+  if (!cfg.baseURL) throw new Error("baseURL requise");
+  if (!apiKey) throw new Error("clé API requise pour lister les modèles");
+  const url = cfg.protocol === "anthropic" ? `${cfg.baseURL}/v1/models` : `${cfg.baseURL}/models`;
+  const headers = cfg.protocol === "anthropic"
+    ? { "x-api-key": apiKey, "anthropic-version": "2023-06-01" }
+    : { Authorization: `Bearer ${apiKey}` };
+  let res = await fetch(url, { headers, signal: AbortSignal.timeout(15000) });
+  // proxys minimaux (ex. relais perso) : /models pas relayé ; le catalogue
+  // OpenRouter est public, on retombe dessus directement
+  if (!res.ok && /openrouter/i.test(cfg.baseURL)) {
+    res = await fetch("https://openrouter.ai/api/v1/models", { signal: AbortSignal.timeout(15000) });
+  }
+  if (!res.ok) throw new Error(`HTTP ${res.status} sur ${url}`);
+  const json = await res.json();
+  const list = Array.isArray(json?.data) ? json.data : Array.isArray(json?.models) ? json.models : [];
+  return list
+    .map((m) => ({ id: String(m.id ?? m.name ?? ""), label: String(m.display_name ?? m.name ?? m.id ?? "") }))
+    .filter((m) => m.id)
+    .sort((a, b) => a.id.localeCompare(b.id));
+}
+
 // ---------------------------------------------------------------------------
 // Fabrique un provider runtime au contrat du router (run/interrupt/status)
 // ---------------------------------------------------------------------------

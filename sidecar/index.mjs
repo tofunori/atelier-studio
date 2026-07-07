@@ -23,7 +23,7 @@ import * as claude from "./providers/claude.mjs";
 import * as codex from "./providers/codex.mjs";
 import * as grok from "./providers/grok.mjs";
 import { listProviders } from "./providers/registry.mjs";
-import { loadApiProviderConfigs, writeApiProviderConfigs, makeApiProvider } from "./providers/openai_api.mjs";
+import { loadApiProviderConfigs, writeApiProviderConfigs, makeApiProvider, fetchAvailableModels } from "./providers/openai_api.mjs";
 import { resolveBin, enrichPath } from "./bin_resolver.mjs";
 enrichPath(); // PATH Finder minimal → complété pour tous les spawns
 
@@ -442,6 +442,7 @@ wss.on("connection", (ws) => {
         writeApiProviderConfigs(loadApiProviderConfigs().filter((c) => c.id !== id));
         reloadApiProviders();
       },
+      discoverModels: (entry) => fetchAvailableModels(entry),
     },
     providerStatus,
     exportThread,
