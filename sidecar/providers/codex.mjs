@@ -551,7 +551,7 @@ export async function run({
     const resp = await srv.request("turn/start", {
       threadId: codexId,
       input,
-      ...(model ? { model } : {}),
+      ...(threadOpts.model ? { model: threadOpts.model } : {}),
       ...(effort ? { effort } : {}),
       approvalPolicy: "never",
     });
