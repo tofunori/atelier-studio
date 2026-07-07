@@ -39,8 +39,31 @@ export function CodexIcon({ size = 13 }: { size?: number }) {
   );
 }
 
+export function GrokIcon({ size = 13 }: { size?: number }) {
+  // diagonale xAI (monochrome)
+  return (
+    <svg width={size} height={size} viewBox="0 0 16 16" fill="none"
+      stroke="#c8cdd4" strokeWidth="1.6" strokeLinecap="round">
+      <path d="M2.5 2.5l11 11M13.5 2.5L8 8M2.5 13.5L5.5 10.5" />
+    </svg>
+  );
+}
+
+export function ApiProviderIcon({ size = 13 }: { size?: number }) {
+  // globe générique pour les providers API (OpenRouter, GLM, MiniMax…)
+  return (
+    <StrokeIcon size={size}>
+      <circle cx="8" cy="8" r="5.5" />
+      <path d="M2.5 8h11M8 2.5c-3.6 3.2-3.6 7.8 0 11M8 2.5c3.6 3.2 3.6 7.8 0 11" />
+    </StrokeIcon>
+  );
+}
+
 export function ProviderIcon({ provider, size = 13 }: { provider: string; size?: number }) {
-  return provider === "codex" ? <CodexIcon size={size} /> : <ClaudeIcon size={size} />;
+  if (provider === "codex") return <CodexIcon size={size} />;
+  if (provider === "claude") return <ClaudeIcon size={size} />;
+  if (provider === "grok") return <GrokIcon size={size} />;
+  return <ApiProviderIcon size={size} />;
 }
 
 export function ResumeIcon({ size = 13 }: IconProps) {

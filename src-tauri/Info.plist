@@ -4,5 +4,11 @@
 <dict>
   <key>CFBundleIconName</key>
   <string>Atelier</string>
+  <key>LSBackgroundOnly</key>
+  <false/>
+  <key>LSRequiresCarbon</key>
+  <false/>
+  <key>LSUIElement</key>
+  <false/>
 </dict>
 </plist>

@@ -8,11 +8,15 @@ Scans the project for image files (png, pdf, svg, jpg, html), collects metadata,
 and writes a self-contained figures_index.html at the project root.
 Run it again any time to refresh the index after producing new figures.
 """
-import os, json, time, hashlib, subprocess, sys, signal, tempfile, shutil, concurrent.futures
+import os, json, time, hashlib, subprocess, sys, signal, tempfile, shutil, concurrent.futures, re
 
 ROOT = os.path.abspath(os.environ.get("GALLERY_ROOT") or os.getcwd())
 EXTS = {".png", ".jpg", ".jpeg", ".svg", ".pdf", ".html", ".docx", ".xlsx", ".xls", ".csv", ".md", ".py", ".r", ".jl", ".tex", ".sh",
         ".mp4", ".m4v", ".mov", ".webm"}
+# GALLERY_EXTS = liste "png, svg, pdf" (réglable par projet dans l'app) ; vide = défaut
+_env_exts = [("." + e.lstrip(".")).lower() for e in re.split(r"[,\s]+", os.environ.get("GALLERY_EXTS", "")) if e.strip()]
+if _env_exts:
+    EXTS = set(_env_exts)
 # Skip these directories entirely (virtualenvs, git, caches, build trees, worktrees, the index itself).
 # .prism is a build tree that mirrors source files (PDF/Office duplicates) — indexing it walks
 # thousands of extra artefacts and thumbnails build-output copies, so exclude it outright.

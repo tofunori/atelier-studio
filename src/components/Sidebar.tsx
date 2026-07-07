@@ -1,4 +1,6 @@
 import { useEffect, useRef, useState } from "react";
+import { confirm as tauriConfirm } from "@tauri-apps/plugin-dialog";
+import { revealItemInDir, openUrl } from "@tauri-apps/plugin-opener";
 import { Thread } from "../lib/ws";
 import { PROJ_COLORS } from "./Rail";
 import { wsSend } from "../lib/wsBus";
@@ -112,6 +114,20 @@ export function ProjIcon({ name, size = 13 }: { name: string; size?: number }) {
   );
 }
 
+function shortTime(value?: string): string {
+  const ts = value ? new Date(value).getTime() : NaN;
+  if (!Number.isFinite(ts)) return "";
+  const min = Math.floor((Date.now() - ts) / 60_000);
+  if (min < 1) return "now";
+  if (min < 60) return `${min}m`;
+  const h = Math.floor(min / 60);
+  if (h < 24) return `${h}h`;
+  const d = Math.floor(h / 24);
+  if (d < 7) return `${d}j`;
+  if (d < 30) return `${Math.floor(d / 7)}sem`;
+  return `${Math.floor(d / 30)}mo`;
+}
+
 function relativeDate(value?: string): string {
   const ts = value ? new Date(value).getTime() : NaN;
   if (!Number.isFinite(ts)) return "";
@@ -143,6 +159,7 @@ export default function Sidebar(p: {
   onNewChat: () => void;
   onImportSession: (provider: "claude" | "codex", sessionId: string, title: string) => void;
   onDelete: (threadId: string) => void;
+  onRemoveProject: (root: string) => void;
   onRename: (threadId: string, title: string) => void;
   onSettings: () => void;
   onCompact: () => void;
@@ -150,7 +167,20 @@ export default function Sidebar(p: {
   onSetMeta: (root: string, meta: { color?: string; label?: string }) => void;
 }) {
   const [menu, setMenu] = useState<Menu | null>(null);
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const selAnchor = useRef<string | null>(null);
   const [projMenu, setProjMenu] = useState<{ root: string; x: number; y: number } | null>(null);
+  const [projActMenu, setProjActMenu] = useState<{ root: string; x: number; y: number } | null>(null);
+  const [expandedRoots, setExpandedRoots] = useState<Set<string>>(new Set());
+  const PROJ_VISIBLE = 5;
+  function toggleExpanded(root: string) {
+    setExpandedRoots((prev) => {
+      const next = new Set(prev);
+      if (next.has(root)) next.delete(root);
+      else next.add(root);
+      return next;
+    });
+  }
   const [resumeOpen, setResumeOpen] = useState(false);
   const [resumeProv, setResumeProv] = useState<"claude" | "codex">("claude");
   const [sessions, setSessions] = useState<{ id: string; title: string; mtime: number }[] | null>(null);
@@ -210,6 +240,7 @@ export default function Sidebar(p: {
     const close = () => {
       setMenu(null);
       setProjMenu(null);
+      setProjActMenu(null);
     };
     window.addEventListener("click", close);
     return () => window.removeEventListener("click", close);
@@ -228,6 +259,85 @@ export default function Sidebar(p: {
     setEditText(rawThreadTitle(t));
     setEditingId(t.id);
   }
+
+  // ordre visible des threads (favoris, puis projets, puis chats) pour la plage shift+clic
+  function visibleThreadIds(): string[] {
+    const ids: string[] = [];
+    if (!secClosed.fav) {
+      for (const id of p.favorites) if (p.threads.some((t) => t.id === id)) ids.push(id);
+    }
+    if (!secClosed.proj) {
+      for (const root of p.projects) {
+        if (collapsed.includes(root)) continue;
+        const threads = p.threads
+          .filter((t) => threadRoot(t) === root)
+          .sort((a, b) =>
+            p.threadOrder === "manual"
+              ? ((a as any).createdAt ?? a.updatedAt ?? "").localeCompare((b as any).createdAt ?? b.updatedAt ?? "")
+              : 0,
+          );
+        const shown = expandedRoots.has(root) ? threads : threads.slice(0, PROJ_VISIBLE);
+        for (const t of shown) ids.push(t.id);
+      }
+    }
+    if (!secClosed.chats) {
+      for (const t of p.threads) if (!threadRoot(t)) ids.push(t.id);
+    }
+    return ids;
+  }
+
+  function handleThreadClick(e: React.MouseEvent, t: Thread, root: string) {
+    if (e.shiftKey) {
+      e.preventDefault();
+      const ids = visibleThreadIds();
+      const anchor = selAnchor.current && ids.includes(selAnchor.current) ? selAnchor.current : t.id;
+      const a = ids.indexOf(anchor);
+      const b = ids.indexOf(t.id);
+      const range = ids.slice(Math.min(a, b), Math.max(a, b) + 1);
+      setSelected((prev) => new Set([...prev, ...range]));
+      return;
+    }
+    if (e.metaKey || e.ctrlKey) {
+      e.preventDefault();
+      selAnchor.current = t.id;
+      setSelected((prev) => {
+        const next = new Set(prev);
+        if (next.has(t.id)) next.delete(t.id);
+        else next.add(t.id);
+        return next;
+      });
+      return;
+    }
+    selAnchor.current = t.id;
+    if (selected.size) setSelected(new Set());
+    p.onSelect(t.id, root);
+  }
+
+  async function deleteSelected(fallbackId: string) {
+    const ids = selected.size ? [...selected] : [fallbackId];
+    if (ids.length > 1) {
+      const ok = await tauriConfirm(tr("sidebar.delete-many-confirm", { count: ids.length }), { kind: "warning" }).catch(() => true);
+      if (!ok) return;
+    }
+    for (const id of ids) p.onDelete(id);
+    setSelected(new Set());
+    selAnchor.current = null;
+  }
+
+  useEffect(() => {
+    if (!selected.size) return;
+    const onKey = (e: KeyboardEvent) => {
+      const el = document.activeElement;
+      if (el && (el.tagName === "INPUT" || el.tagName === "TEXTAREA" || (el as HTMLElement).isContentEditable)) return;
+      if (e.key === "Escape") setSelected(new Set());
+      if (e.key === "Delete" || e.key === "Backspace") {
+        e.preventDefault();
+        void deleteSelected([...selected][0]);
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [selected]);
 
   function titleEditor(t: Thread) {
     return editingId === t.id ? (
@@ -296,8 +406,8 @@ export default function Sidebar(p: {
               .map((t) => (
                 <li
                   key={t.id}
-                  className={t.id === p.activeId ? "active" : ""}
-                  onClick={() => p.onSelect(t.id, threadRoot(t))}
+                  className={`${t.id === p.activeId ? "active" : ""} ${selected.has(t.id) ? "multi-sel" : ""}`}
+                  onClick={(e) => handleThreadClick(e, t, threadRoot(t))}
                   onDoubleClick={(e) => {
                     e.stopPropagation();
                     startRename(t);
@@ -341,11 +451,10 @@ export default function Sidebar(p: {
               onDoubleClick={() => toggleCollapse(root)}
               onContextMenu={(e) => {
                 e.preventDefault();
-                setProjMenu({ root, x: e.clientX, y: e.clientY });
+                setProjActMenu({ root, x: e.clientX, y: e.clientY });
               }}
               title={t("action.toggle-project")}
             >
-              <span className="chev">{collapsed.includes(root) ? "▸" : "▾"}</span>
               {p.projMeta[root]?.label?.startsWith("icon:") ? (
                 <span className="proj-icon" style={p.projMeta[root]?.color ? { color: p.projMeta[root]!.color } : undefined}>
                   <ProjIcon name={p.projMeta[root]!.label!.slice(5)} />
@@ -359,74 +468,82 @@ export default function Sidebar(p: {
                 />
               )}
               {name}
-              {active && (
+              <span className="proj-acts" onClick={(e) => e.stopPropagation()}>
                 <button
-                  className="mini"
-                  title={t("action.new-chat")}
+                  className="proj-act"
+                  title={tr("project.actions")}
                   onClick={(e) => {
-                    e.stopPropagation();
-                    p.onNew(root);
+                    const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
+                    setProjActMenu(projActMenu?.root === root ? null : { root, x: r.left, y: r.bottom + 4 });
                   }}
                 >
-                  <PlusIcon />
+                  <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor">
+                    <circle cx="3.2" cy="8" r="1.2" /><circle cx="8" cy="8" r="1.2" /><circle cx="12.8" cy="8" r="1.2" />
+                  </svg>
                 </button>
-              )}
+                <button
+                  className="proj-act"
+                  title={t("action.new-chat")}
+                  onClick={() => p.onNew(root)}
+                >
+                  <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M13.5 8.5v4a1.5 1.5 0 0 1-1.5 1.5H4a1.5 1.5 0 0 1-1.5-1.5V4A1.5 1.5 0 0 1 4 2.5h4" />
+                    <path d="M12.3 2.3l1.4 1.4L8 9.4l-2 .6.6-2z" />
+                  </svg>
+                </button>
+              </span>
             </div>
             <ul style={{ display: collapsed.includes(root) ? "none" : undefined }}>
-              {withRecencySections(threads).map((row, index) => {
-                if (row.kind === "section") {
-                  return (
-                    <li key={`${row.bucket}-${index}`} className="thread-recency-label" role="presentation">
-                      {tr(recencyLabelKey(row.bucket))}
-                    </li>
-                  );
-                }
-                const t = row.thread;
-                return (
-                  <li
-                    key={t.id}
-                    className={t.id === p.activeId ? "active" : ""}
-                    onClick={() => p.onSelect(t.id, root)}
-                    onDoubleClick={(e) => {
-                      e.stopPropagation();
-                      startRename(t);
-                    }}
-                    onContextMenu={(e) => {
-                      e.preventDefault();
-                      setMenu({ x: e.clientX, y: e.clientY, threadId: t.id });
-                    }}
-                  >
-                    <span className={`prov-ico ${t.status === "running" ? "busy" : ""}`}>
-                      <ProviderIcon provider={t.provider} />
-                      {p.unread.has(t.id) && <span className="unread-badge" />}
-                    </span>
-                    {threadLabel(t)}
-                    <span className="row-actions" onClick={(e) => e.stopPropagation()}>
-                      <button
-                        className={`row-act ${p.favorites.includes(t.id) ? "on" : ""}`}
-                        title={p.favorites.includes(t.id) ? tr("action.remove-favorite") : tr("action.add-favorite")}
-                        onClick={() => p.onToggleFavorite(t.id)}
-                      >
-                        <svg width="11" height="11" viewBox="0 0 16 16" fill={p.favorites.includes(t.id) ? "currentColor" : "none"} stroke="currentColor" strokeWidth="1.2">
-                          <path d="M8 1.8l1.9 3.9 4.3.6-3.1 3 .7 4.3L8 11.6l-3.8 2 .7-4.3-3.1-3 4.3-.6z" />
-                        </svg>
-                      </button>
-                      <button className="row-act danger" title={tr("action.delete")}
-                        onClick={() => p.onDelete(t.id)}>
-                        <svg width="11" height="11" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round">
-                          <path d="M4 4l8 8M12 4l-8 8" />
-                        </svg>
-                      </button>
-                    </span>
-                    {t.status === "running" && (
-                      <svg className="arc" width="13" height="13" viewBox="0 0 16 16" fill="none">
-                        <circle cx="8" cy="8" r="6" stroke="#3a414d" strokeWidth="2" />
-                        <path d="M14 8a6 6 0 0 0-6-6" stroke="#e8823a" strokeWidth="2" strokeLinecap="round" />
+              {(expandedRoots.has(root) ? threads : threads.slice(0, PROJ_VISIBLE)).map((t) => (
+                <li
+                  key={t.id}
+                  className={`proj-thread ${t.id === p.activeId ? "active" : ""} ${selected.has(t.id) ? "multi-sel" : ""}`}
+                  onClick={(e) => handleThreadClick(e, t, root)}
+                  onDoubleClick={(e) => {
+                    e.stopPropagation();
+                    startRename(t);
+                  }}
+                  onContextMenu={(e) => {
+                    e.preventDefault();
+                    setMenu({ x: e.clientX, y: e.clientY, threadId: t.id });
+                  }}
+                >
+                  {p.unread.has(t.id) && <span className="unread-dot" />}
+                  {threadLabel(t)}
+                  {t.status === "running" ? (
+                    <svg className="arc" width="13" height="13" viewBox="0 0 16 16" fill="none">
+                      <circle cx="8" cy="8" r="6" stroke="#3a414d" strokeWidth="2" />
+                      <path d="M14 8a6 6 0 0 0-6-6" stroke="#e8823a" strokeWidth="2" strokeLinecap="round" />
+                    </svg>
+                  ) : (
+                    <span className="row-time">{shortTime(t.updatedAt)}</span>
+                  )}
+                  <span className="row-actions" onClick={(e) => e.stopPropagation()}>
+                    <button
+                      className={`row-act ${p.favorites.includes(t.id) ? "on" : ""}`}
+                      title={p.favorites.includes(t.id) ? tr("action.remove-favorite") : tr("action.add-favorite")}
+                      onClick={() => p.onToggleFavorite(t.id)}
+                    >
+                      <svg width="11" height="11" viewBox="0 0 16 16" fill={p.favorites.includes(t.id) ? "currentColor" : "none"} stroke="currentColor" strokeWidth="1.2">
+                        <path d="M8 1.8l1.9 3.9 4.3.6-3.1 3 .7 4.3L8 11.6l-3.8 2 .7-4.3-3.1-3 4.3-.6z" />
                       </svg>
-                    )}
-                  </li>
-                );
-              })}
+                    </button>
+                    <button className="row-act danger" title={tr("action.delete")}
+                      onClick={() => deleteSelected(t.id)}>
+                      <svg width="11" height="11" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round">
+                        <path d="M4 4l8 8M12 4l-8 8" />
+                      </svg>
+                    </button>
+                  </span>
+                </li>
+              ))}
+              {threads.length > PROJ_VISIBLE && (
+                <li className="proj-more" onClick={() => toggleExpanded(root)}>
+                  {expandedRoots.has(root)
+                    ? tr("sidebar.show-less")
+                    : tr("sidebar.show-more", { count: threads.length - PROJ_VISIBLE })}
+                </li>
+              )}
             </ul>
           </div>
         );
@@ -457,8 +574,8 @@ export default function Sidebar(p: {
             return (
               <li
                 key={t.id}
-                className={t.id === p.activeId ? "active" : ""}
-                onClick={() => p.onSelect(t.id, "")}
+                className={`${t.id === p.activeId ? "active" : ""} ${selected.has(t.id) ? "multi-sel" : ""}`}
+                onClick={(e) => handleThreadClick(e, t, "")}
                 onDoubleClick={(e) => {
                   e.stopPropagation();
                   startRename(t);
@@ -520,6 +637,39 @@ export default function Sidebar(p: {
             ))}
           </div>
           <button className="set-btn" onClick={() => setResumeOpen(false)}>{t("sidebar.close")}</button>
+        </div>
+      )}
+      {projActMenu && (
+        <div className="pmenu" style={{ left: projActMenu.x, top: projActMenu.y, position: "fixed" }}
+          onClick={(e) => e.stopPropagation()}>
+          <button className="pmenu-item" onClick={() => { p.onNew(projActMenu.root); setProjActMenu(null); }}>
+            <svg viewBox="0 0 16 16"><path d="M13.5 8.5v4a1.5 1.5 0 0 1-1.5 1.5H4a1.5 1.5 0 0 1-1.5-1.5V4A1.5 1.5 0 0 1 4 2.5h4" /><path d="M12.3 2.3l1.4 1.4L8 9.4l-2 .6.6-2z" /></svg>
+            {t("action.new-chat")}
+          </button>
+          <button className="pmenu-item" onClick={() => {
+            const root = projActMenu.root;
+            revealItemInDir(root).catch(() => openUrl("file://" + root).catch(() => {}));
+            setProjActMenu(null);
+          }}>
+            <svg viewBox="0 0 16 16"><path d="M1.8 4.2c0-.7.5-1.2 1.2-1.2h3l1.4 1.6h5.6c.7 0 1.2.5 1.2 1.2v6c0 .7-.5 1.2-1.2 1.2H3c-.7 0-1.2-.5-1.2-1.2z" /></svg>
+            {tr("project.reveal-finder")}
+          </button>
+          <button className="pmenu-item" onClick={() => {
+            setProjMenu({ root: projActMenu.root, x: projActMenu.x, y: projActMenu.y });
+            setProjActMenu(null);
+          }}>
+            <svg viewBox="0 0 16 16"><path d="M8 1.8a6.2 6.2 0 1 0 0 12.4c1 0 1.4-.6 1.4-1.3 0-.6-.4-1-.4-1.6 0-.8.6-1.3 1.5-1.3h1.2c1.4 0 2.5-1.1 2.5-2.4C14.2 4.2 11.4 1.8 8 1.8z" /><circle cx="5" cy="6" r=".7" /><circle cx="8.2" cy="4.6" r=".7" /><circle cx="11" cy="6.4" r=".7" /></svg>
+            {tr("project.customize")}
+          </button>
+          <button className="pmenu-item" onClick={() => { toggleCollapse(projActMenu.root); setProjActMenu(null); }}>
+            <svg viewBox="0 0 16 16"><path d="M4 6.5L8 10l4-3.5" /></svg>
+            {collapsed.includes(projActMenu.root) ? tr("project.expand") : tr("project.collapse")}
+          </button>
+          <div className="pmenu-sep" />
+          <button className="pmenu-item danger" onClick={() => { p.onRemoveProject(projActMenu.root); setProjActMenu(null); }}>
+            <svg viewBox="0 0 16 16"><path d="M4.5 4.5l7 7M11.5 4.5l-7 7" /></svg>
+            {tr("project.remove")}
+          </button>
         </div>
       )}
       {projMenu && (
@@ -629,11 +779,13 @@ export default function Sidebar(p: {
           <div
             className="danger"
             onClick={() => {
-              p.onDelete(menu.threadId);
+              deleteSelected(menu.threadId);
               setMenu(null);
             }}
           >
-            {t("action.delete")}
+            {selected.size > 1 && selected.has(menu.threadId)
+              ? tr("sidebar.delete-many", { count: selected.size })
+              : t("action.delete")}
           </div>
         </div>
       )}

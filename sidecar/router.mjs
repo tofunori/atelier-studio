@@ -33,6 +33,11 @@ function saveZoteroFavs(ctx, favs) {
   writeFileAtomic(path, JSON.stringify([...favs].sort(), null, 2));
 }
 
+function paperDigestPath(ctx, slug) {
+  const dir = ctx.paperDigestDir ?? join(DEFAULT_APP_DIR, "paper-digests");
+  return join(dir, `${slug}.md`);
+}
+
 function withZoteroMeta(ctx, items) {
   const favs = loadZoteroFavs(ctx);
   return items.map((item) => ({
@@ -147,12 +152,31 @@ async function filesChangedSinceTurn(ctx, turn) {
 }
 
 async function enrichDoneEvent(ctx, turn, event) {
+  if (event.kind === "edit") return enrichEditEvent(ctx, turn, event);
   if (event.kind !== "done") return event;
   return {
     ...event,
     projectRoot: turn.projectRoot,
     filesChanged: await filesChangedSinceTurn(ctx, turn),
   };
+}
+
+/** Événement « edit » d'un provider : ±lignes par fichier via git numstat. */
+async function enrichEditEvent(ctx, turn, event) {
+  const root = turn.projectRoot || null;
+  const files = [];
+  for (const p of (event.files ?? []).slice(0, 20)) {
+    let rel = String(p ?? "");
+    if (root && rel.startsWith(root.endsWith("/") ? root : root + "/")) {
+      rel = rel.slice((root.endsWith("/") ? root : root + "/").length);
+    }
+    let add = null, del = null;
+    if (root && !rel.startsWith("/") && ctx.gitops?.numstat) {
+      try { ({ add, del } = await ctx.gitops.numstat(root, rel)); } catch {}
+    }
+    files.push({ path: rel, add, del });
+  }
+  return { kind: "edit", projectRoot: root, files, ts: Date.now() };
 }
 
 async function snapshotBeforeProvider(ctx, threadId) {
@@ -270,8 +294,49 @@ export async function route(msg, ctx) {
       ctx.send({ type: "providerStatus", providers: await ctx.providerStatus() });
       break;
     }
+    case "apiProviders": {
+      ctx.send({ type: "apiProviders", providers: ctx.apiProviders?.list() ?? [] });
+      break;
+    }
+    case "saveApiProvider": {
+      try {
+        ctx.apiProviders?.save(msg.provider ?? {});
+        ctx.send({ type: "apiProviders", providers: ctx.apiProviders?.list() ?? [] });
+        ctx.send({ type: "providerStatus", providers: await ctx.providerStatus() });
+      } catch (e) {
+        ctx.send({ type: "error", message: `provider API: ${String(e.message ?? e)}` });
+      }
+      break;
+    }
+    case "listApiModels": {
+      try {
+        const models = await ctx.apiProviders.discoverModels(msg.provider ?? {});
+        ctx.send({ type: "apiModels", models });
+      } catch (e) {
+        ctx.send({ type: "apiModels", models: null, error: String(e.message ?? e) });
+      }
+      break;
+    }
+    case "deleteApiProvider": {
+      ctx.apiProviders?.remove(String(msg.id ?? ""));
+      ctx.send({ type: "apiProviders", providers: ctx.apiProviders?.list() ?? [] });
+      ctx.send({ type: "providerStatus", providers: await ctx.providerStatus() });
+      break;
+    }
     case "clearPasted": {
       ctx.send({ type: "pastedCleared", removed: ctx.clearPasted() });
+      break;
+    }
+    case "listPasted": {
+      ctx.send({ type: "pastedList", files: ctx.listPasted() });
+      break;
+    }
+    case "getSettings": {
+      ctx.send({ type: "settingsFile", settings: ctx.readSettingsFile() });
+      break;
+    }
+    case "saveSettings": {
+      ctx.send({ type: "settingsSaved", ok: ctx.writeSettingsFile(msg.settings) });
       break;
     }
     case "saveImage": {
@@ -458,6 +523,26 @@ export async function route(msg, ctx) {
         limit: msg.limit ?? 400,
       });
       ctx.send({ type: "zoteroItems", items: withZoteroMeta(ctx, items) });
+      break;
+    }
+    case "zoteroDigest": {
+      const key = String(msg.key ?? "").trim();
+      const citeKey = String(msg.citeKey ?? "").trim();
+      const slug = (citeKey || key).replace(/[^A-Za-z0-9._-]/g, "");
+      const path = slug ? paperDigestPath(ctx, slug) : null;
+      let digest = null;
+      if (path) {
+        try { digest = readFileSync(path, "utf8").trim() || null; } catch { /* pas de digest en cache */ }
+      }
+      const pdfPath = ctx.zotero?.pdfAbsolutePath?.(msg.pdfKey, msg.pdfFile) ?? null;
+      ctx.send({ type: "zoteroDigest", key, citeKey, digest, path, pdfPath });
+      break;
+    }
+    case "zoteroAddPdf": {
+      const paths = (Array.isArray(msg.paths) ? msg.paths : [])
+        .filter((x) => typeof x === "string" && x.toLowerCase().endsWith(".pdf"));
+      const results = await ctx.zotero.addPdfs(paths);
+      ctx.send({ type: "zoteroAddResult", results });
       break;
     }
     case "zoteroCollections": {
@@ -660,6 +745,29 @@ export async function route(msg, ctx) {
       (ctx.broadcast ?? ctx.send)({ type: "threads", threads: ctx.store.list() });
       break;
     }
+    case "codexCompact": {
+      const t = ctx.store.get(msg.threadId);
+      if (!t?.sessionId || t.provider !== "codex") {
+        ctx.send({ type: "error", threadId: msg.threadId, message: "compact : session Codex absente" });
+        break;
+      }
+      try {
+        await ctx.providers.codex.compactThread({ sessionId: t.sessionId, cwd: t.projectRoot || process.env.HOME });
+        (ctx.broadcast ?? ctx.send)({ type: "event", threadId: msg.threadId,
+          event: { kind: "tool", name: "__compacted" } });
+      } catch (e) {
+        ctx.send({ type: "error", threadId: msg.threadId, message: `compact: ${String(e?.message ?? e)}` });
+      }
+      break;
+    }
+    case "codexClear": {
+      // nouveau thread Codex au prochain message ; l'historique visuel reste
+      if (ctx.store.get(msg.threadId)) ctx.store.upsert({ id: msg.threadId, sessionId: null });
+      (ctx.broadcast ?? ctx.send)({ type: "event", threadId: msg.threadId,
+        event: { kind: "tool", name: "__session-cleared" } });
+      (ctx.broadcast ?? ctx.send)({ type: "threads", threads: ctx.store.list() });
+      break;
+    }
     case "goalSet":
     case "goalGet":
     case "goalClear": {
@@ -681,7 +789,10 @@ export async function route(msg, ctx) {
           await codex.clearGoal(args);
         } else {
           const goal = await codex.getGoal(args);
-          if (goal) emit({ type: "event", threadId: msg.threadId, event: { kind: "goal", goal } });
+          // statut demandé explicitement (/goal sans argument) : répondre même sans goal
+          if (goal || msg.explicit) {
+            emit({ type: "event", threadId: msg.threadId, event: { kind: "goal", cleared: !goal, goal } });
+          }
         }
       } catch (e) {
         ctx.send({ type: "error", threadId: msg.threadId, message: `goal: ${String(e?.message ?? e)}` });
@@ -766,8 +877,13 @@ export async function route(msg, ctx) {
         break;
       }
 
-      // providers sans steering (Codex) : file d'attente
+      // Codex en cours : steering natif (turn/steer) d'abord, file d'attente en repli
       if (prev?.status === "running") {
+        if (p.steer && await p.steer({ threadId, prompt, inputs: msg.inputs,
+            imagePath: msg.imagePath, attachments: msg.attachments })) {
+          emit({ type: "event", threadId, event: { kind: "tool", name: "__steered" } });
+          break;
+        }
         const q = pending.get(threadId) ?? [];
         q.push(msg);
         pending.set(threadId, q);

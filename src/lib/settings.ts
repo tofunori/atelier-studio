@@ -1,17 +1,21 @@
+export type ProviderId = string;
+
 export type Settings = {
-  defaultProvider: "claude" | "codex";
-  defaultModel: { claude: string; codex: string };
-  defaultEffort: { claude: string; codex: string };
+  defaultProvider: ProviderId;
+  defaultModel: Record<string, string>;
+  defaultEffort: Record<string, string>;
   defaultPermissionMode: string;
   threadOrder: "recent" | "manual";
   chatFontSize: number;
   chatWidth: number;
   chatLineHeight: number;
   galleryPath: string;
+  galleryExts: string; // extensions par défaut de la galerie ("" = liste intégrée)
+  galleryExtsByProject: Record<string, string>; // racine projet -> extensions
   autoRefreshAtelier: boolean;
   autoReview: {
     enabled: boolean;
-    provider: "claude" | "codex";
+    provider: ProviderId;
     model: string;
     effort: string;
     trigger: "always" | "files-changed" | "manual";
@@ -29,10 +33,12 @@ export type Settings = {
   baseFontSize: number;
   fontSmoothing: boolean;
   timeFormat: "system" | "24h" | "12h";
-  customModels: { provider: "claude" | "codex"; id: string }[];
+  customModels: { provider: ProviderId; id: string }[];
   modelEfforts: Record<string, string>; // "provider:modelId" -> effort
   webSearch: boolean;
   additionalDirectories: string;
+  providerOrder: ProviderId[]; // ordre du picker ([] = ordre du catalogue)
+  hiddenProviders: ProviderId[]; // masqués du picker (le provider du thread actif reste visible)
 };
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -45,6 +51,8 @@ export const DEFAULT_SETTINGS: Settings = {
   chatWidth: 760,
   chatLineHeight: 1.7,
   galleryPath: "", // vide = galerie embarquée (gallery/ du repo ou ressource bundlée)
+  galleryExts: "",
+  galleryExtsByProject: {},
   autoRefreshAtelier: true,
   autoReview: { enabled: false, provider: "codex", model: "gpt-5.5", effort: "high", trigger: "files-changed", autofix: false },
   language: "system",
@@ -63,6 +71,8 @@ export const DEFAULT_SETTINGS: Settings = {
   modelEfforts: {},
   webSearch: false,
   additionalDirectories: "",
+  providerOrder: [],
+  hiddenProviders: [],
 };
 
 const KEY = "atelier-studio.settings";

@@ -1,7 +1,10 @@
 import { DatabaseSync } from "node:sqlite";
 import { copyFileSync, statSync, existsSync, mkdirSync } from "node:fs";
 import { homedir } from "node:os";
-import { join } from "node:path";
+import { join, basename } from "node:path";
+import { readFileSync } from "node:fs";
+import { pathToFileURL } from "node:url";
+import { randomUUID, createHash } from "node:crypto";
 
 // Bibliothèque Zotero — lecture directe de zotero.sqlite (copie fraîche,
 // readonly : fonctionne que Zotero soit ouvert ou non ; jamais d'écriture
@@ -35,7 +38,7 @@ function ensureFresh() {
 }
 
 const BASE_SQL = `
-  SELECT i.itemID, i.key,
+  SELECT i.itemID, i.key, i.dateAdded,
     (SELECT v.value FROM itemData d
        JOIN fields f ON f.fieldID = d.fieldID AND f.fieldName = 'title'
        JOIN itemDataValues v ON v.valueID = d.valueID
@@ -78,6 +81,7 @@ function rowToItem(r) {
   const tags = (r.tags ?? "").split("").filter(Boolean);
   return {
     key: r.key,
+    dateAdded: r.dateAdded ?? "",
     title: r.title ?? "(sans titre)",
     creators: r.creators ?? "",
     year,
@@ -139,4 +143,86 @@ export function pdfAbsolutePath(pdfKey, pdfFile) {
 export function citeKey(item) {
   const first = (item.creators ?? "").split(",")[0]?.trim().toLowerCase().replace(/[^a-z]/g, "") || "ref";
   return `${first}${item.year || ""}`;
+}
+
+// détection de doublons : MD5 (storageHash Zotero, sinon calculé) + nom de fichier
+const _md5Cache = new Map(); // chemin absolu -> md5
+function fileMd5(p) {
+  if (_md5Cache.has(p)) return _md5Cache.get(p);
+  const h = createHash("md5").update(readFileSync(p)).digest("hex");
+  _md5Cache.set(p, h);
+  return h;
+}
+
+/** Cherche un PDF identique déjà dans Zotero. Renvoie le titre du parent ou null. */
+export function findDuplicate(absPath) {
+  const d = ensureFresh();
+  if (!d) return null;
+  const md5 = fileMd5(absPath);
+  const base = basename(absPath).toLowerCase();
+  const rows = d.prepare(`
+    SELECT ia.path, ia.storageHash, ai.key AS attKey,
+      COALESCE((SELECT v.value FROM itemData dd
+         JOIN fields f ON f.fieldID = dd.fieldID AND f.fieldName = 'title'
+         JOIN itemDataValues v ON v.valueID = dd.valueID
+       WHERE dd.itemID = ia.parentItemID), ia.path) AS parentTitle
+    FROM itemAttachments ia
+    JOIN items ai ON ai.itemID = ia.itemID
+    WHERE ia.contentType = 'application/pdf' AND ia.path LIKE 'storage:%'
+      AND ai.itemID NOT IN (SELECT itemID FROM deletedItems)
+  `).all();
+  for (const r of rows) {
+    const fname = String(r.path).replace(/^storage:/, "");
+    if (r.storageHash && r.storageHash === md5) return String(r.parentTitle);
+    if (fname.toLowerCase() === base) {
+      // même nom : confirmer par hash du fichier stocké s'il n'a pas de storageHash
+      if (r.storageHash) return String(r.parentTitle);
+      const stored = join(ZOTERO_DIR, "storage", r.attKey, fname);
+      try {
+        if (existsSync(stored) && fileMd5(stored) === md5) return String(r.parentTitle);
+      } catch {}
+      return String(r.parentTitle); // même nom, hash illisible : prudence, considérer doublon
+    }
+    if (!r.storageHash) {
+      const stored = join(ZOTERO_DIR, "storage", r.attKey, fname);
+      try {
+        if (existsSync(stored) && fileMd5(stored) === md5) return String(r.parentTitle);
+      } catch {}
+    }
+  }
+  return null;
+}
+
+/** Ajoute des PDF à Zotero via l'API locale du connecteur (port 23119).
+ *  Zotero doit tourner ; il importe le fichier puis reconnaît les métadonnées. */
+export async function addPdfs(paths = []) {
+  const results = [];
+  for (const p of paths) {
+    const name = basename(String(p));
+    try {
+      const dup = findDuplicate(String(p));
+      if (dup) {
+        results.push({ name, ok: false, error: "duplicate", match: dup });
+        continue;
+      }
+      const data = readFileSync(String(p));
+      const res = await fetch("http://127.0.0.1:23119/connector/saveStandaloneAttachment", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/pdf",
+          "X-Metadata": JSON.stringify({
+            url: pathToFileURL(String(p)).href,
+            title: name,
+            sessionID: randomUUID().slice(0, 8),
+          }),
+        },
+        body: data,
+      });
+      results.push({ name, ok: res.status === 201, status: res.status });
+    } catch (e) {
+      const off = /ECONNREFUSED|fetch failed/i.test(String(e));
+      results.push({ name, ok: false, error: off ? "zotero-off" : String(e) });
+    }
+  }
+  return results;
 }

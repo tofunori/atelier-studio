@@ -1,5 +1,6 @@
 import { readFileSync, writeFileSync, mkdirSync, existsSync, renameSync } from "node:fs";
 import { dirname } from "node:path";
+import { getProvider } from "./providers/registry.mjs";
 
 const VALID_STATUSES = new Set(["idle", "running", "done"]);
 
@@ -13,13 +14,16 @@ export function writeFileAtomic(filePath, data) {
 function normalizeThread(raw) {
   if (!raw || typeof raw.id !== "string" || !raw.id) return null;
   const sessionId = typeof raw.sessionId === "string" && raw.sessionId ? raw.sessionId : null;
+  const provider = typeof raw.provider === "string" && getProvider(raw.provider)
+    ? raw.provider
+    : "claude";
   const updatedAt =
     typeof raw.updatedAt === "string" && raw.updatedAt ? raw.updatedAt : new Date().toISOString();
   return {
     ...raw,
     id: raw.id,
     projectRoot: typeof raw.projectRoot === "string" ? raw.projectRoot : "",
-    provider: raw.provider === "codex" ? "codex" : "claude",
+    provider,
     title:
       typeof raw.title === "string" && raw.title.trim()
         ? raw.title

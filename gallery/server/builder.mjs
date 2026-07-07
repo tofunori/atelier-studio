@@ -16,10 +16,17 @@ import {
 } from "./shared.mjs";
 
 const ROOT = PROJECT;
-const EXTS = new Set([
+const DEFAULT_EXTS = [
   ".png", ".jpg", ".jpeg", ".svg", ".pdf", ".html", ".docx", ".xlsx", ".xls",
   ".csv", ".md", ".py", ".r", ".jl", ".tex", ".sh", ".mp4", ".m4v", ".mov", ".webm",
-]);
+];
+// GALLERY_EXTS = liste "png, svg, pdf" (réglable par projet dans l'app) ; vide = défaut
+function parseExts(raw) {
+  const out = (raw ?? "").split(/[,\s]+/).map((e) => e.trim().toLowerCase())
+    .filter(Boolean).map((e) => (e.startsWith(".") ? e : "." + e));
+  return out.length ? out : null;
+}
+const EXTS = new Set(parseExts(process.env.GALLERY_EXTS) ?? DEFAULT_EXTS);
 const EXCLUDE_PARTS = new Set([
   ".git", ".venv", ".venv-era5", ".venv-codex", "node_modules", "__pycache__",
   ".ipynb_checkpoints", "worktrees", ".claude", ".fig_thumbs", "_gallery_exports", ".prism",

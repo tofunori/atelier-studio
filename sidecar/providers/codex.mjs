@@ -2,16 +2,66 @@
 // Remplace l'ancien pont SDK (`codex exec`) : threads persistants côté serveur,
 // steering natif possible plus tard, et surtout accès aux GOALS
 // (thread/goal/set|get|clear + notifications thread/goal/updated).
-import { spawn, execSync } from "node:child_process";
+import { spawn } from "node:child_process";
 import { createInterface } from "node:readline";
 import { readFileSync, readdirSync, statSync, existsSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 
-let CODEX_BIN = "codex";
-try {
-  CODEX_BIN = execSync("command -v codex", { encoding: "utf8" }).trim() || "codex";
-} catch {}
+import { resolveBin } from "./../bin_resolver.mjs";
+const CODEX_BIN = resolveBin("codex") ?? "codex";
+const HEARTBEAT_MS = 5000;
+const CODEX_EFFORT_ALIASES = new Map([
+  // Codex app-server accepts arbitrary strings at the protocol level, but the
+  // backend rejects `minimal` when tool families like web_search/image_gen are
+  // available. Codex App does not need this broken state exposed here.
+  ["minimal", "low"],
+]);
+
+export function normalizeCodexEffort(effort) {
+  const value = String(effort ?? "").trim();
+  if (!value) return null;
+  return CODEX_EFFORT_ALIASES.get(value) ?? value;
+}
+
+export function buildCodexAppServerArgs() {
+  return ["app-server"];
+}
+
+export function buildApprovalResponse(method, fullAccess, params = {}) {
+  if (method === "execCommandApproval" || method === "applyPatchApproval") {
+    return { decision: fullAccess ? "approved" : "denied" };
+  }
+  if (method === "item/commandExecution/requestApproval" || method === "item/fileChange/requestApproval") {
+    return { decision: fullAccess ? "accept" : "decline" };
+  }
+  if (method === "item/permissions/requestApproval") {
+    return {
+      permissions: fullAccess
+        ? {
+            ...(params.permissions?.network ? { network: params.permissions.network } : {}),
+            ...(params.permissions?.fileSystem ? { fileSystem: params.permissions.fileSystem } : {}),
+          }
+        : {},
+      scope: "turn",
+      strictAutoReview: !fullAccess,
+    };
+  }
+  return {};
+}
+
+export function buildServerRequestFallback(method) {
+  if (method === "item/tool/call") {
+    return { contentItems: [{ type: "inputText", text: "Unsupported client-side dynamic tool in Atelier." }], success: false };
+  }
+  if (method === "item/tool/requestUserInput") {
+    return { answers: {} };
+  }
+  if (method === "mcpServer/elicitation/request") {
+    return { action: "decline", content: null, _meta: null };
+  }
+  return {};
+}
 
 // ---------------------------------------------------------------------------
 // Client JSON-RPC (une instance app-server partagée par tout le sidecar)
@@ -51,14 +101,32 @@ function resetServerState(err) {
 function answerServerRequest(msg) {
   const m = msg.method ?? "";
   if (m === "execCommandApproval" || m === "applyPatchApproval" ||
-      (m.startsWith("item/") && m.includes("requestApproval"))) {
+      m === "item/commandExecution/requestApproval" ||
+      m === "item/fileChange/requestApproval" ||
+      m === "item/permissions/requestApproval") {
     // n'approuver que les threads full-access ; un thread read-only (reviewer)
     // ne doit pas pouvoir escalader hors sandbox
     const tid = msg.params?.threadId ?? msg.params?.conversationId ?? null;
     const full = tid ? threadSandbox.get(tid) === "danger-full-access" : false;
-    return { decision: full ? "approved" : "denied" };
+    return buildApprovalResponse(m, full, msg.params ?? {});
   }
-  return {}; // réponse vide par défaut (mieux que laisser pendre la requête)
+  return buildServerRequestFallback(m); // réponse structurée si le protocole en fournit une
+}
+
+function requestThreadId(msg) {
+  return msg.params?.threadId ?? msg.params?.conversationId ?? null;
+}
+
+function notifyServerRequest(msg, result) {
+  const tid = requestThreadId(msg);
+  if (!tid) return;
+  try {
+    threadHandlers.get(tid)?.("atelier/serverRequest/resolved", {
+      method: msg.method ?? "",
+      params: msg.params ?? {},
+      result,
+    });
+  } catch {}
 }
 
 function dispatchNotification(msg) {
@@ -80,7 +148,10 @@ function dispatchNotification(msg) {
 
 async function ensureServer() {
   if (server) return server;
-  const proc = spawn(CODEX_BIN, ["app-server"], { stdio: ["pipe", "pipe", "pipe"] });
+  const proc = spawn(CODEX_BIN, buildCodexAppServerArgs(), {
+    stdio: ["pipe", "pipe", "pipe"],
+    env: { ...process.env },
+  });
   proc.on("exit", () => resetServerState(new Error("codex app-server a quitté")));
   proc.on("error", (e) => resetServerState(e));
   proc.stderr.on("data", () => {}); // logs serveur ignorés (bruyants)
@@ -91,6 +162,7 @@ async function ensureServer() {
     if (msg.id != null && msg.method) {
       // requête serveur → client (approbations)
       const result = answerServerRequest(msg);
+      notifyServerRequest(msg, result);
       proc.stdin.write(JSON.stringify({ id: msg.id, result }) + "\n");
       return;
     }
@@ -117,6 +189,14 @@ async function ensureServer() {
   });
   proc.stdin.write(JSON.stringify({ method: "initialized" }) + "\n");
   return server;
+}
+
+export function stopServer() {
+  const proc = server?.proc;
+  if (proc && !proc.killed) {
+    try { proc.kill("SIGTERM"); } catch {}
+  }
+  resetServerState(new Error("codex app-server arrêté"));
 }
 
 // ---------------------------------------------------------------------------
@@ -148,17 +228,19 @@ export function buildCodexInput({ prompt, inputs, imagePath, attachments }) {
 
 export function buildThreadOptions({ cwd, model, effort, webSearch, additionalDirectories, sandbox }) {
   const config = {};
+  let actualModel = model ?? null;
+  const actualEffort = normalizeCodexEffort(effort);
   if (webSearch) config.web_search = webSearch === "cached" ? "cached" : "live";
   if (Array.isArray(additionalDirectories) && additionalDirectories.length) {
     config.sandbox_workspace_write = { writable_roots: additionalDirectories.map(String) };
   }
   return {
     cwd: cwd ?? null,
-    model: model ?? null,
+    model: actualModel,
     approvalPolicy: "never",
     sandbox: sandbox ?? "danger-full-access",
     ...(Object.keys(config).length ? { config } : {}),
-    ...(effort ? { effortHint: effort } : {}), // retiré avant l'appel RPC (turn/start)
+    ...(actualEffort ? { effortHint: actualEffort } : {}), // retiré avant l'appel RPC (turn/start)
   };
 }
 
@@ -193,6 +275,10 @@ async function goalRequest(method, { sessionId, cwd, ...rest }) {
     reuseLoaded: true, // ne pas écraser les options d'un thread déjà actif
   });
   const resp = await srv.request(method, { threadId: codexId, ...rest });
+  if (method === "thread/goal/clear") {
+    const owner = threadOwners.get(codexId);
+    goalEmitter?.(owner ?? null, { kind: "goal", cleared: true, goal: null });
+  }
   return resp?.goal ?? null;
 }
 
@@ -209,6 +295,18 @@ export function getGoal({ sessionId, cwd }) {
   return goalRequest("thread/goal/get", { sessionId, cwd });
 }
 
+/** Compaction native du contexte (thread/compact/start). */
+export async function compactThread({ sessionId, cwd }) {
+  if (!sessionId) throw new Error("compact : session Codex absente");
+  const srv = await ensureServer();
+  const codexId = await openThread(srv, {
+    sessionId,
+    threadOpts: buildThreadOptions({ cwd, sandbox: "read-only" }),
+    reuseLoaded: true,
+  });
+  await srv.request("thread/compact/start", { threadId: codexId });
+}
+
 export async function clearGoal({ sessionId, cwd }) {
   await goalRequest("thread/goal/clear", { sessionId, cwd });
   return null;
@@ -218,6 +316,24 @@ export async function clearGoal({ sessionId, cwd }) {
 // Tour d'agent
 // ---------------------------------------------------------------------------
 const activeTurns = new Map(); // atelier threadId -> { codexId, turnId }
+
+/** Steering natif : injecte un message dans le TOUR EN COURS (turn/steer).
+ * Retourne false s'il n'y a pas de tour actif ou si le tour vient de finir
+ * (expectedTurnId périmé) — l'appelant repasse alors par la file d'attente. */
+export async function steer({ threadId, prompt, inputs, imagePath, attachments }) {
+  const t = activeTurns.get(threadId);
+  if (!t?.turnId || !server) return false;
+  try {
+    await server.request("turn/steer", {
+      threadId: t.codexId,
+      input: buildCodexInput({ prompt, inputs, imagePath, attachments }),
+      expectedTurnId: t.turnId,
+    });
+    return true;
+  } catch {
+    return false; // tour terminé entre-temps → l'appelant met en file
+  }
+}
 
 export async function interrupt(threadId) {
   const t = activeTurns.get(threadId);
@@ -278,6 +394,7 @@ export async function run({
 }) {
   const srv = await ensureServer();
   const threadOpts = buildThreadOptions({ cwd, model, effort, webSearch, additionalDirectories, sandbox });
+  const actualEffort = normalizeCodexEffort(effort);
   const codexId = await openThread(srv, { sessionId, threadOpts });
   if (threadId) threadOwners.set(codexId, threadId);
 
@@ -315,6 +432,171 @@ export async function run({
     const cmd = String(item.command ?? "commande").replace(/\s+/g, " ").trim();
     return cmd.length > 64 ? cmd.slice(0, 64) + "…" : cmd;
   };
+  const commandMeta = new Map(); // itemId -> dernier état connu pour les deltas
+  const commandOutputs = new Map(); // itemId -> sortie agrégée construite depuis outputDelta
+  const commandDetail = (item) => {
+    const bits = [];
+    if (item.cwd) bits.push(String(item.cwd));
+    if (item.source && item.source !== "agent") bits.push(String(item.source));
+    return bits.join(" · ");
+  };
+  const commandInput = (item) => ({
+    command: item.command ?? "",
+    cwd: item.cwd ?? null,
+    source: item.source ?? null,
+    commandActions: item.commandActions ?? [],
+  });
+  const emitCommandUpdate = (item, patch = {}) => {
+    const id = item.id ?? patch.itemId ?? `cmd:${commandName(item)}`;
+    const output = patch.output ?? item.aggregatedOutput ?? commandOutputs.get(id) ?? "";
+    onEvent({
+      kind: "tool_update",
+      id,
+      name: commandName(item),
+      output: String(output ?? ""),
+      status: patch.status ?? item.status,
+      exitCode: patch.exitCode ?? item.exitCode ?? undefined,
+      detail: commandDetail(item),
+      input: commandInput(item),
+      source: item.source ?? null,
+    });
+  };
+  const fileChangeMeta = new Map(); // itemId -> dernier patch reçu
+  const mcpMeta = new Map(); // itemId -> dernier état MCP connu
+  const dynamicToolMeta = new Map(); // itemId -> dernier état dynamicToolCall connu
+  const fileChangePaths = (changes) => (changes ?? []).map((ch) => ch.path).filter(Boolean);
+  const fileChangeDetail = (changes) => {
+    const files = fileChangePaths(changes).map((p) => String(p).split("/").pop()).filter(Boolean);
+    return files.length ? files.slice(0, 3).join(", ") : "Files changed";
+  };
+  const fileChangeDiff = (changes) => (changes ?? [])
+    .map((ch) => {
+      const path = ch?.path ? `# ${ch.path}` : "# file";
+      return `${path}\n${String(ch?.diff ?? "")}`;
+    })
+    .join("\n\n")
+    .trim();
+  const emitFileChangeUpdate = (item, patch = {}) => {
+    const id = item.id ?? patch.itemId ?? "fileChange";
+    const changes = patch.changes ?? item.changes ?? [];
+    onEvent({
+      kind: "tool_update",
+      id,
+      name: "apply_patch",
+      output: fileChangeDiff(changes),
+      status: patch.status ?? item.status ?? "inProgress",
+      detail: fileChangeDetail(changes),
+      input: { changes },
+      source: "codex",
+    });
+  };
+  const mcpName = (item) => [item.server, item.tool].filter(Boolean).join("/") || String(item.tool ?? "mcp");
+  const mcpOutput = (item, message) => {
+    if (message) return String(message);
+    if (item.error) return JSON.stringify(item.error, null, 2);
+    if (item.result) return JSON.stringify(item.result, null, 2);
+    return "";
+  };
+  const emitMcpUpdate = (item, patch = {}) => {
+    const id = item.id ?? patch.itemId ?? `mcp:${mcpName(item)}`;
+    onEvent({
+      kind: "tool_update",
+      id,
+      name: mcpName(item),
+      output: mcpOutput(item, patch.message),
+      status: patch.status ?? item.status,
+      detail: patch.message ? String(patch.message) : mcpName(item),
+      input: item.arguments ?? null,
+      source: "mcp",
+    });
+  };
+  const jsonText = (value) => {
+    if (value == null || value === "") return "";
+    if (typeof value === "string") return value;
+    try { return JSON.stringify(value, null, 2); } catch { return String(value); }
+  };
+  const dynamicToolName = (item) => [item.namespace, item.tool].filter(Boolean).join("/") || String(item.tool ?? "dynamicTool");
+  const dynamicToolOutput = (item) => {
+    const content = item.contentItems ?? [];
+    if (!content.length) return "";
+    return content.map((entry) => {
+      if (entry?.type === "inputText") return String(entry.text ?? "");
+      if (entry?.type === "inputImage") return String(entry.imageUrl ?? "");
+      return jsonText(entry);
+    }).filter(Boolean).join("\n");
+  };
+  const emitDynamicToolUpdate = (item, patch = {}) => {
+    const id = item.id ?? patch.itemId ?? `dynamic:${dynamicToolName(item)}`;
+    const status = patch.status ?? item.status;
+    onEvent({
+      kind: "tool_update",
+      id,
+      name: dynamicToolName(item),
+      output: patch.output ?? dynamicToolOutput(item),
+      status,
+      detail: item.success === false ? "failed" : dynamicToolName(item),
+      input: item.arguments ?? null,
+      source: "dynamic",
+    });
+  };
+  const collabToolName = (item) => `agent:${String(item.tool ?? "collab")}`;
+  const emitCollabToolUpdate = (item) => {
+    onEvent({
+      kind: "tool_update",
+      id: item.id ?? collabToolName(item),
+      name: collabToolName(item),
+      output: jsonText({
+        receiverThreadIds: item.receiverThreadIds ?? [],
+        agentsStates: item.agentsStates ?? {},
+      }),
+      status: item.status,
+      detail: item.model ? `${item.model}${item.reasoningEffort ? ` · ${item.reasoningEffort}` : ""}` : undefined,
+      input: { prompt: item.prompt, model: item.model, reasoningEffort: item.reasoningEffort },
+      source: "codex",
+    });
+  };
+  const approvalDecision = (result) => String(result?.decision ?? "");
+  const approvalAccepted = (result) => {
+    const decision = approvalDecision(result);
+    return decision === "accept" || decision === "acceptForSession" ||
+      decision === "approved" || decision === "approved_for_session" ||
+      Boolean(result?.permissions && Object.keys(result.permissions).length > 0);
+  };
+  const serverRequestName = (method, params) => {
+    if (method === "execCommandApproval") return (params.command ?? []).join(" ") || "command approval";
+    if (method === "item/commandExecution/requestApproval") return params.command || "command approval";
+    if (method === "applyPatchApproval" || method === "item/fileChange/requestApproval") return "apply_patch";
+    if (method === "item/permissions/requestApproval") return "permission_request";
+    if (method === "item/tool/call") return [params.namespace, params.tool].filter(Boolean).join("/") || "dynamic_tool";
+    if (method === "item/tool/requestUserInput") return "request_user_input";
+    if (method === "mcpServer/elicitation/request") return `mcp_elicitation:${params.serverName ?? "mcp"}`;
+    return method || "server_request";
+  };
+  const emitServerRequestUpdate = ({ method, params, result }) => {
+    const accepted = approvalAccepted(result);
+    const status = accepted ? "accepted" : "declined";
+    const id = params.itemId ?? params.approvalId ?? params.callId ?? `${method}:${Date.now()}`;
+    const name = serverRequestName(method, params);
+    const reason = params.reason ?? params.message ?? "";
+    const decision = approvalDecision(result) || result?.action || (result?.success === false ? "unsupported" : status);
+    onEvent({
+      kind: "tool_update",
+      id,
+      name,
+      output: [decision, reason].filter(Boolean).join("\n"),
+      status,
+      detail: reason || decision,
+      input: params,
+      source: "approval",
+    });
+    upsertStep({
+      key: `approval:${id}`,
+      title: accepted ? "Permission accepted" : "Permission declined",
+      detail: name,
+      phase: "tool",
+      status: accepted ? "completed" : "failed",
+    });
+  };
 
   let usage = null; // via thread/tokenUsage/updated
   let streamText = "";
@@ -333,6 +615,8 @@ export async function run({
       case "item/started": {
         const item = params.item ?? {};
         if (item.type === "commandExecution") {
+          commandMeta.set(item.id, item);
+          commandOutputs.set(item.id, String(item.aggregatedOutput ?? ""));
           upsertStep({
             key: `cmd:${item.id ?? commandName(item)}`,
             title: "Running command",
@@ -356,25 +640,156 @@ export async function run({
           });
           emitTool(`recherche web : ${String(item.query ?? "").slice(0, 50)}`);
         }
+        if (item.type === "fileChange") {
+          fileChangeMeta.set(item.id, item);
+          upsertStep({
+            key: `edits:${item.id ?? "patch"}`,
+            title: "Applying edits",
+            detail: fileChangeDetail(item.changes),
+            phase: "edit",
+            status: "running",
+          });
+          emitFileChangeUpdate(item);
+        }
+        if (item.type === "mcpToolCall") {
+          mcpMeta.set(item.id, item);
+          upsertStep({
+            key: `mcp:${item.id ?? mcpName(item)}`,
+            title: "Using tool",
+            detail: mcpName(item),
+            phase: "tool",
+            status: "running",
+          });
+          emitTool(`outil ${mcpName(item)}`);
+          emitMcpUpdate(item, { status: item.status ?? "inProgress" });
+        }
+        if (item.type === "dynamicToolCall") {
+          dynamicToolMeta.set(item.id, item);
+          upsertStep({
+            key: `dynamic:${item.id ?? dynamicToolName(item)}`,
+            title: "Using tool",
+            detail: dynamicToolName(item),
+            phase: "tool",
+            status: "running",
+          });
+          emitTool(`outil ${dynamicToolName(item)}`);
+          emitDynamicToolUpdate(item, { status: item.status ?? "inProgress" });
+        }
+        if (item.type === "collabAgentToolCall") {
+          upsertStep({
+            key: `collab:${item.id ?? collabToolName(item)}`,
+            title: "Using agent tool",
+            detail: collabToolName(item),
+            phase: "tool",
+            status: "running",
+          });
+          emitTool(collabToolName(item));
+          emitCollabToolUpdate(item);
+        }
+        if (item.type === "imageGeneration") {
+          upsertStep({
+            key: `image:${item.id ?? "image"}`,
+            title: "Generating image",
+            detail: item.savedPath ?? item.status ?? "image",
+            phase: "tool",
+            status: item.status === "failed" ? "failed" : "running",
+          });
+          emitTool("image_generation");
+        }
+        if (item.type === "sleep") {
+          upsertStep({
+            key: `sleep:${item.id ?? "sleep"}`,
+            title: "Waiting",
+            detail: `${item.durationMs ?? 0} ms`,
+            phase: "tool",
+            status: "running",
+          });
+          emitTool("sleep");
+        }
+        if (item.type === "imageView") {
+          upsertStep({
+            key: `imageView:${item.id ?? item.path}`,
+            title: "Viewing image",
+            detail: String(item.path ?? ""),
+            phase: "tool",
+            status: "completed",
+          });
+          emitTool(`image ${String(item.path ?? "")}`);
+        }
+        break;
+      }
+      case "atelier/serverRequest/resolved": {
+        emitServerRequestUpdate(params);
         break;
       }
       case "item/updated": {
         const item = params.item ?? {};
         if (item.type === "commandExecution") {
-          onEvent({
-            kind: "tool_update",
-            id: item.id,
-            name: commandName(item),
-            output: String(item.aggregatedOutput ?? ""),
-            status: item.status,
-            exitCode: item.exitCode ?? undefined,
-          });
+          commandMeta.set(item.id, { ...(commandMeta.get(item.id) ?? {}), ...item });
+          commandOutputs.set(item.id, String(item.aggregatedOutput ?? commandOutputs.get(item.id) ?? ""));
+          emitCommandUpdate(commandMeta.get(item.id));
         }
+        if (item.type === "dynamicToolCall") {
+          dynamicToolMeta.set(item.id, { ...(dynamicToolMeta.get(item.id) ?? {}), ...item });
+          emitDynamicToolUpdate(dynamicToolMeta.get(item.id));
+        }
+        if (item.type === "mcpToolCall") {
+          mcpMeta.set(item.id, { ...(mcpMeta.get(item.id) ?? {}), ...item });
+          emitMcpUpdate(mcpMeta.get(item.id));
+        }
+        break;
+      }
+      case "item/commandExecution/outputDelta": {
+        const id = params.itemId;
+        const item = commandMeta.get(id);
+        if (!item) break;
+        const output = (commandOutputs.get(id) ?? "") + String(params.delta ?? "");
+        commandOutputs.set(id, output);
+        emitCommandUpdate(item, { output, status: item.status ?? "inProgress" });
         break;
       }
       case "item/agentMessage/delta": {
         streamText += String(params.delta ?? "");
         onEvent({ kind: "stream_set", text: streamText });
+        break;
+      }
+      case "item/fileChange/patchUpdated": {
+        const id = params.itemId;
+        const item = { ...(fileChangeMeta.get(id) ?? {}), id, type: "fileChange", changes: params.changes ?? [] };
+        fileChangeMeta.set(id, item);
+        upsertStep({
+          key: `edits:${id}`,
+          title: "Applying edits",
+          detail: fileChangeDetail(item.changes),
+          phase: "edit",
+          status: "running",
+        });
+        emitFileChangeUpdate(item, { status: "inProgress" });
+        break;
+      }
+      case "item/fileChange/outputDelta": {
+        const id = params.itemId;
+        onEvent({
+          kind: "tool_update",
+          id,
+          name: "apply_patch",
+          output: String(params.delta ?? ""),
+          status: "inProgress",
+          source: "codex",
+        });
+        break;
+      }
+      case "item/mcpToolCall/progress": {
+        const id = params.itemId;
+        const item = mcpMeta.get(id) ?? { id, tool: "mcp", status: "inProgress", arguments: null };
+        emitMcpUpdate(item, { message: params.message ?? "", status: "inProgress" });
+        upsertStep({
+          key: `mcp:${id}`,
+          title: "Using tool",
+          detail: String(params.message ?? mcpName(item)),
+          phase: "tool",
+          status: "running",
+        });
         break;
       }
       case "item/completed": {
@@ -388,6 +803,8 @@ export async function run({
           if (text) onEvent({ kind: "thinking", text });
         }
         if (item.type === "commandExecution") {
+          commandMeta.set(item.id, { ...(commandMeta.get(item.id) ?? {}), ...item });
+          commandOutputs.set(item.id, String(item.aggregatedOutput ?? commandOutputs.get(item.id) ?? ""));
           const status = item.status === "failed" || (item.exitCode != null && item.exitCode !== 0)
             ? "failed" : "completed";
           upsertStep({
@@ -397,16 +814,10 @@ export async function run({
             phase: "command",
             status,
           });
-          onEvent({
-            kind: "tool_update",
-            id: item.id,
-            name: commandName(item),
-            output: String(item.aggregatedOutput ?? ""),
-            status: item.status,
-            exitCode: item.exitCode ?? undefined,
-          });
+          emitCommandUpdate(commandMeta.get(item.id));
         }
         if (item.type === "fileChange") {
+          fileChangeMeta.set(item.id, item);
           const files = (item.changes ?? []).map((ch) => ch.path?.split("/").pop()).filter(Boolean);
           upsertStep({
             key: `edits:${files.join(",")}`,
@@ -415,17 +826,76 @@ export async function run({
             phase: "edit",
             status: "completed",
           });
-          emitTool(files.length ? `__edits:${files.slice(0, 3).join(", ")}${files.length > 3 ? "…" : ""}` : "__edits:");
+          emitFileChangeUpdate(item, { status: item.status ?? "completed" });
+          const paths = (item.changes ?? []).map((ch) => ch.path).filter(Boolean);
+          if (paths.length) onEvent({ kind: "edit", files: paths });
+          else emitTool("__edits:");
         }
         if (item.type === "mcpToolCall") {
+          mcpMeta.set(item.id, item);
+          const status = item.status === "failed" ? "failed" : "completed";
           upsertStep({
             key: `mcp:${item.tool ?? "mcp"}`,
             title: "Using tool",
             detail: String(item.tool ?? "mcp"),
             phase: "tool",
+            status,
+          });
+          emitTool(`outil ${mcpName(item)}`);
+          emitMcpUpdate(item, { status: item.status ?? status });
+        }
+        if (item.type === "dynamicToolCall") {
+          dynamicToolMeta.set(item.id, item);
+          const status = item.status === "failed" || item.success === false ? "failed" : "completed";
+          upsertStep({
+            key: `dynamic:${item.id ?? dynamicToolName(item)}`,
+            title: status === "failed" ? "Tool failed" : "Tool finished",
+            detail: dynamicToolName(item),
+            phase: "tool",
+            status,
+          });
+          emitTool(`outil ${dynamicToolName(item)}`);
+          emitDynamicToolUpdate(item, { status: item.status ?? status });
+        }
+        if (item.type === "collabAgentToolCall") {
+          const status = item.status === "failed" ? "failed" : "completed";
+          upsertStep({
+            key: `collab:${item.id ?? collabToolName(item)}`,
+            title: status === "failed" ? "Agent tool failed" : "Agent tool finished",
+            detail: collabToolName(item),
+            phase: "tool",
+            status,
+          });
+          emitCollabToolUpdate(item);
+        }
+        if (item.type === "imageGeneration") {
+          const status = item.status === "failed" ? "failed" : "completed";
+          upsertStep({
+            key: `image:${item.id ?? "image"}`,
+            title: status === "failed" ? "Image failed" : "Image generated",
+            detail: item.savedPath ?? item.result ?? item.status ?? "image",
+            phase: "tool",
+            status,
+          });
+          onEvent({
+            kind: "tool_update",
+            id: item.id ?? "imageGeneration",
+            name: "image_generation",
+            output: item.savedPath ?? item.result ?? "",
+            status: item.status,
+            detail: item.revisedPrompt ?? undefined,
+            input: { revisedPrompt: item.revisedPrompt },
+            source: "codex",
+          });
+        }
+        if (item.type === "sleep") {
+          upsertStep({
+            key: `sleep:${item.id ?? "sleep"}`,
+            title: "Wait finished",
+            detail: `${item.durationMs ?? 0} ms`,
+            phase: "tool",
             status: "completed",
           });
-          emitTool(`outil ${item.tool ?? "mcp"}`);
         }
         break;
       }
@@ -497,6 +967,10 @@ export async function run({
   const timer = timeoutMs
     ? setTimeout(() => { interrupt(threadId ?? codexId).catch(() => {}); }, timeoutMs)
     : null;
+  const startedAt = Date.now();
+  const heartbeat = setInterval(() => {
+    onEvent({ kind: "heartbeat", elapsedMs: Date.now() - startedAt });
+  }, HEARTBEAT_MS);
   try {
     const input = buildCodexInput({ prompt, inputs, imagePath, attachments });
     // la réponse RPC arrive IMMÉDIATEMENT (turn inProgress) : elle donne le
@@ -504,8 +978,8 @@ export async function run({
     const resp = await srv.request("turn/start", {
       threadId: codexId,
       input,
-      ...(model ? { model } : {}),
-      ...(effort ? { effort } : {}),
+      ...(threadOpts.model ? { model: threadOpts.model } : {}),
+      ...(actualEffort ? { effort: actualEffort } : {}),
       approvalPolicy: "never",
     });
     if (resp?.turn?.id) activeTurns.set(threadId ?? codexId, { codexId, turnId: resp.turn.id });
@@ -518,6 +992,7 @@ export async function run({
     }
   } finally {
     if (timer) clearTimeout(timer);
+    clearInterval(heartbeat);
     threadHandlers.delete(codexId);
     activeTurns.delete(threadId ?? codexId);
   }

@@ -1,37 +1,42 @@
 {
-  "name": "tauri-app",
+  "name": "synara-desktop",
+  "version": "0.3.9",
+  "buildVersion": "0.3.9",
+  "t3codeCommitHash": "e507c9bd07a1",
   "private": true,
-  "version": "1.1.0",
-  "type": "module",
   "scripts": {
     "dev": "vite",
     "build": "tsc && vite build",
     "preview": "vite preview",
     "tauri": "tauri"
   },
+  "description": "Synara desktop build",
+  "author": "Emanuele Di Pietro",
+  "main": "apps/desktop/dist-electron/main.js",
   "dependencies": {
-    "@fontsource-variable/inter": "^5.2.8",
-    "@tauri-apps/api": "^2",
-    "@tauri-apps/plugin-dialog": "^2.7.1",
-    "@tauri-apps/plugin-notification": "^2.3.3",
-    "@tauri-apps/plugin-opener": "^2.5.4",
-    "@xterm/addon-fit": "^0.11.0",
-    "@xterm/addon-web-links": "^0.12.0",
-    "@xterm/addon-webgl": "^0.19.0",
-    "@xterm/xterm": "^6.0.0",
-    "highlight.js": "^11.11.1",
-    "react": "^19.1.0",
-    "react-dom": "^19.1.0",
-    "react-markdown": "^10.1.0",
-    "react-resizable-panels": "^2.1.9",
-    "remark-gfm": "^4.0.1"
+    "@anthropic-ai/claude-agent-sdk": "0.3.154",
+    "@anthropic-ai/sdk": "^0.100.0",
+    "@earendil-works/pi-agent-core": "^0.74.0",
+    "@earendil-works/pi-ai": "^0.74.0",
+    "@earendil-works/pi-coding-agent": "^0.74.0",
+    "@effect/platform-node": "https://pkg.pr.new/Effect-TS/effect-smol/@effect/platform-node@8881a9b",
+    "@effect/sql-sqlite-bun": "https://pkg.pr.new/Effect-TS/effect-smol/@effect/sql-sqlite-bun@8881a9b",
+    "@opencode-ai/sdk": "^1.15.13",
+    "@pierre/diffs": "^1.1.0-beta.16",
+    "@xterm/headless": "^6.0.0",
+    "effect": "https://pkg.pr.new/Effect-TS/effect-smol/effect@8881a9b",
+    "node-pty": "^1.1.0",
+    "open": "^10.1.0",
+    "tree-kill": "^1.2.2",
+    "ws": "^8.18.0",
+    "electron-updater": "^6.6.2"
   },
-  "devDependencies": {
-    "@tauri-apps/cli": "^2",
-    "@types/react": "^19.1.8",
-    "@types/react-dom": "^19.1.6",
-    "@vitejs/plugin-react": "^4.6.0",
-    "typescript": "~5.8.3",
-    "vite": "^7.0.4"
+  "overrides": {
+    "@pierre/diffs": "1.2.8",
+    "@pierre/theme": "1.0.3",
+    "diff": "8.0.3",
+    "hast-util-to-html": "9.0.5",
+    "lru_map": "0.4.1",
+    "vite": "^8.0.0"
   }
 }

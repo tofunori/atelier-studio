@@ -1,0 +1,20 @@
+[
+  {
+    "id": "openrouter",
+    "label": "OpenRouter",
+    "baseURL": "https://openrouter.ai/api/v1",
+    "apiKeyEnv": "OPENROUTER_API_KEY",
+    "models": [
+      {
+        "id": "z-ai/glm-5.2",
+        "label": "GLM 5.2",
+        "reasoning": {
+          "supported_efforts": ["high", "medium", "low"],
+          "default_effort": "medium",
+          "default_enabled": true
+        }
+      },
+      "plain/model"
+    ]
+  }
+]

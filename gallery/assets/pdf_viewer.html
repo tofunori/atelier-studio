@@ -14,11 +14,11 @@
 <script src="/.fig_thumbs/pdfjs/pdf.min.js"></script>
 <script src="annot_kit.js"></script>
 <style>
-  :root{--bg:#202024;--card:#27272a;--card2:#1f1f23;--txt:#e4e4e7;--muted:#a1a1aa;--accent:#5b9dff;--border:#3f3f46}
+  :root{--bg:#202024;--card:#27272a;--card2:#1f1f23;--txt:#dbdfe5;--muted:#a1a1aa;--accent:#5b9dff;--border:#3f3f46}
   body{margin:0;background:var(--bg);color:var(--txt);font-family:-apple-system,sans-serif}
   .zoomctl{display:inline-flex;align-items:center;border:1px solid var(--border);border-radius:6px;overflow:hidden;margin-left:8px;flex:none}
-  .zoomctl button{background:transparent;border:none;color:var(--muted,#8a919e);font-size:12px;padding:3px 8px;cursor:pointer;font-variant-numeric:tabular-nums;line-height:1.4}
-  .zoomctl button:hover{background:var(--card2,#2c313a);color:var(--txt,#e8eaed)}
+  .zoomctl button{background:transparent;border:none;color:var(--muted,#868d9a);font-size:12px;padding:3px 8px;cursor:pointer;font-variant-numeric:tabular-nums;line-height:1.4}
+  .zoomctl button:hover{background:var(--card2,#2c313a);color:var(--txt,#dbdfe5)}
   #zPct{min-width:46px;border-left:1px solid var(--border);border-right:1px solid var(--border)}
   header{position:sticky;top:0;z-index:10;background:var(--card);border-bottom:1px solid var(--border);
          padding:10px 16px;display:flex;gap:12px;align-items:center;font-size:13px}
@@ -33,18 +33,18 @@
     border-radius:6px;padding:2px 3px;box-shadow:0 2px 8px rgba(0,0,0,.4)}
   #pdftools{display:flex;align-items:center;gap:2px}
   #pdftools button{width:26px;height:24px;display:inline-flex;align-items:center;justify-content:center}
-  #pdftools button.ton{background:#2c313a !important;color:#e8eaed !important}
+  #pdftools button.ton{background:#2c313a !important;color:#dbdfe5 !important}
   #pdftools .cdot{width:13px;height:13px;border-radius:6px;cursor:pointer;margin:0 1px;
     border:1px solid rgba(255,255,255,.15)}
   #pdftools .cdot.con{outline:2px solid #5b9dff}
   #annotPop{position:fixed;z-index:9999;display:none;background:#1b1f26;border:1px solid #333a45;
     border-radius:10px;padding:10px;box-shadow:0 10px 28px rgba(0,0,0,.55);
-    font-family:-apple-system,sans-serif;font-size:13px;color:#e6e6e6;width:230px}
+    font-family:-apple-system,sans-serif;font-size:13px;color:#dbdfe5;width:230px}
   #annotPop input{width:100%;box-sizing:border-box;background:#2c313a;border:1px solid #3a414d;
     border-radius:6px;color:inherit;padding:5px 8px;font-size:13px;outline:none;margin-bottom:8px}
   #annotPop .row{display:flex;gap:6px;align-items:center}
   #annotPop .sw{width:16px;height:16px;border-radius:6px;cursor:pointer}
-  #annotPop button{background:#2c313a;border:1px solid #3a414d;border-radius:6px;color:#e6e6e6;
+  #annotPop button{background:#2c313a;border:1px solid #3a414d;border-radius:6px;color:#dbdfe5;
     padding:4px 10px;cursor:pointer;font-size:12px}
   #annotPop .del{color:#ff8a8a;margin-left:auto}
   #sendBtn{position:fixed;display:none;z-index:100;background:var(--border);color:var(--txt);border:1px solid var(--border);
@@ -84,7 +84,7 @@
   #annotBtn.on{background:#c96442;border-color:#c96442;color:#fff}
 </style>
 <script>
-function __ct(){try{return JSON.parse(localStorage.getItem('claudeTargetV1')||'null')}catch(e){return null}}(function(){var T={'Default':{bg:'#202024',card:'#27272a',card2:'#1f1f23',txt:'#e4e4e7',muted:'#a1a1aa',accent:'#5b9dff',border:'#3f3f46'},'Codex One':{bg:'#202024',card:'#2f343f',card2:'#21252b',txt:'#abb2bf',muted:'#7f848e',accent:'#4d78cc',border:'#3e4451'},'Dracula':{bg:'#282a36',card:'#343746',card2:'#21222c',txt:'#f8f8f2',muted:'#9aa0b3',accent:'#bd93f9',border:'#44475a'},'Nord':{bg:'#2e3440',card:'#3b4252',card2:'#272c36',txt:'#e5e9f0',muted:'#9aa3b2',accent:'#88c0d0',border:'#434c5e'}};var t;try{t=T[localStorage.getItem('figTheme')];}catch(e){}t=t||T['Default'];var r=document.documentElement.style;for(var k in t)r.setProperty('--'+k,t[k]);})();</script>
+function __ct(){try{return JSON.parse(localStorage.getItem('claudeTargetV1')||'null')}catch(e){return null}}(function(){var T={'Default':{bg:'#202024',card:'#27272a',card2:'#1f1f23',txt:'#dbdfe5',muted:'#a1a1aa',accent:'#5b9dff',border:'#3f3f46'},'Codex One':{bg:'#202024',card:'#2f343f',card2:'#21252b',txt:'#abb2bf',muted:'#7f848e',accent:'#4d78cc',border:'#3e4451'},'Dracula':{bg:'#282a36',card:'#343746',card2:'#21222c',txt:'#f8f8f2',muted:'#9aa0b3',accent:'#bd93f9',border:'#44475a'},'Nord':{bg:'#2e3440',card:'#3b4252',card2:'#272c36',txt:'#e5e9f0',muted:'#9aa3b2',accent:'#88c0d0',border:'#434c5e'}};var t;try{t=T[localStorage.getItem('figTheme')];}catch(e){}t=t||T['Default'];var r=document.documentElement.style;for(var k in t)r.setProperty('--'+k,t[k]);})();</script>
 </head>
 <body>
 <header>
@@ -366,7 +366,7 @@ const selTa = selPill.querySelector("textarea");
     });
     selPill.style.cssText += ';background:transparent;border:none;box-shadow:none;padding:0;min-width:0;width:auto';
     if (__go){ __go.innerHTML = '<svg width=\'13\' height=\'13\' viewBox=\'0 0 16 16\' fill=\'none\' stroke=\'currentColor\' stroke-width=\'1.3\' style=\'vertical-align:-2px\'><path d=\'M14 8c0 3-2.7 5.2-6 5.2-.8 0-1.6-.1-2.3-.4L2.5 14l1-2.6C2.6 10.5 2 9.3 2 8c0-3 2.7-5.2 6-5.2S14 5 14 8z\'/></svg>&nbsp; Add to chat';
-      __go.style.cssText = 'width:auto;min-width:0;height:auto;border-radius:999px;padding:7px 14px;font-size:13px;white-space:nowrap;background:#2c313a;color:#e6e6e6;border:1px solid #3a414d;box-shadow:0 6px 18px rgba(0,0,0,0.5);cursor:pointer'; }
+      __go.style.cssText = 'width:auto;min-width:0;height:auto;border-radius:999px;padding:7px 14px;font-size:13px;white-space:nowrap;background:#2c313a;color:#dbdfe5;border:1px solid #3a414d;box-shadow:0 6px 18px rgba(0,0,0,0.5);cursor:pointer'; }
   }
 
 const __goHTML = (window.self!==window.top && selPill.querySelector('.go')) ? selPill.querySelector('.go').innerHTML : null;
@@ -700,15 +700,16 @@ if(window.self !== window.top){
   st.textContent = `
     header{background:#1a1d22 !important;border-bottom:1px solid #333a45 !important;
       padding:4px 10px !important;min-height:0 !important;gap:10px}
-    header #fname{font-weight:500;font-size:13px;color:#cfd4dc}
+    header #fname{font-weight:500;font-size:13px;color:#b6bdc7}
     header .muted{display:none}
-    header #selinfo{color:#8a919e !important;font-size:12px}
+    header #selinfo{color:#868d9a !important;font-size:12px}
     header #status{font-size:12px}
     header button{background:transparent !important;border:none !important;
-      color:#8a919e !important;font-size:13px !important;padding:3px 8px !important;
+      color:#868d9a !important;font-size:13px !important;padding:3px 8px !important;
       border-radius:6px !important;cursor:pointer;box-shadow:none !important}
-    header button:hover{background:#2c313a !important;color:#e8eaed !important}
-    header{flex-wrap:nowrap !important}
+    header button:hover{background:#2c313a !important;color:#dbdfe5 !important}
+    header{flex-wrap:nowrap !important;height:46px !important;box-sizing:border-box !important;
+      padding-top:0 !important;padding-bottom:0 !important}
     header #fname{display:none}  /* titre déjà dans l'entête Bibliothèque/onglet */
     #pdftools{flex-shrink:0}
     @media (max-width: 640px){

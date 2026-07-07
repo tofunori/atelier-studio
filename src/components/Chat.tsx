@@ -20,6 +20,7 @@ import {
   ZapIcon,
 } from "./icons";
 import { Select } from "./Select";
+import { ProviderInfo, orderedVisibleProviders } from "../lib/providers";
 
 const PERMISSION_MODES = [
   { id: "bypassPermissions", labelKey: "permission.full" },
@@ -47,8 +48,9 @@ const MODELS: Record<string, { id: string; label: string }[]> = {
 
 const EFFORTS: Record<string, string[]> = {
   claude: ["", "low", "medium", "high", "xhigh", "max"],
-  codex: ["", "minimal", "low", "medium", "high", "xhigh"],
+  codex: ["", "low", "medium", "high", "xhigh"],
 };
+const API_REASONING_LEVELS = ["", "none", "minimal", "low", "medium", "high", "xhigh", "max"];
 
 // réf. fichier type "main.tex:31", "sections/method.tex:60-74", "script.py"
 const FILE_REF = /^[\w~./-]*[\w-]\.(tex|py|jl|md|r|R|bib|json|toml|yaml|yml|sh|js|ts|tsx|jsx|css|html|txt|csv|sql|rs|mjs|ipynb)(:\d+(?:-\d+)?)?$/;
@@ -210,6 +212,90 @@ function DoneDiffToggle({ event, threadId }: {
   );
 }
 
+// ligne « fichier édité » : nom + ±lignes, clic = diff du fichier déplié
+function EditLine({ event, threadId }: {
+  event: Extract<AgentEvent, { kind: "edit" }>;
+  threadId: string | null;
+}) {
+  const [openPath, setOpenPath] = useState<string | null>(null);
+  const [diffs, setDiffs] = useState<Record<string, string>>({});
+  const [loading, setLoading] = useState<string | null>(null);
+
+  useEffect(() => {
+    const onDiff = (ev: Event) => {
+      const msg = (ev as CustomEvent).detail;
+      if (!msg.path) return;
+      if (event.projectRoot && msg.projectRoot !== event.projectRoot) return;
+      setDiffs((d) => ({ ...d, [msg.path]: String(msg.diff ?? "") }));
+      setLoading((l) => (l === msg.path ? null : l));
+    };
+    window.addEventListener("git-diff", onDiff);
+    return () => window.removeEventListener("git-diff", onDiff);
+  }, [event.projectRoot]);
+
+  if (!event.files?.length) return null;
+  return (
+    <div className="edit-lines">
+      {event.files.map((f) => {
+        const base = f.path.split("/").pop() || f.path;
+        const open = openPath === f.path;
+        const diff = diffs[f.path];
+        return (
+          <div key={f.path} className="edit-line">
+            <button
+              type="button"
+              className="edit-line-row"
+              aria-expanded={open}
+              title={f.path}
+              onClick={() => {
+                const next = open ? null : f.path;
+                setOpenPath(next);
+                if (!next || diffs[f.path] != null || loading === f.path) return;
+                setLoading(f.path);
+                const sent = wsSend({
+                  type: "gitDiff",
+                  threadId,
+                  projectRoot: event.projectRoot,
+                  path: f.path,
+                });
+                if (!sent) setLoading(null);
+              }}
+            >
+              <PencilIcon />
+              <span className="edit-line-verb">{t("chat.edited")}</span>
+              <span className="edit-line-file">{base}</span>
+              {f.add != null && <span className="edit-line-add">+{f.add}</span>}
+              {f.del != null && <span className="edit-line-del">-{f.del}</span>}
+              <span className="tool-tick">{open ? "▾" : "▸"}</span>
+            </button>
+            {open && (
+              <pre className="turn-diff-body">
+                {loading === f.path && diff == null ? (
+                  <span className="muted">{t("common.loading")}</span>
+                ) : diff?.trim() ? (
+                  diff.split("\n").map((line, idx) => (
+                    <span key={idx} className={diffLineClass(line)}>{line || " "}</span>
+                  ))
+                ) : (
+                  <span className="muted">{t("git.diff-empty")}</span>
+                )}
+              </pre>
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+function PencilIcon() {
+  return (
+    <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M11.3 2.3l2.4 2.4L5.4 13H3v-2.4z" />
+    </svg>
+  );
+}
+
 // composants markdown : liens externes stylés + réfs fichier:ligne cliquables
 const MD_COMPONENTS = {
   pre: MarkdownCodeBlock,
@@ -307,6 +393,25 @@ function Working({ since }: { since: number }) {
   );
 }
 
+function HeartbeatLine({ heartbeat }: { heartbeat: { ts: number; elapsedMs?: number } | null }) {
+  const [, tick] = useState(0);
+  useEffect(() => {
+    const t = setInterval(() => tick((n) => n + 1), 1000);
+    return () => clearInterval(t);
+  }, []);
+  if (!heartbeat) return null;
+  const age = Math.max(0, Math.round((Date.now() - heartbeat.ts) / 1000));
+  const elapsed = heartbeat.elapsedMs != null ? Math.max(1, Math.round(heartbeat.elapsedMs / 1000)) : null;
+  return (
+    <div className="working-heartbeat">
+      <span className="heartbeat-dot" aria-hidden="true" />
+      <span>{t("heartbeat.live")}</span>
+      <span className="heartbeat-age">{age <= 1 ? t("heartbeat.now") : t("heartbeat.ago", { secs: age })}</span>
+      {elapsed != null && <span className="heartbeat-elapsed">{t("heartbeat.turn", { secs: elapsed })}</span>}
+    </div>
+  );
+}
+
 function ActivityCard({ event, live }: { event: Extract<AgentEvent, { kind: "activity" }>; live: boolean }) {
   const [manualOpen, setManualOpen] = useState<boolean | null>(null);
   const open = manualOpen ?? live;
@@ -344,20 +449,49 @@ function toolOutputSummary(output: string) {
   return lines > 1 ? `${lines} lines · ${size}` : size;
 }
 
+function toolPayloadText(value: unknown): string {
+  if (value == null || value === "") return "";
+  if (typeof value === "string") return value;
+  try {
+    return JSON.stringify(value, null, 2);
+  } catch {
+    return String(value);
+  }
+}
+
 function ToolOutputLine({ event }: { event: Extract<AgentEvent, { kind: "tool_update" }> }) {
   const output = event.output.length > 6000 ? "[...]\n" + event.output.slice(-6000) : event.output;
+  const input = toolPayloadText(event.input);
   const failed = Boolean(event.exitCode && event.exitCode !== 0) || event.status === "failed";
   const [open, setOpen] = useState(failed);
-  const summary = toolOutputSummary(output);
+  const summary = event.detail || toolOutputSummary(output) || (input ? "input" : "");
   return (
     <div className={`tool-output ${open ? "open" : "collapsed"} ${failed ? "failed" : ""}`}>
       <button type="button" className="tool-output-head" onClick={() => setOpen((v) => !v)}>
         <span className="tool-tick">{open ? "▾" : "▸"}</span>
-        <span className="tool-output-name">{eventLabel(event.name)}</span>
+        <span className="tool-output-name">
+          {eventLabel(event.name)}
+          {event.source ? <span className="tool-source">{event.source}</span> : null}
+        </span>
         {summary && <span className="tool-output-summary">{summary}</span>}
         {event.status && <span className="tool-status">{event.status}</span>}
       </button>
-      {open && output.trim() && <pre>{output}</pre>}
+      {open && (input || output.trim()) && (
+        <div className="tool-output-body">
+          {input && (
+            <div className="tool-payload">
+              <div className="tool-payload-label">input</div>
+              <pre>{input}</pre>
+            </div>
+          )}
+          {output.trim() && (
+            <div className="tool-payload">
+              <div className="tool-payload-label">output</div>
+              <pre>{output}</pre>
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }
@@ -451,6 +585,7 @@ function PinBtn({ pinned, onClick }: { pinned: boolean; onClick: () => void }) {
 export default function Chat(p: {
   events: AgentEvent[];
   workingSince: number | null;
+  heartbeat: { ts: number; elapsedMs?: number } | null;
   commands: { name: string; source: string }[];
   files: string[];
   recentFiles: string[];
@@ -475,15 +610,18 @@ export default function Chat(p: {
   onNewChat: () => void;
   onOpenProject: () => void;
   defaults: {
-    defaultProvider: "claude" | "codex";
-    defaultModel: { claude: string; codex: string };
-    defaultEffort: { claude: string; codex: string };
+    defaultProvider: string;
+    defaultModel: Record<string, string>;
+    defaultEffort: Record<string, string>;
     defaultPermissionMode: string;
     timeFormat?: "system" | "24h" | "12h";
-    customModels?: { provider: "claude" | "codex"; id: string }[];
+    customModels?: { provider: string; id: string }[];
     modelEfforts?: Record<string, string>;
     autoReview?: { enabled: boolean };
+    providerOrder?: string[];
+    hiddenProviders?: string[];
   };
+  providers?: ProviderInfo[];
   pins: { index: number; label: string; color?: string; style?: string }[];
   onStylePin: (index: number, patch: { color?: string; style?: string; label?: string }) => void;
   onTogglePin: (index: number, label: string) => void;
@@ -491,7 +629,7 @@ export default function Chat(p: {
   onGoal?: (action: "set" | "clear", objective?: string) => void;
   onSubmit: (
     prompt: string,
-    provider: "claude" | "codex",
+    provider: string,
     model: string,
     effort: string,
     permissionMode: string,
@@ -514,12 +652,36 @@ export default function Chat(p: {
     ta.style.height = "auto";
     ta.style.height = Math.min(ta.scrollHeight, 220) + "px";
   }, [text]);
-  const [provider, setProvider] = useState<"claude" | "codex">("claude");
+  const [provider, setProvider] = useState<string>("claude");
   const [model, setModel] = useState("");
   const [effort, setEffort] = useState("");
   const [permissionMode, setPermissionMode] = useState("bypassPermissions");
 
-  function effortFor(pv: "claude" | "codex", modelId: string): string {
+  function providerInfo(pv = provider) {
+    return (p.providers ?? []).find((pr) => pr.id === pv);
+  }
+
+  function resolvedModelId(pv = provider, modelId = model) {
+    return modelId || providerInfo(pv)?.defaultModel || "";
+  }
+
+  function autoReasoningLabel(info: ProviderInfo | undefined, modelId: string) {
+    const meta = info?.modelReasoning?.[modelId];
+    const d = meta?.default_effort && meta.default_effort !== "none" ? meta.default_effort : "";
+    return d ? `Auto (${d})` : t("common.auto-default");
+  }
+
+  function levelsFor(pv: string, modelId: string) {
+    const info = providerInfo(pv);
+    if (info?.kind !== "api") return EFFORTS[pv] ?? ["", ...(info?.efforts ?? [])];
+    const meta = info.modelReasoning?.[modelId];
+    const supported = Array.isArray(meta?.supported_efforts) && meta.supported_efforts.length
+      ? meta.supported_efforts.filter((lvl) => API_REASONING_LEVELS.includes(lvl))
+      : API_REASONING_LEVELS.slice(2);
+    return ["", ...(meta?.mandatory ? [] : ["none"]), ...supported.filter((lvl) => lvl !== "none")];
+  }
+
+  function effortFor(pv: string, modelId: string): string {
     return (
       p.defaults.modelEfforts?.[pv + ":" + modelId] ??
       p.defaults.defaultEffort[pv] ??
@@ -642,6 +804,7 @@ export default function Chat(p: {
     return () => { reg.delete("chat-hl"); reg.delete("chat-ul"); };
   }, [marks, p.events]);
   const [menuOpen, setMenuOpen] = useState(false);
+  const [modelMenuProvider, setModelMenuProvider] = useState(provider);
   const [effortMenuOpen, setEffortMenuOpen] = useState(false);
   const [plusOpen, setPlusOpen] = useState(false);
   const [goalOpen, setGoalOpen] = useState(false);
@@ -664,22 +827,31 @@ export default function Chat(p: {
       return n;
     });
   }
-  function modelsFor(pv: "claude" | "codex") {
+  // modèles connus d'un provider : liste locale (claude/codex) sinon catalogue sidecar
+  function baseModelsFor(pv: string): { id: string; label: string }[] {
+    const info = (p.providers ?? []).find((pr) => pr.id === pv);
+    if (MODELS[pv]) return MODELS[pv];
+    return [
+      { id: "", label: "__default" },
+      ...(info?.models ?? []).map((id) => ({ id, label: id })),
+    ];
+  }
+  function modelsFor(pv: string) {
     const customs = (p.defaults.customModels ?? [])
       .filter((m) => m.provider === pv)
       .map((m) => ({ id: m.id, label: m.id }));
-    return [...MODELS[pv], ...customs];
+    return [...baseModelsFor(pv), ...customs];
   }
-  function resolvedDefaultLabel(pv: "claude" | "codex"): string {
+  function resolvedDefaultLabel(pv: string): string {
     const id = p.defaults.defaultModel[pv] ?? "";
     if (!id) return t("common.default-cli");
-    const known = [...MODELS[pv], ...(p.defaults.customModels ?? [])
+    const known = [...baseModelsFor(pv), ...(p.defaults.customModels ?? [])
       .filter((m) => m.provider === pv).map((m) => ({ id: m.id, label: m.id }))]
       .find((m) => m.id === id);
     const eff = p.defaults.defaultEffort?.[pv];
     return (known?.label && known.label !== "__default" ? known.label : id) + (eff ? ` · ${eff}` : "");
   }
-  function modelLabel(model: { label: string }, pv?: "claude" | "codex") {
+  function modelLabel(model: { label: string }, pv?: string) {
     if (model.label !== "__default") return model.label;
     // « Défaut » seul est amnésique : afficher ce qu'il résout réellement
     return `${t("chat.model-default")} — ${resolvedDefaultLabel(pv ?? provider)}`;
@@ -698,6 +870,9 @@ export default function Chat(p: {
     window.addEventListener("click", close);
     return () => window.removeEventListener("click", close);
   }, [menuOpen, effortMenuOpen]);
+  useEffect(() => {
+    if (menuOpen) setModelMenuProvider(provider);
+  }, [menuOpen, provider]);
   const [editing, setEditing] = useState<{ index: number; text: string } | null>(null);
   const [openToolGroups, setOpenToolGroups] = useState<Set<string>>(new Set());
 
@@ -890,6 +1065,8 @@ export default function Chat(p: {
     ? [currentActivity.title, currentActivity.detail].filter(Boolean).join(" · ")
     : "";
   const currentWorkName = currentActivityName || currentToolName;
+  const latestGoal = [...p.events].reverse().find((e): e is Extract<AgentEvent, { kind: "goal" }> => e.kind === "goal");
+  const activeGoal = latestGoal && !latestGoal.cleared ? latestGoal.goal : null;
   const activeToolGroupKey = [...renderedEvents].reverse().find((item) => item.type === "actions")?.key;
   const selectedModel = modelsFor(provider).find((m) => m.id === model);
   const selectedModelLabel = selectedModel ? modelLabel(selectedModel) : model;
@@ -1182,6 +1359,7 @@ export default function Chat(p: {
               </div>
             );
           if (e.kind === "tool" || e.kind === "tool_update") return renderToolLine(e, i);
+          if (e.kind === "edit") return <EditLine key={i} event={e} threadId={p.threadId} />;
           if (e.kind === "todos")
             return (
               <div key={i} className="todos">
@@ -1277,6 +1455,17 @@ export default function Chat(p: {
                 <span>{currentWorkName}</span>
               </div>
             )}
+            {activeGoal && (
+              <div className="working-goal">
+                <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" aria-hidden="true">
+                  <circle cx="8" cy="8" r="6" /><circle cx="8" cy="8" r="2.4" />
+                </svg>
+                <span className="working-goal-label">{t("goal.live")}</span>
+                <span className="working-goal-objective">{activeGoal.objective}</span>
+                <span className="working-goal-status">{t(`goal.status.${activeGoal.status}` as Parameters<typeof t>[0])}</span>
+              </div>
+            )}
+            <HeartbeatLine heartbeat={p.heartbeat} />
             <button type="button" className="stop-hint" title={t("action.interrupt")} onClick={p.onStop}>
               <kbd>esc</kbd> {t("action.interrupt")}
             </button>
@@ -1761,30 +1950,64 @@ export default function Chat(p: {
               <ProviderIcon provider={provider} />
               <span className={!model ? "mp-dim" : undefined}>{modelButtonLabel}</span>
             </button>
-            {menuOpen && (
-              <div className="mp-menu">
-                {(["claude", "codex"] as const).map((pv, pi) => (
-                  <div key={pv}>
-                    {pi > 0 && <div className="mp-sep" />}
-                    <div className="mp-hd">
-                      <ProviderIcon provider={pv} size={11} /> {pv === "claude" ? "Claude" : "Codex"}
+            {menuOpen && (() => {
+              const visibleProviders = orderedVisibleProviders(
+                p.providers?.length ? p.providers : ([
+                  { id: "claude", label: "Claude", kind: "cli", version: null, ok: true, models: [], defaultModel: "", efforts: [] },
+                  { id: "codex", label: "Codex", kind: "cli", version: null, ok: true, models: [], defaultModel: "", efforts: [] },
+                ] as ProviderInfo[]),
+                { providerOrder: p.defaults.providerOrder ?? [], hiddenProviders: p.defaults.hiddenProviders ?? [] },
+                provider,
+              );
+              const menuInfo = visibleProviders.find((info) => info.id === modelMenuProvider) ?? visibleProviders[0];
+              const menuProvider = menuInfo?.id ?? provider;
+              const menuModels = sortByFav(modelsFor(menuProvider), menuProvider);
+              return (
+                <div className="mp-menu model-menu">
+                  <div className="model-provider-list">
+                    {visibleProviders.map((info) => {
+                      const pv = info.id;
+                      const active = pv === menuProvider;
+                      const selected = pv === provider;
+                      const count = Math.max(0, modelsFor(pv).length - 1);
+                      return (
+                        <button
+                          key={pv}
+                          type="button"
+                          className={`model-provider-row ${active ? "active" : ""} ${selected ? "selected" : ""}`}
+                          onClick={() => setModelMenuProvider(pv)}
+                        >
+                          <ProviderIcon provider={pv} size={12} />
+                          <span>{info.label}</span>
+                          <small>{count || "CLI"}</small>
+                        </button>
+                      );
+                    })}
+                  </div>
+                  <div className="model-list">
+                    <div className="model-list-head">
+                      <span>
+                        <ProviderIcon provider={menuProvider} size={11} /> {menuInfo?.label ?? menuProvider}
+                      </span>
+                      {menuInfo?.kind === "api" && !menuInfo.ok && (
+                        <small>{t("settings.key-missing")}</small>
+                      )}
                     </div>
-                    {sortByFav(modelsFor(pv), pv).map((m) => {
-                      const key = pv + ":" + m.id;
-                      const active = provider === pv && model === m.id;
+                    {menuModels.map((m) => {
+                      const key = menuProvider + ":" + m.id;
+                      const active = provider === menuProvider && model === m.id;
                       const fav = favModels.includes(key);
                       return (
                         <div
                           key={key}
-                          className="mp-item"
+                          className={`mp-item model-row ${active ? "active" : ""}`}
                           onClick={() => {
-                            setProvider(pv);
+                            setProvider(menuProvider);
                             setModel(m.id);
-                            setEffort(effortFor(pv, m.id));
+                            setEffort(effortFor(menuProvider, m.id));
                           }}
                         >
-                          <ProviderIcon provider={pv} />
-                          <span>{modelLabel(m, pv)}</span>
+                          <span>{modelLabel(m, menuProvider)}</span>
                           <span className="mp-end">
                             {active && <span className="mp-check">✓</span>}
                             <span
@@ -1798,46 +2021,54 @@ export default function Chat(p: {
                         </div>
                       );
                     })}
+                    {menuProvider === "claude" && (
+                      <>
+                        <div className="mp-sep" />
+                        <div className="mp-hd">{t("chat.context")}</div>
+                        {[
+                          { id: "200k", label: t("chat.context-200k"), on: provider === "claude" && !model.includes("[1m]") },
+                          { id: "1m", label: "1M", on: provider === "claude" && model.includes("[1m]") },
+                        ].map((ctx) => (
+                          <div key={ctx.id} className="mp-item model-row"
+                            onClick={() => {
+                              setProvider("claude");
+                              if (ctx.id === "1m" && !model.includes("[1m]")) {
+                                setModel((model || "claude-sonnet-5") + "[1m]");
+                              } else if (ctx.id === "200k" && model.includes("[1m]")) {
+                                setModel(model.replace(/\[1m\]$/, ""));
+                              }
+                            }}>
+                            <span>{ctx.label}</span>
+                            {ctx.on && <span className="mp-check">✓</span>}
+                          </div>
+                        ))}
+                      </>
+                    )}
                   </div>
-                ))}
-                {provider === "claude" && (
-                  <>
-                    <div className="mp-sep" />
-                    <div className="mp-hd">{t("chat.context")}</div>
-                    {[
-                      { id: "200k", label: t("chat.context-200k"), on: !model.includes("[1m]") },
-                      { id: "1m", label: "1M", on: model.includes("[1m]") },
-                    ].map((ctx) => (
-                      <div key={ctx.id} className="mp-item"
-                        onClick={() => {
-                          if (ctx.id === "1m" && !model.includes("[1m]")) {
-                            setModel((model || "claude-sonnet-5") + "[1m]");
-                          } else if (ctx.id === "200k" && model.includes("[1m]")) {
-                            setModel(model.replace(/\[1m\]$/, ""));
-                          }
-                        }}>
-                        <span>{ctx.label}</span>
-                        {ctx.on && <span className="mp-check">✓</span>}
-                      </div>
-                    ))}
-                  </>
-                )}
-              </div>
-            )}
+                </div>
+              );
+            })()}
           </span>
           <span className="model-pick" onClick={(e) => e.stopPropagation()}>
             <button
               type="button"
               className="mp-btn mp-effort"
-              title={t("chat.effort")}
+              title={providerInfo()?.kind === "api" ? t("chat.thinking") : t("chat.effort")}
               onClick={() => { setEffortMenuOpen((v) => !v); setMenuOpen(false); }}
             >
-              <span className={!effort ? "mp-dim" : undefined}>{effort || t("common.auto-default")}</span>
+              <span className={!effort ? "mp-dim" : undefined}>
+                {effort || (providerInfo()?.kind === "api"
+                  ? autoReasoningLabel(providerInfo(), resolvedModelId())
+                  : t("common.auto-default"))}
+              </span>
             </button>
             {effortMenuOpen && (() => {
-              const lvls = EFFORTS[provider];
+              const info = providerInfo();
+              const effortTitle = info?.kind === "api" ? t("chat.thinking") : t("chat.effort");
+              const lvls = levelsFor(provider, resolvedModelId());
               const labels: Record<string, string> = {
-                "": t("common.auto-default"), low: "Low", medium: "Medium", high: "High",
+                "": info?.kind === "api" ? autoReasoningLabel(info, resolvedModelId()) : t("common.auto-default"),
+                none: "Off", low: "Low", medium: "Medium", high: "High",
                 xhigh: "Extra High", max: "Max", minimal: "Minimal",
               };
               const idx = Math.max(0, lvls.indexOf(effort));
@@ -1850,7 +2081,7 @@ export default function Chat(p: {
               };
               return (
                 <div className="mp-menu effort-pop">
-                  <div className="ef-title">{t("chat.effort")} <b>{labels[effort] ?? effort}</b></div>
+                  <div className="ef-title">{effortTitle} <b>{labels[effort] ?? effort}</b></div>
                   <div className="ef-scale"><span>{t("effort.faster")}</span><span>{t("effort.smarter")}</span></div>
                   <div className="ef-track"
                     onPointerDown={(e) => { (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId); pick(e); }}

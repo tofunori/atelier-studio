@@ -1,5 +1,4 @@
 import { query } from "@anthropic-ai/claude-agent-sdk";
-import { execSync } from "node:child_process";
 import { readFileSync, writeFileSync, mkdirSync } from "node:fs";
 
 // Bundle allégé : le binaire embarqué du SDK est retiré → utiliser le CLI système.
@@ -28,10 +27,8 @@ function logStderr(data) {
   } catch {}
 }
 
-let CLAUDE_BIN = null;
-try {
-  CLAUDE_BIN = execSync("command -v claude", { encoding: "utf8" }).trim() || null;
-} catch {}
+import { resolveBin } from "../bin_resolver.mjs";
+const CLAUDE_BIN = resolveBin("claude");
 
 
 // Sessions PERSISTANTES par thread (streaming input) :
@@ -152,12 +149,13 @@ export function send({
   onEvent,
   onSession,
 }) {
+  const actualModel = model;
   let s = sessions.get(threadId);
   if (s) {
     // session ouverte : priority native du SDK (now = steer, next = queue) ;
     // model/permission changeables en cours de session (API documentée)
     s.onEvent = onEvent;
-    if (model && model !== s.model) { s.q.setModel(model).catch(() => {}); s.model = model; }
+    if (actualModel && actualModel !== s.model) { s.q.setModel(actualModel).catch(() => {}); s.model = actualModel; }
     if (permissionMode && permissionMode !== s.permissionMode) {
       s.q.setPermissionMode(permissionMode).catch(() => {});
       s.permissionMode = permissionMode;
@@ -212,7 +210,7 @@ export function send({
           }
         },
       } : {}),
-      ...(model ? { model } : {}),
+      ...(actualModel ? { model: actualModel } : {}),
       ...(effort ? { effort } : {}),
       ...(sessionId ? { resume: sessionId } : {}),
       ...(sessionId && resumeAt ? { resumeSessionAt: resumeAt } : {}),
@@ -224,7 +222,7 @@ export function send({
     push,
     q,
     onEvent,
-    model,
+    model: actualModel,
     permissionMode: permissionMode || "bypassPermissions",
     close: () => {
       closed = true;
@@ -235,6 +233,8 @@ export function send({
   push(userMsg(prompt));
 
   (async () => {
+    // tool_use d'édition en attente de leur tool_result : id → {name, path}
+    const pendingEdits = new Map();
     try {
       for await (const msg of q) {
         if (msg.type === "system" && msg.subtype === "init") onSession?.(msg.session_id);
@@ -269,7 +269,30 @@ export function send({
           for (const block of msg.message.content ?? []) {
             if (block.type === "text") s.onEvent({ kind: "text", text: block.text });
             if (block.type === "thinking" && block.thinking) s.onEvent({ kind: "thinking", text: block.thinking });
-            if (block.type === "tool_use") s.onEvent({ kind: "tool", name: block.name, detail: toolDetail(block.name, block.input) });
+            if (block.type === "tool_use") {
+              const editPath = ["Edit", "Write", "NotebookEdit"].includes(block.name)
+                ? String(block.input?.file_path ?? block.input?.notebook_path ?? "")
+                : "";
+              if (editPath) {
+                // la ligne « edit » (±lignes, diff dépliable) sera émise au tool_result,
+                // une fois le fichier réellement modifié sur disque
+                pendingEdits.set(block.id, { name: block.name, path: editPath });
+              } else {
+                s.onEvent({ kind: "tool", name: block.name, detail: toolDetail(block.name, block.input) });
+              }
+            }
+          }
+        }
+        if (msg.type === "user" && Array.isArray(msg.message?.content)) {
+          for (const block of msg.message.content) {
+            if (block?.type !== "tool_result" || !pendingEdits.has(block.tool_use_id)) continue;
+            const pe = pendingEdits.get(block.tool_use_id);
+            pendingEdits.delete(block.tool_use_id);
+            if (block.is_error) {
+              s.onEvent({ kind: "tool", name: pe.name, detail: toolDetail(pe.name, { file_path: pe.path }) });
+            } else {
+              s.onEvent({ kind: "edit", files: [pe.path] });
+            }
           }
         }
         if (msg.type === "system" && msg.subtype === "compact_boundary") {

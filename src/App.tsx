@@ -22,10 +22,12 @@ import QuickAsk from "./components/QuickAsk";
 import UsagePopover, { worstOf } from "./components/UsagePopover";
 import { init as initNotify, notifyRunDone, notifyReview } from "./lib/notify";
 import { CloseIcon } from "./components/icons";
-import { loadSettings, saveSettings, Settings } from "./lib/settings";
+import { loadSettings, saveSettings, Settings, ProviderId, DEFAULT_SETTINGS } from "./lib/settings";
+import { ProviderInfo } from "./lib/providers";
 import { THEME_PRESETS, presetById } from "./lib/themes";
 import { setLanguage, t } from "./lib/i18n";
 import { buildItems } from "./lib/palette";
+import { setDockBadge } from "./lib/dockBadge";
 import {
   atelierTargetOrigin,
   isTrustedAtelierMessage,
@@ -55,8 +57,35 @@ type ZoteroPaletteItem = {
   doi?: string;
   abstract?: string;
   hasPdf?: boolean;
+  pdfKey?: string | null;
   pdfFile?: string | null;
 };
+
+/** Bloc structuré envoyé à l'agent pour une référence Zotero citée (@citekey). */
+function buildZoteroReferenceText(
+  item: ZoteroPaletteItem,
+  extra?: { pdfPath?: string | null; digest?: string | null; digestPath?: string | null },
+): string {
+  const citekey = item.citeKey || item.key;
+  const head = [
+    `<zotero-reference citekey="${citekey}" zotero-key="${item.key}">`,
+    `titre : ${item.title}`,
+    item.creators ? `auteurs : ${item.creators}` : null,
+    item.year ? `année : ${item.year}` : null,
+    item.publication ? `publication : ${item.publication}` : null,
+    item.doi ? `doi : ${item.doi}` : null,
+    extra?.pdfPath ? `pdf : ${extra.pdfPath}` : item.pdfFile ? `pdf-zotero : ${item.pdfFile}` : null,
+    item.abstract ? `abstract : ${item.abstract}` : null,
+    `</zotero-reference>`,
+  ].filter(Boolean).join("\n");
+  if (extra?.digest) {
+    return `${head}\n<digest citekey="${citekey}" source="${extra.digestPath ?? ""}">\n${extra.digest}\n</digest>`;
+  }
+  if (extra?.digestPath) {
+    return `${head}\n<digest citekey="${citekey}" state="absent">Aucun digest en cache pour ce papier. Si son contenu compte pour la tâche : lis le PDF, rédige un digest en markdown français (sections « Résumé vulgarisé » — 2-3 phrases accessibles, « Méthode » — données/approche/période, « Résultats clés » — avec les chiffres, « Limites »), sauvegarde-le tel quel dans ${extra.digestPath} (crée le dossier au besoin), puis appuie-toi dessus.</digest>`;
+  }
+  return head;
+}
 
 // « /chemin/avec espaces/CLAUDE.md (p.L11-224) : « … » » → {name: CLAUDE.md, lines: 11-224}
 function parseAttachment(text: string): Attachment {
@@ -129,6 +158,7 @@ export default function App() {
   const [workingSince, setWorkingSince] = useState<Record<string, number | null>>({});
   const workingSinceRef = useRef<Record<string, number | null>>({});
   workingSinceRef.current = workingSince;
+  const [heartbeatByThread, setHeartbeatByThread] = useState<Record<string, { ts: number; elapsedMs?: number }>>({});
   const [usageByThread, setUsageByThread] = useState<
     Record<string, { context: number; output: number; cost: number | null; turns: number | null }>
   >({});
@@ -145,7 +175,9 @@ export default function App() {
     closable?: boolean;
   } | null>(null);
   const lastInjected = useRef<string | null>(null);
+  const cliBannerText = useRef<string | null>(null); // bandeau « CLI manquant » actif
   const pendingPaste = useRef<string | null>(null); // dataURL en attente de sauvegarde
+  const pendingZoteroDigest = useRef(new Map<string, ZoteroPaletteItem>()); // clé Zotero -> item en attente du digest
   const pendingResend = useRef<{ threadId: string; prompt: string; snapshot: any[] } | null>(null);
   const [atelierTabs, setAtelierTabs] = useState<
     { id: string; url: string; title: string; color?: string; pinned?: boolean; kind?: "term"; cwd?: string }[]
@@ -165,6 +197,7 @@ export default function App() {
     atelierTabsRef.current = atelierTabs;
   }, [atelierTabs]);
   const [settings, setSettings] = useState<Settings>(loadSettings);
+  const [providerList, setProviderList] = useState<ProviderInfo[]>([]);
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [zoteroItems, setZoteroItems] = useState<ZoteroPaletteItem[]>([]);
   const [recentFiles, setRecentFiles] = useState<string[]>(() => {
@@ -228,6 +261,13 @@ export default function App() {
     setOrClear("--fg", settings.fgColor);
     setOrClear("--ui-font", settings.uiFont ? `'${settings.uiFont}', 'Inter Variable', sans-serif` : "");
     setOrClear("--code-font", settings.codeFont ? `'${settings.codeFont}', ui-monospace, monospace` : "");
+    // miroir disque via sidecar : les réglages survivent au redémarrage/mise à jour
+    const mirror = setTimeout(() => {
+      if (ws.current?.readyState === 1) {
+        ws.current.send(JSON.stringify({ type: "saveSettings", settings }));
+      }
+    }, 600);
+    return () => clearTimeout(mirror);
   }, [settings]);
   const [dragging, setDragging] = useState(false);
   const [unread, setUnread] = useState<Set<string>>(new Set());
@@ -236,6 +276,24 @@ export default function App() {
   qaModeRef.current = qaMode;
   const [usageOpen, setUsageOpen] = useState(false);
   useEffect(() => { initNotify().catch(() => {}); }, []);
+  useEffect(() => {
+    setDockBadge(unread.size).catch(() => {});
+  }, [unread]);
+  // retour de focus sur l'app : le thread affiché est de facto lu
+  useEffect(() => {
+    const clearActive = () => {
+      const id = activeIdRef.current;
+      if (!id) return;
+      setUnread((u) => {
+        if (!u.has(id)) return u;
+        const n = new Set(u);
+        n.delete(id);
+        return n;
+      });
+    };
+    window.addEventListener("focus", clearActive);
+    return () => window.removeEventListener("focus", clearActive);
+  }, []);
   const [qaDraft, setQaDraft] = useState("");
   const [qaContext, setQaContext] = useState(""); // threadId -> condition
   const [favorites, setFavorites] = useState<string[]>(() => {
@@ -338,7 +396,49 @@ export default function App() {
     // WS reçoivent chaque broadcast et tout apparaît en double.
     if (connectedOnce.current) return;
     connectedOnce.current = true;
-    connectSidecar((msg) => {
+    let cancelled = false;
+    let retryTimer: ReturnType<typeof setTimeout> | null = null;
+    const scheduleConnect = (delay = 0) => {
+      if (retryTimer) clearTimeout(retryTimer);
+      retryTimer = setTimeout(() => {
+        if (cancelled) return;
+        connectSidecar(handleMessage, (next) => {
+          ws.current = next;
+          setWs(next);
+          setMock(false);
+          setAppBanner((b) => b?.text === t("app.sidecar-disconnected") ? null : b);
+          setWsReady(true);
+        }, () => {
+          setWsReady(false);
+          setAppBanner({ text: t("app.sidecar-disconnected") });
+        })
+          .then((s) => {
+            ws.current = s;
+            setWs(s);
+            setMock(false);
+            setAppBanner((b) => b?.text === t("app.sidecar-disconnected") ? null : b);
+            setWsReady(true);
+            s.send(JSON.stringify({ type: "getSettings" }));
+          })
+          .catch(() => {
+            setMock(true);
+            setWsReady(false);
+            setAppBanner({ text: t("app.sidecar-disconnected") });
+            scheduleConnect(3000);
+          });
+      }, delay);
+    };
+    const handleMessage = (msg: any) => {
+      if (msg.type === "settingsFile") {
+        const hasLocal = localStorage.getItem("atelier-studio.settings") !== null;
+        if (msg.settings && !hasLocal) {
+          // webview vierge (mise à jour, reset WebKit) : le fichier disque fait foi
+          setSettings({ ...DEFAULT_SETTINGS, ...msg.settings });
+        } else if (ws.current?.readyState === 1) {
+          // sinon pousser l'état courant vers le fichier pour l'amorcer
+          ws.current.send(JSON.stringify({ type: "saveSettings", settings: settingsRef.current }));
+        }
+      }
       if (msg.type === "threads") {
         setThreads(msg.threads);
         threadsRef.current = msg.threads;
@@ -346,6 +446,18 @@ export default function App() {
       if (msg.type === "event") {
         if (msg.event.kind === "started") {
           setWorkingSince((p) => ({ ...p, [msg.threadId]: p[msg.threadId] ?? Date.now() }));
+          return;
+        }
+        if (msg.event.kind === "heartbeat") {
+          setWorkingSince((p) => ({ ...p, [msg.threadId]: p[msg.threadId] ?? Date.now() }));
+          setHeartbeatByThread((p) => ({
+            ...p,
+            [msg.threadId]: { ts: Date.now(), elapsedMs: msg.event.elapsedMs },
+          }));
+          return;
+        }
+        if (msg.event.kind === "usage") {
+          if (msg.event.usage) setUsageByThread((p) => ({ ...p, [msg.threadId]: msg.event.usage }));
           return;
         }
         setEvents((prev) => {
@@ -433,6 +545,11 @@ export default function App() {
         }
         if (msg.event.kind === "done" || msg.event.kind === "error") {
           setWorkingSince((p) => ({ ...p, [msg.threadId]: null }));
+          setHeartbeatByThread((p) => {
+            const next = { ...p };
+            delete next[msg.threadId];
+            return next;
+          });
           const th = allThreadsRef.current?.find?.((x: any) => x.id === msg.threadId);
           notifyRunDone({
             threadId: msg.threadId,
@@ -440,7 +557,7 @@ export default function App() {
             ok: msg.event.kind === "done" && msg.event.ok !== false,
             summary: String(msg.event.result ?? "").slice(0, 120),
           }).catch(() => {});
-          if (msg.threadId !== activeIdRef.current) {
+          if (msg.threadId !== activeIdRef.current || document.hidden || !document.hasFocus()) {
             setUnread((u) => new Set(u).add(msg.threadId));
           }
           // l'agent a peut-être régénéré des figures → recharger atelier
@@ -525,6 +642,32 @@ export default function App() {
       if (msg.type === "zoteroFav") {
         window.dispatchEvent(new CustomEvent("zotero-fav", { detail: msg }));
       }
+      if (msg.type === "zoteroDigest") {
+        const item = pendingZoteroDigest.current.get(msg.key);
+        if (item) {
+          pendingZoteroDigest.current.delete(msg.key);
+          const label = item.citeKey ? `@${item.citeKey}` : `@${item.key}`;
+          const text = buildZoteroReferenceText(item, {
+            pdfPath: msg.pdfPath ?? null, digest: msg.digest ?? null, digestPath: msg.path ?? null,
+          });
+          setAttachments((l) => l.map((a) =>
+            a.kind === "zotero" && a.name === label
+              ? {
+                  ...a, text,
+                  preview: a.preview && {
+                    ...a.preview,
+                    rows: a.preview.rows.map((r) =>
+                      r.label === "Digest"
+                        ? { label: "Digest", value: msg.digest ? "en cache" : "à générer par l'agent" }
+                        : r),
+                  },
+                }
+              : a));
+        }
+      }
+      if (msg.type === "zoteroAddResult") {
+        window.dispatchEvent(new CustomEvent("zotero-add-result", { detail: msg }));
+      }
       if (msg.type === "gitChanged" || msg.type === "gitStageDone" || msg.type === "gitUnstageDone" ||
           msg.type === "gitRevertFileDone" || msg.type === "gitCommitDone" || msg.type === "gitUndoLastTurnDone") {
         window.dispatchEvent(new CustomEvent("git-changed", { detail: msg }));
@@ -550,6 +693,30 @@ export default function App() {
       }
       if (msg.type === "qaPromoteError") {
         window.dispatchEvent(new CustomEvent("qa-promote-error", { detail: msg }));
+      }
+      if (msg.type === "providerStatus") {
+        setProviderList(msg.providers ?? []);
+        // lancé depuis le Finder, un CLI peut manquer malgré l'installation ;
+        // le sidecar résout PATH+dossiers standards — s'il dit non, c'est réel
+        // (les providers API sans clé ne sont pas des CLI manquants)
+        const missing = (msg.providers ?? []).filter((p: any) => !p.ok && p.kind !== "api");
+        if (missing.length) {
+          const labels = missing.map((p: any) => p.label).join(", ");
+          cliBannerText.current = t("app.cli-missing", { list: labels });
+          setAppBanner({
+            text: cliBannerText.current,
+            actionLabel: t("app.cli-missing-copy"),
+            onAction: () => {
+              const cmds = missing.map((p: any) =>
+                p.id === "claude" ? "npm install -g @anthropic-ai/claude-code" : "npm install -g @openai/codex");
+              navigator.clipboard?.writeText(cmds.join(" && "));
+            },
+            closable: true,
+          });
+        } else {
+          setAppBanner((b) => b && b.text === cliBannerText.current ? null : b);
+          cliBannerText.current = null;
+        }
       }
       if (msg.type === "permissionRequest") {
         setEvents((p) => ({
@@ -605,24 +772,12 @@ export default function App() {
           }
         }
       }
-    }, (next) => {
-      ws.current = next;
-      setWs(next);
-      setAppBanner((b) => b?.text === t("app.sidecar-disconnected") ? null : b);
-      setWsReady(true);
-    }, () => {
-      setWsReady(false);
-      setAppBanner({ text: t("app.sidecar-disconnected") });
-    })
-      .then((s) => {
-        ws.current = s;
-        setWs(s);
-        setWsReady(true);
-      })
-      .catch(() => {
-        setMock(true);
-        setAppBanner({ text: t("app.sidecar-disconnected") });
-      });
+    };
+    scheduleConnect();
+    return () => {
+      cancelled = true;
+      if (retryTimer) clearTimeout(retryTimer);
+    };
   }, []);
 
   useEffect(() => {
@@ -753,7 +908,7 @@ export default function App() {
   // (ré)ouvre le serveur atelier du projet actif
   useEffect(() => {
     if (!activeProject || atelierUrls[activeProject]) return;
-    invoke<string>("start_atelier", { root: activeProject, galleryDir: settingsRef.current.galleryPath })
+    invoke<string>("start_atelier", { root: activeProject, galleryDir: settingsRef.current.galleryPath, galleryExts: (settingsRef.current.galleryExtsByProject?.[activeProject] ?? "") || settingsRef.current.galleryExts || "" })
       .then((url) => {
         const nonceUrl = withAtelierNonce(url, atelierNonce);
         setAppBanner((b) => b?.text.startsWith("start_atelier:") ? null : b);
@@ -784,17 +939,24 @@ export default function App() {
       });
   }, [activeProject]);
 
-  // "Add to chat" depuis le Browser (presse-papier + URL de la page)
+  // "Add to chat" depuis le Browser (sélection si possible, sinon page courante)
   useEffect(() => {
     const onBrowserAdd = (e: Event) => {
-      const { text, url } = (e as CustomEvent).detail as { text: string; url: string };
+      const { text, url, mode } = (e as CustomEvent).detail as {
+        text: string;
+        url?: string;
+        mode?: "selection" | "page";
+      };
       let name = "extrait web";
       try { name = url ? new URL(url).hostname : name; } catch {}
+      const body = mode === "page"
+        ? `Source web ajoutée au contexte :\n${text}`
+        : `Extrait copié depuis ${url || "une page web"} :\n> ${text.split("\n").join("\n> ")}`;
       setAttachments((l) =>
         addAttachment(l, {
           name,
           lines: null,
-          text: `Extrait copié depuis ${url || "une page web"} :\n> ${text.split("\n").join("\n> ")}`,
+          text: body,
         }),
       );
     };
@@ -1036,7 +1198,7 @@ export default function App() {
 
   function submit(
     prompt: string,
-    provider: "claude" | "codex",
+    provider: ProviderId,
     model: string,
     effort: string,
     permissionMode: string,
@@ -1045,6 +1207,36 @@ export default function App() {
     const activeThread = allThreadsRef.current.find((t) => t.id === activeId);
     const threadRoot = activeThread ? activeThread.projectRoot : (activeProject ?? "");
     if (!activeId && !activeProject) return;
+    // /clear et /compact sur un thread CODEX : équivalents natifs app-server
+    const codexActive = activeId && (activeThread?.provider ?? provider) === "codex";
+    if (codexActive && ["/clear", "/compact"].includes(prompt.trim()) && ws.current?.readyState === 1) {
+      ws.current.send(JSON.stringify({
+        type: prompt.trim() === "/clear" ? "codexClear" : "codexCompact",
+        threadId: activeId,
+      }));
+      return;
+    }
+    // /goal sur un thread CODEX : goal natif app-server (set/clear/status),
+    // pas un message texte (codex exec n'interprète pas /goal). Côté Claude,
+    // /goal passe tel quel : la CLI a son goal natif (v2.1.139+).
+    const goalMatch = /^\/goal(?:\s+([\s\S]*))?$/.exec(prompt.trim());
+    if (goalMatch && codexActive) {
+      const arg = (goalMatch[1] ?? "").trim();
+      if (ws.current?.readyState === 1) {
+        const msg =
+          !arg ? { type: "goalGet", threadId: activeId, explicit: true } :
+          ["clear", "stop", "off", "reset", "none", "cancel"].includes(arg.toLowerCase())
+            ? { type: "goalClear", threadId: activeId }
+            : { type: "goalSet", threadId: activeId, objective: arg };
+        ws.current.send(JSON.stringify(msg));
+        // trace visible dans le fil : la commande tapée, comme un message
+        setEvents((p) => ({
+          ...p,
+          [activeId]: [...(p[activeId] ?? []), { kind: "user", text: prompt.trim(), ts: Date.now() } as any],
+        }));
+      }
+      return;
+    }
     // /export : archive locale (pas d'appel agent)
     if (prompt.trim() === "/export" && activeId) {
       if (ws.current?.readyState === 1) {
@@ -1255,6 +1447,7 @@ export default function App() {
           onChange={setSettings}
           onClose={() => setShowSettings(false)}
           ws={ws.current}
+          projects={projects}
         />
         <CommandPalette open={paletteOpen} items={paletteItems} onClose={() => setPaletteOpen(false)} />
       {usageOpen && <div className="ur-overlay" onClick={() => setUsageOpen(false)}>
@@ -1319,6 +1512,10 @@ export default function App() {
                 ws.current?.send(JSON.stringify({ type: "getHistory", threadId: newId }));
               }, 250);
             }
+          }}
+          onRemoveProject={(root) => {
+            setProjects((prev) => prev.filter((r) => r !== root));
+            if (activeProject === root) setActiveProject(null);
           }}
           onDelete={(threadId) => {
             setDraftThreads((p) => p.filter((t) => t.id !== threadId));
@@ -1397,12 +1594,14 @@ export default function App() {
           threadId={activeId}
           events={activeId ? (events[activeId] ?? []) : []}
           workingSince={activeId ? (workingSince[activeId] ?? null) : null}
+          heartbeat={activeId ? (heartbeatByThread[activeId] ?? null) : null}
           usage={activeId ? (usageByThread[activeId] ?? null) : null}
           commands={commands}
           files={files}
           recentFiles={recentFiles.filter((file) => files.includes(file)).slice(0, 12)}
           zoteroItems={zoteroItems}
-          defaults={settings}
+          defaults={settings as any}
+          providers={providerList}
           injectText={injectText}
           onInjected={() => setInjectText(null)}
           attachments={attachments}
@@ -1521,19 +1720,12 @@ export default function App() {
             const item = zoteroItems.find((entry) => entry.key === key);
             if (!item) return;
             const label = item.citeKey ? `@${item.citeKey}` : `@${item.key}`;
+            pendingZoteroDigest.current.set(item.key, item);
             setAttachments((l) => addAttachment(l, {
               name: label,
               lines: item.year || null,
               kind: "zotero",
-              text: [
-                `Référence Zotero : ${label}`,
-                `Titre : ${item.title}`,
-                item.creators ? `Auteurs : ${item.creators}` : null,
-                item.year ? `Année : ${item.year}` : null,
-                item.publication ? `Publication : ${item.publication}` : null,
-                item.doi ? `DOI : ${item.doi}` : null,
-                item.pdfFile ? `PDF Zotero : ${item.pdfFile}` : null,
-              ].filter(Boolean).join("\n"),
+              text: buildZoteroReferenceText(item),
               preview: {
                 title: item.title || label,
                 rows: [
@@ -1541,9 +1733,16 @@ export default function App() {
                   ...(item.creators ? [{ label: "Authors", value: item.creators }] : []),
                   ...(item.year ? [{ label: "Year", value: item.year }] : []),
                   ...(item.doi ? [{ label: "DOI", value: item.doi }] : []),
+                  { label: "Digest", value: "…" },
                 ],
               },
             }));
+            if (ws.current?.readyState === 1) {
+              ws.current.send(JSON.stringify({
+                type: "zoteroDigest", key: item.key, citeKey: item.citeKey ?? "",
+                pdfKey: item.pdfKey ?? null, pdfFile: item.pdfFile ?? null,
+              }));
+            }
           }}
           onStop={() => {
             if (activeId && ws.current?.readyState === 1) {
@@ -1632,7 +1831,7 @@ export default function App() {
               onHardReload={() => {
                 if (!activeProject) return;
                 // relance start_atelier : redémarre le serveur s'il est mort
-                invoke<string>("start_atelier", { root: activeProject, galleryDir: settingsRef.current.galleryPath })
+                invoke<string>("start_atelier", { root: activeProject, galleryDir: settingsRef.current.galleryPath, galleryExts: (settingsRef.current.galleryExtsByProject?.[activeProject] ?? "") || settingsRef.current.galleryExts || "" })
                   .then((url) => {
                     const nonceUrl = withAtelierNonce(url, atelierNonce);
                     setAppBanner((b) => b?.text.startsWith("start_atelier:") ? null : b);

@@ -35,6 +35,9 @@
     "resources": {
       "sidecar-dist": "sidecar",
       "gallery-dist": "gallery"
+    },
+    "macOS": {
+      "signingIdentity": "-"
     }
   }
 }

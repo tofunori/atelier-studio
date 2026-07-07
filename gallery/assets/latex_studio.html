@@ -49,7 +49,7 @@
 <script src="/.fig_thumbs/katex/katex.min.js"></script>
 <script src="/.fig_thumbs/texvisual.min.js"></script>
 <style>
-:root{--bg:#212429;--card:#1a1d22;--card2:#1a1d22;--txt:#e8eaed;--muted:#8a919e;--accent:#e8823a;--border:#333a45;--border-strong:#3f4652}
+:root{--bg:#212429;--card:#1a1d22;--card2:#1a1d22;--txt:#dbdfe5;--muted:#868d9a;--accent:#e8823a;--border:#333a45;--border-strong:#3f4652}
   html,body{margin:0;height:100%;background:var(--bg);color:var(--txt);
             font-family:-apple-system,sans-serif;display:flex;flex-direction:column;overflow:hidden}
   header{background:var(--card);border-bottom:1px solid var(--border);padding:6px 10px;
@@ -162,18 +162,18 @@
     color:var(--muted);cursor:pointer;padding:2px 10px;font-size:12px}
   #diffPane .dHead .dx:hover{color:var(--txt);border-color:var(--border-strong)}
   #diffPane .dBody{padding:12px 16px;white-space:pre-wrap}
-  #diffPane .dFold{display:block;color:var(--faint,#6b7482);background:var(--card2);border:1px dashed var(--border);
+  #diffPane .dFold{display:block;color:var(--faint,#646d7b);background:var(--card2);border:1px dashed var(--border);
     border-radius:6px;text-align:center;padding:3px 0;margin:6px 0;cursor:pointer;font-size:11px;
     font-family:var(--ui-font,-apple-system,sans-serif)}
   #diffPane .dFold:hover{color:var(--muted)}
   #diffPane{display:none;position:absolute;inset:0;z-index:50;overflow:auto;background:var(--bg,#212429);
     padding:18px 22px;font-family:ui-monospace,Menlo,monospace;font-size:13px;line-height:1.7;
-    white-space:pre-wrap;word-break:break-word;color:#cfd4dc}
+    white-space:pre-wrap;word-break:break-word;color:#b6bdc7}
   #diffPane .dAdd{background:rgba(52,201,142,.16);color:#7fe0b4;border-bottom:1px solid rgba(52,201,142,.6);
     border-radius:2px;text-decoration:none}
   #diffPane .dDel{background:rgba(224,108,117,.14);color:#e09aa0;text-decoration:line-through;border-radius:2px}
   #diffGrp button.on{background:var(--border);color:var(--txt)}
-  #diffGrp .dg-label{color:var(--faint,#6b7482);font-size:11px;letter-spacing:.05em;text-transform:uppercase;margin-right:2px}
+  #diffGrp .dg-label{color:var(--faint,#646d7b);font-size:11px;letter-spacing:.05em;text-transform:uppercase;margin-right:2px}
   /* palette LaTeX/code plus riche (par-dessus material-darker) */
 
   /* ===== thème code « atelier » (surcharge material-darker) ===== */
@@ -189,14 +189,14 @@
   .cm-s-material-darker .cm-atom{color:#5fb0a5}
   .cm-s-material-darker .cm-builtin{color:#7fbcb2}
   .cm-s-material-darker .cm-operator{color:#9a958a}
-  .cm-s-material-darker .cm-comment{color:#8a919e;font-style:italic}
+  .cm-s-material-darker .cm-comment{color:#868d9a;font-style:italic}
   .cm-s-material-darker .cm-meta{color:#9a958a}
   .cm-s-material-darker .cm-qualifier{color:#7fbcb2}
   .cm-s-material-darker .cm-tag{color:#e8823a}                 /* \commandes */
   .cm-s-material-darker .cm-bracket{color:#e0b74a}             /* { } [ ] */
   .cm-s-material-darker .cm-atom{color:#7fbcb2}                /* noms d'environnements */
   .cm-s-material-darker .cm-string{color:#8fd3a7}              /* math $…$ */
-  .cm-s-material-darker .cm-comment{color:#6b7482;font-style:italic}
+  .cm-s-material-darker .cm-comment{color:#646d7b;font-style:italic}
   .cm-s-material-darker .cm-number{color:#e8a35a}
   .cm-s-material-darker .cm-keyword{color:#d97757}
   .cm-s-material-darker .cm-builtin{color:#7aa2f7}
@@ -206,33 +206,33 @@
 
 /* ---- option B : status bar + menus (sobre) ---- */
 #statusbar{display:flex;gap:16px;align-items:center;padding:2px 12px;min-height:22px;
-  background:#1a1d22;border-top:1px solid #333a45;font-size:11px;color:#8a919e;
+  background:#1a1d22;border-top:1px solid #333a45;font-size:11px;color:#868d9a;
   font-variant-numeric:tabular-nums}
 #statusbar span{cursor:default}
-#sbWrap:hover,#sbLint:hover{color:#e8eaed;cursor:pointer}
+#sbWrap:hover,#sbLint:hover{color:#dbdfe5;cursor:pointer}
 #sbLint.err{color:#e06c75}
 #sbLint.ok{color:#98c379}
 #morePop{position:fixed;top:40px;right:10px;z-index:400;background:#1b1f26;
   border:1px solid #333a45;border-radius:10px;padding:5px;min-width:220px;
-  box-shadow:0 8px 24px rgba(0,0,0,.5);font-size:13px;color:#cfd4dc}
+  box-shadow:0 8px 24px rgba(0,0,0,.5);font-size:13px;color:#b6bdc7}
 #morePop div{padding:6px 10px;border-radius:6px;cursor:pointer;display:flex;justify-content:space-between;gap:14px}
 #morePop div:hover{background:#2c313a}
-#morePop em{font-style:normal;color:#6b7482;font-size:11px}
+#morePop em{font-style:normal;color:#646d7b;font-size:11px}
 #lintPane{max-height:140px;overflow-y:auto;background:#1a1d22;border-top:1px solid #333a45;
   font:11.5px/1.6 ui-monospace,Menlo,monospace;padding:4px 0}
-#lintPane div{padding:1px 12px;cursor:pointer;color:#cfd4dc}
+#lintPane div{padding:1px 12px;cursor:pointer;color:#b6bdc7}
 #lintPane div:hover{background:#2c313a}
 #lintPane .lc{color:#e06c75;margin-right:8px}
 .CodeMirror-dialog{background:#1b1f26 !important;border-bottom:1px solid #333a45 !important;
-  color:#cfd4dc !important;padding:5px 10px !important;font-size:13px}
+  color:#b6bdc7 !important;padding:5px 10px !important;font-size:13px}
 .CodeMirror-dialog input{background:#2c313a !important;border:1px solid #3f4652 !important;
-  border-radius:6px !important;color:#e8eaed !important;padding:3px 8px !important;
+  border-radius:6px !important;color:#dbdfe5 !important;padding:3px 8px !important;
   font-family:inherit !important;outline:none}
-.CodeMirror-search-hint{color:#6b7482 !important}
+.CodeMirror-search-hint{color:#646d7b !important}
 .cm-matchhighlight{background:rgba(232,130,58,0.14)}
 .CodeMirror-focused .cm-matchhighlight{background:rgba(232,130,58,0.14)}
 .CodeMirror-foldgutter{width:12px}
-.CodeMirror-foldgutter-open:after,.CodeMirror-foldgutter-folded:after{color:#6b7482;font-size:10px}
+.CodeMirror-foldgutter-open:after,.CodeMirror-foldgutter-folded:after{color:#646d7b;font-size:10px}
 .lint-gutter-err{color:#e06c75;font-size:10px;line-height:1}
 .cm-lint-line{border-bottom:1px dotted rgba(224,108,117,.7)}
 
@@ -291,7 +291,7 @@
   #texvis .tv-tt{font-family:var(--code-font,monospace);font-size:.88em;background:rgba(255,255,255,.06);border-radius:4px;padding:0 3px}
   #texvis .tv-todo{color:#e0726a;font-weight:600}
   #texvis .tv-cite{color:var(--accent);font-size:.9em}
-  #texvis .tv-comment{color:#6b7482;font-style:italic}
+  #texvis .tv-comment{color:#646d7b;font-style:italic}
   #texvis .cm-line.tv-h1{font-size:24px;font-weight:600;letter-spacing:-.01em}
   #texvis .cm-line.tv-h2{font-size:19px;font-weight:600;letter-spacing:-.01em}
   #texvis .cm-line.tv-h3{font-size:16px;font-weight:600}
@@ -315,16 +315,16 @@
   #texread [data-line]:hover{background:rgba(232,130,58,.07)}
   #texread .tex-todo{color:#e0726a;font-weight:600}
   #texread .tex-cite{color:var(--accent);font-variant:small-caps;font-size:.92em}
-  #texread .tex-ref{color:#8a919e}
+  #texread .tex-ref{color:#868d9a}
   #texread .tex-fn{color:var(--accent);cursor:help}
-  #texread .tex-env{color:#6b7482;font-style:italic;text-align:center;border:1px dashed #333a45;
+  #texread .tex-env{color:#646d7b;font-style:italic;text-align:center;border:1px dashed #333a45;
     border-radius:8px;padding:14px;margin:16px 0;font-family:var(--ui-font,sans-serif);font-size:13px}
   #texread .tex-matherr{color:#e0726a;font-family:monospace;font-size:.9em}
   #texread .katex{font-size:1.02em}
   #texread .katex-display{margin:14px 0;overflow-x:auto;overflow-y:hidden}
 </style>
 <script>
-function __ct(){try{return JSON.parse(localStorage.getItem('claudeTargetV1')||'null')}catch(e){return null}}(function(){var T={'Default':{bg:'#202024',card:'#27272a',card2:'#1f1f23',txt:'#e4e4e7',muted:'#a1a1aa',accent:'#e8823a',border:'#3f3f46'},'Codex One':{bg:'#202024',card:'#2f343f',card2:'#21252b',txt:'#abb2bf',muted:'#7f848e',accent:'#4d78cc',border:'#3e4451'},'Dracula':{bg:'#282a36',card:'#343746',card2:'#21222c',txt:'#f8f8f2',muted:'#9aa0b3',accent:'#bd93f9',border:'#44475a'},'Nord':{bg:'#2e3440',card:'#3b4252',card2:'#272c36',txt:'#e5e9f0',muted:'#9aa3b2',accent:'#88c0d0',border:'#434c5e'}};var t;try{t=T[localStorage.getItem('figTheme')];}catch(e){}t=t||T['Default'];var r=document.documentElement.style;for(var k in t)r.setProperty('--'+k,t[k]);})();</script>
+function __ct(){try{return JSON.parse(localStorage.getItem('claudeTargetV1')||'null')}catch(e){return null}}(function(){var T={'Default':{bg:'#202024',card:'#27272a',card2:'#1f1f23',txt:'#dbdfe5',muted:'#a1a1aa',accent:'#e8823a',border:'#3f3f46'},'Codex One':{bg:'#202024',card:'#2f343f',card2:'#21252b',txt:'#abb2bf',muted:'#7f848e',accent:'#4d78cc',border:'#3e4451'},'Dracula':{bg:'#282a36',card:'#343746',card2:'#21222c',txt:'#f8f8f2',muted:'#9aa0b3',accent:'#bd93f9',border:'#44475a'},'Nord':{bg:'#2e3440',card:'#3b4252',card2:'#272c36',txt:'#e5e9f0',muted:'#9aa3b2',accent:'#88c0d0',border:'#434c5e'}};var t;try{t=T[localStorage.getItem('figTheme')];}catch(e){}t=t||T['Default'];var r=document.documentElement.style;for(var k in t)r.setProperty('--'+k,t[k]);})();</script>
 </head>
 <body>
 <header>
@@ -489,7 +489,7 @@ if(!IS_TEX){
         const pillBtn = document.createElement("button");
         pillBtn.innerHTML = '<svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" style="vertical-align:-2px"><path d="M14 8c0 3-2.7 5.2-6 5.2-.8 0-1.6-.1-2.3-.4L2.5 14l1-2.6C2.6 10.5 2 9.3 2 8c0-3 2.7-5.2 6-5.2S14 5 14 8z"/></svg>&nbsp; Add to chat';
         pillBtn.style.cssText = "position:fixed;z-index:9999;display:none;background:#2c313a;"
-          + "color:#e6e6e6;border:1px solid #3a414d;border-radius:999px;padding:7px 14px;"
+          + "color:#dbdfe5;border:1px solid #3a414d;border-radius:999px;padding:7px 14px;"
           + "font-size:13px;cursor:pointer;box-shadow:0 6px 18px rgba(0,0,0,.5);"
           + "font-family:-apple-system,sans-serif";
         document.body.appendChild(pillBtn);
@@ -1043,7 +1043,7 @@ const selTa = selPill.querySelector("textarea");
     });
     selPill.style.cssText += ';background:transparent;border:none;box-shadow:none;padding:0;min-width:0;width:auto';
     if (__go){ __go.innerHTML = '<svg width=\'13\' height=\'13\' viewBox=\'0 0 16 16\' fill=\'none\' stroke=\'currentColor\' stroke-width=\'1.3\' style=\'vertical-align:-2px\'><path d=\'M14 8c0 3-2.7 5.2-6 5.2-.8 0-1.6-.1-2.3-.4L2.5 14l1-2.6C2.6 10.5 2 9.3 2 8c0-3 2.7-5.2 6-5.2S14 5 14 8z\'/></svg>&nbsp; Add to chat';
-      __go.style.cssText = 'width:auto;min-width:0;height:auto;border-radius:999px;padding:7px 14px;font-size:13px;white-space:nowrap;background:#2c313a;color:#e6e6e6;border:1px solid #3a414d;box-shadow:0 6px 18px rgba(0,0,0,0.5);cursor:pointer';
+      __go.style.cssText = 'width:auto;min-width:0;height:auto;border-radius:999px;padding:7px 14px;font-size:13px;white-space:nowrap;background:#2c313a;color:#dbdfe5;border:1px solid #3a414d;box-shadow:0 6px 18px rgba(0,0,0,0.5);cursor:pointer';
       var __cbtn = document.createElement('button');
       __cbtn.innerHTML = '<svg width=\'13\' height=\'13\' viewBox=\'0 0 16 16\' fill=\'none\' stroke=\'currentColor\' stroke-width=\'1.3\' style=\'vertical-align:-2px\'><path d=\'M3 2.5h10v8H8l-3 3v-3H3v-8z\'/></svg>&nbsp; Commenter';
       __cbtn.style.cssText = __go.style.cssText;
@@ -1581,7 +1581,7 @@ if(window.self !== window.top){
   const __fn = document.getElementById("fname"); if(__fn) __fn.style.display = "none"; // nom déjà dans l onglet Studio
   const dPill = document.createElement("button");
   dPill.innerHTML = '<svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" style="vertical-align:-2px"><path d="M14 8c0 3-2.7 5.2-6 5.2-.8 0-1.6-.1-2.3-.4L2.5 14l1-2.6C2.6 10.5 2 9.3 2 8c0-3 2.7-5.2 6-5.2S14 5 14 8z"/></svg>&nbsp; Add to chat';
-  dPill.style.cssText = "position:fixed;z-index:9999;display:none;background:#2c313a;color:#e6e6e6;"
+  dPill.style.cssText = "position:fixed;z-index:9999;display:none;background:#2c313a;color:#dbdfe5;"
     + "border:1px solid #3a414d;border-radius:999px;padding:7px 14px;font-size:13px;cursor:pointer;"
     + "box-shadow:0 6px 18px rgba(0,0,0,.5);font-family:-apple-system,sans-serif";
   document.body.appendChild(dPill);

@@ -5,11 +5,11 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>__TITLE__</title>
 <style>
-  :root{ --bg:#141619; --card:#1c1f23; --card2:#22262b; --txt:#e7eaee; --muted:#9aa1ab; --faint:#6b727c;
+  :root{ --bg:#141619; --card:#1c1f23; --card2:#22262b; --txt:#dbdfe5; --muted:#9aa1ab; --faint:#6b727c;
          --accent:#7fa3d8; --accent-soft:#233246; --arch:#3a2f1a; --border:#2a2e34; --border-strong:#3a4048;
          --shadow:0 1px 2px rgba(0,0,0,.3),0 6px 20px rgba(0,0,0,.25); }
   *{box-sizing:border-box}
-  body{margin:0;font-family:"Avenir Next","Segoe UI",system-ui,-apple-system,sans-serif;
+  body{margin:0;font-family:-apple-system,"SF Pro Text",system-ui,"Segoe UI",sans-serif;
        background:var(--bg);color:var(--txt);font-size:13px}
   header{position:sticky;top:0;z-index:10;background:var(--card);background:color-mix(in srgb,var(--card) 92%,transparent);backdrop-filter:blur(8px);
          border-bottom:1px solid var(--border);padding:10px 16px 9px}
@@ -24,19 +24,25 @@
     border-radius:6px;border:1px solid var(--border);background:var(--card);color:var(--txt);
     font-size:13px;cursor:pointer;position:relative;white-space:nowrap}
   .csel-btn::after{content:"";position:absolute;right:10px;top:50%;width:8px;height:5px;transform:translateY(-40%);
-    background:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='8' height='5' viewBox='0 0 10 6'><path d='M1 1l4 4 4-4' fill='none' stroke='%238a919e' stroke-width='1.4' stroke-linecap='round' stroke-linejoin='round'/></svg>") no-repeat center}
+    background:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='8' height='5' viewBox='0 0 10 6'><path d='M1 1l4 4 4-4' fill='none' stroke='%23868d9a' stroke-width='1.4' stroke-linecap='round' stroke-linejoin='round'/></svg>") no-repeat center}
   .csel-btn:hover{border-color:var(--border-strong)}
   .csel-menu{position:fixed;z-index:120;min-width:170px;max-height:340px;overflow-y:auto}
   .csel-menu div{display:flex;align-items:center;gap:8px;padding:6px 10px;border-radius:6px;cursor:pointer;font-size:13px;white-space:nowrap}
   .csel-menu div:hover{background:var(--card2)}
   .csel-menu div .ck{width:12px;flex:none;color:var(--accent);opacity:0}
   .csel-menu div.on .ck{opacity:1}
-  .fmt-cats{display:flex;flex-wrap:wrap;gap:6px;padding:6px 10px 8px;max-width:280px}
+  #fmtMenu{min-width:0;width:max-content;max-width:min(292px,calc(100vw - 16px));padding:8px 8px 9px}
+  #fmtMenu .mhd{padding:4px 8px 6px}
+  .fmt-cats{display:grid;grid-template-columns:repeat(2,max-content);gap:6px 7px;padding:5px 8px 9px;max-width:none}
   .fmt-cat{border:1px solid var(--border);border-radius:999px;background:transparent;color:var(--muted);
-    font-size:12px;padding:4px 12px;cursor:pointer}
+    font-size:11.5px;font-weight:500;height:28px;padding:0 10px;cursor:pointer;display:inline-flex;align-items:center;gap:6px}
+  .fmt-cat svg{width:13px;height:13px;display:block;flex:none;stroke:currentColor;stroke-width:1.45;
+    stroke-linecap:round;stroke-linejoin:round;fill:none;opacity:.82}
+  .fmt-cat span{line-height:1}
   .fmt-cat:hover{border-color:var(--border-strong)}
   .fmt-cat.on{background:var(--card2);color:var(--txt);border-color:var(--border-strong)}
   .fmt-cat.mix{color:var(--txt);border-style:dashed}
+  #fmtMenu .fmt-actions{margin-top:5px;padding:7px 8px 1px}
   .seg{display:inline-flex;border:1px solid var(--border);border-radius:6px;overflow:hidden}
   .seg button{border:none;background:transparent;color:var(--muted);font-size:11px;padding:4px 9px;cursor:pointer}
   .seg button.on{background:var(--card2);color:var(--txt)}
@@ -193,9 +199,9 @@
             border:1px solid #333a45;border-radius:10px;padding:4px 6px}
   #lb.annot #annotBar{display:flex}
   #annotBar button{padding:0;width:26px;height:24px;font-size:12px;background:transparent;
-      border:none;border-radius:6px;color:#8a919e;display:inline-flex;align-items:center;justify-content:center}
-  #annotBar button:hover{background:#2c313a;color:#e8eaed;border:none}
-  #annotBar button.sel{background:#2c313a;color:#e8eaed;border:none}
+      border:none;border-radius:6px;color:#868d9a;display:inline-flex;align-items:center;justify-content:center}
+  #annotBar button:hover{background:#2c313a;color:#dbdfe5;border:none}
+  #annotBar button.sel{background:#2c313a;color:#dbdfe5;border:none}
   #annotBar input[type=color]{width:15px;height:15px;border:1px solid rgba(255,255,255,.18);
       border-radius:6px;background:none;cursor:pointer;padding:0;-webkit-appearance:none}
   #annotBar input[type=color]::-webkit-color-swatch-wrapper{padding:0}
@@ -207,33 +213,33 @@
   #annotNote{position:fixed;z-index:103;display:none;align-items:stretch;gap:0;min-width:340px;max-width:480px;
       background:#1a1d22;border:1px solid #333a45;border-radius:10px;padding:0;overflow:hidden;
       box-shadow:0 8px 24px rgba(0,0,0,.45)}
-  #annotNote .nb{color:#8a919e;font-size:12px;font-weight:600;flex:none;display:flex;align-items:center;
+  #annotNote .nb{color:#868d9a;font-size:12px;font-weight:600;flex:none;display:flex;align-items:center;
       padding:0 12px;background:#262b31;border-right:1px solid #333a45}
   #annotNote textarea{flex:1;background:transparent;border:none;outline:none;color:var(--txt);
       font-size:13px;line-height:1.45;padding:10px 12px;resize:none;font-family:inherit;height:20px;max-height:120px;align-self:center}
-  #annotNote textarea::placeholder{color:#6b7482}
-  #annotNote .del{width:36px;border-radius:0;background:none;border:none;border-left:1px solid #333a45;color:#6b7482;
+  #annotNote textarea::placeholder{color:#646d7b}
+  #annotNote .del{width:36px;border-radius:0;background:none;border:none;border-left:1px solid #333a45;color:#646d7b;
       cursor:pointer;display:flex;align-items:center;justify-content:center;flex:none;padding:0}
   #annotNote .del:hover{background:#2c313a;color:#ff8a8a}
   #annotNote .del svg{width:13px;height:13px;stroke:currentColor;fill:none;stroke-width:1.3;
       stroke-linecap:round;stroke-linejoin:round}
-  #annotNote .anSave{width:36px;border-radius:0;background:none;color:#cfd4dc;border:none;border-left:1px solid #333a45;
+  #annotNote .anSave{width:36px;border-radius:0;background:none;color:#b6bdc7;border:none;border-left:1px solid #333a45;
       font-size:13px;font-weight:500;cursor:pointer;display:flex;align-items:center;justify-content:center;
       flex:none;font-family:inherit}
   #annotNote .anSave:hover{background:#2c313a;color:#fff}
   #annotPill{position:fixed;bottom:26px;left:50%;transform:translateX(-50%);z-index:102;display:none;
       align-items:center;gap:2px;background:rgba(26,29,34,.92);backdrop-filter:blur(10px);
       border:1px solid #333a45;border-radius:10px;
-      padding:4px;box-shadow:0 8px 24px rgba(0,0,0,.45);color:#8a919e;font-size:13px}
+      padding:4px;box-shadow:0 8px 24px rgba(0,0,0,.45);color:#868d9a;font-size:13px}
   #lb.annot #annotPill.on{display:flex}
   #annotPill .ic{display:none}
   #annotPill button{height:28px;width:auto;padding:0 10px;border-radius:6px;border:none;background:transparent;
-      color:#cfd4dc;font-size:13px;cursor:pointer;display:flex;align-items:center;justify-content:center;flex:none}
+      color:#b6bdc7;font-size:13px;cursor:pointer;display:flex;align-items:center;justify-content:center;flex:none}
   #annotPill button:hover{background:#2c313a;color:#fff}
-  #annotPill button.x{width:auto;height:28px;background:transparent;border:none;color:#6b7482;font-size:12px}
-  #annotPill button.x:hover{background:#2c313a;border:none;color:#e8eaed}
+  #annotPill button.x{width:auto;height:28px;background:transparent;border:none;color:#646d7b;font-size:12px}
+  #annotPill button.x:hover{background:#2c313a;border:none;color:#dbdfe5}
   #annotPill button#annotPillTarget{width:auto;height:28px;background:transparent;border:none;
-      color:#6b7482;font-size:12px}
+      color:#646d7b;font-size:12px}
   #annotPill button#annotPillTarget:hover,#annotPill button#annotPillTarget.set{background:#2c313a;border:none;color:#5b9dff}
   #tgMenu .it{display:flex;gap:8px;align-items:center;padding:7px 9px;border-radius:10px;cursor:pointer}
   #tgMenu .it:hover{background:rgba(255,255,255,.06)}
@@ -497,7 +503,7 @@ SEED_FAVS.forEach(f=>favs.add(f));
 const saveFavs = ()=>localStorage.setItem('figFavs', JSON.stringify([...favs]));
 saveFavs();
 const THEMES = {
-  'Default':   {bg:'#202024',card:'#27272a',card2:'#1f1f23',txt:'#e4e4e7',muted:'#a1a1aa',accent:'#5b9dff',border:'#3f3f46',arch:'#3a2f1a'},
+  'Default':   {bg:'#202024',card:'#27272a',card2:'#1f1f23',txt:'#dbdfe5',muted:'#a1a1aa',accent:'#5b9dff',border:'#3f3f46',arch:'#3a2f1a'},
   'Codex One': {bg:'#202024',card:'#2f343f',card2:'#21252b',txt:'#abb2bf',muted:'#7f848e',accent:'#4d78cc',border:'#3e4451',arch:'#3a2f1a'},
   'Dracula':   {bg:'#282a36',card:'#343746',card2:'#21222c',txt:'#f8f8f2',muted:'#9aa0b3',accent:'#bd93f9',border:'#44475a',arch:'#3a2f1a'},
   'Nord':      {bg:'#2e3440',card:'#3b4252',card2:'#272c36',txt:'#e5e9f0',muted:'#9aa3b2',accent:'#88c0d0',border:'#434c5e',arch:'#3a2f1a'}
@@ -599,7 +605,7 @@ function updateDelBtn(){
   const ex = document.getElementById('exportSel');
   ex.style.display = selSet.size ? '' : 'none';
   ex.textContent = '⤓ Export (' + selSet.size + ') ▾';
-  b.textContent = '🗑 Delete (' + selSet.size + ')';
+  b.innerHTML = '<svg width="11" height="11" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" style="vertical-align:-1px;margin-right:5px"><path d="M2.5 4h11M6.5 4V2.5h3V4M4 4l.8 9.5h6.4L12 4M6.5 7v4M9.5 7v4"/></svg>Delete (' + selSet.size + ')';
 }
 function toggleSel(rel, el, e){
   // Shift-click selects every card between the last-clicked one and this one (display order).
@@ -1161,14 +1167,21 @@ const FMT_CATS = [
   ['Données',  ['csv','xlsx','xls']],
   ['Code',     ['py','r','jl','tex','sh']],
 ];
+const FMT_ICONS = {
+  Images:'<svg viewBox="0 0 16 16" aria-hidden="true"><rect x="2.5" y="3" width="11" height="10" rx="1.8"/><circle cx="6" cy="6.2" r="1"/><path d="M3.5 11l3.1-3 2.2 2 1.4-1.3 2.3 2.3"/></svg>',
+  'Vidéos':'<svg viewBox="0 0 16 16" aria-hidden="true"><rect x="2.5" y="4" width="8" height="8" rx="1.8"/><path d="M10.5 6.5l3-1.7v6.4l-3-1.7z"/></svg>',
+  Documents:'<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M4 2.5h5.2L12 5.3v8.2H4z"/><path d="M9.2 2.5v3H12"/><path d="M6 8.3h4M6 10.5h3"/></svg>',
+  'Données':'<svg viewBox="0 0 16 16" aria-hidden="true"><rect x="2.5" y="3" width="11" height="10" rx="1.6"/><path d="M2.5 6.5h11M2.5 9.5h11M6 3v10M10 3v10"/></svg>',
+  Code:'<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M6.2 5L3.4 8l2.8 3M9.8 5l2.8 3-2.8 3"/></svg>',
+};
 let fmtDetail = false;
 const catState = (ks) => { const on = ks.filter(k=>exts[k]).length; return on===0?'off':on===ks.length?'on':'mix'; };
 function buildFmtMenu(){
   fmtMenu.innerHTML='<div class="mhd">Types de fichiers</div>'
     + '<div class="fmt-cats">'
-    + FMT_CATS.map(([lab,ks],i)=>`<button class="fmt-cat ${catState(ks)}" data-cat="${i}">${lab}</button>`).join('')
+    + FMT_CATS.map(([lab,ks],i)=>`<button class="fmt-cat ${catState(ks)}" data-cat="${i}">${FMT_ICONS[lab]||''}<span>${lab}</span></button>`).join('')
     + '</div>'
-    + `<div class="madd" style="justify-content:space-between;gap:10px"><span class="mlink" data-fmt-detail>${fmtDetail?'Masquer le détail':'Détail…'}</span><span class="mlink" data-fmt-all="reset">Réinitialiser</span></div>`
+    + `<div class="madd fmt-actions" style="justify-content:space-between;gap:10px"><span class="mlink" data-fmt-detail>${fmtDetail?'Masquer le détail':'Détail…'}</span><span class="mlink" data-fmt-all="reset">Réinitialiser</span></div>`
     + (fmtDetail ? TYPE_LIST.map(([e,lab])=>`<div class="mi"><label class="lbl"><input type="checkbox" data-fmt="${e}" ${exts[e]?'checked':''}> ${lab}</label></div>`).join('') : '');
   fmtMenu.onclick=e=>e.stopPropagation();
   fmtMenu.querySelectorAll('.fmt-cat').forEach(b=>{
@@ -1523,7 +1536,7 @@ function annotInit(){
     __atelierPost({type:'atelier-theme-request'});
   }
   if(ANNOT_EMBEDDED){const st=document.createElement('style');st.textContent='.embOnly{display:inline-block !important} .embHide{display:none !important}'
-      +':root{--bg:#212429;--card:#262b31;--card2:#2c313a;--txt:#e8eaed;--muted:#8a919e;--faint:#6b7482;--border:#333a45;--border-strong:#3f4652;--accent:#e8823a;--accent-soft:#3a2c20}'
+      +':root{--bg:#212429;--card:#262b31;--card2:#2c313a;--txt:#dbdfe5;--muted:#868d9a;--faint:#646d7b;--border:#333a45;--border-strong:#3f4652;--accent:#e8823a;--accent-soft:#3a2c20}'
       +'body{font-family:\'Inter Variable\',-apple-system,sans-serif}';document.head.appendChild(st);}
   async function annotPost(direct){
     const f=lbList[lbIdx], img=document.getElementById('lbImg');

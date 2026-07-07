@@ -21,6 +21,12 @@ import * as ledger from "./ledger.mjs";
 import * as zotero from "./zotero.mjs";
 import * as claude from "./providers/claude.mjs";
 import * as codex from "./providers/codex.mjs";
+import * as grok from "./providers/grok.mjs";
+import * as opencode from "./providers/opencode.mjs";
+import { listProviders } from "./providers/registry.mjs";
+import { loadApiProviderConfigs, writeApiProviderConfigs, makeApiProvider, fetchAvailableModels } from "./providers/openai_api.mjs";
+import { resolveBin, enrichPath } from "./bin_resolver.mjs";
+enrichPath(); // PATH Finder minimal → complété pour tous les spawns
 
 const APP_DIR = `${homedir()}/Library/Application Support/atelier-studio`;
 const PID_FILE = `${APP_DIR}/sidecar.pid`;
@@ -38,7 +44,19 @@ try {
 writeFileAtomic(PID_FILE, String(process.pid));
 
 const store = new ThreadStore(`${APP_DIR}/threads.json`);
-const providers = { claude, codex };
+const providers = { claude, codex, grok, opencode };
+const BUILTIN_PROVIDER_IDS = new Set(Object.keys(providers).concat("gemini"));
+// providers API OpenAI-compatible (api_providers.json) — chat pur, runtime dédié.
+// Rechargeable à chaud quand l'UI ajoute/modifie un provider.
+function reloadApiProviders() {
+  for (const id of Object.keys(providers)) {
+    if (!BUILTIN_PROVIDER_IDS.has(id)) delete providers[id];
+  }
+  for (const cfg of loadApiProviderConfigs()) {
+    if (!providers[cfg.id]) providers[cfg.id] = makeApiProvider(cfg);
+  }
+}
+reloadApiProviders();
 const ATELIER_TOKEN = process.env.ATELIER_TOKEN;
 const STARTED_AT = new Date().toISOString();
 const ATELIER_APP_VERSION = process.env.ATELIER_APP_VERSION || "dev";
@@ -85,10 +103,61 @@ for (const t of store.list()) {
   if (t.status === "running") store.upsert({ id: t.id, status: "idle" });
 }
 
-import { readdirSync, rmSync, existsSync } from "node:fs";
+import { readdirSync, rmSync, existsSync, statSync } from "node:fs";
 import { execFile } from "node:child_process";
 
 const PASTE_DIR = `${homedir()}/Library/Application Support/atelier-studio/pasted`;
+const SETTINGS_FILE = `${APP_DIR}/settings.json`;
+
+// miroir disque des réglages UI : survit aux redémarrages/mises à jour même si
+// le localStorage du webview est perdu (rebuild, signature ad-hoc, reset WebKit)
+function readSettingsFile() {
+  try {
+    return JSON.parse(readFileSync(SETTINGS_FILE, "utf8"));
+  } catch {
+    return null;
+  }
+}
+function writeSettingsFile(settings) {
+  if (!settings || typeof settings !== "object" || Array.isArray(settings)) return false;
+  try {
+    writeFileAtomic(SETTINGS_FILE, JSON.stringify(settings, null, 1));
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+const IMG_EXTS = new Set(["png", "jpg", "jpeg", "gif", "webp"]);
+function listPasted() {
+  const files = [];
+  try {
+    if (!existsSync(PASTE_DIR)) return files;
+    const entries = readdirSync(PASTE_DIR)
+      .map((name) => {
+        try {
+          const st = statSync(`${PASTE_DIR}/${name}`);
+          return st.isFile() ? { name, size: st.size, mtime: st.mtimeMs } : null;
+        } catch {
+          return null;
+        }
+      })
+      .filter(Boolean)
+      .sort((a, b) => b.mtime - a.mtime)
+      .slice(0, 48);
+    for (const entry of entries) {
+      const ext = entry.name.split(".").pop()?.toLowerCase() ?? "";
+      if (IMG_EXTS.has(ext) && entry.size <= 4_000_000) {
+        try {
+          const mime = ext === "jpg" ? "jpeg" : ext;
+          entry.dataURL = `data:image/${mime};base64,${readFileSync(`${PASTE_DIR}/${entry.name}`).toString("base64")}`;
+        } catch {}
+      }
+      files.push(entry);
+    }
+  } catch {}
+  return files;
+}
 
 function cleanup() {
   try { terminal.closeAll(); } catch {}
@@ -137,10 +206,24 @@ function clearPasted() {
   return n;
 }
 
+function versionFromPath(bin, binPath) {
+  if (bin === "gemini") {
+    try {
+      const real = fs.realpathSync(binPath);
+      const m = /\/gemini-cli\/([^/]+)\//.exec(real);
+      if (m?.[1]) return `gemini ${m[1]}`;
+    } catch {}
+  }
+  return null;
+}
+
 function cliVersion(bin) {
+  const path = resolveBin(bin);
+  if (!path) return Promise.resolve(null);
   return new Promise((resolve) => {
-    execFile(bin, ["--version"], { timeout: 8000 }, (err, stdout) => {
-      resolve(err ? null : String(stdout).trim().split("\n")[0]);
+    execFile(path, ["--version"], { timeout: 8000 }, (err, stdout) => {
+      const version = err ? null : String(stdout).trim().split("\n")[0];
+      resolve(version || versionFromPath(bin, path));
     });
   });
 }
@@ -206,11 +289,35 @@ function exportThread(thread, events, markdown) {
 }
 
 async function providerStatus() {
-  const [claudeV, codexV] = await Promise.all([cliVersion("claude"), cliVersion("codex")]);
-  return [
-    { id: "claude", label: "Claude Code", version: claudeV, ok: !!claudeV },
-    { id: "codex", label: "Codex", version: codexV, ok: !!codexV },
-  ];
+  return Promise.all(listProviders().map(async (provider) => {
+    let models = provider.models;
+    let defaultModel = provider.defaultModel;
+    const dynamicModels = providers[provider.id]?.listModels;
+    if (typeof dynamicModels === "function") {
+      try {
+        const discovered = await dynamicModels();
+        if (Array.isArray(discovered?.models) && discovered.models.length) {
+          models = discovered.models;
+          defaultModel = discovered.defaultModel ?? discovered.models[0] ?? defaultModel;
+        }
+      } catch {}
+    }
+    const base = {
+      id: provider.id,
+      label: provider.label,
+      kind: provider.kind,
+      models,
+      modelReasoning: provider.modelReasoning ?? {},
+      defaultModel,
+      efforts: provider.efforts,
+    };
+    if (provider.kind === "api") {
+      const st = providers[provider.id]?.status?.() ?? { ok: false };
+      return { ...base, version: st.ok ? "api" : null, ok: st.ok, keyMissing: !st.ok };
+    }
+    const version = await cliVersion(provider.bin);
+    return { ...base, version, ok: !!version };
+  }));
 }
 function saveImage(ext, base64) {
   mkdirSync(PASTE_DIR, { recursive: true });
@@ -225,6 +332,7 @@ const UI_PATH = `${APP_DIR}/ui.json`;
 function httpAuthorized(req) {
   return !ATELIER_TOKEN || req.headers["x-atelier-token"] === ATELIER_TOKEN;
 }
+
 const httpServer = createServer((req, res) => {
   res.setHeader("access-control-allow-origin", "*");
   res.setHeader("access-control-allow-methods", "GET,POST,OPTIONS");
@@ -239,6 +347,16 @@ const httpServer = createServer((req, res) => {
   if (url.pathname === "/health" && req.method === "GET") {
     res.setHeader("content-type", "application/json");
     res.end(JSON.stringify(health()));
+    return;
+  }
+  if (url.pathname === "/providers" && req.method === "GET") {
+    res.setHeader("content-type", "application/json");
+    providerStatus()
+      .then((providers) => res.end(JSON.stringify(providers)))
+      .catch(() => {
+        res.statusCode = 500;
+        res.end(JSON.stringify([]));
+      });
     return;
   }
   if (url.pathname === "/uistate" && req.method === "GET") {
@@ -308,6 +426,46 @@ wss.on("connection", (ws) => {
     saveImage,
     status,
     clearPasted,
+    listPasted,
+    readSettingsFile,
+    writeSettingsFile,
+    apiProviders: {
+      // liste SANS les clés (l'UI ne voit que keySet)
+      list: () => loadApiProviderConfigs().map(({ apiKey, ...rest }) => ({ ...rest, keySet: !!apiKey || !!(rest.apiKeyEnv && process.env[rest.apiKeyEnv]) })),
+      save: (entry) => {
+        const id = String(entry.id ?? "").trim().toLowerCase().replace(/[^a-z0-9_-]/g, "");
+        if (!id || BUILTIN_PROVIDER_IDS.has(id)) throw new Error(`id provider invalide: ${entry.id}`);
+        const configs = loadApiProviderConfigs();
+        const existing = configs.find((c) => c.id === id);
+        const modelMetadata = entry.modelMetadata && typeof entry.modelMetadata === "object"
+          ? entry.modelMetadata
+          : {};
+        const modelIds = (Array.isArray(entry.models) ? entry.models : String(entry.models ?? "").split(","))
+          .map((m) => String(m).trim()).filter(Boolean);
+        const next = {
+          id,
+          label: String(entry.label ?? id),
+          baseURL: String(entry.baseURL ?? "").replace(/\/+$/, ""),
+          protocol: entry.protocol === "anthropic" ? "anthropic" : "openai",
+          // clé vide → conserver l'existante (l'UI ne la connaît jamais)
+          apiKey: entry.apiKey ? String(entry.apiKey) : existing?.apiKey ?? null,
+          apiKeyEnv: entry.apiKeyEnv ? String(entry.apiKeyEnv) : existing?.apiKeyEnv ?? null,
+          models: modelIds.map((modelId) => {
+            const meta = modelMetadata[modelId];
+            return meta?.reasoning ? { id: modelId, label: meta.label, reasoning: meta.reasoning } : modelId;
+          }),
+          defaultModel: entry.defaultModel ? String(entry.defaultModel) : undefined,
+        };
+        if (!next.baseURL || !next.models.length) throw new Error("baseURL et au moins un modèle requis");
+        writeApiProviderConfigs([...configs.filter((c) => c.id !== id), next]);
+        reloadApiProviders();
+      },
+      remove: (id) => {
+        writeApiProviderConfigs(loadApiProviderConfigs().filter((c) => c.id !== id));
+        reloadApiProviders();
+      },
+      discoverModels: (entry) => fetchAvailableModels(entry),
+    },
     providerStatus,
     exportThread,
     terminal,

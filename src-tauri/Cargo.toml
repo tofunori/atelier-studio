@@ -27,3 +27,8 @@ md5 = "0.7"
 dirs = "5"
 fix-path-env = { git = "https://github.com/tauri-apps/fix-path-env-rs" }
 tauri-plugin-dialog = "2"
+block2 = "0.6.2"
+objc2 = "0.6.4"
+objc2-app-kit = "0.3.2"
+objc2-foundation = "0.3.2"
+objc2-user-notifications = "0.3.2"
