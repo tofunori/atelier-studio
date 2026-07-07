@@ -659,7 +659,7 @@ export async function handleEditorsPost(req, res, url) {
       // Persistent "hot" Claude process (haiku): the ~6-9s spawn cost is paid
       // once at boot, warm turns are ~2.5s. See claude_warm.mjs.
       const r = await warmSuggest(claude, PROJECT, claudeSuggestEnv(), { before, after });
-      if (r.busy) return sendJson(res, 200, { ok: false, text: "", busy: true, source: "claude-warm" });
+      if (r.superseded) return sendJson(res, 200, { ok: false, text: "", superseded: true, source: "claude-warm" });
       if (r.timeout) return sendJson(res, 200, { ok: false, text: "", error: "claude timeout", source: "claude-warm" });
       return sendJson(res, 200, {
         ok: Boolean(r.text),

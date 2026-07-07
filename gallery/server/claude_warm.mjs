@@ -46,6 +46,7 @@ let proc = null;
 let stdoutBuf = "";
 let turns = 0;
 let pending = null; // { resolve, timer } for the single in-flight turn
+let waiting = null; // { payload, resolve } — newest request queued behind the turn
 let bootConf = null; // { claudeBin, cwd, env } captured from the first call
 
 function killProc() {
@@ -54,6 +55,11 @@ function killProc() {
   stdoutBuf = "";
   turns = 0;
   if (p) {
+    // Detach handlers before killing: a dying process emits 'exit'/'error'
+    // asynchronously, and a stale handler must not settle/kill a freshly
+    // booted process (cross-turn corruption).
+    try { p.removeAllListeners(); } catch { /* already gone */ }
+    try { p.stdout && p.stdout.removeAllListeners(); } catch { /* already gone */ }
     try { p.kill("SIGKILL"); } catch { /* already gone */ }
   }
 }
@@ -113,37 +119,62 @@ function ensureAlive() {
   }
 }
 
+function drainWaiting() {
+  if (!waiting || pending) return;
+  const next = waiting;
+  waiting = null;
+  startTurn(next.payload, next.resolve);
+}
+
+function startTurn(payload, resolve) {
+  ensureAlive();
+  if (!proc) {
+    resolve({ text: "", busy: false });
+    return;
+  }
+  turns += 1;
+  const message = turnMessage(payload);
+  const timer = setTimeout(() => {
+    // Turn stalled: kill the process so a half-done turn can't corrupt the
+    // next one. The waiting request (if any) re-boots a clean process.
+    pending = null;
+    resolve({ text: "", busy: false, timeout: true });
+    killProc();
+    drainWaiting();
+  }, TURN_TIMEOUT_MS);
+  pending = {
+    resolve: (text) => {
+      resolve({ text, busy: false });
+      drainWaiting();
+    },
+    timer,
+  };
+  try {
+    proc.stdin.write(JSON.stringify({
+      type: "user",
+      message: { role: "user", content: [{ type: "text", text: message }] },
+    }) + "\n");
+  } catch {
+    settlePending("");
+    killProc();
+  }
+}
+
 /**
- * Request one completion from the hot process.
- * Returns { text, busy } — busy=true means a turn is already in flight and the
- * caller should keep its local ghost (single-flight, no backlog).
+ * Request one completion from the hot process (single-flight + trailing slot).
+ * If a turn is in flight, the request waits in a one-deep slot and runs as
+ * soon as the turn settles; a newer request replaces an older waiter, which
+ * resolves with { superseded: true }.
  */
 export async function warmSuggest(claudeBin, cwd, env, payload) {
   bootConf = { claudeBin, cwd, env };
-  if (pending) return { text: "", busy: true };
-  ensureAlive();
-  if (!proc) return { text: "", busy: false };
-
-  turns += 1;
-  const message = turnMessage(payload);
   return new Promise((resolve) => {
-    const timer = setTimeout(() => {
-      // Turn stalled: kill the process so a half-done turn can't queue behind
-      // the next request. Next call re-boots clean.
-      pending = null;
-      resolve({ text: "", busy: false, timeout: true });
-      killProc();
-    }, TURN_TIMEOUT_MS);
-    pending = { resolve: (text) => resolve({ text, busy: false }), timer };
-    try {
-      proc.stdin.write(JSON.stringify({
-        type: "user",
-        message: { role: "user", content: [{ type: "text", text: message }] },
-      }) + "\n");
-    } catch {
-      settlePending("");
-      killProc();
+    if (pending) {
+      if (waiting) waiting.resolve({ text: "", busy: false, superseded: true });
+      waiting = { payload, resolve };
+      return;
     }
+    startTurn(payload, resolve);
   });
 }
 
@@ -155,6 +186,10 @@ export function prewarm(claudeBin, cwd, env) {
 
 /** Cleanly stop the hot process (tests / shutdown). */
 export function stopWarm() {
+  if (waiting) {
+    waiting.resolve({ text: "", busy: false, superseded: true });
+    waiting = null;
+  }
   settlePending("");
   killProc();
 }
