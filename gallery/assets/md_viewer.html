@@ -11,9 +11,9 @@
 <script src="/.fig_thumbs/cm/mark-selection.min.js"></script>
 <script src="/.fig_thumbs/cm/markdown.min.js"></script>
 <style>
-:root{--bg:#202024;--card:#27272a;--card2:#1f1f23;--txt:#dbdfe5;--muted:#a1a1aa;--accent:#5b9dff;--border:#3f3f46}
+:root{--ui-font:-apple-system,'SF Pro Text','Inter Variable',sans-serif;--code-font:ui-monospace,'SF Mono',Menlo,monospace;--bg:#202024;--card:#27272a;--card2:#1f1f23;--txt:#dbdfe5;--muted:#a1a1aa;--accent:#5b9dff;--border:#3f3f46}
   html,body{margin:0;height:100%;background:var(--bg);color:var(--txt);
-       font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
+       font-family:var(--ui-font);
        font-size:15px;line-height:1.6;display:flex;flex-direction:column}
   header{background:var(--card);border-bottom:1px solid var(--border);padding:7px 14px;
          display:flex;gap:10px;align-items:center;font-size:13px;flex-shrink:0}
@@ -37,7 +37,7 @@
   #body{flex:1;display:flex;min-height:0}
   #edPane{flex:1;min-width:0;display:none;flex-direction:column;border-right:1px solid var(--border)}
   #edPane.show{display:flex}
-  .CodeMirror{flex:1;height:auto;font-size:13px;font-family:"SF Mono",Menlo,monospace;line-height:1.55}
+  .CodeMirror{flex:1;height:auto;font-size:13px;font-family:var(--code-font);line-height:1.55}
   .CodeMirror .CodeMirror-selected{background:transparent !important}
   .CodeMirror-focused .CodeMirror-selected{background:transparent !important}
   .CodeMirror-selectedtext{background:rgba(91,157,255,.45) !important;border-radius:2px}

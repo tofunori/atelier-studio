@@ -5,11 +5,11 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>__TITLE__</title>
 <style>
-  :root{ --bg:#141619; --card:#1c1f23; --card2:#22262b; --txt:#dbdfe5; --muted:#9aa1ab; --faint:#6b727c;
+  :root{--ui-font:-apple-system,'SF Pro Text','Inter Variable',sans-serif;--code-font:ui-monospace,'SF Mono',Menlo,monospace; --bg:#141619; --card:#1c1f23; --card2:#22262b; --txt:#dbdfe5; --muted:#9aa1ab; --faint:#6b727c;
          --accent:#7fa3d8; --accent-soft:#233246; --arch:#3a2f1a; --border:#2a2e34; --border-strong:#3a4048;
          --shadow:0 1px 2px rgba(0,0,0,.3),0 6px 20px rgba(0,0,0,.25); }
   *{box-sizing:border-box}
-  body{margin:0;font-family:-apple-system,"SF Pro Text",system-ui,"Segoe UI",sans-serif;
+  body{margin:0;font-family:var(--ui-font);
        background:var(--bg);color:var(--txt);font-size:13px}
   header{position:sticky;top:0;z-index:10;background:var(--card);background:color-mix(in srgb,var(--card) 92%,transparent);backdrop-filter:blur(8px);
          border-bottom:1px solid var(--border);padding:10px 16px 9px}
@@ -52,7 +52,7 @@
   @media (prefers-reduced-motion:reduce){.skel::after{animation:none}}
   .brand .logo{color:var(--txt);align-self:center;display:block}
   .brand .wm{font-size:15px;font-weight:600;letter-spacing:-.01em}
-  .brand .proj{font-size:12px;color:var(--muted);font-family:ui-monospace,SFMono-Regular,Menlo,monospace}
+  .brand .proj{font-size:12px;color:var(--muted);font-family:var(--code-font)}
   .brand .stat{margin-left:4px;font-size:12px;color:var(--faint);font-variant-numeric:tabular-nums}
   .controls{display:flex;flex-wrap:wrap;gap:6px;align-items:center}
   input[type=search]{flex:1;min-width:190px;padding:0 12px;border-radius:6px;border:1px solid var(--border);
@@ -91,7 +91,7 @@
   .menu .mi.muted,.menu .mi.muted:hover{color:var(--muted);background:none}
   .menu .mi.clr{color:#ff9b9b}
   .menu .lbl{cursor:pointer;flex:1;word-break:break-all}
-  .menu .lbl.mono{font-family:ui-monospace,Menlo,monospace;font-size:12px}
+  .menu .lbl.mono{font-family:var(--code-font);font-size:12px}
   .menu .ct{color:var(--muted);font-size:11px}
   .menu .x{cursor:pointer;color:#ff6b6b;padding:0 3px;flex-shrink:0}
   .menu .madd{display:flex;gap:5px;margin-top:5px;padding-top:6px;border-top:1px solid var(--border)}
@@ -122,14 +122,14 @@
       background:var(--card2);color:var(--muted);gap:6px}
   .ph .ext{font-size:30px;font-weight:600;letter-spacing:1px}
   .snip{height:var(--thumb-h,150px);overflow:hidden;background:var(--card2);padding:9px 11px;
-        font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:10px;
+        font-family:var(--code-font);font-size:10px;
         line-height:1.4;color:#9aa6b6;white-space:pre;tab-size:2;
         -webkit-mask-image:linear-gradient(#000 72%,transparent);mask-image:linear-gradient(#000 72%,transparent)}
   .meta{padding:9px 11px 10px;display:flex;flex-direction:column;gap:3px;flex:1}
   .nm{font-size:13px;font-weight:600;letter-spacing:-.005em;line-height:1.35;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
   .fld{font-size:11px;color:var(--muted);word-break:break-all}
   .row2{display:flex;gap:7px;align-items:center;font-size:11px;color:var(--muted);min-width:0;margin-top:auto}
-  .row2 .mf{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-family:ui-monospace,Menlo,monospace;font-size:11px}
+  .row2 .mf{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-family:var(--code-font);font-size:11px}
   .row2 .md{flex:none;color:var(--faint);font-variant-numeric:tabular-nums}
   .row2 .fv,.row2 .rt{color:#c79a3b;flex:none}
   .row{display:flex;gap:8px;align-items:center;font-size:11px;color:var(--muted);margin-top:auto}
@@ -1532,12 +1532,14 @@ function annotInit(){
         '--muted':'--muted','--muted2':'--faint','--border':'--border',
         '--border2':'--border-strong','--accent':'--accent'};
       for(var k in map){ if(v[k]) document.documentElement.style.setProperty(map[k], v[k]); }
+      if(v['--ui-font']) document.documentElement.style.setProperty('--ui-font', v['--ui-font']);
+      if(v['--code-font']) document.documentElement.style.setProperty('--code-font', v['--code-font']);
     });
     __atelierPost({type:'atelier-theme-request'});
   }
   if(ANNOT_EMBEDDED){const st=document.createElement('style');st.textContent='.embOnly{display:inline-block !important} .embHide{display:none !important}'
       +':root{--bg:#212429;--card:#262b31;--card2:#2c313a;--txt:#dbdfe5;--muted:#868d9a;--faint:#646d7b;--border:#333a45;--border-strong:#3f4652;--accent:#e8823a;--accent-soft:#3a2c20}'
-      +'body{font-family:\'Inter Variable\',-apple-system,sans-serif}';document.head.appendChild(st);}
+      +'body{font-family:var(--ui-font)}';document.head.appendChild(st);}
   async function annotPost(direct){
     const f=lbList[lbIdx], img=document.getElementById('lbImg');
     const scale=Math.min(1, 2200/img.naturalWidth);

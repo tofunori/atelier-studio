@@ -137,6 +137,21 @@ function loadProjects(): string[] {
   }
 }
 
+// piles de police canoniques (mêmes valeurs que src/App.css et les :root des iframes)
+const CANON_UI_FONT = "-apple-system, 'SF Pro Text', 'Inter Variable', sans-serif";
+const CANON_CODE_FONT = "ui-monospace, 'SF Mono', Menlo, monospace";
+
+// vars de thème poussées aux iframes : couleurs du preset + police effective
+// (police custom de l'utilisateur si définie, sinon la pile canonique) — garantit
+// une police uniforme dans la galerie et les visionneuses comme dans l'app.
+function themeVars(settings: Settings): Record<string, string> {
+  return {
+    ...presetById(settings.themePreset).vars,
+    "--ui-font": settings.uiFont ? `'${settings.uiFont}', ${CANON_UI_FONT}` : CANON_UI_FONT,
+    "--code-font": settings.codeFont ? `'${settings.codeFont}', ${CANON_CODE_FONT}` : CANON_CODE_FONT,
+  };
+}
+
 export default function App() {
   const atelierNonceRef = useRef(crypto.randomUUID());
   const atelierNonce = atelierNonceRef.current;
@@ -241,7 +256,7 @@ export default function App() {
         const message: AtelierOutboundMessage = {
           type: "atelier-theme",
           nonce: atelierNonce,
-          vars: presetById(settings.themePreset).vars,
+          vars: themeVars(settings),
         };
         iframe.contentWindow?.postMessage(message, targetOrigin);
       });
@@ -976,7 +991,7 @@ export default function App() {
         const message: AtelierOutboundMessage = {
           type: "atelier-theme",
           nonce: atelierNonce,
-          vars: presetById(settingsRef.current.themePreset).vars,
+          vars: themeVars(settingsRef.current),
         };
         (e.source as Window).postMessage(message, e.origin);
       }
@@ -1471,6 +1486,7 @@ export default function App() {
           onSelectThread={(id) => { const th = allThreads.find((t) => t.id === id); if (th) selectThread(id, th.projectRoot); }}
           onSelectProject={setActiveProject}
           onAddProject={addProject}
+          onNew={(root) => (root ? newThread(root) : activeProject ? newThread(activeProject) : newChat())}
           onExpand={() => setCompact(false)}
           onSettings={() => setShowSettings((v) => !v)}
           onSetMeta={(root, m) => setProjMeta((p) => ({ ...p, [root]: m }))}

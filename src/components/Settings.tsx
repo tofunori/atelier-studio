@@ -7,6 +7,7 @@ import { Select } from "./Select";
 
 const SECTIONS = [
   { id: "general", labelKey: "settings.general" },
+  { id: "setup", labelKey: "settings.setup" },
   { id: "apparence", labelKey: "settings.appearance" },
   { id: "modeles", labelKey: "settings.models" },
   { id: "review", labelKey: "settings.review" },
@@ -33,6 +34,25 @@ const CODEX_MODELS = [
   { id: "gpt-5.4-mini", label: "GPT-5.4 mini" },
   { id: "gpt-5.3-codex-spark", label: "Codex Spark" },
 ];
+
+type SetupProvider = {
+  id: string;
+  label: string;
+  kind: "cli" | "api";
+  installed: boolean;
+  version: string | null;
+  binPath: string | null;
+  auth: string;
+  models: number;
+  defaultModel?: string | null;
+  modelError?: string | null;
+};
+
+type SetupStatus = {
+  runtime: { node: string; version: string; bundled: boolean };
+  sidecar: { pid: number; startedAt: string; appVersion: string; bundleHash: string; dir: string };
+  providers: SetupProvider[];
+};
 
 function modelLabel(m: { label?: string; labelKey?: string }) {
   return m.labelKey === "common.default-cli" ? t("common.default-cli") : m.label ?? "";
@@ -127,6 +147,7 @@ export default function SettingsPage(p: {
   const [themeQuery, setThemeQuery] = useState("");
   const [status, setStatus] = useState<{ port: number | null; pastedCount: number; pasteDir: string } | null>(null);
   const [provs, setProvs] = useState<{ id: string; label: string; version: string | null; ok: boolean; kind?: "cli" | "api" }[] | null>(null);
+  const [setup, setSetup] = useState<SetupStatus | null>(null);
   const [retitleStatus, setRetitleStatus] = useState("");
   const [apiProvs, setApiProvs] = useState<{
     id: string; label: string; baseURL: string; protocol: "openai" | "anthropic";
@@ -153,6 +174,7 @@ export default function SettingsPage(p: {
       const m = JSON.parse(e.data);
       if (m.type === "status") setStatus(m);
       if (m.type === "providerStatus") setProvs(m.providers);
+      if (m.type === "setupStatus") setSetup(m.status ?? null);
       if (m.type === "apiProviders") setApiProvs(m.providers ?? []);
       if (m.type === "apiModels") {
         setApiModelsBusy(false);
@@ -171,6 +193,7 @@ export default function SettingsPage(p: {
     p.ws.addEventListener("message", onMsg);
     p.ws.send(JSON.stringify({ type: "status" }));
     p.ws.send(JSON.stringify({ type: "providerStatus" }));
+    p.ws.send(JSON.stringify({ type: "setupStatus" }));
     p.ws.send(JSON.stringify({ type: "apiProviders" }));
     p.ws.send(JSON.stringify({ type: "listPasted" }));
     return () => p.ws?.removeEventListener("message", onMsg);
@@ -180,6 +203,29 @@ export default function SettingsPage(p: {
     th.name.toLowerCase().includes(themeQuery.toLowerCase()));
   const currentTheme = themeMatches.find((th) => th.id === s.themePreset);
   const otherThemes = themeMatches.filter((th) => th.id !== s.themePreset);
+
+  function refreshSetup() {
+    if (p.ws?.readyState === 1) p.ws.send(JSON.stringify({ type: "setupStatus" }));
+  }
+
+  function authLabel(auth: string) {
+    const labels: Record<string, string> = {
+      ready: t("settings.setup-auth-ready"),
+      missing_key: t("settings.setup-auth-key"),
+      login_needed: t("settings.setup-auth-login"),
+      login_or_models_needed: t("settings.setup-auth-login-models"),
+      check_provider_config: t("settings.setup-auth-provider-config"),
+      not_installed: t("settings.setup-auth-not-installed"),
+      unknown: t("settings.setup-auth-unknown"),
+    };
+    return labels[auth] ?? auth;
+  }
+
+  function authClass(auth: string) {
+    if (auth === "ready") return "ok";
+    if (auth === "check_provider_config" || auth === "unknown") return "warn";
+    return "ko";
+  }
 
   function themeRow(th: (typeof THEME_PRESETS)[number]) {
     const on = s.themePreset === th.id;
@@ -334,6 +380,55 @@ export default function SettingsPage(p: {
                 </button>
               </Row>
             </Group>
+          </>
+        )}
+        {section === "setup" && (
+          <>
+            <div className="set-headline">
+              <div>
+                <h1>{t("settings.setup")}</h1>
+                <p className="set-sub">{t("settings.setup-sub")}</p>
+              </div>
+              <button className="set-btn quiet" onClick={refreshSetup}>{t("action.refresh")}</button>
+            </div>
+            {!setup && <p className="set-empty">{t("settings.checking")}</p>}
+            {setup && (
+              <>
+                <Group label={t("settings.setup-runtime")}>
+                  <Row title={t("settings.setup-node")}
+                    desc={`${setup.runtime.version} — ${setup.runtime.node}`}>
+                    <span className={`set-badge ${setup.runtime.bundled ? "ok" : "warn"}`}>
+                      {setup.runtime.bundled ? t("settings.setup-bundled") : t("settings.setup-system")}
+                    </span>
+                  </Row>
+                  <Row title={t("settings.setup-sidecar")}
+                    desc={`${setup.sidecar.appVersion} · pid ${setup.sidecar.pid} · ${setup.sidecar.dir}`}>
+                    <span className={`set-badge ${p.ws?.readyState === 1 ? "ok" : "ko"}`}>
+                      {p.ws?.readyState === 1 ? t("settings.connected") : t("settings.disconnected")}
+                    </span>
+                  </Row>
+                </Group>
+                <Group label={t("settings.setup-providers")}>
+                  {setup.providers.map((pr) => (
+                    <Row key={pr.id} title={pr.label}
+                      desc={pr.kind === "api"
+                        ? `${t("settings.provider-api")} · ${pr.defaultModel ?? ""}`
+                        : (pr.binPath || t("settings.path-missing"))}>
+                      <span className={`set-badge ${pr.installed ? "ok" : "ko"}`}>
+                        {pr.installed ? t("settings.detected") : t("settings.absent")}
+                      </span>
+                      <span className={`set-badge ${authClass(pr.auth)}`}>
+                        {authLabel(pr.auth)}
+                      </span>
+                      <span className="setup-model-count">
+                        {pr.models} {t("settings.api-models-count")}
+                      </span>
+                      {pr.version && <span className="setup-version">{pr.version}</span>}
+                    </Row>
+                  ))}
+                </Group>
+              </>
+            )}
           </>
         )}
         {section === "apparence" && (

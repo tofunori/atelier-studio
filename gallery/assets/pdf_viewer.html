@@ -14,8 +14,8 @@
 <script src="/.fig_thumbs/pdfjs/pdf.min.js"></script>
 <script src="annot_kit.js"></script>
 <style>
-  :root{--bg:#202024;--card:#27272a;--card2:#1f1f23;--txt:#dbdfe5;--muted:#a1a1aa;--accent:#5b9dff;--border:#3f3f46}
-  body{margin:0;background:var(--bg);color:var(--txt);font-family:-apple-system,sans-serif}
+  :root{--ui-font:-apple-system,'SF Pro Text','Inter Variable',sans-serif;--code-font:ui-monospace,'SF Mono',Menlo,monospace;--bg:#202024;--card:#27272a;--card2:#1f1f23;--txt:#dbdfe5;--muted:#a1a1aa;--accent:#5b9dff;--border:#3f3f46}
+  body{margin:0;background:var(--bg);color:var(--txt);font-family:var(--ui-font)}
   .zoomctl{display:inline-flex;align-items:center;border:1px solid var(--border);border-radius:6px;overflow:hidden;margin-left:8px;flex:none}
   .zoomctl button{background:transparent;border:none;color:var(--muted,#868d9a);font-size:12px;padding:3px 8px;cursor:pointer;font-variant-numeric:tabular-nums;line-height:1.4}
   .zoomctl button:hover{background:var(--card2,#2c313a);color:var(--txt,#dbdfe5)}
@@ -39,7 +39,7 @@
   #pdftools .cdot.con{outline:2px solid #5b9dff}
   #annotPop{position:fixed;z-index:9999;display:none;background:#1b1f26;border:1px solid #333a45;
     border-radius:10px;padding:10px;box-shadow:0 10px 28px rgba(0,0,0,.55);
-    font-family:-apple-system,sans-serif;font-size:13px;color:#dbdfe5;width:230px}
+    font-family:var(--ui-font);font-size:13px;color:#dbdfe5;width:230px}
   #annotPop input{width:100%;box-sizing:border-box;background:#2c313a;border:1px solid #3a414d;
     border-radius:6px;color:inherit;padding:5px 8px;font-size:13px;outline:none;margin-bottom:8px}
   #annotPop .row{display:flex;gap:6px;align-items:center}
@@ -120,7 +120,7 @@ async function main(){
   } catch(e) {
     const p = document.getElementById("pages");
     p.textContent = "Unable to load PDF: " + (rel || "") + " — " + ((e && e.message) || e);  // textContent = XSS-safe
-    p.style.cssText = "color:#ff6b6b;padding:40px;text-align:center;font-family:-apple-system,sans-serif";
+    p.style.cssText = "color:#ff6b6b;padding:40px;text-align:center;font-family:var(--ui-font)";
     return;
   }
   const wrap = document.getElementById("pages");

@@ -139,11 +139,9 @@ function maybeInjectSelectionOverlay(req, res, file, urlPath) {
 async function handleStatic(req, res, url) {
   const urlPath = url.pathname;
   if (urlPath === "/" && req.method === "GET" && await serveLiveShell(res)) return true;
-  let file = projectStaticPath(urlPath);
-  if (!file || !fs.existsSync(file)) {
-    const asset = assetFallbackPath(urlPath);
-    if (asset && fs.existsSync(asset)) file = asset;
-  }
+  const asset = assetFallbackPath(urlPath);
+  let file = asset && fs.existsSync(asset) ? asset : null;
+  if (!file) file = projectStaticPath(urlPath);
   if (!file || !fs.existsSync(file) || !fs.statSync(file).isFile()) return false;
   if (VIDEO_EXTS.has(path.extname(file).toLowerCase())) return serveVideo(req, res, file);
   if (req.method === "GET" && maybeInjectSelectionOverlay(req, res, file, urlPath)) return true;

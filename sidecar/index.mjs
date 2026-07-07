@@ -228,6 +228,104 @@ function cliVersion(bin) {
   });
 }
 
+function fileExists(p) {
+  try {
+    return existsSync(p);
+  } catch {
+    return false;
+  }
+}
+
+function authHintForProvider(provider, modelError) {
+  if (provider.kind === "api") {
+    const st = providers[provider.id]?.status?.() ?? { ok: false };
+    return st.ok ? "ready" : "missing_key";
+  }
+  if (provider.id === "claude") {
+    return fileExists(`${homedir()}/.claude/.credentials.json`) ||
+      fileExists(`${homedir()}/.claude/daemon-auth-status.json`)
+      ? "ready"
+      : "login_needed";
+  }
+  if (provider.id === "codex") {
+    return fileExists(`${homedir()}/.codex/auth.json`) ? "ready" : "login_needed";
+  }
+  if (provider.id === "grok") {
+    return modelError ? "login_or_models_needed" : "ready";
+  }
+  if (provider.id === "opencode") {
+    return "check_provider_config";
+  }
+  return "unknown";
+}
+
+async function setupStatus() {
+  const runtimeNodePath = process.execPath;
+  const runtimeBundled = runtimeNodePath.includes(".app/Contents/Resources/");
+  const providerRows = await Promise.all(listProviders().map(async (provider) => {
+    const binPath = provider.bin ? resolveBin(provider.bin) : null;
+    let version = null;
+    let models = provider.models;
+    let defaultModel = provider.defaultModel;
+    let modelError = null;
+    if (provider.kind === "api") {
+      const st = providers[provider.id]?.status?.() ?? { ok: false };
+      return {
+        id: provider.id,
+        label: provider.label,
+        kind: provider.kind,
+        installed: st.ok,
+        version: st.ok ? "api" : null,
+        binPath: null,
+        auth: st.ok ? "ready" : "missing_key",
+        models: provider.models.length,
+        defaultModel,
+        modelError: null,
+      };
+    }
+    if (binPath) version = await cliVersion(provider.bin);
+    const dynamicModels = providers[provider.id]?.listModels;
+    if (typeof dynamicModels === "function" && binPath) {
+      try {
+        const discovered = await dynamicModels(3500);
+        if (Array.isArray(discovered?.models) && discovered.models.length) {
+          models = discovered.models;
+          defaultModel = discovered.defaultModel ?? discovered.models[0] ?? defaultModel;
+        }
+      } catch (e) {
+        modelError = String(e?.message ?? e);
+      }
+    }
+    return {
+      id: provider.id,
+      label: provider.label,
+      kind: provider.kind,
+      installed: !!binPath,
+      version,
+      binPath,
+      auth: binPath ? authHintForProvider(provider, modelError) : "not_installed",
+      models: models.length,
+      defaultModel,
+      modelError,
+    };
+  }));
+  return {
+    runtime: {
+      node: runtimeNodePath,
+      version: process.version,
+      bundled: runtimeBundled,
+    },
+    sidecar: {
+      pid: process.pid,
+      startedAt: STARTED_AT,
+      appVersion: ATELIER_APP_VERSION,
+      bundleHash: ATELIER_BUNDLE_HASH,
+      dir: SIDECAR_DIR,
+    },
+    providers: providerRows,
+  };
+}
+
 // scan des serveurs locaux pour la page "nouvel onglet" du navigateur
 import net from "node:net";
 // ports UTILES seulement : pas le dev-server de l'app (1420) ni les serveurs
@@ -373,6 +471,16 @@ const httpServer = createServer((req, res) => {
     });
     return;
   }
+  if (url.pathname === "/setup" && req.method === "GET") {
+    res.setHeader("content-type", "application/json");
+    setupStatus()
+      .then((status) => res.end(JSON.stringify(status)))
+      .catch((e) => {
+        res.statusCode = 500;
+        res.end(JSON.stringify({ error: String(e?.message ?? e) }));
+      });
+    return;
+  }
   res.statusCode = 404;
   res.end();
 });
@@ -429,6 +537,7 @@ wss.on("connection", (ws) => {
     listPasted,
     readSettingsFile,
     writeSettingsFile,
+    setupStatus,
     apiProviders: {
       // liste SANS les clés (l'UI ne voit que keySet)
       list: () => loadApiProviderConfigs().map(({ apiKey, ...rest }) => ({ ...rest, keySet: !!apiKey || !!(rest.apiKeyEnv && process.env[rest.apiKeyEnv]) })),

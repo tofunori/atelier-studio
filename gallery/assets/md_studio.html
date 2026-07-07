@@ -15,9 +15,9 @@
 })();</script>
 <script src="/.fig_thumbs/toastui/toastui-editor-all.min.js"></script>
 <style>
-  :root{--bg:#212429;--bar:#1a1d22;--border:#333a45;--fg:#dbdfe5;--muted:#868d9a}
+  :root{--ui-font:-apple-system,'SF Pro Text','Inter Variable',sans-serif;--code-font:ui-monospace,'SF Mono',Menlo,monospace;--bg:#212429;--bar:#1a1d22;--border:#333a45;--fg:#dbdfe5;--muted:#868d9a}
   html,body{margin:0;height:100%;background:var(--bg);color:var(--fg);
-    font-family:-apple-system,'SF Pro Text',sans-serif}
+    font-family:var(--ui-font)}
   #bar{display:flex;align-items:center;gap:8px;padding:6px 10px;background:var(--bar);
     border-bottom:1px solid var(--border);font-size:13px}
   #fname{font-weight:600}
@@ -127,7 +127,7 @@ if(window.self !== window.top){
   pill.innerHTML = '<svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" style="vertical-align:-2px"><path d="M14 8c0 3-2.7 5.2-6 5.2-.8 0-1.6-.1-2.3-.4L2.5 14l1-2.6C2.6 10.5 2 9.3 2 8c0-3 2.7-5.2 6-5.2S14 5 14 8z"/></svg>&nbsp; Add to chat';
   pill.style.cssText = "position:fixed;z-index:9999;display:none;background:#2c313a;color:#dbdfe5;"
     + "border:1px solid #3a414d;border-radius:999px;padding:7px 14px;font-size:13px;cursor:pointer;"
-    + "box-shadow:0 6px 18px rgba(0,0,0,.5);font-family:-apple-system,sans-serif";
+    + "box-shadow:0 6px 18px rgba(0,0,0,.5);font-family:var(--ui-font)";
   document.body.appendChild(pill);
   let selTxt = "";
   pill.addEventListener("mousedown", (e) => {

@@ -294,6 +294,10 @@ export async function route(msg, ctx) {
       ctx.send({ type: "providerStatus", providers: await ctx.providerStatus() });
       break;
     }
+    case "setupStatus": {
+      ctx.send({ type: "setupStatus", status: await ctx.setupStatus?.() });
+      break;
+    }
     case "apiProviders": {
       ctx.send({ type: "apiProviders", providers: ctx.apiProviders?.list() ?? [] });
       break;
@@ -818,6 +822,16 @@ export async function route(msg, ctx) {
         ctx.store.upsert({ id: threadId, sessionId: null, resumeAt: null });
         prev = ctx.store.get(threadId);
         emit({ type: "event", threadId, event: { kind: "tool", name: `__provider-switch:${provider}` } });
+      }
+      // garde-fou : un thread Claude ne peut reprendre qu'un UUID Claude. Si le
+      // sessionId stocké n'est pas un UUID (ex. id « ses_… » hérité d'un autre
+      // provider comme opencode), on repart sur une session neuve au lieu de
+      // planter avec « --resume <valeur> is not a UUID ».
+      if (provider === "claude" && prev?.sessionId &&
+          !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(prev.sessionId)) {
+        ctx.providers.claude.endSession?.(threadId);
+        ctx.store.upsert({ id: threadId, sessionId: null, resumeAt: null });
+        prev = ctx.store.get(threadId);
       }
       ctx.store.upsert({
         id: threadId,

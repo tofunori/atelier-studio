@@ -871,7 +871,8 @@ export default function Chat(p: {
     return () => window.removeEventListener("click", close);
   }, [menuOpen, effortMenuOpen]);
   useEffect(() => {
-    if (menuOpen) setModelMenuProvider(provider);
+    // cascade : à l'ouverture, ne montrer QUE la liste des providers (sous-menu fermé)
+    if (menuOpen) setModelMenuProvider("");
   }, [menuOpen, provider]);
   const [editing, setEditing] = useState<{ index: number; text: string } | null>(null);
   const [openToolGroups, setOpenToolGroups] = useState<Set<string>>(new Set());
@@ -1086,6 +1087,7 @@ export default function Chat(p: {
 
   return (
     <div className="chat">
+      <div className="chat-dragbar" data-tauri-drag-region />
       <button className="expand-btn" title={p.layout === "chat" ? t("action.restore-split-chat") : t("chat.full")}
         onClick={p.onToggleExpand}>
         {p.layout === "chat" ? <CollapseIcon /> : <ExpandIcon />}
@@ -1945,7 +1947,7 @@ export default function Chat(p: {
             <button
               type="button"
               className="mp-btn"
-              onClick={() => { setMenuOpen((v) => !v); setEffortMenuOpen(false); }}
+              onClick={() => { setMenuOpen((v) => !v); setModelMenuProvider(""); setEffortMenuOpen(false); }}
             >
               <ProviderIcon provider={provider} />
               <span className={!model ? "mp-dim" : undefined}>{modelButtonLabel}</span>
@@ -1959,7 +1961,7 @@ export default function Chat(p: {
                 { providerOrder: p.defaults.providerOrder ?? [], hiddenProviders: p.defaults.hiddenProviders ?? [] },
                 provider,
               );
-              const menuInfo = visibleProviders.find((info) => info.id === modelMenuProvider) ?? visibleProviders[0];
+              const menuInfo = visibleProviders.find((info) => info.id === modelMenuProvider) ?? null;
               const menuProvider = menuInfo?.id ?? provider;
               const menuModels = sortByFav(modelsFor(menuProvider), menuProvider);
               return (
@@ -1975,15 +1977,16 @@ export default function Chat(p: {
                           key={pv}
                           type="button"
                           className={`model-provider-row ${active ? "active" : ""} ${selected ? "selected" : ""}`}
-                          onClick={() => setModelMenuProvider(pv)}
+                          onClick={() => setModelMenuProvider(active ? "" : pv)}
                         >
                           <ProviderIcon provider={pv} size={12} />
                           <span>{info.label}</span>
-                          <small>{count || "CLI"}</small>
+                          <small className="mp-chev">{count ? count : ""} ›</small>
                         </button>
                       );
                     })}
                   </div>
+                  {menuInfo && (
                   <div className="model-list">
                     <div className="model-list-head">
                       <span>
@@ -2045,6 +2048,7 @@ export default function Chat(p: {
                       </>
                     )}
                   </div>
+                  )}
                 </div>
               );
             })()}

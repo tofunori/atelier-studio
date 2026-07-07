@@ -30,6 +30,7 @@ export default function Rail(p: {
   onSelectThread: (id: string) => void;
   onSelectProject: (root: string) => void;
   onAddProject: () => void;
+  onNew: (projectRoot: string) => void;
   onExpand: () => void;
   onSettings: () => void;
   onSetMeta: (root: string, meta: ProjMeta) => void;
@@ -56,8 +57,16 @@ export default function Rail(p: {
   return (
     <div className="rail" onClick={() => setMenu(null)}>
       <button className="rail-btn" title={t("action.expand-sidebar")} onClick={p.onExpand}>
-        <SidebarIcon />
+        <SidebarIcon size={19} />
       </button>
+      <button className="rail-btn" title={t("action.new-chat")}
+        onClick={() => p.onNew(p.activeProject ?? "")}>
+        <svg width="19" height="19" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="0.95" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M13.5 8.5v4a1.5 1.5 0 0 1-1.5 1.5H4a1.5 1.5 0 0 1-1.5-1.5V4A1.5 1.5 0 0 1 4 2.5h4" />
+          <path d="M12.3 2.3l1.4 1.4L8 9.4l-2 .6.6-2z" />
+        </svg>
+      </button>
+      <div className="rail-sep" />
       {p.projects.map((root) => {
         const m = p.meta[root];
         const active = root === p.activeProject;
@@ -81,17 +90,17 @@ export default function Rail(p: {
               setMenu({ root, y: e.clientY });
             }}
           >
-            {m?.label?.startsWith("icon:") ? <ProjIcon name={m.label.slice(5)} size={14} /> : projInitial(root, m)}
+            {m?.label?.startsWith("icon:") ? <ProjIcon name={m.label.slice(5)} size={18} /> : projInitial(root, m)}
             {p.running.has(root) && <span className="rail-dot" />}
           </button>
         );
       })}
       <button className="rail-btn" title={t("action.add-project")} onClick={p.onAddProject}>
-        <PlusIcon />
+        <PlusIcon size={19} />
       </button>
       <span className="flex" />
       <button className="rail-btn" title={t("action.settings")} onClick={p.onSettings}>
-        <SettingsIcon />
+        <SettingsIcon size={19} />
       </button>
       {fly && (
         <>
@@ -99,6 +108,13 @@ export default function Rail(p: {
           <div className="rail-flyout" onClick={(e) => e.stopPropagation()}>
             <div className="fly-head">
               <span className="fly-name">{(p.meta[fly]?.label?.startsWith("icon:") ? null : p.meta[fly]?.label) || fly.split("/").pop()}</span>
+              <button className="fly-pin" title={t("action.new-chat")}
+                onClick={() => { p.onNew(fly); if (!pinned) setFly(null); }}>
+                <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M13.5 8.5v4a1.5 1.5 0 0 1-1.5 1.5H4a1.5 1.5 0 0 1-1.5-1.5V4A1.5 1.5 0 0 1 4 2.5h4" />
+                  <path d="M12.3 2.3l1.4 1.4L8 9.4l-2 .6.6-2z" />
+                </svg>
+              </button>
               <button className={`fly-pin ${pinned ? "on" : ""}`} title={pinned ? t("rail.unpin") : t("rail.pin")}
                 onClick={() => setPinned((v) => !v)}>
                 <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"><path d="M9.5 2l4.5 4.5-2.4.6-2.6 4.4-1.5-1.5L3 14.5 6 10l-1.5-1.5L8.9 5.9z"/></svg>
