@@ -124,3 +124,64 @@ describe("route", () => {
     expect(emitted.at(-1)).toMatchObject({ type: "retitleAllDone", scanned: 3, renamed: 3 });
   });
 });
+
+describe("quickAsk", () => {
+  // laisse se dérouler les microtâches du .then/.catch de p.run(...)
+  const flush = () => new Promise((r) => setTimeout(r, 0));
+
+  it("isole chaque qaId dans sa propre session (jamais threadId null)", async () => {
+    const calls = [];
+    const ctx = {
+      send: () => {},
+      providers: {
+        claude: {
+          run: (opts) => {
+            calls.push(opts);
+            return Promise.resolve({ sessionId: "s-" + opts.threadId });
+          },
+          endSession: () => {},
+        },
+      },
+    };
+    await route({ type: "quickAsk", qaId: "a", prompt: "salut" }, ctx);
+    await route({ type: "quickAsk", qaId: "b", prompt: "coucou" }, ctx);
+    await flush();
+    expect(calls.map((c) => c.threadId)).toEqual(["qa:a", "qa:b"]);
+    expect(calls.some((c) => c.threadId === null)).toBe(false);
+  });
+
+  it("ferme la session (endSession) après le tour, keyée par qaId", async () => {
+    const ended = [];
+    const ctx = {
+      send: () => {},
+      providers: {
+        claude: {
+          run: () => Promise.resolve({ sessionId: "1234-abcd" }),
+          endSession: (tid) => ended.push(tid),
+        },
+      },
+    };
+    await route({ type: "quickAsk", qaId: "a", prompt: "salut" }, ctx);
+    await flush();
+    expect(ended).toContain("qa:a");
+  });
+
+  it("passe permissionMode bypassPermissions au provider", async () => {
+    let captured;
+    const ctx = {
+      send: () => {},
+      providers: {
+        claude: {
+          run: (opts) => {
+            captured = opts;
+            return Promise.resolve({ sessionId: "x" });
+          },
+          endSession: () => {},
+        },
+      },
+    };
+    await route({ type: "quickAsk", qaId: "a", prompt: "salut" }, ctx);
+    await flush();
+    expect(captured.permissionMode).toBe("bypassPermissions");
+  });
+});

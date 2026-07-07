@@ -711,19 +711,31 @@ export async function route(msg, ctx) {
       const prev = ctx.qaSessions.get(qaId);
       const emitQa = (event) => ctx.send({ type: "qaEvent", qaId, event });
       p.run({
-        threadId: null,
+        // session isolée par qaId : sans clé propre, toutes les Quick Ask
+        // partageraient la session persistante keyée `null` et se contamineraient
+        threadId: `qa:${qaId}`,
         cwd: process.env.HOME,
         prompt,
         sessionId: prev?.sessionId ?? null,
         model: model || undefined,
         effort: effort || undefined,
-        permissionMode: "default",
+        // bypassPermissions : en mode "default" sans relais onPermissionRequest,
+        // le SDK n'installe pas canUseTool et refuse silencieusement tout outil.
+        // Quick Ask tourne dans process.env.HOME comme les threads normaux, qui
+        // utilisent déjà bypassPermissions par défaut.
+        permissionMode: "bypassPermissions",
         onEvent: emitQa,
       })
         .then(({ sessionId }) => {
           if (sessionId) ctx.qaSessions.set(qaId, { provider, sessionId });
+          // le tour est fini : fermer la session streaming pour qu'une prochaine
+          // Quick Ask (même qaId ou promue) reparte d'un état propre
+          ctx.providers?.claude?.endSession?.(`qa:${qaId}`);
         })
-        .catch((e) => emitQa({ kind: "error", message: String(e?.message ?? e) }));
+        .catch((e) => {
+          emitQa({ kind: "error", message: String(e?.message ?? e) });
+          ctx.providers?.claude?.endSession?.(`qa:${qaId}`);
+        });
       break;
     }
     case "qaPromote": {
