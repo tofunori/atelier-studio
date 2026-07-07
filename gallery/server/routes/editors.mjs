@@ -54,6 +54,24 @@ async function findExecutable(name) {
   return null;
 }
 
+async function findClaudeCode() {
+  const hit = await findExecutable("claude");
+  if (hit) return hit;
+  for (const p of [
+    path.join(os.homedir(), ".local/bin/claude"),
+    path.join(os.homedir(), ".claude/local/claude"),
+    "/opt/homebrew/bin/claude",
+    "/usr/local/bin/claude",
+  ]) {
+    try {
+      if (fs.existsSync(p) && fs.statSync(p).isFile()) return p;
+    } catch {
+      // keep trying the usual install locations
+    }
+  }
+  return null;
+}
+
 async function findChrome() {
   for (const p of [
     "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
@@ -244,6 +262,49 @@ function spawnBuilderDataOnly() {
     stdio: "ignore",
   });
   child.unref();
+}
+
+function latexSuggestPrompt(payload) {
+  const before = String(payload.before || "").slice(-2200);
+  const after = String(payload.after || "").slice(0, 500);
+  return [
+    "You are an inline LaTeX prose completion engine.",
+    "Return only the exact text to insert at the cursor.",
+    "Rules:",
+    "- Return 1 to 8 words, maximum 80 characters.",
+    "- No markdown, no quotes, no explanation.",
+    "- If the cursor is in a LaTeX command, math, citation, reference, label, path, or comment, return an empty string.",
+    "- If the token before the cursor is partial, return only the missing suffix and do not repeat typed letters.",
+    "- Match the author's language and style.",
+    "",
+    "TEXT BEFORE CURSOR:",
+    before,
+    "",
+    "TEXT AFTER CURSOR:",
+    after,
+    "",
+    "INSERTION:"
+  ].join("\n");
+}
+
+function normalizeSuggestion(text) {
+  let out = String(text || "")
+    .replace(/\x1b\[[0-9;]*m/g, "")
+    .replace(/```[\s\S]*?```/g, "")
+    .split(/\r?\n/)[0]
+    .replace(/^["'`«»“”\s]+|["'`«»“”\s]+$/g, "")
+    .replace(/\s+/g, " ")
+    .slice(0, 120)
+    .trim();
+  if (/^(none|null|empty|n\/a)$/i.test(out)) out = "";
+  return out;
+}
+
+function claudeSuggestEnv() {
+  const env = { ...process.env };
+  delete env.ANTHROPIC_API_KEY;
+  delete env.ANTHROPIC_AUTH_TOKEN;
+  return env;
 }
 
 async function handleRasterize(req, res, url) {
@@ -605,6 +666,39 @@ export async function handleEditorsPost(req, res, url) {
         if (line.startsWith("Input:")) out.input = line.split(":").slice(1).join(":");
       }
       return sendJson(res, 200, Object.keys(out).length ? out : { error: "no match" });
+    } catch (error) {
+      return sendJson(res, 400, { error: `bad request: ${String(error.message || error)}` });
+    }
+  }
+  if (pathname === "/latex-suggest") {
+    try {
+      const payload = await readJsonRequest(req, 128 * 1024);
+      const before = String(payload.before || "");
+      const after = String(payload.after || "");
+      if (!before.trim()) return sendJson(res, 200, { ok: true, text: "", source: "empty" });
+      const claude = await findClaudeCode();
+      if (!claude) return sendJson(res, 200, { ok: false, text: "", error: "claude CLI not found" });
+      const r = await spawnCollect(claude, [
+        "-p",
+        "--model", String(payload.model || "sonnet"),
+        "--no-session-persistence",
+        "--disallowedTools", "Bash,Edit,Write,Read,Grep,Glob,Task,WebFetch,WebSearch,NotebookEdit",
+      ], {
+        cwd: PROJECT,
+        env: claudeSuggestEnv(),
+        input: latexSuggestPrompt({ before, after }),
+        timeoutMs: 9000,
+      });
+      if (r.timeout) return sendJson(res, 200, { ok: false, text: "", error: "claude timeout" });
+      if (r.code !== 0) {
+        return sendJson(res, 200, { ok: false, text: "", error: normalizeSuggestion(r.out) || "claude failed" });
+      }
+      return sendJson(res, 200, {
+        ok: true,
+        text: normalizeSuggestion(r.out),
+        source: "claude-code",
+        model: String(payload.model || "sonnet"),
+      });
     } catch (error) {
       return sendJson(res, 400, { error: `bad request: ${String(error.message || error)}` });
     }
