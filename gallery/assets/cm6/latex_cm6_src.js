@@ -20,6 +20,12 @@ let aiTimer = 0;
 let aiController = null;
 let aiSeq = 0;
 
+const aiCache = new LruCache(50);
+
+function aiCacheKey(ctx) {
+  return ctx.before + "\u0000" + ctx.after;
+}
+
 const DEMO_DOC = "\\documentclass{article}\n\\begin{\n\n";
 
 const COMMANDS = [
@@ -244,6 +250,17 @@ function normalizeAiText(text) {
 function scheduleAiGhost(v, ctx) {
   clearTimeout(aiTimer);
   const seq = ++aiSeq;
+
+  // Instant path: this exact context was completed before (backspace/retype,
+  // revisited spot). No debounce, no network.
+  const cached = aiCache.get(aiCacheKey(ctx));
+  if (cached) {
+    const text = ctx.needsLeadingSpace ? " " + cached : cached;
+    v.dispatch({effects: setGhost.of({pos: ctx.pos, text, source: "ai"})});
+    setState(canSave ? "AI ready" : "demo AI ready");
+    return;
+  }
+
   aiTimer = setTimeout(async () => {
     if (!aiEnabled || !view || view !== v) return;
     const live = aiContext(v.state);
@@ -255,16 +272,18 @@ function scheduleAiGhost(v, ctx) {
       const r = await fetch("/latex-suggest", {
         method: "POST",
         headers: {"Content-Type": "application/json"},
-        body: JSON.stringify({before: ctx.before, after: ctx.after, model: "sonnet"}),
+        body: JSON.stringify({before: ctx.before, after: ctx.after}),
         signal: aiController.signal
       });
       const j = await r.json();
       if (seq !== aiSeq || !view || view !== v) return;
+      if (j.superseded) return; // a newer request replaced this one server-side
       const now = aiContext(v.state);
       if (!now || now.key !== ctx.key || ghostFor(v.state)) return;
-      let text = normalizeAiText(j.text);
-      if (text && ctx.needsLeadingSpace) text = " " + text;
+      const bare = normalizeAiText(j.text);
+      const text = bare && ctx.needsLeadingSpace ? " " + bare : bare;
       if (j.ok && text) {
+        aiCache.set(aiCacheKey(ctx), bare);
         v.dispatch({effects: setGhost.of({pos: ctx.pos, text, source: "ai"})});
         setState(canSave ? "AI ready" : "demo AI ready");
       } else if (!j.ok && j.error) {
