@@ -1,5 +1,11 @@
 import { getSessionMessages } from "@anthropic-ai/claude-agent-sdk";
 import { stripHandoff } from "./handoff.mjs";
+import { toolDetail } from "./providers/claude.mjs";
+
+// Balises d'injections systèmes à filtrer (reminders, commandes, notifications) —
+// on ne rejette QUE ces familles connues, pas tout message commençant par « < ».
+const SYSTEM_TAG =
+  /^<(system-reminder|command-name|command-message|command-args|local-command-stdout|local-command-stderr|task-notification|system-warning)\b/;
 
 function userText(msg) {
   const c = msg?.content;
@@ -28,9 +34,9 @@ export async function findRevertPoint(sessionId, cwd, text) {
   return { found: true, uuid: null };
 }
 
-/** Reconstruit les events d'affichage depuis une session Claude persistée. */
-export async function claudeHistory(sessionId, cwd) {
-  const msgs = await getSessionMessages(sessionId, cwd ? { dir: cwd } : undefined);
+/** Transforme les messages persistés d'une session en events d'affichage.
+ *  Fonction pure (sans I/O) pour rester testable. */
+export function eventsFromSessionMessages(msgs) {
   const events = [];
   for (const m of msgs) {
     const msg = m.message;
@@ -47,17 +53,24 @@ export async function claudeHistory(sessionId, cwd) {
           .join("\n");
       }
       text = stripHandoff(text.trim());
-      // filtrer les injections systèmes (reminders, etc.)
-      if (text && !text.startsWith("<")) {
+      // filtrer uniquement les injections systèmes connues (garder « <div>… » légitime)
+      if (text && !SYSTEM_TAG.test(text)) {
         events.push({ kind: "user", text });
       }
     }
     if (m.type === "assistant" && Array.isArray(msg.content)) {
       for (const b of msg.content) {
         if (b.type === "text" && b.text?.trim()) events.push({ kind: "text", text: b.text });
-        if (b.type === "tool_use") events.push({ kind: "tool", name: b.name });
+        if (b.type === "tool_use")
+          events.push({ kind: "tool", name: b.name, detail: toolDetail(b.name, b.input) });
       }
     }
   }
   return events;
+}
+
+/** Reconstruit les events d'affichage depuis une session Claude persistée. */
+export async function claudeHistory(sessionId, cwd) {
+  const msgs = await getSessionMessages(sessionId, cwd ? { dir: cwd } : undefined);
+  return eventsFromSessionMessages(msgs);
 }
