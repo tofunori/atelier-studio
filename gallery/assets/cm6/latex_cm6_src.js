@@ -3,6 +3,7 @@ import {EditorView, Decoration, WidgetType, keymap} from "@codemirror/view";
 import {defaultKeymap, historyKeymap, insertTab} from "@codemirror/commands";
 import {autocompletion, acceptCompletion, closeCompletion, startCompletion} from "@codemirror/autocomplete";
 import {basicSetup} from "codemirror";
+import {advanceGhost, LruCache} from "./ghost_logic.mjs";
 
 const params = new URLSearchParams(location.search);
 const path = params.get("path") || "";
@@ -301,19 +302,47 @@ class GhostWidget extends WidgetType {
 }
 
 const setGhost = StateEffect.define();
+
+function ghostValue(pos, text, source) {
+  const deco = text
+    ? Decoration.set([Decoration.widget({widget: new GhostWidget(text, source), side: 1}).range(pos)])
+    : Decoration.none;
+  return {pos, text: text || "", source: source || "", deco};
+}
+
+// If the transaction is a single plain insertion exactly at the ghost anchor
+// and the inserted text matches the ghost prefix, advance the ghost instead of
+// dropping it. Returns the new field value, or null when the ghost cannot
+// survive this change.
+function advancedGhostValue(value, changes) {
+  let single = null;
+  let count = 0;
+  changes.iterChanges((fromA, toA, fromB, toB, inserted) => {
+    count += 1;
+    single = {fromA, toA, text: inserted.toString()};
+  });
+  if (count !== 1 || !single || single.fromA !== single.toA) return null; // not a plain insertion
+  if (single.fromA !== value.pos) return null;                            // typed elsewhere
+  const rest = advanceGhost(value.text, single.text);
+  if (rest === null) return null;                                         // mismatch
+  return ghostValue(value.pos + single.text.length, rest, value.source);
+}
+
 const ghostField = StateField.define({
   create() {
-    return {pos: 0, text: "", source: "", deco: Decoration.none};
+    return ghostValue(0, "", "");
   },
   update(value, tr) {
-    value = {...value, pos: tr.changes.mapPos(value.pos), deco: value.deco.map(tr.changes)};
+    if (tr.docChanged && value.text) {
+      const advanced = advancedGhostValue(value, tr.changes);
+      value = advanced || ghostValue(tr.changes.mapPos(value.pos), "", "");
+    } else if (tr.docChanged) {
+      value = {...value, pos: tr.changes.mapPos(value.pos), deco: value.deco.map(tr.changes)};
+    }
     for (const effect of tr.effects) {
       if (effect.is(setGhost)) {
         const next = effect.value || {pos: 0, text: ""};
-        const deco = next.text
-          ? Decoration.set([Decoration.widget({widget: new GhostWidget(next.text, next.source), side: 1}).range(next.pos)])
-          : Decoration.none;
-        value = {pos: next.pos, text: next.text || "", source: next.source || "", deco};
+        value = ghostValue(next.pos, next.text, next.source);
       }
     }
     return value;
@@ -421,7 +450,21 @@ function mountEditor(doc) {
             dirty = true;
             setState(canSave ? "modified" : "demo edited");
           }
-          if (update.docChanged || update.selectionSet) refreshGhost(update.view);
+          if (update.docChanged) {
+            const kept = update.state.field(ghostField, false);
+            if (kept && kept.text) {
+              // The ghost auto-advanced in the field (user typed its prefix):
+              // keep it, cancel any pending AI request, skip recomputation.
+              cancelAiGhost();
+              setState(kept.source === "ai"
+                ? (canSave ? "AI ready" : "demo AI ready")
+                : (canSave ? "local ready" : "demo local ready"));
+            } else {
+              refreshGhost(update.view);
+            }
+          } else if (update.selectionSet) {
+            refreshGhost(update.view);
+          }
         }),
         Prec.highest(keymap.of([
           {key: "Tab", run: (v) => acceptGhost(v) || acceptCompletion(v) || insertTab(v)},
