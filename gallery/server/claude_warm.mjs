@@ -85,6 +85,7 @@ function boot({ claudeBin, cwd, env }) {
     "--verbose",                       // required for stream-json output
     "--setting-sources", "project",    // skip the user's global hooks
     "--system-prompt", SYSTEM_PROMPT,  // no CLAUDE.md / skills scan
+    "--disallowedTools", "Bash,Edit,Write,Read,Grep,Glob,Task,WebFetch,WebSearch,NotebookEdit",
   ], { cwd, env: childEnv, stdio: ["pipe", "pipe", "ignore"] });
 
   stdoutBuf = "";
