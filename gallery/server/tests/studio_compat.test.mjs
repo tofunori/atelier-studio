@@ -1,0 +1,26 @@
+import test from "node:test";
+import assert from "node:assert/strict";
+import { clampPos, countColumn, cm5KeyToCm6 } from "../../assets/cm6/studio_compat.mjs";
+
+test("clampPos: in-bounds position passes through", () => {
+  assert.deepEqual(clampPos({line: 1, ch: 3}, 5, () => 10), {line: 1, ch: 3});
+});
+test("clampPos: line beyond end clamps to last line, ch to its length", () => {
+  assert.deepEqual(clampPos({line: 99, ch: 4}, 3, (l) => l === 2 ? 7 : 0), {line: 2, ch: 4});
+  assert.deepEqual(clampPos({line: 99, ch: 40}, 3, (l) => l === 2 ? 7 : 0), {line: 2, ch: 7});
+});
+test("clampPos: negative values clamp to zero", () => {
+  assert.deepEqual(clampPos({line: -2, ch: -5}, 3, () => 8), {line: 0, ch: 0});
+});
+test("countColumn: leading spaces and tabs", () => {
+  assert.equal(countColumn("    x", null, 4), 4);
+  assert.equal(countColumn("\tx", null, 4), 4);
+  assert.equal(countColumn("\t  x", null, 4), 6);
+  assert.equal(countColumn("", null, 4), 0);
+});
+test("cm5KeyToCm6 mappings", () => {
+  assert.equal(cm5KeyToCm6("Alt-Q"), "Alt-q");
+  assert.equal(cm5KeyToCm6("Esc"), "Escape");
+  assert.equal(cm5KeyToCm6("Tab"), "Tab");
+  assert.equal(cm5KeyToCm6("Shift-Cmd-F"), "Shift-Cmd-f");
+});
