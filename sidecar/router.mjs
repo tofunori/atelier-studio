@@ -858,6 +858,7 @@ export async function route(msg, ctx) {
         const tools = [];
         const snapshotSha = await snapshotBeforeProvider(ctx, threadId);
         const turn = { threadId, projectRoot, provider, model, effort, prompt, tools, snapshotSha, lastText: "" };
+        try {
         p.send({
           threadId,
           cwd: projectRoot || process.env.HOME,
@@ -899,6 +900,13 @@ export async function route(msg, ctx) {
             }
           },
         });
+        } catch (e) {
+          // p.send synchrone a levé après le passage en "running" : miroir du
+          // .catch du chemin p.run — remettre le thread au repos + émettre l'erreur.
+          ctx.store.upsert({ id: threadId, status: "idle" });
+          emit({ type: "event", threadId, event: { kind: "error", message: String(e?.message ?? e) } });
+          emit({ type: "threads", threads: ctx.store.list() });
+        }
         break;
       }
 
