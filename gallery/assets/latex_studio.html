@@ -857,6 +857,9 @@ async function load(){
       highlightSelectionMatches: { annotateScrollbar: true, minChars: 3 }
     });
   }
+  // expose the editor: #findBtn and the py-lint path guard on window.cm, and a
+  // top-level `let cm` in a classic <script> is NOT a window property.
+  window.cm = cm;
   cm.on("cursorActivity", () => {
     const c = cm.getCursor();
     const el = document.getElementById("sbPos");
