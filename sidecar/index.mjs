@@ -103,6 +103,20 @@ for (const t of store.list()) {
   if (t.status === "running") store.upsert({ id: t.id, status: "idle" });
 }
 
+// migration : threads Claude portant un sessionId qui n'est pas un UUID Claude.
+// Un id « ses_… » vient d'opencode (mal étiqueté claude pendant les smoke tests) :
+// on rétablit le vrai provider pour qu'il reprenne. Tout autre id non-UUID est
+// illisible par claude --resume → on repart sur une session neuve.
+const CLAUDE_UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+for (const t of store.list()) {
+  if (t.provider !== "claude" || !t.sessionId || CLAUDE_UUID.test(t.sessionId)) continue;
+  if (String(t.sessionId).startsWith("ses_")) {
+    store.upsert({ id: t.id, provider: "opencode" });
+  } else {
+    store.upsert({ id: t.id, sessionId: null, resumeAt: null });
+  }
+}
+
 import { readdirSync, rmSync, existsSync, statSync } from "node:fs";
 import { execFile } from "node:child_process";
 

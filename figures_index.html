@@ -55,6 +55,11 @@
   .brand .proj{font-size:12px;color:var(--muted);font-family:var(--code-font)}
   .brand .stat{margin-left:4px;font-size:12px;color:var(--faint);font-variant-numeric:tabular-nums}
   .controls{display:flex;flex-wrap:wrap;gap:6px;align-items:center}
+  /* mode embarqué (iframe Atelier) : header compact sur une rangée —
+     la marque/projet/stat sont déjà dans le chrome de l'app */
+  html.emb .brand{display:none}
+  html.emb header{padding:6px 10px}
+  html.emb .controls .ctrl-sp{flex:1}
   input[type=search]{flex:1;min-width:190px;padding:0 12px;border-radius:6px;border:1px solid var(--border);
         background:var(--bg);color:var(--txt);font-size:13px;height:30px}
   input[type=search]:focus{outline:none;border-color:var(--accent)}
@@ -916,6 +921,12 @@ function toolOpenTab(endpoint, page){
   const fb=()=>toolOpenLightbox(page);
   fetch(endpoint,{method:'POST',headers:{'Content-Type':'application/json'},
     body:JSON.stringify({host})}).then(r=>{ if(!r.ok) fb(); }).catch(fb);
+}
+if(window.self!==window.top){
+  document.documentElement.classList.add('emb');
+  const ctr=document.querySelector('.controls');
+  const sp=document.createElement('span'); sp.className='ctrl-sp'; ctr.appendChild(sp);
+  for(const id of ['boardChip','notesChip','viewChip']) ctr.appendChild(document.getElementById(id));
 }
 document.getElementById('boardChip').onclick=()=>toolOpenTab('/board/open-surface','whiteboard');
 document.getElementById('notesChip').onclick=()=>toolOpenTab('/notes/open-surface','notes');

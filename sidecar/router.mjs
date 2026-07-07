@@ -821,7 +821,6 @@ export async function route(msg, ctx) {
         }
         ctx.store.upsert({ id: threadId, sessionId: null, resumeAt: null });
         prev = ctx.store.get(threadId);
-        emit({ type: "event", threadId, event: { kind: "tool", name: `__provider-switch:${provider}` } });
       }
       // garde-fou : un thread Claude ne peut reprendre qu'un UUID Claude. Si le
       // sessionId stocké n'est pas un UUID (ex. id « ses_… » hérité d'un autre

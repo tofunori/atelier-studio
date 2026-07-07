@@ -1581,7 +1581,7 @@ export default function App() {
         />
       )}
     <PanelGroup direction="horizontal" className="app">
-      <Panel id="chat" order={2} minSize={layout === "atelier" ? 0 : 30}
+      <Panel id="chat" order={2} defaultSize={50} minSize={layout === "atelier" ? 0 : 30}
         style={{ display: layout === "atelier" ? "none" : undefined }}>
         {annotation && (
           <div className="annot-banner">
@@ -1796,7 +1796,7 @@ export default function App() {
       {showAtelier && activeProject && (
         <>
           <PanelResizeHandle className="handle" onDragging={setDragging} />
-          <Panel id="atelier" order={3} defaultSize={38} minSize={20}>
+          <Panel id="atelier" order={3} defaultSize={50} minSize={20}>
             <AtelierPane
               url={atelierUrl ?? ""}
               layout={layout}
