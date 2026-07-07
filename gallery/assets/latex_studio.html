@@ -788,7 +788,10 @@ function ghostShow(text){
   span.className = "cm-ghost-suggest";
   span.innerHTML = ghostEscape(text).replace(/ /g, "&nbsp;");
   ghostText = text;
-  ghostMark = cm.setBookmark(cm.getCursor(), {widget: span, insertLeft: false});
+  // insertLeft:true = le texte tapé sur le bookmark s'insère À GAUCHE du widget,
+  // donc le caret reste AVANT le ghost. Avec false (défaut CM5), la frappe
+  // atterrissait après le mot prédit → curseur qui "saute" à la fin du ghost.
+  ghostMark = cm.setBookmark(cm.getCursor(), {widget: span, insertLeft: true});
 }
 function ghostUpdate(delay){
   clearTimeout(ghostTimer);
