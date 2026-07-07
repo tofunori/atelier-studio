@@ -18,6 +18,7 @@ import {
   spawnCollect,
   statMtimeSeconds,
 } from "../shared.mjs";
+import { warmSuggest } from "../claude_warm.mjs";
 
 const THUMB_DIR = path.join(PROJECT, ".fig_thumbs");
 const BUILDER = path.join(SERVER_DIR, "builder.mjs");
@@ -262,29 +263,6 @@ function spawnBuilderDataOnly() {
     stdio: "ignore",
   });
   child.unref();
-}
-
-function latexSuggestPrompt(payload) {
-  const before = String(payload.before || "").slice(-2200);
-  const after = String(payload.after || "").slice(0, 500);
-  return [
-    "You are an inline LaTeX prose completion engine.",
-    "Return only the exact text to insert at the cursor.",
-    "Rules:",
-    "- Return 1 to 8 words, maximum 80 characters.",
-    "- No markdown, no quotes, no explanation.",
-    "- If the cursor is in a LaTeX command, math, citation, reference, label, path, or comment, return an empty string.",
-    "- If the token before the cursor is partial, return only the missing suffix and do not repeat typed letters.",
-    "- Match the author's language and style.",
-    "",
-    "TEXT BEFORE CURSOR:",
-    before,
-    "",
-    "TEXT AFTER CURSOR:",
-    after,
-    "",
-    "INSERTION:"
-  ].join("\n");
 }
 
 function normalizeSuggestion(text) {
@@ -678,26 +656,16 @@ export async function handleEditorsPost(req, res, url) {
       if (!before.trim()) return sendJson(res, 200, { ok: true, text: "", source: "empty" });
       const claude = await findClaudeCode();
       if (!claude) return sendJson(res, 200, { ok: false, text: "", error: "claude CLI not found" });
-      const r = await spawnCollect(claude, [
-        "-p",
-        "--model", String(payload.model || "sonnet"),
-        "--no-session-persistence",
-        "--disallowedTools", "Bash,Edit,Write,Read,Grep,Glob,Task,WebFetch,WebSearch,NotebookEdit",
-      ], {
-        cwd: PROJECT,
-        env: claudeSuggestEnv(),
-        input: latexSuggestPrompt({ before, after }),
-        timeoutMs: 20000,
-      });
-      if (r.timeout) return sendJson(res, 200, { ok: false, text: "", error: "claude timeout" });
-      if (r.code !== 0) {
-        return sendJson(res, 200, { ok: false, text: "", error: normalizeSuggestion(r.out) || "claude failed" });
-      }
+      // Persistent "hot" Claude process (haiku): the ~6-9s spawn cost is paid
+      // once at boot, warm turns are ~2.5s. See claude_warm.mjs.
+      const r = await warmSuggest(claude, PROJECT, claudeSuggestEnv(), { before, after });
+      if (r.busy) return sendJson(res, 200, { ok: false, text: "", busy: true, source: "claude-warm" });
+      if (r.timeout) return sendJson(res, 200, { ok: false, text: "", error: "claude timeout", source: "claude-warm" });
       return sendJson(res, 200, {
-        ok: true,
-        text: normalizeSuggestion(r.out),
-        source: "claude-code",
-        model: String(payload.model || "sonnet"),
+        ok: Boolean(r.text),
+        text: normalizeSuggestion(r.text),
+        source: "claude-warm",
+        model: "haiku",
       });
     } catch (error) {
       return sendJson(res, 400, { error: `bad request: ${String(error.message || error)}` });

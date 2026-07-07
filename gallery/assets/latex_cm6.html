@@ -1,0 +1,49 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>LaTeX CM6 Prototype</title>
+<style>
+:root{--ui-font:-apple-system,'SF Pro Text',sans-serif;--code-font:ui-monospace,'SF Mono',Menlo,monospace;--bg:#212429;--card:#1a1d22;--txt:#dbdfe5;--muted:#868d9a;--accent:#e8823a;--border:#333a45}
+html,body{margin:0;height:100%;background:var(--bg);color:var(--txt);font-family:var(--ui-font);overflow:hidden}
+body{display:flex;flex-direction:column}
+header{height:38px;display:flex;align-items:center;gap:8px;padding:0 10px;background:var(--card);border-bottom:1px solid var(--border);font-size:13px}
+header b{font-weight:600;max-width:360px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+header span{color:var(--muted)}
+header .spacer{flex:1}
+button{height:26px;border-radius:6px;border:1px solid var(--border);background:transparent;color:var(--txt);font:12px var(--ui-font);padding:0 10px;cursor:pointer}
+button:hover{border-color:var(--accent);color:var(--accent)}
+button.active{border-color:rgba(232,130,58,.65);color:var(--accent);background:rgba(232,130,58,.1)}
+#state{min-width:160px;text-align:right;color:var(--muted);font-size:12px}
+#editor{flex:1;min-height:0}
+.cm-editor{height:100%;background:#1e2126;color:var(--txt);font:13px/1.62 var(--code-font)}
+.cm-scroller{font-family:var(--code-font)}
+.cm-gutters{background:#1e2126;color:#565e6b;border-right:1px solid transparent}
+.cm-activeLine,.cm-activeLineGutter{background:rgba(255,255,255,.035)}
+.cm-cursor{border-left-color:var(--accent)}
+.cm-selectionBackground{background:rgba(232,130,58,.32)!important}
+.cm-content{padding:10px 0}
+.cm-line{padding:0 14px 0 10px}
+.cm-ghostText{color:#b8c0cc;opacity:1;pointer-events:none;background:rgba(184,192,204,.09);border-bottom:1px dotted rgba(184,192,204,.42)}
+.cm-ghostText-ai{color:#c4d0e2;background:rgba(124,153,206,.12);border-bottom-color:rgba(124,153,206,.55)}
+.cm-ghostText::after{content:"Tab";display:inline-block;margin-left:8px;padding:0 5px;border:1px solid #3a414d;border-radius:4px;color:#646d7b;font:10px/1.4 var(--ui-font);vertical-align:1px;opacity:.85}
+.cm-ghostText-ai::after{content:"AI Tab"}
+.cm-tooltip-autocomplete{background:#1b1f26;border:1px solid #333a45;border-radius:8px;box-shadow:0 10px 30px rgba(0,0,0,.45);overflow:hidden}
+.cm-tooltip-autocomplete ul{font-family:var(--ui-font);font-size:12px}
+.cm-tooltip-autocomplete ul li[aria-selected]{background:#2c313a;color:var(--txt)}
+.cm-completionDetail{color:#868d9a;margin-left:10px}
+</style>
+</head>
+<body>
+<header>
+  <b id="fname">CM6 LaTeX</b>
+  <span>prototype</span>
+  <span class="spacer"></span>
+  <button id="ai" title="Claude inline prediction">AI</button>
+  <button id="save">Save</button>
+  <span id="state"></span>
+</header>
+<div id="editor"></div>
+<script src="/.fig_thumbs/cm6/latex_cm6.bundle.js"></script>
+</body>
+</html>
