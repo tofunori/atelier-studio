@@ -647,10 +647,14 @@ export default function Chat(p: {
     // compte dans scrollHeight et gonfle la boîte au montage (largeur pas prête)
     if (text === "") {
       ta.style.height = "";
+      ta.style.overflowY = "";
       return;
     }
     ta.style.height = "auto";
     ta.style.height = Math.min(ta.scrollHeight, 220) + "px";
+    // au plafond 220px : réactiver le scroll (le CSS le cache pour éviter la
+    // scrollbar fantôme due à l'arrondi WebKit d'1px)
+    ta.style.overflowY = ta.scrollHeight > 220 ? "auto" : "";
   }, [text]);
   const [provider, setProvider] = useState<string>("claude");
   const [model, setModel] = useState("");

@@ -1051,7 +1051,9 @@ button.ghost.danger, button.ghost.danger:hover { color: #d98c8f; background: rgb
 .theme-strip span { flex: 1; }
 .browser-body { flex: 1; min-width: 0; min-height: 0; position: relative; overflow: hidden;
   display: flex; flex-direction: column; }
-.ta-wrap textarea { min-height: 22px; height: 22px; }
+/* overflow caché : l'arrondi WebKit (15px × 1.45 = 21.75px) déborde d'1px et
+   affichait la scrollbar overlay ; l'auto-resize repasse en auto au plafond 220px */
+.ta-wrap textarea { min-height: 22px; height: 22px; overflow-y: hidden; }
 .plus-up { bottom: 34px; left: 0; right: auto; min-width: 240px; }
 .toggle { margin-left: auto; width: 32px; height: 18px; border-radius: var(--r-pill);
   background: var(--bg-ctl); position: relative; transition: background 0.15s; flex-shrink: 0; }
