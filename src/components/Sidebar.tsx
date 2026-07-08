@@ -31,7 +31,7 @@ function threadRoot(t: Thread): string {
   return typeof (t as any).projectRoot === "string" ? (t as any).projectRoot : "";
 }
 
-function rawThreadTitle(t: Thread): string {
+export function rawThreadTitle(t: Thread): string {
   const raw = (t as any).title;
   return typeof raw === "string" && raw.trim() ? raw : "Sans titre";
 }

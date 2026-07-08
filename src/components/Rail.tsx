@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { t } from "../lib/i18n";
 import { PlusIcon, SettingsIcon, SidebarIcon } from "./icons";
-import { PROJ_ICONS, ProjIcon, threadTitle, recencyLabelKey, withRecencySections } from "./Sidebar";
+import { PROJ_ICONS, ProjIcon, threadTitle, rawThreadTitle, recencyLabelKey, withRecencySections } from "./Sidebar";
 import { ProviderIcon } from "./icons";
 import type { Thread } from "../lib/ws";
 
@@ -35,10 +35,17 @@ export default function Rail(p: {
   onSettings: () => void;
   onSetMeta: (root: string, meta: ProjMeta) => void;
   onReorder: (from: string, to: string) => void;
+  favorites: string[];
+  onToggleFavorite: (id: string) => void;
+  onDeleteThread: (id: string) => void;
+  onRenameThread: (id: string, title: string) => void;
 }) {
   const [menu, setMenu] = useState<{ root: string; y: number } | null>(null);
   const [dragRoot, setDragRoot] = useState<string | null>(null);
   const [dragOver, setDragOver] = useState<string | null>(null);
+  const [chatMenu, setChatMenu] = useState<{ id: string; x: number; y: number } | null>(null);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editText, setEditText] = useState("");
   const [labelDraft, setLabelDraft] = useState("");
   const [fly, setFly] = useState<string | null>(null);   // projet dont le flyout est ouvert
   const [pinned, setPinned] = useState(false);
@@ -52,7 +59,7 @@ export default function Rail(p: {
   };
   const cancelHover = () => window.clearTimeout(hoverT.current);
   useEffect(() => {
-    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") setFly(null); };
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") { setChatMenu(null); setFly(null); } };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, []);
@@ -129,7 +136,7 @@ export default function Rail(p: {
       {fly && (
         <>
           {!pinned && <div className="fly-backdrop" onClick={() => setFly(null)} />}
-          <div className="rail-flyout" onClick={(e) => e.stopPropagation()}>
+          <div className="rail-flyout" onClick={(e) => { e.stopPropagation(); setChatMenu(null); }}>
             <div className="fly-head">
               <span className="fly-name">{(p.meta[fly]?.label?.startsWith("icon:") ? null : p.meta[fly]?.label) || fly.split("/").pop()}</span>
               <button className="fly-pin" title={t("action.new-chat")}
