@@ -1838,26 +1838,28 @@ function renderDiff(){
     }
     idx += pt.value.length;
   }
-  const when = new Date(v.ts).toLocaleTimeString();
+  // pas de bandeau : indication furtive dans la barre de statut, sortie par
+  // \u00c9chap ou re-clic sur le bouton \u00b1 de la barre d'outils
   const note = changes
-    ? '<span class="dDel">supprim\u00e9</span> <span class="dAdd">ajout\u00e9</span>'
-    : '<span style="color:var(--faint,#646d7b)">retours \u00e0 la ligne seulement \u2014 aucun changement de texte</span>';
-  diffPane.innerHTML = '<div class="dHead"><b>Comparaison</b> v' + (diffIdx + 2) + "/" + (DIFF_VERSIONS.length + 1)
-    + ' \u00b7 ' + when + ' \u00b7 ' + note
-    + '<button class="dx">Fermer \u2014 retour \u00e0 l\u2019\u00e9diteur</button></div>';
-  diffPane.querySelector(".dx").onclick = () => toggleDiff(false);
+    ? changes + " modification" + (changes > 1 ? "s" : "")
+    : "aucun changement de texte (retours \u00e0 la ligne seulement)";
+  setState("ok", "comparaison v" + (diffIdx + 2) + "/" + (DIFF_VERSIONS.length + 1)
+    + " \u00b7 " + note + " \u00b7 \u00c9chap pour fermer");
   if(firstPos) cm.scrollIntoView(firstPos, 120);
 }
 function toggleDiff(show){
   diffShown = show ?? !diffShown;
-  diffPane.style.display = diffShown ? "block" : "none";
   document.getElementById("diffTag").classList.toggle("on", diffShown);
   if(cm){
     if(diffShown){ renderDiff(); cm.setOption("readOnly", true); }
-    else { clearDiffMarks(); cm.setOption("readOnly", false); cm.refresh(); }
+    else { clearDiffMarks(); cm.setOption("readOnly", false); cm.refresh(); setState("ok", ""); }
   }
 }
 document.getElementById("diffTag").onclick = () => toggleDiff();
+// \u00c9chap ferme la comparaison (capture : avant les keymaps CodeMirror)
+document.addEventListener("keydown", (e) => {
+  if(e.key === "Escape" && diffShown){ e.preventDefault(); e.stopPropagation(); toggleDiff(false); }
+}, true);
 // Add to chat sur sélection DANS le panneau diff (mode Studio)
 if(window.self !== window.top){
   const __fn = document.getElementById("fname"); if(__fn) __fn.style.display = "none"; // nom déjà dans l onglet Studio
