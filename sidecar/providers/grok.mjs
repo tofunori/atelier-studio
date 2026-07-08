@@ -3,6 +3,7 @@ import { accessSync, constants as fsConstants, realpathSync, statSync } from "no
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { resolveBin } from "../bin_resolver.mjs";
+import { contextWindowFor } from "./registry.mjs";
 
 // Provider Grok — deux chemins :
 //  1) ACP (`grok agent stdio`, process persistant JSON-RPC) : chemin principal,
@@ -499,11 +500,13 @@ export function mapSessionUpdate(update, ctx = {}) {
 /** Fin de tour (réponse `session/prompt`) -> event `done`. `ok:true` si
  * `end_turn` OU `cancelled` (interruption utilisateur = succès), usage réel
  * pris dans `_meta` (vérifié run3.log/run4.log : `_meta` est un objet plat,
- * pas imbriqué sous "usage"). */
-export function mapPromptResult(result) {
+ * pas imbriqué sous "usage"). `model` (optionnel) alimente `usage.window`
+ * pour l'anneau de contexte UI (ex. grok-4.5 → 500k). */
+export function mapPromptResult(result, { model } = {}) {
   const stopReason = result?.stopReason ?? null;
   const ok = stopReason === "end_turn" || stopReason === "cancelled";
   const meta = result?._meta ?? {};
+  const window = contextWindowFor(model);
   return {
     kind: "done",
     ok,
@@ -513,6 +516,7 @@ export function mapPromptResult(result) {
       output: Number.isFinite(meta.outputTokens) ? meta.outputTokens : 0,
       cost: null,
       turns: null,
+      window: window ?? null,
     },
   };
 }
@@ -802,7 +806,9 @@ async function runAcp({ threadId, cwd, prompt, sessionId, model, effort, imagePa
       prompt: [{ type: "text", text: buildAcpPromptText(prompt, { imagePath, attachments }) }],
     });
     emitter.flush();
-    onEvent(mapPromptResult(result));
+    // modèle effectif : demandé pour le tour, sinon celui aligné sur la session
+    const effectiveModel = model || grokSessionSelection.get(sid)?.model || "grok-4.5";
+    onEvent(mapPromptResult(result, { model: effectiveModel }));
   } catch (e) {
     emitter.flush();
     onEvent(mapPromptError(e));

@@ -178,7 +178,7 @@ describe("grok ACP — fin de tour (réponse session/prompt)", () => {
       kind: "done",
       ok: true,
       result: "",
-      usage: { context: 29160, output: 263, cost: null, turns: null },
+      usage: { context: 29160, output: 263, cost: null, turns: null, window: null },
     });
   });
 
@@ -187,7 +187,15 @@ describe("grok ACP — fin de tour (réponse session/prompt)", () => {
       stopReason: "end_turn",
       _meta: { totalTokens: 100, inputTokens: 80, outputTokens: 20 },
     });
-    expect(done).toEqual({ kind: "done", ok: true, result: "", usage: { context: 100, output: 20, cost: null, turns: null } });
+    expect(done).toEqual({ kind: "done", ok: true, result: "", usage: { context: 100, output: 20, cost: null, turns: null, window: null } });
+  });
+
+  it("usage.window = 500k pour grok-4.5 (docs xAI)", () => {
+    const done = mapPromptResult({
+      stopReason: "end_turn",
+      _meta: { totalTokens: 168000, outputTokens: 400 },
+    }, { model: "grok-4.5" });
+    expect(done.usage).toEqual({ context: 168000, output: 400, cost: null, turns: null, window: 500_000 });
   });
 
   it("stopReason inconnu/absent -> done ok:false", () => {

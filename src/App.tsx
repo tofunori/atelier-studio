@@ -174,7 +174,7 @@ export default function App() {
   const workingSinceRef = useRef<Record<string, number | null>>({});
   workingSinceRef.current = workingSince;
   const [usageByThread, setUsageByThread] = useState<
-    Record<string, { context: number; output: number; cost: number | null; turns: number | null }>
+    Record<string, { context: number; output: number; cost: number | null; turns: number | null; window?: number | null }>
   >({});
   const [commands, setCommands] = useState<Command[]>([]);
   const [files, setFiles] = useState<string[]>([]);

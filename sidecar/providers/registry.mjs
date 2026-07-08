@@ -1,3 +1,25 @@
+// Fenêtres de contexte connues (tokens) — source de vérité pour l'anneau UI.
+// Grok 4.5 : docs.x.ai/developers/models/grok-4.5 → 500_000 (2026-07).
+// Les providers qui n'y figurent pas tombent sur le fallback front (200k / 1M).
+const CONTEXT_WINDOWS = {
+  "grok-4.5": 500_000,
+  "grok-4.5-latest": 500_000,
+  "grok-build-latest": 500_000, // alias doc xAI de grok-4.5
+};
+
+/** Résout la fenêtre de contexte d'un id de modèle (match exact, puis préfixe). */
+export function contextWindowFor(model) {
+  if (!model || typeof model !== "string") return null;
+  const id = model.trim();
+  if (!id) return null;
+  if (CONTEXT_WINDOWS[id] != null) return CONTEXT_WINDOWS[id];
+  // suffixe Claude « [1m] » géré côté front ; ici match par préfixe stable
+  for (const [key, n] of Object.entries(CONTEXT_WINDOWS)) {
+    if (id === key || id.startsWith(key + "-") || id.startsWith(key + "@")) return n;
+  }
+  return null;
+}
+
 const PROVIDERS = [
   {
     id: "claude",

@@ -639,7 +639,7 @@ export default function Chat(p: {
   onAttachZotero?: (key: string) => void;
   layout: "split" | "chat" | "atelier";
   onToggleExpand: () => void;
-  usage: { context: number; output: number; cost: number | null; turns: number | null } | null;
+  usage: { context: number; output: number; cost: number | null; turns: number | null; window?: number | null } | null;
   onRevert: (index: number, text: string, edit: boolean) => void;
   onFork: (index: number) => void;
   onEditSend: (index: number, oldText: string, newText: string) => void;
@@ -2014,10 +2014,18 @@ export default function Chat(p: {
           {p.usage && (
             <span className="ctx-ring-wrap">
               {(() => {
-                const WINDOW = (p.usage as any).window
-                  ?? (model.includes("[1m]") ? 1_000_000 : 200_000);
+                // Priorité : window fourni par le provider (Codex, Grok registry),
+                // sinon heuristique modèle (Claude [1m], Grok 4.5 = 500k docs xAI),
+                // sinon défaut historique 200k.
+                const WINDOW = p.usage.window
+                  ?? (model.includes("[1m]") ? 1_000_000
+                    : /^grok-4\.5\b/.test(model) ? 500_000
+                    : 200_000);
                 const pct = Math.min(100, Math.round((p.usage.context / WINDOW) * 100));
                 const r = 6.5, c = 2 * Math.PI * r;
+                const windowLabel = WINDOW >= 1_000_000
+                  ? `${(WINDOW / 1_000_000).toFixed(WINDOW % 1_000_000 === 0 ? 0 : 1)}M`
+                  : `${Math.round(WINDOW / 1000)}k`;
                 return (
                   <>
                     <svg className="ctx-ring" width="18" height="18" viewBox="0 0 18 18">
@@ -2030,7 +2038,7 @@ export default function Chat(p: {
                     </svg>
                     <span className="ctx-pop">
                       <b>{t("chat.context-window")}</b>
-                      <span>{t("chat.context-used", { pct, used: Math.round(p.usage.context / 1000), window: WINDOW >= 1_000_000 ? "1M" : Math.round(WINDOW / 1000) + "k" })}</span>
+                      <span>{t("chat.context-used", { pct, used: Math.round(p.usage.context / 1000), window: windowLabel })}</span>
                       <span>{t("chat.last-output", { tokens: Math.round(p.usage.output / 1000 * 10) / 10 })}</span>
                       {p.usage.turns != null && <span>{t("chat.session-turns", { turns: p.usage.turns })}</span>}
                       {p.usage.cost != null && <span>{t("chat.cost", { cost: p.usage.cost.toFixed(2) })}</span>}
