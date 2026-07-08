@@ -1848,7 +1848,10 @@ function renderDiff(){
   if(firstPos) cm.scrollIntoView(firstPos, 120);
 }
 function toggleDiff(show){
-  diffShown = show ?? !diffShown;
+  const next = show ?? !diffShown;
+  // aucune version : ne jamais verrouiller l'éditeur sans rien afficher
+  if(next && !DIFF_VERSIONS[diffIdx]) return;
+  diffShown = next;
   document.getElementById("diffTag").classList.toggle("on", diffShown);
   if(cm){
     if(diffShown){ renderDiff(); cm.setOption("readOnly", true); }
