@@ -366,6 +366,8 @@ function __ct(){try{return JSON.parse(localStorage.getItem('claudeTargetV1')||'n
     <div data-act="save">Sauvegarder <em>&#8984;S</em></div>
     <div data-act="open">Ouvrir un fichier&hellip;</div>
     <div data-act="rewrap">Rewrap paragraphe <em>&#8997;Q</em></div>
+    <div data-act="rewrapall">Rewrap tout le document <em>&#8679;&#8997;Q</em></div>
+    <div data-act="autorewrap">Rewrap auto (&#8984;S) : <span id="moreAutoRw"></span></div>
     <div data-act="read">Vue lecture (rendu seul)</div>
     <div data-act="wrap">Wrap : <span id="moreWrapVal"></span></div>
     <div data-act="help">Raccourcis clavier</div>
@@ -906,12 +908,36 @@ async function load(){
   // Rewrap façon VS Code (extension Rewrap, Alt+Q) : reformate RÉELLEMENT le
   // paragraphe courant (ou la sélection) à 80 colonnes — chaque ligne visible
   // redevient une vraie ligne numérotée.
-  function rewrapPar(){
-    // colonne = largeur visible du panneau (moins gutter/marge), bornée 40-120 :
-    // après rewrap, chaque ligne rentre dans le panneau → un numéro par ligne
+  function rewrapCol(){
+    // wrap numérique → cette colonne ; window/off → largeur visible du panneau
+    // (moins gutter/marge), bornée 40-120 : chaque ligne rentre dans le panneau
+    const v = wrapSel.value, n = parseInt(v, 10);
+    if(n) return n;
     const gutter = cm.getGutterElement().offsetWidth;
-    const col = Math.max(40, Math.min(120,
+    return Math.max(40, Math.min(120,
       Math.floor((cm.getWrapperElement().clientWidth - gutter - 16) / cm.defaultCharWidth())));
+  }
+  // reformate un bloc de lignes à `col` colonnes (préfixe commentaire préservé)
+  function wrapLines(lines, col){
+    const indent = (lines[0].match(/^\s*/) || [""])[0];
+    const cm0 = (lines[0].match(/^\s*([%#]+|\/\/)\s?/) || [])[1] || "";
+    const allComment = cm0 && lines.every(l => !l.trim() || l.trim().startsWith(cm0));
+    const prefix = allComment ? indent + cm0 + " " : indent;
+    const strip = (l) => allComment
+      ? l.replace(new RegExp("^\\s*" + cm0.replace(/[%/]/g, "\\$&") + "\\s?"), "").trim()
+      : l.trim();
+    const words = lines.map(strip).join(" ").split(/\s+/).filter(Boolean);
+    const out = []; let curL = "";
+    for(const w of words){
+      if(!curL) curL = prefix + w;
+      else if((curL + " " + w).length <= col) curL += " " + w;
+      else { out.push(curL); curL = prefix + w; }
+    }
+    if(curL) out.push(curL);
+    return out;
+  }
+  function rewrapPar(){
+    const col = rewrapCol();
     let from, to;
     if(cm.somethingSelected()){
       from = cm.getCursor("from").line; to = cm.getCursor("to").line;
@@ -921,26 +947,58 @@ async function load(){
       to = cur; while(to<last && cm.getLine(to+1).trim()!=="") to++;
     }
     const lines=[]; for(let i=from;i<=to;i++) lines.push(cm.getLine(i));
-    const indent=(lines[0].match(/^\s*/)||[""])[0];
-    // préserver un préfixe de commentaire commun (% latex, # py/r/jl, // js)
-    const cm0=(lines[0].match(/^\s*([%#]+|\/\/)\s?/)||[])[1] || "";
-    const allComment = cm0 && lines.every(l => !l.trim() || l.trim().startsWith(cm0));
-    const prefix = allComment ? indent + cm0 + " " : indent;
-    const strip = (l) => allComment
-      ? l.replace(new RegExp("^\\s*" + cm0.replace(/[%/]/g, "\\$&") + "\\s?"), "").trim()
-      : l.trim();
-    const words=lines.map(strip).join(" ").split(/\s+/).filter(Boolean);
-    const out=[]; let curL="";
-    for(const w of words){
-      if(!curL) curL=prefix+w;
-      else if((curL+" "+w).length<=col) curL+=" "+w;
-      else { out.push(curL); curL=prefix+w; }
-    }
-    if(curL) out.push(curL);
+    const out = wrapLines(lines, col);
     cm.replaceRange(out.join("\n"), {line:from,ch:0}, {line:to,ch:cm.getLine(to).length});
   }
-  cm.addKeyMap({"Alt-Q": rewrapPar});
+  // Rewrap de TOUT le document, paragraphe par paragraphe (blocs séparés par
+  // lignes vides). Les environnements à ne jamais reformater (math, verbatim,
+  // tableaux, listes…) sont sautés en bloc, même s'ils contiennent des lignes vides.
+  const NOWRAP_ENV = /^(verbatim|lstlisting|minted|equation|align|alignat|eqnarray|gather|multline|displaymath|math|tabular|tabularx|array|table|figure|itemize|enumerate|description|thebibliography|tikzpicture|verse|quote|quotation)\*?$/;
+  function rewrapAll(){
+    if(!cm) return 0;
+    const col = rewrapCol(), last = cm.lineCount() - 1;
+    const paras = []; // {from, to, out} à appliquer de bas en haut
+    let i = 0, env = 0;
+    while(i <= last){
+      const raw = cm.getLine(i);
+      for(const m of raw.matchAll(/\\(begin|end)\{([^}]*)\}/g)){
+        if(NOWRAP_ENV.test(m[2])) env += m[1] === "begin" ? 1 : -1;
+      }
+      if(env > 0 || raw.trim() === ""){ i++; continue; }
+      // paragraphe : jusqu'à la ligne vide ou l'entrée d'un environnement protégé
+      let j = i;
+      const block = [raw];
+      while(j < last){
+        const nx = cm.getLine(j + 1);
+        if(nx.trim() === "" || /\\begin\{([^}]*)\}/.test(nx) && NOWRAP_ENV.test(nx.match(/\\begin\{([^}]*)\}/)[1])) break;
+        block.push(nx); j++;
+      }
+      // ne pas toucher aux paragraphes 100 % commande (préambule, \item…)
+      const prose = block.some(l => /[a-zà-ÿ]/i.test(l.replace(/\\[a-zA-Z]+\*?(\[[^\]]*\])?(\{[^}]*\})*/g, "")));
+      if(prose){
+        const out = wrapLines(block, col);
+        if(out.join("\n") !== block.join("\n")) paras.push({from: i, to: j, out});
+      }
+      i = j + 1;
+    }
+    if(paras.length){
+      const cur = cm.getCursor();
+      cm.operation(() => {
+        for(let k = paras.length - 1; k >= 0; k--){
+          const p = paras[k];
+          cm.replaceRange(p.out.join("\n"), {line: p.from, ch: 0}, {line: p.to, ch: cm.getLine(p.to).length});
+        }
+      });
+      cm.setCursor({line: Math.min(cur.line, cm.lineCount() - 1), ch: cur.ch});
+    }
+    return paras.length;
+  }
+  cm.addKeyMap({"Alt-Q": rewrapPar, "Shift-Alt-Q": () => {
+    const n = rewrapAll();
+    setState("ok", n ? "rewrap : " + n + " paragraphe" + (n > 1 ? "s" : "") : "rien à reformater");
+  }});
   document.getElementById("rewrapBtn").onclick = () => { rewrapPar(); cm.focus(); };
+  window.__rewrapAll = rewrapAll;
 
   // Rewrap façon VS Code : les lignes repliées s'alignent sous le début du
   // texte de la ligne (indentation préservée), pas sous le gutter.
@@ -970,6 +1028,10 @@ async function load(){
 }
 
 async function save(){
+  // rewrap auto : reformater tout le document avant d'écrire (option ⋯)
+  if(localStorage.getItem("texAutoRewrap") === "1" && typeof window.__rewrapAll === "function"){
+    try{ window.__rewrapAll(); }catch(e){}
+  }
   const r = await fetch("/codesave", {method:"POST", headers:{"Content-Type":"application/json"},
     body: JSON.stringify({path, text: cm.getValue(), mtime: diskMtime})});
   const j = await r.json();
@@ -1696,6 +1758,10 @@ document.addEventListener("keydown", e => {
     if(cm) selCancel();
     return;
   }
+  // ⌘A : le menu natif de l'app peut avaler le raccourci avant CodeMirror
+  if((e.metaKey || e.ctrlKey) && !e.shiftKey && !e.altKey && (e.key === "a" || e.key === "A") && cm){
+    e.preventDefault(); cm.execCommand("selectAll"); cm.focus();
+  }
   if((e.metaKey || e.ctrlKey) && e.key === "s" && cm){ e.preventDefault(); save(); }
   if((e.metaKey || e.ctrlKey) && e.key === "b" && cm && IS_TEX){ e.preventDefault(); compile(); }
   if((e.metaKey || e.ctrlKey) && e.key === "j" && cm){ e.preventDefault(); synctexView(); }
@@ -1876,10 +1942,16 @@ if(window.self !== window.top){
     runLint();
   };
   // menu ⋯
+  function refreshAutoRw(){
+    const el = document.getElementById("moreAutoRw");
+    if (el) el.textContent = localStorage.getItem("texAutoRewrap") === "1" ? "activé" : "désactivé";
+  }
+  window.refreshAutoRw = refreshAutoRw;
   moreBtn.onclick = (e) => {
     e.stopPropagation();
     morePop.style.display = morePop.style.display === "none" ? "block" : "none";
     refreshWrap();
+    refreshAutoRw();
   };
   document.addEventListener("click", () => { morePop.style.display = "none"; });
   morePop.onclick = (e) => {
@@ -1888,6 +1960,16 @@ if(window.self !== window.top){
     if (act === "save") document.getElementById("saveBtn").click();
     if (act === "open") document.getElementById("openFile").click();
     if (act === "rewrap") document.getElementById("rewrapBtn").click();
+    if (act === "rewrapall" && window.__rewrapAll) {
+      const n = window.__rewrapAll();
+      if (window.cm) cm.focus();
+    }
+    if (act === "autorewrap") {
+      const on = localStorage.getItem("texAutoRewrap") === "1";
+      localStorage.setItem("texAutoRewrap", on ? "0" : "1");
+      refreshAutoRw();
+      return; // laisser le menu ouvert pour voir l'état
+    }
     if (act === "read") document.getElementById("readBtn")?.click();
     if (act === "help") document.getElementById("helpBtn").click();
     if (act === "wrap") { sbWrap.onclick(); return; }
