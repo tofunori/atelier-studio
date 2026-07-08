@@ -7,9 +7,13 @@
 // Le modèle est sorti le jour de l'écriture de ce fichier (2026-07) : son ID
 // peut changer. Il est centralisé ici (DEFAULT_MODEL) pour rester facile à
 // mettre à jour sans chasser les occurrences dans le code.
-import { loadApiProviderConfigs, resolveApiKey } from "./openai_api.mjs";
+import { existsSync, readFileSync } from "node:fs";
+import { homedir } from "node:os";
+import { resolveApiKey } from "./openai_api.mjs";
 
 export const ARK_BASE_URL = "https://ark.ap-southeast.bytepluses.com/api/v3/images/generations";
+
+const CONFIG_FILE = `${homedir()}/Library/Application Support/atelier-studio/api_providers.json`;
 
 // Modèle par défaut (Seedream 5.0 Pro). Repli connu si l'ID venait à changer :
 // "seedream-4-5-..." — à ajuster si BytePlus renomme/retire le modèle.
@@ -18,13 +22,25 @@ export const FALLBACK_MODEL = "seedream-4-5-250828";
 
 const IMAGE_PROVIDER_ID = "byteplus-images";
 
-/** Résout la clé API ARK : env ARK_API_KEY d'abord, sinon api_providers.json. */
-export function resolveArkApiKey(configFile) {
+/**
+ * Résout la clé API ARK : env ARK_API_KEY d'abord, sinon api_providers.json.
+ * On lit le fichier brut plutôt que loadApiProviderConfigs() : cette dernière
+ * filtre les entrées sans baseURL+models (providers de chat) et jetterait donc
+ * une entrée image qui n'a qu'une clé.
+ */
+export function resolveArkApiKey(configFile = CONFIG_FILE) {
   if (process.env.ARK_API_KEY) return process.env.ARK_API_KEY;
-  const configs = loadApiProviderConfigs(configFile);
-  const entry = configs.find((p) => p.id === IMAGE_PROVIDER_ID);
-  if (!entry) return null;
-  return resolveApiKey({ apiKey: entry.apiKey, apiKeyEnv: entry.apiKeyEnv ?? "ARK_API_KEY" });
+  if (!existsSync(configFile)) return null;
+  try {
+    const raw = JSON.parse(readFileSync(configFile, "utf8"));
+    const list = Array.isArray(raw) ? raw : raw?.providers;
+    if (!Array.isArray(list)) return null;
+    const entry = list.find((p) => p?.id === IMAGE_PROVIDER_ID);
+    if (!entry) return null;
+    return resolveApiKey({ apiKey: entry.apiKey, apiKeyEnv: entry.apiKeyEnv ?? "ARK_API_KEY" });
+  } catch {
+    return null;
+  }
 }
 
 function extractError(data, res) {

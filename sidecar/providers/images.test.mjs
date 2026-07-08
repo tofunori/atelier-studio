@@ -1,5 +1,8 @@
-import { describe, expect, it } from "vitest";
-import { generateImage, dataUriFromPngBuffer, ARK_BASE_URL, DEFAULT_MODEL } from "./images.mjs";
+import { afterEach, describe, expect, it } from "vitest";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { generateImage, dataUriFromPngBuffer, resolveArkApiKey, ARK_BASE_URL, DEFAULT_MODEL } from "./images.mjs";
 
 function fakeFetch(status, jsonBody) {
   return async (url, init) => ({
@@ -74,5 +77,43 @@ describe("images provider (BytePlus ModelArk)", () => {
   it("refuse un prompt vide", async () => {
     await expect(generateImage({ prompt: "  ", apiKey: "sk-test", fetchImpl: fakeFetch(200, {}) }))
       .rejects.toThrow(/prompt/);
+  });
+});
+
+describe("resolveArkApiKey", () => {
+  const prevEnv = process.env.ARK_API_KEY;
+  let dir;
+  afterEach(() => {
+    if (prevEnv === undefined) delete process.env.ARK_API_KEY;
+    else process.env.ARK_API_KEY = prevEnv;
+    if (dir) { rmSync(dir, { recursive: true, force: true }); dir = null; }
+  });
+
+  function writeConfig(arr) {
+    dir = mkdtempSync(join(tmpdir(), "atelier-cfg-"));
+    const f = join(dir, "api_providers.json");
+    writeFileSync(f, JSON.stringify(arr));
+    return f;
+  }
+
+  it("résout une entrée image (sans baseURL/models) — régression du filtre chat", () => {
+    delete process.env.ARK_API_KEY;
+    const f = writeConfig([
+      { id: "openrouter", baseURL: "https://x", models: ["a"], apiKey: "sk-chat" },
+      { id: "byteplus-images", apiKey: "sk-ark-42", apiKeyEnv: "ARK_API_KEY" },
+    ]);
+    expect(resolveArkApiKey(f)).toBe("sk-ark-42");
+  });
+
+  it("privilégie la variable d'env ARK_API_KEY", () => {
+    process.env.ARK_API_KEY = "sk-env";
+    const f = writeConfig([{ id: "byteplus-images", apiKey: "sk-file" }]);
+    expect(resolveArkApiKey(f)).toBe("sk-env");
+  });
+
+  it("renvoie null si aucune entrée byteplus-images", () => {
+    delete process.env.ARK_API_KEY;
+    const f = writeConfig([{ id: "autre", baseURL: "https://x", models: ["a"], apiKey: "k" }]);
+    expect(resolveArkApiKey(f)).toBeNull();
   });
 });
