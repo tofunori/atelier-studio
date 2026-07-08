@@ -188,10 +188,14 @@ window.DiffVersions = function(opts){
         if(pt.removed){
           const nx = parts[i + 1];
           if(nx && nx.added){
-            // bloc modifié : barres ambre sur les lignes de remplacement
-            for(let k = 0; k < (nx.count || 0); k++)
-              cm.setGutterMarker(Math.min(line + k, lastLine), GUTTER, markerCell('<div class="dv-bar m"></div>', line + k));
-            line += nx.count || 0;
+            // bloc modifié : ambre sur les lignes qui remplacent celles supprimées,
+            // vert sur l'excédent (comme VS Code : n supprimées + m ajoutées, m > n
+            // → n ambre puis m-n vertes)
+            const nn = nx.count || 0, mod = Math.min(n, nn);
+            for(let k = 0; k < nn; k++)
+              cm.setGutterMarker(Math.min(line + k, lastLine), GUTTER,
+                markerCell('<div class="dv-bar ' + (k < mod ? "m" : "a") + '"></div>', line + k));
+            line += nn;
             i++;
           } else {
             // suppression sèche : triangle sur la ligne qui suit (ou fin de fichier)
