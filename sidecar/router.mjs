@@ -1,7 +1,8 @@
-import { mkdirSync, readFileSync } from "node:fs";
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { homedir } from "node:os";
 import { writeFileAtomic } from "./store.mjs";
+import { generateImage, resolveArkApiKey } from "./providers/images.mjs";
 
 // ctx: { send(obj), store, providers, broadcast(obj) }
 
@@ -506,6 +507,43 @@ export async function route(msg, ctx) {
         ctx.send({ type: "commitMsg", projectRoot: root, message: message ?? "" });
       } catch (e) {
         ctx.send({ type: "commitMsg", projectRoot: root, message: "", error: String(e?.message ?? e) });
+      }
+      break;
+    }
+    case "generateImage": {
+      const prompt = String(msg.prompt ?? "").trim();
+      const size = String(msg.size ?? "2K");
+      const editFrom = msg.editFrom ? String(msg.editFrom) : null;
+      let root = msg.projectDir ? String(msg.projectDir) : null;
+      try {
+        root = root || gitRootFor(ctx, msg);
+        if (!prompt) throw new Error("prompt requis");
+        const apiKey = resolveArkApiKey();
+        let editImageDataUri = null;
+        if (editFrom) {
+          const buf = readFileSync(editFrom);
+          editImageDataUri = `data:image/png;base64,${buf.toString("base64")}`;
+        }
+        const result = await generateImage({ prompt, size, editImageDataUri, apiKey });
+        const dir = join(root, "generated");
+        mkdirSync(dir, { recursive: true });
+        const ts = Date.now();
+        const base = `fig_${ts}`;
+        const imagePath = join(dir, `${base}.png`);
+        const metaPath = join(dir, `${base}.json`);
+        writeFileSync(imagePath, Buffer.from(result.b64, "base64"));
+        const meta = {
+          prompt,
+          model: result.model,
+          size: result.size,
+          editFrom,
+          createdAt: new Date(ts).toISOString(),
+          usage: result.usage,
+        };
+        writeFileSync(metaPath, JSON.stringify(meta, null, 2));
+        ctx.send({ type: "imageGenerated", projectRoot: root, path: imagePath, metaPath, ...meta });
+      } catch (e) {
+        ctx.send({ type: "imageGenerated", projectRoot: root, path: null, error: String(e?.message ?? e) });
       }
       break;
     }

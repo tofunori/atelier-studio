@@ -5,15 +5,16 @@ import BrowserTab from "./BrowserTab";
 import GitSurface from "./GitSurface";
 import TerminalSurface from "./TerminalSurface";
 import BiblioSurface from "./BiblioSurface";
+import GeneratorSurface from "./GeneratorSurface";
 import { t } from "../lib/i18n";
 import { BookIcon, BranchIcon, CloseIcon, CollapseIcon, ExpandIcon, OpenIcon, RefreshIcon } from "./icons";
 
 type Tab = { id: string; url: string; title: string; color?: string; pinned?: boolean; kind?: "term"; cwd?: string };
 const TAB_COLORS = ["#e05d5d", "#e8823a", "#8b5cf6", "#3b82f6", "#22b07d", "#e0b74a"];
 
-type Surface = "atelier" | "browser" | "terminal" | "git" | "biblio";
+type Surface = "atelier" | "browser" | "terminal" | "git" | "biblio" | "generateur";
 
-const SURFACES: { id: Surface; labelKey: "atelier.surface" | "atelier.browser" | "atelier.terminal" | "atelier.git" | "atelier.biblio"; icon: React.ReactNode }[] = [
+const SURFACES: { id: Surface; labelKey: "atelier.surface" | "atelier.browser" | "atelier.terminal" | "atelier.git" | "atelier.biblio" | "atelier.generateur"; icon: React.ReactNode }[] = [
   {
     id: "atelier",
     labelKey: "atelier.surface",
@@ -55,6 +56,16 @@ const SURFACES: { id: Surface; labelKey: "atelier.surface" | "atelier.browser" |
     id: "biblio",
     labelKey: "atelier.biblio",
     icon: <BookIcon />,
+  },
+  {
+    id: "generateur",
+    labelKey: "atelier.generateur",
+    icon: (
+      <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M8 1.6l1 3 3 1-3 1-1 3-1-3-3-1 3-1z" />
+        <path d="M13 9.4l.55 1.65 1.65.55-1.65.55-.55 1.65-.55-1.65-1.65-.55 1.65-.55z" />
+      </svg>
+    ),
   },
 ];
 
@@ -367,6 +378,13 @@ export default function AtelierPane({
       {visited.has("biblio") && (
         <div className="surface-body pane-slot" style={slotStyle("biblio")}>
           <BiblioSurface ws={ws} projectRoot={projectRoot} galleryUrl={url} />
+        </div>
+      )}
+
+      {/* ---- surface Générateur ---- */}
+      {visited.has("generateur") && (
+        <div className="surface-body pane-slot" style={slotStyle("generateur")}>
+          <GeneratorSurface ws={ws} projectRoot={projectRoot} galleryUrl={url} />
         </div>
       )}
 

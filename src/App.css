@@ -1200,6 +1200,54 @@ button.ghost.danger, button.ghost.danger:hover { color: #d98c8f; background: rgb
 .biblio-frame { position: absolute; inset: 0; width: 100%; height: 100%; border: none; background: #fff; }
 .biblio-placeholder { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
   color: var(--muted); font-size: var(--fs-l); padding: 24px; text-align: center; background: var(--bg); }
+
+.generateur-surface { flex: 1; min-height: 0; display: grid; grid-template-columns: 260px minmax(0, 1fr); }
+.generateur-form { min-width: 0; background: var(--bg-side); border-right: 1px solid var(--border);
+  padding: 16px; display: flex; flex-direction: column; gap: 8px; overflow-y: auto; }
+.generateur-label { font-size: var(--fs-s); color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em;
+  margin-top: 8px; }
+.generateur-label:first-child { margin-top: 0; }
+.generateur-textarea { width: 100%; box-sizing: border-box; background: var(--bg-ctl); border: 1px solid var(--border);
+  border-radius: var(--r-s); color: var(--fg); font: inherit; font-size: var(--fs-l); line-height: 1.5;
+  padding: 8px 10px; resize: vertical; transition: border-color 140ms var(--ease, ease); }
+.generateur-textarea:focus { outline: none; border-color: var(--border2); }
+.generateur-textarea::placeholder { color: var(--muted2); }
+.generateur-seg { display: inline-flex; background: var(--bg-ctl); border: 1px solid var(--border);
+  border-radius: var(--r-s); padding: 2px; gap: 2px; width: fit-content; }
+.generateur-seg button { background: transparent; border: none; border-radius: 4px; color: var(--muted);
+  font-size: var(--fs-m); font-variant-numeric: tabular-nums; padding: 5px 12px; cursor: pointer;
+  transition: background 140ms var(--ease, ease), color 140ms var(--ease, ease); }
+.generateur-seg button.on { background: var(--bg-card); color: var(--fg); font-weight: 500; }
+.generateur-seg button:disabled { cursor: default; opacity: 0.6; }
+.generateur-cost { font-size: var(--fs-s); color: var(--muted2); font-variant-numeric: tabular-nums; }
+.generateur-generate { margin-top: 8px; background: var(--accent); color: #fff; border: none;
+  border-radius: var(--r-s); font-size: var(--fs-l); font-weight: 500; padding: 8px 12px; cursor: pointer;
+  transition: opacity 140ms var(--ease, ease); }
+.generateur-generate:disabled { opacity: 0.45; cursor: default; }
+.generateur-generate:hover:not(:disabled) { opacity: 0.9; }
+.generateur-error { color: #e06c75; font-size: var(--fs-m); line-height: 1.4; }
+.generateur-result { min-width: 0; min-height: 0; display: flex; flex-direction: column; background: var(--bg);
+  padding: 16px; gap: 12px; }
+.generateur-empty { flex: 1; display: flex; align-items: center; justify-content: center;
+  color: var(--muted); font-size: var(--fs-l); text-align: center; }
+.generateur-preview { flex: 1; min-height: 0; display: flex; align-items: center; justify-content: center;
+  background: var(--bg-side); border-radius: var(--r-m); overflow: hidden; }
+.generateur-preview img { max-width: 100%; max-height: 100%; object-fit: contain; display: block; }
+.generateur-edit-row { flex-shrink: 0; display: flex; gap: 8px; }
+.generateur-edit-input { flex: 1; min-width: 0; background: var(--bg-ctl); border: 1px solid var(--border);
+  border-radius: var(--r-s); color: var(--fg); font: inherit; font-size: var(--fs-l); padding: 7px 10px;
+  transition: border-color 140ms var(--ease, ease); }
+.generateur-edit-input:focus { outline: none; border-color: var(--border2); }
+.generateur-edit-input::placeholder { color: var(--muted2); }
+.generateur-edit-btn { flex-shrink: 0; background: var(--bg-ctl); border: 1px solid var(--border);
+  color: var(--fg2); border-radius: var(--r-s); font-size: var(--fs-l); padding: 7px 14px; cursor: pointer;
+  transition: background 140ms var(--ease, ease); }
+.generateur-edit-btn:hover:not(:disabled) { background: var(--border2); color: var(--fg); }
+.generateur-edit-btn:disabled { opacity: 0.45; cursor: default; }
+@media (max-width: 760px) {
+  .generateur-surface { grid-template-columns: 1fr; grid-template-rows: minmax(220px, 42%) minmax(0, 1fr); }
+  .generateur-form { border-right: none; border-bottom: 1px solid var(--border); }
+}
 @media (max-width: 760px) {
   .biblio-surface { grid-template-columns: 1fr; grid-template-rows: minmax(180px, 38%) minmax(0, 1fr); }
   .biblio-left { border-right: none; border-bottom: 1px solid var(--border); }

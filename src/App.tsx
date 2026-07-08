@@ -635,6 +635,9 @@ export default function App() {
       if (msg.type === "commitMsg") {
         window.dispatchEvent(new CustomEvent("commit-msg", { detail: msg }));
       }
+      if (msg.type === "imageGenerated") {
+        window.dispatchEvent(new CustomEvent("image-generated", { detail: msg }));
+      }
       if (msg.type === "ledger") {
         window.dispatchEvent(new CustomEvent("ledger", { detail: msg }));
       }
