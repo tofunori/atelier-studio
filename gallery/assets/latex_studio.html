@@ -1786,8 +1786,10 @@ function diffPush(before, after){
   tg.disabled = false; tg.style.opacity = "";
   ["diffPrev","diffNext","diffRestore"].forEach(id => document.getElementById(id).style.display = "");
   updateDiffTag();
-  renderDiff();
-  if(!diffShown) toggleDiff(true);
+  // NE PLUS auto-ouvrir : le mode in-editor passe l'éditeur en lecture seule,
+  // l'activer à chaque sauvegarde bloquerait la frappe en silence. L'utilisateur
+  // ouvre la comparaison quand il veut via le bouton ± (ou la rafraîchit si ouverte).
+  if(diffShown) renderDiff();
 }
 function updateDiffTag(){
   document.getElementById("diffTag").title = "Modifications — version " + (diffIdx + 2) + "/" + (DIFF_VERSIONS.length + 1) + " (cliquer : voir le diff)";
