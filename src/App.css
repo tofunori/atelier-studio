@@ -726,7 +726,7 @@ input[type="range"].slider::-webkit-slider-thumb:hover { transform: scale(1.15);
   background: var(--bg-pop); border: 1px solid var(--border); border-radius: var(--r-m);
   padding: 4px; box-shadow: 0 12px 32px rgba(0,0,0,0.5); max-height: 390px; overflow-y: auto; }
 .model-menu .model-list { position: absolute; right: calc(100% + 6px); bottom: 0;
-  width: 216px; background: var(--bg-pop); border: 1px solid var(--border);
+  width: 178px; background: var(--bg-pop); border: 1px solid var(--border);
   border-radius: var(--r-m); padding: 4px; box-shadow: 0 12px 32px rgba(0,0,0,0.5);
   max-height: 390px; overflow-y: auto; }
 .mp-chev { color: var(--muted2); white-space: nowrap; }
