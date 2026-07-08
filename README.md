@@ -11,7 +11,7 @@
   <img alt="Tauri" src="https://img.shields.io/badge/Tauri-2-24c8db?style=flat-square&logo=tauri&logoColor=white">
   <img alt="React" src="https://img.shields.io/badge/React-19-61dafb?style=flat-square&logo=react&logoColor=111827">
   <img alt="Sidecar" src="https://img.shields.io/badge/Sidecar-Node.js-3c873a?style=flat-square&logo=node.js&logoColor=white">
-  <img alt="Status" src="https://img.shields.io/badge/release-1.0-3c873a?style=flat-square">
+  <img alt="Status" src="https://img.shields.io/badge/release-1.2-3c873a?style=flat-square">
 </p>
 
 Atelier Studio brings multi-agent chat, a scientific gallery, a browser, a terminal, file viewers/editors, and project-aware context into one native window. The goal is simple: keep reasoning, figures, files, references, and verification tools close enough that serious work can stay in flow.
