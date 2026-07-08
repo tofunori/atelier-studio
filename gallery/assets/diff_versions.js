@@ -181,6 +181,9 @@ window.DiffVersions = function(opts){
       + 'border-radius:6px;color:inherit;font:inherit;font-size:12px;line-height:1.5;padding:6px 8px;resize:none;outline:none"></textarea>'
       + '<div style="display:flex;align-items:center;gap:8px">'
       + '<span style="font-size:10px;opacity:.45;margin-right:auto">ce fichier seulement · &#9166; valider · &#8963; fermer</span>'
+      + '<button data-act="ai" title="Message proposé par Haiku à partir du diff" style="background:transparent;'
+      + 'border:1px solid #3a4150;border-radius:6px;color:inherit;font:inherit;font-size:11px;padding:4px 10px;'
+      + 'cursor:pointer;opacity:.75">Message IA</button>'
       + '<button data-act="do" style="background:transparent;border:1px solid #3a4150;border-radius:6px;color:inherit;'
       + 'font:inherit;font-size:11px;font-weight:500;padding:4px 12px;cursor:pointer">Commit</button></div>';
     document.body.appendChild(commitPop);
@@ -222,6 +225,17 @@ window.DiffVersions = function(opts){
         .catch(() => {});
     };
     commitPop.querySelector('[data-act="do"]').onclick = doCommit;
+    const aiBtn = commitPop.querySelector('[data-act="ai"]');
+    aiBtn.onclick = async () => {
+      aiBtn.disabled = true; aiBtn.textContent = "…";
+      try{
+        const r = await fetch("/commitmsg?path=" + encodeURIComponent(path));
+        const j = await r.json();
+        if(j && j.ok && j.msg){ ta.value = j.msg; ta.focus(); ta.select(); }
+        else notify("pas de proposition (fichier sans diff ?)");
+      }catch(e){ notify("proposition impossible : " + e.message); }
+      aiBtn.disabled = false; aiBtn.textContent = "Message IA";
+    };
     ta.addEventListener("keydown", (e) => {
       if(e.key === "Enter" && !e.shiftKey){ e.preventDefault(); doCommit(); }
       if(e.key === "Escape"){ e.stopPropagation(); closePop(); }
