@@ -372,7 +372,7 @@ const MD_COMPONENTS = {
   },
   code: (props: any) => {
     const txt = mdText(props.children);
-    if (!props.className && FILE_REF.test(txt) && txt.includes(":"))
+    if (!props.className && FILE_REF.test(txt))
       return (
         <button className="file-ref" onClick={() => openFileRef(txt)} title={t("action.open-file", { ref: txt })}>
           <svg width="10" height="10" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5">
