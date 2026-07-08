@@ -603,6 +603,10 @@ export default function App() {
           }
           // l'agent a peut-être régénéré des figures → recharger atelier
           if (msg.event.kind === "done" && settingsRef.current.autoRefreshAtelier) setAtelierReload((n) => n + 1);
+          // l'agent a peut-être créé des fichiers → rafraîchir le catalogue (résolution des chips)
+          if (msg.event.kind === "done" && activeProjectRef.current && ws.current?.readyState === 1) {
+            requestCatalog(ws.current, activeProjectRef.current);
+          }
         }
       }
       if (msg.type === "history") {
@@ -1092,18 +1096,19 @@ export default function App() {
     }
     url = withAtelierNonce(url, atelierNonce);
     const baseUrl = url.replace(/&line=[^&]*/, "");
-    const existing = atelierTabsRef.current.find((t) => t.url.replace(/&line=[^&]*/, "") === baseUrl);
-    if (existing) {
-      // même fichier déjà ouvert : re-cibler la ligne demandée si besoin
-      if (existing.url !== url) {
-        setAtelierTabs((tabs) => tabs.map((t) => (t.id === existing.id ? { ...t, url } : t)));
+    // dédoublonner DANS l'updater : atelierTabsRef n'est synchronisé qu'après le
+    // commit React — deux clics rapprochés créaient deux onglets identiques
+    const newId = crypto.randomUUID();
+    setAtelierTabs((tabs) => {
+      const existing = tabs.find((t) => t.url.replace(/&line=[^&]*/, "") === baseUrl);
+      if (existing) {
+        // même fichier déjà ouvert : re-cibler la ligne demandée si besoin
+        setActiveTab(existing.id);
+        return existing.url !== url ? tabs.map((t) => (t.id === existing.id ? { ...t, url } : t)) : tabs;
       }
-      setActiveTab(existing.id);
-    } else {
-      const id = crypto.randomUUID();
-      setAtelierTabs((tabs) => [...tabs, { id, url, title: name }]);
-      setActiveTab(id);
-    }
+      setActiveTab(newId);
+      return [...tabs, { id: newId, url, title: name }];
+    });
     setLayout((l) => (l === "chat" ? "split" : l));
     // l'onglet vit dans la surface Atelier : y basculer si on est ailleurs
     window.dispatchEvent(new CustomEvent("switch-surface", { detail: { surface: "atelier" } }));

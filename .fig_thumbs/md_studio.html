@@ -15,16 +15,16 @@
 })();</script>
 <script src="/.fig_thumbs/toastui/toastui-editor-all.min.js"></script>
 <style>
-  :root{--bg:#212429;--bar:#1a1d22;--border:#333a45;--fg:#e8eaed;--muted:#8a919e}
+  :root{--ui-font:-apple-system,'SF Pro Text','Inter Variable',sans-serif;--code-font:ui-monospace,'SF Mono',Menlo,monospace;--bg:#212429;--bar:#1a1d22;--border:#333a45;--fg:#dbdfe5;--muted:#868d9a}
   html,body{margin:0;height:100%;background:var(--bg);color:var(--fg);
-    font-family:-apple-system,'SF Pro Text',sans-serif}
+    font-family:var(--ui-font)}
   #bar{display:flex;align-items:center;gap:8px;padding:6px 10px;background:var(--bar);
     border-bottom:1px solid var(--border);font-size:13px}
   #fname{font-weight:600}
   #state{color:var(--muted);font-size:12px}
   #state.dirty{color:#ffd54a}
-  #bar button{background:#2c313a;border:1px solid var(--border);border-radius:7px;
-    color:var(--fg);padding:4px 12px;cursor:pointer;font-size:12.5px}
+  #bar button{background:#2c313a;border:1px solid var(--border);border-radius:6px;
+    color:var(--fg);padding:4px 12px;cursor:pointer;font-size:13px}
   #bar button:hover{border-color:#4a5462}
   #ed{height:calc(100vh - 41px)}
   .toastui-editor-dark .toastui-editor-defaultUI{border:none}
@@ -66,7 +66,17 @@ let diskMtime = 0, dirty = false, editor = null, loading = true;
 
 function setState(cls, txt){ stateEl.className = cls; stateEl.textContent = txt; }
 
-fetch("/code?path=" + encodeURIComponent(path)).then(r => r.json()).then(j => {
+fetch("/code?path=" + encodeURIComponent(path)).then(async r => {
+  const j = await r.json().catch(() => ({}));
+  // erreur serveur (404 hors racine / fichier absent…) : l'afficher au lieu d'un éditeur vide muet
+  if(!r.ok || typeof j.text !== "string"){
+    setState("dirty", "erreur");
+    const esc = s => String(s).replace(/[&<>]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;"}[c]));
+    document.getElementById("ed").innerHTML = '<div style="padding:24px;color:var(--muted,#9aa3af);font:13px/1.6 -apple-system,sans-serif">' +
+      'Impossible de charger <b>' + esc(path || "(aucun chemin)") + '</b><br>' +
+      esc(j.error || ("HTTP " + r.status)) + '</div>';
+    return;
+  }
   diskMtime = j.mtime;
   editor = new toastui.Editor({
     el: document.getElementById("ed"),
@@ -125,9 +135,9 @@ setInterval(async () => {
 if(window.self !== window.top){
   const pill = document.createElement("button");
   pill.innerHTML = '<svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" style="vertical-align:-2px"><path d="M14 8c0 3-2.7 5.2-6 5.2-.8 0-1.6-.1-2.3-.4L2.5 14l1-2.6C2.6 10.5 2 9.3 2 8c0-3 2.7-5.2 6-5.2S14 5 14 8z"/></svg>&nbsp; Add to chat';
-  pill.style.cssText = "position:fixed;z-index:9999;display:none;background:#2c313a;color:#e6e6e6;"
+  pill.style.cssText = "position:fixed;z-index:9999;display:none;background:#2c313a;color:#dbdfe5;"
     + "border:1px solid #3a414d;border-radius:999px;padding:7px 14px;font-size:13px;cursor:pointer;"
-    + "box-shadow:0 6px 18px rgba(0,0,0,.5);font-family:-apple-system,sans-serif";
+    + "box-shadow:0 6px 18px rgba(0,0,0,.5);font-family:var(--ui-font)";
   document.body.appendChild(pill);
   let selTxt = "";
   pill.addEventListener("mousedown", (e) => {

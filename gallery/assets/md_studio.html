@@ -66,7 +66,17 @@ let diskMtime = 0, dirty = false, editor = null, loading = true;
 
 function setState(cls, txt){ stateEl.className = cls; stateEl.textContent = txt; }
 
-fetch("/code?path=" + encodeURIComponent(path)).then(r => r.json()).then(j => {
+fetch("/code?path=" + encodeURIComponent(path)).then(async r => {
+  const j = await r.json().catch(() => ({}));
+  // erreur serveur (404 hors racine / fichier absent…) : l'afficher au lieu d'un éditeur vide muet
+  if(!r.ok || typeof j.text !== "string"){
+    setState("dirty", "erreur");
+    const esc = s => String(s).replace(/[&<>]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;"}[c]));
+    document.getElementById("ed").innerHTML = '<div style="padding:24px;color:var(--muted,#9aa3af);font:13px/1.6 -apple-system,sans-serif">' +
+      'Impossible de charger <b>' + esc(path || "(aucun chemin)") + '</b><br>' +
+      esc(j.error || ("HTTP " + r.status)) + '</div>';
+    return;
+  }
   diskMtime = j.mtime;
   editor = new toastui.Editor({
     el: document.getElementById("ed"),
