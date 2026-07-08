@@ -1219,6 +1219,12 @@ button.ghost.danger, button.ghost.danger:hover { color: #d98c8f; background: rgb
   transition: background 140ms var(--ease, ease), color 140ms var(--ease, ease); }
 .generateur-seg button.on { background: var(--bg-card); color: var(--fg); font-weight: 500; }
 .generateur-seg button:disabled { cursor: default; opacity: 0.6; }
+.generateur-engines { display: flex; flex-wrap: wrap; gap: 6px; }
+.generateur-chip { background: var(--bg-card); border: 1px solid var(--border2); border-radius: var(--r-pill);
+  color: var(--muted); font-family: inherit; font-size: var(--fs-s); padding: 5px 11px; cursor: pointer;
+  transition: background 140ms var(--ease, ease), color 140ms var(--ease, ease), border-color 140ms var(--ease, ease); }
+.generateur-chip.sel { background: var(--bg-ctl); border-color: var(--accent); color: var(--fg); }
+.generateur-chip:disabled { cursor: default; opacity: 0.6; }
 .generateur-cost { font-size: var(--fs-s); color: var(--muted2); font-variant-numeric: tabular-nums; }
 .generateur-generate { margin-top: 8px; background: var(--accent); color: var(--bg); border: none;
   border-radius: var(--r-s); font-size: var(--fs-l); font-weight: 500; padding: 8px 12px; cursor: pointer;

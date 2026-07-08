@@ -37,6 +37,12 @@ const SIZES: { id: "1K" | "2K"; label: string }[] = [
   { id: "2K", label: "2K" },
 ];
 
+type Engine = "seedream" | "codex";
+const ENGINES: { id: Engine; label: string }[] = [
+  { id: "seedream", label: "Seedream 5.0 Pro" },
+  { id: "codex", label: "GPT Image 2" },
+];
+
 export default function GeneratorSurface({
   ws,
   projectRoot,
@@ -47,6 +53,7 @@ export default function GeneratorSurface({
   galleryUrl: string;
 }) {
   const [prompt, setPrompt] = useState("");
+  const [engine, setEngine] = useState<Engine>("seedream");
   const [size, setSize] = useState<"1K" | "2K">("2K");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -80,14 +87,14 @@ export default function GeneratorSurface({
     if (!p || busy) return;
     setBusy(true);
     setError(null);
-    send(ws, { type: "generateImage", prompt: p, size, editFrom, projectRoot });
+    send(ws, { type: "generateImage", prompt: p, size, engine, editFrom, projectRoot });
     // Filet de sécurité si le sidecar ne répond jamais (réseau down, etc.).
     // Seedream 5.0 Pro (deep-reasoning) est lent : ~140 s observés au lancement.
     // On laisse une marge large — le vrai signal de fin est le message WS.
     timeoutRef.current = window.setTimeout(() => {
       setBusy(false);
       setError(t("generateur.timeout"));
-    }, 300000);
+    }, 480000);
   }
 
   const imageUrl = result?.path ? toGalleryImageUrl(result.path, projectRoot, galleryUrl) : null;
@@ -104,6 +111,19 @@ export default function GeneratorSurface({
           disabled={busy}
           rows={6}
         />
+        <div className="generateur-label">{t("generateur.engine")}</div>
+        <div className="generateur-engines">
+          {ENGINES.map((eng) => (
+            <button
+              key={eng.id}
+              className={"generateur-chip" + (engine === eng.id ? " sel" : "")}
+              disabled={busy}
+              onClick={() => setEngine(eng.id)}
+            >
+              {eng.label}
+            </button>
+          ))}
+        </div>
         <div className="generateur-label">{t("generateur.size")}</div>
         <div className="generateur-seg">
           {SIZES.map((s) => (
@@ -117,7 +137,9 @@ export default function GeneratorSurface({
             </button>
           ))}
         </div>
-        <div className="generateur-cost">{t("generateur.cost-estimate")}</div>
+        <div className="generateur-cost">
+          {engine === "codex" ? t("generateur.cost-codex") : t("generateur.cost-estimate")}
+        </div>
         <button className="generateur-generate" disabled={busy || !prompt.trim()} onClick={() => generate()}>
           {busy ? t("generateur.generating") : t("generateur.generate")}
         </button>

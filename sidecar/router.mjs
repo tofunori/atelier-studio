@@ -3,6 +3,7 @@ import { dirname, join } from "node:path";
 import { homedir } from "node:os";
 import { writeFileAtomic } from "./store.mjs";
 import { generateImage, resolveArkApiKey, resolveArkModel } from "./providers/images.mjs";
+import { generateImageViaCodex } from "./providers/codex_image.mjs";
 
 // ctx: { send(obj), store, providers, broadcast(obj) }
 
@@ -513,19 +514,26 @@ export async function route(msg, ctx) {
     case "generateImage": {
       const prompt = String(msg.prompt ?? "").trim();
       const size = String(msg.size ?? "2K");
+      const engine = msg.engine === "codex" ? "codex" : "seedream";
       const editFrom = msg.editFrom ? String(msg.editFrom) : null;
       let root = msg.projectDir ? String(msg.projectDir) : null;
       try {
         root = root || gitRootFor(ctx, msg);
         if (!prompt) throw new Error("prompt requis");
-        const apiKey = resolveArkApiKey();
-        const model = resolveArkModel();
-        let editImageDataUri = null;
-        if (editFrom) {
-          const buf = readFileSync(editFrom);
-          editImageDataUri = `data:image/png;base64,${buf.toString("base64")}`;
+        let result;
+        if (engine === "codex") {
+          // gpt-image-2 via l'abonnement ChatGPT (aucune clé, quota abonnement)
+          result = await generateImageViaCodex({ prompt, size, editImagePath: editFrom });
+        } else {
+          const apiKey = resolveArkApiKey();
+          const model = resolveArkModel();
+          let editImageDataUri = null;
+          if (editFrom) {
+            const buf = readFileSync(editFrom);
+            editImageDataUri = `data:image/png;base64,${buf.toString("base64")}`;
+          }
+          result = await generateImage({ prompt, size, editImageDataUri, apiKey, model });
         }
-        const result = await generateImage({ prompt, size, editImageDataUri, apiKey, model });
         const dir = join(root, "generated");
         mkdirSync(dir, { recursive: true });
         const ts = Date.now();
@@ -535,6 +543,7 @@ export async function route(msg, ctx) {
         writeFileSync(imagePath, Buffer.from(result.b64, "base64"));
         const meta = {
           prompt,
+          engine,
           model: result.model,
           size: result.size,
           editFrom,

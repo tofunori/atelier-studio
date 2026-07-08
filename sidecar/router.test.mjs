@@ -14,6 +14,14 @@ vi.mock("./providers/images.mjs", () => ({
   resolveArkApiKey: () => "sk-test",
   resolveArkModel: () => "seedream-test",
 }));
+vi.mock("./providers/codex_image.mjs", () => ({
+  generateImageViaCodex: async () => ({
+    b64: Buffer.from("codex-png-bytes").toString("base64"),
+    size: "2K",
+    model: "gpt-image-2",
+    usage: null,
+  }),
+}));
 
 import { route } from "./router.mjs";
 
@@ -216,5 +224,22 @@ describe("quickAsk", () => {
     expect(sent.find((m) => m.type === "imageGenerated")).toBeUndefined();
     // fichier PNG + provenance JSON réellement écrits
     expect(readFileSync(onBroadcast.metaPath, "utf8")).toContain("un glacier");
+    // moteur par défaut = seedream, tracé dans la provenance
+    expect(onBroadcast.engine).toBe("seedream");
+  });
+
+  it("generateImage engine=codex passe par le provider Codex (gpt-image-2)", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "atelier-gen-codex-"));
+    const emitted = [];
+    await route(
+      { type: "generateImage", prompt: "un glacier", engine: "codex", projectRoot: dir },
+      { send: () => {}, broadcast: (m) => emitted.push(m) },
+    );
+    const m = emitted.find((x) => x.type === "imageGenerated");
+    expect(m).toBeTruthy();
+    expect(m.error).toBeUndefined();
+    expect(m.engine).toBe("codex");
+    expect(m.model).toBe("gpt-image-2");
+    expect(readFileSync(m.metaPath, "utf8")).toContain("codex");
   });
 });
