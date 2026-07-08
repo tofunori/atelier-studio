@@ -377,7 +377,11 @@ export async function handleAnnotationPost(req, res, url) {
   if (pathname === "/quote") {
     try {
       const payload = await readJsonRequest(req);
-      const pdf = path.join(PROJECT, payload.rel);
+      // rel peut être absolu (éditeur : chemin complet du fichier) ou relatif
+      // (galerie). path.join concatène un chemin absolu au lieu de le respecter
+      // → chemin doublé « …/atelier-studio/Users/…/atelier-studio/main.tex ».
+      const rel = String(payload.rel || "");
+      const pdf = path.isAbsolute(rel) ? rel : path.join(PROJECT, rel);
       const page = payload.page;
       const loc = page !== undefined && page !== null && page !== "" && page !== "html" ? ` (p.${page})` : "";
       let msg = `${pdf}${loc} : \u00ab ${String(payload.text).trim()} \u00bb `;
