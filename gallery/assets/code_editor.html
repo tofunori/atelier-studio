@@ -247,6 +247,9 @@ document.addEventListener("keydown", e => {
 let __mergeConflictAt = 0;
 setInterval(async () => {
   if(!cm) return;
+  // vue historique du comparateur (± timeline) : buffer temporairement remplacé —
+  // ne pas recharger le disque par-dessus (restauré à la sortie de la vue)
+  if(typeof __dv !== "undefined" && __dv && __dv.isBusy && __dv.isBusy()) return;
   try{
     const r = await fetch("/code?path=" + encodeURIComponent(path));
     const j = await r.json();

@@ -342,11 +342,14 @@ window.DiffVersions = function(opts){
     els.tag.classList.toggle("on", shown);
     if(els.restore) els.restore.style.display = shown ? "" : "none";
     if(shown){
+      navMode = -1;
       render();
       cm.setOption("readOnly", true);
       if(scrollLine != null) cm.scrollIntoView({line: scrollLine, ch: 0}, 120);
     }
     else {
+      ttExit(); // vue historique : TOUJOURS restaurer le buffer réel en sortant
+      navMode = -1;
       extCmp = null; clearMarks(); cm.setOption("readOnly", false); cm.refresh(); notify("");
       changePts = [];
       if(navPill) navPill.style.display = "none";
@@ -354,6 +357,9 @@ window.DiffVersions = function(opts){
     }
   }
   function push(before, after){
+    // une écriture arrive pendant une vue historique : revenir au présent
+    // d'abord (le buffer réel vient d'être remplacé par l'hôte)
+    if(tt){ tt = null; navMode = -1; extCmp = null; }
     if(before === after) return;
     // rewrap-only (blancs/retours déplacés) : ne pas créer de version vide —
     // sinon idx saute sur un diff « aucun changement » et masque les vraies
@@ -618,7 +624,10 @@ window.DiffVersions = function(opts){
     if(!gutterReady){
       cm.setOption("gutters", ["CodeMirror-linenumbers", GUTTER]);
       cm.on("gutterClick", (c, line, g) => { if(g === GUTTER) openHeadAt(line); });
-      cm.on("change", () => { clearTimeout(gutterTimer); gutterTimer = setTimeout(refreshGutter, 400); });
+      cm.on("change", () => {
+        if(tt) return; // vue historique : le buffer affiché n'est pas le vrai
+        clearTimeout(gutterTimer); gutterTimer = setTimeout(refreshGutter, 400);
+      });
       gutterReady = true;
     }
     let blocks = 0;
@@ -748,10 +757,22 @@ window.DiffVersions = function(opts){
   // changement suivant/précédent (via e.code : indépendant de la disposition).
   document.addEventListener("keydown", (e) => {
     if(!shown) return;
+    // vue historique : le buffer affiché n'est PAS le vrai — bloquer ⌘S
+    if(tt && (e.metaKey || e.ctrlKey) && (e.key === "s" || e.key === "S")){
+      e.preventDefault(); e.stopPropagation();
+      notify("vue historique — Échap ou › pour revenir au présent avant de sauvegarder");
+      return;
+    }
     if(e.key === "Escape"){ e.preventDefault(); e.stopPropagation(); toggle(false); return; }
     if(e.altKey && !e.metaKey && !e.ctrlKey && (e.code === "ArrowDown" || e.code === "ArrowUp") && changePts.length){
       e.preventDefault(); e.stopPropagation();
       gotoChange(changeAt + (e.code === "ArrowDown" ? 1 : -1), true);
+    }
+    // ⌥←/⌥→ : intervention précédente / suivante (timeline)
+    if(e.altKey && !e.metaKey && !e.ctrlKey && (e.code === "ArrowLeft" || e.code === "ArrowRight")){
+      e.preventDefault(); e.stopPropagation();
+      if(e.code === "ArrowLeft") navMode < 0 ? showStep(interList().length - 1) : showStep(navMode - 1);
+      else if(navMode >= 0){ const last = interList().length - 1; navMode >= last ? showAll() : showStep(navMode + 1); }
     }
   }, true);
 
@@ -814,5 +835,7 @@ window.DiffVersions = function(opts){
     });
   }, 300);
 
-  return { push, isShown: () => shown };
+  // isBusy : vue historique active (buffer temporairement remplacé) — les hôtes
+  // doivent suspendre leur rechargement-disque automatique pendant ce temps
+  return { push, isShown: () => shown, isBusy: () => !!tt };
 };

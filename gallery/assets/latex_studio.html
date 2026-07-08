@@ -1521,10 +1521,17 @@ function selPillShow(f, t, sel){
   const c = cm.charCoords(t, "window");
   selPill.style.display = "flex";
   const w = selPill.offsetWidth, h = selPill.offsetHeight;
-  let x = Math.min(Math.max(8, c.left - w/2), innerWidth - w - 8);
+  // Se caler sur le rectangle RÉEL de l'éditeur (getBoundingClientRect), pas sur
+  // innerWidth/innerHeight : dans l'iframe embarqué ces derniers peuvent être 0,
+  // ce qui faisait basculer la pastille « au-dessus » puis la clampait en haut,
+  // collée par-dessus la barre d'outils.
+  const box = cm.getWrapperElement().getBoundingClientRect();
+  const top = box.top + 6, bottom = box.bottom - h - 6;
+  let x = Math.min(Math.max(box.left + 6, c.left - w/2), box.right - w - 6);
   let y = c.bottom + 10;
-  if(y + h > innerHeight - 8) y = c.top - h - 10;
-  selPill.style.left = x + "px"; selPill.style.top = Math.max(8, y) + "px";
+  if(y > bottom) y = c.top - h - 10;            // déborde en bas → au-dessus de la ligne
+  y = Math.min(Math.max(top, y), Math.max(top, bottom)); // jamais hors de l'éditeur
+  selPill.style.left = Math.max(6, x) + "px"; selPill.style.top = y + "px";
 }
 function selHide(){ selPill.style.display = "none"; }
 function selCancel(){
@@ -1942,6 +1949,9 @@ document.addEventListener("keydown", e => {
 let __mergeConflictAt = 0;
 setInterval(async () => {
   if(!cm) return;
+  // vue historique du comparateur (± timeline) : le buffer affiché n'est pas le
+  // vrai — ne jamais recharger le disque par-dessus (restauré à la sortie)
+  if(typeof __dv !== "undefined" && __dv && __dv.isBusy && __dv.isBusy()) return;
   try{
     const r = await fetch("/code?path=" + encodeURIComponent(path));
     const j = await r.json();
