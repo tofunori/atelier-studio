@@ -28,7 +28,7 @@ const PROVIDERS = [
     bin: "grok",
     defaultModel: "grok-4.5",
     models: ["grok-4.5", "grok-composer-2.5-fast"],
-    efforts: ["low", "medium", "high", "xhigh", "max"],
+    efforts: ["minimal", "low", "medium", "high", "xhigh", "max"],
     capabilities: { resume: true, steering: false, goals: false },
   },
   {

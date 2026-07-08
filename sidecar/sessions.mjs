@@ -36,6 +36,46 @@ async function firstUserText(path, isCodex) {
   return null;
 }
 
+// --- Grok (~/.grok/sessions/<cwd encodé>/<session-uuid>/) ---
+// Encodage observé (scratchpad grok-stdio-probe) : cwd complet passé tel quel
+// à encodeURIComponent, "/" -> "%2F". Le vrai message utilisateur est
+// enveloppé dans <user_query>…</user_query> au milieu d'entrées "user"
+// synthétiques (contexte système injecté par le CLI : <user_info>,
+// <system-reminder>…) — on ne garde que celles qui matchent ce wrapper.
+function grokProjectDir(projectRoot) {
+  return join(homedir(), ".grok", "sessions", encodeURIComponent(String(projectRoot || homedir())));
+}
+
+function extractUserQuery(text) {
+  const m = /<user_query>\s*([\s\S]*?)\s*<\/user_query>/.exec(String(text ?? ""));
+  return m ? m[1].trim() : null;
+}
+
+function grokUserQueryFromContent(content) {
+  const text = Array.isArray(content)
+    ? content.filter((b) => b?.type === "text").map((b) => b.text ?? "").join(" ")
+    : String(content ?? "");
+  return extractUserQuery(text);
+}
+
+async function firstGrokUserText(path) {
+  const rl = readline.createInterface({ input: createReadStream(path) });
+  let n = 0;
+  for await (const line of rl) {
+    // les premiers tours grok incluent pas mal de contexte système
+    // (user_info, system-reminder…) avant le vrai premier message utilisateur
+    if (++n > 200) break;
+    try {
+      const d = JSON.parse(line);
+      if (d.type !== "user") continue;
+      const query = grokUserQueryFromContent(d.content);
+      if (query) { rl.close(); return query.slice(0, 70); }
+    } catch {}
+  }
+  rl.close();
+  return null;
+}
+
 export async function listSessions(provider, projectRoot) {
   const out = [];
   if (provider === "claude") {
@@ -48,6 +88,19 @@ export async function listSessions(provider, projectRoot) {
     for (const { f, m } of withM) {
       const id = f.replace(/\.jsonl$/, "");
       out.push({ id, mtime: m, title: (await firstUserText(join(dir, f), false)) ?? id.slice(0, 8) });
+    }
+  } else if (provider === "grok") {
+    const dir = grokProjectDir(projectRoot);
+    if (!existsSync(dir)) return [];
+    const dirs = readdirSync(dir).filter((name) => {
+      try { return statSync(join(dir, name)).isDirectory(); } catch { return false; }
+    });
+    const withM = dirs.map((id) => ({ id, m: statSync(join(dir, id)).mtimeMs }))
+      .sort((a, b) => b.m - a.m).slice(0, 25);
+    for (const { id, m } of withM) {
+      const chatFile = join(dir, id, "chat_history.jsonl");
+      const title = existsSync(chatFile) ? await firstGrokUserText(chatFile) : null;
+      out.push({ id, mtime: m, title: title ?? id.slice(0, 8) });
     }
   } else {
     const base = join(homedir(), ".codex", "sessions");
@@ -102,6 +155,35 @@ export async function codexHistory(sessionId) {
       }
       if (p.type === "agent_message" && p.message) {
         events.push({ kind: "text", text: String(p.message) });
+      }
+    } catch {}
+  }
+  return events;
+}
+
+/** Historique d'une session Grok (chat_history.jsonl ACP) → événements
+ * affichables, forme alignée sur codexHistory ci-dessus (kind:"user"/"text"),
+ * plus kind:"tool" pour les tool_calls assistant. "system"/"reasoning"/
+ * "tool_result" ne sont pas affichés (parité codexHistory, qui ne montre pas
+ * non plus les sorties d'outils). */
+export async function grokHistory(sessionId, projectRoot) {
+  const dir = grokProjectDir(projectRoot);
+  const file = join(dir, sessionId, "chat_history.jsonl");
+  if (!existsSync(file)) return [];
+  const events = [];
+  const rl = readline.createInterface({ input: createReadStream(file) });
+  for await (const line of rl) {
+    try {
+      const d = JSON.parse(line);
+      if (d.type === "user") {
+        const query = grokUserQueryFromContent(d.content);
+        if (query) events.push({ kind: "user", text: query });
+      } else if (d.type === "assistant") {
+        const text = String(d.content ?? "").trim();
+        if (text) events.push({ kind: "text", text });
+        for (const tc of d.tool_calls ?? []) {
+          if (tc?.name) events.push({ kind: "tool", name: String(tc.name) });
+        }
       }
     } catch {}
   }

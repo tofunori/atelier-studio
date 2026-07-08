@@ -718,6 +718,11 @@ export async function route(msg, ctx) {
         ctx.send({ type: "history", threadId: msg.threadId, events: [] });
         break;
       }
+      if (t.provider === "grok") {
+        const events = await ctx.sessions.grokHistory(t.sessionId, t.projectRoot);
+        ctx.send({ type: "history", threadId: msg.threadId, events });
+        break;
+      }
       if (t.provider !== "claude") {
         const events = await ctx.sessions.codexHistory(t.sessionId);
         ctx.send({ type: "history", threadId: msg.threadId, events });
