@@ -1,12 +1,22 @@
 import React, { useEffect, useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
+import remarkMath from "remark-math";
+import rehypeKatex from "rehype-katex";
+import "katex/dist/katex.min.css";
 import hljs from "highlight.js/lib/common";
+import julia from "highlight.js/lib/languages/julia";
+import latex from "highlight.js/lib/languages/latex";
 import { open } from "@tauri-apps/plugin-dialog";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { AgentEvent } from "../lib/ws";
 import { wsSend } from "../lib/wsBus";
 import { eventLabel, t } from "../lib/i18n";
+import { normalizeMathDelimiters, hardenPartialMarkdown } from "../lib/markdown";
+import { LruCache } from "../lib/lruCache";
+
+hljs.registerLanguage("julia", julia);
+hljs.registerLanguage("latex", latex);
 import {
   CloseIcon,
   CollapseIcon,
@@ -75,8 +85,10 @@ function mdText(children: any): string {
 }
 
 const LANG_ALIAS: Record<string, string> = {
+  bib: "latex",
   cjs: "javascript",
   console: "bash",
+  jl: "julia",
   js: "javascript",
   jsx: "javascript",
   md: "markdown",
@@ -86,6 +98,8 @@ const LANG_ALIAS: Record<string, string> = {
   rs: "rust",
   sh: "bash",
   shell: "bash",
+  sty: "latex",
+  tex: "latex",
   ts: "typescript",
   tsx: "typescript",
   yml: "yaml",
@@ -100,26 +114,43 @@ function escapeHtml(text: string): string {
     .replace(/"/g, "&quot;");
 }
 
+// cache module-level borné (~300 entrées, éviction LRU) : chaque event ajouté
+// re-rend toute la liste des messages, donc sans cache tous les blocs de code
+// de l'historique seraient recolorés à chaque token reçu (O(n²) sur les
+// longues réponses). Clé = `${lang} ${raw}`.
+const highlightCache = new LruCache<string>(300);
+
 function highlightCode(raw: string, lang: string): string {
+  const key = `${lang} ${raw}`;
+  const cached = highlightCache.get(key);
+  if (cached !== undefined) return cached;
+
   const normalized = LANG_ALIAS[lang.toLowerCase()] ?? lang.toLowerCase();
+  let result: string;
   try {
     if (normalized && hljs.getLanguage(normalized)) {
-      return hljs.highlight(raw, { language: normalized, ignoreIllegals: true }).value;
+      result = hljs.highlight(raw, { language: normalized, ignoreIllegals: true }).value;
+    } else {
+      result = hljs.highlightAuto(raw).value;
     }
-    return hljs.highlightAuto(raw).value;
   } catch {
-    return escapeHtml(raw);
+    result = escapeHtml(raw);
   }
+  highlightCache.set(key, result);
+  return result;
 }
 
-function MarkdownCodeBlock(props: any) {
+// chrome commun (barre, langue, bouton copie) partagé par la variante colorée
+// et la variante streaming — seule la coloration (highlight vs texte brut)
+// diffère entre les deux.
+function renderCodeBlock(props: any, highlight: boolean) {
   const [copied, setCopied] = useState(false);
   const child = props.children?.props ?? {};
   const lang = /language-([\w-]+)/.exec(String(child.className ?? ""))?.[1] ?? "";
   const raw = mdText(child.children);
   const label = lang || "text";
   const languageClass = label.replace(/[^\w-]/g, "");
-  const highlighted = highlightCode(raw, lang);
+  const highlighted = highlight ? highlightCode(raw, lang) : escapeHtml(raw);
   return (
     <div className="codeblock">
       <div className="codeblock-bar">
@@ -147,6 +178,16 @@ function MarkdownCodeBlock(props: any) {
       </pre>
     </div>
   );
+}
+
+function MarkdownCodeBlock(props: any) {
+  return renderCodeBlock(props, true);
+}
+
+// variante streaming : même chrome, sans coloration — évite highlightAuto (le
+// plus coûteux) sur du code encore incomplet à chaque token reçu.
+function MarkdownCodeBlockStreaming(props: any) {
+  return renderCodeBlock(props, false);
 }
 
 function diffLineClass(line: string): string {
@@ -343,6 +384,16 @@ const MD_COMPONENTS = {
     return <code className={props.className}>{props.children}</code>;
   },
 };
+
+// bulle en streaming : mêmes composants, sauf le code coloré (perf, cf.
+// MarkdownCodeBlockStreaming ci-dessus).
+const MD_COMPONENTS_STREAMING = { ...MD_COMPONENTS, pre: MarkdownCodeBlockStreaming };
+
+// remark-math : singleDollarTextMath reste au défaut (true) — utilisateur
+// scientifique, les $ isolés (monétaires) sont rares dans son usage.
+const MD_REMARK_PLUGINS = [remarkGfm, remarkMath];
+// throwOnError:false — un LaTeX invalide ne doit jamais faire planter le rendu.
+const MD_REHYPE_PLUGINS: any[] = [[rehypeKatex, { throwOnError: false }]];
 
 function fmtTime(ts: number, fmt?: "system" | "24h" | "12h") {
   const opts: Intl.DateTimeFormatOptions = { hour: "2-digit", minute: "2-digit" };
