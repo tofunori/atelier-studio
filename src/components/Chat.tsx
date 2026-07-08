@@ -51,6 +51,8 @@ const MODELS: Record<string, { id: string; label: string }[]> = {
 const EFFORTS: Record<string, string[]> = {
   claude: ["", "low", "medium", "high", "xhigh", "max"],
   codex: ["", "low", "medium", "high", "xhigh"],
+  // Grok : pas d'entrée "" (Auto) — défaut explicite "high" (DEFAULT_SETTINGS)
+  grok: ["minimal", "low", "medium", "high", "xhigh", "max"],
 };
 const API_REASONING_LEVELS = ["", "none", "minimal", "low", "medium", "high", "xhigh", "max"];
 
