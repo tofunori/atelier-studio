@@ -383,21 +383,13 @@ html, body, #root, .app { height: 100vh; overflow: hidden;
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .working-tool-glyph { width: 10px; flex-shrink: 0; color: var(--muted2); text-align: center; }
 .working-tool span:last-child { overflow: hidden; text-overflow: ellipsis; }
-.working-goal, .working-heartbeat { grid-column: 1 / -1; display: inline-flex; align-items: center; gap: 7px;
+.working-goal { grid-column: 1 / -1; display: inline-flex; align-items: center; gap: 7px;
   min-width: 0; color: var(--muted2); font-size: var(--fs-s); line-height: 1.35;
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .working-goal svg { flex: none; color: var(--muted); }
-.working-goal-label, .heartbeat-age, .heartbeat-elapsed { flex: none; color: var(--muted2); }
+.working-goal-label { flex: none; color: var(--muted2); }
 .working-goal-objective { min-width: 0; overflow: hidden; text-overflow: ellipsis; color: var(--fg2); }
 .working-goal-status { flex: none; text-transform: uppercase; letter-spacing: 0.04em; font-size: var(--fs-xs); color: var(--muted2); }
-.heartbeat-dot { width: 7px; height: 7px; border-radius: var(--r-pill); background: #7aa2f7;
-  box-shadow: 0 0 0 0 color-mix(in srgb, #7aa2f7 42%, transparent);
-  animation: heartbeat-pulse 1.6s ease-out infinite; flex: none; }
-@keyframes heartbeat-pulse {
-  0% { box-shadow: 0 0 0 0 color-mix(in srgb, #7aa2f7 42%, transparent); }
-  100% { box-shadow: 0 0 0 7px transparent; }
-}
-@media (prefers-reduced-motion: reduce) { .heartbeat-dot { animation: none; } }
 .stop-hint { background: transparent; border: none; color: var(--muted2); font-size: var(--fs-s);
   padding: 2px 0; cursor: pointer; display: inline-flex; gap: 6px; align-items: center;
   justify-self: start; grid-column: 1; }
