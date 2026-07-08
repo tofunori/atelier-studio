@@ -463,6 +463,35 @@ async function timelineTests() {
   ok("timeline fermeture : buffer réel restauré", h.cm._v === s3 && !h.dv.isBusy());
   ok("timeline fermeture : comparaison fermée", !h.dv.isShown());
 
+  // interventions ANTÉRIEURES à la base (déjà committées) : exclues du compteur
+  // — « tout · N » doit refléter exactement ce que le diff cumulé montre
+  {
+    const now = Date.now();
+    // base = s2 (les interventions 1 et 2 sont DÉJÀ dans le commit-base) ;
+    // le serveur restaure deux vieilles versions d'avant la base
+    const h3 = makeModuleHarness({
+      headText: s2,
+      headTs: Math.floor(now / 1000) - 60,
+      serverItems: [{ b: base, t: now - 300000 }, { b: s1, t: now - 200000 }],
+      serverLast: s2,
+    });
+    await sleep(0); await sleep(0); await sleep(0);
+    // une seule intervention vivante depuis la base : i3
+    h3.cm._v = s3;
+    h3.dv.push(s2, s3);
+    h3.tag.onclick();
+    const nav3 = h3.nav();
+    ok("timeline vs base : vieilles interventions committées exclues",
+      nav3.count.textContent === "tout · 1", nav3.count.textContent);
+    ok("timeline vs base : cumul = 1 modification (i3 seule)",
+      /· 1 modification /.test(h3.notes[h3.notes.length - 1]), h3.notes[h3.notes.length - 1]);
+    // …mais l'historique complet reste accessible : ‹ n'entre que sur i3
+    nav3.prev.onclick();
+    ok("timeline vs base : ‹ = 1/1 (la seule postérieure)", nav3.count.textContent === "1 / 1", nav3.count.textContent);
+    ok("timeline vs base : borne (‹ éteint)", nav3.prev.disabled === true);
+    h3.tag.onclick();
+  }
+
   // une écriture externe pendant une vue historique : retour au présent propre
   const h2 = makeModuleHarness({ headText: base });
   await sleep(0); await sleep(0);
