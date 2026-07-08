@@ -1220,12 +1220,12 @@ button.ghost.danger, button.ghost.danger:hover { color: #d98c8f; background: rgb
 .generateur-seg button.on { background: var(--bg-card); color: var(--fg); font-weight: 500; }
 .generateur-seg button:disabled { cursor: default; opacity: 0.6; }
 .generateur-cost { font-size: var(--fs-s); color: var(--muted2); font-variant-numeric: tabular-nums; }
-.generateur-generate { margin-top: 8px; background: var(--accent); color: #fff; border: none;
+.generateur-generate { margin-top: 8px; background: var(--accent); color: var(--bg); border: none;
   border-radius: var(--r-s); font-size: var(--fs-l); font-weight: 500; padding: 8px 12px; cursor: pointer;
   transition: opacity 140ms var(--ease, ease); }
 .generateur-generate:disabled { opacity: 0.45; cursor: default; }
 .generateur-generate:hover:not(:disabled) { opacity: 0.9; }
-.generateur-error { color: #e06c75; font-size: var(--fs-m); line-height: 1.4; }
+.generateur-error { color: var(--u-hot); font-size: var(--fs-m); line-height: 1.4; }
 .generateur-result { min-width: 0; min-height: 0; display: flex; flex-direction: column; background: var(--bg);
   padding: 16px; gap: 12px; }
 .generateur-empty { flex: 1; display: flex; align-items: center; justify-content: center;

@@ -84,8 +84,8 @@ export default function GeneratorSurface({
     // filet de sécurité si le sidecar ne répond jamais (réseau down, etc.)
     timeoutRef.current = window.setTimeout(() => {
       setBusy(false);
-      setError("délai dépassé (30 s)");
-    }, 30000);
+      setError("délai dépassé (90 s)");
+    }, 90000);
   }
 
   const imageUrl = result?.path ? toGalleryImageUrl(result.path, projectRoot, galleryUrl) : null;
