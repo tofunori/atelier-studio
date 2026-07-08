@@ -579,20 +579,34 @@ window.DiffVersions = function(opts){
             const changed = new Set();
             {
               const wparts = Diff.diffWordsWithSpace(pt.value, nx.value);
+              // même appariement du bruit que render() : paires supprimé/ajouté
+              // de contenu égal, dans un ordre ou l'autre, séparées au plus par
+              // un blanc commun (mot déplacé de l'autre côté d'un retour à la ligne)
+              const skipW = new Set();
+              for(let w = 0; w < wparts.length; w++){
+                const wp = wparts[w];
+                if(!(wp.added || wp.removed) || skipW.has(w) || !wsn(wp.value)) continue;
+                for(let x = w + 1; x <= w + 2 && x < wparts.length; x++){
+                  const cand = wparts[x];
+                  if(x === w + 1 && !cand.removed && !cand.added){
+                    if(wsn(cand.value) !== "") break;
+                    continue;
+                  }
+                  if(!skipW.has(x) && !!cand.removed === !wp.removed && !!cand.added === !wp.added
+                     && wsn(cand.value) === wsn(wp.value)){ skipW.add(w); skipW.add(x); }
+                  break;
+                }
+              }
               const lineOf = (off) => { let c = 0, p = -1; const s = nx.value;
                 for(;;){ const q = s.indexOf("\n", p + 1); if(q < 0 || q >= off) return c; c++; p = q; } };
               let off = 0;
               for(let w = 0; w < wparts.length; w++){
                 const wp = wparts[w];
                 if(wp.removed){
-                  const wn = wparts[w + 1];
-                  if(wn && wn.added && wsn(wn.value) === wsn(wp.value)){ off += wn.value.length; w++; continue; }
-                  if(wsn(wp.value)) changed.add(lineOf(off));
+                  if(!skipW.has(w) && wsn(wp.value)) changed.add(lineOf(off));
                   continue;
                 }
-                if(wp.added && wsn(wp.value)){
-                  const wn = wparts[w + 1];
-                  if(wn && wn.removed && wsn(wn.value) === wsn(wp.value)){ off += wp.value.length; w++; continue; }
+                if(wp.added && !skipW.has(w) && wsn(wp.value)){
                   const a = lineOf(off), b = lineOf(off + wp.value.length);
                   for(let L = a; L <= b; L++) changed.add(L);
                 }

@@ -1000,9 +1000,20 @@ async function load(){
       }
       // ne pas toucher aux paragraphes 100 % commande (préambule, \item…),
       // ni aux blocs contenant un % (voir reflowable : fuite de commentaire)
-      const prose = block.some(l => /[a-zà-ÿ]/i.test(l.replace(/\\[a-zA-Z]+\*?(\[[^\]]*\])?(\{[^}]*\})*/g, "")));
+      const cmdOnly = (l) => l.trim() !== "" && !/[a-zà-ÿ]/i.test(l.replace(/\\[a-zA-Z]+\*?(\[[^\]]*\])?(\{[^}]*\})*/g, ""));
+      const prose = block.some(l => !cmdOnly(l) && l.trim() !== "");
       if(prose && reflowable(block)){
-        const out = wrapLines(block, col);
+        // une ligne 100 % commande (\documentclass, \begin{document}, \section
+        // seul…) est une frontière intangible : elle reste telle quelle, seules
+        // les suites de lignes de prose autour sont refluées
+        const out = [];
+        let run = [];
+        const flush = () => { if(run.length){ out.push(...wrapLines(run, col)); run = []; } };
+        for(const l of block){
+          if(cmdOnly(l)){ flush(); out.push(l); }
+          else run.push(l);
+        }
+        flush();
         if(out.join("\n") !== block.join("\n")) paras.push({from: i, to: j, out});
       }
       i = j + 1;
