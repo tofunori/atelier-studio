@@ -948,6 +948,18 @@ async function load(){
     if(curL) out.push(curL);
     return out;
   }
+  // Un bloc mixte contenant un commentaire (ligne % isolée ou % en fin de ligne)
+  // ne doit JAMAIS être fusionné mot à mot : le % atterrirait au milieu d'une
+  // ligne repliée et tout ce qui suit fuirait comme texte de document (source
+  // du « Missing \begin{document} » et des commentaires éclatés). Un bloc 100 %
+  // commentaire reste reformatable (le préfixe est préservé sur chaque ligne).
+  function reflowable(block){
+    const cm0 = (block[0].match(/^\s*([%#]+|\/\/)\s?/) || [])[1] || "";
+    if(cm0 && block.every(l => !l.trim() || l.trim().startsWith(cm0))) return true;
+    if(!IS_TEX) return false;              // code : seuls les blocs commentaires
+    // % non échappé n'importe où dans le bloc (\% neutralisé) → intouchable
+    return !block.some(l => l.replace(/\\./g, "  ").includes("%"));
+  }
   function rewrapPar(){
     const col = rewrapCol();
     let from, to;
@@ -959,6 +971,7 @@ async function load(){
       to = cur; while(to<last && cm.getLine(to+1).trim()!=="") to++;
     }
     const lines=[]; for(let i=from;i<=to;i++) lines.push(cm.getLine(i));
+    if(!reflowable(lines)){ setState("hint", "non reformaté : commentaire % au milieu du bloc (risque de fuite de texte)"); return; }
     const out = wrapLines(lines, col);
     cm.replaceRange(out.join("\n"), {line:from,ch:0}, {line:to,ch:cm.getLine(to).length});
   }
@@ -985,9 +998,10 @@ async function load(){
         if(nx.trim() === "" || /\\begin\{([^}]*)\}/.test(nx) && NOWRAP_ENV.test(nx.match(/\\begin\{([^}]*)\}/)[1])) break;
         block.push(nx); j++;
       }
-      // ne pas toucher aux paragraphes 100 % commande (préambule, \item…)
+      // ne pas toucher aux paragraphes 100 % commande (préambule, \item…),
+      // ni aux blocs contenant un % (voir reflowable : fuite de commentaire)
       const prose = block.some(l => /[a-zà-ÿ]/i.test(l.replace(/\\[a-zA-Z]+\*?(\[[^\]]*\])?(\{[^}]*\})*/g, "")));
-      if(prose){
+      if(prose && reflowable(block)){
         const out = wrapLines(block, col);
         if(out.join("\n") !== block.join("\n")) paras.push({from: i, to: j, out});
       }
