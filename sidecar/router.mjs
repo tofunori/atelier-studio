@@ -542,9 +542,14 @@ export async function route(msg, ctx) {
           usage: result.usage,
         };
         writeFileSync(metaPath, JSON.stringify(meta, null, 2));
-        ctx.send({ type: "imageGenerated", projectRoot: root, path: imagePath, metaPath, ...meta });
+        // broadcast (pas send) : une génération dure ~140 s et survit souvent à
+        // la socket qui l'a demandée (reconnexion auto, reload de la fenêtre).
+        // ctx.send est lié à cette socket et jette le message si elle est fermée
+        // → le fichier serait écrit mais l'UI ne recevrait jamais la réponse.
+        // Le frontend filtre par projectRoot, donc le broadcast est sûr.
+        (ctx.broadcast ?? ctx.send)({ type: "imageGenerated", projectRoot: root, path: imagePath, metaPath, ...meta });
       } catch (e) {
-        ctx.send({ type: "imageGenerated", projectRoot: root, path: null, error: String(e?.message ?? e) });
+        (ctx.broadcast ?? ctx.send)({ type: "imageGenerated", projectRoot: root, path: null, error: String(e?.message ?? e) });
       }
       break;
     }
