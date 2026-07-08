@@ -12,6 +12,15 @@
     try{ p = Object.assign({}, p, {nonce: sessionStorage.getItem('atelier_nonce')||''}); }catch(e){}
     try{ window.top.postMessage(p, '*'); }catch(e){}
   };
+  // Défaut = éditeur seul (pas de split PDF) : décidé AVANT le rendu du body
+  // pour éviter tout flash de split. Le split ne s'affiche que si l'utilisateur
+  // l'a explicitement activé (texPdfVisible === "1"). Jamais en mode PDF (onglet
+  // dédié où le PDF EST toute la vue).
+  try{
+    var __pdfM = new URLSearchParams(location.search).get("mode") === "pdf";
+    if(!__pdfM && localStorage.getItem("texPdfVisible") !== "1")
+      document.documentElement.classList.add("tex-editor-only");
+  }catch(e){}
 })();</script>
 <script src="/.fig_thumbs/cm/codemirror.min.js"></script>
 <link rel="stylesheet" href="/.fig_thumbs/cm/addon/dialog.css">
@@ -97,6 +106,9 @@
   #split{flex:1;display:flex;min-height:0}
   #left{width:50%;display:flex;flex-direction:column;border-right:1px solid var(--border);min-width:0;background:#1e2126}
   #right{flex:1;overflow:auto;background:var(--card2);position:relative;scrollbar-gutter:stable}
+  /* défaut éditeur seul (pas de split) — appliqué avant le rendu, sans flash */
+  html.tex-editor-only #right{display:none}
+  html.tex-editor-only #left{width:100%;border-right:none}
   .CodeMirror{flex:1;height:auto;font-size:13px;font-family:var(--code-font);line-height:1.62;background:#1e2126;color:var(--txt)}
   /* craft éditeur : respiration, ligne active, gouttière lisible, curseur accent */
   .CodeMirror-lines{padding:10px 0}
@@ -1457,6 +1469,7 @@ document.addEventListener("click", () => { helpPop.style.display = "none"; });
 const rightEl = document.getElementById("right");
 function applyPdfVisible(v){
   if(isPdfMode) return;                       // PDF tab: the PDF pane is the whole view
+  document.documentElement.classList.remove("tex-editor-only"); // JS pilote désormais l'affichage
   rightEl.style.display = v ? "" : "none";
   document.getElementById("left").style.width = v ? "50%" : "100%";
   document.getElementById("left").style.borderRight = v ? "" : "none";
@@ -1762,7 +1775,8 @@ document.getElementById("popPdf").onclick = () => {
   }
   applyPdfVisible(false);
 };
-if(!isPdfMode && localStorage.getItem("texPdfVisible") === "0") applyPdfVisible(false);
+// défaut = éditeur seul ; split uniquement si explicitement activé auparavant
+if(!isPdfMode) applyPdfVisible(localStorage.getItem("texPdfVisible") === "1");
 document.addEventListener("keydown", e => {
   if(e.key === "Escape"){
     if(cm) selCancel();
