@@ -1335,9 +1335,26 @@ async function synctexEdit(page, x, y){
 }
 // l'onglet PDF réclame la position courante du curseur (à l'ouverture et
 // chaque fois qu'il redevient visible) ; l'éditeur répond par un forward-sync
-function requestView(){ if(isPdfMode && bc) bc.postMessage({t: "want-view"}); }
+let _lastReqView = 0;
+function requestView(){
+  if(!isPdfMode || !bc || !pdfDoc) return;
+  const now = (window.performance ? performance.now() : Date.now());
+  if(now - _lastReqView < 250) return;      // anti-doublon (observer + visibility)
+  _lastReqView = now;
+  bc.postMessage({t: "want-view"});
+}
+// Deux déclencheurs selon le contexte :
+// - navigateur autonome (window.open) : visibilitychange couvre la bascule
+//   d'onglet réelle du navigateur ;
+// - intégré dans Atelier : les onglets sont montrés/cachés en display:none, ce
+//   qui NE déclenche NI visibilitychange NI IntersectionObserver (vérifié). L'app
+//   envoie donc un message « atelier-tab-activated » à l'iframe qui redevient active.
 document.addEventListener("visibilitychange", () => {
-  if(isPdfMode && !document.hidden && pdfDoc) requestView();
+  if(isPdfMode && !document.hidden) requestView();
+});
+window.addEventListener("message", (e) => {
+  if(e.source === window.parent && e.data && e.data.type === "atelier-tab-activated" && isPdfMode)
+    requestView();
 });
 if(bc) bc.onmessage = e => {
   const m = e.data || {};

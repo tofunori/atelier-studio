@@ -134,6 +134,16 @@ export default function AtelierPane({
     setGalleryLoaded(false);
   }, [url, reloadKey]);
 
+  // prévenir l'iframe de l'onglet qui devient actif : les onglets sont montrés/
+  // cachés en display:none, ce qu'un iframe ne peut pas détecter (ni
+  // visibilitychange ni IntersectionObserver). L'éditeur LaTeX s'en sert pour
+  // caler le PDF sur la ligne du curseur (synctex) au retour sur l'onglet PDF.
+  useEffect(() => {
+    const sel = `iframe.atelier[data-atelier-tab="${CSS.escape(activeTab)}"]`;
+    const f = document.querySelector(sel) as HTMLIFrameElement | null;
+    f?.contentWindow?.postMessage({ type: "atelier-tab-activated" }, "*");
+  }, [activeTab]);
+
   useEffect(() => {
     const request = () => {
       if (ws?.readyState === WebSocket.OPEN && projectRoot) {
@@ -321,6 +331,7 @@ export default function AtelierPane({
           {tabs.filter((t) => t.kind !== "term").map((t) => (
             <iframe
               key={t.id}
+              data-atelier-tab={t.id}
               className="atelier"
               style={{ display: activeTab === t.id ? "block" : "none" }}
               src={t.url}
