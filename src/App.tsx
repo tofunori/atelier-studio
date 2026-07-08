@@ -1069,6 +1069,12 @@ export default function App() {
 
   function openFileTab(rel: string, line?: string | null) {
     if (!atelierUrl || !activeProject) return;
+    // chemin absolu venant du chat : ne garder que ceux sous le projet actif
+    if (rel.startsWith("/")) {
+      const root = activeProject.endsWith("/") ? activeProject : activeProject + "/";
+      if (!rel.startsWith(root)) return;
+      rel = rel.slice(root.length);
+    }
     rememberFile(rel);
     const origin = new URL(atelierUrl).origin;
     const ext = rel.split(".").pop()?.toLowerCase() ?? "";
