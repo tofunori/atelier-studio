@@ -344,6 +344,22 @@ export async function handleEditorsGet(req, res, url) {
       return sendJson(res, 200, { ok: false });
     }
   }
+  if (pathname === "/versions") {
+    // historique de versions de l'éditeur, persisté côté serveur (le
+    // localStorage du WebView ne survit pas toujours au redémarrage de l'app).
+    // {items:[{b,t}], last} — last = dernier texte connu du buffer, pour le
+    // rattrapage « modifié pendant que l'app était fermée ».
+    try {
+      const p = safePath(url.searchParams.get("path"));
+      if (!p) return sendJson(res, 200, { ok: false });
+      const file = path.join(PROJECT, ".fig_thumbs", "dv_versions", `${md5(realpathOrResolve(p))}.json`);
+      if (!fs.existsSync(file)) return sendJson(res, 200, { ok: true, items: [], last: null });
+      const data = JSON.parse(fs.readFileSync(file, "utf8"));
+      return sendJson(res, 200, { ok: true, items: Array.isArray(data.items) ? data.items : [], last: typeof data.last === "string" ? data.last : null });
+    } catch (e) {
+      return sendJson(res, 200, { ok: false });
+    }
+  }
   if (pathname === "/gitlog") {
     // commits touchant le fichier (panneau historique) — {sha, ts, msg}
     try {
@@ -781,6 +797,25 @@ export async function handleEditorsPost(req, res, url) {
         source: "claude-warm",
         model: "haiku",
       });
+    } catch (error) {
+      return sendJson(res, 400, { error: `bad request: ${String(error.message || error)}` });
+    }
+  }
+  if (pathname === "/versions") {
+    // écrire l'historique de versions (client déjà plafonné à ~1,5 Mo)
+    try {
+      const payload = await readJsonRequest(req, 8 * 1024 * 1024);
+      const p = safePath(payload.path);
+      if (!p) return sendJson(res, 403, { error: "outside the project" });
+      const items = Array.isArray(payload.items)
+        ? payload.items.filter((it) => it && typeof it.b === "string").map((it) => ({ b: it.b, t: it.t || 0 }))
+        : [];
+      const last = typeof payload.last === "string" ? payload.last : null;
+      const dir = path.join(PROJECT, ".fig_thumbs", "dv_versions");
+      ensureDir(dir);
+      const file = path.join(dir, `${md5(realpathOrResolve(p))}.json`);
+      fs.writeFileSync(file, JSON.stringify({ v: 1, path: p, items, last }), "utf8");
+      return sendJson(res, 200, { ok: true });
     } catch (error) {
       return sendJson(res, 400, { error: `bad request: ${String(error.message || error)}` });
     }

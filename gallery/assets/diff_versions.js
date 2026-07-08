@@ -63,13 +63,26 @@ window.DiffVersions = function(opts){
     document.head.appendChild(st);
   }
 
-  function persist(){
+  let lastKnown = null; // dernier texte de buffer persisté (rattrapage inter-sessions)
+  let postTimer = null;
+  function persist(afterText){
+    if(typeof afterText === "string") lastKnown = afterText;
+    let items = [];
     try{
-      let items = VERSIONS.filter(v => !v.head).map(v => ({b: v.before, t: v.ts}));
+      items = VERSIONS.filter(v => !v.head).map(v => ({b: v.before, t: v.ts}));
       let size = items.reduce((n, it) => n + it.b.length, 0);
       while(items.length > 1 && size > MAX){ size -= items[0].b.length; items.shift(); }
       localStorage.setItem(KEY, JSON.stringify({v: 1, items}));
     }catch(e){ try{ localStorage.removeItem(KEY); }catch(e2){} }
+    // persistance serveur : survit au redémarrage de l'app (le localStorage du
+    // WebView n'y survit pas toujours) — débouncé, échec silencieux
+    clearTimeout(postTimer);
+    postTimer = setTimeout(() => {
+      try{
+        fetch("/versions", {method: "POST", headers: {"Content-Type": "application/json"},
+          body: JSON.stringify({path, items, last: lastKnown})}).catch(() => {});
+      }catch(e){}
+    }, 400);
   }
   function sessionCount(){ return VERSIONS.length - (VERSIONS[0] && VERSIONS[0].head ? 1 : 0); }
   function arm(){
@@ -107,7 +120,34 @@ window.DiffVersions = function(opts){
     const after = cm.getValue();
     const wsn = s => s.replace(/\s+/g, " ").trim();
     // rewrap intégral : contenu identique aux blancs près → rien à marquer
-    const parts = wsn(v.before) === wsn(after) ? [] : Diff.diffWordsWithSpace(v.before, after);
+    let parts = wsn(v.before) === wsn(after) ? [] : Diff.diffWordsWithSpace(v.before, after);
+    // Fusion sémantique : une phrase récrite produit une alternance mot à mot
+    // (supprimé/ajouté/commun court/supprimé/…) illisible. Les groupes de
+    // changements séparés par un bout commun court (≤ 16 car.) sont fusionnés
+    // en UN bloc supprimé + UN bloc ajouté — le commun est absorbé des deux
+    // côtés, donc la concaténation des parts non-removed reste exactement le
+    // buffer (offsets sûrs).
+    if(parts.length){
+      const merged = [];
+      let i2 = 0;
+      while(i2 < parts.length){
+        const pt = parts[i2];
+        if(!pt.added && !pt.removed){ merged.push(pt); i2++; continue; }
+        let R = "", A = "", j2 = i2;
+        while(j2 < parts.length){
+          const q = parts[j2];
+          if(q.removed){ R += q.value; j2++; continue; }
+          if(q.added){ A += q.value; j2++; continue; }
+          const nx = parts[j2 + 1];
+          if(nx && (nx.added || nx.removed) && q.value.length <= 16){ R += q.value; A += q.value; j2++; continue; }
+          break;
+        }
+        if(R) merged.push({removed: true, value: R});
+        if(A) merged.push({added: true, value: A});
+        i2 = j2;
+      }
+      parts = merged;
+    }
     // Bruit de rewrap : un mot déplacé de l'autre côté d'un retour à la ligne
     // apparaît comme supprimé+ajouté (dans un ordre ou l'autre, parfois séparés
     // par un blanc inchangé). Apparier ces paires pour ne rien marquer.
@@ -257,7 +297,7 @@ window.DiffVersions = function(opts){
     VERSIONS.push({before, ts: Date.now()});
     idx = VERSIONS.length - 1;
     arm();
-    persist();
+    persist(after);
     // pas d'auto-ouverture : le mode passe l'éditeur en lecture seule, l'activer
     // à chaque sauvegarde bloquerait la frappe en silence. Si déjà ouvert : rafraîchir.
     if(shown) render();
@@ -604,25 +644,59 @@ window.DiffVersions = function(opts){
     }
   }, true);
 
-  // les versions du fichier survivent au rechargement de la page / de l'app
-  try{
-    const raw = localStorage.getItem(KEY);
-    if(raw){
-      const data = JSON.parse(raw);
-      if(data && Array.isArray(data.items)){
-        for(const it of data.items){
-          if(typeof it.b === "string") VERSIONS.push({before: it.b, ts: it.t || Date.now()});
-        }
-        if(VERSIONS.length){ idx = VERSIONS.length - 1; arm(); }
-      }
+  // Les versions du fichier survivent au rechargement de la page ET au
+  // redémarrage de l'app : source de vérité côté serveur (/versions), fallback
+  // localStorage (anciennes sessions) migré au passage.
+  function addItems(items){
+    let added = 0;
+    for(const it of (items || [])){
+      if(typeof it.b === "string"){ VERSIONS.push({before: it.b, ts: it.t || Date.now()}); added++; }
     }
-  }catch(e){}
+    if(added && idx < VERSIONS.length - 1){ idx = VERSIONS.length - 1; arm(); }
+    return added;
+  }
+  async function restoreVersions(){
+    let fromServer = false;
+    try{
+      const r = await fetch("/versions?path=" + encodeURIComponent(path));
+      const j = await r.json();
+      if(j && j.ok){
+        fromServer = true;
+        addItems(j.items);
+        if(typeof j.last === "string") lastKnown = j.last;
+      }
+    }catch(e){}
+    if(!fromServer || (!VERSIONS.filter(v => !v.head).length && lastKnown === null)){
+      // fallback / migration depuis le localStorage d'une session antérieure
+      try{
+        const data = JSON.parse(localStorage.getItem(KEY) || "null");
+        if(data && Array.isArray(data.items) && addItems(data.items)) persist();
+      }catch(e){}
+    }
+  }
 
-  // HEAD + gouttière : dès que l'éditeur existe (créé après le fetch du fichier)
+  // HEAD + gouttière + restore : dès que l'éditeur existe (créé après le fetch
+  // du fichier). Rattrapage : si le fichier a changé pendant que l'app était
+  // fermée (agent, autre outil), une version « avant » est créée — les modifs
+  // externes redeviennent visibles dans ± même après un redémarrage.
   const waitCm = setInterval(() => {
     if(!getCm()) return;
     clearInterval(waitCm);
-    fetchHead().then(refreshGutter);
+    restoreVersions().then(() => {
+      const cm = getCm();
+      const now = cm ? cm.getValue() : null;
+      const wsn = s => s.replace(/\s+/g, " ").trim();
+      if(now !== null && typeof lastKnown === "string" && lastKnown !== now && wsn(lastKnown) !== wsn(now)){
+        VERSIONS.push({before: lastKnown, ts: Date.now()});
+        idx = VERSIONS.length - 1;
+        arm();
+        persist(now);
+        notify("modifié pendant que l'app était fermée — ± pour comparer");
+      } else if(now !== null && lastKnown === null){
+        persist(now); // première visite : baseline pour le prochain rattrapage
+      }
+      fetchHead().then(refreshGutter);
+    });
   }, 300);
 
   return { push, isShown: () => shown };

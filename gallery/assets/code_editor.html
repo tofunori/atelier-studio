@@ -241,25 +241,49 @@ document.addEventListener("keydown", e => {
   if((e.metaKey || e.ctrlKey) && e.key === "s"){ e.preventDefault(); save(); }
 });
 
-// if Claude (or anything) edits the file on disk while the buffer is clean -> reload
+// L'agent modifie le fichier sur le disque : buffer propre → reload ; buffer
+// dirty → fusion trois-voies (base = dernier sauvegardé, leurs = disque, mien =
+// buffer) au lieu d'ignorer le disque jusqu'au conflit de ⌘S.
+let __mergeConflictAt = 0;
 setInterval(async () => {
-  if(dirty || !cm) return;
+  if(!cm) return;
   try{
     const r = await fetch("/code?path=" + encodeURIComponent(path));
     const j = await r.json();
-    if(j.mtime && Math.abs(j.mtime - diskMtime) > 0.001){
+    if(!(j.mtime && Math.abs(j.mtime - diskMtime) > 0.001)) return;
+    const diskText = j.text;
+    const cur = cm.getCursor(), scroll = cm.getScrollInfo();
+    if(!dirty){
       diskMtime = j.mtime;
       const before = cm.getValue();
-      const cur = cm.getCursor(), scroll = cm.getScrollInfo();
-      cm.setValue(j.text);
+      if(before === diskText){ lastSavedText = diskText; return; }
+      cm.setValue(diskText);
       cm.setCursor(cur);
       cm.scrollTo(scroll.left, scroll.top);
       dirty = false;
       setState("saved", "reloaded (modified on disk) " + new Date().toLocaleTimeString());
-      // modification externe (agent) → une version de comparaison
-      __dv.push(before, j.text);
-      lastSavedText = j.text;
+      __dv.push(before, diskText);
+      lastSavedText = diskText;
+      return;
     }
+    const base = (typeof lastSavedText === "string") ? lastSavedText : null;
+    const merged = base === null ? false
+      : window.Diff && Diff.applyPatch(cm.getValue(), Diff.structuredPatch("a", "b", base, diskText, "", ""), {fuzzFactor: 2});
+    if(merged === false || typeof merged !== "string"){
+      if(j.mtime !== __mergeConflictAt){
+        __mergeConflictAt = j.mtime;
+        setState("err", "modifs superposées avec l'agent — ⌘S affichera le conflit");
+      }
+      return;
+    }
+    diskMtime = j.mtime;
+    cm.setValue(merged);
+    cm.setCursor(cur);
+    cm.scrollTo(scroll.left, scroll.top);
+    dirty = true;
+    setState("saved", "modifs de l'agent fusionnées avec les tiennes (non sauvegardées)");
+    __dv.push(lastSavedText, diskText);
+    lastSavedText = diskText;
   }catch(e){}
 }, 2000);
 
