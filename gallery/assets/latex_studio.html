@@ -1777,15 +1777,45 @@ let diffIdx = -1, diffShown = false;
 const diffPane = document.getElementById("diffPane");
 const diffGrp = document.getElementById("diffGrp");
 function escH(x){ return x.replace(/[&<>]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;"}[c])); }
-function diffPush(before, after){
-  if(before === after) return;
-  DIFF_VERSIONS.push({before, after, ts: Date.now()});
-  diffIdx = DIFF_VERSIONS.length - 1;
+// ---- persistance des versions (localStorage, par fichier) ----
+// seul `before` sert au rendu (renderDiff diffe contre le buffer courant) et à
+// Rétablir ; on ne stocke donc que {b, t}. Plafond ~1,5 Mo par fichier : on
+// laisse tomber les plus anciennes plutôt que d'exploser le quota localStorage.
+const DIFF_STORE_KEY = "texDiffV1:" + path;
+const DIFF_STORE_MAX = 1500000;
+function diffPersist(){
+  try{
+    let items = DIFF_VERSIONS.map(v => ({b: v.before, t: v.ts}));
+    let size = items.reduce((n, it) => n + it.b.length, 0);
+    while(items.length > 1 && size > DIFF_STORE_MAX){ size -= items[0].b.length; items.shift(); }
+    localStorage.setItem(DIFF_STORE_KEY, JSON.stringify({v: 1, items}));
+  }catch(e){ try{ localStorage.removeItem(DIFF_STORE_KEY); }catch(e2){} }
+}
+function armDiffUi(){
   diffGrp.style.display = "";
   const tg = document.getElementById("diffTag");
   tg.disabled = false; tg.style.opacity = "";
   ["diffPrev","diffNext","diffRestore"].forEach(id => document.getElementById(id).style.display = "");
   updateDiffTag();
+}
+function diffRestoreFromStore(){
+  try{
+    const raw = localStorage.getItem(DIFF_STORE_KEY);
+    if(!raw) return;
+    const data = JSON.parse(raw);
+    if(!data || !Array.isArray(data.items) || !data.items.length) return;
+    for(const it of data.items){
+      if(typeof it.b === "string") DIFF_VERSIONS.push({before: it.b, after: "", ts: it.t || Date.now()});
+    }
+    if(DIFF_VERSIONS.length){ diffIdx = DIFF_VERSIONS.length - 1; armDiffUi(); }
+  }catch(e){}
+}
+function diffPush(before, after){
+  if(before === after) return;
+  DIFF_VERSIONS.push({before, after, ts: Date.now()});
+  diffIdx = DIFF_VERSIONS.length - 1;
+  armDiffUi();
+  diffPersist();
   // NE PLUS auto-ouvrir : le mode in-editor passe l'éditeur en lecture seule,
   // l'activer à chaque sauvegarde bloquerait la frappe en silence. L'utilisateur
   // ouvre la comparaison quand il veut via le bouton ± (ou la rafraîchit si ouverte).
@@ -1861,6 +1891,8 @@ function toggleDiff(show){
   }
 }
 document.getElementById("diffTag").onclick = () => toggleDiff();
+// les versions du fichier survivent au rechargement de la page / de l'app
+diffRestoreFromStore();
 // \u00c9chap ferme la comparaison (capture : avant les keymaps CodeMirror)
 document.addEventListener("keydown", (e) => {
   if(e.key === "Escape" && diffShown){ e.preventDefault(); e.stopPropagation(); toggleDiff(false); }
