@@ -2200,24 +2200,38 @@ export default function Chat(p: {
             })()}
           </span>
           {p.workingSince != null ? (
-            <>
+            text.trim() ? (
+              <>
+                <button
+                  type="button"
+                  className="queue-btn"
+                  disabled={p.disabled}
+                  title={t("action.queue-title")}
+                  onClick={() => {
+                    if (!text.trim()) return;
+                    p.onSubmit(text, provider, model, effort, permissionMode, "queue");
+                    setText("");
+                  }}
+                >
+                  ⏱ {t("action.queue")}
+                </button>
+                <button className="send steer" disabled={p.disabled} title={t("action.send-now")}>
+                  ↑
+                </button>
+              </>
+            ) : (
               <button
                 type="button"
-                className="queue-btn"
-                disabled={p.disabled || !text.trim()}
-                title={t("action.queue-title")}
-                onClick={() => {
-                  if (!text.trim()) return;
-                  p.onSubmit(text, provider, model, effort, permissionMode, "queue");
-                  setText("");
-                }}
+                className="send stop"
+                disabled={p.disabled}
+                title={t("action.interrupt")}
+                onClick={p.onStop}
               >
-                ⏱ {t("action.queue")}
+                <svg width="14" height="14" viewBox="0 0 14 14" aria-hidden="true">
+                  <rect x="3.5" y="3.5" width="7" height="7" rx="1.6" fill="currentColor" />
+                </svg>
               </button>
-              <button className="send steer" disabled={p.disabled} title={t("action.send-now")}>
-                ↑
-              </button>
-            </>
+            )
           ) : (
             <button className="send" disabled={p.disabled} title={t("action.send")}>
               ↑
