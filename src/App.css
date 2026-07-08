@@ -382,7 +382,9 @@ html, body, #root, .app { height: 100vh; overflow: hidden;
 .rail-proj.on { border-color: var(--accent); color: var(--fg); }
 .rail-proj.drag-over { border-color: var(--accent); transform: translateY(2px);
   transition: transform 140ms ease, border-color 140ms ease; }
-.rail-dot { position: absolute; top: -2px; right: -2px; width: 9px; height: 9px;
+/* à l'intérieur de la pastille : à cheval sur le coin, il se confondait avec le
+   cadre accent du projet actif (même orange) et devenait invisible */
+.rail-dot { position: absolute; top: 3px; right: 3px; width: 8px; height: 8px;
   border-radius: var(--r-pill); background: var(--accent); border: 2px solid var(--bg-side); }
 .rail-menu { position: fixed; left: 60px; z-index: 120; background: var(--bg-pop);
   border: 1px solid var(--border); border-radius: var(--r-m); padding: 12px; width: 200px;
