@@ -72,6 +72,7 @@ const threadHandlers = new Map(); // codexThreadId -> (method, params) => void
 const threadOwners = new Map(); // codexThreadId -> atelier threadId
 const loadedThreads = new Set(); // codexThreadIds déjà démarrés/répris dans CE serveur
 const threadSandbox = new Map(); // codexThreadId -> sandbox du thread
+const threadsWithGoal = new Set(); // codexThreadIds avec un goal actif (filtre les "cleared" sans goal)
 let goalEmitter = null; // (atelierThreadId|null, event) => void
 
 /** index.mjs enregistre ici le broadcast des événements goal hors-tour. */
@@ -132,13 +133,15 @@ function notifyServerRequest(msg, result) {
 function dispatchNotification(msg) {
   const params = msg.params ?? {};
   const codexThreadId = params.threadId ?? params.thread?.id ?? null;
-  // goals : relayés aussi hors-tour (le front suit l'objectif en continu)
+  // goals : relayés aussi hors-tour (le front suit l'objectif en continu).
+  // Un "cleared" sans goal préalable est du bruit (émis par l'app-server à
+  // l'init) : on ne relaie que si un goal a réellement existé sur ce thread.
   if (msg.method === "thread/goal/updated" || msg.method === "thread/goal/cleared") {
-    const ev = {
-      kind: "goal",
-      cleared: msg.method === "thread/goal/cleared",
-      goal: params.goal ?? null,
-    };
+    const cleared = msg.method === "thread/goal/cleared" || !params.goal;
+    if (cleared && !threadsWithGoal.has(codexThreadId)) return;
+    if (cleared) threadsWithGoal.delete(codexThreadId);
+    else threadsWithGoal.add(codexThreadId);
+    const ev = { kind: "goal", cleared, goal: params.goal ?? null };
     const owner = codexThreadId ? threadOwners.get(codexThreadId) : null;
     goalEmitter?.(owner ?? null, ev);
   }
@@ -275,7 +278,9 @@ async function goalRequest(method, { sessionId, cwd, ...rest }) {
     reuseLoaded: true, // ne pas écraser les options d'un thread déjà actif
   });
   const resp = await srv.request(method, { threadId: codexId, ...rest });
-  if (method === "thread/goal/clear") {
+  if (method === "thread/goal/set" && resp?.goal) threadsWithGoal.add(codexId);
+  if (method === "thread/goal/clear" && threadsWithGoal.has(codexId)) {
+    threadsWithGoal.delete(codexId); // la notification cleared qui suit sera filtrée (pas de doublon)
     const owner = threadOwners.get(codexId);
     goalEmitter?.(owner ?? null, { kind: "goal", cleared: true, goal: null });
   }
@@ -398,48 +403,24 @@ export async function run({
   const codexId = await openThread(srv, { sessionId, threadOpts });
   if (threadId) threadOwners.set(codexId, threadId);
 
-  const activityId = `codex-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`;
-  // affichage SOBRE : une seule ligne par commande, un seul état de réflexion
+  // affichage SOBRE, aligné sur le provider Claude : une seule ligne par action
+  // (event `tool`/`tool_update` avec libellé court), pas de carte d'activité.
   let lastTool = "";
-  let activity = {
-    kind: "activity",
-    id: activityId,
-    phase: "thinking",
-    title: "Thinking",
-    detail: "Preparing the next step",
-    status: "running",
-    steps: [],
-  };
-  const emitActivity = (patch = {}) => {
-    activity = { ...activity, ...patch, steps: patch.steps ?? activity.steps };
-    const steps = activity.steps.map(({ key, ...step }) => step);
-    onEvent({ ...activity, steps });
-  };
-  const upsertStep = ({ key, title, detail, phase = "tool", status = "running" }) => {
-    const existing = activity.steps.findIndex((step) => step.key === key);
-    const step = { key, title, detail, phase, status, ts: Date.now() };
-    const steps = existing >= 0
-      ? activity.steps.map((item, idx) => (idx === existing ? { ...item, ...step } : item))
-      : [...activity.steps, step].slice(-8);
-    emitActivity({ title, detail, phase, status: status === "failed" ? "failed" : "running", steps });
-  };
-  const emitTool = (name) => {
-    if (name === lastTool) return;
-    lastTool = name;
-    onEvent({ kind: "tool", name });
+  const emitTool = (name, detail) => {
+    const key = `${name}|${detail ?? ""}`;
+    if (key === lastTool) return;
+    lastTool = key;
+    onEvent({ kind: "tool", name, ...(detail ? { detail } : {}) });
   };
   const commandName = (item) => {
-    const cmd = String(item.command ?? "commande").replace(/\s+/g, " ").trim();
+    // retire le wrapper shell (`/bin/zsh -lc '…'`) : n'afficher que la commande réelle
+    let cmd = String(item.command ?? "commande").replace(/\s+/g, " ").trim();
+    const m = /^(?:\S*\/)?(?:zsh|bash|sh)\s+-l?c\s+(['"])([\s\S]+)\1$/.exec(cmd);
+    if (m) cmd = m[2];
     return cmd.length > 64 ? cmd.slice(0, 64) + "…" : cmd;
   };
   const commandMeta = new Map(); // itemId -> dernier état connu pour les deltas
   const commandOutputs = new Map(); // itemId -> sortie agrégée construite depuis outputDelta
-  const commandDetail = (item) => {
-    const bits = [];
-    if (item.cwd) bits.push(String(item.cwd));
-    if (item.source && item.source !== "agent") bits.push(String(item.source));
-    return bits.join(" · ");
-  };
   const commandInput = (item) => ({
     command: item.command ?? "",
     cwd: item.cwd ?? null,
@@ -452,13 +433,12 @@ export async function run({
     onEvent({
       kind: "tool_update",
       id,
-      name: commandName(item),
+      name: "Bash",
       output: String(output ?? ""),
       status: patch.status ?? item.status,
       exitCode: patch.exitCode ?? item.exitCode ?? undefined,
-      detail: commandDetail(item),
+      detail: commandName(item),
       input: commandInput(item),
-      source: item.source ?? null,
     });
   };
   const fileChangeMeta = new Map(); // itemId -> dernier patch reçu
@@ -609,7 +589,6 @@ export async function run({
       case "turn/started": {
         activeTurns.set(threadId ?? codexId, { codexId, turnId: params.turn?.id ?? null });
         onEvent({ kind: "started" });
-        emitActivity();
         break;
       }
       case "item/started": {
@@ -617,103 +596,39 @@ export async function run({
         if (item.type === "commandExecution") {
           commandMeta.set(item.id, item);
           commandOutputs.set(item.id, String(item.aggregatedOutput ?? ""));
-          upsertStep({
-            key: `cmd:${item.id ?? commandName(item)}`,
-            title: "Running command",
-            detail: commandName(item),
-            phase: "command",
-            status: "running",
-          });
-          emitTool(commandName(item));
+          emitCommandUpdate(item, { status: item.status ?? "inProgress" });
         }
         if (item.type === "reasoning") {
-          emitActivity({ phase: "thinking", title: "Thinking", detail: "Planning the next action", status: "running" });
           emitTool("__thinking");
         }
         if (item.type === "webSearch") {
-          upsertStep({
-            key: `search:${String(item.query ?? "")}`,
-            title: "Searching web",
-            detail: String(item.query ?? "").slice(0, 80),
-            phase: "search",
-            status: "running",
-          });
           emitTool(`recherche web : ${String(item.query ?? "").slice(0, 50)}`);
         }
         if (item.type === "fileChange") {
           fileChangeMeta.set(item.id, item);
-          upsertStep({
-            key: `edits:${item.id ?? "patch"}`,
-            title: "Applying edits",
-            detail: fileChangeDetail(item.changes),
-            phase: "edit",
-            status: "running",
-          });
           emitFileChangeUpdate(item);
         }
         if (item.type === "mcpToolCall") {
           mcpMeta.set(item.id, item);
-          upsertStep({
-            key: `mcp:${item.id ?? mcpName(item)}`,
-            title: "Using tool",
-            detail: mcpName(item),
-            phase: "tool",
-            status: "running",
-          });
           emitTool(`outil ${mcpName(item)}`);
           emitMcpUpdate(item, { status: item.status ?? "inProgress" });
         }
         if (item.type === "dynamicToolCall") {
           dynamicToolMeta.set(item.id, item);
-          upsertStep({
-            key: `dynamic:${item.id ?? dynamicToolName(item)}`,
-            title: "Using tool",
-            detail: dynamicToolName(item),
-            phase: "tool",
-            status: "running",
-          });
           emitTool(`outil ${dynamicToolName(item)}`);
           emitDynamicToolUpdate(item, { status: item.status ?? "inProgress" });
         }
         if (item.type === "collabAgentToolCall") {
-          upsertStep({
-            key: `collab:${item.id ?? collabToolName(item)}`,
-            title: "Using agent tool",
-            detail: collabToolName(item),
-            phase: "tool",
-            status: "running",
-          });
           emitTool(collabToolName(item));
           emitCollabToolUpdate(item);
         }
         if (item.type === "imageGeneration") {
-          upsertStep({
-            key: `image:${item.id ?? "image"}`,
-            title: "Generating image",
-            detail: item.savedPath ?? item.status ?? "image",
-            phase: "tool",
-            status: item.status === "failed" ? "failed" : "running",
-          });
           emitTool("image_generation");
         }
         if (item.type === "sleep") {
-          upsertStep({
-            key: `sleep:${item.id ?? "sleep"}`,
-            title: "Waiting",
-            detail: `${item.durationMs ?? 0} ms`,
-            phase: "tool",
-            status: "running",
-          });
           emitTool("sleep");
         }
         if (item.type === "imageView") {
-          upsertStep({
-            key: `imageView:${item.id ?? item.path}`,
-            title: "Viewing image",
-            detail: String(item.path ?? ""),
-            phase: "tool",
-            status: "completed",
-          });
           emitTool(`image ${String(item.path ?? "")}`);
         }
         break;
@@ -757,13 +672,6 @@ export async function run({
         const id = params.itemId;
         const item = { ...(fileChangeMeta.get(id) ?? {}), id, type: "fileChange", changes: params.changes ?? [] };
         fileChangeMeta.set(id, item);
-        upsertStep({
-          key: `edits:${id}`,
-          title: "Applying edits",
-          detail: fileChangeDetail(item.changes),
-          phase: "edit",
-          status: "running",
-        });
         emitFileChangeUpdate(item, { status: "inProgress" });
         break;
       }
@@ -783,13 +691,6 @@ export async function run({
         const id = params.itemId;
         const item = mcpMeta.get(id) ?? { id, tool: "mcp", status: "inProgress", arguments: null };
         emitMcpUpdate(item, { message: params.message ?? "", status: "inProgress" });
-        upsertStep({
-          key: `mcp:${id}`,
-          title: "Using tool",
-          detail: String(params.message ?? mcpName(item)),
-          phase: "tool",
-          status: "running",
-        });
         break;
       }
       case "item/completed": {
@@ -805,27 +706,10 @@ export async function run({
         if (item.type === "commandExecution") {
           commandMeta.set(item.id, { ...(commandMeta.get(item.id) ?? {}), ...item });
           commandOutputs.set(item.id, String(item.aggregatedOutput ?? commandOutputs.get(item.id) ?? ""));
-          const status = item.status === "failed" || (item.exitCode != null && item.exitCode !== 0)
-            ? "failed" : "completed";
-          upsertStep({
-            key: `cmd:${item.id ?? commandName(item)}`,
-            title: status === "failed" ? "Command failed" : "Command finished",
-            detail: commandName(item),
-            phase: "command",
-            status,
-          });
           emitCommandUpdate(commandMeta.get(item.id));
         }
         if (item.type === "fileChange") {
           fileChangeMeta.set(item.id, item);
-          const files = (item.changes ?? []).map((ch) => ch.path?.split("/").pop()).filter(Boolean);
-          upsertStep({
-            key: `edits:${files.join(",")}`,
-            title: "Applying edits",
-            detail: files.length ? files.slice(0, 3).join(", ") : "Files changed",
-            phase: "edit",
-            status: "completed",
-          });
           emitFileChangeUpdate(item, { status: item.status ?? "completed" });
           const paths = (item.changes ?? []).map((ch) => ch.path).filter(Boolean);
           if (paths.length) onEvent({ kind: "edit", files: paths });
@@ -833,50 +717,19 @@ export async function run({
         }
         if (item.type === "mcpToolCall") {
           mcpMeta.set(item.id, item);
-          const status = item.status === "failed" ? "failed" : "completed";
-          upsertStep({
-            key: `mcp:${item.tool ?? "mcp"}`,
-            title: "Using tool",
-            detail: String(item.tool ?? "mcp"),
-            phase: "tool",
-            status,
-          });
           emitTool(`outil ${mcpName(item)}`);
-          emitMcpUpdate(item, { status: item.status ?? status });
+          emitMcpUpdate(item, { status: item.status ?? "completed" });
         }
         if (item.type === "dynamicToolCall") {
           dynamicToolMeta.set(item.id, item);
           const status = item.status === "failed" || item.success === false ? "failed" : "completed";
-          upsertStep({
-            key: `dynamic:${item.id ?? dynamicToolName(item)}`,
-            title: status === "failed" ? "Tool failed" : "Tool finished",
-            detail: dynamicToolName(item),
-            phase: "tool",
-            status,
-          });
           emitTool(`outil ${dynamicToolName(item)}`);
           emitDynamicToolUpdate(item, { status: item.status ?? status });
         }
         if (item.type === "collabAgentToolCall") {
-          const status = item.status === "failed" ? "failed" : "completed";
-          upsertStep({
-            key: `collab:${item.id ?? collabToolName(item)}`,
-            title: status === "failed" ? "Agent tool failed" : "Agent tool finished",
-            detail: collabToolName(item),
-            phase: "tool",
-            status,
-          });
           emitCollabToolUpdate(item);
         }
         if (item.type === "imageGeneration") {
-          const status = item.status === "failed" ? "failed" : "completed";
-          upsertStep({
-            key: `image:${item.id ?? "image"}`,
-            title: status === "failed" ? "Image failed" : "Image generated",
-            detail: item.savedPath ?? item.result ?? item.status ?? "image",
-            phase: "tool",
-            status,
-          });
           onEvent({
             kind: "tool_update",
             id: item.id ?? "imageGeneration",
