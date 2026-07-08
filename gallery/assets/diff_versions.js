@@ -62,7 +62,9 @@ window.DiffVersions = function(opts){
   function arm(){
     if(els.group) els.group.style.display = "";
     els.tag.disabled = false; els.tag.style.opacity = "";
-    [els.prev, els.next, els.restore].forEach(b => { if(b) b.style.display = ""; });
+    [els.prev, els.next].forEach(b => { if(b) b.style.display = ""; });
+    // Rétablir n'a de sens que pendant la comparaison (réécrit la version affichée)
+    if(els.restore) els.restore.style.display = shown ? "" : "none";
     updateTag();
   }
   function labelOf(i){
@@ -131,6 +133,7 @@ window.DiffVersions = function(opts){
     if(!cm) return;
     shown = next;
     els.tag.classList.toggle("on", shown);
+    if(els.restore) els.restore.style.display = shown ? "" : "none";
     if(shown){
       render();
       cm.setOption("readOnly", true);
