@@ -27,6 +27,8 @@ window.DiffVersions = function(opts){
   const { getCm, path, notify, els, restoreText } = opts;
   const VERSIONS = []; // {before, ts, head?, sha?} — diff contre le buffer courant
   let idx = -1, shown = false, marks = [];
+  let extCmp = null; // comparaison ponctuelle depuis l'historique : {before, label}
+  const curVersion = () => extCmp || VERSIONS[idx];
   let headText = null, headSha = "";
   const KEY = "texDiffV1:" + path;
   const MAX = 1500000;
@@ -62,9 +64,11 @@ window.DiffVersions = function(opts){
   function arm(){
     if(els.group) els.group.style.display = "";
     els.tag.disabled = false; els.tag.style.opacity = "";
-    [els.prev, els.next].forEach(b => { if(b) b.style.display = ""; });
+    // ‹ › retirés de la barre : la navigation entre versions passe par l'historique
+    [els.prev, els.next].forEach(b => { if(b) b.style.display = "none"; });
     // Rétablir n'a de sens que pendant la comparaison (réécrit la version affichée)
     if(els.restore) els.restore.style.display = shown ? "" : "none";
+    ensureHistUi();
     updateTag();
   }
   function labelOf(i){
@@ -84,7 +88,7 @@ window.DiffVersions = function(opts){
     marks = [];
   }
   function render(){
-    const v = VERSIONS[idx], cm = getCm();
+    const v = curVersion(), cm = getCm();
     if(!v || !cm) return;
     clearMarks();
     // diffWordsWithSpace garantit que la concaténation des parts non-removed
@@ -122,13 +126,13 @@ window.DiffVersions = function(opts){
     const note = changes
       ? changes + " modification" + (changes > 1 ? "s" : "")
       : "aucun changement de texte" + (v.head ? "" : " (retours à la ligne seulement)");
-    notify("comparaison " + labelOf(idx) + " · " + note + " · Échap pour fermer");
+    notify("comparaison " + (extCmp ? extCmp.label : labelOf(idx)) + " · " + note + " · Échap pour fermer");
     if(firstPos) cm.scrollIntoView(firstPos, 120);
   }
   function toggle(show, scrollLine){
     const next = (show === undefined || show === null) ? !shown : show;
     // aucune version : ne jamais verrouiller l'éditeur sans rien afficher
-    if(next && !VERSIONS[idx]) return;
+    if(next && !curVersion()) return;
     const cm = getCm();
     if(!cm) return;
     shown = next;
@@ -139,7 +143,7 @@ window.DiffVersions = function(opts){
       cm.setOption("readOnly", true);
       if(scrollLine != null) cm.scrollIntoView({line: scrollLine, ch: 0}, 120);
     }
-    else { clearMarks(); cm.setOption("readOnly", false); cm.refresh(); notify(""); }
+    else { extCmp = null; clearMarks(); cm.setOption("readOnly", false); cm.refresh(); notify(""); }
   }
   function push(before, after){
     if(before === after) return;
@@ -163,7 +167,9 @@ window.DiffVersions = function(opts){
     commitBtn.id = "dvCommit";
     commitBtn.style.display = "none";
     commitBtn.innerHTML = '<svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"><circle cx="8" cy="8" r="2.6"/><path d="M8 1.5v4M8 10.5v4"/></svg>';
-    els.group.appendChild(commitBtn);
+    // ordre : ± · commit · historique
+    if(histBtn) els.group.insertBefore(commitBtn, histBtn);
+    else els.group.appendChild(commitBtn);
     commitPop = document.createElement("div");
     commitPop.style.cssText = "position:fixed;z-index:400;display:none;flex-direction:column;gap:8px;width:320px;"
       + "background:rgba(24,27,34,.98);border:1px solid #3a4150;border-radius:10px;padding:12px;"
@@ -220,6 +226,131 @@ window.DiffVersions = function(opts){
     commitBtn.title = blocks > 0
       ? "Committer " + path.split("/").pop() + " — " + blocks + " bloc" + (blocks > 1 ? "s" : "") + " modifié" + (blocks > 1 ? "s" : "") + " depuis HEAD" + (headSha ? " (" + headSha + ")" : "")
       : "";
+    // compteur discret de blocs modifiés à côté de l'icône ±
+    let c = els.tag.querySelector(".dv-count");
+    if(!c){
+      c = document.createElement("span");
+      c.className = "dv-count";
+      c.style.cssText = "font-size:10px;opacity:.6;margin-left:4px;font-variant-numeric:tabular-nums";
+      els.tag.appendChild(c);
+    }
+    c.textContent = blocks > 0 ? String(blocks) : "";
+  }
+
+  // ---- historique : commits du fichier + sauvegardes de session, avec
+  // Comparer (diff in-editor) et Rétablir (réécrit le fichier, dépôt intact) ----
+  let histBtn = null, histPop = null;
+  function fmtAge(ts){
+    if(!ts) return "";
+    const s = Math.max(0, Date.now() / 1000 - ts);
+    if(s < 3600) return "il y a " + Math.max(1, Math.round(s / 60)) + " min";
+    if(s < 86400) return "il y a " + Math.round(s / 3600) + " h";
+    if(s < 7 * 86400) return "il y a " + Math.round(s / 86400) + " j";
+    return new Date(ts * 1000).toLocaleDateString();
+  }
+  function compareExternal(before, label){
+    extCmp = {before, label};
+    shown = false; // forcer le re-render même si déjà en comparaison
+    toggle(true);
+  }
+  function ensureHistUi(){
+    if(histBtn || !els.group) return;
+    histBtn = document.createElement("button");
+    histBtn.id = "dvHist";
+    histBtn.title = "Historique du fichier — commits et sauvegardes de session";
+    histBtn.innerHTML = '<svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"><circle cx="8" cy="8" r="6"/><path d="M8 4.5V8l2.4 1.6"/></svg>';
+    els.group.appendChild(histBtn);
+    histPop = document.createElement("div");
+    histPop.style.cssText = "position:fixed;z-index:400;display:none;flex-direction:column;width:400px;max-height:60vh;"
+      + "background:rgba(24,27,34,.98);border:1px solid #3a4150;border-radius:10px;padding:6px;"
+      + "box-shadow:0 14px 48px rgba(0,0,0,.55);font-size:13px";
+    document.body.appendChild(histPop);
+    if(!document.getElementById("dvHistStyles")){
+      const st = document.createElement("style");
+      st.id = "dvHistStyles";
+      st.textContent =
+        "#dvHistList{overflow-y:auto}"
+        + ".dv-hrow{display:flex;align-items:center;gap:10px;padding:7px 10px;border-radius:6px}"
+        + ".dv-hrow:hover{background:rgba(255,255,255,.05)}"
+        + ".dv-hrow .sha{font:10px ui-monospace,Menlo,monospace;opacity:.5;flex:none;width:54px}"
+        + ".dv-hrow .msg{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12px}"
+        + ".dv-hrow .when{font-size:10px;opacity:.45;flex:none;font-variant-numeric:tabular-nums}"
+        + ".dv-hrow .act{display:none;gap:4px;flex:none}"
+        + ".dv-hrow:hover .act{display:inline-flex}"
+        + ".dv-hrow:hover .when{display:none}"
+        + ".dv-hrow .act button{font-size:10px;border:1px solid #3a4150;background:transparent;color:inherit;"
+        + "border-radius:5px;padding:2px 7px;cursor:pointer;opacity:.75}"
+        + ".dv-hrow .act button:hover{opacity:1}";
+      document.head.appendChild(st);
+    }
+    histBtn.onclick = async () => {
+      if(histPop.style.display !== "none"){ histPop.style.display = "none"; return; }
+      const name = path.split("/").pop();
+      histPop.innerHTML =
+        '<div style="font-size:11px;letter-spacing:.05em;text-transform:uppercase;opacity:.55;padding:6px 10px 4px">Historique — ' + name + '</div>'
+        + '<div id="dvHistList"><div style="padding:7px 10px;font-size:11px;opacity:.5">chargement…</div></div>';
+      const rc = histBtn.getBoundingClientRect();
+      histPop.style.display = "flex";
+      histPop.style.top = (rc.bottom + 8) + "px";
+      histPop.style.left = Math.max(8, Math.min(rc.right - 400, window.innerWidth - 416)) + "px";
+      const list = histPop.querySelector("#dvHistList");
+      const rows = [];
+      // sauvegardes de session (non committées), plus récentes d'abord
+      const sess = VERSIONS.map((v, i) => ({v, i})).filter(x => !x.v.head).reverse();
+      for(const {v, i} of sess){
+        rows.push({label: "sauvegarde " + labelOf(i),
+          msg: "sauvegarde de session", sha: "—", ts: v.ts ? v.ts / 1000 : 0, text: () => v.before});
+      }
+      let items = [];
+      try{
+        const r = await fetch("/gitlog?path=" + encodeURIComponent(path));
+        const j = await r.json();
+        if(j && j.ok) items = j.items || [];
+      }catch(e){}
+      for(const it of items){
+        rows.push({label: it.sha, msg: it.msg, sha: it.sha, ts: it.ts, text: async () => {
+          const r = await fetch("/gitshow?path=" + encodeURIComponent(path) + "&sha=" + it.sha);
+          const j = await r.json();
+          return (j && j.ok) ? j.text : null;
+        }});
+      }
+      if(!rows.length){
+        list.innerHTML = '<div style="padding:7px 10px;font-size:11px;opacity:.5">aucun commit ni sauvegarde pour ce fichier</div>';
+        return;
+      }
+      list.innerHTML = "";
+      for(const row of rows){
+        const el = document.createElement("div");
+        el.className = "dv-hrow";
+        el.innerHTML = '<span class="sha">' + row.sha + '</span><span class="msg"></span>'
+          + '<span class="when">' + fmtAge(row.ts) + '</span>'
+          + '<span class="act"><button data-a="cmp">Comparer</button><button data-a="rst">Rétablir</button></span>';
+        el.querySelector(".msg").textContent = row.msg;
+        el.querySelector('[data-a="cmp"]').onclick = async () => {
+          const t = await row.text();
+          if(t == null){ notify("version introuvable"); return; }
+          histPop.style.display = "none";
+          compareExternal(t, row.label);
+        };
+        el.querySelector('[data-a="rst"]').onclick = async () => {
+          const t = await row.text();
+          if(t == null){ notify("version introuvable"); return; }
+          histPop.style.display = "none";
+          if(shown) toggle(false);
+          await restoreText(t);
+          notify("fichier rétabli à " + row.label + " — le dépôt n'est pas touché");
+          fetchHead().then(refreshGutter);
+        };
+        list.appendChild(el);
+      }
+    };
+    document.addEventListener("mousedown", (e) => {
+      if(histPop.style.display !== "none" && !histPop.contains(e.target) && !histBtn.contains(e.target))
+        histPop.style.display = "none";
+    });
+    document.addEventListener("keydown", (e) => {
+      if(e.key === "Escape" && histPop.style.display !== "none"){ e.stopPropagation(); histPop.style.display = "none"; }
+    }, true);
   }
 
   // ---- gouttière git (barres ajouté/modifié, triangle supprimé, vs HEAD) ----

@@ -322,6 +322,7 @@ function __ct(){try{return JSON.parse(localStorage.getItem('claudeTargetV1')||'n
   <b id="fname"></b><span id="ddot" title="Modifications non sauvegardées">&#9679;</span>
   <span class="grp editonly">
     <button id="build" title="Compiler (&#8984;B)">Compile</button>
+    <button id="popPdf" title="Ouvrir le PDF dans un onglet séparé — synctex actif (clic PDF &#8594; ligne source ici)">PDF &#8599;</button>
     <button id="saveBtn" title="Sauvegarder (&#8984;S)" style="display:none">Save</button>
     <button id="openFile" title="Ouvrir un autre fichier" style="display:none">Open&hellip;</button>
     <select id="wrapSel" title="Retour à la ligne" style="display:none">
@@ -336,7 +337,6 @@ function __ct(){try{return JSON.parse(localStorage.getItem('claudeTargetV1')||'n
   <span class="sep editonly"></span>
   <span class="grp editonly">
     <button id="togglePdf" title="Vue scindée éditeur + PDF">Split</button>
-    <button id="popPdf" title="Ouvrir le PDF dans un onglet séparé — synctex actif (clic PDF &#8594; ligne source ici)">PDF &#8599;</button>
   </span>
   <span class="sep"></span>
   <span class="grp" id="diffGrp">
@@ -366,6 +366,7 @@ function __ct(){try{return JSON.parse(localStorage.getItem('claudeTargetV1')||'n
     <div data-act="save">Sauvegarder <em>&#8984;S</em></div>
     <div data-act="open">Ouvrir un fichier&hellip;</div>
     <div data-act="rewrap">Rewrap paragraphe <em>&#8997;Q</em></div>
+    <div data-act="read">Vue lecture (rendu seul)</div>
     <div data-act="wrap">Wrap : <span id="moreWrapVal"></span></div>
     <div data-act="help">Raccourcis clavier</div>
   </div>
@@ -1576,10 +1577,15 @@ if(IS_TEX && window.katex){
   visBtn.id = "visBtn"; visBtn.title = "Vue Visuel — édite la source rendue (math, gras, todos), façon Overleaf";
   visBtn.textContent = "Visuel";
   readBtn.insertAdjacentElement("afterend", visBtn);
-  // Split/Lecture/Visuel = un contrôle segmenté (ce sont des modes exclusifs)
+  // Édition/Split/Visuel = un contrôle segmenté (modes exclusifs). Lecture
+  // (rendu seul, lecture seule) est redondante avec Visuel : reléguée au menu ⋯.
+  readBtn.style.display = "none";
+  const edBtn = document.createElement("button");
+  edBtn.id = "editBtn"; edBtn.title = "Éditeur seul";
+  edBtn.textContent = "Édition";
   const seg = document.createElement("span"); seg.className = "modeseg";
   splitBtn.parentNode.insertBefore(seg, splitBtn);
-  seg.appendChild(splitBtn); seg.appendChild(readBtn); seg.appendChild(visBtn);
+  seg.appendChild(edBtn); seg.appendChild(splitBtn); seg.appendChild(visBtn);
   let visOn = false, visEd = null, visSyncT = null, visSyncing = false;
   function setVis(on){
     visOn = on;
@@ -1611,6 +1617,23 @@ if(IS_TEX && window.katex){
     }
   }
   visBtn.onclick = () => setVis(!visOn);
+  // état « Édition » = aucun mode actif (PDF caché, ni Lecture ni Visuel)
+  const updateSeg = () => {
+    edBtn.classList.toggle("on", right.style.display === "none" && !visOn && !readOn);
+  };
+  edBtn.onclick = () => {
+    if(visOn) setVis(false);
+    if(readOn) setRead(false);
+    applyPdfVisible(false);
+  };
+  { // tout passage de mode rafraîchit l'état du segment
+    const _apv = applyPdfVisible;
+    applyPdfVisible = (v) => { _apv(v); updateSeg(); };
+    const _sr = setRead, _sv = setVis;
+    setRead = (on) => { _sr(on); updateSeg(); };
+    setVis = (on) => { _sv(on); updateSeg(); };
+    updateSeg();
+  }
   splitBtn.addEventListener("click", () => { if(visOn) setVis(false); });
   document.getElementById("popPdf")?.addEventListener("click", () => { if(visOn) setVis(false); });
   readBtn.addEventListener("click", () => { if(visOn && readOn) { right.classList.remove("visual"); visBtn.classList.remove("on"); visOn=false; } });
@@ -1865,6 +1888,7 @@ if(window.self !== window.top){
     if (act === "save") document.getElementById("saveBtn").click();
     if (act === "open") document.getElementById("openFile").click();
     if (act === "rewrap") document.getElementById("rewrapBtn").click();
+    if (act === "read") document.getElementById("readBtn")?.click();
     if (act === "help") document.getElementById("helpBtn").click();
     if (act === "wrap") { sbWrap.onclick(); return; }
     if (act !== "wrap") morePop.style.display = "none";

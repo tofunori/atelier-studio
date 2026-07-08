@@ -344,6 +344,45 @@ export async function handleEditorsGet(req, res, url) {
       return sendJson(res, 200, { ok: false });
     }
   }
+  if (pathname === "/gitlog") {
+    // commits touchant le fichier (panneau historique) — {sha, ts, msg}
+    try {
+      const p = safePath(url.searchParams.get("path"));
+      if (!p) return sendJson(res, 200, { ok: false });
+      const dir = path.dirname(p);
+      const top = await gitOut(["rev-parse", "--show-toplevel"], dir);
+      if (!top) return sendJson(res, 200, { ok: false });
+      const root = top.trim();
+      const rel = path.relative(root, p).split(path.sep).join("/");
+      const out = await gitOut(["log", "--follow", "-100", "--format=%h%x09%ct%x09%s", "--", rel], root);
+      if (out === null) return sendJson(res, 200, { ok: false });
+      const items = out.split("\n").filter(Boolean).map((l) => {
+        const [sha, ts, ...msg] = l.split("\t");
+        return { sha, ts: Number(ts) || 0, msg: msg.join("\t") };
+      });
+      return sendJson(res, 200, { ok: true, items });
+    } catch (e) {
+      return sendJson(res, 200, { ok: false });
+    }
+  }
+  if (pathname === "/gitshow") {
+    // texte du fichier à un commit donné (Comparer / Rétablir de l'historique)
+    try {
+      const p = safePath(url.searchParams.get("path"));
+      const sha = String(url.searchParams.get("sha") || "");
+      if (!p || !/^[0-9a-f]{4,40}$/i.test(sha)) return sendJson(res, 200, { ok: false });
+      const dir = path.dirname(p);
+      const top = await gitOut(["rev-parse", "--show-toplevel"], dir);
+      if (!top) return sendJson(res, 200, { ok: false });
+      const root = top.trim();
+      const rel = path.relative(root, p).split(path.sep).join("/");
+      const text = await gitOut(["show", `${sha}:${rel}`], root);
+      if (text === null) return sendJson(res, 200, { ok: false });
+      return sendJson(res, 200, { ok: true, text });
+    } catch (e) {
+      return sendJson(res, 200, { ok: false });
+    }
+  }
   if (pathname === "/texroot") {
     try {
       if (!url.searchParams.has("path")) throw new Error("path");
