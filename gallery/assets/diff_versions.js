@@ -303,20 +303,34 @@ window.DiffVersions = function(opts){
     navPrev = navPill.querySelector('[data-d="-1"]');
     navNext = navPill.querySelector('[data-d="1"]');
     navCount = navPill.querySelector(".dvNavC");
-    navPrev.onclick = () => gotoChange(changeAt - 1, true);
-    navNext.onclick = () => gotoChange(changeAt + 1, true);
-    navCount.onclick = () => gotoChange(changeAt, true); // clic sur le compteur : recentrer
+    // ‹ › : timeline des interventions. Depuis « tout », ‹ entre sur la plus
+    // récente ; › depuis la plus récente revient à « tout ».
+    navPrev.onclick = () => { navMode < 0 ? showStep(interList().length - 1) : showStep(navMode - 1); };
+    navNext.onclick = () => {
+      if(navMode < 0) return;
+      const last = interList().length - 1;
+      navMode >= last ? showAll() : showStep(navMode + 1);
+    };
+    navCount.onclick = () => { navMode < 0 ? gotoChange(changeAt, true) : showAll(); };
   }
   function updateNav(){
     ensureNavUi();
     if(!navPill) return;
-    const on = shown && changePts.length > 0;
+    const n = shown ? interList().length : 0;
+    const on = shown && (n > 0 || changePts.length > 0);
     navPill.style.display = on ? "inline-flex" : "none";
     if(!on) return;
-    navCount.textContent = (changeAt + 1) + " / " + changePts.length;
-    navCount.title = "Changement " + (changeAt + 1) + " sur " + changePts.length + " — cliquer : recentrer";
-    navPrev.disabled = changeAt <= 0;
-    navNext.disabled = changeAt >= changePts.length - 1;
+    if(navMode < 0){
+      navCount.textContent = "tout · " + n;
+      navCount.title = n + " intervention" + (n > 1 ? "s" : "") + " depuis la base — ‹ pour les revoir une à une · cliquer : recentrer";
+      navPrev.disabled = n === 0;
+      navNext.disabled = true;
+    } else {
+      navCount.textContent = (navMode + 1) + " / " + n;
+      navCount.title = "Intervention " + (navMode + 1) + " sur " + n + " — cliquer : revenir à « tout »";
+      navPrev.disabled = navMode <= 0;
+      navNext.disabled = false; // › depuis la dernière = retour à « tout »
+    }
   }
   function toggle(show, scrollLine){
     const next = (show === undefined || show === null) ? !shown : show;
