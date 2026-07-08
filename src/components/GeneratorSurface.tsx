@@ -81,11 +81,13 @@ export default function GeneratorSurface({
     setBusy(true);
     setError(null);
     send(ws, { type: "generateImage", prompt: p, size, editFrom, projectRoot });
-    // filet de sécurité si le sidecar ne répond jamais (réseau down, etc.)
+    // Filet de sécurité si le sidecar ne répond jamais (réseau down, etc.).
+    // Seedream 5.0 Pro (deep-reasoning) est lent : ~140 s observés au lancement.
+    // On laisse une marge large — le vrai signal de fin est le message WS.
     timeoutRef.current = window.setTimeout(() => {
       setBusy(false);
-      setError("délai dépassé (90 s)");
-    }, 90000);
+      setError(t("generateur.timeout"));
+    }, 300000);
   }
 
   const imageUrl = result?.path ? toGalleryImageUrl(result.path, projectRoot, galleryUrl) : null;
@@ -124,7 +126,12 @@ export default function GeneratorSurface({
 
       <div className="generateur-result">
         {!result && !busy && <div className="generateur-empty">{t("generateur.no-image")}</div>}
-        {busy && <div className="generateur-empty">{t("generateur.generating")}</div>}
+        {busy && (
+          <div className="generateur-empty">
+            {t("generateur.generating")}
+            <div className="generateur-hint">{t("generateur.generating-hint")}</div>
+          </div>
+        )}
         {imageUrl && !busy && (
           <>
             <div className="generateur-preview">

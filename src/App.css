@@ -1228,8 +1228,9 @@ button.ghost.danger, button.ghost.danger:hover { color: #d98c8f; background: rgb
 .generateur-error { color: var(--u-hot); font-size: var(--fs-m); line-height: 1.4; }
 .generateur-result { min-width: 0; min-height: 0; display: flex; flex-direction: column; background: var(--bg);
   padding: 16px; gap: 12px; }
-.generateur-empty { flex: 1; display: flex; align-items: center; justify-content: center;
+.generateur-empty { flex: 1; display: flex; flex-direction: column; gap: 4px; align-items: center; justify-content: center;
   color: var(--muted); font-size: var(--fs-l); text-align: center; }
+.generateur-hint { color: var(--muted2); font-size: var(--fs-s); }
 .generateur-preview { flex: 1; min-height: 0; display: flex; align-items: center; justify-content: center;
   background: var(--bg-side); border-radius: var(--r-m); overflow: hidden; }
 .generateur-preview img { max-width: 100%; max-height: 100%; object-fit: contain; display: block; }
