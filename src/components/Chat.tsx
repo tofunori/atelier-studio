@@ -791,6 +791,14 @@ export default function Chat(p: {
     reg.set("chat-ul", ul);
     return () => { reg.delete("chat-hl"); reg.delete("chat-ul"); };
   }, [marks, p.events]);
+  // La pastille « aller au dernier message » ne se recalculait que sur scroll :
+  // quand l'agent répond (le contenu grandit sans événement de scroll), elle
+  // n'apparaissait pas tant qu'on ne scrollait pas. p.events change d'identité
+  // à chaque token → recalculer ici la garde après chaque mise à jour du fil.
+  useEffect(() => {
+    const el = messagesRef.current;
+    if (el) setShowJump(el.scrollHeight - el.scrollTop - el.clientHeight > 200);
+  }, [p.events]);
   const [menuOpen, setMenuOpen] = useState(false);
   const [modelMenuProvider, setModelMenuProvider] = useState(provider);
   const [effortMenuOpen, setEffortMenuOpen] = useState(false);
@@ -1175,7 +1183,7 @@ export default function Chat(p: {
         onMouseUp={onMessagesMouseUp}
         onScroll={(e) => {
           const el = e.currentTarget;
-          setShowJump(el.scrollHeight - el.scrollTop - el.clientHeight > 300);
+          setShowJump(el.scrollHeight - el.scrollTop - el.clientHeight > 200);
         }}
       >
         {!p.threadId && (
