@@ -109,7 +109,7 @@ async function serverTests() {
 }
 
 // ------------------------------------------------- B. module diff_versions.js
-function makeModuleHarness({ headText = null, serverItems = [], serverLast = null } = {}) {
+function makeModuleHarness({ headText = null, serverItems = [], serverLast = null, headTs = 0 } = {}) {
   const el = () => {
     const e = { style: {}, classList: { toggle() {}, contains: () => false }, appendChild() {}, insertBefore() {},
       querySelectorAll: () => [], addEventListener() {}, dataset: {}, disabled: false,
@@ -153,7 +153,7 @@ function makeModuleHarness({ headText = null, serverItems = [], serverLast = nul
       if (url.startsWith("/githead"))
         return headText === null
           ? Promise.resolve({ json: () => Promise.resolve({ ok: false }) })
-          : Promise.resolve({ json: () => Promise.resolve({ ok: true, text: headText, sha: "abc1234" }) });
+          : Promise.resolve({ json: () => Promise.resolve({ ok: true, text: headText, sha: "abc1234", ts: headTs }) });
       if (url.startsWith("/versions") && opts && opts.method === "POST") {
         posts.push(JSON.parse(opts.body));
         return Promise.resolve({ json: () => Promise.resolve({ ok: true }) });

@@ -735,6 +735,7 @@ window.DiffVersions = function(opts){
       const j = await r.json();
       if(!j || !j.ok || typeof j.text !== "string"){ return; }
       headSha = j.sha || "";
+      baseTs = (Number(j.ts) || 0) * 1000; // epoch s → ms (échelle des versions)
       const changed = headText !== j.text;
       headText = j.text;
       if(headIndex() < 0){
