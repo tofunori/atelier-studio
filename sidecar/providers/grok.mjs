@@ -712,6 +712,37 @@ async function alignSessionMode(srv, sessionId, wanted) {
   grokSessionSelection.set(sessionId, next);
 }
 
+/** Émetteur bufferisé d'un tour — maintient l'ADJACENCE bloc live → bloc
+ * final exigée par le reducer du front (App.tsx : la bulle `streaming`/
+ * `thinking_live` n'est remplacée par son bloc final `text`/`thinking` que si
+ * elle est le DERNIER event de la liste). Tout event intercalé (tool, edit,
+ * hook…) entre des deltas et leur bloc final laisserait une bulle orpheline
+ * (caret clignotant à jamais) + un texte dupliqué — observé en réel
+ * 2026-07-08 avec les hooks de fin de tour. Règle : avant d'émettre quoi que
+ * ce soit d'autre que le delta du buffer actif, flusher le(s) buffer(s). */
+export function makeTurnEmitter(onEvent) {
+  let messageBuffer = "";
+  let thoughtBuffer = "";
+  const flushThinking = () => {
+    if (!thoughtBuffer) return;
+    onEvent({ kind: "thinking", text: thoughtBuffer });
+    thoughtBuffer = "";
+  };
+  const flushText = () => {
+    if (!messageBuffer) return;
+    onEvent({ kind: "text", text: messageBuffer });
+    messageBuffer = "";
+  };
+  const flush = () => { flushThinking(); flushText(); };
+  const emit = (ev) => {
+    if (ev.kind === "thinking_delta") { flushText(); thoughtBuffer += ev.text; onEvent(ev); return; }
+    if (ev.kind === "delta") { flushThinking(); messageBuffer += ev.text; onEvent(ev); return; }
+    flush();
+    onEvent(ev);
+  };
+  return { emit, flush };
+}
+
 async function runAcp({ threadId, cwd, prompt, sessionId, model, effort, timeoutMs, onEvent }) {
   const workDir = cwd || process.env.HOME || process.cwd();
   let srv;
@@ -725,38 +756,14 @@ async function runAcp({ threadId, cwd, prompt, sessionId, model, effort, timeout
 
   await alignSessionMode(srv, sid, { model: model || undefined, effort: mapEffort(effort) || undefined });
 
-  // affichage SOBRE (parité avec les autres providers) : le texte/la réflexion
-  // en cours sont accumulés puis flush comme message/bloc final soit à la
-  // frontière d'un nouvel appel d'outil, soit à la fin du tour.
-  let messageBuffer = "";
-  let thoughtBuffer = "";
-  const seenTools = new Set();
   // état mémoire du tour pour les toolCallId répétés (cf. mapSessionUpdate/
   // rememberToolMeta) : sans lui, une update de suivi sans _meta écraserait
   // la carte déjà affichée par une carte générique "tool" sans input.
   const updateCtx = { toolMeta: new Map(), seenEdits: new Set() };
-  const flushThinking = () => {
-    if (!thoughtBuffer) return;
-    onEvent({ kind: "thinking", text: thoughtBuffer });
-    thoughtBuffer = "";
-  };
-  const flushText = () => {
-    if (!messageBuffer) return;
-    onEvent({ kind: "text", text: messageBuffer });
-    messageBuffer = "";
-  };
+  const emitter = makeTurnEmitter(onEvent);
 
   const handler = (update) => {
-    for (const ev of mapSessionUpdate(update, updateCtx)) {
-      if (ev.kind === "thinking_delta") { thoughtBuffer += ev.text; onEvent(ev); continue; }
-      if (ev.kind === "delta") { messageBuffer += ev.text; onEvent(ev); continue; }
-      if (ev.kind === "tool_update" && ev.status === "running" && !seenTools.has(ev.id)) {
-        seenTools.add(ev.id);
-        flushThinking();
-        flushText(); // un nouvel appel d'outil clôt le message/la réflexion en cours
-      }
-      onEvent(ev);
-    }
+    for (const ev of mapSessionUpdate(update, updateCtx)) emitter.emit(ev);
   };
   sessionHandlers.set(sid, handler);
   const turnKey = threadId ?? sid;
@@ -771,12 +778,10 @@ async function runAcp({ threadId, cwd, prompt, sessionId, model, effort, timeout
       sessionId: sid,
       prompt: [{ type: "text", text: String(prompt ?? "") }],
     });
-    flushThinking();
-    flushText();
+    emitter.flush();
     onEvent(mapPromptResult(result));
   } catch (e) {
-    flushThinking();
-    flushText();
+    emitter.flush();
     onEvent(mapPromptError(e));
   } finally {
     if (timer) clearTimeout(timer);

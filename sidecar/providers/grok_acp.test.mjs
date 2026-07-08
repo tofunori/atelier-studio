@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   acpMethodNotFoundResponse,
   handleIncoming,
+  makeTurnEmitter,
   mapPromptError,
   mapPromptResult,
   mapSessionUpdate,
@@ -248,5 +249,66 @@ describe("grok ACP — sélection modèle/effort par session (session/set_mode)"
   it("options vides/absentes -> sélection vide", () => {
     expect(selectionFromOptions(undefined)).toEqual({});
     expect(selectionFromOptions([])).toEqual({});
+  });
+});
+
+describe("grok ACP — makeTurnEmitter (adjacence bloc live -> bloc final)", () => {
+  // Le reducer du front (App.tsx) ne remplace la bulle streaming/thinking_live
+  // par son bloc final que si elle est le DERNIER event : tout event intercalé
+  // laisse une bulle orpheline (caret qui clignote) + un texte dupliqué.
+  it("un event tool après des deltas flush d'abord le text final (scénario hooks fin de tour, observé 2026-07-08)", () => {
+    const out = [];
+    const { emit, flush } = makeTurnEmitter((ev) => out.push(ev));
+    emit({ kind: "thinking_delta", text: "réflé" });
+    emit({ kind: "thinking_delta", text: "chit" });
+    emit({ kind: "delta", text: "Allo" });
+    emit({ kind: "delta", text: " — prêt." });
+    emit({ kind: "tool", name: "hook stop: 1 échec" });
+    flush();
+    expect(out.map((e) => e.kind)).toEqual([
+      "thinking_delta", "thinking_delta",
+      "thinking",              // flushé AVANT le premier delta (transition)
+      "delta", "delta",
+      "text",                  // flushé AVANT le tool — la bulle streaming est encore dernière
+      "tool",
+    ]);
+    expect(out.find((e) => e.kind === "thinking").text).toBe("réfléchit");
+    expect(out.find((e) => e.kind === "text").text).toBe("Allo — prêt.");
+  });
+
+  it("fin de tour sans event intercalé : flush() clôt le buffer actif, jamais deux fois", () => {
+    const out = [];
+    const { emit, flush } = makeTurnEmitter((ev) => out.push(ev));
+    emit({ kind: "delta", text: "Salut" });
+    flush();
+    flush(); // idempotent
+    expect(out.map((e) => e.kind)).toEqual(["delta", "text"]);
+  });
+
+  it("retour au thinking après du texte : le text est flushé à la transition", () => {
+    const out = [];
+    const { emit, flush } = makeTurnEmitter((ev) => out.push(ev));
+    emit({ kind: "delta", text: "Partie 1" });
+    emit({ kind: "thinking_delta", text: "hmm" });
+    emit({ kind: "delta", text: "Partie 2" });
+    flush();
+    expect(out.map((e) => e.kind)).toEqual([
+      "delta", "text", "thinking_delta", "thinking", "delta", "text",
+    ]);
+  });
+
+  it("tool_update entre deltas et fin : jamais d'event entre les deltas et leur bloc final", () => {
+    const out = [];
+    const { emit, flush } = makeTurnEmitter((ev) => out.push(ev));
+    emit({ kind: "delta", text: "je vais créer le fichier" });
+    emit({ kind: "tool_update", id: "c1", name: "write", status: "running" });
+    emit({ kind: "delta", text: "fait." });
+    flush();
+    const kinds = out.map((e) => e.kind);
+    expect(kinds).toEqual(["delta", "text", "tool_update", "delta", "text"]);
+    // invariant : chaque "text" suit immédiatement le dernier delta de son bloc
+    kinds.forEach((k, i) => {
+      if (k === "text") expect(kinds[i - 1]).toBe("delta");
+    });
   });
 });
