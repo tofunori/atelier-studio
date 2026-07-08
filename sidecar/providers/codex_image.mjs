@@ -12,12 +12,14 @@
 //   Python, ce qui gâche le quota et donne une image inutile).
 import { spawn } from "node:child_process";
 import { mkdtempSync, readFileSync, existsSync, readdirSync, rmSync, copyFileSync, statSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { tmpdir, homedir } from "node:os";
 import { join } from "node:path";
 import { resolveBin } from "./../bin_resolver.mjs";
 
 const CODEX_BIN = resolveBin("codex") ?? "codex";
 export const CODEX_IMAGE_MODEL = "gpt-image-2";
+// Codex écrit ses images générées ici (un sous-dossier de session par run).
+const CODEX_IMAGES_DIR = join(homedir(), ".codex", "generated_images");
 
 function sizeHint(size) {
   if (size === "1K") return "around 1024 pixels on the long side";
@@ -37,6 +39,30 @@ function newestPng(dir) {
   }
 }
 
+/** PNG le plus récent sous le store codex (récursif sur les sous-dossiers de
+ *  session), créé depuis `sinceMs`. C'est NOTRE code qui récupère l'image :
+ *  on ne demande jamais à Codex de la copier (ça déclenche une commande shell
+ *  qui, sans TTY, attend une approbation et gèle le run). */
+function newestCodexImageSince(baseDir, sinceMs) {
+  let best = null;
+  let bestMs = sinceMs;
+  let sessions;
+  try { sessions = readdirSync(baseDir); } catch { return null; }
+  for (const s of sessions) {
+    const dir = join(baseDir, s);
+    let files;
+    try { files = readdirSync(dir); } catch { continue; }
+    for (const f of files) {
+      if (!f.toLowerCase().endsWith(".png")) continue;
+      const p = join(dir, f);
+      let m;
+      try { m = statSync(p).mtimeMs; } catch { continue; }
+      if (m >= bestMs) { bestMs = m; best = p; }
+    }
+  }
+  return best;
+}
+
 /**
  * Génère une image via `codex exec` (gpt-image-2). Renvoie { b64, size, model, usage }
  * pour rester interchangeable avec le provider BytePlus.
@@ -53,10 +79,13 @@ export function generateImageViaCodex({
   editImagePath = null,
   timeoutMs = 600000,
   spawnImpl = spawn,
+  imagesDir = CODEX_IMAGES_DIR,
 } = {}) {
   return new Promise((resolve, reject) => {
     if (!prompt || !String(prompt).trim()) return reject(new Error("prompt requis"));
 
+    // -2 s de tolérance d'horloge : on récupérera le PNG créé après ce point.
+    const sinceMs = Date.now() - 2000;
     const work = mkdtempSync(join(tmpdir(), "atelier-codeximg-"));
     const cleanup = () => { try { rmSync(work, { recursive: true, force: true }); } catch {} };
 
@@ -64,22 +93,30 @@ export function generateImageViaCodex({
     if (editImagePath && existsSync(editImagePath)) {
       try {
         copyFileSync(editImagePath, join(work, "input.png"));
-        inputNote = " Use input.png in the current directory as the reference image to edit.";
+        inputNote = " Use input.png in the current working directory as the reference image to edit.";
       } catch {}
     }
 
     const hint = sizeHint(size);
+    // On demande UNIQUEMENT de générer — jamais de sauver/copier (sinon Codex
+    // lance un `cp` qui, sans TTY, gèle en attendant une approbation).
     const instruction =
-      `Use the image_generation tool (do NOT write Python, do NOT fabricate a PNG) to generate this image: ${String(prompt)}.` +
+      `Use the image_generation tool exactly once to generate this image: ${String(prompt)}.` +
       (hint ? ` Target resolution ${hint}.` : "") +
       inputNote +
-      ` Save the resulting image as out.png in the current working directory.`;
+      ` Do NOT write Python, do NOT run any shell commands, do NOT save or copy files — just call the image_generation tool and stop.`;
 
-    const args = ["exec", "--skip-git-repo-check", "-s", "workspace-write", "-C", work, instruction];
+    // reasoning_effort=low : ~24 s au lieu de plusieurs minutes ; le rendu ne
+    // profite pas d'un raisonnement long.
+    const args = [
+      "exec", "--skip-git-repo-check", "-s", "workspace-write",
+      "-c", "model_reasoning_effort=low", "-C", work, instruction,
+    ];
 
     let proc;
     try {
-      proc = spawnImpl(CODEX_BIN, args, { cwd: work });
+      // stdin fermé : Codex ne peut pas rester bloqué à attendre une entrée.
+      proc = spawnImpl(CODEX_BIN, args, { cwd: work, stdio: ["ignore", "pipe", "pipe"] });
     } catch (e) {
       cleanup();
       return reject(new Error(`codex introuvable: ${String(e?.message ?? e)}`));
@@ -105,8 +142,13 @@ export function generateImageViaCodex({
     proc.on("close", (code) => {
       clearTimeout(killer);
       try {
-        let png = join(work, "out.png");
-        if (!existsSync(png)) png = newestPng(work);
+        // Primaire : le PNG déposé par Codex dans son store depuis le début du run.
+        let png = newestCodexImageSince(imagesDir, sinceMs);
+        // Replis : si une version de Codex sauve quand même dans son cwd.
+        if (!png) {
+          const w = join(work, "out.png");
+          png = existsSync(w) ? w : newestPng(work);
+        }
         if (!png || !existsSync(png)) {
           cleanup();
           return reject(new Error(`codex exec: aucune image générée (code ${code}). ${logTail.slice(-300)}`));
