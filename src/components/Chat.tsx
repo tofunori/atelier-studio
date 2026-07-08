@@ -824,14 +824,22 @@ export default function Chat(p: {
       .map((m) => ({ id: m.id, label: m.id }));
     return [...baseModelsFor(pv), ...customs];
   }
+  // libellé propre d'un id de modèle : gère le suffixe "[1m]" (contexte 1M Claude,
+  // pas une entrée séparée dans MODELS) pour éviter d'afficher l'id brut.
+  function modelIdLabel(pv: string, id: string): string {
+    const is1m = id.endsWith("[1m]");
+    const baseId = is1m ? id.slice(0, -"[1m]".length) : id;
+    const known = [...baseModelsFor(pv), ...(p.defaults.customModels ?? [])
+      .filter((m) => m.provider === pv).map((m) => ({ id: m.id, label: m.id }))]
+      .find((m) => m.id === baseId);
+    const base = known?.label && known.label !== "__default" ? known.label : baseId;
+    return is1m ? `${base} · 1M` : base;
+  }
   function resolvedDefaultLabel(pv: string): string {
     const id = p.defaults.defaultModel[pv] ?? "";
     if (!id) return t("common.default-cli");
-    const known = [...baseModelsFor(pv), ...(p.defaults.customModels ?? [])
-      .filter((m) => m.provider === pv).map((m) => ({ id: m.id, label: m.id }))]
-      .find((m) => m.id === id);
     const eff = p.defaults.defaultEffort?.[pv];
-    return (known?.label && known.label !== "__default" ? known.label : id) + (eff ? ` · ${eff}` : "");
+    return modelIdLabel(pv, id) + (eff ? ` · ${eff}` : "");
   }
   function modelLabel(model: { label: string }, pv?: string) {
     if (model.label !== "__default") return model.label;
@@ -1052,7 +1060,7 @@ export default function Chat(p: {
   const activeGoal = latestGoal && !latestGoal.cleared ? latestGoal.goal : null;
   const activeToolGroupKey = [...renderedEvents].reverse().find((item) => item.type === "actions")?.key;
   const selectedModel = modelsFor(provider).find((m) => m.id === model);
-  const selectedModelLabel = selectedModel ? modelLabel(selectedModel) : model;
+  const selectedModelLabel = selectedModel ? modelLabel(selectedModel) : (model ? modelIdLabel(provider, model) : model);
   const modelButtonLabel = model ? selectedModelLabel : resolvedDefaultLabel(provider);
 
   function renderToolLine(e: Extract<AgentEvent, { kind: "tool" | "tool_update" }>, key: React.Key) {
