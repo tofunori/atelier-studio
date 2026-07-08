@@ -506,6 +506,27 @@ async function timelineTests() {
   h2.dv.push(s2, s3);
   ok("timeline écriture externe : sortie du voyage", !h2.dv.isBusy());
   ok("timeline écriture externe : buffer = disque (pas d'écrasement)", h2.cm._v === s3);
+
+  // fichier NON SUIVI (pas de HEAD) : « tout » doit rester CUMULATIF (1ʳᵉ snapshot
+  // → buffer), pas seulement le dernier delta — bug « je ne vois que Smith2020 »
+  {
+    const hU = makeModuleHarness({ headText: null }); // /githead → !ok
+    await sleep(0); await sleep(0);
+    hU.cm._v = s1; hU.dv.push(base, s1);
+    hU.cm._v = s2; hU.dv.push(s1, s2);
+    hU.cm._v = s3; hU.dv.push(s2, s3);
+    hU.tag.onclick();
+    const navU = hU.nav();
+    ok("sans HEAD : pill « tout · 3 »", navU.count.textContent === "tout · 3", navU.count.textContent);
+    // les 3 ajouts doivent tous être marqués (cumul), pas seulement le 3ᵉ
+    const adds = hU.marksLog.filter((m) => m.type === "add");
+    const joined = adds.map((m) => s3.slice(m.from, m.to)).join(" | ");
+    ok("sans HEAD : « tout » marque l'interv. 1 (neige)", joined.includes("fraiche") || joined.includes("poudreuse"), joined);
+    ok("sans HEAD : « tout » marque l'interv. 2 (température)", joined.includes("estivale") || joined.includes("moyenne"), joined);
+    ok("sans HEAD : « tout » marque l'interv. 3 (albedo)", joined.includes("reduit") || joined.includes("surface"), joined);
+    ok("sans HEAD : au moins 3 marques d'ajout (cumul)", adds.length >= 3, JSON.stringify(adds));
+    hU.tag.onclick();
+  }
 }
 
 // -------------------------------------------------------------------- run all

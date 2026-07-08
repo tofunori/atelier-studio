@@ -28,11 +28,24 @@ Conséquence : quand un agent écrivait le fichier pendant que tu tapais, ses
 modifs étaient invisibles, et ton `⌘S` suivant les **écrasait** après un « disk
 conflict ».
 
-**Règle** : buffer propre → recharger ; buffer *dirty* → **fusion trois-voies**
+**Règle** : buffer propre **ou dirty cosmétique** (même contenu que
+`lastSavedText` aux blancs près — typiquement après rewrap auto) → recharger ;
+buffer *dirty* réel → **fusion trois-voies**
 `Diff.applyPatch(buffer, structuredPatch(base, disque), {fuzzFactor:2})` où
 `base = lastSavedText`. Conflit superposé (`applyPatch` renvoie `false`) : NE PAS
-avancer `diskMtime` (la garde de `save()` reste armée), avertir, ne rien écraser.
-Vaut pour les DEUX éditeurs.
+avancer `diskMtime` (la garde de `save()` reste armée), avertir, ne rien écraser
+**mais versionner quand même** l'écriture agent (`diffPush(base, diskText)`) pour
+que la timeline grossisse. Après rewrap post-reload, **refiger** `lastSavedText`
+sinon le dirty cosmétique rebloque le passage agent suivant. Vaut pour les DEUX
+éditeurs.
+
+### 2b. « tout · N » sans HEAD n'affichait que le dernier delta
+
+Fichier non suivi par git → pas de pseudo-version HEAD. L'idx par défaut tombait
+sur `VERSIONS.length - 1` → le mode « tout » ne montrait que la dernière
+intervention, alors que le compteur annonçait N. **Règle** : `baseIndex()` =
+HEAD si présent, sinon **idx 0** (première snapshot de session) pour un vrai
+cumul.
 
 ## 3. La base des diffs = dernier commit SIGNIFICATIF, jamais HEAD nu
 

@@ -259,10 +259,20 @@ window.DiffVersions = function(opts){
     tt = null;
     cm.setValue(real);
   }
+  // Base du diff cumulatif (« tout ») :
+  // - avec git : pseudo-version HEAD (idx 0)
+  // - fichier non suivi : PREMIÈRE snapshot de session (idx 0), PAS la dernière
+  //   (sinon « tout · N » n'affiche que le dernier delta — bug ressenti sur
+  //   diff_test.tex et tout .tex hors dépôt)
+  function baseIndex(){
+    if(!VERSIONS.length) return -1;
+    const h = headIndex();
+    return h >= 0 ? h : 0;
+  }
   function showAll(){
     ttExit();
     navMode = -1;
-    idx = headIndex() >= 0 ? headIndex() : VERSIONS.length - 1;
+    idx = baseIndex();
     extCmp = null;
     updateTag();
     render();
@@ -374,12 +384,13 @@ window.DiffVersions = function(opts){
     // modifications de la version précédente
     if(before.replace(/\s+/g, " ").trim() === after.replace(/\s+/g, " ").trim()) return;
     VERSIONS.push({before, ts: Date.now()});
-    // Cible par défaut du ± : la BASE (dernier commit significatif) — un diff
-    // CUMULATIF, comme la gouttière. Sauter sur la version fraîchement créée
-    // (« depuis la dernière sauvegarde ») donnait un diff minuscule ou vide à
-    // chaque ⌘S : l'impression de perdre ses diffs. Et si la comparaison est
-    // OUVERTE, ne jamais déplacer la sélection sous les yeux de l'utilisateur.
-    if(!shown) idx = headIndex() >= 0 ? headIndex() : VERSIONS.length - 1;
+    // Cible par défaut du ± : la BASE (HEAD ou 1ʳᵉ snapshot de session) — un
+    // diff CUMULATIF, comme la gouttière. Sauter sur la version fraîchement
+    // créée (« depuis la dernière sauvegarde ») donnait un diff minuscule ou
+    // vide à chaque ⌘S. Si la comparaison est OUVERTE, ne jamais déplacer la
+    // sélection sous les yeux de l'utilisateur (mais render() rafraîchit les
+    // marques contre le buffer courant → le cumul grossit quand même).
+    if(!shown) idx = baseIndex();
     arm();
     persist(after);
     // pas d'auto-ouverture : le mode passe l'éditeur en lecture seule, l'activer
@@ -797,7 +808,7 @@ window.DiffVersions = function(opts){
     for(const it of (items || [])){
       if(typeof it.b === "string"){ VERSIONS.push({before: it.b, ts: it.t || Date.now()}); added++; }
     }
-    if(added && idx < VERSIONS.length - 1){ idx = VERSIONS.length - 1; arm(); }
+    if(added){ if(!shown) idx = baseIndex(); arm(); }
     return added;
   }
   async function restoreVersions(){
@@ -833,7 +844,7 @@ window.DiffVersions = function(opts){
       const wsn = s => s.replace(/\s+/g, " ").trim();
       if(now !== null && typeof lastKnown === "string" && lastKnown !== now && wsn(lastKnown) !== wsn(now)){
         VERSIONS.push({before: lastKnown, ts: Date.now()});
-        idx = VERSIONS.length - 1;
+        if(!shown) idx = baseIndex();
         arm();
         persist(now);
         notify("modifié pendant que l'app était fermée — ± pour comparer");
@@ -843,7 +854,7 @@ window.DiffVersions = function(opts){
       fetchHead().then(() => {
         refreshGutter();
         // sélection par défaut du ± : la base (diff cumulatif, comme la gouttière)
-        if(!shown && headIndex() >= 0){ idx = headIndex(); updateTag(); }
+        if(!shown){ idx = baseIndex(); updateTag(); }
       });
     });
   }, 300);

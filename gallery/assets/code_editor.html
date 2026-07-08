@@ -241,10 +241,16 @@ document.addEventListener("keydown", e => {
   if((e.metaKey || e.ctrlKey) && e.key === "s"){ e.preventDefault(); save(); }
 });
 
-// L'agent modifie le fichier sur le disque : buffer propre → reload ; buffer
-// dirty → fusion trois-voies (base = dernier sauvegardé, leurs = disque, mien =
-// buffer) au lieu d'ignorer le disque jusqu'au conflit de ⌘S.
+// L'agent modifie le fichier sur le disque : buffer propre (ou dirty cosmétique
+// aux blancs près) → reload ; buffer dirty réel → fusion trois-voies. En conflit
+// on versionne quand même l'écriture agent pour que la timeline grossisse.
 let __mergeConflictAt = 0;
+function __effectivelyClean(){
+  if(!dirty) return true;
+  if(typeof lastSavedText !== "string" || !cm) return false;
+  const w = (s) => s.replace(/\s+/g, " ").trim();
+  return w(cm.getValue()) === w(lastSavedText);
+}
 setInterval(async () => {
   if(!cm) return;
   // vue historique du comparateur (± timeline) : buffer temporairement remplacé —
@@ -256,16 +262,16 @@ setInterval(async () => {
     if(!(j.mtime && Math.abs(j.mtime - diskMtime) > 0.001)) return;
     const diskText = j.text;
     const cur = cm.getCursor(), scroll = cm.getScrollInfo();
-    if(!dirty){
+    if(__effectivelyClean()){
       diskMtime = j.mtime;
-      const before = cm.getValue();
-      if(before === diskText){ lastSavedText = diskText; return; }
+      const before = (typeof lastSavedText === "string") ? lastSavedText : cm.getValue();
+      if(before === diskText && cm.getValue() === diskText){ lastSavedText = diskText; dirty = false; return; }
       cm.setValue(diskText);
       cm.setCursor(cur);
       cm.scrollTo(scroll.left, scroll.top);
       dirty = false;
       setState("saved", "reloaded (modified on disk) " + new Date().toLocaleTimeString());
-      __dv.push(before, diskText);
+      if(__dv) __dv.push(before, diskText);
       lastSavedText = diskText;
       return;
     }
@@ -275,17 +281,19 @@ setInterval(async () => {
     if(merged === false || typeof merged !== "string"){
       if(j.mtime !== __mergeConflictAt){
         __mergeConflictAt = j.mtime;
-        setState("err", "modifs superposées avec l'agent — ⌘S affichera le conflit");
+        if(base != null && __dv && base !== diskText) __dv.push(base, diskText);
+        setState("err", "modifs superposées avec l'agent — ⌘S affichera le conflit · timeline : intervention enregistrée");
       }
       return;
     }
     diskMtime = j.mtime;
+    const beforePush = base != null ? base : cm.getValue();
     cm.setValue(merged);
     cm.setCursor(cur);
     cm.scrollTo(scroll.left, scroll.top);
     dirty = true;
     setState("saved", "modifs de l'agent fusionnées avec les tiennes (non sauvegardées)");
-    __dv.push(lastSavedText, diskText);
+    if(__dv) __dv.push(beforePush, diskText);
     lastSavedText = diskText;
   }catch(e){}
 }, 2000);
