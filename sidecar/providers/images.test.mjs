@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { generateImage, dataUriFromPngBuffer, resolveArkApiKey, ARK_BASE_URL, DEFAULT_MODEL } from "./images.mjs";
+import { generateImage, dataUriFromPngBuffer, resolveArkApiKey, resolveArkModel, ARK_BASE_URL, DEFAULT_MODEL } from "./images.mjs";
 
 function fakeFetch(status, jsonBody) {
   return async (url, init) => ({
@@ -115,5 +115,30 @@ describe("resolveArkApiKey", () => {
     delete process.env.ARK_API_KEY;
     const f = writeConfig([{ id: "autre", baseURL: "https://x", models: ["a"], apiKey: "k" }]);
     expect(resolveArkApiKey(f)).toBeNull();
+  });
+});
+
+describe("resolveArkModel", () => {
+  let dir;
+  afterEach(() => { if (dir) { rmSync(dir, { recursive: true, force: true }); dir = null; } });
+  function writeConfig(arr) {
+    dir = mkdtempSync(join(tmpdir(), "atelier-cfg-"));
+    const f = join(dir, "api_providers.json");
+    writeFileSync(f, JSON.stringify(arr));
+    return f;
+  }
+
+  it("utilise le champ model de l'entrée si présent", () => {
+    const f = writeConfig([{ id: "byteplus-images", apiKey: "k", model: "dola-seedream-5-0-pro-260628" }]);
+    expect(resolveArkModel(f)).toBe("dola-seedream-5-0-pro-260628");
+  });
+
+  it("retombe sur DEFAULT_MODEL si model absent ou vide", () => {
+    expect(resolveArkModel(writeConfig([{ id: "byteplus-images", apiKey: "k" }]))).toBe(DEFAULT_MODEL);
+    expect(resolveArkModel(writeConfig([{ id: "byteplus-images", apiKey: "k", model: "  " }]))).toBe(DEFAULT_MODEL);
+  });
+
+  it("retombe sur DEFAULT_MODEL si le fichier n'existe pas", () => {
+    expect(resolveArkModel(join(tmpdir(), "inexistant-xyz.json"))).toBe(DEFAULT_MODEL);
   });
 });

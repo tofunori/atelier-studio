@@ -15,9 +15,11 @@ export const ARK_BASE_URL = "https://ark.ap-southeast.bytepluses.com/api/v3/imag
 
 const CONFIG_FILE = `${homedir()}/Library/Application Support/atelier-studio/api_providers.json`;
 
-// Modèle par défaut (Seedream 5.0 Pro). Repli connu si l'ID venait à changer :
-// "seedream-4-5-..." — à ajuster si BytePlus renomme/retire le modèle.
-export const DEFAULT_MODEL = "seedream-5-0-pro-260628";
+// Modèle par défaut (Seedream 5.0 Pro, ID tel que provisionné dans la console
+// BytePlus). L'ID peut changer au jour le jour en phase de lancement : il est
+// surchargeable sans rebuild via le champ `model` de l'entrée byteplus-images
+// dans api_providers.json (cf. resolveArkModel). Repli connu : "seedream-4-5-...".
+export const DEFAULT_MODEL = "dola-seedream-5-0-pro-260628";
 export const FALLBACK_MODEL = "seedream-4-5-250828";
 
 const IMAGE_PROVIDER_ID = "byteplus-images";
@@ -40,6 +42,24 @@ export function resolveArkApiKey(configFile = CONFIG_FILE) {
     return resolveApiKey({ apiKey: entry.apiKey, apiKeyEnv: entry.apiKeyEnv ?? "ARK_API_KEY" });
   } catch {
     return null;
+  }
+}
+
+/**
+ * Modèle à utiliser : champ `model` de l'entrée byteplus-images si présent,
+ * sinon DEFAULT_MODEL. Permet de suivre un renommage d'ID (fréquent au
+ * lancement) sans rebuild — juste éditer api_providers.json.
+ */
+export function resolveArkModel(configFile = CONFIG_FILE) {
+  if (!existsSync(configFile)) return DEFAULT_MODEL;
+  try {
+    const raw = JSON.parse(readFileSync(configFile, "utf8"));
+    const list = Array.isArray(raw) ? raw : raw?.providers;
+    const entry = Array.isArray(list) ? list.find((p) => p?.id === IMAGE_PROVIDER_ID) : null;
+    const model = entry?.model;
+    return typeof model === "string" && model.trim() ? model.trim() : DEFAULT_MODEL;
+  } catch {
+    return DEFAULT_MODEL;
   }
 }
 

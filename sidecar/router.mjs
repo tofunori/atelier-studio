@@ -2,7 +2,7 @@ import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { homedir } from "node:os";
 import { writeFileAtomic } from "./store.mjs";
-import { generateImage, resolveArkApiKey } from "./providers/images.mjs";
+import { generateImage, resolveArkApiKey, resolveArkModel } from "./providers/images.mjs";
 
 // ctx: { send(obj), store, providers, broadcast(obj) }
 
@@ -519,12 +519,13 @@ export async function route(msg, ctx) {
         root = root || gitRootFor(ctx, msg);
         if (!prompt) throw new Error("prompt requis");
         const apiKey = resolveArkApiKey();
+        const model = resolveArkModel();
         let editImageDataUri = null;
         if (editFrom) {
           const buf = readFileSync(editFrom);
           editImageDataUri = `data:image/png;base64,${buf.toString("base64")}`;
         }
-        const result = await generateImage({ prompt, size, editImageDataUri, apiKey });
+        const result = await generateImage({ prompt, size, editImageDataUri, apiKey, model });
         const dir = join(root, "generated");
         mkdirSync(dir, { recursive: true });
         const ts = Date.now();
