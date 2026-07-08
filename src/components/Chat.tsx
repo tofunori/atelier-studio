@@ -31,14 +31,12 @@ const PERMISSION_MODES = [
 
 const MODELS: Record<string, { id: string; label: string }[]> = {
   claude: [
-    { id: "", label: "__default" },
     { id: "claude-fable-5", label: "Fable 5" },
     { id: "claude-opus-4-8", label: "Opus 4.8" },
     { id: "claude-sonnet-5", label: "Sonnet 5" },
     { id: "claude-haiku-4-5-20251001", label: "Haiku 4.5" },
   ],
   codex: [
-    { id: "", label: "__default" },
     { id: "gpt-5.5", label: "GPT-5.5" },
     { id: "gpt-5.4", label: "GPT-5.4" },
     { id: "gpt-5.4-mini", label: "GPT-5.4 mini" },
