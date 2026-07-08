@@ -278,7 +278,10 @@ export default function App() {
     // miroir disque via sidecar : les réglages survivent au redémarrage/mise à jour
     const mirror = setTimeout(() => {
       if (ws.current?.readyState === 1) {
-        ws.current.send(JSON.stringify({ type: "saveSettings", settings }));
+        ws.current.send(JSON.stringify({
+          type: "saveSettings",
+          settings: { ...settings, projMeta: projMetaRef.current, projects: projectsRef.current },
+        }));
       }
     }, 600);
     return () => clearTimeout(mirror);
@@ -351,6 +354,23 @@ export default function App() {
   useEffect(() => {
     localStorage.setItem("atelier-studio.projMeta", JSON.stringify(projMeta));
   }, [projMeta]);
+  const projMetaRef = useRef(projMeta);
+  projMetaRef.current = projMeta;
+  const projectsRef = useRef(projects);
+  projectsRef.current = projects;
+  // le localStorage WebKit s'écrit paresseusement et se perd si l'app est tuée :
+  // icônes/lettres/ordre des projets partent aussi dans le miroir disque settings.json
+  useEffect(() => {
+    const id = setTimeout(() => {
+      if (ws.current?.readyState === 1) {
+        ws.current.send(JSON.stringify({
+          type: "saveSettings",
+          settings: { ...settingsRef.current, projMeta, projects },
+        }));
+      }
+    }, 600);
+    return () => clearTimeout(id);
+  }, [projMeta, projects]);
 
   const [activeTab, setActiveTab] = useState<string>("gallery");
   const [activeId, setActiveId] = useState<string | null>(null);
@@ -445,12 +465,27 @@ export default function App() {
     const handleMessage = (msg: any) => {
       if (msg.type === "settingsFile") {
         const hasLocal = localStorage.getItem("atelier-studio.settings") !== null;
+        const { projMeta: diskMeta, projects: diskProjects, ...diskSettings } = msg.settings ?? {};
         if (msg.settings && !hasLocal) {
           // webview vierge (mise à jour, reset WebKit) : le fichier disque fait foi
-          setSettings({ ...DEFAULT_SETTINGS, ...msg.settings });
+          setSettings({ ...DEFAULT_SETTINGS, ...diskSettings });
         } else if (ws.current?.readyState === 1) {
           // sinon pousser l'état courant vers le fichier pour l'amorcer
-          ws.current.send(JSON.stringify({ type: "saveSettings", settings: settingsRef.current }));
+          ws.current.send(JSON.stringify({
+            type: "saveSettings",
+            settings: { ...settingsRef.current, projMeta: projMetaRef.current, projects: projectsRef.current },
+          }));
+        }
+        // icônes/lettres/ordre : le disque fait foi — le localStorage WebKit peut
+        // avoir perdu les dernières écritures si l'app a été tuée
+        if (diskMeta && typeof diskMeta === "object") {
+          setProjMeta((cur) => ({ ...cur, ...diskMeta }));
+        }
+        if (Array.isArray(diskProjects) && diskProjects.length) {
+          setProjects((cur) => [
+            ...diskProjects.filter((r: string) => cur.includes(r)),
+            ...cur.filter((r) => !diskProjects.includes(r)),
+          ]);
         }
       }
       if (msg.type === "threads") {
