@@ -288,32 +288,41 @@ function EditLine({ event, threadId }: {
         const diff = diffs[f.path];
         return (
           <div key={f.path} className="edit-line">
-            <button
-              type="button"
-              className="edit-line-row"
-              aria-expanded={open}
-              title={f.path}
-              onClick={() => {
-                const next = open ? null : f.path;
-                setOpenPath(next);
-                if (!next || diffs[f.path] != null || loading === f.path) return;
-                setLoading(f.path);
-                const sent = wsSend({
-                  type: "gitDiff",
-                  threadId,
-                  projectRoot: event.projectRoot,
-                  path: f.path,
-                });
-                if (!sent) setLoading(null);
-              }}
-            >
-              <PencilIcon />
-              <span className="edit-line-verb">{t("chat.edited")}</span>
-              <span className="edit-line-file">{base}</span>
-              {f.add != null && <span className="edit-line-add">+{f.add}</span>}
-              {f.del != null && <span className="edit-line-del">-{f.del}</span>}
-              <span className="tool-tick">{open ? "▾" : "▸"}</span>
-            </button>
+            <div className="edit-line-row" title={f.path}>
+              <button
+                type="button"
+                className="edit-line-open"
+                onClick={() => openFileRef(f.path)}
+                title={t("action.open-file", { ref: f.path })}
+              >
+                <PencilIcon />
+                <span className="edit-line-verb">{t("chat.edited")}</span>
+                <span className="edit-line-file">{base}</span>
+                {f.add != null && <span className="edit-line-add">+{f.add}</span>}
+                {f.del != null && <span className="edit-line-del">-{f.del}</span>}
+              </button>
+              <button
+                type="button"
+                className="edit-line-difftoggle"
+                aria-expanded={open}
+                title="diff"
+                onClick={() => {
+                  const next = open ? null : f.path;
+                  setOpenPath(next);
+                  if (!next || diffs[f.path] != null || loading === f.path) return;
+                  setLoading(f.path);
+                  const sent = wsSend({
+                    type: "gitDiff",
+                    threadId,
+                    projectRoot: event.projectRoot,
+                    path: f.path,
+                  });
+                  if (!sent) setLoading(null);
+                }}
+              >
+                <span className="tool-tick">{open ? "▾" : "▸"}</span>
+              </button>
+            </div>
             {open && (
               <pre className="turn-diff-body">
                 {loading === f.path && diff == null ? (

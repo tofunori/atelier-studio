@@ -534,10 +534,11 @@ html, body, #root, .app { height: 100vh; overflow: hidden;
 @keyframes toolGroupIn { from { opacity: 0; transform: translateY(-2px); } to { opacity: 1; transform: translateY(0); } }
 /* ligne « fichier édité » : ✎ nom +N −N, dépliable en diff */
 .edit-lines { margin: 4px 0; }
-.edit-line-row { display: inline-flex; align-items: center; gap: 6px; background: transparent;
-  border: none; color: var(--muted); padding: 2px 0; cursor: pointer; font: inherit;
-  font-size: var(--fs-m); }
-.edit-line-row:hover { color: var(--fg2); }
+.edit-line-row { display: flex; align-items: center; gap: 0; }
+.edit-line-open, .edit-line-difftoggle { display: inline-flex; align-items: center; gap: 6px;
+  background: transparent; border: none; color: var(--muted); padding: 2px 4px; cursor: pointer;
+  font: inherit; font-size: var(--fs-m); border-radius: var(--r-s, 6px); }
+.edit-line-open:hover, .edit-line-difftoggle:hover { color: var(--fg2); }
 .edit-line-file { color: #7aa2f7; }
 .edit-line-add { color: #98c379; }
 .edit-line-del { color: #e06c75; }
