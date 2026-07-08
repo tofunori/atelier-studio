@@ -295,7 +295,12 @@ window.DiffVersions = function(opts){
     // modifications de la version précédente
     if(before.replace(/\s+/g, " ").trim() === after.replace(/\s+/g, " ").trim()) return;
     VERSIONS.push({before, ts: Date.now()});
-    idx = VERSIONS.length - 1;
+    // Cible par défaut du ± : la BASE (dernier commit significatif) — un diff
+    // CUMULATIF, comme la gouttière. Sauter sur la version fraîchement créée
+    // (« depuis la dernière sauvegarde ») donnait un diff minuscule ou vide à
+    // chaque ⌘S : l'impression de perdre ses diffs. Et si la comparaison est
+    // OUVERTE, ne jamais déplacer la sélection sous les yeux de l'utilisateur.
+    if(!shown) idx = headIndex() >= 0 ? headIndex() : VERSIONS.length - 1;
     arm();
     persist(after);
     // pas d'auto-ouverture : le mode passe l'éditeur en lecture seule, l'activer
@@ -736,7 +741,11 @@ window.DiffVersions = function(opts){
       } else if(now !== null && lastKnown === null){
         persist(now); // première visite : baseline pour le prochain rattrapage
       }
-      fetchHead().then(refreshGutter);
+      fetchHead().then(() => {
+        refreshGutter();
+        // sélection par défaut du ± : la base (diff cumulatif, comme la gouttière)
+        if(!shown && headIndex() >= 0){ idx = headIndex(); updateTag(); }
+      });
     });
   }, 300);
 
