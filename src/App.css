@@ -69,7 +69,7 @@ html, body, #root, .app { height: 100vh; overflow: hidden;
   display: inline-flex; align-items: center; gap: 8px; }
 .empty-action:hover { background: var(--bg-ctl); color: var(--fg); }
 .msg { line-height: 1.65; font-size: var(--chat-fs, var(--fs-xl)); color: var(--fg2);
-  max-width: 70ch; }
+  max-width: 70ch; overflow-wrap: anywhere; }
 .msg p { margin: 0 0 9px; } .msg p:last-child { margin-bottom: 0; }
 .msg ul, .msg ol { margin: 4px 0 10px; padding-left: 20px; }
 .msg li { margin: 2.5px 0; }
@@ -134,7 +134,8 @@ html, body, #root, .app { height: 100vh; overflow: hidden;
   cursor: pointer; font: inherit; padding: 1px 0; text-align: left; }
 .tool-output-head:hover .tool-output-name { color: var(--fg2); }
 .tool-output-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.tool-output-summary { color: var(--muted2); white-space: nowrap; }
+.tool-output-summary { color: var(--muted2); white-space: nowrap;
+  min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .tool-status { color: var(--muted2); white-space: nowrap; }
 .tool-source { margin-left: 6px; color: var(--muted2); font: var(--fs-xs)/1 var(--code-font);
   text-transform: uppercase; letter-spacing: 0.04em; }
@@ -432,7 +433,7 @@ html, body, #root, .app { height: 100vh; overflow: hidden;
   border: 1px solid var(--border); border-radius: var(--r-m); padding: 3px 8px; }
 .user-bubble { background: var(--bg-ctl); border-radius: var(--r-m); padding: 9px 14px;
   max-width: 85%; white-space: pre-wrap; line-height: 1.55;
-  font-size: var(--chat-fs, var(--fs-xl)); }
+  font-size: var(--chat-fs, var(--fs-xl)); overflow-wrap: anywhere; }
 .msg-wrap { display: flex; flex-direction: column; gap: 2px; }
 .msg-actions { display: flex; gap: 8px; align-items: center; opacity: 0;
   transition: opacity 0.15s; font-size: var(--fs-m); color: var(--muted2); }
