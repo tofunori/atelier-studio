@@ -34,8 +34,11 @@ export default function Rail(p: {
   onExpand: () => void;
   onSettings: () => void;
   onSetMeta: (root: string, meta: ProjMeta) => void;
+  onReorder: (from: string, to: string) => void;
 }) {
   const [menu, setMenu] = useState<{ root: string; y: number } | null>(null);
+  const [dragRoot, setDragRoot] = useState<string | null>(null);
+  const [dragOver, setDragOver] = useState<string | null>(null);
   const [labelDraft, setLabelDraft] = useState("");
   const [fly, setFly] = useState<string | null>(null);   // projet dont le flyout est ouvert
   const [pinned, setPinned] = useState(false);
@@ -73,9 +76,30 @@ export default function Rail(p: {
         return (
           <button
             key={root}
-            className={`rail-proj ${active ? "on" : ""}`}
+            className={`rail-proj ${active ? "on" : ""} ${dragOver === root && dragRoot !== root ? "drag-over" : ""}`}
             style={{ "--proj-c": m?.color ?? "transparent" } as React.CSSProperties}
             title={root.split("/").pop()}
+            draggable
+            onDragStart={(e) => {
+              cancelHover();
+              setFly(null);
+              setDragRoot(root);
+              e.dataTransfer.effectAllowed = "move";
+            }}
+            onDragOver={(e) => {
+              if (!dragRoot || dragRoot === root) return;
+              e.preventDefault();
+              e.dataTransfer.dropEffect = "move";
+              setDragOver(root);
+            }}
+            onDragLeave={() => setDragOver((v) => (v === root ? null : v))}
+            onDrop={(e) => {
+              e.preventDefault();
+              if (dragRoot && dragRoot !== root) p.onReorder(dragRoot, root);
+              setDragRoot(null);
+              setDragOver(null);
+            }}
+            onDragEnd={() => { setDragRoot(null); setDragOver(null); }}
             onClick={() => {
               cancelHover();
               p.onSelectProject(root);

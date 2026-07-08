@@ -1491,6 +1491,15 @@ export default function App() {
           onExpand={() => setCompact(false)}
           onSettings={() => setShowSettings((v) => !v)}
           onSetMeta={(root, m) => setProjMeta((p) => ({ ...p, [root]: m }))}
+          onReorder={(from, to) =>
+            setProjects((prev) => {
+              const list = prev.filter((r) => r !== from);
+              const at = list.indexOf(to);
+              if (at < 0) return prev;
+              list.splice(at + (prev.indexOf(from) < prev.indexOf(to) ? 1 : 0), 0, from);
+              return list;
+            })
+          }
         />
       )}
       {!compact && (
