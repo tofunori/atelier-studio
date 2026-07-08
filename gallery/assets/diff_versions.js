@@ -6,6 +6,13 @@
 // rewrap (retours à la ligne déplacés) filtré. Les versions persistent en
 // localStorage par fichier (plafond ~1,5 Mo, plus anciennes éliminées d'abord).
 //
+// Intégration git (si le fichier est suivi — sinon tout se dégrade en silence) :
+// - pseudo-version « HEAD » en tête du sélecteur ‹ ± › (naviguer avant la
+//   première sauvegarde de session = comparer au dernier commit) ;
+// - gouttière : barres vertes (ajouté) / ambre (modifié) et triangle rouge
+//   (lignes supprimées) vs HEAD, recalculées en tapant ;
+// - clic sur une marque de gouttière → comparaison vs HEAD scrollée à la ligne.
+//
 // Hôte :
 //   const dv = DiffVersions({
 //     getCm:       () => cm,            // l'instance est créée après le chargement
@@ -18,37 +25,55 @@
 //   dv.isShown()            le mode comparaison est-il actif ?
 window.DiffVersions = function(opts){
   const { getCm, path, notify, els, restoreText } = opts;
-  const VERSIONS = []; // {before, ts} — le diff se fait contre le buffer courant
+  const VERSIONS = []; // {before, ts, head?, sha?} — diff contre le buffer courant
   let idx = -1, shown = false, marks = [];
+  let headText = null, headSha = "";
   const KEY = "texDiffV1:" + path;
   const MAX = 1500000;
+  const GUTTER = "dv-git";
 
-  // styles des décorations (une seule injection par page)
+  // styles des décorations + gouttière (une seule injection par page)
   if(!document.getElementById("dvStyles")){
     const st = document.createElement("style");
     st.id = "dvStyles";
     st.textContent =
       ".dAddM{background:rgba(52,201,142,.18);border-bottom:1px solid rgba(52,201,142,.6);border-radius:2px}" +
-      ".dDelW{background:rgba(224,108,117,.14);color:#e09aa0;text-decoration:line-through;border-radius:2px;padding:0 1px}";
+      ".dDelW{background:rgba(224,108,117,.14);color:#e09aa0;text-decoration:line-through;border-radius:2px;padding:0 1px}" +
+      ".CodeMirror .dv-git{width:6px}" +
+      ".dv-cell{position:relative;width:6px;height:1.55em}" +
+      ".dv-bar{position:absolute;left:1px;top:0;bottom:-2px;width:3px;cursor:pointer}" +
+      ".dv-bar.a{background:rgba(52,201,142,.85)}" +
+      ".dv-bar.m{background:rgba(232,179,74,.85)}" +
+      ".dv-del{position:absolute;left:0;top:-5px;width:0;height:0;cursor:pointer;" +
+        "border-left:7px solid rgba(224,108,117,.95);border-top:5px solid transparent;border-bottom:5px solid transparent}" +
+      ".dv-del.eof{top:auto;bottom:-4px}";
     document.head.appendChild(st);
   }
 
   function persist(){
     try{
-      let items = VERSIONS.map(v => ({b: v.before, t: v.ts}));
+      let items = VERSIONS.filter(v => !v.head).map(v => ({b: v.before, t: v.ts}));
       let size = items.reduce((n, it) => n + it.b.length, 0);
       while(items.length > 1 && size > MAX){ size -= items[0].b.length; items.shift(); }
       localStorage.setItem(KEY, JSON.stringify({v: 1, items}));
     }catch(e){ try{ localStorage.removeItem(KEY); }catch(e2){} }
   }
+  function sessionCount(){ return VERSIONS.length - (VERSIONS[0] && VERSIONS[0].head ? 1 : 0); }
   function arm(){
     if(els.group) els.group.style.display = "";
     els.tag.disabled = false; els.tag.style.opacity = "";
     [els.prev, els.next, els.restore].forEach(b => { if(b) b.style.display = ""; });
     updateTag();
   }
+  function labelOf(i){
+    const v = VERSIONS[i];
+    if(!v) return "";
+    if(v.head) return "HEAD" + (v.sha ? " (" + v.sha + ")" : "");
+    const si = i - (VERSIONS[0] && VERSIONS[0].head ? 1 : 0);
+    return "v" + (si + 2) + "/" + (sessionCount() + 1);
+  }
   function updateTag(){
-    els.tag.title = "Modifications — version " + (idx + 2) + "/" + (VERSIONS.length + 1) + " (cliquer : comparer)";
+    els.tag.title = "Modifications — " + labelOf(idx) + " (cliquer : comparer)";
     if(els.prev) els.prev.disabled = idx <= 0;
     if(els.next) els.next.disabled = idx >= VERSIONS.length - 1;
   }
@@ -94,11 +119,11 @@ window.DiffVersions = function(opts){
     }
     const note = changes
       ? changes + " modification" + (changes > 1 ? "s" : "")
-      : "aucun changement de texte (retours à la ligne seulement)";
-    notify("comparaison v" + (idx + 2) + "/" + (VERSIONS.length + 1) + " · " + note + " · Échap pour fermer");
+      : "aucun changement de texte" + (v.head ? "" : " (retours à la ligne seulement)");
+    notify("comparaison " + labelOf(idx) + " · " + note + " · Échap pour fermer");
     if(firstPos) cm.scrollIntoView(firstPos, 120);
   }
-  function toggle(show){
+  function toggle(show, scrollLine){
     const next = (show === undefined || show === null) ? !shown : show;
     // aucune version : ne jamais verrouiller l'éditeur sans rien afficher
     if(next && !VERSIONS[idx]) return;
@@ -106,7 +131,11 @@ window.DiffVersions = function(opts){
     if(!cm) return;
     shown = next;
     els.tag.classList.toggle("on", shown);
-    if(shown){ render(); cm.setOption("readOnly", true); }
+    if(shown){
+      render();
+      cm.setOption("readOnly", true);
+      if(scrollLine != null) cm.scrollIntoView({line: scrollLine, ch: 0}, 120);
+    }
     else { clearMarks(); cm.setOption("readOnly", false); cm.refresh(); notify(""); }
   }
   function push(before, after){
@@ -118,6 +147,88 @@ window.DiffVersions = function(opts){
     // pas d'auto-ouverture : le mode passe l'éditeur en lecture seule, l'activer
     // à chaque sauvegarde bloquerait la frappe en silence. Si déjà ouvert : rafraîchir.
     if(shown) render();
+    // l'agent a pu committer entre-temps : HEAD et la gouttière se rafraîchissent
+    fetchHead().then(refreshGutter);
+  }
+
+  // ---- gouttière git (barres ajouté/modifié, triangle supprimé, vs HEAD) ----
+  let gutterReady = false, gutterTimer = null;
+  function headIndex(){ return (VERSIONS[0] && VERSIONS[0].head) ? 0 : -1; }
+  function openHeadAt(line){
+    const h = headIndex();
+    if(h < 0) return;
+    idx = h; updateTag();
+    shown ? (render(), getCm().scrollIntoView({line, ch: 0}, 120)) : toggle(true, line);
+  }
+  function markerCell(cls, line){
+    const cell = document.createElement("div");
+    cell.className = "dv-cell";
+    cell.innerHTML = cls;
+    cell.title = "Modifié depuis HEAD" + (headSha ? " (" + headSha + ")" : "") + " — cliquer : comparer";
+    cell.onclick = () => openHeadAt(line);
+    return cell;
+  }
+  function refreshGutter(){
+    const cm = getCm();
+    if(!cm || headText === null) return;
+    if(!gutterReady){
+      cm.setOption("gutters", ["CodeMirror-linenumbers", GUTTER]);
+      cm.on("gutterClick", (c, line, g) => { if(g === GUTTER) openHeadAt(line); });
+      cm.on("change", () => { clearTimeout(gutterTimer); gutterTimer = setTimeout(refreshGutter, 400); });
+      gutterReady = true;
+    }
+    cm.operation(() => {
+      cm.clearGutter(GUTTER);
+      const parts = Diff.diffLines(headText, cm.getValue());
+      let line = 0;
+      const lastLine = cm.lineCount() - 1;
+      for(let i = 0; i < parts.length; i++){
+        const pt = parts[i];
+        const n = pt.count || 0;
+        if(pt.removed){
+          const nx = parts[i + 1];
+          if(nx && nx.added){
+            // bloc modifié : barres ambre sur les lignes de remplacement
+            for(let k = 0; k < (nx.count || 0); k++)
+              cm.setGutterMarker(Math.min(line + k, lastLine), GUTTER, markerCell('<div class="dv-bar m"></div>', line + k));
+            line += nx.count || 0;
+            i++;
+          } else {
+            // suppression sèche : triangle sur la ligne qui suit (ou fin de fichier)
+            const at = Math.min(line, lastLine);
+            const eof = line > lastLine;
+            cm.setGutterMarker(at, GUTTER, markerCell('<div class="dv-del' + (eof ? " eof" : "") + '"></div>', at));
+          }
+          continue;
+        }
+        if(pt.added){
+          for(let k = 0; k < n; k++)
+            cm.setGutterMarker(Math.min(line + k, lastLine), GUTTER, markerCell('<div class="dv-bar a"></div>', line + k));
+        }
+        line += n;
+      }
+    });
+  }
+  async function fetchHead(){
+    try{
+      const r = await fetch("/githead?path=" + encodeURIComponent(path));
+      const j = await r.json();
+      if(!j || !j.ok || typeof j.text !== "string"){ return; }
+      headSha = j.sha || "";
+      const changed = headText !== j.text;
+      headText = j.text;
+      if(headIndex() < 0){
+        VERSIONS.unshift({before: j.text, ts: null, head: true, sha: headSha});
+        idx += 1;
+        if(idx < 1) idx = 0;
+        arm();
+      } else if(changed){
+        VERSIONS[0].before = j.text;
+        VERSIONS[0].sha = headSha;
+        if(shown && idx === 0) render();
+      }
+      updateTag();
+    }catch(e){ /* serveur sans /githead ou hors dépôt : dégradation silencieuse */ }
   }
 
   els.tag.onclick = () => toggle();
@@ -148,6 +259,13 @@ window.DiffVersions = function(opts){
       }
     }
   }catch(e){}
+
+  // HEAD + gouttière : dès que l'éditeur existe (créé après le fetch du fichier)
+  const waitCm = setInterval(() => {
+    if(!getCm()) return;
+    clearInterval(waitCm);
+    fetchHead().then(refreshGutter);
+  }, 300);
 
   return { push, isShown: () => shown };
 };

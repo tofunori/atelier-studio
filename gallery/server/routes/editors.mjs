@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { spawn, spawnSync } from "node:child_process";
+import { spawn, spawnSync, execFile } from "node:child_process";
 import {
   PROJECT,
   SERVER_DIR,
@@ -313,8 +313,37 @@ async function handleRasterize(req, res, url) {
   }
 }
 
+// stdout exact d'une commande git (execFile : stderr séparé, contrairement à spawnCollect)
+function gitOut(args, cwd) {
+  return new Promise((resolve) => {
+    execFile("git", args, { cwd, timeout: 5000, maxBuffer: 8 * 1024 * 1024 }, (err, stdout) => {
+      resolve(err ? null : stdout);
+    });
+  });
+}
+
 export async function handleEditorsGet(req, res, url) {
   const pathname = url.pathname;
+  if (pathname === "/githead") {
+    // version committée (HEAD) d'un fichier suivi par git — pour la gouttière
+    // et la pseudo-version « HEAD » du comparateur. ok:false = pas de dépôt,
+    // fichier non suivi, ou git absent : le client dégrade en silence.
+    try {
+      const p = safePath(url.searchParams.get("path"));
+      if (!p) return sendJson(res, 200, { ok: false });
+      const dir = path.dirname(p);
+      const top = await gitOut(["rev-parse", "--show-toplevel"], dir);
+      if (!top) return sendJson(res, 200, { ok: false });
+      const root = top.trim();
+      const rel = path.relative(root, p).split(path.sep).join("/");
+      const text = await gitOut(["show", `HEAD:${rel}`], root);
+      if (text === null) return sendJson(res, 200, { ok: false });
+      const sha = await gitOut(["rev-parse", "--short", "HEAD"], root);
+      return sendJson(res, 200, { ok: true, text, sha: (sha || "").trim() });
+    } catch (e) {
+      return sendJson(res, 200, { ok: false });
+    }
+  }
   if (pathname === "/texroot") {
     try {
       if (!url.searchParams.has("path")) throw new Error("path");
