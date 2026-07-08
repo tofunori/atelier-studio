@@ -14,9 +14,6 @@ import { wsSend } from "../lib/wsBus";
 import { eventLabel, t } from "../lib/i18n";
 import { normalizeMathDelimiters, hardenPartialMarkdown } from "../lib/markdown";
 import { LruCache } from "../lib/lruCache";
-
-hljs.registerLanguage("julia", julia);
-hljs.registerLanguage("latex", latex);
 import {
   CloseIcon,
   CollapseIcon,
@@ -31,6 +28,9 @@ import {
 } from "./icons";
 import { Select } from "./Select";
 import { ProviderInfo, orderedVisibleProviders } from "../lib/providers";
+
+hljs.registerLanguage("julia", julia);
+hljs.registerLanguage("latex", latex);
 
 const PERMISSION_MODES = [
   { id: "bypassPermissions", labelKey: "permission.full" },
