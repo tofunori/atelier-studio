@@ -700,6 +700,29 @@ export async function handleEditorsPost(req, res, url) {
       return sendJson(res, 400, { error: `bad request: ${String(error.message || error)}` });
     }
   }
+  if (pathname === "/gitcommit") {
+    // commit du fichier courant SEUL (jamais -A) — bouton commit de l'éditeur
+    try {
+      const payload = await readJsonRequest(req);
+      const p = safePath(payload.path);
+      const msg = String(payload.message || "").trim();
+      if (!p) return sendJson(res, 403, { error: "outside the project" });
+      if (!msg) return sendJson(res, 400, { error: "message vide" });
+      const dir = path.dirname(p);
+      const top = await gitOut(["rev-parse", "--show-toplevel"], dir);
+      if (!top) return sendJson(res, 200, { ok: false, error: "hors dépôt git" });
+      const root = top.trim();
+      const rel = path.relative(root, p).split(path.sep).join("/");
+      if (await gitOut(["add", "--", rel], root) === null)
+        return sendJson(res, 200, { ok: false, error: "git add a échoué" });
+      if (await gitOut(["commit", "--no-verify", "-m", msg, "--", rel], root) === null)
+        return sendJson(res, 200, { ok: false, error: "git commit a échoué (rien à committer ?)" });
+      const sha = await gitOut(["rev-parse", "--short", "HEAD"], root);
+      return sendJson(res, 200, { ok: true, sha: (sha || "").trim() });
+    } catch (error) {
+      return sendJson(res, 400, { error: `bad request: ${String(error.message || error)}` });
+    }
+  }
   if (pathname === "/codesave") {
     try {
       const payload = await readJsonRequest(req);

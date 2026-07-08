@@ -151,6 +151,74 @@ window.DiffVersions = function(opts){
     fetchHead().then(refreshGutter);
   }
 
+  // ---- commit rapide du fichier courant (sobre : hérite du style des boutons
+  // de la barre ; visible seulement quand le fichier diffère de HEAD) ----
+  let commitBtn = null, commitPop = null;
+  function ensureCommitUi(){
+    if(commitBtn || !els.group) return;
+    commitBtn = document.createElement("button");
+    commitBtn.id = "dvCommit";
+    commitBtn.style.display = "none";
+    commitBtn.innerHTML = '<svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"><circle cx="8" cy="8" r="2.6"/><path d="M8 1.5v4M8 10.5v4"/></svg>';
+    els.group.appendChild(commitBtn);
+    commitPop = document.createElement("div");
+    commitPop.style.cssText = "position:fixed;z-index:400;display:none;flex-direction:column;gap:8px;width:320px;"
+      + "background:rgba(24,27,34,.98);border:1px solid #3a4150;border-radius:10px;padding:12px;"
+      + "box-shadow:0 14px 48px rgba(0,0,0,.55);font-size:13px";
+    const name = path.split("/").pop();
+    commitPop.innerHTML =
+      '<div style="font-size:11px;letter-spacing:.05em;text-transform:uppercase;opacity:.55">Commit — ' + name + '</div>'
+      + '<textarea rows="2" style="width:100%;box-sizing:border-box;background:transparent;border:1px solid #3a4150;'
+      + 'border-radius:6px;color:inherit;font:inherit;font-size:12px;line-height:1.5;padding:6px 8px;resize:none;outline:none"></textarea>'
+      + '<div style="display:flex;align-items:center;gap:8px">'
+      + '<span style="font-size:10px;opacity:.45;margin-right:auto">ce fichier seulement · &#9166; valider · &#8963; fermer</span>'
+      + '<button data-act="do" style="background:transparent;border:1px solid #3a4150;border-radius:6px;color:inherit;'
+      + 'font:inherit;font-size:11px;font-weight:500;padding:4px 12px;cursor:pointer">Commit</button></div>';
+    document.body.appendChild(commitPop);
+    const ta = commitPop.querySelector("textarea");
+    const closePop = () => { commitPop.style.display = "none"; };
+    async function doCommit(){
+      const message = ta.value.trim();
+      if(!message) return;
+      closePop();
+      notify("commit en cours…");
+      try{
+        const r = await fetch("/gitcommit", {method: "POST", headers: {"Content-Type": "application/json"},
+          body: JSON.stringify({path, message})});
+        const j = await r.json();
+        if(j && j.ok){
+          notify("commit " + (j.sha || "") + " ✓");
+          fetchHead().then(refreshGutter);
+        } else notify("commit refusé : " + ((j && j.error) || "erreur"));
+      }catch(e){ notify("commit impossible : " + e.message); }
+    }
+    commitBtn.onclick = () => {
+      if(commitPop.style.display !== "none"){ closePop(); return; }
+      const rc = commitBtn.getBoundingClientRect();
+      commitPop.style.display = "flex";
+      commitPop.style.top = (rc.bottom + 8) + "px";
+      commitPop.style.left = Math.max(8, Math.min(rc.left, window.innerWidth - 336)) + "px";
+      ta.value = "maj " + name;
+      ta.focus(); ta.select();
+    };
+    commitPop.querySelector('[data-act="do"]').onclick = doCommit;
+    ta.addEventListener("keydown", (e) => {
+      if(e.key === "Enter" && !e.shiftKey){ e.preventDefault(); doCommit(); }
+      if(e.key === "Escape"){ e.stopPropagation(); closePop(); }
+    });
+    document.addEventListener("mousedown", (e) => {
+      if(commitPop.style.display !== "none" && !commitPop.contains(e.target) && e.target !== commitBtn) closePop();
+    });
+  }
+  function updateCommitBtn(blocks){
+    ensureCommitUi();
+    if(!commitBtn) return;
+    commitBtn.style.display = blocks > 0 ? "" : "none";
+    commitBtn.title = blocks > 0
+      ? "Committer " + path.split("/").pop() + " — " + blocks + " bloc" + (blocks > 1 ? "s" : "") + " modifié" + (blocks > 1 ? "s" : "") + " depuis HEAD" + (headSha ? " (" + headSha + ")" : "")
+      : "";
+  }
+
   // ---- gouttière git (barres ajouté/modifié, triangle supprimé, vs HEAD) ----
   let gutterReady = false, gutterTimer = null;
   function headIndex(){ return (VERSIONS[0] && VERSIONS[0].head) ? 0 : -1; }
@@ -177,6 +245,7 @@ window.DiffVersions = function(opts){
       cm.on("change", () => { clearTimeout(gutterTimer); gutterTimer = setTimeout(refreshGutter, 400); });
       gutterReady = true;
     }
+    let blocks = 0;
     cm.operation(() => {
       cm.clearGutter(GUTTER);
       const parts = Diff.diffLines(headText, cm.getValue());
@@ -186,6 +255,7 @@ window.DiffVersions = function(opts){
         const pt = parts[i];
         const n = pt.count || 0;
         if(pt.removed){
+          blocks++;
           const nx = parts[i + 1];
           if(nx && nx.added){
             // bloc modifié : ambre sur les lignes qui remplacent celles supprimées,
@@ -209,12 +279,14 @@ window.DiffVersions = function(opts){
           continue;
         }
         if(pt.added){
+          blocks++;
           for(let k = 0; k < n; k++)
             cm.setGutterMarker(Math.min(line + k, lastLine), GUTTER, markerCell('<div class="dv-bar a"></div>', line + k));
         }
         line += n;
       }
     });
+    updateCommitBtn(blocks);
   }
   async function fetchHead(){
     try{
