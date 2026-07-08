@@ -28,8 +28,9 @@ cd ~/Documents/atelier-studio
 npx tsc --noEmit          # doit passer
 npx vite build            # doit passer
 (cd sidecar && npx vitest run)   # 19+ tests verts
-# si gallery/server touché :
-(cd gallery && node server/tests/parity.mjs)   # « parity: ok »
+# si gallery/ touché (serveur OU assets éditeurs) :
+(cd gallery && node server/tests/parity.mjs)      # « parity: ok »
+(cd gallery && node server/tests/diff_suite.mjs)  # « diff suite: ok (N tests) »
 
 # 2. TUER TOUT (l'ordre importe peu, l'exhaustivité oui)
 pkill -9 -f tauri-app
