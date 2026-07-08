@@ -739,6 +739,10 @@ window.DiffVersions = function(opts){
         VERSIONS[0].sha = headSha;
         if(shown && idx === 0) render();
       }
+      // défaut hors comparaison : viser la base (diff cumulatif) — quel que soit
+      // l'ordre d'arrivée entre fetchHead et les push (course sinon : idx restait
+      // sur la dernière sauvegarde → ± ouvrait sur un diff minuscule ou vide)
+      if(!shown) idx = headIndex();
       updateTag();
     }catch(e){ /* serveur sans /githead ou hors dépôt : dégradation silencieuse */ }
   }

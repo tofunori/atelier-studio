@@ -112,8 +112,11 @@ async function serverTests() {
 function makeModuleHarness({ headText = null, serverItems = [], serverLast = null } = {}) {
   const el = () => {
     const e = { style: {}, classList: { toggle() {}, contains: () => false }, appendChild() {}, insertBefore() {},
-      querySelector: () => el(), querySelectorAll: () => [], addEventListener() {}, dataset: {}, disabled: false,
+      querySelectorAll: () => [], addEventListener() {}, dataset: {}, disabled: false,
       getBoundingClientRect: () => ({}), onclick: null, contains: () => false };
+    // mémoïsé : le module garde des refs internes (navPrev…) — les tests doivent
+    // retrouver LES MÊMES stubs via le même sélecteur
+    e.querySelector = (s) => ((e._q ??= {})[s] ??= el());
     Object.defineProperty(e, "textContent", { get() { return e._t || ""; }, set(v) { e._t = v; } });
     Object.defineProperty(e, "innerHTML", { get() { return e._h || ""; }, set(v) { e._h = v; } });
     return e;
@@ -131,6 +134,8 @@ function makeModuleHarness({ headText = null, serverItems = [], serverLast = nul
     },
     indexFromPos(p) { return p._idx ?? 0; },
     getCursor() { return cm.posFromIndex(0); },
+    setValue(v) { cm._v = v; },
+    getOption() { return false; },
     setBookmark(pos, o) { marksLog.push({ type: "del", idx: pos._idx, text: o.widget._t }); return { clear() {} }; },
     markText(f, t) { marksLog.push({ type: "add", from: f._idx, to: t._idx }); return { clear() {} }; },
     setOption() {}, on() {}, operation(f) { f(); },
@@ -166,12 +171,21 @@ function makeModuleHarness({ headText = null, serverItems = [], serverLast = nul
   vm.runInContext(fs.readFileSync(path.join(ASSETS, "diff_versions.js"), "utf8"), ctx);
   const notes = [];
   const tag = el();
+  // groupe qui capture le navPill inséré par ensureNavUi (timeline ‹ k/N ›)
+  const group = el();
+  let navPill = null;
+  group.insertBefore = (n) => { if (n && n.id === "dvNav") navPill = n; };
   const dv = ctx.window.DiffVersions({
     getCm: () => cm, path: "/x/m.tex", notify: (m) => notes.push(m),
-    els: { tag, prev: null, next: null, restore: null, group: null },
+    els: { tag, prev: null, next: null, restore: null, group },
     restoreText: async () => {},
   });
-  return { ctx, cm, dv, tag, notes, marksLog, gutterLog, posts };
+  const nav = () => navPill && {
+    prev: navPill.querySelector('[data-d="-1"]'),
+    next: navPill.querySelector('[data-d="1"]'),
+    count: navPill.querySelector(".dvNavC"),
+  };
+  return { ctx, cm, dv, tag, notes, marksLog, gutterLog, posts, nav };
 }
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
@@ -365,11 +379,87 @@ async function latexStudioTests() {
   }
 }
 
+// ------------------------------------------------ D. timeline d'interventions
+// Une intervention (sauvegarde ou passage d'agent) = UNE entrée ‹ k/N ›, même
+// si elle touche plusieurs mots. ‹ › remonte/redescend la timeline ; les vues
+// historiques remplacent temporairement le buffer et le restaurent TOUJOURS.
+async function timelineTests() {
+  const base = "Premier paragraphe sur la neige alpha.\nDeuxieme sur la temperature beta.\nTroisieme sur l'albedo gamma.\n";
+  const s1 = base.replace("la neige alpha", "la neige fraiche et poudreuse alpha");
+  const s2 = s1.replace("la temperature beta", "la temperature moyenne estivale beta");
+  const s3 = s2.replace("l'albedo gamma", "l'albedo de surface reduit gamma");
+
+  const h = makeModuleHarness({ headText: base });
+  await sleep(0); await sleep(0); // fetchHead + restoreVersions
+  h.cm._v = s1; h.dv.push(base, s1);
+  h.cm._v = s2; h.dv.push(s1, s2);
+  h.cm._v = s3; h.dv.push(s2, s3);
+  await sleep(0);
+
+  h.tag.onclick(); // ouvrir ± → « tout » (cumulatif vs base)
+  const nav = h.nav();
+  ok("timeline : pill créée", !!nav && !!nav.count, String(nav));
+  ok("timeline : défaut « tout · 3 »", nav.count.textContent === "tout · 3", nav.count.textContent);
+  ok("timeline : « tout » = 3 modifications", /· 3 modifications/.test(h.notes[h.notes.length - 1]), h.notes[h.notes.length - 1]);
+
+  // ‹ → 3/3 (intervention vivante : buffer réel, seule l'interv. 3 marquée)
+  h.marksLog.length = 0;
+  nav.prev.onclick();
+  ok("timeline 3/3 : compteur", nav.count.textContent === "3 / 3", nav.count.textContent);
+  ok("timeline 3/3 : buffer réel intact", h.cm._v === s3);
+  ok("timeline 3/3 : une seule marque (multi-mots = UNE interv.)",
+    h.marksLog.filter((m) => m.type === "add").length === 1
+    && s3.slice(h.marksLog[0].from, h.marksLog[0].to).includes("de surface reduit"),
+    JSON.stringify(h.marksLog));
+  ok("timeline 3/3 : pas de voyage temporel", !h.dv.isBusy());
+
+  // ‹ → 2/3 : voyage temporel — buffer = état APRÈS l'intervention 2
+  h.marksLog.length = 0;
+  nav.prev.onclick();
+  ok("timeline 2/3 : compteur", nav.count.textContent === "2 / 3", nav.count.textContent);
+  ok("timeline 2/3 : buffer d'époque (i2 sans i3)", h.cm._v === s2 && h.cm._v.includes("estivale") && !h.cm._v.includes("reduit"));
+  ok("timeline 2/3 : isBusy (les hôtes suspendent le rechargement disque)", h.dv.isBusy());
+  ok("timeline 2/3 : seule l'interv. 2 marquée",
+    h.marksLog.filter((m) => m.type === "add").length === 1
+    && s2.slice(h.marksLog[0].from, h.marksLog[0].to).includes("moyenne estivale"),
+    JSON.stringify(h.marksLog));
+
+  // ‹ → 1/3 puis › ×3 → retour à « tout », buffer réel restauré
+  nav.prev.onclick();
+  ok("timeline 1/3 : borne basse (‹ désactivé)", nav.prev.disabled === true, String(nav.prev.disabled));
+  nav.next.onclick(); nav.next.onclick(); nav.next.onclick();
+  ok("timeline retour « tout »", nav.count.textContent === "tout · 3", nav.count.textContent);
+  ok("timeline retour : buffer réel restauré", h.cm._v === s3 && !h.dv.isBusy());
+
+  // vue historique ouverte puis fermeture : restauration inconditionnelle
+  nav.prev.onclick(); nav.prev.onclick(); // 2/3 (voyage temporel)
+  ok("timeline re-2/3", h.dv.isBusy());
+  h.tag.onclick(); // fermer la comparaison
+  ok("timeline fermeture : buffer réel restauré", h.cm._v === s3 && !h.dv.isBusy());
+  ok("timeline fermeture : comparaison fermée", !h.dv.isShown());
+
+  // une écriture externe pendant une vue historique : retour au présent propre
+  const h2 = makeModuleHarness({ headText: base });
+  await sleep(0); await sleep(0);
+  h2.cm._v = s1; h2.dv.push(base, s1);
+  h2.cm._v = s2; h2.dv.push(s1, s2);
+  h2.tag.onclick();
+  const nav2 = h2.nav();
+  nav2.prev.onclick(); nav2.prev.onclick(); // 1/2 → voyage temporel
+  ok("timeline h2 : en voyage", h2.dv.isBusy());
+  // l'hôte recharge (agent) : setValue puis push — le module doit lâcher tt
+  h2.cm._v = s3;
+  h2.dv.push(s2, s3);
+  ok("timeline écriture externe : sortie du voyage", !h2.dv.isBusy());
+  ok("timeline écriture externe : buffer = disque (pas d'écrasement)", h2.cm._v === s3);
+}
+
 // -------------------------------------------------------------------- run all
 try {
   await serverTests();
   await moduleTests();
   await latexStudioTests();
+  await timelineTests();
   console.log(`diff suite: ok (${passed} tests)`);
 } catch (e) {
   console.error(String(e.message || e));
