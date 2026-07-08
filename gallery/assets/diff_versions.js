@@ -94,15 +94,37 @@ window.DiffVersions = function(opts){
     // diffWordsWithSpace garantit que la concaténation des parts non-removed
     // reproduit exactement le buffer → offsets sûrs pour markText/setBookmark.
     const after = cm.getValue();
-    const parts = Diff.diffWordsWithSpace(v.before, after);
     const wsn = s => s.replace(/\s+/g, " ").trim();
+    // rewrap intégral : contenu identique aux blancs près → rien à marquer
+    const parts = wsn(v.before) === wsn(after) ? [] : Diff.diffWordsWithSpace(v.before, after);
+    // Bruit de rewrap : un mot déplacé de l'autre côté d'un retour à la ligne
+    // apparaît comme supprimé+ajouté (dans un ordre ou l'autre, parfois séparés
+    // par un blanc inchangé). Apparier ces paires pour ne rien marquer.
+    const noisePair = (i) => {
+      const pt = parts[i];
+      for(let j = i + 1; j <= i + 2 && j < parts.length; j++){
+        const cand = parts[j];
+        if(j === i + 1 && !cand.removed && !cand.added){
+          if(wsn(cand.value) !== "") return -1; // texte commun réel entre les deux : vraie modif
+          continue;
+        }
+        if(!!cand.removed === !pt.removed && !!cand.added === !pt.added
+           && wsn(cand.value) === wsn(pt.value)) return j;
+        return -1;
+      }
+      return -1;
+    };
+    const skip = new Set();
     let at = 0, firstPos = null, changes = 0;
     for(let i = 0; i < parts.length; i++){
       const pt = parts[i];
+      if(skip.has(i)){ if(!pt.removed) at += pt.value.length; continue; }
       if(pt.removed){
-        const nx = parts[i + 1];
         // bruit de rewrap : même contenu, seuls les blancs/retours diffèrent
-        if(nx && nx.added && wsn(nx.value) === wsn(pt.value)){ at += nx.value.length; i++; continue; }
+        if(wsn(pt.value)){
+          const j = noisePair(i);
+          if(j >= 0){ skip.add(j); continue; }
+        }
         if(!wsn(pt.value)) continue; // retour à la ligne déplacé : rien à montrer
         const w = document.createElement("span");
         w.className = "dDelW";
@@ -116,6 +138,9 @@ window.DiffVersions = function(opts){
         continue;
       }
       if(pt.added && wsn(pt.value)){
+        // sens inverse du bruit de rewrap : mot ajouté ici, retiré juste après
+        const j = noisePair(i);
+        if(j >= 0){ skip.add(j); at += pt.value.length; continue; }
         const from = cm.posFromIndex(at), to = cm.posFromIndex(at + pt.value.length);
         marks.push(cm.markText(from, to, {className: "dAddM"}));
         if(!firstPos) firstPos = from;
