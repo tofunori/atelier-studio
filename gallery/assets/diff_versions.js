@@ -192,9 +192,12 @@ window.DiffVersions = function(opts){
             // vert sur l'excédent (comme VS Code : n supprimées + m ajoutées, m > n
             // → n ambre puis m-n vertes)
             const nn = nx.count || 0, mod = Math.min(n, nn);
-            for(let k = 0; k < nn; k++)
-              cm.setGutterMarker(Math.min(line + k, lastLine), GUTTER,
-                markerCell('<div class="dv-bar ' + (k < mod ? "m" : "a") + '"></div>', line + k));
+            for(let k = 0; k < nn; k++){
+              // n > nn : suppression nette dans le bloc → triangle sous la dernière barre
+              let html = '<div class="dv-bar ' + (k < mod ? "m" : "a") + '"></div>';
+              if(k === nn - 1 && n > nn) html += '<div class="dv-del eof"></div>';
+              cm.setGutterMarker(Math.min(line + k, lastLine), GUTTER, markerCell(html, line + k));
+            }
             line += nn;
             i++;
           } else {
