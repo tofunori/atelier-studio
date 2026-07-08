@@ -595,8 +595,6 @@ function applyWrap(v){
     cm.setOption("lineWrapping", v !== "off");
     cm.refresh();
   }
-  // le panneau Comparaison suit la même mesure : re-rendre s'il est ouvert
-  try{ if(typeof diffShown !== "undefined" && diffShown) renderDiff(); }catch(e){}
 }
 wrapSel.value = localStorage.getItem("cmWrap") || "off";
 wrapSel.onchange = () => applyWrap(wrapSel.value);
@@ -1796,49 +1794,68 @@ function updateDiffTag(){
   document.getElementById("diffPrev").disabled = diffIdx <= 0;
   document.getElementById("diffNext").disabled = diffIdx >= DIFF_VERSIONS.length - 1;
 }
+let diffMarks = []; // décorations posées dans l'éditeur (marks + bookmarks)
+function clearDiffMarks(){
+  diffMarks.forEach(m => { try{ m.clear(); }catch(e){} });
+  diffMarks = [];
+}
 function renderDiff(){
   const v = DIFF_VERSIONS[diffIdx];
-  if(!v) return;
-  const parts = Diff.diffWordsWithSpace(v.before, v.after);
-  const body = parts.map(pt => {
-    if(pt.added)   return '<span class="dAdd">' + escH(pt.value) + "</span>";
-    if(pt.removed) return '<span class="dDel">' + escH(pt.value) + "</span>";
-    // passage identique long → replié (on ne montre que le voisinage des changements)
-    const lines = pt.value.split("\n");
-    if(lines.length > 12){
-      const head = lines.slice(0, 3).join("\n"), tail = lines.slice(-3).join("\n");
-      const hidden = lines.slice(3, -3).join("\n");
-      return escH(head) + '<span class="dFold" data-full="' + escH(hidden).replace(/"/g,"&quot;") + '">⋯ ' + (lines.length - 6) + ' lignes identiques — cliquer pour afficher ⋯</span>' + escH(tail);
+  if(!v || !cm) return;
+  clearDiffMarks();
+  // comparaison EN PLACE : le document affiché est le buffer courant (rendu,
+  // thème et wrap de l'éditeur intacts) ; on surligne les mots ajoutés et on
+  // insère les mots supprimés en widgets barrés. diffWordsWithSpace garantit
+  // que la concaténation des parts non-removed == buffer → offsets exacts.
+  const after = cm.getValue();
+  const parts = Diff.diffWordsWithSpace(v.before, after);
+  const ws = s => s.replace(/\s+/g, " ").trim();
+  let idx = 0, firstPos = null, changes = 0;
+  for(let i = 0; i < parts.length; i++){
+    const pt = parts[i];
+    if(pt.removed){
+      const nx = parts[i + 1];
+      // bruit de rewrap : même contenu, seuls les blancs/retours diffèrent
+      if(nx && nx.added && ws(nx.value) === ws(pt.value)){ idx += nx.value.length; i++; continue; }
+      if(!ws(pt.value)) continue; // retour à la ligne déplacé : rien à montrer
+      const w = document.createElement("span");
+      w.className = "dDelW";
+      // blancs/retours normalis\u00e9s : un \n brut dans le widget casserait la ligne
+      const disp = pt.value.replace(/\s+/g, " ").trim();
+      w.textContent = disp.length > 160 ? disp.slice(0, 157) + "\u22ef" : disp;
+      if(disp.length > 160) w.title = disp;
+      const pos = cm.posFromIndex(idx);
+      diffMarks.push(cm.setBookmark(pos, {widget: w}));
+      if(!firstPos) firstPos = pos;
+      changes++;
+      continue;
     }
-    return escH(pt.value);
-  }).join("");
-  const when = new Date(v.ts).toLocaleTimeString();
-  diffPane.innerHTML = '<div class="dHead"><b>Comparaison</b> v' + (diffIdx + 2) + "/" + (DIFF_VERSIONS.length + 1)
-    + ' · ' + when + ' · <span class="dDel">supprimé</span> <span class="dAdd">ajouté</span>'
-    + '<button class="dx">Fermer — retour à l\u2019éditeur</button></div><div class="dBody">' + body + "</div>";
-  // même rendu qu'en édition : mesure du réglage Wrap (80/100/120 → Nch),
-  // pre (défilement horizontal) quand Wrap: off, pre-wrap sinon
-  const bodyEl = diffPane.querySelector(".dBody");
-  const wrapV = localStorage.getItem("cmWrap") || "off";
-  if(/^\d+$/.test(wrapV)){
-    bodyEl.style.maxWidth = wrapV + "ch";
-    bodyEl.style.borderRight = "1px solid #33384a";
-  } else if(wrapV === "off"){
-    bodyEl.style.whiteSpace = "pre";
-    bodyEl.style.overflowX = "auto";
+    if(pt.added && ws(pt.value)){
+      const from = cm.posFromIndex(idx), to = cm.posFromIndex(idx + pt.value.length);
+      diffMarks.push(cm.markText(from, to, {className: "dAddM"}));
+      if(!firstPos) firstPos = from;
+      changes++;
+    }
+    idx += pt.value.length;
   }
+  const when = new Date(v.ts).toLocaleTimeString();
+  const note = changes
+    ? '<span class="dDel">supprim\u00e9</span> <span class="dAdd">ajout\u00e9</span>'
+    : '<span style="color:var(--faint,#646d7b)">retours \u00e0 la ligne seulement \u2014 aucun changement de texte</span>';
+  diffPane.innerHTML = '<div class="dHead"><b>Comparaison</b> v' + (diffIdx + 2) + "/" + (DIFF_VERSIONS.length + 1)
+    + ' \u00b7 ' + when + ' \u00b7 ' + note
+    + '<button class="dx">Fermer \u2014 retour \u00e0 l\u2019\u00e9diteur</button></div>';
   diffPane.querySelector(".dx").onclick = () => toggleDiff(false);
-  diffPane.querySelectorAll(".dFold").forEach(f => f.onclick = () => {
-    const t = document.createTextNode(f.dataset.full ? f.dataset.full.replace(/&quot;/g,"\"") : "");
-    const pre = document.createElement("span"); pre.textContent = f.getAttribute("data-full") ?? "";
-    f.replaceWith(pre);
-  });
+  if(firstPos) cm.scrollIntoView(firstPos, 120);
 }
 function toggleDiff(show){
   diffShown = show ?? !diffShown;
   diffPane.style.display = diffShown ? "block" : "none";
   document.getElementById("diffTag").classList.toggle("on", diffShown);
-  if(!diffShown && cm) cm.refresh();
+  if(cm){
+    if(diffShown){ renderDiff(); cm.setOption("readOnly", true); }
+    else { clearDiffMarks(); cm.setOption("readOnly", false); cm.refresh(); }
+  }
 }
 document.getElementById("diffTag").onclick = () => toggleDiff();
 // Add to chat sur sélection DANS le panneau diff (mode Studio)
@@ -1862,7 +1879,9 @@ if(window.self !== window.top){
     dPill.style.display = "none";
     try{ window.getSelection().removeAllRanges(); }catch(err){}
   });
-  diffPane.addEventListener("mouseup", () => {
+  // le diff vit désormais DANS l'éditeur : écouter la sélection sur le
+  // wrapper CodeMirror, uniquement quand le mode Comparaison est actif
+  const onDiffSelUp = () => {
     setTimeout(() => {
       const sel = window.getSelection();
       const t = sel ? String(sel).trim() : "";
@@ -1873,7 +1892,13 @@ if(window.self !== window.top){
       dPill.style.top = Math.max(8, rect.top - 42) + "px";
       dPill.style.display = "block";
     }, 0);
-  });
+  };
+  const bindDiffSel = () => {
+    const host = (typeof cm !== "undefined" && cm) ? cm.getWrapperElement() : null;
+    if(!host){ setTimeout(bindDiffSel, 300); return; }
+    host.addEventListener("mouseup", () => { if(diffShown) onDiffSelUp(); });
+  };
+  bindDiffSel();
 }
 document.getElementById("diffPrev").onclick = () => { if(diffIdx > 0){ diffIdx--; updateDiffTag(); renderDiff(); toggleDiff(true); } };
 document.getElementById("diffNext").onclick = () => { if(diffIdx < DIFF_VERSIONS.length - 1){ diffIdx++; updateDiffTag(); renderDiff(); toggleDiff(true); } };
