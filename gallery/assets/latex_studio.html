@@ -162,26 +162,24 @@
   #tgMenu .it .t{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
   #tgMenu .it.on .t{color:#8ab4ff}
 #mdModeSeg button.mdon{background:var(--accent);color:#10151d;border-color:var(--accent)}
-  #diffPane .dHead{position:sticky;top:0;display:flex;align-items:center;gap:10px;padding:7px 14px;
+  /* Comparaison EN PLACE : simple bandeau au-dessus de l'éditeur ; les
+     changements sont décorés directement dans CodeMirror (thème, coloration
+     syntaxique, numéros de ligne et wrap conservés) */
+  #diffPane .dHead{display:flex;align-items:center;gap:10px;padding:7px 14px;
     background:var(--card);border-bottom:1px solid var(--border);font-family:var(--ui-font,-apple-system,sans-serif);
-    font-size:12px;color:var(--muted);z-index:5}
+    font-size:12px;color:var(--muted)}
   #diffPane .dHead b{color:var(--txt);font-weight:600}
   #diffPane .dHead .dx{margin-left:auto;background:transparent;border:1px solid var(--border);border-radius:6px;
     color:var(--muted);cursor:pointer;padding:2px 10px;font-size:12px}
   #diffPane .dHead .dx:hover{color:var(--txt);border-color:var(--border-strong)}
-  /* .dBody reprend la mesure de l'éditeur (max-width posée par renderDiff selon
-     le réglage Wrap) pour que le texte se coupe aux mêmes colonnes qu'en édition */
-  #diffPane .dBody{padding:12px 16px;white-space:pre-wrap;color:var(--txt);line-height:1.62}
-  #diffPane .dFold{display:block;color:var(--faint,#646d7b);background:var(--card2);border:1px dashed var(--border);
-    border-radius:6px;text-align:center;padding:3px 0;margin:6px 0;cursor:pointer;font-size:11px;
-    font-family:var(--ui-font,-apple-system,sans-serif)}
-  #diffPane .dFold:hover{color:var(--muted)}
-  #diffPane{display:none;position:absolute;inset:0;z-index:50;overflow:auto;background:var(--bg,#212429);
-    padding:18px 22px;font-family:var(--code-font);font-size:13px;line-height:1.7;
-    white-space:pre-wrap;word-break:break-word;color:#b6bdc7}
+  #diffPane{display:none;position:absolute;top:0;left:0;right:0;z-index:50}
   #diffPane .dAdd{background:rgba(52,201,142,.16);color:#7fe0b4;border-bottom:1px solid rgba(52,201,142,.6);
     border-radius:2px;text-decoration:none}
   #diffPane .dDel{background:rgba(224,108,117,.14);color:#e09aa0;text-decoration:line-through;border-radius:2px}
+  /* décorations posées dans l'éditeur : fond seulement — la coloration
+     syntaxique du thème reste visible sous le surlignage */
+  .dAddM{background:rgba(52,201,142,.18);border-bottom:1px solid rgba(52,201,142,.6);border-radius:2px}
+  .dDelW{background:rgba(224,108,117,.14);color:#e09aa0;text-decoration:line-through;border-radius:2px;padding:0 1px}
   #diffGrp button.on{background:var(--border);color:var(--txt)}
   #diffGrp .dg-label{color:var(--faint,#646d7b);font-size:11px;letter-spacing:.05em;text-transform:uppercase;margin-right:2px}
   /* palette LaTeX/code plus riche (par-dessus material-darker) */
