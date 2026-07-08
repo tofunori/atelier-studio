@@ -1,7 +1,20 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import { mkdtempSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
+
+// Mock du provider d'images : pas d'appel réseau réel dans les tests du routeur.
+vi.mock("./providers/images.mjs", () => ({
+  generateImage: async () => ({
+    b64: Buffer.from("fake-png-bytes").toString("base64"),
+    size: "1024x1024",
+    model: "seedream-test",
+    usage: { generated_images: 1 },
+  }),
+  resolveArkApiKey: () => "sk-test",
+  resolveArkModel: () => "seedream-test",
+}));
+
 import { route } from "./router.mjs";
 
 describe("route", () => {
@@ -183,5 +196,25 @@ describe("quickAsk", () => {
     await route({ type: "quickAsk", qaId: "a", prompt: "salut" }, ctx);
     await flush();
     expect(captured.permissionMode).toBe("bypassPermissions");
+  });
+
+  it("generateImage répond via broadcast (survit à la socket fermée), pas via send", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "atelier-gen-"));
+    const sent = [];
+    const emitted = [];
+    await route(
+      { type: "generateImage", prompt: "un glacier", size: "1K", projectRoot: dir },
+      { send: (m) => sent.push(m), broadcast: (m) => emitted.push(m) },
+    );
+    // La réponse DOIT passer par broadcast : une génération de ~140 s survit
+    // souvent à la socket qui l'a demandée. ctx.send la perdrait silencieusement.
+    const onBroadcast = emitted.find((m) => m.type === "imageGenerated");
+    expect(onBroadcast).toBeTruthy();
+    expect(onBroadcast.error).toBeUndefined();
+    expect(onBroadcast.path).toContain("generated");
+    expect(onBroadcast.projectRoot).toBe(dir);
+    expect(sent.find((m) => m.type === "imageGenerated")).toBeUndefined();
+    // fichier PNG + provenance JSON réellement écrits
+    expect(readFileSync(onBroadcast.metaPath, "utf8")).toContain("un glacier");
   });
 });
