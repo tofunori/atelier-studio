@@ -1135,8 +1135,91 @@ async function texcLoad(){
     const r = await fetch("/pdfannot?rel=" + encodeURIComponent(texcRel()));
     const j = await r.json();
     texcAll = Array.isArray(j.annots) ? j.annots : [];
-    texcAll.forEach(texcMark);
+    texcAnchorAll();
   } catch(e){}
+}
+// Retrouver le passage cité dans le document courant : recherche exacte, puis
+// normalisée aux blancs (un rewrap déplace des retours à la ligne DANS le
+// passage), au plus près de l'ancienne position. null = orphelin (gardé,
+// retenté au prochain changement).
+function texcFind(doc, c){
+  const target = String(c.text || "");
+  if(!target.trim()) return null;
+  let near = 0;
+  try{ near = cm.indexFromPos(c.from); }catch(e){}
+  const cands = [];
+  let i = doc.indexOf(target);
+  while(i >= 0 && cands.length < 50){ cands.push([i, i + target.length]); i = doc.indexOf(target, i + 1); }
+  if(!cands.length){
+    const map = []; let norm = "";
+    for(let k = 0; k < doc.length; k++){
+      const chx = doc[k];
+      if(/\s/.test(chx)){
+        if(norm && norm[norm.length - 1] !== " "){ norm += " "; map.push(k); }
+      } else { norm += chx; map.push(k); }
+    }
+    const tgt = target.replace(/\s+/g, " ").trim();
+    if(tgt){
+      let j2 = norm.indexOf(tgt);
+      while(j2 >= 0 && cands.length < 50){
+        cands.push([map[j2], map[j2 + tgt.length - 1] + 1]);
+        j2 = norm.indexOf(tgt, j2 + 1);
+      }
+    }
+  }
+  if(!cands.length) return null;
+  cands.sort((a, b) => Math.abs(a[0] - near) - Math.abs(b[0] - near));
+  return { from: cm.posFromIndex(cands[0][0]), to: cm.posFromIndex(cands[0][1]) };
+}
+// Ré-ancrer TOUS les commentaires par contenu (chargement, setValue après une
+// écriture de l'agent, restauration de version…) — les positions stockées
+// peuvent être périmées si le fichier a bougé pendant que l'app était fermée.
+function texcAnchorAll(){
+  if(!cm) return;
+  const doc = cm.getValue();
+  let changed = false;
+  for(const c of texcAll){
+    if(texcMarks[c.id]){ try{ texcMarks[c.id].clear(); }catch(e){} delete texcMarks[c.id]; }
+    let ok = false;
+    try{ ok = cm.getRange(c.from, c.to) === c.text; }catch(e){}
+    if(!ok){
+      const pos = texcFind(doc, c);
+      if(!pos) continue; // orphelin : gardé dans la liste, réessayé plus tard
+      c.from = {line: pos.from.line, ch: pos.from.ch};
+      c.to = {line: pos.to.line, ch: pos.to.ch};
+      changed = true;
+    }
+    texcMark(c);
+  }
+  if(changed) texcSave();
+}
+// Frappe normale : les marques suivent toutes seules (CodeMirror les ajuste) —
+// synchroniser le store depuis les marques vivantes, et re-ancrer celles
+// détruites par un replaceRange (rewrap du paragraphe qui les contient).
+function texcSyncFromMarks(){
+  if(!cm) return;
+  let changed = false;
+  for(const c of texcAll){
+    const m = texcMarks[c.id];
+    const r2 = m && m.find();
+    if(!r2){
+      const pos = texcFind(cm.getValue(), c);
+      if(pos){
+        c.from = {line: pos.from.line, ch: pos.from.ch};
+        c.to = {line: pos.to.line, ch: pos.to.ch};
+        texcMark(c); changed = true;
+      }
+      continue;
+    }
+    const t = cm.getRange(r2.from, r2.to);
+    if(t.trim() && (t !== c.text || r2.from.line !== c.from.line || r2.from.ch !== c.from.ch || r2.to.ch !== c.to.ch)){
+      c.text = t.slice(0, 300);
+      c.from = {line: r2.from.line, ch: r2.from.ch};
+      c.to = {line: r2.to.line, ch: r2.to.ch};
+      changed = true;
+    }
+  }
+  if(changed) texcSave();
 }
 function texcSave(){
   fetch("/pdfannot", {method:"POST", headers:{"Content-Type":"application/json"},
@@ -1202,8 +1285,19 @@ document.addEventListener("click", (e) => {
   if(Date.now() - texcOpenedAt < 350) return;
   if(!texcPop.contains(e.target) && !e.target.closest("#selPill")) texcPop.style.display = "none";
 });
-// charger quand cm est prêt
-(function waitCmC(){ if(cm){ texcLoad(); } else setTimeout(waitCmC, 150); })();
+// charger quand cm est prêt + suivre les changements du buffer :
+// setValue (agent, restauration) détruit toutes les marques → ré-ancrage par
+// contenu ; frappe/rewrap → synchroniser le store depuis les marques vivantes
+let texcReT = null;
+(function waitCmC(){
+  if(!cm){ setTimeout(waitCmC, 150); return; }
+  texcLoad();
+  cm.on("change", (c2, chg) => {
+    clearTimeout(texcReT);
+    if(chg.origin === "setValue") texcReT = setTimeout(texcAnchorAll, 150);
+    else texcReT = setTimeout(texcSyncFromMarks, 800);
+  });
+})();
 
 // ---- plan du document : \section/\subsection → navigation ----
 const outlineEl = document.getElementById("outline");
