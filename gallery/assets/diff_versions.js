@@ -220,9 +220,60 @@ window.DiffVersions = function(opts){
     updateNav();
     if(changes) gotoChange(changeAt, true);
   }
-  // ---- navigateur de changements ‹ n/N › (accolé au ±, actif en comparaison) ----
+  // ---- navigateur d'INTERVENTIONS ‹ k/N › (accolé au ±, actif en comparaison).
+  // Une intervention = une écriture (sauvegarde utilisateur ou passage d'agent),
+  // même si elle touche vingt mots. Par défaut : « tout » (cumulatif vs base).
+  // ‹ remonte la timeline — l'éditeur affiche alors l'état APRÈS l'intervention
+  // k (lecture seule, buffer réel mis de côté et restauré à la sortie), diffé
+  // contre l'état d'avant. ⌥↓/⌥↑ naviguent entre les marques D'UNE vue. ----
   let navPill = null, navPrev = null, navNext = null, navCount = null;
+  let navMode = -1;   // -1 = tout (cumulatif) ; sinon index dans interList()
+  let tt = null;      // voyage dans le temps : {realText} — buffer réel à restaurer
   let flashLine = null, flashTimer = null;
+  const wsnEq = (a, b) => a.replace(/\s+/g, " ").trim() === b.replace(/\s+/g, " ").trim();
+  function liveText(){ return tt ? tt.realText : getCm().getValue(); }
+  // paires d'états consécutifs (befores stockés + buffer vivant), sans les
+  // transitions vides (blancs seulement) — chaque paire = une intervention
+  function interList(){
+    const cm = getCm();
+    if(!cm) return [];
+    const texts = VERSIONS.map(v => v.before).concat([liveText()]);
+    const list = [];
+    for(let k = 0; k < texts.length - 1; k++){
+      if(!wsnEq(texts[k], texts[k + 1])) list.push({from: texts[k], to: texts[k + 1], live: k === texts.length - 2});
+    }
+    return list;
+  }
+  function ttExit(){
+    if(!tt) return;
+    const cm = getCm();
+    const real = tt.realText;
+    tt = null;
+    cm.setValue(real);
+  }
+  function showAll(){
+    ttExit();
+    navMode = -1;
+    idx = headIndex() >= 0 ? headIndex() : VERSIONS.length - 1;
+    extCmp = null;
+    updateTag();
+    render();
+  }
+  function showStep(j){
+    const list = interList();
+    if(!list.length) return;
+    j = Math.max(0, Math.min(list.length - 1, j));
+    const it = list[j];
+    navMode = j;
+    const cm = getCm();
+    if(it.live) ttExit();
+    else {
+      if(!tt) tt = {realText: cm.getValue()};
+      cm.setValue(it.to);   // état APRÈS l'intervention j (origin setValue : pas de dirty)
+    }
+    extCmp = {before: it.from, label: "intervention " + (j + 1) + "/" + list.length};
+    render();
+  }
   function flashAt(pos){
     const cm = getCm();
     if(!cm || !pos) return;
