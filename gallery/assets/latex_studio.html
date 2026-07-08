@@ -1851,6 +1851,14 @@ setInterval(async () => {
       dirty = false; setState("ok", "reloaded (modified on disk)");
       diffPush(before, diskText);
       lastSavedText = diskText;
+      // l'agent écrit avec SES retours à la ligne : réappliquer le wrap du doc
+      // (l'option Rewrap auto) pour que l'affichage — y compris le mode diff —
+      // garde la mise en forme choisie ; non sauvegardé tant que tu ne fais pas ⌘S
+      if(localStorage.getItem("texAutoRewrap") === "1" && typeof window.__rewrapAll === "function"){
+        try{
+          if(window.__rewrapAll()){ dirty = true; ddot.style.display = "inline"; setState("ok", "rechargé + rewrap (⌘S pour figer)"); }
+        }catch(e){}
+      }
       return;
     }
     // fusion trois-voies : appliquer le patch base→disque sur mon buffer
@@ -1872,6 +1880,10 @@ setInterval(async () => {
     setState("ok", "modifs de l'agent fusionnées avec les tiennes (non sauvegardées)");
     diffPush(lastSavedText, diskText);
     lastSavedText = diskText;
+    // même logique qu'au rechargement : réappliquer le wrap du doc
+    if(localStorage.getItem("texAutoRewrap") === "1" && typeof window.__rewrapAll === "function"){
+      try{ window.__rewrapAll(); }catch(e){}
+    }
   }catch(e){}
 }, 2000);
 

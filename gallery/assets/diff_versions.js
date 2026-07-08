@@ -570,14 +570,41 @@ window.DiffVersions = function(opts){
           if(!wsn(pt.value)){ continue; } // seulement des blancs : rien à montrer
           blocks++;
           if(nx && nx.added){
-            // bloc modifié : ambre sur les lignes qui remplacent celles supprimées,
-            // vert sur l'excédent (comme VS Code : n supprimées + m ajoutées, m > n
-            // → n ambre puis m-n vertes)
-            const nn = nx.count || 0, mod = Math.min(n, nn);
+            // Bloc modifié. Un rewrap fusionne tout un paragraphe en un seul
+            // bloc « n supprimées + m ajoutées » même si UN mot a changé —
+            // marquer tout le bloc noierait le vrai changement. Raffinement au
+            // mot : seules les lignes du bloc contenant un changement réel
+            // (blancs normalisés) reçoivent une barre.
+            const nn = nx.count || 0;
+            const changed = new Set();
+            {
+              const wparts = Diff.diffWordsWithSpace(pt.value, nx.value);
+              const lineOf = (off) => { let c = 0, p = -1; const s = nx.value;
+                for(;;){ const q = s.indexOf("\n", p + 1); if(q < 0 || q >= off) return c; c++; p = q; } };
+              let off = 0;
+              for(let w = 0; w < wparts.length; w++){
+                const wp = wparts[w];
+                if(wp.removed){
+                  const wn = wparts[w + 1];
+                  if(wn && wn.added && wsn(wn.value) === wsn(wp.value)){ off += wn.value.length; w++; continue; }
+                  if(wsn(wp.value)) changed.add(lineOf(off));
+                  continue;
+                }
+                if(wp.added && wsn(wp.value)){
+                  const wn = wparts[w + 1];
+                  if(wn && wn.removed && wsn(wn.value) === wsn(wp.value)){ off += wp.value.length; w++; continue; }
+                  const a = lineOf(off), b = lineOf(off + wp.value.length);
+                  for(let L = a; L <= b; L++) changed.add(L);
+                }
+                off += wp.value.length;
+              }
+            }
+            if(!changed.size){ blocks--; line += nn; i++; continue; } // que du bruit
             for(let k = 0; k < nn; k++){
-              // n > nn : suppression nette dans le bloc → triangle sous la dernière barre
-              let html = '<div class="dv-bar ' + (k < mod ? "m" : "a") + '"></div>';
-              if(k === nn - 1 && n > nn) html += '<div class="dv-del eof"></div>';
+              if(!changed.has(k)) continue;
+              // n > nn : suppression nette dans le bloc → triangle sous la dernière barre marquée
+              let html = '<div class="dv-bar m"></div>';
+              if(k === Math.max(...changed) && n > nn) html += '<div class="dv-del eof"></div>';
               cm.setGutterMarker(Math.min(line + k, lastLine), GUTTER, markerCell(html, line + k));
             }
             line += nn;
