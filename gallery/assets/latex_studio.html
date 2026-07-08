@@ -1518,14 +1518,16 @@ function selPillShow(f, t, sel){
   // don't reposition/steal focus while the user is typing a comment
   if(selPill.style.display === "flex" && (document.activeElement === selTa || selTa.value)) return;
   lastSel = {text: sel, page: "L" + (f.line+1) + "-" + (t.line+1), from: {line:f.line, ch:f.ch}, to: {line:t.line, ch:t.ch}};
-  const c = cm.charCoords(t, "window");
-  selPill.style.display = "flex";
-  const w = selPill.offsetWidth, h = selPill.offsetHeight;
   // Se caler sur le rectangle RÉEL de l'éditeur (getBoundingClientRect), pas sur
   // innerWidth/innerHeight : dans l'iframe embarqué ces derniers peuvent être 0,
   // ce qui faisait basculer la pastille « au-dessus » puis la clampait en haut,
   // collée par-dessus la barre d'outils.
   const box = cm.getWrapperElement().getBoundingClientRect();
+  // éditeur pas (encore) mis en page : ne pas afficher à une position cassée
+  if(box.height < 40 || box.width < 40){ selPill.style.display = "none"; return; }
+  const c = cm.charCoords(t, "window");
+  selPill.style.display = "flex";
+  const w = selPill.offsetWidth, h = selPill.offsetHeight;
   const top = box.top + 6, bottom = box.bottom - h - 6;
   let x = Math.min(Math.max(box.left + 6, c.left - w/2), box.right - w - 6);
   let y = c.bottom + 10;
