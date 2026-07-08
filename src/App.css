@@ -722,17 +722,17 @@ input[type="range"].slider::-webkit-slider-thumb:hover { transform: scale(1.15);
 /* cascade : panneau providers ancré au bouton, sous-menu modèles à sa gauche */
 .model-menu { background: transparent; border: none; box-shadow: none; padding: 0;
   overflow: visible; max-height: none; min-width: 0; }
-.model-provider-list { display: flex; flex-direction: column; gap: 2px; width: 190px;
+.model-provider-list { display: flex; flex-direction: column; gap: 1px; width: 164px;
   background: var(--bg-pop); border: 1px solid var(--border); border-radius: var(--r-m);
-  padding: 5px; box-shadow: 0 12px 32px rgba(0,0,0,0.5); max-height: 390px; overflow-y: auto; }
+  padding: 4px; box-shadow: 0 12px 32px rgba(0,0,0,0.5); max-height: 390px; overflow-y: auto; }
 .model-menu .model-list { position: absolute; right: calc(100% + 6px); bottom: 0;
-  width: 280px; background: var(--bg-pop); border: 1px solid var(--border);
-  border-radius: var(--r-m); padding: 6px; box-shadow: 0 12px 32px rgba(0,0,0,0.5);
+  width: 216px; background: var(--bg-pop); border: 1px solid var(--border);
+  border-radius: var(--r-m); padding: 4px; box-shadow: 0 12px 32px rgba(0,0,0,0.5);
   max-height: 390px; overflow-y: auto; }
 .mp-chev { color: var(--muted2); white-space: nowrap; }
 .model-provider-row { display: grid; grid-template-columns: 14px minmax(0, 1fr) auto; align-items: center;
   gap: 7px; width: 100%; border: 0; background: transparent; color: var(--fg2); cursor: pointer;
-  padding: 7px 8px; border-radius: var(--r-s); font: inherit; font-size: var(--fs-m); text-align: left;
+  padding: 4px 8px; border-radius: var(--r-s); font: inherit; font-size: var(--fs-m); text-align: left;
   position: relative; }
 .model-provider-row span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .model-provider-row small { color: var(--muted2); font-size: var(--fs-s); }
@@ -742,7 +742,7 @@ input[type="range"].slider::-webkit-slider-thumb:hover { transform: scale(1.15);
   background: var(--accent, #e8894a); position: absolute; margin-left: -4px; }
 .model-list { min-width: 0; overflow-y: auto; padding-right: 2px; }
 .model-list-head { display: flex; align-items: center; justify-content: space-between; gap: 12px;
-  color: var(--muted2); font-size: var(--fs-s); padding: 5px 8px 7px; }
+  color: var(--muted2); font-size: var(--fs-s); padding: 3px 8px 5px; }
 .model-list-head span { display: inline-flex; align-items: center; min-width: 0; gap: 6px; }
 .model-list-head small { color: #e06c75; white-space: nowrap; }
 .model-row { min-width: 0; }
