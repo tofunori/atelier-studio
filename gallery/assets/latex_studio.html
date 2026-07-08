@@ -280,6 +280,28 @@
   #outline .oi.on{color:var(--accent)}
   #outline .l2{padding-left:20px}
   #outline .l3{padding-left:32px;font-size:12px}
+  #texcPanel{display:none;position:absolute;top:6px;right:8px;z-index:70;width:300px;max-height:70%;
+    background:var(--card);border:1px solid var(--border-strong,#3f4652);border-radius:10px;
+    box-shadow:0 10px 34px rgba(0,0,0,.4);overflow-y:auto;padding:6px}
+  #texcPanel.open{display:block}
+  #texcPanel .tp-head{display:flex;align-items:center;gap:6px;padding:4px 8px 8px}
+  #texcPanel .tp-head .tp-title{font-size:10px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);flex:1}
+  #texcPanel .tp-head button{background:transparent;border:1px solid var(--border);border-radius:6px;
+    color:var(--muted);font:11px -apple-system,sans-serif;padding:2px 8px;cursor:pointer;white-space:nowrap}
+  #texcPanel .tp-head button:hover{color:var(--txt);background:var(--card2)}
+  #texcPanel .tp-head .tp-delall:hover{color:#e0726a}
+  #texcPanel .tp-item{display:flex;gap:8px;align-items:flex-start;width:100%;text-align:left;background:transparent;
+    border:none;padding:6px 8px;border-radius:6px;cursor:pointer}
+  #texcPanel .tp-item:hover{background:var(--card2)}
+  #texcPanel .tp-dot{width:8px;height:8px;border-radius:999px;flex-shrink:0;margin-top:4px}
+  #texcPanel .tp-body{min-width:0}
+  #texcPanel .tp-quote{font:italic 11px/1.4 -apple-system,sans-serif;color:var(--muted);
+    overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  #texcPanel .tp-note{font:12px/1.4 -apple-system,sans-serif;color:var(--txt);margin-top:1px}
+  #texcPanel .tp-x{background:transparent;border:none;color:var(--muted);cursor:pointer;padding:0 4px;
+    border-radius:6px;margin-left:auto;flex-shrink:0}
+  #texcPanel .tp-x:hover{color:#e0726a}
+  #texcPanel .tp-empty{font:12px -apple-system,sans-serif;color:var(--muted);padding:6px 8px}
   /* ===== console de compilation ===== */
   #texlog{display:none;flex-shrink:0;max-height:38%;background:var(--card2);border-top:1px solid var(--border);
     flex-direction:column;min-height:120px}
@@ -382,6 +404,7 @@ function __ct(){try{return JSON.parse(localStorage.getItem('claudeTargetV1')||'n
   </span>
   <span class="grp editonly">
     <button id="outlineBtn" title="Plan du document (&#8984;&#8679;O)"><svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"><path d="M5.5 3.5h8M5.5 8h8M5.5 12.5h8M2 3.5h.01M2 8h.01M2 12.5h.01"/></svg></button>
+    <button id="texcBtn" title="Commentaires"><svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"><path d="M14 8c0 3-2.7 5.2-6 5.2-.8 0-1.6-.1-2.3-.4L2.5 14l1-2.6C2.6 10.5 2 9.3 2 8c0-3 2.7-5.2 6-5.2S14 5 14 8z"/><path d="M5.5 6.8h5M5.5 9.2h3.4"/></svg></button>
     <button id="findBtn" title="Rechercher (&#8984;F)"><svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><circle cx="7" cy="7" r="4.4"/><path d="M10.4 10.4L14 14"/></svg></button>
     <button id="moreBtn" title="Plus&hellip;">&#8943;</button>
   </span>
@@ -406,6 +429,7 @@ function __ct(){try{return JSON.parse(localStorage.getItem('claudeTargetV1')||'n
   <span><b>Esc</b> annule la sélection</span>
 </div>
 <div id="outline"></div>
+<div id="texcPanel"></div>
 <div id="texcPop"><div class="tc-quote"></div><textarea placeholder="Ton commentaire…"></textarea>
 <div class="tc-colors">
 <button class="sw-amber" data-color="amber" title="Ambre"></button>
@@ -1408,6 +1432,67 @@ document.addEventListener("keydown", (e) => {
 document.addEventListener("mousedown", (e) => {
   if(outlineEl.classList.contains("open") && !outlineEl.contains(e.target) && e.target.id!=="outlineBtn" && !e.target.closest("#outlineBtn"))
     toggleOutline(false);
+});
+// ---- panneau commentaires : liste, envoyer tout, tout supprimer ----
+const texcPanel = document.getElementById("texcPanel");
+const TEXC_SW = {amber:"rgba(224,183,74,.85)",red:"rgba(224,114,106,.85)",blue:"rgba(91,157,255,.85)",
+  green:"rgba(126,192,120,.85)",purple:"rgba(170,140,224,.85)"};
+const texcEsc = s => String(s).replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+function texcSorted(){ return texcAll.slice().sort((a,b) => (a.from.line - b.from.line) || (a.from.ch - b.from.ch)); }
+function buildTexcPanel(){
+  const items = texcSorted();
+  texcPanel.innerHTML = '<div class="tp-head"><span class="tp-title">Commentaires (' + items.length + ')</span>' +
+    '<button class="tp-sendall" title="Envoyer tous les commentaires au chat">Envoyer tout</button>' +
+    '<button class="tp-delall" title="Supprimer tous les commentaires">Tout supprimer</button></div>' +
+    (items.length ? items.map(c =>
+      '<div class="tp-item" data-id="' + c.id + '">' +
+      '<span class="tp-dot" style="background:' + (TEXC_SW[c.color || "amber"]) + '"></span>' +
+      '<span class="tp-body"><span class="tp-quote">« ' + texcEsc(c.text.slice(0, 70)) + ' »</span>' +
+      (c.comment ? '<div class="tp-note">' + texcEsc(c.comment) + '</div>' : '') + '</span>' +
+      '<button class="tp-x" data-x="' + c.id + '" title="Supprimer">✕</button></div>').join("")
+    : '<div class="tp-empty">aucun commentaire</div>');
+}
+function toggleTexcPanel(force){
+  const open = force ?? !texcPanel.classList.contains("open");
+  texcPanel.classList.toggle("open", open);
+  if(open) buildTexcPanel();
+}
+document.getElementById("texcBtn").onclick = () => toggleTexcPanel();
+let texcDelArm = null;
+texcPanel.addEventListener("click", (e) => {
+  const x = e.target.closest(".tp-x");
+  if(x){ texcRemove(x.dataset.x); buildTexcPanel(); return; }
+  if(e.target.closest(".tp-sendall")){
+    const items = texcSorted();
+    if(!items.length) return;
+    const msg = path + " — " + items.length + " commentaire" + (items.length > 1 ? "s" : "") + " :\n" +
+      items.map((c, i) => (i+1) + ". (L" + (c.from.line+1) + (c.to.line !== c.from.line ? "-" + (c.to.line+1) : "") + ") « " +
+        c.text.slice(0, 200) + " » — Commentaire : " + (c.comment || "(voir passage)")).join("\n");
+    __atelierPost({type: "atelier-add-to-chat", text: msg});
+    toggleTexcPanel(false);
+    return;
+  }
+  const del = e.target.closest(".tp-delall");
+  if(del){
+    if(texcDelArm){
+      clearTimeout(texcDelArm); texcDelArm = null;
+      for(const id of Object.keys(texcMarks)){ try{ texcMarks[id].clear(); }catch(err){} }
+      texcMarks = {}; texcAll = []; texcSave(); buildTexcPanel();
+    } else {
+      del.textContent = "Confirmer ?";
+      texcDelArm = setTimeout(() => { texcDelArm = null; buildTexcPanel(); }, 3000);
+    }
+    return;
+  }
+  const it = e.target.closest(".tp-item[data-id]");
+  if(it){
+    const c = texcAll.find(x2 => x2.id === it.dataset.id);
+    if(c){ cm.setCursor(c.from); cm.scrollIntoView({from: c.from, to: c.to}, 80); cm.focus(); toggleTexcPanel(false); }
+  }
+});
+document.addEventListener("mousedown", (e) => {
+  if(texcPanel.classList.contains("open") && !texcPanel.contains(e.target) && !e.target.closest("#texcBtn"))
+    toggleTexcPanel(false);
 });
 document.getElementById("tlClose").onclick = () => document.getElementById("texlog").classList.remove("open");
 // « Add to chat » : envoie le log de compilation au chat de l'app hôte.
