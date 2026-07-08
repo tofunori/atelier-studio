@@ -913,9 +913,11 @@ async function load(){
     // (moins gutter/marge), bornée 40-120 : chaque ligne rentre dans le panneau
     const v = wrapSel.value, n = parseInt(v, 10);
     if(n) return n;
+    // -2 : marge contre les arrondis de defaultCharWidth (sinon des lignes
+    // dépassent d'un mot et se replient visuellement en orphelines)
     const gutter = cm.getGutterElement().offsetWidth;
     return Math.max(40, Math.min(120,
-      Math.floor((cm.getWrapperElement().clientWidth - gutter - 16) / cm.defaultCharWidth())));
+      Math.floor((cm.getWrapperElement().clientWidth - gutter - 16) / cm.defaultCharWidth()) - 2));
   }
   // reformate un bloc de lignes à `col` colonnes (préfixe commentaire préservé)
   function wrapLines(lines, col){
@@ -993,10 +995,18 @@ async function load(){
     }
     return paras.length;
   }
-  cm.addKeyMap({"Alt-Q": rewrapPar, "Shift-Alt-Q": () => {
-    const n = rewrapAll();
-    setState("ok", n ? "rewrap : " + n + " paragraphe" + (n > 1 ? "s" : "") : "rien à reformater");
-  }});
+  // ⌥Q produit « œ » sur clavier mac : passer par e.code (touche physique),
+  // au niveau document — les keymaps CodeMirror ratent la variante à accent
+  document.addEventListener("keydown", (e) => {
+    if(e.altKey && !e.metaKey && !e.ctrlKey && e.code === "KeyQ" && cm){
+      e.preventDefault(); e.stopPropagation();
+      if(e.shiftKey){
+        const n = rewrapAll();
+        setState("ok", n ? "rewrap : " + n + " paragraphe" + (n > 1 ? "s" : "") : "rien à reformater");
+      } else rewrapPar();
+      cm.focus();
+    }
+  }, true);
   document.getElementById("rewrapBtn").onclick = () => { rewrapPar(); cm.focus(); };
   window.__rewrapAll = rewrapAll;
 

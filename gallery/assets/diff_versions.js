@@ -391,6 +391,10 @@ window.DiffVersions = function(opts){
       gutterReady = true;
     }
     let blocks = 0;
+    // bruit de rewrap : diffLines voit chaque retour à la ligne déplacé comme
+    // une modification — si le contenu (blancs normalisés) est identique, ce
+    // n'est pas un vrai changement, aucune marque
+    const wsn = s => s.replace(/\s+/g, " ").trim();
     cm.operation(() => {
       cm.clearGutter(GUTTER);
       const parts = Diff.diffLines(headText, cm.getValue());
@@ -400,8 +404,10 @@ window.DiffVersions = function(opts){
         const pt = parts[i];
         const n = pt.count || 0;
         if(pt.removed){
-          blocks++;
           const nx = parts[i + 1];
+          if(nx && nx.added && wsn(nx.value) === wsn(pt.value)){ line += nx.count || 0; i++; continue; }
+          if(!wsn(pt.value)){ continue; } // seulement des blancs : rien à montrer
+          blocks++;
           if(nx && nx.added){
             // bloc modifié : ambre sur les lignes qui remplacent celles supprimées,
             // vert sur l'excédent (comme VS Code : n supprimées + m ajoutées, m > n
@@ -424,6 +430,7 @@ window.DiffVersions = function(opts){
           continue;
         }
         if(pt.added){
+          if(!wsn(pt.value)){ line += n; continue; } // lignes vides seulement
           blocks++;
           for(let k = 0; k < n; k++)
             cm.setGutterMarker(Math.min(line + k, lastLine), GUTTER, markerCell('<div class="dv-bar a"></div>', line + k));
