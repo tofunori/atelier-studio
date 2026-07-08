@@ -528,7 +528,7 @@ type ChatAttachment = {
   text: string;
   imageUrl?: string;
   path?: string;
-  kind?: "file" | "folder" | "zotero" | "quote";
+  kind?: "file" | "folder" | "zotero" | "quote" | "paste";
   preview?: { title: string; rows: { label: string; value: string }[] };
 };
 
@@ -581,6 +581,7 @@ export default function Chat(p: {
   onQuote: (text: string) => void;
   threadId: string | null;
   onPasteImage: (dataURL: string) => void;
+  onPasteText: (text: string) => void;
   onStop: () => void;
   onAttachPath?: (path: string) => void;
   onAttachFolder?: (folder: string) => void;
@@ -693,6 +694,7 @@ export default function Chat(p: {
   const [reviewOpen, setReviewOpen] = useState(false);
   const [barOpen, setBarOpen] = useState(false);
   const [openChipGroup, setOpenChipGroup] = useState<string | null>(null);
+  const [openPastePop, setOpenPastePop] = useState<string | null>(null);
   const [fixing, setFixing] = useState(false);
   const [reviewMin, setReviewMin] = useState(false);
   useEffect(() => { setBarOpen(false); setFixing(false); setReviewMin(false); }, [p.threadId]);
@@ -1244,6 +1246,23 @@ export default function Chat(p: {
               <div key={i} id={`msg-${i}`} className="user-wrap">
                 {e.imageUrl && <img className="user-img" src={e.imageUrl} alt="" />}
                 {e.label && <div className="user-label">{e.label}</div>}
+                {e.pastes && e.pastes.map((pa, j) => {
+                  const key = `m${i}:${j}`;
+                  return (
+                    <div key={key} className="chip paste-chip">
+                      <svg className="chip-doc" width="11" height="13" viewBox="0 0 11 13" fill="none" stroke="currentColor" strokeWidth="1.1" strokeLinecap="round">
+                        <rect x="0.8" y="0.8" width="9.4" height="11.4" rx="1.6" />
+                        <path d="M3 4.4h5M3 6.8h5M3 9.2h3.4" />
+                      </svg>
+                      <span className="chip-label" style={{ cursor: "pointer" }}
+                        onClick={() => setOpenPastePop(openPastePop === key ? null : key)}>
+                        {pa.name}
+                      </span>
+                      <span className="chip-lines">{t("chat.lines", { lines: String(pa.text.split("\n").length) })}</span>
+                      {openPastePop === key && <div className="chip-paste-pop">{pa.text}</div>}
+                    </div>
+                  );
+                })}
                 {editing?.index === i ? (
                   <div className="edit-box">
                     <textarea
@@ -1725,12 +1744,18 @@ export default function Chat(p: {
                       <rect x="0.8" y="0.8" width="9.4" height="11.4" rx="1.6" />
                       <path d="M3 4.4h5M3 6.8h5M3 9.2h3.4" />
                     </svg>
-                    <span className="chip-label" title={a.name} onClick={() => many && setOpenChipGroup(openChipGroup === g.name ? null : g.name)}
-                      style={many ? { cursor: "pointer" } : undefined}>
+                    <span className="chip-label" title={a.name} onClick={() => {
+                        if (many) setOpenChipGroup(openChipGroup === g.name ? null : g.name);
+                        else if (a.kind === "paste") setOpenPastePop(openPastePop === g.name ? null : g.name);
+                      }}
+                      style={many || a.kind === "paste" ? { cursor: "pointer" } : undefined}>
                       {citeLabel(a.name)}
                     </span>
                     {many ? <span className="chip-count" onClick={() => setOpenChipGroup(openChipGroup === g.name ? null : g.name)}>×{g.idxs.length}</span>
                       : a.lines && <span className="chip-lines">{t("chat.lines", { lines: a.lines })}</span>}
+                    {!many && a.kind === "paste" && openPastePop === g.name && (
+                      <div className="chip-paste-pop">{a.text}</div>
+                    )}
                     {!many && a.preview && (
                       <span className="chip-preview" role="tooltip">
                         <strong>{a.preview.title}</strong>
@@ -1816,6 +1841,12 @@ export default function Chat(p: {
                 reader.readAsDataURL(file);
                 return;
               }
+            }
+            // long collage de texte → chip compact au lieu de gonfler le champ
+            const pasted = e.clipboardData.getData("text/plain");
+            if (pasted.length >= 1000 || pasted.split("\n").length >= 10) {
+              e.preventDefault();
+              p.onPasteText(pasted);
             }
           }}
           onKeyDown={(e) => {

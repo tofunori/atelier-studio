@@ -3,7 +3,7 @@ import { invoke } from "@tauri-apps/api/core";
 type SidecarInfo = { port: number; token?: string };
 
 export type AgentEvent =
-  | { kind: "user"; text: string; imageUrl?: string; label?: string; ts?: number }
+  | { kind: "user"; text: string; imageUrl?: string; label?: string; pastes?: { name: string; text: string }[]; ts?: number }
   | { kind: "text"; text: string; ts?: number }
   | { kind: "delta"; text: string; ts?: number }
   | { kind: "thinking_delta"; text: string; ts?: number }

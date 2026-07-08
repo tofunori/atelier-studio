@@ -30,7 +30,7 @@ window.DiffVersions = function(opts){
   let changePts = [], changeAt = 0; // positions {pos, ch} des changements + index courant
   let extCmp = null; // comparaison ponctuelle depuis l'historique : {before, label}
   const curVersion = () => extCmp || VERSIONS[idx];
-  let headText = null, headSha = "";
+  let headText = null, headSha = "", baseTs = 0; // ts (ms) du commit-base
   const KEY = "texDiffV1:" + path;
   const MAX = 1500000;
   const GUTTER = "dv-git";
@@ -240,7 +240,15 @@ window.DiffVersions = function(opts){
     const texts = VERSIONS.map(v => v.before).concat([liveText()]);
     const list = [];
     for(let k = 0; k < texts.length - 1; k++){
-      if(!wsnEq(texts[k], texts[k + 1])) list.push({from: texts[k], to: texts[k + 1], live: k === texts.length - 2});
+      if(wsnEq(texts[k], texts[k + 1])) continue;
+      // ne compter que les interventions POSTÉRIEURES à la base : une
+      // intervention déjà committée n'apparaît plus dans le diff cumulé
+      // (« tout ») — elle ne doit pas gonfler le compteur non plus.
+      // L'horodatage de l'intervention k = ts de la version k+1 (moment où
+      // l'état d'après a été enregistré) ; la paire vivante = maintenant.
+      const ts = k + 1 < VERSIONS.length ? VERSIONS[k + 1].ts : Date.now();
+      if(baseTs && ts != null && ts < baseTs) continue;
+      list.push({from: texts[k], to: texts[k + 1], live: k === texts.length - 2});
     }
     return list;
   }

@@ -44,7 +44,7 @@ export type Attachment = {
   text: string;
   imageUrl?: string;
   path?: string;
-  kind?: "file" | "folder" | "zotero" | "quote";
+  kind?: "file" | "folder" | "zotero" | "quote" | "paste";
   preview?: { title: string; rows: { label: string; value: string }[] };
 };
 type ZoteroPaletteItem = {
@@ -1276,12 +1276,19 @@ export default function App() {
       ...(attachments.some((a) => a.imageUrl)
         ? { imageUrl: attachments.find((a) => a.imageUrl)!.imageUrl }
         : {}),
-      ...(attachments.some((a) => !a.imageUrl)
+      ...(attachments.some((a) => !a.imageUrl && a.kind !== "paste")
         ? {
             label: attachments
-              .filter((a) => !a.imageUrl)
+              .filter((a) => !a.imageUrl && a.kind !== "paste")
               .map((a) => `${a.name}${a.lines ? ` (lines ${a.lines})` : ""}`)
               .join(" · "),
+          }
+        : {}),
+      ...(attachments.some((a) => a.kind === "paste")
+        ? {
+            pastes: attachments
+              .filter((a) => a.kind === "paste")
+              .map((a) => ({ name: a.name, text: a.text })),
           }
         : {}),
     };
@@ -1764,6 +1771,16 @@ export default function App() {
               ws.current.send(JSON.stringify({ type: "saveImage", dataURL }));
             }
           }}
+          onPasteText={(text) =>
+            setAttachments((l) =>
+              addAttachment(l, {
+                name: t("chat.pasted-text"),
+                lines: String(text.split("\n").length),
+                kind: "paste",
+                text,
+              }),
+            )
+          }
           onQuote={(text) =>
             setAttachments((l) =>
               addAttachment(l, {

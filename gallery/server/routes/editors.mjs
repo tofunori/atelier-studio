@@ -358,7 +358,11 @@ export async function handleEditorsGet(req, res, url) {
       const text = await gitOut(["show", `${base}:${rel}`], root);
       if (text === null) return sendJson(res, 200, { ok: false });
       const sha = await gitOut(["rev-parse", "--short", base], root);
-      return sendJson(res, 200, { ok: true, text, sha: (sha || "").trim() });
+      // ts (epoch s) : la timeline du comparateur ne compte que les
+      // interventions POSTÉRIEURES à la base — sinon « tout · N » compterait
+      // des interventions déjà committées, absentes du diff cumulé
+      const ts = await gitOut(["show", "-s", "--format=%ct", base], root);
+      return sendJson(res, 200, { ok: true, text, sha: (sha || "").trim(), ts: Number((ts || "").trim()) || 0 });
     } catch (e) {
       return sendJson(res, 200, { ok: false });
     }
