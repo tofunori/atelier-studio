@@ -1385,7 +1385,13 @@ export default function Chat(p: {
             return (
               <div key={i} className="msg-wrap">
                 <div className="msg">
-                  <ReactMarkdown remarkPlugins={[remarkGfm]} components={MD_COMPONENTS as any}>{e.text}</ReactMarkdown>
+                  <ReactMarkdown
+                    remarkPlugins={MD_REMARK_PLUGINS}
+                    rehypePlugins={MD_REHYPE_PLUGINS}
+                    components={MD_COMPONENTS_STREAMING as any}
+                  >
+                    {normalizeMathDelimiters(hardenPartialMarkdown(e.text))}
+                  </ReactMarkdown>
                   <span className="stream-caret" />
                 </div>
               </div>
@@ -1394,7 +1400,13 @@ export default function Chat(p: {
             return (
               <div key={i} id={`msg-${i}`} className="msg-wrap">
                 <div className="msg">
-                  <ReactMarkdown remarkPlugins={[remarkGfm]} components={MD_COMPONENTS as any}>{e.text}</ReactMarkdown>
+                  <ReactMarkdown
+                    remarkPlugins={MD_REMARK_PLUGINS}
+                    rehypePlugins={MD_REHYPE_PLUGINS}
+                    components={MD_COMPONENTS as any}
+                  >
+                    {normalizeMathDelimiters(e.text)}
+                  </ReactMarkdown>
                 </div>
                 <div className="msg-actions">
                   {"ts" in e && e.ts && (
