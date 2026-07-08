@@ -241,6 +241,19 @@
 
   /* ===== commentaires ancrés (mode Review sobre) ===== */
   .texc-hl{background:rgba(224,183,74,.14);border-bottom:1px dotted rgba(224,183,74,.6);cursor:pointer}
+  .texc-c-amber{background:rgba(224,183,74,.14);border-bottom-color:rgba(224,183,74,.6)}
+  .texc-c-red{background:rgba(224,114,106,.14);border-bottom-color:rgba(224,114,106,.6)}
+  .texc-c-blue{background:rgba(91,157,255,.14);border-bottom-color:rgba(91,157,255,.6)}
+  .texc-c-green{background:rgba(126,192,120,.14);border-bottom-color:rgba(126,192,120,.6)}
+  .texc-c-purple{background:rgba(170,140,224,.14);border-bottom-color:rgba(170,140,224,.6)}
+  #texcPop .tc-colors{display:flex;gap:6px;margin-top:8px}
+  #texcPop .tc-colors button{width:14px;height:14px;border-radius:999px;border:1px solid transparent;cursor:pointer;padding:0}
+  #texcPop .tc-colors button.on{border-color:var(--txt)}
+  #texcPop .tc-colors .sw-amber{background:rgba(224,183,74,.85)}
+  #texcPop .tc-colors .sw-red{background:rgba(224,114,106,.85)}
+  #texcPop .tc-colors .sw-blue{background:rgba(91,157,255,.85)}
+  #texcPop .tc-colors .sw-green{background:rgba(126,192,120,.85)}
+  #texcPop .tc-colors .sw-purple{background:rgba(170,140,224,.85)}
   #texcPop{position:fixed;z-index:310;display:none;width:300px;background:var(--card);
     border:1px solid var(--border-strong,#3f4652);border-radius:10px;box-shadow:0 10px 34px rgba(0,0,0,.45);padding:10px 12px}
   #texcPop .tc-quote{font:italic 11.5px/1.4 -apple-system,sans-serif;color:var(--muted);
@@ -394,6 +407,13 @@ function __ct(){try{return JSON.parse(localStorage.getItem('claudeTargetV1')||'n
 </div>
 <div id="outline"></div>
 <div id="texcPop"><div class="tc-quote"></div><textarea placeholder="Ton commentaire…"></textarea>
+<div class="tc-colors">
+<button class="sw-amber" data-color="amber" title="Ambre"></button>
+<button class="sw-red" data-color="red" title="Rouge"></button>
+<button class="sw-blue" data-color="blue" title="Bleu"></button>
+<button class="sw-green" data-color="green" title="Vert"></button>
+<button class="sw-purple" data-color="purple" title="Violet"></button>
+</div>
 <div class="tc-row">
 <button class="tc-del" title="Supprimer le commentaire"><svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"><path d="M2.5 4h11M6.5 4V2.5h3V4M4 4l.8 9.5h6.4L12 4M6.5 7v4M9.5 7v4"/></svg></button>
 <button class="tc-ok" title="Résoudre (retire le surlignage)"><svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M2.5 8.5l3.5 3.5 7.5-8"/></svg></button>
@@ -1268,8 +1288,12 @@ function texcSave(){
 function texcMark(c){
   if(!cm) return;
   try {
-    texcMarks[c.id] = cm.markText(c.from, c.to, {className: "texc-hl", attributes: {"data-texc": c.id}});
+    texcMarks[c.id] = cm.markText(c.from, c.to, {className: "texc-hl texc-c-" + (c.color || "amber"), attributes: {"data-texc": c.id}});
   } catch(e){}
+}
+function texcRemark(c){
+  if(texcMarks[c.id]){ try{ texcMarks[c.id].clear(); }catch(e){} delete texcMarks[c.id]; }
+  texcMark(c);
 }
 function texcOpen(sel){
   texcCur = { id: "c" + Date.now(), from: sel.from, to: sel.to, text: String(sel.text).slice(0, 300), comment: "" };
@@ -1282,6 +1306,8 @@ function texcShow(c, isNew){
   texcPop.querySelector("textarea").value = c.comment || "";
   texcPop.querySelector(".tc-del").style.display = isNew ? "none" : "";
   texcPop.querySelector(".tc-ok").style.display = isNew ? "none" : "";
+  texcPop.querySelectorAll(".tc-colors button").forEach(b =>
+    b.classList.toggle("on", b.dataset.color === (c.color || "amber")));
   const co = cm.charCoords(c.to, "window");
   texcPop.style.display = "block";
   texcPop.style.left = Math.min(Math.max(8, co.left - 150), innerWidth - 310) + "px";
@@ -1312,6 +1338,14 @@ texcPop.querySelector(".tc-claude").onclick = () => {
   if(!texcAll.find(x => x.id === texcCur.id)){ texcAll.push(texcCur); texcMark(texcCur); }
   texcSave(); texcPop.style.display = "none"; texcCur = null;
 };
+texcPop.querySelectorAll(".tc-colors button").forEach(b => {
+  b.onclick = () => {
+    if(!texcCur) return;
+    texcCur.color = b.dataset.color;
+    texcPop.querySelectorAll(".tc-colors button").forEach(x => x.classList.toggle("on", x === b));
+    if(texcAll.find(x => x.id === texcCur.id)){ texcRemark(texcCur); texcSave(); }
+  };
+});
 // clic sur un surlignage → rouvrir
 document.addEventListener("click", (e) => {
   const el = e.target.closest(".texc-hl");
