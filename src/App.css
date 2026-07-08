@@ -1846,6 +1846,9 @@ body.dragging iframe { pointer-events: none; }
 .fly-chat.on { background: var(--bg-ctl); color: var(--fg); }
 .fly-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; }
 .fly-empty { color: var(--muted2); font-size: var(--fs-m); padding: 14px 8px; text-align: center; }
+.fly-rename { width: 100%; min-height: 28px; padding: 5px 8px; border-radius: var(--r-s);
+  background: var(--bg-ctl); border: 1px solid var(--border2); font: inherit;
+  font-size: var(--fs-m); color: var(--fg); outline: none; }
 /* champ lettre du sélecteur d'icônes projet */
 .icon-letter { width: 100%; box-sizing: border-box; margin-top: 6px; background: var(--bg-ctl);
   border: 1px solid var(--border2); border-radius: var(--r-s); color: var(--fg);

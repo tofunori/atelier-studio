@@ -1491,6 +1491,29 @@ export default function App() {
           onExpand={() => setCompact(false)}
           onSettings={() => setShowSettings((v) => !v)}
           onSetMeta={(root, m) => setProjMeta((p) => ({ ...p, [root]: m }))}
+          favorites={favorites}
+          onToggleFavorite={(id) =>
+            setFavorites((f) => (f.includes(id) ? f.filter((x) => x !== id) : [...f, id]))
+          }
+          onDeleteThread={(threadId) => {
+            setDraftThreads((p) => p.filter((t) => t.id !== threadId));
+            setEvents((p) => {
+              const { [threadId]: _, ...rest } = p;
+              return rest;
+            });
+            if (activeId === threadId) setActiveId(null);
+            if (ws.current?.readyState === 1) {
+              ws.current.send(JSON.stringify({ type: "deleteThread", threadId }));
+            }
+          }}
+          onRenameThread={(threadId, title) => {
+            setDraftThreads((p) =>
+              p.map((t) => (t.id === threadId ? { ...t, title } : t)),
+            );
+            if (ws.current?.readyState === 1) {
+              ws.current.send(JSON.stringify({ type: "renameThread", threadId, title }));
+            }
+          }}
           onReorder={(from, to) =>
             setProjects((prev) => {
               const list = prev.filter((r) => r !== from);

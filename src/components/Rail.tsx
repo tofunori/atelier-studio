@@ -158,10 +158,26 @@ export default function Rail(p: {
               {withRecencySections(p.threads.filter((th) => th.projectRoot === fly)).map((row, i) =>
                 row.kind === "section" ? (
                   <div key={`s${i}`} className="fly-sect">{t(recencyLabelKey(row.bucket) as any)}</div>
+                ) : editingId === row.thread.id ? (
+                  <input key={row.thread.id} className="fly-rename" autoFocus value={editText}
+                    onChange={(e) => setEditText(e.target.value)}
+                    onBlur={() => {
+                      if (editText.trim()) p.onRenameThread(row.thread.id, editText.trim());
+                      setEditingId(null);
+                    }}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") (e.currentTarget as HTMLInputElement).blur();
+                      if (e.key === "Escape") { e.stopPropagation(); setEditingId(null); }
+                    }} />
                 ) : (
                   <button key={row.thread.id}
                     className={`fly-chat ${row.thread.id === p.activeId ? "on" : ""}`}
-                    onClick={() => { p.onSelectThread(row.thread.id); if (!pinned) setFly(null); }}>
+                    onClick={() => { p.onSelectThread(row.thread.id); if (!pinned) setFly(null); }}
+                    onContextMenu={(e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      setChatMenu({ id: row.thread.id, x: e.clientX, y: e.clientY });
+                    }}>
                     <ProviderIcon provider={row.thread.provider} size={11} />
                     <span className="fly-title">{threadTitle(row.thread)}</span>
                     {p.unread.has(row.thread.id) && <span className="unread-badge" />}
@@ -171,6 +187,36 @@ export default function Rail(p: {
                 <div className="fly-empty">{t("rail.no-chats")}</div>
               )}
             </div>
+            {chatMenu && (
+              <div className="ctx-menu" style={{ left: chatMenu.x, top: chatMenu.y }}>
+                <div onClick={() => {
+                  const th = p.threads.find((x) => x.id === chatMenu.id);
+                  setEditText(th ? rawThreadTitle(th) : "");
+                  setEditingId(chatMenu.id);
+                  setChatMenu(null);
+                }}>
+                  {t("action.rename")}
+                </div>
+                <div onClick={() => { p.onToggleFavorite(chatMenu.id); setChatMenu(null); }}>
+                  {p.favorites.includes(chatMenu.id) ? t("action.remove-favorite") : t("action.add-favorite")}
+                </div>
+                <div onClick={() => {
+                  const th = p.threads.find((x) => x.id === chatMenu.id);
+                  if (th?.sessionId) {
+                    const cmd = th.provider === "codex"
+                      ? `codex resume ${th.sessionId}`
+                      : `cd ${JSON.stringify(th.projectRoot || "~")} && claude --resume ${th.sessionId}`;
+                    navigator.clipboard.writeText(cmd);
+                  }
+                  setChatMenu(null);
+                }}>
+                  {t("action.copy-resume")}
+                </div>
+                <div className="danger" onClick={() => { p.onDeleteThread(chatMenu.id); setChatMenu(null); }}>
+                  {t("action.delete")}
+                </div>
+              </div>
+            )}
           </div>
         </>
       )}
