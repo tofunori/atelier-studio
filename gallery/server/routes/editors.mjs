@@ -322,6 +322,24 @@ function gitOut(args, cwd) {
   });
 }
 
+// Base des diffs de l'éditeur : le dernier commit SIGNIFICATIF. Un auto-commit
+// de fond (« auto: session … ») committe le fichier quelques minutes après
+// chaque sauvegarde — si la base était HEAD, la gouttière se viderait et le
+// message IA ne verrait plus de diff dès son passage.
+async function gitBase(root) {
+  const out = await gitOut(["log", "-100", "--format=%h%x09%s"], root);
+  if (out) {
+    for (const line of out.split("\n")) {
+      const ix = line.indexOf("\t");
+      if (ix < 0) continue;
+      const sha = line.slice(0, ix);
+      const subject = line.slice(ix + 1);
+      if (sha && !/^auto: session/.test(subject)) return sha;
+    }
+  }
+  return "HEAD";
+}
+
 export async function handleEditorsGet(req, res, url) {
   const pathname = url.pathname;
   if (pathname === "/githead") {
@@ -336,9 +354,10 @@ export async function handleEditorsGet(req, res, url) {
       if (!top) return sendJson(res, 200, { ok: false });
       const root = top.trim();
       const rel = path.relative(root, p).split(path.sep).join("/");
-      const text = await gitOut(["show", `HEAD:${rel}`], root);
+      const base = await gitBase(root);
+      const text = await gitOut(["show", `${base}:${rel}`], root);
       if (text === null) return sendJson(res, 200, { ok: false });
-      const sha = await gitOut(["rev-parse", "--short", "HEAD"], root);
+      const sha = await gitOut(["rev-parse", "--short", base], root);
       return sendJson(res, 200, { ok: true, text, sha: (sha || "").trim() });
     } catch (e) {
       return sendJson(res, 200, { ok: false });
@@ -392,7 +411,8 @@ export async function handleEditorsGet(req, res, url) {
       if (!top) return sendJson(res, 200, { ok: false });
       const root = top.trim();
       const rel = path.relative(root, p).split(path.sep).join("/");
-      const diff = await gitOut(["diff", "HEAD", "--", rel], root);
+      const base = await gitBase(root);
+      const diff = await gitOut(["diff", base, "--", rel], root);
       if (!diff || !diff.trim()) return sendJson(res, 200, { ok: false });
       const claude = await findClaudeCode();
       if (!claude) return sendJson(res, 200, { ok: false });
@@ -835,8 +855,17 @@ export async function handleEditorsPost(req, res, url) {
       const rel = path.relative(root, p).split(path.sep).join("/");
       if (await gitOut(["add", "--", rel], root) === null)
         return sendJson(res, 200, { ok: false, error: "git add a échoué" });
-      if (await gitOut(["commit", "--no-verify", "-m", msg, "--", rel], root) === null)
-        return sendJson(res, 200, { ok: false, error: "git commit a échoué (rien à committer ?)" });
+      if (await gitOut(["commit", "--no-verify", "-m", msg, "--", rel], root) === null) {
+        // arbre propre ? l'auto-commit de fond a déjà enregistré les
+        // changements — si le fichier a bougé depuis la base significative,
+        // poser quand même le jalon (commit vide porteur du message)
+        const base = await gitBase(root);
+        const clean = await gitOut(["diff", "--quiet", base, "HEAD", "--", rel], root);
+        if (clean !== null) // exit 0 = identique à la base : vraiment rien à committer
+          return sendJson(res, 200, { ok: false, error: "git commit a échoué (rien à committer ?)" });
+        if (await gitOut(["commit", "--no-verify", "--allow-empty", "-m", msg], root) === null)
+          return sendJson(res, 200, { ok: false, error: "git commit a échoué" });
+      }
       const sha = await gitOut(["rev-parse", "--short", "HEAD"], root);
       return sendJson(res, 200, { ok: true, sha: (sha || "").trim() });
     } catch (error) {
