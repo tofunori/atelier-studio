@@ -45,6 +45,7 @@
 <script src="/.fig_thumbs/marked.min.js"></script>
 <script src="/.fig_thumbs/purify.min.js"></script>
 <script src="/.fig_thumbs/diff.min.js"></script>
+<script src="/.fig_thumbs/diff_versions.js"></script>
 <link rel="stylesheet" href="/.fig_thumbs/katex/katex.min.css">
 <script src="/.fig_thumbs/katex/katex.min.js"></script>
 <script src="/.fig_thumbs/texvisual.min.js"></script>
@@ -162,24 +163,6 @@
   #tgMenu .it .t{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
   #tgMenu .it.on .t{color:#8ab4ff}
 #mdModeSeg button.mdon{background:var(--accent);color:#10151d;border-color:var(--accent)}
-  /* Comparaison EN PLACE : simple bandeau au-dessus de l'éditeur ; les
-     changements sont décorés directement dans CodeMirror (thème, coloration
-     syntaxique, numéros de ligne et wrap conservés) */
-  #diffPane .dHead{display:flex;align-items:center;gap:10px;padding:7px 14px;
-    background:var(--card);border-bottom:1px solid var(--border);font-family:var(--ui-font,-apple-system,sans-serif);
-    font-size:12px;color:var(--muted)}
-  #diffPane .dHead b{color:var(--txt);font-weight:600}
-  #diffPane .dHead .dx{margin-left:auto;background:transparent;border:1px solid var(--border);border-radius:6px;
-    color:var(--muted);cursor:pointer;padding:2px 10px;font-size:12px}
-  #diffPane .dHead .dx:hover{color:var(--txt);border-color:var(--border-strong)}
-  #diffPane{display:none;position:absolute;top:0;left:0;right:0;z-index:50}
-  #diffPane .dAdd{background:rgba(52,201,142,.16);color:#7fe0b4;border-bottom:1px solid rgba(52,201,142,.6);
-    border-radius:2px;text-decoration:none}
-  #diffPane .dDel{background:rgba(224,108,117,.14);color:#e09aa0;text-decoration:line-through;border-radius:2px}
-  /* décorations posées dans l'éditeur : fond seulement — la coloration
-     syntaxique du thème reste visible sous le surlignage */
-  .dAddM{background:rgba(52,201,142,.18);border-bottom:1px solid rgba(52,201,142,.6);border-radius:2px}
-  .dDelW{background:rgba(224,108,117,.14);color:#e09aa0;text-decoration:line-through;border-radius:2px;padding:0 1px}
   #diffGrp button.on{background:var(--border);color:var(--txt)}
   #diffGrp .dg-label{color:var(--faint,#646d7b);font-size:11px;letter-spacing:.05em;text-transform:uppercase;margin-right:2px}
   /* palette LaTeX/code plus riche (par-dessus material-darker) */
@@ -415,7 +398,6 @@ function __ct(){try{return JSON.parse(localStorage.getItem('claudeTargetV1')||'n
 <div id="lintPane" style="display:none"></div>
 <div id="split" style="position:relative">
   <div id="left"></div>
-  <div id="diffPane"></div>
   <div id="right"><div id="marker"></div></div>
 </div>
 <div id="picker"><div id="pickerBox">
@@ -1771,132 +1753,27 @@ document.addEventListener("keydown", e => { if(e.key === "Escape") document.getE
 
 document.getElementById("openFile").onclick = () => pickerShow();
 
-// ---- diff de versions (modifications de l'agent) : ± vN + ‹ › + Rétablir ----
-const DIFF_VERSIONS = []; // {before, after, ts}
-let diffIdx = -1, diffShown = false;
-const diffPane = document.getElementById("diffPane");
-const diffGrp = document.getElementById("diffGrp");
-function escH(x){ return x.replace(/[&<>]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;"}[c])); }
-// ---- persistance des versions (localStorage, par fichier) ----
-// seul `before` sert au rendu (renderDiff diffe contre le buffer courant) et à
-// Rétablir ; on ne stocke donc que {b, t}. Plafond ~1,5 Mo par fichier : on
-// laisse tomber les plus anciennes plutôt que d'exploser le quota localStorage.
-const DIFF_STORE_KEY = "texDiffV1:" + path;
-const DIFF_STORE_MAX = 1500000;
-function diffPersist(){
-  try{
-    let items = DIFF_VERSIONS.map(v => ({b: v.before, t: v.ts}));
-    let size = items.reduce((n, it) => n + it.b.length, 0);
-    while(items.length > 1 && size > DIFF_STORE_MAX){ size -= items[0].b.length; items.shift(); }
-    localStorage.setItem(DIFF_STORE_KEY, JSON.stringify({v: 1, items}));
-  }catch(e){ try{ localStorage.removeItem(DIFF_STORE_KEY); }catch(e2){} }
-}
-function armDiffUi(){
-  diffGrp.style.display = "";
-  const tg = document.getElementById("diffTag");
-  tg.disabled = false; tg.style.opacity = "";
-  ["diffPrev","diffNext","diffRestore"].forEach(id => document.getElementById(id).style.display = "");
-  updateDiffTag();
-}
-function diffRestoreFromStore(){
-  try{
-    const raw = localStorage.getItem(DIFF_STORE_KEY);
-    if(!raw) return;
-    const data = JSON.parse(raw);
-    if(!data || !Array.isArray(data.items) || !data.items.length) return;
-    for(const it of data.items){
-      if(typeof it.b === "string") DIFF_VERSIONS.push({before: it.b, after: "", ts: it.t || Date.now()});
-    }
-    if(DIFF_VERSIONS.length){ diffIdx = DIFF_VERSIONS.length - 1; armDiffUi(); }
-  }catch(e){}
-}
-function diffPush(before, after){
-  if(before === after) return;
-  DIFF_VERSIONS.push({before, after, ts: Date.now()});
-  diffIdx = DIFF_VERSIONS.length - 1;
-  armDiffUi();
-  diffPersist();
-  // NE PLUS auto-ouvrir : le mode in-editor passe l'éditeur en lecture seule,
-  // l'activer à chaque sauvegarde bloquerait la frappe en silence. L'utilisateur
-  // ouvre la comparaison quand il veut via le bouton ± (ou la rafraîchit si ouverte).
-  if(diffShown) renderDiff();
-}
-function updateDiffTag(){
-  document.getElementById("diffTag").title = "Modifications — version " + (diffIdx + 2) + "/" + (DIFF_VERSIONS.length + 1) + " (cliquer : voir le diff)";
-  document.getElementById("diffPrev").disabled = diffIdx <= 0;
-  document.getElementById("diffNext").disabled = diffIdx >= DIFF_VERSIONS.length - 1;
-}
-let diffMarks = []; // décorations posées dans l'éditeur (marks + bookmarks)
-function clearDiffMarks(){
-  diffMarks.forEach(m => { try{ m.clear(); }catch(e){} });
-  diffMarks = [];
-}
-function renderDiff(){
-  const v = DIFF_VERSIONS[diffIdx];
-  if(!v || !cm) return;
-  clearDiffMarks();
-  // comparaison EN PLACE : le document affiché est le buffer courant (rendu,
-  // thème et wrap de l'éditeur intacts) ; on surligne les mots ajoutés et on
-  // insère les mots supprimés en widgets barrés. diffWordsWithSpace garantit
-  // que la concaténation des parts non-removed == buffer → offsets exacts.
-  const after = cm.getValue();
-  const parts = Diff.diffWordsWithSpace(v.before, after);
-  const ws = s => s.replace(/\s+/g, " ").trim();
-  let idx = 0, firstPos = null, changes = 0;
-  for(let i = 0; i < parts.length; i++){
-    const pt = parts[i];
-    if(pt.removed){
-      const nx = parts[i + 1];
-      // bruit de rewrap : même contenu, seuls les blancs/retours diffèrent
-      if(nx && nx.added && ws(nx.value) === ws(pt.value)){ idx += nx.value.length; i++; continue; }
-      if(!ws(pt.value)) continue; // retour à la ligne déplacé : rien à montrer
-      const w = document.createElement("span");
-      w.className = "dDelW";
-      // blancs/retours normalis\u00e9s : un \n brut dans le widget casserait la ligne
-      const disp = pt.value.replace(/\s+/g, " ").trim();
-      w.textContent = disp.length > 160 ? disp.slice(0, 157) + "\u22ef" : disp;
-      if(disp.length > 160) w.title = disp;
-      const pos = cm.posFromIndex(idx);
-      diffMarks.push(cm.setBookmark(pos, {widget: w}));
-      if(!firstPos) firstPos = pos;
-      changes++;
-      continue;
-    }
-    if(pt.added && ws(pt.value)){
-      const from = cm.posFromIndex(idx), to = cm.posFromIndex(idx + pt.value.length);
-      diffMarks.push(cm.markText(from, to, {className: "dAddM"}));
-      if(!firstPos) firstPos = from;
-      changes++;
-    }
-    idx += pt.value.length;
-  }
-  // pas de bandeau : indication furtive dans la barre de statut, sortie par
-  // \u00c9chap ou re-clic sur le bouton \u00b1 de la barre d'outils
-  const note = changes
-    ? changes + " modification" + (changes > 1 ? "s" : "")
-    : "aucun changement de texte (retours \u00e0 la ligne seulement)";
-  setState("ok", "comparaison v" + (diffIdx + 2) + "/" + (DIFF_VERSIONS.length + 1)
-    + " \u00b7 " + note + " \u00b7 \u00c9chap pour fermer");
-  if(firstPos) cm.scrollIntoView(firstPos, 120);
-}
-function toggleDiff(show){
-  const next = show ?? !diffShown;
-  // aucune version : ne jamais verrouiller l'éditeur sans rien afficher
-  if(next && !DIFF_VERSIONS[diffIdx]) return;
-  diffShown = next;
-  document.getElementById("diffTag").classList.toggle("on", diffShown);
-  if(cm){
-    if(diffShown){ renderDiff(); cm.setOption("readOnly", true); }
-    else { clearDiffMarks(); cm.setOption("readOnly", false); cm.refresh(); setState("ok", ""); }
-  }
-}
-document.getElementById("diffTag").onclick = () => toggleDiff();
-// les versions du fichier survivent au rechargement de la page / de l'app
-diffRestoreFromStore();
-// \u00c9chap ferme la comparaison (capture : avant les keymaps CodeMirror)
-document.addEventListener("keydown", (e) => {
-  if(e.key === "Escape" && diffShown){ e.preventDefault(); e.stopPropagation(); toggleDiff(false); }
-}, true);
+// ---- historique de versions + comparaison in-editor : module partagé ----
+// (gallery/assets/diff_versions.js — utilisé aussi par code_editor.html)
+const __dv = DiffVersions({
+  getCm: () => cm,
+  path,
+  notify: (m) => setState("ok", m),
+  els: {
+    group: document.getElementById("diffGrp"),
+    tag: document.getElementById("diffTag"),
+    prev: document.getElementById("diffPrev"),
+    next: document.getElementById("diffNext"),
+    restore: document.getElementById("diffRestore"),
+  },
+  restoreText: async (text) => {
+    const r = await fetch("/codesave", {method:"POST", headers:{"Content-Type":"application/json"},
+      body: JSON.stringify({path, text, mtime: diskMtime})});
+    const j = await r.json();
+    if(!j.error){ diskMtime = j.mtime; cm.setValue(text); dirty = false; setState("ok", "version restaur\u00e9e"); }
+  },
+});
+const diffPush = (before, after) => __dv.push(before, after);
 // Add to chat sur sélection DANS le panneau diff (mode Studio)
 if(window.self !== window.top){
   const __fn = document.getElementById("fname"); if(__fn) __fn.style.display = "none"; // nom déjà dans l onglet Studio
@@ -1935,22 +1812,10 @@ if(window.self !== window.top){
   const bindDiffSel = () => {
     const host = (typeof cm !== "undefined" && cm) ? cm.getWrapperElement() : null;
     if(!host){ setTimeout(bindDiffSel, 300); return; }
-    host.addEventListener("mouseup", () => { if(diffShown) onDiffSelUp(); });
+    host.addEventListener("mouseup", () => { if(__dv.isShown()) onDiffSelUp(); });
   };
   bindDiffSel();
 }
-document.getElementById("diffPrev").onclick = () => { if(diffIdx > 0){ diffIdx--; updateDiffTag(); renderDiff(); toggleDiff(true); } };
-document.getElementById("diffNext").onclick = () => { if(diffIdx < DIFF_VERSIONS.length - 1){ diffIdx++; updateDiffTag(); renderDiff(); toggleDiff(true); } };
-document.getElementById("diffRestore").onclick = async () => {
-  const v = DIFF_VERSIONS[diffIdx];
-  if(!v) return;
-  const r = await fetch("/codesave", {method:"POST", headers:{"Content-Type":"application/json"},
-    body: JSON.stringify({path, text: v.before, mtime: diskMtime})});
-  const j = await r.json();
-  if(!j.error){ diskMtime = j.mtime; cm.setValue(v.before); dirty = false;
-    toggleDiff(false); setState("ok", "version restaurée"); }
-};
-
 // ===== option B : status bar, menu ⋯, lint ruff =====
 (function(){
   const sbMode = document.getElementById("sbMode");

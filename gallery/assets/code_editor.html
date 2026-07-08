@@ -13,6 +13,8 @@
 <script src="/.fig_thumbs/cm/markdown.min.js"></script>
 <script src="/.fig_thumbs/cm/julia.min.js"></script>
 <script src="/.fig_thumbs/cm/shell.min.js"></script>
+<script src="/.fig_thumbs/diff.min.js"></script>
+<script src="/.fig_thumbs/diff_versions.js"></script>
 <style>
 :root{--ui-font:-apple-system,'SF Pro Text','Inter Variable',sans-serif;--code-font:ui-monospace,'SF Mono',Menlo,monospace;--bg:#202024;--card:#27272a;--card2:#1f1f23;--txt:#dbdfe5;--muted:#a1a1aa;--accent:#5b9dff;--border:#3f3f46}
   html,body{margin:0;height:100%;background:var(--bg);color:var(--txt);
@@ -24,6 +26,13 @@
   #state.dirty{color:#ffd54a}
   #state.saved{color:#7ec97e}
   #state.conflict{color:#ff6b6b}
+  .dvBtn{background:transparent;color:var(--muted);border:1px solid var(--border);border-radius:6px;
+         padding:3px 8px;font-size:12px;cursor:pointer}
+  .dvBtn:hover{color:var(--txt)}
+  .dvBtn:disabled{cursor:default}
+  #diffTag.on{background:var(--border);color:var(--txt)}
+  /* état visible (le masquage initial est inline ; le module l'efface pour armer) */
+  #diffGrp{display:inline-flex;align-items:center;gap:4px}
   .CodeMirror{flex:1;height:auto;font-size:13px;
               font-family:var(--code-font);line-height:1.5}
   /* breathing room between line numbers and code (esp. 3-digit lines) */
@@ -79,6 +88,12 @@
     <option value="100">Wrap: 100</option>
     <option value="120">Wrap: 120</option>
   </select>
+  <span id="diffGrp" style="display:none">
+    <button id="diffPrev" class="dvBtn" style="display:none" title="Version précédente">&#8249;</button>
+    <button id="diffTag" class="dvBtn" disabled style="opacity:.4" title="Historique des modifications — vide pour l’instant (⌘S ou une modif de l’agent crée une version)"><svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-2px"><rect x="2.5" y="1.5" width="11" height="13" rx="2"/><path d="M8 5.2v4M6 7.2h4M6 11h4"/></svg></button>
+    <button id="diffNext" class="dvBtn" style="display:none" title="Version suivante">&#8250;</button>
+    <button id="diffRestore" class="dvBtn" style="display:none" title="Rétablir la version affichée sur le disque">Rétablir</button>
+  </span>
   <span id="state"></span>
   <span style="margin-left:auto;color:var(--muted)">Cmd+S: save · selection visible to Claude</span>
 </header>
@@ -117,6 +132,28 @@ function applyWrap(v){
 }
 wrapSel.value = localStorage.getItem("cmWrap") || "win";
 wrapSel.onchange = () => applyWrap(wrapSel.value);
+
+// historique de versions + comparaison in-editor (module partagé diff_versions.js,
+// même mécanique que latex_studio : ⌘S ou modif externe crée une version)
+let lastSavedText = null;
+const __dv = DiffVersions({
+  getCm: () => cm,
+  path,
+  notify: (m) => setState("saved", m),
+  els: {
+    group: document.getElementById("diffGrp"),
+    tag: document.getElementById("diffTag"),
+    prev: document.getElementById("diffPrev"),
+    next: document.getElementById("diffNext"),
+    restore: document.getElementById("diffRestore"),
+  },
+  restoreText: async (text) => {
+    const r = await fetch("/codesave", {method:"POST", headers:{"Content-Type":"application/json"},
+      body: JSON.stringify({path, text, mtime: diskMtime})});
+    const j = await r.json();
+    if(!j.error){ diskMtime = j.mtime; cm.setValue(text); dirty = false; lastSavedText = text; setState("saved", "version restaurée"); }
+  },
+});
 
 async function load(){
   const r = await fetch("/code?path=" + encodeURIComponent(path));
@@ -169,6 +206,7 @@ async function load(){
     cm.setCursor(cur);
   }
   applyWrap(wrapSel.value);
+  lastSavedText = j.text;
   dirty = false;
   setState("saved", "saved");
 }
@@ -186,6 +224,10 @@ async function save(){
   diskMtime = j.mtime;
   dirty = false;
   setState("saved", "saved " + new Date().toLocaleTimeString());
+  // versionner AUSSI tes propres modifications (une version par sauvegarde)
+  const savedNow = cm.getValue();
+  if(lastSavedText !== null) __dv.push(lastSavedText, savedNow);
+  lastSavedText = savedNow;
 }
 
 document.addEventListener("keydown", e => {
@@ -207,12 +249,16 @@ setInterval(async () => {
     const j = await r.json();
     if(j.mtime && Math.abs(j.mtime - diskMtime) > 0.001){
       diskMtime = j.mtime;
+      const before = cm.getValue();
       const cur = cm.getCursor(), scroll = cm.getScrollInfo();
       cm.setValue(j.text);
       cm.setCursor(cur);
       cm.scrollTo(scroll.left, scroll.top);
       dirty = false;
       setState("saved", "reloaded (modified on disk) " + new Date().toLocaleTimeString());
+      // modification externe (agent) → une version de comparaison
+      __dv.push(before, j.text);
+      lastSavedText = j.text;
     }
   }catch(e){}
 }, 2000);
