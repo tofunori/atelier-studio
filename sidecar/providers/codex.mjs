@@ -569,13 +569,6 @@ export async function run({
       input: params,
       source: "approval",
     });
-    upsertStep({
-      key: `approval:${id}`,
-      title: accepted ? "Permission accepted" : "Permission declined",
-      detail: name,
-      phase: "tool",
-      status: accepted ? "completed" : "failed",
-    });
   };
 
   let usage = null; // via thread/tokenUsage/updated
@@ -741,15 +734,6 @@ export async function run({
             source: "codex",
           });
         }
-        if (item.type === "sleep") {
-          upsertStep({
-            key: `sleep:${item.id ?? "sleep"}`,
-            title: "Wait finished",
-            detail: `${item.durationMs ?? 0} ms`,
-            phase: "tool",
-            status: "completed",
-          });
-        }
         break;
       }
       case "turn/plan/updated": {
@@ -757,13 +741,6 @@ export async function run({
           text: String(s.step ?? ""),
           completed: s.status === "completed",
         }));
-        upsertStep({
-          key: "todos",
-          title: "Updating plan",
-          detail: `${items.filter((t) => t.completed).length}/${items.length} done`,
-          phase: "todo",
-          status: "running",
-        });
         onEvent({ kind: "todos", items });
         break;
       }
@@ -778,33 +755,24 @@ export async function run({
       }
       case "error": {
         if (params.willRetry) break;
-        emitActivity({ title: "Failed", detail: params.error?.message ?? "Codex error", status: "failed" });
         onEvent({ kind: "error", message: params.error?.message ?? "erreur Codex" });
         break;
       }
       case "turn/completed": {
         const turn = params.turn ?? {};
         if (turn.status === "failed") {
-          emitActivity({ title: "Failed", detail: turn.error?.message ?? "Codex failed", status: "failed" });
           onEvent({ kind: "error", message: turn.error?.message ?? "failed" });
           doneEmitted = true; // pas de done ok:true après une erreur (l'event error suffit)
           finished({ ok: false });
           break;
         }
         if (turn.status === "interrupted") {
-          onEvent({ kind: "activity", id: activityId, title: "Interrupted", detail: "Stopped by user", status: "failed" });
           doneEmitted = true;
           onEvent({ kind: "done", ok: false, result: "interrompu" });
           finished({ ok: false, doneSent: true });
           break;
         }
         const tc = usage ?? lastTokenCount(codexId);
-        emitActivity({
-          title: "Finished",
-          detail: activity.steps.length ? `${activity.steps.length} actions` : "No tools used",
-          status: "completed",
-          phase: activity.phase,
-        });
         doneEmitted = true;
         onEvent({ kind: "done", ok: true, result: "", usage: {
           context: tc?.context ?? 0,

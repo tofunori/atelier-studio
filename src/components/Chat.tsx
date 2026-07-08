@@ -393,25 +393,6 @@ function Working({ since }: { since: number }) {
   );
 }
 
-function HeartbeatLine({ heartbeat }: { heartbeat: { ts: number; elapsedMs?: number } | null }) {
-  const [, tick] = useState(0);
-  useEffect(() => {
-    const t = setInterval(() => tick((n) => n + 1), 1000);
-    return () => clearInterval(t);
-  }, []);
-  if (!heartbeat) return null;
-  const age = Math.max(0, Math.round((Date.now() - heartbeat.ts) / 1000));
-  const elapsed = heartbeat.elapsedMs != null ? Math.max(1, Math.round(heartbeat.elapsedMs / 1000)) : null;
-  return (
-    <div className="working-heartbeat">
-      <span className="heartbeat-dot" aria-hidden="true" />
-      <span>{t("heartbeat.live")}</span>
-      <span className="heartbeat-age">{age <= 1 ? t("heartbeat.now") : t("heartbeat.ago", { secs: age })}</span>
-      {elapsed != null && <span className="heartbeat-elapsed">{t("heartbeat.turn", { secs: elapsed })}</span>}
-    </div>
-  );
-}
-
 function ActivityCard({ event, live }: { event: Extract<AgentEvent, { kind: "activity" }>; live: boolean }) {
   const [manualOpen, setManualOpen] = useState<boolean | null>(null);
   const open = manualOpen ?? live;
@@ -585,7 +566,6 @@ function PinBtn({ pinned, onClick }: { pinned: boolean; onClick: () => void }) {
 export default function Chat(p: {
   events: AgentEvent[];
   workingSince: number | null;
-  heartbeat: { ts: number; elapsedMs?: number } | null;
   commands: { name: string; source: string }[];
   files: string[];
   recentFiles: string[];
@@ -1471,7 +1451,6 @@ export default function Chat(p: {
                 <span className="working-goal-status">{t(`goal.status.${activeGoal.status}` as Parameters<typeof t>[0])}</span>
               </div>
             )}
-            <HeartbeatLine heartbeat={p.heartbeat} />
             <button type="button" className="stop-hint" title={t("action.interrupt")} onClick={p.onStop}>
               <kbd>esc</kbd> {t("action.interrupt")}
             </button>

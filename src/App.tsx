@@ -173,7 +173,6 @@ export default function App() {
   const [workingSince, setWorkingSince] = useState<Record<string, number | null>>({});
   const workingSinceRef = useRef<Record<string, number | null>>({});
   workingSinceRef.current = workingSince;
-  const [heartbeatByThread, setHeartbeatByThread] = useState<Record<string, { ts: number; elapsedMs?: number }>>({});
   const [usageByThread, setUsageByThread] = useState<
     Record<string, { context: number; output: number; cost: number | null; turns: number | null }>
   >({});
@@ -464,11 +463,8 @@ export default function App() {
           return;
         }
         if (msg.event.kind === "heartbeat") {
+          // signal de vie seulement : maintient l'indicateur "Working", rien d'affiché
           setWorkingSince((p) => ({ ...p, [msg.threadId]: p[msg.threadId] ?? Date.now() }));
-          setHeartbeatByThread((p) => ({
-            ...p,
-            [msg.threadId]: { ts: Date.now(), elapsedMs: msg.event.elapsedMs },
-          }));
           return;
         }
         if (msg.event.kind === "usage") {
@@ -560,11 +556,6 @@ export default function App() {
         }
         if (msg.event.kind === "done" || msg.event.kind === "error") {
           setWorkingSince((p) => ({ ...p, [msg.threadId]: null }));
-          setHeartbeatByThread((p) => {
-            const next = { ...p };
-            delete next[msg.threadId];
-            return next;
-          });
           const th = allThreadsRef.current?.find?.((x: any) => x.id === msg.threadId);
           notifyRunDone({
             threadId: msg.threadId,
@@ -1610,7 +1601,6 @@ export default function App() {
           threadId={activeId}
           events={activeId ? (events[activeId] ?? []) : []}
           workingSince={activeId ? (workingSince[activeId] ?? null) : null}
-          heartbeat={activeId ? (heartbeatByThread[activeId] ?? null) : null}
           usage={activeId ? (usageByThread[activeId] ?? null) : null}
           commands={commands}
           files={files}
