@@ -929,10 +929,17 @@ async function load(){
     return Math.max(40, Math.min(120,
       Math.floor((cm.getWrapperElement().clientWidth - gutter - 16) / cm.defaultCharWidth()) - 2));
   }
+  // Préfixe de commentaire selon le langage. En LaTeX, SEUL % compte : « # »
+  // n'y est jamais un commentaire (typo Markdown ###{…} traitée comme préfixe
+  // → espace injecté → # nu fatal à la compilation). En Markdown, # est un
+  // titre, pas un commentaire : aucun préfixe reformatable.
+  const CM_PREFIX_RE = IS_TEX ? /^\s*(%+)\s?/
+    : (__EXT === "md" ? null : /^\s*(#+|\/\/)\s?/);
+  const cmPrefixOf = (line) => CM_PREFIX_RE ? ((line.match(CM_PREFIX_RE) || [])[1] || "") : "";
   // reformate un bloc de lignes à `col` colonnes (préfixe commentaire préservé)
   function wrapLines(lines, col){
     const indent = (lines[0].match(/^\s*/) || [""])[0];
-    const cm0 = (lines[0].match(/^\s*([%#]+|\/\/)\s?/) || [])[1] || "";
+    const cm0 = cmPrefixOf(lines[0]);
     const allComment = cm0 && lines.every(l => !l.trim() || l.trim().startsWith(cm0));
     const prefix = allComment ? indent + cm0 + " " : indent;
     const strip = (l) => allComment
@@ -954,7 +961,7 @@ async function load(){
   // du « Missing \begin{document} » et des commentaires éclatés). Un bloc 100 %
   // commentaire reste reformatable (le préfixe est préservé sur chaque ligne).
   function reflowable(block){
-    const cm0 = (block[0].match(/^\s*([%#]+|\/\/)\s?/) || [])[1] || "";
+    const cm0 = cmPrefixOf(block[0]);
     if(cm0 && block.every(l => !l.trim() || l.trim().startsWith(cm0))) return true;
     if(!IS_TEX) return false;              // code : seuls les blocs commentaires
     // % non échappé n'importe où dans le bloc (\% neutralisé) → intouchable
@@ -1090,8 +1097,41 @@ async function save(){
   return true;
 }
 
+// Preflight : motifs Markdown/typos fatals fréquents AVANT latexmk (~0 ms).
+// Retourne {line, msg} (1-indexé) ou null. Ignore les commentaires % ; tolère
+// #1..#9 (paramètres de macro) — ne vise que les motifs sans sens en LaTeX.
+function texPreflight(text){
+  const lines = text.split("\n");
+  const RULES = [
+    [/^\s*#{1,6}\s*\{/, "ressemble à un titre Markdown — \\section{…} / \\subsection{…} ?"],
+    [/^\s*#{1,6}\s+\S/, "titre Markdown dans du LaTeX — \\section{…} ?"],
+    [/^\s*```/, "clôture de code Markdown — pas du LaTeX (verbatim ?)"],
+  ];
+  for(let i = 0; i < lines.length; i++){
+    const raw = lines[i];
+    if(/^\s*%/.test(raw)) continue;                 // commentaire : tout est permis
+    const l = raw.replace(/(^|[^\\])%.*$/, "$1");   // partie active de la ligne
+    for(const [re, msg] of RULES){
+      if(re.test(l)) return { line: i + 1, msg: "« " + l.trim().slice(0, 40) + " » " + msg };
+    }
+  }
+  return null;
+}
+let __preflightAt = 0;
 async function compile(){
   if(dirty && !(await save())) return;
+  // typos fatales évidentes : bloquer avec la ligne — re-⌘B dans les 8 s = forcer
+  if(IS_TEX && cm){
+    const pf = texPreflight(cm.getValue());
+    if(pf && Date.now() - __preflightAt > 8000){
+      __preflightAt = Date.now();
+      cm.setCursor({line: pf.line - 1, ch: 0});
+      cm.scrollIntoView({line: pf.line - 1, ch: 0}, 120);
+      cm.focus();
+      setState("err", "L." + pf.line + " : " + pf.msg + " — re-⌘B pour compiler quand même");
+      return;
+    }
+  }
   setState("dirty", "compiling…");
   const r = await fetch("/compile", {method:"POST", headers:{"Content-Type":"application/json"},
     body: JSON.stringify({path})});

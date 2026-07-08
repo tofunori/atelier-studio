@@ -327,7 +327,7 @@ async function latexStudioTests() {
     const code = extract(src, /function rewrapCol\(\)/, "window.__rewrapAll = rewrapAll;", "bloc rewrap")
       .replace(/document\.addEventListener\("keydown"[\s\S]*?\}, true\);/, "")
       .replace(/document\.getElementById\("rewrapBtn"\).*\n/, "");
-    const run = (linesArr, IS_TEX = true, col = "50") => {
+    const run = (linesArr, IS_TEX = true, col = "50", ext) => {
       let lines = [...linesArr];
       const cm = {
         lineCount: () => lines.length, getLine: (i) => lines[i],
@@ -337,8 +337,9 @@ async function latexStudioTests() {
         defaultCharWidth: () => 8, somethingSelected: () => false, focus() {},
       };
       const w = {};
-      new Function("cm", "wrapSel", "setState", "window", "IS_TEX", "document", code + "; return window.__rewrapAll;")(
-        cm, { value: col }, () => {}, w, IS_TEX, { addEventListener() {}, getElementById: () => ({ onclick: null }) },
+      new Function("cm", "wrapSel", "setState", "window", "IS_TEX", "__EXT", "document", code + "; return window.__rewrapAll;")(
+        cm, { value: col }, () => {}, w, IS_TEX, ext ?? (IS_TEX ? "tex" : "py"),
+        { addEventListener() {}, getElementById: () => ({ onclick: null }) },
       )();
       return lines;
     };
@@ -360,6 +361,30 @@ async function latexStudioTests() {
 
     out = run(["x = compute(a, b, c) + call(un, deux, trois) + encore(quatre, cinq, six)"], false);
     ok("rewrap : code jamais fusionné", out.length === 1);
+
+    // « # » n'est PAS un commentaire LaTeX : une typo Markdown ###{…} ne doit
+    // jamais être traitée comme préfixe (espace injecté → # nu fatal au compile)
+    out = run(["###{Sensibilite au seuil} avec du texte assez long pour forcer un repli de la ligne ici meme."]);
+    ok("rewrap tex : ###{…} intact (pas un commentaire)", out.join(" ").includes("###{Sensibilite"), JSON.stringify(out));
+    ok("rewrap tex : # jamais propagé en préfixe", out.slice(1).every((l) => !/^\s*#/.test(l)), JSON.stringify(out));
+    // …mais # reste bien un préfixe de commentaire en Python
+    out = run(["# un commentaire python tres long qui depasse la colonne de cinquante caracteres fixee"], false);
+    ok("rewrap py : préfixe # préservé", out.length > 1 && out.every((l) => l.startsWith("# ")), JSON.stringify(out));
+  }
+
+  // C3. texPreflight : typos Markdown fatales attrapées avant latexmk
+  {
+    const code = extract(src, /function texPreflight\(text\)/, "\n}", "texPreflight");
+    const pf = new Function(code + "; return texPreflight;")();
+    let r = pf("texte normal\n###{Sensibilite au seuil}\nsuite\n");
+    ok("preflight : ###{…} détecté à la bonne ligne", r && r.line === 2, JSON.stringify(r));
+    r = pf("avant\n### Un titre markdown\n");
+    ok("preflight : ### titre détecté", r && r.line === 2, JSON.stringify(r));
+    r = pf("avant\n```\ncode\n```\n");
+    ok("preflight : clôture ``` détectée", r && r.line === 2, JSON.stringify(r));
+    ok("preflight : % ###… ignoré (commentaire)", pf("% ### plan de section en commentaire\n") === null);
+    ok("preflight : #1 macro toléré", pf("\\newcommand{\\x}[1]{#1 en gras}\n") === null);
+    ok("preflight : texte sain → null", pf("\\section{Intro}\nDu texte avec 50\\% et \\cite{a}.\n") === null);
   }
 
   // C2. texcFind : ré-ancrage exact + normalisé aux blancs
