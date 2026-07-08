@@ -334,7 +334,7 @@ async function gitBase(root) {
       if (ix < 0) continue;
       const sha = line.slice(0, ix);
       const subject = line.slice(ix + 1);
-      if (sha && !/^auto: session/.test(subject)) return sha;
+      if (sha && !/^auto: /.test(subject)) return sha;
     }
   }
   return "HEAD";
