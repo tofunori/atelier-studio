@@ -424,11 +424,14 @@ function editFromToolCallUpdate(update, seenEdits) {
 }
 
 function hookExecutionEvent(update) {
-  const runs = update?.runs ?? [];
-  const failed = runs.filter((r) => r?.status?.status === "failed");
-  if (!failed.length) return []; // tout est passé : pas de bruit (design sobre)
-  const n = failed.length;
-  return [{ kind: "tool", name: `hook ${update.event_name ?? ""}: ${n} échec${n > 1 ? "s" : ""}`.trim() }];
+  // Ignoré entièrement, échecs compris — les hooks globaux de l'utilisateur
+  // (~/.grok/hooks/{cmux-session,muxy-notify,orca-status}.json) ciblent des
+  // hôtes (cmux/Muxy/Orca) absents quand grok tourne dans Atelier : ils
+  // échouent SYSTÉMATIQUEMENT ici → bruit permanent non actionnable dans le
+  // chat (constaté en réel 2026-07-08). Le TUI grok ne les affiche pas non
+  // plus. Diagnostic possible via ~/.grok/sessions/…/events.jsonl au besoin.
+  void update;
+  return [];
 }
 
 function pendingInteractionEvent(update) {

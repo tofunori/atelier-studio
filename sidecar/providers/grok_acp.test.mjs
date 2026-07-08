@@ -113,10 +113,16 @@ describe("grok ACP — mapping sessionUpdate -> kinds Atelier (fixture réelle r
     expect(ev.input).toBeNull();
   });
 
-  it("hook_execution sans échec -> ignoré (pas de bruit)", () => {
+  it("hook_execution -> toujours ignoré, échecs compris (hooks cmux/muxy/orca hors hôte = bruit permanent)", () => {
     const hooks = updates.filter((u) => u.sessionUpdate === "hook_execution");
     expect(hooks.length).toBeGreaterThan(0);
     for (const h of hooks) expect(mapSessionUpdate(h)).toEqual([]);
+    const failing = {
+      sessionUpdate: "hook_execution",
+      event_name: "user_prompt_submit",
+      runs: [{ name: "global/orca-status:user_prompt_submit[0]", status: { status: "failed", elapsed_ms: 3 } }],
+    };
+    expect(mapSessionUpdate(failing)).toEqual([]);
   });
 
   it("pending_interaction -> tool informatif (une ligne)", () => {
