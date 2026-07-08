@@ -517,12 +517,26 @@ function toolPayloadText(value: unknown): string {
   }
 }
 
+// vue colorée de l'input d'un outil : la commande bash telle quelle (pas le
+// blob JSON), le contenu d'un fichier écrit coloré selon son extension, sinon
+// le JSON indenté — la coloration passe par highlightCode (cache LRU partagé).
+function toolInputView(value: unknown): { lang: string; text: string } | null {
+  if (value == null || value === "") return null;
+  if (typeof value === "string") return { lang: "", text: value };
+  const o = value as Record<string, unknown>;
+  if (typeof o.command === "string" && o.command.trim()) return { lang: "bash", text: o.command };
+  if (typeof o.file_path === "string" && typeof o.content === "string") {
+    return { lang: String(o.file_path).split(".").pop() ?? "", text: o.content };
+  }
+  return { lang: "json", text: toolPayloadText(value) };
+}
+
 function ToolOutputLine({ event }: { event: Extract<AgentEvent, { kind: "tool_update" }> }) {
   const output = event.output.length > 6000 ? "[...]\n" + event.output.slice(-6000) : event.output;
-  const input = toolPayloadText(event.input);
+  const inputView = toolInputView(event.input);
   const failed = Boolean(event.exitCode && event.exitCode !== 0) || event.status === "failed";
   const [open, setOpen] = useState(failed);
-  const summary = event.detail || toolOutputSummary(output) || (input ? "input" : "");
+  const summary = event.detail || toolOutputSummary(output) || (inputView ? "input" : "");
   return (
     <div className={`tool-output ${open ? "open" : "collapsed"} ${failed ? "failed" : ""}`}>
       <button type="button" className="tool-output-head" onClick={() => setOpen((v) => !v)}>
@@ -534,12 +548,19 @@ function ToolOutputLine({ event }: { event: Extract<AgentEvent, { kind: "tool_up
         {summary && <span className="tool-output-summary">{summary}</span>}
         {event.status && <span className="tool-status">{event.status}</span>}
       </button>
-      {open && (input || output.trim()) && (
+      {open && (inputView || output.trim()) && (
         <div className="tool-output-body">
-          {input && (
+          {inputView && (
             <div className="tool-payload">
               <div className="tool-payload-label">input</div>
-              <pre>{input}</pre>
+              {inputView.lang ? (
+                <pre><code
+                  className="hljs"
+                  dangerouslySetInnerHTML={{ __html: highlightCode(inputView.text, inputView.lang) }}
+                /></pre>
+              ) : (
+                <pre>{inputView.text}</pre>
+              )}
             </div>
           )}
           {output.trim() && (
