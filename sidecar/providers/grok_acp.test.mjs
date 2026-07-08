@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import {
   acpMethodNotFoundResponse,
+  buildAcpPromptText,
   handleIncoming,
   makeTurnEmitter,
   mapPromptError,
@@ -316,5 +317,38 @@ describe("grok ACP — makeTurnEmitter (adjacence bloc live -> bloc final)", () 
     kinds.forEach((k, i) => {
       if (k === "text") expect(kinds[i - 1]).toBe("delta");
     });
+  });
+});
+
+describe("grok ACP — contrat frontend tool_update.output (crash 2026-07-08)", () => {
+  // ws.ts déclare output: string (requis) et Chat.tsx fait event.output.length
+  // sans garde — un tool_update sans output a fait crasher toute l'UI.
+  it("tool_call initial -> output toujours string (jamais undefined)", () => {
+    const fixture = loadFixture("grok-acp-turn.jsonl");
+    const update = fixture.map((m) => m.params.update).find((u) => u.sessionUpdate === "tool_call");
+    const [ev] = mapSessionUpdate(update);
+    expect(typeof ev.output).toBe("string");
+  });
+  it("tool_call_update sans contenu -> output string vide", () => {
+    const [ev] = mapSessionUpdate({ sessionUpdate: "tool_call_update", toolCallId: "c1" });
+    expect(typeof ev.output).toBe("string");
+  });
+});
+
+describe("grok ACP — pièces jointes (buildAcpPromptText)", () => {
+  it("sans pièce jointe : prompt inchangé", () => {
+    expect(buildAcpPromptText("salut", {})).toBe("salut");
+    expect(buildAcpPromptText("salut")).toBe("salut");
+  });
+  it("imagePath + attachments référencés par chemin, dédoublonnés", () => {
+    const out = buildAcpPromptText("regarde ça", {
+      imagePath: "/tmp/a.png",
+      attachments: [{ path: "/tmp/a.png" }, { path: "/tmp/doc.pdf" }, { imagePath: "/tmp/b.jpg" }],
+    });
+    expect(out).toContain("regarde ça");
+    expect(out).toContain("/tmp/a.png");
+    expect(out).toContain("/tmp/doc.pdf");
+    expect(out).toContain("/tmp/b.jpg");
+    expect(out.match(/\/tmp\/a\.png/g)).toHaveLength(1);
   });
 });

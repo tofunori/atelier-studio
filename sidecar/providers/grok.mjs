@@ -383,6 +383,9 @@ function toolUpdateFromToolCall(update, toolMetaCache) {
     name: meta.name || update.title || "tool",
     status: "running",
     detail: update.title && update.title !== meta.name ? update.title : undefined,
+    // `output` est un string REQUIS côté front (ws.ts, Chat.tsx fait
+    // event.output.length sans garde — crash blanc constaté 2026-07-08)
+    output: "",
     input: update.rawInput ?? null,
     source: "grok",
   };
@@ -512,6 +515,23 @@ export function mapPromptResult(result) {
       turns: null,
     },
   };
+}
+
+/** Prompt ACP avec pièces jointes : le protocole grok annonce
+ * `promptCapabilities.image:false` (pas de bloc image), donc on référence les
+ * fichiers joints par leur chemin dans le texte — le moteur les lit avec ses
+ * propres outils (read_file). Même dégradation que l'ancien chemin one-shot,
+ * mais explicite au lieu de silencieusement perdue. */
+export function buildAcpPromptText(prompt, { imagePath, attachments } = {}) {
+  const paths = [];
+  if (imagePath) paths.push(String(imagePath));
+  for (const a of attachments ?? []) {
+    const p = a?.path ?? a?.imagePath;
+    if (p) paths.push(String(p));
+  }
+  const unique = [...new Set(paths)];
+  if (!unique.length) return String(prompt ?? "");
+  return `${String(prompt ?? "")}\n\n[Pièce${unique.length > 1 ? "s" : ""} jointe${unique.length > 1 ? "s" : ""} (lis ce${unique.length > 1 ? "s" : ""} fichier${unique.length > 1 ? "s" : ""} si pertinent) : ${unique.join(", ")}]`;
 }
 
 /** Extrait la sélection modèle/effort courante d'une liste d'options
@@ -746,7 +766,7 @@ export function makeTurnEmitter(onEvent) {
   return { emit, flush };
 }
 
-async function runAcp({ threadId, cwd, prompt, sessionId, model, effort, timeoutMs, onEvent }) {
+async function runAcp({ threadId, cwd, prompt, sessionId, model, effort, imagePath, attachments, timeoutMs, onEvent }) {
   const workDir = cwd || process.env.HOME || process.cwd();
   let srv;
   let sid;
@@ -779,7 +799,7 @@ async function runAcp({ threadId, cwd, prompt, sessionId, model, effort, timeout
   try {
     const result = await srv.request("session/prompt", {
       sessionId: sid,
-      prompt: [{ type: "text", text: String(prompt ?? "") }],
+      prompt: [{ type: "text", text: buildAcpPromptText(prompt, { imagePath, attachments }) }],
     });
     emitter.flush();
     onEvent(mapPromptResult(result));
