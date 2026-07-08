@@ -439,7 +439,9 @@ let pdfPath = path ? path.replace(/\.tex$/, ".pdf") : null;
 // (two concurrent getDocument() calls can deadlock pdf.js worker startup)
 if(path) fetch("/texroot?path=" + encodeURIComponent(path)).then(r=>r.json()).then(j=>{
   if(j.pdf) pdfPath = j.pdf;
-  if(IS_TEX) loadPdf();
+  // onglet PDF : une fois le PDF rendu, se caler sur la ligne où est le curseur
+  // dans l'éditeur (l'éditeur répond au want-view par un forward-sync)
+  if(IS_TEX){ const p = loadPdf(); if(isPdfMode && p) p.then(requestView); }
 }).catch(()=>{ if(IS_TEX) loadPdf(); });
 if(!IS_TEX){
   ["build","togglePdf","popPdf","reloadPdf"].forEach(id => {
@@ -1331,6 +1333,12 @@ async function synctexEdit(page, x, y){
   if(cm) jumpToLine(j.line);
   if(bc) bc.postMessage({t: "jump", line: j.line});   // editor tab jumps when we're the PDF tab
 }
+// l'onglet PDF réclame la position courante du curseur (à l'ouverture et
+// chaque fois qu'il redevient visible) ; l'éditeur répond par un forward-sync
+function requestView(){ if(isPdfMode && bc) bc.postMessage({t: "want-view"}); }
+document.addEventListener("visibilitychange", () => {
+  if(isPdfMode && !document.hidden && pdfDoc) requestView();
+});
 if(bc) bc.onmessage = e => {
   const m = e.data || {};
   if(isPdfMode){
@@ -1338,6 +1346,8 @@ if(bc) bc.onmessage = e => {
     else if(m.t === "view") showMarker(m.page, m.y);
   } else if(m.t === "jump"){
     jumpToLine(m.line);
+  } else if(m.t === "want-view"){
+    synctexView();   // forward-sync du curseur courant → l'onglet PDF se cale
   }
 };
 
