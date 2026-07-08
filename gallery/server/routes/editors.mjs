@@ -365,6 +365,52 @@ export async function handleEditorsGet(req, res, url) {
       return sendJson(res, 200, { ok: false });
     }
   }
+  if (pathname === "/commitmsg") {
+    // message de commit proposé par Haiku à partir du diff vs HEAD du fichier.
+    // ok:false = pas de diff / pas de claude : le client garde le message auto.
+    try {
+      const p = safePath(url.searchParams.get("path"));
+      if (!p) return sendJson(res, 200, { ok: false });
+      const dir = path.dirname(p);
+      const top = await gitOut(["rev-parse", "--show-toplevel"], dir);
+      if (!top) return sendJson(res, 200, { ok: false });
+      const root = top.trim();
+      const rel = path.relative(root, p).split(path.sep).join("/");
+      const diff = await gitOut(["diff", "HEAD", "--", rel], root);
+      if (!diff || !diff.trim()) return sendJson(res, 200, { ok: false });
+      const claude = await findClaudeCode();
+      if (!claude) return sendJson(res, 200, { ok: false });
+      const env = claudeSuggestEnv();
+      env.MAX_THINKING_TOKENS = "0";
+      const sys = [
+        "Tu écris des messages de commit git.",
+        "Réponds UNIQUEMENT avec le message : une seule ligne, impérative,",
+        "concise (max 72 caractères), en français, sans guillemets, sans",
+        "préfixe conventionnel, sans explication.",
+      ].join(" ");
+      const text = await new Promise((resolve) => {
+        // prompt via stdin : --disallowedTools est variadique et avalerait un
+        // prompt passé en argument
+        const child = spawn(claude, [
+          "-p", "--model", "haiku",
+          "--setting-sources", "project",
+          "--system-prompt", sys,
+          "--disallowedTools", "Bash,Edit,Write,Read,Grep,Glob,Task,WebFetch,WebSearch,NotebookEdit",
+        ], { cwd: root, env, stdio: ["pipe", "pipe", "ignore"] });
+        let out = "";
+        const timer = setTimeout(() => { try{ child.kill("SIGKILL"); }catch{} resolve(null); }, 20000);
+        child.stdout.on("data", (c) => { out += c; });
+        child.on("close", (code) => { clearTimeout(timer); resolve(code === 0 ? out.trim() : null); });
+        child.on("error", () => { clearTimeout(timer); resolve(null); });
+        child.stdin.end(`Fichier : ${rel}\n\nDiff :\n${diff.slice(0, 8000)}`);
+      });
+      if (!text) return sendJson(res, 200, { ok: false });
+      const msg = text.split("\n")[0].replace(/^["'`]+|["'`]+$/g, "").slice(0, 100);
+      return sendJson(res, 200, { ok: true, msg });
+    } catch (e) {
+      return sendJson(res, 200, { ok: false });
+    }
+  }
   if (pathname === "/gitshow") {
     // texte du fichier à un commit donné (Comparer / Rétablir de l'historique)
     try {

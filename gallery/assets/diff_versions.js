@@ -201,14 +201,25 @@ window.DiffVersions = function(opts){
         } else notify("commit refusé : " + ((j && j.error) || "erreur"));
       }catch(e){ notify("commit impossible : " + e.message); }
     }
+    let aiSeq = 0;
     commitBtn.onclick = () => {
       if(commitPop.style.display !== "none"){ closePop(); return; }
       const rc = commitBtn.getBoundingClientRect();
       commitPop.style.display = "flex";
       commitPop.style.top = (rc.bottom + 8) + "px";
       commitPop.style.left = Math.max(8, Math.min(rc.left, window.innerWidth - 336)) + "px";
-      ta.value = "maj " + name;
+      const auto = "maj " + name;
+      ta.value = auto;
       ta.focus(); ta.select();
+      // message Haiku en arrière-plan : ne remplace que si l'utilisateur n'a pas touché
+      const seq = ++aiSeq;
+      fetch("/commitmsg?path=" + encodeURIComponent(path))
+        .then(r => r.json())
+        .then(j => {
+          if(seq !== aiSeq || commitPop.style.display === "none") return;
+          if(j && j.ok && j.msg && ta.value === auto){ ta.value = j.msg; ta.select(); }
+        })
+        .catch(() => {});
     };
     commitPop.querySelector('[data-act="do"]').onclick = doCommit;
     ta.addEventListener("keydown", (e) => {
