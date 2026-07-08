@@ -1452,13 +1452,14 @@ function buildTexcPanel(){
       '<button class="tp-x" data-x="' + c.id + '" title="Supprimer">✕</button></div>').join("")
     : '<div class="tp-empty">aucun commentaire</div>');
 }
+let texcDelArm = null;
 function toggleTexcPanel(force){
+  if(texcDelArm){ clearTimeout(texcDelArm); texcDelArm = null; }
   const open = force ?? !texcPanel.classList.contains("open");
   texcPanel.classList.toggle("open", open);
   if(open) buildTexcPanel();
 }
 document.getElementById("texcBtn").onclick = () => toggleTexcPanel();
-let texcDelArm = null;
 texcPanel.addEventListener("click", (e) => {
   const x = e.target.closest(".tp-x");
   if(x){ texcRemove(x.dataset.x); buildTexcPanel(); return; }
