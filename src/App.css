@@ -75,13 +75,13 @@ html, body, #root, .app { height: 100vh; overflow: hidden;
 .msg li { margin: 2.5px 0; }
 .msg li > ul, .msg li > ol { margin: 2px 0 2px; }
 .msg strong { color: var(--fg); font-weight: 600; }
-/* titres à l'échelle chat : ancres visuelles, pas des cris */
-.msg h1, .msg h2, .msg h3, .msg h4 { color: var(--fg); line-height: 1.35;
-  margin: 18px 0 6px; }
-.msg h1 { font-size: var(--fs-xl); font-weight: 600; letter-spacing: -0.01em; }
-.msg h2 { font-size: var(--fs-xl); font-weight: 600; letter-spacing: -0.01em; }
-.msg h3 { font-size: var(--fs-xl); font-weight: 600; letter-spacing: -0.01em; }
-.msg h4 { font-size: var(--fs-xl); font-weight: 600; letter-spacing: 0.02em; }
+/* titres à l'échelle chat : ancres visuelles, pas des cris — gradation
+   h1/h2 (--fs-xl) > h3 (--fs-l) > h4 (--fs-m, style "eyebrow" sobre) */
+.msg h1, .msg h2, .msg h3, .msg h4 { line-height: 1.35; margin: 14px 0 6px; }
+.msg h1 { color: var(--fg); font-size: var(--fs-xl); font-weight: 600; letter-spacing: -0.01em; margin-top: 18px; }
+.msg h2 { color: var(--fg); font-size: var(--fs-xl); font-weight: 600; letter-spacing: -0.01em; }
+.msg h3 { color: var(--fg); font-size: var(--fs-l); font-weight: 600; letter-spacing: -0.01em; }
+.msg h4 { color: var(--muted); font-size: var(--fs-m); font-weight: 600; letter-spacing: 0.02em; }
 .msg h1:first-child, .msg h2:first-child, .msg h3:first-child { margin-top: 2px; }
 .msg blockquote { margin: 8px 0; padding: 2px 0 2px 12px;
   border-left: 2px solid var(--border2); color: var(--muted); }
@@ -127,6 +127,26 @@ html, body, #root, .app { height: 100vh; overflow: hidden;
 .msg code { background: var(--bg-side); border: 1px solid var(--border);
   border-radius: var(--r-s); padding: 0.5px 5px; font-size: var(--fs-l); }
 .codeblock code { background: transparent; border: none; padding: 0; font-size: var(--fs-m); }
+/* Mermaid : même chrome que .codeblock (barre + copie du source) ; SVG rendu
+   uniquement dans le message final, jamais en streaming (Chat.tsx). */
+.codeblock-bar-actions { display: flex; align-items: center; gap: 2px; }
+.mermaid-toggle { background: transparent; border: none; color: var(--muted);
+  font-size: var(--fs-s); letter-spacing: 0.02em; cursor: pointer; padding: 0 8px;
+  height: 22px; border-radius: var(--r-s); }
+.mermaid-toggle:hover { color: var(--fg2); background: var(--bg-ctl); }
+.mermaid-svg-wrap { display: flex; justify-content: center; overflow-x: auto; padding: 14px; }
+.mermaid-svg-wrap svg { max-width: 100%; height: auto; }
+.mermaid-invalid-note { padding: 0 12px 10px; font-size: var(--fs-s); color: var(--muted); }
+/* task-lists GFM (lecture seule) : bullet retiré, checkbox custom sobre —
+   calque du pattern .git-file-line (ci-dessous). */
+.msg .task-list-item { list-style: none; margin-left: -20px; }
+.msg .task-list-item input[type="checkbox"] { appearance: none; -webkit-appearance: none;
+  width: 13px; height: 13px; margin: 0 6px 0 0; vertical-align: -2px; flex: none;
+  border-radius: 4px; border: 1px solid var(--border2); background: var(--bg-ctl);
+  position: relative; opacity: 1; cursor: default; }
+.msg .task-list-item input[type="checkbox"]:checked { background: var(--accent); border-color: var(--accent); }
+.msg .task-list-item input[type="checkbox"]:checked::after { content: ""; position: absolute; left: 3.5px; top: 1px;
+  width: 4px; height: 7px; border: solid #fff; border-width: 0 1.6px 1.6px 0; transform: rotate(45deg); }
 .tool, .done { color: var(--muted); font-size: var(--fs-m); }
 .tool-output, .todos { color: var(--muted); font-size: var(--fs-m); }
 .tool-output-head { width: 100%; display: grid; grid-template-columns: auto minmax(0, 1fr) auto auto;

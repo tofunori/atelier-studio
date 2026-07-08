@@ -14,6 +14,7 @@ import { wsSend } from "../lib/wsBus";
 import { eventLabel, t } from "../lib/i18n";
 import { normalizeMathDelimiters, hardenPartialMarkdown } from "../lib/markdown";
 import { LruCache } from "../lib/lruCache";
+import { MermaidBlock } from "./MermaidBlock";
 import {
   CloseIcon,
   CollapseIcon,
@@ -341,9 +342,21 @@ function PencilIcon() {
   );
 }
 
+// bloc `pre` du message final : language-mermaid → diagramme (jamais en
+// streaming, cf. MD_COMPONENTS_STREAMING plus bas), sinon bloc de code coloré
+// habituel.
+function PreBlock(props: any) {
+  const child = props.children?.props ?? {};
+  const lang = /language-([\w-]+)/.exec(String(child.className ?? ""))?.[1] ?? "";
+  if (lang === "mermaid") {
+    return <MermaidBlock source={mdText(child.children)} highlight={highlightCode} />;
+  }
+  return <MarkdownCodeBlock {...props} />;
+}
+
 // composants markdown : liens externes stylés + réfs fichier:ligne cliquables
 const MD_COMPONENTS = {
-  pre: MarkdownCodeBlock,
+  pre: PreBlock,
   table: (props: any) => (
     <div className="md-table"><table>{props.children}</table></div>
   ),
