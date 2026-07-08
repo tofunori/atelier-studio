@@ -42,6 +42,10 @@ const MODELS: Record<string, { id: string; label: string }[]> = {
     { id: "gpt-5.4-mini", label: "GPT-5.4 mini" },
     { id: "gpt-5.3-codex-spark", label: "Codex Spark" },
   ],
+  grok: [
+    { id: "grok-4.5", label: "Grok 4.5" },
+    { id: "grok-composer-2.5-fast", label: "Composer 2.5 Fast" },
+  ],
 };
 
 const EFFORTS: Record<string, string[]> = {
