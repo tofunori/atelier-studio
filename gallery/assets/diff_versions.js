@@ -172,6 +172,10 @@ window.DiffVersions = function(opts){
   }
   function push(before, after){
     if(before === after) return;
+    // rewrap-only (blancs/retours déplacés) : ne pas créer de version vide —
+    // sinon idx saute sur un diff « aucun changement » et masque les vraies
+    // modifications de la version précédente
+    if(before.replace(/\s+/g, " ").trim() === after.replace(/\s+/g, " ").trim()) return;
     VERSIONS.push({before, ts: Date.now()});
     idx = VERSIONS.length - 1;
     arm();
