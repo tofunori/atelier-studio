@@ -27,6 +27,7 @@ window.DiffVersions = function(opts){
   const { getCm, path, notify, els, restoreText } = opts;
   const VERSIONS = []; // {before, ts, head?, sha?} — diff contre le buffer courant
   let idx = -1, shown = false, marks = [];
+  let changePts = [], changeAt = 0; // positions {pos, ch} des changements + index courant
   let extCmp = null; // comparaison ponctuelle depuis l'historique : {before, label}
   const curVersion = () => extCmp || VERSIONS[idx];
   let headText = null, headSha = "";
@@ -48,7 +49,17 @@ window.DiffVersions = function(opts){
       ".dv-bar.m{background:rgba(232,179,74,.85)}" +
       ".dv-del{position:absolute;left:0;top:-5px;width:0;height:0;cursor:pointer;" +
         "border-left:7px solid rgba(224,108,117,.95);border-top:5px solid transparent;border-bottom:5px solid transparent}" +
-      ".dv-del.eof{top:auto;bottom:-4px}";
+      ".dv-del.eof{top:auto;bottom:-4px}" +
+      // navigateur de changements ‹ n/N › (sobre, monochrome, hérite du chrome)
+      "#dvNav{display:none;align-items:center;height:24px;border:1px solid #3a4150;border-radius:6px;overflow:hidden;vertical-align:middle}" +
+      "#dvNav .dvNavA{display:inline-flex;align-items:center;justify-content:center;width:20px;height:24px;background:transparent;border:none;color:#8b93a1;cursor:pointer;padding:0}" +
+      "#dvNav .dvNavA:hover{color:#dbdfe5;background:rgba(255,255,255,.06)}" +
+      "#dvNav .dvNavA:disabled{color:#3d434f;cursor:default;background:none}" +
+      "#dvNav .dvNavC{font-size:11px;font-variant-numeric:tabular-nums;color:#dbdfe5;padding:0 8px;height:100%;" +
+        "display:inline-flex;align-items:center;border-left:1px solid #3a4150;border-right:1px solid #3a4150;cursor:pointer;user-select:none}" +
+      "#dvNav .dvNavC:hover{background:rgba(255,255,255,.04)}" +
+      ".CodeMirror .dv-flash{animation:dvflash 700ms ease-out}" +
+      "@keyframes dvflash{0%{background:rgba(255,255,255,.14)}100%{background:transparent}}";
     document.head.appendChild(st);
   }
 
@@ -115,7 +126,8 @@ window.DiffVersions = function(opts){
       return -1;
     };
     const skip = new Set();
-    let at = 0, firstPos = null, changes = 0;
+    const pts = []; // {pos, ch} de chaque changement, dans l'ordre du document
+    let at = 0;
     for(let i = 0; i < parts.length; i++){
       const pt = parts[i];
       if(skip.has(i)){ if(!pt.removed) at += pt.value.length; continue; }
@@ -133,8 +145,8 @@ window.DiffVersions = function(opts){
         if(disp.length > 160) w.title = disp;
         const pos = cm.posFromIndex(at);
         marks.push(cm.setBookmark(pos, {widget: w}));
-        if(!firstPos) firstPos = pos;
-        changes++;
+        // un mot remplacé = suppression + ajout à la MÊME position : un seul stop
+        if(!pts.length || pts[pts.length - 1].ch !== at) pts.push({pos, ch: at});
         continue;
       }
       if(pt.added && wsn(pt.value)){
@@ -143,16 +155,77 @@ window.DiffVersions = function(opts){
         if(j >= 0){ skip.add(j); at += pt.value.length; continue; }
         const from = cm.posFromIndex(at), to = cm.posFromIndex(at + pt.value.length);
         marks.push(cm.markText(from, to, {className: "dAddM"}));
-        if(!firstPos) firstPos = from;
-        changes++;
+        if(!pts.length || pts[pts.length - 1].ch !== at) pts.push({pos: from, ch: at});
       }
       at += pt.value.length;
     }
+    changePts = pts;
+    // initialiser sur le changement le plus proche du curseur (on ouvre souvent
+    // la comparaison en plein milieu du document — naviguer à partir d'où on est)
+    changeAt = 0;
+    if(pts.length){
+      const cur = cm.getCursor(), curCh = cm.indexFromPos(cur);
+      let best = Infinity;
+      // distance en lignes d'abord (on est « sur » une ligne), caractères en second
+      pts.forEach((p, k) => {
+        const d = Math.abs(p.pos.line - cur.line) * 100000 + Math.abs(p.ch - curCh);
+        if(d < best){ best = d; changeAt = k; }
+      });
+    }
+    const changes = pts.length;
     const note = changes
       ? changes + " modification" + (changes > 1 ? "s" : "")
       : "aucun changement de texte" + (v.head ? "" : " (retours à la ligne seulement)");
     notify("comparaison " + (extCmp ? extCmp.label : labelOf(idx)) + " · " + note + " · Échap pour fermer");
-    if(firstPos) cm.scrollIntoView(firstPos, 120);
+    updateNav();
+    if(changes) gotoChange(changeAt, true);
+  }
+  // ---- navigateur de changements ‹ n/N › (accolé au ±, actif en comparaison) ----
+  let navPill = null, navPrev = null, navNext = null, navCount = null;
+  let flashLine = null, flashTimer = null;
+  function flashAt(pos){
+    const cm = getCm();
+    if(!cm || !pos) return;
+    if(flashLine != null){ try{ cm.removeLineClass(flashLine, "wrap", "dv-flash"); }catch(e){} }
+    flashLine = pos.line;
+    cm.addLineClass(flashLine, "wrap", "dv-flash");
+    clearTimeout(flashTimer);
+    flashTimer = setTimeout(() => {
+      if(flashLine != null){ try{ cm.removeLineClass(flashLine, "wrap", "dv-flash"); }catch(e){} flashLine = null; }
+    }, 700);
+  }
+  function gotoChange(k, flash){
+    const cm = getCm();
+    if(!cm || !changePts.length) return;
+    changeAt = Math.max(0, Math.min(changePts.length - 1, k));
+    cm.scrollIntoView(changePts[changeAt].pos, 120);
+    if(flash) flashAt(changePts[changeAt].pos);
+    updateNav();
+  }
+  function ensureNavUi(){
+    if(navPill || !els.group || !els.tag) return;
+    navPill = document.createElement("span");
+    navPill.id = "dvNav";
+    const chev = (d) => '<button class="dvNavA" data-d="' + d + '" tabindex="-1"><svg width="11" height="11" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="' + (d < 0 ? "M10 3L5 8l5 5" : "M6 3l5 5-5 5") + '"/></svg></button>';
+    navPill.innerHTML = chev(-1) + '<span class="dvNavC"></span>' + chev(1);
+    els.group.insertBefore(navPill, els.tag.nextSibling);
+    navPrev = navPill.querySelector('[data-d="-1"]');
+    navNext = navPill.querySelector('[data-d="1"]');
+    navCount = navPill.querySelector(".dvNavC");
+    navPrev.onclick = () => gotoChange(changeAt - 1, true);
+    navNext.onclick = () => gotoChange(changeAt + 1, true);
+    navCount.onclick = () => gotoChange(changeAt, true); // clic sur le compteur : recentrer
+  }
+  function updateNav(){
+    ensureNavUi();
+    if(!navPill) return;
+    const on = shown && changePts.length > 0;
+    navPill.style.display = on ? "inline-flex" : "none";
+    if(!on) return;
+    navCount.textContent = (changeAt + 1) + " / " + changePts.length;
+    navCount.title = "Changement " + (changeAt + 1) + " sur " + changePts.length + " — cliquer : recentrer";
+    navPrev.disabled = changeAt <= 0;
+    navNext.disabled = changeAt >= changePts.length - 1;
   }
   function toggle(show, scrollLine){
     const next = (show === undefined || show === null) ? !shown : show;
@@ -168,7 +241,12 @@ window.DiffVersions = function(opts){
       cm.setOption("readOnly", true);
       if(scrollLine != null) cm.scrollIntoView({line: scrollLine, ch: 0}, 120);
     }
-    else { extCmp = null; clearMarks(); cm.setOption("readOnly", false); cm.refresh(); notify(""); }
+    else {
+      extCmp = null; clearMarks(); cm.setOption("readOnly", false); cm.refresh(); notify("");
+      changePts = [];
+      if(navPill) navPill.style.display = "none";
+      if(flashLine != null){ try{ cm.removeLineClass(flashLine, "wrap", "dv-flash"); }catch(e){} flashLine = null; }
+    }
   }
   function push(before, after){
     if(before === after) return;
@@ -515,9 +593,15 @@ window.DiffVersions = function(opts){
     toggle(false);
   };
   // Échap ferme la comparaison (capture : avant les keymaps CodeMirror et les
-  // handlers Échap de l'hôte — seulement quand le mode est actif)
+  // handlers Échap de l'hôte — seulement quand le mode est actif). ⌥↓/⌥↑ =
+  // changement suivant/précédent (via e.code : indépendant de la disposition).
   document.addEventListener("keydown", (e) => {
-    if(e.key === "Escape" && shown){ e.preventDefault(); e.stopPropagation(); toggle(false); }
+    if(!shown) return;
+    if(e.key === "Escape"){ e.preventDefault(); e.stopPropagation(); toggle(false); return; }
+    if(e.altKey && !e.metaKey && !e.ctrlKey && (e.code === "ArrowDown" || e.code === "ArrowUp") && changePts.length){
+      e.preventDefault(); e.stopPropagation();
+      gotoChange(changeAt + (e.code === "ArrowDown" ? 1 : -1), true);
+    }
   }, true);
 
   // les versions du fichier survivent au rechargement de la page / de l'app
