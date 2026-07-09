@@ -413,7 +413,14 @@ function editText(el, o){                                   // inline-edit a <te
   inp.style.left = Math.max(2, b.x - 4) + "px";
   inp.style.top  = Math.max(2, b.y - 18) + "px";
   inp.style.minWidth = Math.max(90, b.w + 24) + "px";
-  stage.appendChild(inp); inp.focus(); inp.select();
+  stage.appendChild(inp);
+  // WKWebView: preventDefault() on the pointerdowns above also cancels their native
+  // focus side-effect — a single synchronous focus() can silently fail and the keys
+  // keep going to the app. Retry until the field really owns the keyboard.
+  const grabFocus = () => { if(document.activeElement !== inp && inp.isConnected){ try{ window.focus(); }catch(e){} inp.focus({ preventScroll: true }); inp.select(); } };
+  grabFocus();
+  requestAnimationFrame(grabFocus);
+  setTimeout(grabFocus, 80);
   const before = el.textContent || "";
   let done = false;
   function finish(keep){
