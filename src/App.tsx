@@ -636,12 +636,10 @@ export default function App() {
       setShowExplorer(true);
     }
   }
-  // explorateur de fichiers : togglé depuis le rail (l'état vit ici, plus dans
-  // AtelierPane, pour que le bouton du rail reflète son état actif)
-  const [showExplorer, setShowExplorer] = useState(() => localStorage.getItem("atelier-studio.explorer") === "1");
-  useEffect(() => {
-    localStorage.setItem("atelier-studio.explorer", showExplorer ? "1" : "0");
-  }, [showExplorer]);
+  // explorateur de fichiers : togglé depuis la TopBar (l'état vit ici pour que
+  // le bouton reflète son état actif). Fermé par défaut à chaque démarrage —
+  // pas de persistance : il ne se rouvre plus tout seul, on l'ouvre au besoin.
+  const [showExplorer, setShowExplorer] = useState(false);
   // relance dure de la galerie (redémarre le serveur s'il est mort) — extraite
   // de l'ancienne surface-bar, désormais dans la TopBar (surface atelier)
   function hardReloadAtelier() {
@@ -1860,6 +1858,7 @@ export default function App() {
           layout={layout}
           activeSurface={activeSurface}
           onSelectSurface={switchToSurface}
+          onSelectGallery={() => { switchToSurface("atelier"); setActiveTab("gallery"); }}
           onSelectIde={goToIde}
           ideActive={showAtelier && activeSurface === "atelier" && activeTab !== "gallery" && atelierTabs.some((tb) => tb.id === activeTab && tb.kind !== "term")}
           showExplorer={showExplorer}

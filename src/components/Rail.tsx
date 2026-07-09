@@ -53,6 +53,7 @@ export default function Rail(p: {
   layout: "split" | "chat" | "atelier";
   activeSurface: Surface;
   onSelectSurface: (surface: Surface) => void;
+  onSelectGallery: () => void;
   onSelectIde: () => void;
   ideActive: boolean;
   showExplorer: boolean;
@@ -134,7 +135,9 @@ export default function Rail(p: {
                pas quand un fichier est ouvert (là c'est l'IDE qui est actif) */
             className={`rail-view ${p.layout !== "chat" && p.activeSurface === s.id && !(s.id === "atelier" && p.ideActive) ? "on" : ""}`}
             title={t(s.labelKey)}
-            onClick={() => p.onSelectSurface(s.id)}
+            /* Galerie (atelier) : revient à l'onglet galerie même si un fichier
+               est ouvert (IDE) — sinon on resterait bloqué sur le fichier */
+            onClick={() => (s.id === "atelier" ? p.onSelectGallery() : p.onSelectSurface(s.id))}
           >
             {s.icon}
           </button>

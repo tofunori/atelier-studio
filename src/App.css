@@ -354,6 +354,9 @@ html, body, #root, .app { height: 100vh; overflow: hidden;
   border: none; color: var(--muted); font-size: var(--fs-m); padding: 3px 8px; border-radius: var(--r-s);
   cursor: pointer; max-width: 180px; }
 .atab.on { background: var(--bg-ctl); color: var(--fg); }
+/* onglet galerie réduit à son icône : compact, carré, centré */
+.atab-gallery { padding: 4px 9px; max-width: none; justify-content: center; }
+.atab-gallery svg { display: block; }
 .atab-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .atab-x { color: var(--muted2); padding: 0 2px; border-radius: var(--r-s); }
 .atab-x:hover { color: #e06c75; }

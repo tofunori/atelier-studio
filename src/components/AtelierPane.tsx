@@ -162,8 +162,14 @@ export default function AtelierPane({
       {/* ---- surface Atelier : galerie + onglets fichiers ---- */}
       <div className="surface-body pane-slot" style={slotStyle("atelier")}>
         <div className="atelier-bar">
-          <button className={`atab ${activeTab === "gallery" ? "on" : ""}`} onClick={() => onSelectTab("gallery")}>
-            {t("atelier.gallery")}
+          <button className={`atab atab-gallery ${activeTab === "gallery" ? "on" : ""}`}
+            onClick={() => onSelectTab("gallery")} title={t("atelier.gallery")} aria-label={t("atelier.gallery")}>
+            <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor"
+              strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round">
+              <rect x="2" y="2.5" width="12" height="11" rx="2.2" />
+              <circle cx="5.6" cy="6" r="1.15" />
+              <path d="M2.6 11.4 6 8l2.2 2.1L10.7 7.4l2.7 2.9" />
+            </svg>
           </button>
           {tabs.filter((t) => t.kind !== "term").map((t) => (
             <button
