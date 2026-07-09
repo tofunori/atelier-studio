@@ -658,6 +658,10 @@ async function load(){
       }catch(e){}
     }
     try{ const f = (svg.querySelector('[id^="figure"]') || svg).getBBox(); figArea = f.width * f.height; }catch(e){}
+    svg.querySelectorAll('[id^="added_text_"]').forEach(el => {   // resume numbering after reload — never reuse an existing added_text id
+      const n = parseInt(el.id.slice("added_text_".length), 10);
+      if(n > addCounter) addCounter = n;
+    });
     svg.addEventListener("pointerdown", onDown);
     svg.addEventListener("dblclick", e => {                 // dbl-click: close the polygon, else edit a text label
       if(addMode) return;
