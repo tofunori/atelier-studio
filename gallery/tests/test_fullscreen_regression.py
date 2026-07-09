@@ -148,6 +148,12 @@ class FullscreenRegressionTests(unittest.TestCase):
         self.assertIn('data-wfset=', gallery)
         self.assertNotIn("Workflow &#9662;", gallery)
         self.assertNotIn("Workflow: none", gallery)
+        # push/hydration : workflow rejoint le payload /state, la valeur serveur
+        # validee remplace le cache localStorage au chargement, et le listener
+        # <select> mort (.wfsel) ne doit jamais revenir.
+        self.assertIn("hideRules,collections,workflow}", gallery)
+        self.assertIn("if(st.workflow", gallery)
+        self.assertNotIn(".wfsel", gallery)
         self.assertIn("let recents = JSON.parse(localStorage.getItem('figRecent')", gallery)
         self.assertIn("function buildRecentChip()", gallery)
         self.assertIn("function checkHealth()", gallery)
