@@ -12,7 +12,7 @@
   --ease: 140ms ease;
   /* fond de fenêtre derrière les cartes flottantes (rail/panneau/zone
      principale) — dérivé de --bg, jamais un hex arbitraire */
-  --ground: color-mix(in srgb, var(--bg) 78%, black);
+  --ground: color-mix(in srgb, var(--bg) 62%, black);
 }
 :root[data-theme="light"] {
   --bg: #f5f6f8; --bg-side: #ebedf1; --bg-pop: #ffffff; --bg-card: #ffffff;
@@ -392,19 +392,16 @@ html, body, #root, .app { height: 100vh; overflow: hidden;
   box-shadow: 0 6px 18px rgba(0,0,0,0.5); }
 .quote-pill:hover { background: var(--border2); }
 .chev { color: var(--muted2); font-size: var(--fs-xs); width: 10px; display: inline-block; }
-/* zone titre : ~42px, fond de fenêtre, drag region principal (feux
-   tricolores Overlay + nom de l'app/projet actif, discret) */
-.titlebar { height: 42px; flex-shrink: 0; display: flex; align-items: center;
-  padding: 0 14px 0 68px; }
-.titlebar-name { font-size: var(--fs-s); color: var(--muted2); letter-spacing: -0.01em;
-  user-select: none; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* bande de préhension : invisible (même fond que la fenêtre), juste la
+   hauteur des feux Overlay — pas une « barre », un espace de drag vide */
+.titlebar { height: 36px; flex-shrink: 0; }
 /* rail compacte façon Muxy — panneaux « cartes flottantes » sur le fond --ground */
-.app-row { display: flex; height: calc(100vh - 42px); gap: 8px; padding: 0 8px 8px; }
+.app-row { display: flex; height: calc(100vh - 36px); gap: 8px; padding: 0 8px 8px; }
 .main-card { flex: 1; min-width: 0; height: 100%; overflow: hidden;
   background: var(--bg-side); border: 1px solid var(--border2);
   border-radius: var(--r-m); box-shadow: var(--elev); position: relative; }
 .rail { width: 80px; flex-shrink: 0; background: var(--bg-side); display: flex; overflow-y: auto; overflow-x: hidden; scrollbar-width: none;
-  flex-direction: column; align-items: center; gap: 8px; padding: 34px 0 10px;
+  flex-direction: column; align-items: center; gap: 8px; padding: 12px 0 10px;
   border: 1px solid var(--border2); border-radius: var(--r-m); box-shadow: var(--elev); position: relative; }
 .rail .flex { flex: 1; }
 .rail-btn { width: 38px; height: 38px; border-radius: var(--r-m); border: none;
@@ -872,7 +869,7 @@ input[type="range"].slider::-webkit-slider-thumb:hover { transform: scale(1.15);
 .sec-toggle:hover { color: var(--fg2); }
 /* la zone titre est l'unique drag region désormais — side-top garde son
    rôle visuel (bouton replier) mais ne drague plus la fenêtre */
-.side-top { display: flex; align-items: center; min-height: 26px; padding-left: 68px; }
+.side-top { display: flex; align-items: center; min-height: 26px; padding-left: 12px; }
 .side-top .flex { flex: 1; }
 .side-top .compact-btn { display: inline-flex; padding: 3px 6px; }
 /* panneau de vue « Surlignés » (placeholder lot 1) */
@@ -1917,14 +1914,14 @@ body.dragging iframe { pointer-events: none; }
 /* recalé sur la nouvelle géométrie : rail card = 8px gouttière + 80px + 8px ;
    sous la zone titre (42px) ; ne couvre pas le rail : les clics sur les
    icônes passent, et la zone titre reste draguable même flyout ouvert */
-.fly-backdrop { position: fixed; inset: 42px 0 0 62px; z-index: 60; }
-.rail-flyout { position: fixed; left: 96px; top: 42px; bottom: 8px; width: 236px; z-index: 61;
+.fly-backdrop { position: fixed; inset: 36px 0 0 62px; z-index: 60; }
+.rail-flyout { position: fixed; left: 96px; top: 36px; bottom: 8px; width: 236px; z-index: 61;
   background: var(--bg-pop); border: 1px solid var(--border2); border-radius: var(--r-m); box-shadow: var(--elev);
   display: flex; flex-direction: column; padding: 8px;
   animation: fly-in 140ms ease; transform-origin: left; }
 @keyframes fly-in { from { opacity: 0; transform: translateX(-8px); } to { opacity: 1; transform: none; } }
 @media (prefers-reduced-motion: reduce) { .rail-flyout { animation: none; } }
-.fly-head { display: flex; align-items: center; gap: 4px; padding: 34px 6px 8px;
+.fly-head { display: flex; align-items: center; gap: 4px; padding: 12px 6px 8px;
   border-bottom: 1px solid var(--border); margin-bottom: 4px; }
 .fly-name { font-size: var(--fs-l); font-weight: 600; color: var(--fg); letter-spacing: -0.01em;
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; }

@@ -1766,10 +1766,6 @@ export default function App() {
     },
   }), [activeProject, allThreads, files, zoteroItems]);
 
-  // titre discret de la zone titre : "Atelier" seul, ou "Atelier — <projet>"
-  // — même convention que projectDisplayName (dernier segment du chemin)
-  const titlebarLabel = activeProject ? `Atelier — ${projectDisplayName(activeProject)}` : "Atelier";
-
   if (showSettings) {
     return (
       <>
@@ -1790,9 +1786,10 @@ export default function App() {
 
   return (
     <>
-    <div className="titlebar" data-tauri-drag-region>
-      <span className="titlebar-name">{titlebarLabel}</span>
-    </div>
+    {/* bande de préhension invisible : juste le fond + les feux Overlay qui
+        flottent dessus — aucun contenu, aucune bordure (pas de « barre ») */}
+    <div className="titlebar" data-tauri-drag-region />
+
     <div className={`app-row ${dragging ? "dragging" : ""}`}>
         <Rail
           projects={projects}
