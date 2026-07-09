@@ -1021,14 +1021,16 @@ export default function Chat(p: {
 
   // autocomplétion : "/xxx" en début de message → skills ; "@xxx" (dernier mot) → fichiers/références
   let suggestions: Suggestion[] = [];
-  const slashMatch = /^\/([\w:-]*)$/.exec(text);
+  // "/" accepté aussi en plein milieu du message (après un espace), comme "@"
+  const slashMatch = /(^|\s)\/([\w:-]*)$/.exec(text);
   const atMatch = /(^|\s)@([\w./:-]*)$/.exec(text);
   if (slashMatch) {
-    const q = slashMatch[1].toLowerCase();
+    const q = slashMatch[2].toLowerCase();
+    const slashBase = text.slice(0, slashMatch.index) + slashMatch[1];
     suggestions = p.commands
       .filter((c) => c.name.toLowerCase().includes(q))
       .slice(0, 12)
-      .map((c) => ({ insert: `/${c.name} `, label: `/${c.name}`, hint: c.source }));
+      .map((c) => ({ insert: `${slashBase}/${c.name} `, label: `/${c.name}`, hint: c.source }));
   } else if (atMatch) {
     const q = atMatch[2].toLowerCase();
     const base = text.slice(0, atMatch.index) + atMatch[1];
@@ -1914,28 +1916,22 @@ export default function Chat(p: {
           </div>
         )}
         <div className={`ta-wrap ${(() => {
-          const m = /^(\/[\w:-]+)/.exec(text);
-          if (m && isValidSkill(m[1], p.commands)) return "slash-active";
+          const m = /(^|\s)(\/[\w:-]+)/.exec(text);
+          if (m && isValidSkill(m[2], p.commands)) return "slash-active";
           if (/(^|\s)@[\w./:-]+/.test(text)) return "slash-active";
           return "";
         })()}`}>
         <div className="ta-backdrop" aria-hidden="true">
           {(() => {
-            const m = /^(\/[\w:-]+)([\s\S]*)$/.exec(text);
-            if (m && isValidSkill(m[1], p.commands)) {
-              return (
-                <>
-                  <span className="slash-cmd-inline">{m[1]}</span>
-                  {m[2]}
-                </>
-              );
-            }
-            // mentions @fichier → pilules bleues
-            const parts = text.split(/((?:^|\s)@[\w./:-]+)/g);
+            // pilules : /skill (début OU plein texte) et mentions @fichier
+            const parts = text.split(/((?:^|\s)@[\w./:-]+|(?:^|\s)\/[\w:-]+)/g);
             if (parts.length > 1) {
               return parts.map((seg, k) => {
-                const mm = /^(\s?)(@[\w./:-]+)$/.exec(seg);
-                if (mm) return <React.Fragment key={k}>{mm[1]}<span className="at-mention">{mentionLabel(mm[2])}</span></React.Fragment>;
+                const ma = /^(\s?)(@[\w./:-]+)$/.exec(seg);
+                if (ma) return <React.Fragment key={k}>{ma[1]}<span className="at-mention">{mentionLabel(ma[2])}</span></React.Fragment>;
+                const ms = /^(\s?)(\/[\w:-]+)$/.exec(seg);
+                if (ms && isValidSkill(ms[2], p.commands))
+                  return <React.Fragment key={k}>{ms[1]}<span className="slash-cmd-inline">{ms[2]}</span></React.Fragment>;
                 return <React.Fragment key={k}>{seg}</React.Fragment>;
               });
             }
