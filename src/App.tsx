@@ -313,7 +313,7 @@ function HighlightsPanel(p: {
         </div>
       )}
       {filtered.length ? (
-        <div className="hl-list">
+        <div className="hl-list side-scroll">
           {filtered.map((h) => {
             const open = openId === h.id;
             const threadAlive = !!h.threadId && p.threads.some((th) => th.id === h.threadId);

@@ -13,8 +13,10 @@ import { AgentEvent } from "../lib/ws";
 import { wsSend } from "../lib/wsBus";
 import { eventLabel, t } from "../lib/i18n";
 import { normalizeMathDelimiters, hardenPartialMarkdown } from "../lib/markdown";
+import { buildHighlightContext } from "../lib/highlightContext";
 import { LruCache } from "../lib/lruCache";
 import { MermaidBlock } from "./MermaidBlock";
+import type { HighlightEntry } from "./Rail";
 import {
   CloseIcon,
   CollapseIcon,
@@ -692,6 +694,9 @@ export default function Chat(p: {
   onNewChat: () => void;
   onOpenProject: () => void;
   projectRoot?: string | null;
+  threadTitle?: string;
+  threadProvider?: string;
+  highlights: HighlightEntry[];
   defaults: {
     defaultProvider: string;
     defaultModel: Record<string, string>;
@@ -885,11 +890,42 @@ export default function Chat(p: {
     setMarks(next);
     if (p.threadId) localStorage.setItem("atelier-studio.marks." + p.threadId, JSON.stringify(next));
   }
-  function toggleMark(text: string, kind: "hl" | "ul") {
-    const t = text.trim();
-    if (!t) return;
-    const existing = marks.find((m) => m.text === t && m.kind === kind);
-    saveMarks(existing ? marks.filter((m) => m !== existing) : [...marks, { text: t, kind }]);
+  // texte du message (user ou agent) qui contient le passage — sert à
+  // photographier le contexte ~280 caractères de la fiche durable
+  function findEventTextContaining(needle: string): string {
+    for (const e of p.events) {
+      if ((e.kind === "user" || e.kind === "text") && e.text?.includes(needle)) return e.text;
+    }
+    return "";
+  }
+  // création : mark local (rendu in-chat, inchangé) + fiche durable envoyée
+  // au sidecar avec le contexte photographié à l'instant du clic (spec §2)
+  function addMark(text: string, kind: "hl" | "ul") {
+    const txt = text.trim();
+    if (!txt) return;
+    saveMarks([...marks, { text: txt, kind }]);
+    wsSend({
+      type: "addHighlight",
+      highlight: {
+        text: txt,
+        context: buildHighlightContext(findEventTextContaining(txt), txt),
+        kind,
+        projectRoot: p.projectRoot ?? "",
+        projectName: (p.projectRoot ?? "").split("/").filter(Boolean).pop() ?? "",
+        threadId: p.threadId ?? "",
+        threadTitle: p.threadTitle ?? "",
+        provider: p.threadProvider ?? "",
+      },
+    });
+  }
+  // retrait EXPLICITE (action nommée dans le popover, jamais silencieux) :
+  // retire le mark local ET la fiche correspondante (match threadId+text+kind)
+  function removeMark(text: string, kind: "hl" | "ul") {
+    const txt = text.trim();
+    if (!txt) return;
+    saveMarks(marks.filter((m) => !(m.text === txt && m.kind === kind)));
+    const match = p.highlights.find((h) => h.threadId === p.threadId && h.text === txt && h.kind === kind);
+    if (match) wsSend({ type: "removeHighlight", id: match.id });
   }
   // applique les marques via la CSS Custom Highlight API (aucune chirurgie DOM)
   useEffect(() => {
@@ -1216,6 +1252,12 @@ export default function Chat(p: {
   const selectedModel = modelsFor(provider).find((m) => m.id === model);
   const selectedModelLabel = selectedModel ? modelLabel(selectedModel) : (model ? modelIdLabel(provider, model) : model);
   const modelButtonLabel = model ? selectedModelLabel : resolvedDefaultLabel(provider);
+  // popover de sélection : la sélection courante correspond-elle à un mark
+  // déjà posé ? → le bouton devient une action "Retirer" explicite (jamais
+  // de suppression silencieuse en re-cliquant le même bouton, spec §2)
+  const quoteText = quote?.text.trim() ?? "";
+  const quoteHasHl = !!quoteText && marks.some((m) => m.text === quoteText && m.kind === "hl");
+  const quoteHasUl = !!quoteText && marks.some((m) => m.text === quoteText && m.kind === "ul");
 
   function renderToolLine(e: Extract<AgentEvent, { kind: "tool" | "tool_update" }>, key: React.Key) {
     if (e.kind === "tool") {
@@ -1723,7 +1765,7 @@ export default function Chat(p: {
           <button
             onMouseDown={(e) => {
               e.preventDefault();
-              toggleMark(quote.text, "hl");
+              if (quoteHasHl) removeMark(quote.text, "hl"); else addMark(quote.text, "hl");
               setQuote(null);
               window.getSelection()?.removeAllRanges();
             }}
@@ -1731,12 +1773,12 @@ export default function Chat(p: {
             <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3">
               <path d="M10.5 2.5l3 3L6 13H3v-3z" /><path d="M9 4l3 3" />
             </svg>
-            {t("chat.highlight")}
+            {quoteHasHl ? t("chat.remove-highlight") : t("chat.highlight")}
           </button>
           <button
             onMouseDown={(e) => {
               e.preventDefault();
-              toggleMark(quote.text, "ul");
+              if (quoteHasUl) removeMark(quote.text, "ul"); else addMark(quote.text, "ul");
               setQuote(null);
               window.getSelection()?.removeAllRanges();
             }}
@@ -1744,7 +1786,7 @@ export default function Chat(p: {
             <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3">
               <path d="M4 2.5v5a4 4 0 008 0v-5" /><path d="M3.5 13.5h9" />
             </svg>
-            {t("chat.underline")}
+            {quoteHasUl ? t("chat.remove-underline") : t("chat.underline")}
           </button>
           <button
             onMouseDown={(e) => {

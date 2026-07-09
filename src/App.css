@@ -3,6 +3,7 @@
   --bg-ctl: #2c313a; --border: #333a45; --border2: #3a414d;
   --fg: #dbdfe5; --fg2: #b6bdc7; --muted: #868d9a; --muted2: #646d7b;
   --accent: #e8823a;
+  --hl-line: #cda44b; /* ambre sobre — barrette des fiches "Surlignés" (hl) */
   --ui-font: -apple-system, 'SF Pro Text', 'Inter Variable', sans-serif;
   --code-font: ui-monospace, 'SF Mono', Menlo, monospace;
   --fs-xs: 10px; --fs-s: 11px; --fs-m: 12px; --fs-l: 13px; --fs-xl: 15px;
@@ -14,6 +15,7 @@
   --bg: #f5f6f8; --bg-side: #ebedf1; --bg-pop: #ffffff; --bg-card: #ffffff;
   --bg-ctl: #e3e6eb; --border: #d4d8df; --border2: #c3c9d2;
   --fg: #1c1e21; --fg2: #33373d; --muted: #667085; --muted2: #8a93a3;
+  --hl-line: #a3771e;
 }
 :root[data-density="compact"] { --pad-y: 3px; }
 :root, :root[data-density="comfortable"] { --pad-y: 6px; }
@@ -866,6 +868,37 @@ input[type="range"].slider::-webkit-slider-thumb:hover { transform: scale(1.15);
   align-items: center; justify-content: center; gap: 10px; color: var(--muted2);
   text-align: center; padding: 20px; }
 .view-placeholder p { margin: 0; font-size: var(--fs-l); max-width: 200px; line-height: 1.5; }
+/* ===== panneau « Surlignés » (lot 2) : carnet de cartes ===== */
+.hl-head { display: flex; align-items: center; gap: 8px; padding: 0 2px; flex: none; }
+.hl-head-title { font-size: var(--fs-l); font-weight: 600; color: var(--fg); letter-spacing: -0.01em; }
+.hl-count { color: var(--muted); font-variant-numeric: tabular-nums; font-size: var(--fs-m); }
+.hl-export-btn { margin-left: auto; display: inline-flex; }
+.hl-chips { display: flex; flex-wrap: wrap; gap: 6px; flex: none; }
+.chip.on { color: var(--fg); border-color: var(--accent); background: var(--bg-card); }
+.hl-dot { width: 7px; height: 7px; border-radius: var(--r-pill); flex-shrink: 0; }
+.hl-card { position: relative; display: flex; flex-direction: column; gap: 6px;
+  background: var(--bg-card); border: 1px solid var(--border2); border-radius: var(--r-m);
+  padding: 10px 12px 10px 15px; cursor: pointer; transition: border-color var(--ease); }
+.hl-card::before { content: ""; position: absolute; left: 5px; top: 9px; bottom: 9px;
+  width: 3px; border-radius: var(--r-s); background: var(--hl-line); }
+.hl-card.ul::before { background: var(--accent); }
+.hl-card:hover { border-color: var(--border); }
+.hl-text { font-size: var(--fs-m); color: var(--fg); line-height: 1.5;
+  display: -webkit-box; -webkit-line-clamp: 5; -webkit-box-orient: vertical; overflow: hidden; }
+.hl-card.open .hl-text { -webkit-line-clamp: unset; overflow: visible; }
+.hl-context { font-size: var(--fs-s); color: var(--muted); line-height: 1.5; font-style: italic; }
+.hl-foot { display: flex; align-items: center; gap: 6px; font-size: var(--fs-xs); color: var(--muted2); }
+.hl-proj { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 120px; }
+.hl-time { flex: none; font-variant-numeric: tabular-nums; }
+.hl-remove { margin-left: auto; flex: none; opacity: 0; pointer-events: none; background: transparent;
+  border: none; color: var(--muted2); padding: 2px; border-radius: var(--r-s); display: inline-flex;
+  transition: opacity var(--ease), color var(--ease), background var(--ease); }
+.hl-card:hover .hl-remove { opacity: 1; pointer-events: auto; }
+.hl-remove:hover { color: var(--fg); background: var(--bg-ctl); }
+.hl-open-chat { align-self: flex-start; font-size: var(--fs-s); color: var(--muted); background: transparent;
+  border: 1px solid var(--border2); border-radius: var(--r-s); padding: 3px 8px; cursor: pointer;
+  transition: color var(--ease), background var(--ease); }
+.hl-open-chat:hover { color: var(--fg); background: var(--bg-ctl); }
 .mp-hd { display: flex; align-items: center; gap: 6px; }
 .mp-end { margin-left: auto; display: inline-flex; align-items: center; gap: 8px; }
 .mp-check { margin-left: 0; }
@@ -1896,6 +1929,15 @@ body.dragging iframe { pointer-events: none; }
 .fly-chat.on { background: var(--bg-ctl); color: var(--fg); }
 .fly-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; }
 .fly-empty { color: var(--muted2); font-size: var(--fs-m); padding: 14px 8px; text-align: center; }
+/* flyout Surlignés au survol du rail (même mécanisme que le flyout projet) */
+.fly-hl-item { display: flex; flex-direction: column; gap: 2px; width: 100%;
+  padding: 6px 8px; border-radius: var(--r-s); background: transparent; border: none;
+  text-align: left; cursor: pointer; font: inherit; color: var(--fg2);
+  transition: background var(--ease), color var(--ease); }
+.fly-hl-item:hover { background: var(--bg-ctl); color: var(--fg); }
+.fly-hl-text { font-size: var(--fs-m); line-height: 1.4; display: -webkit-box;
+  -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.fly-hl-proj { font-size: var(--fs-xs); color: var(--muted2); }
 .fly-rename { width: 100%; min-height: 28px; padding: 5px 8px; border-radius: var(--r-s);
   background: var(--bg-ctl); border: 1px solid var(--border2); font: inherit;
   font-size: var(--fs-m); color: var(--fg); outline: none; }
