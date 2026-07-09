@@ -1,9 +1,10 @@
 import { useEffect, useState } from "react";
 import { t } from "../lib/i18n";
-import { PlusIcon, SettingsIcon, SidebarIcon } from "./icons";
+import { ChatsIcon, HighlighterIcon, PlusIcon, SettingsIcon, SidebarIcon } from "./icons";
 import { PROJ_ICONS, ProjIcon, threadTitle, rawThreadTitle, recencyLabelKey, withRecencySections, moveThreadTo } from "./Sidebar";
 import { ProviderIcon } from "./icons";
 import type { Thread } from "../lib/ws";
+import type { ViewId } from "../lib/settings";
 
 export type ProjMeta = { color?: string; label?: string };
 
@@ -27,6 +28,8 @@ export default function Rail(p: {
   threads: Thread[];
   activeId: string | null;
   unread: Set<string>;
+  activeView: ViewId;
+  onSelectView: (view: ViewId) => void;
   onSelectThread: (id: string) => void;
   onSelectProject: (root: string) => void;
   onAddProject: () => void;
@@ -76,6 +79,16 @@ export default function Rail(p: {
           <path d="M12.3 2.3l1.4 1.4L8 9.4l-2 .6.6-2z" />
         </svg>
       </button>
+      <div className="rail-views">
+        <button className={`rail-view ${p.activeView === "chats" ? "on" : ""}`}
+          title={t("view.chats")} onClick={() => p.onSelectView("chats")}>
+          <ChatsIcon size={19} />
+        </button>
+        <button className={`rail-view ${p.activeView === "highlights" ? "on" : ""}`}
+          title={t("view.highlights")} onClick={() => p.onSelectView("highlights")}>
+          <HighlighterIcon size={19} />
+        </button>
+      </div>
       <div className="rail-sep" />
       {p.projects.map((root) => {
         const m = p.meta[root];

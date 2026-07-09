@@ -1,5 +1,9 @@
 export type ProviderId = string;
 
+// vue active du panneau latéral (barre d'activité) — "highlights" arrive
+// fonctionnellement au lot 2, seul le placeholder existe pour l'instant
+export type ViewId = "chats" | "highlights";
+
 export type Settings = {
   defaultProvider: ProviderId;
   defaultModel: Record<string, string>;
@@ -39,6 +43,7 @@ export type Settings = {
   additionalDirectories: string;
   providerOrder: ProviderId[]; // ordre du picker ([] = ordre du catalogue)
   hiddenProviders: ProviderId[]; // masqués du picker (le provider du thread actif reste visible)
+  activeView: ViewId;
 };
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -73,6 +78,7 @@ export const DEFAULT_SETTINGS: Settings = {
   additionalDirectories: "",
   providerOrder: [],
   hiddenProviders: [],
+  activeView: "chats",
 };
 
 const KEY = "atelier-studio.settings";

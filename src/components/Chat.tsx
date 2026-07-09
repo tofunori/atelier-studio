@@ -40,18 +40,21 @@ const PERMISSION_MODES = [
   { id: "plan", labelKey: "permission.plan" },
 ];
 
+const BUILTIN_MODEL_LABELS: Record<string, Record<string, string>> = {
+  claude: {
+    "claude-fable-5": "Fable 5",
+    "claude-opus-4-8": "Opus 4.8",
+    "claude-sonnet-5": "Sonnet 5",
+    "claude-haiku-4-5-20251001": "Haiku 4.5",
+  },
+};
+
 const MODELS: Record<string, { id: string; label: string }[]> = {
   claude: [
     { id: "claude-fable-5", label: "Fable 5" },
     { id: "claude-opus-4-8", label: "Opus 4.8" },
     { id: "claude-sonnet-5", label: "Sonnet 5" },
     { id: "claude-haiku-4-5-20251001", label: "Haiku 4.5" },
-  ],
-  codex: [
-    { id: "gpt-5.5", label: "GPT-5.5" },
-    { id: "gpt-5.4", label: "GPT-5.4" },
-    { id: "gpt-5.4-mini", label: "GPT-5.4 mini" },
-    { id: "gpt-5.3-codex-spark", label: "Codex Spark" },
   ],
   grok: [
     { id: "grok-4.5", label: "Grok 4.5" },
@@ -934,13 +937,15 @@ export default function Chat(p: {
       return n;
     });
   }
-  // modèles connus d'un provider : liste locale (claude/codex) sinon catalogue sidecar
+  // modèles connus : catalogue sidecar par défaut, avec libellés locaux seulement
+  // quand ils apportent une meilleure présentation que l'id brut.
   function baseModelsFor(pv: string): { id: string; label: string }[] {
     const info = (p.providers ?? []).find((pr) => pr.id === pv);
     if (MODELS[pv]) return MODELS[pv];
+    const labels = BUILTIN_MODEL_LABELS[pv] ?? {};
     return [
       { id: "", label: "__default" },
-      ...(info?.models ?? []).map((id) => ({ id, label: id })),
+      ...(info?.models ?? []).map((id) => ({ id, label: labels[id] ?? id })),
     ];
   }
   function modelsFor(pv: string) {

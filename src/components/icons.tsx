@@ -233,6 +233,29 @@ export function ArrowDownIcon({ size = 14 }: { size?: number }) {
   );
 }
 
+export function ChatsIcon({ size = 13 }: { size?: number }) {
+  // vue « Chats » de la barre d'activité : bulle de conversation
+  return (
+    <svg width={size} height={size} viewBox="0 0 16 16" fill="none" stroke="currentColor"
+      strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <rect x="2.2" y="3" width="11.6" height="8" rx="2.4" />
+      <path d="M5.6 11v2.6l3.2-2.6" />
+    </svg>
+  );
+}
+
+export function HighlighterIcon({ size = 13 }: { size?: number }) {
+  // vue « Surlignés » de la barre d'activité : surligneur + trait marqué
+  return (
+    <svg width={size} height={size} viewBox="0 0 16 16" fill="none" stroke="currentColor"
+      strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M11.2 2.2l2.6 2.6-6.2 6.2-3.4.8.8-3.4z" />
+      <path d="M9.5 3.9l2.6 2.6" />
+      <path d="M2.4 13.6h4.6" />
+    </svg>
+  );
+}
+
 export function ZapIcon({ size = 13 }: { size?: number }) {
   return (
     <svg width={size} height={size} viewBox="0 0 16 16" fill="none" stroke="currentColor"

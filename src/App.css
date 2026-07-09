@@ -397,6 +397,16 @@ html, body, #root, .app { height: 100vh; overflow: hidden;
   background: transparent; color: var(--muted); font-size: var(--fs-xl); cursor: pointer;
   display: inline-flex; align-items: center; justify-content: center; }
 .rail-btn:hover { color: var(--fg); background: var(--bg-ctl); }
+/* barre d'activité : icônes de vue (Chats / Surlignés) au-dessus des projets */
+.rail-views { display: flex; flex-direction: column; align-items: center; gap: 4px; }
+.rail-view { position: relative; width: 38px; height: 38px; border-radius: var(--r-m); border: none;
+  background: transparent; color: var(--muted2); cursor: pointer;
+  display: inline-flex; align-items: center; justify-content: center;
+  transition: background-color var(--ease), color var(--ease); }
+.rail-view:hover { color: var(--fg); background: var(--bg-ctl); }
+.rail-view.on { color: var(--fg); background: var(--bg-ctl); }
+.rail-view.on::before { content: ""; position: absolute; left: -9px; top: 7px; bottom: 7px;
+  width: 2px; border-radius: var(--r-s); background: var(--accent); }
 .rail-sep { width: 26px; height: 1px; background: var(--border); margin: 2px 0 4px; flex-shrink: 0; }
 .rail-proj { position: relative; width: 38px; height: 38px; border-radius: var(--r-m);
   border: 1px solid transparent; background: transparent !important; color: var(--fg2);
@@ -851,6 +861,11 @@ input[type="range"].slider::-webkit-slider-thumb:hover { transform: scale(1.15);
 .side-top button { -webkit-app-region: no-drag; }
 .side-top .flex { flex: 1; }
 .side-top .compact-btn { display: inline-flex; padding: 3px 6px; }
+/* panneau de vue « Surlignés » (placeholder lot 1) */
+.view-placeholder { flex: 1; min-height: 0; display: flex; flex-direction: column;
+  align-items: center; justify-content: center; gap: 10px; color: var(--muted2);
+  text-align: center; padding: 20px; }
+.view-placeholder p { margin: 0; font-size: var(--fs-l); max-width: 200px; line-height: 1.5; }
 .mp-hd { display: flex; align-items: center; gap: 6px; }
 .mp-end { margin-left: auto; display: inline-flex; align-items: center; gap: 8px; }
 .mp-check { margin-left: 0; }

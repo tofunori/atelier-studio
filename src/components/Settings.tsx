@@ -27,13 +27,20 @@ const CLAUDE_MODELS = [
 const CLAUDE_EFFORTS = ["", "low", "medium", "high", "xhigh", "max"];
 const CODEX_EFFORTS = ["", "low", "medium", "high", "xhigh"];
 
-const CODEX_MODELS = [
-  { id: "", labelKey: "common.default-cli" },
-  { id: "gpt-5.5", label: "GPT-5.5" },
-  { id: "gpt-5.4", label: "GPT-5.4" },
-  { id: "gpt-5.4-mini", label: "GPT-5.4 mini" },
-  { id: "gpt-5.3-codex-spark", label: "Codex Spark" },
-];
+const MODEL_LABELS: Record<string, Record<string, string>> = {
+  claude: Object.fromEntries(CLAUDE_MODELS.filter((m) => m.id).map((m) => [m.id, m.label ?? m.id])),
+};
+
+type ProviderCatalogRow = {
+  id: string;
+  label: string;
+  version: string | null;
+  ok: boolean;
+  kind?: "cli" | "api";
+  models?: string[];
+  defaultModel?: string | null;
+  efforts?: string[];
+};
 
 type SetupProvider = {
   id: string;
@@ -146,7 +153,7 @@ export default function SettingsPage(p: {
   const [slugText, setSlugText] = useState("");
   const [themeQuery, setThemeQuery] = useState("");
   const [status, setStatus] = useState<{ port: number | null; pastedCount: number; pasteDir: string } | null>(null);
-  const [provs, setProvs] = useState<{ id: string; label: string; version: string | null; ok: boolean; kind?: "cli" | "api" }[] | null>(null);
+  const [provs, setProvs] = useState<ProviderCatalogRow[] | null>(null);
   const [setup, setSetup] = useState<SetupStatus | null>(null);
   const [retitleStatus, setRetitleStatus] = useState("");
   const [apiProvs, setApiProvs] = useState<{
@@ -167,6 +174,17 @@ export default function SettingsPage(p: {
   const customModels = s.customModels ?? [];
   const modelEfforts = s.modelEfforts ?? {};
   const set = (patch: Partial<S>) => p.onChange({ ...s, ...patch });
+
+  function providerModels(provider: "claude" | "codex") {
+    if (provider === "claude") return CLAUDE_MODELS;
+    const row = provs?.find((pr) => pr.id === provider);
+    const ids = row?.models?.length ? row.models : [s.defaultModel[provider]].filter(Boolean);
+    const labels = MODEL_LABELS[provider] ?? {};
+    return [
+      { id: "", labelKey: "common.default-cli" },
+      ...ids.map((id) => ({ id, label: labels[id] ?? id })),
+    ];
+  }
 
   useEffect(() => {
     if (!p.ws || p.ws.readyState !== 1) return;
@@ -312,7 +330,7 @@ export default function SettingsPage(p: {
                   title={t("settings.default-codex-model")}
                   value={s.defaultModel.codex}
                   onChange={(value) => set({ defaultModel: { ...s.defaultModel, codex: value } })}
-                  options={CODEX_MODELS.map((m) => ({ value: m.id, label: modelLabel(m) }))}
+                  options={providerModels("codex").map((m) => ({ value: m.id, label: modelLabel(m) }))}
                 />
               </Row>
               <Row title={t("settings.default-claude-effort")}>
@@ -558,7 +576,7 @@ export default function SettingsPage(p: {
             <Group label={t("settings.model-effort-sub")}>
               {([
                 ...CLAUDE_MODELS.filter((m) => m.id).map((m) => ({ provider: "claude" as const, ...m })),
-                ...CODEX_MODELS.filter((m) => m.id).map((m) => ({ provider: "codex" as const, ...m })),
+                ...providerModels("codex").filter((m) => m.id).map((m) => ({ provider: "codex" as const, ...m })),
                 ...customModels.map((m) => ({ provider: m.provider, id: m.id, label: m.id })),
               ]).map((m) => {
                 const key = m.provider + ":" + m.id;

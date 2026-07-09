@@ -21,7 +21,7 @@ import CommandPalette from "./components/CommandPalette";
 import QuickAsk from "./components/QuickAsk";
 import UsagePopover, { worstOf } from "./components/UsagePopover";
 import { init as initNotify, notifyRunDone, notifyReview } from "./lib/notify";
-import { CloseIcon } from "./components/icons";
+import { CloseIcon, HighlighterIcon, SidebarIcon } from "./components/icons";
 import { loadSettings, saveSettings, Settings, ProviderId, DEFAULT_SETTINGS } from "./lib/settings";
 import { ProviderInfo } from "./lib/providers";
 import { THEME_PRESETS, presetById } from "./lib/themes";
@@ -155,6 +155,26 @@ function themeVars(settings: Settings): Record<string, string> {
     "--ui-font": settings.uiFont ? `'${settings.uiFont}', ${CANON_UI_FONT}` : CANON_UI_FONT,
     "--code-font": settings.codeFont ? `'${settings.codeFont}', ${CANON_CODE_FONT}` : CANON_CODE_FONT,
   };
+}
+
+// panneau de la vue « Surlignés » — squelette du lot 1 : le lot 2 y branchera
+// le store de surlignés (filtré par p.projectRoot le cas échéant) ; pour
+// l'instant, en-tête identique à celle du panneau Chats + message sobre.
+function HighlightsPanel({ onCompact }: { onCompact: () => void }) {
+  return (
+    <div className="sidebar">
+      <div className="side-top" data-tauri-drag-region>
+        <span className="flex" />
+        <button className="mini compact-btn" title={t("action.collapse-sidebar")} onClick={onCompact}>
+          <SidebarIcon size={17} />
+        </button>
+      </div>
+      <div className="view-placeholder">
+        <HighlighterIcon size={22} />
+        <p>{t("view.highlights-soon")}</p>
+      </div>
+    </div>
+  );
 }
 
 export default function App() {
@@ -338,6 +358,16 @@ export default function App() {
     localStorage.setItem("atelier-studio.pins", JSON.stringify(pins));
   }, [pins]);
   const [compact, setCompact] = useState(() => localStorage.getItem("atelier-studio.compact") === "1");
+  // vue active du panneau latéral (barre d'activité) — persistée dans settings
+  const activeView = settings.activeView;
+  const setActiveView = (v: Settings["activeView"]) =>
+    setSettings((s) => (s.activeView === v ? s : { ...s, activeView: v }));
+  // un projet est le contexte des chats aujourd'hui (des surlignés au lot 2) :
+  // le sélectionner ramène toujours sur la vue chats si on est ailleurs
+  const selectProject = (root: string) => {
+    setActiveProject(root);
+    setActiveView("chats");
+  };
   // largeur FIXE de la sidebar (px) : hors PanelGroup pour ne pas gonfler
   // quand le panneau atelier passe en pleine largeur
   const [sideW, setSideW] = useState(() => {
@@ -1559,7 +1589,6 @@ export default function App() {
 
   return (
     <div className={`app-row ${dragging ? "dragging" : ""}`}>
-      {compact && (
         <Rail
           projects={projects}
           activeProject={activeProject}
@@ -1568,8 +1597,10 @@ export default function App() {
           threads={allThreads}
           activeId={activeId}
           unread={unread}
+          activeView={activeView}
+          onSelectView={setActiveView}
           onSelectThread={(id) => { const th = allThreads.find((t) => t.id === id); if (th) selectThread(id, th.projectRoot); }}
-          onSelectProject={setActiveProject}
+          onSelectProject={selectProject}
           onAddProject={addProject}
           onNew={(root) => (root ? newThread(root) : activeProject ? newThread(activeProject) : newChat())}
           onExpand={() => setCompact(false)}
@@ -1608,8 +1639,12 @@ export default function App() {
             })
           }
         />
+      {!compact && activeView !== "chats" && (
+        <div className="side-fixed" style={{ width: sideW }}>
+          <HighlightsPanel onCompact={() => setCompact(true)} />
+        </div>
       )}
-      {!compact && (
+      {!compact && activeView === "chats" && (
       <div className="side-fixed" style={{ width: sideW }}>
         <Sidebar
           projects={projects}
@@ -1623,7 +1658,7 @@ export default function App() {
           activeProject={activeProject}
           activeId={activeId}
           onAddProject={addProject}
-          onSelectProject={setActiveProject}
+          onSelectProject={selectProject}
           onSelect={selectThread}
           onNew={newThread}
           onNewChat={newChat}
