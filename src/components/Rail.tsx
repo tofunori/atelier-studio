@@ -48,6 +48,7 @@ export default function Rail(p: {
   activeId: string | null;
   unread: Set<string>;
   activeView: ViewId;
+  compact: boolean;
   highlights: HighlightEntry[];
   layout: "split" | "chat" | "atelier";
   activeSurface: Surface;
@@ -92,7 +93,8 @@ export default function Rail(p: {
 
   return (
     <div className="rail" onClick={() => setMenu(null)}>
-      <button className="rail-btn" title={t("action.expand-sidebar")} onClick={p.onExpand}>
+      <button className={`rail-btn ${!p.compact ? "on" : ""}`}
+        title={p.compact ? t("action.expand-sidebar") : t("action.collapse-sidebar")} onClick={p.onExpand}>
         <SidebarIcon size={19} />
       </button>
       <button className="rail-btn" title={t("action.new-chat")}

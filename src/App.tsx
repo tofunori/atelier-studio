@@ -1821,7 +1821,8 @@ export default function App() {
           onSelectProject={selectProject}
           onAddProject={addProject}
           onNew={(root) => (root ? newThread(root) : activeProject ? newThread(activeProject) : newChat())}
-          onExpand={() => setCompact(false)}
+          compact={compact}
+          onExpand={() => setCompact((c) => !c)}
           onSettings={() => setShowSettings((v) => !v)}
           onSetMeta={(root, m) => setProjMeta((p) => ({ ...p, [root]: m }))}
           favorites={favorites}
