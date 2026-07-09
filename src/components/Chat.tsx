@@ -1052,6 +1052,8 @@ export default function Chat(p: {
   }, [menuOpen, provider]);
   const [editing, setEditing] = useState<{ index: number; text: string } | null>(null);
   const [openToolGroups, setOpenToolGroups] = useState<Set<string>>(new Set());
+  // plis « A travaillé Xm Ys » : tours terminés dont le détail est déplié
+  const [openFolds, setOpenFolds] = useState<Set<string>>(new Set());
 
   // « Add to chat » sur sélection de texte dans les messages
   function onMessagesMouseUp() {
@@ -1214,11 +1216,52 @@ export default function Chat(p: {
     for (const path of paths) p.onAttachPath?.(path as string);
   }
 
+  // ---- pliage des tours terminés (pattern Codex « Worked for Xm Ys ») ----
+  // un tour = user → … → done ; une fois terminé, le travail intermédiaire
+  // (narration, outils, réflexion) se replie en une ligne dépliable. Restent
+  // visibles : le bloc final (texte de réponse, cartes edit, todos, erreurs).
+  type TurnFold = { key: string; start: number; end: number; count: number; ms: number | null };
+  const turnFolds = new Map<number, TurnFold>();
+  {
+    const KEEP_TAIL = new Set(["text", "edit", "todos", "error", "permission", "usage", "goal"]);
+    const COUNTED = new Set(["tool", "tool_update", "text", "thinking", "activity", "edit"]);
+    let u = -1;
+    for (let i = 0; i < p.events.length; i++) {
+      const e = p.events[i];
+      if (e.kind === "user") { u = i; continue; }
+      if (e.kind !== "done" || u < 0) continue;
+      // bloc final : remonter depuis done tant que ce sont des kinds « réponse »
+      let tail = i;
+      while (tail - 1 > u && KEEP_TAIL.has(p.events[tail - 1].kind)) tail--;
+      const count = p.events.slice(u + 1, tail).filter((x) => COUNTED.has(x.kind)).length;
+      if (count >= 2) {
+        const uts = (p.events[u] as { ts?: number }).ts;
+        const ms = e.ts != null && uts != null ? e.ts - uts : null;
+        turnFolds.set(u + 1, { key: `fold:${u}`, start: u + 1, end: tail, count, ms });
+      }
+      u = -1;
+    }
+  }
+  const fmtWorkDur = (ms: number) => {
+    const s = Math.max(1, Math.round(ms / 1000));
+    if (s < 60) return `${s}s`;
+    const m = Math.floor(s / 60);
+    if (m < 60) return `${m}m ${String(s % 60).padStart(2, "0")}s`;
+    return `${Math.floor(m / 60)}h ${String(m % 60).padStart(2, "0")}m`;
+  };
+
   const renderedEvents: (
     | { type: "event"; event: AgentEvent; index: number }
     | { type: "actions"; actions: Extract<AgentEvent, { kind: "tool" | "tool_update" }>[]; index: number; key: string }
+    | { type: "fold"; fold: TurnFold; open: boolean }
   )[] = [];
   for (let i = 0; i < p.events.length; i++) {
+    const fold = turnFolds.get(i);
+    if (fold) {
+      const open = openFolds.has(fold.key);
+      renderedEvents.push({ type: "fold", fold, open });
+      if (!open) { i = fold.end - 1; continue; }
+    }
     const e = p.events[i];
     if (e.kind !== "tool" && e.kind !== "tool_update") {
       renderedEvents.push({ type: "event", event: e, index: i });
@@ -1388,6 +1431,31 @@ export default function Chat(p: {
           <div className="empty">{t("chat.empty")}</div>
         )}
         {renderedEvents.map((item) => {
+          if (item.type === "fold") {
+            const { fold, open } = item;
+            return (
+              <button
+                key={fold.key}
+                type="button"
+                className={`turn-fold ${open ? "open" : ""}`}
+                onClick={() =>
+                  setOpenFolds((prev) => {
+                    const next = new Set(prev);
+                    if (next.has(fold.key)) next.delete(fold.key);
+                    else next.add(fold.key);
+                    return next;
+                  })
+                }
+              >
+                <span>
+                  {fold.ms != null
+                    ? t("chat.worked-for", { dur: fmtWorkDur(fold.ms) })
+                    : t("chat.worked-steps", { n: fold.count })}
+                </span>
+                <span className="tool-tick">{open ? "▾" : "▸"}</span>
+              </button>
+            );
+          }
           if (item.type === "actions") {
             const open = openToolGroups.has(item.key) || (p.workingSince != null && item.key === activeToolGroupKey);
             return (

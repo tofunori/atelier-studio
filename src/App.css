@@ -609,6 +609,15 @@ html, body, #root, .app { height: 100vh; overflow: hidden;
   font: inherit; }
 .tool-group-row:hover { color: var(--fg2); }
 .tool-group-list { display: flex; flex-direction: column; gap: 4px; margin-top: 6px; padding-left: 14px; }
+/* pli de tour terminé : « A travaillé Xm Ys ▸ » — le détail du travail se
+   déplie au clic ; replié par défaut une fois le tour terminé */
+.turn-fold { display: inline-flex; align-items: center; gap: 6px; align-self: flex-start;
+  margin: 6px 0 2px; padding: 0; border: none; background: transparent;
+  color: var(--muted2); font-size: var(--fs-m); font-family: inherit; cursor: pointer;
+  font-variant-numeric: tabular-nums; transition: color var(--ease); }
+.turn-fold:hover { color: var(--fg2); }
+.turn-fold.open { color: var(--muted); }
+.turn-fold .tool-tick { font-size: var(--fs-xs); }
 .activity-card { max-width: min(760px, 100%); margin: 5px 0 8px; padding: 7px 9px;
   border: 1px solid color-mix(in srgb, var(--border) 78%, transparent);
   border-radius: 8px; background: color-mix(in srgb, var(--bg-ctl) 58%, transparent);
