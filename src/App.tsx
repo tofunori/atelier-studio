@@ -11,7 +11,7 @@ import {
   Command,
 } from "./lib/ws";
 import Sidebar from "./components/Sidebar";
-import Rail, { ProjMeta } from "./components/Rail";
+import Rail, { ProjMeta, HighlightEntry } from "./components/Rail";
 import { setWs } from "./lib/wsBus";
 import Chat from "./components/Chat";
 import Banner from "./components/Banner";
@@ -21,7 +21,7 @@ import CommandPalette from "./components/CommandPalette";
 import QuickAsk from "./components/QuickAsk";
 import UsagePopover, { worstOf } from "./components/UsagePopover";
 import { init as initNotify, notifyRunDone, notifyReview } from "./lib/notify";
-import { CloseIcon, HighlighterIcon, SidebarIcon } from "./components/icons";
+import { CloseIcon, DownloadIcon, HighlighterIcon, SidebarIcon } from "./components/icons";
 import { loadSettings, saveSettings, Settings, ProviderId, DEFAULT_SETTINGS } from "./lib/settings";
 import { ProviderInfo } from "./lib/providers";
 import { THEME_PRESETS, presetById } from "./lib/themes";
@@ -142,6 +142,99 @@ function loadProjects(): string[] {
   }
 }
 
+// nom court d'un projet à partir de son chemin absolu — même convention que
+// projInitial/rail-flyout (Rail.tsx) : dernier segment du chemin
+function projectDisplayName(root: string): string {
+  return root.split("/").filter(Boolean).pop() ?? "";
+}
+
+const MARKS_MIGRATED_KEY = "atelier-studio.marksMigrated";
+const MARKS_PREFIX = "atelier-studio.marks.";
+
+// migration one-shot (lot 2) : les marks locaux posés avant la fiche durable
+// (localStorage, rendu in-chat §3) deviennent des fiches sidecar. Les clés
+// locales restent intactes — le rendu in-chat en dépend toujours — seul un
+// flag localStorage borne la migration à une fois par machine.
+function migrateLocalMarks(threadList: Thread[], send: (msg: unknown) => void) {
+  if (localStorage.getItem(MARKS_MIGRATED_KEY)) return;
+  for (let i = 0; i < localStorage.length; i++) {
+    const key = localStorage.key(i);
+    if (!key?.startsWith(MARKS_PREFIX)) continue;
+    const threadId = key.slice(MARKS_PREFIX.length);
+    let marks: { text?: string; kind?: string }[] = [];
+    try {
+      marks = JSON.parse(localStorage.getItem(key) ?? "[]");
+    } catch {
+      continue;
+    }
+    if (!Array.isArray(marks)) continue;
+    const th = threadList.find((t) => t.id === threadId);
+    for (const m of marks) {
+      if (!m?.text?.trim() || (m.kind !== "hl" && m.kind !== "ul")) continue;
+      send({
+        type: "addHighlight",
+        highlight: {
+          text: m.text,
+          context: "", // contexte introuvable pour les marks migrés (spec §1)
+          kind: m.kind,
+          projectRoot: th?.projectRoot ?? "",
+          projectName: th?.projectRoot ? projectDisplayName(th.projectRoot) : "",
+          threadId,
+          threadTitle: th?.title ?? "",
+          provider: th?.provider ?? "",
+        },
+      });
+    }
+  }
+  localStorage.setItem(MARKS_MIGRATED_KEY, "1");
+}
+
+// date relative sobre pour le pied des fiches Surlignés (mêmes clés i18n que
+// le "il y a …" des threads dans Sidebar.tsx — dupliqué ici pour rester dans
+// le scope App.tsx sans créer de dépendance croisée nouvelle)
+function hlRelativeDate(value: string): string {
+  const ts = new Date(value).getTime();
+  if (!Number.isFinite(ts)) return "";
+  const diff = Date.now() - ts;
+  if (diff < 60_000) return t("time.just-now");
+  const min = Math.floor(diff / 60_000);
+  if (min < 60) return t("time.minutes-ago", { count: min });
+  const hours = Math.floor(min / 60);
+  if (hours < 24) return t("time.hours-ago", { count: hours });
+  const days = Math.floor(hours / 24);
+  if (days === 1) return t("time.yesterday");
+  if (days < 7) return `${days} j`;
+  return new Date(ts).toLocaleDateString([], { day: "2-digit", month: "2-digit" });
+}
+
+// export .md groupé par projet puis chat (spec §6) — passage en citation,
+// contexte en italique s'il a été photographié
+function buildHighlightsMarkdown(list: HighlightEntry[]): string {
+  const byProject = new Map<string, Map<string, HighlightEntry[]>>();
+  for (const h of list) {
+    const projKey = h.projectName || h.projectRoot || t("highlights.no-project");
+    const chatKey = h.threadTitle || h.threadId || "";
+    if (!byProject.has(projKey)) byProject.set(projKey, new Map());
+    const chats = byProject.get(projKey)!;
+    if (!chats.has(chatKey)) chats.set(chatKey, []);
+    chats.get(chatKey)!.push(h);
+  }
+  const lines: string[] = [];
+  for (const [proj, chats] of byProject) {
+    lines.push(`## ${proj}`, "");
+    for (const [chatTitle, items] of chats) {
+      const date = items[0]?.createdAt ? new Date(items[0].createdAt).toLocaleDateString() : "";
+      lines.push(`### ${chatTitle || "—"}${date ? ` — ${date}` : ""}`, "");
+      for (const h of items) {
+        lines.push(`> ${h.text.split("\n").join("\n> ")}`);
+        if (h.context) lines.push("", `*${h.context}*`);
+        lines.push("");
+      }
+    }
+  }
+  return lines.join("\n").trim() + "\n";
+}
+
 // piles de police canoniques (mêmes valeurs que src/App.css et les :root des iframes)
 const CANON_UI_FONT = "-apple-system, 'SF Pro Text', 'Inter Variable', sans-serif";
 const CANON_CODE_FONT = "ui-monospace, 'SF Mono', Menlo, monospace";
@@ -157,22 +250,103 @@ function themeVars(settings: Settings): Record<string, string> {
   };
 }
 
-// panneau de la vue « Surlignés » — squelette du lot 1 : le lot 2 y branchera
-// le store de surlignés (filtré par p.projectRoot le cas échéant) ; pour
-// l'instant, en-tête identique à celle du panneau Chats + message sobre.
-function HighlightsPanel({ onCompact }: { onCompact: () => void }) {
+// panneau de la vue « Surlignés » (lot 2) : carnet de cartes autonomes — cf.
+// docs/superpowers/specs/2026-07-08-surlignes-lot2.md §4. Chaque fiche est
+// déjà une photographie complète (texte, contexte, projet, chat, provider,
+// date) : ce panneau ne fait QUE filtrer/trier/afficher, jamais de lookup
+// live dans un chat pour reconstituer une donnée manquante.
+function HighlightsPanel(p: {
+  highlights: HighlightEntry[];
+  threads: Thread[];
+  projMeta: Record<string, ProjMeta>;
+  filterProject: string | null;
+  onSetFilterProject: (root: string | null) => void;
+  onRemove: (id: string) => void;
+  onOpenChat: (threadId: string, projectRoot: string) => void;
+  onExport: () => void;
+  onCompact: () => void;
+}) {
+  const [openId, setOpenId] = useState<string | null>(null);
+  const groups = useMemo(() => {
+    const map = new Map<string, { key: string; projectRoot: string; projectName: string; count: number }>();
+    for (const h of p.highlights) {
+      const key = h.projectRoot || h.projectName || "";
+      const existing = map.get(key);
+      if (existing) existing.count += 1;
+      else map.set(key, { key, projectRoot: h.projectRoot, projectName: h.projectName, count: 1 });
+    }
+    return [...map.values()];
+  }, [p.highlights]);
+  const filtered = p.filterProject != null
+    ? p.highlights.filter((h) => (h.projectRoot || h.projectName || "") === p.filterProject)
+    : p.highlights;
+
   return (
-    <div className="sidebar">
+    <div className="sidebar hl-panel">
       <div className="side-top" data-tauri-drag-region>
         <span className="flex" />
-        <button className="mini compact-btn" title={t("action.collapse-sidebar")} onClick={onCompact}>
+        <button className="mini compact-btn" title={t("action.collapse-sidebar")} onClick={p.onCompact}>
           <SidebarIcon size={17} />
         </button>
       </div>
-      <div className="view-placeholder">
-        <HighlighterIcon size={22} />
-        <p>{t("view.highlights-soon")}</p>
+      <div className="hl-head">
+        <span className="hl-head-title">{t("view.highlights")}</span>
+        <span className="hl-count">{p.highlights.length}</span>
+        <button type="button" className="mini hl-export-btn" title={t("highlights.export")}
+          disabled={!p.highlights.length} onClick={p.onExport}>
+          <DownloadIcon size={15} />
+        </button>
       </div>
+      {!!groups.length && (
+        <div className="hl-chips">
+          <button type="button" className={`chip ${p.filterProject == null ? "on" : ""}`}
+            onClick={() => p.onSetFilterProject(null)}>
+            {t("highlights.all-count", { n: p.highlights.length })}
+          </button>
+          {groups.map((g) => (
+            <button key={g.key} type="button" className={`chip ${p.filterProject === g.key ? "on" : ""}`}
+              onClick={() => p.onSetFilterProject(p.filterProject === g.key ? null : g.key)}>
+              <span className="hl-dot" style={{ background: p.projMeta[g.projectRoot]?.color || "var(--muted2)" }} />
+              {g.projectName || t("highlights.no-project")} · {g.count}
+            </button>
+          ))}
+        </div>
+      )}
+      {filtered.length ? (
+        <div className="hl-list">
+          {filtered.map((h) => {
+            const open = openId === h.id;
+            const threadAlive = !!h.threadId && p.threads.some((th) => th.id === h.threadId);
+            return (
+              <div key={h.id} className={`hl-card ${h.kind} ${open ? "open" : ""}`}
+                onClick={() => setOpenId(open ? null : h.id)}>
+                <div className="hl-text">{h.text}</div>
+                {open && h.context && <div className="hl-context">{h.context}</div>}
+                {open && threadAlive && (
+                  <button type="button" className="hl-open-chat"
+                    onClick={(e) => { e.stopPropagation(); p.onOpenChat(h.threadId, h.projectRoot); }}>
+                    {t("highlights.open-chat")}
+                  </button>
+                )}
+                <div className="hl-foot">
+                  <span className="hl-dot" style={{ background: p.projMeta[h.projectRoot]?.color || "var(--muted2)" }} />
+                  <span className="hl-proj">{h.projectName || t("highlights.no-project")}</span>
+                  <span className="hl-time">{hlRelativeDate(h.createdAt)}</span>
+                  <button type="button" className="hl-remove" title={t("highlights.remove")}
+                    onClick={(e) => { e.stopPropagation(); p.onRemove(h.id); }}>
+                    <CloseIcon size={11} />
+                  </button>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      ) : (
+        <div className="view-placeholder">
+          <HighlighterIcon size={22} />
+          <p>{t("highlights.empty")}</p>
+        </div>
+      )}
     </div>
   );
 }
@@ -192,6 +366,11 @@ export default function App() {
   const allThreadsRef = useRef<Thread[]>([]);
   // threads locaux (pas encore connus du sidecar) — nouveaux chats vides
   const [draftThreads, setDraftThreads] = useState<Thread[]>([]);
+  // fiches « Surlignés » (lot 2) : source de vérité = sidecar (highlights.json),
+  // synchronisée par broadcast — jamais recalculée depuis les chats en mémoire
+  const [highlights, setHighlights] = useState<HighlightEntry[]>([]);
+  const [hlFilterProject, setHlFilterProject] = useState<string | null>(null);
+  const marksMigratedRef = useRef(false);
   const [events, setEvents] = useState<Record<string, AgentEvent[]>>({});
   const eventsRef = useRef<Record<string, AgentEvent[]>>({});
   eventsRef.current = events;
@@ -362,10 +541,15 @@ export default function App() {
   const activeView = settings.activeView;
   const setActiveView = (v: Settings["activeView"]) =>
     setSettings((s) => (s.activeView === v ? s : { ...s, activeView: v }));
-  // un projet est le contexte des chats aujourd'hui (des surlignés au lot 2) :
-  // le sélectionner ramène toujours sur la vue chats si on est ailleurs
+  // un projet est le contexte des chats — le sélectionner ramène sur la vue
+  // chats si on est ailleurs, SAUF en vue Surlignés : là il filtre les fiches
+  // de ce projet (re-cliquer le même projet revient à « Tous », spec §4)
   const selectProject = (root: string) => {
     setActiveProject(root);
+    if (activeView === "highlights") {
+      setHlFilterProject((cur) => (cur === root ? null : root));
+      return;
+    }
     setActiveView("chats");
   };
   // largeur FIXE de la sidebar (px) : hors PanelGroup pour ne pas gonfler
@@ -488,6 +672,7 @@ export default function App() {
             setAppBanner((b) => b?.text === t("app.sidecar-disconnected") ? null : b);
             setWsReady(true);
             s.send(JSON.stringify({ type: "getSettings" }));
+            s.send(JSON.stringify({ type: "listHighlights" }));
           })
           .catch(() => {
             setMock(true);
@@ -540,6 +725,18 @@ export default function App() {
             setActiveProject(after.projectRoot || null);
           }
         }
+        // migration one-shot des marks localStorage → fiches durables (lot 2,
+        // §1) : dès que la liste des threads est connue (métadonnées dispo),
+        // bornée par marksMigratedRef (cette session) + flag localStorage (à vie)
+        if (!marksMigratedRef.current) {
+          marksMigratedRef.current = true;
+          migrateLocalMarks(msg.threads ?? [], (m) => {
+            if (ws.current?.readyState === 1) ws.current.send(JSON.stringify(m));
+          });
+        }
+      }
+      if (msg.type === "highlights") {
+        setHighlights(Array.isArray(msg.highlights) ? msg.highlights : []);
       }
       if (msg.type === "event") {
         if (msg.event.kind === "started") {
@@ -1598,6 +1795,7 @@ export default function App() {
           activeId={activeId}
           unread={unread}
           activeView={activeView}
+          highlights={highlights}
           onSelectView={setActiveView}
           onSelectThread={(id) => { const th = allThreads.find((t) => t.id === id); if (th) selectThread(id, th.projectRoot); }}
           onSelectProject={selectProject}
@@ -1641,7 +1839,34 @@ export default function App() {
         />
       {!compact && activeView !== "chats" && (
         <div className="side-fixed" style={{ width: sideW }}>
-          <HighlightsPanel onCompact={() => setCompact(true)} />
+          <HighlightsPanel
+            highlights={highlights}
+            threads={allThreads}
+            projMeta={projMeta}
+            filterProject={hlFilterProject}
+            onSetFilterProject={setHlFilterProject}
+            onRemove={(id) => {
+              setHighlights((list) => list.filter((h) => h.id !== id));
+              if (ws.current?.readyState === 1) {
+                ws.current.send(JSON.stringify({ type: "removeHighlight", id }));
+              }
+            }}
+            onOpenChat={(threadId, projectRoot) => {
+              setActiveView("chats");
+              selectThread(threadId, projectRoot);
+            }}
+            onExport={async () => {
+              const md = buildHighlightsMarkdown(highlights);
+              try {
+                await navigator.clipboard.writeText(md);
+                setAppBanner({ text: t("highlights.export-copied"), closable: true });
+                setTimeout(() => {
+                  setAppBanner((b) => (b?.text === t("highlights.export-copied") ? null : b));
+                }, 3500);
+              } catch {}
+            }}
+            onCompact={() => setCompact(true)}
+          />
         </div>
       )}
       {!compact && activeView === "chats" && (
@@ -1768,6 +1993,9 @@ export default function App() {
           recentFiles={recentFiles.filter((file) => files.includes(file)).slice(0, 12)}
           zoteroItems={zoteroItems}
           projectRoot={activeProject}
+          threadTitle={activeId ? (allThreads.find((th) => th.id === activeId)?.title ?? "") : ""}
+          threadProvider={activeId ? (allThreads.find((th) => th.id === activeId)?.provider ?? "") : ""}
+          highlights={highlights}
           defaults={settings as any}
           providers={providerList}
           injectText={injectText}

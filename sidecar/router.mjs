@@ -760,6 +760,24 @@ export async function route(msg, ctx) {
     case "listThreads":
       ctx.send({ type: "threads", threads: ctx.store.list() });
       break;
+    case "addHighlight": {
+      try {
+        ctx.highlights.add(msg.highlight ?? {});
+        (ctx.broadcast ?? ctx.send)({ type: "highlights", highlights: ctx.highlights.list() });
+      } catch (e) {
+        ctx.send({ type: "error", message: `surlignage: ${String(e?.message ?? e)}` });
+      }
+      break;
+    }
+    case "removeHighlight": {
+      ctx.highlights.remove(String(msg.id ?? ""));
+      (ctx.broadcast ?? ctx.send)({ type: "highlights", highlights: ctx.highlights.list() });
+      break;
+    }
+    case "listHighlights": {
+      ctx.send({ type: "highlights", highlights: ctx.highlights.list() });
+      break;
+    }
     case "requestReview": {
       const saved = lastTurnByThread.get(msg.threadId);
       if (!saved) {

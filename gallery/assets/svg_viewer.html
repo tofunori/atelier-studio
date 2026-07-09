@@ -21,15 +21,17 @@
         font-size:13px;font-family:inherit;cursor:pointer;white-space:nowrap}
   header button:hover{background:#52525b}
   header select{padding:0 8px}
-  #lassotoggle.on{background:#ffce3a;color:#000;border-color:#ffce3a;font-weight:600}
+  header button svg{display:block}
+  /* icon-only buttons: a homogeneous visual square */
+  #clearsel,#delsel,#lassotoggle,#undobtn,#redobtn,#savesvg,#exportpng,#annotbtn,#fsbtn{padding:0 9px}
+  /* toolbar group divider */
+  .tsep{width:1px;height:18px;background:var(--border);margin:0 2px;flex-shrink:0}
+  /* single active-state style for every toggle button */
+  #lassotoggle.on,#addtext.on,#annotbtn.on{background:var(--accent);color:#fff;border-color:var(--accent);font-weight:600}
   #undobtn:disabled,#redobtn:disabled{opacity:.45;cursor:default;background:var(--border)}
   #savesvg{position:relative}
   #savesvg.dirty::after{content:"";position:absolute;top:-2px;right:-2px;width:6px;height:6px;border-radius:999px;background:var(--accent)}
-  #clearsel{padding:0 9px}
-  #delsel{padding:0 11px}
   #delsel:hover{background:#b91c1c;border-color:#b91c1c;color:#fff}
-  #addtext.on{background:#22c55e;color:#000;border-color:#22c55e;font-weight:600}
-  #annotbtn.on{background:#c96442;color:#fff;border-color:#c96442;font-weight:600}
   #annotcv{position:absolute;touch-action:none;pointer-events:none;z-index:60}
   body.addmode #plot svg, body.addmode #plot svg *{cursor:text}
   .txtedit{position:absolute;z-index:50;pointer-events:auto;font:13px -apple-system,BlinkMacSystemFont,sans-serif;padding:2px 6px;border:2px solid var(--accent);border-radius:6px;background:#fff;color:#111;box-shadow:0 4px 18px rgba(0,0,0,.45)}
@@ -75,17 +77,21 @@
   <b id="fname"></b>
   <span id="msinfo"></span>
   <span id="zoominfo" title="Zoom — ⌘+ / ⌘- / ⌘0, ou ⌘+molette"></span>
-  <button id="clearsel" title="Deselect (Esc)" style="display:none">✕</button>
-  <button id="delsel" title="Supprimer la sélection (Suppr · ⌫) — ⌘Z pour annuler ; le .svg garde un .orig.bak jusqu'au Save" style="display:none"><svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" style="vertical-align:-1px"><path d="M2.5 4h11M6.5 4V2.5h3V4M4 4l.8 9.5h6.4L12 4M6.5 7v4M9.5 7v4"/></svg></button>
+  <button id="clearsel" title="Désélectionner (Échap)" style="display:none"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4l8 8M12 4l-8 8"/></svg></button>
+  <button id="delsel" title="Supprimer la sélection (Suppr · ⌫) — ⌘Z pour annuler ; le .svg garde un .orig.bak jusqu'au Save" style="display:none"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M2.5 4h11M6.5 4V2.5h3V4M4 4l.8 9.5h6.4L12 4M6.5 7v4M9.5 7v4"/></svg></button>
+  <span class="tsep" id="sep-sel" style="display:none"></span>
   <button id="addtext" title="Ajouter un texte — clique ici puis clique sur la figure (double-clic sur un texte pour l'éditer)">T+</button>
-  <button id="lassotoggle" title="Polygone — clique des sommets autour des éléments ; double-clic / Entrée pour fermer · Échap annule">▱</button>
-  <button id="undobtn" title="Annuler la dernière action — déplacement / suppression / édition / ajout (⌘Z)" disabled>↶</button>
-  <button id="redobtn" title="Rétablir l'action annulée (⌘⇧Z)" disabled>↷</button>
-  <button id="savesvg" title="Save the moved elements into the .svg on disk (keeps a .orig.bak)">💾</button>
-  <select id="dpi" title="Export resolution"><option value="300">300 dpi</option><option value="450">450 dpi</option><option value="600">600 dpi</option></select>
-  <button id="exportpng" title="Render the current view to a sibling .png (rsvg-convert)">🖼</button>
-  <button id="annotbtn" title="Annoter — dessine sur la figure puis envoie à Claude">✎</button>
-  <button id="fsbtn" title="Fullscreen (F)">⛶</button>
+  <button id="lassotoggle" title="Polygone — clique des sommets autour des éléments ; double-clic / Entrée pour fermer · Échap annule"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" stroke-dasharray="2.5 2"><path d="M8 2.5L13.5 6.5L11.5 13H4.5L2.5 6.5Z"/></svg></button>
+  <span class="tsep"></span>
+  <button id="undobtn" title="Annuler la dernière action — déplacement / suppression / édition / ajout (⌘Z)" disabled><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6.5H9.5a3 3 0 0 1 0 6H7"/><path d="M6.5 4L4 6.5L6.5 9"/></svg></button>
+  <button id="redobtn" title="Rétablir l'action annulée (⌘⇧Z)" disabled><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M12 6.5H6.5a3 3 0 0 0 0 6H9"/><path d="M9.5 4L12 6.5L9.5 9"/></svg></button>
+  <span class="tsep"></span>
+  <button id="savesvg" title="Enregistrer les modifications dans le .svg (garde un .orig.bak)"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M8 2.5v7M5 6.5l3 3l3-3M2.5 10.5v2a1 1 0 0 0 1 1h9a1 1 0 0 0 1-1v-2"/></svg></button>
+  <select id="dpi" title="Résolution d'export"><option value="300">300 dpi</option><option value="450">450 dpi</option><option value="600">600 dpi</option></select>
+  <button id="exportpng" title="Exporter la vue en .png (rsvg-convert)"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><rect x="2.5" y="3" width="11" height="10" rx="1"/><circle cx="5.5" cy="6.5" r="1"/><path d="M3 12l3.5-3.5l2 2L11 7l2.5 2.5"/></svg></button>
+  <span class="tsep"></span>
+  <button id="annotbtn" title="Annoter — dessine sur la figure puis envoie à Claude"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M10.5 2.5l3 3M11.5 3.5L4 11l-1.5 3.5L6 13l7.5-7.5z"/></svg></button>
+  <button id="fsbtn" title="Plein écran (F)"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M6 2.5H2.5V6M10 2.5h3.5V6M13.5 10v3.5H10M6 13.5H2.5V10"/></svg></button>
 </header>
 <div id="stagewrap"><div id="stage">
   <div id="plot">Loading…</div>
@@ -133,7 +139,6 @@ function setLasso(on){
   lassoMode = on;
   lassoBtn.classList.toggle("on", on);
   document.body.classList.toggle("lasso", on);
-  lassoBtn.textContent = "▱";
   showHover(null); hiliteMoveSet();
   const n = document.getElementById("msinfo");
   if(n && on) n.textContent = "clique des sommets · double-clic / Entrée = fermer";
@@ -186,6 +191,8 @@ function hiliteMoveSet(){
   if(cs) cs.style.display = moveSet.length ? "inline-flex" : "none";
   const ds = document.getElementById("delsel");
   if(ds) ds.style.display = moveSet.length ? "inline-flex" : "none";
+  const ss = document.getElementById("sep-sel");
+  if(ss) ss.style.display = moveSet.length ? "" : "none";
   if(moveSet.length && !lassoMode && !addMode){ if(!selBoxEl) buildHandles(); positionHandles(); }
   else clearHandles();
   updatePropsPanel();
@@ -638,9 +645,13 @@ function nativeFsAllowed(){
   if(window.self!==window.top) return false;
   return false;
 }
+// expand = 4 corners pointing out ; compress = 4 corners pointing in (exit fullscreen)
+const FS_EXPAND = '<svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M6 2.5H2.5V6M10 2.5h3.5V6M13.5 10v3.5H10M6 13.5H2.5V10"/></svg>';
+const FS_COMPRESS = '<svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M2.5 5.5H6V2M13.5 5.5H10V2M10 10.5h3.5V14M6 10.5H2.5V14"/></svg>';
 function setFsUi(on){
   document.body.classList.toggle("fs-mode", on);
-  fsbtn.textContent = on ? "⛶ Exit" : "⛶";
+  fsbtn.innerHTML = on ? FS_COMPRESS : FS_EXPAND;
+  fsbtn.title = on ? "Quitter le plein écran (F)" : "Plein écran (F)";
   setTimeout(hiliteMoveSet, 60);
 }
 function fsReflow(){
@@ -745,7 +756,7 @@ function currentSVGText(){                                // serialize current v
   });
   return '<?xml version="1.0" encoding="utf-8" standalone="no"?>\n' + new XMLSerializer().serializeToString(clone);
 }
-function flash(btn, msg, base, ms){ btn.textContent = msg; setTimeout(() => btn.textContent = base, ms || 1700); }
+function flash(btn, msg, ms){ btn._html = btn._html || btn.innerHTML; btn.textContent = msg; setTimeout(() => { btn.innerHTML = btn._html; }, ms || 1700); }
 function elemText(el){                                    // the label string: literal <text>, else matplotlib's preceding <!-- comment -->
   let t = (el.textContent || "").trim();
   if(t) return t;
@@ -753,7 +764,7 @@ function elemText(el){                                    // the label string: l
   while(p && p.nodeType === 3 && !(p.textContent || "").trim()) p = p.previousSibling;   // skip whitespace
   return (p && p.nodeType === 8) ? (p.textContent || "").trim() : "";
 }
-function collectEdits(){                                  // v2 sidecar: transforms (deltas) + added texts + removed ids (+ styles later, Lot E)
+function collectEdits(){                                  // v2 sidecar: transforms (deltas) + added texts + removed ids + style overrides
   const transforms = [];
   svg.querySelectorAll("[data-orig0]").forEach(el => {     // per moved/resized element: id + label + the editor DELTA (its own original stripped)
     const xf = el.getAttribute("transform") || "", o0 = el.getAttribute("data-orig0") || "";
@@ -781,18 +792,19 @@ function saveSVG(){
   const b = document.getElementById("savesvg");
   fetch("/save-svg", { method: "POST", headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ rel: file, name: file.split("/").pop(), svg: currentSVGText(), edits: collectEdits() }) })
-    .then(r => r.json()).then(j => { if(j && j.ok) setDirty(false); flash(b, (j && j.ok) ? "Saved ✓" : "Error", "💾"); })
-    .catch(() => flash(b, "Error", "💾"));
+    .then(r => r.json()).then(j => { if(j && j.ok) setDirty(false); flash(b, (j && j.ok) ? "Enregistré ✓" : "Erreur"); })
+    .catch(() => flash(b, "Erreur"));
 }
 function exportPNG(){
   if(!svg) return;
   const b = document.getElementById("exportpng");
   const dpi = parseInt(document.getElementById("dpi").value, 10) || 300;
-  b.textContent = "rendering…";
+  b._html = b._html || b.innerHTML;
+  b.textContent = "rendu…";
   fetch("/export-png", { method: "POST", headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ rel: file, name: file.split("/").pop(), svg: currentSVGText(), dpi: dpi }) })
-    .then(r => r.json()).then(j => flash(b, (j && j.ok) ? ("PNG ✓ " + j.dpi + "dpi") : ("Error: " + ((j && j.error) || "")).slice(0, 22), "🖼", 2200))
-    .catch(() => flash(b, "Error", "🖼"));
+    .then(r => r.json()).then(j => flash(b, (j && j.ok) ? ("PNG ✓ " + j.dpi + "dpi") : ("Erreur: " + ((j && j.error) || "")).slice(0, 22), 2200))
+    .catch(() => flash(b, "Erreur"));
 }
 document.getElementById("savesvg").onclick = saveSVG;
 document.getElementById("exportpng").onclick = exportPNG;

@@ -264,3 +264,12 @@ export function ZapIcon({ size = 13 }: { size?: number }) {
     </svg>
   );
 }
+
+export function DownloadIcon({ size = 13 }: IconProps) {
+  return (
+    <StrokeIcon size={size}>
+      <path d="M8 2.4v7.2M5.1 6.6L8 9.6l2.9-3" />
+      <path d="M2.8 11.6v1.2c0 .8.6 1.4 1.4 1.4h7.6c.8 0 1.4-.6 1.4-1.4v-1.2" />
+    </StrokeIcon>
+  );
+}

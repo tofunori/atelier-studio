@@ -9,6 +9,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { route } from "./router.mjs";
 import { ThreadStore, writeFileAtomic } from "./store.mjs";
+import { HighlightStore } from "./highlights.mjs";
 import * as catalog from "./catalog.mjs";
 import * as history from "./history.mjs";
 import { watchAnnotations } from "./annotations.mjs";
@@ -44,6 +45,7 @@ try {
 writeFileAtomic(PID_FILE, String(process.pid));
 
 const store = new ThreadStore(`${APP_DIR}/threads.json`);
+const highlights = new HighlightStore(`${APP_DIR}/highlights.json`);
 const providers = { claude, codex, grok, opencode };
 const BUILTIN_PROVIDER_IDS = new Set(Object.keys(providers).concat("gemini"));
 // providers API OpenAI-compatible (api_providers.json) — chat pur, runtime dédié.
@@ -542,6 +544,7 @@ wss.on("connection", (ws) => {
     send: (obj) => ws.readyState === 1 && ws.send(JSON.stringify(obj)),
     broadcast,
     store,
+    highlights,
     providers,
     catalog,
     history,
