@@ -926,7 +926,8 @@ async function load(){
       __activeLn = l;
     });
   }
-  cm.on("change", (_, ch) => { if(ch.origin !== "setValue"){ dirty = true; ddot.style.display = "inline"; setState("dirty", "modified"); } });
+  cm.on("change", (_, ch) => { if(ch.origin !== "setValue"){ dirty = true; __lastEditAt = Date.now(); ddot.style.display = "inline"; setState("dirty", "modified"); } });
+  cm.on("cursorActivity", () => autoForwardSync());
   if (!cm.hasNativeGhost) ghostInstall();
   // ?line=N (ou N-M) : sauter à la ligne et la surligner brièvement (liens fichier:ligne du chat)
   const __lineParam = new URLSearchParams(location.search).get("line");
@@ -1588,15 +1589,34 @@ function showMarker(page, y0){
   return true;
 }
 
-async function synctexView(){
+async function synctexView(silent){
   if(!cm) return;
   const line = cm.getCursor().line + 1;
   const r = await fetch("/synctex", {method:"POST", headers:{"Content-Type":"application/json"},
     body: JSON.stringify({dir:"view", tex: path, pdf: pdfPath, line})});
   const j = await r.json();
-  if(!j.page) return setState("hint", "synctex : pas de correspondance ici");
+  if(!j.page){ if(!silent) setState("hint", "synctex : pas de correspondance ici"); return; }
   if(bc) bc.postMessage({t: "view", page: j.page, y: j.y});   // separate PDF tabs scroll too
-  if(pdfDoc && !showMarker(j.page, j.y) ) setState("err", "synctex: page not rendered");
+  if(pdfDoc && !showMarker(j.page, j.y) && !silent) setState("err", "synctex: page not rendered");
+}
+// Forward-sync AUTOMATIQUE en split : déplacer le curseur (clic/flèches, pas en
+// tapant) cale le PDF du panneau — miroir du clic-dans-le-PDF, qui lui saute à
+// la ligne source. En onglet PDF séparé, ce rôle est tenu par want-view au
+// changement d'onglet ; en split il n'y avait AUCUN déclencheur (seul ⌘J).
+let __lastEditAt = 0, __fwdT = null, __fwdLine = -1;
+function pdfPaneVisible(){
+  const r = document.getElementById("right");
+  return !!pdfDoc && r && r.style.display !== "none"
+    && !r.classList.contains("reading") && !r.classList.contains("visual");
+}
+function autoForwardSync(){
+  if(!cm || isPdfMode || !pdfPaneVisible()) return;
+  const line = cm.getCursor().line;
+  if(line === __fwdLine) return;               // même ligne : déjà calé
+  if(Date.now() - __lastEditAt < 300) return;  // frappe en cours : ne pas suivre
+  __fwdLine = line;
+  clearTimeout(__fwdT);
+  __fwdT = setTimeout(() => synctexView(true), 350);
 }
 
 let lastSyncLine = null;

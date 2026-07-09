@@ -387,6 +387,34 @@ async function latexStudioTests() {
     ok("preflight : texte sain → null", pf("\\section{Intro}\nDu texte avec 50\\% et \\cite{a}.\n") === null);
   }
 
+  // C4. autoForwardSync : forward-sync auto en split (curseur → PDF), gardé
+  {
+    const block = src.slice(src.indexOf("let __lastEditAt = 0"),
+      src.indexOf("__fwdT = setTimeout(() => synctexView(true), 350);") + 60);
+    let now = 100000, calls = [], timers = [], cursorLine = 5;
+    const flush = () => { const t = timers; timers = []; t.forEach((f) => f()); };
+    const right = { style: { display: "" }, classList: { _s: new Set(), contains(c) { return this._s.has(c); } } };
+    const api = new Function(
+      "cm", "isPdfMode", "pdfDoc", "document", "Date", "setTimeout", "clearTimeout", "synctexView",
+      block + "; return {autoForwardSync,pdfPaneVisible,setEdit:(t)=>{__lastEditAt=t}};",
+    )(
+      { getCursor: () => ({ line: cursorLine }) }, false, {}, { getElementById: () => right },
+      { now: () => now }, (fn) => timers.push(fn), () => {}, (s) => calls.push(s),
+    );
+    now = 100000; api.setEdit(0); cursorLine = 5; calls = []; api.autoForwardSync(); flush();
+    ok("autosync : navigation → forward silencieux", calls.length === 1 && calls[0] === true);
+    calls = []; api.autoForwardSync(); flush();
+    ok("autosync : même ligne → pas de re-sync", calls.length === 0);
+    cursorLine = 8; api.setEdit(now - 100); calls = []; api.autoForwardSync(); flush();
+    ok("autosync : frappe en cours → pas de sync", calls.length === 0);
+    cursorLine = 9; api.setEdit(now - 500); calls = []; api.autoForwardSync(); flush();
+    ok("autosync : navigation après pause → sync", calls.length === 1);
+    right.style.display = "none"; cursorLine = 12; api.setEdit(0); calls = []; api.autoForwardSync(); flush();
+    ok("autosync : PDF caché → pas de sync", calls.length === 0);
+    right.style.display = ""; right.classList._s.add("reading"); cursorLine = 15; calls = []; api.autoForwardSync(); flush();
+    ok("autosync : mode lecture → pas de sync", calls.length === 0);
+  }
+
   // C2. texcFind : ré-ancrage exact + normalisé aux blancs
   {
     const code = extract(src, /function texcFind\(doc, c\)/, "\n}", "texcFind");
