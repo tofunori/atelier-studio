@@ -627,7 +627,7 @@ function onUp(){
   if(lasso) return;                                      // building a polygon by clicks — pointerup does nothing
   if(drag){
     if(drag.moved && drag.before){ pushUndo({ type: "move", items: drag.before, after: snapshot(drag.items.map(it => it.el)) }); }   // record for undo/redo
-    else if(!drag.moved && drag.g){ moveSet = [drag.g]; hiliteMoveSet(); }                                // a click without a move = select it (so Del / 🗑 can remove a single element)
+    else if(!drag.moved && drag.g){ moveSet = [drag.g]; hiliteMoveSet(); }                                // a click without a move = select it (so Del can remove a single element)
     drag = null;
   }
 }
@@ -727,7 +727,7 @@ window.addEventListener("blur", () => { spaceDown = false; panning = null; docum
 
 document.addEventListener("keydown", e => {
   if(editing) return;
-  if(e.target && e.target.closest && e.target.closest("#props")) return;   // typing in a property field: don't nudge/delete/deselect the canvas
+  const t = e.target; if(t && (t.closest && t.closest("#props") || /^(input|select|textarea)$/i.test(t.tagName || ""))) return;   // any form field (props, dpi select, inline edit) keeps native arrows/space/del
   if(e.key === " " && !e.metaKey && !e.ctrlKey){ if(!spaceDown){ spaceDown = true; document.body.classList.add("panready"); showHover(null); } e.preventDefault(); return; }
   if((e.metaKey || e.ctrlKey) && (e.key === "+" || e.key === "=")){ e.preventDefault(); zoomStep(1.25); return; }
   if((e.metaKey || e.ctrlKey) && e.key === "-"){ e.preventDefault(); zoomStep(1 / 1.25); return; }
@@ -783,7 +783,18 @@ function collectEdits(){                                  // v2 sidecar: transfo
     if(!svg.contains(el)) return;                           // element deleted → drop it
     const props = {};
     for(const k in m){ const v = el.style.getPropertyValue(k); if(v) props[k] = v; }   // undone props read back empty → omitted
-    if(Object.keys(props).length) styles.push({ id: el.id || null, text: elemText(el) || null, props: props });
+    if(!Object.keys(props).length) return;
+    const id = el.id || null, text = elemText(el) || null;
+    if(!id && !text){                                       // no id, no label (bare matplotlib shape) → anchor by nearest id-bearing ancestor + index
+      const anc = el.parentNode && el.parentNode.closest ? el.parentNode.closest("[id]") : null;   // ascendant, never el itself
+      if(anc){
+        const tag = el.tagName.toLowerCase();
+        styles.push({ id: null, text: null, anchor: anc.id, tag: tag,
+          index: Array.from(anc.querySelectorAll(tag)).indexOf(el), props: props });
+        return;
+      }
+    }
+    styles.push({ id: id, text: text, props: props });      // has id/label, or no anchor → best-effort as before
   });
   return { version: 2, transforms: transforms, added: added, removed: removedLog.slice(), styles: styles };
 }

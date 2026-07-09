@@ -39,7 +39,8 @@ def load_edits(path):
     v1 (legacy): a bare JSON list, or ``{"svg": ..., "edits": [...]}`` — treated as
     ``transforms`` only. v2: ``{"version": 2, "transforms", "added", "removed", "styles"}``.
     """
-    d = json.load(open(path, encoding="utf-8"))
+    with open(path, encoding="utf-8") as f:
+        d = json.load(f)
     if isinstance(d, dict) and (d.get("version") == 2
                                 or any(k in d for k in ("transforms", "added", "removed", "styles"))):
         return {
@@ -154,6 +155,34 @@ def with_style(tag, props):
     return tag[:-1].rstrip() + ' style="' + merged + '">'
 
 
+def apply_anchored_style(raw, e):
+    """Style a bare (id-less, label-less) shape located by an id-bearing ancestor + index.
+
+    The client emits ``anchor`` (nearest ancestor id), ``tag`` (lowercase tag name) and
+    ``index`` (0-based position among the ancestor's same-tag descendants, document order).
+    We find the anchor's element span, then the (index+1)-th ``<tag`` OPENING tag inside it —
+    the lookahead ``(?=[^0-9A-Za-z])`` stops ``<text`` from matching ``<textPath`` and avoids
+    ``</tag`` closers. Returns ``(raw, ok)``; ok=False (anchor/index missing) → warn + unmatched.
+    """
+    anchor = e.get("anchor")
+    tag = (e.get("tag") or "").strip()
+    idx = e.get("index")
+    if not anchor or not tag or not isinstance(idx, int) or idx < 0:
+        return raw, False
+    am = find_open_tag(raw, anchor)
+    if not am:
+        return raw, False
+    s, en = element_span(raw, am)                              # search descendants only: from just after the anchor's own open tag
+    pat = re.compile(r'<' + re.escape(tag) + r'(?=[^0-9A-Za-z])')
+    matches = list(pat.finditer(raw, am.end(), en))
+    if idx >= len(matches):
+        return raw, False
+    tm = re.compile(r'<[A-Za-z][^>]*>').match(raw, matches[idx].start())
+    if not tm:
+        return raw, False
+    return raw[:tm.start()] + with_style(tm.group(0), e["props"]) + raw[tm.end():], True
+
+
 def build_added(e):
     """A fresh `<text>` element from an `added` entry (id/x/y/style/transform optional)."""
     attrs = []
@@ -201,6 +230,15 @@ def reapply_v2(raw, edits):
     raw, applied, skipped, missing = reapply_transforms(raw, edits.get("transforms") or [])
 
     for e in edits.get("styles") or []:                        # merge style overrides
+        if e.get("anchor"):                                    # bare shape: located by ancestor id + same-tag index
+            raw2, ok = apply_anchored_style(raw, e)
+            if ok:
+                raw = raw2; applied.append((e.get("anchor"), "style/anchor"))
+            else:
+                log("  style unmatched (anchor): anchor=%s tag=%s index=%s"
+                    % (e.get("anchor"), e.get("tag"), e.get("index")))
+                missing.append(e)
+            continue
         m, elid, how = _match(raw, e, by_text)
         if not m:
             log("  style unmatched: id=%s text=%r" % (e.get("id"), e.get("text")))
