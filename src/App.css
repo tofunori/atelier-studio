@@ -604,10 +604,13 @@ html, body, #root, .app { height: 100vh; overflow: hidden;
 .quote-pill { display: inline-flex; align-items: center; }
 .tool-tick { color: var(--muted2); }
 .tool-group { color: var(--muted); font-size: var(--fs-m); }
-.tool-group-row { display: inline-flex; align-items: center; gap: 4px;
+.tool-group-row { display: inline-flex; align-items: center; gap: 7px;
   background: transparent; border: none; color: var(--muted); padding: 0; cursor: pointer;
   font: inherit; }
 .tool-group-row:hover { color: var(--fg2); }
+.tool-group-ico { display: inline-flex; color: var(--muted2); flex: none; }
+.tool-group-row:hover .tool-group-ico { color: var(--muted); }
+.tool-group-row .tool-tick { color: var(--muted2); font-size: var(--fs-xs); }
 .tool-group-list { display: flex; flex-direction: column; gap: 4px; margin-top: 6px; padding-left: 14px; }
 /* pli de tour terminé : « A travaillé Xm Ys ▸ » — le détail du travail se
    déplie au clic ; replié par défaut une fois le tour terminé */

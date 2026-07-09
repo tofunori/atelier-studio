@@ -652,6 +652,81 @@ function isValidSkill(token: string, commands: { name: string }[]): boolean {
   return commands.some((cmd) => cmd.name === name);
 }
 
+// ---- résumés d'outils façon Codex : « Recherche de code, commande exécutée » ----
+type ToolCat = "search" | "read" | "edit" | "command" | "web" | "todo" | "tool";
+// une commande shell qui ressemble à une recherche / une lecture → catégorie fine
+const SEARCH_CMD = /^\s*!?\s*(rg|grep|egrep|fgrep|ag|ack|find|fd|glob|tree|ls)\b/;
+const READ_CMD = /^\s*!?\s*(cat|bat|head|tail|less|more|sed -n)\b/;
+
+// un event outil est-il « résumable » ? (les sentinelles __x gardent leur ligne)
+function isSummarizableTool(e: AgentEvent): e is Extract<AgentEvent, { kind: "tool" | "tool_update" }> {
+  if (e.kind === "tool_update") return true;
+  if (e.kind !== "tool") return false;
+  return e.name.startsWith("__edits:") || !e.name.startsWith("__");
+}
+
+function toolCategory(name: string, detail?: string): ToolCat {
+  if (name.startsWith("__edits:")) return "edit";
+  const n = name.toLowerCase();
+  if (n === "bash") {
+    const d = detail ?? "";
+    if (SEARCH_CMD.test(d)) return "search";
+    if (READ_CMD.test(d)) return "read";
+    return "command";
+  }
+  if (n === "read") return "read";
+  if (["edit", "write", "multiedit", "notebookedit", "apply_patch"].includes(n)) return "edit";
+  if (["grep", "glob"].includes(n)) return "search";
+  if (n === "websearch" || n === "webfetch" || n.startsWith("recherche web") || n.startsWith("web ")) return "web";
+  if (n === "todowrite" || n === "todo") return "todo";
+  return "tool";
+}
+
+function toolClause(cat: ToolCat, n: number): string {
+  switch (cat) {
+    case "search": return t("tools.searched");
+    case "web": return t("tools.web");
+    case "todo": return t("tools.todo");
+    case "read": return n > 1 ? t("tools.read-n", { n }) : t("tools.read-1");
+    case "edit": return n > 1 ? t("tools.edit-n", { n }) : t("tools.edit-1");
+    case "command": return n > 1 ? t("tools.cmd-n", { n }) : t("tools.cmd-1");
+    default: return n > 1 ? t("tools.tool-n", { n }) : t("tools.tool-1");
+  }
+}
+
+// résume une grappe d'outils consécutifs en une phrase (ordre de 1re apparition)
+function summarizeTools(actions: Extract<AgentEvent, { kind: "tool" | "tool_update" }>[]): string {
+  const order: ToolCat[] = [];
+  const counts = new Map<ToolCat, number>();
+  for (const a of actions) {
+    const cat = toolCategory(a.name, "detail" in a ? a.detail : undefined);
+    if (!counts.has(cat)) order.push(cat);
+    counts.set(cat, (counts.get(cat) ?? 0) + 1);
+  }
+  const phrase = order.map((cat) => toolClause(cat, counts.get(cat) ?? 1)).join(", ");
+  return phrase.charAt(0).toUpperCase() + phrase.slice(1);
+}
+
+// icône du résumé = catégorie dominante (priorité édition > commande > web…)
+function groupIconCat(actions: Extract<AgentEvent, { kind: "tool" | "tool_update" }>[]): ToolCat {
+  const cats = new Set(actions.map((a) => toolCategory(a.name, "detail" in a ? a.detail : undefined)));
+  const prio: ToolCat[] = ["edit", "command", "web", "read", "search", "todo", "tool"];
+  return prio.find((c) => cats.has(c)) ?? "tool";
+}
+function ToolGlyph({ cat }: { cat: ToolCat }) {
+  const c = { width: 13, height: 13, viewBox: "0 0 16 16", fill: "none", stroke: "currentColor",
+    strokeWidth: 1.35, strokeLinecap: "round" as const, strokeLinejoin: "round" as const };
+  switch (cat) {
+    case "command": return <svg {...c}><rect x="1.5" y="3" width="13" height="10" rx="2" /><path d="M4.4 6.4 6.2 8l-1.8 1.6M8.4 10h3.2" /></svg>;
+    case "edit": return <svg {...c}><path d="M12.2 1.6 14.4 3.8 5.5 12.7l-3 .8.8-3z" /><path d="M10.6 3.2 12.8 5.4" /></svg>;
+    case "search": return <svg {...c}><circle cx="7" cy="7" r="4.3" /><path d="M10.4 10.4 14 14" /></svg>;
+    case "read": return <svg {...c}><path d="M3 2.6h5.2L12 6v7.4H3z" /><path d="M8 2.6V6h4M5.3 8.6h5.4M5.3 10.8h5.4" /></svg>;
+    case "web": return <svg {...c}><circle cx="8" cy="8" r="5.6" /><path d="M2.4 8h11.2M8 2.4c1.7 1.7 1.7 9.5 0 11.2M8 2.4c-1.7 1.7-1.7 9.5 0 11.2" /></svg>;
+    case "todo": return <svg {...c}><path d="M3 4.4 4.1 5.5 6 3.4M3 10.6 4.1 11.7 6 9.6M8.4 4.6h4.6M8.4 10.8h4.6" /></svg>;
+    default: return <svg {...c}><path d="M9.6 2.5a2.1 2.1 0 0 0 2.8 2.8l.7.7a2.2 2.2 0 0 1-3.1 3.1l-4-4a2.2 2.2 0 0 1 3.1-3.1z" /></svg>;
+  }
+}
+
 function PinBtn({ pinned, onClick }: { pinned: boolean; onClick: () => void }) {
   return (
     <button title={pinned ? t("action.unpin-chapter") : t("action.pin-chapter")} onClick={onClick}
@@ -1265,19 +1340,20 @@ export default function Chat(p: {
       if (!open) { i = fold.end - 1; continue; }
     }
     const e = p.events[i];
-    if (e.kind !== "tool" && e.kind !== "tool_update") {
+    // les sentinelles (__thinking, __compacted…) et non-outils gardent leur ligne
+    if (!isSummarizableTool(e)) {
       renderedEvents.push({ type: "event", event: e, index: i });
       continue;
     }
+    // grappe d'outils « résumables » consécutifs → une ligne résumée façon Codex
     let end = i + 1;
-    while (end < p.events.length && (p.events[end].kind === "tool" || p.events[end].kind === "tool_update")) end++;
+    while (end < p.events.length && isSummarizableTool(p.events[end])) end++;
     const actions = p.events.slice(i, end) as Extract<AgentEvent, { kind: "tool" | "tool_update" }>[];
     const first = actions[0];
     const groupKey = first?.kind === "tool_update"
       ? `tools:${first.id}`
       : `tools:${first?.name ?? i}:${i}`;
-    if (actions.length >= 4) renderedEvents.push({ type: "actions", actions, index: i, key: groupKey });
-    else actions.forEach((action, offset) => renderedEvents.push({ type: "event", event: action, index: i + offset }));
+    renderedEvents.push({ type: "actions", actions, index: i, key: groupKey });
     i = end - 1;
   }
   const currentTool = [...p.events].reverse().find((e) => e.kind === "tool_update" || e.kind === "tool");
@@ -1474,7 +1550,8 @@ export default function Chat(p: {
                     })
                   }
                 >
-                  <span>{t("chat.actions-used", { count: item.actions.length })}</span>
+                  <span className="tool-group-ico"><ToolGlyph cat={groupIconCat(item.actions)} /></span>
+                  <span>{summarizeTools(item.actions)}</span>
                   <span className="tool-tick">{open ? "▾" : "▸"}</span>
                 </button>
                 {open && (
