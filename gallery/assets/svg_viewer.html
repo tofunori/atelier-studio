@@ -11,6 +11,10 @@
          display:flex;gap:8px;align-items:center;font-size:13px;flex-shrink:0;flex-wrap:wrap}
   #fname{font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:42%;min-width:0;flex:1 1 0}
   #msinfo{color:#22c55e;font-size:12px;white-space:nowrap}
+  #zoominfo{color:var(--muted);font-size:12px;white-space:nowrap;font-variant-numeric:tabular-nums}
+  /* space-held pan: grab cursor, grabbing while dragging (wins over the move/crosshair rules) */
+  body.panready #stagewrap, body.panready #stagewrap *{cursor:grab}
+  body.panning #stagewrap, body.panning #stagewrap *{cursor:grabbing}
   /* uniform "pro" toolbar: every control the same height + style */
   header button,header select{height:30px;box-sizing:border-box;display:inline-flex;align-items:center;gap:6px;
         background:var(--border);color:var(--txt);border:1px solid var(--border);border-radius:6px;padding:0 13px;
@@ -54,6 +58,7 @@
 <header>
   <b id="fname"></b>
   <span id="msinfo"></span>
+  <span id="zoominfo" title="Zoom — ⌘+ / ⌘- / ⌘0, ou ⌘+molette"></span>
   <button id="clearsel" title="Deselect (Esc)" style="display:none">✕</button>
   <button id="delsel" title="Supprimer la sélection (Suppr · ⌫) — ⌘Z pour annuler ; le .svg garde un .orig.bak jusqu'au Save" style="display:none"><svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" style="vertical-align:-1px"><path d="M2.5 4h11M6.5 4V2.5h3V4M4 4l.8 9.5h6.4L12 4M6.5 7v4M9.5 7v4"/></svg></button>
   <button id="addtext" title="Ajouter un texte — clique ici puis clique sur la figure (double-clic sur un texte pour l'éditer)">T+</button>
@@ -75,6 +80,7 @@ const file = new URLSearchParams(location.search).get("file") || "";
 document.getElementById("fname").textContent = file.split("/").pop();
 document.title = file.split("/").pop() || "SVG";
 const stage = document.getElementById("stage"), ov = document.getElementById("ov"), plot = document.getElementById("plot");
+const stagewrap = document.getElementById("stagewrap");
 const esc = s => String(s).replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
 
 let svg = null, hbox = null;
@@ -97,6 +103,7 @@ function showHover(el){                                   // a silent highlight 
 
 // ---- always-on element move + a polygon-lasso multi-select ----
 let drag = null, dirty = false, lassoMode = false;
+let zoom = 1, spaceDown = false, panning = null;         // zoom factor (0.25–8) + space-drag pan state
 let addMode = false, editing = false, addCounter = 0;
 const lassoBtn = document.getElementById("lassotoggle");
 function setLasso(on){
@@ -557,8 +564,59 @@ async function toggleFS(){
   if(!req) return;
   try{ await req.call(document.documentElement); }catch(e){}
 }
+// ==== zoom + pan ====
+// Zoom scales #plot's CSS width; #stagewrap scrolls; overlays (rectIn) follow automatically.
+function clampZoom(z){ return Math.min(8, Math.max(0.25, z)); }
+function updateZoomInfo(){ const zi = document.getElementById("zoominfo"); if(zi) zi.textContent = (Math.abs(zoom - 1) < 0.001) ? "" : (Math.round(zoom * 100) + " %"); }
+function afterZoom(){ updateZoomInfo(); hiliteMoveSet(); if(annotOn){ sizeAnnot(); annotApi.redraw(); } }   // keep overlays + annot canvas in sync with the new scale
+function applyZoom(z, ax, ay){                            // ax/ay = client point to keep pinned under the cursor
+  z = clampZoom(z);
+  const pr = plot.getBoundingClientRect();
+  let fx = 0.5, fy = 0.5, pin = false;
+  if(ax != null && pr.width && pr.height){ fx = (ax - pr.left) / pr.width; fy = (ay - pr.top) / pr.height; pin = true; }
+  zoom = z; plot.style.width = (zoom * 100) + "%";
+  if(pin){                                               // shift scroll so the same document fraction stays under the cursor
+    const pr2 = plot.getBoundingClientRect();
+    stagewrap.scrollLeft += pr2.left - (ax - fx * pr2.width);
+    stagewrap.scrollTop  += pr2.top  - (ay - fy * pr2.height);
+  }
+  afterZoom();
+}
+function zoomStep(f){ const r = stagewrap.getBoundingClientRect(); applyZoom(zoom * f, r.left + r.width / 2, r.top + r.height / 2); }  // centre on viewport
+function zoomReset(){ zoom = 1; plot.style.width = "100%"; stagewrap.scrollLeft = 0; stagewrap.scrollTop = 0; afterZoom(); }           // fit width
+// ⌘/pinch + wheel = zoom centred on the cursor; plain wheel stays native scroll
+stagewrap.addEventListener("wheel", e => {
+  if(!(e.ctrlKey || e.metaKey) || !svg) return;
+  e.preventDefault();
+  applyZoom(zoom * Math.exp(-e.deltaY * 0.01), e.clientX, e.clientY);
+}, { passive: false });
+// space-held pan: drag the scroll position; edit handlers are suppressed while space is down
+stagewrap.addEventListener("pointerdown", e => {
+  if(!spaceDown || editing) return;
+  if(e.button !== undefined && e.button !== 0) return;
+  panning = { x: e.clientX, y: e.clientY, sl: stagewrap.scrollLeft, st: stagewrap.scrollTop };
+  document.body.classList.add("panning");
+  try{ stagewrap.setPointerCapture(e.pointerId); }catch(err){}
+  e.preventDefault();
+});
+stagewrap.addEventListener("pointermove", e => {
+  if(!panning) return;
+  stagewrap.scrollLeft = panning.sl - (e.clientX - panning.x);
+  stagewrap.scrollTop  = panning.st - (e.clientY - panning.y);
+  e.preventDefault();
+});
+function endPan(e){ if(!panning) return; panning = null; document.body.classList.remove("panning"); try{ stagewrap.releasePointerCapture(e.pointerId); }catch(err){} }
+stagewrap.addEventListener("pointerup", endPan);
+stagewrap.addEventListener("pointercancel", endPan);
+document.addEventListener("keyup", e => { if(e.key === " "){ spaceDown = false; document.body.classList.remove("panready", "panning"); panning = null; } });
+window.addEventListener("blur", () => { spaceDown = false; panning = null; document.body.classList.remove("panready", "panning"); });   // a lost keyup (blur) must not leave pan stuck on
+
 document.addEventListener("keydown", e => {
   if(editing) return;
+  if(e.key === " " && !e.metaKey && !e.ctrlKey){ if(!spaceDown){ spaceDown = true; document.body.classList.add("panready"); showHover(null); } e.preventDefault(); return; }
+  if((e.metaKey || e.ctrlKey) && (e.key === "+" || e.key === "=")){ e.preventDefault(); zoomStep(1.25); return; }
+  if((e.metaKey || e.ctrlKey) && e.key === "-"){ e.preventDefault(); zoomStep(1 / 1.25); return; }
+  if((e.metaKey || e.ctrlKey) && e.key === "0"){ e.preventDefault(); zoomReset(); return; }
   if((e.metaKey || e.ctrlKey) && (e.key === "z" || e.key === "Z")){ e.preventDefault(); if(e.shiftKey) redo(); else undo(); return; }
   if(moveSet.length && e.key.indexOf("Arrow") === 0){       // arrow keys nudge the selection (Shift = ×10), coalesced per burst
     const s = e.shiftKey ? 10 : 1;
