@@ -386,7 +386,7 @@ export default function Sidebar(p: {
 
   return (
     <div className="sidebar">
-      <div className="side-top">
+      <div className="side-top" data-tauri-drag-region>
         <span className="flex" />
         <button className="mini compact-btn" title={t("action.collapse-sidebar")} onClick={p.onCompact}>
           <SidebarIcon size={17} />
