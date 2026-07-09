@@ -487,8 +487,11 @@ export default function App() {
           setProjMeta((cur) => ({ ...cur, ...diskMeta }));
         }
         if (Array.isArray(diskProjects) && diskProjects.length) {
+          // union : le disque fait foi pour l'existence (le localStorage WebKit
+          // peut avoir perdu un projet récent si l'app a été tuée), puis on
+          // ajoute les créations locales pas encore synchronisées au disque.
           setProjects((cur) => [
-            ...diskProjects.filter((r: string) => cur.includes(r)),
+            ...diskProjects,
             ...cur.filter((r) => !diskProjects.includes(r)),
           ]);
         }
