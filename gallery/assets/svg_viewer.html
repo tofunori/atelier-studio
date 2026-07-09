@@ -67,6 +67,15 @@
          background:var(--bg);border:1px solid var(--border);border-radius:6px;color:var(--muted);cursor:pointer;
          font-size:13px;line-height:1}
   #props .pnone:hover{color:var(--txt)}
+  #props select{font-size:12px;height:24px;box-sizing:border-box;border-radius:6px;background:var(--bg);
+         border:1px solid var(--border);color:var(--txt);font-family:inherit;max-width:120px;padding:0 4px}
+  #props .ptog{height:24px;width:24px;padding:0;display:inline-flex;align-items:center;justify-content:center;
+         background:var(--bg);border:1px solid var(--border);border-radius:6px;color:var(--muted);cursor:pointer;
+         font-size:12px;line-height:1;font-family:inherit}
+  #props .ptog:hover{color:var(--txt)}
+  #props .ptog.on{background:var(--accent);border-color:var(--accent);color:#fff}
+  #props .ptog[data-prop="font-style"]{font-style:italic}
+  #props .ptog[data-prop="font-weight"]{font-weight:600}
   #err{color:#ff6b6b;padding:40px;text-align:center}
 </style>
 <script>(function(){var T={'Default':{bg:'#202024',card:'#27272a',txt:'#dbdfe5',muted:'#a1a1aa',accent:'#5b9dff',border:'#3f3f46'},'Codex One':{bg:'#202024',card:'#2f343f',txt:'#abb2bf',muted:'#7f848e',accent:'#4d78cc',border:'#3e4451'},'Dracula':{bg:'#282a36',card:'#343746',txt:'#f8f8f2',muted:'#9aa0b3',accent:'#bd93f9',border:'#44475a'},'Nord':{bg:'#2e3440',card:'#3b4252',txt:'#e5e9f0',muted:'#9aa3b2',accent:'#88c0d0',border:'#434c5e'}};var t;try{t=T[localStorage.getItem('figTheme')];}catch(e){}t=t||T['Default'];var r=document.documentElement.style;for(var k in t)r.setProperty('--'+k,t[k]);})();</script>
@@ -103,6 +112,8 @@
   <label class="prow"><span>Épaisseur</span><input type="number" id="p-strokew" step="0.25" min="0"></label>
   <label class="prow"><span>Opacité</span><input type="range" id="p-opacity" min="0" max="1" step="0.05"></label>
   <label class="prow" id="p-fontrow"><span>Taille</span><input type="number" id="p-fontsize" step="1" min="1"></label>
+  <label class="prow" id="p-famrow"><span>Police</span><select id="p-fontfam"></select></label>
+  <div class="prow" id="p-stylerow"><span>Style</span><span class="pctl"><button type="button" class="ptog" data-prop="font-weight" title="Gras">B</button><button type="button" class="ptog" data-prop="font-style" title="Italique">I</button></span></div>
 </div>
 <script>
 const file = new URLSearchParams(location.search).get("file") || "";
@@ -205,6 +216,9 @@ const propsPanel = document.getElementById("props");
 const propFill = document.getElementById("p-fill"), propStroke = document.getElementById("p-stroke");
 const propStrokeW = document.getElementById("p-strokew"), propOpacity = document.getElementById("p-opacity");
 const propFontSize = document.getElementById("p-fontsize"), propFontRow = document.getElementById("p-fontrow");
+const propFontFam = document.getElementById("p-fontfam"), propFamRow = document.getElementById("p-famrow");
+const propStyleRow = document.getElementById("p-stylerow");
+const propBold = propStyleRow.querySelector('[data-prop="font-weight"]'), propItal = propStyleRow.querySelector('[data-prop="font-style"]');
 function styleTargets(el){                                  // the shapes/texts a style applies to: the element itself if it's one, else its descendants
   return (el.matches && el.matches(SHAPE_SEL)) ? [el] : Array.from(el.querySelectorAll(SHAPE_SEL));
 }
@@ -212,7 +226,7 @@ function collectStyleEls(prop){                             // union of targets 
   const out = [];
   for(const el of moveSet){
     for(const t of styleTargets(el)){
-      if(prop === "font-size" && !(t.matches && t.matches("text,tspan"))) continue;
+      if(prop.indexOf("font-") === 0 && !(t.matches && t.matches("text,tspan"))) continue;   // font props only make sense on text
       if(out.indexOf(t) < 0) out.push(t);
     }
   }
@@ -250,6 +264,14 @@ function rgbToHex(c){                                       // getComputedStyle 
   return "#" + h(p[0]) + h(p[1]) + h(p[2]);
 }
 function firstStyleEl(){ for(const el of moveSet){ const ts = styleTargets(el); if(ts.length) return ts[0]; } return null; }
+function firstTextEl(){ for(const el of moveSet){ if(el.matches && el.matches("text,tspan")) return el; const t = el.querySelector && el.querySelector("text,tspan"); if(t) return t; } return null; }
+function firstFamily(ff){ return (ff || "").split(",")[0].trim().replace(/^["']|["']$/g, ""); }
+function cssFamily(f){ return /^[A-Za-z][A-Za-z0-9\-]*$/.test(f) ? f : '"' + f + '"'; }   // quote families with spaces/dots
+function famOption(f){                                       // make sure the select can show this family (figure fonts land on top)
+  if(!f) return;
+  for(const o of propFontFam.options) if(o.value === f) return;
+  const o = document.createElement("option"); o.value = f; o.textContent = f; propFontFam.insertBefore(o, propFontFam.firstChild);
+}
 function fillPropsPanel(){                                  // prefill from the first relevant element (mixed values are left as-is — kept simple)
   const el = firstStyleEl();
   if(el){
@@ -258,9 +280,19 @@ function fillPropsPanel(){                                  // prefill from the 
     propStroke.value = rgbToHex(cs.stroke);
     const sw = parseFloat(cs.strokeWidth); if(!isNaN(sw)) propStrokeW.value = sw;
     const op = parseFloat(cs.opacity); if(!isNaN(op)) propOpacity.value = op;
-    const fs = parseFloat(cs.fontSize); if(!isNaN(fs)) propFontSize.value = Math.round(fs);
   }
-  propFontRow.style.display = selHasText() ? "" : "none";
+  const hasText = selHasText();
+  propFontRow.style.display = hasText ? "" : "none";
+  propFamRow.style.display = hasText ? "" : "none";
+  propStyleRow.style.display = hasText ? "" : "none";
+  const t = hasText ? firstTextEl() : null;
+  if(t){
+    const cs = getComputedStyle(t);
+    const fs = parseFloat(cs.fontSize); if(!isNaN(fs)) propFontSize.value = Math.round(fs * 10) / 10;
+    const fam = firstFamily(cs.fontFamily); famOption(fam); propFontFam.value = fam;
+    const w = cs.fontWeight; propBold.classList.toggle("on", w === "bold" || parseInt(w, 10) >= 600);
+    propItal.classList.toggle("on", cs.fontStyle === "italic");
+  }
 }
 function updatePropsPanel(){                                // shown only for a live selection, out of lasso/add/fullscreen modes
   const show = moveSet.length && !lassoMode && !addMode && !document.body.classList.contains("fs-mode");
@@ -274,6 +306,15 @@ propFontSize.addEventListener("change", () => { if(propFontSize.value !== "") co
 propOpacity.addEventListener("input", () => rangeLive("opacity", propOpacity.value));
 propOpacity.addEventListener("change", rangeCommit);
 propsPanel.querySelectorAll(".pnone").forEach(btn => btn.addEventListener("click", () => commitStyle(btn.getAttribute("data-prop"), "none")));
+propFontFam.addEventListener("change", () => { if(propFontFam.value) commitStyle("font-family", cssFamily(propFontFam.value)); });
+propBold.addEventListener("click", () => commitStyle("font-weight", propBold.classList.contains("on") ? "normal" : "bold"));
+propItal.addEventListener("click", () => commitStyle("font-style", propItal.classList.contains("on") ? "normal" : "italic"));
+const STD_FAMILIES = ["DejaVu Sans", "DejaVu Serif", "Helvetica", "Arial", "Times New Roman", "STIXGeneral", "Georgia", "Verdana", "Courier New"];
+function populateFamilies(){                                // figure's own fonts first, then the standards
+  for(const f of STD_FAMILIES){ const o = document.createElement("option"); o.value = f; o.textContent = f; propFontFam.appendChild(o); }
+  const seen = new Set();
+  svg.querySelectorAll("text,tspan").forEach(t => { const f = firstFamily(getComputedStyle(t).fontFamily); if(f && !seen.has(f)){ seen.add(f); famOption(f); } });
+}
 // ---- dirty-state (accent dot on the save button + beforeunload guard) ----
 function setDirty(v){ dirty = v; const b = document.getElementById("savesvg"); if(b) b.classList.toggle("dirty", v); }
 // ---- undo/redo history (two stacks; each entry holds enough to undo AND redo) ----
@@ -361,6 +402,12 @@ function editText(el, o){                                   // inline-edit a <te
   const inp = document.createElement("input");
   inp.id = "txtedit-input"; inp.type = "text"; inp.className = "txtedit";
   inp.value = el.textContent || "";
+  try{                                                     // WYSIWYG: adopt the label's real font at its on-screen size
+    const cs = getComputedStyle(el), m = el.getScreenCTM();
+    const sc = m ? Math.hypot(m.a, m.b) : 1;
+    const px = parseFloat(cs.fontSize) * sc;
+    if(px) inp.style.font = cs.fontStyle + " " + cs.fontWeight + " " + Math.max(11, px) + "px " + cs.fontFamily;
+  }catch(e){}
   let b = null; try{ b = rectIn(el); }catch(e){}
   if(!b || !b.w) b = { x: o.x || 20, y: o.y || 20, w: 140 };
   inp.style.left = Math.max(2, b.x - 4) + "px";
@@ -854,6 +901,7 @@ async function load(){
       const n = parseInt(el.id.slice("added_text_".length), 10);
       if(n > addCounter) addCounter = n;
     });
+    populateFamilies();
     svg.addEventListener("pointerdown", onDown);
     svg.addEventListener("dblclick", e => {                 // dbl-click: close the polygon, else edit a text label
       if(addMode) return;
