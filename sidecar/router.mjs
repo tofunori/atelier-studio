@@ -712,6 +712,31 @@ export async function route(msg, ctx) {
       (ctx.broadcast ?? ctx.send)({ type: "threads", threads: ctx.store.list() });
       break;
     }
+    case "moveThread": {
+      // déplace un thread vers un autre projet (réécrit projectRoot). L'historique
+      // après redémarrage retrouve la session via le repli « recherche par id
+      // partout » (claudeHistory/grokHistory) — codexHistory scanne déjà
+      // ~/.codex/sessions globalement par id, rien à faire pour ce provider.
+      const t = ctx.store.get(msg.threadId);
+      if (!t) {
+        ctx.send({ type: "error", threadId: msg.threadId, message: "thread introuvable" });
+        break;
+      }
+      if (t.status === "running") {
+        ctx.send({ type: "error", threadId: msg.threadId,
+          message: "chat en cours d'exécution — attendre la fin du tour" });
+        break;
+      }
+      const target = msg.projectRoot;
+      if (typeof target !== "string" || !target.startsWith("/")) {
+        ctx.send({ type: "error", threadId: msg.threadId, message: "projet cible invalide" });
+        break;
+      }
+      if (target === (t.projectRoot ?? "")) break; // même projet : no-op silencieux
+      ctx.store.upsert({ id: msg.threadId, projectRoot: target });
+      (ctx.broadcast ?? ctx.send)({ type: "threads", threads: ctx.store.list() });
+      break;
+    }
     case "getHistory": {
       const t = ctx.store.get(msg.threadId);
       if (!t?.sessionId) {

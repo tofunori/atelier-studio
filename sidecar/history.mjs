@@ -1,6 +1,11 @@
 import { getSessionMessages } from "@anthropic-ai/claude-agent-sdk";
+import { existsSync, readdirSync } from "node:fs";
+import { homedir } from "node:os";
+import { join } from "node:path";
 import { stripHandoff } from "./handoff.mjs";
 import { toolDetail } from "./providers/claude.mjs";
+
+const DEFAULT_CLAUDE_PROJECTS_DIR = () => join(homedir(), ".claude", "projects");
 
 // Balises d'injections systèmes à filtrer (reminders, commandes, notifications) —
 // on ne rejette QUE ces familles connues, pas tout message commençant par « < ».
@@ -69,8 +74,36 @@ export function eventsFromSessionMessages(msgs) {
   return events;
 }
 
-/** Reconstruit les events d'affichage depuis une session Claude persistée. */
-export async function claudeHistory(sessionId, cwd) {
-  const msgs = await getSessionMessages(sessionId, cwd ? { dir: cwd } : undefined);
-  return eventsFromSessionMessages(msgs);
+/** Cherche `<sessionId>.jsonl` parmi tous les sous-dossiers de `baseDir`
+ *  (existence du nom de fichier seulement — aucune lecture de contenu, cf.
+ *  perf). Repli utilisé quand un thread déplacé vers un autre projet ne
+ *  retrouve plus sa session sous le nouveau cwd (le fichier vit toujours sous
+ *  le slug de l'ANCIEN projectRoot). `baseDir` injectable pour les tests
+ *  (mkdtemp) ; par défaut `~/.claude/projects`. */
+export function findClaudeSessionDir(sessionId, baseDir = DEFAULT_CLAUDE_PROJECTS_DIR()) {
+  let entries;
+  try {
+    entries = readdirSync(baseDir, { withFileTypes: true });
+  } catch {
+    return null;
+  }
+  for (const entry of entries) {
+    if (!entry.isDirectory()) continue;
+    const dir = join(baseDir, entry.name);
+    if (existsSync(join(dir, `${sessionId}.jsonl`))) return dir;
+  }
+  return null;
+}
+
+/** Reconstruit les events d'affichage depuis une session Claude persistée.
+ *  Chemin direct d'abord (rapide, cas nominal) ; si introuvable sous `cwd` ET
+ *  qu'une trace existe ailleurs (thread déplacé), repli sur la recherche
+ *  globale native du SDK (sans `dir` — cf. getSessionMessages, qui scanne
+ *  alors tous les projets connus par nom de fichier). */
+export async function claudeHistory(sessionId, cwd, opts = {}) {
+  let msgs = await getSessionMessages(sessionId, cwd ? { dir: cwd } : undefined);
+  if ((!msgs || msgs.length === 0) && cwd && findClaudeSessionDir(sessionId, opts.baseDir)) {
+    msgs = await getSessionMessages(sessionId);
+  }
+  return eventsFromSessionMessages(msgs ?? []);
 }

@@ -161,15 +161,41 @@ export async function codexHistory(sessionId) {
   return events;
 }
 
+/** Cherche `<baseDir>/*/<sessionId>/chat_history.jsonl` (existence du chemin
+ *  seulement). Repli utilisé quand un thread déplacé vers un autre projet ne
+ *  retrouve plus sa session sous le nouveau cwd encodé (la session vit
+ *  toujours sous le dossier de l'ANCIEN projectRoot). `baseDir` injectable
+ *  pour les tests (mkdtemp) ; par défaut `~/.grok/sessions`. */
+export function findGrokSessionFile(sessionId, baseDir = join(homedir(), ".grok", "sessions")) {
+  let entries;
+  try {
+    entries = readdirSync(baseDir, { withFileTypes: true });
+  } catch {
+    return null;
+  }
+  for (const entry of entries) {
+    if (!entry.isDirectory()) continue;
+    const candidate = join(baseDir, entry.name, sessionId, "chat_history.jsonl");
+    if (existsSync(candidate)) return candidate;
+  }
+  return null;
+}
+
 /** Historique d'une session Grok (chat_history.jsonl ACP) → événements
  * affichables, forme alignée sur codexHistory ci-dessus (kind:"user"/"text"),
  * plus kind:"tool" pour les tool_calls assistant. "system"/"reasoning"/
  * "tool_result" ne sont pas affichés (parité codexHistory, qui ne montre pas
- * non plus les sorties d'outils). */
-export async function grokHistory(sessionId, projectRoot) {
+ * non plus les sorties d'outils). Chemin direct d'abord (cas nominal) ; repli
+ * sur la recherche globale par id seulement si introuvable (thread déplacé) —
+ * listSessions n'a PAS ce repli (hors scope). */
+export async function grokHistory(sessionId, projectRoot, opts = {}) {
   const dir = grokProjectDir(projectRoot);
-  const file = join(dir, sessionId, "chat_history.jsonl");
-  if (!existsSync(file)) return [];
+  let file = join(dir, sessionId, "chat_history.jsonl");
+  if (!existsSync(file)) {
+    const found = findGrokSessionFile(sessionId, opts.baseDir);
+    if (!found) return [];
+    file = found;
+  }
   const events = [];
   const rl = readline.createInterface({ input: createReadStream(file) });
   for await (const line of rl) {

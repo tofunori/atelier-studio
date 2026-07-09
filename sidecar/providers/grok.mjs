@@ -43,6 +43,19 @@ import { contextWindowFor } from "./registry.mjs";
 //   replays tombent dans le vide (aucun handler enregistré) sans effet de
 //   bord. Une session déjà chargée dans CE process n'est plus rechargée
 //   (le replay ne se reproduit qu'au premier load, pas à chaque tour).
+// - `session/load` avec un `cwd` DIFFÉRENT de celui d'origine (thread déplacé
+//   vers un autre projet) ÉCHOUE : vérifié en direct 2026-07-08 sans appel
+//   modèle (scratchpad moveThread-probe/probe_load_cross_cwd.py, sessionId
+//   réel créé sous atelier-studio, session/load rejoué avec le cwd d'un autre
+//   projet réel) — réponse JSON-RPC `{error:{code:-32603,message:"Path not
+//   found.",data:{code:"FS_NOT_FOUND"}}}`, process ACP resté vivant après
+//   l'échec (pas un crash : le moteur résout la session par cwd d'origine
+//   encodé, PAS par sessionId seul). D'où le repli `openGrokSession` ci-dessous :
+//   sur cet échec précis (process sain), on retombe sur `session/new` plutôt
+//   que de dégrader vers le legacy streaming-json (cf. `run()` en bas de
+//   fichier) — l'utilisateur garde son historique affiché, seule la
+//   continuité de session modèle est perdue (nouveau sessionId, contexte
+//   frais).
 // - `session/prompt {sessionId, prompt:[{type:"text",text}]}` → notifications
 //   `session/update` (discriminant `params.update.sessionUpdate`) puis
 //   réponse finale `{stopReason, _meta:{totalTokens,inputTokens,
@@ -706,10 +719,22 @@ async function openGrokSession(srv, { sessionId, cwd, threadId }) {
     return { sessionId }; // déjà chargée dans ce process : pas de re-load (évite le replay bruyant)
   }
   if (sessionId) {
-    const result = await withHandshakeTimeout(srv.request("session/load", { sessionId, cwd, mcpServers: [] }), "session/load");
-    loadedGrokSessions.add(sessionId);
-    grokSessionSelection.set(sessionId, selectionFromOptions(result?._meta?.["x.ai/sessionConfig"]?.options));
-    return { sessionId };
+    try {
+      const result = await withHandshakeTimeout(srv.request("session/load", { sessionId, cwd, mcpServers: [] }), "session/load");
+      loadedGrokSessions.add(sessionId);
+      grokSessionSelection.set(sessionId, selectionFromOptions(result?._meta?.["x.ai/sessionConfig"]?.options));
+      return { sessionId };
+    } catch (e) {
+      // session/load refusé (typiquement : thread déplacé vers un autre projet,
+      // cwd différent de celui d'origine — cf. probe_load_cross_cwd.py en tête
+      // de module). Si le process ACP est resté sain, repli sur session/new
+      // (nouveau sessionId, contexte modèle frais) plutôt que de dégrader
+      // silencieusement vers le legacy streaming-json : l'utilisateur garde
+      // son historique affiché et la conversation continue.
+      const alive = server?.proc && server.proc.exitCode == null && !server.proc.killed;
+      if (!alive) throw e;
+      console.warn(`[grok] session/load refusé (${sessionId}), repli session/new:`, e?.message ?? e);
+    }
   }
   const result = await withHandshakeTimeout(srv.request("session/new", { cwd, mcpServers: [] }), "session/new");
   const sid = result?.sessionId;
