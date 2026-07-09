@@ -188,12 +188,90 @@ function hiliteMoveSet(){
   if(ds) ds.style.display = moveSet.length ? "inline-flex" : "none";
   if(moveSet.length && !lassoMode && !addMode){ if(!selBoxEl) buildHandles(); positionHandles(); }
   else clearHandles();
+  updatePropsPanel();
 }
 function clearMoveSet(){ moveSet = []; hiliteMoveSet(); }
+// ==== contextual properties panel (Lot E): fill / stroke / stroke-width / opacity / font-size ====
+const SHAPE_SEL = "path,rect,circle,ellipse,line,polyline,polygon,text,tspan";
+const styledProps = new Map();                              // el -> { prop: value } posed during this session (feeds the v2 sidecar)
+const propsPanel = document.getElementById("props");
+const propFill = document.getElementById("p-fill"), propStroke = document.getElementById("p-stroke");
+const propStrokeW = document.getElementById("p-strokew"), propOpacity = document.getElementById("p-opacity");
+const propFontSize = document.getElementById("p-fontsize"), propFontRow = document.getElementById("p-fontrow");
+function styleTargets(el){                                  // the shapes/texts a style applies to: the element itself if it's one, else its descendants
+  return (el.matches && el.matches(SHAPE_SEL)) ? [el] : Array.from(el.querySelectorAll(SHAPE_SEL));
+}
+function collectStyleEls(prop){                             // union of targets across the whole selection (font-size → text/tspan only)
+  const out = [];
+  for(const el of moveSet){
+    for(const t of styleTargets(el)){
+      if(prop === "font-size" && !(t.matches && t.matches("text,tspan"))) continue;
+      if(out.indexOf(t) < 0) out.push(t);
+    }
+  }
+  return out;
+}
+function selHasText(){ return moveSet.some(el => (el.matches && el.matches("text,tspan")) || (el.querySelector && el.querySelector("text,tspan"))); }
+function styleSnap(els){ return els.map(el => ({ el, style: el.getAttribute("style") })); }   // full inline-style attribute, restored verbatim
+function styleRestore(it){ if(it.style === null) it.el.removeAttribute("style"); else it.el.setAttribute("style", it.style); }
+function markStyled(el, prop, val){
+  el.style.setProperty(prop, val);                         // inline priority wins over matplotlib's own style attribute
+  el.setAttribute("data-styled", "1");
+  let m = styledProps.get(el); if(!m){ m = {}; styledProps.set(el, m); } m[prop] = val;
+}
+function commitStyle(prop, val){                            // one gesture = one history entry (color / number / × buttons)
+  const els = collectStyleEls(prop);
+  if(!els.length) return;
+  const before = styleSnap(els);
+  for(const el of els) markStyled(el, prop, val);
+  pushUndo({ type: "style", items: before, after: styleSnap(els) });
+  setDirty(true); fillPropsPanel();
+}
+let rangeGesture = null;                                    // coalesce a slider drag into a single 'style' entry (input = live preview, change = commit)
+function rangeLive(prop, val){
+  if(!rangeGesture){ const els = collectStyleEls(prop); if(!els.length) return; rangeGesture = { prop, els, before: styleSnap(els) }; }
+  for(const el of rangeGesture.els) markStyled(el, prop, val);
+  setDirty(true);
+}
+function rangeCommit(){ if(!rangeGesture) return; pushUndo({ type: "style", items: rangeGesture.before, after: styleSnap(rangeGesture.els) }); rangeGesture = null; }
+function rgbToHex(c){                                       // getComputedStyle gives rgb()/rgba() → the #rrggbb a color input needs
+  if(!c) return "#000000";
+  if(c[0] === "#") return c.length === 7 ? c : "#000000";
+  const m = c.match(/rgba?\(([^)]+)\)/); if(!m) return "#000000";
+  const p = m[1].split(",").map(s => parseFloat(s));
+  const h = n => Math.max(0, Math.min(255, Math.round(n || 0))).toString(16).padStart(2, "0");
+  return "#" + h(p[0]) + h(p[1]) + h(p[2]);
+}
+function firstStyleEl(){ for(const el of moveSet){ const ts = styleTargets(el); if(ts.length) return ts[0]; } return null; }
+function fillPropsPanel(){                                  // prefill from the first relevant element (mixed values are left as-is — kept simple)
+  const el = firstStyleEl();
+  if(el){
+    const cs = getComputedStyle(el);
+    propFill.value = rgbToHex(cs.fill);
+    propStroke.value = rgbToHex(cs.stroke);
+    const sw = parseFloat(cs.strokeWidth); if(!isNaN(sw)) propStrokeW.value = sw;
+    const op = parseFloat(cs.opacity); if(!isNaN(op)) propOpacity.value = op;
+    const fs = parseFloat(cs.fontSize); if(!isNaN(fs)) propFontSize.value = Math.round(fs);
+  }
+  propFontRow.style.display = selHasText() ? "" : "none";
+}
+function updatePropsPanel(){                                // shown only for a live selection, out of lasso/add/fullscreen modes
+  const show = moveSet.length && !lassoMode && !addMode && !document.body.classList.contains("fs-mode");
+  propsPanel.style.display = show ? "" : "none";
+  if(show) fillPropsPanel();
+}
+propFill.addEventListener("change", () => commitStyle("fill", propFill.value));
+propStroke.addEventListener("change", () => commitStyle("stroke", propStroke.value));
+propStrokeW.addEventListener("change", () => { if(propStrokeW.value !== "") commitStyle("stroke-width", propStrokeW.value); });
+propFontSize.addEventListener("change", () => { if(propFontSize.value !== "") commitStyle("font-size", propFontSize.value + "px"); });
+propOpacity.addEventListener("input", () => rangeLive("opacity", propOpacity.value));
+propOpacity.addEventListener("change", rangeCommit);
+propsPanel.querySelectorAll(".pnone").forEach(btn => btn.addEventListener("click", () => commitStyle(btn.getAttribute("data-prop"), "none")));
 // ---- dirty-state (accent dot on the save button + beforeunload guard) ----
 function setDirty(v){ dirty = v; const b = document.getElementById("savesvg"); if(b) b.classList.toggle("dirty", v); }
 // ---- undo/redo history (two stacks; each entry holds enough to undo AND redo) ----
-// move/style : { items:<before snapshot>, after:<after snapshot> } — restoreXf both ways
+// move       : { items:<before snapshot>, after:<after snapshot> } — restoreXf both ways
+// style      : { items:<before styleSnap>, after:<after styleSnap> } — styleRestore both ways
 // delete     : { items:[{el,parent,next}], removed:[<removedLog recs>] }
 // add        : { el, parent, next }
 // edit       : { el, before, after }
@@ -227,7 +305,8 @@ function undo(){
   if(entry.type === "delete"){ for(const it of entry.items) reinsert(it); removedForget(entry.removed); }
   else if(entry.type === "edit"){ entry.el.textContent = entry.before; }                 // restore the previous text
   else if(entry.type === "add"){ if(entry.el.parentNode) entry.el.remove(); }            // remove the text we added
-  else { for(const it of entry.items) restoreXf(it); }                                   // move / style : back to "before"
+  else if(entry.type === "style"){ for(const it of entry.items) styleRestore(it); }      // restore the previous inline style attribute
+  else { for(const it of entry.items) restoreXf(it); }                                   // move : back to "before"
   redoStack.push(entry); nudgeState = null;
   setDirty(true); hiliteMoveSet(); updateHist();
 }
@@ -237,7 +316,8 @@ function redo(){
   if(entry.type === "delete"){ for(const it of entry.items) it.el.remove(); removedReadd(entry.removed); }
   else if(entry.type === "edit"){ entry.el.textContent = entry.after; }                  // re-apply the new text
   else if(entry.type === "add"){ reinsert(entry); }                                       // re-insert the text we added
-  else { for(const it of entry.after) restoreXf(it); }                                    // move / style : forward to "after"
+  else if(entry.type === "style"){ for(const it of entry.after) styleRestore(it); }       // re-apply the new inline style attribute
+  else { for(const it of entry.after) restoreXf(it); }                                    // move : forward to "after"
   undoStack.push(entry); nudgeState = null;
   setDirty(true); hiliteMoveSet(); updateHist();
 }
@@ -636,6 +716,7 @@ window.addEventListener("blur", () => { spaceDown = false; panning = null; docum
 
 document.addEventListener("keydown", e => {
   if(editing) return;
+  if(e.target && e.target.closest && e.target.closest("#props")) return;   // typing in a property field: don't nudge/delete/deselect the canvas
   if(e.key === " " && !e.metaKey && !e.ctrlKey){ if(!spaceDown){ spaceDown = true; document.body.classList.add("panready"); showHover(null); } e.preventDefault(); return; }
   if((e.metaKey || e.ctrlKey) && (e.key === "+" || e.key === "=")){ e.preventDefault(); zoomStep(1.25); return; }
   if((e.metaKey || e.ctrlKey) && e.key === "-"){ e.preventDefault(); zoomStep(1 / 1.25); return; }
@@ -659,8 +740,8 @@ document.addEventListener("keydown", e => {
 });
 function currentSVGText(){                                // serialize current view, minus bookkeeping attrs
   const clone = svg.cloneNode(true);
-  clone.querySelectorAll("[data-orig],[data-dx],[data-dy],[data-orig0]").forEach(el => {
-    el.removeAttribute("data-orig"); el.removeAttribute("data-dx"); el.removeAttribute("data-dy"); el.removeAttribute("data-orig0");
+  clone.querySelectorAll("[data-orig],[data-dx],[data-dy],[data-orig0],[data-styled]").forEach(el => {
+    el.removeAttribute("data-orig"); el.removeAttribute("data-dx"); el.removeAttribute("data-dy"); el.removeAttribute("data-orig0"); el.removeAttribute("data-styled");
   });
   return '<?xml version="1.0" encoding="utf-8" standalone="no"?>\n' + new XMLSerializer().serializeToString(clone);
 }
@@ -686,7 +767,14 @@ function collectEdits(){                                  // v2 sidecar: transfo
     added.push({ id: el.id, x: parseFloat(el.getAttribute("x")) || 0, y: parseFloat(el.getAttribute("y")) || 0,
       content: el.textContent || "", style: el.getAttribute("style") || "", transform: el.getAttribute("transform") || "" });
   });
-  return { version: 2, transforms: transforms, added: added, removed: removedLog.slice(), styles: [] };
+  const styles = [];
+  styledProps.forEach((m, el) => {                          // per styled element: re-read the CURRENT inline value of each prop we ever set
+    if(!svg.contains(el)) return;                           // element deleted → drop it
+    const props = {};
+    for(const k in m){ const v = el.style.getPropertyValue(k); if(v) props[k] = v; }   // undone props read back empty → omitted
+    if(Object.keys(props).length) styles.push({ id: el.id || null, text: elemText(el) || null, props: props });
+  });
+  return { version: 2, transforms: transforms, added: added, removed: removedLog.slice(), styles: styles };
 }
 function saveSVG(){
   if(!svg) return;
