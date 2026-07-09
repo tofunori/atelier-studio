@@ -378,10 +378,10 @@ html, body, #root, .app { height: 100vh; overflow: hidden;
 /* ===== shell façon VS Code : barre 32px (feux natifs) + rail + panneau +
    surface, tout COLLÉ — séparateurs 1px, aucune carte flottante, aucune
    ombre, aucun rayon sur les zones du shell. ===== */
-.topbar { height: 32px; flex-shrink: 0; display: flex; align-items: center;
+.topbar { height: 38px; flex-shrink: 0; display: flex; align-items: center;
   background: var(--bg-side); border-bottom: 1px solid var(--border2); gap: 8px; }
 .topbar-left { display: flex; align-items: center; height: 100%; min-width: 0;
-  padding-left: 78px; /* réserve les feux natifs (trafficLightPosition) */ }
+  padding-left: 82px; /* réserve les feux natifs (trafficLightPosition) */ }
 .topbar-project { color: var(--muted); font-size: var(--fs-m); overflow: hidden;
   text-overflow: ellipsis; white-space: nowrap; font-variant-numeric: tabular-nums; }
 .topbar .flex { flex: 1; }
@@ -401,7 +401,7 @@ html, body, #root, .app { height: 100vh; overflow: hidden;
   border-radius: var(--r-s); cursor: pointer; transition: background-color var(--ease), color var(--ease); }
 .tb-seg button:hover:not(.on) { color: var(--fg2); }
 .tb-seg button.on { background: var(--bg); color: var(--fg); }
-.app-row { display: flex; height: calc(100vh - 32px); background: var(--bg); }
+.app-row { display: flex; height: calc(100vh - 38px); background: var(--bg); }
 .main-card { flex: 1; min-width: 0; height: 100%; overflow: hidden;
   background: var(--bg); position: relative; }
 /* rail = activity bar, 48px, collé (séparateur 1px à droite, pas de carte) */
@@ -1908,8 +1908,8 @@ body.dragging iframe { pointer-events: none; }
 /* ===== flyout du rail (chats d'un projet en mode compact, façon Discord) ===== */
 /* recalé sur la géométrie shell : topbar 32px + rail collé 48px ; ne couvre
    pas le rail (les clics sur les icônes passent), reste sous la topbar */
-.fly-backdrop { position: fixed; inset: 32px 0 0 48px; z-index: 60; }
-.rail-flyout { position: fixed; left: 56px; top: 40px; bottom: 8px; width: 236px; z-index: 61;
+.fly-backdrop { position: fixed; inset: 38px 0 0 48px; z-index: 60; }
+.rail-flyout { position: fixed; left: 56px; top: 38px; bottom: 8px; width: 236px; z-index: 61;
   background: var(--bg-pop); border: 1px solid var(--border2); border-radius: var(--r-m); box-shadow: var(--elev);
   display: flex; flex-direction: column; padding: 8px;
   animation: fly-in 140ms ease; transform-origin: left; }

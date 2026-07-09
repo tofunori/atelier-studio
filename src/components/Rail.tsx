@@ -53,6 +53,8 @@ export default function Rail(p: {
   layout: "split" | "chat" | "atelier";
   activeSurface: Surface;
   onSelectSurface: (surface: Surface) => void;
+  onSelectIde: () => void;
+  ideActive: boolean;
   showExplorer: boolean;
   onToggleExplorer: () => void;
   onSelectView: (view: ViewId) => void;
@@ -122,10 +124,19 @@ export default function Rail(p: {
           (câblé côté App), icône active reflète l'état SI l'atelier est
           visible (layout ≠ "chat") */}
       <div className="rail-views">
+        {/* IDE : revient direct à la vue éditeur/PDF (fichiers ouverts) */}
+        <button className={`rail-view ${p.ideActive ? "on" : ""}`}
+          title="IDE — éditeurs & fichiers ouverts" onClick={p.onSelectIde}>
+          <svg width="18" height="18" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M5.5 5 3 8l2.5 3M10.5 5 13 8l-2.5 3M8.8 3.5 7.2 12.5" />
+          </svg>
+        </button>
         {SURFACES.map((s) => (
           <button
             key={s.id}
-            className={`rail-view ${p.layout !== "chat" && p.activeSurface === s.id ? "on" : ""}`}
+            /* Galerie (surface "atelier") n'est active que sur l'onglet gallery,
+               pas quand un fichier est ouvert (là c'est l'IDE qui est actif) */
+            className={`rail-view ${p.layout !== "chat" && p.activeSurface === s.id && !(s.id === "atelier" && p.ideActive) ? "on" : ""}`}
             title={t(s.labelKey)}
             onClick={() => p.onSelectSurface(s.id)}
           >

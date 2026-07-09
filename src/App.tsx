@@ -622,6 +622,20 @@ export default function App() {
     setActiveSurface(surface);
     window.dispatchEvent(new CustomEvent("switch-surface", { detail: { surface } }));
   }
+  // bouton IDE du rail : revient direct à la vue éditeur/PDF (dernier fichier
+  // ouvert) sans passer par la Galerie ; si aucun fichier ouvert, montre
+  // l'explorateur pour en ouvrir un.
+  function goToIde() {
+    switchToSurface("atelier");
+    const fileTabs = atelierTabsRef.current.filter((tb) => tb.kind !== "term");
+    if (fileTabs.length) {
+      // garder l'onglet fichier actif s'il y en a un, sinon le dernier ouvert
+      const keep = fileTabs.find((tb) => tb.id === activeTab) ?? fileTabs[fileTabs.length - 1];
+      setActiveTab(keep.id);
+    } else {
+      setShowExplorer(true);
+    }
+  }
   // explorateur de fichiers : togglé depuis le rail (l'état vit ici, plus dans
   // AtelierPane, pour que le bouton du rail reflète son état actif)
   const [showExplorer, setShowExplorer] = useState(() => localStorage.getItem("atelier-studio.explorer") === "1");
@@ -1841,6 +1855,8 @@ export default function App() {
           layout={layout}
           activeSurface={activeSurface}
           onSelectSurface={switchToSurface}
+          onSelectIde={goToIde}
+          ideActive={showAtelier && activeSurface === "atelier" && activeTab !== "gallery" && atelierTabs.some((tb) => tb.id === activeTab && tb.kind !== "term")}
           showExplorer={showExplorer}
           onToggleExplorer={() => { setShowExplorer((v) => !v); switchToSurface("atelier"); }}
           onSelectView={setActiveView}
