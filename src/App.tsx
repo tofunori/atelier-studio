@@ -510,6 +510,14 @@ export default function App() {
           const list = [...(prev[msg.threadId] ?? [])];
           const ev = msg.event;
           const last = list[list.length - 1];
+          // bulle streaming interrompue par un autre événement (thinking, outil…) :
+          // sans finalisation elle resterait "streaming" à jamais (curseur orphelin qui
+          // clignote). La convertir en texte définitif — ou la retirer si vide.
+          if (last?.kind === "streaming" && ev.kind !== "delta" && ev.kind !== "stream_set" && ev.kind !== "text") {
+            const txt = String((last as any).text ?? "");
+            if (txt.trim()) list[list.length - 1] = { kind: "text", text: txt, ts: (last as any).ts } as any;
+            else list.pop();
+          }
           // texte en cours de frappe : accumuler (delta) ou remplacer (stream_set),
           // puis le message final "text" remplace la bulle streaming
           if (ev.kind === "thinking_delta") {
@@ -572,10 +580,6 @@ export default function App() {
             if (idx >= 0) list[idx] = next;
             else list.push(next);
             return { ...prev, [msg.threadId]: list };
-          }
-          // fin de tour : une bulle streaming orpheline devient un texte définitif
-          if ((ev.kind === "done" || ev.kind === "error") && last?.kind === "streaming") {
-            list[list.length - 1] = { kind: "text", text: (last as any).text, ts: Date.now() } as any;
           }
           return { ...prev, [msg.threadId]: [...list, { ...ev, ts: Date.now() }] };
         });
