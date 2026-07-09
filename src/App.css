@@ -193,6 +193,29 @@ html, body, #root, .app { height: 100vh; overflow: hidden;
 .atelier-skeleton-grid span { height: 84px; border-radius: var(--r-m); background: var(--bg-ctl);
   border: 1px solid var(--border); animation: pulse 1.8s ease-in-out infinite; }
 .atelier-skeleton-text { font-size: var(--fs-l); color: var(--muted); }
+/* écran d'accueil IDE (onglet sentinelle "ide" : aucun fichier ouvert) */
+.ide-home { position: absolute; inset: 0; display: flex; flex-direction: column;
+  align-items: center; justify-content: center; gap: 8px; padding: 24px;
+  color: var(--muted2); background: var(--bg); }
+.ide-home-title { font-size: var(--fs-l); font-weight: 600; letter-spacing: -0.01em;
+  color: var(--fg2); margin-top: 4px; }
+.ide-home-sub { font-size: var(--fs-m); color: var(--muted); max-width: 340px; text-align: center; }
+.ide-home-recents { display: flex; flex-direction: column; width: min(360px, 90%);
+  margin-top: 16px; gap: 1px; }
+.ide-home-label { font-size: var(--fs-xs); font-weight: 500; letter-spacing: .05em;
+  text-transform: uppercase; color: var(--muted2); padding: 0 10px 6px; }
+.ide-home-file { display: flex; align-items: baseline; gap: 8px; padding: 5px 10px;
+  border: none; background: transparent; border-radius: var(--r-s); cursor: pointer;
+  font-family: inherit; font-size: var(--fs-m); color: var(--fg2); text-align: left;
+  transition: background-color var(--ease); min-width: 0; }
+.ide-home-file:hover { background: var(--bg-ctl); color: var(--fg); }
+.ide-home-name { font-weight: 500; flex: none; }
+.ide-home-dir { font-size: var(--fs-xs); color: var(--muted2); overflow: hidden;
+  text-overflow: ellipsis; white-space: nowrap; }
+.ide-home-browse { margin-top: 16px; padding: 5px 14px; border: 1px solid var(--border2);
+  background: transparent; border-radius: var(--r-s); cursor: pointer; font-family: inherit;
+  font-size: var(--fs-m); color: var(--muted); transition: color var(--ease), border-color var(--ease); }
+.ide-home-browse:hover { color: var(--fg); border-color: var(--muted2); }
 .section { color: var(--muted); font-size: var(--fs-s); text-transform: uppercase;
   letter-spacing: 0.5px; padding: 4px 2px; }
 .project { display: flex; flex-direction: column; gap: 2px; }

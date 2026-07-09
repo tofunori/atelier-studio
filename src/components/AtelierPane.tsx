@@ -28,6 +28,8 @@ export default function AtelierPane({
   onCloseTab,
   reloadKey,
   showExplorer,
+  recentFiles,
+  onOpenExplorer,
 }: {
   url: string;
   projectRoot: string;
@@ -39,6 +41,8 @@ export default function AtelierPane({
   reloadKey: number;
   showExplorer: boolean;
   files: string[];
+  recentFiles: string[];
+  onOpenExplorer: () => void;
   onOpenFile: (rel: string) => void;
   onPinTab: (id: string) => void;
   onColorTab: (id: string, color?: string) => void;
@@ -199,6 +203,31 @@ export default function AtelierPane({
         </div>
         <div className="atelier-split">
         <div className="atelier-body">
+          {/* écran d'accueil IDE : montré par le bouton IDE du rail quand aucun
+              fichier n'est ouvert (onglet sentinelle "ide") — récents + explorateur */}
+          {activeTab === "ide" && (
+            <div className="ide-home">
+              <svg width="30" height="30" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.1" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M5.5 5 3 8l2.5 3M10.5 5 13 8l-2.5 3M8.8 3.5 7.2 12.5" />
+              </svg>
+              <div className="ide-home-title">{t("ide.empty-title")}</div>
+              <div className="ide-home-sub">{t("ide.empty-sub")}</div>
+              {recentFiles.length > 0 && (
+                <div className="ide-home-recents">
+                  <div className="ide-home-label">{t("ide.recent")}</div>
+                  {recentFiles.map((rel) => (
+                    <button key={rel} className="ide-home-file" onClick={() => onOpenFile(rel)} title={rel}>
+                      <span className="ide-home-name">{rel.split("/").pop()}</span>
+                      {rel.includes("/") && <span className="ide-home-dir">{rel.split("/").slice(0, -1).join("/")}</span>}
+                    </button>
+                  ))}
+                </div>
+              )}
+              {!showExplorer && (
+                <button className="ide-home-browse" onClick={onOpenExplorer}>{t("ide.browse")}</button>
+              )}
+            </div>
+          )}
           {activeTab === "gallery" && !galleryLoaded && (
             <div className="atelier-skeleton">
               <div className="atelier-skeleton-grid">

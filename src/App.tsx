@@ -623,8 +623,8 @@ export default function App() {
     window.dispatchEvent(new CustomEvent("switch-surface", { detail: { surface } }));
   }
   // bouton IDE du rail : revient direct à la vue éditeur/PDF (dernier fichier
-  // ouvert) sans passer par la Galerie ; si aucun fichier ouvert, montre
-  // l'explorateur pour en ouvrir un.
+  // ouvert) sans passer par la Galerie ; sans fichier ouvert, montre l'écran
+  // d'accueil IDE (onglet sentinelle "ide" : fichiers récents + explorateur).
   function goToIde() {
     switchToSurface("atelier");
     const fileTabs = atelierTabsRef.current.filter((tb) => tb.kind !== "term");
@@ -633,6 +633,7 @@ export default function App() {
       const keep = fileTabs.find((tb) => tb.id === activeTab) ?? fileTabs[fileTabs.length - 1];
       setActiveTab(keep.id);
     } else {
+      setActiveTab("ide");
       setShowExplorer(true);
     }
   }
@@ -1868,7 +1869,7 @@ export default function App() {
           onSelectSurface={switchToSurface}
           onSelectGallery={() => { switchToSurface("atelier"); setActiveTab("gallery"); }}
           onSelectIde={goToIde}
-          ideActive={showAtelier && activeSurface === "atelier" && activeTab !== "gallery" && atelierTabs.some((tb) => tb.id === activeTab && tb.kind !== "term")}
+          ideActive={showAtelier && activeSurface === "atelier" && activeTab !== "gallery" && (activeTab === "ide" || atelierTabs.some((tb) => tb.id === activeTab && tb.kind !== "term"))}
           showExplorer={showExplorer}
           onToggleExplorer={() => { setShowExplorer((v) => !v); switchToSurface("atelier"); }}
           onSelectView={setActiveView}
@@ -2312,6 +2313,8 @@ export default function App() {
               }}
               reloadKey={atelierReload}
               showExplorer={showExplorer}
+              recentFiles={recentFiles.filter((f) => files.includes(f)).slice(0, 8)}
+              onOpenExplorer={() => setShowExplorer(true)}
             />
           </Panel>
         </>
