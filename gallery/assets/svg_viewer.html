@@ -296,7 +296,7 @@ function fillPropsPanel(){                                  // prefill from the 
 }
 function updatePropsPanel(){                                // shown only for a live selection, out of lasso/add/fullscreen modes
   const show = moveSet.length && !lassoMode && !addMode && !document.body.classList.contains("fs-mode");
-  propsPanel.style.display = show ? "" : "none";
+  propsPanel.style.display = show ? "block" : "none";      // "" would fall back to the stylesheet's display:none
   if(show) fillPropsPanel();
 }
 propFill.addEventListener("change", () => commitStyle("fill", propFill.value));
@@ -611,7 +611,7 @@ function capture(e){ if(svg.setPointerCapture && e.pointerId != null){ try{ svg.
 // e.preventDefault() on a pointerdown — and onDown below calls it on nearly every click. That
 // silently breaks the native dblclick-to-edit-text handler, so double-click detection is done
 // by hand here instead, off pointerdown timing (which always fires).
-let lastClickEl = null, lastClickAt = 0;
+let lastClickEl = null, lastClickAt = 0, dblPending = null;
 function onDown(e){
   if(editing || spaceDown) return;                        // space held → the stagewrap pan handler owns this pointer
   if(!svg || (e.button !== undefined && e.button !== 0)) return;
@@ -638,13 +638,9 @@ function onDown(e){
     return;
   }
   const textHit = e.target && e.target.closest ? e.target.closest("text") : null;
-  if(textHit){                                            // manual double-click: two quick pointerdowns on the same <text>
+  if(textHit){                                            // manual double-click: two quick pointerdowns on the same <text>…
     const now = Date.now();
-    if(lastClickEl === textHit && (now - lastClickAt) < 400){
-      e.preventDefault(); lastClickEl = null;
-      clearMoveSet(); editText(textHit, {});
-      return;
-    }
+    if(lastClickEl === textHit && (now - lastClickAt) < 400) dblPending = textHit;   // …confirmed at pointerup — a drag cancels it (native dblclick semantics)
     lastClickAt = now; lastClickEl = textHit;
   } else { lastClickEl = null; }
   // clicking on/inside a selected element drags the WHOLE selection — members are blocks
@@ -687,8 +683,10 @@ function onMove(e){
 function onUp(){
   if(editing) return;
   if(lasso) return;                                      // building a polygon by clicks — pointerup does nothing
+  const dp = dblPending; dblPending = null;
   if(drag){
     if(drag.moved && drag.before){ pushUndo({ type: "move", items: drag.before, after: snapshot(drag.items.map(it => it.el)) }); }   // record for undo/redo
+    else if(!drag.moved && dp){ drag = null; clearMoveSet(); editText(dp, {}); return; }                  // clean double-click on a label → edit it
     else if(!drag.moved && drag.g){ moveSet = [drag.g]; hiliteMoveSet(); }                                // a click without a move = select it (so Del can remove a single element)
     drag = null;
   }
