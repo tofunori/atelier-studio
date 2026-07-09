@@ -622,6 +622,28 @@ export default function App() {
     setActiveSurface(surface);
     window.dispatchEvent(new CustomEvent("switch-surface", { detail: { surface } }));
   }
+  // explorateur de fichiers : togglé depuis le rail (l'état vit ici, plus dans
+  // AtelierPane, pour que le bouton du rail reflète son état actif)
+  const [showExplorer, setShowExplorer] = useState(() => localStorage.getItem("atelier-studio.explorer") === "1");
+  useEffect(() => {
+    localStorage.setItem("atelier-studio.explorer", showExplorer ? "1" : "0");
+  }, [showExplorer]);
+  // relance dure de la galerie (redémarre le serveur s'il est mort) — extraite
+  // de l'ancienne surface-bar, désormais dans la TopBar (surface atelier)
+  function hardReloadAtelier() {
+    if (!activeProject) return;
+    invoke<string>("start_atelier", { root: activeProject, galleryDir: settingsRef.current.galleryPath, galleryExts: (settingsRef.current.galleryExtsByProject?.[activeProject] ?? "") || settingsRef.current.galleryExts || "" })
+      .then((url) => {
+        const nonceUrl = withAtelierNonce(url, atelierNonce);
+        setAppBanner((b) => b?.text.startsWith("start_atelier:") ? null : b);
+        setAtelierUrls((p) => ({ ...p, [activeProject]: nonceUrl }));
+        setAtelierReload((n) => n + 1);
+      })
+      .catch((e) => {
+        console.error("start_atelier:", e);
+        setAppBanner({ text: `start_atelier: ${String(e)}`, actionLabel: t("app.start-settings"), onAction: () => setShowSettings(true), closable: true });
+      });
+  }
 
   function ensureThreadForContext(title: string): string {
     const existing = activeIdRef.current;
@@ -1801,6 +1823,9 @@ export default function App() {
       onSetLayout={setLayout}
       onOpenPalette={() => setPaletteOpen(true)}
       onQuickAsk={() => window.dispatchEvent(new CustomEvent("quick-ask-toggle"))}
+      activeSurface={activeSurface}
+      showAtelier={showAtelier}
+      onGalleryReload={hardReloadAtelier}
     />
     <div className={`app-row ${dragging ? "dragging" : ""}`}>
         <Rail
@@ -1816,6 +1841,8 @@ export default function App() {
           layout={layout}
           activeSurface={activeSurface}
           onSelectSurface={switchToSurface}
+          showExplorer={showExplorer}
+          onToggleExplorer={() => { setShowExplorer((v) => !v); switchToSurface("atelier"); }}
           onSelectView={setActiveView}
           onSelectThread={(id) => { const th = allThreads.find((t) => t.id === id); if (th) selectThread(id, th.projectRoot); }}
           onSelectProject={selectProject}
@@ -2256,26 +2283,7 @@ export default function App() {
                 setActiveTab((cur) => (cur === id ? "gallery" : cur));
               }}
               reloadKey={atelierReload}
-              onHardReload={() => {
-                if (!activeProject) return;
-                // relance start_atelier : redémarre le serveur s'il est mort
-                invoke<string>("start_atelier", { root: activeProject, galleryDir: settingsRef.current.galleryPath, galleryExts: (settingsRef.current.galleryExtsByProject?.[activeProject] ?? "") || settingsRef.current.galleryExts || "" })
-                  .then((url) => {
-                    const nonceUrl = withAtelierNonce(url, atelierNonce);
-                    setAppBanner((b) => b?.text.startsWith("start_atelier:") ? null : b);
-                    setAtelierUrls((p) => ({ ...p, [activeProject]: nonceUrl }));
-                    setAtelierReload((n) => n + 1);
-                  })
-                  .catch((e) => {
-                    console.error("start_atelier:", e);
-                    setAppBanner({
-                      text: `start_atelier: ${String(e)}`,
-                      actionLabel: t("app.start-settings"),
-                      onAction: () => setShowSettings(true),
-                      closable: true,
-                    });
-                  });
-              }}
+              showExplorer={showExplorer}
             />
           </Panel>
         </>

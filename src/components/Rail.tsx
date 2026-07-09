@@ -53,6 +53,8 @@ export default function Rail(p: {
   layout: "split" | "chat" | "atelier";
   activeSurface: Surface;
   onSelectSurface: (surface: Surface) => void;
+  showExplorer: boolean;
+  onToggleExplorer: () => void;
   onSelectView: (view: ViewId) => void;
   onSelectThread: (id: string) => void;
   onSelectProject: (root: string) => void;
@@ -130,6 +132,13 @@ export default function Rail(p: {
             {s.icon}
           </button>
         ))}
+        {/* explorateur de fichiers : togglé ici (déplacé depuis la surface-bar) */}
+        <button className={`rail-view ${p.showExplorer ? "on" : ""}`}
+          title={t("atelier.file-explorer")} onClick={p.onToggleExplorer}>
+          <svg width="18" height="18" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M1.8 4.2c0-.7.5-1.2 1.2-1.2h3l1.4 1.6h5.6c.7 0 1.2.5 1.2 1.2v6c0 .7-.5 1.2-1.2 1.2H3c-.7 0-1.2-.5-1.2-1.2v-7.6z" />
+          </svg>
+        </button>
       </div>
       <div className="rail-sep" />
       {p.projects.map((root) => {

@@ -1,5 +1,4 @@
 import { useEffect, useState } from "react";
-import { openUrl } from "@tauri-apps/plugin-opener";
 import Explorer from "./Explorer";
 import BrowserTab from "./BrowserTab";
 import GitSurface from "./GitSurface";
@@ -7,7 +6,7 @@ import TerminalSurface from "./TerminalSurface";
 import BiblioSurface from "./BiblioSurface";
 import GeneratorSurface from "./GeneratorSurface";
 import { t } from "../lib/i18n";
-import { CloseIcon, OpenIcon, RefreshIcon } from "./icons";
+import { CloseIcon } from "./icons";
 import type { Surface } from "./surfaces";
 
 type Tab = { id: string; url: string; title: string; color?: string; pinned?: boolean; kind?: "term"; cwd?: string };
@@ -28,7 +27,7 @@ export default function AtelierPane({
   onSelectTab,
   onCloseTab,
   reloadKey,
-  onHardReload,
+  showExplorer,
 }: {
   url: string;
   projectRoot: string;
@@ -38,7 +37,7 @@ export default function AtelierPane({
   onSelectTab: (id: string) => void;
   onCloseTab: (id: string) => void;
   reloadKey: number;
-  onHardReload: () => void;
+  showExplorer: boolean;
   files: string[];
   onOpenFile: (rel: string) => void;
   onPinTab: (id: string) => void;
@@ -64,7 +63,6 @@ export default function AtelierPane({
   useEffect(() => {
     localStorage.setItem(splitKey, JSON.stringify({ second, pct }));
   }, [second, pct, splitKey]);
-  const [showExplorer, setShowExplorer] = useState(() => localStorage.getItem("atelier-studio.explorer") === "1");
   useEffect(() => {
     const onSwitch = (e: Event) => {
       const s = (e as CustomEvent).detail?.surface;
@@ -73,9 +71,6 @@ export default function AtelierPane({
     window.addEventListener("switch-surface", onSwitch);
     return () => window.removeEventListener("switch-surface", onSwitch);
   });
-  useEffect(() => {
-    localStorage.setItem("atelier-studio.explorer", showExplorer ? "1" : "0");
-  }, [showExplorer]);
   const [visited, setVisited] = useState<Set<Surface>>(new Set(["atelier"]));
   const [dragId, setDragId] = useState<string | null>(null);
   const [overId, setOverId] = useState<string | null>(null);
@@ -157,32 +152,10 @@ export default function AtelierPane({
     return undefined;
   });
 
-  const current = tabs.find((t) => t.id === activeTab);
-
   return (
     <div className="atelier-wrap">
-      {/* barre d'outils de la surface : la bascule entre surfaces (Galerie,
-          Browser, Terminal…) vit désormais dans le rail (activity bar) —
-          ne reste ici que les actions propres à la surface active. */}
-      <div className="surface-bar">
-        <span className="flex" />
-        {surface === "atelier" && (
-          <>
-            <button className="ghost" title={t("action.refresh-hard")} onClick={onHardReload}>
-              <RefreshIcon />
-            </button>
-            <button className="ghost" title={t("action.open-browser")} onClick={() => openUrl(current?.url ?? url)}>
-              <OpenIcon />
-            </button>
-          </>
-        )}
-        <button className={`ghost ${showExplorer ? "on" : ""}`} title={t("atelier.file-explorer")}
-          onClick={() => setShowExplorer((v) => !v)}>
-          <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.2">
-            <path d="M1.8 4.2c0-.7.5-1.2 1.2-1.2h3l1.4 1.6h5.6c.7 0 1.2.5 1.2 1.2v6c0 .7-.5 1.2-1.2 1.2H3c-.7 0-1.2-.5-1.2-1.2v-7.6z" />
-          </svg>
-        </button>
-      </div>
+      {/* plus de barre d'outils de surface : bascule des surfaces dans le rail,
+          explorateur togglé depuis le rail, reload/ouvrir dans la TopBar. */}
 
       <div className="pane-row">
       <div className="pane-surfaces" style={{ flexDirection: "row" }}>
