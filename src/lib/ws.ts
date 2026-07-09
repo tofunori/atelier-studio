@@ -1,6 +1,4 @@
-import { invoke } from "@tauri-apps/api/core";
-
-type SidecarInfo = { port: number; token?: string };
+import { refreshSidecarInfo } from "./sidecarInfo";
 
 export type AgentEvent =
   | { kind: "user"; text: string; imageUrl?: string; label?: string; pastes?: { name: string; text: string }[]; ts?: number }
@@ -75,14 +73,31 @@ export type Thread = {
 
 type Handler = (msg: any) => void;
 
+function abortError() {
+  return new DOMException("connexion sidecar annulée", "AbortError");
+}
+
 export async function connectSidecar(
   onMessage: Handler,
   onReconnect?: (ws: WebSocket) => void,
   onDisconnect?: () => void,
+  signal?: AbortSignal,
 ): Promise<WebSocket> {
-  const { port, token } = await invoke<SidecarInfo>("sidecar_port");
+  if (signal?.aborted) throw abortError();
+  // chaque (re)connexion rafraîchit la SidecarInfo partagée : les clients HTTP
+  // (write-through ui.json) suivent automatiquement le nouveau port/token
+  const { port, token } = await refreshSidecarInfo();
+  if (signal?.aborted) throw abortError();
   const q = token ? `?token=${encodeURIComponent(token)}` : "";
   const ws = new WebSocket(`ws://127.0.0.1:${port}${q}`);
+  let retryTimer: ReturnType<typeof setTimeout> | null = null;
+  const onAbort = () => {
+    if (retryTimer) clearTimeout(retryTimer);
+    retryTimer = null;
+    ws.onclose = null;
+    try { ws.close(); } catch { /* déjà fermée */ }
+  };
+  signal?.addEventListener("abort", onAbort, { once: true });
   ws.onmessage = (e) => {
     try {
       onMessage(JSON.parse(String(e.data)));
@@ -93,18 +108,26 @@ export async function connectSidecar(
   await new Promise((res, rej) => {
     ws.onopen = res;
     ws.onerror = rej;
+    signal?.addEventListener("abort", () => rej(abortError()), { once: true });
   });
+  if (signal?.aborted) throw abortError();
   ws.send(JSON.stringify({ type: "listThreads" }));
   ws.send(JSON.stringify({ type: "providerStatus" }));
-  // reconnexion auto : sidecar tué/crashé → sidecar_port respawn + nouveau WS
+  // reconnexion auto : sidecar tué/crashé → sidecar_port respawn + nouveau WS.
+  // Tout est neutralisé par l'abort : onclose détaché, timers annulés.
   ws.onclose = () => {
+    if (signal?.aborted) return;
     onDisconnect?.();
     const retry = () => {
-      connectSidecar(onMessage, onReconnect, onDisconnect)
+      if (signal?.aborted) return;
+      connectSidecar(onMessage, onReconnect, onDisconnect, signal)
         .then((next) => onReconnect?.(next))
-        .catch(() => setTimeout(retry, 3000));
+        .catch(() => {
+          if (signal?.aborted) return;
+          retryTimer = setTimeout(retry, 3000);
+        });
     };
-    setTimeout(retry, 1000);
+    retryTimer = setTimeout(retry, 1000);
   };
   return ws;
 }

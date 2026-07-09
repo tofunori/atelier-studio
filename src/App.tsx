@@ -690,19 +690,18 @@ export default function App() {
     setLayout((l) => (l === "atelier" ? "split" : l));
   }
 
-  const connectedOnce = useRef(false);
   useEffect(() => {
-    // React StrictMode monte l'effet 2× en dev → sans ce garde, 2 connexions
-    // WS reçoivent chaque broadcast et tout apparaît en double.
-    if (connectedOnce.current) return;
-    connectedOnce.current = true;
-    let cancelled = false;
+    // Annulation explicite plutôt que garde connectedOnce : StrictMode monte
+    // l'effet 2× en dev, le cleanup abort/ferme la 1re connexion — il ne reste
+    // toujours qu'une seule socket active, sans état module résiduel.
+    const ctrl = new AbortController();
     let retryTimer: ReturnType<typeof setTimeout> | null = null;
     const scheduleConnect = (delay = 0) => {
       if (retryTimer) clearTimeout(retryTimer);
       retryTimer = setTimeout(() => {
-        if (cancelled) return;
+        if (ctrl.signal.aborted) return;
         connectSidecar(handleMessage, (next) => {
+          if (ctrl.signal.aborted) return;
           ws.current = next;
           setWs(next);
           setMock(false);
@@ -711,8 +710,9 @@ export default function App() {
         }, () => {
           setWsReady(false);
           setAppBanner({ text: t("app.sidecar-disconnected") });
-        })
+        }, ctrl.signal)
           .then((s) => {
+            if (ctrl.signal.aborted) return;
             ws.current = s;
             setWs(s);
             setMock(false);
@@ -722,6 +722,7 @@ export default function App() {
             s.send(JSON.stringify({ type: "listHighlights" }));
           })
           .catch(() => {
+            if (ctrl.signal.aborted) return;
             setMock(true);
             setWsReady(false);
             setAppBanner({ text: t("app.sidecar-disconnected") });
@@ -1138,8 +1139,9 @@ export default function App() {
     };
     scheduleConnect();
     return () => {
-      cancelled = true;
+      ctrl.abort();
       if (retryTimer) clearTimeout(retryTimer);
+      try { ws.current?.close(); } catch { /* déjà fermée */ }
     };
   }, []);
 

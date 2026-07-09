@@ -150,11 +150,11 @@ export default function AtelierPane({
     setOverId(null);
   }
 
-  useState(() => {
+  useEffect(() => {
     const close = () => setTabMenu(null);
     window.addEventListener("click", close);
-    return undefined;
-  });
+    return () => window.removeEventListener("click", close);
+  }, []);
 
   return (
     <div className="atelier-wrap">

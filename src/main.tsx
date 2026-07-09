@@ -1,10 +1,9 @@
 import React from "react";
 import "@fontsource-variable/inter";
 import ReactDOM from "react-dom/client";
-import { invoke } from "@tauri-apps/api/core";
 import App from "./App";
-
-type SidecarInfo = { port: number; token?: string };
+import { getSidecarInfo, refreshSidecarInfo, sidecarHeaders } from "./lib/sidecarInfo";
+import { createUiStateFlusher } from "./lib/uistate";
 
 function fatalText(error: unknown) {
   if (!(error instanceof Error)) return String(error);
@@ -77,23 +76,20 @@ function withTimeout<T>(p: Promise<T>, ms: number): Promise<T> {
 async function boot() {
   // GARDE-FOU : invoke borné. Sinon, si le sidecar a redémarré (nouveau port)
   // ou traîne, ce await bloque et le rendu React n'arrive JAMAIS → fenêtre vide.
-  let port: number | null = null;
-  let headers: Record<string, string> | undefined;
   try {
-    const info = await withTimeout(invoke<SidecarInfo>("sidecar_port"), 6000);
-    port = info.port;
-    headers = info.token ? { "x-atelier-token": info.token } : undefined;
+    await withTimeout(refreshSidecarInfo(), 6000);
   } catch (error) {
     console.warn("Atelier: sidecar injoignable, stockage local seul:", error);
   }
 
-  if (port != null) {
+  const bootInfo = getSidecarInfo();
+  if (bootInfo != null) {
     // hydratation best-effort (bornée) — ne doit jamais bloquer le rendu
     try {
       const ctrl = new AbortController();
       const killer = setTimeout(() => ctrl.abort(), 2000);
       const snap: Record<string, string> = await withTimeout(
-        fetch(`http://127.0.0.1:${port}/uistate`, { headers, signal: ctrl.signal }).then((r) => r.json()),
+        fetch(`http://127.0.0.1:${bootInfo.port}/uistate`, { headers: sidecarHeaders(bootInfo), signal: ctrl.signal }).then((r) => r.json()),
         2500,
       );
       clearTimeout(killer);
@@ -103,9 +99,9 @@ async function boot() {
     }
 
     // write-through installé DÈS qu'on a un port — MÊME si l'hydratation a
-    // échoué. Avant, il vivait dans le try du fetch : un fetch raté (sidecar qui
-    // redémarre) = write-through jamais posé = pins/favoris jamais écrits dans
-    // ui.json = perdus au prochain démarrage de l'app buildée.
+    // échoué. Le flush lit la SidecarInfo COURANTE (mise à jour à chaque
+    // reconnexion WS) : après un redémarrage du sidecar, pins/favoris suivent
+    // le nouveau port au lieu d'écrire dans le vide.
     const collect = () => {
       const all: Record<string, string> = {};
       for (let i = 0; i < localStorage.length; i++) {
@@ -114,14 +110,7 @@ async function boot() {
       }
       return all;
     };
-    const flush = (keepalive = false) => {
-      fetch(`http://127.0.0.1:${port}/uistate`, {
-        method: "POST",
-        headers,
-        body: JSON.stringify(collect()),
-        keepalive,
-      }).catch(() => {});
-    };
+    const flush = createUiStateFlusher(collect);
     const orig = localStorage.setItem.bind(localStorage);
     let t: ReturnType<typeof setTimeout>;
     localStorage.setItem = (k: string, v: string) => {
@@ -130,7 +119,8 @@ async function boot() {
       t = setTimeout(() => flush(false), 500);
     };
     // flush avant fermeture/masquage (keepalive survit à l'unload) : un pin
-    // ajouté juste avant de quitter n'est plus perdu par le debounce de 500 ms
+    // ajouté juste avant de quitter n'est plus perdu par le debounce de 500 ms.
+    // En unload, flush(true) utilise la dernière info connue, sans chaîne async.
     window.addEventListener("pagehide", () => flush(true));
     document.addEventListener("visibilitychange", () => {
       if (document.visibilityState === "hidden") flush(true);
