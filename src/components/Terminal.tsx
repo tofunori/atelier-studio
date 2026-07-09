@@ -9,6 +9,11 @@ import { wsSend, wsReady } from "../lib/wsBus";
 import { xtermThemeFor } from "../lib/themes";
 import { loadSettings } from "../lib/settings";
 
+// Monaspace Neon (Nerd Font Mono) bundlée en WOFF2 (cf. @font-face dans App.css) ;
+// repli sur les Nerd Fonts système puis Menlo. Les glyphes powerline/icônes sont
+// dans Monaspace même (variante NF), pas besoin de police de symboles séparée.
+const TERM_FONT = "'Monaspace Neon', 'JetBrainsMono Nerd Font', 'Symbols Nerd Font Mono', Menlo, monospace";
+
 export default function Terminal(p: {
   termId: string;
   cwd: string;
@@ -18,10 +23,11 @@ export default function Terminal(p: {
   const ref = useRef<HTMLDivElement>(null);
   const xtermRef = useRef<XTerm | null>(null);
   const fitRef = useRef<FitAddon | null>(null);
-  const opened = useRef(false);
+  const mounted = useRef(false);   // term.open() effectué (après préchargement police)
+  const opened = useRef(false);    // PTY ouvert côté sidecar
   function tryOpen() {
     const term = xtermRef.current;
-    if (opened.current || !term || !wsReady()) return;
+    if (opened.current || !term || !mounted.current || !wsReady()) return;
     opened.current = true;
     wsSend({ type: "termOpen", termId: p.termId, cwd: p.cwd, cols: term.cols, rows: term.rows });
     setTimeout(() => term.focus(), 100);
@@ -31,10 +37,10 @@ export default function Terminal(p: {
     if (!ref.current || xtermRef.current) return;
     const term = new XTerm({
       fontSize: 13,
-      fontFamily: "'JetBrainsMono Nerd Font', 'MesloLGS NF', 'Hack Nerd Font', 'SF Mono', Menlo, Monaco, monospace",
+      fontFamily: TERM_FONT,
       fontWeight: "400",
-      fontWeightBold: "600",
-      lineHeight: 1.25,       // aère l'interligne (défaut 1.0 = trop serré)
+      fontWeightBold: "700",
+      lineHeight: 1.2,        // aère l'interligne (défaut 1.0 = trop serré)
       cursorBlink: true,
       cursorStyle: "bar",
       cursorWidth: 2,
@@ -46,10 +52,6 @@ export default function Terminal(p: {
     const fit = new FitAddon();
     term.loadAddon(fit);
     term.loadAddon(new WebLinksAddon((_e, uri) => openUrl(uri)));
-    term.open(ref.current);
-    try { term.loadAddon(new WebglAddon()); } catch {} // fallback canvas si WebGL indispo
-    fit.fit();
-    term.focus();
     xtermRef.current = term;
     fitRef.current = fit;
 
@@ -62,8 +64,32 @@ export default function Terminal(p: {
     window.addEventListener(`term-data:${p.termId}`, onData);
     window.addEventListener(`term-exit:${p.termId}`, onExit);
 
-    // ouvrir le PTY (avec retry si le WS n'est pas encore prêt)
-    tryOpen();
+    // Précharger Monaspace Neon (4 faces) AVANT term.open() : xterm mesure la
+    // taille de cellule de façon synchrone et la met en cache ; si la police
+    // n'est pas prête, il mesure une police de repli → tout est décalé.
+    let webgl: WebglAddon | null = null;
+    let cancelled = false;
+    (async () => {
+      try {
+        await Promise.all([
+          document.fonts.load('13px "Monaspace Neon"'),
+          document.fonts.load('700 13px "Monaspace Neon"'),
+          document.fonts.load('italic 13px "Monaspace Neon"'),
+          document.fonts.load('italic 700 13px "Monaspace Neon"'),
+        ]);
+        await document.fonts.ready;
+      } catch { /* la police de repli prendra le relais */ }
+      if (cancelled || !ref.current) return;
+      term.open(ref.current);
+      try { webgl = new WebglAddon(); term.loadAddon(webgl); } catch {} // fallback canvas
+      mounted.current = true;
+      fit.fit();
+      webgl?.clearTextureAtlas();   // l'atlas WebGL est clé sur la police mesurée
+      term.focus();
+      tryOpen();
+    })();
+
+    // ouvrir le PTY (retry si le WS n'est pas encore prêt ; garde-fou mounted)
     const retry = setInterval(() => {
       if (opened.current) { clearInterval(retry); return; }
       tryOpen();
@@ -71,14 +97,16 @@ export default function Terminal(p: {
 
     const onTheme = (e: Event) => {
       term.options.theme = xtermThemeFor((e as CustomEvent).detail as string);
+      webgl?.clearTextureAtlas();
     };
     window.addEventListener("app-theme-changed", onTheme);
-    const onWinResize = () => fit.fit();
+    const onWinResize = () => { if (mounted.current) fit.fit(); };
     window.addEventListener("resize", onWinResize);
     // le drag des séparateurs ne déclenche pas window.resize : observer le conteneur
-    const ro = new ResizeObserver(() => fit.fit());
+    const ro = new ResizeObserver(() => { if (mounted.current) fit.fit(); });
     ro.observe(ref.current);
     return () => {
+      cancelled = true;
       clearInterval(retry);
       ro.disconnect();
       window.removeEventListener(`term-data:${p.termId}`, onData);
@@ -92,8 +120,7 @@ export default function Terminal(p: {
   useEffect(() => {
     if (p.visible) {
       setTimeout(() => {
-        fitRef.current?.fit();
-        xtermRef.current?.focus();
+        if (mounted.current) { fitRef.current?.fit(); xtermRef.current?.focus(); }
       }, 30);
       tryOpen();
     }
