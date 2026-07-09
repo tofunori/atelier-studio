@@ -510,13 +510,13 @@ export default function App() {
           const list = [...(prev[msg.threadId] ?? [])];
           const ev = msg.event;
           const last = list[list.length - 1];
-          // bulle streaming interrompue par un autre événement (thinking, outil…) :
-          // sans finalisation elle resterait "streaming" à jamais (curseur orphelin qui
-          // clignote). La convertir en texte définitif — ou la retirer si vide.
-          if (last?.kind === "streaming" && ev.kind !== "delta" && ev.kind !== "stream_set" && ev.kind !== "text") {
-            const txt = String((last as any).text ?? "");
-            if (txt.trim()) list[list.length - 1] = { kind: "text", text: txt, ts: (last as any).ts } as any;
-            else list.pop();
+          // au plus UNE bulle streaming par tour, retrouvée où qu'elle soit dans la
+          // liste (les events outils/thinking de Codex/Grok s'intercalent entre les
+          // deltas et le bloc final → une recherche "dernier élément seulement"
+          // laissait une bulle orpheline au caret éternel + texte dupliqué)
+          let sIdx = -1;
+          for (let k = list.length - 1; k >= 0; k--) {
+            if (list[k].kind === "streaming") { sIdx = k; break; }
           }
           // texte en cours de frappe : accumuler (delta) ou remplacer (stream_set),
           // puis le message final "text" remplace la bulle streaming
@@ -535,23 +535,26 @@ export default function App() {
             return { ...prev, [msg.threadId]: list };
           }
           if (ev.kind === "delta") {
-            if (last?.kind === "streaming") {
-              list[list.length - 1] = { ...last, text: (last as any).text + ev.text };
+            if (sIdx >= 0) {
+              list[sIdx] = { ...list[sIdx], text: (list[sIdx] as any).text + ev.text } as any;
             } else {
               list.push({ kind: "streaming", text: ev.text, ts: Date.now() } as any);
             }
             return { ...prev, [msg.threadId]: list };
           }
           if (ev.kind === "stream_set") {
-            if (last?.kind === "streaming") {
-              list[list.length - 1] = { ...last, text: ev.text };
+            if (sIdx >= 0) {
+              list[sIdx] = { ...list[sIdx], text: ev.text } as any;
             } else {
               list.push({ kind: "streaming", text: ev.text, ts: Date.now() } as any);
             }
             return { ...prev, [msg.threadId]: list };
           }
-          if (ev.kind === "text" && last?.kind === "streaming") {
-            list[list.length - 1] = { ...ev, ts: Date.now() };
+          if (ev.kind === "text") {
+            // le bloc final remplace SA bulle streaming, même si des events outils
+            // se sont intercalés depuis les derniers deltas
+            if (sIdx >= 0) list[sIdx] = { ...ev, ts: Date.now() };
+            else list.push({ ...ev, ts: Date.now() });
             return { ...prev, [msg.threadId]: list };
           }
           if (ev.kind === "tool_update") {
@@ -580,6 +583,13 @@ export default function App() {
             if (idx >= 0) list[idx] = next;
             else list.push(next);
             return { ...prev, [msg.threadId]: list };
+          }
+          // fin de tour : une bulle streaming jamais finalisée (interruption, provider
+          // sans bloc final) devient un texte définitif — ou disparaît si vide
+          if ((ev.kind === "done" || ev.kind === "error") && sIdx >= 0) {
+            const txt = String((list[sIdx] as any).text ?? "");
+            if (txt.trim()) list[sIdx] = { kind: "text", text: txt, ts: (list[sIdx] as any).ts } as any;
+            else list.splice(sIdx, 1);
           }
           return { ...prev, [msg.threadId]: [...list, { ...ev, ts: Date.now() }] };
         });
