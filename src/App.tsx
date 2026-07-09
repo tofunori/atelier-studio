@@ -1767,6 +1767,7 @@ export default function App() {
           files={files}
           recentFiles={recentFiles.filter((file) => files.includes(file)).slice(0, 12)}
           zoteroItems={zoteroItems}
+          projectRoot={activeProject}
           defaults={settings as any}
           providers={providerList}
           injectText={injectText}

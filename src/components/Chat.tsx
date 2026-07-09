@@ -691,6 +691,7 @@ export default function Chat(p: {
   onEditSend: (index: number, oldText: string, newText: string) => void;
   onNewChat: () => void;
   onOpenProject: () => void;
+  projectRoot?: string | null;
   defaults: {
     defaultProvider: string;
     defaultModel: Record<string, string>;
@@ -775,15 +776,36 @@ export default function Chat(p: {
     );
   }
 
-  // appliquer les défauts des réglages (au montage et quand ils changent)
+  // appliquer la sélection mémorisée du projet, sinon les défauts des réglages
+  // (le choix de modèle survit ainsi aux changements de projet — il était
+  // réinitialisé aux défauts à chaque remontage du composant)
+  const modelSelKey = (root: string) => "atelier-studio.modelSel:" + root;
+  // projet dont la sélection affichée provient — évite qu'au changement de
+  // projet, l'effet de sauvegarde écrive l'ancienne sélection sous la
+  // nouvelle clé (les states ne sont restaurés qu'au rendu suivant)
+  const selRootRef = useRef<string | null>(null);
   useEffect(() => {
-    const pv = p.defaults.defaultProvider;
-    const m = p.defaults.defaultModel[pv] ?? "";
+    let saved: { provider?: string; model?: string; effort?: string; permissionMode?: string } | null = null;
+    if (p.projectRoot) {
+      try { saved = JSON.parse(localStorage.getItem(modelSelKey(p.projectRoot)) ?? "null"); } catch { saved = null; }
+    }
+    const pv = saved?.provider || p.defaults.defaultProvider;
+    const m = saved?.model ?? (p.defaults.defaultModel[pv] ?? "");
     setProvider(pv);
     setModel(m);
-    setEffort(effortFor(pv, m));
-    setPermissionMode(p.defaults.defaultPermissionMode);
-  }, [p.defaults]);
+    setEffort(saved?.effort ?? effortFor(pv, m));
+    setPermissionMode(saved?.permissionMode || p.defaults.defaultPermissionMode);
+    selRootRef.current = p.projectRoot ?? null;
+  }, [p.defaults, p.projectRoot]);
+  // mémoriser la sélection courante pour ce projet (clé = projet restauré,
+  // volontairement absent des deps : voir selRootRef ci-dessus)
+  useEffect(() => {
+    const root = selRootRef.current;
+    if (!root) return;
+    try {
+      localStorage.setItem(modelSelKey(root), JSON.stringify({ provider, model, effort, permissionMode }));
+    } catch {}
+  }, [provider, model, effort, permissionMode]);
   const [selIdx, setSelIdx] = useState(0);
   const [quote, setQuote] = useState<{ x: number; y: number; text: string } | null>(null);
   const [showJump, setShowJump] = useState(false);
