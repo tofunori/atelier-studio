@@ -51,31 +51,33 @@
   .selhandle{position:absolute;width:11px;height:11px;margin:-6px 0 0 -6px;background:#fff;border:1.5px solid var(--accent);border-radius:2px;pointer-events:auto;box-sizing:border-box;z-index:2}
   .lassosvg polyline{fill:rgba(91,157,255,.14);stroke:#5b9dff;stroke-width:1.5;stroke-dasharray:5 3;stroke-linejoin:round}
   .lassosvg circle{fill:#5b9dff;stroke:#fff;stroke-width:1.5}
-  /* contextual properties panel (Lot E): floating card, right-anchored under the header */
-  #props{position:fixed;right:16px;top:56px;width:200px;box-sizing:border-box;background:var(--card);
-         border-radius:10px;box-shadow:0 4px 16px rgba(0,0,0,.25);padding:12px;z-index:70;display:none}
-  #props .prow{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:8px;
-         font-size:11px;color:var(--muted)}
-  #props .prow:last-child{margin-bottom:0}
-  #props .pctl{display:inline-flex;align-items:center;gap:4px}
-  #props input{font-size:12px;height:24px;box-sizing:border-box;border-radius:6px;background:var(--bg);
+  /* contextual edit bar: docked under the toolbar, adapts to the selection (text / shape) */
+  #ctxbar{display:flex;gap:8px;align-items:center;background:var(--card);border-bottom:1px solid var(--border);
+         padding:0 14px;max-height:0;opacity:0;overflow:hidden;flex-shrink:0;
+         transition:max-height .14s ease,opacity .14s ease,padding .14s ease}
+  #ctxbar.show{max-height:42px;opacity:1;padding:6px 14px;overflow-x:auto}
+  @media (prefers-reduced-motion: reduce){ #ctxbar{transition:none} }
+  body.fs-mode #ctxbar{display:none}
+  #ctxbar .cgroup{display:inline-flex;align-items:center;gap:6px;flex-shrink:0}
+  #ctxbar .lbl{font-size:11px;color:var(--muted);white-space:nowrap}
+  #ctxbar input{font-size:12px;height:24px;box-sizing:border-box;border-radius:6px;background:var(--bg);
          border:1px solid var(--border);color:var(--txt);font-family:inherit}
-  #props input[type=number]{width:72px;padding:0 6px;font-variant-numeric:tabular-nums}
-  #props input[type=color]{width:44px;padding:0;cursor:pointer}
-  #props input[type=range]{width:96px;padding:0}
-  #props .pnone{height:24px;width:24px;padding:0;display:inline-flex;align-items:center;justify-content:center;
+  #ctxbar input[type=number]{width:60px;padding:0 6px;font-variant-numeric:tabular-nums}
+  #ctxbar input[type=color]{width:34px;padding:1px;cursor:pointer}
+  #ctxbar input[type=range]{width:88px;padding:0}
+  #ctxbar .pnone{height:24px;width:24px;padding:0;display:inline-flex;align-items:center;justify-content:center;
          background:var(--bg);border:1px solid var(--border);border-radius:6px;color:var(--muted);cursor:pointer;
          font-size:13px;line-height:1}
-  #props .pnone:hover{color:var(--txt)}
-  #props select{font-size:12px;height:24px;box-sizing:border-box;border-radius:6px;background:var(--bg);
-         border:1px solid var(--border);color:var(--txt);font-family:inherit;max-width:120px;padding:0 4px}
-  #props .ptog{height:24px;width:24px;padding:0;display:inline-flex;align-items:center;justify-content:center;
+  #ctxbar .pnone:hover{color:var(--txt)}
+  #ctxbar select{font-size:12px;height:24px;box-sizing:border-box;border-radius:6px;background:var(--bg);
+         border:1px solid var(--border);color:var(--txt);font-family:inherit;max-width:130px;padding:0 4px}
+  #ctxbar .ptog{height:24px;width:24px;padding:0;display:inline-flex;align-items:center;justify-content:center;
          background:var(--bg);border:1px solid var(--border);border-radius:6px;color:var(--muted);cursor:pointer;
          font-size:12px;line-height:1;font-family:inherit}
-  #props .ptog:hover{color:var(--txt)}
-  #props .ptog.on{background:var(--accent);border-color:var(--accent);color:#fff}
-  #props .ptog[data-prop="font-style"]{font-style:italic}
-  #props .ptog[data-prop="font-weight"]{font-weight:600}
+  #ctxbar .ptog:hover{color:var(--txt)}
+  #ctxbar .ptog.on{background:var(--accent);border-color:var(--accent);color:#fff}
+  #ctxbar .ptog[data-prop="font-style"]{font-style:italic}
+  #ctxbar .ptog[data-prop="font-weight"]{font-weight:600}
   #err{color:#ff6b6b;padding:40px;text-align:center}
 </style>
 <script>(function(){var T={'Default':{bg:'#202024',card:'#27272a',txt:'#dbdfe5',muted:'#a1a1aa',accent:'#5b9dff',border:'#3f3f46'},'Codex One':{bg:'#202024',card:'#2f343f',txt:'#abb2bf',muted:'#7f848e',accent:'#4d78cc',border:'#3e4451'},'Dracula':{bg:'#282a36',card:'#343746',txt:'#f8f8f2',muted:'#9aa0b3',accent:'#bd93f9',border:'#44475a'},'Nord':{bg:'#2e3440',card:'#3b4252',txt:'#e5e9f0',muted:'#9aa3b2',accent:'#88c0d0',border:'#434c5e'}};var t;try{t=T[localStorage.getItem('figTheme')];}catch(e){}t=t||T['Default'];var r=document.documentElement.style;for(var k in t)r.setProperty('--'+k,t[k]);})();</script>
@@ -102,19 +104,30 @@
   <button id="annotbtn" title="Annoter — dessine sur la figure puis envoie à Claude"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M10.5 2.5l3 3M11.5 3.5L4 11l-1.5 3.5L6 13l7.5-7.5z"/></svg></button>
   <button id="fsbtn" title="Plein écran (F)"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M6 2.5H2.5V6M10 2.5h3.5V6M13.5 10v3.5H10M6 13.5H2.5V10"/></svg></button>
 </header>
+<div id="ctxbar">
+  <span class="cgroup" id="ctx-text">
+    <select id="p-fontfam" title="Police"></select>
+    <input type="number" id="p-fontsize" step="1" min="1" title="Taille (px)">
+    <button type="button" class="ptog" data-prop="font-weight" title="Gras (⌘B pendant l'édition)">B</button>
+    <button type="button" class="ptog" data-prop="font-style" title="Italique (⌘I pendant l'édition)">I</button>
+    <span class="tsep"></span>
+  </span>
+  <span class="cgroup">
+    <span class="lbl" id="lbl-fill">Fond</span><input type="color" id="p-fill" title="Couleur de remplissage"><button type="button" class="pnone" data-prop="fill" title="Aucun (fill:none)">×</button>
+  </span>
+  <span class="cgroup" id="ctx-stroke">
+    <span class="lbl">Contour</span><input type="color" id="p-stroke" title="Couleur de contour"><button type="button" class="pnone" data-prop="stroke" title="Aucun (stroke:none)">×</button>
+    <span class="lbl">Épaisseur</span><input type="number" id="p-strokew" step="0.25" min="0" title="Épaisseur de contour">
+  </span>
+  <span class="cgroup">
+    <span class="tsep"></span>
+    <span class="lbl">Opacité</span><input type="range" id="p-opacity" min="0" max="1" step="0.05" title="Opacité">
+  </span>
+</div>
 <div id="stagewrap"><div id="stage">
   <div id="plot">Loading…</div>
   <div id="ov"></div>
 </div></div>
-<div id="props">
-  <label class="prow"><span>Fond</span><span class="pctl"><input type="color" id="p-fill"><button type="button" class="pnone" data-prop="fill" title="Aucun (fill:none)">×</button></span></label>
-  <label class="prow"><span>Contour</span><span class="pctl"><input type="color" id="p-stroke"><button type="button" class="pnone" data-prop="stroke" title="Aucun (stroke:none)">×</button></span></label>
-  <label class="prow"><span>Épaisseur</span><input type="number" id="p-strokew" step="0.25" min="0"></label>
-  <label class="prow"><span>Opacité</span><input type="range" id="p-opacity" min="0" max="1" step="0.05"></label>
-  <label class="prow" id="p-fontrow"><span>Taille</span><input type="number" id="p-fontsize" step="1" min="1"></label>
-  <label class="prow" id="p-famrow"><span>Police</span><select id="p-fontfam"></select></label>
-  <div class="prow" id="p-stylerow"><span>Style</span><span class="pctl"><button type="button" class="ptog" data-prop="font-weight" title="Gras">B</button><button type="button" class="ptog" data-prop="font-style" title="Italique">I</button></span></div>
-</div>
 <script>
 const file = new URLSearchParams(location.search).get("file") || "";
 document.getElementById("fname").textContent = file.split("/").pop();
@@ -209,16 +222,16 @@ function hiliteMoveSet(){
   updatePropsPanel();
 }
 function clearMoveSet(){ moveSet = []; hiliteMoveSet(); }
-// ==== contextual properties panel (Lot E): fill / stroke / stroke-width / opacity / font-size ====
+// ==== contextual edit bar: fill / stroke / stroke-width / opacity / font family+size+style ====
 const SHAPE_SEL = "path,rect,circle,ellipse,line,polyline,polygon,text,tspan";
 const styledProps = new Map();                              // el -> { prop: value } posed during this session (feeds the v2 sidecar)
-const propsPanel = document.getElementById("props");
+const propsPanel = document.getElementById("ctxbar");
 const propFill = document.getElementById("p-fill"), propStroke = document.getElementById("p-stroke");
 const propStrokeW = document.getElementById("p-strokew"), propOpacity = document.getElementById("p-opacity");
-const propFontSize = document.getElementById("p-fontsize"), propFontRow = document.getElementById("p-fontrow");
-const propFontFam = document.getElementById("p-fontfam"), propFamRow = document.getElementById("p-famrow");
-const propStyleRow = document.getElementById("p-stylerow");
-const propBold = propStyleRow.querySelector('[data-prop="font-weight"]'), propItal = propStyleRow.querySelector('[data-prop="font-style"]');
+const propFontSize = document.getElementById("p-fontsize");
+const propFontFam = document.getElementById("p-fontfam");
+const ctxText = document.getElementById("ctx-text"), ctxStroke = document.getElementById("ctx-stroke"), lblFill = document.getElementById("lbl-fill");
+const propBold = propsPanel.querySelector('[data-prop="font-weight"]'), propItal = propsPanel.querySelector('[data-prop="font-style"]');
 function styleTargets(el){                                  // the shapes/texts a style applies to: the element itself if it's one, else its descendants
   return (el.matches && el.matches(SHAPE_SEL)) ? [el] : Array.from(el.querySelectorAll(SHAPE_SEL));
 }
@@ -233,6 +246,7 @@ function collectStyleEls(prop){                             // union of targets 
   return out;
 }
 function selHasText(){ return moveSet.some(el => (el.matches && el.matches("text,tspan")) || (el.querySelector && el.querySelector("text,tspan"))); }
+function selHasShape(){ return moveSet.some(el => styleTargets(el).some(t => !(t.matches && t.matches("text,tspan")))); }
 function styleSnap(els){ return els.map(el => ({ el, style: el.getAttribute("style") })); }   // full inline-style attribute, restored verbatim
 function styleRestore(it){ if(it.style === null) it.el.removeAttribute("style"); else it.el.setAttribute("style", it.style); }
 function markStyled(el, prop, val){
@@ -247,6 +261,10 @@ function commitStyle(prop, val){                            // one gesture = one
   for(const el of els) markStyled(el, prop, val);
   pushUndo({ type: "style", items: before, after: styleSnap(els) });
   setDirty(true); fillPropsPanel();
+  if(editing){                                              // live WYSIWYG: the inline editor follows font changes made while typing
+    const inp = document.getElementById("txtedit-input"), t = firstTextEl();
+    if(inp && t) applyEditFont(inp, t);
+  }
 }
 let rangeGesture = null;                                    // coalesce a slider drag into a single 'style' entry (input = live preview, change = commit)
 function rangeLive(prop, val){
@@ -281,10 +299,10 @@ function fillPropsPanel(){                                  // prefill from the 
     const sw = parseFloat(cs.strokeWidth); if(!isNaN(sw)) propStrokeW.value = sw;
     const op = parseFloat(cs.opacity); if(!isNaN(op)) propOpacity.value = op;
   }
-  const hasText = selHasText();
-  propFontRow.style.display = hasText ? "" : "none";
-  propFamRow.style.display = hasText ? "" : "none";
-  propStyleRow.style.display = hasText ? "" : "none";
+  const hasText = selHasText(), hasShape = selHasShape();
+  ctxText.style.display = hasText ? "" : "none";            // .cgroup default display is inline-flex
+  ctxStroke.style.display = hasShape ? "" : "none";
+  lblFill.textContent = (hasText && !hasShape) ? "Couleur" : "Fond";   // text-only: fill IS the text colour
   const t = hasText ? firstTextEl() : null;
   if(t){
     const cs = getComputedStyle(t);
@@ -294,10 +312,11 @@ function fillPropsPanel(){                                  // prefill from the 
     propItal.classList.toggle("on", cs.fontStyle === "italic");
   }
 }
-function updatePropsPanel(){                                // shown only for a live selection, out of lasso/add/fullscreen modes
-  const show = moveSet.length && !lassoMode && !addMode && !document.body.classList.contains("fs-mode");
-  propsPanel.style.display = show ? "block" : "none";      // "" would fall back to the stylesheet's display:none
+function updatePropsPanel(){                                // bar slides in for a live selection, out of lasso/add/fullscreen modes
+  const show = !!(moveSet.length && !lassoMode && !addMode && !document.body.classList.contains("fs-mode"));
+  propsPanel.classList.toggle("show", show);
   if(show) fillPropsPanel();
+  if(annotOn) setTimeout(sizeAnnot, 160);                   // the bar reflows the stage → re-anchor the annot canvas after the 140ms slide
 }
 propFill.addEventListener("change", () => commitStyle("fill", propFill.value));
 propStroke.addEventListener("change", () => commitStyle("stroke", propStroke.value));
@@ -309,6 +328,9 @@ propsPanel.querySelectorAll(".pnone").forEach(btn => btn.addEventListener("click
 propFontFam.addEventListener("change", () => { if(propFontFam.value) commitStyle("font-family", cssFamily(propFontFam.value)); });
 propBold.addEventListener("click", () => commitStyle("font-weight", propBold.classList.contains("on") ? "normal" : "bold"));
 propItal.addEventListener("click", () => commitStyle("font-style", propItal.classList.contains("on") ? "normal" : "italic"));
+propsPanel.addEventListener("pointerdown", e => {           // bar buttons must not steal focus: B/I/× stay usable WHILE typing in the inline editor
+  if(e.target && e.target.closest && e.target.closest("button")) e.preventDefault();
+});
 const STD_FAMILIES = ["DejaVu Sans", "DejaVu Serif", "Helvetica", "Arial", "Times New Roman", "STIXGeneral", "Georgia", "Verdana", "Courier New"];
 function populateFamilies(){                                // figure's own fonts first, then the standards
   for(const f of STD_FAMILIES){ const o = document.createElement("option"); o.value = f; o.textContent = f; propFontFam.appendChild(o); }
@@ -397,18 +419,21 @@ function nudge(dxu, dyu){                                   // move moveSet by w
   else { const entry = { type: "move", items: before, after }; pushUndo(entry); nudgeState = { t: now, before, entry }; }
   setDirty(true); hiliteMoveSet();
 }
+function applyEditFont(inp, el){                            // WYSIWYG: the inline editor adopts the label's real font at its on-screen size
+  try{
+    const cs = getComputedStyle(el), m = el.getScreenCTM();
+    const sc = m ? Math.hypot(m.a, m.b) : 1;
+    const px = parseFloat(cs.fontSize) * sc;
+    if(px) inp.style.font = cs.fontStyle + " " + cs.fontWeight + " " + Math.max(11, px) + "px " + cs.fontFamily;
+  }catch(e){}
+}
 function editText(el, o){                                   // inline-edit a <text> (an existing label/title, or a freshly added one)
   o = o || {}; editing = true; showHover(null);
   moveSet = [el]; hiliteMoveSet();                          // keep the label selected → the properties panel stays up while typing
   const inp = document.createElement("input");
   inp.id = "txtedit-input"; inp.type = "text"; inp.className = "txtedit";
   inp.value = el.textContent || "";
-  try{                                                     // WYSIWYG: adopt the label's real font at its on-screen size
-    const cs = getComputedStyle(el), m = el.getScreenCTM();
-    const sc = m ? Math.hypot(m.a, m.b) : 1;
-    const px = parseFloat(cs.fontSize) * sc;
-    if(px) inp.style.font = cs.fontStyle + " " + cs.fontWeight + " " + Math.max(11, px) + "px " + cs.fontFamily;
-  }catch(e){}
+  applyEditFont(inp, el);
   let b = null; try{ b = rectIn(el); }catch(e){}
   if(!b || !b.w) b = { x: o.x || 20, y: o.y || 20, w: 140 };
   inp.style.left = Math.max(2, b.x - 4) + "px";
@@ -439,7 +464,9 @@ function editText(el, o){                                   // inline-edit a <te
   }
   inp.addEventListener("keydown", ev => { ev.stopPropagation();                            // keep Del/F/⌘Z/Esc out of the canvas handlers
     if(ev.key === "Enter"){ ev.preventDefault(); finish(true); }
-    else if(ev.key === "Escape"){ ev.preventDefault(); finish(false); } });
+    else if(ev.key === "Escape"){ ev.preventDefault(); finish(false); }
+    else if((ev.metaKey || ev.ctrlKey) && (ev.key === "b" || ev.key === "B")){ ev.preventDefault(); propBold.click(); }     // style while typing
+    else if((ev.metaKey || ev.ctrlKey) && (ev.key === "i" || ev.key === "I")){ ev.preventDefault(); propItal.click(); } });
   inp.addEventListener("blur", () => finish(true));
 }
 function placeTextAt(e){                                    // create a new <text> at the click, then open it for typing
@@ -795,7 +822,7 @@ window.addEventListener("blur", () => { spaceDown = false; panning = null; docum
 
 document.addEventListener("keydown", e => {
   if(editing) return;
-  const t = e.target; if(t && (t.closest && t.closest("#props") || /^(input|select|textarea)$/i.test(t.tagName || ""))) return;   // any form field (props, dpi select, inline edit) keeps native arrows/space/del
+  const t = e.target; if(t && (t.closest && t.closest("#ctxbar") || /^(input|select|textarea)$/i.test(t.tagName || ""))) return;   // any form field (edit bar, dpi select, inline edit) keeps native arrows/space/del
   if(e.key === " " && !e.metaKey && !e.ctrlKey){ if(!spaceDown){ spaceDown = true; document.body.classList.add("panready"); showHover(null); } e.preventDefault(); return; }
   if((e.metaKey || e.ctrlKey) && (e.key === "+" || e.key === "=")){ e.preventDefault(); zoomStep(1.25); return; }
   if((e.metaKey || e.ctrlKey) && e.key === "-"){ e.preventDefault(); zoomStep(1 / 1.25); return; }
