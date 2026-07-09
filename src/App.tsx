@@ -494,8 +494,19 @@ export default function App() {
         }
       }
       if (msg.type === "threads") {
+        const prevThreads = threadsRef.current;
         setThreads(msg.threads);
         threadsRef.current = msg.threads;
+        // thread déplacé vers un autre projet (moveThread) : s'il est actif, le
+        // suivre — le chat "voyage" avec l'utilisateur (spec déplacer-chat-projet)
+        const activeId = activeIdRef.current;
+        if (activeId) {
+          const before = prevThreads.find((th: Thread) => th.id === activeId);
+          const after = msg.threads.find((th: Thread) => th.id === activeId);
+          if (before && after && after.projectRoot !== before.projectRoot) {
+            setActiveProject(after.projectRoot || null);
+          }
+        }
       }
       if (msg.type === "event") {
         if (msg.event.kind === "started") {

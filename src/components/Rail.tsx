@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { t } from "../lib/i18n";
 import { PlusIcon, SettingsIcon, SidebarIcon } from "./icons";
-import { PROJ_ICONS, ProjIcon, threadTitle, rawThreadTitle, recencyLabelKey, withRecencySections } from "./Sidebar";
+import { PROJ_ICONS, ProjIcon, threadTitle, rawThreadTitle, recencyLabelKey, withRecencySections, moveThreadTo } from "./Sidebar";
 import { ProviderIcon } from "./icons";
 import type { Thread } from "../lib/ws";
 
@@ -43,7 +43,7 @@ export default function Rail(p: {
   const [menu, setMenu] = useState<{ root: string; y: number } | null>(null);
   const [dragRoot, setDragRoot] = useState<string | null>(null);
   const [dragOver, setDragOver] = useState<string | null>(null);
-  const [chatMenu, setChatMenu] = useState<{ id: string; x: number; y: number } | null>(null);
+  const [chatMenu, setChatMenu] = useState<{ id: string; x: number; y: number; mode?: "main" | "move" } | null>(null);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editText, setEditText] = useState("");
   const [labelDraft, setLabelDraft] = useState("");
@@ -187,7 +187,23 @@ export default function Rail(p: {
                 <div className="fly-empty">{t("rail.no-chats")}</div>
               )}
             </div>
-            {chatMenu && (
+            {chatMenu && chatMenu.mode === "move" && (
+              <div className="ctx-menu" style={{ left: chatMenu.x, top: chatMenu.y }}>
+                <div className="ctx-menu-back" onClick={() => setChatMenu({ ...chatMenu, mode: "main" })}>
+                  ‹ {t("thread.move")}
+                </div>
+                {p.projects
+                  .filter((root) => root !== (p.threads.find((x) => x.id === chatMenu.id)?.projectRoot ?? ""))
+                  .map((root) => (
+                    <div key={root} onClick={() =>
+                      moveThreadTo(p.threads.find((x) => x.id === chatMenu.id), root, () => setChatMenu(null))
+                    }>
+                      {root.split("/").pop()}
+                    </div>
+                  ))}
+              </div>
+            )}
+            {chatMenu && chatMenu.mode !== "move" && (
               <div className="ctx-menu" style={{ left: chatMenu.x, top: chatMenu.y }}>
                 <div onClick={() => {
                   const th = p.threads.find((x) => x.id === chatMenu.id);
@@ -212,6 +228,11 @@ export default function Rail(p: {
                 }}>
                   {t("action.copy-resume")}
                 </div>
+                {p.projects.some((root) => root !== (p.threads.find((x) => x.id === chatMenu.id)?.projectRoot ?? "")) && (
+                  <div onClick={() => setChatMenu({ ...chatMenu, mode: "move" })}>
+                    {t("thread.move")}
+                  </div>
+                )}
                 <div className="danger" onClick={() => { p.onDeleteThread(chatMenu.id); setChatMenu(null); }}>
                   {t("action.delete")}
                 </div>

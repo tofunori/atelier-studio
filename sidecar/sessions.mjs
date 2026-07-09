@@ -204,7 +204,10 @@ export async function grokHistory(sessionId, projectRoot, opts = {}) {
       const d = JSON.parse(line);
       if (d.type === "user") {
         const query = grokUserQueryFromContent(d.content);
-        if (query) events.push({ kind: "user", text: query });
+        // handoff inter-provider : ne montrer que le vrai message tapé,
+        // comme claudeHistory/codexHistory (le préambule part au modèle,
+        // jamais à l'écran)
+        if (query) events.push({ kind: "user", text: stripHandoff(query) });
       } else if (d.type === "assistant") {
         const text = String(d.content ?? "").trim();
         if (text) events.push({ kind: "text", text });

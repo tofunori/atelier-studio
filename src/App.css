@@ -282,6 +282,7 @@ html, body, #root, .app { height: 100vh; overflow: hidden;
 .ctx-menu div { padding: 6px 10px; border-radius: var(--r-s); cursor: pointer; font-size: var(--fs-l); }
 .ctx-menu div:hover { background: var(--bg-ctl); }
 .ctx-menu .danger:hover { background: #4a2328; color: #e06c75; }
+.ctx-menu-back { color: var(--muted); }
 .rename { flex: 1; background: var(--bg-ctl); border: 1px solid var(--border2); border-radius: var(--r-s);
   color: inherit; font-size: var(--fs-l); padding: 2px 6px; outline: none; }
 .annot-banner { display: flex; align-items: center; gap: 10px; margin: 10px 16px 0;
