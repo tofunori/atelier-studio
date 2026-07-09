@@ -1273,7 +1273,6 @@ export default function Chat(p: {
 
   return (
     <div className="chat">
-      <div className="chat-dragbar" data-tauri-drag-region />
       <button className="expand-btn" title={p.layout === "chat" ? t("action.restore-split-chat") : t("chat.full")}
         onClick={p.onToggleExpand}>
         {p.layout === "chat" ? <CollapseIcon /> : <ExpandIcon />}

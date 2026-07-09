@@ -10,12 +10,16 @@
   --r-s: 6px; --r-m: 10px; --r-pill: 999px;
   --elev: 0 4px 18px rgba(0,0,0,.28), 0 1px 4px rgba(0,0,0,.18);
   --ease: 140ms ease;
+  /* fond de fenêtre derrière les cartes flottantes (rail/panneau/zone
+     principale) — dérivé de --bg, jamais un hex arbitraire */
+  --ground: color-mix(in srgb, var(--bg) 78%, black);
 }
 :root[data-theme="light"] {
   --bg: #f5f6f8; --bg-side: #ebedf1; --bg-pop: #ffffff; --bg-card: #ffffff;
   --bg-ctl: #e3e6eb; --border: #d4d8df; --border2: #c3c9d2;
   --fg: #1c1e21; --fg2: #33373d; --muted: #667085; --muted2: #8a93a3;
   --hl-line: #a3771e;
+  --ground: color-mix(in srgb, var(--bg) 90%, black);
 }
 :root[data-density="compact"] { --pad-y: 3px; }
 :root, :root[data-density="comfortable"] { --pad-y: 6px; }
@@ -25,7 +29,7 @@ html.no-smoothing, html.no-smoothing body { -webkit-font-smoothing: auto !import
 html, body, #root, .app { height: 100vh; overflow: hidden;
   font-family: var(--ui-font);
   font-size: var(--fs-xl);
-  background: var(--bg); color: var(--fg);
+  background: var(--ground); color: var(--fg);
   -webkit-font-smoothing: antialiased; }
 .handle { width: 4px; background: var(--bg-ctl); }
 .sidebar { padding: 12px 10px; display: flex; flex-direction: column; gap: 8px;
@@ -388,12 +392,20 @@ html, body, #root, .app { height: 100vh; overflow: hidden;
   box-shadow: 0 6px 18px rgba(0,0,0,0.5); }
 .quote-pill:hover { background: var(--border2); }
 .chev { color: var(--muted2); font-size: var(--fs-xs); width: 10px; display: inline-block; }
-/* rail compacte façon Muxy */
-.app-row { display: flex; height: 100vh; }
-.app-row .app { flex: 1; }
+/* zone titre : ~42px, fond de fenêtre, drag region principal (feux
+   tricolores Overlay + nom de l'app/projet actif, discret) */
+.titlebar { height: 42px; flex-shrink: 0; display: flex; align-items: center;
+  padding: 0 14px 0 68px; }
+.titlebar-name { font-size: var(--fs-s); color: var(--muted2); letter-spacing: -0.01em;
+  user-select: none; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* rail compacte façon Muxy — panneaux « cartes flottantes » sur le fond --ground */
+.app-row { display: flex; height: calc(100vh - 42px); gap: 8px; padding: 0 8px 8px; }
+.main-card { flex: 1; min-width: 0; height: 100%; overflow: hidden;
+  background: var(--bg-side); border: 1px solid var(--border2);
+  border-radius: var(--r-m); box-shadow: var(--elev); position: relative; }
 .rail { width: 80px; flex-shrink: 0; background: var(--bg-side); display: flex; overflow-y: auto; overflow-x: hidden; scrollbar-width: none;
   flex-direction: column; align-items: center; gap: 8px; padding: 34px 0 10px;
-  border-right: 1px solid var(--bg-ctl); position: relative; }
+  border: 1px solid var(--border2); border-radius: var(--r-m); box-shadow: var(--elev); position: relative; }
 .rail .flex { flex: 1; }
 .rail-btn { width: 38px; height: 38px; border-radius: var(--r-m); border: none;
   background: transparent; color: var(--muted); font-size: var(--fs-xl); cursor: pointer;
@@ -426,7 +438,7 @@ html, body, #root, .app { height: 100vh; overflow: hidden;
    cadre accent du projet actif (même orange) et devenait invisible */
 .rail-dot { position: absolute; top: 3px; right: 3px; width: 8px; height: 8px;
   border-radius: var(--r-pill); background: var(--accent); border: 2px solid var(--bg-side); }
-.rail-menu { position: fixed; left: 60px; z-index: 120; background: var(--bg-pop);
+.rail-menu { position: fixed; left: 68px; z-index: 120; background: var(--bg-pop);
   border: 1px solid var(--border); border-radius: var(--r-m); padding: 12px; width: 200px;
   display: flex; flex-direction: column; gap: 10px;
   box-shadow: 0 8px 24px rgba(0,0,0,0.5); }
@@ -858,9 +870,9 @@ input[type="range"].slider::-webkit-slider-thumb:hover { transform: scale(1.15);
 .ctx-ring-wrap:hover .ctx-pop { display: flex; }
 .sec-toggle { cursor: pointer; user-select: none; }
 .sec-toggle:hover { color: var(--fg2); }
-.side-top { display: flex; align-items: center; min-height: 26px; padding-left: 68px;
-  -webkit-app-region: drag; }
-.side-top button { -webkit-app-region: no-drag; }
+/* la zone titre est l'unique drag region désormais — side-top garde son
+   rôle visuel (bouton replier) mais ne drague plus la fenêtre */
+.side-top { display: flex; align-items: center; min-height: 26px; padding-left: 68px; }
 .side-top .flex { flex: 1; }
 .side-top .compact-btn { display: inline-flex; padding: 3px 6px; }
 /* panneau de vue « Surlignés » (placeholder lot 1) */
@@ -1042,7 +1054,6 @@ input[type="range"].slider::-webkit-slider-thumb:hover { transform: scale(1.15);
   .browser-home-hint { white-space: normal; }
   .browser-home-grid { grid-template-columns: 1fr; }
 }
-.chat-dragbar { position: absolute; top: 0; left: 0; right: 0; height: 30px; z-index: 40; }
 .expand-btn { position: absolute; top: 8px; right: 10px; z-index: 45;
   background: transparent; border: none; color: var(--muted2); cursor: pointer;
   padding: 4px 6px; border-radius: var(--r-s); }
@@ -1185,7 +1196,9 @@ button.ghost.danger, button.ghost.danger:hover { color: #d98c8f; background: rgb
 .file-ref:hover { border-color: var(--accent); color: var(--fg); }
 .file-ref svg { opacity: 0.6; flex-shrink: 0; }
 /* sidebar hors PanelGroup : largeur fixe, poignée de resize manuelle */
-.side-fixed { flex-shrink: 0; height: 100vh; overflow: hidden; }
+.side-fixed { flex-shrink: 0; height: 100%; overflow: hidden;
+  background: var(--bg-side); border: 1px solid var(--border2);
+  border-radius: var(--r-m); box-shadow: var(--elev); }
 .side-handle { cursor: col-resize; flex-shrink: 0; }
 /* barre de sélection (Highlight / Underline / Add to chat) façon Synara */
 .sel-toolbar { position: fixed; transform: translateX(-50%); z-index: 120;
@@ -1901,9 +1914,12 @@ body.dragging iframe { pointer-events: none; }
 .goal-editor input:focus { border-color: color-mix(in srgb, var(--fg) 30%, transparent); }
 .goal-editor button { font-size: var(--fs-s); }
 /* ===== flyout du rail (chats d'un projet en mode compact, façon Discord) ===== */
-.fly-backdrop { position: fixed; inset: 0 0 0 54px; z-index: 60; } /* ne couvre PAS le rail : les clics sur les icônes passent */
-.rail-flyout { position: fixed; left: 80px; top: 0; bottom: 0; width: 236px; z-index: 61;
-  background: var(--bg-pop); border-right: 1px solid var(--border2); box-shadow: var(--elev);
+/* recalé sur la nouvelle géométrie : rail card = 8px gouttière + 80px + 8px ;
+   sous la zone titre (42px) ; ne couvre pas le rail : les clics sur les
+   icônes passent, et la zone titre reste draguable même flyout ouvert */
+.fly-backdrop { position: fixed; inset: 42px 0 0 62px; z-index: 60; }
+.rail-flyout { position: fixed; left: 96px; top: 42px; bottom: 8px; width: 236px; z-index: 61;
+  background: var(--bg-pop); border: 1px solid var(--border2); border-radius: var(--r-m); box-shadow: var(--elev);
   display: flex; flex-direction: column; padding: 8px;
   animation: fly-in 140ms ease; transform-origin: left; }
 @keyframes fly-in { from { opacity: 0; transform: translateX(-8px); } to { opacity: 1; transform: none; } }

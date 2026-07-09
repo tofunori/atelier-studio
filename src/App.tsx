@@ -283,7 +283,7 @@ function HighlightsPanel(p: {
 
   return (
     <div className="sidebar hl-panel">
-      <div className="side-top" data-tauri-drag-region>
+      <div className="side-top">
         <span className="flex" />
         <button className="mini compact-btn" title={t("action.collapse-sidebar")} onClick={p.onCompact}>
           <SidebarIcon size={17} />
@@ -1766,6 +1766,10 @@ export default function App() {
     },
   }), [activeProject, allThreads, files, zoteroItems]);
 
+  // titre discret de la zone titre : "Atelier" seul, ou "Atelier — <projet>"
+  // — même convention que projectDisplayName (dernier segment du chemin)
+  const titlebarLabel = activeProject ? `Atelier — ${projectDisplayName(activeProject)}` : "Atelier";
+
   if (showSettings) {
     return (
       <>
@@ -1785,6 +1789,10 @@ export default function App() {
   }
 
   return (
+    <>
+    <div className="titlebar" data-tauri-drag-region>
+      <span className="titlebar-name">{titlebarLabel}</span>
+    </div>
     <div className={`app-row ${dragging ? "dragging" : ""}`}>
         <Rail
           projects={projects}
@@ -1957,6 +1965,7 @@ export default function App() {
           }}
         />
       )}
+    <div className="main-card">
     <PanelGroup direction="horizontal" className="app">
       <Panel id="chat" order={2} defaultSize={50} minSize={layout === "atelier" ? 0 : 30}
         style={{ display: layout === "atelier" ? "none" : undefined }}>
@@ -2259,6 +2268,7 @@ export default function App() {
         </>
       )}
     </PanelGroup>
+    </div>
     <CommandPalette open={paletteOpen} items={paletteItems} onClose={() => setPaletteOpen(false)} />
       <QuickAsk
         open={qaMode === "open"}
@@ -2289,5 +2299,6 @@ export default function App() {
         <UsagePopover open={usageOpen} onClose={() => setUsageOpen(false)} />
       </div>}
     </div>
+    </>
   );
 }
