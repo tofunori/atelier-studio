@@ -1,7 +1,82 @@
 import { spawn } from "node:child_process";
+import { appendFileSync, existsSync, mkdirSync, readFileSync } from "node:fs";
+import { homedir } from "node:os";
+import { join } from "node:path";
 import { resolveBin } from "../bin_resolver.mjs";
 
 const OPENCODE_BIN = resolveBin("opencode") ?? "opencode";
+
+// ---------------------------------------------------------------------------
+// Transcripts locaux (JSONL) : OpenCode ne fournit pas d'API d'historique —
+// on persiste chaque tour terminé sous APP_DIR/opencode_sessions/<sid>.jsonl.
+// Les sessions antérieures à cette fonctionnalité ne sont PAS rétro-importées.
+// ---------------------------------------------------------------------------
+const DEFAULT_TRANSCRIPT_DIR = join(
+  homedir(), "Library", "Application Support", "atelier-studio", "opencode_sessions",
+);
+
+function transcriptDir(opts = {}) {
+  return opts.dir ?? process.env.ATELIER_OPENCODE_TRANSCRIPTS ?? DEFAULT_TRANSCRIPT_DIR;
+}
+
+/** Accumule le texte/raisonnement d'un tour et le persiste UNE seule fois,
+ * y compris partiel après interruption. Pur vis-à-vis du process opencode. */
+export function makeTranscriptRecorder(prompt, opts = {}) {
+  let text = "";
+  let thinking = "";
+  let persisted = false;
+  return {
+    absorb(event) {
+      if (event?.kind === "delta" && typeof event.text === "string") text += event.text;
+      if (event?.kind === "thinking_delta" && typeof event.text === "string") thinking += event.text;
+    },
+    persist(sessionId) {
+      if (persisted || !sessionId || (!text && !thinking)) return false;
+      persisted = true;
+      const dir = transcriptDir(opts);
+      try {
+        mkdirSync(dir, { recursive: true });
+        const ts = Date.now();
+        const lines = [
+          { role: "user", content: String(prompt ?? ""), ts },
+          { role: "assistant", content: text, ...(thinking ? { reasoning: thinking } : {}), ts },
+        ];
+        appendFileSync(join(dir, `${sessionId}.jsonl`), lines.map((l) => JSON.stringify(l) + "\n").join(""));
+        return true;
+      } catch {
+        return false; // disque plein/permissions : le streaming a déjà eu lieu
+      }
+    },
+  };
+}
+
+/** Historique UI d'une session persistée localement (nouveaux tours seulement). */
+export async function history(sessionId, _projectRoot, opts = {}) {
+  if (!sessionId) return [];
+  const p = join(transcriptDir(opts), `${sessionId}.jsonl`);
+  if (!existsSync(p)) return [];
+  const events = [];
+  for (const line of readFileSync(p, "utf8").split("\n")) {
+    const trimmed = line.trim();
+    if (!trimmed) continue;
+    try {
+      const m = JSON.parse(trimmed);
+      if (m.role === "user" && typeof m.content === "string") {
+        events.push({ kind: "user", text: m.content, ts: m.ts });
+      } else if (m.role === "assistant") {
+        if (typeof m.reasoning === "string" && m.reasoning.trim()) {
+          events.push({ kind: "thinking", text: m.reasoning, ts: m.ts });
+        }
+        if (typeof m.content === "string" && m.content) {
+          events.push({ kind: "text", text: m.content, ts: m.ts });
+        }
+      }
+    } catch {
+      // ligne corrompue isolée : ignorer
+    }
+  }
+  return events;
+}
 const EFFORTS = new Set(["minimal", "low", "medium", "high", "xhigh", "max"]);
 const PROJECT_REQUEST_RE = /\b(analy[sz]e|analyse|analyses|analyser|projet|project|repo|repository|codebase|dossier|folder|fichier|file|fichiers|files|architecture|impl[eé]mentation)\b/i;
 
@@ -191,6 +266,9 @@ export async function run({
     let rest = "";
     let stderr = "";
     let settled = false;
+    // transcript du tour (texte final + raisonnement), persisté au settle —
+    // succès comme interruption : le partiel est conservé, une seule fois
+    const recorder = makeTranscriptRecorder(prompt);
 
     const cleanup = () => {
       if (timer) clearTimeout(timer);
@@ -200,6 +278,7 @@ export async function run({
       if (settled) return;
       settled = true;
       cleanup();
+      recorder.persist(sid);
       resolve(value);
     };
 
@@ -207,6 +286,7 @@ export async function run({
       if (settled) return;
       settled = true;
       cleanup();
+      recorder.persist(sid);
       reject(err);
     };
 
@@ -225,6 +305,7 @@ export async function run({
     const emit = (event) => {
       if (settled) return;
       if (event.sessionId) sid = event.sessionId;
+      recorder.absorb(event);
       if (event.kind === "usage" && event.usage) {
         lastUsage = event.usage;
       }

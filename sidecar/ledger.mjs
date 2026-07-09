@@ -1,4 +1,4 @@
-import { appendFile, mkdir, readFile } from "node:fs/promises";
+import { appendFile, mkdir, readFile, readdir } from "node:fs/promises";
 import { homedir } from "node:os";
 import { basename, join } from "node:path";
 
@@ -51,17 +51,34 @@ export async function get(projectRoot, limit = 200, opts = {}) {
     .reverse();
 }
 
-import { readdirSync as _rd } from "node:fs";
-/** Entrées récentes tous projets confondus (pour l'usage global). */
-export async function getAll(limit = 500) {
-  const out = [];
+/** Entrées récentes tous projets confondus (pour l'usage global).
+ * N'avale que l'absence de dossier/fichier et les lignes corrompues, une à
+ * une — jamais une erreur de programmation. */
+export async function getAll(limit = 500, opts = {}) {
+  const max = Math.max(1, Math.min(5000, Number(limit) || 500));
+  const dir = ledgerDir(opts.baseDir);
+  let files;
   try {
-    const dir = ledgerDir();
-    for (const f of _rd(dir)) {
-      if (!f.endsWith(".jsonl")) continue;
-      const lines = readFileSync(join(dir, f), "utf8").trim().split("\n").slice(-limit);
-      for (const line of lines) { try { out.push(JSON.parse(line)); } catch {} }
+    files = await readdir(dir);
+  } catch {
+    return []; // aucun ledger encore écrit
+  }
+  const out = [];
+  for (const f of files) {
+    if (!f.endsWith(".jsonl")) continue;
+    let text;
+    try {
+      text = await readFile(join(dir, f), "utf8");
+    } catch {
+      continue; // fichier disparu entre readdir et lecture
     }
-  } catch {}
-  return out.sort((a, b) => String(b.ts).localeCompare(String(a.ts))).slice(0, limit);
+    for (const line of text.split(/\r?\n/).filter((l) => l.trim()).slice(-max)) {
+      try {
+        out.push(JSON.parse(line));
+      } catch {
+        // ligne corrompue isolée : on garde le reste du fichier
+      }
+    }
+  }
+  return out.sort((a, b) => String(b.ts).localeCompare(String(a.ts))).slice(0, max);
 }

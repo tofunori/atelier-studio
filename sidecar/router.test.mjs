@@ -36,6 +36,72 @@ describe("route", () => {
     await route({ type: "nope" }, { send: (m) => sent.push(m) });
     expect(sent[0].type).toBe("error");
   });
+  it("getHistory route chaque provider vers SON loader, jamais celui d'un autre", async () => {
+    const mkCtx = (provider, extra = {}) => {
+      const sent = [];
+      const loaders = {
+        claude: vi.fn(async () => [{ kind: "text", text: "claude" }]),
+        codex: vi.fn(async () => [{ kind: "text", text: "codex" }]),
+        grok: vi.fn(async () => [{ kind: "text", text: "grok" }]),
+      };
+      const ctx = {
+        send: (m) => sent.push(m),
+        store: { get: () => ({ id: "t1", provider, sessionId: "s1", projectRoot: "/p" }) },
+        history: { claudeHistory: loaders.claude },
+        sessions: { codexHistory: loaders.codex, grokHistory: loaders.grok },
+        ...extra,
+      };
+      return { ctx, sent, loaders };
+    };
+
+    for (const provider of ["claude", "codex", "grok"]) {
+      const { ctx, sent, loaders } = mkCtx(provider);
+      await route({ type: "getHistory", threadId: "t1" }, ctx);
+      expect(sent[0].events).toEqual([{ kind: "text", text: provider }]);
+      for (const [name, fn] of Object.entries(loaders)) {
+        expect(fn.mock.calls.length, `${provider} ne doit appeler que ${provider}, pas ${name}`)
+          .toBe(name === provider ? 1 : 0);
+      }
+    }
+
+    // provider dynamique avec history() propre (API/OpenCode)
+    const apiHistory = vi.fn(async () => [{ kind: "user", text: "q" }, { kind: "text", text: "r" }]);
+    const api = mkCtx("openrouter", { providers: { openrouter: { history: apiHistory } } });
+    await route({ type: "getHistory", threadId: "t1" }, api.ctx);
+    expect(apiHistory).toHaveBeenCalledWith("s1", "/p");
+    expect(api.sent[0].events).toHaveLength(2);
+    expect(api.loaders.codex).not.toHaveBeenCalled();
+
+    // provider inconnu sans history : [] + aucun loader d'un autre format
+    const unknown = mkCtx("mystery", { providers: {} });
+    await route({ type: "getHistory", threadId: "t1" }, unknown.ctx);
+    expect(unknown.sent[0]).toEqual({ type: "history", threadId: "t1", events: [] });
+    expect(unknown.loaders.codex).not.toHaveBeenCalled();
+    expect(unknown.loaders.claude).not.toHaveBeenCalled();
+  });
+
+  it("getUsage agrège turns/output par modèle pour aujourd'hui via ledger.getAll", async () => {
+    const sent = [];
+    const today = new Date().toISOString();
+    await route({ type: "getUsage" }, {
+      send: (m) => sent.push(m),
+      providers: {},
+      ledger: {
+        getAll: vi.fn(async () => [
+          { ts: today, model: "gpt-x", usage: { output: 100 } },
+          { ts: today, model: "gpt-x", usage: { output: 50 } },
+          { ts: today, model: "claude-y", usage: { output: 7 } },
+          { ts: "2020-01-01T00:00:00.000Z", model: "gpt-x", usage: { output: 999 } },
+        ]),
+      },
+    });
+    expect(sent[0].type).toBe("usage");
+    expect(sent[0].models).toEqual({
+      "gpt-x": { turns: 2, output: 150 },
+      "claude-y": { turns: 1, output: 7 },
+    });
+  });
+
   it("gitUndoLastTurn refusé : envoie gitUndoLastTurnError, jamais Done", async () => {
     const sent = [];
     await route({ type: "gitUndoLastTurn", threadId: "t1" }, {

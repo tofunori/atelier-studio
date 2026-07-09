@@ -72,12 +72,12 @@ export function resolveApiKey(cfg) {
 // ---------------------------------------------------------------------------
 // Historique local par session (JSONL: {role, content} par ligne)
 // ---------------------------------------------------------------------------
-function sessionPath(sessionId) {
-  return `${SESSIONS_DIR}/${sessionId}.jsonl`;
+function sessionPath(sessionId, dir = SESSIONS_DIR) {
+  return `${dir}/${sessionId}.jsonl`;
 }
 
-export function loadHistory(sessionId) {
-  const path = sessionPath(sessionId);
+export function loadHistory(sessionId, dir = SESSIONS_DIR) {
+  const path = sessionPath(sessionId, dir);
   if (!sessionId || !existsSync(path)) return [];
   const messages = [];
   for (const line of readFileSync(path, "utf8").split("\n")) {
@@ -98,9 +98,9 @@ export function loadHistory(sessionId) {
   return messages.slice(-MAX_HISTORY_MESSAGES);
 }
 
-function appendHistory(sessionId, messages) {
-  mkdirSync(SESSIONS_DIR, { recursive: true });
-  appendFileSync(sessionPath(sessionId), messages.map((m) => JSON.stringify(m) + "\n").join(""));
+function appendHistory(sessionId, messages, dir = SESSIONS_DIR) {
+  mkdirSync(dir, { recursive: true });
+  appendFileSync(sessionPath(sessionId, dir), messages.map((m) => JSON.stringify(m) + "\n").join(""));
 }
 
 // ---------------------------------------------------------------------------
@@ -258,6 +258,7 @@ function reasoningForRequest(cfg, model, effort) {
 // ---------------------------------------------------------------------------
 export function makeApiProvider(cfg) {
   const controllers = new Map(); // threadId -> AbortController
+  const sessionsDir = cfg.sessionsDir ?? SESSIONS_DIR; // injectable en test
 
   async function run({ threadId, prompt, sessionId, model, effort, onEvent }) {
     const apiKey = resolveApiKey(cfg);
@@ -267,7 +268,7 @@ export function makeApiProvider(cfg) {
       throw new Error(message);
     }
     const sid = sessionId || randomUUID();
-    const history = loadHistory(sid);
+    const history = loadHistory(sid, sessionsDir);
     const userMessage = { role: "user", content: String(prompt ?? "") };
     const anthropic = cfg.protocol === "anthropic";
     const selectedModel = model || cfg.defaultModel;
@@ -342,7 +343,7 @@ export function makeApiProvider(cfg) {
         role: "assistant",
         content: fullText,
         ...(fullThinking ? { reasoning: fullThinking } : {}),
-      }]);
+      }], sessionsDir);
       onEvent?.({ kind: "text", text: fullText });
       onEvent?.({ kind: "done", ok: true, result: fullText, usage });
       return { sessionId: sid };
@@ -353,7 +354,7 @@ export function makeApiProvider(cfg) {
           role: "assistant",
           content: fullText,
           ...(fullThinking ? { reasoning: fullThinking } : {}),
-        }]);
+        }], sessionsDir);
         onEvent?.({ kind: "done", ok: false, result: fullText, usage });
         return { sessionId: sid };
       }
@@ -372,5 +373,22 @@ export function makeApiProvider(cfg) {
     return { id: cfg.id, label: cfg.label, ok: !!resolveApiKey(cfg), keyMissing: !resolveApiKey(cfg) };
   }
 
-  return { id: cfg.id, kind: "api", run, interrupt, status };
+  // Historique UI depuis api_sessions/<sid>.jsonl : user→user, reasoning non
+  // vide→thinking, content→text. Même ordre et même fenêtre que le replay.
+  async function history(sessionId) {
+    const events = [];
+    for (const m of loadHistory(sessionId, sessionsDir)) {
+      if (m.role === "user") {
+        events.push({ kind: "user", text: m.content });
+      } else if (m.role === "assistant") {
+        if (typeof m.reasoning === "string" && m.reasoning.trim()) {
+          events.push({ kind: "thinking", text: m.reasoning });
+        }
+        if (m.content) events.push({ kind: "text", text: m.content });
+      }
+    }
+    return events;
+  }
+
+  return { id: cfg.id, kind: "api", run, interrupt, status, history };
 }

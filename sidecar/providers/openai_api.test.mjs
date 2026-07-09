@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { parseSseChunk, parseAnthropicSseChunk, loadApiProviderConfigs } from "./openai_api.mjs";
+import { mkdtempSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
+import { tmpdir } from "node:os";
+import { parseSseChunk, parseAnthropicSseChunk, loadApiProviderConfigs, makeApiProvider } from "./openai_api.mjs";
 
 describe("openai-compatible SSE parsing", () => {
   it("parses content deltas and [DONE]", () => {
@@ -101,5 +104,42 @@ describe("api provider config", () => {
     expect(configs[0].models).toEqual(["z-ai/glm-5.2", "plain/model"]);
     expect(configs[0].modelReasoning["z-ai/glm-5.2"].default_effort).toBe("medium");
     expect(configs[0].defaultModel).toBe("z-ai/glm-5.2");
+  });
+});
+
+describe("api provider history", () => {
+  it("mappe le JSONL de session en events UI (user/thinking/text), sans réseau", async () => {
+    const sessionsDir = mkdtempSync(join(tmpdir(), "atelier-api-sessions-"));
+    writeFileSync(join(sessionsDir, "s1.jsonl"), [
+      JSON.stringify({ role: "user", content: "question ?" }),
+      JSON.stringify({ role: "assistant", content: "réponse.", reasoning: "je réfléchis" }),
+      JSON.stringify({ role: "user", content: "suite" }),
+      JSON.stringify({ role: "assistant", content: "fin" }),
+      "",
+    ].join("\n"));
+    const p = makeApiProvider({
+      id: "test-api", label: "Test", baseURL: "http://127.0.0.1:1",
+      models: ["m"], defaultModel: "m", sessionsDir,
+    });
+
+    const events = await p.history("s1");
+
+    expect(events).toEqual([
+      { kind: "user", text: "question ?" },
+      { kind: "thinking", text: "je réfléchis" },
+      { kind: "text", text: "réponse." },
+      { kind: "user", text: "suite" },
+      { kind: "text", text: "fin" },
+    ]);
+  });
+
+  it("session inconnue → []", async () => {
+    const sessionsDir = mkdtempSync(join(tmpdir(), "atelier-api-sessions-vide-"));
+    const p = makeApiProvider({
+      id: "test-api", label: "Test", baseURL: "http://127.0.0.1:1",
+      models: ["m"], defaultModel: "m", sessionsDir,
+    });
+    expect(await p.history("absente")).toEqual([]);
+    expect(await p.history(null)).toEqual([]);
   });
 });

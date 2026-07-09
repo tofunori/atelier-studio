@@ -61,3 +61,58 @@ describe("opencode provider stream normalization", () => {
     expect(second.rest).toBe("");
   });
 });
+
+import { makeTranscriptRecorder, history } from "./opencode.mjs";
+import { mkdtempSync, readFileSync, existsSync, readdirSync } from "node:fs";
+import { join } from "node:path";
+import { tmpdir } from "node:os";
+
+describe("opencode transcripts", () => {
+  it("persiste user+assistant une seule fois, puis relit en events UI", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "atelier-oc-transcripts-"));
+    const rec = makeTranscriptRecorder("ma question", { dir });
+    rec.absorb({ kind: "thinking_delta", text: "hmm " });
+    rec.absorb({ kind: "delta", text: "voici " });
+    rec.absorb({ kind: "delta", text: "la réponse" });
+    rec.absorb({ kind: "tool_update", id: "x", name: "bash", output: "ignoré" });
+
+    expect(rec.persist("ses_123")).toBe(true);
+    expect(rec.persist("ses_123")).toBe(false); // une seule écriture par tour
+
+    const lines = readFileSync(join(dir, "ses_123.jsonl"), "utf8").trim().split("\n");
+    expect(lines).toHaveLength(2);
+
+    const events = await history("ses_123", "/p", { dir });
+    expect(events.map((e) => ({ kind: e.kind, text: e.text }))).toEqual([
+      { kind: "user", text: "ma question" },
+      { kind: "thinking", text: "hmm " },
+      { kind: "text", text: "voici la réponse" },
+    ]);
+  });
+
+  it("interruption : le partiel est conservé", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "atelier-oc-partiel-"));
+    const rec = makeTranscriptRecorder("question interrompue", { dir });
+    rec.absorb({ kind: "delta", text: "début de rép" });
+
+    expect(rec.persist("ses_int")).toBe(true);
+
+    const events = await history("ses_int", "/p", { dir });
+    expect(events.at(-1)).toMatchObject({ kind: "text", text: "début de rép" });
+  });
+
+  it("sans sessionId stable ou sans contenu : rien n'est écrit", () => {
+    const dir = mkdtempSync(join(tmpdir(), "atelier-oc-rien-"));
+    const vide = makeTranscriptRecorder("q", { dir });
+    expect(vide.persist("ses_x")).toBe(false); // aucun texte accumulé
+    const sansSid = makeTranscriptRecorder("q", { dir });
+    sansSid.absorb({ kind: "delta", text: "texte" });
+    expect(sansSid.persist(null)).toBe(false);
+    expect(readdirSync(dir)).toEqual([]);
+  });
+
+  it("session inconnue → [] (les anciennes sessions ne sont pas rétro-importées)", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "atelier-oc-absent-"));
+    expect(await history("ses_avant_fonctionnalite", "/p", { dir })).toEqual([]);
+  });
+});

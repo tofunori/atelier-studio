@@ -755,18 +755,27 @@ export async function route(msg, ctx) {
         ctx.send({ type: "history", threadId: msg.threadId, events: [] });
         break;
       }
-      if (t.provider === "grok") {
-        const events = await ctx.sessions.grokHistory(t.sessionId, t.projectRoot);
-        ctx.send({ type: "history", threadId: msg.threadId, events });
-        break;
+      // routage explicite par provider : chaque format a son loader — un
+      // provider sans historique renvoie [], jamais le format d'un autre
+      let events = [];
+      try {
+        if (t.provider === "claude") {
+          events = await ctx.history.claudeHistory(t.sessionId, t.projectRoot);
+        } else if (t.provider === "codex") {
+          events = await ctx.sessions.codexHistory(t.sessionId);
+        } else if (t.provider === "grok") {
+          events = await ctx.sessions.grokHistory(t.sessionId, t.projectRoot);
+        } else {
+          const p = ctx.providers?.[t.provider];
+          if (typeof p?.history === "function") {
+            events = await p.history(t.sessionId, t.projectRoot);
+          }
+        }
+      } catch (e) {
+        console.warn(`[atelier] history ${t.provider} indisponible:`, String(e?.message ?? e).slice(0, 200));
+        events = [];
       }
-      if (t.provider !== "claude") {
-        const events = await ctx.sessions.codexHistory(t.sessionId);
-        ctx.send({ type: "history", threadId: msg.threadId, events });
-        break;
-      }
-      const events = await ctx.history.claudeHistory(t.sessionId, t.projectRoot);
-      ctx.send({ type: "history", threadId: msg.threadId, events });
+      ctx.send({ type: "history", threadId: msg.threadId, events: events ?? [] });
       break;
     }
     case "listThreads":
