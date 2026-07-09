@@ -34,7 +34,21 @@ def log(*a):
 
 
 def load_edits(path):
+    """Return either a v1 list of transform dicts, or a v2 dict of edit sections.
+
+    v1 (legacy): a bare JSON list, or ``{"svg": ..., "edits": [...]}`` — treated as
+    ``transforms`` only. v2: ``{"version": 2, "transforms", "added", "removed", "styles"}``.
+    """
     d = json.load(open(path, encoding="utf-8"))
+    if isinstance(d, dict) and (d.get("version") == 2
+                                or any(k in d for k in ("transforms", "added", "removed", "styles"))):
+        return {
+            "version": 2,
+            "transforms": [e for e in (d.get("transforms") or []) if isinstance(e, dict) and e.get("delta")],
+            "added": [e for e in (d.get("added") or []) if isinstance(e, dict)],
+            "removed": [e for e in (d.get("removed") or []) if isinstance(e, dict)],
+            "styles": [e for e in (d.get("styles") or []) if isinstance(e, dict) and isinstance(e.get("props"), dict) and e["props"]],
+        }
     edits = d.get("edits", d) if isinstance(d, dict) else d
     return [e for e in edits if isinstance(e, dict) and e.get("delta")]
 
@@ -66,15 +80,111 @@ def with_delta(tag, delta):
     return tag[:-1].rstrip() + ' transform="' + delta + '">', True
 
 
+def _match(raw, e, by_text):
+    """Find the opening tag for an edit: by matplotlib id first, then by label text."""
+    elid = e.get("id")
+    m = find_open_tag(raw, elid) if elid else None
+    how = "id"
+    if not m:                                                  # fallback: same label, new id
+        text = (e.get("text") or "").strip()
+        if text and text in by_text:
+            elid = by_text[text]; m = find_open_tag(raw, elid); how = "text"
+    return m, elid, how
+
+
+def element_span(raw, tag_match):
+    """(start, end) covering the whole element whose opening tag is `tag_match`.
+
+    Balances nested same-name tags; a self-closing opening tag is the element itself."""
+    tag = tag_match.group(0)
+    start = tag_match.start()
+    if tag.endswith("/>"):
+        return start, tag_match.end()
+    name = re.match(r'<([A-Za-z][\w:.-]*)', tag).group(1)
+    pat = re.compile(r'<' + re.escape(name) + r'\b[^>]*>|</' + re.escape(name) + r'\s*>')
+    depth = 1
+    for mo in pat.finditer(raw, tag_match.end()):
+        s = mo.group(0)
+        if s.startswith("</"):
+            depth -= 1
+            if depth == 0:
+                return start, mo.end()
+        elif not s.endswith("/>"):
+            depth += 1
+    return start, tag_match.end()                              # unbalanced → drop just the open tag
+
+
+def _esc_text(s):
+    return str(s).replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+
+
+def _esc_attr(s):
+    return _esc_text(s).replace('"', "&quot;")
+
+
+def parse_style(s):
+    """`prop: val; ...` → ordered dict, preserving declaration order."""
+    d = {}
+    for part in (s or "").split(";"):
+        if ":" in part:
+            k, v = part.split(":", 1)
+            k = k.strip()
+            if k:
+                d[k] = v.strip()
+    return d
+
+
+def merge_style(existing, props):
+    """Merge `props` into `existing` style: same-name props override in place, order kept."""
+    d = parse_style(existing)
+    for k, v in props.items():
+        d[str(k)] = str(v)
+    return "; ".join("%s: %s" % (k, v) for k, v in d.items())
+
+
+def with_style(tag, props):
+    """Merge `props` into the tag's style attribute (adding one if it has none)."""
+    sm = re.search(r'\bstyle="([^"]*)"', tag)
+    if sm:
+        merged = _esc_attr(merge_style(sm.group(1), props))
+        return tag[:sm.start()] + 'style="' + merged + '"' + tag[sm.end():]
+    merged = _esc_attr(merge_style("", props))
+    if tag.endswith("/>"):
+        return tag[:-2].rstrip() + ' style="' + merged + '"/>'
+    return tag[:-1].rstrip() + ' style="' + merged + '">'
+
+
+def build_added(e):
+    """A fresh `<text>` element from an `added` entry (id/x/y/style/transform optional)."""
+    attrs = []
+    if e.get("id"):
+        attrs.append('id="%s"' % _esc_attr(e["id"]))
+    for k in ("x", "y"):
+        if e.get(k) is not None:
+            attrs.append('%s="%s"' % (k, _esc_attr(e[k])))
+    style = (e.get("style") or "").strip()
+    if style:
+        attrs.append('style="%s"' % _esc_attr(style))
+    tr = (e.get("transform") or "").strip()
+    if tr:
+        attrs.append('transform="%s"' % _esc_attr(tr))
+    return '<text %s>%s</text>' % (" ".join(attrs), _esc_text(e.get("content", "")))
+
+
 def reapply(raw, edits):
+    """Dispatch: v2 dict (sections) or v1 list (transforms only). Returns
+    ``(raw, applied, skipped, missing)`` — applied/missing aggregate every section."""
+    if isinstance(edits, dict):
+        return reapply_v2(raw, edits)
+    return reapply_transforms(raw, edits)
+
+
+def reapply_transforms(raw, edits):
     by_text = comment_id_map(raw)
     applied, skipped, missing = [], [], []
     for e in edits:
-        delta, elid, text = e["delta"], e.get("id"), (e.get("text") or "").strip()
-        m = find_open_tag(raw, elid) if elid else None
-        how = "id"
-        if not m and text and text in by_text:                 # fallback: same label, new id
-            elid = by_text[text]; m = find_open_tag(raw, elid); how = "text"
+        delta = e["delta"]
+        m, elid, how = _match(raw, e, by_text)
         if not m:
             missing.append(e); continue
         newtag, changed = with_delta(m.group(0), delta)
@@ -82,6 +192,39 @@ def reapply(raw, edits):
             skipped.append(elid); continue
         raw = raw[:m.start()] + newtag + raw[m.end():]
         applied.append((elid, how))
+    return raw, applied, skipped, missing
+
+
+def reapply_v2(raw, edits):
+    """Order: transforms → styles → removed → added (per the .edits.json v2 contract)."""
+    by_text = comment_id_map(raw)                              # ids/labels are stable across the passes below
+    raw, applied, skipped, missing = reapply_transforms(raw, edits.get("transforms") or [])
+
+    for e in edits.get("styles") or []:                        # merge style overrides
+        m, elid, how = _match(raw, e, by_text)
+        if not m:
+            log("  style unmatched: id=%s text=%r" % (e.get("id"), e.get("text")))
+            missing.append(e); continue
+        raw = raw[:m.start()] + with_style(m.group(0), e["props"]) + raw[m.end():]
+        applied.append((elid, "style/" + how))
+
+    for e in edits.get("removed") or []:                       # drop deleted nodes
+        m, elid, how = _match(raw, e, by_text)
+        if not m:
+            log("  removed unmatched: id=%s text=%r — already absent?" % (e.get("id"), e.get("text")))
+            missing.append(e); continue
+        s, en = element_span(raw, m)
+        raw = raw[:s] + raw[en:]
+        applied.append((elid, "removed/" + how))
+
+    added_frags = [build_added(e) for e in edits.get("added") or []]
+    if added_frags:                                            # append fresh <text> before </svg> (inherits svg namespace)
+        idx = raw.rfind("</svg>")
+        if idx < 0:
+            idx = len(raw)
+        raw = raw[:idx] + "".join(added_frags) + raw[idx:]
+        applied.extend(("added", "new") for _ in added_frags)
+
     return raw, applied, skipped, missing
 
 
@@ -104,8 +247,10 @@ def main(argv=None):
     raw = open(args.svg, encoding="utf-8").read()
     patched, applied, skipped, missing = reapply(raw, edits)
 
+    total = (sum(len(edits.get(k) or []) for k in ("transforms", "added", "removed", "styles"))
+             if isinstance(edits, dict) else len(edits))
     log("re-applied %d/%d edit(s)%s%s from %s"
-        % (len(applied), len(edits),
+        % (len(applied), total,
            (" · %d already-applied" % len(skipped)) if skipped else "",
            (" · %d UNMATCHED" % len(missing)) if missing else "",
            os.path.basename(edits_path)))

@@ -18,7 +18,9 @@
   header button:hover{background:#52525b}
   header select{padding:0 8px}
   #lassotoggle.on{background:#ffce3a;color:#000;border-color:#ffce3a;font-weight:600}
-  #undobtn:disabled{opacity:.45;cursor:default;background:var(--border)}
+  #undobtn:disabled,#redobtn:disabled{opacity:.45;cursor:default;background:var(--border)}
+  #savesvg{position:relative}
+  #savesvg.dirty::after{content:"";position:absolute;top:-2px;right:-2px;width:6px;height:6px;border-radius:999px;background:var(--accent)}
   #clearsel{padding:0 9px}
   #delsel{padding:0 11px}
   #delsel:hover{background:#b91c1c;border-color:#b91c1c;color:#fff}
@@ -57,6 +59,7 @@
   <button id="addtext" title="Ajouter un texte — clique ici puis clique sur la figure (double-clic sur un texte pour l'éditer)">T+</button>
   <button id="lassotoggle" title="Polygone — clique des sommets autour des éléments ; double-clic / Entrée pour fermer · Échap annule">▱</button>
   <button id="undobtn" title="Annuler la dernière action — déplacement / suppression / édition / ajout (⌘Z)" disabled>↶</button>
+  <button id="redobtn" title="Rétablir l'action annulée (⌘⇧Z)" disabled>↷</button>
   <button id="savesvg" title="Save the moved elements into the .svg on disk (keeps a .orig.bak)">💾</button>
   <select id="dpi" title="Export resolution"><option value="300">300 dpi</option><option value="450">450 dpi</option><option value="600">600 dpi</option></select>
   <button id="exportpng" title="Render the current view to a sibling .png (rsvg-convert)">🖼</button>
@@ -157,9 +160,17 @@ function hiliteMoveSet(){
   else clearHandles();
 }
 function clearMoveSet(){ moveSet = []; hiliteMoveSet(); }
-// ---- undo history (one entry per completed drag) ----
-let history = [];
-function snapshot(els){ return els.map(el => ({ el,                       // full pre-op state, restored verbatim on Undo
+// ---- dirty-state (accent dot on the save button + beforeunload guard) ----
+function setDirty(v){ dirty = v; const b = document.getElementById("savesvg"); if(b) b.classList.toggle("dirty", v); }
+// ---- undo/redo history (two stacks; each entry holds enough to undo AND redo) ----
+// move/style : { items:<before snapshot>, after:<after snapshot> } — restoreXf both ways
+// delete     : { items:[{el,parent,next}], removed:[<removedLog recs>] }
+// add        : { el, parent, next }
+// edit       : { el, before, after }
+let undoStack = [], redoStack = [];
+let removedLog = [];                                        // ids+labels of elements deleted from the figure (for the sidecar)
+let nudgeState = null;                                      // coalesces a burst of arrow-key nudges into one history entry
+function snapshot(els){ return els.map(el => ({ el,                       // full pre-op state, restored verbatim on undo/redo
   orig: el.hasAttribute("data-orig") ? el.getAttribute("data-orig") : null,
   dx: el.hasAttribute("data-dx") ? el.getAttribute("data-dx") : null,
   dy: el.hasAttribute("data-dy") ? el.getAttribute("data-dy") : null,
@@ -169,30 +180,64 @@ function restoreXf(it){
     if(v === null) it.el.removeAttribute(a); else it.el.setAttribute(a, v);
   }
 }
-function updateUndo(){ const b = document.getElementById("undobtn"); if(b) b.disabled = history.length === 0; }
+function updateHist(){                                      // buttons follow their stack's emptiness
+  const u = document.getElementById("undobtn"); if(u) u.disabled = undoStack.length === 0;
+  const r = document.getElementById("redobtn"); if(r) r.disabled = redoStack.length === 0;
+}
+function pushUndo(entry){ undoStack.push(entry); redoStack.length = 0; nudgeState = null; updateHist(); }  // any new action clears redo + breaks nudge burst
+function reinsert(it){                                      // put a detached node back at its original DOM position
+  if(it.next && it.next.parentNode === it.parent) it.parent.insertBefore(it.el, it.next);
+  else it.parent.appendChild(it.el);
+}
+function removedForget(recs){ for(const rec of recs){ const i = removedLog.indexOf(rec); if(i >= 0) removedLog.splice(i, 1); } }
+function removedReadd(recs){ for(const rec of recs){ if(removedLog.indexOf(rec) < 0) removedLog.push(rec); } }
 function undo(){
-  const entry = history.pop();
+  const entry = undoStack.pop();
   if(!entry) return;
-  if(entry.type === "delete"){
-    for(const it of entry.items){                          // re-insert each deleted node at its original DOM position
-      if(it.next && it.next.parentNode === it.parent) it.parent.insertBefore(it.el, it.next);
-      else it.parent.appendChild(it.el);
-    }
-  } else if(entry.type === "edit"){
-    entry.el.textContent = entry.before;                   // restore the previous text
-  } else if(entry.type === "add"){
-    if(entry.el.parentNode) entry.el.remove();             // remove the text we added
-  } else {
-    for(const it of entry.items) restoreXf(it);
-  }
-  dirty = true; hiliteMoveSet(); updateUndo();
+  if(entry.type === "delete"){ for(const it of entry.items) reinsert(it); removedForget(entry.removed); }
+  else if(entry.type === "edit"){ entry.el.textContent = entry.before; }                 // restore the previous text
+  else if(entry.type === "add"){ if(entry.el.parentNode) entry.el.remove(); }            // remove the text we added
+  else { for(const it of entry.items) restoreXf(it); }                                   // move / style : back to "before"
+  redoStack.push(entry); nudgeState = null;
+  setDirty(true); hiliteMoveSet(); updateHist();
+}
+function redo(){
+  const entry = redoStack.pop();
+  if(!entry) return;
+  if(entry.type === "delete"){ for(const it of entry.items) it.el.remove(); removedReadd(entry.removed); }
+  else if(entry.type === "edit"){ entry.el.textContent = entry.after; }                  // re-apply the new text
+  else if(entry.type === "add"){ reinsert(entry); }                                       // re-insert the text we added
+  else { for(const it of entry.after) restoreXf(it); }                                    // move / style : forward to "after"
+  undoStack.push(entry); nudgeState = null;
+  setDirty(true); hiliteMoveSet(); updateHist();
 }
 function deleteSel(){                                       // remove the selected element(s) from the figure; ⌘Z restores them
   if(!moveSet.length) return;
   const items = moveSet.map(el => ({ el, parent: el.parentNode, next: el.nextSibling }));
-  for(const it of items) it.el.remove();
-  history.push({ type: "delete", items });
-  dirty = true; clearMoveSet(); updateUndo();
+  const removed = [];
+  for(const it of items){
+    const id = it.el.id, text = id ? elemText(it.el) : null;   // read the label BEFORE detaching (comment-anchored labels need the sibling)
+    it.el.remove();
+    if(id){ const rec = { id, text }; removedLog.push(rec); removed.push(rec); }
+  }
+  pushUndo({ type: "delete", items, removed });
+  setDirty(true); clearMoveSet();
+}
+function nudge(dxu, dyu){                                   // move moveSet by whole user units in each element's parent space (like drag)
+  if(!moveSet.length) return;
+  const now = Date.now(), merge = nudgeState && (now - nudgeState.t) < 800;
+  const before = merge ? nudgeState.before : snapshot(moveSet);
+  for(const el of moveSet){
+    if(!el.hasAttribute("data-orig")) el.setAttribute("data-orig", el.getAttribute("transform") || "");
+    if(!el.hasAttribute("data-orig0")) el.setAttribute("data-orig0", el.getAttribute("transform") || "");   // pristine, for the edits sidecar
+    const dx = parseFloat(el.getAttribute("data-dx") || 0) + dxu, dy = parseFloat(el.getAttribute("data-dy") || 0) + dyu;
+    el.setAttribute("data-dx", dx); el.setAttribute("data-dy", dy);
+    el.setAttribute("transform", "translate(" + dx + "," + dy + ") " + el.getAttribute("data-orig"));
+  }
+  const after = snapshot(moveSet);
+  if(merge){ nudgeState.entry.after = after; nudgeState.t = now; }   // same burst → keep the first "before", refresh "after"
+  else { const entry = { type: "move", items: before, after }; pushUndo(entry); nudgeState = { t: now, before, entry }; }
+  setDirty(true); hiliteMoveSet();
 }
 function editText(el, o){                                   // inline-edit a <text> (an existing label/title, or a freshly added one)
   o = o || {}; editing = true; showHover(null);
@@ -213,9 +258,9 @@ function editText(el, o){                                   // inline-edit a <te
     if(keep){
       if(o.isNew){
         if(after === ""){ el.remove(); }                                                  // empty new label → discard it
-        else { el.textContent = after; history.push({ type: "add", el, parent: el.parentNode }); dirty = true; updateUndo(); }
+        else { el.textContent = after; pushUndo({ type: "add", el, parent: el.parentNode, next: el.nextSibling }); setDirty(true); }
       } else if(after !== before){
-        el.textContent = after; history.push({ type: "edit", el, before }); dirty = true; updateUndo();
+        el.textContent = after; pushUndo({ type: "edit", el, before, after }); setDirty(true);
       }
     } else if(o.isNew){ el.remove(); }                                                     // Esc on a new label → discard
     hiliteMoveSet();
@@ -263,13 +308,27 @@ function lassoUpdate(cursor){                                   // polygon so fa
   lassoEl.firstChild.setAttribute("points", pts.map(p => p[0] + "," + p[1]).join(" "));
 }
 function lassoRemove(){ if(lassoEl){ lassoEl.remove(); lassoEl = null; } }
-function selectInPoly(pts){                               // elements whose centre falls inside the lasso
+function segInt(a, b, c, d){                              // do segments ab and cd cross? (orientation test)
+  const ccw = (p, q, r) => (r[1] - p[1]) * (q[0] - p[0]) > (q[1] - p[1]) * (r[0] - p[0]);
+  return ccw(a, c, d) !== ccw(b, c, d) && ccw(a, b, c) !== ccw(a, b, d);
+}
+function rectPolyHit(b, pts){                             // true rect↔polygon intersection (not just centre-in-poly)
+  const c = [[b.x, b.y], [b.x + b.w, b.y], [b.x + b.w, b.y + b.h], [b.x, b.y + b.h]];
+  for(const p of c) if(inPoly(p[0], p[1], pts)) return true;                       // a rect corner inside the polygon
+  for(const p of pts) if(p[0] >= b.x && p[0] <= b.x + b.w && p[1] >= b.y && p[1] <= b.y + b.h) return true;  // a polygon vertex inside the rect
+  for(let i = 0; i < pts.length; i++){                                            // a polygon edge crossing a rect edge
+    const p1 = pts[i], p2 = pts[(i + 1) % pts.length];
+    for(let j = 0; j < 4; j++) if(segInt(p1, p2, c[j], c[(j + 1) % 4])) return true;
+  }
+  return false;
+}
+function selectInPoly(pts){                               // elements whose bbox intersects the lasso polygon
   if(pts.length < 3){ clearMoveSet(); return; }
   const skip = /^(figure|matplotlib\.axis|xtick|ytick)_/;
   const cands = Array.from(svg.querySelectorAll("[id]")).filter(el => el.id && !skip.test(el.id) && draggable(el));
   const inside = cands.filter(el => {
     let b; try{ b = rectIn(el); }catch(err){ return false; }
-    return b.w && b.h && inPoly(b.x + b.w / 2, b.y + b.h / 2, pts);
+    return b.w && b.h && rectPolyHit(b, pts);
   });
   moveSet = inside.filter(el => !inside.some(o => o !== el && o.contains(el)));  // keep outermost units only
   hiliteMoveSet();
@@ -358,7 +417,7 @@ function onResizeMove(e){
     m.el.setAttribute("transform",
       "translate(" + a.x + "," + a.y + ") scale(" + fx + "," + fy + ") translate(" + (-a.x) + "," + (-a.y) + ") " + m.startXf);
   }
-  dirty = true; hiliteMoveSet();
+  setDirty(true); hiliteMoveSet();
 }
 function endResize(e){
   if(!resizing) return;
@@ -370,7 +429,7 @@ function endResize(e){
     if(now !== m.startXf){ changed = true;                    // fold the scale into the base so later moves keep it
       m.el.setAttribute("data-orig", now); m.el.removeAttribute("data-dx"); m.el.removeAttribute("data-dy"); }
   }
-  if(changed){ history.push({ type: "move", items: R.before }); updateUndo(); dirty = true; }
+  if(changed){ pushUndo({ type: "move", items: R.before, after: snapshot(R.members.map(m => m.el)) }); setDirty(true); }
   hiliteMoveSet();
 }
 function startDrag(targets, e){
@@ -396,6 +455,16 @@ function onDown(e){
       const f = lasso.pts[0];
       if(lasso.pts.length >= 3 && Math.hypot(s.x - f[0], s.y - f[1]) < 12){ finishPoly(); return; }   // click near start = close
       lasso.pts.push([s.x, s.y]); lassoUpdate();
+    }
+    return;
+  }
+  if(e.metaKey || e.ctrlKey){                              // ⌘/Ctrl-click = additive toggle (works even while the selection is "locked"), no drag
+    const g = grabTarget(e.target, e.shiftKey);
+    if(g && draggable(g)){
+      e.preventDefault();
+      const i = moveSet.indexOf(g);
+      if(i >= 0) moveSet.splice(i, 1); else moveSet.push(g);
+      hiliteMoveSet();
     }
     return;
   }
@@ -428,7 +497,7 @@ function onMove(e){
       it.el.setAttribute("data-dx", dx); it.el.setAttribute("data-dy", dy);
       it.el.setAttribute("transform", "translate(" + dx + "," + dy + ") " + it.el.getAttribute("data-orig"));
     }
-    drag.moved = true; dirty = true; hiliteMoveSet();
+    drag.moved = true; setDirty(true); hiliteMoveSet();
     return;
   }
   if(lassoMode) return;                                   // no grab-preview while lassoing
@@ -440,7 +509,7 @@ function onUp(){
   if(editing) return;
   if(lasso) return;                                      // building a polygon by clicks — pointerup does nothing
   if(drag){
-    if(drag.moved && drag.before){ history.push({ type: "move", items: drag.before }); updateUndo(); }   // record for Undo
+    if(drag.moved && drag.before){ pushUndo({ type: "move", items: drag.before, after: snapshot(drag.items.map(it => it.el)) }); }   // record for undo/redo
     else if(!drag.moved && drag.g){ moveSet = [drag.g]; hiliteMoveSet(); }                                // a click without a move = select it (so Del / 🗑 can remove a single element)
     drag = null;
   }
@@ -490,7 +559,14 @@ async function toggleFS(){
 }
 document.addEventListener("keydown", e => {
   if(editing) return;
-  if((e.metaKey || e.ctrlKey) && (e.key === "z" || e.key === "Z")){ e.preventDefault(); undo(); return; }
+  if((e.metaKey || e.ctrlKey) && (e.key === "z" || e.key === "Z")){ e.preventDefault(); if(e.shiftKey) redo(); else undo(); return; }
+  if(moveSet.length && e.key.indexOf("Arrow") === 0){       // arrow keys nudge the selection (Shift = ×10), coalesced per burst
+    const s = e.shiftKey ? 10 : 1;
+    let dx = 0, dy = 0;
+    if(e.key === "ArrowLeft") dx = -s; else if(e.key === "ArrowRight") dx = s;
+    else if(e.key === "ArrowUp") dy = -s; else if(e.key === "ArrowDown") dy = s;
+    e.preventDefault(); nudge(dx, dy); return;
+  }
   if(e.key === "f" || e.key === "F"){ toggleFS(); return; }
   if(e.key === "Delete" || e.key === "Backspace"){ e.preventDefault(); if(moveSet.length) deleteSel(); return; }
   if(e.key === "Enter" && lassoMode){ e.preventDefault(); finishPoly(); return; }
@@ -515,23 +591,28 @@ function elemText(el){                                    // the label string: l
   while(p && p.nodeType === 3 && !(p.textContent || "").trim()) p = p.previousSibling;   // skip whitespace
   return (p && p.nodeType === 8) ? (p.textContent || "").trim() : "";
 }
-function collectEdits(){                                  // per moved/resized element: id + label + the editor DELTA (its own original stripped)
-  const out = [];
-  svg.querySelectorAll("[data-orig0]").forEach(el => {
+function collectEdits(){                                  // v2 sidecar: transforms (deltas) + added texts + removed ids (+ styles later, Lot E)
+  const transforms = [];
+  svg.querySelectorAll("[data-orig0]").forEach(el => {     // per moved/resized element: id + label + the editor DELTA (its own original stripped)
     const xf = el.getAttribute("transform") || "", o0 = el.getAttribute("data-orig0") || "";
     let delta = xf;
     if(o0 && xf.endsWith(o0)) delta = xf.slice(0, xf.length - o0.length).trim();   // original is always the inner suffix
     if(!delta) return;                                    // back to pristine (e.g. undone) → no edit to persist
-    out.push({ id: el.id || null, text: elemText(el) || null, delta: delta });
+    transforms.push({ id: el.id || null, text: elemText(el) || null, delta: delta });
   });
-  return out;
+  const added = [];
+  svg.querySelectorAll('[id^="added_text_"]').forEach(el => {   // texts created in the editor (survive a matplotlib regen)
+    added.push({ id: el.id, x: parseFloat(el.getAttribute("x")) || 0, y: parseFloat(el.getAttribute("y")) || 0,
+      content: el.textContent || "", style: el.getAttribute("style") || "", transform: el.getAttribute("transform") || "" });
+  });
+  return { version: 2, transforms: transforms, added: added, removed: removedLog.slice(), styles: [] };
 }
 function saveSVG(){
   if(!svg) return;
   const b = document.getElementById("savesvg");
   fetch("/save-svg", { method: "POST", headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ rel: file, name: file.split("/").pop(), svg: currentSVGText(), edits: collectEdits() }) })
-    .then(r => r.json()).then(j => { if(j && j.ok) dirty = false; flash(b, (j && j.ok) ? "Saved ✓" : "Error", "💾"); })
+    .then(r => r.json()).then(j => { if(j && j.ok) setDirty(false); flash(b, (j && j.ok) ? "Saved ✓" : "Error", "💾"); })
     .catch(() => flash(b, "Error", "💾"));
 }
 function exportPNG(){
@@ -547,6 +628,8 @@ function exportPNG(){
 document.getElementById("savesvg").onclick = saveSVG;
 document.getElementById("exportpng").onclick = exportPNG;
 document.getElementById("undobtn").onclick = undo;
+document.getElementById("redobtn").onclick = redo;
+window.addEventListener("beforeunload", e => { if(dirty){ e.preventDefault(); e.returnValue = ""; } });
 document.getElementById("clearsel").onclick = () => clearMoveSet();
 document.getElementById("delsel").onclick = deleteSel;
 document.getElementById("addtext").onclick = () => setAdd(!addMode);

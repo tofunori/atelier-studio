@@ -1376,12 +1376,18 @@ class Handler(SimpleHTTPRequestHandler):
                     f.write(svg)
                 os.replace(tmp, dst)                                 # atomic
                 edits = req.get("edits")                             # durable layer: re-applied onto the regenerated SVG
-                if isinstance(edits, list):
+                if isinstance(edits, (list, dict)):                  # v1 = bare list of transforms; v2 = {version:2, transforms, added, removed, styles}
                     ep = os.path.splitext(dst)[0] + ".edits.json"
-                    if edits:
+                    if isinstance(edits, list):
+                        has_content = bool(edits)
+                        payload = {"svg": os.path.basename(dst), "edits": edits}
+                    else:                                            # v2 dict: persist the received payload as-is
+                        has_content = any(edits.get(k) for k in ("transforms", "added", "removed", "styles"))
+                        payload = edits
+                    if has_content:
                         fd2, t2 = tempfile.mkstemp(dir=ddir, prefix=".edits.", suffix=".tmp")
                         with os.fdopen(fd2, "w", encoding="utf-8") as f:
-                            json.dump({"svg": os.path.basename(dst), "edits": edits}, f, ensure_ascii=False, indent=1)
+                            json.dump(payload, f, ensure_ascii=False, indent=1)
                         os.replace(t2, ep)
                     elif os.path.exists(ep) and not os.path.islink(ep):
                         os.remove(ep)                                # all edits undone → drop the stale sidecar
