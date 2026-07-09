@@ -146,6 +146,79 @@ describe("route", () => {
   });
 });
 
+describe("moveThread", () => {
+  function makeStore(initial) {
+    const threads = new Map(initial.map((th) => [th.id, { ...th }]));
+    return {
+      list: () => [...threads.values()],
+      get: (id) => threads.get(id),
+      upsert: (patch) => {
+        const merged = { ...(threads.get(patch.id) ?? {}), ...patch };
+        threads.set(patch.id, merged);
+        return merged;
+      },
+    };
+  }
+
+  it("déplace un thread idle vers un autre projet (store mis à jour + broadcast)", async () => {
+    const store = makeStore([{ id: "t1", projectRoot: "/proj-a", status: "idle" }]);
+    const emitted = [];
+    await route(
+      { type: "moveThread", threadId: "t1", projectRoot: "/proj-b" },
+      { send: () => {}, broadcast: (m) => emitted.push(m), store },
+    );
+    expect(store.get("t1").projectRoot).toBe("/proj-b");
+    expect(emitted).toHaveLength(1);
+    expect(emitted[0].type).toBe("threads");
+  });
+
+  it("refuse si le thread est en cours d'exécution (status running)", async () => {
+    const store = makeStore([{ id: "t1", projectRoot: "/proj-a", status: "running" }]);
+    const sent = [];
+    const emitted = [];
+    await route(
+      { type: "moveThread", threadId: "t1", projectRoot: "/proj-b" },
+      { send: (m) => sent.push(m), broadcast: (m) => emitted.push(m), store },
+    );
+    expect(store.get("t1").projectRoot).toBe("/proj-a"); // inchangé
+    expect(sent[0].type).toBe("error");
+    expect(emitted).toHaveLength(0);
+  });
+
+  it("erreur si le thread est introuvable", async () => {
+    const store = makeStore([]);
+    const sent = [];
+    await route(
+      { type: "moveThread", threadId: "inconnu", projectRoot: "/proj-b" },
+      { send: (m) => sent.push(m), store },
+    );
+    expect(sent[0].type).toBe("error");
+  });
+
+  it("no-op silencieux si la cible est le projet courant du thread", async () => {
+    const store = makeStore([{ id: "t1", projectRoot: "/proj-a", status: "idle" }]);
+    const sent = [];
+    const emitted = [];
+    await route(
+      { type: "moveThread", threadId: "t1", projectRoot: "/proj-a" },
+      { send: (m) => sent.push(m), broadcast: (m) => emitted.push(m), store },
+    );
+    expect(sent).toHaveLength(0);
+    expect(emitted).toHaveLength(0);
+  });
+
+  it("rejette une cible qui n'est pas un chemin absolu", async () => {
+    const store = makeStore([{ id: "t1", projectRoot: "/proj-a", status: "idle" }]);
+    const sent = [];
+    await route(
+      { type: "moveThread", threadId: "t1", projectRoot: "proj-relatif" },
+      { send: (m) => sent.push(m), store },
+    );
+    expect(store.get("t1").projectRoot).toBe("/proj-a");
+    expect(sent[0].type).toBe("error");
+  });
+});
+
 describe("quickAsk", () => {
   // laisse se dérouler les microtâches du .then/.catch de p.run(...)
   const flush = () => new Promise((r) => setTimeout(r, 0));

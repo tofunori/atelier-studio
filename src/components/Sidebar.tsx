@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { confirm as tauriConfirm } from "@tauri-apps/plugin-dialog";
+import { confirm as tauriConfirm, message as tauriMessage } from "@tauri-apps/plugin-dialog";
 import { revealItemInDir, openUrl } from "@tauri-apps/plugin-opener";
 import { Thread } from "../lib/ws";
 import { PROJ_COLORS } from "./Rail";
@@ -8,7 +8,20 @@ import { t } from "../lib/i18n";
 const tr = t; // alias : t est masqué par les threads dans les .map
 import { PlusIcon, ProviderIcon, ResumeIcon, SettingsIcon, SidebarIcon } from "./icons";
 
-type Menu = { x: number; y: number; threadId: string };
+type Menu = { x: number; y: number; threadId: string; mode?: "main" | "move" };
+
+/** Envoie moveThread si le chat n'est pas en cours (refus serveur sinon,
+ *  mais mieux vaut éviter l'aller-retour) ; ferme le menu appelant. */
+export function moveThreadTo(thread: Thread | undefined, projectRoot: string, close: () => void) {
+  if (!thread) { close(); return; }
+  if (thread.status === "running") {
+    tauriMessage(t("thread.move-running"), { kind: "warning" }).catch(() => {});
+    close();
+    return;
+  }
+  wsSend({ type: "moveThread", threadId: thread.id, projectRoot });
+  close();
+}
 type RecencyBucket = "today" | "yesterday" | "last7" | "older";
 export type RecencyRow =
   | { kind: "section"; bucket: RecencyBucket }
@@ -365,6 +378,11 @@ export default function Sidebar(p: {
       </span>
     );
   }
+
+  // sous-menu « Déplacer vers… » du ctx-menu de thread : projets du rail sauf
+  // le projet courant du thread visé par le menu
+  const menuThread = menu ? p.threads.find((x) => x.id === menu.threadId) : undefined;
+  const menuOtherProjects = menuThread ? p.projects.filter((root) => root !== threadRoot(menuThread)) : [];
 
   return (
     <div className="sidebar">
@@ -741,7 +759,19 @@ export default function Sidebar(p: {
           </div>
         </div>
       )}
-      {menu && (
+      {menu && menu.mode === "move" && (
+        <div className="ctx-menu" style={{ left: menu.x, top: menu.y }}>
+          <div className="ctx-menu-back" onClick={() => setMenu({ ...menu, mode: "main" })}>
+            ‹ {t("thread.move")}
+          </div>
+          {menuOtherProjects.map((root) => (
+            <div key={root} onClick={() => moveThreadTo(menuThread, root, () => setMenu(null))}>
+              {root.split("/").pop()}
+            </div>
+          ))}
+        </div>
+      )}
+      {menu && menu.mode !== "move" && (
         <div className="ctx-menu" style={{ left: menu.x, top: menu.y }}>
           <div
             onClick={() => {
@@ -776,6 +806,11 @@ export default function Sidebar(p: {
           >
             {t("action.copy-resume")}
           </div>
+          {menuOtherProjects.length > 0 && (
+            <div onClick={() => setMenu({ ...menu, mode: "move" })}>
+              {t("thread.move")}
+            </div>
+          )}
           <div
             className="danger"
             onClick={() => {

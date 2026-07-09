@@ -1,5 +1,5 @@
 import { readFileSync } from "node:fs";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, beforeEach } from "vitest";
 import {
   acpMethodNotFoundResponse,
   buildAcpPromptText,
@@ -8,8 +8,10 @@ import {
   mapPromptError,
   mapPromptResult,
   mapSessionUpdate,
+  openGrokSession,
   parseAcpLines,
   selectionFromOptions,
+  stopServer,
 } from "./grok.mjs";
 
 function loadFixture(name) {
@@ -358,5 +360,61 @@ describe("grok ACP — pièces jointes (buildAcpPromptText)", () => {
     expect(out).toContain("/tmp/doc.pdf");
     expect(out).toContain("/tmp/b.jpg");
     expect(out.match(/\/tmp\/a\.png/g)).toHaveLength(1);
+  });
+});
+
+describe("grok ACP — openGrokSession (repli session/load -> session/new sur thread déplacé)", () => {
+  // vérifié en direct sans appel modèle (scratchpad moveThread-probe/
+  // probe_load_cross_cwd.py) : session/load avec un cwd différent de l'origine
+  // échoue (FS_NOT_FOUND) sans tuer le process ACP — d'où le repli ci-dessous.
+  beforeEach(() => stopServer()); // reset loadedGrokSessions/grokSessionSelection entre tests
+
+  function fakeSrv(handlers, { alive = true } = {}) {
+    return {
+      request: (method, params) => handlers[method](params),
+      proc: { exitCode: alive ? null : 1, killed: !alive },
+    };
+  }
+
+  it("session/load réussit : pas de repli, même sessionId", async () => {
+    const srv = fakeSrv({
+      "session/load": async () => ({ _meta: {} }),
+      "session/new": async () => { throw new Error("ne doit pas être appelé"); },
+    });
+    const { sessionId } = await openGrokSession(srv, { sessionId: "sid-ok", cwd: "/proj-a" });
+    expect(sessionId).toBe("sid-ok");
+  });
+
+  it("session/load échoue, process ACP sain : repli session/new (nouveau sessionId)", async () => {
+    const srv = fakeSrv({
+      "session/load": async () => { throw new Error("Path not found."); },
+      "session/new": async () => ({ sessionId: "sid-new", _meta: {} }),
+    });
+    const { sessionId } = await openGrokSession(srv, { sessionId: "sid-moved", cwd: "/proj-b" });
+    expect(sessionId).toBe("sid-new");
+  });
+
+  it("session/load échoue, process ACP mort : pas de repli, l'erreur remonte", async () => {
+    const srv = fakeSrv(
+      {
+        "session/load": async () => { throw new Error("grok agent stdio a quitté"); },
+        "session/new": async () => { throw new Error("ne doit pas être appelé"); },
+      },
+      { alive: false },
+    );
+    await expect(openGrokSession(srv, { sessionId: "sid-dead", cwd: "/proj-c" })).rejects.toThrow();
+  });
+
+  it("session déjà chargée dans ce process : pas de re-load", async () => {
+    const calls = [];
+    const srv = fakeSrv({
+      "session/load": async () => { calls.push("load"); return { _meta: {} }; },
+      "session/new": async () => { calls.push("new"); return { sessionId: "x", _meta: {} }; },
+    });
+    await openGrokSession(srv, { sessionId: "sid-cached", cwd: "/proj-a" });
+    calls.length = 0;
+    const { sessionId } = await openGrokSession(srv, { sessionId: "sid-cached", cwd: "/proj-a" });
+    expect(sessionId).toBe("sid-cached");
+    expect(calls).toEqual([]);
   });
 });

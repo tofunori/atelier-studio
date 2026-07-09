@@ -161,11 +161,12 @@ export async function codexHistory(sessionId) {
   return events;
 }
 
-/** Cherche `<baseDir>/*/<sessionId>/chat_history.jsonl` (existence du chemin
- *  seulement). Repli utilisé quand un thread déplacé vers un autre projet ne
- *  retrouve plus sa session sous le nouveau cwd encodé (la session vit
- *  toujours sous le dossier de l'ANCIEN projectRoot). `baseDir` injectable
- *  pour les tests (mkdtemp) ; par défaut `~/.grok/sessions`. */
+/** Cherche `<sessionId>/chat_history.jsonl` sous tous les sous-dossiers projet
+ *  de baseDir (existence du chemin seulement). Repli utilisé quand un thread
+ *  déplacé vers un autre projet ne retrouve plus sa session sous le nouveau
+ *  cwd encodé (la session vit toujours sous le dossier de l'ANCIEN
+ *  projectRoot). `baseDir` injectable pour les tests (mkdtemp) ; par défaut
+ *  `~/.grok/sessions`. */
 export function findGrokSessionFile(sessionId, baseDir = join(homedir(), ".grok", "sessions")) {
   let entries;
   try {

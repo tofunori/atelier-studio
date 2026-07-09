@@ -714,7 +714,9 @@ export async function interrupt(threadId) {
   try { server.notify("session/cancel", { sessionId: sid }); } catch {}
 }
 
-async function openGrokSession(srv, { sessionId, cwd, threadId }) {
+// exporté pour être testable sans spawner de process réel (srv = objet fake
+// {request(), proc:{...}}, cf. handleIncoming ci-dessus pour le même pattern)
+export async function openGrokSession(srv, { sessionId, cwd, threadId }) {
   if (sessionId && loadedGrokSessions.has(sessionId)) {
     return { sessionId }; // déjà chargée dans ce process : pas de re-load (évite le replay bruyant)
   }
@@ -731,7 +733,7 @@ async function openGrokSession(srv, { sessionId, cwd, threadId }) {
       // (nouveau sessionId, contexte modèle frais) plutôt que de dégrader
       // silencieusement vers le legacy streaming-json : l'utilisateur garde
       // son historique affiché et la conversation continue.
-      const alive = server?.proc && server.proc.exitCode == null && !server.proc.killed;
+      const alive = srv?.proc && srv.proc.exitCode == null && !srv.proc.killed;
       if (!alive) throw e;
       console.warn(`[grok] session/load refusé (${sessionId}), repli session/new:`, e?.message ?? e);
     }
