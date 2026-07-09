@@ -1212,7 +1212,9 @@ export default function Chat(p: {
     const picked = await open({ multiple: true });
     if (!picked) return;
     const paths = Array.isArray(picked) ? picked : [picked];
-    setText((t) => `${t}${t && !t.endsWith(" ") ? " " : ""}${paths.map((p) => mentionLabel(p as string)).join(" ")} `);
+    // la PUCE représente la référence — ne PAS aussi insérer « @fichier » dans
+    // le texte, sinon le fichier apparaît en double (puce + mention). Idem que
+    // le chemin @-autocomplete plus haut, qui retire le token tapé.
     for (const path of paths) p.onAttachPath?.(path as string);
   }
 
