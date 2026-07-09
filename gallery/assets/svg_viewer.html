@@ -607,6 +607,11 @@ function startDrag(targets, e){
   }) };
 }
 function capture(e){ if(svg.setPointerCapture && e.pointerId != null){ try{ svg.setPointerCapture(e.pointerId); }catch(err){} } }
+// WebKit (the app's WKWebView) suppresses the compatibility "click"/"dblclick" events after
+// e.preventDefault() on a pointerdown — and onDown below calls it on nearly every click. That
+// silently breaks the native dblclick-to-edit-text handler, so double-click detection is done
+// by hand here instead, off pointerdown timing (which always fires).
+let lastClickEl = null, lastClickAt = 0;
 function onDown(e){
   if(editing || spaceDown) return;                        // space held → the stagewrap pan handler owns this pointer
   if(!svg || (e.button !== undefined && e.button !== 0)) return;
@@ -632,6 +637,16 @@ function onDown(e){
     }
     return;
   }
+  const textHit = e.target && e.target.closest ? e.target.closest("text") : null;
+  if(textHit){                                            // manual double-click: two quick pointerdowns on the same <text>
+    const now = Date.now();
+    if(lastClickEl === textHit && (now - lastClickAt) < 400){
+      e.preventDefault(); lastClickEl = null;
+      clearMoveSet(); editText(textHit, {});
+      return;
+    }
+    lastClickAt = now; lastClickEl = textHit;
+  } else { lastClickEl = null; }
   // clicking on/inside a selected element drags the WHOLE selection — members are blocks
   // (axes_/legend_) that grabTarget can't re-resolve, so match by containment, not equality
   if(moveSet.length && moveSet.some(m => m === e.target || (m.contains && m.contains(e.target)))){
