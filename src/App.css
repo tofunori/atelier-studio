@@ -382,9 +382,16 @@ html, body, #root, .app { height: 100vh; overflow: hidden;
   background: var(--bg-side); border-bottom: 1px solid var(--border2); gap: 8px; }
 .topbar-left { display: flex; align-items: center; height: 100%; min-width: 0;
   padding-left: 82px; /* réserve les feux natifs (trafficLightPosition) */ }
-.topbar-project { color: var(--muted); font-size: var(--fs-m); overflow: hidden;
-  text-overflow: ellipsis; white-space: nowrap; font-variant-numeric: tabular-nums; }
+/* pilule projet : pastille couleur + nom + chevron, alignée, cliquable */
+.topbar-crumb { display: inline-flex; align-items: center; gap: 7px; height: 24px; padding: 0 8px;
+  border: none; background: transparent; border-radius: var(--r-s); cursor: pointer; max-width: 240px;
+  color: var(--fg); font-size: var(--fs-s); font-weight: 500; transition: background-color var(--ease); }
+.topbar-crumb:hover { background: var(--bg-ctl); }
+.topbar-crumb-dot { width: 7px; height: 7px; border-radius: 50%; flex: none; }
+.topbar-crumb-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.topbar-crumb svg { color: var(--muted2); flex: none; }
 .topbar .flex { flex: 1; }
+.topbar-right .topbar-qa.on { color: var(--fg); background: var(--bg-ctl); }
 .topbar-cmd { display: inline-flex; align-items: center; gap: 7px; height: 22px;
   width: clamp(280px, 32vw, 420px); padding: 0 10px; background: var(--bg-side);
   border: 1px solid var(--border2); border-radius: var(--r-s); color: var(--muted);
@@ -405,9 +412,17 @@ html, body, #root, .app { height: 100vh; overflow: hidden;
 .main-card { flex: 1; min-width: 0; height: 100%; overflow: hidden;
   background: var(--bg); position: relative; }
 /* rail = activity bar, 48px, collé (séparateur 1px à droite, pas de carte) */
-.rail { width: 48px; flex-shrink: 0; background: var(--bg-side); display: flex; overflow-y: auto; overflow-x: hidden; scrollbar-width: none;
-  flex-direction: column; align-items: center; gap: 8px; padding: 10px 0;
+.rail { width: 48px; flex-shrink: 0; background: var(--bg-side); display: flex;
+  flex-direction: column; align-items: center;
   border-right: 1px solid var(--border2); position: relative; }
+/* zone scrollable : vues + surfaces + projets (peut déborder) */
+.rail-scroll { flex: 1 1 auto; min-height: 0; width: 100%; overflow-y: auto; overflow-x: hidden;
+  scrollbar-width: none; display: flex; flex-direction: column; align-items: center; gap: 8px;
+  padding: 10px 0 8px; }
+.rail-scroll::-webkit-scrollbar { display: none; }
+/* zone épinglée en bas : Réglages, toujours visible */
+.rail-pinned { flex: none; width: 100%; display: flex; flex-direction: column; align-items: center;
+  gap: 6px; padding: 8px 0 10px; border-top: 1px solid var(--border); }
 .rail .flex { flex: 1; }
 .rail-btn { width: 38px; height: 38px; border-radius: var(--r-m); border: none;
   background: transparent; color: var(--muted); font-size: var(--fs-xl); cursor: pointer;

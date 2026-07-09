@@ -97,16 +97,11 @@ export default function Rail(p: {
 
   return (
     <div className="rail" onClick={() => setMenu(null)}>
+      {/* zone scrollable : tout sauf Réglages (épinglé en bas) */}
+      <div className="rail-scroll">
       <button className={`rail-btn ${!p.compact ? "on" : ""}`}
         title={p.compact ? t("action.expand-sidebar") : t("action.collapse-sidebar")} onClick={p.onExpand}>
         <SidebarIcon size={19} />
-      </button>
-      <button className="rail-btn" title={t("action.new-chat")}
-        onClick={() => p.onNew(p.activeProject ?? "")}>
-        <svg width="19" height="19" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="0.95" strokeLinecap="round" strokeLinejoin="round">
-          <path d="M13.5 8.5v4a1.5 1.5 0 0 1-1.5 1.5H4a1.5 1.5 0 0 1-1.5-1.5V4A1.5 1.5 0 0 1 4 2.5h4" />
-          <path d="M12.3 2.3l1.4 1.4L8 9.4l-2 .6.6-2z" />
-        </svg>
       </button>
       <div className="rail-views">
         <button className={`rail-view ${p.activeView === "chats" ? "on" : ""}`}
@@ -131,7 +126,8 @@ export default function Rail(p: {
             <path d="M5.5 5 3 8l2.5 3M10.5 5 13 8l-2.5 3M8.8 3.5 7.2 12.5" />
           </svg>
         </button>
-        {SURFACES.map((s) => (
+        {/* Git et Explorateur sont montés dans la TopBar → exclus du rail */}
+        {SURFACES.filter((s) => s.id !== "git").map((s) => (
           <button
             key={s.id}
             /* Galerie (surface "atelier") n'est active que sur l'onglet gallery,
@@ -143,13 +139,6 @@ export default function Rail(p: {
             {s.icon}
           </button>
         ))}
-        {/* explorateur de fichiers : togglé ici (déplacé depuis la surface-bar) */}
-        <button className={`rail-view ${p.showExplorer ? "on" : ""}`}
-          title={t("atelier.file-explorer")} onClick={p.onToggleExplorer}>
-          <svg width="18" height="18" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round">
-            <path d="M1.8 4.2c0-.7.5-1.2 1.2-1.2h3l1.4 1.6h5.6c.7 0 1.2.5 1.2 1.2v6c0 .7-.5 1.2-1.2 1.2H3c-.7 0-1.2-.5-1.2-1.2v-7.6z" />
-          </svg>
-        </button>
       </div>
       <div className="rail-sep" />
       {p.projects.map((root) => {
@@ -204,10 +193,13 @@ export default function Rail(p: {
       <button className="rail-btn" title={t("action.add-project")} onClick={p.onAddProject}>
         <PlusIcon size={19} />
       </button>
-      <span className="flex" />
-      <button className="rail-btn" title={t("action.settings")} onClick={p.onSettings}>
-        <SettingsIcon size={19} />
-      </button>
+      </div>{/* fin rail-scroll */}
+      {/* zone épinglée : Réglages toujours visible en bas, jamais scrollé */}
+      <div className="rail-pinned">
+        <button className="rail-btn" title={t("action.settings")} onClick={p.onSettings}>
+          <SettingsIcon size={19} />
+        </button>
+      </div>
       {fly && (
         <>
           {!pinned && <div className="fly-backdrop" onClick={() => setFly(null)} />}

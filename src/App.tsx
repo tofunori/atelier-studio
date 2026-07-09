@@ -1833,6 +1833,8 @@ export default function App() {
         tauri.conf.json) repositionnés dans cette barre — plus de feux custom */}
     <TopBar
       activeProjectName={activeProject ? projectDisplayName(activeProject) : ""}
+      activeProjectColor={activeProject ? projMeta[activeProject]?.color : undefined}
+      onProjectClick={() => setPaletteOpen(true)}
       layout={layout}
       onSetLayout={setLayout}
       onOpenPalette={() => setPaletteOpen(true)}
@@ -1840,6 +1842,9 @@ export default function App() {
       activeSurface={activeSurface}
       showAtelier={showAtelier}
       onGalleryReload={hardReloadAtelier}
+      showExplorer={showExplorer}
+      onToggleExplorer={() => { setShowExplorer((v) => !v); switchToSurface("atelier"); }}
+      onOpenGit={() => switchToSurface("git")}
     />
     <div className={`app-row ${dragging ? "dragging" : ""}`}>
         <Rail

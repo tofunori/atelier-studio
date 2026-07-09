@@ -35,6 +35,8 @@ type Layout = "chat" | "split" | "atelier";
 
 export default function TopBar({
   activeProjectName,
+  activeProjectColor,
+  onProjectClick,
   layout,
   onSetLayout,
   onOpenPalette,
@@ -42,8 +44,13 @@ export default function TopBar({
   activeSurface,
   showAtelier,
   onGalleryReload,
+  showExplorer,
+  onToggleExplorer,
+  onOpenGit,
 }: {
   activeProjectName: string;
+  activeProjectColor?: string;
+  onProjectClick: () => void;
   layout: Layout;
   onSetLayout: (layout: Layout) => void;
   onOpenPalette: () => void;
@@ -51,11 +58,21 @@ export default function TopBar({
   activeSurface: string;
   showAtelier: boolean;
   onGalleryReload: () => void;
+  showExplorer: boolean;
+  onToggleExplorer: () => void;
+  onOpenGit: () => void;
 }) {
+  const gitActive = showAtelier && activeSurface === "git";
   return (
     <div className="topbar" data-tauri-drag-region>
       <div className="topbar-left" data-tauri-drag-region>
-        {activeProjectName && <span className="topbar-project">{activeProjectName}</span>}
+        {activeProjectName && (
+          <button type="button" className="topbar-crumb" onClick={onProjectClick} title={activeProjectName}>
+            <span className="topbar-crumb-dot" style={{ background: activeProjectColor || "var(--accent)" }} />
+            <span className="topbar-crumb-name">{activeProjectName}</span>
+            <svg width="10" height="10" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5"><path d="M4 6l4 4 4-4" /></svg>
+          </button>
+        )}
       </div>
       <span className="flex" />
       <button type="button" className="topbar-cmd" onClick={onOpenPalette} title={t("topbar.search")}>
@@ -70,6 +87,13 @@ export default function TopBar({
             <RefreshIcon size={14} />
           </button>
         )}
+        {/* Explorateur + Git remontés du rail */}
+        <button type="button" className={`ghost topbar-qa ${showExplorer ? "on" : ""}`} title={t("atelier.file-explorer")} onClick={onToggleExplorer}>
+          <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"><path d="M1.8 4.2c0-.7.5-1.2 1.2-1.2h3l1.4 1.6h5.6c.7 0 1.2.5 1.2 1.2v6c0 .7-.5 1.2-1.2 1.2H3c-.7 0-1.2-.5-1.2-1.2v-7.6z" /></svg>
+        </button>
+        <button type="button" className={`ghost topbar-qa ${gitActive ? "on" : ""}`} title={t("atelier.git")} onClick={onOpenGit}>
+          <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3"><circle cx="4" cy="4" r="1.6"/><circle cx="4" cy="12" r="1.6"/><circle cx="12" cy="6" r="1.6"/><path d="M4 5.6v4.8M4 8h4a4 4 0 0 0 4-.4"/></svg>
+        </button>
         <div className="tb-seg" role="group" aria-label={t("layout.split")}>
           <button type="button" className={layout === "chat" ? "on" : ""}
             title={`${t("layout.chat")} (⌘1)`} onClick={() => onSetLayout("chat")}>
