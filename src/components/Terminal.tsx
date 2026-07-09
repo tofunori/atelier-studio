@@ -31,9 +31,13 @@ export default function Terminal(p: {
     if (!ref.current || xtermRef.current) return;
     const term = new XTerm({
       fontSize: 13,
-      fontFamily: "'JetBrainsMono Nerd Font', 'MesloLGS NF', 'Hack Nerd Font', Menlo, Monaco, monospace",
+      fontFamily: "'JetBrainsMono Nerd Font', 'MesloLGS NF', 'Hack Nerd Font', 'SF Mono', Menlo, Monaco, monospace",
+      fontWeight: "400",
+      fontWeightBold: "600",
+      lineHeight: 1.25,       // aère l'interligne (défaut 1.0 = trop serré)
       cursorBlink: true,
       cursorStyle: "bar",
+      cursorWidth: 2,
       scrollback: 10000,
       macOptionIsMeta: true,
       allowProposedApi: true,

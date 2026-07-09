@@ -1034,8 +1034,16 @@ input[type="range"].slider::-webkit-slider-thumb:hover { transform: scale(1.15);
 .plus-menu div { display: flex; align-items: center; gap: 9px; padding: 7px 10px;
   border-radius: var(--r-m); cursor: pointer; font-size: var(--fs-l); color: var(--fg2); }
 .plus-menu div:hover { background: var(--bg-ctl); }
-.term-host { position: absolute; inset: 0; padding: 6px 4px 4px 8px; background: #1a1d22; }
+/* hôte du terminal : padding généreux + fond thémé (fini le seam #1a1d22 en dur) */
+.term-host { position: absolute; inset: 0; padding: 12px 12px 8px 16px; background: var(--bg-side); }
 .term-host .xterm { height: 100%; }
+.term-host .xterm-viewport { background: transparent !important; }
+/* scrollbar discrète, façon pilule, alignée sur le fond du terminal */
+.term-host .xterm-viewport::-webkit-scrollbar { width: 11px; }
+.term-host .xterm-viewport::-webkit-scrollbar-track { background: transparent; }
+.term-host .xterm-viewport::-webkit-scrollbar-thumb { background: var(--muted2); border-radius: var(--r-pill);
+  border: 3px solid var(--bg-side); background-clip: padding-box; }
+.term-host .xterm-viewport::-webkit-scrollbar-thumb:hover { background: var(--muted); }
 /* barre d'outils de la surface (la bascule entre surfaces vit dans le rail) */
 .surface-bar { display: flex; align-items: center; gap: 4px; padding: 6px 8px;
   background: var(--bg-side); border-bottom: 1px solid var(--border); }
