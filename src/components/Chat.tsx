@@ -1437,7 +1437,7 @@ export default function Chat(p: {
                   >
                     {normalizeMathDelimiters(hardenPartialMarkdown(e.text))}
                   </ReactMarkdown>
-                  <span className="stream-caret" />
+                  {p.workingSince != null && <span className="stream-caret" />}
                 </div>
               </div>
             );

@@ -614,9 +614,14 @@ export default function App() {
         }
       }
       if (msg.type === "history") {
+        // assainir : des bulles "streaming" orphelines persistées avant le fix bec2c27
+        // ressusciteraient leur curseur clignotant — les figer en texte (ou les retirer)
+        const sanitized = (msg.events as AgentEvent[]).flatMap((ev: any) =>
+          ev.kind !== "streaming" ? [ev]
+          : String(ev.text ?? "").trim() ? [{ ...ev, kind: "text" }] : []);
         setEvents((prev) => ({
           ...prev,
-          [msg.threadId]: prev[msg.threadId]?.length ? prev[msg.threadId] : msg.events,
+          [msg.threadId]: prev[msg.threadId]?.length ? prev[msg.threadId] : sanitized,
         }));
       }
       if (msg.type === "annotation" && msg.text !== lastInjected.current) setAnnotation(msg.text);
