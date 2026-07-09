@@ -133,7 +133,8 @@ test('browse: search filters the generated gallery cards', async ({ page }) => {
     await expect(page.locator('#grid .card')).toHaveCount(3);
     await expect(page.locator('.brand .stat')).toContainText('4 files');
 
-    await page.locator('#searchChip').click();
+    // refonte sobre : le chip de recherche est masqué (#searchChip{display:none}),
+    // #q est un champ inline toujours visible (raccourci « / ») — remplir direct.
     await page.locator('#q').fill('alpha');
 
     await expect(page.locator('#grid .card')).toHaveCount(2);
@@ -195,13 +196,25 @@ test('annotate: image lightbox posts an annotated PNG payload', async ({ page })
     await page.goto(url);
     await page.locator('[data-act="lb"][data-rel="preview-alpha.png"]').click();
     await expect(page.locator('#lbImg')).toBeVisible();
-    await page.locator('#lbCap button', { hasText: 'Annotate' }).click();
+    // refonte sobre : l'entrée est l'icône ✎ (#lbAnnot) et l'envoi passe par la
+    // pilule (#annotPillSend), visible seulement avec ≥1 commentaire — on dessine
+    // une ellipse sur le canvas puis on saisit une note avant d'envoyer.
+    await page.locator('#lbAnnot').click();
     await expect(page.locator('#lb')).toHaveClass(/annot/);
 
-    await page.locator('#annotSend').click();
+    const cv = await page.locator('#annotCv').boundingBox();
+    await page.mouse.move(cv.x + cv.width / 2 - 30, cv.y + cv.height / 2 - 20);
+    await page.mouse.down();
+    await page.mouse.move(cv.x + cv.width / 2 + 30, cv.y + cv.height / 2 + 20);
+    await page.mouse.up();
+    await expect(page.locator('#annotNote')).toBeVisible();
+    await page.locator('#annotNote textarea').fill('note e2e');
+    await page.locator('#annotNote .anSave').click();
+
+    await page.locator('#annotPillSend').click();
     await expect.poll(() => savePayload && savePayload.name).toBe('preview-alpha.png');
     expect(savePayload.dataURL).toMatch(/^data:image\/png;base64,/);
-    expect(savePayload.notes).toEqual([]);
+    expect(savePayload.notes).toEqual([{ n: 1, text: 'note e2e' }]);
   });
 });
 
@@ -224,7 +237,8 @@ test('annotate: SVG viewer posts save and PNG export payloads', async ({ page })
     await page.locator('#savesvg').click();
     await expect.poll(() => calls.save && calls.save.rel).toBe('plot-alpha.svg');
     expect(calls.save.svg).toContain('alpha_curve');
-    expect(calls.save.edits).toEqual([]);
+    // format v2 : objet d'édits structuré (vide) plutôt que l'ancien tableau
+    expect(calls.save.edits).toMatchObject({ version: 2, added: [], removed: [], styles: [], transforms: [] });
 
     await page.locator('#dpi').selectOption('600');
     await page.locator('#exportpng').click();
