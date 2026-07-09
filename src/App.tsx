@@ -11,6 +11,7 @@ import {
 import { useSidecarConnection, type SidecarStatus } from "./hooks/useSidecarConnection";
 import { useAtelierServer } from "./hooks/useAtelierServer";
 import { useWorkspaceEvents } from "./hooks/useWorkspaceEvents";
+import WorkspaceShell from "./components/shell/WorkspaceShell";
 import Sidebar from "./components/Sidebar";
 import Rail, { ProjMeta, HighlightEntry } from "./components/Rail";
 import TopBar from "./components/TopBar";
@@ -504,12 +505,12 @@ export default function App() {
     }, 600);
     return () => clearTimeout(mirror);
   }, [settings]);
-  const [dragging, setDragging] = useState(false);
   const [unread, setUnread] = useState<Set<string>>(new Set());
   const [qaMode, setQaMode] = useState<"closed" | "open" | "min">("closed");
   const qaModeRef = useRef<"closed" | "open" | "min">("closed");
   qaModeRef.current = qaMode;
   const [usageOpen, setUsageOpen] = useState(false);
+  const [dragging, setDragging] = useState(false);
   useEffect(() => { initNotify().catch(() => {}); }, []);
   useEffect(() => {
     setDockBadge(unread.size).catch(() => {});
@@ -566,13 +567,6 @@ export default function App() {
     }
     setActiveView("chats");
   };
-  // largeur FIXE de la sidebar (px) : hors PanelGroup pour ne pas gonfler
-  // quand le panneau atelier passe en pleine largeur
-  const [sideW, setSideW] = useState(() => {
-    const v = Number(localStorage.getItem("atelier-studio.sideW"));
-    return v >= 180 && v <= 420 ? v : 250;
-  });
-  useEffect(() => { localStorage.setItem("atelier-studio.sideW", String(sideW)); }, [sideW]);
   const [projMeta, setProjMeta] = useState<Record<string, ProjMeta>>(() => {
     try {
       return JSON.parse(localStorage.getItem("atelier-studio.projMeta") ?? "{}");
@@ -1759,10 +1753,11 @@ export default function App() {
     );
   }
 
-  return (
-    <>
-    {/* feux NATIFS (titleBarStyle Overlay + trafficLightPosition, cf.
-        tauri.conf.json) repositionnés dans cette barre — plus de feux custom */}
+  // Slots du WorkspaceShell (slice 3) — contenus et props inchangés, seule la
+  // composition est déléguée au shell.
+  // feux NATIFS (titleBarStyle Overlay + trafficLightPosition, cf.
+  // tauri.conf.json) repositionnés dans la TopBar — plus de feux custom
+  const topBarNode = (
     <TopBar
       projects={projects}
       projMeta={projMeta}
@@ -1786,7 +1781,8 @@ export default function App() {
       }}
       onOpenGit={() => switchToSurface("git")}
     />
-    <div className={`app-row ${dragging ? "dragging" : ""}`}>
+  );
+  const railNode = (
         <Rail
           projects={projects}
           activeProject={activeProject}
@@ -1847,8 +1843,8 @@ export default function App() {
             })
           }
         />
-      {!compact && activeView !== "chats" && (
-        <div className="side-fixed" style={{ width: sideW }}>
+  );
+  const viewPanelNode = compact ? null : activeView !== "chats" ? (
           <HighlightsPanel
             highlights={highlights}
             threads={allThreads}
@@ -1877,10 +1873,7 @@ export default function App() {
             }}
             onCompact={() => setCompact(true)}
           />
-        </div>
-      )}
-      {!compact && activeView === "chats" && (
-      <div className="side-fixed" style={{ width: sideW }}>
+  ) : (
         <Sidebar
           projects={projects}
           threads={allThreads}
@@ -1944,30 +1937,44 @@ export default function App() {
           projMeta={projMeta}
           onSetMeta={(root, m) => setProjMeta((prev) => ({ ...prev, [root]: m }))}
         />
-      </div>
-      )}
-      {!compact && (
-        <div
-          className="handle side-handle"
-          onMouseDown={(e) => {
-            e.preventDefault();
-            const startX = e.clientX;
-            const startW = sideW;
-            setDragging(true);
-            const move = (ev: MouseEvent) => {
-              setSideW(Math.min(420, Math.max(180, startW + ev.clientX - startX)));
-            };
-            const up = () => {
-              setDragging(false);
-              window.removeEventListener("mousemove", move);
-              window.removeEventListener("mouseup", up);
-            };
-            window.addEventListener("mousemove", move);
-            window.addEventListener("mouseup", up);
-          }}
-        />
-      )}
-    <div className="main-card">
+  );
+  const overlaysNode = (
+    <>
+    <CommandPalette open={paletteOpen} items={paletteItems} onClose={() => setPaletteOpen(false)} />
+      <QuickAsk
+        open={qaMode === "open"}
+        minimized={qaMode === "min"}
+        draft={qaDraft}
+        context={qaContext}
+        onMinimize={() => setQaMode("min")}
+        onClose={() => setQaMode("closed")}
+        onInject={(text) => {
+          setAttachments((l) => addAttachment(l, { name: "Quick Ask", lines: null, text }));
+        }}
+        onPromote={(qaId, title) => {
+          const newId = crypto.randomUUID();
+          if (ws.current?.readyState === 1) {
+            ws.current.send(JSON.stringify({
+              type: "qaPromote", qaId, newThreadId: newId, title,
+              projectRoot: "",
+            }));
+            setTimeout(() => {
+              setActiveId(newId);
+              activeIdRef.current = newId;
+              ws.current?.send(JSON.stringify({ type: "getHistory", threadId: newId }));
+            }, 250);
+          }
+        }}
+      />
+      {usageOpen && <div className="ur-overlay" onClick={() => setUsageOpen(false)}>
+        <UsagePopover open={usageOpen} onClose={() => setUsageOpen(false)} />
+      </div>}
+    </>
+  );
+
+  return (
+    <WorkspaceShell topBar={topBarNode} rail={railNode} viewPanel={viewPanelNode} overlays={overlaysNode}
+      dragging={dragging} onDraggingChange={setDragging}>
     <PanelGroup direction="horizontal" className="app">
       <Panel id="chat" order={2} defaultSize={50} minSize={layout === "atelier" ? 0 : 30}
         style={{ display: layout === "atelier" ? "none" : undefined }}>
@@ -2253,37 +2260,6 @@ export default function App() {
         </>
       )}
     </PanelGroup>
-    </div>
-    <CommandPalette open={paletteOpen} items={paletteItems} onClose={() => setPaletteOpen(false)} />
-      <QuickAsk
-        open={qaMode === "open"}
-        minimized={qaMode === "min"}
-        draft={qaDraft}
-        context={qaContext}
-        onMinimize={() => setQaMode("min")}
-        onClose={() => setQaMode("closed")}
-        onInject={(text) => {
-          setAttachments((l) => addAttachment(l, { name: "Quick Ask", lines: null, text }));
-        }}
-        onPromote={(qaId, title) => {
-          const newId = crypto.randomUUID();
-          if (ws.current?.readyState === 1) {
-            ws.current.send(JSON.stringify({
-              type: "qaPromote", qaId, newThreadId: newId, title,
-              projectRoot: "",
-            }));
-            setTimeout(() => {
-              setActiveId(newId);
-              activeIdRef.current = newId;
-              ws.current?.send(JSON.stringify({ type: "getHistory", threadId: newId }));
-            }, 250);
-          }
-        }}
-      />
-      {usageOpen && <div className="ur-overlay" onClick={() => setUsageOpen(false)}>
-        <UsagePopover open={usageOpen} onClose={() => setUsageOpen(false)} />
-      </div>}
-    </div>
-    </>
+    </WorkspaceShell>
   );
 }
