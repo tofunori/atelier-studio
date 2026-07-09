@@ -1174,7 +1174,6 @@ export default function App() {
     const onAutoReviewToggle = () => {
       setSettings((s) => ({ ...s, autoReview: { ...s.autoReview, enabled: !s.autoReview.enabled } }));
     };
-    window.addEventListener("autoreview-toggle", onAutoReviewToggle);
     const onCorrectIssues = (e: Event) => {
       const { threadId, issues } = (e as CustomEvent).detail ?? {};
       ws.current?.send(JSON.stringify({ type: "clientLog", note: `correct-issues reçu tid=${String(threadId).slice(0,8)} issues=${Array.isArray(issues)?issues.length:"?"}` }));

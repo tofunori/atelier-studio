@@ -1,0 +1,299 @@
+// Composants de tour du chat (plan 015, slice 4) — JSX déplacé verbatim
+// depuis le dispatcher de Chat.tsx. Chaque composant est memoizable : état
+// (editing, plis, review) et callbacks restent dans Chat, passés en props.
+// Clés et classes inchangées : le streaming et l'ancrage ne bougent pas.
+import { memo, type ReactNode } from "react";
+import ReactMarkdown from "react-markdown";
+import { AgentEvent } from "../../lib/ws";
+import { t } from "../../lib/i18n";
+import { normalizeMathDelimiters, hardenPartialMarkdown } from "../../lib/markdown";
+import { CopyIcon, ForkIcon, ResumeIcon } from "../icons";
+import {
+  MD_COMPONENTS, MD_COMPONENTS_STREAMING, MD_REMARK_PLUGINS, MD_REHYPE_PLUGINS,
+} from "./md";
+import { DoneDiffToggle, fmtTime, PinBtn } from "./turnParts";
+import { ToolGlyph, groupIconCat, summarizeTools } from "./toolPresentation";
+
+type TimeFormat = "system" | "24h" | "12h" | undefined;
+type UserEvent = Extract<AgentEvent, { kind: "user" }>;
+type DoneEvent = Extract<AgentEvent, { kind: "done" }>;
+type ToolAction = Extract<AgentEvent, { kind: "tool" | "tool_update" }>;
+export type ReviewState = {
+  status: string;
+  verdict?: string;
+  issues?: { claim: string; problem: string; severity: string; fix?: string }[];
+} | null;
+
+export function ChatEmptyState(p: {
+  threadId: string | null;
+  hasEvents: boolean;
+  onNewChat: () => void;
+  onOpenProject: () => void;
+}) {
+  if (!p.threadId) {
+    return (
+      <div className="empty-card">
+        <div className="empty-title">{t("chat.empty-ready")}</div>
+        <div className="empty-actions">
+          <button type="button" className="empty-action" onClick={p.onNewChat}>
+            {t("action.new-chat")}
+          </button>
+          <button
+            type="button"
+            className="empty-action"
+            onClick={() => window.dispatchEvent(new CustomEvent("atelier-open-resume", { detail: { provider: "claude" } }))}
+          >
+            <ResumeIcon /> {t("action.resume-session")}
+          </button>
+          <button type="button" className="empty-action" onClick={p.onOpenProject}>
+            {t("action.open-project")}
+          </button>
+        </div>
+      </div>
+    );
+  }
+  if (!p.hasEvents) return <div className="empty">{t("chat.empty")}</div>;
+  return null;
+}
+
+export const UserTurn = memo(function UserTurn(p: {
+  event: UserEvent;
+  index: number;
+  timeFormat: TimeFormat;
+  pinned: boolean;
+  /** rend le texte de la bulle (slash-command mis en évidence) — logique Chat */
+  renderBubbleText: (text: string) => ReactNode;
+  editingText: string | null;
+  onEditingChange: (text: string | null) => void;
+  onEditSend: (index: number, oldText: string, newText: string) => void;
+  onRevert: (index: number, text: string, edit: boolean) => void;
+  onTogglePin: (index: number, label: string) => void;
+  onOpenPaste: (paste: { name: string; text: string }) => void;
+}) {
+  const e = p.event;
+  const i = p.index;
+  return (
+    <div id={`msg-${i}`} className="user-wrap">
+      {e.imageUrl && <img className="user-img" src={e.imageUrl} alt="" />}
+      {e.label && <div className="user-label">{e.label}</div>}
+      {e.pastes && e.pastes.map((pa, j) => (
+        <div key={j} className="chip paste-chip" style={{ cursor: "pointer" }}
+          onClick={() => p.onOpenPaste({ name: pa.name, text: pa.text })}>
+          <svg className="chip-doc" width="11" height="13" viewBox="0 0 11 13" fill="none" stroke="currentColor" strokeWidth="1.1" strokeLinecap="round">
+            <rect x="0.8" y="0.8" width="9.4" height="11.4" rx="1.6" />
+            <path d="M3 4.4h5M3 6.8h5M3 9.2h3.4" />
+          </svg>
+          <span className="chip-label">{pa.name}</span>
+          <span className="chip-lines">{t("chat.lines", { lines: String(pa.text.split("\n").length) })}</span>
+        </div>
+      ))}
+      {p.editingText != null ? (
+        <div className="edit-box">
+          <textarea
+            autoFocus
+            value={p.editingText}
+            rows={Math.min(8, Math.max(2, p.editingText.split("\n").length))}
+            onChange={(ev) => p.onEditingChange(ev.target.value)}
+            onKeyDown={(ev) => {
+              if (ev.key === "Escape") p.onEditingChange(null);
+              if (ev.key === "Enter" && !ev.shiftKey) {
+                // même garde IME que le composer (fix plan 015)
+                if (ev.nativeEvent.isComposing) return;
+                ev.preventDefault();
+                if (p.editingText!.trim()) {
+                  p.onEditSend(i, e.text, p.editingText!);
+                  p.onEditingChange(null);
+                }
+              }
+            }}
+          />
+          <div className="edit-actions">
+            <button type="button" className="edit-cancel" onClick={() => p.onEditingChange(null)}>
+              {t("action.cancel")}
+            </button>
+            <button
+              type="button"
+              className="edit-send"
+              onClick={() => {
+                if (p.editingText!.trim()) {
+                  p.onEditSend(i, e.text, p.editingText!);
+                  p.onEditingChange(null);
+                }
+              }}
+            >
+              {t("action.send")}
+            </button>
+          </div>
+        </div>
+      ) : (
+        <div className="user-bubble">{p.renderBubbleText(e.text)}</div>
+      )}
+      <div className="msg-actions">
+        {e.ts && (
+          <span className="msg-time">
+            {fmtTime(e.ts, p.timeFormat)}
+          </span>
+        )}
+        <button title={t("action.copy")} onClick={() => navigator.clipboard.writeText(e.text)}>
+          <CopyIcon />
+        </button>
+        <button title={t("action.edit-resend")} onClick={() => p.onEditingChange(e.text)}>✎</button>
+        <button title={t("chat.revert-title")} onClick={() => p.onRevert(i, e.text, false)}>↩</button>
+        <PinBtn pinned={p.pinned} onClick={() => p.onTogglePin(i, e.text.slice(0, 44))} />
+      </div>
+    </div>
+  );
+});
+
+export function StreamingText(p: { text: string; working: boolean }) {
+  return (
+    <div className="msg-wrap">
+      <div className="msg">
+        <ReactMarkdown
+          remarkPlugins={MD_REMARK_PLUGINS}
+          rehypePlugins={MD_REHYPE_PLUGINS}
+          components={MD_COMPONENTS_STREAMING as any}
+        >
+          {normalizeMathDelimiters(hardenPartialMarkdown(p.text))}
+        </ReactMarkdown>
+        {p.working && <span className="stream-caret" />}
+      </div>
+    </div>
+  );
+}
+
+export const AssistantText = memo(function AssistantText(p: {
+  event: Extract<AgentEvent, { kind: "text" }>;
+  index: number;
+  timeFormat: TimeFormat;
+  pinned: boolean;
+  onFork: (index: number) => void;
+  onTogglePin: (index: number, label: string) => void;
+}) {
+  const e = p.event;
+  const i = p.index;
+  return (
+    <div id={`msg-${i}`} className="msg-wrap">
+      <div className="msg">
+        <ReactMarkdown
+          remarkPlugins={MD_REMARK_PLUGINS}
+          rehypePlugins={MD_REHYPE_PLUGINS}
+          components={MD_COMPONENTS as any}
+        >
+          {normalizeMathDelimiters(e.text)}
+        </ReactMarkdown>
+      </div>
+      <div className="msg-actions">
+        {"ts" in e && e.ts && (
+          <span className="msg-time">
+            {fmtTime(e.ts, p.timeFormat)}
+          </span>
+        )}
+        <button title={t("action.copy")} onClick={() => navigator.clipboard.writeText(e.text)}>
+          <CopyIcon />
+        </button>
+        <button title={t("action.fork")} onClick={() => p.onFork(i)}>
+          <ForkIcon />
+        </button>
+        <PinBtn pinned={p.pinned} onClick={() => p.onTogglePin(i, e.text.replace(/[#*>`]/g, "").trim().slice(0, 44))} />
+      </div>
+    </div>
+  );
+});
+
+export function AssistantDone(p: {
+  event: DoneEvent;
+  isLastDone: boolean;
+  threadId: string | null;
+  review: ReviewState;
+  reviewOpen: boolean;
+  onStartReview: () => void;
+  onToggleReviewOpen: () => void;
+}) {
+  const e = p.event;
+  const review = p.review;
+  return (
+    <div id={p.isLastDone ? "last-done" : undefined} className="done">
+      {e.ok ? t("chat.done-ok") : t("chat.done-fail")}
+      {p.isLastDone && !review && (
+        <button
+          className="done-verify"
+          title={t("review.verify")}
+          onClick={p.onStartReview}
+        >
+          <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M8 1.8l5 2v4c0 3.2-2.2 5.4-5 6.4-2.8-1-5-3.2-5-6.4v-4z" />
+            <path d="M5.8 8l1.6 1.6L10.5 6.3" />
+          </svg>
+          {t("review.verify-now")}
+        </button>
+      )}
+      {p.isLastDone && review && (
+        <span
+          className={`review-badge v-${review.status === "running" ? "running" : review.verdict}`}
+          onClick={() => review.issues?.length && p.onToggleReviewOpen()}
+        >
+          {review.status === "running" ? t("review.running")
+            : review.verdict === "ok" ? t("review.ok")
+            : review.verdict === "issues" ? t("review.issues", { n: review.issues?.length ?? 0 })
+            : t("review.inconclusive")}
+        </span>
+      )}
+      {p.isLastDone && p.reviewOpen && review?.issues?.length ? (
+        <div className="review-detail">
+          {review.issues.map((iss, k) => (
+            <div key={k} className={`review-issue s-${iss.severity}`}>
+              <div className="ri-claim">« {iss.claim} »</div>
+              <div className="ri-problem">{iss.problem}</div>
+            </div>
+          ))}
+        </div>
+      ) : null}
+      <DoneDiffToggle event={e} threadId={p.threadId} />
+    </div>
+  );
+}
+
+export function ActivityFold(p: {
+  fold: { key: string; count: number; ms: number | null };
+  open: boolean;
+  label: string;
+  onToggle: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      className={`turn-fold ${p.open ? "open" : ""}`}
+      onClick={p.onToggle}
+    >
+      <span>{p.label}</span>
+      <span className="tool-tick">{p.open ? "▾" : "▸"}</span>
+    </button>
+  );
+}
+
+export function ActivityGroup(p: {
+  actions: ToolAction[];
+  open: boolean;
+  onToggle: () => void;
+  renderToolLine: (action: ToolAction, offset: number) => ReactNode;
+}) {
+  return (
+    <div className="tool-group">
+      <button
+        type="button"
+        className="tool-group-row"
+        onClick={p.onToggle}
+      >
+        <span className="tool-group-ico"><ToolGlyph cat={groupIconCat(p.actions)} /></span>
+        <span>{summarizeTools(p.actions)}</span>
+        <span className="tool-tick">{p.open ? "▾" : "▸"}</span>
+      </button>
+      {p.open && (
+        <div className="tool-group-list">
+          {p.actions.map((action, offset) => p.renderToolLine(action, offset))}
+        </div>
+      )}
+    </div>
+  );
+}

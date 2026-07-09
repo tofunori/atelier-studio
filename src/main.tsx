@@ -3,7 +3,7 @@ import "@fontsource-variable/inter";
 import ReactDOM from "react-dom/client";
 import App from "./App";
 import { getSidecarInfo, refreshSidecarInfo, sidecarHeaders } from "./lib/sidecarInfo";
-import { createUiStateFlusher } from "./lib/uistate";
+import { installUiStateWriteThrough } from "./lib/uiStateWriteThrough";
 
 function fatalText(error: unknown) {
   if (!(error instanceof Error)) return String(error);
@@ -99,32 +99,10 @@ async function boot() {
     }
 
     // write-through installé DÈS qu'on a un port — MÊME si l'hydratation a
-    // échoué. Le flush lit la SidecarInfo COURANTE (mise à jour à chaque
-    // reconnexion WS) : après un redémarrage du sidecar, pins/favoris suivent
-    // le nouveau port au lieu d'écrire dans le vide.
-    const collect = () => {
-      const all: Record<string, string> = {};
-      for (let i = 0; i < localStorage.length; i++) {
-        const key = localStorage.key(i)!;
-        if (key.startsWith("atelier-studio")) all[key] = localStorage.getItem(key)!;
-      }
-      return all;
-    };
-    const flush = createUiStateFlusher(collect);
-    const orig = localStorage.setItem.bind(localStorage);
-    let t: ReturnType<typeof setTimeout>;
-    localStorage.setItem = (k: string, v: string) => {
-      orig(k, v);
-      clearTimeout(t);
-      t = setTimeout(() => flush(false), 500);
-    };
-    // flush avant fermeture/masquage (keepalive survit à l'unload) : un pin
-    // ajouté juste avant de quitter n'est plus perdu par le debounce de 500 ms.
-    // En unload, flush(true) utilise la dernière info connue, sans chaîne async.
-    window.addEventListener("pagehide", () => flush(true));
-    document.addEventListener("visibilitychange", () => {
-      if (document.visibilityState === "hidden") flush(true);
-    });
+    // échoué. Lifecycle extrait dans lib/uiStateWriteThrough (exception
+    // architecturale documentée là-bas : bootstrap, pas hook React — l'ordre
+    // d'hydratation ci-dessus ne change pas).
+    installUiStateWriteThrough();
   }
   ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
     <React.StrictMode>
