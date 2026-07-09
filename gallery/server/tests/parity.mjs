@@ -40,7 +40,7 @@ async function request(port, route, options = {}) {
   throw lastError;
 }
 
-function requestOnce(port, route, { method = "GET", body = null } = {}) {
+function requestOnce(port, route, { method = "GET", body = null, headers = {} } = {}) {
   return new Promise((resolve, reject) => {
     const data = body === null ? null : Buffer.from(JSON.stringify(body));
     const req = http.request({
@@ -48,7 +48,10 @@ function requestOnce(port, route, { method = "GET", body = null } = {}) {
       port,
       path: route,
       method,
-      headers: data ? { "Content-Type": "application/json", "Content-Length": String(data.length) } : {},
+      headers: {
+        ...(data ? { "Content-Type": "application/json", "Content-Length": String(data.length) } : {}),
+        ...headers,
+      },
       timeout: 7000,
     }, (res) => {
       const chunks = [];
@@ -284,6 +287,60 @@ async function main() {
     });
     assert.equal(r.status, 200, "POST /pdfannot clear");
     assert.ok(fs.existsSync(path.join(root, ".fig_thumbs", "pdf_annots.json.bak")), "pdf annot backup exists");
+
+    // --- Frontière d'origine (plan 005) : requêtes inter-origines refusées
+    // --- avant tout routage ; sans Origin (probes, navigation) rien ne change.
+    const externalOrigin = "https://evil.example";
+    const samePortOrigin = `http://127.0.0.1:${nodePort}`;
+    const otherPortOrigin = `http://127.0.0.1:${pyPort}`;
+
+    r = await request(nodePort, `/raw?path=${encodeURIComponent("script.py")}`, {
+      headers: { Origin: externalOrigin },
+    });
+    assert.equal(r.status, 403, "GET /raw cross-origin → 403");
+    assert.ok(!r.body.toString("utf8").includes("alpha"), "corps 403 sans contenu du fichier");
+
+    r = await request(nodePort, `/raw?path=${encodeURIComponent("script.py")}`, {
+      headers: { Origin: samePortOrigin },
+    });
+    assert.equal(r.status, 200, "GET /raw même origine → 200");
+
+    r = await request(nodePort, "/state", { headers: { Origin: otherPortOrigin } });
+    assert.equal(r.status, 403, "GET /state autre port loopback → 403");
+
+    const annotsPath = path.join(root, ".fig_thumbs", "pdf_annots.json");
+    const annotsBefore = fs.readFileSync(annotsPath, "utf8");
+    r = await request(nodePort, "/pdfannot", {
+      method: "POST",
+      body: { rel: "doc.pdf", annots: [{ page: 9, text: "evil" }] },
+      headers: { Origin: externalOrigin },
+    });
+    assert.equal(r.status, 403, "POST /pdfannot cross-origin → 403 (plus d'exemption)");
+    assert.equal(fs.readFileSync(annotsPath, "utf8"), annotsBefore, "pdfannot cross-origin ne mute rien");
+
+    const statePath = path.join(root, ".fig_state.json");
+    const stateBefore = fs.readFileSync(statePath, "utf8");
+    r = await request(nodePort, "/state", {
+      method: "POST",
+      body: { favs: ["evil.png"] },
+      headers: { Origin: externalOrigin },
+    });
+    assert.equal(r.status, 403, "POST /state cross-origin → 403");
+    assert.equal(fs.readFileSync(statePath, "utf8"), stateBefore, "state cross-origin ne mute rien");
+
+    r = await request(nodePort, "/state", { headers: { Origin: "null" } });
+    assert.equal(r.status, 403, "Origin null (iframe sandboxée) → 403");
+
+    r = await request(nodePort, "/ping", { headers: { Origin: "tauri://localhost" } });
+    assert.equal(r.status, 200, "origine webview de l'app autorisée");
+
+    r = await request(nodePort, "/ping");
+    assert.equal(r.status, 200, "GET sans Origin → 200");
+    assert.equal(r.headers["access-control-allow-origin"], undefined, "aucun ACAO wildcard");
+
+    r = await request(nodePort, "/state", { method: "OPTIONS" });
+    assert.equal(r.status, 200, "OPTIONS sans Origin → 200");
+    assert.equal(r.headers["access-control-allow-origin"], undefined, "OPTIONS sans CORS permissif");
 
     r = await request(nodePort, "/selinfo", {
       method: "POST",

@@ -104,7 +104,6 @@ function serveVideo(req, res, file) {
     "Accept-Ranges": "bytes",
     "Content-Length": String(length),
     ...(partial ? { "Content-Range": `bytes ${start}-${end}/${fsize}` } : {}),
-    "Access-Control-Allow-Origin": "*",
   });
   if (req.method === "HEAD") {
     res.end();
@@ -151,7 +150,6 @@ async function handleStatic(req, res, url) {
       "Content-Type": contentType(file),
       "Content-Length": String(st.size),
       "Cache-Control": urlPath.endsWith(".html") || urlPath.endsWith(".js") || urlPath === "/" ? "no-cache" : "max-age=86400",
-      "Access-Control-Allow-Origin": "*",
     });
     res.end();
     return true;
@@ -162,6 +160,9 @@ async function handleStatic(req, res, url) {
 async function route(req, res) {
   const url = new URL(req.url || "/", "http://127.0.0.1");
   try {
+    // frontière d'origine unique, AVANT tout routage (GET/HEAD/POST/OPTIONS,
+    // pdfannot compris) : origine refusée → 403 sans lecture ni mutation
+    if (!localOnly(req)) return sendJson(res, 403, { error: "cross-origin blocked" });
     if (req.method === "OPTIONS") return sendJson(res, 200, {});
     if (req.method === "GET" || req.method === "HEAD") {
       if (req.method === "GET" && await handleAnnotationGet(req, res, url)) return true;
@@ -172,9 +173,6 @@ async function route(req, res) {
       return sendEmpty(res, 404);
     }
     if (req.method === "POST") {
-      if (url.pathname !== "/pdfannot" && !localOnly(req)) {
-        return sendJson(res, 403, { error: "cross-origin blocked" });
-      }
       if (await handleAnnotationPost(req, res, url)) return true;
       if (await handleCorePost(req, res, url)) return true;
       if (await handleEditorsPost(req, res, url)) return true;

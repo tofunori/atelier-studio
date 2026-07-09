@@ -120,7 +120,6 @@ export async function handleCoreGet(req, res, url) {
       if (!fs.existsSync(DATA_FILE)) return sendJson(res, 404, { error: "not found" });
       return sendBuffer(res, 200, fs.readFileSync(DATA_FILE), {
         "Content-Type": "application/json",
-        "Access-Control-Allow-Origin": "*",
         "Cache-Control": "no-cache",
       });
     } catch (error) {
@@ -152,7 +151,6 @@ export async function handleCoreGet(req, res, url) {
       const data = fs.readFileSync(p);
       return sendBuffer(res, 200, data, {
         "Content-Type": p.endsWith(".pdf") ? "application/pdf" : "application/octet-stream",
-        "Access-Control-Allow-Origin": "*",
         "Cache-Control": "no-store",
       });
     } catch {
@@ -173,7 +171,6 @@ export async function handleCoreGet(req, res, url) {
       return sendBuffer(res, 200, body, {
         "Content-Type": "text/plain; charset=utf-8",
         "Cache-Control": "max-age=300",
-        "Access-Control-Allow-Origin": "*",
       });
     } catch (error) {
       return sendJson(res, 500, { error: String(error.message || error) });

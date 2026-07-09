@@ -156,8 +156,6 @@ export function sendJson(res, code, payload) {
   res.writeHead(code, {
     "Content-Type": "application/json",
     "Content-Length": String(body.length),
-    "Access-Control-Allow-Origin": "*",
-    "Access-Control-Allow-Headers": "Content-Type",
   });
   res.end(body);
   return true;
@@ -211,7 +209,6 @@ export function serveFile(req, res, file, opts = {}) {
     "Content-Type": opts.type || contentType(file),
     "Content-Length": String(data.length),
     "Cache-Control": opts.cacheControl || (noCache ? "no-cache" : "max-age=86400"),
-    "Access-Control-Allow-Origin": "*",
   });
   res.end(data);
   return true;
@@ -249,15 +246,34 @@ export async function readJsonRequest(req, limit) {
   return JSON.parse(body.length ? body.toString("utf8") : "{}");
 }
 
+// Origines de la webview de l'app Tauri : un navigateur ne peut pas forger
+// l'en-tête Origin, et aucune page web ne peut porter tauri:// ni être servie
+// depuis le devUrl local sans exécuter déjà du code sur la machine. Le scénario
+// fermé ici est la page web externe qui lit/mute le serveur local ; l'app
+// elle-même (POST /rescan du générateur d'images) reste autorisée.
+const APP_WEBVIEW_ORIGINS = new Set([
+  "tauri://localhost", // build macOS
+  "http://tauri.localhost", // build Windows
+  "http://localhost:1420", // dev vite (tauri.conf.json devUrl)
+]);
+
 export function localOnly(req) {
   const origin = req.headers.origin;
-  if (!origin) return true;
+  if (origin === undefined) return true; // probes Rust/sidecar, navigation directe
+  if (APP_WEBVIEW_ORIGINS.has(origin)) return true;
+  let url;
   try {
-    const host = new URL(origin).hostname;
-    return host === "127.0.0.1" || host === "localhost" || host === "::1";
+    url = new URL(origin);
   } catch {
-    return false;
+    return false; // "null" (iframe sandboxée), origine opaque ou invalide
   }
+  if (url.protocol !== "http:") return false;
+  const host = url.hostname;
+  if (host !== "127.0.0.1" && host !== "localhost" && host !== "[::1]") return false;
+  // port réel de la socket, jamais le header Host (falsifiable)
+  const localPort = req.socket?.localPort;
+  const originPort = url.port ? Number.parseInt(url.port, 10) : 80;
+  return Number.isInteger(localPort) && originPort === localPort;
 }
 
 export function statMtimeSeconds(file) {
