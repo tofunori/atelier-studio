@@ -325,6 +325,8 @@
     <div id="collMenu" class="menu"></div>
     <span class="chip" id="wfChip" title="Figure status (draft / candidate / final / rejected)">Status &#9662;</span>
     <div id="wfMenu" class="menu"></div>
+    <span class="chip" id="recChip" title="Recently opened figures">Recent &#9662;</span>
+    <div id="recMenu" class="menu"></div>
     <span class="seg" id="densitySeg" title="Card density"><button data-d="s">S</button><button data-d="m" class="on">M</button><button data-d="l">L</button></span>
     <div id="viewMenu" class="menu"></div>
     <button id="quoteClear" style="display:none" title="Clear the annotation pending in the Claude statusline">Clear annotation</button>
@@ -784,6 +786,28 @@ function buildCollectionChip(){
   if(btn) btn.onclick=()=>{ applyCollectionToSel(inp.value); inp.value=''; buildCollectionChip(); };
   if(inp) inp.onkeydown=e=>{ if(e.key==='Enter'){ e.preventDefault(); applyCollectionToSel(inp.value); inp.value=''; buildCollectionChip(); } };
 }
+// --- recents : dernières figures ouvertes (cache local pur, jamais sur le serveur)
+let recents = JSON.parse(localStorage.getItem('figRecent')||'[]');   // [rel, ...] plus récent d'abord
+function markRecent(rel){
+  recents = [rel, ...recents.filter(r=>r!==rel)].slice(0,15);
+  try{ localStorage.setItem('figRecent', JSON.stringify(recents)); }catch(e){}
+}
+function buildRecentChip(){
+  const chip=document.getElementById('recChip'), menu=document.getElementById('recMenu');
+  if(!chip||!menu) return;
+  const known=new Set(FILES.map(f=>f.rel));
+  const list=recents.filter(r=>known.has(r)).slice(0,10);
+  let h = list.length ? list.map(rel=>{
+    const f=FILES.find(x=>x.rel===rel);
+    return `<div class="mi"><span class="lbl" data-rec="${escA(rel)}">${esc(truncMid(f.name,38))}</span></div>`;
+  }).join('') : '<div class="mi muted">No recently opened figures.</div>';
+  if(list.length) h += '<div class="mi clr" data-recclear="1">Clear recents</div>';
+  menu.innerHTML=h;
+  menu.onclick=e=>e.stopPropagation();
+  menu.querySelectorAll('[data-rec]').forEach(el=>el.onclick=()=>{ menu.style.display='none'; lbOpenAny(el.dataset.rec); });
+  const c=menu.querySelector('[data-recclear]');
+  if(c) c.onclick=()=>{ recents=[]; try{ localStorage.setItem('figRecent','[]'); }catch(e){} buildRecentChip(); menu.style.display='none'; };
+}
 function buildWorkflowChip(){
   const chip=document.getElementById('wfChip'), menu=document.getElementById('wfMenu');
   if(!chip||!menu) return;
@@ -974,6 +998,7 @@ document.getElementById('boardChip').onclick=()=>toolOpenTab('/board/open-surfac
 document.getElementById('notesChip').onclick=()=>toolOpenTab('/notes/open-surface','notes');
 document.getElementById('collChip').onclick=e=>{ e.stopPropagation(); buildCollectionChip(); menuToggle(document.getElementById('collMenu'), e.currentTarget); };
 document.getElementById('wfChip').onclick=e=>{ e.stopPropagation(); buildWorkflowChip(); menuToggle(document.getElementById('wfMenu'), e.currentTarget); };
+document.getElementById('recChip').onclick=e=>{ e.stopPropagation(); buildRecentChip(); menuToggle(document.getElementById('recMenu'), e.currentTarget); };
 document.getElementById('viewChip').onclick=e=>{ e.stopPropagation(); buildViewMenu(); menuToggle(document.getElementById('viewMenu'), e.currentTarget); };
 document.getElementById('exportSel').onclick=e=>{ e.stopPropagation(); buildExportMenu(); menuToggle(document.getElementById('exportMenu'), e.currentTarget); };
 document.getElementById('collectSel').onclick=e=>{ e.stopPropagation(); collectSelMenu(e.currentTarget); };
@@ -997,6 +1022,7 @@ async function lbShow(i){
   if(lbIdx>=0 && i!==lbIdx && !(await annotGuard())) return;
   if(i<0||i>=lbList.length) return;
   lbIdx=i; const f=lbList[i]; lb().classList.remove('annot');
+  markRecent(f.rel);
   const isTex=f.ext==='tex', isPdf=f.ext==='pdf', isMd=f.ext==='md', isCode=codeExt(f.ext), isSvg=f.ext==='svg', isVid=videoExt(f.ext);
   // Embarqué dans Atelier Studio : les fichiers texte/code s'ouvrent dans un
   // ONGLET Studio (la galerie reste navigable), pas dans la lightbox.
