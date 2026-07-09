@@ -399,6 +399,7 @@ function nudge(dxu, dyu){                                   // move moveSet by w
 }
 function editText(el, o){                                   // inline-edit a <text> (an existing label/title, or a freshly added one)
   o = o || {}; editing = true; showHover(null);
+  moveSet = [el]; hiliteMoveSet();                          // keep the label selected → the properties panel stays up while typing
   const inp = document.createElement("input");
   inp.id = "txtedit-input"; inp.type = "text"; inp.className = "txtedit";
   inp.value = el.textContent || "";
@@ -434,7 +435,7 @@ function editText(el, o){                                   // inline-edit a <te
         el.textContent = after; pushUndo({ type: "edit", el, before, after }); setDirty(true);
       }
     } else if(o.isNew){ el.remove(); }                                                     // Esc on a new label → discard
-    hiliteMoveSet();
+    if(!el.parentNode) clearMoveSet(); else hiliteMoveSet();                               // discarded label → drop the dead selection
   }
   inp.addEventListener("keydown", ev => { ev.stopPropagation();                            // keep Del/F/⌘Z/Esc out of the canvas handlers
     if(ev.key === "Enter"){ ev.preventDefault(); finish(true); }
@@ -622,7 +623,7 @@ let lastClickEl = null, lastClickAt = 0, dblPending = null;
 function onDown(e){
   if(editing || spaceDown) return;                        // space held → the stagewrap pan handler owns this pointer
   if(!svg || (e.button !== undefined && e.button !== 0)) return;
-  if(addMode){ e.preventDefault(); placeTextAt(e); setAdd(false); return; }   // place a new text label at the click
+  if(addMode){ e.preventDefault(); setAdd(false); placeTextAt(e); return; }   // place a new text label at the click (leave add mode first so the props panel can show)
   if(lassoMode){                                          // click vertices to build a polygon (dbl-click / Enter / click 1st pt = close)
     e.preventDefault();
     const s = stagePt(e);
@@ -693,7 +694,7 @@ function onUp(){
   const dp = dblPending; dblPending = null;
   if(drag){
     if(drag.moved && drag.before){ pushUndo({ type: "move", items: drag.before, after: snapshot(drag.items.map(it => it.el)) }); }   // record for undo/redo
-    else if(!drag.moved && dp){ drag = null; clearMoveSet(); editText(dp, {}); return; }                  // clean double-click on a label → edit it
+    else if(!drag.moved && dp){ drag = null; editText(dp, {}); return; }                  // clean double-click on a label → edit it (editText keeps it selected)
     else if(!drag.moved && drag.g){ moveSet = [drag.g]; hiliteMoveSet(); }                                // a click without a move = select it (so Del can remove a single element)
     drag = null;
   }
@@ -927,7 +928,7 @@ async function load(){
       if(addMode) return;
       if(lassoMode){ e.preventDefault(); finishPoly(); return; }
       const t = e.target && e.target.closest ? e.target.closest("text") : null;
-      if(t){ e.preventDefault(); clearMoveSet(); editText(t, {}); }
+      if(t){ e.preventDefault(); editText(t, {}); }
     });
     svg.addEventListener("pointermove", onMove);
     window.addEventListener("pointerup", onUp);
