@@ -111,8 +111,13 @@ function addAttachment(list: Attachment[], a: Attachment): Attachment[] {
   return list.some((x) => x.text === a.text) ? list : [...list, a];
 }
 
-// handoff inter-provider : sérialise la conversation visible (bornée) pour
-// que le nouveau provider reprenne avec le contexte — façon Synara.
+// handoff inter-provider : sérialise la conversation visible pour que le
+// nouveau provider reprenne avec le contexte — façon Synara. Le fil est
+// injecté EN ENTIER (les modèles ont 200k+ tokens de contexte) ; seul un
+// garde-fou très haut borne les fils pathologiques. La sentinelle de
+// fermeture doit rester identique à HANDOFF_END de sidecar/handoff.mjs
+// (stripHandoff la retire au replay de l'historique — jamais affichée).
+const HANDOFF_END = "\n=== fin du fil transmis — message réel ci-dessous ===\n\n";
 function buildHandoff(events: AgentEvent[], fromProvider: string): string {
   const lines: string[] = [];
   for (const e of events) {
@@ -120,12 +125,12 @@ function buildHandoff(events: AgentEvent[], fromProvider: string): string {
     else if (e.kind === "text") lines.push(`Agent (${fromProvider}) : ${e.text}`);
   }
   let transcript = lines.join("\n\n");
-  const MAX = 12000;
+  const MAX = 400_000; // ~100k tokens : garde-fou, pas une troncature de confort
   if (transcript.length > MAX) transcript = "[…début tronqué…]\n" + transcript.slice(-MAX);
   return (
     "Tu reprends une conversation commencée avec un autre agent. " +
     "Voici le fil jusqu'ici — prends-le comme contexte acquis, ne le résume pas, ne le répète pas :\n\n" +
-    "---\n" + transcript + "\n---\n\n"
+    "---\n" + transcript + HANDOFF_END
   );
 }
 
