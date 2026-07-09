@@ -392,18 +392,18 @@ html, body, #root, .app { height: 100vh; overflow: hidden;
   box-shadow: 0 6px 18px rgba(0,0,0,0.5); }
 .quote-pill:hover { background: var(--border2); }
 .chev { color: var(--muted2); font-size: var(--fs-xs); width: 10px; display: inline-block; }
-/* AUCUNE barre : les cartes montent jusqu'en haut (gouttière 8px uniforme).
-   Petite zone de préhension invisible dans le coin haut-gauche, juste sous
-   les feux Overlay (largeur du rail), pour déplacer la fenêtre. */
-.titlebar { position: fixed; top: 0; left: 0; width: 90px; height: 34px; z-index: 5; }
+/* Fine bande de titre pour les feux natifs macOS (~70px incompressibles) :
+   même fond que la fenêtre (se fond dans le cadre), pas de bordure, drag
+   region. Elle LIBÈRE le rail qui peut donc être étroit. */
+.titlebar { height: 30px; flex-shrink: 0; }
 /* rail compacte façon Muxy — panneaux « cartes flottantes » sur le fond --ground */
-.app-row { display: flex; height: 100vh; gap: 8px; padding: 8px; }
+.app-row { display: flex; height: calc(100vh - 30px); gap: 8px; padding: 4px 8px 8px; }
 .main-card { flex: 1; min-width: 0; height: 100%; overflow: hidden;
   background: var(--bg-side); border: 1px solid var(--border2);
   border-radius: var(--r-m); box-shadow: var(--elev); position: relative; }
-/* padding-top 30px = dégagement pour les feux qui flottent sur le coin du rail */
-.rail { width: 80px; flex-shrink: 0; background: var(--bg-side); display: flex; overflow-y: auto; overflow-x: hidden; scrollbar-width: none;
-  flex-direction: column; align-items: center; gap: 8px; padding: 30px 0 10px;
+/* rail ÉTROIT — les feux ne sont plus dessus (ils sont dans la bande de titre) */
+.rail { width: 56px; flex-shrink: 0; background: var(--bg-side); display: flex; overflow-y: auto; overflow-x: hidden; scrollbar-width: none;
+  flex-direction: column; align-items: center; gap: 8px; padding: 10px 0;
   border: 1px solid var(--border2); border-radius: var(--r-m); box-shadow: var(--elev); position: relative; }
 .rail .flex { flex: 1; }
 .rail-btn { width: 38px; height: 38px; border-radius: var(--r-m); border: none;
@@ -437,7 +437,7 @@ html, body, #root, .app { height: 100vh; overflow: hidden;
    cadre accent du projet actif (même orange) et devenait invisible */
 .rail-dot { position: absolute; top: 3px; right: 3px; width: 8px; height: 8px;
   border-radius: var(--r-pill); background: var(--accent); border: 2px solid var(--bg-side); }
-.rail-menu { position: fixed; left: 68px; z-index: 120; background: var(--bg-pop);
+.rail-menu { position: fixed; left: 64px; z-index: 120; background: var(--bg-pop);
   border: 1px solid var(--border); border-radius: var(--r-m); padding: 12px; width: 200px;
   display: flex; flex-direction: column; gap: 10px;
   box-shadow: 0 8px 24px rgba(0,0,0,0.5); }
@@ -1916,8 +1916,8 @@ body.dragging iframe { pointer-events: none; }
 /* recalé sur la nouvelle géométrie : rail card = 8px gouttière + 80px + 8px ;
    sous la zone titre (42px) ; ne couvre pas le rail : les clics sur les
    icônes passent, et la zone titre reste draguable même flyout ouvert */
-.fly-backdrop { position: fixed; inset: 8px 0 0 88px; z-index: 60; }
-.rail-flyout { position: fixed; left: 96px; top: 8px; bottom: 8px; width: 236px; z-index: 61;
+.fly-backdrop { position: fixed; inset: 34px 0 0 64px; z-index: 60; }
+.rail-flyout { position: fixed; left: 72px; top: 34px; bottom: 8px; width: 236px; z-index: 61;
   background: var(--bg-pop); border: 1px solid var(--border2); border-radius: var(--r-m); box-shadow: var(--elev);
   display: flex; flex-direction: column; padding: 8px;
   animation: fly-in 140ms ease; transform-origin: left; }
