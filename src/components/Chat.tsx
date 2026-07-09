@@ -1,37 +1,33 @@
 import React, { useEffect, useRef, useState } from "react";
-import ReactMarkdown from "react-markdown";
-import remarkGfm from "remark-gfm";
-import remarkMath from "remark-math";
-import rehypeKatex from "rehype-katex";
-import "katex/dist/katex.min.css";
-import hljs from "highlight.js/lib/common";
-import julia from "highlight.js/lib/languages/julia";
-import latex from "highlight.js/lib/languages/latex";
 import { open } from "@tauri-apps/plugin-dialog";
-import { openUrl } from "@tauri-apps/plugin-opener";
 import { AgentEvent } from "../lib/ws";
 import { wsSend } from "../lib/wsBus";
 import { eventLabel, t } from "../lib/i18n";
-import { normalizeMathDelimiters, hardenPartialMarkdown } from "../lib/markdown";
 import { buildHighlightContext } from "../lib/highlightContext";
-import { LruCache } from "../lib/lruCache";
-import { MermaidBlock } from "./MermaidBlock";
 import type { HighlightEntry } from "./Rail";
 import {
   CloseIcon,
-  CopyIcon,
-  ForkIcon,
   PlusIcon,
   ProviderIcon,
-  ResumeIcon,
   ArrowDownIcon,
   ZapIcon,
 } from "./icons";
 import { Select } from "./Select";
 import { ProviderInfo, orderedVisibleProviders } from "../lib/providers";
+import {
+  EditLine, formatPermInput,
+  ThinkingBlock, Working, ActivityCard,
+} from "./chat/turnParts";
+import {
+  ToolOutputLine, FileTypeIcon, isSummarizableTool,
+} from "./chat/toolPresentation";
+import {
+  ChatEmptyState, UserTurn, StreamingText, AssistantText, AssistantDone,
+  ActivityFold, ActivityGroup,
+} from "./chat/turns";
+import { ContextShelf } from "./chat/ContextShelf";
 
-hljs.registerLanguage("julia", julia);
-hljs.registerLanguage("latex", latex);
+
 
 const PERMISSION_MODES = [
   { id: "bypassPermissions", labelKey: "permission.full" },
@@ -71,542 +67,6 @@ const EFFORTS: Record<string, string[]> = {
 const API_REASONING_LEVELS = ["", "none", "minimal", "low", "medium", "high", "xhigh", "max"];
 
 // réf. fichier type "main.tex:31", "sections/method.tex:60-74", "script.py"
-const FILE_REF = /^[\w~./-]*[\w-]\.(tex|py|jl|md|r|R|bib|json|toml|yaml|yml|sh|js|ts|tsx|jsx|css|html|txt|csv|sql|rs|mjs|ipynb)(:\d+(?:-\d+)?)?$/;
-
-function openFileRef(ref: string) {
-  const m = /^(.+?)(?::(\d+(?:-\d+)?))?$/.exec(ref.trim());
-  if (!m) return;
-  window.dispatchEvent(new CustomEvent("chat-open-file", { detail: { rel: m[1], line: m[2] ?? null } }));
-}
-
-// texte complet des enfants markdown (string, tableau, éléments imbriqués)
-function mdText(children: any): string {
-  if (children == null) return "";
-  if (typeof children === "string" || typeof children === "number") return String(children);
-  if (Array.isArray(children)) return children.map(mdText).join("");
-  if (typeof children === "object" && children.props) return mdText(children.props.children);
-  return "";
-}
-
-const LANG_ALIAS: Record<string, string> = {
-  bib: "latex",
-  cjs: "javascript",
-  console: "bash",
-  jl: "julia",
-  js: "javascript",
-  jsx: "javascript",
-  md: "markdown",
-  mjs: "javascript",
-  py: "python",
-  rb: "ruby",
-  rs: "rust",
-  sh: "bash",
-  shell: "bash",
-  sty: "latex",
-  tex: "latex",
-  ts: "typescript",
-  tsx: "typescript",
-  yml: "yaml",
-  zsh: "bash",
-};
-
-function escapeHtml(text: string): string {
-  return text
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;");
-}
-
-// cache module-level borné (~300 entrées, éviction LRU) : chaque event ajouté
-// re-rend toute la liste des messages, donc sans cache tous les blocs de code
-// de l'historique seraient recolorés à chaque token reçu (O(n²) sur les
-// longues réponses). Clé = `${lang} ${raw}`.
-const highlightCache = new LruCache<string>(300);
-
-function highlightCode(raw: string, lang: string): string {
-  const key = `${lang} ${raw}`;
-  const cached = highlightCache.get(key);
-  if (cached !== undefined) return cached;
-
-  const normalized = LANG_ALIAS[lang.toLowerCase()] ?? lang.toLowerCase();
-  let result: string;
-  try {
-    if (normalized && hljs.getLanguage(normalized)) {
-      result = hljs.highlight(raw, { language: normalized, ignoreIllegals: true }).value;
-    } else {
-      result = hljs.highlightAuto(raw).value;
-    }
-  } catch {
-    result = escapeHtml(raw);
-  }
-  highlightCache.set(key, result);
-  return result;
-}
-
-// chrome commun (barre, langue, bouton copie) partagé par la variante colorée
-// et la variante streaming — seule la coloration (highlight vs texte brut)
-// diffère entre les deux.
-function renderCodeBlock(props: any, highlight: boolean) {
-  const [copied, setCopied] = useState(false);
-  const child = props.children?.props ?? {};
-  const lang = /language-([\w-]+)/.exec(String(child.className ?? ""))?.[1] ?? "";
-  const raw = mdText(child.children);
-  const label = lang || "text";
-  const languageClass = label.replace(/[^\w-]/g, "");
-  const highlighted = highlight ? highlightCode(raw, lang) : escapeHtml(raw);
-  return (
-    <div className="codeblock">
-      <div className="codeblock-bar">
-        <span className="codeblock-lang">{label}</span>
-        <button
-          type="button"
-          className={`codeblock-copy${copied ? " copied" : ""}`}
-          title={copied ? t("chat.output-copied") : t("chat.output-copy")}
-          aria-label={copied ? t("chat.output-copied") : t("chat.output-copy")}
-          onClick={() => {
-            void navigator.clipboard.writeText(raw).then(() => {
-              setCopied(true);
-              setTimeout(() => setCopied(false), 1200);
-            });
-          }}
-        >
-          <CopyIcon size={12} />
-        </button>
-      </div>
-      <pre>
-        <code
-          className={`hljs language-${languageClass}`}
-          dangerouslySetInnerHTML={{ __html: highlighted }}
-        />
-      </pre>
-    </div>
-  );
-}
-
-function MarkdownCodeBlock(props: any) {
-  return renderCodeBlock(props, true);
-}
-
-// variante streaming : même chrome, sans coloration — évite highlightAuto (le
-// plus coûteux) sur du code encore incomplet à chaque token reçu.
-function MarkdownCodeBlockStreaming(props: any) {
-  return renderCodeBlock(props, false);
-}
-
-function diffLineClass(line: string): string {
-  if (line.startsWith("@@")) return "hunk";
-  if (line.startsWith("+") && !line.startsWith("+++")) return "add";
-  if (line.startsWith("-") && !line.startsWith("---")) return "del";
-  return "";
-}
-
-function DoneDiffToggle({ event, threadId }: {
-  event: Extract<AgentEvent, { kind: "done" }>;
-  threadId: string | null;
-}) {
-  const files = event.filesChanged ?? [];
-  const [open, setOpen] = useState(false);
-  const [loading, setLoading] = useState(false);
-  const [diff, setDiff] = useState("");
-
-  useEffect(() => {
-    const onDiff = (ev: Event) => {
-      const msg = (ev as CustomEvent).detail;
-      if (event.projectRoot && msg.projectRoot !== event.projectRoot) return;
-      setDiff(String(msg.diff ?? ""));
-      setLoading(false);
-    };
-    window.addEventListener("git-diff", onDiff);
-    return () => window.removeEventListener("git-diff", onDiff);
-  }, [event.projectRoot]);
-
-  if (!files.length) return null;
-  return (
-    <div className="turn-diff">
-      <button
-        type="button"
-        className="turn-diff-toggle"
-        aria-expanded={open}
-        onClick={() => {
-          const next = !open;
-          setOpen(next);
-          if (!next || diff || loading) return;
-          setLoading(true);
-          const sent = wsSend({
-            type: "gitDiff",
-            threadId,
-            projectRoot: event.projectRoot,
-          });
-          if (!sent) setLoading(false);
-        }}
-      >
-        <span>{t("chat.files-modified", { count: files.length })}</span>
-        <span className="tool-tick">{open ? "▾" : "▸"}</span>
-      </button>
-      {open && (
-        <pre className="turn-diff-body">
-          {loading && !diff ? (
-            <span className="muted">{t("common.loading")}</span>
-          ) : diff.trim() ? (
-            diff.split("\n").map((line, idx) => (
-              <span key={idx} className={diffLineClass(line)}>{line || " "}</span>
-            ))
-          ) : (
-            <span className="muted">{t("git.diff-empty")}</span>
-          )}
-        </pre>
-      )}
-    </div>
-  );
-}
-
-// ligne « fichier édité » : nom + ±lignes, clic = diff du fichier déplié
-function EditLine({ event, threadId }: {
-  event: Extract<AgentEvent, { kind: "edit" }>;
-  threadId: string | null;
-}) {
-  const [openPath, setOpenPath] = useState<string | null>(null);
-  const [diffs, setDiffs] = useState<Record<string, string>>({});
-  const [loading, setLoading] = useState<string | null>(null);
-
-  useEffect(() => {
-    const onDiff = (ev: Event) => {
-      const msg = (ev as CustomEvent).detail;
-      if (!msg.path) return;
-      if (event.projectRoot && msg.projectRoot !== event.projectRoot) return;
-      setDiffs((d) => ({ ...d, [msg.path]: String(msg.diff ?? "") }));
-      setLoading((l) => (l === msg.path ? null : l));
-    };
-    window.addEventListener("git-diff", onDiff);
-    return () => window.removeEventListener("git-diff", onDiff);
-  }, [event.projectRoot]);
-
-  if (!event.files?.length) return null;
-  return (
-    <div className="edit-lines">
-      {event.files.map((f) => {
-        const base = f.path.split("/").pop() || f.path;
-        const open = openPath === f.path;
-        const diff = diffs[f.path];
-        return (
-          <div key={f.path} className="edit-line">
-            <div className="edit-line-row" title={f.path}>
-              <button
-                type="button"
-                className="edit-line-open"
-                onClick={() => openFileRef(f.path)}
-                title={t("action.open-file", { ref: f.path })}
-              >
-                <PencilIcon />
-                <span className="edit-line-verb">{t("chat.edited")}</span>
-                <span className="edit-line-file">{base}</span>
-                {f.add != null && <span className="edit-line-add">+{f.add}</span>}
-                {f.del != null && <span className="edit-line-del">-{f.del}</span>}
-              </button>
-              <button
-                type="button"
-                className="edit-line-difftoggle"
-                aria-expanded={open}
-                title="diff"
-                onClick={() => {
-                  const next = open ? null : f.path;
-                  setOpenPath(next);
-                  if (!next || diffs[f.path] != null || loading === f.path) return;
-                  setLoading(f.path);
-                  const sent = wsSend({
-                    type: "gitDiff",
-                    threadId,
-                    projectRoot: event.projectRoot,
-                    path: f.path,
-                  });
-                  if (!sent) setLoading(null);
-                }}
-              >
-                <span className="tool-tick">{open ? "▾" : "▸"}</span>
-              </button>
-            </div>
-            {open && (
-              <pre className="turn-diff-body">
-                {loading === f.path && diff == null ? (
-                  <span className="muted">{t("common.loading")}</span>
-                ) : diff?.trim() ? (
-                  diff.split("\n").map((line, idx) => (
-                    <span key={idx} className={diffLineClass(line)}>{line || " "}</span>
-                  ))
-                ) : (
-                  <span className="muted">{t("git.diff-empty")}</span>
-                )}
-              </pre>
-            )}
-          </div>
-        );
-      })}
-    </div>
-  );
-}
-
-function PencilIcon() {
-  return (
-    <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M11.3 2.3l2.4 2.4L5.4 13H3v-2.4z" />
-    </svg>
-  );
-}
-
-// bloc `pre` du message final : language-mermaid → diagramme (jamais en
-// streaming, cf. MD_COMPONENTS_STREAMING plus bas), sinon bloc de code coloré
-// habituel.
-function PreBlock(props: any) {
-  const child = props.children?.props ?? {};
-  const lang = /language-([\w-]+)/.exec(String(child.className ?? ""))?.[1] ?? "";
-  if (lang === "mermaid") {
-    return <MermaidBlock source={mdText(child.children)} highlight={highlightCode} />;
-  }
-  return <MarkdownCodeBlock {...props} />;
-}
-
-// composants markdown : liens externes stylés + réfs fichier:ligne cliquables
-const MD_COMPONENTS = {
-  pre: PreBlock,
-  table: (props: any) => (
-    <div className="md-table"><table>{props.children}</table></div>
-  ),
-  a: (props: any) => {
-    const label = mdText(props.children);
-    const href = String(props.href ?? "");
-    const ref = FILE_REF.test(label) ? label : FILE_REF.test(href) ? href : null;
-    if (ref)
-      return (
-        <button className="file-ref" onClick={() => openFileRef(ref)} title={t("action.open-file", { ref })}>
-          <svg width="10" height="10" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5">
-            <path d="M4 1.8h5.2L13 5.6v8.6H4z" /><path d="M9 1.8v4h4" />
-          </svg>
-          {label}
-        </button>
-      );
-    return (
-      <a
-        className="md-link"
-        href={href}
-        onClick={(e) => { e.preventDefault(); if (/^https?:/.test(href)) openUrl(href); }}
-      >
-        {props.children}
-      </a>
-    );
-  },
-  code: (props: any) => {
-    const txt = mdText(props.children);
-    if (!props.className && FILE_REF.test(txt))
-      return (
-        <button className="file-ref" onClick={() => openFileRef(txt)} title={t("action.open-file", { ref: txt })}>
-          <svg width="10" height="10" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5">
-            <path d="M4 1.8h5.2L13 5.6v8.6H4z" /><path d="M9 1.8v4h4" />
-          </svg>
-          {txt}
-        </button>
-      );
-    return <code className={props.className}>{props.children}</code>;
-  },
-};
-
-// bulle en streaming : mêmes composants, sauf le code coloré (perf, cf.
-// MarkdownCodeBlockStreaming ci-dessus).
-const MD_COMPONENTS_STREAMING = { ...MD_COMPONENTS, pre: MarkdownCodeBlockStreaming };
-
-// remark-math : singleDollarTextMath reste au défaut (true) — utilisateur
-// scientifique, les $ isolés (monétaires) sont rares dans son usage.
-const MD_REMARK_PLUGINS = [remarkGfm, remarkMath];
-// throwOnError:false — un LaTeX invalide ne doit jamais faire planter le rendu.
-const MD_REHYPE_PLUGINS: any[] = [[rehypeKatex, { throwOnError: false }]];
-
-function fmtTime(ts: number, fmt?: "system" | "24h" | "12h") {
-  const opts: Intl.DateTimeFormatOptions = { hour: "2-digit", minute: "2-digit" };
-  if (fmt === "24h") opts.hour12 = false;
-  if (fmt === "12h") opts.hour12 = true;
-  return new Date(ts).toLocaleTimeString([], opts);
-}
-
-/** « Williamson et al. - 2025 - Temperature… .pdf » → « Williamson et al. 2025 » ; sinon nom court. */
-function citeLabel(name: string): string {
-  const base = name.replace(/\.[a-z0-9]+$/i, "");
-  const m = /^(.{2,60}?)\s+-\s+(\d{4})\s+-\s+/.exec(base);
-  if (m) return `${m[1]} ${m[2]}`;
-  return base.length > 34 ? base.slice(0, 33) + "…" : base;
-}
-
-function formatPermInput(tool: string, input: Record<string, unknown>): string {
-  const one = (v: unknown) => String(v ?? "").slice(0, 400);
-  if (tool === "Bash") return one((input as any).command);
-  if ((input as any).file_path) return one((input as any).file_path);
-  const s = JSON.stringify(input, null, 1);
-  return s.length > 400 ? s.slice(0, 400) + "…" : s;
-}
-
-function ThinkingBlock({ text, live }: { text: string; live: boolean }) {
-  const [open, setOpen] = useState(false);
-  const preview = text.replace(/\s+/g, " ").slice(-140);
-  return (
-    <div className={`thinking ${live ? "live" : ""}`}>
-      <button type="button" className="thinking-head" onClick={() => setOpen((v) => !v)}>
-        <span className="tool-tick">{open ? "▾" : "▸"}</span>
-        <span className="thinking-label">{live ? t("chat.thinking-live") : t("chat.thinking")}</span>
-        {!open && <span className="thinking-preview">{preview}</span>}
-      </button>
-      {open && <div className="thinking-body">{text}</div>}
-    </div>
-  );
-}
-
-function Working({ since }: { since: number }) {
-  const [, tick] = useState(0);
-  useEffect(() => {
-    const t = setInterval(() => tick((n) => n + 1), 1000);
-    return () => clearInterval(t);
-  }, []);
-  const secs = Math.max(1, Math.round((Date.now() - since) / 1000));
-  return (
-    <div className="working">
-      <span className="working-spin" aria-hidden="true" />
-      <span className="working-label">{t("chat.working")}</span> {t("chat.working-for", { secs })}
-    </div>
-  );
-}
-
-function ActivityCard({ event, live }: { event: Extract<AgentEvent, { kind: "activity" }>; live: boolean }) {
-  const [manualOpen, setManualOpen] = useState<boolean | null>(null);
-  const open = manualOpen ?? live;
-  const steps = event.steps ?? [];
-  return (
-    <div className={`activity-card ${event.status ?? "running"} ${live ? "live" : ""}`}>
-      <button type="button" className="activity-head" onClick={() => setManualOpen((v) => !(v ?? live))}>
-        <span className="activity-pulse" aria-hidden="true" />
-        <span className="activity-title">{event.title}</span>
-        {event.detail && <span className="activity-detail">{event.detail}</span>}
-        {steps.length > 0 && <span className="activity-count">{t("chat.actions-used", { count: steps.length })}</span>}
-        <span className="tool-tick">{open ? "▾" : "▸"}</span>
-      </button>
-      {open && steps.length > 0 && (
-        <div className="activity-steps">
-          {steps.map((step, idx) => (
-            <div key={`${step.title}-${idx}`} className={`activity-step ${step.status ?? "running"}`}>
-              <span className="activity-step-dot" aria-hidden="true" />
-              <span className="activity-step-title">{step.title}</span>
-              {step.detail && <span className="activity-step-detail">{step.detail}</span>}
-            </div>
-          ))}
-        </div>
-      )}
-    </div>
-  );
-}
-
-function toolOutputSummary(output: string) {
-  const clean = output.trim();
-  if (!clean) return "";
-  const lines = clean.split(/\r?\n/).length;
-  const chars = clean.length;
-  const size = chars >= 1000 ? `${Math.round(chars / 100) / 10}k chars` : `${chars} chars`;
-  return lines > 1 ? `${lines} lines · ${size}` : size;
-}
-
-function toolPayloadText(value: unknown): string {
-  if (value == null || value === "") return "";
-  if (typeof value === "string") return value;
-  try {
-    return JSON.stringify(value, null, 2);
-  } catch {
-    return String(value);
-  }
-}
-
-// vue colorée de l'input d'un outil : la commande bash telle quelle (pas le
-// blob JSON), le contenu d'un fichier écrit coloré selon son extension, sinon
-// le JSON indenté — la coloration passe par highlightCode (cache LRU partagé).
-function toolInputView(value: unknown): { lang: string; text: string } | null {
-  if (value == null || value === "") return null;
-  if (typeof value === "string") return { lang: "", text: value };
-  const o = value as Record<string, unknown>;
-  if (typeof o.command === "string" && o.command.trim()) return { lang: "bash", text: o.command };
-  if (typeof o.file_path === "string" && typeof o.content === "string") {
-    return { lang: String(o.file_path).split(".").pop() ?? "", text: o.content };
-  }
-  return { lang: "json", text: toolPayloadText(value) };
-}
-
-function ToolOutputLine({ event }: { event: Extract<AgentEvent, { kind: "tool_update" }> }) {
-  const output = event.output.length > 6000 ? "[...]\n" + event.output.slice(-6000) : event.output;
-  const inputView = toolInputView(event.input);
-  const failed = Boolean(event.exitCode && event.exitCode !== 0) || event.status === "failed";
-  const [open, setOpen] = useState(failed);
-  const summary = event.detail || toolOutputSummary(output) || (inputView ? "input" : "");
-  return (
-    <div className={`tool-output ${open ? "open" : "collapsed"} ${failed ? "failed" : ""}`}>
-      <button type="button" className="tool-output-head" onClick={() => setOpen((v) => !v)}>
-        <span className="tool-tick">{open ? "▾" : "▸"}</span>
-        <span className="tool-output-name">
-          {eventLabel(event.name)}
-          {event.source ? <span className="tool-source">{event.source}</span> : null}
-        </span>
-        {summary && <span className="tool-output-summary">{summary}</span>}
-        {event.status && <span className="tool-status">{event.status}</span>}
-      </button>
-      {open && (inputView || output.trim()) && (
-        <div className="tool-output-body">
-          {inputView && (
-            <div className="tool-payload">
-              <div className="tool-payload-label">input</div>
-              {inputView.lang ? (
-                <pre><code
-                  className="hljs"
-                  dangerouslySetInnerHTML={{ __html: highlightCode(inputView.text, inputView.lang) }}
-                /></pre>
-              ) : (
-                <pre>{inputView.text}</pre>
-              )}
-            </div>
-          )}
-          {output.trim() && (
-            <div className="tool-payload">
-              <div className="tool-payload-label">output</div>
-              <pre>{output}</pre>
-            </div>
-          )}
-        </div>
-      )}
-    </div>
-  );
-}
-
-const FICONS = import.meta.glob("../assets/ficons/*.svg", { eager: true, query: "?url", import: "default" }) as Record<string, string>;
-function ficon(name: string): string | null {
-  return FICONS[`../assets/ficons/${name}.svg`] ?? null;
-}
-const EXT_ICON: Record<string, string> = {
-  py: "python", md: "markdown", markdown: "markdown", json: "json",
-  js: "javascript", mjs: "javascript", cjs: "javascript",
-  ts: "typescript", tsx: "react", jsx: "react",
-  pdf: "pdf", png: "image", jpg: "image", jpeg: "image", gif: "image", webp: "image", svg: "image",
-  tex: "tex", bib: "tex", r: "r", jl: "julia", css: "css", html: "html",
-  sh: "console", zsh: "console", bash: "console", csv: "table", tsv: "table",
-  yml: "yaml", yaml: "yaml", toml: "toml", txt: "document", log: "document",
-  gitignore: "git",
-};
-function FileTypeIcon({ ext }: { ext: string }) {
-  if (ext === "local")
-    return (
-      <span className="fglyph">
-        <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="var(--muted)" strokeWidth="1.3">
-          <rect x="2" y="3" width="12" height="8" rx="1.5" /><path d="M5.5 13.5h5" />
-        </svg>
-      </span>
-    );
-  const name = ext === "dir" ? "folder" : EXT_ICON[ext] ?? "file";
-  const url = ficon(name);
-  if (!url) return <span className="fglyph" />;
-  return <img className="fglyph" src={url} alt="" width={16} height={16} />;
-}
-
 type Suggestion = {
   insert: string;
   label: string;
@@ -654,104 +114,6 @@ function isValidSkill(token: string, commands: { name: string }[]): boolean {
 
 // ---- résumés d'outils façon Codex : « Recherche de code, commande exécutée » ----
 // « permission » = bruit (demandes d'autorisation Grok) : absorbé, hors phrase
-type ToolCat = "search" | "read" | "edit" | "command" | "web" | "todo" | "permission" | "tool";
-// une commande shell qui ressemble à une recherche / une lecture → catégorie fine
-const SEARCH_CMD = /^\s*!?\s*#?\s*(rg|grep|egrep|fgrep|ag|ack|find|fd|glob|tree|ls)\b/;
-const READ_CMD = /^\s*!?\s*(cat|bat|head|tail|less|more|sed -n)\b/;
-
-// un event outil est-il « résumable » ? (les sentinelles __x gardent leur ligne)
-function isSummarizableTool(e: AgentEvent): e is Extract<AgentEvent, { kind: "tool" | "tool_update" }> {
-  if (e.kind === "tool_update") return true;
-  if (e.kind !== "tool") return false;
-  return e.name.startsWith("__edits:") || !e.name.startsWith("__");
-}
-
-// catégorise un outil tous providers confondus (Claude: Bash/Read/Edit/Grep ;
-// Codex: Bash/apply_patch ; Grok: Execute/read_file/edit_file/permission…)
-function toolCategory(name: string, detail?: string): ToolCat {
-  if (name.startsWith("__edits:")) return "edit";
-  const n = name.toLowerCase();
-  if (n.startsWith("permission")) return "permission";
-  // exécution shell (Bash, Execute, run_terminal…) : affiner via la commande
-  if (n === "bash" || n === "execute" || n.includes("shell") || n.includes("terminal") || n.includes("command")) {
-    const d = detail ?? "";
-    if (SEARCH_CMD.test(d)) return "search";
-    if (READ_CMD.test(d)) return "read";
-    return "command";
-  }
-  if (n.includes("read") || n === "cat" || n.includes("open_file")) return "read";
-  if (n.includes("edit") || n.includes("write") || n.includes("create_file") ||
-      n.includes("str_replace") || n.includes("patch")) return "edit";
-  if (n.includes("search") || n.includes("grep") || n.includes("glob") ||
-      n.includes("list_dir") || n.includes("codebase") || n.includes("find")) return "search";
-  if (n === "webfetch" || n === "websearch" || n.includes("web") || n.includes("browser") || n.includes("recherche web")) return "web";
-  if (n.includes("todo") || n.includes("plan")) return "todo";
-  return "tool";
-}
-
-function toolClause(cat: ToolCat, n: number): string {
-  switch (cat) {
-    case "search": return t("tools.searched");
-    case "web": return t("tools.web");
-    case "todo": return t("tools.todo");
-    case "read": return n > 1 ? t("tools.read-n", { n }) : t("tools.read-1");
-    case "edit": return n > 1 ? t("tools.edit-n", { n }) : t("tools.edit-1");
-    case "command": return n > 1 ? t("tools.cmd-n", { n }) : t("tools.cmd-1");
-    default: return n > 1 ? t("tools.tool-n", { n }) : t("tools.tool-1");
-  }
-}
-
-// résume une grappe d'outils consécutifs en une phrase (ordre de 1re apparition)
-function summarizeTools(actions: Extract<AgentEvent, { kind: "tool" | "tool_update" }>[]): string {
-  const order: ToolCat[] = [];
-  const counts = new Map<ToolCat, number>();
-  for (const a of actions) {
-    const cat = toolCategory(a.name, "detail" in a ? a.detail : undefined);
-    if (cat === "permission") continue; // bruit : absorbé, visible au déploiement
-    if (!counts.has(cat)) order.push(cat);
-    counts.set(cat, (counts.get(cat) ?? 0) + 1);
-  }
-  // groupe entièrement de permissions → libellé neutre
-  if (order.length === 0) {
-    const n = actions.length;
-    return n > 1 ? t("tools.perm-n", { n }) : t("tools.perm-1");
-  }
-  const phrase = order.map((cat) => toolClause(cat, counts.get(cat) ?? 1)).join(", ");
-  return phrase.charAt(0).toUpperCase() + phrase.slice(1);
-}
-
-// icône du résumé = catégorie dominante (priorité édition > commande > web…)
-function groupIconCat(actions: Extract<AgentEvent, { kind: "tool" | "tool_update" }>[]): ToolCat {
-  const cats = new Set(actions.map((a) => toolCategory(a.name, "detail" in a ? a.detail : undefined)));
-  const prio: ToolCat[] = ["edit", "command", "web", "read", "search", "todo", "tool"];
-  return prio.find((c) => cats.has(c)) ?? "tool";
-}
-function ToolGlyph({ cat }: { cat: ToolCat }) {
-  const c = { width: 13, height: 13, viewBox: "0 0 16 16", fill: "none", stroke: "currentColor",
-    strokeWidth: 1.35, strokeLinecap: "round" as const, strokeLinejoin: "round" as const };
-  switch (cat) {
-    case "command": return <svg {...c}><rect x="1.5" y="3" width="13" height="10" rx="2" /><path d="M4.4 6.4 6.2 8l-1.8 1.6M8.4 10h3.2" /></svg>;
-    case "edit": return <svg {...c}><path d="M12.2 1.6 14.4 3.8 5.5 12.7l-3 .8.8-3z" /><path d="M10.6 3.2 12.8 5.4" /></svg>;
-    case "search": return <svg {...c}><circle cx="7" cy="7" r="4.3" /><path d="M10.4 10.4 14 14" /></svg>;
-    case "read": return <svg {...c}><path d="M3 2.6h5.2L12 6v7.4H3z" /><path d="M8 2.6V6h4M5.3 8.6h5.4M5.3 10.8h5.4" /></svg>;
-    case "web": return <svg {...c}><circle cx="8" cy="8" r="5.6" /><path d="M2.4 8h11.2M8 2.4c1.7 1.7 1.7 9.5 0 11.2M8 2.4c-1.7 1.7-1.7 9.5 0 11.2" /></svg>;
-    case "todo": return <svg {...c}><path d="M3 4.4 4.1 5.5 6 3.4M3 10.6 4.1 11.7 6 9.6M8.4 4.6h4.6M8.4 10.8h4.6" /></svg>;
-    default: return <svg {...c}><path d="M9.6 2.5a2.1 2.1 0 0 0 2.8 2.8l.7.7a2.2 2.2 0 0 1-3.1 3.1l-4-4a2.2 2.2 0 0 1 3.1-3.1z" /></svg>;
-  }
-}
-
-function PinBtn({ pinned, onClick }: { pinned: boolean; onClick: () => void }) {
-  return (
-    <button title={pinned ? t("action.unpin-chapter") : t("action.pin-chapter")} onClick={onClick}
-      style={pinned ? { color: "#e8823a" } : undefined}>
-      <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4">
-        <path d="M9.5 2.5l4 4-3 1-2.5 4.5-4-4L8.5 5.5l1-3z" />
-        <path d="M5.5 10.5L2.5 13.5" />
-      </svg>
-    </button>
-  );
-}
-
 export default function Chat(p: {
   events: AgentEvent[];
   workingSince: number | null;
@@ -903,7 +265,6 @@ export default function Chat(p: {
   const [review, setReview] = useState<{ status: string; verdict?: string; model?: string; checks?: number; issues?: { claim: string; problem: string; severity: string; fix?: string }[]; checkedTools?: string[]; checkedFiles?: string[] } | null>(null);
   const [reviewOpen, setReviewOpen] = useState(false);
   const [barOpen, setBarOpen] = useState(false);
-  const [openChipGroup, setOpenChipGroup] = useState<string | null>(null);
   const [pasteView, setPasteView] = useState<{ name: string; text: string } | null>(null);
   const [pasteCopied, setPasteCopied] = useState(false);
   useEffect(() => {
@@ -1498,38 +859,24 @@ export default function Chat(p: {
           setShowJump(fromBottom > 200);
         }}
       >
-        {!p.threadId && (
-          <div className="empty-card">
-            <div className="empty-title">{t("chat.empty-ready")}</div>
-            <div className="empty-actions">
-              <button type="button" className="empty-action" onClick={p.onNewChat}>
-                {t("action.new-chat")}
-              </button>
-              <button
-                type="button"
-                className="empty-action"
-                onClick={() => window.dispatchEvent(new CustomEvent("atelier-open-resume", { detail: { provider: "claude" } }))}
-              >
-                <ResumeIcon /> {t("action.resume-session")}
-              </button>
-              <button type="button" className="empty-action" onClick={p.onOpenProject}>
-                {t("action.open-project")}
-              </button>
-            </div>
-          </div>
-        )}
-        {p.threadId && p.events.length === 0 && (
-          <div className="empty">{t("chat.empty")}</div>
-        )}
+        <ChatEmptyState
+          threadId={p.threadId}
+          hasEvents={p.events.length > 0}
+          onNewChat={p.onNewChat}
+          onOpenProject={p.onOpenProject}
+        />
         {renderedEvents.map((item) => {
           if (item.type === "fold") {
             const { fold, open } = item;
             return (
-              <button
+              <ActivityFold
                 key={fold.key}
-                type="button"
-                className={`turn-fold ${open ? "open" : ""}`}
-                onClick={() =>
+                fold={fold}
+                open={open}
+                label={fold.ms != null
+                  ? t("chat.worked-for", { dur: fmtWorkDur(fold.ms) })
+                  : t("chat.worked-steps", { n: fold.count })}
+                onToggle={() =>
                   setOpenFolds((prev) => {
                     const next = new Set(prev);
                     if (next.has(fold.key)) next.delete(fold.key);
@@ -1537,171 +884,71 @@ export default function Chat(p: {
                     return next;
                   })
                 }
-              >
-                <span>
-                  {fold.ms != null
-                    ? t("chat.worked-for", { dur: fmtWorkDur(fold.ms) })
-                    : t("chat.worked-steps", { n: fold.count })}
-                </span>
-                <span className="tool-tick">{open ? "▾" : "▸"}</span>
-              </button>
+              />
             );
           }
           if (item.type === "actions") {
             const open = openToolGroups.has(item.key) || (p.workingSince != null && item.key === activeToolGroupKey);
             return (
-              <div key={item.key} className="tool-group">
-                <button
-                  type="button"
-                  className="tool-group-row"
-                  onClick={() =>
-                    setOpenToolGroups((prev) => {
-                      const next = new Set(prev);
-                      if (next.has(item.key)) next.delete(item.key);
-                      else next.add(item.key);
-                      return next;
-                    })
-                  }
-                >
-                  <span className="tool-group-ico"><ToolGlyph cat={groupIconCat(item.actions)} /></span>
-                  <span>{summarizeTools(item.actions)}</span>
-                  <span className="tool-tick">{open ? "▾" : "▸"}</span>
-                </button>
-                {open && (
-                  <div className="tool-group-list">
-                    {item.actions.map((action, offset) => renderToolLine(action, offset))}
-                  </div>
-                )}
-              </div>
+              <ActivityGroup
+                key={item.key}
+                actions={item.actions}
+                open={open}
+                onToggle={() =>
+                  setOpenToolGroups((prev) => {
+                    const next = new Set(prev);
+                    if (next.has(item.key)) next.delete(item.key);
+                    else next.add(item.key);
+                    return next;
+                  })
+                }
+                renderToolLine={renderToolLine}
+              />
             );
           }
           const e = item.event;
           const i = item.index;
           if (e.kind === "user")
             return (
-              <div key={i} id={`msg-${i}`} className="user-wrap">
-                {e.imageUrl && <img className="user-img" src={e.imageUrl} alt="" />}
-                {e.label && <div className="user-label">{e.label}</div>}
-                {e.pastes && e.pastes.map((pa, j) => (
-                  <div key={j} className="chip paste-chip" style={{ cursor: "pointer" }}
-                    onClick={() => setPasteView({ name: pa.name, text: pa.text })}>
-                    <svg className="chip-doc" width="11" height="13" viewBox="0 0 11 13" fill="none" stroke="currentColor" strokeWidth="1.1" strokeLinecap="round">
-                      <rect x="0.8" y="0.8" width="9.4" height="11.4" rx="1.6" />
-                      <path d="M3 4.4h5M3 6.8h5M3 9.2h3.4" />
-                    </svg>
-                    <span className="chip-label">{pa.name}</span>
-                    <span className="chip-lines">{t("chat.lines", { lines: String(pa.text.split("\n").length) })}</span>
-                  </div>
-                ))}
-                {editing?.index === i ? (
-                  <div className="edit-box">
-                    <textarea
-                      autoFocus
-                      value={editing.text}
-                      rows={Math.min(8, Math.max(2, editing.text.split("\n").length))}
-                      onChange={(ev) => setEditing({ index: i, text: ev.target.value })}
-                      onKeyDown={(ev) => {
-                        if (ev.key === "Escape") setEditing(null);
-                        if (ev.key === "Enter" && !ev.shiftKey) {
-                          ev.preventDefault();
-                          if (editing.text.trim()) {
-                            p.onEditSend(i, e.text, editing.text);
-                            setEditing(null);
-                          }
-                        }
-                      }}
-                    />
-                    <div className="edit-actions">
-                      <button type="button" className="edit-cancel" onClick={() => setEditing(null)}>
-                        {t("action.cancel")}
-                      </button>
-                      <button
-                        type="button"
-                        className="edit-send"
-                        onClick={() => {
-                          if (editing.text.trim()) {
-                            p.onEditSend(i, e.text, editing.text);
-                            setEditing(null);
-                          }
-                        }}
-                      >
-                        {t("action.send")}
-                      </button>
-                    </div>
-                  </div>
-                ) : (
-                  <div className="user-bubble">
-                    {(() => {
-                      const m = /^(\/[\w:-]+)([\s\S]*)$/.exec(e.text);
-                      if (m && isValidSkill(m[1], p.commands)) {
-                        return (
-                          <>
-                            <span className="slash-cmd">{m[1]}</span>
-                            {m[2]}
-                          </>
-                        );
-                      }
-                      return e.text;
-                    })()}
-                  </div>
-                )}
-                <div className="msg-actions">
-                  {e.ts && (
-                    <span className="msg-time">
-                      {fmtTime(e.ts, p.defaults.timeFormat)}
-                    </span>
-                  )}
-                  <button title={t("action.copy")} onClick={() => navigator.clipboard.writeText(e.text)}>
-                    <CopyIcon />
-                  </button>
-                  <button title={t("action.edit-resend")} onClick={() => setEditing({ index: i, text: e.text })}>✎</button>
-                  <button title={t("chat.revert-title")} onClick={() => p.onRevert(i, e.text, false)}>↩</button>
-                  <PinBtn pinned={p.pins.some((c) => c.index === i)} onClick={() => p.onTogglePin(i, e.text.slice(0, 44))} />
-                </div>
-              </div>
+              <UserTurn
+                key={i}
+                event={e}
+                index={i}
+                timeFormat={p.defaults.timeFormat}
+                pinned={p.pins.some((c) => c.index === i)}
+                renderBubbleText={(text) => {
+                  const m = /^(\/[\w:-]+)([\s\S]*)$/.exec(text);
+                  if (m && isValidSkill(m[1], p.commands)) {
+                    return (
+                      <>
+                        <span className="slash-cmd">{m[1]}</span>
+                        {m[2]}
+                      </>
+                    );
+                  }
+                  return text;
+                }}
+                editingText={editing?.index === i ? editing.text : null}
+                onEditingChange={(text) => setEditing(text == null ? null : { index: i, text })}
+                onEditSend={p.onEditSend}
+                onRevert={p.onRevert}
+                onTogglePin={p.onTogglePin}
+                onOpenPaste={setPasteView}
+              />
             );
           if (e.kind === "streaming")
-            return (
-              <div key={i} className="msg-wrap">
-                <div className="msg">
-                  <ReactMarkdown
-                    remarkPlugins={MD_REMARK_PLUGINS}
-                    rehypePlugins={MD_REHYPE_PLUGINS}
-                    components={MD_COMPONENTS_STREAMING as any}
-                  >
-                    {normalizeMathDelimiters(hardenPartialMarkdown(e.text))}
-                  </ReactMarkdown>
-                  {p.workingSince != null && <span className="stream-caret" />}
-                </div>
-              </div>
-            );
+            return <StreamingText key={i} text={e.text} working={p.workingSince != null} />;
           if (e.kind === "text")
             return (
-              <div key={i} id={`msg-${i}`} className="msg-wrap">
-                <div className="msg">
-                  <ReactMarkdown
-                    remarkPlugins={MD_REMARK_PLUGINS}
-                    rehypePlugins={MD_REHYPE_PLUGINS}
-                    components={MD_COMPONENTS as any}
-                  >
-                    {normalizeMathDelimiters(e.text)}
-                  </ReactMarkdown>
-                </div>
-                <div className="msg-actions">
-                  {"ts" in e && e.ts && (
-                    <span className="msg-time">
-                      {fmtTime(e.ts, p.defaults.timeFormat)}
-                    </span>
-                  )}
-                  <button title={t("action.copy")} onClick={() => navigator.clipboard.writeText(e.text)}>
-                    <CopyIcon />
-                  </button>
-                  <button title={t("action.fork")} onClick={() => p.onFork(i)}>
-                    <ForkIcon />
-                  </button>
-                  <PinBtn pinned={p.pins.some((c) => c.index === i)} onClick={() => p.onTogglePin(i, e.text.replace(/[#*>`]/g, "").trim().slice(0, 44))} />
-                </div>
-              </div>
+              <AssistantText
+                key={i}
+                event={e}
+                index={i}
+                timeFormat={p.defaults.timeFormat}
+                pinned={p.pins.some((c) => c.index === i)}
+                onFork={p.onFork}
+                onTogglePin={p.onTogglePin}
+              />
             );
           if (e.kind === "thinking_live" || e.kind === "thinking")
             return <ThinkingBlock key={i} text={e.text} live={e.kind === "thinking_live"} />;
@@ -1766,47 +1013,19 @@ export default function Chat(p: {
           if (e.kind === "done") {
             const isLastDone = !p.events.slice(i + 1).some((x) => x.kind === "done");
             return (
-              <div key={i} id={isLastDone ? "last-done" : undefined} className="done">
-                {e.ok ? t("chat.done-ok") : t("chat.done-fail")}
-                {isLastDone && !review && (
-                  <button
-                    className="done-verify"
-                    title={t("review.verify")}
-                    onClick={() => {
-                      setReview({ status: "running" });
-                      window.dispatchEvent(new CustomEvent("request-review", { detail: { threadId: p.threadId } }));
-                    }}
-                  >
-                    <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round">
-                      <path d="M8 1.8l5 2v4c0 3.2-2.2 5.4-5 6.4-2.8-1-5-3.2-5-6.4v-4z" />
-                      <path d="M5.8 8l1.6 1.6L10.5 6.3" />
-                    </svg>
-                    {t("review.verify-now")}
-                  </button>
-                )}
-                {isLastDone && review && (
-                  <span
-                    className={`review-badge v-${review.status === "running" ? "running" : review.verdict}`}
-                    onClick={() => review.issues?.length && setReviewOpen((v) => !v)}
-                  >
-                    {review.status === "running" ? t("review.running")
-                      : review.verdict === "ok" ? t("review.ok")
-                      : review.verdict === "issues" ? t("review.issues", { n: review.issues?.length ?? 0 })
-                      : t("review.inconclusive")}
-                  </span>
-                )}
-                {isLastDone && reviewOpen && review?.issues?.length ? (
-                  <div className="review-detail">
-                    {review.issues.map((iss, k) => (
-                      <div key={k} className={`review-issue s-${iss.severity}`}>
-                        <div className="ri-claim">« {iss.claim} »</div>
-                        <div className="ri-problem">{iss.problem}</div>
-                      </div>
-                    ))}
-                  </div>
-                ) : null}
-                <DoneDiffToggle event={e} threadId={p.threadId} />
-              </div>
+              <AssistantDone
+                key={i}
+                event={e}
+                isLastDone={isLastDone}
+                threadId={p.threadId}
+                review={review}
+                reviewOpen={reviewOpen}
+                onStartReview={() => {
+                  setReview({ status: "running" });
+                  window.dispatchEvent(new CustomEvent("request-review", { detail: { threadId: p.threadId } }));
+                }}
+                onToggleReviewOpen={() => setReviewOpen((v) => !v)}
+              />
             );
           }
           return null;
@@ -2058,80 +1277,11 @@ export default function Chat(p: {
             ))}
           </ul>
         )}
-        {p.attachments.length > 0 && (
-          <div className="chips-row">
-            {p.attachments.map((a, i) => a.imageUrl ? (
-              <div key={i} className="img-chip">
-                <img src={a.imageUrl} alt={a.name} />
-                <button type="button" className="img-chip-x" onClick={() => p.onRemoveAttachment(i)}>
-                  <CloseIcon />
-                </button>
-                <span className="img-chip-name">{a.name}</span>
-              </div>
-            ) : null)}
-            {(() => {
-              // grouper les citations par source : « Williamson…pdf ×3 » au lieu de 3 chips
-              const groups: { name: string; idxs: number[]; first: typeof p.attachments[number] }[] = [];
-              p.attachments.forEach((a, i) => {
-                if (a.imageUrl) return;
-                const g = groups.find((x) => x.name === a.name);
-                if (g) g.idxs.push(i); else groups.push({ name: a.name, idxs: [i], first: a });
-              });
-              return groups.map((g) => {
-                const a = g.first;
-                const many = g.idxs.length > 1;
-                return (
-                  <div key={g.name} className={`chip ${many ? "chip-grouped" : ""}`}>
-                    <svg className="chip-doc" width="11" height="13" viewBox="0 0 11 13" fill="none" stroke="currentColor" strokeWidth="1.1" strokeLinecap="round">
-                      <rect x="0.8" y="0.8" width="9.4" height="11.4" rx="1.6" />
-                      <path d="M3 4.4h5M3 6.8h5M3 9.2h3.4" />
-                    </svg>
-                    <span className="chip-label" title={a.name} onClick={() => {
-                        if (many) setOpenChipGroup(openChipGroup === g.name ? null : g.name);
-                        else if (a.kind === "paste") setPasteView({ name: a.name, text: a.text });
-                      }}
-                      style={many || a.kind === "paste" ? { cursor: "pointer" } : undefined}>
-                      {citeLabel(a.name)}
-                    </span>
-                    {many ? <span className="chip-count" onClick={() => setOpenChipGroup(openChipGroup === g.name ? null : g.name)}>×{g.idxs.length}</span>
-                      : a.lines && <span className="chip-lines">{t("chat.lines", { lines: a.lines })}</span>}
-                    {!many && a.preview && (
-                      <span className="chip-preview" role="tooltip">
-                        <strong>{a.preview.title}</strong>
-                        {a.preview.rows.map((row, j) => (
-                          <span key={j} className="chip-preview-row">
-                            <em>{row.label}</em>
-                            <span>{row.value}</span>
-                          </span>
-                        ))}
-                      </span>
-                    )}
-                    <button type="button" className="ghost" onClick={() => {
-                      [...g.idxs].sort((x, y) => y - x).forEach((idx) => p.onRemoveAttachment(idx));
-                      setOpenChipGroup(null);
-                    }}>
-                      <CloseIcon />
-                    </button>
-                    {many && openChipGroup === g.name && (
-                      <div className="chip-group-pop">
-                        {g.idxs.map((idx, k) => {
-                          const it = p.attachments[idx];
-                          return (
-                            <div key={idx} className="cgp-row">
-                              <span className="cgp-n">{k + 1}</span>
-                              <span className="cgp-txt">{it.lines ? t("chat.lines", { lines: it.lines }) : (it.text || "").replace(/\s+/g, " ").slice(0, 60)}</span>
-                              <button type="button" className="ghost" onClick={() => p.onRemoveAttachment(idx)}><CloseIcon /></button>
-                            </div>
-                          );
-                        })}
-                      </div>
-                    )}
-                  </div>
-                );
-              });
-            })()}
-          </div>
-        )}
+        <ContextShelf
+          attachments={p.attachments}
+          onRemoveAttachment={p.onRemoveAttachment}
+          onOpenPaste={setPasteView}
+        />
         <div className={`ta-wrap ${(() => {
           const m = /(^|\s)(\/[\w:-]+)/.exec(text);
           if (m && isValidSkill(m[2], p.commands)) return "slash-active";
@@ -2215,6 +1365,9 @@ export default function Chat(p: {
               return;
             }
             if (e.key === "Enter" && !e.shiftKey) {
+              // composition IME en cours (kanji/hangul…) : cet Enter valide le
+              // candidat, il ne doit JAMAIS envoyer le message (fix plan 015)
+              if (e.nativeEvent.isComposing) return;
               e.preventDefault();
               (e.currentTarget.form as HTMLFormElement).requestSubmit();
             }
