@@ -150,12 +150,27 @@ The app bundle includes the Node sidecar and gallery. Claude/Codex remain the sy
 
 ## Verification
 
+One command runs every layer (typecheck, web build, frontend, sidecar, gallery unit/parity/diff, Rust):
+
 ```bash
-npx vite build
-(cd sidecar && npm test)
+npm run verify
 ```
 
-The full TypeScript check can fail when intentionally invalid `src/test_auto_review_*.ts` files are present. Those files exercise auto-review scenarios and do not necessarily represent an application regression.
+Prerequisites: Node >= 20, `python3`, Rust stable (for `test:rust`), and dependencies installed in
+`.` and `sidecar/` (`npm ci` in both). Each layer can also run alone — see the `test:*` scripts in
+`package.json`.
+
+Gallery end-to-end tests (Playwright) are opt-in because they need a browser download:
+
+```bash
+npm --prefix gallery ci
+(cd gallery && npx playwright install chromium)
+npm run verify:e2e
+```
+
+CI runs `verify` plus the gallery E2E on every pull request, and the release workflow refuses to
+bundle if any of it is red. Intentionally invalid `src/test_auto_review_*.ts` fixtures are excluded
+from the TypeScript check via `tsconfig.json` — a red `npm run typecheck` is always a real regression.
 
 ## Regenerate Media
 

@@ -7,7 +7,18 @@
     "dev": "vite",
     "build": "tsc && vite build",
     "preview": "vite preview",
-    "tauri": "tauri"
+    "tauri": "tauri",
+    "typecheck": "tsc --noEmit",
+    "build:web": "vite build",
+    "test:frontend": "vitest run",
+    "test:sidecar": "npm --prefix sidecar test",
+    "test:gallery:unit": "python3 -m unittest discover -s gallery/tests",
+    "test:gallery:parity": "cd gallery && node server/tests/parity.mjs",
+    "test:gallery:diff": "node gallery/server/tests/diff_suite.mjs",
+    "test:gallery": "npm run test:gallery:unit && npm run test:gallery:parity && npm run test:gallery:diff",
+    "test:rust": "cargo test --manifest-path src-tauri/Cargo.toml --locked",
+    "verify": "npm run typecheck && npm run build:web && npm run test:frontend && npm run test:sidecar && npm run test:gallery && npm run test:rust",
+    "verify:e2e": "npm --prefix gallery run test:e2e"
   },
   "dependencies": {
     "@fontsource-variable/inter": "^5.2.8",
@@ -32,10 +43,15 @@
   },
   "devDependencies": {
     "@tauri-apps/cli": "^2",
+    "@testing-library/dom": "^10.4.1",
+    "@testing-library/jest-dom": "^6.9.1",
+    "@testing-library/react": "^16.3.2",
     "@types/react": "^19.1.8",
     "@types/react-dom": "^19.1.6",
     "@vitejs/plugin-react": "^4.6.0",
+    "jsdom": "^29.1.1",
     "typescript": "~5.8.3",
-    "vite": "^7.0.4"
+    "vite": "^7.0.4",
+    "vitest": "^4.1.10"
   }
 }

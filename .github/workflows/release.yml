@@ -17,10 +17,21 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - uses: swatinem/rust-cache@v2
         with: { workspaces: src-tauri }
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.12" }
       - name: Install frontend deps
         run: npm ci
       - name: Install sidecar deps (pour le staging)
         run: cd sidecar && npm ci
+      - name: Install gallery deps
+        run: npm --prefix gallery ci
+      - name: Install Playwright Chromium
+        run: cd gallery && npx playwright install chromium
+      # le tag peut contourner la CI de PR : verify + E2E bloquent le bundle ici
+      - name: Verify (typecheck, build, frontend, sidecar, gallery, Rust)
+        run: npm run verify
+      - name: Gallery E2E
+        run: npm run verify:e2e
       - name: Build + bundle
         uses: tauri-apps/tauri-action@v0
         env:
