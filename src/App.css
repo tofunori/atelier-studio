@@ -384,15 +384,47 @@ html, body, #root, .app { height: 100vh; overflow: hidden;
 .topbar { height: 38px; flex-shrink: 0; display: flex; align-items: center;
   background: var(--bg-side); border-bottom: 1px solid var(--border2); gap: 8px; }
 .topbar-left { display: flex; align-items: center; height: 100%; min-width: 0;
-  padding-left: 82px; /* réserve les feux natifs (trafficLightPosition) */ }
-/* pilule projet : pastille couleur + nom + chevron, alignée, cliquable */
-.topbar-crumb { display: inline-flex; align-items: center; gap: 7px; height: 24px; padding: 0 8px;
-  border: none; background: transparent; border-radius: var(--r-s); cursor: pointer; max-width: 240px;
+  padding-left: 76px; /* réserve les feux natifs : 14 + 3×12 + 2×8 + 10 de respiration */ }
+/* pilule projet : tuile monogramme (identité du rail, miniaturisée) + nom ;
+   chevron seulement au survol ; clic → menu sélecteur de projet */
+.topbar-crumb { display: inline-flex; align-items: center; gap: 8px; height: 26px; padding: 0 8px 0 4px;
+  border: none; background: transparent; border-radius: var(--r-s); cursor: pointer; max-width: 260px;
   color: var(--fg); font-size: var(--fs-s); font-weight: 500; transition: background-color var(--ease); }
 .topbar-crumb:hover { background: var(--bg-ctl); }
-.topbar-crumb-dot { width: 7px; height: 7px; border-radius: 50%; flex: none; }
+.crumb-tile { width: 20px; height: 20px; border-radius: var(--r-s); flex: none;
+  display: inline-flex; align-items: center; justify-content: center;
+  font-size: var(--fs-xs); font-weight: 600;
+  background: color-mix(in srgb, var(--pc) 16%, transparent); color: var(--pc); }
 .topbar-crumb-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.topbar-crumb svg { color: var(--muted2); flex: none; }
+.crumb-chev { color: var(--muted2); flex: none; opacity: 0; transition: opacity var(--ease); }
+.topbar-crumb:hover .crumb-chev { opacity: 1; }
+
+/* menu sélecteur de projet : surface élevée (fond + ombre, pas de bordure) */
+.topbar-left { position: relative; }
+.proj-menu { position: absolute; top: 34px; left: 78px; z-index: 120; width: 264px;
+  background: var(--bg-pop); border-radius: var(--r-m); padding: 6px;
+  box-shadow: 0 4px 16px rgba(0,0,0,.25), 0 12px 44px rgba(0,0,0,.30); }
+.proj-menu-head { display: flex; align-items: center; gap: 9px; padding: 9px 10px 8px;
+  margin: 0 0 4px; border-radius: var(--r-s);
+  background: color-mix(in srgb, var(--pc) 8%, transparent); }
+.proj-menu-head .pm-dot { background: var(--pc); }
+.pm-col { display: flex; flex-direction: column; min-width: 0; flex: 1; }
+.pm-name { font-size: var(--fs-s); font-weight: 600; letter-spacing: -0.01em; line-height: 1.3;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pm-path { font-size: var(--fs-xs); color: var(--muted2); line-height: 1.5;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; direction: rtl; text-align: left; }
+.proj-menu-label { font-size: var(--fs-xs); font-weight: 500; letter-spacing: .05em;
+  text-transform: uppercase; color: var(--muted2); padding: 6px 10px 4px; }
+.pm-row { display: flex; align-items: center; gap: 9px; width: 100%; padding: 6px 10px;
+  border: none; background: transparent; border-radius: var(--r-s); cursor: pointer;
+  color: var(--fg2); font-size: var(--fs-s); font-weight: 500; font-family: inherit;
+  text-align: left; transition: background-color var(--ease); }
+.pm-row:hover { background: var(--bg-ctl); color: var(--fg); }
+.pm-dot { width: 8px; height: 8px; border-radius: var(--r-pill); flex: none; background: var(--pc); }
+.pm-row-name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.proj-menu-sep { height: 1px; background: var(--border); margin: 5px 8px; }
+.pm-row.pm-action { color: var(--muted); font-weight: 400; }
+.pm-row.pm-action:hover { color: var(--fg); }
 .topbar .flex { flex: 1; }
 .topbar-right .topbar-qa.on { color: var(--fg); background: var(--bg-ctl); }
 .topbar-cmd { display: inline-flex; align-items: center; gap: 7px; height: 22px;

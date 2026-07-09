@@ -1830,9 +1830,11 @@ export default function App() {
     {/* feux NATIFS (titleBarStyle Overlay + trafficLightPosition, cf.
         tauri.conf.json) repositionnés dans cette barre — plus de feux custom */}
     <TopBar
-      activeProjectName={activeProject ? projectDisplayName(activeProject) : ""}
-      activeProjectColor={activeProject ? projMeta[activeProject]?.color : undefined}
-      onProjectClick={() => setPaletteOpen(true)}
+      projects={projects}
+      projMeta={projMeta}
+      activeProject={activeProject}
+      onSelectProject={selectProject}
+      onAddProject={addProject}
       layout={layout}
       onSetLayout={setLayout}
       onOpenPalette={() => setPaletteOpen(true)}

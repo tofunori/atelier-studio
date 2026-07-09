@@ -1,5 +1,17 @@
+import { useEffect, useState } from "react";
 import { t } from "../lib/i18n";
-import { SearchIcon, ZapIcon, RefreshIcon } from "./icons";
+import { SearchIcon, ZapIcon, RefreshIcon, PlusIcon } from "./icons";
+import { projInitial, type ProjMeta } from "./Rail";
+import { ProjIcon } from "./Sidebar";
+
+// chemin compact pour l'en-tête du menu projet : ~/… au lieu de /Users/x/…
+function shortPath(root: string) {
+  return root.replace(/^\/Users\/[^/]+/, "~");
+}
+function displayName(root: string, meta?: ProjMeta) {
+  if (meta?.label && !meta.label.startsWith("icon:")) return meta.label;
+  return root.split("/").filter(Boolean).pop() ?? root;
+}
 
 // icônes de bascule layout : même rectangle 16x16 que le reste (rect + trait
 // de séparation), seule la moitié « active » est teintée (fill=currentColor,
@@ -34,9 +46,11 @@ function LayoutAtelierIcon() {
 type Layout = "chat" | "split" | "atelier";
 
 export default function TopBar({
-  activeProjectName,
-  activeProjectColor,
-  onProjectClick,
+  projects,
+  projMeta,
+  activeProject,
+  onSelectProject,
+  onAddProject,
   layout,
   onSetLayout,
   onOpenPalette,
@@ -48,9 +62,11 @@ export default function TopBar({
   onToggleExplorer,
   onOpenGit,
 }: {
-  activeProjectName: string;
-  activeProjectColor?: string;
-  onProjectClick: () => void;
+  projects: string[];
+  projMeta: Record<string, ProjMeta>;
+  activeProject: string | null;
+  onSelectProject: (root: string) => void;
+  onAddProject: () => void;
   layout: Layout;
   onSetLayout: (layout: Layout) => void;
   onOpenPalette: () => void;
@@ -63,15 +79,63 @@ export default function TopBar({
   onOpenGit: () => void;
 }) {
   const gitActive = showAtelier && activeSurface === "git";
+  const [projMenu, setProjMenu] = useState(false);
+  useEffect(() => {
+    if (!projMenu) return;
+    const close = () => setProjMenu(false);
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") setProjMenu(false); };
+    window.addEventListener("click", close);
+    window.addEventListener("keydown", onKey);
+    return () => { window.removeEventListener("click", close); window.removeEventListener("keydown", onKey); };
+  }, [projMenu]);
+  const meta = activeProject ? projMeta[activeProject] : undefined;
+  const color = meta?.color || "var(--accent)";
   return (
     <div className="topbar" data-tauri-drag-region>
       <div className="topbar-left" data-tauri-drag-region>
-        {activeProjectName && (
-          <button type="button" className="topbar-crumb" onClick={onProjectClick} title={activeProjectName}>
-            <span className="topbar-crumb-dot" style={{ background: activeProjectColor || "var(--accent)" }} />
-            <span className="topbar-crumb-name">{activeProjectName}</span>
-            <svg width="10" height="10" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5"><path d="M4 6l4 4 4-4" /></svg>
+        {activeProject && (
+          <button type="button" className="topbar-crumb" title={shortPath(activeProject)}
+            style={{ "--pc": color } as React.CSSProperties}
+            onClick={(e) => { e.stopPropagation(); setProjMenu((v) => !v); }}>
+            <span className="crumb-tile">
+              {meta?.label?.startsWith("icon:")
+                ? <ProjIcon name={meta.label.slice(5)} size={12} />
+                : projInitial(activeProject, meta)}
+            </span>
+            <span className="topbar-crumb-name">{displayName(activeProject, meta)}</span>
+            <svg className="crumb-chev" width="9" height="9" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.8"><path d="M4 6l4 4 4-4" /></svg>
           </button>
+        )}
+        {projMenu && activeProject && (
+          <div className="proj-menu" onClick={(e) => e.stopPropagation()}>
+            {/* en-tête : projet courant, nom + chemin complet */}
+            <div className="proj-menu-head" style={{ "--pc": color } as React.CSSProperties}>
+              <span className="pm-dot" />
+              <span className="pm-col">
+                <span className="pm-name">{displayName(activeProject, meta)}</span>
+                <span className="pm-path">{shortPath(activeProject)}</span>
+              </span>
+            </div>
+            {projects.some((r) => r !== activeProject) && (
+              <div className="proj-menu-label">{t("topbar.switch-to")}</div>
+            )}
+            {projects.filter((r) => r !== activeProject).map((root) => {
+              const m = projMeta[root];
+              return (
+                <button key={root} type="button" className="pm-row"
+                  onClick={() => { setProjMenu(false); onSelectProject(root); }}>
+                  <span className="pm-dot" style={{ "--pc": m?.color || "var(--muted2)" } as React.CSSProperties} />
+                  <span className="pm-row-name">{displayName(root, m)}</span>
+                </button>
+              );
+            })}
+            <div className="proj-menu-sep" />
+            <button type="button" className="pm-row pm-action"
+              onClick={() => { setProjMenu(false); onAddProject(); }}>
+              <PlusIcon size={13} />
+              {t("action.add-project")}
+            </button>
+          </div>
         )}
       </div>
       <span className="flex" />
