@@ -392,19 +392,27 @@ html, body, #root, .app { height: 100vh; overflow: hidden;
   box-shadow: 0 6px 18px rgba(0,0,0,0.5); }
 .quote-pill:hover { background: var(--border2); }
 .chev { color: var(--muted2); font-size: var(--fs-xs); width: 10px; display: inline-block; }
-/* Fine bande de titre pour les feux natifs macOS (~70px incompressibles) :
-   même fond que la fenêtre (se fond dans le cadre), pas de bordure, drag
-   region. Elle LIBÈRE le rail qui peut donc être étroit. */
-.titlebar { height: 30px; flex-shrink: 0; }
-/* rail compacte façon Muxy — panneaux « cartes flottantes » sur le fond --ground */
-.app-row { display: flex; height: calc(100vh - 30px); gap: 8px; padding: 4px 8px 8px; }
+/* AUCUNE bande de titre : décorations natives coupées, feux custom au sommet
+   du rail (.rail-titlebar). Les cartes montent au ras du haut. */
+.app-row { display: flex; height: 100vh; gap: 8px; padding: 8px; }
 .main-card { flex: 1; min-width: 0; height: 100%; overflow: hidden;
   background: var(--bg-side); border: 1px solid var(--border2);
   border-radius: var(--r-m); box-shadow: var(--elev); position: relative; }
-/* rail ÉTROIT — les feux ne sont plus dessus (ils sont dans la bande de titre) */
+/* rail ÉTROIT, collé tout en haut ; ses feux custom sont son premier élément */
 .rail { width: 56px; flex-shrink: 0; background: var(--bg-side); display: flex; overflow-y: auto; overflow-x: hidden; scrollbar-width: none;
-  flex-direction: column; align-items: center; gap: 8px; padding: 10px 0;
+  flex-direction: column; align-items: center; gap: 8px; padding: 0 0 10px;
   border: 1px solid var(--border2); border-radius: var(--r-m); box-shadow: var(--elev); position: relative; }
+/* --- feux custom au sommet du rail (décorations natives coupées) --- */
+.rail-titlebar { width: 100%; display: flex; align-items: center; justify-content: center;
+  padding: 10px 0 8px; }
+.win-ctrls { display: flex; gap: 8px; }
+.wc { width: 12px; height: 12px; border-radius: 50%; border: none; padding: 0; cursor: pointer;
+  opacity: 0.9; transition: opacity var(--ease); }
+.rail:hover .wc { opacity: 1; }
+.wc-close { background: #f26059; }
+.wc-min { background: #f5b933; }
+.wc-full { background: #49b356; }
+.wc:active { transform: scale(0.9); }
 .rail .flex { flex: 1; }
 .rail-btn { width: 38px; height: 38px; border-radius: var(--r-m); border: none;
   background: transparent; color: var(--muted); font-size: var(--fs-xl); cursor: pointer;
@@ -1916,8 +1924,8 @@ body.dragging iframe { pointer-events: none; }
 /* recalé sur la nouvelle géométrie : rail card = 8px gouttière + 80px + 8px ;
    sous la zone titre (42px) ; ne couvre pas le rail : les clics sur les
    icônes passent, et la zone titre reste draguable même flyout ouvert */
-.fly-backdrop { position: fixed; inset: 34px 0 0 64px; z-index: 60; }
-.rail-flyout { position: fixed; left: 72px; top: 34px; bottom: 8px; width: 236px; z-index: 61;
+.fly-backdrop { position: fixed; inset: 8px 0 0 64px; z-index: 60; }
+.rail-flyout { position: fixed; left: 72px; top: 8px; bottom: 8px; width: 236px; z-index: 61;
   background: var(--bg-pop); border: 1px solid var(--border2); border-radius: var(--r-m); box-shadow: var(--elev);
   display: flex; flex-direction: column; padding: 8px;
   animation: fly-in 140ms ease; transform-origin: left; }

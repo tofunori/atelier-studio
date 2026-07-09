@@ -21,6 +21,10 @@
     "core:window:allow-toggle-maximize",
     "core:window:allow-internal-toggle-maximize",
     "core:window:allow-set-badge-label",
+    "core:window:allow-close",
+    "core:window:allow-minimize",
+    "core:window:allow-set-fullscreen",
+    "core:window:allow-is-fullscreen",
     "core:window:default",
     "core:webview:default"
   ]

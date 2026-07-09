@@ -3,6 +3,7 @@ import { t } from "../lib/i18n";
 import { ChatsIcon, HighlighterIcon, PlusIcon, SettingsIcon, SidebarIcon } from "./icons";
 import { PROJ_ICONS, ProjIcon, threadTitle, rawThreadTitle, recencyLabelKey, withRecencySections, moveThreadTo } from "./Sidebar";
 import { ProviderIcon } from "./icons";
+import WindowControls from "./WindowControls";
 import type { Thread } from "../lib/ws";
 import type { ViewId } from "../lib/settings";
 
@@ -88,6 +89,11 @@ export default function Rail(p: {
 
   return (
     <div className="rail" onClick={() => setMenu(null)}>
+      {/* sommet du rail : feux custom + zone de drag (décorations natives
+          coupées) → rail étroit collé tout en haut, aucune bande de titre */}
+      <div className="rail-titlebar" data-tauri-drag-region>
+        <WindowControls />
+      </div>
       <button className="rail-btn" title={t("action.expand-sidebar")} onClick={p.onExpand}>
         <SidebarIcon size={19} />
       </button>

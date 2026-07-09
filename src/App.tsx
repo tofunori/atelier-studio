@@ -1786,10 +1786,8 @@ export default function App() {
 
   return (
     <>
-    {/* bande de préhension invisible : juste le fond + les feux Overlay qui
-        flottent dessus — aucun contenu, aucune bordure (pas de « barre ») */}
-    <div className="titlebar" data-tauri-drag-region />
-
+    {/* plus de bande de titre : les feux custom vivent au sommet du rail
+        (WindowControls), le rail est donc étroit et collé tout en haut */}
     <div className={`app-row ${dragging ? "dragging" : ""}`}>
         <Rail
           projects={projects}
