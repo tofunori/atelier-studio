@@ -760,7 +760,7 @@ export default function Sidebar(p: {
         </div>
       )}
       {menu && menu.mode === "move" && (
-        <div className="ctx-menu" style={{ left: menu.x, top: menu.y }}>
+        <div className="ctx-menu" style={{ left: menu.x, top: menu.y }} onClick={(e) => e.stopPropagation()}>
           <div className="ctx-menu-back" onClick={() => setMenu({ ...menu, mode: "main" })}>
             ‹ {t("thread.move")}
           </div>
@@ -772,7 +772,7 @@ export default function Sidebar(p: {
         </div>
       )}
       {menu && menu.mode !== "move" && (
-        <div className="ctx-menu" style={{ left: menu.x, top: menu.y }}>
+        <div className="ctx-menu" style={{ left: menu.x, top: menu.y }} onClick={(e) => e.stopPropagation()}>
           <div
             onClick={() => {
               const t = p.threads.find((x) => x.id === menu.threadId);

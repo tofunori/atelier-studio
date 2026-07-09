@@ -188,7 +188,7 @@ export default function Rail(p: {
               )}
             </div>
             {chatMenu && chatMenu.mode === "move" && (
-              <div className="ctx-menu" style={{ left: chatMenu.x, top: chatMenu.y }}>
+              <div className="ctx-menu" style={{ left: chatMenu.x, top: chatMenu.y }} onClick={(e) => e.stopPropagation()}>
                 <div className="ctx-menu-back" onClick={() => setChatMenu({ ...chatMenu, mode: "main" })}>
                   ‹ {t("thread.move")}
                 </div>
@@ -204,7 +204,7 @@ export default function Rail(p: {
               </div>
             )}
             {chatMenu && chatMenu.mode !== "move" && (
-              <div className="ctx-menu" style={{ left: chatMenu.x, top: chatMenu.y }}>
+              <div className="ctx-menu" style={{ left: chatMenu.x, top: chatMenu.y }} onClick={(e) => e.stopPropagation()}>
                 <div onClick={() => {
                   const th = p.threads.find((x) => x.id === chatMenu.id);
                   setEditText(th ? rawThreadTitle(th) : "");
