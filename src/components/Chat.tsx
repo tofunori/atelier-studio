@@ -653,9 +653,10 @@ function isValidSkill(token: string, commands: { name: string }[]): boolean {
 }
 
 // ---- résumés d'outils façon Codex : « Recherche de code, commande exécutée » ----
-type ToolCat = "search" | "read" | "edit" | "command" | "web" | "todo" | "tool";
+// « permission » = bruit (demandes d'autorisation Grok) : absorbé, hors phrase
+type ToolCat = "search" | "read" | "edit" | "command" | "web" | "todo" | "permission" | "tool";
 // une commande shell qui ressemble à une recherche / une lecture → catégorie fine
-const SEARCH_CMD = /^\s*!?\s*(rg|grep|egrep|fgrep|ag|ack|find|fd|glob|tree|ls)\b/;
+const SEARCH_CMD = /^\s*!?\s*#?\s*(rg|grep|egrep|fgrep|ag|ack|find|fd|glob|tree|ls)\b/;
 const READ_CMD = /^\s*!?\s*(cat|bat|head|tail|less|more|sed -n)\b/;
 
 // un event outil est-il « résumable » ? (les sentinelles __x gardent leur ligne)
@@ -665,20 +666,26 @@ function isSummarizableTool(e: AgentEvent): e is Extract<AgentEvent, { kind: "to
   return e.name.startsWith("__edits:") || !e.name.startsWith("__");
 }
 
+// catégorise un outil tous providers confondus (Claude: Bash/Read/Edit/Grep ;
+// Codex: Bash/apply_patch ; Grok: Execute/read_file/edit_file/permission…)
 function toolCategory(name: string, detail?: string): ToolCat {
   if (name.startsWith("__edits:")) return "edit";
   const n = name.toLowerCase();
-  if (n === "bash") {
+  if (n.startsWith("permission")) return "permission";
+  // exécution shell (Bash, Execute, run_terminal…) : affiner via la commande
+  if (n === "bash" || n === "execute" || n.includes("shell") || n.includes("terminal") || n.includes("command")) {
     const d = detail ?? "";
     if (SEARCH_CMD.test(d)) return "search";
     if (READ_CMD.test(d)) return "read";
     return "command";
   }
-  if (n === "read") return "read";
-  if (["edit", "write", "multiedit", "notebookedit", "apply_patch"].includes(n)) return "edit";
-  if (["grep", "glob"].includes(n)) return "search";
-  if (n === "websearch" || n === "webfetch" || n.startsWith("recherche web") || n.startsWith("web ")) return "web";
-  if (n === "todowrite" || n === "todo") return "todo";
+  if (n.includes("read") || n === "cat" || n.includes("open_file")) return "read";
+  if (n.includes("edit") || n.includes("write") || n.includes("create_file") ||
+      n.includes("str_replace") || n.includes("patch")) return "edit";
+  if (n.includes("search") || n.includes("grep") || n.includes("glob") ||
+      n.includes("list_dir") || n.includes("codebase") || n.includes("find")) return "search";
+  if (n === "webfetch" || n === "websearch" || n.includes("web") || n.includes("browser") || n.includes("recherche web")) return "web";
+  if (n.includes("todo") || n.includes("plan")) return "todo";
   return "tool";
 }
 
@@ -700,8 +707,14 @@ function summarizeTools(actions: Extract<AgentEvent, { kind: "tool" | "tool_upda
   const counts = new Map<ToolCat, number>();
   for (const a of actions) {
     const cat = toolCategory(a.name, "detail" in a ? a.detail : undefined);
+    if (cat === "permission") continue; // bruit : absorbé, visible au déploiement
     if (!counts.has(cat)) order.push(cat);
     counts.set(cat, (counts.get(cat) ?? 0) + 1);
+  }
+  // groupe entièrement de permissions → libellé neutre
+  if (order.length === 0) {
+    const n = actions.length;
+    return n > 1 ? t("tools.perm-n", { n }) : t("tools.perm-1");
   }
   const phrase = order.map((cat) => toolClause(cat, counts.get(cat) ?? 1)).join(", ");
   return phrase.charAt(0).toUpperCase() + phrase.slice(1);
