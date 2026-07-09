@@ -1843,7 +1843,13 @@ export default function App() {
       showAtelier={showAtelier}
       onGalleryReload={hardReloadAtelier}
       showExplorer={showExplorer}
-      onToggleExplorer={() => { setShowExplorer((v) => !v); switchToSurface("atelier"); }}
+      onToggleExplorer={() => {
+        // toggle seul : ne change PAS la surface active (sinon fermer
+        // l'explorateur depuis browser/terminal te ramènerait à la galerie).
+        // On sort juste du layout « chat » pour que l'atelier soit visible.
+        setLayout((l) => (l === "chat" ? "split" : l));
+        setShowExplorer((v) => !v);
+      }}
       onOpenGit={() => switchToSurface("git")}
     />
     <div className={`app-row ${dragging ? "dragging" : ""}`}>

@@ -384,7 +384,7 @@ html, body, #root, .app { height: 100vh; overflow: hidden;
 .topbar { height: 38px; flex-shrink: 0; display: flex; align-items: center;
   background: var(--bg-side); border-bottom: 1px solid var(--border2); gap: 8px; }
 .topbar-left { display: flex; align-items: center; height: 100%; min-width: 0;
-  padding-left: 76px; /* réserve les feux natifs : 14 + 3×12 + 2×8 + 10 de respiration */ }
+  padding-left: 92px; /* réserve les feux natifs (fin ≈ x66) + ~26 de respiration */ }
 /* pilule projet : tuile monogramme (identité du rail, miniaturisée) + nom ;
    chevron seulement au survol ; clic → menu sélecteur de projet */
 .topbar-crumb { display: inline-flex; align-items: center; gap: 8px; height: 26px; padding: 0 8px 0 4px;
@@ -401,7 +401,7 @@ html, body, #root, .app { height: 100vh; overflow: hidden;
 
 /* menu sélecteur de projet : surface élevée (fond + ombre, pas de bordure) */
 .topbar-left { position: relative; }
-.proj-menu { position: absolute; top: 34px; left: 78px; z-index: 120; width: 264px;
+.proj-menu { position: absolute; top: 34px; left: 90px; z-index: 120; width: 264px;
   background: var(--bg-pop); border-radius: var(--r-m); padding: 6px;
   box-shadow: 0 4px 16px rgba(0,0,0,.25), 0 12px 44px rgba(0,0,0,.30); }
 .proj-menu-head { display: flex; align-items: center; gap: 9px; padding: 9px 10px 8px;
