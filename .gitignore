@@ -27,3 +27,8 @@ sidecar/node_modules/
 src-tauri/sidecar-dist/
 src-tauri/gallery-dist/
 .opencode/
+
+# Local research/build artifacts
+/.fig_thumbs/
+/generated/
+/diff_test.*
