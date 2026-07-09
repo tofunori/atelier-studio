@@ -451,7 +451,7 @@ function startDrag(targets, e){
 }
 function capture(e){ if(svg.setPointerCapture && e.pointerId != null){ try{ svg.setPointerCapture(e.pointerId); }catch(err){} } }
 function onDown(e){
-  if(editing) return;
+  if(editing || spaceDown) return;                        // space held → the stagewrap pan handler owns this pointer
   if(!svg || (e.button !== undefined && e.button !== 0)) return;
   if(addMode){ e.preventDefault(); placeTextAt(e); setAdd(false); return; }   // place a new text label at the click
   if(lassoMode){                                          // click vertices to build a polygon (dbl-click / Enter / click 1st pt = close)
@@ -495,7 +495,7 @@ function onDown(e){
   drag.g = g; capture(e);
 }
 function onMove(e){
-  if(editing) return;
+  if(editing || spaceDown) return;                        // no grab-preview / drag while panning
   if(lasso){ const s = stagePt(e); lassoUpdate([s.x, s.y]); return; }   // rubber-band the next edge to the cursor
   if(drag){
     for(const it of drag.items){
