@@ -799,7 +799,7 @@ export default function Chat(p: {
   }, [pasteView]);
   const [fixing, setFixing] = useState(false);
   const [reviewMin, setReviewMin] = useState(false);
-  useEffect(() => { setBarOpen(false); setFixing(false); setReviewMin(false); }, [p.threadId]);
+  useEffect(() => { setBarOpen(false); setFixing(false); setReviewMin(false); stickRef.current = true; }, [p.threadId]);
   useEffect(() => setReview(null), [p.threadId]);
   useEffect(() => {
     const onReview = (e: Event) => {
@@ -895,13 +895,20 @@ export default function Chat(p: {
     reg.set("chat-ul", ul);
     return () => { reg.delete("chat-hl"); reg.delete("chat-ul"); };
   }, [marks, p.events]);
+  // suivi collant du bas : vrai tant que l'utilisateur n'a pas scrollé vers le haut
+  const stickRef = useRef(true);
   // La pastille « aller au dernier message » ne se recalculait que sur scroll :
   // quand l'agent répond (le contenu grandit sans événement de scroll), elle
   // n'apparaissait pas tant qu'on ne scrollait pas. p.events change d'identité
   // à chaque token → recalculer ici la garde après chaque mise à jour du fil.
   useEffect(() => {
     const el = messagesRef.current;
-    if (el) setShowJump(el.scrollHeight - el.scrollTop - el.clientHeight > 200);
+    if (!el) return;
+    // auto-scroll collant : tant que l'utilisateur est resté près du bas, suivre
+    // la réponse qui arrive ; remonter détache le suivi (stickRef mis à jour par
+    // onScroll), le bouton ↓ le rattache naturellement
+    if (stickRef.current) el.scrollTop = el.scrollHeight;
+    setShowJump(el.scrollHeight - el.scrollTop - el.clientHeight > 200);
   }, [p.events]);
   const [menuOpen, setMenuOpen] = useState(false);
   const [modelMenuProvider, setModelMenuProvider] = useState(provider);
@@ -1287,7 +1294,10 @@ export default function Chat(p: {
         onMouseUp={onMessagesMouseUp}
         onScroll={(e) => {
           const el = e.currentTarget;
-          setShowJump(el.scrollHeight - el.scrollTop - el.clientHeight > 200);
+          const fromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
+          // près du bas = on (re)colle le suivi ; remonter le détache
+          stickRef.current = fromBottom <= 80;
+          setShowJump(fromBottom > 200);
         }}
       >
         {!p.threadId && (
