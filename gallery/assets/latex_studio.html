@@ -868,8 +868,14 @@ function ghostInstall(){
 
 async function load(){
   const r = await fetch("/code?path=" + encodeURIComponent(path));
-  const j = await r.json();
-  if(j.error) return setState("err", j.error);
+  const j = await r.json().catch(() => ({}));
+  if(j.error || typeof j.text !== "string"){
+    // erreur visible dans le corps, pas seulement la barre de statut (éditeur vide muet sinon)
+    const esc = s => String(s).replace(/[&<>]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;"}[c]));
+    document.getElementById("left").innerHTML = '<div style="padding:24px;color:var(--muted,#9aa3af);font:13px/1.6 -apple-system,sans-serif">' +
+      'Impossible de charger <b>' + esc(path || "(aucun chemin)") + '</b><br>' + esc(j.error || ("HTTP " + r.status)) + '</div>';
+    return setState("err", j.error || ("HTTP " + r.status));
+  }
   recentsAdd(path);
   diskMtime = j.mtime;
   // re-mesurer CodeMirror quand le panneau est redimensionné (sinon les
