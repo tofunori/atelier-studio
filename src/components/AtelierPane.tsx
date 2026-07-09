@@ -7,7 +7,7 @@ import TerminalSurface from "./TerminalSurface";
 import BiblioSurface from "./BiblioSurface";
 import GeneratorSurface from "./GeneratorSurface";
 import { t } from "../lib/i18n";
-import { CloseIcon, CollapseIcon, ExpandIcon, OpenIcon, RefreshIcon } from "./icons";
+import { CloseIcon, OpenIcon, RefreshIcon } from "./icons";
 import type { Surface } from "./surfaces";
 
 type Tab = { id: string; url: string; title: string; color?: string; pinned?: boolean; kind?: "term"; cwd?: string };
@@ -29,8 +29,6 @@ export default function AtelierPane({
   onCloseTab,
   reloadKey,
   onHardReload,
-  layout,
-  onToggleExpand,
 }: {
   url: string;
   projectRoot: string;
@@ -168,9 +166,6 @@ export default function AtelierPane({
           ne reste ici que les actions propres à la surface active. */}
       <div className="surface-bar">
         <span className="flex" />
-        <button className="ghost" title={layout === "atelier" ? t("action.restore-split-atelier") : t("atelier.full")} onClick={onToggleExpand}>
-          {layout === "atelier" ? <CollapseIcon /> : <ExpandIcon />}
-        </button>
         {surface === "atelier" && (
           <>
             <button className="ghost" title={t("action.refresh-hard")} onClick={onHardReload}>

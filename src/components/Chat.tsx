@@ -19,9 +19,7 @@ import { MermaidBlock } from "./MermaidBlock";
 import type { HighlightEntry } from "./Rail";
 import {
   CloseIcon,
-  CollapseIcon,
   CopyIcon,
-  ExpandIcon,
   ForkIcon,
   PlusIcon,
   ProviderIcon,
@@ -1273,10 +1271,6 @@ export default function Chat(p: {
 
   return (
     <div className="chat">
-      <button className="expand-btn" title={p.layout === "chat" ? t("action.restore-split-chat") : t("chat.full")}
-        onClick={p.onToggleExpand}>
-        {p.layout === "chat" ? <CollapseIcon /> : <ExpandIcon />}
-      </button>
       {p.threadId && review && reviewMin && (
         <button
           className={`reviewer-strip v-${review.status === "running" ? "running" : review.verdict}`}
