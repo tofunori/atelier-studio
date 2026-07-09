@@ -10,16 +10,12 @@
   --r-s: 6px; --r-m: 10px; --r-pill: 999px;
   --elev: 0 4px 18px rgba(0,0,0,.28), 0 1px 4px rgba(0,0,0,.18);
   --ease: 140ms ease;
-  /* fond de fenêtre derrière les cartes flottantes (rail/panneau/zone
-     principale) — dérivé de --bg, jamais un hex arbitraire */
-  --ground: color-mix(in srgb, var(--bg) 62%, black);
 }
 :root[data-theme="light"] {
   --bg: #f5f6f8; --bg-side: #ebedf1; --bg-pop: #ffffff; --bg-card: #ffffff;
   --bg-ctl: #e3e6eb; --border: #d4d8df; --border2: #c3c9d2;
   --fg: #1c1e21; --fg2: #33373d; --muted: #667085; --muted2: #8a93a3;
   --hl-line: #a3771e;
-  --ground: color-mix(in srgb, var(--bg) 90%, black);
 }
 :root[data-density="compact"] { --pad-y: 3px; }
 :root, :root[data-density="comfortable"] { --pad-y: 6px; }
@@ -29,7 +25,7 @@ html.no-smoothing, html.no-smoothing body { -webkit-font-smoothing: auto !import
 html, body, #root, .app { height: 100vh; overflow: hidden;
   font-family: var(--ui-font);
   font-size: var(--fs-xl);
-  background: var(--ground); color: var(--fg);
+  background: var(--bg); color: var(--fg);
   -webkit-font-smoothing: antialiased; }
 .handle { width: 4px; background: var(--bg-ctl); }
 .sidebar { padding: 12px 10px; display: flex; flex-direction: column; gap: 8px;
@@ -307,19 +303,6 @@ html, body, #root, .app { height: 100vh; overflow: hidden;
   border-radius: var(--r-s); padding: 4px 10px; cursor: pointer; font-size: var(--fs-m); }
 .top-banner .ghost { background: transparent; color: var(--muted); padding: 4px 7px; }
 .atelier-wrap { display: flex; flex-direction: column; height: 100%; }
-/* pilules icône-seule quand le panneau est étroit (container query) */
-.surface-bar { container-type: inline-size; overflow-x: auto; scrollbar-width: none; }
-.surface-bar::-webkit-scrollbar { display: none; }
-/* dégradation progressive : les pilules INACTIVES perdent leur libellé d'abord,
-   la pilule active le garde (repère de position) ; tout-icône en dernier recours */
-@container (max-width: 760px) {
-  .surf:not(.on) .surf-label { display: none; }
-  .surf:not(.on) { padding: 5px 9px; }
-}
-@container (max-width: 380px) {
-  .surf.on .surf-label { display: none; }
-  .surf.on { padding: 5px 9px; }
-}
 .atelier-bar { display: flex; align-items: center; gap: 4px; padding: 0 10px; min-height: 36px;
   background: var(--bg-side); border-bottom: 1px solid var(--bg-ctl); }
 .atelier-bar .atelier-title { font-size: var(--fs-m); color: var(--muted); }
@@ -392,27 +375,39 @@ html, body, #root, .app { height: 100vh; overflow: hidden;
   box-shadow: 0 6px 18px rgba(0,0,0,0.5); }
 .quote-pill:hover { background: var(--border2); }
 .chev { color: var(--muted2); font-size: var(--fs-xs); width: 10px; display: inline-block; }
-/* AUCUNE bande de titre : décorations natives coupées, feux custom au sommet
-   du rail (.rail-titlebar). Les cartes montent au ras du haut. */
-.app-row { display: flex; height: 100vh; gap: 8px; padding: 8px; }
+/* ===== shell façon VS Code : barre 32px (feux natifs) + rail + panneau +
+   surface, tout COLLÉ — séparateurs 1px, aucune carte flottante, aucune
+   ombre, aucun rayon sur les zones du shell. ===== */
+.topbar { height: 32px; flex-shrink: 0; display: flex; align-items: center;
+  background: var(--bg-side); border-bottom: 1px solid var(--border2); gap: 8px; }
+.topbar-left { display: flex; align-items: center; height: 100%; min-width: 0;
+  padding-left: 78px; /* réserve les feux natifs (trafficLightPosition) */ }
+.topbar-project { color: var(--muted); font-size: var(--fs-m); overflow: hidden;
+  text-overflow: ellipsis; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.topbar .flex { flex: 1; }
+.topbar-cmd { display: inline-flex; align-items: center; gap: 7px; height: 22px;
+  width: clamp(280px, 32vw, 420px); padding: 0 10px; background: var(--bg-side);
+  border: 1px solid var(--border2); border-radius: var(--r-s); color: var(--muted);
+  font-size: var(--fs-m); cursor: pointer; transition: border-color var(--ease), color var(--ease); }
+.topbar-cmd:hover { color: var(--fg2); border-color: var(--muted2); }
+.topbar-cmd-label { flex: 1; text-align: left; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.topbar-cmd-kbd { flex-shrink: 0; color: var(--muted2); font-size: var(--fs-xs);
+  font-variant-numeric: tabular-nums; border: 1px solid var(--border2);
+  border-radius: var(--r-s); padding: 0 4px; line-height: 1.5; }
+.topbar-right { display: flex; align-items: center; gap: 8px; flex-shrink: 0; padding-right: 10px; }
+.tb-seg { display: inline-flex; background: var(--bg-ctl); border-radius: var(--r-m); padding: 3px; gap: 2px; }
+.tb-seg button { display: inline-flex; align-items: center; justify-content: center;
+  width: 26px; height: 22px; background: transparent; border: none; color: var(--muted);
+  border-radius: var(--r-s); cursor: pointer; transition: background-color var(--ease), color var(--ease); }
+.tb-seg button:hover:not(.on) { color: var(--fg2); }
+.tb-seg button.on { background: var(--bg); color: var(--fg); }
+.app-row { display: flex; height: calc(100vh - 32px); background: var(--bg); }
 .main-card { flex: 1; min-width: 0; height: 100%; overflow: hidden;
-  background: var(--bg-side); border: 1px solid var(--border2);
-  border-radius: var(--r-m); box-shadow: var(--elev); position: relative; }
-/* rail ÉTROIT, collé tout en haut ; ses feux custom sont son premier élément */
-.rail { width: 56px; flex-shrink: 0; background: var(--bg-side); display: flex; overflow-y: auto; overflow-x: hidden; scrollbar-width: none;
-  flex-direction: column; align-items: center; gap: 8px; padding: 0 0 10px;
-  border: 1px solid var(--border2); border-radius: var(--r-m); box-shadow: var(--elev); position: relative; }
-/* --- feux custom au sommet du rail (décorations natives coupées) --- */
-.rail-titlebar { width: 100%; display: flex; align-items: center; justify-content: center;
-  padding: 10px 0 8px; }
-.win-ctrls { display: flex; gap: 8px; }
-.wc { width: 12px; height: 12px; border-radius: 50%; border: none; padding: 0; cursor: pointer;
-  opacity: 0.9; transition: opacity var(--ease); }
-.rail:hover .wc { opacity: 1; }
-.wc-close { background: #f26059; }
-.wc-min { background: #f5b933; }
-.wc-full { background: #49b356; }
-.wc:active { transform: scale(0.9); }
+  background: var(--bg); position: relative; }
+/* rail = activity bar, 48px, collé (séparateur 1px à droite, pas de carte) */
+.rail { width: 48px; flex-shrink: 0; background: var(--bg-side); display: flex; overflow-y: auto; overflow-x: hidden; scrollbar-width: none;
+  flex-direction: column; align-items: center; gap: 8px; padding: 10px 0;
+  border-right: 1px solid var(--border2); position: relative; }
 .rail .flex { flex: 1; }
 .rail-btn { width: 38px; height: 38px; border-radius: var(--r-m); border: none;
   background: transparent; color: var(--muted); font-size: var(--fs-xl); cursor: pointer;
@@ -426,7 +421,7 @@ html, body, #root, .app { height: 100vh; overflow: hidden;
   transition: background-color var(--ease), color var(--ease); }
 .rail-view:hover { color: var(--fg); background: var(--bg-ctl); }
 .rail-view.on { color: var(--fg); background: var(--bg-ctl); }
-.rail-view.on::before { content: ""; position: absolute; left: -9px; top: 7px; bottom: 7px;
+.rail-view.on::before { content: ""; position: absolute; left: -5px; top: 7px; bottom: 7px;
   width: 2px; border-radius: var(--r-s); background: var(--accent); }
 .rail-sep { width: 26px; height: 1px; background: var(--border); margin: 2px 0 4px; flex-shrink: 0; }
 .rail-proj { position: relative; width: 38px; height: 38px; border-radius: var(--r-m);
@@ -445,7 +440,7 @@ html, body, #root, .app { height: 100vh; overflow: hidden;
    cadre accent du projet actif (même orange) et devenait invisible */
 .rail-dot { position: absolute; top: 3px; right: 3px; width: 8px; height: 8px;
   border-radius: var(--r-pill); background: var(--accent); border: 2px solid var(--bg-side); }
-.rail-menu { position: fixed; left: 64px; z-index: 120; background: var(--bg-pop);
+.rail-menu { position: fixed; left: 56px; z-index: 120; background: var(--bg-pop);
   border: 1px solid var(--border); border-radius: var(--r-m); padding: 12px; width: 200px;
   display: flex; flex-direction: column; gap: 10px;
   box-shadow: 0 8px 24px rgba(0,0,0,0.5); }
@@ -956,18 +951,9 @@ input[type="range"].slider::-webkit-slider-thumb:hover { transform: scale(1.15);
 .plus-menu div:hover { background: var(--bg-ctl); }
 .term-host { position: absolute; inset: 0; padding: 6px 4px 4px 8px; background: #1a1d22; }
 .term-host .xterm { height: 100%; }
-/* barre de surfaces façon Synara */
+/* barre d'outils de la surface (la bascule entre surfaces vit dans le rail) */
 .surface-bar { display: flex; align-items: center; gap: 4px; padding: 6px 8px;
   background: var(--bg-side); border-bottom: 1px solid var(--border); }
-.surf { display: inline-flex; align-items: center; gap: 7px; background: transparent;
-  border: none; color: var(--muted); font-size: var(--fs-l); padding: 6px 12px;
-  border-radius: var(--r-m); cursor: pointer; }
-.surf:hover { color: var(--fg2); }
-.surf.on { background: var(--bg-ctl); color: var(--fg); }
-.surf-badge { min-width: 17px; height: 17px; padding: 0 5px; border-radius: var(--r-pill);
-  background: color-mix(in srgb, var(--accent) 18%, var(--bg-ctl)); color: var(--fg);
-  font-size: var(--fs-s); display: inline-flex; align-items: center; justify-content: center;
-  font-variant-numeric: tabular-nums; }
 .surface-body { display: flex; flex-direction: column; flex: 1; min-height: 0; }
 .surface-body .atelier-body { position: relative; flex: 1; min-height: 0; }
 
@@ -1202,10 +1188,10 @@ button.ghost.danger, button.ghost.danger:hover { color: #d98c8f; background: rgb
   padding: 1px 7px; margin: 0 1px; cursor: pointer; line-height: 1.5; }
 .file-ref:hover { border-color: var(--accent); color: var(--fg); }
 .file-ref svg { opacity: 0.6; flex-shrink: 0; }
-/* sidebar hors PanelGroup : largeur fixe, poignée de resize manuelle */
+/* panneau de vue (Chats/Surlignés) hors PanelGroup : largeur fixe, poignée de
+   resize manuelle — collé, séparateur 1px, pas de carte */
 .side-fixed { flex-shrink: 0; height: 100%; overflow: hidden;
-  background: var(--bg-side); border: 1px solid var(--border2);
-  border-radius: var(--r-m); box-shadow: var(--elev); }
+  background: var(--bg-side); border-right: 1px solid var(--border2); }
 .side-handle { cursor: col-resize; flex-shrink: 0; }
 /* barre de sélection (Highlight / Underline / Add to chat) façon Synara */
 .sel-toolbar { position: fixed; transform: translateX(-50%); z-index: 120;
@@ -1457,7 +1443,6 @@ button.ghost.danger, button.ghost.danger:hover { color: #d98c8f; background: rgb
 .drop-zone { flex: 1; border: 2px solid transparent; border-radius: var(--r-m); margin: 6px;
   transition: background 0.1s, border-color 0.1s; }
 .drop-zone.hot { background: rgba(91,157,255,0.14); border-color: rgba(91,157,255,0.55); }
-.surf.second { border-bottom: 2px solid var(--border2); }
 body.dragging iframe { pointer-events: none; }
 /* pilule de navigation du chat : dernier message / bas */
 .jump-pill { position: absolute; bottom: 96px; left: 50%; transform: translateX(-50%);
@@ -1921,11 +1906,10 @@ body.dragging iframe { pointer-events: none; }
 .goal-editor input:focus { border-color: color-mix(in srgb, var(--fg) 30%, transparent); }
 .goal-editor button { font-size: var(--fs-s); }
 /* ===== flyout du rail (chats d'un projet en mode compact, façon Discord) ===== */
-/* recalé sur la nouvelle géométrie : rail card = 8px gouttière + 80px + 8px ;
-   sous la zone titre (42px) ; ne couvre pas le rail : les clics sur les
-   icônes passent, et la zone titre reste draguable même flyout ouvert */
-.fly-backdrop { position: fixed; inset: 8px 0 0 64px; z-index: 60; }
-.rail-flyout { position: fixed; left: 72px; top: 8px; bottom: 8px; width: 236px; z-index: 61;
+/* recalé sur la géométrie shell : topbar 32px + rail collé 48px ; ne couvre
+   pas le rail (les clics sur les icônes passent), reste sous la topbar */
+.fly-backdrop { position: fixed; inset: 32px 0 0 48px; z-index: 60; }
+.rail-flyout { position: fixed; left: 56px; top: 40px; bottom: 8px; width: 236px; z-index: 61;
   background: var(--bg-pop); border: 1px solid var(--border2); border-radius: var(--r-m); box-shadow: var(--elev);
   display: flex; flex-direction: column; padding: 8px;
   animation: fly-in 140ms ease; transform-origin: left; }

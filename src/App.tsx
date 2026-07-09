@@ -12,6 +12,8 @@ import {
 } from "./lib/ws";
 import Sidebar from "./components/Sidebar";
 import Rail, { ProjMeta, HighlightEntry } from "./components/Rail";
+import TopBar from "./components/TopBar";
+import type { Surface } from "./components/surfaces";
 import { setWs } from "./lib/wsBus";
 import Chat from "./components/Chat";
 import Banner from "./components/Banner";
@@ -610,6 +612,16 @@ export default function App() {
   }, [activeId, threads]);
   const [layout, setLayout] = useState<"split" | "chat" | "atelier">("split");
   const showAtelier = layout !== "chat";
+  // miroir de la surface active de AtelierPane (côté App, pour l'icône active
+  // du rail) — AtelierPane ne change sa surface qu'en réaction à l'event
+  // switch-surface, lui-même TOUJOURS dispatché par switchToSurface ci-dessous :
+  // les deux restent donc synchronisés sans toucher à la logique de AtelierPane.
+  const [activeSurface, setActiveSurface] = useState<Surface>("atelier");
+  function switchToSurface(surface: Surface) {
+    setLayout((l) => (l === "chat" ? "split" : l));
+    setActiveSurface(surface);
+    window.dispatchEvent(new CustomEvent("switch-surface", { detail: { surface } }));
+  }
 
   function ensureThreadForContext(title: string): string {
     const existing = activeIdRef.current;
@@ -1374,9 +1386,8 @@ export default function App() {
       setActiveTab(newId);
       return [...tabs, { id: newId, url, title: name }];
     });
-    setLayout((l) => (l === "chat" ? "split" : l));
     // l'onglet vit dans la surface Atelier : y basculer si on est ailleurs
-    window.dispatchEvent(new CustomEvent("switch-surface", { detail: { surface: "atelier" } }));
+    switchToSurface("atelier");
   }
   const openFileTabRef = useRef(openFileTab);
   openFileTabRef.current = openFileTab;
@@ -1733,10 +1744,7 @@ export default function App() {
     actions: {
       newChat: () => activeProject ? newThread(activeProject) : newChat(),
       openResume: () => window.dispatchEvent(new CustomEvent("atelier-open-resume", { detail: { provider: "claude" } })),
-      switchSurface: (surface) => {
-        setLayout((layout) => (layout === "chat" ? "split" : layout));
-        window.dispatchEvent(new CustomEvent("switch-surface", { detail: { surface } }));
-      },
+      switchSurface: switchToSurface,
       setLayout,
       openSettings: () => setShowSettings(true),
       retitleAll: () => ws.current?.readyState === 1 && ws.current.send(JSON.stringify({ type: "retitleAll" })),
@@ -1757,8 +1765,7 @@ export default function App() {
         setLayout((layout) => (layout === "atelier" ? "split" : layout));
       },
       selectZotero: (key) => {
-        setLayout((layout) => (layout === "chat" ? "split" : layout));
-        window.dispatchEvent(new CustomEvent("switch-surface", { detail: { surface: "biblio" } }));
+        switchToSurface("biblio");
         window.setTimeout(() => {
           window.dispatchEvent(new CustomEvent("biblio-select", { detail: { key } }));
         }, 0);
@@ -1786,8 +1793,15 @@ export default function App() {
 
   return (
     <>
-    {/* plus de bande de titre : les feux custom vivent au sommet du rail
-        (WindowControls), le rail est donc étroit et collé tout en haut */}
+    {/* feux NATIFS (titleBarStyle Overlay + trafficLightPosition, cf.
+        tauri.conf.json) repositionnés dans cette barre — plus de feux custom */}
+    <TopBar
+      activeProjectName={activeProject ? projectDisplayName(activeProject) : ""}
+      layout={layout}
+      onSetLayout={setLayout}
+      onOpenPalette={() => setPaletteOpen(true)}
+      onQuickAsk={() => window.dispatchEvent(new CustomEvent("quick-ask-toggle"))}
+    />
     <div className={`app-row ${dragging ? "dragging" : ""}`}>
         <Rail
           projects={projects}
@@ -1799,6 +1813,9 @@ export default function App() {
           unread={unread}
           activeView={activeView}
           highlights={highlights}
+          layout={layout}
+          activeSurface={activeSurface}
+          onSelectSurface={switchToSurface}
           onSelectView={setActiveView}
           onSelectThread={(id) => { const th = allThreads.find((t) => t.id === id); if (th) selectThread(id, th.projectRoot); }}
           onSelectProject={selectProject}

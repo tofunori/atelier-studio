@@ -7,67 +7,11 @@ import TerminalSurface from "./TerminalSurface";
 import BiblioSurface from "./BiblioSurface";
 import GeneratorSurface from "./GeneratorSurface";
 import { t } from "../lib/i18n";
-import { BookIcon, BranchIcon, CloseIcon, CollapseIcon, ExpandIcon, OpenIcon, RefreshIcon } from "./icons";
+import { CloseIcon, CollapseIcon, ExpandIcon, OpenIcon, RefreshIcon } from "./icons";
+import type { Surface } from "./surfaces";
 
 type Tab = { id: string; url: string; title: string; color?: string; pinned?: boolean; kind?: "term"; cwd?: string };
 const TAB_COLORS = ["#e05d5d", "#e8823a", "#8b5cf6", "#3b82f6", "#22b07d", "#e0b74a"];
-
-type Surface = "atelier" | "browser" | "terminal" | "git" | "biblio" | "generateur";
-
-const SURFACES: { id: Surface; labelKey: "atelier.surface" | "atelier.browser" | "atelier.terminal" | "atelier.git" | "atelier.biblio" | "atelier.generateur"; icon: React.ReactNode }[] = [
-  {
-    id: "atelier",
-    labelKey: "atelier.surface",
-    icon: (
-      <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3">
-        <rect x="1.5" y="1.5" width="5.2" height="5.2" rx="1" />
-        <rect x="9.3" y="1.5" width="5.2" height="5.2" rx="1" />
-        <rect x="1.5" y="9.3" width="5.2" height="5.2" rx="1" />
-        <rect x="9.3" y="9.3" width="5.2" height="5.2" rx="1" />
-      </svg>
-    ),
-  },
-  {
-    id: "browser",
-    labelKey: "atelier.browser",
-    icon: (
-      <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.2">
-        <circle cx="8" cy="8" r="6.2" />
-        <path d="M1.8 8h12.4M8 1.8c2.2 2 2.2 10.4 0 12.4M8 1.8c-2.2 2-2.2 10.4 0 12.4" />
-      </svg>
-    ),
-  },
-  {
-    id: "terminal",
-    labelKey: "atelier.terminal",
-    icon: (
-      <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.2">
-        <rect x="1.8" y="2.8" width="12.4" height="10.4" rx="2" />
-        <path d="M4.5 6l2.2 2-2.2 2M8.5 10.5h3" />
-      </svg>
-    ),
-  },
-  {
-    id: "git",
-    labelKey: "atelier.git",
-    icon: <BranchIcon />,
-  },
-  {
-    id: "biblio",
-    labelKey: "atelier.biblio",
-    icon: <BookIcon />,
-  },
-  {
-    id: "generateur",
-    labelKey: "atelier.generateur",
-    icon: (
-      <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round">
-        <path d="M8 1.6l1 3 3 1-3 1-1 3-1-3-3-1 3-1z" />
-        <path d="M13 9.4l.55 1.65 1.65.55-1.65.55-.55 1.65-.55-1.65-1.65-.55 1.65-.55z" />
-      </svg>
-    ),
-  },
-];
 
 export default function AtelierPane({
   url,
@@ -139,7 +83,6 @@ export default function AtelierPane({
   const [overId, setOverId] = useState<string | null>(null);
   const [tabMenu, setTabMenu] = useState<{ id: string; x: number; y: number } | null>(null);
   const [galleryLoaded, setGalleryLoaded] = useState(false);
-  const [gitCount, setGitCount] = useState(0);
 
   useEffect(() => {
     setGalleryLoaded(false);
@@ -154,31 +97,6 @@ export default function AtelierPane({
     const f = document.querySelector(sel) as HTMLIFrameElement | null;
     f?.contentWindow?.postMessage({ type: "atelier-tab-activated" }, "*");
   }, [activeTab]);
-
-  useEffect(() => {
-    const request = () => {
-      if (ws?.readyState === WebSocket.OPEN && projectRoot) {
-        ws.send(JSON.stringify({ type: "gitStatus", projectRoot }));
-      }
-    };
-    request();
-    const timer = window.setInterval(request, 15000);
-    const onStatus = (e: Event) => {
-      const msg = (e as CustomEvent).detail;
-      if (msg.projectRoot === projectRoot) setGitCount(msg.status?.files?.length ?? 0);
-    };
-    const onChanged = (e: Event) => {
-      const msg = (e as CustomEvent).detail;
-      if (!msg.projectRoot || msg.projectRoot === projectRoot) request();
-    };
-    window.addEventListener("git-status", onStatus);
-    window.addEventListener("git-changed", onChanged);
-    return () => {
-      window.clearInterval(timer);
-      window.removeEventListener("git-status", onStatus);
-      window.removeEventListener("git-changed", onChanged);
-    };
-  }, [projectRoot, ws]);
 
   function switchSurface(s: Surface) {
     if (s === second) {
@@ -245,22 +163,10 @@ export default function AtelierPane({
 
   return (
     <div className="atelier-wrap">
-      {/* barre de surfaces façon Synara */}
+      {/* barre d'outils de la surface : la bascule entre surfaces (Galerie,
+          Browser, Terminal…) vit désormais dans le rail (activity bar) —
+          ne reste ici que les actions propres à la surface active. */}
       <div className="surface-bar">
-        {SURFACES.map((s) => (
-          <button
-            key={s.id}
-            className={`surf ${surface === s.id ? "on" : ""} ${second === s.id ? "second" : ""}`}
-            onClick={() => switchSurface(s.id)}
-            draggable
-            onDragStart={(e) => { setDragSurf(s.id); e.dataTransfer.effectAllowed = "move"; }}
-            onDragEnd={() => { setDragSurf(null); setDropHint(null); }}
-          >
-            {s.icon}
-            <span className="surf-label">{t(s.labelKey)}</span>
-            {s.id === "git" && gitCount > 0 && <span className="surf-badge">{gitCount}</span>}
-          </button>
-        ))}
         <span className="flex" />
         <button className="ghost" title={layout === "atelier" ? t("action.restore-split-atelier") : t("atelier.full")} onClick={onToggleExpand}>
           {layout === "atelier" ? <CollapseIcon /> : <ExpandIcon />}

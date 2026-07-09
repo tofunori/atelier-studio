@@ -3,7 +3,7 @@ import { t } from "../lib/i18n";
 import { ChatsIcon, HighlighterIcon, PlusIcon, SettingsIcon, SidebarIcon } from "./icons";
 import { PROJ_ICONS, ProjIcon, threadTitle, rawThreadTitle, recencyLabelKey, withRecencySections, moveThreadTo } from "./Sidebar";
 import { ProviderIcon } from "./icons";
-import WindowControls from "./WindowControls";
+import { SURFACES, type Surface } from "./surfaces";
 import type { Thread } from "../lib/ws";
 import type { ViewId } from "../lib/settings";
 
@@ -49,6 +49,9 @@ export default function Rail(p: {
   unread: Set<string>;
   activeView: ViewId;
   highlights: HighlightEntry[];
+  layout: "split" | "chat" | "atelier";
+  activeSurface: Surface;
+  onSelectSurface: (surface: Surface) => void;
   onSelectView: (view: ViewId) => void;
   onSelectThread: (id: string) => void;
   onSelectProject: (root: string) => void;
@@ -89,11 +92,6 @@ export default function Rail(p: {
 
   return (
     <div className="rail" onClick={() => setMenu(null)}>
-      {/* sommet du rail : feux custom + zone de drag (décorations natives
-          coupées) → rail étroit collé tout en haut, aucune bande de titre */}
-      <div className="rail-titlebar" data-tauri-drag-region>
-        <WindowControls />
-      </div>
       <button className="rail-btn" title={t("action.expand-sidebar")} onClick={p.onExpand}>
         <SidebarIcon size={19} />
       </button>
@@ -114,6 +112,22 @@ export default function Rail(p: {
           onMouseEnter={() => openOnHover(HIGHLIGHTS_FLY)} onMouseLeave={cancelHover}>
           <HighlighterIcon size={19} />
         </button>
+      </div>
+      <div className="rail-sep" />
+      {/* activity bar : surfaces de travail — clic bascule via switchSurface
+          (câblé côté App), icône active reflète l'état SI l'atelier est
+          visible (layout ≠ "chat") */}
+      <div className="rail-views">
+        {SURFACES.map((s) => (
+          <button
+            key={s.id}
+            className={`rail-view ${p.layout !== "chat" && p.activeSurface === s.id ? "on" : ""}`}
+            title={t(s.labelKey)}
+            onClick={() => p.onSelectSurface(s.id)}
+          >
+            {s.icon}
+          </button>
+        ))}
       </div>
       <div className="rail-sep" />
       {p.projects.map((root) => {
