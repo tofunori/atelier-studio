@@ -1,20 +1,20 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Panel, PanelGroup, PanelResizeHandle } from "react-resizable-panels";
-import { invoke } from "@tauri-apps/api/core";
 import { open } from "@tauri-apps/plugin-dialog";
 import {
-  connectSidecar,
   sendPrompt,
   requestCatalog,
   Thread,
   AgentEvent,
   Command,
 } from "./lib/ws";
+import { useSidecarConnection, type SidecarStatus } from "./hooks/useSidecarConnection";
+import { useAtelierServer } from "./hooks/useAtelierServer";
+import { useWorkspaceEvents } from "./hooks/useWorkspaceEvents";
 import Sidebar from "./components/Sidebar";
 import Rail, { ProjMeta, HighlightEntry } from "./components/Rail";
 import TopBar from "./components/TopBar";
 import type { Surface } from "./components/surfaces";
-import { setWs } from "./lib/wsBus";
 import Chat from "./components/Chat";
 import Banner from "./components/Banner";
 import AtelierPane from "./components/AtelierPane";
@@ -356,9 +356,22 @@ function HighlightsPanel(p: {
 export default function App() {
   const atelierNonceRef = useRef(crypto.randomUUID());
   const atelierNonce = atelierNonceRef.current;
-  const ws = useRef<WebSocket | null>(null);
-  const [mock, setMock] = useState(false);
-  const [wsReady, setWsReady] = useState(false);
+  // Connexion sidecar extraite dans useSidecarConnection (slice 2.1) —
+  // comportement identique : bootstrap getSettings/listHighlights à la
+  // première connexion, bannière sur coupure/échec, retry géré par le hook.
+  // handleMessage est déclaré plus bas (function hissée, corps inchangé).
+  const onSidecarStatus = (status: SidecarStatus, sock: WebSocket | null) => {
+    if (status === "connected" || status === "reconnected") {
+      setAppBanner((b) => b?.text === t("app.sidecar-disconnected") ? null : b);
+      if (status === "connected" && sock) {
+        sock.send(JSON.stringify({ type: "getSettings" }));
+        sock.send(JSON.stringify({ type: "listHighlights" }));
+      }
+    } else {
+      setAppBanner({ text: t("app.sidecar-disconnected") });
+    }
+  };
+  const { wsRef: ws, wsReady, mock } = useSidecarConnection(handleMessage, onSidecarStatus);
   const [projects, setProjects] = useState<string[]>(loadProjects);
   const [activeProject, setActiveProject] = useState<string | null>(
     loadProjects()[0] ?? null,
@@ -387,7 +400,6 @@ export default function App() {
   const [annotation, setAnnotation] = useState<string | null>(null);
   const [injectText, setInjectText] = useState<string | null>(null);
   const [attachments, setAttachments] = useState<Attachment[]>([]);
-  const [atelierReload, setAtelierReload] = useState(0);
   const [appBanner, setAppBanner] = useState<{
     text: string;
     actionLabel?: string;
@@ -598,7 +610,46 @@ export default function App() {
   activeIdRef.current = activeId;
   const activeProjectRef = useRef(activeProject);
   activeProjectRef.current = activeProject;
-  const [atelierUrls, setAtelierUrls] = useState<Record<string, string>>({});
+  // Serveur atelier extrait dans useAtelierServer (slice 2.2) — démarrage par
+  // projet, sonde 15 s, relance dure ; restauration des onglets épinglés et
+  // bannières restent ici (domaines App).
+  const {
+    atelierUrl,
+    reloadKey: atelierReload,
+    hardReload: hardReloadAtelier,
+    bumpReload: bumpAtelierReload,
+  } = useAtelierServer(activeProject, {
+    atelierNonce,
+    galleryConfig: () => ({
+      galleryDir: settingsRef.current.galleryPath,
+      galleryExts: (activeProjectRef.current
+        ? settingsRef.current.galleryExtsByProject?.[activeProjectRef.current] ?? ""
+        : "") || settingsRef.current.galleryExts || "",
+    }),
+    onRecovered: () => setAppBanner((b) => b?.text.startsWith("start_atelier:") ? null : b),
+    onError: (message) => setAppBanner({
+      text: `start_atelier: ${message}`,
+      actionLabel: t("app.start-settings"),
+      onAction: () => setShowSettings(true),
+      closable: true,
+    }),
+    onReady: (project) => {
+      // restaurer les onglets épinglés de ce projet
+      try {
+        const store = JSON.parse(localStorage.getItem("atelier-studio.pinnedTabs") ?? "{}");
+        const pinned: { url: string; title: string; color?: string }[] = store[project] ?? [];
+        if (pinned.length) {
+          setAtelierTabs((tabs) => {
+            const have = new Set(tabs.map((t) => t.url));
+            const news = pinned
+              .filter((pt) => !have.has(pt.url))
+              .map((pt) => ({ id: crypto.randomUUID(), ...pt, url: withAtelierNonce(pt.url, atelierNonce), pinned: true }));
+            return [...tabs, ...news];
+          });
+        }
+      } catch {}
+    },
+  });
   // à l'ouverture d'un chat Codex avec session : recharge le goal actif (s'il existe)
   const goalFetched = useRef<Set<string>>(new Set());
   useEffect(() => {
@@ -641,22 +692,6 @@ export default function App() {
   // le bouton reflète son état actif). Fermé par défaut à chaque démarrage —
   // pas de persistance : il ne se rouvre plus tout seul, on l'ouvre au besoin.
   const [showExplorer, setShowExplorer] = useState(false);
-  // relance dure de la galerie (redémarre le serveur s'il est mort) — extraite
-  // de l'ancienne surface-bar, désormais dans la TopBar (surface atelier)
-  function hardReloadAtelier() {
-    if (!activeProject) return;
-    invoke<string>("start_atelier", { root: activeProject, galleryDir: settingsRef.current.galleryPath, galleryExts: (settingsRef.current.galleryExtsByProject?.[activeProject] ?? "") || settingsRef.current.galleryExts || "" })
-      .then((url) => {
-        const nonceUrl = withAtelierNonce(url, atelierNonce);
-        setAppBanner((b) => b?.text.startsWith("start_atelier:") ? null : b);
-        setAtelierUrls((p) => ({ ...p, [activeProject]: nonceUrl }));
-        setAtelierReload((n) => n + 1);
-      })
-      .catch((e) => {
-        console.error("start_atelier:", e);
-        setAppBanner({ text: `start_atelier: ${String(e)}`, actionLabel: t("app.start-settings"), onAction: () => setShowSettings(true), closable: true });
-      });
-  }
 
   function ensureThreadForContext(title: string): string {
     const existing = activeIdRef.current;
@@ -690,47 +725,9 @@ export default function App() {
     setLayout((l) => (l === "atelier" ? "split" : l));
   }
 
-  useEffect(() => {
-    // Annulation explicite plutôt que garde connectedOnce : StrictMode monte
-    // l'effet 2× en dev, le cleanup abort/ferme la 1re connexion — il ne reste
-    // toujours qu'une seule socket active, sans état module résiduel.
-    const ctrl = new AbortController();
-    let retryTimer: ReturnType<typeof setTimeout> | null = null;
-    const scheduleConnect = (delay = 0) => {
-      if (retryTimer) clearTimeout(retryTimer);
-      retryTimer = setTimeout(() => {
-        if (ctrl.signal.aborted) return;
-        connectSidecar(handleMessage, (next) => {
-          if (ctrl.signal.aborted) return;
-          ws.current = next;
-          setWs(next);
-          setMock(false);
-          setAppBanner((b) => b?.text === t("app.sidecar-disconnected") ? null : b);
-          setWsReady(true);
-        }, () => {
-          setWsReady(false);
-          setAppBanner({ text: t("app.sidecar-disconnected") });
-        }, ctrl.signal)
-          .then((s) => {
-            if (ctrl.signal.aborted) return;
-            ws.current = s;
-            setWs(s);
-            setMock(false);
-            setAppBanner((b) => b?.text === t("app.sidecar-disconnected") ? null : b);
-            setWsReady(true);
-            s.send(JSON.stringify({ type: "getSettings" }));
-            s.send(JSON.stringify({ type: "listHighlights" }));
-          })
-          .catch(() => {
-            if (ctrl.signal.aborted) return;
-            setMock(true);
-            setWsReady(false);
-            setAppBanner({ text: t("app.sidecar-disconnected") });
-            scheduleConnect(3000);
-          });
-      }, delay);
-    };
-    const handleMessage = (msg: any) => {
+  // Dispatcher des messages sidecar — corps inchangé (slice 2.1), branché via
+  // useSidecarConnection. Function hissée : le hook est appelé plus haut.
+  function handleMessage(msg: any) {
       if (msg.type === "settingsFile") {
         const hasLocal = localStorage.getItem("atelier-studio.settings") !== null;
         const { projMeta: diskMeta, projects: diskProjects, ...diskSettings } = msg.settings ?? {};
@@ -910,7 +907,7 @@ export default function App() {
             setUnread((u) => new Set(u).add(msg.threadId));
           }
           // l'agent a peut-être régénéré des figures → recharger atelier
-          if (msg.event.kind === "done" && settingsRef.current.autoRefreshAtelier) setAtelierReload((n) => n + 1);
+          if (msg.event.kind === "done" && settingsRef.current.autoRefreshAtelier) bumpAtelierReload();
           // l'agent a peut-être créé des fichiers → rafraîchir le catalogue (résolution des chips)
           if (msg.event.kind === "done" && activeProjectRef.current && ws.current?.readyState === 1) {
             requestCatalog(ws.current, activeProjectRef.current);
@@ -1136,14 +1133,7 @@ export default function App() {
           }
         }
       }
-    };
-    scheduleConnect();
-    return () => {
-      ctrl.abort();
-      if (retryTimer) clearTimeout(retryTimer);
-      try { ws.current?.close(); } catch { /* déjà fermée */ }
-    };
-  }, []);
+  }
 
   useEffect(() => {
     const onZoteroItems = (e: Event) => {
@@ -1154,7 +1144,10 @@ export default function App() {
     return () => window.removeEventListener("zotero-items", onZoteroItems);
   }, []);
 
-  useEffect(() => {
+  // Famille d'événements « palette / revue / quick-ask » (slice 2.3) : les
+  // handlers gardent leurs closures sur l'état d'App ; useWorkspaceEvents ne
+  // gère que subscription + cleanup (testé).
+  {
     const onCitation = (e: Event) => {
       const detail = (e as CustomEvent).detail as {
         text: string;
@@ -1222,15 +1215,12 @@ export default function App() {
           ev.kind === "permission" && ev.requestId === requestId ? { ...ev, answered: allow } : ev),
       }));
     };
-    window.addEventListener("permission-answer", onPermAnswer);
-    window.addEventListener("correct-issues", onCorrectIssues);
     const onRequestReview = (e: Event) => {
       const threadId = (e as CustomEvent).detail?.threadId;
       if (threadId && ws.current?.readyState === 1) {
         ws.current.send(JSON.stringify({ type: "requestReview", threadId, autoReview: settingsRef.current.autoReview }));
       }
     };
-    window.addEventListener("request-review", onRequestReview);
     const onQaToggle = () => {
       const mode = qaModeRef.current;
       if (mode === "open") { setQaMode("min"); return; }
@@ -1240,24 +1230,19 @@ export default function App() {
       setQaMode("open");
     };
     const onOpenPalette = () => setPaletteOpen(true);
-    window.addEventListener("open-palette", onOpenPalette);
-    window.addEventListener("quick-ask-toggle", onQaToggle);
     const onUsageToggle = () => setUsageOpen((v) => !v);
-    window.addEventListener("usage-toggle", onUsageToggle);
-    window.addEventListener("quick-ask-open", onQaOpen);
-    window.addEventListener("atelier-add-to-chat-citation", onCitation);
-    return () => {
-      window.removeEventListener("autoreview-toggle", onAutoReviewToggle);
-      window.removeEventListener("permission-answer", onPermAnswer);
-      window.removeEventListener("correct-issues", onCorrectIssues);
-      window.removeEventListener("request-review", onRequestReview);
-      window.removeEventListener("open-palette", onOpenPalette);
-      window.removeEventListener("quick-ask-toggle", onQaToggle);
-      window.removeEventListener("usage-toggle", onUsageToggle);
-      window.removeEventListener("quick-ask-open", onQaOpen);
-      window.removeEventListener("atelier-add-to-chat-citation", onCitation);
-    };
-  }, []);
+    useWorkspaceEvents({
+      "atelier-add-to-chat-citation": onCitation,
+      "quick-ask-open": onQaOpen,
+      "autoreview-toggle": onAutoReviewToggle,
+      "permission-answer": onPermAnswer,
+      "correct-issues": onCorrectIssues,
+      "request-review": onRequestReview,
+      "open-palette": onOpenPalette,
+      "quick-ask-toggle": onQaToggle,
+      "usage-toggle": onUsageToggle,
+    });
+  }
 
   useEffect(() => {
     localStorage.setItem(PROJECTS_KEY, JSON.stringify(projects));
@@ -1270,39 +1255,6 @@ export default function App() {
     }
   }, [activeProject, wsReady]);
 
-  // (ré)ouvre le serveur atelier du projet actif
-  useEffect(() => {
-    if (!activeProject || atelierUrls[activeProject]) return;
-    invoke<string>("start_atelier", { root: activeProject, galleryDir: settingsRef.current.galleryPath, galleryExts: (settingsRef.current.galleryExtsByProject?.[activeProject] ?? "") || settingsRef.current.galleryExts || "" })
-      .then((url) => {
-        const nonceUrl = withAtelierNonce(url, atelierNonce);
-        setAppBanner((b) => b?.text.startsWith("start_atelier:") ? null : b);
-        setAtelierUrls((p) => ({ ...p, [activeProject]: nonceUrl }));
-        // restaurer les onglets épinglés de ce projet
-        try {
-          const store = JSON.parse(localStorage.getItem("atelier-studio.pinnedTabs") ?? "{}");
-          const pinned: { url: string; title: string; color?: string }[] = store[activeProject] ?? [];
-          if (pinned.length) {
-            setAtelierTabs((tabs) => {
-              const have = new Set(tabs.map((t) => t.url));
-              const news = pinned
-                .filter((pt) => !have.has(pt.url))
-                .map((pt) => ({ id: crypto.randomUUID(), ...pt, url: withAtelierNonce(pt.url, atelierNonce), pinned: true }));
-              return [...tabs, ...news];
-            });
-          }
-        } catch {}
-      })
-      .catch((e) => {
-        console.error("start_atelier:", e);
-        setAppBanner({
-          text: `start_atelier: ${String(e)}`,
-          actionLabel: t("app.start-settings"),
-          onAction: () => setShowSettings(true),
-          closable: true,
-        });
-      });
-  }, [activeProject]);
 
   // "Add to chat" depuis le Browser (sélection si possible, sinon page courante)
   useEffect(() => {
@@ -1747,30 +1699,6 @@ export default function App() {
     return () => clearInterval(iv);
   }, [wsReady]);
 
-  const atelierUrl = activeProject ? atelierUrls[activeProject] : null;
-
-  // le serveur galerie peut mourir (kill, reboot) : sonde 15 s → relance
-  useEffect(() => {
-    if (!activeProject || !atelierUrl) return;
-    let fails = 0;
-    const iv = setInterval(async () => {
-      try {
-        await fetch(atelierUrl, { method: "HEAD", mode: "no-cors", cache: "no-store" });
-        fails = 0;
-      } catch {
-        // 2 échecs consécutifs requis : un redémarrage de serveur (~8s de build)
-        // ne doit pas déclencher une relance en boucle
-        if (++fails >= 2) {
-          fails = 0;
-          setAtelierUrls((p) => {
-            const { [activeProject]: _, ...rest } = p;
-            return rest; // l'effet start_atelier se redéclenche
-          });
-        }
-      }
-    }, 15000);
-    return () => clearInterval(iv);
-  }, [activeProject, atelierUrl]);
 
   const runningProjects = new Set(
     allThreads.filter((t) => t.status === "running").map((t) => t.projectRoot),

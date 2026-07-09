@@ -1,0 +1,47 @@
+name: ci
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            sidecar/package-lock.json
+            gallery/package-lock.json
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: swatinem/rust-cache@v2
+        with: { workspaces: src-tauri }
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.12" }
+      - name: Install root deps
+        run: npm ci
+      - name: Install sidecar deps
+        run: npm --prefix sidecar ci
+      - name: Install gallery deps
+        run: npm --prefix gallery ci
+      - name: Install Playwright Chromium
+        run: cd gallery && npx playwright install chromium
+      - name: Verify (typecheck, build, frontend, sidecar, gallery, Rust)
+        run: npm run verify
+      - name: Gallery E2E
+        run: npm run verify:e2e
+      - name: Upload test results on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results
+          path: gallery/test-results
+          if-no-files-found: ignore
