@@ -322,7 +322,11 @@ export async function snapshot(root) {
     }
     args.push("-m", "atelier snapshot");
     const { stdout } = await git(realRoot, args, { env });
-    return stdout.trim();
+    const sha = stdout.trim();
+    if (!/^[0-9a-f]{40,64}$/.test(sha)) throw new Error(`sha de snapshot invalide: ${sha}`);
+    // ref durable : sans elle le commit est orphelin et git gc --prune le détruit
+    await git(realRoot, ["update-ref", `refs/atelier/snapshots/${sha}`, sha], { env });
+    return sha;
   } finally {
     await rm(dir, { recursive: true, force: true });
   }
@@ -337,11 +341,26 @@ export async function restore(root, sha) {
   const env = tempGitEnv(indexFile);
   try {
     await git(realRoot, ["cat-file", "-e", `${sha}^{commit}`], { env });
+    // Chemins présents maintenant mais absents du snapshot : les écraser ou les
+    // orpheliner serait destructif → refus atomique AVANT toute écriture.
+    // (suivis/stagés via l'index réel + untracked non ignorés, dédupliqués)
+    const { stdout: snapOut } = await git(realRoot, ["ls-tree", "-r", "--name-only", "-z", `${sha}^{tree}`], { env });
+    const snapPaths = new Set(snapOut.split("\0").filter(Boolean));
+    const { stdout: nowOut } = await git(realRoot, ["ls-files", "-z", "--cached", "--others", "--exclude-standard"]);
+    const nowPaths = [...new Set(nowOut.split("\0").filter(Boolean))];
+    for (const p of nowPaths) assertRelativePath(realRoot, p);
+    const newPaths = nowPaths.filter((p) => !snapPaths.has(p));
+    if (newPaths.length) {
+      const shown = newPaths.slice(0, 10).join(", ");
+      throw new Error(
+        `restauration refusée : ${newPaths.length} chemin(s) créé(s) après le snapshot ` +
+        `(${shown}${newPaths.length > 10 ? ", …" : ""}). Rien n'a été modifié.`,
+      );
+    }
     await git(realRoot, ["read-tree", `${sha}^{tree}`], { env });
-    // checkout AVANT clean : si l'agent a supprimé .gitignore, un clean précoce
-    // détruirait les artefacts ignorés (node_modules, data/…) devenus "untracked"
+    // checkout-index restaure les fichiers connus du snapshot ; JAMAIS de clean —
+    // aucun fichier créé après le snapshot n'est supprimé par l'annulation
     await git(realRoot, ["checkout-index", "-a", "-f"], { env });
-    await git(realRoot, ["clean", "-fd"], { env });
   } finally {
     await rm(dir, { recursive: true, force: true });
   }

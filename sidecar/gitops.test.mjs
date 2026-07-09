@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { execFile } from "node:child_process";
-import { mkdtempSync, readFileSync, writeFileSync, existsSync } from "node:fs";
+import { mkdtempSync, readFileSync, writeFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { promisify } from "node:util";
@@ -40,18 +40,75 @@ describe("gitops", () => {
     ]));
   });
 
-  it("crée un snapshot puis restaure le fichier modifié et supprime le nouveau fichier", async () => {
+  it("ancre le snapshot dans une ref durable qui survit à git gc --prune=now", async () => {
     const root = await makeRepo();
     writeFileSync(join(root, "tracked file.txt"), "snapshot\n");
     const sha = await gitops.snapshot(root);
 
+    const { stdout: refOut } = await git(root, ["show-ref", `refs/atelier/snapshots/${sha}`]);
+    expect(refOut).toContain(sha);
+    await git(root, ["gc", "--prune=now"]);
+    await expect(git(root, ["cat-file", "-e", `${sha}^{commit}`])).resolves.toBeDefined();
+  });
+
+  it("restaure un fichier modifié depuis le snapshot", async () => {
+    const root = await makeRepo();
+    writeFileSync(join(root, "tracked file.txt"), "snapshot\n");
+    const sha = await gitops.snapshot(root);
     writeFileSync(join(root, "tracked file.txt"), "after\n");
-    writeFileSync(join(root, "appeared.txt"), "remove me\n");
 
     await gitops.restore(root, sha);
 
     expect(readFileSync(join(root, "tracked file.txt"), "utf8")).toBe("snapshot\n");
-    expect(existsSync(join(root, "appeared.txt"))).toBe(false);
+  });
+
+  it("recrée un fichier supprimé depuis le snapshot", async () => {
+    const root = await makeRepo();
+    const sha = await gitops.snapshot(root);
+    rmSync(join(root, "tracked file.txt"));
+
+    await gitops.restore(root, sha);
+
+    expect(readFileSync(join(root, "tracked file.txt"), "utf8")).toBe("initial\n");
+  });
+
+  it("restaure un untracked présent au snapshot sans jamais le supprimer", async () => {
+    const root = await makeRepo();
+    writeFileSync(join(root, "notes.txt"), "au snapshot\n"); // untracked au moment du snapshot
+    const sha = await gitops.snapshot(root);
+    writeFileSync(join(root, "notes.txt"), "modifié après\n");
+
+    await gitops.restore(root, sha);
+
+    expect(readFileSync(join(root, "notes.txt"), "utf8")).toBe("au snapshot\n");
+  });
+
+  it("refuse atomiquement quand un untracked est apparu après le snapshot", async () => {
+    const root = await makeRepo();
+    writeFileSync(join(root, "tracked file.txt"), "snapshot\n");
+    const sha = await gitops.snapshot(root);
+    writeFileSync(join(root, "tracked file.txt"), "after\n");
+    writeFileSync(join(root, "appeared.txt"), "keep me\n");
+
+    await expect(gitops.restore(root, sha)).rejects.toThrow(/refusée/);
+
+    // refus atomique : le nouveau fichier survit ET rien d'autre n'a bougé
+    expect(readFileSync(join(root, "appeared.txt"), "utf8")).toBe("keep me\n");
+    expect(readFileSync(join(root, "tracked file.txt"), "utf8")).toBe("after\n");
+  });
+
+  it("refuse atomiquement quand un fichier a été stagé après le snapshot", async () => {
+    const root = await makeRepo();
+    writeFileSync(join(root, "tracked file.txt"), "snapshot\n");
+    const sha = await gitops.snapshot(root);
+    writeFileSync(join(root, "staged.txt"), "keep me\n");
+    await git(root, ["add", "staged.txt"]);
+    writeFileSync(join(root, "tracked file.txt"), "after\n");
+
+    await expect(gitops.restore(root, sha)).rejects.toThrow(/refusée/);
+
+    expect(readFileSync(join(root, "staged.txt"), "utf8")).toBe("keep me\n");
+    expect(readFileSync(join(root, "tracked file.txt"), "utf8")).toBe("after\n");
   });
 
   it("snapshot et restore fonctionnent avec HEAD unborn", async () => {
@@ -61,12 +118,19 @@ describe("gitops", () => {
     const sha = await gitops.snapshot(root);
 
     writeFileSync(join(root, "first file.txt"), "after\n");
-    writeFileSync(join(root, "appeared.txt"), "remove me\n");
 
     await gitops.restore(root, sha);
 
     expect(readFileSync(join(root, "first file.txt"), "utf8")).toBe("snapshot\n");
-    expect(existsSync(join(root, "appeared.txt"))).toBe(false);
+  });
+
+  it("rejette un sha invalide sans toucher au worktree", async () => {
+    const root = await makeRepo();
+    writeFileSync(join(root, "tracked file.txt"), "untouched\n");
+
+    await expect(gitops.restore(root, "zzz not a sha")).rejects.toThrow(/sha invalide/);
+
+    expect(readFileSync(join(root, "tracked file.txt"), "utf8")).toBe("untouched\n");
   });
 
   it("liste les fichiers changés depuis un snapshot", async () => {

@@ -1032,6 +1032,9 @@ export default function App() {
           msg.type === "gitRevertFileDone" || msg.type === "gitCommitDone" || msg.type === "gitUndoLastTurnDone") {
         window.dispatchEvent(new CustomEvent("git-changed", { detail: msg }));
       }
+      if (msg.type === "gitUndoLastTurnError") {
+        window.dispatchEvent(new CustomEvent("git-undo-error", { detail: msg }));
+      }
       if (msg.type === "gitSyncDone") {
         window.dispatchEvent(new CustomEvent("git-sync-done", { detail: msg }));
       }

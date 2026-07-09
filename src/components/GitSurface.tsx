@@ -148,6 +148,17 @@ export default function GitSurface({
       if (!msg.projectRoot || msg.projectRoot === projectRoot) {
         refreshGit();
         if (mode === "journal") refreshLedger();
+        if (msg.type === "gitUndoLastTurnDone") {
+          setSyncNote(t("git.undo-done"));
+          window.setTimeout(() => setSyncNote(""), 6000);
+        }
+      }
+    };
+    const onUndoError = (e: Event) => {
+      const msg = (e as CustomEvent).detail;
+      if (!msg.projectRoot || msg.projectRoot === projectRoot) {
+        setSyncNote(t("git.undo-refused", { message: msg.message ?? "" }));
+        window.setTimeout(() => setSyncNote(""), 12000);
       }
     };
     const onCommitError = (e: Event) => {
@@ -169,6 +180,7 @@ export default function GitSurface({
     window.addEventListener("commit-msg", onMsg);
     window.addEventListener("ledger", onLedger);
     window.addEventListener("git-changed", onChanged);
+    window.addEventListener("git-undo-error", onUndoError);
     return () => {
       window.removeEventListener("git-commit-error", onCommitError);
       window.removeEventListener("git-changed", onChangedClear);
@@ -178,6 +190,7 @@ export default function GitSurface({
       window.removeEventListener("commit-msg", onMsg);
       window.removeEventListener("ledger", onLedger);
       window.removeEventListener("git-changed", onChanged);
+      window.removeEventListener("git-undo-error", onUndoError);
     };
   }, [projectRoot, selected, ws, mode]);
 

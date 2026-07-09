@@ -36,6 +36,31 @@ describe("route", () => {
     await route({ type: "nope" }, { send: (m) => sent.push(m) });
     expect(sent[0].type).toBe("error");
   });
+  it("gitUndoLastTurn refusé : envoie gitUndoLastTurnError, jamais Done", async () => {
+    const sent = [];
+    await route({ type: "gitUndoLastTurn", threadId: "t1" }, {
+      send: (m) => sent.push(m),
+      store: { get: () => ({ id: "t1", projectRoot: "/proj", lastSnapshot: "a".repeat(40) }) },
+      gitops: { restore: async () => { throw new Error("restauration refusée : 1 chemin(s) créé(s) après le snapshot (x.txt). Rien n'a été modifié."); } },
+    });
+    expect(sent).toHaveLength(1);
+    expect(sent[0].type).toBe("gitUndoLastTurnError");
+    expect(sent[0].threadId).toBe("t1");
+    expect(sent[0].projectRoot).toBe("/proj");
+    expect(sent[0].message).toMatch(/refusée/);
+    expect(sent.some((m) => m.type === "gitUndoLastTurnDone")).toBe(false);
+  });
+  it("gitUndoLastTurn réussi : gitChanged puis gitUndoLastTurnDone", async () => {
+    const sent = [];
+    const sha = "b".repeat(40);
+    await route({ type: "gitUndoLastTurn", threadId: "t1" }, {
+      send: (m) => sent.push(m),
+      store: { get: () => ({ id: "t1", projectRoot: "/proj", lastSnapshot: sha }) },
+      gitops: { restore: async () => {} },
+    });
+    expect(sent.map((m) => m.type)).toEqual(["gitChanged", "gitUndoLastTurnDone"]);
+    expect(sent[1].sha).toBe(sha);
+  });
   it("répond zotero-introuvable quand la base Zotero manque", async () => {
     const sent = [];
     await route(

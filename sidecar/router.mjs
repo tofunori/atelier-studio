@@ -682,7 +682,19 @@ export async function route(msg, ctx) {
         ctx.send({ type: "error", threadId: msg.threadId, message: "snapshot introuvable" });
         break;
       }
-      await ctx.gitops.restore(t.projectRoot, t.lastSnapshot);
+      try {
+        await ctx.gitops.restore(t.projectRoot, t.lastSnapshot);
+      } catch (e) {
+        // refus (nouveaux chemins) ou échec git : rien n'a été modifié — jamais Done
+        ctx.send({
+          type: "gitUndoLastTurnError",
+          threadId: msg.threadId,
+          projectRoot: t.projectRoot,
+          sha: t.lastSnapshot,
+          message: String(e?.message ?? e),
+        });
+        break;
+      }
       emitGitChanged(ctx, msg.threadId, t.projectRoot);
       ctx.send({ type: "gitUndoLastTurnDone", threadId: msg.threadId, sha: t.lastSnapshot });
       break;
