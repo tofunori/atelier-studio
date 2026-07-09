@@ -275,6 +275,8 @@ async function main() {
     assert.deepEqual(JSON.parse(r.body.toString()), { ok: true, favs: 1, ratings: 1, hidden: 1 });
     const state = JSON.parse(fs.readFileSync(path.join(root, ".fig_state.json"), "utf8"));
     assert.deepEqual(state.workflow, { "plot.png": "final" });
+    r = await request(nodePort, "/state");
+    assert.deepEqual(JSON.parse(r.body.toString()).workflow, { "plot.png": "final" }, "GET /state relit le workflow persisté");
 
     r = await request(nodePort, "/pdfannot", {
       method: "POST",
