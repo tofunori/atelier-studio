@@ -78,6 +78,10 @@ type AgentEventBody =
       detail?: string;
       input?: unknown;
       source?: string | null;
+      /** sortie tronquée à 64 KiB par le provider (longueur originale dans outputLength) */
+      truncated?: boolean;
+      outputLength?: number;
+      durationMs?: number;
       ts?: number;
     }
   | { kind: "usage"; usage: { context: number | null; output: number | null; cost: number | null; turns: number | null }; ts?: number }

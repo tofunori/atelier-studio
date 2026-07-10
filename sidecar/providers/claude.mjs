@@ -245,8 +245,46 @@ export function send({
   push(userMsg(prompt));
 
   (async () => {
-    // tool_use d'édition en attente de leur tool_result : id → {name, path}
-    const pendingEdits = new Map();
+    // TOUS les outils en attente de leur tool_result (plan 025 step 6) :
+    // tool_use_id → {id, name, input, detail, source, editPath, startedAt}.
+    // Chaque outil produit le même contrat tool_update que Codex (running →
+    // completed/failed avec sortie), les éditions émettent EN PLUS l'événement
+    // `edit` après succès. Bornes : sortie 64 KiB, input 16 KiB — jamais d'env
+    // complet ni de credentials.
+    const pendingTools = new Map();
+    const TOOL_OUTPUT_MAX = 64 * 1024;
+    const TOOL_INPUT_MAX = 16 * 1024;
+    const boundedInput = (input) => {
+      try {
+        const s = JSON.stringify(input ?? {});
+        if (s.length <= TOOL_INPUT_MAX) return input;
+        return { truncated: true, preview: s.slice(0, TOOL_INPUT_MAX) };
+      } catch {
+        return {};
+      }
+    };
+    // contenu string | blocs [{type:"text"}…] | objet → texte déterministe borné
+    const normalizeToolResult = (block) => {
+      const c = block?.content;
+      let text = "";
+      if (typeof c === "string") text = c;
+      else if (Array.isArray(c)) {
+        text = c
+          .map((b) => (typeof b === "string" ? b : b?.type === "text" ? b.text : JSON.stringify(b)))
+          .join("\n");
+      } else if (c != null) text = JSON.stringify(c);
+      const originalLength = text.length;
+      const truncated = originalLength > TOOL_OUTPUT_MAX;
+      return { output: truncated ? text.slice(0, TOOL_OUTPUT_MAX) : text, truncated, originalLength };
+    };
+    // un tool_use jamais résolu au terminal ne reste pas « running » éternel
+    const flushPendingTools = () => {
+      for (const pt of pendingTools.values()) {
+        emit({ kind: "tool_update", id: pt.id, name: pt.name, detail: pt.detail,
+          input: pt.input, source: pt.source, status: "interrupted", output: "" });
+      }
+      pendingTools.clear();
+    };
     try {
       for await (const msg of q) {
         if (msg.type === "system" && msg.subtype === "init") onSession?.(msg.session_id);
@@ -285,32 +323,50 @@ export function send({
               const editPath = ["Edit", "Write", "NotebookEdit"].includes(block.name)
                 ? String(block.input?.file_path ?? block.input?.notebook_path ?? "")
                 : "";
-              if (editPath) {
-                // la ligne « edit » (±lignes, diff dépliable) sera émise au tool_result,
-                // une fois le fichier réellement modifié sur disque
-                pendingEdits.set(block.id, { name: block.name, path: editPath });
-              } else {
-                emit({ kind: "tool", name: block.name, detail: toolDetail(block.name, block.input) });
-              }
+              const pt = {
+                id: block.id,
+                name: block.name, // nom EXACT conservé (mcp__<server>__<tool> compris)
+                detail: toolDetail(block.name, block.input),
+                input: boundedInput(block.input),
+                source: block.name?.startsWith("mcp__") ? "mcp" : null,
+                editPath,
+                startedAt: Date.now(),
+              };
+              pendingTools.set(block.id, pt);
+              emit({ kind: "tool_update", id: pt.id, name: pt.name, detail: pt.detail,
+                input: pt.input, source: pt.source, status: "running", output: "" });
             }
           }
         }
         if (msg.type === "user" && Array.isArray(msg.message?.content)) {
           for (const block of msg.message.content) {
-            if (block?.type !== "tool_result" || !pendingEdits.has(block.tool_use_id)) continue;
-            const pe = pendingEdits.get(block.tool_use_id);
-            pendingEdits.delete(block.tool_use_id);
-            if (block.is_error) {
-              emit({ kind: "tool", name: pe.name, detail: toolDetail(pe.name, { file_path: pe.path }) });
-            } else {
-              emit({ kind: "edit", files: [pe.path] });
+            if (block?.type !== "tool_result") continue;
+            const { output, truncated, originalLength } = normalizeToolResult(block);
+            const pt = pendingTools.get(block.tool_use_id);
+            if (!pt) {
+              // résultat orphelin (tool_use inconnu) : item diagnostique, sans crash
+              emit({ kind: "tool_update", id: String(block.tool_use_id ?? "orphan"),
+                name: "unknown", source: "unknown", status: "completed", output,
+                ...(truncated ? { truncated: true, outputLength: originalLength } : {}) });
+              continue;
             }
+            pendingTools.delete(block.tool_use_id);
+            const failed = !!block.is_error;
+            emit({ kind: "tool_update", id: pt.id, name: pt.name, detail: pt.detail,
+              input: pt.input, source: pt.source,
+              status: failed ? "failed" : "completed", output,
+              durationMs: Date.now() - pt.startedAt,
+              ...(truncated ? { truncated: true, outputLength: originalLength } : {}) });
+            // la ligne « edit » (±lignes, diff dépliable) une fois le fichier
+            // réellement modifié — le tool_update qui porte statut/sortie reste
+            if (pt.editPath && !failed) emit({ kind: "edit", files: [pt.editPath] });
           }
         }
         if (msg.type === "system" && msg.subtype === "compact_boundary") {
           emit({ kind: "tool", name: "__compacted" });
         }
         if (msg.type === "result") {
+          flushPendingTools();
           const u = msg.usage ?? {};
           emit({
             kind: "done",
@@ -331,6 +387,7 @@ export function send({
     } catch (e) {
       emit({ kind: "error", message: String(e) });
     } finally {
+      flushPendingTools();
       // filet : la boucle s'est fermée sans done/error final (session interrompue
       // ou fermée par endSession pendant un tour) → sinon le thread reste "running"
       if (!sawTerminal) {

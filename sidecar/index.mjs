@@ -16,6 +16,7 @@ import { watchAnnotations } from "./annotations.mjs";
 import { watchFile } from "node:fs";
 import * as terminal from "./terminal.mjs";
 import * as sessions from "./sessions.mjs";
+import { createHarnessJournal } from "./harness_journal.mjs";
 import * as reviewer from "./reviewer.mjs";
 import * as gitops from "./gitops.mjs";
 import * as ledger from "./ledger.mjs";
@@ -61,6 +62,8 @@ if (instance.action === "defer") {
 writeFileAtomic(PID_FILE, String(process.pid));
 
 const store = new ThreadStore(`${APP_DIR}/threads.json`);
+// journal canonique du harnais (plan 025) : ~/…/atelier-studio/harness-history/
+const harnessJournal = createHarnessJournal({ baseDir: APP_DIR });
 const highlights = new HighlightStore(`${APP_DIR}/highlights.json`);
 const providers = { claude, codex, grok, opencode };
 const BUILTIN_PROVIDER_IDS = new Set(Object.keys(providers).concat("gemini"));
@@ -605,6 +608,7 @@ wss.on("connection", (ws) => {
     exportThread,
     terminal,
     sessions,
+    harnessJournal,
     reviewer,
     gitops,
     ledger,

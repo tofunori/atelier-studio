@@ -451,6 +451,62 @@ describe("attribution des tours (plan 025)", () => {
   });
 });
 
+describe("journal canonique câblé (plan 025 step 7)", () => {
+  const flush = () => new Promise((r) => setTimeout(r, 25));
+
+  it("seed legacy au premier send, replay via getHistory (journal préféré aux loaders)", async () => {
+    const { createHarnessJournal } = await import("./harness_journal.mjs");
+    const dir = mkdtempSync(join(tmpdir(), "as-jr-"));
+    const { ThreadStore } = threadStoreModule;
+    const store = new ThreadStore(join(dir, "threads.json"));
+    const harnessJournal = createHarnessJournal({ baseDir: dir });
+    const emitted = [];
+    const sends = [];
+    const claudeLoader = vi.fn(async () => [
+      { kind: "user", text: "ancienne question" },
+      { kind: "text", text: "ancienne réponse" },
+    ]);
+    const ctx = {
+      send: (m) => emitted.push(m),
+      broadcast: (m) => emitted.push(m),
+      store,
+      harnessJournal,
+      history: { claudeHistory: claudeLoader },
+      sessions: {},
+      gitops: { snapshot: async () => "s".repeat(40), isRepo: async () => true, changedSince: async () => [], numstat: async () => [] },
+      ledger: { append: async () => {} },
+      providers: { claude: { send: (opts) => sends.push(opts) } },
+    };
+    // thread PRÉEXISTANT avec session provider (upgrade) — le seed doit précéder le turn
+    store.upsert({ id: "jt", provider: "claude", projectRoot: "/p",
+      sessionId: "123e4567-e89b-42d3-a456-426614174000", title: "vieux fil" });
+
+    await route({ type: "send", provider: "claude", threadId: "jt", projectRoot: "/p",
+      prompt: "nouvelle question", clientMessageId: "m1",
+      displayEvent: { kind: "user", text: "nouvelle question" } }, ctx);
+    await sends[0].onEvent({ kind: "text", text: "nouvelle réponse" });
+    await sends[0].onEvent({ kind: "done", ok: true, result: "" });
+    await flush();
+    expect(claudeLoader).toHaveBeenCalledTimes(1); // le seed a lu l'historique provider
+
+    emitted.length = 0;
+    await route({ type: "getHistory", threadId: "jt" }, ctx);
+    await flush();
+    const hist = emitted.find((m) => m.type === "history");
+    expect(hist).toBeTruthy();
+    const texts = hist.events.filter((e) => e.kind === "user" || e.kind === "text").map((e) => e.text);
+    // parité : l'historique ancien (legacy-import) ET le nouveau turn, sans doublon
+    expect(texts).toEqual(["ancienne question", "ancienne réponse", "nouvelle question", "nouvelle réponse"]);
+    expect(hist.events[0].meta.origin).toBe("legacy-import");
+    expect(hist.events.at(-1).meta.origin).not.toBe("legacy-import");
+    // le loader provider n'est PAS rappelé : journal préféré, jamais concaténé
+    expect(claudeLoader).toHaveBeenCalledTimes(1);
+    // séquences strictement croissantes (le sérialiseur a repris après le seed)
+    const seqs = hist.events.map((e) => e.meta.sequence);
+    for (let i = 1; i < seqs.length; i++) expect(seqs[i]).toBeGreaterThan(seqs[i - 1]);
+  });
+});
+
 describe("relay d'interactions (plan 025 step 5)", () => {
   const flush = () => new Promise((r) => setTimeout(r, 10));
 

@@ -2,7 +2,7 @@
 // dates, identifiants, durées et compteurs sont figés. Les formes proviennent
 // des types réseau réels (lib/ws, Rail, App) et ne doivent pas être « adaptées »
 // pour faire passer un test : si une forme change, c'est le produit qui a changé.
-import type { AgentEvent, Thread } from "../../lib/ws";
+import type { AgentEvent, HarnessEventMeta, Thread } from "../../lib/ws";
 import type { HighlightEntry } from "../../components/Rail";
 import type { Attachment } from "../../App";
 
@@ -94,6 +94,23 @@ export const events = {
   }),
   error: (message = "provider indisponible"): AgentEvent => ({ kind: "error", message }),
 };
+
+/** Metadata harnais schema v1 figée (plan 025) — eventId/sequence/ts
+ * déterministes, à surcharger par test. */
+export function makeMeta(over: Partial<HarnessEventMeta> = {}): HarnessEventMeta {
+  return {
+    schemaVersion: 1,
+    eventId: over.eventId ?? fid("ev"),
+    provider: "claude",
+    threadId: "thread-001",
+    turnId: "turn-1",
+    sequence: over.sequence ?? 1,
+    ts: FIXED_TS,
+    durable: true,
+    origin: "provider",
+    ...over,
+  };
+}
 
 /** Un tour complet typique : user → thinking → tool → texte → done. */
 export function makeTurnEvents(): AgentEvent[] {

@@ -33,7 +33,7 @@ const PROVIDERS = [
       "claude-haiku-4-5",
     ],
     efforts: ["low", "medium", "high"],
-    capabilities: { resume: true, steering: true, queue: true, goals: false, tools: true, toolOutput: false, permissions: true, interactiveInput: false, mcpElicitation: false, durableHistory: false, permissionModes: ["default", "acceptEdits", "plan", "bypassPermissions"] },
+    capabilities: { resume: true, steering: true, queue: true, goals: false, tools: true, toolOutput: true, permissions: true, interactiveInput: false, mcpElicitation: false, durableHistory: false, permissionModes: ["default", "acceptEdits", "plan", "bypassPermissions"] },
   },
   {
     id: "codex",

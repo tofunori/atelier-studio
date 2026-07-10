@@ -152,7 +152,36 @@ Le routeur est l'unique autorité : `turnId` créé AVANT l'appel provider,
 
 ### commandes, outils, patchs, MCP
 
-_(à compléter en tranches B–C)_
+Contrat commun `tool_update` : `{id, name, detail?, input?, source?, status
+(running|completed|failed|interrupted), output, exitCode?, truncated?,
+outputLength?, durationMs?}` — identité d'item `(turnId, itemId)`. Bornes :
+sortie 64 KiB (+`truncated`/`outputLength`), input 16 KiB (aperçu) ; jamais
+d'env complet, credentials ou stderr global. Un `tool_use` sans résultat au
+terminal passe `interrupted` — jamais running éternel au reload.
+
+| Événement | Claude (Agent SDK) | Codex (app-server) | reload |
+|---|---|---|---|
+| outil running | bloc `tool_use` d'un `assistant` → tool_update running | `item/started` (commandExecution, mcpToolCall, webSearch…) | dernier état seul |
+| outil terminé | bloc `tool_result` du message `user` suivant (contenu string/blocs normalisé, `is_error`→failed) | `item/updated`/`item/completed` + `outputDelta` agrégés | rejoué (dernier état) |
+| édition | tool_use Edit/Write/NotebookEdit → tool_update + événement `edit` APRÈS succès (les deux) | `item/completed` fileChange → `edit` | rejoués |
+| patch | n/a | `item/fileChange/patchUpdated`/`outputDelta` → tool_update apply_patch | dernier état |
+| MCP | nom exact `mcp__<server>__<tool>` conservé, `source:"mcp"` | `item/*` mcpToolCall + `progress`, `source:"mcp"` | dernier état |
+| résultat orphelin | tool_result sans tool_use connu → item diagnostique `unknown` (pas de crash) | n/a | conservé |
+| enrichissement | `edit` enrichi ±lignes (git numstat) par le routeur, SÉRIALISÉ avant le done | idem | valeurs enrichies |
+
+### usage, goal, todos, compact, interrupt, done, error, heartbeat
+
+| Événement | Claude | Codex | durable / notes |
+|---|---|---|---|
+| usage | `assistant.usage` (contexte cumulé) + message `result` (output/cost/turns) porté par `done.usage` | `thread/tokenUsage/updated` (agrégé, porté par done) | usage indexé par thread + turn (meta.turnId) |
+| goal | /goal texte natif CLI | `thread/goal/updated`/`cleared` → relais broadcast HORS turn (événement global documenté) | durable |
+| todos | n/a | `turn/plan/updated` → `todos` | dernier état seul |
+| compact | `system/compact_boundary` → chip `__compacted` | `codexCompact` → chip | frontière visible |
+| /clear | n/a (nouvelle session = resume) | session native NEUVE, MÊME thread Atelier : frontière `__session-cleared` dans le journal | transcript conservé |
+| interrupt | `q.interrupt()` → `result` (ok:false) | `turn/interrupt` → `turn/completed interrupted` → done ok:false | un seul terminal ; interactions pendantes déclinées AVANT |
+| done | message `result` (`subtype==="success"`) | `turn/completed` | terminal unique par turn (harnais) |
+| error | catch/filet `!sawTerminal` | `turn/completed failed`, `error` non-retry, filet resetServerState | terminal unique |
+| heartbeat | n/a | interval sidecar (5 s) | éphémère, jamais journalisé |
 
 ### interactions (approval, user input, elicitation)
 

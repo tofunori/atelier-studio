@@ -212,7 +212,27 @@ PIÈGES metadata :
       requestId + interactionResponse. Gates : sidecar 265/265, frontend
       189/189, tsc, vite build. NOTE : toolOutput claude flippe en C,
       durableHistory en D après preuve journal/reload.
-- [ ] Tranche C (steps 6–8) : pendingTools Claude + harness_journal + reducer harnessEvents.ts
+- [x] Tranche C (steps 6–8) : FAIT — pendingTools Claude (tool_update complet
+      running→completed/failed/interrupted, sortie 64 KiB + truncated/
+      outputLength/durationMs, input 16 KiB, edit préservé, MCP source, orphan
+      diagnostique ; 8 tests claude_tools) ; harness_journal.mjs (33 tests :
+      sha256, 0600/0700, append sérialisé, ligne tronquée, seed legacy
+      idempotent, materialize compacté, tombstone/copyThread, garde-fou
+      secret) ; câblage routeur (harnessFor async + initialSequence via
+      lastSequence, maybeSeedLegacyJournal au premier send, getHistory préfère
+      materialize — jamais concaténé, codexClear→markSessionBoundary,
+      deleteThread→deleteThread journal, revert→tombstone par texte user,
+      fork→copyThread) ; ctx.harnessJournal injecté par index.mjs (absent des
+      tests → aucun write hors tmp) ; capability claude toolOutput→true.
+      Reducer unifié livré : src/lib/harnessEvents.ts (reduceHarnessEvent /
+      materializeHarnessHistory — replay REJOUE via le même reduce /
+      mergeHarnessHistory par eventId+sequence, live gagne / eventIdentity
+      legacy stable sans index ; 24 tests purs) ; App.tsx réduit aux
+      side-effects. Gates C : sidecar 307/307, frontend 213/213, tsc, build.
+      Pièges consignés : tombstone = ne s'applique qu'aux événements qui le
+      précèdent dans le fichier (appends post-revert vivants) ; ts du replay =
+      meta.ts (heures du journal conservées) ; bulle streaming adopte la meta
+      du dernier delta (dédup reconnexion sans état module).
 - [ ] Tranche D (steps 9–11) : capabilities/catalogue + smokes + gates + app buildée + parcours réels
 
 ## Gates

@@ -8,6 +8,7 @@ import {
   AgentEvent,
   Command,
 } from "./lib/ws";
+import { mergeHarnessHistory, reduceHarnessEvent } from "./lib/harnessEvents";
 import { useSidecarConnection, type SidecarStatus } from "./hooks/useSidecarConnection";
 import { useAtelierServer } from "./hooks/useAtelierServer";
 import { artefactKind, deriveResearchHomeModel } from "./lib/researchHome";
@@ -802,127 +803,14 @@ export default function App() {
           if (msg.event.usage) setUsageByThread((p) => ({ ...p, [msg.threadId]: msg.event.usage }));
           return;
         }
+        // toute la logique de réduction (bulle streaming, dédup ack/reconnexion,
+        // identités (turnId, itemId)…) vit dans lib/harnessEvents : le MÊME code
+        // rejoue les historiques (plan 025, step 8) — seuls les side-effects
+        // (workingSince, usage, notifications…) restent ici
         setEvents((prev) => {
-          const list = [...(prev[msg.threadId] ?? [])];
-          const ev = msg.event;
-          const last = list[list.length - 1];
-          // ack sidecar d'un message user optimiste : adopter la metadata
-          // autoritaire (turnId/sequence/eventId) sans dupliquer la bulle ni
-          // perdre l'affichage local (imageUrl, pastes complets)
-          if (ev.kind === "user") {
-            const mid = ev.meta?.messageId;
-            if (mid) {
-              const idx = list.findIndex(
-                (x) => x.kind === "user" && x.meta?.messageId === mid,
-              );
-              if (idx >= 0) {
-                list[idx] = { ...list[idx], meta: ev.meta };
-                return { ...prev, [msg.threadId]: list };
-              }
-            }
-            return { ...prev, [msg.threadId]: [...list, { ...ev, ts: ev.ts ?? Date.now() }] };
-          }
-          // au plus UNE bulle streaming par tour, retrouvée où qu'elle soit dans la
-          // liste (les events outils/thinking de Codex/Grok s'intercalent entre les
-          // deltas et le bloc final → une recherche "dernier élément seulement"
-          // laissait une bulle orpheline au caret éternel + texte dupliqué)
-          let sIdx = -1;
-          for (let k = list.length - 1; k >= 0; k--) {
-            if (list[k].kind === "streaming") { sIdx = k; break; }
-          }
-          // texte en cours de frappe : accumuler (delta) ou remplacer (stream_set),
-          // puis le message final "text" remplace la bulle streaming
-          if (ev.kind === "thinking_delta") {
-            if (last?.kind === "thinking_live") {
-              list[list.length - 1] = { ...last, text: (last as any).text + ev.text };
-            } else {
-              list.push({ kind: "thinking_live", text: ev.text, ts: Date.now() } as any);
-            }
-            return { ...prev, [msg.threadId]: list };
-          }
-          if (ev.kind === "thinking") {
-            // bloc final : remplace le live s'il existe, sinon s'ajoute
-            if (last?.kind === "thinking_live") list[list.length - 1] = { kind: "thinking", text: ev.text, ts: Date.now() } as any;
-            else list.push({ kind: "thinking", text: ev.text, ts: Date.now() } as any);
-            return { ...prev, [msg.threadId]: list };
-          }
-          if (ev.kind === "delta") {
-            if (sIdx >= 0) {
-              list[sIdx] = { ...list[sIdx], text: (list[sIdx] as any).text + ev.text } as any;
-            } else {
-              list.push({ kind: "streaming", text: ev.text, ts: Date.now() } as any);
-            }
-            return { ...prev, [msg.threadId]: list };
-          }
-          if (ev.kind === "stream_set") {
-            if (sIdx >= 0) {
-              list[sIdx] = { ...list[sIdx], text: ev.text } as any;
-            } else {
-              list.push({ kind: "streaming", text: ev.text, ts: Date.now() } as any);
-            }
-            return { ...prev, [msg.threadId]: list };
-          }
-          if (ev.kind === "text") {
-            // le bloc final remplace SA bulle streaming, même si des events outils
-            // se sont intercalés depuis les derniers deltas
-            if (sIdx >= 0) list[sIdx] = { ...ev, ts: Date.now() };
-            else list.push({ ...ev, ts: Date.now() });
-            return { ...prev, [msg.threadId]: list };
-          }
-          if (ev.kind === "tool_update") {
-            // identité d'un item = (turnId, itemId) : deux turns peuvent
-            // réutiliser le même id d'outil sans se remplacer (plan 025)
-            const turnOf = (e: AgentEvent) =>
-              e.meta && "turnId" in e.meta ? e.meta.turnId : "";
-            const idx = list.findIndex(
-              (item) =>
-                item.kind === "tool_update" && item.id === ev.id && turnOf(item) === turnOf(ev),
-            );
-            const next = { ...ev, ts: Date.now() } as AgentEvent;
-            if (idx >= 0) list[idx] = next;
-            else list.push(next);
-            return { ...prev, [msg.threadId]: list };
-          }
-          if (ev.kind === "activity") {
-            const idx = list.findIndex((item) => item.kind === "activity" && item.id === ev.id);
-            const next = { ...ev, ts: Date.now() } as AgentEvent;
-            if (idx >= 0) list[idx] = next;
-            else list.push(next);
-            return { ...prev, [msg.threadId]: list };
-          }
-          if (ev.kind === "interaction") {
-            // mises à jour d'état (answered/declined/expired) ré-émises avec le
-            // MÊME requestId : remplacement en place, la dernière version gagne
-            // (plan 025, step 5) — requestId est unique par requête sidecar
-            const idx = list.findIndex(
-              (item) => item.kind === "interaction" && item.requestId === ev.requestId,
-            );
-            const next = { ...ev, ts: Date.now() } as AgentEvent;
-            if (idx >= 0) list[idx] = next;
-            else list.push(next);
-            return { ...prev, [msg.threadId]: list };
-          }
-          if (ev.kind === "todos") {
-            let idx = -1;
-            for (let i = list.length - 1; i >= 0; i--) {
-              if (list[i].kind === "todos") {
-                idx = i;
-                break;
-              }
-            }
-            const next = { ...ev, ts: Date.now() } as AgentEvent;
-            if (idx >= 0) list[idx] = next;
-            else list.push(next);
-            return { ...prev, [msg.threadId]: list };
-          }
-          // fin de tour : une bulle streaming jamais finalisée (interruption, provider
-          // sans bloc final) devient un texte définitif — ou disparaît si vide
-          if ((ev.kind === "done" || ev.kind === "error") && sIdx >= 0) {
-            const txt = String((list[sIdx] as any).text ?? "");
-            if (txt.trim()) list[sIdx] = { kind: "text", text: txt, ts: (list[sIdx] as any).ts } as any;
-            else list.splice(sIdx, 1);
-          }
-          return { ...prev, [msg.threadId]: [...list, { ...ev, ts: Date.now() }] };
+          const cur = prev[msg.threadId] ?? [];
+          const next = reduceHarnessEvent(cur, msg.event);
+          return next === cur ? prev : { ...prev, [msg.threadId]: next };
         });
         if (msg.event.kind === "done" && msg.event.usage) {
           setUsageByThread((p) => ({ ...p, [msg.threadId]: msg.event.usage }));
@@ -955,15 +843,15 @@ export default function App() {
         }
       }
       if (msg.type === "history") {
-        // assainir : des bulles "streaming" orphelines persistées avant le fix bec2c27
-        // ressusciteraient leur curseur clignotant — les figer en texte (ou les retirer)
-        const sanitized = (msg.events as AgentEvent[]).flatMap((ev: any) =>
-          ev.kind !== "streaming" ? [ev]
-          : String(ev.text ?? "").trim() ? [{ ...ev, kind: "text" }] : []);
-        setEvents((prev) => ({
-          ...prev,
-          [msg.threadId]: prev[msg.threadId]?.length ? prev[msg.threadId] : sanitized,
-        }));
+        // replay = live : l'historique est rejoué à travers le MÊME reducer que
+        // les événements live ; sur un fil déjà peuplé, seuls les événements
+        // identifiés (meta.eventId) manquants fusionnent, par sequence, sans
+        // jamais écraser la session vivante (history legacy sans meta : no-op)
+        setEvents((prev) => {
+          const cur = prev[msg.threadId] ?? [];
+          const next = mergeHarnessHistory(cur, (msg.events ?? []) as AgentEvent[]);
+          return next === cur ? prev : { ...prev, [msg.threadId]: next };
+        });
       }
       if (msg.type === "annotation" && msg.text !== lastInjected.current) setAnnotation(msg.text);
       if (msg.type === "reverted") {

@@ -371,19 +371,53 @@ const threadRuns = new Map(); // threadId -> { turnId, turn, autoReview } du tur
 const threadDispatchers = new Map(); // threadId -> dispatcher stable
 const emitBox = new Map(); // threadId -> emit courant (broadcast de la dernière connexion)
 
-function harnessFor(threadId, provider) {
+async function harnessFor(ctx, threadId, provider) {
   let h = harnessThreads.get(threadId);
   if (!h) {
+    const journal = ctx.harnessJournal ?? null;
+    // reprise d'un thread journalisé : la sequence reste monotone entre process
+    const initialSequence = journal ? await journal.lastSequence(threadId).catch(() => 0) : 0;
     h = createHarnessThread({
       threadId,
       provider,
       emit: (event) => emitBox.get(threadId)?.({ type: "event", threadId, event }),
-      journal: null, // journal canonique branché en tranche C
+      journal,
+      initialSequence,
     });
     harnessThreads.set(threadId, h);
   }
   h.setProvider(provider);
   return h;
+}
+
+/** Migration (plan 025 step 7) : au premier send d'un thread existant sans
+ * journal, son historique provider est seedé UNE fois en legacy-import — le
+ * premier message post-upgrade ne masque pas l'historique ancien. Un échec de
+ * seed n'empêche pas le run : avertissement, parité historique non garantie. */
+async function maybeSeedLegacyJournal(ctx, threadId, provider) {
+  const j = ctx.harnessJournal;
+  if (!j) return;
+  try {
+    if (j.hasJournal(threadId)) return;
+    const t = ctx.store.get(threadId);
+    await j.openThread({ threadId, provider: t?.provider ?? provider });
+    if (!t?.sessionId) return;
+    let events = [];
+    if (t.provider === "claude") events = (await ctx.history?.claudeHistory?.(t.sessionId, t.projectRoot)) ?? [];
+    else if (t.provider === "codex") events = (await ctx.sessions?.codexHistory?.(t.sessionId)) ?? [];
+    else if (t.provider === "grok") events = (await ctx.sessions?.grokHistory?.(t.sessionId, t.projectRoot)) ?? [];
+    else {
+      const p = ctx.providers?.[t.provider];
+      if (typeof p?.history === "function") events = (await p.history(t.sessionId, t.projectRoot)) ?? [];
+    }
+    if (events.length) await j.seedLegacy(threadId, t.provider ?? provider, events);
+  } catch (e) {
+    (emitBox.get(threadId) ?? ctx.send)({
+      type: "error",
+      threadId,
+      message: `journal: seed de l'historique impossible (${String(e?.message ?? e)}) — parité historique non garantie pour ce fil`,
+    });
+  }
 }
 
 /** displayEvent du frontend (texte réellement tapé, attachments structurés) —
@@ -697,6 +731,9 @@ export async function route(msg, ctx) {
         forkPending: true,
         status: "idle",
       });
+      // le fork reçoit une COPIE du journal jusqu'au point de fork (ici : tout
+      // le fil, la session forkera à son prochain send)
+      Promise.resolve(ctx.harnessJournal?.copyThread(msg.threadId, msg.newThreadId)).catch(() => {});
       (ctx.broadcast ?? ctx.send)({ type: "threads", threads: ctx.store.list() });
       break;
     }
@@ -719,6 +756,20 @@ export async function route(msg, ctx) {
       } else {
         // revert du tout premier message → session neuve
         ctx.store.upsert({ id: msg.threadId, sessionId: null, resumeAt: null, status: "idle" });
+      }
+      // journal : tombstone logique depuis le message user cible (même critère
+      // de correspondance que findRevertPoint : le texte) — jamais de réécriture
+      if (ctx.harnessJournal?.hasJournal(msg.threadId)) {
+        try {
+          const { events } = await ctx.harnessJournal.load(msg.threadId);
+          const target = events.find((e) => e.kind === "user" &&
+            String(e.text ?? "").trim() === String(msg.text ?? "").trim());
+          if (target?.meta?.eventId) {
+            await ctx.harnessJournal.truncateFrom(msg.threadId, target.meta.eventId);
+          }
+        } catch (e) {
+          console.warn("[atelier] tombstone revert journal impossible:", e);
+        }
       }
       ctx.send({ type: "reverted", threadId: msg.threadId });
       (ctx.broadcast ?? ctx.send)({ type: "threads", threads: ctx.store.list() });
@@ -967,6 +1018,11 @@ export async function route(msg, ctx) {
     }
     case "deleteThread": {
       ctx.store.delete(msg.threadId);
+      // le journal privé du thread part avec lui (chemin hashé uniquement)
+      Promise.resolve(ctx.harnessJournal?.deleteThread(msg.threadId)).catch(() => {});
+      harnessThreads.delete(msg.threadId);
+      threadDispatchers.delete(msg.threadId);
+      emitBox.delete(msg.threadId);
       (ctx.broadcast ?? ctx.send)({ type: "threads", threads: ctx.store.list() });
       break;
     }
@@ -1016,6 +1072,17 @@ export async function route(msg, ctx) {
       break;
     }
     case "getHistory": {
+      // journal canonique d'abord (plan 025) : replay sémantique complet, avec
+      // meta — JAMAIS concaténé aux loaders provider (risque de doublons)
+      if (ctx.harnessJournal?.hasJournal(msg.threadId)) {
+        try {
+          const events = await ctx.harnessJournal.materialize(msg.threadId);
+          ctx.send({ type: "history", threadId: msg.threadId, events });
+          break;
+        } catch (e) {
+          console.warn("[atelier] journal illisible, repli loaders provider:", e);
+        }
+      }
       const t = ctx.store.get(msg.threadId);
       if (!t?.sessionId) {
         ctx.send({ type: "history", threadId: msg.threadId, events: [] });
@@ -1165,8 +1232,10 @@ export async function route(msg, ctx) {
       break;
     }
     case "codexClear": {
-      // nouveau thread Codex au prochain message ; l'historique visuel reste
+      // nouvelle session NATIVE au prochain message, MÊME thread Atelier : le
+      // transcript est conservé, une frontière de session marque le journal
       if (ctx.store.get(msg.threadId)) ctx.store.upsert({ id: msg.threadId, sessionId: null });
+      Promise.resolve(ctx.harnessJournal?.markSessionBoundary(msg.threadId, "clear Codex")).catch(() => {});
       (ctx.broadcast ?? ctx.send)({ type: "event", threadId: msg.threadId,
         event: { kind: "tool", name: "__session-cleared" } });
       (ctx.broadcast ?? ctx.send)({ type: "threads", threads: ctx.store.list() });
@@ -1240,7 +1309,8 @@ export async function route(msg, ctx) {
         title: prev?.title ?? title ?? prompt.slice(0, 40),
       });
 
-      const h = harnessFor(threadId, provider);
+      await maybeSeedLegacyJournal(ctx, threadId, provider);
+      const h = await harnessFor(ctx, threadId, provider);
       const running = threadRuns.get(threadId);
 
       // ---- run actif : steer (défaut) ou queue explicite ----

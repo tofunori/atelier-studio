@@ -31,8 +31,9 @@ export function createHarnessThread({
   journal,
   now = Date.now,
   randomUUID = nodeRandomUUID,
+  initialSequence = 0, // reprise d'un thread journalisé : la sequence reste monotone entre process
 }) {
-  let sequence = 0;
+  let sequence = Number.isFinite(initialSequence) && initialSequence > 0 ? initialSequence : 0;
   let chain = Promise.resolve();
   let active = null;
   let currentProvider = provider;
