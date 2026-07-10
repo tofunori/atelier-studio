@@ -1802,9 +1802,8 @@ button.ctx-ring-wrap { border: none; font: inherit; color: inherit;
    calme. Tokens uniquement ; motion = contrat Quiet Instrument (120/140 ms,
    opacity/transform, zéro layout shift). */
 .pnav { gap: 0; }
-.pnav .side-top { flex: none; margin-bottom: 2px; }
 .pnav-header { display: flex; flex-direction: column; gap: 10px; flex: none;
-  padding: 0 2px 12px; border-bottom: 1px solid var(--border); margin-bottom: 4px;
+  padding: 8px 2px 12px; border-bottom: 1px solid var(--border); margin-bottom: 4px;
   background: var(--bg-side); }
 .pnav-id { display: flex; align-items: center; gap: 8px; min-width: 0; }
 .pnav-id-ico { width: 18px; height: 18px; flex: none; display: inline-flex;

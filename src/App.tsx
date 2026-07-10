@@ -2088,7 +2088,6 @@ export default function App() {
             }
           }}
           onSettings={() => setShowSettings((v) => !v)}
-          onCompact={() => setCompact(true)}
           projMeta={projMeta}
           onSetMeta={(root, m) => setProjMeta((prev) => ({ ...prev, [root]: m }))}
         />

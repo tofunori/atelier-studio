@@ -10,7 +10,7 @@ import { Thread } from "../lib/ws";
 import { wsSend } from "../lib/wsBus";
 import { t } from "../lib/i18n";
 const tr = t; // alias historique (t masqué par des variables locales dans les .map)
-import { SettingsIcon, SidebarIcon } from "./icons";
+import { SettingsIcon } from "./icons";
 import { Menu, MenuItem, MenuSeparator } from "./ui";
 import {
   CONVERSATIONS_VISIBLE,
@@ -111,7 +111,6 @@ export default function Sidebar(p: {
   onRemoveProject: (root: string) => void;
   onRename: (threadId: string, title: string) => void;
   onSettings: () => void;
-  onCompact: () => void;
   projMeta: Record<string, { color?: string; label?: string }>;
   onSetMeta: (root: string, meta: { color?: string; label?: string }) => void;
 }) {
@@ -336,13 +335,6 @@ export default function Sidebar(p: {
 
   return (
     <div className="sidebar pnav">
-      <div className="side-top" data-tauri-drag-region>
-        <span className="flex" />
-        <button className="mini compact-btn" title={t("action.collapse-sidebar")} onClick={p.onCompact}>
-          <SidebarIcon size={17} />
-        </button>
-      </div>
-
       <ProjectHeader
         mode={model.mode}
         name={headerName}

@@ -46,7 +46,6 @@ function makeProps(over: Partial<React.ComponentProps<typeof Sidebar>> = {}) {
     onRemoveProject: vi.fn(),
     onRename: vi.fn(),
     onSettings: vi.fn(),
-    onCompact: vi.fn(),
     projMeta: {},
     onSetMeta: vi.fn(),
     ...over,
