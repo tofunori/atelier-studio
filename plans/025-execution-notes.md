@@ -248,7 +248,27 @@ PIÈGES metadata :
       porté par patch (base identique 6003775). Reliquat mineur : fallback 1M
       de ComposerControls référence claude-sonnet-5 (dans le catalogue
       désormais) ; ids catalogue hors labels affichés bruts.
-      RESTE (step 11) : relance protocole, parcours réels, README, panel final.
+      Step 11 : app rebuildée + relancée (protocole AGENTS.md). Parcours réels
+      pilotés en WS contre un sidecar propre du bundle (providers RÉELS) :
+      • Claude outils — turnId/sequence assignés, 4 tool_update (2 completed
+        avec sortie), edit + fichier écrit, un seul turn, done apparié ;
+        REPLAY via journal = user + outils finaux + AUCUN running éternel +
+        done + text + mêmes turnIds. TOUT vert.
+      • Claude steer/queue — turn queued distinct, chip __queued, visible avant
+        done1, done1/done2 sur les bons turns. TOUT vert.
+      • Journaux écrits avec permissions 0600 (fichiers) / 0700 (dossier).
+      Codex live : parcours non concluant en headless (turn plan sans fin en
+      300 s — auth/runtime interactif, PAS un défaut protocole) → validation
+      Codex laissée aux tests déterministes (4 modes, describeServerRequest/
+      answerFromInteraction, relais interactions complet) + smoke opt-in
+      step 10, conformément au plan (« Codex live seulement si autorisé »).
+      DÉFAUT PRÉEXISTANT confirmé (hors périmètre, chip task_0e18bb74) : au
+      premier boot de l'app réelle, un readdirSync dans un handler WS gèle
+      l'event loop plusieurs minutes (sample : LibuvStreamWrap::OnUvRead →
+      node::fs::ReadDir) ; en isolation (bisect) tous les handlers répondent
+      en 1-4 ms → déclenché par une combinaison propre au frontend réel.
+      RESTE : revue Codex globale (fin de série, sur instruction Thierry) avant
+      README 025→DONE.
 
 ## Gates
 
