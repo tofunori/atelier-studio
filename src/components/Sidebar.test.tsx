@@ -38,8 +38,6 @@ function makeProps(over: Partial<React.ComponentProps<typeof Sidebar>> = {}) {
     threadOrder: "recent" as const,
     activeProject: PROJECT_ROOT,
     activeId: null,
-    onAddProject: vi.fn(),
-    onSelectProject: vi.fn(),
     onSelect: vi.fn(),
     onNew: vi.fn(),
     onNewChat: vi.fn(),
@@ -246,5 +244,143 @@ describe("Sidebar — contrats du panneau (chats sans projet)", () => {
       provider: "claude",
       projectRoot: "",
     });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Research Navigator (plan 024, étapes 3-5) : header, sections, accessibilité
+// ---------------------------------------------------------------------------
+describe("Research Navigator — header du projet actif", () => {
+  it("affiche l'identité du projet (nom + chemin accessible) et aucun autre projet", () => {
+    renderUi(<Sidebar {...makeProps({ threads: projectThreads() })} />);
+    expect(screen.getByText("albedo-pipeline")).toBeTruthy();
+    // nom ET chemin portent le chemin complet en title (nom accessible)
+    expect(screen.getAllByTitle(PROJECT_ROOT).length).toBeGreaterThan(0);
+    // le projet B n'est jamais rendu : le rail/topbar restent les sélecteurs globaux
+    expect(screen.queryByText("manuscrit-ch1")).toBeNull();
+    expect(screen.queryByText("Chat autre projet")).toBeNull();
+  });
+
+  it("Nouveau chat en mode projet appelle onNew(activeProject)", () => {
+    const p = makeProps({ threads: projectThreads() });
+    renderUi(<Sidebar {...p} />);
+    fireEvent.click(screen.getByText(t("action.new-chat")));
+    expect(p.onNew).toHaveBeenCalledWith(PROJECT_ROOT);
+    expect(p.onNewChat).not.toHaveBeenCalled();
+  });
+
+  it("l'overflow ⋯ expose Resume, Révéler, Personnaliser et Retirer le projet", () => {
+    const p = makeProps({ threads: projectThreads() });
+    renderUi(<Sidebar {...p} />);
+    fireEvent.click(screen.getByRole("button", { name: t("project.actions") }));
+    expect(screen.getByText(t("sidebar.resume-claude"))).toBeTruthy();
+    expect(screen.getByText(t("sidebar.resume-codex"))).toBeTruthy();
+    expect(screen.getByText(t("project.reveal-finder"))).toBeTruthy();
+    expect(screen.getByText(t("project.customize"))).toBeTruthy();
+    fireEvent.click(screen.getByText(t("project.remove")));
+    expect(p.onRemoveProject).toHaveBeenCalledWith(PROJECT_ROOT);
+  });
+
+  it("Resume via l'overflow envoie listSessions avec le root actif", () => {
+    renderUi(<Sidebar {...makeProps({ threads: projectThreads() })} />);
+    fireEvent.click(screen.getByRole("button", { name: t("project.actions") }));
+    fireEvent.click(screen.getByText(t("sidebar.resume-codex")));
+    expect(wsSend).toHaveBeenCalledWith({
+      type: "listSessions",
+      provider: "codex",
+      projectRoot: PROJECT_ROOT,
+    });
+  });
+
+  it("mode sans projet : titre dédié, overflow sans action projet", () => {
+    renderUi(<Sidebar {...makeProps({ activeProject: null, threads: [] })} />);
+    expect(screen.getByText(t("sidebar.no-project-title"))).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: t("project.actions") }));
+    expect(screen.getByText(t("sidebar.resume-claude"))).toBeTruthy();
+    expect(screen.queryByText(t("project.remove"))).toBeNull();
+    expect(screen.queryByText(t("project.reveal-finder"))).toBeNull();
+  });
+});
+
+describe("Research Navigator — recherche locale", () => {
+  it("le bouton recherche ouvre un input ; la requête filtre le contexte", () => {
+    renderUi(<Sidebar {...makeProps({ threads: projectThreads() })} />);
+    fireEvent.click(screen.getByRole("button", { name: t("sidebar.search-local") }));
+    const input = screen.getByRole("searchbox");
+    fireEvent.change(input, { target: { value: "figure" } });
+    expect(screen.getByText(t("sidebar.results"))).toBeTruthy();
+    expect(screen.getByText("Révision figure")).toBeTruthy();
+    expect(screen.queryByText("Analyse albédo")).toBeNull();
+    expect(screen.queryByText(t("sidebar.continue"))).toBeNull();
+  });
+
+  it("zéro résultat : message dédié", () => {
+    renderUi(<Sidebar {...makeProps({ threads: projectThreads() })} />);
+    fireEvent.click(screen.getByRole("button", { name: t("sidebar.search-local") }));
+    fireEvent.change(screen.getByRole("searchbox"), { target: { value: "zzz" } });
+    expect(screen.getByText(t("sidebar.no-results", { q: "zzz" }))).toBeTruthy();
+  });
+
+  it("Échap ferme la recherche et rend le focus au bouton", () => {
+    renderUi(<Sidebar {...makeProps({ threads: projectThreads() })} />);
+    const btn = screen.getByRole("button", { name: t("sidebar.search-local") });
+    fireEvent.click(btn);
+    const input = screen.getByRole("searchbox");
+    fireEvent.keyDown(input, { key: "Escape" });
+    expect(screen.queryByRole("searchbox")).toBeNull();
+    expect(document.activeElement).toBe(btn);
+    // la requête est vidée : les conversations réapparaissent
+    expect(screen.getByText("Analyse albédo")).toBeTruthy();
+  });
+});
+
+describe("Research Navigator — sections et déduplication", () => {
+  it("Continuer et Épinglés sont conditionnels et sans doublon", () => {
+    const p = makeProps({
+      threads: projectThreads(),
+      activeId: "th-a",
+      favorites: ["th-a", "th-b"],
+    });
+    renderUi(<Sidebar {...p} />);
+    expect(screen.getByText(t("sidebar.continue"))).toBeTruthy();
+    expect(screen.getByText(t("sidebar.pinned"))).toBeTruthy();
+    // th-a en Continuer uniquement, th-b en Épinglés uniquement
+    expect(screen.getAllByText("Analyse albédo")).toHaveLength(1);
+    expect(screen.getAllByText("Révision figure")).toHaveLength(1);
+  });
+
+  it("panneau vide : phrase d'orientation, pas de sections", () => {
+    renderUi(<Sidebar {...makeProps({ threads: [] })} />);
+    expect(screen.getByText(t("sidebar.empty-project"))).toBeTruthy();
+    expect(screen.queryByText(t("sidebar.continue"))).toBeNull();
+    expect(screen.queryByText(t("sidebar.conversations"))).toBeNull();
+  });
+
+  it("« N conversations plus anciennes » étend la liste ; « Afficher moins » la replie", () => {
+    const many = Array.from({ length: 9 }, (_, i) =>
+      makeThread({ id: `t${i}`, title: `Conversation numéro ${i}` }),
+    );
+    renderUi(<Sidebar {...makeProps({ threads: many, activeId: "t0" })} />);
+    const more = screen.getByText(t("sidebar.older-count", { count: 3 }));
+    fireEvent.click(more);
+    expect(screen.getByText("Conversation numéro 8")).toBeTruthy();
+    fireEvent.click(screen.getByText(t("sidebar.show-less")));
+    expect(screen.queryByText("Conversation numéro 8")).toBeNull();
+  });
+
+  it("le thread actif porte aria-current sur son bouton principal", () => {
+    renderUi(<Sidebar {...makeProps({ threads: projectThreads(), activeId: "th-b" })} />);
+    const current = document.querySelector('[aria-current="true"]');
+    expect(current).toBeTruthy();
+    expect(current!.textContent).toContain("Révision figure");
+  });
+
+  it("le bouton ⋯ d'une ligne ouvre le menu de conversation (accès clavier)", () => {
+    const p = makeProps({ threads: projectThreads() });
+    renderUi(<Sidebar {...p} />);
+    const rowMenuBtns = screen.getAllByRole("button", { name: t("thread.more-actions") });
+    fireEvent.click(rowMenuBtns[0]);
+    fireEvent.click(screen.getByText(t("action.rename")));
+    expect(screen.getByDisplayValue("Analyse albédo")).toBeTruthy();
   });
 });

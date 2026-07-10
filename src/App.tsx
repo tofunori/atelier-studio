@@ -2029,8 +2029,6 @@ export default function App() {
           threadOrder={settings.threadOrder}
           activeProject={activeProject}
           activeId={activeId}
-          onAddProject={addProject}
-          onSelectProject={selectProject}
           onSelect={selectThread}
           onNew={newThread}
           onNewChat={newChat}
