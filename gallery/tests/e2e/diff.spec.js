@@ -142,6 +142,20 @@ async function setEditorText(page, text) {
 
 const editorText = page => page.evaluate(() => cm.getValue());
 
+async function pasteIntoEditor(page, engine, text) {
+  return page.evaluate(({engine, text}) => {
+    const transfer = new DataTransfer();
+    transfer.setData('text/plain', text);
+    const target = engine === 'cm5' ? cm.getInputField() : document.querySelector('.cm-content');
+    target.focus();
+    if (engine === 'cm5') target.value = text;
+    target.dispatchEvent(new ClipboardEvent('paste', {
+      bubbles: true, cancelable: true, clipboardData: transfer,
+    }));
+    return target.tagName;
+  }, {engine, text});
+}
+
 let externalWriteSequence = 0;
 function writeExternal(filePath, text) {
   const tempPath = path.join(path.dirname(filePath),
@@ -407,19 +421,37 @@ for (const engine of ['cm5', 'cm6']) {
         const foldGutter = page.locator(engine === 'cm6' ? '.cm-foldGutter' : '.CodeMirror-foldgutter');
         await expect(lineNumbers).toBeVisible();
         await expect(foldGutter).toHaveCount(1);
+        await page.evaluate(() => { cm.setCursor({line: 0, ch: 0}); cm.focus(); });
+        const editablePasteTarget = await pasteIntoEditor(page, engine, 'editable-paste-');
+        if (engine === 'cm5') expect(editablePasteTarget).toBe('TEXTAREA');
+        await expect.poll(() => editorText(page)).toBe(`editable-paste-${INITIAL_TEXT}`);
+        await page.evaluate((initial) => cm.setValue(initial), INITIAL_TEXT);
         const changed = INITIAL_TEXT
           .replace('surface stayed bright', 'surface visibly stayed bright')
           .replace('temperatures remained moderate', 'temperatures sharply remained moderate');
         await replaceTextAndSave(page, changed);
         const gutterMarker = page.locator('.dv-cell').first();
         await expect(gutterMarker).toBeVisible();
-        await page.evaluate(() => cm.setCursor({line: cm.lastLine(), ch: 0}));
+        // For this fixed fixture the first rendered gutter cell opens the
+        // Summer-temperatures change (zero-based document line 2).
+        const expectedMarkerLine = 2;
+        await page.evaluate(() => {
+          cm.setCursor({line: cm.lastLine(), ch: 0});
+          window.__gutterScrollTargets = [];
+          const scrollIntoView = cm.scrollIntoView.bind(cm);
+          cm.scrollIntoView = (pos, ...rest) => {
+            window.__gutterScrollTargets.push({line: pos.line, ch: pos.ch});
+            return scrollIntoView(pos, ...rest);
+          };
+        });
         await gutterMarker.evaluate((marker) => {
           setTimeout(() => {
             marker.dispatchEvent(new MouseEvent('click', {bubbles: true, cancelable: true}));
           }, 0);
         });
-        await expect(page.locator('.dv-flash').first()).toContainText(/glacier surface|temperatures/);
+        await expect(page.locator('.dv-flash').first()).toContainText('temperatures');
+        await expect.poll(() => page.evaluate(() => window.__gutterScrollTargets.at(-1)?.line))
+          .toBe(expectedMarkerLine);
         await expect(page.locator('#dvNav .dvNavC')).toHaveText('tout · 1');
         await expect.poll(() => page.evaluate(() => cm.getOption('readOnly'))).toBe(true);
         const savesBeforeReadOnlyShortcut = saveRequests;
@@ -430,14 +462,8 @@ for (const engine of ['cm5', 'cm6']) {
         await page.evaluate(() => cm.focus());
         await page.keyboard.type('blocked');
         expect(await editorText(page)).toBe(before);
-        await page.evaluate(() => {
-          const transfer = new DataTransfer();
-          transfer.setData('text/plain', 'clipboard-blocked');
-          const target = document.querySelector('.cm-content, .CodeMirror-code');
-          target.dispatchEvent(new ClipboardEvent('paste', {
-            bubbles: true, cancelable: true, clipboardData: transfer,
-          }));
-        });
+        const readOnlyPasteTarget = await pasteIntoEditor(page, engine, 'clipboard-blocked');
+        if (engine === 'cm5') expect(readOnlyPasteTarget).toBe('TEXTAREA');
         await page.waitForTimeout(100);
         expect(await editorText(page)).toBe(before);
         await page.locator('#diffTag').click();
