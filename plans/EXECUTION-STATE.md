@@ -39,13 +39,19 @@ adversariaux).
   PAS poussé). Galerie exclue (directive gallery/assets) — reporter cette
   partie du plan 023 après l'atterrissage CM6/galerie.
 
+## Fait — en attente de revue Codex (2026-07-10, tranche 022)
+- 022 perf chargement (branche `claude/atelier-022-perf`, base 023 ; PAS
+  poussé). Entrée 1639→864 KB min (−47 %) en 5 expériences mesurées :
+  terminal/xterm, Settings, surfaces atelier, KaTeX à l'idle, lazyWithRetry.
+  Rapport : docs/performance/frontend-2026-07.md ; garde-fou
+  scripts/check_entry_budget.mjs ; 305 tests + 13 goldens verts.
+
 ## Ordre restant (dépendances vérifiées)
 2. **025** harnais agentique (P0 XL, dép 008–010/015–016/018 ✓) — livre
    docs/AGENT_HARNESS_CONTRACT.md
 3. **020** tours de chat + composer (exige 025 DONE — STOP sinon)
 4. **021** settings/a11y/responsive/QA
-5. **022** perf chargement v2
-6. **023** polish cosmétique
+(020–023 faits — revues Codex en attente)
 (013 distribution : hors périmètre du goal actuel)
 
 ## Contexte opérationnel
