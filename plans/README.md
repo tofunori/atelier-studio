@@ -169,7 +169,7 @@ jamais comptées comme des interventions séparées.
 | Plan | Title | Priority | Effort | Depends on | Status |
 |------|-------|----------|--------|------------|--------|
 | 026 | Verrouiller le contrat du diff en navigateur | P0 | M | — | DONE (accepted `d6923cc`, revue Codex indépendante + revue globale, 2026-07-10) |
-| 027 | Enregistrer des interventions explicites | P0 | L | 026 | IN PROGRESS (worktree `advisor/027-explicit-diff-interventions`, 2026-07-10) |
+| 027 | Enregistrer des interventions explicites | P0 | L | 026 | DONE (accepted `62aceb2`, revue Codex globale, 2026-07-10) |
 | 028 | Rendre restauration et persistance durables | P0 | L | 027 | TODO |
 | 029 | Rendre les gros diffs non bloquants | P1 | M | 028 | TODO |
 | 030 | Rendre CM6 reproductible et compatible diff | P1 | L | 029 | TODO |
