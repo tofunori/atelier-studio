@@ -1,6 +1,6 @@
 import { test, expect } from '@playwright/test';
 import { spawn, execFileSync } from 'node:child_process';
-import { mkdtempSync, writeFileSync, rmSync, utimesSync } from 'node:fs';
+import { mkdtempSync, writeFileSync, rmSync, utimesSync, renameSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
@@ -139,18 +139,44 @@ async function setEditorText(page, text) {
 
 const editorText = page => page.evaluate(() => cm.getValue());
 
+let externalWriteSequence = 0;
 function writeExternal(filePath, text) {
-  writeFileSync(filePath, text);
+  const tempPath = path.join(path.dirname(filePath),
+    `.${path.basename(filePath)}.external-${process.pid}-${++externalWriteSequence}.tmp`);
+  writeFileSync(tempPath, text);
   const changedAt = new Date(Date.now() + 1000);
-  utimesSync(filePath, changedAt, changedAt);
+  utimesSync(tempPath, changedAt, changedAt);
+  renameSync(tempPath, filePath);
 }
 
-function hasIntervention(payloads, expected) {
-  return payloads.some(payload => payload.interventions?.some(entry =>
+function matchingInterventions(payload, expected) {
+  return (payload?.interventions || []).filter(entry =>
     entry.before === expected.before
       && entry.after === expected.after
       && entry.source === expected.source
-      && entry.status === expected.status));
+      && entry.status === expected.status);
+}
+
+function hasIntervention(payloads, expected) {
+  return payloads.some(payload => matchingInterventions(payload, expected).length > 0);
+}
+
+async function expectSingleStableIntervention(page, versionPayloads, expected) {
+  await expect.poll(() => {
+    const latest = versionPayloads.at(-1);
+    return { total: latest?.interventions?.length || 0, matching: matchingInterventions(latest, expected).length };
+  }).toEqual({ total: 1, matching: 1 });
+  const postCount = versionPayloads.length;
+  const nextCodeResponse = page.waitForResponse(response =>
+    response.request().method() === 'GET' && new URL(response.url()).pathname === '/code');
+  await nextCodeResponse;
+  const duplicateVersionPost = await page.waitForRequest(request =>
+    request.method() === 'POST' && request.url().endsWith('/versions'), { timeout: 1000 })
+    .then(request => request, () => null);
+  expect(duplicateVersionPost).toBeNull();
+  expect(versionPayloads).toHaveLength(postCount);
+  expect(versionPayloads.at(-1).interventions).toHaveLength(1);
+  expect(matchingInterventions(versionPayloads.at(-1), expected)).toHaveLength(1);
 }
 
 async function saveOnce(page) {
@@ -333,6 +359,9 @@ for (const kind of ['latex', 'code']) {
         before: initialText, after: disk, source: 'external-merge', status: 'applied',
       }), { timeout: 7000 }).toBe(true);
       await expect.poll(() => editorText(page)).toBe(merged);
+      await expectSingleStableIntervention(page, versionPayloads, {
+        before: initialText, after: disk, source: 'external-merge', status: 'applied',
+      });
     });
   });
 
@@ -349,6 +378,9 @@ for (const kind of ['latex', 'code']) {
         before: initialText, after: disk, source: 'external-conflict', status: 'pending-conflict',
       }), { timeout: 7000 }).toBe(true);
       await expect.poll(() => editorText(page)).toBe(local);
+      await expectSingleStableIntervention(page, versionPayloads, {
+        before: initialText, after: disk, source: 'external-conflict', status: 'pending-conflict',
+      });
     });
   });
 }

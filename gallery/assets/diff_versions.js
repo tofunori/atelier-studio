@@ -339,6 +339,13 @@ window.DiffVersions = function(opts){
       .filter(it => !baseTs || it.ts == null || it.ts >= baseTs)
       .map(it => ({...it, from: it.before, to: it.after, live: real === it.after}));
   }
+  function interventionLabel(it){
+    if(!it) return "";
+    const status = it.status === "pending-conflict"
+      ? "pending-conflict (non appliqué)"
+      : "applied (appliqué)";
+    return it.source + " · " + status;
+  }
   function ttExit(){
     if(!tt) return;
     const cm = getCm();
@@ -367,7 +374,8 @@ window.DiffVersions = function(opts){
       if(!tt) tt = {realText: cm.getValue()};
       cm.setValue(it.to);   // état APRÈS l'intervention j (origin setValue : pas de dirty)
     }
-    extCmp = {before: it.from, label: "intervention " + (j + 1) + "/" + list.length};
+    extCmp = {before: it.from,
+      label: "intervention " + (j + 1) + "/" + list.length + " · " + interventionLabel(it)};
     render();
   }
   function flashAt(pos){
@@ -412,7 +420,8 @@ window.DiffVersions = function(opts){
   function updateNav(){
     ensureNavUi();
     if(!navPill) return;
-    const n = shown ? interList().length : 0;
+    const list = shown ? interList() : [];
+    const n = list.length;
     const on = shown && !!curVersion();
     navPill.style.display = on ? "inline-flex" : "none";
     if(!on) return;
@@ -423,7 +432,8 @@ window.DiffVersions = function(opts){
       navNext.disabled = true;
     } else {
       navCount.textContent = (navMode + 1) + " / " + n;
-      navCount.title = "Intervention " + (navMode + 1) + " sur " + n + " — cliquer : revenir à « tout »";
+      navCount.title = "Intervention " + (navMode + 1) + " sur " + n + " · "
+        + interventionLabel(list[navMode]) + " — cliquer : revenir à « tout »";
       navPrev.disabled = navMode <= 0;
       navNext.disabled = false; // › depuis la dernière = retour à « tout »
     }
@@ -660,7 +670,7 @@ window.DiffVersions = function(opts){
       for(let i = INTERVENTIONS.length - 1; i >= 0; i--){
         const it = INTERVENTIONS[i];
         rows.push({label: "intervention " + (i + 1),
-          msg: it.source, sha: "—", ts: it.ts ? it.ts / 1000 : 0, text: () => it.before});
+          msg: interventionLabel(it), sha: "—", ts: it.ts ? it.ts / 1000 : 0, text: () => it.before});
       }
       for(let i = LEGACY_SNAPSHOTS.length - 1; i >= 0; i--){
         const snap = LEGACY_SNAPSHOTS[i];
@@ -919,6 +929,82 @@ window.DiffVersions = function(opts){
     if(added || legacyAdded) arm();
     return added + legacyAdded;
   }
+  function timelineStamp(data){
+    const items = Array.isArray(data && data.interventions) ? data.interventions : [];
+    if(!items.length) return {kind: "empty", value: -Infinity};
+    const values = [];
+    for(const it of items){
+      if(!it || it.ts === null || !Number.isFinite(Number(it.ts))) return {kind: "unknown", value: null};
+      values.push(Number(it.ts));
+    }
+    return {kind: "known", value: Math.max(...values)};
+  }
+  function localOwnsLast(localData, serverData){
+    const localStamp = timelineStamp(localData), serverStamp = timelineStamp(serverData);
+    if(localStamp.kind === "empty" && serverStamp.kind !== "empty") return false;
+    if(serverStamp.kind === "empty" && localStamp.kind !== "empty") return true;
+    // Une date absente ne permet pas de prouver que le serveur est plus récent :
+    // conserver le buffer local évite tout recul silencieux de `lastKnown`.
+    if(localStamp.kind !== "known" || serverStamp.kind !== "known") return true;
+    return localStamp.value >= serverStamp.value; // égalité : local gagne
+  }
+  function reconcileV2(localData, serverData){
+    const candidates = [];
+    const addCandidates = (data, origin) => {
+      for(const [order, it] of (Array.isArray(data.interventions) ? data.interventions : []).entries()){
+        if(!it || typeof it.before !== "string" || typeof it.after !== "string") continue;
+        candidates.push({it: {...it}, origin, order});
+      }
+    };
+    addCandidates(serverData, "server");
+    addCandidates(localData, "local");
+    const byKey = new Map();
+    for(const candidate of candidates){
+      const it = candidate.it;
+      const key = typeof it.id === "string" && it.id
+        ? "id:" + it.id
+        : "pair:" + JSON.stringify([it.before, it.after, it.source, it.status, it.ts]);
+      const previous = byKey.get(key);
+      if(!previous){ byKey.set(key, candidate); continue; }
+      const a = previous.it.ts === null ? null : Number(previous.it.ts);
+      const b = it.ts === null ? null : Number(it.ts);
+      const aKnown = Number.isFinite(a), bKnown = Number.isFinite(b);
+      if(aKnown && bKnown && a !== b){
+        if(b > a) byKey.set(key, candidate);
+      } else if(candidate.origin === "local") byKey.set(key, candidate);
+    }
+    const merged = [...byKey.values()];
+    merged.sort((a, b) => {
+      const at = a.it.ts === null || !Number.isFinite(Number(a.it.ts)) ? -Infinity : Number(a.it.ts);
+      const bt = b.it.ts === null || !Number.isFinite(Number(b.it.ts)) ? -Infinity : Number(b.it.ts);
+      if(at !== bt) return at - bt;
+      if(a.origin !== b.origin) return a.origin === "local" ? -1 : 1;
+      return a.order - b.order;
+    });
+    const legacySnapshots = [];
+    const legacyKeys = new Set();
+    for(const data of [localData, serverData]){
+      for(const snap of (Array.isArray(data.legacySnapshots) ? data.legacySnapshots : [])){
+        if(!snap || typeof snap.text !== "string") continue;
+        const key = JSON.stringify([snap.text, snap.ts, snap.label]);
+        if(legacyKeys.has(key)) continue;
+        legacyKeys.add(key); legacySnapshots.push({...snap});
+      }
+    }
+    const localWins = localOwnsLast(localData, serverData);
+    const primary = localWins ? localData : serverData;
+    const secondary = localWins ? serverData : localData;
+    const last = typeof primary.last === "string" ? primary.last
+      : typeof secondary.last === "string" ? secondary.last : null;
+    return {v: 2, interventions: merged.map(candidate => candidate.it), legacySnapshots, last};
+  }
+  function replaceWithV2(data){
+    INTERVENTIONS.splice(0, INTERVENTIONS.length);
+    LEGACY_SNAPSHOTS.splice(0, LEGACY_SNAPSHOTS.length);
+    if(!baseGitLocked) baseVersion = null;
+    lastKnown = null;
+    addV2(data);
+  }
   function addV1(data){
     const snapshots = (Array.isArray(data.items) ? data.items : [])
       .filter(it => it && typeof it.b === "string")
@@ -934,6 +1020,10 @@ window.DiffVersions = function(opts){
       if(record(before.text, after.text, {source: "legacy", status: "applied"}, after.ts))
         usedAsBefore.add(i);
     }
+    const finalSnapshot = snapshots[snapshots.length - 1];
+    if(finalSnapshot && typeof data.last === "string"
+        && record(finalSnapshot.text, data.last, {source: "legacy", status: "applied"}, null))
+      usedAsBefore.add(snapshots.length - 1);
     for(let i = 0; i < snapshots.length; i++){
       if(usedAsBefore.has(i)) continue;
       const snap = snapshots[i];
@@ -964,7 +1054,10 @@ window.DiffVersions = function(opts){
     // Le GET a démarré avant une action runtime : sa réponse est stale et
     // ne peut plus muter ni réordonner le journal courant.
     if(runtimePushes !== generation) return;
-    if(serverData && serverData.v === 2) loadData(serverData);
+    if(serverData && serverData.v === 2){
+      if(hasLocalV2) replaceWithV2(reconcileV2(localData, serverData));
+      else loadData(serverData);
+    }
     else if(serverData && !hasLocalV2){
       loadData(serverData);
       if(!INTERVENTIONS.length && !LEGACY_SNAPSHOTS.length && lastKnown === null) loadData(localData);

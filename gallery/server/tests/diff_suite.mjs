@@ -139,7 +139,8 @@ function makeModuleHarness({
   filePath = "/x/m.tex",
 } = {}) {
   const el = () => {
-    const e = { style: {}, classList: { toggle() {}, contains: () => false }, appendChild() {}, insertBefore() {},
+    const e = { style: {}, classList: { toggle() {}, contains: () => false }, _children: [],
+      appendChild(n) { e._children.push(n); return n; }, insertBefore(n) { e._children.push(n); return n; },
       querySelectorAll: () => [], addEventListener() {}, dataset: {}, disabled: false,
       getBoundingClientRect: () => ({}), onclick: null, contains: () => false };
     // mémoïsé : le module garde des refs internes (navPrev…) — les tests doivent
@@ -152,6 +153,7 @@ function makeModuleHarness({
   const marksLog = [];
   const gutterLog = [];
   const posts = [];
+  const body = el();
   const storage = new Map();
   if (localState !== null) storage.set("texDiffV1:" + filePath, JSON.stringify(localState));
   const activeHead = { text: headText, ts: headTs, sha: "abc1234" };
@@ -177,7 +179,7 @@ function makeModuleHarness({
   const ctx = {
     window: {}, console, Date, JSON, Math, Infinity,
     document: { getElementById: () => null, createElement: el, head: { appendChild() {} },
-      body: { appendChild() {} }, addEventListener() {}, querySelector: () => null },
+      body, addEventListener() {}, querySelector: () => null },
     localStorage: {
       getItem: (key) => storage.get(key) ?? null,
       setItem: (key, value) => storage.set(key, value),
@@ -197,6 +199,8 @@ function makeModuleHarness({
         return versionsPromise
           ? versionsPromise.then((value) => ({ json: () => Promise.resolve(value) }))
           : Promise.resolve({ json: () => Promise.resolve(serverState || { ok: true, items: serverItems, last: serverLast }) });
+      if (url.startsWith("/gitlog"))
+        return Promise.resolve({ json: () => Promise.resolve({ok: true, items: []}) });
       return new Promise(() => {});
     },
     setInterval(f) { ctx.__tick = f; return 1; }, clearInterval() {},
@@ -211,7 +215,7 @@ function makeModuleHarness({
   // groupe qui capture le navPill inséré par ensureNavUi (timeline ‹ k/N ›)
   const group = el();
   let navPill = null;
-  group.insertBefore = (n) => { if (n && n.id === "dvNav") navPill = n; };
+  group.insertBefore = (n) => { group._children.push(n); if (n && n.id === "dvNav") navPill = n; };
   const dv = ctx.window.DiffVersions({
     getCm: () => cm, path: filePath, notify: (m) => notes.push(m),
     els: { tag, prev: null, next: null, restore: null, group },
@@ -222,8 +226,14 @@ function makeModuleHarness({
     next: navPill.querySelector('[data-d="1"]'),
     count: navPill.querySelector(".dvNavC"),
   };
+  const historyButton = () => group._children.find((child) => child && child.id === "dvHist") || null;
+  const historyRows = () => {
+    const pop = body._children.find((child) => child?._q?.["#dvHistList"]);
+    return pop?._q?.["#dvHistList"]?._children || [];
+  };
   const setHead = (text, ts, sha = activeHead.sha) => Object.assign(activeHead, { text, ts, sha });
-  return { ctx, cm, dv, tag, notes, marksLog, gutterLog, posts, nav, storage, setHead };
+  return { ctx, cm, dv, tag, notes, marksLog, gutterLog, posts, nav, storage, setHead,
+    historyButton, historyRows };
 }
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
@@ -566,30 +576,50 @@ async function moduleTests() {
         && !python.dv.isEquivalent("if ready:\n    run()\n", "if ready:\n  run()\n"));
   }
 
-  // B13. migration v1 : un snapshot {b,t} sans after reste consultable comme
-  // legacySnapshot mais ne devient jamais une intervention inventée.
+  // B13. migration v1 : `last` est le dernier buffer réel de l'ancien format,
+  // donc il complète la dernière paire. Sans `last`, le snapshot reste orphelin.
   {
-    const orphan = "snapshot v1 sans etat after\n";
+    const before = "snapshot v1 avec successeur last\n";
     const current = "texte courant connu du serveur\n";
     const edited = "texte courant puis vraie sauvegarde\n";
     const h = makeModuleHarness({
       headText: current,
-      serverState: { ok: true, v: 1, items: [{ b: orphan, t: 42 }], last: current },
+      serverState: { ok: true, v: 1, items: [{ b: before, t: 42 }], last: current },
     });
     h.cm._v = current;
     h.ctx.__tick();
     await sleep(0); await sleep(0); await sleep(0);
     h.tag.onclick();
-    contractOk("snapshot v1 sans after : N=0", h.nav()?.count.textContent === "tout · 0", h.nav()?.count.textContent);
+    contractOk("snapshot v1 suivi par last : N=1", h.nav()?.count.textContent === "tout · 1", h.nav()?.count.textContent);
     if (h.dv.isShown()) h.tag.onclick();
     h.cm._v = edited;
     h.dv.push(current, edited, { source: "user-save", status: "applied" });
     await sleep(0);
     assertPersistedInterventions("migration snapshot v1 legacy", h, [
+      { before, after: current, source: "legacy", status: "applied" },
       { before: current, after: edited, source: "user-save", status: "applied" },
-    ], [
-      { text: orphan, ts: 42 },
     ]);
+  }
+  {
+    const orphan = "snapshot v1 reellement orphelin\n";
+    const current = "buffer courant sans lien invente\n";
+    const edited = "buffer courant sauvegarde ensuite\n";
+    const h = makeModuleHarness({
+      headText: current,
+      serverState: {ok: true, v: 1, items: [{b: orphan, t: 42}], last: null},
+    });
+    h.cm._v = current;
+    h.ctx.__tick();
+    await sleep(0); await sleep(0); await sleep(0);
+    h.tag.onclick();
+    const count = h.nav()?.count.textContent;
+    if(h.dv.isShown()) h.tag.onclick();
+    h.cm._v = edited;
+    h.dv.push(current, edited, {source: "user-save", status: "applied"});
+    assertPersistedInterventions("migration snapshot v1 orphelin sans last", h, [
+      {before: current, after: edited, source: "user-save", status: "applied"},
+    ], [{text: orphan, ts: 42}]);
+    contractOk("snapshot v1 sans last : N=0 avant push", count === "tout · 0", count);
   }
 
   // B14. Le serveur durable reste v1 pendant la transition : une réponse v1
@@ -634,6 +664,113 @@ async function moduleTests() {
     contractOk("fallback local v1 survit a une reponse serveur v1 vide",
       h.nav()?.count.textContent === "tout · 1", h.nav()?.count.textContent);
   }
+  {
+    const pre = "etat prehistorique\n", base = "base partagee\n", a = "etat a\n", b = "etat b\n";
+    const current = "etat local le plus recent\n", next = "etat runtime suivant\n";
+    const shared = {id: "shared-20", before: a, after: b, ts: 20, source: "user-save", status: "applied"};
+    const h = makeModuleHarness({
+      headText: pre,
+      localState: {v: 2, interventions: [
+        {id: "local-10", before: base, after: a, ts: 10, source: "user-save", status: "applied"},
+        shared,
+        {id: "local-30", before: b, after: current, ts: 30, source: "user-save", status: "applied"},
+      ], legacySnapshots: [], last: current},
+      serverState: {ok: true, v: 2, interventions: [
+        {id: "server-5", before: pre, after: base, ts: 5, source: "legacy", status: "applied"},
+        {...shared},
+      ], legacySnapshots: [], last: b},
+    });
+    h.cm._v = current;
+    h.ctx.__tick();
+    await sleep(0); await sleep(0); await sleep(0);
+    h.tag.onclick();
+    const count = h.nav()?.count.textContent;
+    if(h.dv.isShown()) h.tag.onclick();
+    h.cm._v = next;
+    h.dv.push(current, next, {source: "user-save", status: "applied"});
+    const saved = h.posts[h.posts.length - 1]?.interventions || [];
+    contractOk("reconciliation v2 garde local plus recent et ordre chronologique",
+      count === "tout · 4" && saved.length === 5
+        && saved.slice(0, 4).map((it) => it.id).join(",") === "server-5,local-10,shared-20,local-30"
+        && saved.filter((it) => it.id === "shared-20").length === 1,
+      JSON.stringify({count, ids: saved.map((it) => it.id), saved}));
+  }
+  {
+    const base = "base autorite serveur\n", local = "etat local ancien\n";
+    const server = "etat serveur reellement recent\n", next = "etat apres reconciliation serveur\n";
+    const shared = {id: "shared-10", before: base, after: local, ts: 10, source: "user-save", status: "applied"};
+    const h = makeModuleHarness({
+      headText: base,
+      localState: {v: 2, interventions: [shared], legacySnapshots: [], last: local},
+      serverState: {ok: true, v: 2, interventions: [shared,
+        {id: "server-20", before: local, after: server, ts: 20, source: "external-reload", status: "applied"},
+      ], legacySnapshots: [], last: server},
+    });
+    h.cm._v = server;
+    h.ctx.__tick();
+    await sleep(0); await sleep(0); await sleep(0);
+    h.tag.onclick();
+    const count = h.nav()?.count.textContent;
+    if(h.dv.isShown()) h.tag.onclick();
+    h.cm._v = next;
+    h.dv.push(server, next, {source: "user-save", status: "applied"});
+    const saved = h.posts[h.posts.length - 1]?.interventions || [];
+    contractOk("reconciliation v2 accepte serveur vraiment plus recent",
+      count === "tout · 2" && saved.slice(0, 2).map((it) => it.id).join(",") === "shared-10,server-20",
+      JSON.stringify({count, ids: saved.map((it) => it.id)}));
+  }
+  {
+    const base = "base egalite autorite\n", sharedAfter = "etat partage\n";
+    const local = "last local a egalite\n", server = "last serveur a egalite\n";
+    const next = "etat suivant egalite\n";
+    const shared = {id: "eq-shared", before: base, after: sharedAfter, ts: 10, source: "user-save", status: "applied"};
+    const h = makeModuleHarness({
+      headText: base,
+      localState: {v: 2, interventions: [shared,
+        {id: "eq-local", before: sharedAfter, after: local, ts: 20, source: "user-save", status: "applied"},
+      ], legacySnapshots: [], last: local},
+      serverState: {ok: true, v: 2, interventions: [shared,
+        {id: "eq-server", before: sharedAfter, after: server, ts: 20, source: "external-reload", status: "applied"},
+      ], legacySnapshots: [], last: server},
+    });
+    h.cm._v = local;
+    h.ctx.__tick();
+    await sleep(0); await sleep(0); await sleep(0);
+    h.tag.onclick();
+    const count = h.nav()?.count.textContent;
+    if(h.dv.isShown()) h.tag.onclick();
+    h.cm._v = next;
+    h.dv.push(local, next, {source: "user-save", status: "applied"});
+    const saved = h.posts[h.posts.length - 1]?.interventions || [];
+    contractOk("reconciliation v2 egalite donne autorite au local",
+      count === "tout · 3" && saved.slice(0, 3).map((it) => it.id).join(",") === "eq-shared,eq-local,eq-server",
+      JSON.stringify({count, ids: saved.map((it) => it.id)}));
+  }
+  {
+    const base = "base timestamp inconnu\n", local = "last local timestamp inconnu\n";
+    const server = "last serveur date mais incertain\n", next = "etat suivant inconnu\n";
+    const h = makeModuleHarness({
+      headText: base,
+      localState: {v: 2, interventions: [
+        {id: "null-local", before: base, after: local, ts: null, source: "legacy", status: "applied"},
+      ], legacySnapshots: [], last: local},
+      serverState: {ok: true, v: 2, interventions: [
+        {id: "dated-server", before: base, after: server, ts: 20, source: "external-reload", status: "applied"},
+      ], legacySnapshots: [], last: server},
+    });
+    h.cm._v = local;
+    h.ctx.__tick();
+    await sleep(0); await sleep(0); await sleep(0);
+    h.tag.onclick();
+    const count = h.nav()?.count.textContent;
+    if(h.dv.isShown()) h.tag.onclick();
+    h.cm._v = next;
+    h.dv.push(local, next, {source: "user-save", status: "applied"});
+    const saved = h.posts[h.posts.length - 1]?.interventions || [];
+    contractOk("reconciliation v2 timestamp absent reste conservative",
+      count === "tout · 2" && saved.slice(0, 2).map((it) => it.id).join(",") === "null-local,dated-server",
+      JSON.stringify({count, ids: saved.map((it) => it.id)}));
+  }
 
   // B15. Un conflit pending journalise l'after externe, mais `last` reste le
   // vrai buffer local qui n'a pas reçu cet after.
@@ -648,6 +785,17 @@ async function moduleTests() {
     contractOk("pending conflict persiste le vrai buffer dans last",
       payload?.last === mine && payload?.interventions?.[0]?.after === disk,
       JSON.stringify(payload));
+    h.tag.onclick();
+    h.nav()?.prev.onclick();
+    const timelineTitle = h.nav()?.count.title || "";
+    const hist = h.historyButton();
+    if(hist) await hist.onclick();
+    if(hist && !h.historyRows().length) await hist.onclick();
+    const historyMessage = h.historyRows()[0]?.querySelector(".msg")?.textContent || "";
+    contractOk("pending conflict affiche source et statut non applique dans timeline et historique",
+      /external-conflict/.test(timelineTitle) && /non appliqu/.test(timelineTitle)
+        && /external-conflict/.test(historyMessage) && /non appliqu/.test(historyMessage),
+      JSON.stringify({timelineTitle, historyMessage}));
   }
 
   // B16. Si un push arrive pendant le GET initial, sa génération gagne : la
