@@ -1,10 +1,10 @@
 // studio_editor.mjs — CM6 engine wearing a CM5 façade, sized to exactly the
 // API surface latex_studio.html uses (inventoried 2026-07-07). Not a general
 // CM5 shim: methods the page doesn't call don't exist here.
-import {EditorState, StateEffect, StateField, Compartment, Prec, Annotation} from "@codemirror/state";
+import {EditorState, StateEffect, StateField, Compartment, Prec, Annotation, RangeSet} from "@codemirror/state";
 import {EditorView, Decoration, keymap, highlightActiveLine, highlightActiveLineGutter,
-        lineNumbers, drawSelection} from "@codemirror/view";
-import {defaultKeymap, historyKeymap, history, indentWithTab} from "@codemirror/commands";
+        lineNumbers, drawSelection, gutter, GutterMarker, WidgetType, ViewPlugin} from "@codemirror/view";
+import {defaultKeymap, historyKeymap, history, indentWithTab, selectAll} from "@codemirror/commands";
 import {openSearchPanel, searchKeymap, highlightSelectionMatches} from "@codemirror/search";
 import {bracketMatching, foldGutter, foldKeymap, StreamLanguage, indentUnit} from "@codemirror/language";
 import {closeBrackets, closeBracketsKeymap} from "@codemirror/autocomplete";
@@ -40,6 +40,12 @@ const clearMark = StateEffect.define();   // id
 const addLineCls = StateEffect.define();  // {line, cls}  (0-based)
 const clearLineCls = StateEffect.define();// {line, cls}
 const setValueAnno = Annotation.define();
+class NodeWidget extends WidgetType {
+  constructor(node) { super(); this.node = node; }
+  eq(other) { return other.node === this.node; }
+  toDOM() { return this.node; }
+  ignoreEvent() { return false; }
+}
 const marksField = StateField.define({
   create: () => ({decos: Decoration.none, specs: new Map()}),
   update(value, tr) {
@@ -47,8 +53,10 @@ const marksField = StateField.define({
     const specs = new Map(value.specs);
     for (const e of tr.effects) {
       if (e.is(addMark)) {
-        const {id, from, to, spec} = e.value;
-        const deco = Decoration.mark(spec);
+        const {id, from, to, spec, widget} = e.value;
+        const deco = widget
+          ? Decoration.widget({widget: new NodeWidget(widget), side: spec.insertLeft ? -1 : 1})
+          : Decoration.mark(spec);
         specs.set(id, deco);
         decos = decos.update({add: [deco.range(from, to)]});
       } else if (e.is(clearMark)) {
@@ -61,6 +69,63 @@ const marksField = StateField.define({
   },
   provide: (f) => EditorView.decorations.from(f, (v) => v.decos),
 });
+
+const setGutter = StateEffect.define();
+const clearGutterEffect = StateEffect.define();
+class NodeGutterMarker extends GutterMarker {
+  constructor(name, node) { super(); this.name = name; this.node = node; }
+  eq(other) { return other.name === this.name && other.node === this.node; }
+  toDOM() { return this.node; }
+}
+const gutterField = StateField.define({
+  create: () => ({entries: new Map(), ranges: RangeSet.empty}),
+  update(value, tr) {
+    const entries = new Map();
+    for (const [key, entry] of value.entries) {
+      const pos = tr.changes.mapPos(entry.pos);
+      entries.set(key, {...entry, pos});
+    }
+    for (const effect of tr.effects) {
+      if (effect.is(setGutter)) {
+        const entry = effect.value;
+        entries.set(`${entry.name}:${entry.line}`, entry);
+      } else if (effect.is(clearGutterEffect)) {
+        for (const [key, entry] of entries) if (entry.name === effect.value) entries.delete(key);
+      }
+    }
+    const ranges = [...entries.values()]
+      .sort((a, b) => a.pos - b.pos)
+      .map((entry) => new NodeGutterMarker(entry.name, entry.node).range(entry.pos));
+    return {entries, ranges: RangeSet.of(ranges, true)};
+  },
+});
+
+function hangingIndentDecorations(view) {
+  const ranges = [];
+  for (const {from, to} of view.visibleRanges) {
+    let line = view.state.doc.lineAt(from);
+    while (line.from <= to) {
+      const columns = countColumn(line.text, null, view.state.tabSize);
+      if (columns) {
+        const offset = columns * view.defaultCharacterWidth;
+        ranges.push(Decoration.line({attributes: {
+          style: `text-indent:-${offset}px;padding-left:${4 + offset}px`,
+        }}).range(line.from));
+      }
+      if (line.to >= to || line.number >= view.state.doc.lines) break;
+      line = view.state.doc.line(line.number + 1);
+    }
+  }
+  return Decoration.set(ranges, true);
+}
+const hangingIndent = ViewPlugin.fromClass(class {
+  constructor(view) { this.decorations = hangingIndentDecorations(view); }
+  update(update) {
+    if (update.docChanged || update.viewportChanged || update.geometryChanged) {
+      this.decorations = hangingIndentDecorations(update.view);
+    }
+  }
+}, {decorations: (value) => value.decorations});
 const lineClsField = StateField.define({
   create: () => Decoration.none,
   update(decos, tr) {
@@ -89,7 +154,9 @@ const lineClsField = StateField.define({
 export function createStudioEditor(parent, opts) {
   const wrapComp = new Compartment();
   const keymapComp = new Compartment();
-  const handlers = {change: [], blur: [], cursorActivity: []};
+  const readOnlyComp = new Compartment();
+  const editableComp = new Compartment();
+  const handlers = {change: [], blur: [], cursorActivity: [], gutterClick: []};
   let markId = 0;
 
   const view = new EditorView({
@@ -101,9 +168,22 @@ export function createStudioEditor(parent, opts) {
         bracketMatching(), closeBrackets(), foldGutter(), highlightSelectionMatches({minSelectionLength: 3}),
         indentUnit.of("  "),
         languageFor(opts.ext),
-        marksField, lineClsField,
+        marksField, lineClsField, gutterField, hangingIndent,
+        gutter({
+          class: "CodeMirror-diffgutter",
+          markers: (view) => view.state.field(gutterField).ranges,
+          domEventHandlers: {
+            click: (view, line) => {
+              const lineNo = view.state.doc.lineAt(line.from).number - 1;
+              handlers.gutterClick.forEach((fn) => fn(facade, lineNo, "dv-git"));
+              return handlers.gutterClick.length > 0;
+            },
+          },
+        }),
         wrapComp.of(opts.wrap === false ? [] : EditorView.lineWrapping),
         keymapComp.of([]),
+        readOnlyComp.of(EditorState.readOnly.of(false)),
+        editableComp.of(EditorView.editable.of(true)),
         opts.ext === "tex"
           ? ghostAiExtension({
               isTex: () => true,
@@ -145,6 +225,10 @@ export function createStudioEditor(parent, opts) {
     setValue: (text) => view.dispatch({changes: {from: 0, to: doc().length, insert: text}, annotations: setValueAnno.of(true)}),
     getLine: (n) => (n >= 0 && n < doc().lines ? doc().line(n + 1).text : ""),
     lineCount: () => doc().lines,
+    lastLine: () => doc().lines - 1,
+    posFromIndex: (index) => toPos(index),
+    indexFromPos: (pos) => toOffset(pos),
+    getRange: (from, to) => view.state.sliceDoc(toOffset(from), toOffset(to)),
     replaceRange: (text, from, to) =>
       view.dispatch({changes: {from: toOffset(from), to: to == null ? toOffset(from) : toOffset(to), insert: text}}),
     // --- cursor/selection ---
@@ -178,7 +262,46 @@ export function createStudioEditor(parent, opts) {
     markText: (from, to, spec) => {
       const id = ++markId;
       view.dispatch({effects: addMark.of({id, from: toOffset(from), to: toOffset(to), spec: {class: spec.className, attributes: spec.attributes}})});
-      return {clear: () => view.dispatch({effects: clearMark.of(id)})};
+      let cleared = false;
+      return {
+        clear: () => {
+          if (cleared) return;
+          cleared = true;
+          view.dispatch({effects: clearMark.of(id)});
+        },
+        find: () => {
+          if (cleared) return undefined;
+          const mark = view.state.field(marksField).specs.get(id);
+          if (!mark) return undefined;
+          let found;
+          view.state.field(marksField).decos.between(0, doc().length, (from, to, deco) => {
+            if (deco === mark) found = {from: toPos(from), to: toPos(to)};
+          });
+          return found;
+        },
+      };
+    },
+    setBookmark: (pos, spec) => {
+      const id = ++markId;
+      view.dispatch({effects: addMark.of({id, from: toOffset(pos), to: toOffset(pos), spec,
+        widget: spec.widget})});
+      let cleared = false;
+      return {
+        clear: () => {
+          if (cleared) return;
+          cleared = true;
+          view.dispatch({effects: clearMark.of(id)});
+        },
+        find: () => {
+          if (cleared) return undefined;
+          const mark = view.state.field(marksField).specs.get(id);
+          let found;
+          view.state.field(marksField).decos.between(0, doc().length, (from, _to, deco) => {
+            if (deco === mark) found = toPos(from);
+          });
+          return found;
+        },
+      };
     },
     addLineClass: (line, where, cls) => {
       if (where === "background") view.dispatch({effects: addLineCls.of({line, cls})});
@@ -186,12 +309,21 @@ export function createStudioEditor(parent, opts) {
     removeLineClass: (line, where, cls) => {
       if (where === "background") view.dispatch({effects: clearLineCls.of({line, cls})});
     },
-    clearGutter: () => {},                    // py lint gutter — Phase B
+    setGutterMarker: (line, name, node) => {
+      if (line < 0 || line >= doc().lines) return;
+      view.dispatch({effects: setGutter.of({line, name, node, pos: doc().line(line + 1).from})});
+    },
+    clearGutter: (name) => view.dispatch({effects: clearGutterEffect.of(name)}),
     // --- options ---
     setOption: (name, v) => {
       if (name === "lineWrapping") view.dispatch({effects: wrapComp.reconfigure(v ? EditorView.lineWrapping : [])});
+      if (name === "readOnly") view.dispatch({effects: [
+        readOnlyComp.reconfigure(EditorState.readOnly.of(Boolean(v))),
+        editableComp.reconfigure(EditorView.editable.of(!v)),
+      ]});
     },
-    getOption: (name) => (name === "tabSize" ? view.state.tabSize : undefined),
+    getOption: (name) => name === "tabSize" ? view.state.tabSize
+      : name === "readOnly" ? view.state.readOnly : undefined,
     // --- keymaps/commands/events ---
     addKeyMap: (map) => {
       const bindings = Object.entries(map).map(([k, fn]) => ({
@@ -201,7 +333,11 @@ export function createStudioEditor(parent, opts) {
       const cur = keymapComp.get(view.state) || [];
       view.dispatch({effects: keymapComp.reconfigure([cur, Prec.high(keymap.of(bindings))])});
     },
-    execCommand: (name) => { if (name === "findPersistent" || name === "find") openSearchPanel(view); },
+    operation: (fn) => fn(),
+    execCommand: (name) => {
+      if (name === "findPersistent" || name === "find") openSearchPanel(view);
+      else if (name === "selectAll") selectAll(view);
+    },
     on: (event, fn) => { (handlers[event] || (handlers[event] = [])).push(fn); },
   };
   return facade;

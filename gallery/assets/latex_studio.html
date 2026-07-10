@@ -1127,13 +1127,16 @@ async function load(){
   // Rewrap façon VS Code : les lignes repliées s'alignent sous le début du
   // texte de la ligne (indentation préservée), pas sous le gutter.
   (function(){
-    const basePad = 4;
-    cm.on("renderLine", function(cm, line, elt){
-      const off = (window.__ENGINE === "cm6" ? AtelierStudioCM6.countColumn : CodeMirror.countColumn)(line.text, null, cm.getOption("tabSize")) * cm.defaultCharWidth();
-      elt.style.textIndent = "-" + off + "px";
-      elt.style.paddingLeft = (basePad + off) + "px";
-    });
-    cm.refresh();
+    // CM6 fournit la même présentation via l'extension native hangingIndent.
+    if(window.__ENGINE !== "cm6"){
+      const basePad = 4;
+      cm.on("renderLine", function(cm, line, elt){
+        const off = CodeMirror.countColumn(line.text, null, cm.getOption("tabSize")) * cm.defaultCharWidth();
+        elt.style.textIndent = "-" + off + "px";
+        elt.style.paddingLeft = (basePad + off) + "px";
+      });
+      cm.refresh();
+    }
   })();
 
   // Le divider du panneau (Bibliothèque/atelier) redimensionne l'iframe SANS
@@ -2144,7 +2147,10 @@ document.addEventListener("keydown", e => {
   if((e.metaKey || e.ctrlKey) && !e.shiftKey && !e.altKey && (e.key === "a" || e.key === "A") && cm){
     e.preventDefault(); cm.execCommand("selectAll"); cm.focus();
   }
-  if((e.metaKey || e.ctrlKey) && e.key === "s" && cm){ e.preventDefault(); save(); }
+  if((e.metaKey || e.ctrlKey) && e.key === "s" && cm){
+    e.preventDefault();
+    if(!cm.getOption("readOnly")) save();
+  }
   if((e.metaKey || e.ctrlKey) && e.key === "b" && cm && IS_TEX){ e.preventDefault(); compile(); }
   if((e.metaKey || e.ctrlKey) && e.key === "j" && cm){ e.preventDefault(); synctexView(); }
 });

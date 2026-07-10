@@ -1,6 +1,12 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { clampPos, countColumn, cm5KeyToCm6 } from "../../assets/cm6/studio_compat.mjs";
+import {
+  clampPos,
+  countColumn,
+  cm5KeyToCm6,
+  indexFromPos,
+  posFromIndex,
+} from "../../assets/cm6/studio_compat.mjs";
 
 test("clampPos: in-bounds position passes through", () => {
   assert.deepEqual(clampPos({line: 1, ch: 3}, 5, () => 10), {line: 1, ch: 3});
@@ -23,4 +29,20 @@ test("cm5KeyToCm6 mappings", () => {
   assert.equal(cm5KeyToCm6("Esc"), "Escape");
   assert.equal(cm5KeyToCm6("Tab"), "Tab");
   assert.equal(cm5KeyToCm6("Shift-Cmd-F"), "Shift-Cmd-f");
+});
+
+const MULTILINE = "alpha\nbeta\n";
+
+test("posFromIndex maps document boundaries and multiline offsets", () => {
+  assert.deepEqual(posFromIndex(MULTILINE, 0), {line: 0, ch: 0});
+  assert.deepEqual(posFromIndex(MULTILINE, 6), {line: 1, ch: 0});
+  assert.deepEqual(posFromIndex(MULTILINE, MULTILINE.length), {line: 2, ch: 0});
+  assert.deepEqual(posFromIndex(MULTILINE, 999), {line: 2, ch: 0});
+});
+
+test("indexFromPos maps document boundaries and clamps positions", () => {
+  assert.equal(indexFromPos(MULTILINE, {line: 0, ch: 0}), 0);
+  assert.equal(indexFromPos(MULTILINE, {line: 1, ch: 2}), 8);
+  assert.equal(indexFromPos(MULTILINE, {line: 2, ch: 0}), MULTILINE.length);
+  assert.equal(indexFromPos(MULTILINE, {line: 99, ch: 99}), MULTILINE.length);
 });

@@ -30,3 +30,19 @@ export function cm5KeyToCm6(name) {
     return part;
   }).join("-");
 }
+
+export function posFromIndex(text, index) {
+  const offset = Math.max(0, Math.min(Number.isFinite(index) ? Math.trunc(index) : 0, text.length));
+  const before = text.slice(0, offset);
+  const line = (before.match(/\n/g) || []).length;
+  const lastBreak = before.lastIndexOf("\n");
+  return {line, ch: offset - lastBreak - 1};
+}
+
+export function indexFromPos(text, pos) {
+  const lines = text.split("\n");
+  const p = clampPos(pos, lines.length, (line) => lines[line].length);
+  let offset = 0;
+  for (let line = 0; line < p.line; line += 1) offset += lines[line].length + 1;
+  return offset + p.ch;
+}

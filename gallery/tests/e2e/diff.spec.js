@@ -77,7 +77,7 @@ async function stopServer(server) {
   await waitForExit(server, 1000);
 }
 
-async function withEditor(kind, run) {
+async function withEditor(kind, run, engine = kind === 'latex' ? 'cm5' : null) {
   const editor = EDITORS[kind];
   const root = mkdtempSync(path.join(tmpdir(), 'atelier-diff-e2e-'));
   const filePath = path.join(root, editor.filename);
@@ -97,7 +97,8 @@ async function withEditor(kind, run) {
       stdio: ['ignore', 'pipe', 'pipe'],
     });
     await waitForPing(port);
-    const url = `http://127.0.0.1:${port}/.fig_thumbs/${editor.asset}?path=${encodeURIComponent(filePath)}${editor.query}`;
+    const engineQuery = kind === 'latex' ? `&engine=${engine}` : editor.query;
+    const url = `http://127.0.0.1:${port}/.fig_thumbs/${editor.asset}?path=${encodeURIComponent(filePath)}${engineQuery}`;
     await run({ root, filePath, texPath: filePath, port, url, kind, initialText: editor.initialText });
   } finally {
     await stopServer(server);
@@ -105,15 +106,17 @@ async function withEditor(kind, run) {
   }
 }
 
-async function withLatexStudio(run) {
-  return withEditor('latex', run);
+async function withLatexStudio(engineOrRun, maybeRun) {
+  const engine = typeof engineOrRun === 'string' ? engineOrRun : 'cm5';
+  const run = typeof engineOrRun === 'function' ? engineOrRun : maybeRun;
+  return withEditor('latex', run, engine);
 }
 
-async function openEditor(page, url, kind = 'latex') {
+async function openEditor(page, url, kind = 'latex', engine = 'cm5') {
   await page.goto(url);
-  if (kind === 'latex') await expect.poll(() => page.evaluate(() => window.__ENGINE)).toBe('cm5');
+  if (kind === 'latex') await expect.poll(() => page.evaluate(() => window.__ENGINE)).toBe(engine);
   await expect.poll(() => page.evaluate(() => typeof cm !== 'undefined' && Boolean(cm))).toBe(true);
-  await expect(page.locator('.CodeMirror')).toBeVisible();
+  await expect(page.locator(engine === 'cm6' ? '.cm-editor' : '.CodeMirror')).toBeVisible();
 }
 
 function watchEditorTraffic(page) {
@@ -390,6 +393,153 @@ test('CM5: save and clean disk reload keep explicit intervention sources', async
     expect(allInterventions(versionPayloads)).toHaveLength(interventionCount);
   });
 });
+
+for (const engine of ['cm5', 'cm6']) {
+  test.describe(engine.toUpperCase(), () => {
+    test('diff multi-zone is one intervention', async ({ page }) => {
+      await withLatexStudio(engine, async ({ url }) => {
+        let saveRequests = 0;
+        page.on('request', request => {
+          if (request.method() === 'POST' && request.url().endsWith('/codesave')) saveRequests += 1;
+        });
+        await openEditor(page, url, 'latex', engine);
+        const changed = INITIAL_TEXT
+          .replace('stayed bright', 'became visibly darker')
+          .replace('temperatures remained moderate', 'temperatures increased sharply');
+        await replaceTextAndSave(page, changed);
+        const gutterMarker = page.locator('.dv-cell').first();
+        await expect(gutterMarker).toBeVisible();
+        await gutterMarker.click();
+        await expect(page.locator('#dvNav .dvNavC')).toHaveText('tout · 1');
+        await expect.poll(() => page.evaluate(() => cm.getOption('readOnly'))).toBe(true);
+        const savesBeforeReadOnlyShortcut = saveRequests;
+        await page.keyboard.press('Meta+s');
+        await page.waitForTimeout(250);
+        expect(saveRequests).toBe(savesBeforeReadOnlyShortcut);
+        const before = await editorText(page);
+        await page.evaluate(() => cm.focus());
+        await page.keyboard.type('blocked');
+        expect(await editorText(page)).toBe(before);
+        await page.locator('#diffTag').click();
+        await expect.poll(() => page.evaluate(() => cm.getOption('readOnly'))).toBe(false);
+        await page.evaluate(() => { cm.setCursor({line: 0, ch: 0}); cm.focus(); });
+        await page.keyboard.type('ok');
+        await expect.poll(() => editorText(page)).toBe(`ok${changed}`);
+      });
+    });
+
+    test('diff timeline cumulative and steps', async ({ page }) => {
+      await withLatexStudio(engine, async ({ url }) => {
+        await openEditor(page, url, 'latex', engine);
+        await replaceLineAndSave(page, 1, 'First intervention changes the glacier surface.');
+        await replaceLineAndSave(page, 2, 'Second intervention changes summer temperature.');
+        await replaceLineAndSave(page, 3, 'Third intervention changes snow depth.');
+        await page.locator('#diffTag').click();
+        const count = page.locator('#dvNav .dvNavC');
+        const previous = page.locator('#dvNav [data-d="-1"]');
+        await expect(count).toHaveText('tout · 3');
+        await previous.click(); await expect(count).toHaveText('3 / 3');
+        await previous.click(); await expect(count).toHaveText('2 / 3');
+        await previous.click(); await expect(count).toHaveText('1 / 3');
+        await count.click(); await expect(count).toHaveText('tout · 3');
+      });
+    });
+
+    test('diff restore exact target', async ({ page }) => {
+      await withLatexStudio(engine, async ({ url }) => {
+        await openEditor(page, url, 'latex', engine);
+        const s1 = INITIAL_TEXT.replace('stayed bright', 'darkened visibly');
+        const s2 = s1.replace('remained moderate', 'increased sharply');
+        const s3 = s2.replace('remained stable', 'declined quickly');
+        for (const text of [s1, s2, s3]) await replaceTextAndSave(page, text);
+        await page.locator('#diffTag').click();
+        const previous = page.locator('#dvNav [data-d="-1"]');
+        await previous.click();
+        await previous.click();
+        await expect.poll(() => editorText(page)).toBe(s2);
+        const saved = page.waitForResponse(r => r.url().endsWith('/codesave') && r.request().method() === 'POST');
+        await page.locator('#diffRestore').click();
+        expect((await saved).ok()).toBe(true);
+        await expect.poll(() => editorText(page)).toBe(s2);
+      });
+    });
+
+    test('diff whitespace semantics', async ({ page }) => {
+      await withLatexStudio(engine, async ({ url }) => {
+        await openEditor(page, url, 'latex', engine);
+        const rewrapped = INITIAL_TEXT.replace('dark ice.\nSummer', 'dark\nice. Summer');
+        await page.evaluate(({before, after}) => __dv.push(before, after,
+          {source: 'user-save', status: 'applied'}), {before: INITIAL_TEXT, after: rewrapped});
+        await page.locator('#diffTag').click();
+        await expect(page.locator('#dvNav .dvNavC')).toHaveText('tout · 0');
+        await expect(page.locator('.dAddM, .dDelW')).toHaveCount(0);
+        await expect.poll(() => editorText(page)).toBe(INITIAL_TEXT);
+      });
+    });
+
+    test('diff anchored comments survive rewrap', async ({ page }) => {
+      await withLatexStudio(engine, async ({ url }) => {
+        await openEditor(page, url, 'latex', engine);
+        const tracked = await page.evaluate(() => {
+          const from = {line: 2, ch: 7};
+          const to = {line: 2, ch: 19};
+          const mark = cm.markText(from, to, {className: 'texc-hl'});
+          cm.replaceRange('Earlier context. ', {line: 2, ch: 0});
+          const moved = mark.find();
+          const text = moved && cm.getRange(moved.from, moved.to);
+          mark.clear();
+          mark.clear();
+          return {moved, text, cleared: mark.find()};
+        });
+        expect(tracked.text).toBe('temperatures');
+        expect(tracked.moved.from.ch).toBeGreaterThan(7);
+        expect(tracked.cleared).toBeUndefined();
+        await page.evaluate(() => texcOpen({
+          from: {line: 2, ch: 29}, to: {line: 2, ch: 37}, text: 'moderate',
+        }));
+        await page.locator('#texcPop textarea').fill('anchor survives');
+        await page.locator('#texcPop .tc-save').click();
+        await page.evaluate(() => {
+          wrapSel.value = '50';
+          window.__rewrapAll();
+        });
+        await expect.poll(() => page.evaluate(() => {
+          const comment = texcAll[0];
+          const range = texcMarks[comment.id].find();
+          return {range, text: range && cm.getRange(range.from, range.to), note: comment.comment};
+        })).toMatchObject({text: 'moderate', note: 'anchor survives'});
+        const anchored = await page.evaluate(() => {
+          const comment = texcAll[0];
+          const range = texcMarks[comment.id].find();
+          return {text: range && cm.getRange(range.from, range.to), note: comment.comment};
+        });
+        expect(anchored.text).toBe('moderate');
+        expect(anchored.note).toBe('anchor survives');
+        await expect(page.locator(engine === 'cm6' ? '.cm-line' : '.CodeMirror-line').first()).toBeVisible();
+      });
+    });
+
+    test('diff worker stays responsive', async ({ page }) => {
+      await withLatexStudio(engine, async ({ url }) => {
+        await openEditor(page, url, 'latex', engine);
+        const responsiveness = page.evaluate(async () => {
+          const before = cm.getValue();
+          const after = before + Array.from({length: 12000}, (_, i) => `line ${i} changed`).join('\n');
+          cm.setValue(after);
+          __dv.push(before, after, {source: 'user-save', status: 'applied'});
+          let ticks = 0;
+          const timer = setInterval(() => { ticks += 1; }, 0);
+          document.getElementById('diffTag').click();
+          await new Promise(resolve => setTimeout(resolve, 100));
+          clearInterval(timer);
+          return ticks;
+        });
+        await expect(responsiveness).resolves.toBeGreaterThan(2);
+        await expect(page.locator('#dvNav .dvNavC')).toContainText('tout · 1');
+      });
+    });
+  });
+}
 
 const conflictZone = (text, prefix) => text.split('\n')
   .map((line, index) => (index >= 1 && index <= 3 ? `${prefix} ${line}` : line))

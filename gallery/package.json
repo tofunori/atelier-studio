@@ -3,10 +3,23 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "build:cm6": "node scripts/build-cm6.mjs",
     "test": "python3 -m unittest discover -s tests -v && npm run test:e2e",
     "test:e2e": "playwright test"
   },
   "devDependencies": {
-    "@playwright/test": "^1.61.0"
+    "@codemirror/autocomplete": "^6.20.3",
+    "@codemirror/commands": "^6.10.4",
+    "@codemirror/lang-javascript": "^6.2.5",
+    "@codemirror/lang-markdown": "^6.5.0",
+    "@codemirror/lang-python": "^6.2.1",
+    "@codemirror/language": "^6.12.4",
+    "@codemirror/legacy-modes": "^6.5.3",
+    "@codemirror/search": "^6.7.1",
+    "@codemirror/state": "^6.7.1",
+    "@codemirror/view": "^6.43.6",
+    "@playwright/test": "^1.61.0",
+    "codemirror": "^6.0.2",
+    "esbuild": "^0.28.1"
   }
 }
