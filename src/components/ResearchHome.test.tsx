@@ -57,7 +57,9 @@ describe("ResearchHome", () => {
   it("projet sans thread : Démarrer visible, hint neutre, pas de section À traiter ni Artefacts", () => {
     render(<ResearchHome model={model()} actions={actions()} />);
     expect(screen.getByText("Thèse albédo")).toBeInTheDocument();
-    expect(screen.getByText("~/thesis")).toBeInTheDocument();
+    // demande Thierry (2026-07-10) : l'identité projet ne vit qu'au crumb —
+    // le Home ne répète plus le chemin (nom conservé en sr-only pour le h1)
+    expect(screen.queryByText("~/thesis")).toBeNull();
     expect(screen.getByText("Aucune conversation dans ce projet pour l'instant.")).toBeInTheDocument();
     expect(screen.getByRole("region", { name: "Démarrer" })).toBeInTheDocument();
     expect(screen.queryByRole("region", { name: "À traiter" })).toBeNull();

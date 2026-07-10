@@ -28,9 +28,11 @@
 }
 .ui-btn:active:not(:disabled) { transform: scale(.98); }
 .ui-btn:disabled { color: var(--text-disabled); cursor: default; }
-.ui-btn--primary { background: var(--accent-base); color: var(--text-on-accent); }
-.ui-btn--primary:hover:not(:disabled) { background: var(--accent-hover); }
-.ui-btn--primary:active:not(:disabled) { background: var(--accent-active); }
+/* primaire = neutre FORT (demande Thierry 2026-07-10 : aucun bouton orange —
+   l'accent reste réservé aux traces de sélection/running/attention) */
+.ui-btn--primary { background: var(--text-primary); color: var(--surface-app); }
+.ui-btn--primary:hover:not(:disabled) { background: color-mix(in srgb, var(--text-primary) 88%, var(--surface-app) 12%); }
+.ui-btn--primary:active:not(:disabled) { background: color-mix(in srgb, var(--text-primary) 78%, var(--surface-app) 22%); }
 .ui-btn--primary:disabled { background: var(--surface-inset); }
 .ui-btn--secondary { background: transparent; border-color: var(--border-subtle); color: var(--text-secondary); }
 .ui-btn--secondary:hover:not(:disabled) { background: var(--surface-inset); color: var(--text-primary); }

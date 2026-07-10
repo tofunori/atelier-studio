@@ -263,10 +263,9 @@ export function ResearchHome(p: { model: ResearchHomeModel; actions: ResearchHom
     <div className="research-home">
       <div className="rh">
         <header className="rh-head">
-          <div className="titles">
-            <h1 className="rh-title">{model.projectName}</h1>
-            <div className="rh-path">{model.projectPath}</div>
-          </div>
+          {/* identité projet = crumb TopBar uniquement (demande Thierry) ;
+              le h1 reste pour la structure, invisible à l'écran */}
+          <h1 className="rh-title sr-only">{model.projectName}</h1>
           <div className="spacer" />
           <div className="actions">
             {model.degraded && <StatusBadge status="warning">{t("home.degraded")}</StatusBadge>}

@@ -10,10 +10,6 @@ import { ProjIcon } from "./projectIcons";
 
 export type ProjMetaLite = { color?: string; label?: string };
 
-function shortPath(root: string): string {
-  return root.replace(/^\/Users\/[^/]+/, "~");
-}
-
 /** Troncature milieu des chemins (contrat typo §6) — valeur complète en title. */
 export function middleTruncate(value: string, max = 34): string {
   if (value.length <= max) return value;
@@ -85,25 +81,36 @@ export function ProjectHeader(p: {
 
   return (
     <header className="pnav-header">
-      <div className="pnav-id">
-        <span
-          className="pnav-id-ico"
-          aria-hidden="true"
-          style={p.meta?.color && p.meta?.label ? { color: p.meta.color } : undefined}
-        >
-          {icon}
-        </span>
-        <div className="pnav-id-col">
-          <span className="pnav-name" title={p.root ?? p.name}>{p.name}</span>
-          {p.root && (
-            <span className="pnav-path" title={p.root}>{middleTruncate(shortPath(p.root))}</span>
-          )}
+      {/* identité projet UNE seule fois dans l'app : le crumb de la TopBar.
+          Sans projet actif (pas de crumb), le panneau garde son titre. */}
+      {p.mode === "unscoped" && (
+        <div className="pnav-id">
+          <span className="pnav-id-ico" aria-hidden="true">{icon}</span>
+          <div className="pnav-id-col">
+            <span className="pnav-name">{p.name}</span>
+          </div>
         </div>
+      )}
+      <div className="pnav-cta">
+        <Button variant="secondary" className="pnav-new" onClick={p.onNew}>
+          <span className="pnav-new-ico" aria-hidden="true"><PlusIcon size={12} /></span>
+          {t("action.new-chat")}
+        </Button>
+        <span ref={searchWrapRef} className="pnav-search-wrap">
+          <IconButton
+            label={t("sidebar.search-local")}
+            className={p.searchOpen ? "pnav-search-btn on" : "pnav-search-btn"}
+            aria-expanded={p.searchOpen}
+            onClick={() => (p.searchOpen ? closeSearch() : p.onToggleSearch(true))}
+          >
+            <SearchIcon size={13} />
+          </IconButton>
+        </span>
         <span ref={overflowRef} className="pnav-ov-wrap">
           <IconButton
             label={t("project.actions")}
+            title={p.root ?? undefined}
             className="pnav-ov"
-            size="s"
             aria-haspopup="menu"
             aria-expanded={menuOpen}
             onClick={() => setMenuOpen((v) => !v)}
@@ -134,22 +141,6 @@ export function ProjectHeader(p: {
             </>
           )}
         </Menu>
-      </div>
-      <div className="pnav-cta">
-        <Button variant="primary" className="pnav-new" onClick={p.onNew}>
-          <span className="pnav-new-ico" aria-hidden="true"><PlusIcon size={12} /></span>
-          {t("action.new-chat")}
-        </Button>
-        <span ref={searchWrapRef} className="pnav-search-wrap">
-          <IconButton
-            label={t("sidebar.search-local")}
-            className={p.searchOpen ? "pnav-search-btn on" : "pnav-search-btn"}
-            aria-expanded={p.searchOpen}
-            onClick={() => (p.searchOpen ? closeSearch() : p.onToggleSearch(true))}
-          >
-            <SearchIcon size={13} />
-          </IconButton>
-        </span>
       </div>
       {p.searchOpen && (
         <input
