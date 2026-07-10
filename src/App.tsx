@@ -671,6 +671,10 @@ export default function App() {
 
   // à l'ouverture d'un chat Codex avec session : recharge le goal actif (s'il existe)
   const goalFetched = useRef<Set<string>>(new Set());
+  // goal en attente : /goal (ou Goal…) tapé AVANT que la session Codex existe
+  // (chat neuf) — l'objectif part comme premier message, et le goal est posé
+  // automatiquement au premier threads-update qui apporte le sessionId
+  const pendingGoal = useRef<{ threadId: string | null; objective: string } | null>(null);
   useEffect(() => {
     if (!activeId || goalFetched.current.has(activeId)) return;
     const t = threads.find((th) => th.id === activeId);
@@ -779,6 +783,15 @@ export default function App() {
         const prevThreads = threadsRef.current;
         setThreads(msg.threads);
         threadsRef.current = msg.threads;
+        // goal en attente : la session Codex vient d'apparaître → le poser
+        const pg = pendingGoal.current;
+        if (pg?.threadId) {
+          const th = msg.threads.find((t: Thread) => t.id === pg.threadId);
+          if (th?.sessionId && th.provider === "codex" && ws.current?.readyState === 1) {
+            pendingGoal.current = null;
+            ws.current.send(JSON.stringify({ type: "goalSet", threadId: pg.threadId, objective: pg.objective }));
+          }
+        }
         // thread déplacé vers un autre projet (moveThread) : s'il est actif, le
         // suivre — le chat "voyage" avec l'utilisateur (spec déplacer-chat-projet)
         const activeId = activeIdRef.current;
@@ -1550,22 +1563,36 @@ export default function App() {
     // pas un message texte (codex exec n'interprète pas /goal). Côté Claude,
     // /goal passe tel quel : la CLI a son goal natif (v2.1.139+).
     const goalMatch = /^\/goal(?:\s+([\s\S]*))?$/.exec(prompt.trim());
-    if (goalMatch && codexActive) {
+    if (goalMatch && (activeThread?.provider ?? provider) === "codex") {
       const arg = (goalMatch[1] ?? "").trim();
-      if (ws.current?.readyState === 1) {
-        const msg =
-          !arg ? { type: "goalGet", threadId: activeId, explicit: true } :
-          ["clear", "stop", "off", "reset", "none", "cancel"].includes(arg.toLowerCase())
-            ? { type: "goalClear", threadId: activeId }
-            : { type: "goalSet", threadId: activeId, objective: arg };
-        ws.current.send(JSON.stringify(msg));
-        // trace visible dans le fil : la commande tapée, comme un message
-        setEvents((p) => ({
-          ...p,
-          [activeId]: [...(p[activeId] ?? []), { kind: "user", text: prompt.trim(), ts: Date.now() } as any],
-        }));
+      const isClear = ["clear", "stop", "off", "reset", "none", "cancel"].includes(arg.toLowerCase());
+      const hasSession = Boolean(activeThread?.sessionId);
+      if (activeId && (hasSession || !arg || isClear)) {
+        if (ws.current?.readyState === 1) {
+          const msg =
+            !arg ? { type: "goalGet", threadId: activeId, explicit: true } :
+            isClear
+              ? { type: "goalClear", threadId: activeId }
+              : { type: "goalSet", threadId: activeId, objective: arg };
+          ws.current.send(JSON.stringify(msg));
+          // trace visible dans le fil : la commande tapée, comme un message
+          setEvents((p) => ({
+            ...p,
+            [activeId]: [...(p[activeId] ?? []), { kind: "user", text: prompt.trim(), ts: Date.now() } as any],
+          }));
+        }
+        return;
       }
-      return;
+      if (arg && !isClear) {
+        // pas encore de session Codex (chat neuf) : l'objectif part comme
+        // premier message — le goal sera posé par pendingGoal dès que la
+        // session existe (threads-update avec sessionId)
+        pendingGoal.current = { threadId: activeId, objective: arg };
+        prompt = arg;
+      } else {
+        // /goal (statut) ou /goal clear sans session : rien à interroger
+        return;
+      }
     }
     // /export : archive locale (pas d'appel agent)
     if (prompt.trim() === "/export" && activeId) {
@@ -1646,6 +1673,8 @@ export default function App() {
       ]);
       setActiveId(id);
       activeIdRef.current = id;
+      // /goal tapé sans thread : le goal en attente adopte le thread créé
+      if (pendingGoal.current && !pendingGoal.current.threadId) pendingGoal.current.threadId = id;
     }
     setEvents((p) => ({
       ...p,
@@ -2330,6 +2359,15 @@ export default function App() {
           disabled={!activeProject && !activeId}
           onGoal={(action, objective, status) => {
             if (!activeId || ws.current?.readyState !== 1) return;
+            const th = allThreadsRef.current.find((t) => t.id === activeId);
+            if (!th?.sessionId) {
+              // pas encore de session : mémoriser (posé au premier message)
+              // ou oublier — goalSet/goalClear échoueraient côté sidecar
+              pendingGoal.current =
+                action === "set" && objective ? { threadId: activeId, objective } : null;
+              return;
+            }
+            if (action === "clear") pendingGoal.current = null;
             // le router sidecar relaie déjà `status` à thread/goal/set (Codex
             // app-server) — pause = status:"paused", reprise = "active"
             ws.current.send(JSON.stringify(
