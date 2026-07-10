@@ -55,6 +55,37 @@
   .brand .proj{font-size:12px;color:var(--muted);font-family:var(--code-font)}
   .brand .stat{margin-left:4px;font-size:12px;color:var(--faint);font-variant-numeric:tabular-nums}
   .controls{display:flex;flex-wrap:wrap;gap:6px;align-items:center}
+  /* barre de commande (plan 019) : rangée 1 = recherche + Filters + tri +
+     densité + ⋯ ; les contrôles de filtre historiques vivent dans le popover
+     #filtersMenu (groupes) ; les filtres ACTIFS s'affichent en chips
+     supprimables dans #activeChips (rangée absente à zéro filtre). */
+  #filtersChip.on{border-color:var(--accent);color:var(--accent)}
+  #filtersMenu{min-width:250px}
+  #filtersMenu .fgrp{display:flex;flex-wrap:wrap;gap:5px;padding:1px 4px 3px}
+  #filtersMenu .fgrp .chip{height:26px;font-size:11.5px}
+  #filtersMenu .fgrp .csel-btn{height:26px;font-size:12px;max-width:100%}
+  #surfMore{width:32px;padding:0;display:inline-flex;align-items:center;justify-content:center;color:var(--muted)}
+  #surfMore:hover{color:var(--txt)}
+  #activeChips{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}
+  #activeChips:empty{display:none;margin:0}
+  .fchip{display:inline-flex;align-items:center;gap:6px;height:24px;padding:0 9px;border-radius:999px;
+    border:1px solid var(--border);background:var(--card2);font-size:11.5px;color:var(--txt)}
+  .fchip .x{cursor:pointer;color:var(--muted);padding:0 1px;font-size:12px;line-height:1}
+  .fchip .x:hover{color:#ff6b6b}
+  .fchip.fclear{cursor:pointer;color:var(--muted);background:transparent}
+  .fchip.fclear:hover{color:var(--txt);border-color:var(--border-strong)}
+  #selBar{display:none;flex-wrap:wrap;gap:6px;margin-top:8px;align-items:center}
+  #selBar.on{display:flex}
+  /* ≤800px : Board/Notes rejoignent le menu ⋯ (décision 014) */
+  #surfMenu .narrow-only{display:none}
+  @media (max-width:800px){
+    .brand .chip.dest#boardChip,.brand .chip.dest#notesChip{display:none}
+    html.emb .controls #boardChip,html.emb .controls #notesChip{display:none}
+    #surfMenu .narrow-only{display:flex}
+  }
+  /* rescan et clear-annotation vivent dans ⋯ — les contrôles d'origine restent
+     câblés mais masqués (leurs handlers restent la source de vérité) */
+  #rescan,#quoteClear{display:none !important}
   /* mode embarqué (iframe Atelier) : header compact sur une rangée —
      la marque/projet/stat sont déjà dans le chrome de l'app */
   html.emb .brand{display:none}
@@ -308,6 +339,16 @@
   <div class="controls">
     <span class="chip" id="searchChip" title="Search by name or folder (press /)" tabindex="0"><svg width="12" height="12" viewBox="0 0 16 16" fill="none" aria-hidden="true"><circle cx="7" cy="7" r="5" stroke="currentColor" stroke-width="1.6"/><path d="M11 11l3.2 3.2" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg> Search</span>
     <input type="search" id="q" class="collapsed" placeholder="Search by name or folder… (Esc to close)">
+    <span class="chip" id="filtersChip" title="Filters — folder, formats, favorites, collections, status, recent" tabindex="0">Filters &#9662;</span>
+    <div id="filtersMenu" class="menu">
+      <div class="mhd">Folder</div><div class="fgrp" id="fgFolder"></div>
+      <div class="mhd sep">Formats</div><div class="fgrp" id="fgFmt"></div>
+      <div class="mhd sep">Favorites</div><div class="fgrp" id="fgFav"></div>
+      <div class="mhd sep">Collections</div><div class="fgrp" id="fgColl"></div>
+      <div class="mhd sep">Status</div><div class="fgrp" id="fgWf"></div>
+      <div class="mhd sep">Recent</div><div class="fgrp" id="fgRec"></div>
+      <div class="madd"><button id="filtersClear" title="Reset every active filter">Clear all filters</button></div>
+    </div>
     <select id="sort">
       <option value="mtime">Sort: modified (newest)</option>
       <option value="mtime_asc">Sort: modified (oldest)</option>
@@ -329,9 +370,14 @@
     <div id="recMenu" class="menu"></div>
     <span class="seg" id="densitySeg" title="Card density"><button data-d="s">S</button><button data-d="m" class="on">M</button><button data-d="l">L</button></span>
     <div id="viewMenu" class="menu"></div>
+    <button id="surfMore" title="Gallery tools — rescan, settings, board, notes" aria-label="Gallery tools" aria-haspopup="menu"><svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><circle cx="3.5" cy="8" r="1.2"/><circle cx="8" cy="8" r="1.2"/><circle cx="12.5" cy="8" r="1.2"/></svg></button>
+    <div id="surfMenu" class="menu"></div>
     <button id="quoteClear" style="display:none" title="Clear the annotation pending in the Claude statusline">Clear annotation</button>
     <button id="rescan" title="Rescan — rebuild the gallery index and reload" aria-label="Rescan"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M2.6 6.2A5.6 5.6 0 0 1 12.9 4.6M13.4 9.8A5.6 5.6 0 0 1 3.1 11.4" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/><path d="M12.9 1.8v2.8h-2.8M3.1 14.2v-2.8h2.8" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
     <span id="rateFilter" style="display:none"></span>
+  </div>
+  <div id="activeChips"></div>
+  <div id="selBar">
     <button id="cmpSel" style="display:none" title="Show the selected images stacked, to compare">Compare (0)</button>
     <button id="hideSel" style="display:none" title="Hide the selected files from the gallery (reversible)">Hide (0)</button>
     <button id="delSel" style="display:none;background:#5c1f1f;border-color:#7a2a2a">Delete (0)</button>
@@ -614,6 +660,8 @@ const selSet = new Set();
 let lastSelRel = null;     // anchor for Shift-click range selection
 let renderedRels = [];     // rels in current display order (for range math)
 function updateDelBtn(){
+  const bar=document.getElementById('selBar');
+  if(bar) bar.classList.toggle('on', selSet.size>0);
   const b = document.getElementById('delSel');
   b.style.display = selSet.size ? '' : 'none';
   const imgs = [...selSet].filter(r => imgExt(r.split('.').pop().toLowerCase()));
@@ -936,8 +984,13 @@ function placeMenu(menu, anchor){
 }
 function menuToggle(menu, anchor){
   const open = menu.style.display==='flex';
-  document.querySelectorAll('.menu').forEach(x=>x.style.display='none'); closeFloat();
-  const fm=document.getElementById('fmtMenu'); if(fm) fm.style.display='none';
+  // un sous-menu ouvert DEPUIS le popover Filters ne doit pas le fermer
+  const insideFilters = !!(anchor && anchor.closest && anchor.closest('#filtersMenu'));
+  document.querySelectorAll('.menu').forEach(x=>{
+    if(insideFilters && x.id==='filtersMenu') return;
+    x.style.display='none';
+  });
+  closeFloat();
   if(open) return;
   placeMenu(menu, anchor);
 }
@@ -992,10 +1045,96 @@ if(window.self!==window.top){
   document.documentElement.classList.add('emb');
   const ctr=document.querySelector('.controls');
   const sp=document.createElement('span'); sp.className='ctrl-sp'; ctr.appendChild(sp);
-  for(const id of ['boardChip','notesChip','viewChip']) ctr.appendChild(document.getElementById(id));
+  // Board/Notes = sélecteur de vue compact dans le header (décision 014) ;
+  // le menu Settings de la galerie est atteignable via ⋯ (Gallery settings)
+  for(const id of ['boardChip','notesChip']) ctr.appendChild(document.getElementById(id));
+  document.getElementById('viewChip').style.display='none';
 }
 document.getElementById('boardChip').onclick=()=>toolOpenTab('/board/open-surface','whiteboard');
 document.getElementById('notesChip').onclick=()=>toolOpenTab('/notes/open-surface','notes');
+
+// ============ plan 019 — barre de commande : popover Filters, chips actives,
+// ============ barre de sélection, overflow ⋯ =================================
+// Les contrôles historiques (ids, builders, handlers) restent la source de
+// vérité : ils sont RELOCALISÉS dans le popover #filtersMenu (groupes), leurs
+// sous-menus s'ouvrent par-dessus (menuToggle sait ne pas fermer le popover).
+(function(){
+  const put=(slotId, ...els)=>{ const s=document.getElementById(slotId); if(!s) return;
+    els.forEach(el=>{ if(el) s.appendChild(el); }); };
+  const fsel=document.getElementById('folder');
+  put('fgFolder', fsel, fsel && fsel.nextElementSibling); // select + bouton custom (.csel-btn)
+  put('fgFmt', document.getElementById('fmtChip'));
+  put('fgFav', document.getElementById('favChip'), document.getElementById('rateFilter'));
+  put('fgColl', document.getElementById('collChip'));
+  put('fgWf', document.getElementById('wfChip'));
+  put('fgRec', document.getElementById('recChip'));
+  const fm=document.getElementById('filtersMenu');
+  fm.addEventListener('click',e=>e.stopPropagation());
+  document.getElementById('filtersChip').onclick=e=>{
+    e.stopPropagation();
+    menuToggle(fm, e.currentTarget);
+  };
+  document.getElementById('filtersClear').onclick=()=>{ clearAllFilters(); };
+})();
+
+/* filtres actifs → compteur du bouton Filters + chips supprimables */
+function fmtIsFiltered(){ return TYPE_LIST.some(([e])=>typeGroup(e).some(k=>exts[k]!==DEFAULT_EXTS[k])); }
+function clearFilter(k){
+  if(k==='folder'){ fsel.value=''; render(); const b=fsel.nextElementSibling; if(b&&b.classList.contains('csel-btn')) b.textContent=fsel.options[0].text; }
+  else if(k==='fmt'){ Object.assign(exts, DEFAULT_EXTS); saveExts(); buildFmtMenu(); fmtChipLabel(); render(); }
+  else if(k==='fav'){ if(onlyFavs) favChip.onclick(); }
+  else if(k==='coll'){ activeCollection=''; buildCollectionChip(); render(); }
+  else if(k==='wf'){ activeWorkflow=''; buildWorkflowChip(); render(); }
+}
+function clearAllFilters(){ ['folder','fmt','fav','coll','wf'].forEach(clearFilter); }
+function renderActiveChips(){
+  const box=document.getElementById('activeChips'); if(!box) return;
+  const chips=[];
+  if(fsel.value) chips.push({k:'folder',l:'Folder: '+fsel.value});
+  if(fmtIsFiltered()){
+    const on=FMT_CATS.filter(([,ks])=>ks.some(x=>exts[x])).map(([lab])=>lab);
+    chips.push({k:'fmt',l:'Formats: '+(on.length?on.join(', '):'none')});
+  }
+  if(onlyFavs) chips.push({k:'fav',l:'★ Favorites'+(rateMin?(' · '+rateMin+'★'):'')});
+  if(activeCollection) chips.push({k:'coll',l:'Collection: '+activeCollection});
+  if(activeWorkflow){
+    const cur=WORKFLOW_STATUSES.find(([v])=>v===activeWorkflow);
+    chips.push({k:'wf',l:'Status: '+(cur?cur[1]:activeWorkflow)});
+  }
+  box.innerHTML = chips.length
+    ? chips.map(c=>`<span class="fchip">${esc(c.l)}<span class="x" role="button" tabindex="0" data-fx="${c.k}" title="Remove this filter" aria-label="Remove filter ${escA(c.l)}">×</span></span>`).join('')
+      + '<span class="fchip fclear" id="fclearAll" role="button" tabindex="0">Clear all</span>'
+    : '';
+  box.querySelectorAll('[data-fx]').forEach(x=>{
+    const go=()=>clearFilter(x.dataset.fx);
+    x.onclick=go; x.onkeydown=e=>{ if(e.key==='Enter'||e.key===' '){e.preventDefault();go();} };
+  });
+  const ca=box.querySelector('#fclearAll');
+  if(ca){ ca.onclick=clearAllFilters; ca.onkeydown=e=>{ if(e.key==='Enter'||e.key===' '){e.preventDefault();clearAllFilters();} }; }
+  const fc=document.getElementById('filtersChip');
+  if(fc){ fc.classList.toggle('on',chips.length>0); fc.innerHTML='Filters'+(chips.length?(' ('+chips.length+')'):'')+' &#9662;'; }
+}
+
+/* overflow ⋯ de surface : Rescan (état visible), Gallery settings, Clear
+   annotation (si en attente), Board/Notes en fenêtre étroite */
+let quotePending=false;
+function buildSurfMenu(){
+  const m=document.getElementById('surfMenu'); if(!m) return;
+  const scanning=document.getElementById('rescan').classList.contains('spinning');
+  m.innerHTML=
+    `<div class="mi" data-sm="rescan"><span class="lbl">Rescan</span><span class="ct">${scanning?'scanning…':''}</span></div>`+
+    '<div class="mi" data-sm="settings"><span class="lbl">Gallery settings…</span></div>'+
+    (quotePending?'<div class="mi" data-sm="quote"><span class="lbl">Clear annotation</span></div>':'')+
+    '<div class="mi narrow-only" data-sm="board"><span class="lbl">Board</span></div>'+
+    '<div class="mi narrow-only" data-sm="notes"><span class="lbl">Notes</span></div>';
+  m.onclick=e=>e.stopPropagation();
+  m.querySelector('[data-sm="rescan"]').onclick=()=>{ document.getElementById('rescan').onclick.call(document.getElementById('rescan')); buildSurfMenu(); };
+  m.querySelector('[data-sm="settings"]').onclick=()=>{ buildViewMenu(); menuToggle(document.getElementById('viewMenu'), document.getElementById('surfMore')); };
+  const q=m.querySelector('[data-sm="quote"]'); if(q) q.onclick=()=>{ document.getElementById('quoteClear').onclick(); m.style.display='none'; };
+  m.querySelector('[data-sm="board"]').onclick=()=>{ m.style.display='none'; toolOpenTab('/board/open-surface','whiteboard'); };
+  m.querySelector('[data-sm="notes"]').onclick=()=>{ m.style.display='none'; toolOpenTab('/notes/open-surface','notes'); };
+}
+document.getElementById('surfMore').onclick=e=>{ e.stopPropagation(); buildSurfMenu(); menuToggle(document.getElementById('surfMenu'), e.currentTarget); };
 document.getElementById('collChip').onclick=e=>{ e.stopPropagation(); buildCollectionChip(); menuToggle(document.getElementById('collMenu'), e.currentTarget); };
 document.getElementById('wfChip').onclick=e=>{ e.stopPropagation(); buildWorkflowChip(); menuToggle(document.getElementById('wfMenu'), e.currentTarget); };
 document.getElementById('recChip').onclick=e=>{ e.stopPropagation(); buildRecentChip(); menuToggle(document.getElementById('recMenu'), e.currentTarget); };
@@ -1299,6 +1438,7 @@ const snipObserver = new IntersectionObserver((entries,obs)=>{
   }
 },{rootMargin:'250px'});
 function render(){
+  if(typeof renderActiveChips==='function') renderActiveChips();  // plan 019 : chips de filtres actifs
   const q = document.getElementById('q').value.toLowerCase().trim();
   const terms = q.split(/\s+/).filter(Boolean);
   const sort = document.getElementById('sort').value;
@@ -1389,7 +1529,7 @@ rateFilter.querySelectorAll('.rf').forEach(c=>{
 });
 favChip.onclick=()=>{onlyFavs=!onlyFavs;favChip.classList.toggle('off',!onlyFavs);favChip.classList.toggle('on',onlyFavs);rateFilter.style.display=onlyFavs?'inline-flex':'none';if(!onlyFavs){rateMin=0;rateFilter.querySelectorAll('.rf').forEach(x=>{x.classList.remove('on');x.classList.add('off');});}render();};
 const quoteBtn=document.getElementById('quoteClear');
-function quoteCheck(){fetch('/quote').then(r=>r.json()).then(j=>{quoteBtn.style.display=j.pending?'':'none';}).catch(()=>{});}
+function quoteCheck(){fetch('/quote').then(r=>r.json()).then(j=>{quotePending=!!j.pending;quoteBtn.style.display=j.pending?'':'none';}).catch(()=>{});}
 quoteCheck(); setInterval(quoteCheck, 30000);
 checkHealth(); setInterval(checkHealth, 60000);
 quoteBtn.onclick=async()=>{await fetch('/clear-quote',{method:'POST'}).catch(()=>{}); quoteBtn.style.display='none';};
