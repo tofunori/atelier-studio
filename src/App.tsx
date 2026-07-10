@@ -446,6 +446,8 @@ export default function App() {
   const [settings, setSettings] = useState<Settings>(loadSettings);
   const [providerList, setProviderList] = useState<ProviderInfo[]>([]);
   const [paletteOpen, setPaletteOpen] = useState(false);
+  const paletteOpenRef = useRef(false);
+  paletteOpenRef.current = paletteOpen;
   const [zoteroItems, setZoteroItems] = useState<ZoteroPaletteItem[]>([]);
   const [recentFiles, setRecentFiles] = useState<string[]>(() => {
     try {
@@ -524,6 +526,8 @@ export default function App() {
   const qaModeRef = useRef<"closed" | "open" | "min">("closed");
   qaModeRef.current = qaMode;
   const [usageOpen, setUsageOpen] = useState(false);
+  const usageOpenRef = useRef(false);
+  usageOpenRef.current = usageOpen;
   const [dragging, setDragging] = useState(false);
   useEffect(() => { initNotify().catch(() => {}); }, []);
   useEffect(() => {
@@ -1447,9 +1451,18 @@ export default function App() {
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape" && qaMode !== "open" && !paletteOpen && !usageOpen) {
+      // valeurs LIVE via refs : les useState capturés par cet effet à deps:[]
+      // gardaient leur valeur de montage — Échap fermait la palette ET
+      // interrompait le tour en même temps (bug de closure, plan 021 §8)
+      const typing = (() => {
+        const el = document.activeElement;
+        return !!el && (el.tagName === "INPUT" || el.tagName === "TEXTAREA" || (el as HTMLElement).isContentEditable);
+      })();
+      if (e.key === "Escape" && qaModeRef.current !== "open" && !paletteOpenRef.current && !usageOpenRef.current && !typing) {
         // l'inspecteur ouvert intercepte Escape en phase de CAPTURE
-        // (ContextInspector) : ce handler ne voit alors jamais l'événement
+        // (ContextInspector) : ce handler ne voit alors jamais l'événement.
+        // `typing` : Échap dans un champ (recherche Explorer/Git/Biblio…) ne
+        // doit jamais interrompre le tour — le composer gère son propre Échap.
         const id = activeIdRef.current;
         if (id && workingSinceRef.current[id] != null && ws.current?.readyState === 1) {
           ws.current.send(JSON.stringify({ type: "interrupt", threadId: id }));

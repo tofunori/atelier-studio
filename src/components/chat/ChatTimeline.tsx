@@ -109,42 +109,56 @@ export function ChatTimeline(p: {
         <button
           className={`reviewer-strip v-${review.status === "running" ? "running" : review.verdict}`}
           title={t("review.expand")}
+          aria-label={
+            review.status === "running"
+              ? t("review.running")
+              : review.verdict === "ok"
+              ? t("review.ok")
+              : review.verdict === "issues"
+              ? t("review.issues", { n: review.issues?.length ?? 0 })
+              : t("review.inconclusive")
+          }
           onClick={() => setReviewMin(false)}
         />
       )}
       {threadId && review && !reviewMin && (
         <div className="reviewer-wrap">
-          <button
+          <div
             className={`reviewer-bar v-${review.status === "running" ? "running" : review.verdict} ${review.status === "done" ? "clickable" : ""}`}
-            onClick={() => review.status === "done" && setBarOpen((v) => !v)}
           >
-            <svg className="rb-ico" width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M8 1.8l5 2v4c0 3.2-2.2 5.4-5 6.4-2.8-1-5-3.2-5-6.4v-4z" />
-              {review.verdict === "ok" && <path d="M5.8 8l1.6 1.6L10.5 6.3" />}
-            </svg>
-            <span className="rb-name">Reviewer</span>
-            <span className="rb-dot">·</span>
-            {fixing ? (
-              <span className="rb-verdict running"><span className="rb-spin" /> {t("review.fixing")}</span>
-            ) : review.status === "running" ? (
-              <span className="rb-verdict running"><span className="rb-spin" /> {t("review.running")}</span>
-            ) : review.verdict === "ok" ? (
-              <span className="rb-verdict ok">{t("review.ok-bar")}</span>
-            ) : review.verdict === "issues" ? (
-              <span className="rb-verdict warn">{t("review.issues", { n: review.issues?.length ?? 0 })}</span>
-            ) : (
-              <span className="rb-verdict">{t("review.inconclusive")}</span>
-            )}
-            {review.status === "done" && !fixing && review.checks != null && review.checks > 0 && (
-              <>
-                <span className="rb-dot">·</span>
-                <span className="rb-checks">{t("review.checks", { n: review.checks })}</span>
-              </>
-            )}
-            {review.status === "done" ? <span className="rb-chevron"><Tick open={barOpen} /></span> : null}
-            <span className="rb-min" title={t("review.minimize")} onClick={(e) => { e.stopPropagation(); setBarOpen(false); setReviewMin(true); }}>–</span>
-            <span className="rb-close" title={t("action.close")} onClick={(e) => { e.stopPropagation(); setReview(null); }}>✕</span>
-          </button>
+            <button
+              type="button"
+              className="rb-main"
+              onClick={() => review.status === "done" && setBarOpen((v) => !v)}
+            >
+              <svg className="rb-ico" width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M8 1.8l5 2v4c0 3.2-2.2 5.4-5 6.4-2.8-1-5-3.2-5-6.4v-4z" />
+                {review.verdict === "ok" && <path d="M5.8 8l1.6 1.6L10.5 6.3" />}
+              </svg>
+              <span className="rb-name">Reviewer</span>
+              <span className="rb-dot">·</span>
+              {fixing ? (
+                <span className="rb-verdict running"><span className="rb-spin" /> {t("review.fixing")}</span>
+              ) : review.status === "running" ? (
+                <span className="rb-verdict running"><span className="rb-spin" /> {t("review.running")}</span>
+              ) : review.verdict === "ok" ? (
+                <span className="rb-verdict ok">{t("review.ok-bar")}</span>
+              ) : review.verdict === "issues" ? (
+                <span className="rb-verdict warn">{t("review.issues", { n: review.issues?.length ?? 0 })}</span>
+              ) : (
+                <span className="rb-verdict">{t("review.inconclusive")}</span>
+              )}
+              {review.status === "done" && !fixing && review.checks != null && review.checks > 0 && (
+                <>
+                  <span className="rb-dot">·</span>
+                  <span className="rb-checks">{t("review.checks", { n: review.checks })}</span>
+                </>
+              )}
+              {review.status === "done" ? <span className="rb-chevron"><Tick open={barOpen} /></span> : null}
+            </button>
+            <button type="button" className="rb-min" title={t("review.minimize")} aria-label={t("review.minimize")} onClick={(e) => { e.stopPropagation(); setBarOpen(false); setReviewMin(true); }}>–</button>
+            <button type="button" className="rb-close" title={t("review.close")} aria-label={t("review.close")} onClick={(e) => { e.stopPropagation(); setReview(null); }}>✕</button>
+          </div>
           {barOpen && review.status === "done" ? (
             <div className="reviewer-menu">
               {review.issues?.length ? (

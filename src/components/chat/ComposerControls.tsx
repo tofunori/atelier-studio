@@ -170,7 +170,8 @@ export function ComposerControls(p: {
           )}
           <span className="flex" />
           {p.usage && (
-            <span className="ctx-ring-wrap">
+            <button type="button" className="ctx-ring-wrap"
+              aria-label={t("chat.context-window")}>
               {(() => {
                 // Priorité : window fourni par le provider (Codex, Grok registry),
                 // sinon heuristique modèle (Claude [1m], Grok 4.5 = 500k docs xAI),
@@ -204,7 +205,7 @@ export function ComposerControls(p: {
                   </>
                 );
               })()}
-            </span>
+            </button>
           )}
           <span className="model-pick" onClick={(e) => e.stopPropagation()}>
             <button
@@ -331,30 +332,36 @@ export function ComposerControls(p: {
                       const active = provider === menuProvider && model === m.id;
                       const fav = favModels.includes(key);
                       return (
-                        <button
-                          key={key}
-                          type="button"
-                          role="menuitemradio"
-                          aria-checked={active}
-                          className={`mp-item model-row ${active ? "active" : ""}`}
-                          onClick={() => {
-                            setProvider(menuProvider);
-                            setModel(m.id);
-                            setEffort(effortFor(menuProvider, m.id));
-                          }}
-                        >
-                          <span>{modelLabel(m, menuProvider)}</span>
+                        // interactifs JAMAIS imbriqués (contrat ThreadRow) :
+                        // rangée = wrapper, sélection et favori = boutons frères
+                        <div key={key} className={`mp-item model-row ${active ? "active" : ""}`}>
+                          <button
+                            type="button"
+                            role="menuitemradio"
+                            aria-checked={active}
+                            className="mp-row-main"
+                            onClick={() => {
+                              setProvider(menuProvider);
+                              setModel(m.id);
+                              setEffort(effortFor(menuProvider, m.id));
+                            }}
+                          >
+                            <span>{modelLabel(m, menuProvider)}</span>
+                          </button>
                           <span className="mp-end">
                             {active && <span className="mp-check">✓</span>}
-                            <span
+                            <button
+                              type="button"
                               className={`mp-star ${fav ? "on" : ""}`}
+                              aria-pressed={fav}
+                              aria-label={fav ? t("action.remove-favorite") : t("action.add-favorite")}
                               title={fav ? t("action.remove-favorite") : t("action.add-favorite")}
                               onClick={(e) => { e.stopPropagation(); toggleFavModel(key); }}
                             >
                               {fav ? "★" : "☆"}
-                            </span>
+                            </button>
                           </span>
-                        </button>
+                        </div>
                       );
                     })}
                     {menuProvider === "claude" && (

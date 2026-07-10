@@ -76,7 +76,7 @@ export const UserTurn = memo(function UserTurn(p: {
       {e.imageUrl && <img className="user-img" src={e.imageUrl} alt="" />}
       {e.label && <div className="user-label">{e.label}</div>}
       {e.pastes && e.pastes.map((pa, j) => (
-        <div key={j} className="chip paste-chip" style={{ cursor: "pointer" }}
+        <button key={j} type="button" className="chip paste-chip"
           onClick={() => p.onOpenPaste({ name: pa.name, text: pa.text })}>
           <svg className="chip-doc" width="11" height="13" viewBox="0 0 11 13" fill="none" stroke="currentColor" strokeWidth="1.1" strokeLinecap="round">
             <rect x="0.8" y="0.8" width="9.4" height="11.4" rx="1.6" />
@@ -84,7 +84,7 @@ export const UserTurn = memo(function UserTurn(p: {
           </svg>
           <span className="chip-label">{pa.name}</span>
           <span className="chip-lines">{t("chat.lines", { lines: String(pa.text.split("\n").length) })}</span>
-        </div>
+        </button>
       ))}
       {p.editingText != null ? (
         <div className="edit-box">
@@ -260,15 +260,18 @@ export function ResultCapsule(p: {
         </span>
       </div>
       {p.isLastDone && review && (
-        <span
+        <button
+          type="button"
           className={`review-badge v-${review.status === "running" ? "running" : review.verdict}`}
+          disabled={!review.issues?.length}
+          aria-expanded={p.reviewOpen}
           onClick={() => review.issues?.length && p.onToggleReviewOpen()}
         >
           {review.status === "running" ? t("review.running")
             : review.verdict === "ok" ? t("review.ok")
             : review.verdict === "issues" ? t("review.issues", { n: review.issues?.length ?? 0 })
             : t("review.inconclusive")}
-        </span>
+        </button>
       )}
       {p.isLastDone && p.reviewOpen && review?.issues?.length ? (
         <div className="review-detail">

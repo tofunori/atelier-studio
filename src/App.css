@@ -1707,6 +1707,59 @@ body.dragging iframe { pointer-events: none; }
 .pin-rename:focus { border-color: var(--border2); }
 .sidebar li { position: relative; }
 
+
+/* ===== A11y (plan 021, partie B) ===== */
+/* texte lu par les lecteurs d'écran, invisible à l'écran */
+.sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
+  overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
+
+/* titres injectés dans les headers de surface (span → h2) : géométrie inchangée */
+.ui-surface-header .title { margin: 0; font-weight: inherit; }
+
+/* boucles encore actives sous reduced-motion (audit §6) */
+@media (prefers-reduced-motion: reduce) {
+  .working-spin, .atelier-skeleton-grid span, .activity-pulse,
+  .activity-step.running .activity-step-dot, .qa-minidot,
+  .review-badge.v-running, .thinking.live .thinking-label { animation: none; }
+}
+
+/* focus visible sur les champs qui neutralisaient l'outline sans remplacement */
+.rename:focus-visible, .edit-box textarea:focus-visible,
+.cmdk-search input:focus-visible, .exp-search:focus-visible,
+.fly-rename:focus-visible, .biblio-filters select:focus-visible,
+.set-row-ctl select:focus-visible, input[type="range"].slider:focus-visible {
+  outline: var(--focus-ring-width) solid var(--focus-ring-color);
+  outline-offset: var(--focus-ring-offset); }
+
+/* actions révélées au hover : visibles aussi au focus clavier (audit §4) */
+.biblio-row:focus-within .biblio-star, .biblio-star:focus-visible { opacity: 1; }
+.qa-msg.assistant:focus-within .qa-inject-one, .qa-inject-one:focus-visible { opacity: 1; }
+.mp-item:focus-within .mp-star, .mp-star:focus-visible { opacity: 1; }
+.reviewer-bar:focus-within .rb-close, .reviewer-bar:focus-within .rb-min { opacity: 1; }
+
+/* anneau de contexte du composer : désormais un bouton — popover au focus aussi */
+button.ctx-ring-wrap { border: none; font: inherit; color: inherit; }
+.ctx-ring-wrap:focus-visible .ctx-pop, .ctx-ring-wrap:focus .ctx-pop { display: flex; }
+.ctx-ring-wrap:focus-visible { outline: var(--focus-ring-width) solid var(--focus-ring-color);
+  outline-offset: var(--focus-ring-offset); }
+
+/* rangée modèle : wrapper + boutons frères (sélection / favori) */
+.mp-item.model-row { padding: 0; }
+.mp-row-main { flex: 1; min-width: 0; display: flex; align-items: center; gap: 8px;
+  background: none; border: none; color: inherit; font: inherit; text-align: left;
+  cursor: pointer; padding: 4px 0 4px 9px; }
+.mp-item.model-row .mp-end { padding-right: 9px; }
+.mp-star { background: none; border: none; font: inherit; cursor: pointer; padding: 0 2px; }
+
+/* reset natif <button> — .swatch et .emoji-cell étaient des <span onClick>,
+   ProjectStyleMenu (plan 021 B) en fait des boutons focusables */
+.swatch, .emoji-cell { background-clip: padding-box; border: none; padding: 0;
+  font: inherit; appearance: none; -webkit-appearance: none; }
+.swatch.none, .emoji-cell { background-color: transparent; }
+.swatch:focus-visible, .emoji-cell:focus-visible {
+  outline: var(--focus-ring-width) solid var(--focus-ring-color);
+  outline-offset: var(--focus-ring-offset); }
+
 /* ===== Settings (plan 021) : nav compacte, diagnostic, focus ===== */
 .settings-page.narrow { flex-direction: column; }
 .set-nav-compact { display: flex; align-items: center; gap: 8px; padding: 10px 16px 0;
@@ -1866,11 +1919,19 @@ body.dragging iframe { pointer-events: none; }
 .ri-claim { color: var(--fg2); font-style: italic; }
 .ri-problem { color: var(--muted); margin-top: 2px; }
 /* ===== barre reviewer (A) ancrée en haut du chat ===== */
-.reviewer-bar { appearance: none; -webkit-appearance: none; display: flex; align-items: center;
-  gap: 8px; width: 100%; padding: 9px 46px 9px 13px; margin: 0; background: var(--bg-side);
+.reviewer-bar { display: flex; align-items: center;
+  gap: 8px; width: 100%; padding: 0 8px 0 0; margin: 0; background: var(--bg-side);
   border: none; border-bottom: 1px solid var(--border); border-left: 2.5px solid var(--border2);
-  font: inherit; font-size: var(--fs-m); color: var(--fg); text-align: left; box-sizing: border-box;
-  transition: background .16s ease, border-left-color .16s ease; }
+  font-size: var(--fs-m); color: var(--fg); box-sizing: border-box;
+  transition: background 120ms ease, border-left-color 120ms ease; }
+/* bouton interne (la barre est un div : min/close sont des frères, plan 021 B) */
+.rb-main { appearance: none; -webkit-appearance: none; display: flex; align-items: center;
+  gap: 8px; flex: 1; min-width: 0; padding: 9px 0 9px 13px; margin: 0; background: transparent;
+  border: none; font: inherit; font-size: var(--fs-m); color: inherit; text-align: left;
+  cursor: default; }
+.reviewer-bar.clickable .rb-main { cursor: pointer; }
+.rb-min, .rb-close { appearance: none; -webkit-appearance: none; background: transparent;
+  border: none; cursor: pointer; }
 /* liseré + fond très légèrement teinté selon le verdict — l'état lisible d'un coup d'œil */
 .reviewer-bar.v-ok { border-left-color: #98c379;
   background: color-mix(in srgb, #98c379 6%, var(--bg-side)); }

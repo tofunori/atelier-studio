@@ -255,7 +255,7 @@ export default function GitSurface({
           </span>
         )}
         <span className="git-headmenu-wrap" onClick={(e) => e.stopPropagation()}>
-          <button className="ghost git-icon-btn" title="⋯" onClick={() => { setHeadMenu((v) => !v); setUndoArmed(false); }}>
+          <button className="ghost git-icon-btn" title={t("project.actions")} aria-label={t("project.actions")} onClick={() => { setHeadMenu((v) => !v); setUndoArmed(false); }}>
             ⋯
           </button>
           {headMenu && (

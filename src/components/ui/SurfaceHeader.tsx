@@ -15,7 +15,7 @@ export function SurfaceHeader(props: {
     <header className={cx("ui-surface-header", className)}>
       <div className="titles">
         {eyebrow != null && <span className="eyebrow">{eyebrow}</span>}
-        <span className="title">{title}</span>
+        <h2 className="title">{title}</h2>
       </div>
       <div className="spacer" />
       {actions != null && <div className="actions">{actions}</div>}

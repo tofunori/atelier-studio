@@ -8,7 +8,7 @@ export default function Banner(p: {
   onClose?: () => void;
 }) {
   return (
-    <div className="top-banner">
+    <div role="status" className="top-banner">
       <span className="top-banner-text">{p.text}</span>
       {p.actionLabel && p.onAction && (
         <button type="button" onClick={p.onAction}>

@@ -85,9 +85,13 @@ export default function CommandPalette({
             }}
             placeholder={t("palette.placeholder")}
             aria-label={t("palette.placeholder")}
+            role="combobox"
+            aria-expanded="true"
+            aria-controls="cmdk-listbox"
+            aria-activedescendant={visible[active] ? `cmdk-opt-${active}` : undefined}
           />
         </div>
-        <div className="cmdk-list" role="listbox" aria-label={t("palette.results")}>
+        <div id="cmdk-listbox" className="cmdk-list" role="listbox" aria-label={t("palette.results")}>
           {visible.length === 0 && <div className="cmdk-empty">{t("palette.empty")}</div>}
           {SECTION_ORDER.map((section) => {
             const group = visible.filter((item) => item.section === section);
@@ -101,6 +105,7 @@ export default function CommandPalette({
                     <button
                       type="button"
                       key={item.id}
+                      id={`cmdk-opt-${index}`}
                       className={`cmdk-item ${index === active ? "active" : ""}`}
                       role="option"
                       aria-selected={index === active}

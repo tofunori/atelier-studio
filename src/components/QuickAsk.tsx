@@ -237,7 +237,7 @@ export default function QuickAsk({
               <path d="M3 4h10M6.5 4V2.8c0-.4.3-.8.8-.8h1.4c.5 0 .8.4.8.8V4M4.5 4l.7 8.4c0 .5.4.8.9.8h3.8c.5 0 .9-.3.9-.8L11.5 4" />
             </svg>
           </button>
-          <button className="qa-min" title="—" onClick={onMinimize}>—</button>
+          <button className="qa-min" title={t("qa.minimize")} aria-label={t("qa.minimize")} onClick={onMinimize}>—</button>
           <button
             className="qa-model"
             title={t("qa.switch-model")}

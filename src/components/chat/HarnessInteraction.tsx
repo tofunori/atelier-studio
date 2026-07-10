@@ -125,7 +125,7 @@ export function HarnessInteraction({ event: e, threadId }: {
         );
       })}
       {final ? (
-        <div className="perm-verdict">{verdict}</div>
+        <div className="perm-verdict" role="status">{verdict}</div>
       ) : (
         <div className="perm-actions">
           {e.interactionType === "approval" ? (

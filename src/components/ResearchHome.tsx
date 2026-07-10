@@ -264,7 +264,7 @@ export function ResearchHome(p: { model: ResearchHomeModel; actions: ResearchHom
       <div className="rh">
         <header className="rh-head">
           <div className="titles">
-            <div className="rh-title">{model.projectName}</div>
+            <h1 className="rh-title">{model.projectName}</h1>
             <div className="rh-path">{model.projectPath}</div>
           </div>
           <div className="spacer" />

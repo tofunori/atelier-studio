@@ -430,7 +430,7 @@ export default function SettingsPage(p: {
                 />
               </Row>
               <Row title={t("settings.chat-titles")} desc={t("settings.chat-titles-desc")}>
-                {retitleStatus && <span className="set-val wide">{retitleStatus}</span>}
+                {retitleStatus && <InlineNotice tone="info" className="set-notice">{retitleStatus}</InlineNotice>}
                 <button
                   className="set-btn"
                   disabled={p.ws?.readyState !== 1}
@@ -850,7 +850,7 @@ export default function SettingsPage(p: {
                         } }));
                       }}>{apiModelsBusy ? "…" : t("settings.api-detect")}</button>
                     </div>
-                    {apiModelsError && <p className="set-empty">{apiModelsError}</p>}
+                    {apiModelsError && <InlineNotice tone="error" className="set-notice">{apiModelsError}</InlineNotice>}
                     {apiModels && (() => {
                       const selected = new Set(apiForm.models.split(",").map((m) => m.trim()).filter(Boolean));
                       const q = apiModelsQuery.toLowerCase();

@@ -1,7 +1,8 @@
 import { useState } from "react";
 import { t } from "../lib/i18n";
 import { ChatsIcon, HighlighterIcon, PlusIcon, SettingsIcon, SidebarIcon } from "./icons";
-import { PROJ_ICONS, ProjIcon } from "./Sidebar";
+import { ProjIcon } from "./sidebar/projectIcons";
+import { ProjectStyleMenu } from "./sidebar/ProjectStyleMenu";
 import { SURFACES, type Surface } from "./surfaces";
 import type { ViewId } from "../lib/settings";
 
@@ -59,7 +60,6 @@ export default function Rail(p: {
   const [menu, setMenu] = useState<{ root: string; y: number } | null>(null);
   const [dragRoot, setDragRoot] = useState<string | null>(null);
   const [dragOver, setDragOver] = useState<string | null>(null);
-  const [labelDraft, setLabelDraft] = useState("");
 
   return (
     <div className="rail" onClick={() => setMenu(null)}>
@@ -146,7 +146,6 @@ export default function Rail(p: {
             onContextMenu={(e) => {
               e.preventDefault();
               e.stopPropagation();
-              setLabelDraft(m?.label?.startsWith("icon:") ? "" : m?.label ?? "");
               setMenu({ root, y: e.clientY });
             }}
           >
@@ -166,49 +165,14 @@ export default function Rail(p: {
         </button>
       </div>
       {menu && (
-        <div className="rail-menu" style={{ top: menu.y }} onClick={(e) => e.stopPropagation()}>
-          <div className="rail-menu-title">{menu.root.split("/").pop()}</div>
-          <div className="swatches">
-            {PROJ_COLORS.map((c) => (
-              <span
-                key={c}
-                className="swatch"
-                style={{ background: c }}
-                onClick={() => p.onSetMeta(menu.root, { ...p.meta[menu.root], color: c })}
-              />
-            ))}
-            <span
-              className="swatch none"
-              title={t("sidebar.without-color")}
-              onClick={() => p.onSetMeta(menu.root, { ...p.meta[menu.root], color: undefined })}
-            >
-              ∅
-            </span>
-          </div>
-          <div className="emoji-grid">
-            {Object.keys(PROJ_ICONS).map((name) => (
-              <span key={name}
-                className={`emoji-cell ${p.meta[menu.root]?.label === "icon:" + name ? "on" : ""}`}
-                onClick={() => { p.onSetMeta(menu.root, { ...p.meta[menu.root], label: "icon:" + name }); setMenu(null); }}>
-                <ProjIcon name={name} size={14} />
-              </span>
-            ))}
-          </div>
-          <input
-            className="icon-letter"
-            placeholder="Aa"
-            maxLength={2}
-            value={labelDraft}
-            title={t("sidebar.letter-title")}
-            onChange={(e) => setLabelDraft(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter") {
-                p.onSetMeta(menu.root, { ...p.meta[menu.root], label: labelDraft || undefined });
-                setMenu(null);
-              }
-            }}
-          />
-        </div>
+        <ProjectStyleMenu
+          key={menu.root}
+          root={menu.root}
+          meta={p.meta[menu.root]}
+          onSetMeta={p.onSetMeta}
+          onClose={() => setMenu(null)}
+          style={{ top: menu.y }}
+        />
       )}
     </div>
   );

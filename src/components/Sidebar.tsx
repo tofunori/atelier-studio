@@ -7,7 +7,6 @@ import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import { confirm as tauriConfirm, message as tauriMessage } from "@tauri-apps/plugin-dialog";
 import { revealItemInDir, openUrl } from "@tauri-apps/plugin-opener";
 import { Thread } from "../lib/ws";
-import { PROJ_COLORS } from "./Rail";
 import { wsSend } from "../lib/wsBus";
 import { t } from "../lib/i18n";
 const tr = t; // alias historique (t masqué par des variables locales dans les .map)
@@ -22,6 +21,7 @@ import {
 import { ProjectHeader } from "./sidebar/ProjectHeader";
 import { ThreadRow } from "./sidebar/ThreadRow";
 import { PROJ_ICONS, ProjIcon } from "./sidebar/projectIcons";
+import { ProjectStyleMenu } from "./sidebar/ProjectStyleMenu";
 
 // ré-exports publics — Rail et TopBar importent depuis ./Sidebar
 export { PROJ_ICONS, ProjIcon };
@@ -529,73 +529,14 @@ export default function Sidebar(p: {
       )}
 
       {projMenu && (
-        <div
-          className="rail-menu"
+        <ProjectStyleMenu
+          key={projMenu.root}
+          root={projMenu.root}
+          meta={p.projMeta[projMenu.root]}
+          onSetMeta={p.onSetMeta}
+          onClose={() => setProjMenu(null)}
           style={{ left: projMenu.x, top: projMenu.y, position: "fixed" }}
-          onClick={(e) => e.stopPropagation()}
-        >
-          <div className="rail-menu-title">{projMenu.root.split("/").pop()}</div>
-          <div className="swatches">
-            {PROJ_COLORS.map((c) => (
-              <span
-                key={c}
-                className="swatch"
-                style={{ background: c }}
-                onClick={() =>
-                  p.onSetMeta(projMenu.root, { ...p.projMeta[projMenu.root], color: c })
-                }
-              />
-            ))}
-            <span
-              className="swatch none"
-              title={t("sidebar.without-color")}
-              onClick={() =>
-                p.onSetMeta(projMenu.root, { ...p.projMeta[projMenu.root], color: undefined })
-              }
-            >
-              ∅
-            </span>
-          </div>
-          <div className="emoji-grid">
-            {Object.keys(PROJ_ICONS).map((name) => (
-              <span
-                key={name}
-                className={`emoji-cell ${p.projMeta[projMenu.root]?.label === "icon:" + name ? "on" : ""}`}
-                onClick={() => {
-                  p.onSetMeta(projMenu.root, { ...p.projMeta[projMenu.root], label: "icon:" + name });
-                  setProjMenu(null);
-                }}
-              >
-                <ProjIcon name={name} size={14} />
-              </span>
-            ))}
-            <input
-              className="icon-letter"
-              placeholder="Aa"
-              maxLength={2}
-              defaultValue={p.projMeta[projMenu.root]?.label?.startsWith("icon:") ? "" : p.projMeta[projMenu.root]?.label ?? ""}
-              title={t("sidebar.letter-title")}
-              onClick={(e) => e.stopPropagation()}
-              onKeyDown={(e) => {
-                if (e.key === "Enter") {
-                  const v = (e.target as HTMLInputElement).value.trim();
-                  p.onSetMeta(projMenu.root, { ...p.projMeta[projMenu.root], label: v || undefined });
-                  setProjMenu(null);
-                }
-              }}
-            />
-            <span
-              className="emoji-cell none"
-              title={t("sidebar.without-color")}
-              onClick={() => {
-                p.onSetMeta(projMenu.root, { ...p.projMeta[projMenu.root], label: undefined });
-                setProjMenu(null);
-              }}
-            >
-              ∅
-            </span>
-          </div>
-        </div>
+        />
       )}
     </div>
   );
