@@ -7,7 +7,7 @@ import { buildHighlightContext } from "../lib/highlightContext";
 import type { HighlightEntry } from "./Rail";
 import { CloseIcon } from "./icons";
 import { ProviderInfo } from "../lib/providers";
-import { ToolOutputLine, isSummarizableTool } from "./chat/toolPresentation";
+import { ToolOutputLine, isSummarizableTool, Tick } from "./chat/toolPresentation";
 import { ChatTimeline } from "./chat/ChatTimeline";
 import { ChatHeader } from "./chat/ChatHeader";
 import { presentStatus, type UiStatusKind } from "../lib/statusPresentation";
@@ -754,7 +754,7 @@ export default function Chat(p: {
     if (e.kind === "tool") {
       return (
         <div key={key} className="tool">
-          <span className="tool-tick">▸</span> {eventLabel(e.name)}
+          <Tick /> {eventLabel(e.name)}
           {e.detail ? <span className="tool-detail">({e.detail})</span> : null}
         </div>
       );

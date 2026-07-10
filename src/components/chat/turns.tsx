@@ -12,7 +12,7 @@ import {
   MD_COMPONENTS, MD_COMPONENTS_STREAMING, MD_REMARK_PLUGINS, MD_REHYPE_PLUGINS,
 } from "./md";
 import { DoneDiffToggle, fmtTime, PinBtn } from "./turnParts";
-import { ToolGlyph, groupIconCat, summarizeTools } from "./toolPresentation";
+import { Tick, ToolGlyph, groupIconCat, summarizeTools } from "./toolPresentation";
 import { Button, EmptyState } from "../ui";
 
 type TimeFormat = "system" | "24h" | "12h" | undefined;
@@ -253,20 +253,29 @@ export function AssistantDone(p: {
   );
 }
 
+/** Header d'activité du tour (plan 020, étape 3) : « Activité · N étapes ·
+ * durée ». Ouvert pendant le run par construction (le pli n'existe qu'après le
+ * terminal) ; erreurs/permissions restent hors du pli (KEEP_TAIL, Chat.tsx). */
 export function ActivityFold(p: {
   fold: { key: string; count: number; ms: number | null };
   open: boolean;
-  label: string;
+  /** durée formatée du travail (fmtWorkDur) — null si non mesurable */
+  duration: string | null;
   onToggle: () => void;
 }) {
   return (
     <button
       type="button"
       className={`turn-fold ${p.open ? "open" : ""}`}
+      aria-expanded={p.open}
       onClick={p.onToggle}
     >
-      <span>{p.label}</span>
-      <span className="tool-tick">{p.open ? "▾" : "▸"}</span>
+      <Tick open={p.open} />
+      <span className="turn-fold-label">{t("chat.activity")}</span>
+      <span className="turn-fold-meta">
+        {t("chat.activity-steps", { n: p.fold.count })}
+        {p.duration != null ? ` · ${p.duration}` : ""}
+      </span>
     </button>
   );
 }
@@ -286,7 +295,7 @@ export function ActivityGroup(p: {
       >
         <span className="tool-group-ico"><ToolGlyph cat={groupIconCat(p.actions)} /></span>
         <span>{summarizeTools(p.actions)}</span>
-        <span className="tool-tick">{p.open ? "▾" : "▸"}</span>
+        <Tick open={p.open} />
       </button>
       {p.open && (
         <div className="tool-group-list">

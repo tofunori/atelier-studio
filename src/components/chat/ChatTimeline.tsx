@@ -217,9 +217,7 @@ export function ChatTimeline(p: {
                 key={fold.key}
                 fold={fold}
                 open={open}
-                label={fold.ms != null
-                  ? t("chat.worked-for", { dur: fmtWorkDur(fold.ms) })
-                  : t("chat.worked-steps", { n: fold.count })}
+                duration={fold.ms != null ? fmtWorkDur(fold.ms) : null}
                 onToggle={() =>
                   setOpenFolds((prev) => {
                     const next = new Set(prev);

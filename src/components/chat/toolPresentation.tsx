@@ -195,3 +195,14 @@ export function ToolGlyph({ cat }: { cat: ToolCat }) {
     default: return <svg {...c}><path d="M9.6 2.5a2.1 2.1 0 0 0 2.8 2.8l.7.7a2.2 2.2 0 0 1-3.1 3.1l-4-4a2.2 2.2 0 0 1 3.1-3.1z" /></svg>;
   }
 }
+
+/** Chevron trait fin partagé (remplace les ▸/▾ texte, hors système). */
+export function Tick({ open }: { open?: boolean }) {
+  return (
+    <svg className="tool-tick" width="10" height="10" viewBox="0 0 16 16" fill="none"
+      stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round"
+      aria-hidden="true">
+      {open ? <path d="M3.5 6l4.5 4.5L12.5 6" /> : <path d="M6 3.5l4.5 4.5L6 12.5" />}
+    </svg>
+  );
+}
