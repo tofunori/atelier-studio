@@ -88,7 +88,7 @@ sinon « Non enregistrée ») ; Organization (collections membership + favori +
 
 ## Progression
 - [x] Passe 1 : barre de commande + chips + selBar + overflow — suites unit(32)/diff(78)/parité/E2E(5) vertes ; vérif Playwright interactive OK (popover 6 groupes, sous-menus, chips actives, clear all)
-- [ ] Passe 2 : sélection carte + inspecteur + add-to-chat + états
+- [x] Passe 2 : sélection carte + inspecteur + add-to-chat + états — suites vertes ; vérif interactive 7 points OK (sélection/aria, workflow in-place, dblclick→lightbox, Escape en cascade, clavier flèches+Enter, fermeture sur filtre, reset)
 - [ ] Passe 3 : réécrire test_fullscreen_regression.py (assertions nouvelles),
       étendre E2E (8 scénarios plan), unit/parity/diff verts
 - [ ] stage-gallery + verify + AGENTS.md + captures 1512/1280/800 + commit/push

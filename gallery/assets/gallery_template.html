@@ -86,6 +86,43 @@
   /* rescan et clear-annotation vivent dans ⋯ — les contrôles d'origine restent
      câblés mais masqués (leurs handlers restent la source de vérité) */
   #rescan,#quoteClear{display:none !important}
+  /* ---- sélection de carte + inspecteur scientifique (plan 019) ------------
+     deux signaux : bordure accent + halo doux ; jamais d'orange plein partout */
+  .card.sel2{border-color:var(--accent);box-shadow:0 0 0 1px var(--accent),var(--shadow)}
+  #inspector{position:fixed;top:0;right:0;bottom:0;width:300px;z-index:9;display:none;
+    flex-direction:column;background:var(--card);border-left:1px solid var(--border);
+    padding-top:var(--insp-top,0px)}
+  body.has-insp #inspector{display:flex}
+  body.has-insp main{margin-right:300px}
+  #inspHead{display:flex;align-items:center;gap:8px;padding:10px 12px;border-bottom:1px solid var(--border)}
+  #inspHead .ttl{flex:1;min-width:0;font-size:13px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  #inspHead .x{cursor:pointer;color:var(--muted);font-size:14px;background:none;border:none;height:auto;padding:2px 6px}
+  #inspHead .x:hover{color:var(--txt)}
+  #inspBody{flex:1;overflow-y:auto;padding:11px 12px;display:flex;flex-direction:column;gap:13px}
+  .isec{display:flex;flex-direction:column;gap:6px}
+  .isec>h3{margin:0;font-size:10px;font-weight:500;letter-spacing:.05em;text-transform:uppercase;color:var(--faint)}
+  .irow{display:flex;flex-direction:column;gap:2px;min-width:0}
+  .irow .il{font-size:11px;color:var(--muted)}
+  .irow .iv{font-size:12px;color:var(--txt);word-break:break-all}
+  #inspPrev{height:150px;border:1px solid var(--border);border-radius:8px;overflow:hidden;
+    display:flex;align-items:center;justify-content:center;background:#fff}
+  #inspPrev img{max-width:100%;max-height:100%;object-fit:contain}
+  #inspPrev.ph2{background:var(--card2);color:var(--muted);font-size:22px;font-weight:600}
+  .iwf{display:flex;flex-wrap:wrap;gap:5px}
+  .iwf button{height:24px;font-size:11px;padding:0 9px}
+  .iwf button.on{border-color:var(--accent);color:var(--accent)}
+  #inspBody .iact{display:flex;flex-wrap:wrap;gap:6px}
+  #inspBody .iact button{height:28px}
+  #inspNotice{display:none;border:1px solid #7a2a2a;border-radius:6px;padding:6px 9px;
+    font-size:11.5px;color:#ff9b9b}
+  #inspNotice.show{display:block}
+  .icoll label{display:flex;align-items:center;gap:6px;font-size:12px;cursor:pointer}
+  @media (max-width:800px){
+    body.has-insp main{margin-right:0}
+    #inspector{box-shadow:0 8px 28px rgba(0,0,0,.5);z-index:65}
+    #inspScrim{display:none;position:fixed;inset:0;background:rgba(0,0,0,.25);z-index:64}
+    body.has-insp #inspScrim{display:block}
+  }
   /* mode embarqué (iframe Atelier) : header compact sur une rangée —
      la marque/projet/stat sont déjà dans le chrome de l'app */
   html.emb .brand{display:none}
@@ -387,7 +424,15 @@
     <div id="exportMenu" class="menu"></div>
   </div>
 </header>
-<main id="grid"></main>
+<main id="grid" role="listbox" aria-label="Project files" tabindex="0"></main>
+<div id="inspScrim"></div>
+<aside id="inspector" aria-label="Inspector">
+  <div id="inspHead">
+    <span class="ttl" id="inspTitle"></span>
+    <button class="x" id="inspClose" title="Close inspector (Esc)" aria-label="Close inspector">&#10005;</button>
+  </div>
+  <div id="inspBody"></div>
+</aside>
 <div id="lb">
   <span id="lbClose">&#10005;</span>
   <span id="lbFs" title="Plein écran (f ou double-clic)">&#9974;</span>
@@ -539,8 +584,10 @@ document.addEventListener('click',e=>{
   else if(act==='sel') toggleSel(rel, el, e);
   else if(act==='hide') toggleHide(rel);
   else if(act==='del') delOne(rel);
-  else if(act==='lb') lbOpen(rel);
-  else if(act==='open') openDefault(rel);
+  // plan 019 : le clic sur la zone média SÉLECTIONNE (inspecteur) ; l'ouverture
+  // passe par double-clic, Enter, ou les actions explicites (View / Open)
+  else if(act==='lb') selectCard(rel);
+  else if(act==='open'){ if(el.tagName==='BUTTON') openDefault(rel); else selectCard(rel); }
   else if(act==='src') findScript(rel);
   else if(act==='board') sendToBoard(rel, el);
   else if(act==='more'){ e.stopImmediatePropagation(); cardMenu(el, rel); }
@@ -1135,6 +1182,173 @@ function buildSurfMenu(){
   m.querySelector('[data-sm="notes"]').onclick=()=>{ m.style.display='none'; toolOpenTab('/notes/open-surface','notes'); };
 }
 document.getElementById('surfMore').onclick=e=>{ e.stopPropagation(); buildSurfMenu(); menuToggle(document.getElementById('surfMenu'), e.currentTarget); };
+
+// ============ plan 019 — sélection de carte + inspecteur scientifique ========
+// Clic = sélectionner (l'inspecteur suit) ; double-clic ou « View » = ouvrir.
+// L'inspecteur n'affiche QUE des métadonnées réelles ; « final » est un statut
+// de workflow utilisateur, jamais une validation scientifique.
+let selectedRel=null, inspFindSeq=0, inspAddState='idle', inspAddTimer=0;
+const EMB = window.self!==window.top;
+function paintSelection(){
+  document.querySelectorAll('#grid .card[data-card]').forEach(c=>{
+    const on=c.dataset.card===selectedRel;
+    c.classList.toggle('sel2',on);
+    c.setAttribute('aria-selected',on?'true':'false');
+  });
+}
+function selectCard(rel){
+  if(selectedRel!==rel){ inspAddState='idle'; }
+  selectedRel=rel;
+  document.body.classList.add('has-insp');
+  paintSelection(); updateInspector();
+}
+function closeInspector(focusBack){
+  if(!selectedRel && !document.body.classList.contains('has-insp')) return;
+  selectedRel=null; inspAddState='idle';
+  document.body.classList.remove('has-insp');
+  paintSelection();
+  if(focusBack!==false) document.getElementById('grid').focus();
+}
+document.getElementById('inspClose').onclick=()=>closeInspector();
+document.getElementById('inspScrim').onclick=()=>closeInspector();
+document.addEventListener('keydown',e=>{
+  if(e.key!=='Escape') return;
+  if(lb().classList.contains('show')) return;                          // lightbox d'abord
+  if(document.getElementById('cmp').classList.contains('show')) return; // compare d'abord
+  const openMenus=[...document.querySelectorAll('.menu')].filter(m=>m.style.display==='flex');
+  if(openMenus.length){ openMenus.forEach(m=>m.style.display='none'); closeFloat(); return; }
+  if(document.body.classList.contains('has-insp')) closeInspector();
+});
+function inspRow(l,v,title){
+  return '<div class="irow">'+(l?('<span class="il">'+esc(l)+'</span>'):'')
+    +'<span class="iv"'+(title?(' title="'+escA(title)+'"'):'')+'>'+v+'</span></div>';
+}
+function updateInspector(){
+  const rel=selectedRel; if(!rel) return;
+  const f=FILES.find(x=>x.rel===rel);
+  const body=document.getElementById('inspBody'), ttl=document.getElementById('inspTitle');
+  if(!f){
+    ttl.textContent=rel.split('/').pop();
+    body.innerHTML='<div id="inspNotice" class="show">File no longer in the index (deleted or removed by a rescan).</div>';
+    return;
+  }
+  ttl.textContent=f.name; ttl.title=f.rel;
+  const isImg=imgExt(f.ext), isHtml=f.ext==='html'||f.ext==='htm';
+  const tsrc=(isImg||isHtml)?('/thumb?path='+encodeURIComponent('__ROOT__/'+f.rel)+'&w=480&v='+f.mtime):(f.thumb||null);
+  const wf=workflow[f.rel]||'';
+  const colls=allCollections();
+  body.innerHTML=
+    '<div class="isec"><div id="inspPrev"'+(tsrc?'':' class="ph2"')+'>'+
+      (tsrc?('<img alt="" src="'+escA(tsrc)+'">'):esc(f.ext.toUpperCase()))+'</div></div>'
+    +'<div class="isec"><h3>Identity</h3>'
+      +inspRow('Type', esc(f.ext.toUpperCase())+(f.code?' · script':''))
+      +inspRow('Path', esc(f.rel), f.rel)
+      +inspRow('Size', esc(fmtSize(f.size)))
+      +inspRow('Modified', esc(f.mdate)+(f.bdate?(' · created '+esc(f.bdate)):''))
+    +'</div>'
+    +'<div class="isec"><h3>Workflow</h3><div class="iwf">'
+      +[['','None']].concat(WORKFLOW_STATUSES).map(([v,l])=>
+        '<button data-iwf="'+escA(v)+'" class="'+(wf===v?'on':'')+'" aria-pressed="'+(wf===v)+'">'+esc(l)+'</button>').join('')
+    +'</div></div>'
+    +'<div class="isec"><h3>Provenance</h3>'
+      +inspRow('Project','<span style="font-family:var(--code-font);font-size:11px" title="__ROOT__">'+esc('__ROOT__'.split('/').pop()||'__ROOT__')+'</span>')
+      +inspRow('Generating script','<span id="inspScript">'+((isImg||f.ext==='pdf')?'Searching…':'Not recorded')+'</span>')
+    +'</div>'
+    +'<div class="isec"><h3>Organization</h3>'
+      +'<div class="irow"><span class="il">Favorite</span><span class="iv"><button id="inspFav" style="height:24px;font-size:11px">'+(favs.has(rel)?'★ Remove favorite':'☆ Add favorite')+'</button></span></div>'
+      +inspRow('Rating', rateRow(rel))
+      +(colls.length?('<div class="irow"><span class="il">Collections</span><span class="iv icoll">'
+        +colls.map(n=>'<label><input type="checkbox" data-icoll="'+escA(n)+'"'+((collections[n]||[]).includes(rel)?' checked':'')+'> '+esc(n)+'</label>').join('')+'</span></div>'):'')
+    +'</div>'
+    +'<div class="isec"><h3>Actions</h3><div class="iact">'
+      +'<button id="inspView" title="Open in the viewer">View</button>'
+      +'<button id="inspOpen" title="Open with the default app">Open (app)</button>'
+      +(EMB?('<button id="inspChat">'+(inspAddState==='added'?'Added to chat ✓':inspAddState==='pending'?'Adding…':'Add to chat')+'</button>'):'')
+      +'<button id="inspMore" title="More — hide, trash…" aria-label="More actions">⋯</button>'
+    +'</div><div id="inspNotice"></div></div>';
+  // preview : chargé À la sélection (jamais au hover) ; échec → fallback type
+  const pimg=body.querySelector('#inspPrev img');
+  if(pimg) pimg.onerror=()=>{
+    const pv=document.getElementById('inspPrev'); if(!pv) return;
+    pv.classList.add('ph2'); pv.textContent=f.ext.toUpperCase();
+    const n=document.getElementById('inspNotice');
+    if(n){ n.textContent='Preview unavailable (file missing or unreadable).'; n.classList.add('show'); }
+  };
+  // provenance RÉELLE : script générateur via /findscript, anti-course par séquence
+  if(isImg||f.ext==='pdf'){
+    const seq=++inspFindSeq, stem=rel.split('/').pop().replace(/\.[^.]+$/,'');
+    const put=(txt,openRel)=>{
+      if(seq!==inspFindSeq) return;
+      const s=document.getElementById('inspScript'); if(!s) return;
+      s.innerHTML=openRel?('<a href="#" data-iscript="'+escA(openRel)+'" style="color:var(--accent)">'+esc(openRel)+'</a>'):esc(txt);
+      const a=s.querySelector('[data-iscript]');
+      if(a) a.onclick=ev=>{ ev.preventDefault(); lbOpenAny(a.dataset.iscript); };
+    };
+    const local=FILES.find(x=>codeExt(x.ext)&&x.rel.split('/').pop().replace(/\.[^.]+$/,'')===stem);
+    if(local) put('',local.rel);
+    else fetch('/findscript?stem='+encodeURIComponent(stem)).then(r=>r.json())
+      .then(j=>put(j&&j.script?'':'Not recorded', j&&j.script?j.script:null))
+      .catch(()=>put('Not recorded',null));
+  }
+  body.querySelectorAll('[data-iwf]').forEach(b=>b.onclick=()=>setWorkflow(rel,b.dataset.iwf));
+  body.querySelector('#inspFav').onclick=()=>{
+    if(favs.has(rel)) favs.delete(rel); else favs.add(rel);
+    saveFavs(); pushState();
+    document.getElementById('favChip').textContent='★ Favorites ('+favs.size+')';
+    render();
+  };
+  body.querySelectorAll('[data-icoll]').forEach(cb=>cb.onchange=()=>{
+    const n=cb.dataset.icoll, cur=new Set(collections[n]||[]);
+    if(cb.checked) cur.add(rel); else cur.delete(rel);
+    collections[n]=[...cur].sort();
+    saveCollections(); buildCollectionChip(); render();
+  });
+  body.querySelector('#inspView').onclick=()=>lbOpenAny(rel);
+  body.querySelector('#inspOpen').onclick=()=>openDefault(rel);
+  const ic=body.querySelector('#inspChat');
+  if(ic) ic.onclick=()=>{
+    // contrat de transfert (018/019) : pending bloque le double ajout ; le
+    // composer déduplique par texte de toute façon (idempotent)
+    if(inspAddState!=='idle') return;
+    inspAddState='pending'; ic.textContent='Adding…';
+    try{
+      __atelierPost({type:'atelier-add-to-chat',
+        text:'__ROOT__/'+rel+'\nFichier joint depuis la galerie atelier — lis-le (outil Read) avant de répondre.'});
+      inspAddState='added'; ic.textContent='Added to chat ✓';
+    }catch(err){
+      inspAddState='idle'; ic.textContent='Add to chat';
+      const n=document.getElementById('inspNotice');
+      if(n){ n.textContent='Add to chat failed — gallery not embedded in Atelier Studio.'; n.classList.add('show'); }
+      return;
+    }
+    clearTimeout(inspAddTimer);
+    inspAddTimer=setTimeout(()=>{
+      inspAddState='idle';
+      const b=document.getElementById('inspChat'); if(b) b.textContent='Add to chat';
+    },1800);
+  };
+  body.querySelector('#inspMore').onclick=e=>{ e.stopPropagation(); cardMenu(e.currentTarget, rel); };
+}
+// clavier grille : flèches = déplacer la sélection, Enter = ouvrir
+document.getElementById('grid').addEventListener('keydown',e=>{
+  if(!renderedRels.length) return;
+  if(!['ArrowRight','ArrowLeft','ArrowDown','ArrowUp','Enter'].includes(e.key)) return;
+  if(e.key==='Enter'){ if(selectedRel) lbOpenAny(selectedRel); e.preventDefault(); return; }
+  const i=renderedRels.indexOf(selectedRel);
+  const cardMin=parseInt(getComputedStyle(document.documentElement).getPropertyValue('--card-min'))||185;
+  const cols=Math.max(1,Math.floor(document.getElementById('grid').clientWidth/(cardMin+16)));
+  let n=i<0?0:i+(e.key==='ArrowRight'?1:e.key==='ArrowLeft'?-1:e.key==='ArrowDown'?cols:-cols);
+  n=Math.max(0,Math.min(renderedRels.length-1,n));
+  selectCard(renderedRels[n]); e.preventDefault();
+  const c=document.querySelector('#grid .card.sel2'); if(c&&c.scrollIntoView) c.scrollIntoView({block:'nearest'});
+});
+// double-clic = ouvrir (le clic simple sélectionne)
+document.addEventListener('dblclick',e=>{
+  const el=e.target.closest('[data-act="lb"],[data-act="open"]'); if(!el) return;
+  if(el.tagName==='BUTTON') return;
+  if(el.dataset.act==='lb') lbOpen(el.dataset.rel);
+  else openDefault(el.dataset.rel);
+});
 document.getElementById('collChip').onclick=e=>{ e.stopPropagation(); buildCollectionChip(); menuToggle(document.getElementById('collMenu'), e.currentTarget); };
 document.getElementById('wfChip').onclick=e=>{ e.stopPropagation(); buildWorkflowChip(); menuToggle(document.getElementById('wfMenu'), e.currentTarget); };
 document.getElementById('recChip').onclick=e=>{ e.stopPropagation(); buildRecentChip(); menuToggle(document.getElementById('recMenu'), e.currentTarget); };
@@ -1466,7 +1680,20 @@ function render(){
   });
   lbList = list.filter(f=>imgExt(f.ext)||videoExt(f.ext)||f.ext==='pdf'||f.ext==='md'||codeExt(f.ext));
   const grid=document.getElementById('grid');
-  if(!list.length){grid.innerHTML='<div class="empty">No matching files.</div>';renderedRels=[];return;}
+  if(!list.length){
+    // deux états distincts : projet vide vs zéro résultat avec filtres actifs
+    const hasQ=!!document.getElementById('q').value.trim();
+    grid.innerHTML = FILES.length===0
+      ? '<div class="empty">No files in this project yet.<br><span style="font-size:11px;color:var(--faint)">Add figures, data or scripts, then Rescan (⋯ menu).</span></div>'
+      : '<div class="empty">No matching files.'
+        +' <button id="emptyReset" style="margin-left:8px;height:26px;font-size:11px">Clear search &amp; filters</button></div>';
+    const er=document.getElementById('emptyReset');
+    if(er) er.onclick=()=>{ const q=document.getElementById('q'); if(q.value){q.value='';} clearAllFilters(); render(); };
+    renderedRels=[];
+    if(selectedRel) closeInspector(false);   // la sélection n'est plus visible
+    void hasQ;
+    return;
+  }
   const MAX=600;
   const slice=list.slice(0,MAX);
   renderedRels = slice.map(f=>f.rel);   // display order for Shift-click range selection
@@ -1493,7 +1720,7 @@ function render(){
     const wf = workflow[f.rel];
     const wfTag = wf?`<span class="tag wf${wf==='final'?' final':''}">${esc(wf)}</span>`:'';
     const rt = ratings[f.rel]||0;
-    return `<div class="card ${f.archive?'arch':''} ${isHid?'hid':''}">
+    return `<div class="card ${f.archive?'arch':''} ${isHid?'hid':''} ${selectedRel===f.rel?'sel2':''}" data-card="${escA(f.rel)}" role="option" aria-selected="${selectedRel===f.rel}">
       <span class="selbox ${selSet.has(f.rel)?'on':''}" data-act="sel" data-rel="${escA(f.rel)}" title="Select — Shift-click to select a range">${selSet.has(f.rel)?'■':'▢'}</span>
       ${(imgExt(f.ext)||videoExt(f.ext)||f.ext==='pdf'||f.ext==='md'||codeExt(f.ext))?`<div data-act="lb" data-rel="${escA(f.rel)}" style="cursor:zoom-in;position:relative">${videoExt(f.ext)?'<span class="playbtn">&#9654;</span>':''}${thumb}</div>`:appExt(f.ext)?`<div data-act="open" data-rel="${escA(f.rel)}" style="cursor:pointer" title="Open with default app">${thumb}</div>`:`<a href="${escA(f.rel)}" target="_blank" style="text-decoration:none">${thumb}</a>`}
       <div class="hov">
@@ -1512,6 +1739,12 @@ function render(){
     </div>`;
   }).join('') + (list.length>MAX?`<div class="empty">… and ${list.length-MAX} more. Refine your search to see them.</div>`:'');
   grid.querySelectorAll('.snip[data-snip]').forEach(el=>snipObserver.observe(el));
+  // plan 019 : la sélection survit au rerender si la carte reste visible ;
+  // sinon l'inspecteur se ferme sans voler le focus
+  if(selectedRel){
+    if(renderedRels.includes(selectedRel)){ paintSelection(); updateInspector(); }
+    else closeInspector(false);
+  }
 }
 // (format quick-chips + their video-solo handler removed — all types now live in the Formats menu)
 updateViewChip();
