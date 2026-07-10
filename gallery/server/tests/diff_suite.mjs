@@ -359,14 +359,29 @@ async function moduleTests() {
   // lorsqu'elle touche plusieurs paragraphes éloignés.
   {
     const base = [
-      "Premier paragraphe sur la neige fraiche et la glace claire.",
-      "Deuxieme paragraphe stable qui separe largement les changements.",
-      "Troisieme paragraphe sur la temperature et l'albedo de surface.",
+      "Premier paragraphe sur la neige fraiche et la glace claire du bassin alpin.",
+      "Cette deuxieme ligne intacte documente les observations du debut de saison.",
+      "Une troisieme ligne intacte termine ce premier paragraphe substantiel.",
+      "",
+      "Deuxieme paragraphe entierement intact entre les zones modifiees.",
+      "Il contient plusieurs observations longues qui ne changent pas pendant l'action.",
+      "Sa derniere ligne fournit une separation textuelle volontairement importante.",
+      "",
+      "Troisieme paragraphe sur la temperature moyenne du site de mesure.",
+      "Cette ligne centrale reste intacte pour espacer les deux modifications.",
+      "Le paragraphe se termine avec une autre phrase scientifique conservee.",
+      "",
+      "Quatrieme paragraphe intact servant de second grand espace documentaire.",
+      "Ses donnees et son interpretation restent strictement identiques.",
+      "Une ligne finale intacte precede la derniere zone de changement.",
+      "",
+      "Cinquieme paragraphe sur l'albedo de surface mesure en fin de saison.",
+      "Cette conclusion conserve encore une ligne complete sans modification.",
       "",
     ].join("\n");
     const after = base
       .replace("neige fraiche", "neige soufflee")
-      .replace("paragraphe stable", "paragraphe conserve")
+      .replace("temperature moyenne", "temperature estivale")
       .replace("albedo de surface", "albedo estival");
     const h = makeModuleHarness({ headText: base });
     h.cm._v = after;
@@ -459,6 +474,20 @@ async function moduleTests() {
     contractOk("undo-to-base : tout a zéro changement net", /aucun changement de texte/.test(note), note);
   }
 
+  // B11b. `restore` appartient au contrat du journal, sans activer les deux
+  // parcours UI Rétablir qui restent explicitement TODO jusqu'au plan 028.
+  {
+    const before = "texte courant avant restauration directe\n";
+    const after = "texte cible restaure depuis un historique\n";
+    const h = makeModuleHarness({ headText: before });
+    h.cm._v = after;
+    h.dv.push(before, after, { source: "restore", status: "applied" });
+    await sleep(0);
+    assertPersistedInterventions("journal restore direct sans flux UI", h, [
+      { before, after, source: "restore", status: "applied" },
+    ]);
+  }
+
   // B12. classification des blancs dépendante du langage. Une frontière de
   // paragraphe LaTeX, l'indentation Python et le contenu verbatim sont sémantiques.
   // Seul le rewrap visuel d'un paragraphe de prose reste ignorable.
@@ -540,6 +569,63 @@ function extract(src, startRe, endMarker, what) {
   const end = src.indexOf(endMarker, start);
   if (end < 0) throw new Error(`fin d'extraction introuvable (${what})`);
   return src.slice(start, end + endMarker.length);
+}
+
+function sourceBlock(src, startMarker, endMarker, what) {
+  const start = src.indexOf(startMarker);
+  if (start < 0) throw new Error(`début de bloc introuvable (${what})`);
+  const end = src.indexOf(endMarker, start + startMarker.length);
+  if (end < 0) throw new Error(`fin de bloc introuvable (${what})`);
+  return src.slice(start, end);
+}
+
+function reEscape(value) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function callCarriesMeta(block, callee, before, after, source, status) {
+  const call = new RegExp(
+    `${reEscape(callee)}\\s*\\(\\s*${reEscape(before)}\\s*,\\s*${reEscape(after)}\\s*,\\s*(\\{[^{}]*\\})\\s*\\)`,
+  ).exec(block);
+  if (!call) return false;
+  return new RegExp(`\\bsource\\s*:\\s*["']${reEscape(source)}["']`).test(call[1])
+    && new RegExp(`\\bstatus\\s*:\\s*["']${reEscape(status)}["']`).test(call[1]);
+}
+
+function editorCallSiteTests() {
+  const specs = [
+    {
+      name: "latex_studio",
+      src: fs.readFileSync(path.join(ASSETS, "latex_studio.html"), "utf8"),
+      callee: "diffPush",
+      saveEnd: "// Preflight",
+      watcherStart: "// L'agent modifie le .tex sur le disque",
+    },
+    {
+      name: "code_editor",
+      src: fs.readFileSync(path.join(ASSETS, "code_editor.html"), "utf8"),
+      callee: "__dv.push",
+      saveEnd: "document.addEventListener(\"keydown\"",
+      watcherStart: "// L'agent modifie le fichier sur le disque",
+    },
+  ];
+
+  for (const spec of specs) {
+    const save = sourceBlock(spec.src, "async function save(){", spec.saveEnd, `${spec.name} save`);
+    const watcher = sourceBlock(spec.src, spec.watcherStart, "}, 2000);", `${spec.name} external watcher`);
+    contractOk(`${spec.name} call site user-save/applied`,
+      callCarriesMeta(save, spec.callee, "lastSavedText", "savedNow", "user-save", "applied"));
+    contractOk(`${spec.name} call site external-reload/applied`,
+      callCarriesMeta(watcher, spec.callee, "before", "diskText", "external-reload", "applied"));
+    contractOk(`${spec.name} call site external-merge/applied`,
+      callCarriesMeta(watcher, spec.callee, "beforePush", "diskText", "external-merge", "applied"));
+    contractOk(`${spec.name} call site external-conflict/pending-conflict`,
+      callCarriesMeta(watcher, spec.callee, "base", "diskText", "external-conflict", "pending-conflict"));
+  }
+
+  const latex = specs[0].src;
+  contractOk("latex_studio diffPush forwards meta to DiffVersions.push",
+    /const\s+diffPush\s*=\s*\(\s*before\s*,\s*after\s*,\s*meta\s*\)\s*=>\s*__dv\.push\s*\(\s*before\s*,\s*after\s*,\s*meta\s*\)/.test(latex));
 }
 
 async function latexStudioTests() {
@@ -784,6 +870,7 @@ async function timelineTests() {
 try {
   await serverTests();
   await moduleTests();
+  editorCallSiteTests();
   await latexStudioTests();
   await timelineTests();
   if (CONTRACT_FAILURES.length)
