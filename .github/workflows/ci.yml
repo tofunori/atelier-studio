@@ -38,10 +38,17 @@ jobs:
         run: npm run verify
       - name: Gallery E2E
         run: npm run verify:e2e
+      - name: Install Playwright Chromium (root, golden states)
+        run: npx playwright install chromium
+      - name: Visual golden states (plan 021 — baselines committées, jamais d'auto-update)
+        run: npm run test:visual
       - name: Upload test results on failure
         if: failure()
         uses: actions/upload-artifact@v4
         with:
           name: test-results
-          path: gallery/test-results
+          path: |
+            gallery/test-results
+            tests/visual/test-results
+            playwright-report
           if-no-files-found: ignore

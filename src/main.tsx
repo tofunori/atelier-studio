@@ -100,6 +100,18 @@ async function boot() {
     );
     return;
   }
+  // banc de captures de la page Réglages (plan 021)
+  if (window.location.hash.startsWith("#setbench")) {
+    const { SetBench } = await import("./components/SetBench");
+    ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
+      <React.StrictMode>
+        <BootBoundary>
+          <SetBench />
+        </BootBoundary>
+      </React.StrictMode>,
+    );
+    return;
+  }
   // banc de captures du fil de chat et du composer (plan 020)
   if (window.location.hash.startsWith("#chatbench")) {
     const { ChatBench } = await import("./components/ChatBench");
