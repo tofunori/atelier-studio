@@ -72,8 +72,12 @@ ps -o lstart= -p <pid>        # un lstart antérieur au build = zombie → kill 
 
 ## Premier lancement post-build : lenteur TCC NORMALE — vérifier la convergence, pas l'instantané
 
-L'app est signée **adhoc** : chaque rebuild = nouvelle identité pour macOS →
-les consultations TCC/Gatekeeper repartent de zéro au premier lancement.
+Sans identité de signature stable, l'app est signée **adhoc** : chaque
+rebuild = nouvelle identité pour macOS → les consultations TCC/Gatekeeper
+repartent de zéro au premier lancement. (Le plan 019 a ajouté
+`signingIdentity: "Atelier Dev Signing"` dans tauri.conf sur
+feat/generateur-images — les branches qui l'ont re-consultent beaucoup
+moins ; la règle « pas d'écriture dans le bundle » reste valable partout.)
 Conséquences attendues (macOS 26) :
 
 - le premier boot du sidecar peut être lent ; son event loop peut geler
