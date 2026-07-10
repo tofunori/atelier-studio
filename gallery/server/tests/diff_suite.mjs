@@ -162,6 +162,20 @@ async function serverTests() {
     r = await j("/versions" + q);
     ok("versions principal tronqué récupère backup", r.ok && r.v === 2 && r.revision === 1
       && r.interventions[0].id === "i-1", JSON.stringify(r));
+    ok("versions recovery repare principal et garde backup valide", (() => {
+      try {
+        return JSON.parse(zlib.gunzipSync(fs.readFileSync(storeFile))).revision === 1
+          && JSON.parse(zlib.gunzipSync(fs.readFileSync(`${storeFile}.bak`))).revision === 1;
+      } catch { return false; }
+    })());
+    fs.writeFileSync(storeFile, Buffer.from("gzip-truncated-again"));
+    r = await j("/versions" + q);
+    ok("versions double recovery garde backup valide", r.ok && r.revision === 1 && (() => {
+      try {
+        return JSON.parse(zlib.gunzipSync(fs.readFileSync(storeFile))).revision === 1
+          && JSON.parse(zlib.gunzipSync(fs.readFileSync(`${storeFile}.bak`))).revision === 1;
+      } catch { return false; }
+    })(), JSON.stringify(r));
 
     const manyOps = [];
     let prior = after, priorHash = toHash;
@@ -199,6 +213,16 @@ async function serverTests() {
       && r.texts[r.base.hash] === "legacy base\n" && r.texts[r.current.hash] === "legacy courant\n",
     JSON.stringify(r));
     ok("versions migration v1 réécrite gzip", zlib.gunzipSync(fs.readFileSync(legacyStore)).length > 0);
+
+    const divergentFile = path.join(repo, "legacy-divergent.tex");
+    fs.writeFileSync(divergentFile, "divergent\n");
+    const divergentKey = crypto.createHash("md5").update(fs.realpathSync(divergentFile)).digest("hex");
+    const divergentStore = path.join(storeDir, `${divergentKey}.json`);
+    const divergentRaw = JSON.stringify({items: "not-an-array", last: null, unexpected: true});
+    fs.writeFileSync(divergentStore, divergentRaw);
+    r = await j("/versions?path=" + encodeURIComponent(divergentFile));
+    ok("versions v1 divergent refuse sans reecriture", r.ok === false
+      && fs.readFileSync(divergentStore, "utf8") === divergentRaw, JSON.stringify(r));
 
     // /commitmsg : pas de diff vs base → ok:false (pas d'appel IA)
     r = await j("/commitmsg" + q);
@@ -334,14 +358,29 @@ function makeModuleHarness({
     return pop?._q?.["#dvHistList"]?._children || [];
   };
   const setHead = (text, ts, sha = activeHead.sha) => Object.assign(activeHead, { text, ts, sha });
-  return { ctx, cm, dv, tag, restore, restored, notes, marksLog, gutterLog, posts, nav, storage, setHead,
+  return { ctx, cm, dv, tag, restore, restored, notes, marksLog, gutterLog, posts, nav, storage, setHead, filePath,
     historyButton, historyRows };
 }
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
+function persistedState(h, filePath = h.filePath) {
+  const raw = h.storage.get("texDiffV1:" + filePath);
+  if (!raw) return { interventions: [], legacySnapshots: [], last: null };
+  const state = JSON.parse(raw);
+  if (!state.texts) return state;
+  return {
+    interventions: (state.interventions || []).map((it) => ({...it,
+      before: state.texts[it.fromHash], after: state.texts[it.toHash]})),
+    legacySnapshots: (state.legacySnapshots || []).map((it) => ({...it, text: state.texts[it.hash]})),
+    last: state.current ? state.texts[state.current.hash] : state.lastKnown ?? null,
+  };
+}
+
+const persistedInterventions = (h, filePath) => persistedState(h, filePath).interventions;
+
 function assertPersistedInterventions(name, h, expected, expectedLegacy = []) {
-  const payload = h.posts[h.posts.length - 1];
-  const actual = payload && payload.interventions;
+  const payload = persistedState(h);
+  const actual = payload.interventions;
   const shapeOk = Array.isArray(actual) && actual.every((it) => it
     && typeof it.before === "string"
     && typeof it.after === "string"
@@ -440,12 +479,14 @@ async function moduleTests() {
     h.dv.push("base\n", "base MODIFIEE\n");
     await sleep(30);
     const p = h.posts[h.posts.length - 1];
-    ok("persist POST v2 interventions+last", p && p.v === 2
-      && p.interventions.length === 1
-      && p.interventions[0].before === "base\n"
-      && p.interventions[0].after === "base MODIFIEE\n"
-      && Array.isArray(p.legacySnapshots)
-      && p.last === "base MODIFIEE\n", JSON.stringify(p));
+    const stored = persistedState(h);
+    ok("persist POST compact ops+revision seulement", p
+      && Object.keys(p).sort().join(",") === "expectedRevision,ops,path"
+      && p.ops.some((op) => op.type === "append")
+      && stored.interventions.length === 1
+      && stored.interventions[0].before === "base\n"
+      && stored.interventions[0].after === "base MODIFIEE\n"
+      && stored.last === "base MODIFIEE\n", JSON.stringify(p));
   }
   {
     const h = makeModuleHarness({ headText: "v base\n", serverItems: [{ b: "ancienne version\n", t: 1 }], serverLast: "v base\n" });
@@ -743,7 +784,7 @@ async function moduleTests() {
     if(h.dv.isShown()) h.tag.onclick();
     h.cm._v = next;
     h.dv.push(current, next, {source: "user-save", status: "applied"});
-    const saved = h.posts[h.posts.length - 1]?.interventions || [];
+    const saved = persistedInterventions(h);
     contractOk("reload v2 local survit a une reponse serveur v1 vide",
       reloaded && saved.length === 2 && saved[0].id === "local-1"
         && saved[1].before === current && saved[1].after === next,
@@ -788,7 +829,7 @@ async function moduleTests() {
     if(h.dv.isShown()) h.tag.onclick();
     h.cm._v = next;
     h.dv.push(current, next, {source: "user-save", status: "applied"});
-    const saved = h.posts[h.posts.length - 1]?.interventions || [];
+    const saved = persistedInterventions(h);
     contractOk("reconciliation v2 garde local plus recent et ordre chronologique",
       count === "tout · 4" && saved.length === 5
         && saved.slice(0, 4).map((it) => it.id).join(",") === "server-5,local-10,shared-20,local-30"
@@ -814,7 +855,7 @@ async function moduleTests() {
     if(h.dv.isShown()) h.tag.onclick();
     h.cm._v = next;
     h.dv.push(server, next, {source: "user-save", status: "applied"});
-    const saved = h.posts[h.posts.length - 1]?.interventions || [];
+    const saved = persistedInterventions(h);
     contractOk("reconciliation v2 accepte serveur vraiment plus recent",
       count === "tout · 2" && saved.slice(0, 2).map((it) => it.id).join(",") === "shared-10,server-20",
       JSON.stringify({count, ids: saved.map((it) => it.id)}));
@@ -841,7 +882,7 @@ async function moduleTests() {
     if(h.dv.isShown()) h.tag.onclick();
     h.cm._v = next;
     h.dv.push(local, next, {source: "user-save", status: "applied"});
-    const saved = h.posts[h.posts.length - 1]?.interventions || [];
+    const saved = persistedInterventions(h);
     contractOk("reconciliation v2 egalite donne autorite au local",
       count === "tout · 3" && saved.slice(0, 3).map((it) => it.id).join(",") === "eq-shared,eq-local,eq-server",
       JSON.stringify({count, ids: saved.map((it) => it.id)}));
@@ -866,7 +907,7 @@ async function moduleTests() {
     if(h.dv.isShown()) h.tag.onclick();
     h.cm._v = next;
     h.dv.push(local, next, {source: "user-save", status: "applied"});
-    const saved = h.posts[h.posts.length - 1]?.interventions || [];
+    const saved = persistedInterventions(h);
     contractOk("reconciliation v2 timestamp absent reste conservative",
       count === "tout · 2" && saved.slice(0, 2).map((it) => it.id).join(",") === "null-local,dated-server",
       JSON.stringify({count, ids: saved.map((it) => it.id)}));
@@ -881,7 +922,7 @@ async function moduleTests() {
     const h = makeModuleHarness({headText: base});
     h.cm._v = mine;
     h.dv.push(base, disk, {source: "external-conflict", status: "pending-conflict"});
-    const payload = h.posts[h.posts.length - 1];
+    const payload = persistedState(h);
     contractOk("pending conflict persiste le vrai buffer dans last",
       payload?.last === mine && payload?.interventions?.[0]?.after === disk,
       JSON.stringify(payload));
@@ -920,7 +961,7 @@ async function moduleTests() {
     if(h.dv.isShown()) h.tag.onclick();
     h.cm._v = final;
     h.dv.push(edited, final, {source: "user-save", status: "applied"});
-    const saved = h.posts[h.posts.length - 1]?.interventions || [];
+    const saved = persistedInterventions(h);
     contractOk("push pendant GET ignore la reponse stale sans doublon ni inversion",
       count === "tout · 1" && saved.length === 2
         && saved[0].before === base && saved[0].after === edited
@@ -945,8 +986,8 @@ async function moduleTests() {
     const retry = h.posts[1];
     contractOk("409 retry unique utilise revision serveur et garde pending local",
       h.posts.length === 2 && retry?.expectedRevision === 1
-        && retry.interventions.some((it) => it.id === "remote-1")
-        && retry.interventions.some((it) => it.before === base && it.after === local),
+        && persistedInterventions(h).some((it) => it.id === "remote-1")
+        && persistedInterventions(h).some((it) => it.before === base && it.after === local),
       JSON.stringify(h.posts));
   }
   {
@@ -960,7 +1001,7 @@ async function moduleTests() {
     h.dv.push(base, local, {source: "user-save", status: "applied"});
     // Remplacer l'id généré par l'id distant dans le payload conflictuel simule
     // deux contenus sous le même id (la fusion doit STOP, pas choisir).
-    state.interventions[0].id = h.posts[0]?.interventions?.[0]?.id || "same-id";
+    state.interventions[0].id = h.posts[0]?.ops?.find((op) => op.type === "append")?.intervention?.id || "same-id";
     await sleep(0); await sleep(0);
     contractOk("409 même id contenu divergent STOP visible sans retry",
       h.posts.length === 1 && h.notes.some((note) => /persistance du diff arrêtée/.test(note)),
@@ -1000,6 +1041,20 @@ async function moduleTests() {
     await sleep(0); await sleep(0); await sleep(0);
     contractOk("reload bases divergentes STOP visible",
       h.notes.some((note) => /conflit de base/.test(note)), JSON.stringify(h.notes));
+  }
+  {
+    const base = "base pending restart\n", current = "intervention locale non acquittee\n";
+    const localEntry = {id: "local-pending-restart", before: base, after: current, ts: 10,
+      source: "user-save", status: "applied"};
+    const localState = durableState("/x/m.tex", 0, base, [localEntry], current);
+    const serverState = {ok: true, ...durableState("/x/m.tex", 0, base, [], current)};
+    const h = makeModuleHarness({headText: base, localState, serverState});
+    h.cm._v = current; h.ctx.__tick();
+    await sleep(0); await sleep(0); await sleep(0);
+    const appends = h.posts.flatMap((post) => post.ops || []).filter((op) => op.type === "append");
+    contractOk("restart programme flush des ids locaux non acquittes",
+      appends.length === 1 && appends[0].intervention.id === "local-pending-restart",
+      JSON.stringify(h.posts));
   }
   {
     const base = "base quarante-cinq\n";
@@ -1047,7 +1102,7 @@ async function moduleTests() {
     if(h.dv.isShown()) h.tag.onclick();
     h.cm._v = final;
     h.dv.push(after, final, {source: "user-save", status: "applied"});
-    const saved = h.posts[h.posts.length - 1]?.interventions || [];
+    const saved = persistedInterventions(h);
     contractOk("migration v1 sans timestamp reste visible sous base Git",
       count === "tout · 1" && saved[0]?.source === "legacy" && saved[0]?.ts === null,
       JSON.stringify({count, saved}));
@@ -1062,7 +1117,7 @@ async function moduleTests() {
     h.cm._v = after;
     h.dv.push(before, after, {source: "user-save", status: "applied"});
     contractOk("frontiere de lignes entre commandes LaTeX significative",
-      h.posts[h.posts.length - 1]?.interventions?.length === 1,
+      persistedInterventions(h).length === 1,
       JSON.stringify(h.posts));
   }
   {
@@ -1072,7 +1127,7 @@ async function moduleTests() {
     h.cm._v = after;
     h.dv.push(before, after, {source: "user-save", status: "applied"});
     contractOk("ligne blanche terminale LaTeX significative",
-      h.posts[h.posts.length - 1]?.interventions?.length === 1,
+      persistedInterventions(h).length === 1,
       JSON.stringify(h.posts));
   }
   {
@@ -1390,6 +1445,13 @@ async function timelineTests() {
     const ops = hx.posts.at(-1)?.ops || [];
     ok("restore commit externe : intervention restore", ops.some((op) =>
       op.type === "append" && op.intervention?.source === "restore"), JSON.stringify(hx.posts.at(-1)));
+  }
+  {
+    const hall = makeModuleHarness({headText: base});
+    hall.cm._v = s1; hall.dv.push(base, s1);
+    hall.tag.onclick();
+    await hall.restore.onclick();
+    ok("restore vue tout cible buffer courant exact", hall.restored.at(-1) === s1, JSON.stringify(hall.restored));
   }
 
   // interventions ANTÉRIEURES à la base (déjà committées) : exclues du compteur

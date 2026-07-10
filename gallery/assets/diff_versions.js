@@ -219,16 +219,16 @@ window.DiffVersions = function(opts){
     const baseHash = put(baseText);
     const interventions = [];
     for(const it of INTERVENTIONS) interventions.push({id: it.id,
-      fromHash: put(it.before), toHash: put(it.after), ts: it.ts == null ? 0 : it.ts,
+      fromHash: put(it.before), toHash: put(it.after), ts: it.ts,
       source: it.source, status: it.status});
     const legacySnapshots = [];
     for(const snap of LEGACY_SNAPSHOTS) legacySnapshots.push({hash: put(snap.text),
-      ts: snap.ts == null ? 0 : snap.ts, label: snap.label});
+      ts: snap.ts, label: snap.label});
     const currentText = typeof lastKnown === "string" ? lastKnown : liveText();
     const current = {hash: put(currentText), ts: Date.now()};
     return {v: 2, path, revision: serverRevision,
       base: {hash: baseHash, kind: baseVersion?.head ? "git" : "session",
-        sha: baseVersion?.sha || "", ts: baseVersion?.ts == null ? 0 : baseVersion.ts},
+        sha: baseVersion?.sha || "", ts: baseVersion?.ts},
       texts, interventions, legacySnapshots, current, lastKnown: currentText};
   }
   function stopPersistence(message){
@@ -297,9 +297,7 @@ window.DiffVersions = function(opts){
       if(!ops.length) ops.push({type: "set-current", current: snapshot.current,
         texts: {[snapshot.current.hash]: snapshot.texts[snapshot.current.hash]}});
       const response = await fetch("/versions", {method: "POST", headers: {"Content-Type": "application/json"},
-        body: JSON.stringify({path, expectedRevision: serverRevision, ops, v: 2,
-          interventions: INTERVENTIONS.map(it => ({...it})),
-          legacySnapshots: LEGACY_SNAPSHOTS.map(it => ({...it})), last: lastKnown})});
+        body: JSON.stringify({path, expectedRevision: serverRevision, ops})});
       const body = await response.json();
       if(response.status === 409 || body?.error === "revision-conflict"){
         if(retried || !mergeConflictState(body.state, snapshot.base.hash)){ if(!persistenceStopped) stopPersistence("conflit de révision répété"); return; }
@@ -1227,7 +1225,7 @@ window.DiffVersions = function(opts){
     const hasLocalV2 = !!(localData && localData.v === 2);
     // Charger le journal local avant le premier await garantit que tout push
     // concurrent sera ajouté après lui, jamais avant une histoire restaurée.
-    if(hasLocalV2) loadData(localData);
+    if(hasLocalV2){ loadData(localData); acknowledgedIds.clear(); }
     let serverData = null;
     try{
       const r = await fetch("/versions?path=" + encodeURIComponent(path));
@@ -1242,6 +1240,7 @@ window.DiffVersions = function(opts){
       if(decodedServer){
         serverRevision = decodedServer.revision;
         serverBaseHash = decodedServer.baseHash;
+        acknowledgedIds.clear();
         for(const it of decodedServer.interventions) acknowledgedIds.add(it.id);
       }
       if(hasLocalV2){
@@ -1264,6 +1263,9 @@ window.DiffVersions = function(opts){
       if(!INTERVENTIONS.length && !LEGACY_SNAPSHOTS.length && lastKnown === null) loadData(localData);
     }
     else if(!serverData && !hasLocalV2) loadData(localData);
+    const unacknowledged = INTERVENTIONS.filter(it => !acknowledgedIds.has(it.id));
+    for(const it of unacknowledged) pendingById.set(it.id, it);
+    if(unacknowledged.length) persist(lastKnown === null ? liveText() : lastKnown);
   }
 
   // HEAD + gouttière + restore : dès que l'éditeur existe (créé après le fetch

@@ -150,11 +150,23 @@ function writeExternal(filePath, text) {
 }
 
 function matchingInterventions(payload, expected) {
-  return (payload?.interventions || []).filter(entry =>
+  return (payload?.ops || []).filter(op => op.type === 'append').map(op => ({
+    ...op.intervention,
+    before: op.texts?.[op.intervention.fromHash],
+    after: op.texts?.[op.intervention.toHash],
+  })).filter(entry =>
     entry.before === expected.before
       && entry.after === expected.after
       && entry.source === expected.source
       && entry.status === expected.status);
+}
+
+function allInterventions(payloads) {
+  const byId = new Map();
+  for (const payload of payloads) {
+    for (const op of payload?.ops || []) if (op.type === 'append') byId.set(op.intervention.id, op);
+  }
+  return [...byId.values()];
 }
 
 function hasIntervention(payloads, expected) {
@@ -163,8 +175,8 @@ function hasIntervention(payloads, expected) {
 
 async function expectSingleStableIntervention(page, versionPayloads, expected) {
   await expect.poll(() => {
-    const latest = versionPayloads.at(-1);
-    return { total: latest?.interventions?.length || 0, matching: matchingInterventions(latest, expected).length };
+    return { total: allInterventions(versionPayloads).length,
+      matching: versionPayloads.flatMap(payload => matchingInterventions(payload, expected)).length };
   }).toEqual({ total: 1, matching: 1 });
   const postCount = versionPayloads.length;
   const nextCodeResponse = page.waitForResponse(response =>
@@ -175,8 +187,8 @@ async function expectSingleStableIntervention(page, versionPayloads, expected) {
     .then(request => request, () => null);
   expect(duplicateVersionPost).toBeNull();
   expect(versionPayloads).toHaveLength(postCount);
-  expect(versionPayloads.at(-1).interventions).toHaveLength(1);
-  expect(matchingInterventions(versionPayloads.at(-1), expected)).toHaveLength(1);
+  expect(allInterventions(versionPayloads)).toHaveLength(1);
+  expect(versionPayloads.flatMap(payload => matchingInterventions(payload, expected))).toHaveLength(1);
 }
 
 async function saveOnce(page) {
@@ -365,7 +377,7 @@ test('CM5: save and clean disk reload keep explicit intervention sources', async
       before: savedText, after: diskText, source: 'external-reload', status: 'applied',
     })).toBe(true);
 
-    const interventionCount = versionPayloads.at(-1).interventions.length;
+    const interventionCount = allInterventions(versionPayloads).length;
     const versionPostCount = versionPayloads.length;
     const nextCodeResponse = page.waitForResponse(response =>
       response.request().method() === 'GET' && new URL(response.url()).pathname === '/code');
@@ -375,7 +387,7 @@ test('CM5: save and clean disk reload keep explicit intervention sources', async
       .then(request => request, () => null);
     expect(duplicateVersionPost).toBeNull();
     expect(versionPayloads).toHaveLength(versionPostCount);
-    expect(versionPayloads.at(-1).interventions).toHaveLength(interventionCount);
+    expect(allInterventions(versionPayloads)).toHaveLength(interventionCount);
   });
 });
 

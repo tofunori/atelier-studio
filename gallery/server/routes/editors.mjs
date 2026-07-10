@@ -75,8 +75,19 @@ function validateVersionState(state) {
 }
 
 function migrateVersionV1(data, p) {
+  const allowed = new Set(["v", "path", "items", "last"]);
+  if (!data || typeof data !== "object" || Array.isArray(data)
+      || Object.keys(data).some((key) => !allowed.has(key))
+      || (data.v !== undefined && data.v !== 1)
+      || (data.path !== undefined && typeof data.path !== "string")
+      || !Array.isArray(data.items)
+      || !(typeof data.last === "string" || data.last === null)
+      || data.items.some((it) => !it || typeof it !== "object" || Array.isArray(it)
+        || typeof it.b !== "string" || (it.t !== undefined && !Number.isFinite(Number(it.t)))
+        || Object.keys(it).some((key) => key !== "b" && key !== "t")))
+    throw new Error("invalid versions v1 schema");
   const state = emptyVersionState(p);
-  const items = Array.isArray(data?.items) ? data.items.filter((it) => it && typeof it.b === "string") : [];
+  const items = data.items;
   const snapshots = items.map((it, index) => ({ text: it.b, ts: Number(it.t) || index, label: `snapshot v1 ${index + 1}` }));
   if (typeof data?.last === "string") snapshots.push({ text: data.last, ts: snapshots.at(-1)?.ts ?? 0, label: "dernier connu v1" });
   for (const snap of snapshots) {
@@ -106,17 +117,19 @@ function decodeVersionFile(file, p) {
   return parsed?.v === 2 ? validateVersionState(parsed) : migrateVersionV1(parsed, p);
 }
 
-function readVersionState(file, p) {
+function readVersionStateResult(file, p) {
   if (!fs.existsSync(file)) {
-    try { return decodeVersionFile(`${file}.bak`, p); }
-    catch { return emptyVersionState(p); }
+    try { return { state: decodeVersionFile(`${file}.bak`, p), recovered: true }; }
+    catch { return { state: emptyVersionState(p), recovered: false }; }
   }
-  try { return decodeVersionFile(file, p); }
+  try { return { state: decodeVersionFile(file, p), recovered: false }; }
   catch (primaryError) {
-    try { return decodeVersionFile(`${file}.bak`, p); }
+    try { return { state: decodeVersionFile(`${file}.bak`, p), recovered: true }; }
     catch { throw primaryError; }
   }
 }
+
+const readVersionState = (file, p) => readVersionStateResult(file, p).state;
 
 function addVersionTexts(state, texts) {
   if (!texts || Array.isArray(texts) || typeof texts !== "object") throw new Error("invalid texts");
@@ -516,8 +529,13 @@ export async function handleEditorsGet(req, res, url) {
       const p = editorPath(url.searchParams.get("path"), tok);
       if (!p) return sendJson(res, 200, { ok: false });
       const file = path.join(PROJECT, ".fig_thumbs", "dv_versions", `${md5(realpathOrResolve(p))}.json`);
-      const state = readVersionState(file, p);
-      if (fs.existsSync(file)) {
+      const loaded = readVersionStateResult(file, p);
+      const state = loaded.state;
+      if (loaded.recovered) {
+        // Réparer le principal depuis l'état validé sans jamais toucher au .bak
+        // qui est précisément notre dernière copie connue valide.
+        writeFileAtomicSync(file, zlib.gzipSync(Buffer.from(JSON.stringify(state))));
+      } else if (fs.existsSync(file)) {
         const prefix = fs.readFileSync(file).subarray(0, 2);
         if (prefix[0] !== 0x1f || prefix[1] !== 0x8b)
           writeFileAtomicSync(file, zlib.gzipSync(Buffer.from(JSON.stringify(state))), { backup: true });
