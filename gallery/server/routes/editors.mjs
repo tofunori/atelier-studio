@@ -1,6 +1,8 @@
 import fs from "node:fs";
+import crypto from "node:crypto";
 import os from "node:os";
 import path from "node:path";
+import zlib from "node:zlib";
 import { spawn, spawnSync, execFile } from "node:child_process";
 import {
   PROJECT,
@@ -18,6 +20,7 @@ import {
   serveFile,
   spawnCollect,
   statMtimeSeconds,
+  writeFileAtomicSync,
 } from "../shared.mjs";
 import { warmSuggest } from "../claude_warm.mjs";
 
@@ -25,6 +28,141 @@ const THUMB_DIR = path.join(PROJECT, ".fig_thumbs");
 const BUILDER = path.join(SERVER_DIR, "builder.mjs");
 const LATEXMK = "/Library/TeX/texbin/latexmk";
 const SYNCTEX = "/Library/TeX/texbin/synctex";
+const VERSION_SOURCES = new Set(["user-save", "external-reload", "external-merge", "external-conflict", "restore", "legacy"]);
+const VERSION_STATUSES = new Set(["applied", "pending-conflict"]);
+const VERSION_TEXT_LIMIT = 8 * 1024 * 1024;
+
+function textHash(text) {
+  return crypto.createHash("sha256").update(text).digest("hex");
+}
+
+function emptyVersionState(p) {
+  return { v: 2, path: p, revision: 0, base: null, texts: {}, interventions: [], legacySnapshots: [], current: null };
+}
+
+function validateHash(hash) {
+  return typeof hash === "string" && /^[a-f0-9]{64}$/.test(hash);
+}
+
+function validateVersionState(state) {
+  if (!state || state.v !== 2 || typeof state.path !== "string"
+      || !Number.isInteger(state.revision) || state.revision < 0
+      || !state.texts || Array.isArray(state.texts) || typeof state.texts !== "object"
+      || !Array.isArray(state.interventions) || !Array.isArray(state.legacySnapshots)) throw new Error("invalid versions state");
+  let bytes = 0;
+  for (const [hash, text] of Object.entries(state.texts)) {
+    if (!validateHash(hash) || typeof text !== "string" || textHash(text) !== hash) throw new Error("invalid text hash");
+    bytes += Buffer.byteLength(text);
+  }
+  if (bytes > VERSION_TEXT_LIMIT) throw new Error("versions texts too large");
+  const hasText = (hash) => validateHash(hash) && Object.prototype.hasOwnProperty.call(state.texts, hash);
+  if (state.base && (!hasText(state.base.hash) || !["git", "session", "legacy"].includes(state.base.kind)
+      || typeof state.base.sha !== "string" || !Number.isFinite(Number(state.base.ts)))) throw new Error("invalid base");
+  if (state.current && (!hasText(state.current.hash) || !Number.isFinite(Number(state.current.ts)))) throw new Error("invalid current");
+  const ids = new Set();
+  for (const item of state.interventions) {
+    if (!item || typeof item.id !== "string" || !item.id || ids.has(item.id)
+        || !hasText(item.fromHash) || !hasText(item.toHash)
+        || !Number.isFinite(Number(item.ts)) || !VERSION_SOURCES.has(item.source)
+        || !VERSION_STATUSES.has(item.status)) throw new Error("invalid intervention");
+    ids.add(item.id);
+  }
+  for (const snap of state.legacySnapshots) {
+    if (!snap || !hasText(snap.hash) || !Number.isFinite(Number(snap.ts)) || typeof snap.label !== "string")
+      throw new Error("invalid legacy snapshot");
+  }
+  return state;
+}
+
+function migrateVersionV1(data, p) {
+  const state = emptyVersionState(p);
+  const items = Array.isArray(data?.items) ? data.items.filter((it) => it && typeof it.b === "string") : [];
+  const snapshots = items.map((it, index) => ({ text: it.b, ts: Number(it.t) || index, label: `snapshot v1 ${index + 1}` }));
+  if (typeof data?.last === "string") snapshots.push({ text: data.last, ts: snapshots.at(-1)?.ts ?? 0, label: "dernier connu v1" });
+  for (const snap of snapshots) {
+    const hash = textHash(snap.text); state.texts[hash] = snap.text;
+    state.legacySnapshots.push({ hash, ts: snap.ts, label: snap.label });
+  }
+  if (snapshots.length) {
+    const first = snapshots[0], firstHash = textHash(first.text);
+    state.base = { hash: firstHash, kind: "legacy", sha: "", ts: first.ts };
+    for (let i = 1; i < snapshots.length; i += 1) {
+      const before = snapshots[i - 1], after = snapshots[i];
+      if (before.text === after.text) continue;
+      state.interventions.push({ id: `legacy-${i}-${textHash(before.text).slice(0, 8)}-${textHash(after.text).slice(0, 8)}`,
+        fromHash: textHash(before.text), toHash: textHash(after.text), ts: after.ts,
+        source: "legacy", status: "applied" });
+    }
+    const last = snapshots.at(-1); state.current = { hash: textHash(last.text), ts: last.ts };
+  }
+  return validateVersionState(state);
+}
+
+function decodeVersionFile(file, p) {
+  const raw = fs.readFileSync(file);
+  let parsed;
+  try { parsed = JSON.parse(zlib.gunzipSync(raw).toString("utf8")); }
+  catch { parsed = JSON.parse(raw.toString("utf8")); }
+  return parsed?.v === 2 ? validateVersionState(parsed) : migrateVersionV1(parsed, p);
+}
+
+function readVersionState(file, p) {
+  if (!fs.existsSync(file)) {
+    try { return decodeVersionFile(`${file}.bak`, p); }
+    catch { return emptyVersionState(p); }
+  }
+  try { return decodeVersionFile(file, p); }
+  catch (primaryError) {
+    try { return decodeVersionFile(`${file}.bak`, p); }
+    catch { throw primaryError; }
+  }
+}
+
+function addVersionTexts(state, texts) {
+  if (!texts || Array.isArray(texts) || typeof texts !== "object") throw new Error("invalid texts");
+  for (const [hash, text] of Object.entries(texts)) {
+    if (!validateHash(hash) || typeof text !== "string" || textHash(text) !== hash) throw new Error("invalid text hash");
+    state.texts[hash] = text;
+  }
+}
+
+function applyVersionOps(current, ops) {
+  if (!Array.isArray(ops) || ops.length > 500) throw new Error("invalid ops");
+  const state = structuredClone(current);
+  for (const op of ops) {
+    if (!op || typeof op.type !== "string") throw new Error("invalid op");
+    addVersionTexts(state, op.texts || {});
+    if (op.type === "init") {
+      if (state.base && JSON.stringify(state.base) !== JSON.stringify(op.base)) throw new Error("base-conflict");
+      if (!state.base) state.base = structuredClone(op.base);
+      if (op.current) state.current = structuredClone(op.current);
+      if (Array.isArray(op.legacySnapshots)) {
+        for (const snap of op.legacySnapshots) {
+          const key = JSON.stringify([snap.hash, snap.ts, snap.label]);
+          if (!state.legacySnapshots.some((it) => JSON.stringify([it.hash, it.ts, it.label]) === key))
+            state.legacySnapshots.push(structuredClone(snap));
+        }
+      }
+    } else if (op.type === "append") {
+      const item = structuredClone(op.intervention);
+      const existing = state.interventions.find((it) => it.id === item?.id);
+      if (existing && JSON.stringify(existing) !== JSON.stringify(item)) throw new Error("intervention-id-conflict");
+      if (!existing) state.interventions.push(item);
+      if (op.current) state.current = structuredClone(op.current);
+    } else if (op.type === "set-current") {
+      state.current = structuredClone(op.current);
+    } else throw new Error("invalid op type");
+  }
+  state.interventions.sort((a, b) => Number(a.ts) - Number(b.ts) || a.id.localeCompare(b.id));
+  // Content-addressed compaction: only unreferenced blobs may disappear.
+  const refs = new Set();
+  if (state.base) refs.add(state.base.hash);
+  if (state.current) refs.add(state.current.hash);
+  for (const it of state.interventions) { refs.add(it.fromHash); refs.add(it.toHash); }
+  for (const snap of state.legacySnapshots) refs.add(snap.hash);
+  for (const hash of Object.keys(state.texts)) if (!refs.has(hash)) delete state.texts[hash];
+  return validateVersionState(state);
+}
 
 function escapeRe(s) {
   return String(s).replace(/[\\^$.*+?()[\]{}|]/g, "\\$&");
@@ -372,17 +510,19 @@ export async function handleEditorsGet(req, res, url) {
     }
   }
   if (pathname === "/versions") {
-    // historique de versions de l'éditeur, persisté côté serveur (le
-    // localStorage du WebView ne survit pas toujours au redémarrage de l'app).
-    // {items:[{b,t}], last} — last = dernier texte connu du buffer, pour le
-    // rattrapage « modifié pendant que l'app était fermée ».
+    // Journal v2 content-addressed. Le backup est lu seulement si le principal
+    // ne peut pas être validé; un vieux JSON v1 est migré en mémoire.
     try {
       const p = editorPath(url.searchParams.get("path"), tok);
       if (!p) return sendJson(res, 200, { ok: false });
       const file = path.join(PROJECT, ".fig_thumbs", "dv_versions", `${md5(realpathOrResolve(p))}.json`);
-      if (!fs.existsSync(file)) return sendJson(res, 200, { ok: true, items: [], last: null });
-      const data = JSON.parse(fs.readFileSync(file, "utf8"));
-      return sendJson(res, 200, { ok: true, items: Array.isArray(data.items) ? data.items : [], last: typeof data.last === "string" ? data.last : null });
+      const state = readVersionState(file, p);
+      if (fs.existsSync(file)) {
+        const prefix = fs.readFileSync(file).subarray(0, 2);
+        if (prefix[0] !== 0x1f || prefix[1] !== 0x8b)
+          writeFileAtomicSync(file, zlib.gzipSync(Buffer.from(JSON.stringify(state))), { backup: true });
+      }
+      return sendJson(res, 200, { ok: true, ...state });
     } catch (e) {
       return sendJson(res, 200, { ok: false });
     }
@@ -861,20 +1001,28 @@ export async function handleEditorsPost(req, res, url) {
     }
   }
   if (pathname === "/versions") {
-    // écrire l'historique de versions (client déjà plafonné à ~1,5 Mo)
+    // Le serveur est l'autorité de révision. Chaque ack est gzip puis remplacé
+    // atomiquement dans le même dossier; l'ancien principal valide devient .bak.
     try {
       const payload = await readJsonRequest(req, 8 * 1024 * 1024);
       const p = editorPath(payload.path, tok);
       if (!p) return sendJson(res, 403, { error: "outside the project" });
-      const items = Array.isArray(payload.items)
-        ? payload.items.filter((it) => it && typeof it.b === "string").map((it) => ({ b: it.b, t: it.t || 0 }))
-        : [];
-      const last = typeof payload.last === "string" ? payload.last : null;
       const dir = path.join(PROJECT, ".fig_thumbs", "dv_versions");
       ensureDir(dir);
       const file = path.join(dir, `${md5(realpathOrResolve(p))}.json`);
-      fs.writeFileSync(file, JSON.stringify({ v: 1, path: p, items, last }), "utf8");
-      return sendJson(res, 200, { ok: true });
+      const current = readVersionState(file, p);
+      if (!Number.isInteger(payload.expectedRevision) || payload.expectedRevision !== current.revision)
+        return sendJson(res, 409, { ok: false, error: "revision-conflict", revision: current.revision, state: current });
+      const next = applyVersionOps(current, payload.ops);
+      next.path = p;
+      next.revision = current.revision + 1;
+      validateVersionState(next);
+      if (fs.existsSync(file)) {
+        try { decodeVersionFile(file, p); }
+        catch { fs.rmSync(file, { force: true }); }
+      }
+      writeFileAtomicSync(file, zlib.gzipSync(Buffer.from(JSON.stringify(next))), { backup: true });
+      return sendJson(res, 200, { ok: true, revision: next.revision });
     } catch (error) {
       return sendJson(res, 400, { error: `bad request: ${String(error.message || error)}` });
     }

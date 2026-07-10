@@ -139,6 +139,31 @@ export function ensureDir(dir) {
   fs.mkdirSync(dir, { recursive: true });
 }
 
+export function writeFileAtomicSync(file, data, { backup = false, mode = 0o600 } = {}) {
+  const dir = path.dirname(file);
+  ensureDir(dir);
+  const nonce = `${process.pid}.${Date.now()}.${crypto.randomBytes(6).toString("hex")}`;
+  const tmp = path.join(dir, `.${path.basename(file)}.${nonce}.tmp`);
+  const backupTmp = path.join(dir, `.${path.basename(file)}.${nonce}.bak.tmp`);
+  let fd;
+  try {
+    fd = fs.openSync(tmp, "wx", mode);
+    fs.writeFileSync(fd, data);
+    fs.fsyncSync(fd);
+    fs.closeSync(fd);
+    fd = undefined;
+    if (backup && fs.existsSync(file)) {
+      fs.copyFileSync(file, backupTmp);
+      fs.renameSync(backupTmp, `${file}.bak`);
+    }
+    fs.renameSync(tmp, file);
+  } finally {
+    if (fd !== undefined) try { fs.closeSync(fd); } catch {}
+    try { fs.unlinkSync(tmp); } catch {}
+    try { fs.unlinkSync(backupTmp); } catch {}
+  }
+}
+
 export function readJsonFile(file, fallback) {
   try {
     return JSON.parse(fs.readFileSync(file, "utf8"));

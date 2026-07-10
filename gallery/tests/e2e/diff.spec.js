@@ -268,6 +268,76 @@ test('CM5: three spatially separated saves are three interventions', async ({ pa
   });
 });
 
+test('CM5: reload preserves three interventions and restore 2/3 becomes intervention four', async ({ page }) => {
+  await withLatexStudio(async ({ url }) => {
+    await openEditor(page, url);
+    const s1 = INITIAL_TEXT.replace(
+      'stayed bright after fresh snow covered the dark ice',
+      'darkened after wind exposed the underlying ice',
+    );
+    const s2 = s1.replace(
+      'Summer temperatures remained moderate across the upper basin.',
+      'Summer temperatures increased sharply across the upper basin.',
+    );
+    const s3 = s2.replace(
+      'Snow depth observations remained stable at the central station.',
+      'Snow depth observations declined at the central station.',
+    );
+    await replaceTextAndSave(page, s1);
+    await replaceTextAndSave(page, s2);
+    await replaceTextAndSave(page, s3);
+
+    await page.locator('#diffTag').click();
+    const count = page.locator('#dvNav .dvNavC');
+    const previous = page.locator('#dvNav [data-d="-1"]');
+    await expect(count).toHaveText('tout · 3');
+    await previous.click();
+    await previous.click();
+    await expect(count).toHaveText('2 / 3');
+    await expect.poll(() => editorText(page)).toBe(s2);
+
+    const saved = page.waitForResponse(response =>
+      response.url().endsWith('/codesave') && response.request().method() === 'POST');
+    const persisted = page.waitForResponse(response =>
+      response.url().endsWith('/versions') && response.request().method() === 'POST' && response.ok());
+    await page.locator('#diffRestore').click();
+    expect((await saved).ok()).toBe(true);
+    await persisted;
+    await expect.poll(() => editorText(page)).toBe(s2);
+
+    await page.reload();
+    await openEditor(page, url);
+    await page.locator('#diffTag').click();
+    await expect(page.locator('#dvNav .dvNavC')).toHaveText('tout · 4');
+    await expect.poll(() => editorText(page)).toBe(s2);
+  });
+});
+
+test('CM5: two open pages converge through one 409 retry without losing either intervention', async ({ page, context }) => {
+  await withLatexStudio(async ({ url }) => {
+    const other = await context.newPage();
+    try {
+      await openEditor(page, url);
+      await openEditor(other, url);
+      const left = INITIAL_TEXT.replace('Summer temperatures remained moderate', 'LEFT temperatures increased');
+      const right = INITIAL_TEXT.replace('Measured albedo declined', 'RIGHT albedo recovered');
+      await Promise.all([
+        page.evaluate(({ before, after }) => { cm.setValue(after); __dv.push(before, after,
+          {source: 'user-save', status: 'applied'}); }, { before: INITIAL_TEXT, after: left }),
+        other.evaluate(({ before, after }) => { cm.setValue(after); __dv.push(before, after,
+          {source: 'user-save', status: 'applied'}); }, { before: INITIAL_TEXT, after: right }),
+      ]);
+      await expect.poll(() => page.evaluate(async () => {
+        const state = await (await fetch('/versions?path=' + encodeURIComponent(path))).json();
+        return { revision: state.revision, count: state.interventions?.length || 0,
+          distinctIds: new Set((state.interventions || []).map(item => item.id)).size };
+      }), { timeout: 7000 }).toEqual({ revision: 2, count: 2, distinctIds: 2 });
+    } finally {
+      await other.close();
+    }
+  });
+});
+
 test('CM5: save and clean disk reload keep explicit intervention sources', async ({ page }) => {
   await withLatexStudio(async ({ texPath, url }) => {
     const traffic = watchEditorTraffic(page);

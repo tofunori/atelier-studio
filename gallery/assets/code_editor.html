@@ -172,7 +172,10 @@ const __dv = DiffVersions({
     const r = await fetch("/codesave", {method:"POST", headers:{"Content-Type":"application/json"},
       body: JSON.stringify({path, text, mtime: diskMtime})});
     const j = await r.json();
-    if(!j.error){ diskMtime = j.mtime; cm.setValue(text); dirty = false; lastSavedText = text; setState("saved", "version restaurée"); }
+    if(j.error) return false;
+    diskMtime = j.mtime; cm.setValue(text); dirty = false; lastSavedText = text;
+    setState("saved", "version restaurée");
+    return true;
   },
 });
 

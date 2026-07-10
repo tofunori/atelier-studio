@@ -39,14 +39,17 @@ window.DiffVersions = function(opts){
   let headText = null, headSha = "", baseTs = 0; // ts (ms) du commit-base
   let baseGitLocked = false;
   const KEY = "texDiffV1:" + path;
-  const MAX = 1500000;
   const GUTTER = "dv-git";
   const SOURCES = new Set(["user-save", "external-reload", "external-merge", "external-conflict", "restore", "legacy"]);
   const STATUSES = new Set(["applied", "pending-conflict"]);
   let idSeq = 0;
+  const idNonce = (() => {
+    try { return crypto.randomUUID().slice(0, 8); }
+    catch(e){ return Math.random().toString(36).slice(2, 10); }
+  })();
   let runtimePushes = 0; // empêche le restore asynchrone de doubler une action déjà journalisée
 
-  function newId(ts){ return "dv-" + ts + "-" + (++idSeq); }
+  function newId(ts){ return "dv-" + ts + "-" + idNonce + "-" + (++idSeq); }
   function extension(){
     const name = path.split(/[\\/]/).pop() || "";
     const dot = name.lastIndexOf(".");
@@ -159,32 +162,168 @@ window.DiffVersions = function(opts){
   }
 
   let lastKnown = null; // dernier texte de buffer persisté (rattrapage inter-sessions)
+  let serverRevision = 0;
+  let serverBaseHash = null;
+  const acknowledgedIds = new Set();
+  const pendingById = new Map();
+  let writeRunning = false, writeAgain = false, persistenceStopped = false;
   let postTimer = null;
+  function hashText(text){
+    // SHA-256 synchrone : permet de figer le snapshot avant le premier await,
+    // donc une intervention arrivée pendant le POST reste dans pendingById.
+    const bytes = new TextEncoder().encode(text);
+    const rotr = (n, x) => (x >>> n) | (x << (32 - n));
+    const k = [0x428a2f98,0x71374491,0xb5c0fbcf,0xe9b5dba5,0x3956c25b,0x59f111f1,0x923f82a4,0xab1c5ed5,
+      0xd807aa98,0x12835b01,0x243185be,0x550c7dc3,0x72be5d74,0x80deb1fe,0x9bdc06a7,0xc19bf174,
+      0xe49b69c1,0xefbe4786,0x0fc19dc6,0x240ca1cc,0x2de92c6f,0x4a7484aa,0x5cb0a9dc,0x76f988da,
+      0x983e5152,0xa831c66d,0xb00327c8,0xbf597fc7,0xc6e00bf3,0xd5a79147,0x06ca6351,0x14292967,
+      0x27b70a85,0x2e1b2138,0x4d2c6dfc,0x53380d13,0x650a7354,0x766a0abb,0x81c2c92e,0x92722c85,
+      0xa2bfe8a1,0xa81a664b,0xc24b8b70,0xc76c51a3,0xd192e819,0xd6990624,0xf40e3585,0x106aa070,
+      0x19a4c116,0x1e376c08,0x2748774c,0x34b0bcb5,0x391c0cb3,0x4ed8aa4a,0x5b9cca4f,0x682e6ff3,
+      0x748f82ee,0x78a5636f,0x84c87814,0x8cc70208,0x90befffa,0xa4506ceb,0xbef9a3f7,0xc67178f2];
+    const h = [0x6a09e667,0xbb67ae85,0x3c6ef372,0xa54ff53a,0x510e527f,0x9b05688c,0x1f83d9ab,0x5be0cd19];
+    const bitLength = bytes.length * 8;
+    const total = Math.ceil((bytes.length + 9) / 64) * 64;
+    const padded = new Uint8Array(total); padded.set(bytes); padded[bytes.length] = 0x80;
+    const view = new DataView(padded.buffer);
+    view.setUint32(total - 8, Math.floor(bitLength / 0x100000000));
+    view.setUint32(total - 4, bitLength >>> 0);
+    const w = new Uint32Array(64);
+    for(let off = 0; off < total; off += 64){
+      for(let i = 0; i < 16; i++) w[i] = view.getUint32(off + i * 4);
+      for(let i = 16; i < 64; i++){
+        const s0 = rotr(7,w[i-15]) ^ rotr(18,w[i-15]) ^ (w[i-15] >>> 3);
+        const s1 = rotr(17,w[i-2]) ^ rotr(19,w[i-2]) ^ (w[i-2] >>> 10);
+        w[i] = (w[i-16] + s0 + w[i-7] + s1) >>> 0;
+      }
+      let [a,b,c,d,e,f,g,hh] = h;
+      for(let i = 0; i < 64; i++){
+        const s1 = rotr(6,e) ^ rotr(11,e) ^ rotr(25,e);
+        const ch = (e & f) ^ (~e & g);
+        const t1 = (hh + s1 + ch + k[i] + w[i]) >>> 0;
+        const s0 = rotr(2,a) ^ rotr(13,a) ^ rotr(22,a);
+        const maj = (a & b) ^ (a & c) ^ (b & c);
+        const t2 = (s0 + maj) >>> 0;
+        hh=g; g=f; f=e; e=(d+t1)>>>0; d=c; c=b; b=a; a=(t1+t2)>>>0;
+      }
+      h[0]=(h[0]+a)>>>0; h[1]=(h[1]+b)>>>0; h[2]=(h[2]+c)>>>0; h[3]=(h[3]+d)>>>0;
+      h[4]=(h[4]+e)>>>0; h[5]=(h[5]+f)>>>0; h[6]=(h[6]+g)>>>0; h[7]=(h[7]+hh)>>>0;
+    }
+    return h.map(value => value.toString(16).padStart(8,"0")).join("");
+  }
+  function compactState(){
+    const texts = {};
+    const put = (text) => { const hash = hashText(text); texts[hash] = text; return hash; };
+    const baseText = baseVersion && typeof baseVersion.before === "string"
+      ? baseVersion.before : (INTERVENTIONS[0]?.before ?? lastKnown ?? "");
+    const baseHash = put(baseText);
+    const interventions = [];
+    for(const it of INTERVENTIONS) interventions.push({id: it.id,
+      fromHash: put(it.before), toHash: put(it.after), ts: it.ts == null ? 0 : it.ts,
+      source: it.source, status: it.status});
+    const legacySnapshots = [];
+    for(const snap of LEGACY_SNAPSHOTS) legacySnapshots.push({hash: put(snap.text),
+      ts: snap.ts == null ? 0 : snap.ts, label: snap.label});
+    const currentText = typeof lastKnown === "string" ? lastKnown : liveText();
+    const current = {hash: put(currentText), ts: Date.now()};
+    return {v: 2, path, revision: serverRevision,
+      base: {hash: baseHash, kind: baseVersion?.head ? "git" : "session",
+        sha: baseVersion?.sha || "", ts: baseVersion?.ts == null ? 0 : baseVersion.ts},
+      texts, interventions, legacySnapshots, current, lastKnown: currentText};
+  }
+  function stopPersistence(message){
+    persistenceStopped = true;
+    notify("persistance du diff arrêtée — " + message);
+  }
+  function materializeServer(data){
+    if(!data || data.v !== 2 || !data.texts) return null;
+    const text = hash => typeof data.texts[hash] === "string" ? data.texts[hash] : null;
+    const interventions = [];
+    for(const it of (Array.isArray(data.interventions) ? data.interventions : [])){
+      const before = text(it.fromHash), after = text(it.toHash);
+      if(before === null || after === null) return null;
+      interventions.push({...it, before, after});
+    }
+    const legacySnapshots = [];
+    for(const snap of (Array.isArray(data.legacySnapshots) ? data.legacySnapshots : [])){
+      const value = text(snap.hash); if(value === null) return null;
+      legacySnapshots.push({text: value, ts: snap.ts, label: snap.label});
+    }
+    const last = data.current ? text(data.current.hash) : null;
+    const base = data.base ? text(data.base.hash) : null;
+    return {v: 2, revision: data.revision || 0, baseHash: data.base?.hash || null,
+      baseText: base, baseMeta: data.base, interventions, legacySnapshots, last};
+  }
+  function mergeConflictState(remote, localBaseHash){
+    const decoded = materializeServer(remote);
+    if(!decoded){ stopPersistence("état serveur invalide"); return false; }
+    const expectedBase = serverBaseHash || localBaseHash;
+    if(expectedBase && decoded.baseHash && expectedBase !== decoded.baseHash){
+      stopPersistence("conflit de base"); return false;
+    }
+    const localById = new Map(INTERVENTIONS.map(it => [it.id, it]));
+    for(const it of decoded.interventions){
+      const local = localById.get(it.id);
+      if(local && (local.before !== it.before || local.after !== it.after || local.source !== it.source || local.status !== it.status)){
+        stopPersistence("identifiant d'intervention divergent"); return false;
+      }
+      if(!local) INTERVENTIONS.push({...it});
+      acknowledgedIds.add(it.id);
+    }
+    INTERVENTIONS.sort((a,b) => Number(a.ts || 0) - Number(b.ts || 0) || a.id.localeCompare(b.id));
+    serverRevision = decoded.revision;
+    serverBaseHash = decoded.baseHash;
+    return true;
+  }
+  async function flushWrites(retried){
+    if(persistenceStopped) return;
+    if(writeRunning){ writeAgain = true; return; }
+    writeRunning = true;
+    try{
+      const snapshot = compactState();
+      try{ localStorage.setItem(KEY, JSON.stringify(snapshot)); }
+      catch(e){ notify("historique local trop volumineux — persistance serveur maintenue"); }
+      const ops = [];
+      if(!serverBaseHash) ops.push({type: "init", base: snapshot.base,
+        current: snapshot.current, legacySnapshots: snapshot.legacySnapshots, texts: snapshot.texts});
+      for(const it of snapshot.interventions){
+        if(acknowledgedIds.has(it.id)) continue;
+        const full = INTERVENTIONS.find(candidate => candidate.id === it.id);
+        if(!full) continue;
+        pendingById.set(it.id, full);
+        ops.push({type: "append", intervention: it, current: snapshot.current,
+          texts: {[it.fromHash]: snapshot.texts[it.fromHash], [it.toHash]: snapshot.texts[it.toHash]}});
+      }
+      if(!ops.length) ops.push({type: "set-current", current: snapshot.current,
+        texts: {[snapshot.current.hash]: snapshot.texts[snapshot.current.hash]}});
+      const response = await fetch("/versions", {method: "POST", headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({path, expectedRevision: serverRevision, ops, v: 2,
+          interventions: INTERVENTIONS.map(it => ({...it})),
+          legacySnapshots: LEGACY_SNAPSHOTS.map(it => ({...it})), last: lastKnown})});
+      const body = await response.json();
+      if(response.status === 409 || body?.error === "revision-conflict"){
+        if(retried || !mergeConflictState(body.state, snapshot.base.hash)){ if(!persistenceStopped) stopPersistence("conflit de révision répété"); return; }
+        writeRunning = false;
+        await flushWrites(true);
+        return;
+      }
+      if(!body?.ok || !Number.isInteger(body.revision)) throw new Error(body?.error || "ack invalide");
+      serverRevision = body.revision;
+      serverBaseHash = snapshot.base.hash;
+      for(const op of ops) if(op.type === "append"){
+        acknowledgedIds.add(op.intervention.id); pendingById.delete(op.intervention.id);
+      }
+    }catch(e){
+      notify("échec de persistance du diff — nouvelle tentative à la prochaine modification");
+    }finally{
+      writeRunning = false;
+      if(writeAgain){ writeAgain = false; await flushWrites(false); }
+    }
+  }
   function persist(afterText){
     if(typeof afterText === "string") lastKnown = afterText;
-    let interventions = [];
-    let legacySnapshots = [];
-    try{
-      interventions = INTERVENTIONS.map(it => ({...it}));
-      legacySnapshots = LEGACY_SNAPSHOTS.map(it => ({...it}));
-      let size = interventions.reduce((n, it) => n + it.before.length + it.after.length, 0)
-        + legacySnapshots.reduce((n, it) => n + it.text.length, 0);
-      while(interventions.length > 1 && size > MAX){
-        const old = interventions.shift();
-        size -= old.before.length + old.after.length;
-      }
-      while(legacySnapshots.length && size > MAX){ size -= legacySnapshots.shift().text.length; }
-      localStorage.setItem(KEY, JSON.stringify({v: 2, interventions, legacySnapshots, last: lastKnown}));
-    }catch(e){ try{ localStorage.removeItem(KEY); }catch(e2){} }
-    // POST transitoire v2. Le serveur durable reste v1 jusqu'au plan 028;
-    // localStorage permet déjà une relecture v2 déterministe dans ce commit.
     clearTimeout(postTimer);
-    postTimer = setTimeout(() => {
-      try{
-        fetch("/versions", {method: "POST", headers: {"Content-Type": "application/json"},
-          body: JSON.stringify({path, v: 2, interventions, legacySnapshots, last: lastKnown})}).catch(() => {});
-      }catch(e){}
-    }, 400);
+    postTimer = setTimeout(() => { flushWrites(false); }, 400);
   }
   function arm(){
     if(els.group) els.group.style.display = "";
@@ -624,6 +763,38 @@ window.DiffVersions = function(opts){
     shown = false; // forcer le re-render même si déjà en comparaison
     toggle(true);
   }
+  function displayedText(){
+    if(navMode >= 0){
+      const item = interList()[navMode];
+      return item ? item.to : null;
+    }
+    if(extCmp && typeof extCmp.before === "string") return extCmp.before;
+    return liveText(); // vue « tout » : le buffer courant est la cible
+  }
+  async function restoreTarget(target, label){
+    if(typeof target !== "string") return false;
+    const cm = getCm();
+    const before = liveText();
+    // Sortir du voyage temporel AVANT le writer. `tt.realText` ne doit jamais
+    // pouvoir être réinjecté au-dessus d'une restauration réussie.
+    tt = null; navMode = -1; extCmp = null;
+    let succeeded = false;
+    try{ succeeded = (await restoreText(target)) !== false; }catch(e){ succeeded = false; }
+    if(!succeeded){
+      cm.setValue(before);
+      toggle(false);
+      notify("restauration refusée — le fichier et l'historique sont inchangés");
+      return false;
+    }
+    const intervention = record(before, target, {source: "restore", status: "applied"});
+    if(intervention){ runtimePushes++; pendingById.set(intervention.id, intervention); }
+    lastKnown = target;
+    persist(target);
+    toggle(false);
+    notify("fichier rétabli" + (label ? " à " + label : "") + " — le dépôt n'est pas touché");
+    fetchHead().then(refreshGutter);
+    return true;
+  }
   function ensureHistUi(){
     if(histBtn || !els.group) return;
     histBtn = document.createElement("button");
@@ -712,10 +883,7 @@ window.DiffVersions = function(opts){
           const t = await row.text();
           if(t == null){ notify("version introuvable"); return; }
           histPop.style.display = "none";
-          if(shown) toggle(false);
-          await restoreText(t);
-          notify("fichier rétabli à " + row.label + " — le dépôt n'est pas touché");
-          fetchHead().then(refreshGutter);
+          await restoreTarget(t, row.label);
         };
         list.appendChild(el);
       }
@@ -875,10 +1043,9 @@ window.DiffVersions = function(opts){
   if(els.prev) els.prev.onclick = () => {};
   if(els.next) els.next.onclick = () => {};
   if(els.restore) els.restore.onclick = async () => {
-    const v = curVersion();
-    if(!v) return;
-    await restoreText(v.before);
-    toggle(false);
+    const target = displayedText();
+    if(target === null) return;
+    await restoreTarget(target, navMode >= 0 ? "l'intervention affichée" : extCmp?.label || "la vue affichée");
   };
   // Échap ferme la comparaison (capture : avant les keymaps CodeMirror et les
   // handlers Échap de l'hôte — seulement quand le mode est actif). ⌥↓/⌥↑ =
@@ -904,9 +1071,19 @@ window.DiffVersions = function(opts){
     }
   }, true);
 
-  // Relecture v2 déterministe, avec migration des snapshots v1. Le serveur
-  // reste v1 pendant la transition; localStorage peut déjà contenir du v2.
+  // Relecture v2 déterministe, avec migration des snapshots v1 encore présents
+  // dans localStorage ou renvoyés par une ancienne galerie.
   function addV2(data){
+    const durable = materializeServer(data);
+    if(durable){
+      data = durable;
+      serverRevision = durable.revision;
+      serverBaseHash = durable.baseHash;
+      if(!baseGitLocked && typeof durable.baseText === "string")
+        baseVersion = {before: durable.baseText, ts: durable.baseMeta?.ts ?? null,
+          head: durable.baseMeta?.kind === "git", sha: durable.baseMeta?.sha || ""};
+      for(const it of durable.interventions) acknowledgedIds.add(it.id);
+    }
     let added = 0;
     for(const it of (Array.isArray(data.interventions) ? data.interventions : [])){
       if(!it || typeof it.before !== "string" || typeof it.after !== "string") continue;
@@ -926,6 +1103,7 @@ window.DiffVersions = function(opts){
       legacyAdded++;
     }
     if(typeof data.last === "string") lastKnown = data.last;
+    else if(typeof data.lastKnown === "string") lastKnown = data.lastKnown;
     if(added || legacyAdded) arm();
     return added + legacyAdded;
   }
@@ -966,6 +1144,11 @@ window.DiffVersions = function(opts){
         : "pair:" + JSON.stringify([it.before, it.after, it.source, it.status, it.ts]);
       const previous = byKey.get(key);
       if(!previous){ byKey.set(key, candidate); continue; }
+      if(key.startsWith("id:") && (previous.it.before !== it.before || previous.it.after !== it.after
+          || previous.it.source !== it.source || previous.it.status !== it.status)){
+        stopPersistence("identifiant d'intervention divergent");
+        return null;
+      }
       const a = previous.it.ts === null ? null : Number(previous.it.ts);
       const b = it.ts === null ? null : Number(it.ts);
       const aKnown = Number.isFinite(a), bKnown = Number.isFinite(b);
@@ -1055,8 +1238,26 @@ window.DiffVersions = function(opts){
     // ne peut plus muter ni réordonner le journal courant.
     if(runtimePushes !== generation) return;
     if(serverData && serverData.v === 2){
-      if(hasLocalV2) replaceWithV2(reconcileV2(localData, serverData));
-      else loadData(serverData);
+      const decodedServer = materializeServer(serverData);
+      if(decodedServer){
+        serverRevision = decodedServer.revision;
+        serverBaseHash = decodedServer.baseHash;
+        for(const it of decodedServer.interventions) acknowledgedIds.add(it.id);
+      }
+      if(hasLocalV2){
+        const decodedLocal = materializeServer(localData);
+        if(decodedLocal?.baseHash && decodedServer?.baseHash && decodedLocal.baseHash !== decodedServer.baseHash){
+          stopPersistence("conflit de base");
+          return;
+        }
+        const reconciled = reconcileV2(decodedLocal || localData, decodedServer || serverData);
+        if(!reconciled) return;
+        replaceWithV2(reconciled);
+        const baseOwner = decodedServer || decodedLocal;
+        if(!baseGitLocked && baseOwner && typeof baseOwner.baseText === "string")
+          baseVersion = {before: baseOwner.baseText, ts: baseOwner.baseMeta?.ts ?? null,
+            head: baseOwner.baseMeta?.kind === "git", sha: baseOwner.baseMeta?.sha || ""};
+      } else loadData(serverData);
     }
     else if(serverData && !hasLocalV2){
       loadData(serverData);
@@ -1075,6 +1276,7 @@ window.DiffVersions = function(opts){
     restoreVersions().then(() => {
       const cm = getCm();
       const now = cm ? cm.getValue() : null;
+      let persistBaseline = false;
       // Le GET /versions peut finir après les premiers ⌘S et rapporter un
       // `last` plus ancien. Ces push couvrent déjà le buffer courant : ne pas
       // ajouter une intervention composite de rattrapage en doublon.
@@ -1086,9 +1288,11 @@ window.DiffVersions = function(opts){
         persist(now);
         notify("modifié pendant que l'app était fermée — ± pour comparer");
       } else if(now !== null && lastKnown === null){
-        persist(now); // première visite : baseline pour le prochain rattrapage
+        lastKnown = now;
+        persistBaseline = true; // attendre la base Git avant le premier init v2
       }
       fetchHead().then(() => {
+        if(persistBaseline && runtimePushes === 0) persist(now);
         refreshGutter();
         // sélection par défaut du ± : la base (diff cumulatif, comme la gouttière)
         if(!shown) updateTag();
@@ -1098,5 +1302,5 @@ window.DiffVersions = function(opts){
 
   // isBusy : vue historique active (buffer temporairement remplacé) — les hôtes
   // doivent suspendre leur rechargement-disque automatique pendant ce temps
-  return { push, isEquivalent: equivalent, isShown: () => shown, isBusy: () => !!tt };
+  return { push, compareExternal, isEquivalent: equivalent, isShown: () => shown, isBusy: () => !!tt };
 };

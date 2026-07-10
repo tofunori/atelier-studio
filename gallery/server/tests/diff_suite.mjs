@@ -12,8 +12,10 @@
 
 import assert from "node:assert/strict";
 import fs from "node:fs";
+import crypto from "node:crypto";
 import os from "node:os";
 import path from "node:path";
+import zlib from "node:zlib";
 import vm from "node:vm";
 import { execFileSync, spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
@@ -41,9 +43,6 @@ function contractOk(name, cond, detail) {
   CONTRACT_FAILURES.push(message);
 }
 
-todo("restore from an intervention", "Lock the intervention count after restoring a saved step.");
-todo("restore from an external commit", "Lock the intervention count after restoring Git history.");
-
 const INTERVENTION_SOURCES = new Set([
   "user-save", "external-reload", "external-merge", "external-conflict", "restore", "legacy",
 ]);
@@ -51,6 +50,18 @@ const INTERVENTION_STATUSES = new Set(["applied", "pending-conflict"]);
 
 function git(args, cwd) {
   return execFileSync("git", args, { cwd, encoding: "utf8" });
+}
+
+const sha256 = (text) => crypto.createHash("sha256").update(text).digest("hex");
+function durableState(pathname, revision, base, entries, current) {
+  const texts = {};
+  const put = (text) => { const hash = sha256(text); texts[hash] = text; return hash; };
+  const baseHash = put(base);
+  return { v: 2, path: pathname, revision,
+    base: { hash: baseHash, kind: "session", sha: "", ts: 1 }, texts,
+    interventions: entries.map((it) => ({ id: it.id, fromHash: put(it.before), toHash: put(it.after),
+      ts: it.ts, source: it.source, status: it.status })), legacySnapshots: [],
+    current: { hash: put(current), ts: Date.now() } };
 }
 
 // ---------------------------------------------------------------- A. serveur
@@ -107,12 +118,87 @@ async function serverTests() {
       body: JSON.stringify({ path: file, message: "doublon" }) });
     ok("gitcommit refuse sans changement", r.ok === false);
 
-    // /versions : write → read (persistance serveur des versions)
+    // /versions v2 : init + append, révision autoritaire et stockage gzip atomique.
+    const before = "avant\n", after = "apres\n";
+    const fromHash = sha256(before), toHash = sha256(after);
     r = await j("/versions", { method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ path: file, items: [{ b: "avant", t: 42 }], last: "dernier connu" }) });
-    ok("versions POST", r.ok);
+      body: JSON.stringify({ path: file, expectedRevision: 0, ops: [
+        { type: "init", base: { hash: fromHash, kind: "session", sha: "", ts: 42 },
+          current: { hash: fromHash, ts: 42 }, texts: { [fromHash]: before } },
+        { type: "append", intervention: { id: "i-1", fromHash, toHash, ts: 43,
+          source: "user-save", status: "applied" }, current: { hash: toHash, ts: 43 },
+          texts: { [toHash]: after } },
+      ] }) });
+    ok("versions POST v2 revision", r.ok && r.revision === 1, JSON.stringify(r));
     r = await j("/versions" + q);
-    ok("versions GET", r.ok && r.items.length === 1 && r.items[0].b === "avant" && r.last === "dernier connu");
+    ok("versions GET v2 compact", r.ok && r.v === 2 && r.revision === 1
+      && r.interventions.length === 1 && r.texts[fromHash] === before && r.texts[toHash] === after,
+    JSON.stringify(r));
+    const stale = await fetch(`http://localhost:${port}/versions`, { method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ path: file, expectedRevision: 0, ops: [] }) });
+    const staleBody = await stale.json();
+    ok("versions révision obsolète → 409", stale.status === 409 && staleBody.error === "revision-conflict"
+      && staleBody.revision === 1 && staleBody.state?.interventions?.[0]?.id === "i-1", JSON.stringify(staleBody));
+    const invalid = await fetch(`http://localhost:${port}/versions`, { method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ path: file, expectedRevision: 1, ops: [{ type: "append",
+        intervention: { id: "bad", fromHash, toHash: "0".repeat(64), ts: 44,
+          source: "user-save", status: "applied" }, texts: { [toHash]: after } }] }) });
+    ok("versions payload hash invalide refusé", invalid.status === 400);
+
+    const storeDir = path.join(repo, ".fig_thumbs", "dv_versions");
+    const [store] = fs.readdirSync(storeDir).filter((name) => name.endsWith(".json"));
+    const storeFile = path.join(storeDir, store);
+    const onDisk = JSON.parse(zlib.gunzipSync(fs.readFileSync(storeFile)));
+    ok("versions disque gzip valide", onDisk.v === 2 && onDisk.revision === 1);
+
+    // Un deuxième ack crée le backup; un principal tronqué récupère ce dernier état valide.
+    r = await j("/versions", { method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ path: file, expectedRevision: 1, ops: [{ type: "set-current",
+        current: { hash: toHash, ts: 45 }, texts: {} }] }) });
+    ok("versions second ack", r.ok && r.revision === 2, JSON.stringify(r));
+    fs.writeFileSync(storeFile, Buffer.from("gzip-truncated"));
+    r = await j("/versions" + q);
+    ok("versions principal tronqué récupère backup", r.ok && r.v === 2 && r.revision === 1
+      && r.interventions[0].id === "i-1", JSON.stringify(r));
+
+    const manyOps = [];
+    let prior = after, priorHash = toHash;
+    for (let i = 2; i <= 45; i += 1) {
+      const nextText = `${after.trim()} intervention ${i} ${"donnees-repetitives ".repeat(20)}\n`;
+      const nextHash = sha256(nextText);
+      manyOps.push({ type: "append", intervention: { id: `i-${i}`, fromHash: priorHash,
+        toHash: nextHash, ts: 43 + i, source: "user-save",
+        status: i === 20 ? "pending-conflict" : "applied" },
+      current: { hash: nextHash, ts: 43 + i }, texts: { [priorHash]: prior, [nextHash]: nextText } });
+      prior = nextText; priorHash = nextHash;
+    }
+    r = await j("/versions", { method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ path: file, expectedRevision: 1, ops: manyOps }) });
+    ok("versions 45 interventions ack", r.ok && r.revision === 2, JSON.stringify(r));
+    r = await j("/versions" + q);
+    ok("versions 45 préserve N ids ordre status base", r.interventions.length === 45
+      && r.interventions[0].id === "i-1" && r.interventions[19].id === "i-20"
+      && r.interventions[19].status === "pending-conflict" && r.interventions[44].id === "i-45"
+      && r.base.hash === fromHash && r.current.hash === priorHash, JSON.stringify(r.interventions));
+    ok("versions 45 chaque hash correspond", Object.entries(r.texts).every(([hash, text]) => sha256(text) === hash));
+    const compressed = fs.readFileSync(storeFile);
+    ok("versions 45 gzip compresse", compressed.length < Buffer.byteLength(JSON.stringify(r)));
+
+    const legacyFile = path.join(repo, "legacy.tex");
+    fs.writeFileSync(legacyFile, "legacy courant\n");
+    const legacyKey = crypto.createHash("md5").update(fs.realpathSync(legacyFile)).digest("hex");
+    const legacyStore = path.join(storeDir, `${legacyKey}.json`);
+    fs.writeFileSync(legacyStore, JSON.stringify({items: [
+      {b: "legacy base\n", t: 1}, {b: "legacy milieu\n", t: 2},
+    ], last: "legacy courant\n"}));
+    r = await j("/versions?path=" + encodeURIComponent(legacyFile));
+    ok("versions migration v1 → v2 conserve snapshots et chaîne", r.ok && r.v === 2
+      && r.interventions.length === 2 && r.legacySnapshots.length === 3
+      && r.texts[r.base.hash] === "legacy base\n" && r.texts[r.current.hash] === "legacy courant\n",
+    JSON.stringify(r));
+    ok("versions migration v1 réécrite gzip", zlib.gunzipSync(fs.readFileSync(legacyStore)).length > 0);
 
     // /commitmsg : pas de diff vs base → ok:false (pas d'appel IA)
     r = await j("/commitmsg" + q);
@@ -137,6 +223,10 @@ function makeModuleHarness({
   localState = null,
   headTs = 0,
   filePath = "/x/m.tex",
+  restoreResult = true,
+  gitItems = [],
+  gitTexts = {},
+  postResponses = [],
 } = {}) {
   const el = () => {
     const e = { style: {}, classList: { toggle() {}, contains: () => false }, _children: [],
@@ -177,7 +267,7 @@ function makeModuleHarness({
     scrollIntoView() {}, refresh() {}, setCursor() {}, addLineClass() {}, removeLineClass() {},
   };
   const ctx = {
-    window: {}, console, Date, JSON, Math, Infinity,
+    window: {}, console, Date, JSON, Math, Infinity, crypto: crypto.webcrypto, TextEncoder,
     document: { getElementById: () => null, createElement: el, head: { appendChild() {} },
       body, addEventListener() {}, querySelector: () => null },
     localStorage: {
@@ -192,15 +282,25 @@ function makeModuleHarness({
           ? Promise.resolve({ json: () => Promise.resolve({ ok: false }) })
           : Promise.resolve({ json: () => Promise.resolve({ ok: true, text: activeHead.text, sha: activeHead.sha, ts: activeHead.ts }) });
       if (url.startsWith("/versions") && opts && opts.method === "POST") {
-        posts.push(JSON.parse(opts.body));
-        return Promise.resolve({ json: () => Promise.resolve({ ok: true }) });
+        const payload = JSON.parse(opts.body);
+        posts.push(payload);
+        const configured = postResponses[posts.length - 1];
+        const answer = typeof configured === "function" ? configured(payload) : configured;
+        const body = answer?.body || { ok: true, revision: posts.length };
+        return Promise.resolve({ status: answer?.status || 200, json: () => Promise.resolve(body) });
       }
       if (url.startsWith("/versions"))
         return versionsPromise
           ? versionsPromise.then((value) => ({ json: () => Promise.resolve(value) }))
           : Promise.resolve({ json: () => Promise.resolve(serverState || { ok: true, items: serverItems, last: serverLast }) });
       if (url.startsWith("/gitlog"))
-        return Promise.resolve({ json: () => Promise.resolve({ok: true, items: []}) });
+        return Promise.resolve({ json: () => Promise.resolve({ok: true, items: gitItems}) });
+      if (url.startsWith("/gitshow")) {
+        const sha = new URL(url, "http://x").searchParams.get("sha");
+        return Promise.resolve({ json: () => Promise.resolve(
+          Object.prototype.hasOwnProperty.call(gitTexts, sha)
+            ? { ok: true, text: gitTexts[sha] } : { ok: false }) });
+      }
       return new Promise(() => {});
     },
     setInterval(f) { ctx.__tick = f; return 1; }, clearInterval() {},
@@ -212,14 +312,16 @@ function makeModuleHarness({
   vm.runInContext(fs.readFileSync(path.join(ASSETS, "diff_versions.js"), "utf8"), ctx);
   const notes = [];
   const tag = el();
+  const restore = el();
+  const restored = [];
   // groupe qui capture le navPill inséré par ensureNavUi (timeline ‹ k/N ›)
   const group = el();
   let navPill = null;
   group.insertBefore = (n) => { group._children.push(n); if (n && n.id === "dvNav") navPill = n; };
   const dv = ctx.window.DiffVersions({
     getCm: () => cm, path: filePath, notify: (m) => notes.push(m),
-    els: { tag, prev: null, next: null, restore: null, group },
-    restoreText: async () => {},
+    els: { tag, prev: null, next: null, restore, group },
+    restoreText: async (text) => { restored.push(text); return restoreResult; },
   });
   const nav = () => navPill && {
     prev: navPill.querySelector('[data-d="-1"]'),
@@ -232,7 +334,7 @@ function makeModuleHarness({
     return pop?._q?.["#dvHistList"]?._children || [];
   };
   const setHead = (text, ts, sha = activeHead.sha) => Object.assign(activeHead, { text, ts, sha });
-  return { ctx, cm, dv, tag, notes, marksLog, gutterLog, posts, nav, storage, setHead,
+  return { ctx, cm, dv, tag, restore, restored, notes, marksLog, gutterLog, posts, nav, storage, setHead,
     historyButton, historyRows };
 }
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -331,8 +433,7 @@ async function moduleTests() {
     ok("suppression nette → triangle", h2.gutterLog.length === 1 && h2.gutterLog[0].html.includes("dv-del"));
   }
 
-  // B6. persistance transitoire v2 côté client ; le serveur durable reste v1
-  // jusqu'au plan 028.
+  // B6. persistance durable v2 côté client via ops/révision.
   {
     const h = makeModuleHarness({ headText: "base\n" });
     h.cm._v = "base MODIFIEE\n";
@@ -502,8 +603,7 @@ async function moduleTests() {
     contractOk("undo-to-base : tout a zéro changement net", /aucun changement de texte/.test(note), note);
   }
 
-  // B11b. `restore` appartient au contrat du journal, sans activer les deux
-  // parcours UI Rétablir qui restent explicitement TODO jusqu'au plan 028.
+  // B11b. `restore` appartient au contrat du journal explicite.
   {
     const before = "texte courant avant restauration directe\n";
     const after = "texte cible restaure depuis un historique\n";
@@ -622,8 +722,8 @@ async function moduleTests() {
     contractOk("snapshot v1 sans last : N=0 avant push", count === "tout · 0", count);
   }
 
-  // B14. Le serveur durable reste v1 pendant la transition : une réponse v1
-  // vide ne doit pas masquer le journal v2 plus riche du localStorage.
+  // B14. Compatibilité migration : une réponse v1 vide ne doit pas masquer le
+  // journal v2 plus riche du localStorage.
   {
     const base = "base locale v2\n";
     const current = "etat restaure depuis local v2\n";
@@ -826,6 +926,106 @@ async function moduleTests() {
         && saved[0].before === base && saved[0].after === edited
         && saved[1].before === edited && saved[1].after === final,
       JSON.stringify({count, saved}));
+  }
+
+  // B17. 409 : fusion append-only par id puis un seul retry avec la révision
+  // serveur. Les pending locaux restent présents dans le second POST.
+  {
+    const base = "base concurrence\n", remote = "etat page distante\n", local = "etat page locale\n";
+    const remoteEntry = {id: "remote-1", before: base, after: remote, ts: 10,
+      source: "external-reload", status: "applied"};
+    const state = durableState("/x/m.tex", 1, base, [remoteEntry], remote);
+    const h = makeModuleHarness({headText: base, postResponses: [
+      {status: 409, body: {ok: false, error: "revision-conflict", revision: 1, state}},
+      {status: 200, body: {ok: true, revision: 2}},
+    ]});
+    h.cm._v = local;
+    h.dv.push(base, local, {source: "user-save", status: "applied"});
+    await sleep(0); await sleep(0); await sleep(0);
+    const retry = h.posts[1];
+    contractOk("409 retry unique utilise revision serveur et garde pending local",
+      h.posts.length === 2 && retry?.expectedRevision === 1
+        && retry.interventions.some((it) => it.id === "remote-1")
+        && retry.interventions.some((it) => it.before === base && it.after === local),
+      JSON.stringify(h.posts));
+  }
+  {
+    const base = "base id conflict\n", local = "local divergent\n", remote = "remote divergent\n";
+    const state = durableState("/x/m.tex", 1, base, [{id: "same-id", before: base, after: remote,
+      ts: 10, source: "user-save", status: "applied"}], remote);
+    const h = makeModuleHarness({headText: base, postResponses: [
+      {status: 409, body: {ok: false, error: "revision-conflict", revision: 1, state}},
+    ]});
+    h.cm._v = local;
+    h.dv.push(base, local, {source: "user-save", status: "applied"});
+    // Remplacer l'id généré par l'id distant dans le payload conflictuel simule
+    // deux contenus sous le même id (la fusion doit STOP, pas choisir).
+    state.interventions[0].id = h.posts[0]?.interventions?.[0]?.id || "same-id";
+    await sleep(0); await sleep(0);
+    contractOk("409 même id contenu divergent STOP visible sans retry",
+      h.posts.length === 1 && h.notes.some((note) => /persistance du diff arrêtée/.test(note)),
+      JSON.stringify({posts: h.posts, notes: h.notes}));
+  }
+  {
+    const base = "base locale A\n", otherBase = "base distante B\n", local = "edition locale\n";
+    const state = durableState("/x/m.tex", 1, otherBase, [], otherBase);
+    const h = makeModuleHarness({headText: base, postResponses: [
+      {status: 409, body: {ok: false, error: "revision-conflict", revision: 1, state}},
+    ]});
+    h.cm._v = local;
+    h.dv.push(base, local, {source: "user-save", status: "applied"});
+    await sleep(0); await sleep(0);
+    contractOk("409 base divergente STOP visible sans retry",
+      h.posts.length === 1 && h.notes.some((note) => /conflit de base/.test(note)),
+      JSON.stringify({posts: h.posts, notes: h.notes}));
+  }
+  {
+    const base = "base reload conflict\n", local = "contenu local\n", remote = "contenu remote\n";
+    const common = {id: "reload-same-id", before: base, ts: 10, source: "user-save", status: "applied"};
+    const h = makeModuleHarness({headText: base,
+      localState: {v: 2, interventions: [{...common, after: local}], legacySnapshots: [], last: local},
+      serverState: {ok: true, v: 2, interventions: [{...common, after: remote}], legacySnapshots: [], last: remote},
+    });
+    h.cm._v = local; h.ctx.__tick();
+    await sleep(0); await sleep(0); await sleep(0);
+    contractOk("reload même id contenu divergent STOP visible",
+      h.notes.some((note) => /identifiant d'intervention divergent/.test(note)), JSON.stringify(h.notes));
+  }
+  {
+    const localBase = "base locale reload\n", serverBase = "base serveur reload\n";
+    const local = durableState("/x/m.tex", 0, localBase, [], localBase);
+    const remote = {ok: true, ...durableState("/x/m.tex", 1, serverBase, [], serverBase)};
+    const h = makeModuleHarness({headText: null, localState: local, serverState: remote});
+    h.cm._v = localBase; h.ctx.__tick();
+    await sleep(0); await sleep(0); await sleep(0);
+    contractOk("reload bases divergentes STOP visible",
+      h.notes.some((note) => /conflit de base/.test(note)), JSON.stringify(h.notes));
+  }
+  {
+    const base = "base quarante-cinq\n";
+    const states = [base];
+    const entries = [];
+    for(let i = 1; i <= 45; i += 1){
+      states.push(`etat exact ${i} sur quarante-cinq\n`);
+      entries.push({id: `nav-${String(i).padStart(2, "0")}`, before: states[i - 1], after: states[i],
+        ts: i, source: "user-save", status: i === 20 ? "pending-conflict" : "applied"});
+    }
+    const localState = durableState("/x/m.tex", 3, base, entries, states[45]);
+    const h = makeModuleHarness({headText: null, localState,
+      serverState: {ok: true, v: 1, items: [], last: states[45]}});
+    h.cm._v = states[45]; h.ctx.__tick();
+    await sleep(0); await sleep(0); await sleep(0);
+    h.tag.onclick(); const nav = h.nav();
+    const allOk = nav?.count.textContent === "tout · 45";
+    nav?.prev.onclick();
+    const lastOk = nav?.count.textContent === "45 / 45" && h.cm._v === states[45];
+    for(let i = 0; i < 25; i++) nav?.prev.onclick();
+    const middleOk = nav?.count.textContent === "20 / 45" && h.cm._v === states[20]
+      && /pending-conflict/.test(nav?.count.title || "");
+    for(let i = 0; i < 19; i++) nav?.prev.onclick();
+    contractOk("45 interventions reload garde N navigation exacte et status",
+      allOk && lastOk && middleOk && nav?.count.textContent === "1 / 45" && h.cm._v === states[1],
+      JSON.stringify({count: nav?.count.textContent, buffer: h.cm._v, title: nav?.count.title}));
   }
 
   // B17. L'absence de timestamp v1 reste `null`, donc non filtrable par la
@@ -1148,6 +1348,49 @@ async function timelineTests() {
   h.tag.onclick(); // fermer la comparaison
   ok("timeline fermeture : buffer réel restauré", h.cm._v === s3 && !h.dv.isBusy());
   ok("timeline fermeture : comparaison fermée", !h.dv.isShown());
+
+  // Rétablir depuis 2/3 cible exactement le texte affiché, quitte le voyage
+  // temporel avant l'écriture et ajoute UNE intervention restore.
+  h.tag.onclick();
+  const restoreNav = h.nav();
+  restoreNav.prev.onclick(); restoreNav.prev.onclick(); // 2 / 3
+  await sleep(0); await sleep(0);
+  const postsBeforeRestore = h.posts.length;
+  await h.restore.onclick();
+  await sleep(0); await sleep(0);
+  ok("restore 2/3 : texte affiché exact", h.restored.at(-1) === s2, JSON.stringify(h.restored));
+  ok("restore 2/3 : sortie voyage temporel", !h.dv.isBusy() && !h.dv.isShown());
+  const restorePayload = h.posts.at(-1);
+  const restoreOps = restorePayload?.ops || [];
+  ok("restore 2/3 : une intervention restore", h.posts.length > postsBeforeRestore
+    && restoreOps.filter((op) => op.type === "append" && op.intervention?.source === "restore").length === 1,
+  JSON.stringify(restorePayload));
+
+  // Un 409 du writer hôte ne peut ni journaliser ni écraser la vue réelle.
+  {
+    const failed = makeModuleHarness({ headText: base, restoreResult: false });
+    failed.cm._v = s1; failed.dv.push(base, s1);
+    failed.cm._v = s2; failed.dv.push(s1, s2);
+    failed.tag.onclick(); failed.nav().prev.onclick(); failed.nav().prev.onclick();
+    await sleep(0); await sleep(0);
+    const count = failed.posts.length;
+    await failed.restore.onclick();
+    ok("restore 409 : aucune intervention", failed.posts.length === count, JSON.stringify(failed.posts));
+    ok("restore 409 : buffer réel récupéré", failed.cm._v === s2 && !failed.dv.isBusy());
+  }
+
+  // Historique Git externe : Rétablir utilise le commit affiché, pas VERSIONS[idx].
+  {
+    const external = "contenu exact du commit externe\n";
+    const hx = makeModuleHarness({ headText: base });
+    hx.cm._v = s1; hx.dv.push(base, s1);
+    hx.dv.compareExternal(external, "commit deadbee");
+    await hx.restore.onclick();
+    ok("restore commit externe : texte exact", hx.restored.at(-1) === external, JSON.stringify(hx.restored));
+    const ops = hx.posts.at(-1)?.ops || [];
+    ok("restore commit externe : intervention restore", ops.some((op) =>
+      op.type === "append" && op.intervention?.source === "restore"), JSON.stringify(hx.posts.at(-1)));
+  }
 
   // interventions ANTÉRIEURES à la base (déjà committées) : exclues du compteur
   // — « tout · N » doit refléter exactement ce que le diff cumulé montre
