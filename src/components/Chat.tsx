@@ -414,6 +414,10 @@ export default function Chat(p: {
   const [plusOpen, setPlusOpen] = useState(false);
   const [goalOpen, setGoalOpen] = useState(false);
   const [goalText, setGoalText] = useState("");
+  // pastille goal fermée localement (clic corbeille) — un NOUVEAU goal
+  // (clé objective|ts différente) la fait réapparaître
+  const [goalDismissed, setGoalDismissed] = useState<string | null>(null);
+  useEffect(() => { setGoalDismissed(null); }, [p.threadId]);
 
   useEffect(() => {
     if (!plusOpen) return;
@@ -737,7 +741,9 @@ export default function Chat(p: {
     : "";
   const currentWorkName = currentActivityName || currentToolName;
   const latestGoal = [...p.events].reverse().find((e): e is Extract<AgentEvent, { kind: "goal" }> => e.kind === "goal");
-  const activeGoal = latestGoal && !latestGoal.cleared ? latestGoal.goal : null;
+  const goalKey = latestGoal ? `${latestGoal.goal?.objective ?? ""}|${latestGoal.ts ?? ""}` : null;
+  const activeGoal = latestGoal && !latestGoal.cleared && goalKey !== goalDismissed
+    ? latestGoal.goal : null;
   const activeToolGroupKey = [...renderedEvents].reverse().find((item) => item.type === "actions")?.key;
   const selectedModel = modelsFor(provider).find((m) => m.id === model);
   const selectedModelLabel = selectedModel ? modelLabel(selectedModel) : (model ? modelIdLabel(provider, model) : model);
@@ -782,6 +788,9 @@ export default function Chat(p: {
       if (e.kind === "done") { kind = e.ok === false ? "interrupted" : "done"; break; }
       if (e.kind === "error") { kind = "interrupted"; detail = e.message.split("\n")[0]; break; }
     }
+    // demande Thierry (2026-07-10) : pas de badge « terminé » permanent —
+    // le statut d'en-tête n'existe que pour running/interrompu/erreur
+    if (kind === "done" || kind === "idle") return null;
     return presentStatus({ kind, detail });
     // statusTick force le recalcul de la durée pendant un tour silencieux
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -835,7 +844,16 @@ export default function Chat(p: {
         context={{ attachments: p.attachments, onRemoveAttachment: p.onRemoveAttachment, onOpenPaste: setPasteView }}
         host={{
           usage: p.usage, disabled: p.disabled, workingSince: p.workingSince,
-          onStop: p.onStop, onSubmit: p.onSubmit, onGoal: p.onGoal, activeGoal,
+          onStop: p.onStop, onSubmit: p.onSubmit,
+          // interception clear : fermeture optimiste de la pastille avant
+          // (et indépendamment de) l'écho goal/cleared du sidecar
+          onGoal: p.onGoal
+            ? (action, objective, status) => {
+                if (action === "clear") setGoalDismissed(goalKey);
+                p.onGoal!(action, objective, status);
+              }
+            : undefined,
+          activeGoal,
           defaults: p.defaults, providers: p.providers,
         }}
       />

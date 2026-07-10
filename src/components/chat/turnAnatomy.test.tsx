@@ -137,3 +137,30 @@ describe("capsule résultat — honnêteté et actions", () => {
     expect(capsule.textContent!.toLowerCase()).not.toMatch(/test|réussi|validé/);
   });
 });
+
+// Demandes Thierry (2026-07-10) : pas de badge permanent après un tour ;
+// la pastille goal se ferme immédiatement au clic corbeille.
+describe("en-tête et goal — retours utilisateur", () => {
+  it("aucun badge de statut dans l'en-tête après un tour terminé", () => {
+    renderUi(<Chat {...chatProps({ events: finishedTurn() })} />);
+    expect(document.querySelector(".chat-surface-header .ui-badge")).toBeNull();
+  });
+
+  it("le badge running existe pendant un tour (le statut utile reste)", () => {
+    renderUi(<Chat {...chatProps({ events: finishedTurn().slice(0, 2), workingSince: FIXED_TS })} />);
+    expect(document.querySelector(".chat-surface-header .ui-badge")).toBeTruthy();
+  });
+
+  it("corbeille du goal : la pastille disparaît immédiatement, sans écho provider", () => {
+    const onGoal = vi.fn();
+    const evs: AgentEvent[] = [
+      events.user("Fais X.", FIXED_TS),
+      { kind: "goal", goal: { objective: "est un goal avec une tache précise", status: "blocked" }, ts: FIXED_TS + 10 } as unknown as AgentEvent,
+    ];
+    renderUi(<Chat {...chatProps({ events: evs, onGoal })} />);
+    expect(document.querySelector(".goal-bar")).toBeTruthy();
+    fireEvent.click(screen.getByTitle(t("goal.stop")));
+    expect(onGoal).toHaveBeenCalledWith("clear", undefined, undefined);
+    expect(document.querySelector(".goal-bar")).toBeNull();
+  });
+});

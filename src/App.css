@@ -290,9 +290,9 @@ html, body, #root, .app { height: 100vh; overflow: hidden;
 .composer-bar .custom-select.compact { color: var(--muted); }
 .composer-bar .custom-select.compact[data-value="plan"] { color: var(--accent); }
 .send { width: 30px; height: 30px; border-radius: var(--r-s); border: none;
-  background: var(--accent); color: var(--text-on-accent, #1a1408); font-size: var(--fs-xl); cursor: pointer;
-  transition: background var(--motion-fast) var(--ease-out), transform var(--motion-fast) var(--ease-out); }
-.send:hover:not(:disabled) { background: color-mix(in srgb, var(--accent) 88%, var(--fg) 12%); }
+  background: var(--bg-ctl); color: var(--fg2); font-size: var(--fs-xl); cursor: pointer;
+  transition: background var(--motion-fast) var(--ease-out), color var(--motion-fast) var(--ease-out), transform var(--motion-fast) var(--ease-out); }
+.send:hover:not(:disabled) { background: var(--border2); color: var(--fg); }
 .send:active:not(:disabled) { transform: scale(.98); }
 .send:disabled { opacity: 0.4; cursor: default; }
 .working { color: var(--muted); font-size: var(--fs-l); padding: 4px 0; display: inline-flex;
