@@ -299,7 +299,8 @@ html, body, #root, .app { height: 100vh; overflow: hidden;
   align-items: center; gap: 7px; }
 .working-spin { width: 10px; height: 10px; border-radius: var(--r-pill); border: 1.3px solid var(--border2);
   border-top-color: var(--muted); display: inline-block; animation: spin 1s linear infinite; flex-shrink: 0; }
-.working-label { color: var(--muted2); animation: pulse 1.4s ease-in-out infinite; }
+/* label Working STATIQUE (plan 023, budget) : le spinner est l'unique boucle */
+.working-label { color: var(--fg2); }
 @keyframes pulse { 0%,100% { opacity: 0.5; } 50% { opacity: 1; } }
 .suggest { list-style: none; padding: 5px; margin: 0 0 4px;
   background: color-mix(in srgb, var(--bg-side) 82%, black); border: 1px solid var(--border);
@@ -470,7 +471,7 @@ html, body, #root, .app { height: 100vh; overflow: hidden;
 .topbar-cmd:focus-visible { border-color: var(--focus-ring-color); outline: none; }
 .topbar-cmd-label { flex: 1; text-align: left; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 /* keycap secondaire : fond inset léger, pas un badge bordé */
-.topbar-cmd-kbd { flex-shrink: 0; color: var(--muted2); font-size: var(--fs-xs);
+.topbar-cmd-kbd { flex-shrink: 0; color: var(--muted); font-size: var(--fs-xs);
   font-variant-numeric: tabular-nums; background: var(--bg-ctl);
   border: none; border-radius: var(--r-s); padding: 1px 5px; line-height: 1.5; }
 .topbar-right { display: flex; align-items: center; gap: 8px; flex-shrink: 0; padding-right: 10px; }
@@ -2046,9 +2047,6 @@ button.ctx-ring-wrap { border: none; font: inherit; color: inherit;
 @media (prefers-reduced-motion: reduce) {
   .ctx-menu, .mp-menu, .ur-pop, .reviewer-menu, .suggest, .custom-select-menu { animation: none; } }
 
-/* label Working STATIQUE (plan 023, budget de mouvement) : le spinner est
-   l'unique boucle d'une surface active — le texte ne shimmer pas */
-.working-label { color: var(--fg2); }
 /* ===== switches (remplace le rendu checkbox natif partout dans les réglages) ===== */
 .set-row-ctl input[type="checkbox"], .mp-menu input[type="checkbox"] {
   appearance: none; -webkit-appearance: none; width: 34px; height: 20px; margin: 0;

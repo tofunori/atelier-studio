@@ -25,6 +25,10 @@ construction (graphite recalibré, pas re-décoré).
   travail CM6/diff Codex en cours, plan 031). La passe galerie du plan 023
   (blur du header, previews blanc plein) reste À FAIRE dans une tranche
   dédiée après l'atterrissage du travail galerie.
+- **Light : profondeur inversée assumée** : en thème clair, control (#dadee4)
+  est plus sombre que sidebar (#e3e7ec) — c'est le candidat du plan lui-même
+  (control 0.90 < sidebar 0.925) et le comportement macOS : en light, un
+  contrôle inset s'assombrit. L'escalier side<bg<card<ctl ne vaut qu'en dark.
 - **Comparateur golden** : maxDiffPixelRatio 0.02 + seuil par-pixel absorbe
   un glissement de palette subtil — le harnais attrape les régressions de
   structure/layout, la dérive de teinte se revoit par humain (ces avant/après).
@@ -40,4 +44,4 @@ construction (graphite recalibré, pas re-décoré).
 | 5. Marque sans rail | PASS | provenance mono (fig3_spatial.svg +12 −4), capsule d'usage, trace orange |
 | 6. Contenu long | PASS | troncatures vérifiées (nav 180 px, chips nom long, titres) |
 | 7. Retina/100 % | PASS | séparateurs 1 px nets, icônes grille 16 |
-| 8. AI Slop | PASS | zéro gradient décoratif/glass/carte clonée ; le shimmer (seul « effet » restant) a été retiré |
+| 8. AI Slop | PASS | zéro gradient décoratif/glass/carte clonée ; shimmer ET pulse du label Working retirés (le vérificateur indépendant a attrapé une règle dupliquée qui gardait le pulse — corrigée) |
