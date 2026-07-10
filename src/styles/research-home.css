@@ -1,0 +1,114 @@
+/* Research Home (plan 017) — accueil projet dans le panneau chat.
+ * Tout par tokens ; display 18/20 px AUTORISÉ ici (décision B du plan 014 :
+ * Research Home + vrais titres de page). Sections cardless au rythme
+ * vertical ; UNE seule zone élevée (Continuer). Colonnes par container query :
+ * le panneau chat n'a pas la largeur du viewport. */
+.research-home { container-type: inline-size; width: 100%; }
+.rh {
+  max-width: 980px; margin: 0 auto; padding: var(--sp-6) var(--sp-5);
+  display: flex; flex-direction: column; gap: var(--sp-6);
+  font-family: var(--font-chrome);
+}
+
+/* ---- header projet ---------------------------------------------------- */
+.rh-head { display: flex; align-items: center; gap: var(--sp-3); min-width: 0; }
+.rh-head .titles { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.rh-title { font-size: var(--fs-display-s); font-weight: 600; letter-spacing: -0.01em;
+  color: var(--text-primary); line-height: 1.3;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.rh-path { font-size: var(--fs-label); color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.rh-head .spacer { flex: 1; }
+.rh-head .actions { display: flex; align-items: center; gap: var(--sp-2); flex-shrink: 0; }
+
+/* ---- grille asymétrique : 2/3 (Continuer + artefacts) / 1/3 --------------
+ * Une colonne (<880px de conteneur) : les wrappers passent en display:contents
+ * et l'ordre exigé par le plan (Continuer → À traiter → Artefacts → Démarrer)
+ * est imposé par `order` sur les sections elles-mêmes. */
+.rh-grid { display: flex; flex-direction: column; gap: var(--sp-6); }
+.rh-col { display: contents; }
+.rh-sec-continue { order: 1; }
+.rh-sec-attention { order: 2; }
+.rh-sec-artefacts { order: 3; }
+.rh-sec-start { order: 4; }
+@container (min-width: 880px) {
+  .rh-grid { display: grid; grid-template-columns: 2fr 1fr; gap: var(--sp-8); align-items: start; }
+  .rh-col { display: flex; flex-direction: column; gap: var(--sp-6); min-width: 0; }
+  .rh-sec-continue, .rh-sec-attention, .rh-sec-artefacts, .rh-sec-start { order: 0; }
+}
+
+/* ---- sections cardless -------------------------------------------------- */
+.rh-section { display: flex; flex-direction: column; gap: var(--sp-3); min-width: 0; }
+.rh-section > h2 {
+  margin: 0; font-size: var(--fs-caption); font-weight: 500; letter-spacing: .05em;
+  text-transform: uppercase; color: var(--text-muted);
+}
+
+/* ---- Continuer : la seule zone élevée ----------------------------------- */
+.rh-continue {
+  background: var(--surface-raised); border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-surface); padding: var(--sp-4);
+  display: flex; flex-direction: column; gap: var(--sp-2); min-width: 0;
+}
+.rh-continue .t { font-size: var(--fs-title); font-weight: 600; letter-spacing: -0.01em;
+  color: var(--text-primary); line-height: 1.3;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rh-continue .meta { display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-2);
+  font-size: var(--fs-label); color: var(--text-muted); font-variant-numeric: tabular-nums; }
+.rh-continue .meta .sep { opacity: .6; }
+.rh-continue .last {
+  font-size: var(--fs-body-s); color: var(--text-secondary); line-height: 1.5;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.rh-continue .act { display: flex; gap: var(--sp-2); margin-top: var(--sp-1); }
+
+/* ---- listes (artefacts, démarrer) : lignes-boutons sobres ---------------- */
+.rh-rows { display: flex; flex-direction: column; }
+.rh-row {
+  display: flex; align-items: center; gap: var(--sp-3);
+  width: 100%; padding: var(--sp-2) var(--sp-2); background: transparent; border: none;
+  border-radius: var(--radius-control); cursor: pointer; text-align: left;
+  color: var(--text-secondary); font: 400 var(--fs-body)/1.4 var(--font-chrome);
+  min-width: 0;
+  transition: background-color var(--motion-fast) var(--ease-out),
+              color var(--motion-fast) var(--ease-out);
+}
+.rh-row:hover { background: var(--surface-inset); color: var(--text-primary); }
+.rh-row:focus-visible { outline: var(--focus-ring-width) solid var(--focus-ring-color);
+  outline-offset: var(--focus-ring-offset); }
+.rh-row svg { flex-shrink: 0; color: var(--text-muted); }
+.rh-row .name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rh-row .src { margin-left: auto; flex-shrink: 1; min-width: 0;
+  font-size: var(--fs-label); color: var(--text-muted);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rh-row .kind { flex-shrink: 0; font-size: var(--fs-caption); color: var(--text-muted);
+  text-transform: uppercase; letter-spacing: .05em; }
+
+/* ---- À traiter ------------------------------------------------------------ */
+.rh-attention { display: flex; flex-direction: column; gap: var(--sp-2); }
+.rh-attention .ui-notice { align-items: flex-start; }
+.rh-attention .body { display: flex; flex-direction: column; gap: 2px; min-width: 0; flex: 1; }
+.rh-attention .body .d { font-size: var(--fs-label); color: var(--text-muted);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* ---- hint neutre (projet sans thread) -------------------------------------- */
+.rh-hint { font-size: var(--fs-body-s); color: var(--text-muted); margin: 0; }
+
+/* ---- squelette de démarrage à froid : géométrie de la carte Continuer,
+ * barres statiques, AUCUN shimmer ; n'apparaît qu'après un délai perceptible
+ * (350 ms) pour ne pas clignoter sur les démarrages rapides ----------------- */
+.rh-skeleton {
+  background: var(--surface-raised); border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-surface); padding: var(--sp-4);
+  display: flex; flex-direction: column; gap: var(--sp-3);
+  opacity: 0; animation: rh-appear 1ms linear 350ms forwards;
+}
+.rh-skeleton .bar { height: 12px; border-radius: var(--radius-control); background: var(--surface-inset); }
+.rh-skeleton .bar.w60 { width: 60%; }
+.rh-skeleton .bar.w40 { width: 40%; }
+@keyframes rh-appear { to { opacity: 1; } }
+
+/* ---- état zéro projet : centre calme ---------------------------------------- */
+.rh-noproject { display: flex; min-height: 100%; align-items: center; justify-content: center;
+  padding: var(--sp-6); }

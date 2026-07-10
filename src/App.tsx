@@ -11,7 +11,7 @@ import {
 import { useSidecarConnection, type SidecarStatus } from "./hooks/useSidecarConnection";
 import { useAtelierServer } from "./hooks/useAtelierServer";
 import { deriveResearchHomeModel } from "./lib/researchHome";
-import type { ResearchHomeBundle } from "./components/ResearchHome";
+import { focusComposer, type ResearchHomeBundle } from "./components/ResearchHome";
 import { useWorkspaceEvents } from "./hooks/useWorkspaceEvents";
 import WorkspaceShell from "./components/shell/WorkspaceShell";
 import Sidebar from "./components/Sidebar";
@@ -380,6 +380,9 @@ export default function App() {
     }
   };
   const { wsRef: ws, wsReady, mock } = useSidecarConnection(handleMessage, onSidecarStatus);
+  // distingue le démarrage à froid (connecting) d'une connexion perdue
+  // (disconnected) pour le Research Home — plan 017 § Chargement
+  const sidecarEverConnected = useRef(false);
   const [projects, setProjects] = useState<string[]>(loadProjects);
   const [activeProject, setActiveProject] = useState<string | null>(
     loadProjects()[0] ?? null,
@@ -1708,6 +1711,9 @@ export default function App() {
   // uniquement quand aucun thread n'est actif (la timeline monte l'accueil à
   // la place de l'ancienne empty-card ; le composer reste en dessous).
   const projLabelRaw = activeProject ? projMeta[activeProject]?.label : null;
+  // « connecting » = démarrage à froid (jamais connecté) → état de chargement ;
+  // « disconnected » = connexion perdue → vraie condition À traiter
+  if (wsReady) sidecarEverConnected.current = true;
   const homeBundle: ResearchHomeBundle | null = activeId ? null : {
     model: deriveResearchHomeModel({
       activeProject,
@@ -1716,8 +1722,9 @@ export default function App() {
       events,
       workingSince,
       usageByThread,
-      recentFiles: recentFiles.filter((file) => files.includes(file)),
-      sidecarReady: wsReady,
+      recentFiles,
+      files,
+      sidecar: wsReady ? "ready" : sidecarEverConnected.current ? "disconnected" : "connecting",
       atelierError: appBanner?.text.startsWith("start_atelier:")
         ? appBanner.text.slice("start_atelier:".length).trim()
         : null,
@@ -1734,8 +1741,7 @@ export default function App() {
       onResume: (id, root) => {
         selectThread(id, root);
         // convention 014 : après Reprendre, le focus va au composer
-        requestAnimationFrame(() =>
-          document.querySelector<HTMLTextAreaElement>(".composer textarea")?.focus());
+        focusComposer();
       },
       onOpenArtefact: (rel) => openFileTab(rel),
       onOpenGallery: () => { switchToSurface("atelier"); setActiveTab("gallery"); },

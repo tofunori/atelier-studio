@@ -1,0 +1,17 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "preview",
+      "runtimeExecutable": "npx",
+      "runtimeArgs": ["vite", "preview", "--port", "4173", "--strictPort"],
+      "port": 4173
+    },
+    {
+      "name": "dev",
+      "runtimeExecutable": "npx",
+      "runtimeArgs": ["vite", "--port", "4174", "--strictPort"],
+      "port": 4174
+    }
+  ]
+}
