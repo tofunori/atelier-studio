@@ -5,6 +5,7 @@
 import type { AgentEvent, HarnessEventMeta, Thread } from "../../lib/ws";
 import type { HighlightEntry } from "../../components/Rail";
 import type { Attachment } from "../../App";
+import type { ProviderCapabilities, ProviderInfo } from "../../lib/providers";
 
 /** Horodatage figé de référence (2026-07-09T12:00:00.000Z). */
 export const FIXED_TS = 1783684800000;
@@ -121,6 +122,43 @@ export function makeTurnEvents(): AgentEvent[] {
     events.text(),
     events.done(),
   ];
+}
+
+// ---------------------------------------------------------------------------
+// Catalogue providers (formes providerStatus du sidecar — plan 025, step 9)
+// ---------------------------------------------------------------------------
+/** Capabilities figées miroir du registry sidecar (claude par défaut). */
+export function makeCapabilities(over: Partial<ProviderCapabilities> = {}): ProviderCapabilities {
+  return {
+    resume: true,
+    steering: true,
+    queue: true,
+    goals: false,
+    tools: true,
+    toolOutput: true,
+    permissions: true,
+    interactiveInput: false,
+    mcpElicitation: false,
+    durableHistory: false,
+    permissionModes: ["default", "acceptEdits", "plan", "bypassPermissions"],
+    ...over,
+  };
+}
+
+/** Entrée ProviderInfo telle que renvoyée par providerStatus (claude par défaut). */
+export function makeProviderInfo(over: Partial<ProviderInfo> = {}): ProviderInfo {
+  return {
+    id: "claude",
+    label: "Claude Code",
+    kind: "cli",
+    version: "2.1.0",
+    ok: true,
+    models: ["claude-fable-5", "claude-sonnet-4-5"],
+    defaultModel: "claude-fable-5",
+    efforts: ["low", "medium", "high"],
+    capabilities: makeCapabilities(),
+    ...over,
+  };
 }
 
 // ---------------------------------------------------------------------------

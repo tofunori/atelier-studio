@@ -436,6 +436,9 @@ async function providerStatus() {
       modelReasoning: provider.modelReasoning ?? {},
       defaultModel,
       efforts: provider.efforts,
+      // le sidecar est l'autorité des capacités (plan 025) : le composer ne
+      // montre que les contrôles réellement supportés
+      capabilities: { ...(provider.capabilities ?? {}) },
     };
     if (provider.kind === "api") {
       const st = providers[provider.id]?.status?.() ?? { ok: false };

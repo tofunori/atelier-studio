@@ -1,5 +1,24 @@
 import { ProviderId, Settings } from "./settings";
 
+/** Capacités annoncées par le sidecar (plan 025, step 9) — le composer ne
+ *  montre que les contrôles réellement supportés. Tous les champs sont
+ *  optionnels : un vieux sidecar sans `capabilities` reste toléré (le front
+ *  retombe alors sur le comportement historique). */
+export type ProviderCapabilities = {
+  resume?: boolean;
+  steering?: boolean;
+  queue?: boolean;
+  goals?: boolean;
+  tools?: boolean;
+  toolOutput?: boolean;
+  permissions?: boolean;
+  interactiveInput?: boolean;
+  mcpElicitation?: boolean;
+  durableHistory?: boolean;
+  /** Modes de permission acceptés par le harnais ([] = pas de sélecteur). */
+  permissionModes?: string[];
+};
+
 // Renvoyé par le sidecar (providerStatus) — catalogue + détection.
 export type ProviderInfo = {
   id: ProviderId;
@@ -18,6 +37,7 @@ export type ProviderInfo = {
   }>;
   defaultModel: string;
   efforts: string[];
+  capabilities?: ProviderCapabilities;
 };
 
 /** Providers du picker : ordre des réglages, masqués filtrés — mais le

@@ -17,6 +17,9 @@ import { mentionLabel } from "./chat/mentions";
 
 
 
+// Libellés lisibles par id — PAS une liste de modèles (plan 025, step 9) :
+// les ids offerts viennent UNIQUEMENT du catalogue sidecar (info.models).
+// Un id sans entrée ici s'affiche tel quel.
 const BUILTIN_MODEL_LABELS: Record<string, Record<string, string>> = {
   claude: {
     "claude-fable-5": "Fable 5",
@@ -24,27 +27,18 @@ const BUILTIN_MODEL_LABELS: Record<string, Record<string, string>> = {
     "claude-sonnet-5": "Sonnet 5",
     "claude-haiku-4-5-20251001": "Haiku 4.5",
   },
+  grok: {
+    "grok-4.5": "Grok 4.5",
+    "grok-composer-2.5-fast": "Composer 2.5 Fast",
+  },
 };
 
-const MODELS: Record<string, { id: string; label: string }[]> = {
-  claude: [
-    { id: "claude-fable-5", label: "Fable 5" },
-    { id: "claude-opus-4-8", label: "Opus 4.8" },
-    { id: "claude-sonnet-5", label: "Sonnet 5" },
-    { id: "claude-haiku-4-5-20251001", label: "Haiku 4.5" },
-  ],
-  grok: [
-    { id: "grok-4.5", label: "Grok 4.5" },
-    { id: "grok-composer-2.5-fast", label: "Composer 2.5 Fast" },
-  ],
-};
-
-const EFFORTS: Record<string, string[]> = {
-  claude: ["", "low", "medium", "high", "xhigh", "max"],
-  codex: ["", "low", "medium", "high", "xhigh"],
-  // Grok : pas d'entrée "" (Auto) — défaut explicite "high" (DEFAULT_SETTINGS)
-  grok: ["minimal", "low", "medium", "high", "xhigh", "max"],
-};
+// Cas particulier documenté (plan 025, step 9) : le harnais Grok n'a PAS
+// d'effort « Auto » ("") — il exige un effort explicite (défaut "high" dans
+// DEFAULT_SETTINGS) et son catalogue liste déjà minimal…max au complet. Le
+// registry sidecar n'expose pas (encore) de donnée « effort par défaut vide »,
+// donc la nuance reste keyed par id de provider ici.
+const NO_AUTO_EFFORT = new Set(["grok"]);
 const API_REASONING_LEVELS = ["", "none", "minimal", "low", "medium", "high", "xhigh", "max"];
 
 // réf. fichier type "main.tex:31", "sections/method.tex:60-74", "script.py"
@@ -194,7 +188,15 @@ export default function Chat(p: {
 
   function levelsFor(pv: string, modelId: string) {
     const info = providerInfo(pv);
-    if (info?.kind !== "api") return EFFORTS[pv] ?? ["", ...(info?.efforts ?? [])];
+    if (info?.kind !== "api") {
+      // Catalogue sidecar = source des efforts. "" (Auto — le CLI décide)
+      // en tête, sauf providers sans Auto (NO_AUTO_EFFORT). Catalogue pas
+      // encore chargé : [""] dégradé (Auto seul), comme avant pour les
+      // providers hors liste.
+      const efforts = info?.efforts ?? [];
+      if (NO_AUTO_EFFORT.has(pv) && efforts.length) return [...efforts];
+      return ["", ...efforts];
+    }
     const meta = info.modelReasoning?.[modelId];
     const supported = Array.isArray(meta?.supported_efforts) && meta.supported_efforts.length
       ? meta.supported_efforts.filter((lvl) => API_REASONING_LEVELS.includes(lvl))
@@ -423,11 +425,11 @@ export default function Chat(p: {
       return n;
     });
   }
-  // modèles connus : catalogue sidecar par défaut, avec libellés locaux seulement
-  // quand ils apportent une meilleure présentation que l'id brut.
+  // modèles connus : catalogue sidecar UNIQUEMENT (plan 025, step 9), avec
+  // libellés locaux seulement quand ils apportent une meilleure présentation
+  // que l'id brut. L'entrée Auto ("" → défaut) reste en tête.
   function baseModelsFor(pv: string): { id: string; label: string }[] {
     const info = (p.providers ?? []).find((pr) => pr.id === pv);
-    if (MODELS[pv]) return MODELS[pv];
     const labels = BUILTIN_MODEL_LABELS[pv] ?? {};
     return [
       { id: "", label: "__default" },
@@ -441,7 +443,7 @@ export default function Chat(p: {
     return [...baseModelsFor(pv), ...customs];
   }
   // libellé propre d'un id de modèle : gère le suffixe "[1m]" (contexte 1M Claude,
-  // pas une entrée séparée dans MODELS) pour éviter d'afficher l'id brut.
+  // pas une entrée séparée du catalogue) pour éviter d'afficher l'id brut.
   function modelIdLabel(pv: string, id: string): string {
     const is1m = id.endsWith("[1m]");
     const baseId = is1m ? id.slice(0, -"[1m]".length) : id;

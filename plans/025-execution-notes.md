@@ -233,7 +233,22 @@ PIÈGES metadata :
       précèdent dans le fichier (appends post-revert vivants) ; ts du replay =
       meta.ts (heures du journal conservées) ; bulle streaming adopte la meta
       du dernier delta (dédup reconnexion sans état module).
-- [ ] Tranche D (steps 9–11) : capabilities/catalogue + smokes + gates + app buildée + parcours réels
+- [~] Tranche D : steps 9-10 FAITS — providerStatus expose capabilities ;
+      Chat.tsx sans MODELS/EFFORTS (catalogue sidecar seul, BUILTIN_MODEL_LABELS
+      = map labels pure, cas grok sans Auto via NO_AUTO_EFFORT) ; composer gaté
+      par capabilities (permissionModes filtrés, plan/goals conditionnels,
+      fallback vieux sidecar) ; registry ALIGNÉ sur les modèles/efforts réels
+      (l'ancienne liste frontend masquait un catalogue périmé : opus-4-8/
+      sonnet-5/haiku-20251001, efforts xhigh/max claude + xhigh codex) ;
+      registry.test étendu (10) + 4 tests composer ; smoke codex_live_parity
+      étendu (9 familles opt-in, --dry-run, politiques via resolveCodexSafety
+      importé — jamais recopiées). Gates : sidecar 315/315, frontend 217/217,
+      tsc, build, npm run verify exit 0.
+      NOTE agents : les sous-agents héritent du cwd du WORKTREE — travail
+      porté par patch (base identique 6003775). Reliquat mineur : fallback 1M
+      de ComposerControls référence claude-sonnet-5 (dans le catalogue
+      désormais) ; ids catalogue hors labels affichés bruts.
+      RESTE (step 11) : relance protocole, parcours réels, README, panel final.
 
 ## Gates
 

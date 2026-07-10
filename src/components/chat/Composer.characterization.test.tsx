@@ -7,7 +7,7 @@ vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn(async () => null) }));
 
 import Chat from "../Chat";
 import { renderUi, resetTestState } from "../../test/render";
-import { FIXED_TS } from "../../test/fixtures";
+import { FIXED_TS, makeCapabilities, makeProviderInfo } from "../../test/fixtures";
 
 function chatProps(over: Partial<Parameters<typeof Chat>[0]> = {}): Parameters<typeof Chat>[0] {
   return {
@@ -105,5 +105,66 @@ describe("composer — caractérisation", () => {
   it("disabled : la zone de saisie est inerte", () => {
     renderUi(<Chat {...chatProps({ disabled: true })} />);
     expect(ta().disabled).toBe(true);
+  });
+});
+
+// Plan 025, step 9 : catalogue et capabilities server-authoritative — les ids
+// de modèles viennent du sidecar (info.models) et le composer ne montre que
+// les contrôles supportés par capabilities.
+describe("composer — catalogue et capabilities sidecar (plan 025, step 9)", () => {
+  // Provider courant = codex : dans la cascade du menu modèle, la rangée du
+  // provider courant est déjà « active » (repli), on déplie donc Claude en
+  // cliquant sa rangée depuis un autre provider courant.
+  function openClaudeModelList(claudeModels: string[]) {
+    renderUi(<Chat {...chatProps({
+      defaults: { defaultProvider: "codex", defaultModel: {}, defaultEffort: {}, defaultPermissionMode: "bypassPermissions" },
+      providers: [
+        makeProviderInfo({ models: claudeModels }),
+        makeProviderInfo({
+          id: "codex", label: "Codex", models: ["gpt-5.5"], defaultModel: "gpt-5.5",
+          capabilities: makeCapabilities({ goals: true, interactiveInput: true }),
+        }),
+      ],
+    })} />);
+    fireEvent.click(document.querySelector(".model-pick .mp-btn") as HTMLButtonElement);
+    fireEvent.click(screen.getByText("Claude Code"));
+  }
+
+  it("un modèle présent dans info.models apparaît sans modification frontend", () => {
+    openClaudeModelList(["claude-fable-5", "claude-nova-6-preview"]);
+    // id inconnu du front : affiché tel quel, directement depuis le catalogue
+    expect(screen.getByText("claude-nova-6-preview")).toBeTruthy();
+    // id connu : libellé lisible (BUILTIN_MODEL_LABELS reste une map id→label)
+    expect(screen.getByText("Fable 5")).toBeTruthy();
+  });
+
+  it("un modèle absent du catalogue n'apparaît pas (la liste hardcodée ne ressuscite pas)", () => {
+    openClaudeModelList(["claude-fable-5"]);
+    // claude-opus-4-8 / « Opus 4.8 » étaient dans l'ancienne liste MODELS
+    expect(screen.queryByText("Opus 4.8")).toBeNull();
+    expect(screen.queryByText("claude-opus-4-8")).toBeNull();
+    expect(screen.queryByText("Sonnet 5")).toBeNull();
+  });
+
+  it("provider sans permissionModes : pas de sélecteur de permission", () => {
+    renderUi(<Chat {...chatProps({
+      defaults: { defaultProvider: "grok", defaultModel: {}, defaultEffort: {}, defaultPermissionMode: "bypassPermissions" },
+      providers: [makeProviderInfo({
+        id: "grok", label: "Grok", models: ["grok-4.5"], defaultModel: "grok-4.5",
+        efforts: ["minimal", "low", "medium", "high", "xhigh", "max"],
+        capabilities: makeCapabilities({ permissions: false, permissionModes: [] }),
+      })],
+    })} />);
+    expect(document.querySelector(".composer-bar .custom-select")).toBeNull();
+  });
+
+  it("claude avec permissionModes : sélecteur listant exactement les 4 modes", () => {
+    renderUi(<Chat {...chatProps({ providers: [makeProviderInfo()] })} />);
+    const trigger = document.querySelector(".composer-bar .custom-select-trigger") as HTMLButtonElement;
+    expect(trigger).toBeTruthy();
+    fireEvent.click(trigger);
+    const options = [...document.querySelectorAll(".composer-bar .custom-select-option")]
+      .map((el) => el.textContent);
+    expect(options).toEqual(["Full access", "Accept edits", "Ask (default)", "Plan mode"]);
   });
 });

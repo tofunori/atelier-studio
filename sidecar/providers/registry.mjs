@@ -28,11 +28,11 @@ const PROVIDERS = [
     defaultModel: "claude-fable-5",
     models: [
       "claude-fable-5",
-      "claude-sonnet-4-5",
-      "claude-opus-4-1",
-      "claude-haiku-4-5",
+      "claude-opus-4-8",
+      "claude-sonnet-5",
+      "claude-haiku-4-5-20251001",
     ],
-    efforts: ["low", "medium", "high"],
+    efforts: ["low", "medium", "high", "xhigh", "max"],
     capabilities: { resume: true, steering: true, queue: true, goals: false, tools: true, toolOutput: true, permissions: true, interactiveInput: false, mcpElicitation: false, durableHistory: false, permissionModes: ["default", "acceptEdits", "plan", "bypassPermissions"] },
   },
   {
@@ -41,7 +41,7 @@ const PROVIDERS = [
     bin: "codex",
     defaultModel: "gpt-5.5",
     models: ["gpt-5.5", "gpt-5.1-codex-max", "gpt-5.1-codex"],
-    efforts: ["low", "medium", "high"],
+    efforts: ["low", "medium", "high", "xhigh"],
     capabilities: { resume: true, steering: true, queue: true, goals: true, tools: true, toolOutput: true, permissions: true, interactiveInput: true, mcpElicitation: true, durableHistory: false, permissionModes: ["default", "acceptEdits", "plan", "bypassPermissions"] },
   },
   {

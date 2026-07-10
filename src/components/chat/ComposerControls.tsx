@@ -72,6 +72,16 @@ export function ComposerControls(p: {
     levelsFor, effortFor, modelsFor, sortByFav, modelLabel, modelButtonLabel,
     favModels, toggleFavModel,
   } = p;
+  // Gating par capabilities sidecar (plan 025, step 9) : seuls les contrôles
+  // réellement supportés apparaissent. Vieux sidecar (capabilities absentes) :
+  // comportement historique conservé — sélecteur complet, goals si Codex.
+  const caps = providerInfo()?.capabilities;
+  const allowedPermissionModes = caps
+    ? caps.permissionModes ?? []
+    : PERMISSION_MODES.map((m) => m.id);
+  // seuls les modes connus du front sont listés, dans l'ordre UI existant
+  const permissionOptions = PERMISSION_MODES.filter((m) => allowedPermissionModes.includes(m.id));
+  const goalsSupported = caps ? caps.goals === true : provider === "codex";
   return (
     <>
         <div className="composer-bar">
@@ -91,6 +101,7 @@ export function ComposerControls(p: {
                   </svg>
                   <span>{t("action.add-file-image")}</span>
                 </div>
+                {allowedPermissionModes.includes("plan") && (
                 <div className="mp-item" onClick={() => setPermissionMode(permissionMode === "plan" ? "bypassPermissions" : "plan")}>
                   <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3">
                     <path d="M2.5 4h2M6.5 4h7M2.5 8h2M6.5 8h7M2.5 12h2M6.5 12h7" />
@@ -100,6 +111,7 @@ export function ComposerControls(p: {
                     <span className="knob" />
                   </span>
                 </div>
+                )}
                 <div className="mp-item" onClick={() =>
                   window.dispatchEvent(new CustomEvent("autoreview-toggle"))
                 }>
@@ -112,7 +124,7 @@ export function ComposerControls(p: {
                     <span className="knob" />
                   </span>
                 </div>
-                {provider === "codex" && p.onGoal && (
+                {goalsSupported && p.onGoal && (
                   <div className="mp-item" onClick={() => { setPlusOpen(false); setGoalOpen((v) => !v); }}>
                     <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round">
                       <circle cx="8" cy="8" r="6" /><circle cx="8" cy="8" r="2.4" />
@@ -123,13 +135,15 @@ export function ComposerControls(p: {
               </div>
             )}
           </span>
-          <Select
-            compact
-            title={t("settings.permission-default")}
-            value={permissionMode}
-            onChange={setPermissionMode}
-            options={PERMISSION_MODES.map((m) => ({ value: m.id, label: t(m.labelKey as any) }))}
-          />
+          {permissionOptions.length > 0 && (
+            <Select
+              compact
+              title={t("settings.permission-default")}
+              value={permissionMode}
+              onChange={setPermissionMode}
+              options={permissionOptions.map((m) => ({ value: m.id, label: t(m.labelKey as any) }))}
+            />
+          )}
           <span className="flex" />
           {p.usage && (
             <span className="ctx-ring-wrap">
