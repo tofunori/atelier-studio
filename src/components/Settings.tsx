@@ -871,7 +871,7 @@ export default function SettingsPage(p: {
                             {shown.map((m) => (
                               <label key={m.id} style={{ display: "flex", gap: 8, alignItems: "center", padding: "3px 4px", cursor: "pointer" }}>
                                 <input type="checkbox" checked={selected.has(m.id)} onChange={() => toggle(m.id)} />
-                                <span style={{ fontSize: 12.5 }}>{m.id}</span>
+                                <span style={{ fontSize: "var(--fs-m)" }}>{m.id}</span>
                                 {m.reasoning && <span className="set-badge ok">reasoning</span>}
                               </label>
                             ))}

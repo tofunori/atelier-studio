@@ -106,6 +106,7 @@ describe("Settings — contrôles et diagnostic", () => {
 
 describe("Settings — nav compacte ≤880 px", () => {
   it("en fenêtre étroite, la nav colonne cède la place à un select de section", () => {
+    const saved = window.matchMedia;
     Object.defineProperty(window, "matchMedia", {
       writable: true,
       value: (query: string) => ({
@@ -120,5 +121,6 @@ describe("Settings — nav compacte ≤880 px", () => {
     expect(document.querySelector(".set-nav")).toBeNull();
     expect(document.querySelector(".set-nav-compact")).toBeTruthy();
     expect(document.querySelector(".set-nav-compact .custom-select")).toBeTruthy();
+    Object.defineProperty(window, "matchMedia", { writable: true, value: saved });
   });
 });
