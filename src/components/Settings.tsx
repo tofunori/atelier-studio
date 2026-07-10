@@ -1,9 +1,11 @@
 import { useEffect, useState } from "react";
+import { confirm as tauriConfirm } from "@tauri-apps/plugin-dialog";
 import { Settings as S, DEFAULT_SETTINGS } from "../lib/settings";
 import { THEME_PRESETS } from "../lib/themes";
 import { setLanguage, t } from "../lib/i18n";
 import { PlusIcon } from "./icons";
 import { Select } from "./Select";
+import { InlineNotice, SegmentedControl } from "./ui";
 
 const SECTIONS = [
   { id: "general", labelKey: "settings.general" },
@@ -149,6 +151,9 @@ export default function SettingsPage(p: {
   projects?: string[];
 }) {
   const [section, setSection] = useState("general");
+  // ≤880 px : la nav colonne écraserait le contenu — select compact au-dessus
+  const [narrow, setNarrow] = useState(() =>
+    typeof window !== "undefined" && window.matchMedia?.("(max-width: 880px)")?.matches === true);
   const [slugProv, setSlugProv] = useState<"claude" | "codex">("codex");
   const [slugText, setSlugText] = useState("");
   const [themeQuery, setThemeQuery] = useState("");
@@ -185,6 +190,26 @@ export default function SettingsPage(p: {
       ...ids.map((id) => ({ id, label: labels[id] ?? id })),
     ];
   }
+
+  useEffect(() => {
+    const mq = window.matchMedia?.("(max-width: 880px)");
+    if (!mq) return;
+    const onChange = () => setNarrow(mq.matches);
+    mq.addEventListener?.("change", onChange);
+    return () => mq.removeEventListener?.("change", onChange);
+  }, []);
+
+  // Échap ferme la page (convention app) — jamais pendant une saisie
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== "Escape") return;
+      const el = document.activeElement;
+      if (el && (el.tagName === "INPUT" || el.tagName === "TEXTAREA" || (el as HTMLElement).isContentEditable)) return;
+      p.onClose();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
 
   useEffect(() => {
     if (!p.ws || p.ws.readyState !== 1) return;
@@ -248,8 +273,9 @@ export default function SettingsPage(p: {
   function themeRow(th: (typeof THEME_PRESETS)[number]) {
     const on = s.themePreset === th.id;
     return (
-      <div key={th.id}
+      <button key={th.id} type="button"
         className={`theme-row ${on ? "on" : ""}`}
+        aria-pressed={on}
         onClick={() => set({ themePreset: th.id })}>
         <span className="theme-name">{th.name}</span>
         <span className="theme-strip">
@@ -258,12 +284,26 @@ export default function SettingsPage(p: {
           ))}
         </span>
         <span className="theme-check">{on ? "✓" : ""}</span>
-      </div>
+      </button>
     );
   }
 
   return (
-    <div className="settings-page">
+    <div className={`settings-page ${narrow ? "narrow" : ""}`}>
+      {narrow ? (
+        <div className="set-nav-compact">
+          <button className="set-back" onClick={p.onClose}>
+            {t("settings.back")}
+          </button>
+          <Select
+            compact
+            title={t("settings.section")}
+            value={section}
+            onChange={setSection}
+            options={SECTIONS.map((sec) => ({ value: sec.id, label: t(sec.labelKey as any) }))}
+          />
+        </div>
+      ) : (
       <div className="set-nav">
         <button className="set-back" onClick={p.onClose}>
           {t("settings.back")}
@@ -272,16 +312,21 @@ export default function SettingsPage(p: {
           <button
             key={sec.id}
             className={`set-nav-item ${section === sec.id ? "on" : ""}`}
+            aria-current={section === sec.id ? "true" : undefined}
             onClick={() => setSection(sec.id)}
           >
             {t(sec.labelKey as any)}
           </button>
         ))}
         <span className="flex" />
-        <button className="set-restore" onClick={() => p.onChange({ ...DEFAULT_SETTINGS })}>
+        <button className="set-restore" onClick={async () => {
+          const ok = await tauriConfirm(t("settings.restore-confirm"), { kind: "warning" }).catch(() => true);
+          if (ok) p.onChange({ ...DEFAULT_SETTINGS });
+        }}>
           {t("action.restore-defaults")}
         </button>
       </div>
+      )}
       <div className="set-body">
         {section === "general" && (
           <>
@@ -407,8 +452,19 @@ export default function SettingsPage(p: {
                 <h1>{t("settings.setup")}</h1>
                 <p className="set-sub">{t("settings.setup-sub")}</p>
               </div>
-              <button className="set-btn quiet" onClick={refreshSetup}>{t("action.refresh")}</button>
+              <span className="set-headline-actions">
+                <button className="set-btn quiet" onClick={() => {
+                  const details = { generatedAt: new Date().toISOString(), setup, wsConnected: p.ws?.readyState === 1 };
+                  navigator.clipboard.writeText(JSON.stringify(details, null, 2));
+                }}>{t("settings.copy-details")}</button>
+                <button className="set-btn quiet" onClick={refreshSetup}>{t("action.refresh")}</button>
+              </span>
             </div>
+            {p.ws?.readyState !== 1 && (
+              <InlineNotice tone="warning" className="set-notice">
+                {t("settings.sidecar-disconnected-notice")}
+              </InlineNotice>
+            )}
             {!setup && <p className="set-empty">{t("settings.checking")}</p>}
             {setup && (
               <>
@@ -464,14 +520,16 @@ export default function SettingsPage(p: {
             </div>
             <Group>
               <Row title={t("settings.theme")} desc={t("settings.theme-desc")}>
-                <div className="seg">
-                  {(["light", "dark", "system"] as const).map((themeOption) => (
-                    <button key={themeOption} className={s.theme === themeOption ? "on" : ""}
-                      onClick={() => set({ theme: themeOption })}>
-                      {themeOption === "light" ? t("settings.theme-light") : themeOption === "dark" ? t("settings.theme-dark") : t("settings.theme-system")}
-                    </button>
-                  ))}
-                </div>
+                <SegmentedControl
+                  label={t("settings.theme")}
+                  value={s.theme}
+                  onChange={(v) => set({ theme: v as S["theme"] })}
+                  options={[
+                    { value: "light", label: t("settings.theme-light") },
+                    { value: "dark", label: t("settings.theme-dark") },
+                    { value: "system", label: t("settings.theme-system") },
+                  ]}
+                />
               </Row>
             </Group>
             <Group label={t("settings.group.colors")}>
@@ -507,14 +565,16 @@ export default function SettingsPage(p: {
             </Group>
             <Group label={t("settings.group.layout")}>
               <Row title={t("settings.density")} desc={t("settings.density-desc")}>
-                <div className="seg">
-                  {(["compact", "comfortable", "spacious"] as const).map((d) => (
-                    <button key={d} className={s.density === d ? "on" : ""}
-                      onClick={() => set({ density: d })}>
-                      {d === "compact" ? t("settings.density-compact") : d === "comfortable" ? t("settings.density-comfortable") : t("settings.density-spacious")}
-                    </button>
-                  ))}
-                </div>
+                <SegmentedControl
+                  label={t("settings.density")}
+                  value={s.density}
+                  onChange={(v) => set({ density: v as S["density"] })}
+                  options={[
+                    { value: "compact", label: t("settings.density-compact") },
+                    { value: "comfortable", label: t("settings.density-comfortable") },
+                    { value: "spacious", label: t("settings.density-spacious") },
+                  ]}
+                />
               </Row>
               <Row title={t("settings.chat-text-size")}>
                 <Slider min={12} max={19} step={0.5} value={s.chatFontSize} onChange={(v) => set({ chatFontSize: v })} />
@@ -747,7 +807,10 @@ export default function SettingsPage(p: {
                       .map(([modelId, reasoning]) => [modelId, { reasoning }])),
                   })}>{t("action.edit")}</button>
                   <button className="set-btn quiet" onClick={() =>
-                    p.ws?.readyState === 1 && p.ws.send(JSON.stringify({ type: "deleteApiProvider", id: ap.id }))
+                    void (async () => {
+                      const ok = await tauriConfirm(t("settings.api-delete-confirm", { id: ap.label || ap.id }), { kind: "warning" }).catch(() => true);
+                      if (ok && p.ws?.readyState === 1) p.ws.send(JSON.stringify({ type: "deleteApiProvider", id: ap.id }));
+                    })()
                   }>{t("action.delete")}</button>
                 </Row>
               ))}
@@ -846,7 +909,10 @@ export default function SettingsPage(p: {
               </Row>
               <Row title={t("settings.pasted-images")} desc={status ? t("settings.pasted-images-desc", { count: status.pastedCount, dir: status.pasteDir }) : "…"}>
                 <button className="set-btn quiet"
-                  onClick={() => p.ws?.readyState === 1 && p.ws.send(JSON.stringify({ type: "clearPasted" }))}>
+                  onClick={async () => {
+                    const ok = await tauriConfirm(t("settings.clear-pasted-confirm"), { kind: "warning" }).catch(() => true);
+                    if (ok && p.ws?.readyState === 1) p.ws.send(JSON.stringify({ type: "clearPasted" }));
+                  }}>
                   {t("action.clear")}
                 </button>
               </Row>
