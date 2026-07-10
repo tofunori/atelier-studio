@@ -141,8 +141,6 @@
   .tag{padding:2px 7px;border-radius:6px;background:var(--card2);font-size:10px;text-transform:uppercase}
   .tag.archive{background:var(--arch);color:#d9a441}
   .tag.hid{background:#3a3a44;color:#aab}
-  .tag.wf{color:var(--muted)}
-  .tag.wf.final{color:var(--accent)}
   .card.hid{opacity:.5}
   .card.hid:hover{opacity:1}
   /* actions au survol : bandeau sur la zone MÉTA (jamais par-dessus la figure) */
@@ -323,10 +321,6 @@
     <span class="chip off" id="favChip">&#9733; Favorites</span>
     <span class="chip" id="collChip" title="Collections and shortlists">Collections &#9662;</span>
     <div id="collMenu" class="menu"></div>
-    <span class="chip" id="wfChip" title="Figure status (draft / candidate / final / rejected)">Status &#9662;</span>
-    <div id="wfMenu" class="menu"></div>
-    <span class="chip" id="recChip" title="Recently opened figures">Recent &#9662;</span>
-    <div id="recMenu" class="menu"></div>
     <span class="seg" id="densitySeg" title="Card density"><button data-d="s">S</button><button data-d="m" class="on">M</button><button data-d="l">L</button></span>
     <div id="viewMenu" class="menu"></div>
     <button id="quoteClear" style="display:none" title="Clear the annotation pending in the Claude statusline">Clear annotation</button>
@@ -506,6 +500,10 @@ document.addEventListener('click',e=>{
     el.textContent='✓'; setTimeout(()=>el.textContent='Chat',1200);
   }
 });
+document.addEventListener('change',e=>{
+  const el=e.target.closest('.wfsel'); if(!el) return;
+  setWorkflow(el.dataset.rel, el.value);
+});
 let favs = new Set(JSON.parse(localStorage.getItem('figFavs')||'[]'));
 SEED_FAVS.forEach(f=>favs.add(f));
 const saveFavs = ()=>localStorage.setItem('figFavs', JSON.stringify([...favs]));
@@ -536,7 +534,7 @@ function pushState(){
   clearTimeout(stateTimer);
   stateTimer=setTimeout(()=>{
     fetch('/state',{method:'POST',headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({favs:[...favs],ratings,hidden:[...hidden],tags,hideRules,collections,workflow})}).catch(()=>{});
+      body:JSON.stringify({favs:[...favs],ratings,hidden:[...hidden],tags,hideRules,collections})}).catch(()=>{});
   },400);
 }
 const saveRatings = ()=>{localStorage.setItem('figRatings', JSON.stringify(ratings));pushState();};
@@ -544,17 +542,6 @@ const saveRatings = ()=>{localStorage.setItem('figRatings', JSON.stringify(ratin
 let tags = JSON.parse(localStorage.getItem('figTags')||'{}');            // {rel:[tag,...]}
 let collections = JSON.parse(localStorage.getItem('figCollections')||'{}'); // {name:[rel,...]}
 let activeCollection = '';
-// --- workflow scientifique : draft → candidate → final / rejected ------------
-// source durable = .fig_state.json (serveur) ; localStorage n'est qu'un cache
-let workflow = JSON.parse(localStorage.getItem('figWorkflow')||'{}');    // {rel: status}
-const WORKFLOW_STATUSES = [['draft','Draft'],['candidate','Candidate'],['final','Final'],['rejected','Rejected']];
-let activeWorkflow = '';
-const validWorkflow = v => WORKFLOW_STATUSES.some(([s])=>s===v);
-function saveWorkflow(){ localStorage.setItem('figWorkflow', JSON.stringify(workflow)); pushState(); }
-function setWorkflow(rel, val){
-  if(!validWorkflow(val)) delete workflow[rel]; else workflow[rel]=val;
-  saveWorkflow(); buildWorkflowChip(); render();
-}
 let hideRules = JSON.parse(localStorage.getItem('figHideRules')||'[]');  // glob strings
 const _ruleRe = {};
 function ruleToRe(g){                                  // gitignore-ish glob -> RegExp
@@ -578,11 +565,6 @@ fetch('/state').then(r=>r.json()).then(st=>{
   if(st.tags) tags = st.tags;
   if(st.hideRules) hideRules = st.hideRules;
   if(st.collections) collections = st.collections;
-  if(st.workflow && typeof st.workflow==='object' && !Array.isArray(st.workflow)){
-    // le serveur est la source de vérité : remplacer le cache par les valeurs validées
-    workflow = {};
-    for(const [rel,v] of Object.entries(st.workflow)) if(validWorkflow(v)) workflow[rel]=v;
-  }
   for(const k in _ruleRe) delete _ruleRe[k];
   localStorage.setItem('figFavs', JSON.stringify([...favs]));
   localStorage.setItem('figRatings', JSON.stringify(ratings));
@@ -590,9 +572,8 @@ fetch('/state').then(r=>r.json()).then(st=>{
   localStorage.setItem('figTags', JSON.stringify(tags));
   localStorage.setItem('figHideRules', JSON.stringify(hideRules));
   localStorage.setItem('figCollections', JSON.stringify(collections));
-  localStorage.setItem('figWorkflow', JSON.stringify(workflow));
   document.getElementById('favChip').textContent='★ Favorites ('+favs.size+')';
-  updateHideChip(); buildCollectionChip(); buildWorkflowChip(); buildViewMenu();
+  updateHideChip(); buildCollectionChip(); buildViewMenu();
   render();
 }).catch(()=>{}).finally(()=>{
   stateLoaded=true;                                 // disk state is merged in now; saves are safe
@@ -786,47 +767,6 @@ function buildCollectionChip(){
   if(btn) btn.onclick=()=>{ applyCollectionToSel(inp.value); inp.value=''; buildCollectionChip(); };
   if(inp) inp.onkeydown=e=>{ if(e.key==='Enter'){ e.preventDefault(); applyCollectionToSel(inp.value); inp.value=''; buildCollectionChip(); } };
 }
-// --- recents : dernières figures ouvertes (cache local pur, jamais sur le serveur)
-let recents = JSON.parse(localStorage.getItem('figRecent')||'[]');   // [rel, ...] plus récent d'abord
-function markRecent(rel){
-  recents = [rel, ...recents.filter(r=>r!==rel)].slice(0,15);
-  try{ localStorage.setItem('figRecent', JSON.stringify(recents)); }catch(e){}
-}
-function buildRecentChip(){
-  const chip=document.getElementById('recChip'), menu=document.getElementById('recMenu');
-  if(!chip||!menu) return;
-  const known=new Set(FILES.map(f=>f.rel));
-  const list=recents.filter(r=>known.has(r)).slice(0,10);
-  let h = list.length ? list.map(rel=>{
-    const f=FILES.find(x=>x.rel===rel);
-    return `<div class="mi"><span class="lbl" data-rec="${escA(rel)}">${esc(truncMid(f.name,38))}</span></div>`;
-  }).join('') : '<div class="mi muted">No recently opened figures.</div>';
-  if(list.length) h += '<div class="mi clr" data-recclear="1">Clear recents</div>';
-  menu.innerHTML=h;
-  menu.onclick=e=>e.stopPropagation();
-  menu.querySelectorAll('[data-rec]').forEach(el=>el.onclick=()=>{ menu.style.display='none'; lbOpenAny(el.dataset.rec); });
-  const c=menu.querySelector('[data-recclear]');
-  if(c) c.onclick=()=>{ recents=[]; try{ localStorage.setItem('figRecent','[]'); }catch(e){} buildRecentChip(); menu.style.display='none'; };
-}
-function buildWorkflowChip(){
-  const chip=document.getElementById('wfChip'), menu=document.getElementById('wfMenu');
-  if(!chip||!menu) return;
-  const counts={};
-  for(const v of Object.values(workflow)) counts[v]=(counts[v]||0)+1;
-  const cur = WORKFLOW_STATUSES.find(([v])=>v===activeWorkflow);
-  chip.classList.toggle('on', !!activeWorkflow);
-  chip.innerHTML=(cur?('Status: '+esc(cur[1])):'Status')+' ▾';
-  let h=`<div class="mi${!activeWorkflow?' on':''}" data-wfpick="">All <span class="ct">${FILES.length}</span></div>`;
-  h+=WORKFLOW_STATUSES.map(([v,l])=>
-    `<div class="mi${v===activeWorkflow?' on':''}" data-wfpick="${escA(v)}">${esc(l)} <span class="ct">${counts[v]||0}</span></div>`).join('');
-  menu.innerHTML=h;
-  menu.onclick=e=>e.stopPropagation();
-  menu.querySelectorAll('[data-wfpick]').forEach(el=>el.onclick=()=>{
-    const v=el.dataset.wfpick;
-    activeWorkflow = (v && activeWorkflow!==v) ? v : '';
-    buildWorkflowChip(); render(); menu.style.display='none';
-  });
-}
 let healthStatus = null;
 function healthRows(data){
   const ok=data&&data.ok;
@@ -905,12 +845,8 @@ function cardMenu(anchor, rel){
   const f=FILES.find(x=>x.rel===rel); if(!f) return;
   const isHid=hidden.has(rel);
   const m=document.createElement('div'); m.className='menu'; m.id='floatMenu';
-  const curWf = workflow[rel]||'';
   m.innerHTML='<div class="mhd">'+esc(f.name)+'</div>'
     +'<div class="mi" style="cursor:default">'+rateRow(rel)+'</div>'
-    +'<div class="mhd sep">Status</div>'
-    +[['','None']].concat(WORKFLOW_STATUSES).map(([v,l])=>
-      `<div class="mi${curWf===v?' on':''}"><span class="lbl" data-wfset="${escA(v)}">${curWf===v?'✓ ':''}${esc(l)}</span></div>`).join('')
     +'<div class="mhd sep"></div>'
     +((window.self!==window.top)?'<div class="mi"><span class="lbl" data-cact="src">Open script &lt;/&gt;</span></div>'
       +'<div class="mi"><span class="lbl" data-cact="board">Send to whiteboard</span></div>':'')
@@ -918,7 +854,6 @@ function cardMenu(anchor, rel){
     +'<div class="mi clr"><span class="lbl" data-cact="del">Move to Trash</span></div>';
   m.addEventListener('click',e=>e.stopPropagation());
   placeMenu(m, anchor);
-  m.querySelectorAll('[data-wfset]').forEach(sp=>{ sp.onclick=()=>{ closeFloat(); setWorkflow(rel, sp.dataset.wfset); }; });
   m.querySelectorAll('[data-act="rate"]').forEach(sp=>{ sp.onclick=ev=>{ setRate(rel, +sp.dataset.n, ev); closeFloat(); }; });
   const _src=m.querySelector('[data-cact="src"]'); if(_src) _src.onclick=()=>{ closeFloat(); findScript(rel); };
   const _bd=m.querySelector('[data-cact="board"]'); if(_bd) _bd.onclick=()=>{ closeFloat(); sendToBoard(rel, anchor); };
@@ -997,8 +932,6 @@ if(window.self!==window.top){
 document.getElementById('boardChip').onclick=()=>toolOpenTab('/board/open-surface','whiteboard');
 document.getElementById('notesChip').onclick=()=>toolOpenTab('/notes/open-surface','notes');
 document.getElementById('collChip').onclick=e=>{ e.stopPropagation(); buildCollectionChip(); menuToggle(document.getElementById('collMenu'), e.currentTarget); };
-document.getElementById('wfChip').onclick=e=>{ e.stopPropagation(); buildWorkflowChip(); menuToggle(document.getElementById('wfMenu'), e.currentTarget); };
-document.getElementById('recChip').onclick=e=>{ e.stopPropagation(); buildRecentChip(); menuToggle(document.getElementById('recMenu'), e.currentTarget); };
 document.getElementById('viewChip').onclick=e=>{ e.stopPropagation(); buildViewMenu(); menuToggle(document.getElementById('viewMenu'), e.currentTarget); };
 document.getElementById('exportSel').onclick=e=>{ e.stopPropagation(); buildExportMenu(); menuToggle(document.getElementById('exportMenu'), e.currentTarget); };
 document.getElementById('collectSel').onclick=e=>{ e.stopPropagation(); collectSelMenu(e.currentTarget); };
@@ -1022,7 +955,6 @@ async function lbShow(i){
   if(lbIdx>=0 && i!==lbIdx && !(await annotGuard())) return;
   if(i<0||i>=lbList.length) return;
   lbIdx=i; const f=lbList[i]; lb().classList.remove('annot');
-  markRecent(f.rel);
   const isTex=f.ext==='tex', isPdf=f.ext==='pdf', isMd=f.ext==='md', isCode=codeExt(f.ext), isSvg=f.ext==='svg', isVid=videoExt(f.ext);
   // Embarqué dans Atelier Studio : les fichiers texte/code s'ouvrent dans un
   // ONGLET Studio (la galerie reste navigable), pas dans la lightbox.
@@ -1308,7 +1240,6 @@ function render(){
     if(!showArch && f.archive) return false;
     if(!showHidden && (hidden.has(f.rel) || matchesRule(f.rel))) return false;
     if(activeCollection && !(collections[activeCollection]||[]).includes(f.rel)) return false;
-    if(activeWorkflow && workflow[f.rel]!==activeWorkflow) return false;
     if(onlyFavs && !favs.has(f.rel)) return false;
     if(onlyFavs && rateMin && (ratings[f.rel]||0)!==rateMin) return false;
     if(fld && f.folder!==fld) return false;
@@ -1350,8 +1281,6 @@ function render(){
     const isFav = favs.has(f.rel);
     const isHid = hidden.has(f.rel);
     const hidTag = isHid?`<span class="tag hid">hidden</span>`:'';
-    const wf = workflow[f.rel];
-    const wfTag = wf?`<span class="tag wf${wf==='final'?' final':''}">${esc(wf)}</span>`:'';
     const rt = ratings[f.rel]||0;
     return `<div class="card ${f.archive?'arch':''} ${isHid?'hid':''}">
       <span class="selbox ${selSet.has(f.rel)?'on':''}" data-act="sel" data-rel="${escA(f.rel)}" title="Select — Shift-click to select a range">${selSet.has(f.rel)?'■':'▢'}</span>
@@ -1367,7 +1296,7 @@ function render(){
       </div>
       <div class="meta">
         <div class="nm" title="${escA(f.name)}">${esc(truncMid(f.name,42))}</div>
-        <div class="row2">${isFav?'<span class="fv">★</span>':''}${rt?`<span class="rt">★${rt}</span>`:''}${arch}${hidTag}${wfTag}<span class="mf" title="${escA(f.folder)}">${esc(f.folder)}</span><span class="md" title="created ${escA(f.bdate)} · modified ${escA(f.mdate)}">${sort.startsWith('btime')?esc(f.bdate):esc(f.mdate)}</span><span class="md">${fmtSize(f.size)}</span></div>
+        <div class="row2">${isFav?'<span class="fv">★</span>':''}${rt?`<span class="rt">★${rt}</span>`:''}${arch}${hidTag}<span class="mf" title="${escA(f.folder)}">${esc(f.folder)}</span><span class="md" title="created ${escA(f.bdate)} · modified ${escA(f.mdate)}">${sort.startsWith('btime')?esc(f.bdate):esc(f.mdate)}</span><span class="md">${fmtSize(f.size)}</span></div>
       </div>
     </div>`;
   }).join('') + (list.length>MAX?`<div class="empty">… and ${list.length-MAX} more. Refine your search to see them.</div>`:'');

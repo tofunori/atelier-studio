@@ -148,7 +148,9 @@ test('view: opens an SVG artifact in the lightbox viewer', async ({ page }) => {
   await withGallery(async ({ url }) => {
     await page.goto(url);
 
-    await page.locator('[data-act="lb"][data-rel="plot-alpha.svg"]').click();
+    // plan 019 : le clic SÉLECTIONNE (inspecteur) — l'ouverture passe par le
+    // double-clic (ou Enter / bouton View de l'inspecteur)
+    await page.locator('[data-act="lb"][data-rel="plot-alpha.svg"]').dblclick();
 
     await expect(page.locator('#lb')).toHaveClass(/show/);
     await expect(page.locator('#lbPdf')).toBeVisible();
@@ -194,7 +196,7 @@ test('annotate: image lightbox posts an annotated PNG payload', async ({ page })
     });
 
     await page.goto(url);
-    await page.locator('[data-act="lb"][data-rel="preview-alpha.png"]').click();
+    await page.locator('[data-act="lb"][data-rel="preview-alpha.png"]').dblclick();
     await expect(page.locator('#lbImg')).toBeVisible();
     // refonte sobre : l'entrée est l'icône ✎ (#lbAnnot) et l'envoi passe par la
     // pilule (#annotPillSend), visible seulement avec ≥1 commentaire — on dessine
@@ -244,5 +246,134 @@ test('annotate: SVG viewer posts save and PNG export payloads', async ({ page })
     await page.locator('#exportpng').click();
     await expect.poll(() => calls.exportPng && calls.exportPng.dpi).toBe(600);
     expect(calls.exportPng.svg).toContain('Alpha snow');
+  });
+});
+
+// ============ plan 019 — barre de commande, sélection/inspecteur, transfert ==
+
+test('filters: workflow filter via popover shows an active chip, reset restores the grid', async ({ page }) => {
+  await withGallery(async ({ url }) => {
+    await page.goto(url);
+    await expect(page.locator('#grid .card')).toHaveCount(3);
+
+    await page.locator('#filtersChip').click();
+    await expect(page.locator('#filtersMenu')).toBeVisible();
+    // le sous-menu Statut s'ouvre SANS fermer le popover
+    await page.locator('#wfChip').click();
+    await expect(page.locator('#filtersMenu')).toBeVisible();
+    await page.locator('#wfMenu [data-wfpick="draft"]').click();
+
+    await expect(page.locator('#activeChips .fchip').first()).toContainText('Status: Draft');
+    await expect(page.locator('#filtersChip')).toContainText('Filters (1)');
+    await expect(page.locator('#grid .empty')).toContainText('No matching files');
+
+    // suppression via la chip → grille restaurée, compteur remis à zéro
+    await page.locator('#activeChips [data-fx="wf"]').click();
+    await expect(page.locator('#grid .card')).toHaveCount(3);
+    await expect(page.locator('#filtersChip')).not.toContainText('(1)');
+  });
+});
+
+test('select: click selects with aria-selected and the inspector follows across two cards', async ({ page }) => {
+  await withGallery(async ({ url }) => {
+    await page.goto(url);
+    await page.locator('[data-act="lb"][data-rel="plot-alpha.svg"]').click();
+    await expect(page.locator('body')).toHaveClass(/has-insp/);
+    await expect(page.locator('#lb')).not.toHaveClass(/show/);
+    await expect(page.locator('#inspTitle')).toContainText('plot-alpha.svg');
+    await expect(page.locator('.card[aria-selected="true"]')).toHaveCount(1);
+
+    await page.locator('[data-act="lb"][data-rel="plot-beta.svg"]').click();
+    await expect(page.locator('#inspTitle')).toContainText('plot-beta.svg');
+    await expect(page.locator('.card[aria-selected="true"]')).toHaveCount(1);
+
+    // sections réelles de l'inspecteur, provenance honnête
+    await expect(page.locator('#inspBody h3')).toHaveText(['Identity', 'Workflow', 'Provenance', 'Organization', 'Actions']);
+  });
+});
+
+test('workflow: status set from the inspector survives a reload (server-backed)', async ({ page }) => {
+  await withGallery(async ({ url }) => {
+    await page.goto(url);
+    await page.locator('[data-act="lb"][data-rel="plot-alpha.svg"]').click();
+    await page.locator('[data-iwf="candidate"]').click();
+    await expect(page.locator('.card[data-card="plot-alpha.svg"] .tag.wf')).toContainText('candidate');
+    // le POST /state est débouncé (400 ms) — attendre qu'il parte
+    await page.waitForTimeout(700);
+
+    await page.reload();
+    await expect(page.locator('.card[data-card="plot-alpha.svg"] .tag.wf')).toContainText('candidate');
+    await page.locator('[data-act="lb"][data-rel="plot-alpha.svg"]').click();
+    await expect(page.locator('[data-iwf="candidate"]')).toHaveClass(/on/);
+  });
+});
+
+test('add-to-chat from the inspector is idempotent on rapid double activation', async ({ page }) => {
+  await withGallery(async ({ root, port }) => {
+    // la galerie doit se croire embarquée (window.self !== window.top) : une
+    // page hôte servie par le MÊME serveur l'encadre et capture les postMessage
+    writeFileSync(path.join(root, 'host.html'), `<!doctype html><body style="margin:0">
+<script>window.__msgs=[];window.addEventListener('message',e=>{if(e.data&&e.data.type)window.__msgs.push(e.data)});</script>
+<iframe id="g" src="/figures_index.html" style="width:1200px;height:800px;border:0"></iframe></body>`);
+    await page.goto(`http://127.0.0.1:${port}/host.html`);
+    const g = page.frameLocator('#g');
+    await g.locator('#grid .card').first().waitFor();
+
+    await g.locator('[data-act="lb"][data-rel="preview-alpha.png"]').click();
+    const chat = g.locator('#inspChat');
+    await expect(chat).toBeVisible();
+    await chat.click();
+    await chat.click(); // double activation rapide — bloquée par pending/added
+    await expect(chat).toContainText('Added to chat');
+
+    await expect.poll(() => page.evaluate(() => window.__msgs.filter(m => m.type === 'atelier-add-to-chat').length)).toBe(1);
+    const msg = await page.evaluate(() => window.__msgs.find(m => m.type === 'atelier-add-to-chat'));
+    expect(msg.text).toContain('preview-alpha.png');
+    expect(msg.text).toContain('lis-le (outil Read)');
+  });
+});
+
+test('keyboard: arrows move the selection, Enter opens, Escape closes in cascade', async ({ page }) => {
+  await withGallery(async ({ url }) => {
+    await page.goto(url);
+    await page.locator('#grid .card [data-act="lb"]').first().click();
+    const first = await page.locator('#inspTitle').textContent();
+    await page.locator('#grid').focus();
+    await page.keyboard.press('ArrowRight');
+    await expect(page.locator('#inspTitle')).not.toHaveText(first);
+
+    await page.keyboard.press('Enter');
+    await expect(page.locator('#lb')).toHaveClass(/show/);
+    await page.keyboard.press('Escape');           // 1er Escape : lightbox
+    await expect(page.locator('#lb')).not.toHaveClass(/show/);
+    await expect(page.locator('body')).toHaveClass(/has-insp/);
+    await page.keyboard.press('Escape');           // 2e : inspecteur
+    await expect(page.locator('body')).not.toHaveClass(/has-insp/);
+  });
+});
+
+test('800x600: command bar usable, inspector overlays as a drawer, no horizontal scroll', async ({ page }) => {
+  await withGallery(async ({ url }) => {
+    await page.setViewportSize({ width: 800, height: 600 });
+    await page.goto(url);
+    await page.locator('#grid .card [data-act="lb"]').first().click();
+    await expect(page.locator('#inspector')).toBeVisible();
+    await expect(page.locator('#inspScrim')).toBeVisible();
+    const scrollW = await page.evaluate(() => document.documentElement.scrollWidth);
+    expect(scrollW).toBeLessThanOrEqual(801);
+    // le scrim ferme le tiroir
+    await page.locator('#inspScrim').click({ position: { x: 10, y: 300 } });
+    await expect(page.locator('body')).not.toHaveClass(/has-insp/);
+  });
+});
+
+test('missing file: inspector shows a local error, the grid stays intact', async ({ page }) => {
+  await withGallery(async ({ url, root }) => {
+    await page.goto(url);
+    // le fichier disparaît du disque APRÈS le scan (cas réel : suppression externe)
+    rmSync(path.join(root, 'preview-alpha.png'));
+    await page.locator('[data-act="lb"][data-rel="preview-alpha.png"]').click();
+    await expect(page.locator('#inspNotice')).toContainText('Preview unavailable');
+    await expect(page.locator('#grid .card')).toHaveCount(3);
   });
 });
