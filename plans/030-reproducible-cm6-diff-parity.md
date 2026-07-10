@@ -46,7 +46,7 @@ doit reproduire le contrat complet et son build doit être déterministe.
 | Install locked | `npm --prefix gallery ci` | exit 0 |
 | Build CM6 | `npm --prefix gallery run build:cm6` | bundles régénérés |
 | Compat tests | `node --test gallery/server/tests/studio_compat.test.mjs` | tous verts |
-| Diff both engines | `npx playwright test gallery/tests/e2e/diff.spec.js` | CM5 et CM6 verts |
+| Diff both engines | `npm --prefix gallery exec -- playwright test tests/e2e/diff.spec.js` | CM5 et CM6 verts |
 | Gallery | `npm run test:gallery` | exit 0 |
 
 ## Scope
