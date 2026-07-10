@@ -104,3 +104,65 @@ describe("codex provider helpers (app-server)", () => {
     expect(buildCodexAppServerArgs()).toEqual(["app-server"]);
   });
 });
+
+// Plan 025 step 4 : quatre modes de permission Atelier → quatre politiques
+// Codex explicites (schéma codex-cli 0.142.5). Aucun mode non « Full access »
+// ne peut retomber sur danger-full-access. Import paresseux : tant que le
+// helper n'existe pas, seuls CES tests échouent.
+describe("resolveCodexSafety (plan 025)", () => {
+  const load = async () => {
+    const m = await import("./codex.mjs");
+    expect(typeof m.resolveCodexSafety, "resolveCodexSafety doit être exporté").toBe("function");
+    return m.resolveCodexSafety;
+  };
+
+  it("Full access (bypassPermissions) → danger-full-access / never", async () => {
+    const resolveCodexSafety = await load();
+    const s = resolveCodexSafety("bypassPermissions", { model: "gpt-5.3-codex" });
+    expect(s.sandbox).toBe("danger-full-access");
+    expect(s.approvalPolicy).toBe("never");
+    expect(s.collaborationMode).toBeUndefined();
+  });
+
+  it("Accept edits (acceptEdits) → workspace-write / on-request", async () => {
+    const resolveCodexSafety = await load();
+    const s = resolveCodexSafety("acceptEdits", { model: "gpt-5.3-codex" });
+    expect(s.sandbox).toBe("workspace-write");
+    expect(s.approvalPolicy).toBe("on-request");
+    expect(s.collaborationMode).toBeUndefined();
+  });
+
+  it("Ask (default) → workspace-write / untrusted", async () => {
+    const resolveCodexSafety = await load();
+    const s = resolveCodexSafety("default", { model: "gpt-5.3-codex" });
+    expect(s.sandbox).toBe("workspace-write");
+    expect(s.approvalPolicy).toBe("untrusted");
+  });
+
+  it("Plan → read-only / never, collaborationMode plan RÉEL (settings.model requis)", async () => {
+    const resolveCodexSafety = await load();
+    const s = resolveCodexSafety("plan", { model: "gpt-5.3-codex" });
+    expect(s.sandbox).toBe("read-only");
+    expect(s.approvalPolicy).toBe("never");
+    expect(s.collaborationMode?.mode).toBe("plan");
+    // le protocole exige settings.model — jamais un objet plan incomplet
+    expect(s.collaborationMode?.settings?.model).toBe("gpt-5.3-codex");
+  });
+
+  it("mode inconnu → repli SÛR read-only/on-request + diagnostic, jamais danger-full-access", async () => {
+    const resolveCodexSafety = await load();
+    for (const weird of ["yolo", "", undefined, null, "DANGER"]) {
+      const s = resolveCodexSafety(weird, { model: "m" });
+      expect(s.sandbox).toBe("read-only");
+      expect(s.approvalPolicy).toBe("on-request");
+      expect(String(s.diagnostic ?? "")).not.toBe("");
+    }
+  });
+
+  it("aucun mode non-Full ne produit danger-full-access", async () => {
+    const resolveCodexSafety = await load();
+    for (const mode of ["acceptEdits", "default", "plan", "autre-chose"]) {
+      expect(resolveCodexSafety(mode, { model: "m" }).sandbox).not.toBe("danger-full-access");
+    }
+  });
+});

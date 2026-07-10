@@ -1,6 +1,27 @@
 import { refreshSidecarInfo } from "./sidecarInfo";
 
-export type AgentEvent =
+/** Metadata harnais (plan 025, schema v1) portée par tout événement sidecar durable. */
+export type HarnessEventMeta = {
+  schemaVersion: 1;
+  eventId: string;
+  provider: string;
+  threadId: string;
+  turnId: string;
+  messageId?: string;
+  itemId?: string;
+  nativeThreadId?: string;
+  nativeTurnId?: string;
+  sequence: number;
+  ts: number;
+  durable: boolean;
+  origin: "provider" | "atelier" | "legacy-import";
+};
+
+/** Metadata provisoire d'un événement optimiste local — remplacée par l'ack sidecar. */
+export type ProvisionalEventMeta = { provisional: true; messageId: string };
+
+// meta par intersection : une seule déclaration pour toutes les branches de l'union
+type AgentEventBody =
   | { kind: "user"; text: string; imageUrl?: string; label?: string; pastes?: { name: string; text: string }[]; ts?: number }
   | { kind: "text"; text: string; ts?: number }
   | { kind: "delta"; text: string; ts?: number }
@@ -60,6 +81,20 @@ export type AgentEvent =
       ts?: number;
     }
   | { kind: "error"; message: string };
+
+export type AgentEvent = AgentEventBody & { meta?: HarnessEventMeta | ProvisionalEventMeta };
+
+/** Bulle user telle qu'archivée par le sidecar : le texte réellement tapé et
+ * des attachments structurés (chemins, noms, nombres de lignes) — jamais de
+ * data URL ni de contexte injecté (handoff, textes de pièces jointes). */
+export type UserDisplayEvent = {
+  kind: "user";
+  text: string;
+  ts?: number;
+  label?: string;
+  pastes?: { name: string; lines: number }[];
+  imagePaths?: string[];
+};
 
 export type Thread = {
   id: string;
@@ -149,6 +184,8 @@ export type SendOptions = {
   effort?: string;
   permissionMode?: string;
   mode?: "steer" | "queue";
+  clientMessageId?: string;
+  displayEvent?: UserDisplayEvent;
   webSearch?: boolean;
   additionalDirectories?: string[];
   autoReview?: { enabled: boolean; provider: string; model: string; effort: string; trigger: string; autofix?: boolean };

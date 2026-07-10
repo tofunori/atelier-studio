@@ -303,4 +303,46 @@ describe("orchestration App — caractérisation", () => {
     // le thread reste sélectionné (historique toujours affiché, pas de reset)
     expect(screen.getAllByText("Fil A — albédo").length).toBeGreaterThan(0);
   });
+
+  it("deux tool_update de même itemId dans deux turns restent deux actions distinctes (plan 025)", async () => {
+    const { sock } = await mountApp();
+    await pushThreads(sock);
+    await selectThread(sock, "Fil A — albédo");
+
+    // turn 1 : un outil « call-1 », puis terminal
+    await push(sock, {
+      type: "event", threadId: "thread-A",
+      event: {
+        ...events.tool({ id: "call-1", name: "Bash", detail: "premier appel", output: "sortie un" }),
+        meta: { schemaVersion: 1, eventId: "e1", provider: "claude", threadId: "thread-A", turnId: "turn-1", itemId: "call-1", sequence: 2, ts: 1, durable: true, origin: "provider" },
+      },
+    });
+    await push(sock, {
+      type: "event", threadId: "thread-A",
+      event: {
+        ...events.done(),
+        meta: { schemaVersion: 1, eventId: "e2", provider: "claude", threadId: "thread-A", turnId: "turn-1", sequence: 3, ts: 2, durable: true, origin: "provider" },
+      },
+    });
+    // turn 2 : le provider réutilise le même id d'item (ids Codex/Claude non
+    // globalement uniques) — l'identité d'un item est (turnId, itemId)
+    await push(sock, {
+      type: "event", threadId: "thread-A",
+      event: {
+        ...events.tool({ id: "call-1", name: "Bash", detail: "second appel", output: "sortie deux" }),
+        meta: { schemaVersion: 1, eventId: "e3", provider: "claude", threadId: "thread-A", turnId: "turn-2", itemId: "call-1", sequence: 5, ts: 3, durable: true, origin: "provider" },
+      },
+    });
+
+    // les DEUX actions existent : le tool du turn 2 ne remplace pas celui du
+    // turn 1 (détails visibles en dépliant chaque groupe d'outils)
+    const rows = [...document.querySelectorAll(".tool-group-row")] as HTMLElement[];
+    expect(rows.length).toBeGreaterThanOrEqual(2);
+    await act(async () => {
+      rows.forEach((r) => r.click());
+      await flushMicrotasks(2);
+    });
+    expect(screen.getByText(/premier appel/)).toBeTruthy();
+    expect(screen.getByText(/second appel/)).toBeTruthy();
+  });
 });

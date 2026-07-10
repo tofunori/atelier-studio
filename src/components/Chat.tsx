@@ -705,9 +705,12 @@ export default function Chat(p: {
     while (end < p.events.length && isSummarizableTool(p.events[end])) end++;
     const actions = p.events.slice(i, end) as Extract<AgentEvent, { kind: "tool" | "tool_update" }>[];
     const first = actions[0];
+    // le turn fait partie de l'identité : deux turns peuvent réutiliser le
+    // même id d'outil (plan 025) — sans lui, React fusionne les deux grappes
+    const turnKey = first?.meta && "turnId" in first.meta ? `${first.meta.turnId}:` : "";
     const groupKey = first?.kind === "tool_update"
-      ? `tools:${first.id}`
-      : `tools:${first?.name ?? i}:${i}`;
+      ? `tools:${turnKey}${first.id}`
+      : `tools:${turnKey}${first?.name ?? i}:${i}`;
     renderedEvents.push({ type: "actions", actions, index: i, key: groupKey });
     i = end - 1;
   }

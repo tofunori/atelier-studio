@@ -24,6 +24,7 @@ vi.mock("./providers/codex_image.mjs", () => ({
 }));
 
 import { route } from "./router.mjs";
+import * as threadStoreModule from "./store.mjs";
 
 describe("route", () => {
   it("répond pong au ping", async () => {
@@ -307,6 +308,146 @@ describe("moveThread", () => {
     );
     expect(store.get("t1").projectRoot).toBe("/proj-a");
     expect(sent[0].type).toBe("error");
+  });
+});
+
+describe("attribution des tours (plan 025)", () => {
+  const flush = () => new Promise((r) => setTimeout(r, 10));
+
+  function makeTurnCtx({ provider = "claude", providerImpl }) {
+    const emitted = [];
+    const dir = mkdtempSync(join(tmpdir(), "as-turn-"));
+    const { ThreadStore } = threadStoreModule;
+    const store = new ThreadStore(join(dir, "threads.json"));
+    const gitops = {
+      snapshot: vi.fn(async () => "s".repeat(40)),
+      isRepo: async () => true,
+      changedSince: vi.fn(async () => []),
+      numstat: vi.fn(async () => []),
+      status: async () => ({ files: [] }),
+    };
+    const ledger = { append: vi.fn(async () => {}), getAll: async () => [] };
+    const ctx = {
+      send: (m) => emitted.push(m),
+      broadcast: (m) => emitted.push(m),
+      store,
+      gitops,
+      ledger,
+      providers: { [provider]: providerImpl },
+    };
+    return { ctx, emitted, gitops, ledger };
+  }
+
+  const userEvents = (emitted) =>
+    emitted.filter((m) => m.type === "event" && m.event?.kind === "user").map((m) => m.event);
+  const doneEvents = (emitted) =>
+    emitted.filter((m) => m.type === "event" && m.event?.kind === "done").map((m) => m.event);
+
+  it("steer : même turnId, messageId propre, AUCUN snapshot/ledger supplémentaire", async () => {
+    const sends = [];
+    const { ctx, emitted, gitops, ledger } = makeTurnCtx({
+      providerImpl: { send: (opts) => sends.push(opts) },
+    });
+
+    await route({
+      type: "send", provider: "claude", threadId: "t1", projectRoot: "/p",
+      prompt: "premier", clientMessageId: "m1",
+      displayEvent: { kind: "user", text: "premier" },
+    }, ctx);
+    await route({
+      type: "send", provider: "claude", threadId: "t1", projectRoot: "/p",
+      prompt: "correction en vol", clientMessageId: "m2", mode: "steer",
+      displayEvent: { kind: "user", text: "correction en vol" },
+    }, ctx);
+
+    const users = userEvents(emitted);
+    expect(users).toHaveLength(2);
+    expect(users[0].meta?.turnId).toBeTruthy();
+    expect(users[0].meta?.messageId).toBe("m1");
+    expect(users[1].meta?.turnId).toBe(users[0].meta.turnId);
+    expect(users[1].meta?.messageId).toBe("m2");
+    expect(gitops.snapshot).toHaveBeenCalledTimes(1);
+
+    // terminal du turn actif : exactement UN ledger pour tout le turn steeré
+    await sends[0].onEvent({ kind: "done", ok: true, result: "" });
+    await flush();
+    expect(ledger.append).toHaveBeenCalledTimes(1);
+    const dones = doneEvents(emitted);
+    expect(dones).toHaveLength(1);
+    expect(dones[0].meta?.turnId).toBe(users[0].meta.turnId);
+  });
+
+  it("queue : turnId réservé visible immédiatement, provider différé jusqu'au terminal", async () => {
+    const sends = [];
+    const { ctx, emitted, gitops } = makeTurnCtx({
+      providerImpl: { send: (opts) => sends.push(opts) },
+    });
+
+    await route({
+      type: "send", provider: "claude", threadId: "t2", projectRoot: "/p",
+      prompt: "premier", clientMessageId: "m1",
+      displayEvent: { kind: "user", text: "premier" },
+    }, ctx);
+    await route({
+      type: "send", provider: "claude", threadId: "t2", projectRoot: "/p",
+      prompt: "ensuite", clientMessageId: "m2", mode: "queue",
+      displayEvent: { kind: "user", text: "ensuite" },
+    }, ctx);
+
+    // la bulle user queued est actée tout de suite, avec un turnId NEUF…
+    const users = userEvents(emitted);
+    expect(users).toHaveLength(2);
+    expect(users[1].meta?.turnId).toBeTruthy();
+    expect(users[1].meta?.turnId).not.toBe(users[0].meta?.turnId);
+    // …mais le provider n'est PAS rappelé avant le terminal du turn actif
+    expect(sends).toHaveLength(1);
+
+    await sends[0].onEvent({ kind: "done", ok: true, result: "" });
+    await flush();
+    expect(sends).toHaveLength(2);
+    expect(sends[1].prompt).toBe("ensuite");
+    // un snapshot par turn EXÉCUTÉ (jamais pour un queued en attente)
+    expect(gitops.snapshot).toHaveBeenCalledTimes(2);
+
+    await sends[1].onEvent({ kind: "done", ok: true, result: "" });
+    await flush();
+    const dones = doneEvents(emitted);
+    expect(dones).toHaveLength(2);
+    expect(dones[1].meta?.turnId).toBe(users[1].meta.turnId);
+  });
+
+  it("steer refusé par le provider → queue avec le MÊME messageId, sans double bulle user", async () => {
+    const runs = [];
+    const { ctx, emitted } = makeTurnCtx({
+      provider: "codex",
+      providerImpl: {
+        steer: vi.fn(async () => false),
+        run: vi.fn((opts) => {
+          runs.push(opts);
+          return new Promise(() => {});
+        }),
+      },
+    });
+
+    await route({
+      type: "send", provider: "codex", threadId: "t3", projectRoot: "/p",
+      prompt: "premier", clientMessageId: "m1",
+      displayEvent: { kind: "user", text: "premier" },
+    }, ctx);
+    await flush();
+    await route({
+      type: "send", provider: "codex", threadId: "t3", projectRoot: "/p",
+      prompt: "pendant le run", clientMessageId: "m2", mode: "steer",
+      displayEvent: { kind: "user", text: "pendant le run" },
+    }, ctx);
+    await flush();
+
+    const users = userEvents(emitted);
+    expect(users).toHaveLength(2);
+    expect(users[1].meta?.messageId).toBe("m2");
+    expect(users[1].meta?.turnId).not.toBe(users[0].meta?.turnId);
+    // pas de deuxième run tant que le turn actif n'est pas terminé
+    expect(runs).toHaveLength(1);
   });
 });
 

@@ -4,12 +4,13 @@ import { homedir } from "node:os";
 import { writeFileAtomic } from "./store.mjs";
 import { generateImage, resolveArkApiKey, resolveArkModel } from "./providers/images.mjs";
 import { generateImageViaCodex } from "./providers/codex_image.mjs";
+import { createHarnessThread } from "./harness_events.mjs";
 
 // ctx: { send(obj), store, providers, broadcast(obj) }
 
 // file d'attente par thread pour les providers SANS steering (Codex) :
 // les messages envoyés pendant un run partent automatiquement au tour suivant.
-const pending = new Map(); // threadId -> [msg...]
+const pending = new Map(); // threadId -> [{ msg, turnId }...] — turns réservés en queue
 const permWaiters = new Map(); // requestId -> resolve(bool)
 const lastTurnByThread = new Map(); // threadId -> { entry, responseText, diffs }
 let retitleAllRunning = false;
@@ -278,6 +279,185 @@ async function appendLedgerForDone(ctx, turn, event) {
     filesChanged,
     snapshotSha: turn.snapshotSha ?? null,
   });
+}
+
+// ---------------------------------------------------------------------------
+// Attribution des tours (plan 025) — le routeur est la SEULE autorité des
+// turnId/messageId. Un sérialiseur harnais par thread décore chaque événement
+// (eventId, sequence, turnId…) ; un dispatcher STABLE par thread route les
+// événements du provider vers le turn actif (un steer ne réattribue rien).
+// ---------------------------------------------------------------------------
+
+const harnessThreads = new Map(); // threadId -> harness (créé par harness_events)
+const threadRuns = new Map(); // threadId -> { turnId, turn, autoReview } du turn ACTIF
+const threadDispatchers = new Map(); // threadId -> dispatcher stable
+const emitBox = new Map(); // threadId -> emit courant (broadcast de la dernière connexion)
+
+function harnessFor(threadId, provider) {
+  let h = harnessThreads.get(threadId);
+  if (!h) {
+    h = createHarnessThread({
+      threadId,
+      provider,
+      emit: (event) => emitBox.get(threadId)?.({ type: "event", threadId, event }),
+      journal: null, // journal canonique branché en tranche C
+    });
+    harnessThreads.set(threadId, h);
+  }
+  h.setProvider(provider);
+  return h;
+}
+
+/** displayEvent du frontend (texte réellement tapé, attachments structurés) —
+ * repli sur le prompt brut pour les anciens clients. Jamais de data URL. */
+function normalizeDisplayEvent(msg) {
+  const d = msg.displayEvent;
+  if (d && d.kind === "user" && typeof d.text === "string") {
+    return { ...d, ts: d.ts ?? Date.now() };
+  }
+  return { kind: "user", text: String(msg.prompt ?? ""), ts: Date.now() };
+}
+
+function dispatcherFor(ctx, threadId) {
+  let d = threadDispatchers.get(threadId);
+  if (!d) {
+    d = (event) => handleTurnEvent(ctx, threadId, event);
+    threadDispatchers.set(threadId, d);
+  }
+  return d;
+}
+
+async function handleTurnEvent(ctx, threadId, event) {
+  const run = threadRuns.get(threadId);
+  const h = harnessThreads.get(threadId);
+  const emit = emitBox.get(threadId) ?? ctx.broadcast ?? ctx.send;
+  if (!run || !h || !event) return; // course à l'arrêt : événement orphelin ignoré
+  const { turn, turnId } = run;
+  collectTool(turn.tools, event);
+  if (event.kind === "text") turn.lastText = event.text;
+
+  if (event.kind === "edit") {
+    // enrichissement async (±lignes git) sérialisé par le harnais : ne peut
+    // pas être dépassé par le done qui suit
+    await h.emit(turnId, enrichEditEvent(ctx, turn, event));
+    return;
+  }
+  if (event.kind !== "done" && event.kind !== "error") {
+    await h.emit(turnId, event);
+    return;
+  }
+
+  // terminal — exactement un par turn (un doublon est refusé par le harnais)
+  const outEvent = event.kind === "done" ? await enrichDoneEvent(ctx, turn, event) : event;
+  const accepted = await h.terminal(turnId, outEvent);
+  if (!accepted) return;
+  threadRuns.delete(threadId);
+
+  if (event.kind === "done") {
+    emitGitChanged(ctx, threadId, turn.projectRoot);
+    maybeAutoReview(ctx, emit, turn, run.autoReview);
+    appendLedgerForDone(ctx, turn, outEvent).catch((e) => {
+      emit({ type: "error", threadId, message: `ledger: ${String(e)}` });
+    });
+  }
+  ctx.store.upsert({ id: threadId, status: event.kind === "done" ? "done" : "idle" });
+  emit({ type: "threads", threads: ctx.store.list() });
+  if (event.kind === "done" && event.ok !== false) {
+    maybeTitleThread(ctx, emit, threadId, turn.prompt).catch(() => {});
+  }
+  drainQueue(ctx, threadId);
+}
+
+function drainQueue(ctx, threadId) {
+  const q = pending.get(threadId);
+  const next = q?.shift();
+  if (q && q.length === 0) pending.delete(threadId);
+  if (!next) return;
+  const h = harnessThreads.get(threadId);
+  startProviderTurn(ctx, h, next.msg, { reservedTurnId: next.turnId }).catch((e) => {
+    (emitBox.get(threadId) ?? ctx.send)({
+      type: "error",
+      threadId,
+      message: `reprise de la file: ${String(e)}`,
+    });
+  });
+}
+
+/** Exécute UN turn (nouveau ou réservé en queue) : snapshot, provider, statut. */
+async function startProviderTurn(ctx, h, msg, { reservedTurnId = null } = {}) {
+  const { threadId, projectRoot, provider, prompt, model, effort, permissionMode } = msg;
+  const p = ctx.providers[provider];
+  const emit = emitBox.get(threadId) ?? ctx.broadcast ?? ctx.send;
+  const prev = ctx.store.get(threadId);
+
+  ctx.store.upsert({ id: threadId, status: "running" });
+  emit({ type: "threads", threads: ctx.store.list() });
+
+  const tools = [];
+  const snapshotSha = await snapshotBeforeProvider(ctx, threadId);
+  const turn = { threadId, projectRoot, provider, model, effort, prompt, tools, snapshotSha, lastText: "" };
+
+  let turnId;
+  if (reservedTurnId) {
+    h.activateQueued(reservedTurnId);
+    turnId = reservedTurnId;
+  } else {
+    turnId = h.startTurn({
+      messageId: msg.clientMessageId,
+      userEvent: normalizeDisplayEvent(msg),
+      nativeThreadId: prev?.sessionId ?? undefined,
+    });
+  }
+  threadRuns.set(threadId, { turnId, turn, autoReview: msg.autoReview });
+  const dispatcher = dispatcherFor(ctx, threadId);
+
+  if (provider === "claude") {
+    try {
+      p.send({
+        threadId,
+        cwd: projectRoot || process.env.HOME,
+        prompt,
+        sessionId: prev?.sessionId ?? null,
+        model,
+        effort,
+        permissionMode,
+        onPermissionRequest: makePermissionRelay(ctx, emit, threadId, permissionMode),
+        mode: msg.mode,
+        resumeAt: prev?.resumeAt ?? null,
+        fork: prev?.forkPending ?? false,
+        onSession: (sessionId) =>
+          ctx.store.upsert({ id: threadId, sessionId, resumeAt: null, forkPending: false }),
+        onEvent: dispatcher,
+      });
+    } catch (e) {
+      // p.send synchrone a levé après le passage en "running" : terminal error
+      // via le harnais (statut + file gérés par handleTurnEvent)
+      await handleTurnEvent(ctx, threadId, { kind: "error", message: String(e?.message ?? e) });
+    }
+    return;
+  }
+
+  p.run({
+    threadId,
+    cwd: projectRoot || process.env.HOME,
+    prompt,
+    inputs: msg.inputs,
+    imagePath: msg.imagePath,
+    attachments: msg.attachments,
+    sessionId: prev?.sessionId ?? null,
+    model,
+    effort,
+    permissionMode,
+    clientMessageId: msg.clientMessageId,
+    webSearch: msg.webSearch,
+    additionalDirectories: msg.additionalDirectories,
+    onEvent: dispatcher,
+  })
+    .then(({ sessionId }) => {
+      ctx.store.upsert({ id: threadId, sessionId });
+      emit({ type: "threads", threads: ctx.store.list() });
+    })
+    .catch((e) => dispatcher({ kind: "error", message: String(e) }));
 }
 
 export async function route(msg, ctx) {
@@ -938,13 +1118,14 @@ export async function route(msg, ctx) {
       break;
     }
     case "send": {
-      const { threadId, projectRoot, provider, prompt, title, model, effort, permissionMode } = msg;
+      const { threadId, projectRoot, provider, prompt, title, permissionMode } = msg;
       const p = ctx.providers?.[provider];
       if (!p) {
         ctx.send({ type: "error", threadId, message: `provider inconnu: ${provider}` });
         break;
       }
       const emit = ctx.broadcast ?? ctx.send;
+      emitBox.set(threadId, emit);
       let prev = ctx.store.get(threadId);
       // changement de provider en cours de thread : les sessions ne sont PAS
       // interchangeables (un UUID Claude n'est pas un thread Codex). On repart
@@ -971,125 +1152,60 @@ export async function route(msg, ctx) {
         projectRoot,
         provider,
         title: prev?.title ?? title ?? prompt.slice(0, 40),
-        status: "running",
       });
-      emit({ type: "threads", threads: ctx.store.list() });
 
-      if (provider === "claude") {
-        // session persistante ; steer/queue = priority native du SDK ('now'/'next')
-        const tools = [];
-        const snapshotSha = await snapshotBeforeProvider(ctx, threadId);
-        const turn = { threadId, projectRoot, provider, model, effort, prompt, tools, snapshotSha, lastText: "" };
-        try {
-        p.send({
-          threadId,
-          cwd: projectRoot || process.env.HOME,
-          prompt,
-          sessionId: prev?.sessionId ?? null,
-          model,
-          effort,
-          permissionMode,
-          onPermissionRequest: makePermissionRelay(ctx, emit, threadId, permissionMode),
-          mode: msg.mode,
-          resumeAt: prev?.resumeAt ?? null,
-          fork: prev?.forkPending ?? false,
-          onSession: (sessionId) =>
-            ctx.store.upsert({ id: threadId, sessionId, resumeAt: null, forkPending: false }),
-          onEvent: async (event) => {
-            collectTool(tools, event);
-            if (event.kind === "text") turn.lastText = event.text;
-            const outEvent = await enrichDoneEvent(ctx, turn, event);
-            emit({ type: "event", threadId, event: outEvent });
-            if (event.kind === "done") emitGitChanged(ctx, threadId, projectRoot);
-            if (event.kind === "done") maybeAutoReview(ctx, emit, turn, msg.autoReview);
-            if (event.kind === "done") appendLedgerForDone(ctx, turn, outEvent).catch((e) => {
-              ctx.send({ type: "error", threadId, message: `ledger: ${String(e)}` });
+      const h = harnessFor(threadId, provider);
+      const running = threadRuns.get(threadId);
+
+      // ---- run actif : steer (défaut) ou queue explicite ----
+      if (running && msg.mode !== "queue") {
+        const userEvent = normalizeDisplayEvent(msg);
+        if (provider === "claude") {
+          // steer natif SDK (priority "now") — le dispatcher stable du thread
+          // continue d'attribuer les événements au turn actif
+          h.steer({ messageId: msg.clientMessageId, userEvent });
+          try {
+            p.send({
+              threadId,
+              cwd: projectRoot || process.env.HOME,
+              prompt,
+              sessionId: prev?.sessionId ?? null,
+              model: msg.model,
+              effort: msg.effort,
+              permissionMode,
+              mode: "steer",
+              onSession: (sessionId) =>
+                ctx.store.upsert({ id: threadId, sessionId, resumeAt: null, forkPending: false }),
+              onEvent: dispatcherFor(ctx, threadId),
             });
-            if (event.kind === "done" || event.kind === "error") {
-              ctx.store.upsert({
-                id: threadId,
-                status: event.kind === "done" ? "done" : "idle",
-              });
-              emit({ type: "threads", threads: ctx.store.list() });
-              if (event.kind === "done" && event.ok !== false) {
-                maybeTitleThread(ctx, emit, threadId, prompt).catch(() => {});
-              }
-              // dépiler la file d'attente explicite
-              const q = pending.get(threadId);
-              const next = q?.shift();
-              if (q && q.length === 0) pending.delete(threadId);
-              if (next) route(next, ctx);
-            }
-          },
-        });
-        } catch (e) {
-          // p.send synchrone a levé après le passage en "running" : miroir du
-          // .catch du chemin p.run — remettre le thread au repos + émettre l'erreur.
-          ctx.store.upsert({ id: threadId, status: "idle" });
-          emit({ type: "event", threadId, event: { kind: "error", message: String(e?.message ?? e) } });
-          emit({ type: "threads", threads: ctx.store.list() });
-        }
-        break;
-      }
-
-      // Codex en cours : steering natif (turn/steer) d'abord, file d'attente en repli
-      if (prev?.status === "running") {
-        if (p.steer && await p.steer({ threadId, prompt, inputs: msg.inputs,
-            imagePath: msg.imagePath, attachments: msg.attachments })) {
-          emit({ type: "event", threadId, event: { kind: "tool", name: "__steered" } });
+          } catch (e) {
+            ctx.send({ type: "error", threadId, message: `steer: ${String(e?.message ?? e)}` });
+          }
           break;
         }
+        if (p.steer && await p.steer({ threadId, prompt, inputs: msg.inputs,
+            imagePath: msg.imagePath, attachments: msg.attachments })) {
+          h.steer({ messageId: msg.clientMessageId, userEvent });
+          h.emit(h.activeTurnId(), { kind: "tool", name: "__steered" });
+          break;
+        }
+        // steer refusé par le provider → queue avec le MÊME messageId et un
+        // nouveau turnId, sans dupliquer la bulle user (elle est émise ici)
+      }
+      if (running) {
+        const turnId = h.queue({
+          messageId: msg.clientMessageId,
+          userEvent: normalizeDisplayEvent(msg),
+        });
+        h.emit(turnId, { kind: "tool", name: "__queued" });
         const q = pending.get(threadId) ?? [];
-        q.push(msg);
+        q.push({ msg, turnId });
         pending.set(threadId, q);
-        emit({ type: "event", threadId, event: { kind: "tool", name: "__queued" } });
         break;
       }
-      // fire-and-forget : plusieurs threads streament en parallèle
-      const tools = [];
-      const snapshotSha = await snapshotBeforeProvider(ctx, threadId);
-      const turn = { threadId, projectRoot, provider, model, effort, prompt, tools, snapshotSha, lastText: "" };
-      p.run({
-        threadId,
-        cwd: projectRoot || process.env.HOME,
-        prompt,
-        inputs: msg.inputs,
-        imagePath: msg.imagePath,
-        attachments: msg.attachments,
-        sessionId: prev?.sessionId ?? null,
-        model,
-        effort,
-        permissionMode,
-        webSearch: msg.webSearch,
-        additionalDirectories: msg.additionalDirectories,
-        onEvent: async (event) => {
-          collectTool(tools, event);
-          if (event.kind === "text") turn.lastText = event.text;
-          const outEvent = await enrichDoneEvent(ctx, turn, event);
-          emit({ type: "event", threadId, event: outEvent });
-          if (event.kind === "done") emitGitChanged(ctx, threadId, projectRoot);
-          if (event.kind === "done") maybeAutoReview(ctx, emit, turn, msg.autoReview);
-          if (event.kind === "done") appendLedgerForDone(ctx, turn, outEvent).catch((e) => {
-            ctx.send({ type: "error", threadId, message: `ledger: ${String(e)}` });
-          });
-        },
-      })
-        .then(({ sessionId }) => {
-          ctx.store.upsert({ id: threadId, sessionId, status: "done" });
-          emit({ type: "threads", threads: ctx.store.list() });
-          maybeTitleThread(ctx, emit, threadId, prompt).catch(() => {});
-        })
-        .catch((e) => {
-          ctx.store.upsert({ id: threadId, status: "idle" });
-          emit({ type: "event", threadId, event: { kind: "error", message: String(e) } });
-          emit({ type: "threads", threads: ctx.store.list() });
-        })
-        .finally(() => {
-          const q = pending.get(threadId);
-          const next = q?.shift();
-          if (q && q.length === 0) pending.delete(threadId);
-          if (next) route(next, ctx);
-        });
+
+      // ---- turn normal (thread au repos) ----
+      await startProviderTurn(ctx, h, msg);
       break;
     }
     default:

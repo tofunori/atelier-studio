@@ -806,6 +806,22 @@ export default function App() {
           const list = [...(prev[msg.threadId] ?? [])];
           const ev = msg.event;
           const last = list[list.length - 1];
+          // ack sidecar d'un message user optimiste : adopter la metadata
+          // autoritaire (turnId/sequence/eventId) sans dupliquer la bulle ni
+          // perdre l'affichage local (imageUrl, pastes complets)
+          if (ev.kind === "user") {
+            const mid = ev.meta?.messageId;
+            if (mid) {
+              const idx = list.findIndex(
+                (x) => x.kind === "user" && x.meta?.messageId === mid,
+              );
+              if (idx >= 0) {
+                list[idx] = { ...list[idx], meta: ev.meta };
+                return { ...prev, [msg.threadId]: list };
+              }
+            }
+            return { ...prev, [msg.threadId]: [...list, { ...ev, ts: ev.ts ?? Date.now() }] };
+          }
           // au plus UNE bulle streaming par tour, retrouvée où qu'elle soit dans la
           // liste (les events outils/thinking de Codex/Grok s'intercalent entre les
           // deltas et le bloc final → une recherche "dernier élément seulement"
@@ -854,7 +870,14 @@ export default function App() {
             return { ...prev, [msg.threadId]: list };
           }
           if (ev.kind === "tool_update") {
-            const idx = list.findIndex((item) => item.kind === "tool_update" && item.id === ev.id);
+            // identité d'un item = (turnId, itemId) : deux turns peuvent
+            // réutiliser le même id d'outil sans se remplacer (plan 025)
+            const turnOf = (e: AgentEvent) =>
+              e.meta && "turnId" in e.meta ? e.meta.turnId : "";
+            const idx = list.findIndex(
+              (item) =>
+                item.kind === "tool_update" && item.id === ev.id && turnOf(item) === turnOf(ev),
+            );
             const next = { ...ev, ts: Date.now() } as AgentEvent;
             if (idx >= 0) list[idx] = next;
             else list.push(next);
@@ -1589,10 +1612,13 @@ export default function App() {
       (attachments.length
         ? `${attachments.map((a) => a.text).join("\n\n")}\n\n${prompt}`.trim()
         : prompt);
+    // identité du message : générée ici, dédupliquée à l'ack sidecar (plan 025)
+    const clientMessageId = crypto.randomUUID();
     const userEvent = {
       kind: "user" as const,
       text: prompt,
       ts: Date.now(),
+      meta: { provisional: true as const, messageId: clientMessageId },
       ...(attachments.some((a) => a.imageUrl)
         ? { imageUrl: attachments.find((a) => a.imageUrl)!.imageUrl }
         : {}),
@@ -1674,12 +1700,30 @@ export default function App() {
       return;
     }
     if (ws.current) {
+      // bulle user archivable : texte tapé + attachments structurés (chemins,
+      // lignes) — jamais le handoff, les textes injectés ni une data URL
+      const displayEvent = {
+        kind: "user" as const,
+        text: prompt,
+        ts: userEvent.ts,
+        ...("label" in userEvent && userEvent.label ? { label: userEvent.label as string } : {}),
+        ...(attachments.some((a) => a.kind === "paste")
+          ? {
+              pastes: attachments
+                .filter((a) => a.kind === "paste")
+                .map((a) => ({ name: a.name, lines: a.text.split("\n").length })),
+            }
+          : {}),
+        ...(imagePaths.length ? { imagePaths } : {}),
+      };
       sendPrompt(ws.current, {
         autoReview: settingsRef.current.autoReview,
         threadId: id,
         projectRoot: threadRoot,
         provider,
         prompt: fullPrompt,
+        clientMessageId,
+        displayEvent,
         ...(codexInputs ? { inputs: codexInputs } : {}),
         ...(imagePaths.length ? { attachments: imagePaths.map((path) => ({ path })) } : {}),
         ...(model ? { model } : {}),

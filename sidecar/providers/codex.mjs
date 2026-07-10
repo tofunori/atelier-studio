@@ -229,6 +229,36 @@ export function buildCodexInput({ prompt, inputs, imagePath, attachments }) {
   return [text(prompt), ...[...imagePaths].map(image)];
 }
 
+/**
+ * Plan 025 : mapping EXPLICITE mode de permission Atelier → politique Codex
+ * (schéma codex-cli 0.142.5). Un mode inconnu retombe sur un repli SÛR
+ * (read-only + on-request) avec diagnostic — jamais sur danger-full-access.
+ * Le mode Plan exige un collaborationMode réel : settings.model est REQUIS
+ * par le protocole (fourni par l'appelant, résolu au câblage du turn).
+ */
+export function resolveCodexSafety(permissionMode, { model } = {}) {
+  switch (permissionMode) {
+    case "bypassPermissions":
+      return { sandbox: "danger-full-access", approvalPolicy: "never" };
+    case "acceptEdits":
+      return { sandbox: "workspace-write", approvalPolicy: "on-request" };
+    case "default":
+      return { sandbox: "workspace-write", approvalPolicy: "untrusted" };
+    case "plan":
+      return {
+        sandbox: "read-only",
+        approvalPolicy: "never",
+        collaborationMode: { mode: "plan", settings: { model: model ?? null } },
+      };
+    default:
+      return {
+        sandbox: "read-only",
+        approvalPolicy: "on-request",
+        diagnostic: `mode de permission inconnu (${String(permissionMode)}) — repli read-only/on-request`,
+      };
+  }
+}
+
 export function buildThreadOptions({ cwd, model, effort, webSearch, additionalDirectories, sandbox }) {
   const config = {};
   let actualModel = model ?? null;
@@ -395,6 +425,7 @@ export async function run({
   additionalDirectories,
   sandbox,
   timeoutMs,
+  clientMessageId, // messageId Atelier → clientUserMessageId Codex (plan 025)
   onEvent,
 }) {
   const srv = await ensureServer();
@@ -801,6 +832,7 @@ export async function run({
       input,
       ...(threadOpts.model ? { model: threadOpts.model } : {}),
       ...(actualEffort ? { effort: actualEffort } : {}),
+      ...(clientMessageId ? { clientUserMessageId: String(clientMessageId) } : {}),
       approvalPolicy: "never",
     });
     if (resp?.turn?.id) activeTurns.set(threadId ?? codexId, { codexId, turnId: resp.turn.id });

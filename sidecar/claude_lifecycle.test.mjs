@@ -1,9 +1,47 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import { mkdtempSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { ThreadStore } from "./store.mjs";
 import { route } from "./router.mjs";
+
+// SDK Claude mocké : query() contrôlable depuis le test (feed de messages),
+// pour vérifier le câblage session/dispatcher de claude.mjs sans réseau.
+vi.mock("@anthropic-ai/claude-agent-sdk", () => {
+  const queries = [];
+  const END = Symbol("end");
+  const query = (opts) => {
+    const waiters = [];
+    const backlog = [];
+    const gen = (async function* () {
+      for (;;) {
+        const msg = backlog.length
+          ? backlog.shift()
+          : await new Promise((r) => waiters.push(r));
+        if (msg === END) return;
+        yield msg;
+      }
+    })();
+    gen.setModel = async () => {};
+    gen.setPermissionMode = async () => {};
+    gen.interrupt = async () => {};
+    const feed = (m) => {
+      const w = waiters.shift();
+      if (w) w(m);
+      else backlog.push(m);
+    };
+    queries.push({ opts, feed, end: () => feed(END) });
+    return gen;
+  };
+  return {
+    query,
+    getSessionMessages: async () => [],
+    __queries: queries,
+  };
+});
+
+import * as claudeProvider from "./providers/claude.mjs";
+import * as sdkMock from "@anthropic-ai/claude-agent-sdk";
 
 // Invariant : un tour Claude lancé finit toujours par remettre le statut du
 // thread à jour. Deux chemins vérifiés ici via le routeur avec un provider mock
@@ -77,5 +115,59 @@ describe("cycle de vie d'un tour Claude", () => {
     // laisser les microtâches se vider pour que le rejet soit capté par le filet
     await new Promise((r) => setTimeout(r, 10));
     expect(guardCaught).toBe(true);
+  });
+});
+
+describe("dispatcher stable de session Claude (plan 025)", () => {
+  const flush = () => new Promise((r) => setTimeout(r, 10));
+
+  it("un second send (steer) ne remplace pas le dispatcher du premier tour", async () => {
+    const ev1 = [];
+    const ev2 = [];
+    claudeProvider.send({
+      threadId: "steer-th", cwd: "/tmp", prompt: "premier tour",
+      onEvent: (e) => ev1.push(e),
+    });
+    claudeProvider.send({
+      threadId: "steer-th", cwd: "/tmp", prompt: "correction", mode: "steer",
+      onEvent: (e) => ev2.push(e),
+    });
+
+    const q = sdkMock.__queries.at(-1);
+    q.feed({ type: "assistant", message: { content: [{ type: "text", text: "réponse du tour" }] } });
+    await flush();
+
+    // le routeur décide de l'attribution : le provider n'a pas le droit de
+    // réattribuer les événements du run en cours au callback du steer
+    expect(ev1.filter((e) => e.kind === "text")).toHaveLength(1);
+    expect(ev2).toHaveLength(0);
+
+    q.end();
+    await flush();
+    claudeProvider.endSession("steer-th");
+  });
+
+  it("un send en mode queue ne détourne pas non plus les événements du run", async () => {
+    const ev1 = [];
+    const ev2 = [];
+    claudeProvider.send({
+      threadId: "queue-th", cwd: "/tmp", prompt: "premier tour",
+      onEvent: (e) => ev1.push(e),
+    });
+    claudeProvider.send({
+      threadId: "queue-th", cwd: "/tmp", prompt: "pour après", mode: "queue",
+      onEvent: (e) => ev2.push(e),
+    });
+
+    const q = sdkMock.__queries.at(-1);
+    q.feed({ type: "assistant", message: { content: [{ type: "text", text: "en plein run" }] } });
+    await flush();
+
+    expect(ev1.filter((e) => e.kind === "text")).toHaveLength(1);
+    expect(ev2).toHaveLength(0);
+
+    q.end();
+    await flush();
+    claudeProvider.endSession("queue-th");
   });
 });

@@ -153,8 +153,10 @@ export function send({
   let s = sessions.get(threadId);
   if (s) {
     // session ouverte : priority native du SDK (now = steer, next = queue) ;
-    // model/permission changeables en cours de session (API documentée)
-    s.onEvent = onEvent;
+    // model/permission changeables en cours de session (API documentée).
+    // Le dispatcher (onEvent) de la session est STABLE : c'est le routeur qui
+    // attribue les événements au bon turn — un second send ne réattribue rien
+    // (plan 025 : un steer déplaçait les événements du turn 1 dans le turn 2).
     if (actualModel && actualModel !== s.model) { s.q.setModel(actualModel).catch(() => {}); s.model = actualModel; }
     if (permissionMode && permissionMode !== s.permissionMode) {
       s.q.setPermissionMode(permissionMode).catch(() => {});
