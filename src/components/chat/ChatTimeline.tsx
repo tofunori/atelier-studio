@@ -12,6 +12,7 @@ import {
   ChatEmptyState, UserTurn, StreamingText, AssistantText, AssistantDone,
   ActivityFold, ActivityGroup, type ReviewState,
 } from "./turns";
+import { ResearchHome, type ResearchHomeBundle } from "../ResearchHome";
 import { ThinkingBlock, EditLine, ActivityCard, Working, formatPermInput } from "./turnParts";
 
 type ToolAction = Extract<AgentEvent, { kind: "tool" | "tool_update" }>;
@@ -65,7 +66,12 @@ export type TimelineChapters = {
   setPinMenu: React.Dispatch<React.SetStateAction<{ index: number; x: number; y: number } | null>>;
   onStylePin: (index: number, patch: { color?: string; style?: string; label?: string }) => void;
 };
-export type TimelineEmpty = { onNewChat: () => void; onOpenProject: () => void };
+export type TimelineEmpty = {
+  onNewChat: () => void;
+  onOpenProject: () => void;
+  /** Research Home (plan 017) — remplace l'empty-card générique si fourni */
+  home?: ResearchHomeBundle | null;
+};
 
 export function ChatTimeline(p: {
   thread: TimelineThread;
@@ -190,12 +196,18 @@ export function ChatTimeline(p: {
           setShowJump(fromBottom > 200);
         }}
       >
-        <ChatEmptyState
-          threadId={threadId}
-          hasEvents={events.length > 0}
-          onNewChat={onNewChat}
-          onOpenProject={onOpenProject}
-        />
+        {!threadId && p.empty.home ? (
+          // plan 017 : l'accueil remplace l'empty-card UNIQUEMENT sans thread
+          // actif ; il s'efface dès qu'un thread est sélectionné
+          <ResearchHome model={p.empty.home.model} actions={p.empty.home.actions} />
+        ) : (
+          <ChatEmptyState
+            threadId={threadId}
+            hasEvents={events.length > 0}
+            onNewChat={onNewChat}
+            onOpenProject={onOpenProject}
+          />
+        )}
         {renderedEvents.map((item) => {
           if (item.type === "fold") {
             const { fold, open } = item;

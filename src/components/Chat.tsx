@@ -9,6 +9,7 @@ import { CloseIcon } from "./icons";
 import { ProviderInfo } from "../lib/providers";
 import { ToolOutputLine, isSummarizableTool } from "./chat/toolPresentation";
 import { ChatTimeline } from "./chat/ChatTimeline";
+import type { ResearchHomeBundle } from "./ResearchHome";
 import { ChatComposer } from "./chat/ChatComposer";
 import { mentionLabel } from "./chat/mentions";
 
@@ -90,6 +91,8 @@ type ChatZoteroItem = {
 // `Chat` pour ne pas toucher les imports d'App, tout en clarifiant le rôle.
 export default function Chat(p: {
   events: AgentEvent[];
+  /** Research Home (plan 017) — rendu par la timeline quand threadId est null */
+  home?: ResearchHomeBundle | null;
   workingSince: number | null;
   commands: { name: string; source: string }[];
   files: string[];
@@ -752,7 +755,7 @@ export default function Chat(p: {
         scroll={{ messagesRef, onMessagesMouseUp, setShowJump, stickRef, showJump }}
         working={{ currentWorkName, activeGoal, onStop: p.onStop }}
         chapters={{ tickPos, resolvePinEl, pinMenu, setPinMenu, onStylePin: p.onStylePin }}
-        empty={{ onNewChat: p.onNewChat, onOpenProject: p.onOpenProject }}
+        empty={{ onNewChat: p.onNewChat, onOpenProject: p.onOpenProject, home: p.home ?? null }}
         selection={{ quote, setQuote, quoteHasHl, quoteHasUl, addMark, removeMark }}
       />
       <ChatComposer

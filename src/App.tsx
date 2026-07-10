@@ -10,6 +10,8 @@ import {
 } from "./lib/ws";
 import { useSidecarConnection, type SidecarStatus } from "./hooks/useSidecarConnection";
 import { useAtelierServer } from "./hooks/useAtelierServer";
+import { deriveResearchHomeModel } from "./lib/researchHome";
+import type { ResearchHomeBundle } from "./components/ResearchHome";
 import { useWorkspaceEvents } from "./hooks/useWorkspaceEvents";
 import WorkspaceShell from "./components/shell/WorkspaceShell";
 import Sidebar from "./components/Sidebar";
@@ -1702,6 +1704,47 @@ export default function App() {
     allThreads.filter((t) => t.status === "running").map((t) => t.projectRoot),
   );
 
+  // Research Home (plan 017) : modèle dérivé pur + vrais workflows, calculés
+  // uniquement quand aucun thread n'est actif (la timeline monte l'accueil à
+  // la place de l'ancienne empty-card ; le composer reste en dessous).
+  const projLabelRaw = activeProject ? projMeta[activeProject]?.label : null;
+  const homeBundle: ResearchHomeBundle | null = activeId ? null : {
+    model: deriveResearchHomeModel({
+      activeProject,
+      projectName: projLabelRaw && !projLabelRaw.startsWith("icon:") ? projLabelRaw : null,
+      threads: allThreads,
+      events,
+      workingSince,
+      usageByThread,
+      recentFiles: recentFiles.filter((file) => files.includes(file)),
+      sidecarReady: wsReady,
+      atelierError: appBanner?.text.startsWith("start_atelier:")
+        ? appBanner.text.slice("start_atelier:".length).trim()
+        : null,
+      now: Date.now(),
+    }),
+    actions: {
+      // garde double-clic : le premier clic fixe activeIdRef en synchrone
+      onNewChat: () => {
+        if (activeIdRef.current) return;
+        if (activeProject) newThread(activeProject);
+        else newChat();
+      },
+      onOpenProject: addProject,
+      onResume: (id, root) => {
+        selectThread(id, root);
+        // convention 014 : après Reprendre, le focus va au composer
+        requestAnimationFrame(() =>
+          document.querySelector<HTMLTextAreaElement>(".composer textarea")?.focus());
+      },
+      onOpenArtefact: (rel) => openFileTab(rel),
+      onOpenGallery: () => { switchToSurface("atelier"); setActiveTab("gallery"); },
+      onOpenPalette: () => setPaletteOpen(true),
+      onResumeSession: () =>
+        window.dispatchEvent(new CustomEvent("atelier-open-resume", { detail: { provider: "claude" } })),
+    },
+  };
+
   const paletteItems = useMemo(() => buildItems({
     files,
     threads: allThreads,
@@ -2007,6 +2050,7 @@ export default function App() {
         )}
         <Chat
           threadId={activeId}
+          home={homeBundle}
           events={activeId ? (events[activeId] ?? []) : []}
           workingSince={activeId ? (workingSince[activeId] ?? null) : null}
           usage={activeId ? (usageByThread[activeId] ?? null) : null}

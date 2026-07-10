@@ -88,6 +88,18 @@ async function boot() {
     );
     return;
   }
+  // banc de captures du Research Home (plan 017) — mêmes garanties que #uibench
+  if (window.location.hash.startsWith("#homebench")) {
+    const { HomeBench } = await import("./components/HomeBench");
+    ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
+      <React.StrictMode>
+        <BootBoundary>
+          <HomeBench />
+        </BootBoundary>
+      </React.StrictMode>,
+    );
+    return;
+  }
 
   // GARDE-FOU : invoke borné. Sinon, si le sidecar a redémarré (nouveau port)
   // ou traîne, ce await bloque et le rendu React n'arrive JAMAIS → fenêtre vide.
