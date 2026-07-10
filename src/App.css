@@ -680,17 +680,18 @@ html, body, #root, .app { height: 100vh; overflow: hidden;
 .edit-line-file { color: #7aa2f7; }
 .edit-line-add { color: #98c379; }
 .edit-line-del { color: #e06c75; }
-/* capsule résultat (plan 020, étape 5) : entité de fin de tour — statut
-   terminal, usage enregistré, fichiers modifiés, actions. Une entité peut
-   avoir un contenant ; le reste du tour reste cardless. */
-.result-capsule { border: 1px solid var(--border); border-radius: var(--r-m);
-  background: color-mix(in srgb, var(--bg-card) 82%, transparent);
-  padding: 8px 12px; display: flex; flex-direction: column; gap: 4px;
+/* capsule résultat (plan 020, retouche 2026-07-10) : LIGNE discrète cardless
+   — glyphe + méta muted, actions révélées au hover/focus (pattern msg-actions).
+   Les erreurs/warnings restent visibles en permanence via le glyphe warn. */
+.result-capsule { display: flex; flex-direction: column; gap: 4px;
   max-width: min(760px, 100%); }
-.result-capsule.warn { border-color: color-mix(in srgb, var(--u-warn) 45%, var(--border)); }
 .capsule-head { display: flex; align-items: center; gap: 10px; min-width: 0; }
-.capsule-status { color: var(--fg2); font-weight: 500; white-space: nowrap; }
+.capsule-status { color: var(--muted); white-space: nowrap; }
 .capsule-status.warn { color: var(--u-warn); }
+.result-capsule .capsule-actions { opacity: 0;
+  transition: opacity var(--motion-fast) var(--ease-out); }
+.result-capsule:hover .capsule-actions, .result-capsule:focus-within .capsule-actions { opacity: 1; }
+.result-capsule.warn .capsule-actions { opacity: 1; }
 .capsule-meta { color: var(--muted2); font-variant-numeric: tabular-nums;
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .capsule-actions { margin-left: auto; display: inline-flex; gap: 6px; align-items: center; }

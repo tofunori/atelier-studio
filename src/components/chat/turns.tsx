@@ -228,14 +228,21 @@ export function ResultCapsule(p: {
     <div id={p.isLastDone ? "last-done" : undefined}
       className={`done result-capsule ${e.ok ? "" : "warn"}`}>
       <div className="capsule-head">
-        <span className={`capsule-status ${e.ok ? "ok" : "warn"}`}>
-          {e.ok ? t("chat.turn-done") : t("chat.turn-interrupted")}
+        {/* glyphe + libellé sr-only : le record reste lisible aux lecteurs
+            d'écran sans texte « Tour terminé » à l'écran (demande Thierry) */}
+        <span className={`capsule-status ${e.ok ? "ok" : "warn"}`} title={e.ok ? t("chat.turn-done") : t("chat.turn-interrupted")}>
+          {e.ok ? "✓" : "✗"}
+          <span className="sr-only">{e.ok ? t("chat.turn-done") : t("chat.turn-interrupted")}</span>
         </span>
-        <span className="capsule-meta">
-          {usage && usage.output != null
-            ? `${fmtTokens(usage.output)} tokens${usage.cost != null ? ` · ${usage.cost.toFixed(2).replace(".", ",")} $` : ""}`
-            : t("chat.usage-unavailable")}
-        </span>
+        {usage && usage.output != null ? (
+          <span className="capsule-meta">
+            {`${fmtTokens(usage.output)} tokens${usage.cost != null ? ` · ${usage.cost.toFixed(2).replace(".", ",")} $` : ""}`}
+          </span>
+        ) : (
+          // honnêteté sans bruit : l'absence d'usage reste un fait annoncé
+          // aux lecteurs d'écran, pas une ligne visible
+          <span className="sr-only">{t("chat.usage-unavailable")}</span>
+        )}
         <span className="capsule-actions">
           {p.isLastDone && p.onRevertTurn && (
             <button type="button" className="capsule-act" title={t("chat.revert-title")}
