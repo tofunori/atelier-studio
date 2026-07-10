@@ -458,13 +458,16 @@ html, body, #root, .app { height: 100vh; overflow: hidden;
 .topbar-right .topbar-qa.on { color: var(--fg); background: var(--bg-ctl); }
 .topbar-cmd { display: inline-flex; align-items: center; gap: 7px; height: 22px;
   width: clamp(280px, 32vw, 420px); padding: 0 10px; background: var(--bg-side);
-  border: 1px solid var(--border2); border-radius: var(--r-s); color: var(--muted);
-  font-size: var(--fs-m); cursor: pointer; transition: border-color var(--ease), color var(--ease); }
-.topbar-cmd:hover { color: var(--fg2); border-color: var(--muted2); }
+  border: 1px solid transparent; border-radius: var(--r-s); color: var(--muted);
+  font-size: var(--fs-m); cursor: pointer;
+  transition: border-color var(--motion-fast) var(--ease-out), color var(--motion-fast) var(--ease-out); }
+.topbar-cmd:hover { color: var(--fg2); border-color: var(--border); }
+.topbar-cmd:focus-visible { border-color: var(--focus-ring-color); outline: none; }
 .topbar-cmd-label { flex: 1; text-align: left; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* keycap secondaire : fond inset léger, pas un badge bordé */
 .topbar-cmd-kbd { flex-shrink: 0; color: var(--muted2); font-size: var(--fs-xs);
-  font-variant-numeric: tabular-nums; border: 1px solid var(--border2);
-  border-radius: var(--r-s); padding: 0 4px; line-height: 1.5; }
+  font-variant-numeric: tabular-nums; background: var(--bg-ctl);
+  border: none; border-radius: var(--r-s); padding: 1px 5px; line-height: 1.5; }
 .topbar-right { display: flex; align-items: center; gap: 8px; flex-shrink: 0; padding-right: 10px; }
 .tb-seg { display: inline-flex; background: var(--bg-ctl); border-radius: var(--r-m); padding: 3px; gap: 2px; }
 .tb-seg button { display: inline-flex; align-items: center; justify-content: center;
@@ -504,17 +507,22 @@ html, body, #root, .app { height: 100vh; overflow: hidden;
   width: 2px; border-radius: var(--r-s); background: var(--accent); }
 .rail-sep { width: 26px; height: 1px; background: var(--border); margin: 2px 0 4px; flex-shrink: 0; }
 .rail-proj { position: relative; width: 38px; height: 38px; border-radius: var(--r-m);
-  border: 1px solid transparent; background: transparent !important; color: var(--fg2);
-  font-size: 15px; font-weight: 600; cursor: pointer; overflow: hidden;
+  border: none; background: transparent !important; color: var(--fg2);
+  font-size: var(--fs-xl); font-weight: 600; cursor: pointer; overflow: hidden;
   display: flex; align-items: center; justify-content: center;
-  transition: border-color var(--ease), color var(--ease); }
+  transition: background-color var(--motion-fast) var(--ease-out), color var(--motion-fast) var(--ease-out); }
 /* la couleur du projet = un fin liseré bas, pas un aplat criard */
 .rail-proj::after { content: ""; position: absolute; left: 6px; right: 6px; bottom: 3px;
   height: 2.5px; border-radius: var(--r-pill); background: var(--proj-c, transparent); }
-.rail-proj:hover { color: var(--fg); border-color: var(--border2); }
-.rail-proj.on { border-color: var(--accent); color: var(--fg); }
-.rail-proj.drag-over { border-color: var(--accent); transform: translateY(2px);
-  transition: transform 140ms ease, border-color 140ms ease; }
+/* actif = fond + trace orange courte à gauche — jamais fond + bordure orange
+   + liseré empilés (plan 023, étape 6 Rail) */
+.rail-proj:hover { color: var(--fg); background: color-mix(in srgb, var(--bg-ctl) 70%, transparent) !important; }
+.rail-proj.on { background: var(--bg-ctl) !important; color: var(--fg); }
+.rail-proj.on::before { content: ""; position: absolute; left: 0; top: 50%;
+  margin-top: -8px; width: 2px; height: 16px; border-radius: var(--r-pill);
+  background: var(--accent); }
+.rail-proj.drag-over { outline: 1px solid var(--accent); outline-offset: -1px; transform: translateY(2px);
+  transition: transform var(--motion-standard) var(--ease-out); }
 /* à l'intérieur de la pastille : à cheval sur le coin, il se confondait avec le
    cadre accent du projet actif (même orange) et devenait invisible */
 .rail-dot { position: absolute; top: 3px; right: 3px; width: 8px; height: 8px;
@@ -1716,6 +1724,12 @@ body.dragging iframe { pointer-events: none; }
 .pin-rename:focus { border-color: var(--border2); }
 .sidebar li { position: relative; }
 
+
+/* ===== Typographie de craft (plan 023, étape 3) ===== */
+/* titres courts équilibrés ; la prose évite les veuves quand le moteur le
+   supporte (progressive enhancement, aucun impact layout sinon) */
+.ui-surface-header .title, .rh-title, .set-body h1, .pnav-name, .empty-title { text-wrap: balance; }
+.msg p, .rh-question, .set-sub { text-wrap: pretty; }
 
 /* ===== A11y (plan 021, partie B) ===== */
 /* texte lu par les lecteurs d'écran, invisible à l'écran */
