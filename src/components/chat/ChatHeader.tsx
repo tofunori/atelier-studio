@@ -45,7 +45,8 @@ export function ChatHeader(p: {
       title={<span title={p.title}>{p.title}</span>}
       actions={
         <>
-          <span className="provider-meta">{p.provider}</span>
+          {/* demande Thierry (2026-07-10) : pas de méta provider dans
+              l'en-tête — le provider est visible dans le composer */}
           {badge != null && (
             <StatusBadge status={badge.tone} title={badge.a11y}>
               {badge.label}

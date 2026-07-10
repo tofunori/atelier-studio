@@ -34,7 +34,8 @@ describe("ChatHeader", () => {
     expect(eyebrow.querySelector("span")).toHaveAttribute("title", base.projectPath);
 
     expect(screen.getByText(base.title)).toBeInTheDocument();
-    expect(screen.getByText("claude")).toBeInTheDocument();
+    // demande Thierry (2026-07-10) : plus de méta provider dans l'en-tête
+    expect(screen.queryByText("claude")).toBeNull();
 
     const badge = container.querySelector(".ui-badge")!;
     expect(badge).toHaveTextContent(t("status.error"));
