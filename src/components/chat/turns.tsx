@@ -13,6 +13,7 @@ import {
 } from "./md";
 import { DoneDiffToggle, fmtTime, PinBtn } from "./turnParts";
 import { ToolGlyph, groupIconCat, summarizeTools } from "./toolPresentation";
+import { Button, EmptyState } from "../ui";
 
 type TimeFormat = "system" | "24h" | "12h" | undefined;
 type UserEvent = Extract<AgentEvent, { kind: "user" }>;
@@ -31,25 +32,23 @@ export function ChatEmptyState(p: {
   onOpenProject: () => void;
 }) {
   if (!p.threadId) {
+    // pilote plan 016 : ex-.empty-card → EmptyState + Button (mêmes libellés,
+    // mêmes handlers ; actions empilées alignées à gauche via .ui-empty)
     return (
-      <div className="empty-card">
-        <div className="empty-title">{t("chat.empty-ready")}</div>
-        <div className="empty-actions">
-          <button type="button" className="empty-action" onClick={p.onNewChat}>
-            {t("action.new-chat")}
-          </button>
-          <button
-            type="button"
-            className="empty-action"
-            onClick={() => window.dispatchEvent(new CustomEvent("atelier-open-resume", { detail: { provider: "claude" } }))}
-          >
-            <ResumeIcon /> {t("action.resume-session")}
-          </button>
-          <button type="button" className="empty-action" onClick={p.onOpenProject}>
-            {t("action.open-project")}
-          </button>
-        </div>
-      </div>
+      <EmptyState
+        title={t("chat.empty-ready")}
+        actions={
+          <>
+            <Button onClick={p.onNewChat}>{t("action.new-chat")}</Button>
+            <Button
+              onClick={() => window.dispatchEvent(new CustomEvent("atelier-open-resume", { detail: { provider: "claude" } }))}
+            >
+              <ResumeIcon /> {t("action.resume-session")}
+            </Button>
+            <Button onClick={p.onOpenProject}>{t("action.open-project")}</Button>
+          </>
+        }
+      />
     );
   }
   if (!p.hasEvents) return <div className="empty">{t("chat.empty")}</div>;

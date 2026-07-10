@@ -74,6 +74,21 @@ function withTimeout<T>(p: Promise<T>, ms: number): Promise<T> {
 }
 
 async function boot() {
+  // banc d'essai des primitives (plan 016) : #uibench court-circuite l'app.
+  // Import dynamique → chunk séparé, rien n'entre dans le chemin de chargement
+  // normal ; aucun besoin du sidecar, captures visuelles reproductibles.
+  if (window.location.hash.startsWith("#uibench")) {
+    const { UiBench } = await import("./components/ui/UiBench");
+    ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
+      <React.StrictMode>
+        <BootBoundary>
+          <UiBench />
+        </BootBoundary>
+      </React.StrictMode>,
+    );
+    return;
+  }
+
   // GARDE-FOU : invoke borné. Sinon, si le sidecar a redémarré (nouveau port)
   // ou traîne, ce await bloque et le rendu React n'arrive JAMAIS → fenêtre vide.
   try {

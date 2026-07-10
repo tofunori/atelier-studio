@@ -37,6 +37,11 @@ import {
   withAtelierNonce,
   type AtelierOutboundMessage,
 } from "./lib/ipc";
+// tokens → primitives → App.css : les alias sémantiques et les classes ui-*
+// doivent être définis avant les règles historiques (cascade à égalité de
+// spécificité — App.css garde le dernier mot pendant la migration).
+import "./styles/tokens.css";
+import "./styles/primitives.css";
 import "./App.css";
 
 const PROJECTS_KEY = "atelier-studio.projects";

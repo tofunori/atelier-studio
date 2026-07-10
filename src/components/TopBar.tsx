@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { t } from "../lib/i18n";
 import { SearchIcon, ZapIcon, RefreshIcon, PlusIcon } from "./icons";
+import { SegmentedControl } from "./ui";
 import { projInitial, type ProjMeta } from "./Rail";
 import { ProjIcon } from "./Sidebar";
 
@@ -158,20 +159,19 @@ export default function TopBar({
         <button type="button" className={`ghost topbar-qa ${gitActive ? "on" : ""}`} title={t("atelier.git")} onClick={onOpenGit}>
           <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3"><circle cx="4" cy="4" r="1.6"/><circle cx="4" cy="12" r="1.6"/><circle cx="12" cy="6" r="1.6"/><path d="M4 5.6v4.8M4 8h4a4 4 0 0 0 4-.4"/></svg>
         </button>
-        <div className="tb-seg" role="group" aria-label={t("layout.split")}>
-          <button type="button" className={layout === "chat" ? "on" : ""}
-            title={`${t("layout.chat")} (⌘1)`} onClick={() => onSetLayout("chat")}>
-            <LayoutChatIcon />
-          </button>
-          <button type="button" className={layout === "split" ? "on" : ""}
-            title={`${t("layout.split")} (⌘0)`} onClick={() => onSetLayout("split")}>
-            <LayoutSplitIcon />
-          </button>
-          <button type="button" className={layout === "atelier" ? "on" : ""}
-            title={`${t("layout.atelier")} (⌘2)`} onClick={() => onSetLayout("atelier")}>
-            <LayoutAtelierIcon />
-          </button>
-        </div>
+        {/* pilote plan 016 : ex-.tb-seg (role=group) → SegmentedControl
+            (radiogroup, flèches, roving tabindex) ; mêmes icônes, mêmes
+            titles avec raccourcis, même géométrie 26×22 */}
+        <SegmentedControl
+          label={t("layout.split")}
+          value={layout}
+          onChange={(v) => onSetLayout(v as Layout)}
+          options={[
+            { value: "chat", label: <LayoutChatIcon />, ariaLabel: t("layout.chat"), title: `${t("layout.chat")} (⌘1)` },
+            { value: "split", label: <LayoutSplitIcon />, ariaLabel: t("layout.split"), title: `${t("layout.split")} (⌘0)` },
+            { value: "atelier", label: <LayoutAtelierIcon />, ariaLabel: t("layout.atelier"), title: `${t("layout.atelier")} (⌘2)` },
+          ]}
+        />
         <button type="button" className="ghost topbar-qa" title={`${t("qa.open")} (⌥⌘K)`} onClick={onQuickAsk}>
           <ZapIcon size={14} />
         </button>
