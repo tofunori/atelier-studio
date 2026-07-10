@@ -608,8 +608,8 @@ html, body, #root, .app { height: 100vh; overflow: hidden;
 .tool-group-list { display: flex; flex-direction: column; gap: 4px; margin-top: 6px; padding-left: 14px; }
 /* header d'activité du tour (plan 020) : « Activité · N étapes · durée » —
    le détail se déplie au clic ; replié par défaut une fois le tour terminé */
-.turn-fold { display: inline-flex; align-items: center; gap: 7px; align-self: flex-start;
-  margin: 6px 0 2px; padding: 0; border: none; background: transparent;
+.turn-fold { display: flex; align-items: center; gap: 7px;
+  margin: 6px auto 2px; padding: 0; border: none; background: transparent;
   color: var(--muted2); font-size: var(--fs-m); font-family: inherit; cursor: pointer;
   font-variant-numeric: tabular-nums; transition: color var(--motion-fast) var(--ease-out); }
 .turn-fold:hover { color: var(--fg2); }
@@ -620,7 +620,7 @@ html, body, #root, .app { height: 100vh; overflow: hidden;
 .turn-fold-meta { color: var(--muted2); font-variant-numeric: tabular-nums; }
 .turn-fold:focus-visible { outline: var(--focus-ring-width) solid var(--focus-ring-color);
   outline-offset: var(--focus-ring-offset); border-radius: var(--r-s); }
-.activity-card { max-width: min(760px, 100%); margin: 5px 0 8px; padding: 7px 9px;
+.activity-card { max-width: min(760px, 100%); margin: 5px auto 8px; padding: 7px 9px;
   border: 1px solid color-mix(in srgb, var(--border) 78%, transparent);
   border-radius: 8px; background: color-mix(in srgb, var(--bg-ctl) 58%, transparent);
   color: var(--muted); font-size: var(--fs-m); }
@@ -651,7 +651,7 @@ html, body, #root, .app { height: 100vh; overflow: hidden;
   color: var(--fg2); opacity: 0.72; }
 @keyframes toolGroupIn { from { opacity: 0; transform: translateY(-2px); } to { opacity: 1; transform: translateY(0); } }
 /* ligne « fichier édité » : ✎ nom +N −N, dépliable en diff */
-.edit-lines { margin: 4px 0; }
+.edit-lines { margin: 4px auto; }
 .edit-line-row { display: flex; align-items: center; gap: 0; }
 .edit-line-open, .edit-line-difftoggle { display: inline-flex; align-items: center; gap: 6px;
   background: transparent; border: none; color: var(--muted); padding: 2px 4px; cursor: pointer;
@@ -881,7 +881,7 @@ input[type="range"].slider::-webkit-slider-thumb:hover { transform: scale(1.15);
 /* cascade : panneau providers ancré au bouton, sous-menu modèles à sa gauche */
 .model-menu { background: transparent; border: none; box-shadow: none; padding: 0;
   overflow: visible; max-height: none; min-width: 0; }
-.model-provider-list { display: flex; flex-direction: column; gap: 1px; width: 164px;
+.model-provider-list { display: flex; flex-direction: column; gap: 1px; width: 208px;
   background: var(--bg-pop); border: 1px solid var(--border); border-radius: var(--r-m);
   padding: 4px; box-shadow: 0 12px 32px rgba(0,0,0,0.5); max-height: 390px; overflow-y: auto; }
 .model-menu .model-list { position: absolute; right: calc(100% + 6px); bottom: 0;
@@ -919,6 +919,8 @@ input[type="range"].slider::-webkit-slider-thumb:hover { transform: scale(1.15);
   outline-offset: var(--focus-ring-offset); }
 .mp-effort-sum { white-space: nowrap; font-size: var(--fs-m); }
 .ef-block { padding: 2px 4px 6px; }
+.ef-block .ef-scale { margin-bottom: 5px; gap: 12px; }
+.ef-block .ef-title { font-size: var(--fs-m); }
 .ef-block .ef-title { margin-top: 6px; }
 .mp-check { margin-left: auto; color: var(--fg); }
 .mp-sep { height: 1px; background: var(--border); margin: 4px 4px; }

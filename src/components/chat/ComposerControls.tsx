@@ -254,8 +254,7 @@ export function ComposerControls(p: {
                         >
                           <ProviderIcon provider={pv} size={12} />
                           <span>{info.label}</span>
-                          <small className="mp-chev">{count ? count : ""}</small>
-                          <Tick />
+                          <small className="mp-chev">{count ? count : ""} <Tick /></small>
                         </button>
                       );
                     })}

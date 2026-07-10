@@ -100,6 +100,18 @@ async function boot() {
     );
     return;
   }
+  // banc de captures du fil de chat et du composer (plan 020)
+  if (window.location.hash.startsWith("#chatbench")) {
+    const { ChatBench } = await import("./components/ChatBench");
+    ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
+      <React.StrictMode>
+        <BootBoundary>
+          <ChatBench />
+        </BootBoundary>
+      </React.StrictMode>,
+    );
+    return;
+  }
   // banc de captures du panneau Projets / Research Navigator (plan 024)
   if (window.location.hash.startsWith("#navbench")) {
     const { NavBench } = await import("./components/NavBench");

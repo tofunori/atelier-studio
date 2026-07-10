@@ -233,7 +233,7 @@ export function ResultCapsule(p: {
         </span>
         <span className="capsule-meta">
           {usage && usage.output != null
-            ? `${fmtTokens(usage.output)} tokens${usage.cost != null ? ` · ${usage.cost.toFixed(2)} $` : ""}`
+            ? `${fmtTokens(usage.output)} tokens${usage.cost != null ? ` · ${usage.cost.toFixed(2).replace(".", ",")} $` : ""}`
             : t("chat.usage-unavailable")}
         </span>
         <span className="capsule-actions">
