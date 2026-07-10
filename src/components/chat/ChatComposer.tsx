@@ -2,7 +2,7 @@
 // orchestration du composer. Composition pure — tout l'état vit chez Chat,
 // passé en QUELQUES bundles typés par domaine (au lieu de ~50 props à plat) :
 // input · model · menus · catalog · context · host.
-import React, { type MutableRefObject } from "react";
+import React, { useEffect, type MutableRefObject } from "react";
 import { t } from "../../lib/i18n";
 import { ProviderInfo } from "../../lib/providers";
 import { ContextShelf, type ShelfAttachment } from "./ContextShelf";
@@ -103,6 +103,9 @@ export function ChatComposer(props: {
   const { input, model, menus, catalog, context, host } = props;
   const { text, setText } = input;
   const { goalOpen, goalText, setGoalText, setGoalOpen } = menus;
+  // un goal actif rend l'éditeur de création inerte : referme l'état goalOpen
+  // pour que l'éditeur ne surgisse pas au moment où le goal sera arrêté
+  useEffect(() => { if (host.activeGoal) setGoalOpen(false); }, [host.activeGoal, setGoalOpen]);
 
   // reconstruit le contrat plat attendu par ComposerControls à partir des
   // bundles — plumbing local, aucune logique
