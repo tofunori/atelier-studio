@@ -1,13 +1,13 @@
-import { useEffect, useState, lazy } from "react";
+import { useEffect, useState } from "react";
 import Explorer from "./Explorer";
-const BrowserTab = lazy(() => import("./BrowserTab"));
-const GitSurface = lazy(() => import("./GitSurface"));
+const BrowserTab = lazyWithRetry(() => import("./BrowserTab"));
+const GitSurface = lazyWithRetry(() => import("./GitSurface"));
 // xterm (~350 KB min) hors de l'entrée : chargé à la PREMIÈRE visite du
 // terminal, puis reste monté (visited) — cycle de vie inchangé (plan 022)
-const TerminalSurface = lazy(() => import("./TerminalSurface"));
-import { LazyBoundary } from "./LazyBoundary";
-const BiblioSurface = lazy(() => import("./BiblioSurface"));
-const GeneratorSurface = lazy(() => import("./GeneratorSurface"));
+const TerminalSurface = lazyWithRetry(() => import("./TerminalSurface"));
+import { LazyBoundary, lazyWithRetry } from "./LazyBoundary";
+const BiblioSurface = lazyWithRetry(() => import("./BiblioSurface"));
+const GeneratorSurface = lazyWithRetry(() => import("./GeneratorSurface"));
 import { t } from "../lib/i18n";
 import { CloseIcon } from "./icons";
 import { GalleryHeader, DocumentHeader } from "./AtelierHeaders";

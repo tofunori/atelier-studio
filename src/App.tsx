@@ -1,4 +1,4 @@
-import { lazy, useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Panel, PanelGroup, PanelResizeHandle } from "react-resizable-panels";
 import { open } from "@tauri-apps/plugin-dialog";
 import { invoke } from "@tauri-apps/api/core";
@@ -25,8 +25,8 @@ import type { Surface } from "./components/surfaces";
 import Chat from "./components/Chat";
 import Banner from "./components/Banner";
 import AtelierPane from "./components/AtelierPane";
-const SettingsPage = lazy(() => import("./components/Settings"));
-import { LazyBoundary } from "./components/LazyBoundary";
+const SettingsPage = lazyWithRetry(() => import("./components/Settings"));
+import { LazyBoundary, lazyWithRetry } from "./components/LazyBoundary";
 import CommandPalette from "./components/CommandPalette";
 import QuickAsk from "./components/QuickAsk";
 import UsagePopover, { worstOf } from "./components/UsagePopover";

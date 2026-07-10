@@ -1,9 +1,36 @@
 // Frontière de chargement paresseux (plan 022) : Suspense + ErrorBoundary
 // avec retry — un chunk qui échoue (offline, app mise à jour) affiche une
 // notice actionnable au design Atelier, jamais un écran vide.
-import React, { Suspense } from "react";
+import React, { Suspense, lazy, useState } from "react";
 import { t } from "../lib/i18n";
 import { Button, InlineNotice } from "./ui";
+
+// React.lazy mémorise un import rejeté : remonter le même composant lazy
+// re-lance l'erreur en cache, jamais l'import. Ce wrapper crée une instance
+// lazy NEUVE à chaque montage et n'encaisse que les promesses résolues —
+// le retry de la LazyBoundary (remount par clé) relance donc vraiment le
+// réseau, et un module déjà chargé reste instantané.
+export function lazyWithRetry<P extends object>(
+  importer: () => Promise<{ default: React.ComponentType<P> }>,
+): React.ComponentType<P> {
+  // module résolu, partagé entre montages : jamais de re-fallback ni de
+  // re-fetch une fois le chunk arrivé
+  let loaded: { default: React.ComponentType<P> } | null = null;
+  return function LazyRetry(props: P) {
+    const [Comp] = useState(() => {
+      // UN import par montage, échec compris — React 19 peut re-lancer
+      // l'init d'un lazy rejeté : sans ce memo par montage, un chunk
+      // durablement absent (offline) ré-importerait en boucle CPU.
+      let pending: Promise<{ default: React.ComponentType<P> }> | null = null;
+      return lazy(() => {
+        if (loaded) return Promise.resolve(loaded);
+        if (!pending) pending = importer().then((m) => { loaded = m; return m; });
+        return pending;
+      });
+    });
+    return <Comp {...(props as any)} />;
+  };
+}
 
 type State = { error: Error | null; attempt: number };
 
