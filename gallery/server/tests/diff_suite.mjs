@@ -24,6 +24,7 @@ const ASSETS = path.join(GALLERY, "assets");
 
 let passed = 0;
 const TODOS = [];
+const CONTRACT_FAILURES = [];
 function todo(name, reason) { TODOS.push({name, reason}); }
 
 function ok(name, cond, detail) {
@@ -33,11 +34,20 @@ function ok(name, cond, detail) {
   throw new Error(`test failed: ${name}`);
 }
 
-todo("significant blank LaTeX line", "Define when a blank structural line is an intervention.");
+function contractOk(name, cond, detail) {
+  if (cond) { passed++; return; }
+  const message = `✗ ${name}${detail ? " — " + detail : ""}`;
+  console.error(message);
+  CONTRACT_FAILURES.push(message);
+}
+
 todo("restore from an intervention", "Lock the intervention count after restoring a saved step.");
 todo("restore from an external commit", "Lock the intervention count after restoring Git history.");
-todo("agent modification while the editor buffer is dirty", "Specify conflict handling without a real agent.");
-todo("edit then return to base text", "Specify whether a net-zero session remains in the timeline.");
+
+const INTERVENTION_SOURCES = new Set([
+  "user-save", "external-reload", "external-merge", "external-conflict", "restore", "legacy",
+]);
+const INTERVENTION_STATUSES = new Set(["applied", "pending-conflict"]);
 
 function git(args, cwd) {
   return execFileSync("git", args, { cwd, encoding: "utf8" });
@@ -118,7 +128,14 @@ async function serverTests() {
 }
 
 // ------------------------------------------------- B. module diff_versions.js
-function makeModuleHarness({ headText = null, serverItems = [], serverLast = null, headTs = 0 } = {}) {
+function makeModuleHarness({
+  headText = null,
+  serverItems = [],
+  serverLast = null,
+  serverState = null,
+  headTs = 0,
+  filePath = "/x/m.tex",
+} = {}) {
   const el = () => {
     const e = { style: {}, classList: { toggle() {}, contains: () => false }, appendChild() {}, insertBefore() {},
       querySelectorAll: () => [], addEventListener() {}, dataset: {}, disabled: false,
@@ -168,7 +185,7 @@ function makeModuleHarness({ headText = null, serverItems = [], serverLast = nul
         return Promise.resolve({ json: () => Promise.resolve({ ok: true }) });
       }
       if (url.startsWith("/versions"))
-        return Promise.resolve({ json: () => Promise.resolve({ ok: true, items: serverItems, last: serverLast }) });
+        return Promise.resolve({ json: () => Promise.resolve(serverState || { ok: true, items: serverItems, last: serverLast }) });
       return new Promise(() => {});
     },
     setInterval(f) { ctx.__tick = f; return 1; }, clearInterval() {},
@@ -185,7 +202,7 @@ function makeModuleHarness({ headText = null, serverItems = [], serverLast = nul
   let navPill = null;
   group.insertBefore = (n) => { if (n && n.id === "dvNav") navPill = n; };
   const dv = ctx.window.DiffVersions({
-    getCm: () => cm, path: "/x/m.tex", notify: (m) => notes.push(m),
+    getCm: () => cm, path: filePath, notify: (m) => notes.push(m),
     els: { tag, prev: null, next: null, restore: null, group },
     restoreText: async () => {},
   });
@@ -197,6 +214,27 @@ function makeModuleHarness({ headText = null, serverItems = [], serverLast = nul
   return { ctx, cm, dv, tag, notes, marksLog, gutterLog, posts, nav };
 }
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+function assertPersistedInterventions(name, h, expected, expectedLegacy = []) {
+  const payload = h.posts[h.posts.length - 1];
+  const actual = payload && payload.interventions;
+  const shapeOk = Array.isArray(actual) && actual.every((it) => it
+    && typeof it.before === "string"
+    && typeof it.after === "string"
+    && INTERVENTION_SOURCES.has(it.source)
+    && INTERVENTION_STATUSES.has(it.status));
+  const valuesOk = shapeOk && actual.length === expected.length && expected.every((want, i) => {
+    const got = actual[i];
+    return got.before === want.before && got.after === want.after
+      && got.source === want.source && got.status === want.status;
+  });
+  const legacy = payload && payload.legacySnapshots;
+  const legacyOk = Array.isArray(legacy) && legacy.length === expectedLegacy.length
+    && expectedLegacy.every((want, i) => legacy[i] && legacy[i].text === want.text
+      && legacy[i].ts === want.ts && typeof legacy[i].label === "string");
+  contractOk(`${name}: /versions persists {before, after, source, status}`,
+    valuesOk && legacyOk, JSON.stringify(payload));
+}
 
 async function moduleTests() {
   // B1. fusion sémantique : phrase récrite par un agent → peu de stops, offsets sûrs
@@ -315,6 +353,182 @@ async function moduleTests() {
     h.tag.onclick();
     const note = h.notes[h.notes.length - 1];
     ok("± par défaut = base, cumulatif", /HEAD \(abc1234\) · 2 modifications/.test(note), note);
+  }
+
+  // B9. contrat du journal explicite : une action reste une intervention, même
+  // lorsqu'elle touche plusieurs paragraphes éloignés.
+  {
+    const base = [
+      "Premier paragraphe sur la neige fraiche et la glace claire.",
+      "Deuxieme paragraphe stable qui separe largement les changements.",
+      "Troisieme paragraphe sur la temperature et l'albedo de surface.",
+      "",
+    ].join("\n");
+    const after = base
+      .replace("neige fraiche", "neige soufflee")
+      .replace("paragraphe stable", "paragraphe conserve")
+      .replace("albedo de surface", "albedo estival");
+    const h = makeModuleHarness({ headText: base });
+    h.cm._v = after;
+    h.dv.push(base, after, { source: "user-save", status: "applied" });
+    await sleep(0);
+    assertPersistedInterventions("journal user-save multi-paragraphes", h, [
+      { before: base, after, source: "user-save", status: "applied" },
+    ]);
+    h.tag.onclick();
+    const nav = h.nav();
+    contractOk("une action multi-paragraphes = tout · 1", nav?.count.textContent === "tout · 1", nav?.count.textContent);
+    nav?.prev.onclick();
+    contractOk("une action multi-paragraphes = 1 / 1", nav?.count.textContent === "1 / 1", nav?.count.textContent);
+  }
+
+  // B10. sources externes explicites : reload appliqué, merge dans un buffer
+  // dirty, et conflit conservé sans prétendre que le disque est appliqué.
+  {
+    const base = "alpha utilisateur\nligne commune longue\nomega agent\n";
+    const disk = base.replace("omega agent", "omega agent externe");
+    const h = makeModuleHarness({ headText: base });
+    h.cm._v = disk;
+    h.dv.push(base, disk, { source: "external-reload", status: "applied" });
+    await sleep(0);
+    assertPersistedInterventions("journal external-reload", h, [
+      { before: base, after: disk, source: "external-reload", status: "applied" },
+    ]);
+  }
+  {
+    const base = "alpha utilisateur\nligne commune longue\nomega agent\n";
+    const mine = base.replace("alpha utilisateur", "alpha local non sauvegarde");
+    const disk = base.replace("omega agent", "omega agent externe");
+    const merged = mine.replace("omega agent", "omega agent externe");
+    const h = makeModuleHarness({ headText: base });
+    h.cm._v = merged;
+    h.dv.push(base, disk, { source: "external-merge", status: "applied" });
+    await sleep(0);
+    assertPersistedInterventions("journal external-merge dirty", h, [
+      { before: base, after: disk, source: "external-merge", status: "applied" },
+    ]);
+    h.tag.onclick();
+    const nav = h.nav();
+    nav?.prev.onclick();
+    contractOk("dirty merge : 1/1 montre l'after disque, pas le buffer fusionné",
+      nav?.count.textContent === "1 / 1" && h.cm._v === disk,
+      JSON.stringify({ count: nav?.count.textContent, buffer: h.cm._v }));
+    h.tag.onclick();
+    contractOk("dirty merge : quitter 1/1 restaure le buffer fusionné", h.cm._v === merged, h.cm._v);
+  }
+  {
+    const base = "meme ligne avant\ncontexte commun\n";
+    const mine = "ma version locale\ncontexte commun\n";
+    const disk = "version externe concurrente\ncontexte commun\n";
+    const h = makeModuleHarness({ headText: base });
+    h.cm._v = mine;
+    h.dv.push(base, disk, { source: "external-conflict", status: "pending-conflict" });
+    await sleep(0);
+    assertPersistedInterventions("journal external-conflict pending", h, [
+      { before: base, after: disk, source: "external-conflict", status: "pending-conflict" },
+    ]);
+    h.tag.onclick();
+    const nav = h.nav();
+    nav?.prev.onclick();
+    contractOk("pending conflict : 1/1 montre l'after externe sans l'appliquer au présent",
+      nav?.count.textContent === "1 / 1" && h.cm._v === disk,
+      JSON.stringify({ count: nav?.count.textContent, buffer: h.cm._v }));
+    h.tag.onclick();
+    contractOk("pending conflict : quitter 1/1 restaure le buffer local", h.cm._v === mine, h.cm._v);
+  }
+
+  // B11. deux actions opposées restent deux interventions, même si le diff
+  // cumulatif contre la base est nul.
+  {
+    const base = "Texte de base qui doit revenir exactement.\n";
+    const edited = "Texte temporairement modifie avant annulation.\n";
+    const h = makeModuleHarness({ headText: base });
+    h.cm._v = edited;
+    h.dv.push(base, edited, { source: "user-save", status: "applied" });
+    h.cm._v = base;
+    h.dv.push(edited, base, { source: "user-save", status: "applied" });
+    await sleep(0);
+    assertPersistedInterventions("edit puis undo-to-base", h, [
+      { before: base, after: edited, source: "user-save", status: "applied" },
+      { before: edited, after: base, source: "user-save", status: "applied" },
+    ]);
+    h.tag.onclick();
+    const nav = h.nav();
+    const note = h.notes[h.notes.length - 1] || "";
+    contractOk("undo-to-base : N=2", nav?.count.textContent === "tout · 2", nav?.count.textContent);
+    contractOk("undo-to-base : tout a zéro changement net", /aucun changement de texte/.test(note), note);
+  }
+
+  // B12. classification des blancs dépendante du langage. Une frontière de
+  // paragraphe LaTeX, l'indentation Python et le contenu verbatim sont sémantiques.
+  // Seul le rewrap visuel d'un paragraphe de prose reste ignorable.
+  {
+    const before = "\\section{A}\nPremier paragraphe.\nSecond paragraphe.\n";
+    const after = "\\section{A}\nPremier paragraphe.\n\nSecond paragraphe.\n";
+    const h = makeModuleHarness({ filePath: "/x/blank.tex", headText: before });
+    h.cm._v = after;
+    h.dv.push(before, after, { source: "user-save", status: "applied" });
+    await sleep(0);
+    assertPersistedInterventions("ligne vide LaTeX significative", h, [
+      { before, after, source: "user-save", status: "applied" },
+    ]);
+  }
+  {
+    const before = "if ready:\n    run_model()\n";
+    const after = "if ready:\n  run_model()\n";
+    const h = makeModuleHarness({ filePath: "/x/model.py", headText: before });
+    h.cm._v = after;
+    h.dv.push(before, after, { source: "user-save", status: "applied" });
+    await sleep(0);
+    assertPersistedInterventions("indentation Python significative", h, [
+      { before, after, source: "user-save", status: "applied" },
+    ]);
+  }
+  {
+    const before = "\\begin{verbatim}\na b\n\\end{verbatim}\n";
+    const after = "\\begin{verbatim}\na  b\n\\end{verbatim}\n";
+    const h = makeModuleHarness({ filePath: "/x/verbatim.tex", headText: before });
+    h.cm._v = after;
+    h.dv.push(before, after, { source: "user-save", status: "applied" });
+    await sleep(0);
+    assertPersistedInterventions("blanc LaTeX verbatim significatif", h, [
+      { before, after, source: "user-save", status: "applied" },
+    ]);
+  }
+  {
+    const before = "Ce paragraphe de prose est seulement\nreplie visuellement sur deux lignes.\n";
+    const after = "Ce paragraphe de prose est\nseulement replie visuellement sur deux lignes.\n";
+    const h = makeModuleHarness({ filePath: "/x/rewrap.tex", headText: before });
+    h.cm._v = after;
+    h.dv.push(before, after, { source: "user-save", status: "applied" });
+    h.tag.onclick();
+    contractOk("rewrap visuel de prose : aucune intervention", h.nav() === null, JSON.stringify(h.posts));
+  }
+
+  // B13. migration v1 : un snapshot {b,t} sans after reste consultable comme
+  // legacySnapshot mais ne devient jamais une intervention inventée.
+  {
+    const orphan = "snapshot v1 sans etat after\n";
+    const current = "texte courant connu du serveur\n";
+    const edited = "texte courant puis vraie sauvegarde\n";
+    const h = makeModuleHarness({
+      headText: current,
+      serverState: { ok: true, v: 1, items: [{ b: orphan, t: 42 }], last: current },
+    });
+    h.cm._v = current;
+    h.ctx.__tick();
+    await sleep(0); await sleep(0); await sleep(0);
+    h.tag.onclick();
+    contractOk("snapshot v1 sans after : N=0", h.nav()?.count.textContent === "tout · 0", h.nav()?.count.textContent);
+    if (h.dv.isShown()) h.tag.onclick();
+    h.cm._v = edited;
+    h.dv.push(current, edited, { source: "user-save", status: "applied" });
+    await sleep(0);
+    assertPersistedInterventions("migration snapshot v1 legacy", h, [
+      { before: current, after: edited, source: "user-save", status: "applied" },
+    ], [
+      { text: orphan, ts: 42 },
+    ]);
   }
 }
 
@@ -572,10 +786,13 @@ try {
   await moduleTests();
   await latexStudioTests();
   await timelineTests();
+  if (CONTRACT_FAILURES.length)
+    throw new Error(`${CONTRACT_FAILURES.length} explicit intervention contract assertion(s) failed`);
   console.log(`diff suite: ok (${passed} tests)`);
   console.log(`diff suite: todo (${TODOS.length})`);
 } catch (e) {
   console.error(String(e.message || e));
   console.error(`diff suite: ÉCHEC après ${passed} tests verts`);
+  console.log(`diff suite: todo (${TODOS.length})`);
   process.exit(1);
 }
