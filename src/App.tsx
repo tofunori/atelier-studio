@@ -157,7 +157,7 @@ function loadProjects(): string[] {
 }
 
 // nom court d'un projet à partir de son chemin absolu — même convention que
-// projInitial/rail-flyout (Rail.tsx) : dernier segment du chemin
+// projInitial (Rail.tsx) : dernier segment du chemin
 function projectDisplayName(root: string): string {
   return root.split("/").filter(Boolean).pop() ?? "";
 }
@@ -1961,11 +1961,7 @@ export default function App() {
           activeProject={activeProject}
           meta={projMeta}
           running={runningProjects}
-          threads={allThreads}
-          activeId={activeId}
-          unread={unread}
           activeView={activeView}
-          highlights={highlights}
           layout={layout}
           activeSurface={activeSurface}
           onSelectSurface={switchToSurface}
@@ -1975,37 +1971,12 @@ export default function App() {
           showExplorer={showExplorer}
           onToggleExplorer={() => { setShowExplorer((v) => !v); switchToSurface("atelier"); }}
           onSelectView={setActiveView}
-          onSelectThread={(id) => { const th = allThreads.find((t) => t.id === id); if (th) selectThread(id, th.projectRoot); }}
           onSelectProject={selectProject}
           onAddProject={addProject}
-          onNew={(root) => (root ? newThread(root) : activeProject ? newThread(activeProject) : newChat())}
           compact={compact}
           onExpand={() => setCompact((c) => !c)}
           onSettings={() => setShowSettings((v) => !v)}
           onSetMeta={(root, m) => setProjMeta((p) => ({ ...p, [root]: m }))}
-          favorites={favorites}
-          onToggleFavorite={(id) =>
-            setFavorites((f) => (f.includes(id) ? f.filter((x) => x !== id) : [...f, id]))
-          }
-          onDeleteThread={(threadId) => {
-            setDraftThreads((p) => p.filter((t) => t.id !== threadId));
-            setEvents((p) => {
-              const { [threadId]: _, ...rest } = p;
-              return rest;
-            });
-            if (activeId === threadId) setActiveId(null);
-            if (ws.current?.readyState === 1) {
-              ws.current.send(JSON.stringify({ type: "deleteThread", threadId }));
-            }
-          }}
-          onRenameThread={(threadId, title) => {
-            setDraftThreads((p) =>
-              p.map((t) => (t.id === threadId ? { ...t, title } : t)),
-            );
-            if (ws.current?.readyState === 1) {
-              ws.current.send(JSON.stringify({ type: "renameThread", threadId, title }));
-            }
-          }}
           onReorder={(from, to) =>
             setProjects((prev) => {
               const list = prev.filter((r) => r !== from);

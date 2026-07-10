@@ -309,7 +309,13 @@ describe("Bug 4/5 — fork par fromThreadId+eventId, revert par eventId (journal
       },
     });
     await route(send({ clientMessageId: "m1", prompt: "question 1" }), ctx);
-    await flush();
+    // déterministe (pas de sleep) : le broadcast du terminal prouve que tous
+    // les dispatchs ont eu lieu (donc tous les appends sont enfilés), puis
+    // flush attend que la file d'écriture du journal soit vidée sur disque
+    await vi.waitFor(() => {
+      if (!evs(emitted).some((e) => e.kind === "done")) throw new Error("turn pas terminé");
+    });
+    await harnessJournal.flush("t");
     const durable = evs(emitted).filter((e) => e.meta?.eventId);
     return { ctx, harnessJournal, durable };
   }
@@ -320,7 +326,9 @@ describe("Bug 4/5 — fork par fromThreadId+eventId, revert par eventId (journal
     await route({
       type: "forkThread", fromThreadId: "t", newThreadId: "fork-A", eventId: forkPoint.meta.eventId,
     }, ctx);
-    await flush();
+    // la copie est lancée fire-and-forget par le router mais enfilée pendant
+    // route() — flush l'attend, là où un sleep fixe flakait sous charge
+    await harnessJournal.flush("t");
     const forked = await harnessJournal.materialize("fork-A");
     expect(forked.length).toBeGreaterThan(0);
     // le fork ne contient QUE jusqu'au point de fork (le user), pas le done final

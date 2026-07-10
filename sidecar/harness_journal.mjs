@@ -305,6 +305,14 @@ export function createHarnessJournal({
       return enqueue(threadId, () => ensureOpen(threadId, provider));
     },
 
+    /** Attend la fin de toutes les opérations DÉJÀ enfilées pour ce thread
+     * (append/copy/truncate lancés en fire-and-forget par le router). N'enfile
+     * rien, ne modifie rien, ne rejette jamais — synchronisation déterministe
+     * pour les tests et le diagnostic. */
+    flush(threadId) {
+      return queues.get(hashOf(threadId)) ?? Promise.resolve();
+    },
+
     /** Vrai si le thread a déjà un journal sur disque. */
     hasJournal(threadId) {
       try {
