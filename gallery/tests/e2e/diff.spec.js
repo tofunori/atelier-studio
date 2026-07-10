@@ -184,3 +184,46 @@ test('CM5: three spatially separated saves are three interventions', async ({ pa
     await expect(count).toHaveText('tout · 3');
   });
 });
+
+test('CM5: save and clean disk reload keep explicit intervention sources', async ({ page }) => {
+  await withLatexStudio(async ({ texPath, url }) => {
+    const versionPayloads = [];
+    page.on('request', request => {
+      if (request.method() !== 'POST' || !request.url().endsWith('/versions')) return;
+      versionPayloads.push(request.postDataJSON());
+    });
+
+    await openEditor(page, url);
+    const savedText = INITIAL_TEXT.replace(
+      'stayed bright after fresh snow covered the dark ice',
+      'became visibly darker after wind removed most fresh snow',
+    );
+    await replaceTextAndSave(page, savedText);
+
+    await expect.poll(() => versionPayloads.some(payload =>
+      payload.interventions?.some(entry =>
+        entry.before === INITIAL_TEXT
+          && entry.after === savedText
+          && entry.source === 'user-save'
+          && entry.status === 'applied'))).toBe(true);
+
+    const diskText = savedText.replace(
+      'Measured albedo declined near the exposed terminus late in the season.',
+      'Measured albedo recovered after the external observation was applied.',
+    );
+    await new Promise(resolve => setTimeout(resolve, 20));
+    writeFileSync(texPath, diskText);
+
+    await expect.poll(() => page.evaluate(() => window.cm.getValue()), { timeout: 7000 }).toBe(diskText);
+    await expect.poll(() => versionPayloads.some(payload =>
+      payload.interventions?.some(entry =>
+        entry.before === savedText
+          && entry.after === diskText
+          && entry.source === 'external-reload'
+          && entry.status === 'applied'))).toBe(true);
+
+    const interventionCount = versionPayloads.at(-1).interventions.length;
+    await page.waitForTimeout(2300);
+    expect(versionPayloads.at(-1).interventions).toHaveLength(interventionCount);
+  });
+});

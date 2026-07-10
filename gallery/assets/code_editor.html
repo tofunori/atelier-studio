@@ -226,7 +226,7 @@ async function save(){
   setState("saved", "saved " + new Date().toLocaleTimeString());
   // versionner AUSSI tes propres modifications (une version par sauvegarde)
   const savedNow = cm.getValue();
-  if(lastSavedText !== null) __dv.push(lastSavedText, savedNow);
+  if(lastSavedText !== null) __dv.push(lastSavedText, savedNow, {source:"user-save", status:"applied"});
   lastSavedText = savedNow;
 }
 
@@ -271,7 +271,7 @@ setInterval(async () => {
       cm.scrollTo(scroll.left, scroll.top);
       dirty = false;
       setState("saved", "reloaded (modified on disk) " + new Date().toLocaleTimeString());
-      if(__dv) __dv.push(before, diskText);
+      if(__dv) __dv.push(before, diskText, {source:"external-reload", status:"applied"});
       lastSavedText = diskText;
       return;
     }
@@ -281,7 +281,7 @@ setInterval(async () => {
     if(merged === false || typeof merged !== "string"){
       if(j.mtime !== __mergeConflictAt){
         __mergeConflictAt = j.mtime;
-        if(base != null && __dv && base !== diskText) __dv.push(base, diskText);
+        if(base != null && __dv && base !== diskText) __dv.push(base, diskText, {source:"external-conflict", status:"pending-conflict"});
         setState("err", "modifs superposées avec l'agent — ⌘S affichera le conflit · timeline : intervention enregistrée");
       }
       return;
@@ -293,7 +293,7 @@ setInterval(async () => {
     cm.scrollTo(scroll.left, scroll.top);
     dirty = true;
     setState("saved", "modifs de l'agent fusionnées avec les tiennes (non sauvegardées)");
-    if(__dv) __dv.push(beforePush, diskText);
+    if(__dv) __dv.push(beforePush, diskText, {source:"external-merge", status:"applied"});
     lastSavedText = diskText;
   }catch(e){}
 }, 2000);

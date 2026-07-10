@@ -1142,7 +1142,7 @@ async function save(){
   diskMtime = j.mtime; dirty = false; ddot.style.display = "none"; setState("ok", "saved");
   // versionner AUSSI tes propres modifications (une version par sauvegarde)
   const savedNow = cm.getValue();
-  if(lastSavedText !== null && typeof diffPush === "function") diffPush(lastSavedText, savedNow);
+  if(lastSavedText !== null && typeof diffPush === "function") diffPush(lastSavedText, savedNow, {source:"user-save", status:"applied"});
   lastSavedText = savedNow;
   if (window.__onSaved) window.__onSaved();
   return true;
@@ -2175,7 +2175,7 @@ setInterval(async () => {
       cm.setValue(diskText); cm.setCursor(cur); cm.scrollTo(s.left, s.top);
       dirty = false; ddot.style.display = "none";
       setState("ok", "reloaded (modified on disk)");
-      if(typeof diffPush === "function") diffPush(before, diskText);
+      if(typeof diffPush === "function") diffPush(before, diskText, {source:"external-reload", status:"applied"});
       lastSavedText = diskText;
       __applyAgentRewrap();
       return;
@@ -2190,7 +2190,7 @@ setInterval(async () => {
       // mods agent disparaissent du radar tant que dirty reste collé)
       if(j.mtime !== __mergeConflictAt){
         __mergeConflictAt = j.mtime;
-        if(base != null && typeof diffPush === "function" && base !== diskText) diffPush(base, diskText);
+        if(base != null && typeof diffPush === "function" && base !== diskText) diffPush(base, diskText, {source:"external-conflict", status:"pending-conflict"});
         setState("err", "l'agent a modifié le fichier et tes modifs non sauvegardées se superposent — ⌘S affichera le conflit · timeline : nouvelle intervention enregistrée");
       }
       return;
@@ -2200,7 +2200,7 @@ setInterval(async () => {
     cm.setValue(merged); cm.setCursor(cur); cm.scrollTo(s.left, s.top);
     dirty = true; ddot.style.display = "inline";
     setState("ok", "modifs de l'agent fusionnées avec les tiennes (non sauvegardées)");
-    if(typeof diffPush === "function") diffPush(beforePush, diskText);
+    if(typeof diffPush === "function") diffPush(beforePush, diskText, {source:"external-merge", status:"applied"});
     lastSavedText = diskText;
     __applyAgentRewrap();
   }catch(e){}
@@ -2283,7 +2283,7 @@ const __dv = DiffVersions({
     if(!j.error){ diskMtime = j.mtime; cm.setValue(text); dirty = false; setState("ok", "version restaur\u00e9e"); }
   },
 });
-const diffPush = (before, after) => __dv.push(before, after);
+const diffPush = (before, after, meta) => __dv.push(before, after, meta);
 // Add to chat sur sélection DANS le panneau diff (mode Studio)
 if(window.self !== window.top){
   const __fn = document.getElementById("fname"); if(__fn) __fn.style.display = "none"; // nom déjà dans l onglet Studio
