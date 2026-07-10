@@ -26,21 +26,37 @@ import * as opencode from "./providers/opencode.mjs";
 import { listProviders } from "./providers/registry.mjs";
 import { loadApiProviderConfigs, writeApiProviderConfigs, makeApiProvider, fetchAvailableModels } from "./providers/openai_api.mjs";
 import { resolveBin, enrichPath } from "./bin_resolver.mjs";
+import { resolveSingleInstance } from "./single_instance.mjs";
 enrichPath(); // PATH Finder minimal → complété pour tous les spawns
 
 const APP_DIR = `${homedir()}/Library/Application Support/atelier-studio`;
 const PID_FILE = `${APP_DIR}/sidecar.pid`;
+const LOCK_FILE = `${APP_DIR}/sidecar.lock`;
 const SIDECAR_DIR = path.dirname(fileURLToPath(import.meta.url));
 mkdirSync(APP_DIR, { recursive: true });
 
-function pidAlive(pid) {
-  try { process.kill(pid, 0); return true; } catch { return false; }
+const ATELIER_TOKEN = process.env.ATELIER_TOKEN;
+const STARTED_AT = new Date().toISOString();
+const ATELIER_APP_VERSION = process.env.ATELIER_APP_VERSION || "dev";
+const ATELIER_BUNDLE_HASH = process.env.ATELIER_BUNDLE_HASH || bundleFingerprint(SIDECAR_DIR);
+if (!ATELIER_TOKEN) {
+  console.warn("[atelier] ATELIER_TOKEN absent: mode dev, HTTP/WS acceptés sans token");
 }
 
-try {
-  const oldPid = Number(readFileSync(PID_FILE, "utf8"));
-  if (oldPid && oldPid !== process.pid && pidAlive(oldPid)) process.kill(oldPid, "SIGTERM");
-} catch {}
+// Instance unique — voir single_instance.mjs. Décidé AVANT toute mutation
+// (threads.json, pid file) : un doublon qui s'efface ne doit rien toucher.
+const instance = await resolveSingleInstance({
+  pidFile: PID_FILE,
+  lockFile: LOCK_FILE,
+  selfPid: process.pid,
+  bundleHash: ATELIER_BUNDLE_HASH,
+});
+if (instance.action === "defer") {
+  console.error(
+    `[atelier] sidecar sain déjà actif (pid ${instance.oldPid}, même bundle) — ce doublon s'efface sans le tuer`,
+  );
+  process.exit(0);
+}
 writeFileAtomic(PID_FILE, String(process.pid));
 
 const store = new ThreadStore(`${APP_DIR}/threads.json`);
@@ -57,13 +73,6 @@ function reloadApiProviders() {
   }
 }
 reloadApiProviders();
-const ATELIER_TOKEN = process.env.ATELIER_TOKEN;
-const STARTED_AT = new Date().toISOString();
-const ATELIER_APP_VERSION = process.env.ATELIER_APP_VERSION || "dev";
-const ATELIER_BUNDLE_HASH = process.env.ATELIER_BUNDLE_HASH || bundleFingerprint(SIDECAR_DIR);
-if (!ATELIER_TOKEN) {
-  console.warn("[atelier] ATELIER_TOKEN absent: mode dev, HTTP/WS acceptés sans token");
-}
 
 function bundleFingerprint(root) {
   const files = [];

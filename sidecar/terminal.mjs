@@ -1,14 +1,24 @@
 import pty from "node-pty";
 import { homedir } from "node:os";
-import { chmodSync } from "node:fs";
+import { accessSync, chmodSync, constants } from "node:fs";
 import { createRequire } from "node:module";
 
 // bug connu node-pty 1.1.0 : le prebuild spawn-helper perd son bit exécutable
-// à l'installation npm → "posix_spawnp failed". On le répare au chargement.
+// à l'installation npm → "posix_spawnp failed". On le répare au chargement —
+// mais SEULEMENT si le bit manque : un chmod (écriture) DANS le bundle .app
+// déclenche une consultation TCC « App Management » qui bloque l'import
+// plusieurs secondes → le sidecar dépasse le timeout de startup Rust (4 s) et
+// se fait tuer en boucle. Le bundle a déjà le bit posé par stage-sidecar.sh ;
+// seul le dev (npm install frais) en a besoin, hors bundle donc sans TCC.
 try {
   const req = createRequire(import.meta.url);
   const dir = req.resolve("node-pty/package.json").replace(/package\.json$/, "");
-  chmodSync(`${dir}prebuilds/darwin-arm64/spawn-helper`, 0o755);
+  const helper = `${dir}prebuilds/darwin-arm64/spawn-helper`;
+  try {
+    accessSync(helper, constants.X_OK);
+  } catch {
+    chmodSync(helper, 0o755);
+  }
 } catch {}
 
 // Terminaux PTY par onglet Studio (shell de login, cwd = projet)

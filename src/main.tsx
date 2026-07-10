@@ -77,10 +77,12 @@ function withTimeout<T>(p: Promise<T>, ms: number): Promise<T> {
 async function boot() {
   // GARDE-FOU : invoke borné. Sinon, si le sidecar a redémarré (nouveau port)
   // ou traîne, ce await bloque et le rendu React n'arrive JAMAIS → fenêtre vide.
+  // 10 s : un lancement froid légitime peut prendre ~8 s (startup 4 s + retries
+  // health côté Rust) — un timeout plus court abandonnait un spawn en train de réussir.
   let port: number | null = null;
   let headers: Record<string, string> | undefined;
   try {
-    const info = await withTimeout(invoke<SidecarInfo>("sidecar_port"), 6000);
+    const info = await withTimeout(invoke<SidecarInfo>("sidecar_port"), 10000);
     port = info.port;
     headers = info.token ? { "x-atelier-token": info.token } : undefined;
   } catch (error) {
