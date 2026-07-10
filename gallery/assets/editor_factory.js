@@ -4,8 +4,8 @@
   const CM5_MODES = {
     tex: "stex", sty: "stex", bib: "stex", py: "python", md: "markdown",
     r: "r", jl: "julia", sh: "shell", bash: "shell", js: "javascript",
-    ts: "javascript", json: {name: "javascript", json: true}, yaml: "yaml",
-    yml: null, yaml: null, toml: null,
+    ts: "javascript", json: {name: "javascript", json: true},
+    yaml: null, yml: null, toml: null,
   };
 
   function normalizedExt(ext) {

@@ -23,17 +23,35 @@ import {clampPos, countColumn, cm5KeyToCm6, createOperationBatcher} from "./stud
 export const Pass = Symbol("CodeMirror.Pass");
 export { countColumn };
 
-function languageFor(ext) {
+export function languageKindFor(ext) {
   switch (ext === "R" ? "r" : String(ext || "").toLowerCase()) {
-    case "py": return python();
-    case "md": return markdown();
-    case "js": case "ts": return javascript({typescript: ext === "ts"});
+    case "py": return "python";
+    case "md": return "markdown";
+    case "js": return "javascript";
+    case "ts": return "typescript";
+    case "json": return "json";
+    case "tex": case "sty": case "bib": return "stex";
+    case "r": return "r";
+    case "jl": return "julia";
+    case "sh": case "bash": return "shell";
+    case "yaml": case "yml": return "yaml";
+    case "toml": return "toml";
+    default: return "plain";
+  }
+}
+
+function languageFor(ext) {
+  switch (languageKindFor(ext)) {
+    case "python": return python();
+    case "markdown": return markdown();
+    case "javascript": return javascript();
+    case "typescript": return javascript({typescript: true});
     case "json": return javascript({json: true});
-    case "tex": case "sty": case "bib": return StreamLanguage.define(stex);
+    case "stex": return StreamLanguage.define(stex);
     case "r": return StreamLanguage.define(r);
-    case "jl": return StreamLanguage.define(julia);
-    case "sh": case "bash": return StreamLanguage.define(shell);
-    case "yaml": case "yml": return StreamLanguage.define(yaml);
+    case "julia": return StreamLanguage.define(julia);
+    case "shell": return StreamLanguage.define(shell);
+    case "yaml": return StreamLanguage.define(yaml);
     case "toml": return StreamLanguage.define(toml);
     default: return [];
   }

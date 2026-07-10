@@ -9,6 +9,7 @@ const studioHtml = await readFile(new URL("../../assets/latex_studio.html", impo
 const editorFactory = await readFile(new URL("../../assets/editor_factory.js", import.meta.url), "utf8").catch(() => "");
 const codeHtml = await readFile(new URL("../../assets/code_editor.html", import.meta.url), "utf8");
 const markdownHtml = await readFile(new URL("../../assets/md_viewer.html", import.meta.url), "utf8");
+const {languageKindFor} = await import("../../assets/cm6/studio_editor.mjs");
 
 test("CM6 facade exposes the complete engine-neutral diff contract", () => {
   for (const method of [
@@ -90,6 +91,18 @@ test("createEditor behavior routes every extension and unknown text safely", () 
   json.factory.createEditor({parent: {}, value: "{}", ext: "json", defaultEngine: "cm6"});
   assert.equal(json.calls[0].options.mode.name, "javascript");
   assert.equal(json.calls[0].options.mode.json, true);
+});
+
+test("the real CM6 resolver selects syntax for every required extension", () => {
+  const expected = {
+    tex: "stex", sty: "stex", bib: "stex", py: "python", md: "markdown",
+    r: "r", R: "r", jl: "julia", sh: "shell", bash: "shell",
+    js: "javascript", ts: "typescript", json: "json", yaml: "yaml",
+    yml: "yaml", toml: "toml",
+  };
+  for (const [ext, kind] of Object.entries(expected)) assert.equal(languageKindFor(ext), kind, ext);
+  assert.equal(languageKindFor("unknown"), "plain");
+  assert.notEqual(new Set(Object.keys(expected).map(languageKindFor)).size, 1);
 });
 
 test("missing CM6 reports a controlled CM5 fallback", () => {
