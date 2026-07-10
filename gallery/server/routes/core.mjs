@@ -5,6 +5,7 @@ import {
   PROJECT,
   APP_VERSION,
   BUNDLE_HASH,
+  editorPath,
   ensureDir,
   md5,
   readJsonRequest,
@@ -128,7 +129,9 @@ export async function handleCoreGet(req, res, url) {
   }
   if (pathname === "/ls" && url.search) { // python: startswith("/ls?") — /ls nu = 404
     try {
-      const d = safePath(url.searchParams.get("dir") ?? PROJECT) || PROJECT;
+      // jeton local : le navigateur de fichiers de l'éditeur peut lister les
+      // dossiers hors projet ouverts via le chat (voir editorPath)
+      const d = editorPath(url.searchParams.get("dir") ?? PROJECT, url.searchParams.get("token")) || PROJECT;
       if (!fs.existsSync(d) || !fs.statSync(d).isDirectory()) {
         return sendJson(res, 404, { error: "not a directory" });
       }

@@ -6,6 +6,25 @@
 <link rel="stylesheet" href="/.fig_thumbs/toastui/toastui-editor.min.css">
 <link rel="stylesheet" href="/.fig_thumbs/toastui/toastui-editor-dark.min.css">
 <script>(function(){
+  /* Jeton hors projet (Atelier Studio) : si l'app a ouvert cette page avec
+     ?token=…, le propager à toutes les requêtes same-origin de la page —
+     y compris celles de diff_versions.js. Sans jeton : comportement inchangé. */
+  var tok = null;
+  try{ tok = new URLSearchParams(location.search).get("token"); }catch(e){}
+  if(!tok) return;
+  var orig = window.fetch.bind(window);
+  window.fetch = function(input, init){
+    try{
+      var u = new URL(typeof input === "string" ? input : input.url, location.href);
+      if(u.origin === location.origin && !u.searchParams.has("token")){
+        u.searchParams.set("token", tok);
+        input = (typeof input === "string") ? (u.pathname + u.search) : new Request(u, input);
+      }
+    }catch(e){}
+    return orig(input, init);
+  };
+})();</script>
+<script>(function(){
   try{ var m=(location.hash||'').match(/atelier_nonce=([\w-]+)/); if(m) sessionStorage.setItem('atelier_nonce', m[1]); }catch(e){}
   /* nonce IPC : inclus dans chaque message vers l'app hôte ; l'app rejette sans lui */
   window.__atelierPost = function(p){

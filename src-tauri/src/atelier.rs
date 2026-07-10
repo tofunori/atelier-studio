@@ -82,6 +82,22 @@ fn stop_stale_gallery(port: u16, health: Option<&ProcessHealth>) {
     }
 }
 
+/// Jeton local d'accès éditeur hors projet — créé par le serveur galerie au
+/// boot (~/.atelier-studio/gallery_token, 0600). L'app le lit et l'ajoute aux
+/// URLs des onglets éditeur ; une page web locale ne peut pas lire ce fichier.
+#[tauri::command]
+pub fn gallery_token() -> Result<String, String> {
+    let home = dirs::home_dir().ok_or("no home")?;
+    let file = home.join(".atelier-studio/gallery_token");
+    let tok = std::fs::read_to_string(&file)
+        .map_err(|e| format!("jeton galerie illisible ({}): {e}", file.display()))?;
+    let tok = tok.trim().to_string();
+    if tok.is_empty() {
+        return Err("jeton galerie vide".into());
+    }
+    Ok(tok)
+}
+
 #[tauri::command]
 pub fn start_atelier(
     app: tauri::AppHandle,

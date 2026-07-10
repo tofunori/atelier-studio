@@ -302,6 +302,17 @@ const APP_WEBVIEW_ORIGINS = new Set([
   "http://localhost:1420", // dev vite (tauri.conf.json devUrl)
 ]);
 
+// CORS minimal : SEULE la webview de l'app peut lire les réponses en
+// cross-origin (ex. /findfile depuis App.tsx) — aucune page web externe
+// n'obtient jamais cet en-tête.
+export function applyAppCors(req, res) {
+  const origin = req.headers.origin;
+  if (origin && APP_WEBVIEW_ORIGINS.has(origin)) {
+    res.setHeader("Access-Control-Allow-Origin", origin);
+    res.setHeader("Vary", "Origin");
+  }
+}
+
 export function localOnly(req) {
   const origin = req.headers.origin;
   if (origin === undefined) return true; // probes Rust/sidecar, navigation directe

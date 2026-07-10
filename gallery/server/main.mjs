@@ -4,8 +4,11 @@ import path from "node:path";
 import {
   ASSETS_DIR,
   PROJECT,
+  STUDIO,
+  applyAppCors,
   choosePort,
   contentType,
+  galleryToken,
   localOnly,
   safePath,
   sendEmpty,
@@ -163,6 +166,7 @@ async function route(req, res) {
     // frontière d'origine unique, AVANT tout routage (GET/HEAD/POST/OPTIONS,
     // pdfannot compris) : origine refusée → 403 sans lecture ni mutation
     if (!localOnly(req)) return sendJson(res, 403, { error: "cross-origin blocked" });
+    applyAppCors(req, res);
     if (req.method === "OPTIONS") return sendJson(res, 200, {});
     if (req.method === "GET" || req.method === "HEAD") {
       if (req.method === "GET" && await handleAnnotationGet(req, res, url)) return true;
@@ -209,6 +213,10 @@ if (!fs.existsSync(shellPath) || !fs.existsSync(dataPath)) {
   });
   if (r.status !== 0) console.error("[gallery] build initial en échec:", String(r.stderr).slice(0, 400));
 }
+
+// mode Studio : poser le jeton local dès le boot pour que l'app (commande
+// Rust gallery_token) puisse le lire avant la première ouverture hors projet
+if (STUDIO) galleryToken();
 
 const port = choosePort(PROJECT);
 http.createServer((req, res) => {

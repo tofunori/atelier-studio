@@ -5,6 +5,25 @@
 <title>Editor</title>
 <link rel="stylesheet" href="/.fig_thumbs/cm/codemirror.min.css">
 <link rel="stylesheet" href="/.fig_thumbs/cm/material-darker.min.css">
+<script>(function(){
+  /* Jeton hors projet (Atelier Studio) : si l'app a ouvert cette page avec
+     ?token=…, le propager à toutes les requêtes same-origin de la page —
+     y compris celles de diff_versions.js. Sans jeton : comportement inchangé. */
+  var tok = null;
+  try{ tok = new URLSearchParams(location.search).get("token"); }catch(e){}
+  if(!tok) return;
+  var orig = window.fetch.bind(window);
+  window.fetch = function(input, init){
+    try{
+      var u = new URL(typeof input === "string" ? input : input.url, location.href);
+      if(u.origin === location.origin && !u.searchParams.has("token")){
+        u.searchParams.set("token", tok);
+        input = (typeof input === "string") ? (u.pathname + u.search) : new Request(u, input);
+      }
+    }catch(e){}
+    return orig(input, init);
+  };
+})();</script>
 <script src="/.fig_thumbs/cm/codemirror.min.js"></script>
 <script src="/.fig_thumbs/cm/mark-selection.min.js"></script>
 <script src="/.fig_thumbs/cm/stex.min.js"></script>

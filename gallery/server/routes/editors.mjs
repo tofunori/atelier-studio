@@ -526,6 +526,35 @@ export async function handleEditorsGet(req, res, url) {
       return sendJson(res, 400, { error: `bad request: ${String(error.message || error)}` });
     }
   }
+  if (pathname === "/findfile") {
+    // retrouver un fichier du projet par nom nu — les refs du chat ne sont pas
+    // toujours dans l'index git (fichiers gitignorés : données, figures…)
+    try {
+      const name = String(url.searchParams.get("name") || "");
+      if (!name || name.includes("/") || name.startsWith(".")) return sendJson(res, 400, { error: "bad name" });
+      const skip = new Set(["node_modules", "__pycache__", "test-results"]);
+      const hits = [];
+      const walk = (dir, depth) => {
+        if (hits.length >= 5 || depth > 8) return;
+        let entries;
+        try {
+          entries = fs.readdirSync(dir, { withFileTypes: true });
+        } catch {
+          return;
+        }
+        for (const e of entries) {
+          if (hits.length >= 5) return;
+          if (e.name.startsWith(".") || skip.has(e.name)) continue;
+          if (e.isDirectory()) walk(path.join(dir, e.name), depth + 1);
+          else if (e.name === name) hits.push(relSlash(PROJECT, path.join(dir, e.name)));
+        }
+      };
+      walk(PROJECT, 0);
+      return sendJson(res, 200, { hits });
+    } catch (error) {
+      return sendJson(res, 500, { error: String(error.message || error) });
+    }
+  }
   if (pathname === "/rasterize") return handleRasterize(req, res, url);
   if (pathname === "/rev") {
     let rev = 0;

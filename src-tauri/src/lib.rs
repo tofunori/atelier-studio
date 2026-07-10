@@ -18,6 +18,7 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             atelier::start_atelier,
+            atelier::gallery_token,
             macos_badge_permission::request_badge_authorization,
             macos_badge_permission::set_badge_count,
             sidecar::sidecar_port,

@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Panel, PanelGroup, PanelResizeHandle } from "react-resizable-panels";
 import { open } from "@tauri-apps/plugin-dialog";
+import { invoke } from "@tauri-apps/api/core";
 import {
   sendPrompt,
   requestCatalog,
@@ -657,6 +658,17 @@ export default function App() {
       } catch {}
     },
   });
+  // jeton d'accès éditeur hors projet : posé par le serveur galerie au boot
+  // (~/.atelier-studio/gallery_token), lu via Rust. Absent (vieux serveur) →
+  // l'ouverture hors projet est simplement indisponible.
+  const galleryTokenRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!atelierUrl || galleryTokenRef.current) return;
+    invoke<string>("gallery_token")
+      .then((tok) => { galleryTokenRef.current = tok; })
+      .catch(() => {});
+  }, [atelierUrl]);
+
   // à l'ouverture d'un chat Codex avec session : recharge le goal actif (s'il existe)
   const goalFetched = useRef<Set<string>>(new Set());
   useEffect(() => {
@@ -1302,19 +1314,31 @@ export default function App() {
 
   function openFileTab(rel: string, line?: string | null) {
     if (!atelierUrl || !activeProject) return;
-    // chemin absolu venant du chat : ne garder que ceux sous le projet actif
-    if (rel.startsWith("/")) {
+    // chemin absolu (ou ~/) venant du chat : sous le projet actif → relatif ;
+    // sinon éditeur intégré via jeton (accès serveur borné à ~/Documents,
+    // ~/Desktop — voir editorPath côté galerie)
+    let outside: string | null = null;
+    if (rel.startsWith("/") || rel.startsWith("~/")) {
       const root = activeProject.endsWith("/") ? activeProject : activeProject + "/";
-      if (!rel.startsWith(root)) return;
-      rel = rel.slice(root.length);
+      if (rel.startsWith(root)) rel = rel.slice(root.length);
+      else if (galleryTokenRef.current) outside = rel;
+      else return;
     }
-    rememberFile(rel);
+    if (!outside) rememberFile(rel);
     const origin = new URL(atelierUrl).origin;
-    const ext = rel.split(".").pop()?.toLowerCase() ?? "";
-    const name = rel.split("/").pop() ?? rel;
+    const ext = (outside ?? rel).split(".").pop()?.toLowerCase() ?? "";
+    const name = (outside ?? rel).split("/").pop() ?? rel;
     const lineQ = line ? `&line=${encodeURIComponent(line)}` : "";
     let url: string;
-    if (ext === "pdf") {
+    if (outside) {
+      // binaires hors projet : le statique du serveur reste sandboxé projet —
+      // seuls les fichiers texte s'ouvrent dans l'éditeur intégré
+      if (["pdf", "png", "jpg", "jpeg", "gif", "webp"].includes(ext)) return;
+      const tokenQ = `&token=${encodeURIComponent(galleryTokenRef.current ?? "")}`;
+      url = ext === "md"
+        ? `${origin}/.fig_thumbs/md_studio.html?path=${encodeURIComponent(outside)}${tokenQ}`
+        : `${origin}/.fig_thumbs/latex_studio.html?path=${encodeURIComponent(outside)}${lineQ}${tokenQ}`;
+    } else if (ext === "pdf") {
       url = `${origin}/.fig_thumbs/pdf_viewer.html?file=${encodeURIComponent(rel)}`;
     } else if (["png", "jpg", "jpeg", "gif", "svg", "webp"].includes(ext)) {
       url = `${origin}/${rel}`;
