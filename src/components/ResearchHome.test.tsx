@@ -66,15 +66,16 @@ describe("ResearchHome", () => {
     expect(screen.queryByRole("region", { name: "Artefacts récents" })).toBeNull();
   });
 
-  it("une seule action primaire : Nouveau chat dans l'en-tête", () => {
+  it("l'en-tête ne porte AUCUNE action Nouveau chat (demande Thierry 2026-07-10)", () => {
     const { container } = render(
       <ResearchHome
         model={model({ threads: [thread({ id: "a", status: "done" })] })}
         actions={actions()}
       />,
     );
-    expect(container.querySelectorAll(".ui-btn--primary")).toHaveLength(1);
-    expect(container.querySelector(".ui-btn--primary")).toHaveTextContent("Nouveau chat");
+    // Démarrer et le panneau Projets portent déjà l'action
+    expect(container.querySelector(".rh-head .ui-btn")).toBeNull();
+    expect(container.querySelectorAll(".ui-btn--primary")).toHaveLength(0);
   });
 
   it("Continuer : Reprendre appelle onResume avec thread + projet ; date relative jamais seule (ISO en title)", () => {
@@ -207,11 +208,9 @@ describe("ResearchHome", () => {
     );
     const buttons = screen.getAllByRole("button");
     const labels = buttons.map((b) => b.textContent);
-    const iPrimary = labels.findIndex((l) => l === "Nouveau chat");
     const iResume = labels.findIndex((l) => l === "Reprendre");
     const iArtefact = labels.findIndex((l) => l?.includes("notes.md"));
-    expect(iPrimary).toBeGreaterThanOrEqual(0);
-    expect(iPrimary).toBeLessThan(iResume);
+    expect(iResume).toBeGreaterThanOrEqual(0);
     expect(iResume).toBeLessThan(iArtefact);
   });
 });

@@ -268,10 +268,9 @@ export function ResearchHome(p: { model: ResearchHomeModel; actions: ResearchHom
           <h1 className="rh-title sr-only">{model.projectName}</h1>
           <div className="spacer" />
           <div className="actions">
+            {/* demande Thierry (2026-07-10) : pas de Nouveau chat ici —
+                la section Démarrer et le panneau Projets le portent déjà */}
             {model.degraded && <StatusBadge status="warning">{t("home.degraded")}</StatusBadge>}
-            <Button variant="primary" onClick={actions.onNewChat}>
-              {t("action.new-chat")}
-            </Button>
           </div>
         </header>
 
