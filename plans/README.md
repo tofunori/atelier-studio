@@ -173,7 +173,7 @@ jamais comptées comme des interventions séparées.
 | 028 | Rendre restauration et persistance durables | P0 | L | 027 | DONE (accepted `d8e885c`, revue Codex finale + validation globale, 2026-07-10) |
 | 029 | Rendre les gros diffs non bloquants | P1 | M | 028 | DONE (accepted `d63887c`, revue Codex finale + benchmark réel, 2026-07-10) |
 | 030 | Rendre CM6 reproductible et compatible diff | P1 | L | 029 | DONE (accepted `ad19ba4`, revue Codex finale + matrice CM5/CM6, 2026-07-10) |
-| 031 | Migrer les trois surfaces vers CM6 avec fallback | P1 | L | 030 | TODO |
+| 031 | Migrer les trois surfaces vers CM6 avec fallback | P1 | L | 030 | IN PROGRESS — `advisor/031-migrate-all-editors-to-cm6` (2026-07-10) |
 | 032 | Retirer CM5 après observation et accord humain | P2 | M | 031 + accord | TODO |
 
 Quand un plan devient DONE, le réviseur remplace son statut par
