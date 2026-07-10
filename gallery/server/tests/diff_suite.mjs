@@ -309,14 +309,20 @@ async function moduleTests() {
     ok("suppression nette → triangle", h2.gutterLog.length === 1 && h2.gutterLog[0].html.includes("dv-del"));
   }
 
-  // B6. persistance : push → POST serveur {items,last} ; restore serveur → versions
+  // B6. persistance transitoire v2 côté client ; le serveur durable reste v1
+  // jusqu'au plan 028.
   {
     const h = makeModuleHarness({ headText: "base\n" });
     h.cm._v = "base MODIFIEE\n";
     h.dv.push("base\n", "base MODIFIEE\n");
     await sleep(30);
     const p = h.posts[h.posts.length - 1];
-    ok("persist POST items+last", p && p.items.length === 1 && p.last === "base MODIFIEE\n", JSON.stringify(p));
+    ok("persist POST v2 interventions+last", p && p.v === 2
+      && p.interventions.length === 1
+      && p.interventions[0].before === "base\n"
+      && p.interventions[0].after === "base MODIFIEE\n"
+      && Array.isArray(p.legacySnapshots)
+      && p.last === "base MODIFIEE\n", JSON.stringify(p));
   }
   {
     const h = makeModuleHarness({ headText: "v base\n", serverItems: [{ b: "ancienne version\n", t: 1 }], serverLast: "v base\n" });

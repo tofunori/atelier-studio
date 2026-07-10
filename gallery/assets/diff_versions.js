@@ -21,19 +21,106 @@
 //     els:         {tag, prev, next, restore, group?},  // boutons existants de l'hôte
 //     restoreText: async (text) => ..., // réécrit le fichier + met à jour le buffer
 //   });
-//   dv.push(before, after)  après chaque sauvegarde / rechargement externe
+//   dv.push(before, after, meta) après chaque sauvegarde / rechargement externe
 //   dv.isShown()            le mode comparaison est-il actif ?
 window.DiffVersions = function(opts){
   const { getCm, path, notify, els, restoreText } = opts;
-  const VERSIONS = []; // {before, ts, head?, sha?} — diff contre le buffer courant
-  let idx = -1, shown = false, marks = [];
+  // La base Git (ou le premier `before` pour un fichier non suivi) n'est pas
+  // une intervention. Le journal conserve les paires explicites, sans jamais
+  // reconstruire un `after` depuis le buffer vivant.
+  const INTERVENTIONS = []; // {id,before,after,ts,source,status}
+  const LEGACY_SNAPSHOTS = []; // {text,ts,label} — consultables, exclus de N
+  let baseVersion = null; // {before,ts,head?,sha?}
+  let shown = false, marks = [];
   let changePts = [], changeAt = 0; // positions {pos, ch} des changements + index courant
   let extCmp = null; // comparaison ponctuelle depuis l'historique : {before, label}
-  const curVersion = () => extCmp || VERSIONS[idx];
+  const curVersion = () => extCmp || baseVersion;
   let headText = null, headSha = "", baseTs = 0; // ts (ms) du commit-base
   const KEY = "texDiffV1:" + path;
   const MAX = 1500000;
   const GUTTER = "dv-git";
+  const SOURCES = new Set(["user-save", "external-reload", "external-merge", "external-conflict", "restore", "legacy"]);
+  const STATUSES = new Set(["applied", "pending-conflict"]);
+  let idSeq = 0;
+  let runtimePushes = 0; // empêche le restore asynchrone de doubler une action déjà journalisée
+
+  function newId(ts){ return "dv-" + ts + "-" + (++idSeq); }
+  function extension(){
+    const name = path.split(/[\\/]/).pop() || "";
+    const dot = name.lastIndexOf(".");
+    return dot >= 0 ? name.slice(dot + 1).toLowerCase() : "";
+  }
+  function proseKey(text, mode){
+    const lines = String(text).replace(/\r\n?/g, "\n").split("\n");
+    const tokens = [];
+    let prose = [];
+    let exactEnv = null;
+    let fenced = null;
+    const flush = () => {
+      if(!prose.length) return;
+      tokens.push("P:" + prose.join(" ").replace(/[ \t]+/g, " ").trim());
+      prose = [];
+    };
+    const latexComment = line => {
+      for(let i = 0; i < line.length; i++){
+        if(line[i] !== "%") continue;
+        let slashes = 0;
+        for(let j = i - 1; j >= 0 && line[j] === "\\"; j--) slashes++;
+        if(slashes % 2 === 0) return true;
+      }
+      return false;
+    };
+    for(const line of lines){
+      if(mode === "latex"){
+        const begin = line.match(/\\begin\{(verbatim|lstlisting|minted)\}/);
+        if(exactEnv || begin){
+          flush();
+          if(!exactEnv) exactEnv = begin[1];
+          tokens.push("X:" + line);
+          if(new RegExp("\\\\end\\{" + exactEnv + "\\}").test(line)) exactEnv = null;
+          continue;
+        }
+        if(latexComment(line)){
+          flush();
+          tokens.push("C:" + line);
+          continue;
+        }
+      }
+      if(mode === "markdown"){
+        const fence = line.match(/^\s*(```+|~~~+)/);
+        if(fenced || fence){
+          flush();
+          tokens.push("X:" + line);
+          if(!fenced) fenced = fence[1][0];
+          else if(fence && fence[1][0] === fenced) fenced = null;
+          continue;
+        }
+        const structural = /^(?: {4}|\t|\s{0,3}(?:#{1,6}\s|>|[-+*]\s|\d+[.)]\s|(?:[-*_]\s*){3,})|.*\|.*\||.* {2})$/.test(line);
+        if(structural && line.trim()){
+          flush();
+          tokens.push("X:" + line);
+          continue;
+        }
+      }
+      if(/^\s*$/.test(line)){
+        flush();
+        tokens.push("B");
+      } else prose.push(line.trim());
+    }
+    flush();
+    // Le dernier retour de ligne n'est pas une frontière de paragraphe.
+    while(tokens.length && tokens[tokens.length - 1] === "B") tokens.pop();
+    return JSON.stringify(tokens);
+  }
+  function equivalent(a, b){
+    if(a === b) return true;
+    const ext = extension();
+    if(ext === "tex" || ext === "ltx") return proseKey(a, "latex") === proseKey(b, "latex");
+    if(["md", "markdown", "mdown", "mkd"].includes(ext)) return proseKey(a, "markdown") === proseKey(b, "markdown");
+    if(ext === "txt" || ext === "text") return proseKey(a, "text") === proseKey(b, "text");
+    // Tous les modes code, connus ou futurs, conservent chaque blanc.
+    return false;
+  }
 
   // styles des décorations + gouttière (une seule injection par page)
   if(!document.getElementById("dvStyles")){
@@ -67,24 +154,30 @@ window.DiffVersions = function(opts){
   let postTimer = null;
   function persist(afterText){
     if(typeof afterText === "string") lastKnown = afterText;
-    let items = [];
+    let interventions = [];
+    let legacySnapshots = [];
     try{
-      items = VERSIONS.filter(v => !v.head).map(v => ({b: v.before, t: v.ts}));
-      let size = items.reduce((n, it) => n + it.b.length, 0);
-      while(items.length > 1 && size > MAX){ size -= items[0].b.length; items.shift(); }
-      localStorage.setItem(KEY, JSON.stringify({v: 1, items}));
+      interventions = INTERVENTIONS.map(it => ({...it}));
+      legacySnapshots = LEGACY_SNAPSHOTS.map(it => ({...it}));
+      let size = interventions.reduce((n, it) => n + it.before.length + it.after.length, 0)
+        + legacySnapshots.reduce((n, it) => n + it.text.length, 0);
+      while(interventions.length > 1 && size > MAX){
+        const old = interventions.shift();
+        size -= old.before.length + old.after.length;
+      }
+      while(legacySnapshots.length && size > MAX){ size -= legacySnapshots.shift().text.length; }
+      localStorage.setItem(KEY, JSON.stringify({v: 2, interventions, legacySnapshots, last: lastKnown}));
     }catch(e){ try{ localStorage.removeItem(KEY); }catch(e2){} }
-    // persistance serveur : survit au redémarrage de l'app (le localStorage du
-    // WebView n'y survit pas toujours) — débouncé, échec silencieux
+    // POST transitoire v2. Le serveur durable reste v1 jusqu'au plan 028;
+    // localStorage permet déjà une relecture v2 déterministe dans ce commit.
     clearTimeout(postTimer);
     postTimer = setTimeout(() => {
       try{
         fetch("/versions", {method: "POST", headers: {"Content-Type": "application/json"},
-          body: JSON.stringify({path, items, last: lastKnown})}).catch(() => {});
+          body: JSON.stringify({path, v: 2, interventions, legacySnapshots, last: lastKnown})}).catch(() => {});
       }catch(e){}
     }, 400);
   }
-  function sessionCount(){ return VERSIONS.length - (VERSIONS[0] && VERSIONS[0].head ? 1 : 0); }
   function arm(){
     if(els.group) els.group.style.display = "";
     els.tag.disabled = false; els.tag.style.opacity = "";
@@ -95,17 +188,14 @@ window.DiffVersions = function(opts){
     ensureHistUi();
     updateTag();
   }
-  function labelOf(i){
-    const v = VERSIONS[i];
+  function labelOf(v){
     if(!v) return "";
-    if(v.head) return "HEAD" + (v.sha ? " (" + v.sha + ")" : "");
-    const si = i - (VERSIONS[0] && VERSIONS[0].head ? 1 : 0);
-    return "v" + (si + 2) + "/" + (sessionCount() + 1);
+    return v.head ? "HEAD" + (v.sha ? " (" + v.sha + ")" : "") : "base";
   }
   function updateTag(){
-    els.tag.title = "Modifications — " + labelOf(idx) + " (cliquer : comparer)";
-    if(els.prev) els.prev.disabled = idx <= 0;
-    if(els.next) els.next.disabled = idx >= VERSIONS.length - 1;
+    els.tag.title = "Modifications — " + labelOf(baseVersion) + " (cliquer : comparer)";
+    if(els.prev) els.prev.disabled = true;
+    if(els.next) els.next.disabled = true;
   }
   function clearMarks(){
     marks.forEach(m => { try{ m.clear(); }catch(e){} });
@@ -216,7 +306,7 @@ window.DiffVersions = function(opts){
     const note = changes
       ? changes + " modification" + (changes > 1 ? "s" : "")
       : "aucun changement de texte" + (v.head ? "" : " (retours à la ligne seulement)");
-    notify("comparaison " + (extCmp ? extCmp.label : labelOf(idx)) + " · " + note + " · Échap pour fermer");
+    notify("comparaison " + (extCmp ? extCmp.label : labelOf(baseVersion)) + " · " + note + " · Échap pour fermer");
     updateNav();
     if(changes) gotoChange(changeAt, true);
   }
@@ -230,27 +320,16 @@ window.DiffVersions = function(opts){
   let navMode = -1;   // -1 = tout (cumulatif) ; sinon index dans interList()
   let tt = null;      // voyage dans le temps : {realText} — buffer réel à restaurer
   let flashLine = null, flashTimer = null;
-  const wsnEq = (a, b) => a.replace(/\s+/g, " ").trim() === b.replace(/\s+/g, " ").trim();
   function liveText(){ return tt ? tt.realText : getCm().getValue(); }
-  // paires d'états consécutifs (befores stockés + buffer vivant), sans les
-  // transitions vides (blancs seulement) — chaque paire = une intervention
+  // Le compteur vient uniquement du journal explicite. `before` et `after`
+  // appartiennent à la même entrée; le buffer vivant ne complète jamais une paire.
   function interList(){
     const cm = getCm();
     if(!cm) return [];
-    const texts = VERSIONS.map(v => v.before).concat([liveText()]);
-    const list = [];
-    for(let k = 0; k < texts.length - 1; k++){
-      if(wsnEq(texts[k], texts[k + 1])) continue;
-      // ne compter que les interventions POSTÉRIEURES à la base : une
-      // intervention déjà committée n'apparaît plus dans le diff cumulé
-      // (« tout ») — elle ne doit pas gonfler le compteur non plus.
-      // L'horodatage de l'intervention k = ts de la version k+1 (moment où
-      // l'état d'après a été enregistré) ; la paire vivante = maintenant.
-      const ts = k + 1 < VERSIONS.length ? VERSIONS[k + 1].ts : Date.now();
-      if(baseTs && ts != null && ts < baseTs) continue;
-      list.push({from: texts[k], to: texts[k + 1], live: k === texts.length - 2});
-    }
-    return list;
+    const real = liveText();
+    return INTERVENTIONS
+      .filter(it => !baseTs || it.ts == null || it.ts >= baseTs)
+      .map(it => ({...it, from: it.before, to: it.after, live: real === it.after}));
   }
   function ttExit(){
     if(!tt) return;
@@ -259,20 +338,11 @@ window.DiffVersions = function(opts){
     tt = null;
     cm.setValue(real);
   }
-  // Base du diff cumulatif (« tout ») :
-  // - avec git : pseudo-version HEAD (idx 0)
-  // - fichier non suivi : PREMIÈRE snapshot de session (idx 0), PAS la dernière
-  //   (sinon « tout · N » n'affiche que le dernier delta — bug ressenti sur
-  //   diff_test.tex et tout .tex hors dépôt)
-  function baseIndex(){
-    if(!VERSIONS.length) return -1;
-    const h = headIndex();
-    return h >= 0 ? h : 0;
-  }
+  // Base du diff cumulatif (« tout ») : HEAD si disponible, sinon le `before`
+  // immuable de la première intervention du fichier non suivi.
   function showAll(){
     ttExit();
     navMode = -1;
-    idx = baseIndex();
     extCmp = null;
     updateTag();
     render();
@@ -335,7 +405,7 @@ window.DiffVersions = function(opts){
     ensureNavUi();
     if(!navPill) return;
     const n = shown ? interList().length : 0;
-    const on = shown && (n > 0 || changePts.length > 0);
+    const on = shown && !!curVersion();
     navPill.style.display = on ? "inline-flex" : "none";
     if(!on) return;
     if(navMode < 0){
@@ -374,23 +444,36 @@ window.DiffVersions = function(opts){
       if(flashLine != null){ try{ cm.removeLineClass(flashLine, "wrap", "dv-flash"); }catch(e){} flashLine = null; }
     }
   }
-  function push(before, after){
+  function normalizeMeta(meta){
+    const source = meta && SOURCES.has(meta.source) ? meta.source : "user-save";
+    const status = meta && STATUSES.has(meta.status) ? meta.status : "applied";
+    return {source, status};
+  }
+  function record(before, after, meta, ts, id){
+    if(typeof before !== "string" || typeof after !== "string" || before === after || equivalent(before, after)) return null;
+    const parsedTs = Number(ts);
+    const when = Number.isFinite(parsedTs) ? parsedTs : Date.now();
+    const normalized = normalizeMeta(meta);
+    const intervention = {id: typeof id === "string" && id ? id : newId(when), before, after, ts: when,
+      source: normalized.source, status: normalized.status};
+    INTERVENTIONS.push(intervention);
+    if(!baseVersion) baseVersion = {before, ts: when, head: false, sha: ""};
+    return intervention;
+  }
+  function push(before, after, meta){
     // une écriture arrive pendant une vue historique : revenir au présent
     // d'abord (le buffer réel vient d'être remplacé par l'hôte)
     if(tt){ tt = null; navMode = -1; extCmp = null; }
-    if(before === after) return;
-    // rewrap-only (blancs/retours déplacés) : ne pas créer de version vide —
-    // sinon idx saute sur un diff « aucun changement » et masque les vraies
-    // modifications de la version précédente
-    if(before.replace(/\s+/g, " ").trim() === after.replace(/\s+/g, " ").trim()) return;
-    VERSIONS.push({before, ts: Date.now()});
+    // La valeur par défaut maintient les anciens appelants pendant la transition;
+    // Task 3 rendra chaque source externe explicite dans les deux éditeurs.
+    if(!record(before, after, meta)) return;
+    runtimePushes++;
     // Cible par défaut du ± : la BASE (HEAD ou 1ʳᵉ snapshot de session) — un
     // diff CUMULATIF, comme la gouttière. Sauter sur la version fraîchement
     // créée (« depuis la dernière sauvegarde ») donnait un diff minuscule ou
     // vide à chaque ⌘S. Si la comparaison est OUVERTE, ne jamais déplacer la
     // sélection sous les yeux de l'utilisateur (mais render() rafraîchit les
     // marques contre le buffer courant → le cumul grossit quand même).
-    if(!shown) idx = baseIndex();
     arm();
     persist(after);
     // pas d'auto-ouverture : le mode passe l'éditeur en lecture seule, l'activer
@@ -562,11 +645,16 @@ window.DiffVersions = function(opts){
       histPop.style.left = Math.max(8, Math.min(rc.right - 400, window.innerWidth - 416)) + "px";
       const list = histPop.querySelector("#dvHistList");
       const rows = [];
-      // sauvegardes de session (non committées), plus récentes d'abord
-      const sess = VERSIONS.map((v, i) => ({v, i})).filter(x => !x.v.head).reverse();
-      for(const {v, i} of sess){
-        rows.push({label: "sauvegarde " + labelOf(i),
-          msg: "sauvegarde de session", sha: "—", ts: v.ts ? v.ts / 1000 : 0, text: () => v.before});
+      // Interventions de session et snapshots v1 orphelins, plus récents d'abord.
+      for(let i = INTERVENTIONS.length - 1; i >= 0; i--){
+        const it = INTERVENTIONS[i];
+        rows.push({label: "intervention " + (i + 1),
+          msg: it.source, sha: "—", ts: it.ts ? it.ts / 1000 : 0, text: () => it.before});
+      }
+      for(let i = LEGACY_SNAPSHOTS.length - 1; i >= 0; i--){
+        const snap = LEGACY_SNAPSHOTS[i];
+        rows.push({label: snap.label, msg: snap.label, sha: "—",
+          ts: snap.ts ? snap.ts / 1000 : 0, text: () => snap.text});
       }
       let items = [];
       try{
@@ -622,11 +710,9 @@ window.DiffVersions = function(opts){
 
   // ---- gouttière git (barres ajouté/modifié, triangle supprimé, vs HEAD) ----
   let gutterReady = false, gutterTimer = null;
-  function headIndex(){ return (VERSIONS[0] && VERSIONS[0].head) ? 0 : -1; }
   function openHeadAt(line){
-    const h = headIndex();
-    if(h < 0) return;
-    idx = h; updateTag();
+    if(!baseVersion || !baseVersion.head) return;
+    updateTag();
     shown ? (render(), getCm().scrollIntoView({line, ch: 0}, 120)) : toggle(true, line);
   }
   function markerCell(cls, line){
@@ -749,29 +835,24 @@ window.DiffVersions = function(opts){
       baseTs = (Number(j.ts) || 0) * 1000; // epoch s → ms (échelle des versions)
       const changed = headText !== j.text;
       headText = j.text;
-      if(headIndex() < 0){
-        VERSIONS.unshift({before: j.text, ts: null, head: true, sha: headSha});
-        idx += 1;
-        if(idx < 1) idx = 0;
+      if(!baseVersion || !baseVersion.head){
+        baseVersion = {before: j.text, ts: null, head: true, sha: headSha};
         arm();
       } else if(changed){
-        VERSIONS[0].before = j.text;
-        VERSIONS[0].sha = headSha;
-        if(shown && idx === 0) render();
+        baseVersion = {before: j.text, ts: null, head: true, sha: headSha};
+        if(shown && !extCmp) render();
       }
-      // défaut hors comparaison : viser la base (diff cumulatif) — quel que soit
-      // l'ordre d'arrivée entre fetchHead et les push (course sinon : idx restait
-      // sur la dernière sauvegarde → ± ouvrait sur un diff minuscule ou vide)
-      if(!shown) idx = headIndex();
+      // Hors comparaison, la cible reste la base cumulative quel que soit
+      // l'ordre d'arrivée entre fetchHead et les premiers push.
       updateTag();
     }catch(e){ /* serveur sans /githead ou hors dépôt : dégradation silencieuse */ }
   }
 
   els.tag.onclick = () => toggle();
-  if(els.prev) els.prev.onclick = () => { if(idx > 0){ idx--; updateTag(); shown ? render() : toggle(true); } };
-  if(els.next) els.next.onclick = () => { if(idx < VERSIONS.length - 1){ idx++; updateTag(); shown ? render() : toggle(true); } };
+  if(els.prev) els.prev.onclick = () => {};
+  if(els.next) els.next.onclick = () => {};
   if(els.restore) els.restore.onclick = async () => {
-    const v = VERSIONS[idx];
+    const v = curVersion();
     if(!v) return;
     await restoreText(v.before);
     toggle(false);
@@ -800,16 +881,45 @@ window.DiffVersions = function(opts){
     }
   }, true);
 
-  // Les versions du fichier survivent au rechargement de la page ET au
-  // redémarrage de l'app : source de vérité côté serveur (/versions), fallback
-  // localStorage (anciennes sessions) migré au passage.
-  function addItems(items){
+  // Relecture v2 déterministe, avec migration des snapshots v1. Le serveur
+  // reste v1 pendant la transition; localStorage peut déjà contenir du v2.
+  function addV2(data){
     let added = 0;
-    for(const it of (items || [])){
-      if(typeof it.b === "string"){ VERSIONS.push({before: it.b, ts: it.t || Date.now()}); added++; }
+    for(const it of (Array.isArray(data.interventions) ? data.interventions : [])){
+      if(!it || typeof it.before !== "string" || typeof it.after !== "string") continue;
+      if(record(it.before, it.after, {source: it.source, status: it.status}, it.ts, it.id)) added++;
     }
-    if(added){ if(!shown) idx = baseIndex(); arm(); }
-    return added;
+    for(const snap of (Array.isArray(data.legacySnapshots) ? data.legacySnapshots : [])){
+      if(!snap || typeof snap.text !== "string") continue;
+      LEGACY_SNAPSHOTS.push({text: snap.text, ts: Number(snap.ts) || 0,
+        label: typeof snap.label === "string" ? snap.label : "snapshot legacy"});
+    }
+    if(typeof data.last === "string") lastKnown = data.last;
+    if(added || LEGACY_SNAPSHOTS.length) arm();
+    return added + LEGACY_SNAPSHOTS.length;
+  }
+  function addV1(data){
+    const snapshots = (Array.isArray(data.items) ? data.items : [])
+      .filter(it => it && typeof it.b === "string")
+      .map((it, i) => ({text: it.b, ts: Number(it.t) || 0, index: i}));
+    const usedAsBefore = new Set();
+    for(let i = 0; i + 1 < snapshots.length; i++){
+      const before = snapshots[i], after = snapshots[i + 1];
+      if(record(before.text, after.text, {source: "legacy", status: "applied"}, after.ts))
+        usedAsBefore.add(i);
+    }
+    for(let i = 0; i < snapshots.length; i++){
+      if(usedAsBefore.has(i)) continue;
+      const snap = snapshots[i];
+      LEGACY_SNAPSHOTS.push({text: snap.text, ts: snap.ts, label: "snapshot v1 " + (snap.index + 1)});
+    }
+    if(typeof data.last === "string") lastKnown = data.last;
+    if(INTERVENTIONS.length || LEGACY_SNAPSHOTS.length) arm();
+    return INTERVENTIONS.length + LEGACY_SNAPSHOTS.length;
+  }
+  function loadData(data){
+    if(!data || typeof data !== "object") return 0;
+    return data.v === 2 ? addV2(data) : addV1(data);
   }
   async function restoreVersions(){
     let fromServer = false;
@@ -818,15 +928,14 @@ window.DiffVersions = function(opts){
       const j = await r.json();
       if(j && j.ok){
         fromServer = true;
-        addItems(j.items);
-        if(typeof j.last === "string") lastKnown = j.last;
+        loadData(j);
       }
     }catch(e){}
-    if(!fromServer || (!VERSIONS.filter(v => !v.head).length && lastKnown === null)){
+    if(!fromServer || (!INTERVENTIONS.length && !LEGACY_SNAPSHOTS.length && lastKnown === null)){
       // fallback / migration depuis le localStorage d'une session antérieure
       try{
         const data = JSON.parse(localStorage.getItem(KEY) || "null");
-        if(data && Array.isArray(data.items) && addItems(data.items)) persist();
+        loadData(data);
       }catch(e){}
     }
   }
@@ -841,10 +950,13 @@ window.DiffVersions = function(opts){
     restoreVersions().then(() => {
       const cm = getCm();
       const now = cm ? cm.getValue() : null;
-      const wsn = s => s.replace(/\s+/g, " ").trim();
-      if(now !== null && typeof lastKnown === "string" && lastKnown !== now && wsn(lastKnown) !== wsn(now)){
-        VERSIONS.push({before: lastKnown, ts: Date.now()});
-        if(!shown) idx = baseIndex();
+      // Le GET /versions peut finir après les premiers ⌘S et rapporter un
+      // `last` plus ancien. Ces push couvrent déjà le buffer courant : ne pas
+      // ajouter une intervention composite de rattrapage en doublon.
+      if(now !== null && runtimePushes > 0){
+        lastKnown = now;
+      } else if(now !== null && typeof lastKnown === "string" && !equivalent(lastKnown, now)){
+        record(lastKnown, now, {source: "external-reload", status: "applied"});
         arm();
         persist(now);
         notify("modifié pendant que l'app était fermée — ± pour comparer");
@@ -854,7 +966,7 @@ window.DiffVersions = function(opts){
       fetchHead().then(() => {
         refreshGutter();
         // sélection par défaut du ± : la base (diff cumulatif, comme la gouttière)
-        if(!shown){ idx = baseIndex(); updateTag(); }
+        if(!shown) updateTag();
       });
     });
   }, 300);
