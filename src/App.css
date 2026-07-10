@@ -1727,6 +1727,12 @@ body.dragging iframe { pointer-events: none; }
 .pnav-act:hover { color: var(--fg); }
 .pnav-act.on { color: var(--u-warn); }
 
+/* icônes provider neutralisées dans le panneau : l'identité passe par la
+   forme, pas la couleur de marque (budget accent — icône au repos ≠ orange) */
+.pnav-row .prov-ico { color: var(--muted2); }
+.pnav-row .prov-ico svg[fill="none"] { stroke: currentColor; }
+.pnav-row .prov-ico svg:not([fill="none"]) { fill: currentColor; }
+
 /* « N conversations plus anciennes » / « Afficher moins » */
 .sidebar button.pnav-more { display: block; width: 100%; text-align: left;
   background: none; border: none; color: var(--muted2); font-size: var(--fs-m);
@@ -1757,17 +1763,17 @@ body.dragging iframe { pointer-events: none; }
   .pnav-scroll { animation: none; }
 }
 
+/* labels temporels en casse normale : sous-niveau discret — les titres de
+   section (.pnav-sec) restent les seuls éléments uppercase du panneau */
 .sidebar li.thread-recency-label {
   display: block;
-  padding: 10px 8px 4px;
+  padding: 8px 8px 2px;
   border-radius: 0;
   cursor: default;
   color: var(--muted2);
-  font-size: var(--fs-xs);
-  font-weight: 500;
+  font-size: var(--fs-s);
+  font-weight: 400;
   line-height: 1.3;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
 }
 /* picker d'icônes de projet */
 .proj-emoji { width: 16px; font-size: var(--fs-l); line-height: 1; flex-shrink: 0; text-align: center; }

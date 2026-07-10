@@ -100,6 +100,18 @@ async function boot() {
     );
     return;
   }
+  // banc de captures du panneau Projets / Research Navigator (plan 024)
+  if (window.location.hash.startsWith("#navbench")) {
+    const { NavBench } = await import("./components/NavBench");
+    ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
+      <React.StrictMode>
+        <BootBoundary>
+          <NavBench />
+        </BootBoundary>
+      </React.StrictMode>,
+    );
+    return;
+  }
   // banc de captures du Research Home (plan 017) — mêmes garanties que #uibench
   if (window.location.hash.startsWith("#homebench")) {
     const { HomeBench } = await import("./components/HomeBench");
