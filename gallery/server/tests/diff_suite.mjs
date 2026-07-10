@@ -23,12 +23,21 @@ const GALLERY = path.resolve(HERE, "..", "..");
 const ASSETS = path.join(GALLERY, "assets");
 
 let passed = 0;
+const TODOS = [];
+function todo(name, reason) { TODOS.push({name, reason}); }
+
 function ok(name, cond, detail) {
   if (cond) { passed++; return; }
   console.error(`✗ ${name}${detail ? " — " + detail : ""}`);
   process.exitCode = 1;
   throw new Error(`test failed: ${name}`);
 }
+
+todo("significant blank LaTeX line", "Define when a blank structural line is an intervention.");
+todo("restore from an intervention", "Lock the intervention count after restoring a saved step.");
+todo("restore from an external commit", "Lock the intervention count after restoring Git history.");
+todo("agent modification while the editor buffer is dirty", "Specify conflict handling without a real agent.");
+todo("edit then return to base text", "Specify whether a net-zero session remains in the timeline.");
 
 function git(args, cwd) {
   return execFileSync("git", args, { cwd, encoding: "utf8" });
@@ -564,6 +573,7 @@ try {
   await latexStudioTests();
   await timelineTests();
   console.log(`diff suite: ok (${passed} tests)`);
+  console.log(`diff suite: todo (${TODOS.length})`);
 } catch (e) {
   console.error(String(e.message || e));
   console.error(`diff suite: ÉCHEC après ${passed} tests verts`);
