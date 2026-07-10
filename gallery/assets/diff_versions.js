@@ -22,6 +22,7 @@
 //     restoreText: async (text) => ..., // réécrit le fichier + met à jour le buffer
 //   });
 //   dv.push(before, after, meta) après chaque sauvegarde / rechargement externe
+//   dv.isEquivalent(a, b)     équivalence whitespace adaptée au type de fichier
 //   dv.isShown()            le mode comparaison est-il actif ?
 window.DiffVersions = function(opts){
   const { getCm, path, notify, els, restoreText } = opts;
@@ -1004,5 +1005,5 @@ window.DiffVersions = function(opts){
 
   // isBusy : vue historique active (buffer temporairement remplacé) — les hôtes
   // doivent suspendre leur rechargement-disque automatique pendant ce temps
-  return { push, isShown: () => shown, isBusy: () => !!tt };
+  return { push, isEquivalent: equivalent, isShown: () => shown, isBusy: () => !!tt };
 };

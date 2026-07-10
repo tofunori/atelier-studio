@@ -248,8 +248,7 @@ let __mergeConflictAt = 0;
 function __effectivelyClean(){
   if(!dirty) return true;
   if(typeof lastSavedText !== "string" || !cm) return false;
-  const w = (s) => s.replace(/\s+/g, " ").trim();
-  return w(cm.getValue()) === w(lastSavedText);
+  return __dv.isEquivalent(cm.getValue(), lastSavedText);
 }
 setInterval(async () => {
   if(!cm) return;

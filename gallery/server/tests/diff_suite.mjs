@@ -551,6 +551,20 @@ async function moduleTests() {
     h.tag.onclick();
     contractOk("rewrap visuel de prose : aucune intervention", h.nav() === null, JSON.stringify(h.posts));
   }
+  {
+    const latex = makeModuleHarness({ filePath: "/x/equivalence.tex" });
+    const blankBefore = "Premier paragraphe.\nSecond paragraphe.\n";
+    const blankAfter = "Premier paragraphe.\n\nSecond paragraphe.\n";
+    contractOk("API equivalence : ligne vide LaTeX reste dirty",
+      typeof latex.dv.isEquivalent === "function" && !latex.dv.isEquivalent(blankBefore, blankAfter));
+    contractOk("API equivalence : rewrap prose LaTeX peut rester clean",
+      typeof latex.dv.isEquivalent === "function"
+        && latex.dv.isEquivalent("Une phrase longue repliee\nsur deux lignes.\n", "Une phrase longue\nrepliee sur deux lignes.\n"));
+    const python = makeModuleHarness({ filePath: "/x/equivalence.py" });
+    contractOk("API equivalence : indentation Python reste dirty",
+      typeof python.dv.isEquivalent === "function"
+        && !python.dv.isEquivalent("if ready:\n    run()\n", "if ready:\n  run()\n"));
+  }
 
   // B13. migration v1 : un snapshot {b,t} sans after reste consultable comme
   // legacySnapshot mais ne devient jamais une intervention inventée.
@@ -806,6 +820,8 @@ function editorCallSiteTests() {
       callCarriesMeta(watcher, spec.callee, "beforePush", "diskText", "external-merge", "applied"));
     contractOk(`${spec.name} call site external-conflict/pending-conflict`,
       callCarriesMeta(watcher, spec.callee, "base", "diskText", "external-conflict", "pending-conflict"));
+    contractOk(`${spec.name} effectivelyClean utilise la politique DiffVersions`,
+      /__dv\.isEquivalent\s*\(\s*cm\.getValue\(\)\s*,\s*lastSavedText\s*\)/.test(watcher));
   }
 
   const latex = specs[0].src;
