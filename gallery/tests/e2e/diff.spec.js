@@ -77,7 +77,7 @@ async function stopServer(server) {
   await waitForExit(server, 1000);
 }
 
-async function withEditor(kind, run, engine = kind === 'latex' ? 'cm5' : null) {
+async function withEditor(kind, run, engine = 'cm6') {
   const editor = EDITORS[kind];
   const root = mkdtempSync(path.join(tmpdir(), 'atelier-diff-e2e-'));
   const filePath = path.join(root, editor.filename);
@@ -97,7 +97,7 @@ async function withEditor(kind, run, engine = kind === 'latex' ? 'cm5' : null) {
       stdio: ['ignore', 'pipe', 'pipe'],
     });
     await waitForPing(port);
-    const engineQuery = kind === 'latex' ? `&engine=${engine}` : editor.query;
+    const engineQuery = `&engine=${engine}`;
     const url = `http://127.0.0.1:${port}/.fig_thumbs/${editor.asset}?path=${encodeURIComponent(filePath)}${engineQuery}`;
     await run({ root, filePath, texPath: filePath, port, url, kind, initialText: editor.initialText });
   } finally {
@@ -112,9 +112,10 @@ async function withLatexStudio(engineOrRun, maybeRun) {
   return withEditor('latex', run, engine);
 }
 
-async function openEditor(page, url, kind = 'latex', engine = 'cm5') {
+async function openEditor(page, url, kind = 'latex', engine = null) {
+  engine = engine || new URL(url).searchParams.get('engine') || 'cm6';
   await page.goto(url);
-  if (kind === 'latex') await expect.poll(() => page.evaluate(() => window.__ENGINE)).toBe(engine);
+  await expect.poll(() => page.evaluate(() => window.__ENGINE)).toBe(engine);
   await expect.poll(() => page.evaluate(() => typeof cm !== 'undefined' && Boolean(cm))).toBe(true);
   await expect(page.locator(engine === 'cm6' ? '.cm-editor' : '.CodeMirror')).toBeVisible();
 }

@@ -1,0 +1,48 @@
+(function () {
+  "use strict";
+  const ENGINES = new Set(["cm5", "cm6"]);
+  const CM5_MODES = {
+    tex: "stex", sty: "stex", bib: "stex", py: "python", md: "markdown",
+    r: "r", jl: "julia", sh: "shell", bash: "shell", js: "javascript",
+    ts: "javascript", json: {name: "javascript", json: true}, yaml: "yaml",
+    yml: "yaml", toml: "toml",
+  };
+
+  function normalizedExt(ext) {
+    return ext === "R" ? "r" : String(ext || "").replace(/^\./, "").toLowerCase();
+  }
+
+  function resolveEngine(search, storage, defaultEngine) {
+    let query = null;
+    try { query = new URLSearchParams(search || "").get("engine"); } catch (_) {}
+    if (ENGINES.has(query)) return query;
+    let saved = null;
+    try { saved = storage && storage.getItem("studioEngine"); } catch (_) {}
+    if (ENGINES.has(saved)) return saved;
+    return ENGINES.has(defaultEngine) ? defaultEngine : "cm6";
+  }
+
+  function createEditor(options) {
+    const engine = resolveEngine(location.search, window.localStorage, options.defaultEngine);
+    window.__ENGINE = engine;
+    document.documentElement.dataset.editorEngine = engine;
+    console.info("[Atelier editor] active engine:", engine);
+    if (engine === "cm6") {
+      return window.AtelierStudioCM6.createStudioEditor(options.parent, {
+        value: options.value || "", ext: normalizedExt(options.ext), wrap: options.wrap !== false,
+        readOnly: Boolean(options.readOnly), aiEnabled: options.aiEnabled,
+        onGhostState: options.onGhostState,
+      });
+    }
+    const ext = normalizedExt(options.ext);
+    const cm5Options = Object.assign({
+      value: options.value || "", mode: CM5_MODES[ext] || null,
+      theme: "material-darker", lineNumbers: true,
+      lineWrapping: options.wrap !== false, readOnly: Boolean(options.readOnly),
+      viewportMargin: 50, styleSelectedText: true,
+    }, options.cm5Options || {});
+    return window.CodeMirror(options.parent, cm5Options);
+  }
+
+  window.AtelierEditorFactory = {resolveEngine, createEditor};
+})();

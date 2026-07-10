@@ -15,6 +15,8 @@ import {stex} from "@codemirror/legacy-modes/mode/stex";
 import {r} from "@codemirror/legacy-modes/mode/r";
 import {julia} from "@codemirror/legacy-modes/mode/julia";
 import {shell} from "@codemirror/legacy-modes/mode/shell";
+import {yaml} from "@codemirror/legacy-modes/mode/yaml";
+import {toml} from "@codemirror/legacy-modes/mode/toml";
 import {ghostAiExtension} from "./ghost_ai.mjs";
 import {clampPos, countColumn, cm5KeyToCm6, createOperationBatcher} from "./studio_compat.mjs";
 
@@ -22,14 +24,17 @@ export const Pass = Symbol("CodeMirror.Pass");
 export { countColumn };
 
 function languageFor(ext) {
-  switch (ext) {
+  switch (ext === "R" ? "r" : String(ext || "").toLowerCase()) {
     case "py": return python();
     case "md": return markdown();
-    case "js": return javascript();
-    case "tex": return StreamLanguage.define(stex);
+    case "js": case "ts": return javascript({typescript: ext === "ts"});
+    case "json": return javascript({json: true});
+    case "tex": case "sty": case "bib": return StreamLanguage.define(stex);
     case "r": return StreamLanguage.define(r);
     case "jl": return StreamLanguage.define(julia);
-    case "sh": return StreamLanguage.define(shell);
+    case "sh": case "bash": return StreamLanguage.define(shell);
+    case "yaml": case "yml": return StreamLanguage.define(yaml);
+    case "toml": return StreamLanguage.define(toml);
     default: return [];
   }
 }
@@ -171,7 +176,7 @@ export function createStudioEditor(parent, opts) {
       extensions: [
         lineNumbers(), history(), drawSelection(), highlightActiveLine(), highlightActiveLineGutter(),
         bracketMatching(), closeBrackets(), foldGutter(), highlightSelectionMatches({minSelectionLength: 3}),
-        indentUnit.of("  "),
+        indentUnit.of(opts.ext === "py" ? "    " : "  "),
         languageFor(opts.ext),
         marksField, lineClsField, gutterField, hangingIndent,
         gutter({
@@ -347,5 +352,6 @@ export function createStudioEditor(parent, opts) {
     },
     on: (event, fn) => { (handlers[event] || (handlers[event] = [])).push(fn); },
   };
+  if (opts.readOnly) facade.setOption("readOnly", true);
   return facade;
 }

@@ -34,6 +34,9 @@
 <script src="/.fig_thumbs/cm/markdown.min.js"></script>
 <script src="/.fig_thumbs/cm/julia.min.js"></script>
 <script src="/.fig_thumbs/cm/shell.min.js"></script>
+<script src="/.fig_thumbs/cm/javascript.min.js"></script>
+<script src="/.fig_thumbs/cm6/studio_cm6.bundle.js"></script>
+<script src="/.fig_thumbs/editor_factory.js"></script>
 <script src="/.fig_thumbs/diff.min.js"></script>
 <script src="/.fig_thumbs/diff_versions.js"></script>
 <style>
@@ -54,8 +57,11 @@
   #diffTag.on{background:var(--border);color:var(--txt)}
   /* état visible (le masquage initial est inline ; le module l'efface pour armer) */
   #diffGrp{display:inline-flex;align-items:center;gap:4px}
-  .CodeMirror{flex:1;height:auto;font-size:13px;
+  .CodeMirror,.cm-editor{flex:1;height:auto;font-size:13px;
               font-family:var(--code-font);line-height:1.5}
+  .cm-editor{background:#1e2126;color:#d8d3c8;min-height:0}
+  .cm-editor .cm-scroller{font-family:var(--code-font);overflow:auto}
+  .cm-editor .cm-gutters{background:transparent;border-right:1px solid #2a2f3a;color:#5b6270}
   /* breathing room between line numbers and code (esp. 3-digit lines) */
   .CodeMirror-linenumber{padding:0 14px 0 22px !important;color:#5b6270}
   .CodeMirror-gutters{background:transparent;border-right:1px solid #2a2f3a}
@@ -128,8 +134,6 @@ const path = new URLSearchParams(location.search).get("path");
 document.getElementById("fname").textContent = path ? path.split("/").pop() : "(no file)";
 document.title = path ? path.split("/").pop() : "Editor";
 
-const MODES = {tex:"stex", sty:"stex", bib:"stex", py:"python", r:"r", R:"r",
-               md:"markdown", jl:"julia", sh:"shell", bash:"shell"};
 const ext = path ? path.split(".").pop() : "";
 let cm = null, diskMtime = 0, dirty = false;
 
@@ -188,13 +192,14 @@ async function load(){
   if(!cm){
   let __rsT=null;
   window.addEventListener("resize", () => { clearTimeout(__rsT); __rsT=setTimeout(() => { if(cm) cm.refresh(); }, 120); });
-    cm = CodeMirror(document.getElementById("ed"), {
-      value: j.text, mode: MODES[ext] || null, theme: "material-darker",
-      lineNumbers: true, lineWrapping: true, viewportMargin: 50, styleSelectedText: true
+    cm = AtelierEditorFactory.createEditor({
+      parent: document.getElementById("ed"), value: j.text, ext,
+      wrap: true, readOnly: false, defaultEngine: "cm6",
     });
+    window.cm = cm;
   // Rewrap façon VS Code : les lignes repliées s'alignent sous le début du
   // texte de la ligne (indentation préservée), pas sous le gutter.
-  (function(){
+  if(window.__ENGINE === "cm5") (function(){
     const basePad = 4;
     cm.on("renderLine", function(cm, line, elt){
       const off = CodeMirror.countColumn(line.text, null, cm.getOption("tabSize")) * cm.defaultCharWidth();

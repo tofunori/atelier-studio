@@ -10,6 +10,8 @@
 <script src="/.fig_thumbs/cm/codemirror.min.js"></script>
 <script src="/.fig_thumbs/cm/mark-selection.min.js"></script>
 <script src="/.fig_thumbs/cm/markdown.min.js"></script>
+<script src="/.fig_thumbs/cm6/studio_cm6.bundle.js"></script>
+<script src="/.fig_thumbs/editor_factory.js"></script>
 <style>
 :root{--ui-font:-apple-system,'SF Pro Text','Inter Variable',sans-serif;--code-font:ui-monospace,'SF Mono',Menlo,monospace;--bg:#202024;--card:#27272a;--card2:#1f1f23;--txt:#dbdfe5;--muted:#a1a1aa;--accent:#5b9dff;--border:#3f3f46}
   html,body{margin:0;height:100%;background:var(--bg);color:var(--txt);
@@ -37,7 +39,10 @@
   #body{flex:1;display:flex;min-height:0}
   #edPane{flex:1;min-width:0;display:none;flex-direction:column;border-right:1px solid var(--border)}
   #edPane.show{display:flex}
-  .CodeMirror{flex:1;height:auto;font-size:13px;font-family:var(--code-font);line-height:1.55}
+  .CodeMirror,.cm-editor{flex:1;height:auto;font-size:13px;font-family:var(--code-font);line-height:1.55}
+  .cm-editor{min-height:0;background:#1e2126;color:#d8d3c8}
+  .cm-editor .cm-scroller{font-family:var(--code-font);overflow:auto}
+  .cm-editor .cm-gutters{background:#1e2126;border-right:1px solid var(--border)}
   .CodeMirror .CodeMirror-selected{background:transparent !important}
   .CodeMirror-focused .CodeMirror-selected{background:transparent !important}
   .CodeMirror-selectedtext{background:rgba(91,157,255,.45) !important;border-radius:2px}
@@ -147,10 +152,11 @@ async function load(){
 
 function initEditor(text){
   if(cm) return;
-  cm = CodeMirror(document.getElementById("edPane"), {
-    value: text != null ? text : "", mode: "markdown", theme: "material-darker",
-    lineNumbers: true, lineWrapping: true, viewportMargin: 50, styleSelectedText: true
+  cm = AtelierEditorFactory.createEditor({
+    parent: document.getElementById("edPane"), value: text != null ? text : "",
+    ext: "md", wrap: true, readOnly: false, defaultEngine: "cm6",
   });
+  window.cm = cm;
   cm.on("change", (_, ch) => {
     renderPreview(cm.getValue());
     if(ch.origin !== "setValue"){ dirty = true; setState("dirty", "modified"); }
