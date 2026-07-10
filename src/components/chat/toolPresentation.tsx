@@ -52,7 +52,7 @@ export function ToolOutputLine({ event }: { event: Extract<AgentEvent, { kind: "
   return (
     <div className={`tool-output ${open ? "open" : "collapsed"} ${failed ? "failed" : ""}`}>
       <button type="button" className="tool-output-head" onClick={() => setOpen((v) => !v)}>
-        <span className="tool-tick">{open ? "▾" : "▸"}</span>
+        <Tick open={open} />
         <span className="tool-output-name">
           {eventLabel(event.name)}
           {event.source ? <span className="tool-source">{event.source}</span> : null}

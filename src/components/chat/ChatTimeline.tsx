@@ -4,12 +4,13 @@
 // JSX déplacé VERBATIM depuis Chat.tsx ; les bundles sont déstructurés vers les
 // noms locaux d'origine pour garantir l'équivalence pixel.
 import React, { type ReactNode, type MutableRefObject, type RefObject } from "react";
+import { Tick } from "./toolPresentation";
 import { AgentEvent } from "../../lib/ws";
 import { t } from "../../lib/i18n";
 import { isValidSkill } from "./mentions";
 import { ZapIcon, ArrowDownIcon } from "../icons";
 import {
-  ChatEmptyState, UserTurn, StreamingText, AssistantText, AssistantDone,
+  ChatEmptyState, UserTurn, StreamingText, AssistantText, ResultCapsule,
   ActivityFold, ActivityGroup, type ReviewState,
 } from "./turns";
 import { ResearchHome, type ResearchHomeBundle } from "../ResearchHome";
@@ -140,7 +141,7 @@ export function ChatTimeline(p: {
                 <span className="rb-checks">{t("review.checks", { n: review.checks })}</span>
               </>
             )}
-            {review.status === "done" ? <span className="rb-chevron">{barOpen ? "▴" : "▾"}</span> : null}
+            {review.status === "done" ? <span className="rb-chevron"><Tick open={barOpen} /></span> : null}
             <span className="rb-min" title={t("review.minimize")} onClick={(e) => { e.stopPropagation(); setBarOpen(false); setReviewMin(true); }}>–</span>
             <span className="rb-close" title={t("action.close")} onClick={(e) => { e.stopPropagation(); setReview(null); }}>✕</span>
           </button>
@@ -340,11 +341,21 @@ export function ChatTimeline(p: {
             );
           if (e.kind === "done") {
             const isLastDone = !events.slice(i + 1).some((x) => x.kind === "done");
+            // « Annuler le tour » = revert au message user du tour (capacité
+            // existante onRevert, nouvelle destination — plan 020, étape 5)
+            let userIdx = -1;
+            for (let k = i - 1; k >= 0; k--) {
+              if (events[k].kind === "user") { userIdx = k; break; }
+            }
+            const turnUser = userIdx >= 0
+              ? (events[userIdx] as Extract<AgentEvent, { kind: "user" }>)
+              : null;
             return (
-              <AssistantDone
+              <ResultCapsule
                 key={i}
                 event={e}
                 isLastDone={isLastDone}
+                onRevertTurn={turnUser ? () => onRevert(userIdx, turnUser.text, false) : null}
                 threadId={threadId}
                 review={review}
                 reviewOpen={reviewOpen}

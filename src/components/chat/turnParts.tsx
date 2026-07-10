@@ -6,6 +6,7 @@ import { AgentEvent } from "../../lib/ws";
 import { wsSend } from "../../lib/wsBus";
 import { t } from "../../lib/i18n";
 import { diffLineClass, openFileRef } from "./md";
+import { Tick } from "./toolPresentation";
 
 export function DoneDiffToggle({ event, threadId }: {
   event: Extract<AgentEvent, { kind: "done" }>;
@@ -48,7 +49,7 @@ export function DoneDiffToggle({ event, threadId }: {
         }}
       >
         <span>{t("chat.files-modified", { count: files.length })}</span>
-        <span className="tool-tick">{open ? "▾" : "▸"}</span>
+        <Tick open={open} />
       </button>
       {open && (
         <pre className="turn-diff-body">
@@ -129,7 +130,7 @@ export function EditLine({ event, threadId }: {
                   if (!sent) setLoading(null);
                 }}
               >
-                <span className="tool-tick">{open ? "▾" : "▸"}</span>
+                <Tick open={open} />
               </button>
             </div>
             {open && (
@@ -192,7 +193,7 @@ export function ThinkingBlock({ text, live }: { text: string; live: boolean }) {
   return (
     <div className={`thinking ${live ? "live" : ""}`}>
       <button type="button" className="thinking-head" onClick={() => setOpen((v) => !v)}>
-        <span className="tool-tick">{open ? "▾" : "▸"}</span>
+        <Tick open={open} />
         <span className="thinking-label">{live ? t("chat.thinking-live") : t("chat.thinking")}</span>
         {!open && <span className="thinking-preview">{preview}</span>}
       </button>
@@ -227,7 +228,7 @@ export function ActivityCard({ event, live }: { event: Extract<AgentEvent, { kin
         <span className="activity-title">{event.title}</span>
         {event.detail && <span className="activity-detail">{event.detail}</span>}
         {steps.length > 0 && <span className="activity-count">{t("chat.actions-used", { count: steps.length })}</span>}
-        <span className="tool-tick">{open ? "▾" : "▸"}</span>
+        <Tick open={open} />
       </button>
       {open && steps.length > 0 && (
         <div className="activity-steps">

@@ -200,7 +200,17 @@ export const AssistantText = memo(function AssistantText(p: {
   );
 });
 
-export function AssistantDone(p: {
+/** Formatage compact des tokens (« 8,1k ») — jamais de valeur inventée. */
+function fmtTokens(n: number): string {
+  if (n < 1000) return String(n);
+  return `${(n / 1000).toFixed(1).replace(".", ",")}k`;
+}
+
+/** Capsule résultat (plan 020, étape 5) — UNIQUEMENT des données attribuables
+ * au tour : statut terminal, fichiers réellement modifiés (diff à la demande),
+ * usage enregistré (« Usage indisponible » sinon), review si lancée, annulation
+ * du tour. Vocabulaire honnête : « Tour terminé », jamais « réussi ». */
+export function ResultCapsule(p: {
   event: DoneEvent;
   isLastDone: boolean;
   threadId: string | null;
@@ -208,25 +218,47 @@ export function AssistantDone(p: {
   reviewOpen: boolean;
   onStartReview: () => void;
   onToggleReviewOpen: () => void;
+  /** annule le tour (revert au message user) — null si non attribuable */
+  onRevertTurn: (() => void) | null;
 }) {
   const e = p.event;
   const review = p.review;
+  const usage = e.usage;
   return (
-    <div id={p.isLastDone ? "last-done" : undefined} className="done">
-      {e.ok ? t("chat.done-ok") : t("chat.done-fail")}
-      {p.isLastDone && !review && (
-        <button
-          className="done-verify"
-          title={t("review.verify")}
-          onClick={p.onStartReview}
-        >
-          <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round">
-            <path d="M8 1.8l5 2v4c0 3.2-2.2 5.4-5 6.4-2.8-1-5-3.2-5-6.4v-4z" />
-            <path d="M5.8 8l1.6 1.6L10.5 6.3" />
-          </svg>
-          {t("review.verify-now")}
-        </button>
-      )}
+    <div id={p.isLastDone ? "last-done" : undefined}
+      className={`done result-capsule ${e.ok ? "" : "warn"}`}>
+      <div className="capsule-head">
+        <span className={`capsule-status ${e.ok ? "ok" : "warn"}`}>
+          {e.ok ? t("chat.turn-done") : t("chat.turn-interrupted")}
+        </span>
+        <span className="capsule-meta">
+          {usage && usage.output != null
+            ? `${fmtTokens(usage.output)} tokens${usage.cost != null ? ` · ${usage.cost.toFixed(2)} $` : ""}`
+            : t("chat.usage-unavailable")}
+        </span>
+        <span className="capsule-actions">
+          {p.isLastDone && p.onRevertTurn && (
+            <button type="button" className="capsule-act" title={t("chat.revert-title")}
+              onClick={p.onRevertTurn}>
+              {t("chat.revert-turn")}
+            </button>
+          )}
+          {p.isLastDone && !review && (
+            <button
+              type="button"
+              className="done-verify"
+              title={t("review.verify")}
+              onClick={p.onStartReview}
+            >
+              <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <path d="M8 1.8l5 2v4c0 3.2-2.2 5.4-5 6.4-2.8-1-5-3.2-5-6.4v-4z" />
+                <path d="M5.8 8l1.6 1.6L10.5 6.3" />
+              </svg>
+              {t("review.verify-now")}
+            </button>
+          )}
+        </span>
+      </div>
       {p.isLastDone && review && (
         <span
           className={`review-badge v-${review.status === "running" ? "running" : review.verdict}`}

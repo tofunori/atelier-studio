@@ -81,3 +81,59 @@ describe("anatomie du tour — header d'activité", () => {
     expect(document.body.textContent).not.toMatch(/[▸▾]/);
   });
 });
+
+describe("capsule résultat — honnêteté et actions", () => {
+  it("tour ok : « Tour terminé » + usage enregistré (tokens)", () => {
+    renderUi(<Chat {...chatProps({ events: finishedTurn() })} />);
+    const capsule = document.querySelector(".result-capsule") as HTMLElement;
+    expect(capsule).toBeTruthy();
+    expect(capsule.textContent).toContain(t("chat.turn-done"));
+    expect(capsule.textContent).toContain("512 tokens"); // done.usage.output du fixture
+  });
+
+  it("done sans usage : « Usage indisponible », jamais de valeur inventée", () => {
+    const evs: AgentEvent[] = [
+      events.user("Question.", FIXED_TS),
+      { kind: "done", ok: true, result: "ok", projectRoot: "/tmp/fixtures/albedo-pipeline",
+        filesChanged: [], ts: FIXED_TS + 100 } as unknown as AgentEvent,
+    ];
+    renderUi(<Chat {...chatProps({ events: evs })} />);
+    expect(document.querySelector(".result-capsule")!.textContent)
+      .toContain(t("chat.usage-unavailable"));
+  });
+
+  it("tour ok:false : « Tour interrompu » en ton warning", () => {
+    const evs: AgentEvent[] = [
+      events.user("Question.", FIXED_TS),
+      events.done({ ok: false, ts: FIXED_TS + 100 }),
+    ];
+    renderUi(<Chat {...chatProps({ events: evs })} />);
+    const capsule = document.querySelector(".result-capsule.warn") as HTMLElement;
+    expect(capsule).toBeTruthy();
+    expect(capsule.textContent).toContain(t("chat.turn-interrupted"));
+  });
+
+  it("« Annuler le tour » appelle onRevert avec le message user du tour", () => {
+    const onRevert = vi.fn();
+    renderUi(<Chat {...chatProps({ events: finishedTurn(), onRevert })} />);
+    fireEvent.click(screen.getByText(t("chat.revert-turn")));
+    expect(onRevert).toHaveBeenCalledWith(0, "Analyse l'albédo.", false);
+  });
+
+  it("fichiers modifiés : le libellé honnête compte les fichiers, le diff est à la demande", () => {
+    const evs: AgentEvent[] = [
+      events.user("Corrige.", FIXED_TS),
+      events.done({ filesChanged: ["a.py", "b.py"], ts: FIXED_TS + 100 }),
+    ];
+    renderUi(<Chat {...chatProps({ events: evs })} />);
+    const toggle = document.querySelector(".turn-diff-toggle") as HTMLButtonElement;
+    expect(toggle.textContent).toContain(t("chat.files-modified", { count: 2 }));
+    expect(document.querySelector(".turn-diff-body")).toBeNull(); // à la demande
+  });
+
+  it("aucune section « tests » n'existe sans événement qui la porte", () => {
+    renderUi(<Chat {...chatProps({ events: finishedTurn() })} />);
+    const capsule = document.querySelector(".result-capsule") as HTMLElement;
+    expect(capsule.textContent!.toLowerCase()).not.toMatch(/test|réussi|validé/);
+  });
+});
