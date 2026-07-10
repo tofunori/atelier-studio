@@ -149,6 +149,20 @@ export function createHarnessThread({
     },
 
     /**
+     * Événement durable HORS-TURN (goal thread-level, frontière __session-cleared
+     * / __compacted) : passe par le harnais pour porter meta + sequence monotone
+     * et atteindre le journal, au lieu d'un broadcast direct qui laisserait un
+     * trou de sequence et un événement non rejoué. Rattaché au turn actif s'il
+     * y en a un, sinon à un pseudo-turn stable du thread.
+     */
+    emitGlobal(event, opts = {}) {
+      const turnId = active ?? `thread:${threadId}`;
+      return enqueue(() => {
+        dispatch(decorate(event, turnId, { origin: opts.origin ?? "provider", ...opts }));
+      });
+    },
+
+    /**
      * Terminal (done/error) du turn — exactement un par turn : un second
      * terminal est refusé (retourne false) sans être émis.
      */

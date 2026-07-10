@@ -852,6 +852,17 @@ export default function App() {
           const next = mergeHarnessHistory(cur, (msg.events ?? []) as AgentEvent[]);
           return next === cur ? prev : { ...prev, [msg.threadId]: next };
         });
+        // replay de l'usage (plan 025) : l'anneau se vidait au reload — le
+        // dernier done journalisé porte l'usage du turn, on le restaure si le
+        // fil n'a pas déjà un usage vivant plus récent
+        const histEvents = (msg.events ?? []) as AgentEvent[];
+        const lastDone = [...histEvents].reverse().find(
+          (e): e is Extract<AgentEvent, { kind: "done" }> => e.kind === "done" && !!e.usage,
+        );
+        if (lastDone?.usage) {
+          const u = lastDone.usage;
+          setUsageByThread((p) => (p[msg.threadId] ? p : { ...p, [msg.threadId]: u }));
+        }
       }
       if (msg.type === "annotation" && msg.text !== lastInjected.current) setAnnotation(msg.text);
       if (msg.type === "reverted") {

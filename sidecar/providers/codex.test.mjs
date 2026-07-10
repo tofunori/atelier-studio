@@ -40,13 +40,15 @@ describe("codex provider helpers (app-server)", () => {
     ]);
   });
 
-  it("expose les options de thread app-server", () => {
+  it("expose les options de thread app-server (bypassPermissions explicite → full access)", () => {
+    // plan 025 : plus de full-access latent — il faut le mode explicite
     expect(buildThreadOptions({
       cwd: "/repo",
       model: "gpt-5.5",
       effort: "high",
       webSearch: true,
       additionalDirectories: ["/extra"],
+      permissionMode: "bypassPermissions",
     })).toEqual({
       cwd: "/repo",
       model: "gpt-5.5",
@@ -138,6 +140,17 @@ describe("câblage des politiques dans buildThreadOptions (plan 025 step 4)", ()
     expect(String(o.safetyDiagnosticHint)).toContain("inconnu");
   });
 
+  it("aucun chemin latent vers danger-full-access : permissionMode absent → PAS full access", () => {
+    // ni sandbox explicite ni permissionMode → défaut SÛR, jamais danger-full-access
+    const o = buildThreadOptions({ cwd: "/repo" });
+    expect(o.sandbox).not.toBe("danger-full-access");
+    // sandbox explicite read-only + mode inconnu → read-only gagne (jamais full)
+    const ro = buildThreadOptions({ cwd: "/repo", sandbox: "read-only", permissionMode: "n-importe-quoi" });
+    expect(ro.sandbox).toBe("read-only");
+    // seul bypassPermissions explicite ouvre danger-full-access
+    expect(buildThreadOptions({ cwd: "/repo", permissionMode: "bypassPermissions" }).sandbox).toBe("danger-full-access");
+  });
+
   it("additionalDirectories ne devient PAS writable en read-only", () => {
     const o = buildThreadOptions({ cwd: "/repo", permissionMode: "plan", additionalDirectories: ["/extra"] });
     expect(o.config?.sandbox_workspace_write).toBeUndefined();
@@ -216,6 +229,58 @@ describe("describeServerRequest / answerFromInteraction (plan 025 step 5)", () =
 // Codex explicites (schéma codex-cli 0.142.5). Aucun mode non « Full access »
 // ne peut retomber sur danger-full-access. Import paresseux : tant que le
 // helper n'existe pas, seuls CES tests échouent.
+describe("bornes tool_update Codex (plan 025 — bug outputs/params non bornés)", () => {
+  it("boundToolOutput plafonne à 64 KiB avec longueur originale", async () => {
+    const { boundToolOutput, TOOL_OUTPUT_MAX } = await import("./codex.mjs");
+    const small = boundToolOutput("court");
+    expect(small).toEqual({ output: "court" });
+    const big = boundToolOutput("x".repeat(70 * 1024));
+    expect(big.output.length).toBe(TOOL_OUTPUT_MAX);
+    expect(big.truncated).toBe(true);
+    expect(big.outputLength).toBe(70 * 1024);
+  });
+
+  it("scrubToolInput borne un input MCP volumineux à un aperçu (jamais l'objet complet)", async () => {
+    const { scrubToolInput, TOOL_INPUT_MAX } = await import("./codex.mjs");
+    const secret = { apiKey: "y".repeat(30 * 1024) };
+    const scrubbed = scrubToolInput(secret);
+    expect(scrubbed.truncated).toBe(true);
+    expect(scrubbed.preview.length).toBe(TOOL_INPUT_MAX);
+    // la clé complète ne doit PAS être présente intégralement
+    expect(JSON.stringify(scrubbed).length).toBeLessThan(TOOL_INPUT_MAX + 200);
+    // un petit input passe tel quel
+    expect(scrubToolInput({ a: 1 })).toEqual({ a: 1 });
+  });
+});
+
+describe("isolation session Codex (plan 025 — bug 2 threads même codexId)", () => {
+  it("claimCodexRun refuse une reprise concurrente du même codexId par un autre thread", async () => {
+    const { claimCodexRun, releaseCodexRun } = await import("./codex.mjs");
+    claimCodexRun("cx-shared", "threadA");
+    // même thread : idempotent
+    expect(() => claimCodexRun("cx-shared", "threadA")).not.toThrow();
+    // autre thread : refus explicite (pas de cross-wiring silencieux)
+    expect(() => claimCodexRun("cx-shared", "threadB")).toThrow(/concurrente|déjà active/);
+    releaseCodexRun("cx-shared");
+    // après libération, un autre thread peut reprendre
+    expect(() => claimCodexRun("cx-shared", "threadB")).not.toThrow();
+    releaseCodexRun("cx-shared");
+  });
+});
+
+describe("terminalisation Codex (plan 025 — un seul terminal, jamais avant turn/completed)", () => {
+  it("une notification error mid-turn N'EST PAS un terminal ; turn/completed reste le seul terminal", async () => {
+    const { classifyCodexError } = await import("./codex.mjs");
+    // un error non-fatal mid-turn doit être classé non-terminal (diagnostic),
+    // pour ne pas terminaliser le turn avant le turn/completed réel
+    const midTurn = classifyCodexError({ error: { message: "transient" }, willRetry: false });
+    expect(midTurn.terminal).toBe(false);
+    expect(midTurn.event?.kind).not.toBe("error"); // pas un terminal error harnais
+    // willRetry → ignoré entièrement
+    expect(classifyCodexError({ willRetry: true }).event).toBeNull();
+  });
+});
+
 describe("resolveCodexSafety (plan 025)", () => {
   const load = async () => {
     const m = await import("./codex.mjs");

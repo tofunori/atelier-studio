@@ -7,7 +7,7 @@ import { homedir } from "node:os";
 import { mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { route } from "./router.mjs";
+import { route, emitProviderGlobal } from "./router.mjs";
 import { ThreadStore, writeFileAtomic } from "./store.mjs";
 import { HighlightStore } from "./highlights.mjs";
 import * as catalog from "./catalog.mjs";
@@ -548,10 +548,11 @@ try {
 
 watchAnnotations(broadcast);
 
-// notifications goal Codex (thread/goal/updated) → tous les clients ;
-// elles arrivent aussi hors-tour (goal mis à jour par le modèle en tâche de fond)
+// notifications goal Codex (thread/goal/updated) → via le HARNAIS du thread
+// (meta + sequence + journal) pour survivre au reload ; repli broadcast direct
+// si aucun harnais actif. Elles arrivent aussi hors-tour (plan 025).
 codex.onGoal?.((threadId, event) => {
-  if (threadId) broadcast({ type: "event", threadId, event });
+  if (threadId) emitProviderGlobal(threadId, event, { broadcast });
 });
 
 wss.on("connection", (ws) => {

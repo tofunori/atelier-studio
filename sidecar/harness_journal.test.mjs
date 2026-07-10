@@ -435,6 +435,35 @@ describe("copyThread — fork", () => {
   });
 });
 
+describe("garde-fou secret : inputs d'outils bornés/scrubés au journal (plan 025 — params MCP sensibles)", () => {
+  it("un tool_update avec un input MCP volumineux est borné dans le journal, pas écrit intégralement", async () => {
+    const { journal, file } = setup();
+    const bigSecret = "SECRET-" + "z".repeat(200 * 1024);
+    await journal.append(ev("tool_update", {
+      id: "mcp-1", name: "mcp__vault__read", source: "mcp",
+      input: { token: bigSecret }, output: "ok",
+    }));
+    const raw = readFileSync(file(), "utf8");
+    // la valeur intégrale du secret ne doit PAS être écrite sur disque
+    expect(raw.length).toBeLessThan(120 * 1024);
+    expect(raw.includes(bigSecret)).toBe(false);
+    // l'item reste rejouable (borné)
+    const mat = await journal.materialize(TID);
+    const tu = mat.find((e) => e.kind === "tool_update");
+    expect(tu).toBeTruthy();
+    expect(JSON.stringify(tu).length).toBeLessThan(120 * 1024);
+  });
+
+  it("une sortie d'outil énorme est bornée dans le journal", async () => {
+    const { journal, file } = setup();
+    await journal.append(ev("tool_update", {
+      id: "cmd-1", name: "Bash", output: "y".repeat(300 * 1024), input: { command: "cat gros" },
+    }));
+    const raw = readFileSync(file(), "utf8");
+    expect(raw.length).toBeLessThan(120 * 1024);
+  });
+});
+
 describe("deleteThread et cycle de vie", () => {
   it("supprime le fichier hashé, idempotent, ré-append possible ensuite", async () => {
     const { journal, file } = setup();

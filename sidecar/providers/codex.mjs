@@ -28,6 +28,75 @@ export function buildCodexAppServerArgs() {
   return ["app-server"];
 }
 
+// Bornes du contrat tool_update (plan 025) — mêmes limites que le provider
+// Claude : une sortie d'outil Codex volumineuse ne doit pas être émise ni
+// journalisée sans borne, et un input d'outil peut porter des secrets (clé API
+// passée à un serveur MCP) → borné et marqué.
+export const TOOL_OUTPUT_MAX = 64 * 1024;
+export const TOOL_INPUT_MAX = 16 * 1024;
+
+export function boundToolOutput(value) {
+  const s = typeof value === "string" ? value : jsonSafe(value);
+  if (s.length <= TOOL_OUTPUT_MAX) return { output: s };
+  return { output: s.slice(0, TOOL_OUTPUT_MAX), truncated: true, outputLength: s.length };
+}
+
+function jsonSafe(v) {
+  if (v == null) return "";
+  if (typeof v === "string") return v;
+  try { return JSON.stringify(v); } catch { return String(v); }
+}
+
+/** Input d'outil borné pour émission/journal : jamais l'objet complet non
+ * plafonné (un input MCP peut contenir des secrets). Au-delà de la limite, on
+ * ne garde qu'un aperçu tronqué — la valeur intégrale ne quitte pas le provider. */
+export function scrubToolInput(input) {
+  if (input == null) return input;
+  const s = jsonSafe(input);
+  if (s.length <= TOOL_INPUT_MAX) return input;
+  return { truncated: true, preview: s.slice(0, TOOL_INPUT_MAX), inputLength: s.length };
+}
+
+// Registre des sessions Codex actives : un codexId (thread app-server) ne peut
+// porter qu'UN tour à la fois. Deux threads Atelier qui reprennent la même
+// session native (ex. fork avant premier send) ne doivent pas cross-wirer
+// leurs événements via un handler partagé (plan 025 : isolation).
+const activeCodexRuns = new Map(); // codexId -> atelier threadId propriétaire du run
+
+export function claimCodexRun(codexId, threadId) {
+  const owner = activeCodexRuns.get(codexId);
+  if (owner && owner !== threadId) {
+    throw new Error(`session Codex ${codexId} déjà active pour le thread ${owner} — reprise concurrente refusée`);
+  }
+  activeCodexRuns.set(codexId, threadId ?? codexId);
+}
+
+export function releaseCodexRun(codexId) {
+  activeCodexRuns.delete(codexId);
+}
+
+/**
+ * Classe une notification `error` Codex (plan 025 — terminalisation).
+ * Une erreur mid-turn ne DOIT PAS terminaliser le turn avant `turn/completed` :
+ * elle est surfacée comme diagnostic non-terminal, et `turn/completed` (failed)
+ * reste l'unique terminal. `willRetry` → ignorée entièrement.
+ */
+export function classifyCodexError(params = {}) {
+  if (params.willRetry) return { terminal: false, event: null };
+  return {
+    terminal: false,
+    event: {
+      kind: "tool_update",
+      id: `error:${params.error?.code ?? "codex"}`,
+      name: "error",
+      status: "failed",
+      output: String(params.error?.message ?? "erreur Codex"),
+      detail: String(params.error?.message ?? "erreur Codex").slice(0, 120),
+      source: "codex",
+    },
+  };
+}
+
 export function buildApprovalResponse(method, fullAccess, params = {}) {
   if (method === "execCommandApproval" || method === "applyPatchApproval") {
     return { decision: fullAccess ? "approved" : "denied" };
@@ -393,15 +462,13 @@ export function buildThreadOptions({ cwd, model, effort, webSearch, additionalDi
   const config = {};
   let actualModel = model ?? null;
   const actualEffort = normalizeCodexEffort(effort);
-  // Politique (plan 025) : un sandbox EXPLICITE (reviewer read-only) prime ;
-  // sinon le mode de permission UI est résolu par resolveCodexSafety (repli
-  // sûr pour un mode inconnu) ; l'absence des deux = appelant programmatique
-  // historique (full access assumé explicitement, jamais un mode UI non résolu).
+  // Politique (plan 025) : un sandbox EXPLICITE (reviewer read-only, ou
+  // bypassPermissions programmatique) prime ; sinon resolveCodexSafety (repli
+  // SÛR read-only pour un mode inconnu). AUCUN chemin latent vers
+  // danger-full-access : l'absence des deux retombe sur read-only, jamais full.
   const safety = sandbox != null
     ? { sandbox, approvalPolicy: "never" }
-    : permissionMode != null
-      ? resolveCodexSafety(permissionMode, { model: actualModel })
-      : { sandbox: "danger-full-access", approvalPolicy: "never" };
+    : resolveCodexSafety(permissionMode, { model: actualModel });
   if (webSearch) config.web_search = webSearch === "cached" ? "cached" : "live";
   if (Array.isArray(additionalDirectories) && additionalDirectories.length &&
       safety.sandbox !== "read-only") {
@@ -571,12 +638,30 @@ export async function run({
   permissionMode, // mode Atelier → politique Codex réelle (plan 025)
   clientMessageId, // messageId Atelier → clientUserMessageId Codex (plan 025)
   onInteraction, // relay(spec) => Promise<response|null> — runs interactifs seulement
-  onEvent,
+  onEvent: rawOnEvent,
 }) {
+  // TOUTE émission tool_update passe par ici : sortie plafonnée 64 KiB et input
+  // borné (un input MCP peut porter des secrets) — plan 025, un seul point.
+  const onEvent = (evt) => {
+    if (evt?.kind === "tool_update") {
+      const bounded = boundToolOutput(evt.output ?? "");
+      return rawOnEvent({
+        ...evt,
+        output: bounded.output,
+        ...(bounded.truncated ? { truncated: true, outputLength: bounded.outputLength } : {}),
+        input: scrubToolInput(evt.input),
+      });
+    }
+    return rawOnEvent(evt);
+  };
   const srv = await ensureServer();
   const threadOpts = buildThreadOptions({ cwd, model, effort, webSearch, additionalDirectories, sandbox, permissionMode });
   const actualEffort = normalizeCodexEffort(effort);
   const codexId = await openThread(srv, { sessionId, threadOpts });
+  // isolation : un codexId (session native) ne peut porter qu'UN run à la fois.
+  // Deux threads Atelier reprenant la même session ne doivent pas partager
+  // handler/owner/interactions et cross-wirer leurs événements (plan 025).
+  claimCodexRun(codexId, threadId ?? codexId);
   if (threadId) threadOwners.set(codexId, threadId);
   if (onInteraction) threadInteractions.set(codexId, onInteraction);
   if (threadOpts.safetyDiagnosticHint) {
@@ -760,8 +845,10 @@ export async function run({
   const handler = (method, params) => {
     switch (method) {
       case "turn/started": {
-        activeTurns.set(threadId ?? codexId, { codexId, turnId: params.turn?.id ?? null });
-        onEvent({ kind: "started" });
+        const nativeTurnId = params.turn?.id ?? null;
+        activeTurns.set(threadId ?? codexId, { codexId, turnId: nativeTurnId });
+        // le turn natif est propagé au harnais (meta.nativeTurnId, plan 025)
+        onEvent({ kind: "started", ...(nativeTurnId ? { nativeTurnId } : {}) });
         break;
       }
       case "item/started": {
@@ -934,8 +1021,10 @@ export async function run({
         break;
       }
       case "error": {
-        if (params.willRetry) break;
-        onEvent({ kind: "error", message: params.error?.message ?? "erreur Codex" });
+        // NON-terminal : surfacé comme diagnostic, jamais un terminal error avant
+        // le turn/completed réel (plan 025 — terminalisation Codex)
+        const { event } = classifyCodexError(params);
+        if (event) onEvent(event);
         break;
       }
       case "turn/completed": {
@@ -1000,6 +1089,7 @@ export async function run({
     threadHandlers.delete(codexId);
     threadInteractions.delete(codexId);
     activeTurns.delete(threadId ?? codexId);
+    releaseCodexRun(codexId);
   }
   return { sessionId: codexId };
 }

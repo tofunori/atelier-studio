@@ -180,7 +180,7 @@ terminal passe `interrupted` — jamais running éternel au reload.
 | /clear | n/a (nouvelle session = resume) | session native NEUVE, MÊME thread Atelier : frontière `__session-cleared` dans le journal | transcript conservé |
 | interrupt | `q.interrupt()` → `result` (ok:false) | `turn/interrupt` → `turn/completed interrupted` → done ok:false | un seul terminal ; interactions pendantes déclinées AVANT |
 | done | message `result` (`subtype==="success"`) | `turn/completed` | terminal unique par turn (harnais) |
-| error | catch/filet `!sawTerminal` | `turn/completed failed`, `error` non-retry, filet resetServerState | terminal unique |
+| error | catch/filet `!sawTerminal` | `turn/completed failed` = SEUL terminal ; une notification `error` mid-turn est un diagnostic NON-terminal (classifyCodexError, durcissement post-025) ; filet resetServerState | terminal unique — jamais avant turn/completed |
 | heartbeat | n/a | interval sidecar (5 s) | éphémère, jamais journalisé |
 
 ### interactions (approval, user input, elicitation)
@@ -195,7 +195,7 @@ ou logs.
 
 | Source | Méthode native | Relais | Réponse au refus sûr |
 |---|---|---|---|
-| Claude Ask | `canUseTool` (SDK, bloquant) | chemin historique `permissionRequest`/`permissionResponse` (120 s), event `permission` | deny |
+| Claude Ask | `canUseTool` (SDK, bloquant) | **via le HARNAIS** : event `interaction` approval (meta + journal, attribué au turn), répondu par `interactionResponse` (durcissement post-025) | deny |
 | Codex approvals | `item/commandExecution/requestApproval`, `item/fileChange/requestApproval`, `item/permissions/requestApproval`, `execCommandApproval`, `applyPatchApproval` | `interaction` approval (Allow once / Deny) sur les runs interactifs ; auto-réponse par sandbox (full uniquement) pour reviewer/quickAsk | decline/denied ; permissions vides + `strictAutoReview` |
 | Codex user input | `item/tool/requestUserInput` (1-3 questions, options, `isOther`, `isSecret`) | `interaction` user_input (formulaire, Other, secret=password) | `{answers:{}}` |
 | MCP elicitation | `mcpServer/elicitation/request` form / openai-form / url | `interaction` mcp_elicitation (champs du schéma form ; url → domaine + accepter/refuser, JAMAIS d'ouverture sans clic) | `{action:"decline"}` |

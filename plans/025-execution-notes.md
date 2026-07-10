@@ -270,6 +270,51 @@ PIÈGES metadata :
       RESTE : revue Codex globale (fin de série, sur instruction Thierry) avant
       README 025→DONE.
 
+## Durcissement post-revue (après 2717da0 — 13 défauts signalés + Gaps critique)
+
+Tests ROUGES d'abord (harness_hardening.test.mjs 9, codex.test +3 describes,
+harness_journal.test +2), puis corrections. Correspondance constat→fix→test :
+
+1. Course entre 2 sends → `withThreadSendLock` (sérialisation par thread) ;
+   handleSend extrait → test « un seul snapshot ».
+2. Changement de provider en run → refus explicite si running.turn.provider ≠
+   provider → test « ne steere pas vers Codex ».
+3. Isolation 2 threads même codexId → `claimCodexRun`/`releaseCodexRun`
+   (refus reprise concurrente) → codex.test isolation.
+4. Fork par fromThreadId+eventId → forkThread câble copyThread(fromThreadId,
+   new, eventId) → hardening fork.
+5. Revert par eventId → revert tronque le journal par eventId (repli texte) →
+   hardening revert.
+6. Replay usage/goal durables → goal via harnais (index.mjs emitProviderGlobal
+   + h.emitGlobal, journalisé) ; usage réhydraté au reload (App history
+   handler) → hardening goal + App.orchestration ring.
+7. Permissions Claude hors harnais → makePermissionRelay via interaction relay
+   (meta + journal + interactionResponse) → hardening permission Claude.
+8. Séquences après clear/compact/goal → __session-cleared/__compacted via
+   h.emitGlobal (meta+sequence+journal), plus de broadcast direct → hardening
+   frontières.
+9. Outputs Codex non bornés → boundToolOutput 64 KiB sur tout tool_update
+   (wrapper onEvent unique) → codex.test bornes.
+10. Params MCP sensibles journalisés → scrubToolInput 16 KiB + sanitizeForWrite
+    étendu au tool_update (input/output bornés) → codex.test + journal scrub.
+11. Migration legacy non retentable → journalReady gate : seed échoué ne crée
+    pas de journal, tour non journalisé, retenté ; harnais recréé AVEC journal
+    une fois seedé → hardening legacy retry.
+12. Terminalisation Codex avant turn/completed → classifyCodexError (error
+    notification = diagnostic NON terminal ; turn/completed seul terminal) →
+    codex.test terminalisation.
+13. nativeTurnId non câblé → started porte nativeTurnId (codex), handleTurnEvent
+    appelle h.setNativeTurnId → hardening nativeTurnId.
++ Gap D critique : buildThreadOptions ne retombe plus jamais sur
+  danger-full-access (absent/ inconnu → read-only) → codex.test « aucun chemin
+  latent ».
+
+Diagnostic stall boot (task 13) : le journal 025 est en `node:fs/promises`
+(async, single-file : appendFile/readFile/open/mkdir/unlink + un existsSync) —
+ZÉRO readdirSync/scandir en prod (seuls les tests en ont). Le stall observé =
+`uv_fs_scandir` synchrone dans un handler WS, PRÉEXISTANT (vu avant tout travail
+025, leçon TCC), non aggravé par 025. Chip task_0e18bb74.
+
 ## Gates
 
 cd sidecar && npx vitest run (229+ verts) ; npx tsc --noEmit ; npx vite build ;

@@ -121,18 +121,25 @@ async function maybeTitleThread(ctx, emit, threadId, firstMessage) {
   emit({ type: "threads", threads: ctx.store.list() });
 }
 
-/** Mode Ask : relaie la demande de permission au front et attend la réponse (120 s max). */
-function makePermissionRelay(ctx, emit, threadId, permissionMode) {
+/** Mode Ask Claude : la demande de permission passe désormais par le HARNAIS
+ * (événement `interaction` approval, meta + journal, attribué au turn actif) au
+ * lieu d'un message top-level `permissionRequest` hors harnais. Plan 025 :
+ * permissions Claude dans le harnais. Répondable via `interactionResponse`. */
+function makePermissionRelay(ctx, _emit, threadId, permissionMode) {
   if (permissionMode !== "default") return undefined;
-  return ({ toolName, input, signal }) => new Promise((resolve) => {
-    const requestId = `perm-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-    const timer = setTimeout(() => { permWaiters.delete(requestId); resolve(false); }, 120000);
-    permWaiters.set(requestId, (allow) => { clearTimeout(timer); resolve(allow); });
-    signal?.addEventListener?.("abort", () => {
-      if (permWaiters.has(requestId)) { permWaiters.delete(requestId); clearTimeout(timer); resolve(false); }
+  const relay = makeInteractionRelay(ctx, threadId);
+  return async ({ toolName, input }) => {
+    const detail = typeof input?.command === "string" ? input.command
+      : input?.file_path ? String(input.file_path)
+      : input?.url ? String(input.url) : "";
+    const response = await relay({
+      interactionType: "approval",
+      title: `Autoriser ${toolName} ?`,
+      ...(detail ? { detail } : {}),
     });
-    emit({ type: "permissionRequest", threadId, requestId, toolName, input });
-  });
+    // timeout / interruption / refus → null → refus sûr
+    return response?.allow === true;
+  };
 }
 
 /** Résumé non secret d'une réponse d'interaction (jamais de valeur secret). */
@@ -370,11 +377,61 @@ const harnessThreads = new Map(); // threadId -> harness (créé par harness_eve
 const threadRuns = new Map(); // threadId -> { turnId, turn, autoReview } du turn ACTIF
 const threadDispatchers = new Map(); // threadId -> dispatcher stable
 const emitBox = new Map(); // threadId -> emit courant (broadcast de la dernière connexion)
+const sendChains = new Map(); // threadId -> chaîne de sérialisation des sends (anti-course)
+
+/** Réinitialise l'état harnais par-thread (tests uniquement) : en production un
+ * threadId = un thread pour la vie du process, mais les tests réutilisent les
+ * mêmes ids et ne doivent pas hériter d'un harnais/journal d'un test précédent. */
+export function __resetHarnessStateForTest() {
+  harnessThreads.clear();
+  threadRuns.clear();
+  threadDispatchers.clear();
+  emitBox.clear();
+  sendChains.clear();
+  journalReady.clear();
+  harnessJournalUsed.clear();
+  pending.clear();
+  interactionWaiters.clear();
+  permWaiters.clear();
+}
+
+/** Sérialise le traitement des `send` d'un MÊME thread : deux frames WS
+ * rapprochées ne doivent pas franchir ensemble le check « running » (les deux
+ * awaits internes — seed legacy, snapshot — laissent sinon démarrer deux runs
+ * concurrents qui écrasent le dispatcher). Plan 025 : course entre deux sends. */
+function withThreadSendLock(threadId, work) {
+  const prev = sendChains.get(threadId) ?? Promise.resolve();
+  const next = prev.then(work, work);
+  sendChains.set(threadId, next.then(() => {}, () => {}));
+  return next;
+}
+
+/** Événement durable HORS-TURN émis par un provider (goal thread-level de Codex
+ * via thread/goal/updated) : passe par le harnais du thread pour porter meta +
+ * sequence et atteindre le journal. Sans harnais actif (thread au repos), repli
+ * broadcast direct — le goal sera re-fetché en live au besoin. Plan 025. */
+export function emitProviderGlobal(threadId, event, { broadcast } = {}) {
+  const h = threadId ? harnessThreads.get(threadId) : null;
+  if (h) { h.emitGlobal(event, { origin: "provider" }); return; }
+  broadcast?.({ type: "event", threadId, event });
+}
+
+// Threads dont le journal peut recevoir des événements : seedés, OU sans
+// historique antérieur à migrer. Un thread dont le seed legacy a ÉCHOUÉ n'y
+// figure pas → son harnais n'écrit rien tant que le seed n'a pas réussi, pour
+// que la migration reste retentable (plan 025).
+const journalReady = new Set();
+const harnessJournalUsed = new Map(); // threadId -> bool (le harnais cache a-t-il été créé AVEC journal ?)
 
 async function harnessFor(ctx, threadId, provider) {
+  const journal = (ctx.harnessJournal && journalReady.has(threadId)) ? ctx.harnessJournal : null;
+  const wantJournal = !!journal;
   let h = harnessThreads.get(threadId);
+  // recréer le harnais si l'état de journalisation a changé (seed devenu prêt)
+  if (h && harnessJournalUsed.get(threadId) !== wantJournal && !threadRuns.get(threadId)) {
+    h = null;
+  }
   if (!h) {
-    const journal = ctx.harnessJournal ?? null;
     // reprise d'un thread journalisé : la sequence reste monotone entre process
     const initialSequence = journal ? await journal.lastSequence(threadId).catch(() => 0) : 0;
     h = createHarnessThread({
@@ -385,6 +442,7 @@ async function harnessFor(ctx, threadId, provider) {
       initialSequence,
     });
     harnessThreads.set(threadId, h);
+    harnessJournalUsed.set(threadId, wantJournal);
   }
   h.setProvider(provider);
   return h;
@@ -394,14 +452,20 @@ async function harnessFor(ctx, threadId, provider) {
  * journal, son historique provider est seedé UNE fois en legacy-import — le
  * premier message post-upgrade ne masque pas l'historique ancien. Un échec de
  * seed n'empêche pas le run : avertissement, parité historique non garantie. */
-async function maybeSeedLegacyJournal(ctx, threadId, provider) {
+async function ensureLegacySeed(ctx, threadId, provider) {
   const j = ctx.harnessJournal;
-  if (!j) return;
+  if (!j) { journalReady.add(threadId); return; }
+  if (journalReady.has(threadId)) return;
+  // déjà un journal SEEDÉ → prêt ; un journal existant NON seedé (ex. tour d'un
+  // échec de seed précédent) ne bloque pas : on retente le seed
+  if (j.hasJournal(threadId)) { journalReady.add(threadId); return; }
+  const t = ctx.store.get(threadId);
+  if (!t?.sessionId) { journalReady.add(threadId); return; } // thread neuf : rien à migrer
+  // RETENTABLE (plan 025) : charge l'historique AVANT de créer le journal.
+  // Un échec (NAS injoignable) ne crée AUCUN fichier ET ne marque pas le thread
+  // « prêt » → son tour ne journalise pas, et le seed est réessayé au prochain
+  // send. Une fois seedé, le harnais est recréé AVEC journal (harnessFor).
   try {
-    if (j.hasJournal(threadId)) return;
-    const t = ctx.store.get(threadId);
-    await j.openThread({ threadId, provider: t?.provider ?? provider });
-    if (!t?.sessionId) return;
     let events = [];
     if (t.provider === "claude") events = (await ctx.history?.claudeHistory?.(t.sessionId, t.projectRoot)) ?? [];
     else if (t.provider === "codex") events = (await ctx.sessions?.codexHistory?.(t.sessionId)) ?? [];
@@ -411,11 +475,12 @@ async function maybeSeedLegacyJournal(ctx, threadId, provider) {
       if (typeof p?.history === "function") events = (await p.history(t.sessionId, t.projectRoot)) ?? [];
     }
     if (events.length) await j.seedLegacy(threadId, t.provider ?? provider, events);
+    journalReady.add(threadId); // seedé (ou historique vide) → journalisation sûre
   } catch (e) {
     (emitBox.get(threadId) ?? ctx.send)({
       type: "error",
       threadId,
-      message: `journal: seed de l'historique impossible (${String(e?.message ?? e)}) — parité historique non garantie pour ce fil`,
+      message: `journal: seed de l'historique impossible (${String(e?.message ?? e)}) — sera réessayé (ce tour non journalisé)`,
     });
   }
 }
@@ -447,6 +512,10 @@ async function handleTurnEvent(ctx, threadId, event) {
   const { turn, turnId } = run;
   collectTool(turn.tools, event);
   if (event.kind === "text") turn.lastText = event.text;
+
+  // le provider annonce son turn natif (Codex turn/started) → l'attacher au turn
+  // universel pour que meta.nativeTurnId apparaisse sur tous les événements suivants
+  if (event.nativeTurnId) h.setNativeTurnId(turnId, event.nativeTurnId);
 
   if (event.kind === "edit") {
     // enrichissement async (±lignes git) sérialisé par le harnais : ne peut
@@ -731,44 +800,55 @@ export async function route(msg, ctx) {
         forkPending: true,
         status: "idle",
       });
-      // le fork reçoit une COPIE du journal jusqu'au point de fork (ici : tout
-      // le fil, la session forkera à son prochain send)
-      Promise.resolve(ctx.harnessJournal?.copyThread(msg.threadId, msg.newThreadId)).catch(() => {});
+      // le fork reçoit une COPIE du journal du thread SOURCE (fromThreadId)
+      // jusqu'au point de fork (eventId) — le reste ne fait pas partie du fork
+      Promise.resolve(
+        ctx.harnessJournal?.copyThread(msg.fromThreadId, msg.newThreadId, msg.eventId),
+      ).catch((e) => console.warn("[atelier] copie journal du fork impossible:", e));
       (ctx.broadcast ?? ctx.send)({ type: "threads", threads: ctx.store.list() });
       break;
     }
     case "revert": {
-      // rewind : ferme la session, repère le point avant le message donné ;
-      // le prochain send reprendra avec resumeSessionAt (API documentée)
+      // revert = tombstone NON destructif dans le journal par eventId (source de
+      // vérité du transcript), + rewind best-effort de la session provider pour
+      // que le prochain send reprenne au bon point (resumeSessionAt).
       const t = ctx.store.get(msg.threadId);
-      if (!t || t.provider !== "claude" || !t.sessionId) {
+      if (!t) {
         ctx.send({ type: "error", threadId: msg.threadId, message: "revert indisponible" });
         break;
       }
-      ctx.providers.claude.endSession(msg.threadId);
-      const pt = await ctx.history.findRevertPoint(t.sessionId, t.projectRoot, msg.text);
-      if (!pt.found) {
-        ctx.send({ type: "error", threadId: msg.threadId, message: "message introuvable dans la session" });
-        break;
-      }
-      if (pt.uuid) {
-        ctx.store.upsert({ id: msg.threadId, resumeAt: pt.uuid, status: "idle" });
-      } else {
-        // revert du tout premier message → session neuve
-        ctx.store.upsert({ id: msg.threadId, sessionId: null, resumeAt: null, status: "idle" });
-      }
-      // journal : tombstone logique depuis le message user cible (même critère
-      // de correspondance que findRevertPoint : le texte) — jamais de réécriture
+      // 1) journal : tronquer par eventId (primaire) ou, en repli legacy, par le
+      // texte du message user (findRevertPoint historique)
+      let truncated = false;
       if (ctx.harnessJournal?.hasJournal(msg.threadId)) {
         try {
-          const { events } = await ctx.harnessJournal.load(msg.threadId);
-          const target = events.find((e) => e.kind === "user" &&
-            String(e.text ?? "").trim() === String(msg.text ?? "").trim());
-          if (target?.meta?.eventId) {
-            await ctx.harnessJournal.truncateFrom(msg.threadId, target.meta.eventId);
+          let eventId = msg.eventId ?? null;
+          if (!eventId && msg.text != null) {
+            const { events } = await ctx.harnessJournal.load(msg.threadId);
+            const target = events.find((e) => e.kind === "user" &&
+              String(e.text ?? "").trim() === String(msg.text ?? "").trim());
+            eventId = target?.meta?.eventId ?? null;
           }
+          if (eventId) truncated = await ctx.harnessJournal.truncateFrom(msg.threadId, eventId);
         } catch (e) {
           console.warn("[atelier] tombstone revert journal impossible:", e);
+        }
+      }
+      // 2) rewind de la session native Claude (best-effort — un thread Codex/API
+      // ou sans findRevertPoint garde juste le tombstone du journal)
+      if (t.provider === "claude" && t.sessionId && ctx.history?.findRevertPoint && msg.text != null) {
+        try {
+          ctx.providers.claude?.endSession?.(msg.threadId);
+          const pt = await ctx.history.findRevertPoint(t.sessionId, t.projectRoot, msg.text);
+          if (pt.found) {
+            if (pt.uuid) ctx.store.upsert({ id: msg.threadId, resumeAt: pt.uuid, status: "idle" });
+            else ctx.store.upsert({ id: msg.threadId, sessionId: null, resumeAt: null, status: "idle" });
+          } else if (!truncated) {
+            ctx.send({ type: "error", threadId: msg.threadId, message: "message introuvable dans la session" });
+            break;
+          }
+        } catch (e) {
+          console.warn("[atelier] rewind session revert impossible:", e);
         }
       }
       ctx.send({ type: "reverted", threadId: msg.threadId });
@@ -1023,6 +1103,8 @@ export async function route(msg, ctx) {
       harnessThreads.delete(msg.threadId);
       threadDispatchers.delete(msg.threadId);
       emitBox.delete(msg.threadId);
+      journalReady.delete(msg.threadId);
+      harnessJournalUsed.delete(msg.threadId);
       (ctx.broadcast ?? ctx.send)({ type: "threads", threads: ctx.store.list() });
       break;
     }
@@ -1224,8 +1306,12 @@ export async function route(msg, ctx) {
       }
       try {
         await ctx.providers.codex.compactThread({ sessionId: t.sessionId, cwd: t.projectRoot || process.env.HOME });
-        (ctx.broadcast ?? ctx.send)({ type: "event", threadId: msg.threadId,
-          event: { kind: "tool", name: "__compacted" } });
+        // frontière via le HARNAIS : meta + sequence monotone + journal (pas de
+        // broadcast direct qui laisserait un trou de sequence, plan 025)
+        emitBox.set(msg.threadId, ctx.broadcast ?? ctx.send);
+        await ensureLegacySeed(ctx, msg.threadId, "codex");
+        const h = await harnessFor(ctx, msg.threadId, "codex");
+        await h.emitGlobal({ kind: "tool", name: "__compacted" }, { origin: "atelier" });
       } catch (e) {
         ctx.send({ type: "error", threadId: msg.threadId, message: `compact: ${String(e?.message ?? e)}` });
       }
@@ -1233,11 +1319,13 @@ export async function route(msg, ctx) {
     }
     case "codexClear": {
       // nouvelle session NATIVE au prochain message, MÊME thread Atelier : le
-      // transcript est conservé, une frontière de session marque le journal
+      // transcript est conservé, la frontière passe par le harnais (meta +
+      // sequence + journal), pas un broadcast direct
       if (ctx.store.get(msg.threadId)) ctx.store.upsert({ id: msg.threadId, sessionId: null });
-      Promise.resolve(ctx.harnessJournal?.markSessionBoundary(msg.threadId, "clear Codex")).catch(() => {});
-      (ctx.broadcast ?? ctx.send)({ type: "event", threadId: msg.threadId,
-        event: { kind: "tool", name: "__session-cleared" } });
+      emitBox.set(msg.threadId, ctx.broadcast ?? ctx.send);
+      await ensureLegacySeed(ctx, msg.threadId, "codex");
+      const h = await harnessFor(ctx, msg.threadId, "codex");
+      await h.emitGlobal({ kind: "tool", name: "__session-cleared" }, { origin: "atelier" });
       (ctx.broadcast ?? ctx.send)({ type: "threads", threads: ctx.store.list() });
       break;
     }
@@ -1273,98 +1361,121 @@ export async function route(msg, ctx) {
       break;
     }
     case "send": {
-      const { threadId, projectRoot, provider, prompt, title, permissionMode } = msg;
-      const p = ctx.providers?.[provider];
-      if (!p) {
-        ctx.send({ type: "error", threadId, message: `provider inconnu: ${provider}` });
-        break;
-      }
-      const emit = ctx.broadcast ?? ctx.send;
-      emitBox.set(threadId, emit);
-      let prev = ctx.store.get(threadId);
-      // changement de provider en cours de thread : les sessions ne sont PAS
-      // interchangeables (un UUID Claude n'est pas un thread Codex). On repart
-      // sur une session neuve du nouveau provider, l'historique visuel reste.
-      if (prev?.provider && prev.provider !== provider && prev.sessionId) {
-        if (prev.provider === "claude" && ctx.providers.claude.endSession) {
-          ctx.providers.claude.endSession(threadId);
-        }
-        ctx.store.upsert({ id: threadId, sessionId: null, resumeAt: null });
-        prev = ctx.store.get(threadId);
-      }
-      // garde-fou : un thread Claude ne peut reprendre qu'un UUID Claude. Si le
-      // sessionId stocké n'est pas un UUID (ex. id « ses_… » hérité d'un autre
-      // provider comme opencode), on repart sur une session neuve au lieu de
-      // planter avec « --resume <valeur> is not a UUID ».
-      if (provider === "claude" && prev?.sessionId &&
-          !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(prev.sessionId)) {
-        ctx.providers.claude.endSession?.(threadId);
-        ctx.store.upsert({ id: threadId, sessionId: null, resumeAt: null });
-        prev = ctx.store.get(threadId);
-      }
-      ctx.store.upsert({
-        id: threadId,
-        projectRoot,
-        provider,
-        title: prev?.title ?? title ?? prompt.slice(0, 40),
-      });
-
-      await maybeSeedLegacyJournal(ctx, threadId, provider);
-      const h = await harnessFor(ctx, threadId, provider);
-      const running = threadRuns.get(threadId);
-
-      // ---- run actif : steer (défaut) ou queue explicite ----
-      if (running && msg.mode !== "queue") {
-        const userEvent = normalizeDisplayEvent(msg);
-        if (provider === "claude") {
-          // steer natif SDK (priority "now") — le dispatcher stable du thread
-          // continue d'attribuer les événements au turn actif
-          h.steer({ messageId: msg.clientMessageId, userEvent });
-          try {
-            p.send({
-              threadId,
-              cwd: projectRoot || process.env.HOME,
-              prompt,
-              sessionId: prev?.sessionId ?? null,
-              model: msg.model,
-              effort: msg.effort,
-              permissionMode,
-              mode: "steer",
-              onSession: (sessionId) =>
-                ctx.store.upsert({ id: threadId, sessionId, resumeAt: null, forkPending: false }),
-              onEvent: dispatcherFor(ctx, threadId),
-            });
-          } catch (e) {
-            ctx.send({ type: "error", threadId, message: `steer: ${String(e?.message ?? e)}` });
-          }
-          break;
-        }
-        if (p.steer && await p.steer({ threadId, prompt, inputs: msg.inputs,
-            imagePath: msg.imagePath, attachments: msg.attachments })) {
-          h.steer({ messageId: msg.clientMessageId, userEvent });
-          h.emit(h.activeTurnId(), { kind: "tool", name: "__steered" });
-          break;
-        }
-        // steer refusé par le provider → queue avec le MÊME messageId et un
-        // nouveau turnId, sans dupliquer la bulle user (elle est émise ici)
-      }
-      if (running) {
-        const turnId = h.queue({
-          messageId: msg.clientMessageId,
-          userEvent: normalizeDisplayEvent(msg),
-        });
-        h.emit(turnId, { kind: "tool", name: "__queued" });
-        const q = pending.get(threadId) ?? [];
-        q.push({ msg, turnId });
-        pending.set(threadId, q);
-        break;
-      }
-
-      // ---- turn normal (thread au repos) ----
-      await startProviderTurn(ctx, h, msg);
+      // sérialisé par thread : deux frames WS rapprochées ne franchissent pas
+      // ensemble le check « running » (course entre deux sends)
+      await withThreadSendLock(msg.threadId, () => handleSend(msg, ctx));
       break;
     }
     default:
       ctx.send({ type: "error", message: `type inconnu: ${msg.type}` });
   }
+}
+
+async function handleSend(msg, ctx) {
+  const { threadId, projectRoot, provider, prompt, title, permissionMode } = msg;
+  const p = ctx.providers?.[provider];
+  if (!p) {
+    ctx.send({ type: "error", threadId, message: `provider inconnu: ${provider}` });
+    return;
+  }
+  const emit = ctx.broadcast ?? ctx.send;
+  emitBox.set(threadId, emit);
+
+  // changement de provider PENDANT un run : refus explicite. On ne peut pas
+  // steerer un message Codex dans un turn Claude en cours ni démarrer un run
+  // rival qui écraserait le dispatcher stable (plan 025). Le thread au repos,
+  // lui, change de provider librement (bloc plus bas).
+  const running = threadRuns.get(threadId);
+  if (running && running.turn.provider !== provider) {
+    emit({
+      type: "error",
+      threadId,
+      message: `changement de provider (${running.turn.provider} → ${provider}) impossible pendant un run — arrêter le tour en cours d'abord`,
+    });
+    return;
+  }
+
+  let prev = ctx.store.get(threadId);
+  // changement de provider sur un thread AU REPOS : les sessions ne sont PAS
+  // interchangeables (un UUID Claude n'est pas un thread Codex). On repart
+  // sur une session neuve du nouveau provider, l'historique visuel reste.
+  if (prev?.provider && prev.provider !== provider && prev.sessionId) {
+    if (prev.provider === "claude" && ctx.providers.claude.endSession) {
+      ctx.providers.claude.endSession(threadId);
+    }
+    ctx.store.upsert({ id: threadId, sessionId: null, resumeAt: null });
+    prev = ctx.store.get(threadId);
+  }
+  // garde-fou : un thread Claude ne peut reprendre qu'un UUID Claude. Si le
+  // sessionId stocké n'est pas un UUID (ex. id « ses_… » hérité d'un autre
+  // provider comme opencode), on repart sur une session neuve au lieu de
+  // planter avec « --resume <valeur> is not a UUID ».
+  if (provider === "claude" && prev?.sessionId &&
+      !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(prev.sessionId)) {
+    ctx.providers.claude.endSession?.(threadId);
+    ctx.store.upsert({ id: threadId, sessionId: null, resumeAt: null });
+    prev = ctx.store.get(threadId);
+  }
+  ctx.store.upsert({
+    id: threadId,
+    projectRoot,
+    provider,
+    title: prev?.title ?? title ?? prompt.slice(0, 40),
+  });
+
+  await ensureLegacySeed(ctx, threadId, provider);
+  const h = await harnessFor(ctx, threadId, provider);
+  // re-lire après les awaits (sous le lock, ne peut pas avoir changé de course,
+  // mais un turn a pu se terminer entre-temps)
+  const runningNow = threadRuns.get(threadId);
+
+  // ---- run actif : steer (défaut) ou queue explicite ----
+  if (runningNow && msg.mode !== "queue") {
+    const userEvent = normalizeDisplayEvent(msg);
+    if (provider === "claude") {
+      // steer natif SDK (priority "now") — le dispatcher stable du thread
+      // continue d'attribuer les événements au turn actif
+      h.steer({ messageId: msg.clientMessageId, userEvent });
+      try {
+        p.send({
+          threadId,
+          cwd: projectRoot || process.env.HOME,
+          prompt,
+          sessionId: prev?.sessionId ?? null,
+          model: msg.model,
+          effort: msg.effort,
+          permissionMode,
+          mode: "steer",
+          onSession: (sessionId) =>
+            ctx.store.upsert({ id: threadId, sessionId, resumeAt: null, forkPending: false }),
+          onEvent: dispatcherFor(ctx, threadId),
+        });
+      } catch (e) {
+        ctx.send({ type: "error", threadId, message: `steer: ${String(e?.message ?? e)}` });
+      }
+      return;
+    }
+    if (p.steer && await p.steer({ threadId, prompt, inputs: msg.inputs,
+        imagePath: msg.imagePath, attachments: msg.attachments })) {
+      h.steer({ messageId: msg.clientMessageId, userEvent });
+      h.emit(h.activeTurnId(), { kind: "tool", name: "__steered" });
+      return;
+    }
+    // steer refusé par le provider → queue avec le MÊME messageId et un
+    // nouveau turnId, sans dupliquer la bulle user (elle est émise ici)
+  }
+  if (runningNow) {
+    const turnId = h.queue({
+      messageId: msg.clientMessageId,
+      userEvent: normalizeDisplayEvent(msg),
+    });
+    h.emit(turnId, { kind: "tool", name: "__queued" });
+    const q = pending.get(threadId) ?? [];
+    q.push({ msg, turnId });
+    pending.set(threadId, q);
+    return;
+  }
+
+  // ---- turn normal (thread au repos) ----
+  await startProviderTurn(ctx, h, msg);
 }

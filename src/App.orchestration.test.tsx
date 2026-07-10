@@ -304,6 +304,26 @@ describe("orchestration App — caractérisation", () => {
     expect(screen.getAllByText("Fil A — albédo").length).toBeGreaterThan(0);
   });
 
+  it("replay de l'usage au reload : l'anneau se repeuple depuis le done journalisé (plan 025)", async () => {
+    const { sock } = await mountApp();
+    await pushThreads(sock);
+    await selectThread(sock, "Fil A — albédo");
+    // avant tout usage : pas d'anneau
+    expect(document.querySelector(".ctx-ring")).toBeNull();
+    // historique matérialisé avec un done portant l'usage (comme le journal le rejoue)
+    await push(sock, {
+      type: "history", threadId: "thread-A",
+      events: [
+        events.user("Question"),
+        events.text("Réponse."),
+        events.done({ usage: { context: 10000, output: 5000, cost: null, turns: 2 } }),
+      ],
+    });
+    // l'anneau d'usage se repeuple depuis le done rejoué (usageByThread réhydraté)
+    await act(async () => { await flushMicrotasks(4); });
+    expect(document.querySelector(".ctx-ring")).toBeTruthy();
+  });
+
   it("deux tool_update de même itemId dans deux turns restent deux actions distinctes (plan 025)", async () => {
     const { sock } = await mountApp();
     await pushThreads(sock);

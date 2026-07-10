@@ -65,19 +65,46 @@ export const SESSION_BOUNDARY_NAME = "__session-cleared";
  * garantit), mais une interaction ne doit JAMAIS embarquer de réponse brute
  * ni de valeurs de champs — on les retire défensivement avant écriture, sans
  * muter l'objet partagé avec le broadcast. */
+const JOURNAL_OUTPUT_MAX = 64 * 1024;
+const JOURNAL_INPUT_MAX = 16 * 1024;
+
+function jsonLen(v) {
+  if (v == null) return 0;
+  if (typeof v === "string") return v.length;
+  try { return JSON.stringify(v).length; } catch { return String(v).length; }
+}
+
 function sanitizeForWrite(event) {
-  if (!event || event.kind !== "interaction") return event;
-  const { response: _response, ...clean } = event;
-  if (Array.isArray(clean.fields)) {
-    clean.fields = clean.fields.map((f) => {
-      if (f && typeof f === "object" && "value" in f) {
-        const { value: _value, ...rest } = f;
-        return rest;
-      }
-      return f;
-    });
+  if (!event) return event;
+  if (event.kind === "interaction") {
+    const { response: _response, ...clean } = event;
+    if (Array.isArray(clean.fields)) {
+      clean.fields = clean.fields.map((f) => {
+        if (f && typeof f === "object" && "value" in f) {
+          const { value: _value, ...rest } = f;
+          return rest;
+        }
+        return f;
+      });
+    }
+    return clean;
   }
-  return clean;
+  // tool_update : la sortie et surtout l'input (un input MCP peut porter une clé
+  // API) sont bornés avant écriture — la valeur intégrale ne va jamais sur disque.
+  if (event.kind === "tool_update") {
+    const clean = { ...event };
+    if (typeof clean.output === "string" && clean.output.length > JOURNAL_OUTPUT_MAX) {
+      clean.outputLength = clean.output.length;
+      clean.output = clean.output.slice(0, JOURNAL_OUTPUT_MAX);
+      clean.truncated = true;
+    }
+    if (clean.input != null && jsonLen(clean.input) > JOURNAL_INPUT_MAX) {
+      const s = typeof clean.input === "string" ? clean.input : (() => { try { return JSON.stringify(clean.input); } catch { return String(clean.input); } })();
+      clean.input = { truncated: true, preview: s.slice(0, JOURNAL_INPUT_MAX), inputLength: s.length };
+    }
+    return clean;
+  }
+  return event;
 }
 
 /** Parse le contenu d'un journal, ligne à ligne, sans jamais throw :
