@@ -168,3 +168,42 @@ describe("composer — catalogue et capabilities sidecar (plan 025, step 9)", ()
     expect(options).toEqual(["Full access", "Accept edits", "Ask (default)", "Plan mode"]);
   });
 });
+
+// Plan 020, étape 1 : contrats supplémentaires à préserver pendant la
+// réorganisation de la barre (une seule action primaire, effort en popover).
+describe("composer — caractérisation complémentaire (plan 020)", () => {
+  it("choisir un modèle dans le menu met à jour le résumé provider·modèle", () => {
+    renderUi(<Chat {...chatProps({
+      defaults: { defaultProvider: "codex", defaultModel: {}, defaultEffort: {}, defaultPermissionMode: "bypassPermissions" },
+      providers: [
+        makeProviderInfo({ models: ["claude-fable-5", "claude-sonnet-5"] }),
+        makeProviderInfo({ id: "codex", label: "Codex", models: ["gpt-5.5"], defaultModel: "gpt-5.5" }),
+      ],
+    })} />);
+    const btn = () => document.querySelector(".model-pick .mp-btn") as HTMLButtonElement;
+    fireEvent.click(btn());
+    fireEvent.click(screen.getByText("Claude Code"));
+    fireEvent.click(screen.getByText("Sonnet 5"));
+    expect(btn().textContent).toContain("Sonnet 5");
+  });
+
+  it("pendant un run sans texte : le bouton Stop appelle onStop", () => {
+    const onStop = vi.fn();
+    renderUi(<Chat {...chatProps({ workingSince: FIXED_TS, onStop })} />);
+    const stop = document.querySelector(".send.stop") as HTMLButtonElement;
+    expect(stop).toBeTruthy();
+    fireEvent.click(stop);
+    expect(onStop).toHaveBeenCalledTimes(1);
+  });
+
+  it("pendant un run avec texte : la mise en file envoie mode='queue'", () => {
+    const onSubmit = vi.fn();
+    renderUi(<Chat {...chatProps({ workingSince: FIXED_TS, onSubmit })} />);
+    fireEvent.change(ta(), { target: { value: "à traiter ensuite" } });
+    const queue = document.querySelector(".queue-btn") as HTMLButtonElement;
+    expect(queue).toBeTruthy();
+    fireEvent.click(queue);
+    expect(onSubmit).toHaveBeenCalledTimes(1);
+    expect(onSubmit.mock.calls[0][5]).toBe("queue");
+  });
+});
