@@ -1,10 +1,11 @@
 // ComposerControls (plan 015, slice 5) : barre du composer — menu +, mode de
 // permission, anneau de contexte, sélecteurs provider/modèle/effort, envoi/
 // stop/queue. JSX déplacé verbatim ; états et catalogues restent chez Chat.
-import React from "react";
+import React, { useEffect, useRef } from "react";
 import { t } from "../../lib/i18n";
 import { Select } from "../Select";
 import { PlusIcon, ProviderIcon, ZapIcon } from "../icons";
+import { Tick } from "./toolPresentation";
 import { ProviderInfo, orderedVisibleProviders } from "../../lib/providers";
 
 const PERMISSION_MODES = [
@@ -34,8 +35,6 @@ export function ComposerControls(p: {
   setMenuOpen: React.Dispatch<React.SetStateAction<boolean>>;
   modelMenuProvider: string;
   setModelMenuProvider: (v: string) => void;
-  effortMenuOpen: boolean;
-  setEffortMenuOpen: React.Dispatch<React.SetStateAction<boolean>>;
   setGoalOpen: React.Dispatch<React.SetStateAction<boolean>>;
   attachFiles: () => void;
   // catalogues/helpers (closures Chat)
@@ -67,7 +66,7 @@ export function ComposerControls(p: {
   const {
     text, setText, provider, setProvider, model, setModel, effort, setEffort,
     permissionMode, setPermissionMode, plusOpen, setPlusOpen, menuOpen, setMenuOpen,
-    modelMenuProvider, setModelMenuProvider, effortMenuOpen, setEffortMenuOpen,
+    modelMenuProvider, setModelMenuProvider,
     setGoalOpen, attachFiles, providerInfo, resolvedModelId, autoReasoningLabel,
     levelsFor, effortFor, modelsFor, sortByFav, modelLabel, modelButtonLabel,
     favModels, toggleFavModel,
@@ -82,6 +81,29 @@ export function ComposerControls(p: {
   // seuls les modes connus du front sont listés, dans l'ordre UI existant
   const permissionOptions = PERMISSION_MODES.filter((m) => allowedPermissionModes.includes(m.id));
   const goalsSupported = caps ? caps.goals === true : provider === "codex";
+  // navigation clavier des menus (plan 020, étape 6) : flèches + Échap ;
+  // focus posé sur le premier item à l'ouverture, rendu au déclencheur en sortie
+  const plusMenuRef = useRef<HTMLDivElement | null>(null);
+  const plusBtnRef = useRef<HTMLButtonElement | null>(null);
+  const modelMenuRef = useRef<HTMLDivElement | null>(null);
+  const modelBtnRef = useRef<HTMLButtonElement | null>(null);
+  useEffect(() => {
+    if (plusOpen) plusMenuRef.current?.querySelector<HTMLButtonElement>("button")?.focus();
+  }, [plusOpen]);
+  useEffect(() => {
+    if (menuOpen) modelMenuRef.current?.querySelector<HTMLButtonElement>("button")?.focus();
+  }, [menuOpen]);
+  function menuKeys(close: () => void, anchor: React.RefObject<HTMLButtonElement | null>) {
+    return (e: React.KeyboardEvent) => {
+      const panel = e.currentTarget as HTMLElement;
+      const items = Array.from(panel.querySelectorAll<HTMLButtonElement>("button:not([disabled])"));
+      if (!items.length) return;
+      const idx = items.indexOf(document.activeElement as HTMLButtonElement);
+      if (e.key === "ArrowDown") { e.preventDefault(); items[(idx + 1) % items.length].focus(); }
+      else if (e.key === "ArrowUp") { e.preventDefault(); items[(idx - 1 + items.length) % items.length].focus(); }
+      else if (e.key === "Escape") { e.stopPropagation(); close(); anchor.current?.focus(); }
+    };
+  }
   return (
     <>
         <div className="composer-bar">
@@ -90,19 +112,21 @@ export function ComposerControls(p: {
               onClick={() => window.dispatchEvent(new CustomEvent("quick-ask-toggle"))}>
               <ZapIcon />
             </button>
-            <button type="button" className="ghost" title={t("action.add-file-image")} onClick={() => setPlusOpen((v) => !v)}>
+            <button type="button" ref={plusBtnRef} className="ghost" title={t("action.add-file-image")}
+              aria-haspopup="menu" aria-expanded={plusOpen} onClick={() => setPlusOpen((v) => !v)}>
               <PlusIcon />
             </button>
             {plusOpen && (
-              <div className="mp-menu plus-up">
-                <div className="mp-item" onClick={() => { setPlusOpen(false); attachFiles(); }}>
+              <div className="mp-menu plus-up" ref={plusMenuRef} role="menu"
+                onKeyDown={menuKeys(() => setPlusOpen(false), plusBtnRef)}>
+                <button type="button" role="menuitem" className="mp-item" onClick={() => { setPlusOpen(false); attachFiles(); }}>
                   <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3">
                     <path d="M13.5 7.5l-5 5a3.2 3.2 0 0 1-4.5-4.5l5.5-5.5a2.2 2.2 0 0 1 3.1 3.1l-5.5 5.5a1.1 1.1 0 0 1-1.6-1.6l5-5" />
                   </svg>
                   <span>{t("action.add-file-image")}</span>
-                </div>
+                </button>
                 {allowedPermissionModes.includes("plan") && (
-                <div className="mp-item" onClick={() => setPermissionMode(permissionMode === "plan" ? "bypassPermissions" : "plan")}>
+                <button type="button" role="menuitemcheckbox" aria-checked={permissionMode === "plan"} className="mp-item" onClick={() => setPermissionMode(permissionMode === "plan" ? "bypassPermissions" : "plan")}>
                   <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3">
                     <path d="M2.5 4h2M6.5 4h7M2.5 8h2M6.5 8h7M2.5 12h2M6.5 12h7" />
                   </svg>
@@ -110,9 +134,9 @@ export function ComposerControls(p: {
                   <span className={`toggle ${permissionMode === "plan" ? "on" : ""}`}>
                     <span className="knob" />
                   </span>
-                </div>
+                </button>
                 )}
-                <div className="mp-item" onClick={() =>
+                <button type="button" role="menuitemcheckbox" aria-checked={!!p.defaults.autoReview?.enabled} className="mp-item" onClick={() =>
                   window.dispatchEvent(new CustomEvent("autoreview-toggle"))
                 }>
                   <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round">
@@ -123,14 +147,14 @@ export function ComposerControls(p: {
                   <span className={`toggle ${p.defaults.autoReview?.enabled ? "on" : ""}`}>
                     <span className="knob" />
                   </span>
-                </div>
+                </button>
                 {goalsSupported && p.onGoal && (
-                  <div className="mp-item" onClick={() => { setPlusOpen(false); setGoalOpen((v) => !v); }}>
+                  <button type="button" role="menuitem" className="mp-item" onClick={() => { setPlusOpen(false); setGoalOpen((v) => !v); }}>
                     <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round">
                       <circle cx="8" cy="8" r="6" /><circle cx="8" cy="8" r="2.4" />
                     </svg>
                     <span>{t("goal.menu")}</span>
-                  </div>
+                  </button>
                 )}
               </div>
             )}
@@ -185,11 +209,20 @@ export function ComposerControls(p: {
           <span className="model-pick" onClick={(e) => e.stopPropagation()}>
             <button
               type="button"
+              ref={modelBtnRef}
               className="mp-btn"
-              onClick={() => { setMenuOpen((v) => !v); setModelMenuProvider(""); setEffortMenuOpen(false); }}
+              aria-haspopup="menu"
+              aria-expanded={menuOpen}
+              title={t("chat.model-effort-title")}
+              onClick={() => { setMenuOpen((v) => !v); setModelMenuProvider(""); }}
             >
               <ProviderIcon provider={provider} />
               <span className={!model ? "mp-dim" : undefined}>{modelButtonLabel}</span>
+              <span className="mp-effort-sum mp-dim">
+                · {effort || (providerInfo()?.kind === "api"
+                  ? autoReasoningLabel(providerInfo(), resolvedModelId())
+                  : t("common.auto-default"))}
+              </span>
             </button>
             {menuOpen && (() => {
               const visibleProviders = orderedVisibleProviders(
@@ -204,7 +237,8 @@ export function ComposerControls(p: {
               const menuProvider = menuInfo?.id ?? provider;
               const menuModels = sortByFav(modelsFor(menuProvider), menuProvider);
               return (
-                <div className="mp-menu model-menu">
+                <div className="mp-menu model-menu" ref={modelMenuRef} role="menu"
+                  onKeyDown={menuKeys(() => setMenuOpen(false), modelBtnRef)}>
                   <div className="model-provider-list">
                     {visibleProviders.map((info) => {
                       const pv = info.id;
@@ -220,10 +254,66 @@ export function ComposerControls(p: {
                         >
                           <ProviderIcon provider={pv} size={12} />
                           <span>{info.label}</span>
-                          <small className="mp-chev">{count ? count : ""} ›</small>
+                          <small className="mp-chev">{count ? count : ""}</small>
+                          <Tick />
                         </button>
                       );
                     })}
+                    {(() => {
+                      // effort du provider COURANT — popover unique modèle+effort
+                      // (décision composer 2026-07-09 : options avancées en popover,
+                      // valeur active toujours résumée dans la barre)
+                      const info = providerInfo();
+                      const effortTitle = info?.kind === "api" ? t("chat.thinking") : t("chat.effort");
+                      const lvls = levelsFor(provider, resolvedModelId());
+                      if (lvls.length < 2) return null;
+                      const labels: Record<string, string> = {
+                        "": info?.kind === "api" ? autoReasoningLabel(info, resolvedModelId()) : t("common.auto-default"),
+                        none: "Off", low: "Low", medium: "Medium", high: "High",
+                        xhigh: "Extra High", max: "Max", minimal: "Minimal",
+                      };
+                      const idx = Math.max(0, lvls.indexOf(effort));
+                      const pick = (e: React.PointerEvent) => {
+                        const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
+                        const i = Math.min(lvls.length - 1, Math.max(0,
+                          Math.round(((e.clientX - r.left) / r.width) * (lvls.length - 1))));
+                        if (lvls[i] !== effort) setEffort(lvls[i]);
+                      };
+                      return (
+                        <div className="ef-block">
+                          <div className="mp-sep" />
+                          <div className="ef-title">{effortTitle} <b>{labels[effort] ?? effort}</b></div>
+                          <div className="ef-scale"><span>{t("effort.faster")}</span><span>{t("effort.smarter")}</span></div>
+                          <div className="ef-track"
+                            role="slider"
+                            tabIndex={0}
+                            aria-label={effortTitle}
+                            aria-valuemin={0}
+                            aria-valuemax={lvls.length - 1}
+                            aria-valuenow={idx}
+                            aria-valuetext={labels[effort] ?? effort}
+                            onKeyDown={(e) => {
+                              if (e.key === "ArrowRight" || e.key === "ArrowUp") {
+                                e.preventDefault(); e.stopPropagation();
+                                setEffort(lvls[Math.min(lvls.length - 1, idx + 1)]);
+                              } else if (e.key === "ArrowLeft" || e.key === "ArrowDown") {
+                                e.preventDefault(); e.stopPropagation();
+                                setEffort(lvls[Math.max(0, idx - 1)]);
+                              }
+                            }}
+                            onPointerDown={(e) => { (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId); pick(e); }}
+                            onPointerMove={(e) => { if (e.buttons) pick(e); }}
+                          >
+                            <div className="ef-fill" style={{ width: `${(idx / (lvls.length - 1)) * 100}%` }} />
+                            {lvls.map((lvl, i) => (
+                              <span key={lvl} className={`ef-dot ${i === lvls.length - 1 ? "last" : ""}`}
+                                style={{ left: `${(i / (lvls.length - 1)) * 100}%` }} />
+                            ))}
+                            <div className="ef-thumb" style={{ left: `${(idx / (lvls.length - 1)) * 100}%` }} />
+                          </div>
+                        </div>
+                      );
+                    })()}
                   </div>
                   {menuInfo && (
                   <div className="model-list">
@@ -240,8 +330,11 @@ export function ComposerControls(p: {
                       const active = provider === menuProvider && model === m.id;
                       const fav = favModels.includes(key);
                       return (
-                        <div
+                        <button
                           key={key}
+                          type="button"
+                          role="menuitemradio"
+                          aria-checked={active}
                           className={`mp-item model-row ${active ? "active" : ""}`}
                           onClick={() => {
                             setProvider(menuProvider);
@@ -260,7 +353,7 @@ export function ComposerControls(p: {
                               {fav ? "★" : "☆"}
                             </span>
                           </span>
-                        </div>
+                        </button>
                       );
                     })}
                     {menuProvider === "claude" && (
@@ -271,7 +364,8 @@ export function ComposerControls(p: {
                           { id: "200k", label: t("chat.context-200k"), on: provider === "claude" && !model.includes("[1m]") },
                           { id: "1m", label: "1M", on: provider === "claude" && model.includes("[1m]") },
                         ].map((ctx) => (
-                          <div key={ctx.id} className="mp-item model-row"
+                          <button key={ctx.id} type="button" role="menuitemradio" aria-checked={ctx.on}
+                            className="mp-item model-row"
                             onClick={() => {
                               setProvider("claude");
                               if (ctx.id === "1m" && !model.includes("[1m]")) {
@@ -282,61 +376,12 @@ export function ComposerControls(p: {
                             }}>
                             <span>{ctx.label}</span>
                             {ctx.on && <span className="mp-check">✓</span>}
-                          </div>
+                          </button>
                         ))}
                       </>
                     )}
                   </div>
                   )}
-                </div>
-              );
-            })()}
-          </span>
-          <span className="model-pick" onClick={(e) => e.stopPropagation()}>
-            <button
-              type="button"
-              className="mp-btn mp-effort"
-              title={providerInfo()?.kind === "api" ? t("chat.thinking") : t("chat.effort")}
-              onClick={() => { setEffortMenuOpen((v) => !v); setMenuOpen(false); }}
-            >
-              <span className={!effort ? "mp-dim" : undefined}>
-                {effort || (providerInfo()?.kind === "api"
-                  ? autoReasoningLabel(providerInfo(), resolvedModelId())
-                  : t("common.auto-default"))}
-              </span>
-            </button>
-            {effortMenuOpen && (() => {
-              const info = providerInfo();
-              const effortTitle = info?.kind === "api" ? t("chat.thinking") : t("chat.effort");
-              const lvls = levelsFor(provider, resolvedModelId());
-              const labels: Record<string, string> = {
-                "": info?.kind === "api" ? autoReasoningLabel(info, resolvedModelId()) : t("common.auto-default"),
-                none: "Off", low: "Low", medium: "Medium", high: "High",
-                xhigh: "Extra High", max: "Max", minimal: "Minimal",
-              };
-              const idx = Math.max(0, lvls.indexOf(effort));
-              // slider continu : glisser déplace le pouce, le libellé suit en direct
-              const pick = (e: React.PointerEvent) => {
-                const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
-                const i = Math.min(lvls.length - 1, Math.max(0,
-                  Math.round(((e.clientX - r.left) / r.width) * (lvls.length - 1))));
-                if (lvls[i] !== effort) setEffort(lvls[i]);
-              };
-              return (
-                <div className="mp-menu effort-pop">
-                  <div className="ef-title">{effortTitle} <b>{labels[effort] ?? effort}</b></div>
-                  <div className="ef-scale"><span>{t("effort.faster")}</span><span>{t("effort.smarter")}</span></div>
-                  <div className="ef-track"
-                    onPointerDown={(e) => { (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId); pick(e); }}
-                    onPointerMove={(e) => { if (e.buttons) pick(e); }}
-                  >
-                    <div className="ef-fill" style={{ width: `${(idx / (lvls.length - 1)) * 100}%` }} />
-                    {lvls.map((lvl, i) => (
-                      <span key={lvl} className={`ef-dot ${i === lvls.length - 1 ? "last" : ""}`}
-                        style={{ left: `${(i / (lvls.length - 1)) * 100}%` }} />
-                    ))}
-                    <div className="ef-thumb" style={{ left: `${(idx / (lvls.length - 1)) * 100}%` }} />
-                  </div>
                 </div>
               );
             })()}

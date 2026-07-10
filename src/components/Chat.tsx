@@ -411,7 +411,6 @@ export default function Chat(p: {
   }, [p.events]);
   const [menuOpen, setMenuOpen] = useState(false);
   const [modelMenuProvider, setModelMenuProvider] = useState(provider);
-  const [effortMenuOpen, setEffortMenuOpen] = useState(false);
   const [plusOpen, setPlusOpen] = useState(false);
   const [goalOpen, setGoalOpen] = useState(false);
   const [goalText, setGoalText] = useState("");
@@ -481,11 +480,11 @@ export default function Chat(p: {
   }
 
   useEffect(() => {
-    if (!menuOpen && !effortMenuOpen) return;
-    const close = () => { setMenuOpen(false); setEffortMenuOpen(false); };
+    if (!menuOpen) return;
+    const close = () => setMenuOpen(false);
     window.addEventListener("click", close);
     return () => window.removeEventListener("click", close);
-  }, [menuOpen, effortMenuOpen]);
+  }, [menuOpen]);
   useEffect(() => {
     // cascade : à l'ouverture, ne montrer QUE la liste des providers (sous-menu fermé)
     if (menuOpen) setModelMenuProvider("");
@@ -825,7 +824,7 @@ export default function Chat(p: {
         }}
         menus={{
           plusOpen, setPlusOpen, menuOpen, setMenuOpen, modelMenuProvider,
-          setModelMenuProvider, effortMenuOpen, setEffortMenuOpen,
+          setModelMenuProvider,
           goalOpen, setGoalOpen, goalText, setGoalText,
         }}
         catalog={{

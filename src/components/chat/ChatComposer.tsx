@@ -47,8 +47,6 @@ export type ComposerMenus = {
   setMenuOpen: Dispatch<boolean>;
   modelMenuProvider: string;
   setModelMenuProvider: (v: string) => void;
-  effortMenuOpen: boolean;
-  setEffortMenuOpen: Dispatch<boolean>;
   goalOpen: boolean;
   setGoalOpen: Dispatch<boolean>;
   goalText: string;

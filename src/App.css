@@ -910,8 +910,16 @@ input[type="range"].slider::-webkit-slider-thumb:hover { transform: scale(1.15);
 
 .mp-hd { font-size: var(--fs-s); color: var(--muted2); padding: 4px 9px 3px; }
 .mp-item { display: flex; align-items: center; gap: 8px; padding: 4px 9px;
-  border-radius: var(--r-s); cursor: pointer; font-size: var(--fs-m); color: var(--fg2); }
+  border-radius: var(--r-s); cursor: pointer; font-size: var(--fs-m); color: var(--fg2);
+  /* les items sont désormais de vrais boutons (plan 020 : menus au clavier) */
+  background: transparent; border: none; width: 100%; font-family: inherit; text-align: left; }
 .mp-item:hover { background: var(--bg-ctl); }
+.mp-item:focus-visible, .model-provider-row:focus-visible, .ef-track:focus-visible {
+  outline: var(--focus-ring-width) solid var(--focus-ring-color);
+  outline-offset: var(--focus-ring-offset); }
+.mp-effort-sum { white-space: nowrap; font-size: var(--fs-m); }
+.ef-block { padding: 2px 4px 6px; }
+.ef-block .ef-title { margin-top: 6px; }
 .mp-check { margin-left: auto; color: var(--fg); }
 .mp-sep { height: 1px; background: var(--border); margin: 4px 4px; }
 .atab-dot { width: 7px; height: 7px; border-radius: var(--r-pill); flex-shrink: 0; }
@@ -2113,7 +2121,7 @@ body.dragging iframe { pointer-events: none; }
   padding: 4px 8px; font: inherit; font-size: var(--fs-m); text-align: center; outline: none; }
 .icon-letter:focus { border-color: var(--accent); }
 /* ===== popover effort façon Claude Code desktop (slider glissable) ===== */
-.effort-pop { padding: 12px 14px 16px; min-width: 250px; }
+/* .effort-pop supprimé : l'effort vit dans le popover modèle (plan 020) */
 .ef-title { font-size: var(--fs-l); color: var(--muted); margin-bottom: 8px; }
 .ef-title b { color: var(--fg); font-weight: 600; }
 .ef-scale { display: flex; justify-content: space-between; font-size: var(--fs-m);

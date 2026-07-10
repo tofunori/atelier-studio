@@ -8,6 +8,7 @@ vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn(async () => null) }));
 import Chat from "../Chat";
 import { renderUi, resetTestState } from "../../test/render";
 import { FIXED_TS, makeCapabilities, makeProviderInfo } from "../../test/fixtures";
+import { t } from "../../lib/i18n";
 
 function chatProps(over: Partial<Parameters<typeof Chat>[0]> = {}): Parameters<typeof Chat>[0] {
   return {
@@ -205,5 +206,49 @@ describe("composer — caractérisation complémentaire (plan 020)", () => {
     fireEvent.click(queue);
     expect(onSubmit).toHaveBeenCalledTimes(1);
     expect(onSubmit.mock.calls[0][5]).toBe("queue");
+  });
+});
+
+// Plan 020, étape 6 : hiérarchie de la barre — effort en popover (résumé
+// visible), menus navigables au clavier (flèches + Échap → focus au bouton).
+describe("composer — barre hiérarchisée (plan 020)", () => {
+  it("l'effort courant reste résumé dans le bouton provider·modèle", () => {
+    renderUi(<Chat {...chatProps({ providers: [makeProviderInfo()] })} />);
+    expect(document.querySelector(".mp-btn .mp-effort-sum")).toBeTruthy();
+  });
+
+  it("le réglage d'effort vit dans le popover modèle et répond aux flèches", () => {
+    renderUi(<Chat {...chatProps({ providers: [makeProviderInfo()] })} />);
+    expect(document.querySelector(".ef-track")).toBeNull(); // pas dans la barre
+    fireEvent.click(document.querySelector(".model-pick .mp-btn") as HTMLButtonElement);
+    const track = document.querySelector(".ef-track") as HTMLElement;
+    expect(track).toBeTruthy();
+    const before = track.getAttribute("aria-valuenow");
+    fireEvent.keyDown(track, { key: "ArrowRight" });
+    const after = document.querySelector(".ef-track")!.getAttribute("aria-valuenow");
+    expect(Number(after)).toBe(Number(before) + 1);
+  });
+
+  it("menu + : focus posé sur le premier item, flèches naviguent, Échap rend le focus", () => {
+    renderUi(<Chat {...chatProps({ providers: [makeProviderInfo()] })} />);
+    const plusBtn = screen.getByTitle(t("action.add-file-image")) as HTMLButtonElement;
+    fireEvent.click(plusBtn);
+    const items = document.querySelectorAll(".plus-up button.mp-item");
+    expect(items.length).toBeGreaterThan(1);
+    expect(document.activeElement).toBe(items[0]);
+    fireEvent.keyDown(document.querySelector(".plus-up")!, { key: "ArrowDown" });
+    expect(document.activeElement).toBe(items[1]);
+    fireEvent.keyDown(document.querySelector(".plus-up")!, { key: "Escape" });
+    expect(document.querySelector(".plus-up")).toBeNull();
+    expect(document.activeElement).toBe(plusBtn);
+  });
+
+  it("une seule action primaire : Envoyer au repos, Stop pendant le run", () => {
+    const { unmount } = renderUi(<Chat {...chatProps()} />);
+    expect(document.querySelectorAll(".composer-bar .send").length).toBe(1);
+    unmount();
+    renderUi(<Chat {...chatProps({ workingSince: FIXED_TS })} />);
+    expect(document.querySelectorAll(".composer-bar .send").length).toBe(1);
+    expect(document.querySelector(".composer-bar .send.stop")).toBeTruthy();
   });
 });
