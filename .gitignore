@@ -33,3 +33,7 @@ src-tauri/gallery-dist/
 /generated/
 /diff_test.*
 /.worktrees/
+
+# artefacts Playwright (harnais golden)
+test-results/
+playwright-report/
