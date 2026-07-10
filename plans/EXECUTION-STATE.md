@@ -25,6 +25,11 @@ adversariaux).
   worktree dédié, 5 commits, PAS poussé — consigne de Thierry 2026-07-10 :
   revue Codex AVANT push/merge, tranche par tranche). Détails : plans/README.md.
 
+## Fait — en attente de revue Codex (2026-07-10, tranche 020)
+- 020 tours de chat + composer (branche `claude/atelier-020-chat-composer`,
+  basée sur la tranche 024 validée par Codex ; PAS poussé — revue Codex avant
+  push/merge). Détails : plans/README.md.
+
 ## Ordre restant (dépendances vérifiées)
 2. **025** harnais agentique (P0 XL, dép 008–010/015–016/018 ✓) — livre
    docs/AGENT_HARNESS_CONTRACT.md
