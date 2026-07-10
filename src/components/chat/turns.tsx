@@ -8,9 +8,7 @@ import { AgentEvent } from "../../lib/ws";
 import { t } from "../../lib/i18n";
 import { normalizeMathDelimiters, hardenPartialMarkdown } from "../../lib/markdown";
 import { CopyIcon, ForkIcon, ResumeIcon } from "../icons";
-import {
-  MD_COMPONENTS, MD_COMPONENTS_STREAMING, MD_REMARK_PLUGINS, MD_REHYPE_PLUGINS,
-} from "./md";
+import { MD_COMPONENTS, MD_COMPONENTS_STREAMING, useMdPlugins } from "./md";
 import { DoneDiffToggle, fmtTime, PinBtn } from "./turnParts";
 import { Tick, ToolGlyph, groupIconCat, summarizeTools } from "./toolPresentation";
 import { Button, EmptyState } from "../ui";
@@ -145,12 +143,13 @@ export const UserTurn = memo(function UserTurn(p: {
 });
 
 export function StreamingText(p: { text: string; working: boolean }) {
+  const plugins = useMdPlugins();
   return (
     <div className="msg-wrap">
       <div className="msg">
         <ReactMarkdown
-          remarkPlugins={MD_REMARK_PLUGINS}
-          rehypePlugins={MD_REHYPE_PLUGINS}
+          remarkPlugins={plugins.remark}
+          rehypePlugins={plugins.rehype}
           components={MD_COMPONENTS_STREAMING as any}
         >
           {normalizeMathDelimiters(hardenPartialMarkdown(p.text))}
@@ -171,12 +170,13 @@ export const AssistantText = memo(function AssistantText(p: {
 }) {
   const e = p.event;
   const i = p.index;
+  const plugins = useMdPlugins();
   return (
     <div id={`msg-${i}`} className="msg-wrap">
       <div className="msg">
         <ReactMarkdown
-          remarkPlugins={MD_REMARK_PLUGINS}
-          rehypePlugins={MD_REHYPE_PLUGINS}
+          remarkPlugins={plugins.remark}
+          rehypePlugins={plugins.rehype}
           components={MD_COMPONENTS as any}
         >
           {normalizeMathDelimiters(e.text)}

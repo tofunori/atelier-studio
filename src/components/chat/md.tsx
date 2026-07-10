@@ -1,14 +1,11 @@
 // Pipeline markdown du chat (plan 015, slice 4) — déplacé verbatim depuis
 // Chat.tsx : liens fichier:ligne, coloration hljs, blocs code (streaming ou
 // non), Mermaid, KaTeX. Aucune logique modifiée.
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import hljs from "highlight.js/lib/common";
 import julia from "highlight.js/lib/languages/julia";
 import latex from "highlight.js/lib/languages/latex";
 import remarkGfm from "remark-gfm";
-import remarkMath from "remark-math";
-import rehypeKatex from "rehype-katex";
-import "katex/dist/katex.min.css";
 import { t } from "../../lib/i18n";
 import { LruCache } from "../../lib/lruCache";
 import { MermaidBlock } from "../MermaidBlock";
@@ -205,8 +202,48 @@ export const MD_COMPONENTS = {
 // MarkdownCodeBlockStreaming ci-dessus).
 export const MD_COMPONENTS_STREAMING = { ...MD_COMPONENTS, pre: MarkdownCodeBlockStreaming };
 
-// remark-math : singleDollarTextMath reste au défaut (true) — utilisateur
-// scientifique, les $ isolés (monétaires) sont rares dans son usage.
-export const MD_REMARK_PLUGINS = [remarkGfm, remarkMath];
-// throwOnError:false — un LaTeX invalide ne doit jamais faire planter le rendu.
-export const MD_REHYPE_PLUGINS: any[] = [[rehypeKatex, { throwOnError: false }]];
+// ---- maths HORS du chemin critique (plan 022) -----------------------------
+// KaTeX + remark-math (273 KB min / 82 KB gzip) se chargent à l'IDLE du boot,
+// jamais dans l'entrée. Avant chargement, $x^2$ s'affiche en texte brut puis
+// s'upgrade au chargement — aucun contenu perdu, aucun blocage du premier
+// rendu. remark-math : singleDollarTextMath au défaut (usage scientifique).
+// throwOnError:false — un LaTeX invalide ne fait jamais planter le rendu.
+type MdPlugins = { remark: any[]; rehype: any[] };
+let mathPlugins: MdPlugins | null = null;
+const mathListeners = new Set<() => void>();
+
+function loadMath() {
+  if (mathPlugins) return;
+  Promise.all([
+    import("remark-math"),
+    import("rehype-katex"),
+    import("katex/dist/katex.min.css"),
+  ]).then(([rm, rk]) => {
+    mathPlugins = {
+      remark: [remarkGfm, rm.default],
+      rehype: [[rk.default, { throwOnError: false }]],
+    };
+    mathListeners.forEach((cb) => cb());
+    mathListeners.clear();
+  }).catch(() => { /* offline : le markdown reste fonctionnel sans maths */ });
+}
+if (typeof requestIdleCallback === "function") requestIdleCallback(() => loadMath());
+else setTimeout(loadMath, 400);
+
+const BASE_PLUGINS: MdPlugins = { remark: [remarkGfm], rehype: [] };
+
+/** Plugins markdown courants — se mettent à jour une fois KaTeX chargé. */
+export function useMdPlugins(): MdPlugins {
+  const [plugins, setPlugins] = useState<MdPlugins>(mathPlugins ?? BASE_PLUGINS);
+  useEffect(() => {
+    if (mathPlugins) { setPlugins(mathPlugins); return; }
+    const cb = () => setPlugins(mathPlugins!);
+    mathListeners.add(cb);
+    return () => { mathListeners.delete(cb); };
+  }, []);
+  return plugins;
+}
+
+// compat : consommateurs non-composants (valeur au boot, sans maths)
+export const MD_REMARK_PLUGINS = BASE_PLUGINS.remark;
+export const MD_REHYPE_PLUGINS: any[] = BASE_PLUGINS.rehype;
