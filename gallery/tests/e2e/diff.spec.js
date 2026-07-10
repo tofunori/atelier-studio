@@ -40,6 +40,28 @@ async function waitForPing(port) {
   throw new Error(`server on ${port} did not answer /ping`);
 }
 
+function waitForExit(server, timeoutMs) {
+  if (server.exitCode !== null || server.signalCode !== null) return Promise.resolve(true);
+  return new Promise(resolve => {
+    const finish = exited => {
+      clearTimeout(timer);
+      server.off('exit', onExit);
+      resolve(exited);
+    };
+    const onExit = () => finish(true);
+    const timer = setTimeout(() => finish(false), timeoutMs);
+    server.once('exit', onExit);
+  });
+}
+
+async function stopServer(server) {
+  if (!server || server.exitCode !== null || server.signalCode !== null) return;
+  server.kill('SIGTERM');
+  if (await waitForExit(server, 1000)) return;
+  server.kill('SIGKILL');
+  await waitForExit(server, 1000);
+}
+
 async function withLatexStudio(run) {
   const root = mkdtempSync(path.join(tmpdir(), 'atelier-diff-e2e-'));
   const texPath = path.join(root, 'contract.tex');
@@ -62,10 +84,7 @@ async function withLatexStudio(run) {
     const url = `http://127.0.0.1:${port}/.fig_thumbs/latex_studio.html?path=${encodeURIComponent(texPath)}&engine=cm5`;
     await run({ root, texPath, port, url });
   } finally {
-    if (server && server.exitCode === null) {
-      server.kill('SIGTERM');
-      await new Promise(resolve => server.once('exit', resolve));
-    }
+    await stopServer(server);
     rmSync(root, { recursive: true, force: true });
   }
 }
@@ -124,9 +143,10 @@ test('CM5: one multi-word save is one intervention', async ({ page }) => {
     await page.locator('#diffTag').click();
 
     const nav = page.locator('#dvNav');
-    await expect(nav).toContainText('tout · 1');
+    const count = nav.locator('.dvNavC');
+    await expect(count).toHaveText('tout · 1');
     await nav.locator('[data-d="-1"]').click();
-    await expect(nav).toContainText('1 / 1');
+    await expect(count).toHaveText('1 / 1');
 
     await page.locator('#diffTag').click();
     await expect(nav).toBeHidden();
@@ -147,17 +167,18 @@ test('CM5: three spatially separated saves are three interventions', async ({ pa
 
     await page.locator('#diffTag').click();
     const nav = page.locator('#dvNav');
+    const count = nav.locator('.dvNavC');
     const previous = nav.locator('[data-d="-1"]');
-    await expect(nav).toContainText('tout · 3');
+    await expect(count).toHaveText('tout · 3');
 
     await previous.click();
-    await expect(nav).toContainText('3 / 3');
+    await expect(count).toHaveText('3 / 3');
     await previous.click();
-    await expect(nav).toContainText('2 / 3');
+    await expect(count).toHaveText('2 / 3');
     await previous.click();
-    await expect(nav).toContainText('1 / 3');
+    await expect(count).toHaveText('1 / 3');
 
-    await nav.locator('.dvNavC').click();
-    await expect(nav).toContainText('tout · 3');
+    await count.click();
+    await expect(count).toHaveText('tout · 3');
   });
 });
