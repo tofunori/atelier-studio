@@ -234,6 +234,13 @@
   font-variant-numeric:tabular-nums}
 #statusbar span{cursor:default}
 #sbWrap:hover,#sbLint:hover{color:#dbdfe5;cursor:pointer}
+#wrapMenu{position:fixed;z-index:400;background:#1b1f26;border:1px solid #333a45;border-radius:10px;
+  padding:5px;min-width:150px;box-shadow:0 8px 24px rgba(0,0,0,.5);font-size:13px;color:#b6bdc7;display:none}
+#wrapMenu .wm-it{padding:6px 10px;border-radius:6px;cursor:pointer}
+#wrapMenu .wm-it:hover,#wrapMenu .wm-it.on{background:#2c313a;color:#dbdfe5}
+#wrapMenu .wm-custom{display:flex;align-items:center;gap:6px;padding:6px 10px;border-top:1px solid #2c313a;margin-top:3px}
+#wrapMenu .wm-custom input{width:52px;background:#20242b;color:#dbdfe5;border:1px solid #3f3f46;
+  border-radius:4px;padding:2px 5px;font-size:12px;font-family:inherit}
 #sbLint.err{color:#e06c75}
 #sbLint.ok{color:#98c379}
 #morePop{position:fixed;top:40px;right:10px;z-index:400;background:#1b1f26;
@@ -383,7 +390,7 @@
   #texread .katex-display{margin:14px 0;overflow-x:auto;overflow-y:hidden}
 </style>
 <script>
-function __ct(){try{return JSON.parse(localStorage.getItem('claudeTargetV1')||'null')}catch(e){return null}}(function(){var T={'Default':{bg:'#202024',card:'#27272a',card2:'#1f1f23',txt:'#dbdfe5',muted:'#a1a1aa',accent:'#e8823a',border:'#3f3f46'},'Codex One':{bg:'#202024',card:'#2f343f',card2:'#21252b',txt:'#abb2bf',muted:'#7f848e',accent:'#4d78cc',border:'#3e4451'},'Dracula':{bg:'#282a36',card:'#343746',card2:'#21222c',txt:'#f8f8f2',muted:'#9aa0b3',accent:'#bd93f9',border:'#44475a'},'Nord':{bg:'#2e3440',card:'#3b4252',card2:'#272c36',txt:'#e5e9f0',muted:'#9aa3b2',accent:'#88c0d0',border:'#434c5e'}};var t;try{t=T[localStorage.getItem('figTheme')];}catch(e){}t=t||T['Default'];var r=document.documentElement.style;for(var k in t)r.setProperty('--'+k,t[k]);})();</script>
+function __ct(){try{return JSON.parse(localStorage.getItem('claudeTargetV1')||'null')}catch(e){return null}}(function(){var T={'Encre':{bg:'#1a1917',card:'#232220',card2:'#121110',txt:'#e8e5db',muted:'#948f85',accent:'#cc785c',border:'#332f2a'},'Profond':{bg:'#1e1d1b',card:'#292724',card2:'#161513',txt:'#ece9e1',muted:'#9a968c',accent:'#d97757',border:'#37342e'},'Charbon':{bg:'#211f1c',card:'#2b2926',card2:'#1a1815',txt:'#eae7de',muted:'#9d988d',accent:'#e08a63',border:'#38352f'},'Neutre chaud':{bg:'#1c1c1a',card:'#272623',card2:'#151513',txt:'#e9e7df',muted:'#98958c',accent:'#d97757',border:'#34322d'},'Très foncé':{bg:'#171614',card:'#201f1c',card2:'#100f0d',txt:'#e6e3d9',muted:'#8f8b81',accent:'#d97757',border:'#2e2b26'},'Default':{bg:'#202024',card:'#27272a',card2:'#1f1f23',txt:'#dbdfe5',muted:'#a1a1aa',accent:'#e8823a',border:'#3f3f46'},'Codex':{bg:'#282c34',card:'#2f343f',card2:'#21252b',txt:'#abb2bf',muted:'#7f848e',accent:'#4d78cc',border:'#3e4451'},'Dracula':{bg:'#282a36',card:'#343746',card2:'#21222c',txt:'#f8f8f2',muted:'#9aa0b3',accent:'#bd93f9',border:'#44475a'},'Nord':{bg:'#2e3440',card:'#3b4252',card2:'#272c36',txt:'#e5e9f0',muted:'#9aa3b2',accent:'#88c0d0',border:'#434c5e'}};var t;try{t=T[localStorage.getItem('figTheme')];}catch(e){}t=t||T['Default'];var r=document.documentElement.style;for(var k in t)r.setProperty('--'+k,t[k]);})();</script>
 </head>
 <body>
 <header>
@@ -471,6 +478,18 @@ function __ct(){try{return JSON.parse(localStorage.getItem('claudeTargetV1')||'n
   <span id="sbPos">Ln 1, Col 1</span>
   <span id="sbMode"></span>
   <span id="sbWrap" title="Cliquer pour changer le retour à la ligne"></span>
+  <div id="wrapMenu">
+    <div class="wm-it" data-wrap="win">Window</div>
+    <div class="wm-it" data-wrap="off">Off</div>
+    <div class="wm-it" data-wrap="50">50</div>
+    <div class="wm-it" data-wrap="60">60</div>
+    <div class="wm-it" data-wrap="70">70</div>
+    <div class="wm-it" data-wrap="80">80</div>
+    <div class="wm-it" data-wrap="90">90</div>
+    <div class="wm-it" data-wrap="100">100</div>
+    <div class="wm-it" data-wrap="120">120</div>
+    <div class="wm-custom"><span>Autre :</span><input id="wrapMenuInput" type="number" min="20" max="400" step="1" placeholder="cols" title="Colonne de wrap"></div>
+  </div>
   <span id="sbLint" style="display:none"></span>
   <span style="flex:1"></span>
   <span id="sbSaved"></span>
@@ -658,6 +677,9 @@ function applyWrap(v){
 }
 wrapSel.value = localStorage.getItem("cmWrap") || "win";
 wrapSel.onchange = () => applyWrap(wrapSel.value);
+// colonne custom (ex. 55) : aucune <option> ne matche → wrapSel.value = "" ;
+// relire alors la vraie valeur stockée, pas le select.
+function wrapValue(){ return wrapSel.value || localStorage.getItem("cmWrap") || "win"; }
 
 const LATEX_GHOST_COMMANDS = [
   "abstract", "author", "begin", "bibliography", "bibliographystyle", "caption",
@@ -987,14 +1009,15 @@ async function load(){
       }
     }, 200);
   });
-  applyWrap(wrapSel.value);
+  applyWrap(wrapValue());
   // Rewrap façon VS Code (extension Rewrap, Alt+Q) : reformate RÉELLEMENT le
   // paragraphe courant (ou la sélection) à 80 colonnes — chaque ligne visible
   // redevient une vraie ligne numérotée.
   function rewrapCol(){
     // wrap numérique → cette colonne ; window/off → largeur visible du panneau
     // (moins gutter/marge), bornée 40-120 : chaque ligne rentre dans le panneau
-    const v = wrapSel.value, n = parseInt(v, 10);
+    const v = wrapSel.value || (typeof localStorage !== "undefined" && localStorage.getItem("cmWrap")) || "",
+          n = parseInt(v, 10);
     if(n) return n;
     // -2 : marge contre les arrondis de defaultCharWidth (sinon des lignes
     // dépassent d'un mot et se replient visuellement en orphelines)
@@ -2354,7 +2377,8 @@ if(window.self !== window.top){
   sbMode.textContent = ({stex:"LaTeX", python:"Python", r:"R", markdown:"Markdown",
     julia:"Julia", shell:"Shell"})[typeof __CM_MODE === "string" ? __CM_MODE : "javascript"]
     ?? (__EXT || "").toUpperCase() ?? "";
-  const WRAPS = ["win", "off", "80", "100", "120"];
+  const wrapMenu = document.getElementById("wrapMenu");
+  const wrapMenuInput = document.getElementById("wrapMenuInput");
   function wrapLabel(){
     const v = localStorage.getItem("cmWrap") || "win";
     return "Wrap: " + (v === "win" ? "window" : v);
@@ -2363,15 +2387,46 @@ if(window.self !== window.top){
     sbWrap.textContent = wrapLabel();
     const mv = document.getElementById("moreWrapVal");
     if (mv) mv.textContent = wrapLabel().replace("Wrap: ", "");
+    const cur = localStorage.getItem("cmWrap") || "win";
+    wrapMenu.querySelectorAll(".wm-it").forEach(it => it.classList.toggle("on", it.dataset.wrap === cur));
+  }
+  function setWrap(v){
+    const sel = document.getElementById("wrapSel");
+    if (sel && sel.querySelector('option[value="' + v + '"]')) { sel.value = v; sel.onchange(); }
+    else applyWrap(v);   // colonne custom : aucune <option> ne matche
+    refreshWrap();
+  }
+  function closeWrapMenu(){ wrapMenu.style.display = "none"; }
+  function openWrapMenu(){
+    const r = sbWrap.getBoundingClientRect();
+    wrapMenu.style.left = r.left + "px";
+    wrapMenu.style.bottom = (window.innerHeight - r.top + 6) + "px";
+    wrapMenu.style.display = "block";
+    const cur = localStorage.getItem("cmWrap") || "";
+    wrapMenuInput.value = /^\d+$/.test(cur) && !["50","60","70","80","90","100","120"].includes(cur) ? cur : "";
   }
   refreshWrap();
-  sbWrap.onclick = () => {
-    const cur = localStorage.getItem("cmWrap") || "win";
-    const next = WRAPS[(WRAPS.indexOf(cur) + 1) % WRAPS.length];
-    const sel = document.getElementById("wrapSel");
-    if (sel) { sel.value = next; sel.onchange(); } 
-    refreshWrap();
+  sbWrap.onclick = (e) => {
+    if (e) e.stopPropagation();
+    if (wrapMenu.style.display === "block") { closeWrapMenu(); return; }
+    openWrapMenu();
   };
+  wrapMenu.onclick = (e) => {
+    e.stopPropagation();
+    const v = e.target.closest(".wm-it")?.dataset.wrap;
+    if (v){ setWrap(v); closeWrapMenu(); }
+  };
+  function commitWrapMenuInput(){
+    const n = parseInt(wrapMenuInput.value, 10);
+    if (n > 0){ setWrap(String(n)); closeWrapMenu(); }
+  }
+  wrapMenuInput.addEventListener("keydown", e => {
+    e.stopPropagation();
+    if (e.key === "Enter") commitWrapMenuInput();
+    else if (e.key === "Escape") closeWrapMenu();
+  });
+  wrapMenuInput.addEventListener("click", e => e.stopPropagation());
+  document.addEventListener("click", closeWrapMenu);
   // heure de sauvegarde (hook posé dans saveNow)
   window.__onSaved = function(){
     sbSaved.textContent = "sauvegardé " + new Date().toLocaleTimeString([], {hour:"2-digit", minute:"2-digit"});
@@ -2408,7 +2463,7 @@ if(window.self !== window.top){
     }
     if (act === "read") document.getElementById("readBtn")?.click();
     if (act === "help") document.getElementById("helpBtn").click();
-    if (act === "wrap") { sbWrap.onclick(); return; }
+    if (act === "wrap") { sbWrap.onclick(e); return; }
     if (act !== "wrap") morePop.style.display = "none";
   };
   const findBtn = document.getElementById("findBtn");

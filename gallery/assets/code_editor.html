@@ -102,7 +102,7 @@
   .cm-s-material-darker .cm-meta{color:#9a958a}
   .cm-s-material-darker .cm-qualifier{color:#7fbcb2}
 </style>
-<script>(function(){var T={'Default':{bg:'#202024',card:'#27272a',card2:'#1f1f23',txt:'#dbdfe5',muted:'#a1a1aa',accent:'#5b9dff',border:'#3f3f46'},'Codex One':{bg:'#202024',card:'#2f343f',card2:'#21252b',txt:'#abb2bf',muted:'#7f848e',accent:'#4d78cc',border:'#3e4451'},'Dracula':{bg:'#282a36',card:'#343746',card2:'#21222c',txt:'#f8f8f2',muted:'#9aa0b3',accent:'#bd93f9',border:'#44475a'},'Nord':{bg:'#2e3440',card:'#3b4252',card2:'#272c36',txt:'#e5e9f0',muted:'#9aa3b2',accent:'#88c0d0',border:'#434c5e'}};var t;try{t=T[localStorage.getItem('figTheme')];}catch(e){}t=t||T['Default'];var r=document.documentElement.style;for(var k in t)r.setProperty('--'+k,t[k]);})();</script>
+<script>(function(){var T={'Encre':{bg:'#1a1917',card:'#232220',card2:'#121110',txt:'#e8e5db',muted:'#948f85',accent:'#cc785c',border:'#332f2a'},'Profond':{bg:'#1e1d1b',card:'#292724',card2:'#161513',txt:'#ece9e1',muted:'#9a968c',accent:'#d97757',border:'#37342e'},'Charbon':{bg:'#211f1c',card:'#2b2926',card2:'#1a1815',txt:'#eae7de',muted:'#9d988d',accent:'#e08a63',border:'#38352f'},'Neutre chaud':{bg:'#1c1c1a',card:'#272623',card2:'#151513',txt:'#e9e7df',muted:'#98958c',accent:'#d97757',border:'#34322d'},'Très foncé':{bg:'#171614',card:'#201f1c',card2:'#100f0d',txt:'#e6e3d9',muted:'#8f8b81',accent:'#d97757',border:'#2e2b26'},'Default':{bg:'#202024',card:'#27272a',card2:'#1f1f23',txt:'#dbdfe5',muted:'#a1a1aa',accent:'#5b9dff',border:'#3f3f46'},'Codex':{bg:'#282c34',card:'#2f343f',card2:'#21252b',txt:'#abb2bf',muted:'#7f848e',accent:'#4d78cc',border:'#3e4451'},'Dracula':{bg:'#282a36',card:'#343746',card2:'#21222c',txt:'#f8f8f2',muted:'#9aa0b3',accent:'#bd93f9',border:'#44475a'},'Nord':{bg:'#2e3440',card:'#3b4252',card2:'#272c36',txt:'#e5e9f0',muted:'#9aa3b2',accent:'#88c0d0',border:'#434c5e'}};var t;try{t=T[localStorage.getItem('figTheme')];}catch(e){}t=t||T['Default'];var r=document.documentElement.style;for(var k in t)r.setProperty('--'+k,t[k]);})();</script>
 </head>
 <body>
 <header>
@@ -114,7 +114,14 @@
     <option value="80">Wrap: 80</option>
     <option value="100">Wrap: 100</option>
     <option value="120">Wrap: 120</option>
+    <option value="50">Wrap: 50</option>
+    <option value="60">Wrap: 60</option>
+    <option value="70">Wrap: 70</option>
+    <option value="90">Wrap: 90</option>
+    <option value="custom">Wrap: custom…</option>
   </select>
+  <input id="wrapCustom" type="number" min="20" max="400" step="1" placeholder="cols" title="Wrap column"
+         style="display:none;width:56px;background:var(--card);color:var(--txt);border:1px solid var(--border);border-radius:6px;padding:3px 6px;font-size:12px">
   <span id="diffGrp" style="display:none">
     <button id="diffPrev" class="dvBtn" style="display:none" title="Version précédente">&#8249;</button>
     <button id="diffTag" class="dvBtn" disabled style="opacity:.4" title="Historique des modifications — vide pour l’instant (⌘S ou une modif de l’agent crée une version)"><svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-2px"><rect x="2.5" y="1.5" width="11" height="13" rx="2"/><path d="M8 5.2v4M6 7.2h4M6 11h4"/></svg></button>
@@ -155,8 +162,37 @@ function applyWrap(v){
     cm.refresh();
   }
 }
+const wrapCustom = document.getElementById("wrapCustom");
+function ensureWrapOption(v){
+  if(/^\d+$/.test(v) && !wrapSel.querySelector('option[value="'+v+'"]')){
+    const o=document.createElement("option"); o.value=v; o.textContent="Wrap: "+v;
+    wrapSel.insertBefore(o, wrapSel.querySelector('option[value="custom"]'));
+  }
+}
+ensureWrapOption(localStorage.getItem("cmWrap") || "");
 wrapSel.value = localStorage.getItem("cmWrap") || "win";
-wrapSel.onchange = () => applyWrap(wrapSel.value);
+if(!wrapSel.value) wrapSel.value = "win";
+wrapSel.onchange = () => {
+  if(wrapSel.value === "custom"){
+    wrapSel.style.display="none"; wrapCustom.style.display="";
+    const cur=localStorage.getItem("cmWrap")||"";
+    wrapCustom.value=/^\d+$/.test(cur)?cur:""; wrapCustom.focus(); wrapCustom.select();
+    return;
+  }
+  applyWrap(wrapSel.value);
+};
+function commitWrapCustom(){
+  wrapCustom.style.display="none"; wrapSel.style.display="";
+  const n=parseInt(wrapCustom.value,10);
+  if(n>0){ const v=String(n); ensureWrapOption(v); wrapSel.value=v; applyWrap(v); }
+  else wrapSel.value = localStorage.getItem("cmWrap") || "win";
+}
+wrapCustom.addEventListener("keydown", e => {
+  if(e.key==="Enter") commitWrapCustom();
+  else if(e.key==="Escape"){ wrapCustom.style.display="none"; wrapSel.style.display="";
+    wrapSel.value = localStorage.getItem("cmWrap") || "win"; }
+});
+wrapCustom.addEventListener("blur", commitWrapCustom);
 
 // historique de versions + comparaison in-editor (module partagé diff_versions.js,
 // même mécanique que latex_studio : ⌘S ou modif externe crée une version)
