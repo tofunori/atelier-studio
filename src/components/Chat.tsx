@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { open } from "@tauri-apps/plugin-dialog";
 import { AgentEvent } from "../lib/ws";
 import { wsSend } from "../lib/wsBus";
@@ -9,6 +9,8 @@ import { CloseIcon } from "./icons";
 import { ProviderInfo } from "../lib/providers";
 import { ToolOutputLine, isSummarizableTool } from "./chat/toolPresentation";
 import { ChatTimeline } from "./chat/ChatTimeline";
+import { ChatHeader } from "./chat/ChatHeader";
+import { presentStatus, type UiStatusKind } from "../lib/statusPresentation";
 import type { ResearchHomeBundle } from "./ResearchHome";
 import { ChatComposer } from "./chat/ChatComposer";
 import { mentionLabel } from "./chat/mentions";
@@ -119,6 +121,8 @@ export default function Chat(p: {
   onNewChat: () => void;
   onOpenProject: () => void;
   projectRoot?: string | null;
+  /** nom d'affichage du projet (projMeta) — eyebrow de l'en-tête local */
+  projectName?: string | null;
   threadTitle?: string;
   threadProvider?: string;
   highlights: HighlightEntry[];
@@ -741,8 +745,43 @@ export default function Chat(p: {
     return <ToolOutputLine key={key} event={e} />;
   }
 
+  // tick 30 s pendant un tour : la durée « en cours depuis X » du header ne
+  // reste pas figée entre deux événements
+  const [statusTick, setStatusTick] = useState(0);
+  useEffect(() => {
+    if (p.workingSince == null) return;
+    const iv = window.setInterval(() => setStatusTick((x) => x + 1), 30_000);
+    return () => window.clearInterval(iv);
+  }, [p.workingSince]);
+
+  // statut du record pour l'en-tête local (plan 018, étape 3) : un tour en
+  // cours prime ; sinon le dernier done/error enregistré ; « idle » = pas de badge
+  const headerStatus = useMemo(() => {
+    if (!p.threadId) return null;
+    if (p.workingSince != null) return presentStatus({ kind: "running", since: p.workingSince });
+    let kind: UiStatusKind = "idle";
+    let detail: string | undefined;
+    for (let i = p.events.length - 1; i >= 0; i--) {
+      const e = p.events[i];
+      if (e.kind === "done") { kind = e.ok === false ? "interrupted" : "done"; break; }
+      if (e.kind === "error") { kind = "interrupted"; detail = e.message.split("\n")[0]; break; }
+    }
+    return presentStatus({ kind, detail });
+    // statusTick force le recalcul de la durée pendant un tour silencieux
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [p.threadId, p.workingSince, p.events, statusTick]);
+
   return (
     <div className="chat">
+      {p.threadId && (
+        <ChatHeader
+          title={p.threadTitle || t("app.new-chat-title")}
+          provider={p.threadProvider ?? ""}
+          projectName={p.projectName ?? (p.projectRoot ? p.projectRoot.split("/").filter(Boolean).pop() ?? null : null)}
+          projectPath={p.projectRoot}
+          status={headerStatus}
+        />
+      )}
       <ChatTimeline
         thread={{ threadId: p.threadId, events: p.events, workingSince: p.workingSince }}
         rev={{ review, reviewMin, setReviewMin, setReview, barOpen, setBarOpen, fixing, setFixing, reviewOpen, setReviewOpen }}

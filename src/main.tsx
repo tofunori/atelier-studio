@@ -88,6 +88,18 @@ async function boot() {
     );
     return;
   }
+  // banc de captures des surfaces workspace (plan 018) — mêmes garanties
+  if (window.location.hash.startsWith("#wsbench")) {
+    const { WsBench } = await import("./components/WsBench");
+    ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
+      <React.StrictMode>
+        <BootBoundary>
+          <WsBench />
+        </BootBoundary>
+      </React.StrictMode>,
+    );
+    return;
+  }
   // banc de captures du Research Home (plan 017) — mêmes garanties que #uibench
   if (window.location.hash.startsWith("#homebench")) {
     const { HomeBench } = await import("./components/HomeBench");

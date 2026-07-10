@@ -1,0 +1,57 @@
+/* ContextInspector (plan 018, étape 4) — géométrie du panneau inspecteur.
+ * Le mode inline (colonne fixe) est le défaut ; le mode tiroir (`drawer`)
+ * est choisi par l'INTÉGRATEUR via className à conteneur étroit. Tokens
+ * uniquement — la structure interne (header/body/footer) vient de
+ * .ui-inspector* (primitives.css). Aucune transition sur le contenu : un
+ * changement de sélection met à jour en place, sans animation de page. */
+
+.context-inspector { width: 300px; flex-shrink: 0; }
+
+/* hôte de la surface Atelier : pane + inspecteur côte à côte ; conteneur
+ * mesuré pour basculer l'inspecteur en tiroir quand la place manque */
+.atelier-host { display: flex; height: 100%; min-width: 0; position: relative;
+  container-type: inline-size; }
+.atelier-host > .atelier-wrap { flex: 1; min-width: 0; }
+
+/* tiroir : surface temporaire → élévation (ombre), pas de bordure en plus */
+.context-inspector.drawer {
+  position: absolute; right: 0; top: 0; bottom: 0;
+  z-index: var(--z-popover);
+  box-shadow: var(--elevation-overlay);
+}
+/* décision 018 (documentée) : à conteneur étroit (<900px), l'inspecteur
+ * devient un tiroir superposé temporaire avec overlay sobre plutôt qu'une
+ * 4e colonne inutilisable ; le scrim ferme au clic. */
+.ci-scrim { display: none; }
+@container (max-width: 899px) {
+  .atelier-host .context-inspector {
+    position: absolute; right: 0; top: 0; bottom: 0;
+    z-index: var(--z-popover);
+    box-shadow: var(--elevation-overlay);
+  }
+  .atelier-host .ci-scrim {
+    display: block; position: absolute; inset: 0;
+    z-index: calc(var(--z-popover) - 1);
+    background: var(--scrim);
+  }
+}
+
+/* ---- sections sobres (même registre que .rh-section > h2) --------------- */
+.context-inspector .ci-section { display: flex; flex-direction: column; gap: var(--sp-2); min-width: 0; }
+.context-inspector .ci-section + .ci-section { margin-top: var(--sp-5); }
+.context-inspector .ci-section > h3 {
+  margin: 0; font-size: var(--fs-caption); font-weight: 500;
+  letter-spacing: .05em; text-transform: uppercase; color: var(--text-muted);
+}
+
+/* rangée méta : label éteint au-dessus, valeur en corps */
+.context-inspector .ci-row { display: flex; flex-direction: column; gap: var(--sp-1); min-width: 0; }
+.context-inspector .ci-label { font-size: var(--fs-label); color: var(--text-muted); }
+.context-inspector .ci-value { font-size: var(--fs-body); color: var(--text-primary); line-height: 1.5; }
+.context-inspector .ci-trunc { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* accusé accessible du footer — visible des lecteurs d'écran uniquement */
+.context-inspector .ci-sr {
+  position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0;
+  overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0;
+}

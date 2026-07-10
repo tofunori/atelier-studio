@@ -7,10 +7,40 @@ import BiblioSurface from "./BiblioSurface";
 import GeneratorSurface from "./GeneratorSurface";
 import { t } from "../lib/i18n";
 import { CloseIcon } from "./icons";
+import { GalleryHeader, DocumentHeader } from "./AtelierHeaders";
 import type { Surface } from "./surfaces";
 
 type Tab = { id: string; url: string; title: string; color?: string; pinned?: boolean; kind?: "term"; cwd?: string };
 const TAB_COLORS = ["#e05d5d", "#e8823a", "#8b5cf6", "#3b82f6", "#22b07d", "#e0b74a"];
+
+/** Retrouve le chemin projet du fichier d'un onglet (inverse d'openFileTab :
+ * pdf_viewer?file=rel, studios/éditeur ?path=abs, image = origin/rel). */
+export function relFromTabUrl(url: string, projectRoot: string, baseUrl?: string): string | null {
+  try {
+    const u = new URL(url);
+    // un onglet pointant HORS du serveur galerie du projet (page web externe
+    // ouverte via atelier-open-tab) n'a pas de chemin projet
+    if (baseUrl) {
+      try {
+        if (u.origin !== new URL(baseUrl).origin) return null;
+      } catch { /* baseUrl invalide → pas de filtre */ }
+    }
+    const page = u.pathname.split("/").pop() ?? "";
+    if (page === "pdf_viewer.html") return u.searchParams.get("file");
+    if (page.endsWith("_studio.html") || page === "code_editor.html") {
+      const abs = u.searchParams.get("path");
+      if (!abs) return null;
+      const root = projectRoot.endsWith("/") ? projectRoot : `${projectRoot}/`;
+      return abs.startsWith(root) ? abs.slice(root.length) : abs;
+    }
+    // pages internes de la galerie sans fichier associé
+    if (u.pathname.startsWith("/.fig_thumbs/")) return null;
+    const rel = decodeURIComponent(u.pathname.replace(/^\//, ""));
+    return rel || null;
+  } catch {
+    return null;
+  }
+}
 
 export default function AtelierPane({
   url,
@@ -30,6 +60,9 @@ export default function AtelierPane({
   showExplorer,
   recentFiles,
   onOpenExplorer,
+  projectName,
+  onGalleryReload,
+  onInspectFile,
 }: {
   url: string;
   projectRoot: string;
@@ -50,6 +83,11 @@ export default function AtelierPane({
   ws: WebSocket | null;
   layout: "split" | "chat" | "atelier";
   onToggleExpand: () => void;
+  /** en-têtes locaux (plan 018) : eyebrow projet + refresh galerie migré de la TopBar */
+  projectName?: string | null;
+  onGalleryReload?: () => void;
+  /** ouvre l'inspecteur de contexte sur le fichier d'un onglet */
+  onInspectFile?: (rel: string) => void;
 }) {
   const [surface, setSurface] = useState<Surface>("atelier");
   // split 2 panes : surface secondaire + largeur (%) du pane primaire, par projet
@@ -201,6 +239,15 @@ export default function AtelierPane({
             </button>
           ))}
         </div>
+        {/* en-têtes locaux (plan 018, étape 2) : galerie ou document actif */}
+        {activeTab === "gallery" && onGalleryReload && (
+          <GalleryHeader projectName={projectName ?? null} onRefresh={onGalleryReload} />
+        )}
+        {(() => {
+          const tb = tabs.find((x) => x.id === activeTab);
+          const rel = tb && tb.kind !== "term" ? relFromTabUrl(tb.url, projectRoot, url) : null;
+          return rel ? <DocumentHeader rel={rel} onInspect={onInspectFile} /> : null;
+        })()}
         <div className="atelier-split">
         <div className="atelier-body">
           {/* écran d'accueil IDE : montré par le bouton IDE du rail quand aucun
@@ -339,6 +386,21 @@ export default function AtelierPane({
           <div onClick={() => { onPinTab(tabMenu.id); setTabMenu(null); }}>
             {tabs.find((t) => t.id === tabMenu.id)?.pinned ? t("action.unpin-tab") : t("action.pin-tab")}
           </div>
+          {onInspectFile && (() => {
+            const tb = tabs.find((x) => x.id === tabMenu.id);
+            const rel = tb && tb.kind !== "term" ? relFromTabUrl(tb.url, projectRoot, url) : null;
+            return rel ? (
+              <div onClick={() => {
+                // activer l'onglet inspecté : « l'élément source » du retour
+                // focus (Escape) est alors bien l'onglet actif
+                onSelectTab(tabMenu.id);
+                onInspectFile(rel);
+                setTabMenu(null);
+              }}>
+                {t("inspector.open")}
+              </div>
+            ) : null;
+          })()}
           <div className="swatches" style={{ padding: "6px 10px" }}>
             {TAB_COLORS.map((col) => (
               <span key={col} className="swatch" style={{ background: col }}

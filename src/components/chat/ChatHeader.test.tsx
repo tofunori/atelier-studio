@@ -1,0 +1,88 @@
+// ChatHeader (plan 018, étape 2) — RTL : eyebrow projet + titre au nom
+// accessible complet, badge piloté par le statut présenté (masqué si null ou
+// idle), menu overflow conditionné à onRename. Aucune assertion de couleur.
+import { render, screen, fireEvent, cleanup } from "@testing-library/react";
+import { describe, it, expect, vi, afterEach, beforeEach } from "vitest";
+import { ChatHeader } from "./ChatHeader";
+import { setLanguage, t } from "../../lib/i18n";
+import { presentStatus } from "../../lib/statusPresentation";
+
+afterEach(cleanup);
+beforeEach(() => setLanguage("fr"));
+
+// libellé du bouton overflow = clé i18n action.more — langue fixée AVANT
+// l'évaluation du libellé (le module s'évalue avant les beforeEach)
+setLanguage("fr");
+const MORE_LABEL = t("action.more");
+
+const base = {
+  title: "Comparaison MOD10A1 vs MCD43A3",
+  provider: "claude",
+  projectName: "Thèse albédo",
+  projectPath: "/Users/tofunori/Documents/these-albedo",
+  status: null,
+} as const;
+
+describe("ChatHeader", () => {
+  it("rend eyebrow (avec chemin accessible), titre, méta provider et badge", () => {
+    const { container } = render(
+      <ChatHeader {...base} status={presentStatus({ kind: "error", detail: "boom" })} />,
+    );
+
+    const eyebrow = container.querySelector(".eyebrow")!;
+    expect(eyebrow).toHaveTextContent("Thèse albédo");
+    expect(eyebrow.querySelector("span")).toHaveAttribute("title", base.projectPath);
+
+    expect(screen.getByText(base.title)).toBeInTheDocument();
+    expect(screen.getByText("claude")).toBeInTheDocument();
+
+    const badge = container.querySelector(".ui-badge")!;
+    expect(badge).toHaveTextContent(t("status.error"));
+  });
+
+  it("status null → aucun badge", () => {
+    const { container } = render(<ChatHeader {...base} />);
+    expect(container.querySelector(".ui-badge")).toBeNull();
+  });
+
+  it("kind idle → badge masqué aussi", () => {
+    const { container } = render(
+      <ChatHeader {...base} status={presentStatus({ kind: "idle" })} />,
+    );
+    expect(container.querySelector(".ui-badge")).toBeNull();
+  });
+
+  it("kind running → badge « en cours depuis … »", () => {
+    const now = 1_700_000_000_000;
+    const { container } = render(
+      <ChatHeader {...base} status={presentStatus({ kind: "running", since: now - 5000, now })} />,
+    );
+    expect(container.querySelector(".ui-badge")).toHaveTextContent(
+      t("status.running-for", { t: "5 s" }),
+    );
+  });
+
+  it("onRename absent → pas de bouton overflow", () => {
+    render(<ChatHeader {...base} />);
+    expect(screen.queryByRole("button", { name: MORE_LABEL })).toBeNull();
+  });
+
+  it("onRename présent → ⋯ ouvre le menu, Renommer appelle onRename et ferme", () => {
+    const onRename = vi.fn();
+    render(<ChatHeader {...base} onRename={onRename} />);
+
+    expect(screen.queryByRole("menu")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: MORE_LABEL }));
+    expect(screen.getByRole("menu")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("menuitem", { name: t("action.rename") }));
+    expect(onRename).toHaveBeenCalledTimes(1);
+    expect(screen.queryByRole("menu")).toBeNull();
+  });
+
+  it("titre long → attribut title complet présent (troncature CSS)", () => {
+    const long = "Un très long titre de thread qui déborde largement de la largeur du panneau de chat";
+    render(<ChatHeader {...base} title={long} />);
+    expect(screen.getByTitle(long)).toHaveTextContent(long);
+  });
+});

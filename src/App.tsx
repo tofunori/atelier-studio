@@ -10,8 +10,9 @@ import {
 } from "./lib/ws";
 import { useSidecarConnection, type SidecarStatus } from "./hooks/useSidecarConnection";
 import { useAtelierServer } from "./hooks/useAtelierServer";
-import { deriveResearchHomeModel } from "./lib/researchHome";
+import { artefactKind, deriveResearchHomeModel } from "./lib/researchHome";
 import { focusComposer, type ResearchHomeBundle } from "./components/ResearchHome";
+import { ContextInspector, type InspectedFile } from "./components/ContextInspector";
 import { useWorkspaceEvents } from "./hooks/useWorkspaceEvents";
 import WorkspaceShell from "./components/shell/WorkspaceShell";
 import Sidebar from "./components/Sidebar";
@@ -1421,6 +1422,8 @@ export default function App() {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape" && qaMode !== "open" && !paletteOpen && !usageOpen) {
+        // l'inspecteur ouvert intercepte Escape en phase de CAPTURE
+        // (ContextInspector) : ce handler ne voit alors jamais l'événement
         const id = activeIdRef.current;
         if (id && workingSinceRef.current[id] != null && ws.current?.readyState === 1) {
           ws.current.send(JSON.stringify({ type: "interrupt", threadId: id }));
@@ -1707,10 +1710,65 @@ export default function App() {
     allThreads.filter((t) => t.status === "running").map((t) => t.projectRoot),
   );
 
+  // ContextInspector (plan 018, étapes 4–5) : sélection explicite depuis le
+  // menu d'onglet Atelier ; le transfert au chat suit le contrat pending →
+  // added (accusé) → idle, et la suppression du chip ne touche jamais la source.
+  const [inspected, setInspected] = useState<InspectedFile | null>(null);
+  const [inspectorAdd, setInspectorAdd] = useState<"idle" | "pending" | "added">("idle");
+  const inspectorAddTimer = useRef<number | null>(null);
+  // l'inspecteur ne survit ni au layout chat (panneau démonté) ni à un
+  // changement de projet (l'item pointerait l'ancien projet) — panel 018
+  useEffect(() => {
+    if (!inspected) return;
+    if (layout === "chat" || !activeProject || inspected.projectRoot !== activeProject) {
+      setInspected(null);
+    }
+  }, [layout, activeProject, inspected]);
+  useEffect(() => () => {
+    if (inspectorAddTimer.current != null) window.clearTimeout(inspectorAddTimer.current);
+  }, []);
+  function openInspector(rel: string) {
+    if (!activeProject) return;
+    const segs = rel.split("/");
+    setInspectorAdd("idle");
+    setInspected({
+      rel,
+      name: segs[segs.length - 1] || rel,
+      dir: segs.slice(0, -1).join("/"),
+      kind: artefactKind(rel),
+      projectRoot: activeProject,
+      projectName: displayProjectName,
+    });
+  }
+  function closeInspector() {
+    setInspected(null);
+    // retour focus à l'élément source : l'onglet actif de la barre Atelier
+    requestAnimationFrame(() =>
+      document.querySelector<HTMLButtonElement>(".atelier-bar .atab.on")?.focus());
+  }
+  function addInspectedToChat(item: InspectedFile) {
+    if (inspectorAdd !== "idle") return; // pending/added : pas de double ajout
+    setInspectorAdd("pending");
+    setAttachments((l) => addAttachment(l, {
+      name: item.name,
+      lines: null,
+      kind: "file",
+      text: `Fichier du projet ajouté au contexte : ${item.projectRoot}/${item.rel}`,
+    }));
+    setInspectorAdd("added");
+    if (inspectorAddTimer.current != null) window.clearTimeout(inspectorAddTimer.current);
+    inspectorAddTimer.current = window.setTimeout(() => setInspectorAdd("idle"), 1800);
+  }
+
   // Research Home (plan 017) : modèle dérivé pur + vrais workflows, calculés
   // uniquement quand aucun thread n'est actif (la timeline monte l'accueil à
   // la place de l'ancienne empty-card ; le composer reste en dessous).
   const projLabelRaw = activeProject ? projMeta[activeProject]?.label : null;
+  // nom d'affichage du projet partagé par le Research Home et les en-têtes
+  // locaux (plan 018) : label projMeta sinon dernier segment du chemin
+  const displayProjectName = projLabelRaw && !projLabelRaw.startsWith("icon:")
+    ? projLabelRaw
+    : (activeProject?.split("/").filter(Boolean).pop() ?? null);
   // « connecting » = démarrage à froid (jamais connecté) → état de chargement ;
   // « disconnected » = connexion perdue → vraie condition À traiter
   if (wsReady) sidecarEverConnected.current = true;
@@ -1823,7 +1881,6 @@ export default function App() {
       onQuickAsk={() => window.dispatchEvent(new CustomEvent("quick-ask-toggle"))}
       activeSurface={activeSurface}
       showAtelier={showAtelier}
-      onGalleryReload={hardReloadAtelier}
       showExplorer={showExplorer}
       onToggleExplorer={() => {
         // toggle seul : ne change PAS la surface active (sinon fermer
@@ -2065,6 +2122,7 @@ export default function App() {
           recentFiles={recentFiles.filter((file) => files.includes(file)).slice(0, 12)}
           zoteroItems={zoteroItems}
           projectRoot={activeProject}
+          projectName={displayProjectName}
           threadTitle={activeId ? (allThreads.find((th) => th.id === activeId)?.title ?? "") : ""}
           threadProvider={activeId ? (allThreads.find((th) => th.id === activeId)?.provider ?? "") : ""}
           highlights={highlights}
@@ -2259,6 +2317,7 @@ export default function App() {
         <>
           <PanelResizeHandle className="handle" onDragging={setDragging} />
           <Panel id="atelier" order={3} defaultSize={50} minSize={20}>
+            <div className="atelier-host">
             <AtelierPane
               url={atelierUrl ?? ""}
               layout={layout}
@@ -2309,7 +2368,24 @@ export default function App() {
               showExplorer={showExplorer}
               recentFiles={recentFiles.filter((f) => files.includes(f)).slice(0, 8)}
               onOpenExplorer={() => setShowExplorer(true)}
+              projectName={null /* le crumb TopBar porte déjà le projet — pas de duplication */}
+              onGalleryReload={hardReloadAtelier}
+              onInspectFile={openInspector}
             />
+            {inspected && (
+              <>
+                {/* scrim du mode tiroir (visible <900px de conteneur via CSS) */}
+                <div className="ci-scrim" onClick={closeInspector} aria-hidden="true" />
+                <ContextInspector
+                item={inspected}
+                onClose={closeInspector}
+                onOpen={(rel) => openFileTab(rel)}
+                onAddToChat={addInspectedToChat}
+                addState={inspectorAdd}
+              />
+              </>
+            )}
+            </div>
           </Panel>
         </>
       )}

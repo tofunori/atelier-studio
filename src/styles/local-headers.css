@@ -1,0 +1,14 @@
+/* En-tête local du Chat (plan 018, étape 2) — seuls ajouts au contrat
+ * .ui-surface-header : la méta provider (caption éteinte, séparée du badge)
+ * et l'ancre du menu overflow (wrapper neutre pour la mise en page). */
+.chat-surface-header .provider-meta {
+  font: 400 var(--fs-caption)/1.3 var(--font-chrome);
+  color: var(--text-muted);
+}
+.chat-surface-header .overflow-anchor { display: inline-flex; }
+
+/* En-têtes locaux Atelier (galerie + document) — méta type d'artefact. */
+.atelier-surface-header .kind {
+  font: 400 var(--fs-caption)/1.3 var(--font-chrome);
+  color: var(--text-muted);
+}

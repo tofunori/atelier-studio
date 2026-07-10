@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { t } from "../lib/i18n";
-import { SearchIcon, ZapIcon, RefreshIcon, PlusIcon } from "./icons";
+import { SearchIcon, ZapIcon, PlusIcon } from "./icons";
 import { SegmentedControl } from "./ui";
 import { projInitial, type ProjMeta } from "./Rail";
 import { ProjIcon } from "./Sidebar";
@@ -58,7 +58,6 @@ export default function TopBar({
   onQuickAsk,
   activeSurface,
   showAtelier,
-  onGalleryReload,
   showExplorer,
   onToggleExplorer,
   onOpenGit,
@@ -74,7 +73,6 @@ export default function TopBar({
   onQuickAsk: () => void;
   activeSurface: string;
   showAtelier: boolean;
-  onGalleryReload: () => void;
   showExplorer: boolean;
   onToggleExplorer: () => void;
   onOpenGit: () => void;
@@ -147,11 +145,8 @@ export default function TopBar({
       </button>
       <span className="flex" />
       <div className="topbar-right">
-        {showAtelier && activeSurface === "atelier" && (
-          <button type="button" className="ghost topbar-qa" title={t("action.refresh-hard")} onClick={onGalleryReload}>
-            <RefreshIcon size={14} />
-          </button>
-        )}
+        {/* le refresh galerie vit désormais dans le GalleryHeader de la
+            surface (plan 018, étape 6 : action de surface → SurfaceHeader) */}
         {/* Explorateur + Git remontés du rail */}
         <button type="button" className={`ghost topbar-qa ${showExplorer ? "on" : ""}`} title={t("atelier.file-explorer")} onClick={onToggleExplorer}>
           <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"><path d="M1.8 4.2c0-.7.5-1.2 1.2-1.2h3l1.4 1.6h5.6c.7 0 1.2.5 1.2 1.2v6c0 .7-.5 1.2-1.2 1.2H3c-.7 0-1.2-.5-1.2-1.2v-7.6z" /></svg>
