@@ -860,8 +860,14 @@ export default function App() {
           if (msg.threadId !== activeIdRef.current || document.hidden || !document.hasFocus()) {
             setUnread((u) => new Set(u).add(msg.threadId));
           }
-          // l'agent a peut-être régénéré des figures → recharger atelier
-          if (msg.event.kind === "done" && settingsRef.current.autoRefreshAtelier) bumpAtelierReload();
+          // l'agent a peut-être régénéré des figures → recharger l'atelier,
+          // mais SEULEMENT si le tour a modifié des fichiers : un tour de pure
+          // discussion ne fait pas clignoter la galerie. filesChanged absent
+          // (pas de snapshot git) = inconnu → comportement historique (reload)
+          if (msg.event.kind === "done" && settingsRef.current.autoRefreshAtelier
+              && (!Array.isArray(msg.event.filesChanged) || msg.event.filesChanged.length > 0)) {
+            bumpAtelierReload();
+          }
           // l'agent a peut-être créé des fichiers → rafraîchir le catalogue (résolution des chips)
           if (msg.event.kind === "done" && activeProjectRef.current && ws.current?.readyState === 1) {
             requestCatalog(ws.current, activeProjectRef.current);
