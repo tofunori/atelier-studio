@@ -137,11 +137,10 @@ export default function Rail(p: {
             }}
             onDragEnd={() => { setDragRoot(null); setDragOver(null); }}
             onClick={() => p.onSelectProject(root)}
-            /* double-clic en compact : déplie le panneau fixe sur les chats
-               du projet (remplace l'ancien flyout) */
+            /* double-clic : bascule le panneau fixe — en compact, l'ouvre sur
+               les chats du projet (remplace l'ancien flyout) ; sinon le replie */
             onDoubleClick={() => {
-              if (!p.compact) return;
-              p.onSelectView("chats");
+              if (p.compact) p.onSelectView("chats");
               p.onExpand();
             }}
             onContextMenu={(e) => {
