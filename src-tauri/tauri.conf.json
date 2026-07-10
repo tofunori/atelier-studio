@@ -18,7 +18,10 @@
         "dragDropEnabled": false,
         "titleBarStyle": "Overlay",
         "hiddenTitle": true,
-        "trafficLightPosition": { "x": 14, "y": 19 }
+        "trafficLightPosition": {
+          "x": 14,
+          "y": 19
+        }
       }
     ],
     "security": {
@@ -40,7 +43,7 @@
       "gallery-dist": "gallery"
     },
     "macOS": {
-      "signingIdentity": "-"
+      "signingIdentity": "Atelier Dev Signing"
     }
   }
 }

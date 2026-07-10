@@ -90,7 +90,7 @@ sinon « Non enregistrée ») ; Organization (collections membership + favori +
 - [x] Passe 1 : barre de commande + chips + selBar + overflow — suites unit(32)/diff(78)/parité/E2E(5) vertes ; vérif Playwright interactive OK (popover 6 groupes, sous-menus, chips actives, clear all)
 - [x] Passe 2 : sélection carte + inspecteur + add-to-chat + états — suites vertes ; vérif interactive 7 points OK (sélection/aria, workflow in-place, dblclick→lightbox, Escape en cascade, clavier flèches+Enter, fermeture sur filtre, reset)
 - [x] Passe 3 : E2E 12/12 (2 scénarios adaptés au clic-sélection + 7 nouveaux : filtres/chips, sélection/inspecteur, workflow persistant au reload, add-to-chat idempotent via iframe hôte, clavier, 800×600 tiroir+scrim, fichier manquant) ; test_fullscreen_regression.py inchangé — toutes les assertions littérales préservées par construction
-- [ ] stage-gallery + verify + AGENTS.md + captures 1512/1280/800 + commit/push
+- [x] stage-gallery (bundle 32M régénéré) + verify 6 couches OK + AGENTS.md (build exit 0, app+sidecar relancés) + captures docs/ui/gallery/ + signature stable « Atelier Dev Signing » ajoutée (tauri.conf) — fin des prompts Documents à chaque rebuild
 
 ## Gates
 npm run test:gallery:unit | :parity | :diff ; npm run verify:e2e ;
