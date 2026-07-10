@@ -403,13 +403,23 @@ for (const engine of ['cm5', 'cm6']) {
           if (request.method() === 'POST' && request.url().endsWith('/codesave')) saveRequests += 1;
         });
         await openEditor(page, url, 'latex', engine);
+        const lineNumbers = page.locator(engine === 'cm6' ? '.cm-lineNumbers' : '.CodeMirror-linenumbers');
+        const foldGutter = page.locator(engine === 'cm6' ? '.cm-foldGutter' : '.CodeMirror-foldgutter');
+        await expect(lineNumbers).toBeVisible();
+        await expect(foldGutter).toHaveCount(1);
         const changed = INITIAL_TEXT
-          .replace('stayed bright', 'became visibly darker')
-          .replace('temperatures remained moderate', 'temperatures increased sharply');
+          .replace('surface stayed bright', 'surface visibly stayed bright')
+          .replace('temperatures remained moderate', 'temperatures sharply remained moderate');
         await replaceTextAndSave(page, changed);
         const gutterMarker = page.locator('.dv-cell').first();
         await expect(gutterMarker).toBeVisible();
-        await gutterMarker.click();
+        await page.evaluate(() => cm.setCursor({line: cm.lastLine(), ch: 0}));
+        await gutterMarker.evaluate((marker) => {
+          setTimeout(() => {
+            marker.dispatchEvent(new MouseEvent('click', {bubbles: true, cancelable: true}));
+          }, 0);
+        });
+        await expect(page.locator('.dv-flash').first()).toContainText(/glacier surface|temperatures/);
         await expect(page.locator('#dvNav .dvNavC')).toHaveText('tout · 1');
         await expect.poll(() => page.evaluate(() => cm.getOption('readOnly'))).toBe(true);
         const savesBeforeReadOnlyShortcut = saveRequests;
@@ -420,8 +430,21 @@ for (const engine of ['cm5', 'cm6']) {
         await page.evaluate(() => cm.focus());
         await page.keyboard.type('blocked');
         expect(await editorText(page)).toBe(before);
+        await page.evaluate(() => {
+          const transfer = new DataTransfer();
+          transfer.setData('text/plain', 'clipboard-blocked');
+          const target = document.querySelector('.cm-content, .CodeMirror-code');
+          target.dispatchEvent(new ClipboardEvent('paste', {
+            bubbles: true, cancelable: true, clipboardData: transfer,
+          }));
+        });
+        await page.waitForTimeout(100);
+        expect(await editorText(page)).toBe(before);
         await page.locator('#diffTag').click();
         await expect.poll(() => page.evaluate(() => cm.getOption('readOnly'))).toBe(false);
+        await page.evaluate(() => cm.focus());
+        await page.keyboard.press('Meta+a');
+        await expect.poll(() => page.evaluate(() => cm.getSelection())).toBe(changed);
         await page.evaluate(() => { cm.setCursor({line: 0, ch: 0}); cm.focus(); });
         await page.keyboard.type('ok');
         await expect.poll(() => editorText(page)).toBe(`ok${changed}`);
@@ -443,6 +466,18 @@ for (const engine of ['cm5', 'cm6']) {
         await previous.click(); await expect(count).toHaveText('1 / 3');
         await count.click(); await expect(count).toHaveText('tout · 3');
       });
+      await withLatexStudio(engine, async ({filePath, url}) => {
+        const {versionPayloads} = watchEditorTraffic(page);
+        await openEditor(page, url, 'latex', engine);
+        const local = conflictZone(INITIAL_TEXT, 'LOCAL');
+        const disk = conflictZone(INITIAL_TEXT, 'EXTERNAL');
+        await setEditorText(page, local);
+        writeExternal(filePath, disk);
+        await expect.poll(() => hasIntervention(versionPayloads, {
+          before: INITIAL_TEXT, after: disk, source: 'external-conflict', status: 'pending-conflict',
+        }), {timeout: 7000}).toBe(true);
+        await expect.poll(() => editorText(page)).toBe(local);
+      });
     });
 
     test('diff restore exact target', async ({ page }) => {
@@ -458,8 +493,16 @@ for (const engine of ['cm5', 'cm6']) {
         await previous.click();
         await expect.poll(() => editorText(page)).toBe(s2);
         const saved = page.waitForResponse(r => r.url().endsWith('/codesave') && r.request().method() === 'POST');
+        const persisted = page.waitForResponse(r => r.url().endsWith('/versions')
+          && r.request().method() === 'POST' && r.ok());
         await page.locator('#diffRestore').click();
         expect((await saved).ok()).toBe(true);
+        await persisted;
+        await expect.poll(() => editorText(page)).toBe(s2);
+        await page.reload();
+        await openEditor(page, url, 'latex', engine);
+        await page.locator('#diffTag').click();
+        await expect(page.locator('#dvNav .dvNavC')).toHaveText('tout · 4');
         await expect.poll(() => editorText(page)).toBe(s2);
       });
     });
@@ -515,6 +558,34 @@ for (const engine of ['cm5', 'cm6']) {
         });
         expect(anchored.text).toBe('moderate');
         expect(anchored.note).toBe('anchor survives');
+        const bookmark = await page.evaluate(() => {
+          const widget = document.createElement('span');
+          widget.dataset.testWidget = 'deletion';
+          widget.textContent = 'removed glacier text';
+          widget.title = 'full removed glacier text';
+          const mark = cm.setBookmark({line: 1, ch: 4}, {widget});
+          cm.replaceRange('prefix-', {line: 1, ch: 0});
+          const position = mark.find();
+          const rendered = document.querySelector('[data-test-widget="deletion"]');
+          return {position, text: rendered?.textContent, title: rendered?.title};
+        });
+        expect(bookmark).toMatchObject({
+          position: {line: 1, ch: 11}, text: 'removed glacier text', title: 'full removed glacier text',
+        });
+        await page.evaluate(() => {
+          cm.setValue('    An indented line with enough words to wrap over several visual rows in the narrow editor column.');
+          const wrapper = cm.getWrapperElement();
+          wrapper.style.width = '180px';
+          cm.setOption('lineWrapping', true);
+          cm.refresh();
+        });
+        const wrappedLine = page.locator(engine === 'cm6' ? '.cm-line' : '.CodeMirror-line').first();
+        await expect.poll(() => wrappedLine.evaluate((line) => ({
+          indent: line.style.textIndent,
+          padding: line.style.paddingLeft,
+          height: line.getBoundingClientRect().height,
+        }))).toMatchObject({indent: expect.stringMatching(/^-/), padding: expect.stringMatching(/px$/)});
+        await expect.poll(() => wrappedLine.evaluate((line) => line.getBoundingClientRect().height)).toBeGreaterThan(30);
         await expect(page.locator(engine === 'cm6' ? '.cm-line' : '.CodeMirror-line').first()).toBeVisible();
       });
     });
@@ -536,6 +607,9 @@ for (const engine of ['cm5', 'cm6']) {
         });
         await expect(responsiveness).resolves.toBeGreaterThan(2);
         await expect(page.locator('#dvNav .dvNavC')).toContainText('tout · 1');
+        await expect(page.locator('#dvCommit')).toBeVisible({timeout: 25_000});
+        await expect(page.locator('#dvCommit')).toHaveAttribute('title', /bloc.*modifié/, {timeout: 25_000});
+        await expect(page.locator('#diffTag .dv-count')).not.toHaveText('', {timeout: 25_000});
       });
     });
   });

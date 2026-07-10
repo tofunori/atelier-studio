@@ -13,6 +13,8 @@ test("CM6 facade exposes the complete engine-neutral diff contract", () => {
   ]) {
     assert.match(source, new RegExp(`\\b${method}\\s*:`), `missing ${method}`);
   }
+  assert.doesNotMatch(source, /const facade = \{\s*view[,\s]/,
+    "EditorView must stay private to the engine adapter");
 });
 
 test("CM6 uses native tracked decorations, readOnly compartments, and gutter markers", () => {

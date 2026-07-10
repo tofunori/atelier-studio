@@ -16,7 +16,7 @@ import {r} from "@codemirror/legacy-modes/mode/r";
 import {julia} from "@codemirror/legacy-modes/mode/julia";
 import {shell} from "@codemirror/legacy-modes/mode/shell";
 import {ghostAiExtension} from "./ghost_ai.mjs";
-import {clampPos, countColumn, cm5KeyToCm6} from "./studio_compat.mjs";
+import {clampPos, countColumn, cm5KeyToCm6, createOperationBatcher} from "./studio_compat.mjs";
 
 export const Pass = Symbol("CodeMirror.Pass");
 export { countColumn };
@@ -70,27 +70,32 @@ const marksField = StateField.define({
   provide: (f) => EditorView.decorations.from(f, (v) => v.decos),
 });
 
-const setGutter = StateEffect.define();
-const clearGutterEffect = StateEffect.define();
+const updateGutters = StateEffect.define();
 class NodeGutterMarker extends GutterMarker {
   constructor(name, node) { super(); this.name = name; this.node = node; }
   eq(other) { return other.name === this.name && other.node === this.node; }
-  toDOM() { return this.node; }
+  // CM6 owns gutter DOM lifecycle. Clone the CM5-compatible cell so removing
+  // a RangeSet never tries to recycle an externally-owned node.
+  toDOM() { return this.node.cloneNode(true); }
 }
 const gutterField = StateField.define({
   create: () => ({entries: new Map(), ranges: RangeSet.empty}),
   update(value, tr) {
+    const gutterEffects = tr.effects.filter((effect) => effect.is(updateGutters));
+    if (!tr.docChanged && gutterEffects.length === 0) return value;
     const entries = new Map();
     for (const [key, entry] of value.entries) {
       const pos = tr.changes.mapPos(entry.pos);
       entries.set(key, {...entry, pos});
     }
-    for (const effect of tr.effects) {
-      if (effect.is(setGutter)) {
-        const entry = effect.value;
-        entries.set(`${entry.name}:${entry.line}`, entry);
-      } else if (effect.is(clearGutterEffect)) {
-        for (const [key, entry] of entries) if (entry.name === effect.value) entries.delete(key);
+    for (const effect of gutterEffects) {
+      for (const update of effect.value) {
+        if (update.kind === "set") {
+          const entry = update.entry;
+          entries.set(`${entry.name}:${entry.line}`, entry);
+        } else if (update.kind === "clear") {
+          for (const [key, entry] of entries) if (entry.name === update.name) entries.delete(key);
+        }
       }
     }
     const ranges = [...entries.values()]
@@ -215,9 +220,11 @@ export function createStudioEditor(parent, opts) {
     const l = doc().lineAt(Math.max(0, Math.min(off, doc().length)));
     return {line: l.number - 1, ch: off - l.from};
   };
+  const operationBatcher = createOperationBatcher((updates) => {
+    view.dispatch({effects: updateGutters.of(updates)});
+  });
 
   const facade = {
-    view,
     hasNativeGhost: opts.ext === "tex",
     Pass,
     // --- content ---
@@ -304,16 +311,16 @@ export function createStudioEditor(parent, opts) {
       };
     },
     addLineClass: (line, where, cls) => {
-      if (where === "background") view.dispatch({effects: addLineCls.of({line, cls})});
+      if (where === "background" || where === "wrap") view.dispatch({effects: addLineCls.of({line, cls})});
     },
     removeLineClass: (line, where, cls) => {
-      if (where === "background") view.dispatch({effects: clearLineCls.of({line, cls})});
+      if (where === "background" || where === "wrap") view.dispatch({effects: clearLineCls.of({line, cls})});
     },
     setGutterMarker: (line, name, node) => {
       if (line < 0 || line >= doc().lines) return;
-      view.dispatch({effects: setGutter.of({line, name, node, pos: doc().line(line + 1).from})});
+      operationBatcher.push({kind: "set", entry: {line, name, node, pos: doc().line(line + 1).from}});
     },
-    clearGutter: (name) => view.dispatch({effects: clearGutterEffect.of(name)}),
+    clearGutter: (name) => operationBatcher.push({kind: "clear", name}),
     // --- options ---
     setOption: (name, v) => {
       if (name === "lineWrapping") view.dispatch({effects: wrapComp.reconfigure(v ? EditorView.lineWrapping : [])});
@@ -333,7 +340,7 @@ export function createStudioEditor(parent, opts) {
       const cur = keymapComp.get(view.state) || [];
       view.dispatch({effects: keymapComp.reconfigure([cur, Prec.high(keymap.of(bindings))])});
     },
-    operation: (fn) => fn(),
+    operation: (fn) => operationBatcher.run(fn),
     execCommand: (name) => {
       if (name === "findPersistent" || name === "find") openSearchPanel(view);
       else if (name === "selectAll") selectAll(view);

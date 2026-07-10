@@ -46,3 +46,30 @@ export function indexFromPos(text, pos) {
   for (let line = 0; line < p.line; line += 1) offset += lines[line].length + 1;
   return offset + p.ch;
 }
+
+// CM5's operation() batches view work while keeping calls synchronous. CM6
+// gutter markers are immutable ranges, so accumulate their logical updates and
+// let the caller create one StateEffect/RangeSet at the outer operation edge.
+export function createOperationBatcher(flush) {
+  let depth = 0;
+  let pending = [];
+  return {
+    push(value) {
+      if (depth > 0) pending.push(value);
+      else flush([value]);
+    },
+    run(fn) {
+      depth += 1;
+      try {
+        return fn();
+      } finally {
+        depth -= 1;
+        if (depth === 0 && pending.length) {
+          const batch = pending;
+          pending = [];
+          flush(batch);
+        }
+      }
+    },
+  };
+}

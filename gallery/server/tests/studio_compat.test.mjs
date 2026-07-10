@@ -4,12 +4,37 @@ import {
   clampPos,
   countColumn,
   cm5KeyToCm6,
+  createOperationBatcher,
   indexFromPos,
   posFromIndex,
 } from "../../assets/cm6/studio_compat.mjs";
 
 test("clampPos: in-bounds position passes through", () => {
   assert.deepEqual(clampPos({line: 1, ch: 3}, 5, () => 10), {line: 1, ch: 3});
+});
+
+test("operation batcher flushes hundreds of updates through one dispatch", () => {
+  const dispatches = [];
+  const batcher = createOperationBatcher((updates) => dispatches.push(updates));
+  batcher.run(() => {
+    for (let line = 0; line < 500; line += 1) batcher.push({line});
+  });
+  assert.equal(dispatches.length, 1);
+  assert.equal(dispatches[0].length, 500);
+  assert.deepEqual(dispatches[0][0], {line: 0});
+  assert.deepEqual(dispatches[0][499], {line: 499});
+});
+
+test("operation batcher is nested and preserves immediate updates outside operation", () => {
+  const dispatches = [];
+  const batcher = createOperationBatcher((updates) => dispatches.push(updates));
+  batcher.push("outside-before");
+  batcher.run(() => {
+    batcher.push("outer");
+    batcher.run(() => batcher.push("inner"));
+  });
+  batcher.push("outside-after");
+  assert.deepEqual(dispatches, [["outside-before"], ["outer", "inner"], ["outside-after"]]);
 });
 test("clampPos: line beyond end clamps to last line, ch to its length", () => {
   assert.deepEqual(clampPos({line: 99, ch: 4}, 3, (l) => l === 2 ? 7 : 0), {line: 2, ch: 4});
