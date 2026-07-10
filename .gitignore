@@ -32,3 +32,4 @@ src-tauri/gallery-dist/
 /.fig_thumbs/
 /generated/
 /diff_test.*
+/.worktrees/
