@@ -1,0 +1,100 @@
+/* Tokens sémantiques Atelier (plan 016) — vocabulaire approuvé au plan 014
+ * (ATELIER_DESIGN.md). Couche d'ALIAS au-dessus des variables historiques de
+ * App.css : dark et light partagent les mêmes noms — aucun composant ne
+ * conditionne sa logique React sur le thème. Chaque token a ≥2 consommateurs
+ * réels ou une exigence sémantique du blueprint ; pas de --gray-17.
+ * Les valeurs brutes (couleurs) restent définies dans App.css (:root et
+ * [data-theme="light"]) : ces alias suivent automatiquement le thème. */
+
+:root {
+  /* -- surfaces ----------------------------------------------------------- */
+  --surface-app: var(--bg);
+  --surface-panel: var(--bg-side);
+  --surface-raised: var(--bg-card);
+  --surface-inset: var(--bg-ctl);
+  --surface-overlay: var(--bg-pop);
+
+  /* -- texte -------------------------------------------------------------- */
+  --text-primary: var(--fg);
+  --text-secondary: var(--fg2);
+  --text-muted: var(--muted);
+  --text-disabled: var(--muted2);
+  --text-inverse: #1a1408; /* lisible sur l'accent orange, deux thèmes */
+
+  /* -- bordures ------------------------------------------------------------ */
+  --border-subtle: var(--border);
+  --border-default: var(--border2);
+  --border-strong: var(--muted2);
+  --border-focus: var(--accent);
+
+  /* -- accent (budget : action primaire, sélection, activité, attention) --- */
+  --accent-base: var(--accent);
+  --accent-hover: color-mix(in srgb, var(--accent) 88%, var(--fg) 12%);
+  --accent-active: color-mix(in srgb, var(--accent) 80%, #000 20%);
+  --accent-subtle: color-mix(in srgb, var(--accent) 16%, transparent);
+  --text-on-accent: var(--text-inverse);
+
+  /* -- statuts (sémantique App.css : --u-ok/--u-warn/--u-hot) -------------- */
+  --status-info: var(--muted);
+  --status-running: var(--accent);
+  --status-success: var(--u-ok, #98c379);
+  --status-warning: var(--u-warn, #e0b74a);
+  --status-error: var(--u-hot, #e06c75);
+
+  /* -- typographie (rôles ; tailles héritées 10/11/12/13/15) --------------- */
+  --font-chrome: var(--ui-font);
+  --font-code: var(--code-font);
+  --fs-caption: var(--fs-xs);   /* 10 — micro-badges */
+  --fs-label: var(--fs-s);      /* 11 — méta, labels   */
+  --fs-body-s: var(--fs-m);     /* 12 — secondaire     */
+  --fs-body: var(--fs-l);       /* 13 — corps          */
+  --fs-title: var(--fs-xl);     /* 15 — titre local    */
+  /* display — décision B (014, approuvée) : Research Home et VRAIS titres de
+   * page uniquement ; jamais TopBar, panneaux, cartes ni chips. */
+  --fs-display-s: 18px;
+  --fs-display: 20px;
+
+  /* -- espacement (grille 4) ------------------------------------------------ */
+  --sp-1: 4px; --sp-2: 8px; --sp-3: 12px; --sp-4: 16px;
+  --sp-5: 20px; --sp-6: 24px; --sp-8: 32px;
+
+  /* -- formes --------------------------------------------------------------- */
+  --radius-control: var(--r-s);   /* 6  */
+  --radius-surface: var(--r-m);   /* 10 */
+  --radius-pill: var(--r-pill);
+
+  /* -- mouvement : contrat Quiet Instrument (014/016, approuvé) ------------- */
+  --motion-fast: 120ms;      /* hover, sortie de menu, échange d'icône */
+  --motion-standard: 140ms;  /* sélection, menu entrant, ContextChip   */
+  --motion-panel: 150ms;     /* inspecteur — PLAFOND absolu            */
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+  --tooltip-delay: 420ms;    /* délai d'apparition (400–450), puis fade 120 */
+
+  /* -- focus ---------------------------------------------------------------- */
+  --focus-ring-color: var(--accent);
+  --focus-ring-width: 1px;
+  --focus-ring-offset: 1px;
+
+  /* -- élévation (menus/popovers/surfaces temporaires UNIQUEMENT) ----------- */
+  --elevation-overlay: var(--elev);
+
+  /* -- z-index --------------------------------------------------------------
+   * échelle unique ; les valeurs historiques (30/50/60/90/120/260) migrent
+   * vers ces paliers au fil des surfaces. */
+  --z-base: 0;
+  --z-sticky: 30;
+  --z-popover: 120;
+  --z-modal: 200;
+  --z-toast: 260;
+}
+
+/* reduced motion — contrat centralisé (014 §9) : plus aucun translate/scale/
+ * boucle ; les états restent différenciés par couleur/contour/texte. Les
+ * primitives utilisent ces variables au lieu de re-tester la media query. */
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --motion-fast: 0ms;
+    --motion-standard: 0ms;
+    --motion-panel: 0ms;
+  }
+}

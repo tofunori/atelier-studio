@@ -1,0 +1,222 @@
+/* Primitives UI Atelier (plan 016) — règles partagées TRÈS stables des douze
+ * composants de src/components/ui/. Tout passe par les tokens (tokens.css) ;
+ * aucune valeur arbitraire, aucun `transition: all`, aucune animation de
+ * width/height/padding/margin (contrat Quiet Instrument). */
+
+/* ---- focus partagé : visible, distinct du hover, jamais outline:none ----- */
+.ui-focusable:focus-visible,
+.ui-btn:focus-visible,
+.ui-iconbtn:focus-visible,
+.ui-seg button:focus-visible,
+.ui-menu-item:focus-visible,
+.ui-ctxchip button:focus-visible {
+  outline: var(--focus-ring-width) solid var(--focus-ring-color);
+  outline-offset: var(--focus-ring-offset);
+}
+
+/* ---- Button --------------------------------------------------------------- */
+.ui-btn {
+  display: inline-flex; align-items: center; justify-content: center; gap: var(--sp-2);
+  height: 28px; padding: 0 var(--sp-3);
+  font: 500 var(--fs-body-s)/1 var(--font-chrome);
+  border-radius: var(--radius-control);
+  border: 1px solid transparent; cursor: pointer; position: relative;
+  transition: background-color var(--motion-fast) var(--ease-out),
+              color var(--motion-fast) var(--ease-out),
+              border-color var(--motion-fast) var(--ease-out),
+              transform var(--motion-fast) var(--ease-out);
+}
+.ui-btn:active:not(:disabled) { transform: scale(.98); }
+.ui-btn:disabled { color: var(--text-disabled); cursor: default; }
+.ui-btn--primary { background: var(--accent-base); color: var(--text-on-accent); }
+.ui-btn--primary:hover:not(:disabled) { background: var(--accent-hover); }
+.ui-btn--primary:active:not(:disabled) { background: var(--accent-active); }
+.ui-btn--primary:disabled { background: var(--surface-inset); }
+.ui-btn--secondary { background: transparent; border-color: var(--border-subtle); color: var(--text-secondary); }
+.ui-btn--secondary:hover:not(:disabled) { background: var(--surface-inset); color: var(--text-primary); }
+.ui-btn--ghost { background: transparent; color: var(--text-muted); }
+.ui-btn--ghost:hover:not(:disabled) { background: var(--surface-inset); color: var(--text-primary); }
+.ui-btn--danger { background: transparent; border-color: var(--border-subtle); color: var(--status-error); }
+.ui-btn--danger:hover:not(:disabled) { background: color-mix(in srgb, var(--status-error) 12%, transparent); }
+.ui-btn-label { display: inline-flex; align-items: center; gap: var(--sp-2); min-width: 0; }
+/* loading : le label garde sa géométrie (opacity 0), le spinner se superpose —
+ * zéro layout shift */
+.ui-btn--loading > .ui-btn-label { opacity: 0; }
+.ui-btn-spin {
+  position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
+}
+
+/* spinner standard (SEULE animation continue autorisée par surface) */
+.ui-spin {
+  width: 12px; height: 12px; border-radius: var(--radius-pill);
+  border: 1.5px solid color-mix(in srgb, currentColor 30%, transparent);
+  border-top-color: currentColor;
+  animation: ui-spin 0.9s linear infinite;
+}
+@keyframes ui-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) {
+  .ui-spin { animation: none; border-top-color: currentColor; opacity: .7; }
+  .ui-btn:active:not(:disabled) { transform: none; }
+}
+
+/* ---- IconButton ------------------------------------------------------------ */
+.ui-iconbtn {
+  display: inline-flex; align-items: center; justify-content: center;
+  background: transparent; border: none; color: var(--text-muted);
+  border-radius: var(--radius-control); cursor: pointer; position: relative;
+  transition: background-color var(--motion-fast) var(--ease-out),
+              color var(--motion-fast) var(--ease-out);
+}
+.ui-iconbtn:hover:not(:disabled) { background: var(--surface-inset); color: var(--text-primary); }
+.ui-iconbtn:disabled { color: var(--text-disabled); cursor: default; }
+.ui-iconbtn--s { width: 22px; height: 22px; }
+.ui-iconbtn--m { width: 26px; height: 26px; }
+.ui-iconbtn--l { width: 32px; height: 32px; }
+/* cible interactive effective 40×40 quand le chrome est dense (014 §7) :
+ * zone invisible étendue, sans chevauchement géré par l'espacement appelant */
+.ui-iconbtn--hit40::after { content: ""; position: absolute; inset: 50% auto auto 50%;
+  width: 40px; height: 40px; transform: translate(-50%, -50%); }
+
+/* ---- Tooltip ---------------------------------------------------------------- */
+.ui-tooltip {
+  position: fixed; z-index: var(--z-toast); pointer-events: none;
+  background: var(--surface-overlay); color: var(--text-secondary);
+  border: 1px solid var(--border-subtle); border-radius: var(--radius-control);
+  padding: 3px var(--sp-2); font: 400 var(--fs-label)/1.4 var(--font-chrome);
+  box-shadow: var(--elevation-overlay);
+  opacity: 0; transition: opacity var(--motion-fast) var(--ease-out);
+}
+.ui-tooltip.open { opacity: 1; }
+
+/* ---- Menu / MenuItem --------------------------------------------------------- */
+.ui-menu {
+  position: fixed; z-index: var(--z-popover); min-width: 160px;
+  background: var(--surface-overlay); border-radius: var(--radius-surface);
+  box-shadow: var(--elevation-overlay); padding: var(--sp-1);
+  display: flex; flex-direction: column;
+  opacity: 0; transform: translateY(2px);
+  transition: opacity var(--motion-standard) var(--ease-out),
+              transform var(--motion-standard) var(--ease-out);
+}
+.ui-menu.open { opacity: 1; transform: translateY(0); }
+@media (prefers-reduced-motion: reduce) { .ui-menu { transform: none; } }
+.ui-menu-item {
+  display: flex; align-items: center; gap: var(--sp-2); width: 100%;
+  padding: 5px var(--sp-2); border: none; background: transparent; text-align: left;
+  color: var(--text-secondary); font: 400 var(--fs-body-s)/1.4 var(--font-chrome);
+  border-radius: var(--radius-control); cursor: pointer;
+  transition: background-color var(--motion-fast) var(--ease-out),
+              color var(--motion-fast) var(--ease-out);
+}
+.ui-menu-item:hover:not(:disabled), .ui-menu-item.active { background: var(--surface-inset); color: var(--text-primary); }
+.ui-menu-item:disabled { color: var(--text-disabled); cursor: default; }
+.ui-menu-sep { height: 1px; background: var(--border-subtle); margin: var(--sp-1) 0; }
+
+/* ---- Popover ------------------------------------------------------------------ */
+.ui-popover {
+  position: fixed; z-index: var(--z-popover);
+  background: var(--surface-overlay); border-radius: var(--radius-surface);
+  box-shadow: var(--elevation-overlay); padding: var(--sp-3);
+  opacity: 0; transform: translateY(2px);
+  transition: opacity var(--motion-standard) var(--ease-out),
+              transform var(--motion-standard) var(--ease-out);
+}
+.ui-popover.open { opacity: 1; transform: translateY(0); }
+@media (prefers-reduced-motion: reduce) { .ui-popover { transform: none; } }
+
+/* ---- SegmentedControl — parité pixel avec .tb-seg historique ------------------- */
+.ui-seg { display: inline-flex; background: var(--surface-inset); border-radius: var(--radius-surface); padding: 3px; gap: 2px; }
+.ui-seg button {
+  display: inline-flex; align-items: center; justify-content: center;
+  min-width: 26px; height: 22px; padding: 0; background: transparent; border: none;
+  color: var(--text-muted); border-radius: var(--radius-control); cursor: pointer;
+  transition: background-color var(--motion-standard) var(--ease-out),
+              color var(--motion-standard) var(--ease-out);
+}
+.ui-seg button:hover:not(.on) { color: var(--text-secondary); }
+.ui-seg button.on { background: var(--surface-app); color: var(--text-primary); }
+
+/* ---- SurfaceHeader --------------------------------------------------------------- */
+.ui-surface-header {
+  display: flex; align-items: center; gap: var(--sp-2);
+  padding: var(--sp-2) var(--sp-4); border-bottom: 1px solid var(--border-subtle);
+}
+.ui-surface-header .titles { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+.ui-surface-header .eyebrow { font: 500 var(--fs-caption)/1.3 var(--font-chrome);
+  letter-spacing: .05em; text-transform: uppercase; color: var(--text-muted); }
+.ui-surface-header .title { font: 600 var(--fs-title)/1.3 var(--font-chrome);
+  letter-spacing: -0.01em; color: var(--text-primary);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ui-surface-header .spacer { flex: 1; }
+.ui-surface-header .actions { display: flex; align-items: center; gap: var(--sp-1); }
+
+/* ---- EmptyState — reprend .empty-card historique, normalisé grille 4
+ * (18→20, 14→12, 7→8 : écarts ≤2px, documentés au plan 016) ------------------------- */
+.ui-empty {
+  width: min(360px, 100%); margin: auto; border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-surface); background: var(--surface-raised);
+  padding: var(--sp-5); display: flex; flex-direction: column; gap: var(--sp-3);
+  align-items: stretch; user-select: none; -webkit-user-select: none;
+}
+.ui-empty .title { color: var(--text-secondary); font-size: var(--fs-body); font-weight: 600; }
+.ui-empty .desc { color: var(--text-muted); font-size: var(--fs-body-s); }
+.ui-empty .actions { display: flex; flex-direction: column; gap: var(--sp-2); }
+/* actions empilées : look « ligne de menu » de l'empty-card d'origine
+ * (aligné à gauche, corps 13px/400) plutôt que bouton centré compact */
+.ui-empty .actions > .ui-btn {
+  justify-content: flex-start; height: auto; padding: var(--sp-2) var(--sp-3);
+  font: 400 var(--fs-body)/1.2 var(--font-chrome);
+}
+
+/* ---- InlineNotice --------------------------------------------------------------------- */
+.ui-notice {
+  display: flex; align-items: center; gap: var(--sp-2);
+  padding: var(--sp-2) var(--sp-3); border-radius: var(--radius-control);
+  border: 1px solid var(--border-subtle); font-size: var(--fs-body-s); color: var(--text-secondary);
+}
+.ui-notice--info { border-color: var(--border-subtle); }
+.ui-notice--success { border-color: color-mix(in srgb, var(--status-success) 45%, transparent); }
+.ui-notice--warning { border-color: color-mix(in srgb, var(--status-warning) 45%, transparent); }
+.ui-notice--error { border-color: color-mix(in srgb, var(--status-error) 45%, transparent); }
+
+/* ---- StatusBadge ------------------------------------------------------------------------ */
+.ui-badge {
+  display: inline-flex; align-items: center; gap: 5px;
+  padding: 2px 7px; border-radius: var(--radius-pill);
+  font: 500 var(--fs-caption)/1.3 var(--font-chrome); text-transform: uppercase;
+  background: var(--surface-inset); color: var(--text-muted);
+}
+.ui-badge .dot { width: 5px; height: 5px; border-radius: var(--radius-pill); background: currentColor; }
+.ui-badge--running { color: var(--status-running); }
+.ui-badge--success { color: var(--status-success); }
+.ui-badge--warning { color: var(--status-warning); }
+.ui-badge--error { color: var(--status-error); }
+
+/* ---- InspectorPanel ----------------------------------------------------------------------- */
+.ui-inspector { display: flex; flex-direction: column; min-height: 0; height: 100%;
+  background: var(--surface-panel); border-left: 1px solid var(--border-subtle); }
+.ui-inspector > .ui-surface-header { position: sticky; top: 0; background: inherit; }
+.ui-inspector-body { flex: 1; overflow-y: auto; padding: var(--sp-4); }
+.ui-inspector-footer { padding: var(--sp-3) var(--sp-4); border-top: 1px solid var(--border-subtle);
+  display: flex; gap: var(--sp-2); justify-content: flex-end; }
+
+/* ---- ContextChip (geste signature : apparition translateY(2px) 140 ms) --------------------- */
+.ui-ctxchip {
+  display: inline-flex; align-items: center; gap: var(--sp-1);
+  max-width: 220px; padding: 2px var(--sp-2); border-radius: var(--radius-pill);
+  background: var(--surface-inset); border: 1px solid var(--border-subtle);
+  font-size: var(--fs-label); color: var(--text-secondary);
+  opacity: 0; transform: translateY(2px);
+  transition: opacity var(--motion-standard) var(--ease-out),
+              transform var(--motion-standard) var(--ease-out);
+}
+.ui-ctxchip.entered { opacity: 1; transform: translateY(0); }
+@media (prefers-reduced-motion: reduce) { .ui-ctxchip { transform: none; } }
+.ui-ctxchip .label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ui-ctxchip .kind { color: var(--text-muted); font-size: var(--fs-caption); text-transform: uppercase; }
+.ui-ctxchip button { display: inline-flex; background: none; border: none; color: var(--text-muted);
+  cursor: pointer; padding: 2px; border-radius: var(--radius-pill); }
+.ui-ctxchip button:hover { color: var(--text-primary); }
+.ui-ctxchip button.label { font: inherit; color: inherit; padding: 0; text-align: left; }
+/* wrapper Tooltip : neutre pour la mise en page (les handlers vivent dessus) */
+.ui-tooltip-wrap { display: inline-flex; }
