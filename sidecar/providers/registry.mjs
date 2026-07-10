@@ -40,8 +40,17 @@ const PROVIDERS = [
     label: "Codex",
     bin: "codex",
     defaultModel: "gpt-5.5",
-    models: ["gpt-5.5", "gpt-5.1-codex-max", "gpt-5.1-codex"],
-    efforts: ["low", "medium", "high", "xhigh"],
+    // GPT-5.6 (2026-07-09) : tiers Sol/Terra/Luna, mêmes ids côté API et Codex
+    // (pas de slug -codex) — learn.chatgpt.com/docs/models.
+    models: [
+      "gpt-5.6-sol",
+      "gpt-5.6-terra",
+      "gpt-5.6-luna",
+      "gpt-5.5",
+      "gpt-5.1-codex-max",
+      "gpt-5.1-codex",
+    ],
+    efforts: ["low", "medium", "high", "xhigh", "max"],
     capabilities: { resume: true, steering: true, queue: true, goals: true, tools: true, toolOutput: true, permissions: true, interactiveInput: true, mcpElicitation: true, durableHistory: false, permissionModes: ["default", "acceptEdits", "plan", "bypassPermissions"] },
   },
   {

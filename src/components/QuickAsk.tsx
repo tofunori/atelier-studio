@@ -24,6 +24,7 @@ const QA_MODELS: QaModel[] = [
   { provider: "claude", model: "claude-haiku-4-5-20251001", effort: "", label: "Haiku 4.5" },
   { provider: "claude", model: "claude-sonnet-5", effort: "low", label: "Sonnet 5" },
   { provider: "codex", model: "gpt-5.4-mini", effort: "low", label: "GPT-5.4 mini" },
+  { provider: "codex", model: "gpt-5.6-luna", effort: "low", label: "GPT-5.6 Luna" },
   { provider: "codex", model: "gpt-5.5", effort: "medium", label: "GPT-5.5" },
 ];
 

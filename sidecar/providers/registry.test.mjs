@@ -6,7 +6,14 @@ describe("provider registry", () => {
     const provider = getProvider("codex");
     expect(provider).toBeTruthy();
     expect(provider.defaultModel).toBe("gpt-5.5");
-    expect(provider.models).toEqual(["gpt-5.5", "gpt-5.1-codex-max", "gpt-5.1-codex"]);
+    expect(provider.models).toEqual([
+      "gpt-5.6-sol",
+      "gpt-5.6-terra",
+      "gpt-5.6-luna",
+      "gpt-5.5",
+      "gpt-5.1-codex-max",
+      "gpt-5.1-codex",
+    ]);
     expect(provider.capabilities).toMatchObject({ resume: true, steering: true, goals: true });
   });
 

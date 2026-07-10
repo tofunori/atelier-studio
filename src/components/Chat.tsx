@@ -31,6 +31,14 @@ const BUILTIN_MODEL_LABELS: Record<string, Record<string, string>> = {
     "grok-4.5": "Grok 4.5",
     "grok-composer-2.5-fast": "Composer 2.5 Fast",
   },
+  codex: {
+    "gpt-5.6-sol": "GPT-5.6 Sol",
+    "gpt-5.6-terra": "GPT-5.6 Terra",
+    "gpt-5.6-luna": "GPT-5.6 Luna",
+    "gpt-5.5": "GPT-5.5",
+    "gpt-5.1-codex-max": "GPT-5.1 Codex Max",
+    "gpt-5.1-codex": "GPT-5.1 Codex",
+  },
 };
 
 // Cas particulier documenté (plan 025, step 9) : le harnais Grok n'a PAS
