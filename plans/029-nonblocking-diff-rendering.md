@@ -38,7 +38,7 @@ cas réel et peuvent donner l'impression que `tout` ne fonctionne pas.
 | Purpose | Command | Expected |
 |---|---|---|
 | Diff | `node gallery/server/tests/diff_suite.mjs` | tous verts |
-| Browser | `npx playwright test gallery/tests/e2e/diff.spec.js` | tous verts |
+| Browser | `npm --prefix gallery exec -- playwright test tests/e2e/diff.spec.js` | tous verts |
 | Parity | `(cd gallery && node server/tests/parity.mjs)` | `parity: ok` |
 | Stage check | `bash scripts/stage-gallery.sh && cmp gallery/assets/diff_worker.js src-tauri/gallery-dist/assets/diff_worker.js` | exit 0 |
 | Benchmark | `node gallery/server/tests/diff_bench.mjs` | JSON avec `heartbeatMaxGapMs < 250` et `completedMs < 15000` |
