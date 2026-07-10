@@ -55,6 +55,74 @@
   .brand .proj{font-size:12px;color:var(--muted);font-family:var(--code-font)}
   .brand .stat{margin-left:4px;font-size:12px;color:var(--faint);font-variant-numeric:tabular-nums}
   .controls{display:flex;flex-wrap:wrap;gap:6px;align-items:center}
+  /* barre de commande (plan 019) : rangée 1 = recherche + Filters + tri +
+     densité + ⋯ ; les contrôles de filtre historiques vivent dans le popover
+     #filtersMenu (groupes) ; les filtres ACTIFS s'affichent en chips
+     supprimables dans #activeChips (rangée absente à zéro filtre). */
+  #filtersChip.on{border-color:var(--accent);color:var(--accent)}
+  #filtersMenu{min-width:250px}
+  #filtersMenu .fgrp{display:flex;flex-wrap:wrap;gap:5px;padding:1px 4px 3px}
+  #filtersMenu .fgrp .chip{height:26px;font-size:11.5px}
+  #filtersMenu .fgrp .csel-btn{height:26px;font-size:12px;max-width:100%}
+  #surfMore{width:32px;padding:0;display:inline-flex;align-items:center;justify-content:center;color:var(--muted)}
+  #surfMore:hover{color:var(--txt)}
+  #activeChips{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}
+  #activeChips:empty{display:none;margin:0}
+  .fchip{display:inline-flex;align-items:center;gap:6px;height:24px;padding:0 9px;border-radius:999px;
+    border:1px solid var(--border);background:var(--card2);font-size:11.5px;color:var(--txt)}
+  .fchip .x{cursor:pointer;color:var(--muted);padding:0 1px;font-size:12px;line-height:1}
+  .fchip .x:hover{color:#ff6b6b}
+  .fchip.fclear{cursor:pointer;color:var(--muted);background:transparent}
+  .fchip.fclear:hover{color:var(--txt);border-color:var(--border-strong)}
+  #selBar{display:none;flex-wrap:wrap;gap:6px;margin-top:8px;align-items:center}
+  #selBar.on{display:flex}
+  /* ≤800px : Board/Notes rejoignent le menu ⋯ (décision 014) */
+  #surfMenu .narrow-only{display:none}
+  @media (max-width:800px){
+    .brand .chip.dest#boardChip,.brand .chip.dest#notesChip{display:none}
+    html.emb .controls #boardChip,html.emb .controls #notesChip{display:none}
+    #surfMenu .narrow-only{display:flex}
+  }
+  /* rescan et clear-annotation vivent dans ⋯ — les contrôles d'origine restent
+     câblés mais masqués (leurs handlers restent la source de vérité) */
+  #rescan,#quoteClear{display:none !important}
+  /* ---- sélection de carte + inspecteur scientifique (plan 019) ------------
+     deux signaux : bordure accent + halo doux ; jamais d'orange plein partout */
+  .card.sel2{border-color:var(--accent);box-shadow:0 0 0 1px var(--accent),var(--shadow)}
+  #inspector{position:fixed;top:0;right:0;bottom:0;width:300px;z-index:9;display:none;
+    flex-direction:column;background:var(--card);border-left:1px solid var(--border);
+    padding-top:var(--insp-top,0px)}
+  body.has-insp #inspector{display:flex}
+  body.has-insp main{margin-right:300px}
+  #inspHead{display:flex;align-items:center;gap:8px;padding:10px 12px;border-bottom:1px solid var(--border)}
+  #inspHead .ttl{flex:1;min-width:0;font-size:13px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  #inspHead .x{cursor:pointer;color:var(--muted);font-size:14px;background:none;border:none;height:auto;padding:2px 6px}
+  #inspHead .x:hover{color:var(--txt)}
+  #inspBody{flex:1;overflow-y:auto;padding:11px 12px;display:flex;flex-direction:column;gap:13px}
+  .isec{display:flex;flex-direction:column;gap:6px}
+  .isec>h3{margin:0;font-size:10px;font-weight:500;letter-spacing:.05em;text-transform:uppercase;color:var(--faint)}
+  .irow{display:flex;flex-direction:column;gap:2px;min-width:0}
+  .irow .il{font-size:11px;color:var(--muted)}
+  .irow .iv{font-size:12px;color:var(--txt);word-break:break-all}
+  #inspPrev{height:150px;border:1px solid var(--border);border-radius:8px;overflow:hidden;
+    display:flex;align-items:center;justify-content:center;background:#fff}
+  #inspPrev img{max-width:100%;max-height:100%;object-fit:contain}
+  #inspPrev.ph2{background:var(--card2);color:var(--muted);font-size:22px;font-weight:600}
+  .iwf{display:flex;flex-wrap:wrap;gap:5px}
+  .iwf button{height:24px;font-size:11px;padding:0 9px}
+  .iwf button.on{border-color:var(--accent);color:var(--accent)}
+  #inspBody .iact{display:flex;flex-wrap:wrap;gap:6px}
+  #inspBody .iact button{height:28px}
+  #inspNotice{display:none;border:1px solid #7a2a2a;border-radius:6px;padding:6px 9px;
+    font-size:11.5px;color:#ff9b9b}
+  #inspNotice.show{display:block}
+  .icoll label{display:flex;align-items:center;gap:6px;font-size:12px;cursor:pointer}
+  @media (max-width:800px){
+    body.has-insp main{margin-right:0}
+    #inspector{box-shadow:0 8px 28px rgba(0,0,0,.5);z-index:65}
+    #inspScrim{display:none;position:fixed;inset:0;background:rgba(0,0,0,.25);z-index:64}
+    body.has-insp #inspScrim{display:block}
+  }
   /* mode embarqué (iframe Atelier) : header compact sur une rangée —
      la marque/projet/stat sont déjà dans le chrome de l'app */
   html.emb .brand{display:none}
@@ -141,6 +209,8 @@
   .tag{padding:2px 7px;border-radius:6px;background:var(--card2);font-size:10px;text-transform:uppercase}
   .tag.archive{background:var(--arch);color:#d9a441}
   .tag.hid{background:#3a3a44;color:#aab}
+  .tag.wf{color:var(--muted)}
+  .tag.wf.final{color:var(--accent)}
   .card.hid{opacity:.5}
   .card.hid:hover{opacity:1}
   /* actions au survol : bandeau sur la zone MÉTA (jamais par-dessus la figure) */
@@ -307,7 +377,7 @@
     <svg class="logo" width="19" height="19" viewBox="0 0 24 24" fill="currentColor" aria-label="Gallery"><rect x="2" y="2" width="9.5" height="13.5" rx="1.6"/><rect x="2" y="17" width="9.5" height="5" rx="1.6"/><rect x="13.5" y="2" width="8.5" height="5" rx="1.6"/><rect x="13.5" y="9" width="8.5" height="13" rx="1.6"/></svg>
     <span class="wm">Atelier</span>
     <span class="proj">atelier-studio</span>
-    <span id="galleryStat" class="stat">785 files · 2026-07-09 14:58</span>
+    <span id="galleryStat" class="stat">2,174 files · 2026-07-10 14:17</span>
     <span class="brand-sp"></span>
     <span class="chip dest" id="boardChip" title="Open the project whiteboard (tldraw)">Board</span>
     <span class="chip dest" id="notesChip" title="Open the project notes (markdown)">Notes</span>
@@ -316,6 +386,16 @@
   <div class="controls">
     <span class="chip" id="searchChip" title="Search by name or folder (press /)" tabindex="0"><svg width="12" height="12" viewBox="0 0 16 16" fill="none" aria-hidden="true"><circle cx="7" cy="7" r="5" stroke="currentColor" stroke-width="1.6"/><path d="M11 11l3.2 3.2" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg> Search</span>
     <input type="search" id="q" class="collapsed" placeholder="Search by name or folder… (Esc to close)">
+    <span class="chip" id="filtersChip" title="Filters — folder, formats, favorites, collections, status, recent" tabindex="0">Filters &#9662;</span>
+    <div id="filtersMenu" class="menu">
+      <div class="mhd">Folder</div><div class="fgrp" id="fgFolder"></div>
+      <div class="mhd sep">Formats</div><div class="fgrp" id="fgFmt"></div>
+      <div class="mhd sep">Favorites</div><div class="fgrp" id="fgFav"></div>
+      <div class="mhd sep">Collections</div><div class="fgrp" id="fgColl"></div>
+      <div class="mhd sep">Status</div><div class="fgrp" id="fgWf"></div>
+      <div class="mhd sep">Recent</div><div class="fgrp" id="fgRec"></div>
+      <div class="madd"><button id="filtersClear" title="Reset every active filter">Clear all filters</button></div>
+    </div>
     <select id="sort">
       <option value="mtime">Sort: modified (newest)</option>
       <option value="mtime_asc">Sort: modified (oldest)</option>
@@ -331,11 +411,20 @@
     <span class="chip off" id="favChip">&#9733; Favorites</span>
     <span class="chip" id="collChip" title="Collections and shortlists">Collections &#9662;</span>
     <div id="collMenu" class="menu"></div>
+    <span class="chip" id="wfChip" title="Figure status (draft / candidate / final / rejected)">Status &#9662;</span>
+    <div id="wfMenu" class="menu"></div>
+    <span class="chip" id="recChip" title="Recently opened figures">Recent &#9662;</span>
+    <div id="recMenu" class="menu"></div>
     <span class="seg" id="densitySeg" title="Card density"><button data-d="s">S</button><button data-d="m" class="on">M</button><button data-d="l">L</button></span>
     <div id="viewMenu" class="menu"></div>
+    <button id="surfMore" title="Gallery tools — rescan, settings, board, notes" aria-label="Gallery tools" aria-haspopup="menu"><svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><circle cx="3.5" cy="8" r="1.2"/><circle cx="8" cy="8" r="1.2"/><circle cx="12.5" cy="8" r="1.2"/></svg></button>
+    <div id="surfMenu" class="menu"></div>
     <button id="quoteClear" style="display:none" title="Clear the annotation pending in the Claude statusline">Clear annotation</button>
     <button id="rescan" title="Rescan — rebuild the gallery index and reload" aria-label="Rescan"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M2.6 6.2A5.6 5.6 0 0 1 12.9 4.6M13.4 9.8A5.6 5.6 0 0 1 3.1 11.4" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/><path d="M12.9 1.8v2.8h-2.8M3.1 14.2v-2.8h2.8" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
     <span id="rateFilter" style="display:none"></span>
+  </div>
+  <div id="activeChips"></div>
+  <div id="selBar">
     <button id="cmpSel" style="display:none" title="Show the selected images stacked, to compare">Compare (0)</button>
     <button id="hideSel" style="display:none" title="Hide the selected files from the gallery (reversible)">Hide (0)</button>
     <button id="delSel" style="display:none;background:#5c1f1f;border-color:#7a2a2a">Delete (0)</button>
@@ -345,7 +434,15 @@
     <div id="exportMenu" class="menu"></div>
   </div>
 </header>
-<main id="grid"></main>
+<main id="grid" role="listbox" aria-label="Project files" tabindex="0"></main>
+<div id="inspScrim"></div>
+<aside id="inspector" aria-label="Inspector">
+  <div id="inspHead">
+    <span class="ttl" id="inspTitle"></span>
+    <button class="x" id="inspClose" title="Close inspector (Esc)" aria-label="Close inspector">&#10005;</button>
+  </div>
+  <div id="inspBody"></div>
+</aside>
 <div id="lb">
   <span id="lbClose">&#10005;</span>
   <span id="lbFs" title="Plein écran (f ou double-clic)">&#9974;</span>
@@ -497,8 +594,10 @@ document.addEventListener('click',e=>{
   else if(act==='sel') toggleSel(rel, el, e);
   else if(act==='hide') toggleHide(rel);
   else if(act==='del') delOne(rel);
-  else if(act==='lb') lbOpen(rel);
-  else if(act==='open') openDefault(rel);
+  // plan 019 : le clic sur la zone média SÉLECTIONNE (inspecteur) ; l'ouverture
+  // passe par double-clic, Enter, ou les actions explicites (View / Open)
+  else if(act==='lb') selectCard(rel);
+  else if(act==='open'){ if(el.tagName==='BUTTON') openDefault(rel); else selectCard(rel); }
   else if(act==='src') findScript(rel);
   else if(act==='board') sendToBoard(rel, el);
   else if(act==='more'){ e.stopImmediatePropagation(); cardMenu(el, rel); }
@@ -509,10 +608,6 @@ document.addEventListener('click',e=>{
       text:'/Users/tofunori/Documents/atelier-studio/'+rel+'\nFichier joint depuis la galerie atelier — lis-le (outil Read) avant de répondre.'});
     el.textContent='✓'; setTimeout(()=>el.textContent='Chat',1200);
   }
-});
-document.addEventListener('change',e=>{
-  const el=e.target.closest('.wfsel'); if(!el) return;
-  setWorkflow(el.dataset.rel, el.value);
 });
 let favs = new Set(JSON.parse(localStorage.getItem('figFavs')||'[]'));
 SEED_FAVS.forEach(f=>favs.add(f));
@@ -544,7 +639,7 @@ function pushState(){
   clearTimeout(stateTimer);
   stateTimer=setTimeout(()=>{
     fetch('/state',{method:'POST',headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({favs:[...favs],ratings,hidden:[...hidden],tags,hideRules,collections})}).catch(()=>{});
+      body:JSON.stringify({favs:[...favs],ratings,hidden:[...hidden],tags,hideRules,collections,workflow})}).catch(()=>{});
   },400);
 }
 const saveRatings = ()=>{localStorage.setItem('figRatings', JSON.stringify(ratings));pushState();};
@@ -552,6 +647,17 @@ const saveRatings = ()=>{localStorage.setItem('figRatings', JSON.stringify(ratin
 let tags = JSON.parse(localStorage.getItem('figTags')||'{}');            // {rel:[tag,...]}
 let collections = JSON.parse(localStorage.getItem('figCollections')||'{}'); // {name:[rel,...]}
 let activeCollection = '';
+// --- workflow scientifique : draft → candidate → final / rejected ------------
+// source durable = .fig_state.json (serveur) ; localStorage n'est qu'un cache
+let workflow = JSON.parse(localStorage.getItem('figWorkflow')||'{}');    // {rel: status}
+const WORKFLOW_STATUSES = [['draft','Draft'],['candidate','Candidate'],['final','Final'],['rejected','Rejected']];
+let activeWorkflow = '';
+const validWorkflow = v => WORKFLOW_STATUSES.some(([s])=>s===v);
+function saveWorkflow(){ localStorage.setItem('figWorkflow', JSON.stringify(workflow)); pushState(); }
+function setWorkflow(rel, val){
+  if(!validWorkflow(val)) delete workflow[rel]; else workflow[rel]=val;
+  saveWorkflow(); buildWorkflowChip(); render();
+}
 let hideRules = JSON.parse(localStorage.getItem('figHideRules')||'[]');  // glob strings
 const _ruleRe = {};
 function ruleToRe(g){                                  // gitignore-ish glob -> RegExp
@@ -575,6 +681,11 @@ fetch('/state').then(r=>r.json()).then(st=>{
   if(st.tags) tags = st.tags;
   if(st.hideRules) hideRules = st.hideRules;
   if(st.collections) collections = st.collections;
+  if(st.workflow && typeof st.workflow==='object' && !Array.isArray(st.workflow)){
+    // le serveur est la source de vérité : remplacer le cache par les valeurs validées
+    workflow = {};
+    for(const [rel,v] of Object.entries(st.workflow)) if(validWorkflow(v)) workflow[rel]=v;
+  }
   for(const k in _ruleRe) delete _ruleRe[k];
   localStorage.setItem('figFavs', JSON.stringify([...favs]));
   localStorage.setItem('figRatings', JSON.stringify(ratings));
@@ -582,8 +693,9 @@ fetch('/state').then(r=>r.json()).then(st=>{
   localStorage.setItem('figTags', JSON.stringify(tags));
   localStorage.setItem('figHideRules', JSON.stringify(hideRules));
   localStorage.setItem('figCollections', JSON.stringify(collections));
+  localStorage.setItem('figWorkflow', JSON.stringify(workflow));
   document.getElementById('favChip').textContent='★ Favorites ('+favs.size+')';
-  updateHideChip(); buildCollectionChip(); buildViewMenu();
+  updateHideChip(); buildCollectionChip(); buildWorkflowChip(); buildViewMenu();
   render();
 }).catch(()=>{}).finally(()=>{
   stateLoaded=true;                                 // disk state is merged in now; saves are safe
@@ -605,6 +717,8 @@ const selSet = new Set();
 let lastSelRel = null;     // anchor for Shift-click range selection
 let renderedRels = [];     // rels in current display order (for range math)
 function updateDelBtn(){
+  const bar=document.getElementById('selBar');
+  if(bar) bar.classList.toggle('on', selSet.size>0);
   const b = document.getElementById('delSel');
   b.style.display = selSet.size ? '' : 'none';
   const imgs = [...selSet].filter(r => imgExt(r.split('.').pop().toLowerCase()));
@@ -777,6 +891,47 @@ function buildCollectionChip(){
   if(btn) btn.onclick=()=>{ applyCollectionToSel(inp.value); inp.value=''; buildCollectionChip(); };
   if(inp) inp.onkeydown=e=>{ if(e.key==='Enter'){ e.preventDefault(); applyCollectionToSel(inp.value); inp.value=''; buildCollectionChip(); } };
 }
+// --- recents : dernières figures ouvertes (cache local pur, jamais sur le serveur)
+let recents = JSON.parse(localStorage.getItem('figRecent')||'[]');   // [rel, ...] plus récent d'abord
+function markRecent(rel){
+  recents = [rel, ...recents.filter(r=>r!==rel)].slice(0,15);
+  try{ localStorage.setItem('figRecent', JSON.stringify(recents)); }catch(e){}
+}
+function buildRecentChip(){
+  const chip=document.getElementById('recChip'), menu=document.getElementById('recMenu');
+  if(!chip||!menu) return;
+  const known=new Set(FILES.map(f=>f.rel));
+  const list=recents.filter(r=>known.has(r)).slice(0,10);
+  let h = list.length ? list.map(rel=>{
+    const f=FILES.find(x=>x.rel===rel);
+    return `<div class="mi"><span class="lbl" data-rec="${escA(rel)}">${esc(truncMid(f.name,38))}</span></div>`;
+  }).join('') : '<div class="mi muted">No recently opened figures.</div>';
+  if(list.length) h += '<div class="mi clr" data-recclear="1">Clear recents</div>';
+  menu.innerHTML=h;
+  menu.onclick=e=>e.stopPropagation();
+  menu.querySelectorAll('[data-rec]').forEach(el=>el.onclick=()=>{ menu.style.display='none'; lbOpenAny(el.dataset.rec); });
+  const c=menu.querySelector('[data-recclear]');
+  if(c) c.onclick=()=>{ recents=[]; try{ localStorage.setItem('figRecent','[]'); }catch(e){} buildRecentChip(); menu.style.display='none'; };
+}
+function buildWorkflowChip(){
+  const chip=document.getElementById('wfChip'), menu=document.getElementById('wfMenu');
+  if(!chip||!menu) return;
+  const counts={};
+  for(const v of Object.values(workflow)) counts[v]=(counts[v]||0)+1;
+  const cur = WORKFLOW_STATUSES.find(([v])=>v===activeWorkflow);
+  chip.classList.toggle('on', !!activeWorkflow);
+  chip.innerHTML=(cur?('Status: '+esc(cur[1])):'Status')+' ▾';
+  let h=`<div class="mi${!activeWorkflow?' on':''}" data-wfpick="">All <span class="ct">${FILES.length}</span></div>`;
+  h+=WORKFLOW_STATUSES.map(([v,l])=>
+    `<div class="mi${v===activeWorkflow?' on':''}" data-wfpick="${escA(v)}">${esc(l)} <span class="ct">${counts[v]||0}</span></div>`).join('');
+  menu.innerHTML=h;
+  menu.onclick=e=>e.stopPropagation();
+  menu.querySelectorAll('[data-wfpick]').forEach(el=>el.onclick=()=>{
+    const v=el.dataset.wfpick;
+    activeWorkflow = (v && activeWorkflow!==v) ? v : '';
+    buildWorkflowChip(); render(); menu.style.display='none';
+  });
+}
 let healthStatus = null;
 function healthRows(data){
   const ok=data&&data.ok;
@@ -855,8 +1010,12 @@ function cardMenu(anchor, rel){
   const f=FILES.find(x=>x.rel===rel); if(!f) return;
   const isHid=hidden.has(rel);
   const m=document.createElement('div'); m.className='menu'; m.id='floatMenu';
+  const curWf = workflow[rel]||'';
   m.innerHTML='<div class="mhd">'+esc(f.name)+'</div>'
     +'<div class="mi" style="cursor:default">'+rateRow(rel)+'</div>'
+    +'<div class="mhd sep">Status</div>'
+    +[['','None']].concat(WORKFLOW_STATUSES).map(([v,l])=>
+      `<div class="mi${curWf===v?' on':''}"><span class="lbl" data-wfset="${escA(v)}">${curWf===v?'✓ ':''}${esc(l)}</span></div>`).join('')
     +'<div class="mhd sep"></div>'
     +((window.self!==window.top)?'<div class="mi"><span class="lbl" data-cact="src">Open script &lt;/&gt;</span></div>'
       +'<div class="mi"><span class="lbl" data-cact="board">Send to whiteboard</span></div>':'')
@@ -864,6 +1023,7 @@ function cardMenu(anchor, rel){
     +'<div class="mi clr"><span class="lbl" data-cact="del">Move to Trash</span></div>';
   m.addEventListener('click',e=>e.stopPropagation());
   placeMenu(m, anchor);
+  m.querySelectorAll('[data-wfset]').forEach(sp=>{ sp.onclick=()=>{ closeFloat(); setWorkflow(rel, sp.dataset.wfset); }; });
   m.querySelectorAll('[data-act="rate"]').forEach(sp=>{ sp.onclick=ev=>{ setRate(rel, +sp.dataset.n, ev); closeFloat(); }; });
   const _src=m.querySelector('[data-cact="src"]'); if(_src) _src.onclick=()=>{ closeFloat(); findScript(rel); };
   const _bd=m.querySelector('[data-cact="board"]'); if(_bd) _bd.onclick=()=>{ closeFloat(); sendToBoard(rel, anchor); };
@@ -881,8 +1041,13 @@ function placeMenu(menu, anchor){
 }
 function menuToggle(menu, anchor){
   const open = menu.style.display==='flex';
-  document.querySelectorAll('.menu').forEach(x=>x.style.display='none'); closeFloat();
-  const fm=document.getElementById('fmtMenu'); if(fm) fm.style.display='none';
+  // un sous-menu ouvert DEPUIS le popover Filters ne doit pas le fermer
+  const insideFilters = !!(anchor && anchor.closest && anchor.closest('#filtersMenu'));
+  document.querySelectorAll('.menu').forEach(x=>{
+    if(insideFilters && x.id==='filtersMenu') return;
+    x.style.display='none';
+  });
+  closeFloat();
   if(open) return;
   placeMenu(menu, anchor);
 }
@@ -937,11 +1102,266 @@ if(window.self!==window.top){
   document.documentElement.classList.add('emb');
   const ctr=document.querySelector('.controls');
   const sp=document.createElement('span'); sp.className='ctrl-sp'; ctr.appendChild(sp);
-  for(const id of ['boardChip','notesChip','viewChip']) ctr.appendChild(document.getElementById(id));
+  // Board/Notes = sélecteur de vue compact dans le header (décision 014) ;
+  // le menu Settings de la galerie est atteignable via ⋯ (Gallery settings)
+  for(const id of ['boardChip','notesChip']) ctr.appendChild(document.getElementById(id));
+  document.getElementById('viewChip').style.display='none';
 }
 document.getElementById('boardChip').onclick=()=>toolOpenTab('/board/open-surface','whiteboard');
 document.getElementById('notesChip').onclick=()=>toolOpenTab('/notes/open-surface','notes');
+
+// ============ plan 019 — barre de commande : popover Filters, chips actives,
+// ============ barre de sélection, overflow ⋯ =================================
+// Les contrôles historiques (ids, builders, handlers) restent la source de
+// vérité : ils sont RELOCALISÉS dans le popover #filtersMenu (groupes), leurs
+// sous-menus s'ouvrent par-dessus (menuToggle sait ne pas fermer le popover).
+(function(){
+  const put=(slotId, ...els)=>{ const s=document.getElementById(slotId); if(!s) return;
+    els.forEach(el=>{ if(el) s.appendChild(el); }); };
+  const fsel=document.getElementById('folder');
+  put('fgFolder', fsel, fsel && fsel.nextElementSibling); // select + bouton custom (.csel-btn)
+  put('fgFmt', document.getElementById('fmtChip'));
+  put('fgFav', document.getElementById('favChip'), document.getElementById('rateFilter'));
+  put('fgColl', document.getElementById('collChip'));
+  put('fgWf', document.getElementById('wfChip'));
+  put('fgRec', document.getElementById('recChip'));
+  const fm=document.getElementById('filtersMenu');
+  fm.addEventListener('click',e=>e.stopPropagation());
+  document.getElementById('filtersChip').onclick=e=>{
+    e.stopPropagation();
+    menuToggle(fm, e.currentTarget);
+  };
+  document.getElementById('filtersClear').onclick=()=>{ clearAllFilters(); };
+})();
+
+/* filtres actifs → compteur du bouton Filters + chips supprimables */
+function fmtIsFiltered(){ return TYPE_LIST.some(([e])=>typeGroup(e).some(k=>exts[k]!==DEFAULT_EXTS[k])); }
+function clearFilter(k){
+  if(k==='folder'){ fsel.value=''; render(); const b=fsel.nextElementSibling; if(b&&b.classList.contains('csel-btn')) b.textContent=fsel.options[0].text; }
+  else if(k==='fmt'){ Object.assign(exts, DEFAULT_EXTS); saveExts(); buildFmtMenu(); fmtChipLabel(); render(); }
+  else if(k==='fav'){ if(onlyFavs) favChip.onclick(); }
+  else if(k==='coll'){ activeCollection=''; buildCollectionChip(); render(); }
+  else if(k==='wf'){ activeWorkflow=''; buildWorkflowChip(); render(); }
+}
+function clearAllFilters(){ ['folder','fmt','fav','coll','wf'].forEach(clearFilter); }
+function renderActiveChips(){
+  const box=document.getElementById('activeChips'); if(!box) return;
+  const chips=[];
+  if(fsel.value) chips.push({k:'folder',l:'Folder: '+fsel.value});
+  if(fmtIsFiltered()){
+    const on=FMT_CATS.filter(([,ks])=>ks.some(x=>exts[x])).map(([lab])=>lab);
+    chips.push({k:'fmt',l:'Formats: '+(on.length?on.join(', '):'none')});
+  }
+  if(onlyFavs) chips.push({k:'fav',l:'★ Favorites'+(rateMin?(' · '+rateMin+'★'):'')});
+  if(activeCollection) chips.push({k:'coll',l:'Collection: '+activeCollection});
+  if(activeWorkflow){
+    const cur=WORKFLOW_STATUSES.find(([v])=>v===activeWorkflow);
+    chips.push({k:'wf',l:'Status: '+(cur?cur[1]:activeWorkflow)});
+  }
+  box.innerHTML = chips.length
+    ? chips.map(c=>`<span class="fchip">${esc(c.l)}<span class="x" role="button" tabindex="0" data-fx="${c.k}" title="Remove this filter" aria-label="Remove filter ${escA(c.l)}">×</span></span>`).join('')
+      + '<span class="fchip fclear" id="fclearAll" role="button" tabindex="0">Clear all</span>'
+    : '';
+  box.querySelectorAll('[data-fx]').forEach(x=>{
+    const go=()=>clearFilter(x.dataset.fx);
+    x.onclick=go; x.onkeydown=e=>{ if(e.key==='Enter'||e.key===' '){e.preventDefault();go();} };
+  });
+  const ca=box.querySelector('#fclearAll');
+  if(ca){ ca.onclick=clearAllFilters; ca.onkeydown=e=>{ if(e.key==='Enter'||e.key===' '){e.preventDefault();clearAllFilters();} }; }
+  const fc=document.getElementById('filtersChip');
+  if(fc){ fc.classList.toggle('on',chips.length>0); fc.innerHTML='Filters'+(chips.length?(' ('+chips.length+')'):'')+' &#9662;'; }
+}
+
+/* overflow ⋯ de surface : Rescan (état visible), Gallery settings, Clear
+   annotation (si en attente), Board/Notes en fenêtre étroite */
+let quotePending=false;
+function buildSurfMenu(){
+  const m=document.getElementById('surfMenu'); if(!m) return;
+  const scanning=document.getElementById('rescan').classList.contains('spinning');
+  m.innerHTML=
+    `<div class="mi" data-sm="rescan"><span class="lbl">Rescan</span><span class="ct">${scanning?'scanning…':''}</span></div>`+
+    '<div class="mi" data-sm="settings"><span class="lbl">Gallery settings…</span></div>'+
+    (quotePending?'<div class="mi" data-sm="quote"><span class="lbl">Clear annotation</span></div>':'')+
+    '<div class="mi narrow-only" data-sm="board"><span class="lbl">Board</span></div>'+
+    '<div class="mi narrow-only" data-sm="notes"><span class="lbl">Notes</span></div>';
+  m.onclick=e=>e.stopPropagation();
+  m.querySelector('[data-sm="rescan"]').onclick=()=>{ document.getElementById('rescan').onclick.call(document.getElementById('rescan')); buildSurfMenu(); };
+  m.querySelector('[data-sm="settings"]').onclick=()=>{ buildViewMenu(); menuToggle(document.getElementById('viewMenu'), document.getElementById('surfMore')); };
+  const q=m.querySelector('[data-sm="quote"]'); if(q) q.onclick=()=>{ document.getElementById('quoteClear').onclick(); m.style.display='none'; };
+  m.querySelector('[data-sm="board"]').onclick=()=>{ m.style.display='none'; toolOpenTab('/board/open-surface','whiteboard'); };
+  m.querySelector('[data-sm="notes"]').onclick=()=>{ m.style.display='none'; toolOpenTab('/notes/open-surface','notes'); };
+}
+document.getElementById('surfMore').onclick=e=>{ e.stopPropagation(); buildSurfMenu(); menuToggle(document.getElementById('surfMenu'), e.currentTarget); };
+
+// ============ plan 019 — sélection de carte + inspecteur scientifique ========
+// Clic = sélectionner (l'inspecteur suit) ; double-clic ou « View » = ouvrir.
+// L'inspecteur n'affiche QUE des métadonnées réelles ; « final » est un statut
+// de workflow utilisateur, jamais une validation scientifique.
+let selectedRel=null, inspFindSeq=0, inspAddState='idle', inspAddTimer=0;
+const EMB = window.self!==window.top;
+function paintSelection(){
+  document.querySelectorAll('#grid .card[data-card]').forEach(c=>{
+    const on=c.dataset.card===selectedRel;
+    c.classList.toggle('sel2',on);
+    c.setAttribute('aria-selected',on?'true':'false');
+  });
+}
+function selectCard(rel){
+  if(selectedRel!==rel){ inspAddState='idle'; }
+  selectedRel=rel;
+  document.body.classList.add('has-insp');
+  paintSelection(); updateInspector();
+}
+function closeInspector(focusBack){
+  if(!selectedRel && !document.body.classList.contains('has-insp')) return;
+  selectedRel=null; inspAddState='idle';
+  document.body.classList.remove('has-insp');
+  paintSelection();
+  if(focusBack!==false) document.getElementById('grid').focus();
+}
+document.getElementById('inspClose').onclick=()=>closeInspector();
+document.getElementById('inspScrim').onclick=()=>closeInspector();
+document.addEventListener('keydown',e=>{
+  if(e.key!=='Escape') return;
+  if(lb().classList.contains('show')) return;                          // lightbox d'abord
+  if(document.getElementById('cmp').classList.contains('show')) return; // compare d'abord
+  const openMenus=[...document.querySelectorAll('.menu')].filter(m=>m.style.display==='flex');
+  if(openMenus.length){ openMenus.forEach(m=>m.style.display='none'); closeFloat(); return; }
+  if(document.body.classList.contains('has-insp')) closeInspector();
+});
+function inspRow(l,v,title){
+  return '<div class="irow">'+(l?('<span class="il">'+esc(l)+'</span>'):'')
+    +'<span class="iv"'+(title?(' title="'+escA(title)+'"'):'')+'>'+v+'</span></div>';
+}
+function updateInspector(){
+  const rel=selectedRel; if(!rel) return;
+  const f=FILES.find(x=>x.rel===rel);
+  const body=document.getElementById('inspBody'), ttl=document.getElementById('inspTitle');
+  if(!f){
+    ttl.textContent=rel.split('/').pop();
+    body.innerHTML='<div id="inspNotice" class="show">File no longer in the index (deleted or removed by a rescan).</div>';
+    return;
+  }
+  ttl.textContent=f.name; ttl.title=f.rel;
+  const isImg=imgExt(f.ext), isHtml=f.ext==='html'||f.ext==='htm';
+  const tsrc=(isImg||isHtml)?('/thumb?path='+encodeURIComponent('/Users/tofunori/Documents/atelier-studio/'+f.rel)+'&w=480&v='+f.mtime):(f.thumb||null);
+  const wf=workflow[f.rel]||'';
+  const colls=allCollections();
+  body.innerHTML=
+    '<div class="isec"><div id="inspPrev"'+(tsrc?'':' class="ph2"')+'>'+
+      (tsrc?('<img alt="" src="'+escA(tsrc)+'">'):esc(f.ext.toUpperCase()))+'</div></div>'
+    +'<div class="isec"><h3>Identity</h3>'
+      +inspRow('Type', esc(f.ext.toUpperCase())+(f.code?' · script':''))
+      +inspRow('Path', esc(f.rel), f.rel)
+      +inspRow('Size', esc(fmtSize(f.size)))
+      +inspRow('Modified', esc(f.mdate)+(f.bdate?(' · created '+esc(f.bdate)):''))
+    +'</div>'
+    +'<div class="isec"><h3>Workflow</h3><div class="iwf">'
+      +[['','None']].concat(WORKFLOW_STATUSES).map(([v,l])=>
+        '<button data-iwf="'+escA(v)+'" class="'+(wf===v?'on':'')+'" aria-pressed="'+(wf===v)+'">'+esc(l)+'</button>').join('')
+    +'</div></div>'
+    +'<div class="isec"><h3>Provenance</h3>'
+      +inspRow('Project','<span style="font-family:var(--code-font);font-size:11px" title="/Users/tofunori/Documents/atelier-studio">'+esc('/Users/tofunori/Documents/atelier-studio'.split('/').pop()||'/Users/tofunori/Documents/atelier-studio')+'</span>')
+      +inspRow('Generating script','<span id="inspScript">'+((isImg||f.ext==='pdf')?'Searching…':'Not recorded')+'</span>')
+    +'</div>'
+    +'<div class="isec"><h3>Organization</h3>'
+      +'<div class="irow"><span class="il">Favorite</span><span class="iv"><button id="inspFav" style="height:24px;font-size:11px">'+(favs.has(rel)?'★ Remove favorite':'☆ Add favorite')+'</button></span></div>'
+      +inspRow('Rating', rateRow(rel))
+      +(colls.length?('<div class="irow"><span class="il">Collections</span><span class="iv icoll">'
+        +colls.map(n=>'<label><input type="checkbox" data-icoll="'+escA(n)+'"'+((collections[n]||[]).includes(rel)?' checked':'')+'> '+esc(n)+'</label>').join('')+'</span></div>'):'')
+    +'</div>'
+    +'<div class="isec"><h3>Actions</h3><div class="iact">'
+      +'<button id="inspView" title="Open in the viewer">View</button>'
+      +'<button id="inspOpen" title="Open with the default app">Open (app)</button>'
+      +(EMB?('<button id="inspChat">'+(inspAddState==='added'?'Added to chat ✓':inspAddState==='pending'?'Adding…':'Add to chat')+'</button>'):'')
+      +'<button id="inspMore" title="More — hide, trash…" aria-label="More actions">⋯</button>'
+    +'</div><div id="inspNotice"></div></div>';
+  // preview : chargé À la sélection (jamais au hover) ; échec → fallback type
+  const pimg=body.querySelector('#inspPrev img');
+  if(pimg) pimg.onerror=()=>{
+    const pv=document.getElementById('inspPrev'); if(!pv) return;
+    pv.classList.add('ph2'); pv.textContent=f.ext.toUpperCase();
+    const n=document.getElementById('inspNotice');
+    if(n){ n.textContent='Preview unavailable (file missing or unreadable).'; n.classList.add('show'); }
+  };
+  // provenance RÉELLE : script générateur via /findscript, anti-course par séquence
+  if(isImg||f.ext==='pdf'){
+    const seq=++inspFindSeq, stem=rel.split('/').pop().replace(/\.[^.]+$/,'');
+    const put=(txt,openRel)=>{
+      if(seq!==inspFindSeq) return;
+      const s=document.getElementById('inspScript'); if(!s) return;
+      s.innerHTML=openRel?('<a href="#" data-iscript="'+escA(openRel)+'" style="color:var(--accent)">'+esc(openRel)+'</a>'):esc(txt);
+      const a=s.querySelector('[data-iscript]');
+      if(a) a.onclick=ev=>{ ev.preventDefault(); lbOpenAny(a.dataset.iscript); };
+    };
+    const local=FILES.find(x=>codeExt(x.ext)&&x.rel.split('/').pop().replace(/\.[^.]+$/,'')===stem);
+    if(local) put('',local.rel);
+    else fetch('/findscript?stem='+encodeURIComponent(stem)).then(r=>r.json())
+      .then(j=>put(j&&j.script?'':'Not recorded', j&&j.script?j.script:null))
+      .catch(()=>put('Not recorded',null));
+  }
+  body.querySelectorAll('[data-iwf]').forEach(b=>b.onclick=()=>setWorkflow(rel,b.dataset.iwf));
+  body.querySelector('#inspFav').onclick=()=>{
+    if(favs.has(rel)) favs.delete(rel); else favs.add(rel);
+    saveFavs(); pushState();
+    document.getElementById('favChip').textContent='★ Favorites ('+favs.size+')';
+    render();
+  };
+  body.querySelectorAll('[data-icoll]').forEach(cb=>cb.onchange=()=>{
+    const n=cb.dataset.icoll, cur=new Set(collections[n]||[]);
+    if(cb.checked) cur.add(rel); else cur.delete(rel);
+    collections[n]=[...cur].sort();
+    saveCollections(); buildCollectionChip(); render();
+  });
+  body.querySelector('#inspView').onclick=()=>lbOpenAny(rel);
+  body.querySelector('#inspOpen').onclick=()=>openDefault(rel);
+  const ic=body.querySelector('#inspChat');
+  if(ic) ic.onclick=()=>{
+    // contrat de transfert (018/019) : pending bloque le double ajout ; le
+    // composer déduplique par texte de toute façon (idempotent)
+    if(inspAddState!=='idle') return;
+    inspAddState='pending'; ic.textContent='Adding…';
+    try{
+      __atelierPost({type:'atelier-add-to-chat',
+        text:'/Users/tofunori/Documents/atelier-studio/'+rel+'\nFichier joint depuis la galerie atelier — lis-le (outil Read) avant de répondre.'});
+      inspAddState='added'; ic.textContent='Added to chat ✓';
+    }catch(err){
+      inspAddState='idle'; ic.textContent='Add to chat';
+      const n=document.getElementById('inspNotice');
+      if(n){ n.textContent='Add to chat failed — gallery not embedded in Atelier Studio.'; n.classList.add('show'); }
+      return;
+    }
+    clearTimeout(inspAddTimer);
+    inspAddTimer=setTimeout(()=>{
+      inspAddState='idle';
+      const b=document.getElementById('inspChat'); if(b) b.textContent='Add to chat';
+    },1800);
+  };
+  body.querySelector('#inspMore').onclick=e=>{ e.stopPropagation(); cardMenu(e.currentTarget, rel); };
+}
+// clavier grille : flèches = déplacer la sélection, Enter = ouvrir
+document.getElementById('grid').addEventListener('keydown',e=>{
+  if(!renderedRels.length) return;
+  if(!['ArrowRight','ArrowLeft','ArrowDown','ArrowUp','Enter'].includes(e.key)) return;
+  if(e.key==='Enter'){ if(selectedRel) lbOpenAny(selectedRel); e.preventDefault(); return; }
+  const i=renderedRels.indexOf(selectedRel);
+  const cardMin=parseInt(getComputedStyle(document.documentElement).getPropertyValue('--card-min'))||185;
+  const cols=Math.max(1,Math.floor(document.getElementById('grid').clientWidth/(cardMin+16)));
+  let n=i<0?0:i+(e.key==='ArrowRight'?1:e.key==='ArrowLeft'?-1:e.key==='ArrowDown'?cols:-cols);
+  n=Math.max(0,Math.min(renderedRels.length-1,n));
+  selectCard(renderedRels[n]); e.preventDefault();
+  const c=document.querySelector('#grid .card.sel2'); if(c&&c.scrollIntoView) c.scrollIntoView({block:'nearest'});
+});
+// double-clic = ouvrir (le clic simple sélectionne)
+document.addEventListener('dblclick',e=>{
+  const el=e.target.closest('[data-act="lb"],[data-act="open"]'); if(!el) return;
+  if(el.tagName==='BUTTON') return;
+  if(el.dataset.act==='lb') lbOpen(el.dataset.rel);
+  else openDefault(el.dataset.rel);
+});
 document.getElementById('collChip').onclick=e=>{ e.stopPropagation(); buildCollectionChip(); menuToggle(document.getElementById('collMenu'), e.currentTarget); };
+document.getElementById('wfChip').onclick=e=>{ e.stopPropagation(); buildWorkflowChip(); menuToggle(document.getElementById('wfMenu'), e.currentTarget); };
+document.getElementById('recChip').onclick=e=>{ e.stopPropagation(); buildRecentChip(); menuToggle(document.getElementById('recMenu'), e.currentTarget); };
 document.getElementById('viewChip').onclick=e=>{ e.stopPropagation(); buildViewMenu(); menuToggle(document.getElementById('viewMenu'), e.currentTarget); };
 document.getElementById('exportSel').onclick=e=>{ e.stopPropagation(); buildExportMenu(); menuToggle(document.getElementById('exportMenu'), e.currentTarget); };
 document.getElementById('collectSel').onclick=e=>{ e.stopPropagation(); collectSelMenu(e.currentTarget); };
@@ -965,15 +1385,16 @@ async function lbShow(i){
   if(lbIdx>=0 && i!==lbIdx && !(await annotGuard())) return;
   if(i<0||i>=lbList.length) return;
   lbIdx=i; const f=lbList[i]; lb().classList.remove('annot');
+  markRecent(f.rel);
   const isTex=f.ext==='tex', isPdf=f.ext==='pdf', isMd=f.ext==='md', isCode=codeExt(f.ext), isSvg=f.ext==='svg', isVid=videoExt(f.ext);
   // Embarqué dans Atelier Studio : les fichiers texte/code s'ouvrent dans un
   // ONGLET Studio (la galerie reste navigable), pas dans la lightbox.
   if((window.self!==window.top) && (isTex||isMd||isCode||isPdf)){
     // Studio : latex_studio pour tex/code ; éditeur WYSIWYG pour markdown
     let u;
-    if(isPdf) u='/.fig_thumbs/pdf_viewer.html?file='+encodeURIComponent(f.rel)+'&v=1783623488';
-    else if(isMd) u='/.fig_thumbs/md_studio.html?path='+encodeURIComponent('/Users/tofunori/Documents/atelier-studio/'+f.rel)+'&v=1783623488';
-    else u='/.fig_thumbs/latex_studio.html?path='+encodeURIComponent('/Users/tofunori/Documents/atelier-studio/'+f.rel)+'&v=1783623488';
+    if(isPdf) u='/.fig_thumbs/pdf_viewer.html?file='+encodeURIComponent(f.rel)+'&v=1783707433';
+    else if(isMd) u='/.fig_thumbs/md_studio.html?path='+encodeURIComponent('/Users/tofunori/Documents/atelier-studio/'+f.rel)+'&v=1783707433';
+    else u='/.fig_thumbs/latex_studio.html?path='+encodeURIComponent('/Users/tofunori/Documents/atelier-studio/'+f.rel)+'&v=1783707433';
     __atelierPost({type:'atelier-open-tab', url:u, title:f.name});
     lbIdx=-1;
     return;
@@ -986,11 +1407,11 @@ async function lbShow(i){
   if(!isVid && vid.getAttribute('src')){vid.pause();vid.removeAttribute('src');vid.load();}  // stop playback when leaving a video
   lb().classList.toggle('vw', vw);  // full-window editor/viewer
   if(isVid){vid.src=f.rel+'?v='+f.mtime;img.src='';pdf.src='';}
-  else if(isTex){pdf.src='/.fig_thumbs/latex_studio.html?path='+encodeURIComponent('/Users/tofunori/Documents/atelier-studio/'+f.rel)+'&v=1783623488';img.src='';}
-  else if(isPdf){pdf.src='/.fig_thumbs/pdf_viewer.html?file='+encodeURIComponent(f.rel)+'&v=1783623488';img.src='';}
-  else if(isMd){pdf.src='/.fig_thumbs/md_viewer.html?path='+encodeURIComponent('/Users/tofunori/Documents/atelier-studio/'+f.rel)+'&file='+encodeURIComponent(f.rel)+'&v=1783623488';img.src='';}
-  else if(isCode){pdf.src='/.fig_thumbs/code_editor.html?path='+encodeURIComponent('/Users/tofunori/Documents/atelier-studio/'+f.rel)+'&v=1783623488';img.src='';}
-  else if(isSvg){pdf.src='/.fig_thumbs/svg_viewer.html?file='+encodeURIComponent(f.rel)+'&v=1783623488';img.src='';}
+  else if(isTex){pdf.src='/.fig_thumbs/latex_studio.html?path='+encodeURIComponent('/Users/tofunori/Documents/atelier-studio/'+f.rel)+'&v=1783707433';img.src='';}
+  else if(isPdf){pdf.src='/.fig_thumbs/pdf_viewer.html?file='+encodeURIComponent(f.rel)+'&v=1783707433';img.src='';}
+  else if(isMd){pdf.src='/.fig_thumbs/md_viewer.html?path='+encodeURIComponent('/Users/tofunori/Documents/atelier-studio/'+f.rel)+'&file='+encodeURIComponent(f.rel)+'&v=1783707433';img.src='';}
+  else if(isCode){pdf.src='/.fig_thumbs/code_editor.html?path='+encodeURIComponent('/Users/tofunori/Documents/atelier-studio/'+f.rel)+'&v=1783707433';img.src='';}
+  else if(isSvg){pdf.src='/.fig_thumbs/svg_viewer.html?file='+encodeURIComponent(f.rel)+'&v=1783707433';img.src='';}
   else{img.src=f.rel+'?v='+f.mtime;pdf.src='';}
   document.getElementById('lbCap').innerHTML=
     `<b>${esc(f.name)}</b><span>${esc(f.folder)}</span><span>${esc(f.mdate)}</span><a href="${escA(f.rel)}" target="_blank">open original</a>`+
@@ -1253,6 +1674,7 @@ const snipObserver = new IntersectionObserver((entries,obs)=>{
   }
 },{rootMargin:'250px'});
 function render(){
+  if(typeof renderActiveChips==='function') renderActiveChips();  // plan 019 : chips de filtres actifs
   const q = document.getElementById('q').value.toLowerCase().trim();
   const terms = q.split(/\s+/).filter(Boolean);
   const sort = document.getElementById('sort').value;
@@ -1262,6 +1684,7 @@ function render(){
     if(!showArch && f.archive) return false;
     if(!showHidden && (hidden.has(f.rel) || matchesRule(f.rel))) return false;
     if(activeCollection && !(collections[activeCollection]||[]).includes(f.rel)) return false;
+    if(activeWorkflow && workflow[f.rel]!==activeWorkflow) return false;
     if(onlyFavs && !favs.has(f.rel)) return false;
     if(onlyFavs && rateMin && (ratings[f.rel]||0)!==rateMin) return false;
     if(fld && f.folder!==fld) return false;
@@ -1279,7 +1702,20 @@ function render(){
   });
   lbList = list.filter(f=>imgExt(f.ext)||videoExt(f.ext)||f.ext==='pdf'||f.ext==='md'||codeExt(f.ext));
   const grid=document.getElementById('grid');
-  if(!list.length){grid.innerHTML='<div class="empty">No matching files.</div>';renderedRels=[];return;}
+  if(!list.length){
+    // deux états distincts : projet vide vs zéro résultat avec filtres actifs
+    const hasQ=!!document.getElementById('q').value.trim();
+    grid.innerHTML = FILES.length===0
+      ? '<div class="empty">No files in this project yet.<br><span style="font-size:11px;color:var(--faint)">Add figures, data or scripts, then Rescan (⋯ menu).</span></div>'
+      : '<div class="empty">No matching files.'
+        +' <button id="emptyReset" style="margin-left:8px;height:26px;font-size:11px">Clear search &amp; filters</button></div>';
+    const er=document.getElementById('emptyReset');
+    if(er) er.onclick=()=>{ const q=document.getElementById('q'); if(q.value){q.value='';} clearAllFilters(); render(); };
+    renderedRels=[];
+    if(selectedRel) closeInspector(false);   // la sélection n'est plus visible
+    void hasQ;
+    return;
+  }
   const MAX=600;
   const slice=list.slice(0,MAX);
   renderedRels = slice.map(f=>f.rel);   // display order for Shift-click range selection
@@ -1303,8 +1739,10 @@ function render(){
     const isFav = favs.has(f.rel);
     const isHid = hidden.has(f.rel);
     const hidTag = isHid?`<span class="tag hid">hidden</span>`:'';
+    const wf = workflow[f.rel];
+    const wfTag = wf?`<span class="tag wf${wf==='final'?' final':''}">${esc(wf)}</span>`:'';
     const rt = ratings[f.rel]||0;
-    return `<div class="card ${f.archive?'arch':''} ${isHid?'hid':''}">
+    return `<div class="card ${f.archive?'arch':''} ${isHid?'hid':''} ${selectedRel===f.rel?'sel2':''}" data-card="${escA(f.rel)}" role="option" aria-selected="${selectedRel===f.rel}">
       <span class="selbox ${selSet.has(f.rel)?'on':''}" data-act="sel" data-rel="${escA(f.rel)}" title="Select — Shift-click to select a range">${selSet.has(f.rel)?'■':'▢'}</span>
       ${(imgExt(f.ext)||videoExt(f.ext)||f.ext==='pdf'||f.ext==='md'||codeExt(f.ext))?`<div data-act="lb" data-rel="${escA(f.rel)}" style="cursor:zoom-in;position:relative">${videoExt(f.ext)?'<span class="playbtn">&#9654;</span>':''}${thumb}</div>`:appExt(f.ext)?`<div data-act="open" data-rel="${escA(f.rel)}" style="cursor:pointer" title="Open with default app">${thumb}</div>`:`<a href="${escA(f.rel)}" target="_blank" style="text-decoration:none">${thumb}</a>`}
       <div class="hov">
@@ -1318,11 +1756,17 @@ function render(){
       </div>
       <div class="meta">
         <div class="nm" title="${escA(f.name)}">${esc(truncMid(f.name,42))}</div>
-        <div class="row2">${isFav?'<span class="fv">★</span>':''}${rt?`<span class="rt">★${rt}</span>`:''}${arch}${hidTag}<span class="mf" title="${escA(f.folder)}">${esc(f.folder)}</span><span class="md" title="created ${escA(f.bdate)} · modified ${escA(f.mdate)}">${sort.startsWith('btime')?esc(f.bdate):esc(f.mdate)}</span><span class="md">${fmtSize(f.size)}</span></div>
+        <div class="row2">${isFav?'<span class="fv">★</span>':''}${rt?`<span class="rt">★${rt}</span>`:''}${arch}${hidTag}${wfTag}<span class="mf" title="${escA(f.folder)}">${esc(f.folder)}</span><span class="md" title="created ${escA(f.bdate)} · modified ${escA(f.mdate)}">${sort.startsWith('btime')?esc(f.bdate):esc(f.mdate)}</span><span class="md">${fmtSize(f.size)}</span></div>
       </div>
     </div>`;
   }).join('') + (list.length>MAX?`<div class="empty">… and ${list.length-MAX} more. Refine your search to see them.</div>`:'');
   grid.querySelectorAll('.snip[data-snip]').forEach(el=>snipObserver.observe(el));
+  // plan 019 : la sélection survit au rerender si la carte reste visible ;
+  // sinon l'inspecteur se ferme sans voler le focus
+  if(selectedRel){
+    if(renderedRels.includes(selectedRel)){ paintSelection(); updateInspector(); }
+    else closeInspector(false);
+  }
 }
 // (format quick-chips + their video-solo handler removed — all types now live in the Formats menu)
 updateViewChip();
@@ -1340,7 +1784,7 @@ rateFilter.querySelectorAll('.rf').forEach(c=>{
 });
 favChip.onclick=()=>{onlyFavs=!onlyFavs;favChip.classList.toggle('off',!onlyFavs);favChip.classList.toggle('on',onlyFavs);rateFilter.style.display=onlyFavs?'inline-flex':'none';if(!onlyFavs){rateMin=0;rateFilter.querySelectorAll('.rf').forEach(x=>{x.classList.remove('on');x.classList.add('off');});}render();};
 const quoteBtn=document.getElementById('quoteClear');
-function quoteCheck(){fetch('/quote').then(r=>r.json()).then(j=>{quoteBtn.style.display=j.pending?'':'none';}).catch(()=>{});}
+function quoteCheck(){fetch('/quote').then(r=>r.json()).then(j=>{quotePending=!!j.pending;quoteBtn.style.display=j.pending?'':'none';}).catch(()=>{});}
 quoteCheck(); setInterval(quoteCheck, 30000);
 checkHealth(); setInterval(checkHealth, 60000);
 quoteBtn.onclick=async()=>{await fetch('/clear-quote',{method:'POST'}).catch(()=>{}); quoteBtn.style.display='none';};
