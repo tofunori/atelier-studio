@@ -75,8 +75,10 @@ Créer `gallery/tests/e2e/diff.spec.js` sur le modèle de `core.spec.js` : dép�
 Git temporaire, fichier `.tex`, serveur galerie Node sur port libre, nettoyage
 dans `finally`. Ne pas dépendre d'un projet réel ni d'un agent réel.
 
-**Verify**: `npx playwright test gallery/tests/e2e/diff.spec.js --list` liste les
-nouveaux scénarios sans erreur de chargement.
+**Verify**: `npm --prefix gallery exec -- playwright test tests/e2e/diff.spec.js --list`
+liste les nouveaux scénarios avec le runner Playwright local de `gallery`, sans
+erreur de chargement. Ne pas utiliser `npx playwright` depuis la racine : ce
+CLI distinct chargerait une seconde instance de `@playwright/test`.
 
 ### Step 2: Prouver « une action = une intervention »
 
