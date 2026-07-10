@@ -999,13 +999,15 @@ async function lbShow(i){
   lb().classList.add('show');
 }
 function lbNav(dir){
-  // Plein écran : ne naviguer qu'entre images bitmap — svg/pdf/md/code ouvrent
-  // un viewer iframe pleine fenêtre (mode vw) qui masque l'UI et capte
+  // Navigation flèches/chevrons : sauter les types qui ouvrent un viewer iframe
+  // pleine fenêtre (mode vw : svg/pdf/md/tex/code) — il masque l'UI et capte
   // souris/clavier, donc impossible d'en ressortir au clavier ou aux chevrons.
+  // En plein écran (fs), rester strictement sur les images bitmap.
+  const fs=lb().classList.contains('fs');
+  const ok=f=> fs ? ['png','jpg','jpeg'].includes(f.ext)
+               : !(f.ext==='svg'||f.ext==='pdf'||f.ext==='md'||f.ext==='tex'||codeExt(f.ext));
   let i=lbIdx+dir;
-  if(lb().classList.contains('fs')){
-    while(i>=0&&i<lbList.length&&!['png','jpg','jpeg'].includes(lbList[i].ext)) i+=dir;
-  }
+  while(i>=0&&i<lbList.length&&!ok(lbList[i])) i+=dir;
   lbShow(i);
 }
 async function lbClose(){

@@ -1370,6 +1370,9 @@ export default function App() {
   const filesRef = useRef(files);
   filesRef.current = files;
 
+  const atelierUrlRef = useRef(atelierUrl);
+  atelierUrlRef.current = atelierUrl;
+
   // clic sur une réf "fichier.tex:31" dans une réponse du chat
   useEffect(() => {
     const onOpen = (e: Event) => {
@@ -1377,9 +1380,21 @@ export default function App() {
       // résoudre un nom nu ("main.tex") contre l'arborescence du projet
       let target = rel.replace(/^\.\//, "");
       const list = filesRef.current;
-      if (!list.includes(target)) {
+      if (!list.includes(target) && !target.startsWith("/") && !target.startsWith("~/")) {
         const hit = list.find((f) => f === target || f.endsWith("/" + target));
-        if (hit) target = hit;
+        if (hit) {
+          target = hit;
+        } else if (atelierUrlRef.current) {
+          // absent de l'index git (fichier gitignoré : données, figures…) —
+          // demander au serveur galerie de le retrouver sur disque avant
+          // d'abandonner sur un chemin deviné
+          const name = target.split("/").pop() ?? target;
+          fetch(`${new URL(atelierUrlRef.current).origin}/findfile?name=${encodeURIComponent(name)}`)
+            .then((r) => r.json())
+            .then((j) => openFileTabRef.current(j?.hits?.[0] ?? target, line))
+            .catch(() => openFileTabRef.current(target, line));
+          return;
+        }
       }
       openFileTabRef.current(target, line);
     };
