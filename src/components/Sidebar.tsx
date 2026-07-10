@@ -10,7 +10,6 @@ import { Thread } from "../lib/ws";
 import { wsSend } from "../lib/wsBus";
 import { t } from "../lib/i18n";
 const tr = t; // alias historique (t masqué par des variables locales dans les .map)
-import { SettingsIcon } from "./icons";
 import { Menu, MenuItem, MenuSeparator } from "./ui";
 import {
   CONVERSATIONS_VISIBLE,
@@ -110,7 +109,6 @@ export default function Sidebar(p: {
   onDelete: (threadId: string) => void;
   onRemoveProject: (root: string) => void;
   onRename: (threadId: string, title: string) => void;
-  onSettings: () => void;
   projMeta: Record<string, { color?: string; label?: string }>;
   onSetMeta: (root: string, meta: { color?: string; label?: string }) => void;
 }) {
@@ -411,20 +409,6 @@ export default function Sidebar(p: {
         )}
 
         {resultsEmpty && <p className="pnav-empty">{t("sidebar.no-results", { q: query })}</p>}
-      </div>
-
-      <div className="side-foot">
-        <button className="ghost foot-ib" title={t("action.settings")} onClick={p.onSettings}>
-          <SettingsIcon size={14} />
-        </button>
-        <button className="ghost foot-ib usage-ib" title={t("usage.title")}
-          onClick={() => window.dispatchEvent(new CustomEvent("usage-toggle"))}>
-          <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round">
-            <circle cx="8" cy="8" r="6" strokeOpacity="0.25" />
-            <path d="M8 2a6 6 0 0 1 5.6 3.9" />
-          </svg>
-          <span className="usage-dot" id="usage-dot" />
-        </button>
       </div>
 
       {/* menu de conversation : renommer / favori / copier resume / déplacer / supprimer */}

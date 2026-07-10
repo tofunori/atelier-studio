@@ -188,10 +188,12 @@ export function CollapseIcon({ size = 13 }: IconProps) {
 }
 
 export function SettingsIcon({ size = 13 }: IconProps) {
+  // engrenage : couronne + dents ATTACHÉES + moyeu — pas un soleil
   return (
     <StrokeIcon size={size}>
-      <circle cx="8" cy="8" r="2.4" />
-      <path d="M8 2v1.5M8 12.5V14M2 8h1.5M12.5 8H14M3.7 3.7l1.1 1.1M11.2 11.2l1.1 1.1M12.3 3.7l-1.1 1.1M4.8 11.2l-1.1 1.1" />
+      <circle cx="8" cy="8" r="4.6" />
+      <circle cx="8" cy="8" r="1.7" />
+      <path d="M8 1.5v1.9M8 12.6v1.9M1.5 8h1.9M12.6 8h1.9M3.4 3.4l1.35 1.35M11.25 11.25l1.35 1.35M12.6 3.4l-1.35 1.35M4.75 11.25L3.4 12.6" />
     </StrokeIcon>
   );
 }

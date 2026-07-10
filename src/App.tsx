@@ -2087,7 +2087,6 @@ export default function App() {
               ws.current.send(JSON.stringify({ type: "renameThread", threadId, title }));
             }
           }}
-          onSettings={() => setShowSettings((v) => !v)}
           projMeta={projMeta}
           onSetMeta={(root, m) => setProjMeta((prev) => ({ ...prev, [root]: m }))}
         />

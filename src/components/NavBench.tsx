@@ -115,7 +115,6 @@ export function NavBench() {
           onDelete={noop}
           onRemoveProject={noop}
           onRename={noop}
-          onSettings={noop}
           projMeta={{ [PROJ]: { color: "#7aa2f7", label: "icon:mountain" }, [OTHER]: { color: "#98c379" } }}
           onSetMeta={noop}
         />

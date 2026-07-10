@@ -24,14 +24,13 @@ const base = {
 } as const;
 
 describe("ChatHeader", () => {
-  it("rend eyebrow (avec chemin accessible), titre, méta provider et badge", () => {
+  it("rend le titre seul — ni eyebrow projet, ni méta provider (demandes Thierry)", () => {
     const { container } = render(
       <ChatHeader {...base} status={presentStatus({ kind: "error", detail: "boom" })} />,
     );
 
-    const eyebrow = container.querySelector(".eyebrow")!;
-    expect(eyebrow).toHaveTextContent("Thèse albédo");
-    expect(eyebrow.querySelector("span")).toHaveAttribute("title", base.projectPath);
+    // l'identité projet ne vit qu'au crumb de la TopBar
+    expect(container.querySelector(".eyebrow")).toBeNull();
 
     expect(screen.getByText(base.title)).toBeInTheDocument();
     // demande Thierry (2026-07-10) : plus de méta provider dans l'en-tête

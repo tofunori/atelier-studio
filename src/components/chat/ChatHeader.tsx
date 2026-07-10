@@ -33,13 +33,10 @@ export function ChatHeader(p: {
   const badge = status != null && status.kind !== "idle" ? status : null;
 
   return (
+    // eyebrow projet supprimé (demande Thierry 2026-07-10) : l'identité
+    // projet ne vit qu'au crumb de la TopBar
     <SurfaceHeader
       className="chat-surface-header"
-      eyebrow={
-        p.projectName != null ? (
-          <span title={p.projectPath ?? undefined}>{p.projectName}</span>
-        ) : undefined
-      }
       // SurfaceHeader ne propage aucun attribut title : wrapper span pour
       // exposer le nom complet du titre que le CSS .title tronque.
       title={<span title={p.title}>{p.title}</span>}
