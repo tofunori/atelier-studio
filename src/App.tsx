@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { lazy, useEffect, useMemo, useRef, useState } from "react";
 import { Panel, PanelGroup, PanelResizeHandle } from "react-resizable-panels";
 import { open } from "@tauri-apps/plugin-dialog";
 import { invoke } from "@tauri-apps/api/core";
@@ -25,7 +25,8 @@ import type { Surface } from "./components/surfaces";
 import Chat from "./components/Chat";
 import Banner from "./components/Banner";
 import AtelierPane from "./components/AtelierPane";
-import SettingsPage from "./components/Settings";
+const SettingsPage = lazy(() => import("./components/Settings"));
+import { LazyBoundary } from "./components/LazyBoundary";
 import CommandPalette from "./components/CommandPalette";
 import QuickAsk from "./components/QuickAsk";
 import UsagePopover, { worstOf } from "./components/UsagePopover";
@@ -1925,13 +1926,15 @@ export default function App() {
   if (showSettings) {
     return (
       <>
-        <SettingsPage
-          settings={settings}
-          onChange={setSettings}
-          onClose={() => setShowSettings(false)}
-          ws={ws.current}
-          projects={projects}
-        />
+        <LazyBoundary fallback={<div className="settings-page" />}>
+          <SettingsPage
+            settings={settings}
+            onChange={setSettings}
+            onClose={() => setShowSettings(false)}
+            ws={ws.current}
+            projects={projects}
+          />
+        </LazyBoundary>
         <CommandPalette open={paletteOpen} items={paletteItems} onClose={() => setPaletteOpen(false)} />
       {usageOpen && <div className="ur-overlay" onClick={() => setUsageOpen(false)}>
         <UsagePopover open={usageOpen} onClose={() => setUsageOpen(false)} />
