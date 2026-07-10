@@ -198,7 +198,20 @@ PIÈGES metadata :
       stable claude (2 tests), resolveCodexSafety (6 tests), collision itemId
       frontend (1 test) + clientUserMessageId Codex. Gates : sidecar 252/252,
       frontend 178/178, tsc, vite build.
-- [ ] Tranche B (steps 4–5) : resolveCodexSafety + interactionWaiters + HarnessInteraction.tsx
+- [x] Tranche B (steps 4–5) : politiques Codex réellement appliquées
+      (buildThreadOptions/turn/start via resolveCodexSafety ; sandbox explicite
+      reviewer prime ; additionalDirectories hors read-only ; mode Plan avec
+      collaborationMode réel via collaborationMode/list en cache, sinon
+      dégradation read-only + chip __permission-fallback) ; reader Codex
+      ASYNCHRONE ; relais interactions générique (interactionWaiters, 120 s /
+      autoResolutionMs borné 1 s–10 min, refus sûr au terminal, secret jamais
+      résumé/journalisé) ; capabilities registry étendues (queue, tools,
+      toolOutput, permissions, interactiveInput, mcpElicitation,
+      durableHistory:false, permissionModes) ; frontend HarnessInteraction
+      (carte approval/user_input/elicitation/url, 10 tests) + reducer par
+      requestId + interactionResponse. Gates : sidecar 265/265, frontend
+      189/189, tsc, vite build. NOTE : toolOutput claude flippe en C,
+      durableHistory en D après preuve journal/reload.
 - [ ] Tranche C (steps 6–8) : pendingTools Claude + harness_journal + reducer harnessEvents.ts
 - [ ] Tranche D (steps 9–11) : capabilities/catalogue + smokes + gates + app buildée + parcours réels
 

@@ -14,6 +14,7 @@ import {
 } from "./turns";
 import { ResearchHome, type ResearchHomeBundle } from "../ResearchHome";
 import { ThinkingBlock, EditLine, ActivityCard, Working, formatPermInput } from "./turnParts";
+import { HarnessInteraction } from "./HarnessInteraction";
 
 type ToolAction = Extract<AgentEvent, { kind: "tool" | "tool_update" }>;
 type RenderedItem =
@@ -315,6 +316,8 @@ export function ChatTimeline(p: {
                 )}
               </div>
             );
+          if (e.kind === "interaction")
+            return <HarnessInteraction key={e.requestId} event={e} threadId={threadId} />;
           if (e.kind === "tool" || e.kind === "tool_update") return renderToolLine(e, i);
           if (e.kind === "edit") return <EditLine key={i} event={e} threadId={threadId} />;
           if (e.kind === "todos")

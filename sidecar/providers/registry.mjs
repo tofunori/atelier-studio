@@ -33,7 +33,7 @@ const PROVIDERS = [
       "claude-haiku-4-5",
     ],
     efforts: ["low", "medium", "high"],
-    capabilities: { resume: true, steering: true, goals: false },
+    capabilities: { resume: true, steering: true, queue: true, goals: false, tools: true, toolOutput: false, permissions: true, interactiveInput: false, mcpElicitation: false, durableHistory: false, permissionModes: ["default", "acceptEdits", "plan", "bypassPermissions"] },
   },
   {
     id: "codex",
@@ -42,7 +42,7 @@ const PROVIDERS = [
     defaultModel: "gpt-5.5",
     models: ["gpt-5.5", "gpt-5.1-codex-max", "gpt-5.1-codex"],
     efforts: ["low", "medium", "high"],
-    capabilities: { resume: true, steering: true, goals: true },
+    capabilities: { resume: true, steering: true, queue: true, goals: true, tools: true, toolOutput: true, permissions: true, interactiveInput: true, mcpElicitation: true, durableHistory: false, permissionModes: ["default", "acceptEdits", "plan", "bypassPermissions"] },
   },
   {
     id: "grok",
@@ -51,7 +51,7 @@ const PROVIDERS = [
     defaultModel: "grok-4.5",
     models: ["grok-4.5", "grok-composer-2.5-fast"],
     efforts: ["minimal", "low", "medium", "high", "xhigh", "max"],
-    capabilities: { resume: true, steering: false, goals: false },
+    capabilities: { resume: true, steering: false, queue: true, goals: false, tools: true, toolOutput: false, permissions: false, interactiveInput: false, mcpElicitation: false, durableHistory: false, permissionModes: [] },
   },
   {
     id: "opencode",
@@ -68,7 +68,7 @@ const PROVIDERS = [
       "openrouter/openrouter/auto",
     ],
     efforts: ["minimal", "low", "medium", "high", "xhigh", "max"],
-    capabilities: { resume: true, steering: false, goals: false },
+    capabilities: { resume: true, steering: false, queue: true, goals: false, tools: true, toolOutput: false, permissions: false, interactiveInput: false, mcpElicitation: false, durableHistory: false, permissionModes: [] },
   },
   {
     id: "gemini",
@@ -77,7 +77,7 @@ const PROVIDERS = [
     defaultModel: "gemini-2.5-pro",
     models: ["gemini-2.5-pro", "gemini-2.5-flash"],
     efforts: ["low", "medium", "high"],
-    capabilities: { resume: true, steering: false, goals: false },
+    capabilities: { resume: true, steering: false, queue: true, goals: false, tools: true, toolOutput: false, permissions: false, interactiveInput: false, mcpElicitation: false, durableHistory: false, permissionModes: [] },
   },
 ];
 
@@ -95,7 +95,7 @@ function listApiProviders() {
     models: [...cfg.models],
     modelReasoning: { ...(cfg.modelReasoning ?? {}) },
     efforts: [],
-    capabilities: { resume: true, steering: false, goals: false },
+    capabilities: { resume: true, steering: false, queue: true, goals: false, tools: false, toolOutput: false, permissions: false, interactiveInput: false, mcpElicitation: false, durableHistory: false, permissionModes: [] },
   }));
 }
 

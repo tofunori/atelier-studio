@@ -655,7 +655,11 @@ export default function Chat(p: {
   type TurnFold = { key: string; start: number; end: number; count: number; ms: number | null };
   const turnFolds = new Map<number, TurnFold>();
   {
-    const KEEP_TAIL = new Set(["text", "edit", "todos", "error", "permission", "usage", "goal"]);
+    // "interaction" suit le précédent "permission" : gardé visible en fin de
+    // tour (KEEP_TAIL), mais pas compté comme étape de travail (COUNTED) — une
+    // carte interactive n'est pas une action de l'agent, et sans KEEP_TAIL elle
+    // disparaîtrait sous le repli « Worked for … »
+    const KEEP_TAIL = new Set(["text", "edit", "todos", "error", "permission", "interaction", "usage", "goal"]);
     const COUNTED = new Set(["tool", "tool_update", "text", "thinking", "activity", "edit"]);
     let u = -1;
     for (let i = 0; i < p.events.length; i++) {

@@ -890,6 +890,18 @@ export default function App() {
             else list.push(next);
             return { ...prev, [msg.threadId]: list };
           }
+          if (ev.kind === "interaction") {
+            // mises à jour d'état (answered/declined/expired) ré-émises avec le
+            // MÊME requestId : remplacement en place, la dernière version gagne
+            // (plan 025, step 5) — requestId est unique par requête sidecar
+            const idx = list.findIndex(
+              (item) => item.kind === "interaction" && item.requestId === ev.requestId,
+            );
+            const next = { ...ev, ts: Date.now() } as AgentEvent;
+            if (idx >= 0) list[idx] = next;
+            else list.push(next);
+            return { ...prev, [msg.threadId]: list };
+          }
           if (ev.kind === "todos") {
             let idx = -1;
             for (let i = list.length - 1; i >= 0; i--) {
@@ -1242,6 +1254,20 @@ export default function App() {
           ev.kind === "permission" && ev.requestId === requestId ? { ...ev, answered: allow } : ev),
       }));
     };
+    const onInteractionAnswer = (e: Event) => {
+      // réponse à un événement interaction (plan 025, step 5) : la réponse —
+      // y compris toute valeur secrète — part UNIQUEMENT dans ce message WS ;
+      // l'event local est marqué answered de façon optimiste (sans copier la
+      // réponse), le sidecar ré-émettra l'état final autoritaire
+      const { threadId, requestId, response } = (e as CustomEvent).detail ?? {};
+      ws.current?.send(JSON.stringify({ type: "interactionResponse", requestId, response }));
+      setEvents((p) => ({
+        ...p,
+        [threadId]: (p[threadId] ?? []).map((ev: any) =>
+          ev.kind === "interaction" && ev.requestId === requestId && ev.state === "pending"
+            ? { ...ev, state: "answered" } : ev),
+      }));
+    };
     const onRequestReview = (e: Event) => {
       const threadId = (e as CustomEvent).detail?.threadId;
       if (threadId && ws.current?.readyState === 1) {
@@ -1263,6 +1289,7 @@ export default function App() {
       "quick-ask-open": onQaOpen,
       "autoreview-toggle": onAutoReviewToggle,
       "permission-answer": onPermAnswer,
+      "interaction-answer": onInteractionAnswer,
       "correct-issues": onCorrectIssues,
       "request-review": onRequestReview,
       "open-palette": onOpenPalette,

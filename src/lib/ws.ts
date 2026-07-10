@@ -29,6 +29,29 @@ type AgentEventBody =
   | { kind: "thinking"; text: string; ts?: number }
   | { kind: "thinking_live"; text: string; ts?: number }
   | { kind: "permission"; requestId: string; toolName: string; input?: Record<string, unknown>; answered: boolean | null; ts?: number }
+  | {
+      // événement interactif générique (plan 025, step 5) : approvals Codex,
+      // request_user_input, MCP elicitation — mises à jour ré-émises avec le
+      // MÊME requestId (state answered/declined/expired). answerSummary ne
+      // contient JAMAIS de valeur secrète (contrat AGENT_HARNESS_CONTRACT.md).
+      kind: "interaction";
+      requestId: string;
+      interactionType: "approval" | "user_input" | "mcp_elicitation";
+      title: string;
+      detail?: string;
+      urlDomain?: string;
+      fields?: {
+        id: string;
+        question: string;
+        header?: string;
+        options?: { label: string; description?: string }[];
+        allowOther?: boolean;
+        secret?: boolean;
+      }[];
+      state: "pending" | "answered" | "declined" | "expired";
+      answerSummary?: string;
+      ts?: number;
+    }
   | { kind: "stream_set"; text: string; ts?: number }
   | { kind: "streaming"; text: string; ts?: number }
   | { kind: "started"; ts?: number }
@@ -83,6 +106,14 @@ type AgentEventBody =
   | { kind: "error"; message: string };
 
 export type AgentEvent = AgentEventBody & { meta?: HarnessEventMeta | ProvisionalEventMeta };
+
+/** Réponse frontend à un événement interaction — envoyée UNIQUEMENT dans le
+ * message WS `interactionResponse` (les valeurs secret n'existent nulle part
+ * ailleurs : ni AgentEvent, ni journal, ni logs). */
+export type InteractionResponse =
+  | { allow: boolean }
+  | { answers: Record<string, string> }
+  | { action: "accept" | "decline"; content?: Record<string, string> };
 
 /** Bulle user telle qu'archivée par le sidecar : le texte réellement tapé et
  * des attachments structurés (chemins, noms, nombres de lignes) — jamais de

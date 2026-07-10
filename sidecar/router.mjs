@@ -11,7 +11,8 @@ import { createHarnessThread } from "./harness_events.mjs";
 // file d'attente par thread pour les providers SANS steering (Codex) :
 // les messages envoyés pendant un run partent automatiquement au tour suivant.
 const pending = new Map(); // threadId -> [{ msg, turnId }...] — turns réservés en queue
-const permWaiters = new Map(); // requestId -> resolve(bool)
+const permWaiters = new Map(); // requestId -> resolve(bool) — chemin Claude historique (mode Ask)
+const interactionWaiters = new Map(); // requestId -> { threadId, answer(response), decline(state) }
 const lastTurnByThread = new Map(); // threadId -> { entry, responseText, diffs }
 let retitleAllRunning = false;
 
@@ -132,6 +133,83 @@ function makePermissionRelay(ctx, emit, threadId, permissionMode) {
     });
     emit({ type: "permissionRequest", threadId, requestId, toolName, input });
   });
+}
+
+/** Résumé non secret d'une réponse d'interaction (jamais de valeur secret). */
+function summarizeInteractionAnswer(spec, response) {
+  if (!response) return "";
+  if (spec.interactionType === "approval") return response.allow ? "autorisé" : "refusé";
+  if (spec.interactionType === "mcp_elicitation") {
+    return response.action === "accept" ? "accepté" : "refusé";
+  }
+  const answers = response.answers ?? response.content ?? {};
+  const parts = [];
+  for (const f of spec.fields ?? []) {
+    const v = answers[f.id];
+    if (v == null || v === "") continue;
+    parts.push(`${f.header ?? f.id}: ${f.secret ? "•••" : String(v).slice(0, 60)}`);
+  }
+  return parts.join(" · ").slice(0, 200);
+}
+
+const INTERACTION_TIMEOUT_MS = 120000;
+
+/**
+ * Relay d'interaction générique (plan 025 step 5) : émet un événement
+ * `interaction` dans le turn actif, attend la réponse WS (interactionResponse)
+ * jusqu'au timeout (autoResolutionMs borné 1 s–10 min sinon 120 s), puis émet
+ * l'état final. Retourne la réponse utilisateur, ou null = refus sûr.
+ * Le waiter survit à une déconnexion du client (répondable après reconnexion).
+ */
+function makeInteractionRelay(ctx, threadId) {
+  return (spec) => new Promise((resolve) => {
+    const h = harnessThreads.get(threadId);
+    const run = threadRuns.get(threadId);
+    if (!h || !run) {
+      resolve(null); // pas de turn actif : refus sûr immédiat
+      return;
+    }
+    const turnId = run.turnId;
+    const requestId = `int-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    const publicEvent = (state, answerSummary) => ({
+      kind: "interaction",
+      requestId,
+      interactionType: spec.interactionType,
+      title: spec.title,
+      ...(spec.detail ? { detail: spec.detail } : {}),
+      ...(spec.urlDomain ? { urlDomain: spec.urlDomain } : {}),
+      ...(spec.fields ? { fields: spec.fields } : {}),
+      state,
+      ...(answerSummary ? { answerSummary } : {}),
+    });
+    const auto = Number(spec.autoResolutionMs);
+    const timeoutMs = Number.isFinite(auto) && auto > 0
+      ? Math.min(Math.max(auto, 1000), 600000)
+      : INTERACTION_TIMEOUT_MS;
+    const finish = (state, response) => {
+      if (!interactionWaiters.has(requestId)) return;
+      interactionWaiters.delete(requestId);
+      clearTimeout(timer);
+      h.emit(turnId, publicEvent(state, summarizeInteractionAnswer(spec, response)), {
+        itemId: spec.itemId ?? undefined,
+      });
+      resolve(response);
+    };
+    const timer = setTimeout(() => finish("expired", null), timeoutMs);
+    interactionWaiters.set(requestId, {
+      threadId,
+      answer: (response) => finish("answered", response ?? null),
+      decline: (state = "declined") => finish(state, null),
+    });
+    h.emit(turnId, publicEvent("pending"), { itemId: spec.itemId ?? undefined });
+  });
+}
+
+/** Fin/interruption de turn : les interactions pendantes sont refusées sûrement. */
+function declineThreadInteractions(threadId) {
+  for (const w of [...interactionWaiters.values()]) {
+    if (w.threadId === threadId) w.decline("declined");
+  }
 }
 
 function gitRootFor(ctx, msg) {
@@ -348,6 +426,7 @@ async function handleTurnEvent(ctx, threadId, event) {
   }
 
   // terminal — exactement un par turn (un doublon est refusé par le harnais)
+  declineThreadInteractions(threadId);
   const outEvent = event.kind === "done" ? await enrichDoneEvent(ctx, turn, event) : event;
   const accepted = await h.terminal(turnId, outEvent);
   if (!accepted) return;
@@ -451,6 +530,7 @@ async function startProviderTurn(ctx, h, msg, { reservedTurnId = null } = {}) {
     clientMessageId: msg.clientMessageId,
     webSearch: msg.webSearch,
     additionalDirectories: msg.additionalDirectories,
+    onInteraction: makeInteractionRelay(ctx, threadId),
     onEvent: dispatcher,
   })
     .then(({ sessionId }) => {
@@ -650,6 +730,12 @@ export async function route(msg, ctx) {
     case "permissionResponse": {
       const w = permWaiters.get(msg.requestId);
       if (w) { permWaiters.delete(msg.requestId); w(!!msg.allow); }
+      break;
+    }
+    case "interactionResponse": {
+      // réponse tardive ou double : le waiter n'existe plus → ignorée (idempotent)
+      const w = interactionWaiters.get(msg.requestId);
+      if (w) w.answer(msg.response ?? null);
       break;
     }
     case "ping":

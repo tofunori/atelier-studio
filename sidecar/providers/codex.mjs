@@ -63,6 +63,111 @@ export function buildServerRequestFallback(method) {
   return {};
 }
 
+const APPROVAL_METHODS = new Set([
+  "execCommandApproval",
+  "applyPatchApproval",
+  "item/commandExecution/requestApproval",
+  "item/fileChange/requestApproval",
+  "item/permissions/requestApproval",
+]);
+
+/**
+ * Traduit une server request Codex en spec d'interaction Atelier (plan 025).
+ * Retourne null si la requête n'est pas relayable à l'utilisateur (elle garde
+ * alors sa réponse automatique sûre). Pur et testable — aucune valeur secrète.
+ */
+export function describeServerRequest(method, params = {}) {
+  if (APPROVAL_METHODS.has(method)) {
+    const detail =
+      String(params.command ?? (Array.isArray(params.argv) ? params.argv.join(" ") : "") ?? "") ||
+      String(params.path ?? params.file ?? "") ||
+      (params.permissions ? JSON.stringify(params.permissions).slice(0, 300) : "");
+    return {
+      interactionType: "approval",
+      title: method.includes("fileChange") || method === "applyPatchApproval"
+        ? "Modification de fichiers"
+        : method === "item/permissions/requestApproval"
+          ? "Permissions additionnelles"
+          : "Exécution de commande",
+      detail,
+      itemId: params.itemId ?? null,
+    };
+  }
+  if (method === "item/tool/requestUserInput") {
+    const questions = Array.isArray(params.questions) ? params.questions : [];
+    return {
+      interactionType: "user_input",
+      title: "L'agent a besoin d'une réponse",
+      fields: questions.slice(0, 3).map((q) => ({
+        id: String(q.id ?? ""),
+        question: String(q.question ?? ""),
+        ...(q.header ? { header: String(q.header) } : {}),
+        ...(Array.isArray(q.options)
+          ? { options: q.options.map((o) => ({ label: String(o.label ?? ""), ...(o.description ? { description: String(o.description) } : {}) })) }
+          : {}),
+        allowOther: !!q.isOther,
+        secret: !!q.isSecret,
+      })),
+      autoResolutionMs: params.autoResolutionMs ?? null,
+      itemId: params.itemId ?? null,
+    };
+  }
+  if (method === "mcpServer/elicitation/request") {
+    const base = {
+      interactionType: "mcp_elicitation",
+      title: `MCP ${String(params.serverName ?? "?")}`,
+      detail: String(params.message ?? ""),
+      itemId: null,
+    };
+    if (params.mode === "url" || params.url) {
+      let domain = "";
+      try { domain = new URL(String(params.url ?? "")).hostname; } catch {}
+      return { ...base, urlDomain: domain || String(params.url ?? "") };
+    }
+    if (params.mode === "form" && params.requestedSchema?.properties) {
+      const props = params.requestedSchema.properties;
+      const required = new Set(params.requestedSchema.required ?? []);
+      return {
+        ...base,
+        fields: Object.entries(props).slice(0, 8).map(([key, p]) => ({
+          id: key,
+          question: String(p?.title ?? p?.description ?? key),
+          header: key,
+          ...(Array.isArray(p?.enum)
+            ? { options: p.enum.map((v) => ({ label: String(v) })) }
+            : Array.isArray(p?.oneOf)
+              ? { options: p.oneOf.map((o) => ({ label: String(o?.const ?? ""), ...(o?.title ? { description: String(o.title) } : {}) })) }
+              : {}),
+          allowOther: false,
+          secret: false,
+          required: required.has(key),
+        })),
+      };
+    }
+    // openai/form ou schéma illisible : message + accepter/refuser
+    return base;
+  }
+  return null;
+}
+
+/** Construit la réponse RPC Codex depuis la réponse utilisateur (null = refus sûr). */
+export function answerFromInteraction(method, params, response, fullAccessFallback = false) {
+  if (APPROVAL_METHODS.has(method)) {
+    return buildApprovalResponse(method, response?.allow === true, params);
+  }
+  if (method === "item/tool/requestUserInput") {
+    const answers = response?.answers && typeof response.answers === "object" ? response.answers : {};
+    return { answers };
+  }
+  if (method === "mcpServer/elicitation/request") {
+    if (response?.action === "accept") {
+      return { action: "accept", content: response.content ?? {}, _meta: null };
+    }
+    return { action: "decline", content: null, _meta: null };
+  }
+  return fullAccessFallback ? buildApprovalResponse(method, true, params) : buildServerRequestFallback(method);
+}
+
 // ---------------------------------------------------------------------------
 // Client JSON-RPC (une instance app-server partagée par tout le sidecar)
 // ---------------------------------------------------------------------------
@@ -70,6 +175,7 @@ let server = null; // { proc, request(method, params), nextId }
 const pendingRpc = new Map(); // id -> { resolve, reject }
 const threadHandlers = new Map(); // codexThreadId -> (method, params) => void
 const threadOwners = new Map(); // codexThreadId -> atelier threadId
+const threadInteractions = new Map(); // codexThreadId -> relay(spec) => Promise<response|null>
 const loadedThreads = new Set(); // codexThreadIds déjà démarrés/répris dans CE serveur
 const threadSandbox = new Map(); // codexThreadId -> sandbox du thread
 const threadsWithGoal = new Set(); // codexThreadIds avec un goal actif (filtre les "cleared" sans goal)
@@ -95,6 +201,7 @@ function resetServerState(err) {
     } catch {}
   }
   threadHandlers.clear();
+  threadInteractions.clear();
 }
 
 // réponses automatiques aux demandes serveur : la politique d'approbation est
@@ -116,6 +223,24 @@ function answerServerRequest(msg) {
 
 function requestThreadId(msg) {
   return msg.params?.threadId ?? msg.params?.conversationId ?? null;
+}
+
+/** Relaye la requête à l'utilisateur si un relay d'interaction est enregistré
+ * pour ce thread (runs interactifs) ; sinon réponse automatique sûre (reviewer,
+ * quickAsk). Une réponse null (timeout/refus/déconnexion) = refus sûr. */
+async function handleServerRequest(msg) {
+  const m = msg.method ?? "";
+  const params = msg.params ?? {};
+  const tid = requestThreadId(msg);
+  const relay = tid ? threadInteractions.get(tid) : null;
+  if (relay) {
+    const spec = describeServerRequest(m, params);
+    if (spec) {
+      const response = await relay(spec);
+      return answerFromInteraction(m, params, response);
+    }
+  }
+  return answerServerRequest(msg);
 }
 
 function notifyServerRequest(msg, result) {
@@ -163,10 +288,15 @@ async function ensureServer() {
     let msg;
     try { msg = JSON.parse(line); } catch { return; }
     if (msg.id != null && msg.method) {
-      // requête serveur → client (approbations)
-      const result = answerServerRequest(msg);
-      notifyServerRequest(msg, result);
-      proc.stdin.write(JSON.stringify({ id: msg.id, result }) + "\n");
+      // requête serveur → client : ASYNCHRONE (plan 025) — le reader continue
+      // de traiter les autres messages pendant qu'une interaction attend
+      // l'utilisateur ; la réponse RPC est écrite à la résolution du waiter.
+      Promise.resolve(handleServerRequest(msg))
+        .catch(() => answerServerRequest(msg))
+        .then((result) => {
+          notifyServerRequest(msg, result);
+          try { proc.stdin.write(JSON.stringify({ id: msg.id, result }) + "\n"); } catch {}
+        });
       return;
     }
     if (msg.id != null) {
@@ -259,26 +389,39 @@ export function resolveCodexSafety(permissionMode, { model } = {}) {
   }
 }
 
-export function buildThreadOptions({ cwd, model, effort, webSearch, additionalDirectories, sandbox }) {
+export function buildThreadOptions({ cwd, model, effort, webSearch, additionalDirectories, sandbox, permissionMode }) {
   const config = {};
   let actualModel = model ?? null;
   const actualEffort = normalizeCodexEffort(effort);
+  // Politique (plan 025) : un sandbox EXPLICITE (reviewer read-only) prime ;
+  // sinon le mode de permission UI est résolu par resolveCodexSafety (repli
+  // sûr pour un mode inconnu) ; l'absence des deux = appelant programmatique
+  // historique (full access assumé explicitement, jamais un mode UI non résolu).
+  const safety = sandbox != null
+    ? { sandbox, approvalPolicy: "never" }
+    : permissionMode != null
+      ? resolveCodexSafety(permissionMode, { model: actualModel })
+      : { sandbox: "danger-full-access", approvalPolicy: "never" };
   if (webSearch) config.web_search = webSearch === "cached" ? "cached" : "live";
-  if (Array.isArray(additionalDirectories) && additionalDirectories.length) {
+  if (Array.isArray(additionalDirectories) && additionalDirectories.length &&
+      safety.sandbox !== "read-only") {
+    // additionalDirectories ne devient writable qu'en mode autorisant l'écriture
     config.sandbox_workspace_write = { writable_roots: additionalDirectories.map(String) };
   }
   return {
     cwd: cwd ?? null,
     model: actualModel,
-    approvalPolicy: "never",
-    sandbox: sandbox ?? "danger-full-access",
+    approvalPolicy: safety.approvalPolicy,
+    sandbox: safety.sandbox,
     ...(Object.keys(config).length ? { config } : {}),
-    ...(actualEffort ? { effortHint: actualEffort } : {}), // retiré avant l'appel RPC (turn/start)
+    ...(actualEffort ? { effortHint: actualEffort } : {}), // hints retirés avant l'appel RPC
+    ...(safety.collaborationMode ? { collaborationModeHint: safety.collaborationMode } : {}),
+    ...(safety.diagnostic ? { safetyDiagnosticHint: safety.diagnostic } : {}),
   };
 }
 
 async function openThread(srv, { sessionId, threadOpts, reuseLoaded = false }) {
-  const { effortHint, ...opts } = threadOpts;
+  const { effortHint, collaborationModeHint, safetyDiagnosticHint, ...opts } = threadOpts;
   let id;
   if (sessionId) {
     if (reuseLoaded && loadedThreads.has(sessionId)) return sessionId;
@@ -425,14 +568,20 @@ export async function run({
   additionalDirectories,
   sandbox,
   timeoutMs,
+  permissionMode, // mode Atelier → politique Codex réelle (plan 025)
   clientMessageId, // messageId Atelier → clientUserMessageId Codex (plan 025)
+  onInteraction, // relay(spec) => Promise<response|null> — runs interactifs seulement
   onEvent,
 }) {
   const srv = await ensureServer();
-  const threadOpts = buildThreadOptions({ cwd, model, effort, webSearch, additionalDirectories, sandbox });
+  const threadOpts = buildThreadOptions({ cwd, model, effort, webSearch, additionalDirectories, sandbox, permissionMode });
   const actualEffort = normalizeCodexEffort(effort);
   const codexId = await openThread(srv, { sessionId, threadOpts });
   if (threadId) threadOwners.set(codexId, threadId);
+  if (onInteraction) threadInteractions.set(codexId, onInteraction);
+  if (threadOpts.safetyDiagnosticHint) {
+    onEvent({ kind: "tool", name: "__permission-fallback", detail: threadOpts.safetyDiagnosticHint });
+  }
 
   // affichage SOBRE, aligné sur le provider Claude : une seule ligne par action
   // (event `tool`/`tool_update` avec libellé court), pas de carte d'activité.
@@ -827,13 +976,15 @@ export async function run({
     const input = buildCodexInput({ prompt, inputs, imagePath, attachments });
     // la réponse RPC arrive IMMÉDIATEMENT (turn inProgress) : elle donne le
     // turnId (nécessaire à turn/interrupt) ; la vraie fin = turn/completed
+    const collaborationMode = await resolvePlanCollaborationMode(srv, threadOpts, onEvent);
     const resp = await srv.request("turn/start", {
       threadId: codexId,
       input,
       ...(threadOpts.model ? { model: threadOpts.model } : {}),
       ...(actualEffort ? { effort: actualEffort } : {}),
       ...(clientMessageId ? { clientUserMessageId: String(clientMessageId) } : {}),
-      approvalPolicy: "never",
+      ...(collaborationMode ? { collaborationMode } : {}),
+      approvalPolicy: threadOpts.approvalPolicy ?? "never",
     });
     if (resp?.turn?.id) activeTurns.set(threadId ?? codexId, { codexId, turnId: resp.turn.id });
     await done;
@@ -847,9 +998,36 @@ export async function run({
     if (timer) clearTimeout(timer);
     clearInterval(heartbeat);
     threadHandlers.delete(codexId);
+    threadInteractions.delete(codexId);
     activeTurns.delete(threadId ?? codexId);
   }
   return { sessionId: codexId };
+}
+
+// Mode Plan : le protocole exige un collaborationMode complet (settings.model
+// REQUIS). Si le modèle du tour est connu on le fournit ; sinon on interroge
+// collaborationMode/list (mis en cache) — jamais d'objet plan incomplet. En
+// dernier recours le tour reste read-only/never SANS collaborationMode, avec
+// un diagnostic visible.
+let collabModesCache = null;
+async function resolvePlanCollaborationMode(srv, threadOpts, onEvent) {
+  const hint = threadOpts.collaborationModeHint;
+  if (!hint) return null;
+  if (hint.settings?.model) return hint;
+  if (!collabModesCache) {
+    try { collabModesCache = await srv.request("collaborationMode/list", {}); } catch { collabModesCache = {}; }
+  }
+  const modes = collabModesCache?.modes ?? collabModesCache?.collaborationModes ?? [];
+  const plan = Array.isArray(modes)
+    ? modes.find((m) => (m?.mode ?? m?.modeKind) === "plan" && m?.settings?.model)
+    : null;
+  if (plan) return { mode: "plan", settings: plan.settings };
+  onEvent({
+    kind: "tool",
+    name: "__permission-fallback",
+    detail: "mode Plan : collaborationMode indisponible — tour read-only sans plan natif",
+  });
+  return null;
 }
 
 /** Rate limits OpenAI du rollout le plus récent (primary=5h, secondary=hebdo). */

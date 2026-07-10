@@ -156,7 +156,33 @@ _(à compléter en tranches B–C)_
 
 ### interactions (approval, user input, elicitation)
 
-_(à compléter en tranche B)_
+Relais générique (event `interaction`, waiters sidecar) : le waiter survit à
+une déconnexion du client (répondable après reconnexion) ; timeout 120 s par
+défaut, `autoResolutionMs` respecté borné 1 s–10 min ; réponse tardive/double
+ignorée ; fin/interruption de turn → interactions pendantes `declined` AVANT
+le terminal ; les valeurs `secret` circulent uniquement dans le message WS
+`interactionResponse` — jamais dans les événements, `answerSummary`, journal
+ou logs.
+
+| Source | Méthode native | Relais | Réponse au refus sûr |
+|---|---|---|---|
+| Claude Ask | `canUseTool` (SDK, bloquant) | chemin historique `permissionRequest`/`permissionResponse` (120 s), event `permission` | deny |
+| Codex approvals | `item/commandExecution/requestApproval`, `item/fileChange/requestApproval`, `item/permissions/requestApproval`, `execCommandApproval`, `applyPatchApproval` | `interaction` approval (Allow once / Deny) sur les runs interactifs ; auto-réponse par sandbox (full uniquement) pour reviewer/quickAsk | decline/denied ; permissions vides + `strictAutoReview` |
+| Codex user input | `item/tool/requestUserInput` (1-3 questions, options, `isOther`, `isSecret`) | `interaction` user_input (formulaire, Other, secret=password) | `{answers:{}}` |
+| MCP elicitation | `mcpServer/elicitation/request` form / openai-form / url | `interaction` mcp_elicitation (champs du schéma form ; url → domaine + accepter/refuser, JAMAIS d'ouverture sans clic) | `{action:"decline"}` |
+| Dynamic tool | `item/tool/call` | non relayé : réponse `unsupported` explicite (Atelier ne déclare aucun dynamic tool client) | `success:false` |
+
+Réponse WS frontend : `{type:"interactionResponse", requestId, response}` avec
+`response` = `{allow}` (approval), `{answers}` (user_input, valeurs secrètes
+incluses ICI seulement), `{action, content?}` (elicitation).
+
+Câblage des politiques : `buildThreadOptions` — un `sandbox` EXPLICITE
+(reviewer read-only) prime et n'est jamais escaladé ; sinon `permissionMode`
+résolu par `resolveCodexSafety` ; l'absence des deux = appelant programmatique
+historique (full access explicite). `additionalDirectories` writable seulement
+hors read-only. Mode Plan : `collaborationMode` complet (settings.model du
+tour, sinon `collaborationMode/list` mis en cache ; introuvable → tour
+read-only sans plan natif + diagnostic visible `__permission-fallback`).
 
 ### usage, goal, todos, compact, interrupt, done, error, heartbeat
 

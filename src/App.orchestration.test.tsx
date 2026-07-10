@@ -345,4 +345,52 @@ describe("orchestration App — caractérisation", () => {
     expect(screen.getByText(/premier appel/)).toBeTruthy();
     expect(screen.getByText(/second appel/)).toBeTruthy();
   });
+
+  it("interaction pending → carte ; réponse → WS interactionResponse ; ré-émission answered → figée sans doublon (plan 025)", async () => {
+    const { sock } = await mountApp();
+    await pushThreads(sock);
+    await selectThread(sock, "Fil A — albédo");
+
+    const meta = (eventId: string, sequence: number) => ({
+      schemaVersion: 1, eventId, provider: "codex", threadId: "thread-A",
+      turnId: "turn-1", itemId: "req-appr-1", sequence, ts: 1, durable: true, origin: "provider",
+    });
+    await push(sock, {
+      type: "event", threadId: "thread-A",
+      event: {
+        kind: "interaction", requestId: "req-appr-1", interactionType: "approval",
+        title: "Exécuter rm -rf build ?", detail: "rm -rf build", state: "pending",
+        meta: meta("e-int-1", 2),
+      },
+    });
+    // la carte apparaît avec ses boutons
+    expect(screen.getByText("Exécuter rm -rf build ?")).toBeTruthy();
+    const allowBtn = screen.getByRole("button", { name: t("interaction.allow-once") });
+    await act(async () => {
+      allowBtn.click();
+      await flushMicrotasks(4);
+    });
+
+    // le message WS interactionResponse part avec la réponse du contrat
+    const responses = sock.sent.map((s) => JSON.parse(s)).filter((m) => m.type === "interactionResponse");
+    expect(responses).toHaveLength(1);
+    expect(responses[0].requestId).toBe("req-appr-1");
+    expect(responses[0].response).toEqual({ allow: true });
+    // marquage optimiste : la carte est déjà figée en attendant l'état final
+    expect(screen.queryByRole("button", { name: t("interaction.allow-once") })).toBeNull();
+
+    // le sidecar ré-émet le MÊME requestId à l'état final : remplacement en
+    // place (aucune 2e carte), résumé visible, toujours non éditable
+    await push(sock, {
+      type: "event", threadId: "thread-A",
+      event: {
+        kind: "interaction", requestId: "req-appr-1", interactionType: "approval",
+        title: "Exécuter rm -rf build ?", detail: "rm -rf build", state: "answered",
+        answerSummary: "autorisé une fois", meta: meta("e-int-2", 3),
+      },
+    });
+    expect(screen.getAllByText("Exécuter rm -rf build ?")).toHaveLength(1);
+    expect(screen.getByText("autorisé une fois")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: t("interaction.allow-once") })).toBeNull();
+  });
 });

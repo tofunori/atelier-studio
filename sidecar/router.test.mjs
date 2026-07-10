@@ -451,6 +451,112 @@ describe("attribution des tours (plan 025)", () => {
   });
 });
 
+describe("relay d'interactions (plan 025 step 5)", () => {
+  const flush = () => new Promise((r) => setTimeout(r, 10));
+
+  function interactionSetup() {
+    const emitted = [];
+    const dir = mkdtempSync(join(tmpdir(), "as-int-"));
+    const { ThreadStore } = threadStoreModule;
+    const store = new ThreadStore(join(dir, "threads.json"));
+    let relay = null;
+    let providerDone = null;
+    const ctx = {
+      send: (m) => emitted.push(m),
+      broadcast: (m) => emitted.push(m),
+      store,
+      gitops: { snapshot: async () => "s".repeat(40), isRepo: async () => true, changedSince: async () => [], numstat: async () => [] },
+      ledger: { append: async () => {} },
+      providers: {
+        codex: {
+          run: (opts) => {
+            relay = opts.onInteraction;
+            return new Promise((resolve) => { providerDone = () => { opts.onEvent({ kind: "done", ok: true, result: "" }); resolve({ sessionId: "cx-1" }); }; });
+          },
+        },
+      },
+    };
+    return { ctx, emitted, getRelay: () => relay, finishProvider: () => providerDone?.() };
+  }
+
+  const interactions = (emitted) =>
+    emitted.filter((m) => m.type === "event" && m.event?.kind === "interaction").map((m) => m.event);
+
+  it("pending → réponse WS → answered ; valeurs secrètes JAMAIS dans answerSummary", async () => {
+    const { ctx, emitted, getRelay } = interactionSetup();
+    await route({ type: "send", provider: "codex", threadId: "i1", projectRoot: "/p",
+      prompt: "x", clientMessageId: "m1", displayEvent: { kind: "user", text: "x" } }, ctx);
+    await flush();
+
+    const relayPromise = getRelay()({
+      interactionType: "user_input",
+      title: "L'agent a besoin d'une réponse",
+      fields: [
+        { id: "q1", header: "Token", question: "Ton token ?", secret: true },
+        { id: "q2", header: "Nom", question: "Ton nom ?" },
+      ],
+      itemId: "it-9",
+    });
+    await flush();
+
+    const pendingEv = interactions(emitted).find((e) => e.state === "pending");
+    expect(pendingEv).toBeTruthy();
+    expect(pendingEv.meta?.turnId).toBeTruthy();
+    expect(pendingEv.meta?.itemId).toBe("it-9");
+
+    await route({ type: "interactionResponse", requestId: pendingEv.requestId,
+      response: { answers: { q1: "SECRET-XYZ", q2: "Thierry" } } }, ctx);
+    const resp = await relayPromise;
+    expect(resp.answers.q1).toBe("SECRET-XYZ"); // la valeur atteint le provider…
+    await flush();
+    const answered = interactions(emitted).find((e) => e.state === "answered");
+    expect(answered).toBeTruthy();
+    expect(answered.answerSummary).toContain("Thierry");
+    expect(answered.answerSummary).not.toContain("SECRET-XYZ"); // …jamais le résumé
+    expect(JSON.stringify(interactions(emitted))).not.toContain("SECRET-XYZ");
+  });
+
+  it("réponse double ignorée ; fin de turn → interactions pendantes déclinées", async () => {
+    const { ctx, emitted, getRelay, finishProvider } = interactionSetup();
+    await route({ type: "send", provider: "codex", threadId: "i2", projectRoot: "/p",
+      prompt: "x", clientMessageId: "m1", displayEvent: { kind: "user", text: "x" } }, ctx);
+    await flush();
+
+    // interaction 1 : répondue deux fois — la seconde est un no-op idempotent
+    const p1 = getRelay()({ interactionType: "approval", title: "Exécution de commande", detail: "ls" });
+    await flush();
+    const ev1 = interactions(emitted).find((e) => e.state === "pending");
+    await route({ type: "interactionResponse", requestId: ev1.requestId, response: { allow: true } }, ctx);
+    await route({ type: "interactionResponse", requestId: ev1.requestId, response: { allow: false } }, ctx);
+    expect((await p1).allow).toBe(true);
+    await flush();
+    expect(interactions(emitted).filter((e) => e.requestId === ev1.requestId && e.state !== "pending")).toHaveLength(1);
+
+    // interaction 2 : jamais répondue — le terminal du turn la décline sûrement
+    const p2 = getRelay()({ interactionType: "approval", title: "Exécution de commande", detail: "rm x" });
+    await flush();
+    finishProvider();
+    await flush();
+    expect(await p2).toBeNull();
+    const declined = interactions(emitted).find((e) => e.state === "declined");
+    expect(declined).toBeTruthy();
+    const kinds = emitted.filter((m) => m.type === "event").map((m) => m.event.kind);
+    expect(kinds.indexOf("done")).toBeGreaterThan(kinds.lastIndexOf("interaction"));
+  });
+
+  it("autoResolutionMs borné : expiration → refus sûr + état expired", async () => {
+    const { ctx, emitted, getRelay } = interactionSetup();
+    await route({ type: "send", provider: "codex", threadId: "i3", projectRoot: "/p",
+      prompt: "x", clientMessageId: "m1", displayEvent: { kind: "user", text: "x" } }, ctx);
+    await flush();
+
+    const p = getRelay()({ interactionType: "approval", title: "Exécution", detail: "sleep", autoResolutionMs: 1000 });
+    await new Promise((r) => setTimeout(r, 1200));
+    expect(await p).toBeNull();
+    expect(interactions(emitted).some((e) => e.state === "expired")).toBe(true);
+  });
+});
+
 describe("quickAsk", () => {
   // laisse se dérouler les microtâches du .then/.catch de p.run(...)
   const flush = () => new Promise((r) => setTimeout(r, 0));

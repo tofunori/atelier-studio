@@ -1942,6 +1942,24 @@ body.dragging iframe { pointer-events: none; }
 .perm-deny { background: transparent; border: 1px solid var(--border2); color: var(--muted); }
 .perm-deny:hover { color: var(--fg2); border-color: var(--border-strong, var(--border2)); }
 .perm-verdict { margin-top: 8px; font-size: var(--fs-m); color: var(--muted); }
+/* ===== carte interaction harnais (plan 025, step 5) — étend .perm-card ===== */
+.int-title { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.int-type { margin-left: auto; flex: none; font-size: var(--fs-xs); color: var(--muted2); }
+.int-detail { margin-top: 4px; font-size: var(--fs-m); color: var(--muted); white-space: pre-wrap; }
+.int-domain { margin-top: 8px; font-family: var(--code-font); font-size: var(--fs-m); color: var(--fg2); }
+.int-field { margin-top: 12px; }
+.int-field-header { font-size: var(--fs-xs); color: var(--muted2); text-transform: uppercase;
+  letter-spacing: .05em; margin-bottom: 4px; }
+.int-q { font-size: var(--fs-m); font-weight: 500; color: var(--fg); }
+.int-opts { display: flex; flex-direction: column; gap: 4px; margin-top: 4px; }
+.int-opt { display: flex; align-items: baseline; gap: 8px; font-size: var(--fs-m); color: var(--fg2);
+  cursor: pointer; }
+.int-opt input { accent-color: var(--accent); margin: 0; flex: none; }
+.int-opt-desc { font-size: var(--fs-xs); color: var(--muted2); }
+.int-input { display: block; width: 100%; margin-top: 4px; padding: 4px 8px; font: inherit;
+  font-size: var(--fs-m); color: var(--fg); background: var(--bg-side);
+  border: 1px solid var(--border2); border-radius: var(--r-s); }
+.int-input:focus { outline: none; border-color: var(--accent); }
 /* détail d'outil (Bash(git status)) */
 .tool-detail { color: var(--muted2); font-family: var(--code-font); font-size: var(--fs-s);
   margin-left: 6px; }
