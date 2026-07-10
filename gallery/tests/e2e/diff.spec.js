@@ -97,11 +97,13 @@ async function openEditor(page, url) {
 }
 
 async function saveOnce(page) {
+  const savedLabel = page.locator('#sbSaved');
+  await savedLabel.evaluate(element => { element.textContent = ''; });
   const saved = page.waitForResponse(response =>
     response.url().endsWith('/codesave') && response.request().method() === 'POST');
   await page.locator('#saveBtn').evaluate(button => button.click());
   expect((await saved).ok()).toBe(true);
-  await expect(page.locator('#sbSaved')).toContainText('sauvegardé');
+  await expect(savedLabel).toContainText('sauvegardé');
 }
 
 async function replaceTextAndSave(page, text) {
