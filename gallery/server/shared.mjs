@@ -90,6 +90,51 @@ export function safePath(input) {
   return p === root || p.startsWith(root + path.sep) ? p : null;
 }
 
+// Jeton local partagé avec l'app Tauri (commande gallery_token) : fichier 0600
+// sous ~ qu'aucune page web ne peut lire — seule l'app peut donc présenter le
+// jeton. Créé au boot du serveur ("wx" : le premier processus gagne, les autres
+// relisent).
+const TOKEN_FILE = path.join(os.homedir(), ".atelier-studio", "gallery_token");
+let TOKEN_CACHE = null;
+
+export function galleryToken() {
+  if (TOKEN_CACHE) return TOKEN_CACHE;
+  try {
+    const tok = fs.readFileSync(TOKEN_FILE, "utf8").trim();
+    if (tok) {
+      TOKEN_CACHE = tok;
+      return tok;
+    }
+  } catch {}
+  const fresh = crypto.randomBytes(32).toString("hex");
+  try {
+    fs.mkdirSync(path.dirname(TOKEN_FILE), { recursive: true, mode: 0o700 });
+    fs.writeFileSync(TOKEN_FILE, fresh, { encoding: "utf8", mode: 0o600, flag: "wx" });
+    TOKEN_CACHE = fresh;
+  } catch {
+    try {
+      TOKEN_CACHE = fs.readFileSync(TOKEN_FILE, "utf8").trim() || null;
+    } catch {
+      TOKEN_CACHE = null;
+    }
+  }
+  return TOKEN_CACHE;
+}
+
+// safePath des endpoints éditeur : une requête portant le jeton local peut
+// sortir du projet, mais seulement sous ~/Documents ou ~/Desktop (fichiers
+// hors projet ouverts depuis le chat). Sans jeton valide : sandbox projet
+// inchangé.
+export function editorPath(input, token) {
+  const p = safePath(input);
+  if (p) return p;
+  if (!STUDIO || !token || token !== galleryToken()) return null;
+  const q = realpathOrResolve(expandHome(String(input || "")));
+  const home = os.homedir();
+  const allowed = ["Documents", "Desktop"].some((d) => q.startsWith(path.join(home, d) + path.sep));
+  return allowed ? q : null;
+}
+
 export function ensureDir(dir) {
   fs.mkdirSync(dir, { recursive: true });
 }

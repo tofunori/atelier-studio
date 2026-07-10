@@ -10,6 +10,7 @@ import {
   localOnly,
   md5,
   readJsonRequest,
+  editorPath,
   realpathOrResolve,
   relSlash,
   safePath,
@@ -342,12 +343,15 @@ async function gitBase(root) {
 
 export async function handleEditorsGet(req, res, url) {
   const pathname = url.pathname;
+  // jeton local : les endpoints éditeur acceptent les fichiers hors projet
+  // (~/Documents, ~/Desktop) quand la requête le porte — voir editorPath()
+  const tok = url.searchParams.get("token");
   if (pathname === "/githead") {
     // version committée (HEAD) d'un fichier suivi par git — pour la gouttière
     // et la pseudo-version « HEAD » du comparateur. ok:false = pas de dépôt,
     // fichier non suivi, ou git absent : le client dégrade en silence.
     try {
-      const p = safePath(url.searchParams.get("path"));
+      const p = editorPath(url.searchParams.get("path"), tok);
       if (!p) return sendJson(res, 200, { ok: false });
       const dir = path.dirname(p);
       const top = await gitOut(["rev-parse", "--show-toplevel"], dir);
@@ -373,7 +377,7 @@ export async function handleEditorsGet(req, res, url) {
     // {items:[{b,t}], last} — last = dernier texte connu du buffer, pour le
     // rattrapage « modifié pendant que l'app était fermée ».
     try {
-      const p = safePath(url.searchParams.get("path"));
+      const p = editorPath(url.searchParams.get("path"), tok);
       if (!p) return sendJson(res, 200, { ok: false });
       const file = path.join(PROJECT, ".fig_thumbs", "dv_versions", `${md5(realpathOrResolve(p))}.json`);
       if (!fs.existsSync(file)) return sendJson(res, 200, { ok: true, items: [], last: null });
@@ -386,7 +390,7 @@ export async function handleEditorsGet(req, res, url) {
   if (pathname === "/gitlog") {
     // commits touchant le fichier (panneau historique) — {sha, ts, msg}
     try {
-      const p = safePath(url.searchParams.get("path"));
+      const p = editorPath(url.searchParams.get("path"), tok);
       if (!p) return sendJson(res, 200, { ok: false });
       const dir = path.dirname(p);
       const top = await gitOut(["rev-parse", "--show-toplevel"], dir);
@@ -408,7 +412,7 @@ export async function handleEditorsGet(req, res, url) {
     // message de commit proposé par Haiku à partir du diff vs HEAD du fichier.
     // ok:false = pas de diff / pas de claude : le client garde le message auto.
     try {
-      const p = safePath(url.searchParams.get("path"));
+      const p = editorPath(url.searchParams.get("path"), tok);
       if (!p) return sendJson(res, 200, { ok: false });
       const dir = path.dirname(p);
       const top = await gitOut(["rev-parse", "--show-toplevel"], dir);
@@ -454,7 +458,7 @@ export async function handleEditorsGet(req, res, url) {
   if (pathname === "/gitshow") {
     // texte du fichier à un commit donné (Comparer / Rétablir de l'historique)
     try {
-      const p = safePath(url.searchParams.get("path"));
+      const p = editorPath(url.searchParams.get("path"), tok);
       const sha = String(url.searchParams.get("sha") || "");
       if (!p || !/^[0-9a-f]{4,40}$/i.test(sha)) return sendJson(res, 200, { ok: false });
       const dir = path.dirname(p);
@@ -472,7 +476,7 @@ export async function handleEditorsGet(req, res, url) {
   if (pathname === "/texroot") {
     try {
       if (!url.searchParams.has("path")) throw new Error("path");
-      const p = safePath(url.searchParams.get("path"));
+      const p = editorPath(url.searchParams.get("path"), tok);
       if (!p) return sendJson(res, 403, { error: "outside the project" });
       const root = findTexRoot(p);
       return sendJson(res, 200, { root, pdf: `${root.replace(/\.[^.]*$/, "")}.pdf` });
@@ -512,7 +516,7 @@ export async function handleEditorsGet(req, res, url) {
   if (pathname === "/code") {
     try {
       if (!url.searchParams.has("path")) throw new Error("path");
-      const p = safePath(url.searchParams.get("path"));
+      const p = editorPath(url.searchParams.get("path"), tok);
       if (!p || !fs.existsSync(p) || !fs.statSync(p).isFile()) {
         return sendJson(res, 404, { error: "file not found or outside the project" });
       }
@@ -563,6 +567,8 @@ export async function handleEditorsGet(req, res, url) {
 }
 
 export async function handleEditorsPost(req, res, url) {
+  // même contrat que handleEditorsGet : jeton local = accès hors projet borné
+  const tok = url.searchParams.get("token");
   const pathname = url.pathname;
   if (pathname === "/save-svg") {
     try {
@@ -740,7 +746,7 @@ export async function handleEditorsPost(req, res, url) {
   if (pathname === "/compile") {
     try {
       const payload = await readJsonRequest(req);
-      const p = safePath(payload.path);
+      const p = editorPath(payload.path, tok);
       if (!p) return sendJson(res, 403, { error: "outside the project" });
       const root = findTexRoot(p);
       const r = await spawnCollect(LATEXMK, [
@@ -774,8 +780,8 @@ export async function handleEditorsPost(req, res, url) {
   if (pathname === "/synctex") {
     try {
       const payload = await readJsonRequest(req);
-      const tex = safePath(payload.tex);
-      const pdf = safePath(payload.pdf);
+      const tex = editorPath(payload.tex, tok);
+      const pdf = editorPath(payload.pdf, tok);
       if (!tex || !pdf) return sendJson(res, 403, { error: "outside the project" });
       if (payload.dir === "view") {
         const r = await spawnCollect(SYNCTEX, ["view", "-i", `${payload.line}:${payload.col || 1}:${tex}`, "-o", pdf], {
@@ -829,7 +835,7 @@ export async function handleEditorsPost(req, res, url) {
     // écrire l'historique de versions (client déjà plafonné à ~1,5 Mo)
     try {
       const payload = await readJsonRequest(req, 8 * 1024 * 1024);
-      const p = safePath(payload.path);
+      const p = editorPath(payload.path, tok);
       if (!p) return sendJson(res, 403, { error: "outside the project" });
       const items = Array.isArray(payload.items)
         ? payload.items.filter((it) => it && typeof it.b === "string").map((it) => ({ b: it.b, t: it.t || 0 }))
@@ -848,7 +854,7 @@ export async function handleEditorsPost(req, res, url) {
     // commit du fichier courant SEUL (jamais -A) — bouton commit de l'éditeur
     try {
       const payload = await readJsonRequest(req);
-      const p = safePath(payload.path);
+      const p = editorPath(payload.path, tok);
       const msg = String(payload.message || "").trim();
       if (!p) return sendJson(res, 403, { error: "outside the project" });
       if (!msg) return sendJson(res, 400, { error: "message vide" });
@@ -879,7 +885,7 @@ export async function handleEditorsPost(req, res, url) {
   if (pathname === "/codesave") {
     try {
       const payload = await readJsonRequest(req);
-      const p = safePath(payload.path);
+      const p = editorPath(payload.path, tok);
       if (!p) return sendJson(res, 403, { error: "outside the project" });
       const diskMtime = fs.existsSync(p) ? fs.statSync(p).mtimeMs / 1000 : 0;
       if (payload.mtime && Math.abs(diskMtime - payload.mtime) > 0.001) {
