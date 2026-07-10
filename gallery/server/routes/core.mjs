@@ -149,7 +149,9 @@ export async function handleCoreGet(req, res, url) {
   }
   if (pathname === "/raw") {
     try {
-      const p = safePath(url.searchParams.get("path"));
+      // jeton local : le split PDF de latex_studio doit pouvoir charger le
+      // PDF compilé d'un .tex hors projet (même bornage que /compile)
+      const p = editorPath(url.searchParams.get("path"), url.searchParams.get("token"));
       if (!p || !fs.existsSync(p) || !fs.statSync(p).isFile()) return sendEmpty(res, 404);
       const data = fs.readFileSync(p);
       return sendBuffer(res, 200, data, {

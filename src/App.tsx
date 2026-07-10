@@ -1391,7 +1391,13 @@ export default function App() {
           const name = target.split("/").pop() ?? target;
           fetch(`${new URL(atelierUrlRef.current).origin}/findfile?name=${encodeURIComponent(name)}`)
             .then((r) => r.json())
-            .then((j) => openFileTabRef.current(j?.hits?.[0] ?? target, line))
+            .then((j) => {
+              // préférer le hit qui porte aussi les répertoires de la réf
+              // ("data/x/plot.csv") à un simple homonyme ailleurs
+              const hits: string[] = Array.isArray(j?.hits) ? j.hits : [];
+              const best = hits.find((h) => h === target || h.endsWith("/" + target)) ?? hits[0];
+              openFileTabRef.current(best ?? target, line);
+            })
             .catch(() => openFileTabRef.current(target, line));
           return;
         }

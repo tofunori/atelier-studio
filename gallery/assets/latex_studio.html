@@ -10,8 +10,10 @@
      ?token=…, le propager à toutes les requêtes same-origin de la page —
      y compris celles de diff_versions.js. Sans jeton : comportement inchangé. */
   var tok = null;
+  window.__tokq = ""; /* suffixe "&token=…" pour les URLs hors fetch (pdf.js) */
   try{ tok = new URLSearchParams(location.search).get("token"); }catch(e){}
   if(!tok) return;
+  window.__tokq = "&token=" + encodeURIComponent(tok);
   var orig = window.fetch.bind(window);
   window.fetch = function(input, init){
     try{
@@ -1557,7 +1559,7 @@ let _pdfToken = 0;
 async function loadPdf(){
   const tok = ++_pdfToken;
   try{
-    const doc = await pdfjsLib.getDocument({url: "/raw?path=" + encodeURIComponent(pdfPath) + "&t=" + Date.now(),
+    const doc = await pdfjsLib.getDocument({url: "/raw?path=" + encodeURIComponent(pdfPath) + (window.__tokq || "") + "&t=" + Date.now(),
       standardFontDataUrl: "/.fig_thumbs/pdfjs/standard_fonts/", cMapUrl: "/.fig_thumbs/pdfjs/cmaps/", cMapPacked: true}).promise;
     if(tok !== _pdfToken) return;
     pdfDoc = doc;

@@ -10,8 +10,10 @@
      ?token=…, le propager à toutes les requêtes same-origin de la page —
      y compris celles de diff_versions.js. Sans jeton : comportement inchangé. */
   var tok = null;
+  window.__tokq = ""; /* suffixe "&token=…" pour les URLs hors fetch (pdf.js) */
   try{ tok = new URLSearchParams(location.search).get("token"); }catch(e){}
   if(!tok) return;
+  window.__tokq = "&token=" + encodeURIComponent(tok);
   var orig = window.fetch.bind(window);
   window.fetch = function(input, init){
     try{
