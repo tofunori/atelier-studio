@@ -2027,7 +2027,8 @@ body.dragging iframe { pointer-events: none; }
 .goal-bar-badge { flex: none; font-size: var(--fs-xs); text-transform: uppercase;
   letter-spacing: 0.07em; color: var(--muted2); border: 1px solid var(--border2);
   border-radius: var(--r-pill); padding: 1px 7px; }
-.goal-bar.paused .goal-bar-badge { color: var(--u-warn, #e0b74a);
+.goal-bar.paused .goal-bar-badge, .goal-bar.blocked .goal-bar-badge {
+  color: var(--u-warn, #e0b74a);
   border-color: color-mix(in srgb, var(--u-warn, #e0b74a) 40%, var(--border2)); }
 .goal-bar-actions { display: flex; align-items: center; gap: 2px; flex: none; margin-left: 2px; }
 .goal-bar-btn { width: 24px; height: 24px; border: none; background: none;

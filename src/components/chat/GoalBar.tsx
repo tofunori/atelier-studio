@@ -44,6 +44,9 @@ export function GoalBar(props: {
 
   const paused = goal.status === "paused";
   const active = goal.status === "active";
+  // blocked : le moteur de goals attend l'utilisateur (objectif flou, question
+  // posée dans le fil) — relançable via goalSet status:"active"
+  const resumable = paused || goal.status === "blocked";
   const label = active ? t("goal.pinned.active") : paused ? t("goal.pinned.paused") : t("goal.live");
   const tokens = fmtTokens(goal);
 
@@ -69,12 +72,12 @@ export function GoalBar(props: {
           >
             <svg width="12" height="12" viewBox="0 0 13 13" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"><path d="M9.5 1.8l1.7 1.7L4.5 10.2l-2.3.6.6-2.3z" /></svg>
           </button>
-          {(active || paused) && (
+          {(active || resumable) && (
             <button
-              type="button" className="goal-bar-btn" title={paused ? t("goal.resume") : t("goal.pause")}
-              onClick={() => onGoal("set", goal.objective, paused ? "active" : "paused")}
+              type="button" className="goal-bar-btn" title={resumable ? t("goal.resume") : t("goal.pause")}
+              onClick={() => onGoal("set", goal.objective, resumable ? "active" : "paused")}
             >
-              {paused
+              {resumable
                 ? <svg width="12" height="12" viewBox="0 0 13 13" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"><path d="M4 2.8l6 3.7-6 3.7z" /></svg>
                 : <svg width="12" height="12" viewBox="0 0 13 13" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"><path d="M4.4 2.8v7.4M8.6 2.8v7.4" /></svg>}
             </button>
