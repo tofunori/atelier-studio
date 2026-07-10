@@ -1,8 +1,11 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, lazy } from "react";
 import Explorer from "./Explorer";
 import BrowserTab from "./BrowserTab";
 import GitSurface from "./GitSurface";
-import TerminalSurface from "./TerminalSurface";
+// xterm (~350 KB min) hors de l'entrée : chargé à la PREMIÈRE visite du
+// terminal, puis reste monté (visited) — cycle de vie inchangé (plan 022)
+const TerminalSurface = lazy(() => import("./TerminalSurface"));
+import { LazyBoundary } from "./LazyBoundary";
 import BiblioSurface from "./BiblioSurface";
 import GeneratorSurface from "./GeneratorSurface";
 import { t } from "../lib/i18n";
@@ -319,7 +322,9 @@ export default function AtelierPane({
       {/* ---- surface Terminal ---- */}
       {visited.has("terminal") && (
         <div className="pane-slot" style={slotStyle("terminal")}>
-          <TerminalSurface ws={ws} cwd={projectRoot} visible={shown("terminal")} />
+          <LazyBoundary fallback={<div className="term-cell" />}>
+            <TerminalSurface ws={ws} cwd={projectRoot} visible={shown("terminal")} />
+          </LazyBoundary>
         </div>
       )}
 
