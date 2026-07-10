@@ -115,3 +115,20 @@ vérifier en lecture seule (`accessSync`) avant d'écrire. Nota : le blocage est
 INVISIBLE en manuel (`node index.mjs` depuis un terminal marche parfaitement)
 — seul le contexte app le déclenche ; tester avec l'app, pas seulement le
 sidecar isolé.
+
+## Piège vérifié (2026-07-10) : fenêtre « asset not found: index.html »
+
+Symptôme : l'app se lance (`tauri-app` vivant) mais la fenêtre affiche
+« asset not found: index.html » — le frontend ne boote jamais, donc AUCUN
+sidecar n'est spawné (`sidecar_port` n'est jamais invoqué). Ne pas
+diagnostiquer côté sidecar : c'est l'embed des assets qui a échoué.
+
+Cause : cache d'expansion de `generate_context!` (cargo) — le binaire est
+compilé sans le payload frontend malgré un `dist/` complet et un build exit 0.
+
+Contrôle rapide : taille de
+`bundle/macos/Atelier.app/Contents/MacOS/tauri-app` — **~17 Mo attendu** ;
+~9-10 Mo = assets absents.
+
+Fix : `touch src-tauri/src/lib.rs src-tauri/src/main.rs src-tauri/tauri.conf.json`
+puis rebuild (rapide, cargo caché) ; revérifier la taille avant de relancer.
