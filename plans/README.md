@@ -2,7 +2,9 @@
 
 Générés par le skill improve le 2026-07-07 (commit `fe78ede`), audit ciblé : **fiabilité du harnais Claude Agent SDK** (chaîne SDK → `sidecar/providers/claude.mjs` → `router.mjs` → WS → `src/App.tsx` → historique). Session non interactive : plans écrits pour le top 3 par levier (défaut du skill).
 
-Chaque exécuteur : lire le plan en entier avant de commencer, respecter ses conditions STOP, mettre à jour sa ligne ici en terminant.
+Chaque exécuteur : lire le plan en entier avant de commencer et respecter ses
+conditions STOP. Lorsqu'un réviseur orchestre l'exécution, **le réviseur seul**
+met à jour la ligne de statut et le commit accepté dans cet index.
 
 ## Execution order & status
 
@@ -151,3 +153,64 @@ aucun fichier hors scope n'est modifié; aucun push n'est fait sans demande.
 Les analyses scientifiques exécutées par les agents, le contenu Zotero et les
 CLIs tiers ne sont pas audités ici. Le plan 013 n'est pas un audit juridique des
 licences ni une promesse de notarisation réussie.
+
+---
+
+## Diff éditeur et migration complète CM6 — 2026-07-10
+
+Ce lot a été planifié au commit `9f7341e`. Son contrat produit prioritaire est
+immuable : **une action complète d'agent, une sauvegarde ou un rechargement =
+une intervention**, quel que soit le nombre de mots ou de zones modifiées. Les
+zones internes restent surlignées pour expliquer le changement, mais ne sont
+jamais comptées comme des interventions séparées.
+
+### Execution order & status
+
+| Plan | Title | Priority | Effort | Depends on | Status |
+|------|-------|----------|--------|------------|--------|
+| 026 | Verrouiller le contrat du diff en navigateur | P0 | M | — | TODO |
+| 027 | Enregistrer des interventions explicites | P0 | L | 026 | TODO |
+| 028 | Rendre restauration et persistance durables | P0 | L | 027 | TODO |
+| 029 | Rendre les gros diffs non bloquants | P1 | M | 028 | TODO |
+| 030 | Rendre CM6 reproductible et compatible diff | P1 | L | 029 | TODO |
+| 031 | Migrer les trois surfaces vers CM6 avec fallback | P1 | L | 030 | TODO |
+| 032 | Retirer CM5 après observation et accord humain | P2 | M | 031 + accord | TODO |
+
+Quand un plan devient DONE, le réviseur remplace son statut par
+`DONE (accepted <sha>)`. Le worktree du plan suivant doit être créé depuis ce
+commit accepté; partir de `9f7341e` seul est interdit pour les plans dépendants.
+
+### Dependency notes
+
+- 026 précède toute refonte afin qu'un exécuteur ne puisse pas réintroduire un
+  diff par mot.
+- 027 corrige le modèle de données avant 028 : persister durablement le modèle
+  actuel figerait ses ambiguïtés.
+- 029 vient après la correction fonctionnelle : le Worker ne doit pas déplacer
+  la sémantique du diff.
+- 030 prouve le diff complet sous CM6 avant de toucher `code_editor.html` et
+  `md_viewer.html`.
+- 031 garde CM5 comme rollback pendant l'observation réelle.
+- 032 ne peut commencer sans approbation explicite de Thierry ; aucun agent ou
+  test automatisé ne peut satisfaire cette porte à sa place.
+
+### Delegation and review protocol
+
+- Un seul plan est confié à un exécuteur à la fois, dans une branche/worktree
+  isolé après drift check. Pour 027-032, le parent du worktree est
+  obligatoirement le commit `accepted <sha>` du plan précédent.
+- Le plan complet est inclus dans le prompt de l'exécuteur ; il ne reçoit pas
+  les décisions d'architecture à réinventer.
+- Codex relit chaque hunk, vérifie le scope, relance tous les done criteria et
+  audite les nouvelles assertions avant verdict APPROVE/REVISE/BLOCK.
+- Maximum deux cycles de correction par exécuteur. La fusion dans la branche
+  utilisateur reste une décision de Thierry.
+
+### Findings considered and rejected
+
+- **Un diff/version par mot** : rejeté explicitement. Cela détruit la lisibilité
+  des passages d'agent et contredit le contrat d'intervention.
+- **Basculer CM6 immédiatement pour réparer le diff** : rejeté. Le modèle du
+  diff doit être corrigé indépendamment, puis prouvé sur CM5 et CM6.
+- **Supprimer CM5 dès que les tests CM6 passent** : rejeté. Le fallback reste
+  requis jusqu'à l'acceptation sur du travail réel dans l'app buildée.
