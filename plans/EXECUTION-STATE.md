@@ -30,6 +30,10 @@ adversariaux).
   basée sur la tranche 024 validée par Codex ; PAS poussé — revue Codex avant
   push/merge). Détails : plans/README.md.
 
+## Fait — en attente de revue Codex (2026-07-10, tranche 021)
+- 021 Settings/a11y/responsive/QA visuelle (branche `claude/atelier-021-settings-a11y`,
+  basée sur la tranche 020 ; PAS poussé — revue Codex avant push/merge).
+
 ## Ordre restant (dépendances vérifiées)
 2. **025** harnais agentique (P0 XL, dép 008–010/015–016/018 ✓) — livre
    docs/AGENT_HARNESS_CONTRACT.md
