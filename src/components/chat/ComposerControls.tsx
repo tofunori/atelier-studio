@@ -249,6 +249,8 @@ export function ComposerControls(p: {
                         <button
                           key={pv}
                           type="button"
+                          role="menuitemradio"
+                          aria-checked={selected}
                           className={`model-provider-row ${active ? "active" : ""} ${selected ? "selected" : ""}`}
                           onClick={() => setModelMenuProvider(active ? "" : pv)}
                         >
