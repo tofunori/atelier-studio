@@ -146,9 +146,9 @@ describe("en-tête et goal — retours utilisateur", () => {
     expect(document.querySelector(".chat-surface-header .ui-badge")).toBeNull();
   });
 
-  it("le badge running existe pendant un tour (le statut utile reste)", () => {
+  it("aucun badge non plus pendant un run (le fil porte le running)", () => {
     renderUi(<Chat {...chatProps({ events: finishedTurn().slice(0, 2), workingSince: FIXED_TS })} />);
-    expect(document.querySelector(".chat-surface-header .ui-badge")).toBeTruthy();
+    expect(document.querySelector(".chat-surface-header .ui-badge")).toBeNull();
   });
 
   it("corbeille du goal : la pastille disparaît immédiatement, sans écho provider", () => {

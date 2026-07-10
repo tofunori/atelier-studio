@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { open } from "@tauri-apps/plugin-dialog";
 import { AgentEvent } from "../lib/ws";
 import { wsSend } from "../lib/wsBus";
@@ -10,7 +10,6 @@ import { ProviderInfo } from "../lib/providers";
 import { ToolOutputLine, isSummarizableTool, Tick } from "./chat/toolPresentation";
 import { ChatTimeline } from "./chat/ChatTimeline";
 import { ChatHeader } from "./chat/ChatHeader";
-import { presentStatus, type UiStatusKind } from "../lib/statusPresentation";
 import type { ResearchHomeBundle } from "./ResearchHome";
 import { ChatComposer } from "./chat/ChatComposer";
 import { mentionLabel } from "./chat/mentions";
@@ -767,34 +766,10 @@ export default function Chat(p: {
     return <ToolOutputLine key={key} event={e} />;
   }
 
-  // tick 30 s pendant un tour : la durée « en cours depuis X » du header ne
-  // reste pas figée entre deux événements
-  const [statusTick, setStatusTick] = useState(0);
-  useEffect(() => {
-    if (p.workingSince == null) return;
-    const iv = window.setInterval(() => setStatusTick((x) => x + 1), 30_000);
-    return () => window.clearInterval(iv);
-  }, [p.workingSince]);
-
-  // statut du record pour l'en-tête local (plan 018, étape 3) : un tour en
-  // cours prime ; sinon le dernier done/error enregistré ; « idle » = pas de badge
-  const headerStatus = useMemo(() => {
-    if (!p.threadId) return null;
-    if (p.workingSince != null) return presentStatus({ kind: "running", since: p.workingSince });
-    let kind: UiStatusKind = "idle";
-    let detail: string | undefined;
-    for (let i = p.events.length - 1; i >= 0; i--) {
-      const e = p.events[i];
-      if (e.kind === "done") { kind = e.ok === false ? "interrupted" : "done"; break; }
-      if (e.kind === "error") { kind = "interrupted"; detail = e.message.split("\n")[0]; break; }
-    }
-    // demande Thierry (2026-07-10) : pas de badge « terminé » permanent —
-    // le statut d'en-tête n'existe que pour running/interrompu/erreur
-    if (kind === "done" || kind === "idle") return null;
-    return presentStatus({ kind, detail });
-    // statusTick force le recalcul de la durée pendant un tour silencieux
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [p.threadId, p.workingSince, p.events, statusTick]);
+  // demande Thierry (2026-07-10) : AUCUN badge d'état dans l'en-tête —
+  // running est visible dans le fil (spinner + Stop), les erreurs dans la
+  // capsule/le fil. L'en-tête ne porte que le titre et le provider.
+  const headerStatus = null;
 
   return (
     <div className="chat">
