@@ -83,7 +83,7 @@ export function GoalBar(props: {
             type="button" className="goal-bar-btn goal-bar-stop" title={t("goal.stop")}
             onClick={() => { onGoal("clear"); onStop(); }}
           >
-            <svg width="12" height="12" viewBox="0 0 13 13" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinejoin="round"><rect x="3.2" y="3.2" width="6.6" height="6.6" rx="1" /></svg>
+            <svg width="12" height="12" viewBox="0 0 13 13" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"><path d="M2.2 3.5h8.6M5 3.5V2.2h3v1.3M3.3 3.5l.5 7.3h5.4l.5-7.3M5.3 5.5v3.5M7.7 5.5v3.5" /></svg>
           </button>
           <button
             type="button" className="goal-bar-btn" title={t("goal.expand")}

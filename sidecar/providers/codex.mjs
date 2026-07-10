@@ -375,7 +375,119 @@ function dispatchNotification(msg) {
     goalEmitter?.(owner ?? null, ev);
   }
   if (!codexThreadId) return;
-  threadHandlers.get(codexThreadId)?.(msg.method, params);
+  const handler = threadHandlers.get(codexThreadId);
+  if (handler) { handler(msg.method, params); return; }
+  // aucun runTurn n'écoute : tour AUTONOME démarré par le serveur pour
+  // poursuivre le goal (turn/started sans turn/start client) — sans mapping,
+  // toute son activité serait muette pour l'utilisateur
+  if (threadsWithGoal.has(codexThreadId)) {
+    handleGoalTurnNotification(codexThreadId, msg.method, params);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Tours autonomes du goal : mapping minimal notifications → AgentEvents,
+// émis via goalEmitter (même canal harnais/journal que les événements goal).
+// Volontairement plus simple que le handler complet de runTurn — l'essentiel
+// est que thinking/commandes/texte/done soient VISIBLES et interruptibles.
+// ---------------------------------------------------------------------------
+const goalTurnStates = new Map(); // codexThreadId -> { streamText }
+
+function goalCommandName(item) {
+  // retire le wrapper shell (`/bin/zsh -lc '…'`) : n'afficher que la commande réelle
+  let cmd = String(item.command ?? "commande").replace(/\s+/g, " ").trim();
+  const m = /^(?:\S*\/)?(?:zsh|bash|sh)\s+-l?c\s+(['"])([\s\S]+)\1$/.exec(cmd);
+  if (m) cmd = m[2];
+  return cmd.length > 64 ? cmd.slice(0, 64) + "…" : cmd;
+}
+
+/** Mapping pur (testé) : (method, params, state) → AgentEvents à émettre.
+ * `state.streamText` est muté ; `state.turn` porte le nativeTurnId courant. */
+export function mapGoalTurnNotification(method, params, state) {
+  const item = params.item ?? {};
+  const events = [];
+  if (method === "turn/started") {
+    state.streamText = "";
+    state.turn = params.turn?.id ?? null;
+    events.push({ kind: "started", ...(state.turn ? { nativeTurnId: state.turn } : {}) });
+  }
+  if (method === "item/started") {
+    if (item.type === "reasoning") events.push({ kind: "tool", name: "__thinking" });
+    if (item.type === "webSearch") {
+      events.push({ kind: "tool", name: `recherche web : ${String(item.query ?? "").slice(0, 50)}` });
+    }
+    if (item.type === "commandExecution") {
+      events.push({
+        kind: "tool_update", id: item.id, name: "Bash",
+        ...boundToolOutput(item.aggregatedOutput ?? ""),
+        status: item.status ?? "inProgress", detail: goalCommandName(item),
+        input: { command: item.command ?? "", cwd: item.cwd ?? null }, source: "codex",
+      });
+    }
+  }
+  if (method === "item/agentMessage/delta") {
+    state.streamText += String(params.delta ?? "");
+    events.push({ kind: "stream_set", text: state.streamText });
+  }
+  if (method === "item/completed") {
+    if (item.type === "agentMessage") {
+      state.streamText = "";
+      events.push({ kind: "text", text: item.text ?? "" });
+    }
+    if (item.type === "reasoning") {
+      const text = [...(item.content ?? []), ...(item.summary ?? [])].filter(Boolean).join("\n\n");
+      if (text) events.push({ kind: "thinking", text });
+    }
+    if (item.type === "commandExecution") {
+      events.push({
+        kind: "tool_update", id: item.id, name: "Bash",
+        ...boundToolOutput(item.aggregatedOutput ?? ""),
+        status: item.status ?? "completed",
+        ...(item.exitCode != null ? { exitCode: item.exitCode } : {}),
+        detail: goalCommandName(item),
+        input: { command: item.command ?? "", cwd: item.cwd ?? null }, source: "codex",
+      });
+    }
+    if (item.type === "fileChange") {
+      const files = (item.changes ?? [])
+        .map((ch) => String(ch?.path ?? "").split("/").pop()).filter(Boolean);
+      events.push({
+        kind: "tool_update", id: item.id, name: "apply_patch",
+        output: "", status: item.status ?? "completed",
+        detail: files.length ? files.slice(0, 3).join(", ") : "Files changed",
+        input: { changes: item.changes ?? [] }, source: "codex",
+      });
+    }
+    if (item.type === "mcpToolCall") {
+      const raw = item.error ? JSON.stringify(item.error) : item.result ? JSON.stringify(item.result) : "";
+      events.push({
+        kind: "tool_update", id: item.id,
+        name: [item.server, item.tool].filter(Boolean).join("/") || "mcp",
+        ...boundToolOutput(raw), status: item.status ?? "completed", source: "mcp",
+      });
+    }
+  }
+  if (method === "turn/completed") {
+    state.streamText = "";
+    const status = params.turn?.status ?? "completed";
+    events.push({
+      kind: "done", ok: status !== "failed",
+      result: status === "failed" ? String(params.turn?.error?.message ?? "échec") : "",
+    });
+  }
+  return events;
+}
+
+function handleGoalTurnNotification(codexThreadId, method, params) {
+  const owner = threadOwners.get(codexThreadId);
+  if (!owner || !goalEmitter) return;
+  const state = goalTurnStates.get(codexThreadId) ?? { streamText: "", turn: null };
+  goalTurnStates.set(codexThreadId, state);
+  const events = mapGoalTurnNotification(method, params, state);
+  // interruptibilité : le tour autonome s'enregistre comme un tour normal
+  if (method === "turn/started") activeTurns.set(owner, { codexId: codexThreadId, turnId: state.turn });
+  if (method === "turn/completed") { activeTurns.delete(owner); goalTurnStates.delete(codexThreadId); }
+  for (const ev of events) goalEmitter(owner, ev);
 }
 
 async function ensureServer() {

@@ -841,6 +841,12 @@ export default function App() {
         if (msg.event.kind === "done" && msg.event.usage) {
           setUsageByThread((p) => ({ ...p, [msg.threadId]: msg.event.usage }));
         }
+        // tour AUTONOME (goal poursuivi par le serveur, aucun submit local) :
+        // le spinner démarre sur le started du provider — sans écraser un
+        // workingSince déjà posé par submit
+        if (msg.event.kind === "started") {
+          setWorkingSince((p) => p[msg.threadId] != null ? p : { ...p, [msg.threadId]: Date.now() });
+        }
         if (msg.event.kind === "done" && msg.event.ok === false &&
             /login|auth|credentials/i.test(msg.event.result ?? "")) {
           setAppBanner({

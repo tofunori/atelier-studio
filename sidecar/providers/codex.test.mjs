@@ -369,3 +369,60 @@ describe("resolveCodexSafety (plan 025)", () => {
     }
   });
 });
+
+// Tours AUTONOMES du goal : le serveur démarre ses propres turns pour
+// poursuivre un goal (turn/started sans turn/start client) — le mapping
+// minimal doit rendre thinking/commandes/texte/done visibles.
+describe("mapGoalTurnNotification (tours autonomes du goal)", () => {
+  it("mappe le cycle complet started → reasoning → deltas → texte → done", async () => {
+    const { mapGoalTurnNotification } = await import("./codex.mjs");
+    const state = { streamText: "", turn: null };
+    const started = mapGoalTurnNotification("turn/started", { turn: { id: "t1" } }, state);
+    expect(started).toEqual([{ kind: "started", nativeTurnId: "t1" }]);
+    expect(state.turn).toBe("t1");
+
+    const think = mapGoalTurnNotification("item/started", { item: { type: "reasoning", id: "r1" } }, state);
+    expect(think).toEqual([{ kind: "tool", name: "__thinking" }]);
+
+    mapGoalTurnNotification("item/agentMessage/delta", { delta: "BA" }, state);
+    const d2 = mapGoalTurnNotification("item/agentMessage/delta", { delta: "NANE" }, state);
+    expect(d2).toEqual([{ kind: "stream_set", text: "BANANE" }]);
+
+    const txt = mapGoalTurnNotification(
+      "item/completed", { item: { type: "agentMessage", id: "m1", text: "BANANE" } }, state);
+    expect(txt).toEqual([{ kind: "text", text: "BANANE" }]);
+    expect(state.streamText).toBe("");
+
+    const done = mapGoalTurnNotification("turn/completed", { turn: { status: "completed" } }, state);
+    expect(done).toEqual([{ kind: "done", ok: true, result: "" }]);
+  });
+
+  it("commandExecution → tool_update Bash borné, wrapper shell retiré, exitCode propagé", async () => {
+    const { mapGoalTurnNotification } = await import("./codex.mjs");
+    const state = { streamText: "", turn: null };
+    const evs = mapGoalTurnNotification("item/completed", {
+      item: {
+        type: "commandExecution", id: "c1",
+        command: `/bin/zsh -lc "ls -la"`, aggregatedOutput: "total 0",
+        status: "completed", exitCode: 0, cwd: "/repo",
+      },
+    }, state);
+    expect(evs).toHaveLength(1);
+    expect(evs[0]).toMatchObject({
+      kind: "tool_update", id: "c1", name: "Bash", output: "total 0",
+      status: "completed", exitCode: 0, detail: "ls -la", source: "codex",
+    });
+  });
+
+  it("turn/completed failed → done ok:false avec message ; reasoning vide n'émet pas de thinking", async () => {
+    const { mapGoalTurnNotification } = await import("./codex.mjs");
+    const state = { streamText: "x", turn: "t1" };
+    const none = mapGoalTurnNotification(
+      "item/completed", { item: { type: "reasoning", id: "r1", summary: [], content: [] } }, state);
+    expect(none).toEqual([]);
+    const failed = mapGoalTurnNotification(
+      "turn/completed", { turn: { status: "failed", error: { message: "quota" } } }, state);
+    expect(failed).toEqual([{ kind: "done", ok: false, result: "quota" }]);
+    expect(state.streamText).toBe("");
+  });
+});

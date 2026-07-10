@@ -548,11 +548,15 @@ try {
 
 watchAnnotations(broadcast);
 
-// notifications goal Codex (thread/goal/updated) → via le HARNAIS du thread
-// (meta + sequence + journal) pour survivre au reload ; repli broadcast direct
-// si aucun harnais actif. Elles arrivent aussi hors-tour (plan 025).
+// notifications goal Codex (thread/goal/updated) ET tours autonomes du goal
+// (turn démarré par le serveur, mappé par le provider) → via le HARNAIS du
+// thread (meta + sequence + journal) pour survivre au reload. Sérialisé par
+// thread : les événements de streaming d'un tour autonome gardent leur ordre.
+const goalEmitChains = new Map(); // threadId -> chaîne de promesses
 codex.onGoal?.((threadId, event) => {
-  if (threadId) {
+  if (!threadId) return;
+  const prev = goalEmitChains.get(threadId) ?? Promise.resolve();
+  const next = prev.then(() =>
     emitProviderGlobal(threadId, event, {
       send: broadcast,
       broadcast,
@@ -561,8 +565,9 @@ codex.onGoal?.((threadId, event) => {
       history,
       sessions,
       providers,
-    }).catch((error) => console.warn("[atelier] goal global non journalisé:", error));
-  }
+    }).catch((error) => console.warn("[atelier] goal global non journalisé:", error)),
+  );
+  goalEmitChains.set(threadId, next.then(() => {}, () => {}));
 });
 
 wss.on("connection", (ws) => {
