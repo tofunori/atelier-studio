@@ -9,6 +9,7 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 
 import { resolveBin } from "./../bin_resolver.mjs";
+import { jsonSafe, sanitizeAndBoundInput } from "./../sanitize.mjs";
 const CODEX_BIN = resolveBin("codex") ?? "codex";
 const HEARTBEAT_MS = 5000;
 const CODEX_EFFORT_ALIASES = new Map([
@@ -41,20 +42,26 @@ export function boundToolOutput(value) {
   return { output: s.slice(0, TOOL_OUTPUT_MAX), truncated: true, outputLength: s.length };
 }
 
-function jsonSafe(v) {
-  if (v == null) return "";
-  if (typeof v === "string") return v;
-  try { return JSON.stringify(v); } catch { return String(v); }
+/** État cumulatif borné : la mémoire reste <=64 KiB mais la longueur totale
+ * continue d'être comptée pour l'UI et le diagnostic. */
+export function appendBoundedToolOutput(previous, value) {
+  const chunk = typeof value === "string" ? value : jsonSafe(value);
+  const prev = previous ?? { output: "", outputLength: 0, truncated: false };
+  const remaining = Math.max(0, TOOL_OUTPUT_MAX - prev.output.length);
+  const output = remaining > 0 ? prev.output + chunk.slice(0, remaining) : prev.output;
+  const outputLength = (prev.outputLength ?? prev.output.length) + chunk.length;
+  return {
+    output,
+    outputLength,
+    truncated: outputLength > output.length,
+  };
 }
 
 /** Input d'outil borné pour émission/journal : jamais l'objet complet non
  * plafonné (un input MCP peut contenir des secrets). Au-delà de la limite, on
  * ne garde qu'un aperçu tronqué — la valeur intégrale ne quitte pas le provider. */
 export function scrubToolInput(input) {
-  if (input == null) return input;
-  const s = jsonSafe(input);
-  if (s.length <= TOOL_INPUT_MAX) return input;
-  return { truncated: true, preview: s.slice(0, TOOL_INPUT_MAX), inputLength: s.length };
+  return sanitizeAndBoundInput(input, TOOL_INPUT_MAX);
 }
 
 // Registre des sessions Codex actives : un codexId (thread app-server) ne peut
@@ -73,6 +80,34 @@ export function claimCodexRun(codexId, threadId) {
 
 export function releaseCodexRun(codexId) {
   activeCodexRuns.delete(codexId);
+}
+
+/** Réserve une session existante AVANT thread/resume. La fermeture retournée
+ * doit vivre jusqu'au finally du run. */
+export async function claimAndOpenCodexRun({ sessionId, threadId, open: openNative }) {
+  const owner = threadId ?? sessionId ?? "codex-run";
+  let claimedId = sessionId ?? null;
+  if (claimedId) claimCodexRun(claimedId, owner);
+  try {
+    const codexId = await openNative();
+    if (codexId !== claimedId) {
+      claimCodexRun(codexId, owner);
+      if (claimedId) releaseCodexRun(claimedId);
+      claimedId = codexId;
+    }
+    let released = false;
+    return {
+      codexId,
+      release() {
+        if (released) return;
+        released = true;
+        if (claimedId) releaseCodexRun(claimedId);
+      },
+    };
+  } catch (error) {
+    if (claimedId) releaseCodexRun(claimedId);
+    throw error;
+  }
 }
 
 /**
@@ -657,11 +692,13 @@ export async function run({
   const srv = await ensureServer();
   const threadOpts = buildThreadOptions({ cwd, model, effort, webSearch, additionalDirectories, sandbox, permissionMode });
   const actualEffort = normalizeCodexEffort(effort);
-  const codexId = await openThread(srv, { sessionId, threadOpts });
-  // isolation : un codexId (session native) ne peut porter qu'UN run à la fois.
-  // Deux threads Atelier reprenant la même session ne doivent pas partager
-  // handler/owner/interactions et cross-wirer leurs événements (plan 025).
-  claimCodexRun(codexId, threadId ?? codexId);
+  const reservation = await claimAndOpenCodexRun({
+    sessionId,
+    threadId,
+    open: () => openThread(srv, { sessionId, threadOpts }),
+  });
+  const codexId = reservation.codexId;
+  try {
   if (threadId) threadOwners.set(codexId, threadId);
   if (onInteraction) threadInteractions.set(codexId, onInteraction);
   if (threadOpts.safetyDiagnosticHint) {
@@ -685,7 +722,7 @@ export async function run({
     return cmd.length > 64 ? cmd.slice(0, 64) + "…" : cmd;
   };
   const commandMeta = new Map(); // itemId -> dernier état connu pour les deltas
-  const commandOutputs = new Map(); // itemId -> sortie agrégée construite depuis outputDelta
+  const commandOutputs = new Map(); // itemId -> {output borné, outputLength, truncated}
   const commandInput = (item) => ({
     command: item.command ?? "",
     cwd: item.cwd ?? null,
@@ -694,16 +731,20 @@ export async function run({
   });
   const emitCommandUpdate = (item, patch = {}) => {
     const id = item.id ?? patch.itemId ?? `cmd:${commandName(item)}`;
-    const output = patch.output ?? item.aggregatedOutput ?? commandOutputs.get(id) ?? "";
+    const state = patch.outputState
+      ?? commandOutputs.get(id)
+      ?? appendBoundedToolOutput(undefined, patch.output ?? item.aggregatedOutput ?? "");
     onEvent({
       kind: "tool_update",
       id,
       name: "Bash",
-      output: String(output ?? ""),
+      output: state.output,
+      ...(state.truncated ? { truncated: true, outputLength: state.outputLength } : {}),
       status: patch.status ?? item.status,
       exitCode: patch.exitCode ?? item.exitCode ?? undefined,
       detail: commandName(item),
       input: commandInput(item),
+      ...(patch.ephemeral ? { __ephemeral: true } : {}),
     });
   };
   const fileChangeMeta = new Map(); // itemId -> dernier patch reçu
@@ -855,7 +896,7 @@ export async function run({
         const item = params.item ?? {};
         if (item.type === "commandExecution") {
           commandMeta.set(item.id, item);
-          commandOutputs.set(item.id, String(item.aggregatedOutput ?? ""));
+          commandOutputs.set(item.id, appendBoundedToolOutput(undefined, item.aggregatedOutput ?? ""));
           emitCommandUpdate(item, { status: item.status ?? "inProgress" });
         }
         if (item.type === "reasoning") {
@@ -901,7 +942,9 @@ export async function run({
         const item = params.item ?? {};
         if (item.type === "commandExecution") {
           commandMeta.set(item.id, { ...(commandMeta.get(item.id) ?? {}), ...item });
-          commandOutputs.set(item.id, String(item.aggregatedOutput ?? commandOutputs.get(item.id) ?? ""));
+          if (item.aggregatedOutput != null) {
+            commandOutputs.set(item.id, appendBoundedToolOutput(undefined, item.aggregatedOutput));
+          }
           emitCommandUpdate(commandMeta.get(item.id));
         }
         if (item.type === "dynamicToolCall") {
@@ -918,9 +961,9 @@ export async function run({
         const id = params.itemId;
         const item = commandMeta.get(id);
         if (!item) break;
-        const output = (commandOutputs.get(id) ?? "") + String(params.delta ?? "");
-        commandOutputs.set(id, output);
-        emitCommandUpdate(item, { output, status: item.status ?? "inProgress" });
+        const outputState = appendBoundedToolOutput(commandOutputs.get(id), params.delta ?? "");
+        commandOutputs.set(id, outputState);
+        emitCommandUpdate(item, { outputState, status: item.status ?? "inProgress", ephemeral: true });
         break;
       }
       case "item/agentMessage/delta": {
@@ -965,7 +1008,9 @@ export async function run({
         }
         if (item.type === "commandExecution") {
           commandMeta.set(item.id, { ...(commandMeta.get(item.id) ?? {}), ...item });
-          commandOutputs.set(item.id, String(item.aggregatedOutput ?? commandOutputs.get(item.id) ?? ""));
+          if (item.aggregatedOutput != null) {
+            commandOutputs.set(item.id, appendBoundedToolOutput(undefined, item.aggregatedOutput));
+          }
           emitCommandUpdate(commandMeta.get(item.id));
         }
         if (item.type === "fileChange") {
@@ -1089,9 +1134,11 @@ export async function run({
     threadHandlers.delete(codexId);
     threadInteractions.delete(codexId);
     activeTurns.delete(threadId ?? codexId);
-    releaseCodexRun(codexId);
   }
   return { sessionId: codexId };
+  } finally {
+    reservation.release();
+  }
 }
 
 // Mode Plan : le protocole exige un collaborationMode complet (settings.model

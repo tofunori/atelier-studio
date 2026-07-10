@@ -143,6 +143,21 @@ export type Thread = {
 
 type Handler = (msg: any) => void;
 
+const CLIENT_INSTANCE_KEY = "atelier-studio.client-instance-id";
+let clientInstanceId: string | null = null;
+
+/** Identité éphémère stable de cette fenêtre, conservée pendant les reconnexions
+ * mais distincte des autres fenêtres Atelier. */
+export function getClientInstanceId(): string {
+  if (clientInstanceId) return clientInstanceId;
+  try { clientInstanceId = sessionStorage.getItem(CLIENT_INSTANCE_KEY); } catch { /* webview restreinte */ }
+  if (!clientInstanceId) {
+    clientInstanceId = crypto.randomUUID();
+    try { sessionStorage.setItem(CLIENT_INSTANCE_KEY, clientInstanceId); } catch { /* mémoire seulement */ }
+  }
+  return clientInstanceId;
+}
+
 function abortError() {
   return new DOMException("connexion sidecar annulée", "AbortError");
 }
@@ -181,6 +196,7 @@ export async function connectSidecar(
     signal?.addEventListener("abort", () => rej(abortError()), { once: true });
   });
   if (signal?.aborted) throw abortError();
+  ws.send(JSON.stringify({ type: "clientHello", clientInstanceId: getClientInstanceId() }));
   ws.send(JSON.stringify({ type: "listThreads" }));
   ws.send(JSON.stringify({ type: "providerStatus" }));
   // reconnexion auto : sidecar tué/crashé → sidecar_port respawn + nouveau WS.

@@ -4,6 +4,7 @@ import { open } from "@tauri-apps/plugin-dialog";
 import {
   sendPrompt,
   requestCatalog,
+  getClientInstanceId,
   Thread,
   AgentEvent,
   Command,
@@ -1159,7 +1160,13 @@ export default function App() {
       // l'event local est marqué answered de façon optimiste (sans copier la
       // réponse), le sidecar ré-émettra l'état final autoritaire
       const { threadId, requestId, response } = (e as CustomEvent).detail ?? {};
-      ws.current?.send(JSON.stringify({ type: "interactionResponse", requestId, response }));
+      ws.current?.send(JSON.stringify({
+        type: "interactionResponse",
+        threadId,
+        requestId,
+        clientInstanceId: getClientInstanceId(),
+        response,
+      }));
       setEvents((p) => ({
         ...p,
         [threadId]: (p[threadId] ?? []).map((ev: any) =>
@@ -2105,9 +2112,10 @@ export default function App() {
           onRevert={(index, text, edit) => {
             if (!activeId) return;
             const id = activeId;
+            const eventId = (eventsRef.current[id]?.[index]?.meta as any)?.eventId;
             setEvents((p) => ({ ...p, [id]: (p[id] ?? []).slice(0, index) }));
             if (ws.current?.readyState === 1) {
-              ws.current.send(JSON.stringify({ type: "revert", threadId: id, text }));
+              ws.current.send(JSON.stringify({ type: "revert", threadId: id, text, eventId }));
             }
             if (edit) setInjectText(text);
           }}
@@ -2138,10 +2146,11 @@ export default function App() {
             if (!activeId) return;
             const id = activeId;
             const snapshot = eventsRef.current[id] ?? [];
+            const eventId = (snapshot[index]?.meta as any)?.eventId;
             setEvents((p) => ({ ...p, [id]: (p[id] ?? []).slice(0, index) }));
             pendingResend.current = { threadId: id, prompt: newText, snapshot };
             if (ws.current?.readyState === 1) {
-              ws.current.send(JSON.stringify({ type: "revert", threadId: id, text: oldText }));
+              ws.current.send(JSON.stringify({ type: "revert", threadId: id, text: oldText, eventId }));
             }
           }}
           onFork={(index) => {
@@ -2149,6 +2158,7 @@ export default function App() {
             const src = allThreadsRef.current.find((t) => t.id === activeId);
             if (!src || src.provider !== "claude") return;
             const newId = crypto.randomUUID();
+            const eventId = (eventsRef.current[activeId]?.[index]?.meta as any)?.eventId;
             // copie locale de l'historique jusqu'au point de fork
             setEvents((p) => ({ ...p, [newId]: (p[activeId] ?? []).slice(0, index + 1) }));
             if (ws.current?.readyState === 1) {
@@ -2156,6 +2166,7 @@ export default function App() {
                 type: "forkThread",
                 newThreadId: newId,
                 fromThreadId: activeId,
+                eventId,
               }));
             }
             setActiveId(newId);

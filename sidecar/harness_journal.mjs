@@ -1,8 +1,9 @@
-import { appendFile, chmod, mkdir, open, readFile, unlink } from "node:fs/promises";
-import { existsSync } from "node:fs";
+import { chmod, mkdir, open, unlink } from "node:fs/promises";
+import { constants, existsSync, lstatSync } from "node:fs";
 import { createHash, randomUUID as nodeRandomUUID } from "node:crypto";
 import { homedir } from "node:os";
 import { join } from "node:path";
+import { redactSensitiveText, sanitizeAndBoundInput } from "./sanitize.mjs";
 
 // Journal canonique du harnais (plan 025, Step 7) — la mémoire durable des
 // threads Atelier, indépendante des providers.
@@ -68,12 +69,6 @@ export const SESSION_BOUNDARY_NAME = "__session-cleared";
 const JOURNAL_OUTPUT_MAX = 64 * 1024;
 const JOURNAL_INPUT_MAX = 16 * 1024;
 
-function jsonLen(v) {
-  if (v == null) return 0;
-  if (typeof v === "string") return v.length;
-  try { return JSON.stringify(v).length; } catch { return String(v).length; }
-}
-
 function sanitizeForWrite(event) {
   if (!event) return event;
   if (event.kind === "interaction") {
@@ -87,24 +82,52 @@ function sanitizeForWrite(event) {
         return f;
       });
     }
+    if (typeof clean.title === "string") clean.title = redactSensitiveText(clean.title);
+    if (typeof clean.detail === "string") clean.detail = redactSensitiveText(clean.detail);
+    if (typeof clean.answerSummary === "string") clean.answerSummary = redactSensitiveText(clean.answerSummary);
     return clean;
   }
   // tool_update : la sortie et surtout l'input (un input MCP peut porter une clé
   // API) sont bornés avant écriture — la valeur intégrale ne va jamais sur disque.
   if (event.kind === "tool_update") {
     const clean = { ...event };
-    if (typeof clean.output === "string" && clean.output.length > JOURNAL_OUTPUT_MAX) {
-      clean.outputLength = clean.output.length;
-      clean.output = clean.output.slice(0, JOURNAL_OUTPUT_MAX);
-      clean.truncated = true;
+    if (typeof clean.output === "string") {
+      const safeOutput = redactSensitiveText(clean.output);
+      if (safeOutput.length > JOURNAL_OUTPUT_MAX) {
+        clean.outputLength = clean.output.length;
+        clean.output = safeOutput.slice(0, JOURNAL_OUTPUT_MAX);
+        clean.truncated = true;
+      } else {
+        clean.output = safeOutput;
+      }
     }
-    if (clean.input != null && jsonLen(clean.input) > JOURNAL_INPUT_MAX) {
-      const s = typeof clean.input === "string" ? clean.input : (() => { try { return JSON.stringify(clean.input); } catch { return String(clean.input); } })();
-      clean.input = { truncated: true, preview: s.slice(0, JOURNAL_INPUT_MAX), inputLength: s.length };
-    }
+    clean.input = sanitizeAndBoundInput(clean.input, JOURNAL_INPUT_MAX);
+    if (typeof clean.detail === "string") clean.detail = redactSensitiveText(clean.detail);
     return clean;
   }
+  if (event.kind === "tool" && typeof event.detail === "string") {
+    return { ...event, detail: redactSensitiveText(event.detail) };
+  }
   return event;
+}
+
+function assertRegularOwnedFile(stat, filePath) {
+  if (!stat.isFile()) throw new Error(`journal refusé : cible non régulière (${filePath})`);
+  if (typeof process.getuid === "function" && stat.uid !== process.getuid()) {
+    throw new Error(`journal refusé : propriétaire inattendu (${filePath})`);
+  }
+}
+
+async function openRegular(filePath, flags, mode = 0o600) {
+  const fh = await open(filePath, flags | constants.O_NOFOLLOW, mode);
+  try {
+    assertRegularOwnedFile(await fh.stat(), filePath);
+    await fh.chmod(0o600);
+    return fh;
+  } catch (error) {
+    await fh.close();
+    throw error;
+  }
 }
 
 /** Parse le contenu d'un journal, ligne à ligne, sans jamais throw :
@@ -199,7 +222,7 @@ export function createHarnessJournal({
    * répare une fois par process avant de ré-append-er, sinon la ligne
    * suivante fusionnerait avec le fragment. */
   async function repairTrailingNewline(filePath) {
-    const fh = await open(filePath, "r+");
+    const fh = await openRegular(filePath, constants.O_RDWR);
     try {
       const { size } = await fh.stat();
       if (size === 0) return;
@@ -213,9 +236,15 @@ export function createHarnessJournal({
 
   async function writeLines(filePath, data) {
     await ensureDir();
-    const created = !existsSync(filePath);
-    await appendFile(filePath, data, { mode: 0o600 });
-    if (created) await chmod(filePath, 0o600); // indépendant de l'umask
+    const fh = await openRegular(
+      filePath,
+      constants.O_WRONLY | constants.O_APPEND | constants.O_CREAT,
+    );
+    try {
+      await fh.writeFile(data);
+    } finally {
+      await fh.close();
+    }
   }
 
   /** Crée fichier + header s'ils n'existent pas ; répare la fin de fichier
@@ -225,7 +254,11 @@ export function createHarnessJournal({
     if (known.has(key)) return;
     await ensureDir();
     const filePath = pathOf(threadId);
-    if (!existsSync(filePath)) {
+    let existing = null;
+    try { existing = lstatSync(filePath); } catch (error) {
+      if (error?.code !== "ENOENT") throw error;
+    }
+    if (!existing) {
       const header = {
         schemaVersion: 1,
         threadId: String(threadId),
@@ -234,6 +267,9 @@ export function createHarnessJournal({
       };
       await writeLines(filePath, JSON.stringify(header) + "\n");
     } else {
+      if (existing.isSymbolicLink() || !existing.isFile()) {
+        throw new Error(`journal refusé : cible non régulière (${filePath})`);
+      }
       await repairTrailingNewline(filePath);
     }
     known.add(key);
@@ -241,14 +277,18 @@ export function createHarnessJournal({
 
   /** Lecture brute (hors queue) — à n'appeler que depuis la queue du thread. */
   async function readThread(threadId) {
-    let text;
+    let fh;
     try {
-      text = await readFile(pathOf(threadId), "utf8");
+      fh = await openRegular(pathOf(threadId), constants.O_RDONLY);
     } catch (err) {
       if (err?.code === "ENOENT") return { header: null, events: [], legacySeeded: false };
       throw err;
     }
-    return parseJournalText(text, threadId);
+    try {
+      return parseJournalText(await fh.readFile("utf8"), threadId);
+    } finally {
+      await fh.close();
+    }
   }
 
   function fitsLine(line, threadId, kind) {
@@ -267,7 +307,12 @@ export function createHarnessJournal({
 
     /** Vrai si le thread a déjà un journal sur disque. */
     hasJournal(threadId) {
-      return existsSync(pathOf(threadId));
+      try {
+        const stat = lstatSync(pathOf(threadId));
+        return stat.isFile() && !stat.isSymbolicLink();
+      } catch {
+        return false;
+      }
     },
 
     /**

@@ -242,14 +242,32 @@ describe("bornes tool_update Codex (plan 025 — bug outputs/params non bornés)
 
   it("scrubToolInput borne un input MCP volumineux à un aperçu (jamais l'objet complet)", async () => {
     const { scrubToolInput, TOOL_INPUT_MAX } = await import("./codex.mjs");
-    const secret = { apiKey: "y".repeat(30 * 1024) };
-    const scrubbed = scrubToolInput(secret);
+    const large = { payload: "y".repeat(30 * 1024) };
+    const scrubbed = scrubToolInput(large);
     expect(scrubbed.truncated).toBe(true);
     expect(scrubbed.preview.length).toBe(TOOL_INPUT_MAX);
     // la clé complète ne doit PAS être présente intégralement
     expect(JSON.stringify(scrubbed).length).toBeLessThan(TOOL_INPUT_MAX + 200);
-    // un petit input passe tel quel
-    expect(scrubToolInput({ a: 1 })).toEqual({ a: 1 });
+    expect(scrubToolInput({ apiKey: "y".repeat(30 * 1024) })).toEqual({ apiKey: "[REDACTED]" });
+    // les secrets COURTS sont réellement caviardés, pas seulement bornés
+    const short = scrubToolInput({
+      apiKey: "SECRET-SHORT",
+      nested: { authorization: "Bearer TOKEN-SHORT" },
+      url: "https://auth.example/callback?state=STATE-SECRET&code=CODE-SECRET#frag",
+      safe: "visible",
+    });
+    expect(JSON.stringify(short)).not.toMatch(/SECRET-SHORT|TOKEN-SHORT|STATE-SECRET|CODE-SECRET|frag/);
+    expect(short.safe).toBe("visible");
+    expect(short.url).toBe("https://auth.example/callback");
+  });
+
+  it("l'accumulateur d'output reste borné pendant des milliers de deltas", async () => {
+    const { appendBoundedToolOutput, TOOL_OUTPUT_MAX } = await import("./codex.mjs");
+    let state;
+    for (let i = 0; i < 2000; i++) state = appendBoundedToolOutput(state, "x".repeat(1024));
+    expect(state.output.length).toBe(TOOL_OUTPUT_MAX);
+    expect(state.outputLength).toBe(2000 * 1024);
+    expect(state.truncated).toBe(true);
   });
 });
 
@@ -265,6 +283,19 @@ describe("isolation session Codex (plan 025 — bug 2 threads même codexId)", (
     // après libération, un autre thread peut reprendre
     expect(() => claimCodexRun("cx-shared", "threadB")).not.toThrow();
     releaseCodexRun("cx-shared");
+  });
+
+  it("réserve une session existante AVANT d'appeler thread/resume", async () => {
+    const { claimAndOpenCodexRun, claimCodexRun, releaseCodexRun } = await import("./codex.mjs");
+    claimCodexRun("cx-shared-before-open", "threadA");
+    let resumed = false;
+    await expect(claimAndOpenCodexRun({
+      sessionId: "cx-shared-before-open",
+      threadId: "threadB",
+      open: async () => { resumed = true; return "cx-shared-before-open"; },
+    })).rejects.toThrow(/active|concurrente/);
+    expect(resumed).toBe(false);
+    releaseCodexRun("cx-shared-before-open");
   });
 });
 

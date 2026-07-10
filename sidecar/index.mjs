@@ -552,11 +552,23 @@ watchAnnotations(broadcast);
 // (meta + sequence + journal) pour survivre au reload ; repli broadcast direct
 // si aucun harnais actif. Elles arrivent aussi hors-tour (plan 025).
 codex.onGoal?.((threadId, event) => {
-  if (threadId) emitProviderGlobal(threadId, event, { broadcast });
+  if (threadId) {
+    emitProviderGlobal(threadId, event, {
+      send: broadcast,
+      broadcast,
+      store,
+      harnessJournal,
+      history,
+      sessions,
+      providers,
+    }).catch((error) => console.warn("[atelier] goal global non journalisé:", error));
+  }
 });
 
 wss.on("connection", (ws) => {
   const ctx = {
+    connectionId: crypto.randomUUID(),
+    clientInstanceId: null,
     send: (obj) => ws.readyState === 1 && ws.send(JSON.stringify(obj)),
     broadcast,
     store,

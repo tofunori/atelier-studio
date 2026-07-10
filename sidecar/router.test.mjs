@@ -520,6 +520,7 @@ describe("relay d'interactions (plan 025 step 5)", () => {
     const ctx = {
       send: (m) => emitted.push(m),
       broadcast: (m) => emitted.push(m),
+      clientInstanceId: "11111111-1111-4111-8111-111111111111",
       store,
       gitops: { snapshot: async () => "s".repeat(40), isRepo: async () => true, changedSince: async () => [], numstat: async () => [] },
       ledger: { append: async () => {} },
@@ -560,7 +561,8 @@ describe("relay d'interactions (plan 025 step 5)", () => {
     expect(pendingEv.meta?.turnId).toBeTruthy();
     expect(pendingEv.meta?.itemId).toBe("it-9");
 
-    await route({ type: "interactionResponse", requestId: pendingEv.requestId,
+    await route({ type: "interactionResponse", threadId: "i1",
+      clientInstanceId: "11111111-1111-4111-8111-111111111111", requestId: pendingEv.requestId,
       response: { answers: { q1: "SECRET-XYZ", q2: "Thierry" } } }, ctx);
     const resp = await relayPromise;
     expect(resp.answers.q1).toBe("SECRET-XYZ"); // la valeur atteint le provider…
@@ -582,8 +584,8 @@ describe("relay d'interactions (plan 025 step 5)", () => {
     const p1 = getRelay()({ interactionType: "approval", title: "Exécution de commande", detail: "ls" });
     await flush();
     const ev1 = interactions(emitted).find((e) => e.state === "pending");
-    await route({ type: "interactionResponse", requestId: ev1.requestId, response: { allow: true } }, ctx);
-    await route({ type: "interactionResponse", requestId: ev1.requestId, response: { allow: false } }, ctx);
+    await route({ type: "interactionResponse", threadId: "i2", clientInstanceId: "11111111-1111-4111-8111-111111111111", requestId: ev1.requestId, response: { allow: true } }, ctx);
+    await route({ type: "interactionResponse", threadId: "i2", clientInstanceId: "11111111-1111-4111-8111-111111111111", requestId: ev1.requestId, response: { allow: false } }, ctx);
     expect((await p1).allow).toBe(true);
     await flush();
     expect(interactions(emitted).filter((e) => e.requestId === ev1.requestId && e.state !== "pending")).toHaveLength(1);

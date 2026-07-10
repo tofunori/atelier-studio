@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
-import { mkdtempSync, mkdirSync, readFileSync, writeFileSync, statSync, readdirSync, existsSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, statSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createHash } from "node:crypto";
@@ -436,6 +436,27 @@ describe("copyThread — fork", () => {
 });
 
 describe("garde-fou secret : inputs d'outils bornés/scrubés au journal (plan 025 — params MCP sensibles)", () => {
+  it("caviarde aussi les secrets courts, URL query/fragment et détails d'interaction", async () => {
+    const { journal, file } = setup();
+    await journal.append(ev("tool_update", {
+      id: "mcp-short", name: "mcp__oauth__login", source: "mcp",
+      input: {
+        apiKey: "SECRET-SHORT",
+        authorization: "Bearer TOKEN-SHORT",
+        url: "https://auth.example/callback?state=STATE-SHORT&code=CODE-SHORT#frag",
+      },
+      output: "ok",
+    }));
+    await journal.append(ev("interaction", {
+      requestId: "approval-short", interactionType: "approval", state: "pending",
+      title: "Autoriser Bash ?",
+      detail: "curl -H 'Authorization: Bearer DETAIL-SECRET' https://x.test?a=QUERY-SECRET",
+    }));
+    const raw = readFileSync(file(), "utf8");
+    expect(raw).not.toMatch(/SECRET-SHORT|TOKEN-SHORT|STATE-SHORT|CODE-SHORT|DETAIL-SECRET|QUERY-SECRET|#frag/);
+    expect(raw).toContain("https://auth.example/callback");
+  });
+
   it("un tool_update avec un input MCP volumineux est borné dans le journal, pas écrit intégralement", async () => {
     const { journal, file } = setup();
     const bigSecret = "SECRET-" + "z".repeat(200 * 1024);
@@ -461,6 +482,28 @@ describe("garde-fou secret : inputs d'outils bornés/scrubés au journal (plan 0
     }));
     const raw = readFileSync(file(), "utf8");
     expect(raw.length).toBeLessThan(120 * 1024);
+  });
+});
+
+describe("sécurité du fichier journal", () => {
+  it("répare un journal existant en 0600 à chaque première ouverture", async () => {
+    const first = setup();
+    await first.journal.openThread({ threadId: TID, provider: "claude" });
+    chmodSync(first.file(), 0o644);
+    const restarted = createHarnessJournal({ baseDir: first.base });
+    await restarted.openThread({ threadId: TID, provider: "claude" });
+    expect(statSync(first.file()).mode & 0o777).toBe(0o600);
+  });
+
+  it("refuse un journal qui est un lien symbolique", async () => {
+    const { base, dir, journal, file } = setup();
+    mkdirSync(dir, { recursive: true });
+    const target = join(base, "target.txt");
+    writeFileSync(target, "NE-PAS-MODIFIER\n");
+    symlinkSync(target, file());
+
+    expect(await journal.append(ev("text", { text: "intrusion" }))).toBe(false);
+    expect(readFileSync(target, "utf8")).toBe("NE-PAS-MODIFIER\n");
   });
 });
 

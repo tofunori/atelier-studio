@@ -205,6 +205,7 @@ function makeInteractionRelay(ctx, threadId) {
     const timer = setTimeout(() => finish("expired", null), timeoutMs);
     interactionWaiters.set(requestId, {
       threadId,
+      clientInstanceId: ctx.clientInstanceId ?? null,
       answer: (response) => finish("answered", response ?? null),
       decline: (state = "declined") => finish(state, null),
     });
@@ -410,10 +411,15 @@ function withThreadSendLock(threadId, work) {
  * via thread/goal/updated) : passe par le harnais du thread pour porter meta +
  * sequence et atteindre le journal. Sans harnais actif (thread au repos), repli
  * broadcast direct — le goal sera re-fetché en live au besoin. Plan 025. */
-export function emitProviderGlobal(threadId, event, { broadcast } = {}) {
-  const h = threadId ? harnessThreads.get(threadId) : null;
-  if (h) { h.emitGlobal(event, { origin: "provider" }); return; }
-  broadcast?.({ type: "event", threadId, event });
+export async function emitProviderGlobal(threadId, event, ctx = {}) {
+  if (!threadId) return false;
+  const emit = ctx.broadcast ?? ctx.send;
+  if (emit) emitBox.set(threadId, emit);
+  const provider = ctx.store?.get(threadId)?.provider ?? event?.meta?.provider ?? "codex";
+  await ensureLegacySeed(ctx, threadId, provider);
+  const h = await harnessFor(ctx, threadId, provider);
+  await h.emitGlobal(event, { origin: "provider" });
+  return true;
 }
 
 // Threads dont le journal peut recevoir des événements : seedés, OU sans
@@ -456,9 +462,15 @@ async function ensureLegacySeed(ctx, threadId, provider) {
   const j = ctx.harnessJournal;
   if (!j) { journalReady.add(threadId); return; }
   if (journalReady.has(threadId)) return;
-  // déjà un journal SEEDÉ → prêt ; un journal existant NON seedé (ex. tour d'un
-  // échec de seed précédent) ne bloque pas : on retente le seed
-  if (j.hasJournal(threadId)) { journalReady.add(threadId); return; }
+  // Un journal existant n'est « prêt » que s'il porte le marqueur legacySeed.
+  // Un header seul provient possiblement d'un seed interrompu : il doit être retenté.
+  if (j.hasJournal(threadId)) {
+    const current = await j.load(threadId);
+    if (current.header?.legacySeeded || current.events.length > 0) {
+      journalReady.add(threadId);
+      return;
+    }
+  }
   const t = ctx.store.get(threadId);
   if (!t?.sessionId) { journalReady.add(threadId); return; } // thread neuf : rien à migrer
   // RETENTABLE (plan 025) : charge l'historique AVANT de créer le journal.
@@ -474,8 +486,12 @@ async function ensureLegacySeed(ctx, threadId, provider) {
       const p = ctx.providers?.[t.provider];
       if (typeof p?.history === "function") events = (await p.history(t.sessionId, t.projectRoot)) ?? [];
     }
-    if (events.length) await j.seedLegacy(threadId, t.provider ?? provider, events);
-    journalReady.add(threadId); // seedé (ou historique vide) → journalisation sûre
+    const seeded = await j.seedLegacy(threadId, t.provider ?? provider, events);
+    if (!seeded) {
+      const check = await j.load(threadId);
+      if (!check.header?.legacySeeded) throw new Error("écriture du seed legacy refusée");
+    }
+    journalReady.add(threadId);
   } catch (e) {
     (emitBox.get(threadId) ?? ctx.send)({
       type: "error",
@@ -510,41 +526,42 @@ async function handleTurnEvent(ctx, threadId, event) {
   const emit = emitBox.get(threadId) ?? ctx.broadcast ?? ctx.send;
   if (!run || !h || !event) return; // course à l'arrêt : événement orphelin ignoré
   const { turn, turnId } = run;
-  collectTool(turn.tools, event);
-  if (event.kind === "text") turn.lastText = event.text;
+  const { __ephemeral = false, ...publicEvent } = event;
+  collectTool(turn.tools, publicEvent);
+  if (publicEvent.kind === "text") turn.lastText = publicEvent.text;
 
   // le provider annonce son turn natif (Codex turn/started) → l'attacher au turn
   // universel pour que meta.nativeTurnId apparaisse sur tous les événements suivants
-  if (event.nativeTurnId) h.setNativeTurnId(turnId, event.nativeTurnId);
+  if (publicEvent.nativeTurnId) h.setNativeTurnId(turnId, publicEvent.nativeTurnId);
 
-  if (event.kind === "edit") {
+  if (publicEvent.kind === "edit") {
     // enrichissement async (±lignes git) sérialisé par le harnais : ne peut
     // pas être dépassé par le done qui suit
-    await h.emit(turnId, enrichEditEvent(ctx, turn, event));
+    await h.emit(turnId, enrichEditEvent(ctx, turn, publicEvent));
     return;
   }
-  if (event.kind !== "done" && event.kind !== "error") {
-    await h.emit(turnId, event);
+  if (publicEvent.kind !== "done" && publicEvent.kind !== "error") {
+    await h.emit(turnId, publicEvent, { durable: !__ephemeral });
     return;
   }
 
   // terminal — exactement un par turn (un doublon est refusé par le harnais)
   declineThreadInteractions(threadId);
-  const outEvent = event.kind === "done" ? await enrichDoneEvent(ctx, turn, event) : event;
+  const outEvent = publicEvent.kind === "done" ? await enrichDoneEvent(ctx, turn, publicEvent) : publicEvent;
   const accepted = await h.terminal(turnId, outEvent);
   if (!accepted) return;
   threadRuns.delete(threadId);
 
-  if (event.kind === "done") {
+  if (publicEvent.kind === "done") {
     emitGitChanged(ctx, threadId, turn.projectRoot);
     maybeAutoReview(ctx, emit, turn, run.autoReview);
     appendLedgerForDone(ctx, turn, outEvent).catch((e) => {
       emit({ type: "error", threadId, message: `ledger: ${String(e)}` });
     });
   }
-  ctx.store.upsert({ id: threadId, status: event.kind === "done" ? "done" : "idle" });
+  ctx.store.upsert({ id: threadId, status: publicEvent.kind === "done" ? "done" : "idle" });
   emit({ type: "threads", threads: ctx.store.list() });
-  if (event.kind === "done" && event.ok !== false) {
+  if (publicEvent.kind === "done" && publicEvent.ok !== false) {
     maybeTitleThread(ctx, emit, threadId, turn.prompt).catch(() => {});
   }
   drainQueue(ctx, threadId);
@@ -866,7 +883,16 @@ export async function route(msg, ctx) {
     case "interactionResponse": {
       // réponse tardive ou double : le waiter n'existe plus → ignorée (idempotent)
       const w = interactionWaiters.get(msg.requestId);
-      if (w) w.answer(msg.response ?? null);
+      if (w && msg.threadId === w.threadId && w.clientInstanceId != null &&
+          msg.clientInstanceId === w.clientInstanceId &&
+          ctx.clientInstanceId === w.clientInstanceId) {
+        w.answer(msg.response ?? null);
+      }
+      break;
+    }
+    case "clientHello": {
+      const id = String(msg.clientInstanceId ?? "");
+      if (/^[0-9a-f-]{20,}$/i.test(id)) ctx.clientInstanceId = id;
       break;
     }
     case "ping":
@@ -1321,11 +1347,11 @@ export async function route(msg, ctx) {
       // nouvelle session NATIVE au prochain message, MÊME thread Atelier : le
       // transcript est conservé, la frontière passe par le harnais (meta +
       // sequence + journal), pas un broadcast direct
-      if (ctx.store.get(msg.threadId)) ctx.store.upsert({ id: msg.threadId, sessionId: null });
       emitBox.set(msg.threadId, ctx.broadcast ?? ctx.send);
       await ensureLegacySeed(ctx, msg.threadId, "codex");
       const h = await harnessFor(ctx, msg.threadId, "codex");
       await h.emitGlobal({ kind: "tool", name: "__session-cleared" }, { origin: "atelier" });
+      if (ctx.store.get(msg.threadId)) ctx.store.upsert({ id: msg.threadId, sessionId: null });
       (ctx.broadcast ?? ctx.send)({ type: "threads", threads: ctx.store.list() });
       break;
     }
@@ -1352,7 +1378,10 @@ export async function route(msg, ctx) {
           const goal = await codex.getGoal(args);
           // statut demandé explicitement (/goal sans argument) : répondre même sans goal
           if (goal || msg.explicit) {
-            emit({ type: "event", threadId: msg.threadId, event: { kind: "goal", cleared: !goal, goal } });
+            emitBox.set(msg.threadId, emit);
+            await ensureLegacySeed(ctx, msg.threadId, "codex");
+            const h = await harnessFor(ctx, msg.threadId, "codex");
+            await h.emitGlobal({ kind: "goal", cleared: !goal, goal }, { origin: "provider" });
           }
         }
       } catch (e) {

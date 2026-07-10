@@ -40,7 +40,7 @@ export function createHarnessThread({
   const turns = new Map(); // turnId -> { status: "active"|"queued"|"done", terminal: bool, nativeTurnId? }
 
   function decorate(event, turnId, opts = {}) {
-    const { messageId, itemId, nativeThreadId, nativeTurnId, origin } = opts;
+    const { messageId, itemId, nativeThreadId, nativeTurnId, origin, durable } = opts;
     const nTurn = nativeTurnId ?? turns.get(turnId)?.nativeTurnId;
     const meta = {
       schemaVersion: 1,
@@ -54,7 +54,7 @@ export function createHarnessThread({
       ...(nTurn ? { nativeTurnId: nTurn } : {}),
       sequence: ++sequence,
       ts: now(),
-      durable: DURABLE_KINDS.has(event.kind),
+      durable: durable ?? DURABLE_KINDS.has(event.kind),
       origin: origin ?? "provider",
     };
     return { ...event, meta };

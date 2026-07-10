@@ -9,7 +9,7 @@
 //  2. @tauri-apps/plugin-dialog — ouvert directement par App pour le picker.
 //  3. ./lib/notify — touche le centre de notifications Tauri au mount.
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { act, cleanup, screen, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, screen, within } from "@testing-library/react";
 
 vi.mock("@tauri-apps/api/core", () => ({
   invoke: vi.fn(async (cmd: string) => {
@@ -78,6 +78,36 @@ async function selectThread(sock: FakeWS, title: string) {
   });
   const getHistory = sock.sent.map((s) => JSON.parse(s)).filter((m) => m.type === "getHistory");
   return getHistory[getHistory.length - 1];
+}
+
+function eventWithMeta(event: ReturnType<typeof events.user> | ReturnType<typeof events.text>, eventId: string, sequence: number) {
+  return {
+    ...event,
+    meta: {
+      schemaVersion: 1,
+      eventId,
+      provider: "claude",
+      threadId: "thread-A",
+      turnId: "turn-1",
+      sequence,
+      ts: sequence,
+      durable: true,
+      origin: "provider",
+    },
+  };
+}
+
+async function loadExactHistory(sock: FakeWS) {
+  await pushThreads(sock, [THREAD_A]);
+  await selectThread(sock, "Fil A — albédo");
+  await push(sock, {
+    type: "history",
+    threadId: "thread-A",
+    events: [
+      eventWithMeta(events.user("Question exacte"), "event-user-exact", 1),
+      eventWithMeta(events.text("Réponse exacte"), "event-text-exact", 2),
+    ],
+  });
 }
 
 beforeEach(() => {
@@ -395,6 +425,8 @@ describe("orchestration App — caractérisation", () => {
     const responses = sock.sent.map((s) => JSON.parse(s)).filter((m) => m.type === "interactionResponse");
     expect(responses).toHaveLength(1);
     expect(responses[0].requestId).toBe("req-appr-1");
+    expect(responses[0].threadId).toBe("thread-A");
+    expect(responses[0].clientInstanceId).toMatch(/^[0-9a-f-]{20,}$/i);
     expect(responses[0].response).toEqual({ allow: true });
     // marquage optimiste : la carte est déjà figée en attendant l'état final
     expect(screen.queryByRole("button", { name: t("interaction.allow-once") })).toBeNull();
@@ -412,5 +444,53 @@ describe("orchestration App — caractérisation", () => {
     expect(screen.getAllByText("Exécuter rm -rf build ?")).toHaveLength(1);
     expect(screen.getByText("autorisé une fois")).toBeTruthy();
     expect(screen.queryByRole("button", { name: t("interaction.allow-once") })).toBeNull();
+  });
+
+  it("Revert transmet l'eventId exact du message sélectionné", async () => {
+    const { sock } = await mountApp();
+    await loadExactHistory(sock);
+
+    await act(async () => {
+      screen.getByTitle(t("chat.revert-title")).click();
+      await flushMicrotasks(4);
+    });
+
+    const reverts = sock.sent.map((s) => JSON.parse(s)).filter((m) => m.type === "revert");
+    const sent = reverts[reverts.length - 1];
+    expect(sent).toMatchObject({ threadId: "thread-A", eventId: "event-user-exact" });
+  });
+
+  it("Edit & resend transmet l'eventId exact du message remplacé", async () => {
+    const { sock } = await mountApp();
+    await loadExactHistory(sock);
+
+    await act(async () => {
+      screen.getByTitle(t("action.edit-resend")).click();
+      await flushMicrotasks(2);
+    });
+    const textarea = document.querySelector(".edit-box textarea") as HTMLTextAreaElement;
+    expect(textarea).toBeTruthy();
+    fireEvent.change(textarea, { target: { value: "Question corrigée" } });
+    await act(async () => {
+      (document.querySelector(".edit-send") as HTMLButtonElement).click();
+      await flushMicrotasks(4);
+    });
+
+    const reverts = sock.sent.map((s) => JSON.parse(s)).filter((m) => m.type === "revert");
+    const sent = reverts[reverts.length - 1];
+    expect(sent).toMatchObject({ threadId: "thread-A", eventId: "event-user-exact" });
+  });
+
+  it("Fork transmet l'eventId exact du point de bifurcation", async () => {
+    const { sock } = await mountApp();
+    await loadExactHistory(sock);
+
+    await act(async () => {
+      screen.getByTitle(t("action.fork")).click();
+      await flushMicrotasks(4);
+    });
+
+    const sent = sock.sent.map((s) => JSON.parse(s)).find((m) => m.type === "forkThread");
+    expect(sent).toMatchObject({ fromThreadId: "thread-A", eventId: "event-text-exact" });
   });
 });

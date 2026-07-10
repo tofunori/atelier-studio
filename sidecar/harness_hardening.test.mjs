@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { mkdtempSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { route, __resetHarnessStateForTest } from "./router.mjs";
+import { route, emitProviderGlobal, __resetHarnessStateForTest } from "./router.mjs";
 import { ThreadStore } from "./store.mjs";
 import { createHarnessJournal } from "./harness_journal.mjs";
 
@@ -34,6 +34,8 @@ function setup({ providerImpl, provider = "claude", withJournal = true } = {}) {
     },
     ledger: { append: vi.fn(async () => {}) },
     providers: { [provider]: providerImpl },
+    connectionId: "client-owner",
+    clientInstanceId: "instance-owner",
   };
   return { ctx, emitted, store, harnessJournal, dir };
 }
@@ -113,6 +115,62 @@ describe("Bug 6/8 — goal durable journalisé + séquences après clear/compact
     expect(goal.meta?.sequence).toBeGreaterThan(0);
   });
 
+  it("un goal hors-turn sans harnais actif est hydraté, séquencé et journalisé", async () => {
+    const { ctx, store, harnessJournal } = setup({
+      provider: "codex",
+      providerImpl: { run: vi.fn() },
+    });
+    store.upsert({ id: "t", provider: "codex", projectRoot: "/p", sessionId: "cx-idle" });
+    ctx.sessions.codexHistory = vi.fn(async () => []);
+
+    await emitProviderGlobal("t", {
+      kind: "goal",
+      goal: { objective: "goal hors turn", status: "active" },
+    }, ctx);
+
+    const mat = await harnessJournal.materialize("t");
+    const goal = mat.find((e) => e.kind === "goal");
+    expect(goal?.goal?.objective).toBe("goal hors turn");
+    expect(goal?.meta?.sequence).toBeGreaterThan(0);
+  });
+
+  it("goalGet passe par le harnais et survit au reload", async () => {
+    const goal = { objective: "goal relu", status: "active" };
+    const { ctx, store, harnessJournal } = setup({
+      provider: "codex",
+      providerImpl: {
+        setGoal: vi.fn(),
+        getGoal: vi.fn(async () => goal),
+      },
+    });
+    store.upsert({ id: "t", provider: "codex", projectRoot: "/p", sessionId: "cx-goal" });
+    ctx.sessions.codexHistory = vi.fn(async () => []);
+
+    await route({ type: "goalGet", threadId: "t", explicit: true }, ctx);
+
+    const mat = await harnessJournal.materialize("t");
+    expect(mat.find((e) => e.kind === "goal")?.goal).toEqual(goal);
+  });
+
+  it("clear migre l'ancien transcript avant d'effacer la session native", async () => {
+    const { ctx, store, harnessJournal } = setup({
+      provider: "codex",
+      providerImpl: { run: vi.fn() },
+    });
+    store.upsert({ id: "t", provider: "codex", projectRoot: "/p", sessionId: "cx-legacy" });
+    ctx.sessions.codexHistory = vi.fn(async () => [
+      { kind: "user", text: "ancienne question" },
+      { kind: "text", text: "ancienne réponse" },
+    ]);
+
+    await route({ type: "codexClear", threadId: "t" }, ctx);
+
+    expect(ctx.sessions.codexHistory).toHaveBeenCalledWith("cx-legacy");
+    const mat = await harnessJournal.materialize("t");
+    expect(mat.some((e) => e.kind === "user" && e.text === "ancienne question")).toBe(true);
+    expect(mat.some((e) => e.kind === "tool" && e.name === "__session-cleared")).toBe(true);
+  });
+
   it("les frontières __session-cleared / __compacted portent meta et n'introduisent pas de trou de sequence", async () => {
     const { ctx, emitted, store, harnessJournal } = setup({
       provider: "codex",
@@ -158,7 +216,22 @@ describe("Bug 7 — permission Claude via le harnais (meta + journal)", () => {
     expect(inter, "la permission Claude doit être un événement interaction harnais").toBeTruthy();
     expect(inter.meta?.turnId, "attribuée au turn actif").toBeTruthy();
     // répondable via interactionResponse
-    await route({ type: "interactionResponse", requestId: inter.requestId, response: { allow: true } }, ctx);
+    await route({
+      type: "interactionResponse", threadId: "autre-thread",
+      requestId: inter.requestId, clientInstanceId: "instance-owner", response: { allow: true },
+    }, ctx);
+    await flush();
+    expect(permResolve).toBeUndefined();
+    await route({
+      type: "interactionResponse", threadId: "t",
+      requestId: inter.requestId, clientInstanceId: "instance-attaquant", response: { allow: true },
+    }, { ...ctx, connectionId: "client-attaquant", clientInstanceId: "instance-attaquant" });
+    await flush();
+    expect(permResolve).toBeUndefined();
+    await route({
+      type: "interactionResponse", threadId: "t",
+      requestId: inter.requestId, clientInstanceId: "instance-owner", response: { allow: true },
+    }, { ...ctx, connectionId: "client-reconnecte", clientInstanceId: "instance-owner" });
     await flush();
     expect(permResolve).toBe(true);
     // journalisée
@@ -190,6 +263,37 @@ describe("Bug 11 — migration legacy retentable après échec", () => {
     const mat = await harnessJournal.materialize("t");
     expect(mat.some((e) => e.kind === "user" && String(e.text).includes("ancienne question")),
       "l'historique legacy doit finir par être seedé").toBe(true);
+  });
+
+  it("un seedLegacy qui retourne false est retenté au send suivant", async () => {
+    let loaderCalls = 0;
+    let seedCalls = 0;
+    const { ctx, harnessJournal: realJournal } = setup({
+      providerImpl: { send: (opts) => opts.onEvent({ kind: "done", ok: true, result: "" }) },
+    });
+    ctx.store.upsert({ id: "t", provider: "claude", projectRoot: "/p",
+      sessionId: "123e4567-e89b-42d3-a456-426614174000" });
+    ctx.history.claudeHistory = vi.fn(async () => {
+      loaderCalls++;
+      return [{ kind: "user", text: "legacy à préserver" }];
+    });
+    ctx.harnessJournal = {
+      ...realJournal,
+      seedLegacy: async (...args) => {
+        seedCalls++;
+        if (seedCalls === 1) return false;
+        return realJournal.seedLegacy(...args);
+      },
+    };
+
+    await route(send({ clientMessageId: "m1" }), ctx);
+    await flush();
+    await route(send({ clientMessageId: "m2" }), ctx);
+    await flush();
+
+    expect(seedCalls).toBe(2);
+    expect(loaderCalls).toBe(2);
+    expect((await realJournal.materialize("t")).some((e) => e.text === "legacy à préserver")).toBe(true);
   });
 });
 

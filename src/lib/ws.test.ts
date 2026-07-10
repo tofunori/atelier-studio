@@ -31,7 +31,9 @@ describe("connectSidecar", () => {
     sock.open();
     await p;
     expect(getSidecarInfo()).toEqual({ port: 1234, token: "tok" });
-    expect(sock.sent.map((s) => JSON.parse(s).type)).toEqual(["listThreads", "providerStatus"]);
+    const initial = sock.sent.map((s) => JSON.parse(s));
+    expect(initial.map((m) => m.type)).toEqual(["clientHello", "listThreads", "providerStatus"]);
+    expect(initial[0].clientInstanceId).toMatch(/^[0-9a-f-]{20,}$/i);
   });
 
   it("abort ferme la socket et n'autorise aucun retry", async () => {
@@ -73,6 +75,9 @@ describe("connectSidecar", () => {
     await flushMicrotasks();
     expect(reconnected).toHaveLength(1);
     expect(getSidecarInfo()?.port).toBe(2222);
+    const firstHello = JSON.parse(FakeWS.instances[0].sent[0]);
+    const secondHello = JSON.parse(FakeWS.instances[1].sent[0]);
+    expect(secondHello.clientInstanceId).toBe(firstHello.clientInstanceId);
   });
 
   it("abort pendant l'attente de retry annule le timer : aucune nouvelle socket", async () => {
