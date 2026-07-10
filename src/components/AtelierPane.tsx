@@ -1,13 +1,13 @@
 import { useEffect, useState, lazy } from "react";
 import Explorer from "./Explorer";
-import BrowserTab from "./BrowserTab";
-import GitSurface from "./GitSurface";
+const BrowserTab = lazy(() => import("./BrowserTab"));
+const GitSurface = lazy(() => import("./GitSurface"));
 // xterm (~350 KB min) hors de l'entrée : chargé à la PREMIÈRE visite du
 // terminal, puis reste monté (visited) — cycle de vie inchangé (plan 022)
 const TerminalSurface = lazy(() => import("./TerminalSurface"));
 import { LazyBoundary } from "./LazyBoundary";
-import BiblioSurface from "./BiblioSurface";
-import GeneratorSurface from "./GeneratorSurface";
+const BiblioSurface = lazy(() => import("./BiblioSurface"));
+const GeneratorSurface = lazy(() => import("./GeneratorSurface"));
 import { t } from "../lib/i18n";
 import { CloseIcon } from "./icons";
 import { GalleryHeader, DocumentHeader } from "./AtelierHeaders";
@@ -315,7 +315,9 @@ export default function AtelierPane({
       {/* ---- surface Browser ---- */}
       {visited.has("browser") && (
         <div className="pane-slot" style={slotStyle("browser")}>
-          <BrowserTab tabId="main-browser" visible={shown("browser")} onTitle={() => {}} />
+          <LazyBoundary fallback={<div className="pane-slot" />}>
+            <BrowserTab tabId="main-browser" visible={shown("browser")} onTitle={() => {}} />
+          </LazyBoundary>
         </div>
       )}
 
@@ -331,21 +333,27 @@ export default function AtelierPane({
       {/* ---- surface Git ---- */}
       {visited.has("git") && (
         <div className="surface-body pane-slot" style={slotStyle("git")}>
-          <GitSurface ws={ws} projectRoot={projectRoot} activeThreadId={activeThreadId} />
+          <LazyBoundary fallback={<div className="pane-slot" />}>
+            <GitSurface ws={ws} projectRoot={projectRoot} activeThreadId={activeThreadId} />
+          </LazyBoundary>
         </div>
       )}
 
       {/* ---- surface Bibliothèque ---- */}
       {visited.has("biblio") && (
         <div className="surface-body pane-slot" style={slotStyle("biblio")}>
-          <BiblioSurface ws={ws} projectRoot={projectRoot} galleryUrl={url} />
+          <LazyBoundary fallback={<div className="pane-slot" />}>
+            <BiblioSurface ws={ws} projectRoot={projectRoot} galleryUrl={url} />
+          </LazyBoundary>
         </div>
       )}
 
       {/* ---- surface Générateur ---- */}
       {visited.has("generateur") && (
         <div className="surface-body pane-slot" style={slotStyle("generateur")}>
-          <GeneratorSurface ws={ws} projectRoot={projectRoot} galleryUrl={url} />
+          <LazyBoundary fallback={<div className="pane-slot" />}>
+            <GeneratorSurface ws={ws} projectRoot={projectRoot} galleryUrl={url} />
+          </LazyBoundary>
         </div>
       )}
 
