@@ -347,6 +347,7 @@ window.DiffVersions = function(opts){
     marks = [];
   }
   let diffWorker = null, workerFailed = false, renderRequestId = 0, renderTimer = null;
+  const LOCAL_WORD_LIMIT = 12000;
   const renderCache = new Map();
   function workerUrl(){
     let url = "/.fig_thumbs/diff_worker.js";
@@ -365,8 +366,33 @@ window.DiffVersions = function(opts){
     renderCache.set(key, value);
     while(renderCache.size > 8) renderCache.delete(renderCache.keys().next().value);
   }
-  function lineFallback(before, after, requestId, done){
-    const a = before.match(/.*(?:\n|$)/g).filter(Boolean), b = after.match(/.*(?:\n|$)/g).filter(Boolean);
+  function lineFallback(before, after, isCurrent, done){
+    const splitLines = (text, callback) => {
+      const lines = []; let at = 0;
+      const step = () => {
+        if(!isCurrent()) return;
+        let count = 0;
+        while(at < text.length && count++ < 300){
+          const end = text.indexOf("\n", at);
+          if(end < 0){ lines.push(text.slice(at)); at = text.length; break; }
+          lines.push(text.slice(at, end + 1)); at = end + 1;
+        }
+        at < text.length ? setTimeout(step, 0) : callback(lines);
+      };
+      setTimeout(step, 0);
+    };
+    const build = (lines, start, end, callback) => {
+      let at = start, value = "";
+      const step = () => {
+        if(!isCurrent()) return;
+        let chunk = "", count = 0;
+        while(at < end && count++ < 200) chunk += lines[at++];
+        value += chunk;
+        at < end ? setTimeout(step, 0) : callback(value);
+      };
+      setTimeout(step, 0);
+    };
+    splitLines(before, a => splitLines(after, b => {
     let prefix = 0, suffix = 0;
     const scanPrefix = () => {
       const stop = Math.min(prefix + 500, a.length, b.length);
@@ -380,18 +406,21 @@ window.DiffVersions = function(opts){
       while(suffix < stop && a[a.length - 1 - suffix] === b[b.length - 1 - suffix]) suffix++;
       if(suffix === stop && suffix < a.length - prefix && suffix < b.length - prefix)
         return setTimeout(scanSuffix, 0);
-      if(requestId !== renderRequestId) return;
-      const parts = [], commonBefore = a.slice(0, prefix).join("");
-      const removed = a.slice(prefix, a.length - suffix).join("");
-      const added = b.slice(prefix, b.length - suffix).join("");
-      const commonAfter = suffix ? b.slice(b.length - suffix).join("") : "";
+      if(!isCurrent()) return;
+      build(a, 0, prefix, commonBefore =>
+      build(a, prefix, a.length - suffix, removed =>
+      build(b, prefix, b.length - suffix, added =>
+      build(b, b.length - suffix, b.length, commonAfter => {
+      const parts = [];
       if(commonBefore) parts.push({value:commonBefore});
       if(removed) parts.push({removed:true,value:removed});
       if(added) parts.push({added:true,value:added});
       if(commonAfter) parts.push({value:commonAfter});
       done(parts, true);
+      }))));
     };
     setTimeout(scanPrefix, 0);
+    }));
   }
   function cancelRender(){
     renderRequestId++; clearTimeout(renderTimer); renderTimer = null;
@@ -400,38 +429,44 @@ window.DiffVersions = function(opts){
   function render(){
     const v = curVersion(), cm = getCm();
     if(!v || !cm) return;
+    clearMarks(); changePts = [];
     const after = cm.getValue();
     const wsn = s => s.replace(/\s+/g, " ").trim();
     const key = hashText(v.before) + ":" + hashText(after);
     const requestId = ++renderRequestId;
-    const apply = (parts, coarse = false) => {
+    if(diffWorker){ try{ diffWorker.terminate(); }catch(e){} diffWorker = null; }
+    const apply = (parts, coarse = false, warning = "") => {
       if(requestId !== renderRequestId || !shown || curVersion() !== v || cm.getValue() !== after) return;
       cacheParts(key, {parts, coarse});
-      applyRender(v, cm, after, parts, coarse);
+      applyRender(v, cm, after, parts, coarse, warning);
     };
     const cached = renderCache.get(key);
     if(cached){ applyRender(v, cm, after, cached.parts, cached.coarse); return; }
     if(wsn(v.before) === wsn(after)){ apply([], false); return; }
     clearTimeout(renderTimer);
     renderTimer = setTimeout(() => {
+      const fallback = (warn) => {
+        if(v.before.length + after.length <= LOCAL_WORD_LIMIT)
+          apply(Diff.diffWordsWithSpace(v.before, after), false, warn ? "diff Worker indisponible — fallback local" : "");
+        else lineFallback(v.before, after, () => requestId === renderRequestId, apply);
+      };
       const worker = ensureWorker();
       if(worker){
         worker.onerror = () => {
           workerFailed = true; try{ worker.terminate(); }catch(e){} if(diffWorker === worker) diffWorker = null;
           if(requestId !== renderRequestId) return;
-          if(v.before.length + after.length <= 50000) apply(Diff.diffWordsWithSpace(v.before, after), false);
-          else lineFallback(v.before, after, requestId, apply);
+          fallback(true);
         };
         worker.onmessage = ({data}) => {
-          if(data?.requestId !== renderRequestId || data.error) return;
+          if(data?.requestId !== renderRequestId) return;
+          if(data.error){ fallback(true); return; }
           apply(data.parts || [], false);
         };
         worker.postMessage({requestId, before:v.before, after});
-      } else if(v.before.length + after.length <= 50000) apply(Diff.diffWordsWithSpace(v.before, after), false);
-      else lineFallback(v.before, after, requestId, apply);
+      } else fallback(false);
     }, 35);
   }
-  function applyRender(v, cm, after, inputParts, coarse){
+  function applyRender(v, cm, after, inputParts, coarse, warning){
     clearMarks();
     const wsn = s => s.replace(/\s+/g, " ").trim();
     let parts = inputParts;
@@ -533,6 +568,7 @@ window.DiffVersions = function(opts){
       ? changes + " modification" + (changes > 1 ? "s" : "")
       : "aucun changement de texte" + (v.head ? "" : " (retours à la ligne seulement)");
     if(coarse) notify("diff détaillé indisponible — affichage par lignes");
+    else if(warning) notify(warning);
     else notify("comparaison " + (extCmp ? extCmp.label : labelOf(baseVersion)) + " · " + note + " · Échap pour fermer");
     updateNav();
     if(changes) gotoChange(changeAt, true);
@@ -582,6 +618,7 @@ window.DiffVersions = function(opts){
     render();
   }
   function showStep(j){
+    cancelGutter();
     const list = interList();
     if(!list.length) return;
     j = Math.max(0, Math.min(list.length - 1, j));
@@ -994,6 +1031,91 @@ window.DiffVersions = function(opts){
     cell.onclick = () => openHeadAt(line);
     return cell;
   }
+  let gutterWorker = null, gutterRequestId = 0;
+  function cancelGutter(){
+    gutterRequestId++;
+    if(gutterWorker){ try{ gutterWorker.terminate(); }catch(e){} gutterWorker = null; }
+  }
+  function coarseGutter(parts, lastLine){
+    const markers = []; let line = 0, blocks = 0;
+    const count = value => { const matches = value.match(/\n/g); return (matches ? matches.length : 0) + (value && !value.endsWith("\n") ? 1 : 0); };
+    for(let i=0;i<parts.length;i++){
+      const part=parts[i], n=count(part.value);
+      if(part.removed){
+        const next=parts[i+1]; blocks++;
+        if(next?.added){
+          const nn=count(next.value);
+          for(let k=0;k<nn;k++) markers.push({line:Math.min(line+k,lastLine),openLine:line+k,
+            kind:"modified",deleted:k===nn-1&&n>nn});
+          line+=nn; i++;
+        }else markers.push({line:Math.min(line,lastLine),openLine:Math.min(line,lastLine),kind:"deleted",eof:line>lastLine});
+      }else{
+        if(part.added){ blocks++; for(let k=0;k<n;k++) markers.push({line:Math.min(line+k,lastLine),openLine:line+k,kind:"added"}); }
+        line+=n;
+      }
+    }
+    return {markers,blocks};
+  }
+  function detailedGutter(before,after,lastLine){
+    const wsn=value=>value.replace(/\s+/g," ").trim(), parts=Diff.diffLines(before,after), markers=[];
+    let line=0,blocks=0;
+    for(let i=0;i<parts.length;i++){
+      const pt=parts[i],n=pt.count||0;
+      if(pt.removed){
+        const nx=parts[i+1];
+        if(nx&&nx.added&&wsn(nx.value)===wsn(pt.value)){line+=nx.count||0;i++;continue;}
+        if(!wsn(pt.value))continue;
+        blocks++;
+        if(nx&&nx.added){
+          const nn=nx.count||0,changed=new Set(),wparts=Diff.diffWordsWithSpace(pt.value,nx.value),skip=new Set();
+          for(let w=0;w<wparts.length;w++){
+            const wp=wparts[w]; if(!(wp.added||wp.removed)||skip.has(w)||!wsn(wp.value))continue;
+            for(let x=w+1;x<=w+2&&x<wparts.length;x++){
+              const cand=wparts[x];
+              if(x===w+1&&!cand.removed&&!cand.added){if(wsn(cand.value)!=="")break;continue;}
+              if(!skip.has(x)&&!!cand.removed===!wp.removed&&!!cand.added===!wp.added&&wsn(cand.value)===wsn(wp.value)){skip.add(w);skip.add(x);} break;
+            }
+          }
+          const lineOf=off=>{let count=0,pos=-1;for(;;){const next=nx.value.indexOf("\n",pos+1);if(next<0||next>=off)return count;count++;pos=next;}};
+          let off=0;
+          for(let w=0;w<wparts.length;w++){
+            const wp=wparts[w];
+            if(wp.removed){if(!skip.has(w)&&wsn(wp.value))changed.add(lineOf(off));continue;}
+            if(wp.added&&!skip.has(w)&&wsn(wp.value)){const a=lineOf(off),b=lineOf(off+wp.value.length);for(let target=a;target<=b;target++)changed.add(target);}
+            off+=wp.value.length;
+          }
+          if(!changed.size){blocks--;line+=nn;i++;continue;}
+          const lastChanged=Math.max(...changed);
+          for(let k=0;k<nn;k++)if(changed.has(k))markers.push({line:Math.min(line+k,lastLine),openLine:line+k,kind:"modified",deleted:k===lastChanged&&n>nn});
+          line+=nn;i++;
+        }else markers.push({line:Math.min(line,lastLine),openLine:Math.min(line,lastLine),kind:"deleted",eof:line>lastLine});
+      }else{
+        if(pt.added&&wsn(pt.value)){blocks++;for(let k=0;k<n;k++)markers.push({line:Math.min(line+k,lastLine),openLine:line+k,kind:"added"});}
+        line+=n;
+      }
+    }
+    return {markers,blocks};
+  }
+  function applyGutter(result, requestId, cm){
+    let at=0;
+    const batch=()=>{
+      if(requestId!==gutterRequestId || tt) return;
+      cm.operation(()=>{
+        const stop=Math.min(at+100,result.markers.length);
+        for(;at<stop;at++){
+          const marker=result.markers[at];
+          let html=marker.kind==="added"?'<div class="dv-bar a"></div>'
+            :marker.kind==="modified"?'<div class="dv-bar m"></div>'
+            :'<div class="dv-del'+(marker.eof?' eof':'')+'"></div>';
+          if(marker.deleted) html+='<div class="dv-del eof"></div>';
+          cm.setGutterMarker(marker.line,GUTTER,markerCell(html,marker.openLine));
+        }
+      });
+      if(at<result.markers.length) setTimeout(batch,0);
+      else updateCommitBtn(result.blocks);
+    };
+    setTimeout(batch,0);
+  }
   function refreshGutter(){
     const cm = getCm();
     if(!cm || headText === null || tt) return;
@@ -1006,96 +1128,30 @@ window.DiffVersions = function(opts){
       });
       gutterReady = true;
     }
-    let blocks = 0;
-    // bruit de rewrap : diffLines voit chaque retour à la ligne déplacé comme
-    // une modification — si le contenu (blancs normalisés) est identique, ce
-    // n'est pas un vrai changement, aucune marque
-    const wsn = s => s.replace(/\s+/g, " ").trim();
-    cm.operation(() => {
-      cm.clearGutter(GUTTER);
-      const parts = Diff.diffLines(headText, cm.getValue());
-      let line = 0;
-      const lastLine = cm.lineCount() - 1;
-      for(let i = 0; i < parts.length; i++){
-        const pt = parts[i];
-        const n = pt.count || 0;
-        if(pt.removed){
-          const nx = parts[i + 1];
-          if(nx && nx.added && wsn(nx.value) === wsn(pt.value)){ line += nx.count || 0; i++; continue; }
-          if(!wsn(pt.value)){ continue; } // seulement des blancs : rien à montrer
-          blocks++;
-          if(nx && nx.added){
-            // Bloc modifié. Un rewrap fusionne tout un paragraphe en un seul
-            // bloc « n supprimées + m ajoutées » même si UN mot a changé —
-            // marquer tout le bloc noierait le vrai changement. Raffinement au
-            // mot : seules les lignes du bloc contenant un changement réel
-            // (blancs normalisés) reçoivent une barre.
-            const nn = nx.count || 0;
-            const changed = new Set();
-            {
-              const wparts = Diff.diffWordsWithSpace(pt.value, nx.value);
-              // même appariement du bruit que render() : paires supprimé/ajouté
-              // de contenu égal, dans un ordre ou l'autre, séparées au plus par
-              // un blanc commun (mot déplacé de l'autre côté d'un retour à la ligne)
-              const skipW = new Set();
-              for(let w = 0; w < wparts.length; w++){
-                const wp = wparts[w];
-                if(!(wp.added || wp.removed) || skipW.has(w) || !wsn(wp.value)) continue;
-                for(let x = w + 1; x <= w + 2 && x < wparts.length; x++){
-                  const cand = wparts[x];
-                  if(x === w + 1 && !cand.removed && !cand.added){
-                    if(wsn(cand.value) !== "") break;
-                    continue;
-                  }
-                  if(!skipW.has(x) && !!cand.removed === !wp.removed && !!cand.added === !wp.added
-                     && wsn(cand.value) === wsn(wp.value)){ skipW.add(w); skipW.add(x); }
-                  break;
-                }
-              }
-              const lineOf = (off) => { let c = 0, p = -1; const s = nx.value;
-                for(;;){ const q = s.indexOf("\n", p + 1); if(q < 0 || q >= off) return c; c++; p = q; } };
-              let off = 0;
-              for(let w = 0; w < wparts.length; w++){
-                const wp = wparts[w];
-                if(wp.removed){
-                  if(!skipW.has(w) && wsn(wp.value)) changed.add(lineOf(off));
-                  continue;
-                }
-                if(wp.added && !skipW.has(w) && wsn(wp.value)){
-                  const a = lineOf(off), b = lineOf(off + wp.value.length);
-                  for(let L = a; L <= b; L++) changed.add(L);
-                }
-                off += wp.value.length;
-              }
-            }
-            if(!changed.size){ blocks--; line += nn; i++; continue; } // que du bruit
-            for(let k = 0; k < nn; k++){
-              if(!changed.has(k)) continue;
-              // n > nn : suppression nette dans le bloc → triangle sous la dernière barre marquée
-              let html = '<div class="dv-bar m"></div>';
-              if(k === Math.max(...changed) && n > nn) html += '<div class="dv-del eof"></div>';
-              cm.setGutterMarker(Math.min(line + k, lastLine), GUTTER, markerCell(html, line + k));
-            }
-            line += nn;
-            i++;
-          } else {
-            // suppression sèche : triangle sur la ligne qui suit (ou fin de fichier)
-            const at = Math.min(line, lastLine);
-            const eof = line > lastLine;
-            cm.setGutterMarker(at, GUTTER, markerCell('<div class="dv-del' + (eof ? " eof" : "") + '"></div>', at));
-          }
-          continue;
-        }
-        if(pt.added){
-          if(!wsn(pt.value)){ line += n; continue; } // lignes vides seulement
-          blocks++;
-          for(let k = 0; k < n; k++)
-            cm.setGutterMarker(Math.min(line + k, lastLine), GUTTER, markerCell('<div class="dv-bar a"></div>', line + k));
-        }
-        line += n;
-      }
-    });
-    updateCommitBtn(blocks);
+    cancelGutter();
+    const requestId=++gutterRequestId, before=headText, after=cm.getValue(), lastLine=cm.lineCount()-1;
+    cm.operation(()=>cm.clearGutter(GUTTER));
+    const fallback=()=>{
+      if(before.length+after.length<=LOCAL_WORD_LIMIT)return setTimeout(()=>{
+        if(requestId===gutterRequestId)applyGutter(detailedGutter(before,after,lastLine),requestId,cm);
+      },0);
+      lineFallback(before,after,()=>requestId===gutterRequestId,parts=>{
+        if(requestId!==gutterRequestId)return;
+        notify("calcul de gouttière indisponible — affichage simplifié");
+        applyGutter(coarseGutter(parts,lastLine),requestId,cm);
+      });
+    };
+    if(typeof Worker==="undefined") return fallback();
+    try{
+      gutterWorker=new Worker(workerUrl());
+      gutterWorker.onmessage=({data})=>{
+        if(data?.requestId!==requestId||requestId!==gutterRequestId)return;
+        if(data.error)return fallback();
+        applyGutter(data.gutter||{markers:[],blocks:0},requestId,cm);
+      };
+      gutterWorker.onerror=()=>{ if(requestId===gutterRequestId)fallback(); };
+      gutterWorker.postMessage({kind:"gutter",requestId,before,after});
+    }catch(e){ fallback(); }
   }
   async function fetchHead(){
     try{

@@ -285,8 +285,8 @@ function makeModuleHarness({
     getCursor() { return cm.posFromIndex(0); },
     setValue(v) { cm._v = v; },
     getOption() { return false; },
-    setBookmark(pos, o) { marksLog.push({ type: "del", idx: pos._idx, text: o.widget._t }); return { clear() {} }; },
-    markText(f, t) { marksLog.push({ type: "add", from: f._idx, to: t._idx }); return { clear() {} }; },
+    setBookmark(pos, o) { marksLog.push({ type: "del", idx: pos._idx, text: o.widget._t }); return { clear() { marksLog.push({type:"clear"}); } }; },
+    markText(f, t) { marksLog.push({ type: "add", from: f._idx, to: t._idx }); return { clear() { marksLog.push({type:"clear"}); } }; },
     setOption() {}, on() {}, operation(f) { f(); },
     clearGutter() { gutterLog.length = 0; },
     setGutterMarker(line, g, cell) { gutterLog.push({ line, html: cell._h }); },
@@ -337,6 +337,7 @@ function makeModuleHarness({
     postMessage(message) { this.posts.push(message); }
     terminate() { this.terminated = true; }
     respond(message) { this.onmessage?.({data: message}); }
+    fail() { this.onerror?.(new Error("worker failed")); }
   };
   vm.createContext(ctx);
   vm.runInContext(fs.readFileSync(path.join(ASSETS, "diff.min.js"), "utf8"), ctx);
@@ -417,11 +418,11 @@ async function moduleTests() {
     const worker = h.workers[0];
     const request1 = worker?.posts.at(-1);
     h.cm._v = second; h.dv.push(first, second);
-    const request2 = worker?.posts.at(-1);
-    contractOk("worker same-origin et deux generations envoyees",
-      worker?.url === "/.fig_thumbs/diff_worker.js" && request1?.requestId < request2?.requestId,
-      JSON.stringify({url: worker?.url, posts: worker?.posts}));
-    worker?.respond({requestId: request2?.requestId, parts: [{removed:true,value:base},{added:true,value:second}]});
+    const worker2 = h.workers.at(-1), request2 = worker2?.posts.at(-1);
+    contractOk("nouvelle generation termine physiquement ancien worker",
+      worker?.terminated === true && worker2 !== worker && request1?.requestId < request2?.requestId,
+      JSON.stringify({workers:h.workers.length, request1, request2}));
+    worker2?.respond({requestId: request2?.requestId, parts: [{removed:true,value:base},{added:true,value:second}]});
     await sleep(0);
     const afterLatest = h.notes.at(-1);
     const marksAfterLatest = h.marksLog.length;
@@ -430,19 +431,28 @@ async function moduleTests() {
     contractOk("worker resultat stale ignore", h.notes.at(-1) === afterLatest && h.marksLog.length === marksAfterLatest,
       JSON.stringify({notes:h.notes, marks:h.marksLog}));
 
-    const postCount = worker.posts.length;
+    h.cm._v = "alpha troisieme\n"; h.dv.push(second, h.cm._v);
+    const worker3 = h.workers.filter(item => item.posts.some(post => post.kind !== "gutter")).at(-1);
+    contractOk("nouveau calcul efface anciennes marques immediatement",
+      h.marksLog.slice(marksAfterLatest).some(mark => mark.type === "clear"), JSON.stringify(h.marksLog));
+    worker3.fail(); await sleep(0);
+    contractOk("worker error declenche fallback visible",
+      h.notes.at(-1) === "diff Worker indisponible — fallback local", JSON.stringify(h.notes.slice(-3)));
+
+    const postCount = worker2.posts.length;
     h.dv.compareExternal(base, "cache-pair");
-    const cachedRequest = worker.posts.at(-1);
-    if(worker.posts.length > postCount) worker.respond({requestId:cachedRequest.requestId,
+    const cacheWorker = h.workers.at(-1), cachedRequest = cacheWorker.posts.at(-1);
+    if(cacheWorker.posts.length > postCount) cacheWorker.respond({requestId:cachedRequest.requestId,
       parts:[{removed:true,value:base},{added:true,value:second}]});
     await sleep(0);
     h.dv.compareExternal(base, "cache-pair");
-    contractOk("worker cache paire identique evite recalcul", worker.posts.length <= postCount + 1,
-      JSON.stringify(worker.posts));
+    const renderWorkers = h.workers.filter(item => item.posts.some(post => post.kind !== "gutter"));
+    contractOk("worker cache paire identique evite recalcul", renderWorkers.length <= 3,
+      JSON.stringify(h.workers.map(item => item.posts)));
     h.tag.onclick();
     const beforeCancel = h.marksLog.length;
-    const pending = worker.posts.at(-1);
-    worker.respond({requestId:pending.requestId, parts:[{removed:true,value:base},{added:true,value:"stale ferme\n"}]});
+    const pendingWorker = h.workers.at(-1), pending = pendingWorker.posts.at(-1);
+    pendingWorker.respond({requestId:pending.requestId, parts:[{removed:true,value:base},{added:true,value:"stale ferme\n"}]});
     await sleep(0);
     contractOk("worker fermeture annule rendu pending", !h.dv.isShown() && h.marksLog.length === beforeCancel,
       JSON.stringify(h.marksLog));
@@ -455,6 +465,16 @@ async function moduleTests() {
     await sleep(20);
     contractOk("fallback >50000 avertit rendu lignes exact",
       h.notes.some((note) => note === "diff détaillé indisponible — affichage par lignes"), JSON.stringify(h.notes.slice(-3)));
+  }
+  {
+    const head="a\nb\nc\n",after="a\nB\nc\n",h=makeModuleHarness({headText:head,workerAvailable:true});
+    h.cm._v=after; h.ctx.__tick(); await sleep(0);
+    const gutterWorker=h.workers.find(item=>item.posts.some(post=>post.kind==="gutter"));
+    const request=gutterWorker?.posts.find(post=>post.kind==="gutter");
+    gutterWorker?.respond({requestId:request?.requestId,gutter:{blocks:1,markers:[{line:1,openLine:1,kind:"modified",deleted:false}]}});
+    await sleep(0);
+    contractOk("gouttiere applique resultat Worker async",request?.before===head&&request?.after===after
+      &&h.gutterLog.length===1&&h.gutterLog[0].line===1,JSON.stringify({request,gutter:h.gutterLog}));
   }
   // B1. fusion sémantique : phrase récrite par un agent → peu de stops, offsets sûrs
   {

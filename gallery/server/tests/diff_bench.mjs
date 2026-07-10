@@ -1,5 +1,5 @@
 import { chromium } from "@playwright/test";
-import { spawn } from "node:child_process";
+import { execFileSync, spawn } from "node:child_process";
 import fs from "node:fs";
 import net from "node:net";
 import os from "node:os";
@@ -13,6 +13,11 @@ const before = Array.from({length: 900}, (_, i) => `ligne ${String(i).padStart(4
 const insertion = before.slice(0, 10000) + "insertion scientifique deterministe\n" + before.slice(10000);
 const rewrite = Array.from({length: 900}, (_, i) => `reecriture ${String(i).padStart(4, "0")} aerosol carbone neige surface\n`).join("");
 fs.writeFileSync(file, before);
+execFileSync("git", ["init", "-q"], {cwd:root});
+execFileSync("git", ["config", "user.email", "bench@atelier.test"], {cwd:root});
+execFileSync("git", ["config", "user.name", "Atelier Bench"], {cwd:root});
+execFileSync("git", ["add", "bench.txt"], {cwd:root});
+execFileSync("git", ["commit", "-qm", "benchmark base"], {cwd:root});
 
 const port = await new Promise((resolve, reject) => {
   const socket = net.createServer(); socket.unref(); socket.on("error", reject);
@@ -47,10 +52,21 @@ try {
     const rewriteStarted = performance.now();
     const rewriteParts = await run(2, before, rewrite);
     const rewriteMs = performance.now() - rewriteStarted;
+    const waitUntil = async predicate => { const deadline=performance.now()+14000;
+      while(performance.now()<deadline){if(predicate())return;await new Promise(resolve=>setTimeout(resolve,20));}
+      throw new Error("application timeout"); };
+    await waitUntil(()=>cm.getOption("gutters")?.includes("dv-git"));
+    const gutterStarted=performance.now(); cm.setValue(rewrite);
+    await waitUntil(()=>document.querySelectorAll(".dv-bar,.dv-del").length>0);
+    const gutterMs=performance.now()-gutterStarted, gutterMarkers=document.querySelectorAll(".dv-bar,.dv-del").length;
+    const renderStarted=performance.now(); document.getElementById("diffTag").click();
+    await waitUntil(()=>document.querySelector("#dvNav .dvNavC"));
+    const renderMs=performance.now()-renderStarted;
     await new Promise(resolve => setTimeout(resolve, 60));
     clearInterval(heartbeat); worker.terminate();
     return {heartbeatMaxGapMs: Math.round(Math.max(0, ...gaps)), completedMs: Math.round(performance.now() - started),
       insertionMs: Math.round(insertionMs), rewriteMs: Math.round(rewriteMs),
+      gutterMs: Math.round(gutterMs), renderMs: Math.round(renderMs), gutterMarkers,
       insertionParts: insertionParts.length, rewriteParts: rewriteParts.length,
       exact: insertionParts.filter(part => !part.removed).map(part => part.value).join("") === insertion
         && rewriteParts.filter(part => !part.removed).map(part => part.value).join("") === rewrite};
