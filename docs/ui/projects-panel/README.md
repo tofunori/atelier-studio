@@ -21,7 +21,7 @@ favoris), `-empty`, `-unscoped`, `-light`, largeurs `-w220`/`-w180`.
 | Hover ligne (slot 48 px) | `avant-hover-row.png` | `apres-hover-row.png` |
 | Menu overflow header | — (n'existait pas) | `apres-overflow-menu.png` |
 
-## Contrôles programmatiques (script `capture_nav.cjs`)
+## Contrôles programmatiques (script `scripts/capture_navbench.cjs`)
 
 | Contrôle | Avant | Après |
 |---|---|---|

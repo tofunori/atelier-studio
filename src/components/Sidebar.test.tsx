@@ -384,3 +384,27 @@ describe("Research Navigator — sections et déduplication", () => {
     expect(screen.getByDisplayValue("Analyse albédo")).toBeTruthy();
   });
 });
+
+describe("Research Navigator — actions projet de l'overflow (câblage réel)", () => {
+  it("Révéler dans le Finder appelle revealItemInDir avec le root actif", async () => {
+    const opener = await import("@tauri-apps/plugin-opener");
+    renderUi(<Sidebar {...makeProps({ threads: projectThreads() })} />);
+    fireEvent.click(screen.getByRole("button", { name: t("project.actions") }));
+    fireEvent.click(screen.getByText(t("project.reveal-finder")));
+    expect(opener.revealItemInDir).toHaveBeenCalledWith(PROJECT_ROOT);
+  });
+
+  it("Personnaliser ouvre le popover couleur/icône ; un swatch appelle onSetMeta", () => {
+    const p = makeProps({ threads: projectThreads() });
+    const { container } = renderUi(<Sidebar {...p} />);
+    fireEvent.click(screen.getByRole("button", { name: t("project.actions") }));
+    fireEvent.click(screen.getByText(t("project.customize")));
+    const swatch = container.querySelector(".swatches .swatch") as HTMLElement;
+    expect(swatch).toBeTruthy();
+    fireEvent.click(swatch);
+    expect(p.onSetMeta).toHaveBeenCalledWith(
+      PROJECT_ROOT,
+      expect.objectContaining({ color: expect.any(String) }),
+    );
+  });
+});
