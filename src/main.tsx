@@ -115,8 +115,10 @@ async function boot() {
 
   // GARDE-FOU : invoke borné. Sinon, si le sidecar a redémarré (nouveau port)
   // ou traîne, ce await bloque et le rendu React n'arrive JAMAIS → fenêtre vide.
+  // 10 s : un lancement froid légitime peut prendre ~8 s (startup 4 s + retries
+  // health côté Rust) — un timeout plus court abandonnait un spawn en train de réussir.
   try {
-    await withTimeout(refreshSidecarInfo(), 6000);
+    await withTimeout(refreshSidecarInfo(), 10000);
   } catch (error) {
     console.warn("Atelier: sidecar injoignable, stockage local seul:", error);
   }

@@ -28,8 +28,9 @@ cd ~/Documents/atelier-studio
 npx tsc --noEmit          # doit passer
 npx vite build            # doit passer
 (cd sidecar && npx vitest run)   # 19+ tests verts
-# si gallery/server touché :
-(cd gallery && node server/tests/parity.mjs)   # « parity: ok »
+# si gallery/ touché (serveur OU assets éditeurs) :
+(cd gallery && node server/tests/parity.mjs)      # « parity: ok »
+(cd gallery && node server/tests/diff_suite.mjs)  # « diff suite: ok (N tests) »
 
 # 2. TUER TOUT (l'ordre importe peu, l'exhaustivité oui)
 pkill -9 -f tauri-app
@@ -68,3 +69,49 @@ ls -la src-tauri/target/release/bundle/macos/Atelier.app/Contents/MacOS/tauri-ap
 pgrep -fl "server/main.mjs"   # serveurs galerie : leurs process datent de quand ?
 ps -o lstart= -p <pid>        # un lstart antérieur au build = zombie → kill -9
 ```
+
+## Premier lancement post-build : lenteur TCC NORMALE — vérifier la convergence, pas l'instantané
+
+Sans identité de signature stable, l'app est signée **adhoc** : chaque
+rebuild = nouvelle identité pour macOS → les consultations TCC/Gatekeeper
+repartent de zéro au premier lancement. (Le plan 019 a ajouté
+`signingIdentity: "Atelier Dev Signing"` dans tauri.conf sur
+feat/generateur-images — les branches qui l'ont re-consultent beaucoup
+moins ; la règle « pas d'écriture dans le bundle » reste valable partout.)
+Conséquences attendues (macOS 26) :
+
+- le premier boot du sidecar peut être lent ; son event loop peut geler
+  quelques secondes (fs synchrone + consultations) ;
+- le mécanisme anti-boucle (health retry + kill des orphelins + backoff +
+  single-instance, commit 44c94d0) peut **remplacer une fois** un sidecar
+  gelé — c'est l'auto-guérison, pas un échec.
+
+**Convergence attendue < ~30 s.** Vérification (copier-coller) :
+
+```bash
+APP="$HOME/Library/Application Support/atelier-studio"
+P=$(pgrep -f "Resources/sidecar/index.mjs" | head -1)
+[ "$(cat "$APP/sidecar.pid")" = "$P" ] && [ -f "$APP/sidecar.lock" ] && echo "pid+lock OK"
+PORT=$(sed -E 's/.*"port":([0-9]+).*/\1/' "$APP/sidecar.lock")
+TOKEN=$(sed -E 's/.*"token":"([^"]+)".*/\1/' "$APP/sidecar.lock")
+curl -s -m 5 -H "x-atelier-token: $TOKEN" "http://127.0.0.1:$PORT/health"   # {"ok":true,...}
+```
+
+Si ça boucle encore (sidecars qui meurent toutes les ~4-6 s, jamais de pid
+file) :
+
+```bash
+sample $(pgrep -f "Resources/sidecar/index.mjs" | head -1) 1 -file /tmp/s.txt
+grep -E "node::fs::|uv_fs_" /tmp/s.txt   # un appel fs SYNC bloqué = le coupable
+```
+
+**Piège d'origine (résolu, ne pas réintroduire)** : `terminal.mjs` faisait un
+`chmodSync` à l'import DANS le bundle .app → consultation TCC « App
+Management » bloquante > 4 s (budget startup Rust) → sidecar tué en boucle,
+app « Sidecar déconnecté » pour toujours. **Règle : jamais d'écriture (chmod,
+write, mkdir) dans le bundle .app au chargement d'un module sidecar** — tout
+bit/fichier nécessaire se pose au build (stage-sidecar.sh) ; au runtime,
+vérifier en lecture seule (`accessSync`) avant d'écrire. Nota : le blocage est
+INVISIBLE en manuel (`node index.mjs` depuis un terminal marche parfaitement)
+— seul le contexte app le déclenche ; tester avec l'app, pas seulement le
+sidecar isolé.

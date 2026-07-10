@@ -114,20 +114,25 @@ export async function connectSidecar(
   ws.send(JSON.stringify({ type: "listThreads" }));
   ws.send(JSON.stringify({ type: "providerStatus" }));
   // reconnexion auto : sidecar tué/crashé → sidecar_port respawn + nouveau WS.
+  // Backoff exponentiel : marteler sidecar_port pendant qu'un spawn+health est
+  // déjà en cours empile des sidecars rivaux qui s'entre-tuent via sidecar.pid.
+  // Une connexion réussie installe un nouveau onclose → le délai repart à 1 s.
   // Tout est neutralisé par l'abort : onclose détaché, timers annulés.
   ws.onclose = () => {
     if (signal?.aborted) return;
     onDisconnect?.();
+    let delay = 1000;
     const retry = () => {
       if (signal?.aborted) return;
       connectSidecar(onMessage, onReconnect, onDisconnect, signal)
         .then((next) => onReconnect?.(next))
         .catch(() => {
           if (signal?.aborted) return;
-          retryTimer = setTimeout(retry, 3000);
+          delay = Math.min(delay * 2, 30000);
+          retryTimer = setTimeout(retry, delay);
         });
     };
-    retryTimer = setTimeout(retry, 1000);
+    retryTimer = setTimeout(retry, delay);
   };
   return ws;
 }

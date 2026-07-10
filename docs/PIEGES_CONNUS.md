@@ -123,3 +123,42 @@ atterrit dans un `auto:`. Sans gravité (le code EST committé) mais surprenant.
 
 **Règle** : après un commit qui « ne trouve rien à committer », vérifier
 `git log` — le changement est probablement déjà dans le dernier `auto:`.
+
+---
+
+# Annexe sidecar (hors galerie)
+
+## S1. Écrire dans le bundle .app à l'import d'un module sidecar = mort en boucle par TCC
+
+Symptôme (diagnostic 018, résolu le 2026-07-09) : au premier lancement
+post-build, app « Sidecar déconnecté » pour toujours ; les sidecars vivent
+~4 s puis meurent, jamais de `sidecar.pid` ni de `sidecar.lock`.
+
+Cause : `terminal.mjs` réparait le bit exécutable du `spawn-helper` node-pty
+par un `chmodSync` **au chargement du module** — donc à l'intérieur du bundle
+`.app` en prod. macOS 26 déclenche alors une consultation TCC « App
+Management » (modification du contenu d'une app) qui **bloque l'appel sync
+plusieurs secondes**, au-delà du budget startup Rust (4 s,
+`read_startup_line`) → child tué → respawn → nouvelle consultation → boucle.
+L'app étant signée adhoc, chaque rebuild = nouvelle identité TCC : le piège
+frappe à CHAQUE premier lancement post-build.
+
+Ce qui a rendu le diagnostic difficile : le blocage est **invisible hors
+contexte app** — `node index.mjs` lancé d'un terminal démarre en ~1 s, quels
+que soient cwd et env. Seul un process du bundle lancé par l'app est soumis à
+la consultation. Preuve obtenue par `sample <pid>` du sidecar gelé
+(`node::fs::Chmod` bloqué sur le main thread) puis hot-patch du bundle →
+convergence immédiate.
+
+**Règles** :
+- jamais de `chmodSync`/`writeFileSync`/`mkdirSync` vers l'intérieur du
+  bundle au chargement d'un module sidecar ; les bits/fichiers se posent au
+  build (`stage-sidecar.sh`) ;
+- si une réparation runtime est vraiment nécessaire : vérifier d'abord en
+  lecture seule (`accessSync(p, X_OK)`) et n'écrire que si ça manque
+  (cas dev, hors bundle → pas de TCC) ;
+- tout fs synchrone au chargement ou dans un handler doit être court et
+  local : un appel bloqué gèle l'event loop ET le health → le sidecar passe
+  pour mort et se fait remplacer ;
+- valider un changement sidecar **avec l'app buildée** (protocole de
+  relance), pas seulement en lançant `index.mjs` à la main.
