@@ -197,18 +197,6 @@ async function load(){
       wrap: true, readOnly: false, defaultEngine: "cm6",
     });
     window.cm = cm;
-  // Rewrap façon VS Code : les lignes repliées s'alignent sous le début du
-  // texte de la ligne (indentation préservée), pas sous le gutter.
-  if(window.__ENGINE === "cm5") (function(){
-    const basePad = 4;
-    cm.on("renderLine", function(cm, line, elt){
-      const off = CodeMirror.countColumn(line.text, null, cm.getOption("tabSize")) * cm.defaultCharWidth();
-      elt.style.textIndent = "-" + off + "px";
-      elt.style.paddingLeft = (basePad + off) + "px";
-    });
-    cm.refresh();
-  })();
-
     cm.on("change", (_, ch) => { if(ch.origin !== "setValue"){ dirty = true; setState("dirty", "modified"); } });
     let selT = null;
     cm.on("cursorActivity", () => {

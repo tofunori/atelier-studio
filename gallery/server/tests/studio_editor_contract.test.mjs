@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import {readFile} from "node:fs/promises";
+import vm from "node:vm";
 
 const source = await readFile(new URL("../../assets/cm6/studio_editor.mjs", import.meta.url), "utf8");
 const pkg = JSON.parse(await readFile(new URL("../../package.json", import.meta.url), "utf8"));
@@ -11,7 +12,7 @@ const markdownHtml = await readFile(new URL("../../assets/md_viewer.html", impor
 
 test("CM6 facade exposes the complete engine-neutral diff contract", () => {
   for (const method of [
-    "posFromIndex", "indexFromPos", "getRange", "setBookmark", "operation",
+    "posFromIndex", "indexFromPos", "getRange", "setSelection", "setBookmark", "operation",
     "setGutterMarker", "clearGutter",
   ]) {
     assert.match(source, new RegExp(`\\b${method}\\s*:`), `missing ${method}`);
@@ -31,7 +32,7 @@ test("CM6 uses native tracked decorations, readOnly compartments, and gutter mar
 test("CM6 selectAll and native hanging indent are implemented", () => {
   assert.match(source, /selectAll/);
   assert.match(source, /hangingIndent/);
-  assert.match(studioHtml, /if\(window\.__ENGINE !== "cm6"\)\{[\s\S]{0,200}cm\.on\("renderLine"/);
+  assert.match(editorFactory, /editor\.on\("renderLine"/);
 });
 
 test("CM6 bundles have one repository-owned deterministic build recipe", async () => {
@@ -42,12 +43,27 @@ test("CM6 bundles have one repository-owned deterministic build recipe", async (
   assert.match(build, /legalComments:\s*["']none["']/);
 });
 
-test("shared editor factory resolves query then storage then default", () => {
-  assert.match(editorFactory, /window\.AtelierEditorFactory\s*=/);
-  assert.match(editorFactory, /resolveEngine/);
-  assert.match(editorFactory, /createEditor/);
-  assert.match(editorFactory, /URLSearchParams\([\s\S]*?\.get\(["']engine["']\)/);
-  assert.match(editorFactory, /storage\.getItem\(["']studioEngine["']\)/);
+function factoryHarness({search = "", stored = null, cm6 = true, cm5 = true} = {}) {
+  const calls = [];
+  const storage = {getItem: key => key === "studioEngine" ? stored : null};
+  const document = {documentElement: {dataset: {}}};
+  const window = {localStorage: storage};
+  if (cm6) window.AtelierStudioCM6 = {createStudioEditor: (parent, options) => {
+    calls.push({engine: "cm6", parent, options}); return {engine: "cm6"};
+  }};
+  if (cm5) window.CodeMirror = (parent, options) => {
+    calls.push({engine: "cm5", parent, options});
+    return {engine: "cm5", on() {}, refresh() {}, getOption: () => 2, defaultCharWidth: () => 8};
+  };
+  window.CodeMirror && (window.CodeMirror.Pass = Symbol("pass"));
+  vm.runInNewContext(editorFactory, {window, document, location: {search}, URLSearchParams, console: {info() {}, warn() {}}});
+  return {factory: window.AtelierEditorFactory, calls, storage, document, window};
+}
+
+test("shared editor factory executes query then storage then default precedence", () => {
+  assert.equal(factoryHarness({search: "?engine=cm6", stored: "cm5"}).factory.resolveEngine("?engine=cm6", {getItem: () => "cm5"}, "cm5"), "cm6");
+  assert.equal(factoryHarness().factory.resolveEngine("?engine=bad", {getItem: () => "cm5"}, "cm6"), "cm5");
+  assert.equal(factoryHarness().factory.resolveEngine("?engine=bad", {getItem: () => "bad"}, "cm6"), "cm6");
 });
 
 test("shared editor factory owns CM5 and CM6 creation for all editor surfaces", () => {
@@ -60,8 +76,31 @@ test("shared editor factory owns CM5 and CM6 creation for all editor surfaces", 
   assert.match(editorFactory, /CodeMirror\(options\.parent/);
 });
 
-test("CM6 language routing covers the plan 031 extension matrix", () => {
-  for (const ext of ["tex", "sty", "bib", "py", "md", "r", "R", "jl", "sh", "bash", "js", "ts", "json", "yaml", "yml", "toml"]) {
-    assert.match(source, new RegExp(`(?:case\\s+["']${ext}["']|${ext === "R" ? "toLowerCase" : ""})`), `missing ${ext}`);
+test("createEditor behavior routes every extension and unknown text safely", () => {
+  const extensions = ["tex", "sty", "bib", "py", "md", "r", "R", "jl", "sh", "bash", "js", "ts", "json", "yaml", "yml", "toml", "unknown"];
+  for (const ext of extensions) {
+    const cm6 = factoryHarness({search: "?engine=cm6"});
+    cm6.factory.createEditor({parent: {}, value: "x", ext, wrap: true, readOnly: false, defaultEngine: "cm6"});
+    assert.equal(cm6.calls[0].options.ext, ext === "R" ? "r" : ext);
+    const cm5 = factoryHarness({search: "?engine=cm5"});
+    assert.doesNotThrow(() => cm5.factory.createEditor({parent: {}, value: "x", ext, defaultEngine: "cm6"}));
+    if (["yaml", "yml", "toml", "unknown"].includes(ext)) assert.equal(cm5.calls[0].options.mode, null);
+  }
+  const json = factoryHarness({search: "?engine=cm5"});
+  json.factory.createEditor({parent: {}, value: "{}", ext: "json", defaultEngine: "cm6"});
+  assert.equal(json.calls[0].options.mode.name, "javascript");
+  assert.equal(json.calls[0].options.mode.json, true);
+});
+
+test("missing CM6 reports a controlled CM5 fallback", () => {
+  const harness = factoryHarness({search: "?engine=cm6", cm6: false, cm5: true});
+  const editor = harness.factory.createEditor({parent: {}, value: "x", ext: "txt", defaultEngine: "cm6"});
+  assert.equal(editor.engine, "cm5");
+  assert.equal(harness.document.documentElement.dataset.editorEngine, "cm5");
+});
+
+test("editor surfaces do not call CM5 APIs outside the factory seam", () => {
+  for (const [name, html] of [["latex", studioHtml], ["code", codeHtml], ["markdown", markdownHtml]]) {
+    assert.doesNotMatch(html, /\bCodeMirror\.(?:Pass|countColumn)|\bCodeMirror\s*\(|["'](?:inputRead|renderLine)["']/, `${name} leaks a CM5 API`);
   }
 });

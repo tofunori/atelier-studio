@@ -246,6 +246,26 @@ async function replaceLineAndSave(page, line, text) {
   await saveOnce(page);
 }
 
+async function saveCodeOnce(page) {
+  const saved = page.waitForResponse(response =>
+    response.url().endsWith('/codesave') && response.request().method() === 'POST');
+  await page.keyboard.press(process.platform === 'darwin' ? 'Meta+s' : 'Control+s');
+  expect((await saved).ok()).toBe(true);
+  await expect(page.locator('#state')).toHaveClass(/saved/);
+}
+
+async function replaceCodeTextAndSave(page, text) {
+  await setEditorText(page, text);
+  await saveCodeOnce(page);
+}
+
+async function replaceCodeLineAndSave(page, line, text) {
+  await page.evaluate(({line, text}) => {
+    cm.replaceRange(text, {line, ch: 0}, {line, ch: cm.getLine(line).length}, '+input');
+  }, {line, text});
+  await saveCodeOnce(page);
+}
+
 test('CM5: one multi-word save is one intervention', async ({ page }) => {
   await withLatexStudio(async ({ url }) => {
     await openEditor(page, url);
@@ -638,6 +658,84 @@ for (const engine of ['cm5', 'cm6']) {
         await expect(page.locator('#dvCommit')).toHaveAttribute('title', /bloc.*modifié/, {timeout: 25_000});
         await expect(page.locator('#diffTag .dv-count')).not.toHaveText('', {timeout: 25_000});
       });
+    });
+  });
+}
+
+// Code editor has no TeX comments or paragraph-rewrap command. Its applicable
+// plan-030 matrix is therefore the five engine-neutral diff/history behaviors.
+for (const engine of ['cm5', 'cm6']) {
+  test.describe(`code ${engine.toUpperCase()} applicable diff matrix`, () => {
+    test('multi-zone is one intervention', async ({page}) => {
+      await withEditor('code', async ({url}) => {
+        await openEditor(page, url, 'code', engine);
+        const changed = CODE_INITIAL_TEXT
+          .replace('albedo =', 'surface_albedo =')
+          .replace('temperature =', 'surface_temperature =');
+        await replaceCodeTextAndSave(page, changed);
+        await page.locator('#diffTag').click();
+        await expect(page.locator('#dvNav .dvNavC')).toHaveText('tout · 1');
+        await expect(page.locator('.dv-cell').first()).toBeVisible();
+      }, engine);
+    });
+
+    test('timeline navigation is cumulative', async ({page}) => {
+      await withEditor('code', async ({url}) => {
+        await openEditor(page, url, 'code', engine);
+        await replaceCodeLineAndSave(page, 1, '    albedo = float(surface["albedo"])');
+        await replaceCodeLineAndSave(page, 2, '    temperature = float(surface["temperature"])');
+        await replaceCodeLineAndSave(page, 3, '    return {"a": albedo, "t": temperature}');
+        await page.locator('#diffTag').click();
+        const count = page.locator('#dvNav .dvNavC');
+        await expect(count).toHaveText('tout · 3');
+        await page.locator('#dvNav [data-d="-1"]').click(); await expect(count).toHaveText('3 / 3');
+        await page.locator('#dvNav [data-d="-1"]').click(); await expect(count).toHaveText('2 / 3');
+      }, engine);
+    });
+
+    test('restore persists the exact target', async ({page}) => {
+      await withEditor('code', async ({url}) => {
+        await openEditor(page, url, 'code', engine);
+        const first = CODE_INITIAL_TEXT.replace('albedo =', 'first =');
+        const second = first.replace('temperature =', 'second =');
+        const third = second.replace('return albedo', 'return first');
+        for (const text of [first, second, third]) await replaceCodeTextAndSave(page, text);
+        await page.locator('#diffTag').click();
+        await page.locator('#dvNav [data-d="-1"]').click();
+        await page.locator('#dvNav [data-d="-1"]').click();
+        await expect.poll(() => editorText(page)).toBe(second);
+        const saved = page.waitForResponse(r => r.url().endsWith('/codesave') && r.request().method() === 'POST');
+        await page.locator('#diffRestore').click(); expect((await saved).ok()).toBe(true);
+        await page.reload(); await openEditor(page, url, 'code', engine);
+        await expect.poll(() => editorText(page)).toBe(second);
+      }, engine);
+    });
+
+    test('whitespace semantics remain visible for code', async ({page}) => {
+      await withEditor('code', async ({url}) => {
+        await openEditor(page, url, 'code', engine);
+        const whitespace = CODE_INITIAL_TEXT + '   \n';
+        await page.evaluate(({before, after}) => __dv.push(before, after,
+          {source: 'user-save', status: 'applied'}), {before: CODE_INITIAL_TEXT, after: whitespace});
+        await page.locator('#diffTag').click();
+        await expect(page.locator('#dvNav .dvNavC')).toHaveText('tout · 1');
+      }, engine);
+    });
+
+    test('worker rendering stays responsive', async ({page}) => {
+      await withEditor('code', async ({url}) => {
+        await openEditor(page, url, 'code', engine);
+        const ticks = page.evaluate(async () => {
+          const before = cm.getValue();
+          const after = before + Array.from({length: 12000}, (_, i) => `# changed ${i}`).join('\n');
+          cm.setValue(after); __dv.push(before, after, {source: 'user-save', status: 'applied'});
+          let count = 0; const timer = setInterval(() => { count += 1; }, 0);
+          document.getElementById('diffTag').click(); await new Promise(resolve => setTimeout(resolve, 100));
+          clearInterval(timer); return count;
+        });
+        await expect(ticks).resolves.toBeGreaterThan(2);
+        await expect(page.locator('#dvNav .dvNavC')).toContainText('tout · 1');
+      }, engine);
     });
   });
 }

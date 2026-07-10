@@ -251,6 +251,7 @@ export function createStudioEditor(parent, opts) {
       return toPos(off);
     },
     setCursor: (pos) => view.dispatch({selection: {anchor: toOffset(pos)}}),
+    setSelection: (anchor, head) => view.dispatch({selection: {anchor: toOffset(anchor), head: toOffset(head || anchor)}}),
     somethingSelected: () => !view.state.selection.main.empty,
     getSelection: () => view.state.sliceDoc(view.state.selection.main.from, view.state.selection.main.to),
     // --- view/geometry ---
@@ -350,6 +351,7 @@ export function createStudioEditor(parent, opts) {
       if (name === "findPersistent" || name === "find") openSearchPanel(view);
       else if (name === "selectAll") selectAll(view);
     },
+    onInput: (fn) => handlers.change.push((editor, change) => fn(editor, change)),
     on: (event, fn) => { (handlers[event] || (handlers[event] = [])).push(fn); },
   };
   if (opts.readOnly) facade.setOption("readOnly", true);

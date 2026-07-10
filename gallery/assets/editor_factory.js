@@ -5,7 +5,7 @@
     tex: "stex", sty: "stex", bib: "stex", py: "python", md: "markdown",
     r: "r", jl: "julia", sh: "shell", bash: "shell", js: "javascript",
     ts: "javascript", json: {name: "javascript", json: true}, yaml: "yaml",
-    yml: "yaml", toml: "toml",
+    yml: null, yaml: null, toml: null,
   };
 
   function normalizedExt(ext) {
@@ -23,7 +23,12 @@
   }
 
   function createEditor(options) {
-    const engine = resolveEngine(location.search, window.localStorage, options.defaultEngine);
+    let engine = resolveEngine(location.search, window.localStorage, options.defaultEngine);
+    if (engine === "cm6" && (!window.AtelierStudioCM6 || typeof window.AtelierStudioCM6.createStudioEditor !== "function")) {
+      if (typeof window.CodeMirror !== "function") throw new Error("Atelier editor: neither CM6 nor CM5 is available");
+      console.warn("[Atelier editor] CM6 unavailable; falling back to CM5");
+      engine = "cm5";
+    }
     window.__ENGINE = engine;
     document.documentElement.dataset.editorEngine = engine;
     console.info("[Atelier editor] active engine:", engine);
@@ -41,7 +46,19 @@
       lineWrapping: options.wrap !== false, readOnly: Boolean(options.readOnly),
       viewportMargin: 50, styleSelectedText: true,
     }, options.cm5Options || {});
-    return window.CodeMirror(options.parent, cm5Options);
+    if (typeof window.CodeMirror !== "function") throw new Error("Atelier editor: CM5 fallback unavailable");
+    const editor = window.CodeMirror(options.parent, cm5Options);
+    editor.Pass = window.CodeMirror.Pass;
+    editor.hasNativeGhost = false;
+    editor.onInput = (fn) => editor.on("inputRead", fn);
+    editor.on("renderLine", function (cm, line, element) {
+      const countColumn = window.CodeMirror.countColumn || ((text) => (/^\s*/.exec(text) || [""])[0].length);
+      const offset = countColumn(line.text, null, cm.getOption("tabSize")) * cm.defaultCharWidth();
+      element.style.textIndent = `-${offset}px`;
+      element.style.paddingLeft = `${4 + offset}px`;
+    });
+    editor.refresh();
+    return editor;
   }
 
   window.AtelierEditorFactory = {resolveEngine, createEditor};
