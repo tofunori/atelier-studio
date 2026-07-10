@@ -59,7 +59,7 @@ export type TimelineScroll = {
   stickRef: MutableRefObject<boolean>;
   showJump: boolean;
 };
-export type TimelineWorking = { currentWorkName: string; activeGoal: { objective: string; status: string } | null; onStop: () => void };
+export type TimelineWorking = { currentWorkName: string; onStop: () => void };
 export type TimelineChapters = {
   tickPos: Record<number, number>;
   resolvePinEl: (index: number, label: string, anchor?: string) => HTMLElement | null | undefined;
@@ -97,7 +97,7 @@ export function ChatTimeline(p: {
   const { renderedEvents, openFolds, setOpenFolds, openToolGroups, setOpenToolGroups, activeToolGroupKey, renderToolLine, fmtWorkDur } = p.list;
   const { editing, setEditing, pins, onTogglePin, onRevert, onEditSend, onFork, setPasteView, commands, defaults, onQuote } = p.msg;
   const { messagesRef, onMessagesMouseUp, setShowJump, stickRef, showJump } = p.scroll;
-  const { currentWorkName, activeGoal, onStop } = p.working;
+  const { currentWorkName, onStop } = p.working;
   const { tickPos, resolvePinEl, pinMenu, setPinMenu, onStylePin } = p.chapters;
   const { onNewChat, onOpenProject } = p.empty;
   const { quote, setQuote, quoteHasHl, quoteHasUl, addMark, removeMark } = p.selection;
@@ -331,25 +331,9 @@ export function ChatTimeline(p: {
                 ))}
               </div>
             );
-          if (e.kind === "goal")
-            return (
-              <div key={i} className={`goal-card ${e.cleared || !e.goal ? "cleared" : e.goal.status}`}>
-                <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round">
-                  <circle cx="8" cy="8" r="6" /><circle cx="8" cy="8" r="2.4" />
-                </svg>
-                {e.cleared || !e.goal ? (
-                  <span className="goal-obj">{t("goal.cleared")}</span>
-                ) : (
-                  <>
-                    <span className="goal-obj">{e.goal.objective}</span>
-                    <span className="goal-status">{t(`goal.status.${e.goal.status}` as Parameters<typeof t>[0])}</span>
-                    {e.goal.tokenBudget != null && (
-                      <span className="goal-budget">{Math.round((e.goal.tokensUsed ?? 0) / 1000)}k / {Math.round(e.goal.tokenBudget / 1000)}k</span>
-                    )}
-                  </>
-                )}
-              </div>
-            );
+          // goal : aucune carte dans le transcript — l'état vit dans la barre
+          // épinglée au composer (GoalBar), alimentée par le même événement
+          if (e.kind === "goal") return null;
           if (e.kind === "error")
             return (
               <div key={i} className="error">
@@ -385,16 +369,6 @@ export function ChatTimeline(p: {
               <div className="working-tool">
                 <span className="working-tool-glyph" aria-hidden="true">↳</span>
                 <span>{currentWorkName}</span>
-              </div>
-            )}
-            {activeGoal && (
-              <div className="working-goal">
-                <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" aria-hidden="true">
-                  <circle cx="8" cy="8" r="6" /><circle cx="8" cy="8" r="2.4" />
-                </svg>
-                <span className="working-goal-label">{t("goal.live")}</span>
-                <span className="working-goal-objective">{activeGoal.objective}</span>
-                <span className="working-goal-status">{t(`goal.status.${activeGoal.status}` as Parameters<typeof t>[0])}</span>
               </div>
             )}
             <button type="button" className="stop-hint" title={t("action.interrupt")} onClick={onStop}>

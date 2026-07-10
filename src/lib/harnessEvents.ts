@@ -176,10 +176,13 @@ export function reduceHarnessEvent(list: AgentEvent[], ev: AgentEvent): AgentEve
     else next.push(upd);
     return next;
   }
-  if (ev.kind === "todos") {
+  if (ev.kind === "todos" || ev.kind === "goal") {
+    // singletons : le serveur ré-émet l'état complet à chaque mise à jour
+    // (goal : temps/tokens à chaque tour) — remplacement en place, comme le
+    // journal sidecar (SINGLETON_KINDS)
     let idx = -1;
     for (let i = next.length - 1; i >= 0; i--) {
-      if (next[i].kind === "todos") { idx = i; break; }
+      if (next[i].kind === ev.kind) { idx = i; break; }
     }
     const upd: AgentEvent = { ...ev, ts: stamp(ev) };
     if (idx >= 0) next[idx] = upd;
@@ -204,7 +207,7 @@ export function reduceHarnessEvent(list: AgentEvent[], ev: AgentEvent): AgentEve
     return next;
   }
 
-  // permission, tool, edit, goal, streaming (déjà matérialisé)… : simple ajout
+  // permission, tool, edit, streaming (déjà matérialisé)… : simple ajout
   next.push({ ...ev, ts: stamp(ev) } as AgentEvent);
   return next;
 }

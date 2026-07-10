@@ -145,7 +145,7 @@ export default function Chat(p: {
   onStylePin: (index: number, patch: { color?: string; style?: string; label?: string }) => void;
   onTogglePin: (index: number, label: string) => void;
   disabled: boolean;
-  onGoal?: (action: "set" | "clear", objective?: string) => void;
+  onGoal?: (action: "set" | "clear", objective?: string, status?: "active" | "paused") => void;
   onSubmit: (
     prompt: string,
     provider: string,
@@ -809,7 +809,7 @@ export default function Chat(p: {
           defaults: p.defaults, onQuote: p.onQuote,
         }}
         scroll={{ messagesRef, onMessagesMouseUp, setShowJump, stickRef, showJump }}
-        working={{ currentWorkName, activeGoal, onStop: p.onStop }}
+        working={{ currentWorkName, onStop: p.onStop }}
         chapters={{ tickPos, resolvePinEl, pinMenu, setPinMenu, onStylePin: p.onStylePin }}
         empty={{ onNewChat: p.onNewChat, onOpenProject: p.onOpenProject, home: p.home ?? null }}
         selection={{ quote, setQuote, quoteHasHl, quoteHasUl, addMark, removeMark }}
@@ -836,7 +836,7 @@ export default function Chat(p: {
         context={{ attachments: p.attachments, onRemoveAttachment: p.onRemoveAttachment, onOpenPaste: setPasteView }}
         host={{
           usage: p.usage, disabled: p.disabled, workingSince: p.workingSince,
-          onStop: p.onStop, onSubmit: p.onSubmit, onGoal: p.onGoal,
+          onStop: p.onStop, onSubmit: p.onSubmit, onGoal: p.onGoal, activeGoal,
           defaults: p.defaults, providers: p.providers,
         }}
       />

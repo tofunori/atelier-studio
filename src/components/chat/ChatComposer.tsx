@@ -8,6 +8,7 @@ import { ProviderInfo } from "../../lib/providers";
 import { ContextShelf, type ShelfAttachment } from "./ContextShelf";
 import { SuggestionsList, PromptTextarea, type Suggestion } from "./PromptInput";
 import { ComposerControls } from "./ComposerControls";
+import { GoalBar, type GoalInfo } from "./GoalBar";
 
 type ModelEntry = { id: string; label: string };
 type Dispatch<T> = React.Dispatch<React.SetStateAction<T>>;
@@ -84,7 +85,9 @@ export type ComposerHost = {
   workingSince: number | null;
   onStop: () => void;
   onSubmit: (prompt: string, provider: string, model: string, effort: string, permissionMode: string, mode: "steer" | "queue") => void;
-  onGoal?: (action: "set" | "clear", objective?: string) => void;
+  onGoal?: (action: "set" | "clear", objective?: string, status?: "active" | "paused") => void;
+  /** goal Codex actif (dernier événement goal non-cleared) — pilote la barre épinglée */
+  activeGoal?: GoalInfo | null;
   defaults: { autoReview?: { enabled: boolean }; providerOrder?: string[]; hiddenProviders?: string[] };
   providers?: ProviderInfo[];
 };
@@ -118,7 +121,10 @@ export function ChatComposer(props: {
           setText("");
         }}
       >
-        {goalOpen && (
+        {host.activeGoal && host.onGoal && (
+          <GoalBar goal={host.activeGoal} onGoal={host.onGoal} onStop={host.onStop} />
+        )}
+        {goalOpen && !host.activeGoal && (
           <div className="goal-editor" onClick={(ev) => ev.stopPropagation()}>
             <input
               autoFocus

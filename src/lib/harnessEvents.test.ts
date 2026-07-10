@@ -122,6 +122,24 @@ describe("reduceHarnessEvent — branches", () => {
     expect((out[2] as Extract<AgentEvent, { kind: "todos" }>).items[0].completed).toBe(true);
   });
 
+  it("goal : singleton — les updates par tour remplacent la carte, un texte intercalé ne casse pas le remplacement", () => {
+    const g = (over: Partial<NonNullable<Extract<AgentEvent, { kind: "goal" }>["goal"]>>, ts: number): AgentEvent => ({
+      kind: "goal",
+      goal: { objective: "vérifier NAS", status: "active", tokenBudget: null, tokensUsed: 0, timeUsedSeconds: 0, ...over },
+      ts,
+    });
+    const out = runLive([
+      g({}, FIXED_TS),
+      { kind: "text", text: "je poursuis", ts: FIXED_TS + 1 },
+      g({ tokensUsed: 4200, timeUsedSeconds: 61 }, FIXED_TS + 2),
+      g({ status: "paused", tokensUsed: 4200, timeUsedSeconds: 61 }, FIXED_TS + 3),
+    ]);
+    expect(kinds(out)).toEqual(["goal", "text"]);
+    const goal = (out[0] as Extract<AgentEvent, { kind: "goal" }>).goal;
+    expect(goal?.status).toBe("paused");
+    expect(goal?.timeUsedSeconds).toBe(61);
+  });
+
   it("done fige une bulle streaming non vide en text (ts de la bulle conservé) ; une bulle vide disparaît", () => {
     const frozen = runLive([
       { kind: "delta", text: "réponse partielle", ts: FIXED_TS + 100 },

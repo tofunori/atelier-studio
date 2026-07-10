@@ -2328,11 +2328,13 @@ export default function App() {
             )
           }
           disabled={!activeProject && !activeId}
-          onGoal={(action, objective) => {
+          onGoal={(action, objective, status) => {
             if (!activeId || ws.current?.readyState !== 1) return;
+            // le router sidecar relaie déjà `status` à thread/goal/set (Codex
+            // app-server) — pause = status:"paused", reprise = "active"
             ws.current.send(JSON.stringify(
               action === "set"
-                ? { type: "goalSet", threadId: activeId, objective }
+                ? { type: "goalSet", threadId: activeId, objective, ...(status ? { status } : {}) }
                 : { type: "goalClear", threadId: activeId },
             ));
           }}

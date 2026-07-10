@@ -56,7 +56,7 @@ export function ComposerControls(p: {
   workingSince: number | null;
   onStop: () => void;
   onSubmit: (prompt: string, provider: string, model: string, effort: string, permissionMode: string, mode: "steer" | "queue") => void;
-  onGoal?: (action: "set" | "clear", objective?: string) => void;
+  onGoal?: (action: "set" | "clear", objective?: string, status?: "active" | "paused") => void;
   defaults: {
     autoReview?: { enabled: boolean };
     providerOrder?: string[];
