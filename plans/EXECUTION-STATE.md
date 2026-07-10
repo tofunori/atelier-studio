@@ -20,8 +20,12 @@ adversariaux).
   des prompts Documents à chaque rebuild. À VALIDER au prochain rebuild :
   plus aucun prompt attendu.
 
+## Fait — en attente de revue Codex (2026-07-10)
+- 024 Research Navigator (branche `claude/atelier-projects-panel-redesign-f86165`,
+  worktree dédié, 5 commits, PAS poussé — consigne de Thierry 2026-07-10 :
+  revue Codex AVANT push/merge, tranche par tranche). Détails : plans/README.md.
+
 ## Ordre restant (dépendances vérifiées)
-1. **024** Research Navigator (P1 M, dép 014–016 ✓)
 2. **025** harnais agentique (P0 XL, dép 008–010/015–016/018 ✓) — livre
    docs/AGENT_HARNESS_CONTRACT.md
 3. **020** tours de chat + composer (exige 025 DONE — STOP sinon)
