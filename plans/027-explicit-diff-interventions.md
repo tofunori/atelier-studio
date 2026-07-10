@@ -70,7 +70,7 @@ Sinon STOP.
 | Purpose | Command | Expected |
 |---|---|---|
 | Diff suite | `node gallery/server/tests/diff_suite.mjs` | tous verts, compteur augmenté |
-| Browser diff | `npx playwright test gallery/tests/e2e/diff.spec.js` | tous verts |
+| Browser diff | `npm --prefix gallery exec -- playwright test tests/e2e/diff.spec.js` | tous verts |
 | Gallery | `npm run test:gallery` | exit 0 |
 
 ## Scope
