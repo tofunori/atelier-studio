@@ -177,11 +177,21 @@
      High-res figures scale down sharply; low-res ones fill but soften (the
      trade-off for "take the whole screen"). */
   #lb.fs img{max-width:100vw;max-height:100vh;width:100vw;height:100vh;object-fit:contain;border-radius:0;background:#000;box-shadow:none;cursor:none}
-  #lb.fs #lbCap,#lb.fs .lbBtn,#lb.fs #lbClose,#lb.fs #annotBar,#lb.fs #annotNote,#lb.fs #annotPill{display:none!important}
+  #lb.fs #lbCap,#lb.fs #lbClose,#lb.fs #annotBar,#lb.fs #annotNote,#lb.fs #annotPill{display:none!important}
   #lb.fs #lbFs{opacity:0;pointer-events:none;color:rgba(255,255,255,.75);
       background:rgba(0,0,0,.5);border-radius:10px;width:40px;height:40px;top:8px;right:8px}
+  /* Chevrons prev/next : même pulse fs-ui que #lbFs — visibles au mouvement de
+     souris, effacés après 2,2 s d'inactivité (l'écran reste vide au repos). */
+  #lb.fs .lbBtn{opacity:0;pointer-events:none;color:rgba(255,255,255,.75);
+      background:rgba(0,0,0,.5);border-radius:999px;width:40px;height:40px;padding:0;
+      display:flex;align-items:center;justify-content:center;font-size:26px;
+      transition:opacity 140ms ease}
+  #lb.fs #lbPrev{left:10px} #lb.fs #lbNext{right:10px}
   #lb.fs.fs-ui,#lb.fs.fs-ui img{cursor:default}
   #lb.fs.fs-ui #lbFs{opacity:1;pointer-events:auto}
+  #lb.fs.fs-ui .lbBtn{opacity:1;pointer-events:auto;cursor:pointer}
+  #lb.fs.fs-ui .lbBtn:hover{color:#fff}
+  @media (prefers-reduced-motion:reduce){ #lb.fs .lbBtn{transition:none} }
   #lb.vw{justify-content:flex-start}
   #lb.vw #lbPdf{width:100vw !important;height:100vh !important;border-radius:0}
   #lb.vw #lbCap,#lb.vw .lbBtn,#lb.vw #lbFs{display:none}

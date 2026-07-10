@@ -12,6 +12,12 @@
       "runtimeExecutable": "npx",
       "runtimeArgs": ["vite", "--port", "4174", "--strictPort"],
       "port": 4174
+    },
+    {
+      "name": "gallery-static",
+      "runtimeExecutable": "python3",
+      "runtimeArgs": ["-m", "http.server", "8899"],
+      "port": 8899
     }
   ]
 }
