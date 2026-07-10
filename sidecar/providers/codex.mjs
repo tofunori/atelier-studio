@@ -544,12 +544,16 @@ async function openThread(srv, { sessionId, threadOpts, reuseLoaded = false }) {
 // ---------------------------------------------------------------------------
 // Goals
 // ---------------------------------------------------------------------------
-async function goalRequest(method, { sessionId, cwd, ...rest }) {
+async function goalRequest(method, { sessionId, cwd, permissionMode, ...rest }) {
   if (!sessionId) throw new Error("goal : session Codex absente — envoie d'abord un message");
   const srv = await ensureServer();
   const codexId = await openThread(srv, {
     sessionId,
-    threadOpts: buildThreadOptions({ cwd, sandbox: "read-only" }),
+    // thread pas encore chargé (app-server relancé…) : reprendre avec le mode
+    // RÉEL du thread quand il est connu — un resume read-only rétrograderait
+    // le sandbox de TOUT le thread pour les tours suivants. read-only reste
+    // le défaut sûr quand aucun mode n'est connu (plan 025).
+    threadOpts: buildThreadOptions(permissionMode ? { cwd, permissionMode } : { cwd, sandbox: "read-only" }),
     reuseLoaded: true, // ne pas écraser les options d'un thread déjà actif
   });
   const resp = await srv.request(method, { threadId: codexId, ...rest });
@@ -562,33 +566,35 @@ async function goalRequest(method, { sessionId, cwd, ...rest }) {
   return resp?.goal ?? null;
 }
 
-export function setGoal({ sessionId, cwd, objective, status, tokenBudget }) {
+export function setGoal({ sessionId, cwd, objective, status, tokenBudget, permissionMode }) {
   return goalRequest("thread/goal/set", {
-    sessionId, cwd,
+    sessionId, cwd, permissionMode,
     ...(objective != null ? { objective } : {}),
     ...(status != null ? { status } : {}),
     ...(tokenBudget != null ? { tokenBudget } : {}),
   });
 }
 
-export function getGoal({ sessionId, cwd }) {
-  return goalRequest("thread/goal/get", { sessionId, cwd });
+export function getGoal({ sessionId, cwd, permissionMode }) {
+  return goalRequest("thread/goal/get", { sessionId, cwd, permissionMode });
 }
 
 /** Compaction native du contexte (thread/compact/start). */
-export async function compactThread({ sessionId, cwd }) {
+export async function compactThread({ sessionId, cwd, permissionMode }) {
   if (!sessionId) throw new Error("compact : session Codex absente");
   const srv = await ensureServer();
   const codexId = await openThread(srv, {
     sessionId,
-    threadOpts: buildThreadOptions({ cwd, sandbox: "read-only" }),
+    // même politique que goalRequest : mode réel du thread si connu, sinon
+    // read-only sûr — jamais de démotion durable du sandbox du thread
+    threadOpts: buildThreadOptions(permissionMode ? { cwd, permissionMode } : { cwd, sandbox: "read-only" }),
     reuseLoaded: true,
   });
   await srv.request("thread/compact/start", { threadId: codexId });
 }
 
-export async function clearGoal({ sessionId, cwd }) {
-  await goalRequest("thread/goal/clear", { sessionId, cwd });
+export async function clearGoal({ sessionId, cwd, permissionMode }) {
+  await goalRequest("thread/goal/clear", { sessionId, cwd, permissionMode });
   return null;
 }
 

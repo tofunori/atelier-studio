@@ -584,12 +584,35 @@ function drainQueue(ctx, threadId) {
 
 /** Exécute UN turn (nouveau ou réservé en queue) : snapshot, provider, statut. */
 async function startProviderTurn(ctx, h, msg, { reservedTurnId = null } = {}) {
-  const { threadId, projectRoot, provider, prompt, model, effort, permissionMode } = msg;
+  const { threadId, projectRoot, provider, prompt } = msg;
   const p = ctx.providers[provider];
   const emit = emitBox.get(threadId) ?? ctx.broadcast ?? ctx.send;
   const prev = ctx.store.get(threadId);
 
-  ctx.store.upsert({ id: threadId, status: "running" });
+  // Sélection effective du tour. Les envois « nus » du frontend (renvoi après
+  // rewind, tour de correction auto-review) ne portent pas la sélection du
+  // composer : réutiliser la dernière sélection connue du thread — sans quoi
+  // le repli sûr des providers (mode inconnu → read-only, plan 025)
+  // rétrograderait le thread Codex en lecture seule pour tout le reste de la
+  // session alors que le composer affiche Full access. model/effort ne sont
+  // repris que sous le MÊME provider (les ids de modèles ne se transfèrent
+  // pas d'un provider à l'autre lors d'un handoff).
+  const last = prev?.lastTurn ?? {};
+  const sameProvider = last.provider === provider;
+  const model = msg.model ?? (sameProvider ? last.model : null) ?? null;
+  const effort = msg.effort ?? (sameProvider ? last.effort : null) ?? null;
+  const permissionMode = msg.permissionMode ?? last.permissionMode ?? null;
+
+  ctx.store.upsert({
+    id: threadId,
+    status: "running",
+    // mémoriser la sélection quand le message la porte (le composer envoie
+    // toujours permissionMode ; son absence signe un renvoi programmatique,
+    // qu'on ne mémorise pas pour ne pas écraser le vrai choix utilisateur)
+    ...(msg.permissionMode
+      ? { lastTurn: { provider, model: msg.model ?? null, effort: msg.effort ?? null, permissionMode: msg.permissionMode } }
+      : {}),
+  });
   emit({ type: "threads", threads: ctx.store.list() });
 
   const tools = [];
@@ -1331,7 +1354,12 @@ export async function route(msg, ctx) {
         break;
       }
       try {
-        await ctx.providers.codex.compactThread({ sessionId: t.sessionId, cwd: t.projectRoot || process.env.HOME });
+        await ctx.providers.codex.compactThread({
+          sessionId: t.sessionId,
+          cwd: t.projectRoot || process.env.HOME,
+          // mode réel du thread : un resume read-only rétrograderait son sandbox
+          permissionMode: t.lastTurn?.permissionMode ?? null,
+        });
         // frontière via le HARNAIS : meta + sequence monotone + journal (pas de
         // broadcast direct qui laisserait un trou de sequence, plan 025)
         emitBox.set(msg.threadId, ctx.broadcast ?? ctx.send);
@@ -1367,7 +1395,12 @@ export async function route(msg, ctx) {
       }
       const emit = ctx.broadcast ?? ctx.send;
       try {
-        const args = { sessionId: t.sessionId, cwd: t.projectRoot || process.env.HOME };
+        const args = {
+          sessionId: t.sessionId,
+          cwd: t.projectRoot || process.env.HOME,
+          // mode réel du thread : un resume read-only rétrograderait son sandbox
+          permissionMode: t.lastTurn?.permissionMode ?? null,
+        };
         // set/clear : la notification thread/goal/updated|cleared (relayée par
         // index.mjs) porte déjà l'événement — ne pas émettre en double ici
         if (msg.type === "goalSet") {

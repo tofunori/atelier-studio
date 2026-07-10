@@ -162,3 +162,35 @@ convergence immédiate.
   pour mort et se fait remplacer ;
 - valider un changement sidecar **avec l'app buildée** (protocole de
   relance), pas seulement en lançant `index.mjs` à la main.
+
+## S2. Un message « nu » (sans permissionMode) rétrograde le thread Codex en read-only pour toute la session
+
+Symptôme (diagnostic du 2026-07-10) : le composer affiche « Full access »,
+mais l'agent Codex répond « cette session est en lecture seule … je ne peux
+pas demander d'autorisation d'écriture ». Le rollout codex montre le tour 1
+en `danger-full-access` puis tous les suivants en `read-only`.
+
+Cause : certains envois du frontend sont « nus » — sans `model`, `effort` ni
+`permissionMode` : renvoi après rewind/édition (`reverted`, App.tsx),
+renvoi de secours après erreur, tour de correction auto-review. Côté sidecar,
+`resolveCodexSafety(undefined)` tombe (volontairement, plan 025) sur le repli
+sûr `read-only/on-request` (+ `__permission-fallback` dans le ledger), et le
+`thread/resume` ré-applique ce sandbox à TOUT le thread app-server ; comme
+`turn/start` ne porte pas de sandbox, la démotion colle aux tours suivants.
+Même piège via `goalRequest`/`compactThread`, qui reprennent un thread pas
+encore chargé avec `sandbox: "read-only"` explicite (goal ACTIVE + app-server
+relancé = démotion silencieuse).
+
+**Règles** :
+- le router mémorise la dernière sélection composer par thread
+  (`lastTurn` dans le store) et les envois nus la réutilisent —
+  `startProviderTurn` (router.mjs) ; model/effort ne se reprennent que sous
+  le MÊME provider (jamais un id Claude chez Codex après handoff) ;
+- `goalRequest`/`compactThread` reprennent avec le `permissionMode` réel du
+  thread quand il est connu ; `read-only` reste le défaut sûr sinon ;
+- tout NOUVEAU chemin d'envoi frontend doit porter la sélection complète, ou
+  assumer explicitement le repli ; le marqueur `__permission-fallback` dans
+  le ledger signale qu'un tour est parti sans mode connu ;
+- diagnostic rapide : `grep __permission-fallback` dans le ledger du projet
+  (`~/Library/Application Support/atelier-studio/ledger/`), et
+  `turn_context.sandbox_policy` dans le rollout `~/.codex/sessions/…`.

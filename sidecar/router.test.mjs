@@ -451,6 +451,120 @@ describe("attribution des tours (plan 025)", () => {
   });
 });
 
+describe("sélection de tour — repli lastTurn (pièges connus : démotion read-only)", () => {
+  const flush = () => new Promise((r) => setTimeout(r, 10));
+
+  function makeCtx(providers) {
+    const emitted = [];
+    const dir = mkdtempSync(join(tmpdir(), "as-sel-"));
+    const { ThreadStore } = threadStoreModule;
+    const store = new ThreadStore(join(dir, "threads.json"));
+    const ctx = {
+      send: (m) => emitted.push(m),
+      broadcast: (m) => emitted.push(m),
+      store,
+      gitops: {
+        snapshot: vi.fn(async () => "s".repeat(40)),
+        isRepo: async () => true,
+        changedSince: vi.fn(async () => []),
+        numstat: vi.fn(async () => []),
+        status: async () => ({ files: [] }),
+      },
+      ledger: { append: vi.fn(async () => {}), getAll: async () => [] },
+      providers,
+    };
+    return { ctx, emitted };
+  }
+
+  it("renvoi nu (rewind/autofix) : réutilise model/effort/permissionMode du dernier tour", async () => {
+    const runs = [];
+    const { ctx } = makeCtx({
+      codex: { run: vi.fn((opts) => { runs.push(opts); return Promise.resolve({ sessionId: "s1" }); }) },
+    });
+    await route({
+      type: "send", provider: "codex", threadId: "t-sel", projectRoot: "/p",
+      prompt: "premier", clientMessageId: "m1",
+      model: "gpt-5.6-sol", effort: "medium", permissionMode: "bypassPermissions",
+      displayEvent: { kind: "user", text: "premier" },
+    }, ctx);
+    await flush();
+    await runs[0].onEvent({ kind: "done", ok: true, result: "" });
+    await flush();
+    // renvoi programmatique SANS sélection (reverted/autofix, App.tsx)
+    await route({
+      type: "send", provider: "codex", threadId: "t-sel", projectRoot: "/p",
+      prompt: "renvoi nu", clientMessageId: "m2",
+      displayEvent: { kind: "user", text: "renvoi nu" },
+    }, ctx);
+    await flush();
+
+    expect(runs).toHaveLength(2);
+    expect(runs[1].permissionMode).toBe("bypassPermissions");
+    expect(runs[1].model).toBe("gpt-5.6-sol");
+    expect(runs[1].effort).toBe("medium");
+  });
+
+  it("renvoi nu après handoff : permissionMode repris, model/effort de l'autre provider ignorés", async () => {
+    const sends = [];
+    const runs = [];
+    const { ctx } = makeCtx({
+      claude: { send: (opts) => sends.push(opts) },
+      codex: { run: vi.fn((opts) => { runs.push(opts); return Promise.resolve({ sessionId: "s2" }); }) },
+    });
+    await route({
+      type: "send", provider: "claude", threadId: "t-ho", projectRoot: "/p",
+      prompt: "premier", clientMessageId: "m1",
+      model: "claude-sonnet-5", effort: "high", permissionMode: "acceptEdits",
+      displayEvent: { kind: "user", text: "premier" },
+    }, ctx);
+    await flush();
+    await sends[0].onEvent({ kind: "done", ok: true, result: "" });
+    await flush();
+    // handoff vers codex, renvoi nu : jamais un id de modèle Claude chez Codex
+    await route({
+      type: "send", provider: "codex", threadId: "t-ho", projectRoot: "/p",
+      prompt: "renvoi nu", clientMessageId: "m2",
+      displayEvent: { kind: "user", text: "renvoi nu" },
+    }, ctx);
+    await flush();
+
+    expect(runs).toHaveLength(1);
+    expect(runs[0].permissionMode).toBe("acceptEdits");
+    expect(runs[0].model).toBe(null);
+    expect(runs[0].effort).toBe(null);
+  });
+
+  it("goalGet/codexCompact : transmettent le permissionMode du thread au provider", async () => {
+    const getGoal = vi.fn(async () => null);
+    const compactThread = vi.fn(async () => {});
+    const runs = [];
+    const { ctx } = makeCtx({
+      codex: {
+        run: vi.fn((opts) => { runs.push(opts); return Promise.resolve({ sessionId: "s3" }); }),
+        setGoal: vi.fn(async () => null), getGoal, clearGoal: vi.fn(async () => null),
+        compactThread,
+      },
+    });
+    await route({
+      type: "send", provider: "codex", threadId: "t-goal", projectRoot: "/p",
+      prompt: "premier", clientMessageId: "m1", permissionMode: "bypassPermissions",
+      displayEvent: { kind: "user", text: "premier" },
+    }, ctx);
+    await flush();
+    await runs[0].onEvent({ kind: "done", ok: true, result: "" });
+    await flush();
+
+    await route({ type: "goalGet", threadId: "t-goal" }, ctx);
+    expect(getGoal).toHaveBeenCalledWith(
+      expect.objectContaining({ permissionMode: "bypassPermissions" }),
+    );
+    await route({ type: "codexCompact", threadId: "t-goal" }, ctx);
+    expect(compactThread).toHaveBeenCalledWith(
+      expect.objectContaining({ permissionMode: "bypassPermissions" }),
+    );
+  });
+});
+
 describe("journal canonique câblé (plan 025 step 7)", () => {
   const flush = () => new Promise((r) => setTimeout(r, 25));
 
