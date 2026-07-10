@@ -346,16 +346,97 @@ window.DiffVersions = function(opts){
     marks.forEach(m => { try{ m.clear(); }catch(e){} });
     marks = [];
   }
+  let diffWorker = null, workerFailed = false, renderRequestId = 0, renderTimer = null;
+  const renderCache = new Map();
+  function workerUrl(){
+    let url = "/.fig_thumbs/diff_worker.js";
+    try{ const token = new URLSearchParams(location.search).get("token"); if(token) url += "?token=" + encodeURIComponent(token); }catch(e){}
+    return url;
+  }
+  function ensureWorker(){
+    if(diffWorker || workerFailed || typeof Worker === "undefined") return diffWorker;
+    try{
+      diffWorker = new Worker(workerUrl());
+      diffWorker.onerror = () => { workerFailed = true; try{ diffWorker.terminate(); }catch(e){} diffWorker = null; };
+    }catch(e){ workerFailed = true; diffWorker = null; }
+    return diffWorker;
+  }
+  function cacheParts(key, value){
+    renderCache.set(key, value);
+    while(renderCache.size > 8) renderCache.delete(renderCache.keys().next().value);
+  }
+  function lineFallback(before, after, requestId, done){
+    const a = before.match(/.*(?:\n|$)/g).filter(Boolean), b = after.match(/.*(?:\n|$)/g).filter(Boolean);
+    let prefix = 0, suffix = 0;
+    const scanPrefix = () => {
+      const stop = Math.min(prefix + 500, a.length, b.length);
+      while(prefix < stop && a[prefix] === b[prefix]) prefix++;
+      if(prefix === stop && prefix < a.length && prefix < b.length)
+        return setTimeout(scanPrefix, 0);
+      scanSuffix();
+    };
+    const scanSuffix = () => {
+      const stop = Math.min(suffix + 500, a.length - prefix, b.length - prefix);
+      while(suffix < stop && a[a.length - 1 - suffix] === b[b.length - 1 - suffix]) suffix++;
+      if(suffix === stop && suffix < a.length - prefix && suffix < b.length - prefix)
+        return setTimeout(scanSuffix, 0);
+      if(requestId !== renderRequestId) return;
+      const parts = [], commonBefore = a.slice(0, prefix).join("");
+      const removed = a.slice(prefix, a.length - suffix).join("");
+      const added = b.slice(prefix, b.length - suffix).join("");
+      const commonAfter = suffix ? b.slice(b.length - suffix).join("") : "";
+      if(commonBefore) parts.push({value:commonBefore});
+      if(removed) parts.push({removed:true,value:removed});
+      if(added) parts.push({added:true,value:added});
+      if(commonAfter) parts.push({value:commonAfter});
+      done(parts, true);
+    };
+    setTimeout(scanPrefix, 0);
+  }
+  function cancelRender(){
+    renderRequestId++; clearTimeout(renderTimer); renderTimer = null;
+    if(diffWorker){ try{ diffWorker.terminate(); }catch(e){} diffWorker = null; }
+  }
   function render(){
     const v = curVersion(), cm = getCm();
     if(!v || !cm) return;
-    clearMarks();
-    // diffWordsWithSpace garantit que la concaténation des parts non-removed
-    // reproduit exactement le buffer → offsets sûrs pour markText/setBookmark.
     const after = cm.getValue();
     const wsn = s => s.replace(/\s+/g, " ").trim();
-    // rewrap intégral : contenu identique aux blancs près → rien à marquer
-    let parts = wsn(v.before) === wsn(after) ? [] : Diff.diffWordsWithSpace(v.before, after);
+    const key = hashText(v.before) + ":" + hashText(after);
+    const requestId = ++renderRequestId;
+    const apply = (parts, coarse = false) => {
+      if(requestId !== renderRequestId || !shown || curVersion() !== v || cm.getValue() !== after) return;
+      cacheParts(key, {parts, coarse});
+      applyRender(v, cm, after, parts, coarse);
+    };
+    const cached = renderCache.get(key);
+    if(cached){ applyRender(v, cm, after, cached.parts, cached.coarse); return; }
+    if(wsn(v.before) === wsn(after)){ apply([], false); return; }
+    clearTimeout(renderTimer);
+    renderTimer = setTimeout(() => {
+      const worker = ensureWorker();
+      if(worker){
+        worker.onerror = () => {
+          workerFailed = true; try{ worker.terminate(); }catch(e){} if(diffWorker === worker) diffWorker = null;
+          if(requestId !== renderRequestId) return;
+          if(v.before.length + after.length <= 50000) apply(Diff.diffWordsWithSpace(v.before, after), false);
+          else lineFallback(v.before, after, requestId, apply);
+        };
+        worker.onmessage = ({data}) => {
+          if(data?.requestId !== renderRequestId || data.error) return;
+          apply(data.parts || [], false);
+        };
+        worker.postMessage({requestId, before:v.before, after});
+      } else if(v.before.length + after.length <= 50000) apply(Diff.diffWordsWithSpace(v.before, after), false);
+      else lineFallback(v.before, after, requestId, apply);
+    }, 35);
+  }
+  function applyRender(v, cm, after, inputParts, coarse){
+    clearMarks();
+    const wsn = s => s.replace(/\s+/g, " ").trim();
+    let parts = inputParts;
+    // diffWordsWithSpace garantit que la concaténation des parts non-removed
+    // reproduit exactement le buffer → offsets sûrs pour markText/setBookmark.
     // Fusion sémantique : une phrase récrite produit une alternance mot à mot
     // (supprimé/ajouté/commun court/supprimé/…) illisible. Les groupes de
     // changements séparés par un bout commun court (≤ 16 car.) sont fusionnés
@@ -451,7 +532,8 @@ window.DiffVersions = function(opts){
     const note = changes
       ? changes + " modification" + (changes > 1 ? "s" : "")
       : "aucun changement de texte" + (v.head ? "" : " (retours à la ligne seulement)");
-    notify("comparaison " + (extCmp ? extCmp.label : labelOf(baseVersion)) + " · " + note + " · Échap pour fermer");
+    if(coarse) notify("diff détaillé indisponible — affichage par lignes");
+    else notify("comparaison " + (extCmp ? extCmp.label : labelOf(baseVersion)) + " · " + note + " · Échap pour fermer");
     updateNav();
     if(changes) gotoChange(changeAt, true);
   }
@@ -591,6 +673,7 @@ window.DiffVersions = function(opts){
       if(scrollLine != null) cm.scrollIntoView({line: scrollLine, ch: 0}, 120);
     }
     else {
+      cancelRender();
       ttExit(); // vue historique : TOUJOURS restaurer le buffer réel en sortant
       navMode = -1;
       extCmp = null; clearMarks(); cm.setOption("readOnly", false); cm.refresh(); notify("");
@@ -913,7 +996,7 @@ window.DiffVersions = function(opts){
   }
   function refreshGutter(){
     const cm = getCm();
-    if(!cm || headText === null) return;
+    if(!cm || headText === null || tt) return;
     if(!gutterReady){
       cm.setOption("gutters", ["CodeMirror-linenumbers", GUTTER]);
       cm.on("gutterClick", (c, line, g) => { if(g === GUTTER) openHeadAt(line); });
@@ -1027,6 +1110,7 @@ window.DiffVersions = function(opts){
         baseVersion = {before: j.text, ts: null, head: true, sha: headSha};
         baseGitLocked = true;
         arm();
+        if(shown) render();
       } else if(changed && extCmp && extCmp.head){
         extCmp = {before: headText, label: "HEAD" + (headSha ? " (" + headSha + ")" : ""), head: true};
         if(shown) render();

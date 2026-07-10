@@ -251,6 +251,7 @@ function makeModuleHarness({
   gitItems = [],
   gitTexts = {},
   postResponses = [],
+  workerAvailable = false,
 } = {}) {
   const el = () => {
     const e = { style: {}, classList: { toggle() {}, contains: () => false }, _children: [],
@@ -267,6 +268,7 @@ function makeModuleHarness({
   const marksLog = [];
   const gutterLog = [];
   const posts = [];
+  const workers = [];
   const body = el();
   const storage = new Map();
   if (localState !== null) storage.set("texDiffV1:" + filePath, JSON.stringify(localState));
@@ -330,6 +332,12 @@ function makeModuleHarness({
     setInterval(f) { ctx.__tick = f; return 1; }, clearInterval() {},
     setTimeout(f, d) { if (f && (d === undefined || d <= 400)) f(); return 0; }, clearTimeout() {},
   };
+  if (workerAvailable) ctx.Worker = class {
+    constructor(url) { this.url = url; this.posts = []; this.onmessage = null; this.onerror = null; workers.push(this); }
+    postMessage(message) { this.posts.push(message); }
+    terminate() { this.terminated = true; }
+    respond(message) { this.onmessage?.({data: message}); }
+  };
   vm.createContext(ctx);
   vm.runInContext(fs.readFileSync(path.join(ASSETS, "diff.min.js"), "utf8"), ctx);
   ctx.Diff = ctx.window.Diff || ctx.Diff;
@@ -358,7 +366,7 @@ function makeModuleHarness({
     return pop?._q?.["#dvHistList"]?._children || [];
   };
   const setHead = (text, ts, sha = activeHead.sha) => Object.assign(activeHead, { text, ts, sha });
-  return { ctx, cm, dv, tag, restore, restored, notes, marksLog, gutterLog, posts, nav, storage, setHead, filePath,
+  return { ctx, cm, dv, tag, restore, restored, notes, marksLog, gutterLog, posts, workers, nav, storage, setHead, filePath,
     historyButton, historyRows };
 }
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -400,6 +408,54 @@ function assertPersistedInterventions(name, h, expected, expectedLegacy = []) {
 }
 
 async function moduleTests() {
+  // B0. Contrat Worker: same-origin, stale ignoré, cache et annulation de vue.
+  contractOk("diff worker source incluse", fs.existsSync(path.join(ASSETS, "diff_worker.js")));
+  {
+    const base = "alpha base\n", first = "alpha premier\n", second = "alpha deuxieme\n";
+    const h = makeModuleHarness({headText: base, workerAvailable: true});
+    h.cm._v = first; h.dv.push(base, first); h.tag.onclick();
+    const worker = h.workers[0];
+    const request1 = worker?.posts.at(-1);
+    h.cm._v = second; h.dv.push(first, second);
+    const request2 = worker?.posts.at(-1);
+    contractOk("worker same-origin et deux generations envoyees",
+      worker?.url === "/.fig_thumbs/diff_worker.js" && request1?.requestId < request2?.requestId,
+      JSON.stringify({url: worker?.url, posts: worker?.posts}));
+    worker?.respond({requestId: request2?.requestId, parts: [{removed:true,value:base},{added:true,value:second}]});
+    await sleep(0);
+    const afterLatest = h.notes.at(-1);
+    const marksAfterLatest = h.marksLog.length;
+    worker?.respond({requestId: request1?.requestId, parts: [{removed:true,value:base},{added:true,value:first}]});
+    await sleep(0);
+    contractOk("worker resultat stale ignore", h.notes.at(-1) === afterLatest && h.marksLog.length === marksAfterLatest,
+      JSON.stringify({notes:h.notes, marks:h.marksLog}));
+
+    const postCount = worker.posts.length;
+    h.dv.compareExternal(base, "cache-pair");
+    const cachedRequest = worker.posts.at(-1);
+    if(worker.posts.length > postCount) worker.respond({requestId:cachedRequest.requestId,
+      parts:[{removed:true,value:base},{added:true,value:second}]});
+    await sleep(0);
+    h.dv.compareExternal(base, "cache-pair");
+    contractOk("worker cache paire identique evite recalcul", worker.posts.length <= postCount + 1,
+      JSON.stringify(worker.posts));
+    h.tag.onclick();
+    const beforeCancel = h.marksLog.length;
+    const pending = worker.posts.at(-1);
+    worker.respond({requestId:pending.requestId, parts:[{removed:true,value:base},{added:true,value:"stale ferme\n"}]});
+    await sleep(0);
+    contractOk("worker fermeture annule rendu pending", !h.dv.isShown() && h.marksLog.length === beforeCancel,
+      JSON.stringify(h.marksLog));
+  }
+  {
+    const base = "ligne ancienne longue\n".repeat(1800);
+    const after = "ligne nouvelle longue\n".repeat(1800);
+    const h = makeModuleHarness({headText: base, workerAvailable: false});
+    h.cm._v = after; h.dv.push(base, after); h.tag.onclick();
+    await sleep(20);
+    contractOk("fallback >50000 avertit rendu lignes exact",
+      h.notes.some((note) => note === "diff détaillé indisponible — affichage par lignes"), JSON.stringify(h.notes.slice(-3)));
+  }
   // B1. fusion sémantique : phrase récrite par un agent → peu de stops, offsets sûrs
   {
     const h = makeModuleHarness();
