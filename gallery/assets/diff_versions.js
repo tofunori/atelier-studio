@@ -36,6 +36,7 @@ window.DiffVersions = function(opts){
   let extCmp = null; // comparaison ponctuelle depuis l'historique : {before, label}
   const curVersion = () => extCmp || baseVersion;
   let headText = null, headSha = "", baseTs = 0; // ts (ms) du commit-base
+  let baseGitLocked = false;
   const KEY = "texDiffV1:" + path;
   const MAX = 1500000;
   const GUTTER = "dv-git";
@@ -85,6 +86,11 @@ window.DiffVersions = function(opts){
           tokens.push("C:" + line);
           continue;
         }
+        if(/^\s*\\/.test(line)){
+          flush();
+          tokens.push("X:" + line);
+          continue;
+        }
       }
       if(mode === "markdown"){
         const fence = line.match(/^\s*(```+|~~~+)/);
@@ -108,8 +114,9 @@ window.DiffVersions = function(opts){
       } else prose.push(line.trim());
     }
     flush();
-    // Le dernier retour de ligne n'est pas une frontière de paragraphe.
-    while(tokens.length && tokens[tokens.length - 1] === "B") tokens.pop();
+    // `split("\n")` crée un unique élément vide artificiel après le
+    // retour terminal. Toute ligne blanche terminale supplémentaire est réelle.
+    if(tokens[tokens.length - 1] === "B") tokens.pop();
     return JSON.stringify(tokens);
   }
   function equivalent(a, b){
@@ -452,12 +459,15 @@ window.DiffVersions = function(opts){
   function record(before, after, meta, ts, id){
     if(typeof before !== "string" || typeof after !== "string" || before === after || equivalent(before, after)) return null;
     const parsedTs = Number(ts);
-    const when = Number.isFinite(parsedTs) ? parsedTs : Date.now();
+    const storedTs = ts === null ? null
+      : Number.isFinite(parsedTs) ? parsedTs
+      : ts === undefined ? Date.now() : null;
+    const idTime = storedTs === null ? Date.now() : storedTs;
     const normalized = normalizeMeta(meta);
-    const intervention = {id: typeof id === "string" && id ? id : newId(when), before, after, ts: when,
+    const intervention = {id: typeof id === "string" && id ? id : newId(idTime), before, after, ts: storedTs,
       source: normalized.source, status: normalized.status};
     INTERVENTIONS.push(intervention);
-    if(!baseVersion) baseVersion = {before, ts: when, head: false, sha: ""};
+    if(!baseVersion) baseVersion = {before, ts: storedTs, head: false, sha: ""};
     return intervention;
   }
   function push(before, after, meta){
@@ -475,7 +485,7 @@ window.DiffVersions = function(opts){
     // sélection sous les yeux de l'utilisateur (mais render() rafraîchit les
     // marques contre le buffer courant → le cumul grossit quand même).
     arm();
-    persist(after);
+    persist(liveText());
     // pas d'auto-ouverture : le mode passe l'éditeur en lecture seule, l'activer
     // à chaque sauvegarde bloquerait la frappe en silence. Si déjà ouvert : rafraîchir.
     if(shown) render();
@@ -711,7 +721,8 @@ window.DiffVersions = function(opts){
   // ---- gouttière git (barres ajouté/modifié, triangle supprimé, vs HEAD) ----
   let gutterReady = false, gutterTimer = null;
   function openHeadAt(line){
-    if(!baseVersion || !baseVersion.head) return;
+    if(headText === null) return;
+    extCmp = {before: headText, label: "HEAD" + (headSha ? " (" + headSha + ")" : ""), head: true};
     updateTag();
     shown ? (render(), getCm().scrollIntoView({line, ch: 0}, 120)) : toggle(true, line);
   }
@@ -831,16 +842,17 @@ window.DiffVersions = function(opts){
       const r = await fetch("/githead?path=" + encodeURIComponent(path));
       const j = await r.json();
       if(!j || !j.ok || typeof j.text !== "string"){ return; }
-      headSha = j.sha || "";
-      baseTs = (Number(j.ts) || 0) * 1000; // epoch s → ms (échelle des versions)
       const changed = headText !== j.text;
+      headSha = j.sha || "";
       headText = j.text;
-      if(!baseVersion || !baseVersion.head){
+      if(!baseGitLocked){
+        baseTs = (Number(j.ts) || 0) * 1000; // figé avec la première base Git de session
         baseVersion = {before: j.text, ts: null, head: true, sha: headSha};
+        baseGitLocked = true;
         arm();
-      } else if(changed){
-        baseVersion = {before: j.text, ts: null, head: true, sha: headSha};
-        if(shown && !extCmp) render();
+      } else if(changed && extCmp && extCmp.head){
+        extCmp = {before: headText, label: "HEAD" + (headSha ? " (" + headSha + ")" : ""), head: true};
+        if(shown) render();
       }
       // Hors comparaison, la cible reste la base cumulative quel que soit
       // l'ordre d'arrivée entre fetchHead et les premiers push.
@@ -887,21 +899,34 @@ window.DiffVersions = function(opts){
     let added = 0;
     for(const it of (Array.isArray(data.interventions) ? data.interventions : [])){
       if(!it || typeof it.before !== "string" || typeof it.after !== "string") continue;
+      if(typeof it.id === "string" && INTERVENTIONS.some(existing => existing.id === it.id)) continue;
       if(record(it.before, it.after, {source: it.source, status: it.status}, it.ts, it.id)) added++;
     }
+    let legacyAdded = 0;
     for(const snap of (Array.isArray(data.legacySnapshots) ? data.legacySnapshots : [])){
       if(!snap || typeof snap.text !== "string") continue;
-      LEGACY_SNAPSHOTS.push({text: snap.text, ts: Number(snap.ts) || 0,
-        label: typeof snap.label === "string" ? snap.label : "snapshot legacy"});
+      const parsedTs = Number(snap.ts);
+      const normalized = {text: snap.text,
+        ts: snap.ts === null || !Number.isFinite(parsedTs) ? null : parsedTs,
+        label: typeof snap.label === "string" ? snap.label : "snapshot legacy"};
+      if(LEGACY_SNAPSHOTS.some(existing => existing.text === normalized.text
+          && existing.ts === normalized.ts && existing.label === normalized.label)) continue;
+      LEGACY_SNAPSHOTS.push(normalized);
+      legacyAdded++;
     }
     if(typeof data.last === "string") lastKnown = data.last;
-    if(added || LEGACY_SNAPSHOTS.length) arm();
-    return added + LEGACY_SNAPSHOTS.length;
+    if(added || legacyAdded) arm();
+    return added + legacyAdded;
   }
   function addV1(data){
     const snapshots = (Array.isArray(data.items) ? data.items : [])
       .filter(it => it && typeof it.b === "string")
-      .map((it, i) => ({text: it.b, ts: Number(it.t) || 0, index: i}));
+      .map((it, i) => {
+        const parsedTs = Number(it.t);
+        return {text: it.b,
+          ts: Object.prototype.hasOwnProperty.call(it, "t") && Number.isFinite(parsedTs) ? parsedTs : null,
+          index: i};
+      });
     const usedAsBefore = new Set();
     for(let i = 0; i + 1 < snapshots.length; i++){
       const before = snapshots[i], after = snapshots[i + 1];
@@ -922,22 +947,28 @@ window.DiffVersions = function(opts){
     return data.v === 2 ? addV2(data) : addV1(data);
   }
   async function restoreVersions(){
-    let fromServer = false;
+    const generation = runtimePushes;
+    let localData = null;
+    try{ localData = JSON.parse(localStorage.getItem(KEY) || "null"); }catch(e){}
+    const hasLocalV2 = !!(localData && localData.v === 2);
+    // Charger le journal local avant le premier await garantit que tout push
+    // concurrent sera ajouté après lui, jamais avant une histoire restaurée.
+    if(hasLocalV2) loadData(localData);
+    let serverData = null;
     try{
       const r = await fetch("/versions?path=" + encodeURIComponent(path));
       const j = await r.json();
-      if(j && j.ok){
-        fromServer = true;
-        loadData(j);
-      }
+      if(j && j.ok) serverData = j;
     }catch(e){}
-    if(!fromServer || (!INTERVENTIONS.length && !LEGACY_SNAPSHOTS.length && lastKnown === null)){
-      // fallback / migration depuis le localStorage d'une session antérieure
-      try{
-        const data = JSON.parse(localStorage.getItem(KEY) || "null");
-        loadData(data);
-      }catch(e){}
+    // Le GET a démarré avant une action runtime : sa réponse est stale et
+    // ne peut plus muter ni réordonner le journal courant.
+    if(runtimePushes !== generation) return;
+    if(serverData && serverData.v === 2) loadData(serverData);
+    else if(serverData && !hasLocalV2){
+      loadData(serverData);
+      if(!INTERVENTIONS.length && !LEGACY_SNAPSHOTS.length && lastKnown === null) loadData(localData);
     }
+    else if(!serverData && !hasLocalV2) loadData(localData);
   }
 
   // HEAD + gouttière + restore : dès que l'éditeur existe (créé après le fetch

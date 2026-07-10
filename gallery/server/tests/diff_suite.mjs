@@ -133,6 +133,8 @@ function makeModuleHarness({
   serverItems = [],
   serverLast = null,
   serverState = null,
+  versionsPromise = null,
+  localState = null,
   headTs = 0,
   filePath = "/x/m.tex",
 } = {}) {
@@ -150,6 +152,9 @@ function makeModuleHarness({
   const marksLog = [];
   const gutterLog = [];
   const posts = [];
+  const storage = new Map();
+  if (localState !== null) storage.set("texDiffV1:" + filePath, JSON.stringify(localState));
+  const activeHead = { text: headText, ts: headTs, sha: "abc1234" };
   const cm = {
     _v: "",
     getValue() { return cm._v; },
@@ -173,19 +178,25 @@ function makeModuleHarness({
     window: {}, console, Date, JSON, Math, Infinity,
     document: { getElementById: () => null, createElement: el, head: { appendChild() {} },
       body: { appendChild() {} }, addEventListener() {}, querySelector: () => null },
-    localStorage: { getItem: () => null, setItem() {}, removeItem() {} },
+    localStorage: {
+      getItem: (key) => storage.get(key) ?? null,
+      setItem: (key, value) => storage.set(key, value),
+      removeItem: (key) => storage.delete(key),
+    },
     fetch: (u, opts) => {
       const url = String(u);
       if (url.startsWith("/githead"))
-        return headText === null
+        return activeHead.text === null
           ? Promise.resolve({ json: () => Promise.resolve({ ok: false }) })
-          : Promise.resolve({ json: () => Promise.resolve({ ok: true, text: headText, sha: "abc1234", ts: headTs }) });
+          : Promise.resolve({ json: () => Promise.resolve({ ok: true, text: activeHead.text, sha: activeHead.sha, ts: activeHead.ts }) });
       if (url.startsWith("/versions") && opts && opts.method === "POST") {
         posts.push(JSON.parse(opts.body));
         return Promise.resolve({ json: () => Promise.resolve({ ok: true }) });
       }
       if (url.startsWith("/versions"))
-        return Promise.resolve({ json: () => Promise.resolve(serverState || { ok: true, items: serverItems, last: serverLast }) });
+        return versionsPromise
+          ? versionsPromise.then((value) => ({ json: () => Promise.resolve(value) }))
+          : Promise.resolve({ json: () => Promise.resolve(serverState || { ok: true, items: serverItems, last: serverLast }) });
       return new Promise(() => {});
     },
     setInterval(f) { ctx.__tick = f; return 1; }, clearInterval() {},
@@ -211,7 +222,8 @@ function makeModuleHarness({
     next: navPill.querySelector('[data-d="1"]'),
     count: navPill.querySelector(".dvNavC"),
   };
-  return { ctx, cm, dv, tag, notes, marksLog, gutterLog, posts, nav };
+  const setHead = (text, ts, sha = activeHead.sha) => Object.assign(activeHead, { text, ts, sha });
+  return { ctx, cm, dv, tag, notes, marksLog, gutterLog, posts, nav, storage, setHead };
 }
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
@@ -564,6 +576,173 @@ async function moduleTests() {
     ], [
       { text: orphan, ts: 42 },
     ]);
+  }
+
+  // B14. Le serveur durable reste v1 pendant la transition : une réponse v1
+  // vide ne doit pas masquer le journal v2 plus riche du localStorage.
+  {
+    const base = "base locale v2\n";
+    const current = "etat restaure depuis local v2\n";
+    const next = "nouvelle sauvegarde apres reload\n";
+    const old = { id: "local-1", before: base, after: current, ts: 50,
+      source: "user-save", status: "applied" };
+    const h = makeModuleHarness({
+      headText: base,
+      serverState: { ok: true, v: 1, items: [], last: current },
+      localState: { v: 2, interventions: [old], legacySnapshots: [], last: current },
+    });
+    h.cm._v = current;
+    h.ctx.__tick();
+    await sleep(0); await sleep(0); await sleep(0);
+    h.tag.onclick();
+    const reloaded = h.nav()?.count.textContent === "tout · 1";
+    if(h.dv.isShown()) h.tag.onclick();
+    h.cm._v = next;
+    h.dv.push(current, next, {source: "user-save", status: "applied"});
+    const saved = h.posts[h.posts.length - 1]?.interventions || [];
+    contractOk("reload v2 local survit a une reponse serveur v1 vide",
+      reloaded && saved.length === 2 && saved[0].id === "local-1"
+        && saved[1].before === current && saved[1].after === next,
+      JSON.stringify({count: h.nav()?.count.textContent, saved}));
+  }
+  {
+    const base = "base locale v1 fallback\n";
+    const current = "after locale v1 fallback\n";
+    const h = makeModuleHarness({
+      headText: base,
+      serverState: {ok: true, v: 1, items: [], last: null},
+      localState: {v: 1, items: [{b: base, t: 10}, {b: current, t: 20}], last: current},
+    });
+    h.cm._v = current;
+    h.ctx.__tick();
+    await sleep(0); await sleep(0); await sleep(0);
+    h.tag.onclick();
+    contractOk("fallback local v1 survit a une reponse serveur v1 vide",
+      h.nav()?.count.textContent === "tout · 1", h.nav()?.count.textContent);
+  }
+
+  // B15. Un conflit pending journalise l'after externe, mais `last` reste le
+  // vrai buffer local qui n'a pas reçu cet after.
+  {
+    const base = "base avant conflit\n";
+    const mine = "buffer local non applique\n";
+    const disk = "after externe pending\n";
+    const h = makeModuleHarness({headText: base});
+    h.cm._v = mine;
+    h.dv.push(base, disk, {source: "external-conflict", status: "pending-conflict"});
+    const payload = h.posts[h.posts.length - 1];
+    contractOk("pending conflict persiste le vrai buffer dans last",
+      payload?.last === mine && payload?.interventions?.[0]?.after === disk,
+      JSON.stringify(payload));
+  }
+
+  // B16. Si un push arrive pendant le GET initial, sa génération gagne : la
+  // réponse stale ne peut ni doubler l'action ni inverser le journal.
+  {
+    let resolveVersions;
+    const versionsPromise = new Promise((resolve) => { resolveVersions = resolve; });
+    const base = "base course get\n";
+    const edited = "edition runtime pendant get\n";
+    const final = "edition suivante ordonnee\n";
+    const h = makeModuleHarness({headText: base, versionsPromise});
+    h.cm._v = base;
+    h.ctx.__tick();
+    h.cm._v = edited;
+    h.dv.push(base, edited, {source: "user-save", status: "applied"});
+    resolveVersions({ok: true, v: 2, interventions: [
+      {id: "stale-duplicate", before: base, after: edited, ts: 1, source: "user-save", status: "applied"},
+    ], legacySnapshots: [], last: edited});
+    await sleep(0); await sleep(0); await sleep(0);
+    h.tag.onclick();
+    const count = h.nav()?.count.textContent;
+    if(h.dv.isShown()) h.tag.onclick();
+    h.cm._v = final;
+    h.dv.push(edited, final, {source: "user-save", status: "applied"});
+    const saved = h.posts[h.posts.length - 1]?.interventions || [];
+    contractOk("push pendant GET ignore la reponse stale sans doublon ni inversion",
+      count === "tout · 1" && saved.length === 2
+        && saved[0].before === base && saved[0].after === edited
+        && saved[1].before === edited && saved[1].after === final,
+      JSON.stringify({count, saved}));
+  }
+
+  // B17. L'absence de timestamp v1 reste `null`, donc non filtrable par la
+  // date Git. Zéro inventerait un passé fictif et ferait disparaître la paire.
+  {
+    const base = "base legacy sans timestamp\n";
+    const after = "after legacy valide\n";
+    const final = "nouvelle action apres legacy\n";
+    const h = makeModuleHarness({
+      headText: base,
+      headTs: Math.floor(Date.now() / 1000) - 60,
+      serverState: {ok: true, v: 1, items: [{b: base}, {b: after}], last: after},
+    });
+    h.cm._v = after;
+    h.ctx.__tick();
+    await sleep(0); await sleep(0); await sleep(0);
+    h.tag.onclick();
+    const count = h.nav()?.count.textContent;
+    if(h.dv.isShown()) h.tag.onclick();
+    h.cm._v = final;
+    h.dv.push(after, final, {source: "user-save", status: "applied"});
+    const saved = h.posts[h.posts.length - 1]?.interventions || [];
+    contractOk("migration v1 sans timestamp reste visible sous base Git",
+      count === "tout · 1" && saved[0]?.source === "legacy" && saved[0]?.ts === null,
+      JSON.stringify({count, saved}));
+  }
+
+  // B18. En LaTeX, commandes et frontières structurelles restent exactes;
+  // seul l'artefact d'un unique retour terminal peut être ignoré.
+  {
+    const before = "\\item A\n\\item B\n";
+    const after = "\\item A \\item B\n";
+    const h = makeModuleHarness({filePath: "/x/list.tex", headText: before});
+    h.cm._v = after;
+    h.dv.push(before, after, {source: "user-save", status: "applied"});
+    contractOk("frontiere de lignes entre commandes LaTeX significative",
+      h.posts[h.posts.length - 1]?.interventions?.length === 1,
+      JSON.stringify(h.posts));
+  }
+  {
+    const before = "Paragraphe terminal.\n";
+    const after = "Paragraphe terminal.\n\n";
+    const h = makeModuleHarness({filePath: "/x/trailing.tex", headText: before});
+    h.cm._v = after;
+    h.dv.push(before, after, {source: "user-save", status: "applied"});
+    contractOk("ligne blanche terminale LaTeX significative",
+      h.posts[h.posts.length - 1]?.interventions?.length === 1,
+      JSON.stringify(h.posts));
+  }
+  {
+    const h = makeModuleHarness({filePath: "/x/final-newline.tex", headText: "Texte sans retour"});
+    h.cm._v = "Texte sans retour\n";
+    h.dv.push("Texte sans retour", "Texte sans retour\n", {source: "user-save", status: "applied"});
+    contractOk("artefact du retour terminal unique reste ignorable", h.posts.length === 0, JSON.stringify(h.posts));
+  }
+
+  // B19. La première base Git d'une session est immuable : un HEAD plus récent
+  // peut rafraîchir la gouttière, pas rétrécir la timeline ni changer `tout`.
+  {
+    const now = Math.floor(Date.now() / 1000);
+    const base = "alpha original avec beaucoup de contexte stable entre les zones\nomega original fin\n";
+    const s1 = base.replace("alpha original", "alpha premiere edition");
+    const s2 = s1.replace("omega original", "omega seconde edition");
+    const h = makeModuleHarness({headText: base, headTs: now - 60});
+    h.cm._v = base;
+    h.ctx.__tick();
+    await sleep(0); await sleep(0); await sleep(0);
+    h.cm._v = s1;
+    h.dv.push(base, s1, {source: "user-save", status: "applied"});
+    h.setHead(s1, now + 60, "newhead");
+    h.cm._v = s2;
+    h.dv.push(s1, s2, {source: "user-save", status: "applied"});
+    await sleep(0); await sleep(0);
+    h.tag.onclick();
+    const count = h.nav()?.count.textContent;
+    const note = h.notes[h.notes.length - 1] || "";
+    contractOk("base Git de session immuable malgre HEAD ulterieur",
+      count === "tout · 2" && /· 2 modifications /.test(note),
+      JSON.stringify({count, note}));
   }
 }
 
