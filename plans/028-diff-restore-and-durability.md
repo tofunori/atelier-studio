@@ -70,7 +70,7 @@ ids, ni l'ordre, ni la navigation. Tout hash recalculé doit correspondre avant
 | Purpose | Command | Expected |
 |---|---|---|
 | Diff | `node gallery/server/tests/diff_suite.mjs` | tous verts |
-| Browser | `npx playwright test gallery/tests/e2e/diff.spec.js` | tous verts |
+| Browser | `npm --prefix gallery exec -- playwright test tests/e2e/diff.spec.js` | tous verts |
 | Parity | `(cd gallery && node server/tests/parity.mjs)` | `parity: ok` |
 | Gallery | `npm run test:gallery` | exit 0 |
 

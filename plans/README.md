@@ -170,7 +170,7 @@ jamais comptées comme des interventions séparées.
 |------|-------|----------|--------|------------|--------|
 | 026 | Verrouiller le contrat du diff en navigateur | P0 | M | — | DONE (accepted `d6923cc`, revue Codex indépendante + revue globale, 2026-07-10) |
 | 027 | Enregistrer des interventions explicites | P0 | L | 026 | DONE (accepted `62aceb2`, revue Codex globale, 2026-07-10) |
-| 028 | Rendre restauration et persistance durables | P0 | L | 027 | TODO |
+| 028 | Rendre restauration et persistance durables | P0 | L | 027 | IN PROGRESS — `advisor/028-diff-restore-and-durability` (2026-07-10) |
 | 029 | Rendre les gros diffs non bloquants | P1 | M | 028 | TODO |
 | 030 | Rendre CM6 reproductible et compatible diff | P1 | L | 029 | TODO |
 | 031 | Migrer les trois surfaces vers CM6 avec fallback | P1 | L | 030 | TODO |
