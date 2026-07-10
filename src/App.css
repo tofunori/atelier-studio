@@ -1747,7 +1747,8 @@ body.dragging iframe { pointer-events: none; }
 .reviewer-bar:focus-within .rb-close, .reviewer-bar:focus-within .rb-min { opacity: 1; }
 
 /* anneau de contexte du composer : désormais un bouton — popover au focus aussi */
-button.ctx-ring-wrap { border: none; font: inherit; color: inherit; }
+button.ctx-ring-wrap { border: none; font: inherit; color: inherit;
+  background: transparent; padding: 4px; appearance: none; -webkit-appearance: none; }
 .ctx-ring-wrap:focus-visible .ctx-pop, .ctx-ring-wrap:focus .ctx-pop { display: flex; }
 .ctx-ring-wrap:focus-visible { outline: var(--focus-ring-width) solid var(--focus-ring-color);
   outline-offset: var(--focus-ring-offset); }
