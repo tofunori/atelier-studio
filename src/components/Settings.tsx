@@ -534,11 +534,11 @@ export default function SettingsPage(p: {
             </Group>
             <Group label={t("settings.group.colors")}>
               <Row title={t("settings.accent")} desc={t("settings.accent-desc")}>
-                <ColorField value={s.accentColor} fallback="#e8823a"
+                <ColorField value={s.accentColor} fallback="#e77f3e"
                   onChange={(v) => set({ accentColor: v })} onReset={() => set({ accentColor: "" })} />
               </Row>
               <Row title={t("settings.bg")} desc={t("settings.bg-desc")}>
-                <ColorField value={s.bgColor} fallback="#212429"
+                <ColorField value={s.bgColor} fallback="#1e2124"
                   onChange={(v) => set({ bgColor: v })} onReset={() => set({ bgColor: "" })} />
               </Row>
               <Row title={t("settings.text")} desc={t("settings.text-desc")}>

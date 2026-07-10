@@ -248,7 +248,7 @@ export function ActivityCard({ event, live }: { event: Extract<AgentEvent, { kin
 export function PinBtn({ pinned, onClick }: { pinned: boolean; onClick: () => void }) {
   return (
     <button title={pinned ? t("action.unpin-chapter") : t("action.pin-chapter")} onClick={onClick}
-      style={pinned ? { color: "#e8823a" } : undefined}>
+      style={pinned ? { color: "var(--accent)" } : undefined}>
       <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4">
         <path d="M9.5 2.5l4 4-3 1-2.5 4.5-4-4L8.5 5.5l1-3z" />
         <path d="M5.5 10.5L2.5 13.5" />

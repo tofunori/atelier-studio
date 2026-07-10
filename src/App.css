@@ -11,22 +11,28 @@
   font-display: block; src: url("./assets/fonts/MonaspaceNeon-BoldItalic.woff2") format("woff2"); }
 
 :root, :root[data-theme="dark"] {
-  --bg: #212429; --bg-side: #1a1d22; --bg-pop: #1b1f26; --bg-card: #262b31;
-  --bg-ctl: #2c313a; --border: #333a45; --border2: #3a414d;
-  --fg: #dbdfe5; --fg2: #b6bdc7; --muted: #868d9a; --muted2: #646d7b;
-  --accent: #e8823a;
+  /* palette graphite Precision Native (plan 023) — OKLCH teinte 255,
+     chroma 0.008–0.012, paliers réguliers ; contrastes vérifiés :
+     fg/bg 11.97, muted/bg 5.42, accent/bg 5.78 (script de calibration) */
+  --bg: #1e2124; --bg-side: #161a1e; --bg-pop: #24282d; --bg-card: #24282d;
+  --bg-ctl: #2c2f34; --border: #383c41; --border2: #43474c;
+  --fg: #dadee3; --fg2: #b9bec4; --muted: #90969d; --muted2: #62666c;
+  --accent: #e77f3e;
   --hl-line: #cda44b; /* ambre sobre — barrette des fiches "Surlignés" (hl) */
   --ui-font: -apple-system, 'SF Pro Text', 'Inter Variable', sans-serif;
   --code-font: ui-monospace, 'SF Mono', Menlo, monospace;
   --fs-xs: 10px; --fs-s: 11px; --fs-m: 12px; --fs-l: 13px; --fs-xl: 15px;
   --r-s: 6px; --r-m: 10px; --r-pill: 999px;
   --elev: 0 4px 18px rgba(0,0,0,.28), 0 1px 4px rgba(0,0,0,.18);
+  --elev-soft: 0 2px 10px rgba(0,0,0,.14), 0 1px 3px rgba(0,0,0,.10);
   --ease: 140ms ease;
 }
 :root[data-theme="light"] {
-  --bg: #f5f6f8; --bg-side: #ebedf1; --bg-pop: #ffffff; --bg-card: #ffffff;
-  --bg-ctl: #e3e6eb; --border: #d4d8df; --border2: #c3c9d2;
-  --fg: #1c1e21; --fg2: #33373d; --muted: #667085; --muted2: #8a93a3;
+  /* gris papier froid (plan 023) — accent assombri : 3.5:1 sur canvas */
+  --bg: #f1f4f7; --bg-side: #e3e7ec; --bg-pop: #fafcfe; --bg-card: #fafcfe;
+  --bg-ctl: #dadee4; --border: #ccd0d5; --border2: #b8bcc2;
+  --fg: #1a1d22; --fg2: #32363b; --muted: #595e64; --muted2: #82878c;
+  --accent: #cf630d;
   --hl-line: #a3771e;
 }
 :root[data-density="compact"] { --pad-y: 3px; }
@@ -229,10 +235,13 @@ html, body, #root, .app { height: 100vh; overflow: hidden;
 .ide-home-browse:hover { color: var(--fg); border-color: var(--muted2); }
 /* Composer style Synara */
 .composer { margin: 10px auto 14px; width: calc(100% - 32px); max-width: 760px;
-  background: var(--bg-card); border: 1px solid var(--border);
+  background: var(--bg-card);
+  border: 1px solid color-mix(in srgb, var(--border) 55%, transparent);
+  box-shadow: var(--elev-soft);
   border-radius: var(--r-m); padding: 9px 12px 7px; display: flex; flex-direction: column;
-  gap: 5px; }
-.composer:focus-within { border-color: var(--border2); }
+  gap: 5px; transition: border-color var(--motion-fast) var(--ease-out); }
+/* focus : anneau par couleur, jamais de changement de géométrie (plan 023) */
+.composer:focus-within { border-color: color-mix(in srgb, var(--accent) 45%, var(--border)); }
 .composer textarea { background: transparent; border: none; outline: none; resize: none;
   color: inherit; font: inherit; font-size: var(--fs-l); line-height: 1.45; }
 .composer textarea::placeholder { color: var(--muted2); }
@@ -1048,7 +1057,7 @@ input[type="range"].slider::-webkit-slider-thumb:hover { transform: scale(1.15);
 .term-grid.single { display: block; background: transparent; }
 .term-grid.cols { grid-auto-flow: column; grid-auto-columns: 1fr; }
 .term-grid.rows { grid-auto-flow: row; grid-auto-rows: 1fr; }
-.term-cell { position: relative; background: #1a1d22; min-height: 0; }
+.term-cell { position: relative; background: var(--bg-side); min-height: 0; }
 .term-grid.single .term-cell { position: absolute; inset: 0; }
 .term-cell.focus { outline: none; }
 /* navigateur */
