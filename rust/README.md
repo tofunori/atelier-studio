@@ -15,8 +15,8 @@ Migration à **parité fonctionnelle** du sidecar Node + serveur galerie Node ve
 | **R7** | Codex `app-server` JSON-RPC | Node défaut |
 | **R8** | Grok legacy CLI, OpenCode, API OpenAI-compat, images Seedream | Node défaut |
 | **R9** | Routeur WS exhaustif + corpus/compare lecture seule | (transition) |
-| **R10** (actuel) | **Rust défaut** dans Tauri + binaire bundlé | Rust défaut ; `ATELIER_BACKEND=node` soak |
-| R11 | Soak puis retrait Node de la distro | voir `plans/033-*.md` |
+| **R10** | **Rust défaut** dans Tauri + binaire bundlé | Rust défaut |
+| **R11** (actuel) | Soak tooling + policy CI ; **retrait Node bloqué** | Rust défaut ; Node fallback jusqu'à COMPLETE |
 
 ### Providers réels (R6–R8)
 
@@ -94,8 +94,9 @@ export ATELIER_GALLERY_BACKEND=rust   # optionnel
 cargo build -p atelier-gallery --manifest-path rust/Cargo.toml
 ```
 
-**Important** : Node sidecar reste **staged** jusqu'à la Porte 11 (retrait).  
-Galerie Node par défaut (`ATELIER_GALLERY_BACKEND`).
+**Important** : Node sidecar reste **staged** jusqu'à `docs/soak/033-COMPLETE.md`.  
+Galerie Node par défaut (`ATELIER_GALLERY_BACKEND`).  
+Soak : `docs/SOAK_033_RUST_BACKEND.md` · `npm run soak:sidecar` · `npm run check:backend-policy`.
 
 ## Crates
 

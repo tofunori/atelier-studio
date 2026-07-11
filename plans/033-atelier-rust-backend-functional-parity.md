@@ -400,10 +400,21 @@ génération d'image, Git mutable, permission et interaction.
 
 ## Porte 11 — Soak et suppression de Node en production
 
-### Soak minimal
+### Outillage R11 (livré — soak humain encore ouvert)
+
+- [x] Runbook soak : `docs/SOAK_033_RUST_BACKEND.md`
+- [x] Diagnostic / récupération : `docs/DIAGNOSTIC_RUST_BACKEND.md`
+- [x] Smoke 20 cycles : `npm run soak:sidecar` (`scripts/soak-rust-sidecar.sh`)
+- [x] Garde-fou CI : `npm run check:backend-policy` (défaut Rust + stage)
+- [x] Mode strict post-soak : `check:backend-policy --strict-no-node`
+  (bloqué tant que `docs/soak/033-COMPLETE.md` absent)
+- [x] Log stderr si `ATELIER_BACKEND=node` (rappel soak)
+- [x] Porte de clôture : `docs/soak/README.md` → créer `033-COMPLETE.md`
+
+### Soak minimal (usage réel — à cocher)
 
 - [ ] Deux semaines d'usage normal avec Rust par défaut.
-- [ ] Vingt relances release successives sans orphelin.
+- [ ] Vingt relances release successives sans orphelin (`soak:sidecar` + app).
 - [ ] Plusieurs projets et galeries simultanés.
 - [ ] Codex et Claude actifs simultanément.
 - [ ] Interruption suivie immédiatement d'un nouveau tour.
@@ -412,19 +423,19 @@ génération d'image, Git mutable, permission et interaction.
 - [ ] Profil existant volumineux et historique long.
 - [ ] Aucun défaut P0/P1 Rust ouvert.
 
-### Retrait
+### Retrait (interdit tant que soak non COMPLETE)
 
-- [ ] Supprimer `sidecar/` de la distribution.
-- [ ] Supprimer `gallery/server/` de la distribution.
-- [ ] Retirer le staging et le runtime Node.
+- [ ] Supprimer `sidecar/` de la distribution chat.
+- [ ] Supprimer `gallery/server/` de la distribution (après bascule galerie Rust).
+- [ ] Retirer le staging et le runtime Node chat.
 - [ ] Retirer `ATELIER_BACKEND=node`.
-- [ ] Ajouter un garde-fou CI interdisant un backend Node de production.
-- [ ] Conserver Node/Vitest/Vite pour développer et tester le frontend.
-- [ ] Documenter le diagnostic et la récupération Rust.
+- [x] Garde-fou CI (forme soft + strict post-COMPLETE).
+- [x] Conserver Node/Vitest/Vite pour le frontend (inchangé).
+- [x] Documenter le diagnostic et la récupération Rust.
 
 La suppression physique des sources historiques peut être différée dans un
 commit séparé si leur présence facilite un dernier audit. Elles ne doivent plus
-être exécutables ni embarquées en production.
+être exécutables ni embarquées en production **après** `docs/soak/033-COMPLETE.md`.
 
 ## Matrice de livraison
 

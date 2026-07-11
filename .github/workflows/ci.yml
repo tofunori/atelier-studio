@@ -34,6 +34,8 @@ jobs:
         run: npm --prefix gallery ci
       - name: Install Playwright Chromium
         run: cd gallery && npx playwright install chromium
+      - name: Backend policy (Rust default, soak gates)
+        run: npm run check:backend-policy
       - name: Verify (typecheck, build, frontend, sidecar, gallery, Rust)
         run: npm run verify
       - name: Gallery E2E

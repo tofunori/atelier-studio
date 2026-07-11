@@ -83,7 +83,14 @@ fn parse_backend_kind(raw: &str) -> BackendKind {
 }
 
 fn backend_kind() -> BackendKind {
-    parse_backend_kind(&std::env::var("ATELIER_BACKEND").unwrap_or_default())
+    let kind = parse_backend_kind(&std::env::var("ATELIER_BACKEND").unwrap_or_default());
+    if kind == BackendKind::Node {
+        eprintln!(
+            "[atelier] ATELIER_BACKEND=node — fallback soak (plan 033). \
+             Défaut production = Rust. Voir docs/SOAK_033_RUST_BACKEND.md"
+        );
+    }
+    kind
 }
 
 /// Candidate paths for `atelier-studio-server` (dev tree + staged resource).

@@ -33,6 +33,8 @@
 | S-LIFECYCLE-DEFER | same-bundle defer | process | no kill loop | — | unit none-path | `PARTIAL` |
 | S-SELECTOR | `ATELIER_BACKEND` défaut **rust**, `node` = soak | Tauri spawn | env | — | unit parse | `PARITY` (R10) |
 | S-BUNDLE-RUST | stage + bundle `atelier-studio-server` | Tauri resources | — | `stage-rust-server.sh` | — | `PARITY` (R10) |
+| S-SOAK | runbook + soak:sidecar + backend-policy CI | process | — | `docs/SOAK_033_*` | script | `PARTIAL` (R11 tooling; human soak open) |
+| S-NODE-RETIRE | retrait Node chat production | bundle | — | blocked on COMPLETE | — | `ABSENT` (gate) |
 
 ## Sidecar — WebSocket message types (Node reference)
 
