@@ -63,12 +63,12 @@ Au boot, seul `inter-latin-wght-normal` est fetché (vérifié via
 mais ne se chargent que quand le terminal/éditeur rend du texte — le
 comportement natif est déjà optimal, un preload serait une régression.
 
-## Benches dans le bundle — délibéré
+## Benches exclus du bundle release
 
-Les chunks `#uibench/#homebench/#wsbench/#navbench/#chatbench/#setbench`
-restent dans le build : ils sont des imports lazy gardés par le hash
-(zéro coût au boot) et le harnais golden (tests/visual/) les exige contre
-`vite preview` du build de prod. Les exclure casserait la CI visuelle.
+Les chunks `#uibench/#homebench/#wsbench/#navbench/#chatbench/#setbench` sont
+compilés seulement lorsque `VITE_VISUAL_BENCH=1`. `npm run test:visual` pose
+ce drapeau pour produire les golden states sur un vrai build de production;
+`npm run build:web` et le bundle Tauri ne transportent aucune fixture.
 
 ## Garde-fou
 

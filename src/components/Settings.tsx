@@ -205,11 +205,15 @@ export default function SettingsPage(p: {
       if (e.key !== "Escape") return;
       const el = document.activeElement;
       if (el && (el.tagName === "INPUT" || el.tagName === "TEXTAREA" || (el as HTMLElement).isContentEditable)) return;
+      e.preventDefault();
+      e.stopImmediatePropagation();
       p.onClose();
     };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, []);
+    // Capture avant le handler global d'App qui utilise Échap pour interrompre
+    // un tour actif. Fermer Settings ne doit jamais envoyer les deux actions.
+    window.addEventListener("keydown", onKey, true);
+    return () => window.removeEventListener("keydown", onKey, true);
+  }, [p.onClose]);
 
   useEffect(() => {
     if (!p.ws || p.ws.readyState !== 1) return;
@@ -320,7 +324,7 @@ export default function SettingsPage(p: {
         ))}
         <span className="flex" />
         <button className="set-restore" onClick={async () => {
-          const ok = await tauriConfirm(t("settings.restore-confirm"), { kind: "warning" }).catch(() => true);
+          const ok = await tauriConfirm(t("settings.restore-confirm"), { kind: "warning" }).catch(() => false);
           if (ok) p.onChange({ ...DEFAULT_SETTINGS });
         }}>
           {t("action.restore-defaults")}
@@ -808,7 +812,7 @@ export default function SettingsPage(p: {
                   })}>{t("action.edit")}</button>
                   <button className="set-btn quiet" onClick={() =>
                     void (async () => {
-                      const ok = await tauriConfirm(t("settings.api-delete-confirm", { id: ap.label || ap.id }), { kind: "warning" }).catch(() => true);
+                      const ok = await tauriConfirm(t("settings.api-delete-confirm", { id: ap.label || ap.id }), { kind: "warning" }).catch(() => false);
                       if (ok && p.ws?.readyState === 1) p.ws.send(JSON.stringify({ type: "deleteApiProvider", id: ap.id }));
                     })()
                   }>{t("action.delete")}</button>
@@ -910,7 +914,7 @@ export default function SettingsPage(p: {
               <Row title={t("settings.pasted-images")} desc={status ? t("settings.pasted-images-desc", { count: status.pastedCount, dir: status.pasteDir }) : "…"}>
                 <button className="set-btn quiet"
                   onClick={async () => {
-                    const ok = await tauriConfirm(t("settings.clear-pasted-confirm"), { kind: "warning" }).catch(() => true);
+                    const ok = await tauriConfirm(t("settings.clear-pasted-confirm"), { kind: "warning" }).catch(() => false);
                     if (ok && p.ws?.readyState === 1) p.ws.send(JSON.stringify({ type: "clearPasted" }));
                   }}>
                   {t("action.clear")}

@@ -74,10 +74,13 @@ function withTimeout<T>(p: Promise<T>, ms: number): Promise<T> {
 }
 
 async function boot() {
+  // Les fixtures visuelles ne font pas partie du bundle release. Le script
+  // test:visual les active explicitement pour son build de référence.
+  const visualBench = import.meta.env.VITE_VISUAL_BENCH === "1";
   // banc d'essai des primitives (plan 016) : #uibench court-circuite l'app.
   // Import dynamique → chunk séparé, rien n'entre dans le chemin de chargement
   // normal ; aucun besoin du sidecar, captures visuelles reproductibles.
-  if (window.location.hash.startsWith("#uibench")) {
+  if (visualBench && window.location.hash.startsWith("#uibench")) {
     const { UiBench } = await import("./components/ui/UiBench");
     ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
       <React.StrictMode>
@@ -89,7 +92,7 @@ async function boot() {
     return;
   }
   // banc de captures des surfaces workspace (plan 018) — mêmes garanties
-  if (window.location.hash.startsWith("#wsbench")) {
+  if (visualBench && window.location.hash.startsWith("#wsbench")) {
     const { WsBench } = await import("./components/WsBench");
     ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
       <React.StrictMode>
@@ -101,7 +104,7 @@ async function boot() {
     return;
   }
   // banc de captures de la page Réglages (plan 021)
-  if (window.location.hash.startsWith("#setbench")) {
+  if (visualBench && window.location.hash.startsWith("#setbench")) {
     const { SetBench } = await import("./components/SetBench");
     ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
       <React.StrictMode>
@@ -113,7 +116,7 @@ async function boot() {
     return;
   }
   // banc de captures du fil de chat et du composer (plan 020)
-  if (window.location.hash.startsWith("#chatbench")) {
+  if (visualBench && window.location.hash.startsWith("#chatbench")) {
     const { ChatBench } = await import("./components/ChatBench");
     ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
       <React.StrictMode>
@@ -125,7 +128,7 @@ async function boot() {
     return;
   }
   // banc de captures du panneau Projets / Research Navigator (plan 024)
-  if (window.location.hash.startsWith("#navbench")) {
+  if (visualBench && window.location.hash.startsWith("#navbench")) {
     const { NavBench } = await import("./components/NavBench");
     ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
       <React.StrictMode>
@@ -137,7 +140,7 @@ async function boot() {
     return;
   }
   // banc de captures du Research Home (plan 017) — mêmes garanties que #uibench
-  if (window.location.hash.startsWith("#homebench")) {
+  if (visualBench && window.location.hash.startsWith("#homebench")) {
     const { HomeBench } = await import("./components/HomeBench");
     ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
       <React.StrictMode>

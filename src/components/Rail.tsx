@@ -22,11 +22,6 @@ export type HighlightEntry = {
   createdAt: string;
 };
 
-export const PROJ_COLORS = [
-  "#e05d5d", "#e8823a", "#8b5cf6", "#3b82f6",
-  "#22b07d", "#e0b74a", "#64748b", "#ec4899",
-];
-
 export function projInitial(root: string, meta?: ProjMeta) {
   // les labels « icon:* » sont des icônes (rendues à part) — jamais du texte
   if (meta?.label && !meta.label.startsWith("icon:")) return meta.label.slice(0, 2);

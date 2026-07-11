@@ -8,7 +8,8 @@ import { join } from "node:path";
 const ASSETS = join(process.cwd(), "dist", "assets");
 const BUDGET_KB = 950; // entrée mesurée 864 KB min (2026-07-10) + marge
 
-const entries = readdirSync(ASSETS).filter((f) => /^index-.*\.js$/.test(f));
+const assetFiles = readdirSync(ASSETS);
+const entries = assetFiles.filter((f) => /^index-.*\.js$/.test(f));
 // l'entrée est le plus gros des chunks index-* (les petits sont des sous-chunks)
 const entry = entries
   .map((f) => ({ f, size: statSync(join(ASSETS, f)).size }))
@@ -27,6 +28,8 @@ for (const [name, sig] of [
   if (src.includes(sig)) errors.push(`${name} est revenu dans l'entrée (${entry.f})`);
 }
 if (kb > BUDGET_KB) errors.push(`entrée ${entry.f} = ${kb} KB > budget ${BUDGET_KB} KB`);
+const benchChunks = assetFiles.filter((f) => /(?:Ui|Home|Ws|Nav|Chat|Set)Bench-/.test(f));
+if (benchChunks.length) errors.push(`fixtures visuelles présentes dans le build release: ${benchChunks.join(", ")}`);
 
 if (errors.length) { errors.forEach((e) => console.error(`✗ ${e}`)); process.exit(1); }
-console.log(`✓ entrée ${entry.f} = ${kb} KB ≤ ${BUDGET_KB} KB, sans xterm/katex/remark-math`);
+console.log(`✓ entrée ${entry.f} = ${kb} KB ≤ ${BUDGET_KB} KB, sans xterm/katex/remark-math ni fixtures visuelles`);

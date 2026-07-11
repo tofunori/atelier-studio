@@ -29,6 +29,11 @@ export const PROJ_ICONS: Record<string, string> = {
   folder: "M1.8 4.2c0-.7.5-1.2 1.2-1.2h3l1.4 1.6h5.6c.7 0 1.2.5 1.2 1.2v6c0 .7-.5 1.2-1.2 1.2H3c-.7 0-1.2-.5-1.2-1.2v-7.6z",
 };
 
+export const PROJ_COLORS = [
+  "#e05d5d", "#e8823a", "#8b5cf6", "#3b82f6",
+  "#22b07d", "#e0b74a", "#64748b", "#ec4899",
+] as const;
+
 export function ProjIcon({ name, size = 13 }: { name: string; size?: number }) {
   const d = PROJ_ICONS[name];
   if (!d) return null;

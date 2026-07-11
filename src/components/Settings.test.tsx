@@ -55,6 +55,17 @@ describe("Settings — navigation et fermeture", () => {
     fireEvent.keyDown(window, { key: "Escape" });
     expect(p.onClose).toHaveBeenCalledTimes(1);
   });
+
+  it("Échap dans Settings ne se propage pas au raccourci global d'interruption", () => {
+    const p = props();
+    const globalHandler = vi.fn();
+    renderUi(<SettingsPage {...p} />);
+    window.addEventListener("keydown", globalHandler);
+    fireEvent.keyDown(window, { key: "Escape" });
+    expect(p.onClose).toHaveBeenCalledTimes(1);
+    expect(globalHandler).not.toHaveBeenCalled();
+    window.removeEventListener("keydown", globalHandler);
+  });
 });
 
 describe("Settings — actions destructives confirmées", () => {
@@ -72,6 +83,15 @@ describe("Settings — actions destructives confirmées", () => {
     renderUi(<SettingsPage {...p} />);
     fireEvent.click(screen.getByText(t("action.restore-defaults")));
     await vi.waitFor(() => expect(p.onChange).toHaveBeenCalledWith({ ...DEFAULT_SETTINGS }));
+  });
+
+  it("une panne du dialogue de confirmation bloque l'action destructive", async () => {
+    const p = props();
+    (tauriConfirm as ReturnType<typeof vi.fn>).mockRejectedValueOnce(new Error("dialog unavailable"));
+    renderUi(<SettingsPage {...p} />);
+    fireEvent.click(screen.getByText(t("action.restore-defaults")));
+    await vi.waitFor(() => expect(tauriConfirm).toHaveBeenCalled());
+    expect(p.onChange).not.toHaveBeenCalled();
   });
 });
 

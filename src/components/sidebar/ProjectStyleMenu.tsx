@@ -12,8 +12,7 @@
 // <button> qui manque encore côté App.css.
 import type { CSSProperties } from "react";
 import { t } from "../../lib/i18n";
-import { PROJ_COLORS } from "../Rail";
-import { PROJ_ICONS, ProjIcon } from "./projectIcons";
+import { PROJ_COLORS, PROJ_ICONS, ProjIcon } from "./projectIcons";
 
 export type ProjMetaLite = { color?: string; label?: string };
 
