@@ -70,7 +70,8 @@ def _chrome_html_screenshot(chrome, src, out_png):
         proc = None
         try:
             proc = subprocess.Popen(
-                [chrome, "--headless=new", "--hide-scrollbars",
+                [chrome, "--headless=new", "--hide-scrollbars", "--password-store=basic",
+                 "--no-first-run", "--no-default-browser-check",
                  "--screenshot=" + shot, "--window-size=1000,750",
                  "--virtual-time-budget=4000", "file://" + src],
                 stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
@@ -1010,7 +1011,8 @@ class Handler(SimpleHTTPRequestHandler):
                         proc = None
                         try:
                             proc = subprocess.Popen(
-                                [chrome, "--headless=new", "--hide-scrollbars",
+                                [chrome, "--headless=new", "--hide-scrollbars", "--password-store=basic",
+                                 "--no-first-run", "--no-default-browser-check",
                                  "--screenshot=" + shot, f"--window-size={w},{h}",
                                  "--virtual-time-budget=6000", "file://" + src],
                                 stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,

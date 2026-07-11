@@ -453,7 +453,8 @@ async function handleRasterize(req, res, url) {
       if (!chrome) return sendJson(res, 501, { error: "no chrome available" });
       const shot = `${out}.tmp.png`;
       const r = await spawnCollect(chrome, [
-        "--headless=new", "--hide-scrollbars", `--screenshot=${shot}`,
+        "--headless=new", "--hide-scrollbars", "--password-store=basic",
+        "--no-first-run", "--no-default-browser-check", `--screenshot=${shot}`,
         `--window-size=${w},${h}`, "--virtual-time-budget=6000", `file://${src}`,
       ], { detached: true, timeoutMs: 30000 });
       if (r.timeout || !fs.existsSync(shot)) return sendJson(res, 500, { error: "render failed" });
