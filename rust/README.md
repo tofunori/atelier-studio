@@ -11,17 +11,17 @@ Migration à **parité fonctionnelle** du sidecar Node + serveur galerie Node ve
 | **R3** | `atelier-store` + WS threads/history/highlights | Node chat (défaut) |
 | **R4** | `atelier-workspace` Git/term/Zotero/scan | Node chat (défaut) |
 | **R5** | Harness + FakeProvider + `send`/`interrupt` | Node défaut |
-| **R6** (actuel) | Claude CLI stream-json | Node défaut ; `provider: claude` si `claude` dans PATH |
-| R7+ | Codex puis Grok/OpenCode | voir `plans/033-*.md` |
+| **R6** | Claude CLI stream-json | Node défaut |
+| **R7** (actuel) | Codex `app-server` JSON-RPC | Node défaut ; `provider: codex` si `codex` dans PATH |
+| R8+ | Grok / OpenCode / API / images | voir `plans/033-*.md` |
 
-### Claude (R6)
+### Providers réels (R6–R7)
 
 ```bash
-# binaire
-which claude   # ou ATELIER_CLAUDE_BIN=/path/to/claude
 export ATELIER_BACKEND=rust
-# optionnel : mode minimal sans hooks
-# export ATELIER_CLAUDE_BARE=1
+which claude   # ATELIER_CLAUDE_BIN=…
+which codex    # ATELIER_CODEX_BIN=…
+# ATELIER_CLAUDE_BARE=1  # optionnel
 ```
 
 ### Ticket de réunification (cmux-gallery)

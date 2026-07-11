@@ -72,7 +72,7 @@ pub async fn handle_send(state: &AppState, msg: &Value) -> Vec<String> {
 
     let Some(provider_impl) = state.provider(&provider) else {
         return vec![err_json(format!(
-            "provider inconnu ou non branché en Rust: {provider} (fake toujours; claude si `claude` dans le PATH; Codex Porte 7)"
+            "provider inconnu ou non branché en Rust: {provider} (fake toujours; claude/codex si binaires dans le PATH)"
         ))];
     };
 

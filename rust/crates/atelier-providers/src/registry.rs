@@ -83,6 +83,9 @@ pub fn build_registry() -> HashMap<String, Arc<dyn Provider>> {
     if let Some(claude) = crate::claude::ClaudeProvider::new() {
         m.insert("claude".into(), Arc::new(claude));
     }
-    // Codex / Grok / OpenCode: Portes 7–8
+    if let Some(codex) = crate::codex::CodexProvider::new() {
+        m.insert("codex".into(), Arc::new(codex));
+    }
+    // Grok / OpenCode: Porte 8
     m
 }

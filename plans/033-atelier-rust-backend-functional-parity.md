@@ -21,9 +21,9 @@
 - **Depends on**: stabilité du contrat galerie et du harnais agents
 - **Reference implementation**: backend Rust de `/Users/tofunori/Documents/cmux-gallery/rust`
 - **Non-goal**: réécrire React, CodeMirror, les viewers ou les éditeurs en Rust
-- **Progress (2026-07-11)**: **R6 en cours** — R1–R5 commités ; Porte 6
-  Claude via CLI stream-json (`ClaudeProvider` + parseur). Codex = Porte 7.
-  Node reste défaut.
+- **Progress (2026-07-11)**: **R7 en cours** — R1–R6 commités ; Porte 7
+  Codex app-server JSON-RPC (`CodexProvider` + parseur + client partagé).
+  Grok/OpenCode = Porte 8. Node reste défaut.
 
 ## Décision produit non négociable
 
@@ -340,21 +340,20 @@ Nécessite binaire `claude` dans le PATH (ou `ATELIER_CLAUDE_BIN`).
 
 Porter dans cet ordre :
 
-1. initialisation app-server et catalogue;
-2. thread start/resume et texte en streaming;
-3. commandes et sorties incrémentales;
-4. changements de fichiers et patches;
-5. approvals et `request_user_input`;
-6. appels MCP et progression;
-7. steering et interruption;
-8. goals, compact, clear, fork et revert;
-9. images et pièces jointes;
-10. usage, statut et récupération après erreur.
+1. [x] initialisation app-server et catalogue;
+2. [x] thread start/resume et texte en streaming;
+3. [x] commandes et sorties incrémentales (mapping);
+4. [x] changements de fichiers et patches (mapping + edit);
+5. [~] approvals auto full-access (pas d'UI interactive);
+6. [x] appels MCP basiques (mapping);
+7. [x] steering (`turn/steer`) et interruption;
+8. [ ] goals, compact, clear, fork et revert (API absente R7);
+9. [ ] images et pièces jointes (texte seul);
+10. [x] usage (tokenUsage/updated) + erreurs non-terminales.
 
-Chaque notification JSON-RPC actuellement comprise par
-`sidecar/providers/codex.mjs` doit avoir une fixture Rust. Les événements futurs
-inconnus doivent être ignorés ou signalés selon le comportement actuel, jamais
-faire tomber le serveur.
+**Impl**: `codex_rpc.rs` (processus partagé), `codex_parse.rs` (mapping pur testé),
+`codex.rs` (Provider). Inconnus ignorés. Fixture unitaire sur le mapping ;
+live app-server non requis pour CI.
 
 ## Porte 8 — Grok, OpenCode, API et images
 
