@@ -251,9 +251,15 @@ async fn providers_handler(
     headers: HeaderMap,
 ) -> Result<impl IntoResponse, StatusCode> {
     auth_or_401(&state, &headers)?;
-    Ok(Json(atelier_providers::provider_status_list(Some(
-        state.app_dir(),
-    ))))
+    let mut providers = atelier_providers::provider_status_list(Some(state.app_dir()));
+    for provider in &mut providers {
+        let installed = state.provider(&provider.id).is_some();
+        provider.ok = installed;
+        if installed && provider.version.is_none() {
+            provider.version = Some("ok".into());
+        }
+    }
+    Ok(Json(providers))
 }
 
 async fn setup_handler(
@@ -263,17 +269,20 @@ async fn setup_handler(
     auth_or_401(&state, &headers)?;
     let providers = atelier_providers::provider_status_list(Some(state.app_dir()))
         .into_iter()
-        .map(|p| SetupProviderRow {
-            id: p.id,
-            label: p.label,
-            kind: p.kind,
-            installed: false,
-            version: None,
-            bin_path: None,
-            auth: "not_installed".into(),
-            models: p.models.len(),
-            default_model: p.default_model,
-            model_error: None,
+        .map(|p| {
+            let installed = state.provider(&p.id).is_some();
+            SetupProviderRow {
+                id: p.id,
+                label: p.label,
+                kind: p.kind,
+                installed,
+                version: installed.then(|| "ok".into()),
+                bin_path: None,
+                auth: if installed { "ready" } else { "not_installed" }.into(),
+                models: p.models.len(),
+                default_model: p.default_model,
+                model_error: None,
+            }
         })
         .collect();
     let status = SetupStatus {
@@ -454,7 +463,7 @@ mod tests {
     #[tokio::test]
     async fn health_requires_token_when_set() {
         let (state, _dir) = test_state(Some("secret")).await;
-        let app = app_router(state);
+        let app = app_router(state.clone());
         let res = app
             .oneshot(
                 Request::builder()
@@ -490,7 +499,7 @@ mod tests {
     #[tokio::test]
     async fn providers_is_array() {
         let (state, _dir) = test_state(None).await;
-        let app = app_router(state);
+        let app = app_router(state.clone());
         let res = app
             .oneshot(
                 Request::builder()
@@ -506,6 +515,10 @@ mod tests {
         assert!(v.is_array());
         assert_eq!(v[0]["id"], "claude");
         assert!(v[0]["capabilities"]["resume"].as_bool().unwrap());
+        assert_eq!(
+            v[0]["ok"].as_bool(),
+            state.provider("claude").map(|_| true).or(Some(false)),
+        );
     }
 
     #[tokio::test]

@@ -346,7 +346,18 @@ pub async fn handle_interrupt(state: &AppState, msg: &Value) -> Vec<String> {
 }
 
 pub async fn handle_provider_status(state: &AppState) -> Vec<String> {
-    let list = provider_status_list(Some(state.app_dir()));
+    let mut list = provider_status_list(Some(state.app_dir()));
+    // Le catalogue décrit les capacités statiques avec `ok=false` par défaut.
+    // Le message WebSocket doit refléter le registre réellement construit au
+    // démarrage, sinon React affiche « CLI introuvable » même quand le binaire
+    // a été résolu et que le provider est prêt.
+    for provider in &mut list {
+        let installed = state.provider(&provider.id).is_some();
+        provider.ok = installed;
+        if installed && provider.version.is_none() {
+            provider.version = Some("ok".into());
+        }
+    }
     vec![serde_json::to_string(&json!({"type":"providerStatus","providers": list}))
         .unwrap_or_else(|_| r#"{"type":"error","message":"serialize"}"#.into())]
 }
@@ -422,5 +433,28 @@ mod tests {
             events.iter().any(|e| e["kind"] == "text" || e["kind"] == "done"),
             "text/done missing: {events:?}"
         );
+    }
+
+    #[tokio::test]
+    async fn provider_status_reflects_live_registry() {
+        let dir = tempdir().unwrap();
+        let state = AppState::new(
+            AppPaths::from_app_dir(dir.path().to_path_buf()),
+            None,
+            "t".into(),
+            "0.1.0".into(),
+            "h".into(),
+            "/tmp".into(),
+        );
+        let out = handle_provider_status(&state).await;
+        let msg: Value = serde_json::from_str(&out[0]).unwrap();
+        for provider in msg["providers"].as_array().unwrap() {
+            let id = provider["id"].as_str().unwrap();
+            assert_eq!(
+                provider["ok"].as_bool(),
+                Some(state.provider(id).is_some()),
+                "providerStatus doit refléter le registre pour {id}",
+            );
+        }
     }
 }

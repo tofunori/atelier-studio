@@ -99,27 +99,29 @@ fn rust_server_candidates(resource_dir: Option<&Path>) -> Vec<PathBuf> {
     if let Ok(explicit) = std::env::var("ATELIER_RUST_SERVER") {
         out.push(PathBuf::from(explicit));
     }
+    if let Some(res) = resource_dir {
+        // Une app buildée doit utiliser le binaire signé/stagé de son propre
+        // bundle. Chercher le checkout avant Resources peut lancer un
+        // target/debug local et désynchroniser l'app de son backend.
+        out.push(res.join("rust-server/atelier-studio-server"));
+        // Alias plat toléré pour les anciens bundles.
+        out.push(res.join("atelier-studio-server"));
+    }
     let cwd = std::env::current_dir().ok();
     if let Some(c) = &cwd {
-        out.push(c.join("../rust/target/debug/atelier-studio-server"));
         out.push(c.join("../rust/target/release/atelier-studio-server"));
-        out.push(c.join("rust/target/debug/atelier-studio-server"));
+        out.push(c.join("../rust/target/debug/atelier-studio-server"));
         out.push(c.join("rust/target/release/atelier-studio-server"));
+        out.push(c.join("rust/target/debug/atelier-studio-server"));
         out.push(c.join("../src-tauri/rust-server-dist/atelier-studio-server"));
         out.push(c.join("src-tauri/rust-server-dist/atelier-studio-server"));
     }
     if let Some(h) = dirs::home_dir() {
-        out.push(h.join("Documents/atelier-studio/rust/target/debug/atelier-studio-server"));
         out.push(h.join("Documents/atelier-studio/rust/target/release/atelier-studio-server"));
+        out.push(h.join("Documents/atelier-studio/rust/target/debug/atelier-studio-server"));
         out.push(
             h.join("Documents/atelier-studio/src-tauri/rust-server-dist/atelier-studio-server"),
         );
-    }
-    if let Some(res) = resource_dir {
-        // staged as resources "rust-server-dist" → "rust-server"
-        out.push(res.join("rust-server/atelier-studio-server"));
-        // flat alias if present
-        out.push(res.join("atelier-studio-server"));
     }
     out
 }
@@ -457,5 +459,10 @@ mod tests {
         let list = rust_server_candidates(Some(Path::new("/App/Resources")));
         assert!(list.iter().any(|p| p.ends_with("rust-server/atelier-studio-server")));
         assert!(list.iter().any(|p| p.ends_with("atelier-studio-server")));
+        assert_eq!(
+            list.first().map(PathBuf::as_path),
+            Some(Path::new("/App/Resources/rust-server/atelier-studio-server")),
+            "le binaire du bundle doit précéder les fallbacks du checkout",
+        );
     }
 }
