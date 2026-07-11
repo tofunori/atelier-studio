@@ -135,7 +135,7 @@ test('engine resolution precedence', async ({page}) => {
   });
 });
 
-test('CM6 applique le thème Atelier et une vraie coloration LaTeX', async ({page}) => {
+test('CM6 propose huit vrais thèmes sombres et les persiste entre éditeurs', async ({page}) => {
   await withProject({
     'theme.tex': '% commentaire scientifique\n\\section{Résultats}\n\\newcommand{\\glacier}{August}\n',
     'sample.py': 'import math\n# scientific comment\ndef glacier(value: float):\n    label = "August"\n    return math.sqrt(value) * 2\n',
@@ -146,24 +146,35 @@ test('CM6 applique le thème Atelier et une vraie coloration LaTeX', async ({pag
     await expect.poll(() => tokens.count()).toBeGreaterThan(3);
     const colors = await tokens.evaluateAll(nodes => [...new Set(nodes.map(node => getComputedStyle(node).color))]);
     expect(colors.length).toBeGreaterThanOrEqual(2);
-    await expect(page.locator('.cm-editor')).toHaveCSS('background-color', 'rgb(13, 17, 23)');
+    await expect(page.locator('.cm-editor')).toHaveCSS('background-color', 'rgb(30, 30, 30)');
 
     const themeTrigger = page.getByRole('button', {name: "Thème de l'éditeur"});
     await expect(themeTrigger).toBeVisible();
-    await themeTrigger.click();
-    const tokyoNight = page.getByRole('menuitemradio', {name: 'Tokyo Night'});
-    await expect(tokyoNight).toBeVisible();
-    await tokyoNight.click();
-    await expect(page.locator('.cm-editor')).toHaveCSS('background-color', 'rgb(26, 27, 38)');
-    expect(await page.evaluate(() => localStorage.getItem('atelier.editorTheme'))).toBe('tokyo-night');
+    const themeCases = [
+      ['VS Code Dark+', 'rgb(30, 30, 30)'],
+      ['Nord', 'rgb(46, 52, 64)'],
+      ['Monokai', 'rgb(39, 40, 34)'],
+      ['Gruvbox Dark', 'rgb(40, 40, 40)'],
+      ['Material Ocean', 'rgb(46, 50, 53)'],
+      ['Solarized Dark', 'rgb(0, 43, 54)'],
+      ['Atelier Ink', 'rgb(20, 23, 27)'],
+      ['Dracula', 'rgb(40, 42, 54)'],
+    ];
+    for (const [label, background] of themeCases) {
+      await themeTrigger.click();
+      await expect(page.getByRole('menuitemradio')).toHaveCount(8);
+      await page.getByRole('menuitemradio', {name: label, exact: true}).click();
+      await expect(page.locator('.cm-editor')).toHaveCSS('background-color', background);
+    }
+    expect(await page.evaluate(() => localStorage.getItem('atelier.editorTheme'))).toBe('dracula');
 
     await page.reload();
     await expectEngine(page, 'cm6');
-    await expect(page.locator('.cm-editor')).toHaveCSS('background-color', 'rgb(26, 27, 38)');
+    await expect(page.locator('.cm-editor')).toHaveCSS('background-color', 'rgb(40, 42, 54)');
 
     await page.goto(url('code_editor.html', 'sample.py'));
     await expectEngine(page, 'cm6');
-    await expect(page.locator('.cm-editor')).toHaveCSS('background-color', 'rgb(26, 27, 38)');
+    await expect(page.locator('.cm-editor')).toHaveCSS('background-color', 'rgb(40, 42, 54)');
     const codeColors = await page.locator('.cm-content .cm-line span').evaluateAll(nodes =>
       [...new Set(nodes.map(node => getComputedStyle(node).color))]);
     expect(codeColors.length).toBeGreaterThanOrEqual(5);

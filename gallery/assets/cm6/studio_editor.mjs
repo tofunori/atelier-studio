@@ -19,6 +19,13 @@ import {julia} from "@codemirror/legacy-modes/mode/julia";
 import {shell} from "@codemirror/legacy-modes/mode/shell";
 import {yaml} from "@codemirror/legacy-modes/mode/yaml";
 import {toml} from "@codemirror/legacy-modes/mode/toml";
+import {vscodeDark} from "@uiw/codemirror-theme-vscode";
+import {dracula} from "@uiw/codemirror-theme-dracula";
+import {nord} from "@uiw/codemirror-theme-nord";
+import {monokai} from "@uiw/codemirror-theme-monokai";
+import {gruvboxDark} from "@uiw/codemirror-theme-gruvbox-dark";
+import {materialDark} from "@uiw/codemirror-theme-material";
+import {solarizedDark} from "@uiw/codemirror-theme-solarized";
 import {ghostAiExtension} from "./ghost_ai.mjs";
 import {clampPos, countColumn, cm5KeyToCm6, createOperationBatcher} from "./studio_compat.mjs";
 
@@ -59,59 +66,52 @@ function languageFor(ext) {
   }
 }
 
-// Quatre vrais profils d'éditeur, exclusivement sombres et partagés par toutes
-// les surfaces CM6. Chaque profil reprend une grammaire chromatique reconnue,
-// pas seulement une variation du fond. `swatches` alimente l'aperçu du menu.
+// Huit profils exclusivement sombres. Sept viennent de thèmes CM6 maintenus;
+// Atelier Ink est le seul profil maison. `swatches` alimente l'aperçu du menu.
 export const STUDIO_THEMES = [
-  {id: "github-dark", label: "GitHub Dark", swatches: ["#ff7b72", "#d2a8ff", "#a5d6ff"]},
-  {id: "one-dark", label: "One Dark", swatches: ["#c678dd", "#61afef", "#98c379"]},
-  {id: "tokyo-night", label: "Tokyo Night", swatches: ["#bb9af7", "#7aa2f7", "#9ece6a"]},
-  {id: "catppuccin-mocha", label: "Catppuccin Mocha", swatches: ["#cba6f7", "#89b4fa", "#a6e3a1"]},
+  {id: "vscode-dark", label: "VS Code Dark+", swatches: ["#569cd6", "#c586c0", "#ce9178"]},
+  {id: "dracula", label: "Dracula", swatches: ["#ff79c6", "#8be9fd", "#50fa7b"]},
+  {id: "nord", label: "Nord", swatches: ["#81a1c1", "#88c0d0", "#a3be8c"]},
+  {id: "monokai", label: "Monokai", swatches: ["#f92672", "#66d9ef", "#a6e22e"]},
+  {id: "gruvbox-dark", label: "Gruvbox Dark", swatches: ["#fb4934", "#fabd2f", "#b8bb26"]},
+  {id: "material-ocean", label: "Material Ocean", swatches: ["#c792ea", "#89ddff", "#c3e88d"]},
+  {id: "solarized-dark", label: "Solarized Dark", swatches: ["#268bd2", "#b58900", "#2aa198"]},
+  {id: "atelier-ink", label: "Atelier Ink", swatches: ["#e7b75e", "#86aee8", "#a9c181"]},
 ];
 
 const THEME_PALETTES = {
-  "github-dark": {
-    bg: "#0d1117", fg: "#e6edf3", gutter: "#484f58", gutterActive: "#b1bac4",
-    accent: "#58a6ff", selection: "#264f78", active: "rgba(110, 118, 129, .10)",
-    panel: "#010409", surface: "#161b22", border: "#30363d",
-    comment: "#8b949e", keyword: "#ff7b72", fn: "#d2a8ff", type: "#ffa657",
-    variable: "#ffa657", prop: "#79c0ff", string: "#a5d6ff", number: "#79c0ff",
-    constant: "#79c0ff", punct: "#8b949e", meta: "#ffa657", regexp: "#7ee787", escape: "#ffa198",
-  },
-  "one-dark": {
-    bg: "#282c34", fg: "#abb2bf", gutter: "#4b5263", gutterActive: "#abb2bf",
-    accent: "#528bff", selection: "#3e4451", active: "rgba(153, 187, 255, .045)",
-    panel: "#21252b", surface: "#2c313a", border: "#3e4451",
-    comment: "#5c6370", keyword: "#c678dd", fn: "#61afef", type: "#e5c07b",
-    variable: "#e06c75", prop: "#56b6c2", string: "#98c379", number: "#d19a66",
-    constant: "#d19a66", punct: "#abb2bf", meta: "#e5c07b", regexp: "#56b6c2", escape: "#d19a66",
-  },
-  "tokyo-night": {
-    bg: "#1a1b26", fg: "#c0caf5", gutter: "#3b4261", gutterActive: "#737aa2",
-    accent: "#7aa2f7", selection: "#283457", active: "rgba(41, 46, 66, .72)",
-    panel: "#16161e", surface: "#24283b", border: "#3b4261",
-    comment: "#565f89", keyword: "#bb9af7", fn: "#7aa2f7", type: "#2ac3de",
-    variable: "#c0caf5", prop: "#73daca", string: "#9ece6a", number: "#ff9e64",
-    constant: "#ff9e64", punct: "#89ddff", meta: "#e0af68", regexp: "#b4f9f8", escape: "#bb9af7",
-  },
-  "catppuccin-mocha": {
-    bg: "#1e1e2e", fg: "#cdd6f4", gutter: "#585b70", gutterActive: "#a6adc8",
-    accent: "#89b4fa", selection: "#45475a", active: "rgba(49, 50, 68, .78)",
-    panel: "#181825", surface: "#313244", border: "#45475a",
-    comment: "#6c7086", keyword: "#cba6f7", fn: "#89b4fa", type: "#f9e2af",
-    variable: "#f38ba8", prop: "#94e2d5", string: "#a6e3a1", number: "#fab387",
-    constant: "#fab387", punct: "#bac2de", meta: "#f5c2e7", regexp: "#94e2d5", escape: "#f2cdcd",
+  "vscode-dark": {bg: "#1e1e1e", fg: "#d4d4d4", gutter: "#838383", gutterActive: "#ffffff", accent: "#c6c6c6", selection: "#6199ff2f", active: "#ffffff0f", panel: "#181818", surface: "#252526", border: "#3c3c3c"},
+  dracula: {bg: "#282a36", fg: "#f8f8f2", gutter: "#6d8a88", gutterActive: "#f8f8f2", accent: "#f8f8f0", selection: "rgba(255,255,255,.1)", active: "rgba(255,255,255,.1)", panel: "#21222c", surface: "#343746", border: "#44475a"},
+  nord: {bg: "#2e3440", fg: "#eceff4", gutter: "#4c566a", gutterActive: "#d8dee9", accent: "#88c0d0", selection: "#00000073", active: "#4c566a29", panel: "#272c36", surface: "#3b4252", border: "#4c566a"},
+  monokai: {bg: "#272822", fg: "#f8f8f2", gutter: "#75715e", gutterActive: "#f8f8f2", accent: "#f8f8f0", selection: "#4a4a76", active: "#3e3d3257", panel: "#1e1f1c", surface: "#35362f", border: "#49483e"},
+  "gruvbox-dark": {bg: "#282828", fg: "#ebdbb2", gutter: "#7c6f64", gutterActive: "#ebdbb2", accent: "#fabd2f", selection: "#b99d555c", active: "#baa1602b", panel: "#1d2021", surface: "#3c3836", border: "#504945"},
+  "material-ocean": {bg: "#2e3235", fg: "#bdbdbd", gutter: "#777777", gutterActive: "#cfd8dc", accent: "#a0a4ae", selection: "#d7d4f063", active: "#545b6130", panel: "#25282a", surface: "#343a3e", border: "#4f5b66"},
+  "solarized-dark": {bg: "#002b36", fg: "#839496", gutter: "#586e75", gutterActive: "#eee8d5", accent: "#d30102", selection: "#004454aa", active: "#00cafe11", panel: "#00232c", surface: "#073642", border: "#586e75"},
+  "atelier-ink": {
+    bg: "#14171b", fg: "#d9dee7", gutter: "#606a79", gutterActive: "#aeb8c6", accent: "#e7b75e", selection: "#354b66", active: "rgba(134,174,232,.055)", panel: "#101216", surface: "#20242a", border: "#363d48",
+    comment: "#6f7b8b", keyword: "#d6a467", fn: "#86aee8", type: "#e5bd78", variable: "#d9dee7", prop: "#8fc6c3", string: "#a9c181", constant: "#c7a0d8", punct: "#9aa4b2", meta: "#79b8d1", regexp: "#8fc6c3", escape: "#e5bd78",
   },
 };
 
+const MAINTAINED_THEME_EXTENSIONS = {
+  "vscode-dark": vscodeDark,
+  dracula,
+  nord,
+  monokai,
+  "gruvbox-dark": gruvboxDark,
+  "material-ocean": materialDark,
+  "solarized-dark": solarizedDark,
+};
+
 function normalizeThemeId(id) {
-  const legacyThemes = {graphite: "github-dark", obsidian: "one-dark", midnight: "tokyo-night", carbon: "catppuccin-mocha"};
+  const legacyThemes = {graphite: "atelier-ink", obsidian: "vscode-dark", midnight: "nord", carbon: "gruvbox-dark", "github-dark": "vscode-dark", "one-dark": "vscode-dark", "tokyo-night": "nord", "catppuccin-mocha": "dracula"};
   const normalized = legacyThemes[id] || id;
-  return STUDIO_THEMES.some((theme) => theme.id === normalized) ? normalized : "github-dark";
+  return STUDIO_THEMES.some((theme) => theme.id === normalized) ? normalized : "vscode-dark";
 }
 
 function themeExtensions(id) {
-  const p = THEME_PALETTES[normalizeThemeId(id)];
+  const themeId = normalizeThemeId(id);
+  const p = THEME_PALETTES[themeId];
   const editorTheme = EditorView.theme({
     "&": {height: "100%", color: `${p.fg} !important`, backgroundColor: `${p.bg} !important`},
     ".cm-scroller": {
@@ -134,6 +134,7 @@ function themeExtensions(id) {
     ".cm-panels": {color: p.fg, backgroundColor: p.panel},
     ".cm-tooltip": {color: p.fg, backgroundColor: p.surface, border: `1px solid ${p.border}`},
   }, {dark: true});
+  if (MAINTAINED_THEME_EXTENSIONS[themeId]) return [MAINTAINED_THEME_EXTENSIONS[themeId], editorTheme];
   const highlightStyle = HighlightStyle.define([
     {tag: tags.comment, color: p.comment, fontStyle: "italic"},
     {tag: [tags.keyword, tags.controlKeyword, tags.definitionKeyword], color: p.keyword},
