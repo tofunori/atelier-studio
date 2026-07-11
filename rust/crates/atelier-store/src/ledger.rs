@@ -73,6 +73,33 @@ pub fn get_ledger(
     out
 }
 
+/// All ledger entries across projects (newest files last), capped.
+pub fn get_all_ledgers(base_dir: &Path, limit: usize) -> Vec<serde_json::Value> {
+    let max = limit.clamp(1, 5000);
+    let Ok(rd) = std::fs::read_dir(base_dir) else {
+        return Vec::new();
+    };
+    let mut all = Vec::new();
+    for ent in rd.flatten() {
+        let path = ent.path();
+        if path.extension().and_then(|e| e.to_str()) != Some("jsonl") {
+            continue;
+        }
+        let Ok(text) = std::fs::read_to_string(path) else {
+            continue;
+        };
+        for line in text.lines().filter(|l| !l.trim().is_empty()) {
+            if let Ok(v) = serde_json::from_str(line) {
+                all.push(v);
+            }
+        }
+    }
+    if all.len() > max {
+        all = all[all.len() - max..].to_vec();
+    }
+    all
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

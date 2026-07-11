@@ -10,7 +10,7 @@ mod threads;
 
 pub use highlights::{Highlight, HighlightStore};
 pub use journal::HarnessJournal;
-pub use ledger::{append_ledger, get_ledger, slug_for};
+pub use ledger::{append_ledger, get_all_ledgers, get_ledger, slug_for};
 pub use settings::{read_settings, write_settings};
 pub use threads::{Thread, ThreadStore};
 

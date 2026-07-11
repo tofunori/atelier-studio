@@ -369,12 +369,20 @@ live app-server non requis pour CI.
 
 ## Porte 9 — Routeur complet et comparaison contrôlée
 
-- [ ] Porter tous les `case` du routeur Node.
-- [ ] Comparer Node et Rust sur les requêtes strictement en lecture seule.
-- [ ] Normaliser seulement PID, port, timestamp et ordre documenté comme libre.
-- [ ] Ne jamais doubler une mutation, un envoi agent ou une action Git.
-- [ ] Produire un rapport automatique des divergences.
-- [ ] Atteindre zéro divergence inexpliquée sur le corpus complet.
+- [x] Porter tous les `case` du routeur Node (`ALL_MESSAGE_TYPES` + test inventaire).
+- [x] Corpus lecture seule (`parity::read_only_corpus`) + handler unit test.
+- [x] Normaliser PID, port, timestamp, chemins (`normalize_for_compare`).
+- [x] Mutating list interdite en dual-run (`MUTATING_TYPES` / script compare).
+- [x] Rapport automatique : `sidecar/scripts/parity_ws_compare.mjs --node … --rust …`.
+- [ ] Zéro divergence inexpliquée sur dual-run live (soak manuel / CI optionnel).
+
+**Implémenté en R9 (formes stables, sémantique partielle acceptée)** :
+import/fork/revert/export, setupStatus, getUsage, quickAsk/qaPromote,
+retitleAll heuristique, listApiModels, codexClear, no-op permissions,
+stubs explicites goals/codexCompact/zoteroAddPdf/generateCommitMsg.
+
+**Encore Node-only (stubs clairs)** : goals Codex, compact app-server,
+review live, zoteroAddPdf, listSessions scan FS, title Claude LLM.
 
 Les doubles exécutions sont interdites pour `send`, sauvegarde, suppression,
 génération d'image, Git mutable, permission et interaction.

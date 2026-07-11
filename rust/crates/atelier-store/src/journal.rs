@@ -220,6 +220,121 @@ impl HarnessJournal {
         out.into_iter().flatten().collect()
     }
 
+    /// Tombstone truncate (Node `truncateFrom`) — non-destructive.
+    pub fn truncate_from(&self, thread_id: &str, event_id: &str) -> bool {
+        if event_id.is_empty() || !self.has_journal(thread_id) {
+            return false;
+        }
+        let (_, events) = self.read_thread(thread_id);
+        let found = events.iter().any(|e| {
+            e.pointer("/meta/eventId")
+                .and_then(|v| v.as_str())
+                .map(|s| s == event_id)
+                .unwrap_or(false)
+        });
+        if !found {
+            return false;
+        }
+        let path = self.path_of(thread_id);
+        let line = json!({
+            "tombstone": true,
+            "fromEventId": event_id,
+            "ts": crate::iso_now(),
+        });
+        let Ok(s) = serde_json::to_string(&line) else {
+            return false;
+        };
+        use std::io::Write;
+        let mut f = match std::fs::OpenOptions::new().create(true).append(true).open(&path) {
+            Ok(f) => f,
+            Err(_) => return false,
+        };
+        f.write_all(s.as_bytes()).is_ok() && f.write_all(b"\n").is_ok()
+    }
+
+    /// Fork journal into a new thread file (Node `copyThread`).
+    pub fn copy_thread(
+        &self,
+        src_thread_id: &str,
+        dst_thread_id: &str,
+        upto_event_id: Option<&str>,
+    ) -> bool {
+        if src_thread_id.is_empty()
+            || dst_thread_id.is_empty()
+            || Self::hash_of(src_thread_id) == Self::hash_of(dst_thread_id)
+        {
+            return false;
+        }
+        if !self.has_journal(src_thread_id) || self.has_journal(dst_thread_id) {
+            return false;
+        }
+        let (header, events) = self.read_thread(src_thread_id);
+        let slice: Vec<Value> = if let Some(upto) = upto_event_id {
+            let Some(target_seq) = events.iter().find_map(|e| {
+                let eid = e.pointer("/meta/eventId").and_then(|v| v.as_str())?;
+                if eid == upto {
+                    e.pointer("/meta/sequence").and_then(|v| v.as_i64())
+                } else {
+                    None
+                }
+            }) else {
+                return false;
+            };
+            events
+                .into_iter()
+                .filter(|e| {
+                    e.pointer("/meta/sequence")
+                        .and_then(|v| v.as_i64())
+                        .map(|s| s <= target_seq)
+                        .unwrap_or(true)
+                })
+                .collect()
+        } else {
+            events
+        };
+        let provider = header
+            .as_ref()
+            .and_then(|h| h.get("provider"))
+            .and_then(|v| v.as_str())
+            .unwrap_or("unknown");
+        let mut new_header = json!({
+            "schemaVersion": 1,
+            "threadId": dst_thread_id,
+            "createdAt": crate::iso_now(),
+            "provider": provider,
+            "forkedFrom": src_thread_id,
+        });
+        if let Some(upto) = upto_event_id {
+            new_header
+                .as_object_mut()
+                .unwrap()
+                .insert("forkPoint".into(), json!(upto));
+        }
+        let _ = std::fs::create_dir_all(&self.dir);
+        let path = self.path_of(dst_thread_id);
+        let mut body = String::new();
+        body.push_str(&serde_json::to_string(&new_header).unwrap_or_else(|_| "{}".into()));
+        body.push('\n');
+        for mut e in slice {
+            if let Some(meta) = e.get_mut("meta").and_then(|m| m.as_object_mut()) {
+                meta.insert("threadId".into(), json!(dst_thread_id));
+            }
+            if let Ok(s) = serde_json::to_string(&e) {
+                body.push_str(&s);
+                body.push('\n');
+            }
+        }
+        if std::fs::write(&path, body).is_err() {
+            return false;
+        }
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let _ = std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600));
+        }
+        true
+    }
+
     /// Append-only event (best-effort). Creates header if missing.
     pub fn append(&self, event: &Value) -> bool {
         let thread_id = event
@@ -306,6 +421,25 @@ mod tests {
         assert!(j.has_journal("t1"));
         assert!(j.delete_thread("t1"));
         assert!(!j.has_journal("t1"));
+    }
+
+    #[test]
+    fn truncate_and_copy() {
+        let dir = tempdir().unwrap();
+        let j = HarnessJournal::new(dir.path());
+        j.append(&ev("user", 1, "e1"));
+        j.append(&ev("text", 2, "e2"));
+        j.append(&ev("user", 3, "e3"));
+        assert!(j.truncate_from("t1", "e3"));
+        let mat = j.materialize("t1");
+        assert_eq!(mat.len(), 2);
+        assert!(j.copy_thread("t1", "t2", Some("e2")));
+        let mat2 = j.materialize("t2");
+        assert_eq!(mat2.len(), 2);
+        assert_eq!(
+            mat2[0].pointer("/meta/threadId").and_then(|v| v.as_str()),
+            Some("t2")
+        );
     }
 
     #[test]

@@ -40,11 +40,11 @@ Inventaire exhaustif depuis `sidecar/router.mjs`. Statut global R1 : hors `ping`
 | id | type client | réponse / effet | statut |
 |----|-------------|-----------------|--------|
 | S-WS-PING | `ping` | `pong` | `RUST_R1` |
-| S-WS-HELLO | `clientHello` | store clientInstanceId | `ABSENT` |
-| S-WS-STATUS | `status` | port/pasted | `ABSENT` |
-| S-WS-PROVIDER | `providerStatus` | providers | `ABSENT` |
-| S-WS-SETUP | `setupStatus` | setup | `ABSENT` |
-| S-WS-API-* | `apiProviders` / save / list / delete | api_providers.json | `PARTIAL` (R8; no discoverModels) |
+| S-WS-HELLO | `clientHello` | store clientInstanceId | `PARITY` (R9) |
+| S-WS-STATUS | `status` | port/pasted | `PARITY` (R5/R9) |
+| S-WS-PROVIDER | `providerStatus` | providers | `PARITY` (R5) |
+| S-WS-SETUP | `setupStatus` | setup | `PARTIAL` (R9 shape; bin probe light) |
+| S-WS-API-* | `apiProviders` / save / list / delete / listApiModels | api_providers.json | `PARTIAL` (R9) |
 | S-WS-PASTED | `clearPasted` / `listPasted` | pasted/ | `ABSENT` |
 | S-WS-SETTINGS | `getSettings` / `saveSettings` | settings.json | `PARITY` (R3) |
 | S-WS-IMAGE | `saveImage` / `generateImage` | pasted/ + project | `PARTIAL` (R8 seedream; codex engine NODE) |
@@ -67,11 +67,14 @@ Inventaire exhaustif depuis `sidecar/router.mjs`. Statut global R1 : hors `ping`
 | S-WS-PASTED | saveImage/list/clear | pasted/ | `PARITY` (R4) |
 | S-WS-SCAN | scanLocal/checkFrame | loopback | `PARITY` (R4) |
 | S-WS-ZOTERO | search/collections/fav/digest | sqlite + favs | `PARTIAL` (no add PDF) |
-| S-WS-GOAL | goalSet/Get/Clear | provider | `ABSENT` |
-| S-WS-QA | quickAsk / qaPromote | memory | `ABSENT` |
-| S-WS-REVIEW | requestReview | — | `ABSENT` |
-| S-WS-INTERACT | permission/interactionResponse | waiters | `ABSENT` |
-| S-WS-CODEX | compact/clear | session | `ABSENT` |
+| S-WS-GOAL | goalSet/Get/Clear | provider | `PARTIAL` (R9 stub error; needs Codex goals) |
+| S-WS-QA | quickAsk / qaPromote | memory | `PARTIAL` (R9) |
+| S-WS-REVIEW | requestReview | — | `PARTIAL` (R9 unavailable shape) |
+| S-WS-INTERACT | permission/interactionResponse | waiters | `PARTIAL` (R9 no-op) |
+| S-WS-CODEX | compact/clear | session | `PARTIAL` (clear yes; compact stub) |
+| S-WS-EXPORT | exportThread / listSessions / import / fork / revert | — | `PARTIAL` (R9; listSessions empty) |
+| S-WS-USAGE | getUsage / retitleAll / generateCommitMsg | — | `PARTIAL` (R9) |
+| S-PARITY | dual-run read-only corpus | script | `PARTIAL` (R9 tool; live soak open) |
 
 ## Galerie — routes HTTP (Node `gallery/server`)
 

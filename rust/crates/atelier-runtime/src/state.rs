@@ -7,12 +7,19 @@ use atelier_providers::{build_registry, Provider};
 use atelier_store::{HarnessJournal, HighlightStore, ThreadStore};
 use atelier_workspace::TerminalHub;
 use std::collections::HashMap;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use tokio::sync::{broadcast, Mutex, RwLock};
 
 #[derive(Clone)]
 pub struct AppState {
     inner: Arc<Inner>,
+}
+
+#[derive(Debug, Clone)]
+pub struct QaSession {
+    pub provider: String,
+    pub session_id: String,
 }
 
 struct Inner {
@@ -31,6 +38,9 @@ struct Inner {
     terminals: Arc<TerminalHub>,
     harness: Arc<HarnessManager>,
     providers: HashMap<String, Arc<dyn Provider>>,
+    client_instance_id: Mutex<Option<String>>,
+    qa_sessions: Mutex<HashMap<String, QaSession>>,
+    retitle_running: AtomicBool,
 }
 
 impl AppState {
@@ -75,6 +85,9 @@ impl AppState {
                 terminals,
                 harness,
                 providers,
+                client_instance_id: Mutex::new(None),
+                qa_sessions: Mutex::new(HashMap::new()),
+                retitle_running: AtomicBool::new(false),
             }),
         }
     }
@@ -182,5 +195,24 @@ impl AppState {
 
     pub fn provider(&self, id: &str) -> Option<Arc<dyn Provider>> {
         self.inner.providers.get(id).cloned()
+    }
+
+    pub fn client_instance_id(&self) -> &Mutex<Option<String>> {
+        &self.inner.client_instance_id
+    }
+
+    pub fn qa_sessions(&self) -> &Mutex<HashMap<String, QaSession>> {
+        &self.inner.qa_sessions
+    }
+
+    pub fn try_begin_retitle(&self) -> bool {
+        self.inner
+            .retitle_running
+            .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
+            .is_ok()
+    }
+
+    pub fn end_retitle(&self) {
+        self.inner.retitle_running.store(false, Ordering::SeqCst);
     }
 }

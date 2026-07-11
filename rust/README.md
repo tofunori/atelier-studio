@@ -13,8 +13,9 @@ Migration à **parité fonctionnelle** du sidecar Node + serveur galerie Node ve
 | **R5** | Harness + FakeProvider + `send`/`interrupt` | Node défaut |
 | **R6** | Claude CLI stream-json | Node défaut |
 | **R7** | Codex `app-server` JSON-RPC | Node défaut |
-| **R8** (actuel) | Grok legacy CLI, OpenCode, API OpenAI-compat, images Seedream | Node défaut |
-| R9+ | Routeur complet, Rust défaut, soak | voir `plans/033-*.md` |
+| **R8** | Grok legacy CLI, OpenCode, API OpenAI-compat, images Seedream | Node défaut |
+| **R9** (actuel) | Routeur WS exhaustif + corpus/compare lecture seule | Node défaut |
+| R10+ | Rust défaut Tauri, soak, retrait Node | voir `plans/033-*.md` |
 
 ### Providers réels (R6–R8)
 
@@ -62,6 +63,18 @@ export ATELIER_WRITE_LOCK=1
 ./rust/target/debug/atelier-studio-server
 # 1re ligne stdout = JSON health { ok, service: atelier-sidecar, port, … }
 curl -s -H "x-atelier-token: devtoken" "http://127.0.0.1:$PORT/health"
+```
+
+## Comparaison Node ↔ Rust (Porte 9, lecture seule)
+
+```bash
+# 1) lancer les deux backends sur des ports/app dirs séparés (jamais le même app_dir en écriture)
+# 2) corpus WS non-mutant :
+node sidecar/scripts/parity_ws_compare.mjs \
+  --node "ws://127.0.0.1:$NODE_PORT?token=$TOKEN" \
+  --rust "ws://127.0.0.1:$RUST_PORT?token=$TOKEN"
+# exit 0 = zéro divergence normalisée ; rapport JSON sur stdout
+# Tests unitaires : cargo test -p atelier-runtime parity::
 ```
 
 ## Via Tauri (expérimental)

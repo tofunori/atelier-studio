@@ -2,6 +2,7 @@
 
 pub mod atomic;
 pub mod instance;
+pub mod parity;
 pub mod paths;
 pub mod send;
 pub mod server;

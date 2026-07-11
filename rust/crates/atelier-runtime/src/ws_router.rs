@@ -1,8 +1,8 @@
-//! WebSocket message routing (Porte 3 persistence + Porte 4 workspace).
+//! WebSocket message routing (plan 033 — full Node case inventory, Porte 9).
 
-use crate::state::AppState;
+use crate::state::{AppState, QaSession};
 use atelier_protocol::{ErrorMessage, PongMessage};
-use atelier_store::{get_ledger, read_settings, write_settings};
+use atelier_store::{get_all_ledgers, get_ledger, iso_now, read_settings, write_settings};
 use atelier_workspace::{
     check_frame, clear_pasted, commit as git_commit, diff as git_diff, ignore_pattern,
     list_commands, list_files, list_pasted, pull as git_pull, push as git_push, restore as git_restore,
@@ -11,6 +11,79 @@ use atelier_workspace::{
     pdf_absolute_path, TermEvent,
 };
 use serde_json::{json, Value};
+
+/// Exhaustive list of handled WS types (must cover Node `router.mjs` cases).
+pub const ALL_MESSAGE_TYPES: &[&str] = &[
+    "ping",
+    "send",
+    "interrupt",
+    "providerStatus",
+    "status",
+    "setupStatus",
+    "listThreads",
+    "renameThread",
+    "moveThread",
+    "deleteThread",
+    "getHistory",
+    "listHighlights",
+    "addHighlight",
+    "removeHighlight",
+    "getSettings",
+    "saveSettings",
+    "getLedger",
+    "upsertThread",
+    "listFiles",
+    "listCommands",
+    "listPasted",
+    "clearPasted",
+    "saveImage",
+    "generateImage",
+    "apiProviders",
+    "saveApiProvider",
+    "deleteApiProvider",
+    "listApiModels",
+    "scanLocal",
+    "checkFrame",
+    "gitStatus",
+    "gitDiff",
+    "gitStage",
+    "gitUnstage",
+    "gitRevertFile",
+    "gitCommit",
+    "gitPush",
+    "gitPull",
+    "gitIgnore",
+    "gitUndoLastTurn",
+    "generateCommitMsg",
+    "zoteroSearch",
+    "zoteroCollections",
+    "zoteroFav",
+    "zoteroDigest",
+    "zoteroAddPdf",
+    "termOpen",
+    "termInput",
+    "termResize",
+    "termClose",
+    "exportThread",
+    "listSessions",
+    "importSession",
+    "forkThread",
+    "revert",
+    "clientLog",
+    "clientHello",
+    "permissionResponse",
+    "interactionResponse",
+    "retitleAll",
+    "requestReview",
+    "getUsage",
+    "quickAsk",
+    "qaPromote",
+    "codexCompact",
+    "codexClear",
+    "goalSet",
+    "goalGet",
+    "goalClear",
+];
 
 /// Route one client JSON text frame.
 ///
@@ -196,14 +269,22 @@ pub async fn route_ws(state: &AppState, text: &str) -> Vec<String> {
         "saveApiProvider" => {
             let provider = msg.get("provider").cloned().unwrap_or(json!({}));
             match save_api_provider(state.app_dir(), provider) {
-                Ok(list) => vec![json_msg(json!({"type":"apiProviders","providers": list}))],
+                Ok(list) => {
+                    let mut out = vec![json_msg(json!({"type":"apiProviders","providers": list}))];
+                    out.extend(crate::send::handle_provider_status(state).await);
+                    out
+                }
                 Err(e) => vec![err(e)],
             }
         }
         "deleteApiProvider" => {
             let id = msg.get("id").and_then(|v| v.as_str()).unwrap_or("");
             match delete_api_provider(state.app_dir(), id) {
-                Ok(list) => vec![json_msg(json!({"type":"apiProviders","providers": list}))],
+                Ok(list) => {
+                    let mut out = vec![json_msg(json!({"type":"apiProviders","providers": list}))];
+                    out.extend(crate::send::handle_provider_status(state).await);
+                    out
+                }
                 Err(e) => vec![err(e)],
             }
         }
@@ -512,6 +593,125 @@ pub async fn route_ws(state: &AppState, text: &str) -> Vec<String> {
             state.terminals().close(term_id);
             term_events(state)
         }
+
+        // --- Porte 9: remaining Node router cases ---
+        "setupStatus" => handle_setup_status(state).await,
+        "listApiModels" => handle_list_api_models(state, &msg).await,
+        "exportThread" => handle_export_thread(state, &msg).await,
+        "listSessions" => {
+            // Session filesystem scan deferred; shape-compatible empty list.
+            let provider = msg.get("provider").cloned().unwrap_or(Value::Null);
+            vec![json_msg(json!({
+                "type": "sessions",
+                "provider": provider,
+                "sessions": [],
+            }))]
+        }
+        "importSession" => {
+            let short = msg
+                .get("title")
+                .and_then(|v| v.as_str())
+                .map(str::to_string)
+                .or_else(|| {
+                    msg.get("sessionId")
+                        .and_then(|v| v.as_str())
+                        .map(|s| s.chars().take(8).collect::<String>())
+                })
+                .unwrap_or_else(|| "session".into());
+            let title = format!("⤓ {short}");
+            let patch = json!({
+                "id": msg.get("newThreadId"),
+                "projectRoot": msg.get("projectRoot").cloned().unwrap_or(json!("")),
+                "provider": msg.get("provider"),
+                "title": title,
+                "sessionId": msg.get("sessionId"),
+                "status": "idle",
+            });
+            let result = {
+                let mut store = state.threads().lock().await;
+                store.upsert(patch, false)
+            };
+            match result {
+                Ok(_) => broadcast_threads(state).await,
+                Err(e) => vec![err(e)],
+            }
+        }
+        "forkThread" => handle_fork_thread(state, &msg).await,
+        "revert" => handle_revert(state, &msg).await,
+        "clientLog" => {
+            let note = msg
+                .get("note")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .chars()
+                .take(300)
+                .collect::<String>();
+            let out = json_msg(json!({"type":"clientLog","note": note}));
+            state.publish(out.clone());
+            vec![out]
+        }
+        "clientHello" => {
+            let id = msg
+                .get("clientInstanceId")
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
+            if id.len() >= 20
+                && id
+                    .chars()
+                    .all(|c| c.is_ascii_hexdigit() || c == '-')
+            {
+                *state.client_instance_id().lock().await = Some(id.to_string());
+            }
+            vec![]
+        }
+        "permissionResponse" | "interactionResponse" => {
+            // Waiters not yet wired (interactive approvals deferred) — idempotent no-op.
+            vec![]
+        }
+        "retitleAll" => handle_retitle_all(state).await,
+        "requestReview" => {
+            let thread_id = msg.get("threadId").and_then(|v| v.as_str()).unwrap_or("");
+            vec![json_msg(json!({
+                "type": "reviewResult",
+                "threadId": thread_id,
+                "status": "done",
+                "verdict": "unavailable",
+                "issues": [],
+            }))]
+        }
+        "getUsage" => handle_get_usage(state).await,
+        "quickAsk" => handle_quick_ask(state, &msg).await,
+        "qaPromote" => handle_qa_promote(state, &msg).await,
+        "codexCompact" => {
+            let thread_id = msg.get("threadId").and_then(|v| v.as_str()).unwrap_or("");
+            vec![err_thread(
+                thread_id,
+                "codexCompact: non encore porté (session Codex native) — ATELIER_BACKEND=node",
+            )]
+        }
+        "codexClear" => handle_codex_clear(state, &msg).await,
+        "goalSet" | "goalGet" | "goalClear" => {
+            let thread_id = msg.get("threadId").and_then(|v| v.as_str()).unwrap_or("");
+            vec![err_thread(
+                thread_id,
+                "goals disponibles seulement pour un chat Codex (API goals non encore portée en Rust)",
+            )]
+        }
+        "generateCommitMsg" => {
+            let root = git_root(state, &msg).await;
+            // Claude title helper not ported; empty message is valid UI fallback.
+            vec![json_msg(json!({
+                "type": "commitMsg",
+                "projectRoot": root,
+                "message": "",
+            }))]
+        }
+        "zoteroAddPdf" => {
+            vec![err(
+                "zoteroAddPdf: non encore porté en Rust — ATELIER_BACKEND=node",
+            )]
+        }
+
         other => vec![err(format!("type inconnu: {other}"))],
     };
     // Always flush PTY output that arrived since last message.
@@ -586,6 +786,553 @@ fn json_msg(v: Value) -> String {
 
 fn err(message: impl Into<String>) -> String {
     ok(ErrorMessage::new(message))
+}
+
+async fn handle_setup_status(state: &AppState) -> Vec<String> {
+    let providers: Vec<Value> = atelier_providers::provider_status_list(Some(state.app_dir()))
+        .into_iter()
+        .map(|p| {
+            let installed = state.provider(&p.id).is_some() || p.kind == "api";
+            json!({
+                "id": p.id,
+                "label": p.label,
+                "kind": p.kind,
+                "installed": installed,
+                "version": if installed { json!("ok") } else { Value::Null },
+                "binPath": Value::Null,
+                "auth": if installed { "ready" } else { "not_installed" },
+                "models": p.models.len(),
+                "defaultModel": p.default_model,
+                "modelError": Value::Null,
+            })
+        })
+        .collect();
+    vec![json_msg(json!({
+        "type": "setupStatus",
+        "status": {
+            "runtime": {
+                "node": "rust",
+                "version": env!("CARGO_PKG_VERSION"),
+                "bundled": false,
+            },
+            "sidecar": {
+                "pid": std::process::id(),
+                "startedAt": state.started_at(),
+                "appVersion": state.app_version(),
+                "bundleHash": state.bundle_hash(),
+                "dir": state.server_dir(),
+            },
+            "providers": providers,
+        }
+    }))]
+}
+
+async fn handle_list_api_models(_state: &AppState, msg: &Value) -> Vec<String> {
+    let provider = msg.get("provider").cloned().unwrap_or(json!({}));
+    let base = provider
+        .get("baseURL")
+        .or_else(|| provider.get("baseUrl"))
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .trim_end_matches('/');
+    if base.is_empty() {
+        return vec![json_msg(json!({
+            "type": "apiModels",
+            "models": null,
+            "error": "baseURL requise",
+        }))];
+    }
+    let api_key = provider
+        .get("apiKey")
+        .and_then(|v| v.as_str())
+        .filter(|s| !s.is_empty())
+        .map(str::to_string)
+        .or_else(|| {
+            provider
+                .get("apiKeyEnv")
+                .and_then(|v| v.as_str())
+                .and_then(|e| std::env::var(e).ok())
+                .filter(|s| !s.is_empty())
+        });
+    let Some(api_key) = api_key else {
+        return vec![json_msg(json!({
+            "type": "apiModels",
+            "models": null,
+            "error": "clé API requise pour lister les modèles",
+        }))];
+    };
+    let anthropic = provider.get("protocol").and_then(|v| v.as_str()) == Some("anthropic");
+    let url = if anthropic {
+        format!("{base}/v1/models")
+    } else if base.ends_with("/v1") {
+        format!("{base}/models")
+    } else {
+        format!("{base}/v1/models")
+    };
+    let client = match reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(15))
+        .build()
+    {
+        Ok(c) => c,
+        Err(e) => {
+            return vec![json_msg(json!({
+                "type": "apiModels",
+                "models": null,
+                "error": e.to_string(),
+            }))];
+        }
+    };
+    let mut req = client.get(&url);
+    req = if anthropic {
+        req.header("x-api-key", &api_key)
+            .header("anthropic-version", "2023-06-01")
+    } else {
+        req.bearer_auth(&api_key)
+    };
+    match req.send().await {
+        Ok(res) if res.status().is_success() => {
+            let json: Value = res.json().await.unwrap_or(json!({}));
+            let list = json
+                .get("data")
+                .or_else(|| json.get("models"))
+                .and_then(|v| v.as_array())
+                .cloned()
+                .unwrap_or_default();
+            let mut models: Vec<Value> = list
+                .into_iter()
+                .filter_map(|m| {
+                    let id = m
+                        .get("id")
+                        .or_else(|| m.get("name"))
+                        .and_then(|v| v.as_str())?
+                        .to_string();
+                    if id.is_empty() {
+                        return None;
+                    }
+                    Some(json!({
+                        "id": id,
+                        "label": m.get("display_name").or_else(|| m.get("name")).or_else(|| m.get("id")).cloned().unwrap_or(json!(id)),
+                        "reasoning": m.get("reasoning"),
+                    }))
+                })
+                .collect();
+            models.sort_by(|a, b| {
+                a.get("id")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("")
+                    .cmp(b.get("id").and_then(|v| v.as_str()).unwrap_or(""))
+            });
+            vec![json_msg(json!({"type":"apiModels","models": models}))]
+        }
+        Ok(res) => vec![json_msg(json!({
+            "type": "apiModels",
+            "models": null,
+            "error": format!("HTTP {}", res.status()),
+        }))],
+        Err(e) => vec![json_msg(json!({
+            "type": "apiModels",
+            "models": null,
+            "error": e.to_string(),
+        }))],
+    }
+}
+
+async fn handle_export_thread(state: &AppState, msg: &Value) -> Vec<String> {
+    let thread_id = msg.get("threadId").and_then(|v| v.as_str()).unwrap_or("");
+    let t = match state.threads().lock().await.get(thread_id).cloned() {
+        Some(t) => t,
+        None => return vec![err("thread introuvable")],
+    };
+    let mut events = msg
+        .get("events")
+        .and_then(|v| v.as_array())
+        .cloned()
+        .unwrap_or_default();
+    if events.is_empty() && state.journal().has_journal(thread_id) {
+        events = state.journal().materialize(thread_id);
+    }
+    let title = if t.title.is_empty() {
+        "conversation".into()
+    } else {
+        t.title.clone()
+    };
+    let mut md = format!(
+        "# {title}\n\n- Provider : {}\n- Projet : {}\n- Session : {}\n- Exporté : {}\n\n",
+        t.provider,
+        if t.project_root.is_empty() {
+            "(aucun)"
+        } else {
+            &t.project_root
+        },
+        t.session_id.as_deref().unwrap_or("-"),
+        iso_now(),
+    );
+    for e in &events {
+        let kind = e.get("kind").and_then(|v| v.as_str()).unwrap_or("");
+        let text = e.get("text").and_then(|v| v.as_str()).unwrap_or("");
+        match kind {
+            "user" => md.push_str(&format!("**Utilisateur :**\n\n{text}\n\n")),
+            "text" => md.push_str(&format!("**Agent :**\n\n{text}\n\n")),
+            _ => {}
+        }
+    }
+    let home = std::env::var("HOME").unwrap_or_else(|_| "/tmp".into());
+    let dir = std::path::PathBuf::from(home).join("Downloads");
+    let _ = std::fs::create_dir_all(&dir);
+    let safe: String = title
+        .chars()
+        .map(|c| {
+            if c.is_alphanumeric() || c == ' ' || c == '-' || c == '_' {
+                c
+            } else {
+                '_'
+            }
+        })
+        .take(60)
+        .collect();
+    let safe = safe.trim().to_string();
+    let safe = if safe.is_empty() {
+        "conversation".into()
+    } else {
+        safe
+    };
+    let stamp = iso_now().chars().take(16).collect::<String>().replace([':', 'T'], "-");
+    let base = dir.join(format!("atelier-{safe}-{stamp}"));
+    let md_path = base.with_extension("md");
+    let json_path = base.with_extension("json");
+    if std::fs::write(&md_path, &md).is_err() {
+        return vec![err("export: écriture markdown impossible")];
+    }
+    let payload = json!({"thread": t, "events": events});
+    let _ = std::fs::write(
+        &json_path,
+        serde_json::to_string_pretty(&payload).unwrap_or_default(),
+    );
+    vec![json_msg(json!({
+        "type": "exported",
+        "threadId": thread_id,
+        "path": md_path.to_string_lossy(),
+    }))]
+}
+
+async fn handle_fork_thread(state: &AppState, msg: &Value) -> Vec<String> {
+    let from = msg.get("fromThreadId").and_then(|v| v.as_str()).unwrap_or("");
+    let new_id = msg.get("newThreadId").and_then(|v| v.as_str()).unwrap_or("");
+    if from.is_empty() || new_id.is_empty() {
+        return vec![err("fork: fromThreadId et newThreadId requis")];
+    }
+    let src = state.threads().lock().await.get(from).cloned();
+    let Some(src) = src else {
+        return vec![err("fork indisponible pour ce chat")];
+    };
+    if src.session_id.is_none() || src.provider != "claude" {
+        return vec![err("fork indisponible pour ce chat")];
+    }
+    let title = format!("⑂ {}", if src.title.is_empty() { "fork" } else { &src.title });
+    let patch = json!({
+        "id": new_id,
+        "projectRoot": src.project_root,
+        "provider": "claude",
+        "title": title,
+        "sessionId": src.session_id,
+        "forkPending": true,
+        "status": "idle",
+    });
+    {
+        let mut store = state.threads().lock().await;
+        if let Err(e) = store.upsert(patch, false) {
+            return vec![err(e)];
+        }
+    }
+    let event_id = msg.get("eventId").and_then(|v| v.as_str());
+    let _ = state.journal().copy_thread(from, new_id, event_id);
+    broadcast_threads(state).await
+}
+
+async fn handle_revert(state: &AppState, msg: &Value) -> Vec<String> {
+    let thread_id = msg.get("threadId").and_then(|v| v.as_str()).unwrap_or("");
+    if thread_id.is_empty() {
+        return vec![err_thread("", "revert indisponible")];
+    }
+    let exists = state.threads().lock().await.get(thread_id).is_some();
+    if !exists {
+        return vec![err_thread(thread_id, "revert indisponible")];
+    }
+    let mut truncated = false;
+    if state.journal().has_journal(thread_id) {
+        let mut event_id = msg
+            .get("eventId")
+            .and_then(|v| v.as_str())
+            .map(str::to_string);
+        if event_id.is_none() {
+            if let Some(text) = msg.get("text").and_then(|v| v.as_str()) {
+                let events = state.journal().materialize(thread_id);
+                event_id = events.iter().find_map(|e| {
+                    if e.get("kind").and_then(|v| v.as_str()) == Some("user")
+                        && e.get("text").and_then(|v| v.as_str()).map(str::trim)
+                            == Some(text.trim())
+                    {
+                        e.pointer("/meta/eventId")
+                            .and_then(|v| v.as_str())
+                            .map(str::to_string)
+                    } else {
+                        None
+                    }
+                });
+            }
+        }
+        if let Some(eid) = event_id {
+            truncated = state.journal().truncate_from(thread_id, &eid);
+        }
+    }
+    let _ = truncated;
+    let out = json_msg(json!({"type":"reverted","threadId": thread_id}));
+    let mut replies = broadcast_threads(state).await;
+    replies.insert(0, out);
+    replies
+}
+
+async fn handle_retitle_all(state: &AppState) -> Vec<String> {
+    if !state.try_begin_retitle() {
+        return vec![json_msg(json!({
+            "type": "retitleAllDone",
+            "scanned": 0,
+            "renamed": 0,
+            "running": true,
+        }))];
+    }
+    // Without Claude titleConversation: heuristic from journal first user message.
+    let threads = state.threads().lock().await.list();
+    let mut scanned = 0usize;
+    let mut renamed = 0usize;
+    for t in threads {
+        let title = t.title.trim();
+        let is_raw = title.is_empty()
+            || title == "Sans titre"
+            || title.starts_with("Session ")
+            || title.chars().count() >= 40;
+        if !is_raw {
+            continue;
+        }
+        scanned += 1;
+        let events = if state.journal().has_journal(&t.id) {
+            state.journal().materialize(&t.id)
+        } else {
+            Vec::new()
+        };
+        let Some(first) = events.iter().find_map(|e| {
+            if e.get("kind").and_then(|v| v.as_str()) == Some("user") {
+                e.get("text").and_then(|v| v.as_str()).map(str::to_string)
+            } else {
+                None
+            }
+        }) else {
+            continue;
+        };
+        let new_title: String = first.chars().take(48).collect();
+        if new_title.is_empty() {
+            continue;
+        }
+        let _ = state
+            .threads()
+            .lock()
+            .await
+            .upsert(json!({"id": t.id, "title": new_title}), true);
+        renamed += 1;
+    }
+    state.end_retitle();
+    let mut out = broadcast_threads(state).await;
+    out.push(json_msg(json!({
+        "type": "retitleAllDone",
+        "scanned": scanned,
+        "renamed": renamed,
+    })));
+    out
+}
+
+async fn handle_get_usage(state: &AppState) -> Vec<String> {
+    let entries = get_all_ledgers(&state.ledger_dir(), 500);
+    let today = iso_now().chars().take(10).collect::<String>(); // YYYY-MM-DD
+    let mut models = serde_json::Map::new();
+    for e in entries {
+        let ts = e.get("ts").and_then(|v| v.as_str()).unwrap_or("");
+        if !ts.starts_with(&today) && !ts.is_empty() {
+            // also accept Date.toDateString-ish by checking calendar day via ISO only
+            continue;
+        }
+        // Node uses toDateString local; we use UTC day of ISO — acceptable R9 PARTIAL.
+        if ts.is_empty() {
+            continue;
+        }
+        let key = e
+            .get("model")
+            .or_else(|| e.get("provider"))
+            .and_then(|v| v.as_str())
+            .unwrap_or("?")
+            .to_string();
+        let entry = models.entry(key).or_insert(json!({"turns":0,"output":0}));
+        if let Some(obj) = entry.as_object_mut() {
+            let turns = obj.get("turns").and_then(|v| v.as_u64()).unwrap_or(0) + 1;
+            let out = obj.get("output").and_then(|v| v.as_u64()).unwrap_or(0)
+                + e.pointer("/usage/output")
+                    .and_then(|v| v.as_u64())
+                    .unwrap_or(0);
+            obj.insert("turns".into(), json!(turns));
+            obj.insert("output".into(), json!(out));
+        }
+    }
+    vec![json_msg(json!({
+        "type": "usage",
+        "claude": Value::Null,
+        "codex": Value::Null,
+        "models": models,
+    }))]
+}
+
+async fn handle_quick_ask(state: &AppState, msg: &Value) -> Vec<String> {
+    let qa_id = msg
+        .get("qaId")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_string();
+    if qa_id.is_empty() {
+        return vec![err("qaId requis")];
+    }
+    let provider = msg
+        .get("provider")
+        .and_then(|v| v.as_str())
+        .unwrap_or("claude")
+        .to_string();
+    let prompt = msg
+        .get("prompt")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_string();
+    let Some(p) = state.provider(&provider) else {
+        return vec![json_msg(json!({
+            "type": "qaEvent",
+            "qaId": qa_id,
+            "event": {"kind":"error","message":"provider inconnu"},
+        }))];
+    };
+    let prev = state.qa_sessions().lock().await.get(&qa_id).cloned();
+    let state_bg = state.clone();
+    let qa_id_bg = qa_id.clone();
+    let model = msg
+        .get("model")
+        .and_then(|v| v.as_str())
+        .map(str::to_string);
+    let effort = msg
+        .get("effort")
+        .and_then(|v| v.as_str())
+        .map(str::to_string);
+    tokio::spawn(async move {
+        let emit_state = state_bg.clone();
+        let qid = qa_id_bg.clone();
+        let on_event: std::sync::Arc<dyn Fn(Value) + Send + Sync> =
+            std::sync::Arc::new(move |event: Value| {
+                if let Ok(s) = serde_json::to_string(&json!({
+                    "type": "qaEvent",
+                    "qaId": qid,
+                    "event": event,
+                })) {
+                    emit_state.publish(s);
+                }
+            });
+        let req = atelier_providers::SendRequest {
+            thread_id: format!("qa:{qa_id_bg}"),
+            turn_id: uuid_v4(),
+            prompt,
+            project_root: std::env::var("HOME").unwrap_or_else(|_| "/tmp".into()),
+            session_id: prev.map(|s| s.session_id),
+            model,
+            effort,
+            mode: atelier_providers::SendMode::Normal,
+            on_event,
+            is_cancelled: std::sync::Arc::new(|| false),
+        };
+        let result = p.send(req).await;
+        if let Some(sid) = result.session_id {
+            state_bg.qa_sessions().lock().await.insert(
+                qa_id_bg,
+                QaSession {
+                    provider,
+                    session_id: sid,
+                },
+            );
+        }
+    });
+    vec![]
+}
+
+async fn handle_qa_promote(state: &AppState, msg: &Value) -> Vec<String> {
+    let qa_id = msg.get("qaId").and_then(|v| v.as_str()).unwrap_or("");
+    let new_id = msg
+        .get("newThreadId")
+        .and_then(|v| v.as_str())
+        .unwrap_or("");
+    let session = state.qa_sessions().lock().await.get(qa_id).cloned();
+    let Some(s) = session else {
+        return vec![json_msg(json!({
+            "type": "qaPromoteError",
+            "qaId": qa_id,
+            "message": "session éphémère expirée — pose une nouvelle question puis promeus",
+        }))];
+    };
+    let title = msg
+        .get("title")
+        .and_then(|v| v.as_str())
+        .unwrap_or("");
+    let patch = json!({
+        "id": new_id,
+        "projectRoot": msg.get("projectRoot").cloned().unwrap_or(json!("")),
+        "provider": s.provider,
+        "title": format!("Quick Ask — {title}"),
+        "sessionId": s.session_id,
+        "status": "idle",
+    });
+    {
+        let mut store = state.threads().lock().await;
+        if let Err(e) = store.upsert(patch, false) {
+            return vec![err(e)];
+        }
+    }
+    state.qa_sessions().lock().await.remove(qa_id);
+    broadcast_threads(state).await
+}
+
+async fn handle_codex_clear(state: &AppState, msg: &Value) -> Vec<String> {
+    let thread_id = msg.get("threadId").and_then(|v| v.as_str()).unwrap_or("");
+    if thread_id.is_empty() {
+        return vec![err("threadId requis")];
+    }
+    {
+        let mut store = state.threads().lock().await;
+        if store.get(thread_id).is_some() {
+            let _ = store.upsert(
+                json!({"id": thread_id, "sessionId": Value::Null}),
+                false,
+            );
+        }
+    }
+    // Journal frontier marker (best-effort).
+    let _ = state.journal().append(&json!({
+        "kind": "tool",
+        "name": "__session-cleared",
+        "meta": {
+            "threadId": thread_id,
+            "provider": "codex",
+            "eventId": uuid_v4(),
+            "sequence": state.journal().last_sequence(thread_id) + 1,
+            "durable": true,
+            "origin": "atelier",
+        }
+    }));
+    broadcast_threads(state).await
+}
+
+fn uuid_v4() -> String {
+    uuid::Uuid::new_v4().to_string()
 }
 
 /// Seedream image gen (broadcast-friendly). Codex engine deferred → clear error.
