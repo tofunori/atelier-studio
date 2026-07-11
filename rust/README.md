@@ -6,8 +6,15 @@ Migration à **parité fonctionnelle** du sidecar Node + serveur galerie Node ve
 
 | Livraison | Contenu | Backend production |
 |-----------|---------|-------------------|
-| **R1** (actuel) | Protocole minimal : `/health`, `/providers`, `/setup`, `/uistate`, WS `ping`/`pong`, pid/lock, sélecteur `ATELIER_BACKEND` | **Node** (défaut) |
-| R2+ | Galerie + store + harness + providers | voir `plans/033-*.md` |
+| **R1** | Sidecar HTTP/WS minimal | **Node** (défaut) |
+| **R2** (actuel) | Galerie Rust vendored (`atelier-gallery-server`) + sélecteur `ATELIER_GALLERY_BACKEND` | **Node** galerie (défaut) ; Rust opt-in |
+| R3+ | Store/harness/providers via Rust | voir `plans/033-*.md` |
+
+### Ticket de réunification (cmux-gallery)
+
+Les crates `atelier-core` et `atelier-gallery` sont une **copie temporaire** de
+`/Users/tofunori/Documents/cmux-gallery/rust` (Porte 2). Avant bascule
+production : extraire un noyau partagé versionné et supprimer la copie.
 
 Matrice d'inventaire : [`../plans/033-parity-matrix.md`](../plans/033-parity-matrix.md)
 
@@ -41,27 +48,30 @@ curl -s -H "x-atelier-token: devtoken" "http://127.0.0.1:$PORT/health"
 ## Via Tauri (expérimental)
 
 ```bash
-# Compiler le binaire Rust d'abord
+# Sidecar chat (R1)
 cargo build -p atelier-server --manifest-path rust/Cargo.toml
-
-# Forcer le backend Rust (Node reste le défaut)
 export ATELIER_BACKEND=rust
-# optionnel : chemin explicite
 export ATELIER_RUST_SERVER="$PWD/rust/target/debug/atelier-studio-server"
+
+# Galerie (R2)
+cargo build -p atelier-gallery --manifest-path rust/Cargo.toml
+export ATELIER_GALLERY_BACKEND=rust
+export ATELIER_GALLERY_SERVER="$PWD/rust/target/debug/atelier-gallery-server"
 ```
 
-**Important** : R1 ne remplace **pas** le chat agents ni la galerie. Seul le transport HTTP/WS de base est branché. Revenir à Node : `unset ATELIER_BACKEND` ou `ATELIER_BACKEND=node`.
+**Important** : Node reste le défaut pour chat **et** galerie. R2 ne retire pas
+`gallery/server/main.mjs` de la production.
 
 ## Crates
 
 ```
 rust/crates/
-  atelier-protocol/   # types JSON (health, providers, WS frames)
-  atelier-runtime/    # serveur axum, auth, pid/lock, uistate
-  atelier-server/     # binaire atelier-studio-server
+  atelier-protocol/     # types JSON sidecar
+  atelier-runtime/      # serveur sidecar axum
+  atelier-server/       # binaire atelier-studio-server (chat)
+  atelier-core/         # noyau galerie (vendored cmux)
+  atelier-gallery/      # binaire atelier-gallery-server
 ```
-
-Crates futures (plan) : store, harness, providers, workspace, library, gallery.
 
 ## Référence
 

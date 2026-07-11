@@ -21,7 +21,10 @@
 - **Depends on**: stabilité du contrat galerie et du harnais agents
 - **Reference implementation**: backend Rust de `/Users/tofunori/Documents/cmux-gallery/rust`
 - **Non-goal**: réécrire React, CodeMirror, les viewers ou les éditeurs en Rust
-- **Progress (2026-07-11)**: **R1 en cours** — Porte 0 inventaire (`plans/033-parity-matrix.md`) + Porte 1 squelette (`rust/`). Node reste le défaut. `ATELIER_BACKEND=rust` pour tests.
+- **Progress (2026-07-11)**: **R2 en cours** — R1 commité ; Porte 2 galerie Rust
+  vendored (`atelier-gallery-server`) + `ATELIER_GALLERY_BACKEND=rust|node`.
+  Node reste le défaut pour chat et galerie. Ticket réunification cmux ouvert
+  dans `rust/README.md`.
 
 ## Décision produit non négociable
 
@@ -237,24 +240,29 @@ sélecteur dans `src-tauri/src/sidecar.rs`. `/providers` = catalogue statique
 **Objectif**: supprimer le serveur galerie Node sans changer ses assets ni ses
 fonctions.
 
-- [ ] Brancher les crates galerie de cmux-gallery.
-- [ ] Faire servir exactement les assets de `gallery/assets/`.
-- [ ] Porter chaque route absente identifiée à la porte 0.
-- [ ] Conserver les structures de `.fig_state.json` et fichiers associés.
-- [ ] Conserver les règles de cache et de watcher.
-- [ ] Conserver les opérations d'annotations et de handoff.
-- [ ] Conserver Git, diff, documents, Zotero et exports.
-- [ ] Modifier `src-tauri/src/atelier.rs` pour lancer le serveur Rust.
-- [ ] Conserver temporairement le démarrage Node comme comparaison contrôlée.
+- [x] Brancher les crates galerie de cmux-gallery (copie temporaire sous
+  `rust/crates/atelier-core` + `atelier-gallery`).
+- [x] Faire servir exactement les assets de `gallery/assets/` (`ATELIER_ASSETS_DIR`).
+- [~] Porter chaque route absente identifiée à la porte 0 — base cmux (~70 routes) ;
+  écarts Studio connus : `GET /findfile`, sémantique exacte `commitmsg` GET vs POST
+  (voir matrice).
+- [x] Conserver les structures de `.fig_state.json` et fichiers associés.
+- [x] Conserver les règles de cache et de watcher.
+- [x] Conserver les opérations d'annotations et de handoff (agent bridge inclus).
+- [x] Conserver Git, diff, documents, Zotero et exports.
+- [x] Modifier `src-tauri/src/atelier.rs` pour lancer le serveur Rust.
+- [x] Conserver temporairement le démarrage Node comme comparaison contrôlée
+  (`ATELIER_GALLERY_BACKEND=node` défaut).
 
 ### Gate de sortie
 
-- 100 % de la matrice galerie en `PARITY`;
-- suites unit, parity, diff et E2E vertes contre Rust;
-- mêmes parcours Playwright et mêmes états persistés;
-- inspection visuelle dans l'app buildée;
-- aucun `gallery/server/main.mjs` en production;
-- aucun processus galerie orphelin après vingt relances.
+- [~] 100 % de la matrice galerie en `PARITY` — **pas encore** (défaut Node +
+  écarts Studio mineurs) ;
+- [x] http_smoke Rust (5) + parity Node de référence ;
+- [ ] suites diff/E2E Playwright contre Rust ;
+- [ ] inspection visuelle dans l'app buildée ;
+- [ ] aucun `gallery/server/main.mjs` en production — **Node reste défaut** ;
+- [ ] aucun processus galerie orphelin après vingt relances.
 
 ## Porte 3 — Persistance et état applicatif
 

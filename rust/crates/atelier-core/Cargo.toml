@@ -1,0 +1,16 @@
+[package]
+name = "atelier-core"
+version = "0.1.0"
+edition = "2024"
+license = "MIT"
+description = "Shared gallery core (vendored from cmux-gallery; reunify ticket plan 033 Porte 2)"
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+thiserror = "2"
+chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
+md-5 = "0.11"
+walkdir = "2"
+hex = "0.4"
+libc = "0.2"

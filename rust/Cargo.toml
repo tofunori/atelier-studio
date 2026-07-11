@@ -4,6 +4,8 @@ members = [
   "crates/atelier-protocol",
   "crates/atelier-runtime",
   "crates/atelier-server",
+  "crates/atelier-core",
+  "crates/atelier-gallery",
 ]
 
 [workspace.package]

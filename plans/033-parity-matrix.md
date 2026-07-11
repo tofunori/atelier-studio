@@ -64,33 +64,38 @@ Inventaire exhaustif depuis `sidecar/router.mjs`. Statut global R1 : hors `ping`
 
 ## Galerie — routes HTTP (Node `gallery/server`)
 
-| id | method | path | state | Node | cmux Rust | Atelier Rust | statut |
-|----|--------|------|-------|------|-----------|--------------|--------|
-| G-PING | GET | `/ping` | — | yes | yes | — | `ABSENT` |
-| G-HEALTH | GET | `/health` | — | yes | yes | — | `ABSENT` |
-| G-STATE | GET/POST | `/state` | `.fig_state.json` | yes | yes | — | `ABSENT` |
-| G-DATA | GET | `/data` | `figures_data.json` | yes | yes | — | `ABSENT` |
-| G-LS | GET | `/ls` | — | yes | yes | — | `ABSENT` |
-| G-RAW | GET | `/raw` | — | yes | yes | — | `ABSENT` |
-| G-SNIPPET | GET | `/snippet` | — | yes | yes | — | `ABSENT` |
-| G-THUMB | GET | `/thumb` | `.fig_thumbs/` | yes | yes | — | `ABSENT` |
-| G-RESCAN | POST | `/rescan` | figures_* | yes | yes | — | `ABSENT` |
-| G-PDFANNOT | GET/POST | `/pdfannot` | pdf_annots.json | yes | yes | — | `ABSENT` |
-| G-QUOTE | GET/POST | `/quote` | fig-last-quote | yes | partial | — | `ABSENT` |
-| G-SELINFO | POST | `/selinfo` | fig-selection.json | yes | yes | — | `ABSENT` |
-| G-SAVE-ANNOT | POST | `/save` | annotations/ | yes | partial | — | `ABSENT` |
-| G-VERSIONS | GET/POST | `/versions` | dv_versions/ | yes | yes | — | `ABSENT` |
-| G-GIT-* | GET/POST | githead/log/show/commit | git | yes | yes | — | `ABSENT` |
-| G-CODE | GET/POST | `/code` `/codesave` | files | yes | yes | — | `ABSENT` |
-| G-LATEX | POST | `/compile` `/synctex` | aux | yes | yes | — | `ABSENT` |
-| G-SVG | POST | `/save-svg` `/export-png` | svg+edits | yes | yes | — | `ABSENT` |
-| G-EXPORT | POST | `/export` `/delete` `/open` | trash/export | yes | yes | — | `ABSENT` |
-| G-BOARD | GET/POST | `/board/*` `/notes/*` | board+notes | yes | yes | — | `ABSENT` |
-| G-ZOTERO | GET | `/zotero/:key/:f` | storage | yes | yes | — | `ABSENT` |
-| G-STATIC | GET | `/*` assets | — | yes | yes | — | `ABSENT` |
+Statut R2 (2026-07-11) : binaire `atelier-gallery-server` opt-in via
+`ATELIER_GALLERY_BACKEND=rust`. Production reste Node.
 
-Référence cmux-gallery Rust : `/Users/tofunori/Documents/cmux-gallery/rust` (~70 routes portées).  
-Stratégie : brancher ce noyau en Porte 2 (path-dep temporaire ou crate partagée).
+| id | method | path | state | Node | Atelier Rust R2 | statut |
+|----|--------|------|-------|------|-----------------|--------|
+| G-PING | GET | `/ping` | — | yes | yes (fig-annotate) | `PARITY` |
+| G-HEALTH | GET | `/health` | — | yes | yes (atelier-gallery + identity) | `PARITY` |
+| G-STATE | GET/POST | `/state` | `.fig_state.json` | yes | yes | `PARITY` |
+| G-DATA | GET | `/data` | `figures_data.json` | yes | yes | `PARITY` |
+| G-LS | GET | `/ls` | — | yes | yes | `PARITY` |
+| G-RAW | GET | `/raw` | — | yes | yes | `PARITY` |
+| G-SNIPPET | GET | `/snippet` | — | yes | yes | `PARITY` |
+| G-THUMB | GET | `/thumb` | `.fig_thumbs/` | yes | yes | `PARITY` |
+| G-RESCAN | POST | `/rescan` | figures_* | yes | yes (native builder) | `PARITY` |
+| G-PDFANNOT | GET/POST | `/pdfannot` | pdf_annots.json | yes | yes | `PARITY` |
+| G-QUOTE | GET/POST | `/quote` | fig-last-quote | yes | partial host-push | `PARTIAL` |
+| G-SELINFO | POST | `/selinfo` | fig-selection.json | yes | yes | `PARITY` |
+| G-SAVE-ANNOT | POST | `/save` | annotations/ | yes | partial host-push | `PARTIAL` |
+| G-VERSIONS | GET/POST | `/versions` | dv_versions/ | yes | yes | `PARITY` |
+| G-GIT-* | GET/POST | githead/log/show/commit | git | yes | yes | `PARITY` |
+| G-CODE | GET/POST | `/code` `/codesave` | files | yes | yes | `PARITY` |
+| G-FINDFILE | GET | `/findfile` | — | Studio only | **missing** | `ABSENT` |
+| G-LATEX | POST | `/compile` `/synctex` | aux | yes | yes | `PARITY` |
+| G-SVG | POST | `/save-svg` `/export-png` | svg+edits | yes | yes | `PARITY` |
+| G-EXPORT | POST | `/export` `/delete` `/open` | trash/export | yes | yes | `PARITY` |
+| G-BOARD | GET/POST | `/board/*` `/notes/*` | board+notes | yes | yes | `PARITY` |
+| G-ZOTERO | GET | `/zotero/...` | storage | yes | yes (path shape may differ) | `PARTIAL` |
+| G-STATIC | GET | `/*` assets | — | yes | yes | `PARITY` |
+| G-TOKEN | boot | `~/.atelier-studio/gallery_token` | file | yes | yes (ATELIER_STUDIO=1) | `PARITY` |
+| G-SELECTOR | Tauri | `ATELIER_GALLERY_BACKEND` | — | n/a | yes | `RUST_R1` |
+
+Référence amont : `/Users/tofunori/Documents/cmux-gallery/rust` (copie sous `rust/crates/`).
 
 ## Fichiers d'état (profil utilisateur)
 
