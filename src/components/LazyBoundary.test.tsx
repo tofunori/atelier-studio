@@ -2,7 +2,7 @@
 // le chargement, notice actionnable si le chunk échoue (offline / app mise à
 // jour), retry qui relance réellement l'import, et pas de re-fallback à la
 // deuxième ouverture (module déjà en cache).
-import type React from "react";
+import React from "react";
 import { describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 
@@ -23,6 +23,26 @@ describe("LazyBoundary (plan 022)", () => {
     expect(screen.getByTestId("fb")).toBeTruthy();
     resolve({ default: () => <div data-testid="loaded" /> });
     await waitFor(() => expect(screen.getByTestId("loaded")).toBeTruthy());
+  });
+
+  it("partage la tentative lazy pendant les replays de StrictMode", async () => {
+    let resolve!: (m: { default: React.ComponentType }) => void;
+    const importer = vi.fn(() => new Promise<{ default: React.ComponentType }>((r) => { resolve = r; }));
+    const StrictLazy = lazyWithRetry(importer);
+
+    render(
+      <React.StrictMode>
+        <LazyBoundary fallback={<div data-testid="strict-fallback" />}>
+          <StrictLazy />
+        </LazyBoundary>
+      </React.StrictMode>,
+    );
+
+    expect(screen.getByTestId("strict-fallback")).toBeTruthy();
+    expect(importer).toHaveBeenCalledTimes(1);
+    resolve({ default: () => <div data-testid="strict-loaded" /> });
+    await waitFor(() => expect(screen.getByTestId("strict-loaded")).toBeTruthy());
+    expect(importer).toHaveBeenCalledTimes(1);
   });
 
   it("chunk en échec → notice + Réessayer qui relance l'import", async () => {

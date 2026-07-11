@@ -13,20 +13,26 @@ import { Button, InlineNotice } from "./ui";
 export function lazyWithRetry<P extends object>(
   importer: () => Promise<{ default: React.ComponentType<P> }>,
 ): React.ComponentType<P> {
-  // module résolu, partagé entre montages : jamais de re-fallback ni de
-  // re-fetch une fois le chunk arrivé
-  let loaded: { default: React.ComponentType<P> } | null = null;
+  // UNE instance lazy PARTAGÉE entre montages. Indispensable : React rejoue
+  // un montage initial suspendu en re-montant le sous-arbre (l'état useState
+  // est jeté). Une instance neuve par montage re-suspendrait à chaque replay
+  // — même une promesse déjà résolue suspend au premier rendu — d'où un
+  // fallback affiché pour toujours (vu en prod WKWebView, page Réglages
+  // noire). Avec l'instance partagée, le payload résolu de React.lazy rend
+  // SYNCHRONEMENT au montage suivant et la boucle casse.
+  let current: React.ComponentType<P> | null = null;
+  let failed = false;
+  const make = () =>
+    lazy(() =>
+      importer().catch((e) => {
+        failed = true; // le PROCHAIN montage (bouton Réessayer) ré-importera
+        throw e; // cette instance garde le rejet : pas de boucle d'imports
+      }),
+    );
   return function LazyRetry(props: P) {
     const [Comp] = useState(() => {
-      // UN import par montage, échec compris — React 19 peut re-lancer
-      // l'init d'un lazy rejeté : sans ce memo par montage, un chunk
-      // durablement absent (offline) ré-importerait en boucle CPU.
-      let pending: Promise<{ default: React.ComponentType<P> }> | null = null;
-      return lazy(() => {
-        if (loaded) return Promise.resolve(loaded);
-        if (!pending) pending = importer().then((m) => { loaded = m; return m; });
-        return pending;
-      });
+      if (!current || failed) { failed = false; current = make(); }
+      return current;
     });
     return <Comp {...(props as any)} />;
   };
@@ -55,6 +61,9 @@ export class LazyBoundary extends React.Component<
           >
             {t("action.retry")}
           </Button>
+          {/* détail technique utile quand le chunk embarqué ne correspond
+              plus au HTML du bundle */}
+          <span className="lazy-error-detail">{String(this.state.error?.message ?? this.state.error)}</span>
         </InlineNotice>
       );
     }

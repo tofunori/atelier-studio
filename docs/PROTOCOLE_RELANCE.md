@@ -62,6 +62,21 @@ pgrep -f tauri-app >/dev/null && echo "OK" || echo "ÉCHEC — investiguer, ne p
 - ❌ modifier `src-tauri/gallery-dist/` directement (écrasé au prochain stage — modifier `gallery/`)
 - ❌ conclure « le fix ne marche pas » sans avoir vérifié qu'AUCUN zombie ne sert l'ancien code
 
+## Vérif d'embed par hachage (plus fort que la taille du binaire)
+
+La taille ~17 Mo ne prouve PAS que le dist embarqué est le bon (vu le
+2026-07-10 : rebuild → binaire de taille identique, assets périmés). Preuve
+fiable — comparer les noms de chunks embarqués au dist réel :
+
+```bash
+strings src-tauri/target/release/bundle/macos/Atelier.app/Contents/MacOS/tauri-app \
+  | grep -oE "index-[A-Za-z0-9_-]{8}\.js" | sort -u > /tmp/embedded.txt
+ls dist/assets | grep -E "^index-.*\.js$" | sort > /tmp/disk.txt
+diff /tmp/embedded.txt /tmp/disk.txt && echo "EMBED==DIST"   # doit matcher
+```
+
+Si mismatch : `touch src-tauri/src/lib.rs` puis rebuild.
+
 ## Diagnostic express « je ne vois pas mon changement »
 
 ```bash

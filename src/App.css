@@ -2238,3 +2238,8 @@ button.ctx-ring-wrap { border: none; font: inherit; color: inherit;
 .ef-thumb { position: absolute; top: 50%; width: 18px; height: 18px; border-radius: 50%;
   background: var(--fg2); transform: translate(-50%, -50%); pointer-events: none;
   box-shadow: 0 1px 5px rgba(0,0,0,.45); transition: left 90ms ease; }
+
+/* frontières lazy (plan 022) : détail technique du chunk en échec */
+.lazy-error { flex-wrap: wrap; }
+.lazy-error-detail { flex-basis: 100%; font-size: var(--fs-xs, 10px);
+  color: var(--muted); font-variant-numeric: tabular-nums; word-break: break-all; }

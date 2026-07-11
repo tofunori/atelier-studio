@@ -29,17 +29,21 @@ katex css (29,3 / 8,0).
   mise à jour sous les pieds) affiche une notice actionnable, jamais un
   écran vide. Fallbacks neutres (`.pane-slot` / `.term-cell` /
   `.settings-page`) : pas de layout shift.
-- **`lazyWithRetry`** : `React.lazy` mémorise un import rejeté — remonter
-  le même composant re-lance l'erreur en cache, pas l'import ; le bouton
-  Réessayer de la boundary serait décoratif. Le wrapper crée une instance
-  lazy neuve par montage, avec UN import mémoïsé par montage (React 19
-  peut rejouer l'init d'un lazy rejeté : sans ce memo, un chunk
-  durablement absent ré-importerait en boucle). Comportement observé et
-  testé : un échec transitoire au premier montage est rejoué par React
-  sans jamais commiter la notice (auto-guérison gratuite) ; un échec
-  persistant commit la notice, et Réessayer relance réellement le réseau.
-  Un module résolu est partagé entre montages — 2ᵉ ouverture instantanée,
-  sans re-fallback.
+- **`lazyWithRetry`** : deux pièges contradictoires de `React.lazy`,
+  découverts en vrai. (a) Une instance lazy PARTAGÉE qui a rejeté rejoue
+  l'erreur en cache pour toujours — le Réessayer de la boundary serait
+  décoratif. (b) Une instance lazy NEUVE PAR MONTAGE ne commit jamais :
+  React rejoue un montage initial suspendu en re-montant le sous-arbre
+  (l'état useState est jeté), chaque replay repart d'une instance vierge
+  qui re-suspend — même une promesse déjà résolue suspend au premier
+  rendu. En Chromium le timing masquait la boucle ; en WKWebView (app
+  buildée) la page Réglages restait un fallback vide — diagnostiqué par
+  balises HTTP locales (import résolu en 45 ms, DOM = fallback 0 enfant
+  600 ms après). Solution : instance partagée entre montages (payload
+  résolu ⇒ rendu synchrone au replay suivant, la boucle casse), recréée
+  UNIQUEMENT après un échec (flag `failed`) pour que Réessayer refasse le
+  réseau. Testé : StrictMode (1 seul import), échec persistant → notice +
+  retry réel, 2ᵉ ouverture instantanée.
 - **Cycle de vie inchangé** : les montages restent gardés par
   `visited.has(...)` dans AtelierPane — le lazy ne change pas QUAND un
   composant monte, seulement d'où vient son code.
