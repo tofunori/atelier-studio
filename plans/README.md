@@ -84,7 +84,7 @@ ses dépendances. Les plans 011 et 012 restent comme traces et ne doivent plus
 | 021 | Finaliser Settings, accessibilité, responsive et QA visuelle | P1 | L | 017–020 | DONE (accepted `6c22afc`, revue Codex, 2026-07-11 ; propagation Échap et confirmations fail-closed corrigées, 13 goldens + contrôle natif app) |
 | 023 | Appliquer une direction artistique et une finition cosmétique haut de gamme | P1 | M | 014, 021 | IN PROGRESS — frontend intégré et revu dans `6c22afc` (2026-07-11) ; passe cosmétique galerie explicitement restante |
 | 022 | Réduire le coût de chargement du frontend final | P2 | M | 023 | DONE (accepted `6c22afc`, revue Codex, 2026-07-11 ; entrée 884 KB min / 274 KB gzip, budget dans `verify`, fixtures visuelles exclues du bundle release) |
-| 013 | Préparer une distribution partageable sur Mac propre | P3 | L | 008, 022 | TODO |
+| 013 | Préparer une distribution partageable sur Mac propre | P3 | L | 008, 022 | IN PROGRESS — Node 22.22.3 arm64 embarqué et fail-closed en release; checksum/licence, cache CI, workflow arm64, verify, bundle et smoke réel sidecar+galerie validés le 2026-07-11. Restent le test sur un autre Mac/compte avec CLI absente puis présente et la RC privée avant DONE. |
 
 ### Dependency notes
 
@@ -173,7 +173,7 @@ jamais comptées comme des interventions séparées.
 | 028 | Rendre restauration et persistance durables | P0 | L | 027 | DONE (accepted `d8e885c`, revue Codex finale + validation globale, 2026-07-10) |
 | 029 | Rendre les gros diffs non bloquants | P1 | M | 028 | DONE (accepted `d63887c`, revue Codex finale + benchmark réel, 2026-07-10) |
 | 030 | Rendre CM6 reproductible et compatible diff | P1 | L | 029 | DONE (accepted `ad19ba4`, revue Codex finale + matrice CM5/CM6, 2026-07-10) |
-| 031 | Migrer les trois surfaces vers CM6 avec fallback | P1 | L | 030 | IN PROGRESS — `advisor/031-migrate-all-editors-to-cm6` (2026-07-10) |
+| 031 | Migrer les trois surfaces vers CM6 avec fallback | P1 | L | 030 | IN PROGRESS — code intégré; E2E CM6/CM5 ciblés 5/5 et verify global verts le 2026-07-11. Reste la checklist native PDF/SyncTeX/TCC consignée dans `plans/031-execution-notes.md`. |
 | 032 | Retirer CM5 après observation et accord humain | P2 | M | 031 + accord | TODO |
 
 Quand un plan devient DONE, le réviseur remplace son statut par

@@ -9,9 +9,16 @@ permissions:
 
 jobs:
   build-macos:
-    runs-on: macos-latest
+    # macos-15 is the Apple Silicon image; Node and node-pty are arm64-only.
+    runs-on: macos-15
     steps:
       - uses: actions/checkout@v4
+      - name: Require Apple Silicon runner
+        run: test "$(uname -m)" = arm64
+      - uses: actions/cache@v4
+        with:
+          path: .cache/node-runtime
+          key: node-runtime-22.22.3-darwin-arm64
       - uses: actions/setup-node@v4
         with: { node-version: 22 }
       - uses: dtolnay/rust-toolchain@stable
@@ -37,12 +44,19 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
+          args: --config src-tauri/tauri.release.conf.json
           tagName: ${{ github.ref_name }}
           releaseName: "Atelier Studio ${{ github.ref_name }}"
           releaseBody: |
             macOS (Apple Silicon). App non signée : après installation,
             lancer `xattr -cr "/Applications/Atelier.app"` pour passer Gatekeeper.
-            Prérequis : Claude Code CLI (>= 2.1.139), Codex CLI, Node.js >= 20.
-            La galerie est embarquée et tourne en Node — plus aucune dépendance Python.
+            Prérequis : Claude Code CLI (>= 2.1.139) et Codex CLI.
+            Node 22 et la galerie sont embarqués — aucune installation Node ou Python requise.
           releaseDraft: true
           prerelease: false
+      - name: Verify embedded Node artifact
+        run: |
+          NODE="src-tauri/target/release/bundle/macos/Atelier.app/Contents/Resources/node-runtime/bin/node"
+          test -x "$NODE"
+          test "$("$NODE" --version)" = "v22.22.3"
+          file "$NODE" | grep -q "arm64"

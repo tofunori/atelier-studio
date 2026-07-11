@@ -116,7 +116,7 @@ flowchart LR
 | Tool | Why |
 |---|---|
 | macOS Apple Silicon | Current native target |
-| Node.js >= 20 | Frontend, sidecar, tooling |
+| Node.js >= 22 | Development and build tooling only |
 | Rust + Tauri prerequisites | macOS shell build |
 | Signed-in Claude Code CLI | Claude engine and session resume |
 | Signed-in Codex CLI | Codex engine |
@@ -146,7 +146,7 @@ Production build:
 npm run tauri build
 ```
 
-The app bundle includes the Node sidecar and gallery. Claude/Codex remain the system CLIs so existing sign-ins and permissions are reused.
+The production app includes a pinned Node 22 runtime, the Node sidecar, and the gallery. End users do not need to install Node. Claude/Codex remain the system CLIs so existing sign-ins and permissions are reused.
 
 ## Verification
 
@@ -156,7 +156,7 @@ One command runs every layer (typecheck, web build, frontend, sidecar, gallery u
 npm run verify
 ```
 
-Prerequisites: Node >= 20, `python3`, Rust stable (for `test:rust`), and dependencies installed in
+Development prerequisites: Node >= 22, `python3`, Rust stable (for `test:rust`), and dependencies installed in
 `.` and `sidecar/` (`npm ci` in both). Each layer can also run alone — see the `test:*` scripts in
 `package.json`.
 

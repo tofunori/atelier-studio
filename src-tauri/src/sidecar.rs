@@ -222,8 +222,8 @@ pub fn sidecar_port(app: tauri::AppHandle) -> Result<SidecarInfo, String> {
     }
 
     let token = session_token()?;
-    // node résolu explicitement : PATH réparé (fix_path_env) puis dossiers standards
-    let node = crate::bin_resolver::node_bin()?;
+    // Runtime du bundle en production; PATH réparé uniquement en secours dev.
+    let node = crate::bin_resolver::node_bin(&app)?;
     let mut child = Command::new(node)
         .arg(&script)
         .env("ATELIER_TOKEN", &token)

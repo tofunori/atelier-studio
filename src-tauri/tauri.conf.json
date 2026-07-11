@@ -6,7 +6,7 @@
   "build": {
     "beforeDevCommand": "npm run dev",
     "devUrl": "http://localhost:1420",
-    "beforeBuildCommand": "npm run build && bash scripts/stage-sidecar.sh && bash scripts/stage-gallery.sh",
+    "beforeBuildCommand": "npm run build && bash scripts/stage-node-runtime.sh && bash scripts/stage-sidecar.sh && bash scripts/stage-gallery.sh",
     "frontendDist": "../dist"
   },
   "app": {
@@ -39,6 +39,7 @@
       "icons/icon.ico"
     ],
     "resources": {
+      "node-dist": "node-runtime",
       "sidecar-dist": "sidecar",
       "gallery-dist": "gallery"
     },

@@ -172,7 +172,7 @@ pub fn start_atelier(
     }
 
     if use_node {
-        let node = crate::bin_resolver::node_bin()?;
+        let node = crate::bin_resolver::node_bin(&app)?;
         Command::new(node)
             .env("ATELIER_STUDIO", "1")
             .env("GALLERY_ROOT", &root)

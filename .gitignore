@@ -26,6 +26,8 @@ src-tauri/target/
 sidecar/node_modules/
 src-tauri/sidecar-dist/
 src-tauri/gallery-dist/
+src-tauri/node-dist/
+.cache/node-runtime/
 .opencode/
 
 # Local research/build artifacts
