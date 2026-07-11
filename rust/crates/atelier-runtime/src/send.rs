@@ -71,9 +71,8 @@ pub async fn handle_send(state: &AppState, msg: &Value) -> Vec<String> {
     }
 
     let Some(provider_impl) = state.provider(&provider) else {
-        // Helpful message: real providers not yet ported
         return vec![err_json(format!(
-            "provider inconnu ou non branché en Rust: {provider} (porte 5: 'fake' disponible avec ATELIER_ENABLE_FAKE=1; Claude/Codex Portes 6–7)"
+            "provider inconnu ou non branché en Rust: {provider} (fake toujours; claude si `claude` dans le PATH; Codex Porte 7)"
         ))];
     };
 

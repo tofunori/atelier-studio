@@ -21,9 +21,9 @@
 - **Depends on**: stabilité du contrat galerie et du harnais agents
 - **Reference implementation**: backend Rust de `/Users/tofunori/Documents/cmux-gallery/rust`
 - **Non-goal**: réécrire React, CodeMirror, les viewers ou les éditeurs en Rust
-- **Progress (2026-07-11)**: **R5 en cours** — R1–R4 commités ; Porte 5
-  `atelier-harness` + `atelier-providers` (FakeProvider, send/interrupt).
-  Claude/Codex réels = Portes 6–7. Node reste défaut.
+- **Progress (2026-07-11)**: **R6 en cours** — R1–R5 commités ; Porte 6
+  Claude via CLI stream-json (`ClaudeProvider` + parseur). Codex = Porte 7.
+  Node reste défaut.
 
 ## Décision produit non négociable
 
@@ -324,14 +324,17 @@ Codex, Claude et Grok restent explicites et testables.
 
 ## Porte 6 — Claude
 
-- [ ] Nouveau thread et reprise de session.
-- [ ] Streaming texte et raisonnement exposé par le contrat actuel.
-- [ ] `tool_use`, `tool_result` et erreurs.
-- [ ] Permissions et interactions.
-- [ ] Pièces jointes et contexte projet.
-- [ ] Interrupt, crash, reprise et fermeture pendant un tour.
-- [ ] Historique et limites d'usage.
-- [ ] Parité avec tous les tests `claude_*` existants.
+- [x] Nouveau thread et reprise de session (`--resume` UUID).
+- [x] Streaming texte / thinking / delta (stream-json + include-partial).
+- [x] `tool_use` / `tool_result` → tool_update + edit (parseur unitaire).
+- [~] Permissions : `bypassPermissions` par défaut ; canUseTool UI non porté.
+- [~] Pièces jointes : prompt texte ; images/attachments à compléter.
+- [x] Interrupt (SIGTERM process group) + flush tools interrupted.
+- [~] Usage dans done ; rate_limit_event fichier non porté.
+- [~] Tests `claude_*` Node non rejoués ; parse fixture Rust verts.
+
+**Impl**: `atelier-providers/src/claude.rs` + `claude_parse.rs`.
+Nécessite binaire `claude` dans le PATH (ou `ATELIER_CLAUDE_BIN`).
 
 ## Porte 7 — Codex
 

@@ -76,10 +76,13 @@ pub fn provider_status_list() -> Vec<ProviderStatus> {
     builtin_catalog()
 }
 
-/// Live provider instances. Porte 5: Fake + stubs that refuse real sends.
+/// Live provider instances.
 pub fn build_registry() -> HashMap<String, Arc<dyn Provider>> {
     let mut m: HashMap<String, Arc<dyn Provider>> = HashMap::new();
     m.insert("fake".into(), Arc::new(FakeProvider::new("fake")));
-    // Real providers land in Portes 6–8; until then unknown ids error on send.
+    if let Some(claude) = crate::claude::ClaudeProvider::new() {
+        m.insert("claude".into(), Arc::new(claude));
+    }
+    // Codex / Grok / OpenCode: Portes 7–8
     m
 }

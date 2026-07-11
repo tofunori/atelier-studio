@@ -10,8 +10,19 @@ Migration à **parité fonctionnelle** du sidecar Node + serveur galerie Node ve
 | **R2** | Galerie Rust vendored (`atelier-gallery-server`) | **Node** galerie (défaut) |
 | **R3** | `atelier-store` + WS threads/history/highlights | Node chat (défaut) |
 | **R4** | `atelier-workspace` Git/term/Zotero/scan | Node chat (défaut) |
-| **R5** (actuel) | Harness + FakeProvider + `send`/`interrupt` | Node chat (défaut) ; `provider: fake` en Rust |
-| R6+ | Claude puis Codex réels | voir `plans/033-*.md` |
+| **R5** | Harness + FakeProvider + `send`/`interrupt` | Node défaut |
+| **R6** (actuel) | Claude CLI stream-json | Node défaut ; `provider: claude` si `claude` dans PATH |
+| R7+ | Codex puis Grok/OpenCode | voir `plans/033-*.md` |
+
+### Claude (R6)
+
+```bash
+# binaire
+which claude   # ou ATELIER_CLAUDE_BIN=/path/to/claude
+export ATELIER_BACKEND=rust
+# optionnel : mode minimal sans hooks
+# export ATELIER_CLAUDE_BARE=1
+```
 
 ### Ticket de réunification (cmux-gallery)
 

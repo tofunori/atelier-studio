@@ -192,6 +192,7 @@ dependencies = [
  "atelier-harness",
  "atelier-protocol",
  "atelier-store",
+ "libc",
  "serde",
  "serde_json",
  "tempfile",

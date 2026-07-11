@@ -51,7 +51,8 @@ Inventaire exhaustif depuis `sidecar/router.mjs`. Statut global R1 : hors `ping`
 | S-WS-BROWSER | `checkFrame` / `scanLocal` | — | `ABSENT` |
 | S-WS-TERM | `termOpen/Input/Resize/Close` | PTY | `ABSENT` |
 | S-WS-THREADS | list/rename/move/delete/upsert | threads.json | `PARITY` (R3; fork/import later) |
-| S-WS-SEND | `send` / `interrupt` / harness stream | harness-history | `PARTIAL` (R5 fake only) |
+| S-WS-SEND | `send` / `interrupt` / harness stream | harness-history | `PARTIAL` (R5 fake + R6 claude CLI) |
+| S-PROV-CLAUDE | Claude stream-json | process | `PARTIAL` (R6; no SDK permissions UI) |
 | S-WS-PROV | `providerStatus` / `status` | — | `PARITY` (R5) |
 | S-WS-HISTORY | `getHistory` | journal materialize | `PARTIAL` (no provider loaders) |
 | S-WS-HIGHLIGHT | add/remove/list | highlights.json | `PARITY` (R3) |
