@@ -7,8 +7,9 @@ Migration à **parité fonctionnelle** du sidecar Node + serveur galerie Node ve
 | Livraison | Contenu | Backend production |
 |-----------|---------|-------------------|
 | **R1** | Sidecar HTTP/WS minimal | **Node** (défaut) |
-| **R2** (actuel) | Galerie Rust vendored (`atelier-gallery-server`) + sélecteur `ATELIER_GALLERY_BACKEND` | **Node** galerie (défaut) ; Rust opt-in |
-| R3+ | Store/harness/providers via Rust | voir `plans/033-*.md` |
+| **R2** | Galerie Rust vendored (`atelier-gallery-server`) | **Node** galerie (défaut) |
+| **R3** (actuel) | `atelier-store` + WS threads/history/highlights/settings/ledger | **Node** chat (défaut) ; Rust opt-in |
+| R4+ | Workspace/Git/terminal + moteur providers | voir `plans/033-*.md` |
 
 ### Ticket de réunification (cmux-gallery)
 
@@ -67,7 +68,8 @@ export ATELIER_GALLERY_SERVER="$PWD/rust/target/debug/atelier-gallery-server"
 ```
 rust/crates/
   atelier-protocol/     # types JSON sidecar
-  atelier-runtime/      # serveur sidecar axum
+  atelier-runtime/      # serveur sidecar axum + ws_router
+  atelier-store/        # threads, highlights, settings, journal, ledger
   atelier-server/       # binaire atelier-studio-server (chat)
   atelier-core/         # noyau galerie (vendored cmux)
   atelier-gallery/      # binaire atelier-gallery-server

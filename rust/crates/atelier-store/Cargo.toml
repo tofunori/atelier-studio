@@ -1,0 +1,17 @@
+[package]
+name = "atelier-store"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Durable app state: threads, highlights, settings, harness journal, ledger (plan 033 Porte 3)"
+
+[dependencies]
+serde = { workspace = true }
+serde_json = { workspace = true }
+sha2 = "0.10"
+hex = "0.4"
+uuid = { version = "1", features = ["v4"] }
+thiserror = { workspace = true }
+
+[dev-dependencies]
+tempfile = { workspace = true }

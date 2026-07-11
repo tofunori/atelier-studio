@@ -21,10 +21,9 @@
 - **Depends on**: stabilité du contrat galerie et du harnais agents
 - **Reference implementation**: backend Rust de `/Users/tofunori/Documents/cmux-gallery/rust`
 - **Non-goal**: réécrire React, CodeMirror, les viewers ou les éditeurs en Rust
-- **Progress (2026-07-11)**: **R2 en cours** — R1 commité ; Porte 2 galerie Rust
-  vendored (`atelier-gallery-server`) + `ATELIER_GALLERY_BACKEND=rust|node`.
-  Node reste le défaut pour chat et galerie. Ticket réunification cmux ouvert
-  dans `rust/README.md`.
+- **Progress (2026-07-11)**: **R3 en cours** — R1+R2 commités ; Porte 3
+  `atelier-store` (threads/highlights/settings/journal/ledger) + WS persistence
+  handlers ; `GET /findfile` galerie. Node reste défaut chat/galerie.
 
 ## Décision produit non négociable
 
@@ -268,18 +267,20 @@ fonctions.
 
 **Objectif**: porter les domaines sans fournisseur avant le harnais complexe.
 
-- [ ] Threads, titres, projets et déplacements.
-- [ ] Historique et import de sessions.
-- [ ] Journal durable du harnais.
-- [ ] Ledger et snapshots.
-- [ ] Highlights et annotations.
-- [ ] Réglages et état UI partagé.
-- [ ] Goals persistés et métadonnées de tours.
-- [ ] Écritures atomiques, verrouillage et récupération après crash.
-- [ ] Lecture directe de tous les profils JSON existants.
+- [x] Threads, titres, projets et déplacements (`listThreads`/`rename`/`move`/`delete`/`upsertThread`).
+- [~] Historique : journal harness materialize OK ; import sessions provider = Porte 5+.
+- [x] Journal durable du harnais (append/materialize/delete, compactage tool_update).
+- [x] Ledger lecture (`getLedger`) + append API store.
+- [x] Highlights add/remove/list.
+- [x] Réglages (`getSettings`/`saveSettings`) + `/uistate` (R1).
+- [~] Goals : champs extra préservés dans threads.json ; API goalSet = Porte 5+.
+- [x] Écritures atomiques (tmp+rename) ; journal append-only + tombstones.
+- [x] Lecture directe des profils JSON existants (formats Node).
 
 Ne pas imposer SQLite pendant cette migration. Une conversion de stockage est un
 projet séparé; ici, Rust doit d'abord lire et écrire les formats existants.
+
+**Impl**: `rust/crates/atelier-store` + `atelier-runtime/ws_router.rs`.
 
 ## Porte 4 — Workspace, Git, terminal et bibliothèque
 

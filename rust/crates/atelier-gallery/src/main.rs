@@ -1900,6 +1900,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .route("/code", get(files::code))
         .route("/texroot", get(files::texroot))
         .route("/findscript", get(files::findscript))
+        .route("/findfile", get(files::findfile))
         .route("/codesave", post(files::codesave))
         .route("/save-svg", post(files::save_svg))
         .route("/selinfo", post(files::selinfo))

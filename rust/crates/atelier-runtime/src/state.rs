@@ -2,8 +2,9 @@
 
 use crate::paths::AppPaths;
 use atelier_protocol::Health;
+use atelier_store::{HarnessJournal, HighlightStore, ThreadStore};
 use std::sync::Arc;
-use tokio::sync::RwLock;
+use tokio::sync::{broadcast, Mutex, RwLock};
 
 #[derive(Clone)]
 pub struct AppState {
@@ -18,6 +19,11 @@ struct Inner {
     bundle_hash: String,
     server_dir: String,
     port: RwLock<Option<u16>>,
+    threads: Mutex<ThreadStore>,
+    highlights: Mutex<HighlightStore>,
+    journal: HarnessJournal,
+    /// Fan-out for multi-client WS (threads/highlights broadcasts).
+    bus: broadcast::Sender<String>,
 }
 
 impl AppState {
@@ -29,6 +35,22 @@ impl AppState {
         bundle_hash: String,
         server_dir: String,
     ) -> Self {
+        let threads = ThreadStore::open(paths.app_dir.join("threads.json"));
+        let highlights = HighlightStore::open(paths.app_dir.join("highlights.json"));
+        let journal = HarnessJournal::new(&paths.app_dir);
+        let (bus, _) = broadcast::channel(128);
+        // Purge ghost "running" status from previous process (Node index.mjs boot).
+        // Done after open by rewriting idle — keep simple: lazy on list is enough?
+        // Match Node: fix at startup.
+        let mut threads = threads;
+        for t in threads.list() {
+            if t.status == "running" {
+                let _ = threads.upsert(
+                    serde_json::json!({"id": t.id, "status": "idle"}),
+                    true,
+                );
+            }
+        }
         Self {
             inner: Arc::new(Inner {
                 paths,
@@ -38,6 +60,10 @@ impl AppState {
                 bundle_hash,
                 server_dir,
                 port: RwLock::new(None),
+                threads: Mutex::new(threads),
+                highlights: Mutex::new(highlights),
+                journal,
+                bus,
             }),
         }
     }
@@ -101,5 +127,33 @@ impl AppState {
 
     pub fn server_dir(&self) -> &str {
         &self.inner.server_dir
+    }
+
+    pub fn threads(&self) -> &Mutex<ThreadStore> {
+        &self.inner.threads
+    }
+
+    pub fn highlights(&self) -> &Mutex<HighlightStore> {
+        &self.inner.highlights
+    }
+
+    pub fn journal(&self) -> &HarnessJournal {
+        &self.inner.journal
+    }
+
+    pub fn subscribe_bus(&self) -> broadcast::Receiver<String> {
+        self.inner.bus.subscribe()
+    }
+
+    pub fn publish(&self, msg: String) {
+        let _ = self.inner.bus.send(msg);
+    }
+
+    pub fn settings_path(&self) -> std::path::PathBuf {
+        self.inner.paths.app_dir.join("settings.json")
+    }
+
+    pub fn ledger_dir(&self) -> std::path::PathBuf {
+        self.inner.paths.app_dir.join("ledger")
     }
 }

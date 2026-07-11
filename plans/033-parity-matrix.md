@@ -46,14 +46,15 @@ Inventaire exhaustif depuis `sidecar/router.mjs`. Statut global R1 : hors `ping`
 | S-WS-SETUP | `setupStatus` | setup | `ABSENT` |
 | S-WS-API-* | `apiProviders` / save / list / delete | api_providers.json | `ABSENT` |
 | S-WS-PASTED | `clearPasted` / `listPasted` | pasted/ | `ABSENT` |
-| S-WS-SETTINGS | `getSettings` / `saveSettings` | settings.json | `ABSENT` |
+| S-WS-SETTINGS | `getSettings` / `saveSettings` | settings.json | `PARITY` (R3) |
 | S-WS-IMAGE | `saveImage` / `generateImage` | pasted/ + project | `ABSENT` |
 | S-WS-BROWSER | `checkFrame` / `scanLocal` | — | `ABSENT` |
 | S-WS-TERM | `termOpen/Input/Resize/Close` | PTY | `ABSENT` |
-| S-WS-THREADS | list/rename/move/delete/fork/import/export | threads.json | `ABSENT` |
+| S-WS-THREADS | list/rename/move/delete/upsert | threads.json | `PARITY` (R3; fork/import later) |
 | S-WS-SEND | `send` / `interrupt` / harness stream | harness-history | `ABSENT` |
-| S-WS-HISTORY | `getHistory` | journal | `ABSENT` |
-| S-WS-HIGHLIGHT | add/remove/list | highlights.json | `ABSENT` |
+| S-WS-HISTORY | `getHistory` | journal materialize | `PARTIAL` (no provider loaders) |
+| S-WS-HIGHLIGHT | add/remove/list | highlights.json | `PARITY` (R3) |
+| S-WS-LEDGER | `getLedger` | ledger/*.jsonl | `PARITY` (R3) |
 | S-WS-GIT | status/diff/stage/… | repo | `ABSENT` |
 | S-WS-ZOTERO | search/digest/fav/… | sqlite + favs | `ABSENT` |
 | S-WS-GOAL | goalSet/Get/Clear | provider | `ABSENT` |
@@ -85,7 +86,7 @@ Statut R2 (2026-07-11) : binaire `atelier-gallery-server` opt-in via
 | G-VERSIONS | GET/POST | `/versions` | dv_versions/ | yes | yes | `PARITY` |
 | G-GIT-* | GET/POST | githead/log/show/commit | git | yes | yes | `PARITY` |
 | G-CODE | GET/POST | `/code` `/codesave` | files | yes | yes | `PARITY` |
-| G-FINDFILE | GET | `/findfile` | — | Studio only | **missing** | `ABSENT` |
+| G-FINDFILE | GET | `/findfile` | — | Studio only | yes | `PARITY` |
 | G-LATEX | POST | `/compile` `/synctex` | aux | yes | yes | `PARITY` |
 | G-SVG | POST | `/save-svg` `/export-png` | svg+edits | yes | yes | `PARITY` |
 | G-EXPORT | POST | `/export` `/delete` `/open` | trash/export | yes | yes | `PARITY` |
@@ -101,13 +102,13 @@ Référence amont : `/Users/tofunori/Documents/cmux-gallery/rust` (copie sous `r
 
 | id | chemin | writer Node | statut Rust |
 |----|--------|-------------|-------------|
-| ST-THREADS | `…/atelier-studio/threads.json` | ThreadStore | `ABSENT` |
-| ST-HIGHLIGHTS | `…/highlights.json` | HighlightStore | `ABSENT` |
-| ST-SETTINGS | `…/settings.json` | get/saveSettings | `ABSENT` |
+| ST-THREADS | `…/atelier-studio/threads.json` | ThreadStore | `PARITY` (R3) |
+| ST-HIGHLIGHTS | `…/highlights.json` | HighlightStore | `PARITY` (R3) |
+| ST-SETTINGS | `…/settings.json` | get/saveSettings | `PARITY` (R3) |
 | ST-UI | `…/ui.json` | /uistate | `RUST_R1` |
 | ST-API | `…/api_providers.json` | openai_api | `ABSENT` |
-| ST-HARNESS | `…/harness-history/*.jsonl` | harness journal | `ABSENT` |
-| ST-LEDGER | `…/ledger/*.jsonl` | ledger | `ABSENT` |
+| ST-HARNESS | `…/harness-history/*.jsonl` | harness journal | `PARITY` (R3 read/write/materialize) |
+| ST-LEDGER | `…/ledger/*.jsonl` | ledger | `PARITY` (R3) |
 | ST-PASTED | `…/pasted/` | saveImage | `ABSENT` |
 | ST-ZFAV | `…/zotero-favs.json` | zoteroFav | `ABSENT` |
 | ST-PID | `…/sidecar.pid` | Node | `RUST_R1` |

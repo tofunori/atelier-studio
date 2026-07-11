@@ -333,14 +333,20 @@ async fn ws_upgrade(
         .into_response()
 }
 
-async fn handle_socket(socket: WebSocket, _state: AppState) {
+async fn handle_socket(socket: WebSocket, state: AppState) {
     let (mut sender, mut receiver) = socket.split();
+    // Porte 3: direct replies to the requesting socket. `state.publish` is
+    // available for a future multi-socket fan-out registry; multi-window
+    // same-process still shares threads.json on disk so listThreads after
+    // reconnect stays consistent.
     while let Some(Ok(msg)) = receiver.next().await {
         match msg {
             Message::Text(text) => {
-                let reply = route_ws_text(&text);
-                if sender.send(Message::Text(reply.into())).await.is_err() {
-                    break;
+                let replies = crate::ws_router::route_ws(&state, &text).await;
+                for reply in replies {
+                    if sender.send(Message::Text(reply.into())).await.is_err() {
+                        return;
+                    }
                 }
             }
             Message::Ping(p) => {
@@ -354,24 +360,22 @@ async fn handle_socket(socket: WebSocket, _state: AppState) {
     }
 }
 
-/// Route a single WS text frame. R1: ping/pong + unknown type error.
+/// Route a single WS text frame (sync wrapper for unit tests of ping).
 pub fn route_ws_text(text: &str) -> String {
-    let msg: ClientMessage = match serde_json::from_str(text) {
-        Ok(m) => m,
-        Err(_) => {
-            return serde_json::to_string(&ErrorMessage::new("JSON invalide"))
-                .unwrap_or_else(|_| r#"{"type":"error","message":"JSON invalide"}"#.into());
+    // Minimal sync path for tests that only need ping/error shape.
+    if let Ok(msg) = serde_json::from_str::<ClientMessage>(text) {
+        if msg.msg_type == "ping" {
+            return serde_json::to_string(&PongMessage::new())
+                .unwrap_or_else(|_| r#"{"type":"pong"}"#.into());
         }
-    };
-    match msg.msg_type.as_str() {
-        "ping" => serde_json::to_string(&PongMessage::new())
-            .unwrap_or_else(|_| r#"{"type":"pong"}"#.into()),
-        other => {
-            let err = ErrorMessage::new(format!("type inconnu: {other}"));
-            serde_json::to_string(&err)
-                .unwrap_or_else(|_| r#"{"type":"error","message":"type inconnu"}"#.into())
-        }
+        return serde_json::to_string(&ErrorMessage::new(format!(
+            "type inconnu: {}",
+            msg.msg_type
+        )))
+        .unwrap_or_else(|_| r#"{"type":"error","message":"type inconnu"}"#.into());
     }
+    serde_json::to_string(&ErrorMessage::new("JSON invalide"))
+        .unwrap_or_else(|_| r#"{"type":"error","message":"JSON invalide"}"#.into())
 }
 
 /// Config from environment (production entry).

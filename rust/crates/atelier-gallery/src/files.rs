@@ -47,6 +47,11 @@ pub struct FindScriptQuery {
 }
 
 #[derive(Deserialize)]
+pub struct FindFileQuery {
+    name: Option<String>,
+}
+
+#[derive(Deserialize)]
 pub struct CodeSaveBody {
     path: String,
     text: String,
@@ -366,6 +371,75 @@ pub async fn texroot(
         })),
     )
         .into_response()
+}
+
+/// `GET /findfile?name=` — bare filename walk (Studio Node editors.mjs parity).
+/// Returns up to 5 relative paths; skips dot dirs, node_modules, __pycache__, test-results.
+pub async fn findfile(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Query(query): Query<FindFileQuery>,
+) -> impl IntoResponse {
+    if !request_allowed(&headers, &state) {
+        return json_error(StatusCode::FORBIDDEN, "cross-origin blocked");
+    }
+    let name = query.name.unwrap_or_default();
+    if name.is_empty() || name.contains('/') || name.starts_with('.') {
+        return json_error(StatusCode::BAD_REQUEST, "bad name");
+    }
+    let root = state.root.clone();
+    let hits = tokio::task::spawn_blocking(move || walk_findfile(&root, &name))
+        .await
+        .unwrap_or_default();
+    (StatusCode::OK, Json(json!({ "hits": hits }))).into_response()
+}
+
+fn walk_findfile(project: &Path, name: &str) -> Vec<String> {
+    let skip: std::collections::HashSet<&str> =
+        ["node_modules", "__pycache__", "test-results"].into_iter().collect();
+    let mut hits = Vec::new();
+    fn walk(
+        dir: &Path,
+        project: &Path,
+        name: &str,
+        skip: &std::collections::HashSet<&str>,
+        depth: u32,
+        hits: &mut Vec<String>,
+    ) {
+        if hits.len() >= 5 || depth > 8 {
+            return;
+        }
+        let Ok(entries) = std::fs::read_dir(dir) else {
+            return;
+        };
+        for entry in entries.flatten() {
+            if hits.len() >= 5 {
+                return;
+            }
+            let fname = entry.file_name();
+            let Some(s) = fname.to_str() else {
+                continue;
+            };
+            if s.starts_with('.') || skip.contains(s) {
+                continue;
+            }
+            let path = entry.path();
+            let Ok(ft) = entry.file_type() else {
+                continue;
+            };
+            if ft.is_dir() {
+                walk(&path, project, name, skip, depth + 1, hits);
+            } else if s == name {
+                let rel = path
+                    .strip_prefix(project)
+                    .map(|p| p.to_string_lossy().replace('\\', "/"))
+                    .unwrap_or_else(|_| path.to_string_lossy().into());
+                hits.push(rel);
+            }
+        }
+    }
+    walk(project, project, name, &skip, 0, &mut hits);
+    hits
 }
 
 /// `GET /findscript?stem=` — first project hit via `rg -F` (local origin).

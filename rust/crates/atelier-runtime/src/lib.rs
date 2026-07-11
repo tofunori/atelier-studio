@@ -5,6 +5,7 @@ pub mod instance;
 pub mod paths;
 pub mod server;
 pub mod state;
+pub mod ws_router;
 
 pub use atomic::write_file_atomic;
 pub use instance::{resolve_single_instance, InstanceAction};

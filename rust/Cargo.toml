@@ -4,6 +4,7 @@ members = [
   "crates/atelier-protocol",
   "crates/atelier-runtime",
   "crates/atelier-server",
+  "crates/atelier-store",
   "crates/atelier-core",
   "crates/atelier-gallery",
 ]
@@ -17,6 +18,7 @@ authors = ["Atelier Studio"]
 [workspace.dependencies]
 atelier-protocol = { path = "crates/atelier-protocol" }
 atelier-runtime = { path = "crates/atelier-runtime" }
+atelier-store = { path = "crates/atelier-store" }
 axum = { version = "0.8", features = ["ws", "macros"] }
 futures-util = "0.3"
 serde = { version = "1", features = ["derive"] }
