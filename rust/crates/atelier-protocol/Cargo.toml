@@ -1,0 +1,10 @@
+[package]
+name = "atelier-protocol"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "HTTP/WS protocol types for Atelier Studio backend"
+
+[dependencies]
+serde = { workspace = true }
+serde_json = { workspace = true }

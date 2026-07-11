@@ -1,0 +1,17 @@
+[package]
+name = "atelier-server"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Atelier Studio backend binary (Rust) — plan 033"
+default-run = "atelier-studio-server"
+
+[[bin]]
+name = "atelier-studio-server"
+path = "src/main.rs"
+
+[dependencies]
+atelier-runtime = { workspace = true }
+tokio = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }

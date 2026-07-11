@@ -1,0 +1,394 @@
+//! Contract types shared by the Rust backend and contract tests.
+//! Shapes must stay compatible with the historical Node sidecar (`sidecar/index.mjs`).
+
+use serde::{Deserialize, Serialize};
+use serde_json::Value;
+
+/// Protocol version for future negotiation (not yet on the wire).
+pub const PROTOCOL_VERSION: u32 = 1;
+
+/// Identity string expected by Tauri (`src-tauri/src/identity.rs`).
+pub const SIDECAR_SERVICE: &str = "atelier-sidecar";
+
+/// Backend runtime label for diagnostics (Node used "node" implicitly).
+pub const BACKEND_RUST: &str = "rust";
+
+// ---------------------------------------------------------------------------
+// HTTP: /health
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct Health {
+    pub ok: bool,
+    pub service: String,
+    pub pid: u32,
+    pub port: Option<u16>,
+    pub started_at: String,
+    pub app_version: String,
+    pub bundle_hash: String,
+    pub token_required: bool,
+    /// Present on Rust backend only — Node clients ignore unknown fields.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub backend: Option<String>,
+}
+
+impl Health {
+    pub fn new(
+        pid: u32,
+        port: Option<u16>,
+        started_at: String,
+        app_version: String,
+        bundle_hash: String,
+        token_required: bool,
+    ) -> Self {
+        Self {
+            ok: true,
+            service: SIDECAR_SERVICE.to_string(),
+            pid,
+            port,
+            started_at,
+            app_version,
+            bundle_hash,
+            token_required,
+            backend: Some(BACKEND_RUST.to_string()),
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// HTTP: /providers
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct ProviderCapabilities {
+    pub resume: bool,
+    pub steering: bool,
+    pub queue: bool,
+    pub goals: bool,
+    pub tools: bool,
+    pub tool_output: bool,
+    pub permissions: bool,
+    pub interactive_input: bool,
+    pub mcp_elicitation: bool,
+    pub durable_history: bool,
+    pub permission_modes: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct ProviderStatus {
+    pub id: String,
+    pub label: String,
+    pub kind: String,
+    pub models: Vec<String>,
+    #[serde(default)]
+    pub model_reasoning: Value,
+    pub default_model: String,
+    pub efforts: Vec<String>,
+    pub capabilities: ProviderCapabilities,
+    pub version: Option<String>,
+    pub ok: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub key_missing: Option<bool>,
+}
+
+// ---------------------------------------------------------------------------
+// HTTP: /setup
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct SetupRuntime {
+    pub node: String,
+    pub version: String,
+    pub bundled: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct SetupSidecar {
+    pub pid: u32,
+    pub started_at: String,
+    pub app_version: String,
+    pub bundle_hash: String,
+    pub dir: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct SetupProviderRow {
+    pub id: String,
+    pub label: String,
+    pub kind: String,
+    pub installed: bool,
+    pub version: Option<String>,
+    pub bin_path: Option<String>,
+    pub auth: String,
+    pub models: usize,
+    pub default_model: String,
+    pub model_error: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct SetupStatus {
+    pub runtime: SetupRuntime,
+    pub sidecar: SetupSidecar,
+    pub providers: Vec<SetupProviderRow>,
+}
+
+// ---------------------------------------------------------------------------
+// WebSocket framing
+// ---------------------------------------------------------------------------
+
+/// Inbound client message (partial — R1 only needs `ping` + unknown-type error).
+#[derive(Debug, Clone, Deserialize)]
+pub struct ClientMessage {
+    #[serde(rename = "type")]
+    pub msg_type: String,
+    #[serde(flatten)]
+    pub rest: Value,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct PongMessage {
+    #[serde(rename = "type")]
+    pub msg_type: String,
+}
+
+impl PongMessage {
+    pub fn new() -> Self {
+        Self {
+            msg_type: "pong".to_string(),
+        }
+    }
+}
+
+impl Default for PongMessage {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct ErrorMessage {
+    #[serde(rename = "type")]
+    pub msg_type: String,
+    pub message: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub thread_id: Option<String>,
+}
+
+impl ErrorMessage {
+    pub fn new(message: impl Into<String>) -> Self {
+        Self {
+            msg_type: "error".to_string(),
+            message: message.into(),
+            thread_id: None,
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Built-in provider catalog (mirrors sidecar/providers/registry.mjs — R1 static)
+// ---------------------------------------------------------------------------
+
+pub fn builtin_providers() -> Vec<ProviderStatus> {
+    vec![
+        ProviderStatus {
+            id: "claude".into(),
+            label: "Claude Code".into(),
+            kind: "cli".into(),
+            models: vec![
+                "claude-fable-5".into(),
+                "claude-opus-4-8".into(),
+                "claude-sonnet-5".into(),
+                "claude-haiku-4-5-20251001".into(),
+            ],
+            model_reasoning: Value::Object(Default::default()),
+            default_model: "claude-fable-5".into(),
+            efforts: vec![
+                "low".into(),
+                "medium".into(),
+                "high".into(),
+                "xhigh".into(),
+                "max".into(),
+            ],
+            capabilities: ProviderCapabilities {
+                resume: true,
+                steering: true,
+                queue: true,
+                goals: false,
+                tools: true,
+                tool_output: true,
+                permissions: true,
+                interactive_input: false,
+                mcp_elicitation: false,
+                durable_history: false,
+                permission_modes: vec![
+                    "default".into(),
+                    "acceptEdits".into(),
+                    "plan".into(),
+                    "bypassPermissions".into(),
+                ],
+            },
+            version: None,
+            ok: false,
+            key_missing: None,
+        },
+        ProviderStatus {
+            id: "codex".into(),
+            label: "Codex".into(),
+            kind: "cli".into(),
+            models: vec![
+                "gpt-5.6-sol".into(),
+                "gpt-5.6-terra".into(),
+                "gpt-5.6-luna".into(),
+                "gpt-5.5".into(),
+                "gpt-5.1-codex-max".into(),
+                "gpt-5.1-codex".into(),
+            ],
+            model_reasoning: Value::Object(Default::default()),
+            default_model: "gpt-5.5".into(),
+            efforts: vec![
+                "low".into(),
+                "medium".into(),
+                "high".into(),
+                "xhigh".into(),
+                "max".into(),
+            ],
+            capabilities: ProviderCapabilities {
+                resume: true,
+                steering: true,
+                queue: true,
+                goals: true,
+                tools: true,
+                tool_output: true,
+                permissions: true,
+                interactive_input: true,
+                mcp_elicitation: true,
+                durable_history: false,
+                permission_modes: vec![
+                    "default".into(),
+                    "acceptEdits".into(),
+                    "plan".into(),
+                    "bypassPermissions".into(),
+                ],
+            },
+            version: None,
+            ok: false,
+            key_missing: None,
+        },
+        ProviderStatus {
+            id: "grok".into(),
+            label: "Grok".into(),
+            kind: "cli".into(),
+            models: vec!["grok-4.5".into(), "grok-composer-2.5-fast".into()],
+            model_reasoning: Value::Object(Default::default()),
+            default_model: "grok-4.5".into(),
+            efforts: vec![
+                "minimal".into(),
+                "low".into(),
+                "medium".into(),
+                "high".into(),
+                "xhigh".into(),
+                "max".into(),
+            ],
+            capabilities: ProviderCapabilities {
+                resume: true,
+                steering: false,
+                queue: true,
+                goals: false,
+                tools: true,
+                tool_output: false,
+                permissions: false,
+                interactive_input: false,
+                mcp_elicitation: false,
+                durable_history: false,
+                permission_modes: vec![],
+            },
+            version: None,
+            ok: false,
+            key_missing: None,
+        },
+        ProviderStatus {
+            id: "opencode".into(),
+            label: "OpenCode".into(),
+            kind: "cli".into(),
+            models: vec![
+                "openrouter/z-ai/glm-5.2".into(),
+                "openrouter/minimax/minimax-m3".into(),
+                "openrouter/tencent/hy3:free".into(),
+                "openrouter/qwen/qwen3-coder".into(),
+                "openrouter/moonshotai/kimi-k2.7-code".into(),
+                "openrouter/cohere/north-mini-code:free".into(),
+                "openrouter/openrouter/auto".into(),
+            ],
+            model_reasoning: Value::Object(Default::default()),
+            default_model: "openrouter/z-ai/glm-5.2".into(),
+            efforts: vec![
+                "minimal".into(),
+                "low".into(),
+                "medium".into(),
+                "high".into(),
+                "xhigh".into(),
+                "max".into(),
+            ],
+            capabilities: ProviderCapabilities {
+                resume: true,
+                steering: false,
+                queue: true,
+                goals: false,
+                tools: true,
+                tool_output: false,
+                permissions: false,
+                interactive_input: false,
+                mcp_elicitation: false,
+                durable_history: false,
+                permission_modes: vec![],
+            },
+            version: None,
+            ok: false,
+            key_missing: None,
+        },
+    ]
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn health_serializes_camel_case() {
+        let h = Health::new(
+            42,
+            Some(1234),
+            "2026-01-01T00:00:00.000Z".into(),
+            "0.1.0".into(),
+            "abc".into(),
+            true,
+        );
+        let v = serde_json::to_value(&h).unwrap();
+        assert_eq!(v["service"], SIDECAR_SERVICE);
+        assert_eq!(v["tokenRequired"], true);
+        assert_eq!(v["startedAt"], "2026-01-01T00:00:00.000Z");
+        assert_eq!(v["bundleHash"], "abc");
+        assert_eq!(v["appVersion"], "0.1.0");
+        assert_eq!(v["backend"], "rust");
+    }
+
+    #[test]
+    fn pong_shape() {
+        let p = PongMessage::new();
+        let v = serde_json::to_value(&p).unwrap();
+        assert_eq!(v, serde_json::json!({"type": "pong"}));
+    }
+
+    #[test]
+    fn builtin_provider_ids() {
+        let ids: Vec<_> = builtin_providers().into_iter().map(|p| p.id).collect();
+        assert_eq!(ids, vec!["claude", "codex", "grok", "opencode"]);
+    }
+}
