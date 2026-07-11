@@ -45,6 +45,81 @@ fn resolve_script(app: &tauri::AppHandle) -> Result<PathBuf, String> {
     }
 }
 
+/// Temporary selector (plan 033 R1). Default = node. Remove after soak (Porte 11).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum BackendKind {
+    Node,
+    Rust,
+}
+
+fn backend_kind() -> BackendKind {
+    match std::env::var("ATELIER_BACKEND")
+        .unwrap_or_default()
+        .to_ascii_lowercase()
+        .as_str()
+    {
+        "rust" => BackendKind::Rust,
+        _ => BackendKind::Node,
+    }
+}
+
+/// Resolve `atelier-studio-server` for ATELIER_BACKEND=rust (dev or resource).
+fn resolve_rust_server(app: &tauri::AppHandle) -> Result<PathBuf, String> {
+    if let Ok(explicit) = std::env::var("ATELIER_RUST_SERVER") {
+        let p = PathBuf::from(explicit);
+        if p.is_file() {
+            return Ok(p);
+        }
+        return Err(format!(
+            "ATELIER_RUST_SERVER introuvable: {}",
+            p.display()
+        ));
+    }
+    // Dev: workspace relative to CWD when launched from src-tauri or repo root.
+    let candidates = [
+        std::env::current_dir()
+            .ok()
+            .map(|c| c.join("../rust/target/debug/atelier-studio-server")),
+        std::env::current_dir()
+            .ok()
+            .map(|c| c.join("../rust/target/release/atelier-studio-server")),
+        std::env::current_dir()
+            .ok()
+            .map(|c| c.join("rust/target/debug/atelier-studio-server")),
+        std::env::current_dir()
+            .ok()
+            .map(|c| c.join("rust/target/release/atelier-studio-server")),
+        dirs::home_dir().map(|h| {
+            h.join("Documents/atelier-studio/rust/target/debug/atelier-studio-server")
+        }),
+        dirs::home_dir().map(|h| {
+            h.join("Documents/atelier-studio/rust/target/release/atelier-studio-server")
+        }),
+    ];
+    for c in candidates.into_iter().flatten() {
+        if c.is_file() {
+            return Ok(c);
+        }
+    }
+    let resource = app
+        .path()
+        .resource_dir()
+        .map_err(|e| e.to_string())?
+        .join("atelier-studio-server");
+    if resource.is_file() {
+        return Ok(resource);
+    }
+    Err(
+        "atelier-studio-server introuvable (compiler: cargo build -p atelier-server --manifest-path rust/Cargo.toml)"
+            .into(),
+    )
+}
+
+fn file_fingerprint(path: &std::path::Path) -> Result<String, String> {
+    let bytes = std::fs::read(path).map_err(|e| format!("hash {}: {e}", path.display()))?;
+    Ok(format!("{:x}", md5::compute(bytes)))
+}
+
 enum HealthError {
     /// Réseau/timeout — peut réussir au prochain essai (machine chargée).
     Transport(String),
@@ -201,11 +276,26 @@ fn parse_startup(line: &str) -> Result<ProcessHealth, String> {
 
 #[tauri::command]
 pub fn sidecar_port(app: tauri::AppHandle) -> Result<SidecarInfo, String> {
-    let script = resolve_script(&app)?;
-    let sidecar_dir = script
-        .parent()
-        .ok_or_else(|| format!("chemin sidecar invalide: {}", script.display()))?;
-    let bundle_hash = identity::dir_fingerprint(sidecar_dir)?;
+    let backend = backend_kind();
+    let (bundle_hash, mut spawn_cmd): (String, Command) = match backend {
+        BackendKind::Node => {
+            let script = resolve_script(&app)?;
+            let sidecar_dir = script
+                .parent()
+                .ok_or_else(|| format!("chemin sidecar invalide: {}", script.display()))?;
+            let bundle_hash = identity::dir_fingerprint(sidecar_dir)?;
+            let node = crate::bin_resolver::node_bin(&app)?;
+            let mut cmd = Command::new(node);
+            cmd.arg(&script);
+            (bundle_hash, cmd)
+        }
+        BackendKind::Rust => {
+            let bin = resolve_rust_server(&app)?;
+            let bundle_hash = file_fingerprint(&bin)?;
+            let cmd = Command::new(&bin);
+            (bundle_hash, cmd)
+        }
+    };
 
     let mut guard = SIDECAR.lock().unwrap();
     if let Some(info) = guard.clone() {
@@ -223,16 +313,18 @@ pub fn sidecar_port(app: tauri::AppHandle) -> Result<SidecarInfo, String> {
 
     let token = session_token()?;
     // Runtime du bundle en production; PATH réparé uniquement en secours dev.
-    let node = crate::bin_resolver::node_bin(&app)?;
-    let mut child = Command::new(node)
-        .arg(&script)
+    let mut child = spawn_cmd
         .env("ATELIER_TOKEN", &token)
         .env("ATELIER_APP_VERSION", identity::APP_VERSION)
         .env("ATELIER_BUNDLE_HASH", &bundle_hash)
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()
-        .map_err(|e| format!("spawn sidecar: {e}"))?;
+        .map_err(|e| {
+            format!(
+                "spawn sidecar ({backend:?}): {e}"
+            )
+        })?;
     let Some(stdout) = child.stdout.take() else {
         kill_child(&mut child);
         return Err("pas de stdout".into());

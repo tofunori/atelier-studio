@@ -23,6 +23,7 @@ dist-ssr
 *.sln
 *.sw?
 src-tauri/target/
+rust/target/
 sidecar/node_modules/
 src-tauri/sidecar-dist/
 src-tauri/gallery-dist/
