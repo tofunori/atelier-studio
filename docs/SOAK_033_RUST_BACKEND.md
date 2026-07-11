@@ -30,7 +30,7 @@ Cocher au fil de l'eau ; dater chaque item.
 | # | Critère | Comment prouver | Date | OK |
 |---|---------|-----------------|------|----|
 | S1 | ≥ 2 semaines d'usage normal, Rust défaut | journal perso / commits d'usage | | ☐ |
-| S2 | 20 relances release sans orphelin | `npm run soak:sidecar` ou relance app ×20 | | ☐ |
+| S2 | 20 relances **release** sans orphelin | `npm run soak:sidecar` → ligne `COUNTS_FOR_S2=yes` (exige `target/release`) | | ☐ |
 | S3 | Plusieurs projets + galeries simultanés | 2+ projets ouverts, galeries vivantes | | ☐ |
 | S4 | Codex + Claude actifs en parallèle | 2 threads, providers distincts | | ☐ |
 | S5 | Interrupt puis nouveau tour immédiat | UI Stop → renvoyer | | ☐ |
@@ -48,11 +48,18 @@ Cocher au fil de l'eau ; dater chaque item.
 ## Smoke automatisé (à chaque jour de soak)
 
 ```bash
-# 20 cycles start/health/kill du binaire Rust (pas l'UI)
+# S2 officiel : 20 cycles sur le binaire **release** uniquement
+cargo build -p atelier-server --release --manifest-path rust/Cargo.toml
 npm run soak:sidecar
+# attendu en fin de log : COUNTS_FOR_S2=yes
+
+# Smoke debug (ne compte PAS pour S2) :
+# SOAK_ALLOW_DEBUG=1 SOAK_ROUNDS=5 npm run soak:sidecar
 
 # Politique défaut Rust encore en place
 npm run check:backend-policy
+# --strict-no-node exige le fichier signé docs/soak/033-COMPLETE.md
+# (ATELIER_SOAK_COMPLETE=1 est volontairement ignoré)
 
 # Corpus lecture seule (optionnel, deux backends si ports dispo)
 # node sidecar/scripts/parity_ws_compare.mjs --node ws://… --rust ws://…

@@ -67,10 +67,15 @@ if (!existsSync(resolve(root, "scripts/stage-rust-server.sh"))) {
   errors.push("scripts/stage-rust-server.sh manquant");
 }
 
-// 4) Soak not complete → Node fallback must still exist
-const soakComplete =
-  existsSync(resolve(root, "docs/soak/033-COMPLETE.md")) ||
-  process.env.ATELIER_SOAK_COMPLETE === "1";
+// 4) Soak complete = fichier signé uniquement (pas de bypass env production).
+//    Contrat : docs/soak/033-COMPLETE.md — voir docs/SOAK_033_RUST_BACKEND.md
+const soakCompletePath = resolve(root, "docs/soak/033-COMPLETE.md");
+const soakComplete = existsSync(soakCompletePath);
+if (process.env.ATELIER_SOAK_COMPLETE === "1") {
+  warnings.push(
+    "ATELIER_SOAK_COMPLETE=1 est ignoré (seul docs/soak/033-COMPLETE.md compte)",
+  );
+}
 
 if (!soakComplete) {
   if (!before.includes("stage-sidecar.sh")) {

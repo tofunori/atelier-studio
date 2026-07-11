@@ -81,6 +81,8 @@ export ATELIER_BACKEND=node
 ## Smoke sans UI
 
 ```bash
-npm run soak:sidecar          # 20 cycles
+cargo build -p atelier-server --release --manifest-path rust/Cargo.toml
+npm run soak:sidecar          # 20 cycles release → COUNTS_FOR_S2=yes
 npm run check:backend-policy  # défaut Rust + stage présent
+# SOAK_ALLOW_DEBUG=1 = smoke seulement (pas S2)
 ```
