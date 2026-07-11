@@ -1,7 +1,15 @@
+//! Chat backend spawn (plan 033 Porte 10).
+//!
+//! **Default backend = Rust** (`atelier-studio-server`).  
+//! Explicit soak fallback: `ATELIER_BACKEND=node` (Node sidecar remains staged).
+//!
+//! Lifecycle: reuse in-process handle → reuse lockfile when health+identity match
+//! → spawn new → kill child on failed health (no orphan loops).
+
 use crate::identity::{self, ProcessHealth};
 use std::fs::File;
 use std::io::{BufRead, BufReader, Read};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::sync::{mpsc, Arc, Mutex};
 use std::thread;
@@ -14,6 +22,9 @@ pub struct SidecarInfo {
     port: u16,
     token: String,
     identity: Option<ProcessHealth>,
+    /// Diagnostic only — "rust" | "node" (optional for old lock files).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    backend: Option<String>,
 }
 
 static SIDECAR: Mutex<Option<SidecarInfo>> = Mutex::new(None);
@@ -45,72 +56,79 @@ fn resolve_script(app: &tauri::AppHandle) -> Result<PathBuf, String> {
     }
 }
 
-/// Temporary selector (plan 033 R1). Default = node. Remove after soak (Porte 11).
+/// Backend selector (plan 033). Default **Rust** since Porte 10.
+/// Soak: set `ATELIER_BACKEND=node` to force the historical Node sidecar.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum BackendKind {
     Node,
     Rust,
 }
 
-fn backend_kind() -> BackendKind {
-    match std::env::var("ATELIER_BACKEND")
-        .unwrap_or_default()
-        .to_ascii_lowercase()
-        .as_str()
-    {
-        "rust" => BackendKind::Rust,
-        _ => BackendKind::Node,
+impl BackendKind {
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::Node => "node",
+            Self::Rust => "rust",
+        }
     }
 }
 
-/// Resolve `atelier-studio-server` for ATELIER_BACKEND=rust (dev or resource).
-fn resolve_rust_server(app: &tauri::AppHandle) -> Result<PathBuf, String> {
-    if let Ok(explicit) = std::env::var("ATELIER_RUST_SERVER") {
-        let p = PathBuf::from(explicit);
-        if p.is_file() {
-            return Ok(p);
-        }
-        return Err(format!(
-            "ATELIER_RUST_SERVER introuvable: {}",
-            p.display()
-        ));
+fn parse_backend_kind(raw: &str) -> BackendKind {
+    match raw.trim().to_ascii_lowercase().as_str() {
+        "node" => BackendKind::Node,
+        // empty / "rust" / unknown → Rust (default). Unknown values do not
+        // silently re-enable Node; use explicit "node" for the soak fallback.
+        _ => BackendKind::Rust,
     }
-    // Dev: workspace relative to CWD when launched from src-tauri or repo root.
-    let candidates = [
-        std::env::current_dir()
-            .ok()
-            .map(|c| c.join("../rust/target/debug/atelier-studio-server")),
-        std::env::current_dir()
-            .ok()
-            .map(|c| c.join("../rust/target/release/atelier-studio-server")),
-        std::env::current_dir()
-            .ok()
-            .map(|c| c.join("rust/target/debug/atelier-studio-server")),
-        std::env::current_dir()
-            .ok()
-            .map(|c| c.join("rust/target/release/atelier-studio-server")),
-        dirs::home_dir().map(|h| {
-            h.join("Documents/atelier-studio/rust/target/debug/atelier-studio-server")
-        }),
-        dirs::home_dir().map(|h| {
-            h.join("Documents/atelier-studio/rust/target/release/atelier-studio-server")
-        }),
-    ];
-    for c in candidates.into_iter().flatten() {
+}
+
+fn backend_kind() -> BackendKind {
+    parse_backend_kind(&std::env::var("ATELIER_BACKEND").unwrap_or_default())
+}
+
+/// Candidate paths for `atelier-studio-server` (dev tree + staged resource).
+fn rust_server_candidates(resource_dir: Option<&Path>) -> Vec<PathBuf> {
+    let mut out = Vec::new();
+    if let Ok(explicit) = std::env::var("ATELIER_RUST_SERVER") {
+        out.push(PathBuf::from(explicit));
+    }
+    let cwd = std::env::current_dir().ok();
+    if let Some(c) = &cwd {
+        out.push(c.join("../rust/target/debug/atelier-studio-server"));
+        out.push(c.join("../rust/target/release/atelier-studio-server"));
+        out.push(c.join("rust/target/debug/atelier-studio-server"));
+        out.push(c.join("rust/target/release/atelier-studio-server"));
+        out.push(c.join("../src-tauri/rust-server-dist/atelier-studio-server"));
+        out.push(c.join("src-tauri/rust-server-dist/atelier-studio-server"));
+    }
+    if let Some(h) = dirs::home_dir() {
+        out.push(h.join("Documents/atelier-studio/rust/target/debug/atelier-studio-server"));
+        out.push(h.join("Documents/atelier-studio/rust/target/release/atelier-studio-server"));
+        out.push(
+            h.join("Documents/atelier-studio/src-tauri/rust-server-dist/atelier-studio-server"),
+        );
+    }
+    if let Some(res) = resource_dir {
+        // staged as resources "rust-server-dist" → "rust-server"
+        out.push(res.join("rust-server/atelier-studio-server"));
+        // flat alias if present
+        out.push(res.join("atelier-studio-server"));
+    }
+    out
+}
+
+/// Resolve `atelier-studio-server` for the Rust backend (dev or resource).
+fn resolve_rust_server(app: &tauri::AppHandle) -> Result<PathBuf, String> {
+    let resource = app.path().resource_dir().ok();
+    for c in rust_server_candidates(resource.as_deref()) {
         if c.is_file() {
             return Ok(c);
         }
     }
-    let resource = app
-        .path()
-        .resource_dir()
-        .map_err(|e| e.to_string())?
-        .join("atelier-studio-server");
-    if resource.is_file() {
-        return Ok(resource);
-    }
     Err(
-        "atelier-studio-server introuvable (compiler: cargo build -p atelier-server --manifest-path rust/Cargo.toml)"
+        "atelier-studio-server introuvable. Build: cargo build -p atelier-server --release \
+         --manifest-path rust/Cargo.toml  (ou scripts/stage-rust-server.sh). \
+         Fallback soak: ATELIER_BACKEND=node"
             .into(),
     )
 }
@@ -150,15 +168,14 @@ fn fetch_health(info: &SidecarInfo, expected_hash: &str) -> Result<ProcessHealth
     Ok(health)
 }
 
-/// Au premier lancement post-build (caches froids, CPU chargé), une sonde de
-/// 900 ms peut expirer alors que le sidecar est sain : abandonner du premier
-/// coup laissait un orphelin que le spawn suivant SIGTERM — boucle d'entre-tuerie.
+/// Au premier lancement post-build (caches froids, TCC, CPU chargé), une sonde
+/// de 900 ms peut expirer alors que le sidecar est sain.
 fn fetch_health_retry(info: &SidecarInfo, expected_hash: &str) -> Result<ProcessHealth, String> {
-    const ATTEMPTS: u32 = 3;
+    const ATTEMPTS: u32 = 5;
     let mut last = String::new();
     for attempt in 0..ATTEMPTS {
         if attempt > 0 {
-            thread::sleep(Duration::from_millis(300));
+            thread::sleep(Duration::from_millis(400));
         }
         match fetch_health(info, expected_hash) {
             Ok(health) => return Ok(health),
@@ -187,6 +204,38 @@ fn read_lockfile(expected_hash: &str) -> Option<SidecarInfo> {
     let raw = std::fs::read_to_string(p).ok()?;
     let info: SidecarInfo = serde_json::from_str(&raw).ok()?;
     verified_info(info, expected_hash)
+}
+
+/// If lock exists but is not healthy/compatible, best-effort SIGTERM of the
+/// recorded pid so a fresh spawn is not racing a zombie Node or old Rust.
+fn terminate_stale_lock(expected_hash: &str) {
+    let Some(p) = lockfile_path() else {
+        return;
+    };
+    let Ok(raw) = std::fs::read_to_string(&p) else {
+        return;
+    };
+    let Ok(info) = serde_json::from_str::<SidecarInfo>(&raw) else {
+        return;
+    };
+    // Compatible live instance — leave it (read_lockfile will reuse).
+    if verified_info(info.clone(), expected_hash).is_some() {
+        return;
+    }
+    let pid = info.identity.as_ref().and_then(|h| h.pid);
+    if let Some(pid) = pid {
+        if pid > 0 {
+            // Best-effort: only kill a pid we previously wrote into our own lock.
+            let _ = Command::new("kill")
+                .args(["-TERM", &pid.to_string()])
+                .stdout(Stdio::null())
+                .stderr(Stdio::null())
+                .status();
+            // brief wait so the port frees before we re-bind
+            thread::sleep(Duration::from_millis(200));
+        }
+    }
+    let _ = std::fs::remove_file(p);
 }
 
 fn write_lockfile(info: &SidecarInfo) {
@@ -235,6 +284,7 @@ fn stderr_snapshot(buf: &Arc<Mutex<String>>) -> String {
 fn read_startup_line<R: Read + Send + 'static>(
     stdout: R,
     stderr: &Arc<Mutex<String>>,
+    timeout: Duration,
 ) -> Result<String, String> {
     let (tx, rx) = mpsc::channel();
     thread::spawn(move || {
@@ -242,7 +292,7 @@ fn read_startup_line<R: Read + Send + 'static>(
         let result = BufReader::new(stdout).read_line(&mut line).map(|_| line);
         let _ = tx.send(result);
     });
-    match rx.recv_timeout(Duration::from_secs(4)) {
+    match rx.recv_timeout(timeout) {
         Ok(Ok(line)) if !line.trim().is_empty() => Ok(line),
         Ok(Ok(_)) => Err(format!(
             "sidecar stdout vide; stderr: {}",
@@ -277,7 +327,7 @@ fn parse_startup(line: &str) -> Result<ProcessHealth, String> {
 #[tauri::command]
 pub fn sidecar_port(app: tauri::AppHandle) -> Result<SidecarInfo, String> {
     let backend = backend_kind();
-    let (bundle_hash, mut spawn_cmd): (String, Command) = match backend {
+    let (bundle_hash, mut spawn_cmd, startup_timeout): (String, Command, Duration) = match backend {
         BackendKind::Node => {
             let script = resolve_script(&app)?;
             let sidecar_dir = script
@@ -287,13 +337,14 @@ pub fn sidecar_port(app: tauri::AppHandle) -> Result<SidecarInfo, String> {
             let node = crate::bin_resolver::node_bin(&app)?;
             let mut cmd = Command::new(node);
             cmd.arg(&script);
-            (bundle_hash, cmd)
+            (bundle_hash, cmd, Duration::from_secs(4))
         }
         BackendKind::Rust => {
             let bin = resolve_rust_server(&app)?;
             let bundle_hash = file_fingerprint(&bin)?;
             let cmd = Command::new(&bin);
-            (bundle_hash, cmd)
+            // First post-build boot can be slow (TCC / cold caches).
+            (bundle_hash, cmd, Duration::from_secs(10))
         }
     };
 
@@ -311,6 +362,10 @@ pub fn sidecar_port(app: tauri::AppHandle) -> Result<SidecarInfo, String> {
         return Ok(info);
     }
 
+    // Lock présent mais incompatible (ex. Node → bascule Rust) : terminer
+    // l'orphelin identifié avant de spawner, sinon course sur le port / pid.
+    terminate_stale_lock(&bundle_hash);
+
     let token = session_token()?;
     // Runtime du bundle en production; PATH réparé uniquement en secours dev.
     let mut child = spawn_cmd
@@ -320,11 +375,7 @@ pub fn sidecar_port(app: tauri::AppHandle) -> Result<SidecarInfo, String> {
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()
-        .map_err(|e| {
-            format!(
-                "spawn sidecar ({backend:?}): {e}"
-            )
-        })?;
+        .map_err(|e| format!("spawn sidecar ({}): {e}", backend.as_str()))?;
     let Some(stdout) = child.stdout.take() else {
         kill_child(&mut child);
         return Err("pas de stdout".into());
@@ -338,7 +389,7 @@ pub fn sidecar_port(app: tauri::AppHandle) -> Result<SidecarInfo, String> {
     // devient l'orphelin que le spawn suivant SIGTERM via sidecar.pid, pile
     // pendant que Rust attend son health — boucle « Sidecar déconnecté ».
     let verified: Result<SidecarInfo, String> = (|| {
-        let line = read_startup_line(stdout, &stderr)?;
+        let line = read_startup_line(stdout, &stderr, startup_timeout)?;
         let startup = parse_startup(&line)
             .map_err(|e| format!("{e}; stderr: {}", stderr_snapshot(&stderr)))?;
         let port = startup.port.ok_or("port manquant")?;
@@ -346,6 +397,7 @@ pub fn sidecar_port(app: tauri::AppHandle) -> Result<SidecarInfo, String> {
             port,
             token,
             identity: Some(startup),
+            backend: Some(backend.as_str().into()),
         };
         let health = fetch_health_retry(&info, &bundle_hash).map_err(|e| {
             format!(
@@ -366,4 +418,37 @@ pub fn sidecar_port(app: tauri::AppHandle) -> Result<SidecarInfo, String> {
     write_lockfile(&info);
     *guard = Some(info.clone());
     Ok(info)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn default_backend_is_rust() {
+        assert_eq!(parse_backend_kind(""), BackendKind::Rust);
+        assert_eq!(parse_backend_kind("  "), BackendKind::Rust);
+        assert_eq!(parse_backend_kind("rust"), BackendKind::Rust);
+        assert_eq!(parse_backend_kind("RUST"), BackendKind::Rust);
+    }
+
+    #[test]
+    fn explicit_node_fallback() {
+        assert_eq!(parse_backend_kind("node"), BackendKind::Node);
+        assert_eq!(parse_backend_kind("Node"), BackendKind::Node);
+    }
+
+    #[test]
+    fn unknown_is_not_node() {
+        // Avoid accidental Node re-enable via typos.
+        assert_eq!(parse_backend_kind("nodejs"), BackendKind::Rust);
+        assert_eq!(parse_backend_kind("default"), BackendKind::Rust);
+    }
+
+    #[test]
+    fn rust_candidates_include_staged_and_resource() {
+        let list = rust_server_candidates(Some(Path::new("/App/Resources")));
+        assert!(list.iter().any(|p| p.ends_with("rust-server/atelier-studio-server")));
+        assert!(list.iter().any(|p| p.ends_with("atelier-studio-server")));
+    }
 }

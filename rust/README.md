@@ -14,8 +14,9 @@ Migration à **parité fonctionnelle** du sidecar Node + serveur galerie Node ve
 | **R6** | Claude CLI stream-json | Node défaut |
 | **R7** | Codex `app-server` JSON-RPC | Node défaut |
 | **R8** | Grok legacy CLI, OpenCode, API OpenAI-compat, images Seedream | Node défaut |
-| **R9** (actuel) | Routeur WS exhaustif + corpus/compare lecture seule | Node défaut |
-| R10+ | Rust défaut Tauri, soak, retrait Node | voir `plans/033-*.md` |
+| **R9** | Routeur WS exhaustif + corpus/compare lecture seule | (transition) |
+| **R10** (actuel) | **Rust défaut** dans Tauri + binaire bundlé | Rust défaut ; `ATELIER_BACKEND=node` soak |
+| R11 | Soak puis retrait Node de la distro | voir `plans/033-*.md` |
 
 ### Providers réels (R6–R8)
 
@@ -77,22 +78,24 @@ node sidecar/scripts/parity_ws_compare.mjs \
 # Tests unitaires : cargo test -p atelier-runtime parity::
 ```
 
-## Via Tauri (expérimental)
+## Via Tauri (R10)
 
 ```bash
-# Sidecar chat (R1)
-cargo build -p atelier-server --manifest-path rust/Cargo.toml
-export ATELIER_BACKEND=rust
-export ATELIER_RUST_SERVER="$PWD/rust/target/debug/atelier-studio-server"
+# Chat : Rust est le DÉFAUT (plus besoin de ATELIER_BACKEND=rust)
+cargo build -p atelier-server --release --manifest-path rust/Cargo.toml
+# ou stage pour le bundle :
+bash scripts/stage-rust-server.sh
 
-# Galerie (R2)
+# Soak / secours Node pendant la période de transition :
+export ATELIER_BACKEND=node
+
+# Galerie : toujours Node par défaut (opt-in Rust)
+export ATELIER_GALLERY_BACKEND=rust   # optionnel
 cargo build -p atelier-gallery --manifest-path rust/Cargo.toml
-export ATELIER_GALLERY_BACKEND=rust
-export ATELIER_GALLERY_SERVER="$PWD/rust/target/debug/atelier-gallery-server"
 ```
 
-**Important** : Node reste le défaut pour chat **et** galerie. R2 ne retire pas
-`gallery/server/main.mjs` de la production.
+**Important** : Node sidecar reste **staged** jusqu'à la Porte 11 (retrait).  
+Galerie Node par défaut (`ATELIER_GALLERY_BACKEND`).
 
 ## Crates
 

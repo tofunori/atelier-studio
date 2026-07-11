@@ -6,7 +6,7 @@
   "build": {
     "beforeDevCommand": "npm run dev",
     "devUrl": "http://localhost:1420",
-    "beforeBuildCommand": "npm run build && bash scripts/stage-node-runtime.sh && bash scripts/stage-sidecar.sh && bash scripts/stage-gallery.sh",
+    "beforeBuildCommand": "npm run build && bash scripts/stage-node-runtime.sh && bash scripts/stage-sidecar.sh && bash scripts/stage-gallery.sh && bash scripts/stage-rust-server.sh",
     "frontendDist": "../dist"
   },
   "app": {
@@ -41,7 +41,8 @@
     "resources": {
       "node-dist": "node-runtime",
       "sidecar-dist": "sidecar",
-      "gallery-dist": "gallery"
+      "gallery-dist": "gallery",
+      "rust-server-dist": "rust-server"
     },
     "macOS": {
       "signingIdentity": "Atelier Dev Signing"

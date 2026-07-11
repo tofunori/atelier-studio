@@ -31,7 +31,8 @@
 | S-LIFECYCLE-PID | `sidecar.pid` atomic | process | single-instance | pid file | unit | `RUST_R1` |
 | S-LIFECYCLE-LOCK | `sidecar.lock` (opt) | process | Tauri reuse | lock file | unit write | `RUST_R1` |
 | S-LIFECYCLE-DEFER | same-bundle defer | process | no kill loop | — | unit none-path | `PARTIAL` |
-| S-SELECTOR | `ATELIER_BACKEND=node\|rust` | Tauri spawn | env | — | cargo check | `RUST_R1` |
+| S-SELECTOR | `ATELIER_BACKEND` défaut **rust**, `node` = soak | Tauri spawn | env | — | unit parse | `PARITY` (R10) |
+| S-BUNDLE-RUST | stage + bundle `atelier-studio-server` | Tauri resources | — | `stage-rust-server.sh` | — | `PARITY` (R10) |
 
 ## Sidecar — WebSocket message types (Node reference)
 

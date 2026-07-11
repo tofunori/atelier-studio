@@ -389,16 +389,14 @@ génération d'image, Git mutable, permission et interaction.
 
 ## Porte 10 — Rust par défaut dans Tauri
 
-- [ ] Faire lancer `atelier-studio-server` par `src-tauri/src/sidecar.rs`.
-- [ ] Bundler le binaire Rust et ses assets au build.
-- [ ] Lire le lock existant et vérifier token, santé et identité.
-- [ ] Réutiliser uniquement une instance compatible et saine.
-- [ ] Tuer uniquement une instance périmée identifiée avec certitude.
-- [ ] Attendre la convergence sans boucle de spawn.
-- [ ] Vérifier la compatibilité dev/build et plusieurs fenêtres.
-- [ ] Vérifier macOS TCC/Gatekeeper dans le contexte de l'app réelle.
-- [ ] Garder Node uniquement comme fallback explicitement activable pendant le
-  soak final.
+- [x] Faire lancer `atelier-studio-server` par `src-tauri/src/sidecar.rs` (**défaut**).
+- [x] Bundler le binaire via `scripts/stage-rust-server.sh` → `rust-server-dist` / Resources.
+- [x] Lire le lock existant et vérifier token, santé et identité.
+- [x] Réutiliser uniquement une instance compatible et saine.
+- [x] Tuer une instance périmée (lock pid) avant re-spawn + kill child si health fail.
+- [x] Convergence : timeout startup Rust 10 s, health retry ×5, pas d'orphelin.
+- [ ] Vérifier multi-fenêtres + TCC/Gatekeeper en app réelle (soak Porte 11).
+- [x] Node = fallback soak **explicite** : `ATELIER_BACKEND=node` (toujours staged).
 
 ## Porte 11 — Soak et suppression de Node en production
 

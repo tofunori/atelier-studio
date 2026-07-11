@@ -28,6 +28,9 @@ sidecar/node_modules/
 src-tauri/sidecar-dist/
 src-tauri/gallery-dist/
 src-tauri/node-dist/
+# staged binary only (directory kept so tauri-build resource path exists)
+src-tauri/rust-server-dist/atelier-studio-server
+src-tauri/rust-server-dist/BUILD_STAMP.txt
 .cache/node-runtime/
 .opencode/
 
