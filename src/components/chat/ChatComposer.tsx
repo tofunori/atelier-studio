@@ -8,7 +8,7 @@ import { ProviderInfo } from "../../lib/providers";
 import { ContextShelf, type ShelfAttachment } from "./ContextShelf";
 import { SuggestionsList, PromptTextarea, type Suggestion } from "./PromptInput";
 import { ComposerControls } from "./ComposerControls";
-import { GoalBar, type GoalInfo } from "./GoalBar";
+import { GoalBar, GoalGlyph, type GoalInfo } from "./GoalBar";
 
 type ModelEntry = { id: string; label: string };
 type Dispatch<T> = React.Dispatch<React.SetStateAction<T>>;
@@ -127,6 +127,11 @@ export function ChatComposer(props: {
         )}
         {goalOpen && !host.activeGoal && (
           <div className="goal-editor" onClick={(ev) => ev.stopPropagation()}>
+            <div className="goal-editor-head">
+              <GoalGlyph />
+              <span className="goal-editor-title">{t("goal.editor-title")}</span>
+              <span className="goal-editor-hint">{t("goal.editor-hint")}</span>
+            </div>
             <input
               autoFocus
               value={goalText}
@@ -142,14 +147,14 @@ export function ChatComposer(props: {
                 if (ev.key === "Escape") setGoalOpen(false);
               }}
             />
-            <button type="button" className="ghost" onClick={() => {
-              if (goalText.trim()) host.onGoal?.("set", goalText.trim());
-              setGoalOpen(false);
-              setGoalText("");
-            }}>{t("goal.set")}</button>
-            <button type="button" className="ghost" onClick={() => { host.onGoal?.("clear"); setGoalOpen(false); }}>
-              {t("goal.clear")}
-            </button>
+            <div className="goal-editor-actions">
+              <button type="button" className="ghost" onClick={() => setGoalOpen(false)}>{t("action.cancel")}</button>
+              <button type="button" className="ghost goal-bar-save" onClick={() => {
+                if (goalText.trim()) host.onGoal?.("set", goalText.trim());
+                setGoalOpen(false);
+                setGoalText("");
+              }}>{t("goal.set")}</button>
+            </div>
           </div>
         )}
         <SuggestionsList suggestions={input.suggestions} selIdx={input.selIdx} applySuggestion={input.applySuggestion} />

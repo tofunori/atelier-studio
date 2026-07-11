@@ -1,7 +1,7 @@
 // Caractérisation du composer (plan 015, slice 5) : raccourcis d'envoi,
 // composition IME, suggestions, stop pendant un run, suppression d'attachment.
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { act, cleanup, fireEvent, screen } from "@testing-library/react";
+import { act, cleanup, fireEvent, screen, within } from "@testing-library/react";
 
 vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn(async () => null) }));
 
@@ -130,6 +130,22 @@ describe("composer — catalogue et capabilities sidecar (plan 025, step 9)", ()
     fireEvent.click(document.querySelector(".model-pick .mp-btn") as HTMLButtonElement);
     fireEvent.click(screen.getByText("Claude Code"));
   }
+
+  it("ouvre la liste du provider courant dès le premier clic", () => {
+    renderUi(<Chat {...chatProps({
+      defaults: { defaultProvider: "codex", defaultModel: { codex: "gpt-5.6" }, defaultEffort: { codex: "medium" }, defaultPermissionMode: "bypassPermissions" },
+      providers: [makeProviderInfo({
+        id: "codex", label: "Codex", models: ["gpt-5.6"], defaultModel: "gpt-5.6",
+        efforts: ["minimal", "low", "medium", "high", "xhigh", "max"],
+      })],
+    })} />);
+    fireEvent.click(document.querySelector(".model-pick .mp-btn") as HTMLButtonElement);
+    expect(document.querySelector(".model-list")).toBeNull();
+    fireEvent.click(screen.getByRole("menuitemradio", { name: /Codex/ }));
+    const modelList = document.querySelector(".model-list") as HTMLElement;
+    expect(modelList).toBeTruthy();
+    expect(within(modelList).getByText("gpt-5.6")).toBeTruthy();
+  });
 
   it("un modèle présent dans info.models apparaît sans modification frontend", () => {
     openClaudeModelList(["claude-fable-5", "claude-nova-6-preview"]);

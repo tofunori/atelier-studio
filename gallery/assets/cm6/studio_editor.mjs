@@ -6,7 +6,9 @@ import {EditorView, Decoration, keymap, highlightActiveLine, highlightActiveLine
         lineNumbers, drawSelection, gutter, GutterMarker, WidgetType, ViewPlugin} from "@codemirror/view";
 import {defaultKeymap, historyKeymap, history, indentWithTab, selectAll} from "@codemirror/commands";
 import {openSearchPanel, searchKeymap, highlightSelectionMatches} from "@codemirror/search";
-import {bracketMatching, foldGutter, foldKeymap, StreamLanguage, indentUnit} from "@codemirror/language";
+import {bracketMatching, foldGutter, foldKeymap, StreamLanguage, indentUnit,
+        HighlightStyle, syntaxHighlighting} from "@codemirror/language";
+import {tags} from "@lezer/highlight";
 import {closeBrackets, closeBracketsKeymap} from "@codemirror/autocomplete";
 import {python} from "@codemirror/lang-python";
 import {markdown} from "@codemirror/lang-markdown";
@@ -55,6 +57,177 @@ function languageFor(ext) {
     case "toml": return StreamLanguage.define(toml);
     default: return [];
   }
+}
+
+// Precision Native — quatre thèmes exclusivement sombres, partagés par toutes
+// les surfaces CM6. La couleur encode la structure scientifique sans créer un
+// arc-en-ciel. `swatches` alimente le petit aperçu du sélecteur.
+export const STUDIO_THEMES = [
+  {id: "graphite", label: "Graphite", swatches: ["#d6a467", "#86aee8", "#a9c181"]},
+  {id: "obsidian", label: "Obsidian", swatches: ["#c792ea", "#82aaff", "#c3e88d"]},
+  {id: "midnight", label: "Midnight", swatches: ["#81a1c1", "#88c0d0", "#a3be8c"]},
+  {id: "carbon", label: "Carbon", swatches: ["#e58b57", "#d7b26d", "#a8b886"]},
+];
+
+const THEME_PALETTES = {
+  graphite: {
+    bg: "#1e2126", fg: "#d9dee7", gutter: "#606a79", gutterActive: "#aeb8c6",
+    accent: "#e7b75e", selection: "#354b66", active: "rgba(134, 174, 232, .055)",
+    panel: "#181b20", surface: "#20242a", border: "#363d48",
+    comment: "#6f7b8b", keyword: "#d6a467", fn: "#86aee8", type: "#e5bd78",
+    prop: "#8fc6c3", string: "#a9c181", number: "#c7a0d8", punct: "#9aa4b2", meta: "#79b8d1",
+  },
+  obsidian: {
+    bg: "#0f1115", fg: "#d5dae3", gutter: "#515a68", gutterActive: "#a9b4c3",
+    accent: "#82aaff", selection: "#243958", active: "rgba(130, 170, 255, .065)",
+    panel: "#0b0d11", surface: "#171a21", border: "#2b313c",
+    comment: "#596573", keyword: "#c792ea", fn: "#82aaff", type: "#ffc777",
+    prop: "#89ddff", string: "#c3e88d", number: "#f78c6c", punct: "#939cab", meta: "#89ddff",
+  },
+  midnight: {
+    bg: "#111820", fg: "#d4dde8", gutter: "#536172", gutterActive: "#b1bfce",
+    accent: "#88c0d0", selection: "#21415a", active: "rgba(136, 192, 208, .065)",
+    panel: "#0c1218", surface: "#17212b", border: "#2c3947",
+    comment: "#5e6d7e", keyword: "#81a1c1", fn: "#88c0d0", type: "#ebcb8b",
+    prop: "#8fbcbb", string: "#a3be8c", number: "#b48ead", punct: "#8f9baa", meta: "#5e81ac",
+  },
+  carbon: {
+    bg: "#141311", fg: "#e4dfd7", gutter: "#665f56", gutterActive: "#c2b9ad",
+    accent: "#e58b57", selection: "#4a3328", active: "rgba(229, 139, 87, .06)",
+    panel: "#0f0e0d", surface: "#1d1a17", border: "#3a342e",
+    comment: "#716c64", keyword: "#e58b57", fn: "#d7b26d", type: "#e6c789",
+    prop: "#8fb7ad", string: "#a8b886", number: "#cc8e7f", punct: "#a09a91", meta: "#a9a39a",
+  },
+};
+
+function normalizeThemeId(id) {
+  return STUDIO_THEMES.some((theme) => theme.id === id) ? id : "graphite";
+}
+
+function themeExtensions(id) {
+  const p = THEME_PALETTES[normalizeThemeId(id)];
+  const editorTheme = EditorView.theme({
+    "&": {height: "100%", color: `${p.fg} !important`, backgroundColor: `${p.bg} !important`},
+    ".cm-scroller": {
+      fontFamily: "var(--code-font, ui-monospace, 'SF Mono', Menlo, monospace)",
+      lineHeight: "1.62",
+    },
+    ".cm-content": {padding: "10px 0 18px", caretColor: p.accent},
+    ".cm-line": {padding: "0 14px 0 10px"},
+    "&.cm-focused": {outline: "none"},
+    "&.cm-focused .cm-cursor": {borderLeftColor: p.accent, borderLeftWidth: "2px"},
+    "&.cm-focused .cm-selectionBackground, .cm-selectionBackground, ::selection": {backgroundColor: p.selection},
+    ".cm-activeLine": {backgroundColor: p.active},
+    ".cm-gutters": {color: `${p.gutter} !important`, backgroundColor: `${p.bg} !important`, borderRight: `1px solid ${p.border}55 !important`},
+    ".cm-lineNumbers .cm-gutterElement": {padding: "0 12px 0 8px"},
+    ".cm-activeLineGutter": {color: p.gutterActive, backgroundColor: p.active},
+    ".cm-foldPlaceholder": {color: p.gutterActive, backgroundColor: p.surface, border: `1px solid ${p.border}`},
+    ".cm-matchingBracket": {color: `${p.accent} !important`, backgroundColor: `${p.accent}20`, outline: `1px solid ${p.accent}55`},
+    ".cm-searchMatch": {backgroundColor: `${p.accent}2e`, outline: `1px solid ${p.accent}4d`},
+    ".cm-searchMatch.cm-searchMatch-selected": {backgroundColor: p.selection},
+    ".cm-panels": {color: p.fg, backgroundColor: p.panel},
+    ".cm-tooltip": {color: p.fg, backgroundColor: p.surface, border: `1px solid ${p.border}`},
+  }, {dark: true});
+  const highlightStyle = HighlightStyle.define([
+    {tag: tags.comment, color: p.comment, fontStyle: "italic"},
+    {tag: [tags.keyword, tags.controlKeyword, tags.definitionKeyword], color: p.keyword},
+    {tag: [tags.function(tags.variableName), tags.definition(tags.variableName)], color: p.fn},
+    {tag: [tags.typeName, tags.className, tags.tagName], color: p.type},
+    {tag: [tags.propertyName, tags.attributeName], color: p.prop},
+    {tag: [tags.string, tags.special(tags.string)], color: p.string},
+    {tag: [tags.number, tags.bool, tags.null, tags.atom], color: p.number},
+    {tag: [tags.operator, tags.punctuation, tags.bracket], color: p.punct},
+    {tag: [tags.meta, tags.macroName], color: p.meta},
+    {tag: tags.heading, color: p.fg, fontWeight: "650"},
+    {tag: tags.strong, color: p.fg, fontWeight: "700"},
+    {tag: tags.emphasis, color: p.fg, fontStyle: "italic"},
+    {tag: [tags.link, tags.url], color: p.fn, textDecoration: "underline"},
+    {tag: tags.invalid, color: "#f07178", textDecoration: "underline wavy"},
+  ]);
+  return [editorTheme, syntaxHighlighting(highlightStyle)];
+}
+
+const themePickerBase = EditorView.baseTheme({
+  ".cm-theme-picker": {position: "absolute", zIndex: "20", top: "8px", right: "10px", fontFamily: "var(--ui-font, -apple-system, sans-serif)"},
+  ".cm-theme-trigger": {
+    width: "28px", height: "28px", display: "grid", placeItems: "center", padding: "0",
+    color: "#8e98a8", background: "rgba(24, 27, 32, .86)", border: "1px solid rgba(142, 152, 168, .2)",
+    borderRadius: "7px", cursor: "pointer", opacity: ".28", transition: "opacity 120ms ease-out, border-color 120ms ease-out",
+  },
+  "&:hover .cm-theme-trigger, &.cm-focused .cm-theme-trigger, .cm-theme-trigger[aria-expanded=true]": {opacity: "1"},
+  ".cm-theme-trigger:hover": {color: "#d9dee7", borderColor: "rgba(142, 152, 168, .45)"},
+  ".cm-theme-menu": {
+    position: "absolute", top: "34px", right: "0", width: "176px", padding: "5px",
+    background: "#181b20", border: "1px solid #363d48", borderRadius: "10px",
+    boxShadow: "0 12px 36px rgba(0,0,0,.48)", display: "none",
+  },
+  ".cm-theme-picker.open .cm-theme-menu": {display: "block"},
+  ".cm-theme-option": {
+    width: "100%", minHeight: "34px", display: "flex", alignItems: "center", gap: "9px",
+    padding: "0 9px", color: "#aeb7c4", background: "transparent", border: "0",
+    borderRadius: "7px", cursor: "pointer", font: "12px/1 var(--ui-font, -apple-system, sans-serif)", textAlign: "left",
+  },
+  ".cm-theme-option:hover, .cm-theme-option[aria-checked=true]": {color: "#e2e7ee", background: "#252a31"},
+  ".cm-theme-swatches": {display: "flex", width: "39px", height: "14px", overflow: "hidden", borderRadius: "4px", border: "1px solid rgba(255,255,255,.08)"},
+  ".cm-theme-swatch": {flex: "1"},
+  ".cm-theme-check": {marginLeft: "auto", color: "#86aee8", opacity: "0"},
+  ".cm-theme-option[aria-checked=true] .cm-theme-check": {opacity: "1"},
+  "@media (prefers-reduced-motion: reduce)": {".cm-theme-trigger": {transition: "none"}},
+});
+
+function themePickerExtension(getTheme, setTheme) {
+  return ViewPlugin.fromClass(class {
+    constructor(view) {
+      this.root = document.createElement("div");
+      this.root.className = "cm-theme-picker";
+      this.trigger = document.createElement("button");
+      this.trigger.type = "button";
+      this.trigger.className = "cm-theme-trigger";
+      this.trigger.setAttribute("aria-label", "Thème de l'éditeur");
+      this.trigger.setAttribute("aria-haspopup", "menu");
+      this.trigger.setAttribute("aria-expanded", "false");
+      this.trigger.innerHTML = '<svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><circle cx="8" cy="8" r="5.8"/><circle cx="6" cy="6" r=".8" fill="currentColor"/><circle cx="10" cy="5.7" r=".8" fill="currentColor"/><circle cx="5.7" cy="9.5" r=".8" fill="currentColor"/></svg>';
+      this.menu = document.createElement("div");
+      this.menu.className = "cm-theme-menu";
+      this.menu.setAttribute("role", "menu");
+      for (const theme of STUDIO_THEMES) {
+        const option = document.createElement("button");
+        option.type = "button";
+        option.className = "cm-theme-option";
+        option.setAttribute("role", "menuitemradio");
+        option.setAttribute("aria-label", theme.label);
+        option.innerHTML = `<span class="cm-theme-swatches">${theme.swatches.map((color) => `<i class="cm-theme-swatch" style="background:${color}"></i>`).join("")}</span><span>${theme.label}</span><span class="cm-theme-check">✓</span>`;
+        option.addEventListener("click", () => { setTheme(theme.id); this.close(); });
+        this.menu.appendChild(option);
+      }
+      this.trigger.addEventListener("click", (event) => {
+        event.stopPropagation();
+        this.root.classList.contains("open") ? this.close() : this.open();
+      });
+      this.menu.addEventListener("click", (event) => event.stopPropagation());
+      this.onDocumentClick = () => this.close();
+      this.onKeyDown = (event) => { if (event.key === "Escape") this.close(); };
+      document.addEventListener("click", this.onDocumentClick);
+      document.addEventListener("keydown", this.onKeyDown);
+      this.root.append(this.trigger, this.menu);
+      view.dom.appendChild(this.root);
+      this.updateActive();
+    }
+    open() { this.root.classList.add("open"); this.trigger.setAttribute("aria-expanded", "true"); }
+    close() { this.root.classList.remove("open"); this.trigger.setAttribute("aria-expanded", "false"); }
+    updateActive() {
+      const current = getTheme();
+      for (const option of this.menu.querySelectorAll(".cm-theme-option")) {
+        option.setAttribute("aria-checked", String(option.getAttribute("aria-label").toLowerCase() === current));
+      }
+    }
+    update() { this.updateActive(); }
+    destroy() {
+      document.removeEventListener("click", this.onDocumentClick);
+      document.removeEventListener("keydown", this.onKeyDown);
+      this.root.remove();
+    }
+  });
 }
 
 // ---- markText / addLineClass as managed decorations ------------------------
@@ -184,10 +357,27 @@ export function createStudioEditor(parent, opts) {
   const keymapComp = new Compartment();
   const readOnlyComp = new Compartment();
   const editableComp = new Compartment();
+  const themeComp = new Compartment();
   const handlers = {change: [], blur: [], cursorActivity: [], gutterClick: []};
   let markId = 0;
+  let themeId = normalizeThemeId(localStorage.getItem("atelier.editorTheme"));
+  let view;
+  const themeChannel = "BroadcastChannel" in window ? new BroadcastChannel("atelier-editor-theme") : null;
+  const applyTheme = (nextId, {persist = true, broadcast = true} = {}) => {
+    const next = normalizeThemeId(nextId);
+    const changed = next !== themeId;
+    themeId = next;
+    if (persist) localStorage.setItem("atelier.editorTheme", next);
+    if (changed && view) view.dispatch({effects: themeComp.reconfigure(themeExtensions(next))});
+    if (changed && broadcast) themeChannel?.postMessage({theme: next});
+  };
+  const onStoredTheme = (event) => {
+    if (event.key === "atelier.editorTheme" && event.newValue) applyTheme(event.newValue, {persist: false, broadcast: false});
+  };
+  window.addEventListener("storage", onStoredTheme);
+  if (themeChannel) themeChannel.onmessage = (event) => applyTheme(event.data?.theme, {persist: true, broadcast: false});
 
-  const view = new EditorView({
+  view = new EditorView({
     parent,
     state: EditorState.create({
       doc: opts.value || "",
@@ -196,6 +386,9 @@ export function createStudioEditor(parent, opts) {
         bracketMatching(), closeBrackets(), foldGutter(), highlightSelectionMatches({minSelectionLength: 3}),
         indentUnit.of(opts.ext === "py" ? "    " : "  "),
         languageFor(opts.ext),
+        themeComp.of(themeExtensions(themeId)),
+        themePickerBase,
+        themePickerExtension(() => themeId, (id) => applyTheme(id)),
         marksField, lineClsField, gutterField, hangingIndent,
         gutter({
           class: "CodeMirror-diffgutter",
@@ -229,7 +422,6 @@ export function createStudioEditor(parent, opts) {
           if (u.selectionSet || u.docChanged) handlers.cursorActivity.forEach((fn) => fn(facade));
           if (u.focusChanged && !u.view.hasFocus) handlers.blur.forEach((fn) => fn(facade));
         }),
-        EditorView.theme({"&": {height: "100%"}, ".cm-content": {caretColor: "var(--accent, #e8823a)"}}),
       ],
     }),
   });
@@ -354,7 +546,10 @@ export function createStudioEditor(parent, opts) {
       ]});
     },
     getOption: (name) => name === "tabSize" ? view.state.tabSize
-      : name === "readOnly" ? view.state.readOnly : undefined,
+      : name === "readOnly" ? view.state.readOnly
+      : name === "theme" ? themeId : undefined,
+    getThemes: () => STUDIO_THEMES.map((theme) => ({...theme, swatches: [...theme.swatches]})),
+    setTheme: (id) => applyTheme(id),
     // --- keymaps/commands/events ---
     addKeyMap: (map) => {
       const bindings = Object.entries(map).map(([k, fn]) => ({
@@ -371,6 +566,11 @@ export function createStudioEditor(parent, opts) {
     },
     onInput: (fn) => handlers.change.push((editor, change) => fn(editor, change)),
     on: (event, fn) => { (handlers[event] || (handlers[event] = [])).push(fn); },
+    destroy: () => {
+      window.removeEventListener("storage", onStoredTheme);
+      themeChannel?.close();
+      view.destroy();
+    },
   };
   if (opts.readOnly) facade.setOption("readOnly", true);
   return facade;

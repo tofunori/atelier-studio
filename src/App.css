@@ -2162,59 +2162,90 @@ button.ctx-ring-wrap { border: none; font: inherit; color: inherit;
 .biblio-citekey.ok { color: #98c379; border-color: #98c379; }
 .biblio-citekey svg { flex: none; opacity: 0.7; }
 
-/* goals Codex (app-server) — sobre : trait fin, monochrome.
-   GoalBar = barre épinglée en tête du composer (une seule surface persistante,
-   remplace les anciennes cartes du transcript). */
-.goal-bar { display: flex; flex-direction: column; background: var(--bg-side);
-  border: 1px solid var(--border); border-radius: var(--r-s);
-  margin: -2px -3px 3px; overflow: hidden; transition: border-color 0.13s ease; }
-.goal-bar:hover { border-color: var(--border2); }
-.goal-head { display: flex; align-items: center; gap: 8px; padding: 5px 6px 5px 10px;
-  min-width: 0; font-size: var(--fs-m); }
-.goal-head > svg { flex: none; color: var(--muted2); }
-.goal-bar.active .goal-head > svg { color: var(--accent); }
-.goal-bar-label { flex: none; color: var(--fg2); font-weight: 500; }
-.goal-bar-obj { flex: 1; min-width: 0; color: var(--muted); white-space: nowrap;
-  overflow: hidden; text-overflow: ellipsis; }
-.goal-bar-dot { flex: none; width: 6px; height: 6px; border-radius: var(--r-pill);
-  background: var(--accent); animation: pulse 1.4s ease-in-out infinite; }
-@media (prefers-reduced-motion: reduce) { .goal-bar-dot { animation: none; } }
-.goal-bar-time { flex: none; color: var(--muted2); font-size: var(--fs-s);
-  font-variant-numeric: tabular-nums; }
-.goal-bar-badge { flex: none; font-size: var(--fs-xs); text-transform: uppercase;
-  letter-spacing: 0.07em; color: var(--muted2); border: 1px solid var(--border2);
-  border-radius: var(--r-pill); padding: 1px 7px; }
-.goal-bar.paused .goal-bar-badge, .goal-bar.blocked .goal-bar-badge {
-  color: var(--u-warn, #e0b74a);
-  border-color: color-mix(in srgb, var(--u-warn, #e0b74a) 40%, var(--border2)); }
-.goal-bar-actions { display: flex; align-items: center; gap: 2px; flex: none; margin-left: 2px; }
-.goal-bar-btn { width: 24px; height: 24px; border: none; background: none;
-  border-radius: var(--r-s); color: var(--muted2); display: inline-flex;
-  align-items: center; justify-content: center; cursor: pointer;
-  transition: color 0.13s ease, background 0.13s ease; }
-.goal-bar-btn:hover { color: var(--fg); background: var(--bg-ctl); }
-.goal-bar-stop:hover { color: var(--u-hot, #e06c75); }
-.goal-bar-chev { transition: transform 0.14s ease; }
+/* Goal = mission épinglée, pas toolbar administrative. La ligne spectrale
+   encode l'état; les actions rares restent dans le détail déplié. */
+.goal-bar { --goal-state: var(--muted2); position: relative; display: flex;
+  flex-direction: column; margin: -3px 0 4px; overflow: hidden;
+  border: 0; border-bottom: 1px solid color-mix(in srgb, var(--fg) 8%, transparent);
+  border-radius: 0; background: transparent;
+  transition: border-color 120ms ease-out, background-color 120ms ease-out; }
+.goal-bar::before { content: ""; position: absolute; z-index: 2; left: 0; top: 10px;
+  bottom: 10px; width: 2px; border-radius: 0 2px 2px 0; background: var(--goal-state); }
+.goal-bar.active { --goal-state: #86aee8; }
+.goal-bar.paused { --goal-state: #8e98a8; }
+.goal-bar.blocked { --goal-state: #c7a96a; }
+.goal-bar:hover, .goal-bar:focus-within { border-color: color-mix(in srgb, var(--fg) 15%, transparent); }
+.goal-head { display: flex; align-items: stretch; min-width: 0; }
+.goal-bar-summary { flex: 1; min-width: 0; display: flex; align-items: center; gap: 9px;
+  padding: 8px 8px 8px 12px; border: 0; border-radius: 0; background: transparent;
+  color: inherit; text-align: left; cursor: pointer; font: inherit; }
+.goal-bar-summary:hover { background: color-mix(in srgb, var(--fg) 3%, transparent); }
+.goal-bar-summary:focus-visible { outline: none; box-shadow: inset 0 0 0 1px var(--focus); }
+.goal-bar-glyph { width: 24px; height: 24px; flex: none; display: grid; place-items: center;
+  border: 1px solid color-mix(in srgb, var(--goal-state) 35%, var(--border));
+  border-radius: var(--r-pill); color: var(--goal-state);
+  background: color-mix(in srgb, var(--goal-state) 7%, transparent); }
+.goal-bar-copy { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.goal-bar-kicker { display: flex; align-items: center; gap: 7px; min-width: 0;
+  font-size: var(--fs-xs); line-height: 1.2; }
+.goal-bar-label { color: var(--fg2); font-weight: 600; letter-spacing: .01em; }
+.goal-bar-status { color: var(--goal-state); }
+.goal-bar-status::before { content: "·"; margin-right: 7px; color: var(--muted2); }
+.goal-bar-time { color: var(--muted2); font-variant-numeric: tabular-nums; }
+.goal-bar-time::before { content: "·"; margin-right: 7px; }
+.goal-bar-obj { display: block; min-width: 0; color: var(--muted); font-size: var(--fs-m);
+  line-height: 1.35; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.goal-bar-chev { flex: none; color: var(--muted2); transition: transform 140ms ease-out; }
 .goal-bar.open .goal-bar-chev { transform: rotate(90deg); }
-.goal-bar-body { border-top: 1px solid var(--border); padding: 8px 12px 9px;
-  font-size: var(--fs-m); color: var(--muted); line-height: 1.5;
-  white-space: pre-wrap; max-height: 180px; overflow-y: auto; }
-.goal-bar-meta { display: flex; gap: 16px; border-top: 1px solid var(--border);
-  padding: 5px 12px; font-size: var(--fs-s); color: var(--muted2);
-  font-variant-numeric: tabular-nums; }
+.goal-bar-actions { display: flex; align-items: center; flex: none; padding: 7px 8px 7px 0; }
+.goal-bar-control { height: 28px; display: inline-flex; align-items: center; gap: 6px;
+  padding: 0 9px; border: 1px solid color-mix(in srgb, var(--goal-state) 30%, var(--border));
+  border-radius: var(--r-s); background: color-mix(in srgb, var(--goal-state) 7%, transparent);
+  color: var(--fg2); font: inherit; font-size: var(--fs-s); cursor: pointer;
+  transition: background-color 120ms ease-out, border-color 120ms ease-out, color 120ms ease-out; }
+.goal-bar-control:hover { color: var(--fg); border-color: color-mix(in srgb, var(--goal-state) 55%, var(--border));
+  background: color-mix(in srgb, var(--goal-state) 12%, transparent); }
+.goal-bar-details { display: flex; align-items: center; gap: 12px; min-height: 34px;
+  padding: 5px 8px 6px 12px; border-top: 1px solid color-mix(in srgb, var(--fg) 7%, transparent); }
+.goal-bar-meta { flex: 1; min-width: 0; display: flex; flex-wrap: wrap; gap: 5px 14px;
+  color: var(--muted2); font-size: var(--fs-s); font-variant-numeric: tabular-nums; }
+.goal-bar-detail-actions { display: flex; align-items: center; gap: 3px; flex: none; }
+.goal-bar-detail-btn { height: 26px; display: inline-flex; align-items: center; gap: 5px;
+  padding: 0 7px; border: 0; border-radius: var(--r-s); background: transparent;
+  color: var(--muted); font: inherit; font-size: var(--fs-s); cursor: pointer;
+  transition: color 120ms ease-out, background-color 120ms ease-out; }
+.goal-bar-detail-btn:hover { color: var(--fg); background: var(--bg-ctl); }
+.goal-bar-stop:hover { color: var(--u-hot, #e06c75); }
 .goal-bar-edit { display: flex; align-items: center; gap: 8px;
-  border-top: 1px solid var(--border); padding: 7px 10px; }
+  border-top: 1px solid color-mix(in srgb, var(--fg) 7%, transparent); padding: 8px 10px 8px 12px; }
 .goal-bar-edit input { flex: 1; background: var(--bg); border: 1px solid var(--border2);
-  border-radius: var(--r-s); padding: 5px 9px; color: var(--fg);
+  border-radius: var(--r-s); padding: 6px 9px; color: var(--fg);
   font-size: var(--fs-m); outline: none; }
 .goal-bar-edit input:focus { border-color: var(--accent); }
 .goal-bar-edit button { font-size: var(--fs-s); }
 .goal-bar-save { color: var(--accent); }
-.goal-editor { display: flex; align-items: center; gap: 6px; padding: 6px 8px; }
-.goal-editor input { flex: 1; background: transparent; border: 1px solid
-  color-mix(in srgb, var(--fg) 16%, transparent); border-radius: 6px;
-  padding: 5px 8px; color: var(--fg); font-size: var(--fs-m); outline: none; }
-.goal-editor input:focus { border-color: color-mix(in srgb, var(--fg) 30%, transparent); }
+@media (max-width: 620px) {
+  .goal-bar-control span { display: none; }
+  .goal-bar-control { width: 28px; padding: 0; justify-content: center; }
+  .goal-bar-details { align-items: flex-start; flex-direction: column; gap: 5px; }
+  .goal-bar-detail-actions { align-self: flex-end; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .goal-bar, .goal-bar-chev, .goal-bar-control, .goal-bar-detail-btn { transition: none; }
+}
+.goal-editor { display: flex; flex-direction: column; gap: 7px; padding: 9px 10px 8px;
+  border: 1px solid color-mix(in srgb, var(--fg) 10%, transparent); border-radius: var(--r-m);
+  background: color-mix(in srgb, var(--bg-side) 94%, var(--fg) 2%); }
+.goal-editor-head { display: flex; align-items: center; gap: 8px; color: var(--fg2); }
+.goal-editor-head > svg { color: #86aee8; }
+.goal-editor-title { font-size: var(--fs-s); font-weight: 600; }
+.goal-editor-hint { color: var(--muted2); font-size: var(--fs-xs); }
+.goal-editor input { width: 100%; background: var(--bg); border: 1px solid
+  color-mix(in srgb, var(--fg) 14%, transparent); border-radius: var(--r-s);
+  padding: 7px 9px; color: var(--fg); font-size: var(--fs-m); outline: none; }
+.goal-editor input:focus { border-color: color-mix(in srgb, #86aee8 60%, var(--border));
+  box-shadow: 0 0 0 2px color-mix(in srgb, #86aee8 12%, transparent); }
+.goal-editor-actions { display: flex; justify-content: flex-end; gap: 4px; }
 .goal-editor button { font-size: var(--fs-s); }
 /* champ lettre du sélecteur d'icônes projet */
 .icon-letter { width: 100%; box-sizing: border-box; margin-top: 6px; background: var(--bg-ctl);

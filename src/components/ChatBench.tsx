@@ -102,6 +102,13 @@ const STATES: Record<string, { events: AgentEvent[]; workingSince: number | null
   error: { events: ERROR, workingSince: null, attachments: [], usage: null },
   contexts: { events: MARKDOWN.slice(0, 1), workingSince: null, attachments: CONTEXTS_ATTACHMENTS, usage: null },
   markdown: { events: MARKDOWN, workingSince: null, attachments: [], usage: null },
+  goal: {
+    events: [...RICH, { kind: "goal", goal: {
+      objective: "Reprendre l'analyse des tendances régionales et produire une figure 3 vérifiée pour le manuscrit",
+      status: "blocked", tokenBudget: 120000, tokensUsed: 34800, timeUsedSeconds: 305,
+    }, ts: ts(2) } as AgentEvent],
+    workingSince: null, attachments: [], usage: { context: 84200, output: 8120, cost: 0.42, turns: 3 },
+  },
 };
 
 export function ChatBench() {
@@ -128,7 +135,7 @@ export function ChatBench() {
         onQuote={noop}
         threadId="bench-thread"
         threadTitle="Validation W&M — régions ouest"
-        threadProvider="claude"
+        threadProvider={key === "goal" ? "codex" : "claude"}
         onPasteImage={noop} onPasteText={noop} onStop={noop}
         layout="chat" onToggleExpand={noop}
         usage={st.usage}
@@ -139,6 +146,7 @@ export function ChatBench() {
         providers={PROVIDERS}
         pins={[]} onStylePin={noop} onTogglePin={noop}
         disabled={false} onSubmit={noop}
+        onGoal={noop}
       />
     </div>
   );

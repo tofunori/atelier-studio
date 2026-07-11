@@ -163,6 +163,33 @@ describe("orchestration App — caractérisation", () => {
     expect(req.threadId).toBe("thread-A");
   });
 
+  it("/goal suit le provider Codex sélectionné même si le fil vient de Claude", async () => {
+    localStorage.setItem(`atelier-studio.modelSel:${PROJECT_ROOT}`, JSON.stringify({
+      provider: "codex", model: "gpt-5.5", effort: "medium", permissionMode: "bypassPermissions",
+    }));
+    const { sock } = await mountApp();
+    await pushThreads(sock, [THREAD_A]); // session existante Claude
+    await selectThread(sock, "Fil A — albédo");
+
+    const objective = "produire la figure 3 vérifiée";
+    const textarea = document.querySelector(".composer textarea") as HTMLTextAreaElement;
+    fireEvent.change(textarea, { target: { value: `/goal ${objective}` } });
+    await act(async () => {
+      fireEvent.submit(textarea.closest("form")!);
+      await flushMicrotasks(6);
+    });
+
+    const sends = sock.sent.map((s) => JSON.parse(s)).filter((m) => m.type === "send");
+    expect(sends[sends.length - 1]).toMatchObject({ threadId: "thread-A", provider: "codex", prompt: objective });
+    expect(within(document.querySelector(".goal-bar") as HTMLElement).getByText(objective)).toBeTruthy();
+
+    // Le premier tour a créé la session Codex : le goal en attente est posé
+    // automatiquement, sans que l'utilisateur retape la commande.
+    await pushThreads(sock, [{ ...THREAD_A, provider: "codex", sessionId: "codex-session-1" }]);
+    const goals = sock.sent.map((s) => JSON.parse(s)).filter((m) => m.type === "goalSet");
+    expect(goals[goals.length - 1]).toMatchObject({ threadId: "thread-A", objective });
+  });
+
   it("charge l'historique d'un fil vide ; un fil déjà peuplé n'est JAMAIS écrasé", async () => {
     const { sock } = await mountApp();
     await pushThreads(sock);
@@ -479,6 +506,32 @@ describe("orchestration App — caractérisation", () => {
     const reverts = sock.sent.map((s) => JSON.parse(s)).filter((m) => m.type === "revert");
     const sent = reverts[reverts.length - 1];
     expect(sent).toMatchObject({ threadId: "thread-A", eventId: "event-user-exact" });
+
+    await push(sock, { type: "reverted", threadId: "thread-A" });
+    const resend = sock.sent.map((s) => JSON.parse(s)).filter((m) => m.type === "send").slice(-1)[0];
+    expect(resend).toMatchObject({
+      threadId: "thread-A",
+      prompt: "Question corrigée",
+      displayEvent: { kind: "user", text: "Question corrigée" },
+    });
+    expect(resend.clientMessageId).toMatch(/^[0-9a-f-]{20,}$/i);
+
+    // Ack autoritaire du sidecar : même messageId, donc la bulle optimiste est
+    // enrichie en place et ne devient jamais une seconde bulle identique.
+    await push(sock, {
+      type: "event", threadId: "thread-A",
+      event: {
+        kind: "user", text: "Question corrigée",
+        meta: {
+          schemaVersion: 1, eventId: "event-user-corrected", provider: "claude",
+          threadId: "thread-A", turnId: "turn-2", messageId: resend.clientMessageId,
+          sequence: 3, ts: 3, durable: true, origin: "provider",
+        },
+      },
+    });
+    const bubbles = [...document.querySelectorAll(".user-bubble")]
+      .filter((el) => el.textContent === "Question corrigée");
+    expect(bubbles).toHaveLength(1);
   });
 
   it("Fork transmet l'eventId exact du point de bifurcation", async () => {

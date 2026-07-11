@@ -151,16 +151,22 @@ describe("en-tête et goal — retours utilisateur", () => {
     expect(document.querySelector(".chat-surface-header .ui-badge")).toBeNull();
   });
 
-  it("corbeille du goal : la pastille disparaît immédiatement, sans écho provider", () => {
+  it("goal bloqué : état humain et actions rares seulement dans le détail", () => {
     const onGoal = vi.fn();
+    const onStop = vi.fn();
     const evs: AgentEvent[] = [
       events.user("Fais X.", FIXED_TS),
       { kind: "goal", goal: { objective: "est un goal avec une tache précise", status: "blocked" }, ts: FIXED_TS + 10 } as unknown as AgentEvent,
     ];
-    renderUi(<Chat {...chatProps({ events: evs, onGoal })} />);
+    renderUi(<Chat {...chatProps({ events: evs, onGoal, onStop })} />);
     expect(document.querySelector(".goal-bar")).toBeTruthy();
+    expect(screen.getByText(t("goal.status.awaiting"))).toBeTruthy();
+    expect(screen.queryByText(t("goal.status.blocked"))).toBeNull();
+    expect(screen.queryByTitle(t("goal.stop"))).toBeNull();
+    fireEvent.click(screen.getByTitle(t("goal.expand")));
     fireEvent.click(screen.getByTitle(t("goal.stop")));
     expect(onGoal).toHaveBeenCalledWith("clear", undefined, undefined);
+    expect(onStop).toHaveBeenCalledTimes(1);
     expect(document.querySelector(".goal-bar")).toBeNull();
   });
 });

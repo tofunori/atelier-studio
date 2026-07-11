@@ -38,6 +38,8 @@ test.describe("golden — chat et composer (#chatbench)", () => {
     shoot(page, { name: "chat-rich-1512-light", hash: "#chatbench-light", width: 1512, height: 883 }));
   test("running 1280 dark", async ({ page }) =>
     shoot(page, { name: "chat-running-1280-dark", hash: "#chatbench-running", width: 1280, height: 800 }));
+  test("goal en attente 1280 dark", async ({ page }) =>
+    shoot(page, { name: "chat-goal-1280-dark", hash: "#chatbench-goal", width: 1280, height: 800 }));
   test("erreur 800 dark", async ({ page }) =>
     shoot(page, { name: "chat-error-800-dark", hash: "#chatbench-error", width: 800, height: 600 }));
   test("composer 6 contextes 1512", async ({ page }) =>

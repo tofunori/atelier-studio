@@ -135,6 +135,38 @@ test('engine resolution precedence', async ({page}) => {
   });
 });
 
+test('CM6 applique le thème Atelier et une vraie coloration LaTeX', async ({page}) => {
+  await withProject({
+    'theme.tex': '% commentaire scientifique\n\\section{Résultats}\n\\newcommand{\\glacier}{August}\n',
+    'sample.py': 'def glacier(value):\n    return value * 2\n',
+  }, async ({url}) => {
+    await page.goto(url('latex_studio.html', 'theme.tex'));
+    await expectEngine(page, 'cm6');
+    const tokens = page.locator('.cm-content .cm-line span');
+    await expect.poll(() => tokens.count()).toBeGreaterThan(3);
+    const colors = await tokens.evaluateAll(nodes => [...new Set(nodes.map(node => getComputedStyle(node).color))]);
+    expect(colors.length).toBeGreaterThanOrEqual(3);
+    await expect(page.locator('.cm-editor')).toHaveCSS('background-color', 'rgb(30, 33, 38)');
+
+    const themeTrigger = page.getByRole('button', {name: "Thème de l'éditeur"});
+    await expect(themeTrigger).toBeVisible();
+    await themeTrigger.click();
+    const obsidian = page.getByRole('menuitemradio', {name: 'Obsidian'});
+    await expect(obsidian).toBeVisible();
+    await obsidian.click();
+    await expect(page.locator('.cm-editor')).toHaveCSS('background-color', 'rgb(15, 17, 21)');
+    expect(await page.evaluate(() => localStorage.getItem('atelier.editorTheme'))).toBe('obsidian');
+
+    await page.reload();
+    await expectEngine(page, 'cm6');
+    await expect(page.locator('.cm-editor')).toHaveCSS('background-color', 'rgb(15, 17, 21)');
+
+    await page.goto(url('code_editor.html', 'sample.py'));
+    await expectEngine(page, 'cm6');
+    await expect(page.locator('.cm-editor')).toHaveCSS('background-color', 'rgb(15, 17, 21)');
+  });
+});
+
 test('latex deterministic parity', async ({page}) => {
   await withProject({'main.tex': '\\section{Alpha}\nTherefore\n\nA paragraph with enough words that deterministic rewrap can split it into multiple shorter source lines for editing.\n',
     'script.py': 'unused = 1\n'}, async ({root, url}) => {

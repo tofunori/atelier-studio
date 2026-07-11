@@ -243,7 +243,11 @@ export function ComposerControls(p: {
                   <div className="model-provider-list">
                     {visibleProviders.map((info) => {
                       const pv = info.id;
-                      const active = pv === menuProvider;
+                      // `selected` = provider utilisé par le composer ;
+                      // `active` = sous-panneau de modèles réellement ouvert.
+                      // Les confondre rendait le premier clic sur le provider
+                      // courant inerte puisque menuProvider retombait déjà sur lui.
+                      const active = pv === modelMenuProvider;
                       const selected = pv === provider;
                       const count = Math.max(0, modelsFor(pv).length - 1);
                       return (

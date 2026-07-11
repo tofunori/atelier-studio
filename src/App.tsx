@@ -426,7 +426,13 @@ export default function App() {
   const cliBannerText = useRef<string | null>(null); // bandeau « CLI manquant » actif
   const pendingPaste = useRef<string | null>(null); // dataURL en attente de sauvegarde
   const pendingZoteroDigest = useRef(new Map<string, ZoteroPaletteItem>()); // clé Zotero -> item en attente du digest
-  const pendingResend = useRef<{ threadId: string; prompt: string; snapshot: any[] } | null>(null);
+  const pendingResend = useRef<{
+    threadId: string;
+    prompt: string;
+    snapshot: AgentEvent[];
+    clientMessageId: string;
+    ts: number;
+  } | null>(null);
   const [atelierTabs, setAtelierTabs] = useState<
     { id: string; url: string; title: string; color?: string; pinned?: boolean; kind?: "term"; cwd?: string }[]
   >([]);
@@ -914,7 +920,12 @@ export default function App() {
           pendingResend.current = null;
           setEvents((p) => ({
             ...p,
-            [pr.threadId]: [...(p[pr.threadId] ?? []), { kind: "user", text: pr.prompt, ts: Date.now() }],
+            [pr.threadId]: [...(p[pr.threadId] ?? []), {
+              kind: "user",
+              text: pr.prompt,
+              ts: pr.ts,
+              meta: { provisional: true, messageId: pr.clientMessageId },
+            }],
           }));
           setWorkingSince((p) => ({ ...p, [pr.threadId]: Date.now() }));
           const th = threadsRef.current.find((t) => t.id === pr.threadId);
@@ -925,6 +936,8 @@ export default function App() {
               projectRoot: th?.projectRoot ?? "",
               provider: th?.provider ?? "claude",
               prompt: pr.prompt,
+              clientMessageId: pr.clientMessageId,
+              displayEvent: { kind: "user", text: pr.prompt, ts: pr.ts },
             });
           }
         }
@@ -1095,24 +1108,14 @@ export default function App() {
         console.error("sidecar:", msg.message);
         const pr = pendingResend.current;
         if (pr && pr.threadId === msg.threadId) {
-          // le rewind a échoué (Codex, ou message introuvable) : ne PAS perdre le
-          // message — restaurer l'historique tronqué puis renvoyer le nouveau texte
+          // Le rewind a échoué : restaurer le fil original, mais ne jamais
+          // envoyer le texte corrigé comme un nouveau message (cela créait le
+          // doublon que l'action « Modifier et renvoyer » promet précisément
+          // d'éviter). On remet plutôt le brouillon dans le composer.
           pendingResend.current = null;
-          const th = threadsRef.current.find((t) => t.id === pr.threadId);
-          setEvents((p) => ({
-            ...p,
-            [pr.threadId]: [...pr.snapshot, { kind: "user", text: pr.prompt, ts: Date.now() }],
-          }));
-          setWorkingSince((p) => ({ ...p, [pr.threadId]: Date.now() }));
-          if (ws.current?.readyState === 1) {
-            sendPrompt(ws.current, {
-              autoReview: settingsRef.current.autoReview,
-              threadId: pr.threadId,
-              projectRoot: th?.projectRoot ?? "",
-              provider: th?.provider ?? "claude",
-              prompt: pr.prompt,
-            });
-          }
+          setEvents((p) => ({ ...p, [pr.threadId]: pr.snapshot }));
+          if (activeIdRef.current === pr.threadId) setInjectText(pr.prompt);
+          setAppBanner({ text: String(msg.message ?? "Modification impossible"), closable: true });
         }
       }
   }
@@ -1573,6 +1576,8 @@ export default function App() {
     permissionMode: string,
     mode: "steer" | "queue" = "steer",
   ) {
+    const displayPrompt = prompt;
+    let optimisticGoal: AgentEvent | null = null;
     const activeThread = allThreadsRef.current.find((t) => t.id === activeId);
     const threadRoot = activeThread ? activeThread.projectRoot : (activeProject ?? "");
     if (!activeId && !activeProject) return;
@@ -1589,11 +1594,14 @@ export default function App() {
     // pas un message texte (codex exec n'interprète pas /goal). Côté Claude,
     // /goal passe tel quel : la CLI a son goal natif (v2.1.139+).
     const goalMatch = /^\/goal(?:\s+([\s\S]*))?$/.exec(prompt.trim());
-    if (goalMatch && (activeThread?.provider ?? provider) === "codex") {
+    if (goalMatch && provider === "codex") {
       const arg = (goalMatch[1] ?? "").trim();
       const isClear = ["clear", "stop", "off", "reset", "none", "cancel"].includes(arg.toLowerCase());
-      const hasSession = Boolean(activeThread?.sessionId);
-      if (activeId && (hasSession || !arg || isClear)) {
+      // Une session d'un autre provider ne peut pas recevoir thread/goal/set.
+      // Si l'utilisateur vient de passer Claude → Codex, on amorce d'abord la
+      // session Codex puis pendingGoal pose l'objectif au threads-update.
+      const hasCodexSession = Boolean(activeThread?.provider === "codex" && activeThread.sessionId);
+      if (activeId && hasCodexSession) {
         if (ws.current?.readyState === 1) {
           const msg =
             !arg ? { type: "goalGet", threadId: activeId, explicit: true } :
@@ -1604,20 +1612,33 @@ export default function App() {
           // trace visible dans le fil : la commande tapée, comme un message
           setEvents((p) => ({
             ...p,
-            [activeId]: [...(p[activeId] ?? []), { kind: "user", text: prompt.trim(), ts: Date.now() } as any],
+            [activeId]: [
+              ...(p[activeId] ?? []),
+              { kind: "user", text: prompt.trim(), ts: Date.now() } as AgentEvent,
+              ...(arg && !isClear ? [{
+                kind: "goal" as const,
+                goal: { objective: arg, status: "active" as const, tokenBudget: null, tokensUsed: 0, timeUsedSeconds: 0 },
+                ts: Date.now(),
+              }] : []),
+            ],
           }));
         }
         return;
       }
+      // Pas de session Codex à interroger/nettoyer : ne surtout pas router la
+      // commande vers la session Claude encore attachée au fil.
+      if (!arg || isClear) return;
       if (arg && !isClear) {
         // pas encore de session Codex (chat neuf) : l'objectif part comme
         // premier message — le goal sera posé par pendingGoal dès que la
         // session existe (threads-update avec sessionId)
         pendingGoal.current = { threadId: activeId, objective: arg };
+        optimisticGoal = {
+          kind: "goal",
+          goal: { objective: arg, status: "active", tokenBudget: null, tokensUsed: 0, timeUsedSeconds: 0 },
+          ts: Date.now(),
+        };
         prompt = arg;
-      } else {
-        // /goal (statut) ou /goal clear sans session : rien à interroger
-        return;
       }
     }
     // /export : archive locale (pas d'appel agent)
@@ -1647,7 +1668,7 @@ export default function App() {
     const clientMessageId = crypto.randomUUID();
     const userEvent = {
       kind: "user" as const,
-      text: prompt,
+      text: displayPrompt,
       ts: Date.now(),
       meta: { provisional: true as const, messageId: clientMessageId },
       ...(attachments.some((a) => a.imageUrl)
@@ -1704,7 +1725,7 @@ export default function App() {
     }
     setEvents((p) => ({
       ...p,
-      [id]: [...(p[id] ?? []), userEvent],
+      [id]: [...(p[id] ?? []), userEvent, ...(optimisticGoal ? [optimisticGoal] : [])],
     }));
     setWorkingSince((p) => ({ ...p, [id as string]: Date.now() }));
     if (mock) {
@@ -1737,7 +1758,7 @@ export default function App() {
       // lignes) — jamais le handoff, les textes injectés ni une data URL
       const displayEvent = {
         kind: "user" as const,
-        text: prompt,
+        text: displayPrompt,
         ts: userEvent.ts,
         ...("label" in userEvent && userEvent.label ? { label: userEvent.label as string } : {}),
         ...(attachments.some((a) => a.kind === "paste")
@@ -2217,7 +2238,13 @@ export default function App() {
             const snapshot = eventsRef.current[id] ?? [];
             const eventId = (snapshot[index]?.meta as any)?.eventId;
             setEvents((p) => ({ ...p, [id]: (p[id] ?? []).slice(0, index) }));
-            pendingResend.current = { threadId: id, prompt: newText, snapshot };
+            pendingResend.current = {
+              threadId: id,
+              prompt: newText,
+              snapshot,
+              clientMessageId: crypto.randomUUID(),
+              ts: Date.now(),
+            };
             if (ws.current?.readyState === 1) {
               ws.current.send(JSON.stringify({ type: "revert", threadId: id, text: oldText, eventId }));
             }
