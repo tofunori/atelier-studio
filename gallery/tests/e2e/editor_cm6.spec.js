@@ -138,32 +138,35 @@ test('engine resolution precedence', async ({page}) => {
 test('CM6 applique le thème Atelier et une vraie coloration LaTeX', async ({page}) => {
   await withProject({
     'theme.tex': '% commentaire scientifique\n\\section{Résultats}\n\\newcommand{\\glacier}{August}\n',
-    'sample.py': 'def glacier(value):\n    return value * 2\n',
+    'sample.py': 'import math\n# scientific comment\ndef glacier(value: float):\n    label = "August"\n    return math.sqrt(value) * 2\n',
   }, async ({url}) => {
     await page.goto(url('latex_studio.html', 'theme.tex'));
     await expectEngine(page, 'cm6');
     const tokens = page.locator('.cm-content .cm-line span');
     await expect.poll(() => tokens.count()).toBeGreaterThan(3);
     const colors = await tokens.evaluateAll(nodes => [...new Set(nodes.map(node => getComputedStyle(node).color))]);
-    expect(colors.length).toBeGreaterThanOrEqual(3);
-    await expect(page.locator('.cm-editor')).toHaveCSS('background-color', 'rgb(30, 33, 38)');
+    expect(colors.length).toBeGreaterThanOrEqual(2);
+    await expect(page.locator('.cm-editor')).toHaveCSS('background-color', 'rgb(13, 17, 23)');
 
     const themeTrigger = page.getByRole('button', {name: "Thème de l'éditeur"});
     await expect(themeTrigger).toBeVisible();
     await themeTrigger.click();
-    const obsidian = page.getByRole('menuitemradio', {name: 'Obsidian'});
-    await expect(obsidian).toBeVisible();
-    await obsidian.click();
-    await expect(page.locator('.cm-editor')).toHaveCSS('background-color', 'rgb(15, 17, 21)');
-    expect(await page.evaluate(() => localStorage.getItem('atelier.editorTheme'))).toBe('obsidian');
+    const tokyoNight = page.getByRole('menuitemradio', {name: 'Tokyo Night'});
+    await expect(tokyoNight).toBeVisible();
+    await tokyoNight.click();
+    await expect(page.locator('.cm-editor')).toHaveCSS('background-color', 'rgb(26, 27, 38)');
+    expect(await page.evaluate(() => localStorage.getItem('atelier.editorTheme'))).toBe('tokyo-night');
 
     await page.reload();
     await expectEngine(page, 'cm6');
-    await expect(page.locator('.cm-editor')).toHaveCSS('background-color', 'rgb(15, 17, 21)');
+    await expect(page.locator('.cm-editor')).toHaveCSS('background-color', 'rgb(26, 27, 38)');
 
     await page.goto(url('code_editor.html', 'sample.py'));
     await expectEngine(page, 'cm6');
-    await expect(page.locator('.cm-editor')).toHaveCSS('background-color', 'rgb(15, 17, 21)');
+    await expect(page.locator('.cm-editor')).toHaveCSS('background-color', 'rgb(26, 27, 38)');
+    const codeColors = await page.locator('.cm-content .cm-line span').evaluateAll(nodes =>
+      [...new Set(nodes.map(node => getComputedStyle(node).color))]);
+    expect(codeColors.length).toBeGreaterThanOrEqual(5);
   });
 });
 

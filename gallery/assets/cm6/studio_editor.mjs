@@ -59,49 +59,55 @@ function languageFor(ext) {
   }
 }
 
-// Precision Native — quatre thèmes exclusivement sombres, partagés par toutes
-// les surfaces CM6. La couleur encode la structure scientifique sans créer un
-// arc-en-ciel. `swatches` alimente le petit aperçu du sélecteur.
+// Quatre vrais profils d'éditeur, exclusivement sombres et partagés par toutes
+// les surfaces CM6. Chaque profil reprend une grammaire chromatique reconnue,
+// pas seulement une variation du fond. `swatches` alimente l'aperçu du menu.
 export const STUDIO_THEMES = [
-  {id: "graphite", label: "Graphite", swatches: ["#d6a467", "#86aee8", "#a9c181"]},
-  {id: "obsidian", label: "Obsidian", swatches: ["#c792ea", "#82aaff", "#c3e88d"]},
-  {id: "midnight", label: "Midnight", swatches: ["#81a1c1", "#88c0d0", "#a3be8c"]},
-  {id: "carbon", label: "Carbon", swatches: ["#e58b57", "#d7b26d", "#a8b886"]},
+  {id: "github-dark", label: "GitHub Dark", swatches: ["#ff7b72", "#d2a8ff", "#a5d6ff"]},
+  {id: "one-dark", label: "One Dark", swatches: ["#c678dd", "#61afef", "#98c379"]},
+  {id: "tokyo-night", label: "Tokyo Night", swatches: ["#bb9af7", "#7aa2f7", "#9ece6a"]},
+  {id: "catppuccin-mocha", label: "Catppuccin Mocha", swatches: ["#cba6f7", "#89b4fa", "#a6e3a1"]},
 ];
 
 const THEME_PALETTES = {
-  graphite: {
-    bg: "#1e2126", fg: "#d9dee7", gutter: "#606a79", gutterActive: "#aeb8c6",
-    accent: "#e7b75e", selection: "#354b66", active: "rgba(134, 174, 232, .055)",
-    panel: "#181b20", surface: "#20242a", border: "#363d48",
-    comment: "#6f7b8b", keyword: "#d6a467", fn: "#86aee8", type: "#e5bd78",
-    prop: "#8fc6c3", string: "#a9c181", number: "#c7a0d8", punct: "#9aa4b2", meta: "#79b8d1",
+  "github-dark": {
+    bg: "#0d1117", fg: "#e6edf3", gutter: "#484f58", gutterActive: "#b1bac4",
+    accent: "#58a6ff", selection: "#264f78", active: "rgba(110, 118, 129, .10)",
+    panel: "#010409", surface: "#161b22", border: "#30363d",
+    comment: "#8b949e", keyword: "#ff7b72", fn: "#d2a8ff", type: "#ffa657",
+    variable: "#ffa657", prop: "#79c0ff", string: "#a5d6ff", number: "#79c0ff",
+    constant: "#79c0ff", punct: "#8b949e", meta: "#ffa657", regexp: "#7ee787", escape: "#ffa198",
   },
-  obsidian: {
-    bg: "#0f1115", fg: "#d5dae3", gutter: "#515a68", gutterActive: "#a9b4c3",
-    accent: "#82aaff", selection: "#243958", active: "rgba(130, 170, 255, .065)",
-    panel: "#0b0d11", surface: "#171a21", border: "#2b313c",
-    comment: "#596573", keyword: "#c792ea", fn: "#82aaff", type: "#ffc777",
-    prop: "#89ddff", string: "#c3e88d", number: "#f78c6c", punct: "#939cab", meta: "#89ddff",
+  "one-dark": {
+    bg: "#282c34", fg: "#abb2bf", gutter: "#4b5263", gutterActive: "#abb2bf",
+    accent: "#528bff", selection: "#3e4451", active: "rgba(153, 187, 255, .045)",
+    panel: "#21252b", surface: "#2c313a", border: "#3e4451",
+    comment: "#5c6370", keyword: "#c678dd", fn: "#61afef", type: "#e5c07b",
+    variable: "#e06c75", prop: "#56b6c2", string: "#98c379", number: "#d19a66",
+    constant: "#d19a66", punct: "#abb2bf", meta: "#e5c07b", regexp: "#56b6c2", escape: "#d19a66",
   },
-  midnight: {
-    bg: "#111820", fg: "#d4dde8", gutter: "#536172", gutterActive: "#b1bfce",
-    accent: "#88c0d0", selection: "#21415a", active: "rgba(136, 192, 208, .065)",
-    panel: "#0c1218", surface: "#17212b", border: "#2c3947",
-    comment: "#5e6d7e", keyword: "#81a1c1", fn: "#88c0d0", type: "#ebcb8b",
-    prop: "#8fbcbb", string: "#a3be8c", number: "#b48ead", punct: "#8f9baa", meta: "#5e81ac",
+  "tokyo-night": {
+    bg: "#1a1b26", fg: "#c0caf5", gutter: "#3b4261", gutterActive: "#737aa2",
+    accent: "#7aa2f7", selection: "#283457", active: "rgba(41, 46, 66, .72)",
+    panel: "#16161e", surface: "#24283b", border: "#3b4261",
+    comment: "#565f89", keyword: "#bb9af7", fn: "#7aa2f7", type: "#2ac3de",
+    variable: "#c0caf5", prop: "#73daca", string: "#9ece6a", number: "#ff9e64",
+    constant: "#ff9e64", punct: "#89ddff", meta: "#e0af68", regexp: "#b4f9f8", escape: "#bb9af7",
   },
-  carbon: {
-    bg: "#141311", fg: "#e4dfd7", gutter: "#665f56", gutterActive: "#c2b9ad",
-    accent: "#e58b57", selection: "#4a3328", active: "rgba(229, 139, 87, .06)",
-    panel: "#0f0e0d", surface: "#1d1a17", border: "#3a342e",
-    comment: "#716c64", keyword: "#e58b57", fn: "#d7b26d", type: "#e6c789",
-    prop: "#8fb7ad", string: "#a8b886", number: "#cc8e7f", punct: "#a09a91", meta: "#a9a39a",
+  "catppuccin-mocha": {
+    bg: "#1e1e2e", fg: "#cdd6f4", gutter: "#585b70", gutterActive: "#a6adc8",
+    accent: "#89b4fa", selection: "#45475a", active: "rgba(49, 50, 68, .78)",
+    panel: "#181825", surface: "#313244", border: "#45475a",
+    comment: "#6c7086", keyword: "#cba6f7", fn: "#89b4fa", type: "#f9e2af",
+    variable: "#f38ba8", prop: "#94e2d5", string: "#a6e3a1", number: "#fab387",
+    constant: "#fab387", punct: "#bac2de", meta: "#f5c2e7", regexp: "#94e2d5", escape: "#f2cdcd",
   },
 };
 
 function normalizeThemeId(id) {
-  return STUDIO_THEMES.some((theme) => theme.id === id) ? id : "graphite";
+  const legacyThemes = {graphite: "github-dark", obsidian: "one-dark", midnight: "tokyo-night", carbon: "catppuccin-mocha"};
+  const normalized = legacyThemes[id] || id;
+  return STUDIO_THEMES.some((theme) => theme.id === normalized) ? normalized : "github-dark";
 }
 
 function themeExtensions(id) {
@@ -131,11 +137,14 @@ function themeExtensions(id) {
   const highlightStyle = HighlightStyle.define([
     {tag: tags.comment, color: p.comment, fontStyle: "italic"},
     {tag: [tags.keyword, tags.controlKeyword, tags.definitionKeyword], color: p.keyword},
-    {tag: [tags.function(tags.variableName), tags.definition(tags.variableName)], color: p.fn},
+    {tag: [tags.function(tags.variableName), tags.definition(tags.variableName), tags.labelName], color: p.fn},
     {tag: [tags.typeName, tags.className, tags.tagName], color: p.type},
     {tag: [tags.propertyName, tags.attributeName], color: p.prop},
-    {tag: [tags.string, tags.special(tags.string)], color: p.string},
-    {tag: [tags.number, tags.bool, tags.null, tags.atom], color: p.number},
+    {tag: [tags.local(tags.variableName), tags.namespace], color: p.variable},
+    {tag: tags.string, color: p.string},
+    {tag: [tags.number, tags.bool, tags.null, tags.atom], color: p.constant},
+    {tag: tags.regexp, color: p.regexp},
+    {tag: [tags.escape, tags.special(tags.string)], color: p.escape},
     {tag: [tags.operator, tags.punctuation, tags.bracket], color: p.punct},
     {tag: [tags.meta, tags.macroName], color: p.meta},
     {tag: tags.heading, color: p.fg, fontWeight: "650"},
