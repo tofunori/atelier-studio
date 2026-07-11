@@ -20,31 +20,16 @@ adversariaux).
   des prompts Documents à chaque rebuild. À VALIDER au prochain rebuild :
   plus aucun prompt attendu.
 
-## Fait — en attente de revue Codex (2026-07-10)
-- 024 Research Navigator (branche `claude/atelier-projects-panel-redesign-f86165`,
-  worktree dédié, 5 commits, PAS poussé — consigne de Thierry 2026-07-10 :
-  revue Codex AVANT push/merge, tranche par tranche). Détails : plans/README.md.
-
-## Fait — en attente de revue Codex (2026-07-10, tranche 020)
-- 020 tours de chat + composer (branche `claude/atelier-020-chat-composer`,
-  basée sur la tranche 024 validée par Codex ; PAS poussé — revue Codex avant
-  push/merge). Détails : plans/README.md.
-
-## Fait — en attente de revue Codex (2026-07-10, tranche 021)
-- 021 Settings/a11y/responsive/QA visuelle (branche `claude/atelier-021-settings-a11y`,
-  basée sur la tranche 020 ; PAS poussé — revue Codex avant push/merge).
-
-## Fait — en attente de revue Codex (2026-07-10, tranche 023)
-- 023 polish Precision Native (branche `claude/atelier-023-polish`, base 021 ;
-  PAS poussé). Galerie exclue (directive gallery/assets) — reporter cette
-  partie du plan 023 après l'atterrissage CM6/galerie.
-
-## Fait — en attente de revue Codex (2026-07-10, tranche 022)
-- 022 perf chargement (branche `claude/atelier-022-perf`, base 023 ; PAS
-  poussé). Entrée 1639→864 KB min (−47 %) en 5 expériences mesurées :
-  terminal/xterm, Settings, surfaces atelier, KaTeX à l'idle, lazyWithRetry.
-  Rapport : docs/performance/frontend-2026-07.md ; garde-fou
-  scripts/check_entry_budget.mjs ; 305 tests + 13 goldens verts.
+## Intégration Codex (2026-07-11)
+- Branche `codex/frontend-integration-024-022`, base `6d6db41`.
+- 024, 020, 021, 023 et 022 repris séquentiellement; doublons du rail et
+  DevTools release écartés. Correctifs de revue : Échap Settings consommé,
+  confirmations destructives fail-closed, cycle d'import du menu projet retiré,
+  budget frontend intégré à `verify`, fixtures visuelles hors bundle release.
+- `npm run verify`, E2E galerie 48/48, goldens 13/13, build Tauri et contrôle
+  Computer Use natif de l'app buildée : verts. Sidecar santé OK.
+- 024, 021 et 022 acceptés à `6c22afc`. 020 attend deux tours réels visuels;
+  023 attend sa passe cosmétique galerie.
 
 ## Ordre restant (dépendances vérifiées)
 2. **025** harnais agentique (P0 XL, dép 008–010/015–016/018 ✓) — livre
