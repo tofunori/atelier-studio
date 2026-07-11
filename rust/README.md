@@ -9,8 +9,9 @@ Migration à **parité fonctionnelle** du sidecar Node + serveur galerie Node ve
 | **R1** | Sidecar HTTP/WS minimal | **Node** (défaut) |
 | **R2** | Galerie Rust vendored (`atelier-gallery-server`) | **Node** galerie (défaut) |
 | **R3** | `atelier-store` + WS threads/history/highlights | Node chat (défaut) |
-| **R4** (actuel) | `atelier-workspace` Git/term/Zotero/scan/files | Node chat (défaut) ; Rust opt-in |
-| R5+ | Moteur providers (Claude/Codex/…) | voir `plans/033-*.md` |
+| **R4** | `atelier-workspace` Git/term/Zotero/scan | Node chat (défaut) |
+| **R5** (actuel) | Harness + FakeProvider + `send`/`interrupt` | Node chat (défaut) ; `provider: fake` en Rust |
+| R6+ | Claude puis Codex réels | voir `plans/033-*.md` |
 
 ### Ticket de réunification (cmux-gallery)
 
@@ -72,6 +73,8 @@ rust/crates/
   atelier-runtime/      # serveur sidecar axum + ws_router
   atelier-store/        # threads, highlights, settings, journal, ledger
   atelier-workspace/    # files, git, terminal PTY, zotero, scan
+  atelier-harness/      # turns, sequence, journal-before-UI
+  atelier-providers/    # trait Provider + FakeProvider (Claude/Codex later)
   atelier-server/       # binaire atelier-studio-server (chat)
   atelier-core/         # noyau galerie (vendored cmux)
   atelier-gallery/      # binaire atelier-gallery-server

@@ -29,6 +29,10 @@ pub async fn route_ws(state: &AppState, text: &str) -> Vec<String> {
     let msg_type = msg.get("type").and_then(|v| v.as_str()).unwrap_or("");
     let mut out = match msg_type {
         "ping" => vec![ok(PongMessage::new())],
+        "send" => crate::send::handle_send(state, &msg).await,
+        "interrupt" => crate::send::handle_interrupt(state, &msg).await,
+        "providerStatus" => crate::send::handle_provider_status(state).await,
+        "status" => crate::send::handle_status(state).await,
         "listThreads" => {
             let list = state.threads().lock().await.list();
             vec![json_msg(json!({"type":"threads","threads": list}))]
@@ -544,16 +548,13 @@ fn term_events(state: &AppState) -> Vec<String> {
 
 async fn broadcast_threads(state: &AppState) -> Vec<String> {
     let list = state.threads().lock().await.list();
-    let out = json_msg(json!({"type":"threads","threads": list}));
-    state.publish(out.clone());
-    vec![out]
+    // Direct reply only (avoid bus double-delivery on the requesting socket).
+    vec![json_msg(json!({"type":"threads","threads": list}))]
 }
 
 async fn broadcast_highlights(state: &AppState) -> Vec<String> {
     let list = state.highlights().lock().await.list();
-    let out = json_msg(json!({"type":"highlights","highlights": list}));
-    state.publish(out.clone());
-    vec![out]
+    vec![json_msg(json!({"type":"highlights","highlights": list}))]
 }
 
 fn ok<T: serde::Serialize>(v: T) -> String {

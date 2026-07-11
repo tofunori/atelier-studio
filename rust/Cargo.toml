@@ -6,6 +6,8 @@ members = [
   "crates/atelier-server",
   "crates/atelier-store",
   "crates/atelier-workspace",
+  "crates/atelier-harness",
+  "crates/atelier-providers",
   "crates/atelier-core",
   "crates/atelier-gallery",
 ]
@@ -21,6 +23,8 @@ atelier-protocol = { path = "crates/atelier-protocol" }
 atelier-runtime = { path = "crates/atelier-runtime" }
 atelier-store = { path = "crates/atelier-store" }
 atelier-workspace = { path = "crates/atelier-workspace" }
+atelier-harness = { path = "crates/atelier-harness" }
+atelier-providers = { path = "crates/atelier-providers" }
 axum = { version = "0.8", features = ["ws", "macros"] }
 futures-util = "0.3"
 serde = { version = "1", features = ["derive"] }

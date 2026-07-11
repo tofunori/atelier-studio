@@ -5,8 +5,8 @@ use crate::instance::{clear_pid_if_ours, write_lock, write_pid};
 use crate::paths::AppPaths;
 use crate::state::AppState;
 use atelier_protocol::{
-    builtin_providers, ClientMessage, ErrorMessage, PongMessage, SetupProviderRow, SetupRuntime,
-    SetupSidecar, SetupStatus,
+    ClientMessage, ErrorMessage, PongMessage, SetupProviderRow, SetupRuntime, SetupSidecar,
+    SetupStatus,
 };
 use axum::extract::ws::{Message, WebSocket, WebSocketUpgrade};
 use axum::extract::{Query, State};
@@ -251,8 +251,7 @@ async fn providers_handler(
     headers: HeaderMap,
 ) -> Result<impl IntoResponse, StatusCode> {
     auth_or_401(&state, &headers)?;
-    // R1: static catalog; bin version probes land in later portes.
-    Ok(Json(builtin_providers()))
+    Ok(Json(atelier_providers::provider_status_list()))
 }
 
 async fn setup_handler(
@@ -260,7 +259,7 @@ async fn setup_handler(
     headers: HeaderMap,
 ) -> Result<impl IntoResponse, StatusCode> {
     auth_or_401(&state, &headers)?;
-    let providers = builtin_providers()
+    let providers = atelier_providers::provider_status_list()
         .into_iter()
         .map(|p| SetupProviderRow {
             id: p.id,
@@ -335,27 +334,42 @@ async fn ws_upgrade(
 
 async fn handle_socket(socket: WebSocket, state: AppState) {
     let (mut sender, mut receiver) = socket.split();
-    // Porte 3: direct replies to the requesting socket. `state.publish` is
-    // available for a future multi-socket fan-out registry; multi-window
-    // same-process still shares threads.json on disk so listThreads after
-    // reconnect stays consistent.
-    while let Some(Ok(msg)) = receiver.next().await {
-        match msg {
-            Message::Text(text) => {
-                let replies = crate::ws_router::route_ws(&state, &text).await;
-                for reply in replies {
-                    if sender.send(Message::Text(reply.into())).await.is_err() {
-                        return;
+    // Bus delivers harness stream events (`type: event`) and thread updates
+    // from background tasks. Direct replies cover request/response WS types.
+    let mut bus_rx = state.subscribe_bus();
+    loop {
+        tokio::select! {
+            bus = bus_rx.recv() => {
+                match bus {
+                    Ok(text) => {
+                        if sender.send(Message::Text(text.into())).await.is_err() {
+                            break;
+                        }
                     }
+                    Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => continue,
+                    Err(_) => break,
                 }
             }
-            Message::Ping(p) => {
-                if sender.send(Message::Pong(p)).await.is_err() {
-                    break;
+            msg = receiver.next() => {
+                match msg {
+                    Some(Ok(Message::Text(text))) => {
+                        let replies = crate::ws_router::route_ws(&state, &text).await;
+                        for reply in replies {
+                            if sender.send(Message::Text(reply.into())).await.is_err() {
+                                return;
+                            }
+                        }
+                    }
+                    Some(Ok(Message::Ping(p))) => {
+                        if sender.send(Message::Pong(p)).await.is_err() {
+                            break;
+                        }
+                    }
+                    Some(Ok(Message::Close(_))) | None => break,
+                    Some(Ok(_)) => {}
+                    Some(Err(_)) => break,
                 }
             }
-            Message::Close(_) => break,
-            _ => {}
         }
     }
 }

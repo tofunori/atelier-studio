@@ -22,6 +22,7 @@ const SINGLETON: &[&str] = &["todos", "goal"];
 pub struct HarnessJournal {
     dir: PathBuf,
 }
+// Clone is intentional: journal is path-based, safe to share across harnesses.
 
 impl HarnessJournal {
     pub fn new(base_dir: impl AsRef<Path>) -> Self {
@@ -136,6 +137,16 @@ impl HarnessJournal {
             return (None, Vec::new());
         };
         Self::parse(&text)
+    }
+
+    /// Largest journaled sequence (0 if empty) — harness resume.
+    pub fn last_sequence(&self, thread_id: &str) -> u64 {
+        let (_, events) = self.read_thread(thread_id);
+        events
+            .iter()
+            .filter_map(|e| e.pointer("/meta/sequence").and_then(|v| v.as_u64()))
+            .max()
+            .unwrap_or(0)
     }
 
     /// Semantic replay — Node `materialize`.

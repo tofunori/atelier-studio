@@ -21,9 +21,9 @@
 - **Depends on**: stabilité du contrat galerie et du harnais agents
 - **Reference implementation**: backend Rust de `/Users/tofunori/Documents/cmux-gallery/rust`
 - **Non-goal**: réécrire React, CodeMirror, les viewers ou les éditeurs en Rust
-- **Progress (2026-07-11)**: **R4 en cours** — R1–R3 commités ; Porte 4
-  `atelier-workspace` (files/git/term/zotero/scan) branché au WS. Node reste
-  défaut.
+- **Progress (2026-07-11)**: **R5 en cours** — R1–R4 commités ; Porte 5
+  `atelier-harness` + `atelier-providers` (FakeProvider, send/interrupt).
+  Claude/Codex réels = Portes 6–7. Node reste défaut.
 
 ## Décision produit non négociable
 
@@ -306,19 +306,21 @@ exportThread markdown, multi-client term fan-out temps réel (drain sur messages
 **Objectif**: remplacer la gestion Node des processus et événements sans perdre
 la fidélité propre à chaque fournisseur.
 
-- [ ] Processus isolé par thread/session selon le fournisseur.
-- [ ] Lecture JSONL et JSON-RPC incrémentale.
-- [ ] Backpressure et limites de mémoire.
-- [ ] Annulation, timeout et terminaison du groupe de processus.
-- [ ] Déduplication par `requestId`, `messageId` et `eventId`.
-- [ ] Journal durable avant acknowledgement UI.
-- [ ] Interactions, permissions et valeurs secrètes non persistées.
-- [ ] Reconnexion frontend et replay sans double rendu.
-- [ ] Statut, capacités, modèles et usage.
-- [ ] Fixtures de faux processus déterministes.
+- [x] Isolation par thread (HarnessManager + run map + cancel flag).
+- [~] Lecture JSONL/JSON-RPC : cadre Provider prêt ; parsers réels Portes 6–7.
+- [~] Backpressure : canal mpsc non borné pour events ; bornes mémoire à durcir.
+- [x] Annulation (`interrupt` + AtomicBool probe).
+- [x] Déduplication `eventId` dans le harnais.
+- [x] Journal durable **avant** emit UI (dispatch order).
+- [~] Interactions/permissions : kinds supportés ; pas encore de waiters UI.
+- [x] Replay journal via `getHistory` + materialize (sans double eventId).
+- [x] `providerStatus` / `status` / catalogue capacités (static + fake).
+- [x] `FakeProvider` déterministe + test send end-to-end.
 
 Le moteur commun normalise le transport, jamais les capacités. Les différences
 Codex, Claude et Grok restent explicites et testables.
+
+**Impl**: `atelier-harness`, `atelier-providers`, `runtime/send.rs`.
 
 ## Porte 6 — Claude
 

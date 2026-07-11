@@ -2,8 +2,11 @@
 
 use crate::paths::AppPaths;
 use atelier_protocol::Health;
+use atelier_harness::HarnessManager;
+use atelier_providers::{build_registry, Provider};
 use atelier_store::{HarnessJournal, HighlightStore, ThreadStore};
 use atelier_workspace::TerminalHub;
+use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::{broadcast, Mutex, RwLock};
 
@@ -26,6 +29,8 @@ struct Inner {
     /// Fan-out for multi-client WS (threads/highlights broadcasts).
     bus: broadcast::Sender<String>,
     terminals: Arc<TerminalHub>,
+    harness: Arc<HarnessManager>,
+    providers: HashMap<String, Arc<dyn Provider>>,
 }
 
 impl AppState {
@@ -42,9 +47,9 @@ impl AppState {
         let journal = HarnessJournal::new(&paths.app_dir);
         let (bus, _) = broadcast::channel(128);
         let terminals = Arc::new(TerminalHub::new());
+        let harness = Arc::new(HarnessManager::new(journal.clone()));
+        let providers = build_registry();
         // Purge ghost "running" status from previous process (Node index.mjs boot).
-        // Done after open by rewriting idle — keep simple: lazy on list is enough?
-        // Match Node: fix at startup.
         let mut threads = threads;
         for t in threads.list() {
             if t.status == "running" {
@@ -68,6 +73,8 @@ impl AppState {
                 journal,
                 bus,
                 terminals,
+                harness,
+                providers,
             }),
         }
     }
@@ -167,5 +174,13 @@ impl AppState {
 
     pub fn app_dir(&self) -> &std::path::Path {
         &self.inner.paths.app_dir
+    }
+
+    pub fn harness(&self) -> &HarnessManager {
+        &self.inner.harness
+    }
+
+    pub fn provider(&self, id: &str) -> Option<Arc<dyn Provider>> {
+        self.inner.providers.get(id).cloned()
     }
 }

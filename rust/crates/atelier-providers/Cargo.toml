@@ -1,0 +1,20 @@
+[package]
+name = "atelier-providers"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Provider engine + registry (plan 033 Porte 5); full Claude/Codex in Portes 6–7"
+
+[dependencies]
+serde = { workspace = true }
+serde_json = { workspace = true }
+async-trait = "0.1"
+tokio = { workspace = true }
+atelier-harness = { path = "../atelier-harness" }
+atelier-protocol = { workspace = true }
+uuid = { version = "1", features = ["v4"] }
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["rt-multi-thread", "macros"] }
+tempfile = { workspace = true }
+atelier-store = { workspace = true }

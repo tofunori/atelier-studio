@@ -9,6 +9,8 @@ description = "HTTP/WS server runtime: auth, lock, health, lifecycle"
 atelier-protocol = { workspace = true }
 atelier-store = { workspace = true }
 atelier-workspace = { workspace = true }
+atelier-harness = { workspace = true }
+atelier-providers = { workspace = true }
 axum = { workspace = true }
 futures-util = { workspace = true }
 serde = { workspace = true }

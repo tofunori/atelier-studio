@@ -3,6 +3,7 @@
 pub mod atomic;
 pub mod instance;
 pub mod paths;
+pub mod send;
 pub mod server;
 pub mod state;
 pub mod ws_router;

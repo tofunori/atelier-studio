@@ -1,0 +1,17 @@
+[package]
+name = "atelier-harness"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Universal turn harness — sequence, decorate, journal wire (plan 033 Porte 5)"
+
+[dependencies]
+serde = { workspace = true }
+serde_json = { workspace = true }
+uuid = { version = "1", features = ["v4"] }
+tokio = { workspace = true }
+atelier-store = { workspace = true }
+
+[dev-dependencies]
+tempfile = { workspace = true }
+tokio = { workspace = true, features = ["rt-multi-thread", "macros"] }
