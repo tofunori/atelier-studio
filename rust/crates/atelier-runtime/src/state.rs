@@ -3,6 +3,7 @@
 use crate::paths::AppPaths;
 use atelier_protocol::Health;
 use atelier_store::{HarnessJournal, HighlightStore, ThreadStore};
+use atelier_workspace::TerminalHub;
 use std::sync::Arc;
 use tokio::sync::{broadcast, Mutex, RwLock};
 
@@ -24,6 +25,7 @@ struct Inner {
     journal: HarnessJournal,
     /// Fan-out for multi-client WS (threads/highlights broadcasts).
     bus: broadcast::Sender<String>,
+    terminals: Arc<TerminalHub>,
 }
 
 impl AppState {
@@ -39,6 +41,7 @@ impl AppState {
         let highlights = HighlightStore::open(paths.app_dir.join("highlights.json"));
         let journal = HarnessJournal::new(&paths.app_dir);
         let (bus, _) = broadcast::channel(128);
+        let terminals = Arc::new(TerminalHub::new());
         // Purge ghost "running" status from previous process (Node index.mjs boot).
         // Done after open by rewriting idle — keep simple: lazy on list is enough?
         // Match Node: fix at startup.
@@ -64,6 +67,7 @@ impl AppState {
                 highlights: Mutex::new(highlights),
                 journal,
                 bus,
+                terminals,
             }),
         }
     }
@@ -155,5 +159,13 @@ impl AppState {
 
     pub fn ledger_dir(&self) -> std::path::PathBuf {
         self.inner.paths.app_dir.join("ledger")
+    }
+
+    pub fn terminals(&self) -> &TerminalHub {
+        &self.inner.terminals
+    }
+
+    pub fn app_dir(&self) -> &std::path::Path {
+        &self.inner.paths.app_dir
     }
 }

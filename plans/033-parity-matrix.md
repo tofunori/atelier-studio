@@ -55,8 +55,12 @@ Inventaire exhaustif depuis `sidecar/router.mjs`. Statut global R1 : hors `ping`
 | S-WS-HISTORY | `getHistory` | journal materialize | `PARTIAL` (no provider loaders) |
 | S-WS-HIGHLIGHT | add/remove/list | highlights.json | `PARITY` (R3) |
 | S-WS-LEDGER | `getLedger` | ledger/*.jsonl | `PARITY` (R3) |
-| S-WS-GIT | status/diff/stage/… | repo | `ABSENT` |
-| S-WS-ZOTERO | search/digest/fav/… | sqlite + favs | `ABSENT` |
+| S-WS-GIT | status/diff/stage/commit/push/pull/… | repo | `PARITY` (R4) |
+| S-WS-TERM | termOpen/Input/Resize/Close | PTY | `PARITY` (R4) |
+| S-WS-FILES | listFiles/listCommands | git ls-files | `PARITY` (R4) |
+| S-WS-PASTED | saveImage/list/clear | pasted/ | `PARITY` (R4) |
+| S-WS-SCAN | scanLocal/checkFrame | loopback | `PARITY` (R4) |
+| S-WS-ZOTERO | search/collections/fav/digest | sqlite + favs | `PARTIAL` (no add PDF) |
 | S-WS-GOAL | goalSet/Get/Clear | provider | `ABSENT` |
 | S-WS-QA | quickAsk / qaPromote | memory | `ABSENT` |
 | S-WS-REVIEW | requestReview | — | `ABSENT` |

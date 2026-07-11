@@ -21,9 +21,9 @@
 - **Depends on**: stabilité du contrat galerie et du harnais agents
 - **Reference implementation**: backend Rust de `/Users/tofunori/Documents/cmux-gallery/rust`
 - **Non-goal**: réécrire React, CodeMirror, les viewers ou les éditeurs en Rust
-- **Progress (2026-07-11)**: **R3 en cours** — R1+R2 commités ; Porte 3
-  `atelier-store` (threads/highlights/settings/journal/ledger) + WS persistence
-  handlers ; `GET /findfile` galerie. Node reste défaut chat/galerie.
+- **Progress (2026-07-11)**: **R4 en cours** — R1–R3 commités ; Porte 4
+  `atelier-workspace` (files/git/term/zotero/scan) branché au WS. Node reste
+  défaut.
 
 ## Décision produit non négociable
 
@@ -284,18 +284,22 @@ projet séparé; ici, Rust doit d'abord lire et écrire les formats existants.
 
 ## Porte 4 — Workspace, Git, terminal et bibliothèque
 
-- [ ] Liste, lecture, recherche et sauvegarde de fichiers.
-- [ ] Images collées et exports.
-- [ ] Git status/diff/stage/unstage/commit/push/pull/revert.
-- [ ] Snapshots avant tour et undo du dernier tour.
-- [ ] Terminal PTY : open, input, resize, close, data et exit.
-- [ ] Zotero : recherche, collections, favoris, digest et pièces jointes.
-- [ ] Scan des serveurs locaux et vérification des frames.
-- [ ] Tests de chemins malveillants, symlinks et racines concurrentes.
+- [x] Liste fichiers (`listFiles`) + slash commands (`listCommands`).
+- [x] Images collées (`saveImage`/`listPasted`/`clearPasted`).
+- [x] Git status/diff/stage/unstage/commit/push/pull/revert/ignore.
+- [x] Undo dernier tour via `lastSnapshot` + restore (snapshot API store ok).
+- [x] Terminal PTY open/input/resize/close + termData/termExit.
+- [x] Zotero search/collections/fav/digest (+ pdf path).
+- [x] `scanLocal` + `checkFrame` (loopback only).
+- [x] Tests path escape git + list_files fallback.
 
 Les binaires système comme `git`, `latexmk`, `synctex`, `sips` ou les CLI agents
 peuvent continuer à être invoqués. « Backend Rust » signifie zéro runtime Node
 pour le backend, pas la réimplémentation de tous les outils externes.
+
+**Impl**: `rust/crates/atelier-workspace` + handlers dans `ws_router.rs`.
+Gaps connus: `generateCommitMsg` (nécessite Claude), `zoteroAddPdf` (connector),
+exportThread markdown, multi-client term fan-out temps réel (drain sur messages).
 
 ## Porte 5 — Moteur commun des fournisseurs
 
