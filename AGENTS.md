@@ -8,9 +8,11 @@ du vieux code et font croire que le fix « ne marche pas ».
 
 - L'app buildée = `src-tauri/target/release/bundle/macos/Atelier.app`.
   Son process s'appelle **`tauri-app`** (PAS « Atelier ») → `pkill -x Atelier` ne matche jamais.
-- 3 familles de process : l'app (`tauri-app`), le **sidecar** (`Resources/sidecar/index.mjs`),
-  les **serveurs galerie** (`node …/server/main.mjs`, un par projet ouvert — ils SURVIVENT
-  aux relances et l'app les réutilise → zombies = vieux code servi).
+- 3 familles de process : l'app (`tauri-app`), le **sidecar chat**
+  (défaut R10 : `Resources/rust-server/atelier-studio-server` ; soak Node :
+  `Resources/sidecar/index.mjs` si `ATELIER_BACKEND=node`), les **serveurs galerie**
+  (`node …/server/main.mjs`, un par projet ouvert — ils SURVIVENT aux relances et
+  l'app les réutilise → zombies = vieux code servi).
 - `npm run tauri dev` ne survit PAS lancé par un agent (reaping du harness).
   Seul Thierry le lance depuis son terminal. Les agents utilisent le BUILD.
 - Vite dev sert `src/` en direct, mais l'app buildée fige tout au build :
@@ -36,6 +38,8 @@ npx vite build            # doit passer
 pkill -9 -f tauri-app
 pkill -9 -f "Resources/sidecar/index.mjs"
 pkill -9 -f "sidecar/index.mjs"
+pkill -9 -f "atelier-studio-server"
+pkill -9 -f "Resources/rust-server/atelier-studio-server"
 for p in $(lsof -nP -iTCP -sTCP:LISTEN 2>/dev/null | grep node | awk '{print $2}' | sort -u); do
   case "$(ps -p $p -o command= 2>/dev/null)" in *"server/main.mjs"*) kill -9 $p;; esac
 done

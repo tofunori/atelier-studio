@@ -36,6 +36,8 @@ npx vite build            # doit passer
 pkill -9 -f tauri-app
 pkill -9 -f "Resources/sidecar/index.mjs"
 pkill -9 -f "sidecar/index.mjs"
+pkill -9 -f "atelier-studio-server"
+pkill -9 -f "Resources/rust-server/atelier-studio-server"
 for p in $(lsof -nP -iTCP -sTCP:LISTEN 2>/dev/null | grep node | awk '{print $2}' | sort -u); do
   case "$(ps -p $p -o command= 2>/dev/null)" in *"server/main.mjs"*) kill -9 $p;; esac
 done
