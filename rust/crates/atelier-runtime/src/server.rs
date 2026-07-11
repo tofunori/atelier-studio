@@ -251,7 +251,9 @@ async fn providers_handler(
     headers: HeaderMap,
 ) -> Result<impl IntoResponse, StatusCode> {
     auth_or_401(&state, &headers)?;
-    Ok(Json(atelier_providers::provider_status_list()))
+    Ok(Json(atelier_providers::provider_status_list(Some(
+        state.app_dir(),
+    ))))
 }
 
 async fn setup_handler(
@@ -259,7 +261,7 @@ async fn setup_handler(
     headers: HeaderMap,
 ) -> Result<impl IntoResponse, StatusCode> {
     auth_or_401(&state, &headers)?;
-    let providers = atelier_providers::provider_status_list()
+    let providers = atelier_providers::provider_status_list(Some(state.app_dir()))
         .into_iter()
         .map(|p| SetupProviderRow {
             id: p.id,

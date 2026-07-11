@@ -3,7 +3,7 @@ name = "atelier-providers"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
-description = "Provider engine + registry (plan 033 Porte 5); full Claude/Codex in Portes 6–7"
+description = "Provider engine + registry (plan 033 Portes 5–8)"
 
 [dependencies]
 serde = { workspace = true }
@@ -14,6 +14,9 @@ atelier-harness = { path = "../atelier-harness" }
 atelier-protocol = { workspace = true }
 uuid = { version = "1", features = ["v4"] }
 libc = "0.2"
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls", "stream"] }
+futures-util = { workspace = true }
+base64 = "0.22"
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["rt-multi-thread", "macros"] }

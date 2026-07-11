@@ -300,14 +300,14 @@ impl Provider for ClaudeProvider {
                                 .and_then(|v| v.as_str())
                                 .map(str::to_string);
                         }
-                        if kind == "done" {
-                            if ev.get("ok").and_then(|v| v.as_bool()) == Some(false) {
-                                ok = false;
-                                err_msg = ev
-                                    .get("result")
-                                    .and_then(|v| v.as_str())
-                                    .map(str::to_string);
-                            }
+                        if kind == "done"
+                            && ev.get("ok").and_then(|v| v.as_bool()) == Some(false)
+                        {
+                            ok = false;
+                            err_msg = ev
+                                .get("result")
+                                .and_then(|v| v.as_str())
+                                .map(str::to_string);
                         }
                         on_event(ev);
                     }

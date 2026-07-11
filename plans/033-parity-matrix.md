@@ -44,16 +44,19 @@ Inventaire exhaustif depuis `sidecar/router.mjs`. Statut global R1 : hors `ping`
 | S-WS-STATUS | `status` | port/pasted | `ABSENT` |
 | S-WS-PROVIDER | `providerStatus` | providers | `ABSENT` |
 | S-WS-SETUP | `setupStatus` | setup | `ABSENT` |
-| S-WS-API-* | `apiProviders` / save / list / delete | api_providers.json | `ABSENT` |
+| S-WS-API-* | `apiProviders` / save / list / delete | api_providers.json | `PARTIAL` (R8; no discoverModels) |
 | S-WS-PASTED | `clearPasted` / `listPasted` | pasted/ | `ABSENT` |
 | S-WS-SETTINGS | `getSettings` / `saveSettings` | settings.json | `PARITY` (R3) |
-| S-WS-IMAGE | `saveImage` / `generateImage` | pasted/ + project | `ABSENT` |
+| S-WS-IMAGE | `saveImage` / `generateImage` | pasted/ + project | `PARTIAL` (R8 seedream; codex engine NODE) |
 | S-WS-BROWSER | `checkFrame` / `scanLocal` | — | `ABSENT` |
 | S-WS-TERM | `termOpen/Input/Resize/Close` | PTY | `ABSENT` |
 | S-WS-THREADS | list/rename/move/delete/upsert | threads.json | `PARITY` (R3; fork/import later) |
-| S-WS-SEND | `send` / `interrupt` / harness stream | harness-history | `PARTIAL` (fake + claude + codex) |
+| S-WS-SEND | `send` / `interrupt` / harness stream | harness-history | `PARTIAL` (fake+claude+codex+grok+opencode+api) |
 | S-PROV-CLAUDE | Claude stream-json | process | `PARTIAL` (R6; no SDK permissions UI) |
 | S-PROV-CODEX | Codex app-server JSON-RPC | process | `PARTIAL` (R7; no goals/UI approvals) |
+| S-PROV-GROK | Grok streaming-json (+ ACP parse) | process | `PARTIAL` (R8 legacy CLI; ACP duplex later) |
+| S-PROV-OPENCODE | OpenCode CLI JSON | process | `PARTIAL` (R8) |
+| S-PROV-API | OpenAI-compat SSE | HTTP | `PARTIAL` (R8; no anthropic stream nuances full) |
 | S-WS-PROV | `providerStatus` / `status` | — | `PARITY` (R5) |
 | S-WS-HISTORY | `getHistory` | journal materialize | `PARTIAL` (no provider loaders) |
 | S-WS-HIGHLIGHT | add/remove/list | highlights.json | `PARITY` (R3) |
@@ -113,7 +116,7 @@ Référence amont : `/Users/tofunori/Documents/cmux-gallery/rust` (copie sous `r
 | ST-HIGHLIGHTS | `…/highlights.json` | HighlightStore | `PARITY` (R3) |
 | ST-SETTINGS | `…/settings.json` | get/saveSettings | `PARITY` (R3) |
 | ST-UI | `…/ui.json` | /uistate | `RUST_R1` |
-| ST-API | `…/api_providers.json` | openai_api | `ABSENT` |
+| ST-API | `…/api_providers.json` | openai_api | `PARTIAL` (R8 load/save; keys stripped in list) |
 | ST-HARNESS | `…/harness-history/*.jsonl` | harness journal | `PARITY` (R3 read/write/materialize) |
 | ST-LEDGER | `…/ledger/*.jsonl` | ledger | `PARITY` (R3) |
 | ST-PASTED | `…/pasted/` | saveImage | `ABSENT` |

@@ -357,13 +357,15 @@ live app-server non requis pour CI.
 
 ## Porte 8 — Grok, OpenCode, API et images
 
-- [ ] Fournisseurs OpenAI-compatibles et registre configurable.
-- [ ] Catalogue des modèles et clés protégées.
-- [ ] Génération d'images et métadonnées.
-- [ ] OpenCode : texte, raisonnement, outils, erreurs et reprise.
-- [ ] Grok ACP : messages, plans, tools, interactions et fin de tour.
-- [ ] Fallbacks réellement utilisés, sans conserver une branche morte par peur.
-- [ ] Gating UI strictement fondé sur les capacités annoncées par Rust.
+- [x] Fournisseurs OpenAI-compatibles et registre configurable (`api_providers.json` + WS list/save/delete).
+- [x] Catalogue des modèles et clés protégées (clé absente des réponses UI `hasApiKey`).
+- [x] Génération d'images Seedream + métadonnées (`generated/fig_*.png|json`, bus `imageGenerated`).
+- [x] OpenCode : CLI JSON stream (texte, raisonnement, tools, usage, resume `--session`).
+- [x] Grok : legacy streaming-json + parseur ACP (mapping pur testé) ; duplex ACP runtime différé.
+- [x] Fallbacks : providers absents si binaire manquant ; `engine=codex` image → erreur explicite Node.
+- [ ] Gating UI strictement fondé sur les capacités annoncées par Rust (Porte 9–10 soak).
+- [ ] Image via Codex gpt-image (abonnement ChatGPT) — encore Node.
+- [ ] Grok ACP full duplex (processus partagé) — legacy CLI en attendant.
 
 ## Porte 9 — Routeur complet et comparaison contrôlée
 

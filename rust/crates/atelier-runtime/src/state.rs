@@ -48,7 +48,7 @@ impl AppState {
         let (bus, _) = broadcast::channel(128);
         let terminals = Arc::new(TerminalHub::new());
         let harness = Arc::new(HarnessManager::new(journal.clone()));
-        let providers = build_registry();
+        let providers = build_registry(&paths.app_dir);
         // Purge ghost "running" status from previous process (Node index.mjs boot).
         let mut threads = threads;
         for t in threads.list() {

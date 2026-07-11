@@ -12,15 +12,20 @@ Migration à **parité fonctionnelle** du sidecar Node + serveur galerie Node ve
 | **R4** | `atelier-workspace` Git/term/Zotero/scan | Node chat (défaut) |
 | **R5** | Harness + FakeProvider + `send`/`interrupt` | Node défaut |
 | **R6** | Claude CLI stream-json | Node défaut |
-| **R7** (actuel) | Codex `app-server` JSON-RPC | Node défaut ; `provider: codex` si `codex` dans PATH |
-| R8+ | Grok / OpenCode / API / images | voir `plans/033-*.md` |
+| **R7** | Codex `app-server` JSON-RPC | Node défaut |
+| **R8** (actuel) | Grok legacy CLI, OpenCode, API OpenAI-compat, images Seedream | Node défaut |
+| R9+ | Routeur complet, Rust défaut, soak | voir `plans/033-*.md` |
 
-### Providers réels (R6–R7)
+### Providers réels (R6–R8)
 
 ```bash
 export ATELIER_BACKEND=rust
 which claude   # ATELIER_CLAUDE_BIN=…
 which codex    # ATELIER_CODEX_BIN=…
+which grok     # ATELIER_GROK_BIN=…
+which opencode # ATELIER_OPENCODE_BIN=…
+# API : ~/Library/Application Support/atelier-studio/api_providers.json
+# Images Seedream : ARK_API_KEY ou entry byteplus-images
 # ATELIER_CLAUDE_BARE=1  # optionnel
 ```
 
@@ -85,7 +90,7 @@ rust/crates/
   atelier-store/        # threads, highlights, settings, journal, ledger
   atelier-workspace/    # files, git, terminal PTY, zotero, scan
   atelier-harness/      # turns, sequence, journal-before-UI
-  atelier-providers/    # trait Provider + FakeProvider (Claude/Codex later)
+  atelier-providers/    # Fake, Claude, Codex, Grok, OpenCode, API, images
   atelier-server/       # binaire atelier-studio-server (chat)
   atelier-core/         # noyau galerie (vendored cmux)
   atelier-gallery/      # binaire atelier-gallery-server

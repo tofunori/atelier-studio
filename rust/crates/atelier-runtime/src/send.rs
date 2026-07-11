@@ -72,7 +72,7 @@ pub async fn handle_send(state: &AppState, msg: &Value) -> Vec<String> {
 
     let Some(provider_impl) = state.provider(&provider) else {
         return vec![err_json(format!(
-            "provider inconnu ou non branché en Rust: {provider} (fake toujours; claude/codex si binaires dans le PATH)"
+            "provider inconnu ou non branché en Rust: {provider} (fake toujours; claude/codex/grok/opencode si binaires; API via api_providers.json)"
         ))];
     };
 
@@ -345,17 +345,8 @@ pub async fn handle_interrupt(state: &AppState, msg: &Value) -> Vec<String> {
     vec![]
 }
 
-pub async fn handle_provider_status(_state: &AppState) -> Vec<String> {
-    // Always include fake when env set; catalog from protocol
-    let mut list = provider_status_list();
-    // Force fake ok when in registry
-    if std::env::var("ATELIER_ENABLE_FAKE").is_ok() {
-        // already in list from registry
-    } else {
-        // inject fake only for internal tests via direct registry — keep catalog
-        // as builtin providers for UI parity
-        let _ = &mut list;
-    }
+pub async fn handle_provider_status(state: &AppState) -> Vec<String> {
+    let list = provider_status_list(Some(state.app_dir()));
     vec![serde_json::to_string(&json!({"type":"providerStatus","providers": list}))
         .unwrap_or_else(|_| r#"{"type":"error","message":"serialize"}"#.into())]
 }

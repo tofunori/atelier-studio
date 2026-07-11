@@ -1,9 +1,11 @@
-//! Provider catalog for /providers and status (static + fake for tests).
+//! Provider catalog for /providers and status (static + fake for tests + API configs).
 
+use crate::api::{load_api_configs, ApiChatProvider};
 use crate::fake::FakeProvider;
 use crate::traits::Provider;
-use atelier_protocol::{builtin_providers, ProviderStatus};
+use atelier_protocol::{builtin_providers, ProviderCapabilities, ProviderStatus};
 use std::collections::HashMap;
+use std::path::Path;
 use std::sync::Arc;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -39,9 +41,10 @@ impl ProviderId {
 }
 
 /// Built-in catalog for HTTP `/providers` (matches Node registry shape).
-pub fn builtin_catalog() -> Vec<ProviderStatus> {
+/// When `app_dir` is provided, appends OpenAI-compatible API providers from
+/// `api_providers.json` (excluding ids that collide with builtins).
+pub fn builtin_catalog(app_dir: Option<&Path>) -> Vec<ProviderStatus> {
     let mut list = builtin_providers();
-    // Fake only when ATELIER_ENABLE_FAKE=1 (tests / dev).
     if std::env::var("ATELIER_ENABLE_FAKE").is_ok() {
         list.push(ProviderStatus {
             id: "fake".into(),
@@ -51,7 +54,7 @@ pub fn builtin_catalog() -> Vec<ProviderStatus> {
             model_reasoning: serde_json::json!({}),
             default_model: "fake-1".into(),
             efforts: vec!["low".into(), "medium".into(), "high".into()],
-            capabilities: atelier_protocol::ProviderCapabilities {
+            capabilities: ProviderCapabilities {
                 resume: false,
                 steering: true,
                 queue: true,
@@ -69,15 +72,56 @@ pub fn builtin_catalog() -> Vec<ProviderStatus> {
             key_missing: None,
         });
     }
+    if let Some(dir) = app_dir {
+        let builtin_ids: std::collections::HashSet<_> =
+            list.iter().map(|p| p.id.clone()).collect();
+        for cfg in load_api_configs(dir) {
+            if builtin_ids.contains(&cfg.id) {
+                continue;
+            }
+            list.push(ProviderStatus {
+                id: cfg.id.clone(),
+                label: cfg.label.clone(),
+                kind: "api".into(),
+                models: cfg.models.clone(),
+                model_reasoning: serde_json::json!({}),
+                default_model: cfg
+                    .default_model
+                    .clone()
+                    .or_else(|| cfg.models.first().cloned())
+                    .unwrap_or_default(),
+                efforts: vec![],
+                capabilities: ProviderCapabilities {
+                    resume: true,
+                    steering: false,
+                    queue: true,
+                    goals: false,
+                    tools: false,
+                    tool_output: false,
+                    permissions: false,
+                    interactive_input: false,
+                    mcp_elicitation: false,
+                    durable_history: false,
+                    permission_modes: vec![],
+                },
+                version: None,
+                ok: true,
+                key_missing: None,
+            });
+        }
+    }
     list
 }
 
-pub fn provider_status_list() -> Vec<ProviderStatus> {
-    builtin_catalog()
+pub fn provider_status_list(app_dir: Option<&Path>) -> Vec<ProviderStatus> {
+    builtin_catalog(app_dir)
 }
 
 /// Live provider instances.
-pub fn build_registry() -> HashMap<String, Arc<dyn Provider>> {
+///
+/// CLI providers appear only when their binary is resolvable.
+/// API providers load from `app_dir/api_providers.json`.
+pub fn build_registry(app_dir: &Path) -> HashMap<String, Arc<dyn Provider>> {
     let mut m: HashMap<String, Arc<dyn Provider>> = HashMap::new();
     m.insert("fake".into(), Arc::new(FakeProvider::new("fake")));
     if let Some(claude) = crate::claude::ClaudeProvider::new() {
@@ -86,6 +130,22 @@ pub fn build_registry() -> HashMap<String, Arc<dyn Provider>> {
     if let Some(codex) = crate::codex::CodexProvider::new() {
         m.insert("codex".into(), Arc::new(codex));
     }
-    // Grok / OpenCode: Porte 8
+    if let Some(grok) = crate::grok::GrokProvider::new() {
+        m.insert("grok".into(), Arc::new(grok));
+    }
+    if let Some(oc) = crate::opencode::OpenCodeProvider::new() {
+        m.insert("opencode".into(), Arc::new(oc));
+    }
+    let builtin_ids: std::collections::HashSet<&str> =
+        ["claude", "codex", "grok", "opencode", "fake", "gemini"]
+            .into_iter()
+            .collect();
+    for cfg in load_api_configs(app_dir) {
+        if builtin_ids.contains(cfg.id.as_str()) {
+            continue;
+        }
+        let id = cfg.id.clone();
+        m.insert(id, Arc::new(ApiChatProvider::new(cfg, app_dir)));
+    }
     m
 }

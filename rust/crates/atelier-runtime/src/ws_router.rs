@@ -188,6 +188,25 @@ pub async fn route_ws(state: &AppState, text: &str) -> Vec<String> {
                 None => vec![err("dataURL d'image invalide")],
             }
         }
+        "generateImage" => handle_generate_image(state, &msg).await,
+        "apiProviders" => {
+            let list = list_api_providers_public(state.app_dir());
+            vec![json_msg(json!({"type":"apiProviders","providers": list}))]
+        }
+        "saveApiProvider" => {
+            let provider = msg.get("provider").cloned().unwrap_or(json!({}));
+            match save_api_provider(state.app_dir(), provider) {
+                Ok(list) => vec![json_msg(json!({"type":"apiProviders","providers": list}))],
+                Err(e) => vec![err(e)],
+            }
+        }
+        "deleteApiProvider" => {
+            let id = msg.get("id").and_then(|v| v.as_str()).unwrap_or("");
+            match delete_api_provider(state.app_dir(), id) {
+                Ok(list) => vec![json_msg(json!({"type":"apiProviders","providers": list}))],
+                Err(e) => vec![err(e)],
+            }
+        }
         "scanLocal" => {
             let servers = tokio::task::spawn_blocking(scan_local)
                 .await
@@ -567,6 +586,294 @@ fn json_msg(v: Value) -> String {
 
 fn err(message: impl Into<String>) -> String {
     ok(ErrorMessage::new(message))
+}
+
+/// Seedream image gen (broadcast-friendly). Codex engine deferred → clear error.
+async fn handle_generate_image(state: &AppState, msg: &Value) -> Vec<String> {
+    let prompt = msg
+        .get("prompt")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .trim()
+        .to_string();
+    let size = msg
+        .get("size")
+        .and_then(|v| v.as_str())
+        .unwrap_or("2K")
+        .to_string();
+    let engine = msg
+        .get("engine")
+        .and_then(|v| v.as_str())
+        .unwrap_or("seedream");
+    let edit_from = msg
+        .get("editFrom")
+        .and_then(|v| v.as_str())
+        .map(str::to_string);
+    let root = {
+        let r = msg
+            .get("projectDir")
+            .or_else(|| msg.get("projectRoot"))
+            .and_then(|v| v.as_str())
+            .filter(|s| !s.is_empty())
+            .map(str::to_string);
+        match r {
+            Some(r) => r,
+            None => git_root(state, msg).await,
+        }
+    };
+
+    if engine == "codex" {
+        let out = json_msg(json!({
+            "type": "imageGenerated",
+            "projectRoot": root,
+            "path": null,
+            "error": "engine=codex (gpt-image) non encore porté en Rust — utilisez engine=seedream ou ATELIER_BACKEND=node",
+        }));
+        state.publish(out.clone());
+        return vec![out];
+    }
+    if prompt.is_empty() {
+        let out = json_msg(json!({
+            "type": "imageGenerated",
+            "projectRoot": root,
+            "path": null,
+            "error": "prompt requis",
+        }));
+        state.publish(out.clone());
+        return vec![out];
+    }
+
+    // Long request (~minutes): run in background, deliver via bus so a socket
+    // reconnect still receives the result (Node uses broadcast for the same reason).
+    let state_bg = state.clone();
+    let app_dir = state.app_dir().to_path_buf();
+    let root_bg = root.clone();
+    tokio::spawn(async move {
+        let edit_uri = edit_from.as_ref().and_then(|path| {
+            let bytes = std::fs::read(path).ok()?;
+            use base64::Engine;
+            let b64 = base64::engine::general_purpose::STANDARD.encode(bytes);
+            Some(format!("data:image/png;base64,{b64}"))
+        });
+        let result = atelier_providers::generate_image(
+            &app_dir,
+            &prompt,
+            &size,
+            edit_uri.as_deref(),
+        )
+        .await;
+        let payload = match result {
+            Ok(r) => {
+                let dir = std::path::Path::new(&root_bg).join("generated");
+                let write = (|| -> Result<(String, String, Value), String> {
+                    std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+                    let ts = std::time::SystemTime::now()
+                        .duration_since(std::time::UNIX_EPOCH)
+                        .map(|d| d.as_millis())
+                        .unwrap_or(0);
+                    let base = format!("fig_{ts}");
+                    let image_path = dir.join(format!("{base}.png"));
+                    let meta_path = dir.join(format!("{base}.json"));
+                    let b64 = r
+                        .get("b64")
+                        .and_then(|v| v.as_str())
+                        .ok_or_else(|| "b64 manquant".to_string())?;
+                    use base64::Engine;
+                    let bytes = base64::engine::general_purpose::STANDARD
+                        .decode(b64)
+                        .map_err(|e| e.to_string())?;
+                    std::fs::write(&image_path, bytes).map_err(|e| e.to_string())?;
+                    let meta = json!({
+                        "prompt": prompt,
+                        "engine": "seedream",
+                        "model": r.get("model"),
+                        "size": r.get("size").cloned().unwrap_or(json!(size)),
+                        "editFrom": edit_from,
+                        "createdAt": chrono_like_iso(ts),
+                        "usage": r.get("usage"),
+                    });
+                    std::fs::write(
+                        &meta_path,
+                        serde_json::to_string_pretty(&meta).unwrap_or_default(),
+                    )
+                    .map_err(|e| e.to_string())?;
+                    Ok((
+                        image_path.to_string_lossy().into_owned(),
+                        meta_path.to_string_lossy().into_owned(),
+                        meta,
+                    ))
+                })();
+                match write {
+                    Ok((path, meta_path, meta)) => {
+                        let mut o = json!({
+                            "type": "imageGenerated",
+                            "projectRoot": root_bg,
+                            "path": path,
+                            "metaPath": meta_path,
+                        });
+                        if let Some(map) = o.as_object_mut() {
+                            if let Some(m) = meta.as_object() {
+                                for (k, v) in m {
+                                    map.insert(k.clone(), v.clone());
+                                }
+                            }
+                        }
+                        o
+                    }
+                    Err(e) => json!({
+                        "type": "imageGenerated",
+                        "projectRoot": root_bg,
+                        "path": null,
+                        "error": e,
+                    }),
+                }
+            }
+            Err(e) => json!({
+                "type": "imageGenerated",
+                "projectRoot": root_bg,
+                "path": null,
+                "error": e,
+            }),
+        };
+        if let Ok(s) = serde_json::to_string(&payload) {
+            state_bg.publish(s);
+        }
+    });
+    // No immediate reply — result arrives on bus as imageGenerated.
+    vec![]
+}
+
+fn chrono_like_iso(ms: u128) -> String {
+    // RFC3339-ish without chrono dep: enough for meta JSON.
+    let secs = (ms / 1000) as i64;
+    let days = secs.div_euclid(86_400);
+    let tod = secs.rem_euclid(86_400) as u32;
+    let h = tod / 3600;
+    let m = (tod % 3600) / 60;
+    let s = tod % 60;
+    // 1970-01-01 + days — approximate Y-M-D via civil algorithm
+    let (y, mo, d) = civil_from_days(days);
+    format!("{y:04}-{mo:02}-{d:02}T{h:02}:{m:02}:{s:02}.{:03}Z", ms % 1000)
+}
+
+/// Howard Hinnant civil_from_days (proleptic Gregorian).
+fn civil_from_days(z: i64) -> (i32, u32, u32) {
+    let z = z + 719_468;
+    let era = if z >= 0 { z } else { z - 146_096 } / 146_097;
+    let doe = (z - era * 146_097) as u64;
+    let yoe = (doe - doe / 1460 + doe / 36_524 - doe / 146_096) / 365;
+    let y = (yoe as i64) + era * 400;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    let d = doy - (153 * mp + 2) / 5 + 1;
+    let m = if mp < 10 { mp + 3 } else { mp - 9 };
+    let y = if m <= 2 { y + 1 } else { y };
+    (y as i32, m as u32, d as u32)
+}
+
+/// Public list: strip raw apiKey for UI (keep apiKeyEnv + presence flag).
+fn list_api_providers_public(app_dir: &std::path::Path) -> Vec<Value> {
+    let path = app_dir.join("api_providers.json");
+    let Ok(raw) = std::fs::read_to_string(path) else {
+        return Vec::new();
+    };
+    let Ok(val) = serde_json::from_str::<Value>(&raw) else {
+        return Vec::new();
+    };
+    let list = if let Some(arr) = val.as_array() {
+        arr.clone()
+    } else {
+        val.get("providers")
+            .and_then(|v| v.as_array())
+            .cloned()
+            .unwrap_or_default()
+    };
+    list.into_iter()
+        .map(|mut p| {
+            if let Some(obj) = p.as_object_mut() {
+                let has_key = obj
+                    .get("apiKey")
+                    .and_then(|v| v.as_str())
+                    .map(|s| !s.is_empty())
+                    .unwrap_or(false);
+                obj.remove("apiKey");
+                obj.insert("hasApiKey".into(), json!(has_key));
+            }
+            p
+        })
+        .collect()
+}
+
+fn save_api_provider(app_dir: &std::path::Path, provider: Value) -> Result<Vec<Value>, String> {
+    let id = provider
+        .get("id")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| "id requis".to_string())?
+        .to_string();
+    let path = app_dir.join("api_providers.json");
+    let mut list: Vec<Value> = if let Ok(raw) = std::fs::read_to_string(&path) {
+        let val: Value = serde_json::from_str(&raw).unwrap_or(json!([]));
+        if let Some(arr) = val.as_array() {
+            arr.clone()
+        } else {
+            val.get("providers")
+                .and_then(|v| v.as_array())
+                .cloned()
+                .unwrap_or_default()
+        }
+    } else {
+        Vec::new()
+    };
+    // If UI omitted apiKey but entry exists, keep previous key.
+    let mut provider = provider;
+    if provider
+        .get("apiKey")
+        .and_then(|v| v.as_str())
+        .map(|s| s.is_empty())
+        .unwrap_or(true)
+    {
+        if let Some(prev) = list.iter().find(|p| p.get("id").and_then(|v| v.as_str()) == Some(id.as_str()))
+        {
+            if let Some(k) = prev.get("apiKey").cloned() {
+                if let Some(obj) = provider.as_object_mut() {
+                    obj.insert("apiKey".into(), k);
+                }
+            }
+        }
+    }
+    if let Some(pos) = list
+        .iter()
+        .position(|p| p.get("id").and_then(|v| v.as_str()) == Some(id.as_str()))
+    {
+        list[pos] = provider;
+    } else {
+        list.push(provider);
+    }
+    atelier_providers::write_api_configs(app_dir, &list)?;
+    Ok(list_api_providers_public(app_dir))
+}
+
+fn delete_api_provider(app_dir: &std::path::Path, id: &str) -> Result<Vec<Value>, String> {
+    if id.is_empty() {
+        return Err("id requis".into());
+    }
+    let path = app_dir.join("api_providers.json");
+    let mut list: Vec<Value> = if let Ok(raw) = std::fs::read_to_string(&path) {
+        let val: Value = serde_json::from_str(&raw).unwrap_or(json!([]));
+        if let Some(arr) = val.as_array() {
+            arr.clone()
+        } else {
+            val.get("providers")
+                .and_then(|v| v.as_array())
+                .cloned()
+                .unwrap_or_default()
+        }
+    } else {
+        Vec::new()
+    };
+    list.retain(|p| p.get("id").and_then(|v| v.as_str()) != Some(id));
+    atelier_providers::write_api_configs(app_dir, &list)?;
+    Ok(list_api_providers_public(app_dir))
 }
 
 fn err_thread(thread_id: &str, message: impl Into<String>) -> String {
