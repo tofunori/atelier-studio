@@ -200,6 +200,7 @@ class FullscreenRegressionTests(unittest.TestCase):
         self.assertIn("if(st.workflow", gallery)
         self.assertNotIn(".wfsel", gallery)
         self.assertIn("let recents = JSON.parse(localStorage.getItem('figRecent')", gallery)
+        self.assertIn("if(!exts[f.ext] && !(onlyFavs && favs.has(f.rel))) return false;", gallery)
         self.assertIn("function buildRecentChip()", gallery)
         self.assertIn("function checkHealth()", gallery)
         self.assertIn("function healthRows(data)", gallery)

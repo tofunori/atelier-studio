@@ -1,0 +1,87 @@
+/* Precision Native — valeurs alignées App.css desktop (anti-dérive jalon D).
+ * Source de vérité desktop : src/App.css + src/styles/tokens.css
+ * Ce fichier DUPLIQUE les littéraux pour le client mobile isolé.
+ * tests/tokens-drift.test.ts compare les hex critiques.
+ */
+
+:root {
+  color-scheme: dark;
+
+  --bg: #1e2124;
+  --bg-side: #161a1e;
+  --bg-pop: #24282d;
+  --bg-card: #24282d;
+  --bg-ctl: #2c2f34;
+
+  --fg: #dadee3;
+  --fg2: #b9bec4;
+  --muted: #90969d;
+  --muted2: #62666c;
+  --accent: #e77f3e;
+
+  --border: #2a2e33;
+  --border2: #353a40;
+
+  --u-ok: #98c379;
+  --u-warn: #e0b74a;
+  --u-hot: #e06c75;
+
+  --surface-app: var(--bg);
+  --surface-panel: var(--surface-app);
+  --surface-header: var(--surface-app);
+  --surface-raised: var(--bg-card);
+  --surface-inset: var(--bg-ctl);
+  --surface-overlay: var(--bg-pop);
+
+  --text-primary: var(--fg);
+  --text-secondary: var(--fg2);
+  --text-muted: var(--muted);
+  --text-disabled: var(--muted2);
+
+  --border-subtle: var(--border);
+  --border-default: var(--border2);
+  --border-focus: var(--accent);
+  --accent-base: var(--accent);
+  --accent-subtle: color-mix(in srgb, var(--accent) 16%, transparent);
+
+  --status-running: var(--accent);
+  --status-success: var(--u-ok);
+  --status-warning: var(--u-warn);
+  --status-error: var(--u-hot);
+
+  --fs-xs: 10px;
+  --fs-s: 11px;
+  --fs-m: 12px;
+  --fs-l: 13px;
+  --fs-xl: 15px;
+
+  --radius-control: 6px;
+  --radius-surface: 10px;
+  --touch-min: 44px;
+
+  --sp-1: 4px;
+  --sp-2: 8px;
+  --sp-3: 12px;
+  --sp-4: 16px;
+  --sp-5: 20px;
+  --sp-6: 24px;
+
+  --font-ui: -apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro Display",
+    system-ui, sans-serif;
+  --font-mono: ui-monospace, "SF Mono", Menlo, monospace;
+
+  --motion: 140ms;
+  --shadow-raised: 0 4px 16px rgba(0, 0, 0, 0.25);
+
+  /* Safe areas iOS */
+  --sat: env(safe-area-inset-top, 0px);
+  --sab: env(safe-area-inset-bottom, 0px);
+  --sal: env(safe-area-inset-left, 0px);
+  --sar: env(safe-area-inset-right, 0px);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --motion: 0ms;
+  }
+}

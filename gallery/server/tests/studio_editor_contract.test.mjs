@@ -37,6 +37,13 @@ test("CM6 selectAll and native hanging indent are implemented", () => {
   assert.match(editorFactory, /editor\.on\("renderLine"/);
 });
 
+test("wrap menu chooses a visible side of the status bar and clamps to the viewport", () => {
+  assert.match(studioHtml, /const below = window\.innerHeight - r\.bottom - margin/);
+  assert.match(studioHtml, /below >= mh \|\| below >= above/);
+  assert.match(studioHtml, /window\.innerHeight - mh - margin/);
+  assert.doesNotMatch(studioHtml, /wrapMenu\.style\.bottom = \(window\.innerHeight - r\.top/);
+});
+
 test("CM6 bundles have one repository-owned deterministic build recipe", async () => {
   assert.equal(pkg.scripts["build:cm6"], "node scripts/build-cm6.mjs");
   const build = await readFile(new URL("../../scripts/build-cm6.mjs", import.meta.url), "utf8");

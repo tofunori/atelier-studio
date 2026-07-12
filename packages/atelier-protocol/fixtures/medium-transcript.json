@@ -1,0 +1,2390 @@
+{
+  "id": "medium",
+  "threadId": "thread-medium",
+  "projectId": "proj-fixture",
+  "title": "Transcript moyen",
+  "provider": "claude",
+  "events": [
+    {
+      "kind": "user",
+      "text": "Message utilisateur 1",
+      "ts": 1783684800010,
+      "meta": {
+        "schemaVersion": 1,
+        "eventId": "ev-u-1",
+        "provider": "claude",
+        "threadId": "thread-medium",
+        "turnId": "turn-1",
+        "sequence": 1,
+        "ts": 1783684800010,
+        "durable": true,
+        "origin": "atelier",
+        "messageId": "msg-1"
+      }
+    },
+    {
+      "kind": "thinking",
+      "text": "Raisonnement tour 1",
+      "ts": 1783684800020,
+      "meta": {
+        "schemaVersion": 1,
+        "eventId": "ev-th-1",
+        "provider": "claude",
+        "threadId": "thread-medium",
+        "turnId": "turn-1",
+        "sequence": 2,
+        "ts": 1783684800020,
+        "durable": true,
+        "origin": "provider"
+      }
+    },
+    {
+      "kind": "tool_update",
+      "id": "tool-1",
+      "name": "Read",
+      "output": "fichier-1.txt",
+      "status": "completed",
+      "detail": "path-1",
+      "ts": 1783684800030,
+      "meta": {
+        "schemaVersion": 1,
+        "eventId": "ev-tool-1",
+        "provider": "claude",
+        "threadId": "thread-medium",
+        "turnId": "turn-1",
+        "sequence": 3,
+        "ts": 1783684800030,
+        "durable": true,
+        "origin": "provider",
+        "itemId": "tool-1"
+      }
+    },
+    {
+      "kind": "delta",
+      "text": "Réponse assistan",
+      "ts": 1783684800040,
+      "meta": {
+        "schemaVersion": 1,
+        "eventId": "ev-d1-1",
+        "provider": "claude",
+        "threadId": "thread-medium",
+        "turnId": "turn-1",
+        "sequence": 4,
+        "ts": 1783684800040,
+        "durable": false,
+        "origin": "provider"
+      }
+    },
+    {
+      "kind": "delta",
+      "text": "t pour le tour 1.",
+      "ts": 1783684800050,
+      "meta": {
+        "schemaVersion": 1,
+        "eventId": "ev-d2-1",
+        "provider": "claude",
+        "threadId": "thread-medium",
+        "turnId": "turn-1",
+        "sequence": 5,
+        "ts": 1783684800050,
+        "durable": false,
+        "origin": "provider"
+      }
+    },
+    {
+      "kind": "text",
+      "text": "Réponse assistant pour le tour 1.",
+      "ts": 1783684800060,
+      "meta": {
+        "schemaVersion": 1,
+        "eventId": "ev-t-1",
+        "provider": "claude",
+        "threadId": "thread-medium",
+        "turnId": "turn-1",
+        "sequence": 6,
+        "ts": 1783684800060,
+        "durable": true,
+        "origin": "provider"
+      }
+    },
+    {
+      "kind": "done",
+      "ok": true,
+      "result": "ok",
+      "ts": 1783684800070,
+      "meta": {
+        "schemaVersion": 1,
+        "eventId": "ev-done-1",
+        "provider": "claude",
+        "threadId": "thread-medium",
+        "turnId": "turn-1",
+        "sequence": 7,
+        "ts": 1783684800070,
+        "durable": true,
+        "origin": "provider"
+      }
+    },
+    {
+      "kind": "user",
+      "text": "Message utilisateur 2",
+      "ts": 1783684800080,
+      "meta": {
+        "schemaVersion": 1,
+        "eventId": "ev-u-2",
+        "provider": "claude",
+        "threadId": "thread-medium",
+        "turnId": "turn-2",
+        "sequence": 8,
+        "ts": 1783684800080,
+        "durable": true,
+        "origin": "atelier",
+        "messageId": "msg-2"
+      }
+    },
+    {
+      "kind": "thinking",
+      "text": "Raisonnement tour 2",
+      "ts": 1783684800090,
+      "meta": {
+        "schemaVersion": 1,
+        "eventId": "ev-th-2",
+        "provider": "claude",
+        "threadId": "thread-medium",
+        "turnId": "turn-2",
+        "sequence": 9,
+        "ts": 1783684800090,
+        "durable": true,
+        "origin": "provider"
+      }
+    },
+    {
+      "kind": "tool_update",
+      "id": "tool-2",
+      "name": "Read",
+      "output": "fichier-2.txt",
+      "status": "completed",
+      "detail": "path-2",
+      "ts": 1783684800100,
+      "meta": {
+        "schemaVersion": 1,
+        "eventId": "ev-tool-2",
+        "provider": "claude",
+        "threadId": "thread-medium",
+        "turnId": "turn-2",
+        "sequence": 10,
+        "ts": 1783684800100,
+        "durable": true,
+        "origin": "provider",
+        "itemId": "tool-2"
+      }
+    },
+    {
+      "kind": "delta",
+      "text": "Réponse assistan",
+      "ts": 1783684800110,
+      "meta": {
+        "schemaVersion": 1,
+        "eventId": "ev-d1-2",
+        "provider": "claude",
+        "threadId": "thread-medium",
+        "turnId": "turn-2",
+        "sequence": 11,
+        "ts": 1783684800110,
+        "durable": false,
+        "origin": "provider"
+      }
+    },
+    {
+      "kind": "delta",
+      "text": "t pour le tour 2.",
+      "ts": 1783684800120,
+      "meta": {
+        "schemaVersion": 1,
+        "eventId": "ev-d2-2",
+        "provider": "claude",
+        "threadId": "thread-medium",
+        "turnId": "turn-2",
+        "sequence": 12,
+        "ts": 1783684800120,
+        "durable": false,
+        "origin": "provider"
+      }
+    },
+    {
+      "kind": "text",
+      "text": "Réponse assistant pour le tour 2.",
+      "ts": 1783684800130,
+      "meta": {
+        "schemaVersion": 1,
+        "eventId": "ev-t-2",
+        "provider": "claude",
+        "threadId": "thread-medium",
+        "turnId": "turn-2",
+        "sequence": 13,
+        "ts": 1783684800130,
+        "durable": true,
+        "origin": "provider"
+      }
+    },
+    {
+      "kind": "done",
+      "ok": true,
+      "result": "ok",
+      "ts": 1783684800140,
+      "meta": {
+        "schemaVersion": 1,
+        "eventId": "ev-done-2",
+        "provider": "claude",
+        "threadId": "thread-medium",
+        "turnId": "turn-2",
+        "sequence": 14,
+        "ts": 1783684800140,
+        "durable": true,
+        "origin": "provider"
+      }
+    },
+    {
+      "kind": "user",
+      "text": "Message utilisateur 3",
+      "ts": 1783684800150,
+      "meta": {
+        "schemaVersion": 1,
+        "eventId": "ev-u-3",
+        "provider": "claude",
+        "threadId": "thread-medium",
+        "turnId": "turn-3",
+        "sequence": 15,
+        "ts": 1783684800150,
+        "durable": true,
+        "origin": "atelier",
+        "messageId": "msg-3"
+      }
+    },
+    {
+      "kind": "thinking",
+      "text": "Raisonnement tour 3",
+      "ts": 1783684800160,
+      "meta": {
+        "schemaVersion": 1,
+        "eventId": "ev-th-3",
+        "provider": "claude",
+        "threadId": "thread-medium",
+        "turnId": "turn-3",
+        "sequence": 16,
+        "ts": 1783684800160,
+        "durable": true,
+        "origin": "provider"
+      }
+    },
+    {
+      "kind": "tool_update",
+      "id": "tool-3",
+      "name": "Read",
+      "output": "fichier-3.txt",
+      "status": "completed",
+      "detail": "path-3",
+      "ts": 1783684800170,
+      "meta": {
+        "schemaVersion": 1,
+        "eventId": "ev-tool-3",
+        "provider": "claude",
+        "threadId": "thread-medium",
+        "turnId": "turn-3",
+        "sequence": 17,
+        "ts": 1783684800170,
+        "durable": true,
+        "origin": "provider",
+        "itemId": "tool-3"
+      }
+    },
+    {
+      "kind": "delta",
+      "text": "Réponse assistan",
+      "ts": 1783684800180,
+      "meta": {
+        "schemaVersion": 1,
+        "eventId": "ev-d1-3",
+        "provider": "claude",
+        "threadId": "thread-medium",
+        "turnId": "turn-3",
+        "sequence": 18,
+        "ts": 1783684800180,
+        "durable": false,
+        "origin": "provider"
+      }
+    },
+    {
+      "kind": "delta",
+      "text": "t pour le tour 3.",
+      "ts": 1783684800190,
+      "meta": {
+        "schemaVersion": 1,
+        "eventId": "ev-d2-3",
+        "provider": "claude",
+        "threadId": "thread-medium",
+        "turnId": "turn-3",
+        "sequence": 19,
+        "ts": 1783684800190,
+        "durable": false,
+        "origin": "provider"
+      }
+    },
+    {
+      "kind": "text",
+      "text": "Réponse assistant pour le tour 3.",
+      "ts": 1783684800200,
+      "meta": {
+        "schemaVersion": 1,
+        "eventId": "ev-t-3",
+        "provider": "claude",
+        "threadId": "thread-medium",
+        "turnId": "turn-3",
+        "sequence": 20,
+        "ts": 1783684800200,
+        "durable": true,
+        "origin": "provider"
+      }
+    },
+    {
+      "kind": "done",
+      "ok": true,
+      "result": "ok",
+      "ts": 1783684800210,
+      "meta": {
+        "schemaVersion": 1,
+        "eventId": "ev-done-3",
+        "provider": "claude",
+        "threadId": "thread-medium",
+        "turnId": "turn-3",
+        "sequence": 21,
+        "ts": 1783684800210,
+        "durable": true,
+        "origin": "provider"
+      }
+    },
+    {
+      "kind": "user",
+      "text": "Message utilisateur 4",
+      "ts": 1783684800220,
+      "meta": {
+        "schemaVersion": 1,
+        "eventId": "ev-u-4",
+        "provider": "claude",
+        "threadId": "thread-medium",
+        "turnId": "turn-4",
+        "sequence": 22,
+        "ts": 1783684800220,
+        "durable": true,
+        "origin": "atelier",
+        "messageId": "msg-4"
+      }
+    },
+    {
+      "kind": "thinking",
+      "text": "Raisonnement tour 4",
+      "ts": 1783684800230,
+      "meta": {
+        "schemaVersion": 1,
+        "eventId": "ev-th-4",
+        "provider": "claude",
+        "threadId": "thread-medium",
+        "turnId": "turn-4",
+        "sequence": 23,
+        "ts": 1783684800230,
+        "durable": true,
+        "origin": "provider"
+      }
+    },
+    {
+      "kind": "tool_update",
+      "id": "tool-4",
+      "name": "Read",
+      "output": "fichier-4.txt",
+      "status": "completed",
+      "detail": "path-4",
+      "ts": 1783684800240,
+      "meta": {
+        "schemaVersion": 1,
+        "eventId": "ev-tool-4",
+        "provider": "claude",
+        "threadId": "thread-medium",
+        "turnId": "turn-4",
+        "sequence": 24,
+        "ts": 1783684800240,
+        "durable": true,
+        "origin": "provider",
+        "itemId": "tool-4"
+      }
+    },
+    {
+      "kind": "delta",
+      "text": "Réponse assistan",
+      "ts": 1783684800250,
+      "meta": {
+        "schemaVersion": 1,
+        "eventId": "ev-d1-4",
+        "provider": "claude",
+        "threadId": "thread-medium",
+        "turnId": "turn-4",
+        "sequence": 25,
+        "ts": 1783684800250,
+        "durable": false,
+        "origin": "provider"
+      }
+    },
+    {
+      "kind": "delta",
+      "text": "t pour le tour 4.",
+      "ts": 1783684800260,
+      "meta": {
+        "schemaVersion": 1,
+        "eventId": "ev-d2-4",
+        "provider": "claude",
+        "threadId": "thread-medium",
+        "turnId": "turn-4",
+        "sequence": 26,
+        "ts": 1783684800260,
+        "durable": false,
+        "origin": "provider"
+      }
+    },
+    {
+      "kind": "text",
+      "text": "Réponse assistant pour le tour 4.",
+      "ts": 1783684800270,
+      "meta": {
+        "schemaVersion": 1,
+        "eventId": "ev-t-4",
+        "provider": "claude",
+        "threadId": "thread-medium",
+        "turnId": "turn-4",
+        "sequence": 27,
+        "ts": 1783684800270,
+        "durable": true,
+        "origin": "provider"
+      }
+    },
+    {
+      "kind": "done",
+      "ok": true,
+      "result": "ok",
+      "ts": 1783684800280,
+      "meta": {
+        "schemaVersion": 1,
+        "eventId": "ev-done-4",
+        "provider": "claude",
+        "threadId": "thread-medium",
+        "turnId": "turn-4",
+        "sequence": 28,
+        "ts": 1783684800280,
+        "durable": true,
+        "origin": "provider"
+      }
+    },
+    {
+      "kind": "user",
+      "text": "Message utilisateur 5",
+      "ts": 1783684800290,
+      "meta": {
+        "schemaVersion": 1,
+        "eventId": "ev-u-5",
+        "provider": "claude",
+        "threadId": "thread-medium",
+        "turnId": "turn-5",
+        "sequence": 29,
+        "ts": 1783684800290,
+        "durable": true,
+        "origin": "atelier",
+        "messageId": "msg-5"
+      }
+    },
+    {
+      "kind": "thinking",
+      "text": "Raisonnement tour 5",
+      "ts": 1783684800300,
+      "meta": {
+        "schemaVersion": 1,
+        "eventId": "ev-th-5",
+        "provider": "claude",
+        "threadId": "thread-medium",
+        "turnId": "turn-5",
+        "sequence": 30,
+        "ts": 1783684800300,
+        "durable": true,
+        "origin": "provider"
+      }
+    },
+    {
+      "kind": "tool_update",
+      "id": "tool-5",
+      "name": "Read",
+      "output": "fichier-5.txt",
+      "status": "completed",
+      "detail": "path-5",
+      "ts": 1783684800310,
+      "meta": {
+        "schemaVersion": 1,
+        "eventId": "ev-tool-5",
+        "provider": "claude",
+        "threadId": "thread-medium",
+        "turnId": "turn-5",
+        "sequence": 31,
+        "ts": 1783684800310,
+        "durable": true,
+        "origin": "provider",
+        "itemId": "tool-5"
+      }
+    },
+    {
+      "kind": "delta",
+      "text": "Réponse assistan",
+      "ts": 1783684800320,
+      "meta": {
+        "schemaVersion": 1,
+        "eventId": "ev-d1-5",
+        "provider": "claude",
+        "threadId": "thread-medium",
+        "turnId": "turn-5",
+        "sequence": 32,
+        "ts": 1783684800320,
+        "durable": false,
+        "origin": "provider"
+      }
+    },
+    {
+      "kind": "delta",
+      "text": "t pour le tour 5.",
+      "ts": 1783684800330,
+      "meta": {
+        "schemaVersion": 1,
+        "eventId": "ev-d2-5",
+        "provider": "claude",
+        "threadId": "thread-medium",
+        "turnId": "turn-5",
+        "sequence": 33,
+        "ts": 1783684800330,
+        "durable": false,
+        "origin": "provider"
+      }
+    },
+    {
+      "kind": "text",
+      "text": "Réponse assistant pour le tour 5.",
+      "ts": 1783684800340,
+      "meta": {
+        "schemaVersion": 1,
+        "eventId": "ev-t-5",
+        "provider": "claude",
+        "threadId": "thread-medium",
+        "turnId": "turn-5",
+        "sequence": 34,
+        "ts": 1783684800340,
+        "durable": true,
+        "origin": "provider"
+      }
+    },
+    {
+      "kind": "done",
+      "ok": true,
+      "result": "ok",
+      "ts": 1783684800350,
+      "meta": {
+        "schemaVersion": 1,
+        "eventId": "ev-done-5",
+        "provider": "claude",
+        "threadId": "thread-medium",
+        "turnId": "turn-5",
+        "sequence": 35,
+        "ts": 1783684800350,
+        "durable": true,
+        "origin": "provider"
+      }
+    },
+    {
+      "kind": "user",
+      "text": "Message utilisateur 6",
+      "ts": 1783684800360,
+      "meta": {
+        "schemaVersion": 1,
+        "eventId": "ev-u-6",
+        "provider": "claude",
+        "threadId": "thread-medium",
+        "turnId": "turn-6",
+        "sequence": 36,
+        "ts": 1783684800360,
+        "durable": true,
+        "origin": "atelier",
+        "messageId": "msg-6"
+      }
+    },
+    {
+      "kind": "thinking",
+      "text": "Raisonnement tour 6",
+      "ts": 1783684800370,
+      "meta": {
+        "schemaVersion": 1,
+        "eventId": "ev-th-6",
+        "provider": "claude",
+        "threadId": "thread-medium",
+        "turnId": "turn-6",
+        "sequence": 37,
+        "ts": 1783684800370,
+        "durable": true,
+        "origin": "provider"
+      }
+    },
+    {
+      "kind": "tool_update",
+      "id": "tool-6",
+      "name": "Read",
+      "output": "fichier-6.txt",
+      "status": "completed",
+      "detail": "path-6",
+      "ts": 1783684800380,
+      "meta": {
+        "schemaVersion": 1,
+        "eventId": "ev-tool-6",
+        "provider": "claude",
+        "threadId": "thread-medium",
+        "turnId": "turn-6",
+        "sequence": 38,
+        "ts": 1783684800380,
+        "durable": true,
+        "origin": "provider",
+        "itemId": "tool-6"
+      }
+    },
+    {
+      "kind": "delta",
+      "text": "Réponse assistan",
+      "ts": 1783684800390,
+      "meta": {
+        "schemaVersion": 1,
+        "eventId": "ev-d1-6",
+        "provider": "claude",
+        "threadId": "thread-medium",
+        "turnId": "turn-6",
+        "sequence": 39,
+        "ts": 1783684800390,
+        "durable": false,
+        "origin": "provider"
+      }
+    },
+    {
+      "kind": "delta",
+      "text": "t pour le tour 6.",
+      "ts": 1783684800400,
+      "meta": {
+        "schemaVersion": 1,
+        "eventId": "ev-d2-6",
+        "provider": "claude",
+        "threadId": "thread-medium",
+        "turnId": "turn-6",
+        "sequence": 40,
+        "ts": 1783684800400,
+        "durable": false,
+        "origin": "provider"
+      }
+    },
+    {
+      "kind": "text",
+      "text": "Réponse assistant pour le tour 6.",
+      "ts": 1783684800410,
+      "meta": {
+        "schemaVersion": 1,
+        "eventId": "ev-t-6",
+        "provider": "claude",
+        "threadId": "thread-medium",
+        "turnId": "turn-6",
+        "sequence": 41,
+        "ts": 1783684800410,
+        "durable": true,
+        "origin": "provider"
+      }
+    },
+    {
+      "kind": "done",
+      "ok": true,
+      "result": "ok",
+      "ts": 1783684800420,
+      "meta": {
+        "schemaVersion": 1,
+        "eventId": "ev-done-6",
+        "provider": "claude",
+        "threadId": "thread-medium",
+        "turnId": "turn-6",
+        "sequence": 42,
+        "ts": 1783684800420,
+        "durable": true,
+        "origin": "provider"
+      }
+    },
+    {
+      "kind": "user",
+      "text": "Message utilisateur 7",
+      "ts": 1783684800430,
+      "meta": {
+        "schemaVersion": 1,
+        "eventId": "ev-u-7",
+        "provider": "claude",
+        "threadId": "thread-medium",
+        "turnId": "turn-7",
+        "sequence": 43,
+        "ts": 1783684800430,
+        "durable": true,
+        "origin": "atelier",
+        "messageId": "msg-7"
+      }
+    },
+    {
+      "kind": "thinking",
+      "text": "Raisonnement tour 7",
+      "ts": 1783684800440,
+      "meta": {
+        "schemaVersion": 1,
+        "eventId": "ev-th-7",
+        "provider": "claude",
+        "threadId": "thread-medium",
+        "turnId": "turn-7",
+        "sequence": 44,
+        "ts": 1783684800440,
+        "durable": true,
+        "origin": "provider"
+      }
+    },
+    {
+      "kind": "tool_update",
+      "id": "tool-7",
+      "name": "Read",
+      "output": "fichier-7.txt",
+      "status": "completed",
+      "detail": "path-7",
+      "ts": 1783684800450,
+      "meta": {
+        "schemaVersion": 1,
+        "eventId": "ev-tool-7",
+        "provider": "claude",
+        "threadId": "thread-medium",
+        "turnId": "turn-7",
+        "sequence": 45,
+        "ts": 1783684800450,
+        "durable": true,
+        "origin": "provider",
+        "itemId": "tool-7"
+      }
+    },
+    {
+      "kind": "delta",
+      "text": "Réponse assistan",
+      "ts": 1783684800460,
+      "meta": {
+        "schemaVersion": 1,
+        "eventId": "ev-d1-7",
+        "provider": "claude",
+        "threadId": "thread-medium",
+        "turnId": "turn-7",
+        "sequence": 46,
+        "ts": 1783684800460,
+        "durable": false,
+        "origin": "provider"
+      }
+    },
+    {
+      "kind": "delta",
+      "text": "t pour le tour 7.",
+      "ts": 1783684800470,
+      "meta": {
+        "schemaVersion": 1,
+        "eventId": "ev-d2-7",
+        "provider": "claude",
+        "threadId": "thread-medium",
+        "turnId": "turn-7",
+        "sequence": 47,
+        "ts": 1783684800470,
+        "durable": false,
+        "origin": "provider"
+      }
+    },
+    {
+      "kind": "text",
+      "text": "Réponse assistant pour le tour 7.",
+      "ts": 1783684800480,
+      "meta": {
+        "schemaVersion": 1,
+        "eventId": "ev-t-7",
+        "provider": "claude",
+        "threadId": "thread-medium",
+        "turnId": "turn-7",
+        "sequence": 48,
+        "ts": 1783684800480,
+        "durable": true,
+        "origin": "provider"
+      }
+    },
+    {
+      "kind": "done",
+      "ok": true,
+      "result": "ok",
+      "ts": 1783684800490,
+      "meta": {
+        "schemaVersion": 1,
+        "eventId": "ev-done-7",
+        "provider": "claude",
+        "threadId": "thread-medium",
+        "turnId": "turn-7",
+        "sequence": 49,
+        "ts": 1783684800490,
+        "durable": true,
+        "origin": "provider"
+      }
+    },
+    {
+      "kind": "user",
+      "text": "Message utilisateur 8",
+      "ts": 1783684800500,
+      "meta": {
+        "schemaVersion": 1,
+        "eventId": "ev-u-8",
+        "provider": "claude",
+        "threadId": "thread-medium",
+        "turnId": "turn-8",
+        "sequence": 50,
+        "ts": 1783684800500,
+        "durable": true,
+        "origin": "atelier",
+        "messageId": "msg-8"
+      }
+    },
+    {
+      "kind": "thinking",
+      "text": "Raisonnement tour 8",
+      "ts": 1783684800510,
+      "meta": {
+        "schemaVersion": 1,
+        "eventId": "ev-th-8",
+        "provider": "claude",
+        "threadId": "thread-medium",
+        "turnId": "turn-8",
+        "sequence": 51,
+        "ts": 1783684800510,
+        "durable": true,
+        "origin": "provider"
+      }
+    },
+    {
+      "kind": "tool_update",
+      "id": "tool-8",
+      "name": "Read",
+      "output": "fichier-8.txt",
+      "status": "completed",
+      "detail": "path-8",
+      "ts": 1783684800520,
+      "meta": {
+        "schemaVersion": 1,
+        "eventId": "ev-tool-8",
+        "provider": "claude",
+        "threadId": "thread-medium",
+        "turnId": "turn-8",
+        "sequence": 52,
+        "ts": 1783684800520,
+        "durable": true,
+        "origin": "provider",
+        "itemId": "tool-8"
+      }
+    },
+    {
+      "kind": "delta",
+      "text": "Réponse assistan",
+      "ts": 1783684800530,
+      "meta": {
+        "schemaVersion": 1,
+        "eventId": "ev-d1-8",
+        "provider": "claude",
+        "threadId": "thread-medium",
+        "turnId": "turn-8",
+        "sequence": 53,
+        "ts": 1783684800530,
+        "durable": false,
+        "origin": "provider"
+      }
+    },
+    {
+      "kind": "delta",
+      "text": "t pour le tour 8.",
+      "ts": 1783684800540,
+      "meta": {
+        "schemaVersion": 1,
+        "eventId": "ev-d2-8",
+        "provider": "claude",
+        "threadId": "thread-medium",
+        "turnId": "turn-8",
+        "sequence": 54,
+        "ts": 1783684800540,
+        "durable": false,
+        "origin": "provider"
+      }
+    },
+    {
+      "kind": "text",
+      "text": "Réponse assistant pour le tour 8.",
+      "ts": 1783684800550,
+      "meta": {
+        "schemaVersion": 1,
+        "eventId": "ev-t-8",
+        "provider": "claude",
+        "threadId": "thread-medium",
+        "turnId": "turn-8",
+        "sequence": 55,
+        "ts": 1783684800550,
+        "durable": true,
+        "origin": "provider"
+      }
+    },
+    {
+      "kind": "done",
+      "ok": true,
+      "result": "ok",
+      "ts": 1783684800560,
+      "meta": {
+        "schemaVersion": 1,
+        "eventId": "ev-done-8",
+        "provider": "claude",
+        "threadId": "thread-medium",
+        "turnId": "turn-8",
+        "sequence": 56,
+        "ts": 1783684800560,
+        "durable": true,
+        "origin": "provider"
+      }
+    },
+    {
+      "kind": "user",
+      "text": "Message utilisateur 9",
+      "ts": 1783684800570,
+      "meta": {
+        "schemaVersion": 1,
+        "eventId": "ev-u-9",
+        "provider": "claude",
+        "threadId": "thread-medium",
+        "turnId": "turn-9",
+        "sequence": 57,
+        "ts": 1783684800570,
+        "durable": true,
+        "origin": "atelier",
+        "messageId": "msg-9"
+      }
+    },
+    {
+      "kind": "thinking",
+      "text": "Raisonnement tour 9",
+      "ts": 1783684800580,
+      "meta": {
+        "schemaVersion": 1,
+        "eventId": "ev-th-9",
+        "provider": "claude",
+        "threadId": "thread-medium",
+        "turnId": "turn-9",
+        "sequence": 58,
+        "ts": 1783684800580,
+        "durable": true,
+        "origin": "provider"
+      }
+    },
+    {
+      "kind": "tool_update",
+      "id": "tool-9",
+      "name": "Read",
+      "output": "fichier-9.txt",
+      "status": "completed",
+      "detail": "path-9",
+      "ts": 1783684800590,
+      "meta": {
+        "schemaVersion": 1,
+        "eventId": "ev-tool-9",
+        "provider": "claude",
+        "threadId": "thread-medium",
+        "turnId": "turn-9",
+        "sequence": 59,
+        "ts": 1783684800590,
+        "durable": true,
+        "origin": "provider",
+        "itemId": "tool-9"
+      }
+    },
+    {
+      "kind": "delta",
+      "text": "Réponse assistan",
+      "ts": 1783684800600,
+      "meta": {
+        "schemaVersion": 1,
+        "eventId": "ev-d1-9",
+        "provider": "claude",
+        "threadId": "thread-medium",
+        "turnId": "turn-9",
+        "sequence": 60,
+        "ts": 1783684800600,
+        "durable": false,
+        "origin": "provider"
+      }
+    },
+    {
+      "kind": "delta",
+      "text": "t pour le tour 9.",
+      "ts": 1783684800610,
+      "meta": {
+        "schemaVersion": 1,
+        "eventId": "ev-d2-9",
+        "provider": "claude",
+        "threadId": "thread-medium",
+        "turnId": "turn-9",
+        "sequence": 61,
+        "ts": 1783684800610,
+        "durable": false,
+        "origin": "provider"
+      }
+    },
+    {
+      "kind": "text",
+      "text": "Réponse assistant pour le tour 9.",
+      "ts": 1783684800620,
+      "meta": {
+        "schemaVersion": 1,
+        "eventId": "ev-t-9",
+        "provider": "claude",
+        "threadId": "thread-medium",
+        "turnId": "turn-9",
+        "sequence": 62,
+        "ts": 1783684800620,
+        "durable": true,
+        "origin": "provider"
+      }
+    },
+    {
+      "kind": "done",
+      "ok": true,
+      "result": "ok",
+      "ts": 1783684800630,
+      "meta": {
+        "schemaVersion": 1,
+        "eventId": "ev-done-9",
+        "provider": "claude",
+        "threadId": "thread-medium",
+        "turnId": "turn-9",
+        "sequence": 63,
+        "ts": 1783684800630,
+        "durable": true,
+        "origin": "provider"
+      }
+    },
+    {
+      "kind": "user",
+      "text": "Message utilisateur 10",
+      "ts": 1783684800640,
+      "meta": {
+        "schemaVersion": 1,
+        "eventId": "ev-u-10",
+        "provider": "claude",
+        "threadId": "thread-medium",
+        "turnId": "turn-10",
+        "sequence": 64,
+        "ts": 1783684800640,
+        "durable": true,
+        "origin": "atelier",
+        "messageId": "msg-10"
+      }
+    },
+    {
+      "kind": "thinking",
+      "text": "Raisonnement tour 10",
+      "ts": 1783684800650,
+      "meta": {
+        "schemaVersion": 1,
+        "eventId": "ev-th-10",
+        "provider": "claude",
+        "threadId": "thread-medium",
+        "turnId": "turn-10",
+        "sequence": 65,
+        "ts": 1783684800650,
+        "durable": true,
+        "origin": "provider"
+      }
+    },
+    {
+      "kind": "tool_update",
+      "id": "tool-10",
+      "name": "Read",
+      "output": "fichier-10.txt",
+      "status": "completed",
+      "detail": "path-10",
+      "ts": 1783684800660,
+      "meta": {
+        "schemaVersion": 1,
+        "eventId": "ev-tool-10",
+        "provider": "claude",
+        "threadId": "thread-medium",
+        "turnId": "turn-10",
+        "sequence": 66,
+        "ts": 1783684800660,
+        "durable": true,
+        "origin": "provider",
+        "itemId": "tool-10"
+      }
+    },
+    {
+      "kind": "delta",
+      "text": "Réponse assistant",
+      "ts": 1783684800670,
+      "meta": {
+        "schemaVersion": 1,
+        "eventId": "ev-d1-10",
+        "provider": "claude",
+        "threadId": "thread-medium",
+        "turnId": "turn-10",
+        "sequence": 67,
+        "ts": 1783684800670,
+        "durable": false,
+        "origin": "provider"
+      }
+    },
+    {
+      "kind": "delta",
+      "text": " pour le tour 10.",
+      "ts": 1783684800680,
+      "meta": {
+        "schemaVersion": 1,
+        "eventId": "ev-d2-10",
+        "provider": "claude",
+        "threadId": "thread-medium",
+        "turnId": "turn-10",
+        "sequence": 68,
+        "ts": 1783684800680,
+        "durable": false,
+        "origin": "provider"
+      }
+    },
+    {
+      "kind": "text",
+      "text": "Réponse assistant pour le tour 10.",
+      "ts": 1783684800690,
+      "meta": {
+        "schemaVersion": 1,
+        "eventId": "ev-t-10",
+        "provider": "claude",
+        "threadId": "thread-medium",
+        "turnId": "turn-10",
+        "sequence": 69,
+        "ts": 1783684800690,
+        "durable": true,
+        "origin": "provider"
+      }
+    },
+    {
+      "kind": "done",
+      "ok": true,
+      "result": "ok",
+      "ts": 1783684800700,
+      "meta": {
+        "schemaVersion": 1,
+        "eventId": "ev-done-10",
+        "provider": "claude",
+        "threadId": "thread-medium",
+        "turnId": "turn-10",
+        "sequence": 70,
+        "ts": 1783684800700,
+        "durable": true,
+        "origin": "provider"
+      }
+    },
+    {
+      "kind": "user",
+      "text": "Message utilisateur 11",
+      "ts": 1783684800710,
+      "meta": {
+        "schemaVersion": 1,
+        "eventId": "ev-u-11",
+        "provider": "claude",
+        "threadId": "thread-medium",
+        "turnId": "turn-11",
+        "sequence": 71,
+        "ts": 1783684800710,
+        "durable": true,
+        "origin": "atelier",
+        "messageId": "msg-11"
+      }
+    },
+    {
+      "kind": "thinking",
+      "text": "Raisonnement tour 11",
+      "ts": 1783684800720,
+      "meta": {
+        "schemaVersion": 1,
+        "eventId": "ev-th-11",
+        "provider": "claude",
+        "threadId": "thread-medium",
+        "turnId": "turn-11",
+        "sequence": 72,
+        "ts": 1783684800720,
+        "durable": true,
+        "origin": "provider"
+      }
+    },
+    {
+      "kind": "tool_update",
+      "id": "tool-11",
+      "name": "Read",
+      "output": "fichier-11.txt",
+      "status": "completed",
+      "detail": "path-11",
+      "ts": 1783684800730,
+      "meta": {
+        "schemaVersion": 1,
+        "eventId": "ev-tool-11",
+        "provider": "claude",
+        "threadId": "thread-medium",
+        "turnId": "turn-11",
+        "sequence": 73,
+        "ts": 1783684800730,
+        "durable": true,
+        "origin": "provider",
+        "itemId": "tool-11"
+      }
+    },
+    {
+      "kind": "delta",
+      "text": "Réponse assistant",
+      "ts": 1783684800740,
+      "meta": {
+        "schemaVersion": 1,
+        "eventId": "ev-d1-11",
+        "provider": "claude",
+        "threadId": "thread-medium",
+        "turnId": "turn-11",
+        "sequence": 74,
+        "ts": 1783684800740,
+        "durable": false,
+        "origin": "provider"
+      }
+    },
+    {
+      "kind": "delta",
+      "text": " pour le tour 11.",
+      "ts": 1783684800750,
+      "meta": {
+        "schemaVersion": 1,
+        "eventId": "ev-d2-11",
+        "provider": "claude",
+        "threadId": "thread-medium",
+        "turnId": "turn-11",
+        "sequence": 75,
+        "ts": 1783684800750,
+        "durable": false,
+        "origin": "provider"
+      }
+    },
+    {
+      "kind": "text",
+      "text": "Réponse assistant pour le tour 11.",
+      "ts": 1783684800760,
+      "meta": {
+        "schemaVersion": 1,
+        "eventId": "ev-t-11",
+        "provider": "claude",
+        "threadId": "thread-medium",
+        "turnId": "turn-11",
+        "sequence": 76,
+        "ts": 1783684800760,
+        "durable": true,
+        "origin": "provider"
+      }
+    },
+    {
+      "kind": "done",
+      "ok": true,
+      "result": "ok",
+      "ts": 1783684800770,
+      "meta": {
+        "schemaVersion": 1,
+        "eventId": "ev-done-11",
+        "provider": "claude",
+        "threadId": "thread-medium",
+        "turnId": "turn-11",
+        "sequence": 77,
+        "ts": 1783684800770,
+        "durable": true,
+        "origin": "provider"
+      }
+    },
+    {
+      "kind": "user",
+      "text": "Message utilisateur 12",
+      "ts": 1783684800780,
+      "meta": {
+        "schemaVersion": 1,
+        "eventId": "ev-u-12",
+        "provider": "claude",
+        "threadId": "thread-medium",
+        "turnId": "turn-12",
+        "sequence": 78,
+        "ts": 1783684800780,
+        "durable": true,
+        "origin": "atelier",
+        "messageId": "msg-12"
+      }
+    },
+    {
+      "kind": "thinking",
+      "text": "Raisonnement tour 12",
+      "ts": 1783684800790,
+      "meta": {
+        "schemaVersion": 1,
+        "eventId": "ev-th-12",
+        "provider": "claude",
+        "threadId": "thread-medium",
+        "turnId": "turn-12",
+        "sequence": 79,
+        "ts": 1783684800790,
+        "durable": true,
+        "origin": "provider"
+      }
+    },
+    {
+      "kind": "tool_update",
+      "id": "tool-12",
+      "name": "Read",
+      "output": "fichier-12.txt",
+      "status": "completed",
+      "detail": "path-12",
+      "ts": 1783684800800,
+      "meta": {
+        "schemaVersion": 1,
+        "eventId": "ev-tool-12",
+        "provider": "claude",
+        "threadId": "thread-medium",
+        "turnId": "turn-12",
+        "sequence": 80,
+        "ts": 1783684800800,
+        "durable": true,
+        "origin": "provider",
+        "itemId": "tool-12"
+      }
+    },
+    {
+      "kind": "delta",
+      "text": "Réponse assistant",
+      "ts": 1783684800810,
+      "meta": {
+        "schemaVersion": 1,
+        "eventId": "ev-d1-12",
+        "provider": "claude",
+        "threadId": "thread-medium",
+        "turnId": "turn-12",
+        "sequence": 81,
+        "ts": 1783684800810,
+        "durable": false,
+        "origin": "provider"
+      }
+    },
+    {
+      "kind": "delta",
+      "text": " pour le tour 12.",
+      "ts": 1783684800820,
+      "meta": {
+        "schemaVersion": 1,
+        "eventId": "ev-d2-12",
+        "provider": "claude",
+        "threadId": "thread-medium",
+        "turnId": "turn-12",
+        "sequence": 82,
+        "ts": 1783684800820,
+        "durable": false,
+        "origin": "provider"
+      }
+    },
+    {
+      "kind": "text",
+      "text": "Réponse assistant pour le tour 12.",
+      "ts": 1783684800830,
+      "meta": {
+        "schemaVersion": 1,
+        "eventId": "ev-t-12",
+        "provider": "claude",
+        "threadId": "thread-medium",
+        "turnId": "turn-12",
+        "sequence": 83,
+        "ts": 1783684800830,
+        "durable": true,
+        "origin": "provider"
+      }
+    },
+    {
+      "kind": "done",
+      "ok": true,
+      "result": "ok",
+      "ts": 1783684800840,
+      "meta": {
+        "schemaVersion": 1,
+        "eventId": "ev-done-12",
+        "provider": "claude",
+        "threadId": "thread-medium",
+        "turnId": "turn-12",
+        "sequence": 84,
+        "ts": 1783684800840,
+        "durable": true,
+        "origin": "provider"
+      }
+    },
+    {
+      "kind": "user",
+      "text": "Message utilisateur 13",
+      "ts": 1783684800850,
+      "meta": {
+        "schemaVersion": 1,
+        "eventId": "ev-u-13",
+        "provider": "claude",
+        "threadId": "thread-medium",
+        "turnId": "turn-13",
+        "sequence": 85,
+        "ts": 1783684800850,
+        "durable": true,
+        "origin": "atelier",
+        "messageId": "msg-13"
+      }
+    },
+    {
+      "kind": "thinking",
+      "text": "Raisonnement tour 13",
+      "ts": 1783684800860,
+      "meta": {
+        "schemaVersion": 1,
+        "eventId": "ev-th-13",
+        "provider": "claude",
+        "threadId": "thread-medium",
+        "turnId": "turn-13",
+        "sequence": 86,
+        "ts": 1783684800860,
+        "durable": true,
+        "origin": "provider"
+      }
+    },
+    {
+      "kind": "tool_update",
+      "id": "tool-13",
+      "name": "Read",
+      "output": "fichier-13.txt",
+      "status": "completed",
+      "detail": "path-13",
+      "ts": 1783684800870,
+      "meta": {
+        "schemaVersion": 1,
+        "eventId": "ev-tool-13",
+        "provider": "claude",
+        "threadId": "thread-medium",
+        "turnId": "turn-13",
+        "sequence": 87,
+        "ts": 1783684800870,
+        "durable": true,
+        "origin": "provider",
+        "itemId": "tool-13"
+      }
+    },
+    {
+      "kind": "delta",
+      "text": "Réponse assistant",
+      "ts": 1783684800880,
+      "meta": {
+        "schemaVersion": 1,
+        "eventId": "ev-d1-13",
+        "provider": "claude",
+        "threadId": "thread-medium",
+        "turnId": "turn-13",
+        "sequence": 88,
+        "ts": 1783684800880,
+        "durable": false,
+        "origin": "provider"
+      }
+    },
+    {
+      "kind": "delta",
+      "text": " pour le tour 13.",
+      "ts": 1783684800890,
+      "meta": {
+        "schemaVersion": 1,
+        "eventId": "ev-d2-13",
+        "provider": "claude",
+        "threadId": "thread-medium",
+        "turnId": "turn-13",
+        "sequence": 89,
+        "ts": 1783684800890,
+        "durable": false,
+        "origin": "provider"
+      }
+    },
+    {
+      "kind": "text",
+      "text": "Réponse assistant pour le tour 13.",
+      "ts": 1783684800900,
+      "meta": {
+        "schemaVersion": 1,
+        "eventId": "ev-t-13",
+        "provider": "claude",
+        "threadId": "thread-medium",
+        "turnId": "turn-13",
+        "sequence": 90,
+        "ts": 1783684800900,
+        "durable": true,
+        "origin": "provider"
+      }
+    },
+    {
+      "kind": "done",
+      "ok": true,
+      "result": "ok",
+      "ts": 1783684800910,
+      "meta": {
+        "schemaVersion": 1,
+        "eventId": "ev-done-13",
+        "provider": "claude",
+        "threadId": "thread-medium",
+        "turnId": "turn-13",
+        "sequence": 91,
+        "ts": 1783684800910,
+        "durable": true,
+        "origin": "provider"
+      }
+    },
+    {
+      "kind": "user",
+      "text": "Message utilisateur 14",
+      "ts": 1783684800920,
+      "meta": {
+        "schemaVersion": 1,
+        "eventId": "ev-u-14",
+        "provider": "claude",
+        "threadId": "thread-medium",
+        "turnId": "turn-14",
+        "sequence": 92,
+        "ts": 1783684800920,
+        "durable": true,
+        "origin": "atelier",
+        "messageId": "msg-14"
+      }
+    },
+    {
+      "kind": "thinking",
+      "text": "Raisonnement tour 14",
+      "ts": 1783684800930,
+      "meta": {
+        "schemaVersion": 1,
+        "eventId": "ev-th-14",
+        "provider": "claude",
+        "threadId": "thread-medium",
+        "turnId": "turn-14",
+        "sequence": 93,
+        "ts": 1783684800930,
+        "durable": true,
+        "origin": "provider"
+      }
+    },
+    {
+      "kind": "tool_update",
+      "id": "tool-14",
+      "name": "Read",
+      "output": "fichier-14.txt",
+      "status": "completed",
+      "detail": "path-14",
+      "ts": 1783684800940,
+      "meta": {
+        "schemaVersion": 1,
+        "eventId": "ev-tool-14",
+        "provider": "claude",
+        "threadId": "thread-medium",
+        "turnId": "turn-14",
+        "sequence": 94,
+        "ts": 1783684800940,
+        "durable": true,
+        "origin": "provider",
+        "itemId": "tool-14"
+      }
+    },
+    {
+      "kind": "delta",
+      "text": "Réponse assistant",
+      "ts": 1783684800950,
+      "meta": {
+        "schemaVersion": 1,
+        "eventId": "ev-d1-14",
+        "provider": "claude",
+        "threadId": "thread-medium",
+        "turnId": "turn-14",
+        "sequence": 95,
+        "ts": 1783684800950,
+        "durable": false,
+        "origin": "provider"
+      }
+    },
+    {
+      "kind": "delta",
+      "text": " pour le tour 14.",
+      "ts": 1783684800960,
+      "meta": {
+        "schemaVersion": 1,
+        "eventId": "ev-d2-14",
+        "provider": "claude",
+        "threadId": "thread-medium",
+        "turnId": "turn-14",
+        "sequence": 96,
+        "ts": 1783684800960,
+        "durable": false,
+        "origin": "provider"
+      }
+    },
+    {
+      "kind": "text",
+      "text": "Réponse assistant pour le tour 14.",
+      "ts": 1783684800970,
+      "meta": {
+        "schemaVersion": 1,
+        "eventId": "ev-t-14",
+        "provider": "claude",
+        "threadId": "thread-medium",
+        "turnId": "turn-14",
+        "sequence": 97,
+        "ts": 1783684800970,
+        "durable": true,
+        "origin": "provider"
+      }
+    },
+    {
+      "kind": "done",
+      "ok": true,
+      "result": "ok",
+      "ts": 1783684800980,
+      "meta": {
+        "schemaVersion": 1,
+        "eventId": "ev-done-14",
+        "provider": "claude",
+        "threadId": "thread-medium",
+        "turnId": "turn-14",
+        "sequence": 98,
+        "ts": 1783684800980,
+        "durable": true,
+        "origin": "provider"
+      }
+    },
+    {
+      "kind": "user",
+      "text": "Message utilisateur 15",
+      "ts": 1783684800990,
+      "meta": {
+        "schemaVersion": 1,
+        "eventId": "ev-u-15",
+        "provider": "claude",
+        "threadId": "thread-medium",
+        "turnId": "turn-15",
+        "sequence": 99,
+        "ts": 1783684800990,
+        "durable": true,
+        "origin": "atelier",
+        "messageId": "msg-15"
+      }
+    },
+    {
+      "kind": "thinking",
+      "text": "Raisonnement tour 15",
+      "ts": 1783684801000,
+      "meta": {
+        "schemaVersion": 1,
+        "eventId": "ev-th-15",
+        "provider": "claude",
+        "threadId": "thread-medium",
+        "turnId": "turn-15",
+        "sequence": 100,
+        "ts": 1783684801000,
+        "durable": true,
+        "origin": "provider"
+      }
+    },
+    {
+      "kind": "tool_update",
+      "id": "tool-15",
+      "name": "Read",
+      "output": "fichier-15.txt",
+      "status": "completed",
+      "detail": "path-15",
+      "ts": 1783684801010,
+      "meta": {
+        "schemaVersion": 1,
+        "eventId": "ev-tool-15",
+        "provider": "claude",
+        "threadId": "thread-medium",
+        "turnId": "turn-15",
+        "sequence": 101,
+        "ts": 1783684801010,
+        "durable": true,
+        "origin": "provider",
+        "itemId": "tool-15"
+      }
+    },
+    {
+      "kind": "delta",
+      "text": "Réponse assistant",
+      "ts": 1783684801020,
+      "meta": {
+        "schemaVersion": 1,
+        "eventId": "ev-d1-15",
+        "provider": "claude",
+        "threadId": "thread-medium",
+        "turnId": "turn-15",
+        "sequence": 102,
+        "ts": 1783684801020,
+        "durable": false,
+        "origin": "provider"
+      }
+    },
+    {
+      "kind": "delta",
+      "text": " pour le tour 15.",
+      "ts": 1783684801030,
+      "meta": {
+        "schemaVersion": 1,
+        "eventId": "ev-d2-15",
+        "provider": "claude",
+        "threadId": "thread-medium",
+        "turnId": "turn-15",
+        "sequence": 103,
+        "ts": 1783684801030,
+        "durable": false,
+        "origin": "provider"
+      }
+    },
+    {
+      "kind": "text",
+      "text": "Réponse assistant pour le tour 15.",
+      "ts": 1783684801040,
+      "meta": {
+        "schemaVersion": 1,
+        "eventId": "ev-t-15",
+        "provider": "claude",
+        "threadId": "thread-medium",
+        "turnId": "turn-15",
+        "sequence": 104,
+        "ts": 1783684801040,
+        "durable": true,
+        "origin": "provider"
+      }
+    },
+    {
+      "kind": "done",
+      "ok": true,
+      "result": "ok",
+      "ts": 1783684801050,
+      "meta": {
+        "schemaVersion": 1,
+        "eventId": "ev-done-15",
+        "provider": "claude",
+        "threadId": "thread-medium",
+        "turnId": "turn-15",
+        "sequence": 105,
+        "ts": 1783684801050,
+        "durable": true,
+        "origin": "provider"
+      }
+    },
+    {
+      "kind": "user",
+      "text": "Message utilisateur 16",
+      "ts": 1783684801060,
+      "meta": {
+        "schemaVersion": 1,
+        "eventId": "ev-u-16",
+        "provider": "claude",
+        "threadId": "thread-medium",
+        "turnId": "turn-16",
+        "sequence": 106,
+        "ts": 1783684801060,
+        "durable": true,
+        "origin": "atelier",
+        "messageId": "msg-16"
+      }
+    },
+    {
+      "kind": "thinking",
+      "text": "Raisonnement tour 16",
+      "ts": 1783684801070,
+      "meta": {
+        "schemaVersion": 1,
+        "eventId": "ev-th-16",
+        "provider": "claude",
+        "threadId": "thread-medium",
+        "turnId": "turn-16",
+        "sequence": 107,
+        "ts": 1783684801070,
+        "durable": true,
+        "origin": "provider"
+      }
+    },
+    {
+      "kind": "tool_update",
+      "id": "tool-16",
+      "name": "Read",
+      "output": "fichier-16.txt",
+      "status": "completed",
+      "detail": "path-16",
+      "ts": 1783684801080,
+      "meta": {
+        "schemaVersion": 1,
+        "eventId": "ev-tool-16",
+        "provider": "claude",
+        "threadId": "thread-medium",
+        "turnId": "turn-16",
+        "sequence": 108,
+        "ts": 1783684801080,
+        "durable": true,
+        "origin": "provider",
+        "itemId": "tool-16"
+      }
+    },
+    {
+      "kind": "delta",
+      "text": "Réponse assistant",
+      "ts": 1783684801090,
+      "meta": {
+        "schemaVersion": 1,
+        "eventId": "ev-d1-16",
+        "provider": "claude",
+        "threadId": "thread-medium",
+        "turnId": "turn-16",
+        "sequence": 109,
+        "ts": 1783684801090,
+        "durable": false,
+        "origin": "provider"
+      }
+    },
+    {
+      "kind": "delta",
+      "text": " pour le tour 16.",
+      "ts": 1783684801100,
+      "meta": {
+        "schemaVersion": 1,
+        "eventId": "ev-d2-16",
+        "provider": "claude",
+        "threadId": "thread-medium",
+        "turnId": "turn-16",
+        "sequence": 110,
+        "ts": 1783684801100,
+        "durable": false,
+        "origin": "provider"
+      }
+    },
+    {
+      "kind": "text",
+      "text": "Réponse assistant pour le tour 16.",
+      "ts": 1783684801110,
+      "meta": {
+        "schemaVersion": 1,
+        "eventId": "ev-t-16",
+        "provider": "claude",
+        "threadId": "thread-medium",
+        "turnId": "turn-16",
+        "sequence": 111,
+        "ts": 1783684801110,
+        "durable": true,
+        "origin": "provider"
+      }
+    },
+    {
+      "kind": "done",
+      "ok": true,
+      "result": "ok",
+      "ts": 1783684801120,
+      "meta": {
+        "schemaVersion": 1,
+        "eventId": "ev-done-16",
+        "provider": "claude",
+        "threadId": "thread-medium",
+        "turnId": "turn-16",
+        "sequence": 112,
+        "ts": 1783684801120,
+        "durable": true,
+        "origin": "provider"
+      }
+    },
+    {
+      "kind": "user",
+      "text": "Message utilisateur 17",
+      "ts": 1783684801130,
+      "meta": {
+        "schemaVersion": 1,
+        "eventId": "ev-u-17",
+        "provider": "claude",
+        "threadId": "thread-medium",
+        "turnId": "turn-17",
+        "sequence": 113,
+        "ts": 1783684801130,
+        "durable": true,
+        "origin": "atelier",
+        "messageId": "msg-17"
+      }
+    },
+    {
+      "kind": "thinking",
+      "text": "Raisonnement tour 17",
+      "ts": 1783684801140,
+      "meta": {
+        "schemaVersion": 1,
+        "eventId": "ev-th-17",
+        "provider": "claude",
+        "threadId": "thread-medium",
+        "turnId": "turn-17",
+        "sequence": 114,
+        "ts": 1783684801140,
+        "durable": true,
+        "origin": "provider"
+      }
+    },
+    {
+      "kind": "tool_update",
+      "id": "tool-17",
+      "name": "Read",
+      "output": "fichier-17.txt",
+      "status": "completed",
+      "detail": "path-17",
+      "ts": 1783684801150,
+      "meta": {
+        "schemaVersion": 1,
+        "eventId": "ev-tool-17",
+        "provider": "claude",
+        "threadId": "thread-medium",
+        "turnId": "turn-17",
+        "sequence": 115,
+        "ts": 1783684801150,
+        "durable": true,
+        "origin": "provider",
+        "itemId": "tool-17"
+      }
+    },
+    {
+      "kind": "delta",
+      "text": "Réponse assistant",
+      "ts": 1783684801160,
+      "meta": {
+        "schemaVersion": 1,
+        "eventId": "ev-d1-17",
+        "provider": "claude",
+        "threadId": "thread-medium",
+        "turnId": "turn-17",
+        "sequence": 116,
+        "ts": 1783684801160,
+        "durable": false,
+        "origin": "provider"
+      }
+    },
+    {
+      "kind": "delta",
+      "text": " pour le tour 17.",
+      "ts": 1783684801170,
+      "meta": {
+        "schemaVersion": 1,
+        "eventId": "ev-d2-17",
+        "provider": "claude",
+        "threadId": "thread-medium",
+        "turnId": "turn-17",
+        "sequence": 117,
+        "ts": 1783684801170,
+        "durable": false,
+        "origin": "provider"
+      }
+    },
+    {
+      "kind": "text",
+      "text": "Réponse assistant pour le tour 17.",
+      "ts": 1783684801180,
+      "meta": {
+        "schemaVersion": 1,
+        "eventId": "ev-t-17",
+        "provider": "claude",
+        "threadId": "thread-medium",
+        "turnId": "turn-17",
+        "sequence": 118,
+        "ts": 1783684801180,
+        "durable": true,
+        "origin": "provider"
+      }
+    },
+    {
+      "kind": "done",
+      "ok": true,
+      "result": "ok",
+      "ts": 1783684801190,
+      "meta": {
+        "schemaVersion": 1,
+        "eventId": "ev-done-17",
+        "provider": "claude",
+        "threadId": "thread-medium",
+        "turnId": "turn-17",
+        "sequence": 119,
+        "ts": 1783684801190,
+        "durable": true,
+        "origin": "provider"
+      }
+    },
+    {
+      "kind": "user",
+      "text": "Message utilisateur 18",
+      "ts": 1783684801200,
+      "meta": {
+        "schemaVersion": 1,
+        "eventId": "ev-u-18",
+        "provider": "claude",
+        "threadId": "thread-medium",
+        "turnId": "turn-18",
+        "sequence": 120,
+        "ts": 1783684801200,
+        "durable": true,
+        "origin": "atelier",
+        "messageId": "msg-18"
+      }
+    },
+    {
+      "kind": "thinking",
+      "text": "Raisonnement tour 18",
+      "ts": 1783684801210,
+      "meta": {
+        "schemaVersion": 1,
+        "eventId": "ev-th-18",
+        "provider": "claude",
+        "threadId": "thread-medium",
+        "turnId": "turn-18",
+        "sequence": 121,
+        "ts": 1783684801210,
+        "durable": true,
+        "origin": "provider"
+      }
+    },
+    {
+      "kind": "tool_update",
+      "id": "tool-18",
+      "name": "Read",
+      "output": "fichier-18.txt",
+      "status": "completed",
+      "detail": "path-18",
+      "ts": 1783684801220,
+      "meta": {
+        "schemaVersion": 1,
+        "eventId": "ev-tool-18",
+        "provider": "claude",
+        "threadId": "thread-medium",
+        "turnId": "turn-18",
+        "sequence": 122,
+        "ts": 1783684801220,
+        "durable": true,
+        "origin": "provider",
+        "itemId": "tool-18"
+      }
+    },
+    {
+      "kind": "delta",
+      "text": "Réponse assistant",
+      "ts": 1783684801230,
+      "meta": {
+        "schemaVersion": 1,
+        "eventId": "ev-d1-18",
+        "provider": "claude",
+        "threadId": "thread-medium",
+        "turnId": "turn-18",
+        "sequence": 123,
+        "ts": 1783684801230,
+        "durable": false,
+        "origin": "provider"
+      }
+    },
+    {
+      "kind": "delta",
+      "text": " pour le tour 18.",
+      "ts": 1783684801240,
+      "meta": {
+        "schemaVersion": 1,
+        "eventId": "ev-d2-18",
+        "provider": "claude",
+        "threadId": "thread-medium",
+        "turnId": "turn-18",
+        "sequence": 124,
+        "ts": 1783684801240,
+        "durable": false,
+        "origin": "provider"
+      }
+    },
+    {
+      "kind": "text",
+      "text": "Réponse assistant pour le tour 18.",
+      "ts": 1783684801250,
+      "meta": {
+        "schemaVersion": 1,
+        "eventId": "ev-t-18",
+        "provider": "claude",
+        "threadId": "thread-medium",
+        "turnId": "turn-18",
+        "sequence": 125,
+        "ts": 1783684801250,
+        "durable": true,
+        "origin": "provider"
+      }
+    },
+    {
+      "kind": "done",
+      "ok": true,
+      "result": "ok",
+      "ts": 1783684801260,
+      "meta": {
+        "schemaVersion": 1,
+        "eventId": "ev-done-18",
+        "provider": "claude",
+        "threadId": "thread-medium",
+        "turnId": "turn-18",
+        "sequence": 126,
+        "ts": 1783684801260,
+        "durable": true,
+        "origin": "provider"
+      }
+    },
+    {
+      "kind": "user",
+      "text": "Message utilisateur 19",
+      "ts": 1783684801270,
+      "meta": {
+        "schemaVersion": 1,
+        "eventId": "ev-u-19",
+        "provider": "claude",
+        "threadId": "thread-medium",
+        "turnId": "turn-19",
+        "sequence": 127,
+        "ts": 1783684801270,
+        "durable": true,
+        "origin": "atelier",
+        "messageId": "msg-19"
+      }
+    },
+    {
+      "kind": "thinking",
+      "text": "Raisonnement tour 19",
+      "ts": 1783684801280,
+      "meta": {
+        "schemaVersion": 1,
+        "eventId": "ev-th-19",
+        "provider": "claude",
+        "threadId": "thread-medium",
+        "turnId": "turn-19",
+        "sequence": 128,
+        "ts": 1783684801280,
+        "durable": true,
+        "origin": "provider"
+      }
+    },
+    {
+      "kind": "tool_update",
+      "id": "tool-19",
+      "name": "Read",
+      "output": "fichier-19.txt",
+      "status": "completed",
+      "detail": "path-19",
+      "ts": 1783684801290,
+      "meta": {
+        "schemaVersion": 1,
+        "eventId": "ev-tool-19",
+        "provider": "claude",
+        "threadId": "thread-medium",
+        "turnId": "turn-19",
+        "sequence": 129,
+        "ts": 1783684801290,
+        "durable": true,
+        "origin": "provider",
+        "itemId": "tool-19"
+      }
+    },
+    {
+      "kind": "delta",
+      "text": "Réponse assistant",
+      "ts": 1783684801300,
+      "meta": {
+        "schemaVersion": 1,
+        "eventId": "ev-d1-19",
+        "provider": "claude",
+        "threadId": "thread-medium",
+        "turnId": "turn-19",
+        "sequence": 130,
+        "ts": 1783684801300,
+        "durable": false,
+        "origin": "provider"
+      }
+    },
+    {
+      "kind": "delta",
+      "text": " pour le tour 19.",
+      "ts": 1783684801310,
+      "meta": {
+        "schemaVersion": 1,
+        "eventId": "ev-d2-19",
+        "provider": "claude",
+        "threadId": "thread-medium",
+        "turnId": "turn-19",
+        "sequence": 131,
+        "ts": 1783684801310,
+        "durable": false,
+        "origin": "provider"
+      }
+    },
+    {
+      "kind": "text",
+      "text": "Réponse assistant pour le tour 19.",
+      "ts": 1783684801320,
+      "meta": {
+        "schemaVersion": 1,
+        "eventId": "ev-t-19",
+        "provider": "claude",
+        "threadId": "thread-medium",
+        "turnId": "turn-19",
+        "sequence": 132,
+        "ts": 1783684801320,
+        "durable": true,
+        "origin": "provider"
+      }
+    },
+    {
+      "kind": "done",
+      "ok": true,
+      "result": "ok",
+      "ts": 1783684801330,
+      "meta": {
+        "schemaVersion": 1,
+        "eventId": "ev-done-19",
+        "provider": "claude",
+        "threadId": "thread-medium",
+        "turnId": "turn-19",
+        "sequence": 133,
+        "ts": 1783684801330,
+        "durable": true,
+        "origin": "provider"
+      }
+    },
+    {
+      "kind": "user",
+      "text": "Message utilisateur 20",
+      "ts": 1783684801340,
+      "meta": {
+        "schemaVersion": 1,
+        "eventId": "ev-u-20",
+        "provider": "claude",
+        "threadId": "thread-medium",
+        "turnId": "turn-20",
+        "sequence": 134,
+        "ts": 1783684801340,
+        "durable": true,
+        "origin": "atelier",
+        "messageId": "msg-20"
+      }
+    },
+    {
+      "kind": "thinking",
+      "text": "Raisonnement tour 20",
+      "ts": 1783684801350,
+      "meta": {
+        "schemaVersion": 1,
+        "eventId": "ev-th-20",
+        "provider": "claude",
+        "threadId": "thread-medium",
+        "turnId": "turn-20",
+        "sequence": 135,
+        "ts": 1783684801350,
+        "durable": true,
+        "origin": "provider"
+      }
+    },
+    {
+      "kind": "tool_update",
+      "id": "tool-20",
+      "name": "Read",
+      "output": "fichier-20.txt",
+      "status": "completed",
+      "detail": "path-20",
+      "ts": 1783684801360,
+      "meta": {
+        "schemaVersion": 1,
+        "eventId": "ev-tool-20",
+        "provider": "claude",
+        "threadId": "thread-medium",
+        "turnId": "turn-20",
+        "sequence": 136,
+        "ts": 1783684801360,
+        "durable": true,
+        "origin": "provider",
+        "itemId": "tool-20"
+      }
+    },
+    {
+      "kind": "delta",
+      "text": "Réponse assistant",
+      "ts": 1783684801370,
+      "meta": {
+        "schemaVersion": 1,
+        "eventId": "ev-d1-20",
+        "provider": "claude",
+        "threadId": "thread-medium",
+        "turnId": "turn-20",
+        "sequence": 137,
+        "ts": 1783684801370,
+        "durable": false,
+        "origin": "provider"
+      }
+    },
+    {
+      "kind": "delta",
+      "text": " pour le tour 20.",
+      "ts": 1783684801380,
+      "meta": {
+        "schemaVersion": 1,
+        "eventId": "ev-d2-20",
+        "provider": "claude",
+        "threadId": "thread-medium",
+        "turnId": "turn-20",
+        "sequence": 138,
+        "ts": 1783684801380,
+        "durable": false,
+        "origin": "provider"
+      }
+    },
+    {
+      "kind": "text",
+      "text": "Réponse assistant pour le tour 20.",
+      "ts": 1783684801390,
+      "meta": {
+        "schemaVersion": 1,
+        "eventId": "ev-t-20",
+        "provider": "claude",
+        "threadId": "thread-medium",
+        "turnId": "turn-20",
+        "sequence": 139,
+        "ts": 1783684801390,
+        "durable": true,
+        "origin": "provider"
+      }
+    },
+    {
+      "kind": "done",
+      "ok": true,
+      "result": "ok",
+      "ts": 1783684801400,
+      "meta": {
+        "schemaVersion": 1,
+        "eventId": "ev-done-20",
+        "provider": "claude",
+        "threadId": "thread-medium",
+        "turnId": "turn-20",
+        "sequence": 140,
+        "ts": 1783684801400,
+        "durable": true,
+        "origin": "provider"
+      }
+    }
+  ],
+  "lastSequence": 140
+}

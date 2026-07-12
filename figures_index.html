@@ -709,9 +709,14 @@ document.addEventListener('click',e=>{
   else if(act==='rate') setRate(rel, +el.dataset.n, e);
   else if(act==='copy'){ navigator.clipboard.writeText(rel); el.textContent='✓'; setTimeout(()=>el.textContent='Path',1200); }
   else if(act==='chat'){
+    // Le bouton de carte remplace l'ancien bouton de l'inspecteur en mode
+    // embarqué. Bloquer la double activation rapide avant de poster au host.
+    if(el.dataset.addState==='added') return;
+    el.dataset.addState='added';
     __atelierPost({type:'atelier-add-to-chat',
       text:'/Users/tofunori/Documents/atelier-studio/'+rel+'\nFichier joint depuis la galerie atelier — lis-le (outil Read) avant de répondre.'});
-    el.textContent='✓'; setTimeout(()=>el.textContent='Chat',1200);
+    el.textContent='✓';
+    setTimeout(()=>{ el.textContent='Chat'; delete el.dataset.addState; },1200);
   }
 });
 let favs = new Set(JSON.parse(localStorage.getItem('figFavs')||'[]'));
@@ -1809,7 +1814,10 @@ function render(){
   const sort = document.getElementById('sort').value;
   const fld = fsel.value;
   let list = FILES.filter(f=>{
-    if(!exts[f.ext]) return false;
+    // Un favori durable ne doit pas sembler perdu après une relance quand les
+    // formats reviennent à leur vue par défaut. Le filtre Favoris prime donc
+    // sur le masque de format, sans modifier les formats de la vue générale.
+    if(!exts[f.ext] && !(onlyFavs && favs.has(f.rel))) return false;
     if(!showArch && f.archive) return false;
     if(!showHidden && (hidden.has(f.rel) || matchesRule(f.rel))) return false;
     if(activeCollection && !(collections[activeCollection]||[]).includes(f.rel)) return false;

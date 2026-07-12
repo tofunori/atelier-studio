@@ -138,7 +138,13 @@ export default function TopBar({
         )}
       </div>
       <span className="flex" />
-      <button type="button" className="topbar-cmd" onClick={onOpenPalette} title={t("topbar.search")}>
+      <button
+        type="button"
+        className="topbar-cmd"
+        onMouseDown={(event) => event.preventDefault()}
+        onClick={onOpenPalette}
+        title={t("topbar.search")}
+      >
         <SearchIcon size={12} />
         <span className="topbar-cmd-label">{t("topbar.search")}</span>
         <span className="topbar-cmd-kbd">⌘K</span>

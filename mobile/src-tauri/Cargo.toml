@@ -1,0 +1,29 @@
+[package]
+name = "atelier-mobile"
+version = "0.1.0"
+description = "Atelier Companion iOS (plan 034)"
+authors = ["Thierry"]
+edition = "2021"
+
+[lib]
+name = "atelier_mobile_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+tauri-plugin-os = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+thiserror = "2"
+
+[target.'cfg(target_os = "ios")'.dependencies]
+# Keychain via security-framework is optional; file store used until linked.
+# security-framework = "2"
+
+[profile.release]
+panic = "abort"
+codegen-units = 1
+lto = true

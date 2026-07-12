@@ -308,7 +308,7 @@ test('workflow: status set from the inspector survives a reload (server-backed)'
   });
 });
 
-test('add-to-chat from the inspector is idempotent on rapid double activation', async ({ page }) => {
+test('add-to-chat from an embedded gallery card is idempotent on rapid double activation', async ({ page }) => {
   await withGallery(async ({ root, port }) => {
     // la galerie doit se croire embarquée (window.self !== window.top) : une
     // page hôte servie par le MÊME serveur l'encadre et capture les postMessage
@@ -319,12 +319,13 @@ test('add-to-chat from the inspector is idempotent on rapid double activation', 
     const g = page.frameLocator('#g');
     await g.locator('#grid .card').first().waitFor();
 
-    await g.locator('[data-act="lb"][data-rel="preview-alpha.png"]').click();
-    const chat = g.locator('#inspChat');
+    const card = g.locator('.card[data-card="preview-alpha.png"]');
+    await card.hover();
+    const chat = card.locator('[data-act="chat"]');
     await expect(chat).toBeVisible();
     await chat.click();
-    await chat.click(); // double activation rapide — bloquée par pending/added
-    await expect(chat).toContainText('Added to chat');
+    await chat.click(); // double activation rapide — bloquée par data-add-state
+    await expect(chat).toContainText('✓');
 
     await expect.poll(() => page.evaluate(() => window.__msgs.filter(m => m.type === 'atelier-add-to-chat').length)).toBe(1);
     const msg = await page.evaluate(() => window.__msgs.find(m => m.type === 'atelier-add-to-chat'));

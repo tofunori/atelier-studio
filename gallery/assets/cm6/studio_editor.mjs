@@ -126,7 +126,7 @@ function themeExtensions(id) {
     "&.cm-focused .cm-selectionBackground, .cm-selectionBackground, ::selection": {backgroundColor: p.selection},
     ".cm-activeLine": {backgroundColor: p.active},
     ".cm-gutters": {color: `${p.gutter} !important`, backgroundColor: `${p.bg} !important`, borderRight: `1px solid ${p.border} !important`},
-    ".cm-lineNumbers .cm-gutterElement": {padding: "0 12px 0 8px"},
+    ".cm-lineNumbers .cm-gutterElement": {padding: "0 4px"},
     ".cm-activeLineGutter": {color: p.gutterActive, backgroundColor: p.active},
     ".cm-foldPlaceholder": {color: p.gutterActive, backgroundColor: p.surface, border: `1px solid ${p.border}`},
     ".cm-matchingBracket": {color: `${p.accent} !important`, backgroundColor: `${p.accent}20`, outline: `1px solid ${p.accent}55`},

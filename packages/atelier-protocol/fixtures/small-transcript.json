@@ -1,0 +1,248 @@
+{
+  "id": "small",
+  "threadId": "thread-small",
+  "projectId": "proj-fixture",
+  "title": "Transcript petit",
+  "provider": "claude",
+  "events": [
+    {
+      "kind": "user",
+      "text": "Message utilisateur 1",
+      "ts": 1783684800010,
+      "meta": {
+        "schemaVersion": 1,
+        "eventId": "ev-u-1",
+        "provider": "claude",
+        "threadId": "thread-small",
+        "turnId": "turn-1",
+        "sequence": 1,
+        "ts": 1783684800010,
+        "durable": true,
+        "origin": "atelier",
+        "messageId": "msg-1"
+      }
+    },
+    {
+      "kind": "thinking",
+      "text": "Raisonnement tour 1",
+      "ts": 1783684800020,
+      "meta": {
+        "schemaVersion": 1,
+        "eventId": "ev-th-1",
+        "provider": "claude",
+        "threadId": "thread-small",
+        "turnId": "turn-1",
+        "sequence": 2,
+        "ts": 1783684800020,
+        "durable": true,
+        "origin": "provider"
+      }
+    },
+    {
+      "kind": "tool_update",
+      "id": "tool-1",
+      "name": "Read",
+      "output": "fichier-1.txt",
+      "status": "completed",
+      "detail": "path-1",
+      "ts": 1783684800030,
+      "meta": {
+        "schemaVersion": 1,
+        "eventId": "ev-tool-1",
+        "provider": "claude",
+        "threadId": "thread-small",
+        "turnId": "turn-1",
+        "sequence": 3,
+        "ts": 1783684800030,
+        "durable": true,
+        "origin": "provider",
+        "itemId": "tool-1"
+      }
+    },
+    {
+      "kind": "delta",
+      "text": "Réponse assistan",
+      "ts": 1783684800040,
+      "meta": {
+        "schemaVersion": 1,
+        "eventId": "ev-d1-1",
+        "provider": "claude",
+        "threadId": "thread-small",
+        "turnId": "turn-1",
+        "sequence": 4,
+        "ts": 1783684800040,
+        "durable": false,
+        "origin": "provider"
+      }
+    },
+    {
+      "kind": "delta",
+      "text": "t pour le tour 1.",
+      "ts": 1783684800050,
+      "meta": {
+        "schemaVersion": 1,
+        "eventId": "ev-d2-1",
+        "provider": "claude",
+        "threadId": "thread-small",
+        "turnId": "turn-1",
+        "sequence": 5,
+        "ts": 1783684800050,
+        "durable": false,
+        "origin": "provider"
+      }
+    },
+    {
+      "kind": "text",
+      "text": "Réponse assistant pour le tour 1.",
+      "ts": 1783684800060,
+      "meta": {
+        "schemaVersion": 1,
+        "eventId": "ev-t-1",
+        "provider": "claude",
+        "threadId": "thread-small",
+        "turnId": "turn-1",
+        "sequence": 6,
+        "ts": 1783684800060,
+        "durable": true,
+        "origin": "provider"
+      }
+    },
+    {
+      "kind": "done",
+      "ok": true,
+      "result": "ok",
+      "ts": 1783684800070,
+      "meta": {
+        "schemaVersion": 1,
+        "eventId": "ev-done-1",
+        "provider": "claude",
+        "threadId": "thread-small",
+        "turnId": "turn-1",
+        "sequence": 7,
+        "ts": 1783684800070,
+        "durable": true,
+        "origin": "provider"
+      }
+    },
+    {
+      "kind": "user",
+      "text": "Message utilisateur 2",
+      "ts": 1783684800080,
+      "meta": {
+        "schemaVersion": 1,
+        "eventId": "ev-u-2",
+        "provider": "claude",
+        "threadId": "thread-small",
+        "turnId": "turn-2",
+        "sequence": 8,
+        "ts": 1783684800080,
+        "durable": true,
+        "origin": "atelier",
+        "messageId": "msg-2"
+      }
+    },
+    {
+      "kind": "thinking",
+      "text": "Raisonnement tour 2",
+      "ts": 1783684800090,
+      "meta": {
+        "schemaVersion": 1,
+        "eventId": "ev-th-2",
+        "provider": "claude",
+        "threadId": "thread-small",
+        "turnId": "turn-2",
+        "sequence": 9,
+        "ts": 1783684800090,
+        "durable": true,
+        "origin": "provider"
+      }
+    },
+    {
+      "kind": "tool_update",
+      "id": "tool-2",
+      "name": "Read",
+      "output": "fichier-2.txt",
+      "status": "completed",
+      "detail": "path-2",
+      "ts": 1783684800100,
+      "meta": {
+        "schemaVersion": 1,
+        "eventId": "ev-tool-2",
+        "provider": "claude",
+        "threadId": "thread-small",
+        "turnId": "turn-2",
+        "sequence": 10,
+        "ts": 1783684800100,
+        "durable": true,
+        "origin": "provider",
+        "itemId": "tool-2"
+      }
+    },
+    {
+      "kind": "delta",
+      "text": "Réponse assistan",
+      "ts": 1783684800110,
+      "meta": {
+        "schemaVersion": 1,
+        "eventId": "ev-d1-2",
+        "provider": "claude",
+        "threadId": "thread-small",
+        "turnId": "turn-2",
+        "sequence": 11,
+        "ts": 1783684800110,
+        "durable": false,
+        "origin": "provider"
+      }
+    },
+    {
+      "kind": "delta",
+      "text": "t pour le tour 2.",
+      "ts": 1783684800120,
+      "meta": {
+        "schemaVersion": 1,
+        "eventId": "ev-d2-2",
+        "provider": "claude",
+        "threadId": "thread-small",
+        "turnId": "turn-2",
+        "sequence": 12,
+        "ts": 1783684800120,
+        "durable": false,
+        "origin": "provider"
+      }
+    },
+    {
+      "kind": "text",
+      "text": "Réponse assistant pour le tour 2.",
+      "ts": 1783684800130,
+      "meta": {
+        "schemaVersion": 1,
+        "eventId": "ev-t-2",
+        "provider": "claude",
+        "threadId": "thread-small",
+        "turnId": "turn-2",
+        "sequence": 13,
+        "ts": 1783684800130,
+        "durable": true,
+        "origin": "provider"
+      }
+    },
+    {
+      "kind": "done",
+      "ok": true,
+      "result": "ok",
+      "ts": 1783684800140,
+      "meta": {
+        "schemaVersion": 1,
+        "eventId": "ev-done-2",
+        "provider": "claude",
+        "threadId": "thread-small",
+        "turnId": "turn-2",
+        "sequence": 14,
+        "ts": 1783684800140,
+        "durable": true,
+        "origin": "provider"
+      }
+    }
+  ],
+  "lastSequence": 14
+}

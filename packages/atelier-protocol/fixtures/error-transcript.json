@@ -1,0 +1,56 @@
+{
+  "id": "error",
+  "threadId": "thread-error",
+  "projectId": "proj-fixture",
+  "title": "Erreur provider",
+  "provider": "claude",
+  "events": [
+    {
+      "kind": "user",
+      "text": "Lance le job",
+      "meta": {
+        "schemaVersion": 1,
+        "eventId": "ev-u-1",
+        "provider": "claude",
+        "threadId": "thread-error",
+        "turnId": "turn-1",
+        "sequence": 1,
+        "ts": 1783684800010,
+        "durable": true,
+        "origin": "atelier",
+        "messageId": "msg-1"
+      }
+    },
+    {
+      "kind": "delta",
+      "text": "Je démarre…",
+      "meta": {
+        "schemaVersion": 1,
+        "eventId": "ev-d-1",
+        "provider": "claude",
+        "threadId": "thread-error",
+        "turnId": "turn-1",
+        "sequence": 2,
+        "ts": 1783684800020,
+        "durable": false,
+        "origin": "provider"
+      }
+    },
+    {
+      "kind": "error",
+      "message": "provider indisponible",
+      "meta": {
+        "schemaVersion": 1,
+        "eventId": "ev-err-1",
+        "provider": "claude",
+        "threadId": "thread-error",
+        "turnId": "turn-1",
+        "sequence": 3,
+        "ts": 1783684800030,
+        "durable": true,
+        "origin": "provider"
+      }
+    }
+  ],
+  "lastSequence": 3
+}

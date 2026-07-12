@@ -1,0 +1,57 @@
+{
+  "id": "interrupt",
+  "threadId": "thread-interrupt",
+  "projectId": "proj-fixture",
+  "title": "Interruption",
+  "provider": "claude",
+  "events": [
+    {
+      "kind": "user",
+      "text": "Long travail",
+      "meta": {
+        "schemaVersion": 1,
+        "eventId": "ev-u-1",
+        "provider": "claude",
+        "threadId": "thread-interrupt",
+        "turnId": "turn-1",
+        "sequence": 1,
+        "ts": 1783684800010,
+        "durable": true,
+        "origin": "atelier",
+        "messageId": "msg-1"
+      }
+    },
+    {
+      "kind": "delta",
+      "text": "En cours",
+      "meta": {
+        "schemaVersion": 1,
+        "eventId": "ev-d-1",
+        "provider": "claude",
+        "threadId": "thread-interrupt",
+        "turnId": "turn-1",
+        "sequence": 2,
+        "ts": 1783684800020,
+        "durable": false,
+        "origin": "provider"
+      }
+    },
+    {
+      "kind": "done",
+      "ok": false,
+      "result": "interrupted",
+      "meta": {
+        "schemaVersion": 1,
+        "eventId": "ev-done-1",
+        "provider": "claude",
+        "threadId": "thread-interrupt",
+        "turnId": "turn-1",
+        "sequence": 3,
+        "ts": 1783684800030,
+        "durable": true,
+        "origin": "provider"
+      }
+    }
+  ],
+  "lastSequence": 3
+}

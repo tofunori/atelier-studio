@@ -48,10 +48,23 @@ jobs:
           tagName: ${{ github.ref_name }}
           releaseName: "Atelier Studio ${{ github.ref_name }}"
           releaseBody: |
-            macOS (Apple Silicon). App non signée : après installation,
-            lancer `xattr -cr "/Applications/Atelier.app"` pour passer Gatekeeper.
-            Prérequis : Claude Code CLI (>= 2.1.139) et Codex CLI.
-            Node 22 et la galerie sont embarqués — aucune installation Node ou Python requise.
+            Atelier Studio 1.3 introduces the Rust-first agent runtime, a shared
+            desktop/mobile protocol, the first iOS companion foundation, a remote
+            gateway, and a major reliability and usability pass across chat, the
+            scientific gallery, and the LaTeX/CodeMirror editor.
+
+            See `docs/releases/v1.3.0.md` in the repository for the complete
+            release notes, upgrade guidance, validation coverage, and known limits.
+
+            **Platform:** macOS on Apple Silicon.
+
+            The packaged app includes Node.js 22 and the gallery runtime. No
+            separate Node.js or Python installation is required for the app.
+            Claude Code CLI (2.1.139 or newer) and Codex CLI remain external
+            prerequisites for their respective providers.
+
+            If macOS Gatekeeper blocks an unsigned download, run:
+            `xattr -cr "/Applications/Atelier.app"`
           releaseDraft: true
           prerelease: false
       - name: Verify embedded Node artifact

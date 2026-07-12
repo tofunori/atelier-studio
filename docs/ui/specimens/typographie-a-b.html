@@ -1,0 +1,105 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Atelier — spécimens typographiques A / B</title>
+<style>
+  :root{
+    --bg:#212429; --bg-side:#1a1d22; --bg-card:#262b31; --bg-ctl:#2c313a;
+    --border:#333a45; --border2:#3a414d;
+    --fg:#dbdfe5; --fg2:#b6bdc7; --muted:#868d9a; --muted2:#646d7b;
+    --accent:#e8823a; --u-ok:#98c379; --u-warn:#e0b74a;
+    --ui:-apple-system,'SF Pro Text','Inter Variable',sans-serif;
+  }
+  *{box-sizing:border-box;margin:0}
+  body{background:var(--bg);color:var(--fg);font-family:var(--ui);
+       font-size:13px;line-height:1.5;padding:24px}
+  .note{max-width:1100px;margin:0 auto 20px;color:var(--muted);font-size:12px}
+  .wrap{display:grid;grid-template-columns:1fr 1fr;gap:20px;max-width:1100px;margin:0 auto}
+  .col{background:var(--bg-side);border:1px solid var(--border);border-radius:10px;padding:20px}
+  .tag{display:inline-block;font-size:10px;font-weight:600;letter-spacing:.04em;
+       text-transform:uppercase;color:var(--accent);margin-bottom:16px}
+  h1{letter-spacing:-0.01em;line-height:1.3;font-weight:600}
+  .a h1{font-size:15px}
+  .b h1{font-size:20px}
+  .sub{color:var(--muted);font-size:12px;margin-top:2px}
+  .sect{margin-top:20px}
+  .a .sect-t{font-size:11px;font-weight:500;letter-spacing:.05em;text-transform:uppercase;color:var(--muted)}
+  .b .sect-t{font-size:18px;font-weight:600;letter-spacing:-0.01em;color:var(--fg);text-transform:none}
+  .card{background:var(--bg-card);border:1px solid var(--border);border-radius:10px;padding:12px 16px;margin-top:8px}
+  .card h2{font-size:13px;font-weight:600;letter-spacing:-0.01em}
+  .meta{color:var(--muted);font-size:11px;margin-top:2px;font-variant-numeric:tabular-nums}
+  .body{margin-top:8px;color:var(--fg2);font-size:13px}
+  .btn{display:inline-block;margin-top:10px;background:var(--accent);color:#1a1408;
+       font-size:12px;font-weight:500;padding:5px 12px;border-radius:6px}
+  .list{margin-top:8px;font-size:12px}
+  .list div{display:flex;gap:12px;padding:4px 0;border-bottom:1px solid var(--border)}
+  .list .n{flex:1;color:var(--fg2)}
+  .list .m{color:var(--muted);font-variant-numeric:tabular-nums}
+  .list .s{color:var(--u-ok);font-size:10px;text-transform:uppercase;font-weight:500}
+  .list .s.c{color:var(--u-warn)}
+  .verdict{max-width:1100px;margin:20px auto 0;color:var(--muted);font-size:12px;
+           border-top:1px solid var(--border);padding-top:12px}
+</style>
+</head>
+<body>
+<p class="note">Plan 014 — décision typographique. Même contenu (en-tête Research
+Home), même palette et mêmes composants ; seule l'échelle des titres change.
+<b>A</b> = échelle actuelle (10/11/12/13/15, hiérarchie par poids/espace).
+<b>B</b> = display restreint (tokens 18/20 réservés au Research Home et aux
+titres de page — jamais TopBar ni panneaux).</p>
+<div class="wrap">
+  <section class="col a">
+    <span class="tag">A — échelle actuelle (15 px max)</span>
+    <h1>Albedo-Modis-Pipeline-Analysis</h1>
+    <p class="sub">Forçage aérosols → albédo glaciaire · 11 régions · MàJ 15:51</p>
+    <div class="sect">
+      <div class="sect-t">Continuer</div>
+      <div class="card">
+        <h2>Albédo glaciaire et aérosols de feu</h2>
+        <p class="meta">idle · il y a 2 j · Claude Sonnet 5</p>
+        <p class="body">Dernier résultat : validation Williamson &amp; Menounos
+        reproduite (−0,35 %/an vs −0,33).</p>
+        <span class="btn">Reprendre</span>
+      </div>
+    </div>
+    <div class="sect">
+      <div class="sect-t">Artefacts récents</div>
+      <div class="list">
+        <div><span class="n">fig4_melt_upper_bound.svg</span><span class="m">15:51</span><span class="s">final</span></div>
+        <div><span class="n">fig3_spatial.svg</span><span class="m">15:51</span><span class="s c">candidate</span></div>
+        <div><span class="n">raqdps_smoke_proxy_calc.png</span><span class="m">17:36</span><span class="m">—</span></div>
+      </div>
+    </div>
+  </section>
+  <section class="col b">
+    <span class="tag">B — display restreint (18/20 px)</span>
+    <h1>Albedo-Modis-Pipeline-Analysis</h1>
+    <p class="sub">Forçage aérosols → albédo glaciaire · 11 régions · MàJ 15:51</p>
+    <div class="sect">
+      <div class="sect-t">Continuer</div>
+      <div class="card">
+        <h2>Albédo glaciaire et aérosols de feu</h2>
+        <p class="meta">idle · il y a 2 j · Claude Sonnet 5</p>
+        <p class="body">Dernier résultat : validation Williamson &amp; Menounos
+        reproduite (−0,35 %/an vs −0,33).</p>
+        <span class="btn">Reprendre</span>
+      </div>
+    </div>
+    <div class="sect">
+      <div class="sect-t">Artefacts récents</div>
+      <div class="list">
+        <div><span class="n">fig4_melt_upper_bound.svg</span><span class="m">15:51</span><span class="s">final</span></div>
+        <div><span class="n">fig3_spatial.svg</span><span class="m">15:51</span><span class="s c">candidate</span></div>
+        <div><span class="n">raqdps_smoke_proxy_calc.png</span><span class="m">17:36</span><span class="m">—</span></div>
+      </div>
+    </div>
+  </section>
+</div>
+<p class="verdict">Lecture : A garde le poste de commande homogène et dense
+(aucune taille nouvelle) ; B donne au Research Home une tête de page plus
+respirée au prix de deux tokens supplémentaires, cantonnés aux titres de page.
+Dans les deux cas la TopBar, les panneaux et les cartes ne changent pas.</p>
+</body>
+</html>

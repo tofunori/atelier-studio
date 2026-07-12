@@ -1,0 +1,46 @@
+{
+  "id": "interaction-pending",
+  "threadId": "thread-interaction",
+  "projectId": "proj-fixture",
+  "title": "Interaction en attente",
+  "provider": "codex",
+  "events": [
+    {
+      "kind": "user",
+      "text": "Modifie le fichier",
+      "meta": {
+        "schemaVersion": 1,
+        "eventId": "ev-u-1",
+        "provider": "codex",
+        "threadId": "thread-interaction",
+        "turnId": "turn-1",
+        "sequence": 1,
+        "ts": 1783684800010,
+        "durable": true,
+        "origin": "atelier",
+        "messageId": "msg-1"
+      }
+    },
+    {
+      "kind": "interaction",
+      "requestId": "req-appr-1",
+      "interactionType": "approval",
+      "title": "Autoriser l'écriture ?",
+      "detail": "src/main.rs",
+      "state": "pending",
+      "meta": {
+        "schemaVersion": 1,
+        "eventId": "ev-int-1",
+        "provider": "codex",
+        "threadId": "thread-interaction",
+        "turnId": "turn-1",
+        "sequence": 2,
+        "ts": 1783684800020,
+        "durable": true,
+        "origin": "provider",
+        "itemId": "req-appr-1"
+      }
+    }
+  ],
+  "lastSequence": 2
+}

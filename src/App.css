@@ -1300,38 +1300,43 @@ button.ghost.danger, button.ghost.danger:hover { color: #d98c8f; background: rgb
 
 /* Palette de commandes */
 .cmdk-overlay { position: fixed; inset: 0; z-index: 240; background: rgba(0,0,0,0.34);
-  display: flex; align-items: flex-start; justify-content: center; padding-top: 15vh;
+  display: flex; align-items: flex-start; justify-content: center; padding-top: 12vh;
   overscroll-behavior: contain; }
-.cmdk-panel { width: min(560px, calc(100vw - 28px)); max-height: min(620px, 78vh);
+.cmdk-panel { width: min(520px, calc(100vw - 28px)); max-height: min(480px, 76vh);
   display: flex; flex-direction: column; overflow: hidden; background: var(--bg-pop);
-  color: var(--fg); border-radius: var(--r-m);
-  box-shadow: 0 18px 58px rgba(0,0,0,0.48), 0 0 0 1px var(--border); }
-.cmdk-search { min-height: 48px; display: flex; align-items: center; gap: 10px;
-  padding: 0 14px; border-bottom: 1px solid var(--border); color: var(--muted); }
-.cmdk-search input { flex: 1; min-width: 0; height: 46px; background: transparent;
+  color: var(--fg); border: 1px solid var(--border); border-radius: 12px;
+  box-shadow: 0 18px 52px rgba(0,0,0,0.5); }
+.cmdk-search { min-height: 44px; display: flex; align-items: center; gap: 9px;
+  padding: 0 12px; border-bottom: 1px solid var(--border); color: var(--muted);
+  box-shadow: inset 0 -1px transparent; }
+.cmdk-search:focus-within { border-bottom-color: color-mix(in srgb, var(--focus-ring-color) 45%, var(--border));
+  box-shadow: inset 0 -1px color-mix(in srgb, var(--focus-ring-color) 35%, transparent); }
+.cmdk-search input { flex: 1; min-width: 0; height: 42px; background: transparent;
   border: none; outline: none; color: var(--fg); font: inherit; font-size: var(--fs-l); }
 .cmdk-search input::placeholder { color: var(--muted2); }
-.cmdk-list { overflow-y: auto; padding: 8px; min-height: 88px; }
-.cmdk-group + .cmdk-group { margin-top: 6px; }
-.cmdk-heading { padding: 6px 8px 4px; font-size: var(--fs-s); line-height: 1;
+.cmdk-list { overflow-y: auto; padding: 6px; min-height: 72px; }
+.cmdk-group + .cmdk-group { margin-top: 4px; }
+.cmdk-heading { padding: 7px 9px 5px; font-size: var(--fs-xs); line-height: 1;
   text-transform: uppercase; letter-spacing: 0.07em; color: var(--muted2); }
-.cmdk-item { width: 100%; min-height: 40px; display: flex; align-items: center; gap: 10px;
-  padding: 7px 9px; border: none; border-radius: var(--r-s); background: transparent;
+.cmdk-item { position: relative; width: 100%; min-height: 34px; display: flex; align-items: center; gap: 9px;
+  padding: 5px 9px 5px 11px; border: none; border-radius: 7px; background: transparent;
   color: var(--fg2); text-align: left; cursor: pointer; font: inherit;
   transition-property: background-color, color, transform; transition-duration: 0.12s;
   transition-timing-function: ease-out; }
 .cmdk-item.active { background: var(--bg-ctl); color: var(--fg); }
+.cmdk-item.active::before { content: ""; position: absolute; left: 3px; top: 8px; bottom: 8px;
+  width: 2px; border-radius: var(--r-pill); background: var(--accent); }
 .cmdk-item:active { transform: scale(0.99); }
 .cmdk-icon { width: 18px; height: 18px; display: inline-flex; align-items: center;
   justify-content: center; color: var(--muted); flex-shrink: 0; }
 .cmdk-copy { min-width: 0; flex: 1; display: grid; grid-template-columns: minmax(0, 1fr) auto;
   align-items: baseline; gap: 12px; }
-.cmdk-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--fs-l); }
+.cmdk-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--fs-m); }
 .cmdk-hint { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 220px;
   color: var(--muted); font-size: var(--fs-s); font-family: var(--code-font); }
 .cmdk-empty { padding: 18px 10px; color: var(--muted); font-size: var(--fs-l); }
 .cmdk-footer { border-top: 1px solid var(--border); color: var(--muted2); font-size: var(--fs-s);
-  padding: 8px 12px; }
+  padding: 7px 12px; }
 @media (max-width: 620px) {
   .cmdk-overlay { padding-top: 10vh; }
   .cmdk-copy { grid-template-columns: minmax(0, 1fr); gap: 2px; }
@@ -1731,7 +1736,7 @@ body.dragging iframe { pointer-events: none; }
 
 /* focus visible sur les champs qui neutralisaient l'outline sans remplacement */
 .rename:focus-visible, .edit-box textarea:focus-visible,
-.cmdk-search input:focus-visible, .exp-search:focus-visible,
+.exp-search:focus-visible,
 .fly-rename:focus-visible, .biblio-filters select:focus-visible,
 .set-row-ctl select:focus-visible, input[type="range"].slider:focus-visible {
   outline: var(--focus-ring-width) solid var(--focus-ring-color);

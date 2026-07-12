@@ -132,11 +132,12 @@
   .cm-editor{min-height:0}
   .cm-editor .cm-scroller{font-family:var(--code-font);overflow:auto}
   .cm-editor .cm-gutters{background:var(--surface-app,var(--bg));border-right:1px solid var(--border);color:var(--text-disabled,#565e6b)}
+  .cm-editor .cm-lineNumbers .cm-gutterElement{padding-left:4px;padding-right:4px}
   /* craft éditeur : respiration, ligne active, gouttière lisible, curseur accent */
   .CodeMirror-lines{padding:10px 0}
   .CodeMirror pre.CodeMirror-line,.CodeMirror pre.CodeMirror-line-like{padding:0 14px 0 10px}
   .CodeMirror-gutters{background:var(--surface-app,var(--bg));border-right:1px solid var(--border)}
-  .CodeMirror-linenumber{color:var(--text-disabled,#565e6b);padding:0 12px 0 8px;font-size:12px}
+  .CodeMirror-linenumber{color:var(--text-disabled,#565e6b);padding:0 4px;font-size:12px}
   .cm-activeline{background:rgba(255,255,255,.035)}
   .cm-activeline-gutter .CodeMirror-linenumber{color:var(--txt)}
   .CodeMirror-cursor{border-left:2px solid var(--accent)}
@@ -2400,9 +2401,20 @@ if(window.self !== window.top){
   function closeWrapMenu(){ wrapMenu.style.display = "none"; }
   function openWrapMenu(){
     const r = sbWrap.getBoundingClientRect();
-    wrapMenu.style.left = r.left + "px";
-    wrapMenu.style.bottom = (window.innerHeight - r.top + 6) + "px";
     wrapMenu.style.display = "block";
+    wrapMenu.style.visibility = "hidden";
+    wrapMenu.style.top = "auto";
+    wrapMenu.style.bottom = "auto";
+    const gap = 6, margin = 8;
+    const mw = wrapMenu.offsetWidth, mh = wrapMenu.offsetHeight;
+    const below = window.innerHeight - r.bottom - margin;
+    const above = r.top - margin;
+    const top = below >= mh || below >= above
+      ? r.bottom + gap
+      : r.top - mh - gap;
+    wrapMenu.style.left = Math.max(margin, Math.min(r.left, window.innerWidth - mw - margin)) + "px";
+    wrapMenu.style.top = Math.max(margin, Math.min(top, window.innerHeight - mh - margin)) + "px";
+    wrapMenu.style.visibility = "visible";
     const cur = localStorage.getItem("cmWrap") || "";
     wrapMenuInput.value = /^\d+$/.test(cur) && !["50","60","70","80","90","100","120"].includes(cur) ? cur : "";
   }

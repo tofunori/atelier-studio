@@ -1,0 +1,22 @@
+{
+  "name": "@atelier/protocol",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./fixtures/*": "./fixtures/*"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "test": "vitest run",
+    "fixture-server": "node --experimental-strip-types src/fixture/cli.ts",
+    "export-fixtures": "node --experimental-strip-types scripts/export-fixtures.ts"
+  },
+  "devDependencies": {
+    "typescript": "~5.8.3",
+    "vitest": "^4.1.10",
+    "ws": "^8.18.3"
+  },
+  "dependencies": {}
+}
