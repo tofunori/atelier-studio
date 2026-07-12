@@ -9,6 +9,7 @@ const studioHtml = await readFile(new URL("../../assets/latex_studio.html", impo
 const editorFactory = await readFile(new URL("../../assets/editor_factory.js", import.meta.url), "utf8").catch(() => "");
 const codeHtml = await readFile(new URL("../../assets/code_editor.html", import.meta.url), "utf8");
 const markdownHtml = await readFile(new URL("../../assets/md_viewer.html", import.meta.url), "utf8");
+const themeBridge = await readFile(new URL("../../assets/atelier_theme.js", import.meta.url), "utf8");
 const {languageKindFor} = await import("../../assets/cm6/studio_editor.mjs");
 
 test("CM6 facade exposes the complete engine-neutral diff contract", () => {
@@ -116,4 +117,19 @@ test("editor surfaces do not call CM5 APIs outside the factory seam", () => {
   for (const [name, html] of [["latex", studioHtml], ["code", codeHtml], ["markdown", markdownHtml]]) {
     assert.doesNotMatch(html, /\bCodeMirror\.(?:Pass|countColumn)|\bCodeMirror\s*\(|["'](?:inputRead|renderLine)["']/, `${name} leaks a CM5 API`);
   }
+});
+
+test("every embedded HTML surface loads the shared Atelier theme bridge", async () => {
+  const names = [
+    "gallery_template.html", "latex_studio.html", "latex_cm6.html", "code_editor.html",
+    "md_studio.html", "md_viewer.html", "pdf_viewer.html", "svg_viewer.html",
+  ];
+  for (const name of names) {
+    const html = await readFile(new URL(`../../assets/${name}`, import.meta.url), "utf8");
+    assert.match(html, /atelier_theme\.js/, `${name} must inherit the Atelier theme`);
+  }
+  assert.match(themeBridge, /atelier-theme-request/);
+  assert.match(themeBridge, /atelier-theme-applied/);
+  assert.match(themeBridge, /--surface-app/);
+  assert.match(themeBridge, /style\.setProperty/);
 });

@@ -286,12 +286,12 @@ function themeVars(settings: Settings): Record<string, string> {
   };
 }
 
-function themeMessage(settings: Settings): AtelierOutboundMessage {
+function themeMessage(settings: Settings, nonce: string): AtelierOutboundMessage {
   return {
     type: "atelier-theme",
     version: 2,
     colorScheme: presetById(settings.themePreset).dark ? "dark" : "light",
-    nonce: atelierNonce,
+    nonce,
     vars: themeVars(settings),
   };
 }
@@ -526,7 +526,7 @@ export default function App() {
         const iframe = f as HTMLIFrameElement;
         const targetOrigin = atelierTargetOrigin(iframe.src);
         if (!targetOrigin) return;
-        const message = themeMessage(settings);
+        const message = themeMessage(settings, atelierNonce);
         iframe.contentWindow?.postMessage(message, targetOrigin);
       });
     }, 50);
@@ -1323,7 +1323,7 @@ export default function App() {
       }
       const data = e.data;
       if (data.type === "atelier-theme-request" && e.source) {
-        const message = themeMessage(settingsRef.current);
+        const message = themeMessage(settingsRef.current, atelierNonce);
         (e.source as Window).postMessage(message, e.origin);
       }
       if (data.type === "atelier-open-tab") {
