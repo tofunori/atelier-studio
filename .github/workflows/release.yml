@@ -34,6 +34,8 @@ jobs:
         run: npm --prefix gallery ci
       - name: Install Playwright Chromium
         run: cd gallery && npx playwright install chromium
+      - name: Stage embedded Node runtime for Tauri checks
+        run: bash scripts/stage-node-runtime.sh
       # le tag peut contourner la CI de PR : verify + E2E bloquent le bundle ici
       - name: Verify (typecheck, build, frontend, sidecar, gallery, Rust)
         run: npm run verify
