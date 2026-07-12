@@ -233,7 +233,10 @@ async function main() {
     GALLERY_NO_THUMBS: "1",
     HOME: home,
   };
-  const py = startServer("python3", [path.join(GALLERY_DIR, "fig_annotate_server.py")], {
+  // The reference server only uses the standard library. Skip runner-level
+  // sitecustomize/user-site hooks, which can block before the script starts on
+  // GitHub's macOS image when HOME points at the isolated parity fixture.
+  const py = startServer("python3", ["-S", "-u", path.join(GALLERY_DIR, "fig_annotate_server.py")], {
     ...commonEnv,
     FIG_PORT: String(pyPort),
   }, root);
