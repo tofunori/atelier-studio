@@ -25,6 +25,8 @@
     "mobile:typecheck": "npm --prefix mobile run typecheck",
     "mobile:test": "npm --prefix mobile test",
     "mobile:build": "npm --prefix mobile run build",
+    "mobile:check-secrets": "node scripts/check-mobile-secrets.mjs",
+    "verify:mobile": "npm run test:protocol && npm run test:remote && npm run mobile:typecheck && npm run mobile:test && npm run mobile:build && npm run mobile:check-secrets",
     "check:backend-policy": "node scripts/check-backend-policy.mjs",
     "soak:sidecar": "bash scripts/soak-rust-sidecar.sh",
     "verify": "npm run typecheck && npm run build:web && node scripts/check_entry_budget.mjs && npm run test:frontend && npm run test:sidecar && npm run test:gallery && npm run test:rust && npm run test:protocol && npm run test:rust-workspace && npm run check:backend-policy",

@@ -39,6 +39,8 @@ export type AtelierInboundMessage =
 export type AtelierOutboundMessage =
   | {
       type: "atelier-theme";
+      version: 2;
+      colorScheme: "dark" | "light";
       nonce: string;
       vars: Record<string, string>;
     };

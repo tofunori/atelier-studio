@@ -258,10 +258,41 @@ const CANON_CODE_FONT = "ui-monospace, 'SF Mono', Menlo, monospace";
 // (police custom de l'utilisateur si définie, sinon la pile canonique) — garantit
 // une police uniforme dans la galerie et les visionneuses comme dans l'app.
 function themeVars(settings: Settings): Record<string, string> {
+  const preset = presetById(settings.themePreset);
+  const base = { ...preset.vars };
+  if (settings.accentColor) base["--accent"] = settings.accentColor;
+  if (settings.bgColor) base["--bg"] = settings.bgColor;
+  if (settings.fgColor) base["--fg"] = settings.fgColor;
   return {
-    ...presetById(settings.themePreset).vars,
+    ...base,
+    "--surface-app": base["--bg"],
+    "--surface-panel": base["--bg-side"],
+    "--surface-header": base["--bg-side"],
+    "--surface-raised": base["--bg-card"],
+    "--surface-inset": base["--bg-ctl"],
+    "--text-primary": base["--fg"],
+    "--text-secondary": base["--fg2"],
+    "--text-tertiary": base["--muted"],
+    "--text-disabled": base["--muted2"],
+    "--border-subtle": base["--border"],
+    "--border-interactive": base["--border2"],
+    "--radius-control": "4px",
+    "--control-height": settings.density === "compact" ? "26px" : "28px",
+    "--surface-header-height": settings.density === "compact" ? "38px" : "42px",
+    "--motion-fast": "120ms",
+    "--motion-standard": "160ms",
     "--ui-font": settings.uiFont ? `'${settings.uiFont}', ${CANON_UI_FONT}` : CANON_UI_FONT,
     "--code-font": settings.codeFont ? `'${settings.codeFont}', ${CANON_CODE_FONT}` : CANON_CODE_FONT,
+  };
+}
+
+function themeMessage(settings: Settings): AtelierOutboundMessage {
+  return {
+    type: "atelier-theme",
+    version: 2,
+    colorScheme: presetById(settings.themePreset).dark ? "dark" : "light",
+    nonce: atelierNonce,
+    vars: themeVars(settings),
   };
 }
 
@@ -495,11 +526,7 @@ export default function App() {
         const iframe = f as HTMLIFrameElement;
         const targetOrigin = atelierTargetOrigin(iframe.src);
         if (!targetOrigin) return;
-        const message: AtelierOutboundMessage = {
-          type: "atelier-theme",
-          nonce: atelierNonce,
-          vars: themeVars(settings),
-        };
+        const message = themeMessage(settings);
         iframe.contentWindow?.postMessage(message, targetOrigin);
       });
     }, 50);
@@ -1296,11 +1323,7 @@ export default function App() {
       }
       const data = e.data;
       if (data.type === "atelier-theme-request" && e.source) {
-        const message: AtelierOutboundMessage = {
-          type: "atelier-theme",
-          nonce: atelierNonce,
-          vars: themeVars(settingsRef.current),
-        };
+        const message = themeMessage(settingsRef.current);
         (e.source as Window).postMessage(message, e.origin);
       }
       if (data.type === "atelier-open-tab") {

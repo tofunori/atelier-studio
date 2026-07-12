@@ -3,6 +3,7 @@
 <head>
 <meta charset="utf-8">
 <title>LaTeX Studio</title>
+<script src="/.fig_thumbs/atelier_theme.js"></script>
 <link rel="stylesheet" href="/.fig_thumbs/cm/codemirror.min.css">
 <link rel="stylesheet" href="/.fig_thumbs/cm/material-darker.min.css">
 <script>(function(){
@@ -82,7 +83,7 @@
 <script src="/.fig_thumbs/cm6/studio_cm6.bundle.js"></script>
 <script src="/.fig_thumbs/editor_factory.js"></script>
 <style>
-:root{--ui-font:-apple-system,'SF Pro Text','Inter Variable',sans-serif;--code-font:ui-monospace,'SF Mono',Menlo,monospace;--bg:#212429;--card:#1a1d22;--card2:#1a1d22;--txt:#dbdfe5;--muted:#868d9a;--accent:#e8823a;--border:#333a45;--border-strong:#3f4652}
+:root{--ui-font:-apple-system,'SF Pro Text','Inter Variable',sans-serif;--code-font:ui-monospace,'SF Mono',Menlo,monospace;--bg:#212429;--card:#1a1d22;--card2:#1a1d22;--txt:#dbdfe5;--muted:#868d9a;--accent:#e8823a;--border:#333a45;--border-strong:#3f4652;--radius-control:4px;--control-height:28px}
   html,body{margin:0;height:100%;background:var(--bg);color:var(--txt);
             font-family:var(--ui-font);display:flex;flex-direction:column;overflow:hidden}
   header{background:var(--card);border-bottom:1px solid var(--border);padding:6px 10px;
@@ -91,10 +92,10 @@
   header .grp{display:flex;gap:4px;align-items:center;flex:none}
   header .sep{width:1px;height:18px;background:var(--border);flex:none;margin:0 3px}
   header button{background:transparent;color:var(--muted);border:1px solid transparent;
-                border-radius:6px;padding:0 10px;height:26px;font-size:12px;cursor:pointer;flex:none}
+                border-radius:var(--radius-control);padding:0 10px;height:var(--control-height);font-size:12px;cursor:pointer;flex:none}
   header button:hover{color:var(--txt);background:var(--border)}
   header button.on{background:var(--border);color:var(--txt)}
-  .modeseg{display:inline-flex;border:1px solid var(--border);border-radius:6px;overflow:hidden;flex:none}
+  .modeseg{display:inline-flex;border:1px solid var(--border);border-radius:var(--radius-control);overflow:hidden;flex:none}
   .modeseg button{border:none!important;border-radius:0!important;height:24px;padding:0 10px;font-size:12px}
   .modeseg button.on{background:var(--border);color:var(--txt)}
   header select{background:transparent;color:var(--txt);border:1px solid var(--border);
@@ -122,20 +123,20 @@
   body:not(.pdfmode) .pdfonly{display:none!important}
   .pdfmode #left{display:none}
   #split{flex:1;display:flex;min-height:0}
-  #left{width:50%;display:flex;flex-direction:column;border-right:1px solid var(--border);min-width:0;background:#1e2126}
+  #left{width:50%;display:flex;flex-direction:column;border-right:1px solid var(--border);min-width:0;background:var(--surface-app,var(--bg))}
   #right{flex:1;overflow:auto;background:var(--card2);position:relative;scrollbar-gutter:stable}
   /* défaut éditeur seul (pas de split) — appliqué avant le rendu, sans flash */
   html.tex-editor-only #right{display:none}
   html.tex-editor-only #left{width:100%;border-right:none}
-  .CodeMirror,.cm-editor{flex:1;height:auto;font-size:13px;font-family:var(--code-font);line-height:1.62;background:#1e2126;color:var(--txt)}
+  .CodeMirror,.cm-editor{flex:1;height:auto;font-size:13px;font-family:var(--code-font);line-height:1.62;background:var(--surface-app,var(--bg));color:var(--txt)}
   .cm-editor{min-height:0}
   .cm-editor .cm-scroller{font-family:var(--code-font);overflow:auto}
-  .cm-editor .cm-gutters{background:#1e2126;border-right:1px solid transparent;color:#565e6b}
+  .cm-editor .cm-gutters{background:var(--surface-app,var(--bg));border-right:1px solid var(--border);color:var(--text-disabled,#565e6b)}
   /* craft éditeur : respiration, ligne active, gouttière lisible, curseur accent */
   .CodeMirror-lines{padding:10px 0}
   .CodeMirror pre.CodeMirror-line,.CodeMirror pre.CodeMirror-line-like{padding:0 14px 0 10px}
-  .CodeMirror-gutters{background:#1e2126;border-right:1px solid transparent}
-  .CodeMirror-linenumber{color:#565e6b;padding:0 12px 0 8px;font-size:12px}
+  .CodeMirror-gutters{background:var(--surface-app,var(--bg));border-right:1px solid var(--border)}
+  .CodeMirror-linenumber{color:var(--text-disabled,#565e6b);padding:0 12px 0 8px;font-size:12px}
   .cm-activeline{background:rgba(255,255,255,.035)}
   .cm-activeline-gutter .CodeMirror-linenumber{color:var(--txt)}
   .CodeMirror-cursor{border-left:2px solid var(--accent)}

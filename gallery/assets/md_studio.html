@@ -3,6 +3,7 @@
 <head>
 <meta charset="utf-8">
 <title>md studio</title>
+<script src="/.fig_thumbs/atelier_theme.js"></script>
 <link rel="stylesheet" href="/.fig_thumbs/toastui/toastui-editor.min.css">
 <link rel="stylesheet" href="/.fig_thumbs/toastui/toastui-editor-dark.min.css">
 <script>(function(){
@@ -36,7 +37,7 @@
 })();</script>
 <script src="/.fig_thumbs/toastui/toastui-editor-all.min.js"></script>
 <style>
-  :root{--ui-font:-apple-system,'SF Pro Text','Inter Variable',sans-serif;--code-font:ui-monospace,'SF Mono',Menlo,monospace;--bg:#212429;--bar:#1a1d22;--border:#333a45;--fg:#dbdfe5;--muted:#868d9a}
+  :root{--ui-font:-apple-system,'SF Pro Text','Inter Variable',sans-serif;--code-font:ui-monospace,'SF Mono',Menlo,monospace;--bg:#212429;--bar:#1a1d22;--border:#333a45;--fg:#dbdfe5;--muted:#868d9a;--radius-control:4px}
   html,body{margin:0;height:100%;background:var(--bg);color:var(--fg);
     font-family:var(--ui-font)}
   #bar{display:flex;align-items:center;gap:8px;padding:6px 10px;background:var(--bar);
@@ -44,7 +45,7 @@
   #fname{font-weight:600}
   #state{color:var(--muted);font-size:12px}
   #state.dirty{color:#ffd54a}
-  #bar button{background:#2c313a;border:1px solid var(--border);border-radius:6px;
+  #bar button{background:var(--surface-inset,#2c313a);border:1px solid var(--border);border-radius:var(--radius-control);
     color:var(--fg);padding:4px 12px;cursor:pointer;font-size:13px}
   #bar button:hover{border-color:#4a5462}
   #ed{height:calc(100vh - 41px)}
@@ -58,12 +59,12 @@
   .toastui-editor-dark .toastui-editor-defaultUI-toolbar{height:34px;padding:0 8px;
     border-bottom:1px solid var(--border)}
   .toastui-editor-defaultUI-toolbar .toastui-editor-toolbar-icons{
-    margin:5px 1px;border:none;border-radius:6px;opacity:.5;
+    margin:5px 1px;border:none;border-radius:var(--radius-control);opacity:.5;
     transform:scale(.78);transform-origin:center}
   .toastui-editor-defaultUI-toolbar .toastui-editor-toolbar-icons:hover{
-    opacity:1;background-color:#2c313a;border:none}
+    opacity:1;background-color:var(--surface-inset,#2c313a);border:none}
   .toastui-editor-defaultUI-toolbar .toastui-editor-toolbar-icons.active{
-    opacity:1;background-color:#2c313a}
+    opacity:1;background-color:var(--surface-inset,#2c313a)}
   .toastui-editor-dark .toastui-editor-toolbar-divider{margin:9px 6px;height:16px;
     background:var(--border)}
   .toastui-editor-defaultUI-toolbar button{border:none}
