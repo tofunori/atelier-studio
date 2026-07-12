@@ -504,10 +504,10 @@ describe("sélection de tour — repli lastTurn (pièges connus : démotion read
     expect(runs[1].effort).toBe("medium");
   });
 
-  it("renvoi nu après handoff : permissionMode repris, model/effort de l'autre provider ignorés", async () => {
+  it("refuse un changement de provider même lorsque le thread est au repos", async () => {
     const sends = [];
     const runs = [];
-    const { ctx } = makeCtx({
+    const { ctx, emitted } = makeCtx({
       claude: { send: (opts) => sends.push(opts) },
       codex: { run: vi.fn((opts) => { runs.push(opts); return Promise.resolve({ sessionId: "s2" }); }) },
     });
@@ -520,7 +520,7 @@ describe("sélection de tour — repli lastTurn (pièges connus : démotion read
     await flush();
     await sends[0].onEvent({ kind: "done", ok: true, result: "" });
     await flush();
-    // handoff vers codex, renvoi nu : jamais un id de modèle Claude chez Codex
+    // un chat Claude reste Claude : Codex exige un nouveau thread
     await route({
       type: "send", provider: "codex", threadId: "t-ho", projectRoot: "/p",
       prompt: "renvoi nu", clientMessageId: "m2",
@@ -528,10 +528,12 @@ describe("sélection de tour — repli lastTurn (pièges connus : démotion read
     }, ctx);
     await flush();
 
-    expect(runs).toHaveLength(1);
-    expect(runs[0].permissionMode).toBe("acceptEdits");
-    expect(runs[0].model).toBe(null);
-    expect(runs[0].effort).toBe(null);
+    expect(runs).toHaveLength(0);
+    expect(emitted).toContainEqual(expect.objectContaining({
+      type: "error",
+      threadId: "t-ho",
+      message: expect.stringContaining("appartient à claude"),
+    }));
   });
 
   it("goalGet/codexCompact : transmettent le permissionMode du thread au provider", async () => {

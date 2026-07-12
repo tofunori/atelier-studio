@@ -31,7 +31,7 @@ import CommandPalette from "./components/CommandPalette";
 import QuickAsk from "./components/QuickAsk";
 import UsagePopover, { worstOf } from "./components/UsagePopover";
 import { init as initNotify, notifyRunDone, notifyReview } from "./lib/notify";
-import { CloseIcon, DownloadIcon, HighlighterIcon, SidebarIcon } from "./components/icons";
+import { CloseIcon, DownloadIcon, HighlighterIcon, ProviderIcon, SidebarIcon } from "./components/icons";
 import { loadSettings, saveSettings, Settings, ProviderId, DEFAULT_SETTINGS } from "./lib/settings";
 import { ProviderInfo } from "./lib/providers";
 import { THEME_PRESETS, presetById } from "./lib/themes";
@@ -452,6 +452,7 @@ export default function App() {
   }, [atelierTabs]);
   const [settings, setSettings] = useState<Settings>(loadSettings);
   const [providerList, setProviderList] = useState<ProviderInfo[]>([]);
+  const [newChatRequest, setNewChatRequest] = useState<{ projectRoot: string } | null>(null);
   const [paletteOpen, setPaletteOpen] = useState(false);
   const paletteOpenRef = useRef(false);
   paletteOpenRef.current = paletteOpen;
@@ -1507,42 +1508,32 @@ export default function App() {
   }
 
   function newChat() {
-    const id = crypto.randomUUID();
-    setDraftThreads((p) => [
-      {
-        id,
-        projectRoot: "",
-        title: t("app.new-chat-title"),
-        provider: "claude" as const,
-        sessionId: null,
-        status: "idle" as const,
-        updatedAt: new Date().toISOString(),
-      },
-      ...p,
-    ]);
-    setActiveId(id);
-    activeIdRef.current = id;
-    setEvents((p) => ({ ...p, [id]: [] }));
+    setNewChatRequest({ projectRoot: "" });
   }
 
-  function newThread(projectRoot: string) {
+  function createChat(projectRoot: string, provider: string) {
     const id = crypto.randomUUID();
     setDraftThreads((p) => [
       {
         id,
         projectRoot,
         title: t("app.new-chat-title"),
-        provider: "claude" as const,
+        provider,
         sessionId: null,
         status: "idle" as const,
         updatedAt: new Date().toISOString(),
       },
       ...p,
     ]);
-    setActiveProject(projectRoot);
     setActiveId(id);
     activeIdRef.current = id;
     setEvents((p) => ({ ...p, [id]: [] }));
+    if (projectRoot) setActiveProject(projectRoot);
+    setNewChatRequest(null);
+  }
+
+  function newThread(projectRoot: string) {
+    setNewChatRequest({ projectRoot });
   }
 
   function selectThread(threadId: string, projectRoot: string) {
@@ -2478,6 +2469,34 @@ export default function App() {
         </>
       )}
     </PanelGroup>
+      {newChatRequest && (
+        <div className="provider-new-overlay" role="presentation" onMouseDown={() => setNewChatRequest(null)}>
+          <section className="provider-new-dialog" role="dialog" aria-modal="true" aria-labelledby="provider-new-title"
+            onMouseDown={(e) => e.stopPropagation()}>
+            <div className="provider-new-head">
+              <div>
+                <h2 id="provider-new-title">{t("app.new-chat-title")}</h2>
+                <p>{t("app.choose-provider")}</p>
+              </div>
+              <button className="ghost" onClick={() => setNewChatRequest(null)} aria-label={t("action.close")}><CloseIcon /></button>
+            </div>
+            <div className="provider-new-grid">
+              {["claude", "codex", "grok"].map((provider) => {
+                const info = providerList.find((item) => item.id === provider);
+                const available = info?.ok !== false;
+                return (
+                  <button key={provider} className="provider-new-card" disabled={!available}
+                    onClick={() => createChat(newChatRequest.projectRoot, provider)}>
+                    <ProviderIcon provider={provider} size={18} />
+                    <span>{info?.label ?? provider[0].toUpperCase() + provider.slice(1)}</span>
+                    <small>{available ? t("app.independent-chat") : t("app.provider-unavailable")}</small>
+                  </button>
+                );
+              })}
+            </div>
+          </section>
+        </div>
+      )}
     </WorkspaceShell>
   );
 }

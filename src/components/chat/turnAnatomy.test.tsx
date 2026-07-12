@@ -59,7 +59,9 @@ describe("anatomie du tour — header d'activité", () => {
     const fold = document.querySelector(".turn-fold") as HTMLButtonElement;
     fireEvent.click(fold);
     expect(fold.getAttribute("aria-expanded")).toBe("true");
-    expect(document.querySelector(".tool-group-row")).toBeTruthy();
+    expect(document.querySelectorAll(".tool-group-row")).toHaveLength(2);
+    expect(document.querySelectorAll(".tool-group.worklog.completed")).toHaveLength(2);
+    expect(document.querySelectorAll(".worklog-summary")[0]?.textContent).toContain("Read");
   });
 
   it("l'erreur d'un tour reste visible même pli fermé", () => {

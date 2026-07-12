@@ -5,7 +5,7 @@
 import { memo, type ReactNode } from "react";
 import ReactMarkdown from "react-markdown";
 import { AgentEvent } from "../../lib/ws";
-import { t } from "../../lib/i18n";
+import { eventLabel, t } from "../../lib/i18n";
 import { normalizeMathDelimiters, hardenPartialMarkdown } from "../../lib/markdown";
 import { CopyIcon, ForkIcon, ResumeIcon } from "../icons";
 import { MD_COMPONENTS, MD_COMPONENTS_STREAMING, useMdPlugins } from "./md";
@@ -328,15 +328,25 @@ export function ActivityGroup(p: {
   onToggle: () => void;
   renderToolLine: (action: ToolAction, offset: number) => ReactNode;
 }) {
+  const updates = p.actions.filter((a): a is Extract<AgentEvent, { kind: "tool_update" }> => a.kind === "tool_update");
+  const failed = updates.some((a) => a.status === "failed" || (a.exitCode != null && a.exitCode !== 0));
+  const running = updates.some((a) => a.status === "running" || a.status === "pending");
+  const status = failed ? "failed" : running ? "running" : "completed";
+  const durationMs = updates.reduce((sum, a) => sum + (a.durationMs ?? 0), 0);
+  const duration = durationMs >= 1000 ? `${Math.round(durationMs / 100) / 10}s` : durationMs ? `${durationMs}ms` : null;
+  const names = [...new Set(p.actions.map((action) => eventLabel(action.name)))];
+  const summary = names.length === 1 ? names[0] : summarizeTools(p.actions);
   return (
-    <div className="tool-group">
+    <div className={`tool-group worklog ${status}`}>
       <button
         type="button"
         className="tool-group-row"
         onClick={p.onToggle}
       >
+        <span className="worklog-status" aria-hidden="true" />
         <span className="tool-group-ico"><ToolGlyph cat={groupIconCat(p.actions)} /></span>
-        <span>{summarizeTools(p.actions)}</span>
+        <span className="worklog-summary">{summary}</span>
+        <span className="worklog-meta">{duration ?? (status === "running" ? t("chat.working") : "")}</span>
         <Tick open={p.open} />
       </button>
       {p.open && (

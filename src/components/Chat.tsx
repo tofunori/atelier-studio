@@ -219,7 +219,8 @@ export default function Chat(p: {
     );
   }
 
-  // appliquer la sélection mémorisée du projet, sinon les défauts des réglages
+  // Le provider appartient au chat. Le cache projet ne peut choisir que le
+  // modèle/effort de CE provider; il ne peut jamais basculer une session.
   // (le choix de modèle survit ainsi aux changements de projet — il était
   // réinitialisé aux défauts à chaque remontage du composant)
   const modelSelKey = (root: string) => "atelier-studio.modelSel:" + root;
@@ -232,14 +233,15 @@ export default function Chat(p: {
     if (p.projectRoot) {
       try { saved = JSON.parse(localStorage.getItem(modelSelKey(p.projectRoot)) ?? "null"); } catch { saved = null; }
     }
-    const pv = saved?.provider || p.defaults.defaultProvider;
-    const m = saved?.model ?? (p.defaults.defaultModel[pv] ?? "");
+    const pv = p.threadProvider || saved?.provider || p.defaults.defaultProvider;
+    const savedMatchesThread = saved?.provider === pv;
+    const m = (savedMatchesThread ? saved?.model : undefined) ?? (p.defaults.defaultModel[pv] ?? "");
     setProvider(pv);
     setModel(m);
-    setEffort(saved?.effort ?? effortFor(pv, m));
+    setEffort((savedMatchesThread ? saved?.effort : undefined) ?? effortFor(pv, m));
     setPermissionMode(saved?.permissionMode || p.defaults.defaultPermissionMode);
     selRootRef.current = p.projectRoot ?? null;
-  }, [p.defaults, p.projectRoot]);
+  }, [p.defaults, p.projectRoot, p.threadProvider]);
   // mémoriser la sélection courante pour ce projet (clé = projet restauré,
   // volontairement absent des deps : voir selRootRef ci-dessus)
   useEffect(() => {
@@ -716,17 +718,24 @@ export default function Chat(p: {
       renderedEvents.push({ type: "event", event: e, index: i });
       continue;
     }
-    // grappe d'outils « résumables » consécutifs → une ligne résumée façon Codex
+    // Une action par ligne : on ne regroupe que l'appel et ses mises à jour
+    // portant le même id. Deux outils consécutifs restent indépendamment
+    // dépliables, comme dans le journal d'activité de Codex.
+    const actionId = (action: Extract<AgentEvent, { kind: "tool" | "tool_update" }>, at: number) =>
+      "id" in action && action.id ? String(action.id) : `event:${at}`;
+    const identity = actionId(e, i);
     let end = i + 1;
-    while (end < p.events.length && isSummarizableTool(p.events[end])) end++;
+    while (
+      end < p.events.length &&
+      isSummarizableTool(p.events[end]) &&
+      actionId(p.events[end] as Extract<AgentEvent, { kind: "tool" | "tool_update" }>, end) === identity
+    ) end++;
     const actions = p.events.slice(i, end) as Extract<AgentEvent, { kind: "tool" | "tool_update" }>[];
     const first = actions[0];
     // le turn fait partie de l'identité : deux turns peuvent réutiliser le
     // même id d'outil (plan 025) — sans lui, React fusionne les deux grappes
     const turnKey = first?.meta && "turnId" in first.meta ? `${first.meta.turnId}:` : "";
-    const groupKey = first?.kind === "tool_update"
-      ? `tools:${turnKey}${first.id}`
-      : `tools:${turnKey}${first?.name ?? i}:${i}`;
+    const groupKey = `tools:${turnKey}${identity}`;
     renderedEvents.push({ type: "actions", actions, index: i, key: groupKey });
     i = end - 1;
   }

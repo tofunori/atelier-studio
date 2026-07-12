@@ -5,10 +5,16 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>__TITLE__</title>
 <style>
-  :root{--ui-font:-apple-system,'SF Pro Text','Inter Variable',sans-serif;--code-font:ui-monospace,'SF Mono',Menlo,monospace; --bg:#141619; --card:#1c1f23; --card2:#22262b; --txt:#dbdfe5; --muted:#9aa1ab; --faint:#6b727c;
-         --accent:#7fa3d8; --accent-soft:#233246; --arch:#3a2f1a; --border:#2a2e34; --border-strong:#3a4048;
+  :root{--ui-font:-apple-system,'SF Pro Text','Inter Variable',sans-serif;--code-font:ui-monospace,'SF Mono',Menlo,monospace; --bg:#1e2124; --card:#24282d; --card2:#2c2f34; --txt:#dadee3; --muted:#90969d; --faint:#62666c;
+         --accent:#e77f3e; --accent-soft:color-mix(in srgb,var(--accent) 16%,transparent); --arch:#3a2f1a; --border:#383c41; --border-strong:#43474c;
          --shadow:0 1px 2px rgba(0,0,0,.3),0 6px 20px rgba(0,0,0,.25); }
   *{box-sizing:border-box}
+  html{background:var(--bg);color-scheme:dark;scrollbar-color:var(--faint) var(--bg);scrollbar-width:thin}
+  ::-webkit-scrollbar{width:10px;height:10px}
+  ::-webkit-scrollbar-track{background:var(--bg)}
+  ::-webkit-scrollbar-thumb{background:color-mix(in srgb,var(--faint) 72%,transparent);
+    border:3px solid var(--bg);border-radius:999px}
+  ::-webkit-scrollbar-thumb:hover{background:var(--muted)}
   body{margin:0;font-family:var(--ui-font);
        background:var(--bg);color:var(--txt);font-size:13px}
   header{position:sticky;top:0;z-index:10;background:var(--card);background:color-mix(in srgb,var(--card) 92%,transparent);backdrop-filter:blur(8px);
@@ -128,6 +134,15 @@
   html.emb .brand{display:none}
   html.emb header{padding:6px 10px}
   html.emb .controls .ctrl-sp{flex:1}
+  /* Dans Atelier, la Gallery est un lanceur vers les onglets et viewers.
+     L'inspecteur latéral appartient uniquement au mode navigateur autonome. */
+  html.emb #inspector,html.emb #inspScrim{display:none!important}
+  html.emb body.has-insp main{margin-right:0}
+  /* WKWebView/macOS réserve une gouttière native claire que ni le track CSS
+     ni color-scheme ne recolorent de façon fiable. En embarqué seulement, on
+     masque le chrome de scrollbar; wheel, trackpad et clavier restent actifs. */
+  html.emb{scrollbar-width:none}
+  html.emb::-webkit-scrollbar,html.emb body::-webkit-scrollbar{width:0;height:0;display:none}
   input[type=search]{flex:1;min-width:190px;padding:0 12px;border-radius:6px;border:1px solid var(--border);
         background:var(--bg);color:var(--txt);font-size:13px;height:30px}
   input[type=search]:focus{outline:none;border-color:var(--accent)}
@@ -380,23 +395,22 @@
     --shadow-float:0 14px 38px rgba(0,0,0,.34),0 2px 8px rgba(0,0,0,.2);
     --motion-fast:120ms;
     --motion-ui:140ms;
+    --control-h:30px;
   }
-  body{letter-spacing:-.004em;background:
-    radial-gradient(circle at 50% -80px,color-mix(in srgb,var(--card2) 32%,transparent),transparent 420px),
-    var(--bg)}
-  header{background:color-mix(in srgb,var(--card) 88%,transparent);backdrop-filter:blur(18px) saturate(1.08);
-    box-shadow:0 1px 0 color-mix(in srgb,var(--txt) 3%,transparent)}
-  html.emb header{padding:8px 12px}
+  body{letter-spacing:-.004em;background:var(--bg)}
+  header{background:var(--card);backdrop-filter:none;box-shadow:none}
+  html.emb header{padding:8px 12px;background:var(--bg)}
   .controls{gap:7px}
   input[type=search],.csel-btn,select,button,.chip{
     transition:background-color var(--motion-fast) ease-out,border-color var(--motion-fast) ease-out,
       color var(--motion-fast) ease-out,box-shadow var(--motion-fast) ease-out,opacity var(--motion-fast) ease-out}
-  input[type=search]{background:var(--surface-sunken);border-color:var(--hairline);padding-inline:11px;
+  input[type=search]{height:var(--control-h);background:var(--surface-sunken);border-color:var(--hairline);padding-inline:11px;
     box-shadow:inset 0 1px 1px rgba(0,0,0,.12)}
   input[type=search]::placeholder{color:var(--faint)}
   input[type=search]:hover{border-color:var(--border-strong)}
   input[type=search]:focus{border-color:var(--focus-ring);box-shadow:0 0 0 2px color-mix(in srgb,var(--accent) 18%,transparent)}
-  .csel-btn,select,button,.chip{background:color-mix(in srgb,var(--card) 96%,var(--txt) 4%);border-color:var(--hairline)}
+  .controls>.csel-btn,.controls>select,.controls>button,.controls>.chip{height:var(--control-h)}
+  .csel-btn,select,button,.chip{background:color-mix(in srgb,var(--card) 96%,var(--txt) 4%);border-color:color-mix(in srgb,var(--hairline) 76%,transparent)}
   .csel-btn:hover,select:hover,button:hover,.chip:hover{background:var(--surface-raised);border-color:var(--border-strong)}
   select:focus-visible,button:focus-visible,.chip:focus-visible,.csel-btn:focus-visible,.fchip:focus-visible{
     outline:none;border-color:var(--focus-ring);box-shadow:0 0 0 2px color-mix(in srgb,var(--accent) 22%,transparent)}
@@ -411,33 +425,34 @@
   .menu .mi:hover,.csel-menu div:hover{background:color-mix(in srgb,var(--txt) 6%,transparent)}
 
   main{padding:18px;gap:14px}
-  .card{border-color:var(--hairline);border-radius:9px;background:color-mix(in srgb,var(--card) 97%,var(--txt) 3%);
+  .card{border-color:color-mix(in srgb,var(--hairline) 78%,transparent);border-radius:9px;background:color-mix(in srgb,var(--card) 97%,var(--txt) 3%);
     box-shadow:0 1px 1px rgba(0,0,0,.08);isolation:isolate;
     transition:border-color var(--motion-fast) ease-out,box-shadow var(--motion-ui) ease-out,transform var(--motion-ui) ease-out}
-  .card:hover,.card:focus-within{border-color:var(--border-strong);box-shadow:0 10px 26px rgba(0,0,0,.22),0 1px 2px rgba(0,0,0,.12);transform:translateY(-1px)}
+  .card:hover,.card:focus-within{border-color:var(--border-strong);box-shadow:0 3px 10px rgba(0,0,0,.14);transform:none}
   .thumb{background:#f6f7f9;padding:7px;border-bottom-color:var(--hairline)}
   .thumb img{transition:transform var(--motion-ui) ease-out,filter var(--motion-ui) ease-out;filter:saturate(.98) contrast(1.01)}
-  .card:hover .thumb img,.card:focus-within .thumb img{transform:scale(1.012);filter:saturate(1) contrast(1.02)}
+  .card:hover .thumb img,.card:focus-within .thumb img{transform:scale(1.006);filter:saturate(1) contrast(1.02)}
   .ph,.snip{background:var(--surface-sunken)}
   .ph .ext{font-family:var(--code-font);font-size:25px;font-weight:520;letter-spacing:.04em;color:var(--faint)}
   .meta{padding:10px 11px 11px;gap:4px}
   .nm{font-size:12.5px;font-weight:620;letter-spacing:-.01em}
-  .fld{color:var(--faint);line-height:1.35}
+  .fld{color:color-mix(in srgb,var(--faint) 88%,var(--bg));line-height:1.35}
   .row2{padding-top:2px}
   .tag{border:1px solid var(--hairline);background:transparent;border-radius:999px;padding:2px 7px;letter-spacing:.035em}
   .tag.wf.final{background:var(--accent-soft);border-color:color-mix(in srgb,var(--accent) 35%,var(--border));color:var(--txt)}
-  .card.sel2{border-color:var(--spectral);
-    box-shadow:0 0 0 1px color-mix(in srgb,var(--spectral) 35%,transparent),0 12px 28px rgba(0,0,0,.24)}
+  .card.sel2{border-color:var(--accent);
+    box-shadow:0 0 0 1px color-mix(in srgb,var(--accent) 38%,transparent),0 4px 12px rgba(0,0,0,.18)}
   .card.sel2::after{content:"";position:absolute;z-index:6;top:9px;bottom:9px;left:0;width:2px;border-radius:0 2px 2px 0;
-    background:linear-gradient(180deg,#c3d8f5,var(--spectral),var(--spectral-teal));pointer-events:none}
+    background:var(--accent);pointer-events:none}
   .hov{display:flex;opacity:0;visibility:hidden;transform:translateY(3px);background:color-mix(in srgb,var(--card) 97%,transparent);
     backdrop-filter:blur(12px);transition:opacity var(--motion-fast) ease-out,transform var(--motion-fast) ease-out,visibility 0s linear var(--motion-fast)}
   .card:hover .hov,.card:focus-within .hov{opacity:1;visibility:visible;transform:translateY(0);transition-delay:0s}
-  .hov button{box-shadow:none;background:transparent}
+  .hov button{box-shadow:none;background:transparent;border-color:transparent}
+  .hov button:hover{background:var(--card2);border-color:var(--hairline)}
   .selbox,.star{backdrop-filter:blur(10px);transition:opacity var(--motion-fast) ease-out,background-color var(--motion-fast) ease-out,border-color var(--motion-fast) ease-out}
   .card:focus-within .selbox{opacity:1}
 
-  #inspector{background:color-mix(in srgb,var(--card) 97%,#000 3%);box-shadow:-14px 0 38px rgba(0,0,0,.16)}
+  #inspector{background:var(--card);box-shadow:none}
   #inspHead{min-height:48px;padding:11px 13px;border-bottom-color:var(--hairline)}
   #inspHead .ttl{font-size:12.5px;letter-spacing:-.01em}
   #inspBody{padding:13px;gap:16px;min-height:0}
@@ -674,6 +689,7 @@ function truncMid(name,max){
 }
 function esc(s){return String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));}
 function escA(s){return String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
+const EMB = new URLSearchParams(location.search).get('embedded')==='atelier' || window.self!==window.top;
 document.addEventListener('click',e=>{
   const el=e.target.closest('[data-act]'); if(!el) return;
   const rel=el.dataset.rel, act=el.dataset.act;
@@ -681,10 +697,12 @@ document.addEventListener('click',e=>{
   else if(act==='sel') toggleSel(rel, el, e);
   else if(act==='hide') toggleHide(rel);
   else if(act==='del') delOne(rel);
-  // plan 019 : le clic sur la zone média SÉLECTIONNE (inspecteur) ; l'ouverture
-  // passe par double-clic, Enter, ou les actions explicites (View / Open)
-  else if(act==='lb') selectCard(rel);
-  else if(act==='open'){ if(el.tagName==='BUTTON') openDefault(rel); else selectCard(rel); }
+  // Embarqué : un clic ouvre directement le viewer ou l'onglet IDE. Dans la
+  // Gallery autonome, le clic simple conserve la sélection + inspecteur.
+  else if(act==='lb'){ if(EMB) lbOpen(rel); else selectCard(rel); }
+  else if(act==='open'){
+    if(EMB || el.tagName==='BUTTON') openInContext(rel); else selectCard(rel);
+  }
   else if(act==='src') findScript(rel);
   else if(act==='board') sendToBoard(rel, el);
   else if(act==='more'){ e.stopImmediatePropagation(); cardMenu(el, rel); }
@@ -706,7 +724,7 @@ const THEMES = {
   'Charbon':      {bg:'#211f1c',card:'#2b2926',card2:'#1a1815',txt:'#eae7de',muted:'#9d988d',accent:'#e08a63',border:'#38352f',arch:'#3a2f1a'},
   'Neutre chaud': {bg:'#1c1c1a',card:'#272623',card2:'#151513',txt:'#e9e7df',muted:'#98958c',accent:'#d97757',border:'#34322d',arch:'#3a2f1a'},
   'Très foncé':   {bg:'#171614',card:'#201f1c',card2:'#100f0d',txt:'#e6e3d9',muted:'#8f8b81',accent:'#d97757',border:'#2e2b26',arch:'#3a2f1a'},
-  'Default':   {bg:'#202024',card:'#27272a',card2:'#1f1f23',txt:'#dbdfe5',muted:'#a1a1aa',accent:'#5b9dff',border:'#3f3f46',arch:'#3a2f1a'},
+  'Default':   {bg:'#1e2124',card:'#24282d',card2:'#2c2f34',txt:'#dadee3',muted:'#90969d',accent:'#e77f3e',border:'#383c41',arch:'#3a2f1a'},
   'Codex':     {bg:'#282c34',card:'#2f343f',card2:'#21252b',txt:'#abb2bf',muted:'#7f848e',accent:'#4d78cc',border:'#3e4451',arch:'#3a2f1a'},
   'Dracula':   {bg:'#282a36',card:'#343746',card2:'#21222c',txt:'#f8f8f2',muted:'#9aa0b3',accent:'#bd93f9',border:'#44475a',arch:'#3a2f1a'},
   'Nord':      {bg:'#2e3440',card:'#3b4252',card2:'#272c36',txt:'#e5e9f0',muted:'#9aa3b2',accent:'#88c0d0',border:'#434c5e',arch:'#3a2f1a'}
@@ -1109,7 +1127,7 @@ function cardMenu(anchor, rel){
     +[['','None']].concat(WORKFLOW_STATUSES).map(([v,l])=>
       `<div class="mi${curWf===v?' on':''}"><span class="lbl" data-wfset="${escA(v)}">${curWf===v?'✓ ':''}${esc(l)}</span></div>`).join('')
     +'<div class="mhd sep"></div>'
-    +((window.self!==window.top)?'<div class="mi"><span class="lbl" data-cact="src">Open script &lt;/&gt;</span></div>'
+    +(EMB?'<div class="mi"><span class="lbl" data-cact="src">Open script &lt;/&gt;</span></div>'
       +'<div class="mi"><span class="lbl" data-cact="board">Send to whiteboard</span></div>':'')
     +'<div class="mi"><span class="lbl" data-cact="hide">'+(isHid?'Unhide':'Hide')+'</span></div>'
     +'<div class="mi clr"><span class="lbl" data-cact="del">Move to Trash</span></div>';
@@ -1181,7 +1199,7 @@ function toolOpenTab(endpoint, page){
   // can run at once — tell the server which app hosts THIS gallery so the tab
   // opens here (?orcaFs=1 is stamped on the URL by the Orca launcher).
   // Atelier Studio : la galerie est en iframe — ouvrir un onglet Studio direct
-  if(window.self!==window.top){
+  if(EMB){
     try{ __atelierPost({type:'atelier-open-tab', url:'/.fig_thumbs/'+page+'/index.html',
       title: page==='whiteboard'?'board':'notes'}); return; }catch(e){}
   }
@@ -1190,7 +1208,7 @@ function toolOpenTab(endpoint, page){
   fetch(endpoint,{method:'POST',headers:{'Content-Type':'application/json'},
     body:JSON.stringify({host})}).then(r=>{ if(!r.ok) fb(); }).catch(fb);
 }
-if(window.self!==window.top){
+if(EMB){
   document.documentElement.classList.add('emb');
   const ctr=document.querySelector('.controls');
   const sp=document.createElement('span'); sp.className='ctrl-sp'; ctr.appendChild(sp);
@@ -1290,7 +1308,6 @@ document.getElementById('surfMore').onclick=e=>{ e.stopPropagation(); buildSurfM
 // L'inspecteur n'affiche QUE des métadonnées réelles ; « final » est un statut
 // de workflow utilisateur, jamais une validation scientifique.
 let selectedRel=null, inspFindSeq=0, inspAddState='idle', inspAddTimer=0;
-const EMB = window.self!==window.top;
 function paintSelection(){
   document.querySelectorAll('#grid .card[data-card]').forEach(c=>{
     const on=c.dataset.card===selectedRel;
@@ -1301,6 +1318,11 @@ function paintSelection(){
 function selectCard(rel){
   if(selectedRel!==rel){ inspAddState='idle'; }
   selectedRel=rel;
+  if(EMB){
+    document.body.classList.remove('has-insp');
+    paintSelection();
+    return;
+  }
   document.body.classList.add('has-insp');
   paintSelection(); updateInspector();
 }
@@ -1364,7 +1386,7 @@ function updateInspector(){
     +'</div>'
     +'<div class="isec"><h3>Actions</h3><div class="iact">'
       +'<button id="inspView" title="Open in the viewer">View</button>'
-      +'<button id="inspOpen" title="Open with the default app">Open (app)</button>'
+      +'<button id="inspOpen" title="'+(EMB?'Open in Atelier IDE':'Open with the default app')+'">'+(EMB?'Open in IDE':'Open (app)')+'</button>'
       +(EMB?('<button id="inspChat">'+(inspAddState==='added'?'Added to chat ✓':inspAddState==='pending'?'Adding…':'Add to chat')+'</button>'):'')
       +'<button id="inspMore" title="More — hide, trash…" aria-label="More actions">⋯</button>'
     +'</div><div id="inspNotice"></div></div>';
@@ -1406,7 +1428,7 @@ function updateInspector(){
     saveCollections(); buildCollectionChip(); render();
   });
   body.querySelector('#inspView').onclick=()=>lbOpenAny(rel);
-  body.querySelector('#inspOpen').onclick=()=>openDefault(rel);
+  body.querySelector('#inspOpen').onclick=()=>openInContext(rel);
   const ic=body.querySelector('#inspChat');
   if(ic) ic.onclick=()=>{
     // contrat de transfert (018/019) : pending bloque le double ajout ; le
@@ -1447,9 +1469,10 @@ document.getElementById('grid').addEventListener('keydown',e=>{
 // double-clic = ouvrir (le clic simple sélectionne)
 document.addEventListener('dblclick',e=>{
   const el=e.target.closest('[data-act="lb"],[data-act="open"]'); if(!el) return;
+  if(EMB) return; // le premier clic a déjà ouvert la destination
   if(el.tagName==='BUTTON') return;
   if(el.dataset.act==='lb') lbOpen(el.dataset.rel);
-  else openDefault(el.dataset.rel);
+  else openInContext(el.dataset.rel);
 });
 document.getElementById('collChip').onclick=e=>{ e.stopPropagation(); buildCollectionChip(); menuToggle(document.getElementById('collMenu'), e.currentTarget); };
 document.getElementById('wfChip').onclick=e=>{ e.stopPropagation(); buildWorkflowChip(); menuToggle(document.getElementById('wfMenu'), e.currentTarget); };
@@ -1460,6 +1483,17 @@ document.getElementById('collectSel').onclick=e=>{ e.stopPropagation(); collectS
 document.addEventListener('click',()=>{ document.querySelectorAll('.menu').forEach(x=>x.style.display='none'); closeFloat(); });
 function openDefault(rel){
   fetch('/open', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({rel})});
+}
+function openInContext(rel){
+  const f=FILES.find(x=>x.rel===rel);
+  // Dans Atelier, tous les documents pris en charge restent dans le même
+  // espace de travail et s'ouvrent dans un onglet IDE. En mode navigateur
+  // autonome, on conserve l'ouverture dans l'application système.
+  if(EMB && f && (f.ext==='tex'||f.ext==='md'||f.ext==='pdf'||codeExt(f.ext))){
+    lbOpenAny(rel);
+    return;
+  }
+  openDefault(rel);
 }
 async function delOne(rel){
   if(!await confirmDialog('Move to Trash? '+rel)) return;
@@ -1481,7 +1515,7 @@ async function lbShow(i){
   const isTex=f.ext==='tex', isPdf=f.ext==='pdf', isMd=f.ext==='md', isCode=codeExt(f.ext), isSvg=f.ext==='svg', isVid=videoExt(f.ext);
   // Embarqué dans Atelier Studio : les fichiers texte/code s'ouvrent dans un
   // ONGLET Studio (la galerie reste navigable), pas dans la lightbox.
-  if((window.self!==window.top) && (isTex||isMd||isCode||isPdf)){
+  if(EMB && (isTex||isMd||isCode||isPdf)){
     // Studio : latex_studio pour tex/code ; éditeur WYSIWYG pour markdown
     let u;
     if(isPdf) u='/.fig_thumbs/pdf_viewer.html?file='+encodeURIComponent(f.rel)+'&v=__VER__';
@@ -1550,7 +1584,7 @@ function lbNativeFsAllowed(){
   const brands=(navigator.userAgentData&&navigator.userAgentData.brands||[]).map(b=>b.brand).join(' ');
   const sig=[navigator.userAgent||'',navigator.vendor||'',brands].join(' ');
   if(/\b(Orca|Electron|cmux)\b/i.test(sig)) return false;
-  if(window.self!==window.top) return false;
+  if(EMB) return false;
   // Real top-level browser (not Orca/Electron/cmux, not iframed): native
   // fullscreen is safe and exitFullscreen works here, so allow it even when the
   // page was opened at the bare URL without ?nativeFs=1. Embedded shells already
@@ -1656,7 +1690,10 @@ document.addEventListener('fullscreenchange',onFsChange);
 document.addEventListener('webkitfullscreenchange',onFsChange);
 document.getElementById('lbFs').onclick=e=>{e.stopPropagation();lbFsToggle();};
 lb().addEventListener('mousemove',lbFsUiPulse);
-document.getElementById('lbImg').addEventListener('dblclick',e=>{e.stopPropagation();lbFsToggle();});
+document.getElementById('lbImg').addEventListener('dblclick',e=>{
+  e.stopPropagation();
+  if(!EMB) lbFsToggle();
+});
 document.addEventListener('keydown',e=>{
   if(!lb().classList.contains('show'))return;
   if(lb().classList.contains('annot')){
@@ -1838,7 +1875,7 @@ function render(){
       <span class="selbox ${selSet.has(f.rel)?'on':''}" data-act="sel" data-rel="${escA(f.rel)}" title="Select — Shift-click to select a range">${selSet.has(f.rel)?'■':'▢'}</span>
       ${(imgExt(f.ext)||videoExt(f.ext)||f.ext==='pdf'||f.ext==='md'||codeExt(f.ext))?`<div data-act="lb" data-rel="${escA(f.rel)}" style="cursor:zoom-in;position:relative">${videoExt(f.ext)?'<span class="playbtn">&#9654;</span>':''}${thumb}</div>`:appExt(f.ext)?`<div data-act="open" data-rel="${escA(f.rel)}" style="cursor:pointer" title="Open with default app">${thumb}</div>`:`<a href="${escA(f.rel)}" target="_blank" style="text-decoration:none">${thumb}</a>`}
       <div class="hov">
-        <button data-act="open" data-rel="${escA(f.rel)}" title="Open with default app">Open</button>
+        <button data-act="open" data-rel="${escA(f.rel)}" title="${EMB&&(f.ext==='tex'||f.ext==='md'||f.ext==='pdf'||codeExt(f.ext))?'Open in Atelier IDE':'Open with default app'}">Open</button>
         <button data-act="copy" data-rel="${escA(f.rel)}" title="Copy path">Path</button>
         <button data-act="chat" data-rel="${escA(f.rel)}" class="embOnly" title="Joindre au chat de Studio">Chat</button>
         ${(imgExt(f.ext)||f.ext==='pdf')?`<button data-act="src" data-rel="${escA(f.rel)}" class="embHide" title="Open the script that generated this figure">&lt;/&gt;</button>`:''}
@@ -2079,7 +2116,7 @@ function annotInit(){
   });
   document.getElementById('annotUndo').onclick=()=>{annotStrokes.pop();annotRenumber();if(!annotStrokes.length)annotSent=true;document.getElementById('annotNote').style.display='none';annotRedraw();};
   document.getElementById('annotClear').onclick=()=>{annotStrokes=[];annotSent=true;document.getElementById('annotNote').style.display='none';annotRedraw();};
-  const ANNOT_EMBEDDED=(function(){try{return window.self!==window.top;}catch(e){return true;}})();
+  const ANNOT_EMBEDDED=EMB;
   if(ANNOT_EMBEDDED){
     // fichiers html : ouvrir en onglet Studio (target=_blank ne marche pas en iframe)
     document.addEventListener('click', function(e){
@@ -2102,13 +2139,19 @@ function annotInit(){
         '--muted':'--muted','--muted2':'--faint','--border':'--border',
         '--border2':'--border-strong','--accent':'--accent'};
       for(var k in map){ if(v[k]) document.documentElement.style.setProperty(map[k], v[k]); }
+      // WKWebView dessine la piste native de scrollbar selon color-scheme,
+      // indépendamment du fond CSS de l'iframe. Les presets Atelier sont hex.
+      if(/^#[0-9a-f]{6}$/i.test(v['--bg']||'')){
+        var c=v['--bg'].slice(1), r=parseInt(c.slice(0,2),16), g=parseInt(c.slice(2,4),16), b=parseInt(c.slice(4,6),16);
+        document.documentElement.style.colorScheme=((r*299+g*587+b*114)/1000>150)?'light':'dark';
+      }
       if(v['--ui-font']) document.documentElement.style.setProperty('--ui-font', v['--ui-font']);
       if(v['--code-font']) document.documentElement.style.setProperty('--code-font', v['--code-font']);
     });
     __atelierPost({type:'atelier-theme-request'});
   }
   if(ANNOT_EMBEDDED){const st=document.createElement('style');st.textContent='.embOnly{display:inline-block !important} .embHide{display:none !important}'
-      +':root{--bg:#212429;--card:#262b31;--card2:#2c313a;--txt:#dbdfe5;--muted:#868d9a;--faint:#646d7b;--border:#333a45;--border-strong:#3f4652;--accent:#e8823a;--accent-soft:#3a2c20}'
+      +':root{--bg:#1e2124;--card:#24282d;--card2:#2c2f34;--txt:#dadee3;--muted:#90969d;--faint:#62666c;--border:#383c41;--border-strong:#43474c;--accent:#e77f3e;--accent-soft:color-mix(in srgb,var(--accent) 16%,transparent)}'
       +'body{font-family:var(--ui-font)}';document.head.appendChild(st);}
   async function annotPost(direct){
     const f=lbList[lbIdx], img=document.getElementById('lbImg');

@@ -9,8 +9,9 @@ import { LazyBoundary, lazyWithRetry } from "./LazyBoundary";
 const BiblioSurface = lazyWithRetry(() => import("./BiblioSurface"));
 const GeneratorSurface = lazyWithRetry(() => import("./GeneratorSurface"));
 import { t } from "../lib/i18n";
-import { CloseIcon } from "./icons";
-import { GalleryHeader, DocumentHeader } from "./AtelierHeaders";
+import { CloseIcon, HomeIcon, RefreshIcon } from "./icons";
+import { DocumentTabMeta } from "./AtelierHeaders";
+import { IconButton } from "./ui";
 import type { Surface } from "./surfaces";
 
 type Tab = { id: string; url: string; title: string; color?: string; pinned?: boolean; kind?: "term"; cwd?: string };
@@ -63,7 +64,6 @@ export default function AtelierPane({
   showExplorer,
   recentFiles,
   onOpenExplorer,
-  projectName,
   onGalleryReload,
   onInspectFile,
 }: {
@@ -86,7 +86,7 @@ export default function AtelierPane({
   ws: WebSocket | null;
   layout: "split" | "chat" | "atelier";
   onToggleExpand: () => void;
-  /** en-têtes locaux (plan 018) : eyebrow projet + refresh galerie migré de la TopBar */
+  /** compatibilité appelant : le projet est déjà affiché dans la TopBar */
   projectName?: string | null;
   onGalleryReload?: () => void;
   /** ouvre l'inspecteur de contexte sur le fichier d'un onglet */
@@ -197,6 +197,21 @@ export default function AtelierPane({
     return () => window.removeEventListener("click", close);
   }, []);
 
+  const documentTabs = tabs.filter((tab) => tab.kind !== "term");
+  const activeDocument = documentTabs.find((tab) => tab.id === activeTab);
+  const activeDocumentRel = activeDocument
+    ? relFromTabUrl(activeDocument.url, projectRoot, url)
+    : null;
+  // Signal explicite : dans WKWebView, self/top n'est pas un contrat assez
+  // fiable pour décider si la Gallery doit masquer son chrome et router les
+  // fichiers vers les onglets Atelier.
+  let gallerySrc = url;
+  try {
+    const embedded = new URL(url);
+    embedded.searchParams.set("embedded", "atelier");
+    gallerySrc = embedded.toString();
+  } catch { /* URL vide pendant le démarrage */ }
+
   return (
     <div className="atelier-wrap">
       {/* plus de barre d'outils de surface : bascule des surfaces dans le rail,
@@ -206,51 +221,55 @@ export default function AtelierPane({
       <div className="pane-surfaces" style={{ flexDirection: "row" }}>
       {/* ---- surface Atelier : galerie + onglets fichiers ---- */}
       <div className="surface-body pane-slot" style={slotStyle("atelier")}>
+        {/* Header unique Gallery / IDE : le bouton de contexte change d'icône,
+            mais les onglets de documents restent toujours accessibles. */}
         <div className="atelier-bar">
-          <button className={`atab atab-gallery ${activeTab === "gallery" ? "on" : ""}`}
-            onClick={() => onSelectTab("gallery")} title={t("atelier.gallery")} aria-label={t("atelier.gallery")}>
-            <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor"
-              strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round">
-              <rect x="2" y="2.5" width="12" height="11" rx="2.2" />
-              <circle cx="5.6" cy="6" r="1.15" />
-              <path d="M2.6 11.4 6 8l2.2 2.1L10.7 7.4l2.7 2.9" />
-            </svg>
+          <button
+            type="button"
+            className={`atab atelier-home ${activeTab === "gallery" ? "on" : "icon-only"}`}
+            onClick={() => onSelectTab("gallery")}
+            title={t("atelier.gallery")}
+            aria-label={t("atelier.gallery")}
+          >
+            <HomeIcon size={15} />
+            {activeTab === "gallery" && <span className="atab-title">{t("atelier.gallery")}</span>}
           </button>
-          {tabs.filter((t) => t.kind !== "term").map((t) => (
+          {documentTabs.map((tab) => (
             <button
-              key={t.id}
-              className={`atab ${activeTab === t.id ? "on" : ""} ${overId === t.id && dragId && dragId !== t.id ? "drop-target" : ""}`}
-              onClick={() => onSelectTab(t.id)}
+              key={tab.id}
+              className={`atab ${activeTab === tab.id ? "on" : ""} ${overId === tab.id && dragId && dragId !== tab.id ? "drop-target" : ""}`}
+              onClick={() => onSelectTab(tab.id)}
               draggable
-              onDragStart={(e) => { setDragId(t.id); e.dataTransfer.effectAllowed = "move"; }}
-              onDragOver={(e) => { e.preventDefault(); setOverId(t.id); }}
-              onDragLeave={() => setOverId((o) => (o === t.id ? null : o))}
-              onDrop={(e) => { e.preventDefault(); dropOn(t.id); }}
+              onDragStart={(e) => { setDragId(tab.id); e.dataTransfer.effectAllowed = "move"; }}
+              onDragOver={(e) => { e.preventDefault(); setOverId(tab.id); }}
+              onDragLeave={() => setOverId((o) => (o === tab.id ? null : o))}
+              onDrop={(e) => { e.preventDefault(); dropOn(tab.id); }}
               onDragEnd={() => { setDragId(null); setOverId(null); }}
               onContextMenu={(e) => {
                 e.preventDefault();
-                setTabMenu({ id: t.id, x: e.clientX, y: e.clientY });
+                setTabMenu({ id: tab.id, x: e.clientX, y: e.clientY });
               }}
-              title={t.title}
+              title={tab.title}
             >
-              {t.color && <span className="atab-dot" style={{ background: t.color }} />}
-              {t.pinned && <span className="atab-pin">⌖</span>}
-              <span className="atab-title">{t.title}</span>
-              <span className="atab-x" onClick={(e) => { e.stopPropagation(); onCloseTab(t.id); }}>
+              {tab.color && <span className="atab-dot" style={{ background: tab.color }} />}
+              {tab.pinned && <span className="atab-pin">⌖</span>}
+              <span className="atab-title">{tab.title}</span>
+              <span className="atab-x" onClick={(e) => { e.stopPropagation(); onCloseTab(tab.id); }}>
                 <CloseIcon />
               </span>
             </button>
           ))}
+          <span className="flex" />
+          {activeTab === "gallery" && onGalleryReload && (
+            <IconButton label={t("action.refresh-hard")} title={t("action.refresh-hard")}
+              size="s" onClick={onGalleryReload}>
+              <RefreshIcon />
+            </IconButton>
+          )}
+          {activeDocumentRel && (
+            <DocumentTabMeta rel={activeDocumentRel} onInspect={onInspectFile} />
+          )}
         </div>
-        {/* en-têtes locaux (plan 018, étape 2) : galerie ou document actif */}
-        {activeTab === "gallery" && onGalleryReload && (
-          <GalleryHeader projectName={projectName ?? null} onRefresh={onGalleryReload} />
-        )}
-        {(() => {
-          const tb = tabs.find((x) => x.id === activeTab);
-          const rel = tb && tb.kind !== "term" ? relFromTabUrl(tb.url, projectRoot, url) : null;
-          return rel ? <DocumentHeader rel={rel} onInspect={onInspectFile} /> : null;
-        })()}
         <div className="atelier-split">
         <div className="atelier-body">
           {/* écran d'accueil IDE : montré par le bouton IDE du rail quand aucun
@@ -293,7 +312,7 @@ export default function AtelierPane({
               key={reloadKey}
               className="atelier"
               style={{ display: activeTab === "gallery" && galleryLoaded ? "block" : "none" }}
-              src={url}
+              src={gallerySrc}
               title="atelier"
               onLoad={() => setGalleryLoaded(true)}
             />

@@ -41,6 +41,28 @@ function stamp(ev: AgentEvent): number {
   return tsOf(ev) ?? harnessMeta(ev)?.ts ?? Date.now();
 }
 
+/** Compatibilité journaux/providers historiques : Node enrichissait les edits
+ * en objets `{path,add,del}`, mais certains adapters émettent directement une
+ * liste de chemins. Normaliser avant tout rendu et avant toute identité évite
+ * qu'un ancien journal invalide fasse tomber toute l'interface. */
+function normalizeEditEvent(ev: AgentEvent): AgentEvent {
+  if (ev.kind !== "edit") return ev;
+  const raw = Array.isArray((ev as any).files) ? (ev as any).files : [];
+  const files = raw.flatMap((file: unknown) => {
+    if (typeof file === "string" && file) return [{ path: file, add: null, del: null }];
+    if (file && typeof file === "object" && typeof (file as any).path === "string") {
+      return [{
+        ...(file as Record<string, unknown>),
+        path: (file as any).path,
+        add: typeof (file as any).add === "number" ? (file as any).add : null,
+        del: typeof (file as any).del === "number" ? (file as any).del : null,
+      }];
+    }
+    return [];
+  });
+  return { ...ev, files } as AgentEvent;
+}
+
 /** Indice de LA bulle streaming à laquelle `ev` peut se rattacher.
  * Avec meta : bulle du même turn seulement (une bulle d'un autre turn est
  * invisible — on en créera une nouvelle). Sans meta : dernière bulle du fil,
@@ -72,6 +94,7 @@ function lastIsAttachableThinking(list: AgentEvent[], ev: AgentEvent): boolean {
  * affiché, ou duplicate de reconnexion).
  */
 export function reduceHarnessEvent(list: AgentEvent[], ev: AgentEvent): AgentEvent[] {
+  ev = normalizeEditEvent(ev);
   // éphémères jamais matérialisés dans le fil (les side-effects — workingSince,
   // usage ring — restent dans App) : no-op strict
   if (ev.kind === "started" || ev.kind === "heartbeat" || ev.kind === "usage") return list;

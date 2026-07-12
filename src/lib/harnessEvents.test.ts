@@ -171,6 +171,22 @@ describe("reduceHarnessEvent — branches", () => {
     ]);
     expect(kinds(out)).toEqual(["permission", "tool", "edit", "goal"]);
   });
+
+  it("normalise un ancien edit dont files est une liste de chemins", () => {
+    const legacy = {
+      kind: "edit",
+      files: ["src/App.tsx", null, { path: "src/lib/ws.ts", add: 2 }],
+      ts: FIXED_TS,
+    } as unknown as AgentEvent;
+    const out = reduceHarnessEvent([], legacy);
+    expect(out[0]).toMatchObject({
+      kind: "edit",
+      files: [
+        { path: "src/App.tsx", add: null, del: null },
+        { path: "src/lib/ws.ts", add: 2, del: null },
+      ],
+    });
+  });
 });
 
 describe("invariants plan 025 — identités et turns", () => {

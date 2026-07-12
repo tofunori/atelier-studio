@@ -17,7 +17,7 @@
 /* ---- Button --------------------------------------------------------------- */
 .ui-btn {
   display: inline-flex; align-items: center; justify-content: center; gap: var(--sp-2);
-  height: 28px; padding: 0 var(--sp-3);
+  height: var(--control-height); padding: 0 var(--sp-3);
   font: 500 var(--fs-body-s)/1 var(--font-chrome);
   border-radius: var(--radius-control);
   border: 1px solid transparent; cursor: pointer; position: relative;
@@ -34,8 +34,8 @@
 .ui-btn--primary:hover:not(:disabled) { background: color-mix(in srgb, var(--text-primary) 88%, var(--surface-app) 12%); }
 .ui-btn--primary:active:not(:disabled) { background: color-mix(in srgb, var(--text-primary) 78%, var(--surface-app) 22%); }
 .ui-btn--primary:disabled { background: var(--surface-inset); }
-.ui-btn--secondary { background: transparent; border-color: var(--border-subtle); color: var(--text-secondary); }
-.ui-btn--secondary:hover:not(:disabled) { background: var(--surface-inset); color: var(--text-primary); }
+.ui-btn--secondary { background: transparent; border-color: var(--border-interactive); color: var(--text-secondary); }
+.ui-btn--secondary:hover:not(:disabled) { background: var(--surface-inset); border-color: var(--border-default); color: var(--text-primary); }
 .ui-btn--ghost { background: transparent; color: var(--text-muted); }
 .ui-btn--ghost:hover:not(:disabled) { background: var(--surface-inset); color: var(--text-primary); }
 .ui-btn--danger { background: transparent; border-color: var(--border-subtle); color: var(--status-error); }
@@ -72,7 +72,7 @@
 .ui-iconbtn:hover:not(:disabled) { background: var(--surface-inset); color: var(--text-primary); }
 .ui-iconbtn:disabled { color: var(--text-disabled); cursor: default; }
 .ui-iconbtn--s { width: 22px; height: 22px; }
-.ui-iconbtn--m { width: 26px; height: 26px; }
+.ui-iconbtn--m { width: var(--control-height); height: var(--control-height); }
 .ui-iconbtn--l { width: 32px; height: 32px; }
 /* cible interactive effective 40×40 quand le chrome est dense (014 §7) :
  * zone invisible étendue, sans chevauchement géré par l'espacement appelant */
@@ -130,7 +130,7 @@
 .ui-seg { display: inline-flex; background: var(--surface-inset); border-radius: var(--radius-surface); padding: 3px; gap: 2px; }
 .ui-seg button {
   display: inline-flex; align-items: center; justify-content: center;
-  min-width: 26px; height: 22px; padding: 0; background: transparent; border: none;
+  min-width: var(--control-height-compact); height: var(--control-height-compact); padding: 0; background: transparent; border: none;
   color: var(--text-muted); border-radius: var(--radius-control); cursor: pointer;
   transition: background-color var(--motion-standard) var(--ease-out),
               color var(--motion-standard) var(--ease-out);
@@ -141,7 +141,8 @@
 /* ---- SurfaceHeader --------------------------------------------------------------- */
 .ui-surface-header {
   display: flex; align-items: center; gap: var(--sp-2);
-  padding: var(--sp-2) var(--sp-4); border-bottom: 1px solid var(--border-subtle);
+  min-height: var(--surface-header-height); padding: 0 var(--sp-4);
+  background: var(--surface-app); border-bottom: 1px solid var(--border-subtle);
 }
 .ui-surface-header .titles { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
 .ui-surface-header .eyebrow { font: 500 var(--fs-caption)/1.3 var(--font-chrome);

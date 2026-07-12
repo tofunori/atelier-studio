@@ -113,22 +113,13 @@ describe("composer — caractérisation", () => {
 // de modèles viennent du sidecar (info.models) et le composer ne montre que
 // les contrôles supportés par capabilities.
 describe("composer — catalogue et capabilities sidecar (plan 025, step 9)", () => {
-  // Provider courant = codex : dans la cascade du menu modèle, la rangée du
-  // provider courant est déjà « active » (repli), on déplie donc Claude en
-  // cliquant sa rangée depuis un autre provider courant.
   function openClaudeModelList(claudeModels: string[]) {
     renderUi(<Chat {...chatProps({
-      defaults: { defaultProvider: "codex", defaultModel: {}, defaultEffort: {}, defaultPermissionMode: "bypassPermissions" },
-      providers: [
-        makeProviderInfo({ models: claudeModels }),
-        makeProviderInfo({
-          id: "codex", label: "Codex", models: ["gpt-5.5"], defaultModel: "gpt-5.5",
-          capabilities: makeCapabilities({ goals: true, interactiveInput: true }),
-        }),
-      ],
+      defaults: { defaultProvider: "claude", defaultModel: {}, defaultEffort: {}, defaultPermissionMode: "bypassPermissions" },
+      threadProvider: "claude",
+      providers: [makeProviderInfo({ models: claudeModels })],
     })} />);
     fireEvent.click(document.querySelector(".model-pick .mp-btn") as HTMLButtonElement);
-    fireEvent.click(screen.getByText("Claude Code"));
   }
 
   it("ouvre la liste du provider courant dès le premier clic", () => {
@@ -140,11 +131,10 @@ describe("composer — catalogue et capabilities sidecar (plan 025, step 9)", ()
       })],
     })} />);
     fireEvent.click(document.querySelector(".model-pick .mp-btn") as HTMLButtonElement);
-    expect(document.querySelector(".model-list")).toBeNull();
-    fireEvent.click(screen.getByRole("menuitemradio", { name: /Codex/ }));
     const modelList = document.querySelector(".model-list") as HTMLElement;
     expect(modelList).toBeTruthy();
     expect(within(modelList).getByText("gpt-5.6")).toBeTruthy();
+    expect(document.querySelector(".model-provider-row")).toBeNull();
   });
 
   it("un modèle présent dans info.models apparaît sans modification frontend", () => {
@@ -189,19 +179,21 @@ describe("composer — catalogue et capabilities sidecar (plan 025, step 9)", ()
 // Plan 020, étape 1 : contrats supplémentaires à préserver pendant la
 // réorganisation de la barre (une seule action primaire, effort en popover).
 describe("composer — caractérisation complémentaire (plan 020)", () => {
-  it("choisir un modèle dans le menu met à jour le résumé provider·modèle", () => {
+  it("change seulement le modèle du provider verrouillé", () => {
     renderUi(<Chat {...chatProps({
-      defaults: { defaultProvider: "codex", defaultModel: {}, defaultEffort: {}, defaultPermissionMode: "bypassPermissions" },
+      defaults: { defaultProvider: "codex", defaultModel: { codex: "gpt-5.5" }, defaultEffort: {}, defaultPermissionMode: "bypassPermissions" },
+      threadProvider: "codex",
       providers: [
         makeProviderInfo({ models: ["claude-fable-5", "claude-sonnet-5"] }),
-        makeProviderInfo({ id: "codex", label: "Codex", models: ["gpt-5.5"], defaultModel: "gpt-5.5" }),
+        makeProviderInfo({ id: "codex", label: "Codex", models: ["gpt-5.5", "gpt-5.6"], defaultModel: "gpt-5.5" }),
       ],
     })} />);
     const btn = () => document.querySelector(".model-pick .mp-btn") as HTMLButtonElement;
     fireEvent.click(btn());
-    fireEvent.click(screen.getByText("Claude Code"));
-    fireEvent.click(screen.getByText("Sonnet 5"));
-    expect(btn().textContent).toContain("Sonnet 5");
+    expect(screen.queryByText("Claude Code")).toBeNull();
+    expect(screen.queryByText("Sonnet 5")).toBeNull();
+    fireEvent.click(screen.getByText("gpt-5.6"));
+    expect(btn().textContent).toContain("gpt-5.6");
   });
 
   it("pendant un run sans texte : le bouton Stop appelle onStop", () => {

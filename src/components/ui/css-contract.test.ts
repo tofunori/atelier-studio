@@ -73,4 +73,63 @@ describe("contrat Quiet Instrument (sources CSS)", () => {
       expect(line).not.toMatch(/\b(width|height|padding|margin|top|left|right|bottom)\b/);
     }
   });
+
+  it("Chat et Gallery partagent le même token de hauteur de header", () => {
+    expect(tokens).toContain("--surface-header-height: 44px");
+    expect(primitives).toMatch(/\.ui-surface-header\s*\{[\s\S]*?min-height:\s*var\(--surface-header-height\)/);
+    expect(appCss).toMatch(/\.atelier-bar\s*\{[\s\S]*?height:\s*var\(--surface-header-height\)/);
+  });
+
+  it("les contrôles partagent une géométrie et une bordure interactive communes", () => {
+    expect(tokens).toContain("--control-height: 30px");
+    expect(tokens).toContain("--control-height-compact: 26px");
+    expect(tokens).toContain("--border-interactive:");
+    expect(primitives).toMatch(/\.ui-btn\s*\{[\s\S]*?height:\s*var\(--control-height\)/);
+    expect(appCss).toMatch(/\.custom-select-trigger\s*\{[\s\S]*?min-height:\s*var\(--control-height\)/);
+    expect(appCss).toMatch(/\.exp-search\s*\{[\s\S]*?min-height:\s*var\(--control-height\)/);
+  });
+
+  it("les sélections permanentes utilisent la ligne d'accent commune", () => {
+    expect(appCss).toMatch(/\.sidebar li\.active::before\s*\{[\s\S]*?background:\s*var\(--selection-line\)/);
+    expect(appCss).toMatch(/\.atelier-bar \.atab\.on\s*\{[\s\S]*?box-shadow:\s*inset 0 -1px var\(--selection-line\)/);
+  });
+
+  it("les surfaces interactives partagent les durées Quiet Instrument", () => {
+    expect(appCss).toMatch(/\.exp-row, \.pnav-row, \.set-nav-item,[\s\S]*?background-color var\(--motion-fast\) var\(--ease-out\)/);
+    expect(appCss).toMatch(/box-shadow var\(--motion-standard\) var\(--ease-out\)/);
+    expect(appCss).toMatch(/\.atab-x\s*\{\s*opacity:\s*\.42/);
+    expect(appCss).toMatch(/\.atab:hover \.atab-x,[\s\S]*?opacity:\s*\.86/);
+  });
+
+  it("les iframes Atelier ne révèlent jamais un fond blanc dans leur gouttière", () => {
+    expect(appCss).toMatch(/\.atelier\s*\{[\s\S]*?background:\s*var\(--surface-app\);[\s\S]*?color-scheme:\s*dark/);
+    expect(appCss).toMatch(/:root\[data-theme="light"\] \.atelier\s*\{\s*color-scheme:\s*light/);
+    expect(appCss).not.toMatch(/\.atelier\s*\{[^}]*background:\s*#fff/);
+  });
+
+  it("le chrome permanent partage le canvas de l'app dans tous les thèmes", () => {
+    expect(tokens).toContain("--surface-panel: var(--surface-app)");
+    expect(tokens).toContain("--surface-header: var(--surface-app)");
+    expect(appCss).toMatch(/\.sidebar\s*\{[\s\S]*?background:\s*var\(--surface-panel\)/);
+    expect(appCss).toMatch(/\.rail\s*\{[\s\S]*?background:\s*var\(--surface-panel\)/);
+    expect(appCss).toMatch(/\.topbar\s*\{[\s\S]*?background:\s*var\(--surface-header\)/);
+    for (const selector of ["side-fixed", "explorer", "set-nav", "biblio-left", "generateur-form", "pnav-header"]) {
+      expect(appCss, `${selector} doit utiliser --surface-panel`).toMatch(
+        new RegExp(`\\.${selector}\\s*\\{[\\s\\S]*?background:\\s*var\\(--surface-panel\\)`),
+      );
+    }
+    for (const selector of ["surface-bar", "term-bar", "browser-chrome", "browser-bar", "git-head", "git-commit", "biblio-reader-head", "reviewer-bar"]) {
+      expect(appCss, `${selector} doit utiliser --surface-header`).toMatch(
+        new RegExp(`\\.${selector}\\s*\\{[\\s\\S]*?background:\\s*var\\(--surface-header\\)`),
+      );
+    }
+  });
+
+  it("les séparateurs gardent une cible 4 px avec un trait visuel 1 px", () => {
+    expect(tokens).toContain("--resize-handle-hit: 4px");
+    expect(tokens).toContain("--resize-handle-line: 1px");
+    expect(appCss).toMatch(/\.handle\s*\{[\s\S]*?width:\s*var\(--resize-handle-hit\)/);
+    expect(appCss).toMatch(/\.handle::after\s*\{[\s\S]*?width:\s*var\(--resize-handle-line\)/);
+    expect(appCss).toMatch(/\.pane-divider::after\s*\{[\s\S]*?width:\s*var\(--resize-handle-line\)/);
+  });
 });

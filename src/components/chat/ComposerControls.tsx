@@ -5,7 +5,6 @@ import React, { useEffect, useRef } from "react";
 import { t } from "../../lib/i18n";
 import { Select } from "../Select";
 import { PlusIcon, ProviderIcon, ZapIcon } from "../icons";
-import { Tick } from "./toolPresentation";
 import { ProviderInfo, orderedVisibleProviders } from "../../lib/providers";
 
 const PERMISSION_MODES = [
@@ -64,9 +63,9 @@ export function ComposerControls(p: {
   providers?: ProviderInfo[];
 }) {
   const {
-    text, setText, provider, setProvider, model, setModel, effort, setEffort,
+    text, setText, provider, model, setModel, effort, setEffort,
     permissionMode, setPermissionMode, plusOpen, setPlusOpen, menuOpen, setMenuOpen,
-    modelMenuProvider, setModelMenuProvider,
+    setModelMenuProvider,
     setGoalOpen, attachFiles, providerInfo, resolvedModelId, autoReasoningLabel,
     levelsFor, effortFor, modelsFor, sortByFav, modelLabel, modelButtonLabel,
     favModels, toggleFavModel,
@@ -217,7 +216,6 @@ export function ComposerControls(p: {
               title={t("chat.model-effort-title")}
               onClick={() => { setMenuOpen((v) => !v); setModelMenuProvider(""); }}
             >
-              <ProviderIcon provider={provider} />
               <span className={!model ? "mp-dim" : undefined}>{modelButtonLabel}</span>
               <span className="mp-effort-sum mp-dim">
                 · {effort || (providerInfo()?.kind === "api"
@@ -234,37 +232,13 @@ export function ComposerControls(p: {
                 { providerOrder: p.defaults.providerOrder ?? [], hiddenProviders: p.defaults.hiddenProviders ?? [] },
                 provider,
               );
-              const menuInfo = visibleProviders.find((info) => info.id === modelMenuProvider) ?? null;
-              const menuProvider = menuInfo?.id ?? provider;
+              const menuInfo = visibleProviders.find((info) => info.id === provider) ?? providerInfo();
+              const menuProvider = provider;
               const menuModels = sortByFav(modelsFor(menuProvider), menuProvider);
               return (
                 <div className="mp-menu model-menu" ref={modelMenuRef} role="menu"
                   onKeyDown={menuKeys(() => setMenuOpen(false), modelBtnRef)}>
                   <div className="model-provider-list">
-                    {visibleProviders.map((info) => {
-                      const pv = info.id;
-                      // `selected` = provider utilisé par le composer ;
-                      // `active` = sous-panneau de modèles réellement ouvert.
-                      // Les confondre rendait le premier clic sur le provider
-                      // courant inerte puisque menuProvider retombait déjà sur lui.
-                      const active = pv === modelMenuProvider;
-                      const selected = pv === provider;
-                      const count = Math.max(0, modelsFor(pv).length - 1);
-                      return (
-                        <button
-                          key={pv}
-                          type="button"
-                          role="menuitemradio"
-                          aria-checked={selected}
-                          className={`model-provider-row ${active ? "active" : ""} ${selected ? "selected" : ""}`}
-                          onClick={() => setModelMenuProvider(active ? "" : pv)}
-                        >
-                          <ProviderIcon provider={pv} size={12} />
-                          <span>{info.label}</span>
-                          <small className="mp-chev">{count ? count : ""} <Tick /></small>
-                        </button>
-                      );
-                    })}
                     {(() => {
                       // effort du provider COURANT — popover unique modèle+effort
                       // (décision composer 2026-07-09 : options avancées en popover,
@@ -345,7 +319,6 @@ export function ComposerControls(p: {
                             aria-checked={active}
                             className="mp-row-main"
                             onClick={() => {
-                              setProvider(menuProvider);
                               setModel(m.id);
                               setEffort(effortFor(menuProvider, m.id));
                             }}
@@ -379,7 +352,6 @@ export function ComposerControls(p: {
                           <button key={ctx.id} type="button" role="menuitemradio" aria-checked={ctx.on}
                             className="mp-item model-row"
                             onClick={() => {
-                              setProvider("claude");
                               if (ctx.id === "1m" && !model.includes("[1m]")) {
                                 setModel((model || "claude-sonnet-5") + "[1m]");
                               } else if (ctx.id === "200k" && model.includes("[1m]")) {

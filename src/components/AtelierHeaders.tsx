@@ -63,3 +63,24 @@ export function DocumentHeader(p: { rel: string; onInspect?: (rel: string) => vo
     />
   );
 }
+
+/** Méta du document actif intégrée à la barre d'onglets IDE. */
+export function DocumentTabMeta(p: { rel: string; onInspect?: (rel: string) => void }) {
+  const segs = p.rel.split("/");
+  const dir = segs.slice(0, -1).join("/");
+  return (
+    <div className="atelier-document-meta">
+      {dir && <span className="source" title={p.rel}>{dir}</span>}
+      <span className="kind">{t(KIND_KEYS[artefactKind(p.rel)])}</span>
+      {p.onInspect && (
+        <IconButton label={t("inspector.open")} title={t("inspector.open")} size="s"
+          onClick={() => p.onInspect!(p.rel)}>
+          <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" aria-hidden="true">
+            <circle cx="8" cy="8" r="5.4" />
+            <path d="M8 7.2v3.4M8 5.2v.1" />
+          </svg>
+        </IconButton>
+      )}
+    </div>
+  );
+}

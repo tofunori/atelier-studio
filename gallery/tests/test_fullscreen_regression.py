@@ -98,6 +98,51 @@ class FullscreenRegressionTests(unittest.TestCase):
         gallery = gallery_template()
         self.assertIn("return false;", gallery.split("function lbNativeFsAllowed()")[1])
 
+    def test_embedded_gallery_open_actions_route_supported_files_to_ide_tabs(self):
+        gallery = gallery_template()
+
+        self.assertIn("get('embedded')==='atelier' || window.self!==window.top", gallery)
+        self.assertIn("function openInContext(rel){", gallery)
+        self.assertIn("if(EMB && f && (f.ext==='tex'||f.ext==='md'||f.ext==='pdf'||codeExt(f.ext)))", gallery)
+        self.assertIn("lbOpenAny(rel);", gallery.split("function openInContext(rel){", 1)[1].split("function ", 1)[0])
+        self.assertIn("body.querySelector('#inspOpen').onclick=()=>openInContext(rel);", gallery)
+        self.assertIn("if(EMB || el.tagName==='BUTTON') openInContext(rel);", gallery)
+        self.assertIn("else openInContext(el.dataset.rel);", gallery)
+        self.assertIn("type:'atelier-open-tab'", gallery)
+
+    def test_embedded_gallery_header_uses_the_shared_canvas(self):
+        gallery = gallery_template()
+        self.assertIn("html.emb header{padding:8px 12px;background:var(--bg)}", gallery)
+
+    def test_gallery_controls_and_cards_follow_the_quiet_instrument_geometry(self):
+        gallery = gallery_template()
+        self.assertIn("--control-h:30px", gallery)
+        self.assertIn(".controls>.csel-btn,.controls>select,.controls>button,.controls>.chip{height:var(--control-h)}", gallery)
+        self.assertIn("border-color:color-mix(in srgb,var(--hairline) 78%,transparent)", gallery)
+        self.assertIn(".hov button{box-shadow:none;background:transparent;border-color:transparent}", gallery)
+        self.assertIn("transform:scale(1.006)", gallery)
+        self.assertIn("box-shadow:0 3px 10px rgba(0,0,0,.14)", gallery)
+
+    def test_gallery_scrollbar_track_uses_the_theme_canvas(self):
+        gallery = gallery_template()
+        self.assertIn("html{background:var(--bg);color-scheme:dark;scrollbar-color:var(--faint) var(--bg)", gallery)
+        self.assertIn("::-webkit-scrollbar-track{background:var(--bg)}", gallery)
+        self.assertIn("border:3px solid var(--bg);border-radius:999px", gallery)
+        self.assertIn("document.documentElement.style.colorScheme=", gallery)
+        self.assertIn("(r*299+g*587+b*114)/1000>150", gallery)
+        self.assertIn("html.emb{scrollbar-width:none}", gallery)
+        self.assertIn("html.emb::-webkit-scrollbar,html.emb body::-webkit-scrollbar{width:0;height:0;display:none}", gallery)
+
+    def test_embedded_gallery_opens_directly_without_inspector_or_double_click_fullscreen(self):
+        gallery = gallery_template()
+
+        self.assertIn("html.emb #inspector,html.emb #inspScrim{display:none!important}", gallery)
+        self.assertIn("else if(act==='lb'){ if(EMB) lbOpen(rel); else selectCard(rel); }", gallery)
+        self.assertIn("if(EMB || el.tagName==='BUTTON') openInContext(rel);", gallery)
+        self.assertIn("if(EMB){\n    document.body.classList.remove('has-insp');", gallery)
+        self.assertIn("if(EMB) return; // le premier clic a déjà ouvert la destination", gallery)
+        self.assertIn("if(!EMB) lbFsToggle();", gallery)
+
     def test_orca_native_viewer_uses_notch_safe_image_area(self):
         viewer = (ROOT / "native_fullscreen_viewer.py").read_text()
 

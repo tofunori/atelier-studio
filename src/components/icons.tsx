@@ -144,6 +144,25 @@ export function RefreshIcon({ size = 13 }: IconProps) {
   );
 }
 
+export function GalleryIcon({ size = 13 }: IconProps) {
+  return (
+    <StrokeIcon size={size}>
+      <rect x="2.2" y="2.7" width="11.6" height="10.6" rx="2" />
+      <circle cx="5.6" cy="6" r="1.1" />
+      <path d="M2.8 11.2 6 8l2.2 2 2.4-2.6 2.6 2.8" />
+    </StrokeIcon>
+  );
+}
+
+export function HomeIcon({ size = 13 }: IconProps) {
+  return (
+    <StrokeIcon size={size}>
+      <path d="M2.2 7.1 8 2.4l5.8 4.7" />
+      <path d="M3.6 6.2v7h8.8v-7M6.4 13.2V9h3.2v4.2" />
+    </StrokeIcon>
+  );
+}
+
 export function CopyIcon({ size = 13 }: IconProps) {
   return (
     <StrokeIcon size={size}>

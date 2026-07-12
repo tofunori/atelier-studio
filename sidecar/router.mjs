@@ -1443,10 +1443,8 @@ async function handleSend(msg, ctx) {
   const emit = ctx.broadcast ?? ctx.send;
   emitBox.set(threadId, emit);
 
-  // changement de provider PENDANT un run : refus explicite. On ne peut pas
-  // steerer un message Codex dans un turn Claude en cours ni démarrer un run
-  // rival qui écraserait le dispatcher stable (plan 025). Le thread au repos,
-  // lui, change de provider librement (bloc plus bas).
+  // Un chat appartient définitivement à son provider. Les sessions natives
+  // et leurs historiques ne sont jamais interchangeables, même au repos.
   const running = threadRuns.get(threadId);
   if (running && running.turn.provider !== provider) {
     emit({
@@ -1458,15 +1456,13 @@ async function handleSend(msg, ctx) {
   }
 
   let prev = ctx.store.get(threadId);
-  // changement de provider sur un thread AU REPOS : les sessions ne sont PAS
-  // interchangeables (un UUID Claude n'est pas un thread Codex). On repart
-  // sur une session neuve du nouveau provider, l'historique visuel reste.
-  if (prev?.provider && prev.provider !== provider && prev.sessionId) {
-    if (prev.provider === "claude" && ctx.providers.claude.endSession) {
-      ctx.providers.claude.endSession(threadId);
-    }
-    ctx.store.upsert({ id: threadId, sessionId: null, resumeAt: null });
-    prev = ctx.store.get(threadId);
+  if (prev?.provider && prev.provider !== provider) {
+    emit({
+      type: "error",
+      threadId,
+      message: `ce chat appartient à ${prev.provider}; créez un nouveau chat pour utiliser ${provider}`,
+    });
+    return;
   }
   // garde-fou : un thread Claude ne peut reprendre qu'un UUID Claude. Si le
   // sessionId stocké n'est pas un UUID (ex. id « ses_… » hérité d'un autre

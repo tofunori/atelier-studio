@@ -98,7 +98,7 @@ export function ChatTimeline(p: {
   const { renderedEvents, openFolds, setOpenFolds, openToolGroups, setOpenToolGroups, activeToolGroupKey, renderToolLine, fmtWorkDur } = p.list;
   const { editing, setEditing, pins, onTogglePin, onRevert, onEditSend, onFork, setPasteView, commands, defaults, onQuote } = p.msg;
   const { messagesRef, onMessagesMouseUp, setShowJump, stickRef, showJump } = p.scroll;
-  const { currentWorkName, onStop } = p.working;
+  const { onStop } = p.working;
   const { tickPos, resolvePinEl, pinMenu, setPinMenu, onStylePin } = p.chapters;
   const { onNewChat, onOpenProject } = p.empty;
   const { quote, setQuote, quoteHasHl, quoteHasUl, addMark, removeMark } = p.selection;
@@ -388,12 +388,6 @@ export function ChatTimeline(p: {
             <div className="working-row">
               <Working since={workingSince} />
             </div>
-            {currentWorkName && (
-              <div className="working-tool">
-                <span className="working-tool-glyph" aria-hidden="true">↳</span>
-                <span>{currentWorkName}</span>
-              </div>
-            )}
             <button type="button" className="stop-hint" title={t("action.interrupt")} onClick={onStop}>
               <kbd>esc</kbd> {t("action.interrupt")}
             </button>

@@ -70,6 +70,17 @@ pub async fn handle_send(state: &AppState, msg: &Value) -> Vec<String> {
         return vec![err_json("threadId requis")];
     }
 
+    // A conversation belongs to the provider selected when it was created.
+    // Reject stale clients as well as deliberate cross-provider handoffs.
+    if let Some(previous) = state.threads().lock().await.get(&thread_id).cloned() {
+        if previous.provider != provider {
+            return vec![err_json(format!(
+                "ce chat appartient à {}; créez un nouveau chat pour utiliser {provider}",
+                previous.provider
+            ))];
+        }
+    }
+
     let Some(provider_impl) = state.provider(&provider) else {
         return vec![err_json(format!(
             "provider inconnu ou non branché en Rust: {provider} (fake toujours; claude/codex/grok/opencode si binaires; API via api_providers.json)"
@@ -112,15 +123,6 @@ pub async fn handle_send(state: &AppState, msg: &Value) -> Vec<String> {
                 .as_object_mut()
                 .unwrap()
                 .insert("title".into(), json!(t));
-        }
-        // session clear on provider switch
-        if let Some(prev) = &prev {
-            if prev.provider != provider && prev.session_id.is_some() {
-                patch
-                    .as_object_mut()
-                    .unwrap()
-                    .insert("sessionId".into(), Value::Null);
-            }
         }
         let _ = store.upsert(patch, false);
     }
@@ -249,8 +251,10 @@ pub async fn handle_send(state: &AppState, msg: &Value) -> Vec<String> {
     // Event pump
     let h_pump = Arc::clone(&h2);
     let turn_pump = turn_id.clone();
+    let project_root_events = project_root.clone();
     tokio::spawn(async move {
         while let Some(ev) = ev_rx.recv().await {
+            let ev = normalize_provider_event(ev, &project_root_events);
             let mut g = h_pump.lock().await;
             let kind = ev.get("kind").and_then(|v| v.as_str()).unwrap_or("");
             if kind == "done" || kind == "error" {
@@ -345,6 +349,50 @@ pub async fn handle_interrupt(state: &AppState, msg: &Value) -> Vec<String> {
     vec![]
 }
 
+fn normalize_provider_event(mut event: Value, project_root: &str) -> Value {
+    if event.get("kind").and_then(Value::as_str) != Some("edit") {
+        return event;
+    }
+    let root_prefix = if project_root.is_empty() {
+        None
+    } else {
+        Some(format!("{}/", project_root.trim_end_matches('/')))
+    };
+    let files = event
+        .get("files")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(|file| {
+            let path = match file {
+                Value::String(path) => path.clone(),
+                Value::Object(obj) => obj.get("path")?.as_str()?.to_string(),
+                _ => return None,
+            };
+            let path = root_prefix
+                .as_deref()
+                .and_then(|prefix| path.strip_prefix(prefix))
+                .unwrap_or(&path)
+                .to_string();
+            let add = file.get("add").and_then(Value::as_i64);
+            let del = file.get("del").and_then(Value::as_i64);
+            Some(json!({"path": path, "add": add, "del": del}))
+        })
+        .collect::<Vec<_>>();
+    if let Some(obj) = event.as_object_mut() {
+        obj.insert("files".into(), Value::Array(files));
+        obj.insert(
+            "projectRoot".into(),
+            if project_root.is_empty() {
+                Value::Null
+            } else {
+                Value::String(project_root.to_string())
+            },
+        );
+    }
+    event
+}
+
 pub async fn handle_provider_status(state: &AppState) -> Vec<String> {
     let mut list = provider_status_list(Some(state.app_dir()));
     // Le catalogue décrit les capacités statiques avec `ok=false` par défaut.
@@ -436,6 +484,50 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn rejects_provider_change_for_an_existing_chat() {
+        let dir = tempdir().unwrap();
+        let state = AppState::new(
+            AppPaths::from_app_dir(dir.path().to_path_buf()),
+            None,
+            "t".into(),
+            "0.1.0".into(),
+            "h".into(),
+            "/tmp".into(),
+        );
+        state
+            .threads()
+            .lock()
+            .await
+            .upsert(json!({"id":"t-locked","provider":"claude"}), false)
+            .unwrap();
+
+        let out = handle_send(
+            &state,
+            &json!({
+                "type":"send",
+                "threadId":"t-locked",
+                "provider":"fake",
+                "prompt":"handoff",
+                "projectRoot":dir.path().to_string_lossy(),
+            }),
+        )
+        .await;
+
+        assert!(out[0].contains("appartient à claude"), "{out:?}");
+        assert!(!state.harness().is_running("t-locked").await);
+        assert_eq!(
+            state
+                .threads()
+                .lock()
+                .await
+                .get("t-locked")
+                .unwrap()
+                .provider,
+            "claude"
+        );
+    }
+
+    #[tokio::test]
     async fn provider_status_reflects_live_registry() {
         let dir = tempdir().unwrap();
         let state = AppState::new(
@@ -456,5 +548,21 @@ mod tests {
                 "providerStatus doit refléter le registre pour {id}",
             );
         }
+    }
+
+    #[test]
+    fn edit_events_are_normalized_before_journaling() {
+        let event = normalize_provider_event(
+            json!({"kind":"edit","files":["/repo/src/App.tsx", {"path":"src/lib/ws.ts","add":2}]}),
+            "/repo",
+        );
+        assert_eq!(
+            event["files"],
+            json!([
+                {"path":"src/App.tsx","add":null,"del":null},
+                {"path":"src/lib/ws.ts","add":2,"del":null}
+            ])
+        );
+        assert_eq!(event["projectRoot"], "/repo");
     }
 }

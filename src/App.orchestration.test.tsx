@@ -126,6 +126,21 @@ afterEach(() => {
 });
 
 describe("orchestration App — caractérisation", () => {
+  it("choisit le provider avant de créer un chat et le conserve au premier envoi", async () => {
+    const { sock } = await mountApp();
+    const sidebar = document.querySelector(".sidebar") as HTMLElement;
+    fireEvent.click(within(sidebar).getByRole("button", { name: /new chat/i }));
+    expect(screen.getByRole("dialog", { name: /new chat/i })).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: /Codex/i }));
+
+    const textarea = document.querySelector(".composer textarea") as HTMLTextAreaElement;
+    fireEvent.change(textarea, { target: { value: "Analyse ce projet" } });
+    fireEvent.submit(textarea.closest("form")!);
+    await act(async () => { await flushMicrotasks(4); });
+
+    const sends = sock.sent.map((s) => JSON.parse(s)).filter((m) => m.type === "send");
+    expect(sends[sends.length - 1]).toMatchObject({ provider: "codex", prompt: "Analyse ce projet" });
+  });
   it("squelette DOM du shell inchangé (TopBar → app-row → rail/panneau/poignée/main-card)", async () => {
     await mountApp();
     const row = document.querySelector(".app-row");
@@ -163,7 +178,7 @@ describe("orchestration App — caractérisation", () => {
     expect(req.threadId).toBe("thread-A");
   });
 
-  it("/goal suit le provider Codex sélectionné même si le fil vient de Claude", async () => {
+  it("un cache Codex ne peut plus changer le provider d'un fil Claude", async () => {
     localStorage.setItem(`atelier-studio.modelSel:${PROJECT_ROOT}`, JSON.stringify({
       provider: "codex", model: "gpt-5.5", effort: "medium", permissionMode: "bypassPermissions",
     }));
@@ -180,14 +195,8 @@ describe("orchestration App — caractérisation", () => {
     });
 
     const sends = sock.sent.map((s) => JSON.parse(s)).filter((m) => m.type === "send");
-    expect(sends[sends.length - 1]).toMatchObject({ threadId: "thread-A", provider: "codex", prompt: objective });
-    expect(within(document.querySelector(".goal-bar") as HTMLElement).getByText(objective)).toBeTruthy();
-
-    // Le premier tour a créé la session Codex : le goal en attente est posé
-    // automatiquement, sans que l'utilisateur retape la commande.
-    await pushThreads(sock, [{ ...THREAD_A, provider: "codex", sessionId: "codex-session-1" }]);
-    const goals = sock.sent.map((s) => JSON.parse(s)).filter((m) => m.type === "goalSet");
-    expect(goals[goals.length - 1]).toMatchObject({ threadId: "thread-A", objective });
+    expect(sends[sends.length - 1]).toMatchObject({ threadId: "thread-A", provider: "claude", prompt: `/goal ${objective}` });
+    expect(document.querySelector(".goal-bar")).toBeNull();
   });
 
   it("charge l'historique d'un fil vide ; un fil déjà peuplé n'est JAMAIS écrasé", async () => {
