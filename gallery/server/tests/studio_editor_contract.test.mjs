@@ -121,7 +121,7 @@ test("editor surfaces do not call CM5 APIs outside the factory seam", () => {
 
 test("every embedded HTML surface loads the shared Atelier theme bridge", async () => {
   const names = [
-    "gallery_template.html", "latex_studio.html", "latex_cm6.html", "code_editor.html",
+    "latex_studio.html", "latex_cm6.html", "code_editor.html",
     "md_studio.html", "md_viewer.html", "pdf_viewer.html", "svg_viewer.html",
   ];
   for (const name of names) {
@@ -132,4 +132,6 @@ test("every embedded HTML surface loads the shared Atelier theme bridge", async 
   assert.match(themeBridge, /atelier-theme-applied/);
   assert.match(themeBridge, /--surface-app/);
   assert.match(themeBridge, /style\.setProperty/);
+  const galleryTemplate = await readFile(new URL("../../assets/gallery_template.html", import.meta.url), "utf8");
+  assert.match(galleryTemplate, /atelier-theme-request/, "Gallery keeps its build-safe inline bridge");
 });
