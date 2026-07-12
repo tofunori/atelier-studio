@@ -71,9 +71,24 @@ function requestOnce(port, route, { method = "GET", body = null, headers = {} } 
   });
 }
 
-async function waitForPing(port) {
-  const deadline = Date.now() + 8000;
+function childDiagnostics(child) {
+  const stderr = child.__parityStderr?.trim();
+  const stdout = child.__parityStdout?.trim();
+  return [stderr && `stderr:\n${stderr}`, stdout && `stdout:\n${stdout}`]
+    .filter(Boolean)
+    .join("\n");
+}
+
+async function waitForPing(port, child, label) {
+  const deadline = Date.now() + 30_000;
   while (Date.now() < deadline) {
+    if (child.exitCode !== null) {
+      const diagnostics = childDiagnostics(child);
+      throw new Error(
+        `${label} exited before answering /ping (code ${child.exitCode})` +
+        (diagnostics ? `\n${diagnostics}` : ""),
+      );
+    }
     try {
       const r = await request(port, "/ping");
       if (r.status === 200) return;
@@ -82,15 +97,28 @@ async function waitForPing(port) {
     }
     await new Promise((r) => setTimeout(r, 100));
   }
-  throw new Error(`server did not answer /ping on ${port}`);
+  const diagnostics = childDiagnostics(child);
+  throw new Error(
+    `${label} did not answer /ping on ${port} within 30 seconds` +
+    (diagnostics ? `\n${diagnostics}` : ""),
+  );
 }
 
 function startServer(cmd, args, env, cwd) {
-  return spawn(cmd, args, {
+  const child = spawn(cmd, args, {
     cwd,
     env,
     stdio: ["ignore", "pipe", "pipe"],
   });
+  child.__parityStdout = "";
+  child.__parityStderr = "";
+  child.stdout.on("data", (chunk) => {
+    child.__parityStdout = `${child.__parityStdout}${chunk}`.slice(-16_384);
+  });
+  child.stderr.on("data", (chunk) => {
+    child.__parityStderr = `${child.__parityStderr}${chunk}`.slice(-16_384);
+  });
+  return child;
 }
 
 function writeFixture(root) {
@@ -215,7 +243,10 @@ async function main() {
   }, root);
 
   try {
-    await Promise.all([waitForPing(pyPort), waitForPing(nodePort)]);
+    await Promise.all([
+      waitForPing(pyPort, py, "Python gallery server"),
+      waitForPing(nodePort, node, "Node gallery server"),
+    ]);
 
     const healthRes = await request(nodePort, "/health");
     assert.equal(healthRes.status, 200, "GET /health status");
