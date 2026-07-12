@@ -16,6 +16,7 @@ import {
 import { ResearchHome, type ResearchHomeBundle } from "../ResearchHome";
 import { ThinkingBlock, EditLine, ActivityCard, Working, formatPermInput } from "./turnParts";
 import { HarnessInteraction } from "./HarnessInteraction";
+import { JumpNavigation } from "../ui";
 
 type ToolAction = Extract<AgentEvent, { kind: "tool" | "tool_update" }>;
 type RenderedItem =
@@ -525,35 +526,23 @@ export function ChatTimeline(p: {
         </div>
       )}
       {showJump && (
-        <div className="jump-pill">
-          <button
-            type="button"
-            title={t("chat.jump-last-message")}
-            onClick={() => {
+        <JumpNavigation
+          firstLabel={t("chat.jump-last-message")}
+          firstIcon={<svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round"><path d="M3.6 9.8L8 5.4l4.4 4.4" /></svg>}
+          onFirst={() => {
               const el = messagesRef.current;
               if (!el) return;
               const bubbles = el.querySelectorAll(".user-wrap");
               const last = bubbles[bubbles.length - 1] as HTMLElement | undefined;
               if (last) last.scrollIntoView({ behavior: "smooth", block: "start" });
-            }}
-          >
-            <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M3.6 9.8L8 5.4l4.4 4.4" />
-            </svg>
-            <span>{t("chat.jump-last-message")}</span>
-          </button>
-          <span className="jump-sep" />
-          <button
-            type="button"
-            title={t("chat.jump-bottom")}
-            onClick={() => {
+          }}
+          lastLabel={t("chat.jump-bottom")}
+          lastIcon={<ArrowDownIcon />}
+          onLast={() => {
               const el = messagesRef.current;
               if (el) el.scrollTo({ top: el.scrollHeight, behavior: "smooth" });
-            }}
-          >
-            <ArrowDownIcon />
-          </button>
-        </div>
+          }}
+        />
       )}
       </div>
     </>

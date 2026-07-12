@@ -92,7 +92,7 @@ describe("timeline Chat — caractérisation avant extraction", () => {
 
     const first = renderUi(<Chat {...chatProps({ events: before })} />);
     expect(screen.getByText("Réponse.")).toBeTruthy();
-    const row1 = document.querySelector(".tool-group-row") as HTMLElement;
+    const row1 = document.querySelector(".ui-activity-trigger") as HTMLElement;
     expect(row1).toBeTruthy();
     expect(screen.queryByText(/avant\.csv/)).toBeNull(); // replié par défaut
     act(() => { row1.click(); });
@@ -101,7 +101,7 @@ describe("timeline Chat — caractérisation avant extraction", () => {
 
     renderUi(<Chat {...chatProps({ events: after })} />);
     expect(screen.getByText("Réponse.")).toBeTruthy();
-    const row2 = document.querySelector(".tool-group-row") as HTMLElement;
+    const row2 = document.querySelector(".ui-activity-trigger") as HTMLElement;
     act(() => { row2.click(); });
     expect(screen.getByText(/apres\.csv/)).toBeTruthy();
   });
@@ -141,7 +141,7 @@ describe("timeline Chat — caractérisation avant extraction", () => {
     act(() => {
       messages.dispatchEvent(new Event("scroll", { bubbles: true }));
     });
-    expect(document.querySelector(".jump-pill")).toBeTruthy();
+    expect(document.querySelector(".ui-jumpnav")).toBeTruthy();
   });
 
   it("markdown, code et liens fichier conservent leur rendu", () => {

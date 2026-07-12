@@ -67,8 +67,9 @@ function languageFor(ext) {
 }
 
 // Huit profils exclusivement sombres. Sept viennent de thèmes CM6 maintenus;
-// Atelier Ink est le seul profil maison. `swatches` alimente l'aperçu du menu.
+// Atelier reprend fidèlement la palette historique de cmux-gallery.
 export const STUDIO_THEMES = [
+  {id: "atelier", label: "Atelier", swatches: ["#e07a5f", "#61afef", "#86c991"]},
   {id: "vscode-dark", label: "VS Code Dark+", swatches: ["#569cd6", "#c586c0", "#ce9178"]},
   {id: "dracula", label: "Dracula", swatches: ["#ff79c6", "#8be9fd", "#50fa7b"]},
   {id: "nord", label: "Nord", swatches: ["#81a1c1", "#88c0d0", "#a3be8c"]},
@@ -76,10 +77,14 @@ export const STUDIO_THEMES = [
   {id: "gruvbox-dark", label: "Gruvbox Dark", swatches: ["#fb4934", "#fabd2f", "#b8bb26"]},
   {id: "material-ocean", label: "Material Ocean", swatches: ["#c792ea", "#89ddff", "#c3e88d"]},
   {id: "solarized-dark", label: "Solarized Dark", swatches: ["#268bd2", "#b58900", "#2aa198"]},
-  {id: "atelier-ink", label: "Atelier Ink", swatches: ["#e7b75e", "#86aee8", "#a9c181"]},
 ];
 
 const THEME_PALETTES = {
+  atelier: {
+    bg: "var(--surface-app, #1e2126)", fg: "#d8d3c8", gutter: "#565e6b", gutterActive: "#d8d3c8", accent: "#5b9dff",
+    selection: "rgba(91,157,255,.38)", active: "rgba(255,255,255,.035)", panel: "var(--surface-panel, #181b20)", surface: "var(--surface-inset, #24282d)", border: "var(--border-subtle, #383c41)",
+    comment: "#707985", keyword: "#e07a5f", fn: "#61afef", type: "#c678dd", variable: "#d8d3c8", prop: "#e6c07b", string: "#86c991", constant: "#d19a66", punct: "#abb2bf", meta: "#61afef", regexp: "#86c991", escape: "#e6c07b",
+  },
   "vscode-dark": {bg: "#1e1e1e", fg: "#d4d4d4", gutter: "#838383", gutterActive: "#ffffff", accent: "#c6c6c6", selection: "#6199ff2f", active: "#ffffff0f", panel: "#181818", surface: "#252526", border: "#3c3c3c"},
   dracula: {bg: "#282a36", fg: "#f8f8f2", gutter: "#6d8a88", gutterActive: "#f8f8f2", accent: "#f8f8f0", selection: "rgba(255,255,255,.1)", active: "rgba(255,255,255,.1)", panel: "#21222c", surface: "#343746", border: "#44475a"},
   nord: {bg: "#2e3440", fg: "#eceff4", gutter: "#4c566a", gutterActive: "#d8dee9", accent: "#88c0d0", selection: "#00000073", active: "#4c566a29", panel: "#272c36", surface: "#3b4252", border: "#4c566a"},
@@ -87,10 +92,6 @@ const THEME_PALETTES = {
   "gruvbox-dark": {bg: "#282828", fg: "#ebdbb2", gutter: "#7c6f64", gutterActive: "#ebdbb2", accent: "#fabd2f", selection: "#b99d555c", active: "#baa1602b", panel: "#1d2021", surface: "#3c3836", border: "#504945"},
   "material-ocean": {bg: "#2e3235", fg: "#bdbdbd", gutter: "#777777", gutterActive: "#cfd8dc", accent: "#a0a4ae", selection: "#d7d4f063", active: "#545b6130", panel: "#25282a", surface: "#343a3e", border: "#4f5b66"},
   "solarized-dark": {bg: "#002b36", fg: "#839496", gutter: "#586e75", gutterActive: "#eee8d5", accent: "#d30102", selection: "#004454aa", active: "#00cafe11", panel: "#00232c", surface: "#073642", border: "#586e75"},
-  "atelier-ink": {
-    bg: "#14171b", fg: "#d9dee7", gutter: "#606a79", gutterActive: "#aeb8c6", accent: "#e7b75e", selection: "#354b66", active: "rgba(134,174,232,.055)", panel: "#101216", surface: "#20242a", border: "#363d48",
-    comment: "#6f7b8b", keyword: "#d6a467", fn: "#86aee8", type: "#e5bd78", variable: "#d9dee7", prop: "#8fc6c3", string: "#a9c181", constant: "#c7a0d8", punct: "#9aa4b2", meta: "#79b8d1", regexp: "#8fc6c3", escape: "#e5bd78",
-  },
 };
 
 const MAINTAINED_THEME_EXTENSIONS = {
@@ -104,9 +105,9 @@ const MAINTAINED_THEME_EXTENSIONS = {
 };
 
 function normalizeThemeId(id) {
-  const legacyThemes = {graphite: "atelier-ink", obsidian: "vscode-dark", midnight: "nord", carbon: "gruvbox-dark", "github-dark": "vscode-dark", "one-dark": "vscode-dark", "tokyo-night": "nord", "catppuccin-mocha": "dracula"};
+  const legacyThemes = {"atelier-ink": "atelier", graphite: "atelier", obsidian: "vscode-dark", midnight: "nord", carbon: "gruvbox-dark", "github-dark": "vscode-dark", "one-dark": "vscode-dark", "tokyo-night": "nord", "catppuccin-mocha": "dracula"};
   const normalized = legacyThemes[id] || id;
-  return STUDIO_THEMES.some((theme) => theme.id === normalized) ? normalized : "vscode-dark";
+  return STUDIO_THEMES.some((theme) => theme.id === normalized) ? normalized : "atelier";
 }
 
 function themeExtensions(id) {
@@ -124,7 +125,7 @@ function themeExtensions(id) {
     "&.cm-focused .cm-cursor": {borderLeftColor: p.accent, borderLeftWidth: "2px"},
     "&.cm-focused .cm-selectionBackground, .cm-selectionBackground, ::selection": {backgroundColor: p.selection},
     ".cm-activeLine": {backgroundColor: p.active},
-    ".cm-gutters": {color: `${p.gutter} !important`, backgroundColor: `${p.bg} !important`, borderRight: `1px solid ${p.border}55 !important`},
+    ".cm-gutters": {color: `${p.gutter} !important`, backgroundColor: `${p.bg} !important`, borderRight: `1px solid ${p.border} !important`},
     ".cm-lineNumbers .cm-gutterElement": {padding: "0 12px 0 8px"},
     ".cm-activeLineGutter": {color: p.gutterActive, backgroundColor: p.active},
     ".cm-foldPlaceholder": {color: p.gutterActive, backgroundColor: p.surface, border: `1px solid ${p.border}`},

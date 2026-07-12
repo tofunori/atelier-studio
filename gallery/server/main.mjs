@@ -140,7 +140,11 @@ function maybeInjectSelectionOverlay(req, res, file, urlPath) {
 
 async function handleStatic(req, res, url) {
   const urlPath = url.pathname;
-  if (urlPath === "/" && req.method === "GET" && await serveLiveShell(res)) return true;
+  // L'app Atelier ouvre explicitement /figures_index.html alors que les
+  // navigateurs utilisent souvent /. Les deux doivent être une vue du même
+  // template embarqué; ne jamais servir la coquille historique du projet.
+  if ((urlPath === "/" || urlPath === "/figures_index.html") &&
+      req.method === "GET" && await serveLiveShell(res)) return true;
   const asset = assetFallbackPath(urlPath);
   let file = asset && fs.existsSync(asset) ? asset : null;
   if (!file) file = projectStaticPath(urlPath);

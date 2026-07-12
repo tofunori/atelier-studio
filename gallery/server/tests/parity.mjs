@@ -400,6 +400,9 @@ async function main() {
     }
     r = await request(nodePort, "/");
     assert.equal(r.status, 200, "node / serves figures_index.html after rescan");
+    const explicitShell = await request(nodePort, "/figures_index.html");
+    assert.equal(explicitShell.status, 200, "node /figures_index.html serves the live shell");
+    assert.equal(explicitShell.body.toString(), r.body.toString(), "both gallery entry URLs share the same live template");
 
     console.log("parity: ok");
   } finally {

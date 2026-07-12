@@ -11,6 +11,7 @@ const GeneratorSurface = lazyWithRetry(() => import("./GeneratorSurface"));
 import { t } from "../lib/i18n";
 import { CloseIcon, HomeIcon, RefreshIcon } from "./icons";
 import { DocumentTabMeta } from "./AtelierHeaders";
+import { Tab, TabList } from "./ui";
 import { IconButton } from "./ui";
 import type { Surface } from "./surfaces";
 
@@ -223,20 +224,25 @@ export default function AtelierPane({
       <div className="surface-body pane-slot" style={slotStyle("atelier")}>
         {/* Header unique Gallery / IDE : le bouton de contexte change d'icône,
             mais les onglets de documents restent toujours accessibles. */}
-        <div className="atelier-bar">
-          <button
-            type="button"
-            className={`atab atelier-home ${activeTab === "gallery" ? "on" : "icon-only"}`}
+        <TabList className="atelier-bar">
+          <Tab
+            compact
+            active={activeTab === "gallery"}
+            className="atelier-home"
+            label={t("atelier.gallery")}
+            icon={<HomeIcon size={15} />}
             onClick={() => onSelectTab("gallery")}
             title={t("atelier.gallery")}
-            aria-label={t("atelier.gallery")}
-          >
-            <HomeIcon size={15} />
-          </button>
+          />
           {documentTabs.map((tab) => (
-            <button
+            <Tab
               key={tab.id}
-              className={`atab ${activeTab === tab.id ? "on" : ""} ${overId === tab.id && dragId && dragId !== tab.id ? "drop-target" : ""}`}
+              active={activeTab === tab.id}
+              label={tab.title}
+              closeLabel={`Fermer ${tab.title}`}
+              closeIcon={<CloseIcon />}
+              onClose={() => onCloseTab(tab.id)}
+              className={overId === tab.id && dragId && dragId !== tab.id ? "drop-target" : ""}
               onClick={() => onSelectTab(tab.id)}
               draggable
               onDragStart={(e) => { setDragId(tab.id); e.dataTransfer.effectAllowed = "move"; }}
@@ -252,11 +258,8 @@ export default function AtelierPane({
             >
               {tab.color && <span className="atab-dot" style={{ background: tab.color }} />}
               {tab.pinned && <span className="atab-pin">⌖</span>}
-              <span className="atab-title">{tab.title}</span>
-              <span className="atab-x" onClick={(e) => { e.stopPropagation(); onCloseTab(tab.id); }}>
-                <CloseIcon />
-              </span>
-            </button>
+              {tab.title}
+            </Tab>
           ))}
           <span className="flex" />
           {activeTab === "gallery" && onGalleryReload && (
@@ -268,7 +271,7 @@ export default function AtelierPane({
           {activeDocumentRel && (
             <DocumentTabMeta rel={activeDocumentRel} onInspect={onInspectFile} />
           )}
-        </div>
+        </TabList>
         <div className="atelier-split">
         <div className="atelier-body">
           {/* écran d'accueil IDE : montré par le bouton IDE du rail quand aucun

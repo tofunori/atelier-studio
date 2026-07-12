@@ -44,24 +44,24 @@ afterEach(cleanup);
 describe("anatomie du tour — header d'activité", () => {
   it("tour terminé : header « Activité · 2 étapes · durée », replié par défaut", () => {
     renderUi(<Chat {...chatProps({ events: finishedTurn() })} />);
-    const fold = document.querySelector(".turn-fold") as HTMLButtonElement;
+    const fold = document.querySelector(".ui-activity.is-summary .ui-activity-trigger") as HTMLButtonElement;
     expect(fold).toBeTruthy();
     expect(fold.getAttribute("aria-expanded")).toBe("false");
     expect(fold.textContent).toContain(t("chat.activity"));
     expect(fold.textContent).toContain(t("chat.activity-steps", { n: 2 }));
     expect(fold.textContent).toContain("1s"); // durée user→done (600 ms → ≥1s)
     // replié : le détail des outils n'est pas rendu
-    expect(document.querySelector(".tool-group-row")).toBeNull();
+    expect(document.querySelector(".ui-activity:not(.is-summary)")).toBeNull();
   });
 
   it("clic déplie le détail des outils ; aria-expanded suit", () => {
     renderUi(<Chat {...chatProps({ events: finishedTurn() })} />);
-    const fold = document.querySelector(".turn-fold") as HTMLButtonElement;
+    const fold = document.querySelector(".ui-activity.is-summary .ui-activity-trigger") as HTMLButtonElement;
     fireEvent.click(fold);
     expect(fold.getAttribute("aria-expanded")).toBe("true");
-    expect(document.querySelectorAll(".tool-group-row")).toHaveLength(2);
-    expect(document.querySelectorAll(".tool-group.worklog.completed")).toHaveLength(2);
-    expect(document.querySelectorAll(".worklog-summary")[0]?.textContent).toContain("Read");
+    expect(document.querySelectorAll(".ui-activity:not(.is-summary)")).toHaveLength(2);
+    expect(document.querySelectorAll(".ui-activity.is-completed:not(.is-summary)")).toHaveLength(2);
+    expect(document.querySelectorAll(".ui-activity-label")[1]?.textContent).toContain("Read");
   });
 
   it("l'erreur d'un tour reste visible même pli fermé", () => {
@@ -73,7 +73,7 @@ describe("anatomie du tour — header d'activité", () => {
       events.done({ ok: false, ts: FIXED_TS + 700 }),
     ];
     renderUi(<Chat {...chatProps({ events: evs })} />);
-    expect(document.querySelector(".turn-fold")).toBeTruthy(); // pli présent
+    expect(document.querySelector(".ui-activity.is-summary")).toBeTruthy(); // pli présent
     expect(screen.getByText(/provider indisponible/)).toBeTruthy(); // erreur hors pli
   });
 
@@ -90,7 +90,7 @@ describe("anatomie du tour — header d'activité", () => {
     expect(document.querySelector(".edit-line")?.textContent).toContain("plot.py");
     expect(document.querySelector(".edit-line")?.textContent).toContain("+5");
     expect(document.querySelector(".edit-line")?.textContent).toContain("-3");
-    expect(document.querySelector(".tool-group.worklog")).toBeNull();
+    expect(document.querySelector(".ui-activity:not(.is-summary)")).toBeNull();
   });
 
   it("sort du chargement et montre l'erreur quand gitDiff échoue", () => {
@@ -110,7 +110,7 @@ describe("anatomie du tour — header d'activité", () => {
 
   it("aucun chevron texte ▸/▾ dans le fil", () => {
     renderUi(<Chat {...chatProps({ events: finishedTurn() })} />);
-    fireEvent.click(document.querySelector(".turn-fold") as HTMLButtonElement);
+    fireEvent.click(document.querySelector(".ui-activity.is-summary .ui-activity-trigger") as HTMLButtonElement);
     expect(document.body.textContent).not.toMatch(/[▸▾]/);
   });
 });

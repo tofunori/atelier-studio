@@ -223,3 +223,41 @@
 .ui-ctxchip button.label { font: inherit; color: inherit; padding: 0; text-align: left; }
 /* wrapper Tooltip : neutre pour la mise en page (les handlers vivent dessus) */
 .ui-tooltip-wrap { display: inline-flex; }
+
+/* ---- Tabs — navigation dockée compacte, neutre ------------------------- */
+.ui-tabs { display: flex; align-items: center; gap: var(--sp-1); }
+.ui-tab { position: relative; display: inline-flex; align-items: center; height: 28px; max-width: 168px;
+  gap: 5px; padding: 0 var(--sp-2); border: 0; border-radius: 2px; background: transparent;
+  color: var(--text-muted); font: 400 var(--fs-body-s)/1 var(--font-chrome); cursor: pointer;
+  transition: background-color var(--motion-fast) var(--ease-out), color var(--motion-fast) var(--ease-out), opacity var(--motion-fast) var(--ease-out); }
+.ui-tab:hover { color: var(--text-secondary); background: color-mix(in srgb, var(--surface-inset) 42%, transparent); }
+.ui-tab.is-active { color: var(--text-primary); background: color-mix(in srgb, var(--surface-inset) 34%, transparent); }
+.ui-tab.is-active::after { content: ""; position: absolute; left: 6px; right: 6px; bottom: 0; height: 1px; background: var(--border-strong); opacity: .72; }
+.ui-tab.is-compact { width: 30px; min-width: 30px; padding: 0; justify-content: center; }
+.ui-tab-icon, .ui-tab-close { display: inline-flex; align-items: center; justify-content: center; flex: none; }
+.ui-tab-label { min-width: 0; display: inline-flex; align-items: center; gap: 5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ui-tab-close { color: var(--text-disabled); opacity: .42; border-radius: 2px; }
+.ui-tab:hover .ui-tab-close, .ui-tab:focus-within .ui-tab-close, .ui-tab.is-active .ui-tab-close { opacity: .86; }
+.ui-tab-close:hover { color: var(--status-error); }
+.ui-tab.drop-target { box-shadow: inset 2px 0 0 var(--border-strong); }
+
+/* ---- ActivityDisclosure — journal sans carte --------------------------- */
+.ui-activity { max-width: min(760px, 100%); margin: 2px auto; color: var(--text-muted); font-size: var(--fs-body-s); }
+.ui-activity-trigger { width: 100%; display: grid; grid-template-columns: 7px 15px minmax(0,1fr) auto 10px; align-items: center; gap: 7px;
+  padding: 3px 0; border: 0; background: transparent; color: inherit; font: inherit; text-align: left; cursor: pointer; }
+.ui-activity.is-summary .ui-activity-trigger { width: auto; display: inline-flex; }
+.ui-activity-status { width: 6px; height: 6px; border-radius: var(--radius-pill); background: var(--status-success); }
+.ui-activity.is-running .ui-activity-status { background: var(--status-running); }
+.ui-activity.is-failed .ui-activity-status { background: var(--status-error); }
+.ui-activity-label { color: var(--text-secondary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ui-activity-meta { color: var(--text-disabled); font-size: var(--fs-caption); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.ui-activity-detail { margin: 5px 0 4px 3px; padding: 2px 0 2px 17px; border-left: 1px solid var(--border-interactive); }
+
+/* ---- JumpNavigation — overlay borné à la timeline ---------------------- */
+.ui-jumpnav { position: absolute; bottom: var(--sp-3); left: 50%; transform: translateX(-50%); display: flex; align-items: center;
+  z-index: var(--z-sticky); background: var(--surface-raised); border: 1px solid var(--border-default); border-radius: var(--radius-pill);
+  overflow: hidden; box-shadow: var(--elevation-overlay); }
+.ui-jumpnav button { display: flex; align-items: center; gap: 7px; padding: 7px 13px; background: transparent; border: 0;
+  color: var(--text-secondary); font-size: var(--fs-body-s); cursor: pointer; }
+.ui-jumpnav button:hover { background: var(--surface-inset); color: var(--text-primary); }
+.ui-jumpnav-separator { width: 1px; align-self: stretch; background: var(--border-subtle); }

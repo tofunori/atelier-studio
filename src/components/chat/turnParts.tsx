@@ -7,6 +7,7 @@ import { wsSend } from "../../lib/wsBus";
 import { t } from "../../lib/i18n";
 import { diffLineClass, openFileRef } from "./md";
 import { Tick } from "./toolPresentation";
+import { ActivityDisclosure } from "../ui";
 
 export function DoneDiffToggle({ event, threadId }: {
   event: Extract<AgentEvent, { kind: "done" }>;
@@ -248,16 +249,12 @@ export function ActivityCard({ event, live }: { event: Extract<AgentEvent, { kin
   const [manualOpen, setManualOpen] = useState<boolean | null>(null);
   const open = manualOpen ?? live;
   const steps = event.steps ?? [];
+  const status = event.status === "failed" ? "failed" : live || event.status === "running" ? "running" : "completed";
   return (
-    <div className={`activity-card ${event.status ?? "running"} ${live ? "live" : ""}`}>
-      <button type="button" className="activity-head" onClick={() => setManualOpen((v) => !(v ?? live))}>
-        <span className="activity-pulse" aria-hidden="true" />
-        <span className="activity-title">{event.title}</span>
-        {event.detail && <span className="activity-detail">{event.detail}</span>}
-        {steps.length > 0 && <span className="activity-count">{t("chat.actions-used", { count: steps.length })}</span>}
-        <Tick open={open} />
-      </button>
-      {open && steps.length > 0 && (
+    <ActivityDisclosure open={open} status={status}
+      onToggle={() => setManualOpen((v) => !(v ?? live))}
+      label={<><span className="activity-title">{event.title}</span>{event.detail && <span className="activity-detail">{event.detail}</span>}</>}
+      meta={steps.length > 0 ? t("chat.actions-used", { count: steps.length }) : undefined}>
         <div className="activity-steps">
           {steps.map((step, idx) => (
             <div key={`${step.title}-${idx}`} className={`activity-step ${step.status ?? "running"}`}>
@@ -267,8 +264,7 @@ export function ActivityCard({ event, live }: { event: Extract<AgentEvent, { kin
             </div>
           ))}
         </div>
-      )}
-    </div>
+    </ActivityDisclosure>
   );
 }
 

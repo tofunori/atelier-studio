@@ -10,8 +10,8 @@ import { normalizeMathDelimiters, hardenPartialMarkdown } from "../../lib/markdo
 import { CopyIcon, ForkIcon, ResumeIcon } from "../icons";
 import { MD_COMPONENTS, MD_COMPONENTS_STREAMING, useMdPlugins } from "./md";
 import { DoneDiffToggle, fmtTime, PinBtn } from "./turnParts";
-import { Tick, ToolGlyph, groupIconCat, summarizeTools } from "./toolPresentation";
-import { Button, EmptyState } from "../ui";
+import { groupIconCat, summarizeTools } from "./toolPresentation";
+import { ActivityDisclosure, Button, EmptyState } from "../ui";
 
 type TimeFormat = "system" | "24h" | "12h" | undefined;
 type UserEvent = Extract<AgentEvent, { kind: "user" }>;
@@ -306,19 +306,13 @@ export function ActivityFold(p: {
   onToggle: () => void;
 }) {
   return (
-    <button
-      type="button"
-      className={`turn-fold ${p.open ? "open" : ""}`}
-      aria-expanded={p.open}
-      onClick={p.onToggle}
-    >
-      <Tick open={p.open} />
-      <span className="turn-fold-label">{t("chat.activity")}</span>
-      <span className="turn-fold-meta">
+    <ActivityDisclosure summary open={p.open} onToggle={p.onToggle}
+      label={<span className="turn-fold-label">{t("chat.activity")}</span>}
+      meta={<span className="turn-fold-meta">
         {t("chat.activity-steps", { n: p.fold.count })}
         {p.duration != null ? ` · ${p.duration}` : ""}
-      </span>
-    </button>
+      </span>}
+    />
   );
 }
 
@@ -337,23 +331,12 @@ export function ActivityGroup(p: {
   const names = [...new Set(p.actions.map((action) => eventLabel(action.name)))];
   const summary = names.length === 1 ? names[0] : summarizeTools(p.actions);
   return (
-    <div className={`tool-group worklog ${status}`}>
-      <button
-        type="button"
-        className="tool-group-row"
-        onClick={p.onToggle}
-      >
-        <span className="worklog-status" aria-hidden="true" />
-        <span className="tool-group-ico"><ToolGlyph cat={groupIconCat(p.actions)} /></span>
-        <span className="worklog-summary">{summary}</span>
-        <span className="worklog-meta">{duration ?? (status === "running" ? t("chat.working") : "")}</span>
-        <Tick open={p.open} />
-      </button>
-      {p.open && (
+    <ActivityDisclosure open={p.open} onToggle={p.onToggle} status={status}
+      icon={groupIconCat(p.actions)} label={summary}
+      meta={duration ?? (status === "running" ? t("chat.working") : "")}>
         <div className="tool-group-list">
           {p.actions.map((action, offset) => p.renderToolLine(action, offset))}
         </div>
-      )}
-    </div>
+    </ActivityDisclosure>
   );
 }

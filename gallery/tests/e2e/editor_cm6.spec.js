@@ -146,18 +146,18 @@ test('CM6 propose huit vrais thèmes sombres et les persiste entre éditeurs', a
     await expect.poll(() => tokens.count()).toBeGreaterThan(3);
     const colors = await tokens.evaluateAll(nodes => [...new Set(nodes.map(node => getComputedStyle(node).color))]);
     expect(colors.length).toBeGreaterThanOrEqual(2);
-    await expect(page.locator('.cm-editor')).toHaveCSS('background-color', 'rgb(30, 30, 30)');
+    await expect(page.locator('.cm-editor')).toHaveCSS('background-color', 'rgb(30, 33, 38)');
 
     const themeTrigger = page.getByRole('button', {name: "Thème de l'éditeur"});
     await expect(themeTrigger).toBeVisible();
     const themeCases = [
+      ['Atelier', 'rgb(30, 33, 38)'],
       ['VS Code Dark+', 'rgb(30, 30, 30)'],
       ['Nord', 'rgb(46, 52, 64)'],
       ['Monokai', 'rgb(39, 40, 34)'],
       ['Gruvbox Dark', 'rgb(40, 40, 40)'],
       ['Material Ocean', 'rgb(46, 50, 53)'],
       ['Solarized Dark', 'rgb(0, 43, 54)'],
-      ['Atelier Ink', 'rgb(20, 23, 27)'],
       ['Dracula', 'rgb(40, 42, 54)'],
     ];
     for (const [label, background] of themeCases) {

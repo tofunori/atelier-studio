@@ -422,7 +422,7 @@ describe("orchestration App — caractérisation", () => {
 
     // les DEUX actions existent : le tool du turn 2 ne remplace pas celui du
     // turn 1 (détails visibles en dépliant chaque groupe d'outils)
-    const rows = [...document.querySelectorAll(".tool-group-row")] as HTMLElement[];
+    const rows = [...document.querySelectorAll(".ui-activity-trigger")] as HTMLElement[];
     expect(rows.length).toBeGreaterThanOrEqual(2);
     await act(async () => {
       rows.forEach((r) => r.click());

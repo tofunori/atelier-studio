@@ -91,16 +91,25 @@ describe("contrat Quiet Instrument (sources CSS)", () => {
 
   it("les tabs Atelier restent compacts et neutres, sans accent de marque", () => {
     expect(appCss).toMatch(/\.sidebar li\.active::before\s*\{[\s\S]*?background:\s*var\(--selection-line\)/);
-    expect(appCss).toMatch(/\.term-bar \.atab, \.atelier-bar \.atab\s*\{[\s\S]*?height:\s*28px/);
-    expect(appCss).toMatch(/\.term-bar \.atab\.on, \.atelier-bar \.atab\.on\s*\{[\s\S]*?box-shadow:\s*none/);
-    expect(appCss).not.toMatch(/\.atelier-bar \.atab\.on\s*\{[^}]*var\(--selection-line\)/);
+    expect(primitives).toMatch(/\.ui-tab\s*\{[\s\S]*?height:\s*28px/);
+    expect(primitives).toMatch(/\.ui-tab\.is-active::after\s*\{[\s\S]*?background:\s*var\(--border-strong\)/);
+    expect(primitives).not.toMatch(/\.ui-tab\.is-active[^}]*var\(--selection-line\)/);
+  });
+
+  it("les patterns officiels n'ont plus de seconde implémentation dans App.css", () => {
+    for (const legacy of [".atab {", ".jump-pill {", ".tool-group.worklog", ".turn-fold {"]) {
+      expect(appCss.includes(legacy), `ancienne implémentation encore présente: ${legacy}`).toBe(false);
+    }
+    for (const primitive of [".ui-tab {", ".ui-activity {", ".ui-jumpnav {"]) {
+      expect(primitives.includes(primitive), `primitive absente: ${primitive}`).toBe(true);
+    }
   });
 
   it("les surfaces interactives partagent les durées Quiet Instrument", () => {
     expect(appCss).toMatch(/\.exp-row, \.pnav-row, \.set-nav-item,[\s\S]*?background-color var\(--motion-fast\) var\(--ease-out\)/);
     expect(appCss).toMatch(/box-shadow var\(--motion-standard\) var\(--ease-out\)/);
-    expect(appCss).toMatch(/\.atab-x\s*\{\s*opacity:\s*\.42/);
-    expect(appCss).toMatch(/\.atab:hover \.atab-x,[\s\S]*?opacity:\s*\.86/);
+    expect(primitives).toMatch(/\.ui-tab-close\s*\{[^}]*opacity:\s*\.42/);
+    expect(primitives).toMatch(/\.ui-tab:hover \.ui-tab-close,[\s\S]*?opacity:\s*\.86/);
   });
 
   it("les iframes Atelier ne révèlent jamais un fond blanc dans leur gouttière", () => {
