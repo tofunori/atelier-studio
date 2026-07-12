@@ -32,6 +32,8 @@ jobs:
         run: cd sidecar && npm ci
       - name: Install gallery deps
         run: npm --prefix gallery ci
+      - name: Install shared protocol deps
+        run: npm --prefix packages/atelier-protocol ci
       - name: Install Playwright Chromium
         run: cd gallery && npx playwright install chromium
       - name: Stage bundled resources for Tauri checks
