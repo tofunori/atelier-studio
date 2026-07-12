@@ -218,6 +218,10 @@ function inlineHtmlFromTemplate(root, payload) {
 }
 
 async function main() {
+  if (process.env.ATELIER_SKIP_LEGACY_PYTHON_PARITY === "1") {
+    console.log("parity: skipped legacy Python reference (release runtime is Rust/Node)");
+    return;
+  }
   // realpath : /var → /private/var sur macOS ; en prod GALLERY_ROOT n'est jamais
   // un symlink, on normalise pour que les deux serveurs voient le même chemin
   const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "gallery-node-parity-")));

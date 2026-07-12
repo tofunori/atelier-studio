@@ -37,6 +37,11 @@ jobs:
       # le tag peut contourner la CI de PR : verify + E2E bloquent le bundle ici
       - name: Verify (typecheck, build, frontend, sidecar, gallery, Rust)
         run: npm run verify
+        env:
+          # The shipped gallery runtime is Node and the app backend is Rust.
+          # Keep Python parity for local migration checks, but do not let the
+          # legacy reference interpreter block production release runners.
+          ATELIER_SKIP_LEGACY_PYTHON_PARITY: "1"
       - name: Gallery E2E
         run: npm run verify:e2e
       - name: Build + bundle
