@@ -237,16 +237,17 @@ async function main() {
     ...commonEnv,
     FIG_PORT: String(pyPort),
   }, root);
-  const node = startServer(process.execPath, [path.join(SERVER_DIR, "main.mjs")], {
-    ...commonEnv,
-    FIG_PORT: String(nodePort),
-  }, root);
+  let node;
 
   try {
-    await Promise.all([
-      waitForPing(pyPort, py, "Python gallery server"),
-      waitForPing(nodePort, node, "Node gallery server"),
-    ]);
+    // Start the legacy reference first. On cold macOS CI runners, launching both
+    // implementations concurrently can leave Python alive but stuck before bind.
+    await waitForPing(pyPort, py, "Python gallery server");
+    node = startServer(process.execPath, [path.join(SERVER_DIR, "main.mjs")], {
+      ...commonEnv,
+      FIG_PORT: String(nodePort),
+    }, root);
+    await waitForPing(nodePort, node, "Node gallery server");
 
     const healthRes = await request(nodePort, "/health");
     assert.equal(healthRes.status, 200, "GET /health status");
@@ -441,10 +442,10 @@ async function main() {
     console.log("parity: ok");
   } finally {
     py.kill("SIGTERM");
-    node.kill("SIGTERM");
+    node?.kill("SIGTERM");
     await Promise.allSettled([
       new Promise((resolve) => py.once("exit", resolve)),
-      new Promise((resolve) => node.once("exit", resolve)),
+      ...(node ? [new Promise((resolve) => node.once("exit", resolve))] : []),
     ]);
     fs.rmSync(root, { recursive: true, force: true });
     fs.rmSync(home, { recursive: true, force: true });
