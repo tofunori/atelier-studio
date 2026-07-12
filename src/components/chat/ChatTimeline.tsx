@@ -200,6 +200,7 @@ export function ChatTimeline(p: {
           ) : null}
         </div>
       )}
+      <div className="timeline-scroll-wrap">
       <div
         className="messages"
         ref={messagesRef}
@@ -554,6 +555,7 @@ export function ChatTimeline(p: {
           </button>
         </div>
       )}
+      </div>
     </>
   );
 }
