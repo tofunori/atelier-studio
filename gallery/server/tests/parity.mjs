@@ -228,6 +228,15 @@ async function main() {
     assert.equal(typeof health.bundleHash, "string");
     assert.ok(health.bundleHash.length >= 16, "health has bundle hash");
 
+    // Le serveur Node bâtit l'index au boot. Attendre ce contrat avant /rev,
+    // sinon Python peut lire 0 pendant que Node vient juste de créer le fichier.
+    let rootRes = await request(nodePort, "/");
+    for (let attempt = 0; rootRes.status !== 200 && attempt < 50; attempt++) {
+      await new Promise((resolve) => setTimeout(resolve, 100));
+      rootRes = await request(nodePort, "/");
+    }
+    assert.equal(rootRes.status, 200, "node / serves the boot-built index");
+
     const routes = [
       "/ping",
       "/state",
@@ -254,10 +263,6 @@ async function main() {
     const nodeThumb = await request(nodePort, thumbRoute);
     assert.equal(nodeThumb.status, pyThumb.status, "thumb status");
     assert.deepEqual(pngDimensions(nodeThumb.body), pngDimensions(pyThumb.body), "thumb dimensions");
-
-    const rootRes = await request(nodePort, "/");
-    // boot-build : le serveur bâtit la galerie au démarrage si absente
-    assert.equal(rootRes.status, 200, "node / serves the boot-built index");
 
     let r = await request(nodePort, "/state", {
       method: "POST",
