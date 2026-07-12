@@ -7,7 +7,7 @@ import { buildHighlightContext } from "../lib/highlightContext";
 import type { HighlightEntry } from "./Rail";
 import { CloseIcon } from "./icons";
 import { ProviderInfo } from "../lib/providers";
-import { ToolOutputLine, isSummarizableTool, Tick } from "./chat/toolPresentation";
+import { ToolOutputLine, isSummarizableTool, Tick, toolCategory } from "./chat/toolPresentation";
 import { ChatTimeline } from "./chat/ChatTimeline";
 import { ChatHeader } from "./chat/ChatHeader";
 import type { ResearchHomeBundle } from "./ResearchHome";
@@ -667,6 +667,46 @@ export default function Chat(p: {
   // (narration, outils, réflexion) se replie en une ligne dépliable. Restent
   // visibles : le bloc final (texte de réponse, cartes edit, todos, erreurs).
   type TurnFold = { key: string; start: number; end: number; count: number; ms: number | null };
+  type EditEvent = Extract<AgentEvent, { kind: "edit" }>;
+
+  // Une séquence d'Edit produit souvent deux événements (outil technique puis
+  // fichier édité) et peut réécrire le même fichier plusieurs fois. Pour le
+  // fil visible, garder une seule synthèse cumulative par tour et par fichier.
+  // Le diff demandé reste le diff Git courant, donc aucune information utile
+  // n'est perdue dans le détail déplié.
+  const mergedEdits = new Map<number, EditEvent>();
+  const editTurns = new Set<number>();
+  {
+    let start = 0;
+    while (start < p.events.length) {
+      const userAt = p.events.findIndex((event, index) => index >= start && event.kind === "user");
+      if (userAt < 0) break;
+      const doneOffset = p.events.slice(userAt + 1).findIndex((event) => event.kind === "done");
+      const end = doneOffset < 0 ? p.events.length : userAt + 1 + doneOffset;
+      const files = new Map<string, { path: string; add: number | null; del: number | null }>();
+      let lastEdit = -1;
+      let projectRoot: string | null | undefined;
+      for (let index = userAt + 1; index < end; index++) {
+        const event = p.events[index];
+        if (event.kind !== "edit") continue;
+        lastEdit = index;
+        projectRoot = event.projectRoot;
+        for (const file of event.files ?? []) {
+          const previous = files.get(file.path);
+          files.set(file.path, {
+            path: file.path,
+            add: file.add == null && previous?.add == null ? null : (previous?.add ?? 0) + (file.add ?? 0),
+            del: file.del == null && previous?.del == null ? null : (previous?.del ?? 0) + (file.del ?? 0),
+          });
+        }
+      }
+      if (lastEdit >= 0) {
+        for (let index = userAt + 1; index < end; index++) editTurns.add(index);
+        mergedEdits.set(lastEdit, { kind: "edit", projectRoot, files: [...files.values()], ts: (p.events[lastEdit] as EditEvent).ts });
+      }
+      start = end + 1;
+    }
+  }
   const turnFolds = new Map<number, TurnFold>();
   {
     // "interaction" suit le précédent "permission" : gardé visible en fin de
@@ -713,6 +753,15 @@ export default function Chat(p: {
       if (!open) { i = fold.end - 1; continue; }
     }
     const e = p.events[i];
+    // L'événement humain « Edited fichier » remplace l'appel Edit redondant.
+    if (isSummarizableTool(e) && editTurns.has(i) && toolCategory(e.name, "detail" in e ? e.detail : undefined) === "edit") {
+      continue;
+    }
+    if (e.kind === "edit") {
+      const merged = mergedEdits.get(i);
+      if (merged) renderedEvents.push({ type: "event", event: merged, index: i });
+      continue;
+    }
     // les sentinelles (__thinking, __compacted…) et non-outils gardent leur ligne
     if (!isSummarizableTool(e)) {
       renderedEvents.push({ type: "event", event: e, index: i });

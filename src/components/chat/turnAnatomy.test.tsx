@@ -77,6 +77,22 @@ describe("anatomie du tour — header d'activité", () => {
     expect(screen.getByText(/provider indisponible/)).toBeTruthy(); // erreur hors pli
   });
 
+  it("fusionne les appels Edit et les éditions répétées du même fichier", () => {
+    const evs: AgentEvent[] = [
+      events.user("Améliore la figure.", FIXED_TS),
+      { kind: "tool_update", id: "edit-1", name: "Edit", output: "", status: "completed", durationMs: 117 },
+      { kind: "edit", files: [{ path: "scripts/plot.py", add: 2, del: 1 }] },
+      { kind: "tool_update", id: "edit-2", name: "Edit", output: "", status: "completed", durationMs: 140 },
+      { kind: "edit", files: [{ path: "scripts/plot.py", add: 3, del: 2 }] },
+    ] as AgentEvent[];
+    renderUi(<Chat {...chatProps({ events: evs, workingSince: FIXED_TS })} />);
+    expect(document.querySelectorAll(".edit-line")).toHaveLength(1);
+    expect(document.querySelector(".edit-line")?.textContent).toContain("plot.py");
+    expect(document.querySelector(".edit-line")?.textContent).toContain("+5");
+    expect(document.querySelector(".edit-line")?.textContent).toContain("-3");
+    expect(document.querySelector(".tool-group.worklog")).toBeNull();
+  });
+
   it("aucun chevron texte ▸/▾ dans le fil", () => {
     renderUi(<Chat {...chatProps({ events: finishedTurn() })} />);
     fireEvent.click(document.querySelector(".turn-fold") as HTMLButtonElement);

@@ -1,11 +1,18 @@
 //! Contract types shared by the Rust backend and contract tests.
 //! Shapes must stay compatible with the historical Node sidecar (`sidecar/index.mjs`).
+//!
+//! Remote/mobile envelopes (plan 034 jalon B) live in [`remote`] and mirror
+//! `packages/atelier-protocol` (TypeScript). Wire negotiation uses
+//! [`remote::PROTOCOL_VERSION`]; the historical constant below remains for
+//! R1 health/docs and equals the remote version today.
 
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-/// Protocol version for future negotiation (not yet on the wire).
-pub const PROTOCOL_VERSION: u32 = 1;
+pub mod remote;
+
+/// Historical R1 constant — prefer `remote::PROTOCOL_VERSION` for new code.
+pub const PROTOCOL_VERSION: u32 = remote::PROTOCOL_VERSION;
 
 /// Identity string expected by Tauri (`src-tauri/src/identity.rs`).
 pub const SIDECAR_SERVICE: &str = "atelier-sidecar";

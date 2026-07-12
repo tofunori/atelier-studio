@@ -18,9 +18,12 @@
     "test:gallery:diff": "node gallery/server/tests/diff_suite.mjs",
     "test:gallery": "npm run test:gallery:unit && npm run test:gallery:parity && npm run test:gallery:diff",
     "test:rust": "cargo test --manifest-path src-tauri/Cargo.toml --locked",
+    "test:rust-workspace": "cargo test --manifest-path rust/Cargo.toml --locked",
+    "test:protocol": "npm --prefix packages/atelier-protocol test",
+    "protocol:export-fixtures": "node --experimental-strip-types packages/atelier-protocol/scripts/export-fixtures.ts",
     "check:backend-policy": "node scripts/check-backend-policy.mjs",
     "soak:sidecar": "bash scripts/soak-rust-sidecar.sh",
-    "verify": "npm run typecheck && npm run build:web && node scripts/check_entry_budget.mjs && npm run test:frontend && npm run test:sidecar && npm run test:gallery && npm run test:rust && npm run check:backend-policy",
+    "verify": "npm run typecheck && npm run build:web && node scripts/check_entry_budget.mjs && npm run test:frontend && npm run test:sidecar && npm run test:gallery && npm run test:rust && npm run test:protocol && npm run test:rust-workspace && npm run check:backend-policy",
     "verify:e2e": "npm --prefix gallery run test:e2e"
   },
   "dependencies": {
