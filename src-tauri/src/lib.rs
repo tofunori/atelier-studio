@@ -3,6 +3,7 @@ mod bin_resolver;
 mod browser;
 mod identity;
 mod macos_badge_permission;
+mod remote_gateway;
 mod sidecar;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]

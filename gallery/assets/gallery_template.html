@@ -1923,7 +1923,12 @@ document.getElementById('rescan').onclick=async function(){
   try{
     const r=await fetch('/rescan',{method:'POST'});
     const j=await r.json();
-    if(j.ok){ location.reload(); return; }
+    if(j.ok){
+      const data=await fetch('/data',{cache:'no-store'}).then(x=>x.ok?x.json():null);
+      applyGalleryData(data);
+      this.classList.remove('spinning');
+      return;
+    }
     this.title='Rescan — erreur, réessayer';
   }catch(e){ this.title='Rescan — serveur injoignable'; }
   this.classList.remove('spinning');
@@ -2240,8 +2245,9 @@ document.getElementById('lbWrap').onclick=e=>e.stopPropagation();
 document.getElementById('lbPdf').onclick=e=>e.stopPropagation();
 render();
 
-// --- live reload: auto-refresh when the gallery is rebuilt (Claude edits + rescans),
-//     never interrupting an open viewer/lightbox or an active text selection ---
+// --- live data refresh: update cards when the gallery is rebuilt (agent edits
+//     + rescans), without navigating/reloading the iframe. This preserves scroll,
+//     filters, selection and the host app's visual continuity. ---
 (function(){
   let boot = null;
   const getRev = () => fetch('/rev').then(r => r.json()).then(j => j.rev).catch(() => null);
@@ -2253,7 +2259,10 @@ render();
     const sel = window.getSelection && window.getSelection();
     if(sel && String(sel).trim()) return;                  // user is selecting text
     const r = await getRev();
-    if(r != null && r !== boot) location.reload();
+    if(r != null && r !== boot){
+      const data=await fetch('/data',{cache:'no-store'}).then(x=>x.ok?x.json():null).catch(()=>null);
+      if(data){ applyGalleryData(data); boot=r; }
+    }
   }, 2500);
 })();
 </script>

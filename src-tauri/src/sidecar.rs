@@ -19,8 +19,8 @@ use tauri::Manager;
 #[derive(Clone, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SidecarInfo {
-    port: u16,
-    token: String,
+    pub(crate) port: u16,
+    pub(crate) token: String,
     identity: Option<ProcessHealth>,
     /// Diagnostic only — "rust" | "node" (optional for old lock files).
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -361,6 +361,9 @@ pub fn sidecar_port(app: tauri::AppHandle) -> Result<SidecarInfo, String> {
     if let Some(info) = guard.clone() {
         // Le sidecar peut être mort ou appartenir à un ancien bundle.
         if let Some(info) = verified_info(info, &bundle_hash) {
+            if let Err(e) = crate::remote_gateway::ensure(&app, &info) {
+                eprintln!("[atelier] gateway iPhone non disponible: {e}");
+            }
             return Ok(info);
         }
         *guard = None;
@@ -368,6 +371,9 @@ pub fn sidecar_port(app: tauri::AppHandle) -> Result<SidecarInfo, String> {
     // un sidecar d'une AUTRE instance tourne déjà ? le réutiliser (verrou partagé)
     if let Some(info) = read_lockfile(&bundle_hash) {
         *guard = Some(info.clone());
+        if let Err(e) = crate::remote_gateway::ensure(&app, &info) {
+            eprintln!("[atelier] gateway iPhone non disponible: {e}");
+        }
         return Ok(info);
     }
 
@@ -426,6 +432,9 @@ pub fn sidecar_port(app: tauri::AppHandle) -> Result<SidecarInfo, String> {
     };
     write_lockfile(&info);
     *guard = Some(info.clone());
+    if let Err(e) = crate::remote_gateway::ensure(&app, &info) {
+        eprintln!("[atelier] gateway iPhone non disponible: {e}");
+    }
     Ok(info)
 }
 
