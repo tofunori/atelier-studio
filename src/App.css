@@ -357,12 +357,7 @@ html, body, #root, .app { height: 100vh; overflow: hidden;
 .atelier-bar .atelier-title { font-size: var(--fs-m); color: var(--muted); }
 .atelier-bar .flex { flex: 1; }
 .atelier-home { flex: none; }
-.atelier-bar .atab.atelier-home.icon-only { padding-inline: 7px; }
-.atelier-bar .atab.atelier-home.on { background: transparent; padding-left: 0; padding-right: var(--sp-3); }
-.atelier-bar .atelier-home.on .atab-title {
-  font: 600 var(--fs-title)/1.3 var(--font-chrome);
-  letter-spacing: -0.01em; color: var(--text-primary);
-}
+.atelier-bar .atab.atelier-home { width: 30px; min-width: 30px; padding: 0; justify-content: center; }
 .atelier-bar .ghost { background: transparent; border: none; color: var(--muted);
   cursor: pointer; font-size: var(--fs-l); padding: 2px 6px; border-radius: var(--r-s); }
 .atelier-bar .ghost:hover { background: var(--bg-ctl); }
@@ -408,12 +403,12 @@ html, body, #root, .app { height: 100vh; overflow: hidden;
 .paste-modal-body { overflow-y: auto; padding: 12px 16px; color: var(--fg2);
   font-size: var(--fs-s); line-height: 1.5; white-space: pre-wrap; word-break: break-word;
   user-select: text; }
-.atab { position: relative; display: inline-flex; align-items: center; align-self: stretch; gap: 6px;
+.atab { position: relative; display: inline-flex; align-items: center; align-self: center; height: 28px; gap: 5px;
   background: transparent; border: none; color: var(--muted); font-size: var(--fs-m);
-  padding: 0 10px; border-radius: 3px 3px 0 0; cursor: pointer; max-width: 180px; }
+  padding: 0 8px; border-radius: 2px; cursor: pointer; max-width: 168px; }
 .atab:hover { background: color-mix(in srgb, var(--surface-inset) 42%, transparent); color: var(--fg2); }
 .atab.on { background: color-mix(in srgb, var(--surface-inset) 34%, transparent); color: var(--fg); box-shadow: none; }
-.atab.on::after { content: ""; position: absolute; left: 8px; right: 8px; bottom: 0;
+.atab.on::after { content: ""; position: absolute; left: 6px; right: 6px; bottom: 0;
   height: 1px; background: var(--border-strong, var(--muted2)); opacity: .72; }
 .atab-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .atab-x { color: var(--muted2); padding: 0 2px; border-radius: 2px; }
@@ -1268,12 +1263,13 @@ button.ghost.danger, button.ghost.danger:hover { color: #d98c8f; background: rgb
   font-size: var(--fs-m); color: var(--muted); }
 .ledger-detail-row { display: grid; grid-template-columns: 54px minmax(0, 1fr); gap: 10px; }
 .ledger-detail-row span:last-child { color: var(--fg2); overflow-wrap: anywhere; }
-/* onglets (atelier-bar ET term-bar) — pilule discrète façon Synara */
+/* onglets compacts : géométrie d'éditeur, sans pilule ni accent de marque */
 .term-bar .atab, .atelier-bar .atab { background: transparent; border: none;
-  color: var(--muted); font-size: var(--fs-m); padding: 5px 11px; border-radius: var(--r-m);
-  display: inline-flex; align-items: center; gap: 7px; cursor: pointer; }
-.term-bar .atab.on, .atelier-bar .atab.on { background: color-mix(in srgb, var(--bg-ctl) 72%, transparent); color: var(--fg);
-  box-shadow: inset 0 -1px var(--selection-line); }
+  color: var(--muted); font-size: var(--fs-m); height: 28px; padding: 0 8px; border-radius: 2px;
+  display: inline-flex; align-items: center; gap: 5px; cursor: pointer; }
+.term-bar .atab.on, .atelier-bar .atab.on {
+  background: color-mix(in srgb, var(--surface-inset) 34%, transparent);
+  color: var(--fg); box-shadow: none; }
 .term-bar .atab:hover, .atelier-bar .atab:hover { color: var(--fg2); }
 .browser-tab { width: 100%; min-width: 0; }
 .browser-frame { width: 100%; min-height: 0; }

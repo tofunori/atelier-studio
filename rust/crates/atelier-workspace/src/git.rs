@@ -230,10 +230,31 @@ pub fn status(root: &str) -> Result<GitStatus> {
 }
 
 pub fn diff(root: &str, file_path: Option<&str>) -> Result<String> {
-    let real = confined_root(root)?;
-    ensure_repo(&real)?;
+    let project = confined_root(root)?;
+    // Un projet Atelier peut légitimement être un sous-dossier d'un dépôt
+    // (p. ex. manuscript_ch1). Résoudre la vraie racine Git, puis préfixer le
+    // chemin demandé relativement à celle-ci sans relâcher le confinement.
+    let top = git_ok(&project, &["rev-parse", "--show-toplevel"])
+        .map_err(|_| msg(format!("repo git introuvable: {}", project.display())))?;
+    let real = std::fs::canonicalize(top.trim())?;
+    if !project.starts_with(&real) {
+        return Err(msg("projet hors repo git"));
+    }
+    let project_prefix = project
+        .strip_prefix(&real)
+        .unwrap_or(Path::new(""))
+        .to_string_lossy()
+        .replace('\\', "/");
     let rel = match file_path {
-        Some(p) => Some(assert_relative(&real, p)?),
+        Some(p) => {
+            let within_project = assert_relative(&project, p)?;
+            Some(if project_prefix.is_empty() {
+                within_project
+            } else {
+                format!("{project_prefix}/{within_project}")
+            })
+        }
+        None if !project_prefix.is_empty() => Some(project_prefix),
         None => None,
     };
     let mut args = vec![
@@ -252,8 +273,37 @@ pub fn diff(root: &str, file_path: Option<&str>) -> Result<String> {
     let arg_refs: Vec<&str> = args.iter().map(|s| s.as_str()).collect();
     let out = git(&real, &arg_refs, &[])?;
     let mut text = String::from_utf8_lossy(&out.stdout).into_owned();
+    // `git status` résume parfois un dossier non suivi en `dir/` au lieu de
+    // lister ses fichiers. Pour une demande ciblée, détecter directement si
+    // le fichier existe mais n'est pas suivi afin de produire son vrai diff.
+    if let Some(r) = &rel {
+        let abs = real.join(r);
+        let tracked = git(&real, &["ls-files", "--error-unmatch", "--", r], &[])?
+            .status
+            .success();
+        if !tracked && abs.is_file() {
+            let out = git(
+                &real,
+                &[
+                    "diff",
+                    "--no-index",
+                    "--no-color",
+                    "--binary",
+                    "--",
+                    "/dev/null",
+                    abs.to_str().unwrap_or(""),
+                ],
+                &[],
+            )?;
+            let chunk = String::from_utf8_lossy(&out.stdout);
+            if !chunk.is_empty() {
+                text.push_str(&chunk);
+                return Ok(text);
+            }
+        }
+    }
     // untracked
-    let st = status(root)?;
+    let st = status(real.to_string_lossy().as_ref())?;
     for f in st.files.iter().filter(|f| f.status == "?") {
         if let Some(r) = &rel {
             if &f.path != r && !f.path.starts_with(&format!("{r}/")) {
@@ -568,6 +618,17 @@ mod tests {
         assert!(!st.files.is_empty());
         let d = diff(root, Some("a.txt")).unwrap();
         assert!(d.contains("hello") || d.contains("diff"));
+    }
+
+    #[test]
+    fn diff_accepts_project_nested_inside_repo() {
+        let dir = init_repo();
+        let nested = dir.path().join("manuscript_ch1");
+        std::fs::create_dir_all(&nested).unwrap();
+        std::fs::write(nested.join("figure.html"), b"<h1>figure</h1>").unwrap();
+        let d = diff(nested.to_str().unwrap(), Some("figure.html")).unwrap();
+        assert!(d.contains("figure.html"));
+        assert!(d.contains("<h1>figure</h1>"));
     }
 
     #[test]

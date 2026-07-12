@@ -232,7 +232,6 @@ export default function AtelierPane({
             aria-label={t("atelier.gallery")}
           >
             <HomeIcon size={15} />
-            {activeTab === "gallery" && <span className="atab-title">{t("atelier.gallery")}</span>}
           </button>
           {documentTabs.map((tab) => (
             <button

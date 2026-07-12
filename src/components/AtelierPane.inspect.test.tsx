@@ -66,11 +66,12 @@ describe("relFromTabUrl", () => {
 });
 
 describe("AtelierPane — en-têtes locaux", () => {
-  it("galerie active : header unique avec Gallery, onglets ouverts et refresh", () => {
+  it("galerie active : Home compact, onglets ouverts et refresh dans un header unique", () => {
     const { props, container } = pane({ tabs: [PDF_TAB], activeTab: "gallery" });
-    expect(screen.getByText("galerie")).toBeInTheDocument();
     expect(container.querySelectorAll(".atelier-bar")).toHaveLength(1);
-    expect(screen.getByRole("button", { name: "galerie" }).querySelector("svg")).toBeInTheDocument();
+    const home = screen.getByRole("button", { name: "galerie" });
+    expect(home.querySelector("svg")).toBeInTheDocument();
+    expect(home.querySelector(".atab-title")).toBeNull();
     expect(container.querySelector<HTMLIFrameElement>('iframe[title="atelier"]')?.src).toContain("embedded=atelier");
     expect(container.querySelector('.atelier-bar .atab[title="albedo.pdf"]')).toBeInTheDocument();
     fireEvent.click(container.querySelector('.atelier-bar .atab[title="albedo.pdf"]')!);

@@ -89,9 +89,11 @@ describe("contrat Quiet Instrument (sources CSS)", () => {
     expect(appCss).toMatch(/\.exp-search\s*\{[\s\S]*?min-height:\s*var\(--control-height\)/);
   });
 
-  it("les sélections permanentes utilisent la ligne d'accent commune", () => {
+  it("les tabs Atelier restent compacts et neutres, sans accent de marque", () => {
     expect(appCss).toMatch(/\.sidebar li\.active::before\s*\{[\s\S]*?background:\s*var\(--selection-line\)/);
-    expect(appCss).toMatch(/\.atelier-bar \.atab\.on\s*\{[\s\S]*?box-shadow:\s*inset 0 -1px var\(--selection-line\)/);
+    expect(appCss).toMatch(/\.term-bar \.atab, \.atelier-bar \.atab\s*\{[\s\S]*?height:\s*28px/);
+    expect(appCss).toMatch(/\.term-bar \.atab\.on, \.atelier-bar \.atab\.on\s*\{[\s\S]*?box-shadow:\s*none/);
+    expect(appCss).not.toMatch(/\.atelier-bar \.atab\.on\s*\{[^}]*var\(--selection-line\)/);
   });
 
   it("les surfaces interactives partagent les durées Quiet Instrument", () => {
