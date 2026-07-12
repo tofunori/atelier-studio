@@ -2,7 +2,7 @@
 // d'activité structuré — « Activité · N étapes · durée » — dépliable, avec
 // les erreurs toujours hors du pli.
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { cleanup, fireEvent, screen } from "@testing-library/react";
+import { act, cleanup, fireEvent, screen } from "@testing-library/react";
 
 vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn(async () => null) }));
 
@@ -91,6 +91,21 @@ describe("anatomie du tour — header d'activité", () => {
     expect(document.querySelector(".edit-line")?.textContent).toContain("+5");
     expect(document.querySelector(".edit-line")?.textContent).toContain("-3");
     expect(document.querySelector(".tool-group.worklog")).toBeNull();
+  });
+
+  it("sort du chargement et montre l'erreur quand gitDiff échoue", () => {
+    const evs: AgentEvent[] = [
+      events.user("Modifie.", FIXED_TS),
+      { kind: "edit", projectRoot: "/tmp/fixtures/albedo-pipeline", files: [{ path: "scripts/plot.py", add: 1, del: 0 }] },
+    ] as AgentEvent[];
+    renderUi(<Chat {...chatProps({ events: evs })} />);
+    fireEvent.click(document.querySelector(".edit-line-difftoggle") as HTMLButtonElement);
+    act(() => window.dispatchEvent(new CustomEvent("git-diff", { detail: {
+      type: "gitDiff", projectRoot: "/tmp/fixtures/albedo-pipeline",
+      path: "scripts/plot.py", diff: "", error: "diff indisponible",
+    } })));
+    expect(screen.getByText("diff indisponible")).toBeTruthy();
+    expect(screen.queryByText(t("common.loading"))).toBeNull();
   });
 
   it("aucun chevron texte ▸/▾ dans le fil", () => {

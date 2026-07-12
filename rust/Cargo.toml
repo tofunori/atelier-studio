@@ -10,6 +10,7 @@ members = [
   "crates/atelier-providers",
   "crates/atelier-core",
   "crates/atelier-gallery",
+  "crates/atelier-remote",
 ]
 
 [workspace.package]
@@ -22,6 +23,7 @@ authors = ["Atelier Studio"]
 atelier-protocol = { path = "crates/atelier-protocol" }
 atelier-runtime = { path = "crates/atelier-runtime" }
 atelier-store = { path = "crates/atelier-store" }
+atelier-remote = { path = "crates/atelier-remote" }
 atelier-workspace = { path = "crates/atelier-workspace" }
 atelier-harness = { path = "crates/atelier-harness" }
 atelier-providers = { path = "crates/atelier-providers" }

@@ -935,8 +935,13 @@ export async function route(msg, ctx) {
     }
     case "gitDiff": {
       const root = gitRootFor(ctx, msg);
-      ctx.send({ type: "gitDiff", projectRoot: root, path: msg.path ?? null,
-        diff: await ctx.gitops.diff(root, msg.path ?? null) });
+      try {
+        ctx.send({ type: "gitDiff", requestId: msg.requestId ?? null, projectRoot: root, path: msg.path ?? null,
+          diff: await ctx.gitops.diff(root, msg.path ?? null) });
+      } catch (error) {
+        ctx.send({ type: "gitDiff", requestId: msg.requestId ?? null, projectRoot: root, path: msg.path ?? null,
+          diff: "", error: String(error?.message ?? error) });
+      }
       break;
     }
     case "generateCommitMsg": {

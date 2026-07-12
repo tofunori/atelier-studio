@@ -314,14 +314,23 @@ pub async fn route_ws(state: &AppState, text: &str) -> Vec<String> {
         "gitDiff" => {
             let root = git_root(state, &msg).await;
             let path = msg.get("path").and_then(|v| v.as_str());
+            let request_id = msg.get("requestId").cloned().unwrap_or(Value::Null);
             match git_diff(&root, path) {
                 Ok(diff) => vec![json_msg(json!({
                     "type": "gitDiff",
+                    "requestId": request_id,
                     "projectRoot": root,
                     "path": path,
                     "diff": diff,
                 }))],
-                Err(e) => vec![err(e.to_string())],
+                Err(e) => vec![json_msg(json!({
+                    "type": "gitDiff",
+                    "requestId": request_id,
+                    "projectRoot": root,
+                    "path": path,
+                    "diff": "",
+                    "error": e.to_string(),
+                }))],
             }
         }
         "gitStage" => {

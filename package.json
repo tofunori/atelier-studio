@@ -19,6 +19,7 @@
     "test:gallery": "npm run test:gallery:unit && npm run test:gallery:parity && npm run test:gallery:diff",
     "test:rust": "cargo test --manifest-path src-tauri/Cargo.toml --locked",
     "test:rust-workspace": "cargo test --manifest-path rust/Cargo.toml --locked",
+    "test:remote": "cargo test -p atelier-remote --manifest-path rust/Cargo.toml --locked",
     "test:protocol": "npm --prefix packages/atelier-protocol test",
     "protocol:export-fixtures": "node --experimental-strip-types packages/atelier-protocol/scripts/export-fixtures.ts",
     "check:backend-policy": "node scripts/check-backend-policy.mjs",

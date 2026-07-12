@@ -76,13 +76,24 @@ export function EditLine({ event, threadId }: {
   const [openPath, setOpenPath] = useState<string | null>(null);
   const [diffs, setDiffs] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState<string | null>(null);
+  const [errors, setErrors] = useState<Record<string, string>>({});
 
   useEffect(() => {
     const onDiff = (ev: Event) => {
       const msg = (ev as CustomEvent).detail;
       if (!msg.path) return;
       if (event.projectRoot && msg.projectRoot !== event.projectRoot) return;
+      if (msg.error) {
+        setErrors((current) => ({ ...current, [msg.path]: String(msg.error) }));
+        setLoading((current) => (current === msg.path ? null : current));
+        return;
+      }
       setDiffs((d) => ({ ...d, [msg.path]: String(msg.diff ?? "") }));
+      setErrors((current) => {
+        const next = { ...current };
+        delete next[msg.path];
+        return next;
+      });
       setLoading((l) => (l === msg.path ? null : l));
     };
     window.addEventListener("git-diff", onDiff);
@@ -96,6 +107,7 @@ export function EditLine({ event, threadId }: {
         const base = f.path.split("/").pop() || f.path;
         const open = openPath === f.path;
         const diff = diffs[f.path];
+        const error = errors[f.path];
         return (
           <div key={f.path} className="edit-line">
             <div className="edit-line-row" title={f.path}>
@@ -120,14 +132,27 @@ export function EditLine({ event, threadId }: {
                   const next = open ? null : f.path;
                   setOpenPath(next);
                   if (!next || diffs[f.path] != null || loading === f.path) return;
+                  setErrors((current) => {
+                    const following = { ...current };
+                    delete following[f.path];
+                    return following;
+                  });
                   setLoading(f.path);
                   const sent = wsSend({
                     type: "gitDiff",
+                    requestId: crypto.randomUUID(),
                     threadId,
                     projectRoot: event.projectRoot,
                     path: f.path,
                   });
                   if (!sent) setLoading(null);
+                  else window.setTimeout(() => {
+                    setLoading((current) => {
+                      if (current !== f.path) return current;
+                      setErrors((existing) => ({ ...existing, [f.path]: t("chat.diff-timeout") }));
+                      return null;
+                    });
+                  }, 8000);
                 }}
               >
                 <Tick open={open} />
@@ -137,6 +162,8 @@ export function EditLine({ event, threadId }: {
               <pre className="turn-diff-body">
                 {loading === f.path && diff == null ? (
                   <span className="muted">{t("common.loading")}</span>
+                ) : error ? (
+                  <span className="muted">{error}</span>
                 ) : diff?.trim() ? (
                   diff.split("\n").map((line, idx) => (
                     <span key={idx} className={diffLineClass(line)}>{line || " "}</span>

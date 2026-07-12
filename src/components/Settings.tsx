@@ -6,6 +6,7 @@ import { setLanguage, t } from "../lib/i18n";
 import { PlusIcon } from "./icons";
 import { Select } from "./Select";
 import { InlineNotice, SegmentedControl } from "./ui";
+import { RemoteDevicesPanel } from "./RemoteDevicesPanel";
 
 const SECTIONS = [
   { id: "general", labelKey: "settings.general" },
@@ -934,6 +935,11 @@ export default function SettingsPage(p: {
                   ))}
                 </div>
               )}
+            </Group>
+            <Group label={t("settings.remote-devices")}>
+              <div style={{ padding: 12 }}>
+                <RemoteDevicesPanel />
+              </div>
             </Group>
           </>
         )}
