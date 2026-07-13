@@ -7,9 +7,12 @@ use std::{
     net::{TcpListener, TcpStream},
     path::PathBuf,
     process::{Child, Command, Stdio},
+    sync::atomic::{AtomicU64, Ordering},
     thread,
     time::{Duration, Instant},
 };
+
+static FIXTURE_SEQUENCE: AtomicU64 = AtomicU64::new(0);
 
 fn free_port() -> u16 {
     TcpListener::bind("127.0.0.1:0")
@@ -63,6 +66,7 @@ impl Drop for Server {
     fn drop(&mut self) {
         let _ = self.child.kill();
         let _ = self.child.wait();
+        let _ = fs::remove_dir_all(&self.root);
     }
 }
 
@@ -70,7 +74,7 @@ fn start_server() -> Server {
     let root = std::env::temp_dir().join(format!(
         "atelier-http-smoke-{}-{}",
         std::process::id(),
-        Instant::now().elapsed().as_nanos()
+        FIXTURE_SEQUENCE.fetch_add(1, Ordering::Relaxed),
     ));
     fs::create_dir_all(&root).unwrap();
     fs::write(root.join("tiny.png"), [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]).unwrap();
