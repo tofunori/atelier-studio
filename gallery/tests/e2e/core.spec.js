@@ -111,9 +111,15 @@ async function withGallery(run) {
       stdio: 'pipe',
     });
     const port = await freePort();
-    server = spawn('python3', [path.join(REPO, 'fig_annotate_server.py')], {
+    server = spawn(process.execPath, [path.join(REPO, 'server', 'main.mjs')], {
       cwd: root,
-      env: { ...process.env, GALLERY_ROOT: root, FIG_PORT: String(port) },
+      env: {
+        ...process.env,
+        GALLERY_ROOT: root,
+        FIG_PORT: String(port),
+        ATELIER_STUDIO: '1',
+        GALLERY_NO_THUMBS: '1',
+      },
       stdio: ['ignore', 'pipe', 'pipe'],
     });
     await waitForPing(port);
