@@ -522,15 +522,19 @@ pub fn stable_thumb_key(rel: &str, mtime: u64) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::atomic::{AtomicU64, Ordering};
+
+    static FIXTURE_SEQUENCE: AtomicU64 = AtomicU64::new(0);
 
     fn fixture() -> PathBuf {
         let root = env::temp_dir().join(format!(
-            "atelier-rust-builder-{}-{}",
+            "atelier-rust-builder-{}-{}-{}",
             std::process::id(),
             std::time::SystemTime::now()
                 .duration_since(UNIX_EPOCH)
                 .unwrap()
-                .as_nanos()
+                .as_nanos(),
+            FIXTURE_SEQUENCE.fetch_add(1, Ordering::Relaxed),
         ));
         fs::create_dir_all(&root).unwrap();
         root
