@@ -411,13 +411,16 @@ mod tests {
                 .as_nanos()
         ));
         fs::create_dir_all(root.join(".fig_thumbs")).unwrap();
+        fs::create_dir_all(root.join("annotations")).unwrap();
         fs::write(root.join("figure.png"), b"x").unwrap();
         fs::write(root.join(".atelier-provenance.json"), b"{}").unwrap();
         fs::write(root.join(".fig_thumbs/copy.png"), b"x").unwrap();
+        fs::write(root.join("annotations/legacy-annotation.png"), b"x").unwrap();
         let snapshot = artifact_snapshot(&root).unwrap();
         assert!(snapshot.contains_key("figure.png"));
         assert!(snapshot.contains_key(".atelier-provenance.json"));
         assert!(!snapshot.contains_key(".fig_thumbs/copy.png"));
+        assert!(!snapshot.contains_key("annotations/legacy-annotation.png"));
         let _ = fs::remove_dir_all(root);
     }
 

@@ -1,6 +1,6 @@
 import { test, expect } from '@playwright/test';
 import { spawn, execFileSync } from 'node:child_process';
-import { mkdtempSync, writeFileSync, rmSync, realpathSync } from 'node:fs';
+import { existsSync, mkdtempSync, readdirSync, writeFileSync, rmSync, realpathSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import net from 'node:net';
@@ -275,11 +275,10 @@ test('export and delete use selected files without mutating disk when endpoints 
 });
 
 test('annotate: launcher draws a rectangle and sends from the contextual capsule', async ({ page }) => {
-  await withGallery(async ({ url }) => {
+  await withGallery(async ({ root, url }) => {
     let savePayload = null;
-    await page.route('**/save', async route => {
-      savePayload = route.request().postDataJSON();
-      await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ ok: true, sentToClaude: false, path: 'annotations/mock.png' }) });
+    page.on('request', request => {
+      if (request.url().endsWith('/save')) savePayload = request.postDataJSON();
     });
 
     await page.goto(url);
@@ -303,6 +302,12 @@ test('annotate: launcher draws a rectangle and sends from the contextual capsule
     expect(savePayload.notes).toEqual([{ n: 1, text: 'note e2e' }]);
     await expect(page.locator('#annotNote')).toBeHidden();
     await expect(page.locator('#lb')).not.toHaveClass(/annot/);
+
+    const previewDir = path.join(root, '.fig_thumbs', 'annotation-previews');
+    await expect.poll(() => existsSync(previewDir) ? readdirSync(previewDir).filter(name => name.endsWith('.png')).length : 0).toBe(1);
+    expect(existsSync(path.join(root, 'annotations'))).toBe(false);
+    await page.request.post(`${url}/rescan`, { data: {} });
+    await expect(page.locator('#grid .card')).toHaveCount(3);
   });
 });
 

@@ -324,18 +324,18 @@
   /* Capsule contextuelle : elle n'apparaît qu'après le tracé et l'unique
      action envoie directement l'annotation au chat. */
   #annotNote{position:fixed;z-index:103;display:none;align-items:center;gap:8px;
-      width:min(560px,calc(100vw - 32px));height:64px;box-sizing:border-box;
+      width:min(320px,calc(100vw - 24px));height:48px;box-sizing:border-box;
       background:color-mix(in srgb,var(--card,#24282d) 96%,#111);border:1px solid color-mix(in srgb,var(--txt) 9%,transparent);
-      border-radius:999px;padding:7px 8px 7px 22px;overflow:hidden;
-      box-shadow:0 14px 38px rgba(0,0,0,.38);backdrop-filter:blur(18px)}
+      border-radius:999px;padding:5px 6px 5px 16px;overflow:hidden;
+      box-shadow:0 10px 26px rgba(0,0,0,.34);backdrop-filter:blur(18px)}
   #annotNote textarea{flex:1;background:transparent;border:none;outline:none;color:var(--txt);
-      font-size:16px;line-height:1.35;padding:0;resize:none;font-family:inherit;height:22px;max-height:44px;align-self:center}
+      font-size:14px;line-height:1.35;padding:0;resize:none;font-family:inherit;height:19px;max-height:38px;align-self:center}
   #annotNote textarea::placeholder{color:var(--muted)}
-  #annotNote .anSave{width:50px;height:50px;border-radius:50%;background:color-mix(in srgb,var(--txt) 78%,var(--card));
+  #annotNote .anSave{width:38px;height:38px;border-radius:50%;background:color-mix(in srgb,var(--txt) 78%,var(--card));
       color:var(--bg);border:none;cursor:pointer;display:flex;align-items:center;justify-content:center;flex:none;padding:0}
   #annotNote .anSave:hover{background:var(--txt)}
   #annotNote .anSave:disabled{opacity:.38;cursor:default}
-  #annotNote .anSave svg{width:24px;height:24px;fill:none;stroke:currentColor;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round}
+  #annotNote .anSave svg{width:19px;height:19px;fill:none;stroke:currentColor;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round}
   #annotPill{position:fixed;bottom:26px;left:50%;transform:translateX(-50%);z-index:102;display:none;
       align-items:center;gap:2px;background:rgba(26,29,34,.92);backdrop-filter:blur(10px);
       border:1px solid #333a45;border-radius:10px;
@@ -2169,9 +2169,9 @@ function annotAskNote(stroke, clientX, clientY){
   const isEdit = !!stroke.note;
   if(!stroke.n) stroke.n=annotStrokes.filter(s=>s.n).length+1;
   box.style.display='flex';
-  const boxW=Math.min(560,window.innerWidth-32);
-  box.style.left=Math.max(16,Math.min(clientX+22,window.innerWidth-boxW-16))+'px';
-  box.style.top=Math.max(16,Math.min(clientY-32,window.innerHeight-80))+'px';
+  const boxW=Math.min(320,window.innerWidth-24);
+  box.style.left=Math.max(12,Math.min(clientX+18,window.innerWidth-boxW-12))+'px';
+  box.style.top=Math.max(12,Math.min(clientY-24,window.innerHeight-60))+'px';
   inp.value=stroke.note||''; inp.focus(); inp.select();
   send.disabled=!inp.value.trim();
   annotRedraw();
