@@ -93,10 +93,10 @@ describe("vertical slice D+E", () => {
     render(<App />);
 
     await waitFor(() => {
-      expect(screen.getByRole("button", { name: "Réglages" })).toBeTruthy();
+      expect(screen.getByRole("tab", { name: "Réglages" })).toBeTruthy();
     });
 
-    fireEvent.click(screen.getByRole("button", { name: "Réglages" }));
+    fireEvent.click(screen.getByRole("tab", { name: "Réglages" }));
     fireEvent.click(await screen.findByRole("button", { name: /Appairer|Réappareiller/i }));
 
     const code = await screen.findByLabelText(/Code d'appairage/i);
@@ -104,10 +104,10 @@ describe("vertical slice D+E", () => {
     fireEvent.click(screen.getByRole("button", { name: /^Appairer$/i }));
 
     await waitFor(() => {
-      expect(screen.getByRole("button", { name: "Chats" })).toBeTruthy();
+      expect(screen.getByRole("tab", { name: "Chats" })).toBeTruthy();
     });
 
-    fireEvent.click(screen.getByRole("button", { name: "Chats" }));
+    fireEvent.click(screen.getByRole("tab", { name: "Chats" }));
 
     await waitFor(() => {
       expect(screen.getByText("Transcript petit")).toBeTruthy();

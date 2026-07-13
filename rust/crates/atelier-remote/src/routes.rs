@@ -19,6 +19,8 @@ use axum::{Json, Router};
 use serde::Deserialize;
 use serde_json::{json, Value};
 use std::net::SocketAddr;
+use futures_util::SinkExt;
+use tokio_tungstenite::{connect_async, tungstenite::Message};
 
 pub fn router(state: GatewayState) -> Router {
     Router::new()
@@ -26,7 +28,7 @@ pub fn router(state: GatewayState) -> Router {
         .route("/remote/v1/health", get(health))
         .route("/remote/v1/pair", post(pair_complete))
         .route("/remote/v1/projects", get(list_projects))
-        .route("/remote/v1/threads", get(list_threads))
+        .route("/remote/v1/threads", get(list_threads).post(create_thread))
         .route("/remote/v1/threads/{thread_id}/history", get(get_history))
         .route("/remote/v1/send", post(send_msg))
         .route("/remote/v1/interrupt", post(interrupt_msg))
@@ -51,6 +53,53 @@ pub fn router(state: GatewayState) -> Router {
             post(admin_rotate),
         )
         .with_state(state)
+}
+
+/// Relaye une commande mobile vers le WebSocket loopback du sidecar. Le jeton
+/// sidecar ne quitte jamais le Mac; le client distant reste authentifié par son
+/// jeton de device au niveau de cette API.
+async fn relay_sidecar(
+    state: &GatewayState,
+    client_instance_id: &str,
+    payload: Value,
+) -> ApiResult<bool> {
+    let (base, token) = {
+        let g = state.inner.lock().await;
+        (g.config.sidecar_base.clone(), g.config.sidecar_token.clone())
+    };
+    let Some(base) = base else { return Ok(false) };
+    let ws_base = if let Some(rest) = base.strip_prefix("https://") {
+        format!("wss://{rest}")
+    } else if let Some(rest) = base.strip_prefix("http://") {
+        format!("ws://{rest}")
+    } else {
+        base
+    };
+    let url = match token {
+        Some(token) => format!("{}/?token={token}", ws_base.trim_end_matches('/')),
+        None => format!("{}/", ws_base.trim_end_matches('/')),
+    };
+    let (mut socket, _) = connect_async(url).await.map_err(|_| {
+        ApiError::new(
+            StatusCode::BAD_GATEWAY,
+            "sidecar_unavailable",
+            "Atelier n'est pas prêt sur le Mac",
+        )
+    })?;
+    socket
+        .send(Message::Text(
+            json!({ "type": "clientHello", "clientInstanceId": client_instance_id })
+                .to_string()
+                .into(),
+        ))
+        .await
+        .map_err(|_| ApiError::new(StatusCode::BAD_GATEWAY, "sidecar_send_failed", "commande impossible"))?;
+    socket
+        .send(Message::Text(payload.to_string().into()))
+        .await
+        .map_err(|_| ApiError::new(StatusCode::BAD_GATEWAY, "sidecar_send_failed", "commande impossible"))?;
+    let _ = socket.close(None).await;
+    Ok(true)
 }
 
 async fn health(State(state): State<GatewayState>) -> Json<Value> {
@@ -262,6 +311,7 @@ async fn list_threads(
                 "updatedAt": t.updated_at,
                 "projectId": project_id,
                 "lastSequence": last,
+                "model": t.extra.get("model").and_then(|v| v.as_str()),
             })
         })
         .collect();
@@ -288,6 +338,79 @@ async fn list_threads(
         }
     }
     Ok(Json(json!({ "threads": threads })))
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct CreateThreadBody {
+    #[serde(default)]
+    title: String,
+    #[serde(default = "default_thread_provider")]
+    provider: String,
+    #[serde(default)]
+    model: Option<String>,
+    #[serde(default)]
+    project_id: Option<String>,
+}
+
+fn default_thread_provider() -> String {
+    "codex".into()
+}
+
+async fn create_thread(
+    State(state): State<GatewayState>,
+    headers: HeaderMap,
+    Json(body): Json<CreateThreadBody>,
+) -> ApiResult<Json<Value>> {
+    guard_headers(&state, &headers).await?;
+    let _ = require_device(&state, &headers, Scope::ChatSend).await?;
+    let provider = body.provider.trim();
+    if !matches!(provider, "claude" | "codex" | "grok" | "opencode" | "gemini") {
+        return Err(ApiError::bad_request("invalid_provider", "provider inconnu"));
+    }
+    let mut g = state.inner.lock().await;
+    let project_root = match body.project_id.as_deref() {
+        Some(id) => g
+            .projects
+            .get(id)
+            .ok_or_else(|| ApiError::not_found("projet inconnu"))?
+            .root
+            .to_string_lossy()
+            .into_owned(),
+        None => String::new(),
+    };
+    let id = uuid::Uuid::new_v4().to_string();
+    let title = body.title.trim();
+    let thread = g
+        .threads
+        .upsert(
+            json!({
+                "id": id,
+                "title": if title.is_empty() { "Nouveau chat" } else { title },
+                "provider": provider,
+                "model": body.model.as_deref().unwrap_or(""),
+                "projectRoot": project_root,
+                "status": "idle"
+            }),
+            false,
+        )
+        .map_err(|_| {
+            ApiError::new(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "thread_create_failed",
+                "création impossible",
+            )
+        })?;
+    Ok(Json(json!({
+        "id": thread.id,
+        "title": thread.title,
+        "provider": thread.provider,
+        "status": thread.status,
+        "updatedAt": thread.updated_at,
+        "projectId": if thread.project_root.is_empty() { Value::Null } else { json!(crate::path_policy::project_id_for(std::path::Path::new(&thread.project_root))) },
+        "lastSequence": 0,
+        "model": thread.extra.get("model").and_then(|v| v.as_str())
+    })))
 }
 
 #[derive(Debug, Deserialize)]
@@ -396,7 +519,48 @@ async fn send_msg(
         }
         IdempotencyResult::Fresh => {}
     }
-    // MVP: accept; full proxy to sidecar WS in later soak wiring
+    let should_title = g
+        .threads
+        .get(&body.thread_id)
+        .is_some_and(|thread| matches!(thread.title.as_str(), "Nouveau chat" | "Sans titre"));
+    if should_title {
+        let automatic_title: String = body
+            .prompt
+            .lines()
+            .map(str::trim)
+            .find(|line| !line.is_empty())
+            .unwrap_or("Nouveau chat")
+            .chars()
+            .take(64)
+            .collect();
+        let _ = g.threads.upsert(
+            json!({ "id": body.thread_id, "title": automatic_title }),
+            false,
+        );
+    }
+    let thread = g.threads.get(&body.thread_id).cloned();
+    drop(g);
+    let proxied = if let Some(thread) = thread {
+        let model = thread.extra.get("model").and_then(Value::as_str).unwrap_or("");
+        relay_sidecar(
+            &state,
+            &dev.device_id,
+            json!({
+                "type": "send",
+                "threadId": body.thread_id,
+                "projectRoot": thread.project_root,
+                "provider": thread.provider,
+                "model": model,
+                "prompt": body.prompt,
+                "title": thread.title,
+                "permissionMode": "default",
+                "clientMessageId": body.client_message_id,
+            }),
+        )
+        .await?
+    } else {
+        false
+    };
     Ok(Json(json!({
         "ok": true,
         "accepted": true,
@@ -404,7 +568,7 @@ async fn send_msg(
         "clientRequestId": body.client_request_id,
         "threadId": body.thread_id,
         "clientMessageId": body.client_message_id,
-        "note": "queued_on_gateway",
+        "proxied": proxied,
     })))
 }
 
@@ -422,12 +586,19 @@ async fn interrupt_msg(
     Json(body): Json<InterruptBody>,
 ) -> ApiResult<Json<Value>> {
     guard_headers(&state, &headers).await?;
-    let _ = require_device(&state, &headers, Scope::ChatSend).await?;
+    let dev = require_device(&state, &headers, Scope::ChatSend).await?;
+    let proxied = relay_sidecar(
+        &state,
+        &dev.device_id,
+        json!({ "type": "interrupt", "threadId": body.thread_id }),
+    )
+    .await?;
     Ok(Json(json!({
         "ok": true,
         "interrupted": true,
         "threadId": body.thread_id,
         "clientRequestId": body.client_request_id,
+        "proxied": proxied,
     })))
 }
 
@@ -437,7 +608,6 @@ struct InteractionBody {
     thread_id: String,
     request_id: String,
     /// Accepted and stored for idempotency fingerprint; not logged.
-    #[allow(dead_code)]
     response: Value,
     client_request_id: String,
 }
@@ -477,12 +647,26 @@ async fn interaction_msg(
         }
         IdempotencyResult::Fresh => {}
     }
+    drop(g);
+    let proxied = relay_sidecar(
+        &state,
+        &dev.device_id,
+        json!({
+            "type": "interactionResponse",
+            "threadId": body.thread_id,
+            "requestId": body.request_id,
+            "response": body.response,
+            "clientInstanceId": dev.device_id,
+        }),
+    )
+    .await?;
     Ok(Json(json!({
         "ok": true,
         "accepted": true,
         "replay": false,
         "requestId": body.request_id,
         "threadId": body.thread_id,
+        "proxied": proxied,
     })))
 }
 

@@ -1,4 +1,5 @@
 import { useMemo, useState } from "react";
+import { Input } from "./shadcn/input";
 
 type Node = { name: string; path: string; children?: Map<string, Node> };
 
@@ -133,7 +134,7 @@ export default function Explorer(p: {
 
   return (
     <div className="explorer">
-      <input
+      <Input
         className="exp-search"
         placeholder="Rechercher un fichier…"
         value={query}

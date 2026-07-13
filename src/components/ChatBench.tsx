@@ -5,6 +5,7 @@
 // États : rich (défaut) · running · error · contexts · markdown.
 import { useEffect } from "react";
 import "../styles/tokens.css";
+import "../styles/typeset.css";
 import "../styles/primitives.css";
 import "../App.css";
 import Chat from "./Chat";

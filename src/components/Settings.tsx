@@ -5,7 +5,15 @@ import { THEME_PRESETS } from "../lib/themes";
 import { setLanguage, t } from "../lib/i18n";
 import { PlusIcon } from "./icons";
 import { Select } from "./Select";
-import { InlineNotice, SegmentedControl } from "./ui";
+import { Button, InlineNotice, SegmentedControl } from "./ui";
+import { Checkbox, CheckboxIndicator } from "./shadcn/checkbox";
+import { Field, FieldGroup, FieldLabel } from "./shadcn/field";
+import { Input } from "./shadcn/input";
+import { Switch } from "./shadcn/switch";
+import { Textarea } from "./shadcn/textarea";
+import { ToggleGroup, ToggleGroupItem } from "./shadcn/toggle-group";
+import { Slider as ShadcnSlider } from "./shadcn/slider";
+import { CheckIcon } from "lucide-react";
 import { RemoteDevicesPanel } from "./RemoteDevicesPanel";
 
 const SECTIONS = [
@@ -68,33 +76,30 @@ function modelLabel(m: { label?: string; labelKey?: string }) {
   return m.labelKey === "common.default-cli" ? t("common.default-cli") : m.label ?? "";
 }
 
-function Slider(p: {
+function SettingSlider(p: {
   min: number; max: number; step: number; value: number;
   onChange: (v: number) => void;
 }) {
-  const pct = ((p.value - p.min) / (p.max - p.min)) * 100;
   return (
-    <input
-      type="range"
-      className="slider"
-      min={p.min} max={p.max} step={p.step} value={p.value}
-      style={{ ["--p" as any]: `${pct}%` }}
-      onChange={(e) => p.onChange(Number(e.target.value))}
+    <ShadcnSlider
+      min={p.min}
+      max={p.max}
+      step={p.step}
+      value={p.value}
+      aria-label="Setting value"
+      onValueChange={p.onChange}
     />
   );
 }
 
-function Toggle(p: { checked: boolean; onChange: (v: boolean) => void }) {
+function Toggle(p: { checked: boolean; onChange: (v: boolean) => void; label?: string }) {
   return (
-    <button
-      type="button"
-      role="switch"
-      aria-checked={p.checked}
+    <Switch
+      checked={p.checked}
+      aria-label={p.label ?? "Toggle setting"}
       className={`switch ${p.checked ? "on" : ""}`}
-      onClick={() => p.onChange(!p.checked)}
-    >
-      <span className="switch-knob" />
-    </button>
+      onCheckedChange={(checked) => p.onChange(checked)}
+    />
   );
 }
 
@@ -116,7 +121,7 @@ function ColorField(p: { value: string; fallback: string; onChange: (v: string) 
         {v.toUpperCase()}
       </label>
       {p.value && (
-        <button className="set-btn quiet" onClick={p.onReset}>{t("action.reset")}</button>
+        <Button variant="ghost" className="set-btn quiet" onClick={p.onReset}>{t("action.reset")}</Button>
       )}
     </>
   );
@@ -278,7 +283,7 @@ export default function SettingsPage(p: {
   function themeRow(th: (typeof THEME_PRESETS)[number]) {
     const on = s.themePreset === th.id;
     return (
-      <button key={th.id} type="button"
+      <Button key={th.id} type="button" variant="ghost"
         className={`theme-row ${on ? "on" : ""}`}
         aria-pressed={on}
         onClick={() => set({ themePreset: th.id })}>
@@ -289,7 +294,7 @@ export default function SettingsPage(p: {
           ))}
         </span>
         <span className="theme-check">{on ? "✓" : ""}</span>
-      </button>
+      </Button>
     );
   }
 
@@ -297,9 +302,9 @@ export default function SettingsPage(p: {
     <div className={`settings-page ${narrow ? "narrow" : ""}`}>
       {narrow ? (
         <div className="set-nav-compact">
-          <button className="set-back" onClick={p.onClose}>
+          <Button variant="ghost" className="set-back" onClick={p.onClose}>
             {t("settings.back")}
-          </button>
+          </Button>
           <Select
             compact
             title={t("settings.section")}
@@ -310,26 +315,27 @@ export default function SettingsPage(p: {
         </div>
       ) : (
       <div className="set-nav">
-        <button className="set-back" onClick={p.onClose}>
+        <Button variant="ghost" className="set-back" onClick={p.onClose}>
           {t("settings.back")}
-        </button>
+        </Button>
         {SECTIONS.map((sec) => (
-          <button
+          <Button
+            variant="ghost"
             key={sec.id}
             className={`set-nav-item ${section === sec.id ? "on" : ""}`}
             aria-current={section === sec.id ? "true" : undefined}
             onClick={() => setSection(sec.id)}
           >
             {t(sec.labelKey as any)}
-          </button>
+          </Button>
         ))}
         <span className="flex" />
-        <button className="set-restore" onClick={async () => {
+        <Button variant="ghost" className="set-restore" onClick={async () => {
           const ok = await tauriConfirm(t("settings.restore-confirm"), { kind: "warning" }).catch(() => false);
           if (ok) p.onChange({ ...DEFAULT_SETTINGS });
         }}>
           {t("action.restore-defaults")}
-        </button>
+        </Button>
       </div>
       )}
       <div className="set-body">
@@ -415,10 +421,10 @@ export default function SettingsPage(p: {
                 />
               </Row>
               <Row title={t("settings.web-search")} desc={t("settings.web-search-desc")}>
-                <Toggle checked={s.webSearch} onChange={(v) => set({ webSearch: v })} />
+                <Toggle label={t("settings.web-search")} checked={s.webSearch} onChange={(v) => set({ webSearch: v })} />
               </Row>
               <Row title={t("settings.additional-dirs")} desc={t("settings.additional-dirs-desc")}>
-                <textarea className="set-text" rows={3} value={s.additionalDirectories}
+                <Textarea className="set-text" rows={3} value={s.additionalDirectories}
                   onChange={(e) => set({ additionalDirectories: e.target.value })} />
               </Row>
             </Group>
@@ -436,7 +442,7 @@ export default function SettingsPage(p: {
               </Row>
               <Row title={t("settings.chat-titles")} desc={t("settings.chat-titles-desc")}>
                 {retitleStatus && <InlineNotice tone="info" className="set-notice">{retitleStatus}</InlineNotice>}
-                <button
+                <Button
                   className="set-btn"
                   disabled={p.ws?.readyState !== 1}
                   onClick={() => {
@@ -445,7 +451,7 @@ export default function SettingsPage(p: {
                   }}
                 >
                   {t("action.generate-chat-titles")}
-                </button>
+                </Button>
               </Row>
             </Group>
           </>
@@ -458,11 +464,11 @@ export default function SettingsPage(p: {
                 <p className="set-sub">{t("settings.setup-sub")}</p>
               </div>
               <span className="set-headline-actions">
-                <button className="set-btn quiet" onClick={() => {
+                <Button variant="ghost" className="set-btn quiet" onClick={() => {
                   const details = { generatedAt: new Date().toISOString(), setup, wsConnected: p.ws?.readyState === 1 };
                   navigator.clipboard.writeText(JSON.stringify(details, null, 2));
-                }}>{t("settings.copy-details")}</button>
-                <button className="set-btn quiet" onClick={refreshSetup}>{t("action.refresh")}</button>
+                }}>{t("settings.copy-details")}</Button>
+                <Button variant="ghost" className="set-btn quiet" onClick={refreshSetup}>{t("action.refresh")}</Button>
               </span>
             </div>
             {p.ws?.readyState !== 1 && (
@@ -516,7 +522,7 @@ export default function SettingsPage(p: {
             <p className="set-sub">{t("settings.appearance-sub")}</p>
             <div className="set-group">
               <div className="set-group-label">{t("settings.group.theme")}</div>
-              <input className="theme-search" placeholder={t("settings.search-theme")} value={themeQuery}
+              <Input className="theme-search" placeholder={t("settings.search-theme")} value={themeQuery}
                 onChange={(e) => setThemeQuery(e.target.value)} />
               <div className="theme-gallery">
                 {currentTheme && <div className="theme-current">{themeRow(currentTheme)}</div>}
@@ -553,19 +559,19 @@ export default function SettingsPage(p: {
             </Group>
             <Group label={t("settings.group.typography")}>
               <Row title={t("settings.ui-font")} desc={t("settings.ui-font-desc")}>
-                <input className="set-text" placeholder="Inter" value={s.uiFont}
+                <Input className="set-text" placeholder="Inter" value={s.uiFont}
                   onChange={(e) => set({ uiFont: e.target.value })} />
               </Row>
               <Row title={t("settings.code-font")} desc={t("settings.code-font-desc")}>
-                <input className="set-text" placeholder="JetBrains Mono" value={s.codeFont}
+                <Input className="set-text" placeholder="JetBrains Mono" value={s.codeFont}
                   onChange={(e) => set({ codeFont: e.target.value })} />
               </Row>
               <Row title={t("settings.base-size")} desc={t("settings.base-size-desc")}>
-                <Slider min={12} max={18} step={0.5} value={s.baseFontSize} onChange={(v) => set({ baseFontSize: v })} />
+                <SettingSlider min={12} max={18} step={0.5} value={s.baseFontSize} onChange={(v) => set({ baseFontSize: v })} />
                 <span className="set-val">{s.baseFontSize}px</span>
               </Row>
               <Row title={t("settings.smoothing")} desc={t("settings.smoothing-desc")}>
-                <Toggle checked={s.fontSmoothing} onChange={(v) => set({ fontSmoothing: v })} />
+                <Toggle label={t("settings.smoothing")} checked={s.fontSmoothing} onChange={(v) => set({ fontSmoothing: v })} />
               </Row>
             </Group>
             <Group label={t("settings.group.layout")}>
@@ -582,15 +588,15 @@ export default function SettingsPage(p: {
                 />
               </Row>
               <Row title={t("settings.chat-text-size")}>
-                <Slider min={12} max={19} step={0.5} value={s.chatFontSize} onChange={(v) => set({ chatFontSize: v })} />
+                <SettingSlider min={12} max={19} step={0.5} value={s.chatFontSize} onChange={(v) => set({ chatFontSize: v })} />
                 <span className="set-val">{s.chatFontSize}px</span>
               </Row>
               <Row title={t("settings.reading-width")}>
-                <Slider min={560} max={1100} step={20} value={s.chatWidth} onChange={(v) => set({ chatWidth: v })} />
+                <SettingSlider min={560} max={1100} step={20} value={s.chatWidth} onChange={(v) => set({ chatWidth: v })} />
                 <span className="set-val">{s.chatWidth}px</span>
               </Row>
               <Row title={t("settings.interline")}>
-                <Slider min={1.4} max={2.0} step={0.05} value={s.chatLineHeight} onChange={(v) => set({ chatLineHeight: v })} />
+                <SettingSlider min={1.4} max={2.0} step={0.05} value={s.chatLineHeight} onChange={(v) => set({ chatLineHeight: v })} />
                 <span className="set-val">{s.chatLineHeight.toFixed(2)}</span>
               </Row>
               <Row title={t("settings.time-format")} desc={t("settings.time-format-desc")}>
@@ -623,7 +629,7 @@ export default function SettingsPage(p: {
                     { value: "codex", label: "Codex" },
                   ]}
                 />
-                <input className="set-text" placeholder={t("settings.slug-placeholder")} value={slugText}
+                <Input className="set-text" placeholder={t("settings.slug-placeholder")} value={slugText}
                   onChange={(e) => setSlugText(e.target.value)}
                   onKeyDown={(e) => {
                     if (e.key === "Enter" && slugText.trim()) {
@@ -631,11 +637,11 @@ export default function SettingsPage(p: {
                       setSlugText("");
                     }
                   }} />
-                <button className="set-btn" onClick={() => {
+                <Button className="set-btn" onClick={() => {
                   if (!slugText.trim()) return;
                   set({ customModels: [...customModels, { provider: slugProv, id: slugText.trim() }] });
                   setSlugText("");
-                }}><PlusIcon /> {t("action.add")}</button>
+                }}><PlusIcon /> {t("action.add")}</Button>
               </Row>
             </Group>
             <Group label={t("settings.model-effort-sub")}>
@@ -669,9 +675,9 @@ export default function SettingsPage(p: {
                 <div className="set-card">
                   {customModels.map((m, i) => (
                     <Row key={m.provider + ":" + m.id + ":" + i} title={m.id} desc={m.provider === "claude" ? "Claude" : "Codex"}>
-                      <button className="set-btn quiet" onClick={() =>
+                      <Button variant="ghost" className="set-btn quiet" onClick={() =>
                         set({ customModels: customModels.filter((_, j) => j !== i) })
-                      }>{t("action.remove")}</button>
+                      }>{t("action.remove")}</Button>
                     </Row>
                   ))}
                 </div>
@@ -687,7 +693,7 @@ export default function SettingsPage(p: {
             <p className="set-sub">{t("settings.review-sub")}</p>
             <Group>
               <Row title={t("settings.autoreview-enable")} desc={t("settings.autoreview-enable-desc")}>
-                <Toggle checked={s.autoReview.enabled}
+                <Toggle label={t("settings.autoreview-enable")} checked={s.autoReview.enabled}
                   onChange={(v) => set({ autoReview: { ...s.autoReview, enabled: v } })} />
               </Row>
               <Row title={t("settings.autoreview-agent")} desc={t("settings.autoreview-agent-desc")}>
@@ -727,21 +733,21 @@ export default function SettingsPage(p: {
             <p className="set-sub">{t("settings.atelier-sub")}</p>
             <Group>
               <Row title={t("settings.gallery-folder")} desc={t("settings.gallery-folder-desc")}>
-                <input className="set-text" value={s.galleryPath}
+                <Input className="set-text" value={s.galleryPath}
                   onChange={(e) => set({ galleryPath: e.target.value })} />
               </Row>
               <Row title={t("settings.auto-refresh")} desc={t("settings.auto-refresh-desc")}>
-                <Toggle checked={s.autoRefreshAtelier} onChange={(v) => set({ autoRefreshAtelier: v })} />
+                <Toggle label={t("settings.auto-refresh")} checked={s.autoRefreshAtelier} onChange={(v) => set({ autoRefreshAtelier: v })} />
               </Row>
             </Group>
             <Group label={t("settings.group.gallery-exts")}>
               <Row title={t("settings.gallery-exts-default")} desc={t("settings.gallery-exts-desc")}>
-                <input className="set-text" placeholder="png, svg, pdf, html, md…" value={s.galleryExts}
+                <Input className="set-text" placeholder="png, svg, pdf, html, md…" value={s.galleryExts}
                   onChange={(e) => set({ galleryExts: e.target.value })} />
               </Row>
               {(p.projects ?? []).map((root) => (
                 <Row key={root} title={root.split("/").pop() ?? root} desc={root}>
-                  <input className="set-text" placeholder={s.galleryExts || t("settings.gallery-exts-inherit")}
+                  <Input className="set-text" placeholder={s.galleryExts || t("settings.gallery-exts-inherit")}
                     value={(s.galleryExtsByProject ?? {})[root] ?? ""}
                     onChange={(e) => {
                       const next = { ...(s.galleryExtsByProject ?? {}) };
@@ -786,11 +792,11 @@ export default function SettingsPage(p: {
                       <span className={`set-badge ${pr.ok ? "ok" : "ko"}`}>
                         {pr.ok ? t("settings.detected") : t("settings.absent")}
                       </span>
-                      <button className="set-btn quiet" disabled={i === 0}
-                        title={t("settings.provider-up")} onClick={() => move(pr.id, -1)}>↑</button>
-                      <button className="set-btn quiet" disabled={i === sorted.length - 1}
-                        title={t("settings.provider-down")} onClick={() => move(pr.id, 1)}>↓</button>
-                      <Toggle checked={!hidden.has(pr.id)} onChange={(v) => {
+                      <Button variant="ghost" className="set-btn quiet" disabled={i === 0}
+                        title={t("settings.provider-up")} onClick={() => move(pr.id, -1)}>↑</Button>
+                      <Button variant="ghost" className="set-btn quiet" disabled={i === sorted.length - 1}
+                        title={t("settings.provider-down")} onClick={() => move(pr.id, 1)}>↓</Button>
+                      <Toggle label={pr.label} checked={!hidden.has(pr.id)} onChange={(v) => {
                         const next = new Set(s.hiddenProviders ?? []);
                         if (v) next.delete(pr.id); else next.add(pr.id);
                         set({ hiddenProviders: [...next] });
@@ -805,55 +811,78 @@ export default function SettingsPage(p: {
               {apiProvs.map((ap) => (
                 <Row key={ap.id} title={ap.label}
                   desc={`${ap.baseURL} · ${ap.protocol} · ${ap.models.length} ${t("settings.api-models-count")}${ap.keySet ? "" : " · " + t("settings.key-missing")}`}>
-                  <button className="set-btn quiet" onClick={() => setApiForm({
+                  <Button variant="ghost" className="set-btn quiet" onClick={() => setApiForm({
                     id: ap.id, label: ap.label, baseURL: ap.baseURL, protocol: ap.protocol,
                     apiKey: "", models: ap.models.join(", "),
                     modelMetadata: Object.fromEntries(Object.entries(ap.modelReasoning ?? {})
                       .map(([modelId, reasoning]) => [modelId, { reasoning }])),
-                  })}>{t("action.edit")}</button>
-                  <button className="set-btn quiet" onClick={() =>
+                  })}>{t("action.edit")}</Button>
+                  <Button variant="ghost" className="set-btn quiet" onClick={() =>
                     void (async () => {
                       const ok = await tauriConfirm(t("settings.api-delete-confirm", { id: ap.label || ap.id }), { kind: "warning" }).catch(() => false);
                       if (ok && p.ws?.readyState === 1) p.ws.send(JSON.stringify({ type: "deleteApiProvider", id: ap.id }));
                     })()
-                  }>{t("action.delete")}</button>
+                  }>{t("action.delete")}</Button>
                 </Row>
               ))}
               {!apiForm && (
                 <Row title={t("settings.api-add")} desc={t("settings.api-add-desc")}>
-                  <button className="set-btn" onClick={() => setApiForm({
+                  <Button className="set-btn" onClick={() => setApiForm({
                     id: "", label: "", baseURL: "", protocol: "openai", apiKey: "", models: "", modelMetadata: {},
-                  })}>{t("action.add")}</button>
+                  })}>{t("action.add")}</Button>
                 </Row>
               )}
               {apiForm && (
                 <div className="set-row" style={{ display: "block" }}>
-                  <div style={{ display: "grid", gap: 8 }}>
-                    <input className="set-text" placeholder={t("settings.api-label-ph")} value={apiForm.label}
-                      onChange={(e) => setApiForm({ ...apiForm, label: e.target.value, id: apiForm.id || e.target.value.toLowerCase().replace(/[^a-z0-9_-]/g, "") })} />
-                    <input className="set-text" placeholder="https://openrouter.ai/api/v1" value={apiForm.baseURL}
-                      onChange={(e) => setApiForm({ ...apiForm, baseURL: e.target.value })} />
+                  <FieldGroup className="tw:gap-2">
+                    <Field>
+                      <FieldLabel className="tw:sr-only">{t("settings.api-label-ph")}</FieldLabel>
+                      <Input className="set-text" placeholder={t("settings.api-label-ph")} value={apiForm.label}
+                        onChange={(e) => setApiForm({ ...apiForm, label: e.target.value, id: apiForm.id || e.target.value.toLowerCase().replace(/[^a-z0-9_-]/g, "") })} />
+                    </Field>
+                    <Field>
+                      <FieldLabel className="tw:sr-only">Base URL</FieldLabel>
+                      <Input className="set-text" placeholder="https://openrouter.ai/api/v1" value={apiForm.baseURL}
+                        onChange={(e) => setApiForm({ ...apiForm, baseURL: e.target.value })} />
+                    </Field>
+                    <Field>
+                      <FieldLabel className="tw:sr-only">Protocol</FieldLabel>
+                      <ToggleGroup
+                        aria-label="Protocol"
+                        value={[apiForm.protocol]}
+                        onValueChange={(next) => {
+                          const protocol = next[0];
+                          if (protocol === "openai" || protocol === "anthropic") setApiForm({ ...apiForm, protocol });
+                        }}
+                        className="api-protocol"
+                      >
+                        <ToggleGroupItem value="openai" aria-label="OpenAI" className="tw:px-2.5">
+                          OpenAI (/chat/completions)
+                        </ToggleGroupItem>
+                        <ToggleGroupItem value="anthropic" aria-label="Anthropic" className="tw:px-2.5">
+                          Anthropic (/v1/messages)
+                        </ToggleGroupItem>
+                      </ToggleGroup>
+                    </Field>
+                    <Field>
+                      <FieldLabel className="tw:sr-only">{t("settings.api-key-ph")}</FieldLabel>
+                      <Input className="set-text" type="password" placeholder={t("settings.api-key-ph")} value={apiForm.apiKey}
+                        onChange={(e) => setApiForm({ ...apiForm, apiKey: e.target.value })} />
+                    </Field>
                     <div style={{ display: "flex", gap: 8 }}>
-                      {(["openai", "anthropic"] as const).map((proto) => (
-                        <button key={proto} className={`set-btn quiet ${apiForm.protocol === proto ? "on" : ""}`}
-                          onClick={() => setApiForm({ ...apiForm, protocol: proto })}>
-                          {proto === "openai" ? "OpenAI (/chat/completions)" : "Anthropic (/v1/messages)"}
-                        </button>
-                      ))}
-                    </div>
-                    <input className="set-text" type="password" placeholder={t("settings.api-key-ph")} value={apiForm.apiKey}
-                      onChange={(e) => setApiForm({ ...apiForm, apiKey: e.target.value })} />
-                    <div style={{ display: "flex", gap: 8 }}>
-                      <input className="set-text" style={{ flex: 1 }} placeholder={t("settings.api-models-ph")} value={apiForm.models}
-                        onChange={(e) => setApiForm({ ...apiForm, models: e.target.value })} />
-                      <button className="set-btn quiet" disabled={apiModelsBusy} onClick={() => {
+                      <Field className="tw:min-w-0 tw:flex-1">
+                        <FieldLabel className="tw:sr-only">{t("settings.api-models-ph")}</FieldLabel>
+                        <Input className="set-text" style={{ flex: 1 }} placeholder={t("settings.api-models-ph")} value={apiForm.models}
+                          onChange={(e) => setApiForm({ ...apiForm, models: e.target.value })} />
+                      </Field>
+                      <Button variant="ghost" className="set-btn quiet" disabled={apiModelsBusy} onClick={() => {
                         if (p.ws?.readyState !== 1) return;
                         setApiModelsBusy(true); setApiModels(null); setApiModelsError(""); setApiModelsQuery("");
                         p.ws.send(JSON.stringify({ type: "listApiModels", provider: {
                           id: apiForm.id, baseURL: apiForm.baseURL, protocol: apiForm.protocol,
                           ...(apiForm.apiKey ? { apiKey: apiForm.apiKey } : {}),
                         } }));
-                      }}>{apiModelsBusy ? "…" : t("settings.api-detect")}</button>
+                      }}>{apiModelsBusy ? "…" : t("settings.api-detect")}</Button>
                     </div>
                     {apiModelsError && <InlineNotice tone="error" className="set-notice">{apiModelsError}</InlineNotice>}
                     {apiModels && (() => {
@@ -870,12 +899,21 @@ export default function SettingsPage(p: {
                       };
                       return (
                         <div style={{ border: "1px solid var(--border)", borderRadius: 8, padding: 8 }}>
-                          <input className="set-text" placeholder={t("settings.api-filter-ph")} value={apiModelsQuery}
-                            onChange={(e) => setApiModelsQuery(e.target.value)} />
+                          <Field>
+                            <FieldLabel className="tw:sr-only">{t("settings.api-filter-ph")}</FieldLabel>
+                            <Input className="set-text" placeholder={t("settings.api-filter-ph")} value={apiModelsQuery}
+                              onChange={(e) => setApiModelsQuery(e.target.value)} />
+                          </Field>
                           <div style={{ maxHeight: 220, overflowY: "auto", marginTop: 6 }}>
                             {shown.map((m) => (
                               <label key={m.id} style={{ display: "flex", gap: 8, alignItems: "center", padding: "3px 4px", cursor: "pointer" }}>
-                                <input type="checkbox" checked={selected.has(m.id)} onChange={() => toggle(m.id)} />
+                                <Checkbox
+                                  checked={selected.has(m.id)}
+                                  aria-label={m.label || m.id}
+                                  onCheckedChange={() => toggle(m.id)}
+                                >
+                                  <CheckboxIndicator><CheckIcon className="tw:size-3" /></CheckboxIndicator>
+                                </Checkbox>
                                 <span style={{ fontSize: "var(--fs-m)" }}>{m.id}</span>
                                 {m.reasoning && <span className="set-badge ok">reasoning</span>}
                               </label>
@@ -889,14 +927,14 @@ export default function SettingsPage(p: {
                       );
                     })()}
                     <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
-                      <button className="set-btn quiet" onClick={() => setApiForm(null)}>{t("action.cancel")}</button>
-                      <button className="set-btn" onClick={() => {
+                      <Button variant="ghost" className="set-btn quiet" onClick={() => setApiForm(null)}>{t("action.cancel")}</Button>
+                      <Button className="set-btn" onClick={() => {
                         if (p.ws?.readyState !== 1) return;
                         p.ws.send(JSON.stringify({ type: "saveApiProvider", provider: apiForm }));
                         setApiForm(null);
-                      }}>{t("action.save")}</button>
+                      }}>{t("action.save")}</Button>
                     </div>
-                  </div>
+                  </FieldGroup>
                 </div>
               )}
             </Group>
@@ -913,13 +951,13 @@ export default function SettingsPage(p: {
                 </span>
               </Row>
               <Row title={t("settings.pasted-images")} desc={status ? t("settings.pasted-images-desc", { count: status.pastedCount, dir: status.pasteDir }) : "…"}>
-                <button className="set-btn quiet"
+                <Button variant="ghost" className="set-btn quiet"
                   onClick={async () => {
                     const ok = await tauriConfirm(t("settings.clear-pasted-confirm"), { kind: "warning" }).catch(() => false);
                     if (ok && p.ws?.readyState === 1) p.ws.send(JSON.stringify({ type: "clearPasted" }));
                   }}>
                   {t("action.clear")}
-                </button>
+                </Button>
               </Row>
               {pasted && pasted.length > 0 && (
                 <div className="pasted-grid">

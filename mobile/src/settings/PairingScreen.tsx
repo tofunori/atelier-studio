@@ -1,4 +1,18 @@
 import { useState } from "react";
+import { Alert, AlertDescription } from "@/components/ui/alert.tsx";
+import { Button } from "@/components/ui/button.tsx";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardFooter,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card.tsx";
+import { Field, FieldGroup, FieldLabel } from "@/components/ui/field.tsx";
+import { Input } from "@/components/ui/input.tsx";
+import { Spinner } from "@/components/ui/spinner.tsx";
+import { LinkIcon } from "lucide-react";
 
 type Props = {
   gatewayUrl: string;
@@ -15,14 +29,19 @@ export function PairingScreen(p: Props) {
   return (
     <div className="screen">
       <h1 className="screen-title">Appairage</h1>
-      <p className="screen-sub">
-        Sur le Mac : Réglages → Avancé → Appareils distants → Démarrer l'appairage.
-        Entrez le code court ici. Le jeton long terme reste sur cet appareil.
-      </p>
-      <div className="card stack">
-        <div className="field">
-          <label htmlFor="gw">URL gateway</label>
-          <input
+      <Card>
+        <CardHeader>
+          <CardTitle>Connecter ce téléphone</CardTitle>
+          <CardDescription>
+            Sur le Mac : Réglages → Avancé → Appareils distants → Démarrer l’appairage.
+            Le jeton long terme reste sur cet appareil.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <FieldGroup>
+            <Field>
+              <FieldLabel htmlFor="gw">URL gateway</FieldLabel>
+              <Input
             id="gw"
             value={p.gatewayUrl}
             onChange={(e) => p.onGatewayUrlChange(e.target.value)}
@@ -32,10 +51,10 @@ export function PairingScreen(p: Props) {
             inputMode="url"
             placeholder="http://127.0.0.1:18765"
           />
-        </div>
-        <div className="field">
-          <label htmlFor="code">Code d'appairage</label>
-          <input
+            </Field>
+            <Field>
+              <FieldLabel htmlFor="code">Code d'appairage</FieldLabel>
+              <Input
             id="code"
             value={code}
             onChange={(e) => setCode(e.target.value.toUpperCase())}
@@ -45,30 +64,35 @@ export function PairingScreen(p: Props) {
             placeholder="ABCD2345"
             maxLength={12}
           />
-        </div>
-        <div className="field">
-          <label htmlFor="name">Nom de l'appareil</label>
-          <input
+            </Field>
+            <Field>
+              <FieldLabel htmlFor="name">Nom de l’appareil</FieldLabel>
+              <Input
             id="name"
             value={name}
             onChange={(e) => setName(e.target.value)}
             maxLength={64}
           />
-        </div>
+            </Field>
+          </FieldGroup>
+        </CardContent>
         {p.error && (
-          <div role="alert" style={{ color: "var(--status-error)", fontSize: "var(--fs-m)" }}>
-            {p.error}
-          </div>
+          <CardContent>
+            <Alert variant="destructive"><AlertDescription>{p.error}</AlertDescription></Alert>
+          </CardContent>
         )}
-        <button
+        <CardFooter>
+          <Button
           type="button"
-          className="btn btn-primary"
+            className="w-full"
           disabled={p.busy || code.trim().length < 4}
           onClick={() => void p.onPair(code, name)}
         >
+            {p.busy ? <Spinner data-icon="inline-start" /> : <LinkIcon data-icon="inline-start" />}
           {p.busy ? "Appairage…" : "Appairer"}
-        </button>
-      </div>
+          </Button>
+        </CardFooter>
+      </Card>
     </div>
   );
 }

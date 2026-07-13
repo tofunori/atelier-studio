@@ -5,7 +5,7 @@
 // - reduced motion : les trois tokens de durée passent à 0 ms centralement ;
 // - primitives.css n'introduit AUCUNE durée en ms hors tokens (plafond 150 ms
 //   garanti par construction).
-import { readFileSync } from "node:fs";
+import { readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { describe, it, expect } from "vitest";
 
@@ -14,7 +14,15 @@ const root = join(__dirname, "..", "..");
 const stripComments = (css: string) => css.replace(/\/\*[\s\S]*?\*\//g, "");
 const tokens = stripComments(readFileSync(join(root, "styles", "tokens.css"), "utf8"));
 const primitives = stripComments(readFileSync(join(root, "styles", "primitives.css"), "utf8"));
+const shadcn = stripComments(readFileSync(join(root, "styles", "shadcn.css"), "utf8"));
+const shadcnButton = readFileSync(join(root, "components", "shadcn", "button.tsx"), "utf8");
+const shadcnDir = join(root, "components", "shadcn");
+const shadcnSources = readdirSync(shadcnDir)
+  .filter((file) => file.endsWith(".tsx") && !file.endsWith(".test.tsx"))
+  .map((file) => [file, readFileSync(join(shadcnDir, file), "utf8")] as const);
 const appCss = stripComments(readFileSync(join(root, "App.css"), "utf8"));
+const galleryMain = readFileSync(join(root, "..", "gallery", "react-ui", "main.tsx"), "utf8");
+const galleryStyles = readFileSync(join(root, "..", "gallery", "react-ui", "styles.css"), "utf8");
 
 describe("contrat Quiet Instrument (sources CSS)", () => {
   it("aucun `transition: all` dans tokens/primitives/App.css", () => {
@@ -26,6 +34,53 @@ describe("contrat Quiet Instrument (sources CSS)", () => {
       expect(css.includes("transition: all"), `transition: all trouvé dans ${name}`).toBe(false);
       expect(css.includes("transition:all"), `transition:all trouvé dans ${name}`).toBe(false);
     }
+    expect(shadcnButton).not.toContain("tw:transition-all");
+    expect(shadcnButton).not.toContain("tw:dark:");
+  });
+
+  it("les sources générées restent compatibles avec les contrats Atelier", () => {
+    for (const [name, source] of shadcnSources) {
+      expect(source, `${name} contient une variante dark manuelle`).not.toContain("tw:dark:");
+      expect(source, `${name} contient un z-index local`).not.toMatch(/tw:z-\d+/);
+      expect(source, `${name} contient transition-all`).not.toContain("tw:transition-all");
+      expect(source, `${name} contient un token vide généré`).not.toContain("tw: tw:");
+      expect(source, `${name} utilise un espacement space-x/space-y`).not.toMatch(/tw:space-[xy]-/);
+      expect(source, `${name} contient un séparateur HTML brut`).not.toContain("<hr");
+    }
+    expect(shadcn).toContain("--motion-fast");
+    expect(shadcn).toContain("prefers-reduced-motion: reduce");
+  });
+
+  it("la couche shadcn ne contient que des primitives de registre", () => {
+    expect(readdirSync(shadcnDir)).not.toContain("dialog-surface.tsx");
+    expect(readdirSync(shadcnDir)).not.toContain("dropdown-menu-surface.tsx");
+    for (const primitive of ["field.tsx", "radio-group.tsx", "sidebar.tsx"]) {
+      expect(readdirSync(shadcnDir)).toContain(primitive);
+    }
+  });
+
+  it("l'inventaire final ne contient aucune primitive installée au cas où", () => {
+    expect(shadcnSources.map(([name]) => name).sort()).toEqual([
+      "alert-dialog.tsx", "alert.tsx", "attachment.tsx", "badge.tsx",
+      "bubble.tsx", "button-group.tsx", "button.tsx", "checkbox.tsx",
+      "collapsible.tsx", "command.tsx", "context-menu.tsx", "dialog.tsx",
+      "dropdown-menu.tsx", "empty.tsx", "field.tsx", "input-group.tsx",
+      "input.tsx", "kbd.tsx", "marker.tsx", "message-scroller.tsx",
+      "message.tsx", "popover.tsx", "progress.tsx", "radio-group.tsx",
+      "select.tsx", "separator.tsx", "sheet.tsx", "sidebar.tsx",
+      "skeleton.tsx", "slider.tsx", "sonner.tsx", "spinner.tsx",
+      "switch.tsx", "tabs.tsx", "textarea.tsx", "toggle-group.tsx",
+      "toggle.tsx", "tooltip.tsx",
+    ]);
+  });
+
+  it("le chrome Galerie délègue le stacking aux primitives partagées", () => {
+    expect(galleryMain).not.toContain('type="search"');
+    expect(galleryMain).not.toMatch(/tw:z-(?:\d+|\[[^v][^\]]*\])/);
+    expect(galleryMain).toContain('components/ui/Tooltip');
+    expect(galleryMain).toContain('layer={modal ? "modal" : "panel"}');
+    expect(galleryStyles).toContain('@source "./main.tsx"');
+    expect(galleryStyles).not.toContain('@source "./**/*.{ts,tsx}"');
   });
 
   it("budget d'animation : primitives.css définit exactement une @keyframes (spinner)", () => {
@@ -78,13 +133,17 @@ describe("contrat Quiet Instrument (sources CSS)", () => {
     expect(tokens).toContain("--surface-header-height: 44px");
     expect(primitives).toMatch(/\.ui-surface-header\s*\{[\s\S]*?min-height:\s*var\(--surface-header-height\)/);
     expect(appCss).toMatch(/\.atelier-bar\s*\{[\s\S]*?height:\s*var\(--surface-header-height\)/);
+    expect(appCss).toMatch(/\.atelier-bar\s*\{[\s\S]*?flex-direction:\s*row/);
   });
 
   it("les contrôles partagent une géométrie et une bordure interactive communes", () => {
     expect(tokens).toContain("--control-height: 30px");
     expect(tokens).toContain("--control-height-compact: 26px");
     expect(tokens).toContain("--border-interactive:");
-    expect(primitives).toMatch(/\.ui-btn\s*\{[\s\S]*?height:\s*var\(--control-height\)/);
+    expect(shadcn).toContain("--color-background: var(--background)");
+    expect(shadcn).toContain("--color-ring: var(--ring)");
+    expect(shadcnButton).toContain("tw:rounded-[var(--radius-control)]");
+    expect(shadcnButton).toContain("tw:duration-[var(--motion-fast)]");
     expect(appCss).toMatch(/\.custom-select-trigger\s*\{[\s\S]*?min-height:\s*var\(--control-height\)/);
     expect(appCss).toMatch(/\.exp-search\s*\{[\s\S]*?min-height:\s*var\(--control-height\)/);
   });

@@ -151,7 +151,9 @@ describe("HarnessInteraction — formulaire user_input", () => {
   });
 
   it("navigation clavier : radios, champ texte et boutons sont focusables", () => {
-    render(<HarnessInteraction event={form()} threadId={THREAD} />);
+    const { container } = render(<HarnessInteraction event={form()} threadId={THREAD} />);
+    expect(container.querySelectorAll('[data-slot="field"]')).toHaveLength(2);
+    expect(container.querySelectorAll('[data-slot="field-label"]')).toHaveLength(1);
     const radio = screen.getByRole("radio", { name: "src" });
     radio.focus();
     expect(document.activeElement).toBe(radio);

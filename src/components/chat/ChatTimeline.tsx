@@ -3,7 +3,7 @@
 // indicateur Working, chapitres épinglés, bouton « aller au dernier message ».
 // JSX déplacé VERBATIM depuis Chat.tsx ; les bundles sont déstructurés vers les
 // noms locaux d'origine pour garantir l'équivalence pixel.
-import React, { type ReactNode, type MutableRefObject, type RefObject } from "react";
+import React, { type ReactNode, type RefObject } from "react";
 import { Tick } from "./toolPresentation";
 import { AgentEvent } from "../../lib/ws";
 import { t } from "../../lib/i18n";
@@ -17,6 +17,16 @@ import { ResearchHome, type ResearchHomeBundle } from "../ResearchHome";
 import { ThinkingBlock, EditLine, ActivityCard, Working, formatPermInput } from "./turnParts";
 import { HarnessInteraction } from "./HarnessInteraction";
 import { JumpNavigation } from "../ui";
+import { Input } from "../shadcn/input";
+import {
+  MessageScroller,
+  MessageScrollerButton,
+  MessageScrollerContent,
+  MessageScrollerItem,
+  MessageScrollerProvider,
+  MessageScrollerViewport,
+  useMessageScroller,
+} from "../shadcn/message-scroller";
 
 type ToolAction = Extract<AgentEvent, { kind: "tool" | "tool_update" }>;
 type RenderedItem =
@@ -57,9 +67,6 @@ export type TimelineMsg = {
 export type TimelineScroll = {
   messagesRef: RefObject<HTMLDivElement | null>;
   onMessagesMouseUp: (e: React.MouseEvent) => void;
-  setShowJump: React.Dispatch<React.SetStateAction<boolean>>;
-  stickRef: MutableRefObject<boolean>;
-  showJump: boolean;
 };
 export type TimelineWorking = { currentWorkName: string; onStop: () => void };
 export type TimelineChapters = {
@@ -75,6 +82,34 @@ export type TimelineEmpty = {
   /** Research Home (plan 017) — remplace l'empty-card générique si fourni */
   home?: ResearchHomeBundle | null;
 };
+
+function TimelineJumpNavigation(p: { lastUserMessageId: string | null }) {
+  const { scrollToMessage } = useMessageScroller();
+  return (
+    <JumpNavigation
+      firstLabel={t("chat.jump-last-message")}
+      firstIcon={<svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round"><path d="M3.6 9.8L8 5.4l4.4 4.4" /></svg>}
+      onFirst={() => {
+        if (p.lastUserMessageId) {
+          scrollToMessage(p.lastUserMessageId, { behavior: "smooth", align: "start" });
+        }
+      }}
+      lastLabel={t("chat.jump-bottom")}
+      lastIcon={<ArrowDownIcon />}
+      lastControl={(
+        <MessageScrollerButton
+          direction="end"
+          behavior="smooth"
+          className="ui-jumpnav-end"
+          title={t("chat.jump-bottom")}
+          aria-label={t("chat.jump-bottom")}
+        >
+          <ArrowDownIcon />
+        </MessageScrollerButton>
+      )}
+    />
+  );
+}
 
 export function ChatTimeline(p: {
   thread: TimelineThread;
@@ -98,12 +133,17 @@ export function ChatTimeline(p: {
   const { review, reviewMin, setReviewMin, setReview, barOpen, setBarOpen, fixing, setFixing, reviewOpen, setReviewOpen } = p.rev;
   const { renderedEvents, openFolds, setOpenFolds, openToolGroups, setOpenToolGroups, activeToolGroupKey, renderToolLine, fmtWorkDur } = p.list;
   const { editing, setEditing, pins, onTogglePin, onRevert, onEditSend, onFork, setPasteView, commands, defaults, onQuote } = p.msg;
-  const { messagesRef, onMessagesMouseUp, setShowJump, stickRef, showJump } = p.scroll;
+  const { messagesRef, onMessagesMouseUp } = p.scroll;
   const { onStop } = p.working;
   const { tickPos, resolvePinEl, pinMenu, setPinMenu, onStylePin } = p.chapters;
   const { onNewChat, onOpenProject } = p.empty;
   const { quote, setQuote, quoteHasHl, quoteHasUl, addMark, removeMark } = p.selection;
-  void stickRef; void onQuote; void openFolds; // utilisés par des handlers/branches copiés verbatim
+  void onQuote; void openFolds; // utilisés par des handlers/branches copiés verbatim
+  let lastUserIndex = -1;
+  for (let i = events.length - 1; i >= 0; i--) {
+    if (events[i].kind === "user") { lastUserIndex = i; break; }
+  }
+  const lastUserMessageId = lastUserIndex >= 0 ? `message-${lastUserIndex}` : null;
   return (
     <>
       {threadId && review && reviewMin && (
@@ -201,32 +241,48 @@ export function ChatTimeline(p: {
           ) : null}
         </div>
       )}
+      <MessageScrollerProvider
+        key={threadId ?? "atelier-home"}
+        autoScroll
+        defaultScrollPosition="end"
+        scrollEdgeThreshold={80}
+      >
       <div className="timeline-scroll-wrap">
-      <div
+      <MessageScroller className="messages-scroller">
+      <MessageScrollerViewport
         className="messages"
         ref={messagesRef}
+        aria-label={t("chat.jump-bottom")}
         onMouseUp={onMessagesMouseUp}
-        onScroll={(e) => {
-          const el = e.currentTarget;
-          const fromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
-          // près du bas = on (re)colle le suivi ; remonter le détache
-          stickRef.current = fromBottom <= 80;
-          setShowJump(fromBottom > 200);
-        }}
       >
-        {!threadId && p.empty.home ? (
-          // plan 017 : l'accueil remplace l'empty-card UNIQUEMENT sans thread
-          // actif ; il s'efface dès qu'un thread est sélectionné
-          <ResearchHome model={p.empty.home.model} actions={p.empty.home.actions} />
-        ) : (
-          <ChatEmptyState
-            threadId={threadId}
-            hasEvents={events.length > 0}
-            onNewChat={onNewChat}
-            onOpenProject={onOpenProject}
-          />
+      <MessageScrollerContent className="messages-content">
+        {(!threadId || events.length === 0) && (
+          <MessageScrollerItem messageId="timeline-empty">
+            {!threadId && p.empty.home ? (
+              // plan 017 : l'accueil remplace l'empty-card UNIQUEMENT sans thread
+              // actif ; il s'efface dès qu'un thread est sélectionné
+              <ResearchHome model={p.empty.home.model} actions={p.empty.home.actions} />
+            ) : (
+              <ChatEmptyState
+                threadId={threadId}
+                hasEvents={events.length > 0}
+                onNewChat={onNewChat}
+                onOpenProject={onOpenProject}
+              />
+            )}
+          </MessageScrollerItem>
         )}
         {renderedEvents.map((item) => {
+          if (item.type === "event" && item.event.kind === "goal") return null;
+          const itemKey = item.type === "event" ? `event-${item.index}` : item.type === "fold" ? item.fold.key : item.key;
+          const messageId = item.type === "event" ? `message-${item.index}` : `message-${itemKey}`;
+          return (
+          <MessageScrollerItem
+            key={itemKey}
+            messageId={messageId}
+            scrollAnchor={item.type === "event" && item.event.kind === "user"}
+          >
+          {(() => {
           if (item.type === "fold") {
             const { fold, open } = item;
             return (
@@ -384,8 +440,12 @@ export function ChatTimeline(p: {
             );
           }
           return null;
+          })()}
+          </MessageScrollerItem>
+          );
         })}
         {workingSince != null && (
+          <MessageScrollerItem messageId="message-working">
           <div className="working-stack">
             <div className="working-row">
               <Working since={workingSince} />
@@ -394,8 +454,12 @@ export function ChatTimeline(p: {
               <kbd>esc</kbd> {t("action.interrupt")}
             </button>
           </div>
+          </MessageScrollerItem>
         )}
-      </div>
+      </MessageScrollerContent>
+      </MessageScrollerViewport>
+      <TimelineJumpNavigation lastUserMessageId={lastUserMessageId} />
+      </MessageScroller>
       {pins.length > 0 && (
         <div className={`chapters${threadId && review ? " below-reviewer" : ""}`}>
           {[...pins].sort((a, b) => (tickPos[a.index] ?? a.index) - (tickPos[b.index] ?? b.index)).map((c) => (
@@ -423,7 +487,7 @@ export function ChatTimeline(p: {
       {pinMenu && (
         <div className="ctx-menu pin-menu" style={{ position: "fixed", left: pinMenu.x, top: pinMenu.y, zIndex: 200 }}
           onClick={(e) => e.stopPropagation()}>
-          <input
+          <Input
             className="pin-rename"
             defaultValue={pins.find((x) => x.index === pinMenu.index)?.label ?? ""}
             placeholder={t("chat.pin-rename")}
@@ -525,26 +589,8 @@ export function ChatTimeline(p: {
           </button>
         </div>
       )}
-      {showJump && (
-        <JumpNavigation
-          firstLabel={t("chat.jump-last-message")}
-          firstIcon={<svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round"><path d="M3.6 9.8L8 5.4l4.4 4.4" /></svg>}
-          onFirst={() => {
-              const el = messagesRef.current;
-              if (!el) return;
-              const bubbles = el.querySelectorAll(".user-wrap");
-              const last = bubbles[bubbles.length - 1] as HTMLElement | undefined;
-              if (last) last.scrollIntoView({ behavior: "smooth", block: "start" });
-          }}
-          lastLabel={t("chat.jump-bottom")}
-          lastIcon={<ArrowDownIcon />}
-          onLast={() => {
-              const el = messagesRef.current;
-              if (el) el.scrollTo({ top: el.scrollHeight, behavior: "smooth" });
-          }}
-        />
-      )}
       </div>
+      </MessageScrollerProvider>
     </>
   );
 }

@@ -9,7 +9,7 @@ import {
   type NetworkContext,
 } from "./networkMachine.ts";
 import { ReconnectController } from "./reconnectController.ts";
-import { GatewayError, listThreads, probeGateway } from "./gatewayClient.ts";
+import { createThread, GatewayError, listThreads, probeGateway } from "./gatewayClient.ts";
 import type { ConnectionPhase, DeviceCredentials, ThreadSummary } from "./types.ts";
 import { secureGet, secureSet } from "../native/secureStorage.ts";
 
@@ -23,6 +23,7 @@ export type NetworkSession = {
   sendQueue: SendQueueState;
   setSendQueue: (q: SendQueueState | ((prev: SendQueueState) => SendQueueState)) => void;
   refresh: () => Promise<void>;
+  createThread: (body: { title?: string; provider: string; model?: string; projectId?: string }) => Promise<ThreadSummary>;
   reconnectInfo: { attempt: number; nextDelayMs: number | null; running: boolean };
 };
 
@@ -134,6 +135,14 @@ export function useNetworkSession(opts: {
     if (!ok) controllerRef.current?.start();
   }, []);
 
+  const create = useCallback(async (body: { title?: string; provider: string; model?: string; projectId?: string }) => {
+    const c = credsRef.current;
+    if (!c) throw new Error("Appareil non appairé");
+    const created = await createThread(c, body);
+    setThreads((current) => [created, ...current.filter((t) => t.id !== created.id)]);
+    return created;
+  }, []);
+
   // initial + credential changes
   useEffect(() => {
     void refresh();
@@ -185,6 +194,7 @@ export function useNetworkSession(opts: {
     sendQueue,
     setSendQueue,
     refresh,
+    createThread: create,
     reconnectInfo,
   };
 }

@@ -1,4 +1,8 @@
 import { useState, type WheelEvent } from "react";
+import { Badge } from "@/components/ui/badge.tsx";
+import { Button } from "@/components/ui/button.tsx";
+import { ButtonGroup } from "@/components/ui/button-group.tsx";
+import { MaximizeIcon, ZoomInIcon, ZoomOutIcon } from "lucide-react";
 
 type Props = {
   url: string;
@@ -18,16 +22,13 @@ export function ImageViewer(p: Props) {
   return (
     <div className="viewer-image" onWheel={onWheel}>
       <div className="viewer-toolbar">
-        <button type="button" className="btn btn-ghost" onClick={() => setScale((s) => Math.min(5, s * 1.2))}>
-          +
-        </button>
-        <button type="button" className="btn btn-ghost" onClick={() => setScale((s) => Math.max(0.5, s / 1.2))}>
-          −
-        </button>
-        <button type="button" className="btn btn-ghost" onClick={() => setScale(1)}>
-          1:1
-        </button>
-        {p.meta && <span className="viewer-meta">{p.meta}</span>}
+        <ButtonGroup aria-label="Zoom de l’image">
+          <Button type="button" variant="outline" size="icon-sm" aria-label="Agrandir" onClick={() => setScale((s) => Math.min(5, s * 1.2))}><ZoomInIcon /></Button>
+          <Button type="button" variant="outline" size="icon-sm" aria-label="Réduire" onClick={() => setScale((s) => Math.max(0.5, s / 1.2))}><ZoomOutIcon /></Button>
+          <Button type="button" variant="outline" size="icon-sm" aria-label="Taille réelle" onClick={() => setScale(1)}><MaximizeIcon /></Button>
+        </ButtonGroup>
+        <Badge variant="outline">{Math.round(scale * 100)} %</Badge>
+        {p.meta && <Badge variant="secondary">{p.meta}</Badge>}
       </div>
       <div className="viewer-image-stage">
         <img

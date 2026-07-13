@@ -139,14 +139,33 @@ test('browse: search filters the generated gallery cards', async ({ page }) => {
     await expect(page.locator('#grid .card')).toHaveCount(3);
     await expect(page.locator('.brand .stat')).toContainText('4 files');
 
-    // refonte sobre : le chip de recherche est masqué (#searchChip{display:none}),
-    // #q est un champ inline toujours visible (raccourci « / ») — remplir direct.
-    await page.locator('#q').fill('alpha');
+    await expect(page.locator('[data-gallery-command="search"]')).toBeVisible();
+    const searchGroup = page.locator('[data-gallery-command-group="search"]');
+    await expect(searchGroup).toHaveAttribute('data-slot', 'input-group');
+    await expect(searchGroup.locator('[data-slot="input-group-addon"]')).toBeVisible();
+    expect((await searchGroup.boundingBox()).width).toBeLessThanOrEqual(361);
+    await page.locator('[data-gallery-command="search"]').fill('alpha');
 
     await expect(page.locator('#grid .card')).toHaveCount(2);
     await expect(page.locator('#grid')).toContainText('plot-alpha.svg');
     await expect(page.locator('#grid')).toContainText('preview-alpha.png');
     await expect(page.locator('#grid')).not.toContainText('plot-beta.svg');
+
+    // La recherche par nom ignore le masque de formats par défaut : le code
+    // reste trouvable sans activer manuellement la catégorie Code.
+    await page.locator('[data-gallery-command="search"]').fill('analysis.py');
+    await expect(page.locator('#grid .card')).toHaveCount(1);
+    await expect(page.locator('#grid')).toContainText('analysis.py');
+
+    // Les extensions individuelles restent disponibles dans le menu shadcn.
+    await page.locator('[data-gallery-command="filters"]').click();
+    await page.locator('[data-gallery-filter-group="file types"]').hover();
+    await expect(page.locator('[data-gallery-filter-item="py"]')).toContainText('Python');
+    await page.locator('[data-gallery-filter-item="svg"]').click();
+
+    // Un type désactivé explicitement se combine avec la requête texte.
+    await page.locator('[data-gallery-command="search"]').fill('plot-alpha.svg');
+    await expect(page.locator('#grid .empty')).toContainText('No matching files');
   });
 });
 
@@ -187,7 +206,8 @@ test('export and delete use selected files without mutating disk when endpoints 
     await expect(page.locator('#exportSel')).toContainText('✓ 1');
 
     await page.locator('#delSel').click();
-    await page.locator('#confirmOk').click();
+    await expect(page.getByRole('alertdialog')).toBeVisible();
+    await page.locator('[data-gallery-confirm="accept"]').click();
     await expect.poll(() => calls.delete).toEqual({ rels: ['plot-beta.svg'] });
     await expect(page.locator('#grid')).not.toContainText('plot-beta.svg');
   });
@@ -262,21 +282,18 @@ test('filters: workflow filter via popover shows an active chip, reset restores 
     await page.goto(url);
     await expect(page.locator('#grid .card')).toHaveCount(3);
 
-    await page.locator('#filtersChip').click();
-    await expect(page.locator('#filtersMenu')).toBeVisible();
-    // le sous-menu Statut s'ouvre SANS fermer le popover
-    await page.locator('#wfChip').click();
-    await expect(page.locator('#filtersMenu')).toBeVisible();
-    await page.locator('#wfMenu [data-wfpick="draft"]').click();
+    await page.locator('[data-gallery-command="filters"]').click();
+    await page.locator('[data-gallery-filter-group="status"]').hover();
+    await page.locator('[data-gallery-filter-item="draft"]').click();
 
     await expect(page.locator('#activeChips .fchip').first()).toContainText('Status: Draft');
-    await expect(page.locator('#filtersChip')).toContainText('Filters (1)');
+    await expect(page.locator('[data-gallery-command="filters"]')).toContainText('Filters (1)');
     await expect(page.locator('#grid .empty')).toContainText('No matching files');
 
     // suppression via la chip → grille restaurée, compteur remis à zéro
     await page.locator('#activeChips [data-fx="wf"]').click();
     await expect(page.locator('#grid .card')).toHaveCount(3);
-    await expect(page.locator('#filtersChip')).not.toContainText('(1)');
+    await expect(page.locator('[data-gallery-command="filters"]')).not.toContainText('(1)');
   });
 });
 
@@ -359,17 +376,59 @@ test('keyboard: arrows move the selection, Enter opens, Escape closes in cascade
   });
 });
 
+test('shadcn command bar: menu returns focus and density supports arrow keys', async ({ page }) => {
+  await withGallery(async ({ url }) => {
+    let rescanRequests = 0;
+    await page.route('**/rescan', async route => {
+      rescanRequests += 1;
+      await new Promise(resolve => setTimeout(resolve, 250));
+      await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ ok: false }) });
+    });
+    await page.goto(url);
+    const filters = page.locator('button:has([data-gallery-command="filters"])');
+    await filters.focus();
+    await page.keyboard.press('Enter');
+    await expect(page.getByRole('menu')).toBeVisible();
+    await page.keyboard.press('Escape');
+    await expect(filters).toBeFocused();
+
+    const rescan = page.getByRole('button', { name: 'Rescan' });
+    await expect(rescan).toBeVisible();
+    await expect(rescan).toHaveAttribute('data-gallery-command', 'rescan');
+    await rescan.click();
+    await expect(rescan).toHaveAttribute('aria-busy', 'true');
+    await expect.poll(() => rescanRequests).toBe(1);
+    await expect(rescan).toHaveAttribute('aria-busy', 'false');
+
+    const tools = page.getByRole('button', { name: 'Gallery tools' });
+    await tools.hover();
+    await expect(page.getByRole('tooltip', { name: 'Gallery tools' })).toBeVisible();
+    await tools.click();
+    await expect(page.getByRole('menu')).toBeVisible();
+    await expect(page.getByRole('menu').getByRole('menuitem', { name: 'Rescan' })).toHaveCount(0);
+    await page.keyboard.press('Escape');
+
+    const density = page.getByRole('group', { name: 'Card density' });
+    await density.getByRole('button', { name: 'Medium cards' }).focus();
+    await page.keyboard.press('ArrowRight');
+    await expect(density.getByRole('button', { name: 'Large cards' })).toBeFocused();
+    await page.keyboard.press('Space');
+    await expect(page.locator('#densitySeg [data-d="l"]')).toHaveClass(/on/);
+  });
+});
+
 test('800x600: command bar usable, inspector overlays as a drawer, no horizontal scroll', async ({ page }) => {
   await withGallery(async ({ url }) => {
     await page.setViewportSize({ width: 800, height: 600 });
     await page.goto(url);
     await page.locator('#grid .card [data-act="lb"]').first().click();
-    await expect(page.locator('#inspector')).toBeVisible();
-    await expect(page.locator('#inspScrim')).toBeVisible();
+    await expect(page.getByRole('dialog', { name: 'plot-alpha.svg' })).toBeVisible();
+    await expect(page.locator('[data-slot="sheet-overlay"]')).toBeVisible();
+    await expect(page.getByRole('dialog', { name: 'plot-alpha.svg' })).toHaveCSS('z-index', '200');
     const scrollW = await page.evaluate(() => document.documentElement.scrollWidth);
     expect(scrollW).toBeLessThanOrEqual(801);
     // le scrim ferme le tiroir
-    await page.locator('#inspScrim').click({ position: { x: 10, y: 300 } });
+    await page.locator('[data-slot="sheet-overlay"]').click({ position: { x: 10, y: 300 } });
     await expect(page.locator('body')).not.toHaveClass(/has-insp/);
   });
 });
@@ -377,9 +436,14 @@ test('800x600: command bar usable, inspector overlays as a drawer, no horizontal
 test('missing file: inspector shows a local error, the grid stays intact', async ({ page }) => {
   await withGallery(async ({ url, root }) => {
     await page.goto(url);
+    // La coquille charge /data après la navigation. Attendre la carte prouve
+    // que la suppression arrive bien après le scan initial, comme le scénario
+    // que ce test cherche à reproduire.
+    const missingPreview = page.locator('[data-act="lb"][data-rel="preview-alpha.png"]');
+    await expect(missingPreview).toBeVisible();
     // le fichier disparaît du disque APRÈS le scan (cas réel : suppression externe)
     rmSync(path.join(root, 'preview-alpha.png'));
-    await page.locator('[data-act="lb"][data-rel="preview-alpha.png"]').click();
+    await missingPreview.click();
     await expect(page.locator('#inspNotice')).toContainText('Preview unavailable');
     await expect(page.locator('#grid .card')).toHaveCount(3);
   });

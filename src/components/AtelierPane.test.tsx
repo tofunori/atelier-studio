@@ -39,7 +39,8 @@ describe("AtelierPane", () => {
     );
 
     const added = addSpy.mock.calls.map(([type, handler]) => [type, handler] as const);
-    expect(added.some(([type]) => type === "click")).toBe(true);
+    expect(added.some(([type]) => type === "switch-surface")).toBe(true);
+    expect(added.some(([type]) => type === "click")).toBe(false);
 
     unmount();
 
@@ -47,5 +48,32 @@ describe("AtelierPane", () => {
     for (const [type, handler] of added) {
       expect(removedHandlers.has(handler), `listener "${type}" doit être retiré à l'unmount`).toBe(true);
     }
+  });
+
+  it("utilise les Skeleton shadcn pendant le chargement de la galerie", () => {
+    const { container } = render(
+      <AtelierPane
+        url="http://127.0.0.1:18790/"
+        projectRoot="/tmp/projet"
+        activeThreadId={null}
+        ws={null}
+        files={[]}
+        onOpenFile={() => {}}
+        onPinTab={() => {}}
+        onColorTab={() => {}}
+        onReorderTabs={() => {}}
+        tabs={[]}
+        activeTab="gallery"
+        onSelectTab={() => {}}
+        onCloseTab={() => {}}
+        reloadKey={0}
+        showExplorer={false}
+        recentFiles={[]}
+        onOpenExplorer={() => {}}
+        layout="split"
+        onToggleExpand={() => {}}
+      />,
+    );
+    expect(container.querySelectorAll('[data-slot="skeleton"]')).toHaveLength(6);
   });
 });

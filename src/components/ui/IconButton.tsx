@@ -3,9 +3,10 @@
 // enfant est un SVG monochrome (stroke 1.3–1.5, currentColor) marqué
 // aria-hidden par l'appelant ou décoratif par nature.
 import React from "react";
+import { Button as ShadcnButton } from "../shadcn/button";
 import { cx } from "./internal";
 
-export function IconButton(props: {
+export const IconButton = React.forwardRef<HTMLButtonElement, {
   /** Nom accessible (aria-label). Obligatoire. */
   label: string;
   children: React.ReactNode;
@@ -20,11 +21,15 @@ export function IconButton(props: {
   "aria-describedby"?: string;
   "aria-expanded"?: boolean;
   "aria-haspopup"?: React.AriaAttributes["aria-haspopup"];
-}) {
+}>((props, ref) => {
   const { label, size = "m", hit40, disabled, onClick, title, className, children } = props;
+  const shadcnSize = size === "s" ? "icon-xs" : size === "l" ? "icon-lg" : "icon-sm";
   return (
-    <button
+    <ShadcnButton
+      ref={ref}
       type="button"
+      variant="ghost"
+      size={shadcnSize}
       className={cx("ui-iconbtn", `ui-iconbtn--${size}`, hit40 && "ui-iconbtn--hit40", className)}
       aria-label={label}
       aria-describedby={props["aria-describedby"]}
@@ -35,6 +40,7 @@ export function IconButton(props: {
       onClick={onClick}
     >
       {children}
-    </button>
+    </ShadcnButton>
   );
-}
+});
+IconButton.displayName = "IconButton";

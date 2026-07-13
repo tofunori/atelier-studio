@@ -6,7 +6,13 @@
 import { t } from "../../lib/i18n";
 import type { Thread } from "../../lib/ws";
 import { ProviderIcon } from "../icons";
+import { Input } from "../shadcn/input";
+import {
+  SidebarMenuButton,
+  SidebarMenuItem,
+} from "../shadcn/sidebar";
 import { IconButton } from "../ui";
+import { LazyDropdownMenu, type LazyDropdownMenuItem } from "../ui/LazyDropdownMenu";
 import { presentStatus } from "../../lib/statusPresentation";
 
 function cx(...parts: Array<string | false | null | undefined>): string {
@@ -87,7 +93,10 @@ export function ThreadRow(p: {
   /** clic droit — le parent ancre le menu sur e.currentTarget */
   onRowContextMenu: (e: React.MouseEvent) => void;
   onToggleFavorite: () => void;
-  onOpenMenu: (anchor: HTMLElement) => void;
+  onOpenMenu: () => void;
+  menuOpen: boolean;
+  onMenuOpenChange: (open: boolean) => void;
+  menuItems: LazyDropdownMenuItem[];
 }) {
   const running = p.thread.status === "running";
   const status = presentStatus({ kind: running ? "running" : p.thread.status === "done" ? "done" : "idle" });
@@ -97,7 +106,7 @@ export function ThreadRow(p: {
   ].filter(Boolean);
 
   return (
-    <li
+    <SidebarMenuItem
       className={cx(
         "pnav-row",
         p.kind === "continue" && "pnav-continue",
@@ -106,7 +115,7 @@ export function ThreadRow(p: {
       )}
     >
       {p.editing ? (
-        <input
+        <Input
           ref={p.editRef}
           className="rename"
           value={p.editText}
@@ -119,8 +128,10 @@ export function ThreadRow(p: {
           onClick={(e) => e.stopPropagation()}
         />
       ) : (
-        <button
+        <SidebarMenuButton
           type="button"
+          size="default"
+          isActive={p.active}
           className="pnav-row-main"
           aria-current={p.active ? "true" : undefined}
           aria-label={a11ySuffix.length ? `${p.title} — ${a11ySuffix.join(" — ")}` : undefined}
@@ -145,7 +156,7 @@ export function ThreadRow(p: {
               </span>
             )}
           </span>
-        </button>
+        </SidebarMenuButton>
       )}
       <span className="pnav-row-end">
         {running ? (
@@ -167,17 +178,27 @@ export function ThreadRow(p: {
           >
             <StarGlyph filled={p.favorite} />
           </IconButton>
-          <IconButton
-            size="s"
+          <LazyDropdownMenu
+            open={p.menuOpen}
+            onOpenChange={p.onMenuOpenChange}
             label={t("thread.more-actions")}
-            className="pnav-act"
-            aria-haspopup="menu"
-            onClick={(e) => p.onOpenMenu(e.currentTarget)}
-          >
-            <MoreGlyph />
-          </IconButton>
+            align="end"
+            className="pnav-thread-menu"
+            trigger={
+              <IconButton
+                size="s"
+                label={t("thread.more-actions")}
+                className="pnav-act"
+                aria-haspopup="menu"
+                onClick={p.onOpenMenu}
+              >
+                <MoreGlyph />
+              </IconButton>
+            }
+            items={p.menuItems}
+          />
         </span>
       </span>
-    </li>
+    </SidebarMenuItem>
   );
 }

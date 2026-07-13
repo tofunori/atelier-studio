@@ -256,7 +256,7 @@ export function MermaidBlock({ source, highlight }: MermaidBlockProps) {
   const ready = state.status === "ready";
 
   return (
-    <div className="codeblock mermaid-block">
+    <div className="codeblock mermaid-block not-typeset">
       <div className="codeblock-bar">
         <span className="codeblock-lang">mermaid</span>
         <div className="codeblock-bar-actions">

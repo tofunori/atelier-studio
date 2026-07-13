@@ -27,8 +27,10 @@ import Banner from "./components/Banner";
 import AtelierPane from "./components/AtelierPane";
 const SettingsPage = lazyWithRetry(() => import("./components/Settings"));
 import { LazyBoundary, lazyWithRetry } from "./components/LazyBoundary";
-import CommandPalette from "./components/CommandPalette";
+const CommandPalette = lazyWithRetry(() => import("./components/CommandPalette"));
 import QuickAsk from "./components/QuickAsk";
+import { LazyDialog } from "./components/ui/LazyDialog";
+import { Button, IconButton, showSuccess } from "./components/ui";
 import UsagePopover, { worstOf } from "./components/UsagePopover";
 import { init as initNotify, notifyRunDone, notifyReview } from "./lib/notify";
 import { CloseIcon, DownloadIcon, HighlighterIcon, ProviderIcon, SidebarIcon } from "./components/icons";
@@ -44,10 +46,12 @@ import {
   withAtelierNonce,
   type AtelierOutboundMessage,
 } from "./lib/ipc";
-// tokens → primitives → App.css : les alias sémantiques et les classes ui-*
+// tokens → shadcn/Typeset → primitives → App.css : les alias sémantiques et les classes ui-*
 // doivent être définis avant les règles historiques (cascade à égalité de
 // spécificité — App.css garde le dernier mot pendant la migration).
 import "./styles/tokens.css";
+import "./styles/shadcn.css";
+import "./styles/typeset.css";
 import "./styles/primitives.css";
 import "./App.css";
 
@@ -331,17 +335,17 @@ function HighlightsPanel(p: {
     <div className="sidebar hl-panel">
       <div className="side-top" data-tauri-drag-region>
         <span className="flex" />
-        <button className="mini compact-btn" title={t("action.collapse-sidebar")} onClick={p.onCompact}>
+        <IconButton className="mini compact-btn" label={t("action.collapse-sidebar")} title={t("action.collapse-sidebar")} onClick={p.onCompact}>
           <SidebarIcon size={17} />
-        </button>
+        </IconButton>
       </div>
       <div className="hl-head">
         <span className="hl-head-title">{t("view.highlights")}</span>
         <span className="hl-count">{p.highlights.length}</span>
-        <button type="button" className="mini hl-export-btn" title={t("highlights.export")}
+        <IconButton className="mini hl-export-btn" label={t("highlights.export")} title={t("highlights.export")}
           disabled={!p.highlights.length} onClick={p.onExport}>
           <DownloadIcon size={15} />
-        </button>
+        </IconButton>
       </div>
       {!!groups.length && (
         <div className="hl-chips">
@@ -369,19 +373,19 @@ function HighlightsPanel(p: {
                 <div className="hl-text">{h.text}</div>
                 {open && h.context && <div className="hl-context">{h.context}</div>}
                 {open && threadAlive && (
-                  <button type="button" className="hl-open-chat"
+                  <Button variant="ghost" className="hl-open-chat"
                     onClick={(e) => { e.stopPropagation(); p.onOpenChat(h.threadId, h.projectRoot); }}>
                     {t("highlights.open-chat")}
-                  </button>
+                  </Button>
                 )}
                 <div className="hl-foot">
                   <span className="hl-dot" style={{ background: p.projMeta[h.projectRoot]?.color || "var(--muted2)" }} />
                   <span className="hl-proj">{h.projectName || t("highlights.no-project")}</span>
                   <span className="hl-time">{hlRelativeDate(h.createdAt)}</span>
-                  <button type="button" className="hl-remove" title={t("highlights.remove")}
+                  <IconButton size="s" className="hl-remove" label={t("highlights.remove")} title={t("highlights.remove")}
                     onClick={(e) => { e.stopPropagation(); p.onRemove(h.id); }}>
                     <CloseIcon size={11} />
-                  </button>
+                  </IconButton>
                 </div>
               </div>
             );
@@ -1964,7 +1968,11 @@ export default function App() {
             projects={projects}
           />
         </LazyBoundary>
-        <CommandPalette open={paletteOpen} items={paletteItems} onClose={() => setPaletteOpen(false)} />
+        {paletteOpen && (
+          <LazyBoundary fallback={null}>
+            <CommandPalette open items={paletteItems} onClose={() => setPaletteOpen(false)} />
+          </LazyBoundary>
+        )}
       {usageOpen && <div className="ur-overlay" onClick={() => setUsageOpen(false)}>
         <UsagePopover open={usageOpen} onClose={() => setUsageOpen(false)} />
       </div>}
@@ -2054,10 +2062,7 @@ export default function App() {
               const md = buildHighlightsMarkdown(highlights);
               try {
                 await navigator.clipboard.writeText(md);
-                setAppBanner({ text: t("highlights.export-copied"), closable: true });
-                setTimeout(() => {
-                  setAppBanner((b) => (b?.text === t("highlights.export-copied") ? null : b));
-                }, 3500);
+                showSuccess(t("highlights.export-copied"));
               } catch {}
             }}
             onCompact={() => setCompact(true)}
@@ -2125,7 +2130,11 @@ export default function App() {
   );
   const overlaysNode = (
     <>
-    <CommandPalette open={paletteOpen} items={paletteItems} onClose={() => setPaletteOpen(false)} />
+      {paletteOpen && (
+        <LazyBoundary fallback={null}>
+          <CommandPalette open items={paletteItems} onClose={() => setPaletteOpen(false)} />
+        </LazyBoundary>
+      )}
       <QuickAsk
         open={qaMode === "open"}
         minimized={qaMode === "min"}
@@ -2166,16 +2175,17 @@ export default function App() {
         {annotation && (
           <div className="annot-banner">
             <span className="annot-text">{annotation.split("\n")[0].slice(0, 90)}</span>
-            <button
+            <Button
+              variant="secondary"
               onClick={() => {
                 attachContextToChat(annotation);
               }}
             >
               {t("action.send-agent")}
-            </button>
-            <button className="ghost" onClick={() => setAnnotation(null)}>
+            </Button>
+            <IconButton className="ghost" label={t("action.close")} onClick={() => setAnnotation(null)}>
               <CloseIcon />
-            </button>
+            </IconButton>
           </div>
         )}
         {appBanner && (
@@ -2487,16 +2497,16 @@ export default function App() {
       )}
     </PanelGroup>
       {newChatRequest && (
-        <div className="provider-new-overlay" role="presentation" onMouseDown={() => setNewChatRequest(null)}>
-          <section className="provider-new-dialog" role="dialog" aria-modal="true" aria-labelledby="provider-new-title"
-            onMouseDown={(e) => e.stopPropagation()}>
-            <div className="provider-new-head">
-              <div>
-                <h2 id="provider-new-title">{t("app.new-chat-title")}</h2>
-                <p>{t("app.choose-provider")}</p>
-              </div>
-              <button className="ghost" onClick={() => setNewChatRequest(null)} aria-label={t("action.close")}><CloseIcon /></button>
-            </div>
+        <LazyDialog
+          open
+          onOpenChange={(open) => {
+            if (!open) setNewChatRequest(null);
+          }}
+          title={t("app.new-chat-title")}
+          description={t("app.choose-provider")}
+          closeLabel={t("action.close")}
+          className="provider-new-dialog"
+        >
             <div className="provider-new-grid">
               {["claude", "codex", "grok"].map((provider) => {
                 const info = providerList.find((item) => item.id === provider);
@@ -2511,8 +2521,7 @@ export default function App() {
                 );
               })}
             </div>
-          </section>
-        </div>
+        </LazyDialog>
       )}
     </WorkspaceShell>
   );

@@ -6,6 +6,7 @@ import { useEffect, useRef, useState } from "react";
 // le banc court-circuite App.tsx : il charge lui-même les couches CSS,
 // dans le même ordre que l'app
 import "../../styles/tokens.css";
+import "../../styles/shadcn.css";
 import "../../styles/primitives.css";
 import "../../App.css";
 import "./UiBench.css";
@@ -17,6 +18,11 @@ import {
   MenuItem,
   MenuSeparator,
   Popover,
+  PopoverContent,
+  PopoverDescription,
+  PopoverHeader,
+  PopoverTitle,
+  PopoverTrigger,
   SegmentedControl,
   SurfaceHeader,
   EmptyState,
@@ -49,7 +55,6 @@ export function UiBench() {
   const [popOpen, setPopOpen] = useState(false);
   const [chips, setChips] = useState<string[]>(["fig3_albedo.pdf", "notes.md"]);
   const menuAnchor = useRef<HTMLDivElement | null>(null);
-  const popAnchor = useRef<HTMLDivElement | null>(null);
 
   const applyTheme = (next: "dark" | "light") => {
     setTheme(next);
@@ -61,7 +66,7 @@ export function UiBench() {
     <div className="ui-bench">
       <div className="ui-bench-top">
         <h1>Primitives UI — banc d'essai</h1>
-        <span className="hint">#uibench · tokens.css + primitives.css</span>
+        <span className="hint">#uibench · tokens.css + shadcn.css + primitives.css</span>
         <span className="spacer" />
         <SegmentedControl
           label="Thème"
@@ -153,13 +158,15 @@ export function UiBench() {
 
         <section className="ui-bench-card">
           <h2>Popover</h2>
-          <div className="ui-bench-row" ref={popAnchor}>
-            <Button onClick={() => setPopOpen((o) => !o)} aria-haspopup="dialog" aria-expanded={popOpen}>
-              Régler l'effort
-            </Button>
-          </div>
-          <Popover open={popOpen} onClose={() => setPopOpen(false)} anchorRef={popAnchor} label="Effort">
-            <div style={{ display: "flex", flexDirection: "column", gap: 8, minWidth: 200 }}>
+          <Popover open={popOpen} onOpenChange={setPopOpen}>
+            <div className="ui-bench-row">
+              <PopoverTrigger render={<Button>Régler l'effort</Button>} />
+            </div>
+            <PopoverContent side="bottom" align="start" className="tw:min-w-52">
+              <PopoverHeader>
+                <PopoverTitle>Effort</PopoverTitle>
+                <PopoverDescription>Choisir le niveau de raisonnement.</PopoverDescription>
+              </PopoverHeader>
               <SegmentedControl
                 label="Niveau d'effort"
                 value={effort}
@@ -173,7 +180,7 @@ export function UiBench() {
               <Button variant="primary" onClick={() => setPopOpen(false)}>
                 Appliquer
               </Button>
-            </div>
+            </PopoverContent>
           </Popover>
           <span className="note">dialog non modal ; Escape rend le focus à l'ancre</span>
         </section>

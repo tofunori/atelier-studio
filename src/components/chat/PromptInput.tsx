@@ -5,6 +5,7 @@ import React, { type MutableRefObject } from "react";
 import { t } from "../../lib/i18n";
 import { FileTypeIcon } from "./toolPresentation";
 import { mentionLabel, isValidSkill } from "./mentions";
+import { InputGroupTextarea } from "../shadcn/input-group";
 
 export type Suggestion = {
   label: string;
@@ -23,14 +24,16 @@ export function SuggestionsList(p: {
   return (
     <>
         {suggestions.length > 0 && (
-          <ul className="suggest">
+          <ul className="suggest" role="listbox" aria-label="Suggestions">
             {suggestions.map((s, i) => (
               <React.Fragment key={s.insert + s.label}>
                 {s.section && (i === 0 || suggestions[i - 1].section !== s.section) && (
-                  <li className="suggest-section">{s.section}</li>
+                  <li className="suggest-section" role="presentation">{s.section}</li>
                 )}
                 <li
                   className={i === selIdx ? "sel" : ""}
+                  role="option"
+                  aria-selected={i === selIdx}
                   onMouseDown={(e) => {
                     e.preventDefault();
                     applySuggestion(s);
@@ -74,7 +77,7 @@ export function PromptTextarea(p: {
           if (/(^|\s)@[\w./:-]+/.test(text)) return "slash-active";
           return "";
         })()}`}>
-        <div className="ta-backdrop" aria-hidden="true">
+        <div className="ta-backdrop" data-not-typeset aria-hidden="true">
           {(() => {
             // pilules : /skill (début OU plein texte) et mentions @fichier
             const parts = text.split(/((?:^|\s)@[\w./:-]+|(?:^|\s)\/[\w:-]+)/g);
@@ -91,7 +94,7 @@ export function PromptTextarea(p: {
             return text;
           })()}
         </div>
-        <textarea
+        <InputGroupTextarea
           ref={taRef}
           value={text}
           onChange={(e) => setText(e.target.value)}

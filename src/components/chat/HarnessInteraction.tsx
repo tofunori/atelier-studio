@@ -12,6 +12,9 @@
 import { useState } from "react";
 import type { AgentEvent, InteractionResponse } from "../../lib/ws";
 import { t } from "../../lib/i18n";
+import { Input } from "../shadcn/input";
+import { RadioGroup, RadioGroupItem } from "../shadcn/radio-group";
+import { Field, FieldLabel, FieldTitle } from "../shadcn/field";
 
 export type InteractionEvent = Extract<AgentEvent, { kind: "interaction" }>;
 
@@ -69,59 +72,68 @@ export function HarnessInteraction({ event: e, threadId }: {
       {urlMode ? <div className="int-domain">{t("interaction.url-ask", { domain: e.urlDomain })}</div> : null}
       {!final && fields.map((f) => {
         const qid = `int-q-${e.requestId}-${f.id}`;
+        const inputId = `int-input-${e.requestId}-${f.id}`;
         return (
-          <div key={f.id} className="int-field">
-            {f.header ? <div className="int-field-header">{f.header}</div> : null}
-            <div className="int-q" id={qid}>{f.question}</div>
+          <Field key={f.id} className="int-field">
+            {f.header ? <FieldTitle className="int-field-header">{f.header}</FieldTitle> : null}
             {f.options?.length ? (
-              <div role="radiogroup" aria-labelledby={qid} className="int-opts">
-                {f.options.map((o) => (
-                  <label key={o.label} className="int-opt">
-                    <input
-                      type="radio"
-                      name={`${e.requestId}:${f.id}`}
-                      checked={values[f.id] === o.label}
-                      onChange={() => setValues((v) => ({ ...v, [f.id]: o.label }))}
-                    />
-                    <span>{o.label}</span>
-                    {o.description ? <span className="int-opt-desc">{o.description}</span> : null}
-                  </label>
-                ))}
-                {f.allowOther ? (
-                  <>
-                    <label className="int-opt">
-                      <input
-                        type="radio"
-                        name={`${e.requestId}:${f.id}`}
-                        checked={values[f.id] === OTHER}
-                        onChange={() => setValues((v) => ({ ...v, [f.id]: OTHER }))}
-                      />
-                      <span>{t("interaction.other")}</span>
-                    </label>
-                    {values[f.id] === OTHER ? (
-                      <input
-                        className="int-input"
-                        type={f.secret ? "password" : "text"}
-                        value={others[f.id] ?? ""}
-                        placeholder={t("interaction.other-placeholder")}
-                        aria-label={t("interaction.other")}
-                        onChange={(ev) => setOthers((v) => ({ ...v, [f.id]: ev.target.value }))}
-                      />
-                    ) : null}
-                  </>
-                ) : null}
-              </div>
+              <>
+                <FieldTitle className="int-q" id={qid}>{f.question}</FieldTitle>
+                <RadioGroup
+                  aria-labelledby={qid}
+                  className="int-opts"
+                  value={values[f.id] ?? ""}
+                  onValueChange={(value) => setValues((v) => ({ ...v, [f.id]: value }))}
+                >
+                  {f.options.map((o, index) => (
+                    <div
+                      key={o.label}
+                      className="int-opt"
+                      onClick={() => setValues((v) => ({ ...v, [f.id]: o.label }))}
+                    >
+                      <RadioGroupItem value={o.label} aria-labelledby={`${qid}-option-${index}`} />
+                      <span id={`${qid}-option-${index}`}>{o.label}</span>
+                      {o.description ? <span className="int-opt-desc">{o.description}</span> : null}
+                    </div>
+                  ))}
+                  {f.allowOther ? (
+                    <>
+                      <div
+                        className="int-opt"
+                        onClick={() => setValues((v) => ({ ...v, [f.id]: OTHER }))}
+                      >
+                        <RadioGroupItem value={OTHER} aria-labelledby={`${qid}-other`} />
+                        <span id={`${qid}-other`}>{t("interaction.other")}</span>
+                      </div>
+                      {values[f.id] === OTHER ? (
+                        <Input
+                          className="int-input"
+                          type={f.secret ? "password" : "text"}
+                          value={others[f.id] ?? ""}
+                          placeholder={t("interaction.other-placeholder")}
+                          aria-label={t("interaction.other")}
+                          onChange={(ev) => setOthers((v) => ({ ...v, [f.id]: ev.target.value }))}
+                        />
+                      ) : null}
+                    </>
+                  ) : null}
+                </RadioGroup>
+              </>
             ) : (
-              <input
-                className="int-input"
-                type={f.secret ? "password" : "text"}
-                value={values[f.id] ?? ""}
-                placeholder={t("interaction.answer-placeholder")}
-                aria-labelledby={qid}
-                onChange={(ev) => setValues((v) => ({ ...v, [f.id]: ev.target.value }))}
-              />
+              <>
+                <FieldLabel className="int-q" id={qid} htmlFor={inputId}>{f.question}</FieldLabel>
+                <Input
+                  id={inputId}
+                  className="int-input"
+                  type={f.secret ? "password" : "text"}
+                  value={values[f.id] ?? ""}
+                  placeholder={t("interaction.answer-placeholder")}
+                  aria-labelledby={qid}
+                  onChange={(ev) => setValues((v) => ({ ...v, [f.id]: ev.target.value }))}
+                />
+              </>
             )}
-          </div>
+          </Field>
         );
       })}
       {final ? (

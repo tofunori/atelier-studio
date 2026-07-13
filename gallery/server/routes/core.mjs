@@ -17,6 +17,7 @@ import {
   STARTED_AT,
   spawnCollect,
   statMtimeSeconds,
+  withTimeout,
 } from "../shared.mjs";
 
 const THIS_DIR = path.dirname(fileURLToPath(import.meta.url));
@@ -92,7 +93,7 @@ async function findExecutable(name) {
 export async function handleCoreGet(req, res, url) {
   const pathname = url.pathname;
   if (pathname === "/ping") {
-    return sendJson(res, 200, { ok: true, service: "fig-annotate", project: fs.realpathSync(PROJECT) });
+    return sendJson(res, 200, { ok: true, service: "fig-annotate", project: PROJECT });
   }
   if (pathname === "/health") {
     return sendJson(res, 200, {
@@ -101,7 +102,7 @@ export async function handleCoreGet(req, res, url) {
       pid: process.pid,
       port: Number.parseInt(process.env.FIG_PORT || "0", 10) || null,
       startedAt: STARTED_AT,
-      projectRoot: fs.realpathSync(PROJECT),
+      projectRoot: PROJECT,
       appVersion: APP_VERSION,
       bundleHash: BUNDLE_HASH,
       tokenRequired: false,
@@ -118,12 +119,18 @@ export async function handleCoreGet(req, res, url) {
   }
   if (pathname === "/data") {
     try {
-      if (!fs.existsSync(DATA_FILE)) return sendJson(res, 404, { error: "not found" });
-      return sendBuffer(res, 200, fs.readFileSync(DATA_FILE), {
+      const data = await withTimeout(
+        fs.promises.readFile(DATA_FILE),
+        10000,
+        "read figures_data.json",
+      );
+      return sendBuffer(res, 200, data, {
         "Content-Type": "application/json",
         "Cache-Control": "no-cache",
       });
     } catch (error) {
+      if (error?.code === "ENOENT") return sendJson(res, 404, { error: "not found" });
+      if (error?.code === "ETIMEDOUT") return sendJson(res, 503, { error: "project access pending" });
       return sendJson(res, 500, { error: String(error.message || error) });
     }
   }

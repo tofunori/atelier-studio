@@ -9,6 +9,22 @@ import { PdfViewer } from "./viewers/PdfViewer.tsx";
 import { SvgViewer } from "./viewers/SvgViewer.tsx";
 import { TextViewer } from "./viewers/TextViewer.tsx";
 import { addPendingAttachment } from "./pendingAttach.ts";
+import { Alert, AlertDescription } from "@/components/ui/alert.tsx";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog.tsx";
+import { Button } from "@/components/ui/button.tsx";
+import { ButtonGroup } from "@/components/ui/button-group.tsx";
+import { Empty, EmptyHeader, EmptyTitle } from "@/components/ui/empty.tsx";
+import { Spinner } from "@/components/ui/spinner.tsx";
+import { ArrowLeftIcon, MessageSquarePlusIcon, ShareIcon } from "lucide-react";
 
 type Props = {
   credentials: DeviceCredentials;
@@ -23,6 +39,7 @@ export function FileViewer(p: Props) {
   const [error, setError] = useState<string | null>(null);
   const [url, setUrl] = useState<string | null>(null);
   const [text, setText] = useState<string | null>(null);
+  const [pdfData, setPdfData] = useState<Uint8Array | null>(null);
   const [confirmedLarge, setConfirmedLarge] = useState(p.item.size <= LARGE_FILE_BYTES);
 
   useEffect(() => {
@@ -69,8 +86,8 @@ export function FileViewer(p: Props) {
           setUrl(objectUrl);
           setText(null);
         } else if (kind === "pdf") {
-          objectUrl = URL.createObjectURL(blob);
-          setUrl(objectUrl);
+          setPdfData(new Uint8Array(await blob.arrayBuffer()));
+          setUrl(null);
           setText(null);
         } else if (kind === "latex" || kind === "data" || kind === "code" || ext === "md" || ext === "txt") {
           const raw = await blob.text();
@@ -122,53 +139,74 @@ export function FileViewer(p: Props) {
     p.onAddedToChat?.();
   };
 
+  const addSelectionToChat = (selected: { text: string; lineStart: number; lineEnd: number }) => {
+    addPendingAttachment({
+      fileId: p.item.fileId,
+      name: p.item.name,
+      size: p.item.size,
+      kind: p.item.kind,
+      projectId: p.projectId,
+      etag: p.item.etag,
+      excerpt: selected.text,
+      lineStart: selected.lineStart,
+      lineEnd: selected.lineEnd,
+      addedAt: Date.now(),
+    });
+    p.onAddedToChat?.();
+  };
+
   return (
     <div className="file-viewer">
       <div className="viewer-header">
-        <button type="button" className="back-btn" onClick={p.onBack}>
-          ← Retour
-        </button>
-        <h1 className="screen-title" style={{ marginBottom: 0 }}>
+        <Button type="button" variant="ghost" size="sm" onClick={p.onBack}>
+          <ArrowLeftIcon data-icon="inline-start" />
+          Retour
+        </Button>
+        <h1 className="screen-title mb-0">
           {p.item.name}
         </h1>
         <div className="viewer-meta">
           {p.item.kind} · {formatBytes(p.item.size)}
         </div>
-        <div className="row-actions">
-          <button type="button" className="btn btn-ghost" onClick={() => void share()}>
+        <ButtonGroup aria-label="Actions du fichier">
+          <Button type="button" variant="outline" size="sm" onClick={() => void share()} disabled={!url && !text}>
+            <ShareIcon data-icon="inline-start" />
             Partager
-          </button>
-          <button type="button" className="btn btn-primary" onClick={addToChat}>
+          </Button>
+          <Button type="button" size="sm" onClick={addToChat}>
+            <MessageSquarePlusIcon data-icon="inline-start" />
             Ajouter au chat
-          </button>
-        </div>
+          </Button>
+        </ButtonGroup>
       </div>
 
-      {!confirmedLarge && (
-        <div className="card" style={{ margin: 16 }}>
-          <p>
-            Fichier volumineux ({formatBytes(p.item.size)}). Confirmer le téléchargement ?
-          </p>
-          <div className="row-actions">
-            <button type="button" className="btn btn-primary" onClick={() => setConfirmedLarge(true)}>
-              Télécharger
-            </button>
-            <button type="button" className="btn btn-ghost" onClick={p.onBack}>
-              Annuler
-            </button>
-          </div>
-        </div>
-      )}
+      <AlertDialog
+        open={!confirmedLarge}
+        onOpenChange={(nextOpen) => {
+          if (!nextOpen && !confirmedLarge) p.onBack();
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Télécharger ce fichier ?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Le fichier est volumineux ({formatBytes(p.item.size)}). Le téléchargement peut prendre quelques instants.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel onClick={p.onBack}>Annuler</AlertDialogCancel>
+            <AlertDialogAction onClick={() => setConfirmedLarge(true)}>Télécharger</AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
-      {loading && <div className="empty">Chargement…</div>}
+      {loading && <Empty><EmptyHeader><Spinner /><EmptyTitle>Chargement…</EmptyTitle></EmptyHeader></Empty>}
       {error && (
-        <div role="alert" style={{ color: "var(--status-error)", padding: 16 }}>
-          {error}
-        </div>
+        <Alert variant="destructive" className="m-4 w-auto"><AlertDescription>{error}</AlertDescription></Alert>
       )}
 
-      {confirmedLarge && !loading && !error && p.item.kind === "pdf" && url && (
-        <PdfViewer url={url} name={p.item.name} />
+      {confirmedLarge && !loading && !error && p.item.kind === "pdf" && pdfData && (
+        <PdfViewer data={pdfData} name={p.item.name} />
       )}
       {confirmedLarge && !loading && !error && p.item.kind === "figure" && p.item.ext === "svg" && text && (
         <SvgViewer raw={text} name={p.item.name} />
@@ -193,8 +231,13 @@ export function FileViewer(p: Props) {
           p.item.kind === "data" ||
           p.item.kind === "code" ||
           p.item.kind === "other") && (
-          <TextViewer text={text} name={p.item.name} showLineNumbers />
-        )}
+        <TextViewer
+          text={text}
+          name={p.item.name}
+          showLineNumbers
+          onAddSelection={addSelectionToChat}
+        />
+      )}
     </div>
   );
 }

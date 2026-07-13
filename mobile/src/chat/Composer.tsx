@@ -1,3 +1,10 @@
+import {
+  InputGroup,
+  InputGroupAddon,
+  InputGroupButton,
+  InputGroupTextarea,
+} from "@/components/ui/input-group.tsx";
+import { ArrowUpIcon, SquareIcon } from "lucide-react";
 import { useCallback, useEffect, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
 
 const MAX_HEIGHT = 120;
@@ -36,7 +43,6 @@ export function Composer(p: Props) {
     p.onSend(t);
     setText("");
     requestAnimationFrame(resize);
-    // light haptic if available
     try {
       navigator.vibrate?.(10);
     } catch {
@@ -45,7 +51,6 @@ export function Composer(p: Props) {
   };
 
   const onKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
-    // Mobile: Enter often inserts newline; Cmd/Ctrl+Enter sends when present
     if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
       e.preventDefault();
       send();
@@ -61,10 +66,10 @@ export function Composer(p: Props) {
       >
         {p.shelf}
       </div>
-      <div className="composer-row">
-        <textarea
+      <InputGroup className="min-h-11 w-full min-w-0 max-w-full overflow-hidden">
+        <InputGroupTextarea
           ref={taRef}
-          className="composer-input"
+          className="field-sizing-fixed min-h-11 max-h-[120px] w-0 min-w-0 max-w-full flex-1 overflow-x-hidden [overflow-wrap:anywhere]"
           value={text}
           onChange={(e) => setText(e.target.value)}
           onKeyDown={onKeyDown}
@@ -74,25 +79,28 @@ export function Composer(p: Props) {
           disabled={p.disabled}
           aria-label="Message"
         />
-        <button
-          type="button"
-          className={`composer-action btn ${p.busy ? "btn-ghost" : "btn-primary"}`}
-          aria-label={p.busy ? "Arrêter" : "Envoyer"}
-          disabled={p.disabled || (!p.busy && !text.trim())}
-          onClick={() => {
-            if (p.busy) {
-              p.onStop();
-              try {
-                navigator.vibrate?.(15);
-              } catch {
-                /* ignore */
-              }
-            } else send();
-          }}
-        >
-          {p.busy ? "Stop" : "Envoyer"}
-        </button>
-      </div>
+        <InputGroupAddon align="inline-end">
+          <InputGroupButton
+            type="button"
+            size="icon-sm"
+            variant={p.busy ? "ghost" : "default"}
+            aria-label={p.busy ? "Arrêter" : "Envoyer"}
+            disabled={p.disabled || (!p.busy && !text.trim())}
+            onClick={() => {
+              if (p.busy) {
+                p.onStop();
+                try {
+                  navigator.vibrate?.(15);
+                } catch {
+                  /* ignore */
+                }
+              } else send();
+            }}
+          >
+            {p.busy ? <SquareIcon /> : <ArrowUpIcon />}
+          </InputGroupButton>
+        </InputGroupAddon>
+      </InputGroup>
     </div>
   );
 }

@@ -29,6 +29,9 @@ export type PendingChatAttachment = {
   kind: FileKind;
   projectId: string;
   etag?: string;
+  excerpt?: string;
+  lineStart?: number;
+  lineEnd?: number;
   addedAt: number;
 };
 

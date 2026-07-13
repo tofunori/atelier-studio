@@ -9,6 +9,11 @@ import { ContextShelf, type ShelfAttachment } from "./ContextShelf";
 import { SuggestionsList, PromptTextarea, type Suggestion } from "./PromptInput";
 import { ComposerControls } from "./ComposerControls";
 import { GoalBar, GoalGlyph, type GoalInfo } from "./GoalBar";
+import { InputGroup, InputGroupAddon } from "../shadcn/input-group";
+import { Input } from "../shadcn/input";
+import { Field, FieldLabel } from "../shadcn/field";
+import { ButtonGroup } from "../shadcn/button-group";
+import { Button } from "../ui/Button";
 
 type ModelEntry = { id: string; label: string };
 type Dispatch<T> = React.Dispatch<React.SetStateAction<T>>;
@@ -122,63 +127,67 @@ export function ChatComposer(props: {
           setText("");
         }}
       >
-        {host.activeGoal && host.onGoal && (
-          <GoalBar goal={host.activeGoal} onGoal={host.onGoal} onStop={host.onStop} />
-        )}
-        {goalOpen && !host.activeGoal && (
-          <div className="goal-editor" onClick={(ev) => ev.stopPropagation()}>
-            <div className="goal-editor-head">
-              <GoalGlyph />
-              <span className="goal-editor-title">{t("goal.editor-title")}</span>
-              <span className="goal-editor-hint">{t("goal.editor-hint")}</span>
-            </div>
-            <input
-              autoFocus
-              value={goalText}
-              onChange={(ev) => setGoalText(ev.target.value)}
-              placeholder={t("goal.placeholder")}
-              onKeyDown={(ev) => {
-                if (ev.key === "Enter") {
-                  ev.preventDefault();
+        <InputGroup className="composer-input-group">
+          {host.activeGoal && host.onGoal && (
+            <GoalBar goal={host.activeGoal} onGoal={host.onGoal} onStop={host.onStop} />
+          )}
+          {goalOpen && !host.activeGoal && (
+            <Field className="goal-editor" onClick={(ev) => ev.stopPropagation()}>
+              <div className="goal-editor-head">
+                <GoalGlyph />
+                <FieldLabel className="goal-editor-title">{t("goal.editor-title")}</FieldLabel>
+                <span className="goal-editor-hint">{t("goal.editor-hint")}</span>
+              </div>
+              <Input
+                autoFocus
+                value={goalText}
+                onChange={(ev) => setGoalText(ev.target.value)}
+                placeholder={t("goal.placeholder")}
+                onKeyDown={(ev) => {
+                  if (ev.key === "Enter") {
+                    ev.preventDefault();
+                    if (goalText.trim()) host.onGoal?.("set", goalText.trim());
+                    setGoalOpen(false);
+                    setGoalText("");
+                  }
+                  if (ev.key === "Escape") setGoalOpen(false);
+                }}
+              />
+              <ButtonGroup className="goal-editor-actions">
+                <Button type="button" variant="ghost" className="ghost" onClick={() => setGoalOpen(false)}>{t("action.cancel")}</Button>
+                <Button type="button" variant="ghost" className="ghost goal-bar-save" onClick={() => {
                   if (goalText.trim()) host.onGoal?.("set", goalText.trim());
                   setGoalOpen(false);
                   setGoalText("");
-                }
-                if (ev.key === "Escape") setGoalOpen(false);
-              }}
-            />
-            <div className="goal-editor-actions">
-              <button type="button" className="ghost" onClick={() => setGoalOpen(false)}>{t("action.cancel")}</button>
-              <button type="button" className="ghost goal-bar-save" onClick={() => {
-                if (goalText.trim()) host.onGoal?.("set", goalText.trim());
-                setGoalOpen(false);
-                setGoalText("");
-              }}>{t("goal.set")}</button>
-            </div>
-          </div>
-        )}
-        <SuggestionsList suggestions={input.suggestions} selIdx={input.selIdx} applySuggestion={input.applySuggestion} />
-        <ContextShelf
-          attachments={context.attachments}
-          onRemoveAttachment={context.onRemoveAttachment}
-          onOpenPaste={context.onOpenPaste}
-        />
-        <PromptTextarea
-          text={input.text}
-          setText={input.setText}
-          taRef={input.taRef}
-          suggestions={input.suggestions}
-          selIdx={input.selIdx}
-          setSelIdx={input.setSelIdx}
-          applySuggestion={input.applySuggestion}
-          commands={input.commands}
-          workingSince={host.workingSince}
-          disabled={host.disabled}
-          onStop={host.onStop}
-          onPasteImage={input.onPasteImage}
-          onPasteText={input.onPasteText}
-        />
-        <ComposerControls {...controlsProps} />
+                }}>{t("goal.set")}</Button>
+              </ButtonGroup>
+            </Field>
+          )}
+          <SuggestionsList suggestions={input.suggestions} selIdx={input.selIdx} applySuggestion={input.applySuggestion} />
+          <ContextShelf
+            attachments={context.attachments}
+            onRemoveAttachment={context.onRemoveAttachment}
+            onOpenPaste={context.onOpenPaste}
+          />
+          <PromptTextarea
+            text={input.text}
+            setText={input.setText}
+            taRef={input.taRef}
+            suggestions={input.suggestions}
+            selIdx={input.selIdx}
+            setSelIdx={input.setSelIdx}
+            applySuggestion={input.applySuggestion}
+            commands={input.commands}
+            workingSince={host.workingSince}
+            disabled={host.disabled}
+            onStop={host.onStop}
+            onPasteImage={input.onPasteImage}
+            onPasteText={input.onPasteText}
+          />
+          <InputGroupAddon align="block-end" className="composer-input-actions">
+            <ComposerControls {...controlsProps} />
+          </InputGroupAddon>
+        </InputGroup>
       </form>
   );
 }

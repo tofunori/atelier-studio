@@ -5,6 +5,14 @@
 import { useState } from "react";
 import type { InteractionPayload, InteractionResponse } from "./interactionTypes.ts";
 import { haptic } from "../native/haptics.ts";
+import { Alert, AlertDescription } from "@/components/ui/alert.tsx";
+import { Badge } from "@/components/ui/badge.tsx";
+import { Button } from "@/components/ui/button.tsx";
+import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card.tsx";
+import { Field, FieldDescription, FieldGroup, FieldLabel, FieldTitle } from "@/components/ui/field.tsx";
+import { Input } from "@/components/ui/input.tsx";
+import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group.tsx";
+import { Spinner } from "@/components/ui/spinner.tsx";
 
 const OTHER = "__other__";
 
@@ -71,58 +79,51 @@ export function InteractionCard(p: Props) {
         : e.answerSummary || "Répondu";
 
   return (
-    <div
-      className={`int-card ${final ? "answered" : ""}`}
+    <Card
+      size="sm"
       data-request={e.requestId}
       data-state={e.state}
     >
-      <div className="int-head">
-        <span className="int-title">{e.title}</span>
-        <span className="int-type">{e.interactionType}</span>
-      </div>
-      {e.detail ? <div className="int-detail">{e.detail}</div> : null}
-      {urlMode ? (
-        <div className="int-detail">Autoriser le domaine « {e.urlDomain} » ?</div>
-      ) : null}
+      <CardHeader>
+        <CardTitle>{e.title}</CardTitle>
+        <Badge variant="outline">{e.interactionType}</Badge>
+        {(e.detail || urlMode) && (
+          <CardDescription>
+            {e.detail || `Autoriser le domaine « ${e.urlDomain} » ?`}
+          </CardDescription>
+        )}
+      </CardHeader>
 
-      {!final &&
-        fields.map((f) => {
+      {!final && fields.length > 0 && (
+        <CardContent>
+          <FieldGroup>
+            {fields.map((f) => {
           const qid = `int-q-${e.requestId}-${f.id}`;
           return (
-            <div key={f.id} className="int-field">
-              {f.header ? <div className="int-field-header">{f.header}</div> : null}
-              <div className="int-q" id={qid}>
-                {f.question}
-              </div>
+                <Field key={f.id} data-disabled={final || undefined}>
+                  {f.header && <FieldDescription>{f.header}</FieldDescription>}
+                  <FieldTitle id={qid}>{f.question}</FieldTitle>
               {f.options?.length ? (
-                <div role="radiogroup" aria-labelledby={qid} className="int-opts">
+                    <RadioGroup
+                      aria-labelledby={qid}
+                      value={values[f.id] ?? ""}
+                      disabled={final}
+                      onValueChange={(value) => setValues((current) => ({ ...current, [f.id]: value }))}
+                    >
                   {f.options.map((o) => (
-                    <label key={o.label} className="int-opt">
-                      <input
-                        type="radio"
-                        name={`${e.requestId}:${f.id}`}
-                        checked={values[f.id] === o.label}
-                        disabled={final}
-                        onChange={() => setValues((v) => ({ ...v, [f.id]: o.label }))}
-                      />
-                      <span>{o.label}</span>
-                    </label>
+                        <Field orientation="horizontal" key={o.label} data-disabled={final || undefined}>
+                          <RadioGroupItem id={`${qid}-${o.label}`} value={o.label} disabled={final} />
+                          <FieldLabel htmlFor={`${qid}-${o.label}`}>{o.label}</FieldLabel>
+                        </Field>
                   ))}
                   {f.allowOther ? (
                     <>
-                      <label className="int-opt">
-                        <input
-                          type="radio"
-                          name={`${e.requestId}:${f.id}`}
-                          checked={values[f.id] === OTHER}
-                          disabled={final}
-                          onChange={() => setValues((v) => ({ ...v, [f.id]: OTHER }))}
-                        />
-                        <span>Autre</span>
-                      </label>
+                          <Field orientation="horizontal" data-disabled={final || undefined}>
+                            <RadioGroupItem id={`${qid}-other`} value={OTHER} disabled={final} />
+                            <FieldLabel htmlFor={`${qid}-other`}>Autre</FieldLabel>
+                          </Field>
                       {values[f.id] === OTHER ? (
-                        <input
-                          className="int-input"
+                            <Input
                           type={f.secret ? "password" : "text"}
                           value={others[f.id] ?? ""}
                           disabled={final}
@@ -134,10 +135,9 @@ export function InteractionCard(p: Props) {
                       ) : null}
                     </>
                   ) : null}
-                </div>
+                    </RadioGroup>
               ) : (
-                <input
-                  className="int-input"
+                    <Input
                   type={f.secret ? "password" : "text"}
                   value={values[f.id] ?? ""}
                   disabled={final}
@@ -146,23 +146,23 @@ export function InteractionCard(p: Props) {
                   onChange={(ev) => setValues((v) => ({ ...v, [f.id]: ev.target.value }))}
                 />
               )}
-            </div>
+                </Field>
           );
-        })}
+            })}
+          </FieldGroup>
+        </CardContent>
+      )}
 
       {error && (
-        <div role="alert" style={{ color: "var(--status-error)", fontSize: "var(--fs-s)" }}>
-          {error}
-        </div>
+        <CardContent><Alert variant="destructive"><AlertDescription>{error}</AlertDescription></Alert></CardContent>
       )}
 
       {final ? (
-        <div className="int-verdict">{verdict}</div>
+        <CardFooter><Badge variant="secondary">{verdict}</Badge></CardFooter>
       ) : e.interactionType === "approval" || urlMode ? (
-        <div className="row-actions">
-          <button
+        <CardFooter className="gap-2">
+          <Button
             type="button"
-            className="btn btn-primary"
             disabled={busy}
             onClick={() =>
               void answer(
@@ -170,11 +170,12 @@ export function InteractionCard(p: Props) {
               )
             }
           >
+            {busy && <Spinner data-icon="inline-start" />}
             Autoriser
-          </button>
-          <button
+          </Button>
+          <Button
             type="button"
-            className="btn btn-ghost"
+            variant="outline"
             disabled={busy}
             onClick={() =>
               void answer(
@@ -183,18 +184,20 @@ export function InteractionCard(p: Props) {
             }
           >
             Refuser
-          </button>
-        </div>
+          </Button>
+        </CardFooter>
       ) : (
-        <button
+        <CardFooter>
+          <Button
           type="button"
-          className="btn btn-primary"
           disabled={busy}
           onClick={() => void answer({ answers: collect() })}
         >
+            {busy && <Spinner data-icon="inline-start" />}
           Envoyer
-        </button>
+          </Button>
+        </CardFooter>
       )}
-    </div>
+    </Card>
   );
 }

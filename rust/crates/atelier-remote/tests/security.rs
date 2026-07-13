@@ -122,7 +122,10 @@ async fn browser_cors_preflight_is_scoped_to_allowed_origins() {
         .header("host", &host)
         .header("origin", "http://localhost:1421")
         .header("access-control-request-method", "GET")
-        .header("access-control-request-headers", "x-atelier-device-token")
+        .header(
+            "access-control-request-headers",
+            "x-atelier-device-token,if-none-match",
+        )
         .send()
         .await
         .unwrap();
@@ -134,6 +137,13 @@ async fn browser_cors_preflight_is_scoped_to_allowed_origins() {
             .and_then(|v| v.to_str().ok()),
         Some("http://localhost:1421")
     );
+    let allowed_headers = allowed
+        .headers()
+        .get("access-control-allow-headers")
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or_default()
+        .to_ascii_lowercase();
+    assert!(allowed_headers.contains("if-none-match"));
 
     let rejected = c
         .request(

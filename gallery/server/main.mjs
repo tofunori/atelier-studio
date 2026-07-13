@@ -15,6 +15,8 @@ import {
   sendJson,
   serveBuffer,
   serveFile,
+  spawnCollect,
+  withTimeout,
 } from "./shared.mjs";
 import { handleAnnotationGet, handleAnnotationPost } from "./routes/annotations.mjs";
 import { handleBoardsGet, handleBoardsPost } from "./routes/boards.mjs";
@@ -23,44 +25,84 @@ import { handleEditorsGet, handleEditorsPost } from "./routes/editors.mjs";
 
 const VIDEO_EXTS = new Set([".mp4", ".m4v", ".mov", ".webm"]);
 
-let __shellCheckAt = 0;
-function ensureFreshShell() {
-  // coquille périmée si le template a changé (rebuild de l'app pendant que ce
-  // serveur tournait) — vérif au plus 1×/5s, régénération instantanée sans scan
-  const now = Date.now();
-  if (now - __shellCheckAt < 5000) return;
-  __shellCheckAt = now;
-  try {
-    const tpl = path.join(ASSETS_DIR, "gallery_template.html");
-    const shell = path.join(PROJECT, "figures_index.html");
-    if (fs.existsSync(shell) && fs.statSync(tpl).mtimeMs > fs.statSync(shell).mtimeMs) {
-      import("./builder.mjs").then((b) => { if (b.rebuildShellOnly()) console.error("[gallery] coquille régénérée (GET)"); });
-    }
-  } catch {}
-}
-
 // GET / : la page est RENDUE À LA REQUÊTE depuis le template + figures_data.json —
 // plus jamais de coquille cuite périmée, quel que soit le projet ou l'âge du serveur
-let __liveShell = { key: "", html: null };
-async function serveLiveShell(res) {
-  try {
+let __liveShell = { key: "", html: null, pending: null };
+
+function loadLiveShell() {
+  if (__liveShell.pending) return __liveShell.pending;
+  const task = (async () => {
     const tpl = path.join(ASSETS_DIR, "gallery_template.html");
     const dataPath = path.join(PROJECT, "figures_data.json");
-    if (!fs.existsSync(dataPath)) return false;   // pas encore scanné → fallback fichier/boot-build
-    const key = fs.statSync(tpl).mtimeMs + ":" + fs.statSync(dataPath).mtimeMs;
-    if (__liveShell.key !== key) {
-      const { renderShellHtml } = await import("./builder.mjs");
-      const payload = JSON.parse(fs.readFileSync(dataPath, "utf8"));
-      __liveShell = { key, html: Buffer.from(renderShellHtml(payload), "utf8") };
+    const [tplStat, dataStat] = await Promise.all([
+      fs.promises.stat(tpl),
+      fs.promises.stat(dataPath),
+    ]);
+    const key = `${tplStat.mtimeMs}:${dataStat.mtimeMs}`;
+    if (__liveShell.key === key && __liveShell.html) return __liveShell.html;
+    const payload = JSON.parse(await fs.promises.readFile(dataPath, "utf8"));
+    const { renderShellHtml } = await import("./builder.mjs");
+    const html = Buffer.from(renderShellHtml(payload), "utf8");
+    __liveShell = { ...__liveShell, key, html };
+    return html;
+  })();
+  __liveShell.pending = task;
+  task.finally(() => {
+    if (__liveShell.pending === task) __liveShell.pending = null;
+  }).catch(() => {});
+  return task;
+}
+
+function waitingShell(error) {
+  const detail = error?.code === "ENOENT"
+    ? "Indexing project files…"
+    : "Waiting for macOS project access…";
+  return Buffer.from(`<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta http-equiv="refresh" content="3">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Atelier gallery</title><style>
+html,body{height:100%;margin:0;background:#1d1f23;color:#aeb3bd;font:13px -apple-system,BlinkMacSystemFont,sans-serif}
+body{display:grid;place-items:center}.card{display:flex;gap:10px;align-items:center}.dot{width:8px;height:8px;border-radius:50%;background:#8b7cf6;box-shadow:0 0 0 5px #8b7cf622}
+</style></head><body><div class="card"><span class="dot"></span><span>${detail}</span></div></body></html>`, "utf8");
+}
+
+async function serveLiveShell(req, res) {
+  try {
+    const html = await withTimeout(loadLiveShell(), 3500, "load gallery shell");
+    if (req.method === "HEAD") {
+      res.writeHead(200, {
+        "Content-Type": "text/html; charset=utf-8",
+        "Content-Length": String(html.length),
+        "Cache-Control": "no-cache",
+      });
+      res.end();
+      return true;
     }
-    serveBuffer(res, 200, __liveShell.html, { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-cache" });
+    serveBuffer(res, 200, html, { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-cache" });
     return true;
-  } catch { return false; }
+  } catch (error) {
+    const html = waitingShell(error);
+    if (req.method === "HEAD") {
+      res.writeHead(200, {
+        "Content-Type": "text/html; charset=utf-8",
+        "Content-Length": String(html.length),
+        "Cache-Control": "no-cache",
+        "Retry-After": "3",
+      });
+      res.end();
+      return true;
+    }
+    serveBuffer(res, 200, html, {
+      "Content-Type": "text/html; charset=utf-8",
+      "Cache-Control": "no-cache",
+      "Retry-After": "3",
+    });
+    return true;
+  }
 }
 
 function projectStaticPath(urlPath) {
   const decoded = decodeURIComponent(urlPath === "/" ? "/figures_index.html" : urlPath);
-  if (urlPath === "/") ensureFreshShell();
   const rel = decoded.replace(/^\/+/, "");
   return safePath(rel);
 }
@@ -144,7 +186,7 @@ async function handleStatic(req, res, url) {
   // navigateurs utilisent souvent /. Les deux doivent être une vue du même
   // template embarqué; ne jamais servir la coquille historique du projet.
   if ((urlPath === "/" || urlPath === "/figures_index.html") &&
-      req.method === "GET" && await serveLiveShell(res)) return true;
+      (req.method === "GET" || req.method === "HEAD")) return serveLiveShell(req, res);
   const asset = assetFallbackPath(urlPath);
   let file = asset && fs.existsSync(asset) ? asset : null;
   if (!file) file = projectStaticPath(urlPath);
@@ -193,29 +235,29 @@ async function route(req, res) {
   }
 }
 
-// premier lancement dans un projet : bâtir la galerie avant d'écouter
-// (parité avec cmux_gallery.py run, qui build puis sert)
-import { spawnSync } from "node:child_process";
-const shellPath = path.join(PROJECT, "figures_index.html");
+// Premier lancement dans un projet : bâtir l'index en arrière-plan. Le serveur
+// écoute AVANT tout accès au projet afin qu'une consultation TCC ne puisse
+// jamais bloquer /health ni figer le bootstrap Tauri.
 const dataPath = path.join(PROJECT, "figures_data.json");
-// coquille périmée (template mis à jour par un rebuild de l'app) → régénérer
-// la coquille SEULE depuis les données existantes (instantané, pas de rescan)
-try {
-  const tpl = path.join(path.dirname(new URL(import.meta.url).pathname), "..", "assets", "gallery_template.html");
-  if (fs.existsSync(shellPath) && fs.existsSync(dataPath) &&
-      fs.statSync(tpl).mtimeMs > fs.statSync(shellPath).mtimeMs) {
-    const { rebuildShellOnly } = await import("./builder.mjs");
-    if (rebuildShellOnly()) console.error("[gallery] coquille régénérée (template plus récent)");
+async function prepareInitialGallery() {
+  try {
+    await fs.promises.access(dataPath);
+    return;
+  } catch (error) {
+    if (error?.code !== "ENOENT") {
+      console.error("[gallery] accès index en attente:", String(error?.message || error));
+      return;
+    }
   }
-} catch {}
-if (!fs.existsSync(shellPath) || !fs.existsSync(dataPath)) {
   const builder = path.join(path.dirname(new URL(import.meta.url).pathname), "builder.mjs");
-  const r = spawnSync(process.execPath, [builder], {
+  const result = await spawnCollect(process.execPath, [builder], {
     cwd: PROJECT,
     env: { ...process.env, GALLERY_ROOT: PROJECT },
-    timeout: 300000,
+    timeoutMs: 300000,
   });
-  if (r.status !== 0) console.error("[gallery] build initial en échec:", String(r.stderr).slice(0, 400));
+  if (result.code !== 0) {
+    console.error("[gallery] build initial en échec:", String(result.out || result.error || "").slice(-400));
+  }
 }
 
 // mode Studio : poser le jeton local dès le boot pour que l'app (commande
@@ -223,6 +265,11 @@ if (!fs.existsSync(shellPath) || !fs.existsSync(dataPath)) {
 if (STUDIO) galleryToken();
 
 const port = choosePort(PROJECT);
-http.createServer((req, res) => {
+const server = http.createServer((req, res) => {
   route(req, res);
-}).listen(port, "127.0.0.1");
+});
+server.on("error", (error) => {
+  console.error("[gallery] server error:", error?.stack || String(error));
+});
+server.listen(port, "127.0.0.1");
+void prepareInitialGallery();

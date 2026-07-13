@@ -4,7 +4,8 @@
 // overflow, ≤ 3 actions visibles. Aucune logique métier ici : le renommage
 // reste le workflow existant côté App (callback onRename).
 import { useRef, useState } from "react";
-import { IconButton, Menu, MenuItem, StatusBadge, SurfaceHeader } from "../ui";
+import { IconButton, StatusBadge, SurfaceHeader } from "../ui";
+import { LazyDropdownMenu } from "../ui/LazyDropdownMenu";
 import { t } from "../../lib/i18n";
 import type { PresentedStatus } from "../../lib/statusPresentation";
 import "../../styles/local-headers.css";
@@ -25,7 +26,7 @@ export function ChatHeader(p: {
   const [menuOpen, setMenuOpen] = useState(false);
   // IconButton ne transmet pas de ref : l'ancre du Menu est le wrapper —
   // focusAnchor/useDismiss savent traverser un conteneur non focusable.
-  const moreAnchor = useRef<HTMLSpanElement | null>(null);
+  const moreAnchor = useRef<HTMLButtonElement | null>(null);
 
   const status = p.status;
   // « idle » n'est pas un état à montrer : le badge n'existe que pour un
@@ -50,27 +51,25 @@ export function ChatHeader(p: {
             </StatusBadge>
           )}
           {p.onRename != null && (
-            <span className="overflow-anchor" ref={moreAnchor}>
-              <IconButton
-                label={t("action.more")}
-                aria-haspopup="menu"
-                aria-expanded={menuOpen}
-                onClick={() => setMenuOpen((o) => !o)}
-              >
-                <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
-                  <circle cx="3.5" cy="8" r="1.15" /><circle cx="8" cy="8" r="1.15" /><circle cx="12.5" cy="8" r="1.15" />
-                </svg>
-              </IconButton>
-              <Menu
-                open={menuOpen}
-                onClose={() => setMenuOpen(false)}
-                anchorRef={moreAnchor}
-                label={t("action.more")}
-                placement="bottom-end"
-              >
-                <MenuItem onSelect={p.onRename}>{t("action.rename")}</MenuItem>
-              </Menu>
-            </span>
+            <LazyDropdownMenu
+              open={menuOpen}
+              onOpenChange={setMenuOpen}
+              triggerRef={moreAnchor}
+              align="end"
+              label={t("action.more")}
+              trigger={
+                <IconButton
+                  label={t("action.more")}
+                  aria-haspopup="menu"
+                  aria-expanded={menuOpen}
+                >
+                  <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
+                    <circle cx="3.5" cy="8" r="1.15" /><circle cx="8" cy="8" r="1.15" /><circle cx="12.5" cy="8" r="1.15" />
+                  </svg>
+                </IconButton>
+              }
+              items={[{ key: "rename", label: t("action.rename"), onSelect: p.onRename }]}
+            />
           )}
         </>
       }

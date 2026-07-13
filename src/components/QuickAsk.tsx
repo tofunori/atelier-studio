@@ -4,6 +4,8 @@ import remarkGfm from "remark-gfm";
 import { t } from "../lib/i18n";
 import { ProviderIcon, ZapIcon } from "./icons";
 import { wsSend } from "../lib/wsBus";
+import { Textarea } from "./shadcn/textarea";
+import { Button, IconButton } from "./ui";
 
 type QaMsg = { role: "user" | "assistant"; text: string; streaming?: boolean };
 type QaRecent = { qaId: string; ts: number; msgs: QaMsg[] };
@@ -215,14 +217,15 @@ export default function QuickAsk({
         <div className="qa-head" onMouseDown={startDrag} style={{ cursor: "move" }}>
           <span className="qa-zap"><ZapIcon /></span>
           <span>{t("qa.title")}</span>
-          <button className="qa-recents-btn" title={t("qa.recents")}
+          <IconButton className="qa-recents-btn" label={t("qa.recents")} title={t("qa.recents")}
             onClick={() => setRecentsOpen((v) => !v)}>
             <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round">
               <circle cx="8" cy="8" r="6.2" /><path d="M8 4.5V8l2.5 1.5" />
             </svg>
-          </button>
-          <button
+          </IconButton>
+          <IconButton
             className="qa-recents-btn"
+            label={t("qa.clear")}
             title={t("qa.clear")}
             onClick={() => {
               setQaId(crypto.randomUUID());
@@ -236,8 +239,8 @@ export default function QuickAsk({
             <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round">
               <path d="M3 4h10M6.5 4V2.8c0-.4.3-.8.8-.8h1.4c.5 0 .8.4.8.8V4M4.5 4l.7 8.4c0 .5.4.8.9.8h3.8c.5 0 .9-.3.9-.8L11.5 4" />
             </svg>
-          </button>
-          <button className="qa-min" title={t("qa.minimize")} aria-label={t("qa.minimize")} onClick={onMinimize}>—</button>
+          </IconButton>
+          <IconButton className="qa-min" label={t("qa.minimize")} title={t("qa.minimize")} onClick={onMinimize}>—</IconButton>
           <button
             className="qa-model"
             title={t("qa.switch-model")}
@@ -274,10 +277,10 @@ export default function QuickAsk({
                 <>
                   <ReactMarkdown remarkPlugins={[remarkGfm]}>{msg.text}</ReactMarkdown>
                   {!msg.streaming && !msg.text.startsWith("⚠") && (
-                    <button className="qa-inject-one" title={t("qa.inject")}
+                    <IconButton className="qa-inject-one" label={t("qa.inject")} title={t("qa.inject")}
                       onClick={() => { onInject(msg.text); close(); }}>
                       ↰
-                    </button>
+                    </IconButton>
                   )}
                 </>
               ) : (
@@ -294,10 +297,10 @@ export default function QuickAsk({
         {ctx && (
           <div className="qa-ctx" title={ctx}>
             <span className="qa-ctx-txt">{ctx.slice(0, 90)}{ctx.length > 90 ? "…" : ""}</span>
-            <button type="button" onClick={() => setCtx("")}>✕</button>
+            <IconButton size="s" label={t("action.close")} onClick={() => setCtx("")}>✕</IconButton>
           </div>
         )}
-        <textarea
+        <Textarea
           ref={inputRef}
           className="qa-input"
           rows={Math.min(6, Math.max(1, text.split("\n").length, Math.ceil(text.length / 60)))}
@@ -310,16 +313,16 @@ export default function QuickAsk({
           }}
         />
         <div className="qa-foot">
-          <button disabled={!lastAnswer} onClick={() => { if (lastAnswer) { onInject(lastAnswer.text); close(); } }}>
+          <Button variant="ghost" disabled={!lastAnswer} onClick={() => { if (lastAnswer) { onInject(lastAnswer.text); close(); } }}>
             ↰ {t("qa.inject")}
-          </button>
-          <button disabled={msgs.length === 0 || busy} onClick={() => {
+          </Button>
+          <Button variant="ghost" disabled={msgs.length === 0 || busy} onClick={() => {
             saveRecent(qaId, msgs);
             onPromote(qaId, msgs.find((x) => x.role === "user")?.text.slice(0, 40) ?? "Quick Ask");
             onClose();
           }}>
             ⤴ {t("qa.promote")}
-          </button>
+          </Button>
           {promoteErr && <span className="qa-promote-err">{promoteErr}</span>}
           <span className="qa-esc">esc</span>
         </div>

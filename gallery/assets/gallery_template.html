@@ -4,10 +4,14 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>__TITLE__</title>
+<link rel="stylesheet" href=".fig_thumbs/shadcn-ui/gallery-ui.css?v=__VER__">
 <style>
   :root{--ui-font:-apple-system,'SF Pro Text','Inter Variable',sans-serif;--code-font:ui-monospace,'SF Mono',Menlo,monospace; --bg:#1e2124; --card:#24282d; --card2:#2c2f34; --txt:#dadee3; --muted:#90969d; --faint:#62666c;
-         --accent:#e77f3e; --accent-soft:color-mix(in srgb,var(--accent) 16%,transparent); --arch:#3a2f1a; --border:#383c41; --border-strong:#43474c;
-         --shadow:0 1px 2px rgba(0,0,0,.3),0 6px 20px rgba(0,0,0,.25); }
+         --primary:#e77f3e; --primary-soft:color-mix(in srgb,var(--primary) 16%,transparent); --arch:#3a2f1a; --border:#383c41; --border-strong:#43474c;
+         --shadow:0 1px 2px rgba(0,0,0,.3),0 6px 20px rgba(0,0,0,.25);
+         --radius-control:6px;--radius-surface:9px;--fs-body-s:12px;--fs-caption:10px;--fs-label:10px;
+         --focus-ring-color:var(--ring);--ease-out:ease-out;--motion-fast:120ms;--motion-panel:180ms;
+         --z-sticky:30;--z-popover:120;--z-modal:200;--z-toast:260; }
   *{box-sizing:border-box}
   html{background:var(--bg);color-scheme:dark;scrollbar-color:var(--faint) var(--bg);scrollbar-width:thin}
   ::-webkit-scrollbar{width:10px;height:10px}
@@ -35,7 +39,7 @@
   .csel-menu{position:fixed;z-index:120;min-width:170px;max-height:340px;overflow-y:auto}
   .csel-menu div{display:flex;align-items:center;gap:8px;padding:6px 10px;border-radius:6px;cursor:pointer;font-size:13px;white-space:nowrap}
   .csel-menu div:hover{background:var(--card2)}
-  .csel-menu div .ck{width:12px;flex:none;color:var(--accent);opacity:0}
+  .csel-menu div .ck{width:12px;flex:none;color:var(--primary);opacity:0}
   .csel-menu div.on .ck{opacity:1}
   #fmtMenu{min-width:0;width:max-content;max-width:min(292px,calc(100vw - 16px));padding:8px 8px 9px}
   #fmtMenu .mhd{padding:4px 8px 6px}
@@ -61,11 +65,18 @@
   .brand .proj{font-size:12px;color:var(--muted);font-family:var(--code-font)}
   .brand .stat{margin-left:4px;font-size:12px;color:var(--faint);font-variant-numeric:tabular-nums}
   .controls{display:flex;flex-wrap:wrap;gap:6px;align-items:center}
+  #gallery-react-toolbar{display:none}
+  html.gallery-react-mounted #gallery-react-toolbar{display:block}
+  html.gallery-react-mounted .controls{display:contents}
+  html.gallery-react-mounted .controls>:not(.menu){display:none!important}
+  html.gallery-react-mounted #inspector,
+  html.gallery-react-mounted #inspScrim{display:none!important}
+  html.gallery-react-mounted #confirmModal{display:none!important}
   /* barre de commande (plan 019) : rangée 1 = recherche + Filters + tri +
      densité + ⋯ ; les contrôles de filtre historiques vivent dans le popover
      #filtersMenu (groupes) ; les filtres ACTIFS s'affichent en chips
      supprimables dans #activeChips (rangée absente à zéro filtre). */
-  #filtersChip.on{border-color:var(--accent);color:var(--accent)}
+  #filtersChip.on{border-color:var(--primary);color:var(--primary)}
   #filtersMenu{min-width:250px}
   #filtersMenu .fgrp{display:flex;flex-wrap:wrap;gap:5px;padding:1px 4px 3px}
   #filtersMenu .fgrp .chip{height:26px;font-size:11.5px}
@@ -89,12 +100,12 @@
     html.emb .controls #boardChip,html.emb .controls #notesChip{display:none}
     #surfMenu .narrow-only{display:flex}
   }
-  /* rescan et clear-annotation vivent dans ⋯ — les contrôles d'origine restent
-     câblés mais masqués (leurs handlers restent la source de vérité) */
+  /* Le chrome React expose Rescan dans le header. Les contrôles d'origine
+     restent câblés mais masqués (leurs handlers restent la source de vérité). */
   #rescan,#quoteClear{display:none !important}
   /* ---- sélection de carte + inspecteur scientifique (plan 019) ------------
      deux signaux : bordure accent + halo doux ; jamais d'orange plein partout */
-  .card.sel2{border-color:var(--accent);box-shadow:0 0 0 1px var(--accent),var(--shadow)}
+  .card.sel2{border-color:var(--primary);box-shadow:0 0 0 1px var(--primary),var(--shadow)}
   #inspector{position:fixed;top:0;right:0;bottom:0;width:300px;z-index:9;display:none;
     flex-direction:column;background:var(--card);border-left:1px solid var(--border);
     padding-top:var(--insp-top,0px)}
@@ -116,7 +127,7 @@
   #inspPrev.ph2{background:var(--card2);color:var(--muted);font-size:22px;font-weight:600}
   .iwf{display:flex;flex-wrap:wrap;gap:5px}
   .iwf button{height:24px;font-size:11px;padding:0 9px}
-  .iwf button.on{border-color:var(--accent);color:var(--accent)}
+  .iwf button.on{border-color:var(--primary);color:var(--primary)}
   #inspBody .iact{display:flex;flex-wrap:wrap;gap:6px}
   #inspBody .iact button{height:28px}
   #inspNotice{display:none;border:1px solid #7a2a2a;border-radius:6px;padding:6px 9px;
@@ -145,13 +156,13 @@
   html.emb::-webkit-scrollbar,html.emb body::-webkit-scrollbar{width:0;height:0;display:none}
   input[type=search]{flex:1;min-width:190px;padding:0 12px;border-radius:6px;border:1px solid var(--border);
         background:var(--bg);color:var(--txt);font-size:13px;height:30px}
-  input[type=search]:focus{outline:none;border-color:var(--accent)}
+  input[type=search]:focus{outline:none;border-color:var(--primary)}
   input[type=search].collapsed{display:block} /* recherche toujours visible (design pass) */
-  #searchChip.on{border-color:var(--accent);color:var(--accent)}
+  #searchChip.on{border-color:var(--primary);color:var(--primary)}
   select,button{padding:0 11px;border-radius:6px;border:1px solid var(--border);background:var(--card);
         color:var(--txt);font-size:12px;font-weight:500;font-family:inherit;cursor:pointer;height:30px;line-height:1.2}
   select:hover,button:hover{border-color:var(--border-strong)}
-  select:focus-visible,button:focus-visible,.chip:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
+  select:focus-visible,button:focus-visible,.chip:focus-visible{outline:2px solid var(--primary);outline-offset:1px}
   #sort{max-width:180px;color:var(--muted)}
   #folder{max-width:150px;color:var(--muted)}   /* keep it compact; long folder paths would otherwise stretch it to its own line */
   .chip{display:inline-flex;align-items:center;gap:5px;padding:0 11px;border-radius:6px;
@@ -164,18 +175,18 @@
         color:var(--muted)}
   #rescan:hover{color:var(--txt)}
   #rescan svg{display:block}
-  #rescan.spinning svg{animation:rescan-spin .9s linear infinite;color:var(--accent)}
+  #rescan.spinning svg{animation:rescan-spin .9s linear infinite;color:var(--primary)}
   @keyframes rescan-spin{to{transform:rotate(360deg)}}
   @media (prefers-reduced-motion:reduce){#rescan.spinning svg{animation:none;opacity:.5}}
   .menu{position:fixed;z-index:60;display:none;flex-direction:column;gap:2px;
         background:var(--card);border:1px solid var(--border);border-radius:10px;padding:7px;min-width:min(200px,calc(100vw - 16px));max-width:min(360px,calc(100vw - 16px));
         max-height:62vh;overflow:auto;box-shadow:0 8px 28px rgba(0,0,0,.5)}
   .menu .trow{cursor:pointer}
-  .menu .tck{color:var(--accent)}
+  .menu .tck{color:var(--primary)}
   .menu .mhd{font-size:11px;color:var(--muted);padding:3px 6px 5px}
   .menu .mi{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:5px 7px;border-radius:6px;font-size:13px}
   .menu .mi:hover{background:rgba(255,255,255,.05)}
-  .menu .mi.on{color:var(--accent)}
+  .menu .mi.on{color:var(--primary)}
   .menu .mi.muted,.menu .mi.muted:hover{color:var(--muted);background:none}
   .menu .mi.clr{color:#ff9b9b}
   .menu .lbl{cursor:pointer;flex:1;word-break:break-all}
@@ -185,7 +196,7 @@
   .menu .madd{display:flex;gap:5px;margin-top:5px;padding-top:6px;border-top:1px solid var(--border)}
   .menu .madd input{flex:1;min-width:0;background:var(--bg);border:1px solid var(--border);border-radius:6px;color:var(--txt);padding:5px 7px;font-size:12px}
   .menu .madd button{padding:5px 10px}
-  .menu input[type=checkbox]{accent-color:var(--accent);margin-right:6px;vertical-align:-1px}
+  .menu input[type=checkbox]{accent-color:var(--primary);margin-right:6px;vertical-align:-1px}
   .menu .mhd.sep{border-top:1px solid var(--border);margin-top:4px;padding-top:7px}
   .menu label.lbl{display:flex;align-items:center}
   .playbtn{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);z-index:3;
@@ -193,9 +204,9 @@
         display:flex;align-items:center;justify-content:center;font-size:18px;padding-left:3px;
         pointer-events:none;border:2px solid rgba(255,255,255,.9)}
   .menu .only{cursor:pointer;color:var(--muted);font-size:11px;flex-shrink:0;padding:0 3px}
-  .menu .only:hover{color:var(--accent)}
+  .menu .only:hover{color:var(--primary)}
   .menu .mlink{cursor:pointer;color:var(--muted);font-size:12px}
-  .menu .mlink:hover{color:var(--accent)}
+  .menu .mlink:hover{color:var(--primary)}
   .count{color:var(--muted);font-size:12px;margin-left:auto}
   main{padding:20px;display:grid;grid-template-columns:repeat(auto-fill,minmax(var(--card-min,185px),1fr));gap:16px}
   /* panneau étroit : cartes plus compactes, jamais une seule colonne géante */
@@ -225,7 +236,7 @@
   .tag.archive{background:var(--arch);color:#d9a441}
   .tag.hid{background:#3a3a44;color:#aab}
   .tag.wf{color:var(--muted)}
-  .tag.wf.final{color:var(--accent)}
+  .tag.wf.final{color:var(--primary)}
   .card.hid{opacity:.5}
   .card.hid:hover{opacity:1}
   /* actions au survol : bandeau sur la zone MÉTA (jamais par-dessus la figure) */
@@ -289,7 +300,7 @@
   #lb.vw #lbAnnot{display:none!important}
   #lbCap{color:var(--txt);font-size:13px;margin-top:10px;display:flex;gap:14px;align-items:center;flex-wrap:wrap;justify-content:center;max-width:94vw;text-align:center}
   #lbCap span{word-break:break-all}
-  #lbCap a{color:var(--accent)}
+  #lbCap a{color:var(--primary)}
   .lbBtn{position:fixed;top:50%;transform:translateY(-50%);font-size:34px;color:var(--muted);cursor:pointer;
          padding:18px 14px;user-select:none;z-index:101}
   .lbBtn:hover{color:#fff}
@@ -386,10 +397,27 @@
 
   /* ---- plan 023: Precision Native / scientific light table ------------- */
   :root{
+    /* shadcn/Base UI semantic contract for this generated non-React surface. */
+    --background:var(--bg);
+    --foreground:var(--txt);
+    --card-foreground:var(--txt);
+    --popover:var(--card);
+    --popover-foreground:var(--txt);
+    --primary-foreground:var(--bg);
+    --secondary:var(--card2);
+    --secondary-foreground:var(--txt);
+    --muted-foreground:var(--muted);
+    --accent:var(--card2);
+    --accent-foreground:var(--txt);
+    --destructive:#ff7b7b;
+    --destructive-foreground:var(--txt);
+    --input:var(--border-strong);
+    --ring:var(--primary);
+    --radius:9px;
     --surface-raised:color-mix(in srgb,var(--card) 94%,var(--txt) 6%);
     --surface-sunken:color-mix(in srgb,var(--bg) 88%,#000 12%);
     --hairline:color-mix(in srgb,var(--border) 78%,transparent);
-    --focus-ring:color-mix(in srgb,var(--accent) 72%,#fff 28%);
+    --focus-ring:color-mix(in srgb,var(--ring) 72%,#fff 28%);
     --spectral:#86aee8;
     --spectral-teal:#78b8ad;
     --shadow-float:0 14px 38px rgba(0,0,0,.34),0 2px 8px rgba(0,0,0,.2);
@@ -408,15 +436,15 @@
     box-shadow:inset 0 1px 1px rgba(0,0,0,.12)}
   input[type=search]::placeholder{color:var(--faint)}
   input[type=search]:hover{border-color:var(--border-strong)}
-  input[type=search]:focus{border-color:var(--focus-ring);box-shadow:0 0 0 2px color-mix(in srgb,var(--accent) 18%,transparent)}
+  input[type=search]:focus{border-color:var(--focus-ring);box-shadow:0 0 0 2px color-mix(in srgb,var(--ring) 18%,transparent)}
   .controls>.csel-btn,.controls>select,.controls>button,.controls>.chip{height:var(--control-h)}
   .csel-btn,select,button,.chip{background:color-mix(in srgb,var(--card) 96%,var(--txt) 4%);border-color:color-mix(in srgb,var(--hairline) 76%,transparent)}
   .csel-btn:hover,select:hover,button:hover,.chip:hover{background:var(--surface-raised);border-color:var(--border-strong)}
   select:focus-visible,button:focus-visible,.chip:focus-visible,.csel-btn:focus-visible,.fchip:focus-visible{
-    outline:none;border-color:var(--focus-ring);box-shadow:0 0 0 2px color-mix(in srgb,var(--accent) 22%,transparent)}
-  #filtersChip.on,.iwf button.on{background:var(--accent-soft);border-color:color-mix(in srgb,var(--accent) 62%,var(--border));color:var(--txt)}
+    outline:none;border-color:var(--focus-ring);box-shadow:0 0 0 2px color-mix(in srgb,var(--ring) 22%,transparent)}
+  #filtersChip.on,.iwf button.on{background:var(--primary-soft);border-color:color-mix(in srgb,var(--primary) 62%,var(--border));color:var(--txt)}
   #activeChips{margin-top:7px;padding-top:7px;border-top:1px solid var(--hairline)}
-  .fchip{background:color-mix(in srgb,var(--accent-soft) 52%,var(--card));border-color:color-mix(in srgb,var(--accent) 28%,var(--border));
+  .fchip{background:color-mix(in srgb,var(--primary-soft) 52%,var(--card));border-color:color-mix(in srgb,var(--primary) 28%,var(--border));
     transition:background-color var(--motion-fast) ease-out,border-color var(--motion-fast) ease-out,color var(--motion-fast) ease-out}
   .menu,.csel-menu{background:color-mix(in srgb,var(--card) 96%,#000 4%);border-color:var(--border-strong);
     box-shadow:var(--shadow-float);backdrop-filter:blur(18px) saturate(1.08)}
@@ -439,11 +467,11 @@
   .fld{color:color-mix(in srgb,var(--faint) 88%,var(--bg));line-height:1.35}
   .row2{padding-top:2px}
   .tag{border:1px solid var(--hairline);background:transparent;border-radius:999px;padding:2px 7px;letter-spacing:.035em}
-  .tag.wf.final{background:var(--accent-soft);border-color:color-mix(in srgb,var(--accent) 35%,var(--border));color:var(--txt)}
-  .card.sel2{border-color:var(--accent);
-    box-shadow:0 0 0 1px color-mix(in srgb,var(--accent) 38%,transparent),0 4px 12px rgba(0,0,0,.18)}
+  .tag.wf.final{background:var(--primary-soft);border-color:color-mix(in srgb,var(--primary) 35%,var(--border));color:var(--txt)}
+  .card.sel2{border-color:var(--primary);
+    box-shadow:0 0 0 1px color-mix(in srgb,var(--primary) 38%,transparent),0 4px 12px rgba(0,0,0,.18)}
   .card.sel2::after{content:"";position:absolute;z-index:6;top:9px;bottom:9px;left:0;width:2px;border-radius:0 2px 2px 0;
-    background:var(--accent);pointer-events:none}
+    background:var(--primary);pointer-events:none}
   .hov{display:flex;opacity:0;visibility:hidden;transform:translateY(3px);background:color-mix(in srgb,var(--card) 97%,transparent);
     backdrop-filter:blur(12px);transition:opacity var(--motion-fast) ease-out,transform var(--motion-fast) ease-out,visibility 0s linear var(--motion-fast)}
   .card:hover .hov,.card:focus-within .hov{opacity:1;visibility:visible;transform:translateY(0);transition-delay:0s}
@@ -474,22 +502,23 @@
 </style>
 </head>
 <body>
-<header>
+<header data-slot="gallery-toolbar">
   <div class="brand">
     <svg class="logo" width="19" height="19" viewBox="0 0 24 24" fill="currentColor" aria-label="Gallery"><rect x="2" y="2" width="9.5" height="13.5" rx="1.6"/><rect x="2" y="17" width="9.5" height="5" rx="1.6"/><rect x="13.5" y="2" width="8.5" height="5" rx="1.6"/><rect x="13.5" y="9" width="8.5" height="13" rx="1.6"/></svg>
     <span class="wm">__WORDMARK__</span>
     <span class="proj">__PROJECT__</span>
     <span id="galleryStat" class="stat">__COUNT__ files · __GEN__</span>
     <span class="brand-sp"></span>
-    <span class="chip dest" id="boardChip" title="Open the project whiteboard (tldraw)">Board</span>
-    <span class="chip dest" id="notesChip" title="Open the project notes (markdown)">Notes</span>
-    <span class="chip dest" id="viewChip" title="Settings — server health, theme, archives, hidden, auto-hide rules">Settings &#9662;</span>
+    <span class="chip dest" id="boardChip" data-slot="button" role="button" tabindex="0" title="Open the project whiteboard (tldraw)">Board</span>
+    <span class="chip dest" id="notesChip" data-slot="button" role="button" tabindex="0" title="Open the project notes (markdown)">Notes</span>
+    <span class="chip dest" id="viewChip" data-slot="dropdown-menu-trigger" role="button" tabindex="0" aria-haspopup="menu" aria-expanded="false" title="Settings — server health, theme, archives, hidden, auto-hide rules">Settings &#9662;</span>
   </div>
+  <div id="gallery-react-toolbar" data-slot="gallery-react-toolbar"></div>
   <div class="controls">
     <span class="chip" id="searchChip" title="Search by name or folder (press /)" tabindex="0"><svg width="12" height="12" viewBox="0 0 16 16" fill="none" aria-hidden="true"><circle cx="7" cy="7" r="5" stroke="currentColor" stroke-width="1.6"/><path d="M11 11l3.2 3.2" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg> Search</span>
-    <input type="search" id="q" class="collapsed" placeholder="Search by name or folder… (Esc to close)">
-    <span class="chip" id="filtersChip" title="Filters — folder, formats, favorites, collections, status, recent" tabindex="0">Filters &#9662;</span>
-    <div id="filtersMenu" class="menu">
+    <input type="search" id="q" data-slot="input" class="collapsed" aria-label="Search project files" placeholder="Search by name or folder… (Esc to close)">
+    <span class="chip" id="filtersChip" data-slot="dropdown-menu-trigger" role="button" aria-haspopup="menu" aria-expanded="false" title="Filters — folder, formats, favorites, collections, status, recent" tabindex="0">Filters &#9662;</span>
+    <div id="filtersMenu" class="menu" data-slot="dropdown-menu-content" role="menu">
       <div class="mhd">Folder</div><div class="fgrp" id="fgFolder"></div>
       <div class="mhd sep">Formats</div><div class="fgrp" id="fgFmt"></div>
       <div class="mhd sep">Favorites</div><div class="fgrp" id="fgFav"></div>
@@ -498,7 +527,7 @@
       <div class="mhd sep">Recent</div><div class="fgrp" id="fgRec"></div>
       <div class="madd"><button id="filtersClear" title="Reset every active filter">Clear all filters</button></div>
     </div>
-    <select id="sort">
+    <select id="sort" data-slot="native-select" aria-label="Sort project files">
       <option value="mtime">Sort: modified (newest)</option>
       <option value="mtime_asc">Sort: modified (oldest)</option>
       <option value="btime">Sort: created (newest)</option>
@@ -507,7 +536,7 @@
       <option value="size">Sort: size</option>
       <option value="rating">Sort: rating (1–5)</option>
     </select>
-    <select id="folder"><option value="">All folders</option></select>
+    <select id="folder" data-slot="native-select" aria-label="Filter by folder"><option value="">All folders</option></select>
     <span class="chip" id="fmtChip">Formats &#9662;</span>
     <div id="fmtMenu" class="menu"></div>
     <span class="chip off" id="favChip">&#9733; Favorites</span>
@@ -517,7 +546,7 @@
     <div id="wfMenu" class="menu"></div>
     <span class="chip" id="recChip" title="Recently opened figures">Recent &#9662;</span>
     <div id="recMenu" class="menu"></div>
-    <span class="seg" id="densitySeg" title="Card density"><button data-d="s">S</button><button data-d="m" class="on">M</button><button data-d="l">L</button></span>
+    <span class="seg" id="densitySeg" data-slot="toggle-group" role="group" aria-label="Card density" title="Card density"><button data-slot="toggle-group-item" data-d="s" aria-label="Compact cards">S</button><button data-slot="toggle-group-item" data-d="m" class="on" aria-label="Medium cards">M</button><button data-slot="toggle-group-item" data-d="l" aria-label="Large cards">L</button></span>
     <div id="viewMenu" class="menu"></div>
     <button id="surfMore" title="Gallery tools — rescan, settings, board, notes" aria-label="Gallery tools" aria-haspopup="menu"><svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><circle cx="3.5" cy="8" r="1.2"/><circle cx="8" cy="8" r="1.2"/><circle cx="12.5" cy="8" r="1.2"/></svg></button>
     <div id="surfMenu" class="menu"></div>
@@ -536,9 +565,9 @@
     <div id="exportMenu" class="menu"></div>
   </div>
 </header>
-<main id="grid" role="listbox" aria-label="Project files" tabindex="0"></main>
+<main id="grid" data-slot="gallery-grid" role="listbox" aria-label="Project files" tabindex="0"></main>
 <div id="inspScrim"></div>
-<aside id="inspector" aria-label="Inspector">
+<aside id="inspector" data-slot="sheet-content" aria-label="Inspector">
   <div id="inspHead">
     <span class="ttl" id="inspTitle"></span>
     <button class="x" id="inspClose" title="Close inspector (Esc)" aria-label="Close inspector">&#10005;</button>
@@ -581,7 +610,7 @@
   </div>
   <div id="cmpInner"></div>
 </div>
-<div id="confirmModal"><div id="confirmBox">
+<div id="confirmModal" data-slot="dialog-overlay"><div id="confirmBox" data-slot="dialog-content" role="dialog" aria-modal="true" aria-label="Confirm action">
   <div id="confirmMsg"></div>
   <div id="confirmBtns"><button id="confirmCancel">Cancel</button><button id="confirmOk">Delete</button></div>
 </div></div>
@@ -601,6 +630,32 @@ let FILES = Array.isArray(INLINE_FILES) ? INLINE_FILES : [];
 let FOLDERS = Array.isArray(__FOLDERS__) ? __FOLDERS__ : [];
 let SEED_FAVS = Array.isArray(__FAVS__) ? __FAVS__ : [];
 let galleryDataLoaded = Array.isArray(INLINE_FILES);
+
+/* shadcn gallery adapter: this generated page cannot import React/Base UI,
+   but it exposes the same semantic slots and state attributes. That keeps the
+   iframe, standalone page and editor surfaces on one inspectable contract. */
+function applyShadcnGalleryContract(root){
+  const scope=root&&root.querySelectorAll?root:document;
+  const set=(selector,slot)=>scope.querySelectorAll(selector).forEach(el=>{
+    if(!el.dataset.slot) el.dataset.slot=slot;
+  });
+  set('button','button');
+  set('input:not([type="checkbox"]):not([type="color"]),textarea','input');
+  set('.menu','dropdown-menu-content');
+  set('.menu .mi','dropdown-menu-item');
+  set('.menu .mhd','dropdown-menu-label');
+  set('.card','card');
+  set('.skel','skeleton');
+}
+applyShadcnGalleryContract(document);
+new MutationObserver(records=>records.forEach(record=>record.addedNodes.forEach(node=>{
+  if(node.nodeType!==1) return;
+  applyShadcnGalleryContract(node);
+  if(node.matches?.('button')&&!node.dataset.slot) node.dataset.slot='button';
+  if(node.matches?.('.menu')) node.dataset.slot='dropdown-menu-content';
+  if(node.matches?.('.card')) node.dataset.slot='card';
+  if(node.matches?.('.skel')) node.dataset.slot='skeleton';
+}))).observe(document.body,{childList:true,subtree:true});
 function foldersFromFiles(files){
   return [...new Set((files||[]).map(f=>f.folder||'.'))].sort();
 }
@@ -632,36 +687,60 @@ if(!galleryDataLoaded){
 }
 // selects custom : cache le natif, bouton + menu maison, proxy vers le <select>
 (function(){
+  let selectMenuId=0;
   document.querySelectorAll('select#sort, select#folder').forEach(sel=>{
     sel.style.display='none';
     const btn=document.createElement('button');
-    btn.type='button'; btn.className='csel-btn';
+    const menuId='gallery-select-'+(++selectMenuId);
+    btn.type='button'; btn.className='csel-btn'; btn.dataset.slot='select-trigger';
+    btn.setAttribute('aria-haspopup','listbox'); btn.setAttribute('aria-expanded','false');
+    btn.setAttribute('aria-controls',menuId);
+    btn.setAttribute('aria-label',sel.getAttribute('aria-label')||'Choose an option');
     const sync=()=>{ btn.textContent=sel.options[sel.selectedIndex]?.text ?? ''; };
     sel.insertAdjacentElement('afterend',btn); sync();
     sel.addEventListener('change',sync);
     new MutationObserver(sync).observe(sel,{childList:true}); // options repeuplées (folders)
     let menu=null;
-    const close=()=>{ if(menu){menu.remove();menu=null;document.removeEventListener('mousedown',out,true);} };
+    const close=(returnFocus=false)=>{ if(menu){menu.remove();menu=null;btn.setAttribute('aria-expanded','false');document.removeEventListener('mousedown',out,true);if(returnFocus)btn.focus();} };
     const out=e=>{ if(menu && !menu.contains(e.target) && e.target!==btn) close(); };
-    btn.addEventListener('click',e=>{
-      e.stopPropagation();
-      if(menu){close();return;}
+    const open=()=>{
+      if(menu) return;
       menu=document.createElement('div'); menu.className='menu csel-menu'; menu.style.display='block';
+      menu.id=menuId; menu.dataset.slot='select-content'; menu.setAttribute('role','listbox');
       [...sel.options].forEach((o,i)=>{
         const it=document.createElement('div');
         if(i===sel.selectedIndex) it.classList.add('on');
+        it.dataset.slot='select-item'; it.setAttribute('role','option'); it.tabIndex=-1;
+        it.setAttribute('aria-selected',i===sel.selectedIndex?'true':'false');
         it.innerHTML='<span class="ck">✓</span>';
         it.appendChild(document.createTextNode(o.text));
         it.onclick=()=>{ sel.selectedIndex=i; sel.dispatchEvent(new Event('change',{bubbles:true})); close(); };
+        it.onkeydown=event=>{
+          if(event.key==='Enter'||event.key===' '){event.preventDefault();it.click();return;}
+          if(event.key==='Escape'){event.preventDefault();close(true);return;}
+          if(event.key==='ArrowDown'||event.key==='ArrowUp'){
+            event.preventDefault();
+            const items=[...menu.querySelectorAll('[role="option"]')],step=event.key==='ArrowDown'?1:-1;
+            items[(items.indexOf(it)+step+items.length)%items.length].focus();
+          }
+        };
         menu.appendChild(it);
       });
       document.body.appendChild(menu);
+      btn.setAttribute('aria-expanded','true');
       const r=btn.getBoundingClientRect(), mh=Math.min(340, menu.scrollHeight||340);
       const below=innerHeight-r.bottom-8>=mh;
       menu.style.left=Math.min(r.left, innerWidth-menu.offsetWidth-8)+'px';
       menu.style.top=(below?r.bottom+4:Math.max(8,r.top-mh-4))+'px';
       document.addEventListener('mousedown',out,true);
+      (menu.querySelector('[aria-selected="true"]')||menu.firstElementChild)?.focus();
+    };
+    btn.addEventListener('click',e=>{
+      e.stopPropagation();
+      if(menu){close();return;}
+      open();
     });
+    btn.addEventListener('keydown',e=>{if(e.key==='ArrowDown'||e.key==='Enter'||e.key===' '){e.preventDefault();open();}});
     document.addEventListener('keydown',e=>{ if(e.key==='Escape') close(); });
   });
 })();
@@ -937,14 +1016,15 @@ document.addEventListener('keydown', e => {
   if(e.key === '0' && document.getElementById('cmp').classList.contains('show')) cmpReset();
 });
 function confirmDialog(msg, okLabel){
+  if(typeof window.__galleryConfirm==='function') return window.__galleryConfirm(msg, okLabel);
   return new Promise(resolve => {
     const m = document.getElementById('confirmModal');
     document.getElementById('confirmMsg').textContent = msg;
     const ok = document.getElementById('confirmOk'), cancel = document.getElementById('confirmCancel');
     ok.textContent = okLabel || 'Delete';
-    m.classList.add('show');
+    m.classList.add('show'); m.dataset.open=''; delete m.dataset.closed;
     function onKey(ev){ if(ev.key==='Escape'){ev.stopPropagation();done(false);} else if(ev.key==='Enter'){ev.stopPropagation();done(true);} }
-    function done(v){ m.classList.remove('show'); ok.onclick = cancel.onclick = m.onclick = null; document.removeEventListener('keydown', onKey, true); resolve(v); }
+    function done(v){ m.classList.remove('show'); m.dataset.closed=''; delete m.dataset.open; ok.onclick = cancel.onclick = m.onclick = null; document.removeEventListener('keydown', onKey, true); resolve(v); }
     ok.onclick = () => done(true);
     cancel.onclick = () => done(false);
     m.onclick = e => { if(e.target.id === 'confirmModal') done(false); };
@@ -1104,7 +1184,7 @@ function doExport(mode){
     .then(r=>r.json()).then(j=>{ ex.textContent = j&&j.ok ? ('✓ '+j.count+' → '+j.path) : ('✗ '+((j&&j.error)||'error')); setTimeout(updateDelBtn,3000); })
     .catch(()=>{ ex.textContent='✗ server off'; setTimeout(updateDelBtn,3000); });
 }
-function closeFloat(){ const f=document.getElementById('floatMenu'); if(f) f.remove(); }
+function closeFloat(){ const f=document.getElementById('floatMenu'); if(f){if(f.__trigger)f.__trigger.setAttribute('aria-expanded','false');f.remove();} }
 function collectSelMenu(anchor){
   closeFloat();
   const m=document.createElement('div'); m.className='menu'; m.id='floatMenu';
@@ -1149,6 +1229,9 @@ function placeMenu(menu, anchor){
   // append to <body> to escape the sticky header's backdrop-filter containing block,
   // then position fixed and clamp inside the viewport so it never clips off-screen.
   if(menu.parentNode!==document.body) document.body.appendChild(menu);
+  menu.dataset.slot='dropdown-menu-content'; menu.dataset.open=''; delete menu.dataset.closed;
+  menu.setAttribute('role','menu'); menu.__trigger=anchor;
+  if(anchor){anchor.setAttribute('aria-haspopup','menu');anchor.setAttribute('aria-expanded','true');if(menu.id)anchor.setAttribute('aria-controls',menu.id);}
   menu.style.display='flex';
   const r=anchor.getBoundingClientRect(), vw=document.documentElement.clientWidth;
   let left=Math.min(r.left, vw-menu.offsetWidth-8); left=Math.max(8,left);
@@ -1160,7 +1243,8 @@ function menuToggle(menu, anchor){
   const insideFilters = !!(anchor && anchor.closest && anchor.closest('#filtersMenu'));
   document.querySelectorAll('.menu').forEach(x=>{
     if(insideFilters && x.id==='filtersMenu') return;
-    x.style.display='none';
+    x.style.display='none'; x.dataset.closed=''; delete x.dataset.open;
+    if(x.__trigger)x.__trigger.setAttribute('aria-expanded','false');
   });
   closeFloat();
   if(open) return;
@@ -1250,10 +1334,10 @@ document.getElementById('notesChip').onclick=()=>toolOpenTab('/notes/open-surfac
 })();
 
 /* filtres actifs → compteur du bouton Filters + chips supprimables */
-function fmtIsFiltered(){ return TYPE_LIST.some(([e])=>typeGroup(e).some(k=>exts[k]!==DEFAULT_EXTS[k])); }
+function fmtIsFiltered(){ return formatFilterExplicit; }
 function clearFilter(k){
   if(k==='folder'){ fsel.value=''; render(); const b=fsel.nextElementSibling; if(b&&b.classList.contains('csel-btn')) b.textContent=fsel.options[0].text; }
-  else if(k==='fmt'){ Object.assign(exts, DEFAULT_EXTS); saveExts(); buildFmtMenu(); fmtChipLabel(); render(); }
+  else if(k==='fmt'){ Object.assign(exts, DEFAULT_EXTS); setFormatFilterExplicit(false); saveExts(); buildFmtMenu(); fmtChipLabel(); render(); }
   else if(k==='fav'){ if(onlyFavs) favChip.onclick(); }
   else if(k==='coll'){ activeCollection=''; buildCollectionChip(); render(); }
   else if(k==='wf'){ activeWorkflow=''; buildWorkflowChip(); render(); }
@@ -1363,7 +1447,10 @@ function updateInspector(){
   }
   ttl.textContent=f.name; ttl.title=f.rel;
   const isImg=imgExt(f.ext), isHtml=f.ext==='html'||f.ext==='htm';
-  const tsrc=(isImg||isHtml)?('/thumb?path='+encodeURIComponent('__ROOT__/'+f.rel)+'&w=480&v='+f.mtime):(f.thumb||null);
+  // L'inspecteur doit revalider la source à chaque ouverture. Sans ce nonce,
+  // le navigateur peut réutiliser la vignette de la grille après une
+  // suppression externe et masquer à tort l'erreur de fichier manquant.
+  const tsrc=(isImg||isHtml)?('/thumb?path='+encodeURIComponent('__ROOT__/'+f.rel)+'&w=480&v='+f.mtime+'&inspect='+Date.now()):(f.thumb||null);
   const wf=workflow[f.rel]||'';
   const colls=allCollections();
   body.innerHTML=
@@ -1397,19 +1484,26 @@ function updateInspector(){
     +'</div><div id="inspNotice"></div></div>';
   // preview : chargé À la sélection (jamais au hover) ; échec → fallback type
   const pimg=body.querySelector('#inspPrev img');
-  if(pimg) pimg.onerror=()=>{
-    const pv=document.getElementById('inspPrev'); if(!pv) return;
-    pv.classList.add('ph2'); pv.textContent=f.ext.toUpperCase();
-    const n=document.getElementById('inspNotice');
-    if(n){ n.textContent='Preview unavailable (file missing or unreadable).'; n.classList.add('show'); }
-  };
+  if(pimg){
+    const previewFailed=()=>{
+      const pv=document.getElementById('inspPrev'); if(!pv) return;
+      pv.classList.add('ph2'); pv.textContent=f.ext.toUpperCase();
+      const n=document.getElementById('inspNotice');
+      if(n){ n.textContent='Preview unavailable (file missing or unreadable).'; n.classList.add('show'); }
+    };
+    pimg.onerror=previewFailed;
+    // innerHTML démarre la requête avant que `onerror` puisse être assigné.
+    // Une 404 locale peut donc déjà être terminée : rattraper cet état rend
+    // l'inspecteur déterministe sans relancer une seconde requête.
+    if(pimg.complete && !pimg.naturalWidth) previewFailed();
+  }
   // provenance RÉELLE : script générateur via /findscript, anti-course par séquence
   if(isImg||f.ext==='pdf'){
     const seq=++inspFindSeq, stem=rel.split('/').pop().replace(/\.[^.]+$/,'');
     const put=(txt,openRel)=>{
       if(seq!==inspFindSeq) return;
       const s=document.getElementById('inspScript'); if(!s) return;
-      s.innerHTML=openRel?('<a href="#" data-iscript="'+escA(openRel)+'" style="color:var(--accent)">'+esc(openRel)+'</a>'):esc(txt);
+      s.innerHTML=openRel?('<a href="#" data-iscript="'+escA(openRel)+'" style="color:var(--primary)">'+esc(openRel)+'</a>'):esc(txt);
       const a=s.querySelector('[data-iscript]');
       if(a) a.onclick=ev=>{ ev.preventDefault(); lbOpenAny(a.dataset.iscript); };
     };
@@ -1731,7 +1825,14 @@ function toggleFav(rel, el){
   render();
 }
 const DEFAULT_EXTS = {png:true,jpg:true,jpeg:true,svg:true,mp4:true,m4v:true,mov:true,webm:true,pdf:false,html:false,docx:false,xlsx:false,xls:false,csv:false,md:false,py:false,r:false,jl:false,tex:false,sh:false};
-const exts = Object.assign({}, DEFAULT_EXTS, JSON.parse(localStorage.getItem('figExts')||'{}'));
+const savedExts = JSON.parse(localStorage.getItem('figExts')||'{}');
+const exts = Object.assign({}, DEFAULT_EXTS, savedExts);
+let formatFilterExplicit = localStorage.getItem('figExtsExplicit')==='true'
+  || Object.keys(DEFAULT_EXTS).some(k=>savedExts[k]!==undefined && savedExts[k]!==DEFAULT_EXTS[k]);
+function setFormatFilterExplicit(active){
+  formatFilterExplicit=!!active;
+  localStorage.setItem('figExtsExplicit', formatFilterExplicit?'true':'false');
+}
 const saveExts = ()=>localStorage.setItem('figExts', JSON.stringify(exts));
 let showArch = true;
 const fmtSize = b => b>1048576?(b/1048576).toFixed(1)+' MB':b>1024?(b/1024).toFixed(0)+' KB':b+' B';
@@ -1771,19 +1872,24 @@ function buildFmtMenu(){
     + FMT_CATS.map(([lab,ks],i)=>`<button class="fmt-cat ${catState(ks)}" data-cat="${i}">${FMT_ICONS[lab]||''}<span>${lab}</span></button>`).join('')
     + '</div>'
     + `<div class="madd fmt-actions" style="justify-content:space-between;gap:10px"><span class="mlink" data-fmt-detail>${fmtDetail?'Masquer le détail':'Détail…'}</span><span class="mlink" data-fmt-all="reset">Réinitialiser</span></div>`
-    + (fmtDetail ? TYPE_LIST.map(([e,lab])=>`<div class="mi"><label class="lbl"><input type="checkbox" data-fmt="${e}" ${exts[e]?'checked':''}> ${lab}</label></div>`).join('') : '');
+    // Les cases restent dans le DOM même lorsque le détail historique est
+    // replié : la barre React/shadcn peut ainsi exposer chaque extension.
+    + TYPE_LIST.map(([e,lab])=>`<div class="mi fmt-detail-item"${fmtDetail?'':' hidden'}><label class="lbl"><input type="checkbox" data-fmt="${e}" ${exts[e]?'checked':''}> ${lab}</label></div>`).join('');
   fmtMenu.onclick=e=>e.stopPropagation();
   fmtMenu.querySelectorAll('.fmt-cat').forEach(b=>{
     b.onclick=()=>{ const ks=FMT_CATS[+b.dataset.cat][1]; const turnOn = catState(ks)!=='on';
-      ks.forEach(k=>exts[k]=turnOn); saveExts(); buildFmtMenu(); fmtChipLabel(); render(); };
+      ks.forEach(k=>exts[k]=turnOn); setFormatFilterExplicit(true); saveExts(); buildFmtMenu(); fmtChipLabel(); render(); };
   });
   fmtMenu.querySelectorAll('input[data-fmt]').forEach(cb=>{
-    cb.onchange=()=>{ typeGroup(cb.dataset.fmt).forEach(k=>exts[k]=cb.checked); saveExts(); fmtChipLabel(); buildFmtMenu(); render(); };
+    cb.onchange=()=>{ typeGroup(cb.dataset.fmt).forEach(k=>exts[k]=cb.checked); setFormatFilterExplicit(true); saveExts(); fmtChipLabel(); buildFmtMenu(); render(); };
   });
   const dt=fmtMenu.querySelector('[data-fmt-detail]'); if(dt) dt.onclick=()=>{ fmtDetail=!fmtDetail; buildFmtMenu(); };
-  const rs=fmtMenu.querySelector('[data-fmt-all="reset"]'); if(rs) rs.onclick=()=>{ Object.assign(exts, DEFAULT_EXTS); saveExts(); buildFmtMenu(); fmtChipLabel(); render(); };
+  const rs=fmtMenu.querySelector('[data-fmt-all="reset"]'); if(rs) rs.onclick=()=>{ Object.assign(exts, DEFAULT_EXTS); setFormatFilterExplicit(false); saveExts(); buildFmtMenu(); fmtChipLabel(); render(); };
 }
 fmtChip.onclick=e=>{ e.stopPropagation(); buildFmtMenu(); menuToggle(fmtMenu, fmtChip); };
+// Hydrate immédiatement la source de vérité des formats pour que la barre
+// React/shadcn puisse les lire sans devoir ouvrir d'abord l'ancien menu.
+buildFmtMenu();
 fmtChipLabel();
 
 const fsel = document.getElementById('folder');
@@ -1809,15 +1915,19 @@ const snipObserver = new IntersectionObserver((entries,obs)=>{
 },{rootMargin:'250px'});
 function render(){
   if(typeof renderActiveChips==='function') renderActiveChips();  // plan 019 : chips de filtres actifs
-  const q = document.getElementById('q').value.toLowerCase().trim();
-  const terms = q.split(/\s+/).filter(Boolean);
+  const normalizeSearch = value => String(value||'').normalize('NFKD')
+    .replace(/[\u0300-\u036f]/g,'').toLowerCase().replace(/[^a-z0-9]+/g,' ').trim();
+  const terms = normalizeSearch(document.getElementById('q').value).split(/\s+/).filter(Boolean);
   const sort = document.getElementById('sort').value;
   const fld = fsel.value;
   let list = FILES.filter(f=>{
     // Un favori durable ne doit pas sembler perdu après une relance quand les
     // formats reviennent à leur vue par défaut. Le filtre Favoris prime donc
     // sur le masque de format, sans modifier les formats de la vue générale.
-    if(!exts[f.ext] && !(onlyFavs && favs.has(f.rel))) return false;
+    // Sans filtre de type choisi explicitement, une recherche textuelle porte
+    // sur tous les fichiers indexés. Dès que l'utilisateur choisit un format,
+    // recherche et types se combinent au lieu que l'un annule l'autre.
+    if((!terms.length || formatFilterExplicit) && !exts[f.ext] && !(onlyFavs && favs.has(f.rel))) return false;
     if(!showArch && f.archive) return false;
     if(!showHidden && (hidden.has(f.rel) || matchesRule(f.rel))) return false;
     if(activeCollection && !(collections[activeCollection]||[]).includes(f.rel)) return false;
@@ -1825,7 +1935,7 @@ function render(){
     if(onlyFavs && !favs.has(f.rel)) return false;
     if(onlyFavs && rateMin && (ratings[f.rel]||0)!==rateMin) return false;
     if(fld && f.folder!==fld) return false;
-    if(terms.length){ const hay=(f.rel).toLowerCase(); if(!terms.every(t=>hay.includes(t))) return false; }
+    if(terms.length){ const hay=normalizeSearch(f.rel); if(!terms.every(t=>hay.includes(t))) return false; }
     return true;
   });
   list.sort((a,b)=>{
@@ -2150,7 +2260,7 @@ function annotInit(){
       var v = e.data.vars || {};
       var map = {'--bg':'--bg','--bg-card':'--card','--bg-ctl':'--card2','--fg':'--txt',
         '--muted':'--muted','--muted2':'--faint','--border':'--border',
-        '--border2':'--border-strong','--accent':'--accent'};
+        '--border2':'--border-strong','--accent':'--primary'};
       for(var k in map){ if(v[k]) document.documentElement.style.setProperty(map[k], v[k]); }
       // WKWebView dessine la piste native de scrollbar selon color-scheme,
       // indépendamment du fond CSS de l'iframe. Les presets Atelier sont hex.
@@ -2164,7 +2274,7 @@ function annotInit(){
     __atelierPost({type:'atelier-theme-request'});
   }
   if(ANNOT_EMBEDDED){const st=document.createElement('style');st.textContent='.embOnly{display:inline-block !important} .embHide{display:none !important}'
-      +':root{--bg:#1e2124;--card:#24282d;--card2:#2c2f34;--txt:#dadee3;--muted:#90969d;--faint:#62666c;--border:#383c41;--border-strong:#43474c;--accent:#e77f3e;--accent-soft:color-mix(in srgb,var(--accent) 16%,transparent)}'
+      +':root{--bg:#1e2124;--card:#24282d;--card2:#2c2f34;--txt:#dadee3;--muted:#90969d;--faint:#62666c;--border:#383c41;--border-strong:#43474c;--primary:#e77f3e;--primary-soft:color-mix(in srgb,var(--primary) 16%,transparent)}'
       +'body{font-family:var(--ui-font)}';document.head.appendChild(st);}
   async function annotPost(direct){
     const f=lbList[lbIdx], img=document.getElementById('lbImg');
@@ -2273,6 +2383,8 @@ render();
     }
   }, 2500);
 })();
+import('./.fig_thumbs/shadcn-ui/gallery-ui.js?v=__VER__')
+  .catch(err=>console.error('[gallery-ui] React/shadcn mount failed',err));
 </script>
 </body>
 </html>

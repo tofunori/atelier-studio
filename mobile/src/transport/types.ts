@@ -31,6 +31,7 @@ export type ThreadSummary = {
   updatedAt: string;
   projectId: string | null;
   lastSequence: number;
+  model?: string;
 };
 
 export type WireEvent = {

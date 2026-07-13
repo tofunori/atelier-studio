@@ -17,8 +17,24 @@ describe("Composer", () => {
     const onStop = vi.fn();
     render(<Composer busy onSend={() => {}} onStop={onStop} />);
     const btn = screen.getByRole("button", { name: "Arrêter" });
-    expect(btn).toHaveTextContent("Stop");
     fireEvent.click(btn);
     expect(onStop).toHaveBeenCalled();
+  });
+
+  it("borne le composer à la largeur du viewport", () => {
+    const { container } = render(
+      <Composer busy={false} onSend={() => {}} onStop={() => {}} />,
+    );
+    const textarea = container.querySelector('textarea[aria-label="Message"]');
+    if (!textarea) throw new Error("textarea Message introuvable");
+    const group = textarea.closest('[data-slot="input-group"]');
+    expect(group).toHaveClass("w-full", "min-w-0", "max-w-full", "overflow-hidden");
+    expect(textarea).toHaveClass(
+      "field-sizing-fixed",
+      "w-0",
+      "min-w-0",
+      "max-w-full",
+      "overflow-x-hidden",
+    );
   });
 });

@@ -13,6 +13,7 @@
 import type { CSSProperties } from "react";
 import { t } from "../../lib/i18n";
 import { PROJ_COLORS, PROJ_ICONS, ProjIcon } from "./projectIcons";
+import { Input } from "../shadcn/input";
 
 export type ProjMetaLite = { color?: string; label?: string };
 
@@ -81,7 +82,7 @@ export function ProjectStyleMenu(props: {
             </button>
           );
         })}
-        <input
+        <Input
           className="icon-letter"
           placeholder="Aa"
           maxLength={2}

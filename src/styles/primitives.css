@@ -14,32 +14,11 @@
   outline-offset: var(--focus-ring-offset);
 }
 
-/* ---- Button --------------------------------------------------------------- */
-.ui-btn {
-  display: inline-flex; align-items: center; justify-content: center; gap: var(--sp-2);
-  height: var(--control-height); padding: 0 var(--sp-3);
-  font: 500 var(--fs-body-s)/1 var(--font-chrome);
-  border-radius: var(--radius-control);
-  border: 1px solid transparent; cursor: pointer; position: relative;
-  transition: background-color var(--motion-fast) var(--ease-out),
-              color var(--motion-fast) var(--ease-out),
-              border-color var(--motion-fast) var(--ease-out),
-              transform var(--motion-fast) var(--ease-out);
-}
-.ui-btn:active:not(:disabled) { transform: scale(.98); }
-.ui-btn:disabled { color: var(--text-disabled); cursor: default; }
-/* primaire = neutre FORT (demande Thierry 2026-07-10 : aucun bouton orange —
-   l'accent reste réservé aux traces de sélection/running/attention) */
-.ui-btn--primary { background: var(--text-primary); color: var(--surface-app); }
-.ui-btn--primary:hover:not(:disabled) { background: color-mix(in srgb, var(--text-primary) 88%, var(--surface-app) 12%); }
-.ui-btn--primary:active:not(:disabled) { background: color-mix(in srgb, var(--text-primary) 78%, var(--surface-app) 22%); }
-.ui-btn--primary:disabled { background: var(--surface-inset); }
-.ui-btn--secondary { background: transparent; border-color: var(--border-interactive); color: var(--text-secondary); }
-.ui-btn--secondary:hover:not(:disabled) { background: var(--surface-inset); border-color: var(--border-default); color: var(--text-primary); }
-.ui-btn--ghost { background: transparent; color: var(--text-muted); }
-.ui-btn--ghost:hover:not(:disabled) { background: var(--surface-inset); color: var(--text-primary); }
-.ui-btn--danger { background: transparent; border-color: var(--border-subtle); color: var(--status-error); }
-.ui-btn--danger:hover:not(:disabled) { background: color-mix(in srgb, var(--status-error) 12%, transparent); }
+/* ---- Button adapter -------------------------------------------------------
+ * Rendering and variants come from src/components/shadcn/button.tsx. These
+ * classes remain as product markers during the migration so existing tests and
+ * shell selectors can identify an Atelier button; they no longer own color,
+ * geometry or motion. */
 .ui-btn-label { display: inline-flex; align-items: center; gap: var(--sp-2); min-width: 0; }
 /* loading : le label garde sa géométrie (opacity 0), le spinner se superpose —
  * zéro layout shift */
@@ -261,3 +240,5 @@
   color: var(--text-secondary); font-size: var(--fs-body-s); cursor: pointer; }
 .ui-jumpnav button:hover { background: var(--surface-inset); color: var(--text-primary); }
 .ui-jumpnav-separator { width: 1px; align-self: stretch; background: var(--border-subtle); }
+.ui-jumpnav:has(.ui-jumpnav-end[data-active="false"]) { opacity: 0; pointer-events: none; }
+.ui-jumpnav .ui-jumpnav-end { position: static; inset: auto; transform: none; border-radius: 0; opacity: 1; }

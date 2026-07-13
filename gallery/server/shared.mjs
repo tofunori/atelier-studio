@@ -293,6 +293,34 @@ export function serveBuffer(res, code, data, headers = {}) {
 
 export const sendBuffer = serveBuffer;
 
+/**
+ * Borne l'attente d'une opération asynchrone sans bloquer l'event loop.
+ *
+ * Les accès aux dossiers protégés par TCC peuvent rester suspendus plusieurs
+ * secondes quand le serveur est lancé depuis le bundle .app. La promesse
+ * source continue en arrière-plan (et peut donc converger après l'autorisation
+ * macOS), tandis que la requête HTTP courante reçoit une réponse bornée.
+ */
+export function withTimeout(promise, timeoutMs, label = "operation") {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => {
+      const error = new Error(`${label} timed out after ${timeoutMs} ms`);
+      error.code = "ETIMEDOUT";
+      reject(error);
+    }, timeoutMs);
+    Promise.resolve(promise).then(
+      (value) => {
+        clearTimeout(timer);
+        resolve(value);
+      },
+      (error) => {
+        clearTimeout(timer);
+        reject(error);
+      },
+    );
+  });
+}
+
 export function readRequestBody(req, limit = 128 * 1024 * 1024) {
   return new Promise((resolve, reject) => {
     const chunks = [];

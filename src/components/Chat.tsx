@@ -253,7 +253,6 @@ export default function Chat(p: {
   }, [provider, model, effort, permissionMode]);
   const [selIdx, setSelIdx] = useState(0);
   const [quote, setQuote] = useState<{ x: number; y: number; text: string } | null>(null);
-  const [showJump, setShowJump] = useState(false);
   const [review, setReview] = useState<{ status: string; verdict?: string; model?: string; checks?: number; issues?: { claim: string; problem: string; severity: string; fix?: string }[]; checkedTools?: string[]; checkedFiles?: string[] } | null>(null);
   const [reviewOpen, setReviewOpen] = useState(false);
   const [barOpen, setBarOpen] = useState(false);
@@ -268,7 +267,7 @@ export default function Chat(p: {
   }, [pasteView]);
   const [fixing, setFixing] = useState(false);
   const [reviewMin, setReviewMin] = useState(false);
-  useEffect(() => { setBarOpen(false); setFixing(false); setReviewMin(false); stickRef.current = true; }, [p.threadId]);
+  useEffect(() => { setBarOpen(false); setFixing(false); setReviewMin(false); }, [p.threadId]);
   useEffect(() => setReview(null), [p.threadId]);
   useEffect(() => {
     const onReview = (e: Event) => {
@@ -395,21 +394,6 @@ export default function Chat(p: {
     reg.set("chat-ul", ul);
     return () => { reg.delete("chat-hl"); reg.delete("chat-ul"); };
   }, [marks, p.events]);
-  // suivi collant du bas : vrai tant que l'utilisateur n'a pas scrollé vers le haut
-  const stickRef = useRef(true);
-  // La pastille « aller au dernier message » ne se recalculait que sur scroll :
-  // quand l'agent répond (le contenu grandit sans événement de scroll), elle
-  // n'apparaissait pas tant qu'on ne scrollait pas. p.events change d'identité
-  // à chaque token → recalculer ici la garde après chaque mise à jour du fil.
-  useEffect(() => {
-    const el = messagesRef.current;
-    if (!el) return;
-    // auto-scroll collant : tant que l'utilisateur est resté près du bas, suivre
-    // la réponse qui arrive ; remonter détache le suivi (stickRef mis à jour par
-    // onScroll), le bouton ↓ le rattache naturellement
-    if (stickRef.current) el.scrollTop = el.scrollHeight;
-    setShowJump(el.scrollHeight - el.scrollTop - el.clientHeight > 200);
-  }, [p.events]);
   const [menuOpen, setMenuOpen] = useState(false);
   const [modelMenuProvider, setModelMenuProvider] = useState(provider);
   const [plusOpen, setPlusOpen] = useState(false);
@@ -849,7 +833,7 @@ export default function Chat(p: {
           onEditSend: p.onEditSend, onFork: p.onFork, setPasteView, commands: p.commands,
           defaults: p.defaults, onQuote: p.onQuote,
         }}
-        scroll={{ messagesRef, onMessagesMouseUp, setShowJump, stickRef, showJump }}
+        scroll={{ messagesRef, onMessagesMouseUp }}
         working={{ currentWorkName, onStop: p.onStop }}
         chapters={{ tickPos, resolvePinEl, pinMenu, setPinMenu, onStylePin: p.onStylePin }}
         empty={{ onNewChat: p.onNewChat, onOpenProject: p.onOpenProject, home: p.home ?? null }}

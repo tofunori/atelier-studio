@@ -19,7 +19,7 @@
       }
     ],
     "security": {
-      "csp": "default-src 'self'; connect-src 'self' http://127.0.0.1:* http://localhost:* https://*.ts.net https://*.tailscale.net ipc: http://ipc.localhost; img-src 'self' data: blob:; style-src 'self' 'unsafe-inline'"
+      "csp": "default-src 'self'; connect-src 'self' http://127.0.0.1:* http://localhost:* https://*.ts.net:* https://*.tailscale.net:* ipc: http://ipc.localhost; img-src 'self' data: blob:; style-src 'self' 'unsafe-inline'"
     }
   },
   "bundle": {
@@ -33,7 +33,7 @@
       "icons/icon.ico"
     ],
     "iOS": {
-      "developmentTeam": null
+      "developmentTeam": "78SX8KBL87"
     }
   },
   "plugins": {}

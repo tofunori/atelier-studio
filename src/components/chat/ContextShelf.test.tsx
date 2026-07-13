@@ -1,8 +1,5 @@
-// ContextShelf (plan 018, étape 5) — l'hybride : les références simples
-// (kind "file") deviennent des ContextChip avec source/type ; le markup
-// riche (images, groupes ×N, lignes, aperçus) est CONSERVÉ ; supprimer un
-// chip n'appelle QUE onRemoveAttachment (jamais la source) ; tous les
-// contrôles de suppression ont un nom accessible.
+// ContextShelf — chaque pièce jointe compose la primitive Attachment shadcn;
+// les comportements métier (paste, image, citations groupées) restent testés.
 import { render, screen, fireEvent, cleanup } from "@testing-library/react";
 import { describe, it, expect, vi, afterEach, beforeEach } from "vitest";
 import { ContextShelf, type ShelfAttachment } from "./ContextShelf";
@@ -20,47 +17,53 @@ function shelf(attachments: ShelfAttachment[]) {
   return { onRemoveAttachment, onOpenPaste, ...utils };
 }
 
-describe("ContextShelf", () => {
-  it("référence simple (kind file) → ContextChip avec type et source complète au survol", () => {
-    const { onRemoveAttachment, onOpenPaste, container } = shelf([
-      { name: "plot.png", lines: null, kind: "file", text: "Fichier du projet ajouté au contexte : /p/figs/plot.png" },
+describe("ContextShelf avec Attachment shadcn", () => {
+  it("référence simple → Attachment avec média, métadonnées et action accessible", () => {
+    const { onRemoveAttachment, container } = shelf([
+      { name: "plot.png", lines: null, kind: "file", text: "Fichier du projet : /p/figs/plot.png" },
     ]);
-    const chip = container.querySelector(".ui-ctxchip")!;
-    expect(chip).toHaveTextContent("fichier"); // type
-    expect(chip.getAttribute("title")).toContain("/p/figs/plot.png"); // source
-    fireEvent.click(screen.getByRole("button", { name: "Fermer plot.png" }));
+
+    const attachment = container.querySelector('[data-slot="attachment"]')!;
+    expect(attachment).toHaveTextContent("plot");
+    expect(attachment).toHaveTextContent("fichier");
+    expect(attachment.getAttribute("title")).toContain("/p/figs/plot.png");
+    expect(container.querySelector('[data-slot="attachment-media"]')).toBeInTheDocument();
+    expect(container.querySelector('[data-slot="attachment-action"]')).toHaveClass("tw:rounded-full");
+    expect(attachment).toHaveClass("tw:bg-background/70");
+
+    fireEvent.click(screen.getByRole("button", { name: "Retirer plot.png" }));
     expect(onRemoveAttachment).toHaveBeenCalledWith(0);
-    expect(onOpenPaste).not.toHaveBeenCalled(); // la source n'est jamais touchée
   });
 
-  it("paste → markup riche conservé, le libellé ouvre l'aperçu", () => {
-    const { onOpenPaste, container } = shelf([
+  it("texte collé → AttachmentTrigger ouvre l’aperçu existant", () => {
+    const { onOpenPaste } = shelf([
       { name: "extrait.txt", lines: null, kind: "paste", text: "contenu collé" },
     ]);
-    expect(container.querySelector(".ui-ctxchip")).toBeNull();
-    fireEvent.click(container.querySelector(".chip-label")!);
+
+    fireEvent.click(screen.getByRole("button", { name: "Ouvrir extrait.txt" }));
     expect(onOpenPaste).toHaveBeenCalledWith({ name: "extrait.txt", text: "contenu collé" });
   });
 
-  it("image → vignette .img-chip conservée avec suppression nommée", () => {
+  it("image → AttachmentMedia image et suppression nommée", () => {
     const { onRemoveAttachment, container } = shelf([
       { name: "capture.png", lines: null, text: "img", imageUrl: "data:image/png;base64,x" },
     ]);
-    expect(container.querySelector(".img-chip img")).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "Fermer capture.png" }));
+
+    expect(container.querySelector('[data-slot="attachment-media"][data-variant="image"] img')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Retirer capture.png" }));
     expect(onRemoveAttachment).toHaveBeenCalledWith(0);
   });
 
-  it("citations groupées ×N conservées : popover avec suppressions unitaires nommées", () => {
-    const { onRemoveAttachment, container } = shelf([
-      { name: "will2020.pdf", lines: "12-19", kind: "quote", text: "a" },
-      { name: "will2020.pdf", lines: "40-44", kind: "quote", text: "b" },
+  it("citations groupées → Popover et Attachments compacts supprimables séparément", () => {
+    const { onRemoveAttachment } = shelf([
+      { name: "will2020.pdf", lines: "12-19", kind: "quote", text: "premier extrait" },
+      { name: "will2020.pdf", lines: "40-44", kind: "quote", text: "second extrait" },
     ]);
-    expect(container.querySelector(".chip-count")).toHaveTextContent("×2");
-    fireEvent.click(container.querySelector(".chip-count")!);
-    const rows = container.querySelectorAll(".cgp-row");
-    expect(rows).toHaveLength(2);
-    fireEvent.click(screen.getByRole("button", { name: "Fermer will2020.pdf 2" }));
+
+    expect(screen.getByText("2 quote")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Ouvrir will2020.pdf" }));
+    expect(screen.getByText("second extrait")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Retirer will2020.pdf 2" }));
     expect(onRemoveAttachment).toHaveBeenCalledWith(1);
   });
 });

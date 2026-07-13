@@ -4,6 +4,8 @@ import { invoke } from "@tauri-apps/api/core";
 import { wsSend } from "../lib/wsBus";
 import { t } from "../lib/i18n";
 import { CloseIcon, RefreshIcon } from "./icons";
+import { Input } from "./shadcn/input";
+import { IconButton } from "./ui";
 
 type LocalServer = { port: number; title: string | null };
 type BrowserAddMode = "selection" | "page";
@@ -475,15 +477,17 @@ export default function BrowserTab(p: {
               </span>
             </button>
           ))}
-          <button className="browser-tab-add" onClick={newTab} title={t("action.new-tab")} aria-label={t("action.new-tab")}>+</button>
+          <IconButton size="s" className="browser-tab-add" onClick={newTab} title={t("action.new-tab")} label={t("action.new-tab")}>+</IconButton>
         </div>
         <div className="browser-bar" ref={controlsRef}>
-          <button className="ghost" onClick={() => invoke("browser_eval", { label: activeTab?.label, js: "history.back()" })} title={t("browser.back")}>←</button>
-          <button className="ghost" onClick={() => invoke("browser_eval", { label: activeTab?.label, js: "history.forward()" })} title={t("browser.forward")}>→</button>
-          <button className="ghost" onClick={() => invoke("browser_eval", { label: activeTab?.label, js: "location.reload()" })} title={t("action.reload")}>
+          <IconButton size="s" className="ghost" label={t("browser.back")} onClick={() => invoke("browser_eval", { label: activeTab?.label, js: "history.back()" })} title={t("browser.back")}>←</IconButton>
+          <IconButton size="s" className="ghost" label={t("browser.forward")} onClick={() => invoke("browser_eval", { label: activeTab?.label, js: "history.forward()" })} title={t("browser.forward")}>→</IconButton>
+          <IconButton size="s" className="ghost" label={t("action.reload")} onClick={() => invoke("browser_eval", { label: activeTab?.label, js: "location.reload()" })} title={t("action.reload")}>
             <RefreshIcon />
-          </button>
-          <button
+          </IconButton>
+          <IconButton
+            size="s"
+            label={t("action.search-web-add")}
             className="ghost"
             title={t("action.search-web-add")}
             onClick={() => { void addCurrentPageToChat(); }}
@@ -491,17 +495,18 @@ export default function BrowserTab(p: {
             <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3">
               <path d="M14 8c0 3-2.7 5.2-6 5.2-.8 0-1.6-.1-2.3-.4L2.5 14l1-2.6C2.6 10.5 2 9.3 2 8c0-3 2.7-5.2 6-5.2S14 5 14 8z" />
             </svg>
-          </button>
-          <button
+          </IconButton>
+          <IconButton
+            size="s"
+            label={activeTab?.url && bookmarks.some((item) => item.url === activeTab.url) ? t("browser.bookmarked") : t("browser.bookmark")}
             className={`ghost ${activeTab?.url && bookmarks.some((item) => item.url === activeTab.url) ? "on" : ""}`}
             disabled={!activeTab?.url}
             title={activeTab?.url && bookmarks.some((item) => item.url === activeTab.url) ? t("browser.bookmarked") : t("browser.bookmark")}
-            aria-label={activeTab?.url && bookmarks.some((item) => item.url === activeTab.url) ? t("browser.bookmarked") : t("browser.bookmark")}
             onClick={toggleBookmark}
           >
             {activeTab?.url && bookmarks.some((item) => item.url === activeTab.url) ? "★" : "☆"}
-          </button>
-          <input
+          </IconButton>
+          <Input
             className="browser-url"
             placeholder={t("browser.placeholder")}
             value={activeTab?.input ?? ""}
@@ -512,12 +517,12 @@ export default function BrowserTab(p: {
             onFocus={(e) => e.target.select()}
           />
           {activeTab?.url && (
-            <button className="ghost" title={t("browser.close-home")}
+            <IconButton size="s" className="ghost" label={t("browser.close-home")} title={t("browser.close-home")}
               onClick={() => {
                 invoke("browser_hide", { label: activeTab.label }).catch(() => {});
                 updateTab(activeTab.id, { url: null, input: "", title: "New tab" });
                 scan();
-              }}><CloseIcon /></button>
+              }}><CloseIcon /></IconButton>
           )}
         </div>
       </div>
@@ -525,7 +530,7 @@ export default function BrowserTab(p: {
         {!activeTab?.url && (
           <div className="browser-home">
             <div className="browser-home-command">
-              <input
+              <Input
                 className="browser-home-search"
                 placeholder={t("browser.placeholder")}
                 value={activeTab?.input ?? ""}

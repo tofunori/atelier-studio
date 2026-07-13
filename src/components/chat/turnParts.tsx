@@ -8,6 +8,7 @@ import { t } from "../../lib/i18n";
 import { diffLineClass, openFileRef } from "./md";
 import { Tick } from "./toolPresentation";
 import { ActivityDisclosure } from "../ui";
+import { Marker, MarkerContent, MarkerIcon } from "../shadcn/marker";
 
 export function DoneDiffToggle({ event, threadId }: {
   event: Extract<AgentEvent, { kind: "done" }>;
@@ -238,10 +239,12 @@ export function Working({ since }: { since: number }) {
   }, []);
   const secs = Math.max(1, Math.round((Date.now() - since) / 1000));
   return (
-    <div className="working">
-      <span className="working-spin" aria-hidden="true" />
-      <span className="working-label">{t("chat.working")}</span> {t("chat.working-for", { secs })}
-    </div>
+    <Marker className="working">
+      <MarkerIcon><span className="working-spin" /></MarkerIcon>
+      <MarkerContent>
+        <span className="working-label">{t("chat.working")}</span> {t("chat.working-for", { secs })}
+      </MarkerContent>
+    </Marker>
   );
 }
 

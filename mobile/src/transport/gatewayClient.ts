@@ -96,6 +96,26 @@ export async function listThreads(
   return body.threads ?? [];
 }
 
+export async function createThread(
+  creds: DeviceCredentials,
+  body: { title?: string; provider: string; model?: string; projectId?: string },
+  signal?: AbortSignal,
+): Promise<ThreadSummary> {
+  const res = await fetch(`${normalizeBase(creds.gatewayBaseUrl)}/remote/v1/threads`, {
+    method: "POST",
+    headers: authHeaders(creds.token),
+    signal,
+    body: JSON.stringify({
+      title: body.title?.trim() || "Nouveau chat",
+      provider: body.provider,
+      model: body.model,
+      projectId: body.projectId,
+    }),
+  });
+  if (!res.ok) throw await parseError(res);
+  return (await res.json()) as ThreadSummary;
+}
+
 export async function getHistory(
   creds: DeviceCredentials,
   threadId: string,

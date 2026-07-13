@@ -3,6 +3,7 @@
 // le reste est annoncé poliment (role=status).
 import React from "react";
 import { cx } from "./internal";
+import { Alert } from "../shadcn/alert";
 
 export type NoticeTone = "info" | "success" | "warning" | "error";
 
@@ -13,8 +14,12 @@ export function InlineNotice(props: {
 }) {
   const { children, tone = "info", className } = props;
   return (
-    <div role={tone === "error" ? "alert" : "status"} className={cx("ui-notice", `ui-notice--${tone}`, className)}>
+    <Alert
+      role={tone === "error" ? "alert" : "status"}
+      variant={tone === "error" ? "destructive" : "default"}
+      className={cx("ui-notice", `ui-notice--${tone}`, className)}
+    >
       {children}
-    </div>
+    </Alert>
   );
 }

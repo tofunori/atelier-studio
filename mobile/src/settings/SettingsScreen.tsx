@@ -7,6 +7,41 @@ import {
   type NotificationPrefs,
 } from "../native/notifications.ts";
 import { getBadgeCount, clearBadge } from "../native/badge.ts";
+import { Alert, AlertDescription } from "@/components/ui/alert.tsx";
+import { Badge } from "@/components/ui/badge.tsx";
+import { Button } from "@/components/ui/button.tsx";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardFooter,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card.tsx";
+import { Checkbox } from "@/components/ui/checkbox.tsx";
+import {
+  Field,
+  FieldContent,
+  FieldDescription,
+  FieldGroup,
+  FieldLabel,
+  FieldLegend,
+  FieldSet,
+  FieldTitle,
+} from "@/components/ui/field.tsx";
+import { Spinner } from "@/components/ui/spinner.tsx";
+import { BellIcon, RefreshCwIcon, UnplugIcon } from "lucide-react";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog.tsx";
 
 type Props = {
   phase: ConnectionPhase;
@@ -22,6 +57,7 @@ export function SettingsScreen(p: Props) {
   const [prefs, setPrefs] = useState<NotificationPrefs>(() => loadNotifPrefs());
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
+  const [badgeCount, setBadgeCount] = useState(() => getBadgeCount());
 
   const update = (patch: Partial<NotificationPrefs>) => {
     const next = { ...prefs, ...patch };
@@ -51,105 +87,128 @@ export function SettingsScreen(p: Props) {
     <div className="screen">
       <h1 className="screen-title">Réglages</h1>
       <p className="screen-sub">Connexion au Mac Atelier via gateway distante.</p>
-      <div className="card stack">
-        <div>
-          <div className="list-item-meta">État</div>
-          <div className="list-item-title">{p.phase}</div>
-        </div>
-        <div>
-          <div className="list-item-meta">Gateway</div>
-          <div className="list-item-title" style={{ fontSize: "var(--fs-m)", wordBreak: "break-all" }}>
-            {p.credentials?.gatewayBaseUrl ?? p.gatewayUrl}
-          </div>
-        </div>
+      <Card>
+        <CardHeader>
+          <CardTitle>Connexion</CardTitle>
+          <CardDescription>Le Mac utilisé par l’app mobile.</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <FieldGroup className="gap-4">
+            <Field orientation="horizontal">
+              <FieldTitle>État</FieldTitle>
+              <Badge variant={p.phase === "ready" ? "default" : "secondary"}>{p.phase}</Badge>
+            </Field>
+            <Field>
+              <FieldTitle>Gateway</FieldTitle>
+              <FieldDescription className="break-all">
+                {p.credentials?.gatewayBaseUrl ?? p.gatewayUrl}
+              </FieldDescription>
+            </Field>
         {p.credentials && (
-          <div>
-            <div className="list-item-meta">Appareil</div>
-            <div className="list-item-title">{p.credentials.name}</div>
-            <div className="list-item-meta">{p.credentials.deviceId}</div>
-          </div>
+              <Field>
+                <FieldTitle>Appareil</FieldTitle>
+                <FieldDescription>{p.credentials.name}</FieldDescription>
+                <FieldDescription className="break-all">{p.credentials.deviceId}</FieldDescription>
+              </Field>
         )}
-        <div className="row-actions">
-          <button type="button" className="btn btn-ghost" onClick={p.onRefresh}>
+          </FieldGroup>
+        </CardContent>
+        <CardFooter className="flex-wrap gap-2">
+          <Button type="button" variant="outline" size="sm" onClick={p.onRefresh}>
+            <RefreshCwIcon data-icon="inline-start" />
             Rafraîchir
-          </button>
-          <button type="button" className="btn btn-ghost" onClick={p.onOpenPairing}>
+          </Button>
+          <Button type="button" variant="outline" size="sm" onClick={p.onOpenPairing}>
             {p.credentials ? "Réappareiller" : "Appairer"}
-          </button>
-          <button type="button" className="btn btn-ghost" onClick={p.onOpenDiagnostics}>
+          </Button>
+          <Button type="button" variant="outline" size="sm" onClick={p.onOpenDiagnostics}>
             Diagnostics
-          </button>
+          </Button>
           {p.credentials && (
-            <button type="button" className="btn btn-ghost" onClick={p.onRevokeLocal}>
-              Oublier cet appareil
-            </button>
+            <AlertDialog>
+              <AlertDialogTrigger render={<Button type="button" variant="ghost" size="sm" />}>
+                <UnplugIcon data-icon="inline-start" />
+                Oublier
+              </AlertDialogTrigger>
+              <AlertDialogContent>
+                <AlertDialogHeader>
+                  <AlertDialogTitle>Oublier cet appareil ?</AlertDialogTitle>
+                  <AlertDialogDescription>Une nouvelle procédure d’appairage sera nécessaire pour reconnecter l’iPhone.</AlertDialogDescription>
+                </AlertDialogHeader>
+                <AlertDialogFooter>
+                  <AlertDialogCancel>Annuler</AlertDialogCancel>
+                  <AlertDialogAction variant="destructive" onClick={p.onRevokeLocal}>Oublier</AlertDialogAction>
+                </AlertDialogFooter>
+              </AlertDialogContent>
+            </AlertDialog>
           )}
-        </div>
-      </div>
+        </CardFooter>
+      </Card>
 
-      <div className="card stack" style={{ marginTop: 16 }}>
-        <div className="list-item-title">Notifications</div>
-        <p className="list-item-meta" style={{ margin: 0 }}>
-          Opt-in. Contenu minimal sur écran verrouillé (pas de prompt ni données
-          scientifiques par défaut).
-        </p>
+      <Card className="mt-4">
+        <CardHeader>
+          <CardTitle>Notifications</CardTitle>
+          <CardDescription>
+            Contenu minimal sur l’écran verrouillé, sans prompt ni données scientifiques.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="flex flex-col gap-4">
         {!prefs.enabled ? (
-          <button type="button" className="btn btn-primary" disabled={busy} onClick={() => void enableNotifs()}>
-            Activer les notifications
-          </button>
+            <Button type="button" disabled={busy} onClick={() => void enableNotifs()}>
+              {busy ? <Spinner data-icon="inline-start" /> : <BellIcon data-icon="inline-start" />}
+              {busy ? "Activation…" : "Activer les notifications"}
+            </Button>
         ) : (
-          <button
+            <Button
             type="button"
-            className="btn btn-ghost"
+              variant="outline"
             onClick={() => update({ enabled: false })}
           >
             Désactiver
-          </button>
+            </Button>
         )}
-        <label className="int-opt">
-          <input
-            type="checkbox"
-            checked={prefs.onDone}
-            disabled={!prefs.enabled}
-            onChange={(e) => update({ onDone: e.target.checked })}
-          />
-          <span>Tour terminé</span>
-        </label>
-        <label className="int-opt">
-          <input
-            type="checkbox"
-            checked={prefs.onError}
-            disabled={!prefs.enabled}
-            onChange={(e) => update({ onError: e.target.checked })}
-          />
-          <span>Erreur</span>
-        </label>
-        <label className="int-opt">
-          <input
-            type="checkbox"
-            checked={prefs.onInteraction}
-            disabled={!prefs.enabled}
-            onChange={(e) => update({ onInteraction: e.target.checked })}
-          />
-          <span>Action requise</span>
-        </label>
-        <label className="int-opt">
-          <input
-            type="checkbox"
-            checked={prefs.showThreadTitle}
-            disabled={!prefs.enabled}
-            onChange={(e) => update({ showThreadTitle: e.target.checked })}
-          />
-          <span>Afficher le titre du fil (jamais le prompt)</span>
-        </label>
-        <div className="list-item-meta">
-          Badge : {getBadgeCount()}{" "}
-          <button type="button" className="btn btn-ghost" onClick={() => clearBadge()}>
+          <FieldSet>
+            <FieldLegend variant="label">M’avertir lorsque</FieldLegend>
+            <FieldGroup className="gap-3">
+              <NotificationOption id="notif-done" label="Tour terminé" checked={prefs.onDone} disabled={!prefs.enabled} onChange={(checked) => update({ onDone: checked })} />
+              <NotificationOption id="notif-error" label="Erreur" checked={prefs.onError} disabled={!prefs.enabled} onChange={(checked) => update({ onError: checked })} />
+              <NotificationOption id="notif-interaction" label="Action requise" checked={prefs.onInteraction} disabled={!prefs.enabled} onChange={(checked) => update({ onInteraction: checked })} />
+              <NotificationOption id="notif-title" label="Afficher le titre du fil" description="Jamais le prompt." checked={prefs.showThreadTitle} disabled={!prefs.enabled} onChange={(checked) => update({ showThreadTitle: checked })} />
+            </FieldGroup>
+          </FieldSet>
+          {msg && <Alert role="status"><AlertDescription>{msg}</AlertDescription></Alert>}
+        </CardContent>
+        <CardFooter className="justify-between gap-3">
+          <span className="text-sm text-muted-foreground">Badge : {badgeCount}</span>
+          <Button type="button" variant="ghost" size="sm" onClick={() => { clearBadge(); setBadgeCount(0); }}>
             Réinitialiser
-          </button>
-        </div>
-        {msg && <div className="list-item-meta">{msg}</div>}
-      </div>
+          </Button>
+        </CardFooter>
+      </Card>
     </div>
+  );
+}
+
+function NotificationOption(p: {
+  id: string;
+  label: string;
+  description?: string;
+  checked: boolean;
+  disabled: boolean;
+  onChange: (checked: boolean) => void;
+}) {
+  return (
+    <Field orientation="horizontal" data-disabled={p.disabled || undefined}>
+      <Checkbox
+        id={p.id}
+        checked={p.checked}
+        disabled={p.disabled}
+        onCheckedChange={p.onChange}
+      />
+      <FieldContent>
+        <FieldLabel htmlFor={p.id}>{p.label}</FieldLabel>
+        {p.description && <FieldDescription>{p.description}</FieldDescription>}
+      </FieldContent>
+    </Field>
   );
 }

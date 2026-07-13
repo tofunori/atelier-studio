@@ -5,6 +5,7 @@ import { ProjIcon } from "./sidebar/projectIcons";
 import { ProjectStyleMenu } from "./sidebar/ProjectStyleMenu";
 import { SURFACES, type Surface } from "./surfaces";
 import type { ViewId } from "../lib/settings";
+import { IconButton } from "./ui";
 
 export type ProjMeta = { color?: string; label?: string };
 
@@ -60,19 +61,20 @@ export default function Rail(p: {
     <div className="rail" onClick={() => setMenu(null)}>
       {/* zone scrollable : tout sauf Réglages (épinglé en bas) */}
       <div className="rail-scroll">
-      <button className={`rail-btn ${!p.compact ? "on" : ""}`}
+      <IconButton className={`rail-btn ${!p.compact ? "on" : ""}`}
+        label={p.compact ? t("action.expand-sidebar") : t("action.collapse-sidebar")}
         title={p.compact ? t("action.expand-sidebar") : t("action.collapse-sidebar")} onClick={p.onExpand}>
         <SidebarIcon size={19} />
-      </button>
+      </IconButton>
       <div className="rail-views">
-        <button className={`rail-view ${p.activeView === "chats" ? "on" : ""}`}
-          title={t("view.chats")} onClick={() => p.onSelectView("chats")}>
+        <IconButton className={`rail-view ${p.activeView === "chats" ? "on" : ""}`}
+          label={t("view.chats")} title={t("view.chats")} onClick={() => p.onSelectView("chats")}>
           <ChatsIcon size={19} />
-        </button>
-        <button className={`rail-view ${p.activeView === "highlights" ? "on" : ""}`}
-          title={t("view.highlights")} onClick={() => p.onSelectView("highlights")}>
+        </IconButton>
+        <IconButton className={`rail-view ${p.activeView === "highlights" ? "on" : ""}`}
+          label={t("view.highlights")} title={t("view.highlights")} onClick={() => p.onSelectView("highlights")}>
           <HighlighterIcon size={19} />
-        </button>
+        </IconButton>
       </div>
       <div className="rail-sep" />
       {/* activity bar : surfaces de travail — clic bascule via switchSurface
@@ -80,26 +82,27 @@ export default function Rail(p: {
           visible (layout ≠ "chat") */}
       <div className="rail-views">
         {/* IDE : revient direct à la vue éditeur/PDF (fichiers ouverts) */}
-        <button className={`rail-view ${p.ideActive ? "on" : ""}`}
-          title="IDE — éditeurs & fichiers ouverts" onClick={p.onSelectIde}>
+        <IconButton className={`rail-view ${p.ideActive ? "on" : ""}`}
+          label="IDE — éditeurs et fichiers ouverts" title="IDE — éditeurs & fichiers ouverts" onClick={p.onSelectIde}>
           <svg width="18" height="18" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round">
             <path d="M5.5 5 3 8l2.5 3M10.5 5 13 8l-2.5 3M8.8 3.5 7.2 12.5" />
           </svg>
-        </button>
+        </IconButton>
         {/* Git et Explorateur sont montés dans la TopBar → exclus du rail */}
         {SURFACES.filter((s) => s.id !== "git").map((s) => (
-          <button
+          <IconButton
             key={s.id}
             /* Galerie (surface "atelier") n'est active que sur l'onglet gallery,
                pas quand un fichier est ouvert (là c'est l'IDE qui est actif) */
             className={`rail-view ${p.layout !== "chat" && p.activeSurface === s.id && !(s.id === "atelier" && p.ideActive) ? "on" : ""}`}
+            label={t(s.labelKey)}
             title={t(s.labelKey)}
             /* Galerie (atelier) : revient à l'onglet galerie même si un fichier
                est ouvert (IDE) — sinon on resterait bloqué sur le fichier */
             onClick={() => (s.id === "atelier" ? p.onSelectGallery() : p.onSelectSurface(s.id))}
           >
             {s.icon}
-          </button>
+          </IconButton>
         ))}
       </div>
       <div className="rail-sep" />
@@ -149,23 +152,23 @@ export default function Rail(p: {
           </button>
         );
       })}
-      <button className="rail-btn" title={t("action.add-project")} onClick={p.onAddProject}>
+      <IconButton className="rail-btn" label={t("action.add-project")} title={t("action.add-project")} onClick={p.onAddProject}>
         <PlusIcon size={19} />
-      </button>
+      </IconButton>
       </div>{/* fin rail-scroll */}
       {/* zone épinglée : Réglages toujours visible en bas, jamais scrollé */}
       <div className="rail-pinned">
-        <button className="rail-btn usage-ib" title={t("usage.title")}
+        <IconButton className="rail-btn usage-ib" label={t("usage.title")} title={t("usage.title")}
           onClick={() => window.dispatchEvent(new CustomEvent("usage-toggle"))}>
           <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" aria-hidden="true">
             <circle cx="8" cy="8" r="6" strokeOpacity="0.25" />
             <path d="M8 2a6 6 0 0 1 5.6 3.9" />
           </svg>
           <span className="usage-dot" id="usage-dot" />
-        </button>
-        <button className="rail-btn" title={t("action.settings")} onClick={p.onSettings}>
+        </IconButton>
+        <IconButton className="rail-btn" label={t("action.settings")} title={t("action.settings")} onClick={p.onSettings}>
           <SettingsIcon size={19} />
-        </button>
+        </IconButton>
       </div>
       {menu && (
         <ProjectStyleMenu

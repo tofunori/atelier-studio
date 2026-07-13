@@ -3,6 +3,7 @@
 // arrêt de tabulation (roving tabindex), flèches = déplacement + sélection,
 // chaque option a un nom accessible.
 import React, { useRef } from "react";
+import { ToggleGroup, ToggleGroupItem } from "../shadcn/toggle-group";
 import { cx } from "./internal";
 
 export type SegmentedOption = {
@@ -25,56 +26,63 @@ export function SegmentedControl(props: {
 }) {
   const { options, value, onChange, label, className } = props;
   const groupRef = useRef<HTMLDivElement | null>(null);
+  const enabled = options.filter((option) => !option.disabled);
 
-  const enabled = options.filter((o) => !o.disabled);
-  const move = (dir: 1 | -1) => {
+  const move = (direction: 1 | -1) => {
     if (!enabled.length) return;
-    const cur = enabled.findIndex((o) => o.value === value);
-    const next = enabled[(cur + dir + enabled.length) % enabled.length];
+    const currentIndex = enabled.findIndex((option) => option.value === value);
+    const next = enabled[(currentIndex + direction + enabled.length) % enabled.length];
     onChange(next.value);
-    // focus suit la sélection (roving tabindex)
-    const buttons = Array.from(groupRef.current?.querySelectorAll<HTMLButtonElement>("button[data-value]") ?? []);
-    buttons.find((b) => b.dataset.value === next.value)?.focus();
+    const buttons = Array.from(
+      groupRef.current?.querySelectorAll<HTMLButtonElement>("button[data-value]") ?? [],
+    );
+    buttons.find((button) => button.dataset.value === next.value)?.focus();
   };
 
-  const onKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === "ArrowRight" || e.key === "ArrowDown") {
-      e.preventDefault();
+  const onKeyDown = (event: React.KeyboardEvent) => {
+    if (event.key === "ArrowRight" || event.key === "ArrowDown") {
+      event.preventDefault();
       move(1);
-    } else if (e.key === "ArrowLeft" || e.key === "ArrowUp") {
-      e.preventDefault();
+    } else if (event.key === "ArrowLeft" || event.key === "ArrowUp") {
+      event.preventDefault();
       move(-1);
     }
   };
 
-  // l'option cochée porte tabIndex 0 ; si la valeur est inconnue, la première
-  // option activable reste atteignable au clavier
-  const tabStop = options.some((o) => o.value === value && !o.disabled)
-    ? value
-    : enabled[0]?.value;
-
   return (
-    <div ref={groupRef} role="radiogroup" aria-label={label} className={cx("ui-seg", className)} onKeyDown={onKeyDown}>
+    <ToggleGroup
+      ref={groupRef}
+      value={value ? [value] : []}
+      onValueChange={(next) => {
+        // A single-choice segment must never become empty. Base UI emits []
+        // when the already-active item is clicked; preserve Atelier's public
+        // contract by reporting the active value and letting the controlled
+        // parent restore it.
+        onChange(next[0] ?? value);
+      }}
+      role="radiogroup"
+      aria-label={label}
+      className={cx("ui-seg", className)}
+      onKeyDown={onKeyDown}
+    >
       {options.map((o) => {
         const checked = o.value === value;
         return (
-          <button
+          <ToggleGroupItem
             key={o.value}
-            type="button"
+            value={o.value}
             role="radio"
             aria-checked={checked}
             aria-label={o.ariaLabel}
             title={o.title}
             data-value={o.value}
             className={cx(checked && "on")}
-            tabIndex={o.value === tabStop ? 0 : -1}
             disabled={o.disabled}
-            onClick={() => onChange(o.value)}
           >
             {o.label}
-          </button>
+          </ToggleGroupItem>
         );
       })}
-    </div>
+    </ToggleGroup>
   );
 }

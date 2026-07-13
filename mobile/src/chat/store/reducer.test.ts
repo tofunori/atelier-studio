@@ -64,6 +64,29 @@ describe("reduceDurable live ≡ materialize", () => {
     const users = Object.values(s.durable.itemsById).filter((i) => i.kind === "user");
     expect(users.some((u) => u.text === "Bonjour")).toBe(true);
   });
+
+  it("préserve les détails structurés d'un outil pour l'activité mobile", () => {
+    const state = reduceDurable(emptyThreadState("t").durable, {
+      kind: "tool_update",
+      id: "call-1",
+      name: "Bash",
+      input: { command: "pwd" },
+      output: "/tmp/project",
+      status: "completed",
+      exitCode: 0,
+      durationMs: 1250,
+      meta: { ...meta(1, "tool-1"), itemId: "call-1" },
+    });
+    const tool = Object.values(state.itemsById).find((item) => item.kind === "tool");
+    expect(tool).toMatchObject({
+      toolName: "Bash",
+      toolInput: { command: "pwd" },
+      toolStatus: "completed",
+      toolExitCode: 0,
+      toolDurationMs: 1250,
+      text: "/tmp/project",
+    });
+  });
 });
 
 describe("scroll presentation actions", () => {

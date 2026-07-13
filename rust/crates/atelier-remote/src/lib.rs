@@ -71,6 +71,7 @@ pub fn app_router(state: GatewayState, allowed_hosts: Vec<String>) -> Router {
             header::CONTENT_TYPE,
             header::AUTHORIZATION,
             header::RANGE,
+            header::IF_NONE_MATCH,
             header::HeaderName::from_static("x-atelier-device-token"),
         ])
         .expose_headers([

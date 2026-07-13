@@ -40,6 +40,22 @@ import { Composer } from "./Composer.tsx";
 import { useChatStore } from "./store/useChatStore.ts";
 import type { WireLikeEvent } from "./store/types.ts";
 import { Transcript } from "./Transcript.tsx";
+import { WorkingStatus } from "./WorkingStatus.tsx";
+import { Alert, AlertAction, AlertDescription } from "@/components/ui/alert.tsx";
+import {
+  Attachment,
+  AttachmentAction,
+  AttachmentActions,
+  AttachmentContent,
+  AttachmentDescription,
+  AttachmentGroup,
+  AttachmentMedia,
+  AttachmentTitle,
+} from "@/components/ui/attachment.tsx";
+import { Badge } from "@/components/ui/badge.tsx";
+import { Button } from "@/components/ui/button.tsx";
+import { Skeleton } from "@/components/ui/skeleton.tsx";
+import { ArrowLeftIcon, FileIcon, PaperclipIcon, RefreshCwIcon, XIcon } from "lucide-react";
 
 type Props = {
   threadId: string;
@@ -69,6 +85,11 @@ export function ChatScreen(p: Props) {
   const [attachments, setAttachments] = useState<PendingChatAttachment[]>(() =>
     loadPendingAttachments(),
   );
+  const lastSequenceRef = useRef(0);
+
+  useEffect(() => {
+    lastSequenceRef.current = store.state.durable.lastSequence;
+  }, [store.state.durable.lastSequence]);
 
   useEffect(() => {
     // refresh shelf when returning to chat
@@ -138,14 +159,14 @@ export function ChatScreen(p: Props) {
         }
       }
     },
-    [store, p],
+    [store.loadHistory, store.pushEventsImmediate, p.setSendQueue],
   );
 
   const resync = useCallback(async () => {
     setSyncLabel("Synchronisation…");
     setError(null);
     try {
-      const lastSeq = store.state.durable.lastSequence;
+      const lastSeq = lastSequenceRef.current;
       // Prefer cache hydrate first if empty
       if (lastSeq === 0 && store.state.durable.itemOrder.length === 0) {
         const cache = await loadThreadCache(p.threadId);
@@ -153,7 +174,7 @@ export function ChatScreen(p: Props) {
           store.loadHistory(cache.events);
         }
       }
-      const localSeq = store.state.durable.lastSequence;
+      const localSeq = lastSequenceRef.current;
       const result = await syncThreadHistory({
         credentials: p.credentials,
         threadId: p.threadId,
@@ -193,7 +214,7 @@ export function ChatScreen(p: Props) {
       setError(e instanceof Error ? e.message : String(e));
       setSyncLabel(null);
     }
-  }, [applyEvents, p.credentials, p.threadId, store]);
+  }, [applyEvents, p.credentials, p.threadId, store.loadHistory, store.pushEventsImmediate]);
 
   // Initial load: cache then server
   useEffect(() => {
@@ -266,6 +287,42 @@ export function ChatScreen(p: Props) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [p.networkEpoch]);
 
+  // Flux live reprenable : le journal canonique reste l'autorité. Le polling
+  // court ne transmet que les événements après la dernière séquence et reprend
+  // proprement après veille/réseau sans créer un second reducer.
+  useEffect(() => {
+    if (loading || p.offline) return;
+    let cancelled = false;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    const poll = async () => {
+      if (cancelled) return;
+      if (document.visibilityState !== "hidden") {
+        try {
+          const history = await getHistory(
+            p.credentials,
+            p.threadId,
+            lastSequenceRef.current,
+          );
+          if (cancelled) return;
+          if (history.snapshotRequired) {
+            await resync();
+          } else if (history.events.length) {
+            applyEvents(history.events as WireLikeEvent[], "delta");
+          }
+        } catch {
+          // useNetworkSession porte l'état de connexion; une requête live
+          // manquée sera naturellement reprise au tick suivant.
+        }
+      }
+      if (!cancelled) timer = setTimeout(poll, 750);
+    };
+    timer = setTimeout(poll, 150);
+    return () => {
+      cancelled = true;
+      if (timer) clearTimeout(timer);
+    };
+  }, [applyEvents, loading, p.credentials, p.offline, p.threadId, resync]);
+
   // Idle promote
   useEffect(() => {
     const stream = store.streaming;
@@ -331,11 +388,21 @@ export function ChatScreen(p: Props) {
     async (text: string) => {
       const messageId = newId();
       const clientRequestId = newId();
+      const fileAttachments = attachments.filter((attachment) => !attachment.excerpt);
+      const selections = attachments.filter((attachment) => attachment.excerpt);
+      const selectionNote = selections
+        .map((attachment) => {
+          const lines = attachment.lineStart
+            ? `, lignes ${attachment.lineStart}${attachment.lineEnd && attachment.lineEnd !== attachment.lineStart ? `–${attachment.lineEnd}` : ""}`
+            : "";
+          return `\n\nExtrait sélectionné de ${attachment.name}${lines}:\n\`\`\`${attachment.kind}\n${attachment.excerpt}\n\`\`\``;
+        })
+        .join("");
       const attachNote =
-        attachments.length > 0
-          ? `\n\n[pièces jointes: ${attachments.map((a) => `${a.name}#${a.fileId}`).join(", ")}]`
+        fileAttachments.length > 0
+          ? `\n\n[pièces jointes: ${fileAttachments.map((a) => `${a.name}#${a.fileId}`).join(", ")}]`
           : "";
-      const prompt = text + attachNote;
+      const prompt = text + selectionNote + attachNote;
       store.optimisticUser(messageId, text, clientRequestId);
       p.setSendQueue((q) =>
         enqueueSend(q, {
@@ -473,47 +540,43 @@ export function ChatScreen(p: Props) {
   return (
     <div className="chat-screen">
       <div className="chat-header">
-        <button type="button" className="back-btn" onClick={p.onBack}>
-          ← Conversations
-        </button>
-        <h1 className="screen-title" style={{ marginBottom: 0 }}>
+        <Button type="button" variant="ghost" size="sm" onClick={p.onBack}>
+          <ArrowLeftIcon data-icon="inline-start" />
+          Conversations
+        </Button>
+        <h1 className="screen-title mb-0">
           {p.title || p.threadId}
         </h1>
-        <div className="chat-metrics" aria-hidden>
+        <Badge variant="outline" aria-hidden>
           flushes {store.metrics.visualFlushCount} · reduces {store.metrics.reduceCount}
           {store.state.durable.lastSequence > 0
             ? ` · seq ${store.state.durable.lastSequence}`
             : ""}
-        </div>
+        </Badge>
+        {store.busy && <WorkingStatus />}
         {(syncLabel || p.offline) && (
-          <div className="sync-banner" role="status">
-            {p.offline ? "Hors ligne — envoi mis en file" : syncLabel}
-          </div>
+          <Alert role="status"><AlertDescription>{p.offline ? "Hors ligne — envoi mis en file" : syncLabel}</AlertDescription></Alert>
         )}
       </div>
-      {loading && <div className="empty">Chargement…</div>}
+      {loading && <Skeleton className="mx-4 mt-4 h-24" aria-label="Chargement" />}
       {error && (
-        <div role="alert" style={{ color: "var(--status-error)", padding: "0 16px" }}>
-          {error}
-        </div>
+        <Alert variant="destructive" className="mx-4 mt-3 w-auto"><AlertDescription>{error}</AlertDescription></Alert>
       )}
       {pendingForThread.length > 0 && (
-        <div className="queue-bar">
-          <span>
+        <Alert variant={pendingForThread.some((item) => item.status === "failed") ? "destructive" : "default"} className="rounded-none border-x-0">
+          <AlertDescription>
             {pendingForThread.filter((x) => x.status === "failed").length
               ? "Envoi en échec"
               : "Messages en attente"}{" "}
             ({pendingForThread.length})
-          </span>
-          <button
-            type="button"
-            className="btn btn-ghost"
-            disabled={!!p.offline}
-            onClick={() => void flushQueue()}
-          >
-            Réessayer
-          </button>
-        </div>
+          </AlertDescription>
+          <AlertAction>
+            <Button type="button" variant="ghost" size="sm" disabled={!!p.offline} onClick={() => void flushQueue()}>
+              <RefreshCwIcon data-icon="inline-start" />
+              Réessayer
+            </Button>
+          </AlertAction>
+        </Alert>
       )}
       {!loading && (
         <Transcript
@@ -528,22 +591,35 @@ export function ChatScreen(p: Props) {
         busy={store.busy}
         hasShelf
         shelf={
-          <>
-            <button type="button" className="attach-chip" onClick={() => void onPickDocument()}>
-              + Fichier
-            </button>
-            {attachments.map((a) => (
-              <button
-                key={a.fileId}
-                type="button"
-                className="attach-chip"
-                onClick={() => setAttachments(removePendingAttachment(a.fileId))}
-                aria-label={`Retirer ${a.name}`}
-              >
-                {a.name} ×
-              </button>
-            ))}
-          </>
+          <div className="flex min-w-0 items-center gap-2">
+            <Button type="button" variant="outline" size="sm" onClick={() => void onPickDocument()}>
+              <PaperclipIcon data-icon="inline-start" />
+              Fichier
+            </Button>
+            <AttachmentGroup>
+              {attachments.map((attachment) => (
+                <Attachment key={attachment.fileId} size="xs" state="idle">
+                  <AttachmentMedia><FileIcon /></AttachmentMedia>
+                  <AttachmentContent>
+                    <AttachmentTitle>{attachment.name}</AttachmentTitle>
+                    <AttachmentDescription>
+                      {attachment.excerpt
+                        ? `L${attachment.lineStart ?? "?"}–${attachment.lineEnd ?? attachment.lineStart ?? "?"}`
+                        : attachment.kind}
+                    </AttachmentDescription>
+                  </AttachmentContent>
+                  <AttachmentActions>
+                    <AttachmentAction
+                      aria-label={`Retirer ${attachment.name}`}
+                      onClick={() => setAttachments(removePendingAttachment(attachment.fileId))}
+                    >
+                      <XIcon />
+                    </AttachmentAction>
+                  </AttachmentActions>
+                </Attachment>
+              ))}
+            </AttachmentGroup>
+          </div>
         }
         onSend={(t) => void onSend(t)}
         onStop={() => void onStop()}

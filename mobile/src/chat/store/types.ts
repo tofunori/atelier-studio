@@ -9,6 +9,9 @@ export type ChatItemKind =
   | "thinking"
   | "thinking_live"
   | "tool"
+  | "edit"
+  | "todos"
+  | "goal"
   | "interaction"
   | "done"
   | "error"
@@ -27,6 +30,15 @@ export type ChatItem = {
   promoted: boolean;
   ts?: number;
   toolName?: string;
+  toolInput?: unknown;
+  toolStatus?: "running" | "completed" | "failed" | string;
+  toolDetail?: string;
+  toolExitCode?: number;
+  toolDurationMs?: number;
+  toolTruncated?: boolean;
+  files?: Array<{ path: string; add?: number | null; del?: number | null }>;
+  todos?: Array<{ content?: string; status?: string; activeForm?: string }>;
+  goal?: Record<string, unknown> | null;
   interactionTitle?: string;
   /** Full plan 025 interaction payload when kind === interaction */
   interaction?: import("../interactionTypes.ts").InteractionPayload;

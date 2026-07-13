@@ -1,3 +1,5 @@
+import { Empty, EmptyDescription, EmptyHeader, EmptyTitle } from "@/components/ui/empty";
+
 export function GalleryPlaceholder() {
   return (
     <div className="screen">
@@ -6,7 +8,12 @@ export function GalleryPlaceholder() {
         Index et prévisualisations arrivent au jalon G. La gateway expose déjà
         <code> /remote/v1/gallery/…</code>.
       </p>
-      <div className="empty">Bientôt disponible</div>
+      <Empty>
+        <EmptyHeader>
+          <EmptyTitle>Bientôt disponible</EmptyTitle>
+          <EmptyDescription>Les prévisualisations de la galerie seront accessibles ici.</EmptyDescription>
+        </EmptyHeader>
+      </Empty>
     </div>
   );
 }

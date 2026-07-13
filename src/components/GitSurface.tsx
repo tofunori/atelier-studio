@@ -1,6 +1,10 @@
 import { useEffect, useMemo, useState } from "react";
 import { eventLabel, t } from "../lib/i18n";
 import { BranchIcon, LedgerIcon, RefreshIcon } from "./icons";
+import { Checkbox, CheckboxIndicator } from "./shadcn/checkbox";
+import { Input } from "./shadcn/input";
+import { CheckIcon } from "lucide-react";
+import { Button, IconButton, SegmentedControl } from "./ui";
 
 type GitFile = { path: string; status: string; originalPath?: string; add?: number; del?: number };
 type GitStatus = { branch: string | null; ahead: number; behind: number; files: GitFile[] };
@@ -238,26 +242,31 @@ export default function GitSurface({
           <span>{status?.branch ?? t("git.branch-fallback")}</span>
           <span className="git-muted">{t("git.files", { count: files.length, plural: files.length > 1 ? "s" : "" })}</span>
         </div>
-        <div className="seg">
-          <button className={mode === "git" ? "on" : ""} onClick={() => setMode("git")}>Git</button>
-          <button className={mode === "journal" ? "on" : ""} onClick={() => setMode("journal")}>{t("git.journal")}</button>
-        </div>
+        <SegmentedControl
+          label="Git view"
+          value={mode}
+          onChange={(value) => setMode(value as "git" | "journal")}
+          options={[
+            { value: "git", label: "Git" },
+            { value: "journal", label: t("git.journal") },
+          ]}
+        />
         {status && (
           <span className="git-sync-ctl">
-            <button className="ghost git-icon-btn" disabled={syncBusy != null || !status.ahead}
+            <IconButton size="s" className="ghost git-icon-btn" label={t("git.push")} disabled={syncBusy != null || !status.ahead}
               title={t("git.push")} onClick={() => { setSyncBusy("push"); send(ws, { type: "gitPush", projectRoot }); }}>
               {syncBusy === "push" ? "…" : `↑${status.ahead || ""}`}
-            </button>
-            <button className="ghost git-icon-btn" disabled={syncBusy != null || !status.behind}
+            </IconButton>
+            <IconButton size="s" className="ghost git-icon-btn" label={t("git.pull")} disabled={syncBusy != null || !status.behind}
               title={t("git.pull")} onClick={() => { setSyncBusy("pull"); send(ws, { type: "gitPull", projectRoot }); }}>
               {syncBusy === "pull" ? "…" : `↓${status.behind || ""}`}
-            </button>
+            </IconButton>
           </span>
         )}
         <span className="git-headmenu-wrap" onClick={(e) => e.stopPropagation()}>
-          <button className="ghost git-icon-btn" title={t("project.actions")} aria-label={t("project.actions")} onClick={() => { setHeadMenu((v) => !v); setUndoArmed(false); }}>
+          <IconButton size="s" className="ghost git-icon-btn" title={t("project.actions")} label={t("project.actions")} onClick={() => { setHeadMenu((v) => !v); setUndoArmed(false); }}>
             ⋯
-          </button>
+          </IconButton>
           {headMenu && (
             <div className="mp-menu git-headmenu">
               <div className="mp-item" onClick={() => { (mode === "git" ? refreshGit : refreshLedger)(); setHeadMenu(false); }}>
@@ -301,16 +310,19 @@ export default function GitSurface({
                   {!closed && inGrp.map((file) => (
               <div key={file.path} className={`git-file ${/\.bak|~$|\.log$|\.aux$/.test(file.path) ? "dim" : ""}`}>
                 <div className="git-file-line">
-                  <input
-                    type="checkbox"
+                  <Checkbox
+                    className="git-file-checkbox"
+                    aria-label={file.path}
                     checked={!unchecked.has(file.path)}
-                    onChange={() => setUnchecked((u) => {
+                    onCheckedChange={() => setUnchecked((u) => {
                       const n = new Set(u);
                       if (n.has(file.path)) n.delete(file.path); else n.add(file.path);
                       return n;
                     })}
                     onClick={(e) => e.stopPropagation()}
-                  />
+                  >
+                    <CheckboxIndicator><CheckIcon className="tw:size-3" /></CheckboxIndicator>
+                  </Checkbox>
                   <button className="git-file-row" onClick={() => selectFile(file.path)}>
                     <span className={`git-status s-${shortStatus(file).replace("U", "untracked")}`}>
                       {shortStatus(file)}
@@ -326,9 +338,9 @@ export default function GitSurface({
                     </span>
                   </button>
                   <span className="git-file-menu-wrap" onClick={(e) => e.stopPropagation()}>
-                    <button className="ghost git-icon-btn" onClick={() => { setMenuPath(menuPath === file.path ? null : file.path); setRestorePath(null); }}>
+                    <IconButton size="s" className="ghost git-icon-btn" label={t("project.actions")} onClick={() => { setMenuPath(menuPath === file.path ? null : file.path); setRestorePath(null); }}>
                       ⋯
-                    </button>
+                    </IconButton>
                     {menuPath === file.path && (
                       <div className="mp-menu git-filemenu">
                         <div
@@ -363,10 +375,15 @@ export default function GitSurface({
                 {selected === file.path && (
                   <div className="git-diff-wrap">
                     <div className="git-diff-bar">
-                      <span className="seg seg-mini">
-                        <button className={!splitView ? "on" : ""} onClick={() => setSplitView(false)}>{t("git.unified")}</button>
-                        <button className={splitView ? "on" : ""} onClick={() => setSplitView(true)}>{t("git.split")}</button>
-                      </span>
+                      <SegmentedControl
+                        label="Diff view"
+                        value={splitView ? "split" : "unified"}
+                        onChange={(value) => setSplitView(value === "split")}
+                        options={[
+                          { value: "unified", label: t("git.unified") },
+                          { value: "split", label: t("git.split") },
+                        ]}
+                      />
                     </div>
                     {!diff ? <pre className="git-diff"><span className="git-muted">{t("git.diff-empty")}</span></pre>
                     : !splitView ? (
@@ -395,12 +412,15 @@ export default function GitSurface({
           </div>
           <div className="git-commit-zone">
             <div className="git-commit">
-              <input
+              <Input
+                className="git-commit-input"
                 value={commitMsg}
                 onChange={(e) => setCommitMsg(e.target.value)}
                 placeholder={t("git.commit-placeholder")}
               />
-              <button
+              <IconButton
+                size="s"
+                label={t("action.generate-commit-message")}
                 className="ghost git-icon-btn"
                 title={t("action.generate-commit-message")}
                 disabled={generating || files.length === 0}
@@ -416,8 +436,8 @@ export default function GitSurface({
                     <path d="M12.8 10.6l.55 1.55 1.55.55-1.55.55-.55 1.55-.55-1.55-1.55-.55 1.55-.55z" />
                   </svg>
                 )}
-              </button>
-              <button
+              </IconButton>
+              <Button
                 className="set-btn"
                 disabled={!commitMsg.trim() || CHECKED.length === 0}
                 onClick={() => {
@@ -430,7 +450,7 @@ export default function GitSurface({
                 }}
               >
                 {t("git.commit-n", { n: CHECKED.length, plural: CHECKED.length > 1 ? "s" : "" })}
-              </button>
+              </Button>
             </div>
             {commitError && <div className="git-commit-error">{commitError}</div>}
           </div>
@@ -439,7 +459,7 @@ export default function GitSurface({
         <div className="ledger-view">
           <div className="ledger-filter">
             <LedgerIcon />
-            <input value={filter} onChange={(e) => setFilter(e.target.value)} placeholder={t("git.filter-placeholder")} />
+            <Input className="git-filter-input" value={filter} onChange={(e) => setFilter(e.target.value)} placeholder={t("git.filter-placeholder")} />
           </div>
           {grouped.length === 0 && <div className="git-empty">{t("git.entries-empty")}</div>}
           {grouped.map(([day, dayEntries]) => (
@@ -467,12 +487,13 @@ export default function GitSurface({
                           <span>{t("git.tools")}</span>
                           <span>{entry.tools?.map((tool) => tool.name ? eventLabel(tool.name) : null).filter(Boolean).join(", ") || "—"}</span>
                         </div>
-                        <button
+                        <Button
+                          variant="ghost"
                           className="ghost"
                           onClick={() => window.dispatchEvent(new CustomEvent("open-thread", { detail: { threadId: entry.threadId } }))}
                         >
                           {t("action.open-chat")}
-                        </button>
+                        </Button>
                       </div>
                     )}
                   </div>

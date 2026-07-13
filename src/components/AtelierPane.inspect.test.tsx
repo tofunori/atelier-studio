@@ -110,6 +110,7 @@ describe("AtelierPane — menu contextuel d'onglet", () => {
   it("« Inspecter le fichier » sélectionne l'onglet source PUIS ouvre l'inspecteur, et ferme le menu", () => {
     const { props, container } = pane({ tabs: [PDF_TAB], activeTab: "t1" });
     fireEvent.contextMenu(container.querySelector('.atelier-bar .ui-tab[title="albedo.pdf"]')!);
+    expect(document.querySelector('[data-slot="context-menu-content"]')).not.toBeNull();
     fireEvent.click(screen.getByText("Inspecter le fichier"));
     expect(props.onSelectTab).toHaveBeenCalledWith("t1");
     expect(props.onInspectFile).toHaveBeenCalledWith("figs/albedo.pdf");
@@ -123,5 +124,18 @@ describe("AtelierPane — menu contextuel d'onglet", () => {
     });
     fireEvent.contextMenu(container.querySelector('.atelier-bar .ui-tab[title="externe"]')!);
     expect(screen.queryByText("Inspecter le fichier")).toBeNull();
+  });
+
+  it("utilise les actions shadcn pour épingler et fermer", () => {
+    const { props, container } = pane({ tabs: [PDF_TAB], activeTab: "t1" });
+    const tab = container.querySelector('.atelier-bar .ui-tab[title="albedo.pdf"]')!;
+
+    fireEvent.contextMenu(tab);
+    fireEvent.click(screen.getByText("Épingler l'onglet"));
+    expect(props.onPinTab).toHaveBeenCalledWith("t1");
+
+    fireEvent.contextMenu(tab);
+    fireEvent.click(screen.getByText("Fermer"));
+    expect(props.onCloseTab).toHaveBeenCalledWith("t1");
   });
 });

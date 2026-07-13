@@ -82,6 +82,7 @@ describe("IconButton", () => {
     render(<IconButton label="Réglages">{icon}</IconButton>);
     const btn = screen.getByRole("button", { name: "Réglages" });
     expect(btn).toHaveAttribute("aria-label", "Réglages");
+    expect(btn).toHaveAttribute("data-slot", "button");
   });
 
   it("tailles et cible étendue 40×40 via classes dédiées", () => {

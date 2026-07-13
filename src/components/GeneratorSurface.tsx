@@ -1,5 +1,8 @@
 import { useEffect, useRef, useState } from "react";
 import { t } from "../lib/i18n";
+import { Input } from "./shadcn/input";
+import { Textarea } from "./shadcn/textarea";
+import { ToggleGroup, ToggleGroupItem } from "./shadcn/toggle-group";
 
 type ImageGeneratedMsg = {
   projectRoot?: string;
@@ -103,7 +106,7 @@ export default function GeneratorSurface({
     <div className="generateur-surface">
       <div className="generateur-form">
         <div className="generateur-label">{t("generateur.prompt-placeholder")}</div>
-        <textarea
+        <Textarea
           className="generateur-textarea"
           placeholder={t("generateur.prompt-placeholder")}
           value={prompt}
@@ -112,31 +115,49 @@ export default function GeneratorSurface({
           rows={6}
         />
         <div className="generateur-label">{t("generateur.engine")}</div>
-        <div className="generateur-engines">
+        <ToggleGroup
+          aria-label={t("generateur.engine")}
+          value={[engine]}
+          disabled={busy}
+          onValueChange={(next) => {
+            const selected = next[0];
+            if (selected === "seedream" || selected === "codex") setEngine(selected);
+          }}
+          className="generateur-engines"
+        >
           {ENGINES.map((eng) => (
-            <button
+            <ToggleGroupItem
               key={eng.id}
-              className={"generateur-chip" + (engine === eng.id ? " sel" : "")}
-              disabled={busy}
-              onClick={() => setEngine(eng.id)}
+              value={eng.id}
+              aria-label={eng.label}
+              className={`generateur-chip ${engine === eng.id ? "sel" : ""}`}
             >
               {eng.label}
-            </button>
+            </ToggleGroupItem>
           ))}
-        </div>
+        </ToggleGroup>
         <div className="generateur-label">{t("generateur.size")}</div>
-        <div className="generateur-seg">
+        <ToggleGroup
+          aria-label={t("generateur.size")}
+          value={[size]}
+          disabled={busy}
+          onValueChange={(next) => {
+            const selected = next[0];
+            if (selected === "1K" || selected === "2K") setSize(selected);
+          }}
+          className="generateur-seg"
+        >
           {SIZES.map((s) => (
-            <button
+            <ToggleGroupItem
               key={s.id}
+              value={s.id}
+              aria-label={s.label}
               className={size === s.id ? "on" : ""}
-              disabled={busy}
-              onClick={() => setSize(s.id)}
             >
               {s.label}
-            </button>
+            </ToggleGroupItem>
           ))}
-        </div>
+        </ToggleGroup>
         <div className="generateur-cost">
           {engine === "codex" ? t("generateur.cost-codex") : t("generateur.cost-estimate")}
         </div>
@@ -160,7 +181,7 @@ export default function GeneratorSurface({
               <img src={imageUrl} alt={result?.prompt ?? ""} />
             </div>
             <div className="generateur-edit-row">
-              <input
+              <Input
                 className="generateur-edit-input"
                 placeholder={t("generateur.edit-prompt-placeholder")}
                 value={editPrompt}

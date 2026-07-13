@@ -4,6 +4,7 @@ import ReactDOM from "react-dom/client";
 import App from "./App";
 import { getSidecarInfo, refreshSidecarInfo, sidecarHeaders } from "./lib/sidecarInfo";
 import { installUiStateWriteThrough } from "./lib/uiStateWriteThrough";
+import { AppOverlays } from "./components/ui";
 
 function fatalText(error: unknown) {
   if (!(error instanceof Error)) return String(error);
@@ -187,7 +188,9 @@ async function boot() {
   ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
     <React.StrictMode>
       <BootBoundary>
-        <App />
+        <AppOverlays>
+          <App />
+        </AppOverlays>
       </BootBoundary>
     </React.StrictMode>,
   );

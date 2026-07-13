@@ -12,6 +12,8 @@ import { MD_COMPONENTS, MD_COMPONENTS_STREAMING, useMdPlugins } from "./md";
 import { DoneDiffToggle, fmtTime, PinBtn } from "./turnParts";
 import { groupIconCat, summarizeTools } from "./toolPresentation";
 import { ActivityDisclosure, Button, EmptyState } from "../ui";
+import { Bubble, BubbleContent } from "../shadcn/bubble";
+import { Message, MessageContent, MessageFooter } from "../shadcn/message";
 
 type TimeFormat = "system" | "24h" | "12h" | undefined;
 type UserEvent = Extract<AgentEvent, { kind: "user" }>;
@@ -70,7 +72,8 @@ export const UserTurn = memo(function UserTurn(p: {
   const e = p.event;
   const i = p.index;
   return (
-    <div id={`msg-${i}`} className="user-wrap">
+    <Message id={`msg-${i}`} align="end" className="chat-message user-message">
+    <MessageContent className="user-wrap">
       {e.imageUrl && <img className="user-img" src={e.imageUrl} alt="" />}
       {e.label && <div className="user-label">{e.label}</div>}
       {e.pastes && e.pastes.map((pa, j) => (
@@ -123,9 +126,13 @@ export const UserTurn = memo(function UserTurn(p: {
           </div>
         </div>
       ) : (
-        <div className="user-bubble">{p.renderBubbleText(e.text)}</div>
+        <Bubble variant="secondary" align="end" className="user-bubble-shell">
+          <BubbleContent className="user-bubble tw:rounded-[var(--radius-control)]">
+            {p.renderBubbleText(e.text)}
+          </BubbleContent>
+        </Bubble>
       )}
-      <div className="msg-actions">
+      <MessageFooter className="msg-actions tw:px-0">
         {e.ts && (
           <span className="msg-time">
             {fmtTime(e.ts, p.timeFormat)}
@@ -137,16 +144,19 @@ export const UserTurn = memo(function UserTurn(p: {
         <button title={t("action.edit-resend")} onClick={() => p.onEditingChange(e.text)}>✎</button>
         <button title={t("chat.revert-title")} onClick={() => p.onRevert(i, e.text, false)}>↩</button>
         <PinBtn pinned={p.pinned} onClick={() => p.onTogglePin(i, e.text.slice(0, 44))} />
-      </div>
-    </div>
+      </MessageFooter>
+    </MessageContent>
+    </Message>
   );
 });
 
 export function StreamingText(p: { text: string; working: boolean }) {
   const plugins = useMdPlugins();
   return (
-    <div className="msg-wrap">
-      <div className="msg">
+    <Message align="start" className="chat-message assistant-message">
+    <MessageContent className="msg-wrap">
+      <Bubble variant="ghost" className="tw:w-full">
+      <BubbleContent className="msg typeset typeset-chat tw:w-full">
         <ReactMarkdown
           remarkPlugins={plugins.remark}
           rehypePlugins={plugins.rehype}
@@ -155,8 +165,10 @@ export function StreamingText(p: { text: string; working: boolean }) {
           {normalizeMathDelimiters(hardenPartialMarkdown(p.text))}
         </ReactMarkdown>
         {p.working && <span className="stream-caret" />}
-      </div>
-    </div>
+      </BubbleContent>
+      </Bubble>
+    </MessageContent>
+    </Message>
   );
 }
 
@@ -172,8 +184,10 @@ export const AssistantText = memo(function AssistantText(p: {
   const i = p.index;
   const plugins = useMdPlugins();
   return (
-    <div id={`msg-${i}`} className="msg-wrap">
-      <div className="msg">
+    <Message id={`msg-${i}`} align="start" className="chat-message assistant-message">
+    <MessageContent className="msg-wrap">
+      <Bubble variant="ghost" className="tw:w-full">
+      <BubbleContent className="msg typeset typeset-chat tw:w-full">
         <ReactMarkdown
           remarkPlugins={plugins.remark}
           rehypePlugins={plugins.rehype}
@@ -181,8 +195,9 @@ export const AssistantText = memo(function AssistantText(p: {
         >
           {normalizeMathDelimiters(e.text)}
         </ReactMarkdown>
-      </div>
-      <div className="msg-actions">
+      </BubbleContent>
+      </Bubble>
+      <MessageFooter className="msg-actions tw:px-0">
         {"ts" in e && e.ts && (
           <span className="msg-time">
             {fmtTime(e.ts, p.timeFormat)}
@@ -195,8 +210,9 @@ export const AssistantText = memo(function AssistantText(p: {
           <ForkIcon />
         </button>
         <PinBtn pinned={p.pinned} onClick={() => p.onTogglePin(i, e.text.replace(/[#*>`]/g, "").trim().slice(0, 44))} />
-      </div>
-    </div>
+      </MessageFooter>
+    </MessageContent>
+    </Message>
   );
 });
 

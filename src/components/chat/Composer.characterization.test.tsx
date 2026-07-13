@@ -1,7 +1,7 @@
 // Caractérisation du composer (plan 015, slice 5) : raccourcis d'envoi,
 // composition IME, suggestions, stop pendant un run, suppression d'attachment.
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { act, cleanup, fireEvent, screen, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, screen, waitFor, within } from "@testing-library/react";
 
 vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn(async () => null) }));
 
@@ -28,7 +28,10 @@ function chatProps(over: Partial<Parameters<typeof Chat>[0]> = {}): Parameters<t
 const ta = () => document.querySelector(".composer textarea") as HTMLTextAreaElement;
 
 beforeEach(resetTestState);
-afterEach(cleanup);
+afterEach(() => {
+  cleanup();
+  vi.unstubAllGlobals();
+});
 
 describe("composer — caractérisation", () => {
   it("Enter envoie (prompt + provider/mode), Shift+Enter ne soumet pas", () => {
@@ -84,7 +87,7 @@ describe("composer — caractérisation", () => {
     expect(ta().value).toContain("/recherche");
   });
 
-  it("attachments : chips visibles, suppression au clavier (bouton natif)", () => {
+  it("attachments : composants shadcn visibles et suppression accessible", () => {
     const onRemoveAttachment = vi.fn();
     renderUi(<Chat {...chatProps({
       onRemoveAttachment,
@@ -97,7 +100,7 @@ describe("composer — caractérisation", () => {
     expect(screen.getByText("fig3_spatial")).toBeTruthy();
     expect(screen.getByText("notes")).toBeTruthy();
 
-    const removeButtons = document.querySelectorAll(".chips-row .chip button.ghost");
+    const removeButtons = document.querySelectorAll('.chips-row [data-slot="attachment-action"]');
     expect(removeButtons.length).toBe(2);
     act(() => { (removeButtons[0] as HTMLButtonElement).click(); });
     expect(onRemoveAttachment).toHaveBeenCalledWith(0);
@@ -106,6 +109,77 @@ describe("composer — caractérisation", () => {
   it("disabled : la zone de saisie est inerte", () => {
     renderUi(<Chat {...chatProps({ disabled: true })} />);
     expect(ta().disabled).toBe(true);
+  });
+
+  it("auto-resize : suit le contenu puis plafonne à 220 px avec scroll", () => {
+    renderUi(<Chat {...chatProps()} />);
+    Object.defineProperty(ta(), "scrollHeight", { value: 96, configurable: true });
+    fireEvent.change(ta(), { target: { value: "une ligne assez longue" } });
+    expect(ta().style.height).toBe("96px");
+    expect(ta().style.overflowY).toBe("");
+
+    Object.defineProperty(ta(), "scrollHeight", { value: 320, configurable: true });
+    fireEvent.change(ta(), { target: { value: "un contenu encore plus long" } });
+    expect(ta().style.height).toBe("220px");
+    expect(ta().style.overflowY).toBe("auto");
+  });
+
+  it("backdrop : colore les mentions et reste synchronisé au scroll", () => {
+    renderUi(<Chat {...chatProps({ commands: [{ name: "recherche", source: "user" }] })} />);
+    fireEvent.change(ta(), { target: { value: "/recherche @src/App.tsx" } });
+    const backdrop = document.querySelector(".ta-backdrop") as HTMLElement;
+    expect(backdrop.textContent).toContain("/recherche");
+    expect(backdrop.textContent).toContain("App.tsx");
+    expect(backdrop.querySelector(".slash-cmd-inline")).toBeTruthy();
+    expect(backdrop.querySelector(".at-mention")).toBeTruthy();
+    ta().scrollTop = 48;
+    fireEvent.scroll(ta());
+    expect(backdrop.scrollTop).toBe(48);
+  });
+
+  it("Option+Entrée ouvre Quick Ask avec le brouillon sans soumettre", () => {
+    const onSubmit = vi.fn();
+    const onQuickAsk = vi.fn();
+    window.addEventListener("quick-ask-open", onQuickAsk);
+    renderUi(<Chat {...chatProps({ onSubmit })} />);
+    fireEvent.change(ta(), { target: { value: "question rapide" } });
+    fireEvent.keyDown(ta(), { key: "Enter", altKey: true });
+    expect(onSubmit).not.toHaveBeenCalled();
+    expect(onQuickAsk).toHaveBeenCalledTimes(1);
+    expect((onQuickAsk.mock.calls[0][0] as CustomEvent).detail).toEqual({ draft: "question rapide" });
+    window.removeEventListener("quick-ask-open", onQuickAsk);
+  });
+
+  it("collage long : crée un contexte compact au lieu de gonfler le textarea", () => {
+    const onPasteText = vi.fn();
+    renderUi(<Chat {...chatProps({ onPasteText })} />);
+    const pasted = "x".repeat(1000);
+    fireEvent.paste(ta(), {
+      clipboardData: { items: [], getData: (type: string) => type === "text/plain" ? pasted : "" },
+    });
+    expect(onPasteText).toHaveBeenCalledWith(pasted);
+    expect(ta().value).toBe("");
+  });
+
+  it("collage image : transmet le data URL au contexte", () => {
+    const onPasteImage = vi.fn();
+    class TestFileReader {
+      result: string | ArrayBuffer | null = null;
+      onload: null | (() => void) = null;
+      readAsDataURL() {
+        this.result = "data:image/png;base64,atelier";
+        this.onload?.();
+      }
+    }
+    vi.stubGlobal("FileReader", TestFileReader);
+    renderUi(<Chat {...chatProps({ onPasteImage })} />);
+    fireEvent.paste(ta(), {
+      clipboardData: {
+        items: [{ type: "image/png", getAsFile: () => new File(["png"], "capture.png", { type: "image/png" }) }],
+        getData: () => "",
+      },
+    });
+    expect(onPasteImage).toHaveBeenCalledWith("data:image/png;base64,atelier");
   });
 });
 
@@ -237,18 +311,41 @@ describe("composer — barre hiérarchisée (plan 020)", () => {
     expect(Number(after)).toBe(Number(before) + 1);
   });
 
-  it("menu + : focus posé sur le premier item, flèches naviguent, Échap rend le focus", () => {
+  it("le favori modèle est un Toggle shadcn avec état pressed", () => {
+    renderUi(<Chat {...chatProps({ providers: [makeProviderInfo()] })} />);
+    fireEvent.click(document.querySelector(".model-pick .mp-btn") as HTMLButtonElement);
+    const favorite = screen.getAllByLabelText(t("action.add-favorite"))[0] as HTMLButtonElement;
+    expect(favorite).toHaveAttribute("data-slot", "toggle");
+    expect(favorite).toHaveAttribute("aria-pressed", "false");
+    fireEvent.click(favorite);
+    expect(favorite).toHaveAttribute("aria-pressed", "true");
+  });
+
+  it("menu + : le premier item est actif, flèches naviguent, Échap rend le focus", async () => {
     renderUi(<Chat {...chatProps({ providers: [makeProviderInfo()] })} />);
     const plusBtn = screen.getByTitle(t("action.add-file-image")) as HTMLButtonElement;
     fireEvent.click(plusBtn);
-    const items = document.querySelectorAll(".plus-up button.mp-item");
+    const items = document.querySelectorAll('.plus-up [role="menuitem"], .plus-up [role="menuitemcheckbox"]');
     expect(items.length).toBeGreaterThan(1);
-    expect(document.activeElement).toBe(items[0]);
+    expect(items[0]).toHaveAttribute("data-highlighted");
     fireEvent.keyDown(document.querySelector(".plus-up")!, { key: "ArrowDown" });
-    expect(document.activeElement).toBe(items[1]);
+    await waitFor(() => expect(items[1]).toHaveAttribute("data-highlighted"));
     fireEvent.keyDown(document.querySelector(".plus-up")!, { key: "Escape" });
-    expect(document.querySelector(".plus-up")).toBeNull();
-    expect(document.activeElement).toBe(plusBtn);
+    await waitFor(() => expect(document.querySelector(".plus-up")).toBeNull());
+    await waitFor(() => expect(document.activeElement).toBe(plusBtn));
+  });
+
+  it("compose InputGroup, son textarea officiel et les groupes d’actions dédiés", () => {
+    renderUi(<Chat {...chatProps({ workingSince: FIXED_TS })} />);
+    const group = document.querySelector('.composer [data-slot="input-group"]');
+    expect(group).toBeTruthy();
+    expect(group?.querySelector('textarea[data-slot="input-group-control"]')).toBe(ta());
+    expect(group?.querySelector('.ta-backdrop[data-not-typeset]')).toBeTruthy();
+    expect(group?.querySelector('[data-slot="input-group-addon"][data-align="block-end"]')).toBeTruthy();
+    expect(group?.querySelector('.composer-tool-group[data-slot="button-group"]')).toBeTruthy();
+
+    fireEvent.change(ta(), { target: { value: "à grouper" } });
+    expect(group?.querySelector('.composer-submit-group[data-slot="button-group"]')).toBeTruthy();
   });
 
   it("une seule action primaire : Envoyer au repos, Stop pendant le run", () => {
@@ -258,5 +355,36 @@ describe("composer — barre hiérarchisée (plan 020)", () => {
     renderUi(<Chat {...chatProps({ workingSince: FIXED_TS })} />);
     expect(document.querySelectorAll(".composer-bar .send").length).toBe(1);
     expect(document.querySelector(".composer-bar .send.stop")).toBeTruthy();
+  });
+
+  it("goal : le menu ouvre l’éditeur et Enregistrer transmet l’objectif", () => {
+    const onGoal = vi.fn();
+    renderUi(<Chat {...chatProps({
+      onGoal,
+      threadProvider: "codex",
+      defaults: { defaultProvider: "codex", defaultModel: {}, defaultEffort: {}, defaultPermissionMode: "bypassPermissions" },
+      providers: [makeProviderInfo({
+        id: "codex", label: "Codex",
+        capabilities: makeCapabilities({ goals: true }),
+      })],
+    })} />);
+    fireEvent.click(screen.getByTitle(t("action.add-file-image")));
+    fireEvent.click(screen.getByText(t("goal.menu")));
+    const goalInput = document.querySelector(".goal-editor input") as HTMLInputElement;
+    expect(goalInput).toBeTruthy();
+    fireEvent.change(goalInput, { target: { value: "Polir le compositeur" } });
+    fireEvent.click(screen.getByText(t("goal.set")));
+    expect(onGoal).toHaveBeenCalledWith("set", "Polir le compositeur", undefined);
+  });
+
+  it("contexte : l’indicateur expose un libellé et les métriques de session", () => {
+    renderUi(<Chat {...chatProps({
+      usage: { context: 150_000, output: 2_500, cost: 1.25, turns: 7, window: 200_000 },
+    })} />);
+    const indicator = screen.getByRole("button", { name: t("chat.context-window") });
+    expect(indicator).toBeTruthy();
+    expect(indicator.textContent).toContain("75");
+    expect(indicator.textContent).toContain("7");
+    expect(indicator.textContent).toContain("1.25");
   });
 });

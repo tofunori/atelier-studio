@@ -1,7 +1,10 @@
 //! Project file / command listing (Node `catalog.mjs`).
 
+use std::io::Read;
 use std::path::{Path, PathBuf};
-use std::process::Command;
+use std::process::{Command, Stdio};
+use std::thread;
+use std::time::{Duration, Instant};
 
 const BUILTINS: &[&str] = &["goal", "loop", "clear", "compact", "review", "context"];
 
@@ -13,30 +16,79 @@ pub fn list_files(project_root: &str) -> Vec<String> {
     if !root.is_dir() {
         return Vec::new();
     }
-    let out = Command::new("git")
+    // `git` can block indefinitely in a bundled macOS app while TCC asks for
+    // access to the project directory. Keep stdout drained on a helper thread
+    // so a large repository cannot deadlock the child before the timeout.
+    if let Some(files) = git_files_bounded(root) {
+        return files;
+    }
+    // The fallback can hit the same macOS TCC suspension as `git`, so keep
+    // the directory read off the WebSocket worker and return an empty catalog
+    // rather than making the whole sidecar unresponsive.
+    read_dir_bounded(root)
+}
+
+fn git_files_bounded(root: &Path) -> Option<Vec<String>> {
+    let mut child = Command::new("git")
         .args(["ls-files", "--cached", "--others", "--exclude-standard"])
         .current_dir(root)
-        .output();
-    if let Ok(o) = out {
-        if o.status.success() {
-            let text = String::from_utf8_lossy(&o.stdout);
-            return text
-                .lines()
-                .filter(|l| !l.is_empty())
-                .take(5000)
-                .map(str::to_string)
-                .collect();
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .spawn()
+        .ok()?;
+    let mut stdout = child.stdout.take()?;
+    let reader = thread::spawn(move || {
+        let mut bytes = Vec::new();
+        stdout.read_to_end(&mut bytes).ok().map(|_| bytes)
+    });
+    let deadline = Instant::now() + Duration::from_secs(5);
+    let status = loop {
+        match child.try_wait() {
+            Ok(Some(status)) => break status,
+            Ok(None) if Instant::now() < deadline => thread::sleep(Duration::from_millis(10)),
+            Ok(None) => {
+                let _ = child.kill();
+                let _ = child.wait();
+                let _ = reader.join();
+                return None;
+            }
+            Err(_) => {
+                let _ = child.kill();
+                let _ = child.wait();
+                let _ = reader.join();
+                return None;
+            }
         }
+    };
+    let bytes = reader.join().ok().flatten()?;
+    if !status.success() {
+        return None;
     }
-    // fallback: top-level names only
-    std::fs::read_dir(root)
-        .map(|rd| {
-            rd.filter_map(|e| e.ok())
-                .map(|e| e.file_name().to_string_lossy().into_owned())
-                .filter(|n| !n.starts_with('.'))
-                .collect()
-        })
-        .unwrap_or_default()
+    Some(
+        String::from_utf8_lossy(&bytes)
+            .lines()
+            .filter(|line| !line.is_empty())
+            .take(5000)
+            .map(str::to_string)
+            .collect(),
+    )
+}
+
+fn read_dir_bounded(root: &Path) -> Vec<String> {
+    let root = root.to_path_buf();
+    let (tx, rx) = std::sync::mpsc::sync_channel(1);
+    thread::spawn(move || {
+        let files = std::fs::read_dir(root)
+            .map(|rd| {
+                rd.filter_map(|e| e.ok())
+                    .map(|e| e.file_name().to_string_lossy().into_owned())
+                    .filter(|name| !name.starts_with('.'))
+                    .collect()
+            })
+            .unwrap_or_default();
+        let _ = tx.send(files);
+    });
+    rx.recv_timeout(Duration::from_secs(1)).unwrap_or_default()
 }
 
 #[derive(Debug, Clone, serde::Serialize)]

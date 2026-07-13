@@ -4,7 +4,9 @@
 // top bar restent les seuls points de changement de projet.
 import { useEffect, useRef, useState } from "react";
 import { t } from "../../lib/i18n";
-import { Button, IconButton, Menu, MenuItem, MenuSeparator } from "../ui";
+import { Button, IconButton } from "../ui";
+import { Input } from "../shadcn/input";
+import { LazyDropdownMenu } from "../ui/LazyDropdownMenu";
 import { PlusIcon, SearchIcon, ChatsIcon } from "../icons";
 import { ProjIcon } from "./projectIcons";
 
@@ -50,7 +52,7 @@ export function ProjectHeader(p: {
   const [menuOpen, setMenuOpen] = useState(false);
   // ancre = wrapper span (IconButton ne transmet pas de ref) ; focusAnchor
   // sait retrouver le premier focusable du conteneur
-  const overflowRef = useRef<HTMLSpanElement | null>(null);
+  const overflowRef = useRef<HTMLButtonElement | null>(null);
   const searchWrapRef = useRef<HTMLSpanElement | null>(null);
   const inputRef = useRef<HTMLInputElement | null>(null);
 
@@ -106,47 +108,65 @@ export function ProjectHeader(p: {
             <SearchIcon size={13} />
           </IconButton>
         </span>
-        <span ref={overflowRef} className="pnav-ov-wrap">
-          <IconButton
-            label={t("project.actions")}
-            title={p.root ?? undefined}
-            className="pnav-ov"
-            aria-haspopup="menu"
-            aria-expanded={menuOpen}
-            onClick={() => setMenuOpen((v) => !v)}
-          >
-            <OverflowGlyph />
-          </IconButton>
-        </span>
-        <Menu
+        <LazyDropdownMenu
           open={menuOpen}
-          onClose={() => setMenuOpen(false)}
-          anchorRef={overflowRef}
+          onOpenChange={setMenuOpen}
+          triggerRef={overflowRef}
+          align="end"
           label={t("project.actions")}
-          placement="bottom-end"
-        >
-          <MenuItem onSelect={() => p.onOpenResume("claude")}>{t("sidebar.resume-claude")}</MenuItem>
-          <MenuItem onSelect={() => p.onOpenResume("codex")}>{t("sidebar.resume-codex")}</MenuItem>
-          {p.mode === "project" && (
-            <>
-              <MenuSeparator />
-              <MenuItem onSelect={() => p.onRevealFinder?.()}>{t("project.reveal-finder")}</MenuItem>
-              <MenuItem onSelect={() => p.onCustomize?.(customizeAnchor())}>
-                {t("project.customize")}
-              </MenuItem>
-              <MenuSeparator />
-              <MenuItem className="danger" onSelect={() => p.onRemoveProject?.()}>
-                {t("project.remove")}
-              </MenuItem>
-            </>
-          )}
-        </Menu>
+          className="pnav-thread-menu"
+          trigger={
+            <IconButton
+              label={t("project.actions")}
+              title={p.root ?? undefined}
+              className="pnav-ov"
+              aria-haspopup="menu"
+              aria-expanded={menuOpen}
+            >
+              <OverflowGlyph />
+            </IconButton>
+          }
+          items={[
+            {
+              key: "resume-claude",
+              label: t("sidebar.resume-claude"),
+              onSelect: () => p.onOpenResume("claude"),
+            },
+            {
+              key: "resume-codex",
+              label: t("sidebar.resume-codex"),
+              onSelect: () => p.onOpenResume("codex"),
+            },
+            ...(p.mode === "project"
+              ? [
+                  {
+                    key: "reveal-finder",
+                    label: t("project.reveal-finder"),
+                    onSelect: () => p.onRevealFinder?.(),
+                    separatorBefore: true,
+                  },
+                  {
+                    key: "customize",
+                    label: t("project.customize"),
+                    onSelect: () => p.onCustomize?.(customizeAnchor()),
+                  },
+                  {
+                    key: "remove",
+                    label: t("project.remove"),
+                    onSelect: () => p.onRemoveProject?.(),
+                    destructive: true,
+                    separatorBefore: true,
+                  },
+                ]
+              : []),
+          ]}
+        />
       </div>
       {p.searchOpen && (
-        <input
+        <Input
           ref={inputRef}
           type="search"
-          className="pnav-search"
+          className="pnav-search tw:h-auto"
           aria-label={t("sidebar.search-local")}
           placeholder={t("sidebar.search-local")}
           value={p.query}

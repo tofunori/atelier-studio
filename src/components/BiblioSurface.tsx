@@ -2,6 +2,9 @@ import { useEffect, useMemo, useState } from "react";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import { t } from "../lib/i18n";
 import { CloseIcon, PanelIcon, SearchIcon, StarIcon } from "./icons";
+import { Select } from "./Select";
+import { Input } from "./shadcn/input";
+import { Button, IconButton } from "./ui";
 
 type ZoteroItem = {
   key: string;
@@ -300,7 +303,8 @@ export default function BiblioSurface({
       <aside className="biblio-left">
         <div className="biblio-search-row">
           <span className="biblio-search-icon"><SearchIcon /></span>
-          <input
+          <Input
+            className="biblio-search-input"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             placeholder={t("biblio.search")}
@@ -308,53 +312,51 @@ export default function BiblioSurface({
           />
         </div>
         <div className="biblio-filters">
-          <button className={filter === "all" ? "on" : ""} onClick={() => setFilter("all")}>{t("biblio.all")}</button>
-          <button className={filter === "fav" ? "on" : ""} onClick={() => setFilter("fav")} aria-label={t("biblio.favorites")}>
+          <Button variant="ghost" className={filter === "all" ? "on" : ""} onClick={() => setFilter("all")}>{t("biblio.all")}</Button>
+          <IconButton size="s" className={filter === "fav" ? "on" : ""} onClick={() => setFilter("fav")} label={t("biblio.favorites")}>
             <StarIcon />
-          </button>
-          <button className={pdfOnly ? "on" : ""} onClick={togglePdfOnly}
-            title={t("biblio.pdf-only")} aria-label={t("biblio.pdf-only")}>
+          </IconButton>
+          <IconButton size="s" className={pdfOnly ? "on" : ""} onClick={togglePdfOnly}
+            title={t("biblio.pdf-only")} label={t("biblio.pdf-only")}>
             <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round">
               <path d="M4 1.8h5.2L13 5.6v8.6H4z" /><path d="M9 1.8v4h4" />
               <path d="M6 9.2h4M6 11.2h2.5" />
             </svg>
-          </button>
-          <select
+          </IconButton>
+          <Select
+            className="biblio-collection-select"
+            title={t("biblio.collection-aria")}
             value={filter === "collection" ? collectionId ?? "" : ""}
-            onChange={(e) => {
-              const value = e.target.value || null;
-              setCollectionId(value);
-              setFilter(value ? "collection" : "all");
+            onChange={(value) => {
+              const next = value || null;
+              setCollectionId(next);
+              setFilter(next ? "collection" : "all");
             }}
-            aria-label={t("biblio.collection-aria")}
-          >
-            <option value="">{t("biblio.collection")}</option>
-            {collections.map((collection) => (
-              <option key={collection.id} value={String(collection.id)}>
-                {collection.name}
-              </option>
-            ))}
-          </select>
-          <select
+            options={[
+              { value: "", label: t("biblio.collection") },
+              ...collections.map((collection) => ({ value: String(collection.id), label: collection.name })),
+            ]}
+          />
+          <Select
             className="biblio-sort"
-            value={sortBy}
-            onChange={(e) => changeSort(e.target.value as "added" | "year" | "author" | "title")}
-            aria-label={t("biblio.sort-aria")}
             title={t("biblio.sort-aria")}
-          >
-            <option value="added">{t("biblio.sort-added")}</option>
-            <option value="year">{t("biblio.sort-year")}</option>
-            <option value="author">{t("biblio.sort-author")}</option>
-            <option value="title">{t("biblio.sort-title")}</option>
-          </select>
-          <button className="biblio-add" onClick={addPdfs} disabled={adding}
-            title={t("biblio.add-pdf")} aria-label={t("biblio.add-pdf")}>
+            value={sortBy}
+            onChange={(value) => changeSort(value as "added" | "year" | "author" | "title")}
+            options={[
+              { value: "added", label: t("biblio.sort-added") },
+              { value: "year", label: t("biblio.sort-year") },
+              { value: "author", label: t("biblio.sort-author") },
+              { value: "title", label: t("biblio.sort-title") },
+            ]}
+          />
+          <IconButton size="s" className="biblio-add" onClick={addPdfs} disabled={adding}
+            title={t("biblio.add-pdf")} label={t("biblio.add-pdf")}>
             {adding ? "…" : (
               <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round">
                 <path d="M8 3v10M3 8h10" />
               </svg>
             )}
-          </button>
+          </IconButton>
         </div>
         {addNote && <div className="biblio-add-note">{addNote}</div>}
         {error && <div className="biblio-empty">{error}</div>}
@@ -374,14 +376,13 @@ export default function BiblioSurface({
                 <span className="biblio-title">{item.title}</span>
                 <span className="biblio-meta">{creatorLine(item)}</span>
               </button>
-              <button
-                type="button"
+              <IconButton
                 className={`biblio-star ${item.fav ? "on" : ""}`}
-                aria-label={item.fav ? t("action.remove-favorite") : t("action.add-favorite")}
+                label={item.fav ? t("action.remove-favorite") : t("action.add-favorite")}
                 onClick={() => toggleFav(item)}
               >
                 <StarIcon />
-              </button>
+              </IconButton>
             </div>
           ))}
         </div>
@@ -393,24 +394,25 @@ export default function BiblioSurface({
       {readerOpen && (
       <section className="biblio-reader">
         <div className="biblio-reader-head">
-          <button className="ghost biblio-list-toggle" title={listOpen ? t("action.hide-list") : t("action.open-list")}
-            onClick={toggleList}>
+          <IconButton className="ghost biblio-list-toggle" title={listOpen ? t("action.hide-list") : t("action.open-list")}
+            label={listOpen ? t("action.hide-list") : t("action.open-list")} onClick={toggleList}>
             <PanelIcon />
-          </button>
+          </IconButton>
           <div className="biblio-reader-title">
             <span>{selected?.title ?? t("biblio.title")}</span>
             {selected && <small>{creatorLine(selected)}</small>}
           </div>
-          <button className={`biblio-citekey ${cited ? "ok" : ""}`} disabled={!selected}
+          <Button variant="ghost" className={`biblio-citekey ${cited ? "ok" : ""}`} disabled={!selected}
             title={t("biblio.cite-tip")} onClick={citeSelected}>
             <svg width="11" height="11" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
               <path d="M3 9.5C3 6.5 4.8 4.4 7 3.5l.6 1.2c-1.4.7-2.3 1.8-2.5 3 .2-.1.5-.2.9-.2 1.1 0 2 .9 2 2s-.9 2.1-2.1 2.1C4.4 11.6 3 10.8 3 9.5zm6.5 0c0-3 1.8-5.1 4-6l.6 1.2c-1.4.7-2.3 1.8-2.5 3 .2-.1.5-.2.9-.2 1.1 0 2 .9 2 2s-.9 2.1-2.1 2.1c-1.5 0-2.9-.8-2.9-2.1z"/>
             </svg>
             <span>{cited ? "✓" : (selected ? `@${selected.citeKey || selected.key}` : "@…")}</span>
-          </button>
-          <button className="ghost git-icon-btn" title={t("action.close-reader")} onClick={toggleReader}>
+          </Button>
+          <IconButton className="ghost git-icon-btn" title={t("action.close-reader")}
+            label={t("action.close-reader")} onClick={toggleReader}>
             <CloseIcon />
-          </button>
+          </IconButton>
         </div>
         <div className="biblio-frame-wrap">
           {!selected && <div className="biblio-placeholder">{t("biblio.placeholder")}</div>}

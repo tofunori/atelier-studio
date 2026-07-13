@@ -11,8 +11,20 @@ const GeneratorSurface = lazyWithRetry(() => import("./GeneratorSurface"));
 import { t } from "../lib/i18n";
 import { CloseIcon, HomeIcon, RefreshIcon } from "./icons";
 import { DocumentTabMeta } from "./AtelierHeaders";
-import { Tab, TabList } from "./ui";
-import { IconButton } from "./ui";
+import { Button, IconButton, Tab, TabList } from "./ui";
+import {
+  ContextMenu,
+  ContextMenuContent,
+  ContextMenuItem,
+  ContextMenuRadioGroup,
+  ContextMenuRadioItem,
+  ContextMenuSeparator,
+  ContextMenuSub,
+  ContextMenuSubContent,
+  ContextMenuSubTrigger,
+  ContextMenuTrigger,
+} from "./shadcn/context-menu";
+import { Skeleton } from "./shadcn/skeleton";
 import type { Surface } from "./surfaces";
 
 type Tab = { id: string; url: string; title: string; color?: string; pinned?: boolean; kind?: "term"; cwd?: string };
@@ -120,7 +132,6 @@ export default function AtelierPane({
   const [visited, setVisited] = useState<Set<Surface>>(new Set(["atelier"]));
   const [dragId, setDragId] = useState<string | null>(null);
   const [overId, setOverId] = useState<string | null>(null);
-  const [tabMenu, setTabMenu] = useState<{ id: string; x: number; y: number } | null>(null);
   const [galleryLoaded, setGalleryLoaded] = useState(false);
 
   useEffect(() => {
@@ -192,12 +203,6 @@ export default function AtelierPane({
     setOverId(null);
   }
 
-  useEffect(() => {
-    const close = () => setTabMenu(null);
-    window.addEventListener("click", close);
-    return () => window.removeEventListener("click", close);
-  }, []);
-
   const documentTabs = tabs.filter((tab) => tab.kind !== "term");
   const activeDocument = documentTabs.find((tab) => tab.id === activeTab);
   const activeDocumentRel = activeDocument
@@ -234,33 +239,71 @@ export default function AtelierPane({
             onClick={() => onSelectTab("gallery")}
             title={t("atelier.gallery")}
           />
-          {documentTabs.map((tab) => (
-            <Tab
-              key={tab.id}
-              active={activeTab === tab.id}
-              label={tab.title}
-              closeLabel={`Fermer ${tab.title}`}
-              closeIcon={<CloseIcon />}
-              onClose={() => onCloseTab(tab.id)}
-              className={overId === tab.id && dragId && dragId !== tab.id ? "drop-target" : ""}
-              onClick={() => onSelectTab(tab.id)}
-              draggable
-              onDragStart={(e) => { setDragId(tab.id); e.dataTransfer.effectAllowed = "move"; }}
-              onDragOver={(e) => { e.preventDefault(); setOverId(tab.id); }}
-              onDragLeave={() => setOverId((o) => (o === tab.id ? null : o))}
-              onDrop={(e) => { e.preventDefault(); dropOn(tab.id); }}
-              onDragEnd={() => { setDragId(null); setOverId(null); }}
-              onContextMenu={(e) => {
-                e.preventDefault();
-                setTabMenu({ id: tab.id, x: e.clientX, y: e.clientY });
-              }}
-              title={tab.title}
-            >
-              {tab.color && <span className="atab-dot" style={{ background: tab.color }} />}
-              {tab.pinned && <span className="atab-pin">⌖</span>}
-              {tab.title}
-            </Tab>
-          ))}
+          {documentTabs.map((tab) => {
+            const rel = tab.kind !== "term" ? relFromTabUrl(tab.url, projectRoot, url) : null;
+            return (
+              <ContextMenu key={tab.id}>
+                <ContextMenuTrigger
+                  render={
+                    <Tab
+                      active={activeTab === tab.id}
+                      label={tab.title}
+                      closeLabel={`Fermer ${tab.title}`}
+                      closeIcon={<CloseIcon />}
+                      onClose={() => onCloseTab(tab.id)}
+                      className={overId === tab.id && dragId && dragId !== tab.id ? "drop-target" : ""}
+                      onClick={() => onSelectTab(tab.id)}
+                      draggable
+                      onDragStart={(e) => { setDragId(tab.id); e.dataTransfer.effectAllowed = "move"; }}
+                      onDragOver={(e) => { e.preventDefault(); setOverId(tab.id); }}
+                      onDragLeave={() => setOverId((o) => (o === tab.id ? null : o))}
+                      onDrop={(e) => { e.preventDefault(); dropOn(tab.id); }}
+                      onDragEnd={() => { setDragId(null); setOverId(null); }}
+                      title={tab.title}
+                    >
+                      {tab.color && <span className="atab-dot" style={{ background: tab.color }} />}
+                      {tab.pinned && <span className="atab-pin">⌖</span>}
+                      {tab.title}
+                    </Tab>
+                  }
+                />
+                <ContextMenuContent className="tw:min-w-48">
+                  <ContextMenuItem onClick={() => onPinTab(tab.id)}>
+                    {tab.pinned ? t("action.unpin-tab") : t("action.pin-tab")}
+                  </ContextMenuItem>
+                  {onInspectFile && rel && (
+                    <ContextMenuItem onClick={() => {
+                      onSelectTab(tab.id);
+                      onInspectFile(rel);
+                    }}>
+                      {t("inspector.open")}
+                    </ContextMenuItem>
+                  )}
+                  <ContextMenuSub>
+                    <ContextMenuSubTrigger>{t("settings.group.colors")}</ContextMenuSubTrigger>
+                    <ContextMenuSubContent>
+                      <ContextMenuRadioGroup value={tab.color ?? "none"}>
+                        {TAB_COLORS.map((color) => (
+                          <ContextMenuRadioItem key={color} value={color} onClick={() => onColorTab(tab.id, color)}>
+                            <span className="swatch" style={{ background: color }} aria-hidden="true" />
+                            {color.toUpperCase()}
+                          </ContextMenuRadioItem>
+                        ))}
+                        <ContextMenuRadioItem value="none" onClick={() => onColorTab(tab.id, undefined)}>
+                          <span className="swatch none" aria-hidden="true">∅</span>
+                          {t("sidebar.without-color")}
+                        </ContextMenuRadioItem>
+                      </ContextMenuRadioGroup>
+                    </ContextMenuSubContent>
+                  </ContextMenuSub>
+                  <ContextMenuSeparator />
+                  <ContextMenuItem variant="destructive" onClick={() => onCloseTab(tab.id)}>
+                    {t("action.close-tab")}
+                  </ContextMenuItem>
+                </ContextMenuContent>
+              </ContextMenu>
+            );
+          })}
           <span className="flex" />
           {activeTab === "gallery" && onGalleryReload && (
             <IconButton label={t("action.refresh-hard")} title={t("action.refresh-hard")}
@@ -295,7 +338,7 @@ export default function AtelierPane({
                 </div>
               )}
               {!showExplorer && (
-                <button className="ide-home-browse" onClick={onOpenExplorer}>{t("ide.browse")}</button>
+                <Button variant="secondary" className="ide-home-browse" onClick={onOpenExplorer}>{t("ide.browse")}</Button>
               )}
             </div>
           )}
@@ -303,7 +346,7 @@ export default function AtelierPane({
             <div className="atelier-skeleton">
               <div className="atelier-skeleton-grid">
                 {Array.from({ length: 6 }).map((_, i) => (
-                  <span key={i} />
+                  <Skeleton key={i} />
                 ))}
               </div>
               <div className="atelier-skeleton-text">{t("atelier.loading")}</div>
@@ -380,10 +423,10 @@ export default function AtelierPane({
 
       {second && <div className="pane-divider" style={{ order: 1 }} onMouseDown={startDivider} />}
       {second && (
-        <button className="pane-close" title={t("action.close")}
+        <IconButton size="s" className="pane-close" label={t("action.close")} title={t("action.close")}
           onClick={() => setSecond(null)}>
           <CloseIcon size={11} />
-        </button>
+        </IconButton>
       )}
 
       {dragSurf && (
@@ -414,39 +457,6 @@ export default function AtelierPane({
       {showExplorer && <Explorer files={files} onOpen={onOpenFile} />}
       </div>
 
-      {tabMenu && (
-        <div className="ctx-menu" style={{ left: tabMenu.x, top: tabMenu.y, position: "fixed", zIndex: 200 }}
-          onClick={(e) => e.stopPropagation()}>
-          <div onClick={() => { onPinTab(tabMenu.id); setTabMenu(null); }}>
-            {tabs.find((t) => t.id === tabMenu.id)?.pinned ? t("action.unpin-tab") : t("action.pin-tab")}
-          </div>
-          {onInspectFile && (() => {
-            const tb = tabs.find((x) => x.id === tabMenu.id);
-            const rel = tb && tb.kind !== "term" ? relFromTabUrl(tb.url, projectRoot, url) : null;
-            return rel ? (
-              <div onClick={() => {
-                // activer l'onglet inspecté : « l'élément source » du retour
-                // focus (Escape) est alors bien l'onglet actif
-                onSelectTab(tabMenu.id);
-                onInspectFile(rel);
-                setTabMenu(null);
-              }}>
-                {t("inspector.open")}
-              </div>
-            ) : null;
-          })()}
-          <div className="swatches" style={{ padding: "6px 10px" }}>
-            {TAB_COLORS.map((col) => (
-              <span key={col} className="swatch" style={{ background: col }}
-                onClick={() => { onColorTab(tabMenu.id, col); setTabMenu(null); }} />
-            ))}
-            <span className="swatch none" onClick={() => { onColorTab(tabMenu.id, undefined); setTabMenu(null); }}>∅</span>
-          </div>
-          <div className="danger" onClick={() => { onCloseTab(tabMenu.id); setTabMenu(null); }}>
-            {t("action.close-tab")}
-          </div>
-        </div>
-      )}
     </div>
   );
 }

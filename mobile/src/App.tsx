@@ -1,6 +1,13 @@
-import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { Alert, AlertDescription } from "@/components/ui/alert.tsx";
+import { Button } from "@/components/ui/button.tsx";
+import { Empty, EmptyHeader, EmptyTitle } from "@/components/ui/empty.tsx";
+import { Spinner } from "@/components/ui/spinner.tsx";
+import { Tabs } from "@/components/ui/tabs.tsx";
+import { Toaster } from "@/components/ui/sonner.tsx";
+import { ArrowLeftIcon } from "lucide-react";
+import { BottomTabBar, type AppTab } from "./app/BottomTabBar.tsx";
 import { bannerFor, redactDiagnostics } from "./app/connectionState.ts";
-import { IconChat, IconFiles, IconGallery, IconSettings } from "./app/icons.tsx";
 import { ChatScreen } from "./chat/ChatScreen.tsx";
 import { ThreadList } from "./chat/ThreadList.tsx";
 import { FilesScreen } from "./files/FilesScreen.tsx";
@@ -24,11 +31,10 @@ import type { DeviceCredentials } from "./transport/types.ts";
 
 const APP_VERSION = "0.1.0-i";
 
-type Tab = "chats" | "gallery" | "files" | "settings";
 type Overlay = "none" | "pairing" | "diagnostics" | "thread";
 
 export default function App() {
-  const [tab, setTab] = useState<Tab>("chats");
+  const [tab, setTab] = useState<AppTab>("chats");
   const [overlay, setOverlay] = useState<Overlay>("none");
   const [creds, setCreds] = useState<DeviceCredentials | null>(null);
   const [gatewayUrl, setGatewayUrl] = useState("http://127.0.0.1:18765");
@@ -39,6 +45,7 @@ export default function App() {
   const [booted, setBooted] = useState(false);
   const [activeThreadId, setActiveThreadId] = useState<string | null>(null);
   const [networkEpoch, setNetworkEpoch] = useState(0);
+  const [creatingThread, setCreatingThread] = useState(false);
 
   const session = useNetworkSession({
     credentials: creds,
@@ -143,6 +150,23 @@ export default function App() {
     setOverlay("thread");
   };
 
+  const createChat = async (body: { title: string; provider: string; model: string }) => {
+    if (!creds) {
+      setOverlay("pairing");
+      return;
+    }
+    setCreatingThread(true);
+    try {
+      const created = await session.createThread(body);
+      setActiveThreadId(created.id);
+      setOverlay("thread");
+    } catch (e) {
+      setLastError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setCreatingThread(false);
+    }
+  };
+
   const revokeLocal = async () => {
     await clearCredentials();
     setCreds(null);
@@ -193,7 +217,12 @@ export default function App() {
   if (!booted) {
     return (
       <div className="app-shell">
-        <div className="empty">Démarrage…</div>
+        <Empty>
+          <EmptyHeader>
+            <Spinner />
+            <EmptyTitle>Démarrage…</EmptyTitle>
+          </EmptyHeader>
+        </Empty>
       </div>
     );
   }
@@ -206,19 +235,23 @@ export default function App() {
 
   return (
     <div className="app-shell">
+      <Toaster position="top-center" richColors />
       {session.phase !== "ready" && (
-        <div
-          className="status-banner"
-          data-tone={banner.tone === "neutral" ? undefined : banner.tone}
+        <Alert
+          variant={banner.tone === "error" ? "destructive" : "default"}
+          className="rounded-none border-x-0 border-t-0"
           role="status"
         >
-          {banner.label}
-          {session.reconnectInfo.running && session.reconnectInfo.attempt > 0
-            ? ` (essai ${session.reconnectInfo.attempt})`
-            : ""}
-        </div>
+          <AlertDescription>
+            {banner.label}
+            {session.reconnectInfo.running && session.reconnectInfo.attempt > 0
+              ? ` (essai ${session.reconnectInfo.attempt})`
+              : ""}
+          </AlertDescription>
+        </Alert>
       )}
 
+      <Tabs value={tab} onValueChange={(value) => setTab(value as AppTab)} className="contents">
       <main className="app-main">
         {overlay === "pairing" && (
           <PairingScreen
@@ -231,10 +264,11 @@ export default function App() {
         )}
         {overlay === "diagnostics" && (
           <div>
-            <div className="screen" style={{ paddingBottom: 0 }}>
-              <button type="button" className="back-btn" onClick={() => setOverlay("none")}>
-                ← Réglages
-              </button>
+            <div className="screen pb-0">
+              <Button type="button" variant="ghost" size="sm" onClick={() => setOverlay("none")}>
+                <ArrowLeftIcon data-icon="inline-start" />
+                Réglages
+              </Button>
             </div>
             <DiagnosticsScreen text={diagText} onCopy={() => void copyDiag()} copied={copied} />
           </div>
@@ -261,6 +295,8 @@ export default function App() {
             error={session.threadsError}
             onOpen={openThread}
             onRefresh={() => void session.refresh()}
+            onCreate={createChat}
+            creating={creatingThread}
           />
         )}
         {overlay === "none" && tab === "gallery" && (
@@ -286,47 +322,9 @@ export default function App() {
       </main>
 
       {showTabBar && (
-        <nav className="app-tabbar" aria-label="Navigation principale">
-          <Tab id="chats" label="Chats" icon={<IconChat />} current={tab} onSelect={setTab} />
-          <Tab
-            id="gallery"
-            label="Gallery"
-            icon={<IconGallery />}
-            current={tab}
-            onSelect={setTab}
-          />
-          <Tab id="files" label="Fichiers" icon={<IconFiles />} current={tab} onSelect={setTab} />
-          <Tab
-            id="settings"
-            label="Réglages"
-            icon={<IconSettings />}
-            current={tab}
-            onSelect={setTab}
-          />
-        </nav>
+        <BottomTabBar />
       )}
+      </Tabs>
     </div>
-  );
-}
-
-function Tab(p: {
-  id: Tab;
-  label: string;
-  current: Tab;
-  icon: ReactNode;
-  onSelect: (t: Tab) => void;
-}) {
-  const active = p.current === p.id;
-  return (
-    <button
-      type="button"
-      className="tab-btn"
-      aria-current={active ? "page" : undefined}
-      aria-label={p.label}
-      onClick={() => p.onSelect(p.id)}
-    >
-      {p.icon}
-      <span>{p.label}</span>
-    </button>
   );
 }

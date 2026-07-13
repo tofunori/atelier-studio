@@ -6,6 +6,17 @@ import { t } from "../../lib/i18n";
 import { Select } from "../Select";
 import { PlusIcon, ProviderIcon, ZapIcon } from "../icons";
 import { ProviderInfo, orderedVisibleProviders } from "../../lib/providers";
+import { ButtonGroup } from "../shadcn/button-group";
+import { Toggle } from "../shadcn/toggle";
+import {
+  DropdownMenu,
+  DropdownMenuCheckboxItem,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "../shadcn/dropdown-menu";
+import { Button } from "../ui/Button";
+import { IconButton } from "../ui/IconButton";
 
 const PERMISSION_MODES = [
   { id: "bypassPermissions", labelKey: "permission.full" },
@@ -82,13 +93,8 @@ export function ComposerControls(p: {
   const goalsSupported = caps ? caps.goals === true : provider === "codex";
   // navigation clavier des menus (plan 020, étape 6) : flèches + Échap ;
   // focus posé sur le premier item à l'ouverture, rendu au déclencheur en sortie
-  const plusMenuRef = useRef<HTMLDivElement | null>(null);
-  const plusBtnRef = useRef<HTMLButtonElement | null>(null);
   const modelMenuRef = useRef<HTMLDivElement | null>(null);
   const modelBtnRef = useRef<HTMLButtonElement | null>(null);
-  useEffect(() => {
-    if (plusOpen) plusMenuRef.current?.querySelector<HTMLButtonElement>("button")?.focus();
-  }, [plusOpen]);
   useEffect(() => {
     if (menuOpen) modelMenuRef.current?.querySelector<HTMLButtonElement>("button")?.focus();
   }, [menuOpen]);
@@ -106,58 +112,70 @@ export function ComposerControls(p: {
   return (
     <>
         <div className="composer-bar">
-          <span className="plus-wrap" onClick={(e) => e.stopPropagation()}>
-            <button type="button" className="ghost qa-zap-btn" title={t("qa.open") + " (⌥⌘K)"}
-              onClick={() => window.dispatchEvent(new CustomEvent("quick-ask-toggle"))}>
-              <ZapIcon />
-            </button>
-            <button type="button" ref={plusBtnRef} className="ghost" title={t("action.add-file-image")}
-              aria-haspopup="menu" aria-expanded={plusOpen} onClick={() => setPlusOpen((v) => !v)}>
-              <PlusIcon />
-            </button>
-            {plusOpen && (
-              <div className="mp-menu plus-up" ref={plusMenuRef} role="menu"
-                onKeyDown={menuKeys(() => setPlusOpen(false), plusBtnRef)}>
-                <button type="button" role="menuitem" className="mp-item" onClick={() => { setPlusOpen(false); attachFiles(); }}>
+          <DropdownMenu open={plusOpen} onOpenChange={setPlusOpen}>
+            <ButtonGroup className="composer-tool-group">
+              <IconButton
+                size="s"
+                className="ghost qa-zap-btn"
+                label={t("qa.open")}
+                title={t("qa.open") + " (⌥⌘K)"}
+                onClick={() => window.dispatchEvent(new CustomEvent("quick-ask-toggle"))}
+              >
+                <ZapIcon />
+              </IconButton>
+              <DropdownMenuTrigger
+                render={
+                  <IconButton
+                    size="s"
+                    className="ghost"
+                    label={t("action.add-file-image")}
+                    title={t("action.add-file-image")}
+                  >
+                    <PlusIcon />
+                  </IconButton>
+                }
+              />
+            </ButtonGroup>
+            <DropdownMenuContent side="top" align="start" sideOffset={8} className="plus-up tw:w-60">
+                <DropdownMenuItem className="mp-item" onClick={() => attachFiles()}>
                   <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3">
                     <path d="M13.5 7.5l-5 5a3.2 3.2 0 0 1-4.5-4.5l5.5-5.5a2.2 2.2 0 0 1 3.1 3.1l-5.5 5.5a1.1 1.1 0 0 1-1.6-1.6l5-5" />
                   </svg>
                   <span>{t("action.add-file-image")}</span>
-                </button>
+                </DropdownMenuItem>
                 {allowedPermissionModes.includes("plan") && (
-                <button type="button" role="menuitemcheckbox" aria-checked={permissionMode === "plan"} className="mp-item" onClick={() => setPermissionMode(permissionMode === "plan" ? "bypassPermissions" : "plan")}>
+                <DropdownMenuCheckboxItem
+                  checked={permissionMode === "plan"}
+                  className="mp-item"
+                  onCheckedChange={(checked) => setPermissionMode(checked ? "plan" : "bypassPermissions")}
+                >
                   <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3">
                     <path d="M2.5 4h2M6.5 4h7M2.5 8h2M6.5 8h7M2.5 12h2M6.5 12h7" />
                   </svg>
                   <span>{t("permission.plan")}</span>
-                  <span className={`toggle ${permissionMode === "plan" ? "on" : ""}`}>
-                    <span className="knob" />
-                  </span>
-                </button>
+                </DropdownMenuCheckboxItem>
                 )}
-                <button type="button" role="menuitemcheckbox" aria-checked={!!p.defaults.autoReview?.enabled} className="mp-item" onClick={() =>
-                  window.dispatchEvent(new CustomEvent("autoreview-toggle"))
-                }>
+                <DropdownMenuCheckboxItem
+                  checked={!!p.defaults.autoReview?.enabled}
+                  className="mp-item"
+                  onCheckedChange={() => window.dispatchEvent(new CustomEvent("autoreview-toggle"))}
+                >
                   <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round">
                     <path d="M8 1.8l5 2v4c0 3.2-2.2 5.4-5 6.4-2.8-1-5-3.2-5-6.4v-4z" />
                     <path d="M5.8 8l1.6 1.6L10.5 6.3" />
                   </svg>
                   <span>Auto-review</span>
-                  <span className={`toggle ${p.defaults.autoReview?.enabled ? "on" : ""}`}>
-                    <span className="knob" />
-                  </span>
-                </button>
+                </DropdownMenuCheckboxItem>
                 {goalsSupported && p.onGoal && (
-                  <button type="button" role="menuitem" className="mp-item" onClick={() => { setPlusOpen(false); setGoalOpen((v) => !v); }}>
+                  <DropdownMenuItem className="mp-item" onClick={() => setGoalOpen((v) => !v)}>
                     <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round">
                       <circle cx="8" cy="8" r="6" /><circle cx="8" cy="8" r="2.4" />
                     </svg>
                     <span>{t("goal.menu")}</span>
-                  </button>
+                  </DropdownMenuItem>
                 )}
-              </div>
-            )}
-          </span>
+            </DropdownMenuContent>
+          </DropdownMenu>
           {permissionOptions.length > 0 && (
             <Select
               compact
@@ -189,7 +207,7 @@ export function ComposerControls(p: {
                     <svg className="ctx-ring" width="18" height="18" viewBox="0 0 18 18">
                       <circle cx="9" cy="9" r={r} fill="none" stroke="var(--bg-ctl)" strokeWidth="2.4" />
                       <circle cx="9" cy="9" r={r} fill="none"
-                        stroke={pct > 80 ? "#e06c75" : pct > 60 ? "#e0b74a" : "var(--muted)"}
+                        stroke={pct > 80 ? "var(--status-error)" : pct > 60 ? "var(--status-warning)" : "var(--muted)"}
                         strokeWidth="2.4" strokeLinecap="round"
                         strokeDasharray={`${(pct / 100) * c} ${c}`}
                         transform="rotate(-90 9 9)" />
@@ -327,16 +345,16 @@ export function ComposerControls(p: {
                           </button>
                           <span className="mp-end">
                             {active && <span className="mp-check">✓</span>}
-                            <button
-                              type="button"
+                            <Toggle
                               className={`mp-star ${fav ? "on" : ""}`}
-                              aria-pressed={fav}
+                              pressed={fav}
                               aria-label={fav ? t("action.remove-favorite") : t("action.add-favorite")}
                               title={fav ? t("action.remove-favorite") : t("action.add-favorite")}
-                              onClick={(e) => { e.stopPropagation(); toggleFavModel(key); }}
+                              onClick={(e) => e.stopPropagation()}
+                              onPressedChange={() => toggleFavModel(key)}
                             >
                               {fav ? "★" : "☆"}
-                            </button>
+                            </Toggle>
                           </span>
                         </div>
                       );
@@ -372,9 +390,10 @@ export function ComposerControls(p: {
           </span>
           {p.workingSince != null ? (
             text.trim() ? (
-              <>
-                <button
+              <ButtonGroup className="composer-submit-group">
+                <Button
                   type="button"
+                  variant="ghost"
                   className="queue-btn"
                   disabled={p.disabled}
                   title={t("action.queue-title")}
@@ -385,14 +404,15 @@ export function ComposerControls(p: {
                   }}
                 >
                   ⏱ {t("action.queue")}
-                </button>
-                <button className="send steer" disabled={p.disabled} title={t("action.send-now")}>
+                </Button>
+                <Button type="submit" className="send steer" disabled={p.disabled} title={t("action.send-now")}>
                   ↑
-                </button>
-              </>
+                </Button>
+              </ButtonGroup>
             ) : (
-              <button
+              <Button
                 type="button"
+                variant="secondary"
                 className="send stop"
                 disabled={p.disabled}
                 title={t("action.interrupt")}
@@ -401,12 +421,12 @@ export function ComposerControls(p: {
                 <svg width="14" height="14" viewBox="0 0 14 14" aria-hidden="true">
                   <rect x="3.5" y="3.5" width="7" height="7" rx="1.6" fill="currentColor" />
                 </svg>
-              </button>
+              </Button>
             )
           ) : (
-            <button className="send" disabled={p.disabled} title={t("action.send")}>
+            <Button type="submit" variant="secondary" className="send" disabled={p.disabled} title={t("action.send")}>
               ↑
-            </button>
+            </Button>
           )}
         </div>
     </>

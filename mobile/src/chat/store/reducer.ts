@@ -21,6 +21,9 @@ function kindOf(k: string): ChatItemKind {
     case "streaming":
     case "thinking":
     case "thinking_live":
+    case "edit":
+    case "todos":
+    case "goal":
     case "interaction":
     case "done":
     case "error":
@@ -318,12 +321,20 @@ export function reduceDurable(d: DurableThreadState, ev: WireLikeEvent): Durable
     // identity (turnId, itemId)
     const toolKey = `tool:${turnId}:${itemId}`;
     const prev = next.itemsById[toolKey] || existing;
+    const exitCode = ev.exitCode;
+    const durationMs = ev.durationMs;
     const item: ChatItem = {
       id: toolKey,
       turnId,
       kind: "tool",
       text: textOf(ev) || String((ev as { output?: string }).output ?? ""),
       toolName: String((ev as { name?: string }).name ?? "tool"),
+      toolInput: (ev as { input?: unknown }).input,
+      toolStatus: String((ev as { status?: string; state?: string }).status ?? (ev as { state?: string }).state ?? "completed"),
+      toolDetail: String((ev as { detail?: string }).detail ?? ""),
+      toolExitCode: typeof exitCode === "number" ? exitCode : undefined,
+      toolDurationMs: typeof durationMs === "number" ? durationMs : undefined,
+      toolTruncated: Boolean((ev as { truncated?: boolean }).truncated),
       sequence: seq,
       eventId,
       durable: true,
@@ -335,6 +346,45 @@ export function reduceDurable(d: DurableThreadState, ev: WireLikeEvent): Durable
       turn.itemIds = turn.itemIds.map((x) => (x === prev.id ? toolKey : x));
     }
     putItem(next, item, turn);
+    return next;
+  }
+
+  if (kind === "edit") {
+    const files = ev.files;
+    putItem(next, {
+      id, turnId, kind: "edit", text: textOf(ev), sequence: seq, eventId,
+      durable: true, promoted: true,
+      files: Array.isArray(files)
+        ? (files as Array<{ path?: unknown; add?: unknown; del?: unknown }>)
+            .map((file) => ({
+              path: String(file.path ?? ""),
+              add: typeof file.add === "number" ? file.add : null,
+              del: typeof file.del === "number" ? file.del : null,
+            }))
+            .filter((file) => file.path)
+        : [],
+    }, turn);
+    return next;
+  }
+
+  if (kind === "todos") {
+    const todos = ev.todos;
+    putItem(next, {
+      id, turnId, kind: "todos", text: textOf(ev), sequence: seq, eventId,
+      durable: true, promoted: true,
+      todos: Array.isArray(todos)
+        ? todos as Array<{ content?: string; status?: string; activeForm?: string }>
+        : [],
+    }, turn);
+    return next;
+  }
+
+  if (kind === "goal") {
+    putItem(next, {
+      id, turnId, kind: "goal", text: textOf(ev), sequence: seq, eventId,
+      durable: true, promoted: true,
+      goal: (ev as { goal?: Record<string, unknown> | null }).goal ?? null,
+    }, turn);
     return next;
   }
 

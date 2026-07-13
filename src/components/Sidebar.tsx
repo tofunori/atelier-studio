@@ -10,7 +10,17 @@ import { Thread } from "../lib/ws";
 import { wsSend } from "../lib/wsBus";
 import { t } from "../lib/i18n";
 const tr = t; // alias historique (t masqué par des variables locales dans les .map)
-import { Menu, MenuItem, MenuSeparator } from "./ui";
+import { LazyDropdownMenuItem } from "./ui/LazyDropdownMenu";
+import {
+  Sidebar as ShadcnSidebar,
+  SidebarContent,
+  SidebarGroup,
+  SidebarGroupContent,
+  SidebarGroupLabel,
+  SidebarHeader,
+  SidebarMenu,
+  SidebarProvider,
+} from "./shadcn/sidebar";
 import {
   CONVERSATIONS_VISIBLE,
   deriveProjectNavigatorModel,
@@ -119,7 +129,6 @@ export default function Sidebar(p: {
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const selAnchor = useRef<string | null>(null);
   const [menu, setMenu] = useState<ThreadMenu | null>(null);
-  const menuAnchorRef = useRef<HTMLElement | null>(null);
   const [projMenu, setProjMenu] = useState<{ root: string; x: number; y: number } | null>(null);
   const [resumeOpen, setResumeOpen] = useState(false);
   const [resumeProv, setResumeProv] = useState<"claude" | "codex">("claude");
@@ -264,15 +273,78 @@ export default function Sidebar(p: {
   }, [selected]);
 
   // -- menu de conversation (bouton ⋯, clic droit) -----------------------------
-  function openThreadMenu(threadId: string, anchor: HTMLElement) {
-    menuAnchorRef.current = anchor;
+  function openThreadMenu(threadId: string) {
     setMenu({ threadId, mode: "main" });
   }
 
-  const menuThread = menu ? p.threads.find((x) => x.id === menu.threadId) : undefined;
-  const menuOtherProjects = menuThread
-    ? p.projects.filter((root) => root !== threadRoot(menuThread))
-    : [];
+  function threadMenuItems(thread: Thread): LazyDropdownMenuItem[] {
+    const isOpen = menu?.threadId === thread.id;
+    if (isOpen && menu?.mode === "move") {
+      return [
+        {
+          key: "back",
+          label: <>‹ {t("thread.move")}</>,
+          keepOpen: true,
+          onSelect: () => setMenu({ threadId: thread.id, mode: "main" }),
+        },
+        ...p.projects
+          .filter((root) => root !== threadRoot(thread))
+          .map((root) => ({
+            key: `move-${root}`,
+            label: root.split("/").pop() ?? root,
+            onSelect: () => moveThreadTo(thread, root, () => setMenu(null)),
+          })),
+      ];
+    }
+    return [
+      {
+        key: "rename",
+        label: t("action.rename"),
+        onSelect: () => {
+          startRename(thread);
+          setMenu(null);
+        },
+      },
+      {
+        key: "favorite",
+        label: p.favorites.includes(thread.id)
+          ? t("action.remove-favorite")
+          : t("action.add-favorite"),
+        onSelect: () => {
+          p.onToggleFavorite(thread.id);
+          setMenu(null);
+        },
+      },
+      {
+        key: "copy-resume",
+        label: t("action.copy-resume"),
+        onSelect: () => {
+          copyResumeCommand(thread);
+          setMenu(null);
+        },
+      },
+      ...(p.projects.some((root) => root !== threadRoot(thread))
+        ? [{
+            key: "move",
+            label: t("thread.move"),
+            keepOpen: true,
+            onSelect: () => setMenu({ threadId: thread.id, mode: "move" }),
+          }]
+        : []),
+      {
+        key: "delete",
+        label: selected.size > 1 && selected.has(thread.id)
+          ? tr("sidebar.delete-many", { count: selected.size })
+          : t("action.delete"),
+        destructive: true,
+        separatorBefore: true,
+        onSelect: () => {
+          void deleteSelected(thread.id);
+          setMenu(null);
+        },
+      },
+    ];
+  }
 
   function copyResumeCommand(th: Thread | undefined) {
     if (!th?.sessionId) return;
@@ -306,10 +378,16 @@ export default function Sidebar(p: {
         onRowDoubleClick={() => startRename(th)}
         onRowContextMenu={(e) => {
           e.preventDefault();
-          openThreadMenu(th.id, e.currentTarget as HTMLElement);
+          openThreadMenu(th.id);
         }}
         onToggleFavorite={() => p.onToggleFavorite(th.id)}
-        onOpenMenu={(anchor) => openThreadMenu(th.id, anchor)}
+        onOpenMenu={() => openThreadMenu(th.id)}
+        menuOpen={menu?.threadId === th.id}
+        onMenuOpenChange={(open) => {
+          if (open) openThreadMenu(th.id);
+          else setMenu(null);
+        }}
+        menuItems={threadMenuItems(th)}
       />
     );
   }
@@ -332,148 +410,103 @@ export default function Sidebar(p: {
   const resultsEmpty = model.searching && shownConversations === 0;
 
   return (
-    <div className="sidebar pnav">
-      <ProjectHeader
-        mode={model.mode}
-        name={headerName}
-        root={model.identity?.root ?? null}
-        meta={meta}
-        searchOpen={searchOpen}
-        query={query}
-        onQueryChange={setQuery}
-        onToggleSearch={setSearchOpen}
-        onNew={() => (model.mode === "project" ? p.onNew(p.activeProject!) : p.onNewChat())}
-        onOpenResume={openResume}
-        onRevealFinder={() => {
-          const root = p.activeProject;
-          if (root) revealItemInDir(root).catch(() => openUrl("file://" + root).catch(() => {}));
-        }}
-        onCustomize={(at) => {
-          if (p.activeProject) setProjMenu({ root: p.activeProject, x: at.x, y: at.y });
-        }}
-        onRemoveProject={() => {
-          if (p.activeProject) p.onRemoveProject(p.activeProject);
-        }}
-      />
+    <SidebarProvider className="tw:w-full tw:min-h-0">
+      <ShadcnSidebar collapsible="none" className="sidebar pnav">
+        <SidebarHeader className="tw:gap-0 tw:p-0">
+          <ProjectHeader
+            mode={model.mode}
+            name={headerName}
+            root={model.identity?.root ?? null}
+            meta={meta}
+            searchOpen={searchOpen}
+            query={query}
+            onQueryChange={setQuery}
+            onToggleSearch={setSearchOpen}
+            onNew={() => (model.mode === "project" ? p.onNew(p.activeProject!) : p.onNewChat())}
+            onOpenResume={openResume}
+            onRevealFinder={() => {
+              const root = p.activeProject;
+              if (root) revealItemInDir(root).catch(() => openUrl("file://" + root).catch(() => {}));
+            }}
+            onCustomize={(at) => {
+              if (p.activeProject) setProjMenu({ root: p.activeProject, x: at.x, y: at.y });
+            }}
+            onRemoveProject={() => {
+              if (p.activeProject) p.onRemoveProject(p.activeProject);
+            }}
+          />
+        </SidebarHeader>
 
-      {/* key = contexte : remount + fondu 140 ms au changement de projet */}
-      <div className="side-scroll pnav-scroll" key={p.activeProject ?? "@sans-projet"}>
+        <SidebarContent className="tw:min-h-0 tw:overflow-hidden tw:p-0">
+          {/* key = contexte : remount + fondu 140 ms au changement de projet */}
+          <div className="side-scroll pnav-scroll" key={p.activeProject ?? "@sans-projet"}>
         {contextEmpty && (
           <p className="pnav-empty">
             {t(model.mode === "project" ? "sidebar.empty-project" : "sidebar.empty-unscoped")}
           </p>
         )}
 
-        {model.continueThread && (
-          <section className="pnav-group">
-            <h3 className="pnav-sec">{t("sidebar.continue")}</h3>
-            <ul className="pnav-list">{renderRow(model.continueThread, "continue")}</ul>
-          </section>
-        )}
+            {model.continueThread && (
+              <SidebarGroup className="pnav-group tw:p-0">
+                <SidebarGroupLabel as="h3" className="pnav-sec tw:h-auto tw:rounded-none tw:p-0">
+                  {t("sidebar.continue")}
+                </SidebarGroupLabel>
+                <SidebarGroupContent className="tw:p-0">
+                  <SidebarMenu className="pnav-list tw:p-0">{renderRow(model.continueThread, "continue")}</SidebarMenu>
+                </SidebarGroupContent>
+              </SidebarGroup>
+            )}
 
-        {model.pinnedThreads.length > 0 && (
-          <section className="pnav-group">
-            <h3 className="pnav-sec">{t("sidebar.pinned")}</h3>
-            <ul className="pnav-list">{model.pinnedThreads.map((th) => renderRow(th, "pinned"))}</ul>
-          </section>
-        )}
+            {model.pinnedThreads.length > 0 && (
+              <SidebarGroup className="pnav-group tw:p-0">
+                <SidebarGroupLabel as="h3" className="pnav-sec tw:h-auto tw:rounded-none tw:p-0">
+                  {t("sidebar.pinned")}
+                </SidebarGroupLabel>
+                <SidebarGroupContent className="tw:p-0">
+                  <SidebarMenu className="pnav-list tw:p-0">
+                    {model.pinnedThreads.map((th) => renderRow(th, "pinned"))}
+                  </SidebarMenu>
+                </SidebarGroupContent>
+              </SidebarGroup>
+            )}
 
-        {(model.conversationSections.length > 0 || model.searching) && !resultsEmpty && (
-          <section className="pnav-group">
-            <h3 className="pnav-sec">
-              {t(model.searching ? "sidebar.results" : "sidebar.conversations")}
-            </h3>
-            <ul className="pnav-list">
-              {model.conversationSections.map((sec) => (
-                <Fragment key={sec.key}>
-                  {sec.bucket && (
-                    <li className="thread-recency-label" role="presentation">
-                      {tr(recencyLabelKey(sec.bucket))}
-                    </li>
+            {(model.conversationSections.length > 0 || model.searching) && !resultsEmpty && (
+              <SidebarGroup className="pnav-group tw:p-0">
+                <SidebarGroupLabel as="h3" className="pnav-sec tw:h-auto tw:rounded-none tw:p-0">
+                  {t(model.searching ? "sidebar.results" : "sidebar.conversations")}
+                </SidebarGroupLabel>
+                <SidebarGroupContent className="tw:p-0">
+                  <SidebarMenu className="pnav-list tw:p-0">
+                    {model.conversationSections.map((sec) => (
+                      <Fragment key={sec.key}>
+                        {sec.bucket && (
+                          <li className="thread-recency-label" role="presentation">
+                            {tr(recencyLabelKey(sec.bucket))}
+                          </li>
+                        )}
+                        {sec.threads.map((th) => renderRow(th, "conversation"))}
+                      </Fragment>
+                    ))}
+                  </SidebarMenu>
+                  {model.hiddenCount > 0 && (
+                    <button type="button" className="pnav-more" onClick={() => setExpanded(true)}>
+                      {t("sidebar.older-count", { count: model.hiddenCount })}
+                    </button>
                   )}
-                  {sec.threads.map((th) => renderRow(th, "conversation"))}
-                </Fragment>
-              ))}
-            </ul>
-            {model.hiddenCount > 0 && (
-              <button type="button" className="pnav-more" onClick={() => setExpanded(true)}>
-                {t("sidebar.older-count", { count: model.hiddenCount })}
-              </button>
+                  {expanded && !model.searching && shownConversations > CONVERSATIONS_VISIBLE && (
+                    <button type="button" className="pnav-more" onClick={() => setExpanded(false)}>
+                      {t("sidebar.show-less")}
+                    </button>
+                  )}
+                </SidebarGroupContent>
+              </SidebarGroup>
             )}
-            {expanded && !model.searching && shownConversations > CONVERSATIONS_VISIBLE && (
-              <button type="button" className="pnav-more" onClick={() => setExpanded(false)}>
-                {t("sidebar.show-less")}
-              </button>
-            )}
-          </section>
-        )}
 
-        {resultsEmpty && <p className="pnav-empty">{t("sidebar.no-results", { q: query })}</p>}
-      </div>
+            {resultsEmpty && <p className="pnav-empty">{t("sidebar.no-results", { q: query })}</p>}
+          </div>
+        </SidebarContent>
 
-      {/* menu de conversation : renommer / favori / copier resume / déplacer / supprimer */}
-      <Menu
-        open={!!menu}
-        onClose={() => setMenu(null)}
-        anchorRef={menuAnchorRef}
-        label={t("thread.more-actions")}
-        placement="bottom-start"
-        className="pnav-thread-menu"
-      >
-        {menu?.mode === "move" ? (
-          <>
-            <button
-              type="button"
-              role="menuitem"
-              className="ui-menu-item pnav-menu-back"
-              autoFocus
-              onClick={() => setMenu(menu ? { ...menu, mode: "main" } : null)}
-            >
-              ‹ {t("thread.move")}
-            </button>
-            {menuOtherProjects.map((root) => (
-              <MenuItem key={root} onSelect={() => moveThreadTo(menuThread, root, () => setMenu(null))}>
-                {root.split("/").pop()}
-              </MenuItem>
-            ))}
-          </>
-        ) : (
-          <>
-            <MenuItem onSelect={() => { if (menuThread) startRename(menuThread); }}>
-              {t("action.rename")}
-            </MenuItem>
-            <MenuItem onSelect={() => { if (menu) p.onToggleFavorite(menu.threadId); }}>
-              {menu && p.favorites.includes(menu.threadId)
-                ? t("action.remove-favorite")
-                : t("action.add-favorite")}
-            </MenuItem>
-            <MenuItem onSelect={() => copyResumeCommand(menuThread)}>
-              {t("action.copy-resume")}
-            </MenuItem>
-            {menuOtherProjects.length > 0 && (
-              <button
-                type="button"
-                role="menuitem"
-                className="ui-menu-item"
-                onClick={() => setMenu(menu ? { ...menu, mode: "move" } : null)}
-              >
-                {t("thread.move")}
-              </button>
-            )}
-            <MenuSeparator />
-            <MenuItem
-              className="danger"
-              onSelect={() => { if (menu) void deleteSelected(menu.threadId); }}
-            >
-              {menu && selected.size > 1 && selected.has(menu.threadId)
-                ? tr("sidebar.delete-many", { count: selected.size })
-                : t("action.delete")}
-            </MenuItem>
-          </>
-        )}
-      </Menu>
-
-      {resumeOpen && (
+        {resumeOpen && (
         <div className="rail-menu resume-pop" onClick={(e) => e.stopPropagation()}>
           <div className="rail-menu-title">{t("sidebar.resume-title")}</div>
           <div className="seg">
@@ -514,6 +547,7 @@ export default function Sidebar(p: {
           style={{ left: projMenu.x, top: projMenu.y, position: "fixed" }}
         />
       )}
-    </div>
+      </ShadcnSidebar>
+    </SidebarProvider>
   );
 }

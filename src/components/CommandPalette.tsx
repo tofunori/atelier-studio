@@ -1,7 +1,16 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { fuzzyScore, PaletteItem, PaletteSection } from "../lib/palette";
 import { t } from "../lib/i18n";
-import { SearchIcon } from "./icons";
+import { Dialog, DialogContent, DialogTitle } from "./shadcn/dialog";
+import {
+  Command,
+  CommandEmpty,
+  CommandGroup,
+  CommandInput,
+  CommandItem,
+  CommandList,
+} from "./shadcn/command";
+import { Kbd, KbdGroup } from "./shadcn/kbd";
 
 const SECTION_ORDER: PaletteSection[] = ["actions", "surfaces", "fichiers", "chats", "references"];
 
@@ -19,13 +28,11 @@ export default function CommandPalette({
   onClose: () => void;
 }) {
   const [query, setQuery] = useState("");
-  const [active, setActive] = useState(0);
   const inputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     if (!open) return;
     setQuery("");
-    setActive(0);
     window.setTimeout(() => inputRef.current?.focus(), 0);
   }, [open]);
 
@@ -41,91 +48,63 @@ export default function CommandPalette({
     return SECTION_ORDER.flatMap((section) => scored.filter((item) => item.section === section));
   }, [items, query]);
 
-  useEffect(() => {
-    setActive((index) => Math.min(index, Math.max(visible.length - 1, 0)));
-  }, [visible.length]);
-
-  if (!open) return null;
-
   function run(item: PaletteItem) {
     item.run();
     onClose();
   }
 
-  function move(delta: number) {
-    if (!visible.length) return;
-    setActive((index) => (index + delta + visible.length) % visible.length);
-  }
-
-  let rendered = 0;
-
   return (
-    <div className="cmdk-overlay" role="presentation" onMouseDown={onClose}>
-      <div className="cmdk-panel" role="dialog" aria-modal="true" aria-label={t("palette.title")} onMouseDown={(e) => e.stopPropagation()}>
-        <div className="cmdk-search">
-          <SearchIcon size={14} />
-          <input
+    <Dialog open={open} onOpenChange={(next) => { if (!next) onClose(); }}>
+      <DialogContent
+        className="cmdk-panel"
+        overlayClassName="cmdk-dialog-overlay"
+        showCloseButton={false}
+        aria-label={t("palette.title")}
+      >
+        <DialogTitle className="tw:sr-only">{t("palette.title")}</DialogTitle>
+        <Command className="cmdk-root" shouldFilter={false} label={t("palette.placeholder")}>
+          <CommandInput
             ref={inputRef}
+            className="cmdk-input"
             value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "ArrowDown") {
-                e.preventDefault();
-                move(1);
-              } else if (e.key === "ArrowUp") {
-                e.preventDefault();
-                move(-1);
-              } else if (e.key === "Enter") {
-                e.preventDefault();
-                if (visible[active]) run(visible[active]);
-              } else if (e.key === "Escape") {
-                e.preventDefault();
-                onClose();
-              }
-            }}
+            onValueChange={setQuery}
             placeholder={t("palette.placeholder")}
             aria-label={t("palette.placeholder")}
-            role="combobox"
-            aria-expanded="true"
-            aria-controls="cmdk-listbox"
-            aria-activedescendant={visible[active] ? `cmdk-opt-${active}` : undefined}
           />
-        </div>
-        <div id="cmdk-listbox" className="cmdk-list" role="listbox" aria-label={t("palette.results")}>
-          {visible.length === 0 && <div className="cmdk-empty">{t("palette.empty")}</div>}
+          <CommandList id="cmdk-listbox" className="cmdk-list" aria-label={t("palette.results")}>
+          <CommandEmpty className="cmdk-empty">{t("palette.empty")}</CommandEmpty>
           {SECTION_ORDER.map((section) => {
             const group = visible.filter((item) => item.section === section);
             if (!group.length) return null;
             return (
-              <div className="cmdk-group" key={section}>
-                <div className="cmdk-heading">{sectionLabel(section)}</div>
-                {group.map((item) => {
-                  const index = rendered++;
-                  return (
-                    <button
-                      type="button"
+              <CommandGroup className="cmdk-group" key={section} heading={sectionLabel(section)}>
+                {group.map((item) => (
+                    <CommandItem
                       key={item.id}
-                      id={`cmdk-opt-${index}`}
-                      className={`cmdk-item ${index === active ? "active" : ""}`}
-                      role="option"
-                      aria-selected={index === active}
-                      onMouseEnter={() => setActive(index)}
-                      onClick={() => run(item)}
+                      value={item.id}
+                      keywords={[item.label, item.hint ?? ""]}
+                      className="cmdk-item"
+                      onSelect={() => run(item)}
                     >
                       {item.icon && <span className="cmdk-icon">{item.icon}</span>}
                       <span className="cmdk-copy">
                         <span className="cmdk-label">{item.label}</span>
                         {item.hint && <span className="cmdk-hint">{item.hint}</span>}
                       </span>
-                    </button>
-                  );
-                })}
-              </div>
+                    </CommandItem>
+                ))}
+              </CommandGroup>
             );
           })}
+          </CommandList>
+        <div className="cmdk-footer">
+          <KbdGroup aria-label={t("palette.navigate")}><Kbd>↑</Kbd><Kbd>↓</Kbd></KbdGroup>
+          <span>{t("palette.navigate")}</span><span aria-hidden="true">·</span>
+          <Kbd>↵</Kbd><span>{t("palette.open")}</span><span aria-hidden="true">·</span>
+          <Kbd>esc</Kbd><span>{t("palette.close")}</span>
         </div>
-        <div className="cmdk-footer">{t("palette.footer")}</div>
-      </div>
-    </div>
+        </Command>
+      </DialogContent>
+    </Dialog>
   );
 }

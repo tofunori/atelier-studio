@@ -5,6 +5,8 @@
 import { useEffect, useState } from "react";
 import { t } from "../../lib/i18n";
 import type { AgentEvent } from "../../lib/ws";
+import { Input } from "../shadcn/input";
+import { Progress } from "../shadcn/progress";
 
 export type GoalInfo = NonNullable<Extract<AgentEvent, { kind: "goal" }>["goal"]>;
 
@@ -51,6 +53,9 @@ export function GoalBar(props: {
     ? t("goal.status.awaiting")
     : t(`goal.status.${goal.status}` as Parameters<typeof t>[0]);
   const tokens = fmtTokens(goal);
+  const tokenProgress = goal.tokenBudget && goal.tokenBudget > 0
+    ? Math.min(100, Math.max(0, (goal.tokensUsed / goal.tokenBudget) * 100))
+    : null;
 
   const commitEdit = () => {
     const v = editText.trim();
@@ -99,6 +104,13 @@ export function GoalBar(props: {
             {goal.timeUsedSeconds > 0 && <span>{t("goal.time")} : {fmtGoalTime(goal.timeUsedSeconds)}</span>}
             {tokens && <span>{t("goal.tokens")} : {tokens}</span>}
             <span>{statusLabel}</span>
+            {tokenProgress != null && (
+              <Progress
+                className="goal-bar-progress"
+                value={tokenProgress}
+                aria-label={`${t("goal.tokens")} : ${tokens}`}
+              />
+            )}
           </div>
           <div className="goal-bar-detail-actions">
             <button
@@ -120,7 +132,7 @@ export function GoalBar(props: {
       )}
       {editing && (
         <div className="goal-bar-edit">
-          <input
+          <Input
             autoFocus
             value={editText}
             onChange={(ev) => setEditText(ev.target.value)}

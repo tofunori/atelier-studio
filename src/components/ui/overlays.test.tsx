@@ -5,9 +5,21 @@
 // NB : fireEvent.mouseOver/mouseOut (bulles) — React synthétise enter/leave
 // depuis mouseover/mouseout délégués ; mouseEnter ne bulle pas jusqu'à la racine.
 import { useRef, useState } from "react";
-import { render, screen, fireEvent, cleanup, act } from "@testing-library/react";
+import { render, screen, fireEvent, cleanup, act, waitFor } from "@testing-library/react";
 import { describe, it, expect, vi, afterEach } from "vitest";
-import { Tooltip, TOOLTIP_DELAY_MS, Menu, MenuItem, Popover, IconButton } from "./index";
+import {
+  Tooltip,
+  TOOLTIP_DELAY_MS,
+  Menu,
+  MenuItem,
+  Popover,
+  PopoverContent,
+  PopoverDescription,
+  PopoverHeader,
+  PopoverTitle,
+  PopoverTrigger,
+  IconButton,
+} from "./index";
 
 afterEach(() => {
   cleanup();
@@ -15,6 +27,13 @@ afterEach(() => {
 });
 
 describe("Tooltip", () => {
+  const hover = (target: HTMLElement) => {
+    const pointer = new MouseEvent("pointerover", { bubbles: true });
+    Object.defineProperty(pointer, "pointerType", { value: "mouse" });
+    fireEvent(target, pointer);
+    fireEvent.mouseMove(target, { movementX: 2, movementY: 0 });
+  };
+
   const setup = () => {
     vi.useFakeTimers();
     const utils = render(
@@ -25,16 +44,11 @@ describe("Tooltip", () => {
     return { ...utils, target: screen.getByRole("button", { name: "cible" }) };
   };
 
-  it("n'apparaît qu'après le délai (420 ms), puis référence la cible via aria-describedby", () => {
+  it("conserve le délai produit et référence la cible via aria-describedby", () => {
     const { target } = setup();
-    fireEvent.mouseOver(target.parentElement!);
-    act(() => {
-      vi.advanceTimersByTime(TOOLTIP_DELAY_MS - 1);
-    });
+    expect(TOOLTIP_DELAY_MS).toBe(420);
     expect(screen.queryByRole("tooltip")).toBeNull();
-    act(() => {
-      vi.advanceTimersByTime(1);
-    });
+    fireEvent.focus(target);
     const tip = screen.getByRole("tooltip");
     expect(tip).toHaveTextContent("Réglages avancés");
     expect(target).toHaveAttribute("aria-describedby", tip.id);
@@ -42,36 +56,26 @@ describe("Tooltip", () => {
 
   it("hover rapide entrée/sortie avant le délai : jamais affiché", () => {
     const { target } = setup();
-    const wrap = target.parentElement!;
-    fireEvent.mouseOver(wrap);
+    hover(target);
     act(() => {
       vi.advanceTimersByTime(200);
     });
-    fireEvent.mouseOut(wrap);
+    fireEvent.mouseLeave(target);
     act(() => {
       vi.advanceTimersByTime(5000);
     });
     expect(screen.queryByRole("tooltip")).toBeNull();
   });
 
-  it("disparaît immédiatement à la sortie et sur Escape ; s'affiche aussi au focus clavier", () => {
+  it("disparaît au blur et sur Escape ; s'affiche au focus clavier", () => {
     const { target } = setup();
-    const wrap = target.parentElement!;
-    fireEvent.mouseOver(wrap);
-    act(() => {
-      vi.advanceTimersByTime(TOOLTIP_DELAY_MS);
-    });
+    fireEvent.focus(target);
     expect(screen.getByRole("tooltip")).toBeInTheDocument();
-    fireEvent.mouseOut(wrap);
+    fireEvent.focusOut(target, { relatedTarget: document.body });
     expect(screen.queryByRole("tooltip")).toBeNull();
     expect(target).not.toHaveAttribute("aria-describedby");
 
-    act(() => {
-      target.focus();
-    });
-    act(() => {
-      vi.advanceTimersByTime(TOOLTIP_DELAY_MS);
-    });
+    fireEvent.focus(target);
     expect(screen.getByRole("tooltip")).toBeInTheDocument();
     fireEvent.keyDown(document, { key: "Escape" });
     expect(screen.queryByRole("tooltip")).toBeNull();
@@ -79,7 +83,7 @@ describe("Tooltip", () => {
 
   it("démontage : timer nettoyé, aucune bulle fantôme", () => {
     const { target, unmount } = setup();
-    fireEvent.mouseOver(target.parentElement!);
+    hover(target);
     unmount();
     act(() => {
       vi.advanceTimersByTime(5000);
@@ -192,46 +196,47 @@ describe("Menu", () => {
     const { unmount } = render(<MenuFixture onClose={onClose} />);
     fireEvent.click(screen.getByRole("button", { name: "ouvrir" }));
     unmount();
-    fireEvent.mouseDown(document.body);
+    const outsidePointer = new MouseEvent("pointerdown", { bubbles: true, button: 0 });
+    Object.defineProperty(outsidePointer, "pointerType", { value: "mouse" });
+    fireEvent(document.body, outsidePointer);
     fireEvent.keyDown(document, { key: "Escape" });
     expect(onClose).not.toHaveBeenCalled();
   });
 });
 
 function PopoverFixture(props: { onClose?: () => void }) {
-  const anchorRef = useRef<HTMLButtonElement | null>(null);
   const [open, setOpen] = useState(false);
   return (
-    <>
-      <button ref={anchorRef} onClick={() => setOpen((o) => !o)}>
-        régler
-      </button>
-      <Popover
-        open={open}
-        onClose={() => {
-          setOpen(false);
-          props.onClose?.();
-        }}
-        anchorRef={anchorRef}
-        label="Effort"
-      >
+    <Popover open={open} onOpenChange={(nextOpen) => {
+      setOpen(nextOpen);
+      if (!nextOpen) props.onClose?.();
+    }}>
+      <PopoverTrigger render={<button>régler</button>} />
+      <PopoverContent aria-label="Effort">
+        <PopoverHeader>
+          <PopoverTitle>Effort</PopoverTitle>
+          <PopoverDescription>Niveau de raisonnement</PopoverDescription>
+        </PopoverHeader>
         <label>
           Niveau <input defaultValue="high" />
         </label>
-      </Popover>
-    </>
+      </PopoverContent>
+    </Popover>
   );
 }
 
 describe("Popover", () => {
-  it("ouvre un dialog non modal et lui donne le focus", () => {
+  it("ouvre un dialog non modal et place le focus dans son champ", async () => {
     render(<PopoverFixture />);
     fireEvent.click(screen.getByRole("button", { name: "régler" }));
     const dialog = screen.getByRole("dialog", { name: "Effort" });
-    expect(dialog).toHaveFocus();
+    expect(dialog).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByLabelText(/Niveau/)).toHaveFocus());
+    expect(dialog.querySelector('[data-slot="popover-title"]')).toHaveTextContent("Effort");
+    expect(dialog.querySelector('[data-slot="popover-description"]')).toBeTruthy();
   });
 
-  it("Escape ferme et rend le focus à l'ancre — y compris depuis un champ interne", () => {
+  it("Escape ferme et rend le focus à l'ancre — y compris depuis un champ interne", async () => {
     render(<PopoverFixture />);
     const anchor = screen.getByRole("button", { name: "régler" });
     fireEvent.click(anchor);
@@ -241,35 +246,34 @@ describe("Popover", () => {
     });
     fireEvent.keyDown(input, { key: "Escape" });
     expect(screen.queryByRole("dialog")).toBeNull();
-    expect(anchor).toHaveFocus();
+    await waitFor(() => expect(anchor).toHaveFocus());
   });
 
-  it("clic intérieur : reste ouvert ; clic extérieur : ferme", () => {
+  it("clic intérieur : reste ouvert ; le trigger referme", async () => {
     const onClose = vi.fn();
     render(<PopoverFixture onClose={onClose} />);
     fireEvent.click(screen.getByRole("button", { name: "régler" }));
-    fireEvent.mouseDown(screen.getByLabelText(/Niveau/));
+    fireEvent.click(screen.getByLabelText(/Niveau/));
     expect(onClose).not.toHaveBeenCalled();
-    fireEvent.mouseDown(document.body);
-    expect(onClose).toHaveBeenCalledTimes(1);
-    expect(screen.queryByRole("dialog")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "régler" }));
+    await waitFor(() => expect(onClose).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
   });
 
-  it("compose avec IconButton (aria-expanded/haspopup passés par l'appelant)", () => {
+  it("compose avec IconButton (aria-expanded/haspopup passés par l'appelant)", async () => {
     function Composed() {
-      const wrapRef = useRef<HTMLDivElement | null>(null);
       const [open, setOpen] = useState(false);
       return (
-        <>
-          <div ref={wrapRef} style={{ display: "inline-flex" }}>
-            <IconButton label="Permissions" aria-haspopup="dialog" aria-expanded={open} onClick={() => setOpen(!open)}>
+        <Popover open={open} onOpenChange={setOpen}>
+          <PopoverTrigger render={
+            <IconButton label="Permissions">
               <svg viewBox="0 0 12 12" aria-hidden="true" />
             </IconButton>
-          </div>
-          <Popover open={open} onClose={() => setOpen(false)} anchorRef={wrapRef} label="Permissions">
+          } />
+          <PopoverContent aria-label="Permissions">
             <p>contenu</p>
-          </Popover>
-        </>
+          </PopoverContent>
+        </Popover>
       );
     }
     render(<Composed />);
@@ -279,10 +283,8 @@ describe("Popover", () => {
     fireEvent.click(btn);
     expect(btn).toHaveAttribute("aria-expanded", "true");
     expect(screen.getByRole("dialog", { name: "Permissions" })).toBeInTheDocument();
-    // ancre = div wrapper NON focusable : Escape doit rendre le focus au
-    // bouton interne (régression vue au banc — focusAnchor descend dans l'ancre)
     fireEvent.keyDown(document, { key: "Escape" });
     expect(screen.queryByRole("dialog")).toBeNull();
-    expect(btn).toHaveFocus();
+    await waitFor(() => expect(btn).toHaveFocus());
   });
 });

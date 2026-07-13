@@ -22,6 +22,33 @@
     "--border-interactive": "--border-strong"
   };
 
+  /* Semantic aliases shared with Atelier's shadcn/Base UI primitives. Keep
+     the historical --accent untouched because legacy editors still use it as
+     a brand color; new gallery UI should consume --primary and --ring. */
+  var SHADCN = {
+    "--background": "var(--surface-app, var(--bg))",
+    "--foreground": "var(--text-primary, var(--txt))",
+    "--card-foreground": "var(--text-primary, var(--txt))",
+    "--popover": "var(--surface-overlay, var(--surface-raised, var(--card)))",
+    "--popover-foreground": "var(--text-primary, var(--txt))",
+    "--primary": "var(--accent-base, var(--accent))",
+    "--primary-foreground": "var(--surface-app, var(--bg))",
+    "--secondary": "var(--surface-inset, var(--card2))",
+    "--secondary-foreground": "var(--text-secondary, var(--fg, var(--txt)))",
+    "--muted-foreground": "var(--text-tertiary, var(--muted))",
+    "--accent-foreground": "var(--text-primary, var(--txt))",
+    "--destructive": "var(--status-error, #ff7b7b)",
+    "--input": "var(--border-interactive, var(--border-strong))",
+    "--ring": "var(--accent-base, var(--accent))"
+  };
+
+  function applyShadcnAliases(root) {
+    Object.keys(SHADCN).forEach(function (name) {
+      root.style.setProperty(name, SHADCN[name]);
+    });
+    root.dataset.shadcnContract = "gallery-v1";
+  }
+
   function applyTheme(message) {
     if (!message || message.type !== "atelier-theme") return;
     if (message.nonce && nonce && message.nonce !== nonce) return;
@@ -35,6 +62,7 @@
     Object.keys(LEGACY).forEach(function (semantic) {
       if (vars[semantic]) root.style.setProperty(LEGACY[semantic], vars[semantic]);
     });
+    applyShadcnAliases(root);
     root.dataset.atelierTheme = String(message.version || 1);
     root.style.colorScheme = message.colorScheme === "light" ? "light" : "dark";
     window.__atelierTheme = message;
@@ -57,4 +85,5 @@
   } else {
     requestTheme();
   }
+  applyShadcnAliases(document.documentElement);
 })();

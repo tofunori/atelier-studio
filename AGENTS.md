@@ -66,6 +66,25 @@ pgrep -f tauri-app >/dev/null && echo "OK" || echo "ÉCHEC — investiguer, ne p
 - ❌ modifier `src-tauri/gallery-dist/` directement (écrasé au prochain stage — modifier `gallery/`)
 - ❌ conclure « le fix ne marche pas » sans avoir vérifié qu'AUCUN zombie ne sert l'ancien code
 
+## Workflow shadcn/ui
+
+Pour toute création, utilisation ou mise à jour d'une primitive shadcn :
+
+- lire le skill projet `.agents/skills/shadcn/SKILL.md` et vérifier le contexte
+  avec `npx shadcn@latest info --json` ;
+- consulter `npx shadcn@latest docs <component>` et rechercher le registre avant
+  d'inventer une primitive ;
+- lancer `add <component> --dry-run`, puis examiner `--diff` si un fichier
+  existant est concerné ;
+- ne jamais utiliser `--overwrite`, `--force` ou `add --all` sans demande
+  explicite ; les sources shadcn restent dans `src/components/shadcn/` et
+  l'API produit dans `src/components/ui/` ;
+- conserver le préfixe Tailwind `tw`, les tokens Precision Native, l'absence de
+  Preflight et les règles de composition/a11y du skill ;
+- le serveur MCP de projet est déclaré dans `.mcp.json`. Le MCP Codex global,
+  s'il est nécessaire, se configure séparément dans `~/.codex/config.toml` et
+  ne doit pas être modifié depuis ce dépôt sans autorisation explicite.
+
 ## Diagnostic express « je ne vois pas mon changement »
 
 ```bash
