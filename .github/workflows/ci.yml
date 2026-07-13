@@ -10,9 +10,12 @@ concurrency:
 
 jobs:
   verify:
-    runs-on: macos-latest
+    # Keep CI on the same deterministic Apple Silicon image as release.
+    runs-on: macos-15
     steps:
       - uses: actions/checkout@v4
+      - name: Require Apple Silicon runner
+        run: test "$(uname -m)" = arm64
       - uses: actions/setup-node@v4
         with:
           node-version: 22
