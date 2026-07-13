@@ -167,6 +167,8 @@ impl Provider for GrokProvider {
         let mut ok = true;
         let mut err_msg = None;
         let mut saw_done = false;
+        let mut full_text = String::new();
+        let mut text_flushed = false;
 
         loop {
             if (req.is_cancelled)() {
@@ -197,7 +199,16 @@ impl Provider for GrokProvider {
                             sid = Some(s.to_string());
                         }
                         let kind = ev.get("kind").and_then(|v| v.as_str()).unwrap_or("");
+                        if kind == "delta" {
+                            if let Some(text) = ev.get("text").and_then(|v| v.as_str()) {
+                                full_text.push_str(text);
+                            }
+                        }
                         if kind == "done" {
+                            if !text_flushed && !full_text.is_empty() {
+                                (req.on_event)(json!({"kind":"text","text": full_text.clone()}));
+                                text_flushed = true;
+                            }
                             saw_done = true;
                             ok = ev.get("ok").and_then(|v| v.as_bool()).unwrap_or(true);
                         }
@@ -226,6 +237,9 @@ impl Provider for GrokProvider {
 
         if !saw_done {
             if ok {
+                if !text_flushed && !full_text.is_empty() {
+                    (req.on_event)(json!({"kind":"text","text": full_text.clone()}));
+                }
                 (req.on_event)(json!({
                     "kind": "done", "ok": true, "result": "",
                     "usage": {"context":0,"output":0,"cost":null,"turns":null}

@@ -7,7 +7,7 @@ import { wsSend } from "../../lib/wsBus";
 import { t } from "../../lib/i18n";
 import { diffLineClass, openFileRef } from "./md";
 import { Tick } from "./toolPresentation";
-import { ActivityDisclosure } from "../ui";
+import { ActivityDisclosure, IconButton, Tooltip } from "../ui";
 import { Marker, MarkerContent, MarkerIcon } from "../shadcn/marker";
 
 export function DoneDiffToggle({ event, threadId }: {
@@ -272,13 +272,21 @@ export function ActivityCard({ event, live }: { event: Extract<AgentEvent, { kin
 }
 
 export function PinBtn({ pinned, onClick }: { pinned: boolean; onClick: () => void }) {
+  const label = pinned ? t("action.unpin-chapter") : t("action.pin-chapter");
   return (
-    <button title={pinned ? t("action.unpin-chapter") : t("action.pin-chapter")} onClick={onClick}
-      style={pinned ? { color: "var(--accent)" } : undefined}>
-      <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4">
-        <path d="M9.5 2.5l4 4-3 1-2.5 4.5-4-4L8.5 5.5l1-3z" />
-        <path d="M5.5 10.5L2.5 13.5" />
-      </svg>
-    </button>
+    <Tooltip label={label}>
+      <IconButton
+        size="s"
+        label={label}
+        onClick={onClick}
+        aria-pressed={pinned}
+        className={`msg-action${pinned ? " is-active" : ""}`}
+      >
+        <svg data-icon="inline-start" width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4" aria-hidden="true">
+          <path d="M9.5 2.5l4 4-3 1-2.5 4.5-4-4L8.5 5.5l1-3z" />
+          <path d="M5.5 10.5L2.5 13.5" />
+        </svg>
+      </IconButton>
+    </Tooltip>
   );
 }

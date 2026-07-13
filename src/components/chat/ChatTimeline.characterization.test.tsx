@@ -116,6 +116,25 @@ describe("timeline Chat — caractérisation avant extraction", () => {
     expect(assistantMessage.querySelector('[data-slot="message-footer"].msg-actions')).toBeTruthy();
   });
 
+  it("confirme visuellement la copie d'un message et nomme toutes les petites actions", async () => {
+    const writeText = vi.fn(async () => undefined);
+    Object.defineProperty(navigator, "clipboard", {
+      configurable: true,
+      value: { writeText },
+    });
+    renderUi(<Chat {...chatProps({ events: [events.user("Question"), events.text("Réponse à copier")] })} />);
+
+    const copyButtons = screen.getAllByRole("button", { name: /^(Copier|Copy)$/ });
+    expect(copyButtons).toHaveLength(2);
+    act(() => { copyButtons[1].click(); });
+
+    await waitFor(() => expect(writeText).toHaveBeenCalledWith("Réponse à copier"));
+    const confirmed = await screen.findByRole("button", { name: /^(Copié dans le presse-papiers|Copied to clipboard)$/ });
+    expect(confirmed.classList.contains("is-confirmed")).toBe(true);
+    expect(screen.getByRole("button", { name: /^(Fork : nouveau chat à partir d'ici|Fork: new chat from here)$/ })).toBeTruthy();
+    expect(screen.getAllByRole("button", { name: /^(Épingler comme chapitre|Pin as chapter)$/ })).toHaveLength(2);
+  });
+
   it("un outil est résumé en groupe (avant OU après un texte) et se déplie au clic", () => {
     // réalité : les outils consécutifs sont regroupés en une ligne résumée
     // (façon Codex) — le détail n'apparaît qu'en dépliant le groupe
@@ -269,7 +288,7 @@ describe("timeline Chat — caractérisation avant extraction", () => {
     expect(screen.getByText(/albedo_trends\.py/)).toBeTruthy();
   });
 
-  it("markdown riche : tableau scrollable et référence fichier interactive restent spécialisés", () => {
+  it("markdown riche : tableau fluide sans scroll horizontal et référence fichier interactive", () => {
     renderUi(
       <Chat {...chatProps({
         events: [
@@ -284,7 +303,8 @@ describe("timeline Chat — caractérisation avant extraction", () => {
         ],
       })} />,
     );
-    expect(document.querySelector(".md-table.typeset-scroll table")).toBeTruthy();
+    expect(document.querySelector(".md-table table")).toBeTruthy();
+    expect(document.querySelector(".md-table.typeset-scroll")).toBeNull();
     const fileRef = screen.getByRole("button", { name: "analysis/albedo_trends.py:12" });
     expect(fileRef.classList.contains("file-ref")).toBe(true);
   });

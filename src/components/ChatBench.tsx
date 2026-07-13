@@ -88,6 +88,35 @@ const MARKDOWN: AgentEvent[] = [
   { kind: "done", ok: true, result: "ok", projectRoot: "/tmp/bench", filesChanged: [], usage: { context: 12000, output: 640, cost: 0.02, turns: 1 }, ts: ts(290) } as AgentEvent,
 ];
 
+const NO_HORIZONTAL_SCROLL: AgentEvent[] = [
+  { kind: "user", text: "Explique le pipeline scientifique complet.", ts: ts(300) } as AgentEvent,
+  {
+    kind: "text",
+    text: [
+      "### Ce que la figure montre",
+      "",
+      "| Panneau | Contenu |",
+      "| --- | --- |",
+      "| a | Somme domaine (11 régions) de l’équivalent de fonte potentiel, en Gt w.e./an, avec une description volontairement longue |",
+      "| b | Intensité régionale (mm w.e./an, moyenne pondérée par aire glacier) : 22 points scientifiques |",
+      "",
+      "$$",
+      "\\mathrm{RF}=-\\Delta\\alpha_{fire,JJA}\\times SW\\qquad[\\mathrm{W\\,m^{-2}}]",
+      "$$",
+      "",
+      "$$",
+      "\\mathrm{melt}=\\mathrm{RF}\\times92\\times86400/L_f\\qquad[\\mathrm{mm\\,w.e.}]",
+      "$$",
+      "",
+      "```python",
+      "result = compute_fire_melt_budget_for_every_region_and_year_with_a_deliberately_long_identifier(dataset)",
+      "```",
+    ].join("\n"),
+    ts: ts(295),
+  } as AgentEvent,
+  { kind: "done", ok: true, result: "ok", projectRoot: "/tmp/bench", filesChanged: [], ts: ts(290) } as AgentEvent,
+];
+
 const CONTEXTS_ATTACHMENTS = [
   { name: "albedo_trends.csv", lines: null, text: "ctx-1", kind: "file" as const },
   { name: "fig3_spatial.svg", lines: null, text: "ctx-2", kind: "file" as const },
@@ -103,6 +132,7 @@ const STATES: Record<string, { events: AgentEvent[]; workingSince: number | null
   error: { events: ERROR, workingSince: null, attachments: [], usage: null },
   contexts: { events: MARKDOWN.slice(0, 1), workingSince: null, attachments: CONTEXTS_ATTACHMENTS, usage: null },
   markdown: { events: MARKDOWN, workingSince: null, attachments: [], usage: null },
+  overflow: { events: NO_HORIZONTAL_SCROLL, workingSince: null, attachments: [], usage: null },
   goal: {
     events: [...RICH, { kind: "goal", goal: {
       objective: "Reprendre l'analyse des tendances régionales et produire une figure 3 vérifiée pour le manuscrit",

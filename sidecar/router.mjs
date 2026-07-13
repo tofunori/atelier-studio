@@ -429,6 +429,25 @@ export async function emitProviderGlobal(threadId, event, ctx = {}) {
 const journalReady = new Set();
 const harnessJournalUsed = new Map(); // threadId -> bool (le harnais cache a-t-il été créé AVEC journal ?)
 
+function dialogueScore(events) {
+  let texts = 0;
+  let users = 0;
+  for (const event of events ?? []) {
+    if (event?.kind === "text") texts += 1;
+    else if (event?.kind === "user") users += 1;
+  }
+  return [texts, users];
+}
+
+function preferRicherDialogue(journalEvents, nativeEvents) {
+  const [journalTexts, journalUsers] = dialogueScore(journalEvents);
+  const [nativeTexts, nativeUsers] = dialogueScore(nativeEvents);
+  return nativeTexts > journalTexts ||
+    (nativeTexts === journalTexts && nativeUsers > journalUsers)
+    ? nativeEvents
+    : journalEvents;
+}
+
 async function harnessFor(ctx, threadId, provider) {
   const journal = (ctx.harnessJournal && journalReady.has(threadId)) ? ctx.harnessJournal : null;
   const wantJournal = !!journal;
@@ -1208,18 +1227,25 @@ export async function route(msg, ctx) {
       break;
     }
     case "getHistory": {
+      const t = ctx.store.get(msg.threadId);
       // journal canonique d'abord (plan 025) : replay sémantique complet, avec
-      // meta — JAMAIS concaténé aux loaders provider (risque de doublons)
+      // meta. Exception Grok : les anciens runs Rust n'ont journalisé que les
+      // deltas éphémères, donc le journal peut contenir user+done sans aucune
+      // réponse. Le transcript natif est alors choisi EN BLOC s'il porte un
+      // dialogue plus complet (jamais concaténé, donc aucun doublon).
       if (ctx.harnessJournal?.hasJournal(msg.threadId)) {
         try {
-          const events = await ctx.harnessJournal.materialize(msg.threadId);
+          let events = await ctx.harnessJournal.materialize(msg.threadId);
+          if (t?.provider === "grok" && t.sessionId && ctx.sessions?.grokHistory) {
+            const native = await ctx.sessions.grokHistory(t.sessionId, t.projectRoot);
+            events = preferRicherDialogue(events, native);
+          }
           ctx.send({ type: "history", threadId: msg.threadId, events });
           break;
         } catch (e) {
           console.warn("[atelier] journal illisible, repli loaders provider:", e);
         }
       }
-      const t = ctx.store.get(msg.threadId);
       if (!t?.sessionId) {
         ctx.send({ type: "history", threadId: msg.threadId, events: [] });
         break;

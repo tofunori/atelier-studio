@@ -97,11 +97,11 @@ describe("vertical slice D+E", () => {
     });
 
     fireEvent.click(screen.getByRole("tab", { name: "Réglages" }));
-    fireEvent.click(await screen.findByRole("button", { name: /Appairer|Réappareiller/i }));
+    fireEvent.click(await screen.findByRole("button", { name: /Connecter|Reconnecter/i }));
 
-    const code = await screen.findByLabelText(/Code d'appairage/i);
+    const code = await screen.findByLabelText(/Code affiché sur le Mac/i);
     fireEvent.change(code, { target: { value: "ABCD2345" } });
-    fireEvent.click(screen.getByRole("button", { name: /^Appairer$/i }));
+    fireEvent.click(screen.getByRole("button", { name: /Connecter l’iPhone/i }));
 
     await waitFor(() => {
       expect(screen.getByRole("tab", { name: "Chats" })).toBeTruthy();

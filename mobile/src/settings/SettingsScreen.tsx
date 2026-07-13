@@ -12,12 +12,18 @@ import { Badge } from "@/components/ui/badge.tsx";
 import { Button } from "@/components/ui/button.tsx";
 import {
   Card,
+  CardAction,
   CardContent,
   CardDescription,
   CardFooter,
   CardHeader,
   CardTitle,
 } from "@/components/ui/card.tsx";
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from "@/components/ui/collapsible.tsx";
 import { Checkbox } from "@/components/ui/checkbox.tsx";
 import {
   Field,
@@ -30,7 +36,7 @@ import {
   FieldTitle,
 } from "@/components/ui/field.tsx";
 import { Spinner } from "@/components/ui/spinner.tsx";
-import { BellIcon, RefreshCwIcon, UnplugIcon } from "lucide-react";
+import { BellIcon, ChevronDownIcon, RefreshCwIcon, UnplugIcon } from "lucide-react";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -58,6 +64,7 @@ export function SettingsScreen(p: Props) {
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
   const [badgeCount, setBadgeCount] = useState(() => getBadgeCount());
+  const connection = connectionLabel(p.phase);
 
   const update = (patch: Partial<NotificationPrefs>) => {
     const next = { ...prefs, ...patch };
@@ -86,40 +93,49 @@ export function SettingsScreen(p: Props) {
   return (
     <div className="screen">
       <h1 className="screen-title">Réglages</h1>
-      <p className="screen-sub">Connexion au Mac Atelier via gateway distante.</p>
-      <Card>
+      <p className="screen-sub">Connexion, notifications et confidentialité.</p>
+      <Card size="sm">
         <CardHeader>
-          <CardTitle>Connexion</CardTitle>
-          <CardDescription>Le Mac utilisé par l’app mobile.</CardDescription>
+          <CardTitle>Mac Atelier</CardTitle>
+          <CardDescription>{p.credentials?.name ?? "Aucun Mac connecté"}</CardDescription>
+          <CardAction>
+            <Badge variant={connection.ready ? "default" : "secondary"}>{connection.label}</Badge>
+          </CardAction>
         </CardHeader>
-        <CardContent>
-          <FieldGroup className="gap-4">
-            <Field orientation="horizontal">
-              <FieldTitle>État</FieldTitle>
-              <Badge variant={p.phase === "ready" ? "default" : "secondary"}>{p.phase}</Badge>
-            </Field>
-            <Field>
-              <FieldTitle>Gateway</FieldTitle>
-              <FieldDescription className="break-all">
-                {p.credentials?.gatewayBaseUrl ?? p.gatewayUrl}
-              </FieldDescription>
-            </Field>
-        {p.credentials && (
-              <Field>
-                <FieldTitle>Appareil</FieldTitle>
-                <FieldDescription>{p.credentials.name}</FieldDescription>
-                <FieldDescription className="break-all">{p.credentials.deviceId}</FieldDescription>
-              </Field>
-        )}
-          </FieldGroup>
+        <CardContent className="flex flex-col gap-3">
+          <p className="text-sm text-muted-foreground">{connection.detail}</p>
+          <Collapsible>
+            <CollapsibleTrigger
+              render={<Button type="button" variant="ghost" size="sm" className="w-full justify-between" />}
+            >
+              Détails techniques
+              <ChevronDownIcon data-icon="inline-end" className="transition-transform in-aria-expanded:rotate-180" />
+            </CollapsibleTrigger>
+            <CollapsibleContent className="pt-2">
+              <FieldGroup className="gap-3">
+                <Field>
+                  <FieldTitle>Adresse</FieldTitle>
+                  <FieldDescription className="break-all">
+                    {p.credentials?.gatewayBaseUrl ?? p.gatewayUrl}
+                  </FieldDescription>
+                </Field>
+                {p.credentials && (
+                  <Field>
+                    <FieldTitle>Identifiant de l’iPhone</FieldTitle>
+                    <FieldDescription className="break-all">{p.credentials.deviceId}</FieldDescription>
+                  </Field>
+                )}
+              </FieldGroup>
+            </CollapsibleContent>
+          </Collapsible>
         </CardContent>
         <CardFooter className="flex-wrap gap-2">
           <Button type="button" variant="outline" size="sm" onClick={p.onRefresh}>
             <RefreshCwIcon data-icon="inline-start" />
             Rafraîchir
           </Button>
-          <Button type="button" variant="outline" size="sm" onClick={p.onOpenPairing}>
-            {p.credentials ? "Réappareiller" : "Appairer"}
+          <Button type="button" variant={p.credentials ? "outline" : "default"} size="sm" onClick={p.onOpenPairing}>
+            {p.credentials ? "Reconnecter" : "Connecter"}
           </Button>
           <Button type="button" variant="outline" size="sm" onClick={p.onOpenDiagnostics}>
             Diagnostics
@@ -145,7 +161,7 @@ export function SettingsScreen(p: Props) {
         </CardFooter>
       </Card>
 
-      <Card className="mt-4">
+      <Card size="sm" className="mt-4">
         <CardHeader>
           <CardTitle>Notifications</CardTitle>
           <CardDescription>
@@ -187,6 +203,25 @@ export function SettingsScreen(p: Props) {
       </Card>
     </div>
   );
+}
+
+function connectionLabel(phase: ConnectionPhase): { label: string; detail: string; ready: boolean } {
+  switch (phase) {
+    case "ready":
+      return { label: "Connecté", detail: "Les chats et les fichiers sont synchronisés avec le Mac.", ready: true };
+    case "connecting":
+      return { label: "Connexion…", detail: "Atelier cherche le Mac et rétablit la session.", ready: false };
+    case "offline":
+      return { label: "Hors ligne", detail: "Le Mac est indisponible. La reconnexion sera automatique.", ready: false };
+    case "tailscale_missing":
+      return { label: "Tailscale requis", detail: "Ouvrez Tailscale sur l’iPhone pour joindre le Mac.", ready: false };
+    case "auth_expired":
+      return { label: "À reconnecter", detail: "L’autorisation a expiré. Reconnectez cet iPhone au Mac.", ready: false };
+    case "version_incompatible":
+      return { label: "Mise à jour requise", detail: "L’app iOS et Atelier Mac doivent être mis à jour.", ready: false };
+    default:
+      return { label: "Non connecté", detail: "Connectez cet iPhone une seule fois à Atelier sur le Mac.", ready: false };
+  }
 }
 
 function NotificationOption(p: {

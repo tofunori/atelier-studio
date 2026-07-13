@@ -1,6 +1,7 @@
 //! WebSocket message routing (plan 033 — full Node case inventory, Porte 9).
 
 use crate::state::{AppState, QaSession};
+use crate::grok_history::{load_grok_history, prefer_richer_dialogue};
 use atelier_protocol::{ErrorMessage, PongMessage};
 use atelier_store::{get_all_ledgers, get_ledger, iso_now, read_settings, write_settings};
 use atelier_workspace::{
@@ -153,18 +154,26 @@ pub async fn route_ws(state: &AppState, text: &str) -> Vec<String> {
         }
         "getHistory" => {
             let id = msg.get("threadId").and_then(|v| v.as_str()).unwrap_or("");
-            if state.journal().has_journal(id) {
-                let events = state.journal().materialize(id);
-                return vec![json_msg(json!({
-                    "type": "history",
-                    "threadId": id,
-                    "events": events,
-                }))];
-            }
+            let journal = if state.journal().has_journal(id) {
+                state.journal().materialize(id)
+            } else {
+                Vec::new()
+            };
+            let thread = state.threads().lock().await.get(id).cloned();
+            let events = match thread {
+                Some(t) if t.provider == "grok" => {
+                    if let Some(session_id) = t.session_id.as_deref() {
+                        prefer_richer_dialogue(journal, load_grok_history(session_id))
+                    } else {
+                        journal
+                    }
+                }
+                _ => journal,
+            };
             vec![json_msg(json!({
                 "type": "history",
                 "threadId": id,
-                "events": [],
+                "events": events,
             }))]
         }
         "listHighlights" => {

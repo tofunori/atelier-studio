@@ -107,7 +107,6 @@ class FullscreenRegressionTests(unittest.TestCase):
         self.assertIn("lbOpenAny(rel);", gallery.split("function openInContext(rel){", 1)[1].split("function ", 1)[0])
         self.assertIn("body.querySelector('#inspOpen').onclick=()=>openInContext(rel);", gallery)
         self.assertIn("if(EMB || el.tagName==='BUTTON') openInContext(rel);", gallery)
-        self.assertIn("else openInContext(el.dataset.rel);", gallery)
         self.assertIn("type:'atelier-open-tab'", gallery)
 
     def test_embedded_gallery_header_uses_the_shared_canvas(self):
@@ -133,14 +132,14 @@ class FullscreenRegressionTests(unittest.TestCase):
         self.assertIn("html.emb{scrollbar-width:none}", gallery)
         self.assertIn("html.emb::-webkit-scrollbar,html.emb body::-webkit-scrollbar{width:0;height:0;display:none}", gallery)
 
-    def test_embedded_gallery_opens_directly_without_inspector_or_double_click_fullscreen(self):
+    def test_gallery_opens_directly_without_inspector_or_double_click_fullscreen(self):
         gallery = gallery_template()
 
         self.assertIn("html.emb #inspector,html.emb #inspScrim{display:none!important}", gallery)
-        self.assertIn("else if(act==='lb'){ if(EMB) lbOpen(rel); else selectCard(rel); }", gallery)
+        self.assertIn("else if(act==='lb'){ closeInspector(false); lbOpen(rel); }", gallery)
         self.assertIn("if(EMB || el.tagName==='BUTTON') openInContext(rel);", gallery)
-        self.assertIn("if(EMB){\n    document.body.classList.remove('has-insp');", gallery)
-        self.assertIn("if(EMB) return; // le premier clic a déjà ouvert la destination", gallery)
+        self.assertIn("selectedRel=rel;\n  document.body.classList.remove('has-insp');\n  paintSelection();", gallery)
+        self.assertNotIn("document.addEventListener('dblclick'", gallery)
         self.assertIn("if(!EMB) lbFsToggle();", gallery)
 
     def test_orca_native_viewer_uses_notch_safe_image_area(self):

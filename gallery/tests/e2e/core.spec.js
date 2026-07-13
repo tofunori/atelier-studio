@@ -1,6 +1,6 @@
 import { test, expect } from '@playwright/test';
 import { spawn, execFileSync } from 'node:child_process';
-import { mkdtempSync, writeFileSync, rmSync } from 'node:fs';
+import { mkdtempSync, writeFileSync, rmSync, realpathSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import net from 'node:net';
@@ -222,7 +222,7 @@ test('annotate: image lightbox posts an annotated PNG payload', async ({ page })
     });
 
     await page.goto(url);
-    await page.locator('[data-act="lb"][data-rel="preview-alpha.png"]').dblclick();
+    await page.locator('[data-act="lb"][data-rel="preview-alpha.png"]').click();
     await expect(page.locator('#lbImg')).toBeVisible();
     // refonte sobre : l'entrée est l'icône ✎ (#lbAnnot) et l'envoi passe par la
     // pilule (#annotPillSend), visible seulement avec ≥1 commentaire — on dessine
@@ -297,37 +297,31 @@ test('filters: workflow filter via popover shows an active chip, reset restores 
   });
 });
 
-test('select: click selects with aria-selected and the inspector follows across two cards', async ({ page }) => {
+test('viewer: one click opens a figure without the inspector', async ({ page }) => {
   await withGallery(async ({ url }) => {
     await page.goto(url);
     await page.locator('[data-act="lb"][data-rel="plot-alpha.svg"]').click();
-    await expect(page.locator('body')).toHaveClass(/has-insp/);
-    await expect(page.locator('#lb')).not.toHaveClass(/show/);
-    await expect(page.locator('#inspTitle')).toContainText('plot-alpha.svg');
-    await expect(page.locator('.card[aria-selected="true"]')).toHaveCount(1);
-
-    await page.locator('[data-act="lb"][data-rel="plot-beta.svg"]').click();
-    await expect(page.locator('#inspTitle')).toContainText('plot-beta.svg');
-    await expect(page.locator('.card[aria-selected="true"]')).toHaveCount(1);
-
-    // sections réelles de l'inspecteur, provenance honnête
-    await expect(page.locator('#inspBody h3')).toHaveText(['Identity', 'Workflow', 'Provenance', 'Organization', 'Actions']);
+    await expect(page.locator('#lb')).toHaveClass(/show/);
+    await expect(page.locator('body')).not.toHaveClass(/has-insp/);
+    await expect(page.locator('#lbPdf')).toHaveAttribute('src', /svg_viewer\.html.*plot-alpha\.svg/);
   });
 });
 
-test('workflow: status set from the inspector survives a reload (server-backed)', async ({ page }) => {
+test('workflow: status set from the card menu survives a reload (server-backed)', async ({ page }) => {
   await withGallery(async ({ url }) => {
     await page.goto(url);
-    await page.locator('[data-act="lb"][data-rel="plot-alpha.svg"]').click();
-    await page.locator('[data-iwf="candidate"]').click();
+    await page.locator('.card[data-card="plot-alpha.svg"]').hover();
+    await page.locator('[data-act="more"][data-rel="plot-alpha.svg"]').click();
+    await page.locator('[data-wfset="candidate"]').click();
     await expect(page.locator('.card[data-card="plot-alpha.svg"] .tag.wf')).toContainText('candidate');
     // le POST /state est débouncé (400 ms) — attendre qu'il parte
     await page.waitForTimeout(700);
 
     await page.reload();
     await expect(page.locator('.card[data-card="plot-alpha.svg"] .tag.wf')).toContainText('candidate');
-    await page.locator('[data-act="lb"][data-rel="plot-alpha.svg"]').click();
-    await expect(page.locator('[data-iwf="candidate"]')).toHaveClass(/on/);
+    await page.locator('.card[data-card="plot-alpha.svg"]').hover();
+    await page.locator('[data-act="more"][data-rel="plot-alpha.svg"]').click();
+    await expect(page.locator('[data-wfset="candidate"]').locator('..')).toHaveClass(/on/);
   });
 });
 
@@ -354,24 +348,29 @@ test('add-to-chat from an embedded gallery card is idempotent on rapid double ac
     const msg = await page.evaluate(() => window.__msgs.find(m => m.type === 'atelier-add-to-chat'));
     expect(msg.text).toContain('preview-alpha.png');
     expect(msg.text).toContain('lis-le (outil Read)');
+    expect(realpathSync(msg.path)).toBe(realpathSync(path.join(root, 'preview-alpha.png')));
+    expect(msg.name).toBe('preview-alpha.png');
+    expect(msg.previewUrl).toBe(`http://127.0.0.1:${port}/preview-alpha.png`);
   });
 });
 
 test('keyboard: arrows move the selection, Enter opens, Escape closes in cascade', async ({ page }) => {
   await withGallery(async ({ url }) => {
     await page.goto(url);
-    await page.locator('#grid .card [data-act="lb"]').first().click();
-    const first = await page.locator('#inspTitle').textContent();
     await page.locator('#grid').focus();
     await page.keyboard.press('ArrowRight');
-    await expect(page.locator('#inspTitle')).not.toHaveText(first);
+    const first = page.locator('#grid .card[aria-selected="true"]');
+    await expect(first).toHaveCount(1);
+    const firstRel = await first.getAttribute('data-card');
+
+    await page.keyboard.press('ArrowRight');
+    await expect(page.locator('#grid .card[aria-selected="true"]')).not.toHaveAttribute('data-card', firstRel);
+    await expect(page.locator('body')).not.toHaveClass(/has-insp/);
 
     await page.keyboard.press('Enter');
     await expect(page.locator('#lb')).toHaveClass(/show/);
-    await page.keyboard.press('Escape');           // 1er Escape : lightbox
+    await page.keyboard.press('Escape');
     await expect(page.locator('#lb')).not.toHaveClass(/show/);
-    await expect(page.locator('body')).toHaveClass(/has-insp/);
-    await page.keyboard.press('Escape');           // 2e : inspecteur
     await expect(page.locator('body')).not.toHaveClass(/has-insp/);
   });
 });
@@ -417,23 +416,29 @@ test('shadcn command bar: menu returns focus and density supports arrow keys', a
   });
 });
 
-test('800x600: command bar usable, inspector overlays as a drawer, no horizontal scroll', async ({ page }) => {
+test('705x795: command bar stays on one row and viewer opens without a drawer', async ({ page }) => {
   await withGallery(async ({ url }) => {
-    await page.setViewportSize({ width: 800, height: 600 });
+    await page.setViewportSize({ width: 705, height: 795 });
     await page.goto(url);
+    const toolbarBoxes = await page.locator('.gallery-command-bar > *').evaluateAll((elements) =>
+      elements
+        .map((element) => element.getBoundingClientRect())
+        .filter((rect) => rect.width > 4 && rect.height > 4)
+        .map((rect) => ({ top: Math.round(rect.top), right: Math.round(rect.right) })),
+    );
+    expect(Math.max(...toolbarBoxes.map((box) => box.top)) - Math.min(...toolbarBoxes.map((box) => box.top))).toBeLessThanOrEqual(2);
+    expect(Math.max(...toolbarBoxes.map((box) => box.right))).toBeLessThanOrEqual(705);
     await page.locator('#grid .card [data-act="lb"]').first().click();
-    await expect(page.getByRole('dialog', { name: 'plot-alpha.svg' })).toBeVisible();
-    await expect(page.locator('[data-slot="sheet-overlay"]')).toBeVisible();
-    await expect(page.getByRole('dialog', { name: 'plot-alpha.svg' })).toHaveCSS('z-index', '200');
-    const scrollW = await page.evaluate(() => document.documentElement.scrollWidth);
-    expect(scrollW).toBeLessThanOrEqual(801);
-    // le scrim ferme le tiroir
-    await page.locator('[data-slot="sheet-overlay"]').click({ position: { x: 10, y: 300 } });
+    await expect(page.locator('#lb')).toHaveClass(/show/);
     await expect(page.locator('body')).not.toHaveClass(/has-insp/);
+    const scrollW = await page.evaluate(() => document.documentElement.scrollWidth);
+    expect(scrollW).toBeLessThanOrEqual(706);
+    await page.locator('#lbClose').click();
+    await expect(page.locator('#lb')).not.toHaveClass(/show/);
   });
 });
 
-test('missing file: inspector shows a local error, the grid stays intact', async ({ page }) => {
+test('missing file: viewer opens and the grid stays intact', async ({ page }) => {
   await withGallery(async ({ url, root }) => {
     await page.goto(url);
     // La coquille charge /data après la navigation. Attendre la carte prouve
@@ -444,7 +449,7 @@ test('missing file: inspector shows a local error, the grid stays intact', async
     // le fichier disparaît du disque APRÈS le scan (cas réel : suppression externe)
     rmSync(path.join(root, 'preview-alpha.png'));
     await missingPreview.click();
-    await expect(page.locator('#inspNotice')).toContainText('Preview unavailable');
+    await expect(page.locator('#lb')).toHaveClass(/show/);
     await expect(page.locator('#grid .card')).toHaveCount(3);
   });
 });

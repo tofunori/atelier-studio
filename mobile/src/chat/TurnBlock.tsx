@@ -8,7 +8,6 @@ import { Bubble, BubbleContent } from "@/components/ui/bubble.tsx";
 import {
   Message,
   MessageContent as MessageBody,
-  MessageHeader,
 } from "@/components/ui/message.tsx";
 import { cn } from "@/lib/utils.ts";
 
@@ -74,7 +73,6 @@ function TurnBlockInner(p: Props) {
             data-promoted={it.promoted ? "1" : "0"}
           >
             <MessageBody className="max-w-full overflow-x-hidden">
-              <MessageHeader>{it.kind}</MessageHeader>
               <Bubble
                 variant={it.kind === "user" ? "secondary" : it.kind === "error" ? "destructive" : "ghost"}
                 align={it.kind === "user" ? "end" : "start"}
@@ -89,6 +87,7 @@ function TurnBlockInner(p: Props) {
                     it.kind === "thinking_live" && "shimmer",
                   )}
                 >
+                  {it.kind === "error" && <span className="message-error-label">Erreur</span>}
                   <MessageContent
                     text={it.text || (it.kind === "interaction" ? it.interactionTitle : "") || "…"}
                     markdown={it.kind !== "streaming" && it.kind !== "thinking_live"}

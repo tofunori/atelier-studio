@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>__TITLE__</title>
-<link rel="stylesheet" href=".fig_thumbs/shadcn-ui/gallery-ui.css?v=__VER__">
+<link id="galleryUiCss" rel="stylesheet">
 <style>
   :root{--ui-font:-apple-system,'SF Pro Text','Inter Variable',sans-serif;--code-font:ui-monospace,'SF Mono',Menlo,monospace; --bg:#1e2124; --card:#24282d; --card2:#2c2f34; --txt:#dadee3; --muted:#90969d; --faint:#62666c;
          --primary:#e77f3e; --primary-soft:color-mix(in srgb,var(--primary) 16%,transparent); --arch:#3a2f1a; --border:#383c41; --border-strong:#43474c;
@@ -768,6 +768,15 @@ function truncMid(name,max){
 }
 function esc(s){return String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));}
 function escA(s){return String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
+function chatAttachment(rel){
+  const name=rel.split('/').pop()||rel;
+  const ext=(name.split('.').pop()||'').toLowerCase();
+  const path='__ROOT__/'+rel;
+  const payload={type:'atelier-add-to-chat',path,name,
+    text:path+'\nFichier joint depuis la galerie atelier — lis-le (outil Read) avant de répondre.'};
+  if(['png','jpg','jpeg','gif','webp','svg'].includes(ext)) payload.previewUrl=new URL(rel,location.href).href;
+  return payload;
+}
 const EMB = new URLSearchParams(location.search).get('embedded')==='atelier' || window.self!==window.top;
 document.addEventListener('click',e=>{
   const el=e.target.closest('[data-act]'); if(!el) return;
@@ -776,9 +785,9 @@ document.addEventListener('click',e=>{
   else if(act==='sel') toggleSel(rel, el, e);
   else if(act==='hide') toggleHide(rel);
   else if(act==='del') delOne(rel);
-  // Embarqué : un clic ouvre directement le viewer ou l'onglet IDE. Dans la
-  // Gallery autonome, le clic simple conserve la sélection + inspecteur.
-  else if(act==='lb'){ if(EMB) lbOpen(rel); else selectCard(rel); }
+  // Les figures s'ouvrent directement dans le viewer, quel que soit l'hôte.
+  // Le panneau latéral réduisait inutilement l'espace disponible pour l'image.
+  else if(act==='lb'){ closeInspector(false); lbOpen(rel); }
   else if(act==='open'){
     if(EMB || el.tagName==='BUTTON') openInContext(rel); else selectCard(rel);
   }
@@ -792,8 +801,7 @@ document.addEventListener('click',e=>{
     // embarqué. Bloquer la double activation rapide avant de poster au host.
     if(el.dataset.addState==='added') return;
     el.dataset.addState='added';
-    __atelierPost({type:'atelier-add-to-chat',
-      text:'__ROOT__/'+rel+'\nFichier joint depuis la galerie atelier — lis-le (outil Read) avant de répondre.'});
+    __atelierPost(chatAttachment(rel));
     el.textContent='✓';
     setTimeout(()=>{ el.textContent='Chat'; delete el.dataset.addState; },1200);
   }
@@ -1392,10 +1400,10 @@ function buildSurfMenu(){
 }
 document.getElementById('surfMore').onclick=e=>{ e.stopPropagation(); buildSurfMenu(); menuToggle(document.getElementById('surfMenu'), e.currentTarget); };
 
-// ============ plan 019 — sélection de carte + inspecteur scientifique ========
-// Clic = sélectionner (l'inspecteur suit) ; double-clic ou « View » = ouvrir.
-// L'inspecteur n'affiche QUE des métadonnées réelles ; « final » est un statut
-// de workflow utilisateur, jamais une validation scientifique.
+// ============ sélection clavier + viewer direct =============================
+// Un clic sur une figure ouvre le viewer. La sélection interne reste disponible
+// pour la navigation clavier; les métadonnées et actions vivent sur la carte et
+// dans son menu ⋯, sans réduire la galerie avec un panneau latéral.
 let selectedRel=null, inspFindSeq=0, inspAddState='idle', inspAddTimer=0;
 function paintSelection(){
   document.querySelectorAll('#grid .card[data-card]').forEach(c=>{
@@ -1407,13 +1415,8 @@ function paintSelection(){
 function selectCard(rel){
   if(selectedRel!==rel){ inspAddState='idle'; }
   selectedRel=rel;
-  if(EMB){
-    document.body.classList.remove('has-insp');
-    paintSelection();
-    return;
-  }
-  document.body.classList.add('has-insp');
-  paintSelection(); updateInspector();
+  document.body.classList.remove('has-insp');
+  paintSelection();
 }
 function closeInspector(focusBack){
   if(!selectedRel && !document.body.classList.contains('has-insp')) return;
@@ -1535,8 +1538,7 @@ function updateInspector(){
     if(inspAddState!=='idle') return;
     inspAddState='pending'; ic.textContent='Adding…';
     try{
-      __atelierPost({type:'atelier-add-to-chat',
-        text:'__ROOT__/'+rel+'\nFichier joint depuis la galerie atelier — lis-le (outil Read) avant de répondre.'});
+      __atelierPost(chatAttachment(rel));
       inspAddState='added'; ic.textContent='Added to chat ✓';
     }catch(err){
       inspAddState='idle'; ic.textContent='Add to chat';
@@ -1564,14 +1566,6 @@ document.getElementById('grid').addEventListener('keydown',e=>{
   n=Math.max(0,Math.min(renderedRels.length-1,n));
   selectCard(renderedRels[n]); e.preventDefault();
   const c=document.querySelector('#grid .card.sel2'); if(c&&c.scrollIntoView) c.scrollIntoView({block:'nearest'});
-});
-// double-clic = ouvrir (le clic simple sélectionne)
-document.addEventListener('dblclick',e=>{
-  const el=e.target.closest('[data-act="lb"],[data-act="open"]'); if(!el) return;
-  if(EMB) return; // le premier clic a déjà ouvert la destination
-  if(el.tagName==='BUTTON') return;
-  if(el.dataset.act==='lb') lbOpen(el.dataset.rel);
-  else openInContext(el.dataset.rel);
 });
 document.getElementById('collChip').onclick=e=>{ e.stopPropagation(); buildCollectionChip(); menuToggle(document.getElementById('collMenu'), e.currentTarget); };
 document.getElementById('wfChip').onclick=e=>{ e.stopPropagation(); buildWorkflowChip(); menuToggle(document.getElementById('wfMenu'), e.currentTarget); };
@@ -2383,7 +2377,14 @@ render();
     }
   }, 2500);
 })();
-import('./.fig_thumbs/shadcn-ui/gallery-ui.js?v=__VER__')
+const galleryUiAsset=path=>{
+  const raw='/' + '.fig_thumbs/shadcn-ui/'+path+'?v=__VER__';
+  return window.AtelierRuntime&&AtelierRuntime.rewriteUrl
+    ? AtelierRuntime.rewriteUrl(raw)
+    : raw;
+};
+document.getElementById('galleryUiCss').href=galleryUiAsset('gallery-ui.css');
+import(galleryUiAsset('gallery-ui.js'))
   .catch(err=>console.error('[gallery-ui] React/shadcn mount failed',err));
 </script>
 </body>

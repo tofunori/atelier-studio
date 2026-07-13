@@ -4,7 +4,7 @@ import {
   InputGroupButton,
   InputGroupTextarea,
 } from "@/components/ui/input-group.tsx";
-import { ArrowUpIcon, SquareIcon } from "lucide-react";
+import { ArrowUpIcon, PaperclipIcon, SquareIcon } from "lucide-react";
 import { useCallback, useEffect, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
 
 const MAX_HEIGHT = 120;
@@ -15,6 +15,7 @@ type Props = {
   disabled?: boolean;
   onSend: (text: string) => void;
   onStop: () => void;
+  onAttach?: () => void;
   /** Optional attachment chips — reserved height so layout doesn't jump. */
   shelf?: ReactNode;
   hasShelf?: boolean;
@@ -66,10 +67,25 @@ export function Composer(p: Props) {
       >
         {p.shelf}
       </div>
-      <InputGroup className="min-h-11 w-full min-w-0 max-w-full overflow-hidden">
+      <InputGroup className="composer-input-group min-h-11 w-full min-w-0 max-w-full overflow-hidden">
+        {p.onAttach && (
+          <InputGroupAddon align="inline-start" className="composer-attach-addon">
+            <InputGroupButton
+              type="button"
+              size="icon-sm"
+              variant="ghost"
+              className="composer-attach"
+              aria-label="Joindre un fichier"
+              disabled={p.disabled}
+              onClick={p.onAttach}
+            >
+              <PaperclipIcon />
+            </InputGroupButton>
+          </InputGroupAddon>
+        )}
         <InputGroupTextarea
           ref={taRef}
-          className="field-sizing-fixed min-h-11 max-h-[120px] w-0 min-w-0 max-w-full flex-1 overflow-x-hidden [overflow-wrap:anywhere]"
+          className="composer-textarea field-sizing-fixed min-h-11 max-h-[120px] w-0 min-w-0 max-w-full flex-1 overflow-x-hidden [overflow-wrap:anywhere]"
           value={text}
           onChange={(e) => setText(e.target.value)}
           onKeyDown={onKeyDown}
@@ -84,6 +100,7 @@ export function Composer(p: Props) {
             type="button"
             size="icon-sm"
             variant={p.busy ? "ghost" : "default"}
+            className="composer-send"
             aria-label={p.busy ? "Arrêter" : "Envoyer"}
             disabled={p.disabled || (!p.busy && !text.trim())}
             onClick={() => {

@@ -21,6 +21,9 @@ export type AtelierAddToChatMessage = {
   type: "atelier-add-to-chat";
   nonce: string;
   text: string;
+  path?: string;
+  name?: string;
+  previewUrl?: string;
 };
 
 export type BrowserAddToChatMessage = {
@@ -106,8 +109,11 @@ export function isTrustedAtelierMessage(
       );
     case "atelier-add-to-chat":
       return (
-        hasOnlyKeys(data, ["type", "nonce", "text"]) &&
-        isBoundedString(data.text, MAX_TEXT_LENGTH)
+        hasOnlyKeys(data, ["type", "nonce", "text", "path", "name", "previewUrl"]) &&
+        isBoundedString(data.text, MAX_TEXT_LENGTH) &&
+        isOptionalBoundedString(data.path, MAX_URL_LENGTH) &&
+        isOptionalBoundedString(data.name, MAX_TITLE_LENGTH) &&
+        (data.previewUrl === undefined || isValidMessageUrl(data.previewUrl))
       );
     case "browser-add-to-chat":
       return (

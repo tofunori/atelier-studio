@@ -38,4 +38,16 @@ describe("isTrustedAtelierMessage", () => {
     expect(isTrustedAtelierMessage(ok, nonce)).toBe(true);
     expect(isTrustedAtelierMessage(ko, nonce)).toBe(false);
   });
+
+  it("accepte une pièce jointe galerie structurée avec aperçu", () => {
+    const e = msg("http://127.0.0.1:19000", {
+      type: "atelier-add-to-chat",
+      nonce,
+      text: "/projet/plot.png\nLis ce fichier.",
+      path: "/projet/plot.png",
+      name: "plot.png",
+      previewUrl: "http://127.0.0.1:19000/plot.png",
+    });
+    expect(isTrustedAtelierMessage(e, nonce)).toBe(true);
+  });
 });

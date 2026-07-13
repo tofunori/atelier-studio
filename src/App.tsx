@@ -781,8 +781,20 @@ export default function App() {
     return id;
   }
 
-  function attachContextToChat(text: string) {
-    const attachment = parseAttachment(text);
+  function attachContextToChat(
+    text: string,
+    file?: { path?: string; name?: string; previewUrl?: string },
+  ) {
+    const parsed = parseAttachment(text);
+    const attachment: Attachment = file?.path
+      ? {
+          ...parsed,
+          name: file.name || file.path.split("/").pop() || parsed.name,
+          path: file.path,
+          kind: "file",
+          imageUrl: file.previewUrl,
+        }
+      : parsed;
     ensureThreadForContext(attachment.name || t("app.context-chat-title"));
     lastInjected.current = text;
     setAttachments((l) => addAttachment(l, attachment));
@@ -1338,7 +1350,7 @@ export default function App() {
         }
       }
       if (data.type === "atelier-add-to-chat") {
-        attachContextToChat(data.text);
+        attachContextToChat(data.text, data);
       }
       if (data.type === "browser-add-to-chat") {
         let name = "extrait web";

@@ -41,6 +41,7 @@ import { useChatStore } from "./store/useChatStore.ts";
 import type { WireLikeEvent } from "./store/types.ts";
 import { Transcript } from "./Transcript.tsx";
 import { WorkingStatus } from "./WorkingStatus.tsx";
+import { threadDisplayTitle } from "./ThreadList.tsx";
 import { Alert, AlertAction, AlertDescription } from "@/components/ui/alert.tsx";
 import {
   Attachment,
@@ -52,10 +53,9 @@ import {
   AttachmentMedia,
   AttachmentTitle,
 } from "@/components/ui/attachment.tsx";
-import { Badge } from "@/components/ui/badge.tsx";
 import { Button } from "@/components/ui/button.tsx";
 import { Skeleton } from "@/components/ui/skeleton.tsx";
-import { ArrowLeftIcon, FileIcon, PaperclipIcon, RefreshCwIcon, XIcon } from "lucide-react";
+import { ArrowLeftIcon, FileIcon, RefreshCwIcon, XIcon } from "lucide-react";
 
 type Props = {
   threadId: string;
@@ -540,22 +540,25 @@ export function ChatScreen(p: Props) {
   return (
     <div className="chat-screen">
       <div className="chat-header">
-        <Button type="button" variant="ghost" size="sm" onClick={p.onBack}>
-          <ArrowLeftIcon data-icon="inline-start" />
-          Conversations
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon-lg"
+          className="chat-back"
+          aria-label="Retour aux conversations"
+          onClick={p.onBack}
+        >
+          <ArrowLeftIcon />
         </Button>
-        <h1 className="screen-title mb-0">
-          {p.title || p.threadId}
-        </h1>
-        <Badge variant="outline" aria-hidden>
-          flushes {store.metrics.visualFlushCount} · reduces {store.metrics.reduceCount}
-          {store.state.durable.lastSequence > 0
-            ? ` · seq ${store.state.durable.lastSequence}`
-            : ""}
-        </Badge>
-        {store.busy && <WorkingStatus />}
+        <div className="chat-heading">
+          <h1 className="chat-title">
+            {threadDisplayTitle(p.title || p.threadId, p.threadId)}
+          </h1>
+          <span className="chat-subtitle">Atelier Studio</span>
+        </div>
+        {store.busy && <WorkingStatus label="En cours" className="chat-working-status" />}
         {(syncLabel || p.offline) && (
-          <Alert role="status"><AlertDescription>{p.offline ? "Hors ligne — envoi mis en file" : syncLabel}</AlertDescription></Alert>
+          <Alert className="chat-network-status" role="status"><AlertDescription>{p.offline ? "Hors ligne — envoi mis en file" : syncLabel}</AlertDescription></Alert>
         )}
       </div>
       {loading && <Skeleton className="mx-4 mt-4 h-24" aria-label="Chargement" />}
@@ -589,14 +592,9 @@ export function ChatScreen(p: Props) {
       )}
       <Composer
         busy={store.busy}
-        hasShelf
+        hasShelf={attachments.length > 0}
         shelf={
-          <div className="flex min-w-0 items-center gap-2">
-            <Button type="button" variant="outline" size="sm" onClick={() => void onPickDocument()}>
-              <PaperclipIcon data-icon="inline-start" />
-              Fichier
-            </Button>
-            <AttachmentGroup>
+          <AttachmentGroup className="composer-attachments">
               {attachments.map((attachment) => (
                 <Attachment key={attachment.fileId} size="xs" state="idle">
                   <AttachmentMedia><FileIcon /></AttachmentMedia>
@@ -618,9 +616,9 @@ export function ChatScreen(p: Props) {
                   </AttachmentActions>
                 </Attachment>
               ))}
-            </AttachmentGroup>
-          </div>
+          </AttachmentGroup>
         }
+        onAttach={() => void onPickDocument()}
         onSend={(t) => void onSend(t)}
         onStop={() => void onStop()}
       />

@@ -46,6 +46,24 @@ test.describe("golden — chat et composer (#chatbench)", () => {
     shoot(page, { name: "chat-contexts-1512-dark", hash: "#chatbench-contexts", width: 1512, height: 883 }));
   test("markdown mermaid+code 1512", async ({ page }) =>
     shoot(page, { name: "chat-markdown-1512-dark", hash: "#chatbench-markdown", width: 1512, height: 883, settle: 1800 }));
+  test("réponse Grok-style sans scroll horizontal", async ({ page }) => {
+    await page.setViewportSize({ width: 800, height: 700 });
+    await page.goto("/#chatbench-overflow", { waitUntil: "networkidle" });
+    await page.locator(".katex-display").first().waitFor();
+    const result = await page.locator(".msg").evaluate((message) => ({
+      pageOverflows: document.documentElement.scrollWidth > document.documentElement.clientWidth + 1,
+      scrollContainers: [message, ...message.querySelectorAll("*")]
+        .filter((node) => {
+          const element = node as HTMLElement;
+          const overflowX = getComputedStyle(element).overflowX;
+          return (overflowX === "auto" || overflowX === "scroll")
+            && element.scrollWidth > element.clientWidth + 1;
+        })
+        .map((node) => (node as HTMLElement).className || node.nodeName),
+    }));
+    expect(result.pageOverflows).toBe(false);
+    expect(result.scrollContainers).toEqual([]);
+  });
 });
 
 test.describe("golden — Settings (#setbench)", () => {

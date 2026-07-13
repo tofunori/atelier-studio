@@ -30,6 +30,7 @@ import { useNetworkSession } from "./transport/useNetworkSession.ts";
 import type { DeviceCredentials } from "./transport/types.ts";
 
 const APP_VERSION = "0.1.0-i";
+const LAST_PROJECT_KEY = "atelier.mobile.lastProject.v1";
 
 type Overlay = "none" | "pairing" | "diagnostics" | "thread";
 
@@ -46,6 +47,13 @@ export default function App() {
   const [activeThreadId, setActiveThreadId] = useState<string | null>(null);
   const [networkEpoch, setNetworkEpoch] = useState(0);
   const [creatingThread, setCreatingThread] = useState(false);
+  const [selectedProjectId, setSelectedProjectId] = useState(() => {
+    try {
+      return localStorage.getItem(LAST_PROJECT_KEY) ?? "";
+    } catch {
+      return "";
+    }
+  });
 
   const session = useNetworkSession({
     credentials: creds,
@@ -75,6 +83,15 @@ export default function App() {
       cancelled = true;
     };
   }, []);
+
+  useEffect(() => {
+    if (!selectedProjectId) return;
+    try {
+      localStorage.setItem(LAST_PROJECT_KEY, selectedProjectId);
+    } catch {
+      /* Storage can be unavailable in private WebViews. */
+    }
+  }, [selectedProjectId]);
 
   // Deep links: atelier://open?threadId=…&requestId=…
   useEffect(() => {
@@ -303,10 +320,17 @@ export default function App() {
           <GalleryScreen
             credentials={creds}
             onNeedPair={() => setOverlay("pairing")}
+            selectedProjectId={selectedProjectId}
+            onProjectChange={setSelectedProjectId}
           />
         )}
         {overlay === "none" && tab === "files" && (
-          <FilesScreen credentials={creds} onNeedPair={() => setOverlay("pairing")} />
+          <FilesScreen
+            credentials={creds}
+            onNeedPair={() => setOverlay("pairing")}
+            selectedProjectId={selectedProjectId}
+            onProjectChange={setSelectedProjectId}
+          />
         )}
         {overlay === "none" && tab === "settings" && (
           <SettingsScreen

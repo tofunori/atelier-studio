@@ -63,6 +63,8 @@ const FILTERS: { id: GalleryFilter; label: string }[] = [
 type Props = {
   credentials: DeviceCredentials | null;
   onNeedPair: () => void;
+  selectedProjectId?: string;
+  onProjectChange?: (projectId: string) => void;
   /** grid = gallery figures, list = files browser */
   layout?: "grid" | "list";
   title?: string;
@@ -72,7 +74,12 @@ export function GalleryScreen(p: Props) {
   const layout = p.layout ?? "grid";
   const title = p.title ?? "Gallery";
   const [projects, setProjects] = useState<ProjectSummary[]>([]);
-  const [projectId, setProjectId] = useState<string>("");
+  const [localProjectId, setLocalProjectId] = useState<string>("");
+  const projectId = p.selectedProjectId ?? localProjectId;
+  const setProjectId = useCallback((nextProjectId: string) => {
+    setLocalProjectId(nextProjectId);
+    p.onProjectChange?.(nextProjectId);
+  }, [p.onProjectChange]);
   const [items, setItems] = useState<GalleryItem[]>([]);
   const [filter, setFilter] = useState<GalleryFilter>("all");
   const [query, setQuery] = useState("");
@@ -105,7 +112,7 @@ export function GalleryScreen(p: Props) {
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     }
-  }, [p.credentials, projectId]);
+  }, [p.credentials, projectId, setProjectId]);
 
   const loadGallery = useCallback(async () => {
     if (!p.credentials || !projectId) return;
@@ -243,12 +250,12 @@ export function GalleryScreen(p: Props) {
 
   return (
     <div className="screen gallery-screen" data-layout={layout}>
-      <div className="flex items-center justify-between gap-3">
+      <div className="gallery-header">
         <h1 className="screen-title">{title}</h1>
         <Button
           type="button"
-          variant="outline"
-          size="icon-lg"
+          variant="ghost"
+          size="icon-sm"
           aria-label="Actualiser"
           onClick={() => void loadGallery()}
           disabled={loading}
@@ -258,14 +265,19 @@ export function GalleryScreen(p: Props) {
       </div>
 
       {projects.length > 0 ? (
-        <Field>
-          <FieldLabel htmlFor="gallery-project">Projet</FieldLabel>
+        <Field className="gallery-project-field">
+          <FieldLabel htmlFor="gallery-project" className="sr-only">Projet</FieldLabel>
           <Select
             items={projectOptions}
             value={projectId}
             onValueChange={(value) => value && setProjectId(value)}
           >
-            <SelectTrigger id="gallery-project" className="w-full" aria-label="Projet">
+            <SelectTrigger
+              id="gallery-project"
+              size="sm"
+              className="gallery-project-trigger"
+              aria-label="Projet"
+            >
               <SelectValue />
             </SelectTrigger>
             <SelectContent alignItemWithTrigger={false}>
@@ -285,9 +297,10 @@ export function GalleryScreen(p: Props) {
       )}
 
       <ToggleGroup
-        className="my-3 max-w-full flex-wrap"
+        className="gallery-filters"
         size="sm"
-        variant="outline"
+        variant="default"
+        spacing={1}
         value={[filter]}
         onValueChange={(value) => {
           const next = value[0] as GalleryFilter | undefined;
@@ -301,6 +314,7 @@ export function GalleryScreen(p: Props) {
           <ToggleGroupItem
             key={f.id}
             value={f.id}
+            className="gallery-filter"
             aria-label={`Filtrer par ${f.label}`}
           >
             {f.label}
@@ -310,7 +324,6 @@ export function GalleryScreen(p: Props) {
 
       <div className="gallery-tools">
         <InputGroup>
-          <InputGroupAddon><SearchIcon /></InputGroupAddon>
           <InputGroupInput
             type="search"
             value={query}
@@ -321,6 +334,7 @@ export function GalleryScreen(p: Props) {
             placeholder="Rechercher…"
             aria-label="Rechercher dans les fichiers"
           />
+          <InputGroupAddon align="inline-start"><SearchIcon /></InputGroupAddon>
         </InputGroup>
         <Select
           items={sortOptions}
@@ -374,7 +388,7 @@ export function GalleryScreen(p: Props) {
             <div className="gallery-card-body">
               <div className="list-item-title">{it.name}</div>
               <div className="list-item-meta">
-                {it.kind} · {formatBytes(it.size)} · {formatDate(it.modifiedAt)}
+                {(it.ext || it.kind).toUpperCase()} · {formatBytes(it.size)} · {formatDate(it.modifiedAt)}
               </div>
             </div>
           </Item>

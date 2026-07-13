@@ -247,7 +247,14 @@ describe("orchestration App — caractérisation", () => {
 
     await act(async () => {
       window.dispatchEvent(new MessageEvent("message", {
-        data: { type: "atelier-add-to-chat", nonce, text: makeFigureAddToChatText() },
+        data: {
+          type: "atelier-add-to-chat",
+          nonce,
+          text: makeFigureAddToChatText(),
+          path: "/Users/test/projet/fig3_spatial.png",
+          name: "fig3_spatial.png",
+          previewUrl: "http://127.0.0.1:18790/fig3_spatial.png",
+        },
         origin: "http://127.0.0.1:18790",
       }));
       await flushMicrotasks(4);
@@ -255,6 +262,8 @@ describe("orchestration App — caractérisation", () => {
 
     // le chip du composer affiche le nom sans extension (citeLabel)
     expect(screen.getByText("fig3_spatial")).toBeTruthy();
+    const preview = screen.getByRole("img", { name: "fig3_spatial.png" }) as HTMLImageElement;
+    expect(preview.src).toBe("http://127.0.0.1:18790/fig3_spatial.png");
   });
 
   it("bascule Chat/Split/Atelier : en Atelier plein, le panneau chat est masqué SANS être démonté", async () => {

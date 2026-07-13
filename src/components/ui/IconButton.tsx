@@ -21,6 +21,7 @@ export const IconButton = React.forwardRef<HTMLButtonElement, {
   "aria-describedby"?: string;
   "aria-expanded"?: boolean;
   "aria-haspopup"?: React.AriaAttributes["aria-haspopup"];
+  "aria-pressed"?: boolean;
 }>((props, ref) => {
   const { label, size = "m", hit40, disabled, onClick, title, className, children } = props;
   const shadcnSize = size === "s" ? "icon-xs" : size === "l" ? "icon-lg" : "icon-sm";
@@ -35,6 +36,7 @@ export const IconButton = React.forwardRef<HTMLButtonElement, {
       aria-describedby={props["aria-describedby"]}
       aria-expanded={props["aria-expanded"]}
       aria-haspopup={props["aria-haspopup"]}
+      aria-pressed={props["aria-pressed"]}
       title={title}
       disabled={disabled}
       onClick={onClick}

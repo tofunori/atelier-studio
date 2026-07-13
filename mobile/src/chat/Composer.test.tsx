@@ -1,8 +1,10 @@
-import { fireEvent, render, screen } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { Composer } from "./Composer.tsx";
 
 describe("Composer", () => {
+  afterEach(cleanup);
+
   it("send calls onSend and clears", () => {
     const onSend = vi.fn();
     render(<Composer busy={false} onSend={onSend} onStop={() => {}} />);
@@ -35,6 +37,24 @@ describe("Composer", () => {
       "min-w-0",
       "max-w-full",
       "overflow-x-hidden",
+    );
+  });
+
+  it("garde l'ajout de fichier dans le composeur sans rangée permanente", () => {
+    const onAttach = vi.fn();
+    render(
+      <Composer
+        busy={false}
+        onSend={() => {}}
+        onStop={() => {}}
+        onAttach={onAttach}
+        hasShelf={false}
+      />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Joindre un fichier" }));
+    expect(onAttach).toHaveBeenCalledOnce();
+    expect(screen.getByLabelText("Message").closest('[data-slot="input-group"]')).toContainElement(
+      screen.getByRole("button", { name: "Joindre un fichier" }),
     );
   });
 });

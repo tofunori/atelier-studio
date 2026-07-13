@@ -81,6 +81,29 @@ describe("route", () => {
     expect(unknown.loaders.claude).not.toHaveBeenCalled();
   });
 
+  it("getHistory Grok préfère le transcript natif quand le journal a perdu les réponses", async () => {
+    const sent = [];
+    const native = [
+      { kind: "user", text: "question" },
+      { kind: "text", text: "réponse Grok" },
+    ];
+    const grokHistory = vi.fn(async () => native);
+    await route({ type: "getHistory", threadId: "g1" }, {
+      send: (message) => sent.push(message),
+      store: { get: () => ({ id: "g1", provider: "grok", sessionId: "sid", projectRoot: "/p" }) },
+      sessions: { grokHistory },
+      harnessJournal: {
+        hasJournal: () => true,
+        materialize: async () => [
+          { kind: "user", text: "question" },
+          { kind: "done", ok: true },
+        ],
+      },
+    });
+    expect(grokHistory).toHaveBeenCalledWith("sid", "/p");
+    expect(sent[0].events).toEqual(native);
+  });
+
   it("getUsage agrège turns/output par modèle pour aujourd'hui via ledger.getAll", async () => {
     const sent = [];
     const today = new Date().toISOString();

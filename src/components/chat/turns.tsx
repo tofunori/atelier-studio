@@ -2,8 +2,9 @@
 // depuis le dispatcher de Chat.tsx. Chaque composant est memoizable : état
 // (editing, plis, review) et callbacks restent dans Chat, passés en props.
 // Clés et classes inchangées : le streaming et l'ancrage ne bougent pas.
-import { memo, type ReactNode } from "react";
+import { memo, useEffect, useState, type ReactNode } from "react";
 import ReactMarkdown from "react-markdown";
+import { CheckIcon } from "lucide-react";
 import { AgentEvent } from "../../lib/ws";
 import { eventLabel, t } from "../../lib/i18n";
 import { normalizeMathDelimiters, hardenPartialMarkdown } from "../../lib/markdown";
@@ -11,7 +12,7 @@ import { CopyIcon, ForkIcon, ResumeIcon } from "../icons";
 import { MD_COMPONENTS, MD_COMPONENTS_STREAMING, useMdPlugins } from "./md";
 import { DoneDiffToggle, fmtTime, PinBtn } from "./turnParts";
 import { groupIconCat, summarizeTools } from "./toolPresentation";
-import { ActivityDisclosure, Button, EmptyState } from "../ui";
+import { ActivityDisclosure, Button, EmptyState, IconButton, Tooltip, showError, showSuccess } from "../ui";
 import { Bubble, BubbleContent } from "../shadcn/bubble";
 import { Message, MessageContent, MessageFooter } from "../shadcn/message";
 
@@ -24,6 +25,57 @@ export type ReviewState = {
   verdict?: string;
   issues?: { claim: string; problem: string; severity: string; fix?: string }[];
 } | null;
+
+function MessageAction(p: {
+  label: string;
+  onClick: () => void;
+  children: ReactNode;
+  className?: string;
+  pressed?: boolean;
+}) {
+  return (
+    <Tooltip label={p.label}>
+      <IconButton
+        size="s"
+        label={p.label}
+        onClick={p.onClick}
+        className={`msg-action${p.className ? ` ${p.className}` : ""}`}
+        aria-pressed={p.pressed}
+      >
+        {p.children}
+      </IconButton>
+    </Tooltip>
+  );
+}
+
+function CopyMessageAction({ text }: { text: string }) {
+  const [copied, setCopied] = useState(false);
+
+  useEffect(() => {
+    if (!copied) return;
+    const timer = window.setTimeout(() => setCopied(false), 1600);
+    return () => window.clearTimeout(timer);
+  }, [copied]);
+
+  const label = copied ? t("action.copied") : t("action.copy");
+  return (
+    <MessageAction
+      label={label}
+      className={copied ? "is-confirmed" : undefined}
+      onClick={() => {
+        setCopied(true);
+        navigator.clipboard.writeText(text).then(() => {
+          void showSuccess(t("action.copied"));
+        }).catch(() => {
+          setCopied(false);
+          void showError(t("action.copy-failed"));
+        });
+      }}
+    >
+      {copied ? <CheckIcon data-icon="inline-start" aria-hidden="true" /> : <CopyIcon />}
+    </MessageAction>
+  );
+}
 
 export function ChatEmptyState(p: {
   threadId: string | null;
@@ -138,11 +190,13 @@ export const UserTurn = memo(function UserTurn(p: {
             {fmtTime(e.ts, p.timeFormat)}
           </span>
         )}
-        <button title={t("action.copy")} onClick={() => navigator.clipboard.writeText(e.text)}>
-          <CopyIcon />
-        </button>
-        <button title={t("action.edit-resend")} onClick={() => p.onEditingChange(e.text)}>✎</button>
-        <button title={t("chat.revert-title")} onClick={() => p.onRevert(i, e.text, false)}>↩</button>
+        <CopyMessageAction text={e.text} />
+        <MessageAction label={t("action.edit-resend")} onClick={() => p.onEditingChange(e.text)}>
+          <span aria-hidden="true">✎</span>
+        </MessageAction>
+        <MessageAction label={t("chat.revert-title")} onClick={() => p.onRevert(i, e.text, false)}>
+          <span aria-hidden="true">↩</span>
+        </MessageAction>
         <PinBtn pinned={p.pinned} onClick={() => p.onTogglePin(i, e.text.slice(0, 44))} />
       </MessageFooter>
     </MessageContent>
@@ -203,12 +257,10 @@ export const AssistantText = memo(function AssistantText(p: {
             {fmtTime(e.ts, p.timeFormat)}
           </span>
         )}
-        <button title={t("action.copy")} onClick={() => navigator.clipboard.writeText(e.text)}>
-          <CopyIcon />
-        </button>
-        <button title={t("action.fork")} onClick={() => p.onFork(i)}>
+        <CopyMessageAction text={e.text} />
+        <MessageAction label={t("action.fork")} onClick={() => p.onFork(i)}>
           <ForkIcon />
-        </button>
+        </MessageAction>
         <PinBtn pinned={p.pinned} onClick={() => p.onTogglePin(i, e.text.replace(/[#*>`]/g, "").trim().slice(0, 44))} />
       </MessageFooter>
     </MessageContent>

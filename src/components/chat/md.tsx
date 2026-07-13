@@ -158,7 +158,7 @@ export function PreBlock(props: any) {
 export const MD_COMPONENTS = {
   pre: PreBlock,
   table: (props: any) => (
-    <div className="md-table typeset-scroll"><table>{props.children}</table></div>
+    <div className="md-table"><table>{props.children}</table></div>
   ),
   a: (props: any) => {
     const label = mdText(props.children);
