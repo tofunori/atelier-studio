@@ -1,138 +1,131 @@
 <p align="center">
-  <img src="docs/media/atelier-banner.png" alt="Atelier Studio banner" width="100%">
+  <img src="docs/media/atelier-banner.png" alt="Atelier Studio — agentic research environment" width="100%">
 </p>
 
 <p align="center">
-  <strong>A native macOS workspace for reading, coding, annotating, and steering agents in one place.</strong>
+  <strong>An agentic environment for building, organizing, and advancing a research project.</strong>
 </p>
 
 <p align="center">
-  <img alt="macOS" src="https://img.shields.io/badge/macOS-Apple%20Silicon-111827?style=flat-square&logo=apple">
-  <img alt="Tauri" src="https://img.shields.io/badge/Tauri-2-24c8db?style=flat-square&logo=tauri&logoColor=white">
-  <img alt="React" src="https://img.shields.io/badge/React-19-61dafb?style=flat-square&logo=react&logoColor=111827">
-  <img alt="Sidecar" src="https://img.shields.io/badge/Sidecar-Node.js-3c873a?style=flat-square&logo=node.js&logoColor=white">
-  <img alt="Status" src="https://img.shields.io/badge/release-1.2-3c873a?style=flat-square">
+  <img alt="macOS Apple Silicon" src="https://img.shields.io/badge/macOS-Apple%20Silicon-171a1f?style=flat-square&logo=apple">
+  <img alt="Rust-first runtime" src="https://img.shields.io/badge/runtime-Rust--first-e8823a?style=flat-square&logo=rust&logoColor=white">
+  <img alt="Tauri 2" src="https://img.shields.io/badge/Tauri-2-242a32?style=flat-square&logo=tauri&logoColor=white">
+  <img alt="React 19" src="https://img.shields.io/badge/React-19-242a32?style=flat-square&logo=react&logoColor=79a7ff">
+  <img alt="Release 1.3.0" src="https://img.shields.io/badge/release-1.3.0-2f6f4e?style=flat-square">
 </p>
 
-Atelier Studio brings multi-agent chat, a scientific gallery, a browser, a terminal, file viewers/editors, and project-aware context into one native window. The goal is simple: keep reasoning, figures, files, references, and verification tools close enough that serious work can stay in flow.
+Atelier Studio keeps the working memory of a research project in one native macOS environment: agent conversations, papers, figures, code, terminals, annotations, project files, and verification state. Instead of moving fragments between unrelated tools, you can ask, inspect, organize, and produce inside the same project context.
 
-## What's new in 1.0
-
-- **Fully self-contained**: the gallery server now runs on Node — no Python required. Download, drag to Applications, done.
-- **Design system across the whole app**: unified type scale, radii, motion, shadows — chat, panels, settings, gallery and all viewers share one visual language.
-- **Chat at parity with the CLIs**: Claude runs with the full Claude Code system prompt (cwd, git status, memory); Codex uses your local CLI. Syntax-highlighted code blocks, grouped tool runs, inline diffs.
-- **Gallery, redesigned**: always-visible search, destination tabs, S/M/L density, hover actions that never cover the figure, skeleton loading, instant rescans (shell + data split).
-- **Independent reviewer (optional)**: verify any agent turn against its execution record, with one-click fixes.
-
-## Overview
+## Research, coordinated
 
 <p align="center">
-  <img src="docs/media/atelier-tour.gif" alt="Animated tour of Atelier Studio sections" width="92%">
+  <img src="docs/media/atelier-tour.gif" alt="Atelier moving through project organization, agent work, and evidence inspection" width="100%">
 </p>
 
-Atelier is organized around three working areas:
+The interface is organized around a continuous research loop:
 
-- **Project sidebar** for folders, sessions, favorites, and resumed conversations.
-- **Agent chat** for Claude/Codex, attachments, goals, citations, and run controls.
-- **Live atelier** for browsing figures, opening files, annotating, comparing, and sending context back into the chat.
+1. **Ask in context** — Claude and Codex work against the active project, its files, references, instructions, and prior sessions.
+2. **Inspect the evidence** — open papers, figures, PDFs, SVGs, LaTeX, Markdown, code, and generated outputs without leaving the workspace.
+3. **Organize the project** — keep sessions, favorites, collections, annotations, and project state scoped to the research folder.
+4. **Advance the work** — send evidence back to the agent, edit the source, verify the result, and preserve the trail.
 
-## What It Does
-
-<table>
-  <tr>
-    <td width="52%">
-      <h3>Multi-agent chat</h3>
-      <p>Claude and Codex in the same thread, with CLI session resume, attachments, pasted images, fork, revert, goals, stop controls, context usage, and auto-review.</p>
-      <p>The active turn keeps the main working indicator, while tool calls are shown as stable secondary lines so the interface stays calm while work is happening.</p>
-    </td>
-    <td width="48%"><img src="docs/media/chat-workspace.png" alt="Chat workspace"></td>
-  </tr>
-  <tr>
-    <td width="52%">
-      <h3>Scientific atelier</h3>
-      <p>A per-project figure gallery, PDF/SVG/image viewers, LaTeX/Markdown/code editors, persistent annotations, and an Add to chat action wherever context needs to move back into the conversation.</p>
-    </td>
-    <td width="48%"><img src="docs/media/atelier-gallery.png" alt="Atelier gallery"></td>
-  </tr>
-  <tr>
-    <td width="52%">
-      <h3>Project navigation</h3>
-      <p>Project-scoped sessions, favorites, resumed runs, cleaned thread titles, and robust fallbacks for older history entries that are missing newer metadata.</p>
-    </td>
-    <td width="48%"><img src="docs/media/sidebar-projects.png" alt="Sidebar projects"></td>
-  </tr>
-  <tr>
-    <td width="52%">
-      <h3>Zotero library</h3>
-      <p>Local reference search, collections, reference cards, citekeys, BibTeX, and direct chat insertion so sources stay in the same workflow as analysis.</p>
-    </td>
-    <td width="48%"><img src="docs/media/library-zotero.png" alt="Zotero library"></td>
-  </tr>
-</table>
-
-## Agentic Workflow
+## One project, one working memory
 
 <p align="center">
-  <img src="docs/media/agent-flow.gif" alt="Animated Atelier agent workflow" width="92%">
+  <img src="docs/media/atelier-hero.png" alt="Atelier Studio showing an active agent thread beside the scientific gallery" width="100%">
 </p>
 
-The Node sidecar coordinates agents, terminal sessions, the gallery, conversation history, usage, review state, and real-time events. The frontend stays responsive even when an external source misbehaves: boot failures and malformed sidecar messages are bounded and displayed instead of leaving a blank window.
+Atelier treats the project as the primary unit of work. The sidebar carries its sessions and working state; the conversation carries reasoning and actions; the atelier carries the evidence being read or produced. Switching surfaces does not discard the project context.
 
-## Included Surfaces
+### Work with agents, not isolated chat boxes
 
-| Surface | Role |
+<p align="center">
+  <img src="docs/media/chat-workspace.png" alt="Project-aware agent conversation with sources and research context" width="94%">
+</p>
+
+- Claude and Codex can coexist in the same project workflow.
+- CLI sessions resume with their real working directory and permissions.
+- Files, pasted images, Zotero references, goals, and generated figures can enter the conversation as explicit context.
+- Tool activity, diffs, review state, interruption, fork, and revert remain visible without overwhelming the transcript.
+
+### Inspect what the project produces
+
+<p align="center">
+  <img src="docs/media/atelier-gallery.png" alt="Scientific gallery containing figures generated by the active research project" width="100%">
+</p>
+
+The per-project atelier is more than an image browser. It is a live index of research artifacts with search, formats, folders, favorites, collections, viewers, editors, annotations, and **Add to chat**. Figures remain connected to the files and conversations that produced them.
+
+### Move evidence through the loop
+
+<p align="center">
+  <img src="docs/media/agent-flow.gif" alt="Research evidence moving from agent context to inspection and back into the workflow" width="100%">
+</p>
+
+Open a figure, inspect the source, annotate a result, compare outputs, then return the relevant evidence to the agent. The interaction is designed around continuity: the next research action should happen where the context already exists.
+
+## Research surfaces
+
+| Surface | Role in the project |
 |---|---|
-| Chat | Claude, Codex, enriched prompts, images, citations, goals, fork/revert, stop |
-| Atelier | Figure gallery, tabs, viewers, editors, annotations, Add to chat |
-| Browser | Native webview for local or web pages, with copyable context for chat |
-| Terminal | Integrated PTY, ANSI themes, WebGL, splits |
-| Git | Status, diff, staging, commit helpers |
-| Library | Local Zotero search, collections, BibTeX, citekeys, reference insertion |
-| Settings | Themes, models, permissions, auto-review, extra workspace paths |
+| **Agent workspace** | Claude, Codex, attachments, goals, citations, reviews, fork/revert, and stop controls |
+| **Scientific atelier** | Figures, files, collections, viewers, editors, annotations, and Add to chat |
+| **Library** | Local Zotero search, collections, citekeys, BibTeX, and reference insertion |
+| **Browser** | Native project-adjacent browsing with copyable context |
+| **Terminal** | Integrated PTY, ANSI themes, WebGL rendering, and splits |
+| **Git** | Status, diffs, staging, commits, and durable project snapshots |
+| **Settings** | Providers, models, permissions, themes, review policy, and workspace paths |
 
-## Architecture
-
-```text
-src/                 React 19 UI
-src-tauri/           macOS Tauri 2 shell + native commands
-sidecar/             Node server: agents, WS, terminal, sessions, git, Zotero
-gallery/             Embedded gallery/editors and cmux-gallery assets
-docs/media/          README screenshots and animations
-```
+## Built around the local project
 
 ```mermaid
 flowchart LR
-  UI["React app"] <--> WS["Sidecar WebSocket"]
-  UI <--> TAURI["Tauri commands"]
-  WS --> AGENTS["Claude / Codex CLIs"]
-  WS --> TERM["PTY terminal"]
-  WS --> GIT["Git + ledger"]
-  TAURI --> GALLERY["Per-project Atelier server"]
-  GALLERY --> FILES["Project files, figures, PDFs"]
+  PROJECT["Research project"] --> UI["Atelier workspace"]
+  UI <--> RUNTIME["Rust agent runtime"]
+  UI <--> GALLERY["Node gallery runtime"]
+  RUNTIME <--> AGENTS["Claude / Codex CLIs"]
+  RUNTIME <--> TERM["PTY + Git + sessions"]
+  GALLERY <--> EVIDENCE["Papers, figures, code, notes"]
+  EVIDENCE --> UI
 ```
 
-## Requirements
+The desktop backend is Rust-first. The packaged app also embeds a pinned Node 22 runtime for the sidecar and scientific gallery. End users do not need to install Node or Python; Claude Code and Codex remain system CLIs so their existing sign-ins and permissions are reused.
 
-| Tool | Why |
-|---|---|
-| macOS Apple Silicon | Current native target |
-| Node.js >= 22 | Development and build tooling only |
-| Rust + Tauri prerequisites | macOS shell build |
-| Signed-in Claude Code CLI | Claude engine and session resume |
-| Signed-in Codex CLI | Codex engine |
+## Install
 
-## Installation
+1. Download `Atelier_1.3.0_aarch64.dmg` from the [latest release](https://github.com/tofunori/atelier-studio/releases).
+2. Drag **Atelier** into **Applications**.
+3. Launch it and select a research project folder.
 
-1. Download the `.dmg` from the latest GitHub release.
-2. Drag Atelier into Applications.
-3. If macOS blocks the unsigned app:
+If Gatekeeper blocks the development-signed build:
 
 ```bash
 xattr -cr /Applications/Atelier.app
 open /Applications/Atelier.app
 ```
 
-## Development
+### Requirements
+
+- macOS on Apple Silicon.
+- Signed-in Claude Code CLI for Claude sessions.
+- Signed-in Codex CLI for Codex sessions.
+
+<details>
+<summary><strong>Development and architecture</strong></summary>
+
+### Repository map
+
+```text
+src/                         React 19 interface
+src-tauri/                   Tauri 2 shell and native commands
+rust/                        Rust agent, workspace, gallery, and remote crates
+sidecar/                     Node compatibility runtime and integrations
+gallery/                     Scientific gallery, viewers, and editors
+packages/atelier-protocol/   Shared desktop/mobile protocol
+mobile/                      Companion client
+```
+
+### Development
 
 ```bash
 npm install
@@ -146,45 +139,33 @@ Production build:
 npm run tauri build
 ```
 
-The production app includes a pinned Node 22 runtime, the Node sidecar, and the gallery. End users do not need to install Node. Claude/Codex remain the system CLIs so existing sign-ins and permissions are reused.
-
-## Verification
-
-One command runs every layer (typecheck, web build, frontend, sidecar, gallery unit/parity/diff, Rust):
+### Verification
 
 ```bash
 npm run verify
-```
-
-Development prerequisites: Node >= 22, `python3`, Rust stable (for `test:rust`), and dependencies installed in
-`.` and `sidecar/` (`npm ci` in both). Each layer can also run alone — see the `test:*` scripts in
-`package.json`.
-
-Gallery end-to-end tests (Playwright) are opt-in because they need a browser download:
-
-```bash
-npm --prefix gallery ci
-(cd gallery && npx playwright install chromium)
 npm run verify:e2e
 ```
 
-CI runs `verify` plus the gallery E2E on every pull request, and the release workflow refuses to
-bundle if any of it is red. Intentionally invalid `src/test_auto_review_*.ts` fixtures are excluded
-from the TypeScript check via `tsconfig.json` — a red `npm run typecheck` is always a real regression.
+The full verification gate covers TypeScript, the web build, frontend behavior, sidecar behavior, gallery unit/diff coverage, the shared protocol, Rust crates, browser E2E, and visual golden states. The legacy Python gallery parity reference is retained as a local migration check; it is not part of the production runtime.
 
-## Regenerate Media
+</details>
 
-README images are generated without real user data.
+<details>
+<summary><strong>Regenerating README media</strong></summary>
+
+The README uses versioned visual baselines stored in `docs/ui/baseline/`. Regenerate the editorial hero, product crops, and animations with:
 
 ```bash
 python3 scripts/generate-readme-media.py
 ```
 
-This recreates the PNG/GIF assets in `docs/media/`.
+The script updates both `docs/media/` and `website/public/`. Replace a baseline with a newer publication-ready capture to refresh the product imagery without changing the README layout.
 
-## Known Limitations
+</details>
 
-- macOS Apple Silicon only (Intel build possible via CI matrix).
-- Codex steering depends on the capabilities exposed by the locally available SDK/CLI.
-- PDF annotations are stored beside files, not burned into the PDF.
-- README screenshots are cleaned demo composites, not real user conversations.
+## Current boundaries
+
+- macOS Apple Silicon is the current native target.
+- Codex steering depends on the capabilities exposed by the locally installed CLI.
+- PDF annotations are stored beside project files rather than burned into the PDF.
+- Captures and animations are generated from versioned baselines; audit those captures before publishing whenever project content changes.

@@ -2,11 +2,15 @@
 from __future__ import annotations
 
 from pathlib import Path
+import shutil
 from PIL import Image, ImageDraw, ImageFont, ImageFilter
 
 ROOT = Path(__file__).resolve().parents[1]
 OUT = ROOT / "docs" / "media"
 OUT.mkdir(parents=True, exist_ok=True)
+WEB_OUT = ROOT / "website" / "public"
+WEB_OUT.mkdir(parents=True, exist_ok=True)
+BASELINES = ROOT / "docs" / "ui" / "baseline"
 
 W, H = 1600, 1000
 BG = "#20242a"
@@ -84,52 +88,62 @@ def dot(draw, x, y, c):
     draw.ellipse((x, y, x + 18, y + 18), fill=c)
 
 
+def load_baseline(name: str) -> Image.Image:
+    path = BASELINES / name
+    if not path.is_file():
+        raise FileNotFoundError(f"README baseline missing: {path}")
+    return Image.open(path).convert("RGB")
+
+
+def cover(image: Image.Image, size: tuple[int, int]) -> Image.Image:
+    target_w, target_h = size
+    scale = max(target_w / image.width, target_h / image.height)
+    resized = image.resize(
+        (round(image.width * scale), round(image.height * scale)),
+        Image.Resampling.LANCZOS,
+    )
+    left = (resized.width - target_w) // 2
+    top = (resized.height - target_h) // 2
+    return resized.crop((left, top, left + target_w, top + target_h))
+
+
 def draw_banner() -> Image.Image:
-    img = Image.new("RGB", (1600, 520), "#11151b")
+    """Editorial hero built from the real product, not a synthetic mockup."""
+    img = Image.new("RGB", (1600, 720), "#0d1015")
     d = ImageDraw.Draw(img)
+    d.rectangle((0, 0, 510, 720), fill="#12161c")
+    d.line((510, 0, 510, 720), fill="#29303a", width=1)
 
-    for y in range(520):
-        mix = y / 520
-        r = int(17 + 19 * mix)
-        g = int(21 + 15 * mix)
-        b = int(27 + 10 * mix)
-        d.line((0, y, 1600, y), fill=(r, g, b))
+    text(d, (64, 70), "AGENTIC RESEARCH ENVIRONMENT", "#8f99a7", F15)
+    text(d, (62, 136), "Atelier", TEXT, F96_DISPLAY)
+    text(d, (68, 254), "Research moves", "#f0f2f5", F52_DISPLAY)
+    text(d, (68, 314), "when context stays.", "#f0f2f5", F52_DISPLAY)
 
-    d.rectangle((0, 0, 1600, 520), outline="#2c3440", width=2)
-    d.line((92, 438, 796, 438), fill="#e8823a", width=3)
-    d.line((92, 444, 610, 444), fill="#79a7ff", width=1)
-
-    text(d, (92, 82), "NATIVE RESEARCH WORKSPACE", "#94a0ad", F15)
-    text(d, (90, 156), "Atelier Studio", TEXT, F96_DISPLAY)
-    text(d, (98, 276), "Read. Code. Annotate. Steer agents.", "#f0f2f5", F52_DISPLAY)
-    text(d, (98, 356), "A macOS studio for papers, figures, terminals, sessions, and context.", TEXT2, F24)
-
-    rr(d, (1060, 72, 1488, 424), 28, fill="#20242a", outline="#435061", width=2)
-    d.rectangle((1060, 72, 1488, 122), fill="#191d23")
-    dot(d, 1086, 88, "#ff5f57")
-    dot(d, 1120, 88, "#ffbd2e")
-    dot(d, 1154, 88, "#28c840")
-    text(d, (1206, 88), "Atelier", TEXT2, F18)
-
-    rr(d, (1094, 156, 1228, 194), 10, fill="#2b313b", outline="#465160")
-    centered(d, (1161, 175), "Chat", TEXT, F15)
-    rr(d, (1244, 156, 1378, 194), 10, fill="#242a32", outline="#38414d")
-    centered(d, (1311, 175), "Figures", TEXT2, F15)
-    rr(d, (1094, 222, 1454, 260), 10, fill="#171a1f", outline="#38414d")
-    text(d, (1120, 232), "Working for 3s", "#aab2bd", F16)
-    d.ellipse((1128, 276, 1142, 290), outline=ACCENT, width=2)
-    text(d, (1160, 270), "Tool call complete · new Codex session ready", MUTED, F15)
-
-    cards = [
-        (1094, 316, "Paper", BLUE),
-        (1214, 316, "Terminal", GREEN),
-        (1334, 316, "Zotero", ACCENT),
+    copy = [
+        "Ask agents.",
+        "Organize evidence.",
+        "Inspect figures.",
+        "Advance the project.",
     ]
-    for x, y, label, color in cards:
-        rr(d, (x, y, x + 96, y + 62), 12, fill="#252b33", outline="#3c4653")
-        d.rectangle((x + 18, y + 18, x + 34, y + 34), outline=color, width=2)
-        centered(d, (x + 48, y + 46), label, TEXT2, F13)
+    y = 410
+    for index, line in enumerate(copy):
+        d.ellipse((68, y + 8, 78, y + 18), fill=ACCENT if index == 3 else "#4b5664")
+        text(d, (96, y), line, TEXT2 if index < 3 else TEXT, F22)
+        y += 46
+    d.line((68, 628, 436, 628), fill=ACCENT, width=3)
+    d.line((68, 636, 326, 636), fill="#667181", width=1)
 
+    product = load_baseline("1512x883-dark-split-thread-actif.png")
+    product = cover(product, (1020, 596))
+    # A quiet shadow step separates the real app from the editorial canvas.
+    shadow = Image.new("RGBA", img.size, (0, 0, 0, 0))
+    sd = ImageDraw.Draw(shadow)
+    sd.rounded_rectangle((544, 76, 1580, 688), radius=22, fill=(0, 0, 0, 145))
+    shadow = shadow.filter(ImageFilter.GaussianBlur(18))
+    img = Image.alpha_composite(img.convert("RGBA"), shadow).convert("RGB")
+    img.paste(product, (554, 86))
+    d = ImageDraw.Draw(img)
+    d.rounded_rectangle((553, 85, 1575, 683), radius=16, outline="#3a424e", width=2)
     return img
 
 
@@ -300,17 +314,24 @@ def annotate_focus(base: Image.Image, box, label: str, t: float) -> Image.Image:
 def save_gif(name: str, base: Image.Image, focuses: list[tuple[tuple[int, int, int, int], str]]) -> None:
     frames: list[Image.Image] = []
     for box, label in focuses:
-        for i in range(9):
-            frames.append(annotate_focus(base, box, label, i / 8).resize((960, 600), Image.Resampling.LANCZOS))
-        for _ in range(5):
-            frames.append(annotate_focus(base, box, label, 1).resize((960, 600), Image.Resampling.LANCZOS))
+        for i in range(6):
+            frame = annotate_focus(base, box, label, i / 5).resize(
+                (880, 550), Image.Resampling.LANCZOS
+            )
+            frames.append(frame.convert("P", palette=Image.Palette.ADAPTIVE, colors=128))
+        for _ in range(3):
+            frame = annotate_focus(base, box, label, 1).resize(
+                (880, 550), Image.Resampling.LANCZOS
+            )
+            frames.append(frame.convert("P", palette=Image.Palette.ADAPTIVE, colors=128))
     frames[0].save(
         OUT / name,
         save_all=True,
         append_images=frames[1:],
-        duration=80,
+        duration=110,
         loop=0,
         optimize=True,
+        disposal=2,
     )
 
 
@@ -384,32 +405,66 @@ def draw_library() -> Image.Image:
 
 
 def main() -> None:
+    split = load_baseline("1512x883-dark-split-thread-actif.png")
+    gallery = load_baseline("1512x883-dark-galerie-formats.png")
+
     draw_banner().save(OUT / "atelier-banner.png", quality=95)
-    base = draw_window()
-    base.save(OUT / "atelier-hero.png", quality=95)
-    crop_resize(base, (0, 52, 970, H), width=1100).save(OUT / "chat-workspace.png", quality=94)
-    crop_resize(base, (970, 52, W, H), width=900).save(OUT / "atelier-gallery.png", quality=94)
-    crop_resize(base, (0, 52, 330, H), width=520).save(OUT / "sidebar-projects.png", quality=94)
-    crop_resize(base, (326, 820, 938, H - 20), width=900).save(OUT / "composer.png", quality=94)
+    split.resize((1600, 934), Image.Resampling.LANCZOS).save(
+        OUT / "atelier-hero.png", quality=95
+    )
+    # Keep the complete workspace visible and focus the agent area through
+    # contrast. Cropping the transcript made long research lines look broken.
+    annotate_focus(
+        split,
+        (118, 96, 1048, 838),
+        "Project-aware agent workspace",
+        1,
+    ).resize((1600, 934), Image.Resampling.LANCZOS).save(
+        OUT / "chat-workspace.png", quality=94
+    )
+    gallery.resize((1600, 934), Image.Resampling.LANCZOS).save(
+        OUT / "atelier-gallery.png", quality=94
+    )
+    crop_resize(split, (0, 48, 430, 883), width=620).save(
+        OUT / "sidebar-projects.png", quality=94
+    )
+    crop_resize(split, (70, 720, 1050, 883), width=1200).save(
+        OUT / "composer.png", quality=94
+    )
     draw_library().save(OUT / "library-zotero.png", quality=94)
+
+    motion_base = split.resize((1600, 934), Image.Resampling.LANCZOS)
     save_gif(
         "atelier-tour.gif",
-        base,
+        motion_base,
         [
-            ((20, 90, 286, 874), "Projects and sessions"),
-            ((318, 88, 952, 932), "Multi-agent chat"),
-            ((986, 76, 1570, 936), "Live research atelier"),
+            ((8, 42, 510, 910), "Organize the research project"),
+            ((520, 56, 1044, 906), "Work with agents in context"),
+            ((1058, 56, 1588, 906), "Inspect evidence as it changes"),
         ],
     )
     save_gif(
         "agent-flow.gif",
-        base,
+        motion_base,
         [
-            ((338, 84, 910, 160), "Working state"),
-            ((326, 820, 938, 966), "Composer and controls"),
-            ((1000, 338, 1570, 826), "Figures, files, and boards"),
+            ((74, 90, 1020, 300), "Ask against the project context"),
+            ((1058, 160, 1588, 720), "Inspect generated evidence"),
+            ((74, 820, 1040, 916), "Keep the next action in the same workspace"),
         ],
     )
+
+    for name in (
+        "atelier-banner.png",
+        "atelier-hero.png",
+        "atelier-tour.gif",
+        "agent-flow.gif",
+        "chat-workspace.png",
+        "atelier-gallery.png",
+        "sidebar-projects.png",
+        "composer.png",
+        "library-zotero.png",
+    ):
+        shutil.copy2(OUT / name, WEB_OUT / name)
 
 
 if __name__ == "__main__":
