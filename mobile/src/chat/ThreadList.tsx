@@ -19,7 +19,13 @@ import {
   SelectValue,
 } from "@/components/ui/select.tsx";
 import { Spinner } from "@/components/ui/spinner.tsx";
-import { Item, ItemContent, ItemDescription, ItemGroup, ItemTitle } from "@/components/ui/item.tsx";
+import {
+  Item,
+  ItemContent,
+  ItemDescription,
+  ItemGroup,
+  ItemTitle,
+} from "@/components/ui/item.tsx";
 import { PlusIcon, RefreshCwIcon } from "lucide-react";
 import { useMemo, useState } from "react";
 import type { ThreadSummary } from "../transport/types.ts";
@@ -34,6 +40,60 @@ type Props = {
   onCreate: (body: { title: string; provider: string; model: string }) => Promise<void>;
   creating: boolean;
 };
+
+const ACTIVE_STATUSES = new Set(["running", "thinking", "streaming", "pending", "working"]);
+const ERROR_STATUSES = new Set(["error", "failed"]);
+
+function humanizePathSegment(value: string): string {
+  const clean = value
+    .replace(/\.[a-z0-9]{1,8}$/i, "")
+    .replace(/[_-]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (!clean) return "Conversation";
+  if (clean === clean.toUpperCase()) return clean;
+  return clean.charAt(0).toUpperCase() + clean.slice(1);
+}
+
+export function threadDisplayTitle(title: string, id: string): string {
+  const clean = title.trim();
+  if (!clean || clean === id) return "Conversation";
+
+  const looksLikePath =
+    clean.startsWith("/") ||
+    clean.startsWith("~/") ||
+    (!clean.includes(": ") && clean.split("/").length >= 3);
+  if (!looksLikePath) return clean;
+
+  const segments = clean.replace(/[\\/]+$/, "").split(/[\\/]/).filter(Boolean);
+  return humanizePathSegment(segments.at(-1) ?? clean);
+}
+
+export function relativeThreadDate(value: string, now = Date.now()): string | null {
+  const timestamp = Date.parse(value);
+  if (!Number.isFinite(timestamp)) return null;
+  const elapsed = Math.max(0, now - timestamp);
+  const minutes = Math.floor(elapsed / 60_000);
+  if (minutes < 1) return "à l’instant";
+  if (minutes < 60) return `il y a ${minutes} min`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `il y a ${hours} h`;
+  const days = Math.floor(hours / 24);
+  if (days === 1) return "hier";
+  if (days < 7) return `il y a ${days} j`;
+  return new Intl.DateTimeFormat("fr-CA", {
+    day: "numeric",
+    month: "short",
+    year: new Date(timestamp).getFullYear() === new Date(now).getFullYear() ? undefined : "numeric",
+  }).format(timestamp);
+}
+
+function threadState(status: string): { label: string; tone: "active" | "error" } | null {
+  const normalized = status.toLowerCase();
+  if (ACTIVE_STATUSES.has(normalized)) return { label: "En cours", tone: "active" };
+  if (ERROR_STATUSES.has(normalized)) return { label: "Erreur", tone: "error" };
+  return null;
+}
 
 export function ThreadList(p: Props) {
   const [newChatOpen, setNewChatOpen] = useState(false);
@@ -109,21 +169,37 @@ export function ThreadList(p: Props) {
         </Empty>
       )}
 
-      <ItemGroup>
-        {p.threads.map((t) => (
-          <Item
-            key={t.id}
-            render={<button type="button" onClick={() => p.onOpen(t.id)} />}
-            variant="default"
-          >
-            <ItemContent>
-              <ItemTitle>{t.title || t.id}</ItemTitle>
-              <ItemDescription>
-                {providerLabel(t.provider)}{t.model ? ` · ${modelLabel(t.model)}` : ""} · seq {t.lastSequence} · {t.status}
-              </ItemDescription>
-            </ItemContent>
-          </Item>
-        ))}
+      <ItemGroup className="thread-list">
+        {p.threads.map((t) => {
+          const date = relativeThreadDate(t.updatedAt);
+          const state = threadState(t.status);
+          const agent = `${providerLabel(t.provider)}${t.model ? ` · ${modelLabel(t.model)}` : ""}`;
+          return (
+            <Item
+              key={t.id}
+              className="thread-row"
+              data-status={state?.tone ?? "idle"}
+              render={<button type="button" onClick={() => p.onOpen(t.id)} />}
+              variant="default"
+              size="sm"
+            >
+              <ItemContent>
+                <ItemTitle className="thread-row-title">
+                  {threadDisplayTitle(t.title, t.id)}
+                </ItemTitle>
+                <ItemDescription className="thread-row-meta">
+                  <span className="thread-row-agent">{agent}</span>
+                  {state && (
+                    <span className="thread-row-state" data-tone={state.tone}>
+                      {state.label}
+                    </span>
+                  )}
+                  {!state && date && <span className="thread-row-date">{date}</span>}
+                </ItemDescription>
+              </ItemContent>
+            </Item>
+          );
+        })}
       </ItemGroup>
 
       <Drawer

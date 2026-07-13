@@ -18,6 +18,8 @@ body,
   font-size: var(--fs-l);
   line-height: 1.5;
   -webkit-text-size-adjust: 100%;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
   -webkit-tap-highlight-color: transparent;
   overflow-x: hidden;
 }
@@ -140,7 +142,7 @@ summary:active {
 }
 
 .screen {
-  padding: var(--sp-4);
+  padding: var(--sp-4) var(--sp-5);
   max-width: 720px;
   margin: 0 auto;
 }
@@ -151,7 +153,8 @@ summary:active {
   justify-content: space-between;
   gap: var(--sp-2);
   min-width: 0;
-  margin-bottom: var(--sp-3);
+  min-height: 48px;
+  margin-bottom: var(--sp-2);
 }
 
 .thread-list-actions {
@@ -169,8 +172,8 @@ summary:active {
 
 .screen-title {
   font-size: var(--fs-xl);
-  font-weight: 600;
-  letter-spacing: -0.01em;
+  font-weight: 650;
+  letter-spacing: -0.012em;
   margin: 0 0 var(--sp-3);
   line-height: 1.3;
 }
@@ -183,6 +186,94 @@ summary:active {
   color: var(--text-muted);
   font-size: var(--fs-m);
   margin: 0 0 var(--sp-4);
+}
+
+.thread-list {
+  gap: 0;
+  margin-inline: calc(-1 * var(--sp-2));
+}
+
+.thread-row {
+  min-width: 0;
+  min-height: 68px;
+  padding: 11px var(--sp-2);
+  border-radius: 8px;
+  border-bottom: 1px solid var(--border-subtle);
+  text-align: left;
+  touch-action: manipulation;
+}
+
+.thread-row:last-child {
+  border-bottom-color: transparent;
+}
+
+.thread-row:active {
+  background: var(--surface-inset);
+}
+
+.thread-row-title {
+  display: block;
+  width: 100%;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text-primary);
+  font-size: 16px;
+  font-weight: 560;
+  line-height: 1.3;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.thread-row-meta {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  min-width: 0;
+  gap: 6px;
+  color: var(--text-muted);
+  font-size: 13px;
+  line-height: 1.25;
+  font-variant-numeric: tabular-nums;
+}
+
+.thread-row-agent {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.thread-row-date,
+.thread-row-state {
+  flex: 0 0 auto;
+  margin-left: auto;
+  white-space: nowrap;
+}
+
+.thread-row-state {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--status-running);
+  font-weight: 550;
+}
+
+.thread-row-state::before {
+  width: 6px;
+  height: 6px;
+  border-radius: 999px;
+  background: currentColor;
+  content: "";
+}
+
+.thread-row-state[data-tone="error"] {
+  color: var(--status-error);
+}
+
+@media (hover: hover) {
+  .thread-row:hover {
+    background: color-mix(in srgb, var(--fg) 4%, transparent);
+  }
 }
 
 .sheet-grabber {

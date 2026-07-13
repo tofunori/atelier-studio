@@ -49,11 +49,11 @@
   --status-warning: var(--u-warn);
   --status-error: var(--u-hot);
 
-  --fs-xs: 10px;
-  --fs-s: 11px;
-  --fs-m: 12px;
-  --fs-l: 13px;
-  --fs-xl: 15px;
+  --fs-xs: 11px;
+  --fs-s: 12px;
+  --fs-m: 13px;
+  --fs-l: 15px;
+  --fs-xl: 24px;
 
   --radius-control: 6px;
   --radius-surface: 10px;
