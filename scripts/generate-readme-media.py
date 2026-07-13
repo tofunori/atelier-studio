@@ -379,43 +379,62 @@ def save_story_gif(
     )
 
 
-def flow_frame(split: Image.Image, gallery: Image.Image, active: int) -> Image.Image:
-    """Show the research loop as three stable, connected product surfaces."""
+def flow_frame(
+    split: Image.Image,
+    ide: Image.Image,
+    zotero: Image.Image,
+    gallery: Image.Image,
+    active: int,
+) -> Image.Image:
+    """Show the research loop as four stable, connected product surfaces."""
     canvas = Image.new("RGB", (960, 600), "#111419")
     d = ImageDraw.Draw(canvas)
     text(d, (30, 24), "ONE CONTINUOUS RESEARCH LOOP", MUTED, F12)
     text(d, (30, 48), "Context moves. The project stays.", TEXT, F22)
 
-    sources = [cover(split, (274, 170)), cover(split, (274, 170)), cover(gallery, (274, 170))]
+    sources = [
+        cover(split, (210, 140)),
+        cover(ide, (210, 140)),
+        cover(zotero, (210, 140)),
+        cover(gallery, (210, 140)),
+    ]
     labels = [
-        ("01", "Ask in context", "Project files, history, and\ninstructions stay attached."),
-        ("02", "Work with agents", "Reason, edit, and verify\ninside the same workspace."),
-        ("03", "Inspect evidence", "Open every figure and\nreturn it to the conversation."),
+        ("01", "Ask in context", "Project files and history\nstay attached."),
+        ("02", "Write in the IDE", "Edit LaTeX, Markdown,\nand code in place."),
+        ("03", "Ground with Zotero", "Bring papers and citations\ninto the reasoning."),
+        ("04", "Inspect evidence", "Review every figure and\nreturn it to the agent."),
     ]
     for i, (source, (number, label, description)) in enumerate(zip(sources, labels)):
-        x = 30 + i * 305
+        x = 30 + i * 230
         canvas.paste(source, (x, 118))
         if i != active:
-            veil = Image.new("RGBA", (274, 170), (10, 13, 17, 112))
+            veil = Image.new("RGBA", (210, 140), (10, 13, 17, 112))
             canvas.paste(veil, (x, 118), veil)
         d = ImageDraw.Draw(canvas)
-        d.rectangle((x, 118, x + 274, 122), fill=ACCENT if i == active else "#3b424d")
-        text(d, (x, 320), number, ACCENT if i == active else MUTED, F12)
-        text(d, (x, 346), label, TEXT if i == active else TEXT2, F18)
+        d.rectangle((x, 118, x + 210, 122), fill=ACCENT if i == active else "#3b424d")
+        text(d, (x, 294), number, ACCENT if i == active else MUTED, F12)
+        text(d, (x, 322), label, TEXT if i == active else TEXT2, F15)
         for line_i, line in enumerate(description.splitlines()):
-            text(d, (x, 386 + line_i * 25), line, TEXT2 if i == active else MUTED, F15)
-        if i < 2:
-            d.line((x + 274, 476, x + 305, 476), fill=ACCENT if i < active else "#3b424d", width=3)
+            text(d, (x, 360 + line_i * 23), line, TEXT2 if i == active else MUTED, F13)
+        if i < 3:
+            d.line((x + 210, 448, x + 230, 448), fill=ACCENT if i < active else "#3b424d", width=3)
     text(d, (30, 540), "ASK", MUTED, F12)
     d.line((80, 547, 880, 547), fill="#3b424d", width=2)
-    d.line((80, 547, 80 + active * 400, 547), fill=ACCENT, width=3)
+    progress_x = 80 + round(active * 800 / 3)
+    d.line((80, 547, progress_x, 547), fill=ACCENT, width=3)
     text(d, (890, 540), "ADVANCE", MUTED, F12)
     return canvas
 
 
-def save_flow_gif(name: str, split: Image.Image, gallery: Image.Image) -> None:
+def save_flow_gif(
+    name: str,
+    split: Image.Image,
+    ide: Image.Image,
+    zotero: Image.Image,
+    gallery: Image.Image,
+) -> None:
     frames: list[Image.Image] = []
-    rendered = [flow_frame(split, gallery, active) for active in range(3)]
+    rendered = [flow_frame(split, ide, zotero, gallery, active) for active in range(4)]
     for i, frame in enumerate(rendered):
         for _ in range(9):
             frames.append(frame)
@@ -506,6 +525,8 @@ def draw_library() -> Image.Image:
 def main() -> None:
     split = load_baseline("1512x883-dark-split-thread-actif.png")
     gallery = load_baseline("1512x883-dark-galerie-formats.png")
+    ide = load_baseline("1222x1610-dark-latex-editor.png")
+    zotero = draw_library()
 
     draw_banner().save(OUT / "atelier-banner.png", quality=95)
     split.resize((1600, 934), Image.Resampling.LANCZOS).save(
@@ -524,23 +545,31 @@ def main() -> None:
     gallery.resize((1600, 934), Image.Resampling.LANCZOS).save(
         OUT / "atelier-gallery.png", quality=94
     )
+    crop_resize(ide, (0, 0, 1222, 714), width=1600).save(
+        OUT / "atelier-ide.png", quality=94
+    )
+    zotero.resize((1600, 1013), Image.Resampling.LANCZOS).save(
+        OUT / "atelier-zotero.png", quality=94
+    )
     crop_resize(split, (0, 48, 430, 883), width=620).save(
         OUT / "sidebar-projects.png", quality=94
     )
     crop_resize(split, (70, 720, 1050, 883), width=1200).save(
         OUT / "composer.png", quality=94
     )
-    draw_library().save(OUT / "library-zotero.png", quality=94)
+    zotero.save(OUT / "library-zotero.png", quality=94)
 
     save_story_gif(
         "atelier-tour.gif",
         [
             (split, "01 · Project context", "Keep the work organized around one project"),
-            (split, "02 · Agent workspace", "Reason and act with the evidence in view"),
-            (gallery, "03 · Scientific atelier", "Inspect every figure, file, and result"),
+            (ide, "02 · Scientific IDE", "Write LaTeX, Markdown, and code in place"),
+            (zotero, "03 · Zotero context", "Bring papers and citations into the work"),
+            (gallery, "04 · Scientific atelier", "Inspect every figure, file, and result"),
+            (split, "05 · Agent workspace", "Reason and act with the evidence in view"),
         ],
     )
-    save_flow_gif("agent-flow.gif", split, gallery)
+    save_flow_gif("agent-flow.gif", split, ide, zotero, gallery)
 
     for name in (
         "atelier-banner.png",
@@ -549,6 +578,8 @@ def main() -> None:
         "agent-flow.gif",
         "chat-workspace.png",
         "atelier-gallery.png",
+        "atelier-ide.png",
+        "atelier-zotero.png",
         "sidebar-projects.png",
         "composer.png",
         "library-zotero.png",

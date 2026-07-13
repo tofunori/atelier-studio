@@ -48,6 +48,20 @@ Atelier treats the project as the primary unit of work. The sidebar carries its 
 - Files, pasted images, Zotero references, goals, and generated figures can enter the conversation as explicit context.
 - Tool activity, diffs, review state, interruption, fork, and revert remain visible without overwhelming the transcript.
 
+### Write and cite inside the project
+
+<p align="center">
+  <img src="docs/media/atelier-ide.png" alt="Atelier scientific IDE editing a LaTeX manuscript" width="100%">
+</p>
+
+The scientific IDE keeps LaTeX, Markdown, code, source/PDF synchronization, comments, diffs, and compilation close to the research conversation. Editing is not a detached final step: it is part of the same project loop as reasoning and verification.
+
+<p align="center">
+  <img src="docs/media/atelier-zotero.png" alt="A Zotero paper brought into the active Atelier research context" width="100%">
+</p>
+
+The local Zotero library brings papers, collections, citekeys, BibTeX, PDFs, and reference metadata directly into the active project. Sources can move into the agent context without breaking the trail between a claim and its evidence.
+
 ### Inspect what the project produces
 
 <p align="center">
