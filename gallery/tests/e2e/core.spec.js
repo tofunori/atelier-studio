@@ -33,6 +33,18 @@ async function waitForPing(port) {
   throw new Error(`server on ${port} did not answer /ping`);
 }
 
+async function waitForGallery(port) {
+  const deadline = Date.now() + 10_000;
+  while (Date.now() < deadline) {
+    try {
+      const res = await fetch(`http://127.0.0.1:${port}/figures_index.html`);
+      if (res.ok && (await res.text()).includes('const INLINE_FILES =')) return;
+    } catch {}
+    await new Promise(resolve => setTimeout(resolve, 100));
+  }
+  throw new Error(`gallery on ${port} did not finish indexing`);
+}
+
 function writeFixtureProject(root) {
   writeFileSync(path.join(root, 'preview-alpha.png'), pngFixture(96, 64));
   writeFileSync(path.join(root, 'plot-alpha.svg'), `<?xml version="1.0" encoding="UTF-8"?>
@@ -97,7 +109,7 @@ function crc32(buf) {
 }
 
 async function withGallery(run) {
-  const root = mkdtempSync(path.join(tmpdir(), 'cmux-gallery-e2e-'));
+  const root = realpathSync(mkdtempSync(path.join(tmpdir(), 'cmux-gallery-e2e-')));
   let server;
   try {
     writeFixtureProject(root);
@@ -123,13 +135,14 @@ async function withGallery(run) {
       stdio: ['ignore', 'pipe', 'pipe'],
     });
     await waitForPing(port);
+    await waitForGallery(port);
     await run({ root, port, url: `http://127.0.0.1:${port}/figures_index.html` });
   } finally {
     if (server) {
       server.kill('SIGTERM');
       await new Promise(resolve => server.once('exit', resolve));
     }
-    rmSync(root, { recursive: true, force: true });
+    rmSync(root, { recursive: true, force: true, maxRetries: 3, retryDelay: 100 });
   }
 }
 
@@ -166,6 +179,54 @@ test('browse: search filters the generated gallery cards', async ({ page }) => {
     // Un type désactivé explicitement se combine avec la requête texte.
     await page.locator('[data-gallery-command="search"]').fill('plot-alpha.svg');
     await expect(page.locator('#grid .empty')).toContainText('No matching files');
+  });
+});
+
+test('chat bridge: show focuses known figures and reports missing paths', async ({ page }) => {
+  await withGallery(async ({ root, url }) => {
+    const nonce = 'e2e-gallery-command';
+    await page.route('**/thumb?**', route => route.fulfill({
+      status: 200,
+      contentType: 'image/png',
+      body: pngFixture(8, 8),
+    }));
+    await page.goto(`${url}?embedded=atelier#atelier_nonce=${nonce}`);
+    await expect(page.locator('#grid .card')).toHaveCount(3);
+
+    const result = await page.evaluate(({ projectRoot, nonce }) => new Promise((resolve, reject) => {
+      const timer = window.setTimeout(() => reject(new Error('gallery result timeout')), 3000);
+      const onMessage = event => {
+        if (event.data?.type !== 'atelier-gallery-result' || event.data.requestId !== 'e2e-show-1') return;
+        window.clearTimeout(timer);
+        window.removeEventListener('message', onMessage);
+        resolve(event.data);
+      };
+      window.addEventListener('message', onMessage);
+      window.postMessage({
+        type: 'atelier-gallery-command',
+        nonce,
+        action: 'show',
+        mode: 'focus',
+        projectRoot,
+        requestId: 'e2e-show-1',
+        rels: ['plot-alpha.svg', 'plot-beta.svg', 'missing.svg'],
+      }, window.location.origin);
+    }), { projectRoot: root, nonce });
+
+    expect(result).toMatchObject({
+      ok: true,
+      action: 'show',
+      projectRoot: root,
+      requestId: 'e2e-show-1',
+      matched: ['plot-alpha.svg', 'plot-beta.svg'],
+      missing: ['missing.svg'],
+    });
+    await expect(page.locator('#grid .card')).toHaveCount(2);
+    await expect(page.locator('#grid .selbox.on')).toHaveCount(2);
+    await expect(page.locator('#activeChips')).toContainText('Chat focus: 2');
+    // Arrêter les chargements de miniatures avant que withGallery supprime le
+    // projet temporaire; sinon macOS peut recréer .fig_thumbs pendant rmSync.
+    await page.goto('about:blank');
   });
 });
 
@@ -213,7 +274,7 @@ test('export and delete use selected files without mutating disk when endpoints 
   });
 });
 
-test('annotate: image lightbox posts an annotated PNG payload', async ({ page }) => {
+test('annotate: launcher draws a rectangle and sends from the contextual capsule', async ({ page }) => {
   await withGallery(async ({ url }) => {
     let savePayload = null;
     await page.route('**/save', async route => {
@@ -224,11 +285,10 @@ test('annotate: image lightbox posts an annotated PNG payload', async ({ page })
     await page.goto(url);
     await page.locator('[data-act="lb"][data-rel="preview-alpha.png"]').click();
     await expect(page.locator('#lbImg')).toBeVisible();
-    // refonte sobre : l'entrée est l'icône ✎ (#lbAnnot) et l'envoi passe par la
-    // pilule (#annotPillSend), visible seulement avec ≥1 commentaire — on dessine
-    // une ellipse sur le canvas puis on saisit une note avant d'envoyer.
+    await expect(page.locator('#lbAnnot')).toHaveAttribute('aria-label', 'Ajouter une annotation');
     await page.locator('#lbAnnot').click();
     await expect(page.locator('#lb')).toHaveClass(/annot/);
+    await expect(page.locator('#annotBar')).toBeHidden();
 
     const cv = await page.locator('#annotCv').boundingBox();
     await page.mouse.move(cv.x + cv.width / 2 - 30, cv.y + cv.height / 2 - 20);
@@ -238,11 +298,11 @@ test('annotate: image lightbox posts an annotated PNG payload', async ({ page })
     await expect(page.locator('#annotNote')).toBeVisible();
     await page.locator('#annotNote textarea').fill('note e2e');
     await page.locator('#annotNote .anSave').click();
-
-    await page.locator('#annotPillSend').click();
     await expect.poll(() => savePayload && savePayload.name).toBe('preview-alpha.png');
     expect(savePayload.dataURL).toMatch(/^data:image\/png;base64,/);
     expect(savePayload.notes).toEqual([{ n: 1, text: 'note e2e' }]);
+    await expect(page.locator('#annotNote')).toBeHidden();
+    await expect(page.locator('#lb')).not.toHaveClass(/annot/);
   });
 });
 
@@ -388,6 +448,13 @@ test('shadcn command bar: menu returns focus and density supports arrow keys', a
     await filters.focus();
     await page.keyboard.press('Enter');
     await expect(page.getByRole('menu')).toBeVisible();
+    await page.locator('#grid').click({ position: { x: 2, y: 2 } });
+    await expect(page.getByRole('menu')).toBeHidden();
+
+    // La fermeture extérieure ne casse pas le retour de focus au trigger.
+    await filters.focus();
+    await page.keyboard.press('Enter');
+    await expect(page.getByRole('menu')).toBeVisible();
     await page.keyboard.press('Escape');
     await expect(filters).toBeFocused();
 
@@ -405,7 +472,20 @@ test('shadcn command bar: menu returns focus and density supports arrow keys', a
     await tools.click();
     await expect(page.getByRole('menu')).toBeVisible();
     await expect(page.getByRole('menu').getByRole('menuitem', { name: 'Rescan' })).toHaveCount(0);
+    await page.locator('#grid').click({ position: { x: 2, y: 2 } });
+    await expect(page.getByRole('menu')).toBeHidden();
+    await tools.click();
+    await expect(page.getByRole('menu')).toBeVisible();
     await page.keyboard.press('Escape');
+
+    for (const name of ['Filter by folder', 'Sort project files']) {
+      const select = page.getByRole('combobox', { name });
+      await select.click();
+      const openSelect = page.locator('[data-slot="select-content"][data-open]');
+      await expect(openSelect).toBeVisible();
+      await page.locator('#grid').click({ position: { x: 2, y: 2 } });
+      await expect(openSelect).toHaveCount(0);
+    }
 
     const density = page.getByRole('group', { name: 'Card density' });
     await density.getByRole('button', { name: 'Medium cards' }).focus();

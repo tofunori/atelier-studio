@@ -33,11 +33,34 @@ export type BrowserAddToChatMessage = {
   url?: string;
 };
 
+export type AtelierGalleryShowMessage = {
+  type: "atelier-gallery-command";
+  nonce: string;
+  action: "show";
+  mode: "focus";
+  projectRoot: string;
+  requestId: string;
+  rels: string[];
+};
+
+export type AtelierGalleryResultMessage = {
+  type: "atelier-gallery-result";
+  nonce: string;
+  ok: boolean;
+  action: "show";
+  projectRoot: string;
+  requestId: string;
+  matched?: string[];
+  missing?: string[];
+  error?: string;
+};
+
 export type AtelierInboundMessage =
   | AtelierThemeRequestMessage
   | AtelierOpenTabMessage
   | AtelierAddToChatMessage
-  | BrowserAddToChatMessage;
+  | BrowserAddToChatMessage
+  | AtelierGalleryResultMessage;
 
 export type AtelierOutboundMessage =
   | {
@@ -46,7 +69,8 @@ export type AtelierOutboundMessage =
       colorScheme: "dark" | "light";
       nonce: string;
       vars: Record<string, string>;
-    };
+    }
+  | AtelierGalleryShowMessage;
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -121,6 +145,21 @@ export function isTrustedAtelierMessage(
         isBoundedString(data.text, MAX_TEXT_LENGTH) &&
         (data.url === undefined || isValidMessageUrl(data.url))
       );
+    case "atelier-gallery-result": {
+      if (!hasOnlyKeys(data, ["type", "nonce", "ok", "action", "projectRoot", "requestId", "matched", "missing", "error"])) return false;
+      const validRelList = (value: unknown) =>
+        value === undefined ||
+        (Array.isArray(value) && value.length <= 100 && value.every((item) => isBoundedString(item, MAX_URL_LENGTH)));
+      return (
+        typeof data.ok === "boolean" &&
+        data.action === "show" &&
+        isBoundedString(data.projectRoot, MAX_URL_LENGTH) &&
+        isBoundedString(data.requestId, MAX_NONCE_LENGTH) &&
+        validRelList(data.matched) &&
+        validRelList(data.missing) &&
+        isOptionalBoundedString(data.error, MAX_TITLE_LENGTH)
+      );
+    }
     default:
       return false;
   }

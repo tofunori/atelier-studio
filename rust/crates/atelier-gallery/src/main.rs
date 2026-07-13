@@ -1065,7 +1065,7 @@ async fn save_annotation(
         )
             .into_response();
     }
-    let out_dir = state.root.join("annotations");
+    let out_dir = state.root.join(".fig_thumbs").join("annotation-previews");
     if let Err(error) = fs::create_dir_all(&out_dir) {
         return (
             StatusCode::INTERNAL_SERVER_ERROR,
@@ -1078,7 +1078,7 @@ async fn save_annotation(
         .unwrap_or_default()
         .as_nanos();
     let rel = format!(
-        "annotations/{}_annot_{}.png",
+        ".fig_thumbs/annotation-previews/{}_annot_{}.png",
         safe_annotation_stem(name),
         stamp
     );

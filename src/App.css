@@ -1227,7 +1227,7 @@ button.ghost.danger, button.ghost.danger:hover { color: #d98c8f; background: rgb
   display: flex; flex-direction: column; }
 /* overflow caché : l'arrondi WebKit (15px × 1.45 = 21.75px) déborde d'1px et
    affichait la scrollbar overlay ; l'auto-resize repasse en auto au plafond 220px */
-.ta-wrap textarea { min-height: 22px; height: 22px; overflow-y: hidden; }
+.ta-wrap textarea { flex: none; min-height: 22px; height: 22px; overflow-y: hidden; }
 .plus-up { min-width: 240px; }
 .toggle { margin-left: auto; width: 32px; height: 18px; border-radius: var(--r-pill);
   background: var(--bg-ctl); position: relative; transition: background var(--motion-standard) var(--ease-out); flex-shrink: 0; }
@@ -1532,7 +1532,7 @@ body.dragging .pane-divider::after { background: var(--border-strong); }
 body.dragging iframe { pointer-events: none; }
 .jump-bottom { display: none; }
 /* ===== Quick Ask (side chat éphémère) — calme et spacieux ===== */
-.qa-overlay { position: fixed; inset: 0; z-index: 300; background: rgba(0,0,0,0.38);
+.qa-overlay { position: fixed; inset: 0; z-index: var(--z-quick-ask); background: rgba(0,0,0,0.38);
   display: flex; justify-content: center; align-items: flex-start; padding-top: 10vh; }
 .qa-pop { width: min(640px, 94vw); max-height: 74vh; background: var(--bg-pop);
   border: 1px solid var(--border); border-radius: var(--r-m); display: flex; flex-direction: column;
@@ -1548,6 +1548,10 @@ body.dragging iframe { pointer-events: none; }
   gap: 6px; color: var(--muted); font-size: var(--fs-s); padding: 3px 6px; cursor: pointer;
   border-radius: var(--r-s); }
 .qa-model:hover { color: var(--fg2); background: var(--bg-ctl); }
+.qa-model-effort { color: var(--muted2); }
+.qa-model-pop { width: min(300px, calc(100vw - 24px)); }
+.qa-model-positioner { z-index: var(--z-quick-ask-popover); }
+.qa-model-fields { gap: 10px; }
 .qa-recents { border-top: 1px solid var(--border); max-height: 180px; overflow-y: auto;
   padding: 6px 8px; display: flex; flex-direction: column; gap: 1px; }
 .qa-recent-row { display: flex; align-items: baseline; gap: 10px; padding: 6px 10px;
@@ -1579,7 +1583,8 @@ body.dragging iframe { pointer-events: none; }
 @keyframes qaThink { 0%, 60%, 100% { opacity: 0.35; transform: translateY(0); }
   30% { opacity: 1; transform: translateY(-3px); } }
 @media (prefers-reduced-motion: reduce) { .qa-busy span { animation: none; opacity: 0.7; } }
-.qa-input { margin: 0 16px 12px; border: 1px solid var(--border); border-radius: var(--r-m);
+.qa-input { width: calc(100% - 32px); box-sizing: border-box; align-self: center;
+  margin: 0 16px 12px; border: 1px solid var(--border); border-radius: var(--r-m);
   padding: 10px 14px; font: inherit; font-size: var(--fs-l); line-height: 1.5;
   background: var(--bg-card); color: var(--fg); resize: none; outline: none; }
 .qa-input:focus { border-color: var(--border2); }

@@ -336,6 +336,48 @@ describe("Bug 4/5 — fork par fromThreadId+eventId, revert par eventId (journal
     expect(forked.some((e) => e.kind === "user")).toBe(true);
   });
 
+  it("forkThread Grok crée une session neuve et injecte le contexte une seule fois", async () => {
+    const prompts = [];
+    const { ctx, store } = setup({
+      provider: "grok",
+      providerImpl: {
+        run: async (opts) => {
+          prompts.push(opts.prompt);
+          opts.onEvent({ kind: "text", text: "branche" });
+          opts.onEvent({ kind: "done", ok: true, result: "branche" });
+          return { sessionId: "grok-fork-session" };
+        },
+      },
+    });
+    store.upsert({ id: "grok-src", provider: "grok", projectRoot: "/p", sessionId: "grok-source", title: "Grok source" });
+
+    await route({
+      type: "forkThread",
+      fromThreadId: "grok-src",
+      newThreadId: "grok-fork",
+      contextEvents: [
+        { kind: "user", text: "question source" },
+        { kind: "text", text: "réponse source" },
+      ],
+    }, ctx);
+    const fork = store.get("grok-fork");
+    expect(fork.provider).toBe("grok");
+    expect(fork.sessionId).toBeNull();
+    expect(fork.forkContext).toContain("question source");
+
+    await route(send({
+      threadId: "grok-fork",
+      provider: "grok",
+      prompt: "nouvelle question",
+      clientMessageId: "grok-fork-message",
+    }), ctx);
+    await vi.waitFor(() => expect(prompts).toHaveLength(1));
+    expect(prompts[0]).toContain("réponse source");
+    expect(prompts[0]).toMatch(/fin du fil transmis[\s\S]*nouvelle question/);
+    await vi.waitFor(() => expect(store.get("grok-fork").sessionId).toBe("grok-fork-session"));
+    expect(store.get("grok-fork").forkContext).toBeNull();
+  });
+
   it("revert tronque le journal par eventId (non destructif)", async () => {
     const { ctx, harnessJournal, durable } = await seededThread();
     const text = durable.find((e) => e.kind === "text");

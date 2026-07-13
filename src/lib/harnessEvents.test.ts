@@ -237,6 +237,30 @@ describe("invariants plan 025 — identités et turns", () => {
     expect(kinds(legacy)).toEqual(["text", "done"]);
   });
 
+  it("terminal clôt le thinking_live tardif même après le texte final", () => {
+    const out = runLive([
+      { kind: "delta", text: "Réponse finale", meta: meta({ eventId: "lt1", turnId: "turn-1", sequence: 1 }) },
+      { kind: "text", text: "Réponse finale", meta: meta({ eventId: "lt2", turnId: "turn-1", sequence: 2 }) },
+      { kind: "thinking_delta", text: "dernier fragment", meta: meta({ eventId: "lt3", turnId: "turn-1", sequence: 3 }) },
+      { ...events.done(), meta: meta({ eventId: "lt4", turnId: "turn-1", sequence: 4 }) },
+    ]);
+
+    expect(kinds(out)).toEqual(["text", "thinking", "done"]);
+    expect(out.some((event) => event.kind === "thinking_live")).toBe(false);
+    expect((out[1] as Extract<AgentEvent, { kind: "thinking" }>).text).toBe("dernier fragment");
+  });
+
+  it("terminal ne clôt pas le thinking_live d'un autre turn", () => {
+    const list = runLive([
+      { kind: "thinking_delta", text: "turn 1 actif", meta: meta({ eventId: "ot1", turnId: "turn-1", sequence: 1 }) },
+    ]);
+    const out = reduceHarnessEvent(list, {
+      ...events.done(), meta: meta({ eventId: "ot2", turnId: "turn-2", sequence: 2 }),
+    });
+
+    expect(kinds(out)).toEqual(["thinking_live", "done"]);
+  });
+
   it("thinking final turn-scoped : ne remplace pas le thinking_live d'un autre turn", () => {
     const list = runLive([
       { kind: "thinking_delta", text: "turn 1…", meta: meta({ eventId: "y1", turnId: "turn-1", sequence: 1 }) },
@@ -299,6 +323,26 @@ describe("materializeHarnessHistory — replay = live", () => {
     ]);
     expect(kinds(out)).toEqual(["user", "text"]);
     expect((out[1] as Extract<AgentEvent, { kind: "text" }>).text).toBe("réponse orpheline");
+  });
+
+  it("masque l'instruction galerie interne dans les anciens messages rechargés", () => {
+    const out = materializeHarnessHistory([{
+      kind: "user",
+      text: [
+        "Citation de la conversation :\n> extrait",
+        "",
+        "mais vulgarise je ne comprends pas",
+        "",
+        "<atelier-gallery-integration>",
+        "instruction interne qui ne doit jamais être affichée",
+        "</atelier-gallery-integration>",
+      ].join("\n"),
+    }]);
+
+    expect(out).toHaveLength(1);
+    expect((out[0] as Extract<AgentEvent, { kind: "user" }>).text).toBe(
+      "Citation de la conversation :\n> extrait\n\nmais vulgarise je ne comprends pas",
+    );
   });
 
   it("ancien history sans metadata : pas de crash, identités synthétiques stables et distinctes", () => {

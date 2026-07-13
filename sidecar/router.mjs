@@ -1,10 +1,13 @@
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { homedir } from "node:os";
+import { fileURLToPath } from "node:url";
 import { writeFileAtomic } from "./store.mjs";
 import { generateImage, resolveArkApiKey, resolveArkModel } from "./providers/images.mjs";
 import { generateImageViaCodex } from "./providers/codex_image.mjs";
 import { createHarnessThread } from "./harness_events.mjs";
+import { HANDOFF_END } from "./handoff.mjs";
+import { stripGalleryToolInstruction, withGalleryToolInstruction } from "./gallery_tool_prompt.mjs";
 
 // ctx: { send(obj), store, providers, broadcast(obj) }
 
@@ -17,6 +20,23 @@ const lastTurnByThread = new Map(); // threadId -> { entry, responseText, diffs 
 let retitleAllRunning = false;
 
 const DEFAULT_APP_DIR = join(homedir(), "Library", "Application Support", "atelier-studio");
+
+function buildForkContext(events, provider) {
+  const lines = (Array.isArray(events) ? events : []).flatMap((event) => {
+    const text = typeof event?.text === "string" ? event.text.trim() : "";
+    if (!text) return [];
+    if (event.kind === "user") return [`Utilisateur : ${text}`];
+    if (event.kind === "text") return [`Agent (${provider}) : ${text}`];
+    return [];
+  });
+  let transcript = lines.join("\n\n");
+  if (!transcript) return null;
+  const MAX = 400_000;
+  if (transcript.length > MAX) transcript = `[…début tronqué…]\n${transcript.slice(-MAX)}`;
+  return "Tu reprends une conversation commencée avec un autre agent. " +
+    "Voici le fil jusqu'ici — prends-le comme contexte acquis, ne le résume pas, ne le répète pas :\n\n" +
+    `---\n${transcript}${HANDOFF_END}`;
+}
 
 function zoteroFavsPath(ctx) {
   return ctx.zoteroFavsPath ?? join(DEFAULT_APP_DIR, "zotero-favs.json");
@@ -442,10 +462,39 @@ function dialogueScore(events) {
 function preferRicherDialogue(journalEvents, nativeEvents) {
   const [journalTexts, journalUsers] = dialogueScore(journalEvents);
   const [nativeTexts, nativeUsers] = dialogueScore(nativeEvents);
-  return nativeTexts > journalTexts ||
-    (nativeTexts === journalTexts && nativeUsers > journalUsers)
-    ? nativeEvents
-    : journalEvents;
+  const nativeIsRicher = nativeTexts > journalTexts ||
+    (nativeTexts === journalTexts && nativeUsers > journalUsers);
+  if (!nativeIsRicher) return journalEvents;
+
+  // Le transcript Grok contient les réponses les plus complètes, mais ses
+  // messages user sont les prompts provider enrichis. Apparier les vrais
+  // textes Atelier dans l'ordre permet aussi de respecter les rewinds : un
+  // tour encore présent chez Grok mais tombstoné dans le journal est omis avec
+  // sa réponse, tandis que les attachments des tours conservés restent des
+  // labels structurés.
+  if (journalUsers > 0) {
+    const displayUsers = journalEvents.filter((event) => event?.kind === "user");
+    const merged = [];
+    let displayIndex = 0;
+    let keepTurn = false;
+    for (const event of nativeEvents) {
+      if (event?.kind === "user") {
+        const display = displayUsers[displayIndex];
+        const nativeText = stripGalleryToolInstruction(event.text).trim();
+        const displayText = String(display?.text ?? "").trim();
+        keepTurn = !!displayText &&
+          (nativeText === displayText || nativeText.endsWith(`\n\n${displayText}`));
+        if (keepTurn) {
+          merged.push(display);
+          displayIndex += 1;
+        }
+      } else if (keepTurn) {
+        merged.push(event);
+      }
+    }
+    if (displayIndex === displayUsers.length) return merged;
+  }
+  return nativeEvents;
 }
 
 async function harnessFor(ctx, threadId, provider) {
@@ -621,6 +670,13 @@ async function startProviderTurn(ctx, h, msg, { reservedTurnId = null } = {}) {
   const model = msg.model ?? (sameProvider ? last.model : null) ?? null;
   const effort = msg.effort ?? (sameProvider ? last.effort : null) ?? null;
   const permissionMode = msg.permissionMode ?? last.permissionMode ?? null;
+  const baseProviderPrompt = typeof prev?.forkContext === "string" && prev.forkContext
+    ? prev.forkContext + prompt
+    : prompt;
+  const providerPrompt = withGalleryToolInstruction(baseProviderPrompt, {
+    projectRoot,
+    toolPath: join(dirname(fileURLToPath(import.meta.url)), "atelier-gallery-tool"),
+  });
 
   ctx.store.upsert({
     id: threadId,
@@ -657,7 +713,7 @@ async function startProviderTurn(ctx, h, msg, { reservedTurnId = null } = {}) {
       p.send({
         threadId,
         cwd: projectRoot || process.env.HOME,
-        prompt,
+        prompt: providerPrompt,
         sessionId: prev?.sessionId ?? null,
         model,
         effort,
@@ -681,7 +737,7 @@ async function startProviderTurn(ctx, h, msg, { reservedTurnId = null } = {}) {
   p.run({
     threadId,
     cwd: projectRoot || process.env.HOME,
-    prompt,
+    prompt: providerPrompt,
     inputs: msg.inputs,
     imagePath: msg.imagePath,
     attachments: msg.attachments,
@@ -696,7 +752,7 @@ async function startProviderTurn(ctx, h, msg, { reservedTurnId = null } = {}) {
     onEvent: dispatcher,
   })
     .then(({ sessionId }) => {
-      ctx.store.upsert({ id: threadId, sessionId });
+      ctx.store.upsert({ id: threadId, sessionId, forkContext: null, forkPending: false });
       emit({ type: "threads", threads: ctx.store.list() });
     })
     .catch((e) => dispatcher({ kind: "error", message: String(e) }));
@@ -844,19 +900,23 @@ export async function route(msg, ctx) {
       break;
     }
     case "forkThread": {
-      // nouveau thread qui bifurque de la session d'un autre (fork au prochain send)
+      // Claude peut bifurquer nativement. Les autres providers repartent dans
+      // une session neuve et reçoivent une seule fois le transcript copié.
       const src = ctx.store.get(msg.fromThreadId);
-      if (!src?.sessionId || src.provider !== "claude") {
+      if (!src) {
         ctx.send({ type: "error", message: "fork indisponible pour ce chat" });
         break;
       }
+      const nativeClaudeFork = src.provider === "claude" && !!src.sessionId;
+      const forkContext = nativeClaudeFork ? null : buildForkContext(msg.contextEvents, src.provider);
       ctx.store.upsert({
         id: msg.newThreadId,
         projectRoot: src.projectRoot,
-        provider: "claude",
+        provider: src.provider,
         title: "⑂ " + (src.title ?? "fork"),
-        sessionId: src.sessionId,
-        forkPending: true,
+        sessionId: nativeClaudeFork ? src.sessionId : null,
+        forkPending: nativeClaudeFork,
+        forkContext,
         status: "idle",
       });
       // le fork reçoit une COPIE du journal du thread SOURCE (fromThreadId)

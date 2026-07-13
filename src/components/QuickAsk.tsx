@@ -4,8 +4,16 @@ import remarkGfm from "remark-gfm";
 import { t } from "../lib/i18n";
 import { ProviderIcon, ZapIcon } from "./icons";
 import { wsSend } from "../lib/wsBus";
+import type { ProviderInfo } from "../lib/providers";
+import { modelDisplayLabel } from "../lib/modelCatalog";
 import { Textarea } from "./shadcn/textarea";
 import { Button, IconButton } from "./ui";
+import { Select as ProductSelect } from "./Select";
+import { Button as ShadcnButton } from "./shadcn/button";
+import { Field, FieldGroup, FieldLabel } from "./shadcn/field";
+import {
+  Popover, PopoverContent, PopoverDescription, PopoverHeader, PopoverTitle, PopoverTrigger,
+} from "./shadcn/popover";
 
 type QaMsg = { role: "user" | "assistant"; text: string; streaming?: boolean };
 type QaRecent = { qaId: string; ts: number; msgs: QaMsg[] };
@@ -20,21 +28,41 @@ function saveRecent(qaId: string, msgs: QaMsg[]) {
   const rest = loadRecents().filter((r) => r.qaId !== qaId);
   localStorage.setItem(RECENTS_KEY, JSON.stringify([{ qaId, ts: Date.now(), msgs: clean }, ...rest].slice(0, 20)));
 }
-type QaModel = { provider: "claude" | "codex"; model: string; effort: string; label: string };
+type QaSelection = { provider: string; model: string; effort: string };
+const QA_SELECTION_KEY = "atelier-studio.qaSelection";
+const DEFAULT_QA_SELECTION: QaSelection = { provider: "grok", model: "grok-4.5", effort: "high" };
 
-const QA_MODELS: QaModel[] = [
-  { provider: "claude", model: "claude-haiku-4-5-20251001", effort: "", label: "Haiku 4.5" },
-  { provider: "claude", model: "claude-sonnet-5", effort: "low", label: "Sonnet 5" },
-  { provider: "codex", model: "gpt-5.4-mini", effort: "low", label: "GPT-5.4 mini" },
-  { provider: "codex", model: "gpt-5.6-luna", effort: "low", label: "GPT-5.6 Luna" },
-  { provider: "codex", model: "gpt-5.5", effort: "medium", label: "GPT-5.5" },
-];
+function loadSelection(): QaSelection {
+  try {
+    const saved = JSON.parse(localStorage.getItem(QA_SELECTION_KEY) ?? "null");
+    return saved?.provider && saved?.model ? saved : DEFAULT_QA_SELECTION;
+  } catch {
+    return DEFAULT_QA_SELECTION;
+  }
+}
+
+function clampBox(b: { x: number; y: number; w: number; h: number }) {
+  const gap = 8;
+  const w = Math.min(b.w, Math.max(320, window.innerWidth - gap * 2));
+  const h = Math.min(b.h, Math.max(240, window.innerHeight - gap * 2));
+  return {
+    x: Math.min(Math.max(gap, b.x), Math.max(gap, window.innerWidth - w - gap)),
+    y: Math.min(Math.max(gap, b.y), Math.max(gap, window.innerHeight - h - gap)),
+    w,
+    h,
+  };
+}
 
 export default function QuickAsk({
   open,
   minimized,
   draft,
   context,
+  providers,
+  customModels = [],
+  defaultModels = {},
+  defaultEfforts = {},
+  modelEfforts = {},
   onMinimize,
   onClose,
   onInject,
@@ -44,6 +72,11 @@ export default function QuickAsk({
   minimized: boolean;
   draft: string;
   context?: string;
+  providers: ProviderInfo[];
+  customModels?: { provider: string; id: string }[];
+  defaultModels?: Record<string, string>;
+  defaultEfforts?: Record<string, string>;
+  modelEfforts?: Record<string, string>;
   onMinimize: () => void;
   onClose: () => void;
   onInject: (text: string) => void;
@@ -54,21 +87,27 @@ export default function QuickAsk({
   const [text, setText] = useState("");
   const [busy, setBusy] = useState(false);
   const [ctx, setCtx] = useState("");
-  const [modelIdx, setModelIdx] = useState(() => {
-    const n = Number(localStorage.getItem("atelier-studio.qaModel") ?? "0");
-    return Number.isFinite(n) && n >= 0 && n < QA_MODELS.length ? n : 0;
-  });
+  const [selection, setSelectionState] = useState<QaSelection>(loadSelection);
   const [recentsOpen, setRecentsOpen] = useState(false);
   const [promoteErr, setPromoteErr] = useState<string | null>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const popRef = useRef<HTMLDivElement>(null);
   const [box, setBox] = useState<{ x: number; y: number; w: number; h: number } | null>(() => {
-    try { return JSON.parse(localStorage.getItem("atelier-studio.qaBox") ?? "null"); }
+    try {
+      const saved = JSON.parse(localStorage.getItem("atelier-studio.qaBox") ?? "null");
+      return saved ? clampBox(saved) : null;
+    }
     catch { return null; }
   });
   function saveBox(b: { x: number; y: number; w: number; h: number }) {
-    setBox(b);
-    localStorage.setItem("atelier-studio.qaBox", JSON.stringify(b));
+    const next = clampBox(b);
+    setBox(next);
+    localStorage.setItem("atelier-studio.qaBox", JSON.stringify(next));
+  }
+
+  function setSelection(next: QaSelection) {
+    setSelectionState(next);
+    localStorage.setItem(QA_SELECTION_KEY, JSON.stringify(next));
   }
   function startDrag(e: React.MouseEvent) {
     if ((e.target as HTMLElement).closest("button")) return;
@@ -106,6 +145,13 @@ export default function QuickAsk({
     window.addEventListener("mouseup", up);
   }
   const bodyRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!box) return;
+    const fit = () => saveBox(box);
+    window.addEventListener("resize", fit);
+    return () => window.removeEventListener("resize", fit);
+  }, [box?.x, box?.y, box?.w, box?.h]);
 
   // ouverture : reset de session, pré-remplissage du brouillon
   const wasMin = useRef(false);
@@ -189,7 +235,31 @@ export default function QuickAsk({
   if (minimized) return null;
   if (!open) return null;
 
-  const m = QA_MODELS[modelIdx];
+  const fallbackProviders: ProviderInfo[] = [
+    { id: "grok", label: "Grok", kind: "cli", version: null, ok: true, defaultModel: "grok-4.5", models: ["grok-4.5", "grok-composer-2.5-fast"], efforts: ["minimal", "low", "medium", "high", "xhigh", "max"] },
+  ];
+  const catalog = (providers.length ? providers : fallbackProviders).map((info) => ({
+    ...info,
+    models: Array.from(new Set([
+      ...info.models,
+      ...customModels.filter((item) => item.provider === info.id).map((item) => item.id),
+    ])),
+  }));
+  const selectedProvider = catalog.find((info) => info.id === selection.provider) ?? catalog[0];
+  const selectedModels = selectedProvider?.models ?? [selection.model];
+  const selectedEfforts = selectedProvider?.efforts?.length ? selectedProvider.efforts : [selection.effort || "high"];
+  const selectedModel = selectedModels.includes(selection.model)
+    ? selection.model
+    : selectedProvider?.defaultModel || selectedModels[0] || selection.model;
+  const selectedEffort = selectedEfforts.includes(selection.effort)
+    ? selection.effort
+    : defaultEfforts[selectedProvider?.id] || selectedEfforts[0] || "high";
+  const activeSelection = {
+    provider: selectedProvider?.id ?? selection.provider,
+    model: selectedModel,
+    effort: selectedEffort,
+  };
+  const effortLabel = (value: string) => value ? value[0].toUpperCase() + value.slice(1) : t("common.auto-default");
 
   function ask() {
     const q = text.trim();
@@ -201,7 +271,7 @@ export default function QuickAsk({
       ? `Contexte (extrait d'une autre conversation) :\n"""\n${ctx}\n"""\n\n${q}`
       : q;
     if (ctx) setCtx("");
-    wsSend({ type: "quickAsk", qaId, prompt, provider: m.provider, model: m.model, effort: m.effort });
+    wsSend({ type: "quickAsk", qaId, prompt, ...activeSelection });
   }
 
   const lastAnswer = [...msgs].reverse().find((x) => x.role === "assistant" && !x.text.startsWith("⚠"));
@@ -241,18 +311,91 @@ export default function QuickAsk({
             </svg>
           </IconButton>
           <IconButton className="qa-min" label={t("qa.minimize")} title={t("qa.minimize")} onClick={onMinimize}>—</IconButton>
-          <button
-            className="qa-model"
-            title={t("qa.switch-model")}
-            onClick={() => {
-              const next = (modelIdx + 1) % QA_MODELS.length;
-              setModelIdx(next);
-              localStorage.setItem("atelier-studio.qaModel", String(next));
-            }}
-          >
-            <ProviderIcon provider={m.provider} />
-            {m.label}
-          </button>
+          <Popover modal={false}>
+            <PopoverTrigger
+              render={
+                <ShadcnButton
+                  type="button"
+                  variant="ghost"
+                  size="xs"
+                  className="qa-model"
+                  aria-label={t("qa.model-selector")}
+                />
+              }
+            >
+              <ProviderIcon provider={activeSelection.provider} />
+              <span>{modelDisplayLabel(activeSelection.provider, activeSelection.model)}</span>
+              <span className="qa-model-effort">· {effortLabel(activeSelection.effort)}</span>
+            </PopoverTrigger>
+            <PopoverContent
+              side="bottom"
+              align="end"
+              className="qa-model-pop"
+              positionerClassName="qa-model-positioner"
+            >
+              <PopoverHeader>
+                <PopoverTitle>{t("qa.model-selector")}</PopoverTitle>
+                <PopoverDescription>{t("qa.model-selector-hint")}</PopoverDescription>
+              </PopoverHeader>
+              <FieldGroup className="qa-model-fields">
+                <Field>
+                  <FieldLabel>{t("qa.provider")}</FieldLabel>
+                  <ProductSelect
+                    compact
+                    title={t("qa.provider")}
+                    portalContainer={null}
+                    positionerClassName="qa-model-positioner"
+                    value={activeSelection.provider}
+                    options={catalog.map((info) => ({
+                      value: info.id,
+                      label: `${info.label}${!info.ok ? ` · ${t("app.provider-unavailable")}` : ""}`,
+                      icon: <ProviderIcon provider={info.id} />,
+                    }))}
+                    onChange={(providerId) => {
+                      const info = catalog.find((item) => item.id === providerId)!;
+                      const model = defaultModels[providerId] && info.models.includes(defaultModels[providerId])
+                        ? defaultModels[providerId]
+                        : info.defaultModel || info.models[0];
+                      const effort = modelEfforts[`${providerId}:${model}`]
+                        ?? defaultEfforts[providerId]
+                        ?? (providerId === "grok" && info.efforts.includes("high") ? "high" : info.efforts[0] ?? "");
+                      setSelection({ provider: providerId, model, effort });
+                    }}
+                  />
+                </Field>
+                <Field>
+                  <FieldLabel>{t("qa.model")}</FieldLabel>
+                  <ProductSelect
+                    compact
+                    title={t("qa.model")}
+                    portalContainer={null}
+                    positionerClassName="qa-model-positioner"
+                    value={activeSelection.model}
+                    options={selectedModels.map((model) => ({ value: model, label: modelDisplayLabel(activeSelection.provider, model) }))}
+                    onChange={(modelValue) => setSelection({
+                      ...activeSelection,
+                      model: modelValue,
+                      effort: modelEfforts[`${activeSelection.provider}:${modelValue}`]
+                        ?? defaultEfforts[activeSelection.provider]
+                        ?? activeSelection.effort,
+                    })}
+                  />
+                </Field>
+                <Field>
+                  <FieldLabel>{t("qa.effort")}</FieldLabel>
+                  <ProductSelect
+                    compact
+                    title={t("qa.effort")}
+                    portalContainer={null}
+                    positionerClassName="qa-model-positioner"
+                    value={activeSelection.effort}
+                    options={selectedEfforts.map((effort) => ({ value: effort, label: effortLabel(effort) }))}
+                    onChange={(effortValue) => setSelection({ ...activeSelection, effort: effortValue })}
+                  />
+                </Field>
+              </FieldGroup>
+            </PopoverContent>
+          </Popover>
         </div>
         {recentsOpen && (
           <div className="qa-recents">

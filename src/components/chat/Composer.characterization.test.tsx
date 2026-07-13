@@ -122,6 +122,8 @@ describe("composer — caractérisation", () => {
     fireEvent.change(ta(), { target: { value: "un contenu encore plus long" } });
     expect(ta().style.height).toBe("220px");
     expect(ta().style.overflowY).toBe("auto");
+    expect(ta().scrollTop).toBe(320);
+    expect((document.querySelector(".ta-backdrop") as HTMLElement).scrollTop).toBe(320);
   });
 
   it("backdrop : colore les mentions et reste synchronisé au scroll", () => {

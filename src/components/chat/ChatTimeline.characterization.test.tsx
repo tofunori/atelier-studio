@@ -98,7 +98,7 @@ describe("timeline Chat — caractérisation avant extraction", () => {
     expect(content.classList.contains("messages-content")).toBe(true);
     expect(children.length).toBeGreaterThan(0);
     expect(children.every((child) => child.getAttribute("data-slot") === "message-scroller-item")).toBe(true);
-    expect(content.querySelector('[data-message-id="message-0"][data-scroll-anchor="true"]')).toBeTruthy();
+    expect(content.querySelector('[data-scroll-anchor="true"]')).toBeNull();
   });
 
   it("porte les tours dans Message et les surfaces dans Bubble", () => {
@@ -221,6 +221,55 @@ describe("timeline Chat — caractérisation avant extraction", () => {
     // MessageScroller vise la position maximale valide (scrollHeight - viewport),
     // plutôt qu'une valeur hors plage ensuite clampée par le navigateur.
     await waitFor(() => expect(messages.scrollTop).toBe(1600));
+  });
+
+  it("scroll : un nouveau tour ne rebobine pas la lecture vers une ancre utilisateur", async () => {
+    const nativeRect = HTMLElement.prototype.getBoundingClientRect;
+    const rect = (top: number, height: number): DOMRect => ({
+      top,
+      bottom: top + height,
+      left: 0,
+      right: 760,
+      width: 760,
+      height,
+      x: 0,
+      y: top,
+      toJSON: () => ({}),
+    });
+    const rectSpy = vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(function (this: HTMLElement) {
+      if (this.classList.contains("messages")) return rect(0, 400);
+      const id = this.dataset.messageId;
+      const viewport = document.querySelector(".messages") as HTMLElement | null;
+      const scrollTop = viewport?.scrollTop ?? 0;
+      if (id === "message-0") return rect(-scrollTop, 60);
+      if (id === "message-1") return rect(100 - scrollTop, 60);
+      if (id === "message-2") return rect(1200 - scrollTop, 60);
+      return nativeRect.call(this);
+    });
+
+    try {
+      const initialEvents = [events.user("Premier tour"), events.text("Première réponse")];
+      const { rerender } = renderUi(<Chat {...chatProps({ events: initialEvents })} />);
+      const messages = document.querySelector(".messages") as HTMLElement;
+      Object.defineProperty(messages, "scrollHeight", { value: 2000, configurable: true });
+      Object.defineProperty(messages, "clientHeight", { value: 400, configurable: true });
+
+      messages.scrollTop = 300;
+      act(() => {
+        messages.dispatchEvent(new WheelEvent("wheel", { bubbles: true, deltaY: -100 }));
+        messages.dispatchEvent(new Event("scroll", { bubbles: true }));
+      });
+
+      rerender(
+        <Chat {...chatProps({
+          events: [...initialEvents, events.user("Nouveau tour")],
+        })} />,
+      );
+
+      await waitFor(() => expect(messages.scrollTop).toBe(300));
+    } finally {
+      rectSpy.mockRestore();
+    }
   });
 
   it("navigation du fil : les deux actions ciblent le dernier tour utilisateur et le bord bas", async () => {

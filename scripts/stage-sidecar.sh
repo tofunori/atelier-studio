@@ -5,6 +5,8 @@ DIST=src-tauri/sidecar-dist
 rm -rf "$DIST"
 mkdir -p "$DIST"
 cp sidecar/*.mjs sidecar/package.json "$DIST/"
+cp sidecar/atelier-gallery-tool "$DIST/"
+chmod +x "$DIST/atelier-gallery-tool"
 [ -f sidecar/package-lock.json ] && cp sidecar/package-lock.json "$DIST/"
 cp -R sidecar/providers "$DIST/providers"
 (cd "$DIST" && npm install --omit=dev --no-audit --no-fund --silent)

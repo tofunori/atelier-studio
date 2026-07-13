@@ -128,6 +128,18 @@ async function boot() {
     );
     return;
   }
+  // banc de captures du Quick Ask et de son sélecteur complet
+  if (visualBench && window.location.hash.startsWith("#qabench")) {
+    localStorage.removeItem("atelier-studio.qaBox");
+    localStorage.removeItem("atelier-studio.qaSelection");
+    const { QuickAskBench } = await import("./components/QuickAskBench");
+    ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
+      <BootBoundary>
+        <QuickAskBench />
+      </BootBoundary>,
+    );
+    return;
+  }
   // banc de captures du panneau Projets / Research Navigator (plan 024)
   if (visualBench && window.location.hash.startsWith("#navbench")) {
     const { NavBench } = await import("./components/NavBench");

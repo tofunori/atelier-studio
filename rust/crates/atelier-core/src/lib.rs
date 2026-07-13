@@ -23,6 +23,7 @@ pub const EXCLUDED_DIRECTORIES: &[&str] = &[
     ".ipynb_checkpoints",
     "worktrees",
     ".claude",
+    "annotations",
     "_gallery_exports",
     ".prism",
 ];

@@ -3,6 +3,7 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import readline from "node:readline";
 import { stripHandoff } from "./handoff.mjs";
+import { stripGalleryToolInstruction } from "./gallery_tool_prompt.mjs";
 
 // Lister les sessions existantes (CLI + Studio) pour reprise.
 
@@ -69,7 +70,7 @@ async function firstGrokUserText(path) {
       const d = JSON.parse(line);
       if (d.type !== "user") continue;
       const query = grokUserQueryFromContent(d.content);
-      if (query) { rl.close(); return query.slice(0, 70); }
+      if (query) { rl.close(); return stripGalleryToolInstruction(query).slice(0, 70); }
     } catch {}
   }
   rl.close();
@@ -207,7 +208,10 @@ export async function grokHistory(sessionId, projectRoot, opts = {}) {
         // handoff inter-provider : ne montrer que le vrai message tapé,
         // comme claudeHistory/codexHistory (le préambule part au modèle,
         // jamais à l'écran)
-        if (query) events.push({ kind: "user", text: stripHandoff(query) });
+        if (query) events.push({
+          kind: "user",
+          text: stripGalleryToolInstruction(stripHandoff(query)),
+        });
       } else if (d.type === "assistant") {
         const text = String(d.content ?? "").trim();
         if (text) events.push({ kind: "text", text });

@@ -109,6 +109,8 @@
   --z-popover: 120;
   --z-modal: 200;
   --z-toast: 260;
+  --z-quick-ask: 300;
+  --z-quick-ask-popover: 320;
 }
 
 /* reduced motion — contrat centralisé (014 §9) : plus aucun translate/scale/

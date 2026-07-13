@@ -25,6 +25,7 @@ import { ButtonGroup } from "@/components/ui/button-group.tsx";
 import { Empty, EmptyHeader, EmptyTitle } from "@/components/ui/empty.tsx";
 import { Spinner } from "@/components/ui/spinner.tsx";
 import { ArrowLeftIcon, MessageSquarePlusIcon, ShareIcon } from "lucide-react";
+import { useEdgeSwipeBack } from "../app/useEdgeSwipeBack.ts";
 
 type Props = {
   credentials: DeviceCredentials;
@@ -35,6 +36,7 @@ type Props = {
 };
 
 export function FileViewer(p: Props) {
+  useEdgeSwipeBack(p.onBack);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [url, setUrl] = useState<string | null>(null);

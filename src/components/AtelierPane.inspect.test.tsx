@@ -72,7 +72,10 @@ describe("AtelierPane — en-têtes locaux", () => {
     const home = screen.getByRole("tab", { name: "galerie" });
     expect(home.querySelector("svg")).toBeInTheDocument();
     expect(home.querySelector(".ui-tab-label")).toBeNull();
-    expect(container.querySelector<HTMLIFrameElement>('iframe[title="atelier"]')?.src).toContain("embedded=atelier");
+    const galleryFrame = container.querySelector<HTMLIFrameElement>('iframe[data-atelier-role="gallery"]');
+    expect(galleryFrame?.src).toContain("embedded=atelier");
+    expect(galleryFrame?.title).toBe("atelier");
+    expect(galleryFrame?.dataset.atelierReady).toBe("false");
     expect(container.querySelector('.atelier-bar .ui-tab[title="albedo.pdf"]')).toBeInTheDocument();
     fireEvent.click(container.querySelector('.atelier-bar .ui-tab[title="albedo.pdf"]')!);
     expect(props.onSelectTab).toHaveBeenCalledWith("t1");

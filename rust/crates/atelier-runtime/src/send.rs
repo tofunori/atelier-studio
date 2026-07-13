@@ -7,6 +7,18 @@ use serde_json::{json, Value};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
+fn with_gallery_tool_instruction(prompt: String, project_root: &str, server_dir: &str) -> String {
+    if project_root.is_empty() || server_dir.is_empty() {
+        return prompt;
+    }
+    let tool = std::path::Path::new(server_dir).join("atelier-gallery-tool");
+    format!(
+        "{prompt}\n\n<atelier-gallery-integration>\nWhen the user explicitly asks to show or display figures or files in the Atelier Gallery, you MUST, after resolving their exact paths, call the terminal tool exactly once with:\n{} show --project-root {} -- <project-relative-file> [more-files...]\nDo not merely list the paths. Use only files inside the active project. Do not call this command when files are only discussed, compared, edited, or summarized.\n</atelier-gallery-integration>",
+        serde_json::to_string(&tool.to_string_lossy()).unwrap_or_default(),
+        serde_json::to_string(project_root).unwrap_or_default(),
+    )
+}
+
 fn normalize_display_event(msg: &Value) -> Value {
     if let Some(d) = msg.get("displayEvent") {
         if d.get("kind").and_then(|v| v.as_str()) == Some("user")
@@ -70,9 +82,11 @@ pub async fn handle_send(state: &AppState, msg: &Value) -> Vec<String> {
         return vec![err_json("threadId requis")];
     }
 
+    let previous = state.threads().lock().await.get(&thread_id).cloned();
+
     // A conversation belongs to the provider selected when it was created.
     // Reject stale clients as well as deliberate cross-provider handoffs.
-    if let Some(previous) = state.threads().lock().await.get(&thread_id).cloned() {
+    if let Some(previous) = previous.as_ref() {
         if previous.provider != provider {
             return vec![err_json(format!(
                 "ce chat appartient à {}; créez un nouveau chat pour utiliser {provider}",
@@ -80,6 +94,15 @@ pub async fn handle_send(state: &AppState, msg: &Value) -> Vec<String> {
             ))];
         }
     }
+
+    let provider_prompt = previous
+        .as_ref()
+        .and_then(|thread| thread.extra.get("forkContext"))
+        .and_then(Value::as_str)
+        .filter(|context| !context.is_empty())
+        .map(|context| format!("{context}{prompt}"))
+        .unwrap_or_else(|| prompt.clone());
+    let provider_prompt = with_gallery_tool_instruction(provider_prompt, &project_root, state.server_dir());
 
     let Some(provider_impl) = state.provider(&provider) else {
         return vec![err_json(format!(
@@ -286,7 +309,7 @@ pub async fn handle_send(state: &AppState, msg: &Value) -> Vec<String> {
         let req = SendRequest {
             thread_id: tid.clone(),
             turn_id: turn_id.clone(),
-            prompt,
+            prompt: provider_prompt,
             project_root,
             session_id,
             model,
@@ -315,15 +338,23 @@ pub async fn handle_send(state: &AppState, msg: &Value) -> Vec<String> {
                 }
             }
         }
+        let succeeded = result.ok;
         if let Some(sid) = result.session_id {
             let mut store = state2.threads().lock().await;
-            let _ = store.upsert(
-                json!({"id": tid, "sessionId": sid, "status": "idle"}),
-                false,
-            );
+            let mut patch = json!({"id": tid, "sessionId": sid, "status": "idle"});
+            if succeeded {
+                patch["forkContext"] = Value::Null;
+                patch["forkPending"] = Value::Bool(false);
+            }
+            let _ = store.upsert(patch, false);
         } else {
             let mut store = state2.threads().lock().await;
-            let _ = store.upsert(json!({"id": tid, "status": "idle"}), false);
+            let mut patch = json!({"id": tid, "status": "idle"});
+            if succeeded {
+                patch["forkContext"] = Value::Null;
+                patch["forkPending"] = Value::Bool(false);
+            }
+            let _ = store.upsert(patch, false);
         }
         state2.harness().clear_running(&tid).await;
         let list = state2.threads().lock().await.list();
@@ -564,5 +595,18 @@ mod tests {
             ])
         );
         assert_eq!(event["projectRoot"], "/repo");
+    }
+
+    #[test]
+    fn gallery_tool_instruction_is_explicit_and_keeps_the_user_prompt() {
+        let enriched = with_gallery_tool_instruction(
+            "montre-moi ces figures".into(),
+            "/projet",
+            "/app/Resources/rust-server",
+        );
+        assert!(enriched.starts_with("montre-moi ces figures"));
+        assert!(enriched.contains("/app/Resources/rust-server/atelier-gallery-tool"));
+        assert!(enriched.contains("show --project-root \"/projet\""));
+        assert!(enriched.contains("Do not merely list the paths"));
     }
 }

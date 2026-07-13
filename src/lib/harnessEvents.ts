@@ -88,6 +88,21 @@ function lastIsAttachableThinking(list: AgentEvent[], ev: AgentEvent): boolean {
   return !m || turnOf(last) === m.turnId;
 }
 
+/** Dernier bloc de raisonnement live rattachable au terminal courant.
+ * Contrairement au remplacement par `thinking` (qui exige l'adjacence), un
+ * `done` peut arriver après le texte final : il doit tout de même fermer le
+ * dernier raisonnement du même turn afin de ne jamais laisser « thinking… »
+ * actif dans un tour déjà terminé. */
+function findThinkingLiveIdx(list: AgentEvent[], ev: AgentEvent): number {
+  const m = harnessMeta(ev);
+  for (let k = list.length - 1; k >= 0; k--) {
+    const it = list[k];
+    if (it.kind !== "thinking_live") continue;
+    if (!m || turnOf(it) === m.turnId) return k;
+  }
+  return -1;
+}
+
 /**
  * Réduit UN événement dans la liste d'un thread. Pure : retourne une NOUVELLE
  * liste, ou la même référence si l'événement est un no-op (éphémère jamais
@@ -213,9 +228,9 @@ export function reduceHarnessEvent(list: AgentEvent[], ev: AgentEvent): AgentEve
     return next;
   }
 
-  // fin de tour : une bulle streaming jamais finalisée (interruption, provider
-  // sans bloc final) devient un texte définitif — ou disparaît si vide. Un
-  // terminal avec meta ne fige que la bulle de SON turn.
+  // fin de tour : les bulles live jamais finalisées (interruption, provider
+  // sans bloc final) deviennent définitives — ou disparaissent si vides. Un
+  // terminal avec meta ne fige que les bulles de SON turn.
   if (ev.kind === "done" || ev.kind === "error") {
     const sIdx = findStreamingIdx(next, ev);
     if (sIdx >= 0) {
@@ -223,6 +238,13 @@ export function reduceHarnessEvent(list: AgentEvent[], ev: AgentEvent): AgentEve
       const txt = String(sb.text ?? "");
       if (txt.trim()) next[sIdx] = { kind: "text", text: txt, ts: sb.ts, meta: sb.meta };
       else next.splice(sIdx, 1);
+    }
+    const tIdx = findThinkingLiveIdx(next, ev);
+    if (tIdx >= 0) {
+      const tb = next[tIdx] as Extract<AgentEvent, { kind: "thinking_live" }>;
+      const txt = String(tb.text ?? "");
+      if (txt.trim()) next[tIdx] = { kind: "thinking", text: txt, ts: tb.ts, meta: tb.meta };
+      else next.splice(tIdx, 1);
     }
     // error/tool n'ont pas de ts déclaré mais le runtime historique en pose un
     // (affichage de l'heure) — cast local plutôt qu'un élargissement de ws.ts
@@ -235,13 +257,31 @@ export function reduceHarnessEvent(list: AgentEvent[], ev: AgentEvent): AgentEve
   return next;
 }
 
+const GALLERY_INTEGRATION_BLOCK = /\n*<atelier-gallery-integration\b[^>]*>[\s\S]*?<\/atelier-gallery-integration>\s*/gi;
+
+function stripGalleryIntegration(text: string): string {
+  return text.replace(GALLERY_INTEGRATION_BLOCK, "").trimEnd();
+}
+
 /** Assainissement d'un historique reçu : une bulle "streaming" orpheline
  * persistée (avant le fix bec2c27) ressusciterait son curseur clignotant —
- * figée en texte si non vide, retirée sinon. */
+ * figée en texte si non vide, retirée sinon. Les instructions internes
+ * ajoutées au prompt provider ne font jamais partie du message affichable. */
 function sanitizeHistory(events: AgentEvent[]): AgentEvent[] {
-  return events.flatMap((ev) =>
-    ev.kind !== "streaming" ? [ev]
-    : String(ev.text ?? "").trim() ? [{ ...ev, kind: "text" as const }] : []);
+  const sanitized: AgentEvent[] = [];
+  for (const ev of events) {
+    if (ev.kind === "user") {
+      const text = stripGalleryIntegration(String(ev.text ?? ""));
+      if (text.trim()) sanitized.push({ ...ev, text });
+      continue;
+    }
+    if (ev.kind === "streaming") {
+      if (String(ev.text ?? "").trim()) sanitized.push({ ...ev, kind: "text" });
+      continue;
+    }
+    sanitized.push(ev);
+  }
+  return sanitized;
 }
 
 /**

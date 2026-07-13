@@ -12,7 +12,9 @@ export const PROJECT = realpathOrResolve(
   process.env.GALLERY_ROOT ? expandHome(process.env.GALLERY_ROOT) : process.cwd(),
 );
 export const STUDIO = Boolean(process.env.ATELIER_STUDIO);
-export const OUT_DIR = path.join(PROJECT, "annotations");
+// Les compositions annotées sont des aperçus de transport pour le chat, pas
+// des artefacts du projet. Le cache .fig_thumbs est exclu du catalogue.
+export const OUT_DIR = path.join(PROJECT, ".fig_thumbs", "annotation-previews");
 export const STARTED_AT = new Date().toISOString();
 export const APP_VERSION = process.env.ATELIER_APP_VERSION || "dev";
 export const BUNDLE_HASH = process.env.ATELIER_BUNDLE_HASH || bundleFingerprint(GALLERY_DIR);

@@ -97,7 +97,14 @@ export function PromptTextarea(p: {
         <InputGroupTextarea
           ref={taRef}
           value={text}
-          onChange={(e) => setText(e.target.value)}
+          onChange={(e) => {
+            // Le redimensionnement contrôlé se produit après ce changement.
+            // Mémoriser si la frappe était à la fin évite que WebKit remonte le
+            // scroll interne et fasse disparaître le curseur sur un long prompt.
+            e.currentTarget.dataset.composerFollowCaret =
+              e.currentTarget.selectionEnd === e.currentTarget.value.length ? "end" : "preserve";
+            setText(e.currentTarget.value);
+          }}
           onScroll={(e) => {
             const bd = e.currentTarget.parentElement?.querySelector(".ta-backdrop");
             if (bd) bd.scrollTop = e.currentTarget.scrollTop;

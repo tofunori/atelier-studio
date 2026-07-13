@@ -266,6 +266,62 @@ describe("orchestration App — caractérisation", () => {
     expect(preview.src).toBe("http://127.0.0.1:18790/fig3_spatial.png");
   });
 
+  it("envoie une commande show unique à l'iframe Galerie et accepte son résultat", async () => {
+    const { sock } = await mountApp();
+    await act(async () => { await flushMicrotasks(10); });
+
+    const iframe = document.querySelector<HTMLIFrameElement>('iframe[data-atelier-role="gallery"]');
+    expect(iframe, "iframe Galerie explicitement identifiée").toBeTruthy();
+    fireEvent.load(iframe!);
+    await act(async () => { await flushMicrotasks(2); });
+    const nonce = new URLSearchParams(new URL(iframe!.src).hash.replace(/^#/, "")).get("atelier_nonce");
+    expect(nonce).toBeTruthy();
+    const postMessage = vi.spyOn(iframe!.contentWindow!, "postMessage");
+    const switches: unknown[] = [];
+    const onSwitch = (event: Event) => switches.push((event as CustomEvent).detail);
+    window.addEventListener("switch-surface", onSwitch);
+
+    const request = {
+      action: "show" as const,
+      mode: "focus" as const,
+      projectRoot: PROJECT_ROOT,
+      requestId: "gallery-req-1",
+      rels: ["figures/a.png", "figures/missing.png"],
+    };
+    await push(sock, { type: "galleryCommand", command: request });
+    await push(sock, { type: "galleryCommand", command: request });
+
+    const showCalls = postMessage.mock.calls.filter(([message]) =>
+      (message as { type?: string }).type === "atelier-gallery-command",
+    );
+    expect(showCalls).toHaveLength(1);
+    expect(showCalls[0]).toEqual([
+      { type: "atelier-gallery-command", nonce, ...request },
+      "http://127.0.0.1:18790",
+    ]);
+    expect(switches.filter((detail) => (detail as { surface?: string }).surface === "atelier")).toHaveLength(1);
+
+    await act(async () => {
+      window.dispatchEvent(new MessageEvent("message", {
+        data: {
+          type: "atelier-gallery-result",
+          nonce,
+          ok: true,
+          action: "show",
+          projectRoot: PROJECT_ROOT,
+          requestId: "gallery-req-1",
+          matched: ["figures/a.png"],
+          missing: ["figures/missing.png"],
+        },
+        origin: "http://127.0.0.1:18790",
+        source: iframe!.contentWindow,
+      }));
+      await flushMicrotasks(4);
+    });
+
+    window.removeEventListener("switch-surface", onSwitch);
+  });
+
   it("bascule Chat/Split/Atelier : en Atelier plein, le panneau chat est masqué SANS être démonté", async () => {
     const { sock } = await mountApp();
     await pushThreads(sock);

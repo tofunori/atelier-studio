@@ -1,4 +1,4 @@
-import { useRef, type ReactNode } from "react";
+import { useRef, type ComponentProps, type ReactNode } from "react";
 import {
   Select as ShadcnSelect,
   SelectContent,
@@ -26,6 +26,8 @@ export function Select(p: {
   compact?: boolean;
   title?: string;
   className?: string;
+  portalContainer?: ComponentProps<typeof SelectContent>["portalContainer"] | null;
+  positionerClassName?: string;
 }) {
   const selected = p.options.find((option) => option.value === p.value);
   const items = p.options.map(({ value, label }) => ({ value, label }));
@@ -55,7 +57,11 @@ export function Select(p: {
           )}
         </SelectValue>
       </SelectTrigger>
-      <SelectContent className="custom-select-menu" portalContainer={portalContainer}>
+      <SelectContent
+        className="custom-select-menu"
+        portalContainer={p.portalContainer === null ? undefined : p.portalContainer ?? portalContainer}
+        positionerClassName={p.positionerClassName}
+      >
         <SelectGroup>
           {p.options.map((option) => (
             <SelectItem

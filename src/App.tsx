@@ -11,6 +11,7 @@ import {
   Command,
 } from "./lib/ws";
 import { mergeHarnessHistory, reduceHarnessEvent } from "./lib/harnessEvents";
+import { buildForkThreadPayload } from "./lib/forkThread";
 import { useSidecarConnection, type SidecarStatus } from "./hooks/useSidecarConnection";
 import { useAtelierServer } from "./hooks/useAtelierServer";
 import { artefactKind, deriveResearchHomeModel } from "./lib/researchHome";
@@ -30,7 +31,7 @@ import { LazyBoundary, lazyWithRetry } from "./components/LazyBoundary";
 const CommandPalette = lazyWithRetry(() => import("./components/CommandPalette"));
 import QuickAsk from "./components/QuickAsk";
 import { LazyDialog } from "./components/ui/LazyDialog";
-import { Button, IconButton, showSuccess } from "./components/ui";
+import { Button, IconButton, showInfo, showSuccess } from "./components/ui";
 import UsagePopover, { worstOf } from "./components/UsagePopover";
 import { init as initNotify, notifyRunDone, notifyReview } from "./lib/notify";
 import { CloseIcon, DownloadIcon, HighlighterIcon, ProviderIcon, SidebarIcon } from "./components/icons";
@@ -44,8 +45,15 @@ import {
   atelierTargetOrigin,
   isTrustedAtelierMessage,
   withAtelierNonce,
+  type AtelierGalleryResultMessage,
   type AtelierOutboundMessage,
 } from "./lib/ipc";
+import {
+  createGalleryCommandBridge,
+  type GalleryCommandBridge,
+  type GalleryCommandBridgeError,
+  type GalleryShowRequest,
+} from "./lib/galleryCommandBridge";
 // tokens → shadcn/Typeset → primitives → App.css : les alias sémantiques et les classes ui-*
 // doivent être définis avant les règles historiques (cascade à égalité de
 // spécificité — App.css garde le dernier mot pendant la migration).
@@ -738,6 +746,41 @@ export default function App() {
     setActiveSurface(surface);
     window.dispatchEvent(new CustomEvent("switch-surface", { detail: { surface } }));
   }
+  const galleryBridgeRef = useRef<GalleryCommandBridge | null>(null);
+  useEffect(() => {
+    if (!activeProject) return;
+    const bridge = createGalleryCommandBridge({
+      nonce: atelierNonce,
+      getCurrentProjectRoot: () => activeProject,
+      getGalleryFrame: () =>
+        document.querySelector<HTMLIFrameElement>('iframe[data-atelier-role="gallery"][data-atelier-ready="true"]'),
+      onValidated: () => {
+        switchToSurface("atelier");
+        setActiveTab("gallery");
+      },
+      onEmpty: () => { void showInfo(t("atelier.gallery-no-match")); },
+    });
+    galleryBridgeRef.current = bridge;
+
+    const onShow = (event: Event) => {
+      const request = (event as CustomEvent<GalleryShowRequest>).detail;
+      void bridge.sendShow(request).catch((caught: GalleryCommandBridgeError) => {
+        if (["project-changed", "gallery-bridge-disposed"].includes(caught.code)) return;
+        void showInfo(t("atelier.gallery-command-error"));
+      });
+    };
+    const onResult = (event: Event) => {
+      bridge.acceptResult((event as CustomEvent<AtelierGalleryResultMessage>).detail);
+    };
+    window.addEventListener("atelier-gallery-show", onShow);
+    window.addEventListener("atelier-gallery-result", onResult);
+    return () => {
+      window.removeEventListener("atelier-gallery-show", onShow);
+      window.removeEventListener("atelier-gallery-result", onResult);
+      bridge.reset("project-changed");
+      if (galleryBridgeRef.current === bridge) galleryBridgeRef.current = null;
+    };
+  }, [activeProject, atelierNonce]);
   // bouton IDE du rail : revient direct à la vue éditeur/PDF (dernier fichier
   // ouvert) sans passer par la Galerie ; sans fichier ouvert, montre l'écran
   // d'accueil IDE (onglet sentinelle "ide" : fichiers récents + explorateur).
@@ -868,6 +911,9 @@ export default function App() {
       }
       if (msg.type === "highlights") {
         setHighlights(Array.isArray(msg.highlights) ? msg.highlights : []);
+      }
+      if (msg.type === "galleryCommand" && msg.command) {
+        window.dispatchEvent(new CustomEvent("atelier-gallery-show", { detail: msg.command }));
       }
       if (msg.type === "event") {
         if (msg.event.kind === "started") {
@@ -1351,6 +1397,11 @@ export default function App() {
       }
       if (data.type === "atelier-add-to-chat") {
         attachContextToChat(data.text, data);
+      }
+      if (data.type === "atelier-gallery-result") {
+        const galleryFrame = document.querySelector<HTMLIFrameElement>('iframe[data-atelier-role="gallery"]');
+        if (e.source !== galleryFrame?.contentWindow) return;
+        window.dispatchEvent(new CustomEvent("atelier-gallery-result", { detail: data }));
       }
       if (data.type === "browser-add-to-chat") {
         let name = "extrait web";
@@ -2152,6 +2203,11 @@ export default function App() {
         minimized={qaMode === "min"}
         draft={qaDraft}
         context={qaContext}
+        providers={providerList}
+        customModels={settings.customModels}
+        defaultModels={settings.defaultModel}
+        defaultEfforts={settings.defaultEffort}
+        modelEfforts={settings.modelEfforts}
         onMinimize={() => setQaMode("min")}
         onClose={() => setQaMode("closed")}
         onInject={(text) => {
@@ -2282,18 +2338,18 @@ export default function App() {
           onFork={(index) => {
             if (!activeId) return;
             const src = allThreadsRef.current.find((t) => t.id === activeId);
-            if (!src || src.provider !== "claude") return;
+            if (!src) return;
             const newId = crypto.randomUUID();
-            const eventId = (eventsRef.current[activeId]?.[index]?.meta as any)?.eventId;
+            const { forkEvents, payload } = buildForkThreadPayload(
+              activeId,
+              newId,
+              index,
+              eventsRef.current[activeId] ?? [],
+            );
             // copie locale de l'historique jusqu'au point de fork
-            setEvents((p) => ({ ...p, [newId]: (p[activeId] ?? []).slice(0, index + 1) }));
+            setEvents((p) => ({ ...p, [newId]: forkEvents }));
             if (ws.current?.readyState === 1) {
-              ws.current.send(JSON.stringify({
-                type: "forkThread",
-                newThreadId: newId,
-                fromThreadId: activeId,
-                eventId,
-              }));
+              ws.current.send(JSON.stringify(payload));
             }
             setActiveId(newId);
             activeIdRef.current = newId;

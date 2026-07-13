@@ -280,7 +280,6 @@ export function ChatTimeline(p: {
           <MessageScrollerItem
             key={itemKey}
             messageId={messageId}
-            scrollAnchor={item.type === "event" && item.event.kind === "user"}
           >
           {(() => {
           if (item.type === "fold") {

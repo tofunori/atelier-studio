@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Alert, AlertDescription } from "@/components/ui/alert.tsx";
 import { Button } from "@/components/ui/button.tsx";
 import { Empty, EmptyHeader, EmptyTitle } from "@/components/ui/empty.tsx";
@@ -8,6 +8,7 @@ import { Toaster } from "@/components/ui/sonner.tsx";
 import { ArrowLeftIcon } from "lucide-react";
 import { BottomTabBar, type AppTab } from "./app/BottomTabBar.tsx";
 import { bannerFor, redactDiagnostics } from "./app/connectionState.ts";
+import { useEdgeSwipeBack } from "./app/useEdgeSwipeBack.ts";
 import { ChatScreen } from "./chat/ChatScreen.tsx";
 import { ThreadList } from "./chat/ThreadList.tsx";
 import { FilesScreen } from "./files/FilesScreen.tsx";
@@ -231,6 +232,13 @@ export default function App() {
     }
   };
 
+  const closeOverlay = useCallback(() => {
+    setOverlay("none");
+    if (overlay === "thread") setActiveThreadId(null);
+  }, [overlay]);
+
+  useEdgeSwipeBack(closeOverlay, overlay !== "none");
+
   if (!booted) {
     return (
       <div className="app-shell">
@@ -275,6 +283,7 @@ export default function App() {
             gatewayUrl={gatewayUrl}
             onGatewayUrlChange={setGatewayUrl}
             onPair={onPair}
+            onBack={closeOverlay}
             busy={pairBusy}
             error={pairError}
           />
@@ -282,7 +291,7 @@ export default function App() {
         {overlay === "diagnostics" && (
           <div>
             <div className="screen pb-0">
-              <Button type="button" variant="ghost" size="sm" onClick={() => setOverlay("none")}>
+              <Button type="button" variant="ghost" size="sm" onClick={closeOverlay}>
                 <ArrowLeftIcon data-icon="inline-start" />
                 Réglages
               </Button>
@@ -299,10 +308,7 @@ export default function App() {
             setSendQueue={session.setSendQueue}
             offline={offline}
             networkEpoch={networkEpoch}
-            onBack={() => {
-              setOverlay("none");
-              setActiveThreadId(null);
-            }}
+            onBack={closeOverlay}
           />
         )}
         {overlay === "none" && tab === "chats" && (

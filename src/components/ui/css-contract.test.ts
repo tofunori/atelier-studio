@@ -148,6 +148,15 @@ describe("contrat Quiet Instrument (sources CSS)", () => {
     expect(appCss).toMatch(/\.exp-search\s*\{[\s\S]*?min-height:\s*var\(--control-height\)/);
   });
 
+  it("Quick Ask réserve les marges du textarea dans sa largeur", () => {
+    expect(appCss).toMatch(/\.qa-input\s*\{[^}]*width:\s*calc\(100% - 32px\)/);
+    expect(appCss).toMatch(/\.qa-input\s*\{[^}]*box-sizing:\s*border-box/);
+  });
+
+  it("le textarea du composer peut réellement grandir sans être comprimé par flex", () => {
+    expect(appCss).toMatch(/\.ta-wrap textarea\s*\{[^}]*flex:\s*none;/s);
+  });
+
   it("les tabs Atelier restent compacts et neutres, sans accent de marque", () => {
     expect(appCss).toMatch(/\.sidebar li\.active::before\s*\{[\s\S]*?background:\s*var\(--selection-line\)/);
     expect(primitives).toMatch(/\.ui-tab\s*\{[\s\S]*?height:\s*28px/);

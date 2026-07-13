@@ -84,7 +84,9 @@ describe("route", () => {
   it("getHistory Grok préfère le transcript natif quand le journal a perdu les réponses", async () => {
     const sent = [];
     const native = [
-      { kind: "user", text: "question" },
+      { kind: "user", text: "tour supprimé" },
+      { kind: "text", text: "réponse supprimée" },
+      { kind: "user", text: "contexte brut\n\nquestion\n\n<atelier-gallery-integration>secret</atelier-gallery-integration>" },
       { kind: "text", text: "réponse Grok" },
     ];
     const grokHistory = vi.fn(async () => native);
@@ -95,13 +97,16 @@ describe("route", () => {
       harnessJournal: {
         hasJournal: () => true,
         materialize: async () => [
-          { kind: "user", text: "question" },
+          { kind: "user", text: "question", label: "Citation de la conversation" },
           { kind: "done", ok: true },
         ],
       },
     });
     expect(grokHistory).toHaveBeenCalledWith("sid", "/p");
-    expect(sent[0].events).toEqual(native);
+    expect(sent[0].events).toEqual([
+      { kind: "user", text: "question", label: "Citation de la conversation" },
+      { kind: "text", text: "réponse Grok" },
+    ]);
   });
 
   it("getUsage agrège turns/output par modèle pour aujourd'hui via ledger.getAll", async () => {
@@ -428,7 +433,8 @@ describe("attribution des tours (plan 025)", () => {
     await sends[0].onEvent({ kind: "done", ok: true, result: "" });
     await flush();
     expect(sends).toHaveLength(2);
-    expect(sends[1].prompt).toBe("ensuite");
+    expect(sends[1].prompt).toMatch(/^ensuite\n\n<atelier-gallery-integration>/);
+    expect(sends[1].prompt).toContain("atelier-gallery-tool");
     // un snapshot par turn EXÉCUTÉ (jamais pour un queued en attente)
     expect(gitops.snapshot).toHaveBeenCalledTimes(2);
 
@@ -525,6 +531,22 @@ describe("sélection de tour — repli lastTurn (pièges connus : démotion read
     expect(runs[1].permissionMode).toBe("bypassPermissions");
     expect(runs[1].model).toBe("gpt-5.6-sol");
     expect(runs[1].effort).toBe("medium");
+  });
+
+  it("injecte au provider l’outil Galerie mais conserve le displayEvent utilisateur intact", async () => {
+    const runs = [];
+    const { ctx } = makeCtx({
+      grok: { run: vi.fn((opts) => { runs.push(opts); return Promise.resolve({ sessionId: "g1" }); }) },
+    });
+    await route({
+      type: "send", provider: "grok", threadId: "t-gallery", projectRoot: "/projet",
+      prompt: "montre-moi ces figures", clientMessageId: "m-gallery",
+      displayEvent: { kind: "user", text: "montre-moi ces figures" },
+    }, ctx);
+    await flush();
+    expect(runs[0].prompt).toContain("montre-moi ces figures");
+    expect(runs[0].prompt).toContain("atelier-gallery-tool");
+    expect(runs[0].prompt).toContain('show --project-root "/projet"');
   });
 
   it("refuse un changement de provider même lorsque le thread est au repos", async () => {

@@ -66,4 +66,21 @@ describe("ContextShelf avec Attachment shadcn", () => {
     fireEvent.click(screen.getByRole("button", { name: "Retirer will2020.pdf 2" }));
     expect(onRemoveAttachment).toHaveBeenCalledWith(1);
   });
+
+  it.each(["article-zotero.pdf", "chapitre.tex", "analyse.py"])(
+    "deux extraits de %s → le déclencheur groupé reste transparent",
+    (name) => {
+      shelf([
+        { name, lines: "10-14", kind: "quote", text: "premier extrait" },
+        { name, lines: "30-35", kind: "quote", text: "second extrait" },
+      ]);
+
+      expect(screen.getByRole("button", { name: `Ouvrir ${name}` })).toHaveClass(
+        "tw:appearance-none",
+        "tw:border-0",
+        "tw:bg-transparent",
+        "tw:p-0",
+      );
+    },
+  );
 });

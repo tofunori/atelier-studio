@@ -49,4 +49,21 @@ describe("grokHistory — repli global par id (thread déplacé vers un autre pr
     const events = await grokHistory("inconnu", "/Users/tofunori/nouveau-projet", { baseDir: base });
     expect(events).toEqual([]);
   });
+
+  it("ne réaffiche jamais l'instruction interne de galerie persistée par Grok", async () => {
+    const base = mkdtempSync(join(tmpdir(), "grok-sessions-"));
+    const sessionDir = join(base, encodeURIComponent("/projet"), "sid-gallery");
+    mkdirSync(sessionDir, { recursive: true });
+    writeFileSync(
+      join(sessionDir, "chat_history.jsonl"),
+      JSON.stringify({
+        type: "user",
+        content: "<user_query>question visible\n\n<atelier-gallery-integration>secret</atelier-gallery-integration></user_query>",
+      }) + "\n",
+    );
+
+    await expect(grokHistory("sid-gallery", "/projet", { baseDir: base })).resolves.toEqual([
+      { kind: "user", text: "question visible" },
+    ]);
+  });
 });

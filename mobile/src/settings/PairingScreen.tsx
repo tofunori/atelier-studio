@@ -17,12 +17,13 @@ import {
 import { Field, FieldGroup, FieldLabel } from "@/components/ui/field.tsx";
 import { Input } from "@/components/ui/input.tsx";
 import { Spinner } from "@/components/ui/spinner.tsx";
-import { ChevronDownIcon, LinkIcon } from "lucide-react";
+import { ArrowLeftIcon, ChevronDownIcon, LinkIcon } from "lucide-react";
 
 type Props = {
   gatewayUrl: string;
   onGatewayUrlChange: (url: string) => void;
   onPair: (code: string, deviceName: string) => Promise<void>;
+  onBack: () => void;
   busy: boolean;
   error: string | null;
 };
@@ -33,6 +34,10 @@ export function PairingScreen(p: Props) {
 
   return (
     <div className="screen">
+      <Button type="button" variant="ghost" size="sm" className="mb-2 -ml-2" onClick={p.onBack}>
+        <ArrowLeftIcon data-icon="inline-start" />
+        Retour
+      </Button>
       <h1 className="screen-title">Connecter au Mac</h1>
       <Card size="sm">
         <CardHeader>

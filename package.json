@@ -14,7 +14,7 @@
     "build:gallery-ui": "vite build --config gallery/react-ui/vite.config.ts",
     "test:frontend": "vitest run",
     "test:sidecar": "npm --prefix sidecar test",
-    "test:gallery:unit": "python3 -m unittest discover -s gallery/tests",
+    "test:gallery:unit": "python3 -m unittest discover -s gallery/tests && node --test gallery/server/tests/gallery_commands.test.mjs",
     "test:gallery:parity": "cd gallery && node server/tests/parity.mjs",
     "test:gallery:diff": "node gallery/server/tests/diff_suite.mjs",
     "test:gallery": "npm run test:gallery:unit && npm run test:gallery:parity && npm run test:gallery:diff",

@@ -1043,17 +1043,49 @@ async fn handle_fork_thread(state: &AppState, msg: &Value) -> Vec<String> {
     let Some(src) = src else {
         return vec![err("fork indisponible pour ce chat")];
     };
-    if src.session_id.is_none() || src.provider != "claude" {
-        return vec![err("fork indisponible pour ce chat")];
+    let lines = msg
+        .get("contextEvents")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(|event| {
+            let text = event.get("text")?.as_str()?.trim();
+            if text.is_empty() {
+                return None;
+            }
+            match event.get("kind").and_then(Value::as_str) {
+                Some("user") => Some(format!("Utilisateur : {text}")),
+                Some("text") => Some(format!("Agent ({}) : {text}", src.provider)),
+                _ => None,
+            }
+        })
+        .collect::<Vec<_>>();
+    let mut transcript = lines.join("\n\n");
+    const MAX_CONTEXT_CHARS: usize = 400_000;
+    if transcript.chars().count() > MAX_CONTEXT_CHARS {
+        transcript = format!(
+            "[…début tronqué…]\n{}",
+            transcript.chars().rev().take(MAX_CONTEXT_CHARS).collect::<String>().chars().rev().collect::<String>()
+        );
     }
+    let fork_context = if transcript.is_empty() {
+        Value::Null
+    } else {
+        Value::String(format!(
+            "Tu reprends une conversation commencée avec un autre agent. Voici le fil jusqu'ici — prends-le comme contexte acquis, ne le résume pas, ne le répète pas :\n\n---\n{transcript}\n=== fin du fil transmis — message réel ci-dessous ===\n\n"
+        ))
+    };
     let title = format!("⑂ {}", if src.title.is_empty() { "fork" } else { &src.title });
     let patch = json!({
         "id": new_id,
         "projectRoot": src.project_root,
-        "provider": "claude",
+        "provider": src.provider,
         "title": title,
-        "sessionId": src.session_id,
-        "forkPending": true,
+        // Le backend Rust emploie un fork contextuel sûr pour tous les
+        // providers : aucune session native n'est partagée avec la branche.
+        "sessionId": null,
+        "forkPending": false,
+        "forkContext": fork_context,
         "status": "idle",
     });
     {
@@ -1699,6 +1731,46 @@ mod tests {
         let out = route_ws(&s, r#"{"type":"deleteThread","threadId":"t1"}"#).await;
         let v: Value = serde_json::from_str(&out[0]).unwrap();
         assert!(v["threads"].as_array().unwrap().is_empty());
+    }
+
+    #[tokio::test]
+    async fn fork_grok_creates_an_independent_contextual_thread() {
+        let dir = tempdir().unwrap();
+        let s = state(dir.path());
+        s.threads()
+            .lock()
+            .await
+            .upsert(
+                json!({
+                    "id":"grok-source",
+                    "title":"Source Grok",
+                    "provider":"grok",
+                    "sessionId":"native-source"
+                }),
+                false,
+            )
+            .unwrap();
+
+        let out = route_ws(
+            &s,
+            &json!({
+                "type":"forkThread",
+                "fromThreadId":"grok-source",
+                "newThreadId":"grok-fork",
+                "contextEvents":[
+                    {"kind":"user","text":"question source"},
+                    {"kind":"text","text":"réponse source"}
+                ]
+            })
+            .to_string(),
+        )
+        .await;
+
+        assert!(out[0].contains("grok-fork"), "{out:?}");
+        let fork = s.threads().lock().await.get("grok-fork").cloned().unwrap();
+        assert_eq!(fork.provider, "grok");
+        assert!(fork.session_id.is_none());
+        assert!(fork.extra["forkContext"].as_str().unwrap().contains("réponse source"));
     }
 
     #[tokio::test]

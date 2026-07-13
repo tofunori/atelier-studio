@@ -29,6 +29,7 @@ import { listProviders } from "./providers/registry.mjs";
 import { loadApiProviderConfigs, writeApiProviderConfigs, makeApiProvider, fetchAvailableModels } from "./providers/openai_api.mjs";
 import { resolveBin, enrichPath } from "./bin_resolver.mjs";
 import { resolveSingleInstance } from "./single_instance.mjs";
+import { validGalleryCommand } from "./gallery_command.mjs";
 enrichPath(); // PATH Finder minimal → complété pour tous les spawns
 
 const APP_DIR = `${homedir()}/Library/Application Support/atelier-studio`;
@@ -499,6 +500,27 @@ const httpServer = createServer((req, res) => {
     req.on("end", () => {
       try { JSON.parse(body); writeFileAtomic(UI_PATH, body); } catch {}
       res.end("ok");
+    });
+    return;
+  }
+  if (url.pathname === "/gallery-command" && req.method === "POST") {
+    let body = "";
+    req.on("data", (chunk) => {
+      body += chunk;
+      if (body.length > 256_000) req.destroy();
+    });
+    req.on("end", () => {
+      let command;
+      try { command = JSON.parse(body); } catch {}
+      res.setHeader("content-type", "application/json");
+      if (!validGalleryCommand(command)) {
+        res.statusCode = 400;
+        res.end(JSON.stringify({ ok: false, error: "gallery-command-invalid" }));
+        return;
+      }
+      broadcast({ type: "galleryCommand", command });
+      res.statusCode = 202;
+      res.end(JSON.stringify({ ok: true, queued: true, requestId: command.requestId }));
     });
     return;
   }

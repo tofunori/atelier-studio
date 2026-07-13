@@ -50,4 +50,20 @@ describe("isTrustedAtelierMessage", () => {
     });
     expect(isTrustedAtelierMessage(e, nonce)).toBe(true);
   });
+
+  it("accepte un résultat show borné et refuse les clés ou chemins invalides", () => {
+    const valid = {
+      type: "atelier-gallery-result",
+      nonce,
+      ok: true,
+      action: "show",
+      projectRoot: "/Users/test/projet",
+      requestId: "req-1",
+      matched: ["figures/a.png"],
+      missing: ["figures/b.png"],
+    };
+    expect(isTrustedAtelierMessage(msg("http://127.0.0.1:19000", valid), nonce)).toBe(true);
+    expect(isTrustedAtelierMessage(msg("http://127.0.0.1:19000", { ...valid, extra: true }), nonce)).toBe(false);
+    expect(isTrustedAtelierMessage(msg("http://127.0.0.1:19000", { ...valid, matched: [""] }), nonce)).toBe(false);
+  });
 });

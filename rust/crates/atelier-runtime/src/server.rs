@@ -12,10 +12,11 @@ use axum::extract::ws::{Message, WebSocket, WebSocketUpgrade};
 use axum::extract::{Query, State};
 use axum::http::{header, HeaderMap, StatusCode};
 use axum::response::IntoResponse;
-use axum::routing::get;
+use axum::routing::{get, post};
 use axum::{Json, Router};
 use futures_util::{SinkExt, StreamExt};
 use serde::Deserialize;
+use serde_json::Value;
 use std::net::SocketAddr;
 use std::path::PathBuf;
 use std::time::Duration;
@@ -87,6 +88,7 @@ pub fn app_router(state: AppState) -> Router {
         .route("/providers", get(providers_handler))
         .route("/setup", get(setup_handler))
         .route("/uistate", get(uistate_get).post(uistate_post))
+        .route("/gallery-command", post(gallery_command_handler))
         .route("/", get(ws_upgrade))
         .layer(cors)
         .layer(TraceLayer::new_for_http())
@@ -327,6 +329,63 @@ async fn uistate_post(
 }
 
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct GalleryShowCommand {
+    action: String,
+    mode: String,
+    #[serde(rename = "projectRoot")]
+    project_root: String,
+    #[serde(rename = "requestId")]
+    request_id: String,
+    rels: Vec<String>,
+}
+
+impl GalleryShowCommand {
+    fn valid(&self) -> bool {
+        self.action == "show"
+            && self.mode == "focus"
+            && std::path::Path::new(&self.project_root).is_absolute()
+            && !self.request_id.is_empty()
+            && self.request_id.len() <= 128
+            && !self.rels.is_empty()
+            && self.rels.len() <= 100
+            && self.rels.iter().all(|rel| {
+                !rel.is_empty()
+                    && rel.len() <= 2048
+                    && !std::path::Path::new(rel).is_absolute()
+                    && !rel.split('/').any(|part| part == "..")
+            })
+    }
+}
+
+async fn gallery_command_handler(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Json(command): Json<GalleryShowCommand>,
+) -> Result<(StatusCode, Json<Value>), StatusCode> {
+    auth_or_401(&state, &headers)?;
+    if !command.valid() {
+        return Ok((StatusCode::BAD_REQUEST, Json(serde_json::json!({"ok":false,"error":"gallery-command-invalid"}))));
+    }
+    let payload = serde_json::json!({
+        "type": "galleryCommand",
+        "command": {
+            "action": command.action,
+            "mode": command.mode,
+            "projectRoot": command.project_root,
+            "requestId": command.request_id,
+            "rels": command.rels,
+        }
+    });
+    state.publish(payload.to_string());
+    Ok((StatusCode::ACCEPTED, Json(serde_json::json!({
+        "ok": true,
+        "queued": true,
+        "requestId": payload["command"]["requestId"],
+    }))))
+}
+
+#[derive(Debug, Deserialize)]
 struct WsQuery {
     token: Option<String>,
 }
@@ -550,6 +609,30 @@ mod tests {
             .unwrap();
         let bytes = res.into_body().collect().await.unwrap().to_bytes();
         assert_eq!(&bytes[..], br#"{"projects":[]}"#);
+    }
+
+    #[tokio::test]
+    async fn gallery_command_requires_token_and_is_broadcast() {
+        let (state, _dir) = test_state(Some("secret")).await;
+        let mut bus = state.subscribe_bus();
+        let app = app_router(state);
+        let body = r#"{"action":"show","mode":"focus","projectRoot":"/p","requestId":"req-1","rels":["figures/a.png"]}"#;
+        let res = app
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/gallery-command")
+                    .header("content-type", "application/json")
+                    .header("x-atelier-token", "secret")
+                    .body(Body::from(body))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(res.status(), Sc::ACCEPTED);
+        let pushed: serde_json::Value = serde_json::from_str(&bus.recv().await.unwrap()).unwrap();
+        assert_eq!(pushed["type"], "galleryCommand");
+        assert_eq!(pushed["command"]["rels"][0], "figures/a.png");
     }
 
     #[test]

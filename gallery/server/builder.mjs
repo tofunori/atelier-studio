@@ -29,7 +29,7 @@ function parseExts(raw) {
 const EXTS = new Set(parseExts(process.env.GALLERY_EXTS) ?? DEFAULT_EXTS);
 const EXCLUDE_PARTS = new Set([
   ".git", ".venv", ".venv-era5", ".venv-codex", "node_modules", "__pycache__",
-  ".ipynb_checkpoints", "worktrees", ".claude", ".fig_thumbs", "_gallery_exports", ".prism",
+  ".ipynb_checkpoints", "worktrees", ".claude", ".fig_thumbs", "annotations", "_gallery_exports", ".prism",
 ]);
 const ARCHIVE_HINTS = ["_archive", "menage_", "/tmp/", "tmp_dir", "/tmp", "raqdps_tests"];
 const SELF = "figures_index.html";

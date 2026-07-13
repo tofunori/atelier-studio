@@ -293,9 +293,11 @@
   #lb.vw #lbCap,#lb.vw .lbBtn,#lb.vw #lbFs{display:none}
   #lbFs{position:fixed;top:10px;right:58px;width:34px;height:34px;display:flex;align-items:center;justify-content:center;font-size:20px;color:var(--muted);cursor:pointer;z-index:101}
   #lbFs:hover{color:#fff}
-  #lbAnnot{position:fixed;top:10px;right:102px;width:34px;height:34px;display:none;align-items:center;justify-content:center;font-size:18px;color:var(--muted);cursor:pointer;z-index:101}
-  #lbAnnot:hover{color:#fff}
-  #lb.annot #lbAnnot{color:#e0714a}
+  #lbAnnot{position:fixed;top:10px;right:102px;width:34px;height:34px;display:none;align-items:center;justify-content:center;
+      color:var(--muted);cursor:pointer;z-index:101;border:0;border-radius:9px;background:transparent;padding:0}
+  #lbAnnot svg{width:20px;height:20px;fill:none;stroke:currentColor;stroke-width:1.55;stroke-linecap:round;stroke-linejoin:round}
+  #lbAnnot:hover{color:var(--txt);background:color-mix(in srgb,var(--txt) 7%,transparent)}
+  #lb.annot #lbAnnot{color:var(--primary);background:color-mix(in srgb,var(--primary) 12%,transparent)}
   #lb.fs #lbAnnot{display:none!important}
   #lb.vw #lbAnnot{display:none!important}
   #lbCap{color:var(--txt);font-size:13px;margin-top:10px;display:flex;gap:14px;align-items:center;flex-wrap:wrap;justify-content:center;max-width:94vw;text-align:center}
@@ -305,10 +307,10 @@
          padding:18px 14px;user-select:none;z-index:101}
   .lbBtn:hover{color:#fff}
   #lbPrev{left:6px} #lbNext{right:6px}
-  #annotBar{position:fixed;top:12px;left:50%;transform:translateX(-50%);z-index:102;display:none;
+  #annotBar{position:fixed;top:12px;left:50%;transform:translateX(-50%);z-index:102;display:none!important;
             gap:2px;align-items:center;background:rgba(26,29,34,.92);backdrop-filter:blur(10px);
             border:1px solid #333a45;border-radius:10px;padding:4px 6px}
-  #lb.annot #annotBar{display:flex}
+  #lb.annot #annotBar{display:none}
   #annotBar button{padding:0;width:26px;height:24px;font-size:12px;background:transparent;
       border:none;border-radius:6px;color:#868d9a;display:inline-flex;align-items:center;justify-content:center}
   #annotBar button:hover{background:#2c313a;color:#dbdfe5;border:none}
@@ -319,30 +321,26 @@
   #annotBar input[type=color]::-webkit-color-swatch{border:none;border-radius:6px}
   #lbWrap{position:relative;cursor:default}
   #annotCv{position:absolute;inset:0;display:none;touch-action:none}
-  /* Note card, "message bar" style: numéro · champ · icône supprimer · ✓ rond.
-     (Échap annule, Entrée enregistre — pas de boutons texte.) */
-  #annotNote{position:fixed;z-index:103;display:none;align-items:stretch;gap:0;min-width:340px;max-width:480px;
-      background:#1a1d22;border:1px solid #333a45;border-radius:10px;padding:0;overflow:hidden;
-      box-shadow:0 8px 24px rgba(0,0,0,.45)}
-  #annotNote .nb{color:#868d9a;font-size:12px;font-weight:600;flex:none;display:flex;align-items:center;
-      padding:0 12px;background:#262b31;border-right:1px solid #333a45}
+  /* Capsule contextuelle : elle n'apparaît qu'après le tracé et l'unique
+     action envoie directement l'annotation au chat. */
+  #annotNote{position:fixed;z-index:103;display:none;align-items:center;gap:8px;
+      width:min(560px,calc(100vw - 32px));height:64px;box-sizing:border-box;
+      background:color-mix(in srgb,var(--card,#24282d) 96%,#111);border:1px solid color-mix(in srgb,var(--txt) 9%,transparent);
+      border-radius:999px;padding:7px 8px 7px 22px;overflow:hidden;
+      box-shadow:0 14px 38px rgba(0,0,0,.38);backdrop-filter:blur(18px)}
   #annotNote textarea{flex:1;background:transparent;border:none;outline:none;color:var(--txt);
-      font-size:13px;line-height:1.45;padding:10px 12px;resize:none;font-family:inherit;height:20px;max-height:120px;align-self:center}
-  #annotNote textarea::placeholder{color:#646d7b}
-  #annotNote .del{width:36px;border-radius:0;background:none;border:none;border-left:1px solid #333a45;color:#646d7b;
-      cursor:pointer;display:flex;align-items:center;justify-content:center;flex:none;padding:0}
-  #annotNote .del:hover{background:#2c313a;color:#ff8a8a}
-  #annotNote .del svg{width:13px;height:13px;stroke:currentColor;fill:none;stroke-width:1.3;
-      stroke-linecap:round;stroke-linejoin:round}
-  #annotNote .anSave{width:36px;border-radius:0;background:none;color:#b6bdc7;border:none;border-left:1px solid #333a45;
-      font-size:13px;font-weight:500;cursor:pointer;display:flex;align-items:center;justify-content:center;
-      flex:none;font-family:inherit}
-  #annotNote .anSave:hover{background:#2c313a;color:#fff}
+      font-size:16px;line-height:1.35;padding:0;resize:none;font-family:inherit;height:22px;max-height:44px;align-self:center}
+  #annotNote textarea::placeholder{color:var(--muted)}
+  #annotNote .anSave{width:50px;height:50px;border-radius:50%;background:color-mix(in srgb,var(--txt) 78%,var(--card));
+      color:var(--bg);border:none;cursor:pointer;display:flex;align-items:center;justify-content:center;flex:none;padding:0}
+  #annotNote .anSave:hover{background:var(--txt)}
+  #annotNote .anSave:disabled{opacity:.38;cursor:default}
+  #annotNote .anSave svg{width:24px;height:24px;fill:none;stroke:currentColor;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round}
   #annotPill{position:fixed;bottom:26px;left:50%;transform:translateX(-50%);z-index:102;display:none;
       align-items:center;gap:2px;background:rgba(26,29,34,.92);backdrop-filter:blur(10px);
       border:1px solid #333a45;border-radius:10px;
       padding:4px;box-shadow:0 8px 24px rgba(0,0,0,.45);color:#868d9a;font-size:13px}
-  #lb.annot #annotPill.on{display:flex}
+  #lb.annot #annotPill.on{display:none}
   #annotPill .ic{display:none}
   #annotPill button{height:28px;width:auto;padding:0 10px;border-radius:6px;border:none;background:transparent;
       color:#b6bdc7;font-size:13px;cursor:pointer;display:flex;align-items:center;justify-content:center;flex:none}
@@ -577,23 +575,21 @@
 <div id="lb">
   <span id="lbClose">&#10005;</span>
   <span id="lbFs" title="Plein écran (f ou double-clic)">&#9974;</span>
-  <span id="lbAnnot" title="Annoter (a)">&#9998;</span>
+  <button id="lbAnnot" title="Ajouter une annotation (a)" aria-label="Ajouter une annotation"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7.5 18.5 4 20l1.15-3.7A7.5 7.5 0 0 1 4 12.3C4 7.7 7.65 4 12.2 4S20.5 7.7 20.5 12.3s-3.7 8.3-8.3 8.3a8.7 8.7 0 0 1-4.7-1.4Z"/><path d="M12.2 8.7v7.2M8.6 12.3h7.2"/></svg></button>
   <span class="lbBtn" id="lbPrev">&#8249;</span>
   <span class="lbBtn" id="lbNext">&#8250;</span>
   <div id="annotBar">
-    <button data-tool="ellipse" class="sel" title="Encercler (1)">&#9711;</button>
+    <button data-tool="ellipse" title="Encercler (1)">&#9711;</button>
     <button data-tool="arrow" title="Fl&egrave;che (2)">&#8594;</button>
-    <button data-tool="rect" title="Rectangle (3)">&#9645;</button>
+    <button data-tool="rect" class="sel" title="Rectangle (3)">&#9645;</button>
     <input type="color" id="annotColor" value="#33415e" title="Couleur">
     <button id="annotUndo" title="Undo">&#8630;</button>
     <button id="annotClear" title="Clear all">&#10006;</button>
   </div>
   <div id="lbWrap"><img id="lbImg" src="" alt=""><canvas id="annotCv"></canvas></div>
   <div id="annotNote">
-    <span class="nb">1</span>
     <textarea rows="1" placeholder="Ajouter une annotation&hellip;"></textarea>
-    <button class="del" title="Supprimer cette annotation (&Eacute;chap : annuler)"><svg viewBox="0 0 14 14"><path d="M2 3.5h10M5.5 3.5V2.2c0-.4.3-.7.7-.7h1.6c.4 0 .7.3.7.7v1.3M3.5 3.5l.6 8.1c0 .5.4.9.9.9h4c.5 0 .9-.4.9-.9l.6-8.1M5.8 6v4M8.2 6v4"/></svg></button>
-    <button class="anSave" title="Enregistrer (Entr&eacute;e)">&#10003;</button>
+    <button class="anSave" title="Envoyer l'annotation (Entr&eacute;e)" aria-label="Envoyer l'annotation" disabled><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 19V5M6.5 10.5 12 5l5.5 5.5"/></svg></button>
   </div>
   <div id="annotPill"><span class="ic">&#128172;</span><span id="annotPillN"></span><button id="annotPillTarget" title="Choisir la session Claude cible">&#9678;</button><button class="x" id="annotPillCancel" title="Annuler : supprimer les commentaires sans envoyer">&#10005;</button><button id="annotPillSend" title="Envoyer directement dans la session Claude (avec soumission)">&#8593;</button></div>
   <div id="tgMenu" style="position:fixed;z-index:104;display:none;flex-direction:column;min-width:260px;max-width:420px;background:rgba(24,27,34,.98);border:1px solid #3a4150;border-radius:10px;padding:6px;box-shadow:0 14px 48px rgba(0,0,0,.55);font-size:13px"></div>
@@ -630,6 +626,8 @@ let FILES = Array.isArray(INLINE_FILES) ? INLINE_FILES : [];
 let FOLDERS = Array.isArray(__FOLDERS__) ? __FOLDERS__ : [];
 let SEED_FAVS = Array.isArray(__FAVS__) ? __FAVS__ : [];
 let galleryDataLoaded = Array.isArray(INLINE_FILES);
+const galleryCommandsReady=import('/.fig_thumbs/gallery_commands.js?v=__VER__')
+  .then(()=>window.AtelierGalleryCommands).catch(()=>null);
 
 /* shadcn gallery adapter: this generated page cannot import React/Base UI,
    but it exposes the same semantic slots and state attributes. That keeps the
@@ -916,6 +914,7 @@ const rateRow = rel => {
 let onlyFavs = false;
 let rateMin = 0;
 const selSet = new Set();
+let chatFocusRels = new Set();
 let lastSelRel = null;     // anchor for Shift-click range selection
 let renderedRels = [];     // rels in current display order (for range math)
 function updateDelBtn(){
@@ -1349,8 +1348,9 @@ function clearFilter(k){
   else if(k==='fav'){ if(onlyFavs) favChip.onclick(); }
   else if(k==='coll'){ activeCollection=''; buildCollectionChip(); render(); }
   else if(k==='wf'){ activeWorkflow=''; buildWorkflowChip(); render(); }
+  else if(k==='chat'){ chatFocusRels.clear(); render(); }
 }
-function clearAllFilters(){ ['folder','fmt','fav','coll','wf'].forEach(clearFilter); }
+function clearAllFilters(){ ['folder','fmt','fav','coll','wf','chat'].forEach(clearFilter); }
 function renderActiveChips(){
   const box=document.getElementById('activeChips'); if(!box) return;
   const chips=[];
@@ -1365,6 +1365,7 @@ function renderActiveChips(){
     const cur=WORKFLOW_STATUSES.find(([v])=>v===activeWorkflow);
     chips.push({k:'wf',l:'Status: '+(cur?cur[1]:activeWorkflow)});
   }
+  if(chatFocusRels.size) chips.push({k:'chat',l:'Chat focus: '+chatFocusRels.size});
   box.innerHTML = chips.length
     ? chips.map(c=>`<span class="fchip">${esc(c.l)}<span class="x" role="button" tabindex="0" data-fx="${c.k}" title="Remove this filter" aria-label="Remove filter ${escA(c.l)}">×</span></span>`).join('')
       + '<span class="fchip fclear" id="fclearAll" role="button" tabindex="0">Clear all</span>'
@@ -1790,10 +1791,8 @@ document.getElementById('lbImg').addEventListener('dblclick',e=>{
 document.addEventListener('keydown',e=>{
   if(!lb().classList.contains('show'))return;
   if(lb().classList.contains('annot')){
-    if((e.metaKey||e.ctrlKey)&&e.key==='z'){e.preventDefault();document.getElementById('annotUndo').onclick();return;}
-    if(e.key>='1'&&e.key<='3'){
-      const b=document.querySelectorAll('#annotBar button[data-tool]')[+e.key-1];
-      if(b)b.onclick(); return;
+    if((e.metaKey||e.ctrlKey)&&e.key==='z'){
+      e.preventDefault();annotStrokes.pop();annotRenumber();annotRedraw();return;
     }
     if(e.key==='Escape'){
       if(annotCur){annotCur=null;annotRedraw();return;}
@@ -1915,6 +1914,10 @@ function render(){
   const sort = document.getElementById('sort').value;
   const fld = fsel.value;
   let list = FILES.filter(f=>{
+    // Le focus demandé par le chat est une vue temporaire explicite. Il prime
+    // sur les filtres persistants pour que « montre ces figures » ne puisse pas
+    // aboutir à une grille vide à cause d'un ancien filtre utilisateur.
+    if(chatFocusRels.size) return chatFocusRels.has(f.rel);
     // Un favori durable ne doit pas sembler perdu après une relance quand les
     // formats reviennent à leur vue par défaut. Le filtre Favoris prime donc
     // sur le masque de format, sans modifier les formats de la vue générale.
@@ -2076,7 +2079,7 @@ document.addEventListener('keydown',e=>{
   e.preventDefault(); openSearch();
 });
 // ---- Annotation ----
-let annotTool='ellipse', annotStrokes=[], annotCur=null, annotSent=true;
+let annotTool='rect', annotStrokes=[], annotCur=null, annotSent=true;
 async function annotGuard(){
   if(lb().classList.contains('annot') && annotStrokes.length && !annotSent)
     return await confirmDialog('Discard unsaved annotations?', 'Discard');
@@ -2162,19 +2165,22 @@ function badgeHit(p){
 }
 function annotAskNote(stroke, clientX, clientY){
   const box=document.getElementById('annotNote'), inp=box.querySelector('textarea');
+  const send=box.querySelector('.anSave');
   const isEdit = !!stroke.note;
   if(!stroke.n) stroke.n=annotStrokes.filter(s=>s.n).length+1;
-  box.querySelector('.nb').textContent=stroke.n;
   box.style.display='flex';
-  box.style.left=Math.min(clientX, window.innerWidth-480)+'px';
-  box.style.top=Math.min(clientY+14, window.innerHeight-70)+'px';
+  const boxW=Math.min(560,window.innerWidth-32);
+  box.style.left=Math.max(16,Math.min(clientX+22,window.innerWidth-boxW-16))+'px';
+  box.style.top=Math.max(16,Math.min(clientY-32,window.innerHeight-80))+'px';
   inp.value=stroke.note||''; inp.focus(); inp.select();
+  send.disabled=!inp.value.trim();
   annotRedraw();
   const close=()=>{box.style.display='none'; annotRedraw();};
   const save=()=>{
-    stroke.note=inp.value.trim();
-    if(!stroke.note){delete stroke.n; delete stroke.note; annotRenumber();}
-    annotSent=false; close();
+    const text=inp.value.trim();
+    if(!text)return;
+    stroke.note=text; annotSent=false; close();
+    document.getElementById('annotPillSend').click();
   };
   const cancel=()=>{
     if(!isEdit){
@@ -2186,13 +2192,8 @@ function annotAskNote(stroke, clientX, clientY){
     }
     close();
   };
-  box.querySelector('.del').onclick=()=>{
-    const i=annotStrokes.indexOf(stroke);
-    if(i>=0) annotStrokes.splice(i,1);
-    annotRenumber(); annotSent=false; close();
-  };
   box.querySelector('.anSave').onclick=e=>{e.stopPropagation();save();};
-  inp.oninput=()=>{inp.style.height='20px';inp.style.height=Math.min(120,inp.scrollHeight)+'px';};
+  inp.oninput=()=>{send.disabled=!inp.value.trim();};
   inp.oninput();
   inp.onkeydown=e=>{
     e.stopPropagation();
@@ -2207,10 +2208,10 @@ function annotRenumber(){
 function annotInit(){
   const c=cv();
   c.addEventListener('pointerdown',e=>{
-    const p=annotPos(e), col=document.getElementById('annotColor').value;
+    const p=annotPos(e), col='#7184ad';
     const hit=badgeHit(p);
     if(hit){annotAskNote(hit, e.clientX, e.clientY); return;}
-    annotCur=annotTool==='pen'?{tool:'pen',pts:[p],color:col}:{tool:annotTool,x1:p.x,y1:p.y,x2:p.x,y2:p.y,color:col};
+    annotCur={tool:'rect',x1:p.x,y1:p.y,x2:p.x,y2:p.y,color:col};
     c.setPointerCapture(e.pointerId);
   });
   c.addEventListener('pointermove',e=>{
@@ -2222,7 +2223,7 @@ function annotInit(){
   c.addEventListener('pointerup',e=>{
     if(!annotCur)return;
     const s=annotCur; annotCur=null;
-    const tiny = s.tool==='pen' ? s.pts.length<3 : Math.hypot(s.x2-s.x1,s.y2-s.y1)<4;
+    const tiny = Math.hypot(s.x2-s.x1,s.y2-s.y1)<4;
     if(tiny){annotRedraw(); return;}
     annotStrokes.push(s); annotSent=false; annotRedraw();
     annotAskNote(s,e.clientX,e.clientY);
@@ -2248,6 +2249,26 @@ function annotInit(){
     }, true);
   }
   if(ANNOT_EMBEDDED){
+    // Commandes structurées chat → Galerie. Le nonce est partagé avec l'app
+    // hôte et le contrat pur recoupe chaque chemin avec le catalogue courant.
+    window.addEventListener('message', async function(e){
+      if(e.source!==window.top || !e.data || e.data.type!=='atelier-gallery-command') return;
+      const nonce=sessionStorage.getItem('atelier_nonce')||'';
+      if(!nonce || e.data.nonce!==nonce) return;
+      const contract=await galleryCommandsReady; if(!contract) return;
+      const result=contract.execute(e.data, FILES.map(f=>f.rel), {
+        projectRoot:'__ROOT__',
+        show(rels){
+          chatFocusRels=new Set(rels);
+          selSet.clear(); rels.forEach(rel=>selSet.add(rel));
+          lastSelRel=rels[rels.length-1]||null;
+          updateDelBtn(); render();
+          const first=document.querySelector('.card');
+          if(first) first.scrollIntoView({block:'start',behavior:'smooth'});
+        }
+      });
+      __atelierPost(Object.assign({type:'atelier-gallery-result'}, result));
+    });
     // thème dynamique poussé par Studio (variables mappées sur celles de la galerie)
     window.addEventListener('message', function(e){
       if(!e.data || e.data.type !== 'atelier-theme') return;
@@ -2336,7 +2357,9 @@ function annotInit(){
     this.textContent='⏳';
     try{
       const j=await annotPost(true);
-      annotSent=true;
+      annotStrokes=[];annotSent=true;
+      document.getElementById('annotNote').style.display='none';
+      lb().classList.remove('annot');annotRedraw();
       this.textContent='✓';
       lbl.textContent=ANNOT_EMBEDDED?'Added to chat ✓':(j.submitted?'Sent to session ✓':'Pasted into Claude ✓');
     }catch(e){

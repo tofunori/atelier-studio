@@ -355,6 +355,8 @@ export default function AtelierPane({
           {url && (
             <iframe
               key={reloadKey}
+              data-atelier-role="gallery"
+              data-atelier-ready={galleryLoaded ? "true" : "false"}
               className="atelier"
               style={{ display: activeTab === "gallery" && galleryLoaded ? "block" : "none" }}
               src={gallerySrc}

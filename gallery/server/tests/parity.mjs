@@ -227,6 +227,7 @@ async function main() {
   const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "gallery-node-parity-")));
   const home = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "gallery-node-home-")));
   const galleryTemplate = fs.readFileSync(path.join(GALLERY_DIR, "assets", "gallery_template.html"), "utf8");
+  const sharedSource = fs.readFileSync(path.join(GALLERY_DIR, "server", "shared.mjs"), "utf8");
   const themeBridge = fs.readFileSync(path.join(GALLERY_DIR, "assets", "atelier_theme.js"), "utf8");
   const reactToolbar = fs.readFileSync(path.join(GALLERY_DIR, "react-ui", "main.tsx"), "utf8");
   const reactBundle = path.join(GALLERY_DIR, "assets", "shadcn-ui", "gallery-ui.js");
@@ -235,8 +236,15 @@ async function main() {
   assert.match(galleryTemplate, /--background:var\(--bg\)/, "gallery exposes the shadcn background token");
   assert.match(galleryTemplate, /data-slot="gallery-toolbar"/, "gallery toolbar has a semantic slot");
   assert.match(galleryTemplate, /id="gallery-react-toolbar"/, "gallery exposes the React toolbar mount");
-  assert.match(galleryTemplate, /shadcn-ui\/gallery-ui\.js/, "gallery loads the React/shadcn bundle");
+  assert.match(
+    galleryTemplate,
+    /galleryUiAsset\('gallery-ui\.js'\)/,
+    "gallery loads the React/shadcn bundle through the runtime asset resolver",
+  );
   assert.match(galleryTemplate, /data-slot="dialog-content"/, "gallery dialogs have semantic slots");
+  assert.match(galleryTemplate, /aria-label="Ajouter une annotation"/, "image annotation exposes one accessible launcher");
+  assert.match(galleryTemplate, /annotTool='rect'/, "image annotation defaults to rectangular selection");
+  assert.match(sharedSource, /\.fig_thumbs.*annotation-previews/, "annotation previews stay outside the gallery catalog");
   assert.match(galleryTemplate, /btn\.dataset\.slot='select-trigger'/, "custom selects expose the shadcn trigger contract");
   assert.match(galleryTemplate, /setAttribute\('aria-expanded','true'\)/, "gallery menus expose their open state");
   assert.doesNotMatch(galleryTemplate, /--accent-soft:/, "legacy accent token no longer conflicts with shadcn accent");

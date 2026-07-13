@@ -2,6 +2,7 @@ import { Alert, AlertDescription } from "@/components/ui/alert.tsx";
 import { Button } from "@/components/ui/button.tsx";
 import {
   Drawer,
+  DrawerClose,
   DrawerContent,
   DrawerDescription,
   DrawerFooter,
@@ -266,6 +267,9 @@ export function ThreadList(p: Props) {
               {p.creating && <Spinner data-icon="inline-start" />}
               {p.creating ? "Création…" : `Créer avec ${selectedProvider.label}`}
             </Button>
+            <DrawerClose render={<Button type="button" variant="outline" size="lg" />}>
+              Annuler
+            </DrawerClose>
           </DrawerFooter>
         </DrawerContent>
       </Drawer>

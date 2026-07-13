@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from "react";
+import React, { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { open } from "@tauri-apps/plugin-dialog";
 import { AgentEvent } from "../lib/ws";
 import { wsSend } from "../lib/wsBus";
@@ -13,32 +13,9 @@ import { ChatHeader } from "./chat/ChatHeader";
 import type { ResearchHomeBundle } from "./ResearchHome";
 import { ChatComposer } from "./chat/ChatComposer";
 import { mentionLabel } from "./chat/mentions";
+import { BUILTIN_MODEL_LABELS } from "../lib/modelCatalog";
 
 
-
-// Libellés lisibles par id — PAS une liste de modèles (plan 025, step 9) :
-// les ids offerts viennent UNIQUEMENT du catalogue sidecar (info.models).
-// Un id sans entrée ici s'affiche tel quel.
-const BUILTIN_MODEL_LABELS: Record<string, Record<string, string>> = {
-  claude: {
-    "claude-fable-5": "Fable 5",
-    "claude-opus-4-8": "Opus 4.8",
-    "claude-sonnet-5": "Sonnet 5",
-    "claude-haiku-4-5-20251001": "Haiku 4.5",
-  },
-  grok: {
-    "grok-4.5": "Grok 4.5",
-    "grok-composer-2.5-fast": "Composer 2.5 Fast",
-  },
-  codex: {
-    "gpt-5.6-sol": "GPT-5.6 Sol",
-    "gpt-5.6-terra": "GPT-5.6 Terra",
-    "gpt-5.6-luna": "GPT-5.6 Luna",
-    "gpt-5.5": "GPT-5.5",
-    "gpt-5.1-codex-max": "GPT-5.1 Codex Max",
-    "gpt-5.1-codex": "GPT-5.1 Codex",
-  },
-};
 
 // Cas particulier documenté (plan 025, step 9) : le harnais Grok n'a PAS
 // d'effort « Auto » ("") — il exige un effort explicite (défaut "high" dans
@@ -158,21 +135,35 @@ export default function Chat(p: {
   const taRef = useRef<HTMLTextAreaElement>(null);
   // resync la hauteur quand le texte change autrement que par frappe
   // (suggestion appliquée, envoi qui vide la boîte…)
-  useEffect(() => {
+  useLayoutEffect(() => {
     const ta = taRef.current;
     if (!ta) return;
+    const previousScrollTop = ta.scrollTop;
+    const followCaretToEnd = ta.dataset.composerFollowCaret === "end";
+    delete ta.dataset.composerFollowCaret;
     // champ vide : hauteur CSS fixe, sans mesure — sous WebKit le placeholder
     // compte dans scrollHeight et gonfle la boîte au montage (largeur pas prête)
     if (text === "") {
       ta.style.height = "";
       ta.style.overflowY = "";
+      ta.scrollTop = 0;
       return;
     }
     ta.style.height = "auto";
     ta.style.height = Math.min(ta.scrollHeight, 220) + "px";
     // au plafond 220px : réactiver le scroll (le CSS le cache pour éviter la
     // scrollbar fantôme due à l'arrondi WebKit d'1px)
-    ta.style.overflowY = ta.scrollHeight > 220 ? "auto" : "";
+    const overflows = ta.scrollHeight > 220;
+    ta.style.overflowY = overflows ? "auto" : "";
+    if (overflows) {
+      // Le passage temporaire par height:auto peut remettre WebKit en haut du
+      // textarea. Pendant une frappe en fin de prompt, garder le curseur et les
+      // dernières lignes visibles; pendant une édition au milieu, préserver la
+      // position choisie par l'utilisateur.
+      ta.scrollTop = followCaretToEnd ? ta.scrollHeight : previousScrollTop;
+      const backdrop = ta.parentElement?.querySelector<HTMLElement>(".ta-backdrop");
+      if (backdrop) backdrop.scrollTop = ta.scrollTop;
+    }
   }, [text]);
   const [provider, setProvider] = useState<string>("claude");
   const [model, setModel] = useState("");
