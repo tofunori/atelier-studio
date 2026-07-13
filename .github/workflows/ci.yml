@@ -21,6 +21,7 @@ jobs:
             package-lock.json
             sidecar/package-lock.json
             gallery/package-lock.json
+            packages/atelier-protocol/package-lock.json
       - uses: dtolnay/rust-toolchain@stable
       - uses: swatinem/rust-cache@v2
         with: { workspaces: src-tauri }
@@ -32,12 +33,24 @@ jobs:
         run: npm --prefix sidecar ci
       - name: Install gallery deps
         run: npm --prefix gallery ci
+      - name: Install shared protocol deps
+        run: npm --prefix packages/atelier-protocol ci
       - name: Install Playwright Chromium
         run: cd gallery && npx playwright install chromium
+      - name: Stage bundled resources for Tauri checks
+        run: |
+          bash scripts/stage-node-runtime.sh
+          bash scripts/stage-sidecar.sh
+          bash scripts/stage-gallery.sh
+          bash scripts/stage-mobile.sh
       - name: Backend policy (Rust default, soak gates)
         run: npm run check:backend-policy
       - name: Verify (typecheck, build, frontend, sidecar, gallery, Rust)
         run: npm run verify
+        env:
+          # Production ships the Rust backend and Node gallery runtime. The
+          # legacy Python reference remains available for local migration checks.
+          ATELIER_SKIP_LEGACY_PYTHON_PARITY: "1"
       - name: Gallery E2E
         run: npm run verify:e2e
       - name: Install Playwright Chromium (root, golden states)
