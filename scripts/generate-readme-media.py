@@ -335,6 +335,105 @@ def save_gif(name: str, base: Image.Image, focuses: list[tuple[tuple[int, int, i
     )
 
 
+def story_frame(image: Image.Image, eyebrow: str, title: str, step: int, total: int) -> Image.Image:
+    """Turn a complete product view into an editorial README frame."""
+    canvas = Image.new("RGB", (960, 600), "#111419")
+    shot = cover(image, (960, 520))
+    canvas.paste(shot, (0, 0))
+    d = ImageDraw.Draw(canvas)
+    d.rectangle((0, 520, 960, 600), fill="#171b21")
+    d.rectangle((0, 520, 5, 600), fill=ACCENT)
+    text(d, (28, 536), eyebrow.upper(), ACCENT, F12)
+    text(d, (28, 558), title, TEXT, F22)
+    for i in range(total):
+        x1 = 760 + i * 56
+        d.rounded_rectangle(
+            (x1, 566, x1 + 42, 570),
+            radius=2,
+            fill=ACCENT if i == step else "#3b424d",
+        )
+    return canvas
+
+
+def save_story_gif(
+    name: str,
+    scenes: list[tuple[Image.Image, str, str]],
+) -> None:
+    frames: list[Image.Image] = []
+    rendered = [story_frame(image, eyebrow, title, i, len(scenes)) for i, (image, eyebrow, title) in enumerate(scenes)]
+    for i, frame in enumerate(rendered):
+        for _ in range(8):
+            frames.append(frame)
+        next_frame = rendered[(i + 1) % len(rendered)]
+        for blend in (0.2, 0.4, 0.6, 0.8):
+            frames.append(Image.blend(frame, next_frame, blend))
+    paletted = [frame.convert("P", palette=Image.Palette.ADAPTIVE, colors=128) for frame in frames]
+    paletted[0].save(
+        OUT / name,
+        save_all=True,
+        append_images=paletted[1:],
+        duration=120,
+        loop=0,
+        optimize=True,
+        disposal=2,
+    )
+
+
+def flow_frame(split: Image.Image, gallery: Image.Image, active: int) -> Image.Image:
+    """Show the research loop as three stable, connected product surfaces."""
+    canvas = Image.new("RGB", (960, 600), "#111419")
+    d = ImageDraw.Draw(canvas)
+    text(d, (30, 24), "ONE CONTINUOUS RESEARCH LOOP", MUTED, F12)
+    text(d, (30, 48), "Context moves. The project stays.", TEXT, F22)
+
+    sources = [cover(split, (274, 170)), cover(split, (274, 170)), cover(gallery, (274, 170))]
+    labels = [
+        ("01", "Ask in context", "Project files, history, and\ninstructions stay attached."),
+        ("02", "Work with agents", "Reason, edit, and verify\ninside the same workspace."),
+        ("03", "Inspect evidence", "Open every figure and\nreturn it to the conversation."),
+    ]
+    for i, (source, (number, label, description)) in enumerate(zip(sources, labels)):
+        x = 30 + i * 305
+        canvas.paste(source, (x, 118))
+        if i != active:
+            veil = Image.new("RGBA", (274, 170), (10, 13, 17, 112))
+            canvas.paste(veil, (x, 118), veil)
+        d = ImageDraw.Draw(canvas)
+        d.rectangle((x, 118, x + 274, 122), fill=ACCENT if i == active else "#3b424d")
+        text(d, (x, 320), number, ACCENT if i == active else MUTED, F12)
+        text(d, (x, 346), label, TEXT if i == active else TEXT2, F18)
+        for line_i, line in enumerate(description.splitlines()):
+            text(d, (x, 386 + line_i * 25), line, TEXT2 if i == active else MUTED, F15)
+        if i < 2:
+            d.line((x + 274, 476, x + 305, 476), fill=ACCENT if i < active else "#3b424d", width=3)
+    text(d, (30, 540), "ASK", MUTED, F12)
+    d.line((80, 547, 880, 547), fill="#3b424d", width=2)
+    d.line((80, 547, 80 + active * 400, 547), fill=ACCENT, width=3)
+    text(d, (890, 540), "ADVANCE", MUTED, F12)
+    return canvas
+
+
+def save_flow_gif(name: str, split: Image.Image, gallery: Image.Image) -> None:
+    frames: list[Image.Image] = []
+    rendered = [flow_frame(split, gallery, active) for active in range(3)]
+    for i, frame in enumerate(rendered):
+        for _ in range(9):
+            frames.append(frame)
+        next_frame = rendered[(i + 1) % len(rendered)]
+        for blend in (0.25, 0.5, 0.75):
+            frames.append(Image.blend(frame, next_frame, blend))
+    paletted = [frame.convert("P", palette=Image.Palette.ADAPTIVE, colors=128) for frame in frames]
+    paletted[0].save(
+        OUT / name,
+        save_all=True,
+        append_images=paletted[1:],
+        duration=120,
+        loop=0,
+        optimize=True,
+        disposal=2,
+    )
+
+
 def draw_library() -> Image.Image:
     img = Image.new("RGB", (1200, 760), "#20242a")
     d = ImageDraw.Draw(img)
@@ -433,25 +532,15 @@ def main() -> None:
     )
     draw_library().save(OUT / "library-zotero.png", quality=94)
 
-    motion_base = split.resize((1600, 934), Image.Resampling.LANCZOS)
-    save_gif(
+    save_story_gif(
         "atelier-tour.gif",
-        motion_base,
         [
-            ((8, 42, 510, 910), "Organize the research project"),
-            ((520, 56, 1044, 906), "Work with agents in context"),
-            ((1058, 56, 1588, 906), "Inspect evidence as it changes"),
+            (split, "01 · Project context", "Keep the work organized around one project"),
+            (split, "02 · Agent workspace", "Reason and act with the evidence in view"),
+            (gallery, "03 · Scientific atelier", "Inspect every figure, file, and result"),
         ],
     )
-    save_gif(
-        "agent-flow.gif",
-        motion_base,
-        [
-            ((74, 90, 1020, 300), "Ask against the project context"),
-            ((1058, 160, 1588, 720), "Inspect generated evidence"),
-            ((74, 820, 1040, 916), "Keep the next action in the same workspace"),
-        ],
-    )
+    save_flow_gif("agent-flow.gif", split, gallery)
 
     for name in (
         "atelier-banner.png",
