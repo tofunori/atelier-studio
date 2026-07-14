@@ -40,6 +40,53 @@ impl CodexProvider {
             active: Arc::new(StdMutex::new(HashMap::new())),
         })
     }
+
+    async fn run_native_review(&self, codex_id: &str) -> Result<Value, String> {
+        let (tx, rx) = oneshot::channel::<String>();
+        let tx = Arc::new(StdMutex::new(Some(tx)));
+        let tx_handler = Arc::clone(&tx);
+        let handler = Arc::new(move |method: &str, params: &Value| {
+            if method != "item/completed" {
+                return;
+            }
+            let item = params.get("item").unwrap_or(&Value::Null);
+            if item.get("type").and_then(Value::as_str) != Some("exitedReviewMode") {
+                return;
+            }
+            let review = item
+                .get("review")
+                .and_then(Value::as_str)
+                .unwrap_or("")
+                .to_string();
+            if let Ok(mut slot) = tx_handler.lock() {
+                if let Some(sender) = slot.take() {
+                    let _ = sender.send(review);
+                }
+            }
+        });
+        self.server.set_handler(codex_id, handler).await;
+        let started = self
+            .server
+            .request(
+                "review/start",
+                json!({
+                    "threadId": codex_id,
+                    "target": {"type": "uncommittedChanges"},
+                    "delivery": "inline",
+                }),
+            )
+            .await;
+        if let Err(error) = started {
+            self.server.clear_handler(codex_id).await;
+            return Err(error);
+        }
+        let review = tokio::time::timeout(std::time::Duration::from_secs(600), rx)
+            .await
+            .map_err(|_| "review Codex: délai dépassé".to_string())?
+            .map_err(|_| "review Codex annulée".to_string())?;
+        self.server.clear_handler(codex_id).await;
+        Ok(json!({"review": review}))
+    }
 }
 
 impl Default for CodexProvider {
@@ -51,11 +98,22 @@ impl Default for CodexProvider {
     }
 }
 
+fn codex_safety(permission_mode: Option<&str>) -> (&'static str, &'static str) {
+    match permission_mode {
+        Some("bypassPermissions") => ("danger-full-access", "never"),
+        Some("acceptEdits") => ("workspace-write", "on-request"),
+        Some("default") => ("workspace-write", "untrusted"),
+        Some("plan") => ("read-only", "never"),
+        _ => ("read-only", "on-request"),
+    }
+}
+
 fn thread_opts(req: &SendRequest) -> Value {
+    let (sandbox, approval_policy) = codex_safety(req.permission_mode.as_deref());
     let mut opts = json!({
         "cwd": if req.project_root.is_empty() { Value::Null } else { json!(req.project_root) },
-        "sandbox": "danger-full-access",
-        "approvalPolicy": "never",
+        "sandbox": sandbox,
+        "approvalPolicy": approval_policy,
     });
     if let Some(model) = req.model.as_ref().filter(|m| !m.is_empty()) {
         opts.as_object_mut()
@@ -69,6 +127,17 @@ fn thread_opts(req: &SendRequest) -> Value {
         );
     }
     opts
+}
+
+async fn resolve_plan_mode(server: &CodexAppServer) -> Option<Value> {
+    let response = server.request("collaborationMode/list", json!({})).await.ok()?;
+    response
+        .get("modes")
+        .or_else(|| response.get("collaborationModes"))
+        .and_then(Value::as_array)?
+        .iter()
+        .find(|mode| mode.get("mode").and_then(Value::as_str) == Some("plan"))
+        .cloned()
 }
 
 fn build_input(prompt: &str) -> Value {
@@ -271,17 +340,19 @@ impl Provider for CodexProvider {
 
         self.server.set_handler(&codex_id, handler).await;
 
-        if let Err(e) = self
-            .server
-            .request(
-                "turn/start",
-                json!({
-                    "threadId": codex_id,
-                    "input": build_input(&req.prompt),
-                }),
-            )
-            .await
-        {
+        let mut turn_params = json!({
+            "threadId": codex_id,
+            "input": build_input(&req.prompt),
+        });
+        if req.permission_mode.as_deref() == Some("plan") {
+            if let Some(plan_mode) = resolve_plan_mode(&self.server).await {
+                turn_params
+                    .as_object_mut()
+                    .unwrap()
+                    .insert("collaborationMode".into(), plan_mode);
+            }
+        }
+        if let Err(e) = self.server.request("turn/start", turn_params).await {
             self.server.clear_handler(&codex_id).await;
             if let Ok(mut a) = self.active.lock() {
                 a.remove(&req.thread_id);
@@ -375,5 +446,67 @@ impl Provider for CodexProvider {
             )
             .await
             .is_ok()
+    }
+
+    async fn native_command(&self, name: &str, params: Value) -> Result<Value, String> {
+        let session_id = params
+            .get("sessionId")
+            .and_then(Value::as_str)
+            .filter(|value| !value.is_empty())
+            .ok_or_else(|| format!("{name}: session Codex absente"))?;
+        let cwd = params.get("projectRoot").and_then(Value::as_str).unwrap_or("");
+        let sandbox = if name == "review" { "read-only" } else { "danger-full-access" };
+        let codex_id = open_thread(
+            &self.server,
+            Some(session_id),
+            json!({
+                "cwd": if cwd.is_empty() { Value::Null } else { json!(cwd) },
+                "sandbox": sandbox,
+                "approvalPolicy": "never",
+            }),
+        )
+        .await?;
+        match name {
+            "compact" => self
+                .server
+                .request("thread/compact/start", json!({"threadId": codex_id}))
+                .await,
+            "goalSet" => self
+                .server
+                .request(
+                    "thread/goal/set",
+                    json!({
+                        "threadId": codex_id,
+                        "objective": params.get("objective").cloned().unwrap_or(Value::Null),
+                        "status": params.get("status").cloned().unwrap_or(json!("active")),
+                        "tokenBudget": params.get("tokenBudget").cloned().unwrap_or(Value::Null),
+                    }),
+                )
+                .await,
+            "goalGet" => self
+                .server
+                .request("thread/goal/get", json!({"threadId": codex_id}))
+                .await,
+            "goalClear" => self
+                .server
+                .request("thread/goal/clear", json!({"threadId": codex_id}))
+                .await,
+            "review" => self.run_native_review(&codex_id).await,
+            _ => Err(format!("commande Codex inconnue: {name}")),
+        }
+    }
+}
+
+#[cfg(test)]
+mod command_tests {
+    use super::*;
+
+    #[test]
+    fn permission_modes_map_to_real_codex_policies() {
+        assert_eq!(codex_safety(Some("bypassPermissions")), ("danger-full-access", "never"));
+        assert_eq!(codex_safety(Some("acceptEdits")), ("workspace-write", "on-request"));
+        assert_eq!(codex_safety(Some("default")), ("workspace-write", "untrusted"));
+        assert_eq!(codex_safety(Some("plan")), ("read-only", "never"));
+        assert_eq!(codex_safety(None), ("read-only", "on-request"));
     }
 }
