@@ -689,12 +689,61 @@ pub async fn route_ws(state: &AppState, text: &str) -> Vec<String> {
         "retitleAll" => handle_retitle_all(state).await,
         "requestReview" => {
             let thread_id = msg.get("threadId").and_then(|v| v.as_str()).unwrap_or("");
+            let thread = state.threads().lock().await.get(thread_id).cloned();
+            let provider = state.provider("codex");
+            let Some(thread) = thread else {
+                return vec![err_thread(thread_id, "review: chat absent")];
+            };
+            let Some(provider) = provider else {
+                return vec![err_thread(thread_id, "review: provider Codex absent")];
+            };
+            let state_review = state.clone();
+            let thread_id_owned = thread_id.to_string();
+            tokio::spawn(async move {
+                let result = provider
+                    .native_command(
+                        "review",
+                        json!({
+                            "sessionId": thread.session_id,
+                            "projectRoot": thread.project_root,
+                        }),
+                    )
+                    .await;
+                let message = match result {
+                    Ok(value) => {
+                        let review = value.get("review").and_then(Value::as_str).unwrap_or("").trim();
+                        let lower = review.to_lowercase();
+                        let clean = review.is_empty()
+                            || lower.contains("no findings")
+                            || lower.contains("aucun problème")
+                            || lower.contains("aucun probleme");
+                        json!({
+                            "type": "reviewResult",
+                            "threadId": thread_id_owned,
+                            "status": "done",
+                            "verdict": if clean { "ok" } else { "issues" },
+                            "issues": if clean { json!([]) } else { json!([{
+                                "claim": "Revue Codex",
+                                "problem": review,
+                                "severity": "review",
+                            }]) },
+                        })
+                    }
+                    Err(error) => json!({
+                        "type": "reviewResult",
+                        "threadId": thread_id_owned,
+                        "status": "done",
+                        "verdict": "error",
+                        "issues": [],
+                        "error": error,
+                    }),
+                };
+                state_review.publish(message.to_string());
+            });
             vec![json_msg(json!({
                 "type": "reviewResult",
                 "threadId": thread_id,
-                "status": "done",
-                "verdict": "unavailable",
-                "issues": [],
+                "status": "running",
             }))]
         }
         "getUsage" => handle_get_usage(state).await,
@@ -702,18 +751,71 @@ pub async fn route_ws(state: &AppState, text: &str) -> Vec<String> {
         "qaPromote" => handle_qa_promote(state, &msg).await,
         "codexCompact" => {
             let thread_id = msg.get("threadId").and_then(|v| v.as_str()).unwrap_or("");
-            vec![err_thread(
-                thread_id,
-                "codexCompact: non encore porté (session Codex native) — ATELIER_BACKEND=node",
-            )]
+            let thread = state.threads().lock().await.get(thread_id).cloned();
+            let Some(thread) = thread else {
+                return vec![err_thread(thread_id, "compact: chat absent")];
+            };
+            let Some(provider) = state.provider("codex") else {
+                return vec![err_thread(thread_id, "compact: provider Codex absent")];
+            };
+            match provider
+                .native_command(
+                    "compact",
+                    json!({"sessionId": thread.session_id, "projectRoot": thread.project_root}),
+                )
+                .await
+            {
+                Ok(_) => vec![json_msg(json!({
+                    "type": "event",
+                    "threadId": thread_id,
+                    "event": {"kind": "tool", "name": "__compacted"},
+                }))],
+                Err(error) => vec![err_thread(thread_id, format!("compact: {error}"))],
+            }
         }
         "codexClear" => handle_codex_clear(state, &msg).await,
         "goalSet" | "goalGet" | "goalClear" => {
             let thread_id = msg.get("threadId").and_then(|v| v.as_str()).unwrap_or("");
-            vec![err_thread(
-                thread_id,
-                "goals disponibles seulement pour un chat Codex (API goals non encore portée en Rust)",
-            )]
+            let thread = state.threads().lock().await.get(thread_id).cloned();
+            let Some(thread) = thread else {
+                return vec![err_thread(thread_id, "goal: chat absent")];
+            };
+            if thread.provider != "codex" {
+                return vec![err_thread(thread_id, "goals disponibles seulement pour un chat Codex")];
+            }
+            let Some(provider) = state.provider("codex") else {
+                return vec![err_thread(thread_id, "goal: provider Codex absent")];
+            };
+            let command = match msg.get("type").and_then(Value::as_str) {
+                Some("goalSet") => "goalSet",
+                Some("goalClear") => "goalClear",
+                _ => "goalGet",
+            };
+            let mut params = json!({
+                "sessionId": thread.session_id,
+                "projectRoot": thread.project_root,
+            });
+            if command == "goalSet" {
+                params["objective"] = msg.get("objective").cloned().unwrap_or(Value::Null);
+                params["status"] = msg.get("status").cloned().unwrap_or(json!("active"));
+                params["tokenBudget"] = msg.get("tokenBudget").cloned().unwrap_or(Value::Null);
+            }
+            match provider.native_command(command, params).await {
+                Ok(value) => {
+                    let cleared = command == "goalClear";
+                    let goal = value.get("goal").cloned().unwrap_or(value);
+                    vec![json_msg(json!({
+                        "type": "event",
+                        "threadId": thread_id,
+                        "event": {
+                            "kind": "goal",
+                            "cleared": cleared || goal.is_null(),
+                            "goal": if cleared { Value::Null } else { goal },
+                        },
+                    }))]
+                }
+                Err(error) => vec![err_thread(thread_id, format!("goal: {error}"))],
+            }
         }
         "generateCommitMsg" => {
             let root = git_root(state, &msg).await;
