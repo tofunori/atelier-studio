@@ -215,7 +215,7 @@ pub fn builtin_providers() -> Vec<ProviderStatus> {
                 "claude-haiku-4-5-20251001".into(),
             ],
             model_reasoning: Value::Object(Default::default()),
-            default_model: "claude-fable-5".into(),
+            default_model: "claude-sonnet-5[1m]".into(),
             efforts: vec![
                 "low".into(),
                 "medium".into(),
@@ -258,7 +258,7 @@ pub fn builtin_providers() -> Vec<ProviderStatus> {
                 "gpt-5.1-codex".into(),
             ],
             model_reasoning: Value::Object(Default::default()),
-            default_model: "gpt-5.5".into(),
+            default_model: "gpt-5.6-sol".into(),
             efforts: vec![
                 "low".into(),
                 "medium".into(),

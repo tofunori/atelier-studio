@@ -65,6 +65,7 @@ export function ComposerControls(p: {
   workingSince: number | null;
   onStop: () => void;
   onSubmit: (prompt: string, provider: string, model: string, effort: string, permissionMode: string, mode: "steer" | "queue") => void;
+  submitComposer?: (mode: "steer" | "queue") => void;
   onGoal?: (action: "set" | "clear", objective?: string, status?: "active" | "paused") => void;
   defaults: {
     autoReview?: { enabled: boolean };
@@ -325,7 +326,14 @@ export function ComposerControls(p: {
                     </div>
                     {menuModels.map((m) => {
                       const key = menuProvider + ":" + m.id;
-                      const active = provider === menuProvider && model === m.id;
+                      // Claude : chaque nouveau choix part en contexte 1M. Le
+                      // bouton 200k plus bas reste disponible comme exception
+                      // explicite après la sélection.
+                      const baseModelId = m.id || providerInfo(menuProvider)?.defaultModel || "claude-sonnet-5";
+                      const selectedModelId = menuProvider === "claude" && !baseModelId.endsWith("[1m]")
+                        ? `${baseModelId}[1m]`
+                        : baseModelId;
+                      const active = provider === menuProvider && model === selectedModelId;
                       const fav = favModels.includes(key);
                       return (
                         // interactifs JAMAIS imbriqués (contrat ThreadRow) :
@@ -337,8 +345,8 @@ export function ComposerControls(p: {
                             aria-checked={active}
                             className="mp-row-main"
                             onClick={() => {
-                              setModel(m.id);
-                              setEffort(effortFor(menuProvider, m.id));
+                              setModel(selectedModelId);
+                              setEffort(effortFor(menuProvider, selectedModelId));
                             }}
                           >
                             <span>{modelLabel(m, menuProvider)}</span>
@@ -399,8 +407,11 @@ export function ComposerControls(p: {
                   title={t("action.queue-title")}
                   onClick={() => {
                     if (!text.trim()) return;
-                    p.onSubmit(text, provider, model, effort, permissionMode, "queue");
-                    setText("");
+                    if (p.submitComposer) p.submitComposer("queue");
+                    else {
+                      p.onSubmit(text, provider, model, effort, permissionMode, "queue");
+                      setText("");
+                    }
                   }}
                 >
                   ⏱ {t("action.queue")}

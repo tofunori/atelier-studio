@@ -2,10 +2,14 @@ import { describe, expect, it } from "vitest";
 import { contextWindowFor, getProvider, listProviders } from "./registry.mjs";
 
 describe("provider registry", () => {
+  it("defaults Claude to Sonnet 5 with a 1M context", () => {
+    expect(getProvider("claude")?.defaultModel).toBe("claude-sonnet-5[1m]");
+  });
+
   it("exposes the current Codex app-server model catalog", () => {
     const provider = getProvider("codex");
     expect(provider).toBeTruthy();
-    expect(provider.defaultModel).toBe("gpt-5.5");
+    expect(provider.defaultModel).toBe("gpt-5.6-sol");
     expect(provider.models).toEqual([
       "gpt-5.6-sol",
       "gpt-5.6-terra",

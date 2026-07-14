@@ -1,0 +1,9 @@
+#!/bin/sh
+set -eu
+HERE=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+if [ -x "$HERE/../node-runtime/bin/node" ]; then
+  NODE="$HERE/../node-runtime/bin/node"
+else
+  NODE="${ATELIER_NODE_BIN:-node}"
+fi
+exec "$NODE" "$HERE/gallery_tool_cli.mjs" "$@"

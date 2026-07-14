@@ -129,7 +129,7 @@ impl Provider for CodexProvider {
         ]
     }
     fn default_model(&self) -> String {
-        "gpt-5.5".into()
+        "gpt-5.6-sol".into()
     }
     fn efforts(&self) -> Vec<String> {
         vec![

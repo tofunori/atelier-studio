@@ -33,11 +33,14 @@ export type BrowserAddToChatMessage = {
   url?: string;
 };
 
-export type AtelierGalleryShowMessage = {
+export type AtelierGalleryAction = "show" | "open" | "compare" | "reset";
+export type AtelierGalleryMode = "focus" | "viewer" | "selection" | "all";
+
+export type AtelierGalleryCommandMessage = {
   type: "atelier-gallery-command";
   nonce: string;
-  action: "show";
-  mode: "focus";
+  action: AtelierGalleryAction;
+  mode: AtelierGalleryMode;
   projectRoot: string;
   requestId: string;
   rels: string[];
@@ -47,11 +50,12 @@ export type AtelierGalleryResultMessage = {
   type: "atelier-gallery-result";
   nonce: string;
   ok: boolean;
-  action: "show";
+  action: AtelierGalleryAction;
   projectRoot: string;
   requestId: string;
   matched?: string[];
   missing?: string[];
+  applied?: boolean;
   error?: string;
 };
 
@@ -70,7 +74,7 @@ export type AtelierOutboundMessage =
       nonce: string;
       vars: Record<string, string>;
     }
-  | AtelierGalleryShowMessage;
+  | AtelierGalleryCommandMessage;
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -146,17 +150,18 @@ export function isTrustedAtelierMessage(
         (data.url === undefined || isValidMessageUrl(data.url))
       );
     case "atelier-gallery-result": {
-      if (!hasOnlyKeys(data, ["type", "nonce", "ok", "action", "projectRoot", "requestId", "matched", "missing", "error"])) return false;
+      if (!hasOnlyKeys(data, ["type", "nonce", "ok", "action", "projectRoot", "requestId", "matched", "missing", "applied", "error"])) return false;
       const validRelList = (value: unknown) =>
         value === undefined ||
         (Array.isArray(value) && value.length <= 100 && value.every((item) => isBoundedString(item, MAX_URL_LENGTH)));
       return (
         typeof data.ok === "boolean" &&
-        data.action === "show" &&
+        ["show", "open", "compare", "reset"].includes(String(data.action)) &&
         isBoundedString(data.projectRoot, MAX_URL_LENGTH) &&
         isBoundedString(data.requestId, MAX_NONCE_LENGTH) &&
         validRelList(data.matched) &&
         validRelList(data.missing) &&
+        (data.applied === undefined || typeof data.applied === "boolean") &&
         isOptionalBoundedString(data.error, MAX_TITLE_LENGTH)
       );
     }

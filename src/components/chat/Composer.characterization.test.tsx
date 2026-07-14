@@ -87,6 +87,34 @@ describe("composer — caractérisation", () => {
     expect(ta().value).toContain("/recherche");
   });
 
+  it("/model ouvre le sélecteur sans envoyer de prompt", () => {
+    const onSubmit = vi.fn();
+    renderUi(<Chat {...chatProps({
+      onSubmit,
+      threadProvider: "codex",
+      providers: [makeProviderInfo({ id: "codex", label: "Codex", models: ["gpt-5.5"], defaultModel: "gpt-5.5" })],
+    })} />);
+    fireEvent.change(ta(), { target: { value: "/model" } });
+    fireEvent.keyDown(ta(), { key: "Enter" });
+    expect(onSubmit).not.toHaveBeenCalled();
+    expect(document.querySelector(".model-menu")).toBeTruthy();
+  });
+
+  it("/plan avec argument envoie le prompt en mode plan", () => {
+    const onSubmit = vi.fn();
+    renderUi(<Chat {...chatProps({ onSubmit, threadProvider: "codex" })} />);
+    fireEvent.change(ta(), { target: { value: "/plan vérifie le protocole" } });
+    fireEvent.keyDown(ta(), { key: "Enter" });
+    expect(onSubmit).toHaveBeenCalledWith(
+      "vérifie le protocole",
+      "codex",
+      expect.any(String),
+      expect.any(String),
+      "plan",
+      "steer",
+    );
+  });
+
   it("attachments : composants shadcn visibles et suppression accessible", () => {
     const onRemoveAttachment = vi.fn();
     renderUi(<Chat {...chatProps({
@@ -213,12 +241,67 @@ describe("composer — catalogue et capabilities sidecar (plan 025, step 9)", ()
     expect(document.querySelector(".model-provider-row")).toBeNull();
   });
 
+  it("restaure le modèle et l'effort propres à chaque chat", async () => {
+    const defaults = {
+      defaultProvider: "codex",
+      defaultModel: { codex: "gpt-5.6-sol" },
+      defaultEffort: { codex: "medium" },
+      defaultPermissionMode: "bypassPermissions",
+    };
+    const providers = [makeProviderInfo({
+      id: "codex", label: "Codex",
+      models: ["gpt-5.6-sol", "gpt-5.5"], defaultModel: "gpt-5.6-sol",
+      efforts: ["low", "medium", "high"],
+    })];
+    localStorage.setItem("atelier-studio.modelSel.thread:thread-A", JSON.stringify({
+      provider: "codex", model: "gpt-5.6-sol", effort: "medium", permissionMode: "bypassPermissions",
+    }));
+    localStorage.setItem("atelier-studio.modelSel.thread:thread-B", JSON.stringify({
+      provider: "codex", model: "gpt-5.5", effort: "high", permissionMode: "bypassPermissions",
+    }));
+
+    const view = renderUi(<Chat {...chatProps({ threadId: "thread-A", threadProvider: "codex", defaults, providers })} />);
+    const modelButton = () => document.querySelector(".model-pick .mp-btn") as HTMLButtonElement;
+    await waitFor(() => expect(modelButton().textContent).toContain("GPT-5.6 Sol"));
+    expect(modelButton().textContent).toContain("medium");
+
+    view.rerender(<Chat {...chatProps({ threadId: "thread-B", threadProvider: "codex", defaults, providers })} />);
+    await waitFor(() => expect(modelButton().textContent).toContain("GPT-5.5"));
+    expect(modelButton().textContent).toContain("high");
+
+    view.rerender(<Chat {...chatProps({ threadId: "thread-A", threadProvider: "codex", defaults, providers })} />);
+    await waitFor(() => expect(modelButton().textContent).toContain("GPT-5.6 Sol"));
+    expect(modelButton().textContent).toContain("medium");
+  });
+
   it("un modèle présent dans info.models apparaît sans modification frontend", () => {
     openClaudeModelList(["claude-fable-5", "claude-nova-6-preview"]);
     // id inconnu du front : affiché tel quel, directement depuis le catalogue
     expect(screen.getByText("claude-nova-6-preview")).toBeTruthy();
     // id connu : libellé lisible (BUILTIN_MODEL_LABELS reste une map id→label)
     expect(screen.getByText("Fable 5")).toBeTruthy();
+  });
+
+  it("sélectionner n'importe quel modèle Claude active 1M par défaut", async () => {
+    renderUi(<Chat {...chatProps({
+      defaults: {
+        defaultProvider: "claude",
+        defaultModel: { claude: "claude-sonnet-5[1m]" },
+        defaultEffort: { claude: "xhigh" },
+        defaultPermissionMode: "bypassPermissions",
+      },
+      threadProvider: "claude",
+      providers: [makeProviderInfo({
+        models: ["claude-fable-5", "claude-opus-4-8", "claude-sonnet-5"],
+        defaultModel: "claude-sonnet-5[1m]",
+        efforts: ["low", "medium", "high", "xhigh", "max"],
+      })],
+    })} />);
+    const button = document.querySelector(".model-pick .mp-btn") as HTMLButtonElement;
+    fireEvent.click(button);
+    fireEvent.click(screen.getByText("Opus 4.8"));
+    await waitFor(() => expect(button.textContent).toContain("Opus 4.8 · 1M"));
+    expect(button.textContent).toContain("xhigh");
   });
 
   it("un modèle absent du catalogue n'apparaît pas (la liste hardcodée ne ressuscite pas)", () => {

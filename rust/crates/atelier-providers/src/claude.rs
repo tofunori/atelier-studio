@@ -165,7 +165,7 @@ impl Provider for ClaudeProvider {
         ]
     }
     fn default_model(&self) -> String {
-        "claude-fable-5".into()
+        "claude-sonnet-5[1m]".into()
     }
     fn efforts(&self) -> Vec<String> {
         vec![

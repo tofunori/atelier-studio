@@ -6,7 +6,20 @@ use std::process::{Command, Stdio};
 use std::thread;
 use std::time::{Duration, Instant};
 
-const BUILTINS: &[&str] = &["goal", "loop", "clear", "compact", "review", "context"];
+const BUILTINS: &[&str] = &[
+    "goal",
+    "loop",
+    "clear",
+    "compact",
+    "review",
+    "context",
+    "status",
+    "model",
+    "permissions",
+    "plan",
+    "diff",
+    "usage",
+];
 
 pub fn list_files(project_root: &str) -> Vec<String> {
     if project_root.is_empty() {

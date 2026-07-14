@@ -300,14 +300,20 @@ async function main() {
     assert.equal(typeof health.bundleHash, "string");
     assert.ok(health.bundleHash.length >= 16, "health has bundle hash");
 
-    // Le serveur Node bâtit l'index au boot. Attendre ce contrat avant /rev,
-    // sinon Python peut lire 0 pendant que Node vient juste de créer le fichier.
+    // Le serveur Node bâtit l'index au boot. Un GET / peut répondre 200 avec la
+    // page d'attente avant la fin du build : attendre les deux sorties disque
+    // avant /rev, sinon Python peut encore lire 0 pendant que Node voit déjà
+    // figures_data.json.
     let rootRes = await request(nodePort, "/");
-    for (let attempt = 0; rootRes.status !== 200 && attempt < 50; attempt++) {
+    const initialIndexReady = () =>
+      fs.existsSync(path.join(root, "figures_index.html"))
+      && fs.existsSync(path.join(root, "figures_data.json"));
+    for (let attempt = 0; (!initialIndexReady() || rootRes.status !== 200) && attempt < 50; attempt++) {
       await new Promise((resolve) => setTimeout(resolve, 100));
       rootRes = await request(nodePort, "/");
     }
     assert.equal(rootRes.status, 200, "node / serves the boot-built index");
+    assert.equal(initialIndexReady(), true, "node initial index build converges");
 
     const routes = [
       "/ping",

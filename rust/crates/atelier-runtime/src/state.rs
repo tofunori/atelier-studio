@@ -1,11 +1,11 @@
 //! Shared application state for the HTTP/WS runtime.
 
 use crate::paths::AppPaths;
-use atelier_protocol::Health;
 use atelier_harness::HarnessManager;
+use atelier_protocol::Health;
 use atelier_providers::{build_registry, Provider};
 use atelier_store::{HarnessJournal, HighlightStore, ThreadStore};
-use atelier_workspace::TerminalHub;
+use atelier_workspace::{TermEvent, TerminalHub};
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
@@ -56,17 +56,29 @@ impl AppState {
         let highlights = HighlightStore::open(paths.app_dir.join("highlights.json"));
         let journal = HarnessJournal::new(&paths.app_dir);
         let (bus, _) = broadcast::channel(128);
-        let terminals = Arc::new(TerminalHub::new());
+        let terminal_bus = bus.clone();
+        let terminals = Arc::new(TerminalHub::with_event_sink(move |event| {
+            let message = match event {
+                TermEvent::Data { term_id, data } => serde_json::json!({
+                    "type": "termData",
+                    "termId": term_id,
+                    "data": data,
+                }),
+                TermEvent::Exit { term_id, exit_code } => serde_json::json!({
+                    "type": "termExit",
+                    "termId": term_id,
+                    "exitCode": exit_code,
+                }),
+            };
+            let _ = terminal_bus.send(message.to_string());
+        }));
         let harness = Arc::new(HarnessManager::new(journal.clone()));
         let providers = build_registry(&paths.app_dir);
         // Purge ghost "running" status from previous process (Node index.mjs boot).
         let mut threads = threads;
         for t in threads.list() {
             if t.status == "running" {
-                let _ = threads.upsert(
-                    serde_json::json!({"id": t.id, "status": "idle"}),
-                    true,
-                );
+                let _ = threads.upsert(serde_json::json!({"id": t.id, "status": "idle"}), true);
             }
         }
         Self {
@@ -214,5 +226,48 @@ impl AppState {
 
     pub fn end_retitle(&self) {
         self.inner.retitle_running.store(false, Ordering::SeqCst);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tempfile::tempdir;
+    use tokio::time::{timeout, Duration, Instant};
+
+    #[tokio::test]
+    async fn terminal_output_is_published_without_a_followup_ws_message() {
+        let dir = tempdir().unwrap();
+        let state = AppState::new(
+            AppPaths::from_app_dir(dir.path().to_path_buf()),
+            None,
+            "t".into(),
+            "0.1.0".into(),
+            "test".into(),
+            "/tmp".into(),
+        );
+        let mut bus = state.subscribe_bus();
+        state
+            .terminals()
+            .open("term-live", Some(dir.path().to_str().unwrap()), 80, 24);
+        state
+            .terminals()
+            .input("term-live", "printf '__ATELIER_TERM_LIVE__\\n'\r");
+
+        let deadline = Instant::now() + Duration::from_secs(5);
+        let mut output = String::new();
+        while Instant::now() < deadline && !output.contains("__ATELIER_TERM_LIVE__") {
+            let remaining = deadline.saturating_duration_since(Instant::now());
+            let Ok(Ok(message)) = timeout(remaining, bus.recv()).await else {
+                break;
+            };
+            let value: serde_json::Value = serde_json::from_str(&message).unwrap();
+            if value.get("type").and_then(|v| v.as_str()) == Some("termData") {
+                output.push_str(value.get("data").and_then(|v| v.as_str()).unwrap_or(""));
+            }
+        }
+
+        state.terminals().close("term-live");
+        assert!(output.contains("__ATELIER_TERM_LIVE__"), "{output:?}");
     }
 }

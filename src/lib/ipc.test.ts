@@ -65,5 +65,11 @@ describe("isTrustedAtelierMessage", () => {
     expect(isTrustedAtelierMessage(msg("http://127.0.0.1:19000", valid), nonce)).toBe(true);
     expect(isTrustedAtelierMessage(msg("http://127.0.0.1:19000", { ...valid, extra: true }), nonce)).toBe(false);
     expect(isTrustedAtelierMessage(msg("http://127.0.0.1:19000", { ...valid, matched: [""] }), nonce)).toBe(false);
+    expect(isTrustedAtelierMessage(msg("http://127.0.0.1:19000", {
+      ...valid, action: "compare", requestId: "req-compare", applied: true,
+    }), nonce)).toBe(true);
+    expect(isTrustedAtelierMessage(msg("http://127.0.0.1:19000", {
+      ...valid, action: "delete",
+    }), nonce)).toBe(false);
   });
 });

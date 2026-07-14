@@ -330,7 +330,7 @@ async fn uistate_post(
 
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
-struct GalleryShowCommand {
+struct GalleryCommand {
     action: String,
     mode: String,
     #[serde(rename = "projectRoot")]
@@ -340,14 +340,19 @@ struct GalleryShowCommand {
     rels: Vec<String>,
 }
 
-impl GalleryShowCommand {
+impl GalleryCommand {
     fn valid(&self) -> bool {
-        self.action == "show"
-            && self.mode == "focus"
+        let shape_ok = match self.action.as_str() {
+            "show" => self.mode == "focus" && !self.rels.is_empty(),
+            "open" => self.mode == "viewer" && self.rels.len() == 1,
+            "compare" => self.mode == "selection" && self.rels.len() >= 2,
+            "reset" => self.mode == "all" && self.rels.is_empty(),
+            _ => false,
+        };
+        shape_ok
             && std::path::Path::new(&self.project_root).is_absolute()
             && !self.request_id.is_empty()
             && self.request_id.len() <= 128
-            && !self.rels.is_empty()
             && self.rels.len() <= 100
             && self.rels.iter().all(|rel| {
                 !rel.is_empty()
@@ -361,7 +366,7 @@ impl GalleryShowCommand {
 async fn gallery_command_handler(
     State(state): State<AppState>,
     headers: HeaderMap,
-    Json(command): Json<GalleryShowCommand>,
+    Json(command): Json<GalleryCommand>,
 ) -> Result<(StatusCode, Json<Value>), StatusCode> {
     auth_or_401(&state, &headers)?;
     if !command.valid() {
@@ -633,6 +638,24 @@ mod tests {
         let pushed: serde_json::Value = serde_json::from_str(&bus.recv().await.unwrap()).unwrap();
         assert_eq!(pushed["type"], "galleryCommand");
         assert_eq!(pushed["command"]["rels"][0], "figures/a.png");
+    }
+
+    #[test]
+    fn gallery_command_validates_each_action_shape() {
+        let make = |action: &str, mode: &str, rels: &[&str]| GalleryCommand {
+            action: action.into(),
+            mode: mode.into(),
+            project_root: "/p".into(),
+            request_id: format!("req-{action}"),
+            rels: rels.iter().map(|rel| (*rel).into()).collect(),
+        };
+        assert!(make("show", "focus", &["a.png"]).valid());
+        assert!(make("open", "viewer", &["a.png"]).valid());
+        assert!(make("compare", "selection", &["a.png", "b.png"]).valid());
+        assert!(make("reset", "all", &[]).valid());
+        assert!(!make("open", "viewer", &["a.png", "b.png"]).valid());
+        assert!(!make("compare", "focus", &["a.png", "b.png"]).valid());
+        assert!(!make("reset", "all", &["a.png"]).valid());
     }
 
     #[test]

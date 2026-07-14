@@ -2256,15 +2256,34 @@ function annotInit(){
       const nonce=sessionStorage.getItem('atelier_nonce')||'';
       if(!nonce || e.data.nonce!==nonce) return;
       const contract=await galleryCommandsReady; if(!contract) return;
-      const result=contract.execute(e.data, FILES.map(f=>f.rel), {
+      const knownRels=e.data.action==='compare'
+        ? FILES.filter(f=>imgExt(f.ext)).map(f=>f.rel)
+        : FILES.map(f=>f.rel);
+      const result=contract.execute(e.data, knownRels, {
         projectRoot:'__ROOT__',
         show(rels){
+          cmpClose();
           chatFocusRels=new Set(rels);
           selSet.clear(); rels.forEach(rel=>selSet.add(rel));
           lastSelRel=rels[rels.length-1]||null;
           updateDelBtn(); render();
           const first=document.querySelector('.card');
           if(first) first.scrollIntoView({block:'start',behavior:'smooth'});
+        },
+        open(rel){
+          cmpClose();
+          lbOpenAny(rel);
+        },
+        compare(rels){
+          chatFocusRels=new Set(rels);
+          selSet.clear(); rels.forEach(rel=>selSet.add(rel));
+          lastSelRel=rels[rels.length-1]||null;
+          updateDelBtn(); render(); openCompare();
+        },
+        reset(){
+          chatFocusRels.clear();
+          selSet.clear(); lastSelRel=null;
+          cmpClose(); updateDelBtn(); render();
         }
       });
       __atelierPost(Object.assign({type:'atelier-gallery-result'}, result));

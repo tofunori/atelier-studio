@@ -25,7 +25,7 @@ const PROVIDERS = [
     id: "claude",
     label: "Claude Code",
     bin: "claude",
-    defaultModel: "claude-fable-5",
+    defaultModel: "claude-sonnet-5[1m]",
     models: [
       "claude-fable-5",
       "claude-opus-4-8",
@@ -39,7 +39,7 @@ const PROVIDERS = [
     id: "codex",
     label: "Codex",
     bin: "codex",
-    defaultModel: "gpt-5.5",
+    defaultModel: "gpt-5.6-sol",
     // GPT-5.6 (2026-07-09) : tiers Sol/Terra/Luna, mêmes ids côté API et Codex
     // (pas de slug -codex) — learn.chatgpt.com/docs/models.
     models: [

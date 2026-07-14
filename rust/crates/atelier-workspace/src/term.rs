@@ -6,6 +6,8 @@ use std::io::{Read, Write};
 use std::sync::{Arc, Mutex};
 use std::thread;
 
+type TermEventSink = Arc<dyn Fn(TermEvent) + Send + Sync>;
+
 #[derive(Debug, Clone)]
 pub enum TermEvent {
     Data { term_id: String, data: String },
@@ -15,13 +17,15 @@ pub enum TermEvent {
 struct TermSlot {
     writer: Box<dyn Write + Send>,
     master: Box<dyn portable_pty::MasterPty + Send>,
-    /// Shared so the wait thread and close() can both access the child.
-    child: Arc<Mutex<Box<dyn portable_pty::Child + Send + Sync>>>,
+    /// Independent signal handle: the wait thread owns the child itself, so
+    /// close() never blocks behind a mutex held by `Child::wait`.
+    killer: Box<dyn portable_pty::ChildKiller + Send + Sync>,
 }
 
 pub struct TerminalHub {
     terms: Mutex<HashMap<String, TermSlot>>,
     events: Arc<Mutex<Vec<TermEvent>>>,
+    event_sink: Option<TermEventSink>,
 }
 
 impl Default for TerminalHub {
@@ -35,6 +39,21 @@ impl TerminalHub {
         Self {
             terms: Mutex::new(HashMap::new()),
             events: Arc::new(Mutex::new(Vec::new())),
+            event_sink: None,
+        }
+    }
+
+    /// Runtime mode: PTY output is pushed to the WebSocket bus as soon as the
+    /// reader thread receives it. Without this sink, events remain available
+    /// through `drain_events` for standalone consumers and tests.
+    pub fn with_event_sink<F>(sink: F) -> Self
+    where
+        F: Fn(TermEvent) + Send + Sync + 'static,
+    {
+        Self {
+            terms: Mutex::new(HashMap::new()),
+            events: Arc::new(Mutex::new(Vec::new())),
+            event_sink: Some(Arc::new(sink)),
         }
     }
 
@@ -81,12 +100,14 @@ impl TerminalHub {
             Err(_) => return,
         };
 
-        let child = Arc::new(Mutex::new(child));
-        let child_wait = Arc::clone(&child);
+        let mut child_wait = child;
+        let killer = child_wait.clone_killer();
         let tid_data = term_id.to_string();
         let tid_exit = term_id.to_string();
         let events_data = Arc::clone(&self.events);
         let events_exit = Arc::clone(&self.events);
+        let sink_data = self.event_sink.clone();
+        let sink_exit = self.event_sink.clone();
 
         thread::spawn(move || {
             let mut buf = [0u8; 8192];
@@ -95,12 +116,14 @@ impl TerminalHub {
                     Ok(0) => break,
                     Ok(n) => {
                         let data = String::from_utf8_lossy(&buf[..n]).into_owned();
-                        if let Ok(mut q) = events_data.lock() {
-                            q.push(TermEvent::Data {
+                        dispatch_event(
+                            &events_data,
+                            sink_data.as_ref(),
+                            TermEvent::Data {
                                 term_id: tid_data.clone(),
                                 data,
-                            });
-                        }
+                            },
+                        );
                     }
                     Err(_) => break,
                 }
@@ -108,20 +131,18 @@ impl TerminalHub {
         });
 
         thread::spawn(move || {
-            let code = if let Ok(mut c) = child_wait.lock() {
-                match c.wait() {
-                    Ok(status) => status.exit_code() as i32,
-                    Err(_) => -1,
-                }
-            } else {
-                -1
+            let code = match child_wait.wait() {
+                Ok(status) => status.exit_code() as i32,
+                Err(_) => -1,
             };
-            if let Ok(mut q) = events_exit.lock() {
-                q.push(TermEvent::Exit {
+            dispatch_event(
+                &events_exit,
+                sink_exit.as_ref(),
+                TermEvent::Exit {
                     term_id: tid_exit,
                     exit_code: code,
-                });
-            }
+                },
+            );
         });
 
         terms.insert(
@@ -129,7 +150,7 @@ impl TerminalHub {
             TermSlot {
                 writer,
                 master: pair.master,
-                child,
+                killer,
             },
         );
     }
@@ -158,11 +179,8 @@ impl TerminalHub {
 
     pub fn close(&self, term_id: &str) {
         if let Ok(mut terms) = self.terms.lock() {
-            if let Some(t) = terms.remove(term_id) {
-                if let Ok(mut c) = t.child.lock() {
-                    let _ = c.kill();
-                    let _ = c.wait();
-                }
+            if let Some(mut t) = terms.remove(term_id) {
+                let _ = t.killer.kill();
             }
         }
     }
@@ -183,5 +201,48 @@ impl TerminalHub {
             .lock()
             .map(|mut q| std::mem::take(&mut *q))
             .unwrap_or_default()
+    }
+}
+
+fn dispatch_event(
+    events: &Arc<Mutex<Vec<TermEvent>>>,
+    sink: Option<&TermEventSink>,
+    event: TermEvent,
+) {
+    if let Some(sink) = sink {
+        sink(event);
+    } else if let Ok(mut queue) = events.lock() {
+        queue.push(event);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn event_sink_receives_output_immediately_without_poll_queue() {
+        let received = Arc::new(Mutex::new(Vec::new()));
+        let received_sink = Arc::clone(&received);
+        let hub = TerminalHub::with_event_sink(move |event| {
+            received_sink.lock().unwrap().push(event);
+        });
+
+        dispatch_event(
+            &hub.events,
+            hub.event_sink.as_ref(),
+            TermEvent::Data {
+                term_id: "term-1".into(),
+                data: "echo".into(),
+            },
+        );
+
+        assert!(hub.drain_events().is_empty());
+        let events = received.lock().unwrap();
+        assert!(matches!(
+            events.as_slice(),
+            [TermEvent::Data { term_id, data }]
+                if term_id == "term-1" && data == "echo"
+        ));
     }
 }

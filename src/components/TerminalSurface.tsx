@@ -7,7 +7,9 @@ import Terminal from "./Terminal";
 import { wsSend } from "../lib/wsBus";
 import { t } from "../lib/i18n";
 import { PlusIcon } from "./icons";
-import { Button, IconButton } from "./ui";
+import { SquareTerminal } from "lucide-react";
+import { IconButton } from "./ui/IconButton";
+import { Tab, TabList } from "./ui/Tabs";
 
 type Term = { id: string; n: number };
 
@@ -56,17 +58,22 @@ export default function TerminalSurface(p: {
   return (
     <div className="term-surface" style={{ display: p.visible ? "flex" : "none" }}>
       <div className="term-bar">
-        {terms.map((term) => (
-          <Button
-            key={term.id}
-            variant="ghost"
-            className={`atab ${activeId === term.id ? "on" : ""}`}
-            onClick={() => setActiveId(term.id)}
-          >
-            <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.2"><rect x="1.8" y="2.8" width="12.4" height="10.4" rx="2"/><path d="M4.5 6l2.2 2-2.2 2M8.5 10.5h3"/></svg>
-            {t("atelier.terminal")} {term.n}
-          </Button>
-        ))}
+        <TabList className="term-tabs">
+          {terms.map((term) => {
+            const label = `${t("atelier.terminal")} ${term.n}`;
+            return (
+              <Tab
+                key={term.id}
+                active={activeId === term.id}
+                label={label}
+                icon={<SquareTerminal />}
+                onClick={() => setActiveId(term.id)}
+              >
+                {label}
+              </Tab>
+            );
+          })}
+        </TabList>
         <IconButton size="s" className="ghost" label={t("action.new-terminal")} title={t("action.new-terminal")} onClick={() => addTerm()}>
           <PlusIcon />
         </IconButton>

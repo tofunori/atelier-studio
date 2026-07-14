@@ -14,6 +14,7 @@ import { Input } from "../shadcn/input";
 import { Field, FieldLabel } from "../shadcn/field";
 import { ButtonGroup } from "../shadcn/button-group";
 import { Button } from "../ui/Button";
+import { parseNativeSlashCommand, permissionModeFromSlash } from "../../lib/slashCommands";
 
 type ModelEntry = { id: string; label: string };
 type Dispatch<T> = React.Dispatch<React.SetStateAction<T>>;
@@ -117,14 +118,53 @@ export function ChatComposer(props: {
     ...model, ...menus, ...catalog, ...host,
   };
 
+  function submit(mode: "steer" | "queue") {
+    const prompt = text.trim();
+    if (!prompt) return;
+    const command = parseNativeSlashCommand(prompt);
+    if (command?.name === "model") {
+      const requested = command.args.toLowerCase();
+      const match = requested
+        ? catalog.modelsFor(model.provider).find((entry) =>
+            entry.id.toLowerCase() === requested || entry.label.toLowerCase() === requested)
+        : null;
+      if (match) {
+        model.setModel(match.id);
+        model.setEffort(catalog.effortFor(model.provider, match.id));
+      } else {
+        menus.setModelMenuProvider(model.provider);
+        menus.setMenuOpen(true);
+      }
+      setText("");
+      return;
+    }
+    if (command?.name === "permissions") {
+      const requested = permissionModeFromSlash(command.args);
+      if (requested) model.setPermissionMode(requested);
+      else requestAnimationFrame(() => {
+        document.querySelector<HTMLButtonElement>(".composer .custom-select-trigger")?.click();
+      });
+      setText("");
+      return;
+    }
+    if (command?.name === "plan") {
+      model.setPermissionMode("plan");
+      if (command.args) {
+        host.onSubmit(command.args, model.provider, model.model, model.effort, "plan", mode);
+      }
+      setText("");
+      return;
+    }
+    host.onSubmit(text, model.provider, model.model, model.effort, model.permissionMode, mode);
+    setText("");
+  }
+
   return (
       <form
         className="composer"
         onSubmit={(ev) => {
           ev.preventDefault();
-          if (!text.trim()) return;
-          host.onSubmit(text, model.provider, model.model, model.effort, model.permissionMode, "steer");
-          setText("");
+          submit("steer");
         }}
       >
         <InputGroup className="composer-input-group">
@@ -185,7 +225,7 @@ export function ChatComposer(props: {
             onPasteText={input.onPasteText}
           />
           <InputGroupAddon align="block-end" className="composer-input-actions">
-            <ComposerControls {...controlsProps} />
+            <ComposerControls {...controlsProps} submitComposer={submit} />
           </InputGroupAddon>
         </InputGroup>
       </form>

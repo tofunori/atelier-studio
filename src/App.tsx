@@ -52,8 +52,9 @@ import {
   createGalleryCommandBridge,
   type GalleryCommandBridge,
   type GalleryCommandBridgeError,
-  type GalleryShowRequest,
+  type GalleryCommandRequest,
 } from "./lib/galleryCommandBridge";
+import { parseNativeSlashCommand } from "./lib/slashCommands";
 // tokens → shadcn/Typeset → primitives → App.css : les alias sémantiques et les classes ui-*
 // doivent être définis avant les règles historiques (cascade à égalité de
 // spécificité — App.css garde le dernier mot pendant la migration).
@@ -762,9 +763,9 @@ export default function App() {
     });
     galleryBridgeRef.current = bridge;
 
-    const onShow = (event: Event) => {
-      const request = (event as CustomEvent<GalleryShowRequest>).detail;
-      void bridge.sendShow(request).catch((caught: GalleryCommandBridgeError) => {
+    const onCommand = (event: Event) => {
+      const request = (event as CustomEvent<GalleryCommandRequest>).detail;
+      void bridge.send(request).catch((caught: GalleryCommandBridgeError) => {
         if (["project-changed", "gallery-bridge-disposed"].includes(caught.code)) return;
         void showInfo(t("atelier.gallery-command-error"));
       });
@@ -772,10 +773,10 @@ export default function App() {
     const onResult = (event: Event) => {
       bridge.acceptResult((event as CustomEvent<AtelierGalleryResultMessage>).detail);
     };
-    window.addEventListener("atelier-gallery-show", onShow);
+    window.addEventListener("atelier-gallery-command", onCommand);
     window.addEventListener("atelier-gallery-result", onResult);
     return () => {
-      window.removeEventListener("atelier-gallery-show", onShow);
+      window.removeEventListener("atelier-gallery-command", onCommand);
       window.removeEventListener("atelier-gallery-result", onResult);
       bridge.reset("project-changed");
       if (galleryBridgeRef.current === bridge) galleryBridgeRef.current = null;
@@ -913,7 +914,7 @@ export default function App() {
         setHighlights(Array.isArray(msg.highlights) ? msg.highlights : []);
       }
       if (msg.type === "galleryCommand" && msg.command) {
-        window.dispatchEvent(new CustomEvent("atelier-gallery-show", { detail: msg.command }));
+        window.dispatchEvent(new CustomEvent("atelier-gallery-command", { detail: msg.command }));
       }
       if (msg.type === "event") {
         if (msg.event.kind === "started") {
@@ -1655,6 +1656,25 @@ export default function App() {
     let optimisticGoal: AgentEvent | null = null;
     const activeThread = allThreadsRef.current.find((t) => t.id === activeId);
     const threadRoot = activeThread ? activeThread.projectRoot : (activeProject ?? "");
+    const nativeCommand = parseNativeSlashCommand(prompt);
+    if (nativeCommand?.name === "usage") {
+      setUsageOpen(true);
+      return;
+    }
+    if (nativeCommand?.name === "diff") {
+      switchToSurface("git");
+      return;
+    }
+    if (nativeCommand?.name === "status") {
+      const currentUsage = activeId ? usageByThread[activeId] : null;
+      const context = currentUsage?.context != null
+        ? ` · contexte ${Math.round(currentUsage.context / 1000)}k`
+        : "";
+      void showInfo(
+        `${activeThread?.provider ?? provider} · ${model || "modèle par défaut"} · ${effort || "effort auto"} · ${permissionMode}${context}`,
+      );
+      return;
+    }
     if (!activeId && !activeProject) return;
     // /clear et /compact sur un thread CODEX : équivalents natifs app-server
     const codexActive = activeId && (activeThread?.provider ?? provider) === "codex";
@@ -1662,6 +1682,17 @@ export default function App() {
       ws.current.send(JSON.stringify({
         type: prompt.trim() === "/clear" ? "codexClear" : "codexCompact",
         threadId: activeId,
+      }));
+      return;
+    }
+    if (nativeCommand?.name === "review" && activeId && ws.current?.readyState === 1) {
+      window.dispatchEvent(new CustomEvent("review-result", {
+        detail: { type: "reviewResult", threadId: activeId, status: "running" },
+      }));
+      ws.current.send(JSON.stringify({
+        type: "requestReview",
+        threadId: activeId,
+        autoReview: settingsRef.current.autoReview,
       }));
       return;
     }

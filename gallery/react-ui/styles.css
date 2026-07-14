@@ -1,0 +1,27 @@
+@import "../../src/styles/shadcn.css";
+@source "./main.tsx";
+@source "../../src/components/shadcn/{alert-dialog,button,dropdown-menu,input-group,input,select,sheet,spinner,toggle,toggle-group,tooltip}.tsx";
+@source "../../src/components/ui/Tooltip.tsx";
+
+#gallery-react-toolbar { min-width:0;overflow:hidden; }
+.gallery-command-bar { display:flex;min-width:0;flex-wrap:nowrap;align-items:center;gap:7px; }
+.gallery-command-search { width:auto;min-width:160px;max-width:360px;flex:1 1 300px;background:var(--surface-sunken);box-shadow:inset 0 1px 1px rgb(0 0 0 / 12%); }
+.gallery-command-select { width:auto;max-width:min(220px,24vw);flex:0 1 auto; }
+.gallery-command-density { gap:0;overflow:hidden;border:1px solid var(--border);border-radius:var(--radius-control); }
+.gallery-command-density [data-slot="toggle-group-item"] { border-radius:0; }
+
+@media (max-width:800px) {
+  .gallery-command-bar { gap:5px; }
+  .gallery-command-search { min-width:130px;max-width:none;flex:1 1 160px; }
+  .gallery-command-select { width:82px;max-width:82px; }
+  .gallery-command-sort { width:88px;max-width:88px; }
+  .gallery-command-density [data-slot="toggle-group-item"] { width:30px;padding-inline:0; }
+  .gallery-command-rescan-label { display:none; }
+}
+
+@media (max-width:560px) {
+  #gallery-react-toolbar { overflow:visible; }
+  .gallery-command-bar { flex-wrap:wrap; }
+  .gallery-command-search { width:100%;min-width:0;max-width:none;flex-basis:100%; }
+  .gallery-command-select { width:auto;max-width:42vw; }
+}

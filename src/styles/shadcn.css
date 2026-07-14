@@ -1,0 +1,170 @@
+/*
+ * shadcn/Tailwind adapter for Atelier.
+ *
+ * Tailwind is intentionally isolated here:
+ * - no Preflight, because App.css owns the existing desktop reset;
+ * - `tw` prefix, because Atelier already has global classes such as .flex,
+ *   .sidebar and .card;
+ * - semantic variables point back to tokens.css/App.css, which remain the
+ *   source of truth for Precision Native and both themes.
+ */
+@layer theme, base, components, utilities;
+@import "tailwindcss/theme.css" layer(theme) prefix(tw);
+@import "tailwindcss/utilities.css" layer(utilities) prefix(tw);
+
+:root {
+  --background: var(--surface-app);
+  --foreground: var(--text-primary);
+  --card: var(--surface-raised);
+  --card-foreground: var(--text-primary);
+  --popover: var(--surface-overlay);
+  --popover-foreground: var(--text-primary);
+  --primary: var(--text-primary);
+  --primary-foreground: var(--surface-app);
+  --secondary: var(--surface-inset);
+  --secondary-foreground: var(--text-secondary);
+  --muted: var(--surface-inset);
+  --muted-foreground: var(--text-muted);
+  --accent: var(--selection-surface);
+  --accent-foreground: var(--text-primary);
+  --destructive: var(--status-error);
+  --destructive-foreground: var(--surface-app);
+  --border: var(--border-subtle);
+  --input: var(--border-interactive);
+  --ring: var(--accent-base);
+  --radius: var(--radius-surface);
+
+  --sidebar: var(--surface-panel);
+  --sidebar-foreground: var(--text-primary);
+  --sidebar-primary: var(--text-primary);
+  --sidebar-primary-foreground: var(--surface-app);
+  --sidebar-accent: var(--selection-surface);
+  --sidebar-accent-foreground: var(--text-primary);
+  --sidebar-border: var(--border-subtle);
+  --sidebar-ring: var(--accent-base);
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-sidebar: var(--sidebar);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-ring: var(--sidebar-ring);
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+}
+
+/* The generated Base UI primitives expose their lifecycle through data
+ * attributes. Keep motion in the Atelier token system instead of importing
+ * a second animation preset or hard-coded durations. */
+@layer components {
+  [data-slot="spinner"] {
+    animation-duration: var(--motion-standard);
+  }
+
+  [data-slot="skeleton"] {
+    animation-duration: var(--motion-panel);
+  }
+
+  [data-slot="dialog-overlay"],
+  [data-slot="alert-dialog-overlay"],
+  [data-slot="sheet-overlay"] {
+    opacity: 0;
+    transition: opacity var(--motion-fast) var(--ease-out);
+  }
+
+  [data-slot="dialog-overlay"][data-open],
+  [data-slot="alert-dialog-overlay"][data-open],
+  [data-slot="sheet-overlay"][data-open] {
+    opacity: 1;
+  }
+
+  [data-slot="dialog-content"],
+  [data-slot="alert-dialog-content"] {
+    opacity: 0;
+    transform: translate(-50%, -50%) scale(0.98);
+    transition: opacity var(--motion-fast) var(--ease-out),
+      transform var(--motion-fast) var(--ease-out);
+  }
+
+  [data-slot="dialog-content"][data-open],
+  [data-slot="alert-dialog-content"][data-open] {
+    opacity: 1;
+    transform: translate(-50%, -50%) scale(1);
+  }
+
+  [data-slot="popover-content"],
+  [data-slot="dropdown-menu-content"],
+  [data-slot="context-menu-content"],
+  [data-slot="tooltip-content"] {
+    opacity: 0;
+    transform: scale(0.98);
+    transition: opacity var(--motion-fast) var(--ease-out),
+      transform var(--motion-fast) var(--ease-out);
+  }
+
+  [data-slot="popover-content"][data-open],
+  [data-slot="dropdown-menu-content"][data-open],
+  [data-slot="context-menu-content"][data-open],
+  [data-slot="tooltip-content"][data-open] {
+    opacity: 1;
+    transform: scale(1);
+  }
+
+  [data-slot="sheet-content"] {
+    opacity: 1;
+  }
+
+  [data-slot="dialog-content"][data-closed],
+  [data-slot="alert-dialog-content"][data-closed],
+  [data-slot="popover-content"][data-closed],
+  [data-slot="dropdown-menu-content"][data-closed],
+  [data-slot="context-menu-content"][data-closed],
+  [data-slot="tooltip-content"][data-closed] {
+    opacity: 0;
+    pointer-events: none;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    [data-slot="spinner"],
+    [data-slot="skeleton"] {
+      animation: none;
+    }
+
+    [data-slot="dialog-content"],
+    [data-slot="alert-dialog-content"] {
+      transform: translate(-50%, -50%);
+    }
+
+    [data-slot="popover-content"],
+    [data-slot="dropdown-menu-content"],
+    [data-slot="context-menu-content"],
+    [data-slot="tooltip-content"] {
+      transform: none;
+    }
+  }
+}

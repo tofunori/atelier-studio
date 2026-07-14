@@ -210,38 +210,54 @@ export default function Chat(p: {
     );
   }
 
-  // Le provider appartient au chat. Le cache projet ne peut choisir que le
-  // modèle/effort de CE provider; il ne peut jamais basculer une session.
-  // (le choix de modèle survit ainsi aux changements de projet — il était
-  // réinitialisé aux défauts à chaque remontage du composant)
-  const modelSelKey = (root: string) => "atelier-studio.modelSel:" + root;
-  // projet dont la sélection affichée provient — évite qu'au changement de
-  // projet, l'effet de sauvegarde écrive l'ancienne sélection sous la
-  // nouvelle clé (les states ne sont restaurés qu'au rendu suivant)
-  const selRootRef = useRef<string | null>(null);
+  type ModelSelection = { provider: string; model: string; effort: string; permissionMode: string };
+  // Le provider et le choix modèle/effort appartiennent au chat. La clé projet
+  // historique reste uniquement un repli de migration pour les fils qui n'ont
+  // pas encore leur propre entrée et pour le composer sans thread actif.
+  const legacyProjectModelSelKey = (root: string) => "atelier-studio.modelSel:" + root;
+  const threadModelSelKey = (threadId: string) => "atelier-studio.modelSel.thread:" + threadId;
+  const selectionKey = p.threadId
+    ? threadModelSelKey(p.threadId)
+    : (p.projectRoot ? legacyProjectModelSelKey(p.projectRoot) : null);
+  // Sélection en cours d'hydratation : empêche l'effet de sauvegarde d'écrire
+  // momentanément le choix du fil précédent sous la clé du nouveau fil.
+  const hydratedSelectionRef = useRef<{ key: string; value: ModelSelection; ready: boolean } | null>(null);
   useEffect(() => {
-    let saved: { provider?: string; model?: string; effort?: string; permissionMode?: string } | null = null;
-    if (p.projectRoot) {
-      try { saved = JSON.parse(localStorage.getItem(modelSelKey(p.projectRoot)) ?? "null"); } catch { saved = null; }
+    let saved: Partial<ModelSelection> | null = null;
+    if (selectionKey) {
+      try { saved = JSON.parse(localStorage.getItem(selectionKey) ?? "null"); } catch { saved = null; }
+    }
+    if (!saved && p.threadId && p.projectRoot) {
+      try { saved = JSON.parse(localStorage.getItem(legacyProjectModelSelKey(p.projectRoot)) ?? "null"); } catch { saved = null; }
     }
     const pv = p.threadProvider || saved?.provider || p.defaults.defaultProvider;
     const savedMatchesThread = saved?.provider === pv;
     const m = (savedMatchesThread ? saved?.model : undefined) ?? (p.defaults.defaultModel[pv] ?? "");
+    const next: ModelSelection = {
+      provider: pv,
+      model: m,
+      effort: (savedMatchesThread ? saved?.effort : undefined) ?? effortFor(pv, m),
+      permissionMode: saved?.permissionMode || p.defaults.defaultPermissionMode,
+    };
+    hydratedSelectionRef.current = selectionKey ? { key: selectionKey, value: next, ready: false } : null;
     setProvider(pv);
     setModel(m);
-    setEffort((savedMatchesThread ? saved?.effort : undefined) ?? effortFor(pv, m));
-    setPermissionMode(saved?.permissionMode || p.defaults.defaultPermissionMode);
-    selRootRef.current = p.projectRoot ?? null;
-  }, [p.defaults, p.projectRoot, p.threadProvider]);
-  // mémoriser la sélection courante pour ce projet (clé = projet restauré,
-  // volontairement absent des deps : voir selRootRef ci-dessus)
+    setEffort(next.effort);
+    setPermissionMode(next.permissionMode);
+  }, [p.defaults, p.projectRoot, p.threadId, p.threadProvider, selectionKey]);
+  // Mémoriser la sélection uniquement une fois l'hydratation du fil terminée.
   useEffect(() => {
-    const root = selRootRef.current;
-    if (!root) return;
+    const hydrated = hydratedSelectionRef.current;
+    if (!hydrated || hydrated.key !== selectionKey) return;
+    const current: ModelSelection = { provider, model, effort, permissionMode };
+    if (!hydrated.ready) {
+      if (Object.keys(current).some((key) => current[key as keyof ModelSelection] !== hydrated.value[key as keyof ModelSelection])) return;
+      hydrated.ready = true;
+    }
     try {
-      localStorage.setItem(modelSelKey(root), JSON.stringify({ provider, model, effort, permissionMode }));
+      localStorage.setItem(hydrated.key, JSON.stringify(current));
     } catch {}
-  }, [provider, model, effort, permissionMode]);
+  }, [selectionKey, provider, model, effort, permissionMode]);
   const [selIdx, setSelIdx] = useState(0);
   const [quote, setQuote] = useState<{ x: number; y: number; text: string } | null>(null);
   const [review, setReview] = useState<{ status: string; verdict?: string; model?: string; checks?: number; issues?: { claim: string; problem: string; severity: string; fix?: string }[]; checkedTools?: string[]; checkedFiles?: string[] } | null>(null);

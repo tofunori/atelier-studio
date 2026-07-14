@@ -29,11 +29,10 @@ const SECTIONS = [
 
 const CLAUDE_MODELS = [
   { id: "", labelKey: "common.default-cli" },
-  { id: "claude-fable-5", label: "Fable 5" },
-  { id: "claude-opus-4-8", label: "Opus 4.8" },
-  { id: "claude-sonnet-5", label: "Sonnet 5" },
+  { id: "claude-fable-5[1m]", label: "Fable 5 · 1M" },
+  { id: "claude-opus-4-8[1m]", label: "Opus 4.8 · 1M" },
   { id: "claude-sonnet-5[1m]", label: "Sonnet 5 · 1M" },
-  { id: "claude-haiku-4-5-20251001", label: "Haiku 4.5" },
+  { id: "claude-haiku-4-5-20251001[1m]", label: "Haiku 4.5 · 1M" },
 ];
 const CLAUDE_EFFORTS = ["", "low", "medium", "high", "xhigh", "max"];
 const CODEX_EFFORTS = ["", "low", "medium", "high", "xhigh"];

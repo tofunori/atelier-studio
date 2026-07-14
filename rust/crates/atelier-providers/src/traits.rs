@@ -22,6 +22,7 @@ pub struct SendRequest {
     pub session_id: Option<String>,
     pub model: Option<String>,
     pub effort: Option<String>,
+    pub permission_mode: Option<String>,
     pub mode: SendMode,
     /// Called with each provider-native event (undecorated kind payload).
     pub on_event: Arc<dyn Fn(Value) + Send + Sync>,
@@ -60,5 +61,9 @@ pub trait Provider: Send + Sync {
 
     async fn interrupt(&self, _thread_id: &str) -> bool {
         true
+    }
+
+    async fn native_command(&self, name: &str, _params: Value) -> Result<Value, String> {
+        Err(format!("commande native non supportée par {}: {name}", self.id()))
     }
 }

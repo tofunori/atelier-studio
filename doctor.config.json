@@ -1,0 +1,15 @@
+{
+  "$schema": "https://react.doctor/schema/config.json",
+  "projects": ["src", "mobile/src", "gallery/react-ui"],
+  "ignore": {
+    "files": [
+      ".worktrees/**",
+      "**/node_modules/**",
+      "**/dist/**",
+      "src-tauri/**",
+      "gallery/assets/**"
+    ]
+  },
+  "blocking": "none",
+  "noScore": true
+}

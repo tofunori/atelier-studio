@@ -230,6 +230,55 @@ test('chat bridge: show focuses known figures and reports missing paths', async 
   });
 });
 
+test('chat bridge: open, compare and reset drive the existing gallery surfaces', async ({ page }) => {
+  await withGallery(async ({ root, url }) => {
+    const nonce = 'e2e-gallery-actions';
+    await page.route('**/thumb?**', route => route.fulfill({
+      status: 200, contentType: 'image/png', body: pngFixture(8, 8),
+    }));
+    await page.goto(`${url}?embedded=atelier#atelier_nonce=${nonce}`);
+
+    const send = async (action, mode, rels, requestId) => page.evaluate(
+      ({ action, mode, rels, requestId, projectRoot, nonce }) => new Promise((resolve, reject) => {
+        const timer = window.setTimeout(() => reject(new Error('gallery result timeout')), 3000);
+        const onMessage = event => {
+          if (event.data?.type !== 'atelier-gallery-result' || event.data.requestId !== requestId) return;
+          window.clearTimeout(timer);
+          window.removeEventListener('message', onMessage);
+          resolve(event.data);
+        };
+        window.addEventListener('message', onMessage);
+        window.postMessage({
+          type: 'atelier-gallery-command', nonce, action, mode, projectRoot, requestId, rels,
+        }, window.location.origin);
+      }),
+      { action, mode, rels, requestId, projectRoot: root, nonce },
+    );
+
+    await expect(send('open', 'viewer', ['plot-alpha.svg'], 'e2e-open')).resolves.toMatchObject({
+      ok: true, action: 'open', applied: true, matched: ['plot-alpha.svg'],
+    });
+    await expect(page.locator('#lb')).toHaveClass(/show/);
+    await expect(page.locator('#lbCap')).toContainText('plot-alpha.svg');
+    await page.locator('#lbClose').click();
+
+    await expect(send('compare', 'selection', ['plot-alpha.svg', 'plot-beta.svg'], 'e2e-compare')).resolves.toMatchObject({
+      ok: true, action: 'compare', applied: true, matched: ['plot-alpha.svg', 'plot-beta.svg'],
+    });
+    await expect(page.locator('#cmp')).toHaveClass(/show/);
+    await expect(page.locator('#cmpInner .cmpCell')).toHaveCount(2);
+    await expect(page.locator('#activeChips')).toContainText('Chat focus: 2');
+
+    await expect(send('reset', 'all', [], 'e2e-reset')).resolves.toMatchObject({
+      ok: true, action: 'reset', applied: true, matched: [], missing: [],
+    });
+    await expect(page.locator('#cmp')).not.toHaveClass(/show/);
+    await expect(page.locator('#grid .card')).toHaveCount(3);
+    await expect(page.locator('#activeChips')).not.toContainText('Chat focus');
+    await page.goto('about:blank');
+  });
+});
+
 test('view: opens an SVG artifact in the lightbox viewer', async ({ page }) => {
   await withGallery(async ({ url }) => {
     await page.goto(url);
@@ -483,14 +532,18 @@ test('shadcn command bar: menu returns focus and density supports arrow keys', a
     await expect(page.getByRole('menu')).toBeVisible();
     await page.keyboard.press('Escape');
 
-    for (const name of ['Filter by folder', 'Sort project files']) {
-      const select = page.getByRole('combobox', { name });
-      await select.click();
-      const openSelect = page.locator('[data-slot="select-content"][data-open]');
-      await expect(openSelect).toBeVisible();
-      await page.locator('#grid').click({ position: { x: 2, y: 2 } });
-      await expect(openSelect).toHaveCount(0);
-    }
+    const favorites = page.locator('[data-gallery-command="favorites"]');
+    await expect(favorites).toHaveAttribute('data-gallery-command', 'favorites');
+    await expect(favorites).toHaveAttribute('aria-pressed', 'false');
+    await favorites.click();
+    await expect(favorites).toHaveAttribute('aria-pressed', 'true');
+
+    const sort = page.getByRole('combobox', { name: 'Sort project files' });
+    await sort.click();
+    const openSelect = page.locator('[data-slot="select-content"][data-open]');
+    await expect(openSelect).toBeVisible();
+    await page.locator('#grid').click({ position: { x: 2, y: 2 } });
+    await expect(openSelect).toHaveCount(0);
 
     const density = page.getByRole('group', { name: 'Card density' });
     await density.getByRole('button', { name: 'Medium cards' }).focus();

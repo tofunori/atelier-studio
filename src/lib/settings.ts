@@ -48,8 +48,8 @@ export type Settings = {
 
 export const DEFAULT_SETTINGS: Settings = {
   defaultProvider: "claude",
-  defaultModel: { claude: "claude-fable-5", codex: "gpt-5.5" },
-  defaultEffort: { claude: "low", codex: "medium", grok: "high" },
+  defaultModel: { claude: "claude-sonnet-5[1m]", codex: "gpt-5.6-sol" },
+  defaultEffort: { claude: "xhigh", codex: "medium", grok: "high" },
   defaultPermissionMode: "bypassPermissions",
   threadOrder: "recent",
   chatFontSize: 15,
@@ -82,19 +82,34 @@ export const DEFAULT_SETTINGS: Settings = {
 };
 
 const KEY = "atelier-studio.settings";
+const CLAUDE_DEFAULTS_MIGRATION_KEY = "atelier-studio.defaults.claude-sonnet-1m-xhigh";
 
 export function loadSettings(): Settings {
   try {
     const stored = JSON.parse(localStorage.getItem(KEY) ?? "{}");
+    // GPT-5.5 était l'ancien défaut Codex. Le migrer vers le nouveau défaut
+    // demandé; les autres choix explicites restent intacts.
+    const storedDefaultModel = {
+      ...stored.defaultModel,
+      ...(stored.defaultModel?.codex === "gpt-5.5" ? { codex: DEFAULT_SETTINGS.defaultModel.codex } : {}),
+    };
+    const storedDefaultEffort = { ...stored.defaultEffort };
+    // Migration ponctuelle : appliquer la nouvelle préférence demandée à
+    // l'installation existante, puis laisser les changements futurs libres.
+    if (localStorage.getItem(CLAUDE_DEFAULTS_MIGRATION_KEY) !== "1") {
+      storedDefaultModel.claude = DEFAULT_SETTINGS.defaultModel.claude;
+      storedDefaultEffort.claude = DEFAULT_SETTINGS.defaultEffort.claude;
+      localStorage.setItem(CLAUDE_DEFAULTS_MIGRATION_KEY, "1");
+    }
     // migration : ancienne clé de taille de police
     const legacyFs = localStorage.getItem("atelier-studio.chatFontSize");
     return {
       ...DEFAULT_SETTINGS,
       ...(legacyFs ? { chatFontSize: Number(legacyFs) } : {}),
       ...stored,
-      defaultModel: { ...DEFAULT_SETTINGS.defaultModel, ...stored.defaultModel },
+      defaultModel: { ...DEFAULT_SETTINGS.defaultModel, ...storedDefaultModel },
       autoReview: { ...DEFAULT_SETTINGS.autoReview, ...(stored as any).autoReview },
-      defaultEffort: { ...DEFAULT_SETTINGS.defaultEffort, ...stored.defaultEffort },
+      defaultEffort: { ...DEFAULT_SETTINGS.defaultEffort, ...storedDefaultEffort },
       customModels: stored.customModels ?? [],
       modelEfforts: stored.modelEfforts ?? {},
     };

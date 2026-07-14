@@ -198,6 +198,10 @@ pub async fn handle_send(state: &AppState, msg: &Value) -> Vec<String> {
                     .get("effort")
                     .and_then(|v| v.as_str())
                     .map(str::to_string),
+                permission_mode: msg
+                    .get("permissionMode")
+                    .and_then(|v| v.as_str())
+                    .map(str::to_string),
                 mode: SendMode::Steer,
                 on_event: Arc::new(move |ev| {
                     let _ = tx.send(ev);
@@ -270,6 +274,10 @@ pub async fn handle_send(state: &AppState, msg: &Value) -> Vec<String> {
         .get("effort")
         .and_then(|v| v.as_str())
         .map(str::to_string);
+    let permission_mode = msg
+        .get("permissionMode")
+        .and_then(|v| v.as_str())
+        .map(str::to_string);
 
     // Event pump
     let h_pump = Arc::clone(&h2);
@@ -314,6 +322,7 @@ pub async fn handle_send(state: &AppState, msg: &Value) -> Vec<String> {
             session_id,
             model,
             effort,
+            permission_mode,
             mode: SendMode::Normal,
             on_event: Arc::new(move |ev| {
                 let _ = ev_tx.send(ev);

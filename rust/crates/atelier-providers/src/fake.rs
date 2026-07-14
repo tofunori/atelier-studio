@@ -107,6 +107,7 @@ mod tests {
             session_id: None,
             model: None,
             effort: None,
+            permission_mode: None,
             mode: SendMode::Normal,
             on_event: Arc::new(move |v| e2.lock().unwrap().push(v)),
             is_cancelled: Arc::new(|| false),
