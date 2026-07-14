@@ -10,6 +10,7 @@ import { PlusIcon } from "./icons";
 import { SquareTerminal } from "lucide-react";
 import { IconButton } from "./ui/IconButton";
 import { Tab, TabList } from "./ui/Tabs";
+import type { TerminalShortcut } from "../lib/terminalShortcuts";
 
 type Term = { id: string; n: number };
 
@@ -39,20 +40,46 @@ export default function TerminalSurface(p: {
     }
   }, [p.visible]);
 
-  function closeActive() {
-    if (!activeId) return;
-    wsSend({ type: "termClose", termId: activeId });
+  function closeTerm(termId: string) {
+    wsSend({ type: "termClose", termId });
     setTerms((l) => {
-      const next = l.filter((t) => t.id !== activeId);
+      const next = l.filter((t) => t.id !== termId);
       setActiveId(next.length ? next[next.length - 1].id : null);
       if (next.length < 2) setLayout("single");
       return next;
     });
   }
 
+  function closeActive() {
+    if (activeId) closeTerm(activeId);
+  }
+
   function split(dir: "cols" | "rows") {
     if (terms.length < 2) addTerm();
     setLayout(dir);
+  }
+
+  function runShortcut(termId: string, shortcut: TerminalShortcut) {
+    const index = terms.findIndex((term) => term.id === termId);
+    switch (shortcut.kind) {
+      case "new-tab": addTerm(); break;
+      case "close-tab": closeTerm(termId); break;
+      case "select-tab": {
+        const target = terms[shortcut.index];
+        if (target) setActiveId(target.id);
+        break;
+      }
+      case "previous-tab": {
+        if (terms.length) setActiveId(terms[(index - 1 + terms.length) % terms.length].id);
+        break;
+      }
+      case "next-tab": {
+        if (terms.length) setActiveId(terms[(index + 1) % terms.length].id);
+        break;
+      }
+      case "split-vertical": split("cols"); break;
+      case "split-horizontal": split("rows"); break;
+    }
   }
 
   return (
@@ -96,7 +123,13 @@ export default function TerminalSurface(p: {
             style={{ display: layout === "single" && activeId !== t.id ? "none" : "block" }}
             onClick={() => setActiveId(t.id)}
           >
-            <Terminal termId={t.id} cwd={p.cwd} ws={p.ws} visible={p.visible && (layout !== "single" || activeId === t.id)} />
+            <Terminal
+              termId={t.id}
+              cwd={p.cwd}
+              ws={p.ws}
+              visible={p.visible && (layout !== "single" || activeId === t.id)}
+              onShortcut={runShortcut}
+            />
           </div>
         ))}
       </div>

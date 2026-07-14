@@ -411,7 +411,8 @@ function HighlightsPanel(p: {
 }
 
 export default function App() {
-  const atelierNonceRef = useRef(crypto.randomUUID());
+  const atelierNonceRef = useRef<string | null>(null);
+  if (atelierNonceRef.current === null) atelierNonceRef.current = crypto.randomUUID();
   const atelierNonce = atelierNonceRef.current;
   // Connexion sidecar extraite dans useSidecarConnection (slice 2.1) —
   // comportement identique : bootstrap getSettings/listHighlights à la
@@ -434,7 +435,7 @@ export default function App() {
   const sidecarEverConnected = useRef(false);
   const [projects, setProjects] = useState<string[]>(loadProjects);
   const [activeProject, setActiveProject] = useState<string | null>(
-    loadProjects()[0] ?? null,
+    () => loadProjects()[0] ?? null,
   );
   const [threads, setThreads] = useState<Thread[]>([]);
   const threadsRef = useRef<Thread[]>([]);
@@ -508,6 +509,9 @@ export default function App() {
       return [];
     }
   });
+  useEffect(() => {
+    localStorage.setItem("atelier-studio.recentFiles", JSON.stringify(recentFiles));
+  }, [recentFiles]);
   const [, setLanguageRev] = useState(0);
   const [showSettings, setShowSettings] = useState(false);
   const settingsRef = useRef(settings);
@@ -534,7 +538,7 @@ export default function App() {
     root.setAttribute("data-theme", theme);
     window.dispatchEvent(new CustomEvent("app-theme-changed", { detail: settings.themePreset }));
     // propager aux iframes atelier (galerie, viewers)
-    setTimeout(() => {
+    const broadcastTheme = setTimeout(() => {
       document.querySelectorAll("iframe.atelier").forEach((f) => {
         const iframe = f as HTMLIFrameElement;
         const targetOrigin = atelierTargetOrigin(iframe.src);
@@ -567,7 +571,10 @@ export default function App() {
         }));
       }
     }, 600);
-    return () => clearTimeout(mirror);
+    return () => {
+      clearTimeout(broadcastTheme);
+      clearTimeout(mirror);
+    };
   }, [settings]);
   const [unread, setUnread] = useState<Set<string>>(new Set());
   const [qaMode, setQaMode] = useState<"closed" | "open" | "min">("closed");
@@ -1424,11 +1431,8 @@ export default function App() {
   function rememberFile(rel: string) {
     const clean = rel.trim();
     if (!clean) return;
-    setRecentFiles((current) => {
-      const next = [clean, ...current.filter((item) => item !== clean)].slice(0, 24);
-      localStorage.setItem("atelier-studio.recentFiles", JSON.stringify(next));
-      return next;
-    });
+    setRecentFiles((current) =>
+      [clean, ...current.filter((item) => item !== clean)].slice(0, 24));
   }
 
   function openFileTab(rel: string, line?: string | null) {
@@ -1548,6 +1552,11 @@ export default function App() {
         const el = document.activeElement;
         return !!el && (el.tagName === "INPUT" || el.tagName === "TEXTAREA" || (el as HTMLElement).isContentEditable);
       })();
+      const terminalFocused = !!(document.activeElement as HTMLElement | null)?.closest?.(".term-host");
+      // xterm owns all keyboard input while focused. In particular, Cmd+K,
+      // Cmd+1…9 and Cmd+0 must remain terminal shortcuts instead of opening
+      // Atelier's palette or switching the global layout.
+      if (terminalFocused) return;
       if (e.key === "Escape" && qaModeRef.current !== "open" && !paletteOpenRef.current && !usageOpenRef.current && !typing) {
         // l'inspecteur ouvert intercepte Escape en phase de CAPTURE
         // (ContextInspector) : ce handler ne voit alors jamais l'événement.
@@ -1559,7 +1568,7 @@ export default function App() {
           return;
         }
       }
-      if (e.metaKey && e.altKey && e.key.toLowerCase() === "k") {
+      if (e.metaKey && e.altKey && e.code === "KeyK") {
         e.preventDefault();
         // toggle : minimisé → rouvre la conversation ; ouvert → minimise ; fermé → neuf
         const m = qaModeRef.current;
@@ -1568,18 +1577,18 @@ export default function App() {
         else { setQaDraft(""); setQaContext(""); setQaMode("open"); }
         return;
       }
-      if (e.metaKey && !e.shiftKey && ["k", "p"].includes(e.key.toLowerCase())) {
+      if (e.metaKey && !e.shiftKey && ["KeyK", "KeyP"].includes(e.code)) {
         e.preventDefault();
         setPaletteOpen((open) => !open);
         return;
       }
       if (e.key === "Escape") setPaletteOpen(false);
-      if (e.metaKey && e.shiftKey && e.key.toLowerCase() === "a") {
+      if (e.metaKey && e.shiftKey && e.code === "KeyA") {
         setLayout((l) => (l === "chat" ? "split" : "chat"));
       }
-      if (e.metaKey && !e.shiftKey && e.key === "1") setLayout("chat");
-      if (e.metaKey && !e.shiftKey && e.key === "2") setLayout("atelier");
-      if (e.metaKey && !e.shiftKey && e.key === "0") setLayout("split");
+      if (e.metaKey && !e.shiftKey && e.code === "Digit1") setLayout("chat");
+      if (e.metaKey && !e.shiftKey && e.code === "Digit2") setLayout("atelier");
+      if (e.metaKey && !e.shiftKey && e.code === "Digit0") setLayout("split");
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
@@ -1685,7 +1694,7 @@ export default function App() {
       }));
       return;
     }
-    if (nativeCommand?.name === "review" && activeId && ws.current?.readyState === 1) {
+    if (nativeCommand?.name === "review" && codexActive && activeId && ws.current?.readyState === 1) {
       window.dispatchEvent(new CustomEvent("review-result", {
         detail: { type: "reviewResult", threadId: activeId, status: "running" },
       }));
@@ -1898,8 +1907,10 @@ export default function App() {
     }
   }
 
-  const knownIds = new Set(threads.map((t) => t.id));
-  const allThreads = [...draftThreads.filter((t) => !knownIds.has(t.id)), ...threads];
+  const allThreads = useMemo(() => {
+    const knownIds = new Set(threads.map((t) => t.id));
+    return [...draftThreads.filter((t) => !knownIds.has(t.id)), ...threads];
+  }, [draftThreads, threads]);
   allThreadsRef.current = allThreads;
   useEffect(() => {
     if (!wsReady) return;
@@ -2611,7 +2622,7 @@ export default function App() {
                 const info = providerList.find((item) => item.id === provider);
                 const available = info?.ok !== false;
                 return (
-                  <button key={provider} className="provider-new-card" disabled={!available}
+                  <button type="button" key={provider} className="provider-new-card" disabled={!available}
                     onClick={() => createChat(newChatRequest.projectRoot, provider)}>
                     <ProviderIcon provider={provider} size={18} />
                     <span>{info?.label ?? provider[0].toUpperCase() + provider.slice(1)}</span>

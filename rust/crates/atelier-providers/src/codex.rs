@@ -80,11 +80,11 @@ impl CodexProvider {
             self.server.clear_handler(codex_id).await;
             return Err(error);
         }
-        let review = tokio::time::timeout(std::time::Duration::from_secs(600), rx)
-            .await
+        let review = tokio::time::timeout(std::time::Duration::from_secs(600), rx).await;
+        self.server.clear_handler(codex_id).await;
+        let review = review
             .map_err(|_| "review Codex: délai dépassé".to_string())?
             .map_err(|_| "review Codex annulée".to_string())?;
-        self.server.clear_handler(codex_id).await;
         Ok(json!({"review": review}))
     }
 }

@@ -8,6 +8,7 @@ const pkg = JSON.parse(await readFile(new URL("../../package.json", import.meta.
 const studioHtml = await readFile(new URL("../../assets/latex_studio.html", import.meta.url), "utf8");
 const editorFactory = await readFile(new URL("../../assets/editor_factory.js", import.meta.url), "utf8").catch(() => "");
 const codeHtml = await readFile(new URL("../../assets/code_editor.html", import.meta.url), "utf8");
+const csvTable = await readFile(new URL("../../assets/csv_table.js", import.meta.url), "utf8");
 const markdownHtml = await readFile(new URL("../../assets/md_viewer.html", import.meta.url), "utf8");
 const themeBridge = await readFile(new URL("../../assets/atelier_theme.js", import.meta.url), "utf8");
 const {languageKindFor} = await import("../../assets/cm6/studio_editor.mjs");
@@ -124,6 +125,16 @@ test("editor surfaces do not call CM5 APIs outside the factory seam", () => {
   for (const [name, html] of [["latex", studioHtml], ["code", codeHtml], ["markdown", markdownHtml]]) {
     assert.doesNotMatch(html, /\bCodeMirror\.(?:Pass|countColumn)|\bCodeMirror\s*\(|["'](?:inputRead|renderLine)["']/, `${name} leaks a CM5 API`);
   }
+});
+
+test("CSV files default to a semantic data table while preserving the source editor", () => {
+  assert.match(codeHtml, /csv_table\.js/);
+  assert.match(codeHtml, /id="csvView"/);
+  assert.match(codeHtml, /id="csvTableBtn"[^>]+aria-pressed="true"/);
+  assert.match(codeHtml, /id="csvSourceBtn"[^>]+aria-pressed="false"/);
+  assert.match(codeHtml, /AtelierCsv\.parse\(cm\.getValue\(\)\)/);
+  assert.match(csvTable, /detectDelimiter/);
+  assert.match(csvTable, /classify/);
 });
 
 test("every embedded HTML surface loads the shared Atelier theme bridge", async () => {

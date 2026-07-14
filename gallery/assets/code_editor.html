@@ -40,6 +40,7 @@
 <script src="/.fig_thumbs/editor_factory.js"></script>
 <script src="/.fig_thumbs/diff.min.js"></script>
 <script src="/.fig_thumbs/diff_versions.js"></script>
+<script src="/.fig_thumbs/csv_table.js"></script>
 <style>
 :root{--ui-font:-apple-system,'SF Pro Text','Inter Variable',sans-serif;--code-font:ui-monospace,'SF Mono',Menlo,monospace;--bg:#202024;--card:#27272a;--card2:#1f1f23;--txt:#dbdfe5;--muted:#a1a1aa;--accent:#5b9dff;--border:#3f3f46}
   html,body{margin:0;height:100%;background:var(--bg);color:var(--txt);
@@ -102,6 +103,47 @@
   .cm-s-material-darker .cm-comment{color:#868d9a;font-style:italic}
   .cm-s-material-darker .cm-meta{color:#9a958a}
   .cm-s-material-darker .cm-qualifier{color:#7fbcb2}
+
+  /* CSV data view: dense scientific table, same source buffer underneath. */
+  #csvTools{display:none;align-items:center;gap:8px;margin-left:2px}
+  #csvTools.show{display:flex}
+  .csvMode{display:inline-flex;padding:2px;background:var(--card2);border:1px solid var(--border);border-radius:7px}
+  .csvMode button{border:0;background:transparent;color:var(--muted);font:600 11px/1 var(--ui-font);
+                  padding:5px 9px;border-radius:5px;cursor:pointer}
+  .csvMode button[aria-pressed="true"]{background:var(--border);color:var(--txt)}
+  #csvSearch{width:min(230px,24vw);border:1px solid var(--border);border-radius:6px;background:var(--card2);
+             color:var(--txt);font:12px/1.2 var(--ui-font);padding:5px 9px;outline:none}
+  #csvSearch:focus{border-color:var(--accent);box-shadow:0 0 0 2px color-mix(in srgb,var(--accent) 22%,transparent)}
+  #csvMeta{font:11px/1.2 var(--ui-font);color:var(--muted);white-space:nowrap}
+  #csvView{display:none;flex:1;min-height:0;overflow:auto;background:var(--card2);position:relative}
+  #csvView.show{display:block}
+  #csvEmpty{display:none;padding:32px;color:var(--muted);font-size:13px}
+  #csvTable{border-collapse:separate;border-spacing:0;width:max-content;min-width:100%;font:12px/1.4 var(--code-font);
+            font-variant-numeric:tabular-nums;color:var(--txt)}
+  #csvTable th,#csvTable td{height:30px;box-sizing:border-box;border-right:1px solid color-mix(in srgb,var(--border) 62%,transparent);
+                           border-bottom:1px solid color-mix(in srgb,var(--border) 50%,transparent);padding:5px 10px;
+                           max-width:420px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  #csvTable thead th{position:sticky;top:0;z-index:3;background:color-mix(in srgb,var(--card) 96%,var(--accent) 4%);
+                     color:var(--txt);font-family:var(--ui-font);font-size:11px;font-weight:650;text-align:left;
+                     letter-spacing:.01em;cursor:pointer;box-shadow:0 1px 0 var(--border)}
+  #csvTable thead th:hover{background:color-mix(in srgb,var(--card) 88%,var(--accent) 12%)}
+  #csvTable .csvIndex{position:sticky;left:0;z-index:2;width:48px;min-width:48px;max-width:48px;text-align:right;
+                      color:var(--muted);background:var(--card2);font-size:10px;font-weight:500;user-select:none}
+  #csvTable thead .csvIndex{z-index:4;background:var(--card)}
+  #csvTable tbody tr:nth-child(even) td:not(.csvIndex){background:color-mix(in srgb,var(--card2) 96%,var(--txt) 4%)}
+  #csvTable tbody tr:hover td{background:color-mix(in srgb,var(--card2) 87%,var(--accent) 13%) !important}
+  #csvTable td.csv-number{text-align:right;color:color-mix(in srgb,var(--txt) 82%,var(--accent) 18%)}
+  #csvTable td.csv-path{color:var(--muted)}
+  #csvTable td.csv-empty{color:color-mix(in srgb,var(--muted) 48%,transparent)}
+  .csvBool{display:inline-flex;align-items:center;border-radius:4px;padding:1px 5px;font:650 10px/1.4 var(--ui-font);
+           background:color-mix(in srgb,var(--muted) 14%,transparent);color:var(--muted)}
+  .csvBool.true{background:color-mix(in srgb,#56b58c 18%,transparent);color:#78cfaa}
+  .csvSwatch{display:inline-block;width:10px;height:10px;border-radius:3px;margin-right:7px;vertical-align:-1px;
+             border:1px solid color-mix(in srgb,var(--txt) 26%,transparent);box-shadow:inset 0 0 0 1px rgba(0,0,0,.12)}
+  .csvSort{margin-left:6px;color:var(--accent);font-size:9px}
+  #csvMore{display:none;margin:12px auto 20px;border:1px solid var(--border);border-radius:6px;background:var(--card);
+           color:var(--txt);padding:6px 12px;font:12px var(--ui-font);cursor:pointer}
+  #csvMore:hover{border-color:var(--accent)}
 </style>
 <script>(function(){var T={'Encre':{bg:'#1a1917',card:'#232220',card2:'#121110',txt:'#e8e5db',muted:'#948f85',accent:'#cc785c',border:'#332f2a'},'Profond':{bg:'#1e1d1b',card:'#292724',card2:'#161513',txt:'#ece9e1',muted:'#9a968c',accent:'#d97757',border:'#37342e'},'Charbon':{bg:'#211f1c',card:'#2b2926',card2:'#1a1815',txt:'#eae7de',muted:'#9d988d',accent:'#e08a63',border:'#38352f'},'Neutre chaud':{bg:'#1c1c1a',card:'#272623',card2:'#151513',txt:'#e9e7df',muted:'#98958c',accent:'#d97757',border:'#34322d'},'Très foncé':{bg:'#171614',card:'#201f1c',card2:'#100f0d',txt:'#e6e3d9',muted:'#8f8b81',accent:'#d97757',border:'#2e2b26'},'Default':{bg:'#202024',card:'#27272a',card2:'#1f1f23',txt:'#dbdfe5',muted:'#a1a1aa',accent:'#5b9dff',border:'#3f3f46'},'Codex':{bg:'#282c34',card:'#2f343f',card2:'#21252b',txt:'#abb2bf',muted:'#7f848e',accent:'#4d78cc',border:'#3e4451'},'Dracula':{bg:'#282a36',card:'#343746',card2:'#21222c',txt:'#f8f8f2',muted:'#9aa0b3',accent:'#bd93f9',border:'#44475a'},'Nord':{bg:'#2e3440',card:'#3b4252',card2:'#272c36',txt:'#e5e9f0',muted:'#9aa3b2',accent:'#88c0d0',border:'#434c5e'}};var t;try{t=T[localStorage.getItem('figTheme')];}catch(e){}t=t||T['Default'];var r=document.documentElement.style;for(var k in t)r.setProperty('--'+k,t[k]);})();</script>
 </head>
@@ -130,9 +172,22 @@
     <button id="diffRestore" class="dvBtn" style="display:none" title="Rétablir la version affichée sur le disque">Rétablir</button>
   </span>
   <span id="state"></span>
+  <span id="csvTools">
+    <span class="csvMode" aria-label="CSV view mode">
+      <button id="csvTableBtn" type="button" aria-pressed="true">Tableau</button>
+      <button id="csvSourceBtn" type="button" aria-pressed="false">Source</button>
+    </span>
+    <input id="csvSearch" type="search" aria-label="Rechercher dans le CSV" placeholder="Rechercher dans les lignes">
+    <span id="csvMeta" aria-live="polite"></span>
+  </span>
   <span style="margin-left:auto;color:var(--muted)">Cmd+S: save · selection visible to Claude</span>
 </header>
 <div id="ed" style="flex:1;display:flex;flex-direction:column;min-height:0;background:#212121"></div>
+<div id="csvView" aria-label="CSV data table" tabindex="0">
+  <div id="csvEmpty">Aucune donnée tabulaire à afficher.</div>
+  <table id="csvTable"><thead></thead><tbody></tbody></table>
+  <button id="csvMore" type="button">Afficher plus de lignes</button>
+</div>
 <div id="picker"><div id="pickerBox">
   <div id="pickerPath"></div>
   <div id="pickerList"></div>
@@ -144,6 +199,115 @@ document.title = path ? path.split("/").pop() : "Editor";
 
 const ext = path ? path.split(".").pop() : "";
 let cm = null, diskMtime = 0, dirty = false;
+const isCsv = ext.toLowerCase() === "csv";
+
+const csvTools = document.getElementById("csvTools");
+const csvView = document.getElementById("csvView");
+const csvTable = document.getElementById("csvTable");
+const csvEmpty = document.getElementById("csvEmpty");
+const csvTableBtn = document.getElementById("csvTableBtn");
+const csvSourceBtn = document.getElementById("csvSourceBtn");
+const csvSearch = document.getElementById("csvSearch");
+const csvMeta = document.getElementById("csvMeta");
+const csvMore = document.getElementById("csvMore");
+let csvMode = isCsv ? (localStorage.getItem("csvViewMode") || "table") : "source";
+let csvParsed = null, csvSortColumn = -1, csvSortDirection = 0, csvVisibleRows = 750;
+
+function csvCell(td, value){
+  const kind = AtelierCsv.classify(value);
+  td.className = "csv-" + kind;
+  td.title = value;
+  if(kind === "empty"){ td.textContent = "·"; return; }
+  if(kind === "boolean"){
+    const badge = document.createElement("span");
+    badge.className = "csvBool " + (String(value).toLowerCase() === "true" ? "true" : "false");
+    badge.textContent = String(value).toUpperCase(); td.appendChild(badge); return;
+  }
+  if(kind === "color"){
+    const swatch = document.createElement("span"); swatch.className = "csvSwatch"; swatch.style.background = value;
+    td.appendChild(swatch); td.appendChild(document.createTextNode(value)); return;
+  }
+  td.textContent = value;
+}
+
+function csvRowsForView(){
+  if(!csvParsed || csvParsed.rows.length < 2) return [];
+  const query = csvSearch.value.trim().toLocaleLowerCase();
+  let rows = csvParsed.rows.slice(1).map((cells, index) => ({cells, index}));
+  if(query) rows = rows.filter(row => row.cells.some(value => String(value).toLocaleLowerCase().includes(query)));
+  if(csvSortDirection && csvSortColumn >= 0){
+    rows.sort((a,b) => csvSortDirection * (AtelierCsv.compare(a.cells[csvSortColumn], b.cells[csvSortColumn]) || a.index - b.index));
+  }
+  return rows;
+}
+
+function renderCsv(resetLimit){
+  if(!isCsv || !cm) return;
+  if(resetLimit) csvVisibleRows = 750;
+  csvParsed = AtelierCsv.parse(cm.getValue());
+  const head = csvTable.tHead, body = csvTable.tBodies[0];
+  head.textContent = ""; body.textContent = "";
+  const headers = csvParsed.rows[0] || [];
+  const allRows = csvRowsForView();
+  const shown = allRows.slice(0, csvVisibleRows);
+  csvEmpty.style.display = headers.length ? "none" : "block";
+  csvTable.style.display = headers.length ? "table" : "none";
+  if(headers.length){
+    const tr = document.createElement("tr");
+    const corner = document.createElement("th"); corner.className = "csvIndex"; corner.textContent = "#"; tr.appendChild(corner);
+    headers.forEach((value,index) => {
+      const th = document.createElement("th");
+      th.scope = "col"; th.title = value || ("Colonne " + (index + 1));
+      th.appendChild(document.createTextNode(value || ("Colonne " + (index + 1))));
+      if(index === csvSortColumn && csvSortDirection){
+        const mark = document.createElement("span"); mark.className = "csvSort"; mark.textContent = csvSortDirection > 0 ? "▲" : "▼"; th.appendChild(mark);
+      }
+      th.onclick = () => {
+        if(csvSortColumn !== index){ csvSortColumn = index; csvSortDirection = 1; }
+        else csvSortDirection = csvSortDirection === 1 ? -1 : csvSortDirection === -1 ? 0 : 1;
+        renderCsv(false);
+      };
+      tr.appendChild(th);
+    });
+    head.appendChild(tr);
+  }
+  const fragment = document.createDocumentFragment();
+  shown.forEach(row => {
+    const tr = document.createElement("tr");
+    const index = document.createElement("td"); index.className = "csvIndex"; index.textContent = String(row.index + 2); tr.appendChild(index);
+    row.cells.forEach(value => { const td = document.createElement("td"); csvCell(td, value); tr.appendChild(td); });
+    fragment.appendChild(tr);
+  });
+  body.appendChild(fragment);
+  const delimiterLabel = csvParsed.delimiter === "\t" ? "tab" : csvParsed.delimiter;
+  csvMeta.textContent = allRows.length.toLocaleString() + " lignes × " + csvParsed.width + " colonnes · séparateur " + delimiterLabel;
+  csvMore.style.display = allRows.length > shown.length ? "block" : "none";
+  csvMore.textContent = "Afficher " + Math.min(750, allRows.length - shown.length).toLocaleString() + " lignes de plus";
+}
+
+function setCsvMode(mode){
+  if(!isCsv) return;
+  csvMode = mode === "source" ? "source" : "table";
+  localStorage.setItem("csvViewMode", csvMode);
+  const table = csvMode === "table";
+  csvTableBtn.setAttribute("aria-pressed", String(table));
+  csvSourceBtn.setAttribute("aria-pressed", String(!table));
+  csvSearch.style.display = table ? "" : "none";
+  csvMeta.style.display = table ? "" : "none";
+  document.getElementById("ed").style.display = table ? "none" : "flex";
+  csvView.classList.toggle("show", table);
+  wrapSel.style.display = table ? "none" : "";
+  if(table) renderCsv(true); else if(cm) setTimeout(() => cm.refresh(), 0);
+}
+
+if(isCsv){
+  csvTools.classList.add("show");
+  csvTableBtn.onclick = () => setCsvMode("table");
+  csvSourceBtn.onclick = () => setCsvMode("source");
+  let csvSearchTimer = null;
+  csvSearch.oninput = () => { clearTimeout(csvSearchTimer); csvSearchTimer = setTimeout(() => renderCsv(true), 100); };
+  csvMore.onclick = () => { csvVisibleRows += 750; renderCsv(false); };
+}
 
 const stateEl = document.getElementById("state");
 function setState(cls, txt){ stateEl.className = cls; stateEl.textContent = txt; }
@@ -260,6 +424,7 @@ async function load(){
     cm.setCursor(cur);
   }
   applyWrap(wrapSel.value);
+  if(isCsv) setCsvMode(csvMode);
   lastSavedText = j.text;
   dirty = false;
   setState("saved", "saved");
@@ -326,6 +491,7 @@ setInterval(async () => {
       setState("saved", "reloaded (modified on disk) " + new Date().toLocaleTimeString());
       if(__dv) __dv.push(before, diskText, {source:"external-reload", status:"applied"});
       lastSavedText = diskText;
+      if(isCsv && csvMode === "table") renderCsv(true);
       return;
     }
     const base = (typeof lastSavedText === "string") ? lastSavedText : null;
@@ -348,6 +514,7 @@ setInterval(async () => {
     setState("saved", "modifs de l'agent fusionnées avec les tiennes (non sauvegardées)");
     if(__dv) __dv.push(beforePush, diskText, {source:"external-merge", status:"applied"});
     lastSavedText = diskText;
+    if(isCsv && csvMode === "table") renderCsv(true);
   }catch(e){}
 }, 2000);
 
