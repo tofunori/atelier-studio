@@ -3,7 +3,9 @@
 use crate::codex_parse::build_approval_response;
 use serde_json::{json, Value};
 use std::collections::HashMap;
+use std::future::Future;
 use std::path::PathBuf;
+use std::pin::Pin;
 use std::process::Stdio;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
@@ -12,6 +14,9 @@ use tokio::process::{Child, ChildStdin, Command};
 use tokio::sync::{mpsc, oneshot, Mutex};
 
 type NotifHandler = Arc<dyn Fn(&str, &Value) + Send + Sync>;
+pub type ServerRequestHandler = Arc<
+    dyn Fn(String, Value) -> Pin<Box<dyn Future<Output = Value> + Send>> + Send + Sync,
+>;
 
 struct Pending {
     tx: oneshot::Sender<Result<Value, String>>,
@@ -23,6 +28,8 @@ struct Inner {
     pending: HashMap<u64, Pending>,
     /// codexThreadId → notification handler for active turns
     handlers: HashMap<String, NotifHandler>,
+    /// codexThreadId → relay interactif pour approvals/user-input/MCP.
+    request_handlers: HashMap<String, ServerRequestHandler>,
     /// sandbox per codex thread for auto-approvals
     sandboxes: HashMap<String, String>,
     next_id: AtomicU64,
@@ -134,12 +141,24 @@ impl CodexAppServer {
                         .get(tid)
                         .map(|s| s == "danger-full-access")
                         .unwrap_or(false);
-                    let result = build_approval_response(&method, full);
-                    let reply = json!({"id": id, "result": result});
-                    if let Ok(s) = serde_json::to_string(&reply) {
-                        let _ = inn.stdin.write_all(s.as_bytes()).await;
-                        let _ = inn.stdin.write_all(b"\n").await;
-                    }
+                    let relay = inn.request_handlers.get(tid).cloned();
+                    let inner_reply = Arc::clone(&inner_for_disp);
+                    drop(g);
+                    tokio::spawn(async move {
+                        let result = if let Some(handler) = relay {
+                            handler(method.clone(), params.clone()).await
+                        } else {
+                            build_approval_response(&method, full)
+                        };
+                        let reply = json!({"id": id, "result": result});
+                        if let Ok(s) = serde_json::to_string(&reply) {
+                            let mut guard = inner_reply.lock().await;
+                            if let Some(inner) = guard.as_mut() {
+                                let _ = inner.stdin.write_all(s.as_bytes()).await;
+                                let _ = inner.stdin.write_all(b"\n").await;
+                            }
+                        }
+                    });
                     continue;
                 }
 
@@ -184,6 +203,7 @@ impl CodexAppServer {
             stdin,
             pending: HashMap::new(),
             handlers: HashMap::new(),
+            request_handlers: HashMap::new(),
             sandboxes: HashMap::new(),
             next_id: AtomicU64::new(1),
         };
@@ -254,6 +274,24 @@ impl CodexAppServer {
         let mut g = self.inner.lock().await;
         if let Some(inn) = g.as_mut() {
             inn.handlers.remove(codex_thread_id);
+        }
+    }
+
+    pub async fn set_request_handler(
+        &self,
+        codex_thread_id: &str,
+        handler: ServerRequestHandler,
+    ) {
+        let mut g = self.inner.lock().await;
+        if let Some(inn) = g.as_mut() {
+            inn.request_handlers.insert(codex_thread_id.to_string(), handler);
+        }
+    }
+
+    pub async fn clear_request_handler(&self, codex_thread_id: &str) {
+        let mut g = self.inner.lock().await;
+        if let Some(inn) = g.as_mut() {
+            inn.request_handlers.remove(codex_thread_id);
         }
     }
 

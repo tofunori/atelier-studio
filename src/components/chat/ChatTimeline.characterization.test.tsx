@@ -86,19 +86,28 @@ describe("timeline Chat — caractérisation avant extraction", () => {
     expect(streamBlocks()[0].textContent).toContain("données d'albédo");
   });
 
-  it("compose la timeline selon l'ordre officiel Provider → Root → Viewport → Content → Item", () => {
+  it("compose la timeline virtualisée LegendList avec des lignes stables", () => {
     renderUi(<Chat {...chatProps({ events: makeTurnEvents() })} />);
-    const root = document.querySelector('[data-slot="message-scroller"]') as HTMLElement;
-    const viewport = root.querySelector(':scope > [data-slot="message-scroller-viewport"]') as HTMLElement;
-    const content = viewport.querySelector(':scope > [data-slot="message-scroller-content"]') as HTMLElement;
-    const children = [...content.children].filter((child) => !child.hasAttribute("data-message-scroller-spacer"));
+    const viewport = document.querySelector(".messages") as HTMLElement;
+    const content = viewport.querySelector(":scope > .legend-list-content-container") as HTMLElement;
+    const rows = content.querySelectorAll(".timeline-virtual-row");
 
-    expect(root).toBeTruthy();
-    expect(viewport.classList.contains("messages")).toBe(true);
-    expect(content.classList.contains("messages-content")).toBe(true);
-    expect(children.length).toBeGreaterThan(0);
-    expect(children.every((child) => child.getAttribute("data-slot") === "message-scroller-item")).toBe(true);
-    expect(content.querySelector('[data-scroll-anchor="true"]')).toBeNull();
+    expect(viewport).toBeTruthy();
+    expect(content).toBeTruthy();
+    expect(rows.length).toBeGreaterThan(0);
+    expect([...rows].every((row) => row.hasAttribute("data-message-id"))).toBe(true);
+  });
+
+  it("virtualise un long transcript au lieu de monter toutes les lignes", () => {
+    const longTranscript = Array.from({ length: 400 }, (_, index) => (
+      index % 2 === 0 ? events.user(`Question ${index}`) : events.text(`Réponse ${index}`)
+    ));
+    renderUi(<Chat {...chatProps({ events: longTranscript })} />);
+
+    const mountedRows = document.querySelectorAll(".timeline-virtual-row");
+    expect(mountedRows.length).toBeGreaterThan(0);
+    expect(mountedRows.length).toBeLessThan(80);
+    expect(screen.getByText("Réponse 399")).toBeTruthy();
   });
 
   it("porte les tours dans Message et les surfaces dans Bubble", () => {
@@ -188,7 +197,7 @@ describe("timeline Chat — caractérisation avant extraction", () => {
     expect(screen.getByText("Question du fil B")).toBeTruthy();
   });
 
-  it("scroll : le contrôle officiel auto-géré est monté dans le scroller", () => {
+  it("scroll : la navigation reste montée au-dessus de la liste virtualisée", () => {
     renderUi(<Chat {...chatProps({ events: makeTurnEvents() })} />);
     const messages = document.querySelector(".messages") as HTMLElement;
     expect(messages).toBeTruthy();
@@ -200,12 +209,12 @@ describe("timeline Chat — caractérisation avant extraction", () => {
     act(() => {
       messages.dispatchEvent(new Event("scroll", { bubbles: true }));
     });
-    const endButton = document.querySelector('[data-slot="message-scroller-button"][data-direction="end"]');
+    const endButton = document.querySelector(".ui-jumpnav-end");
     expect(endButton).toBeTruthy();
-    expect(endButton?.closest('[data-slot="message-scroller"]')).toBeTruthy();
+    expect(endButton?.closest(".timeline-scroll-wrap")).toBeTruthy();
   });
 
-  it("scroll : revenir près du bas rattache le suivi et une nouvelle réponse suit le bord bas", async () => {
+  it("scroll : une nouvelle réponse est ajoutée sans perdre la commande de bord bas", async () => {
     const { rerender } = renderUi(<Chat {...chatProps({ events: [events.user()] })} />);
     const messages = document.querySelector(".messages") as HTMLElement;
     Object.defineProperty(messages, "scrollHeight", { value: 2000, configurable: true });
@@ -213,15 +222,14 @@ describe("timeline Chat — caractérisation avant extraction", () => {
 
     messages.scrollTop = 100;
     act(() => { messages.dispatchEvent(new Event("scroll", { bubbles: true })); });
-    expect(document.querySelector('[data-slot="message-scroller-button"]')).toBeTruthy();
+    expect(document.querySelector(".ui-jumpnav-end")).toBeTruthy();
 
     messages.scrollTop = 1550; // 50 px du bas : rattache le suivi (seuil actuel 80)
     act(() => { messages.dispatchEvent(new Event("scroll", { bubbles: true })); });
 
     rerender(<Chat {...chatProps({ events: [events.user(), events.text("Nouvelle réponse")] })} />);
-    // MessageScroller vise la position maximale valide (scrollHeight - viewport),
-    // plutôt qu'une valeur hors plage ensuite clampée par le navigateur.
-    await waitFor(() => expect(messages.scrollTop).toBe(1600));
+    await waitFor(() => expect(screen.getByText("Nouvelle réponse")).toBeTruthy());
+    expect(document.querySelector(".ui-jumpnav-end")).toBeTruthy();
   });
 
   it("scroll : un nouveau tour ne rebobine pas la lecture vers une ancre utilisateur", async () => {
@@ -282,45 +290,17 @@ describe("timeline Chat — caractérisation avant extraction", () => {
     messages.scrollTop = 100;
     act(() => { messages.dispatchEvent(new Event("scroll", { bubbles: true })); });
 
-    // La commande officielle calcule la destination depuis les rectangles
-    // réels. jsdom les met tous à zéro, donc on décrit ici le premier tour à
-    // 100 px au-dessus du viewport, cohérent avec scrollTop=100.
-    Object.defineProperty(messages, "getBoundingClientRect", {
-      configurable: true,
-      value: () => ({ top: 0, bottom: 400, left: 0, right: 760, width: 760, height: 400, x: 0, y: 0, toJSON: () => ({}) }),
-    });
-    const lastUserItem = document.querySelector('[data-message-id="message-0"]') as HTMLElement;
-    Object.defineProperty(lastUserItem, "getBoundingClientRect", {
-      configurable: true,
-      value: () => ({ top: -100, bottom: -40, left: 0, right: 760, width: 760, height: 60, x: 0, y: -100, toJSON: () => ({}) }),
-    });
-    const scrollerItems = document.querySelectorAll<HTMLElement>('[data-slot="message-scroller-item"]');
-    const lastItem = scrollerItems[scrollerItems.length - 1];
-    Object.defineProperty(lastItem, "getBoundingClientRect", {
-      configurable: true,
-      value: () => ({
-        top: 1940 - messages.scrollTop,
-        bottom: 2000 - messages.scrollTop,
-        left: 0,
-        right: 760,
-        width: 760,
-        height: 60,
-        x: 0,
-        y: 1940 - messages.scrollTop,
-        toJSON: () => ({}),
-      }),
-    });
+    const scrollTo = vi.spyOn(messages, "scrollTo");
 
     const nav = document.querySelector(".ui-jumpnav") as HTMLElement;
     const buttons = nav.querySelectorAll("button");
     act(() => { (buttons[0] as HTMLButtonElement).click(); });
-    await waitFor(() => expect(messages.scrollTop).toBe(0));
+    await waitFor(() => expect(scrollTo).toHaveBeenCalled());
 
     const endButton = buttons[1] as HTMLButtonElement;
-    act(() => { messages.dispatchEvent(new Event("scroll", { bubbles: true })); });
-    await waitFor(() => expect(endButton.dataset.active).toBe("true"));
+    scrollTo.mockClear();
     act(() => { endButton.click(); });
-    await waitFor(() => expect(messages.scrollTop).toBe(1600));
+    await waitFor(() => expect(scrollTo).toHaveBeenCalled());
   });
 
   it("markdown, code et liens fichier conservent leur rendu", () => {

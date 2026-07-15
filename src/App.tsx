@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Panel, PanelGroup, PanelResizeHandle } from "react-resizable-panels";
-import { open } from "@tauri-apps/plugin-dialog";
+import { confirm as confirmDialog, open } from "@tauri-apps/plugin-dialog";
 import { invoke } from "@tauri-apps/api/core";
 import {
   sendPrompt,
@@ -160,6 +160,17 @@ function buildHandoff(events: AgentEvent[], fromProvider: string): string {
     "Voici le fil jusqu'ici — prends-le comme contexte acquis, ne le résume pas, ne le répète pas :\n\n" +
     "---\n" + transcript + HANDOFF_END
   );
+}
+
+function checkpointAfterUser(events: AgentEvent[], index: number) {
+  const userMeta = events[index]?.meta;
+  const turnId = userMeta && "turnId" in userMeta ? userMeta.turnId : undefined;
+  const done = events.slice(index + 1).find((event): event is Extract<AgentEvent, { kind: "done" }> => {
+    if (event.kind !== "done" || !event.checkpoint) return false;
+    const meta = event.meta;
+    return !turnId || Boolean(meta && "turnId" in meta && meta.turnId === turnId);
+  });
+  return done?.checkpoint ? { turnId, snapshotSha: done.checkpoint.snapshotSha } : { turnId };
 }
 
 function loadProjects(): string[] {
@@ -476,6 +487,12 @@ export default function App() {
     snapshot: AgentEvent[];
     clientMessageId: string;
     ts: number;
+    index: number;
+  } | null>(null);
+  const pendingRevert = useRef<{
+    threadId: string;
+    snapshot: AgentEvent[];
+    index: number;
   } | null>(null);
   const [atelierTabs, setAtelierTabs] = useState<
     { id: string; url: string; title: string; color?: string; pinned?: boolean; kind?: "term"; cwd?: string; projectRoot?: string }[]
@@ -1053,12 +1070,21 @@ export default function App() {
       }
       if (msg.type === "annotation" && msg.text !== lastInjected.current) setAnnotation(msg.text);
       if (msg.type === "reverted") {
+        if (msg.scope === "files") return;
+        const plain = pendingRevert.current;
+        if (plain && plain.threadId === msg.threadId) {
+          pendingRevert.current = null;
+          setEvents((current) => ({
+            ...current,
+            [plain.threadId]: plain.snapshot.slice(0, plain.index),
+          }));
+        }
         const pr = pendingResend.current;
         if (pr && pr.threadId === msg.threadId) {
           pendingResend.current = null;
           setEvents((p) => ({
             ...p,
-            [pr.threadId]: [...(p[pr.threadId] ?? []), {
+            [pr.threadId]: [...pr.snapshot.slice(0, pr.index), {
               kind: "user",
               text: pr.prompt,
               ts: pr.ts,
@@ -1255,6 +1281,11 @@ export default function App() {
           setEvents((p) => ({ ...p, [pr.threadId]: pr.snapshot }));
           if (activeIdRef.current === pr.threadId) setInjectText(pr.prompt);
           setAppBanner({ text: String(msg.message ?? "Modification impossible"), closable: true });
+        }
+        const revert = pendingRevert.current;
+        if (revert && revert.threadId === msg.threadId) {
+          pendingRevert.current = null;
+          setAppBanner({ text: String(msg.message ?? "Retour impossible"), closable: true });
         }
       }
   }
@@ -1792,6 +1823,10 @@ export default function App() {
     // contexte et ses paramètres, reste modifiable/supprimable et ne crée pas
     // encore de bulle dans la timeline.
     if (mode === "queue" && activeId && workingSinceRef.current[activeId] != null) {
+      const additionalDirectories = settingsRef.current.additionalDirectories
+        .split(/\r?\n|,/)
+        .map((dir) => dir.trim())
+        .filter(Boolean);
       enqueueTurn(composerDraftKey(activeId, activeProject), {
         id: crypto.randomUUID(),
         prompt: displayPrompt,
@@ -1800,6 +1835,12 @@ export default function App() {
         effort,
         permissionMode,
         attachments: [...attachments],
+        webSearch: provider === "codex" && settingsRef.current.webSearch,
+        additionalDirectories,
+        pluginSkills: provider === "codex"
+          ? pluginSkillsForPrompt(displayPrompt, plugins).map(({ name, path }) => ({ name, path }))
+          : [],
+        autoReview: { ...settingsRef.current.autoReview },
         createdAt: Date.now(),
       });
       setAttachments([]);
@@ -2044,7 +2085,7 @@ export default function App() {
       : queued.prompt);
     const clientMessageId = crypto.randomUUID();
     const imagePaths = queuedAttachments.map((attachment) => attachment.path).filter(Boolean) as string[];
-    const pluginSkills = queued.provider === "codex" ? pluginSkillsForPrompt(queued.prompt, plugins) : [];
+    const pluginSkills = queued.pluginSkills;
     const codexInputs = queued.provider === "codex" && (imagePaths.length || pluginSkills.length)
       ? [
           { type: "text" as const, text: fullPrompt },
@@ -2052,10 +2093,6 @@ export default function App() {
           ...pluginSkills.map((skill) => ({ type: "skill" as const, name: skill.name, path: skill.path })),
         ]
       : undefined;
-    const additionalDirectories = settingsRef.current.additionalDirectories
-      .split(/\r?\n|,/)
-      .map((dir) => dir.trim())
-      .filter(Boolean);
     const userEvent: AgentEvent = {
       kind: "user",
       text: queued.prompt,
@@ -2089,7 +2126,7 @@ export default function App() {
       [threadId]: current[threadId] ?? Date.now(),
     }));
     sendPrompt(ws.current, {
-      autoReview: settingsRef.current.autoReview,
+      ...(queued.autoReview ? { autoReview: queued.autoReview } : {}),
       threadId,
       projectRoot: thread.projectRoot ?? "",
       provider: queued.provider,
@@ -2113,8 +2150,10 @@ export default function App() {
       ...(queued.model ? { model: queued.model } : {}),
       ...(queued.effort ? { effort: queued.effort } : {}),
       ...(queued.permissionMode ? { permissionMode: queued.permissionMode } : {}),
-      ...(queued.provider === "codex" && settingsRef.current.webSearch ? { webSearch: true } : {}),
-      ...(queued.provider === "codex" && additionalDirectories.length ? { additionalDirectories } : {}),
+      ...(queued.provider === "codex" && queued.webSearch ? { webSearch: true } : {}),
+      ...(queued.provider === "codex" && queued.additionalDirectories.length
+        ? { additionalDirectories: queued.additionalDirectories }
+        : {}),
       mode,
     });
     return true;
@@ -2580,13 +2619,18 @@ export default function App() {
           onRemoveQueued={(queuedId) => removeQueuedTurn(activeComposerKey, queuedId)}
           attachments={attachments}
           onRemoveAttachment={(i) => setAttachments((l) => l.filter((_, j) => j !== i))}
-          onRevert={(index, text, edit) => {
+          onRevert={async (index, text, edit) => {
             if (!activeId) return;
             const id = activeId;
-            const eventId = (eventsRef.current[id]?.[index]?.meta as any)?.eventId;
-            setEvents((p) => ({ ...p, [id]: (p[id] ?? []).slice(0, index) }));
+            const snapshot = eventsRef.current[id] ?? [];
+            const eventId = (snapshot[index]?.meta as any)?.eventId;
+            const checkpoint = checkpointAfterUser(snapshot, index);
+            if (!await confirmDialog(t("checkpoint.thread-confirm"), { title: "Atelier", kind: "warning" })) return;
             if (ws.current?.readyState === 1) {
-              ws.current.send(JSON.stringify({ type: "revert", threadId: id, text, eventId }));
+              pendingRevert.current = { threadId: id, snapshot, index };
+              ws.current.send(JSON.stringify({
+                type: "revert", scope: "thread", threadId: id, text, eventId, ...checkpoint,
+              }));
             }
             if (edit) setInjectText(text);
           }}
@@ -2613,21 +2657,25 @@ export default function App() {
               };
             });
           }}
-          onEditSend={(index, oldText, newText) => {
+          onEditSend={async (index, oldText, newText) => {
             if (!activeId) return;
             const id = activeId;
             const snapshot = eventsRef.current[id] ?? [];
             const eventId = (snapshot[index]?.meta as any)?.eventId;
-            setEvents((p) => ({ ...p, [id]: (p[id] ?? []).slice(0, index) }));
+            const checkpoint = checkpointAfterUser(snapshot, index);
+            if (!await confirmDialog(t("checkpoint.thread-confirm"), { title: "Atelier", kind: "warning" })) return;
             pendingResend.current = {
               threadId: id,
               prompt: newText,
               snapshot,
               clientMessageId: crypto.randomUUID(),
               ts: Date.now(),
+              index,
             };
             if (ws.current?.readyState === 1) {
-              ws.current.send(JSON.stringify({ type: "revert", threadId: id, text: oldText, eventId }));
+              ws.current.send(JSON.stringify({
+                type: "revert", scope: "thread", threadId: id, text: oldText, eventId, ...checkpoint,
+              }));
             }
           }}
           onFork={(index) => {

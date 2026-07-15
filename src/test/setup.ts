@@ -31,3 +31,20 @@ if (!globalThis.ResizeObserver) {
     disconnect() {}
   };
 }
+
+// LegendList mesure synchroniquement son viewport avant de calculer la plage
+// virtualisée. jsdom retourne toujours 0×0, ce qui signifie « pas encore
+// monté » pour la vraie liste. On ne simule une géométrie que pour la timeline
+// et ses lignes; les autres composants conservent le comportement jsdom.
+const jsdomRect = HTMLElement.prototype.getBoundingClientRect;
+HTMLElement.prototype.getBoundingClientRect = function getBoundingClientRect() {
+  if (this.classList.contains("messages") || this.classList.contains("timeline-virtual-row")) {
+    const height = this.classList.contains("messages") ? 800 : 90;
+    return {
+      x: 0, y: 0, top: 0, left: 0, right: 760, bottom: height,
+      width: 760, height,
+      toJSON: () => ({}),
+    } as DOMRect;
+  }
+  return jsdomRect.call(this);
+};

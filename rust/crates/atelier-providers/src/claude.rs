@@ -177,6 +177,15 @@ fn resolve_claude_bin() -> Option<PathBuf> {
 }
 
 fn build_args(req: &SendRequest) -> Vec<String> {
+    let permission_mode = req.permission_mode.as_deref().unwrap_or("bypassPermissions");
+    // Contrat Atelier/SDK : « default ». Le CLI Claude récent nomme le même
+    // comportement explicite « manual »; lui transmettre « default » fait
+    // échouer le process avant même le premier événement.
+    let cli_permission_mode = if permission_mode == "default" {
+        "manual"
+    } else {
+        permission_mode
+    };
     let mut args = vec![
         "-p".into(),
         "--verbose".into(),
@@ -184,9 +193,11 @@ fn build_args(req: &SendRequest) -> Vec<String> {
         "stream-json".into(),
         "--include-partial-messages".into(),
         "--permission-mode".into(),
-        "bypassPermissions".into(),
-        "--dangerously-skip-permissions".into(),
+        cli_permission_mode.into(),
     ];
+    if permission_mode == "bypassPermissions" {
+        args.push("--dangerously-skip-permissions".into());
+    }
     // Prefer full settings (CLAUDE.md, skills) unless bare requested.
     if std::env::var("ATELIER_CLAUDE_BARE").is_ok() {
         args.push("--bare".into());
@@ -195,6 +206,12 @@ fn build_args(req: &SendRequest) -> Vec<String> {
         if !model.is_empty() {
             args.push("--model".into());
             args.push(model.clone());
+        }
+    }
+    if let Some(effort) = &req.effort {
+        if !effort.is_empty() {
+            args.push("--effort".into());
+            args.push(effort.clone());
         }
     }
     if let Some(sid) = &req.session_id {
@@ -562,9 +579,38 @@ fn kill_process_group(pid: u32) {
 #[cfg(test)]
 mod title_tests {
     use super::{
-        clean_commit_message, clean_conversation_title, compact_commit_context,
+        build_args, clean_commit_message, clean_conversation_title, compact_commit_context,
         fallback_commit_message,
     };
+    use crate::traits::{SendMode, SendRequest};
+    use std::sync::Arc;
+
+    fn request(permission_mode: &str) -> SendRequest {
+        SendRequest {
+            thread_id: "t".into(), turn_id: "turn".into(), prompt: "bonjour".into(),
+            inputs: None, project_root: "/tmp".into(), session_id: None,
+            model: None, effort: Some("high".into()), permission_mode: Some(permission_mode.into()),
+            mode: SendMode::Normal, on_event: Arc::new(|_| {}), on_interaction: None,
+            is_cancelled: Arc::new(|| false),
+        }
+    }
+
+    #[test]
+    fn forwards_each_permission_mode_instead_of_forcing_full_access() {
+        for (mode, expected_cli_mode) in [
+            ("default", "manual"),
+            ("acceptEdits", "acceptEdits"),
+            ("plan", "plan"),
+        ] {
+            let args = build_args(&request(mode));
+            let index = args.iter().position(|arg| arg == "--permission-mode").unwrap();
+            assert_eq!(args[index + 1], expected_cli_mode);
+            assert!(!args.iter().any(|arg| arg == "--dangerously-skip-permissions"));
+        }
+        let bypass = build_args(&request("bypassPermissions"));
+        assert!(bypass.iter().any(|arg| arg == "--dangerously-skip-permissions"));
+        assert!(bypass.windows(2).any(|pair| pair == ["--effort", "high"]));
+    }
 
     #[test]
     fn cleans_generated_title_without_breaking_unicode() {

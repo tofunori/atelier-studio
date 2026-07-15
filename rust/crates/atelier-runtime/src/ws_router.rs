@@ -69,6 +69,8 @@ pub const ALL_MESSAGE_TYPES: &[&str] = &[
     "termResize",
     "termClose",
     "exportThread",
+    "savePlan",
+    "exportPlan",
     "listSessions",
     "importSession",
     "forkThread",
@@ -697,6 +699,8 @@ pub async fn route_ws(state: &AppState, text: &str) -> Vec<String> {
         "setupStatus" => handle_setup_status(state).await,
         "listApiModels" => handle_list_api_models(state, &msg).await,
         "exportThread" => handle_export_thread(state, &msg).await,
+        "savePlan" => handle_save_plan(state, &msg, false).await,
+        "exportPlan" => handle_save_plan(state, &msg, true).await,
         "listSessions" => {
             let provider = msg.get("provider").and_then(Value::as_str).unwrap_or("");
             let sessions = if provider == "codex" {
@@ -769,8 +773,28 @@ pub async fn route_ws(state: &AppState, text: &str) -> Vec<String> {
             }
             vec![]
         }
-        "permissionResponse" | "interactionResponse" => {
-            // Waiters not yet wired (interactive approvals deferred) — idempotent no-op.
+        "permissionResponse" => vec![],
+        "interactionResponse" => {
+            let request_id = msg.get("requestId").and_then(Value::as_str).unwrap_or("");
+            let thread_id = msg.get("threadId").and_then(Value::as_str).unwrap_or("");
+            let client_id = msg.get("clientInstanceId").and_then(Value::as_str);
+            let response = msg.get("response").cloned().unwrap_or(Value::Null);
+            let waiter = {
+                let mut waiters = state.interaction_waiters().lock().await;
+                let valid = waiters.get(request_id).is_some_and(|waiter| {
+                    waiter.thread_id == thread_id
+                        && waiter.client_instance_id.as_deref() == client_id
+                });
+                if valid { waiters.remove(request_id) } else { None }
+            };
+            if let Some(waiter) = waiter {
+                if response.get("allow").and_then(Value::as_bool) == Some(true)
+                    && response.get("scope").and_then(Value::as_str) == Some("session")
+                {
+                    state.approval_sessions().lock().await.insert(thread_id.to_string());
+                }
+                let _ = waiter.tx.send(response);
+            }
             vec![]
         }
         "retitleAll" => handle_retitle_all(state).await,
@@ -1206,6 +1230,57 @@ async fn handle_list_api_models(_state: &AppState, msg: &Value) -> Vec<String> {
     }
 }
 
+async fn handle_save_plan(state: &AppState, msg: &Value, export: bool) -> Vec<String> {
+    let thread_id = msg.get("threadId").and_then(Value::as_str).unwrap_or("");
+    let markdown = msg.get("markdown").and_then(Value::as_str).unwrap_or("");
+    if markdown.trim().is_empty() || markdown.len() > 1_000_000 {
+        return vec![err_thread(thread_id, "plan: contenu invalide")];
+    }
+    let path = if export {
+        let raw = msg.get("path").and_then(Value::as_str).unwrap_or("");
+        let path = std::path::PathBuf::from(raw);
+        if !path.is_absolute()
+            || path.extension().and_then(|value| value.to_str()).map(str::to_ascii_lowercase).as_deref() != Some("md")
+        {
+            return vec![err_thread(thread_id, "plan: destination invalide")];
+        }
+        path
+    } else {
+        let thread = state.threads().lock().await.get(thread_id).cloned();
+        let Some(thread) = thread.filter(|thread| !thread.project_root.is_empty()) else {
+            return vec![err_thread(thread_id, "plan: projet introuvable")];
+        };
+        let raw = msg.get("fileName").and_then(Value::as_str).unwrap_or("plan");
+        let raw = raw.strip_suffix(".md").unwrap_or(raw);
+        let stem = raw
+            .chars()
+            .map(|character| if character.is_ascii_alphanumeric() || matches!(character, '.' | '_' | '-') { character } else { '-' })
+            .collect::<String>()
+            .trim_matches('-')
+            .chars()
+            .take(80)
+            .collect::<String>();
+        std::path::PathBuf::from(thread.project_root)
+            .join(".plan")
+            .join(format!("{}.md", if stem.is_empty() { "plan" } else { &stem }))
+    };
+    if let Some(parent) = path.parent() {
+        if let Err(error) = std::fs::create_dir_all(parent) {
+            return vec![err_thread(thread_id, format!("plan: {error}"))];
+        }
+    }
+    if let Err(error) = std::fs::write(&path, markdown) {
+        return vec![err_thread(thread_id, format!("plan: {error}"))];
+    }
+    vec![json_msg(json!({
+        "type":"planSaved",
+        "threadId":thread_id,
+        "planId":msg.get("planId"),
+        "path":path.to_string_lossy(),
+        "scope":if export { "export" } else { "project" },
+    }))]
+}
+
 async fn handle_export_thread(state: &AppState, msg: &Value) -> Vec<String> {
     let thread_id = msg.get("threadId").and_then(|v| v.as_str()).unwrap_or("");
     let t = match state.threads().lock().await.get(thread_id).cloned() {
@@ -1355,9 +1430,43 @@ async fn handle_revert(state: &AppState, msg: &Value) -> Vec<String> {
     if thread_id.is_empty() {
         return vec![err_thread("", "revert indisponible")];
     }
-    let exists = state.threads().lock().await.get(thread_id).is_some();
-    if !exists {
+    let thread = state.threads().lock().await.get(thread_id).cloned();
+    let Some(thread) = thread else {
         return vec![err_thread(thread_id, "revert indisponible")];
+    };
+    let scope = if msg.get("scope").and_then(Value::as_str) == Some("files") {
+        "files"
+    } else {
+        "thread"
+    };
+    if let Some(sha) = msg.get("snapshotSha").and_then(Value::as_str) {
+        let turn_id = msg.get("turnId").and_then(Value::as_str);
+        let valid = state.journal().materialize(thread_id).iter().any(|event| {
+            event.get("kind").and_then(Value::as_str) == Some("done")
+                && event.pointer("/checkpoint/snapshotSha").and_then(Value::as_str) == Some(sha)
+                && turn_id.is_none_or(|turn| event.pointer("/meta/turnId").and_then(Value::as_str) == Some(turn))
+        });
+        if !valid || thread.project_root.is_empty() {
+            return vec![err_thread(thread_id, "checkpoint introuvable")];
+        }
+        let root = thread.project_root.clone();
+        let sha_owned = sha.to_string();
+        match tokio::task::spawn_blocking(move || git_restore(&root, &sha_owned)).await {
+            Ok(Ok(())) => {}
+            Ok(Err(error)) => return vec![err_thread(thread_id, error.to_string())],
+            Err(error) => return vec![err_thread(thread_id, error.to_string())],
+        }
+        let git_changed = json_msg(json!({
+            "type":"gitChanged","threadId":thread_id,"projectRoot":thread.project_root,
+        }));
+        state.publish(git_changed);
+        if scope == "files" {
+            return vec![json_msg(json!({
+                "type":"reverted","threadId":thread_id,"scope":"files","snapshotSha":sha,
+            }))];
+        }
+    } else if scope == "files" {
+        return vec![err_thread(thread_id, "checkpoint introuvable")];
     }
     let mut truncated = false;
     if state.journal().has_journal(thread_id) {
@@ -1387,7 +1496,7 @@ async fn handle_revert(state: &AppState, msg: &Value) -> Vec<String> {
         }
     }
     let _ = truncated;
-    let out = json_msg(json!({"type":"reverted","threadId": thread_id}));
+    let out = json_msg(json!({"type":"reverted","threadId": thread_id,"scope":"thread"}));
     let mut replies = broadcast_threads(state).await;
     replies.insert(0, out);
     replies
@@ -1552,6 +1661,7 @@ async fn handle_quick_ask(state: &AppState, msg: &Value) -> Vec<String> {
             permission_mode: Some("bypassPermissions".into()),
             mode: atelier_providers::SendMode::Normal,
             on_event,
+            on_interaction: None,
             is_cancelled: std::sync::Arc::new(|| false),
         };
         let result = p.send(req).await;
@@ -1937,6 +2047,7 @@ fn err_thread(thread_id: &str, message: impl Into<String>) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::state::InteractionWaiter;
     use crate::paths::AppPaths;
     use atelier_workspace::GitFile;
     use tempfile::tempdir;
@@ -2101,5 +2212,93 @@ mod tests {
         let v: Value = serde_json::from_str(&out[0]).unwrap();
         assert_eq!(v["type"], "history");
         assert_eq!(v["events"].as_array().unwrap().len(), 1);
+    }
+
+    #[tokio::test]
+    async fn interaction_response_requires_the_matching_thread_and_client() {
+        let dir = tempdir().unwrap();
+        let s = state(dir.path());
+        let (tx, rx) = tokio::sync::oneshot::channel();
+        s.interaction_waiters().lock().await.insert(
+            "request-1".into(),
+            InteractionWaiter {
+                thread_id: "thread-1".into(),
+                client_instance_id: Some("11111111-1111-4111-8111-111111111111".into()),
+                tx,
+            },
+        );
+
+        route_ws(&s, r#"{"type":"interactionResponse","threadId":"other","clientInstanceId":"11111111-1111-4111-8111-111111111111","requestId":"request-1","response":{"allow":false}}"#).await;
+        assert!(s.interaction_waiters().lock().await.contains_key("request-1"));
+
+        route_ws(&s, r#"{"type":"interactionResponse","threadId":"thread-1","clientInstanceId":"11111111-1111-4111-8111-111111111111","requestId":"request-1","response":{"allow":true,"scope":"session"}}"#).await;
+        assert_eq!(rx.await.unwrap(), json!({"allow":true,"scope":"session"}));
+        assert!(s.approval_sessions().lock().await.contains("thread-1"));
+    }
+
+    #[tokio::test]
+    async fn save_plan_writes_a_project_plan_artifact() {
+        let dir = tempdir().unwrap();
+        let project = dir.path().join("project");
+        std::fs::create_dir_all(&project).unwrap();
+        let s = state(dir.path());
+        s.threads().lock().await.upsert(json!({
+            "id":"plan-thread",
+            "provider":"claude",
+            "projectRoot":project.to_string_lossy(),
+        }), false).unwrap();
+
+        let out = route_ws(&s, &json!({
+            "type":"savePlan",
+            "threadId":"plan-thread",
+            "planId":"plan-1",
+            "fileName":"audit complet",
+            "markdown":"# Plan\n\n1. Auditer",
+        }).to_string()).await;
+        let value: Value = serde_json::from_str(&out[0]).unwrap();
+        let path = std::path::PathBuf::from(value["path"].as_str().unwrap());
+        assert_eq!(value["type"], "planSaved");
+        assert_eq!(path, project.join(".plan/audit-complet.md"));
+        assert_eq!(std::fs::read_to_string(path).unwrap(), "# Plan\n\n1. Auditer");
+    }
+
+    #[tokio::test]
+    async fn files_only_revert_restores_checkpoint_and_keeps_journal() {
+        let dir = tempdir().unwrap();
+        let project = dir.path().join("repo");
+        std::fs::create_dir_all(&project).unwrap();
+        std::process::Command::new("git").args(["init", "-q"]).current_dir(&project).status().unwrap();
+        let file = project.join("note.txt");
+        std::fs::write(&file, "avant\n").unwrap();
+        let sha = atelier_workspace::snapshot(project.to_str().unwrap()).unwrap();
+        std::fs::write(&file, "après\n").unwrap();
+
+        let s = state(dir.path());
+        s.threads().lock().await.upsert(json!({
+            "id":"revert-thread",
+            "provider":"codex",
+            "projectRoot":project.to_string_lossy(),
+        }), false).unwrap();
+        s.journal().append(&json!({
+            "kind":"done",
+            "ok":true,
+            "result":"fait",
+            "checkpoint":{"snapshotSha":sha,"filesChanged":["note.txt"]},
+            "meta":{
+                "eventId":"done-1","sequence":1,"threadId":"revert-thread",
+                "turnId":"turn-1","durable":true,"provider":"codex"
+            }
+        }));
+
+        let before = s.journal().materialize("revert-thread");
+        let out = route_ws(&s, &json!({
+            "type":"revert","scope":"files","threadId":"revert-thread",
+            "turnId":"turn-1","snapshotSha":sha,
+        }).to_string()).await;
+        let value: Value = serde_json::from_str(&out[0]).unwrap();
+        assert_eq!(value["type"], "reverted");
+        assert_eq!(value["scope"], "files");
+        assert_eq!(std::fs::read_to_string(file).unwrap(), "avant\n");
+        assert_eq!(s.journal().materialize("revert-thread"), before);
     }
 }

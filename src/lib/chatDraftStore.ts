@@ -22,6 +22,19 @@ export type QueuedTurn = {
   effort: string;
   permissionMode: string;
   attachments: DraftAttachment[];
+  /** Options résolues au moment de la mise en file. Elles ne doivent jamais
+   * être recalculées depuis le composer courant lors du dispatch. */
+  webSearch: boolean;
+  additionalDirectories: string[];
+  pluginSkills: { name: string; path: string }[];
+  autoReview: {
+    enabled: boolean;
+    provider: string;
+    model: string;
+    effort: string;
+    trigger: string;
+    autofix?: boolean;
+  } | null;
   createdAt: number;
 };
 
@@ -58,13 +71,52 @@ function validQueuedTurn(value: unknown): value is QueuedTurn {
     item.attachments.every(validAttachment);
 }
 
+function normalizeQueuedTurn(value: unknown): QueuedTurn | null {
+  if (!validQueuedTurn(value)) return null;
+  const item = value as Partial<QueuedTurn>;
+  const autoReview = item.autoReview && typeof item.autoReview === "object"
+    ? {
+        enabled: Boolean(item.autoReview.enabled),
+        provider: typeof item.autoReview.provider === "string" ? item.autoReview.provider : "",
+        model: typeof item.autoReview.model === "string" ? item.autoReview.model : "",
+        effort: typeof item.autoReview.effort === "string" ? item.autoReview.effort : "",
+        trigger: typeof item.autoReview.trigger === "string" ? item.autoReview.trigger : "turn",
+        ...(typeof item.autoReview.autofix === "boolean" ? { autofix: item.autoReview.autofix } : {}),
+      }
+    : null;
+  return {
+    ...item,
+    id: item.id!,
+    prompt: item.prompt!,
+    provider: item.provider!,
+    model: typeof item.model === "string" ? item.model : "",
+    effort: typeof item.effort === "string" ? item.effort : "",
+    permissionMode: typeof item.permissionMode === "string" ? item.permissionMode : "",
+    attachments: item.attachments!.filter(validAttachment),
+    webSearch: item.webSearch === true,
+    additionalDirectories: Array.isArray(item.additionalDirectories)
+      ? item.additionalDirectories.filter((entry): entry is string => typeof entry === "string")
+      : [],
+    pluginSkills: Array.isArray(item.pluginSkills)
+      ? item.pluginSkills.filter((entry): entry is { name: string; path: string } =>
+          Boolean(entry) && typeof entry === "object" &&
+          typeof (entry as { name?: unknown }).name === "string" &&
+          typeof (entry as { path?: unknown }).path === "string")
+      : [],
+    autoReview,
+    createdAt: Number.isFinite(item.createdAt) ? Number(item.createdAt) : Date.now(),
+  };
+}
+
 function normalizeDraft(value: unknown): ChatDraft {
   if (!value || typeof value !== "object") return EMPTY_DRAFT;
   const draft = value as Partial<ChatDraft>;
   return {
     prompt: typeof draft.prompt === "string" ? draft.prompt : "",
     attachments: Array.isArray(draft.attachments) ? draft.attachments.filter(validAttachment) : [],
-    queuedTurns: Array.isArray(draft.queuedTurns) ? draft.queuedTurns.filter(validQueuedTurn) : [],
+    queuedTurns: Array.isArray(draft.queuedTurns)
+      ? draft.queuedTurns.map(normalizeQueuedTurn).filter((turn): turn is QueuedTurn => turn !== null)
+      : [],
     updatedAt: Number.isFinite(draft.updatedAt) ? Number(draft.updatedAt) : 0,
   };
 }

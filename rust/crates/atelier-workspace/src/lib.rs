@@ -9,7 +9,7 @@ mod zotero;
 
 pub use catalog::{list_commands, list_files};
 pub use git::{
-    commit, diff, diff_staged, ignore_pattern, pull, push, restore, revert_file, snapshot,
+    changed_since, commit, diff, diff_staged, ignore_pattern, pull, push, restore, revert_file, snapshot,
     stage_file, stage_files, status, unstage_file, unstage_files, GitFile, GitStatus,
 };
 pub use pasted::{clear_pasted, list_pasted, save_image};

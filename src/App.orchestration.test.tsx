@@ -18,7 +18,10 @@ vi.mock("@tauri-apps/api/core", () => ({
     return null;
   }),
 }));
-vi.mock("@tauri-apps/plugin-dialog", () => ({ open: vi.fn(async () => null) }));
+vi.mock("@tauri-apps/plugin-dialog", () => ({
+  open: vi.fn(async () => null),
+  confirm: vi.fn(async () => true),
+}));
 vi.mock("./lib/notify", () => ({
   init: vi.fn(async () => {}),
   notifyRunDone: vi.fn(async () => {}),
@@ -672,7 +675,7 @@ describe("orchestration App — caractérisation", () => {
     await loadExactHistory(sock);
 
     await act(async () => {
-      screen.getByTitle(t("chat.revert-title")).click();
+      screen.getByRole("button", { name: t("chat.revert-title") }).click();
       await flushMicrotasks(4);
     });
 
@@ -686,7 +689,7 @@ describe("orchestration App — caractérisation", () => {
     await loadExactHistory(sock);
 
     await act(async () => {
-      screen.getByTitle(t("action.edit-resend")).click();
+      screen.getByRole("button", { name: t("action.edit-resend") }).click();
       await flushMicrotasks(2);
     });
     const textarea = document.querySelector(".edit-box textarea") as HTMLTextAreaElement;
@@ -733,7 +736,7 @@ describe("orchestration App — caractérisation", () => {
     await loadExactHistory(sock);
 
     await act(async () => {
-      screen.getByTitle(t("action.fork")).click();
+      screen.getByRole("button", { name: t("action.fork") }).click();
       await flushMicrotasks(4);
     });
 

@@ -15,6 +15,10 @@ describe("chatDraftStore", () => {
       queuedTurns: [{
         id: "q1", prompt: "puis compare", provider: "codex", model: "gpt", effort: "high",
         permissionMode: "default", createdAt: 12,
+        webSearch: true,
+        additionalDirectories: ["/data/reference"],
+        pluginSkills: [{ name: "nature-figure", path: "/skills/nature-figure/SKILL.md" }],
+        autoReview: { enabled: true, provider: "codex", model: "gpt", effort: "high", trigger: "turn" },
         attachments: [{ name: "main.tex", lines: "12", text: "fichier", path: "/repo/main.tex" }],
       }],
       updatedAt: 10,
@@ -25,6 +29,34 @@ describe("chatDraftStore", () => {
     expect(loaded["thread:t1"].prompt).toBe("suite de l’analyse");
     expect(loaded["thread:t1"].attachments[0].path).toBe("/tmp/plot.png");
     expect(loaded["thread:t1"].queuedTurns[0].prompt).toBe("puis compare");
+    expect(loaded["thread:t1"].queuedTurns[0]).toMatchObject({
+      webSearch: true,
+      additionalDirectories: ["/data/reference"],
+      pluginSkills: [{ name: "nature-figure", path: "/skills/nature-figure/SKILL.md" }],
+      autoReview: { enabled: true, provider: "codex", model: "gpt", effort: "high", trigger: "turn" },
+    });
+  });
+
+  it("migre une ancienne relance avec des options sûres et immuables", () => {
+    const raw = JSON.stringify({
+      version: 1,
+      drafts: {
+        "thread:t1": {
+          prompt: "",
+          attachments: [],
+          queuedTurns: [{
+            id: "legacy", prompt: "continue", provider: "claude", model: "sonnet",
+            effort: "medium", permissionMode: "default", attachments: [], createdAt: 1,
+          }],
+          updatedAt: 1,
+        },
+      },
+    });
+    const turn = loadChatDrafts({ getItem: () => raw })["thread:t1"].queuedTurns[0];
+    expect(turn.webSearch).toBe(false);
+    expect(turn.additionalDirectories).toEqual([]);
+    expect(turn.pluginSkills).toEqual([]);
+    expect(turn.autoReview).toBeNull();
   });
 
   it("ignore un schéma inconnu au lieu d’écraser le composer", () => {

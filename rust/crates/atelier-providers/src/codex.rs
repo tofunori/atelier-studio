@@ -1,6 +1,6 @@
 //! Codex provider via `codex app-server` JSON-RPC (plan 033 Porte 7).
 
-use crate::codex_parse::{map_turn_notification, TurnMapState};
+use crate::codex_parse::{answer_from_interaction, map_turn_notification, TurnMapState};
 use crate::codex_rpc::CodexAppServer;
 use crate::traits::{Provider, ProviderCaps, SendMode, SendRequest, SendResult};
 use async_trait::async_trait;
@@ -428,9 +428,18 @@ impl Provider for CodexProvider {
                 };
             }
         };
-        self.server
-            .set_sandbox(&codex_id, "danger-full-access")
-            .await;
+        let (sandbox, _) = codex_safety(req.permission_mode.as_deref());
+        self.server.set_sandbox(&codex_id, sandbox).await;
+        if let Some(relay) = req.on_interaction.clone() {
+            let request_handler = Arc::new(move |method: String, params: Value| {
+                let relay = Arc::clone(&relay);
+                Box::pin(async move {
+                    let response = relay(method.clone(), params.clone()).await;
+                    answer_from_interaction(&method, &params, response.as_ref())
+                }) as std::pin::Pin<Box<dyn std::future::Future<Output = Value> + Send>>
+            });
+            self.server.set_request_handler(&codex_id, request_handler).await;
+        }
 
         if let Ok(mut a) = self.active.lock() {
             a.insert(
@@ -521,6 +530,7 @@ impl Provider for CodexProvider {
         }
         if let Err(e) = self.server.request("turn/start", turn_params).await {
             self.server.clear_handler(&codex_id).await;
+            self.server.clear_request_handler(&codex_id).await;
             if let Ok(mut a) = self.active.lock() {
                 a.remove(&req.thread_id);
             }
@@ -568,6 +578,7 @@ impl Provider for CodexProvider {
         };
 
         self.server.clear_handler(&codex_id).await;
+        self.server.clear_request_handler(&codex_id).await;
         if let Ok(mut a) = self.active.lock() {
             a.remove(&req.thread_id);
         }

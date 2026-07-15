@@ -38,6 +38,10 @@ L’audit a porté sur les modules compilés `chat._threadId`,
 - Le choix de modèle reste dans le stockage existant du chat, migré vers
   `activeProvider + byProvider`, afin de préserver les choix Claude et Codex
   indépendamment.
+- Le sélecteur modèle expose d’abord les providers réellement disponibles,
+  puis uniquement le catalogue publié par le provider choisi. Un changement
+  de provider au repos garde le transcript Atelier, ferme l’ancienne session
+  native et démarre une session neuve; il reste interdit pendant un run actif.
 - La relance est conservée côté composer jusqu’à son exécution. Le sidecar
   existant reçoit alors le snapshot avec son `clientMessageId`; il garde son
   rôle d’autorité pour les tours, le steering et le journal.
@@ -64,18 +68,28 @@ L’audit a porté sur les modules compilés `chat._threadId`,
 - [x] Portée session propagée aux providers et interruption sur Cancel turn.
 - [x] Tests du stockage, du changement de fil, du cycle de file, des raccourcis
   et des décisions Codex natives.
+- [x] Sélecteur provider → modèles avec catalogue backend, mémorisation par fil
+  et nouvelle session native lors d’un handoff Claude/Codex.
+- [x] Artefact `proposed_plan` durable dans les journaux Node et Rust, repli à
+  900 caractères ou 20 lignes, copie, sauvegarde dans `.plan/` et export `.md`.
+- [x] Checkpoint Git attaché à chaque `done`, avec deux actions distinctes :
+  restauration des fichiers seulement ou rewind du fil et des fichiers.
+- [x] Timeline LegendList virtualisée avec clés stables, démarrage en bas,
+  maintien du bord bas à 10 %, conservation de position, chapitres et sauts.
+- [x] Contrat provider/modèle/effort/options complet dans chaque relance FIFO.
+- [x] Parité de protocole Node/Rust et tests de changement de provider,
+  interactions, plans, checkpoints et virtualisation sur 400 événements.
 
-## Écarts volontairement non simulés
+## Différences assumées selon les capacités du provider
 
-- **Plan proposé durable :** Atelier reçoit actuellement `todos`, pas un
-  artefact `proposed-plan` avec identité et fichier source. Il faut d’abord
-  ajouter ce contrat au harnais et au journal.
-- **Rewind fil versus fichiers seulement :** le backend Atelier possède déjà
-  des opérations Git, mais pas encore un checkpoint universel offrant ces deux
-  portées depuis la même carte du chat.
-- **Virtualisation :** à traiter après mesure d’une vraie dégradation sur les
-  fils longs; elle touche les ancres, chapitres, sélections et restaurations de
-  scroll.
+- Codex expose les demandes d’approbation, les questions interactives et les
+  sollicitations MCP dans le backend Rust comme dans le backend Node.
+- Claude expose les quatre modes de permission. Le backend Rust traduit le
+  mode Atelier `default` vers le nom CLI actuel `manual`; le backend Node SDK
+  peut en plus relayer les cartes interactives natives de Claude.
+- Les contrôles absents des capacités publiées par un provider ne sont pas
+  montrés. Atelier n’invente donc pas une interaction que son transport actif
+  ne sait pas servir.
 
 ## Validation obligatoire
 

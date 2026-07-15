@@ -87,6 +87,15 @@ type AgentEventBody =
   | { kind: "usage"; usage: { context: number | null; output: number | null; cost: number | null; turns: number | null }; ts?: number }
   | { kind: "todos"; items: { text: string; completed: boolean }[]; ts?: number }
   | {
+      kind: "proposed_plan";
+      planId: string;
+      markdown: string;
+      provider?: string;
+      source?: "plan-mode" | string;
+      fileName?: string;
+      ts?: number;
+    }
+  | {
       kind: "goal";
       cleared?: boolean;
       goal: {
@@ -104,6 +113,7 @@ type AgentEventBody =
       result: string;
       projectRoot?: string;
       filesChanged?: string[];
+      checkpoint?: { snapshotSha: string; filesChanged: string[] };
       usage?: { context: number; output: number; cost: number | null; turns: number | null };
       ts?: number;
     }

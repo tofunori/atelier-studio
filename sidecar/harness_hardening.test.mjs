@@ -31,6 +31,7 @@ function setup({ providerImpl, provider = "claude", withJournal = true } = {}) {
       isRepo: async () => true,
       changedSince: async () => [],
       numstat: async () => [],
+      restore: vi.fn(async () => {}),
     },
     ledger: { append: vi.fn(async () => {}) },
     providers: { [provider]: providerImpl },
@@ -389,6 +390,25 @@ describe("Bug 4/5 — fork par fromThreadId+eventId, revert par eventId (journal
     expect(mat.some((e) => e.kind === "done")).toBe(false);
     // mais l'user d'avant reste
     expect(mat.some((e) => e.kind === "user")).toBe(true);
+  });
+
+  it("revert files restaure le checkpoint sans tronquer le transcript", async () => {
+    const { ctx, harnessJournal, durable } = await seededThread();
+    const done = durable.find((e) => e.kind === "done");
+    const before = await harnessJournal.materialize("t");
+
+    await route({
+      type: "revert",
+      scope: "files",
+      threadId: "t",
+      eventId: done.meta.eventId,
+      turnId: done.meta.turnId,
+      snapshotSha: done.checkpoint.snapshotSha,
+    }, ctx);
+    await flush();
+
+    expect(ctx.gitops.restore).toHaveBeenCalledWith("/p", done.checkpoint.snapshotSha);
+    expect(await harnessJournal.materialize("t")).toEqual(before);
   });
 });
 

@@ -37,7 +37,7 @@ fn default_status() -> String {
 }
 
 fn known_provider(id: &str) -> bool {
-    matches!(id, "claude" | "codex" | "grok" | "opencode" | "gemini")
+    matches!(id, "claude" | "codex" | "grok" | "opencode" | "gemini" | "fake")
         || id.starts_with("api-")
         || id.starts_with("openai")
 }

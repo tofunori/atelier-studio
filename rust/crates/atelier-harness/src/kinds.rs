@@ -10,6 +10,7 @@ pub const DURABLE_KINDS: &[&str] = &[
     "todos",
     "goal",
     "interaction",
+    "proposed_plan",
     "usage",
     "done",
     "error",

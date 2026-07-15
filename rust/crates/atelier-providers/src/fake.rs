@@ -111,6 +111,7 @@ mod tests {
             permission_mode: None,
             mode: SendMode::Normal,
             on_event: Arc::new(move |v| e2.lock().unwrap().push(v)),
+            on_interaction: None,
             is_cancelled: Arc::new(|| false),
         };
         let r = p.send(req).await;

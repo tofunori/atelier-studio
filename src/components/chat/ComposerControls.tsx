@@ -77,10 +77,10 @@ export function ComposerControls(p: {
   providers?: ProviderInfo[];
 }) {
   const {
-    text, setText, provider, model, setModel, effort, setEffort,
+    text, setText, provider, setProvider, model, setModel, effort, setEffort,
     permissionMode, setPermissionMode, plusOpen, setPlusOpen, menuOpen, setMenuOpen,
     effortOpen, setEffortOpen,
-    setModelMenuProvider,
+    modelMenuProvider, setModelMenuProvider,
     setGoalOpen, attachFiles, providerInfo, resolvedModelId, autoReasoningLabel,
     levelsFor, effortFor, modelsFor, sortByFav, modelLabel, modelButtonLabel,
     favModels, toggleFavModel,
@@ -261,7 +261,7 @@ export function ComposerControls(p: {
               onClick={() => {
                 setEffortOpen(false);
                 setMenuOpen((v) => !v);
-                setModelMenuProvider("");
+                setModelMenuProvider(provider);
               }}
             >
               <span className={!model ? "mp-dim" : undefined}>{modelButtonLabel}</span>
@@ -275,12 +275,29 @@ export function ComposerControls(p: {
                 { providerOrder: p.defaults.providerOrder ?? [], hiddenProviders: p.defaults.hiddenProviders ?? [] },
                 provider,
               );
-              const menuInfo = visibleProviders.find((info) => info.id === provider) ?? providerInfo();
-              const menuProvider = provider;
+              const menuProvider = visibleProviders.some((info) => info.id === modelMenuProvider)
+                ? modelMenuProvider
+                : provider;
+              const menuInfo = visibleProviders.find((info) => info.id === menuProvider) ?? providerInfo(menuProvider);
               const menuModels = sortByFav(modelsFor(menuProvider), menuProvider);
               return (
                 <div className="mp-menu model-menu model-only" ref={modelMenuRef} role="menu"
                   onKeyDown={menuKeys(() => setMenuOpen(false), modelBtnRef)}>
+                  <div className="model-provider-tabs" aria-label="Provider">
+                    {visibleProviders.map((info) => (
+                      <button
+                        key={info.id}
+                        type="button"
+                        role="menuitemradio"
+                        aria-checked={menuProvider === info.id}
+                        className={`model-provider-tab ${menuProvider === info.id ? "active" : ""}`}
+                        onClick={() => setModelMenuProvider(info.id)}
+                      >
+                        <ProviderIcon provider={info.id} size={12} />
+                        <span>{info.label}</span>
+                      </button>
+                    ))}
+                  </div>
                   {false && <div className="model-provider-list model-effort-legacy" aria-hidden="true">
                     {(() => {
                       // effort du provider COURANT — popover unique modèle+effort
@@ -353,7 +370,8 @@ export function ComposerControls(p: {
                       // Claude : chaque nouveau choix part en contexte 1M. Le
                       // bouton 200k plus bas reste disponible comme exception
                       // explicite après la sélection.
-                      const baseModelId = m.id || providerInfo(menuProvider)?.defaultModel || "claude-sonnet-5";
+                      const baseModelId = resolvedModelId(menuProvider, m.id)
+                        || (menuProvider === "claude" ? "claude-sonnet-5" : "");
                       const selectedModelId = menuProvider === "claude" && !baseModelId.endsWith("[1m]")
                         ? `${baseModelId}[1m]`
                         : baseModelId;
@@ -369,8 +387,10 @@ export function ComposerControls(p: {
                             aria-checked={active}
                             className="mp-row-main"
                             onClick={() => {
+                              setProvider(menuProvider);
                               setModel(selectedModelId);
                               setEffort(effortFor(menuProvider, selectedModelId));
+                              setMenuOpen(false);
                             }}
                           >
                             <span>{modelLabel(m, menuProvider)}</span>

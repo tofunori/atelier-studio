@@ -6,10 +6,11 @@ use atelier_protocol::Health;
 use atelier_providers::{build_registry, Provider};
 use atelier_store::{HarnessJournal, HighlightStore, ThreadStore};
 use atelier_workspace::{TermEvent, TerminalHub};
-use std::collections::HashMap;
+use serde_json::Value;
+use std::collections::{HashMap, HashSet};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
-use tokio::sync::{broadcast, Mutex, RwLock};
+use tokio::sync::{broadcast, oneshot, Mutex, RwLock};
 
 #[derive(Clone)]
 pub struct AppState {
@@ -20,6 +21,12 @@ pub struct AppState {
 pub struct QaSession {
     pub provider: String,
     pub session_id: String,
+}
+
+pub struct InteractionWaiter {
+    pub thread_id: String,
+    pub client_instance_id: Option<String>,
+    pub tx: oneshot::Sender<Value>,
 }
 
 struct Inner {
@@ -39,6 +46,8 @@ struct Inner {
     harness: Arc<HarnessManager>,
     providers: HashMap<String, Arc<dyn Provider>>,
     client_instance_id: Mutex<Option<String>>,
+    interaction_waiters: Mutex<HashMap<String, InteractionWaiter>>,
+    approval_sessions: Mutex<HashSet<String>>,
     qa_sessions: Mutex<HashMap<String, QaSession>>,
     retitle_running: AtomicBool,
 }
@@ -98,6 +107,8 @@ impl AppState {
                 harness,
                 providers,
                 client_instance_id: Mutex::new(None),
+                interaction_waiters: Mutex::new(HashMap::new()),
+                approval_sessions: Mutex::new(HashSet::new()),
                 qa_sessions: Mutex::new(HashMap::new()),
                 retitle_running: AtomicBool::new(false),
             }),
@@ -211,6 +222,14 @@ impl AppState {
 
     pub fn client_instance_id(&self) -> &Mutex<Option<String>> {
         &self.inner.client_instance_id
+    }
+
+    pub fn interaction_waiters(&self) -> &Mutex<HashMap<String, InteractionWaiter>> {
+        &self.inner.interaction_waiters
+    }
+
+    pub fn approval_sessions(&self) -> &Mutex<HashSet<String>> {
+        &self.inner.approval_sessions
     }
 
     pub fn qa_sessions(&self) -> &Mutex<HashMap<String, QaSession>> {

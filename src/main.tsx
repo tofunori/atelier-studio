@@ -60,7 +60,21 @@ class BootBoundary extends React.Component<React.PropsWithChildren, { error: unk
   }
 }
 
-window.addEventListener("error", (event) => renderFatal(event.error ?? event.message));
+function isBenignResizeObserverError(event: ErrorEvent) {
+  return event.error == null && (
+    event.message === "ResizeObserver loop limit exceeded"
+    || event.message === "ResizeObserver loop completed with undelivered notifications."
+  );
+}
+
+window.addEventListener("error", (event) => {
+  // Les listes virtualisées peuvent provoquer ce signal navigateur bénin quand
+  // plusieurs mesures convergent dans la même frame. Il ne s'agit ni d'une
+  // exception React ni d'un échec de boot, donc l'écran fatal ne doit pas
+  // remplacer une interface saine.
+  if (isBenignResizeObserverError(event)) return;
+  renderFatal(event.error ?? event.message);
+});
 window.addEventListener("unhandledrejection", (event) => renderFatal(event.reason));
 
 // Hydrate le localStorage depuis l'état UI partagé du sidecar (ui.json) AVANT

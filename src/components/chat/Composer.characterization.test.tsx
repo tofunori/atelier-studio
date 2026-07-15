@@ -240,7 +240,7 @@ describe("composer — catalogue et capabilities sidecar (plan 025, step 9)", ()
     const modelList = document.querySelector(".model-list") as HTMLElement;
     expect(modelList).toBeTruthy();
     expect(within(modelList).getByText("gpt-5.6")).toBeTruthy();
-    expect(document.querySelector(".model-provider-row")).toBeNull();
+    expect(screen.getByRole("menuitemradio", { name: "Codex" })).toHaveAttribute("aria-checked", "true");
   });
 
   it("restaure le modèle et l'effort propres à chaque chat", async () => {
@@ -342,10 +342,12 @@ describe("composer — catalogue et capabilities sidecar (plan 025, step 9)", ()
 // Plan 020, étape 1 : contrats supplémentaires à préserver pendant la
 // réorganisation de la barre (une seule action primaire, effort en popover).
 describe("composer — caractérisation complémentaire (plan 020)", () => {
-  it("change seulement le modèle du provider verrouillé", () => {
+  it("change de provider et de modèle dans le même sélecteur", () => {
+    const onSubmit = vi.fn();
     renderUi(<Chat {...chatProps({
       defaults: { defaultProvider: "codex", defaultModel: { codex: "gpt-5.5" }, defaultEffort: {}, defaultPermissionMode: "bypassPermissions" },
       threadProvider: "codex",
+      onSubmit,
       providers: [
         makeProviderInfo({ models: ["claude-fable-5", "claude-sonnet-5"] }),
         makeProviderInfo({ id: "codex", label: "Codex", models: ["gpt-5.5", "gpt-5.6"], defaultModel: "gpt-5.5" }),
@@ -353,10 +355,32 @@ describe("composer — caractérisation complémentaire (plan 020)", () => {
     })} />);
     const btn = () => document.querySelector(".model-pick .mp-btn") as HTMLButtonElement;
     fireEvent.click(btn());
-    expect(screen.queryByText("Claude Code")).toBeNull();
-    expect(screen.queryByText("Sonnet 5")).toBeNull();
-    fireEvent.click(screen.getByText("gpt-5.6"));
-    expect(btn().textContent).toContain("gpt-5.6");
+    fireEvent.click(screen.getByRole("menuitemradio", { name: /Claude/ }));
+    fireEvent.click(screen.getByText("Sonnet 5"));
+    expect(btn().textContent).toContain("Sonnet 5 · 1M");
+
+    fireEvent.change(ta(), { target: { value: "continue avec Claude" } });
+    fireEvent.submit(ta().closest("form")!);
+    expect(onSubmit).toHaveBeenCalledWith(
+      "continue avec Claude", "claude", "claude-sonnet-5[1m]", expect.any(String), "bypassPermissions", "steer",
+    );
+  });
+
+  it("résout le modèle Codex configuré même si le catalogue sidecar est momentanément absent", () => {
+    renderUi(<Chat {...chatProps({
+      defaults: {
+        defaultProvider: "claude",
+        defaultModel: { claude: "claude-sonnet-5", codex: "gpt-5.6-sol" },
+        defaultEffort: { codex: "medium" },
+        defaultPermissionMode: "bypassPermissions",
+      },
+      providers: [],
+    })} />);
+    const btn = () => document.querySelector(".model-pick .mp-btn") as HTMLButtonElement;
+    fireEvent.click(btn());
+    fireEvent.click(screen.getByRole("menuitemradio", { name: "Codex" }));
+    fireEvent.click(screen.getByRole("menuitemradio", { name: /Default model — gpt-5\.6-sol · medium/ }));
+    expect(btn().textContent).toContain("gpt-5.6-sol");
   });
 
   it("pendant un run sans texte : le bouton Stop appelle onStop", () => {

@@ -381,27 +381,67 @@ fn mcp_update(item: &Value, message: Option<&str>) -> Value {
     ev
 }
 
-pub fn build_approval_response(method: &str, full_access: bool) -> Value {
+pub fn build_approval_response_with_scope(
+    method: &str,
+    full_access: bool,
+    params: &Value,
+    scope: &str,
+) -> Value {
     let accept = full_access;
     match method {
-        "execCommandApproval"
-        | "applyPatchApproval"
-        | "item/commandExecution/requestApproval"
-        | "item/fileChange/requestApproval" => {
-            if accept {
-                json!({"decision": "accept"})
-            } else {
-                json!({"decision": "decline"})
-            }
-        }
+        "execCommandApproval" | "applyPatchApproval" => json!({
+            "decision": if accept {
+                if scope == "session" { "approved_for_session" } else { "approved" }
+            } else { "denied" }
+        }),
+        "item/commandExecution/requestApproval" | "item/fileChange/requestApproval" => json!({
+            "decision": if accept {
+                if scope == "session" { "acceptForSession" } else { "accept" }
+            } else { "decline" }
+        }),
         "item/permissions/requestApproval" => {
             if accept {
-                json!({"decision": "accept"})
+                json!({
+                    "permissions": params.get("permissions").cloned().unwrap_or_else(|| json!({})),
+                    "scope": if scope == "session" { "session" } else { "turn" },
+                    "strictAutoReview": false,
+                })
             } else {
-                json!({"decision": "decline"})
+                json!({"permissions": {}, "scope": "turn", "strictAutoReview": true})
             }
         }
         "item/tool/requestUserInput" => json!({"answers": {}}),
+        "mcpServer/elicitation/request" => json!({"action":"decline","content":null,"_meta":null}),
+        _ => json!({"success": false, "error": "unsupported"}),
+    }
+}
+
+pub fn build_approval_response(method: &str, full_access: bool) -> Value {
+    build_approval_response_with_scope(method, full_access, &json!({}), "once")
+}
+
+/// Réponse native Codex construite depuis le contrat public Atelier.
+pub fn answer_from_interaction(method: &str, params: &Value, response: Option<&Value>) -> Value {
+    let response = response.unwrap_or(&Value::Null);
+    match method {
+        "execCommandApproval" | "applyPatchApproval"
+        | "item/commandExecution/requestApproval" | "item/fileChange/requestApproval"
+        | "item/permissions/requestApproval" => build_approval_response_with_scope(
+            method,
+            response.get("allow").and_then(Value::as_bool) == Some(true),
+            params,
+            response.get("scope").and_then(Value::as_str).unwrap_or("once"),
+        ),
+        "item/tool/requestUserInput" => json!({
+            "answers": response.get("answers").cloned().unwrap_or_else(|| json!({}))
+        }),
+        "mcpServer/elicitation/request" => {
+            if response.get("action").and_then(Value::as_str) == Some("accept") {
+                json!({"action":"accept","content":response.get("content").cloned().unwrap_or_else(|| json!({})),"_meta":null})
+            } else {
+                json!({"action":"decline","content":null,"_meta":null})
+            }
+        }
         _ => json!({"success": false, "error": "unsupported"}),
     }
 }
@@ -464,6 +504,22 @@ mod tests {
         assert_eq!(
             build_approval_response("item/commandExecution/requestApproval", false)["decision"],
             "decline"
+        );
+        assert_eq!(
+            answer_from_interaction(
+                "item/commandExecution/requestApproval",
+                &json!({}),
+                Some(&json!({"allow":true,"scope":"session"})),
+            )["decision"],
+            "acceptForSession",
+        );
+        assert_eq!(
+            answer_from_interaction(
+                "item/tool/requestUserInput",
+                &json!({}),
+                Some(&json!({"answers":{"q1":"Thierry"}})),
+            )["answers"]["q1"],
+            "Thierry",
         );
     }
 }

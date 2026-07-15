@@ -1,5 +1,5 @@
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { dirname, join } from "node:path";
+import { dirname, isAbsolute, join } from "node:path";
 import { homedir } from "node:os";
 import { fileURLToPath } from "node:url";
 import { writeFileAtomic } from "./store.mjs";
@@ -285,6 +285,16 @@ function emitGitChanged(ctx, threadId, projectRoot) {
   (ctx.broadcast ?? ctx.send)({ type: "gitChanged", threadId, projectRoot });
 }
 
+async function validatedCheckpoint(ctx, threadId, msg) {
+  const sha = String(msg.snapshotSha ?? "");
+  if (!sha || !ctx.harnessJournal?.hasJournal(threadId)) return null;
+  const { events } = await ctx.harnessJournal.load(threadId);
+  const done = events.find((event) =>
+    event.kind === "done" && event.checkpoint?.snapshotSha === sha &&
+    (!msg.turnId || event.meta?.turnId === msg.turnId));
+  return done ? { sha, event: done } : null;
+}
+
 async function filesChangedSinceTurn(ctx, turn) {
   if (!turn.projectRoot || !turn.snapshotSha || !ctx.gitops?.changedSince) return [];
   try {
@@ -297,10 +307,14 @@ async function filesChangedSinceTurn(ctx, turn) {
 async function enrichDoneEvent(ctx, turn, event) {
   if (event.kind === "edit") return enrichEditEvent(ctx, turn, event);
   if (event.kind !== "done") return event;
+  const filesChanged = await filesChangedSinceTurn(ctx, turn);
   return {
     ...event,
     projectRoot: turn.projectRoot,
-    filesChanged: await filesChangedSinceTurn(ctx, turn),
+    filesChanged,
+    ...(turn.snapshotSha ? {
+      checkpoint: { snapshotSha: turn.snapshotSha, filesChanged },
+    } : {}),
   };
 }
 
@@ -629,9 +643,20 @@ async function handleTurnEvent(ctx, threadId, event) {
   const emit = emitBox.get(threadId) ?? ctx.broadcast ?? ctx.send;
   if (!run || !h || !event) return; // course à l'arrêt : événement orphelin ignoré
   const { turn, turnId } = run;
-  const { __ephemeral = false, ...publicEvent } = event;
+  const { __ephemeral = false, ...rawPublicEvent } = event;
+  const publicEvent = rawPublicEvent.kind === "text" && turn.permissionMode === "plan"
+    ? {
+        kind: "proposed_plan",
+        planId: turn.planId ??= `plan-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+        markdown: String(rawPublicEvent.text ?? ""),
+        provider: turn.provider,
+        source: "plan-mode",
+        ts: rawPublicEvent.ts ?? Date.now(),
+      }
+    : rawPublicEvent;
   collectTool(turn.tools, publicEvent);
   if (publicEvent.kind === "text") turn.lastText = publicEvent.text;
+  if (publicEvent.kind === "proposed_plan") turn.lastText = publicEvent.markdown;
 
   // le provider annonce son turn natif (Codex turn/started) → l'attacher au turn
   // universel pour que meta.nativeTurnId apparaisse sur tous les événements suivants
@@ -732,7 +757,7 @@ async function startProviderTurn(ctx, h, msg, { reservedTurnId = null } = {}) {
   const snapshotSha = await snapshotBeforeProvider(ctx, threadId);
   const displayEvent = normalizeDisplayEvent(msg);
   const titlePrompt = String(displayEvent?.text ?? "").trim() || prompt;
-  const turn = { threadId, projectRoot, provider, model, effort, prompt, titlePrompt, tools, snapshotSha, lastText: "" };
+  const turn = { threadId, projectRoot, provider, model, effort, permissionMode, prompt, titlePrompt, tools, snapshotSha, lastText: "" };
 
   let turnId;
   if (reservedTurnId) {
@@ -922,6 +947,31 @@ export async function route(msg, ctx) {
       ctx.send({ type: "exported", threadId: msg.threadId, path });
       break;
     }
+    case "savePlan": {
+      const thread = ctx.store.get(msg.threadId);
+      if (!thread?.projectRoot) { ctx.send({ type: "error", threadId: msg.threadId, message: "plan: projet introuvable" }); break; }
+      const markdown = String(msg.markdown ?? "");
+      if (!markdown.trim() || markdown.length > 1_000_000) { ctx.send({ type: "error", threadId: msg.threadId, message: "plan: contenu invalide" }); break; }
+      const stem = String(msg.fileName ?? "plan").replace(/\.md$/i, "").replace(/[^A-Za-z0-9._-]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 80) || "plan";
+      const dir = join(thread.projectRoot, ".plan");
+      mkdirSync(dir, { recursive: true, mode: 0o700 });
+      const path = join(dir, `${stem}.md`);
+      writeFileSync(path, markdown, { mode: 0o600 });
+      ctx.send({ type: "planSaved", threadId: msg.threadId, planId: msg.planId, path, scope: "project" });
+      break;
+    }
+    case "exportPlan": {
+      const markdown = String(msg.markdown ?? "");
+      const path = String(msg.path ?? "");
+      if (!markdown.trim() || markdown.length > 1_000_000 || !isAbsolute(path) || !path.toLowerCase().endsWith(".md")) {
+        ctx.send({ type: "error", threadId: msg.threadId, message: "plan: destination invalide" });
+        break;
+      }
+      mkdirSync(dirname(path), { recursive: true });
+      writeFileSync(path, markdown, { mode: 0o600 });
+      ctx.send({ type: "planSaved", threadId: msg.threadId, planId: msg.planId, path, scope: "export" });
+      break;
+    }
     case "listSessions": {
       const sessions = await ctx.sessions.listSessions(msg.provider, msg.projectRoot);
       ctx.send({ type: "sessions", provider: msg.provider, sessions });
@@ -976,6 +1026,29 @@ export async function route(msg, ctx) {
         ctx.send({ type: "error", threadId: msg.threadId, message: "revert indisponible" });
         break;
       }
+      const scope = msg.scope === "files" ? "files" : "thread";
+      if (msg.snapshotSha) {
+        let checkpoint = null;
+        try { checkpoint = await validatedCheckpoint(ctx, msg.threadId, msg); } catch {}
+        if (!checkpoint || !t.projectRoot) {
+          ctx.send({ type: "error", threadId: msg.threadId, message: "checkpoint introuvable" });
+          break;
+        }
+        try {
+          await ctx.gitops.restore(t.projectRoot, checkpoint.sha);
+        } catch (e) {
+          ctx.send({ type: "error", threadId: msg.threadId, message: String(e?.message ?? e) });
+          break;
+        }
+        emitGitChanged(ctx, msg.threadId, t.projectRoot);
+        if (scope === "files") {
+          ctx.send({ type: "reverted", threadId: msg.threadId, scope: "files", snapshotSha: checkpoint.sha });
+          break;
+        }
+      } else if (scope === "files") {
+        ctx.send({ type: "error", threadId: msg.threadId, message: "checkpoint introuvable" });
+        break;
+      }
       // 1) journal : tronquer par eventId (primaire) ou, en repli legacy, par le
       // texte du message user (findRevertPoint historique)
       let truncated = false;
@@ -1010,7 +1083,7 @@ export async function route(msg, ctx) {
           console.warn("[atelier] rewind session revert impossible:", e);
         }
       }
-      ctx.send({ type: "reverted", threadId: msg.threadId });
+      ctx.send({ type: "reverted", threadId: msg.threadId, scope: "thread" });
       (ctx.broadcast ?? ctx.send)({ type: "threads", threads: ctx.store.list() });
       break;
     }
@@ -1592,8 +1665,9 @@ async function handleSend(msg, ctx) {
   const emit = ctx.broadcast ?? ctx.send;
   emitBox.set(threadId, emit);
 
-  // Un chat appartient définitivement à son provider. Les sessions natives
-  // et leurs historiques ne sont jamais interchangeables, même au repos.
+  // Un run actif reste lié à son provider. Au repos, le transcript Atelier
+  // peut toutefois continuer avec un autre provider : on conserve le journal
+  // visible, mais on jette obligatoirement la session native précédente.
   const running = threadRuns.get(threadId);
   if (running && running.turn.provider !== provider) {
     emit({
@@ -1606,12 +1680,15 @@ async function handleSend(msg, ctx) {
 
   let prev = ctx.store.get(threadId);
   if (prev?.provider && prev.provider !== provider) {
-    emit({
-      type: "error",
-      threadId,
-      message: `ce chat appartient à ${prev.provider}; créez un nouveau chat pour utiliser ${provider}`,
+    ctx.providers?.[prev.provider]?.endSession?.(threadId);
+    ctx.store.upsert({
+      id: threadId,
+      provider,
+      sessionId: null,
+      resumeAt: null,
+      forkPending: false,
     });
-    return;
+    prev = ctx.store.get(threadId);
   }
   // garde-fou : un thread Claude ne peut reprendre qu'un UUID Claude. Si le
   // sessionId stocké n'est pas un UUID (ex. id « ses_… » hérité d'un autre

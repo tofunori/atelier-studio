@@ -18,6 +18,7 @@ export const DURABLE_KINDS = new Set([
   "todos",
   "goal",
   "interaction",
+  "proposed_plan",
   "usage",
   "done",
   "error",

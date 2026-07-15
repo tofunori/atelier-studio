@@ -194,7 +194,7 @@ export default function Chat(p: {
   }
 
   function resolvedModelId(pv = provider, modelId = model) {
-    return modelId || providerInfo(pv)?.defaultModel || "";
+    return modelId || providerInfo(pv)?.defaultModel || p.defaults.defaultModel[pv] || "";
   }
 
   function autoReasoningLabel(info: ProviderInfo | undefined, modelId: string) {

@@ -52,6 +52,25 @@ export function DoneDiffToggle({ event, threadId }: {
         <span>{t("chat.files-modified", { count: files.length })}</span>
         <Tick open={open} />
       </button>
+      {event.checkpoint ? (
+        <button
+          type="button"
+          className="turn-diff-undo"
+          title={t("checkpoint.files-title")}
+          onClick={() => {
+            if (!window.confirm(t("checkpoint.files-confirm"))) return;
+            wsSend({
+              type: "revert",
+              scope: "files",
+              threadId,
+              turnId: "meta" in event && event.meta && "turnId" in event.meta ? event.meta.turnId : undefined,
+              snapshotSha: event.checkpoint?.snapshotSha,
+            });
+          }}
+        >
+          {t("checkpoint.undo-files")}
+        </button>
+      ) : null}
       {open && (
         <pre className="turn-diff-body">
           {loading && !diff ? (

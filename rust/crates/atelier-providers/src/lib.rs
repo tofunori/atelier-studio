@@ -31,4 +31,4 @@ pub use images::{generate_image, resolve_ark_api_key, resolve_ark_model, DEFAULT
 pub use opencode::OpenCodeProvider;
 pub use opencode_parse::{normalize_opencode_message, parse_opencode_jsonl};
 pub use registry::{build_registry, builtin_catalog, provider_status_list, ProviderId};
-pub use traits::{Provider, ProviderCaps, SendMode, SendRequest, SendResult};
+pub use traits::{InteractionFn, Provider, ProviderCaps, SendMode, SendRequest, SendResult};

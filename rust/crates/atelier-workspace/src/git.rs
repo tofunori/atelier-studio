@@ -591,6 +591,39 @@ pub fn snapshot(root: &str) -> Result<String> {
     Ok(sha)
 }
 
+pub fn changed_since(root: &str, sha: &str) -> Result<Vec<String>> {
+    let real = confined_root(root)?;
+    ensure_repo(&real)?;
+    if sha.len() < 4 || sha.len() > 64 || !sha.chars().all(|c| c.is_ascii_hexdigit()) {
+        return Err(msg("sha invalide"));
+    }
+    let commit_ref = format!("{sha}^{{commit}}");
+    let exists = git(&real, &["cat-file", "-e", &commit_ref], &[])?;
+    if !exists.status.success() {
+        return Err(msg("snapshot inconnu"));
+    }
+    let out = git(&real, &["diff", "--name-only", sha, "--"], &[])?;
+    if !out.status.success() {
+        return Err(msg("diff snapshot impossible"));
+    }
+    let mut changed = String::from_utf8_lossy(&out.stdout)
+        .lines()
+        .map(str::trim)
+        .filter(|path| !path.is_empty())
+        .map(str::to_string)
+        .collect::<Vec<_>>();
+    changed.extend(
+        status(root)?
+            .files
+            .into_iter()
+            .filter(|file| file.status == "?")
+            .map(|file| file.path),
+    );
+    changed.sort();
+    changed.dedup();
+    Ok(changed)
+}
+
 pub fn restore(root: &str, sha: &str) -> Result<()> {
     let real = confined_root(root)?;
     ensure_repo(&real)?;
@@ -686,6 +719,18 @@ mod tests {
             .output()
             .unwrap();
         dir
+    }
+
+    #[test]
+    fn changed_since_includes_tracked_and_new_untracked_paths() {
+        let dir = init_repo();
+        let sha = snapshot(dir.path().to_str().unwrap()).unwrap();
+        std::fs::write(dir.path().join("a.txt"), b"changed").unwrap();
+        std::fs::write(dir.path().join("new.txt"), b"new").unwrap();
+        assert_eq!(
+            changed_since(dir.path().to_str().unwrap(), &sha).unwrap(),
+            vec!["a.txt".to_string(), "new.txt".to_string()],
+        );
     }
 
     #[test]

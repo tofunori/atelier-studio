@@ -3,7 +3,8 @@
 // indicateur Working, chapitres épinglés, bouton « aller au dernier message ».
 // JSX déplacé VERBATIM depuis Chat.tsx ; les bundles sont déstructurés vers les
 // noms locaux d'origine pour garantir l'équivalence pixel.
-import React, { type ReactNode, type RefObject } from "react";
+import React, { type MutableRefObject, type ReactNode, type RefObject } from "react";
+import { LegendList, type LegendListRef } from "@legendapp/list/react";
 import { Tick } from "./toolPresentation";
 import { AgentEvent } from "../../lib/ws";
 import { t } from "../../lib/i18n";
@@ -16,17 +17,9 @@ import {
 import { ResearchHome, type ResearchHomeBundle } from "../ResearchHome";
 import { ThinkingBlock, EditLine, ActivityCard, LiveThinking, ReasoningTrace, Working, formatPermInput } from "./turnParts";
 import { HarnessInteraction } from "./HarnessInteraction";
+import { ProposedPlanCard } from "./ProposedPlanCard";
 import { JumpNavigation } from "../ui";
 import { Input } from "../shadcn/input";
-import {
-  MessageScroller,
-  MessageScrollerButton,
-  MessageScrollerContent,
-  MessageScrollerItem,
-  MessageScrollerProvider,
-  MessageScrollerViewport,
-  useMessageScroller,
-} from "../shadcn/message-scroller";
 
 export type ToolAction = Extract<AgentEvent, { kind: "tool" | "tool_update" }>;
 export type ActiveWorkHeaderItem = {
@@ -49,6 +42,11 @@ type RenderedItem =
   | ActiveReasoningItem
   | ActiveWorkHeaderItem
   | ActiveThinkingItem;
+
+type TimelineVirtualItem =
+  | { type: "empty"; key: "timeline-empty" }
+  | { type: "rendered"; key: string; item: RenderedItem }
+  | { type: "working"; key: "message-working" };
 
 export type TimelineThread = { threadId: string | null; events: AgentEvent[]; workingSince: number | null };
 export type TimelineReview = {
@@ -98,29 +96,26 @@ export type TimelineEmpty = {
   home?: ResearchHomeBundle | null;
 };
 
-function TimelineJumpNavigation(p: { lastUserMessageId: string | null }) {
-  const { scrollToMessage } = useMessageScroller();
+function TimelineJumpNavigation(p: { onLastUser: () => void; onBottom: () => void }) {
   return (
     <JumpNavigation
       firstLabel={t("chat.jump-last-message")}
       firstIcon={<svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round"><path d="M3.6 9.8L8 5.4l4.4 4.4" /></svg>}
       onFirst={() => {
-        if (p.lastUserMessageId) {
-          scrollToMessage(p.lastUserMessageId, { behavior: "smooth", align: "start" });
-        }
+        p.onLastUser();
       }}
       lastLabel={t("chat.jump-bottom")}
       lastIcon={<ArrowDownIcon />}
       lastControl={(
-        <MessageScrollerButton
-          direction="end"
-          behavior="smooth"
+        <button
+          type="button"
           className="ui-jumpnav-end"
           title={t("chat.jump-bottom")}
           aria-label={t("chat.jump-bottom")}
+          onClick={p.onBottom}
         >
           <ArrowDownIcon />
-        </MessageScrollerButton>
+        </button>
       )}
     />
   );
@@ -158,7 +153,41 @@ export function ChatTimeline(p: {
   for (let i = events.length - 1; i >= 0; i--) {
     if (events[i].kind === "user") { lastUserIndex = i; break; }
   }
-  const lastUserMessageId = lastUserIndex >= 0 ? `message-${lastUserIndex}` : null;
+  const timelineListRef = React.useRef<LegendListRef>(null);
+  const virtualItems = React.useMemo<TimelineVirtualItem[]>(() => {
+    const rows: TimelineVirtualItem[] = [];
+    if (!threadId || events.length === 0) rows.push({ type: "empty", key: "timeline-empty" });
+    for (const item of renderedEvents) {
+      if (item.type === "event" && item.event.kind === "goal") continue;
+      const key = item.type === "event" ? `event-${item.index}` : item.type === "fold" ? item.fold.key : item.key;
+      rows.push({ type: "rendered", key, item });
+    }
+    if (workingSince != null && !renderedEvents.some((item) => item.type === "active-header")) {
+      rows.push({ type: "working", key: "message-working" });
+    }
+    return rows;
+  }, [events.length, renderedEvents, threadId, workingSince]);
+  const virtualIndexForEvent = React.useCallback((eventIndex: number) => (
+    virtualItems.findIndex((row) => row.type === "rendered" && row.item.type === "event" && row.item.index === eventIndex)
+  ), [virtualItems]);
+  const lastUserVirtualIndex = lastUserIndex >= 0 ? virtualIndexForEvent(lastUserIndex) : -1;
+
+  React.useEffect(() => {
+    const native = timelineListRef.current?.getNativeScrollRef();
+    (messagesRef as MutableRefObject<HTMLDivElement | null>).current = native instanceof HTMLDivElement ? native : null;
+    return () => {
+      (messagesRef as MutableRefObject<HTMLDivElement | null>).current = null;
+    };
+  }, [messagesRef, threadId]);
+
+  const scrollToLastUser = React.useCallback(() => {
+    if (lastUserVirtualIndex >= 0) {
+      void timelineListRef.current?.scrollToIndex({ index: lastUserVirtualIndex, animated: true, viewPosition: 0 });
+    }
+  }, [lastUserVirtualIndex]);
+  const scrollToBottom = React.useCallback(() => {
+    void timelineListRef.current?.scrollToEnd({ animated: true });
+  }, []);
   return (
     <>
       {threadId && review && reviewMin && (
@@ -256,23 +285,28 @@ export function ChatTimeline(p: {
           ) : null}
         </div>
       )}
-      <MessageScrollerProvider
-        key={threadId ?? "atelier-home"}
-        autoScroll
-        defaultScrollPosition="end"
-        scrollEdgeThreshold={80}
-      >
       <div className="timeline-scroll-wrap">
-      <MessageScroller className="messages-scroller">
-      <MessageScrollerViewport
+      <LegendList
+        key={threadId ?? "atelier-home"}
+        ref={timelineListRef}
+        data={virtualItems}
+        keyExtractor={(row) => row.key}
+        estimatedItemSize={90}
+        estimatedListSize={{ height: 800, width: 760 }}
+        alwaysRender={{ bottom: 12 }}
+        recycleItems={false}
+        initialScrollAtEnd
+        alignItemsAtEnd
+        maintainScrollAtEnd
+        maintainScrollAtEndThreshold={0.1}
+        maintainVisibleContentPosition
         className="messages"
-        ref={messagesRef}
         aria-label={t("chat.jump-bottom")}
         onMouseUp={onMessagesMouseUp}
-      >
-      <MessageScrollerContent className="messages-content">
-        {(!threadId || events.length === 0) && (
-          <MessageScrollerItem messageId="timeline-empty">
+        renderItem={({ item: row }) => {
+          if (row.type === "empty") {
+            return (
+              <div className="timeline-virtual-row" id="timeline-empty" data-message-id="timeline-empty">
             {!threadId && p.empty.home ? (
               // plan 017 : l'accueil remplace l'empty-card UNIQUEMENT sans thread
               // actif ; il s'efface dès qu'un thread est sélectionné
@@ -285,17 +319,28 @@ export function ChatTimeline(p: {
                 onOpenProject={onOpenProject}
               />
             )}
-          </MessageScrollerItem>
-        )}
-        {renderedEvents.map((item) => {
-          if (item.type === "event" && item.event.kind === "goal") return null;
-          const itemKey = item.type === "event" ? `event-${item.index}` : item.type === "fold" ? item.fold.key : item.key;
-          const messageId = item.type === "event" ? `message-${item.index}` : `message-${itemKey}`;
+              </div>
+            );
+          }
+          if (row.type === "working") {
+            return (
+              <div className="timeline-virtual-row" id="message-working" data-message-id="message-working">
+                <div className="working-stack">
+                  <div className="working-row">
+                    <Working since={workingSince!} />
+                  </div>
+                  <LiveThinking />
+                  <button type="button" className="stop-hint" title={t("action.interrupt")} onClick={onStop}>
+                    <kbd>esc</kbd> {t("action.interrupt")}
+                  </button>
+                </div>
+              </div>
+            );
+          }
+          const item = row.item;
+          const messageId = item.type === "event" ? `message-${item.index}` : `message-${row.key}`;
           return (
-          <MessageScrollerItem
-            key={itemKey}
-            messageId={messageId}
-          >
+          <div className="timeline-virtual-row" id={messageId} data-message-id={messageId}>
           {(() => {
           if (item.type === "fold") {
             const { fold, open } = item;
@@ -458,6 +503,8 @@ export function ChatTimeline(p: {
             );
           if (e.kind === "interaction")
             return <HarnessInteraction key={e.requestId} event={e} threadId={threadId} />;
+          if (e.kind === "proposed_plan")
+            return <ProposedPlanCard key={e.planId} event={e} threadId={threadId} />;
           if (e.kind === "tool" || e.kind === "tool_update") return renderToolLine(e, i);
           if (e.kind === "edit") return <EditLine key={i} event={e} threadId={threadId} />;
           if (e.kind === "todos")
@@ -510,26 +557,11 @@ export function ChatTimeline(p: {
           }
           return null;
           })()}
-          </MessageScrollerItem>
-          );
-        })}
-        {workingSince != null && !renderedEvents.some((item) => item.type === "active-header") && (
-          <MessageScrollerItem messageId="message-working">
-          <div className="working-stack">
-            <div className="working-row">
-              <Working since={workingSince} />
-            </div>
-            <LiveThinking />
-            <button type="button" className="stop-hint" title={t("action.interrupt")} onClick={onStop}>
-              <kbd>esc</kbd> {t("action.interrupt")}
-            </button>
           </div>
-          </MessageScrollerItem>
-        )}
-      </MessageScrollerContent>
-      </MessageScrollerViewport>
-      <TimelineJumpNavigation lastUserMessageId={lastUserMessageId} />
-      </MessageScroller>
+          );
+        }}
+      />
+      <TimelineJumpNavigation onLastUser={scrollToLastUser} onBottom={scrollToBottom} />
       {pins.length > 0 && (
         <div className={`chapters${threadId && review ? " below-reviewer" : ""}`}>
           {[...pins].sort((a, b) => (tickPos[a.index] ?? a.index) - (tickPos[b.index] ?? b.index)).map((c) => (
@@ -537,7 +569,12 @@ export function ChatTimeline(p: {
               key={c.index}
               className="chapter-tick"
               onClick={() => {
-                resolvePinEl(c.index, c.label, (c as any).anchor)?.scrollIntoView({ behavior: "smooth", block: "start" });
+                const index = virtualIndexForEvent(c.index);
+                if (index >= 0) {
+                  void timelineListRef.current?.scrollToIndex({ index, animated: true, viewPosition: 0 }).then(() => {
+                    resolvePinEl(c.index, c.label, (c as any).anchor)?.scrollIntoView({ behavior: "smooth", block: "start" });
+                  });
+                }
               }}
               onContextMenu={(e) => {
                 e.preventDefault();
@@ -660,7 +697,6 @@ export function ChatTimeline(p: {
         </div>
       )}
       </div>
-      </MessageScrollerProvider>
     </>
   );
 }

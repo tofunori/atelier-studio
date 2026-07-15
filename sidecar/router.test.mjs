@@ -470,6 +470,51 @@ describe("attribution des tours (plan 025)", () => {
     expect(dones[1].meta?.turnId).toBe(users[1].meta.turnId);
   });
 
+  it("mode plan : transforme le texte final en artefact proposed_plan durable", async () => {
+    const sends = [];
+    const { ctx, emitted } = makeTurnCtx({
+      providerImpl: { send: (opts) => sends.push(opts) },
+    });
+
+    await route({
+      type: "send", provider: "claude", threadId: "t-plan", projectRoot: "/p",
+      prompt: "prépare le plan", clientMessageId: "m-plan", permissionMode: "plan",
+      displayEvent: { kind: "user", text: "prépare le plan" },
+    }, ctx);
+    await sends[0].onEvent({ kind: "text", text: "# Plan\n\n1. Auditer\n2. Corriger" });
+    await sends[0].onEvent({ kind: "done", ok: true, result: "" });
+    await flush();
+
+    const plan = emitted.find((message) => message.type === "event" && message.event?.kind === "proposed_plan")?.event;
+    expect(plan).toMatchObject({
+      markdown: "# Plan\n\n1. Auditer\n2. Corriger",
+      provider: "claude",
+      source: "plan-mode",
+    });
+    expect(plan.planId).toMatch(/^plan-/);
+    expect(plan.meta?.durable).toBe(true);
+  });
+
+  it("done : expose le checkpoint du tour et les fichiers réellement changés", async () => {
+    const sends = [];
+    const { ctx, emitted, gitops } = makeTurnCtx({
+      providerImpl: { send: (opts) => sends.push(opts) },
+    });
+    gitops.changedSince.mockResolvedValue(["src/a.ts", "README.md"]);
+
+    await route({
+      type: "send", provider: "claude", threadId: "t-checkpoint", projectRoot: "/p",
+      prompt: "modifie", clientMessageId: "m-checkpoint",
+      displayEvent: { kind: "user", text: "modifie" },
+    }, ctx);
+    await sends[0].onEvent({ kind: "done", ok: true, result: "fait" });
+    await flush();
+
+    const done = doneEvents(emitted)[0];
+    expect(done.filesChanged).toEqual(["src/a.ts", "README.md"]);
+    expect(done.checkpoint).toEqual({ snapshotSha: "s".repeat(40), filesChanged: ["src/a.ts", "README.md"] });
+  });
+
   it("steer refusé par le provider → queue avec le MÊME messageId, sans double bulle user", async () => {
     const runs = [];
     const { ctx, emitted } = makeTurnCtx({
@@ -594,11 +639,12 @@ describe("sélection de tour — repli lastTurn (pièges connus : démotion read
     expect(ctx.store.get("t-title").title).toBe("Analyse spectrale hivernale");
   });
 
-  it("refuse un changement de provider même lorsque le thread est au repos", async () => {
+  it("change de provider au repos sans réutiliser la session native précédente", async () => {
     const sends = [];
     const runs = [];
+    const endClaude = vi.fn();
     const { ctx, emitted } = makeCtx({
-      claude: { send: (opts) => sends.push(opts) },
+      claude: { send: (opts) => sends.push(opts), endSession: endClaude },
       codex: { run: vi.fn((opts) => { runs.push(opts); return Promise.resolve({ sessionId: "s2" }); }) },
     });
     await route({
@@ -610,7 +656,7 @@ describe("sélection de tour — repli lastTurn (pièges connus : démotion read
     await flush();
     await sends[0].onEvent({ kind: "done", ok: true, result: "" });
     await flush();
-    // un chat Claude reste Claude : Codex exige un nouveau thread
+    // le transcript reste le même, mais Codex doit repartir sans l'UUID Claude
     await route({
       type: "send", provider: "codex", threadId: "t-ho", projectRoot: "/p",
       prompt: "renvoi nu", clientMessageId: "m2",
@@ -618,12 +664,11 @@ describe("sélection de tour — repli lastTurn (pièges connus : démotion read
     }, ctx);
     await flush();
 
-    expect(runs).toHaveLength(0);
-    expect(emitted).toContainEqual(expect.objectContaining({
-      type: "error",
-      threadId: "t-ho",
-      message: expect.stringContaining("appartient à claude"),
-    }));
+    expect(runs).toHaveLength(1);
+    expect(runs[0].sessionId).toBeNull();
+    expect(endClaude).toHaveBeenCalledWith("t-ho");
+    expect(ctx.store.get("t-ho")).toMatchObject({ provider: "codex" });
+    expect(emitted).not.toContainEqual(expect.objectContaining({ type: "error", threadId: "t-ho" }));
   });
 
   it("goalGet/codexCompact : transmettent le permissionMode du thread au provider", async () => {

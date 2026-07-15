@@ -2,7 +2,12 @@
 
 use async_trait::async_trait;
 use serde_json::Value;
+use std::future::Future;
+use std::pin::Pin;
 use std::sync::Arc;
+
+pub type InteractionFuture = Pin<Box<dyn Future<Output = Option<Value>> + Send>>;
+pub type InteractionFn = Arc<dyn Fn(String, Value) -> InteractionFuture + Send + Sync>;
 
 #[derive(Debug, Clone)]
 pub struct ProviderCaps {
@@ -28,6 +33,9 @@ pub struct SendRequest {
     pub mode: SendMode,
     /// Called with each provider-native event (undecorated kind payload).
     pub on_event: Arc<dyn Fn(Value) + Send + Sync>,
+    /// Provider server request → interaction utilisateur. `None` signifie
+    /// refus sûr ou absence d'interface interactive.
+    pub on_interaction: Option<InteractionFn>,
     /// Cancel probe — return true to stop generation.
     pub is_cancelled: Arc<dyn Fn() -> bool + Send + Sync>,
 }

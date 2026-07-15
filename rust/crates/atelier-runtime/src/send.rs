@@ -2,7 +2,7 @@
 
 use crate::state::AppState;
 use atelier_harness::EmitFn;
-use atelier_providers::{provider_status_list, SendMode, SendRequest};
+use atelier_providers::{provider_status_list, InteractionFn, SendMode, SendRequest};
 use serde_json::{json, Value};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
@@ -133,6 +133,179 @@ fn make_emit(state: AppState, thread_id: String) -> EmitFn {
     })
 }
 
+fn describe_server_request(method: &str, params: &Value) -> Option<Value> {
+    let approval = matches!(
+        method,
+        "execCommandApproval" | "applyPatchApproval"
+            | "item/commandExecution/requestApproval"
+            | "item/fileChange/requestApproval"
+            | "item/permissions/requestApproval"
+    );
+    if approval {
+        let detail = params
+            .get("command")
+            .and_then(Value::as_str)
+            .or_else(|| params.get("path").and_then(Value::as_str))
+            .or_else(|| params.get("file").and_then(Value::as_str))
+            .map(str::to_string)
+            .or_else(|| params.get("permissions").map(Value::to_string))
+            .unwrap_or_default();
+        return Some(json!({
+            "interactionType": "approval",
+            "title": if method.contains("fileChange") || method == "applyPatchApproval" {
+                "Modification de fichiers"
+            } else if method == "item/permissions/requestApproval" {
+                "Permissions additionnelles"
+            } else {
+                "Exécution de commande"
+            },
+            "detail": detail.chars().take(400).collect::<String>(),
+            "itemId": params.get("itemId").cloned().unwrap_or(Value::Null),
+        }));
+    }
+    if method == "item/tool/requestUserInput" {
+        let fields = params
+            .get("questions")
+            .and_then(Value::as_array)
+            .into_iter()
+            .flatten()
+            .take(3)
+            .map(|question| json!({
+                "id": question.get("id").and_then(Value::as_str).unwrap_or(""),
+                "question": question.get("question").and_then(Value::as_str).unwrap_or(""),
+                "header": question.get("header").cloned().unwrap_or(Value::Null),
+                "options": question.get("options").cloned().unwrap_or_else(|| json!([])),
+                "allowOther": question.get("isOther").and_then(Value::as_bool).unwrap_or(false),
+                "secret": question.get("isSecret").and_then(Value::as_bool).unwrap_or(false),
+            }))
+            .collect::<Vec<_>>();
+        return Some(json!({
+            "interactionType":"user_input",
+            "title":"L'agent a besoin d'une réponse",
+            "fields": fields,
+            "itemId": params.get("itemId").cloned().unwrap_or(Value::Null),
+        }));
+    }
+    if method == "mcpServer/elicitation/request" {
+        return Some(json!({
+            "interactionType":"mcp_elicitation",
+            "title": format!("MCP {}", params.get("serverName").and_then(Value::as_str).unwrap_or("?")),
+            "detail": params.get("message").and_then(Value::as_str).unwrap_or(""),
+            "urlDomain": params.get("url").and_then(Value::as_str).unwrap_or(""),
+        }));
+    }
+    None
+}
+
+fn summarize_interaction(spec: &Value, response: &Value) -> String {
+    match spec.get("interactionType").and_then(Value::as_str) {
+        Some("approval") => {
+            if response.get("cancelTurn").and_then(Value::as_bool) == Some(true) {
+                "tour annulé".into()
+            } else if response.get("allow").and_then(Value::as_bool) == Some(true) {
+                if response.get("scope").and_then(Value::as_str) == Some("session") {
+                    "toujours autorisé pour cette session".into()
+                } else {
+                    "autorisé une fois".into()
+                }
+            } else {
+                "refusé".into()
+            }
+        }
+        Some("mcp_elicitation") => {
+            if response.get("action").and_then(Value::as_str) == Some("accept") {
+                "accepté".into()
+            } else { "refusé".into() }
+        }
+        _ => {
+            let answers = response.get("answers").and_then(Value::as_object);
+            spec.get("fields")
+                .and_then(Value::as_array)
+                .into_iter()
+                .flatten()
+                .filter_map(|field| {
+                    let id = field.get("id").and_then(Value::as_str)?;
+                    let answer = answers?.get(id)?.as_str()?;
+                    let label = field.get("header").and_then(Value::as_str).unwrap_or(id);
+                    let shown: String = if field.get("secret").and_then(Value::as_bool) == Some(true) {
+                        "•••".into()
+                    } else {
+                        answer.chars().take(60).collect()
+                    };
+                    Some(format!("{label}: {shown}"))
+                })
+                .collect::<Vec<_>>()
+                .join(" · ")
+                .chars()
+                .take(200)
+                .collect()
+        }
+    }
+}
+
+fn make_interaction_relay(
+    state: AppState,
+    thread_id: String,
+    tx: tokio::sync::mpsc::UnboundedSender<Value>,
+) -> InteractionFn {
+    Arc::new(move |method: String, params: Value| {
+        let state = state.clone();
+        let thread_id = thread_id.clone();
+        let tx = tx.clone();
+        Box::pin(async move {
+            let spec = describe_server_request(&method, &params)?;
+            if spec.get("interactionType").and_then(Value::as_str) == Some("approval")
+                && state.approval_sessions().lock().await.contains(&thread_id)
+            {
+                return Some(json!({"allow":true,"scope":"session"}));
+            }
+            let request_id = format!("int-{}", uuid::Uuid::new_v4());
+            let (answer_tx, answer_rx) = tokio::sync::oneshot::channel();
+            let client_instance_id = state.client_instance_id().lock().await.clone();
+            state.interaction_waiters().lock().await.insert(
+                request_id.clone(),
+                crate::state::InteractionWaiter {
+                    thread_id: thread_id.clone(),
+                    client_instance_id,
+                    tx: answer_tx,
+                },
+            );
+            let mut pending = spec.clone();
+            if let Some(obj) = pending.as_object_mut() {
+                obj.insert("kind".into(), json!("interaction"));
+                obj.insert("requestId".into(), json!(request_id));
+                obj.insert("state".into(), json!("pending"));
+            }
+            let _ = tx.send(pending);
+            match tokio::time::timeout(std::time::Duration::from_secs(120), answer_rx).await {
+                Ok(Ok(response)) => {
+                    let answer_summary = summarize_interaction(&spec, &response);
+                    let mut answered = spec;
+                    if let Some(obj) = answered.as_object_mut() {
+                        obj.insert("kind".into(), json!("interaction"));
+                        obj.insert("requestId".into(), json!(request_id));
+                        obj.insert("state".into(), json!("answered"));
+                        obj.insert("answerSummary".into(), json!(answer_summary));
+                    }
+                    let _ = tx.send(answered);
+                    Some(response)
+                }
+                _ => {
+                    state.interaction_waiters().lock().await.remove(&request_id);
+                    let mut expired = spec;
+                    if let Some(obj) = expired.as_object_mut() {
+                        obj.insert("kind".into(), json!("interaction"));
+                        obj.insert("requestId".into(), json!(request_id));
+                        obj.insert("state".into(), json!("expired"));
+                    }
+                    let _ = tx.send(expired);
+                    None
+                }
+            }
+        })
+    })
+}
+
 /// Handle `send` WS message. Returns immediate replies; streaming events go via bus.
 pub async fn handle_send(state: &AppState, msg: &Value) -> Vec<String> {
     let thread_id = msg
@@ -167,16 +340,13 @@ pub async fn handle_send(state: &AppState, msg: &Value) -> Vec<String> {
     let auto_title = should_auto_title(previous.as_ref(), title.as_deref());
     let provisional_title = first_message.chars().take(40).collect::<String>();
 
-    // A conversation belongs to the provider selected when it was created.
-    // Reject stale clients as well as deliberate cross-provider handoffs.
-    if let Some(previous) = previous.as_ref() {
-        if previous.provider != provider {
-            return vec![err_json(format!(
-                "ce chat appartient à {}; créez un nouveau chat pour utiliser {provider}",
-                previous.provider
-            ))];
-        }
-    }
+    // Comme Synara, le provider est un choix du tour, pas une propriété
+    // irréversible de la conversation. Le frontend injecte un handoff textuel
+    // lorsque le moteur change; la session native de l'ancien provider ne doit
+    // en revanche jamais être réutilisée par le nouveau.
+    let provider_switched = previous
+        .as_ref()
+        .is_some_and(|thread| thread.provider != provider);
 
     let provider_prompt = previous
         .as_ref()
@@ -215,6 +385,9 @@ pub async fn handle_send(state: &AppState, msg: &Value) -> Vec<String> {
             "provider": provider,
             "status": "running",
         });
+        if provider_switched {
+            patch["sessionId"] = Value::Null;
+        }
         if let Some(t) = title.or_else(|| {
             prev.as_ref()
                 .map(|p| p.title.clone())
@@ -267,6 +440,7 @@ pub async fn handle_send(state: &AppState, msg: &Value) -> Vec<String> {
                 .get(&thread_id)
                 .and_then(|t| t.session_id.clone());
             let tx = ev_tx.clone();
+            let interaction = make_interaction_relay(state.clone(), thread_id.clone(), ev_tx.clone());
             let req = SendRequest {
                 thread_id: thread_id.clone(),
                 turn_id: turn_id.clone(),
@@ -290,6 +464,7 @@ pub async fn handle_send(state: &AppState, msg: &Value) -> Vec<String> {
                 on_event: Arc::new(move |ev| {
                     let _ = tx.send(ev);
                 }),
+                on_interaction: Some(interaction),
                 is_cancelled: Arc::new(move || cancelled_probe.load(Ordering::SeqCst)),
             };
             // Pump events into harness
@@ -329,6 +504,22 @@ pub async fn handle_send(state: &AppState, msg: &Value) -> Vec<String> {
     }
 
     // Start new turn
+    let snapshot_sha = if project_root.is_empty() {
+        None
+    } else {
+        let root = project_root.clone();
+        tokio::task::spawn_blocking(move || atelier_workspace::snapshot(&root))
+            .await
+            .ok()
+            .and_then(Result::ok)
+    };
+    if let Some(snapshot) = snapshot_sha.as_ref() {
+        let _ = state
+            .threads()
+            .lock()
+            .await
+            .upsert(json!({"id":thread_id,"lastSnapshot":snapshot}), true);
+    }
     let turn_id = {
         let mut guard = h.lock().await;
         guard.start_turn(None, client_mid.as_deref(), Some(user_event))
@@ -344,12 +535,16 @@ pub async fn handle_send(state: &AppState, msg: &Value) -> Vec<String> {
     let tid = thread_id.clone();
     let h2 = Arc::clone(&h);
     let pimpl = Arc::clone(&provider_impl);
-    let session_id = state
-        .threads()
-        .lock()
-        .await
-        .get(&thread_id)
-        .and_then(|t| t.session_id.clone());
+    let session_id = if provider_switched {
+        None
+    } else {
+        state
+            .threads()
+            .lock()
+            .await
+            .get(&thread_id)
+            .and_then(|t| t.session_id.clone())
+    };
     let model = msg
         .get("model")
         .and_then(|v| v.as_str())
@@ -367,9 +562,16 @@ pub async fn handle_send(state: &AppState, msg: &Value) -> Vec<String> {
     let h_pump = Arc::clone(&h2);
     let turn_pump = turn_id.clone();
     let project_root_events = project_root.clone();
+    let permission_mode_events = permission_mode.clone();
+    let snapshot_events = snapshot_sha.clone();
     tokio::spawn(async move {
         while let Some(ev) = ev_rx.recv().await {
-            let ev = normalize_provider_event(ev, &project_root_events);
+            let ev = normalize_provider_event(
+                ev,
+                &project_root_events,
+                permission_mode_events.as_deref(),
+                snapshot_events.as_deref(),
+            );
             let mut g = h_pump.lock().await;
             let kind = ev.get("kind").and_then(|v| v.as_str()).unwrap_or("");
             if kind == "done" || kind == "error" {
@@ -398,6 +600,9 @@ pub async fn handle_send(state: &AppState, msg: &Value) -> Vec<String> {
     });
 
     tokio::spawn(async move {
+        let fallback_root = project_root.clone();
+        let fallback_snapshot = snapshot_sha.clone();
+        let interaction = make_interaction_relay(state2.clone(), tid.clone(), ev_tx.clone());
         let req = SendRequest {
             thread_id: tid.clone(),
             turn_id: turn_id.clone(),
@@ -412,6 +617,7 @@ pub async fn handle_send(state: &AppState, msg: &Value) -> Vec<String> {
             on_event: Arc::new(move |ev| {
                 let _ = ev_tx.send(ev);
             }),
+            on_interaction: Some(interaction),
             is_cancelled: Arc::new(move || cancelled_probe.load(Ordering::SeqCst)),
         };
         let result = pimpl.send(req).await;
@@ -420,7 +626,15 @@ pub async fn handle_send(state: &AppState, msg: &Value) -> Vec<String> {
             let mut g = h2.lock().await;
             if g.turn_status(&turn_id) != Some(atelier_harness::TurnStatus::Done) {
                 if result.ok {
-                    g.terminal(&turn_id, json!({"kind":"done"}));
+                    g.terminal(
+                        &turn_id,
+                        normalize_provider_event(
+                            json!({"kind":"done","ok":true,"result":""}),
+                            &fallback_root,
+                            None,
+                            fallback_snapshot.as_deref(),
+                        ),
+                    );
                 } else {
                     g.terminal(
                         &turn_id,
@@ -487,7 +701,38 @@ pub async fn handle_interrupt(state: &AppState, msg: &Value) -> Vec<String> {
     vec![]
 }
 
-fn normalize_provider_event(mut event: Value, project_root: &str) -> Value {
+fn normalize_provider_event(
+    mut event: Value,
+    project_root: &str,
+    permission_mode: Option<&str>,
+    snapshot_sha: Option<&str>,
+) -> Value {
+    if permission_mode == Some("plan")
+        && event.get("kind").and_then(Value::as_str) == Some("text")
+    {
+        return json!({
+            "kind":"proposed_plan",
+            "planId": format!("plan-{}", uuid::Uuid::new_v4()),
+            "markdown": event.get("text").and_then(Value::as_str).unwrap_or(""),
+            "source":"plan-mode",
+        });
+    }
+    if event.get("kind").and_then(Value::as_str) == Some("done") {
+        let files_changed = snapshot_sha
+            .and_then(|sha| atelier_workspace::changed_since(project_root, sha).ok())
+            .unwrap_or_default();
+        if let Some(obj) = event.as_object_mut() {
+            obj.insert("projectRoot".into(), json!(project_root));
+            obj.insert("filesChanged".into(), json!(files_changed));
+            if let Some(sha) = snapshot_sha {
+                obj.insert("checkpoint".into(), json!({
+                    "snapshotSha":sha,
+                    "filesChanged":files_changed,
+                }));
+            }
+        }
+        return event;
+    }
     if event.get("kind").and_then(Value::as_str) != Some("edit") {
         return event;
     }
@@ -622,7 +867,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn rejects_provider_change_for_an_existing_chat() {
+    async fn switches_provider_without_reusing_the_previous_native_session() {
         let dir = tempdir().unwrap();
         let state = AppState::new(
             AppPaths::from_app_dir(dir.path().to_path_buf()),
@@ -636,7 +881,7 @@ mod tests {
             .threads()
             .lock()
             .await
-            .upsert(json!({"id":"t-locked","provider":"claude"}), false)
+            .upsert(json!({"id":"t-locked","provider":"claude","sessionId":"claude-session"}), false)
             .unwrap();
 
         let out = handle_send(
@@ -651,18 +896,14 @@ mod tests {
         )
         .await;
 
-        assert!(out[0].contains("appartient à claude"), "{out:?}");
-        assert!(!state.harness().is_running("t-locked").await);
-        assert_eq!(
-            state
-                .threads()
-                .lock()
-                .await
-                .get("t-locked")
-                .unwrap()
-                .provider,
-            "claude"
-        );
+        assert!(out[0].contains("threads"), "{out:?}");
+        for _ in 0..50 {
+            if !state.harness().is_running("t-locked").await { break; }
+            tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+        }
+        let thread = state.threads().lock().await.get("t-locked").cloned().unwrap();
+        assert_eq!(thread.provider, "fake");
+        assert_ne!(thread.session_id.as_deref(), Some("claude-session"));
     }
 
     #[tokio::test]
@@ -693,6 +934,8 @@ mod tests {
         let event = normalize_provider_event(
             json!({"kind":"edit","files":["/repo/src/App.tsx", {"path":"src/lib/ws.ts","add":2}]}),
             "/repo",
+            None,
+            None,
         );
         assert_eq!(
             event["files"],
@@ -702,6 +945,19 @@ mod tests {
             ])
         );
         assert_eq!(event["projectRoot"], "/repo");
+    }
+
+    #[test]
+    fn plan_mode_turns_final_text_into_a_durable_plan_artifact() {
+        let event = normalize_provider_event(
+            json!({"kind":"text","text":"# Plan\n\n1. Auditer"}),
+            "/repo",
+            Some("plan"),
+            None,
+        );
+        assert_eq!(event["kind"], "proposed_plan");
+        assert_eq!(event["markdown"], "# Plan\n\n1. Auditer");
+        assert!(event["planId"].as_str().unwrap().starts_with("plan-"));
     }
 
     #[test]
