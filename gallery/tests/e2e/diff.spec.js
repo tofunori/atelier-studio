@@ -102,7 +102,7 @@ async function withEditor(kind, run, engine = 'cm6') {
     await run({ root, filePath, texPath: filePath, port, url, kind, initialText: editor.initialText });
   } finally {
     await stopServer(server);
-    rmSync(root, { recursive: true, force: true });
+    rmSync(root, { recursive: true, force: true, maxRetries: 4, retryDelay: 100 });
   }
 }
 
@@ -230,9 +230,36 @@ test('clic Edited ouvre le snapshot avant-tour en diff lecture seule', async ({p
     await githead;
     await expect(page.locator('#diffTag')).toHaveClass(/on/);
     await expect.poll(() => page.evaluate(() => cm.getOption('readOnly'))).toBe(true);
-    await expect.poll(() => page.locator('.dAddM').count()).toBeGreaterThan(0);
+    await expect.poll(() => page.locator('.cm-changedLine, .cm-inlineChangedLine').count()).toBeGreaterThan(0);
   });
 });
+
+for (const kind of ['code', 'latex']) {
+  test(`review CodeMirror affiche le snapshot ${kind} avec Unified, Split et wrap`, async ({page}) => {
+    await withEditor(kind, async ({root, filePath, port, initialText}) => {
+      const baseSha = execFileSync('git', ['rev-parse', 'HEAD'], {cwd: root, encoding: 'utf8'}).trim();
+      const changed = kind === 'latex'
+        ? initialText.replace('\\section{Observations}', '\\section{Observations révisées}')
+        : initialText.replace('return albedo, temperature', 'return albedo, temperature, "agent"');
+      writeFileSync(filePath, changed);
+      const reviewUrl = `http://127.0.0.1:${port}/.fig_thumbs/diff_viewer.html?path=${encodeURIComponent(filePath)}&base=${baseSha}`;
+
+      await page.goto(reviewUrl);
+      await expect.poll(() => page.locator('html').getAttribute('data-diff-ready'), {timeout: 15000}).toBe('true');
+      await expect(page.locator('#diffHost .cm-editor')).toBeVisible();
+      await expect(page.locator('#summary')).toContainText('1 file changed');
+      await expect(page.locator('#additions')).not.toHaveText('+0');
+      await expect(page.locator('#deletions')).not.toHaveText('−0');
+      await expect(page.locator('#diffHost .cm-content')).toContainText(kind === 'latex' ? 'Observations révisées' : '"agent"');
+
+      await page.locator('#splitButton').click();
+      await expect(page.locator('#splitButton')).toHaveAttribute('aria-pressed', 'true');
+      await expect(page.locator('#diffHost .cm-mergeView')).toBeVisible();
+      await page.locator('#wrapButton').click();
+      await expect(page.locator('#wrapButton')).toHaveAttribute('aria-pressed', 'false');
+    });
+  });
+}
 
 async function replaceTextAndSave(page, text) {
   await page.evaluate(nextText => {
@@ -469,8 +496,11 @@ for (const engine of ['cm5', 'cm6']) {
         const gutterMarker = page.locator('.dv-cell').first();
         await expect(gutterMarker).toBeVisible();
         // For this fixed fixture the first rendered gutter cell opens the
-        // Summer-temperatures change (zero-based document line 2).
-        const expectedMarkerLine = 2;
+        // marker's semantic target in CM6. CM5 keeps its historical gutter
+        // geometry behavior, which resolves the same click to the next row.
+        const expectedMarkerLine = engine === 'cm6'
+          ? Number(await gutterMarker.getAttribute('data-open-line')) : 2;
+        const expectedFlashText = engine === 'cm6' ? 'surface' : 'temperatures';
         await page.evaluate(() => {
           cm.setCursor({line: cm.lastLine(), ch: 0});
           window.__gutterScrollTargets = [];
@@ -485,7 +515,7 @@ for (const engine of ['cm5', 'cm6']) {
             marker.dispatchEvent(new MouseEvent('click', {bubbles: true, cancelable: true}));
           }, 0);
         });
-        await expect(page.locator('.dv-flash').first()).toContainText('temperatures');
+        await expect(page.locator('.dv-flash').first()).toContainText(expectedFlashText);
         await expect.poll(() => page.evaluate(() => window.__gutterScrollTargets.at(-1)?.line))
           .toBe(expectedMarkerLine);
         await expect(page.locator('#dvNav .dvNavC')).toHaveText('tout · 1');

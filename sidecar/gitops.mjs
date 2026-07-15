@@ -1,5 +1,5 @@
 import { execFile } from "node:child_process";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { existsSync, realpathSync, rmSync } from "node:fs";
 import { isAbsolute, join, resolve, relative, sep } from "node:path";
 import { tmpdir } from "node:os";
@@ -216,6 +216,43 @@ export async function diffStaged(root, filePath = null) {
   if (relPath) args.push(relPath);
   const { stdout } = await git(realRoot, args);
   return stdout;
+}
+
+function decodedDiffContent(buffer) {
+  const bytes = Buffer.isBuffer(buffer) ? buffer : Buffer.from(buffer ?? "");
+  if (bytes.includes(0)) return { text: "", binary: true };
+  return { text: bytes.toString("utf8"), binary: false };
+}
+
+async function gitObject(root, spec) {
+  try {
+    const { stdout } = await git(root, ["show", spec], { encoding: "buffer" });
+    return stdout;
+  } catch {
+    return Buffer.alloc(0);
+  }
+}
+
+/** Exact documents consumed by CodeMirror's merge view for one file. */
+export async function diffContents(root, filePath, { scope = "changes", base = null } = {}) {
+  const realRoot = confinedRoot(root);
+  await ensureRepo(realRoot);
+  const rel = assertRelativePath(realRoot, filePath);
+  if (base != null && !/^[0-9a-f]{4,64}$/i.test(String(base))) throw new Error("sha invalide");
+  if (base) await git(realRoot, ["cat-file", "-e", `${base}^{commit}`]);
+
+  const beforeBytes = base
+    ? await gitObject(realRoot, `${base}:${rel}`)
+    : await hasHead(realRoot) ? await gitObject(realRoot, `HEAD:${rel}`) : Buffer.alloc(0);
+  let afterBytes;
+  if (scope === "staged") afterBytes = await gitObject(realRoot, `:${rel}`);
+  else {
+    try { afterBytes = await readFile(resolve(realRoot, rel)); }
+    catch { afterBytes = Buffer.alloc(0); }
+  }
+  const before = decodedDiffContent(beforeBytes);
+  const after = decodedDiffContent(afterBytes);
+  return { before: before.text, after: after.text, binary: before.binary || after.binary };
 }
 
 export async function changedSince(root, sha) {

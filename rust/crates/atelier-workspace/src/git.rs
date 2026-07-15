@@ -376,6 +376,74 @@ pub fn diff_staged(root: &str, file_path: Option<&str>) -> Result<String> {
     git_ok(&real, &refs)
 }
 
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DiffContents {
+    pub before: String,
+    pub after: String,
+    pub binary: bool,
+}
+
+fn git_object(root: &Path, spec: &str) -> Vec<u8> {
+    git(root, &["show", spec], &[])
+        .ok()
+        .filter(|output| output.status.success())
+        .map(|output| output.stdout)
+        .unwrap_or_default()
+}
+
+fn decode_diff_content(bytes: Vec<u8>) -> (String, bool) {
+    if bytes.contains(&0) {
+        (String::new(), true)
+    } else {
+        (String::from_utf8_lossy(&bytes).into_owned(), false)
+    }
+}
+
+/// Exact before/after documents used by the shared CodeMirror merge view.
+pub fn diff_contents(
+    root: &str,
+    file_path: &str,
+    scope: &str,
+    base: Option<&str>,
+) -> Result<DiffContents> {
+    let project = confined_root(root)?;
+    let top = git_ok(&project, &["rev-parse", "--show-toplevel"])
+        .map_err(|_| msg(format!("repo git introuvable: {}", project.display())))?;
+    let real = std::fs::canonicalize(top.trim())?;
+    if !project.starts_with(&real) {
+        return Err(msg("projet hors repo git"));
+    }
+    let within_project = assert_relative(&project, file_path)?;
+    let prefix = project.strip_prefix(&real).unwrap_or(Path::new(""))
+        .to_string_lossy().replace('\\', "/");
+    let rel = if prefix.is_empty() { within_project } else { format!("{prefix}/{within_project}") };
+    if let Some(sha) = base {
+        if sha.len() < 4 || sha.len() > 64 || !sha.chars().all(|c| c.is_ascii_hexdigit()) {
+            return Err(msg("sha invalide"));
+        }
+        let commit = format!("{sha}^{{commit}}");
+        if !git(&real, &["cat-file", "-e", &commit], &[])?.status.success() {
+            return Err(msg("sha introuvable"));
+        }
+    }
+    let before_bytes = if let Some(sha) = base {
+        git_object(&real, &format!("{sha}:{rel}"))
+    } else if has_head(&real) {
+        git_object(&real, &format!("HEAD:{rel}"))
+    } else {
+        Vec::new()
+    };
+    let after_bytes = if scope == "staged" {
+        git_object(&real, &format!(":{rel}"))
+    } else {
+        std::fs::read(real.join(&rel)).unwrap_or_default()
+    };
+    let (before, before_binary) = decode_diff_content(before_bytes);
+    let (after, after_binary) = decode_diff_content(after_bytes);
+    Ok(DiffContents { before, after, binary: before_binary || after_binary })
+}
+
 fn scoped_paths(root: &str, file_paths: &[String]) -> Result<(PathBuf, Vec<String>)> {
     let project = confined_root(root)?;
     let top = git_ok(&project, &["rev-parse", "--show-toplevel"])
@@ -772,6 +840,22 @@ mod tests {
         let staged = diff_staged(root, Some("a.txt")).unwrap();
         assert!(staged.contains("staged version"));
         assert!(!staged.contains("unstaged version"));
+    }
+
+    #[test]
+    fn diff_contents_distinguishes_head_index_and_worktree() {
+        let dir = init_repo();
+        let root = dir.path().to_str().unwrap();
+        std::fs::write(dir.path().join("a.txt"), b"staged version").unwrap();
+        stage_file(root, "a.txt").unwrap();
+        std::fs::write(dir.path().join("a.txt"), b"working version").unwrap();
+        let staged = diff_contents(root, "a.txt", "staged", None).unwrap();
+        assert_eq!(staged.before, "hello");
+        assert_eq!(staged.after, "staged version");
+        let working = diff_contents(root, "a.txt", "changes", None).unwrap();
+        assert_eq!(working.before, "hello");
+        assert_eq!(working.after, "working version");
+        assert!(!working.binary);
     }
 
     #[test]

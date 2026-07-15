@@ -1721,7 +1721,10 @@ export default function App() {
       : null;
     const baseQ = baseSha ? `&base=${encodeURIComponent(baseSha)}` : "";
     let url: string;
-    if (outside) {
+    const diffPath = outside ?? `${activeProject}/${rel}`;
+    if (options.diff && baseSha && !outside) {
+      url = `${origin}/.fig_thumbs/diff_viewer.html?path=${encodeURIComponent(diffPath)}&rel=${encodeURIComponent(rel)}&base=${encodeURIComponent(baseSha)}`;
+    } else if (outside) {
       // binaires hors projet : le statique du serveur reste sandboxé projet —
       // seuls les fichiers texte s'ouvrent dans l'éditeur intégré
       if (["pdf", "png", "jpg", "jpeg", "gif", "webp"].includes(ext)) return;
@@ -1751,6 +1754,7 @@ export default function App() {
     // dédoublonner DANS l'updater : atelierTabsRef n'est synchronisé qu'après le
     // commit React — deux clics rapprochés créaient deux onglets identiques
     const newId = crypto.randomUUID();
+    const tabTitle = options.diff && baseSha && !outside ? `${name} · Diff` : name;
     setAtelierTabs((tabs) => {
       const existing = tabs.find((t) => tabIdentity(t.url) === baseUrl);
       if (existing) {
@@ -1759,7 +1763,7 @@ export default function App() {
         return existing.url !== url ? tabs.map((t) => (t.id === existing.id ? { ...t, url } : t)) : tabs;
       }
       setActiveTab(newId);
-      return [...tabs, { id: newId, url, title: name, projectRoot: activeProject }];
+      return [...tabs, { id: newId, url, title: tabTitle, projectRoot: activeProject }];
     });
     // l'onglet vit dans la surface Atelier : y basculer si on est ailleurs
     switchToSurface("atelier");

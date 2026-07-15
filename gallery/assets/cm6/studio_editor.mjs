@@ -9,6 +9,7 @@ import {openSearchPanel, searchKeymap, highlightSelectionMatches} from "@codemir
 import {bracketMatching, foldGutter, foldKeymap, StreamLanguage, indentUnit,
         HighlightStyle, syntaxHighlighting} from "@codemirror/language";
 import {tags} from "@lezer/highlight";
+import {getChunks, goToNextChunk, goToPreviousChunk, unifiedMergeView} from "@codemirror/merge";
 import {closeBrackets, closeBracketsKeymap} from "@codemirror/autocomplete";
 import {python} from "@codemirror/lang-python";
 import {markdown} from "@codemirror/lang-markdown";
@@ -49,7 +50,7 @@ export function languageKindFor(ext) {
   }
 }
 
-function languageFor(ext) {
+export function languageExtensionFor(ext) {
   switch (languageKindFor(ext)) {
     case "python": return python();
     case "markdown": return markdown();
@@ -354,7 +355,10 @@ const lineClsField = StateField.define({
         if (lineNo >= 1 && lineNo <= tr.state.doc.lines) {
           const from = tr.state.doc.line(lineNo).from;
           const cls = e.value.cls;
-          decos = decos.update({filter: (f, t, d) => !(f === from && d.spec.class === cls)});
+          decos = decos.update({filter: (f, t, d) => {
+            const decorationClass = d.spec.class || d.spec.attributes?.class;
+            return !(f === from && decorationClass === cls);
+          }});
         }
       }
     }
@@ -369,6 +373,7 @@ export function createStudioEditor(parent, opts) {
   const readOnlyComp = new Compartment();
   const editableComp = new Compartment();
   const themeComp = new Compartment();
+  const mergeDiffComp = new Compartment();
   const handlers = {change: [], blur: [], cursorActivity: [], gutterClick: []};
   let markId = 0;
   let themeId = normalizeThemeId(localStorage.getItem("atelier.editorTheme"));
@@ -396,8 +401,9 @@ export function createStudioEditor(parent, opts) {
         lineNumbers(), history(), drawSelection(), highlightActiveLine(), highlightActiveLineGutter(),
         bracketMatching(), closeBrackets(), foldGutter(), highlightSelectionMatches({minSelectionLength: 3}),
         indentUnit.of(opts.ext === "py" ? "    " : "  "),
-        languageFor(opts.ext),
+        languageExtensionFor(opts.ext),
         themeComp.of(themeExtensions(themeId)),
+        mergeDiffComp.of([]),
         themePickerBase,
         themePickerExtension(() => themeId, (id) => applyTheme(id)),
         marksField, lineClsField, gutterField, hangingIndent,
@@ -405,8 +411,10 @@ export function createStudioEditor(parent, opts) {
           class: "CodeMirror-diffgutter",
           markers: (view) => view.state.field(gutterField).ranges,
           domEventHandlers: {
-            click: (view, line) => {
-              const lineNo = view.state.doc.lineAt(line.from).number - 1;
+            click: (view, line, event) => {
+              const visualLine = view.state.doc.lineAt(line.from).number - 1;
+              const semanticLine = Number(event?.target?.closest?.(".dv-cell")?.dataset?.openLine);
+              const lineNo = Number.isFinite(semanticLine) ? semanticLine : visualLine;
               handlers.gutterClick.forEach((fn) => fn(facade, lineNo, "dv-git"));
               return handlers.gutterClick.length > 0;
             },
@@ -452,6 +460,7 @@ export function createStudioEditor(parent, opts) {
 
   const facade = {
     hasNativeGhost: opts.ext === "tex",
+    hasNativeMergeDiff: true,
     Pass,
     // --- content ---
     getValue: () => doc().toString(),
@@ -561,6 +570,29 @@ export function createStudioEditor(parent, opts) {
       : name === "theme" ? themeId : undefined,
     getThemes: () => STUDIO_THEMES.map((theme) => ({...theme, swatches: [...theme.swatches]})),
     setTheme: (id) => applyTheme(id),
+    // --- official CodeMirror merge view -----------------------------------
+    // The intervention journal remains owned by diff_versions.js. This seam
+    // only swaps its old hand-built marks/widgets for CM6's merge renderer.
+    showMergeDiff: (original) => {
+      view.dispatch({effects: mergeDiffComp.reconfigure(unifiedMergeView({
+        original: String(original ?? ""),
+        highlightChanges: true,
+        gutter: true,
+        syntaxHighlightDeletions: true,
+        allowInlineDiffs: true,
+        mergeControls: false,
+        collapseUnchanged: {margin: 3, minSize: 8},
+        diffConfig: {scanLimit: 1000, timeout: 250},
+      }))});
+      const chunks = getChunks(view.state)?.chunks || [];
+      return chunks.map((chunk) => {
+        const offset = Math.min(chunk.fromB, doc().length);
+        return {pos: toPos(offset), ch: offset};
+      });
+    },
+    hideMergeDiff: () => view.dispatch({effects: mergeDiffComp.reconfigure([])}),
+    nextMergeDiff: () => goToNextChunk(view),
+    previousMergeDiff: () => goToPreviousChunk(view),
     // --- keymaps/commands/events ---
     addKeyMap: (map) => {
       const bindings = Object.entries(map).map(([k, fn]) => ({

@@ -1187,11 +1187,14 @@ export async function route(msg, ctx) {
     case "gitDiff": {
       const root = gitRootFor(ctx, msg);
       try {
-        const scope = msg.scope === "changes" ? "changes" : "staged";
+        const scope = msg.scope === "staged" ? "staged" : "changes";
+        const contents = msg.path
+          ? await ctx.gitops.diffContents(root, msg.path, { scope, base: msg.baseSha ?? null })
+          : {};
         ctx.send({ type: "gitDiff", requestId: msg.requestId ?? null, projectRoot: root, path: msg.path ?? null,
           scope, diff: scope === "staged"
             ? await ctx.gitops.diffStaged(root, msg.path ?? null)
-            : await ctx.gitops.diff(root, msg.path ?? null) });
+            : await ctx.gitops.diff(root, msg.path ?? null), ...contents });
       } catch (error) {
         ctx.send({ type: "gitDiff", requestId: msg.requestId ?? null, projectRoot: root, path: msg.path ?? null,
           scope: msg.scope ?? "changes", diff: "", error: String(error?.message ?? error) });

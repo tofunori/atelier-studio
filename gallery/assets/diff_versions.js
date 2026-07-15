@@ -438,6 +438,26 @@ window.DiffVersions = function(opts){
     if(!v || !cm) return;
     clearMarks(); changePts = [];
     const after = cm.getValue();
+    if(cm.hasNativeMergeDiff && typeof cm.showMergeDiff === "function"){
+      cancelRender();
+      changePts = cm.showMergeDiff(v.before) || [];
+      changeAt = 0;
+      if(changePts.length){
+        const cur = cm.getCursor(), curCh = cm.indexFromPos(cur);
+        let best = Infinity;
+        changePts.forEach((p, k) => {
+          const d = Math.abs(p.pos.line - cur.line) * 100000 + Math.abs(p.ch - curCh);
+          if(d < best){ best = d; changeAt = k; }
+        });
+      }
+      const note = changePts.length
+        ? changePts.length + " bloc" + (changePts.length > 1 ? "s" : "") + " modifié" + (changePts.length > 1 ? "s" : "")
+        : "aucun changement de texte";
+      notify("comparaison " + (extCmp ? extCmp.label : labelOf(baseVersion)) + " · " + note + " · Échap pour fermer");
+      updateNav();
+      if(changePts.length) gotoChange(changeAt, true);
+      return;
+    }
     const wsn = s => s.replace(/\s+/g, " ").trim();
     const key = hashText(v.before) + ":" + hashText(after);
     const requestId = ++renderRequestId;
@@ -720,7 +740,9 @@ window.DiffVersions = function(opts){
       cancelRender();
       ttExit(); // vue historique : TOUJOURS restaurer le buffer réel en sortant
       navMode = -1;
-      extCmp = null; clearMarks(); cm.setOption("readOnly", false); cm.refresh(); notify("");
+      extCmp = null; clearMarks();
+      if(typeof cm.hideMergeDiff === "function") cm.hideMergeDiff();
+      cm.setOption("readOnly", false); cm.refresh(); notify("");
       changePts = [];
       if(navPill) navPill.style.display = "none";
       if(flashLine != null){ try{ cm.removeLineClass(flashLine, "wrap", "dv-flash"); }catch(e){} flashLine = null; }
@@ -1028,14 +1050,23 @@ window.DiffVersions = function(opts){
     if(headText === null) return;
     extCmp = {before: headText, label: "HEAD" + (headSha ? " (" + headSha + ")" : ""), head: true};
     updateTag();
-    shown ? (render(), getCm().scrollIntoView({line, ch: 0}, 120)) : toggle(true, line);
+    if(shown) render(); else toggle(true, line);
+    const target = {line, ch: 0};
+    getCm().scrollIntoView(target, 120);
+    flashAt(target);
   }
   function markerCell(cls, line){
     const cell = document.createElement("div");
     cell.className = "dv-cell";
+    cell.dataset.openLine = String(line);
     cell.innerHTML = cls;
     cell.title = "Modifié depuis HEAD" + (headSha ? " (" + headSha + ")" : "") + " — cliquer : comparer";
-    cell.onclick = () => openHeadAt(line);
+    cell.onclick = (event) => {
+      // The marker carries the semantic target line. Do not also let the
+      // editor gutter callback reopen the diff with the visual marker row.
+      event.stopPropagation();
+      openHeadAt(line);
+    };
     return cell;
   }
   let gutterWorker = null, gutterRequestId = 0;

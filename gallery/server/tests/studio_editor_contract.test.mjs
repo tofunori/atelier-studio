@@ -11,6 +11,9 @@ const codeHtml = await readFile(new URL("../../assets/code_editor.html", import.
 const csvTable = await readFile(new URL("../../assets/csv_table.js", import.meta.url), "utf8");
 const markdownHtml = await readFile(new URL("../../assets/md_viewer.html", import.meta.url), "utf8");
 const themeBridge = await readFile(new URL("../../assets/atelier_theme.js", import.meta.url), "utf8");
+const diffViewer = await readFile(new URL("../../assets/diff_viewer.html", import.meta.url), "utf8");
+const diffVersionsSource = await readFile(new URL("../../assets/diff_versions.js", import.meta.url), "utf8");
+const codeMirrorDiffSource = await readFile(new URL("../../assets/cm6/atelier_diff.mjs", import.meta.url), "utf8");
 const {languageKindFor} = await import("../../assets/cm6/studio_editor.mjs");
 
 test("CM6 facade exposes the complete engine-neutral diff contract", () => {
@@ -32,10 +35,26 @@ test("CM6 uses native tracked decorations, readOnly compartments, and gutter mar
   assert.match(source, /gutterClick/);
 });
 
+test("CM6 exposes the official merge renderer behind the engine-neutral diff journal", () => {
+  assert.match(source, /from ["']@codemirror\/merge["']/);
+  assert.match(source, /hasNativeMergeDiff:\s*true/);
+  assert.match(source, /showMergeDiff:/);
+  assert.match(source, /hideMergeDiff:/);
+  assert.match(source, /unifiedMergeView/);
+  assert.match(source, /allowInlineDiffs:\s*true/);
+  assert.match(source, /mergeControls:\s*false/);
+  assert.match(source, /collapseUnchanged/);
+  assert.match(diffVersionsSource, /cm\.hasNativeMergeDiff/);
+});
+
 test("CM6 selectAll and native hanging indent are implemented", () => {
   assert.match(source, /selectAll/);
   assert.match(source, /hangingIndent/);
   assert.match(editorFactory, /editor\.on\("renderLine"/);
+});
+
+test("CM6 line-class removal handles the Decoration.line attribute shape", () => {
+  assert.match(source, /d\.spec\.attributes\?\.class/);
 });
 
 test("wrap menu chooses a visible side of the status bar and clamps to the viewport", () => {
@@ -50,7 +69,23 @@ test("CM6 bundles have one repository-owned deterministic build recipe", async (
   const build = await readFile(new URL("../../scripts/build-cm6.mjs", import.meta.url), "utf8");
   assert.match(build, /studio_editor\.mjs/);
   assert.match(build, /latex_cm6_src\.js/);
+  assert.match(build, /atelier_diff\.mjs/);
+  assert.doesNotMatch(build, /pierre/i);
   assert.match(build, /legalComments:\s*["']none["']/);
+});
+
+test("Edited review uses the shared CodeMirror merge view for code, Markdown, and LaTeX", () => {
+  assert.match(diffViewer, /atelier_diff\.bundle\.js/);
+  assert.match(diffViewer, /Review changes/);
+  assert.match(diffViewer, /Unified/);
+  assert.match(diffViewer, /Split/);
+  assert.match(diffViewer, /githead\?path=/);
+  assert.match(diffViewer, /\/code\?path=/);
+  assert.match(codeMirrorDiffSource, /from ["']@codemirror\/merge["']/);
+  assert.match(codeMirrorDiffSource, /unifiedMergeView/);
+  assert.match(codeMirrorDiffSource, /new MergeView/);
+  assert.match(codeMirrorDiffSource, /allowInlineDiffs:\s*true/);
+  assert.match(codeMirrorDiffSource, /collapseUnchanged/);
 });
 
 function factoryHarness({search = "", stored = null, cm6 = true, cm5 = true} = {}) {
@@ -140,7 +175,7 @@ test("CSV files default to a semantic data table while preserving the source edi
 test("every embedded HTML surface loads the shared Atelier theme bridge", async () => {
   const names = [
     "latex_studio.html", "latex_cm6.html", "code_editor.html",
-    "md_studio.html", "md_viewer.html", "pdf_viewer.html", "svg_viewer.html",
+    "md_studio.html", "md_viewer.html", "pdf_viewer.html", "svg_viewer.html", "diff_viewer.html",
   ];
   for (const name of names) {
     const html = await readFile(new URL(`../../assets/${name}`, import.meta.url), "utf8");

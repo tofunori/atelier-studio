@@ -180,6 +180,18 @@ describe("gitops", () => {
     expect(text).not.toContain("unstaged");
   });
 
+  it("retourne les contenus exacts HEAD, index et working tree pour CodeMirror", async () => {
+    const root = await makeRepo();
+    writeFileSync(join(root, "tracked file.txt"), "staged\n");
+    await gitops.stageFile(root, "tracked file.txt");
+    writeFileSync(join(root, "tracked file.txt"), "working\n");
+
+    await expect(gitops.diffContents(root, "tracked file.txt", { scope: "staged" }))
+      .resolves.toMatchObject({ before: "initial\n", after: "staged\n", binary: false });
+    await expect(gitops.diffContents(root, "tracked file.txt", { scope: "changes" }))
+      .resolves.toMatchObject({ before: "initial\n", after: "working\n", binary: false });
+  });
+
   it("commit avec files vide conserve les changements non indexés", async () => {
     const root = await makeRepo();
     writeFileSync(join(root, "tracked file.txt"), "staged\n");

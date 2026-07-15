@@ -498,11 +498,11 @@ describe("orchestration App — caractérisation", () => {
       await flushMicrotasks(4);
     });
 
-    const editor = document.querySelector<HTMLIFrameElement>('iframe[src*="latex_studio.html"]');
+    const editor = document.querySelector<HTMLIFrameElement>('iframe[src*="diff_viewer.html"]');
     expect(editor).toBeTruthy();
     const url = new URL(editor!.src);
     expect(url.searchParams.get("path")).toBe(`${PROJECT_ROOT}/scripts/plot.py`);
-    expect(url.searchParams.get("diff")).toBe("1");
+    expect(url.searchParams.get("rel")).toBe("scripts/plot.py");
     expect(url.searchParams.get("base")).toBe(baseSha);
   });
 

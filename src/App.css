@@ -767,11 +767,20 @@ html, body, #root, .app { height: 100vh; overflow: hidden;
   background: var(--bg-side); border: 1px solid var(--border); border-radius: var(--r-m);
   padding: 8px 0; color: var(--muted); font: var(--fs-m)/1.45 var(--code-font);
   white-space: pre; }
-.turn-diff-body span { display: block; padding: 0 10px; min-width: max-content; }
+.turn-diff-body > span,
+.turn-diff-raw > span { display: block; padding: 0 10px; min-width: max-content; }
 .turn-diff-body .add { color: #98c379; background: rgba(152,195,121,0.12); }
 .turn-diff-body .del { color: #e06c75; background: rgba(224,108,117,0.12); }
 .turn-diff-body .hunk { color: #9db4d0; background: rgba(157,180,208,0.10); }
 .turn-diff-body .muted { color: var(--muted2); }
+.turn-diff-files { display: grid; gap: 8px; margin-top: 6px; }
+.turn-diff-file { min-width: 0; overflow: hidden; border: 1px solid var(--border);
+  border-radius: var(--r-m); background: var(--bg-side); }
+.turn-diff-file-head { padding: 6px 10px; overflow: hidden; text-overflow: ellipsis;
+  white-space: nowrap; border-bottom: 1px solid var(--border); color: var(--muted);
+  font: var(--fs-xs)/1.4 var(--code-font); }
+.turn-diff-file .turn-diff-body { margin: 0; border: 0; border-radius: 0; }
+.turn-diff-raw { margin: 0; padding: 8px 0; white-space: pre; }
 .chips-row { width: 100%; align-items: flex-end; }
 .context-attachment { max-width: 300px; }
 .context-attachment-image { width: 80px; }
@@ -2421,6 +2430,16 @@ button.ctx-ring-wrap { border: none; font: inherit; color: inherit;
 .git-diff-pane-head .seg { flex: none; }
 .git-diff-pane-head .seg button { padding: 2px 8px; font-size: var(--fs-xs); }
 .git-diff-pane-body { flex: 1; min-height: 0; overflow: hidden; }
+.atelier-diff-view { width: 100%; height: 100%; min-height: 120px; overflow: hidden;
+  background: var(--bg); }
+.atelier-diff-view > .cm-editor { height: 100%; }
+.atelier-diff-view > .cm-mergeView { height: 100%; overflow: auto; }
+.atelier-diff-view .cm-mergeViewEditors { min-width: 720px; }
+.atelier-diff-view .cm-mergeViewEditor { min-width: 0; }
+.atelier-diff-view.is-compact { height: auto; max-height: 320px; min-height: 72px;
+  border-top: 1px solid var(--border); }
+.atelier-diff-view.is-compact > .cm-editor,
+.atelier-diff-view.is-compact > .cm-mergeView { max-height: 320px; overflow: auto; }
 .git-diff-empty { height: 100%; min-height: 160px; display: flex; align-items: center;
   justify-content: center; flex-direction: column; gap: 10px; color: var(--muted2);
   font-size: var(--fs-m); text-align: center; padding: 24px; }

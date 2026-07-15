@@ -6,7 +6,7 @@ use crate::grok_history::{load_grok_history, prefer_richer_dialogue};
 use atelier_protocol::{ErrorMessage, PongMessage};
 use atelier_store::{get_all_ledgers, get_ledger, iso_now, read_settings, write_settings};
 use atelier_workspace::{
-    check_frame, clear_pasted, commit as git_commit, diff as git_diff,
+    check_frame, clear_pasted, commit as git_commit, diff as git_diff, diff_contents as git_diff_contents,
     diff_staged as git_diff_staged, ignore_pattern, list_commands, list_files, list_pasted,
     pull as git_pull, push as git_push, restore as git_restore, revert_file, save_image, scan_local,
     stage_files, status as git_status, unstage_files,
@@ -400,20 +400,27 @@ pub async fn route_ws(state: &AppState, text: &str) -> Vec<String> {
             let path = msg.get("path").and_then(|v| v.as_str());
             let scope = msg.get("scope").and_then(|v| v.as_str()).unwrap_or("changes");
             let request_id = msg.get("requestId").cloned().unwrap_or(Value::Null);
+            let base_sha = msg.get("baseSha").and_then(|v| v.as_str());
             let result = if scope == "staged" {
                 git_diff_staged(&root, path)
             } else {
                 git_diff(&root, path)
             };
             match result {
-                Ok(diff) => vec![json_msg(json!({
-                    "type": "gitDiff",
-                    "requestId": request_id,
-                    "projectRoot": root,
-                    "path": path,
-                    "scope": scope,
-                    "diff": diff,
-                }))],
+                Ok(diff) => {
+                    let contents = path.and_then(|file| git_diff_contents(&root, file, scope, base_sha).ok());
+                    vec![json_msg(json!({
+                        "type": "gitDiff",
+                        "requestId": request_id,
+                        "projectRoot": root,
+                        "path": path,
+                        "scope": scope,
+                        "diff": diff,
+                        "before": contents.as_ref().map(|item| item.before.as_str()),
+                        "after": contents.as_ref().map(|item| item.after.as_str()),
+                        "binary": contents.as_ref().map(|item| item.binary).unwrap_or(false),
+                    }))]
+                },
                 Err(e) => vec![json_msg(json!({
                     "type": "gitDiff",
                     "requestId": request_id,

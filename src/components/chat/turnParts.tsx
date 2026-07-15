@@ -1,7 +1,7 @@
 // Pièces de tour du chat (plan 015, slice 4) — déplacées verbatim depuis
 // Chat.tsx : diff de fin de tour, ré-édition d'un edit, thinking, indicateur
 // Working, carte d'activité, épingle. Aucune logique modifiée.
-import { useEffect, useRef, useState } from "react";
+import { lazy, Suspense, useEffect, useRef, useState } from "react";
 import { AgentEvent } from "../../lib/ws";
 import { wsSend } from "../../lib/wsBus";
 import { t } from "../../lib/i18n";
@@ -9,21 +9,34 @@ import { diffLineClass, openFileRef } from "./md";
 import { Tick } from "./toolPresentation";
 import { ActivityDisclosure, IconButton, Tooltip } from "../ui";
 
+const AtelierDiffView = lazy(() => import("../AtelierDiffView"));
+type ChatDiffPayload = { diff: string; before?: string; after?: string; binary?: boolean };
+
 export function DoneDiffToggle({ event, threadId }: {
   event: Extract<AgentEvent, { kind: "done" }>;
   threadId: string | null;
 }) {
   const files = event.filesChanged ?? [];
   const [open, setOpen] = useState(false);
-  const [loading, setLoading] = useState(false);
-  const [diff, setDiff] = useState("");
+  const [loading, setLoading] = useState<Set<string>>(new Set());
+  const [diffs, setDiffs] = useState<Record<string, ChatDiffPayload>>({});
 
   useEffect(() => {
     const onDiff = (ev: Event) => {
       const msg = (ev as CustomEvent).detail;
+      if (!msg.path || !files.includes(msg.path)) return;
       if (event.projectRoot && msg.projectRoot !== event.projectRoot) return;
-      setDiff(String(msg.diff ?? ""));
-      setLoading(false);
+      setDiffs((current) => ({ ...current, [msg.path]: {
+        diff: String(msg.diff ?? ""),
+        before: typeof msg.before === "string" ? msg.before : undefined,
+        after: typeof msg.after === "string" ? msg.after : undefined,
+        binary: Boolean(msg.binary),
+      } }));
+      setLoading((current) => {
+        const next = new Set(current);
+        next.delete(msg.path);
+        return next;
+      });
     };
     window.addEventListener("git-diff", onDiff);
     return () => window.removeEventListener("git-diff", onDiff);
@@ -39,14 +52,26 @@ export function DoneDiffToggle({ event, threadId }: {
         onClick={() => {
           const next = !open;
           setOpen(next);
-          if (!next || diff || loading) return;
-          setLoading(true);
-          const sent = wsSend({
-            type: "gitDiff",
-            threadId,
-            projectRoot: event.projectRoot,
-          });
-          if (!sent) setLoading(false);
+          if (!next) return;
+          const missing = files.filter((path) => !diffs[path] && !loading.has(path));
+          if (!missing.length) return;
+          setLoading((current) => new Set([...current, ...missing]));
+          for (const path of missing) {
+            const sent = wsSend({
+              type: "gitDiff",
+              requestId: crypto.randomUUID(),
+              threadId,
+              projectRoot: event.projectRoot,
+              path,
+              baseSha: event.checkpoint?.snapshotSha,
+              scope: "changes",
+            });
+            if (!sent) setLoading((current) => {
+              const following = new Set(current);
+              following.delete(path);
+              return following;
+            });
+          }
         }}
       >
         <span>{t("chat.files-modified", { count: files.length })}</span>
@@ -71,19 +96,29 @@ export function DoneDiffToggle({ event, threadId }: {
           {t("checkpoint.undo-files")}
         </button>
       ) : null}
-      {open && (
-        <pre className="turn-diff-body">
-          {loading && !diff ? (
-            <span className="muted">{t("common.loading")}</span>
-          ) : diff.trim() ? (
-            diff.split("\n").map((line, idx) => (
-              <span key={idx} className={diffLineClass(line)}>{line || " "}</span>
-            ))
-          ) : (
-            <span className="muted">{t("git.diff-empty")}</span>
-          )}
-        </pre>
-      )}
+      {open && <div className="turn-diff-files">
+        {files.map((path) => {
+          const payload = diffs[path];
+          return <section key={path} className="turn-diff-file">
+            <div className="turn-diff-file-head">{path}</div>
+            {loading.has(path) && !payload ? (
+              <div className="turn-diff-body"><span className="muted">{t("common.loading")}</span></div>
+            ) : payload?.binary ? (
+              <div className="turn-diff-body"><span className="muted">Binary file changed</span></div>
+            ) : payload && payload.before !== undefined && payload.after !== undefined ? (
+              <Suspense fallback={<div className="turn-diff-body"><span className="muted">{t("common.loading")}</span></div>}>
+                <AtelierDiffView before={payload.before} after={payload.after} path={path} compact />
+              </Suspense>
+            ) : payload?.diff.trim() ? (
+              <pre className="turn-diff-body turn-diff-raw">{payload.diff.split("\n").map((line, idx) => (
+                <span key={idx} className={diffLineClass(line)}>{line || " "}</span>
+              ))}</pre>
+            ) : (
+              <div className="turn-diff-body"><span className="muted">{t("git.diff-empty")}</span></div>
+            )}
+          </section>;
+        })}
+      </div>}
     </div>
   );
 }
@@ -94,7 +129,7 @@ export function EditLine({ event, threadId }: {
   threadId: string | null;
 }) {
   const [openPath, setOpenPath] = useState<string | null>(null);
-  const [diffs, setDiffs] = useState<Record<string, string>>({});
+  const [diffs, setDiffs] = useState<Record<string, ChatDiffPayload>>({});
   const [loading, setLoading] = useState<string | null>(null);
   const [errors, setErrors] = useState<Record<string, string>>({});
 
@@ -108,7 +143,12 @@ export function EditLine({ event, threadId }: {
         setLoading((current) => (current === msg.path ? null : current));
         return;
       }
-      setDiffs((d) => ({ ...d, [msg.path]: String(msg.diff ?? "") }));
+      setDiffs((d) => ({ ...d, [msg.path]: {
+        diff: String(msg.diff ?? ""),
+        before: typeof msg.before === "string" ? msg.before : undefined,
+        after: typeof msg.after === "string" ? msg.after : undefined,
+        binary: Boolean(msg.binary),
+      } }));
       setErrors((current) => {
         const next = { ...current };
         delete next[msg.path];
@@ -164,6 +204,8 @@ export function EditLine({ event, threadId }: {
                     threadId,
                     projectRoot: event.projectRoot,
                     path: f.path,
+                    baseSha: event.baseSha,
+                    scope: "changes",
                   });
                   if (!sent) setLoading(null);
                   else window.setTimeout(() => {
@@ -179,19 +221,25 @@ export function EditLine({ event, threadId }: {
               </button>
             </div>
             {open && (
-              <pre className="turn-diff-body">
+              <div className="turn-diff-body">
                 {loading === f.path && diff == null ? (
                   <span className="muted">{t("common.loading")}</span>
                 ) : error ? (
                   <span className="muted">{error}</span>
-                ) : diff?.trim() ? (
-                  diff.split("\n").map((line, idx) => (
+                ) : diff?.binary ? (
+                  <span className="muted">Binary file changed</span>
+                ) : diff && diff.before !== undefined && diff.after !== undefined ? (
+                  <Suspense fallback={<span className="muted">{t("common.loading")}</span>}>
+                    <AtelierDiffView before={diff.before} after={diff.after} path={f.path} compact />
+                  </Suspense>
+                ) : diff?.diff.trim() ? (
+                  <pre className="turn-diff-raw">{diff.diff.split("\n").map((line, idx) => (
                     <span key={idx} className={diffLineClass(line)}>{line || " "}</span>
-                  ))
+                  ))}</pre>
                 ) : (
                   <span className="muted">{t("git.diff-empty")}</span>
                 )}
-              </pre>
+              </div>
             )}
           </div>
         );

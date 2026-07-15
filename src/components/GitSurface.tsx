@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { lazy, Suspense, useEffect, useMemo, useRef, useState } from "react";
 import { eventLabel, t } from "../lib/i18n";
 import { BranchIcon, LedgerIcon, RefreshIcon } from "./icons";
 import { ButtonGroup } from "./shadcn/button-group";
@@ -19,6 +19,8 @@ import { Button, IconButton, SegmentedControl } from "./ui";
 
 type GitFile = { path: string; status: string; originalPath?: string; add?: number; del?: number };
 type GitStatus = { branch: string | null; ahead: number; behind: number; files: GitFile[] };
+type GitDiffContents = { before: string; after: string; binary: boolean };
+const AtelierDiffView = lazy(() => import("./AtelierDiffView"));
 type LedgerEntry = {
   ts: string;
   threadId: string;
@@ -63,31 +65,6 @@ function immediateCommitSuggestion(files: GitFile[]) {
   if (hasDocs) return "Update project documentation";
   if (["test", "spec."].some((value) => paths.includes(value))) return "Update automated tests";
   return "Update project files";
-}
-
-/** Diff unifié → rangées 2 colonnes (suppressions appariées aux ajouts). */
-function splitRows(diff: string): { l: string; r: string; lc: string; rc: string }[] {
-  const rows: { l: string; r: string; lc: string; rc: string }[] = [];
-  const lines = diff.split("\n");
-  let dels: string[] = [], adds: string[] = [];
-  const flush = () => {
-    const n = Math.max(dels.length, adds.length);
-    for (let i = 0; i < n; i++) rows.push({
-      l: dels[i] ?? "", lc: dels[i] != null ? "del" : "void",
-      r: adds[i] ?? "", rc: adds[i] != null ? "add" : "void",
-    });
-    dels = []; adds = [];
-  };
-  for (const line of lines) {
-    if (/^(diff |index |--- |\+\+\+ )/.test(line)) continue;
-    if (line.startsWith("@@")) { flush(); rows.push({ l: line, r: line, lc: "hunk", rc: "hunk" }); continue; }
-    if (line.startsWith("-")) { dels.push(line.slice(1)); continue; }
-    if (line.startsWith("+")) { adds.push(line.slice(1)); continue; }
-    flush();
-    rows.push({ l: line.slice(1) || " ", r: line.slice(1) || " ", lc: "ctx", rc: "ctx" });
-  }
-  flush();
-  return rows;
 }
 
 function shortStatus(file: GitFile) {
@@ -137,6 +114,7 @@ export default function GitSurface({
   const [status, setStatus] = useState<GitStatus | null>(null);
   const [selected, setSelected] = useState<SelectedFile | null>(null);
   const [diff, setDiff] = useState("");
+  const [diffContents, setDiffContents] = useState<GitDiffContents | null>(null);
   const [diffLoading, setDiffLoading] = useState(false);
   const [splitView, setSplitView] = useState(false);
   const [closedGroups, setClosedGroups] = useState<Set<string>>(new Set());
@@ -177,6 +155,9 @@ export default function GitSurface({
         && (!msg.scope || msg.scope === selected?.group)
       ) {
         setDiff(msg.diff ?? "");
+        setDiffContents(typeof msg.before === "string" && typeof msg.after === "string"
+          ? { before: msg.before, after: msg.after, binary: Boolean(msg.binary) }
+          : null);
         setDiffLoading(false);
       }
     };
@@ -277,6 +258,7 @@ export default function GitSurface({
     const isSame = selected?.path === path && selected.group === group;
     setSelected(isSame ? null : { path, group });
     setDiff("");
+    setDiffContents(null);
     setDiffLoading(!isSame);
     if (!isSame) send(ws, { type: "gitDiff", projectRoot, path, scope: group });
   }
@@ -516,23 +498,25 @@ export default function GitSurface({
                   <div className="git-diff-empty"><FileTextIcon /><span>{t("git.select-file-help")}</span></div>
                 ) : diffLoading ? (
                   <div className="git-diff-empty">{t("git.diff-loading")}</div>
-                ) : !diff ? (
+                ) : !diff && !diffContents ? (
                   <div className="git-diff-empty">{t("git.diff-empty")}</div>
-                ) : !splitView ? (
+                ) : diffContents?.binary ? (
+                  <div className="git-diff-empty">Binary file changed</div>
+                ) : diffContents ? (
+                  <Suspense fallback={<div className="git-diff-empty">{t("git.diff-loading")}</div>}>
+                    <AtelierDiffView
+                      before={diffContents.before}
+                      after={diffContents.after}
+                      path={selected.path}
+                      layout={splitView ? "split" : "unified"}
+                    />
+                  </Suspense>
+                ) : (
                   <pre className="git-diff git-diff-pane-content">
                     {diff.split("\n").map((line, i) => (
                       <span key={`${i}-${line}`} className={diffClass(line)}>{line || " "}</span>
                     ))}
                   </pre>
-                ) : (
-                  <div className="git-diff-split git-diff-pane-content">
-                    {splitRows(diff).map((row, i) => (
-                      <div key={i} className="gds-row">
-                        <span className={`gds-cell ${row.lc}`}>{row.l || " "}</span>
-                        <span className={`gds-cell ${row.rc}`}>{row.r || " "}</span>
-                      </div>
-                    ))}
-                  </div>
                 )}
               </div>
             </section>

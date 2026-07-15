@@ -1,0 +1,189 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Review changes</title>
+  <script src="/.fig_thumbs/atelier_theme.js"></script>
+  <script>(function(){
+    var token = null;
+    try { token = new URLSearchParams(location.search).get("token"); } catch (_) {}
+    if (!token) return;
+    var originalFetch = window.fetch.bind(window);
+    window.fetch = function(input, init) {
+      try {
+        var url = new URL(typeof input === "string" ? input : input.url, location.href);
+        if (url.origin === location.origin && !url.searchParams.has("token")) {
+          url.searchParams.set("token", token);
+          input = typeof input === "string" ? url.pathname + url.search : new Request(url, input);
+        }
+      } catch (_) {}
+      return originalFetch(input, init);
+    };
+  })();</script>
+  <script defer src="/.fig_thumbs/cm6/atelier_diff.bundle.js"></script>
+  <style>
+    :root {
+      --bg: #202124; --panel: #24262a; --raised: #292c31; --text: #d9dde4;
+      --muted: #8f96a1; --faint: #656c76; --border: #383c43; --accent: #e98643;
+      --green: #86c56c; --red: #e06c75;
+      color-scheme: dark;
+    }
+    * { box-sizing: border-box; }
+    html, body { min-height: 100%; margin: 0; background: var(--surface-app, var(--bg)); color: var(--text-primary, var(--text)); }
+    body { font: 13px/1.45 -apple-system, BlinkMacSystemFont, "SF Pro Text", Inter, sans-serif; }
+    button { font: inherit; }
+    .topbar {
+      position: sticky; top: 0; z-index: 20; min-height: 52px; padding: 8px 14px;
+      display: flex; align-items: center; gap: 12px;
+      background: color-mix(in srgb, var(--surface-panel, var(--panel)) 94%, transparent);
+      border-bottom: 1px solid var(--border-subtle, var(--border)); backdrop-filter: blur(16px);
+    }
+    .title { font-weight: 650; letter-spacing: -.01em; white-space: nowrap; }
+    .summary { color: var(--text-tertiary, var(--muted)); white-space: nowrap; }
+    .spacer { flex: 1; }
+    .segmented { display: inline-flex; padding: 2px; border: 1px solid var(--border-subtle, var(--border)); border-radius: 8px; background: var(--surface-inset, #1f2023); }
+    .segmented button, .icon-button {
+      border: 0; color: var(--text-tertiary, var(--muted)); background: transparent; cursor: pointer;
+    }
+    .segmented button { padding: 4px 9px; border-radius: 6px; font-size: 12px; }
+    .segmented button[aria-pressed="true"] { color: var(--text-primary, var(--text)); background: var(--surface-raised, var(--raised)); box-shadow: 0 1px 2px rgb(0 0 0 / 20%); }
+    .icon-button { width: 30px; height: 30px; display: grid; place-items: center; border-radius: 7px; }
+    .icon-button:hover { color: var(--text-primary, var(--text)); background: var(--surface-raised, var(--raised)); }
+    .review { padding: 12px 14px 28px; }
+    .file-card { overflow: clip; border: 1px solid var(--border-subtle, var(--border)); border-radius: 9px; background: var(--surface-panel, var(--panel)); }
+    .file-header {
+      position: sticky; top: 52px; z-index: 10; min-height: 42px; padding: 7px 11px;
+      display: flex; align-items: center; gap: 9px; border-bottom: 1px solid var(--border-subtle, var(--border));
+      background: var(--surface-raised, var(--raised));
+    }
+    .file-icon { color: var(--text-tertiary, var(--muted)); display: grid; place-items: center; }
+    .path { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: 12px/1.4 ui-monospace, "SF Mono", Menlo, monospace; }
+    .additions { color: var(--status-success, var(--green)); }
+    .deletions { color: var(--status-error, var(--red)); }
+    #diffHost { min-height: 120px; background: #1f2023; }
+    #diffHost .cm-editor { min-height: 120px; }
+    #diffHost .cm-mergeView { min-height: 120px; overflow: auto; }
+    #diffHost .cm-mergeViewEditors { min-width: 720px; }
+    #diffHost .cm-mergeViewEditor { min-width: 0; }
+    .status { display: grid; place-items: center; min-height: 180px; padding: 24px; color: var(--text-tertiary, var(--muted)); text-align: center; }
+    .status.error { color: var(--status-error, var(--red)); }
+    .spinner { width: 16px; height: 16px; margin-bottom: 10px; border: 2px solid var(--border-subtle, var(--border)); border-top-color: var(--accent-base, var(--accent)); border-radius: 50%; animation: spin .8s linear infinite; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    @media (max-width: 720px) {
+      .topbar { gap: 7px; padding-inline: 8px; }
+      .summary { display: none; }
+      .review { padding: 8px 0 20px; }
+      .file-card { border-left: 0; border-right: 0; border-radius: 0; }
+      .file-header { top: 52px; }
+      #splitButton { display: none; }
+    }
+  </style>
+</head>
+<body>
+  <header class="topbar">
+    <button class="icon-button" id="openFile" title="Open file" aria-label="Open file">←</button>
+    <div class="title">Review changes</div>
+    <div class="summary" id="summary">Loading snapshot…</div>
+    <div class="spacer"></div>
+    <div class="segmented" aria-label="Diff layout">
+      <button id="unifiedButton" aria-pressed="true">Unified</button>
+      <button id="splitButton" aria-pressed="false">Split</button>
+    </div>
+    <button class="icon-button" id="wrapButton" title="Disable line wrapping" aria-label="Toggle line wrapping" aria-pressed="true">↵</button>
+  </header>
+  <main class="review">
+    <section class="file-card">
+      <div class="file-header">
+        <span class="file-icon" aria-hidden="true">◇</span>
+        <span class="path" id="filePath"></span>
+        <span class="spacer"></span>
+        <span class="additions" id="additions"></span>
+        <span class="deletions" id="deletions"></span>
+      </div>
+      <div id="diffHost"><div class="status"><div><div class="spinner"></div>Preparing diff…</div></div></div>
+    </section>
+  </main>
+  <script>
+  window.addEventListener("DOMContentLoaded", async function () {
+    var query = new URLSearchParams(location.search);
+    var path = query.get("path") || "";
+    var displayPath = query.get("rel") || path;
+    var base = query.get("base") || "";
+    var token = query.get("token") || "";
+    var nonce = (location.hash.match(/atelier_nonce=([\w-]+)/) || [])[1] || "";
+    var host = document.getElementById("diffHost");
+    var pathLabel = document.getElementById("filePath");
+    var layout = "unified";
+    var overflow = "wrap";
+    var renderer = null;
+    var themeType = document.documentElement.style.colorScheme === "light" ? "light" : "dark";
+    pathLabel.textContent = displayPath;
+    pathLabel.title = path;
+
+    function normalEditorUrl() {
+      var ext = (path.split(".").pop() || "").toLowerCase();
+      var editor = ext === "md" ? "code_editor.html" : "latex_studio.html";
+      var next = new URL("/.fig_thumbs/" + editor, location.origin);
+      next.searchParams.set("path", path);
+      if (token) next.searchParams.set("token", token);
+      if (nonce) next.hash = "atelier_nonce=" + nonce;
+      return next.toString();
+    }
+    document.getElementById("openFile").onclick = function () { location.href = normalEditorUrl(); };
+
+    function updateOptions() {
+      if (innerWidth <= 720) layout = "unified";
+      document.getElementById("unifiedButton").setAttribute("aria-pressed", String(layout === "unified"));
+      document.getElementById("splitButton").setAttribute("aria-pressed", String(layout === "split"));
+      document.getElementById("wrapButton").setAttribute("aria-pressed", String(overflow === "wrap"));
+      document.getElementById("wrapButton").title = overflow === "wrap" ? "Disable line wrapping" : "Wrap long lines";
+      if (renderer) renderer.setOptions({diffStyle: layout, overflow: overflow, themeType: themeType});
+    }
+    document.getElementById("unifiedButton").onclick = function () { layout = "unified"; updateOptions(); };
+    document.getElementById("splitButton").onclick = function () { layout = "split"; updateOptions(); };
+    document.getElementById("wrapButton").onclick = function () { overflow = overflow === "wrap" ? "scroll" : "wrap"; updateOptions(); };
+    addEventListener("resize", updateOptions);
+    addEventListener("atelier-theme-applied", function (event) {
+      themeType = event.detail && event.detail.colorScheme === "light" ? "light" : "dark";
+      updateOptions();
+    });
+
+    function jsonFetch(url) {
+      return fetch(url).then(async function (response) {
+        var data = await response.json().catch(function () { return {}; });
+        if (!response.ok || data.error) throw new Error(data.error || "Unable to load file");
+        return data;
+      });
+    }
+    try {
+      if (!path) throw new Error("Missing file path");
+      if (!base) throw new Error("Missing turn snapshot");
+      var results = await Promise.allSettled([
+        jsonFetch("/githead?path=" + encodeURIComponent(path) + "&base=" + encodeURIComponent(base)),
+        jsonFetch("/code?path=" + encodeURIComponent(path))
+      ]);
+      var before = results[0].status === "fulfilled" && results[0].value.ok ? results[0].value.text : "";
+      var after = results[1].status === "fulfilled" ? results[1].value.text : "";
+      if (results[0].status === "rejected" && results[1].status === "rejected") throw results[1].reason;
+      var name = path.split("/").pop() || path;
+      renderer = AtelierCodeMirrorDiff.mount(host,
+        {name: name, contents: before}, {name: name, contents: after},
+        {diffStyle: layout, overflow: overflow, themeType: themeType});
+      document.getElementById("additions").textContent = "+" + renderer.stats.additions;
+      document.getElementById("deletions").textContent = "−" + renderer.stats.deletions;
+      document.getElementById("summary").textContent = "1 file changed · +" + renderer.stats.additions + " −" + renderer.stats.deletions;
+      document.documentElement.dataset.diffReady = "true";
+      updateOptions();
+    } catch (error) {
+      var errorState = document.createElement("div");
+      errorState.className = "status error";
+      errorState.textContent = String(error && error.message || error);
+      host.replaceChildren(errorState);
+      document.getElementById("summary").textContent = "Diff unavailable";
+      document.documentElement.dataset.diffReady = "error";
+    }
+  });
+  </script>
+</body>
+</html>
