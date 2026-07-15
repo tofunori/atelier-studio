@@ -325,10 +325,11 @@ function GalleryFileTypePanel({
               <div id="quick-types-heading" className="gallery-filter-section-label">Quick Types</div>
               <div className="gallery-filter-helper">Pinned for this project</div>
             </div>
-            <Button variant="ghost" size="xs" onClick={() => setCustomizing(true)}>
-              <Settings data-icon="inline-start" />
-              Customize
-            </Button>
+            <Tooltip label="Customize quick types">
+              <Button variant="ghost" size="icon-xs" aria-label="Customize quick types" onClick={() => setCustomizing(true)}>
+                <Settings />
+              </Button>
+            </Tooltip>
           </div>
           {renderQuickGroup("Outputs", outputTypes)}
           {renderQuickGroup("Sources", sourceTypes)}
