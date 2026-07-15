@@ -14,6 +14,8 @@ html.gallery-react-mounted #selBar { display:none!important;margin:0!important;p
 .gallery-command-select { width:auto;max-width:min(180px,18vw);flex:0 1 auto; }
 .gallery-command-sort { min-width:112px; }
 .gallery-command-sort [data-icon="select-chevron"] { display:none; }
+/* Toggle favoris actif : aspect « enfoncé » (fond secondaire + ombre interne douce) */
+.gallery-command-bar [data-gallery-command="favorites"][aria-pressed="true"] { box-shadow:inset 0 1px 3px rgb(0 0 0 / 32%); }
 .gallery-command-spacer { min-width:0;flex:1 1 auto; }
 .gallery-active-filters { display:flex;min-width:0;max-width:360px;align-items:center;gap:5px;overflow:hidden; }
 .gallery-filter-chip { min-width:0;max-width:180px;flex:0 1 auto;overflow:hidden; }

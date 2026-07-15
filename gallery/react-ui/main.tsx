@@ -740,7 +740,7 @@ function GalleryToolbar() {
           render={
             <Button variant={activeFilterCount ? "secondary" : "outline"} size="sm">
               <Filter data-icon="inline-start" />
-              <span data-gallery-command="filters">Filters{activeFilterCount ? ` ${activeFilterCount}` : ""}</span>
+              <span data-gallery-command="filters">Filters</span>
             </Button>
           }
         />

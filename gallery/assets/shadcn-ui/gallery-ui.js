@@ -25301,10 +25301,7 @@ function OA() {
         {
           render: /* @__PURE__ */ x.jsxs(Mt, { variant: A ? "secondary" : "outline", size: "sm", children: [
             /* @__PURE__ */ x.jsx(t1, { "data-icon": "inline-start" }),
-            /* @__PURE__ */ x.jsxs("span", { "data-gallery-command": "filters", children: [
-              "Filters",
-              A ? ` ${A}` : ""
-            ] })
+            /* @__PURE__ */ x.jsx("span", { "data-gallery-command": "filters", children: "Filters" })
           ] })
         }
       ),
