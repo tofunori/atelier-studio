@@ -115,7 +115,7 @@ private func accessibilityString(_ element: AXUIElement, _ attribute: CFString) 
 private func accessibilityElement(_ element: AXUIElement, _ attribute: CFString) -> AXUIElement? {
     guard let value = accessibilityAttribute(element, attribute),
           CFGetTypeID(value) == AXUIElementGetTypeID() else { return nil }
-    return value as! AXUIElement
+    return (value as! AXUIElement)
 }
 
 private func accessibilityChildren(_ element: AXUIElement) -> [AXUIElement] {

@@ -499,8 +499,8 @@ pub fn appsnap_read_capture(
 ) -> Result<tauri::ipc::Response, String> {
     let path = PathBuf::from(path);
     validate_capture_path(&manager.capture_directory, &path)?;
-    let bytes = fs::read(&path)
-        .map_err(|error| format!("Could not read the captured AppSnap: {error}"))?;
+    let bytes =
+        fs::read(&path).map_err(|error| format!("Could not read the captured AppSnap: {error}"))?;
     Ok(tauri::ipc::Response::new(bytes))
 }
 
@@ -539,7 +539,10 @@ mod tests {
             "accessibilitySnapshotTruncated": false
         });
         let capture = serde_json::from_value::<AppSnapCapture>(raw).expect("valid payload");
-        assert_eq!(capture.accessibility_snapshot.as_deref(), Some("[button] Send"));
+        assert_eq!(
+            capture.accessibility_snapshot.as_deref(),
+            Some("[button] Send")
+        );
         assert_eq!(capture.accessibility_element_count, Some(1));
         assert_eq!(capture.accessibility_snapshot_truncated, Some(false));
     }
