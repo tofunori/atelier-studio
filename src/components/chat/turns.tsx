@@ -2,7 +2,7 @@
 // depuis le dispatcher de Chat.tsx. Chaque composant est memoizable : état
 // (editing, plis, review) et callbacks restent dans Chat, passés en props.
 // Clés et classes inchangées : le streaming et l'ancrage ne bougent pas.
-import { memo, useEffect, useState, type ReactNode } from "react";
+import { memo, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import ReactMarkdown from "react-markdown";
 import { CheckIcon } from "lucide-react";
 import { AgentEvent } from "../../lib/ws";
@@ -19,7 +19,9 @@ import {
 } from "./toolPresentation";
 import { ActivityDisclosure, Button, EmptyState, IconButton, Tooltip, showError, showSuccess } from "../ui";
 import { Bubble, BubbleContent } from "../shadcn/bubble";
+import { Field, FieldLabel } from "../shadcn/field";
 import { Message, MessageContent, MessageFooter } from "../shadcn/message";
+import { Textarea } from "../shadcn/textarea";
 
 type TimeFormat = "system" | "24h" | "12h" | undefined;
 type UserEvent = Extract<AgentEvent, { kind: "user" }>;
@@ -127,6 +129,18 @@ export const UserTurn = memo(function UserTurn(p: {
 }) {
   const e = p.event;
   const i = p.index;
+  const editTextareaRef = useRef<HTMLTextAreaElement>(null);
+  useLayoutEffect(() => {
+    const textarea = editTextareaRef.current;
+    if (!textarea || p.editingText == null) return;
+    textarea.style.height = "auto";
+    textarea.style.height = `${Math.min(Math.max(textarea.scrollHeight, 48), 160)}px`;
+  }, [p.editingText]);
+  const submitEdit = () => {
+    if (!p.editingText?.trim()) return;
+    p.onEditSend(i, e.text, p.editingText);
+    p.onEditingChange(null);
+  };
   return (
     <Message id={`msg-${i}`} align="end" className="chat-message user-message">
     <MessageContent className="user-wrap">
@@ -144,43 +158,45 @@ export const UserTurn = memo(function UserTurn(p: {
         </button>
       ))}
       {p.editingText != null ? (
-        <div className="edit-box">
-          <textarea
-            autoFocus
-            value={p.editingText}
-            rows={Math.min(8, Math.max(2, p.editingText.split("\n").length))}
-            onChange={(ev) => p.onEditingChange(ev.target.value)}
-            onKeyDown={(ev) => {
-              if (ev.key === "Escape") p.onEditingChange(null);
-              if (ev.key === "Enter" && !ev.shiftKey) {
-                // même garde IME que le composer (fix plan 015)
-                if (ev.nativeEvent.isComposing) return;
-                ev.preventDefault();
-                if (p.editingText!.trim()) {
-                  p.onEditSend(i, e.text, p.editingText!);
-                  p.onEditingChange(null);
-                }
-              }
-            }}
-          />
-          <div className="edit-actions">
-            <button type="button" className="edit-cancel" onClick={() => p.onEditingChange(null)}>
-              {t("action.cancel")}
-            </button>
-            <button
-              type="button"
-              className="edit-send"
-              onClick={() => {
-                if (p.editingText!.trim()) {
-                  p.onEditSend(i, e.text, p.editingText!);
-                  p.onEditingChange(null);
+        <form className="edit-box" onSubmit={(ev) => { ev.preventDefault(); submitEdit(); }}>
+          <Field className="edit-message-field">
+            <FieldLabel className="sr-only" htmlFor={`edit-message-${i}`}>
+              {t("action.edit-resend")}
+            </FieldLabel>
+            <Textarea
+              ref={editTextareaRef}
+              id={`edit-message-${i}`}
+              className="edit-message-textarea tw:min-h-12 tw:max-h-40 tw:resize-none"
+              autoFocus
+              value={p.editingText}
+              rows={1}
+              onChange={(ev) => p.onEditingChange(ev.target.value)}
+              onKeyDown={(ev) => {
+                if (ev.key === "Escape") p.onEditingChange(null);
+                if (ev.key === "Enter" && !ev.shiftKey) {
+                  // même garde IME que le composer (fix plan 015)
+                  if (ev.nativeEvent.isComposing) return;
+                  ev.preventDefault();
+                  submitEdit();
                 }
               }}
+            />
+          </Field>
+          <div className="edit-actions">
+            <Button type="button" variant="secondary" size="sm" className="edit-cancel" onClick={() => p.onEditingChange(null)}>
+              {t("action.cancel")}
+            </Button>
+            <Button
+              type="submit"
+              variant="primary"
+              size="sm"
+              className="edit-send"
+              disabled={!p.editingText.trim()}
             >
               {t("action.send")}
-            </button>
+            </Button>
           </div>
-        </div>
+        </form>
       ) : (
         <Bubble variant="secondary" align="end" className="user-bubble-shell">
           <BubbleContent className="user-bubble tw:rounded-[var(--radius-control)]">

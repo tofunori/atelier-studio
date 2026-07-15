@@ -134,8 +134,8 @@ export function EditLine({ event, threadId }: {
               <button
                 type="button"
                 className="edit-line-open"
-                onClick={() => openFileRef(f.path)}
-                title={t("action.open-file", { ref: f.path })}
+                onClick={() => openFileRef(f.path, { diff: true, baseSha: event.baseSha })}
+                title={`${t("action.open-file", { ref: f.path })} · diff avant/après`}
               >
                 <PencilIcon />
                 <span className="edit-line-verb">{t("chat.edited")}</span>

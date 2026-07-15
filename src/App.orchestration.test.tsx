@@ -481,6 +481,31 @@ describe("orchestration App — caractérisation", () => {
     expect(svgFrame!.src).toContain("file=outputs%2Ffigures%2Falbedo_annuel.svg");
   });
 
+  it("ouvre un événement Edited dans l'IDE avec le snapshot et le mode diff", async () => {
+    const { sock } = await mountApp();
+    await pushThreads(sock, [THREAD_A]);
+    await selectThread(sock, "Fil A — albédo");
+    await push(sock, { type: "files", files: ["scripts/plot.py"] });
+    const baseSha = "a".repeat(40);
+
+    await act(async () => {
+      window.dispatchEvent(new CustomEvent("chat-open-file", { detail: {
+        rel: "scripts/plot.py",
+        line: null,
+        diff: true,
+        baseSha,
+      } }));
+      await flushMicrotasks(4);
+    });
+
+    const editor = document.querySelector<HTMLIFrameElement>('iframe[src*="latex_studio.html"]');
+    expect(editor).toBeTruthy();
+    const url = new URL(editor!.src);
+    expect(url.searchParams.get("path")).toBe(`${PROJECT_ROOT}/scripts/plot.py`);
+    expect(url.searchParams.get("diff")).toBe("1");
+    expect(url.searchParams.get("base")).toBe(baseSha);
+  });
+
   it("bascule Chat/Split/Atelier : en Atelier plein, le panneau chat est masqué SANS être démonté", async () => {
     const { sock } = await mountApp();
     await pushThreads(sock);
@@ -730,9 +755,17 @@ describe("orchestration App — caractérisation", () => {
     });
     const textarea = document.querySelector(".edit-box textarea") as HTMLTextAreaElement;
     expect(textarea).toBeTruthy();
+    expect(textarea.dataset.slot).toBe("textarea");
+    expect(textarea.rows).toBe(1);
+    expect(document.querySelector(".edit-box")?.tagName).toBe("FORM");
+    const sendButton = document.querySelector(".edit-send") as HTMLButtonElement;
+    expect(sendButton.dataset.slot).toBe("button");
+    fireEvent.change(textarea, { target: { value: "   " } });
+    expect(sendButton.disabled).toBe(true);
     fireEvent.change(textarea, { target: { value: "Question corrigée" } });
+    expect(sendButton.disabled).toBe(false);
     await act(async () => {
-      (document.querySelector(".edit-send") as HTMLButtonElement).click();
+      sendButton.click();
       await flushMicrotasks(4);
     });
 

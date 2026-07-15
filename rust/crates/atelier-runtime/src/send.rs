@@ -846,6 +846,12 @@ fn normalize_provider_event(
                 Value::String(project_root.to_string())
             },
         );
+        obj.insert(
+            "baseSha".into(),
+            snapshot_sha
+                .map(|sha| Value::String(sha.to_string()))
+                .unwrap_or(Value::Null),
+        );
     }
     event
 }
@@ -1035,11 +1041,12 @@ mod tests {
 
     #[test]
     fn edit_events_are_normalized_before_journaling() {
+        let snapshot = "a".repeat(40);
         let event = normalize_provider_event(
             json!({"kind":"edit","files":["/repo/src/App.tsx", {"path":"src/lib/ws.ts","add":2}]}),
             "/repo",
             None,
-            None,
+            Some(&snapshot),
         );
         assert_eq!(
             event["files"],
@@ -1049,6 +1056,7 @@ mod tests {
             ])
         );
         assert_eq!(event["projectRoot"], "/repo");
+        assert_eq!(event["baseSha"], snapshot);
     }
 
     #[test]

@@ -17,10 +17,22 @@ hljs.registerLanguage("latex", latex);
 
 export const FILE_REF = /^[\w~./-]*[\w-]\.(tex|py|jl|md|r|bib|json|toml|yaml|yml|sh|js|ts|tsx|jsx|css|html|txt|csv|sql|rs|mjs|ipynb|png|pdf|svg)(:\d+(?:-\d+)?)?$/i;
 
-export function openFileRef(ref: string) {
+export type OpenFileRefOptions = {
+  diff?: boolean;
+  baseSha?: string | null;
+};
+
+export function openFileRef(ref: string, options: OpenFileRefOptions = {}) {
   const m = /^(.+?)(?::(\d+(?:-\d+)?))?$/.exec(ref.trim());
   if (!m) return;
-  window.dispatchEvent(new CustomEvent("chat-open-file", { detail: { rel: m[1], line: m[2] ?? null } }));
+  window.dispatchEvent(new CustomEvent("chat-open-file", {
+    detail: {
+      rel: m[1],
+      line: m[2] ?? null,
+      diff: options.diff === true,
+      baseSha: options.baseSha ?? null,
+    },
+  }));
 }
 
 export type ZoteroPassageRef = {

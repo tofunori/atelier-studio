@@ -493,6 +493,11 @@ async function gitBase(root) {
   return "HEAD";
 }
 
+function requestedDiffBase(value) {
+  const sha = String(value || "");
+  return /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/i.test(sha) ? sha : null;
+}
+
 export async function handleEditorsGet(req, res, url) {
   const pathname = url.pathname;
   // jeton local : les endpoints éditeur acceptent les fichiers hors projet
@@ -510,7 +515,7 @@ export async function handleEditorsGet(req, res, url) {
       if (!top) return sendJson(res, 200, { ok: false });
       const root = top.trim();
       const rel = path.relative(root, p).split(path.sep).join("/");
-      const base = await gitBase(root);
+      const base = requestedDiffBase(url.searchParams.get("base")) || await gitBase(root);
       const text = await gitOut(["show", `${base}:${rel}`], root);
       if (text === null) return sendJson(res, 200, { ok: false });
       const sha = await gitOut(["rev-parse", "--short", base], root);

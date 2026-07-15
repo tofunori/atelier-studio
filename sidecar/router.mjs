@@ -371,7 +371,13 @@ async function enrichEditEvent(ctx, turn, event) {
     }
     files.push({ path: rel, add, del });
   }
-  return { kind: "edit", projectRoot: root, files, ts: Date.now() };
+  return {
+    kind: "edit",
+    projectRoot: root,
+    baseSha: turn.snapshotSha || null,
+    files,
+    ts: Date.now(),
+  };
 }
 
 async function snapshotBeforeProvider(ctx, threadId) {

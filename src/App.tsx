@@ -1696,7 +1696,9 @@ export default function App() {
       [clean, ...current.filter((item) => item !== clean)].slice(0, 24));
   }
 
-  function openFileTab(rel: string, line?: string | null) {
+  type OpenFileTabOptions = { diff?: boolean; baseSha?: string | null };
+
+  function openFileTab(rel: string, line?: string | null, options: OpenFileTabOptions = {}) {
     if (!atelierUrl || !activeProject) return;
     // chemin absolu (ou ~/) venant du chat : sous le projet actif → relatif ;
     // sinon éditeur intégré via jeton (accès serveur borné à ~/Documents,
@@ -1713,33 +1715,44 @@ export default function App() {
     const ext = (outside ?? rel).split(".").pop()?.toLowerCase() ?? "";
     const name = (outside ?? rel).split("/").pop() ?? rel;
     const lineQ = line ? `&line=${encodeURIComponent(line)}` : "";
+    const diffQ = options.diff ? "&diff=1" : "";
+    const baseSha = options.baseSha && /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/i.test(options.baseSha)
+      ? options.baseSha
+      : null;
+    const baseQ = baseSha ? `&base=${encodeURIComponent(baseSha)}` : "";
     let url: string;
     if (outside) {
       // binaires hors projet : le statique du serveur reste sandboxé projet —
       // seuls les fichiers texte s'ouvrent dans l'éditeur intégré
       if (["pdf", "png", "jpg", "jpeg", "gif", "webp"].includes(ext)) return;
       const tokenQ = `&token=${encodeURIComponent(galleryTokenRef.current ?? "")}`;
-      url = ext === "md"
+      url = ext === "md" && !options.diff
         ? `${origin}/.fig_thumbs/md_studio.html?path=${encodeURIComponent(outside)}${tokenQ}`
-        : `${origin}/.fig_thumbs/latex_studio.html?path=${encodeURIComponent(outside)}${lineQ}${tokenQ}`;
+        : `${origin}/.fig_thumbs/${ext === "md" ? "code_editor" : "latex_studio"}.html?path=${encodeURIComponent(outside)}${lineQ}${diffQ}${baseQ}${tokenQ}`;
     } else if (ext === "pdf") {
       url = `${origin}/.fig_thumbs/pdf_viewer.html?file=${encodeURIComponent(rel)}`;
     } else if (ext === "svg") {
       url = `${origin}/.fig_thumbs/svg_viewer.html?file=${encodeURIComponent(rel)}`;
     } else if (["png", "jpg", "jpeg", "gif", "webp"].includes(ext)) {
       url = `${origin}/${rel}`;
-    } else if (ext === "md") {
+    } else if (ext === "md" && !options.diff) {
       url = `${origin}/.fig_thumbs/md_studio.html?path=${encodeURIComponent(`${activeProject}/${rel}`)}`;
     } else {
-      url = `${origin}/.fig_thumbs/latex_studio.html?path=${encodeURIComponent(`${activeProject}/${rel}`)}${lineQ}`;
+      const editor = ext === "md" ? "code_editor" : "latex_studio";
+      url = `${origin}/.fig_thumbs/${editor}.html?path=${encodeURIComponent(`${activeProject}/${rel}`)}${lineQ}${diffQ}${baseQ}`;
     }
     url = withAtelierNonce(url, atelierNonce);
-    const baseUrl = url.replace(/&line=[^&]*/, "");
+    const tabIdentity = (raw: string) => {
+      const parsed = new URL(raw);
+      for (const key of ["line", "diff", "base"]) parsed.searchParams.delete(key);
+      return parsed.toString();
+    };
+    const baseUrl = tabIdentity(url);
     // dédoublonner DANS l'updater : atelierTabsRef n'est synchronisé qu'après le
     // commit React — deux clics rapprochés créaient deux onglets identiques
     const newId = crypto.randomUUID();
     setAtelierTabs((tabs) => {
-      const existing = tabs.find((t) => t.url.replace(/&line=[^&]*/, "") === baseUrl);
+      const existing = tabs.find((t) => tabIdentity(t.url) === baseUrl);
       if (existing) {
         // même fichier déjà ouvert : re-cibler la ligne demandée si besoin
         setActiveTab(existing.id);
@@ -1761,7 +1774,7 @@ export default function App() {
 
   // clic sur une réf "fichier.tex:31" dans une réponse du chat
   useEffect(() => {
-    const openResolvedRef = (target: string, line: string | null) => {
+    const openResolvedRef = (target: string, line: string | null, options: OpenFileTabOptions) => {
       const projectRoot = activeProjectRef.current;
       let galleryRel = target.replace(/^\.\//, "");
       if (projectRoot && galleryRel.startsWith(projectRoot + "/")) {
@@ -1785,10 +1798,16 @@ export default function App() {
         }));
         return;
       }
-      openFileTabRef.current(target, line);
+      openFileTabRef.current(target, line, options);
     };
     const onOpen = (e: Event) => {
-      const { rel, line } = (e as CustomEvent).detail as { rel: string; line: string | null };
+      const { rel, line, diff, baseSha } = (e as CustomEvent).detail as {
+        rel: string;
+        line: string | null;
+        diff?: boolean;
+        baseSha?: string | null;
+      };
+      const options = { diff: diff === true, baseSha: baseSha ?? null };
       // résoudre un nom nu ("main.tex") contre l'arborescence du projet
       let target = rel.replace(/^\.\//, "");
       const list = filesRef.current;
@@ -1808,13 +1827,13 @@ export default function App() {
               // ("data/x/plot.csv") à un simple homonyme ailleurs
               const hits: string[] = Array.isArray(j?.hits) ? j.hits : [];
               const best = hits.find((h) => h === target || h.endsWith("/" + target)) ?? hits[0];
-              openResolvedRef(best ?? target, line);
+              openResolvedRef(best ?? target, line, options);
             })
-            .catch(() => openResolvedRef(target, line));
+            .catch(() => openResolvedRef(target, line, options));
           return;
         }
       }
-      openResolvedRef(target, line);
+      openResolvedRef(target, line, options);
     };
     window.addEventListener("chat-open-file", onOpen);
     return () => window.removeEventListener("chat-open-file", onOpen);

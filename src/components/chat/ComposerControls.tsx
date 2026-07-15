@@ -20,7 +20,7 @@ import { IconButton } from "../ui/IconButton";
 import { Tooltip } from "../ui/Tooltip";
 import { Kbd } from "../shadcn/kbd";
 import type { FollowUpMode } from "../../lib/chatDraftStore";
-import { ArrowUpIcon } from "lucide-react";
+import { ArrowUpIcon, SquareIcon } from "lucide-react";
 
 const PERMISSION_MODES = [
   { id: "bypassPermissions", labelKey: "permission.full" },
@@ -566,15 +566,15 @@ export function ComposerControls(p: {
             ) : (
               <Button
                 type="button"
-                variant="secondary"
+                variant="ghost"
+                size="icon-sm"
                 className="send stop"
                 disabled={p.disabled}
                 title={t("action.interrupt")}
+                aria-label={t("action.interrupt")}
                 onClick={p.onStop}
               >
-                <svg width="14" height="14" viewBox="0 0 14 14" aria-hidden="true">
-                  <rect x="3.5" y="3.5" width="7" height="7" rx="1.6" fill="currentColor" />
-                </svg>
+                <SquareIcon data-icon="inline-start" aria-hidden="true" />
               </Button>
             )
           ) : (

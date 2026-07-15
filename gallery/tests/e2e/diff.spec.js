@@ -219,6 +219,21 @@ async function saveOnce(page) {
   await expect(savedLabel).toContainText('sauvegardé');
 }
 
+test('clic Edited ouvre le snapshot avant-tour en diff lecture seule', async ({page}) => {
+  await withEditor('code', async ({root, filePath, url}) => {
+    const baseSha = execFileSync('git', ['rev-parse', 'HEAD'], {cwd: root, encoding: 'utf8'}).trim();
+    writeFileSync(filePath, CODE_INITIAL_TEXT.replace('return albedo, temperature', 'return albedo, temperature, "agent"'));
+    const githead = page.waitForRequest(request =>
+      new URL(request.url()).pathname === '/githead' && new URL(request.url()).searchParams.get('base') === baseSha);
+
+    await openEditor(page, `${url}&diff=1&base=${baseSha}`, 'code', 'cm6');
+    await githead;
+    await expect(page.locator('#diffTag')).toHaveClass(/on/);
+    await expect.poll(() => page.evaluate(() => cm.getOption('readOnly'))).toBe(true);
+    await expect.poll(() => page.locator('.dAddM').count()).toBeGreaterThan(0);
+  });
+});
+
 async function replaceTextAndSave(page, text) {
   await page.evaluate(nextText => {
     const cm = window.cm;

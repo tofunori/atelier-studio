@@ -99,6 +99,10 @@ async function serverTests() {
     let r = await j("/githead" + q);
     ok("githead base significative", r.ok && r.text === "version un du texte\n" && r.sha === baseSha,
       JSON.stringify(r));
+    const snapshotSha = git(["rev-parse", "HEAD~1"], repo).trim();
+    r = await j(`/githead${q}&base=${snapshotSha}`);
+    ok("githead snapshot explicite avant tour", r.ok && r.text === "version deux apres edit\n"
+      && snapshotSha.startsWith(r.sha), JSON.stringify(r));
 
     // /gitlog + /gitshow
     r = await j("/gitlog" + q);
@@ -252,6 +256,7 @@ function makeModuleHarness({
   gitTexts = {},
   postResponses = [],
   workerAvailable = false,
+  search = "",
 } = {}) {
   const el = () => {
     const e = { style: {}, classList: { toggle() {}, contains: () => false }, _children: [],
@@ -269,6 +274,7 @@ function makeModuleHarness({
   const gutterLog = [];
   const posts = [];
   const workers = [];
+  const headRequests = [];
   const body = el();
   const storage = new Map();
   if (localState !== null) storage.set("texDiffV1:" + filePath, JSON.stringify(localState));
@@ -287,13 +293,15 @@ function makeModuleHarness({
     getOption() { return false; },
     setBookmark(pos, o) { marksLog.push({ type: "del", idx: pos._idx, text: o.widget._t }); return { clear() { marksLog.push({type:"clear"}); } }; },
     markText(f, t) { marksLog.push({ type: "add", from: f._idx, to: t._idx }); return { clear() { marksLog.push({type:"clear"}); } }; },
-    setOption() {}, on() {}, operation(f) { f(); },
+    _options: {},
+    setOption(name, value) { cm._options[name] = value; }, on() {}, operation(f) { f(); },
     clearGutter() { gutterLog.length = 0; },
     setGutterMarker(line, g, cell) { gutterLog.push({ line, html: cell._h }); },
     scrollIntoView() {}, refresh() {}, setCursor() {}, addLineClass() {}, removeLineClass() {},
   };
   const ctx = {
     window: {}, console, Date, JSON, Math, Infinity, crypto: crypto.webcrypto, TextEncoder,
+    URLSearchParams, location: { search },
     document: { getElementById: () => null, createElement: el, head: { appendChild() {} },
       body, addEventListener() {}, querySelector: () => null },
     localStorage: {
@@ -303,10 +311,12 @@ function makeModuleHarness({
     },
     fetch: (u, opts) => {
       const url = String(u);
-      if (url.startsWith("/githead"))
+      if (url.startsWith("/githead")) {
+        headRequests.push(url);
         return activeHead.text === null
           ? Promise.resolve({ json: () => Promise.resolve({ ok: false }) })
           : Promise.resolve({ json: () => Promise.resolve({ ok: true, text: activeHead.text, sha: activeHead.sha, ts: activeHead.ts }) });
+      }
       if (url.startsWith("/versions") && opts && opts.method === "POST") {
         const payload = JSON.parse(opts.body);
         posts.push(payload);
@@ -367,7 +377,7 @@ function makeModuleHarness({
     return pop?._q?.["#dvHistList"]?._children || [];
   };
   const setHead = (text, ts, sha = activeHead.sha) => Object.assign(activeHead, { text, ts, sha });
-  return { ctx, cm, dv, tag, restore, restored, notes, marksLog, gutterLog, posts, workers, nav, storage, setHead, filePath,
+  return { ctx, cm, dv, tag, restore, restored, notes, marksLog, gutterLog, posts, workers, headRequests, nav, storage, setHead, filePath,
     historyButton, historyRows };
 }
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -409,6 +419,22 @@ function assertPersistedInterventions(name, h, expected, expectedLegacy = []) {
 }
 
 async function moduleTests() {
+  {
+    const baseSha = "a".repeat(40);
+    const h = makeModuleHarness({
+      headText: "avant agent\n",
+      search: `?diff=1&base=${baseSha}`,
+    });
+    h.cm._v = "après agent\n";
+    h.ctx.__tick();
+    await sleep(0);
+    contractOk("ouverture IDE diff transmet le snapshot exact",
+      h.headRequests.some((url) => url.includes(`base=${baseSha}`)), JSON.stringify(h.headRequests));
+    contractOk("ouverture IDE diff active la comparaison lecture seule",
+      h.dv.isShown() && h.cm._options.readOnly === true,
+      JSON.stringify({shown:h.dv.isShown(), options:h.cm._options, notes:h.notes}));
+  }
+
   // B0. Contrat Worker: same-origin, stale ignoré, cache et annulation de vue.
   contractOk("diff worker source incluse", fs.existsSync(path.join(ASSETS, "diff_worker.js")));
   {

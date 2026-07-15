@@ -26,6 +26,13 @@
 //   dv.isShown()            le mode comparaison est-il actif ?
 window.DiffVersions = function(opts){
   const { getCm, path, notify, els, restoreText } = opts;
+  const launchParams = (() => {
+    try{ return new URLSearchParams(location.search); }
+    catch(e){ return {get: () => null}; }
+  })();
+  const autoOpenDiff = launchParams.get("diff") === "1";
+  const requestedBase = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/i.test(launchParams.get("base") || "")
+    ? launchParams.get("base") : "";
   // La base Git (ou le premier `before` pour un fichier non suivi) n'est pas
   // une intervention. Le journal conserve les paires explicites, sans jamais
   // reconstruire un `after` depuis le buffer vivant.
@@ -1155,9 +1162,10 @@ window.DiffVersions = function(opts){
   }
   async function fetchHead(){
     try{
-      const r = await fetch("/githead?path=" + encodeURIComponent(path));
+      const requested = requestedBase ? "&base=" + encodeURIComponent(requestedBase) : "";
+      const r = await fetch("/githead?path=" + encodeURIComponent(path) + requested);
       const j = await r.json();
-      if(!j || !j.ok || typeof j.text !== "string"){ return; }
+      if(!j || !j.ok || typeof j.text !== "string"){ return false; }
       const changed = headText !== j.text;
       headSha = j.sha || "";
       headText = j.text;
@@ -1174,7 +1182,8 @@ window.DiffVersions = function(opts){
       // Hors comparaison, la cible reste la base cumulative quel que soit
       // l'ordre d'arrivée entre fetchHead et les premiers push.
       updateTag();
-    }catch(e){ /* serveur sans /githead ou hors dépôt : dégradation silencieuse */ }
+      return true;
+    }catch(e){ return false; /* serveur sans /githead ou hors dépôt */ }
   }
 
   els.tag.onclick = () => toggle();
@@ -1433,9 +1442,13 @@ window.DiffVersions = function(opts){
         lastKnown = now;
         persistBaseline = true; // attendre la base Git avant le premier init v2
       }
-      fetchHead().then(() => {
+      fetchHead().then((headLoaded) => {
         if(persistBaseline && runtimePushes === 0) persist(now);
         refreshGutter();
+        if(autoOpenDiff){
+          if(headLoaded) toggle(true);
+          else notify("Diff avant/après indisponible — fichier ouvert normalement");
+        }
         // sélection par défaut du ± : la base (diff cumulatif, comme la gouttière)
         if(!shown) updateTag();
       });

@@ -246,6 +246,34 @@ describe("anatomie du tour — header d'activité", () => {
     expect(document.querySelector(".thinking-shimmer")?.textContent).toContain(t("chat.thinking"));
   });
 
+  it("ouvre un fichier édité dans l'IDE avec le diff exact du tour", () => {
+    const onOpen = vi.fn();
+    window.addEventListener("chat-open-file", onOpen);
+    try {
+      const baseSha = "a".repeat(40);
+      const evs: AgentEvent[] = [
+        events.user("Corrige le tracé.", FIXED_TS),
+        {
+          kind: "edit",
+          projectRoot: "/tmp/fixtures/albedo-pipeline",
+          baseSha,
+          files: [{ path: "scripts/plot.py", add: 4, del: 1 }],
+        },
+      ];
+      renderUi(<Chat {...chatProps({ events: evs, workingSince: FIXED_TS })} />);
+      fireEvent.click(document.querySelector(".edit-line-open") as HTMLButtonElement);
+      expect(onOpen).toHaveBeenCalledTimes(1);
+      expect((onOpen.mock.calls[0][0] as CustomEvent).detail).toEqual({
+        rel: "scripts/plot.py",
+        line: null,
+        diff: true,
+        baseSha,
+      });
+    } finally {
+      window.removeEventListener("chat-open-file", onOpen);
+    }
+  });
+
   it("sort du chargement et montre l'erreur quand gitDiff échoue", () => {
     const evs: AgentEvent[] = [
       events.user("Modifie.", FIXED_TS),

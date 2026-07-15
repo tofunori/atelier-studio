@@ -67,7 +67,13 @@ type AgentEventBody =
       ts?: number;
     }
   | { kind: "tool"; name: string; detail?: string }
-  | { kind: "edit"; projectRoot?: string | null; files: { path: string; add: number | null; del: number | null }[]; ts?: number }
+  | {
+      kind: "edit";
+      projectRoot?: string | null;
+      baseSha?: string | null;
+      files: { path: string; add: number | null; del: number | null }[];
+      ts?: number;
+    }
   | {
       kind: "tool_update";
       id: string;

@@ -515,6 +515,28 @@ describe("attribution des tours (plan 025)", () => {
     expect(done.checkpoint).toEqual({ snapshotSha: "s".repeat(40), filesChanged: ["src/a.ts", "README.md"] });
   });
 
+  it("edit : transporte le snapshot d'avant-tour jusqu'au chat", async () => {
+    const sends = [];
+    const { ctx, emitted, gitops } = makeTurnCtx({
+      providerImpl: { send: (opts) => sends.push(opts) },
+    });
+    gitops.numstat.mockResolvedValue({ add: 7, del: 2 });
+    await route({
+      type: "send", provider: "claude", threadId: "t-edit-base", projectRoot: "/p",
+      prompt: "modifie", clientMessageId: "m-edit-base",
+      displayEvent: { kind: "user", text: "modifie" },
+    }, ctx);
+    await sends[0].onEvent({ kind: "edit", files: ["/p/src/a.ts"] });
+    await flush();
+
+    const edit = emitted.find((message) => message.type === "event" && message.event?.kind === "edit")?.event;
+    expect(edit).toMatchObject({
+      projectRoot: "/p",
+      baseSha: "s".repeat(40),
+      files: [{ path: "src/a.ts", add: 7, del: 2 }],
+    });
+  });
+
   it("steer refusé par le provider → queue avec le MÊME messageId, sans double bulle user", async () => {
     const runs = [];
     const { ctx, emitted } = makeTurnCtx({

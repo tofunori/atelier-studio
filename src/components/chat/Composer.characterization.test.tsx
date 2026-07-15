@@ -492,6 +492,9 @@ describe("composer — caractérisation complémentaire (plan 020)", () => {
     renderUi(<Chat {...chatProps({ workingSince: FIXED_TS, onStop })} />);
     const stop = document.querySelector(".send.stop") as HTMLButtonElement;
     expect(stop).toBeTruthy();
+    expect(stop.dataset.slot).toBe("button");
+    expect(stop.getAttribute("aria-label")).toBe(t("action.interrupt"));
+    expect(stop.querySelector("svg.lucide-square")).toBeTruthy();
     fireEvent.click(stop);
     expect(onStop).toHaveBeenCalledTimes(1);
   });

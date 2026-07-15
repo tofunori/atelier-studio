@@ -738,11 +738,13 @@ export default function Chat(p: {
       const files = new Map<string, { path: string; add: number | null; del: number | null }>();
       let lastEdit = -1;
       let projectRoot: string | null | undefined;
+      let baseSha: string | null | undefined;
       for (let index = turn.startIndex; index < turn.endIndex; index += 1) {
         const event = p.events[index];
         if (event.kind !== "edit") continue;
         lastEdit = index;
         projectRoot = event.projectRoot;
+        baseSha = event.baseSha ?? baseSha;
         for (const file of event.files ?? []) {
           const previous = files.get(file.path);
           files.set(file.path, {
@@ -757,6 +759,7 @@ export default function Chat(p: {
       merged.set(lastEdit, {
         kind: "edit",
         projectRoot,
+        baseSha,
         files: [...files.values()],
         ts: (p.events[lastEdit] as EditEvent).ts,
       });
