@@ -58,9 +58,10 @@ describe("anatomie du tour — header d'activité", () => {
     const fold = document.querySelector(".ui-activity.is-summary .ui-activity-trigger") as HTMLButtonElement;
     fireEvent.click(fold);
     expect(fold.getAttribute("aria-expanded")).toBe("true");
-    expect(document.querySelectorAll(".ui-activity:not(.is-summary)")).toHaveLength(2);
-    expect(document.querySelectorAll(".ui-activity.is-completed:not(.is-summary)")).toHaveLength(2);
-    expect(document.querySelectorAll(".ui-activity-label")[1]?.textContent?.toLowerCase()).toContain(t("tools.read-1").toLowerCase());
+    expect(document.querySelectorAll(".ui-activity:not(.is-summary)")).toHaveLength(1);
+    expect(document.querySelectorAll(".ui-activity.is-completed:not(.is-summary)")).toHaveLength(1);
+    expect(document.querySelectorAll(".ui-activity-label")[1]?.textContent?.toLowerCase())
+      .toContain(t("tools.summary.exploration-n").toLowerCase());
   });
 
   it("tour actif : une seule activité sémantique, reasoning consolidé et aucun Thinking doublé", () => {
@@ -111,6 +112,37 @@ describe("anatomie du tour — header d'activité", () => {
     expect(activity.textContent).toContain(t("chat.active-action-n", { n: 8 }));
     fireEvent.click(activity.querySelector(".ui-activity-trigger") as HTMLButtonElement);
     expect(document.querySelectorAll(".active-work-detail .tool-output")).toHaveLength(8);
+  });
+
+  it("tour actif : l'icône suit l'appel réellement en cours, pas les actions précédentes", () => {
+    const evs: AgentEvent[] = [
+      events.user("Lis puis teste.", FIXED_TS),
+      events.tool({ id: "read", name: "Read", detail: "src/App.tsx", status: "completed" }),
+      events.tool({ id: "test", name: "Bash", detail: "npm test", status: "inProgress" }),
+    ];
+    renderUi(<Chat {...chatProps({ events: evs, workingSince: FIXED_TS })} />);
+
+    const activity = document.querySelector(".active-turn-work .ui-activity") as HTMLElement;
+    expect(activity.querySelector("[data-activity-icon='command']")).toBeTruthy();
+    expect(activity.textContent).toContain(t("chat.activity-running-tests"));
+    expect(activity.querySelector("[data-activity-icon='read']")).toBeNull();
+  });
+
+  it("tour terminé : résumé ordonné comme Codex et icône de la première partie", () => {
+    const evs: AgentEvent[] = [
+      events.user("Inspecte.", FIXED_TS),
+      events.tool({ id: "cmd", name: "Bash", detail: "npm test" }),
+      events.tool({ id: "search", name: "Bash", detail: "rg -n albedo src" }),
+      events.text("Terminé.", FIXED_TS + 500),
+      events.done({ ts: FIXED_TS + 700 }),
+    ];
+    renderUi(<Chat {...chatProps({ events: evs })} />);
+    fireEvent.click(document.querySelector(".ui-activity.is-summary .ui-activity-trigger") as HTMLButtonElement);
+
+    const activity = document.querySelector(".ui-activity:not(.is-summary)") as HTMLElement;
+    expect(activity.textContent).toContain("Fichiers consultés, commande exécutée");
+    expect(activity.querySelector("[data-activity-icon='search']")).toBeTruthy();
+    expect(activity.querySelector("[data-activity-icon='command']")).toBeNull();
   });
 
   it("rattache les narrations intermédiaires au pli du message final", () => {

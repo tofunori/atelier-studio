@@ -794,6 +794,9 @@ export default function Chat(p: {
       ProjectedTimelineItem |
       { type: "actions"; actions: ToolAction[]; index: number; key: string }
     > = [];
+    const suppressDuplicateEditTool = (row: Extract<ProjectedTimelineItem, { type: "event" }>) =>
+      isSummarizableTool(row.event) && editTurns.has(row.index) &&
+      toolCategory(row.event.name, "detail" in row.event ? row.event.detail : undefined) === "edit";
     for (let offset = 0; offset < projectedTimeline.length; offset += 1) {
       const row = projectedTimeline[offset];
       if (row.type !== "event") {
@@ -801,11 +804,7 @@ export default function Chat(p: {
         continue;
       }
       const event = row.event;
-      if (
-        isSummarizableTool(event) &&
-        editTurns.has(row.index) &&
-        toolCategory(event.name, "detail" in event ? event.detail : undefined) === "edit"
-      ) {
+      if (suppressDuplicateEditTool(row)) {
         continue;
       }
       if (event.kind === "edit") {
@@ -817,21 +816,23 @@ export default function Chat(p: {
         rows.push(row);
         continue;
       }
-      const identity = actionId(event, row.index);
-      const actions: ToolAction[] = [event];
+      const actionRows = [{ action: event, index: row.index }];
       let nextOffset = offset + 1;
       while (nextOffset < projectedTimeline.length) {
         const next = projectedTimeline[nextOffset];
         if (next.type !== "event" || !isSummarizableTool(next.event)) break;
-        if (actionId(next.event, next.index) !== identity) break;
-        actions.push(next.event);
+        if (!suppressDuplicateEditTool(next)) actionRows.push({ action: next.event, index: next.index });
         nextOffset += 1;
       }
+      const actions = actionRows.map(({ action }) => action);
+      const firstIdentity = actionId(actionRows[0].action, actionRows[0].index);
+      const lastAction = actionRows[actionRows.length - 1];
+      const lastIdentity = actionId(lastAction.action, lastAction.index);
       rows.push({
         type: "actions",
         actions,
         index: row.index,
-        key: `tools:${identity}`,
+        key: `tools:${firstIdentity}:${lastIdentity}`,
       });
       offset = nextOffset - 1;
     }
@@ -888,7 +889,7 @@ export default function Chat(p: {
           phase: turnViewModels[turnViewModels.length - 1]?.phase ?? "idle",
         }}
         rev={{ review, reviewMin, setReviewMin, setReview, barOpen, setBarOpen, fixing, setFixing, reviewOpen, setReviewOpen }}
-        list={{ renderedEvents, openFolds, setOpenFolds, openToolGroups, setOpenToolGroups, renderToolLine, fmtWorkDur }}
+        list={{ renderedEvents, openFolds, setOpenFolds, openToolGroups, setOpenToolGroups, renderToolLine, fmtWorkDur, plugins: p.plugins ?? [] }}
         msg={{
           editing, setEditing, pins: p.pins, onTogglePin: p.onTogglePin, onRevert: p.onRevert,
           onEditSend: p.onEditSend, onFork: p.onFork, setPasteView, commands: p.commands,

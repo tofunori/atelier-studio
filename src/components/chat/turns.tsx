@@ -7,12 +7,16 @@ import ReactMarkdown from "react-markdown";
 import { CheckIcon } from "lucide-react";
 import { AgentEvent } from "../../lib/ws";
 import type { ChatTurnViewModel, ToolAction } from "../../lib/chat/turnViewModel";
+import type { PluginCatalogEntry } from "../../lib/plugins";
 import { t } from "../../lib/i18n";
 import { normalizeMathDelimiters, hardenPartialMarkdown } from "../../lib/markdown";
 import { CopyIcon, ForkIcon, ResumeIcon } from "../icons";
 import { MD_COMPONENTS, MD_COMPONENTS_STREAMING, useMdPlugins } from "./md";
 import { DoneDiffToggle, fmtTime, PinBtn, LiveThinking, ReasoningTrace, Working, reasoningSummary } from "./turnParts";
-import { activeToolLabel, groupIconCat, summarizeTools } from "./toolPresentation";
+import {
+  activeToolLabel, activityIconForAction, activityIconForPhase,
+  distinctToolActions, summarizeActivity,
+} from "./toolPresentation";
 import { ActivityDisclosure, Button, EmptyState, IconButton, Tooltip, showError, showSuccess } from "../ui";
 import { Bubble, BubbleContent } from "../shadcn/bubble";
 import { Message, MessageContent, MessageFooter } from "../shadcn/message";
@@ -421,13 +425,17 @@ export function ActiveTurnWork(p: {
   open: boolean;
   onToggle: () => void;
   onStop: () => void;
+  plugins?: PluginCatalogEntry[];
   renderToolLine: (action: ToolAction, key: React.Key) => ReactNode;
 }) {
   const state = p.turn.activeState;
   const actions = p.turn.actionGroups.flatMap((group) => group.actions);
   const hasDetail = actions.length > 0 || p.turn.reasoningTexts.length > 0;
   const actionCount = p.turn.actionGroups.length;
-  const icon = actions.length > 0 ? groupIconCat(actions) : undefined;
+  const activeEvent = state?.kind === "activity" ? p.events[state.eventIndex] : null;
+  const icon = activeEvent?.kind === "tool" || activeEvent?.kind === "tool_update"
+    ? activityIconForAction(activeEvent, p.plugins)
+    : activeEvent?.kind === "activity" ? activityIconForPhase(activeEvent.phase) : undefined;
 
   return (
     <div className="working-stack active-turn-work" data-turn-id={p.turn.turnId ?? p.turn.key}>
@@ -447,7 +455,7 @@ export function ActiveTurnWork(p: {
             {p.turn.reasoningTexts.length > 0 ? <ReasoningTrace texts={p.turn.reasoningTexts} /> : null}
             {p.turn.actionGroups.map((group) => (
               <div className="tool-group-list" key={group.key}>
-                {group.actions.map((action, offset) => p.renderToolLine(action, `${group.key}:${offset}`))}
+                {distinctToolActions(group.actions).map((action, offset) => p.renderToolLine(action, `${group.key}:${offset}`))}
               </div>
             ))}
           </div>
@@ -462,25 +470,25 @@ export function ActiveTurnWork(p: {
 
 export function ActivityGroup(p: {
   actions: ToolAction[];
+  plugins?: PluginCatalogEntry[];
   open: boolean;
   onToggle: () => void;
   renderToolLine: (action: ToolAction, offset: number) => ReactNode;
 }) {
-  const updates = p.actions.filter((a): a is Extract<AgentEvent, { kind: "tool_update" }> => a.kind === "tool_update");
+  const distinctActions = distinctToolActions(p.actions);
+  const summary = summarizeActivity(distinctActions, p.plugins);
+  const updates = distinctActions.filter((a): a is Extract<AgentEvent, { kind: "tool_update" }> => a.kind === "tool_update");
   const failed = updates.some((a) => a.status === "failed" || (a.exitCode != null && a.exitCode !== 0));
-  const running = updates.some((a) => a.status === "running" || a.status === "pending");
+  const running = updates.some((a) => /^(running|pending|in[-_]?progress)$/i.test(a.status ?? ""));
   const status = failed ? "failed" : running ? "running" : "completed";
-  const durationMs = updates.reduce((sum, a) => sum + (a.durationMs ?? 0), 0);
-  const duration = durationMs >= 1000 ? `${Math.round(durationMs / 100) / 10}s` : durationMs ? `${durationMs}ms` : null;
   // Le nom technique (Bash, Read, execute_command…) n'est jamais le libellé
   // principal. Une action reste compréhensible avant d'ouvrir son détail brut.
-  const summary = summarizeTools([p.actions[p.actions.length - 1]]);
   return (
     <ActivityDisclosure open={p.open} onToggle={p.onToggle} status={status}
-      icon={groupIconCat(p.actions)} label={summary}
-      meta={duration ?? (status === "running" ? t("chat.working") : "")}>
+      icon={summary.icon} label={summary.label}
+      meta={status === "running" ? t("chat.working") : undefined}>
         <div className="tool-group-list">
-          {p.actions.map((action, offset) => p.renderToolLine(action, offset))}
+          {distinctActions.map((action, offset) => p.renderToolLine(action, offset))}
         </div>
     </ActivityDisclosure>
   );

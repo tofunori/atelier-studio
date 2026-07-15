@@ -4,11 +4,50 @@
 import { useState } from "react";
 import { AgentEvent } from "../../lib/ws";
 import { eventLabel, t } from "../../lib/i18n";
+import type { PluginCatalogEntry } from "../../lib/plugins";
 import { highlightCode } from "./md";
 
-export type ToolCat = "search" | "read" | "edit" | "command" | "web" | "todo" | "permission" | "tool";
-const SEARCH_CMD = /^\s*!?\s*#?\s*(rg|grep|egrep|fgrep|ag|ack|find|fd|glob|tree|ls)\b/;
+export type ToolCat =
+  | "search" | "read" | "list" | "edit" | "command" | "web" | "todo"
+  | "permission" | "image" | "visualization" | "integration" | "skill"
+  | "agent" | "compaction" | "interrupted" | "tool";
+
+export type ActivityIcon = {
+  cat: ToolCat;
+  imageUrl?: string | null;
+  label?: string;
+};
+
+type ToolAction = Extract<AgentEvent, { kind: "tool" | "tool_update" }>;
+type SummaryPartKind =
+  | "integrations" | "loaded-tools" | "file-changes" | "exploration"
+  | "visualization" | "commands" | "web-search" | "images" | "agents"
+  | "todo" | "permissions" | "compaction" | "tools";
+
+type SemanticToolActivity = {
+  action: ToolAction;
+  kind: ToolCat;
+  target: string;
+  sourceKey: string | null;
+  interrupted: boolean;
+};
+
+export type ToolActivitySummary = {
+  label: string;
+  icon?: ActivityIcon;
+  actionCount: number;
+  parts: { kind: SummaryPartKind; count: number }[];
+};
+
+const SEARCH_CMD = /^\s*!?\s*#?\s*(rg|grep|egrep|fgrep|ag|ack|find|fd|glob)\b/;
+const LIST_CMD = /^\s*!?\s*#?\s*(ls|tree)\b/;
 const READ_CMD = /^\s*!?\s*(cat|bat|head|tail|less|more|sed -n)\b/;
+const VISUALIZATION_CMD = /\b(matplotlib|pyplot|plotly|ggplot|vega|chart|render[_-]?(?:plot|figure)|savefig|\.plot\s*\()\b/iu;
+const INTERRUPTED_STATUS = /^(interrupted|cancelled|canceled|declined|denied|stopped)$/i;
+const SUMMARY_ORDER: SummaryPartKind[] = [
+  "integrations", "loaded-tools", "file-changes", "exploration", "visualization",
+  "commands", "web-search", "images", "agents", "todo", "permissions", "compaction", "tools",
+];
 
 export function toolOutputSummary(output: string) {
   const clean = output.trim();
@@ -119,7 +158,7 @@ export function FileTypeIcon({ ext }: { ext: string }) {
 export function isSummarizableTool(e: AgentEvent): e is Extract<AgentEvent, { kind: "tool" | "tool_update" }> {
   if (e.kind === "tool_update") return true;
   if (e.kind !== "tool") return false;
-  return e.name.startsWith("__edits:") || !e.name.startsWith("__");
+  return e.name === "__compacted" || e.name.startsWith("__edits:") || !e.name.startsWith("__");
 }
 
 // catégorise un outil tous providers confondus (Claude: Bash/Read/Edit/Grep ;
@@ -127,25 +166,32 @@ export function isSummarizableTool(e: AgentEvent): e is Extract<AgentEvent, { ki
 export function toolCategory(name: string, detail?: string): ToolCat {
   if (name.startsWith("__edits:")) return "edit";
   const n = name.toLowerCase();
-  if (n.startsWith("permission")) return "permission";
+  const d = detail ?? "";
+  if (n === "__compacted" || n.includes("context_compact") || n.includes("context-compaction")) return "compaction";
+  if (n.startsWith("permission") || n.includes("approval") || n.includes("request_user_input") || n.includes("elicitation")) return "permission";
+  if (n.startsWith("agent:") || n.includes("spawn_agent") || n.includes("subagent") || n.includes("multi_agent") || n.includes("multi-agent")) return "agent";
+  if (n.includes("view_image") || n.includes("image_view") || n.includes("open_image") || n === "image") return "image";
+  if (n === "webfetch" || n === "websearch" || n.includes("web_search") || n.includes("web-search") || n.includes("browser") || n.includes("recherche web")) return "web";
   // exécution shell (Bash, Execute, run_terminal…) : affiner via la commande
   if (n === "bash" || n === "execute" || n.includes("shell") || n.includes("terminal") || n.includes("command")) {
-    const d = detail ?? "";
+    if (LIST_CMD.test(d)) return "list";
     if (SEARCH_CMD.test(d)) return "search";
     if (READ_CMD.test(d)) return "read";
+    if (VISUALIZATION_CMD.test(d)) return "visualization";
     return "command";
   }
   if (n.includes("read") || n === "cat" || n.includes("open_file")) return "read";
+  if (n.includes("list_dir") || n.includes("list_files") || n === "ls" || n === "tree") return "list";
   if (n.includes("edit") || n.includes("write") || n.includes("create_file") ||
       n.includes("str_replace") || n.includes("patch")) return "edit";
   if (n.includes("search") || n.includes("grep") || n.includes("glob") ||
-      n.includes("list_dir") || n.includes("codebase") || n.includes("find")) return "search";
-  if (n === "webfetch" || n === "websearch" || n.includes("web") || n.includes("browser") || n.includes("recherche web")) return "web";
+      n.includes("codebase") || n.includes("find")) return "search";
+  if (n.includes("visual") || n.includes("chart") || n.includes("plot") || n.includes("figure")) return "visualization";
   if (n.includes("todo") || n.includes("plan")) return "todo";
   return "tool";
 }
 
-function actionTarget(action: Extract<AgentEvent, { kind: "tool" | "tool_update" }>): string {
+function actionTarget(action: ToolAction): string {
   if ("detail" in action && action.detail?.trim()) return action.detail.trim();
   if (action.kind !== "tool_update" || action.input == null || typeof action.input !== "object") return "";
   const input = action.input as Record<string, unknown>;
@@ -156,10 +202,96 @@ function actionTarget(action: Extract<AgentEvent, { kind: "tool" | "tool_update"
   return "";
 }
 
+function actionIdentity(action: ToolAction, index: number): string {
+  const meta = action.meta && "turnId" in action.meta ? action.meta : null;
+  const itemId = meta?.itemId ?? (action.kind === "tool_update" ? action.id : null);
+  return itemId ? `${meta?.turnId ?? "legacy"}:${itemId}` : `event:${index}`;
+}
+
+/** Dernier état de chaque appel, dans l'ordre de première apparition. */
+export function distinctToolActions(actions: ToolAction[]): ToolAction[] {
+  const byIdentity = new Map<string, ToolAction>();
+  actions.forEach((action, index) => byIdentity.set(actionIdentity(action, index), action));
+  return [...byIdentity.values()];
+}
+
+function normalizeKey(value: string) {
+  return value.trim().toLowerCase().split(/[^a-z0-9]+/g).filter(Boolean).join("-");
+}
+
+function semanticActivity(action: ToolAction): SemanticToolActivity {
+  const target = actionTarget(action);
+  const name = action.name.toLowerCase();
+  const source = action.kind === "tool_update" ? action.source?.toLowerCase() ?? "" : "";
+  const status = action.kind === "tool_update"
+    ? action.status?.replace(/([a-z])([A-Z])/g, "$1-$2").toLowerCase().replace(/_/g, "-") ?? ""
+    : "";
+  let kind = toolCategory(action.name, target);
+
+  // Codex distingue un SKILL.md lu d'une lecture de fichier ordinaire.
+  if (kind === "read" && /(?:^|[/\\])skill\.md(?:$|\s)/iu.test(target)) kind = "skill";
+  else if (source === "approval") kind = "permission";
+  else if (source === "mcp" || source === "dynamic" || name.startsWith("mcp__")) kind = "integration";
+
+  const sourceKey = kind === "integration"
+    ? (action.name.split(/[/:]/)[0]?.replace(/^mcp__/, "") || source || null)
+    : kind === "skill" ? target : null;
+  return { action, kind, target, sourceKey, interrupted: INTERRUPTED_STATUS.test(status) };
+}
+
+function partKind(kind: ToolCat): SummaryPartKind {
+  if (kind === "integration") return "integrations";
+  if (kind === "skill") return "loaded-tools";
+  if (kind === "edit") return "file-changes";
+  if (kind === "read" || kind === "search" || kind === "list") return "exploration";
+  if (kind === "visualization") return "visualization";
+  if (kind === "command" || kind === "interrupted") return "commands";
+  if (kind === "web") return "web-search";
+  if (kind === "image") return "images";
+  if (kind === "agent") return "agents";
+  if (kind === "todo") return "todo";
+  if (kind === "permission") return "permissions";
+  if (kind === "compaction") return "compaction";
+  return "tools";
+}
+
+function pluginForActivity(item: SemanticToolActivity, plugins: PluginCatalogEntry[]) {
+  if (item.kind !== "integration" && item.kind !== "skill") return null;
+  const haystack = normalizeKey([item.sourceKey, item.action.name, item.target].filter(Boolean).join(" "));
+  return plugins.find((plugin) => {
+    const candidates = [plugin.id, plugin.name, plugin.displayName].map(normalizeKey).filter(Boolean);
+    return candidates.some((candidate) => haystack.includes(candidate));
+  }) ?? null;
+}
+
+function iconForActivity(item: SemanticToolActivity, plugins: PluginCatalogEntry[] = []): ActivityIcon {
+  const plugin = pluginForActivity(item, plugins);
+  const imageUrl = plugin?.icon && /^(https?:|data:image\/)/i.test(plugin.icon) ? plugin.icon : null;
+  return {
+    cat: item.interrupted ? "interrupted" : item.kind,
+    imageUrl,
+    label: plugin?.displayName ?? item.sourceKey ?? undefined,
+  };
+}
+
+export function activityIconForAction(action: ToolAction, plugins: PluginCatalogEntry[] = []): ActivityIcon {
+  return iconForActivity(semanticActivity(action), plugins);
+}
+
+export function activityIconForPhase(phase?: string): ActivityIcon | undefined {
+  const cat = phase === "search" ? "search"
+    : phase === "edit" ? "edit"
+    : phase === "command" ? "command"
+    : phase === "todo" ? "todo"
+    : phase === "tool" ? "tool"
+    : undefined;
+  return cat ? { cat } : undefined;
+}
+
 /** Libellé présent et orienté intention pour l'unique activité du tour actif. */
 export function activeToolLabel(action: Extract<AgentEvent, { kind: "tool" | "tool_update" }>): string {
   const target = actionTarget(action);
-  const cat = toolCategory(action.name, target);
+  const cat = semanticActivity(action).kind;
   if (cat === "command") {
     if (/\b(test|vitest|jest|pytest|cargo test|swift test|xcodebuild test)\b/iu.test(target)) return t("chat.activity-running-tests");
     if (/\b(format|prettier|eslint --fix|rustfmt|cargo fmt)\b/iu.test(target)) return t("chat.activity-formatting");
@@ -167,8 +299,15 @@ export function activeToolLabel(action: Extract<AgentEvent, { kind: "tool" | "to
   if (cat === "permission") return t("chat.activity-awaiting");
   const key = cat === "search" ? "chat.activity-searching"
     : cat === "read" ? "chat.activity-reading"
+    : cat === "list" ? "chat.activity-listing"
     : cat === "edit" ? "chat.activity-editing"
     : cat === "web" ? "chat.activity-web"
+    : cat === "image" ? "chat.activity-image"
+    : cat === "visualization" ? "chat.activity-visualization"
+    : cat === "integration" ? "chat.activity-integration"
+    : cat === "skill" ? "chat.activity-skill"
+    : cat === "agent" ? "chat.activity-agent"
+    : cat === "compaction" ? "chat.activity-compaction"
     : cat === "todo" ? "chat.activity-planning"
     : cat === "command" ? "chat.activity-command"
     : "chat.activity-tool";
@@ -177,7 +316,8 @@ export function activeToolLabel(action: Extract<AgentEvent, { kind: "tool" | "to
 
 export function toolClause(cat: ToolCat, n: number): string {
   switch (cat) {
-    case "search": return t("tools.searched");
+    case "search":
+    case "list": return t("tools.searched");
     case "web": return t("tools.web");
     case "todo": return t("tools.todo");
     case "read": return n > 1 ? t("tools.read-n", { n }) : t("tools.read-1");
@@ -187,41 +327,64 @@ export function toolClause(cat: ToolCat, n: number): string {
   }
 }
 
-// résume une grappe d'outils consécutifs en une phrase (ordre de 1re apparition)
-export function summarizeTools(actions: Extract<AgentEvent, { kind: "tool" | "tool_update" }>[]): string {
-  const order: ToolCat[] = [];
-  const counts = new Map<ToolCat, number>();
-  for (const a of actions) {
-    const cat = toolCategory(a.name, "detail" in a ? a.detail : undefined);
-    if (cat === "permission") continue; // bruit : absorbé, visible au déploiement
-    if (!counts.has(cat)) order.push(cat);
-    counts.set(cat, (counts.get(cat) ?? 0) + 1);
-  }
-  // groupe entièrement de permissions → libellé neutre
-  if (order.length === 0) {
-    const n = actions.length;
-    return n > 1 ? t("tools.perm-n", { n }) : t("tools.perm-1");
-  }
-  const phrase = order.map((cat) => toolClause(cat, counts.get(cat) ?? 1)).join(", ");
-  return phrase.charAt(0).toUpperCase() + phrase.slice(1);
+function summaryClause(kind: SummaryPartKind, count: number): string {
+  const suffix = count === 1 ? "1" : "n";
+  return t(`tools.summary.${kind}-${suffix}`, { n: count });
 }
 
-// icône du résumé = catégorie dominante (priorité édition > commande > web…)
-export function groupIconCat(actions: Extract<AgentEvent, { kind: "tool" | "tool_update" }>[]): ToolCat {
-  const cats = new Set(actions.map((a) => toolCategory(a.name, "detail" in a ? a.detail : undefined)));
-  const prio: ToolCat[] = ["edit", "command", "web", "read", "search", "todo", "tool"];
-  return prio.find((c) => cats.has(c)) ?? "tool";
+/** Même contrat que Codex : parties dans un ordre sémantique fixe et icône de
+ * l'item représentatif de la première partie, jamais une catégorie dominante. */
+export function summarizeActivity(actions: ToolAction[], plugins: PluginCatalogEntry[] = []): ToolActivitySummary {
+  const items = distinctToolActions(actions).map(semanticActivity);
+  const byPart = new Map<SummaryPartKind, SemanticToolActivity[]>();
+  for (const item of items) {
+    const part = partKind(item.kind);
+    const existing = byPart.get(part);
+    if (existing) existing.push(item);
+    else byPart.set(part, [item]);
+  }
+  const ordered = SUMMARY_ORDER.flatMap((kind) => {
+    const partItems = byPart.get(kind);
+    return partItems?.length ? [{ kind, items: partItems }] : [];
+  });
+  const clauses = ordered.map(({ kind, items: partItems }) => summaryClause(kind, partItems.length));
+  const phrase = clauses.join(", ");
+  const firstItem = ordered[0]?.items[0];
+  return {
+    label: phrase ? phrase.charAt(0).toUpperCase() + phrase.slice(1) : t("chat.activity"),
+    icon: firstItem ? iconForActivity(firstItem, plugins) : undefined,
+    actionCount: items.length,
+    parts: ordered.map(({ kind, items: partItems }) => ({ kind, count: partItems.length })),
+  };
 }
-export function ToolGlyph({ cat }: { cat: ToolCat }) {
+
+export function summarizeTools(actions: ToolAction[]): string {
+  return summarizeActivity(actions).label;
+}
+
+export function ToolGlyph({ icon }: { icon: ActivityIcon }) {
+  if (icon.imageUrl) {
+    return <img className="ui-activity-source-icon" src={icon.imageUrl} alt="" title={icon.label} />;
+  }
+  const { cat } = icon;
   const c = { width: 13, height: 13, viewBox: "0 0 16 16", fill: "none", stroke: "currentColor",
     strokeWidth: 1.35, strokeLinecap: "round" as const, strokeLinejoin: "round" as const };
   switch (cat) {
     case "command": return <svg {...c}><rect x="1.5" y="3" width="13" height="10" rx="2" /><path d="M4.4 6.4 6.2 8l-1.8 1.6M8.4 10h3.2" /></svg>;
     case "edit": return <svg {...c}><path d="M12.2 1.6 14.4 3.8 5.5 12.7l-3 .8.8-3z" /><path d="M10.6 3.2 12.8 5.4" /></svg>;
     case "search": return <svg {...c}><circle cx="7" cy="7" r="4.3" /><path d="M10.4 10.4 14 14" /></svg>;
-    case "read": return <svg {...c}><path d="M3 2.6h5.2L12 6v7.4H3z" /><path d="M8 2.6V6h4M5.3 8.6h5.4M5.3 10.8h5.4" /></svg>;
+    case "read": return <svg {...c}><path d="M2.2 3.1c2.1-.5 4-.1 5.8 1.2v9c-1.8-1.3-3.7-1.7-5.8-1.2zM13.8 3.1c-2.1-.5-4-.1-5.8 1.2v9c1.8-1.3 3.7-1.7 5.8-1.2z" /></svg>;
+    case "list": return <svg {...c}><path d="M1.8 4.4h4l1.3 1.5h7.1v6.7H1.8z" /><path d="M1.8 5.9V3.4h4.6l1 1" /></svg>;
     case "web": return <svg {...c}><circle cx="8" cy="8" r="5.6" /><path d="M2.4 8h11.2M8 2.4c1.7 1.7 1.7 9.5 0 11.2M8 2.4c-1.7 1.7-1.7 9.5 0 11.2" /></svg>;
     case "todo": return <svg {...c}><path d="M3 4.4 4.1 5.5 6 3.4M3 10.6 4.1 11.7 6 9.6M8.4 4.6h4.6M8.4 10.8h4.6" /></svg>;
+    case "permission": return <svg {...c}><path d="M8 1.8 13 3.8v4c0 3.2-2.2 5.4-5 6.4-2.8-1-5-3.2-5-6.4v-4z" /><path d="m5.6 8 1.5 1.5 3.4-3.4" /></svg>;
+    case "image": return <svg {...c}><rect x="1.8" y="2.4" width="12.4" height="11.2" rx="1.8" /><circle cx="5.2" cy="5.8" r="1.2" /><path d="m3.2 11 3-3 2.2 2.1 1.7-1.6 2.7 2.5" /></svg>;
+    case "visualization": return <svg {...c}><path d="M2.2 13.5V8.8h2.6v4.7M6.7 13.5V5.4h2.6v8.1M11.2 13.5V2.2h2.6v11.3M1.5 13.5h13" /></svg>;
+    case "integration": return <svg {...c}><path d="M6.2 5.1 4.4 3.3a2.1 2.1 0 0 0-3 3l2.2 2.2a2.1 2.1 0 0 0 3 0l.7-.7M9.8 10.9l1.8 1.8a2.1 2.1 0 0 0 3-3l-2.2-2.2a2.1 2.1 0 0 0-3 0l-.7.7M5.8 10.2l4.4-4.4" /></svg>;
+    case "skill": return <svg {...c}><path d="m8 1.8 1.5 3.1 3.5.5-2.5 2.5.6 3.5L8 9.8l-3.1 1.6.6-3.5L3 5.4l3.5-.5z" /><path d="M4 13.8h8" /></svg>;
+    case "agent": return <svg {...c}><circle cx="8" cy="4" r="2" /><circle cx="3.2" cy="11.5" r="1.7" /><circle cx="12.8" cy="11.5" r="1.7" /><path d="M8 6v2M4.7 10.2 8 8l3.3 2.2" /></svg>;
+    case "compaction": return <svg {...c}><path d="M2 5h4V1M14 5h-4V1M2 11h4v4M14 11h-4v4" /><path d="m6 5-4-4M10 5l4-4M6 11l-4 4M10 11l4 4" /></svg>;
+    case "interrupted": return <svg {...c}><circle cx="8" cy="8" r="5.6" /><path d="m5.2 5.2 5.6 5.6" /></svg>;
     default: return <svg {...c}><path d="M9.6 2.5a2.1 2.1 0 0 0 2.8 2.8l.7.7a2.2 2.2 0 0 1-3.1 3.1l-4-4a2.2 2.2 0 0 1 3.1-3.1z" /></svg>;
   }
 }

@@ -223,13 +223,13 @@
 
 /* ---- ActivityDisclosure — journal sans carte --------------------------- */
 .ui-activity { max-width: min(760px, 100%); margin: 2px auto; color: var(--text-muted); font-size: var(--fs-body-s); }
-.ui-activity-trigger { width: 100%; display: grid; grid-template-columns: 7px 15px minmax(0,1fr) auto 10px; align-items: center; gap: 7px;
+.ui-activity-trigger { width: 100%; display: grid; grid-template-columns: minmax(0,1fr) auto 10px; align-items: center; gap: 7px;
   padding: 3px 0; border: 0; background: transparent; color: inherit; font: inherit; text-align: left; cursor: pointer; }
+.ui-activity-trigger.has-icon { grid-template-columns: 15px minmax(0,1fr) auto 10px; }
 .ui-activity.is-summary .ui-activity-trigger { width: auto; display: inline-flex; }
-.ui-activity-status { width: 6px; height: 6px; border-radius: var(--radius-pill); background: var(--status-success); }
-.ui-activity.is-running .ui-activity-status { background: var(--status-running); }
-.ui-activity.is-failed .ui-activity-status { background: var(--status-error); }
 .ui-activity-label { color: var(--text-secondary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ui-activity-icon { width: 15px; height: 15px; display: inline-flex; align-items: center; justify-content: center; color: var(--text-muted); }
+.ui-activity-source-icon { width: 13px; height: 13px; display: block; object-fit: contain; border-radius: 3px; }
 .ui-activity-meta { color: var(--text-disabled); font-size: var(--fs-caption); font-variant-numeric: tabular-nums; white-space: nowrap; }
 .ui-activity-detail { margin: 5px 0 4px 3px; padding: 2px 0 2px 17px; border-left: 1px solid var(--border-interactive); }
 

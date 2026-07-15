@@ -870,16 +870,25 @@ function GalleryToolbar() {
         </DropdownMenuContent>
       </DropdownMenu>
 
+      <Tooltip label={rescanning ? "Rescanning…" : "Rescan project"}>
+        <Button
+          variant="outline"
+          size="icon-sm"
+          data-gallery-command="rescan"
+          aria-label="Rescan project"
+          disabled={rescanning}
+          onClick={() => clickLegacy("rescan")}
+        >
+          {rescanning ? <Spinner /> : <RefreshCw />}
+        </Button>
+      </Tooltip>
+
       <DropdownMenu modal={false}>
         <Tooltip label="Gallery tools">
           <DropdownMenuTrigger render={<Button variant="outline" size="icon-sm" aria-label="Gallery tools"><Ellipsis /></Button>} />
         </Tooltip>
         <DropdownMenuContent align="end" className="tw:w-48">
           <DropdownMenuGroup>
-            <DropdownMenuItem data-gallery-command="rescan" disabled={rescanning} onClick={() => clickLegacy("rescan")}>
-              {rescanning ? <Spinner data-icon="inline-start" /> : <RefreshCw data-icon="inline-start" />}
-              {rescanning ? "Rescanning…" : "Rescan project"}
-            </DropdownMenuItem>
             <DropdownMenuItem onClick={() => clickLegacy("viewChip")}><Settings data-icon="inline-start" /> Gallery settings…</DropdownMenuItem>
           </DropdownMenuGroup>
           <DropdownMenuSeparator />

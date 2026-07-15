@@ -8,6 +8,7 @@ import { LegendList, type LegendListRef } from "@legendapp/list/react";
 import { Tick } from "./toolPresentation";
 import { AgentEvent } from "../../lib/ws";
 import type { ProjectedTimelineItem, ToolAction, TurnPhase } from "../../lib/chat/turnViewModel";
+import type { PluginCatalogEntry } from "../../lib/plugins";
 import { transitionScrollPolicy } from "../../lib/chat/scrollPolicy";
 import { t } from "../../lib/i18n";
 import { isValidSkill } from "./mentions";
@@ -52,6 +53,7 @@ export type TimelineList = {
   openToolGroups: Set<string>; setOpenToolGroups: React.Dispatch<React.SetStateAction<Set<string>>>;
   renderToolLine: (e: ToolAction, key: React.Key) => ReactNode;
   fmtWorkDur: (ms: number) => string;
+  plugins: PluginCatalogEntry[];
 };
 export type TimelineMsg = {
   editing: { index: number; text: string } | null;
@@ -130,7 +132,7 @@ export function ChatTimeline(p: {
 }) {
   const { threadId, events, workingSince, phase } = p.thread;
   const { review, reviewMin, setReviewMin, setReview, barOpen, setBarOpen, fixing, setFixing, reviewOpen, setReviewOpen } = p.rev;
-  const { renderedEvents, openFolds, setOpenFolds, openToolGroups, setOpenToolGroups, renderToolLine, fmtWorkDur } = p.list;
+  const { renderedEvents, openFolds, setOpenFolds, openToolGroups, setOpenToolGroups, renderToolLine, fmtWorkDur, plugins } = p.list;
   const { editing, setEditing, pins, onTogglePin, onRevert, onEditSend, onFork, setPasteView, commands, defaults, onQuote } = p.msg;
   const { messagesRef, onMessagesMouseUp } = p.scroll;
   const { onStop } = p.working;
@@ -419,6 +421,7 @@ export function ChatTimeline(p: {
                   return next;
                 })}
                 onStop={onStop}
+                plugins={plugins}
                 renderToolLine={renderToolLine}
               />
             );
@@ -429,6 +432,7 @@ export function ChatTimeline(p: {
               <ActivityGroup
                 key={item.key}
                 actions={item.actions}
+                plugins={plugins}
                 open={open}
                 onToggle={() =>
                   setOpenToolGroups((prev) => {

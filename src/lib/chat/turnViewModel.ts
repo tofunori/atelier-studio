@@ -21,6 +21,7 @@ export type ToolAction = Extract<AgentEvent, { kind: "tool" | "tool_update" }>;
 export type ToolActionGroup = {
   key: string;
   index: number;
+  indexes: number[];
   actions: ToolAction[];
 };
 
@@ -92,7 +93,9 @@ function reasoningText(event: AgentEvent): string | null {
 
 function isToolAction(event: AgentEvent): event is ToolAction {
   if (event.kind === "tool_update") return true;
-  return event.kind === "tool" && (event.name.startsWith("__edits:") || !event.name.startsWith("__"));
+  return event.kind === "tool" && (
+    event.name === "__compacted" || event.name.startsWith("__edits:") || !event.name.startsWith("__")
+  );
 }
 
 function itemIdentity(event: ToolAction, index: number) {
@@ -103,7 +106,7 @@ function itemIdentity(event: ToolAction, index: number) {
 
 function isRunningTool(event: ToolAction) {
   if (event.kind !== "tool_update") return false;
-  const status = event.status?.toLowerCase().replace(/_/g, "-") ?? "";
+  const status = event.status?.replace(/([a-z])([A-Z])/g, "$1-$2").toLowerCase().replace(/_/g, "-") ?? "";
   return status === "running" || status === "pending" || status === "in-progress";
 }
 
@@ -189,10 +192,11 @@ function actionGroups(events: AgentEvent[], indexes: number[]): ToolActionGroup[
     const identity = itemIdentity(event, index);
     let group = byIdentity.get(identity);
     if (!group) {
-      group = { key: `tools:${identity}`, index, actions: [] };
+      group = { key: `tools:${identity}`, index, indexes: [], actions: [] };
       byIdentity.set(identity, group);
       groups.push(group);
     }
+    group.indexes.push(index);
     group.actions.push(event);
   }
   return groups;
@@ -220,7 +224,7 @@ function activeStateFor(
     // Un appel `tool` est le début de l'action. Une mise à jour terminale le
     // ferme; une mise à jour running/pending le garde comme activité courante.
     if (latest.kind === "tool" || isRunningTool(latest)) {
-      return { kind: "activity", eventIndex: group.index };
+      return { kind: "activity", eventIndex: group.indexes[group.indexes.length - 1] ?? group.index };
     }
   }
   const hasLiveReasoning = indexes.some((index) => events[index].kind === "thinking_live");
