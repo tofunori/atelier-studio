@@ -116,6 +116,7 @@ export function ChatTimeline(p: {
   const { quote, setQuote, quoteHasHl, quoteHasUl, addMark, removeMark } = p.selection;
   void onQuote; void openFolds; // utilisés par des handlers/branches copiés verbatim
   const timelineListRef = React.useRef<LegendListRef>(null);
+  const timelineWrapRef = React.useRef<HTMLDivElement>(null);
   const [autoFollow, setAutoFollow] = React.useState(true);
   const [isScrolledFromBottom, setIsScrolledFromBottom] = React.useState(false);
   const phaseRef = React.useRef<TurnPhase>(phase);
@@ -154,9 +155,12 @@ export function ChatTimeline(p: {
   const finalAnswerVirtualIndex = finalAnswerIndex >= 0 ? virtualIndexForEvent(finalAnswerIndex) : -1;
 
   React.useEffect(() => {
-    const native = timelineListRef.current?.getNativeScrollRef();
-    (messagesRef as MutableRefObject<HTMLDivElement | null>).current = native instanceof HTMLDivElement ? native : null;
-    if (!(native instanceof HTMLDivElement)) return;
+    const listScrollRef = timelineListRef.current?.getNativeScrollRef();
+    const native = listScrollRef instanceof HTMLDivElement
+      ? listScrollRef
+      : timelineWrapRef.current?.querySelector<HTMLDivElement>(".messages") ?? null;
+    (messagesRef as MutableRefObject<HTMLDivElement | null>).current = native;
+    if (!native) return;
     const onWheel = (event: WheelEvent) => {
       if (event.deltaY < 0) {
         setAutoFollow(false);
@@ -300,7 +304,7 @@ export function ChatTimeline(p: {
           ) : null}
         </div>
       )}
-      <div className="timeline-scroll-wrap">
+      <div ref={timelineWrapRef} className="timeline-scroll-wrap">
       <LegendList
         key={threadId ?? "atelier-home"}
         ref={timelineListRef}

@@ -88,6 +88,7 @@
   --motion-fast: 120ms;      /* hover, sortie de menu, échange d'icône */
   --motion-standard: 140ms;  /* sélection, menu entrant, ContextChip   */
   --motion-panel: 150ms;     /* inspecteur — PLAFOND absolu            */
+  --motion-spin: 0.9s;       /* indicateur continu, partagé             */
   --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
   --tooltip-delay: 420ms;    /* délai d'apparition (400–450), puis fade 120 */
 
@@ -121,5 +122,6 @@
     --motion-fast: 0ms;
     --motion-standard: 0ms;
     --motion-panel: 0ms;
+    --motion-spin: 0ms;
   }
 }
