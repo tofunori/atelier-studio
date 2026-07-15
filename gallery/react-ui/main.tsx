@@ -303,6 +303,7 @@ function GalleryFileTypePanel({
               variant="outline"
               size="sm"
               data-gallery-quick-type={type.key}
+              data-gallery-active={type.active ? "true" : undefined}
             >
               {type.active && <Check data-icon="inline-start" />}
               {type.label}
@@ -388,8 +389,6 @@ function GalleryFileTypePanel({
           )}
         </section>
 
-        <Separator />
-
         <section aria-labelledby="all-file-types-heading">
           <Button
             variant="ghost"
@@ -443,8 +442,6 @@ function GalleryFileTypePanel({
             </div>
           )}
         </section>
-
-        <Separator />
 
         <section aria-labelledby="other-filters-heading">
           <Button
