@@ -5,6 +5,7 @@ import {
   buildCodexInput,
   buildServerRequestFallback,
   buildThreadOptions,
+  imageViewEvent,
   normalizeCodexEffort,
 } from "./codex.mjs";
 
@@ -38,6 +39,18 @@ describe("codex provider helpers (app-server)", () => {
       { type: "text", text: "Lis", text_elements: [] },
       { type: "localImage", path: "/tmp/ui.png" },
     ]);
+  });
+
+  it("normalise imageView sans exposer le chemin dans le libellé", () => {
+    expect(imageViewEvent({ id: "img-1", path: "/tmp/figure.png" })).toEqual({
+      kind: "tool_update",
+      id: "img-1",
+      name: "view_image",
+      output: "",
+      status: "completed",
+      input: { paths: ["/tmp/figure.png"] },
+      source: "codex",
+    });
   });
 
   it("expose les options de thread app-server (bypassPermissions explicite → full access)", () => {

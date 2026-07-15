@@ -1091,7 +1091,7 @@ export default function App() {
         const { projMeta: diskMeta, projects: diskProjects, ...diskSettings } = msg.settings ?? {};
         if (msg.settings && !hasLocal) {
           // webview vierge (mise à jour, reset WebKit) : le fichier disque fait foi
-          setSettings({ ...DEFAULT_SETTINGS, ...diskSettings });
+          setSettings({ ...DEFAULT_SETTINGS, ...diskSettings, activeView: "chats" });
         } else if (ws.current?.readyState === 1) {
           // sinon pousser l'état courant vers le fichier pour l'amorcer
           ws.current.send(JSON.stringify({
@@ -1721,10 +1721,7 @@ export default function App() {
       : null;
     const baseQ = baseSha ? `&base=${encodeURIComponent(baseSha)}` : "";
     let url: string;
-    const diffPath = outside ?? `${activeProject}/${rel}`;
-    if (options.diff && baseSha && !outside) {
-      url = `${origin}/.fig_thumbs/diff_viewer.html?path=${encodeURIComponent(diffPath)}&rel=${encodeURIComponent(rel)}&base=${encodeURIComponent(baseSha)}`;
-    } else if (outside) {
+    if (outside) {
       // binaires hors projet : le statique du serveur reste sandboxé projet —
       // seuls les fichiers texte s'ouvrent dans l'éditeur intégré
       if (["pdf", "png", "jpg", "jpeg", "gif", "webp"].includes(ext)) return;
@@ -1754,7 +1751,6 @@ export default function App() {
     // dédoublonner DANS l'updater : atelierTabsRef n'est synchronisé qu'après le
     // commit React — deux clics rapprochés créaient deux onglets identiques
     const newId = crypto.randomUUID();
-    const tabTitle = options.diff && baseSha && !outside ? `${name} · Diff` : name;
     setAtelierTabs((tabs) => {
       const existing = tabs.find((t) => tabIdentity(t.url) === baseUrl);
       if (existing) {
@@ -1763,7 +1759,7 @@ export default function App() {
         return existing.url !== url ? tabs.map((t) => (t.id === existing.id ? { ...t, url } : t)) : tabs;
       }
       setActiveTab(newId);
-      return [...tabs, { id: newId, url, title: tabTitle, projectRoot: activeProject }];
+      return [...tabs, { id: newId, url, title: name, projectRoot: activeProject }];
     });
     // l'onglet vit dans la surface Atelier : y basculer si on est ailleurs
     switchToSurface("atelier");

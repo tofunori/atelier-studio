@@ -12,7 +12,7 @@ import { t } from "../../lib/i18n";
 import { normalizeMathDelimiters, hardenPartialMarkdown } from "../../lib/markdown";
 import { CopyIcon, ForkIcon, ResumeIcon } from "../icons";
 import { MD_COMPONENTS, MD_COMPONENTS_STREAMING, useMdPlugins } from "./md";
-import { DoneDiffToggle, fmtTime, PinBtn, LiveThinking, ReasoningTrace, ThinkingShimmer, Working, reasoningSummary } from "./turnParts";
+import { DoneDiffToggle, fmtTime, PinBtn, LiveThinking, ThinkingShimmer, Working, reasoningSummary } from "./turnParts";
 import {
   activeToolLabel, activityIconForAction, activityIconForPhase,
   distinctToolActions, summarizeActivity,
@@ -432,8 +432,8 @@ function activeEventLabel(turn: ChatTurnViewModel, events: AgentEvent[]): ReactN
   return t("chat.thinking");
 }
 
-/** Une seule ligne d'activité courante, comme Codex. Le détail conserve tous
- * les appels d'outils et la trace de reasoning du tour sans polluer le fil. */
+/** Une seule ligne d'activité courante, comme Codex. Les segments terminés
+ * restent à leur place dans le transcript au lieu d'être aspirés ici. */
 export function ActiveTurnHeader(p: {
   turn: ChatTurnViewModel;
   since: number;
@@ -455,36 +455,44 @@ export function ActiveTurnTail(p: {
   renderToolLine: (action: ToolAction, key: React.Key) => ReactNode;
 }) {
   const state = p.turn.activeState;
-  const actions = p.turn.actionGroups.flatMap((group) => group.actions);
-  const hasDetail = actions.length > 0 || p.turn.reasoningTexts.length > 0;
-  const actionCount = p.turn.actionGroups.length;
+  const activeGroups = p.turn.activeActionGroups;
+  const actions = activeGroups.flatMap((group) => group.actions);
+  const distinctActions = distinctToolActions(actions);
+  const updates = distinctActions.filter((action): action is Extract<AgentEvent, { kind: "tool_update" }> => action.kind === "tool_update");
+  const failed = updates.some((action) => action.status === "failed" || (action.exitCode != null && action.exitCode !== 0));
+  const running = updates.some((action) => /^(running|pending|in[-_]?progress)$/i.test(action.status ?? ""));
+  const status = failed ? "failed" : running || (state?.kind === "activity" && state.live) ? "running" : "completed";
+  const actionCount = activeGroups.length;
   const activeEvent = state?.kind === "activity" ? p.events[state.eventIndex] : null;
   const icon = activeEvent?.kind === "tool" || activeEvent?.kind === "tool_update"
     ? activityIconForAction(activeEvent, p.plugins)
     : activeEvent?.kind === "activity" ? activityIconForPhase(activeEvent.phase) : undefined;
+  const labelKey = state?.kind === "activity"
+    ? `activity:${state.eventIndex}:${activeEvent?.kind === "tool_update" ? activeEvent.status ?? "" : "started"}`
+    : state?.kind ?? "thinking";
+  const showsActivity = state?.kind === "activity" || state?.kind === "waiting";
 
   return (
     <div className="working-stack active-turn-tail" data-turn-id={p.turn.turnId ?? p.turn.key}>
-      {(state?.kind === "answering" || state?.kind === "thinking") && !hasDetail ? (
+      {state?.kind === "answering" ? null : !showsActivity ? (
         <LiveThinking />
       ) : (
         <ActivityDisclosure
           open={p.open}
           onToggle={p.onToggle}
-          status="running"
-          shimmer={state?.kind === "activity"}
+          status={status}
+          shimmer={state?.kind === "activity" && state.live && status === "running"}
           icon={icon}
-          label={activeEventLabel(p.turn, p.events)}
-          meta={actionCount > 0 ? t(actionCount === 1 ? "chat.active-action-1" : "chat.active-action-n", { n: actionCount }) : undefined}
+          label={<span key={labelKey} className="active-activity-transition">{activeEventLabel(p.turn, p.events)}</span>}
+          meta={actionCount > 1 ? t("chat.active-action-n", { n: actionCount }) : undefined}
         >
-          <div className="active-work-detail">
-            {p.turn.reasoningTexts.length > 0 ? <ReasoningTrace texts={p.turn.reasoningTexts} /> : null}
-            {p.turn.actionGroups.map((group) => (
+          {activeGroups.length > 0 ? <div className="active-work-detail">
+            {activeGroups.map((group) => (
               <div className="tool-group-list" key={group.key}>
                 {distinctToolActions(group.actions).map((action, offset) => p.renderToolLine(action, `${group.key}:${offset}`))}
               </div>
             ))}
-          </div>
+          </div> : null}
         </ActivityDisclosure>
       )}
       <button type="button" className="stop-hint" title={t("action.interrupt")} onClick={p.onStop}>
@@ -505,14 +513,16 @@ export function ActivityGroup(p: {
   const summary = summarizeActivity(distinctActions, p.plugins);
   const updates = distinctActions.filter((a): a is Extract<AgentEvent, { kind: "tool_update" }> => a.kind === "tool_update");
   const failed = updates.some((a) => a.status === "failed" || (a.exitCode != null && a.exitCode !== 0));
-  const running = updates.some((a) => /^(running|pending|in[-_]?progress)$/i.test(a.status ?? ""));
-  const status = failed ? "failed" : running ? "running" : "completed";
+  // Toute ActivityGroup rendue dans la timeline est une tranche déjà fermée:
+  // l'unité courante est exclusivement ActiveTurnTail. Codex la rend donc
+  // statique même si le provider n'a pas encore terminalisé son tool_update.
+  const status = failed ? "failed" : "completed";
   // Le nom technique (Bash, Read, execute_command…) n'est jamais le libellé
   // principal. Une action reste compréhensible avant d'ouvrir son détail brut.
   return (
-    <ActivityDisclosure open={p.open} onToggle={p.onToggle} status={status} shimmer={status === "running"}
+    <ActivityDisclosure open={p.open} onToggle={p.onToggle} status={status} shimmer={false}
       icon={summary.icon} label={summary.label}
-      meta={status === "running" ? t("chat.working") : undefined}>
+      meta={undefined}>
         <div className="tool-group-list">
           {distinctActions.map((action, offset) => p.renderToolLine(action, offset))}
         </div>

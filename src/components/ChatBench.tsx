@@ -2,7 +2,7 @@
 // composer. Monté par main.tsx sur #chatbench[-état][-light] ; jamais dans le
 // parcours normal (chunk lazy). Rend le VRAI composant Chat avec des fixtures
 // figées : aucun sidecar requis.
-// États : rich (défaut) · running · thinking · error · contexts · markdown.
+// États : rich (défaut) · running · stream · thinking · error · contexts · markdown.
 import { useEffect } from "react";
 import "../styles/tokens.css";
 import "../styles/typeset.css";
@@ -75,6 +75,29 @@ const THINKING: AgentEvent[] = [
   { kind: "user", text: "Analyse les données locales et prépare une réponse.", ts: ts(20) } as AgentEvent,
   { kind: "started", ts: ts(19) } as AgentEvent,
   { kind: "tool", name: "__thinking" } as AgentEvent,
+];
+
+const STREAM: AgentEvent[] = [
+  { kind: "user", text: "Inspecte puis corrige le composer.", ts: ts(30) } as AgentEvent,
+  { kind: "text", text: "Je commence par lire les composants concernés.", ts: ts(28) } as AgentEvent,
+  tool("stream-read", "Read", "src/components/Chat.tsx", "Lecture terminée", 420, 26),
+  tool("stream-test", "Bash", "npx vitest run src/components/chat", "38 tests verts", 2100, 24),
+  { kind: "text", text: "Le premier contrôle passe. Je vérifie maintenant la présentation active.", ts: ts(20) } as AgentEvent,
+  {
+    kind: "tool_update", id: "stream-search", name: "Bash", detail: "rg -n active-turn src",
+    output: "", status: "running", input: {}, source: null, ts: ts(4),
+  } as AgentEvent,
+];
+
+const IMAGE_VIEW: AgentEvent[] = [
+  { kind: "user", text: "Inspecte cette capture.", ts: ts(20) } as AgentEvent,
+  {
+    kind: "tool_update", id: "image-1", name: "view_image", output: "", status: "completed",
+    input: {
+      paths: ["data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='240' height='160' viewBox='0 0 240 160'%3E%3Crect width='240' height='160' fill='%23282b31'/%3E%3Crect x='18' y='18' width='204' height='124' rx='10' fill='%23373b43' stroke='%238b929f'/%3E%3Ccircle cx='70' cy='62' r='15' fill='%23aeb6c4'/%3E%3Cpath d='M34 124l48-42 34 28 28-24 62 38' fill='none' stroke='%23d5d9e0' stroke-width='8'/%3E%3C/svg%3E"],
+    },
+    source: "codex", ts: ts(10),
+  } as AgentEvent,
 ];
 
 const ERROR: AgentEvent[] = [
@@ -158,7 +181,9 @@ type BenchState = {
 const STATES: Record<string, BenchState> = {
   rich: { events: RICH, workingSince: null, attachments: [], usage: { context: 84200, output: 8120, cost: 0.42, turns: 3 } },
   running: { events: RUNNING, workingSince: ts(272), attachments: [], usage: { context: 21000, output: 300, cost: null, turns: 1 } },
+  stream: { events: STREAM, workingSince: ts(30), attachments: [], usage: { context: 18500, output: 420, cost: null, turns: 1 } },
   thinking: { events: THINKING, workingSince: ts(20), attachments: [], usage: { context: 14000, output: 0, cost: null, turns: 1 } },
+  image: { events: IMAGE_VIEW, workingSince: ts(20), attachments: [], usage: { context: 14000, output: 0, cost: null, turns: 1 } },
   error: { events: ERROR, workingSince: null, attachments: [], usage: null },
   contexts: { events: MARKDOWN.slice(0, 1), workingSince: null, attachments: CONTEXTS_ATTACHMENTS, usage: null },
   markdown: { events: MARKDOWN, workingSince: null, attachments: [], usage: null },

@@ -248,11 +248,13 @@ html, body, #root, .app { height: 100vh; overflow: hidden;
   display: block; }
 .composer-input-group { align-items: stretch; gap: 5px; padding: 9px 12px 7px;
   background: var(--bg-card);
-  border: 1px solid color-mix(in srgb, var(--border) 55%, transparent);
+  border: 1px solid color-mix(in srgb, var(--accent) 68%, var(--border));
   box-shadow: var(--elev-soft);
-  border-radius: var(--r-m); transition: border-color var(--motion-fast) var(--ease-out); }
-/* focus : anneau par couleur, jamais de changement de géométrie (plan 023) */
-.composer-input-group:focus-within { border-color: color-mix(in srgb, var(--accent) 45%, var(--border)); }
+  border-radius: var(--r-m); }
+/* Le bouton Envoyer est normalement disabled lorsque le prompt est vide.
+   InputGroup dimme sinon tout le composer via :has(:disabled), alors que seule
+   l'action indisponible doit être atténuée. */
+.composer .composer-input-group:has(:disabled) { opacity: 1; }
 .composer-input-actions { width: 100%; cursor: default; padding: 0; }
 .composer textarea { background: transparent; border: none; outline: none; resize: none;
   color: inherit; font: inherit; font-size: var(--fs-l); line-height: 1.45; }
@@ -1877,7 +1879,7 @@ body.dragging iframe { pointer-events: none; }
   .activity-step.running .activity-step-dot, .qa-minidot,
   .review-badge.v-running, .thinking.live .thinking-label,
   .thinking-shimmer-sweep, .thinking-shimmer-highlight,
-  .ui-activity-label.is-shimmering { animation: none; }
+  .ui-activity-label.is-shimmering, .active-activity-transition { animation: none; }
   .ui-activity-label.is-shimmering { background-image: none; -webkit-text-fill-color: currentColor; }
 }
 
@@ -2291,6 +2293,16 @@ button.ctx-ring-wrap { border: none; font: inherit; color: inherit;
   background-clip: text;
   -webkit-text-fill-color: transparent;
   animation: activity-label-shimmer 4s steps(48, end) .6s infinite;
+}
+
+.active-activity-transition {
+  display: inline;
+  animation: active-activity-enter 160ms ease-out both;
+}
+
+@keyframes active-activity-enter {
+  from { opacity: 0; transform: translateY(2px); }
+  to { opacity: 1; transform: translateY(0); }
 }
 .ui-activity-trigger:hover .ui-activity-label.is-shimmering {
   animation: none;

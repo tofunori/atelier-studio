@@ -116,6 +116,9 @@ export function loadSettings(): Settings {
       defaultEffort: { ...DEFAULT_SETTINGS.defaultEffort, ...storedDefaultEffort },
       customModels: stored.customModels ?? [],
       modelEfforts: stored.modelEfforts ?? {},
+      // La vue latérale est un état de session : un démarrage à froid revient
+      // toujours aux conversations, même si l'app a été quittée sur Highlights.
+      activeView: "chats",
     };
   } catch {
     return DEFAULT_SETTINGS;

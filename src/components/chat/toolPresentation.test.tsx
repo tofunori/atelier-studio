@@ -3,8 +3,10 @@ import type { AgentEvent } from "../../lib/ws";
 import type { PluginCatalogEntry } from "../../lib/plugins";
 import { setLanguage } from "../../lib/i18n";
 import {
+  activeToolLabel,
   activityIconForAction,
   distinctToolActions,
+  imagePathsForActions,
   isSummarizableTool,
   summarizeActivity,
   toolCategory,
@@ -61,11 +63,38 @@ describe("Codex-style activity presentation", () => {
   it("normalizes provider-specific names into the same typed activities", () => {
     expect(toolCategory("Read", "src/App.tsx")).toBe("read");
     expect(toolCategory("Bash", "rg -n chat src")).toBe("search");
+    expect(toolCategory("Bash", "/bin/zsh -lc \"sed -n '1,80p' src/components/chat/PromptInput.tsx\"")).toBe("read");
     expect(toolCategory("list_dir", "src")).toBe("list");
     expect(toolCategory("apply_patch", "App.tsx")).toBe("edit");
     expect(toolCategory("view_image", "/tmp/a.png")).toBe("image");
+    expect(toolCategory("image /tmp/legacy.png")).toBe("image");
     expect(toolCategory("agent:spawn", "reviewer")).toBe("agent");
     expect(isSummarizableTool({ kind: "tool", name: "__compacted" })).toBe(true);
+  });
+
+  it("extracts image paths from the structured and legacy Codex formats", () => {
+    const structured = tool("image", "view_image", "", {
+      input: { paths: ["/tmp/a.png", "/tmp/b.jpg"] },
+    });
+    expect(imagePathsForActions([structured, { kind: "tool", name: "image /tmp/legacy.png" }])).toEqual([
+      "/tmp/a.png",
+      "/tmp/b.jpg",
+      "/tmp/legacy.png",
+    ]);
+  });
+
+  it("présente les wrappers shell et les actions rapides comme Codex", () => {
+    const reading = tool("read", "Bash", "/bin/zsh -lc \"sed -n '1,80p' src/components/chat/PromptInput.tsx\"", {
+      status: "completed",
+      input: { command: "/bin/zsh -lc \"sed -n '1,80p' src/components/chat/PromptInput.tsx\"" },
+    });
+    expect(activityIconForAction(reading).cat).toBe("read");
+    expect(activeToolLabel(reading)).toBe("Reading PromptInput.tsx");
+
+    const running = tool("test", "Bash", "npm test", { status: "inProgress" });
+    const completed = tool("test", "Bash", "npm test", { status: "completed" });
+    expect(activeToolLabel(running)).toBe("Running tests");
+    expect(activeToolLabel(completed)).toBe("Ran tests");
   });
 
   it("uses the real catalog image for a matching MCP/plugin source", () => {

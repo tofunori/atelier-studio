@@ -45,4 +45,11 @@ describe("settings defaults", () => {
       defaultEffort: { claude: "medium" },
     });
   });
+
+  it("revient au panneau Chat à chaque démarrage", () => {
+    localStorage.setItem("atelier-studio.settings", JSON.stringify({
+      activeView: "highlights",
+    }));
+    expect(loadSettings().activeView).toBe("chats");
+  });
 });

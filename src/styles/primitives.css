@@ -233,8 +233,24 @@
 .ui-activity-meta { color: var(--text-disabled); font-size: var(--fs-caption); font-variant-numeric: tabular-nums; white-space: nowrap; }
 .ui-activity-detail { margin: 5px 0 4px 3px; padding: 2px 0 2px 17px; border-left: 1px solid var(--border-interactive); }
 
+/* Image view — même grammaire que Codex : vignette 80 px, neutre et sans
+   carte colorée. La couleur du glyphe de résumé reste celle du texte courant. */
+.image-view-thumbnails { display: flex; max-width: 100%; gap: 8px; padding: 2px 0 4px; overflow-x: auto; scrollbar-width: none; }
+.image-view-thumbnails::-webkit-scrollbar { display: none; }
+.image-view-thumbnail { width: 80px; height: 80px; flex: 0 0 80px; display: grid; place-items: center; padding: 0;
+  overflow: hidden; border: 1px solid var(--border-default); border-radius: 8px; background: var(--surface-inset);
+  color: var(--text-muted); cursor: zoom-in; }
+.image-view-thumbnail:disabled { cursor: default; opacity: 1; }
+.image-view-thumbnail:not(:disabled):hover { border-color: var(--border-strong); }
+.image-view-thumbnail:not(:disabled):focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
+.image-view-thumbnail img { width: 100%; height: 100%; display: block; object-fit: cover; }
+.image-view-thumbnail > svg { width: 18px; height: 18px; stroke-width: 1.35; }
+.image-view-loading { width: 22px; height: 22px; border: 1px solid var(--border-default); border-top-color: var(--text-muted);
+  border-radius: 50%; animation: ui-spin var(--motion-spin) linear infinite; }
+
 @media (prefers-reduced-motion: reduce) {
   .working-label::before { animation: none; }
+  .image-view-loading { animation: none; }
 }
 
 /* ---- ScrollToBottom — bouton contextuel compact, façon Codex ---------- */

@@ -64,6 +64,22 @@ export function scrubToolInput(input) {
   return sanitizeAndBoundInput(input, TOOL_INPUT_MAX);
 }
 
+/** Codex expose la consultation d'image comme un item de transcript dédié.
+ * Atelier le normalise en tool_update structuré pour conserver le chemin sans
+ * l'injecter dans le libellé visible (et pour partager le rendu providers). */
+export function imageViewEvent(item = {}) {
+  const path = String(item.path ?? "").trim();
+  return {
+    kind: "tool_update",
+    id: String(item.id ?? `image:${path || "unknown"}`),
+    name: "view_image",
+    output: "",
+    status: "completed",
+    input: { paths: path ? [path] : [] },
+    source: "codex",
+  };
+}
+
 // Registre des sessions Codex actives : un codexId (thread app-server) ne peut
 // porter qu'UN tour à la fois. Deux threads Atelier qui reprennent la même
 // session native (ex. fork avant premier send) ne doivent pas cross-wirer
@@ -1130,7 +1146,7 @@ export async function run({
           emitTool("sleep");
         }
         if (item.type === "imageView") {
-          emitTool(`image ${String(item.path ?? "")}`);
+          onEvent(imageViewEvent(item));
         }
         break;
       }

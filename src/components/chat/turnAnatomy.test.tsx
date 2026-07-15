@@ -3,7 +3,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, cleanup, fireEvent, screen } from "@testing-library/react";
 
-vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn(async () => null) }));
+vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn(async () => null), isTauri: () => false }));
 
 import Chat from "../Chat";
 import { ThinkingShimmer } from "./turnParts";
@@ -86,7 +86,7 @@ describe("anatomie du tour — header d'activité", () => {
       .toContain(t("tools.summary.exploration-n").toLowerCase());
   });
 
-  it("tour actif : une seule activité sémantique, reasoning consolidé et aucun Thinking doublé", () => {
+  it("tour actif : regroupe recherche et lecture sans narration intermédiaire", () => {
     const evs: AgentEvent[] = [
       events.user("Inspecte puis corrige.", FIXED_TS),
       { kind: "tool", name: "__thinking" },
@@ -108,13 +108,54 @@ describe("anatomie du tour — header d'activité", () => {
     expect(document.querySelector(".thinking-shimmer")).toBeNull();
     expect(document.querySelector(".thinking")).toBeNull();
     expect(document.querySelectorAll(".ui-activity:not(.is-summary)")).toHaveLength(1);
-    const activity = document.querySelector(".ui-activity:not(.is-summary) .ui-activity-trigger") as HTMLButtonElement;
-    expect(activity.textContent).toContain("Je confirme le chemin utile.");
+    const activity = document.querySelector(".active-turn-tail .ui-activity-trigger") as HTMLButtonElement;
+    expect(activity.textContent).toContain("Lit albedo.ts");
+    expect(activity.querySelector("[data-activity-icon='read']")).toBeTruthy();
+    expect(activity.querySelector(".ui-activity-label.is-shimmering")).toBeNull();
     expect(screen.queryByText("Bash")).toBeNull();
     fireEvent.click(activity);
-    expect(document.querySelectorAll(".reasoning-trace")).toHaveLength(1);
-    expect(screen.getAllByText("Je confirme le chemin utile.")).toHaveLength(2);
+    expect(document.querySelectorAll(".reasoning-trace")).toHaveLength(0);
+    expect(screen.queryByText("Je confirme le chemin utile.")).toBeNull();
     expect(screen.getAllByText("Bash")).toHaveLength(2);
+  });
+
+  it("rend statique une commande running fermée par une narration plus récente", () => {
+    const evs: AgentEvent[] = [
+      events.user("Teste.", FIXED_TS),
+      events.tool({ id: "test", name: "Bash", detail: "npm test", status: "inProgress" }),
+      { kind: "streaming", text: "Je laisse les tests se terminer.", ts: FIXED_TS + 100 },
+    ];
+    renderUi(<Chat {...chatProps({ events: evs, workingSince: FIXED_TS })} />);
+
+    const inlineActivity = document.querySelector(".timeline-virtual-row .ui-activity:not(.is-summary)") as HTMLElement;
+    expect(inlineActivity).toBeTruthy();
+    expect(inlineActivity.querySelector(".is-shimmering")).toBeNull();
+    expect(inlineActivity.textContent).not.toContain(t("chat.working"));
+    expect(document.querySelector(".active-turn-tail .ui-activity")).toBeNull();
+    expect(document.querySelector(".active-turn-tail .thinking-shimmer")).toBeNull();
+  });
+
+  it("intercale narration et groupes d'actions comme Codex", () => {
+    const evs: AgentEvent[] = [
+      events.user("Inspecte.", FIXED_TS),
+      events.text("Je lis d'abord les sources.", FIXED_TS + 50),
+      events.tool({ id: "read", name: "Read", detail: "src/App.tsx", status: "completed" }),
+      events.tool({ id: "cmd", name: "Bash", detail: "npm test", status: "completed" }),
+      events.text("Le premier contrôle est vert.", FIXED_TS + 100),
+      events.tool({ id: "search", name: "Bash", detail: "rg -n Chat src", status: "inProgress" }),
+    ];
+    renderUi(<Chat {...chatProps({ events: evs, workingSince: FIXED_TS })} />);
+
+    const firstText = screen.getByText("Je lis d'abord les sources.");
+    const inlineActivity = document.querySelector(".timeline-virtual-row .ui-activity:not(.is-summary)") as HTMLElement;
+    const secondText = screen.getByText("Le premier contrôle est vert.");
+    const tail = document.querySelector(".active-turn-tail") as HTMLElement;
+    expect(firstText.compareDocumentPosition(inlineActivity) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(inlineActivity.compareDocumentPosition(secondText) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(secondText.compareDocumentPosition(tail) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(inlineActivity.textContent).toContain("Fichiers consultés, commande exécutée");
+    expect(tail.textContent).toContain("Recherche");
+    expect(tail.textContent).not.toContain("3 actions");
   });
 
   it("tour actif : consolide huit actions dans une seule activité dépliable", () => {
@@ -191,6 +232,60 @@ describe("anatomie du tour — header d'activité", () => {
     expect(activity.querySelector(".ui-activity-label.is-shimmering")).toBeNull();
   });
 
+  it("affiche imageView comme Codex avec glyphe monochrome, vignette et aperçu", async () => {
+    const imageUrl = "data:image/png;base64,iVBORw0KGgo=";
+    const evs: AgentEvent[] = [
+      events.user("Regarde l’image.", FIXED_TS),
+      {
+        kind: "tool_update",
+        id: "image-1",
+        name: "view_image",
+        output: "",
+        status: "completed",
+        input: { paths: [imageUrl] },
+        source: "codex",
+      },
+      events.text("Je l’ai inspectée.", FIXED_TS + 500),
+      events.done({ ts: FIXED_TS + 700 }),
+    ];
+    renderUi(<Chat {...chatProps({ events: evs })} />);
+    fireEvent.click(document.querySelector(".ui-activity.is-summary .ui-activity-trigger") as HTMLButtonElement);
+
+    const activity = document.querySelector(".ui-activity:not(.is-summary)") as HTMLElement;
+    const icon = activity.querySelector("[data-activity-icon='image'] svg") as SVGElement;
+    expect(activity.textContent).toContain("Image consultée");
+    expect(icon).toHaveAttribute("fill", "none");
+    expect(icon).toHaveAttribute("stroke", "currentColor");
+
+    fireEvent.click(activity.querySelector(".ui-activity-trigger") as HTMLButtonElement);
+    const thumbnail = await screen.findByRole("button", { name: /Aperçu de/i });
+    expect(thumbnail).toHaveClass("image-view-thumbnail");
+    fireEvent.click(thumbnail);
+    expect(screen.getByRole("dialog", { name: "Aperçu agrandi de l’image" })).toBeInTheDocument();
+  });
+
+  it("garde imageView autonome entre deux groupes de commandes", () => {
+    const imageUrl = "data:image/png;base64,iVBORw0KGgo=";
+    const evs: AgentEvent[] = [
+      events.user("Inspecte puis teste.", FIXED_TS),
+      events.tool({ id: "cmd-1", name: "Bash", detail: "pwd", status: "completed" }),
+      {
+        kind: "tool_update", id: "image-1", name: "view_image", output: "", status: "completed",
+        input: { paths: [imageUrl] }, source: "codex",
+      },
+      events.tool({ id: "cmd-2", name: "Bash", detail: "npm test", status: "inProgress" }),
+    ];
+    renderUi(<Chat {...chatProps({ events: evs, workingSince: FIXED_TS })} />);
+
+    const activities = [...document.querySelectorAll<HTMLElement>(".ui-activity:not(.is-summary)")];
+    expect(activities).toHaveLength(3);
+    expect(activities[0].querySelector("[data-activity-icon='command']")).toBeTruthy();
+    expect(activities[1].querySelector("[data-activity-icon='image']")).toBeTruthy();
+    expect(activities[1].textContent).toContain("Image consultée");
+    expect(activities[2].closest(".active-turn-tail")).toBeTruthy();
+    expect(activities[2].querySelector("[data-activity-icon='command']")).toBeTruthy();
+  });
+
   it("rattache les narrations intermédiaires au pli du message final", () => {
     const evs: AgentEvent[] = [
       events.user("Analyse.", FIXED_TS),
@@ -243,7 +338,10 @@ describe("anatomie du tour — header d'activité", () => {
     expect(document.querySelector(".edit-line")?.textContent).toContain("+5");
     expect(document.querySelector(".edit-line")?.textContent).toContain("-3");
     expect(document.querySelectorAll(".ui-activity:not(.is-summary)")).toHaveLength(1);
-    expect(document.querySelector(".thinking-shimmer")?.textContent).toContain(t("chat.thinking"));
+    const activity = document.querySelector(".ui-activity:not(.is-summary)") as HTMLElement;
+    expect(activity.textContent).toContain(t("chat.activity-editing"));
+    expect(activity.querySelector("[data-activity-icon='edit']")).toBeTruthy();
+    expect(activity.querySelector(".ui-activity-label.is-shimmering")).toBeNull();
   });
 
   it("ouvre un fichier édité dans l'IDE avec le diff exact du tour", () => {

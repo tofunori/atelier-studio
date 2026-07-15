@@ -134,6 +134,22 @@ pub fn map_turn_notification(method: &str, params: &Value, state: &mut TurnMapSt
                 "mcpToolCall" => {
                     events.push(mcp_update(&item, None));
                 }
+                "imageView" => {
+                    let path = item.get("path").and_then(Value::as_str).unwrap_or("");
+                    let id = item
+                        .get("id")
+                        .cloned()
+                        .unwrap_or_else(|| json!(format!("image:{}", if path.is_empty() { "unknown" } else { path })));
+                    events.push(json!({
+                        "kind": "tool_update",
+                        "id": id,
+                        "name": "view_image",
+                        "output": "",
+                        "status": "completed",
+                        "input": { "paths": if path.is_empty() { Vec::<String>::new() } else { vec![path.to_string()] } },
+                        "source": "codex",
+                    }));
+                }
                 _ => {}
             }
         }
@@ -493,6 +509,21 @@ mod tests {
     fn error_will_retry_ignored() {
         assert!(classify_codex_error(&json!({"willRetry": true})).is_none());
         assert!(classify_codex_error(&json!({"message": "boom"})).is_some());
+    }
+
+    #[test]
+    fn image_view_is_a_structured_completed_activity() {
+        let mut st = TurnMapState::default();
+        let events = map_turn_notification(
+            "item/started",
+            &json!({"item":{"id":"img-1","type":"imageView","path":"/tmp/figure.png"}}),
+            &mut st,
+        );
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0]["kind"], "tool_update");
+        assert_eq!(events[0]["name"], "view_image");
+        assert_eq!(events[0]["status"], "completed");
+        assert_eq!(events[0]["input"]["paths"][0], "/tmp/figure.png");
     }
 
     #[test]

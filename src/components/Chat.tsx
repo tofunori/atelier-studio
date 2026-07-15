@@ -7,7 +7,8 @@ import { buildHighlightContext } from "../lib/highlightContext";
 import type { HighlightEntry } from "./Rail";
 import { CloseIcon } from "./icons";
 import { ProviderInfo, providerAllowsCommand } from "../lib/providers";
-import { ToolOutputLine, isSummarizableTool, Tick, toolCategory } from "./chat/toolPresentation";
+import { ImageViewPreview } from "./chat/ImageViewPreview";
+import { ToolOutputLine, imagePathsForActions, isSummarizableTool, Tick, toolCategory } from "./chat/toolPresentation";
 import { ChatTimeline } from "./chat/ChatTimeline";
 import { ChatHeader } from "./chat/ChatHeader";
 import type { ResearchHomeBundle } from "./ResearchHome";
@@ -795,6 +796,8 @@ export default function Chat(p: {
     const suppressDuplicateEditTool = (row: Extract<ProjectedTimelineItem, { type: "event" }>) =>
       isSummarizableTool(row.event) && editTurns.has(row.index) &&
       toolCategory(row.event.name, "detail" in row.event ? row.event.detail : undefined) === "edit";
+    const isStandaloneTool = (event: ToolAction) =>
+      toolCategory(event.name, "detail" in event ? event.detail : undefined) === "image";
     for (let offset = 0; offset < projectedTimeline.length; offset += 1) {
       const row = projectedTimeline[offset];
       if (row.type !== "event") {
@@ -816,9 +819,10 @@ export default function Chat(p: {
       }
       const actionRows = [{ action: event, index: row.index }];
       let nextOffset = offset + 1;
-      while (nextOffset < projectedTimeline.length) {
+      while (!isStandaloneTool(event) && nextOffset < projectedTimeline.length) {
         const next = projectedTimeline[nextOffset];
         if (next.type !== "event" || !isSummarizableTool(next.event)) break;
+        if (isStandaloneTool(next.event)) break;
         if (!suppressDuplicateEditTool(next)) actionRows.push({ action: next.event, index: next.index });
         nextOffset += 1;
       }
@@ -852,6 +856,8 @@ export default function Chat(p: {
   const quoteHasUl = !!quoteText && marks.some((m) => m.text === quoteText && m.kind === "ul");
 
   function renderToolLine(e: Extract<AgentEvent, { kind: "tool" | "tool_update" }>, key: React.Key) {
+    const imagePaths = imagePathsForActions([e]);
+    if (imagePaths.length > 0) return <ImageViewPreview key={key} paths={imagePaths} />;
     if (e.kind === "tool") {
       return (
         <div key={key} className="tool">

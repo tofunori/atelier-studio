@@ -609,12 +609,16 @@ describe("composer — barre hiérarchisée (plan 020)", () => {
     renderUi(<Chat {...chatProps({ workingSince: FIXED_TS })} />);
     const group = document.querySelector('.composer [data-slot="input-group"]');
     expect(group).toBeTruthy();
+    expect(group).not.toHaveAttribute("data-active");
     expect(group?.querySelector('textarea[data-slot="input-group-control"]')).toBe(ta());
     expect(group?.querySelector('.ta-backdrop[data-not-typeset]')).toBeTruthy();
     expect(group?.querySelector('[data-slot="input-group-addon"][data-align="block-end"]')).toBeTruthy();
     expect(group?.querySelector('.composer-tool-group[data-slot="button-group"]')).toBeTruthy();
 
+    ta().focus();
+    expect(document.activeElement).toBe(ta());
     fireEvent.change(ta(), { target: { value: "à grouper" } });
+    expect(group).not.toHaveAttribute("data-active");
     expect(group?.querySelector(".follow-up-submit")).toBeTruthy();
     expect(group?.querySelector(".composer-submit-group")).toBeNull();
   });

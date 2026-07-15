@@ -3,6 +3,7 @@ mod atelier;
 mod bin_resolver;
 mod browser;
 mod identity;
+mod local_image;
 mod macos_badge_permission;
 mod remote_gateway;
 mod sidecar;
@@ -28,6 +29,7 @@ pub fn run() {
             appsnap::appsnap_read_capture,
             appsnap::appsnap_request_permissions,
             appsnap::appsnap_set_enabled,
+            local_image::local_image_read,
             macos_badge_permission::request_badge_authorization,
             macos_badge_permission::set_badge_count,
             sidecar::sidecar_port,

@@ -247,14 +247,15 @@ describe("orchestration App — caractérisation", () => {
     expect(topbar).toBeTruthy();
   });
 
-  it("restaure projet actif et panneau actif au démarrage (persistance)", async () => {
+  it("restaure le projet actif mais démarre toujours sur le panneau Chat", async () => {
     localStorage.setItem("atelier-studio.settings", JSON.stringify({ activeView: "highlights" }));
     await mountApp();
 
     // projet actif = premier de atelier-studio.projects → visible dans la TopBar
     expect(screen.getAllByText("albedo-pipeline").length).toBeGreaterThan(0);
-    // panneau actif restauré depuis settings.activeView
-    expect(screen.getByText(t("view.highlights"))).toBeTruthy();
+    const chatButton = screen.getByRole("button", { name: t("view.chats") });
+    expect(chatButton).toHaveClass("on");
+    expect(screen.queryByText(t("highlights.empty"))).toBeNull();
   });
 
   it("sélectionne un thread et charge son historique (getHistory du bon id)", async () => {
@@ -498,11 +499,12 @@ describe("orchestration App — caractérisation", () => {
       await flushMicrotasks(4);
     });
 
-    const editor = document.querySelector<HTMLIFrameElement>('iframe[src*="diff_viewer.html"]');
+    const editor = document.querySelector<HTMLIFrameElement>('iframe[src*="latex_studio.html"]');
     expect(editor).toBeTruthy();
+    expect(document.querySelector('iframe[src*="diff_viewer.html"]')).toBeNull();
     const url = new URL(editor!.src);
     expect(url.searchParams.get("path")).toBe(`${PROJECT_ROOT}/scripts/plot.py`);
-    expect(url.searchParams.get("rel")).toBe("scripts/plot.py");
+    expect(url.searchParams.get("diff")).toBe("1");
     expect(url.searchParams.get("base")).toBe(baseSha);
   });
 

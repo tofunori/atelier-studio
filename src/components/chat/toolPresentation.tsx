@@ -44,6 +44,7 @@ const LIST_CMD = /^\s*!?\s*#?\s*(ls|tree)\b/;
 const READ_CMD = /^\s*!?\s*(cat|bat|head|tail|less|more|sed -n)\b/;
 const VISUALIZATION_CMD = /\b(matplotlib|pyplot|plotly|ggplot|vega|chart|render[_-]?(?:plot|figure)|savefig|\.plot\s*\()\b/iu;
 const INTERRUPTED_STATUS = /^(interrupted|cancelled|canceled|declined|denied|stopped)$/i;
+const COMPLETED_STATUS = /^(completed|complete|succeeded|success|done)$/i;
 const SUMMARY_ORDER: SummaryPartKind[] = [
   "integrations", "loaded-tools", "file-changes", "exploration", "visualization",
   "commands", "web-search", "images", "agents", "todo", "permissions", "compaction", "tools",
@@ -166,11 +167,11 @@ export function isSummarizableTool(e: AgentEvent): e is Extract<AgentEvent, { ki
 export function toolCategory(name: string, detail?: string): ToolCat {
   if (name.startsWith("__edits:")) return "edit";
   const n = name.toLowerCase();
-  const d = detail ?? "";
+  const d = shellCommand(detail ?? "");
   if (n === "__compacted" || n.includes("context_compact") || n.includes("context-compaction")) return "compaction";
   if (n.startsWith("permission") || n.includes("approval") || n.includes("request_user_input") || n.includes("elicitation")) return "permission";
   if (n.startsWith("agent:") || n.includes("spawn_agent") || n.includes("subagent") || n.includes("multi_agent") || n.includes("multi-agent")) return "agent";
-  if (n.includes("view_image") || n.includes("image_view") || n.includes("open_image") || n === "image") return "image";
+  if (n.includes("view_image") || n.includes("image_view") || n.includes("open_image") || n === "image" || n.startsWith("image ")) return "image";
   if (n === "webfetch" || n === "websearch" || n.includes("web_search") || n.includes("web-search") || n.includes("browser") || n.includes("recherche web")) return "web";
   // exécution shell (Bash, Execute, run_terminal…) : affiner via la commande
   if (n === "bash" || n === "execute" || n.includes("shell") || n.includes("terminal") || n.includes("command")) {
@@ -191,15 +192,71 @@ export function toolCategory(name: string, detail?: string): ToolCat {
   return "tool";
 }
 
+/** Chemins structurés récents + ancien format `image /path`, pour que les
+ * conversations déjà enregistrées gagnent aussi leur miniature. */
+export function imagePathsForActions(actions: ToolAction[]): string[] {
+  const paths = actions.flatMap((action) => {
+    if (action.kind === "tool_update" && action.input && typeof action.input === "object") {
+      const input = action.input as Record<string, unknown>;
+      const listed = Array.isArray(input.paths)
+        ? input.paths.filter((value): value is string => typeof value === "string")
+        : [];
+      const single = typeof input.path === "string" ? [input.path] : [];
+      if (listed.length || single.length) return [...listed, ...single];
+    }
+    if (action.kind === "tool" && action.name.toLowerCase().startsWith("image ")) {
+      return [action.name.slice("image ".length).trim()];
+    }
+    return [];
+  });
+  return [...new Set(paths.filter(Boolean))];
+}
+
+function shellCommand(value: string): string {
+  const command = value.trim();
+  const wrapped = /^(?:\/\S+\/)?(?:zsh|bash|sh)\s+-[a-z]*c\s+(["'])([\s\S]*)\1$/iu.exec(command);
+  return (wrapped?.[2] ?? command).trim();
+}
+
+function shellTool(name: string): boolean {
+  const normalized = name.toLowerCase();
+  return normalized === "bash" || normalized === "execute" || normalized.includes("shell") ||
+    normalized.includes("terminal") || normalized.includes("command");
+}
+
 function actionTarget(action: ToolAction): string {
-  if ("detail" in action && action.detail?.trim()) return action.detail.trim();
-  if (action.kind !== "tool_update" || action.input == null || typeof action.input !== "object") return "";
+  if (action.kind !== "tool_update" || action.input == null || typeof action.input !== "object") {
+    return "detail" in action && action.detail?.trim() ? action.detail.trim() : "";
+  }
   const input = action.input as Record<string, unknown>;
+  // Le détail des adapters peut être tronqué à 64 caractères. Pour une action
+  // shell, la commande complète est la source fiable de la catégorie et de la
+  // cible (« Reading PromptInput.tsx » plutôt que « Running /bin/zsh… »).
+  if (shellTool(action.name) && typeof input.command === "string" && input.command.trim()) {
+    return shellCommand(input.command);
+  }
+  if (action.detail?.trim()) return action.detail.trim();
   for (const key of ["file_path", "path", "query", "pattern", "command", "url"]) {
     const value = input[key];
     if (typeof value === "string" && value.trim()) return value.trim();
   }
   return "";
+}
+
+function conciseActionTarget(name: string, target: string, kind: ToolCat): string {
+  if (!shellTool(name)) return target;
+  const command = shellCommand(target);
+  if (kind !== "read" && kind !== "list") return command;
+  const firstClause = command.split(/\s*(?:;|&&|\|\|)\s*/u, 1)[0] ?? command;
+  const tokens = firstClause.match(/(?:[^\s"']+|"[^"]*"|'[^']*')+/gu) ?? [];
+  const candidate = [...tokens].reverse().find((token) => {
+    const clean = token.replace(/^["']|["']$/gu, "");
+    return !clean.startsWith("-") && /(?:[/\\]|\.[a-z0-9]{1,8}$)/iu.test(clean);
+  });
+  if (!candidate) return command;
+  const clean = candidate.replace(/^["']|["']$/gu, "");
+  const segments = clean.split(/[/\\]/u);
+  return segments[segments.length - 1] ?? clean;
 }
 
 function actionIdentity(action: ToolAction, index: number): string {
@@ -220,13 +277,14 @@ function normalizeKey(value: string) {
 }
 
 function semanticActivity(action: ToolAction): SemanticToolActivity {
-  const target = actionTarget(action);
+  const rawTarget = actionTarget(action);
   const name = action.name.toLowerCase();
   const source = action.kind === "tool_update" ? action.source?.toLowerCase() ?? "" : "";
   const status = action.kind === "tool_update"
     ? action.status?.replace(/([a-z])([A-Z])/g, "$1-$2").toLowerCase().replace(/_/g, "-") ?? ""
     : "";
-  let kind = toolCategory(action.name, target);
+  let kind = toolCategory(action.name, shellCommand(rawTarget));
+  const target = conciseActionTarget(action.name, rawTarget, kind);
 
   // Codex distingue un SKILL.md lu d'une lecture de fichier ordinaire.
   if (kind === "read" && /(?:^|[/\\])skill\.md(?:$|\s)/iu.test(target)) kind = "skill";
@@ -292,9 +350,20 @@ export function activityIconForPhase(phase?: string): ActivityIcon | undefined {
 export function activeToolLabel(action: Extract<AgentEvent, { kind: "tool" | "tool_update" }>): string {
   const target = actionTarget(action);
   const cat = semanticActivity(action).kind;
+  const status = action.kind === "tool_update"
+    ? action.status?.replace(/([a-z])([A-Z])/g, "$1-$2").toLowerCase().replace(/_/g, "-") ?? ""
+    : "";
   if (cat === "command") {
-    if (/\b(test|vitest|jest|pytest|cargo test|swift test|xcodebuild test)\b/iu.test(target)) return t("chat.activity-running-tests");
-    if (/\b(format|prettier|eslint --fix|rustfmt|cargo fmt)\b/iu.test(target)) return t("chat.activity-formatting");
+    const completed = COMPLETED_STATUS.test(status);
+    if (/\b(test|vitest|jest|pytest|cargo test|swift test|xcodebuild test)\b/iu.test(target)) {
+      return t(completed ? "chat.activity-ran-tests" : "chat.activity-running-tests");
+    }
+    if (/\b(format|prettier|eslint --fix|rustfmt|cargo fmt)\b/iu.test(target)) {
+      return t(completed ? "chat.activity-formatted" : "chat.activity-formatting");
+    }
+    if (completed) return target
+      ? t("chat.activity-command-completed-target", { target: shellCommand(target) })
+      : t("chat.activity-command-completed");
   }
   if (cat === "permission") return t("chat.activity-awaiting");
   const key = cat === "search" ? "chat.activity-searching"
@@ -311,7 +380,8 @@ export function activeToolLabel(action: Extract<AgentEvent, { kind: "tool" | "to
     : cat === "todo" ? "chat.activity-planning"
     : cat === "command" ? "chat.activity-command"
     : "chat.activity-tool";
-  return target ? t(`${key}-target`, { target }) : t(key);
+  const conciseTarget = conciseActionTarget(action.name, target, cat);
+  return conciseTarget ? t(`${key}-target`, { target: conciseTarget }) : t(key);
 }
 
 export function toolClause(cat: ToolCat, n: number): string {
@@ -378,7 +448,7 @@ export function ToolGlyph({ icon }: { icon: ActivityIcon }) {
     case "web": return <svg {...c}><circle cx="8" cy="8" r="5.6" /><path d="M2.4 8h11.2M8 2.4c1.7 1.7 1.7 9.5 0 11.2M8 2.4c-1.7 1.7-1.7 9.5 0 11.2" /></svg>;
     case "todo": return <svg {...c}><path d="M3 4.4 4.1 5.5 6 3.4M3 10.6 4.1 11.7 6 9.6M8.4 4.6h4.6M8.4 10.8h4.6" /></svg>;
     case "permission": return <svg {...c}><path d="M8 1.8 13 3.8v4c0 3.2-2.2 5.4-5 6.4-2.8-1-5-3.2-5-6.4v-4z" /><path d="m5.6 8 1.5 1.5 3.4-3.4" /></svg>;
-    case "image": return <svg {...c}><rect x="1.8" y="2.4" width="12.4" height="11.2" rx="1.8" /><circle cx="5.2" cy="5.8" r="1.2" /><path d="m3.2 11 3-3 2.2 2.1 1.7-1.6 2.7 2.5" /></svg>;
+    case "image": return <svg {...c}><rect x="3.2" y="1.8" width="10.8" height="9.6" rx="1.6" /><path d="M3.2 4H2.6A1.6 1.6 0 0 0 1 5.6v6.8A1.6 1.6 0 0 0 2.6 14h8.8a1.6 1.6 0 0 0 1.6-1.6v-1" /><circle cx="6.4" cy="5" r="1" /><path d="m4.5 9 2.2-2.2 1.8 1.7 1.4-1.3 2 1.8" /></svg>;
     case "visualization": return <svg {...c}><path d="M2.2 13.5V8.8h2.6v4.7M6.7 13.5V5.4h2.6v8.1M11.2 13.5V2.2h2.6v11.3M1.5 13.5h13" /></svg>;
     case "integration": return <svg {...c}><path d="M6.2 5.1 4.4 3.3a2.1 2.1 0 0 0-3 3l2.2 2.2a2.1 2.1 0 0 0 3 0l.7-.7M9.8 10.9l1.8 1.8a2.1 2.1 0 0 0 3-3l-2.2-2.2a2.1 2.1 0 0 0-3 0l-.7.7M5.8 10.2l4.4-4.4" /></svg>;
     case "skill": return <svg {...c}><path d="m8 1.8 1.5 3.1 3.5.5-2.5 2.5.6 3.5L8 9.8l-3.1 1.6.6-3.5L3 5.4l3.5-.5z" /><path d="M4 13.8h8" /></svg>;
