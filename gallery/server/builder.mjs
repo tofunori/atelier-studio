@@ -269,6 +269,22 @@ export function provisionViewers(root = ROOT) {
   }
 }
 
+/** Refresh bundled assets without blocking the gallery health server. */
+export async function provisionViewersAsync(root = ROOT) {
+  const target = path.join(root, ".fig_thumbs");
+  await fs.promises.mkdir(target, { recursive: true });
+  for (const name of await fs.promises.readdir(ASSETS_DIR)) {
+    const src = path.join(ASSETS_DIR, name);
+    const dst = path.join(target, name);
+    const st = await fs.promises.stat(src);
+    if (st.isDirectory()) {
+      await fs.promises.cp(src, dst, { recursive: true, force: true });
+    } else {
+      await fs.promises.copyFile(src, dst);
+    }
+  }
+}
+
 function loadGalleryTemplate() {
   return fs.readFileSync(path.join(GALLERY_DIR, "assets", "gallery_template.html"), "utf8");
 }

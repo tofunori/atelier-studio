@@ -152,6 +152,7 @@ test('browse: search filters the generated gallery cards', async ({ page }) => {
     await expect(page.locator('#grid .card')).toHaveCount(3);
     await expect(page.locator('.brand .stat')).toContainText('4 files');
 
+    await page.getByRole('button', { name: 'Search files' }).click();
     await expect(page.locator('[data-gallery-command="search"]')).toBeVisible();
     const searchGroup = page.locator('[data-gallery-command-group="search"]');
     await expect(searchGroup).toHaveAttribute('data-slot', 'input-group');
@@ -175,10 +176,12 @@ test('browse: search filters the generated gallery cards', async ({ page }) => {
     await page.locator('[data-gallery-command="filters"]').click();
     const typePanel = page.locator('[data-gallery-file-type-panel]');
     await expect(typePanel).toBeVisible();
+    await typePanel.getByRole('button', { name: 'All file types' }).click();
     await expect(typePanel.locator('[data-gallery-file-type="py"]')).toContainText('Python');
     await typePanel.locator('[data-gallery-file-type="svg"]').click();
 
     // Un type désactivé explicitement se combine avec la requête texte.
+    await page.getByRole('button', { name: /Search files/ }).click();
     await page.locator('[data-gallery-command="search"]').fill('plot-alpha.svg');
     await expect(page.locator('#grid .empty')).toContainText('No matching files');
   });
@@ -196,6 +199,7 @@ test('browse: repeated rerenders release detached code preview observers', async
       };
     });
     await page.goto(url);
+    await page.getByRole('button', { name: 'Search files' }).click();
     const search = page.locator('[data-gallery-command="search"]');
 
     for (let i = 0; i < 30; i += 1) {
@@ -444,6 +448,7 @@ test('filters: workflow filter via popover shows an active chip, reset restores 
     await expect(page.locator('#grid .card')).toHaveCount(3);
 
     await page.locator('[data-gallery-command="filters"]').click();
+    await page.getByRole('button', { name: 'Folders, status & collections' }).click();
     await page.locator('[data-gallery-status="draft"]').click();
 
     await expect(page.locator('#activeChips .fchip').first()).toContainText('Status: Draft');
@@ -497,11 +502,9 @@ test('file types: compact popover stays inside narrow gallery viewports', async 
 
       const geometry = await page.locator('[data-slot="popover-content"]').evaluate(element => {
         const panel = element.getBoundingClientRect();
-        const header = element.querySelector('[data-slot="popover-header"]').getBoundingClientRect();
         const footer = element.querySelector('.gallery-filter-panel-foot').getBoundingClientRect();
         return {
           panel: { left: panel.left, right: panel.right, top: panel.top, bottom: panel.bottom, width: panel.width },
-          headerHeight: header.height,
           footerBottom: footer.bottom,
           viewport: { width: innerWidth, height: innerHeight },
           documentWidth: document.documentElement.scrollWidth,
@@ -511,12 +514,32 @@ test('file types: compact popover stays inside narrow gallery viewports', async 
       expect(geometry.panel.left).toBeGreaterThanOrEqual(0);
       expect(geometry.panel.right).toBeLessThanOrEqual(geometry.viewport.width);
       expect(geometry.panel.bottom).toBeLessThanOrEqual(geometry.viewport.height);
-      expect(geometry.panel.width).toBeLessThanOrEqual(400);
-      expect(geometry.headerHeight).toBeLessThanOrEqual(44);
+      expect(geometry.panel.width).toBeLessThanOrEqual(360);
+      expect(geometry.panel.bottom - geometry.panel.top).toBeLessThanOrEqual(360);
       expect(geometry.footerBottom).toBeLessThanOrEqual(geometry.viewport.height);
       expect(geometry.documentWidth).toBeLessThanOrEqual(geometry.viewport.width);
       await expect(page.getByRole('button', { name: 'Reset filters' })).toBeVisible();
     }
+  });
+});
+
+test('command bar: filter and display controls form one compact left-aligned cluster', async ({ page }) => {
+  await withGallery(async ({ url }) => {
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await page.goto(url);
+
+    const filterGroup = page.getByRole('group', { name: 'Search and filter gallery' });
+    const displayGroup = page.getByRole('group', { name: 'Sort and display gallery' });
+    const [filterBox, displayBox] = await Promise.all([filterGroup.boundingBox(), displayGroup.boundingBox()]);
+
+    expect(filterBox).not.toBeNull();
+    expect(displayBox).not.toBeNull();
+    expect(displayBox.x - (filterBox.x + filterBox.width)).toBeGreaterThanOrEqual(0);
+    expect(displayBox.x - (filterBox.x + filterBox.width)).toBeLessThanOrEqual(10);
+
+    const sort = page.getByRole('combobox', { name: /Sort project files:/ });
+    await expect(sort).toBeVisible();
+    await expect(sort.locator('[data-icon="select-chevron"]')).toBeHidden();
   });
 });
 

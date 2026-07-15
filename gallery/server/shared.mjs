@@ -276,7 +276,7 @@ export function serveFile(req, res, file, opts = {}) {
     return sendJson(res, 404, { error: "not found" });
   }
   const urlPath = new URL(req.url, "http://127.0.0.1").pathname;
-  const noCache = urlPath === "/" || urlPath.endsWith(".html") || urlPath.endsWith(".js");
+  const noCache = urlPath === "/" || urlPath.endsWith(".html") || urlPath.endsWith(".js") || urlPath.endsWith(".css");
   res.writeHead(200, {
     "Content-Type": opts.type || contentType(file),
     "Content-Length": String(data.length),

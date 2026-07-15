@@ -1,32 +1,41 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
+<script src="/.fig_thumbs/atelier_theme.js"></script>
 <meta charset="utf-8">
 <title>SVG editor</title>
 <style>
-  :root{--bg:#202024;--card:#27272a;--txt:#e4e4e7;--muted:#a1a1aa;--accent:#5b9dff;--border:#3f3f46}
+  :root{--ui-font:-apple-system,'SF Pro Text','Inter Variable',sans-serif;--code-font:ui-monospace,'SF Mono',Menlo,monospace;--bg:#202024;--card:#27272a;--txt:#dbdfe5;--muted:#a1a1aa;--accent:#5b9dff;--border:#3f3f46}
   html,body{margin:0;height:100%;background:var(--bg);color:var(--txt);
-            font-family:-apple-system,BlinkMacSystemFont,sans-serif;display:flex;flex-direction:column;overflow:hidden}
+            font-family:var(--ui-font);display:flex;flex-direction:column;overflow:hidden}
   header{background:var(--card);border-bottom:1px solid var(--border);padding:8px 84px 8px 14px;
-         display:flex;gap:8px;align-items:center;font-size:12.5px;flex-shrink:0;flex-wrap:wrap}
+         display:flex;gap:8px;align-items:center;font-size:13px;flex-shrink:0;flex-wrap:wrap}
   #fname{font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:42%;min-width:0;flex:1 1 0}
-  #msinfo{color:#22c55e;font-size:11.5px;white-space:nowrap}
+  #msinfo{color:#22c55e;font-size:12px;white-space:nowrap}
+  #zoominfo{color:var(--muted);font-size:12px;white-space:nowrap;font-variant-numeric:tabular-nums}
+  /* space-held pan: grab cursor, grabbing while dragging (wins over the move/crosshair rules) */
+  body.panready #stagewrap, body.panready #stagewrap *{cursor:grab}
+  body.panning #stagewrap, body.panning #stagewrap *{cursor:grabbing}
   /* uniform "pro" toolbar: every control the same height + style */
   header button,header select{height:30px;box-sizing:border-box;display:inline-flex;align-items:center;gap:6px;
-        background:var(--border);color:var(--txt);border:1px solid var(--border);border-radius:7px;padding:0 13px;
-        font-size:12.5px;font-family:inherit;cursor:pointer;white-space:nowrap}
+        background:var(--border);color:var(--txt);border:1px solid var(--border);border-radius:6px;padding:0 13px;
+        font-size:13px;font-family:inherit;cursor:pointer;white-space:nowrap}
   header button:hover{background:#52525b}
   header select{padding:0 8px}
-  #lassotoggle.on{background:#ffce3a;color:#000;border-color:#ffce3a;font-weight:600}
-  #undobtn:disabled{opacity:.45;cursor:default;background:var(--border)}
-  #clearsel{padding:0 9px}
-  #delsel{padding:0 11px}
+  header button svg{display:block}
+  /* icon-only buttons: a homogeneous visual square */
+  #clearsel,#delsel,#lassotoggle,#undobtn,#redobtn,#savesvg,#exportpng,#annotbtn,#fsbtn{padding:0 9px}
+  /* toolbar group divider */
+  .tsep{width:1px;height:18px;background:var(--border);margin:0 2px;flex-shrink:0}
+  /* single active-state style for every toggle button */
+  #lassotoggle.on,#addtext.on,#annotbtn.on{background:var(--accent);color:#fff;border-color:var(--accent);font-weight:600}
+  #undobtn:disabled,#redobtn:disabled{opacity:.45;cursor:default;background:var(--border)}
+  #savesvg{position:relative}
+  #savesvg.dirty::after{content:"";position:absolute;top:-2px;right:-2px;width:6px;height:6px;border-radius:999px;background:var(--accent)}
   #delsel:hover{background:#b91c1c;border-color:#b91c1c;color:#fff}
-  #addtext.on{background:#22c55e;color:#000;border-color:#22c55e;font-weight:600}
-  #annotbtn.on{background:#c96442;color:#fff;border-color:#c96442;font-weight:600}
   #annotcv{position:absolute;touch-action:none;pointer-events:none;z-index:60}
   body.addmode #plot svg, body.addmode #plot svg *{cursor:text}
-  .txtedit{position:absolute;z-index:50;pointer-events:auto;font:13px -apple-system,BlinkMacSystemFont,sans-serif;padding:2px 6px;border:2px solid var(--accent);border-radius:5px;background:#fff;color:#111;box-shadow:0 4px 18px rgba(0,0,0,.45)}
+  .txtedit{position:absolute;z-index:50;pointer-events:auto;font:13px -apple-system,BlinkMacSystemFont,sans-serif;padding:2px 6px;border:2px solid var(--accent);border-radius:6px;background:#fff;color:#111;box-shadow:0 4px 18px rgba(0,0,0,.45)}
   #stagewrap{flex:1;overflow:auto;padding:16px;box-sizing:border-box}
   #stage{position:relative;width:100%}
   #plot{width:100%;line-height:0}
@@ -39,30 +48,83 @@
   #ov{position:absolute;inset:0;pointer-events:none}
   .hbox{position:absolute;border:2px solid #5b9dff;border-radius:2px;background:rgba(91,157,255,.10);pointer-events:none}
   .movehi{position:absolute;outline:2px solid #22c55e;background:rgba(34,197,94,.10);pointer-events:none;border-radius:2px}
-  .selbox{position:absolute;border:1px solid var(--accent);pointer-events:none;border-radius:1px}
+  .selbox{position:absolute;border:1px solid var(--accent);pointer-events:none;border-radius:2px}
   .selhandle{position:absolute;width:11px;height:11px;margin:-6px 0 0 -6px;background:#fff;border:1.5px solid var(--accent);border-radius:2px;pointer-events:auto;box-sizing:border-box;z-index:2}
   .lassosvg polyline{fill:rgba(91,157,255,.14);stroke:#5b9dff;stroke-width:1.5;stroke-dasharray:5 3;stroke-linejoin:round}
   .lassosvg circle{fill:#5b9dff;stroke:#fff;stroke-width:1.5}
+  /* contextual edit bar: docked under the toolbar, adapts to the selection (text / shape) */
+  #ctxbar{display:flex;gap:8px;align-items:center;background:var(--card);border-bottom:1px solid var(--border);
+         padding:0 14px;max-height:0;opacity:0;overflow:hidden;flex-shrink:0;
+         transition:max-height .14s ease,opacity .14s ease,padding .14s ease}
+  #ctxbar.show{max-height:42px;opacity:1;padding:6px 14px;overflow-x:auto}
+  @media (prefers-reduced-motion: reduce){ #ctxbar{transition:none} }
+  body.fs-mode #ctxbar{display:none}
+  #ctxbar .cgroup{display:inline-flex;align-items:center;gap:6px;flex-shrink:0}
+  #ctxbar .lbl{font-size:11px;color:var(--muted);white-space:nowrap}
+  #ctxbar input{font-size:12px;height:24px;box-sizing:border-box;border-radius:6px;background:var(--bg);
+         border:1px solid var(--border);color:var(--txt);font-family:inherit}
+  #ctxbar input[type=number]{width:60px;padding:0 6px;font-variant-numeric:tabular-nums}
+  #ctxbar input[type=color]{width:34px;padding:1px;cursor:pointer}
+  #ctxbar input[type=range]{width:88px;padding:0}
+  #ctxbar .pnone{height:24px;width:24px;padding:0;display:inline-flex;align-items:center;justify-content:center;
+         background:var(--bg);border:1px solid var(--border);border-radius:6px;color:var(--muted);cursor:pointer;
+         font-size:13px;line-height:1}
+  #ctxbar .pnone:hover{color:var(--txt)}
+  #ctxbar select{font-size:12px;height:24px;box-sizing:border-box;border-radius:6px;background:var(--bg);
+         border:1px solid var(--border);color:var(--txt);font-family:inherit;max-width:130px;padding:0 4px}
+  #ctxbar .ptog{height:24px;width:24px;padding:0;display:inline-flex;align-items:center;justify-content:center;
+         background:var(--bg);border:1px solid var(--border);border-radius:6px;color:var(--muted);cursor:pointer;
+         font-size:12px;line-height:1;font-family:inherit}
+  #ctxbar .ptog:hover{color:var(--txt)}
+  #ctxbar .ptog.on{background:var(--accent);border-color:var(--accent);color:#fff}
+  #ctxbar .ptog[data-prop="font-style"]{font-style:italic}
+  #ctxbar .ptog[data-prop="font-weight"]{font-weight:600}
   #err{color:#ff6b6b;padding:40px;text-align:center}
 </style>
-<script>(function(){var T={'Default':{bg:'#202024',card:'#27272a',txt:'#e4e4e7',muted:'#a1a1aa',accent:'#5b9dff',border:'#3f3f46'},'Codex One':{bg:'#202024',card:'#2f343f',txt:'#abb2bf',muted:'#7f848e',accent:'#4d78cc',border:'#3e4451'},'Dracula':{bg:'#282a36',card:'#343746',txt:'#f8f8f2',muted:'#9aa0b3',accent:'#bd93f9',border:'#44475a'},'Nord':{bg:'#2e3440',card:'#3b4252',txt:'#e5e9f0',muted:'#9aa3b2',accent:'#88c0d0',border:'#434c5e'}};var t;try{t=T[localStorage.getItem('figTheme')];}catch(e){}t=t||T['Default'];var r=document.documentElement.style;for(var k in t)r.setProperty('--'+k,t[k]);})();</script>
+<script>(function(){var T={'Encre':{bg:'#1a1917',card:'#232220',card2:'#121110',txt:'#e8e5db',muted:'#948f85',accent:'#cc785c',border:'#332f2a'},'Profond':{bg:'#1e1d1b',card:'#292724',card2:'#161513',txt:'#ece9e1',muted:'#9a968c',accent:'#d97757',border:'#37342e'},'Charbon':{bg:'#211f1c',card:'#2b2926',card2:'#1a1815',txt:'#eae7de',muted:'#9d988d',accent:'#e08a63',border:'#38352f'},'Neutre chaud':{bg:'#1c1c1a',card:'#272623',card2:'#151513',txt:'#e9e7df',muted:'#98958c',accent:'#d97757',border:'#34322d'},'Très foncé':{bg:'#171614',card:'#201f1c',card2:'#100f0d',txt:'#e6e3d9',muted:'#8f8b81',accent:'#d97757',border:'#2e2b26'},'Default':{bg:'#202024',card:'#27272a',txt:'#dbdfe5',muted:'#a1a1aa',accent:'#5b9dff',border:'#3f3f46'},'Codex':{bg:'#282c34',card:'#2f343f',txt:'#abb2bf',muted:'#7f848e',accent:'#4d78cc',border:'#3e4451'},'Dracula':{bg:'#282a36',card:'#343746',txt:'#f8f8f2',muted:'#9aa0b3',accent:'#bd93f9',border:'#44475a'},'Nord':{bg:'#2e3440',card:'#3b4252',txt:'#e5e9f0',muted:'#9aa3b2',accent:'#88c0d0',border:'#434c5e'}};var t;try{t=T[localStorage.getItem('figTheme')];}catch(e){}t=t||T['Default'];var r=document.documentElement.style;for(var k in t)r.setProperty('--'+k,t[k]);})();</script>
 <script src="annot_kit.js"></script>
 </head>
 <body>
 <header>
   <b id="fname"></b>
   <span id="msinfo"></span>
-  <button id="clearsel" title="Deselect (Esc)" style="display:none">✕</button>
-  <button id="delsel" title="Supprimer la sélection (Suppr · ⌫) — ⌘Z pour annuler ; le .svg garde un .orig.bak jusqu'au Save" style="display:none">🗑</button>
+  <span id="zoominfo" title="Zoom — ⌘+ / ⌘- / ⌘0, ou ⌘+molette"></span>
+  <button id="clearsel" title="Désélectionner (Échap)" style="display:none"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4l8 8M12 4l-8 8"/></svg></button>
+  <button id="delsel" title="Supprimer la sélection (Suppr · ⌫) — ⌘Z pour annuler ; le .svg garde un .orig.bak jusqu'au Save" style="display:none"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M2.5 4h11M6.5 4V2.5h3V4M4 4l.8 9.5h6.4L12 4M6.5 7v4M9.5 7v4"/></svg></button>
+  <span class="tsep" id="sep-sel" style="display:none"></span>
   <button id="addtext" title="Ajouter un texte — clique ici puis clique sur la figure (double-clic sur un texte pour l'éditer)">T+</button>
-  <button id="lassotoggle" title="Polygone — clique des sommets autour des éléments ; double-clic / Entrée pour fermer · Échap annule">▱</button>
-  <button id="undobtn" title="Annuler la dernière action — déplacement / suppression / édition / ajout (⌘Z)" disabled>↶</button>
-  <button id="savesvg" title="Save the moved elements into the .svg on disk (keeps a .orig.bak)">💾</button>
-  <select id="dpi" title="Export resolution"><option value="300">300 dpi</option><option value="450">450 dpi</option><option value="600">600 dpi</option></select>
-  <button id="exportpng" title="Render the current view to a sibling .png (rsvg-convert)">🖼</button>
-  <button id="annotbtn" title="Annoter — dessine sur la figure puis envoie à Claude">✎</button>
-  <button id="fsbtn" title="Fullscreen (F)">⛶</button>
+  <button id="lassotoggle" title="Polygone — clique des sommets autour des éléments ; double-clic / Entrée pour fermer · Échap annule"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" stroke-dasharray="2.5 2"><path d="M8 2.5L13.5 6.5L11.5 13H4.5L2.5 6.5Z"/></svg></button>
+  <span class="tsep"></span>
+  <button id="undobtn" title="Annuler la dernière action — déplacement / suppression / édition / ajout (⌘Z)" disabled><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6.5H9.5a3 3 0 0 1 0 6H7"/><path d="M6.5 4L4 6.5L6.5 9"/></svg></button>
+  <button id="redobtn" title="Rétablir l'action annulée (⌘⇧Z)" disabled><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M12 6.5H6.5a3 3 0 0 0 0 6H9"/><path d="M9.5 4L12 6.5L9.5 9"/></svg></button>
+  <span class="tsep"></span>
+  <button id="savesvg" title="Enregistrer les modifications dans le .svg (garde un .orig.bak)"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M8 2.5v7M5 6.5l3 3l3-3M2.5 10.5v2a1 1 0 0 0 1 1h9a1 1 0 0 0 1-1v-2"/></svg></button>
+  <select id="dpi" title="Résolution d'export"><option value="300">300 dpi</option><option value="450">450 dpi</option><option value="600">600 dpi</option></select>
+  <button id="exportpng" title="Exporter la vue en .png (rsvg-convert)"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><rect x="2.5" y="3" width="11" height="10" rx="1"/><circle cx="5.5" cy="6.5" r="1"/><path d="M3 12l3.5-3.5l2 2L11 7l2.5 2.5"/></svg></button>
+  <span class="tsep"></span>
+  <button id="annotbtn" title="Annoter — dessine sur la figure puis envoie à Claude"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M10.5 2.5l3 3M11.5 3.5L4 11l-1.5 3.5L6 13l7.5-7.5z"/></svg></button>
+  <button id="fsbtn" title="Plein écran (F)"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M6 2.5H2.5V6M10 2.5h3.5V6M13.5 10v3.5H10M6 13.5H2.5V10"/></svg></button>
 </header>
+<div id="ctxbar">
+  <span class="cgroup" id="ctx-text">
+    <select id="p-fontfam" title="Police"></select>
+    <input type="number" id="p-fontsize" step="1" min="1" title="Taille (px)">
+    <button type="button" class="ptog" data-prop="font-weight" title="Gras (⌘B pendant l'édition)">B</button>
+    <button type="button" class="ptog" data-prop="font-style" title="Italique (⌘I pendant l'édition)">I</button>
+    <span class="tsep"></span>
+  </span>
+  <span class="cgroup">
+    <span class="lbl" id="lbl-fill">Fond</span><input type="color" id="p-fill" title="Couleur de remplissage"><button type="button" class="pnone" data-prop="fill" title="Aucun (fill:none)">×</button>
+  </span>
+  <span class="cgroup" id="ctx-stroke">
+    <span class="lbl">Contour</span><input type="color" id="p-stroke" title="Couleur de contour"><button type="button" class="pnone" data-prop="stroke" title="Aucun (stroke:none)">×</button>
+    <span class="lbl">Épaisseur</span><input type="number" id="p-strokew" step="0.25" min="0" title="Épaisseur de contour">
+  </span>
+  <span class="cgroup">
+    <span class="tsep"></span>
+    <span class="lbl">Opacité</span><input type="range" id="p-opacity" min="0" max="1" step="0.05" title="Opacité">
+  </span>
+</div>
 <div id="stagewrap"><div id="stage">
   <div id="plot">Loading…</div>
   <div id="ov"></div>
@@ -72,6 +134,7 @@ const file = new URLSearchParams(location.search).get("file") || "";
 document.getElementById("fname").textContent = file.split("/").pop();
 document.title = file.split("/").pop() || "SVG";
 const stage = document.getElementById("stage"), ov = document.getElementById("ov"), plot = document.getElementById("plot");
+const stagewrap = document.getElementById("stagewrap");
 const esc = s => String(s).replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
 
 let svg = null, hbox = null;
@@ -94,13 +157,13 @@ function showHover(el){                                   // a silent highlight 
 
 // ---- always-on element move + a polygon-lasso multi-select ----
 let drag = null, dirty = false, lassoMode = false;
+let zoom = 1, spaceDown = false, panning = null;         // zoom factor (0.25–8) + space-drag pan state
 let addMode = false, editing = false, addCounter = 0;
 const lassoBtn = document.getElementById("lassotoggle");
 function setLasso(on){
   lassoMode = on;
   lassoBtn.classList.toggle("on", on);
   document.body.classList.toggle("lasso", on);
-  lassoBtn.textContent = "▱";
   showHover(null); hiliteMoveSet();
   const n = document.getElementById("msinfo");
   if(n && on) n.textContent = "clique des sommets · double-clic / Entrée = fermer";
@@ -153,13 +216,140 @@ function hiliteMoveSet(){
   if(cs) cs.style.display = moveSet.length ? "inline-flex" : "none";
   const ds = document.getElementById("delsel");
   if(ds) ds.style.display = moveSet.length ? "inline-flex" : "none";
+  const ss = document.getElementById("sep-sel");
+  if(ss) ss.style.display = moveSet.length ? "" : "none";
   if(moveSet.length && !lassoMode && !addMode){ if(!selBoxEl) buildHandles(); positionHandles(); }
   else clearHandles();
+  updatePropsPanel();
 }
 function clearMoveSet(){ moveSet = []; hiliteMoveSet(); }
-// ---- undo history (one entry per completed drag) ----
-let history = [];
-function snapshot(els){ return els.map(el => ({ el,                       // full pre-op state, restored verbatim on Undo
+// ==== contextual edit bar: fill / stroke / stroke-width / opacity / font family+size+style ====
+const SHAPE_SEL = "path,rect,circle,ellipse,line,polyline,polygon,text,tspan";
+const styledProps = new Map();                              // el -> { prop: value } posed during this session (feeds the v2 sidecar)
+const propsPanel = document.getElementById("ctxbar");
+const propFill = document.getElementById("p-fill"), propStroke = document.getElementById("p-stroke");
+const propStrokeW = document.getElementById("p-strokew"), propOpacity = document.getElementById("p-opacity");
+const propFontSize = document.getElementById("p-fontsize");
+const propFontFam = document.getElementById("p-fontfam");
+const ctxText = document.getElementById("ctx-text"), ctxStroke = document.getElementById("ctx-stroke"), lblFill = document.getElementById("lbl-fill");
+const propBold = propsPanel.querySelector('[data-prop="font-weight"]'), propItal = propsPanel.querySelector('[data-prop="font-style"]');
+function styleTargets(el){                                  // the shapes/texts a style applies to: the element itself if it's one, else its descendants
+  return (el.matches && el.matches(SHAPE_SEL)) ? [el] : Array.from(el.querySelectorAll(SHAPE_SEL));
+}
+function collectStyleEls(prop){                             // union of targets across the whole selection (font-size → text/tspan only)
+  const out = [];
+  for(const el of moveSet){
+    for(const t of styleTargets(el)){
+      if(prop.indexOf("font-") === 0 && !(t.matches && t.matches("text,tspan"))) continue;   // font props only make sense on text
+      if(out.indexOf(t) < 0) out.push(t);
+    }
+  }
+  return out;
+}
+function selHasText(){ return moveSet.some(el => (el.matches && el.matches("text,tspan")) || (el.querySelector && el.querySelector("text,tspan"))); }
+function selHasShape(){ return moveSet.some(el => styleTargets(el).some(t => !(t.matches && t.matches("text,tspan")))); }
+function styleSnap(els){ return els.map(el => ({ el, style: el.getAttribute("style") })); }   // full inline-style attribute, restored verbatim
+function styleRestore(it){ if(it.style === null) it.el.removeAttribute("style"); else it.el.setAttribute("style", it.style); }
+function markStyled(el, prop, val){
+  el.style.setProperty(prop, val);                         // inline priority wins over matplotlib's own style attribute
+  el.setAttribute("data-styled", "1");
+  let m = styledProps.get(el); if(!m){ m = {}; styledProps.set(el, m); } m[prop] = val;
+}
+function commitStyle(prop, val){                            // one gesture = one history entry (color / number / × buttons)
+  const els = collectStyleEls(prop);
+  if(!els.length) return;
+  const before = styleSnap(els);
+  for(const el of els) markStyled(el, prop, val);
+  pushUndo({ type: "style", items: before, after: styleSnap(els) });
+  setDirty(true); fillPropsPanel();
+  if(editing){                                              // live WYSIWYG: the inline editor follows font changes made while typing
+    const inp = document.getElementById("txtedit-input"), t = firstTextEl();
+    if(inp && t) applyEditFont(inp, t);
+  }
+}
+let rangeGesture = null;                                    // coalesce a slider drag into a single 'style' entry (input = live preview, change = commit)
+function rangeLive(prop, val){
+  if(!rangeGesture){ const els = collectStyleEls(prop); if(!els.length) return; rangeGesture = { prop, els, before: styleSnap(els) }; }
+  for(const el of rangeGesture.els) markStyled(el, prop, val);
+  setDirty(true);
+}
+function rangeCommit(){ if(!rangeGesture) return; pushUndo({ type: "style", items: rangeGesture.before, after: styleSnap(rangeGesture.els) }); rangeGesture = null; }
+function rgbToHex(c){                                       // getComputedStyle gives rgb()/rgba() → the #rrggbb a color input needs
+  if(!c) return "#000000";
+  if(c[0] === "#") return c.length === 7 ? c : "#000000";
+  const m = c.match(/rgba?\(([^)]+)\)/); if(!m) return "#000000";
+  const p = m[1].split(",").map(s => parseFloat(s));
+  const h = n => Math.max(0, Math.min(255, Math.round(n || 0))).toString(16).padStart(2, "0");
+  return "#" + h(p[0]) + h(p[1]) + h(p[2]);
+}
+function firstStyleEl(){ for(const el of moveSet){ const ts = styleTargets(el); if(ts.length) return ts[0]; } return null; }
+function firstTextEl(){ for(const el of moveSet){ if(el.matches && el.matches("text,tspan")) return el; const t = el.querySelector && el.querySelector("text,tspan"); if(t) return t; } return null; }
+function firstFamily(ff){ return (ff || "").split(",")[0].trim().replace(/^["']|["']$/g, ""); }
+function cssFamily(f){ return /^[A-Za-z][A-Za-z0-9\-]*$/.test(f) ? f : '"' + f + '"'; }   // quote families with spaces/dots
+function famOption(f){                                       // make sure the select can show this family (figure fonts land on top)
+  if(!f) return;
+  for(const o of propFontFam.options) if(o.value === f) return;
+  const o = document.createElement("option"); o.value = f; o.textContent = f; propFontFam.insertBefore(o, propFontFam.firstChild);
+}
+function fillPropsPanel(){                                  // prefill from the first relevant element (mixed values are left as-is — kept simple)
+  const el = firstStyleEl();
+  if(el){
+    const cs = getComputedStyle(el);
+    propFill.value = rgbToHex(cs.fill);
+    propStroke.value = rgbToHex(cs.stroke);
+    const sw = parseFloat(cs.strokeWidth); if(!isNaN(sw)) propStrokeW.value = sw;
+    const op = parseFloat(cs.opacity); if(!isNaN(op)) propOpacity.value = op;
+  }
+  const hasText = selHasText(), hasShape = selHasShape();
+  ctxText.style.display = hasText ? "" : "none";            // .cgroup default display is inline-flex
+  ctxStroke.style.display = hasShape ? "" : "none";
+  lblFill.textContent = (hasText && !hasShape) ? "Couleur" : "Fond";   // text-only: fill IS the text colour
+  const t = hasText ? firstTextEl() : null;
+  if(t){
+    const cs = getComputedStyle(t);
+    const fs = parseFloat(cs.fontSize); if(!isNaN(fs)) propFontSize.value = Math.round(fs * 10) / 10;
+    const fam = firstFamily(cs.fontFamily); famOption(fam); propFontFam.value = fam;
+    const w = cs.fontWeight; propBold.classList.toggle("on", w === "bold" || parseInt(w, 10) >= 600);
+    propItal.classList.toggle("on", cs.fontStyle === "italic");
+  }
+}
+function updatePropsPanel(){                                // bar slides in for a live selection, out of lasso/add/fullscreen modes
+  const show = !!(moveSet.length && !lassoMode && !addMode && !document.body.classList.contains("fs-mode"));
+  propsPanel.classList.toggle("show", show);
+  if(show) fillPropsPanel();
+  if(annotOn) setTimeout(sizeAnnot, 160);                   // the bar reflows the stage → re-anchor the annot canvas after the 140ms slide
+}
+propFill.addEventListener("change", () => commitStyle("fill", propFill.value));
+propStroke.addEventListener("change", () => commitStyle("stroke", propStroke.value));
+propStrokeW.addEventListener("change", () => { if(propStrokeW.value !== "") commitStyle("stroke-width", propStrokeW.value); });
+propFontSize.addEventListener("change", () => { if(propFontSize.value !== "") commitStyle("font-size", propFontSize.value + "px"); });
+propOpacity.addEventListener("input", () => rangeLive("opacity", propOpacity.value));
+propOpacity.addEventListener("change", rangeCommit);
+propsPanel.querySelectorAll(".pnone").forEach(btn => btn.addEventListener("click", () => commitStyle(btn.getAttribute("data-prop"), "none")));
+propFontFam.addEventListener("change", () => { if(propFontFam.value) commitStyle("font-family", cssFamily(propFontFam.value)); });
+propBold.addEventListener("click", () => commitStyle("font-weight", propBold.classList.contains("on") ? "normal" : "bold"));
+propItal.addEventListener("click", () => commitStyle("font-style", propItal.classList.contains("on") ? "normal" : "italic"));
+propsPanel.addEventListener("pointerdown", e => {           // bar buttons must not steal focus: B/I/× stay usable WHILE typing in the inline editor
+  if(e.target && e.target.closest && e.target.closest("button")) e.preventDefault();
+});
+const STD_FAMILIES = ["DejaVu Sans", "DejaVu Serif", "Helvetica", "Arial", "Times New Roman", "STIXGeneral", "Georgia", "Verdana", "Courier New"];
+function populateFamilies(){                                // figure's own fonts first, then the standards
+  for(const f of STD_FAMILIES){ const o = document.createElement("option"); o.value = f; o.textContent = f; propFontFam.appendChild(o); }
+  const seen = new Set();
+  svg.querySelectorAll("text,tspan").forEach(t => { const f = firstFamily(getComputedStyle(t).fontFamily); if(f && !seen.has(f)){ seen.add(f); famOption(f); } });
+}
+// ---- dirty-state (accent dot on the save button + beforeunload guard) ----
+function setDirty(v){ dirty = v; const b = document.getElementById("savesvg"); if(b) b.classList.toggle("dirty", v); }
+// ---- undo/redo history (two stacks; each entry holds enough to undo AND redo) ----
+// move       : { items:<before snapshot>, after:<after snapshot> } — restoreXf both ways
+// style      : { items:<before styleSnap>, after:<after styleSnap> } — styleRestore both ways
+// delete     : { items:[{el,parent,next}], removed:[<removedLog recs>] }
+// add        : { el, parent, next }
+// edit       : { el, before, after }
+let undoStack = [], redoStack = [];
+let removedLog = [];                                        // ids+labels of elements deleted from the figure (for the sidecar)
+let nudgeState = null;                                      // coalesces a burst of arrow-key nudges into one history entry
+function snapshot(els){ return els.map(el => ({ el,                       // full pre-op state, restored verbatim on undo/redo
   orig: el.hasAttribute("data-orig") ? el.getAttribute("data-orig") : null,
   dx: el.hasAttribute("data-dx") ? el.getAttribute("data-dx") : null,
   dy: el.hasAttribute("data-dy") ? el.getAttribute("data-dy") : null,
@@ -169,42 +359,95 @@ function restoreXf(it){
     if(v === null) it.el.removeAttribute(a); else it.el.setAttribute(a, v);
   }
 }
-function updateUndo(){ const b = document.getElementById("undobtn"); if(b) b.disabled = history.length === 0; }
+function updateHist(){                                      // buttons follow their stack's emptiness
+  const u = document.getElementById("undobtn"); if(u) u.disabled = undoStack.length === 0;
+  const r = document.getElementById("redobtn"); if(r) r.disabled = redoStack.length === 0;
+}
+function pushUndo(entry){ undoStack.push(entry); redoStack.length = 0; nudgeState = null; updateHist(); }  // any new action clears redo + breaks nudge burst
+function reinsert(it){                                      // put a detached node back at its original DOM position
+  if(it.next && it.next.parentNode === it.parent) it.parent.insertBefore(it.el, it.next);
+  else it.parent.appendChild(it.el);
+}
+function removedForget(recs){ for(const rec of recs){ const i = removedLog.indexOf(rec); if(i >= 0) removedLog.splice(i, 1); } }
+function removedReadd(recs){ for(const rec of recs){ if(removedLog.indexOf(rec) < 0) removedLog.push(rec); } }
 function undo(){
-  const entry = history.pop();
+  const entry = undoStack.pop();
   if(!entry) return;
-  if(entry.type === "delete"){
-    for(const it of entry.items){                          // re-insert each deleted node at its original DOM position
-      if(it.next && it.next.parentNode === it.parent) it.parent.insertBefore(it.el, it.next);
-      else it.parent.appendChild(it.el);
-    }
-  } else if(entry.type === "edit"){
-    entry.el.textContent = entry.before;                   // restore the previous text
-  } else if(entry.type === "add"){
-    if(entry.el.parentNode) entry.el.remove();             // remove the text we added
-  } else {
-    for(const it of entry.items) restoreXf(it);
-  }
-  dirty = true; hiliteMoveSet(); updateUndo();
+  if(entry.type === "delete"){ for(const it of entry.items) reinsert(it); removedForget(entry.removed); }
+  else if(entry.type === "edit"){ entry.el.textContent = entry.before; }                 // restore the previous text
+  else if(entry.type === "add"){ if(entry.el.parentNode) entry.el.remove(); }            // remove the text we added
+  else if(entry.type === "style"){ for(const it of entry.items) styleRestore(it); }      // restore the previous inline style attribute
+  else { for(const it of entry.items) restoreXf(it); }                                   // move : back to "before"
+  redoStack.push(entry); nudgeState = null;
+  setDirty(true); hiliteMoveSet(); updateHist();
+}
+function redo(){
+  const entry = redoStack.pop();
+  if(!entry) return;
+  if(entry.type === "delete"){ for(const it of entry.items) it.el.remove(); removedReadd(entry.removed); }
+  else if(entry.type === "edit"){ entry.el.textContent = entry.after; }                  // re-apply the new text
+  else if(entry.type === "add"){ reinsert(entry); }                                       // re-insert the text we added
+  else if(entry.type === "style"){ for(const it of entry.after) styleRestore(it); }       // re-apply the new inline style attribute
+  else { for(const it of entry.after) restoreXf(it); }                                    // move : forward to "after"
+  undoStack.push(entry); nudgeState = null;
+  setDirty(true); hiliteMoveSet(); updateHist();
 }
 function deleteSel(){                                       // remove the selected element(s) from the figure; ⌘Z restores them
   if(!moveSet.length) return;
   const items = moveSet.map(el => ({ el, parent: el.parentNode, next: el.nextSibling }));
-  for(const it of items) it.el.remove();
-  history.push({ type: "delete", items });
-  dirty = true; clearMoveSet(); updateUndo();
+  const removed = [];
+  for(const it of items){
+    const id = it.el.id, text = id ? elemText(it.el) : null;   // read the label BEFORE detaching (comment-anchored labels need the sibling)
+    it.el.remove();
+    if(id){ const rec = { id, text }; removedLog.push(rec); removed.push(rec); }
+  }
+  pushUndo({ type: "delete", items, removed });
+  setDirty(true); clearMoveSet();
+}
+function nudge(dxu, dyu){                                   // move moveSet by whole user units in each element's parent space (like drag)
+  if(!moveSet.length) return;
+  const now = Date.now(), merge = nudgeState && (now - nudgeState.t) < 800;
+  const before = merge ? nudgeState.before : snapshot(moveSet);
+  for(const el of moveSet){
+    if(!el.hasAttribute("data-orig")) el.setAttribute("data-orig", el.getAttribute("transform") || "");
+    if(!el.hasAttribute("data-orig0")) el.setAttribute("data-orig0", el.getAttribute("transform") || "");   // pristine, for the edits sidecar
+    const dx = parseFloat(el.getAttribute("data-dx") || 0) + dxu, dy = parseFloat(el.getAttribute("data-dy") || 0) + dyu;
+    el.setAttribute("data-dx", dx); el.setAttribute("data-dy", dy);
+    el.setAttribute("transform", "translate(" + dx + "," + dy + ") " + el.getAttribute("data-orig"));
+  }
+  const after = snapshot(moveSet);
+  if(merge){ nudgeState.entry.after = after; nudgeState.t = now; }   // same burst → keep the first "before", refresh "after"
+  else { const entry = { type: "move", items: before, after }; pushUndo(entry); nudgeState = { t: now, before, entry }; }
+  setDirty(true); hiliteMoveSet();
+}
+function applyEditFont(inp, el){                            // WYSIWYG: the inline editor adopts the label's real font at its on-screen size
+  try{
+    const cs = getComputedStyle(el), m = el.getScreenCTM();
+    const sc = m ? Math.hypot(m.a, m.b) : 1;
+    const px = parseFloat(cs.fontSize) * sc;
+    if(px) inp.style.font = cs.fontStyle + " " + cs.fontWeight + " " + Math.max(11, px) + "px " + cs.fontFamily;
+  }catch(e){}
 }
 function editText(el, o){                                   // inline-edit a <text> (an existing label/title, or a freshly added one)
   o = o || {}; editing = true; showHover(null);
+  moveSet = [el]; hiliteMoveSet();                          // keep the label selected → the properties panel stays up while typing
   const inp = document.createElement("input");
   inp.id = "txtedit-input"; inp.type = "text"; inp.className = "txtedit";
   inp.value = el.textContent || "";
+  applyEditFont(inp, el);
   let b = null; try{ b = rectIn(el); }catch(e){}
   if(!b || !b.w) b = { x: o.x || 20, y: o.y || 20, w: 140 };
   inp.style.left = Math.max(2, b.x - 4) + "px";
   inp.style.top  = Math.max(2, b.y - 18) + "px";
   inp.style.minWidth = Math.max(90, b.w + 24) + "px";
-  stage.appendChild(inp); inp.focus(); inp.select();
+  stage.appendChild(inp);
+  // WKWebView: preventDefault() on the pointerdowns above also cancels their native
+  // focus side-effect — a single synchronous focus() can silently fail and the keys
+  // keep going to the app. Retry until the field really owns the keyboard.
+  const grabFocus = () => { if(document.activeElement !== inp && inp.isConnected){ try{ window.focus(); }catch(e){} inp.focus({ preventScroll: true }); inp.select(); } };
+  grabFocus();
+  requestAnimationFrame(grabFocus);
+  setTimeout(grabFocus, 80);
   const before = el.textContent || "";
   let done = false;
   function finish(keep){
@@ -213,16 +456,18 @@ function editText(el, o){                                   // inline-edit a <te
     if(keep){
       if(o.isNew){
         if(after === ""){ el.remove(); }                                                  // empty new label → discard it
-        else { el.textContent = after; history.push({ type: "add", el, parent: el.parentNode }); dirty = true; updateUndo(); }
+        else { el.textContent = after; pushUndo({ type: "add", el, parent: el.parentNode, next: el.nextSibling }); setDirty(true); }
       } else if(after !== before){
-        el.textContent = after; history.push({ type: "edit", el, before }); dirty = true; updateUndo();
+        el.textContent = after; pushUndo({ type: "edit", el, before, after }); setDirty(true);
       }
     } else if(o.isNew){ el.remove(); }                                                     // Esc on a new label → discard
-    hiliteMoveSet();
+    if(!el.parentNode) clearMoveSet(); else hiliteMoveSet();                               // discarded label → drop the dead selection
   }
   inp.addEventListener("keydown", ev => { ev.stopPropagation();                            // keep Del/F/⌘Z/Esc out of the canvas handlers
     if(ev.key === "Enter"){ ev.preventDefault(); finish(true); }
-    else if(ev.key === "Escape"){ ev.preventDefault(); finish(false); } });
+    else if(ev.key === "Escape"){ ev.preventDefault(); finish(false); }
+    else if((ev.metaKey || ev.ctrlKey) && (ev.key === "b" || ev.key === "B")){ ev.preventDefault(); propBold.click(); }     // style while typing
+    else if((ev.metaKey || ev.ctrlKey) && (ev.key === "i" || ev.key === "I")){ ev.preventDefault(); propItal.click(); } });
   inp.addEventListener("blur", () => finish(true));
 }
 function placeTextAt(e){                                    // create a new <text> at the click, then open it for typing
@@ -263,13 +508,27 @@ function lassoUpdate(cursor){                                   // polygon so fa
   lassoEl.firstChild.setAttribute("points", pts.map(p => p[0] + "," + p[1]).join(" "));
 }
 function lassoRemove(){ if(lassoEl){ lassoEl.remove(); lassoEl = null; } }
-function selectInPoly(pts){                               // elements whose centre falls inside the lasso
+function segInt(a, b, c, d){                              // do segments ab and cd cross? (orientation test)
+  const ccw = (p, q, r) => (r[1] - p[1]) * (q[0] - p[0]) > (q[1] - p[1]) * (r[0] - p[0]);
+  return ccw(a, c, d) !== ccw(b, c, d) && ccw(a, b, c) !== ccw(a, b, d);
+}
+function rectPolyHit(b, pts){                             // true rect↔polygon intersection (not just centre-in-poly)
+  const c = [[b.x, b.y], [b.x + b.w, b.y], [b.x + b.w, b.y + b.h], [b.x, b.y + b.h]];
+  for(const p of c) if(inPoly(p[0], p[1], pts)) return true;                       // a rect corner inside the polygon
+  for(const p of pts) if(p[0] >= b.x && p[0] <= b.x + b.w && p[1] >= b.y && p[1] <= b.y + b.h) return true;  // a polygon vertex inside the rect
+  for(let i = 0; i < pts.length; i++){                                            // a polygon edge crossing a rect edge
+    const p1 = pts[i], p2 = pts[(i + 1) % pts.length];
+    for(let j = 0; j < 4; j++) if(segInt(p1, p2, c[j], c[(j + 1) % 4])) return true;
+  }
+  return false;
+}
+function selectInPoly(pts){                               // elements whose bbox intersects the lasso polygon
   if(pts.length < 3){ clearMoveSet(); return; }
   const skip = /^(figure|matplotlib\.axis|xtick|ytick)_/;
   const cands = Array.from(svg.querySelectorAll("[id]")).filter(el => el.id && !skip.test(el.id) && draggable(el));
   const inside = cands.filter(el => {
     let b; try{ b = rectIn(el); }catch(err){ return false; }
-    return b.w && b.h && inPoly(b.x + b.w / 2, b.y + b.h / 2, pts);
+    return b.w && b.h && rectPolyHit(b, pts);
   });
   moveSet = inside.filter(el => !inside.some(o => o !== el && o.contains(el)));  // keep outermost units only
   hiliteMoveSet();
@@ -358,7 +617,7 @@ function onResizeMove(e){
     m.el.setAttribute("transform",
       "translate(" + a.x + "," + a.y + ") scale(" + fx + "," + fy + ") translate(" + (-a.x) + "," + (-a.y) + ") " + m.startXf);
   }
-  dirty = true; hiliteMoveSet();
+  setDirty(true); hiliteMoveSet();
 }
 function endResize(e){
   if(!resizing) return;
@@ -370,7 +629,7 @@ function endResize(e){
     if(now !== m.startXf){ changed = true;                    // fold the scale into the base so later moves keep it
       m.el.setAttribute("data-orig", now); m.el.removeAttribute("data-dx"); m.el.removeAttribute("data-dy"); }
   }
-  if(changed){ history.push({ type: "move", items: R.before }); updateUndo(); dirty = true; }
+  if(changed){ pushUndo({ type: "move", items: R.before, after: snapshot(R.members.map(m => m.el)) }); setDirty(true); }
   hiliteMoveSet();
 }
 function startDrag(targets, e){
@@ -384,10 +643,15 @@ function startDrag(targets, e){
   }) };
 }
 function capture(e){ if(svg.setPointerCapture && e.pointerId != null){ try{ svg.setPointerCapture(e.pointerId); }catch(err){} } }
+// WebKit (the app's WKWebView) suppresses the compatibility "click"/"dblclick" events after
+// e.preventDefault() on a pointerdown — and onDown below calls it on nearly every click. That
+// silently breaks the native dblclick-to-edit-text handler, so double-click detection is done
+// by hand here instead, off pointerdown timing (which always fires).
+let lastClickEl = null, lastClickAt = 0, dblPending = null;
 function onDown(e){
-  if(editing) return;
+  if(editing || spaceDown) return;                        // space held → the stagewrap pan handler owns this pointer
   if(!svg || (e.button !== undefined && e.button !== 0)) return;
-  if(addMode){ e.preventDefault(); placeTextAt(e); setAdd(false); return; }   // place a new text label at the click
+  if(addMode){ e.preventDefault(); setAdd(false); placeTextAt(e); return; }   // place a new text label at the click (leave add mode first so the props panel can show)
   if(lassoMode){                                          // click vertices to build a polygon (dbl-click / Enter / click 1st pt = close)
     e.preventDefault();
     const s = stagePt(e);
@@ -399,6 +663,22 @@ function onDown(e){
     }
     return;
   }
+  if(e.metaKey || e.ctrlKey){                              // ⌘/Ctrl-click = additive toggle (works even while the selection is "locked"), no drag
+    const g = grabTarget(e.target, e.shiftKey);
+    if(g && draggable(g)){
+      e.preventDefault();
+      const i = moveSet.indexOf(g);
+      if(i >= 0) moveSet.splice(i, 1); else moveSet.push(g);
+      hiliteMoveSet();
+    }
+    return;
+  }
+  const textHit = e.target && e.target.closest ? e.target.closest("text") : null;
+  if(textHit){                                            // manual double-click: two quick pointerdowns on the same <text>…
+    const now = Date.now();
+    if(lastClickEl === textHit && (now - lastClickAt) < 400) dblPending = textHit;   // …confirmed at pointerup — a drag cancels it (native dblclick semantics)
+    lastClickAt = now; lastClickEl = textHit;
+  } else { lastClickEl = null; }
   // clicking on/inside a selected element drags the WHOLE selection — members are blocks
   // (axes_/legend_) that grabTarget can't re-resolve, so match by containment, not equality
   if(moveSet.length && moveSet.some(m => m === e.target || (m.contains && m.contains(e.target)))){
@@ -419,7 +699,7 @@ function onDown(e){
   drag.g = g; capture(e);
 }
 function onMove(e){
-  if(editing) return;
+  if(editing || spaceDown) return;                        // no grab-preview / drag while panning
   if(lasso){ const s = stagePt(e); lassoUpdate([s.x, s.y]); return; }   // rubber-band the next edge to the cursor
   if(drag){
     for(const it of drag.items){
@@ -428,7 +708,7 @@ function onMove(e){
       it.el.setAttribute("data-dx", dx); it.el.setAttribute("data-dy", dy);
       it.el.setAttribute("transform", "translate(" + dx + "," + dy + ") " + it.el.getAttribute("data-orig"));
     }
-    drag.moved = true; dirty = true; hiliteMoveSet();
+    drag.moved = true; setDirty(true); hiliteMoveSet();
     return;
   }
   if(lassoMode) return;                                   // no grab-preview while lassoing
@@ -439,9 +719,11 @@ function onMove(e){
 function onUp(){
   if(editing) return;
   if(lasso) return;                                      // building a polygon by clicks — pointerup does nothing
+  const dp = dblPending; dblPending = null;
   if(drag){
-    if(drag.moved && drag.before){ history.push({ type: "move", items: drag.before }); updateUndo(); }   // record for Undo
-    else if(!drag.moved && drag.g){ moveSet = [drag.g]; hiliteMoveSet(); }                                // a click without a move = select it (so Del / 🗑 can remove a single element)
+    if(drag.moved && drag.before){ pushUndo({ type: "move", items: drag.before, after: snapshot(drag.items.map(it => it.el)) }); }   // record for undo/redo
+    else if(!drag.moved && dp){ drag = null; editText(dp, {}); return; }                  // clean double-click on a label → edit it (editText keeps it selected)
+    else if(!drag.moved && drag.g){ moveSet = [drag.g]; hiliteMoveSet(); }                                // a click without a move = select it (so Del can remove a single element)
     drag = null;
   }
 }
@@ -459,9 +741,13 @@ function nativeFsAllowed(){
   if(window.self!==window.top) return false;
   return false;
 }
+// expand = 4 corners pointing out ; compress = 4 corners pointing in (exit fullscreen)
+const FS_EXPAND = '<svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M6 2.5H2.5V6M10 2.5h3.5V6M13.5 10v3.5H10M6 13.5H2.5V10"/></svg>';
+const FS_COMPRESS = '<svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M2.5 5.5H6V2M13.5 5.5H10V2M10 10.5h3.5V14M6 10.5H2.5V14"/></svg>';
 function setFsUi(on){
   document.body.classList.toggle("fs-mode", on);
-  fsbtn.textContent = on ? "⛶ Exit" : "⛶";
+  fsbtn.innerHTML = on ? FS_COMPRESS : FS_EXPAND;
+  fsbtn.title = on ? "Quitter le plein écran (F)" : "Plein écran (F)";
   setTimeout(hiliteMoveSet, 60);
 }
 function fsReflow(){
@@ -488,9 +774,68 @@ async function toggleFS(){
   if(!req) return;
   try{ await req.call(document.documentElement); }catch(e){}
 }
+// ==== zoom + pan ====
+// Zoom scales #plot's CSS width; #stagewrap scrolls; overlays (rectIn) follow automatically.
+function clampZoom(z){ return Math.min(8, Math.max(0.25, z)); }
+function updateZoomInfo(){ const zi = document.getElementById("zoominfo"); if(zi) zi.textContent = (Math.abs(zoom - 1) < 0.001) ? "" : (Math.round(zoom * 100) + " %"); }
+function afterZoom(){ updateZoomInfo(); hiliteMoveSet(); if(annotOn){ sizeAnnot(); annotApi.redraw(); } }   // keep overlays + annot canvas in sync with the new scale
+function applyZoom(z, ax, ay){                            // ax/ay = client point to keep pinned under the cursor
+  z = clampZoom(z);
+  const pr = plot.getBoundingClientRect();
+  let fx = 0.5, fy = 0.5, pin = false;
+  if(ax != null && pr.width && pr.height){ fx = (ax - pr.left) / pr.width; fy = (ay - pr.top) / pr.height; pin = true; }
+  zoom = z; plot.style.width = (zoom * 100) + "%";
+  if(pin){                                               // shift scroll so the same document fraction stays under the cursor
+    const pr2 = plot.getBoundingClientRect();
+    stagewrap.scrollLeft += pr2.left - (ax - fx * pr2.width);
+    stagewrap.scrollTop  += pr2.top  - (ay - fy * pr2.height);
+  }
+  afterZoom();
+}
+function zoomStep(f){ const r = stagewrap.getBoundingClientRect(); applyZoom(zoom * f, r.left + r.width / 2, r.top + r.height / 2); }  // centre on viewport
+function zoomReset(){ zoom = 1; plot.style.width = "100%"; stagewrap.scrollLeft = 0; stagewrap.scrollTop = 0; afterZoom(); }           // fit width
+// ⌘/pinch + wheel = zoom centred on the cursor; plain wheel stays native scroll
+stagewrap.addEventListener("wheel", e => {
+  if(!(e.ctrlKey || e.metaKey) || !svg) return;
+  e.preventDefault();
+  applyZoom(zoom * Math.exp(-e.deltaY * 0.01), e.clientX, e.clientY);
+}, { passive: false });
+// space-held pan: drag the scroll position; edit handlers are suppressed while space is down
+stagewrap.addEventListener("pointerdown", e => {
+  if(!spaceDown || editing) return;
+  if(e.button !== undefined && e.button !== 0) return;
+  panning = { x: e.clientX, y: e.clientY, sl: stagewrap.scrollLeft, st: stagewrap.scrollTop };
+  document.body.classList.add("panning");
+  try{ stagewrap.setPointerCapture(e.pointerId); }catch(err){}
+  e.preventDefault();
+});
+stagewrap.addEventListener("pointermove", e => {
+  if(!panning) return;
+  stagewrap.scrollLeft = panning.sl - (e.clientX - panning.x);
+  stagewrap.scrollTop  = panning.st - (e.clientY - panning.y);
+  e.preventDefault();
+});
+function endPan(e){ if(!panning) return; panning = null; document.body.classList.remove("panning"); try{ stagewrap.releasePointerCapture(e.pointerId); }catch(err){} }
+stagewrap.addEventListener("pointerup", endPan);
+stagewrap.addEventListener("pointercancel", endPan);
+document.addEventListener("keyup", e => { if(e.key === " "){ spaceDown = false; document.body.classList.remove("panready", "panning"); panning = null; } });
+window.addEventListener("blur", () => { spaceDown = false; panning = null; document.body.classList.remove("panready", "panning"); });   // a lost keyup (blur) must not leave pan stuck on
+
 document.addEventListener("keydown", e => {
   if(editing) return;
-  if((e.metaKey || e.ctrlKey) && (e.key === "z" || e.key === "Z")){ e.preventDefault(); undo(); return; }
+  const t = e.target; if(t && (t.closest && t.closest("#ctxbar") || /^(input|select|textarea)$/i.test(t.tagName || ""))) return;   // any form field (edit bar, dpi select, inline edit) keeps native arrows/space/del
+  if(e.key === " " && !e.metaKey && !e.ctrlKey){ if(!spaceDown){ spaceDown = true; document.body.classList.add("panready"); showHover(null); } e.preventDefault(); return; }
+  if((e.metaKey || e.ctrlKey) && (e.key === "+" || e.key === "=")){ e.preventDefault(); zoomStep(1.25); return; }
+  if((e.metaKey || e.ctrlKey) && e.key === "-"){ e.preventDefault(); zoomStep(1 / 1.25); return; }
+  if((e.metaKey || e.ctrlKey) && e.key === "0"){ e.preventDefault(); zoomReset(); return; }
+  if((e.metaKey || e.ctrlKey) && (e.key === "z" || e.key === "Z")){ e.preventDefault(); if(e.shiftKey) redo(); else undo(); return; }
+  if(moveSet.length && e.key.indexOf("Arrow") === 0){       // arrow keys nudge the selection (Shift = ×10), coalesced per burst
+    const s = e.shiftKey ? 10 : 1;
+    let dx = 0, dy = 0;
+    if(e.key === "ArrowLeft") dx = -s; else if(e.key === "ArrowRight") dx = s;
+    else if(e.key === "ArrowUp") dy = -s; else if(e.key === "ArrowDown") dy = s;
+    e.preventDefault(); nudge(dx, dy); return;
+  }
   if(e.key === "f" || e.key === "F"){ toggleFS(); return; }
   if(e.key === "Delete" || e.key === "Backspace"){ e.preventDefault(); if(moveSet.length) deleteSel(); return; }
   if(e.key === "Enter" && lassoMode){ e.preventDefault(); finishPoly(); return; }
@@ -502,12 +847,12 @@ document.addEventListener("keydown", e => {
 });
 function currentSVGText(){                                // serialize current view, minus bookkeeping attrs
   const clone = svg.cloneNode(true);
-  clone.querySelectorAll("[data-orig],[data-dx],[data-dy],[data-orig0]").forEach(el => {
-    el.removeAttribute("data-orig"); el.removeAttribute("data-dx"); el.removeAttribute("data-dy"); el.removeAttribute("data-orig0");
+  clone.querySelectorAll("[data-orig],[data-dx],[data-dy],[data-orig0],[data-styled]").forEach(el => {
+    el.removeAttribute("data-orig"); el.removeAttribute("data-dx"); el.removeAttribute("data-dy"); el.removeAttribute("data-orig0"); el.removeAttribute("data-styled");
   });
   return '<?xml version="1.0" encoding="utf-8" standalone="no"?>\n' + new XMLSerializer().serializeToString(clone);
 }
-function flash(btn, msg, base, ms){ btn.textContent = msg; setTimeout(() => btn.textContent = base, ms || 1700); }
+function flash(btn, msg, ms){ btn._html = btn._html || btn.innerHTML; btn.textContent = msg; setTimeout(() => { btn.innerHTML = btn._html; }, ms || 1700); }
 function elemText(el){                                    // the label string: literal <text>, else matplotlib's preceding <!-- comment -->
   let t = (el.textContent || "").trim();
   if(t) return t;
@@ -515,38 +860,64 @@ function elemText(el){                                    // the label string: l
   while(p && p.nodeType === 3 && !(p.textContent || "").trim()) p = p.previousSibling;   // skip whitespace
   return (p && p.nodeType === 8) ? (p.textContent || "").trim() : "";
 }
-function collectEdits(){                                  // per moved/resized element: id + label + the editor DELTA (its own original stripped)
-  const out = [];
-  svg.querySelectorAll("[data-orig0]").forEach(el => {
+function collectEdits(){                                  // v2 sidecar: transforms (deltas) + added texts + removed ids + style overrides
+  const transforms = [];
+  svg.querySelectorAll("[data-orig0]").forEach(el => {     // per moved/resized element: id + label + the editor DELTA (its own original stripped)
     const xf = el.getAttribute("transform") || "", o0 = el.getAttribute("data-orig0") || "";
     let delta = xf;
     if(o0 && xf.endsWith(o0)) delta = xf.slice(0, xf.length - o0.length).trim();   // original is always the inner suffix
     if(!delta) return;                                    // back to pristine (e.g. undone) → no edit to persist
-    out.push({ id: el.id || null, text: elemText(el) || null, delta: delta });
+    transforms.push({ id: el.id || null, text: elemText(el) || null, delta: delta });
   });
-  return out;
+  const added = [];
+  svg.querySelectorAll('[id^="added_text_"]').forEach(el => {   // texts created in the editor (survive a matplotlib regen)
+    added.push({ id: el.id, x: parseFloat(el.getAttribute("x")) || 0, y: parseFloat(el.getAttribute("y")) || 0,
+      content: el.textContent || "", style: el.getAttribute("style") || "", transform: el.getAttribute("transform") || "" });
+  });
+  const styles = [];
+  styledProps.forEach((m, el) => {                          // per styled element: re-read the CURRENT inline value of each prop we ever set
+    if(!svg.contains(el)) return;                           // element deleted → drop it
+    const props = {};
+    for(const k in m){ const v = el.style.getPropertyValue(k); if(v) props[k] = v; }   // undone props read back empty → omitted
+    if(!Object.keys(props).length) return;
+    const id = el.id || null, text = elemText(el) || null;
+    if(!id && !text){                                       // no id, no label (bare matplotlib shape) → anchor by nearest id-bearing ancestor + index
+      const anc = el.parentNode && el.parentNode.closest ? el.parentNode.closest("[id]") : null;   // ascendant, never el itself
+      if(anc){
+        const tag = el.tagName.toLowerCase();
+        styles.push({ id: null, text: null, anchor: anc.id, tag: tag,
+          index: Array.from(anc.querySelectorAll(tag)).indexOf(el), props: props });
+        return;
+      }
+    }
+    styles.push({ id: id, text: text, props: props });      // has id/label, or no anchor → best-effort as before
+  });
+  return { version: 2, transforms: transforms, added: added, removed: removedLog.slice(), styles: styles };
 }
 function saveSVG(){
   if(!svg) return;
   const b = document.getElementById("savesvg");
   fetch("/save-svg", { method: "POST", headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ rel: file, name: file.split("/").pop(), svg: currentSVGText(), edits: collectEdits() }) })
-    .then(r => r.json()).then(j => { if(j && j.ok) dirty = false; flash(b, (j && j.ok) ? "Saved ✓" : "Error", "💾"); })
-    .catch(() => flash(b, "Error", "💾"));
+    .then(r => r.json()).then(j => { if(j && j.ok) setDirty(false); flash(b, (j && j.ok) ? "Enregistré ✓" : "Erreur"); })
+    .catch(() => flash(b, "Erreur"));
 }
 function exportPNG(){
   if(!svg) return;
   const b = document.getElementById("exportpng");
   const dpi = parseInt(document.getElementById("dpi").value, 10) || 300;
-  b.textContent = "rendering…";
+  b._html = b._html || b.innerHTML;
+  b.textContent = "rendu…";
   fetch("/export-png", { method: "POST", headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ rel: file, name: file.split("/").pop(), svg: currentSVGText(), dpi: dpi }) })
-    .then(r => r.json()).then(j => flash(b, (j && j.ok) ? ("PNG ✓ " + j.dpi + "dpi") : ("Error: " + ((j && j.error) || "")).slice(0, 22), "🖼", 2200))
-    .catch(() => flash(b, "Error", "🖼"));
+    .then(r => r.json()).then(j => flash(b, (j && j.ok) ? ("PNG ✓ " + j.dpi + "dpi") : ("Erreur: " + ((j && j.error) || "")).slice(0, 22), 2200))
+    .catch(() => flash(b, "Erreur"));
 }
 document.getElementById("savesvg").onclick = saveSVG;
 document.getElementById("exportpng").onclick = exportPNG;
 document.getElementById("undobtn").onclick = undo;
+document.getElementById("redobtn").onclick = redo;
+window.addEventListener("beforeunload", e => { if(dirty){ e.preventDefault(); e.returnValue = ""; } });
 document.getElementById("clearsel").onclick = () => clearMoveSet();
 document.getElementById("delsel").onclick = deleteSel;
 document.getElementById("addtext").onclick = () => setAdd(!addMode);
@@ -575,12 +946,17 @@ async function load(){
       }catch(e){}
     }
     try{ const f = (svg.querySelector('[id^="figure"]') || svg).getBBox(); figArea = f.width * f.height; }catch(e){}
+    svg.querySelectorAll('[id^="added_text_"]').forEach(el => {   // resume numbering after reload — never reuse an existing added_text id
+      const n = parseInt(el.id.slice("added_text_".length), 10);
+      if(n > addCounter) addCounter = n;
+    });
+    populateFamilies();
     svg.addEventListener("pointerdown", onDown);
     svg.addEventListener("dblclick", e => {                 // dbl-click: close the polygon, else edit a text label
       if(addMode) return;
       if(lassoMode){ e.preventDefault(); finishPoly(); return; }
       const t = e.target && e.target.closest ? e.target.closest("text") : null;
-      if(t){ e.preventDefault(); clearMoveSet(); editText(t, {}); }
+      if(t){ e.preventDefault(); editText(t, {}); }
     });
     svg.addEventListener("pointermove", onMove);
     window.addEventListener("pointerup", onUp);

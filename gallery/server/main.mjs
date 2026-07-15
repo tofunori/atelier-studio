@@ -3,6 +3,7 @@ import http from "node:http";
 import path from "node:path";
 import {
   ASSETS_DIR,
+  BUNDLE_HASH,
   PROJECT,
   STUDIO,
   applyAppCors,
@@ -42,7 +43,10 @@ function loadLiveShell() {
     if (__liveShell.key === key && __liveShell.html) return __liveShell.html;
     const payload = JSON.parse(await fs.promises.readFile(dataPath, "utf8"));
     const { renderShellHtml } = await import("./builder.mjs");
-    const html = Buffer.from(renderShellHtml(payload), "utf8");
+    // The data revision belongs to the project, but UI assets belong to the
+    // Atelier bundle. A bundle-scoped query prevents per-project CSS caches
+    // from keeping different toolbar layouts after an app update.
+    const html = Buffer.from(renderShellHtml({ ...payload, ver: BUNDLE_HASH }), "utf8");
     __liveShell = { ...__liveShell, key, html };
     return html;
   })();
@@ -198,7 +202,7 @@ async function handleStatic(req, res, url) {
     res.writeHead(200, {
       "Content-Type": contentType(file),
       "Content-Length": String(st.size),
-      "Cache-Control": urlPath.endsWith(".html") || urlPath.endsWith(".js") || urlPath === "/" ? "no-cache" : "max-age=86400",
+      "Cache-Control": urlPath.endsWith(".html") || urlPath.endsWith(".js") || urlPath.endsWith(".css") || urlPath === "/" ? "no-cache" : "max-age=86400",
     });
     res.end();
     return true;
@@ -240,6 +244,14 @@ async function route(req, res) {
 // jamais bloquer /health ni figer le bootstrap Tauri.
 const dataPath = path.join(PROJECT, "figures_data.json");
 async function prepareInitialGallery() {
+  // Every project owns a .fig_thumbs cache. Refresh it on every server boot so
+  // switching projects cannot resurrect an older toolbar/filter bundle.
+  try {
+    const { provisionViewersAsync } = await import("./builder.mjs");
+    await provisionViewersAsync(PROJECT);
+  } catch (error) {
+    console.error("[gallery] synchronisation des assets en échec:", String(error?.message || error));
+  }
   try {
     await fs.promises.access(dataPath);
     return;

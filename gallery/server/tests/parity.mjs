@@ -232,6 +232,8 @@ async function main() {
   const reactToolbar = fs.readFileSync(path.join(GALLERY_DIR, "react-ui", "main.tsx"), "utf8");
   const reactBundle = path.join(GALLERY_DIR, "assets", "shadcn-ui", "gallery-ui.js");
   const reactStyles = path.join(GALLERY_DIR, "assets", "shadcn-ui", "gallery-ui.css");
+  const builderSource = fs.readFileSync(path.join(GALLERY_DIR, "server", "builder.mjs"), "utf8");
+  const serverSource = fs.readFileSync(path.join(GALLERY_DIR, "server", "main.mjs"), "utf8");
   assert.match(galleryTemplate, /shadcn\/Base UI semantic contract/, "gallery documents its shadcn adapter");
   assert.match(galleryTemplate, /--background:var\(--bg\)/, "gallery exposes the shadcn background token");
   assert.match(galleryTemplate, /data-slot="gallery-toolbar"/, "gallery toolbar has a semantic slot");
@@ -257,6 +259,10 @@ async function main() {
   assert.match(reactToolbar, /dataset\.galleryUi = "shadcn-react-v1"/, "gallery marks the live React contract");
   assert.ok(fs.existsSync(reactBundle), "gallery React bundle is built");
   assert.ok(fs.existsSync(reactStyles), "gallery React styles are built");
+  assert.match(builderSource, /export async function provisionViewersAsync/, "gallery can refresh project assets asynchronously");
+  assert.match(serverSource, /await provisionViewersAsync\(PROJECT\)/, "every project server refreshes its cached UI assets");
+  assert.match(serverSource, /renderShellHtml\(\{ \.\.\.payload, ver: BUNDLE_HASH \}\)/, "gallery asset URLs use the common bundle revision");
+  assert.match(sharedSource, /urlPath\.endsWith\(\"\.css\"\)/, "gallery styles revalidate instead of staying cached per project");
   // The project-scoped file-type manager adds the shadcn Popover runtime while
   // retaining a deliberately tight ceiling for the standalone gallery asset.
   assert.ok(fs.statSync(reactBundle).size < 780_000, "gallery React bundle stays below 780 KB");
@@ -285,6 +291,9 @@ async function main() {
     // Start the legacy reference first. On cold macOS CI runners, launching both
     // implementations concurrently can leave Python alive but stuck before bind.
     await waitForPing(pyPort, py, "Python gallery server");
+    const cachedReactCss = path.join(root, ".fig_thumbs", "shadcn-ui", "gallery-ui.css");
+    fs.mkdirSync(path.dirname(cachedReactCss), { recursive: true });
+    fs.writeFileSync(cachedReactCss, "stale-project-toolbar");
     node = startServer(process.execPath, [path.join(SERVER_DIR, "main.mjs")], {
       ...commonEnv,
       FIG_PORT: String(nodePort),
@@ -316,6 +325,12 @@ async function main() {
     }
     assert.equal(rootRes.status, 200, "node / serves the boot-built index");
     assert.equal(initialIndexReady(), true, "node initial index build converges");
+    const bundledReactCss = fs.readFileSync(reactStyles);
+    for (let attempt = 0; attempt < 50; attempt++) {
+      if (fs.existsSync(cachedReactCss) && fs.readFileSync(cachedReactCss).equals(bundledReactCss)) break;
+      await new Promise((resolve) => setTimeout(resolve, 100));
+    }
+    assert.ok(fs.readFileSync(cachedReactCss).equals(bundledReactCss), "node boot refreshes stale project toolbar assets");
 
     const routes = [
       "/ping",

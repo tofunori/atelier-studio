@@ -1,6 +1,7 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
+<script src="/.fig_thumbs/atelier_theme.js"></script>
 <meta charset="utf-8">
 <title>PDF — select and send to Claude</title>
 <script>(function(){
@@ -13,9 +14,14 @@
 })();</script>
 <script src="/.fig_thumbs/pdfjs/pdf.min.js"></script>
 <script src="annot_kit.js"></script>
+<script src="pdf_passage.js"></script>
 <style>
-  :root{--bg:#202024;--card:#27272a;--card2:#1f1f23;--txt:#e4e4e7;--muted:#a1a1aa;--accent:#5b9dff;--border:#3f3f46}
-  body{margin:0;background:var(--bg);color:var(--txt);font-family:-apple-system,sans-serif}
+  :root{--ui-font:-apple-system,'SF Pro Text','Inter Variable',sans-serif;--code-font:ui-monospace,'SF Mono',Menlo,monospace;--bg:#202024;--card:#27272a;--card2:#1f1f23;--txt:#dbdfe5;--muted:#a1a1aa;--accent:#5b9dff;--border:#3f3f46}
+  body{margin:0;background:var(--bg);color:var(--txt);font-family:var(--ui-font)}
+  .zoomctl{display:inline-flex;align-items:center;border:1px solid var(--border);border-radius:6px;overflow:hidden;margin-left:8px;flex:none}
+  .zoomctl button{background:transparent;border:none;color:var(--muted,#868d9a);font-size:12px;padding:3px 8px;cursor:pointer;font-variant-numeric:tabular-nums;line-height:1.4}
+  .zoomctl button:hover{background:var(--card2,#2c313a);color:var(--txt,#dbdfe5)}
+  #zPct{min-width:46px;border-left:1px solid var(--border);border-right:1px solid var(--border)}
   header{position:sticky;top:0;z-index:10;background:var(--card);border-bottom:1px solid var(--border);
          padding:10px 16px;display:flex;gap:12px;align-items:center;font-size:13px}
   #pages{display:flex;flex-direction:column;align-items:center;gap:14px;padding:16px}
@@ -24,33 +30,34 @@
   .textLayer{position:absolute;inset:0;overflow:hidden;line-height:1;opacity:1;user-select:none}
   .textLayer span{position:absolute;color:transparent;white-space:pre;transform-origin:0 0;cursor:text}
   .textLayer span.hl{background:rgba(91,157,255,.45);border-radius:2px}
+  .textLayer span.auto-hl{background:rgba(255,196,71,.58);border-radius:2px;box-shadow:0 0 0 1px rgba(184,126,20,.22)}
   .pdfhl{position:absolute;border-radius:2px;mix-blend-mode:multiply;cursor:pointer}
   .pdfnote{position:absolute;cursor:pointer;background:#1b1f26;border:1px solid #333a45;
     border-radius:6px;padding:2px 3px;box-shadow:0 2px 8px rgba(0,0,0,.4)}
   #pdftools{display:flex;align-items:center;gap:2px}
   #pdftools button{width:26px;height:24px;display:inline-flex;align-items:center;justify-content:center}
-  #pdftools button.ton{background:#2c313a !important;color:#e8eaed !important}
-  #pdftools .cdot{width:13px;height:13px;border-radius:4px;cursor:pointer;margin:0 1px;
+  #pdftools button.ton{background:#2c313a !important;color:#dbdfe5 !important}
+  #pdftools .cdot{width:13px;height:13px;border-radius:6px;cursor:pointer;margin:0 1px;
     border:1px solid rgba(255,255,255,.15)}
   #pdftools .cdot.con{outline:2px solid #5b9dff}
   #annotPop{position:fixed;z-index:9999;display:none;background:#1b1f26;border:1px solid #333a45;
-    border-radius:12px;padding:10px;box-shadow:0 10px 28px rgba(0,0,0,.55);
-    font-family:-apple-system,sans-serif;font-size:13px;color:#e6e6e6;width:230px}
+    border-radius:10px;padding:10px;box-shadow:0 10px 28px rgba(0,0,0,.55);
+    font-family:var(--ui-font);font-size:13px;color:#dbdfe5;width:230px}
   #annotPop input{width:100%;box-sizing:border-box;background:#2c313a;border:1px solid #3a414d;
-    border-radius:7px;color:inherit;padding:5px 8px;font-size:12.5px;outline:none;margin-bottom:8px}
+    border-radius:6px;color:inherit;padding:5px 8px;font-size:13px;outline:none;margin-bottom:8px}
   #annotPop .row{display:flex;gap:6px;align-items:center}
-  #annotPop .sw{width:16px;height:16px;border-radius:5px;cursor:pointer}
-  #annotPop button{background:#2c313a;border:1px solid #3a414d;border-radius:7px;color:#e6e6e6;
+  #annotPop .sw{width:16px;height:16px;border-radius:6px;cursor:pointer}
+  #annotPop button{background:#2c313a;border:1px solid #3a414d;border-radius:6px;color:#dbdfe5;
     padding:4px 10px;cursor:pointer;font-size:12px}
   #annotPop .del{color:#ff8a8a;margin-left:auto}
   #sendBtn{position:fixed;display:none;z-index:100;background:var(--border);color:var(--txt);border:1px solid var(--border);
-           border-radius:8px;padding:8px 14px;font-size:13px;cursor:pointer;box-shadow:0 2px 10px rgba(0,0,0,.5)}
+           border-radius:10px;padding:8px 14px;font-size:13px;cursor:pointer;box-shadow:0 2px 10px rgba(0,0,0,.5)}
   .muted{color:var(--muted)}
   /* selection pill + annotation card (same language as the gallery/HTML overlay) */
   #selPill{position:fixed;z-index:300;display:none;align-items:center;gap:10px;min-width:320px;max-width:460px;
-      background:#1d2026;border:1px solid #343842;border-radius:24px;padding:8px 8px 8px 16px;
+      background:#1d2026;border:1px solid #343842;border-radius:999px;padding:8px 8px 8px 16px;
       box-shadow:0 12px 36px rgba(0,0,0,.45);color:var(--txt);font-size:13px;user-select:none;-webkit-user-select:none}
-  #selPill .nb{font-size:14px;flex:none;line-height:1}
+  #selPill .nb{font-size:13px;flex:none;line-height:1}
   #selPill textarea{flex:1;background:transparent;border:none;outline:none;color:var(--txt);
       font-size:13px;line-height:1.45;padding:0;resize:none;font-family:inherit;height:20px;max-height:120px}
   #selPill textarea::placeholder{color:#6d7480}
@@ -60,33 +67,38 @@
   #selPill .del svg{width:14px;height:14px;stroke:currentColor;fill:none;stroke-width:1.6;
       stroke-linecap:round;stroke-linejoin:round}
   #selPill .tgt{width:28px;height:28px;border-radius:50%;background:transparent;
-      border:1px solid #3a4150;color:var(--muted);font-size:14px;flex:none}
+      border:1px solid #3a4150;color:var(--muted);font-size:13px;flex:none}
   #selPill .tgt:hover,#selPill .tgt.set{border-color:#5b9dff;color:#5b9dff}
-  #selPill .go{width:32px;height:32px;border-radius:50%;background:#c96442;color:#fff;font-size:16px;flex:none}
+  #selPill .go{width:32px;height:32px;border-radius:50%;background:#c96442;color:#fff;font-size:15px;flex:none}
   #selPill .go:hover{background:#e0714a}
   #tgMenu{position:fixed;z-index:302;display:none;flex-direction:column;min-width:240px;max-width:400px;
-      background:rgba(24,27,34,.98);border:1px solid #3a4150;border-radius:12px;padding:6px;
-      box-shadow:0 14px 48px rgba(0,0,0,.55);color:var(--txt);font-size:12.5px}
-  #tgMenu .hd{font-size:10.5px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;padding:5px 9px 3px}
-  #tgMenu .it{display:flex;gap:8px;align-items:center;padding:7px 9px;border-radius:8px;cursor:pointer}
+      background:rgba(24,27,34,.98);border:1px solid #3a4150;border-radius:10px;padding:6px;
+      box-shadow:0 14px 48px rgba(0,0,0,.55);color:var(--txt);font-size:13px}
+  #tgMenu .hd{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;padding:5px 9px 3px}
+  #tgMenu .it{display:flex;gap:8px;align-items:center;padding:7px 9px;border-radius:10px;cursor:pointer}
   #tgMenu .it:hover{background:rgba(255,255,255,.06)}
-  #tgMenu .it .app{flex:none;font-size:10px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;
-      color:#8ab4ff;border:1px solid #33415e;border-radius:5px;padding:1px 5px}
+  #tgMenu .it .app{flex:none;font-size:10px;font-weight:600;letter-spacing:.05em;text-transform:uppercase;
+      color:#8ab4ff;border:1px solid #33415e;border-radius:6px;padding:1px 5px}
   #tgMenu .it .t{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
   #tgMenu .it.on .t{color:#8ab4ff}
   #annotBtn{margin-left:12px;background:var(--border);color:var(--txt);border:1px solid var(--border);
-      border-radius:8px;padding:6px 12px;font-size:13px;cursor:pointer;white-space:nowrap}
+      border-radius:10px;padding:6px 12px;font-size:13px;cursor:pointer;white-space:nowrap}
   #annotBtn:hover{border-color:#5b6575}
   #annotBtn.on{background:#c96442;border-color:#c96442;color:#fff}
 </style>
 <script>
-function __ct(){try{return JSON.parse(localStorage.getItem('claudeTargetV1')||'null')}catch(e){return null}}(function(){var T={'Default':{bg:'#202024',card:'#27272a',card2:'#1f1f23',txt:'#e4e4e7',muted:'#a1a1aa',accent:'#5b9dff',border:'#3f3f46'},'Codex One':{bg:'#202024',card:'#2f343f',card2:'#21252b',txt:'#abb2bf',muted:'#7f848e',accent:'#4d78cc',border:'#3e4451'},'Dracula':{bg:'#282a36',card:'#343746',card2:'#21222c',txt:'#f8f8f2',muted:'#9aa0b3',accent:'#bd93f9',border:'#44475a'},'Nord':{bg:'#2e3440',card:'#3b4252',card2:'#272c36',txt:'#e5e9f0',muted:'#9aa3b2',accent:'#88c0d0',border:'#434c5e'}};var t;try{t=T[localStorage.getItem('figTheme')];}catch(e){}t=t||T['Default'];var r=document.documentElement.style;for(var k in t)r.setProperty('--'+k,t[k]);})();</script>
+function __ct(){try{return JSON.parse(localStorage.getItem('claudeTargetV1')||'null')}catch(e){return null}}(function(){var T={'Encre':{bg:'#1a1917',card:'#232220',card2:'#121110',txt:'#e8e5db',muted:'#948f85',accent:'#cc785c',border:'#332f2a'},'Profond':{bg:'#1e1d1b',card:'#292724',card2:'#161513',txt:'#ece9e1',muted:'#9a968c',accent:'#d97757',border:'#37342e'},'Charbon':{bg:'#211f1c',card:'#2b2926',card2:'#1a1815',txt:'#eae7de',muted:'#9d988d',accent:'#e08a63',border:'#38352f'},'Neutre chaud':{bg:'#1c1c1a',card:'#272623',card2:'#151513',txt:'#e9e7df',muted:'#98958c',accent:'#d97757',border:'#34322d'},'Très foncé':{bg:'#171614',card:'#201f1c',card2:'#100f0d',txt:'#e6e3d9',muted:'#8f8b81',accent:'#d97757',border:'#2e2b26'},'Default':{bg:'#202024',card:'#27272a',card2:'#1f1f23',txt:'#dbdfe5',muted:'#a1a1aa',accent:'#5b9dff',border:'#3f3f46'},'Codex':{bg:'#282c34',card:'#2f343f',card2:'#21252b',txt:'#abb2bf',muted:'#7f848e',accent:'#4d78cc',border:'#3e4451'},'Dracula':{bg:'#282a36',card:'#343746',card2:'#21222c',txt:'#f8f8f2',muted:'#9aa0b3',accent:'#bd93f9',border:'#44475a'},'Nord':{bg:'#2e3440',card:'#3b4252',card2:'#272c36',txt:'#e5e9f0',muted:'#9aa3b2',accent:'#88c0d0',border:'#434c5e'}};var t;try{t=T[localStorage.getItem('figTheme')];}catch(e){}t=t||T['Default'];var r=document.documentElement.style;for(var k in t)r.setProperty('--'+k,t[k]);})();</script>
 </head>
 <body>
 <header>
   <b id="fname">PDF</b>
   <span class="muted">Highlight a passage — Claude can access it automatically ("my selection")</span>
   <button id="annotBtn" title="Annoter la page courante (dessiner + envoyer à Claude)"><svg viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"><path d="M11.3 2.5l2.2 2.2L5.8 12.4l-3 .8.8-3zM10 3.8l2.2 2.2"/></svg><span class="lbl"> Annoter</span></button>
+  <span class="zoomctl" id="zoomCtl">
+    <button id="zOut" title="Zoom arrière (⌘−)">−</button>
+    <button id="zPct" title="Ajuster à la largeur">100%</button>
+    <button id="zIn" title="Zoom avant (⌘+)">+</button>
+  </span>
   <span id="selinfo" style="margin-left:auto;color:#ffd54a"></span>
   <span class="muted" id="status"></span>
 </header>
@@ -99,6 +111,10 @@ function __ct(){try{return JSON.parse(localStorage.getItem('claudeTargetV1')||'n
 pdfjsLib.GlobalWorkerOptions.workerSrc = "/.fig_thumbs/pdfjs/pdf.worker.min.js";
 
 const rel = new URLSearchParams(location.search).get("file");
+const __passageParams = new URLSearchParams(location.search);
+const targetPage = Math.max(1, parseInt(__passageParams.get("page") || "1", 10) || 1);
+const targetQuote = (__passageParams.get("quote") || "").slice(0, 900);
+let targetRevealed = false;
 document.getElementById("fname").textContent = rel ? rel.split("/").pop() : "(no file)";
 let selPage = 1;
 
@@ -111,35 +127,47 @@ async function main(){
   } catch(e) {
     const p = document.getElementById("pages");
     p.textContent = "Unable to load PDF: " + (rel || "") + " — " + ((e && e.message) || e);  // textContent = XSS-safe
-    p.style.cssText = "color:#ff6b6b;padding:40px;text-align:center;font-family:-apple-system,sans-serif";
+    p.style.cssText = "color:#ff6b6b;padding:40px;text-align:center;font-family:var(--ui-font)";
     return;
   }
   const wrap = document.getElementById("pages");
-  // resize du panneau (split replié/déplié, fenêtre) → re-render à la bonne largeur,
-  // en conservant la position de lecture (ratio de scroll)
+  // resize du panneau, façon vraie app :
+  // - PENDANT le drag : transform:scale() CSS sur la colonne (GPU — canvas, texte
+  //   et annotations restent parfaitement alignés, zéro re-layout, 60 fps)
+  // - une fois la largeur STABLE : re-rendu net EN PLACE (pas de location.reload)
   (function(){
-    // WebKit ne délivre pas toujours 'resize' à l'iframe quand le divider du
-    // panneau bouge : on sonde la largeur périodiquement (imparable et léger)
-    let lastW = window.innerWidth, stable = 0;
-    setInterval(function(){
+    let lastW = window.innerWidth, stableTicks = 0, rendering = false;
+    setInterval(async function(){
       const w = window.innerWidth;
-      if (Math.abs(w - lastW) >= 40) { lastW = w; stable = 0; return; }
-      if (Math.abs(w - lastW) < 40 && stable >= 0) {
-        // largeur stabilisée : re-render si différente de celle du rendu
-        if (Math.abs(w - RENDER_W) >= 40 && ++stable >= 2) {
-          try {
-            const el = document.scrollingElement || document.documentElement;
-            sessionStorage.setItem("pdfv_scroll_" + location.search,
-              String(el.scrollTop / Math.max(1, el.scrollHeight)));
-          } catch(e){}
-          location.reload();
-        }
+      if (w !== lastW) { lastW = w; stableTicks = 0; }
+      else stableTicks++;
+      if (rendering) return;
+      const k = ((w - 28) / Math.max(1, RENDER_W - 28)) * (ZOOM / RENDER_Z);
+      if (Math.abs(w - RENDER_W) < 8 && Math.abs(ZOOM - RENDER_Z) < 0.01) { wrap.style.transform = ""; return; }
+      // suivi fluide pendant le drag
+      wrap.style.transformOrigin = "top center";
+      wrap.style.transform = "scale(" + k + ")";
+      // stabilisé (≈450 ms sans changement) → re-rendu net
+      if (stableTicks >= 3 || (Math.abs(ZOOM - RENDER_Z) >= 0.01 && stableTicks >= 2)) {
+        rendering = true;
+        const el = document.scrollingElement || document.documentElement;
+        const ratio = el.scrollTop / Math.max(1, el.scrollHeight);
+        try { await renderAll(); } catch(e){}
+        wrap.style.transform = "";
+        el.scrollTop = ratio * el.scrollHeight;
+        rendering = false; stableTicks = 0;
       }
-    }, 400);
+    }, 150);
   })();
-  const RENDER_W = window.innerWidth;
-  const scale = Math.min(2.4, (window.innerWidth - 60) / 612);
-  for(let n = 1; n <= pdf.numPages; n++){
+  let RENDER_W = window.innerWidth;
+  let ZOOM = 1; // 1 = ajusté à la largeur ; +/- multiplient
+  let RENDER_Z = 1;
+  async function renderAll(){
+    RENDER_W = window.innerWidth;
+    RENDER_Z = ZOOM;
+    const scale = Math.max(0.3, ((window.innerWidth - 28) / 612) * ZOOM);
+    wrap.innerHTML = "";
+    for(let n = 1; n <= pdf.numPages; n++){
     const page = await pdf.getPage(n);
     const vp = page.getViewport({scale});
     const div = document.createElement("div");
@@ -160,16 +188,56 @@ async function main(){
     buildTextLayer(tc, tl, vp);
     tl._order = readingOrder(tl, vp.width);
     drawAnnots(div, n);
+    }
+    revealLinkedPassage(!targetRevealed);
   }
+  function setZoom(z){
+    ZOOM = Math.min(4, Math.max(0.4, z));
+    document.getElementById("zPct").textContent = Math.round(ZOOM * 100) + "%";
+    // le poller applique le transform fluide puis re-rend net
+  }
+  document.getElementById("zIn").onclick = () => setZoom(ZOOM * 1.2);
+  document.getElementById("zOut").onclick = () => setZoom(ZOOM / 1.2);
+  document.getElementById("zPct").onclick = () => setZoom(1); // retour fit-width
+  window.addEventListener("keydown", (e) => {
+    if (!(e.metaKey || e.ctrlKey)) return;
+    if (e.key === "=" || e.key === "+") { e.preventDefault(); setZoom(ZOOM * 1.2); }
+    if (e.key === "-") { e.preventDefault(); setZoom(ZOOM / 1.2); }
+    if (e.key === "0") { e.preventDefault(); setZoom(1); }
+  });
+  await renderAll();
   try {
     const k = "pdfv_scroll_" + location.search;
     const r = parseFloat(sessionStorage.getItem(k));
-    if (r > 0) {
+    if (!targetQuote && r > 0) {
       sessionStorage.removeItem(k);
       const el = document.scrollingElement || document.documentElement;
       el.scrollTop = r * el.scrollHeight;
     }
   } catch(e){}
+}
+
+function revealLinkedPassage(shouldScroll){
+  if(!targetQuote) return;
+  document.querySelectorAll(".textLayer span.auto-hl").forEach(function(span){ span.classList.remove("auto-hl"); });
+  const pg = document.querySelector('.pg[data-page="' + targetPage + '"]');
+  if(!pg) return;
+  const tl = pg.querySelector(".textLayer");
+  const spans = (tl && tl._order) || (tl ? [...tl.querySelectorAll("span")] : []);
+  const match = window.AtelierPdfPassage && window.AtelierPdfPassage.findPassageSpanRange(
+    spans.map(function(span){ return span.textContent || ""; }), targetQuote
+  );
+  if(match){
+    spans.slice(match.start, match.end + 1).forEach(function(span){ span.classList.add("auto-hl"); });
+    document.getElementById("status").textContent = "Passage retrouvé — p. " + targetPage;
+  } else {
+    document.getElementById("status").textContent = "Page " + targetPage + " — extrait non localisé";
+  }
+  if(shouldScroll){
+    const target = match ? spans[match.start] : pg;
+    setTimeout(function(){ target.scrollIntoView({block:"center", behavior:"smooth"}); }, 0);
+  }
+  targetRevealed = true;
 }
 
 // Couche texte maison : un span par item, largeur EXACTE tiree du PDF
@@ -308,7 +376,7 @@ btn.onclick = async () => {
     const j = await r.json();
     if(__EMB && j && j.message) __atelierPost({type:'atelier-add-to-chat', text:j.message});
     document.getElementById("status").textContent =
-      j.sentToClaude ? "Pasted into Claude ✓" : "Copied to clipboard ✓";
+      __EMB ? "Added to chat ✓" : (j.sentToClaude ? "Pasted into Claude ✓" : "Copied to clipboard ✓");
   }catch(e){
     document.getElementById("status").textContent = "Server error";
   }
@@ -329,7 +397,7 @@ const selTa = selPill.querySelector("textarea");
     });
     selPill.style.cssText += ';background:transparent;border:none;box-shadow:none;padding:0;min-width:0;width:auto';
     if (__go){ __go.innerHTML = '<svg width=\'13\' height=\'13\' viewBox=\'0 0 16 16\' fill=\'none\' stroke=\'currentColor\' stroke-width=\'1.3\' style=\'vertical-align:-2px\'><path d=\'M14 8c0 3-2.7 5.2-6 5.2-.8 0-1.6-.1-2.3-.4L2.5 14l1-2.6C2.6 10.5 2 9.3 2 8c0-3 2.7-5.2 6-5.2S14 5 14 8z\'/></svg>&nbsp; Add to chat';
-      __go.style.cssText = 'width:auto;min-width:0;height:auto;border-radius:999px;padding:7px 14px;font-size:13px;white-space:nowrap;background:#2c313a;color:#e6e6e6;border:1px solid #3a414d;box-shadow:0 6px 18px rgba(0,0,0,0.5);cursor:pointer'; }
+      __go.style.cssText = 'width:auto;min-width:0;height:auto;border-radius:999px;padding:7px 14px;font-size:13px;white-space:nowrap;background:#2c313a;color:#dbdfe5;border:1px solid #3a414d;box-shadow:0 6px 18px rgba(0,0,0,0.5);cursor:pointer'; }
   }
 
 const __goHTML = (window.self!==window.top && selPill.querySelector('.go')) ? selPill.querySelector('.go').innerHTML : null;
@@ -663,15 +731,16 @@ if(window.self !== window.top){
   st.textContent = `
     header{background:#1a1d22 !important;border-bottom:1px solid #333a45 !important;
       padding:4px 10px !important;min-height:0 !important;gap:10px}
-    header #fname{font-weight:500;font-size:12.5px;color:#cfd4dc}
+    header #fname{font-weight:500;font-size:13px;color:#b6bdc7}
     header .muted{display:none}
-    header #selinfo{color:#8a919e !important;font-size:11.5px}
-    header #status{font-size:11.5px}
+    header #selinfo{color:#868d9a !important;font-size:12px}
+    header #status{font-size:12px}
     header button{background:transparent !important;border:none !important;
-      color:#8a919e !important;font-size:12.5px !important;padding:3px 8px !important;
+      color:#868d9a !important;font-size:13px !important;padding:3px 8px !important;
       border-radius:6px !important;cursor:pointer;box-shadow:none !important}
-    header button:hover{background:#2c313a !important;color:#e8eaed !important}
-    header{flex-wrap:nowrap !important}
+    header button:hover{background:#2c313a !important;color:#dbdfe5 !important}
+    header{flex-wrap:nowrap !important;height:46px !important;box-sizing:border-box !important;
+      padding-top:0 !important;padding-bottom:0 !important}
     header #fname{display:none}  /* titre déjà dans l'entête Bibliothèque/onglet */
     #pdftools{flex-shrink:0}
     @media (max-width: 640px){
