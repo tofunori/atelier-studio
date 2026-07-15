@@ -6,12 +6,13 @@ import { memo, useEffect, useState, type ReactNode } from "react";
 import ReactMarkdown from "react-markdown";
 import { CheckIcon } from "lucide-react";
 import { AgentEvent } from "../../lib/ws";
+import type { ChatTurnViewModel, ToolAction } from "../../lib/chat/turnViewModel";
 import { t } from "../../lib/i18n";
 import { normalizeMathDelimiters, hardenPartialMarkdown } from "../../lib/markdown";
 import { CopyIcon, ForkIcon, ResumeIcon } from "../icons";
 import { MD_COMPONENTS, MD_COMPONENTS_STREAMING, useMdPlugins } from "./md";
-import { DoneDiffToggle, fmtTime, PinBtn } from "./turnParts";
-import { groupIconCat, summarizeTools } from "./toolPresentation";
+import { DoneDiffToggle, fmtTime, PinBtn, LiveThinking, ReasoningTrace, Working, reasoningSummary } from "./turnParts";
+import { activeToolLabel, groupIconCat, summarizeTools } from "./toolPresentation";
 import { ActivityDisclosure, Button, EmptyState, IconButton, Tooltip, showError, showSuccess } from "../ui";
 import { Bubble, BubbleContent } from "../shadcn/bubble";
 import { Message, MessageContent, MessageFooter } from "../shadcn/message";
@@ -19,7 +20,6 @@ import { Message, MessageContent, MessageFooter } from "../shadcn/message";
 type TimeFormat = "system" | "24h" | "12h" | undefined;
 type UserEvent = Extract<AgentEvent, { kind: "user" }>;
 type DoneEvent = Extract<AgentEvent, { kind: "done" }>;
-type ToolAction = Extract<AgentEvent, { kind: "tool" | "tool_update" }>;
 export type ReviewState = {
   status: string;
   verdict?: string;
@@ -365,18 +365,98 @@ export function ResultCapsule(p: {
 
 /** Repli de fin de tour aligné sur Synara : durée et chevron seulement. */
 export function ActivityFold(p: {
-  fold: { key: string; ms: number | null };
+  fold: { key: string; hasDetail: boolean; ms: number | null; status: "worked" | "stopped" | "failed" };
   open: boolean;
   /** durée formatée du travail (fmtWorkDur) — null si non mesurable */
   duration: string | null;
   onToggle: () => void;
 }) {
+  const label = p.duration != null
+    ? t(
+        p.fold.status === "stopped" ? "chat.stopped-after" : p.fold.status === "failed" ? "chat.failed-after" : "chat.worked-for",
+        { duration: p.duration },
+      )
+    : t("chat.activity");
+  if (!p.fold.hasDetail) {
+    return (
+      <div className={`ui-activity is-summary turn-fold-static is-${p.fold.status === "failed" ? "failed" : "completed"}`}>
+        <span className="ui-activity-label turn-fold-label">{label}</span>
+      </div>
+    );
+  }
   return (
-    <ActivityDisclosure summary open={p.open} onToggle={p.onToggle}
-      label={<span className="turn-fold-label">
-        {p.duration != null ? t("chat.worked-for", { duration: p.duration }) : t("chat.activity")}
-      </span>}
+    <ActivityDisclosure
+      summary
+      open={p.open}
+      onToggle={p.onToggle}
+      status={p.fold.status === "failed" ? "failed" : "completed"}
+      label={<span className="turn-fold-label">{label}</span>}
     />
+  );
+}
+
+function activeEventLabel(turn: ChatTurnViewModel, events: AgentEvent[]): ReactNode {
+  const state = turn.activeState;
+  if (!state) return t("chat.thinking");
+  if (state.kind === "waiting") return t("chat.activity-awaiting");
+  if (state.kind === "reasoning") {
+    const summary = reasoningSummary(state.texts[state.texts.length - 1] ?? "");
+    return summary || t("chat.thinking");
+  }
+  if (state.kind === "thinking") return <span className="thinking-shimmer">{t("chat.thinking")}</span>;
+  if (state.kind === "activity") {
+    const event = events[state.eventIndex];
+    if (event?.kind === "activity") return [event.title, event.detail].filter(Boolean).join(" · ");
+    if (event?.kind === "tool" || event?.kind === "tool_update") return activeToolLabel(event);
+  }
+  return t("chat.thinking");
+}
+
+/** Une seule ligne d'activité courante, comme Codex. Le détail conserve tous
+ * les appels d'outils et la trace de reasoning du tour sans polluer le fil. */
+export function ActiveTurnWork(p: {
+  turn: ChatTurnViewModel;
+  events: AgentEvent[];
+  since: number;
+  open: boolean;
+  onToggle: () => void;
+  onStop: () => void;
+  renderToolLine: (action: ToolAction, key: React.Key) => ReactNode;
+}) {
+  const state = p.turn.activeState;
+  const actions = p.turn.actionGroups.flatMap((group) => group.actions);
+  const hasDetail = actions.length > 0 || p.turn.reasoningTexts.length > 0;
+  const actionCount = p.turn.actionGroups.length;
+  const icon = actions.length > 0 ? groupIconCat(actions) : undefined;
+
+  return (
+    <div className="working-stack active-turn-work" data-turn-id={p.turn.turnId ?? p.turn.key}>
+      <div className="working-row"><Working since={p.turn.startedAtMs ?? p.since} /></div>
+      {state?.kind === "answering" ? null : state?.kind === "thinking" && !hasDetail ? (
+        <LiveThinking />
+      ) : (
+        <ActivityDisclosure
+          open={p.open}
+          onToggle={p.onToggle}
+          status="running"
+          icon={icon}
+          label={activeEventLabel(p.turn, p.events)}
+          meta={actionCount > 0 ? t(actionCount === 1 ? "chat.active-action-1" : "chat.active-action-n", { n: actionCount }) : undefined}
+        >
+          <div className="active-work-detail">
+            {p.turn.reasoningTexts.length > 0 ? <ReasoningTrace texts={p.turn.reasoningTexts} /> : null}
+            {p.turn.actionGroups.map((group) => (
+              <div className="tool-group-list" key={group.key}>
+                {group.actions.map((action, offset) => p.renderToolLine(action, `${group.key}:${offset}`))}
+              </div>
+            ))}
+          </div>
+        </ActivityDisclosure>
+      )}
+      <button type="button" className="stop-hint" title={t("action.interrupt")} onClick={p.onStop}>
+        <kbd>esc</kbd> {t("action.interrupt")}
+      </button>
+    </div>
   );
 }
 

@@ -149,6 +149,11 @@ export type Thread = {
   sessionId: string | null;
   status: "idle" | "running" | "done";
   updatedAt: string;
+  handoff?: {
+    sourceThreadId: string;
+    sourceProvider: string;
+    targetProvider: string;
+  };
 };
 
 type Handler = (msg: any) => void;
@@ -255,6 +260,8 @@ export type SendOptions = {
   webSearch?: boolean;
   additionalDirectories?: string[];
   autoReview?: { enabled: boolean; provider: string; model: string; effort: string; trigger: string; autofix?: boolean };
+  /** Nouveau fil atomiquement dérivé de cette source lors d'un changement de provider. */
+  handoffFromThreadId?: string;
 };
 
 export function sendPrompt(ws: WebSocket, t: SendOptions) {

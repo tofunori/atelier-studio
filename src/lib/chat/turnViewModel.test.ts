@@ -1,0 +1,165 @@
+import { describe, expect, it } from "vitest";
+import type { AgentEvent, HarnessEventMeta } from "../ws";
+import { materializeHarnessHistory, reduceHarnessEvent } from "../harnessEvents";
+import {
+  buildChatTurnViewModels,
+  projectChatTimeline,
+} from "./turnViewModel";
+
+const T0 = 1_800_000_000_000;
+
+function meta(eventId: string, turnId: string, sequence: number, provider = "codex"): HarnessEventMeta {
+  return {
+    schemaVersion: 1,
+    eventId,
+    provider,
+    threadId: "thread-A",
+    turnId,
+    sequence,
+    ts: T0 + sequence * 100,
+    durable: true,
+    origin: "provider",
+  };
+}
+
+describe("chat turn view model", () => {
+  it("groupe par turnId et conserve des identités stables", () => {
+    const events: AgentEvent[] = [
+      { kind: "user", text: "Q1", meta: meta("u1", "turn-1", 1) },
+      { kind: "text", text: "R1", meta: meta("a1", "turn-1", 2) },
+      { kind: "done", ok: true, result: "", meta: meta("d1", "turn-1", 3) },
+      { kind: "user", text: "Q2", meta: meta("u2", "turn-2", 4, "claude") },
+    ];
+    const turns = buildChatTurnViewModels(events, T0 + 400);
+    expect(turns.map((turn) => turn.key)).toEqual(["turn:turn-1", "turn:turn-2"]);
+    expect(turns[0].phase).toBe("completed");
+    expect(turns[1].provider).toBe("claude");
+  });
+
+  it("priorise attente, activité running, reasoning live puis Thinking", () => {
+    const user: AgentEvent = { kind: "user", text: "Travaille", ts: T0 };
+    const pending: AgentEvent[] = [
+      user,
+      { kind: "interaction", requestId: "r1", interactionType: "approval", title: "Autoriser ?", state: "pending" },
+    ];
+    expect(buildChatTurnViewModels(pending, T0)[0].activeState).toMatchObject({ kind: "waiting" });
+
+    const running: AgentEvent[] = [
+      user,
+      { kind: "tool_update", id: "c1", name: "Bash", output: "", status: "running", detail: "rg src" },
+    ];
+    expect(buildChatTurnViewModels(running, T0)[0].activeState).toMatchObject({ kind: "activity" });
+
+    const reasoning: AgentEvent[] = [user, { kind: "thinking_live", text: "Je vérifie le parser." }];
+    expect(buildChatTurnViewModels(reasoning, T0)[0].activeState).toMatchObject({ kind: "reasoning", live: true });
+
+    expect(buildChatTurnViewModels([user], T0)[0].activeState).toEqual({ kind: "thinking" });
+  });
+
+  it("ne produit jamais un fallback Thinking en plus d'une réponse finale", () => {
+    const turns = buildChatTurnViewModels([
+      { kind: "user", text: "Question", ts: T0 },
+      { kind: "streaming", text: "Réponse en cours", ts: T0 + 100 },
+    ], T0);
+    expect(turns[0].phase).toBe("final_answer");
+    expect(turns[0].activeState).toMatchObject({ kind: "answering" });
+  });
+
+  it("consolide tous les reasoning du tour actif dans une seule ligne", () => {
+    const events: AgentEvent[] = [
+      { kind: "user", text: "Inspecte", ts: T0 },
+      { kind: "thinking", text: "Premier point", ts: T0 + 10 },
+      { kind: "tool", name: "Read", detail: "a.ts" },
+      { kind: "thinking_live", text: "Deuxième point", ts: T0 + 20 },
+    ];
+    const turn = buildChatTurnViewModels(events, T0)[0];
+    expect(turn.reasoningTexts).toEqual(["Premier point", "Deuxième point"]);
+    const rows = projectChatTimeline(events, [turn], new Set());
+    expect(rows.filter((row) => row.type === "active-turn")).toHaveLength(1);
+    expect(rows.filter((row) => row.type === "event" && ["thinking", "thinking_live", "tool"].includes(row.event.kind))).toHaveLength(0);
+  });
+
+  it("produit Worked/Stopped/Failed depuis le terminal et sa durée", () => {
+    const completed = buildChatTurnViewModels([
+      { kind: "user", text: "Q", ts: T0 },
+      { kind: "tool", name: "Read", detail: "a.ts" },
+      { kind: "text", text: "R", ts: T0 + 800 },
+      { kind: "done", ok: true, result: "", ts: T0 + 1_000 },
+    ], null)[0];
+    expect(completed.phase).toBe("completed");
+    expect(completed.durationMs).toBe(1_000);
+    expect(completed.fold).toMatchObject({ start: 1, end: 2, ms: 1_000 });
+
+    const stopped = buildChatTurnViewModels([
+      { kind: "user", text: "Q", ts: T0 },
+      { kind: "done", ok: false, result: "interrupted by user", ts: T0 + 500 },
+    ], null)[0];
+    expect(stopped.phase).toBe("stopped");
+    expect(stopped.fold).toMatchObject({
+      start: 1, end: 1, hasDetail: false, ms: 500, status: "stopped",
+    });
+    expect(projectChatTimeline([
+      { kind: "user", text: "Q", ts: T0 },
+      { kind: "done", ok: false, result: "interrupted by user", ts: T0 + 500 },
+    ], [stopped], new Set()).map((row) => row.type)).toEqual(["event", "fold", "event"]);
+
+    const failed = buildChatTurnViewModels([
+      { kind: "user", text: "Q", ts: T0 },
+      { kind: "error", message: "provider unavailable" },
+    ], null)[0];
+    expect(failed.phase).toBe("failed");
+  });
+
+  it("la projection ferme le pli sans supprimer la réponse finale", () => {
+    const events: AgentEvent[] = [
+      { kind: "user", text: "Q", ts: T0 },
+      { kind: "tool", name: "Read", detail: "a.ts" },
+      { kind: "text", text: "R", ts: T0 + 800 },
+      { kind: "done", ok: true, result: "", ts: T0 + 1_000 },
+    ];
+    const turns = buildChatTurnViewModels(events, null);
+    const rows = projectChatTimeline(events, turns, new Set());
+    expect(rows.map((row) => row.type)).toEqual(["event", "fold", "event", "event"]);
+    expect(rows.find((row) => row.type === "event" && row.event.kind === "text")).toBeTruthy();
+  });
+
+  it("projette pareil en live et replay avec livraison hors ordre et itemId réutilisé", () => {
+    const tool = (
+      eventId: string,
+      turnId: string,
+      sequence: number,
+      status: "running" | "completed",
+      output: string,
+    ): AgentEvent => ({
+      kind: "tool_update",
+      id: "call-1",
+      name: "Bash",
+      detail: "npx vitest run",
+      status,
+      output,
+      meta: { ...meta(eventId, turnId, sequence), itemId: "call-1" },
+    });
+    const wire: AgentEvent[] = [
+      { kind: "user", text: "Tour 1", meta: meta("u1", "turn-1", 1) },
+      tool("t1-running", "turn-1", 2, "running", ""),
+      { kind: "done", ok: true, result: "", meta: meta("d1", "turn-1", 4) },
+      // État terminal de l'outil livré après done, mais portant sa sequence 3.
+      tool("t1-done", "turn-1", 3, "completed", "ok"),
+      { kind: "user", text: "Tour 2", meta: meta("u2", "turn-2", 5) },
+      tool("t2-done", "turn-2", 6, "completed", "ok"),
+      { kind: "done", ok: true, result: "", meta: meta("d2", "turn-2", 7) },
+    ];
+    const live = wire.reduce<AgentEvent[]>((current, event) => reduceHarnessEvent(current, event), []);
+    const replay = materializeHarnessHistory(wire);
+    expect(replay).toEqual(live);
+
+    const liveTurns = buildChatTurnViewModels(live, null);
+    const replayTurns = buildChatTurnViewModels(replay, null);
+    expect(replayTurns).toEqual(liveTurns);
+    expect(liveTurns.map((turn) => turn.key)).toEqual(["turn:turn-1", "turn:turn-2"]);
+    expect(liveTurns.map((turn) => turn.actionGroups[0]?.key)).toEqual([
+      "tools:turn-1:call-1",
+      "tools:turn-2:call-1",
+    ]);
+  });
+});

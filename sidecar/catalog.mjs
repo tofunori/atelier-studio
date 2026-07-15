@@ -7,6 +7,7 @@ import { execSync } from "node:child_process";
 const BUILTINS = [
   "goal", "loop", "clear", "compact", "review", "context",
   "status", "model", "permissions", "plan", "diff", "usage", "resume",
+  "plugins",
 ];
 
 /** Skills + slash commands visibles pour un projet (user + projet). */

@@ -33,7 +33,7 @@ const PROVIDERS = [
       "claude-haiku-4-5-20251001",
     ],
     efforts: ["low", "medium", "high", "xhigh", "max"],
-    capabilities: { resume: true, steering: true, queue: true, goals: false, tools: true, toolOutput: true, permissions: true, interactiveInput: false, mcpElicitation: false, durableHistory: false, permissionModes: ["default", "acceptEdits", "plan", "bypassPermissions"] },
+    capabilities: { reasoning: true, resume: true, steering: true, queue: true, goals: false, tools: true, toolOutput: true, permissions: true, interactiveInput: false, mcpElicitation: false, mcpTools: true, mcpWidgets: false, plugins: false, skills: true, review: false, compact: false, durableHistory: false, permissionModes: ["default", "acceptEdits", "plan", "bypassPermissions"] },
   },
   {
     id: "codex",
@@ -51,7 +51,7 @@ const PROVIDERS = [
       "gpt-5.1-codex",
     ],
     efforts: ["low", "medium", "high", "xhigh", "max"],
-    capabilities: { resume: true, steering: true, queue: true, goals: true, tools: true, toolOutput: true, permissions: true, interactiveInput: true, mcpElicitation: true, durableHistory: false, permissionModes: ["default", "acceptEdits", "plan", "bypassPermissions"] },
+    capabilities: { reasoning: true, resume: true, steering: true, queue: true, goals: true, tools: true, toolOutput: true, permissions: true, interactiveInput: true, mcpElicitation: true, mcpTools: true, mcpWidgets: true, plugins: true, skills: true, review: true, compact: true, durableHistory: false, permissionModes: ["default", "acceptEdits", "plan", "bypassPermissions"] },
   },
   {
     id: "grok",
@@ -60,7 +60,7 @@ const PROVIDERS = [
     defaultModel: "grok-4.5",
     models: ["grok-4.5", "grok-composer-2.5-fast"],
     efforts: ["minimal", "low", "medium", "high", "xhigh", "max"],
-    capabilities: { resume: true, steering: false, queue: true, goals: false, tools: true, toolOutput: false, permissions: false, interactiveInput: false, mcpElicitation: false, durableHistory: false, permissionModes: [] },
+    capabilities: { reasoning: true, resume: true, steering: false, queue: true, goals: false, tools: true, toolOutput: false, permissions: false, interactiveInput: false, mcpElicitation: false, mcpTools: false, mcpWidgets: false, plugins: false, skills: false, review: false, compact: false, durableHistory: false, permissionModes: [] },
   },
   {
     id: "opencode",
@@ -77,7 +77,7 @@ const PROVIDERS = [
       "openrouter/openrouter/auto",
     ],
     efforts: ["minimal", "low", "medium", "high", "xhigh", "max"],
-    capabilities: { resume: true, steering: false, queue: true, goals: false, tools: true, toolOutput: false, permissions: false, interactiveInput: false, mcpElicitation: false, durableHistory: false, permissionModes: [] },
+    capabilities: { reasoning: true, resume: true, steering: false, queue: true, goals: false, tools: true, toolOutput: false, permissions: false, interactiveInput: false, mcpElicitation: false, mcpTools: true, mcpWidgets: false, plugins: false, skills: false, review: false, compact: false, durableHistory: false, permissionModes: [] },
   },
   {
     id: "gemini",
@@ -86,7 +86,7 @@ const PROVIDERS = [
     defaultModel: "gemini-2.5-pro",
     models: ["gemini-2.5-pro", "gemini-2.5-flash"],
     efforts: ["low", "medium", "high"],
-    capabilities: { resume: true, steering: false, queue: true, goals: false, tools: true, toolOutput: false, permissions: false, interactiveInput: false, mcpElicitation: false, durableHistory: false, permissionModes: [] },
+    capabilities: { reasoning: true, resume: true, steering: false, queue: true, goals: false, tools: true, toolOutput: false, permissions: false, interactiveInput: false, mcpElicitation: false, mcpTools: false, mcpWidgets: false, plugins: false, skills: false, review: false, compact: false, durableHistory: false, permissionModes: [] },
   },
 ];
 
@@ -104,7 +104,7 @@ function listApiProviders() {
     models: [...cfg.models],
     modelReasoning: { ...(cfg.modelReasoning ?? {}) },
     efforts: [],
-    capabilities: { resume: true, steering: false, queue: true, goals: false, tools: false, toolOutput: false, permissions: false, interactiveInput: false, mcpElicitation: false, durableHistory: false, permissionModes: [] },
+    capabilities: { reasoning: Object.keys(cfg.modelReasoning ?? {}).length > 0, resume: true, steering: false, queue: true, goals: false, tools: false, toolOutput: false, permissions: false, interactiveInput: false, mcpElicitation: false, mcpTools: false, mcpWidgets: false, plugins: false, skills: false, review: false, compact: false, durableHistory: false, permissionModes: [] },
   }));
 }
 

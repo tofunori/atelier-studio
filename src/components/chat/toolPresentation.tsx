@@ -145,6 +145,36 @@ export function toolCategory(name: string, detail?: string): ToolCat {
   return "tool";
 }
 
+function actionTarget(action: Extract<AgentEvent, { kind: "tool" | "tool_update" }>): string {
+  if ("detail" in action && action.detail?.trim()) return action.detail.trim();
+  if (action.kind !== "tool_update" || action.input == null || typeof action.input !== "object") return "";
+  const input = action.input as Record<string, unknown>;
+  for (const key of ["file_path", "path", "query", "pattern", "command", "url"]) {
+    const value = input[key];
+    if (typeof value === "string" && value.trim()) return value.trim();
+  }
+  return "";
+}
+
+/** Libellé présent et orienté intention pour l'unique activité du tour actif. */
+export function activeToolLabel(action: Extract<AgentEvent, { kind: "tool" | "tool_update" }>): string {
+  const target = actionTarget(action);
+  const cat = toolCategory(action.name, target);
+  if (cat === "command") {
+    if (/\b(test|vitest|jest|pytest|cargo test|swift test|xcodebuild test)\b/iu.test(target)) return t("chat.activity-running-tests");
+    if (/\b(format|prettier|eslint --fix|rustfmt|cargo fmt)\b/iu.test(target)) return t("chat.activity-formatting");
+  }
+  if (cat === "permission") return t("chat.activity-awaiting");
+  const key = cat === "search" ? "chat.activity-searching"
+    : cat === "read" ? "chat.activity-reading"
+    : cat === "edit" ? "chat.activity-editing"
+    : cat === "web" ? "chat.activity-web"
+    : cat === "todo" ? "chat.activity-planning"
+    : cat === "command" ? "chat.activity-command"
+    : "chat.activity-tool";
+  return target ? t(`${key}-target`, { target }) : t(key);
+}
+
 export function toolClause(cat: ToolCat, n: number): string {
   switch (cat) {
     case "search": return t("tools.searched");

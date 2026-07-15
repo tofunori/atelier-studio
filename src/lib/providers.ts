@@ -5,6 +5,7 @@ import { ProviderId, Settings } from "./settings";
  *  optionnels : un vieux sidecar sans `capabilities` reste toléré (le front
  *  retombe alors sur le comportement historique). */
 export type ProviderCapabilities = {
+  reasoning?: boolean;
   resume?: boolean;
   steering?: boolean;
   queue?: boolean;
@@ -14,6 +15,12 @@ export type ProviderCapabilities = {
   permissions?: boolean;
   interactiveInput?: boolean;
   mcpElicitation?: boolean;
+  mcpTools?: boolean;
+  mcpWidgets?: boolean;
+  plugins?: boolean;
+  skills?: boolean;
+  review?: boolean;
+  compact?: boolean;
   durableHistory?: boolean;
   /** Modes de permission acceptés par le harnais ([] = pas de sélecteur). */
   permissionModes?: string[];
@@ -39,6 +46,30 @@ export type ProviderInfo = {
   efforts: string[];
   capabilities?: ProviderCapabilities;
 };
+
+const NATIVE_COMMAND_CAPABILITY: Partial<Record<string, keyof ProviderCapabilities>> = {
+  goal: "goals",
+  clear: "compact",
+  compact: "compact",
+  review: "review",
+  permissions: "permissions",
+  plan: "permissions",
+  plugins: "plugins",
+};
+
+/** Les commandes natives et skills proposés suivent le provider sélectionné.
+ * Une capability absente d'un catalogue moderne signifie « non supporté »;
+ * l'absence du bloc capabilities entier conserve la compatibilité legacy. */
+export function providerAllowsCommand(
+  info: ProviderInfo | undefined,
+  command: { name: string; source: string },
+): boolean {
+  const capabilities = info?.capabilities;
+  if (!capabilities) return true;
+  if (command.source !== "builtin") return capabilities.skills !== false;
+  const capability = NATIVE_COMMAND_CAPABILITY[command.name.toLowerCase()];
+  return capability == null || capabilities[capability] === true;
+}
 
 /** Providers du picker : ordre des réglages, masqués filtrés — mais le
  *  provider du thread courant reste toujours visible (règle Synara). */

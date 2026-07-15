@@ -233,6 +233,10 @@
 .ui-activity-meta { color: var(--text-disabled); font-size: var(--fs-caption); font-variant-numeric: tabular-nums; white-space: nowrap; }
 .ui-activity-detail { margin: 5px 0 4px 3px; padding: 2px 0 2px 17px; border-left: 1px solid var(--border-interactive); }
 
+@media (prefers-reduced-motion: reduce) {
+  .working-label::before { animation: none; }
+}
+
 /* ---- JumpNavigation — overlay borné à la timeline ---------------------- */
 .ui-jumpnav { position: absolute; bottom: var(--sp-3); left: 50%; transform: translateX(-50%); display: flex; align-items: center;
   z-index: var(--z-sticky); background: var(--surface-raised); border: 1px solid var(--border-default); border-radius: var(--radius-pill);

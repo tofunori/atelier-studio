@@ -337,6 +337,55 @@ describe("composer — catalogue et capabilities sidecar (plan 025, step 9)", ()
       .map((el) => el.textContent);
     expect(options).toEqual(["Full access", "Accept edits", "Ask (default)", "Plan mode"]);
   });
+
+  it("filtre commandes, skills et mentions plugin avec la matrice du provider", () => {
+    const plugin = {
+      id: "visualize",
+      name: "visualize",
+      displayName: "Visualize",
+      description: "Créer une visualisation",
+      enabled: true,
+      skills: [],
+      primarySkill: null,
+    };
+    const common = {
+      commands: [
+        { name: "plugins", source: "builtin" },
+        { name: "status", source: "builtin" },
+        { name: "recherche", source: "user" },
+      ],
+      plugins: [plugin],
+    };
+    const view = renderUi(<Chat {...chatProps({
+      ...common,
+      threadProvider: "grok",
+      defaults: { defaultProvider: "grok", defaultModel: {}, defaultEffort: {}, defaultPermissionMode: "bypassPermissions" },
+      providers: [makeProviderInfo({
+        id: "grok", label: "Grok", capabilities: makeCapabilities({
+          permissions: false, permissionModes: [], plugins: false, skills: false,
+        }),
+      })],
+    })} />);
+    fireEvent.change(ta(), { target: { value: "/" } });
+    expect(screen.getByText("/status")).toBeTruthy();
+    expect(screen.queryByText("/plugins")).toBeNull();
+    expect(screen.queryByText("/recherche")).toBeNull();
+    fireEvent.change(ta(), { target: { value: "@vis" } });
+    expect(screen.queryByText("@visualize")).toBeNull();
+
+    view.rerender(<Chat {...chatProps({
+      ...common,
+      threadProvider: "codex",
+      defaults: { defaultProvider: "codex", defaultModel: {}, defaultEffort: {}, defaultPermissionMode: "bypassPermissions" },
+      providers: [makeProviderInfo({
+        id: "codex", label: "Codex", capabilities: makeCapabilities({ plugins: true, skills: true }),
+      })],
+    })} />);
+    fireEvent.change(ta(), { target: { value: "/plug" } });
+    expect(screen.getByText("/plugins")).toBeTruthy();
+    fireEvent.change(ta(), { target: { value: "@vis" } });
+    expect(screen.getByText("@visualize")).toBeTruthy();
+  });
 });
 
 // Plan 020, étape 1 : contrats supplémentaires à préserver pendant la

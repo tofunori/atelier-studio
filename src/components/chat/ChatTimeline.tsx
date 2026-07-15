@@ -7,48 +7,37 @@ import React, { type MutableRefObject, type ReactNode, type RefObject } from "re
 import { LegendList, type LegendListRef } from "@legendapp/list/react";
 import { Tick } from "./toolPresentation";
 import { AgentEvent } from "../../lib/ws";
+import type { ProjectedTimelineItem, ToolAction, TurnPhase } from "../../lib/chat/turnViewModel";
+import { transitionScrollPolicy } from "../../lib/chat/scrollPolicy";
 import { t } from "../../lib/i18n";
 import { isValidSkill } from "./mentions";
 import { ZapIcon, ArrowDownIcon } from "../icons";
 import {
   ChatEmptyState, UserTurn, StreamingText, AssistantText, ResultCapsule,
-  ActivityFold, ActivityGroup, type ReviewState,
+  ActivityFold, ActivityGroup, ActiveTurnWork, type ReviewState,
 } from "./turns";
 import { ResearchHome, type ResearchHomeBundle } from "../ResearchHome";
-import { ThinkingBlock, EditLine, ActivityCard, LiveThinking, ReasoningTrace, Working, formatPermInput } from "./turnParts";
+import { ThinkingBlock, EditLine, ActivityCard, LiveThinking, Working, formatPermInput } from "./turnParts";
 import { HarnessInteraction } from "./HarnessInteraction";
 import { ProposedPlanCard } from "./ProposedPlanCard";
 import { JumpNavigation } from "../ui";
 import { Input } from "../shadcn/input";
 
-export type ToolAction = Extract<AgentEvent, { kind: "tool" | "tool_update" }>;
-export type ActiveWorkHeaderItem = {
-  type: "active-header";
-  key: string;
-  since: number;
-};
-export type ActiveThinkingItem = { type: "active-thinking"; key: string };
-export type ActiveReasoningItem = { type: "active-reasoning"; key: string; texts: string[] };
-export type ActiveActionCollectionItem = {
-  type: "active-actions";
-  key: string;
-  groups: { type: "actions"; actions: ToolAction[]; index: number; key: string }[];
-};
 type RenderedItem =
-  | { type: "event"; event: AgentEvent; index: number }
-  | { type: "actions"; actions: ToolAction[]; index: number; key: string }
-  | { type: "fold"; fold: { key: string; start: number; end: number; ms: number | null }; open: boolean }
-  | ActiveActionCollectionItem
-  | ActiveReasoningItem
-  | ActiveWorkHeaderItem
-  | ActiveThinkingItem;
+  | ProjectedTimelineItem
+  | { type: "actions"; actions: ToolAction[]; index: number; key: string };
 
 type TimelineVirtualItem =
   | { type: "empty"; key: "timeline-empty" }
   | { type: "rendered"; key: string; item: RenderedItem }
   | { type: "working"; key: "message-working" };
 
-export type TimelineThread = { threadId: string | null; events: AgentEvent[]; workingSince: number | null };
+export type TimelineThread = {
+  threadId: string | null;
+  events: AgentEvent[];
+  workingSince: number | null;
+  phase: TurnPhase;
+};
 export type TimelineReview = {
   review: ReviewState & { checks?: number; checkedTools?: string[]; checkedFiles?: string[] } | null;
   reviewMin: boolean; setReviewMin: React.Dispatch<React.SetStateAction<boolean>>;
@@ -81,7 +70,7 @@ export type TimelineScroll = {
   messagesRef: RefObject<HTMLDivElement | null>;
   onMessagesMouseUp: (e: React.MouseEvent) => void;
 };
-export type TimelineWorking = { currentWorkName: string; onStop: () => void };
+export type TimelineWorking = { onStop: () => void };
 export type TimelineChapters = {
   tickPos: Record<number, number>;
   resolvePinEl: (index: number, label: string, anchor?: string) => HTMLElement | null | undefined;
@@ -139,7 +128,7 @@ export function ChatTimeline(p: {
     removeMark: (text: string, kind: "hl" | "ul") => void;
   };
 }) {
-  const { threadId, events, workingSince } = p.thread;
+  const { threadId, events, workingSince, phase } = p.thread;
   const { review, reviewMin, setReviewMin, setReview, barOpen, setBarOpen, fixing, setFixing, reviewOpen, setReviewOpen } = p.rev;
   const { renderedEvents, openFolds, setOpenFolds, openToolGroups, setOpenToolGroups, renderToolLine, fmtWorkDur } = p.list;
   const { editing, setEditing, pins, onTogglePin, onRevert, onEditSend, onFork, setPasteView, commands, defaults, onQuote } = p.msg;
@@ -154,6 +143,8 @@ export function ChatTimeline(p: {
     if (events[i].kind === "user") { lastUserIndex = i; break; }
   }
   const timelineListRef = React.useRef<LegendListRef>(null);
+  const [autoFollow, setAutoFollow] = React.useState(true);
+  const phaseRef = React.useRef<TurnPhase>(phase);
   const virtualItems = React.useMemo<TimelineVirtualItem[]>(() => {
     const rows: TimelineVirtualItem[] = [];
     if (!threadId || events.length === 0) rows.push({ type: "empty", key: "timeline-empty" });
@@ -162,30 +153,80 @@ export function ChatTimeline(p: {
       const key = item.type === "event" ? `event-${item.index}` : item.type === "fold" ? item.fold.key : item.key;
       rows.push({ type: "rendered", key, item });
     }
-    if (workingSince != null && !renderedEvents.some((item) => item.type === "active-header")) {
+    if (workingSince != null && !renderedEvents.some((item) => item.type === "active-turn")) {
       rows.push({ type: "working", key: "message-working" });
     }
     return rows;
   }, [events.length, renderedEvents, threadId, workingSince]);
+  const listExtraData = React.useMemo(() => ({
+    editing,
+    openToolGroups,
+    pins,
+    reviewOpen,
+    workingSince,
+  }), [editing, openToolGroups, pins, reviewOpen, workingSince]);
   const virtualIndexForEvent = React.useCallback((eventIndex: number) => (
     virtualItems.findIndex((row) => row.type === "rendered" && row.item.type === "event" && row.item.index === eventIndex)
   ), [virtualItems]);
   const lastUserVirtualIndex = lastUserIndex >= 0 ? virtualIndexForEvent(lastUserIndex) : -1;
+  let finalAnswerIndex = -1;
+  if (phase === "final_answer") {
+    for (let index = events.length - 1; index >= 0; index -= 1) {
+      if (events[index].kind === "streaming" || events[index].kind === "text") {
+        finalAnswerIndex = index;
+        break;
+      }
+    }
+  }
+  const finalAnswerVirtualIndex = finalAnswerIndex >= 0 ? virtualIndexForEvent(finalAnswerIndex) : -1;
 
   React.useEffect(() => {
     const native = timelineListRef.current?.getNativeScrollRef();
     (messagesRef as MutableRefObject<HTMLDivElement | null>).current = native instanceof HTMLDivElement ? native : null;
+    if (!(native instanceof HTMLDivElement)) return;
+    const onWheel = (event: WheelEvent) => {
+      if (event.deltaY < 0) setAutoFollow(false);
+    };
+    const onScroll = () => {
+      const distance = native.scrollHeight - native.clientHeight - native.scrollTop;
+      if (distance <= 32) setAutoFollow(true);
+    };
+    native.addEventListener("wheel", onWheel, { passive: true });
+    native.addEventListener("scroll", onScroll, { passive: true });
     return () => {
+      native.removeEventListener("wheel", onWheel);
+      native.removeEventListener("scroll", onScroll);
       (messagesRef as MutableRefObject<HTMLDivElement | null>).current = null;
     };
   }, [messagesRef, threadId]);
 
+  React.useEffect(() => {
+    phaseRef.current = phase;
+    setAutoFollow(true);
+  }, [threadId]);
+
+  React.useEffect(() => {
+    const decision = transitionScrollPolicy(
+      { follow: autoFollow, phase: phaseRef.current },
+      { type: "phase-changed", phase },
+    );
+    phaseRef.current = decision.phase;
+    if (decision.follow !== autoFollow) setAutoFollow(decision.follow);
+    if (decision.effect === "anchor-final" && finalAnswerVirtualIndex >= 0) {
+      requestAnimationFrame(() => {
+        void timelineListRef.current?.scrollToIndex({ index: finalAnswerVirtualIndex, animated: true, viewPosition: 0 });
+      });
+    }
+  }, [autoFollow, finalAnswerVirtualIndex, phase]);
+
   const scrollToLastUser = React.useCallback(() => {
+    setAutoFollow(false);
     if (lastUserVirtualIndex >= 0) {
       void timelineListRef.current?.scrollToIndex({ index: lastUserVirtualIndex, animated: true, viewPosition: 0 });
     }
   }, [lastUserVirtualIndex]);
   const scrollToBottom = React.useCallback(() => {
+    setAutoFollow(true);
     void timelineListRef.current?.scrollToEnd({ animated: true });
   }, []);
   return (
@@ -290,6 +331,7 @@ export function ChatTimeline(p: {
         key={threadId ?? "atelier-home"}
         ref={timelineListRef}
         data={virtualItems}
+        extraData={listExtraData}
         keyExtractor={(row) => row.key}
         estimatedItemSize={90}
         estimatedListSize={{ height: 800, width: 760 }}
@@ -297,7 +339,7 @@ export function ChatTimeline(p: {
         recycleItems={false}
         initialScrollAtEnd
         alignItemsAtEnd
-        maintainScrollAtEnd
+        maintainScrollAtEnd={autoFollow}
         maintainScrollAtEndThreshold={0.1}
         maintainVisibleContentPosition
         className="messages"
@@ -361,59 +403,24 @@ export function ChatTimeline(p: {
               />
             );
           }
-          if (item.type === "active-header") {
-            return <Working key={item.key} since={item.since} />;
-          }
-          if (item.type === "active-thinking") {
-            return <LiveThinking key={item.key} />;
-          }
-          if (item.type === "active-reasoning") {
-            return <ReasoningTrace key={item.key} texts={item.texts} />;
-          }
-          if (item.type === "active-actions") {
-            const expanded = openToolGroups.has(item.key);
-            const visibleGroups = expanded || item.groups.length <= 6
-              ? item.groups
-              : item.groups.slice(-6);
-            const hiddenCount = item.groups.length - visibleGroups.length;
+          if (item.type === "active-turn") {
+            const open = openToolGroups.has(item.key);
             return (
-              <div className="active-work-list" key={item.key}>
-                {visibleGroups.map((group) => {
-                  const open = openToolGroups.has(group.key);
-                  return (
-                    <ActivityGroup
-                      key={group.key}
-                      actions={group.actions}
-                      open={open}
-                      onToggle={() =>
-                        setOpenToolGroups((prev) => {
-                          const next = new Set(prev);
-                          if (next.has(group.key)) next.delete(group.key);
-                          else next.add(group.key);
-                          return next;
-                        })
-                      }
-                      renderToolLine={renderToolLine}
-                    />
-                  );
+              <ActiveTurnWork
+                key={item.key}
+                turn={item.turn}
+                events={events}
+                since={workingSince ?? Date.now()}
+                open={open}
+                onToggle={() => setOpenToolGroups((prev) => {
+                  const next = new Set(prev);
+                  if (next.has(item.key)) next.delete(item.key);
+                  else next.add(item.key);
+                  return next;
                 })}
-                {item.groups.length > 6 ? (
-                  <button
-                    type="button"
-                    className="active-work-more"
-                    onClick={() =>
-                      setOpenToolGroups((prev) => {
-                        const next = new Set(prev);
-                        if (next.has(item.key)) next.delete(item.key);
-                        else next.add(item.key);
-                        return next;
-                      })
-                    }
-                  >
-                    {expanded ? t("chat.show-less-work") : t("chat.show-more-work", { n: hiddenCount })}
-                  </button>
-                ) : null}
-              </div>
+                onStop={onStop}
+                renderToolLine={renderToolLine}
+              />
             );
           }
           if (item.type === "actions") {

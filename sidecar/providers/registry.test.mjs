@@ -33,8 +33,9 @@ describe("provider registry", () => {
 // n'affiche que les contrôles annoncés ici.
 describe("provider capabilities (plan 025, step 9)", () => {
   const CAP_KEYS = [
-    "resume", "steering", "queue", "goals", "tools", "toolOutput",
-    "permissions", "interactiveInput", "mcpElicitation", "durableHistory",
+    "reasoning", "resume", "steering", "queue", "goals", "tools", "toolOutput",
+    "permissions", "interactiveInput", "mcpElicitation", "mcpTools", "mcpWidgets",
+    "plugins", "skills", "review", "compact", "durableHistory",
     "permissionModes",
   ];
 
@@ -62,6 +63,13 @@ describe("provider capabilities (plan 025, step 9)", () => {
     expect(caps.interactiveInput).toBe(true);
     expect(caps.queue).toBe(true);
     expect(caps.permissionModes).toEqual(["default", "acceptEdits", "plan", "bypassPermissions"]);
+    expect(caps).toMatchObject({ mcpTools: true, mcpWidgets: true, plugins: true, skills: true, review: true, compact: true });
+  });
+
+  it("Claude relaie les outils MCP et les skills, sans simuler widgets ou plugins Codex", () => {
+    expect(getProvider("claude").capabilities).toMatchObject({
+      reasoning: true, mcpTools: true, mcpWidgets: false, plugins: false, skills: true,
+    });
   });
 
   it("grok : pas de permissions (permissionModes vide)", () => {

@@ -63,7 +63,7 @@ describe("anatomie du tour — header d'activité", () => {
     expect(document.querySelectorAll(".ui-activity-label")[1]?.textContent?.toLowerCase()).toContain(t("tools.read-1").toLowerCase());
   });
 
-  it("tour actif : un seul Thinking balayé, reasoning consolidé et actions humaines", () => {
+  it("tour actif : une seule activité sémantique, reasoning consolidé et aucun Thinking doublé", () => {
     const evs: AgentEvent[] = [
       events.user("Inspecte puis corrige.", FIXED_TS),
       { kind: "tool", name: "__thinking" },
@@ -81,16 +81,20 @@ describe("anatomie du tour — header d'activité", () => {
     expect(working.textContent).toContain("Travaille depuis");
     expect(working.querySelector(".working-spin")).toBeNull();
     expect(working.querySelector(".working-divider")).toBeTruthy();
-    expect(document.querySelectorAll(".thinking-live-indicator")).toHaveLength(1);
-    expect(document.querySelector(".thinking-shimmer")?.textContent).toBe(t("chat.thinking"));
+    expect(document.querySelectorAll(".thinking-live-indicator")).toHaveLength(0);
+    expect(document.querySelector(".thinking-shimmer")).toBeNull();
     expect(document.querySelector(".thinking")).toBeNull();
-    expect(document.querySelectorAll(".reasoning-trace")).toHaveLength(1);
-    expect(screen.getByText("Je confirme le chemin utile.")).toBeTruthy();
-    expect(document.querySelectorAll(".ui-activity:not(.is-summary)")).toHaveLength(2);
+    expect(document.querySelectorAll(".ui-activity:not(.is-summary)")).toHaveLength(1);
+    const activity = document.querySelector(".ui-activity:not(.is-summary) .ui-activity-trigger") as HTMLButtonElement;
+    expect(activity.textContent).toContain("Je confirme le chemin utile.");
     expect(screen.queryByText("Bash")).toBeNull();
+    fireEvent.click(activity);
+    expect(document.querySelectorAll(".reasoning-trace")).toHaveLength(1);
+    expect(screen.getAllByText("Je confirme le chemin utile.")).toHaveLength(2);
+    expect(screen.getAllByText("Bash")).toHaveLength(2);
   });
 
-  it("tour actif : montre les 6 dernières actions puis permet d'afficher le reste", () => {
+  it("tour actif : consolide huit actions dans une seule activité dépliable", () => {
     const evs: AgentEvent[] = [
       events.user("Inspecte.", FIXED_TS),
       ...Array.from({ length: 8 }, (_, index) => events.tool({
@@ -101,11 +105,12 @@ describe("anatomie du tour — header d'activité", () => {
     ];
     renderUi(<Chat {...chatProps({ events: evs, workingSince: FIXED_TS })} />);
 
-    expect(document.querySelectorAll(".active-work-list .ui-activity")).toHaveLength(6);
-    const more = screen.getByRole("button", { name: t("chat.show-more-work", { n: 2 }) });
-    fireEvent.click(more);
-    expect(document.querySelectorAll(".active-work-list .ui-activity")).toHaveLength(8);
-    expect(screen.getByRole("button", { name: t("chat.show-less-work") })).toBeTruthy();
+    const activity = document.querySelector(".active-turn-work .ui-activity") as HTMLElement;
+    expect(activity).toBeTruthy();
+    expect(document.querySelectorAll(".active-turn-work .ui-activity")).toHaveLength(1);
+    expect(activity.textContent).toContain(t("chat.active-action-n", { n: 8 }));
+    fireEvent.click(activity.querySelector(".ui-activity-trigger") as HTMLButtonElement);
+    expect(document.querySelectorAll(".active-work-detail .tool-output")).toHaveLength(8);
   });
 
   it("rattache les narrations intermédiaires au pli du message final", () => {
@@ -159,7 +164,8 @@ describe("anatomie du tour — header d'activité", () => {
     expect(document.querySelector(".edit-line")?.textContent).toContain("plot.py");
     expect(document.querySelector(".edit-line")?.textContent).toContain("+5");
     expect(document.querySelector(".edit-line")?.textContent).toContain("-3");
-    expect(document.querySelector(".ui-activity:not(.is-summary)")).toBeNull();
+    expect(document.querySelectorAll(".ui-activity:not(.is-summary)")).toHaveLength(1);
+    expect(document.querySelector(".thinking-shimmer")?.textContent).toBe(t("chat.thinking"));
   });
 
   it("sort du chargement et montre l'erreur quand gitDiff échoue", () => {

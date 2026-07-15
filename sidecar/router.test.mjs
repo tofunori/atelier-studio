@@ -639,7 +639,7 @@ describe("sélection de tour — repli lastTurn (pièges connus : démotion read
     expect(ctx.store.get("t-title").title).toBe("Analyse spectrale hivernale");
   });
 
-  it("change de provider au repos sans réutiliser la session native précédente", async () => {
+  it("verrouille le provider du fil et exige un handoff vers une nouvelle destination", async () => {
     const sends = [];
     const runs = [];
     const endClaude = vi.fn();
@@ -656,7 +656,7 @@ describe("sélection de tour — repli lastTurn (pièges connus : démotion read
     await flush();
     await sends[0].onEvent({ kind: "done", ok: true, result: "" });
     await flush();
-    // le transcript reste le même, mais Codex doit repartir sans l'UUID Claude
+    // Changer le provider sur le même id est désormais refusé.
     await route({
       type: "send", provider: "codex", threadId: "t-ho", projectRoot: "/p",
       prompt: "renvoi nu", clientMessageId: "m2",
@@ -664,11 +664,26 @@ describe("sélection de tour — repli lastTurn (pièges connus : démotion read
     }, ctx);
     await flush();
 
+    expect(runs).toHaveLength(0);
+    expect(ctx.store.get("t-ho")).toMatchObject({ provider: "claude" });
+    expect(emitted).toContainEqual(expect.objectContaining({ type: "error", threadId: "t-ho" }));
+
+    // Le handoff explicite crée un fil Codex lié, sans toucher à la source.
+    await route({
+      type: "send", provider: "codex", threadId: "t-ho-codex", handoffFromThreadId: "t-ho", projectRoot: "/p",
+      prompt: "renvoi nu", clientMessageId: "m3",
+      displayEvent: { kind: "user", text: "renvoi nu" },
+    }, ctx);
+    await flush();
+
     expect(runs).toHaveLength(1);
     expect(runs[0].sessionId).toBeNull();
-    expect(endClaude).toHaveBeenCalledWith("t-ho");
-    expect(ctx.store.get("t-ho")).toMatchObject({ provider: "codex" });
-    expect(emitted).not.toContainEqual(expect.objectContaining({ type: "error", threadId: "t-ho" }));
+    expect(endClaude).not.toHaveBeenCalled();
+    expect(ctx.store.get("t-ho")).toMatchObject({ provider: "claude" });
+    expect(ctx.store.get("t-ho-codex")).toMatchObject({
+      provider: "codex",
+      handoff: { sourceThreadId: "t-ho", sourceProvider: "claude", targetProvider: "codex" },
+    });
   });
 
   it("goalGet/codexCompact : transmettent le permissionMode du thread au provider", async () => {

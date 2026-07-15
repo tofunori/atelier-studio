@@ -78,6 +78,84 @@ fn should_auto_title(previous: Option<&atelier_store::Thread>, explicit_title: O
     }
 }
 
+fn handoff_context(events: &[Value], provider: &str) -> Option<String> {
+    let mut lines = Vec::new();
+    for event in events {
+        let Some(text) = event.get("text").and_then(Value::as_str).map(str::trim).filter(|s| !s.is_empty()) else {
+            continue;
+        };
+        match event.get("kind").and_then(Value::as_str) {
+            Some("user") => lines.push(format!("Utilisateur : {text}")),
+            Some("text") => lines.push(format!("Agent ({provider}) : {text}")),
+            _ => {}
+        }
+    }
+    let mut transcript = lines.join("\n\n");
+    if transcript.is_empty() {
+        return None;
+    }
+    const MAX_CONTEXT_CHARS: usize = 400_000;
+    if transcript.chars().count() > MAX_CONTEXT_CHARS {
+        let tail = transcript.chars().rev().take(MAX_CONTEXT_CHARS).collect::<String>();
+        transcript = format!("[…début tronqué…]\n{}", tail.chars().rev().collect::<String>());
+    }
+    Some(format!(
+        "Tu reprends une conversation commencée avec un autre agent. Voici le fil jusqu'ici — prends-le comme contexte acquis, ne le résume pas, ne le répète pas :\n\n---\n{transcript}\n=== fin du fil transmis — message réel ci-dessous ===\n\n"
+    ))
+}
+
+async fn prepare_provider_handoff(
+    state: &AppState,
+    msg: &Value,
+    thread_id: &str,
+    provider: &str,
+    project_root: &str,
+) -> Result<(), String> {
+    let source_id = msg.get("handoffFromThreadId").and_then(Value::as_str).unwrap_or("");
+    if source_id.is_empty() {
+        return Ok(());
+    }
+    if source_id == thread_id {
+        return Err("handoff: le fil source et la destination doivent être différents".into());
+    }
+    let source = {
+        let store = state.threads().lock().await;
+        if store.get(thread_id).is_some() {
+            return Err("handoff: la destination existe déjà".into());
+        }
+        store.get(source_id).cloned().ok_or_else(|| "handoff: fil source introuvable".to_string())?
+    };
+    if source.status == "running" || state.harness().is_running(source_id).await {
+        return Err("handoff: arrêter le tour source avant de changer de provider".into());
+    }
+    if source.provider == provider {
+        return Err("handoff: le provider cible doit être différent du provider source".into());
+    }
+    let events = if state.journal().has_journal(source_id) {
+        state.journal().materialize(source_id)
+    } else {
+        Vec::new()
+    };
+    if state.journal().has_journal(source_id) && !state.journal().copy_thread(source_id, thread_id, None) {
+        return Err("handoff: copie atomique du journal impossible".into());
+    }
+    let patch = json!({
+        "id": thread_id,
+        "projectRoot": if source.project_root.is_empty() { project_root } else { &source.project_root },
+        "provider": provider,
+        "title": format!("↪ {}", if source.title.is_empty() { "handoff" } else { &source.title }),
+        "sessionId": null,
+        "status": "idle",
+        "forkContext": handoff_context(&events, &source.provider),
+        "handoff": {
+            "sourceThreadId": source_id,
+            "sourceProvider": source.provider,
+            "targetProvider": provider,
+        },
+    });
+    state.threads().lock().await.upsert(patch, false).map(|_| ())
+}
+
 async fn maybe_title_new_thread(
     state: &AppState,
     thread_id: &str,
@@ -336,17 +414,26 @@ pub async fn handle_send(state: &AppState, msg: &Value) -> Vec<String> {
         return vec![err_json("threadId requis")];
     }
 
+    let Some(provider_impl) = state.provider(&provider) else {
+        return vec![err_json(format!(
+            "provider inconnu ou non branché en Rust: {provider} (fake toujours; claude/codex/grok/opencode si binaires; API via api_providers.json)"
+        ))];
+    };
+    if let Err(error) = prepare_provider_handoff(state, msg, &thread_id, &provider, &project_root).await {
+        return vec![err_json(error)];
+    }
+
     let previous = state.threads().lock().await.get(&thread_id).cloned();
+    if previous.as_ref().is_some_and(|thread| {
+        thread.provider != provider && (thread.session_id.is_some() || state.journal().has_journal(&thread_id))
+    }) {
+        let current = previous.as_ref().map(|thread| thread.provider.as_str()).unwrap_or("unknown");
+        return vec![err_json(format!(
+            "provider immuable pour ce fil ({current}); créer un handoff vers {provider}"
+        ))];
+    }
     let auto_title = should_auto_title(previous.as_ref(), title.as_deref());
     let provisional_title = first_message.chars().take(40).collect::<String>();
-
-    // Comme Synara, le provider est un choix du tour, pas une propriété
-    // irréversible de la conversation. Le frontend injecte un handoff textuel
-    // lorsque le moteur change; la session native de l'ancien provider ne doit
-    // en revanche jamais être réutilisée par le nouveau.
-    let provider_switched = previous
-        .as_ref()
-        .is_some_and(|thread| thread.provider != provider);
 
     let provider_prompt = previous
         .as_ref()
@@ -357,12 +444,6 @@ pub async fn handle_send(state: &AppState, msg: &Value) -> Vec<String> {
         .unwrap_or_else(|| prompt.clone());
     let provider_prompt = with_gallery_tool_instruction(provider_prompt, &project_root, state.server_dir());
     let provider_prompt = with_zotero_passage_instruction(provider_prompt, state.server_dir());
-
-    let Some(provider_impl) = state.provider(&provider) else {
-        return vec![err_json(format!(
-            "provider inconnu ou non branché en Rust: {provider} (fake toujours; claude/codex/grok/opencode si binaires; API via api_providers.json)"
-        ))];
-    };
 
     // Provider change while running: refuse
     if state.harness().is_running(&thread_id).await {
@@ -385,9 +466,6 @@ pub async fn handle_send(state: &AppState, msg: &Value) -> Vec<String> {
             "provider": provider,
             "status": "running",
         });
-        if provider_switched {
-            patch["sessionId"] = Value::Null;
-        }
         if let Some(t) = title.or_else(|| {
             prev.as_ref()
                 .map(|p| p.title.clone())
@@ -535,16 +613,12 @@ pub async fn handle_send(state: &AppState, msg: &Value) -> Vec<String> {
     let tid = thread_id.clone();
     let h2 = Arc::clone(&h);
     let pimpl = Arc::clone(&provider_impl);
-    let session_id = if provider_switched {
-        None
-    } else {
-        state
-            .threads()
-            .lock()
-            .await
-            .get(&thread_id)
-            .and_then(|t| t.session_id.clone())
-    };
+    let session_id = state
+        .threads()
+        .lock()
+        .await
+        .get(&thread_id)
+        .and_then(|t| t.session_id.clone());
     let model = msg
         .get("model")
         .and_then(|v| v.as_str())
@@ -867,7 +941,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn switches_provider_without_reusing_the_previous_native_session() {
+    async fn provider_is_immutable_and_handoff_creates_a_linked_thread() {
         let dir = tempdir().unwrap();
         let state = AppState::new(
             AppPaths::from_app_dir(dir.path().to_path_buf()),
@@ -883,6 +957,14 @@ mod tests {
             .await
             .upsert(json!({"id":"t-locked","provider":"claude","sessionId":"claude-session"}), false)
             .unwrap();
+        assert!(state.journal().append(&json!({
+            "kind":"user","text":"question source",
+            "meta":{"threadId":"t-locked","provider":"claude","eventId":"e1","turnId":"turn-source","sequence":1,"durable":true}
+        })));
+        assert!(state.journal().append(&json!({
+            "kind":"text","text":"réponse source",
+            "meta":{"threadId":"t-locked","provider":"claude","eventId":"e2","turnId":"turn-source","sequence":2,"durable":true}
+        })));
 
         let out = handle_send(
             &state,
@@ -896,14 +978,36 @@ mod tests {
         )
         .await;
 
+        assert!(out[0].contains("provider immuable"), "{out:?}");
+        let source = state.threads().lock().await.get("t-locked").cloned().unwrap();
+        assert_eq!(source.provider, "claude");
+        assert_eq!(source.session_id.as_deref(), Some("claude-session"));
+
+        let out = handle_send(
+            &state,
+            &json!({
+                "type":"send",
+                "threadId":"t-handoff",
+                "handoffFromThreadId":"t-locked",
+                "provider":"fake",
+                "prompt":"handoff",
+                "projectRoot":dir.path().to_string_lossy(),
+            }),
+        )
+        .await;
+
         assert!(out[0].contains("threads"), "{out:?}");
         for _ in 0..50 {
-            if !state.harness().is_running("t-locked").await { break; }
+            if !state.harness().is_running("t-handoff").await { break; }
             tokio::time::sleep(std::time::Duration::from_millis(20)).await;
         }
-        let thread = state.threads().lock().await.get("t-locked").cloned().unwrap();
+        let thread = state.threads().lock().await.get("t-handoff").cloned().unwrap();
         assert_eq!(thread.provider, "fake");
-        assert_ne!(thread.session_id.as_deref(), Some("claude-session"));
+        assert_eq!(thread.extra["handoff"]["sourceThreadId"], "t-locked");
+        assert_eq!(thread.extra["handoff"]["sourceProvider"], "claude");
+        let copied = state.journal().materialize("t-handoff");
+        assert!(copied.iter().any(|event| event["text"] == "question source"));
+        assert!(copied.iter().any(|event| event["text"] == "réponse source"));
     }
 
     #[tokio::test]

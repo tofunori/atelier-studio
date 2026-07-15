@@ -251,7 +251,7 @@ export function ThinkingBlock({ text, live }: { text: string; live: boolean }) {
   );
 }
 
-function reasoningSummary(text: string): string {
+export function reasoningSummary(text: string): string {
   const lines = text
     .replace(/<!--[\s\S]*?-->/gu, "")
     .split(/\r?\n/u)

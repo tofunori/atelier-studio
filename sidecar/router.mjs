@@ -63,6 +63,44 @@ function buildForkContext(events, provider) {
     `---\n${transcript}${HANDOFF_END}`;
 }
 
+async function prepareProviderHandoff(ctx, msg) {
+  const sourceId = typeof msg.handoffFromThreadId === "string" ? msg.handoffFromThreadId : "";
+  if (!sourceId) return null;
+  if (sourceId === msg.threadId) throw new Error("handoff: le fil source et la destination doivent être différents");
+  if (ctx.store.get(msg.threadId)) throw new Error("handoff: la destination existe déjà");
+  const source = ctx.store.get(sourceId);
+  if (!source) throw new Error("handoff: fil source introuvable");
+  if (source.status === "running" || threadRuns.has(sourceId)) {
+    throw new Error("handoff: arrêter le tour source avant de changer de provider");
+  }
+  if (source.provider === msg.provider) {
+    throw new Error("handoff: le provider cible doit être différent du provider source");
+  }
+
+  const events = ctx.harnessJournal?.hasJournal(sourceId)
+    ? await ctx.harnessJournal.materialize(sourceId)
+    : [];
+  if (ctx.harnessJournal?.hasJournal(sourceId)) {
+    const copied = await ctx.harnessJournal.copyThread(sourceId, msg.threadId);
+    if (!copied) throw new Error("handoff: copie atomique du journal impossible");
+  }
+  ctx.store.upsert({
+    id: msg.threadId,
+    projectRoot: source.projectRoot ?? msg.projectRoot ?? "",
+    provider: msg.provider,
+    title: `↪ ${source.title ?? "handoff"}`,
+    sessionId: null,
+    status: "idle",
+    forkContext: buildForkContext(events, source.provider),
+    handoff: {
+      sourceThreadId: sourceId,
+      sourceProvider: source.provider,
+      targetProvider: msg.provider,
+    },
+  });
+  return source;
+}
+
 function zoteroFavsPath(ctx) {
   return ctx.zoteroFavsPath ?? join(DEFAULT_APP_DIR, "zotero-favs.json");
 }
@@ -716,6 +754,9 @@ async function startProviderTurn(ctx, h, msg, { reservedTurnId = null } = {}) {
   const p = ctx.providers[provider];
   const emit = emitBox.get(threadId) ?? ctx.broadcast ?? ctx.send;
   const prev = ctx.store.get(threadId);
+  if (prev?.provider && prev.provider !== provider) {
+    throw new Error(`provider immuable pour ce fil (${prev.provider}); handoff requis vers ${provider}`);
+  }
 
   // Sélection effective du tour. Les envois « nus » du frontend (renvoi après
   // rewind, tour de correction auto-review) ne portent pas la sélection du
@@ -1647,7 +1688,13 @@ export async function route(msg, ctx) {
     case "send": {
       // sérialisé par thread : deux frames WS rapprochées ne franchissent pas
       // ensemble le check « running » (course entre deux sends)
-      await withThreadSendLock(msg.threadId, () => handleSend(msg, ctx));
+      const sourceId = typeof msg.handoffFromThreadId === "string" ? msg.handoffFromThreadId : "";
+      if (sourceId && sourceId !== msg.threadId) {
+        await withThreadSendLock(sourceId, () =>
+          withThreadSendLock(msg.threadId, () => handleSend(msg, ctx)));
+      } else {
+        await withThreadSendLock(msg.threadId, () => handleSend(msg, ctx));
+      }
       break;
     }
     default:
@@ -1665,9 +1712,15 @@ async function handleSend(msg, ctx) {
   const emit = ctx.broadcast ?? ctx.send;
   emitBox.set(threadId, emit);
 
-  // Un run actif reste lié à son provider. Au repos, le transcript Atelier
-  // peut toutefois continuer avec un autre provider : on conserve le journal
-  // visible, mais on jette obligatoirement la session native précédente.
+  try {
+    await prepareProviderHandoff(ctx, msg);
+  } catch (error) {
+    emit({ type: "error", threadId, message: String(error?.message ?? error) });
+    return;
+  }
+
+  // Un run et son fil durable restent liés à leur provider. Un changement de
+  // moteur passe obligatoirement par `handoffFromThreadId` vers un NOUVEAU fil.
   const running = threadRuns.get(threadId);
   if (running && running.turn.provider !== provider) {
     emit({
@@ -1680,14 +1733,16 @@ async function handleSend(msg, ctx) {
 
   let prev = ctx.store.get(threadId);
   if (prev?.provider && prev.provider !== provider) {
-    ctx.providers?.[prev.provider]?.endSession?.(threadId);
-    ctx.store.upsert({
-      id: threadId,
-      provider,
-      sessionId: null,
-      resumeAt: null,
-      forkPending: false,
-    });
+    const locked = Boolean(prev.sessionId || prev.lastTurn || ctx.harnessJournal?.hasJournal(threadId));
+    if (locked) {
+      emit({
+        type: "error",
+        threadId,
+        message: `provider immuable pour ce fil (${prev.provider}); créer un handoff vers ${provider}`,
+      });
+      return;
+    }
+    ctx.store.upsert({ id: threadId, provider });
     prev = ctx.store.get(threadId);
   }
   // garde-fou : un thread Claude ne peut reprendre qu'un UUID Claude. Si le

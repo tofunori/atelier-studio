@@ -6,16 +6,9 @@ import { eventLabel, t } from "../lib/i18n";
 import { buildHighlightContext } from "../lib/highlightContext";
 import type { HighlightEntry } from "./Rail";
 import { CloseIcon } from "./icons";
-import { ProviderInfo } from "../lib/providers";
+import { ProviderInfo, providerAllowsCommand } from "../lib/providers";
 import { ToolOutputLine, isSummarizableTool, Tick, toolCategory } from "./chat/toolPresentation";
-import {
-  type ActiveActionCollectionItem,
-  type ActiveReasoningItem,
-  ChatTimeline,
-  type ActiveThinkingItem,
-  type ActiveWorkHeaderItem,
-  type ToolAction,
-} from "./chat/ChatTimeline";
+import { ChatTimeline } from "./chat/ChatTimeline";
 import { ChatHeader } from "./chat/ChatHeader";
 import type { ResearchHomeBundle } from "./ResearchHome";
 import { ChatComposer } from "./chat/ChatComposer";
@@ -24,6 +17,12 @@ import { mentionLabel } from "./chat/mentions";
 import { BUILTIN_MODEL_LABELS } from "../lib/modelCatalog";
 import type { PluginCatalogEntry } from "../lib/plugins";
 import type { QueuedTurn } from "../lib/chatDraftStore";
+import {
+  buildChatTurnViewModels,
+  projectChatTimeline,
+  type ProjectedTimelineItem,
+  type ToolAction,
+} from "../lib/chat/turnViewModel";
 
 
 
@@ -584,6 +583,7 @@ export default function Chat(p: {
     const q = slashMatch[2].toLowerCase();
     const slashBase = text.slice(0, slashMatch.index) + slashMatch[1];
     suggestions = p.commands
+      .filter((command) => providerAllowsCommand(providerInfo(), command))
       .filter((c) => c.name.toLowerCase().includes(q))
       .slice(0, 12)
       .map((c) => ({ insert: `${slashBase}/${c.name} `, label: `/${c.name}`, hint: c.source }));
@@ -591,8 +591,9 @@ export default function Chat(p: {
     const q = atMatch[2].toLowerCase();
     const base = text.slice(0, atMatch.index) + atMatch[1];
     suggestions = [];
+    const pluginsSupported = providerInfo()?.capabilities?.plugins ?? provider === "codex";
     suggestions.push(
-      ...(p.plugins ?? [])
+      ...(pluginsSupported ? (p.plugins ?? []) : [])
         .filter((plugin) => plugin.name.toLowerCase().includes(q) || plugin.displayName.toLowerCase().includes(q))
         .slice(0, 10)
         .map((plugin) => ({
@@ -728,31 +729,21 @@ export default function Chat(p: {
     for (const path of paths) p.onAttachPath?.(path as string);
   }
 
-  // ---- pliage des tours terminés (pattern Codex « Worked for Xm Ys ») ----
-  // un tour = user → … → done ; une fois terminé, le travail intermédiaire
-  // (narration, outils, réflexion) se replie en une ligne dépliable. Restent
-  // visibles : le bloc final (texte de réponse, cartes edit, todos, erreurs).
-  type TurnFold = { key: string; start: number; end: number; ms: number | null };
   type EditEvent = Extract<AgentEvent, { kind: "edit" }>;
 
-  // Une séquence d'Edit produit souvent deux événements (outil technique puis
-  // fichier édité) et peut réécrire le même fichier plusieurs fois. Pour le
-  // fil visible, garder une seule synthèse cumulative par tour et par fichier.
-  // Le diff demandé reste le diff Git courant, donc aucune information utile
-  // n'est perdue dans le détail déplié.
-  const mergedEdits = new Map<number, EditEvent>();
-  const editTurns = new Set<number>();
-  {
-    let start = 0;
-    while (start < p.events.length) {
-      const userAt = p.events.findIndex((event, index) => index >= start && event.kind === "user");
-      if (userAt < 0) break;
-      const doneOffset = p.events.slice(userAt + 1).findIndex((event) => event.kind === "done");
-      const end = doneOffset < 0 ? p.events.length : userAt + 1 + doneOffset;
+  const turnViewModels = React.useMemo(
+    () => buildChatTurnViewModels(p.events, p.workingSince),
+    [p.events, p.workingSince],
+  );
+
+  const { mergedEdits, editTurns } = React.useMemo(() => {
+    const merged = new Map<number, EditEvent>();
+    const turnsWithEdits = new Set<number>();
+    for (const turn of turnViewModels) {
       const files = new Map<string, { path: string; add: number | null; del: number | null }>();
       let lastEdit = -1;
       let projectRoot: string | null | undefined;
-      for (let index = userAt + 1; index < end; index++) {
+      for (let index = turn.startIndex; index < turn.endIndex; index += 1) {
         const event = p.events[index];
         if (event.kind !== "edit") continue;
         lastEdit = index;
@@ -766,40 +757,23 @@ export default function Chat(p: {
           });
         }
       }
-      if (lastEdit >= 0) {
-        for (let index = userAt + 1; index < end; index++) editTurns.add(index);
-        mergedEdits.set(lastEdit, { kind: "edit", projectRoot, files: [...files.values()], ts: (p.events[lastEdit] as EditEvent).ts });
-      }
-      start = end + 1;
+      if (lastEdit < 0) continue;
+      for (let index = turn.startIndex; index < turn.endIndex; index += 1) turnsWithEdits.add(index);
+      merged.set(lastEdit, {
+        kind: "edit",
+        projectRoot,
+        files: [...files.values()],
+        ts: (p.events[lastEdit] as EditEvent).ts,
+      });
     }
-  }
-  const turnFolds = new Map<number, TurnFold>();
-  {
-    // Synara rattache le journal de travail et les narrations intermédiaires
-    // au DERNIER message assistant du tour. Le dernier texte reste visible ;
-    // tout ce qui le précède devient le contenu de « Worked for… ».
-    const KEEP_TAIL = new Set(["text", "edit", "todos", "error", "permission", "interaction", "usage", "goal"]);
-    let u = -1;
-    for (let i = 0; i < p.events.length; i++) {
-      const e = p.events[i];
-      if (e.kind === "user") { u = i; continue; }
-      if (e.kind !== "done" || u < 0) continue;
-      let finalText = -1;
-      for (let index = i - 1; index > u; index--) {
-        if (p.events[index].kind === "text") { finalText = index; break; }
-      }
-      let tail = finalText >= 0 ? finalText : i;
-      if (finalText < 0) {
-        while (tail - 1 > u && KEEP_TAIL.has(p.events[tail - 1].kind)) tail--;
-      }
-      if (tail > u + 1) {
-        const uts = (p.events[u] as { ts?: number }).ts;
-        const ms = e.ts != null && uts != null ? e.ts - uts : null;
-        turnFolds.set(u + 1, { key: `fold:${u}`, start: u + 1, end: tail, ms });
-      }
-      u = -1;
-    }
-  }
+    return { mergedEdits: merged, editTurns: turnsWithEdits };
+  }, [p.events, turnViewModels]);
+
+  const projectedTimeline = React.useMemo(
+    () => projectChatTimeline(p.events, turnViewModels, openFolds),
+    [openFolds, p.events, turnViewModels],
+  );
+
   const fmtWorkDur = (ms: number) => {
     const s = Math.max(1, Math.round(ms / 1000));
     if (s < 60) return `${s}s`;
@@ -808,150 +782,62 @@ export default function Chat(p: {
     return `${Math.floor(m / 60)}h ${String(m % 60).padStart(2, "0")}m`;
   };
 
-  const actionId = (action: ToolAction, at: number) =>
-    "id" in action && action.id ? String(action.id) : `event:${at}`;
-
-  // Architecture Synara : le tour actif commence après le dernier terminal.
-  // Le header suit le dernier user de ce segment ; les actions restent visibles
-  // sous un libellé humain, les signaux reasoning consécutifs sont consolidés,
-  // et un unique « Thinking » synthétique termine toujours la timeline.
-  let activeStartIndex = p.events.length;
-  let activeUserIndex = -1;
-  let activeHeader: ActiveWorkHeaderItem | null = null;
-  let activeThinking: ActiveThinkingItem | null = null;
-  if (p.workingSince != null) {
-    let lastTerminal = -1;
-    for (let index = p.events.length - 1; index >= 0; index--) {
-      if (p.events[index].kind === "done" || p.events[index].kind === "error") {
-        lastTerminal = index;
-        break;
-      }
-    }
-    const activeSegmentStart = lastTerminal + 1;
-    activeStartIndex = activeSegmentStart;
-    for (let index = p.events.length - 1; index >= activeStartIndex; index--) {
-      if (p.events[index].kind === "user") { activeUserIndex = index; break; }
-    }
-    // Une tâche autonome peut démarrer sans nouvel événement user. Synara
-    // conserve alors l'en-tête après le dernier message utilisateur connu,
-    // mais la normalisation active ne doit jamais remonter dans l'ancien tour.
-    if (activeUserIndex < 0) {
-      for (let index = activeSegmentStart - 1; index >= 0; index--) {
-        if (p.events[index].kind === "user") { activeUserIndex = index; break; }
-      }
-    }
-    if (activeUserIndex >= 0) {
-      if (activeUserIndex >= activeSegmentStart) activeStartIndex = activeUserIndex + 1;
-      const activeKey = `${p.threadId ?? "thread"}:${activeUserIndex}`;
-      activeHeader = { type: "active-header", key: `active-header:${activeKey}`, since: p.workingSince };
-      activeThinking = { type: "active-thinking", key: `active-thinking:${activeKey}` };
-    }
-  }
-
-  const renderedEvents: (
-    | { type: "event"; event: AgentEvent; index: number }
-    | { type: "actions"; actions: Extract<AgentEvent, { kind: "tool" | "tool_update" }>[]; index: number; key: string }
-    | { type: "fold"; fold: TurnFold; open: boolean }
-    | ActiveActionCollectionItem
-    | ActiveReasoningItem
-    | ActiveWorkHeaderItem
-    | ActiveThinkingItem
-  )[] = [];
-  const pushRendered = (item:
-    | { type: "event"; event: AgentEvent; index: number }
-    | { type: "actions"; actions: Extract<AgentEvent, { kind: "tool" | "tool_update" }>[]; index: number; key: string }
-    | { type: "fold"; fold: TurnFold; open: boolean }
-    | ActiveReasoningItem
-    | ActiveWorkHeaderItem
-  ) => {
-    if (item.type === "actions" && p.workingSince != null && item.index >= activeStartIndex) {
-      const previous = renderedEvents[renderedEvents.length - 1];
-      if (previous?.type === "active-actions") {
-        previous.groups.push(item);
-      } else {
-        renderedEvents.push({
-          type: "active-actions",
-          key: `active-actions:${item.key}`,
-          groups: [item],
-        });
-      }
-      return;
-    }
-    renderedEvents.push(item);
+  const actionId = (action: ToolAction, at: number) => {
+    const meta = action.meta && "turnId" in action.meta ? action.meta : null;
+    const itemId = meta?.itemId ?? null;
+    if (itemId) return `${meta?.turnId ?? "legacy"}:${itemId}`;
+    return "id" in action && action.id ? String(action.id) : `event:${at}`;
   };
-  const isReasoningSignal = (event: AgentEvent) =>
-    event.kind === "thinking" || event.kind === "thinking_live" ||
-    (event.kind === "tool" && event.name === "__thinking");
-  for (let i = 0; i < p.events.length; i++) {
-    const fold = turnFolds.get(i);
-    if (fold) {
-      const open = openFolds.has(fold.key);
-      pushRendered({ type: "fold", fold, open });
-      if (!open) { i = fold.end - 1; continue; }
-    }
-    const e = p.events[i];
-    if (p.workingSince != null && i >= activeStartIndex && isReasoningSignal(e)) {
-      let end = i + 1;
-      while (end < p.events.length && isReasoningSignal(p.events[end])) end++;
-      const texts = p.events.slice(i, end).flatMap((event) =>
-        event.kind === "thinking" || event.kind === "thinking_live"
-          ? [event.text.trim()].filter(Boolean)
-          : [],
-      );
-      if (texts.length > 0) {
-        pushRendered({
-          type: "active-reasoning",
-          key: `active-reasoning:${i}`,
-          texts,
-        });
+
+  const renderedEvents = React.useMemo(() => {
+    const rows: Array<
+      ProjectedTimelineItem |
+      { type: "actions"; actions: ToolAction[]; index: number; key: string }
+    > = [];
+    for (let offset = 0; offset < projectedTimeline.length; offset += 1) {
+      const row = projectedTimeline[offset];
+      if (row.type !== "event") {
+        rows.push(row);
+        continue;
       }
-      i = end - 1;
-      continue;
+      const event = row.event;
+      if (
+        isSummarizableTool(event) &&
+        editTurns.has(row.index) &&
+        toolCategory(event.name, "detail" in event ? event.detail : undefined) === "edit"
+      ) {
+        continue;
+      }
+      if (event.kind === "edit") {
+        const merged = mergedEdits.get(row.index);
+        if (merged) rows.push({ ...row, event: merged });
+        continue;
+      }
+      if (!isSummarizableTool(event)) {
+        rows.push(row);
+        continue;
+      }
+      const identity = actionId(event, row.index);
+      const actions: ToolAction[] = [event];
+      let nextOffset = offset + 1;
+      while (nextOffset < projectedTimeline.length) {
+        const next = projectedTimeline[nextOffset];
+        if (next.type !== "event" || !isSummarizableTool(next.event)) break;
+        if (actionId(next.event, next.index) !== identity) break;
+        actions.push(next.event);
+        nextOffset += 1;
+      }
+      rows.push({
+        type: "actions",
+        actions,
+        index: row.index,
+        key: `tools:${identity}`,
+      });
+      offset = nextOffset - 1;
     }
-    // L'événement humain « Edited fichier » remplace l'appel Edit redondant.
-    if (isSummarizableTool(e) && editTurns.has(i) && toolCategory(e.name, "detail" in e ? e.detail : undefined) === "edit") {
-      continue;
-    }
-    if (e.kind === "edit") {
-      const merged = mergedEdits.get(i);
-      if (merged) pushRendered({ type: "event", event: merged, index: i });
-      continue;
-    }
-    // les sentinelles (__thinking, __compacted…) et non-outils gardent leur ligne
-    if (!isSummarizableTool(e)) {
-      pushRendered({ type: "event", event: e, index: i });
-      if (activeHeader && i === activeUserIndex) pushRendered(activeHeader);
-      continue;
-    }
-    // Une action par ligne : on ne regroupe que l'appel et ses mises à jour
-    // portant le même id. Deux outils consécutifs restent indépendamment
-    // dépliables, comme dans le journal d'activité de Codex.
-    const identity = actionId(e, i);
-    let end = i + 1;
-    while (
-      end < p.events.length &&
-      isSummarizableTool(p.events[end]) &&
-      actionId(p.events[end] as Extract<AgentEvent, { kind: "tool" | "tool_update" }>, end) === identity
-    ) end++;
-    const actions = p.events.slice(i, end) as Extract<AgentEvent, { kind: "tool" | "tool_update" }>[];
-    const first = actions[0];
-    // le turn fait partie de l'identité : deux turns peuvent réutiliser le
-    // même id d'outil (plan 025) — sans lui, React fusionne les deux grappes
-    const turnKey = first?.meta && "turnId" in first.meta ? `${first.meta.turnId}:` : "";
-    const groupKey = `tools:${turnKey}${identity}`;
-    pushRendered({ type: "actions", actions, index: i, key: groupKey });
-    i = end - 1;
-  }
-  if (activeThinking) renderedEvents.push(activeThinking);
-  const currentTool = [...p.events].reverse().find((e) => e.kind === "tool_update" || e.kind === "tool");
-  const currentToolName =
-    currentTool?.kind === "tool_update" ? eventLabel(currentTool.name) :
-    currentTool?.kind === "tool" ? eventLabel(currentTool.name) : "";
-  const currentActivity = [...p.events].reverse().find((e) => e.kind === "activity") as Extract<AgentEvent, { kind: "activity" }> | undefined;
-  const currentActivityName = currentActivity?.status === "running"
-    ? [currentActivity.title, currentActivity.detail].filter(Boolean).join(" · ")
-    : "";
-  const currentWorkName = currentActivityName || currentToolName;
+    return rows;
+  }, [editTurns, mergedEdits, projectedTimeline]);
+
   const latestGoal = [...p.events].reverse().find((e): e is Extract<AgentEvent, { kind: "goal" }> => e.kind === "goal");
   const goalKey = latestGoal ? `${latestGoal.goal?.objective ?? ""}|${latestGoal.ts ?? ""}` : null;
   const activeGoal = latestGoal && !latestGoal.cleared && goalKey !== goalDismissed
@@ -995,7 +881,12 @@ export default function Chat(p: {
         />
       )}
       <ChatTimeline
-        thread={{ threadId: p.threadId, events: p.events, workingSince: p.workingSince }}
+        thread={{
+          threadId: p.threadId,
+          events: p.events,
+          workingSince: p.workingSince,
+          phase: turnViewModels[turnViewModels.length - 1]?.phase ?? "idle",
+        }}
         rev={{ review, reviewMin, setReviewMin, setReview, barOpen, setBarOpen, fixing, setFixing, reviewOpen, setReviewOpen }}
         list={{ renderedEvents, openFolds, setOpenFolds, openToolGroups, setOpenToolGroups, renderToolLine, fmtWorkDur }}
         msg={{
@@ -1004,7 +895,7 @@ export default function Chat(p: {
           defaults: p.defaults, onQuote: p.onQuote,
         }}
         scroll={{ messagesRef, onMessagesMouseUp }}
-        working={{ currentWorkName, onStop: p.onStop }}
+        working={{ onStop: p.onStop }}
         chapters={{ tickPos, resolvePinEl, pinMenu, setPinMenu, onStylePin: p.onStylePin }}
         empty={{ onNewChat: p.onNewChat, onOpenProject: p.onOpenProject, home: p.home ?? null }}
         selection={{ quote, setQuote, quoteHasHl, quoteHasUl, addMark, removeMark }}

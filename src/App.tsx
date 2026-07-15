@@ -139,29 +139,6 @@ function addAttachment(list: Attachment[], a: Attachment): Attachment[] {
   return list.some((x) => x.text === a.text) ? list : [...list, a];
 }
 
-// handoff inter-provider : sérialise la conversation visible pour que le
-// nouveau provider reprenne avec le contexte — façon Synara. Le fil est
-// injecté EN ENTIER (les modèles ont 200k+ tokens de contexte) ; seul un
-// garde-fou très haut borne les fils pathologiques. La sentinelle de
-// fermeture doit rester identique à HANDOFF_END de sidecar/handoff.mjs
-// (stripHandoff la retire au replay de l'historique — jamais affichée).
-const HANDOFF_END = "\n=== fin du fil transmis — message réel ci-dessous ===\n\n";
-function buildHandoff(events: AgentEvent[], fromProvider: string): string {
-  const lines: string[] = [];
-  for (const e of events) {
-    if (e.kind === "user") lines.push(`Utilisateur : ${e.text}`);
-    else if (e.kind === "text") lines.push(`Agent (${fromProvider}) : ${e.text}`);
-  }
-  let transcript = lines.join("\n\n");
-  const MAX = 400_000; // ~100k tokens : garde-fou, pas une troncature de confort
-  if (transcript.length > MAX) transcript = "[…début tronqué…]\n" + transcript.slice(-MAX);
-  return (
-    "Tu reprends une conversation commencée avec un autre agent. " +
-    "Voici le fil jusqu'ici — prends-le comme contexte acquis, ne le résume pas, ne le répète pas :\n\n" +
-    "---\n" + transcript + HANDOFF_END
-  );
-}
-
 function checkpointAfterUser(events: AgentEvent[], index: number) {
   const userMeta = events[index]?.meta;
   const turnId = userMeta && "turnId" in userMeta ? userMeta.turnId : undefined;
@@ -1787,6 +1764,8 @@ export default function App() {
     let optimisticGoal: AgentEvent | null = null;
     const activeThread = allThreadsRef.current.find((t) => t.id === activeId);
     const threadRoot = activeThread ? activeThread.projectRoot : (activeProject ?? "");
+    const selectedCapabilities = providerList.find((entry) => entry.id === provider)?.capabilities;
+    const supportsPlugins = selectedCapabilities?.plugins ?? provider === "codex";
     const nativeCommand = parseNativeSlashCommand(prompt);
     if (nativeCommand?.name === "resume") {
       window.dispatchEvent(new CustomEvent("atelier-open-resume", { detail: { provider: "codex" } }));
@@ -1797,6 +1776,10 @@ export default function App() {
       return;
     }
     if (nativeCommand?.name === "plugins") {
+      if (!supportsPlugins) {
+        void showInfo(`${provider} ne fournit pas de plugins dans ce chat.`);
+        return;
+      }
       setPluginsOpen(true);
       if (ws.current?.readyState === 1) {
         ws.current.send(JSON.stringify({ type: "listPlugins", projectRoot: threadRoot }));
@@ -1848,14 +1831,16 @@ export default function App() {
     }
     // /clear et /compact sur un thread CODEX : équivalents natifs app-server
     const codexActive = activeId && (activeThread?.provider ?? provider) === "codex";
-    if (codexActive && ["/clear", "/compact"].includes(prompt.trim()) && ws.current?.readyState === 1) {
+    const compactSupported = selectedCapabilities?.compact ?? Boolean(codexActive);
+    if (codexActive && compactSupported && ["/clear", "/compact"].includes(prompt.trim()) && ws.current?.readyState === 1) {
       ws.current.send(JSON.stringify({
         type: prompt.trim() === "/clear" ? "codexClear" : "codexCompact",
         threadId: activeId,
       }));
       return;
     }
-    if (nativeCommand?.name === "review" && codexActive && activeId && ws.current?.readyState === 1) {
+    const reviewSupported = selectedCapabilities?.review ?? Boolean(codexActive);
+    if (nativeCommand?.name === "review" && codexActive && reviewSupported && activeId && ws.current?.readyState === 1) {
       window.dispatchEvent(new CustomEvent("review-result", {
         detail: { type: "reviewResult", threadId: activeId, status: "running" },
       }));
@@ -1928,15 +1913,40 @@ export default function App() {
       }
       return;
     }
-    // handoff : le thread a un historique sous un AUTRE provider → réinjecter le fil
+    // Synara : un provider est immuable dès que le fil possède un historique.
+    // Le changement crée une destination distincte; le backend copie le journal
+    // et injecte le contexte dans la même transaction que le premier send.
     const priorEvents = activeId ? (events[activeId] ?? []) : [];
-    const isSwitch =
-      activeThread && activeThread.sessionId && activeThread.provider !== provider &&
-      priorEvents.length > 0;
-    const handoff = isSwitch ? buildHandoff(priorEvents, activeThread!.provider) : "";
+    let id = activeId;
+    let handoffFromThreadId: string | undefined;
+    if (
+      id && activeThread && activeThread.provider !== provider &&
+      (Boolean(activeThread.sessionId) || priorEvents.length > 0)
+    ) {
+      const sourceThreadId = id;
+      handoffFromThreadId = sourceThreadId;
+      id = crypto.randomUUID();
+      const targetId = id;
+      setDraftThreads((current) => [{
+        id: targetId,
+        projectRoot: activeThread.projectRoot ?? threadRoot,
+        title: `↪ ${activeThread.title || displayPrompt.slice(0, 40)}`,
+        provider,
+        sessionId: null,
+        status: "idle",
+        updatedAt: new Date().toISOString(),
+        handoff: {
+          sourceThreadId,
+          sourceProvider: activeThread.provider,
+          targetProvider: provider,
+        },
+      }, ...current]);
+      setActiveId(targetId);
+      activeIdRef.current = targetId;
+      if (pendingGoal.current) pendingGoal.current.threadId = targetId;
+    }
     // pièce jointe (annotation/sélection atelier) : préfixée au prompt envoyé
     const fullPrompt =
-      handoff +
       (attachments.length
         ? `${attachments.map((a) => a.text).join("\n\n")}\n\n${prompt}`.trim()
         : prompt);
@@ -1967,7 +1977,7 @@ export default function App() {
         : {}),
     };
     const imagePaths = attachments.map((a) => a.path).filter(Boolean) as string[];
-    const pluginSkills = provider === "codex" ? pluginSkillsForPrompt(displayPrompt, plugins) : [];
+    const pluginSkills = supportsPlugins ? pluginSkillsForPrompt(displayPrompt, plugins) : [];
     const codexInputs = provider === "codex" && (imagePaths.length || pluginSkills.length)
       ? [
           { type: "text" as const, text: fullPrompt },
@@ -1981,7 +1991,6 @@ export default function App() {
       .filter(Boolean);
     setAttachments([]);
     // pas de thread sélectionné → en créer un à la volée
-    let id = activeId;
     if (!id) {
       id = crypto.randomUUID();
       setDraftThreads((p) => [
@@ -2003,7 +2012,11 @@ export default function App() {
     }
     setEvents((p) => ({
       ...p,
-      [id]: [...(p[id] ?? []), userEvent, ...(optimisticGoal ? [optimisticGoal] : [])],
+      [id]: [
+        ...(handoffFromThreadId ? (p[handoffFromThreadId] ?? priorEvents) : (p[id] ?? [])),
+        userEvent,
+        ...(optimisticGoal ? [optimisticGoal] : []),
+      ],
     }));
     setWorkingSince((p) => ({ ...p, [id as string]: Date.now() }));
     if (mock) {
@@ -2064,6 +2077,7 @@ export default function App() {
         ...(provider === "codex" && settingsRef.current.webSearch ? { webSearch: true } : {}),
         ...(provider === "codex" && additionalDirectories.length ? { additionalDirectories } : {}),
         mode,
+        ...(handoffFromThreadId ? { handoffFromThreadId } : {}),
       });
       // le sidecar prend le relais : retirer le brouillon local homonyme
       setDraftThreads((p) => p.filter((t) => t.id !== id));
@@ -2078,11 +2092,32 @@ export default function App() {
     if (!thread) return false;
     const queuedAttachments = queued.attachments;
     const priorEvents = eventsRef.current[threadId] ?? [];
-    const isSwitch = Boolean(thread.sessionId && thread.provider !== queued.provider && priorEvents.length);
-    const handoff = isSwitch ? buildHandoff(priorEvents, thread.provider) : "";
-    const fullPrompt = handoff + (queuedAttachments.length
+    let targetThreadId = threadId;
+    let handoffFromThreadId: string | undefined;
+    if (thread.provider !== queued.provider && (Boolean(thread.sessionId) || priorEvents.length > 0)) {
+      handoffFromThreadId = threadId;
+      targetThreadId = crypto.randomUUID();
+      const targetId = targetThreadId;
+      setDraftThreads((current) => [{
+        id: targetId,
+        projectRoot: thread.projectRoot ?? "",
+        title: `↪ ${thread.title || queued.prompt.slice(0, 40)}`,
+        provider: queued.provider,
+        sessionId: null,
+        status: "idle",
+        updatedAt: new Date().toISOString(),
+        handoff: {
+          sourceThreadId: threadId,
+          sourceProvider: thread.provider,
+          targetProvider: queued.provider,
+        },
+      }, ...current]);
+      setActiveId(targetId);
+      activeIdRef.current = targetId;
+    }
+    const fullPrompt = queuedAttachments.length
       ? `${queuedAttachments.map((attachment) => attachment.text).join("\n\n")}\n\n${queued.prompt}`.trim()
-      : queued.prompt);
+      : queued.prompt;
     const clientMessageId = crypto.randomUUID();
     const imagePaths = queuedAttachments.map((attachment) => attachment.path).filter(Boolean) as string[];
     const pluginSkills = queued.pluginSkills;
@@ -2119,15 +2154,18 @@ export default function App() {
     };
     setEvents((current) => ({
       ...current,
-      [threadId]: [...(current[threadId] ?? []), userEvent],
+      [targetThreadId]: [
+        ...(handoffFromThreadId ? (current[handoffFromThreadId] ?? priorEvents) : (current[targetThreadId] ?? [])),
+        userEvent,
+      ],
     }));
     setWorkingSince((current) => ({
       ...current,
-      [threadId]: current[threadId] ?? Date.now(),
+      [targetThreadId]: current[targetThreadId] ?? Date.now(),
     }));
     sendPrompt(ws.current, {
       ...(queued.autoReview ? { autoReview: queued.autoReview } : {}),
-      threadId,
+      threadId: targetThreadId,
       projectRoot: thread.projectRoot ?? "",
       provider: queued.provider,
       prompt: fullPrompt,
@@ -2155,6 +2193,7 @@ export default function App() {
         ? { additionalDirectories: queued.additionalDirectories }
         : {}),
       mode,
+      ...(handoffFromThreadId ? { handoffFromThreadId } : {}),
     });
     return true;
   }

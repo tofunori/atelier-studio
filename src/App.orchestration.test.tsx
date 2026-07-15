@@ -194,6 +194,39 @@ describe("orchestration App — caractérisation", () => {
     const sends = sock.sent.map((s) => JSON.parse(s)).filter((m) => m.type === "send");
     expect(sends[sends.length - 1]).toMatchObject({ provider: "codex", prompt: "Analyse ce projet" });
   });
+
+  it("un changement de provider crée un nouveau fil par handoff atomique", async () => {
+    const { sock } = await mountApp();
+    await pushThreads(sock, [THREAD_A]);
+    await selectThread(sock, "Fil A — albédo");
+    await push(sock, {
+      type: "history",
+      threadId: "thread-A",
+      events: [events.user("Question source"), events.text("Réponse source")],
+    });
+
+    fireEvent.click(document.querySelector(".mp-model") as HTMLButtonElement);
+    const providerTabs = document.querySelector(".model-provider-tabs") as HTMLElement;
+    fireEvent.click(within(providerTabs).getByText("Codex"));
+    fireEvent.click(document.querySelector(".model-list .mp-row-main") as HTMLButtonElement);
+
+    const textarea = document.querySelector(".composer textarea") as HTMLTextAreaElement;
+    fireEvent.change(textarea, { target: { value: "Continue avec Codex" } });
+    await act(async () => {
+      fireEvent.submit(textarea.closest("form")!);
+      await flushMicrotasks(6);
+    });
+
+    const sends = sock.sent.map((value) => JSON.parse(value)).filter((message) => message.type === "send");
+    const handoff = sends[sends.length - 1];
+    expect(handoff.provider).toBe("codex");
+    expect(handoff.threadId).not.toBe("thread-A");
+    expect(handoff.handoffFromThreadId).toBe("thread-A");
+    expect(handoff.prompt).toBe("Continue avec Codex");
+    expect(handoff.prompt).not.toContain("Question source");
+    expect(screen.getByText("Question source")).toBeTruthy();
+    expect(screen.getByText("Continue avec Codex")).toBeTruthy();
+  });
   it("squelette DOM du shell inchangé (TopBar → app-row → rail/panneau/poignée/main-card)", async () => {
     await mountApp();
     const row = document.querySelector(".app-row");

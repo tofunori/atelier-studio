@@ -159,7 +159,7 @@ describe("timeline Chat — caractérisation avant extraction", () => {
     expect(row1.getAttribute("aria-expanded")).toBe("false");
     expect(screen.queryByText(/avant\.csv/)).toBeNull(); // replié par défaut
     act(() => { row1.click(); });
-    expect(row1.getAttribute("aria-expanded")).toBe("true");
+    expect(document.querySelector(".ui-activity-trigger")?.getAttribute("aria-expanded")).toBe("true");
     expect(document.querySelector('[data-slot="collapsible-content"].ui-activity-detail')).toBeTruthy();
     expect(screen.getByText(/avant\.csv/)).toBeTruthy();
     first.unmount();

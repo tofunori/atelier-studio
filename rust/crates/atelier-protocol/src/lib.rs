@@ -70,6 +70,8 @@ impl Health {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct ProviderCapabilities {
+    #[serde(default)]
+    pub reasoning: bool,
     pub resume: bool,
     pub steering: bool,
     pub queue: bool,
@@ -79,6 +81,18 @@ pub struct ProviderCapabilities {
     pub permissions: bool,
     pub interactive_input: bool,
     pub mcp_elicitation: bool,
+    #[serde(default)]
+    pub mcp_tools: bool,
+    #[serde(default)]
+    pub mcp_widgets: bool,
+    #[serde(default)]
+    pub plugins: bool,
+    #[serde(default)]
+    pub skills: bool,
+    #[serde(default)]
+    pub review: bool,
+    #[serde(default)]
+    pub compact: bool,
     pub durable_history: bool,
     pub permission_modes: Vec<String>,
 }
@@ -224,6 +238,7 @@ pub fn builtin_providers() -> Vec<ProviderStatus> {
                 "max".into(),
             ],
             capabilities: ProviderCapabilities {
+                reasoning: true,
                 resume: true,
                 steering: true,
                 queue: true,
@@ -233,6 +248,12 @@ pub fn builtin_providers() -> Vec<ProviderStatus> {
                 permissions: true,
                 interactive_input: false,
                 mcp_elicitation: false,
+                mcp_tools: true,
+                mcp_widgets: false,
+                plugins: false,
+                skills: true,
+                review: false,
+                compact: false,
                 durable_history: false,
                 permission_modes: vec![
                     "default".into(),
@@ -267,6 +288,7 @@ pub fn builtin_providers() -> Vec<ProviderStatus> {
                 "max".into(),
             ],
             capabilities: ProviderCapabilities {
+                reasoning: true,
                 resume: true,
                 steering: true,
                 queue: true,
@@ -276,6 +298,12 @@ pub fn builtin_providers() -> Vec<ProviderStatus> {
                 permissions: true,
                 interactive_input: true,
                 mcp_elicitation: true,
+                mcp_tools: true,
+                mcp_widgets: true,
+                plugins: true,
+                skills: true,
+                review: true,
+                compact: true,
                 durable_history: false,
                 permission_modes: vec![
                     "default".into(),
@@ -304,6 +332,7 @@ pub fn builtin_providers() -> Vec<ProviderStatus> {
                 "max".into(),
             ],
             capabilities: ProviderCapabilities {
+                reasoning: true,
                 resume: true,
                 steering: false,
                 queue: true,
@@ -313,6 +342,12 @@ pub fn builtin_providers() -> Vec<ProviderStatus> {
                 permissions: false,
                 interactive_input: false,
                 mcp_elicitation: false,
+                mcp_tools: false,
+                mcp_widgets: false,
+                plugins: false,
+                skills: false,
+                review: false,
+                compact: false,
                 durable_history: false,
                 permission_modes: vec![],
             },
@@ -344,6 +379,7 @@ pub fn builtin_providers() -> Vec<ProviderStatus> {
                 "max".into(),
             ],
             capabilities: ProviderCapabilities {
+                reasoning: true,
                 resume: true,
                 steering: false,
                 queue: true,
@@ -353,6 +389,12 @@ pub fn builtin_providers() -> Vec<ProviderStatus> {
                 permissions: false,
                 interactive_input: false,
                 mcp_elicitation: false,
+                mcp_tools: true,
+                mcp_widgets: false,
+                plugins: false,
+                skills: false,
+                review: false,
+                compact: false,
                 durable_history: false,
                 permission_modes: vec![],
             },

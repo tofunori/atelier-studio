@@ -130,6 +130,7 @@ export function makeTurnEvents(): AgentEvent[] {
 /** Capabilities figées miroir du registry sidecar (claude par défaut). */
 export function makeCapabilities(over: Partial<ProviderCapabilities> = {}): ProviderCapabilities {
   return {
+    reasoning: true,
     resume: true,
     steering: true,
     queue: true,
@@ -139,6 +140,12 @@ export function makeCapabilities(over: Partial<ProviderCapabilities> = {}): Prov
     permissions: true,
     interactiveInput: false,
     mcpElicitation: false,
+    mcpTools: true,
+    mcpWidgets: false,
+    plugins: false,
+    skills: true,
+    review: false,
+    compact: false,
     durableHistory: false,
     permissionModes: ["default", "acceptEdits", "plan", "bypassPermissions"],
     ...over,
