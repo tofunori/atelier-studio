@@ -363,11 +363,9 @@ export function ResultCapsule(p: {
   );
 }
 
-/** Header d'activité du tour (plan 020, étape 3) : « Activité · N étapes ·
- * durée ». Ouvert pendant le run par construction (le pli n'existe qu'après le
- * terminal) ; erreurs/permissions restent hors du pli (KEEP_TAIL, Chat.tsx). */
+/** Repli de fin de tour aligné sur Synara : durée et chevron seulement. */
 export function ActivityFold(p: {
-  fold: { key: string; count: number; ms: number | null };
+  fold: { key: string; ms: number | null };
   open: boolean;
   /** durée formatée du travail (fmtWorkDur) — null si non mesurable */
   duration: string | null;
@@ -378,7 +376,6 @@ export function ActivityFold(p: {
       label={<span className="turn-fold-label">
         {p.duration != null ? t("chat.worked-for", { duration: p.duration }) : t("chat.activity")}
       </span>}
-      meta={<span className="turn-fold-meta">{t("chat.activity-steps", { n: p.fold.count })}</span>}
     />
   );
 }

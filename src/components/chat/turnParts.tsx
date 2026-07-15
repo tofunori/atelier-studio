@@ -8,7 +8,6 @@ import { t } from "../../lib/i18n";
 import { diffLineClass, openFileRef } from "./md";
 import { Tick } from "./toolPresentation";
 import { ActivityDisclosure, IconButton, Tooltip } from "../ui";
-import { Marker, MarkerContent, MarkerIcon } from "../shadcn/marker";
 
 export function DoneDiffToggle({ event, threadId }: {
   event: Extract<AgentEvent, { kind: "done" }>;
@@ -233,6 +232,50 @@ export function ThinkingBlock({ text, live }: { text: string; live: boolean }) {
   );
 }
 
+function reasoningSummary(text: string): string {
+  const line = text
+    .replace(/<!--[\s\S]*?-->/gu, "")
+    .split(/\r?\n/u)
+    .map((part) => part.trim())
+    .filter((part) => part && !part.startsWith("<!--"))
+    .at(-1);
+  if (!line) return "";
+  const cleaned = line
+    .replace(/^#{1,6}\s+/u, "")
+    .replace(/^\*\*(.+)\*\*$/u, "$1")
+    .replace(/^__(.+)__$/u, "$1")
+    .replace(/^`(.+)`$/u, "$1")
+    .trim()
+    .replace(/^reasoning(?:\s+(?:update|trace|summary))?\b[\s:.-]*/iu, "")
+    .replace(/^running\b[\s:.-]*/iu, "")
+    .trim();
+  return cleaned || line;
+}
+
+/** Synara consolide les mises à jour reasoning consécutives et montre la
+ * dernière phrase utile. Le journal complet reste accessible au clic. */
+export function ReasoningTrace({ texts }: { texts: string[] }) {
+  const [open, setOpen] = useState(false);
+  const normalized = texts.map((text) => text.trim()).filter(Boolean);
+  const latest = normalized.at(-1) ?? "";
+  const summary = reasoningSummary(latest);
+  if (!summary) return null;
+  return (
+    <div className="reasoning-trace">
+      <button
+        type="button"
+        className="reasoning-trace-head"
+        aria-expanded={open}
+        onClick={() => setOpen((value) => !value)}
+      >
+        <span className="reasoning-trace-summary">{summary}</span>
+        <Tick open={open} />
+      </button>
+      {open ? <div className="reasoning-trace-body">{normalized.join("\n\n")}</div> : null}
+    </div>
+  );
+}
+
 function workDuration(ms: number): string {
   const totalSeconds = Math.max(1, Math.round(ms / 1000));
   if (totalSeconds < 60) return `${totalSeconds}s`;
@@ -249,12 +292,10 @@ export function Working({ since }: { since: number }) {
   }, []);
   const duration = workDuration(Date.now() - since);
   return (
-    <Marker className="working working-header" role="status" aria-live="polite">
-      <MarkerIcon><span className="working-spin" /></MarkerIcon>
-      <MarkerContent>
-        <span className="working-label">{t("chat.working-elapsed", { duration })}</span>
-      </MarkerContent>
-    </Marker>
+    <div className="working working-header">
+      <span className="working-label">{t("chat.working-elapsed", { duration })}</span>
+      <div className="working-divider" aria-hidden="true" />
+    </div>
   );
 }
 

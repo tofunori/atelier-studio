@@ -1,14 +1,17 @@
 import * as React from "react"
 import { createRoot } from "react-dom/client"
 import {
+  ArrowUpDown,
   Check,
   CheckSquare2,
   ChevronDown,
   ChevronRight,
   Ellipsis,
   Filter,
+  Flag,
   FolderOpen,
   LayoutGrid,
+  Library,
   NotebookPen,
   Plus,
   RefreshCw,
@@ -175,6 +178,13 @@ function sortLabel(value: string) {
     rating: "Rating ↓",
   }
   return labels[value] ?? value
+}
+
+const SORT_REVERSE: Record<string, string> = {
+  mtime: "mtime_asc",
+  mtime_asc: "mtime",
+  btime: "btime_asc",
+  btime_asc: "btime",
 }
 
 function readActiveFilterChips(fileTypes: GalleryFileTypeState | null) {
@@ -578,6 +588,11 @@ function GalleryToolbar() {
   const activeFilterCount = document.querySelectorAll("#activeChips [data-fx]:not([data-fx='fav'])").length
   const favoriteActive = favorite?.classList.contains("on") === true
   const sortItems = selectOptions("sort").map((option) => ({ value: option.value, label: sortLabel(option.value) }))
+  const currentSort = sort?.value ?? "mtime"
+  const reverseSort = SORT_REVERSE[currentSort]
+  const statusActive = workflowItems.some((item) => item.active && item.key !== "")
+  const collectionActive = collectionItems.some((item) => item.active)
+  const clearCollection = () => get<HTMLElement>("collMenu")?.querySelector<HTMLElement>("[data-clear]")?.click()
 
   React.useEffect(() => {
     const update = () => refresh()
@@ -766,6 +781,43 @@ function GalleryToolbar() {
         <span className="gallery-fav-label">Favorites</span>
       </Button>
 
+      <DropdownMenu modal={false}>
+        <DropdownMenuTrigger render={
+          <Button variant="outline" size="sm" data-gallery-command="collection" data-gallery-active={collectionActive ? "true" : undefined} aria-label="Filter by collection">
+            <Library data-icon="inline-start" />
+            <span className="gallery-collection-label">Collection</span>
+          </Button>
+        } />
+        <DropdownMenuContent align="start" className="tw:w-52">
+          <DropdownMenuGroup>
+            <DropdownMenuCheckboxItem checked={!collectionActive} onClick={clearCollection}>All collections</DropdownMenuCheckboxItem>
+            {collectionItems.map((item) => (
+              <DropdownMenuCheckboxItem key={item.key} checked={item.active} onClick={() => item.element.click()}>
+                {item.label}
+              </DropdownMenuCheckboxItem>
+            ))}
+          </DropdownMenuGroup>
+        </DropdownMenuContent>
+      </DropdownMenu>
+
+      <DropdownMenu modal={false}>
+        <DropdownMenuTrigger render={
+          <Button variant="outline" size="sm" data-gallery-command="status" data-gallery-active={statusActive ? "true" : undefined} aria-label="Filter by status">
+            <Flag data-icon="inline-start" />
+            <span className="gallery-status-label">Status</span>
+          </Button>
+        } />
+        <DropdownMenuContent align="start" className="tw:w-48">
+          <DropdownMenuGroup>
+            {workflowItems.map((item) => (
+              <DropdownMenuCheckboxItem key={item.key || "all"} checked={item.active} onClick={() => item.element.click()}>
+                {item.label}
+              </DropdownMenuCheckboxItem>
+            ))}
+          </DropdownMenuGroup>
+        </DropdownMenuContent>
+      </DropdownMenu>
+
       <Select items={sortItems} modal={false} value={sort?.value ?? "mtime"} onValueChange={(value) => value && setSelect("sort", value)}>
         <SelectTrigger
           size="sm"
@@ -782,6 +834,19 @@ function GalleryToolbar() {
           </SelectGroup>
         </SelectContent>
       </Select>
+
+      <Tooltip label={reverseSort ? "Reverse sort direction" : "No reverse for this sort"}>
+        <Button
+          variant="outline"
+          size="icon-sm"
+          data-gallery-command="sort-dir"
+          aria-label="Reverse sort direction"
+          disabled={!reverseSort}
+          onClick={() => reverseSort && setSelect("sort", reverseSort)}
+        >
+          <ArrowUpDown />
+        </Button>
+      </Tooltip>
 
       <DropdownMenu modal={false}>
         <DropdownMenuTrigger render={<Button variant="outline" size="sm" aria-label="View options"><LayoutGrid data-icon="inline-start" /><span className="gallery-view-label">View</span></Button>} />

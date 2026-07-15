@@ -308,16 +308,10 @@ html, body, #root, .app { height: 100vh; overflow: hidden;
 .send:hover:not(:disabled) { background: var(--border2); color: var(--fg); }
 .send:active:not(:disabled) { transform: scale(.98); }
 .send:disabled { opacity: 0.4; cursor: default; }
-.working { color: var(--muted); font-size: var(--fs-l); padding: 4px 0; display: inline-flex;
-  align-items: center; gap: 7px; }
+.working { width: 100%; color: var(--muted); font-size: var(--fs-l); padding: 4px 0; display: block; }
 .working-header { margin: 1px 0 4px; }
-.working-spin { width: 12px; height: 12px; border-radius: var(--r-pill); display: inline-block;
-  flex-shrink: 0; color: var(--status-running);
-  background: conic-gradient(from 0deg, transparent 25%, currentColor);
-  -webkit-mask: radial-gradient(farthest-side, transparent calc(100% - 1.5px), #000 calc(100% - 1.5px));
-  mask: radial-gradient(farthest-side, transparent calc(100% - 1.5px), #000 calc(100% - 1.5px));
-  animation: spin 1.6s linear infinite; }
 .working-label { color: var(--muted); font-variant-numeric: tabular-nums; }
+.working-divider { width: 100%; height: 1px; margin-top: 8px; background: var(--border); }
 @keyframes pulse { 0%,100% { opacity: 0.5; } 50% { opacity: 1; } }
 .suggest { list-style: none; padding: 5px; margin: 0 0 4px;
   background: color-mix(in srgb, var(--bg-side) 82%, black); border: 1px solid var(--border);
@@ -627,6 +621,10 @@ html, body, #root, .app { height: 100vh; overflow: hidden;
 .tool-tick { color: var(--muted2); }
 .tool-group { color: var(--muted); font-size: var(--fs-m); }
 .tool-group-list { display: flex; flex-direction: column; gap: 4px; }
+.active-work-list { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+.active-work-more { width: fit-content; margin: 3px 0 1px; padding: 2px 0; border: 0;
+  background: transparent; color: var(--muted2); font: inherit; font-size: var(--fs-m); cursor: pointer; }
+.active-work-more:hover { color: var(--fg2); }
 .active-turn-details { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
 .active-turn-details > .ui-activity, .active-turn-details > .activity-card { margin-left: 0; margin-right: 0; }
 .turn-fold-label { font-size: var(--fs-m); font-weight: 400; color: var(--muted); }
@@ -1776,7 +1774,7 @@ body.dragging iframe { pointer-events: none; }
 
 /* boucles encore actives sous reduced-motion (audit §6) */
 @media (prefers-reduced-motion: reduce) {
-  .working-spin, .atelier-skeleton-grid [data-slot="skeleton"], .activity-pulse,
+  .atelier-skeleton-grid [data-slot="skeleton"], .activity-pulse,
   .activity-step.running .activity-step-dot, .qa-minidot,
   .review-badge.v-running, .thinking.live .thinking-label, .thinking-shimmer { animation: none; }
   .thinking-shimmer { background-image: none; -webkit-text-fill-color: currentColor; }
@@ -2131,11 +2129,26 @@ button.ctx-ring-wrap { border: none; font: inherit; color: inherit;
 .thinking-body { margin: 4px 0 6px 18px; padding: 8px 12px; border-left: 2px solid var(--border2);
   color: var(--muted); font-size: var(--fs-l); font-style: italic; white-space: pre-wrap;
   line-height: 1.55; }
+.reasoning-trace { margin: 1px 0; min-width: 0; }
+.reasoning-trace-head { width: 100%; min-width: 0; display: flex; align-items: center; gap: 7px;
+  padding: 2px 0; border: 0; background: transparent; color: var(--muted); font: inherit;
+  font-size: var(--fs-m); text-align: left; cursor: pointer; }
+.reasoning-trace-summary { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.reasoning-trace-head .tool-tick { flex: none; opacity: .65; }
+.reasoning-trace-head:hover { color: var(--fg2); }
+.reasoning-trace-body { margin: 4px 0 6px; padding: 7px 10px; border-left: 1px solid var(--border2);
+  color: var(--muted); font-size: var(--fs-m); white-space: pre-wrap; line-height: 1.5; }
 .thinking-live-indicator { margin: 2px 0 6px; padding: 2px 0; color: var(--muted);
   font-size: var(--fs-l); font-style: normal; }
-.thinking-shimmer { color: var(--muted); background-image: linear-gradient(90deg,
-  var(--muted2) 20%, var(--fg2) 50%, var(--muted2) 80%);
-  background-repeat: no-repeat; background-size: 240% 100%; background-position: 100% 0;
+.thinking-shimmer { --thinking-spread: calc(3ch + 40px); color: var(--muted);
+  background-image: linear-gradient(110deg,
+    currentColor calc(50% - var(--thinking-spread)),
+    color-mix(in oklch, currentColor, var(--fg2) 50%) calc(50% - var(--thinking-spread) * .5),
+    var(--fg2) 50%,
+    color-mix(in oklch, currentColor, var(--fg2) 50%) calc(50% + var(--thinking-spread) * .5),
+    currentColor calc(50% + var(--thinking-spread)));
+  background-repeat: no-repeat; background-size: calc(200% + var(--thinking-spread) * 2) 100%;
+  background-position: 100% 0;
   -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent;
   animation: thinking-shimmer 2s linear infinite; }
 @keyframes thinking-shimmer { from { background-position: 100% 0; } to { background-position: 0 0; } }

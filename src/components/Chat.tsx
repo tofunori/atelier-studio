@@ -9,6 +9,8 @@ import { CloseIcon } from "./icons";
 import { ProviderInfo } from "../lib/providers";
 import { ToolOutputLine, isSummarizableTool, Tick, toolCategory } from "./chat/toolPresentation";
 import {
+  type ActiveActionCollectionItem,
+  type ActiveReasoningItem,
   ChatTimeline,
   type ActiveThinkingItem,
   type ActiveWorkHeaderItem,
@@ -683,7 +685,7 @@ export default function Chat(p: {
   // un tour = user → … → done ; une fois terminé, le travail intermédiaire
   // (narration, outils, réflexion) se replie en une ligne dépliable. Restent
   // visibles : le bloc final (texte de réponse, cartes edit, todos, erreurs).
-  type TurnFold = { key: string; start: number; end: number; count: number; ms: number | null };
+  type TurnFold = { key: string; start: number; end: number; ms: number | null };
   type EditEvent = Extract<AgentEvent, { kind: "edit" }>;
 
   // Une séquence d'Edit produit souvent deux événements (outil technique puis
@@ -726,25 +728,27 @@ export default function Chat(p: {
   }
   const turnFolds = new Map<number, TurnFold>();
   {
-    // "interaction" suit le précédent "permission" : gardé visible en fin de
-    // tour (KEEP_TAIL), mais pas compté comme étape de travail (COUNTED) — une
-    // carte interactive n'est pas une action de l'agent, et sans KEEP_TAIL elle
-    // disparaîtrait sous le repli « Worked for … »
+    // Synara rattache le journal de travail et les narrations intermédiaires
+    // au DERNIER message assistant du tour. Le dernier texte reste visible ;
+    // tout ce qui le précède devient le contenu de « Worked for… ».
     const KEEP_TAIL = new Set(["text", "edit", "todos", "error", "permission", "interaction", "usage", "goal"]);
-    const COUNTED = new Set(["tool", "tool_update", "text", "thinking", "activity", "edit"]);
     let u = -1;
     for (let i = 0; i < p.events.length; i++) {
       const e = p.events[i];
       if (e.kind === "user") { u = i; continue; }
       if (e.kind !== "done" || u < 0) continue;
-      // bloc final : remonter depuis done tant que ce sont des kinds « réponse »
-      let tail = i;
-      while (tail - 1 > u && KEEP_TAIL.has(p.events[tail - 1].kind)) tail--;
-      const count = p.events.slice(u + 1, tail).filter((x) => COUNTED.has(x.kind)).length;
-      if (count >= 2) {
+      let finalText = -1;
+      for (let index = i - 1; index > u; index--) {
+        if (p.events[index].kind === "text") { finalText = index; break; }
+      }
+      let tail = finalText >= 0 ? finalText : i;
+      if (finalText < 0) {
+        while (tail - 1 > u && KEEP_TAIL.has(p.events[tail - 1].kind)) tail--;
+      }
+      if (tail > u + 1) {
         const uts = (p.events[u] as { ts?: number }).ts;
         const ms = e.ts != null && uts != null ? e.ts - uts : null;
-        turnFolds.set(u + 1, { key: `fold:${u}`, start: u + 1, end: tail, count, ms });
+        turnFolds.set(u + 1, { key: `fold:${u}`, start: u + 1, end: tail, ms });
       }
       u = -1;
     }
@@ -760,37 +764,37 @@ export default function Chat(p: {
   const actionId = (action: ToolAction, at: number) =>
     "id" in action && action.id ? String(action.id) : `event:${at}`;
 
-  // Architecture Synara : pendant le tour, une ligne chronométrée est insérée
-  // juste après la demande et un unique « Thinking » animé reste en queue. Les
-  // événements techniques sont conservés dans le modèle, mais ne remplissent
-  // pas la timeline de « Bash » / « thinking… » répétitifs. À la fin du tour,
-  // le pli normal « Worked for… » redonne accès à tout le journal.
-  const activeActivityIndices = new Set<number>();
+  // Architecture Synara : le tour actif commence après le dernier terminal.
+  // Le header suit le dernier user de ce segment ; les actions restent visibles
+  // sous un libellé humain, les signaux reasoning consécutifs sont consolidés,
+  // et un unique « Thinking » synthétique termine toujours la timeline.
+  let activeStartIndex = p.events.length;
   let activeUserIndex = -1;
   let activeHeader: ActiveWorkHeaderItem | null = null;
   let activeThinking: ActiveThinkingItem | null = null;
   if (p.workingSince != null) {
+    let lastTerminal = -1;
     for (let index = p.events.length - 1; index >= 0; index--) {
-      const event = p.events[index];
-      if (event.kind === "user") { activeUserIndex = index; break; }
-      if (event.kind === "done") break;
+      if (p.events[index].kind === "done" || p.events[index].kind === "error") {
+        lastTerminal = index;
+        break;
+      }
+    }
+    const activeSegmentStart = lastTerminal + 1;
+    activeStartIndex = activeSegmentStart;
+    for (let index = p.events.length - 1; index >= activeStartIndex; index--) {
+      if (p.events[index].kind === "user") { activeUserIndex = index; break; }
+    }
+    // Une tâche autonome peut démarrer sans nouvel événement user. Synara
+    // conserve alors l'en-tête après le dernier message utilisateur connu,
+    // mais la normalisation active ne doit jamais remonter dans l'ancien tour.
+    if (activeUserIndex < 0) {
+      for (let index = activeSegmentStart - 1; index >= 0; index--) {
+        if (p.events[index].kind === "user") { activeUserIndex = index; break; }
+      }
     }
     if (activeUserIndex >= 0) {
-      for (let index = activeUserIndex + 1; index < p.events.length; index++) {
-        const event = p.events[index];
-        if (isSummarizableTool(event)) {
-          // Une édition déjà matérialisée par « Modifié fichier » reste hors du
-          // journal technique, comme avant ce regroupement actif.
-          if (editTurns.has(index) && toolCategory(event.name, "detail" in event ? event.detail : undefined) === "edit") {
-            continue;
-          }
-          activeActivityIndices.add(index);
-          continue;
-        }
-        if (event.kind === "thinking" || event.kind === "thinking_live" || event.kind === "activity") {
-          activeActivityIndices.add(index);
-        }
-      }
+      if (activeUserIndex >= activeSegmentStart) activeStartIndex = activeUserIndex + 1;
       const activeKey = `${p.threadId ?? "thread"}:${activeUserIndex}`;
       activeHeader = { type: "active-header", key: `active-header:${activeKey}`, since: p.workingSince };
       activeThinking = { type: "active-thinking", key: `active-thinking:${activeKey}` };
@@ -801,31 +805,75 @@ export default function Chat(p: {
     | { type: "event"; event: AgentEvent; index: number }
     | { type: "actions"; actions: Extract<AgentEvent, { kind: "tool" | "tool_update" }>[]; index: number; key: string }
     | { type: "fold"; fold: TurnFold; open: boolean }
+    | ActiveActionCollectionItem
+    | ActiveReasoningItem
     | ActiveWorkHeaderItem
     | ActiveThinkingItem
   )[] = [];
+  const pushRendered = (item:
+    | { type: "event"; event: AgentEvent; index: number }
+    | { type: "actions"; actions: Extract<AgentEvent, { kind: "tool" | "tool_update" }>[]; index: number; key: string }
+    | { type: "fold"; fold: TurnFold; open: boolean }
+    | ActiveReasoningItem
+    | ActiveWorkHeaderItem
+  ) => {
+    if (item.type === "actions" && p.workingSince != null && item.index >= activeStartIndex) {
+      const previous = renderedEvents[renderedEvents.length - 1];
+      if (previous?.type === "active-actions") {
+        previous.groups.push(item);
+      } else {
+        renderedEvents.push({
+          type: "active-actions",
+          key: `active-actions:${item.key}`,
+          groups: [item],
+        });
+      }
+      return;
+    }
+    renderedEvents.push(item);
+  };
+  const isReasoningSignal = (event: AgentEvent) =>
+    event.kind === "thinking" || event.kind === "thinking_live" ||
+    (event.kind === "tool" && event.name === "__thinking");
   for (let i = 0; i < p.events.length; i++) {
     const fold = turnFolds.get(i);
     if (fold) {
       const open = openFolds.has(fold.key);
-      renderedEvents.push({ type: "fold", fold, open });
+      pushRendered({ type: "fold", fold, open });
       if (!open) { i = fold.end - 1; continue; }
     }
     const e = p.events[i];
-    if (activeActivityIndices.has(i)) continue;
+    if (p.workingSince != null && i >= activeStartIndex && isReasoningSignal(e)) {
+      let end = i + 1;
+      while (end < p.events.length && isReasoningSignal(p.events[end])) end++;
+      const texts = p.events.slice(i, end).flatMap((event) =>
+        event.kind === "thinking" || event.kind === "thinking_live"
+          ? [event.text.trim()].filter(Boolean)
+          : [],
+      );
+      if (texts.length > 0) {
+        pushRendered({
+          type: "active-reasoning",
+          key: `active-reasoning:${i}`,
+          texts,
+        });
+      }
+      i = end - 1;
+      continue;
+    }
     // L'événement humain « Edited fichier » remplace l'appel Edit redondant.
     if (isSummarizableTool(e) && editTurns.has(i) && toolCategory(e.name, "detail" in e ? e.detail : undefined) === "edit") {
       continue;
     }
     if (e.kind === "edit") {
       const merged = mergedEdits.get(i);
-      if (merged) renderedEvents.push({ type: "event", event: merged, index: i });
+      if (merged) pushRendered({ type: "event", event: merged, index: i });
       continue;
     }
     // les sentinelles (__thinking, __compacted…) et non-outils gardent leur ligne
     if (!isSummarizableTool(e)) {
-      renderedEvents.push({ type: "event", event: e, index: i });
-      if (activeHeader && i === activeUserIndex) renderedEvents.push(activeHeader);
+      pushRendered({ type: "event", event: e, index: i });
+      if (activeHeader && i === activeUserIndex) pushRendered(activeHeader);
       continue;
     }
     // Une action par ligne : on ne regroupe que l'appel et ses mises à jour
@@ -844,7 +892,7 @@ export default function Chat(p: {
     // même id d'outil (plan 025) — sans lui, React fusionne les deux grappes
     const turnKey = first?.meta && "turnId" in first.meta ? `${first.meta.turnId}:` : "";
     const groupKey = `tools:${turnKey}${identity}`;
-    renderedEvents.push({ type: "actions", actions, index: i, key: groupKey });
+    pushRendered({ type: "actions", actions, index: i, key: groupKey });
     i = end - 1;
   }
   if (activeThinking) renderedEvents.push(activeThinking);

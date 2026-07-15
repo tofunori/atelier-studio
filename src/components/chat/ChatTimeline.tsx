@@ -14,7 +14,7 @@ import {
   ActivityFold, ActivityGroup, type ReviewState,
 } from "./turns";
 import { ResearchHome, type ResearchHomeBundle } from "../ResearchHome";
-import { ThinkingBlock, EditLine, ActivityCard, LiveThinking, Working, formatPermInput } from "./turnParts";
+import { ThinkingBlock, EditLine, ActivityCard, LiveThinking, ReasoningTrace, Working, formatPermInput } from "./turnParts";
 import { HarnessInteraction } from "./HarnessInteraction";
 import { JumpNavigation } from "../ui";
 import { Input } from "../shadcn/input";
@@ -35,10 +35,18 @@ export type ActiveWorkHeaderItem = {
   since: number;
 };
 export type ActiveThinkingItem = { type: "active-thinking"; key: string };
+export type ActiveReasoningItem = { type: "active-reasoning"; key: string; texts: string[] };
+export type ActiveActionCollectionItem = {
+  type: "active-actions";
+  key: string;
+  groups: { type: "actions"; actions: ToolAction[]; index: number; key: string }[];
+};
 type RenderedItem =
   | { type: "event"; event: AgentEvent; index: number }
   | { type: "actions"; actions: ToolAction[]; index: number; key: string }
-  | { type: "fold"; fold: { key: string; start: number; end: number; count: number; ms: number | null }; open: boolean }
+  | { type: "fold"; fold: { key: string; start: number; end: number; ms: number | null }; open: boolean }
+  | ActiveActionCollectionItem
+  | ActiveReasoningItem
   | ActiveWorkHeaderItem
   | ActiveThinkingItem;
 
@@ -313,6 +321,55 @@ export function ChatTimeline(p: {
           }
           if (item.type === "active-thinking") {
             return <LiveThinking key={item.key} />;
+          }
+          if (item.type === "active-reasoning") {
+            return <ReasoningTrace key={item.key} texts={item.texts} />;
+          }
+          if (item.type === "active-actions") {
+            const expanded = openToolGroups.has(item.key);
+            const visibleGroups = expanded || item.groups.length <= 6
+              ? item.groups
+              : item.groups.slice(-6);
+            const hiddenCount = item.groups.length - visibleGroups.length;
+            return (
+              <div className="active-work-list" key={item.key}>
+                {visibleGroups.map((group) => {
+                  const open = openToolGroups.has(group.key);
+                  return (
+                    <ActivityGroup
+                      key={group.key}
+                      actions={group.actions}
+                      open={open}
+                      onToggle={() =>
+                        setOpenToolGroups((prev) => {
+                          const next = new Set(prev);
+                          if (next.has(group.key)) next.delete(group.key);
+                          else next.add(group.key);
+                          return next;
+                        })
+                      }
+                      renderToolLine={renderToolLine}
+                    />
+                  );
+                })}
+                {item.groups.length > 6 ? (
+                  <button
+                    type="button"
+                    className="active-work-more"
+                    onClick={() =>
+                      setOpenToolGroups((prev) => {
+                        const next = new Set(prev);
+                        if (next.has(item.key)) next.delete(item.key);
+                        else next.add(item.key);
+                        return next;
+                      })
+                    }
+                  >
+                    {expanded ? t("chat.show-less-work") : t("chat.show-more-work", { n: hiddenCount })}
+                  </button>
+                ) : null}
+              </div>
+            );
           }
           if (item.type === "actions") {
             const open = openToolGroups.has(item.key);
