@@ -38,8 +38,8 @@ export function DropdownMenuSurface(props: {
         aria-label={props.label}
         className={props.className}
       >
-        {props.header && <DropdownMenuLabel>{props.header}</DropdownMenuLabel>}
         <DropdownMenuGroup>
+          {props.header && <DropdownMenuLabel>{props.header}</DropdownMenuLabel>}
           {props.items.map((item) => (
             <Fragment key={item.key}>
               {item.separatorBefore && <DropdownMenuSeparator />}

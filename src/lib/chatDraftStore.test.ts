@@ -39,6 +39,30 @@ describe("chatDraftStore", () => {
     });
   });
 
+  it("recrée les aperçus AppSnap au chargement au lieu de persister une URL WebView", () => {
+    const draft: ChatDraft = {
+      prompt: "",
+      attachments: [{
+        name: "appsnap.png",
+        lines: null,
+        text: "capture",
+        kind: "appsnap",
+        path: "/private/appsnap.png",
+        imageUrl: "blob:http://tauri.localhost/preview",
+      }],
+      queuedTurns: [],
+      followUpMode: "queue",
+      updatedAt: 1,
+    };
+    const raw = serializeChatDrafts({ "thread:appsnap": draft });
+    expect(raw).not.toContain("blob:");
+    expect(loadChatDrafts({ getItem: () => raw })["thread:appsnap"].attachments[0]).toMatchObject({
+      kind: "appsnap",
+      path: "/private/appsnap.png",
+    });
+    expect(loadChatDrafts({ getItem: () => raw })["thread:appsnap"].attachments[0].imageUrl).toBeUndefined();
+  });
+
   it("migre une ancienne relance avec des options sûres et immuables", () => {
     const raw = JSON.stringify({
       version: 1,

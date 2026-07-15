@@ -11,6 +11,7 @@ function Fixture({ onSelect = vi.fn() }: { onSelect?: () => void }) {
       open={open}
       onOpenChange={setOpen}
       label="Actions"
+      header="Conversation"
       trigger={<button type="button">Actions</button>}
       items={[
         { key: "rename", label: "Rename", onSelect },
@@ -31,6 +32,7 @@ describe("DropdownMenuSurface", () => {
 
     const menu = await waitFor(() => screen.getByRole("menu", { name: "Actions" }))
     expect(menu).toBeInTheDocument()
+    expect(screen.getByText("Conversation")).toBeInTheDocument()
     expect(screen.getByRole("menuitem", { name: "Rename" })).toBeInTheDocument()
 
     fireEvent.click(screen.getByRole("menuitem", { name: "Rename" }))

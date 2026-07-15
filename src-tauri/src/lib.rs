@@ -25,6 +25,7 @@ pub fn run() {
             atelier::start_atelier,
             atelier::gallery_token,
             appsnap::appsnap_get_state,
+            appsnap::appsnap_read_capture,
             appsnap::appsnap_request_permissions,
             appsnap::appsnap_set_enabled,
             macos_badge_permission::request_badge_authorization,

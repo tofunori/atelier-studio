@@ -717,6 +717,64 @@ export default function App() {
     restoreQueuedTurn,
   } = useChatDraftStore(activeComposerKey);
   const attachments = activeComposerDraft.attachments;
+  const appSnapPreviewUrlsRef = useRef(new Set<string>());
+  const hydratingAppSnapsRef = useRef(new Set<string>());
+
+  useEffect(() => () => {
+    for (const url of appSnapPreviewUrlsRef.current) URL.revokeObjectURL(url);
+    appSnapPreviewUrlsRef.current.clear();
+  }, []);
+
+  useEffect(() => {
+    const needsPreview = (attachment: Attachment) =>
+      attachment.kind === "appsnap" && Boolean(attachment.path) &&
+      !attachment.imageUrl?.startsWith("blob:") && !attachment.imageUrl?.startsWith("data:");
+
+    for (const [key, draft] of Object.entries(composerDrafts)) {
+      const paths = new Set<string>();
+      for (const attachment of draft.attachments) {
+        if (needsPreview(attachment) && attachment.path) paths.add(attachment.path);
+      }
+      for (const turn of draft.queuedTurns) {
+        for (const attachment of turn.attachments) {
+          if (needsPreview(attachment) && attachment.path) paths.add(attachment.path);
+        }
+      }
+
+      for (const path of paths) {
+        const hydrationKey = `${key}\u0000${path}`;
+        if (hydratingAppSnapsRef.current.has(hydrationKey)) continue;
+        hydratingAppSnapsRef.current.add(hydrationKey);
+        void appSnapPreviewUrl(path).then((imageUrl) => {
+          appSnapPreviewUrlsRef.current.add(imageUrl);
+          updateComposerDraft(key, (current) => {
+            let changed = false;
+            const hydrate = (attachment: Attachment) => {
+              if (attachment.kind !== "appsnap" || attachment.path !== path || !needsPreview(attachment)) {
+                return attachment;
+              }
+              changed = true;
+              return { ...attachment, imageUrl };
+            };
+            const nextAttachments = current.attachments.map(hydrate);
+            const nextQueuedTurns = current.queuedTurns.map((turn) => {
+              const next = turn.attachments.map(hydrate);
+              return next.some((attachment, index) => attachment !== turn.attachments[index])
+                ? { ...turn, attachments: next }
+                : turn;
+            });
+            return changed
+              ? { ...current, attachments: nextAttachments, queuedTurns: nextQueuedTurns }
+              : current;
+          });
+        }).catch((error) => {
+          console.warn("[appsnap] Could not restore capture preview", error);
+        }).finally(() => {
+          hydratingAppSnapsRef.current.delete(hydrationKey);
+        });
+      }
+    }
+  }, [composerDrafts, updateComposerDraft]);
 
   useEffect(() => {
     let disposed = false;
@@ -727,59 +785,68 @@ export default function App() {
       const capturedStop = await onAppSnapCaptured((capture: AppSnapCapture) => {
         if (disposed || handledCaptures.has(capture.id)) return;
         handledCaptures.add(capture.id);
+        void appSnapPreviewUrl(capture.path).then((imageUrl) => {
+          if (disposed) {
+            URL.revokeObjectURL(imageUrl);
+            return;
+          }
+          appSnapPreviewUrlsRef.current.add(imageUrl);
+          const projectRoot = activeProjectRef.current ?? "";
+          let threadId = activeIdRef.current;
+          if (!threadId) {
+            threadId = crypto.randomUUID();
+            const freshThread: Thread = {
+              id: threadId,
+              projectRoot,
+              title: t("app.new-chat-title"),
+              provider: settingsRef.current.defaultProvider,
+              sessionId: null,
+              status: "idle",
+              updatedAt: new Date().toISOString(),
+            };
+            setDraftThreads((current) => [freshThread, ...current]);
+            setActiveId(threadId);
+            activeIdRef.current = threadId;
+            setEvents((current) => ({ ...current, [threadId as string]: current[threadId as string] ?? [] }));
+          }
 
-        const projectRoot = activeProjectRef.current ?? "";
-        let threadId = activeIdRef.current;
-        if (!threadId) {
-          threadId = crypto.randomUUID();
-          const freshThread: Thread = {
-            id: threadId,
-            projectRoot,
-            title: t("app.new-chat-title"),
-            provider: settingsRef.current.defaultProvider,
-            sessionId: null,
-            status: "idle",
-            updatedAt: new Date().toISOString(),
+          const appName = capture.sourceAppName || t("appsnap.source-unknown");
+          const windowTitle = capture.sourceWindowTitle?.trim() || t("appsnap.window-untitled");
+          const attachment: Attachment = {
+            name: capture.name,
+            lines: null,
+            kind: "appsnap",
+            path: capture.path,
+            imageUrl,
+            text: [
+              `AppSnap captured from ${appName}.`,
+              `Window: ${windowTitle}`,
+              `Local image file: ${capture.path}`,
+              "Inspect the attached image when answering the user's message.",
+            ].join("\n"),
+            preview: {
+              title: t("appsnap.preview-title"),
+              rows: [
+                { label: t("appsnap.preview-app"), value: appName },
+                { label: t("appsnap.preview-window"), value: windowTitle },
+                { label: t("appsnap.preview-file"), value: capture.path },
+              ],
+            },
           };
-          setDraftThreads((current) => [freshThread, ...current]);
-          setActiveId(threadId);
-          activeIdRef.current = threadId;
-          setEvents((current) => ({ ...current, [threadId as string]: current[threadId as string] ?? [] }));
-        }
-
-        const appName = capture.sourceAppName || t("appsnap.source-unknown");
-        const windowTitle = capture.sourceWindowTitle?.trim() || t("appsnap.window-untitled");
-        const attachment: Attachment = {
-          name: capture.name,
-          lines: null,
-          kind: "appsnap",
-          path: capture.path,
-          imageUrl: appSnapPreviewUrl(capture.path),
-          text: [
-            `AppSnap captured from ${appName}.`,
-            `Window: ${windowTitle}`,
-            `Local image file: ${capture.path}`,
-            "Inspect the attached image when answering the user's message.",
-          ].join("\n"),
-          preview: {
-            title: t("appsnap.preview-title"),
-            rows: [
-              { label: t("appsnap.preview-app"), value: appName },
-              { label: t("appsnap.preview-window"), value: windowTitle },
-              { label: t("appsnap.preview-file"), value: capture.path },
-            ],
-          },
-        };
-        updateComposerDraft(composerDraftKey(threadId, projectRoot), (draft) => ({
-          ...draft,
-          attachments: addAttachment(draft.attachments, attachment),
-        }));
-        setShowSettings(false);
-        setSettings((current) => current.activeView === "chats" ? current : { ...current, activeView: "chats" });
-        setLayout((current) => current === "atelier" ? "split" : current);
-        if (settingsRef.current.appSnapPlaySound) playAppSnapSound();
-        requestAnimationFrame(focusComposer);
-        void showSuccess(t("appsnap.capture-added", { app: appName }));
+          updateComposerDraft(composerDraftKey(threadId, projectRoot), (draft) => ({
+            ...draft,
+            attachments: addAttachment(draft.attachments, attachment),
+          }));
+          setShowSettings(false);
+          setSettings((current) => current.activeView === "chats" ? current : { ...current, activeView: "chats" });
+          setLayout((current) => current === "atelier" ? "split" : current);
+          if (settingsRef.current.appSnapPlaySound) playAppSnapSound();
+          requestAnimationFrame(focusComposer);
+          void showSuccess(t("appsnap.capture-added", { app: appName }));
+        }).catch((error) => {
+          handledCaptures.delete(capture.id);
+          if (!disposed) void showError(t("appsnap.capture-failed", { error: String(error) }));
+        });
       });
       if (disposed) capturedStop();
       else stops.push(capturedStop);

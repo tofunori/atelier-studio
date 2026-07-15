@@ -69,6 +69,15 @@ function validAttachment(value: unknown): value is DraftAttachment {
   return typeof item.name === "string" && typeof item.text === "string";
 }
 
+function normalizeAttachment(value: unknown): DraftAttachment | null {
+  if (!validAttachment(value)) return null;
+  if (value.kind !== "appsnap" || !value.imageUrl) return value;
+  // Les URL d'aperçu AppSnap sont des object URLs propres au WebView courant.
+  // Le chemin privé persiste; App.tsx recrée le Blob après un redémarrage.
+  const { imageUrl: _imageUrl, ...persisted } = value;
+  return persisted;
+}
+
 function validQueuedTurn(value: unknown): value is QueuedTurn {
   if (!value || typeof value !== "object") return false;
   const item = value as Partial<QueuedTurn>;
@@ -98,7 +107,9 @@ function normalizeQueuedTurn(value: unknown): QueuedTurn | null {
     model: typeof item.model === "string" ? item.model : "",
     effort: typeof item.effort === "string" ? item.effort : "",
     permissionMode: typeof item.permissionMode === "string" ? item.permissionMode : "",
-    attachments: item.attachments!.filter(validAttachment),
+    attachments: item.attachments!
+      .map(normalizeAttachment)
+      .filter((attachment): attachment is DraftAttachment => attachment !== null),
     webSearch: item.webSearch === true,
     additionalDirectories: Array.isArray(item.additionalDirectories)
       ? item.additionalDirectories.filter((entry): entry is string => typeof entry === "string")
@@ -119,7 +130,11 @@ function normalizeDraft(value: unknown): ChatDraft {
   const draft = value as Partial<ChatDraft>;
   return {
     prompt: typeof draft.prompt === "string" ? draft.prompt : "",
-    attachments: Array.isArray(draft.attachments) ? draft.attachments.filter(validAttachment) : [],
+    attachments: Array.isArray(draft.attachments)
+      ? draft.attachments
+          .map(normalizeAttachment)
+          .filter((attachment): attachment is DraftAttachment => attachment !== null)
+      : [],
     queuedTurns: Array.isArray(draft.queuedTurns)
       ? draft.queuedTurns.map(normalizeQueuedTurn).filter((turn): turn is QueuedTurn => turn !== null)
       : [],
@@ -146,10 +161,10 @@ export function loadChatDrafts(storage: Pick<Storage, "getItem"> = localStorage)
 }
 
 function persistableAttachment(attachment: DraftAttachment): DraftAttachment {
-  // L'image est déjà sauvegardée sur disque par le sidecar. Une data URL peut
-  // dépasser le quota localStorage : garder le chemin et retirer seulement la
-  // prévisualisation éphémère.
-  if (!attachment.imageUrl?.startsWith("data:")) return attachment;
+  // Le PNG AppSnap est déjà sauvegardé dans le dossier privé de l'app. Son
+  // object URL appartient au WebView courant et doit être recréée au chargement.
+  // Les data URLs ordinaires restent aussi exclues pour préserver le quota.
+  if (attachment.kind !== "appsnap" && !attachment.imageUrl?.startsWith("data:")) return attachment;
   const { imageUrl: _imageUrl, ...rest } = attachment;
   return rest;
 }
