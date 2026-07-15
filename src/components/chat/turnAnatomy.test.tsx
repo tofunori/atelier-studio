@@ -6,6 +6,7 @@ import { act, cleanup, fireEvent, screen } from "@testing-library/react";
 vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn(async () => null) }));
 
 import Chat from "../Chat";
+import { ThinkingShimmer } from "./turnParts";
 import { renderUi, resetTestState } from "../../test/render";
 import { events, FIXED_TS } from "../../test/fixtures";
 import { setLanguage, t } from "../../lib/i18n";
@@ -41,6 +42,27 @@ beforeEach(() => { resetTestState(); setLanguage("fr"); });
 afterEach(cleanup);
 
 describe("anatomie du tour — header d'activité", () => {
+  it("cadence le reflet Thinking : délai de 600 ms, passage de 650 ms, puis toutes les 4 s", () => {
+    vi.useFakeTimers();
+    try {
+      renderUi(<ThinkingShimmer text="Thinking" />);
+      const shimmer = document.querySelector(".thinking-shimmer") as HTMLElement;
+      expect(shimmer.classList.contains("is-sweeping")).toBe(false);
+
+      act(() => vi.advanceTimersByTime(600));
+      expect(shimmer.classList.contains("is-sweeping")).toBe(true);
+
+      act(() => vi.advanceTimersByTime(650));
+      expect(shimmer.classList.contains("is-sweeping")).toBe(false);
+
+      act(() => vi.advanceTimersByTime(3_350));
+      expect(shimmer.classList.contains("is-sweeping")).toBe(true);
+    } finally {
+      cleanup();
+      vi.useRealTimers();
+    }
+  });
+
   it("tour terminé : header « A travaillé pendant… », replié par défaut", () => {
     renderUi(<Chat {...chatProps({ events: finishedTurn() })} />);
     const fold = document.querySelector(".ui-activity.is-summary .ui-activity-trigger") as HTMLButtonElement;
@@ -145,6 +167,8 @@ describe("anatomie du tour — header d'activité", () => {
     expect(header).toBeTruthy();
     expect(tail).toBeTruthy();
     expect(tail.querySelector(".thinking-shimmer")).toBeTruthy();
+    expect(tail.querySelector(".thinking-shimmer-sweep[aria-hidden='true']")).toBeTruthy();
+    expect(tail.querySelector(".thinking-shimmer-highlight")?.textContent).toBe(t("chat.thinking"));
     expect(header.compareDocumentPosition(message) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(message.compareDocumentPosition(tail) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
@@ -219,7 +243,7 @@ describe("anatomie du tour — header d'activité", () => {
     expect(document.querySelector(".edit-line")?.textContent).toContain("+5");
     expect(document.querySelector(".edit-line")?.textContent).toContain("-3");
     expect(document.querySelectorAll(".ui-activity:not(.is-summary)")).toHaveLength(1);
-    expect(document.querySelector(".thinking-shimmer")?.textContent).toBe(t("chat.thinking"));
+    expect(document.querySelector(".thinking-shimmer")?.textContent).toContain(t("chat.thinking"));
   });
 
   it("sort du chargement et montre l'erreur quand gitDiff échoue", () => {

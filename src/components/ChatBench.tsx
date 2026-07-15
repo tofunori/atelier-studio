@@ -2,7 +2,7 @@
 // composer. Monté par main.tsx sur #chatbench[-état][-light] ; jamais dans le
 // parcours normal (chunk lazy). Rend le VRAI composant Chat avec des fixtures
 // figées : aucun sidecar requis.
-// États : rich (défaut) · running · error · contexts · markdown.
+// États : rich (défaut) · running · thinking · error · contexts · markdown.
 import { useEffect } from "react";
 import "../styles/tokens.css";
 import "../styles/typeset.css";
@@ -69,6 +69,12 @@ const RUNNING: AgentEvent[] = [
     output: "", status: "running", input: {}, source: null, ts: ts(180),
   } as AgentEvent,
   { kind: "streaming", text: "Je lance le calcul des tendances par région. Les premières valeurs pour Coast et Rockies sont cohérentes avec…", ts: ts(10) } as AgentEvent,
+];
+
+const THINKING: AgentEvent[] = [
+  { kind: "user", text: "Analyse les données locales et prépare une réponse.", ts: ts(20) } as AgentEvent,
+  { kind: "started", ts: ts(19) } as AgentEvent,
+  { kind: "tool", name: "__thinking" } as AgentEvent,
 ];
 
 const ERROR: AgentEvent[] = [
@@ -152,6 +158,7 @@ type BenchState = {
 const STATES: Record<string, BenchState> = {
   rich: { events: RICH, workingSince: null, attachments: [], usage: { context: 84200, output: 8120, cost: 0.42, turns: 3 } },
   running: { events: RUNNING, workingSince: ts(272), attachments: [], usage: { context: 21000, output: 300, cost: null, turns: 1 } },
+  thinking: { events: THINKING, workingSince: ts(20), attachments: [], usage: { context: 14000, output: 0, cost: null, turns: 1 } },
   error: { events: ERROR, workingSince: null, attachments: [], usage: null },
   contexts: { events: MARKDOWN.slice(0, 1), workingSince: null, attachments: CONTEXTS_ATTACHMENTS, usage: null },
   markdown: { events: MARKDOWN, workingSince: null, attachments: [], usage: null },

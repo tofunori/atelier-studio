@@ -12,7 +12,7 @@ import { t } from "../../lib/i18n";
 import { normalizeMathDelimiters, hardenPartialMarkdown } from "../../lib/markdown";
 import { CopyIcon, ForkIcon, ResumeIcon } from "../icons";
 import { MD_COMPONENTS, MD_COMPONENTS_STREAMING, useMdPlugins } from "./md";
-import { DoneDiffToggle, fmtTime, PinBtn, LiveThinking, ReasoningTrace, Working, reasoningSummary } from "./turnParts";
+import { DoneDiffToggle, fmtTime, PinBtn, LiveThinking, ReasoningTrace, ThinkingShimmer, Working, reasoningSummary } from "./turnParts";
 import {
   activeToolLabel, activityIconForAction, activityIconForPhase,
   distinctToolActions, summarizeActivity,
@@ -407,7 +407,7 @@ function activeEventLabel(turn: ChatTurnViewModel, events: AgentEvent[]): ReactN
     const summary = reasoningSummary(state.texts[state.texts.length - 1] ?? "");
     return summary || t("chat.thinking");
   }
-  if (state.kind === "thinking") return <span className="thinking-shimmer">{t("chat.thinking")}</span>;
+  if (state.kind === "thinking") return <ThinkingShimmer />;
   if (state.kind === "activity") {
     const event = events[state.eventIndex];
     if (event?.kind === "activity") return [event.title, event.detail].filter(Boolean).join(" · ");

@@ -1,7 +1,7 @@
 // Pièces de tour du chat (plan 015, slice 4) — déplacées verbatim depuis
 // Chat.tsx : diff de fin de tour, ré-édition d'un edit, thinking, indicateur
 // Working, carte d'activité, épingle. Aucune logique modifiée.
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { AgentEvent } from "../../lib/ws";
 import { wsSend } from "../../lib/wsBus";
 import { t } from "../../lib/i18n";
@@ -320,10 +320,53 @@ export function Working({ since }: { since: number }) {
 
 /** Indicateur unique placé à la position courante du tour. Le texte balayé
  * remplace les sentinelles `thinking` vides et répétées du provider. */
+export function ThinkingShimmer({ text = t("chat.thinking") }: { text?: string }) {
+  const rootRef = useRef<HTMLSpanElement>(null);
+
+  useEffect(() => {
+    if (window.matchMedia?.("(prefers-reduced-motion: reduce)").matches) return;
+    const root = rootRef.current;
+    if (!root) return;
+
+    let sweepTimer: number | undefined;
+    let cadenceTimer: number | undefined;
+    const sweep = () => {
+      if (sweepTimer !== undefined) window.clearTimeout(sweepTimer);
+      root.classList.remove("is-sweeping");
+      void root.offsetWidth;
+      root.classList.add("is-sweeping");
+      sweepTimer = window.setTimeout(() => {
+        root.classList.remove("is-sweeping");
+        sweepTimer = undefined;
+      }, 650);
+    };
+    const startTimer = window.setTimeout(() => {
+      sweep();
+      cadenceTimer = window.setInterval(sweep, 4_000);
+    }, 600);
+
+    return () => {
+      window.clearTimeout(startTimer);
+      if (sweepTimer !== undefined) window.clearTimeout(sweepTimer);
+      if (cadenceTimer !== undefined) window.clearInterval(cadenceTimer);
+      root.classList.remove("is-sweeping");
+    };
+  }, []);
+
+  return (
+    <span ref={rootRef} className="thinking-shimmer">
+      {text}
+      <span className="thinking-shimmer-sweep" aria-hidden="true">
+        <span className="thinking-shimmer-highlight">{text}</span>
+      </span>
+    </span>
+  );
+}
+
 export function LiveThinking() {
   return (
     <div className="thinking-live-indicator" role="status" aria-live="polite">
-      <span className="thinking-shimmer">{t("chat.thinking")}</span>
+      <ThinkingShimmer />
     </div>
   );
 }

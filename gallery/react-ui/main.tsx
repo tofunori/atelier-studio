@@ -305,7 +305,6 @@ function GalleryFileTypePanel({
               data-gallery-quick-type={type.key}
               data-gallery-active={type.active ? "true" : undefined}
             >
-              {type.active && <Check data-icon="inline-start" />}
               {type.label}
             </ToggleGroupItem>
           ))}

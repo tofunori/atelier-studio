@@ -1869,11 +1869,10 @@ body.dragging iframe { pointer-events: none; }
 @media (prefers-reduced-motion: reduce) {
   .atelier-skeleton-grid [data-slot="skeleton"], .activity-pulse,
   .activity-step.running .activity-step-dot, .qa-minidot,
-  .review-badge.v-running, .thinking.live .thinking-label, .thinking-shimmer,
+  .review-badge.v-running, .thinking.live .thinking-label,
+  .thinking-shimmer-sweep, .thinking-shimmer-highlight,
   .ui-activity-label.is-shimmering { animation: none; }
-  .thinking-shimmer, .ui-activity-label.is-shimmering {
-    background-image: none; -webkit-text-fill-color: currentColor;
-  }
+  .ui-activity-label.is-shimmering { background-image: none; -webkit-text-fill-color: currentColor; }
 }
 
 /* focus visible sur les champs qui neutralisaient l'outline sans remplacement */
@@ -2236,18 +2235,37 @@ button.ctx-ring-wrap { border: none; font: inherit; color: inherit;
   color: var(--muted); font-size: var(--fs-m); white-space: pre-wrap; line-height: 1.5; }
 .thinking-live-indicator { margin: 2px 0 6px; padding: 2px 0; color: var(--muted);
   font-size: var(--fs-l); font-style: normal; }
-.thinking-shimmer { --thinking-spread: calc(3ch + 40px); color: var(--muted);
-  background-image: linear-gradient(110deg,
-    currentColor calc(50% - var(--thinking-spread)),
-    color-mix(in oklch, currentColor, var(--fg2) 50%) calc(50% - var(--thinking-spread) * .5),
-    var(--fg2) 50%,
-    color-mix(in oklch, currentColor, var(--fg2) 50%) calc(50% + var(--thinking-spread) * .5),
-    currentColor calc(50% + var(--thinking-spread)));
-  background-repeat: no-repeat; background-size: calc(200% + var(--thinking-spread) * 2) 100%;
-  background-position: 100% 0;
-  -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent;
-  animation: thinking-shimmer 2s linear infinite; }
-@keyframes thinking-shimmer { from { background-position: 100% 0; } to { background-position: 0 0; } }
+/* ChatGPT/Codex : une seconde copie du mot traverse un masque étroit.
+   Un passage dure 650 ms, puis le libellé reste calme jusqu'à la cadence suivante. */
+.thinking-shimmer {
+  --thinking-shimmer-base: color-mix(in srgb, var(--text-primary) 58%, transparent);
+  --thinking-shimmer-highlight: color-mix(in srgb, var(--text-primary) 96%, transparent);
+  position: relative; display: inline-block; color: var(--thinking-shimmer-base);
+  white-space: nowrap; }
+.thinking-shimmer-sweep {
+  pointer-events: none; position: absolute; inset: 0 auto 0 0; width: 100%;
+  overflow: hidden; transform: translateX(-50%);
+  -webkit-mask-image: linear-gradient(90deg, transparent 0%, #000 20% 30%, transparent 50% 100%);
+  mask-image: linear-gradient(90deg, transparent 0%, #000 20% 30%, transparent 50% 100%); }
+.thinking-shimmer-highlight {
+  display: block; width: 100%; color: var(--thinking-shimmer-highlight);
+  transform: translateX(50%); }
+.thinking-shimmer.is-sweeping .thinking-shimmer-sweep,
+.thinking-shimmer.is-sweeping .thinking-shimmer-highlight {
+  animation-duration: 650ms; animation-timing-function: steps(32, end);
+  animation-iteration-count: 1; }
+.thinking-shimmer.is-sweeping .thinking-shimmer-sweep {
+  animation-name: thinking-shimmer-sweep; }
+.thinking-shimmer.is-sweeping .thinking-shimmer-highlight {
+  animation-name: thinking-shimmer-highlight; }
+@keyframes thinking-shimmer-sweep {
+  from { transform: translateX(-50%); }
+  to { transform: translateX(125%); }
+}
+@keyframes thinking-shimmer-highlight {
+  from { transform: translateX(50%); }
+  to { transform: translateX(-125%); }
+}
 
 /* Codex : seule l'intention de l'action réellement active est éclairée.
    Le balayage dure 1 s, puis reste discret 3 s avant le passage suivant. */
