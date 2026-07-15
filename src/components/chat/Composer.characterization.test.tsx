@@ -134,6 +134,61 @@ describe("composer — caractérisation", () => {
     expect(onRemoveAttachment).toHaveBeenCalledWith(0);
   });
 
+  it("annotation seule : le bouton envoie le contexte sans exiger de texte", () => {
+    const onSubmit = vi.fn();
+    renderUi(<Chat {...chatProps({
+      onSubmit,
+      attachments: [{
+        name: "fig1_evidence_ngeo_preview.png",
+        lines: null,
+        text: "Annotation de figure : vérifier la légende du panneau A.",
+      }],
+    })} />);
+
+    const send = screen.getByTitle(t("action.send"));
+    expect((send as HTMLButtonElement).disabled).toBe(false);
+    fireEvent.click(send);
+
+    expect(onSubmit).toHaveBeenCalledWith(
+      "",
+      "claude",
+      expect.any(String),
+      expect.any(String),
+      "bypassPermissions",
+      "steer",
+    );
+  });
+
+  it("annotation seule pendant un tour : propose Queue et Enter la met en file", () => {
+    const onSubmit = vi.fn();
+    renderUi(<Chat {...chatProps({
+      onSubmit,
+      workingSince: FIXED_TS,
+      attachments: [{
+        name: "fig1_evidence_ngeo_preview.png",
+        lines: null,
+        text: "Annotation de figure : vérifier la légende du panneau A.",
+      }],
+      providers: [makeProviderInfo({
+        id: "claude",
+        label: "Claude",
+        capabilities: makeCapabilities({ queue: true, steering: true }),
+      })],
+    })} />);
+
+    expect(document.querySelector(".composer .send.stop")).toBeNull();
+    expect(document.querySelector(".composer .send.follow-up-queue")).toBeTruthy();
+    fireEvent.keyDown(ta(), { key: "Enter" });
+    expect(onSubmit).toHaveBeenCalledWith(
+      "",
+      "claude",
+      expect.any(String),
+      expect.any(String),
+      "bypassPermissions",
+      "queue",
+    );
+  });
+
   it("disabled : la zone de saisie est inerte", () => {
     renderUi(<Chat {...chatProps({ disabled: true })} />);
     expect(ta().disabled).toBe(true);

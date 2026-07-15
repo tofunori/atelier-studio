@@ -112,6 +112,7 @@ export function ChatComposer(props: {
   const { input, model, menus, catalog, context, host } = props;
   const { text, setText } = input;
   const { goalOpen, goalText, setGoalText, setGoalOpen } = menus;
+  const hasContent = Boolean(text.trim()) || context.attachments.length > 0;
   // un goal actif rend l'éditeur de création inerte : referme l'état goalOpen
   // pour que l'éditeur ne surgisse pas au moment où le goal sera arrêté
   useEffect(() => { if (host.activeGoal) setGoalOpen(false); }, [host.activeGoal, setGoalOpen]);
@@ -119,7 +120,7 @@ export function ChatComposer(props: {
   // reconstruit le contrat plat attendu par ComposerControls à partir des
   // bundles — plumbing local, aucune logique
   const controlsProps = {
-    text, setText,
+    hasContent,
     ...model, ...menus, ...catalog, ...host,
   };
 
@@ -142,7 +143,7 @@ export function ChatComposer(props: {
 
   function submit(mode: FollowUpMode) {
     const prompt = text.trim();
-    if (!prompt) return;
+    if (!hasContent) return;
     const command = parseNativeSlashCommand(prompt);
     if (command?.name === "model") {
       const requested = command.args.toLowerCase();

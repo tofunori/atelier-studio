@@ -33,8 +33,7 @@ type ModelEntry = { id: string; label: string };
 
 export function ComposerControls(p: {
   // état composer (possédé par Chat)
-  text: string;
-  setText: React.Dispatch<React.SetStateAction<string>>;
+  hasContent: boolean;
   provider: string;
   setProvider: (v: string) => void;
   model: string;
@@ -81,7 +80,7 @@ export function ComposerControls(p: {
   providers?: ProviderInfo[];
 }) {
   const {
-    text, provider, setProvider, model, setModel, effort, setEffort,
+    provider, setProvider, model, setModel, effort, setEffort,
     permissionMode, setPermissionMode, plusOpen, setPlusOpen, menuOpen, setMenuOpen,
     effortOpen, setEffortOpen,
     modelMenuProvider, setModelMenuProvider,
@@ -537,7 +536,7 @@ export function ComposerControls(p: {
             </span>
           )}
           {p.workingSince != null ? (
-            text.trim() ? (
+            p.hasContent ? (
               <Tooltip
                 placement="top-end"
                 contentClassName="follow-up-tooltip"
@@ -558,7 +557,7 @@ export function ComposerControls(p: {
                   type="submit"
                   variant="secondary"
                   className={`send follow-up-submit follow-up-${preferredFollowUpMode}`}
-                  disabled={p.disabled}
+                  disabled={p.disabled || !p.hasContent}
                   aria-label={followUpLabel(preferredFollowUpMode)}
                 >
                   <ArrowUpIcon data-icon="inline-start" aria-hidden="true" />
@@ -579,7 +578,13 @@ export function ComposerControls(p: {
               </Button>
             )
           ) : (
-            <Button type="submit" variant="secondary" className="send" disabled={p.disabled} title={t("action.send")}>
+            <Button
+              type="submit"
+              variant="secondary"
+              className="send"
+              disabled={p.disabled || !p.hasContent}
+              title={t("action.send")}
+            >
               ↑
             </Button>
           )}
