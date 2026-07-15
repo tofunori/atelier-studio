@@ -25325,7 +25325,7 @@ function OA() {
         "aria-pressed": O,
         onClick: () => Qr("favChip"),
         children: [
-          /* @__PURE__ */ x.jsx(tp, { "data-icon": "inline-start" }),
+          /* @__PURE__ */ x.jsx(tp, { "data-icon": "inline-start", fill: O ? "currentColor" : "none" }),
           /* @__PURE__ */ x.jsx("span", { className: "gallery-fav-label", children: "Favorites" })
         ]
       }

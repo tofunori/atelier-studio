@@ -762,7 +762,7 @@ function GalleryToolbar() {
         aria-pressed={favoriteActive}
         onClick={() => clickLegacy("favChip")}
       >
-        <Star data-icon="inline-start" />
+        <Star data-icon="inline-start" fill={favoriteActive ? "currentColor" : "none"} />
         <span className="gallery-fav-label">Favorites</span>
       </Button>
 
