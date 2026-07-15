@@ -1,6 +1,6 @@
 // ContextShelf — chaque pièce jointe compose la primitive Attachment shadcn;
 // les comportements métier (paste, image, citations groupées) restent testés.
-import { render, screen, fireEvent, cleanup } from "@testing-library/react";
+import { render, screen, fireEvent, cleanup, within } from "@testing-library/react";
 import { describe, it, expect, vi, afterEach, beforeEach } from "vitest";
 import { ContextShelf, type ShelfAttachment } from "./ContextShelf";
 import { setLanguage } from "../../lib/i18n";
@@ -44,14 +44,36 @@ describe("ContextShelf avec Attachment shadcn", () => {
     expect(onOpenPaste).toHaveBeenCalledWith({ name: "extrait.txt", text: "contenu collé" });
   });
 
-  it("image → AttachmentMedia image et suppression nommée", () => {
+  it("image → vignette cliquable, aperçu agrandi et suppression nommée", () => {
     const { onRemoveAttachment, container } = shelf([
       { name: "capture.png", lines: null, text: "img", imageUrl: "data:image/png;base64,x" },
     ]);
 
     expect(container.querySelector('[data-slot="attachment-media"][data-variant="image"] img')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Aperçu de capture.png" }));
+    const dialog = screen.getByRole("dialog", { name: "Aperçu agrandi de l’image" });
+    expect(dialog).toBeInTheDocument();
+    expect(dialog).toHaveClass("tw:inset-0", "tw:items-center", "tw:justify-center");
+    expect(dialog).toHaveStyle({ inset: "0", transform: "none", translate: "none" });
+    expect(within(dialog).getByRole("img", { name: "capture.png" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Fermer l’aperçu de l’image" }));
+    expect(screen.queryByRole("dialog", { name: "Aperçu agrandi de l’image" })).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Retirer capture.png" }));
     expect(onRemoveAttachment).toHaveBeenCalledWith(0);
+  });
+
+  it("plusieurs images → navigation circulaire comme Synara", () => {
+    shelf([
+      { name: "one.png", lines: null, text: "one", imageUrl: "data:image/png;base64,one" },
+      { name: "two.png", lines: null, text: "two", imageUrl: "data:image/png;base64,two" },
+    ]);
+
+    fireEvent.click(screen.getByRole("button", { name: "Aperçu de one.png" }));
+    expect(screen.getByText("one.png (1/2)")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Image suivante" }));
+    expect(screen.getByText("two.png (2/2)")).toBeInTheDocument();
+    fireEvent.keyDown(window, { key: "ArrowRight" });
+    expect(screen.getByText("one.png (1/2)")).toBeInTheDocument();
   });
 
   it("citations groupées → Popover et Attachments compacts supprimables séparément", () => {
