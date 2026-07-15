@@ -561,6 +561,12 @@ export function buildCodexInput({ prompt, inputs, imagePath, attachments }) {
         if ((input?.type === "local_image" || input?.type === "localImage") && input.path) {
           return image(input.path);
         }
+        if (input?.type === "skill" && input.name && input.path) {
+          return { type: "skill", name: String(input.name), path: String(input.path) };
+        }
+        if (input?.type === "mention" && input.name && input.path) {
+          return { type: "mention", name: String(input.name), path: String(input.path) };
+        }
         return null;
       })
       .filter(Boolean);
@@ -573,6 +579,82 @@ export function buildCodexInput({ prompt, inputs, imagePath, attachments }) {
     if (path) imagePaths.add(String(path));
   }
   return [text(prompt), ...[...imagePaths].map(image)];
+}
+
+const ATELIER_PLUGIN_MVP = [
+  "visualize",
+  "latex",
+  "documents",
+  "pdf",
+  "presentations",
+  "spreadsheets",
+  "build-web-data-visualization",
+  "openai-developers",
+  "frontend-design",
+  "template-creator",
+];
+
+function preferredPluginSkill(pluginName, skills) {
+  const preferred = {
+    latex: "latex-compile",
+    "build-web-data-visualization": "data-visualization",
+    "openai-developers": "agents-sdk",
+  }[pluginName] ?? pluginName;
+  return skills.find((skill) => skill?.name === preferred || skill?.name?.endsWith(`:${preferred}`)) ?? skills[0] ?? null;
+}
+
+function hydrateCachedSkillPaths(marketplaceName, pluginName, skills) {
+  const root = join(homedir(), ".codex", "plugins", "cache", marketplaceName, pluginName);
+  let versions = [];
+  try {
+    versions = readdirSync(root, { withFileTypes: true })
+      .filter((entry) => entry.isDirectory())
+      .map((entry) => entry.name)
+      .sort()
+      .reverse();
+  } catch { return skills; }
+  return skills.map((skill) => {
+    if (skill?.path) return skill;
+    const leaf = String(skill?.name ?? "").split(":").pop();
+    const path = versions
+      .map((version) => join(root, version, "skills", leaf, "SKILL.md"))
+      .find((candidate) => existsSync(candidate));
+    return path ? { ...skill, path } : skill;
+  });
+}
+
+export async function listAtelierPlugins(cwd = "") {
+  const srv = await ensureServer();
+  const installed = await srv.request("plugin/installed", cwd ? { cwds: [cwd] } : {});
+  const plugins = [];
+  for (const marketplace of installed?.marketplaces ?? []) {
+    for (const summary of marketplace?.plugins ?? []) {
+      if (!ATELIER_PLUGIN_MVP.includes(summary?.name) || !summary?.installed || !summary?.enabled) continue;
+      const params = { pluginName: marketplace.path ? summary.name : (summary.remotePluginId ?? summary.name) };
+      if (marketplace.path) params.marketplacePath = marketplace.path;
+      else if (marketplace.name) params.remoteMarketplaceName = marketplace.name;
+      const response = await srv.request("plugin/read", params);
+      const detail = response?.plugin ?? response ?? {};
+      const skills = hydrateCachedSkillPaths(
+        marketplace.name,
+        summary.name,
+        Array.isArray(detail.skills) ? detail.skills : [],
+      );
+      plugins.push({
+        id: summary.id ?? summary.name,
+        name: summary.name,
+        displayName: summary.interface?.displayName ?? summary.name,
+        description: summary.interface?.shortDescription ?? "",
+        version: summary.localVersion ?? null,
+        enabled: true,
+        icon: summary.interface?.composerIcon ?? summary.interface?.composerIconUrl ?? null,
+        skills,
+        primarySkill: preferredPluginSkill(summary.name, skills),
+      });
+    }
+  }
+  plugins.sort((a, b) => ATELIER_PLUGIN_MVP.indexOf(a.name) - ATELIER_PLUGIN_MVP.indexOf(b.name));
+  return plugins;
 }
 
 /**

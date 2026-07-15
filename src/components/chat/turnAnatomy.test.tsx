@@ -61,7 +61,42 @@ describe("anatomie du tour — header d'activité", () => {
     expect(fold.getAttribute("aria-expanded")).toBe("true");
     expect(document.querySelectorAll(".ui-activity:not(.is-summary)")).toHaveLength(2);
     expect(document.querySelectorAll(".ui-activity.is-completed:not(.is-summary)")).toHaveLength(2);
-    expect(document.querySelectorAll(".ui-activity-label")[1]?.textContent).toContain("Read");
+    expect(document.querySelectorAll(".ui-activity-label")[1]?.textContent?.toLowerCase()).toContain(t("tools.read-1").toLowerCase());
+  });
+
+  it("tour actif : une seule activité résume Bash et réflexion, avec le brut à deux clics", () => {
+    const evs: AgentEvent[] = [
+      events.user("Inspecte puis corrige.", FIXED_TS),
+      events.thinking("Je localise les fichiers utiles.", FIXED_TS + 50),
+      events.tool({ id: "search-1", name: "Bash", detail: "rg -n albedo src", input: { command: "rg -n albedo src" } }),
+      events.thinking("Je vérifie ensuite le fichier trouvé.", FIXED_TS + 250),
+      events.tool({ id: "read-1", name: "Bash", detail: "cat src/albedo.ts", input: { command: "cat src/albedo.ts" } }),
+    ];
+    renderUi(<Chat {...chatProps({ events: evs, workingSince: FIXED_TS })} />);
+
+    const active = document.querySelector(".ui-activity.is-running") as HTMLElement;
+    expect(active).toBeTruthy();
+    expect(document.querySelectorAll(".ui-activity.is-running")).toHaveLength(1);
+    expect(active.textContent).toContain("Travaille");
+    expect(active.textContent?.toLowerCase()).toContain(t("tools.searched").toLowerCase());
+    expect(active.textContent?.toLowerCase()).toContain(t("tools.read-1").toLowerCase());
+    expect(active.textContent).toContain("2 actions");
+    expect(document.querySelector(".working")).toBeNull();
+    expect(document.querySelector(".thinking")).toBeNull();
+    expect(screen.queryByText("Bash")).toBeNull();
+
+    const activeTrigger = active.querySelector(":scope > .ui-activity-trigger") as HTMLButtonElement;
+    fireEvent.click(activeTrigger);
+    expect(document.querySelectorAll(".active-turn-details .thinking")).toHaveLength(2);
+    const semanticActions = [...document.querySelectorAll(".active-turn-details > .ui-activity")];
+    expect(semanticActions).toHaveLength(2);
+    expect(semanticActions[0].textContent?.toLowerCase()).toContain(t("tools.searched").toLowerCase());
+    expect(semanticActions[1].textContent?.toLowerCase()).toContain(t("tools.read-1").toLowerCase());
+    expect(screen.queryByText("Bash")).toBeNull();
+
+    fireEvent.click(semanticActions[0].querySelector(".ui-activity-trigger") as HTMLButtonElement);
+    expect(screen.getByText("Bash")).toBeTruthy();
+    expect(screen.getByText("rg -n albedo src")).toBeTruthy();
   });
 
   it("l'erreur d'un tour reste visible même pli fermé", () => {

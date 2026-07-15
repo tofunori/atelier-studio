@@ -36,4 +36,4 @@ export type PendingChatAttachment = {
 };
 
 export const LARGE_FILE_BYTES = 5 * 1024 * 1024; // 5 MiB confirm before full download
-export const THUMB_MAX_BYTES = 512 * 1024; // don't auto-load bigger as thumb
+export const THUMB_MAX_BYTES = 5 * 1024 * 1024; // progressive PNG preview ceiling

@@ -6,12 +6,12 @@ import { memo, useEffect, useState, type ReactNode } from "react";
 import ReactMarkdown from "react-markdown";
 import { CheckIcon } from "lucide-react";
 import { AgentEvent } from "../../lib/ws";
-import { eventLabel, t } from "../../lib/i18n";
+import { t } from "../../lib/i18n";
 import { normalizeMathDelimiters, hardenPartialMarkdown } from "../../lib/markdown";
 import { CopyIcon, ForkIcon, ResumeIcon } from "../icons";
 import { MD_COMPONENTS, MD_COMPONENTS_STREAMING, useMdPlugins } from "./md";
 import { DoneDiffToggle, fmtTime, PinBtn } from "./turnParts";
-import { groupIconCat, summarizeTools } from "./toolPresentation";
+import { groupIconCat, summarizeTools, type ToolCat } from "./toolPresentation";
 import { ActivityDisclosure, Button, EmptyState, IconButton, Tooltip, showError, showSuccess } from "../ui";
 import { Bubble, BubbleContent } from "../shadcn/bubble";
 import { Message, MessageContent, MessageFooter } from "../shadcn/message";
@@ -384,6 +384,50 @@ export function ActivityFold(p: {
   );
 }
 
+function activeDuration(ms: number): string {
+  const totalSeconds = Math.max(1, Math.round(ms / 1000));
+  if (totalSeconds < 60) return `${totalSeconds}s`;
+  const minutes = Math.floor(totalSeconds / 60);
+  if (minutes < 60) return `${minutes}m ${String(totalSeconds % 60).padStart(2, "0")}s`;
+  return `${Math.floor(minutes / 60)}h ${String(minutes % 60).padStart(2, "0")}m`;
+}
+
+/** Résumé unique du tour actif. Le premier niveau reste humain et compact ;
+ * les actions sémantiques puis les commandes/sorties brutes vivent dans les
+ * deux niveaux de détail imbriqués. */
+export function ActiveTurnActivity(p: {
+  summary: string;
+  count: number;
+  since: number;
+  icon?: ToolCat;
+  open: boolean;
+  onToggle: () => void;
+  children: ReactNode;
+}) {
+  const [, tick] = useState(0);
+  useEffect(() => {
+    const timer = window.setInterval(() => tick((value) => value + 1), 1000);
+    return () => window.clearInterval(timer);
+  }, []);
+  const duration = activeDuration(Date.now() - p.since);
+  const actionCount = p.count === 1
+    ? t("chat.active-action-1")
+    : p.count > 1 ? t("chat.active-action-n", { n: p.count }) : null;
+  const meta = [t("chat.active-duration", { duration }), actionCount].filter(Boolean).join(" · ");
+  return (
+    <ActivityDisclosure
+      open={p.open}
+      onToggle={p.onToggle}
+      status="running"
+      icon={p.icon}
+      label={t("chat.active-work", { summary: p.summary })}
+      meta={meta}
+    >
+      {p.children}
+    </ActivityDisclosure>
+  );
+}
+
 export function ActivityGroup(p: {
   actions: ToolAction[];
   open: boolean;
@@ -396,8 +440,9 @@ export function ActivityGroup(p: {
   const status = failed ? "failed" : running ? "running" : "completed";
   const durationMs = updates.reduce((sum, a) => sum + (a.durationMs ?? 0), 0);
   const duration = durationMs >= 1000 ? `${Math.round(durationMs / 100) / 10}s` : durationMs ? `${durationMs}ms` : null;
-  const names = [...new Set(p.actions.map((action) => eventLabel(action.name)))];
-  const summary = names.length === 1 ? names[0] : summarizeTools(p.actions);
+  // Le nom technique (Bash, Read, execute_command…) n'est jamais le libellé
+  // principal. Une action reste compréhensible avant d'ouvrir son détail brut.
+  const summary = summarizeTools([p.actions[p.actions.length - 1]]);
   return (
     <ActivityDisclosure open={p.open} onToggle={p.onToggle} status={status}
       icon={groupIconCat(p.actions)} label={summary}

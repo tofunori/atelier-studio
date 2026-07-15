@@ -156,6 +156,31 @@ describe("route", () => {
     expect(sent.map((m) => m.type)).toEqual(["gitChanged", "gitUndoLastTurnDone"]);
     expect(sent[1].sha).toBe(sha);
   });
+  it("generateCommitMsg utilise les changements non indexés quand scope vaut changes", async () => {
+    const sent = [];
+    const commitMessage = vi.fn(async (context) => {
+      expect(context).toContain("2 files");
+      expect(context).toContain("src/app.ts (+12 -2)");
+      expect(context).toContain("results/output.csv");
+      return "Résume les changements";
+    });
+    const status = vi.fn(async () => ({ branch: "main", files: [
+      { path: "src/app.ts", status: ".M", add: 12, del: 2 },
+      { path: "results/output.csv", status: "?" },
+    ] }));
+    await route({ type: "generateCommitMsg", projectRoot: "/proj", scope: "changes" }, {
+      send: (message) => sent.push(message),
+      gitops: { status },
+      providers: { claude: { commitMessage } },
+    });
+
+    expect(status).toHaveBeenCalledWith("/proj");
+    expect(sent).toEqual([{
+      type: "commitMsg",
+      projectRoot: "/proj",
+      message: "Résume les changements",
+    }]);
+  });
   it("répond zotero-introuvable quand la base Zotero manque", async () => {
     const sent = [];
     await route(
@@ -547,6 +572,26 @@ describe("sélection de tour — repli lastTurn (pièges connus : démotion read
     expect(runs[0].prompt).toContain("montre-moi ces figures");
     expect(runs[0].prompt).toContain("atelier-gallery-tool");
     expect(runs[0].prompt).toContain('show --project-root "/projet"');
+  });
+
+  it("titre automatiquement depuis le message visible, jamais depuis le contexte injecté", async () => {
+    const runs = [];
+    const titleConversation = vi.fn(async () => "Analyse spectrale hivernale");
+    const { ctx } = makeCtx({
+      grok: { run: vi.fn((opts) => { runs.push(opts); return Promise.resolve({ sessionId: "g-title" }); }) },
+      claude: { titleConversation },
+    });
+    await route({
+      type: "send", provider: "grok", threadId: "t-title", projectRoot: "/projet",
+      prompt: "/projet/figures/albedo.png\n\nAnalyse les tendances saisonnières", clientMessageId: "m-title",
+      displayEvent: { kind: "user", text: "Analyse les tendances saisonnières" },
+    }, ctx);
+    await flush();
+    expect(ctx.store.get("t-title").title).toBe("Analyse les tendances saisonnières");
+    await runs[0].onEvent({ kind: "done", ok: true, result: "" });
+    await flush();
+    expect(titleConversation).toHaveBeenCalledWith("Analyse les tendances saisonnières");
+    expect(ctx.store.get("t-title").title).toBe("Analyse spectrale hivernale");
   });
 
   it("refuse un changement de provider même lorsque le thread est au repos", async () => {

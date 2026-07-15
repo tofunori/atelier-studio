@@ -27,8 +27,9 @@ for BIN_NAME in "${BIN_NAMES[@]}"; do
   fi
   chmod +x "$DIST/$BIN_NAME"
 done
-cp sidecar/gallery_tool_cli.mjs sidecar/atelier-gallery-tool "$DIST/"
-chmod +x "$DIST/atelier-gallery-tool"
+cp sidecar/gallery_tool_cli.mjs sidecar/atelier-gallery-tool \
+  sidecar/zotero_passages.mjs sidecar/zotero_passage_cli.mjs sidecar/atelier-zotero-passages "$DIST/"
+chmod +x "$DIST/atelier-gallery-tool" "$DIST/atelier-zotero-passages"
 # Drop a tiny stamp for diagnostics (not hashed as the server binary itself is the identity).
 {
   echo "built_at=$(date -u +%Y-%m-%dT%H:%M:%SZ)"

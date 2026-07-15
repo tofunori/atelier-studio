@@ -208,6 +208,16 @@ export async function diff(root, filePath = null) {
   return text;
 }
 
+export async function diffStaged(root, filePath = null) {
+  const realRoot = confinedRoot(root);
+  await ensureRepo(realRoot);
+  const relPath = filePath == null ? null : assertRelativePath(realRoot, filePath);
+  const args = ["diff", "--cached", "--no-ext-diff", "--no-color", "--binary", "--"];
+  if (relPath) args.push(relPath);
+  const { stdout } = await git(realRoot, args);
+  return stdout;
+}
+
 export async function changedSince(root, sha) {
   const realRoot = confinedRoot(root);
   await ensureRepo(realRoot);
@@ -222,20 +232,30 @@ export async function changedSince(root, sha) {
 }
 
 export async function stageFile(root, filePath) {
+  return stageFiles(root, [filePath]);
+}
+
+export async function stageFiles(root, filePaths) {
+  if (!Array.isArray(filePaths) || filePaths.length === 0) return;
   const realRoot = confinedRoot(root);
   await ensureRepo(realRoot);
-  const relPath = assertRelativePath(realRoot, filePath);
-  await git(realRoot, ["add", "--", relPath]);
+  const relPaths = filePaths.map((filePath) => assertRelativePath(realRoot, filePath));
+  await git(realRoot, ["add", "--", ...relPaths]);
 }
 
 export async function unstageFile(root, filePath) {
+  return unstageFiles(root, [filePath]);
+}
+
+export async function unstageFiles(root, filePaths) {
+  if (!Array.isArray(filePaths) || filePaths.length === 0) return;
   const realRoot = confinedRoot(root);
   await ensureRepo(realRoot);
-  const relPath = assertRelativePath(realRoot, filePath);
+  const relPaths = filePaths.map((filePath) => assertRelativePath(realRoot, filePath));
   if (await hasHead(realRoot)) {
-    await git(realRoot, ["restore", "--staged", "--", relPath]);
+    await git(realRoot, ["restore", "--staged", "--", ...relPaths]);
   } else {
-    await git(realRoot, ["rm", "--cached", "--ignore-unmatch", "--", relPath]);
+    await git(realRoot, ["rm", "--cached", "--ignore-unmatch", "--", ...relPaths]);
   }
 }
 
@@ -262,13 +282,14 @@ export async function commit(root, message, files = null) {
   await ensureRepo(realRoot);
   const msg = String(message ?? "").trim();
   if (!msg) throw new Error("message de commit vide");
-  if (Array.isArray(files) && files.length) {
-    // modèle cases à cocher : stager exactement les fichiers choisis
-    const rels = files.map((f) => assertRelativePath(realRoot, f));
-    await git(realRoot, ["add", "--", ...rels]);
+  if (Array.isArray(files)) {
+    // [] signifie explicitement « commiter l'index actuel sans toucher au worktree ».
+    if (files.length) {
+      const rels = files.map((f) => assertRelativePath(realRoot, f));
+      await git(realRoot, ["add", "--", ...rels]);
+    }
   } else {
-    // aucun choix explicite : comportement par défaut = commiter TOUTES les
-    // modifications visibles (l'UI cases à cocher affinera ensuite)
+    // Compatibilité avec les anciens clients qui n'envoient pas `files`.
     const st = await status(realRoot);
     if (!st.files.length) throw new Error("rien à commiter");
     await git(realRoot, ["add", "-A"]);

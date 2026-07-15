@@ -33,6 +33,8 @@ import QuickAsk from "./components/QuickAsk";
 import { LazyDialog } from "./components/ui/LazyDialog";
 import { Button, IconButton, showInfo, showSuccess } from "./components/ui";
 import UsagePopover, { worstOf } from "./components/UsagePopover";
+import PluginPanel from "./components/PluginPanel";
+import { pluginSkillsForPrompt, type PluginCatalogEntry } from "./lib/plugins";
 import { init as initNotify, notifyRunDone, notifyReview } from "./lib/notify";
 import { CloseIcon, DownloadIcon, HighlighterIcon, ProviderIcon, SidebarIcon } from "./components/icons";
 import { loadSettings, saveSettings, Settings, ProviderId, DEFAULT_SETTINGS } from "./lib/settings";
@@ -96,7 +98,7 @@ function buildZoteroReferenceText(
 ): string {
   const citekey = item.citeKey || item.key;
   const head = [
-    `<zotero-reference citekey="${citekey}" zotero-key="${item.key}">`,
+    `<zotero-reference citekey="${citekey}" zotero-key="${item.key}"${item.pdfKey ? ` pdf-key="${item.pdfKey}"` : ""}${item.pdfFile ? ` pdf-file="${item.pdfFile.replace(/&/g, "&amp;").replace(/"/g, "&quot;")}"` : ""}>`,
     `titre : ${item.title}`,
     item.creators ? `auteurs : ${item.creators}` : null,
     item.year ? `année : ${item.year}` : null,
@@ -479,7 +481,7 @@ export default function App() {
     ts: number;
   } | null>(null);
   const [atelierTabs, setAtelierTabs] = useState<
-    { id: string; url: string; title: string; color?: string; pinned?: boolean; kind?: "term"; cwd?: string }[]
+    { id: string; url: string; title: string; color?: string; pinned?: boolean; kind?: "term"; cwd?: string; projectRoot?: string }[]
   >([]);
 
   // onglets épinglés persistés par projet
@@ -583,6 +585,8 @@ export default function App() {
   const [usageOpen, setUsageOpen] = useState(false);
   const usageOpenRef = useRef(false);
   usageOpenRef.current = usageOpen;
+  const [pluginsOpen, setPluginsOpen] = useState(false);
+  const [plugins, setPlugins] = useState<PluginCatalogEntry[]>([]);
   const [dragging, setDragging] = useState(false);
   useEffect(() => { initNotify().catch(() => {}); }, []);
   useEffect(() => {
@@ -709,7 +713,7 @@ export default function App() {
             const have = new Set(tabs.map((t) => t.url));
             const news = pinned
               .filter((pt) => !have.has(pt.url))
-              .map((pt) => ({ id: crypto.randomUUID(), ...pt, url: withAtelierNonce(pt.url, atelierNonce), pinned: true }));
+              .map((pt) => ({ id: crypto.randomUUID(), ...pt, projectRoot: project, url: withAtelierNonce(pt.url, atelierNonce), pinned: true }));
             return [...tabs, ...news];
           });
         }
@@ -726,6 +730,27 @@ export default function App() {
       .then((tok) => { galleryTokenRef.current = tok; })
       .catch(() => {});
   }, [atelierUrl]);
+
+  // Les URLs d'éditeur sont servies par un serveur galerie propre à chaque
+  // projet (et donc à un port distinct). Un onglet conservé après un changement
+  // de projet chargerait le bon chemin sur le mauvais serveur et finirait en
+  // 404. Fermer ces onglets morts; les onglets épinglés restent persistés dans
+  // leur store par projet et seront restaurés au retour.
+  useEffect(() => {
+    if (!activeProject || !atelierUrl) return;
+    let origin = "";
+    try { origin = new URL(atelierUrl).origin; } catch { return; }
+    const tabs = atelierTabsRef.current;
+    const next = tabs.filter((tab) => {
+      if (tab.kind === "term") return !tab.cwd || tab.cwd === activeProject;
+      if (tab.projectRoot) return tab.projectRoot === activeProject;
+      try { return new URL(tab.url).origin === origin; } catch { return false; }
+    });
+    if (next.length === tabs.length) return;
+    const kept = new Set(next.map((tab) => tab.id));
+    setActiveTab((current) => kept.has(current) || current === "ide" ? current : "gallery");
+    setAtelierTabs(next);
+  }, [activeProject, atelierUrl]);
 
   // à l'ouverture d'un chat Codex avec session : recharge le goal actif (s'il existe)
   const goalFetched = useRef<Set<string>>(new Set());
@@ -754,11 +779,20 @@ export default function App() {
     setActiveSurface(surface);
     window.dispatchEvent(new CustomEvent("switch-surface", { detail: { surface } }));
   }
+  useEffect(() => {
+    const openPassage = () => switchToSurface("biblio");
+    window.addEventListener("chat-open-zotero-passage", openPassage);
+    return () => window.removeEventListener("chat-open-zotero-passage", openPassage);
+  }, []);
   const galleryBridgeRef = useRef<GalleryCommandBridge | null>(null);
   useEffect(() => {
     if (!activeProject) return;
     const bridge = createGalleryCommandBridge({
       nonce: atelierNonce,
+      // Une figure fraîchement générée peut exiger un rescan de l'index avant
+      // son ouverture. Le serveur borne déjà ce rescan; laisser au bridge le
+      // temps de recevoir le résultat final plutôt que d'expirer à 5 s.
+      timeoutMs: 30_000,
       getCurrentProjectRoot: () => activeProject,
       getGalleryFrame: () =>
         document.querySelector<HTMLIFrameElement>('iframe[data-atelier-role="gallery"][data-atelier-ready="true"]'),
@@ -1195,6 +1229,7 @@ export default function App() {
         window.dispatchEvent(new CustomEvent("sessions-list", { detail: msg.sessions }));
       }
       if (msg.type === "commands") setCommands(msg.commands);
+      if (msg.type === "plugins") setPlugins(Array.isArray(msg.plugins) ? msg.plugins : []);
       if (msg.type === "files") setFiles(msg.files);
       if (msg.type === "error") {
         console.error("sidecar:", msg.message);
@@ -1399,12 +1434,25 @@ export default function App() {
           setActiveTab(existing.id);
         } else {
           const id = crypto.randomUUID();
-          setAtelierTabs((tabs) => [...tabs, { id, url: abs, title: data.title ?? "fichier" }]);
+          setAtelierTabs((tabs) => [...tabs, {
+            id,
+            url: abs,
+            title: data.title ?? "fichier",
+            projectRoot: activeProjectRef.current ?? undefined,
+          }]);
           setActiveTab(id);
         }
       }
       if (data.type === "atelier-add-to-chat") {
         attachContextToChat(data.text, data);
+        if (data.requestId && e.source) {
+          (e.source as Window).postMessage({
+            type: "atelier-add-to-chat-ack",
+            nonce: atelierNonce,
+            requestId: data.requestId,
+            ok: true,
+          }, e.origin);
+        }
       }
       if (data.type === "atelier-gallery-result") {
         const galleryFrame = document.querySelector<HTMLIFrameElement>('iframe[data-atelier-role="gallery"]');
@@ -1463,7 +1511,9 @@ export default function App() {
         : `${origin}/.fig_thumbs/latex_studio.html?path=${encodeURIComponent(outside)}${lineQ}${tokenQ}`;
     } else if (ext === "pdf") {
       url = `${origin}/.fig_thumbs/pdf_viewer.html?file=${encodeURIComponent(rel)}`;
-    } else if (["png", "jpg", "jpeg", "gif", "svg", "webp"].includes(ext)) {
+    } else if (ext === "svg") {
+      url = `${origin}/.fig_thumbs/svg_viewer.html?file=${encodeURIComponent(rel)}`;
+    } else if (["png", "jpg", "jpeg", "gif", "webp"].includes(ext)) {
       url = `${origin}/${rel}`;
     } else if (ext === "md") {
       url = `${origin}/.fig_thumbs/md_studio.html?path=${encodeURIComponent(`${activeProject}/${rel}`)}`;
@@ -1483,7 +1533,7 @@ export default function App() {
         return existing.url !== url ? tabs.map((t) => (t.id === existing.id ? { ...t, url } : t)) : tabs;
       }
       setActiveTab(newId);
-      return [...tabs, { id: newId, url, title: name }];
+      return [...tabs, { id: newId, url, title: name, projectRoot: activeProject }];
     });
     // l'onglet vit dans la surface Atelier : y basculer si on est ailleurs
     switchToSurface("atelier");
@@ -1498,6 +1548,32 @@ export default function App() {
 
   // clic sur une réf "fichier.tex:31" dans une réponse du chat
   useEffect(() => {
+    const openResolvedRef = (target: string, line: string | null) => {
+      const projectRoot = activeProjectRef.current;
+      let galleryRel = target.replace(/^\.\//, "");
+      if (projectRoot && galleryRel.startsWith(projectRoot + "/")) {
+        galleryRel = galleryRel.slice(projectRoot.length + 1);
+      }
+      const ext = galleryRel.split(".").pop()?.toLowerCase() ?? "";
+      if (
+        projectRoot &&
+        !galleryRel.startsWith("/") &&
+        !galleryRel.startsWith("~/") &&
+        ["png", "pdf"].includes(ext)
+      ) {
+        window.dispatchEvent(new CustomEvent("atelier-gallery-command", {
+          detail: {
+            action: "open",
+            mode: "viewer",
+            projectRoot,
+            requestId: crypto.randomUUID(),
+            rels: [galleryRel],
+          } satisfies GalleryCommandRequest,
+        }));
+        return;
+      }
+      openFileTabRef.current(target, line);
+    };
     const onOpen = (e: Event) => {
       const { rel, line } = (e as CustomEvent).detail as { rel: string; line: string | null };
       // résoudre un nom nu ("main.tex") contre l'arborescence du projet
@@ -1519,13 +1595,13 @@ export default function App() {
               // ("data/x/plot.csv") à un simple homonyme ailleurs
               const hits: string[] = Array.isArray(j?.hits) ? j.hits : [];
               const best = hits.find((h) => h === target || h.endsWith("/" + target)) ?? hits[0];
-              openFileTabRef.current(best ?? target, line);
+              openResolvedRef(best ?? target, line);
             })
-            .catch(() => openFileTabRef.current(target, line));
+            .catch(() => openResolvedRef(target, line));
           return;
         }
       }
-      openFileTabRef.current(target, line);
+      openResolvedRef(target, line);
     };
     window.addEventListener("chat-open-file", onOpen);
     return () => window.removeEventListener("chat-open-file", onOpen);
@@ -1666,8 +1742,19 @@ export default function App() {
     const activeThread = allThreadsRef.current.find((t) => t.id === activeId);
     const threadRoot = activeThread ? activeThread.projectRoot : (activeProject ?? "");
     const nativeCommand = parseNativeSlashCommand(prompt);
+    if (nativeCommand?.name === "resume") {
+      window.dispatchEvent(new CustomEvent("atelier-open-resume", { detail: { provider: "codex" } }));
+      return;
+    }
     if (nativeCommand?.name === "usage") {
       setUsageOpen(true);
+      return;
+    }
+    if (nativeCommand?.name === "plugins") {
+      setPluginsOpen(true);
+      if (ws.current?.readyState === 1) {
+        ws.current.send(JSON.stringify({ type: "listPlugins", projectRoot: threadRoot }));
+      }
       return;
     }
     if (nativeCommand?.name === "diff") {
@@ -1806,10 +1893,12 @@ export default function App() {
         : {}),
     };
     const imagePaths = attachments.map((a) => a.path).filter(Boolean) as string[];
-    const codexInputs = provider === "codex" && imagePaths.length
+    const pluginSkills = provider === "codex" ? pluginSkillsForPrompt(displayPrompt, plugins) : [];
+    const codexInputs = provider === "codex" && (imagePaths.length || pluginSkills.length)
       ? [
           { type: "text" as const, text: fullPrompt },
           ...imagePaths.map((path) => ({ type: "local_image" as const, path })),
+          ...pluginSkills.map((skill) => ({ type: "skill" as const, name: skill.name, path: skill.path })),
         ]
       : undefined;
     const additionalDirectories = settingsRef.current.additionalDirectories
@@ -1825,7 +1914,7 @@ export default function App() {
         {
           id: id as string,
           projectRoot: activeProject ?? "",
-          title: prompt.slice(0, 40),
+          title: displayPrompt.slice(0, 40),
           provider,
           sessionId: null,
           status: "idle" as const,
@@ -1846,7 +1935,7 @@ export default function App() {
     if (mock) {
       setDraftThreads((p) =>
         p.map((t) =>
-          t.id === id ? { ...t, title: prompt.slice(0, 40), status: "running" } : t,
+          t.id === id ? { ...t, title: displayPrompt.slice(0, 40), status: "running" } : t,
         ),
       );
       setTimeout(() => {
@@ -2081,6 +2170,9 @@ export default function App() {
       {usageOpen && <div className="ur-overlay" onClick={() => setUsageOpen(false)}>
         <UsagePopover open={usageOpen} onClose={() => setUsageOpen(false)} />
       </div>}
+      {pluginsOpen && <div className="plugin-overlay" onClick={() => setPluginsOpen(false)}>
+        <PluginPanel plugins={plugins} onClose={() => setPluginsOpen(false)} />
+      </div>}
       </>
     );
   }
@@ -2187,7 +2279,7 @@ export default function App() {
           onSelect={selectThread}
           onNew={newThread}
           onNewChat={newChat}
-          onImportSession={(provider, sessionId, title) => {
+          onImportSession={(provider, sessionId, title, sessionRoot) => {
             const newId = crypto.randomUUID();
             if (ws.current?.readyState === 1) {
               ws.current.send(JSON.stringify({
@@ -2196,7 +2288,7 @@ export default function App() {
                 provider,
                 sessionId,
                 title,
-                projectRoot: provider === "claude" ? (activeProject ?? "") : (activeProject ?? ""),
+                projectRoot: sessionRoot || activeProject || "",
               }));
               // charger l'historique (Claude) une fois le thread créé
               setTimeout(() => {
@@ -2273,6 +2365,9 @@ export default function App() {
       {usageOpen && <div className="ur-overlay" onClick={() => setUsageOpen(false)}>
         <UsagePopover open={usageOpen} onClose={() => setUsageOpen(false)} />
       </div>}
+      {pluginsOpen && <div className="plugin-overlay" onClick={() => setPluginsOpen(false)}>
+        <PluginPanel plugins={plugins} onClose={() => setPluginsOpen(false)} />
+      </div>}
     </>
   );
 
@@ -2316,6 +2411,7 @@ export default function App() {
           files={files}
           recentFiles={recentFiles.filter((file) => files.includes(file)).slice(0, 12)}
           zoteroItems={zoteroItems}
+          plugins={plugins}
           projectRoot={activeProject}
           projectName={displayProjectName}
           threadTitle={activeId ? (allThreads.find((th) => th.id === activeId)?.title ?? "") : ""}

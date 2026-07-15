@@ -13,6 +13,10 @@ export type Suggestion = {
   hint?: string;
   icon?: string;
   section?: string;
+  keep?: boolean;
+  attachPath?: string;
+  attachFolder?: string;
+  attachZoteroKey?: string;
 };
 
 export function SuggestionsList(p: {
@@ -95,6 +99,7 @@ export function PromptTextarea(p: {
           })()}
         </div>
         <InputGroupTextarea
+          className="tw:px-0 tw:py-0"
           ref={taRef}
           value={text}
           onChange={(e) => {

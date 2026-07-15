@@ -58,16 +58,19 @@ fn extract_user_query(text: &str) -> Option<String> {
 }
 
 fn strip_gallery_tool_instruction(text: &str) -> String {
-    const OPEN: &str = "<atelier-gallery-integration>";
-    const CLOSE: &str = "</atelier-gallery-integration>";
     let mut out = text.to_string();
-    while let Some(start) = out.find(OPEN) {
-        let Some(relative_end) = out[start + OPEN.len()..].find(CLOSE) else {
-            break;
-        };
-        let end = start + OPEN.len() + relative_end + CLOSE.len();
-        let remove_from = out[..start].trim_end_matches(['\r', '\n']).len();
-        out.replace_range(remove_from..end, "");
+    for (open, close) in [
+        ("<atelier-gallery-integration>", "</atelier-gallery-integration>"),
+        ("<atelier-zotero-passages>", "</atelier-zotero-passages>"),
+    ] {
+        while let Some(start) = out.find(open) {
+            let Some(relative_end) = out[start + open.len()..].find(close) else {
+                break;
+            };
+            let end = start + open.len() + relative_end + close.len();
+            let remove_from = out[..start].trim_end_matches(['\r', '\n']).len();
+            out.replace_range(remove_from..end, "");
+        }
     }
     out.trim_end().to_string()
 }
@@ -241,7 +244,7 @@ mod tests {
         let native = vec![
             json!({"kind":"user","text":"tour supprimé"}),
             json!({"kind":"text","text":"réponse supprimée"}),
-            json!({"kind":"user","text":"citation brute\n\nvulgarise\n\n<atelier-gallery-integration>secret</atelier-gallery-integration>"}),
+            json!({"kind":"user","text":"citation brute\n\nvulgarise\n\n<atelier-gallery-integration>secret</atelier-gallery-integration>\n<atelier-zotero-passages>secret pdf</atelier-zotero-passages>"}),
             json!({"kind":"text","text":"réponse complète"}),
         ];
 

@@ -15,12 +15,39 @@ import { openUrl } from "@tauri-apps/plugin-opener";
 hljs.registerLanguage("julia", julia);
 hljs.registerLanguage("latex", latex);
 
-export const FILE_REF = /^[\w~./-]*[\w-]\.(tex|py|jl|md|r|R|bib|json|toml|yaml|yml|sh|js|ts|tsx|jsx|css|html|txt|csv|sql|rs|mjs|ipynb)(:\d+(?:-\d+)?)?$/;
+export const FILE_REF = /^[\w~./-]*[\w-]\.(tex|py|jl|md|r|bib|json|toml|yaml|yml|sh|js|ts|tsx|jsx|css|html|txt|csv|sql|rs|mjs|ipynb|png|pdf|svg)(:\d+(?:-\d+)?)?$/i;
 
 export function openFileRef(ref: string) {
   const m = /^(.+?)(?::(\d+(?:-\d+)?))?$/.exec(ref.trim());
   if (!m) return;
   window.dispatchEvent(new CustomEvent("chat-open-file", { detail: { rel: m[1], line: m[2] ?? null } }));
+}
+
+export type ZoteroPassageRef = {
+  key: string;
+  pdfKey: string;
+  pdfFile: string;
+  page: number;
+  quote: string;
+};
+
+export function parseZoteroPassageRef(href: string): ZoteroPassageRef | null {
+  const prefix = "#atelier-zotero-passage?";
+  if (!href.startsWith(prefix)) return null;
+  const params = new URLSearchParams(href.slice(prefix.length));
+  const key = params.get("key") ?? "";
+  const pdfKey = params.get("pdfKey") ?? "";
+  const pdfFile = params.get("file") ?? "";
+  const page = Number(params.get("page"));
+  const quote = (params.get("quote") ?? "").slice(0, 900);
+  if (!/^[A-Za-z0-9_-]{1,80}$/.test(key) || !/^[A-Za-z0-9_-]{1,80}$/.test(pdfKey)) return null;
+  if (!pdfFile || pdfFile.length > 255 || /[/\\]/.test(pdfFile) || !pdfFile.toLowerCase().endsWith(".pdf")) return null;
+  if (!Number.isInteger(page) || page < 1 || page > 100_000 || !quote.trim()) return null;
+  return { key, pdfKey, pdfFile, page, quote };
+}
+
+export function openZoteroPassage(ref: ZoteroPassageRef) {
+  window.dispatchEvent(new CustomEvent("chat-open-zotero-passage", { detail: ref }));
 }
 
 // texte complet des enfants markdown (string, tableau, éléments imbriqués)
@@ -163,6 +190,16 @@ export const MD_COMPONENTS = {
   a: (props: any) => {
     const label = mdText(props.children);
     const href = String(props.href ?? "");
+    const passage = parseZoteroPassageRef(href);
+    if (passage)
+      return (
+        <button className="file-ref zotero-passage-ref" onClick={() => openZoteroPassage(passage)} title={`Ouvrir le PDF à la page ${passage.page}`}>
+          <svg width="10" height="10" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5">
+            <path d="M3 1.8h7l3 3v9.4H3z" /><path d="M10 1.8v3h3M5.2 8h5.6M5.2 10.5h4" />
+          </svg>
+          {label}
+        </button>
+      );
     const ref = FILE_REF.test(label) ? label : FILE_REF.test(href) ? href : null;
     if (ref)
       return (

@@ -24,6 +24,7 @@ export const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(function 
     type = "button",
     disabled,
     loading,
+    "aria-busy": ariaBusy,
     className,
     children,
     ...rest
@@ -37,7 +38,7 @@ export const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(function 
       variant={shadcnVariant}
       className={cx("ui-btn", `ui-btn--${variant}`, loading && "ui-btn--loading", className)}
       disabled={disabled || loading}
-      aria-busy={loading || undefined}
+      aria-busy={loading || ariaBusy || undefined}
     >
       <span className="ui-btn-label">{children}</span>
       {loading && (

@@ -6,7 +6,7 @@ import { execSync } from "node:child_process";
 // vérifié sur session SDK live 2026-07-06 : model/memory ne sont PAS interprétées par le SDK
 const BUILTINS = [
   "goal", "loop", "clear", "compact", "review", "context",
-  "status", "model", "permissions", "plan", "diff", "usage",
+  "status", "model", "permissions", "plan", "diff", "usage", "resume",
 ];
 
 /** Skills + slash commands visibles pour un projet (user + projet). */

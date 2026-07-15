@@ -14,6 +14,7 @@
 })();</script>
 <script src="/.fig_thumbs/pdfjs/pdf.min.js"></script>
 <script src="annot_kit.js"></script>
+<script src="pdf_passage.js"></script>
 <style>
   :root{--ui-font:-apple-system,'SF Pro Text','Inter Variable',sans-serif;--code-font:ui-monospace,'SF Mono',Menlo,monospace;--bg:#202024;--card:#27272a;--card2:#1f1f23;--txt:#dbdfe5;--muted:#a1a1aa;--accent:#5b9dff;--border:#3f3f46}
   body{margin:0;background:var(--bg);color:var(--txt);font-family:var(--ui-font)}
@@ -29,6 +30,7 @@
   .textLayer{position:absolute;inset:0;overflow:hidden;line-height:1;opacity:1;user-select:none}
   .textLayer span{position:absolute;color:transparent;white-space:pre;transform-origin:0 0;cursor:text}
   .textLayer span.hl{background:rgba(91,157,255,.45);border-radius:2px}
+  .textLayer span.auto-hl{background:rgba(255,196,71,.58);border-radius:2px;box-shadow:0 0 0 1px rgba(184,126,20,.22)}
   .pdfhl{position:absolute;border-radius:2px;mix-blend-mode:multiply;cursor:pointer}
   .pdfnote{position:absolute;cursor:pointer;background:#1b1f26;border:1px solid #333a45;
     border-radius:6px;padding:2px 3px;box-shadow:0 2px 8px rgba(0,0,0,.4)}
@@ -109,6 +111,10 @@ function __ct(){try{return JSON.parse(localStorage.getItem('claudeTargetV1')||'n
 pdfjsLib.GlobalWorkerOptions.workerSrc = "/.fig_thumbs/pdfjs/pdf.worker.min.js";
 
 const rel = new URLSearchParams(location.search).get("file");
+const __passageParams = new URLSearchParams(location.search);
+const targetPage = Math.max(1, parseInt(__passageParams.get("page") || "1", 10) || 1);
+const targetQuote = (__passageParams.get("quote") || "").slice(0, 900);
+let targetRevealed = false;
 document.getElementById("fname").textContent = rel ? rel.split("/").pop() : "(no file)";
 let selPage = 1;
 
@@ -183,6 +189,7 @@ async function main(){
     tl._order = readingOrder(tl, vp.width);
     drawAnnots(div, n);
     }
+    revealLinkedPassage(!targetRevealed);
   }
   function setZoom(z){
     ZOOM = Math.min(4, Math.max(0.4, z));
@@ -202,12 +209,35 @@ async function main(){
   try {
     const k = "pdfv_scroll_" + location.search;
     const r = parseFloat(sessionStorage.getItem(k));
-    if (r > 0) {
+    if (!targetQuote && r > 0) {
       sessionStorage.removeItem(k);
       const el = document.scrollingElement || document.documentElement;
       el.scrollTop = r * el.scrollHeight;
     }
   } catch(e){}
+}
+
+function revealLinkedPassage(shouldScroll){
+  if(!targetQuote) return;
+  document.querySelectorAll(".textLayer span.auto-hl").forEach(function(span){ span.classList.remove("auto-hl"); });
+  const pg = document.querySelector('.pg[data-page="' + targetPage + '"]');
+  if(!pg) return;
+  const tl = pg.querySelector(".textLayer");
+  const spans = (tl && tl._order) || (tl ? [...tl.querySelectorAll("span")] : []);
+  const match = window.AtelierPdfPassage && window.AtelierPdfPassage.findPassageSpanRange(
+    spans.map(function(span){ return span.textContent || ""; }), targetQuote
+  );
+  if(match){
+    spans.slice(match.start, match.end + 1).forEach(function(span){ span.classList.add("auto-hl"); });
+    document.getElementById("status").textContent = "Passage retrouvé — p. " + targetPage;
+  } else {
+    document.getElementById("status").textContent = "Page " + targetPage + " — extrait non localisé";
+  }
+  if(shouldScroll){
+    const target = match ? spans[match.start] : pg;
+    setTimeout(function(){ target.scrollIntoView({block:"center", behavior:"smooth"}); }, 0);
+  }
+  targetRevealed = true;
 }
 
 // Couche texte maison : un span par item, largeur EXACTE tiree du PDF

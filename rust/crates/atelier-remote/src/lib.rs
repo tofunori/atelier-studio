@@ -66,7 +66,7 @@ pub fn app_router(state: GatewayState, allowed_hosts: Vec<String>) -> Router {
                 .ok()
                 .is_some_and(|value| hostcheck::origin_allowed(value, &cors_hosts))
         }))
-        .allow_methods([Method::GET, Method::POST, Method::OPTIONS])
+        .allow_methods([Method::GET, Method::POST, Method::DELETE, Method::OPTIONS])
         .allow_headers([
             header::CONTENT_TYPE,
             header::AUTHORIZATION,

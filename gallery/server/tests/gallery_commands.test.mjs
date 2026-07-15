@@ -57,6 +57,39 @@ test("open appelle le viewer uniquement pour un chemin connu", () => {
   assert.deepEqual(plain(missing.missing), ["missing.png"]);
 });
 
+test("open rescane une fois puis ouvre une figure créée après l'index initial", async () => {
+  const opened = [];
+  let rescans = 0;
+  const contract = loadContract();
+  const result = await contract.executeWithRefresh(
+    command("open", ["figures/new-export.pdf"]),
+    ["figures/old-export.pdf"],
+    { projectRoot: PROJECT, open: (rel) => opened.push(rel) },
+    async () => {
+      rescans += 1;
+      return ["figures/old-export.pdf", "figures/new-export.pdf"];
+    },
+  );
+  assert.equal(rescans, 1);
+  assert.deepEqual(opened, ["figures/new-export.pdf"]);
+  assert.deepEqual(plain(result), {
+    ok: true, action: "open", projectRoot: PROJECT, requestId: "req-open",
+    matched: ["figures/new-export.pdf"], missing: [], applied: true,
+  });
+});
+
+test("open ne rescane pas quand la figure est déjà indexée", async () => {
+  let rescans = 0;
+  const result = await loadContract().executeWithRefresh(
+    command("open", ["figures/current.pdf"]),
+    ["figures/current.pdf"],
+    { projectRoot: PROJECT, open: () => {} },
+    async () => { rescans += 1; return []; },
+  );
+  assert.equal(rescans, 0);
+  assert.equal(result.applied, true);
+});
+
 test("compare applique au moins deux correspondances et reste honnête sinon", () => {
   const compared = [];
   const contract = loadContract();

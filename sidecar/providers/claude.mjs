@@ -103,8 +103,26 @@ export async function titleConversation(firstMessage) {
     .slice(0, 70);
 }
 
+function fallbackCommitMessage(context) {
+  const lower = String(context ?? "").toLowerCase();
+  if (["gitsurface", "gitops", "/git.rs", "commit"].some((value) => lower.includes(value))) {
+    return "Improve Git commit workflow";
+  }
+  const analysis = ["analysis", "diagnostic", "model", ".jl", ".py", ".r\n"].some((value) => lower.includes(value));
+  const docs = ["docs/", "manuscript", ".md", ".tex", ".bib"].some((value) => lower.includes(value));
+  const ui = [".tsx", ".css", ".html", "components/"].some((value) => lower.includes(value));
+  if (analysis && docs) return "Update analysis scripts and documentation";
+  if (analysis) return "Update analysis scripts and results";
+  if (docs && ui) return "Update interface and documentation";
+  if (ui) return "Update application interface";
+  if (docs) return "Update project documentation";
+  if (["test", "spec."].some((value) => lower.includes(value))) return "Update automated tests";
+  return "Update project files";
+}
+
 export async function commitMessage(diff) {
   const body = String(diff ?? "").slice(0, 8000);
+  const fallback = fallbackCommitMessage(body);
   const prompt =
     "Rédige un message de commit Git concis en français, une seule ligne, " +
     "impératif ou descriptif court, sans guillemets ni markdown. Diff:\n\n" +
@@ -120,18 +138,30 @@ export async function commitMessage(diff) {
     },
   });
   let resultText = "";
-  for await (const msg of q) {
-    if (msg.type === "result" && msg.result) resultText = msg.result;
-    if (msg.type === "assistant") {
-      for (const block of msg.message?.content ?? []) {
-        if (block.type === "text") text += block.text;
+  let timedOut = false;
+  const timer = setTimeout(() => {
+    timedOut = true;
+    q.interrupt?.().catch(() => {});
+  }, 12_000);
+  try {
+    for await (const msg of q) {
+      if (msg.type === "result" && msg.result) resultText = msg.result;
+      if (msg.type === "assistant") {
+        for (const block of msg.message?.content ?? []) {
+          if (block.type === "text") text += block.text;
+        }
       }
     }
+  } catch {
+    return fallback;
+  } finally {
+    clearTimeout(timer);
   }
-  return (text || resultText)
+  if (timedOut) return fallback;
+  return ((text || resultText)
     .replace(/^["'«\s]+|["'»\s.]+$/g, "")
     .replace(/\s+/g, " ")
-    .slice(0, 120);
+    .slice(0, 120)) || fallback;
 }
 
 export function send({

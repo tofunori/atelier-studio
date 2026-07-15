@@ -19,6 +19,7 @@
  * classes remain as product markers during the migration so existing tests and
  * shell selectors can identify an Atelier button; they no longer own color,
  * geometry or motion. */
+.ui-btn { position: relative; }
 .ui-btn-label { display: inline-flex; align-items: center; gap: var(--sp-2); min-width: 0; }
 /* loading : le label garde sa géométrie (opacity 0), le spinner se superpose —
  * zéro layout shift */

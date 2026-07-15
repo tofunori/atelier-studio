@@ -358,6 +358,23 @@ describe("timeline Chat — caractérisation avant extraction", () => {
     expect(fileRef.classList.contains("file-ref")).toBe(true);
   });
 
+  it("rend les liens de figures PNG et PDF comme des fichiers interactifs", () => {
+    renderUi(
+      <Chat {...chatProps({
+        events: [
+          events.user(),
+          events.text([
+            "- [Figure PNG](outputs/figures/albedo_annuel.png)",
+            "- [Figure PDF](outputs/figures/albedo_annuel.pdf)",
+          ].join("\n")),
+        ],
+      })} />,
+    );
+
+    expect(screen.getByRole("button", { name: "Figure PNG" })).toHaveClass("file-ref");
+    expect(screen.getByRole("button", { name: "Figure PDF" })).toHaveClass("file-ref");
+  });
+
   it("review et usage restent associés au bon tour (badge sur le DERNIER done)", () => {
     const twoTurns = [
       events.user("Premier ?"), events.text("Un."), events.done(),

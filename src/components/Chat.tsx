@@ -7,13 +7,14 @@ import { buildHighlightContext } from "../lib/highlightContext";
 import type { HighlightEntry } from "./Rail";
 import { CloseIcon } from "./icons";
 import { ProviderInfo } from "../lib/providers";
-import { ToolOutputLine, isSummarizableTool, Tick, toolCategory } from "./chat/toolPresentation";
-import { ChatTimeline } from "./chat/ChatTimeline";
+import { ToolOutputLine, groupIconCat, isSummarizableTool, summarizeTools, Tick, toolCategory } from "./chat/toolPresentation";
+import { ChatTimeline, type ActiveActivityDetail, type ActiveActivityItem, type ToolAction } from "./chat/ChatTimeline";
 import { ChatHeader } from "./chat/ChatHeader";
 import type { ResearchHomeBundle } from "./ResearchHome";
 import { ChatComposer } from "./chat/ChatComposer";
 import { mentionLabel } from "./chat/mentions";
 import { BUILTIN_MODEL_LABELS } from "../lib/modelCatalog";
+import type { PluginCatalogEntry } from "../lib/plugins";
 
 
 
@@ -78,6 +79,7 @@ export default function Chat(p: {
   files: string[];
   recentFiles: string[];
   zoteroItems: ChatZoteroItem[];
+  plugins?: PluginCatalogEntry[];
   injectText: string | null;
   onInjected: () => void;
   attachments: ChatAttachment[];
@@ -402,6 +404,7 @@ export default function Chat(p: {
     return () => { reg.delete("chat-hl"); reg.delete("chat-ul"); };
   }, [marks, p.events]);
   const [menuOpen, setMenuOpen] = useState(false);
+  const [effortOpen, setEffortOpen] = useState(false);
   const [modelMenuProvider, setModelMenuProvider] = useState(provider);
   const [plusOpen, setPlusOpen] = useState(false);
   const [goalOpen, setGoalOpen] = useState(false);
@@ -482,6 +485,12 @@ export default function Chat(p: {
     return () => window.removeEventListener("click", close);
   }, [menuOpen]);
   useEffect(() => {
+    if (!effortOpen) return;
+    const close = () => setEffortOpen(false);
+    window.addEventListener("click", close);
+    return () => window.removeEventListener("click", close);
+  }, [effortOpen]);
+  useEffect(() => {
     // cascade : à l'ouverture, ne montrer QUE la liste des providers (sous-menu fermé)
     if (menuOpen) setModelMenuProvider("");
   }, [menuOpen, provider]);
@@ -528,6 +537,18 @@ export default function Chat(p: {
     const q = atMatch[2].toLowerCase();
     const base = text.slice(0, atMatch.index) + atMatch[1];
     suggestions = [];
+    suggestions.push(
+      ...(p.plugins ?? [])
+        .filter((plugin) => plugin.name.toLowerCase().includes(q) || plugin.displayName.toLowerCase().includes(q))
+        .slice(0, 10)
+        .map((plugin) => ({
+          insert: `${base}@${plugin.name} `,
+          label: `@${plugin.name}`,
+          hint: plugin.description,
+          section: "Plugins Codex",
+          icon: plugin.name === "visualize" ? "chart" : "plugin",
+        })),
+    );
     if ("local".startsWith(q) || q === "") {
       suggestions.push({ insert: "__browse__", label: "@local", hint: t("at.browse"), section: t("at.local"), icon: "local" });
     }
@@ -731,10 +752,86 @@ export default function Chat(p: {
     return `${Math.floor(m / 60)}h ${String(m % 60).padStart(2, "0")}m`;
   };
 
+  const actionId = (action: ToolAction, at: number) =>
+    "id" in action && action.id ? String(action.id) : `event:${at}`;
+
+  // Pendant un tour actif, les outils et réflexions ne prennent plus une ligne
+  // principale chacun. Ils alimentent un résumé unique en bas du fil ; le
+  // journal chronologique complet reste disponible dans ses deux niveaux de
+  // détail (action sémantique, puis input/output technique).
+  const activeActivityIndices = new Set<number>();
+  let activeActivity: ActiveActivityItem | null = null;
+  if (p.workingSince != null) {
+    let activeUserIndex = -1;
+    for (let index = p.events.length - 1; index >= 0; index--) {
+      const event = p.events[index];
+      if (event.kind === "user") { activeUserIndex = index; break; }
+      if (event.kind === "done") break;
+    }
+    if (activeUserIndex >= 0) {
+      const details: ActiveActivityDetail[] = [];
+      const groups = new Map<string, Extract<ActiveActivityDetail, { type: "actions" }>>();
+      let activityStepCount = 0;
+      for (let index = activeUserIndex + 1; index < p.events.length; index++) {
+        const event = p.events[index];
+        if (isSummarizableTool(event)) {
+          // Une édition déjà matérialisée par « Modifié fichier » reste hors du
+          // journal technique, comme avant ce regroupement actif.
+          if (editTurns.has(index) && toolCategory(event.name, "detail" in event ? event.detail : undefined) === "edit") {
+            continue;
+          }
+          activeActivityIndices.add(index);
+          const identity = actionId(event, index);
+          const turnKey = event.meta && "turnId" in event.meta ? `${event.meta.turnId}:` : "";
+          const key = `active-tools:${turnKey}${identity}`;
+          const existing = groups.get(key);
+          if (existing) existing.actions.push(event);
+          else {
+            const detail: Extract<ActiveActivityDetail, { type: "actions" }> = { type: "actions", actions: [event], key };
+            groups.set(key, detail);
+            details.push(detail);
+          }
+          continue;
+        }
+        if (event.kind === "thinking" || event.kind === "thinking_live" || event.kind === "activity") {
+          activeActivityIndices.add(index);
+          details.push({ type: "event", event, index });
+          if (event.kind === "activity") activityStepCount += Math.max(1, event.steps?.length ?? 0);
+        }
+      }
+      if (details.length > 0) {
+        const representatives = [...groups.values()].map((group) => group.actions[group.actions.length - 1]);
+        const latestSemanticActivity = [...details].reverse().find(
+          (detail): detail is Extract<ActiveActivityDetail, { type: "event" }> =>
+            detail.type === "event" && detail.event.kind === "activity",
+        );
+        const activitySummary = latestSemanticActivity && latestSemanticActivity.event.kind === "activity"
+          ? [latestSemanticActivity.event.title, latestSemanticActivity.event.detail].filter(Boolean).join(" · ")
+          : "";
+        const summary = activitySummary || (representatives.length > 0
+          ? summarizeTools(representatives)
+          : t("chat.thinking-live"));
+        const turnId = representatives[0]?.meta && "turnId" in representatives[0].meta
+          ? representatives[0].meta.turnId
+          : activeUserIndex;
+        activeActivity = {
+          type: "active",
+          key: `active:${p.threadId ?? "thread"}:${turnId}`,
+          summary,
+          count: groups.size + activityStepCount,
+          since: p.workingSince,
+          icon: representatives.length > 0 ? groupIconCat(representatives) : undefined,
+          details,
+        };
+      }
+    }
+  }
+
   const renderedEvents: (
     | { type: "event"; event: AgentEvent; index: number }
     | { type: "actions"; actions: Extract<AgentEvent, { kind: "tool" | "tool_update" }>[]; index: number; key: string }
     | { type: "fold"; fold: TurnFold; open: boolean }
+    | ActiveActivityItem
   )[] = [];
   for (let i = 0; i < p.events.length; i++) {
     const fold = turnFolds.get(i);
@@ -744,6 +841,7 @@ export default function Chat(p: {
       if (!open) { i = fold.end - 1; continue; }
     }
     const e = p.events[i];
+    if (activeActivityIndices.has(i)) continue;
     // L'événement humain « Edited fichier » remplace l'appel Edit redondant.
     if (isSummarizableTool(e) && editTurns.has(i) && toolCategory(e.name, "detail" in e ? e.detail : undefined) === "edit") {
       continue;
@@ -761,8 +859,6 @@ export default function Chat(p: {
     // Une action par ligne : on ne regroupe que l'appel et ses mises à jour
     // portant le même id. Deux outils consécutifs restent indépendamment
     // dépliables, comme dans le journal d'activité de Codex.
-    const actionId = (action: Extract<AgentEvent, { kind: "tool" | "tool_update" }>, at: number) =>
-      "id" in action && action.id ? String(action.id) : `event:${at}`;
     const identity = actionId(e, i);
     let end = i + 1;
     while (
@@ -779,6 +875,7 @@ export default function Chat(p: {
     renderedEvents.push({ type: "actions", actions, index: i, key: groupKey });
     i = end - 1;
   }
+  if (activeActivity) renderedEvents.push(activeActivity);
   const currentTool = [...p.events].reverse().find((e) => e.kind === "tool_update" || e.kind === "tool");
   const currentToolName =
     currentTool?.kind === "tool_update" ? eventLabel(currentTool.name) :
@@ -856,7 +953,7 @@ export default function Chat(p: {
           permissionMode, setPermissionMode,
         }}
         menus={{
-          plusOpen, setPlusOpen, menuOpen, setMenuOpen, modelMenuProvider,
+          plusOpen, setPlusOpen, menuOpen, setMenuOpen, effortOpen, setEffortOpen, modelMenuProvider,
           setModelMenuProvider,
           goalOpen, setGoalOpen, goalText, setGoalText,
         }}

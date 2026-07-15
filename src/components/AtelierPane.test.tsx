@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { cleanup, render } from "@testing-library/react";
-import AtelierPane from "./AtelierPane";
+import AtelierPane, { relFromTabUrl } from "./AtelierPane";
 
 vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn().mockResolvedValue({}) }));
 
@@ -8,6 +8,14 @@ describe("AtelierPane", () => {
   afterEach(() => {
     cleanup();
     vi.restoreAllMocks();
+  });
+
+  it("retrouve le chemin projet d'un onglet SVG editor", () => {
+    expect(relFromTabUrl(
+      "http://127.0.0.1:18790/.fig_thumbs/svg_viewer.html?file=figures%2Fplot.svg",
+      "/tmp/projet",
+      "http://127.0.0.1:18790/",
+    )).toBe("figures/plot.svg");
   });
 
   it("retire tous ses listeners window à l'unmount (plus de fuite useState)", () => {
@@ -74,6 +82,9 @@ describe("AtelierPane", () => {
         onToggleExpand={() => {}}
       />,
     );
-    expect(container.querySelectorAll('[data-slot="skeleton"]')).toHaveLength(6);
+    expect(container.querySelector('[data-testid="gallery-skeleton"]')).toBeInTheDocument();
+    expect(container.querySelector('.gallery-skeleton-toolbar')).toBeInTheDocument();
+    expect(container.querySelector('.gallery-skeleton-subbar')).toBeInTheDocument();
+    expect(container.querySelectorAll('[data-slot="skeleton"]').length).toBeGreaterThan(10);
   });
 });

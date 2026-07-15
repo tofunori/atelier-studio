@@ -336,24 +336,103 @@ pub fn diff(root: &str, file_path: Option<&str>) -> Result<String> {
     Ok(text)
 }
 
-pub fn stage_file(root: &str, file_path: &str) -> Result<()> {
-    let real = confined_root(root)?;
-    ensure_repo(&real)?;
-    let rel = assert_relative(&real, file_path)?;
-    git_ok(&real, &["add", "--", &rel])?;
+pub fn diff_staged(root: &str, file_path: Option<&str>) -> Result<String> {
+    let project = confined_root(root)?;
+    let top = git_ok(&project, &["rev-parse", "--show-toplevel"])
+        .map_err(|_| msg(format!("repo git introuvable: {}", project.display())))?;
+    let real = std::fs::canonicalize(top.trim())?;
+    if !project.starts_with(&real) {
+        return Err(msg("projet hors repo git"));
+    }
+    let project_prefix = project
+        .strip_prefix(&real)
+        .unwrap_or(Path::new(""))
+        .to_string_lossy()
+        .replace('\\', "/");
+    let rel = match file_path {
+        Some(path) => {
+            let within_project = assert_relative(&project, path)?;
+            Some(if project_prefix.is_empty() {
+                within_project
+            } else {
+                format!("{project_prefix}/{within_project}")
+            })
+        }
+        None if !project_prefix.is_empty() => Some(project_prefix),
+        None => None,
+    };
+    let mut args = vec![
+        "diff".to_string(),
+        "--cached".into(),
+        "--no-ext-diff".into(),
+        "--no-color".into(),
+        "--binary".into(),
+        "--".into(),
+    ];
+    if let Some(rel) = rel {
+        args.push(rel);
+    }
+    let refs = args.iter().map(String::as_str).collect::<Vec<_>>();
+    git_ok(&real, &refs)
+}
+
+fn scoped_paths(root: &str, file_paths: &[String]) -> Result<(PathBuf, Vec<String>)> {
+    let project = confined_root(root)?;
+    let top = git_ok(&project, &["rev-parse", "--show-toplevel"])
+        .map_err(|_| msg(format!("repo git introuvable: {}", project.display())))?;
+    let real = std::fs::canonicalize(top.trim())?;
+    if !project.starts_with(&real) {
+        return Err(msg("projet hors repo git"));
+    }
+    let prefix = project
+        .strip_prefix(&real)
+        .unwrap_or(Path::new(""))
+        .to_string_lossy()
+        .replace('\\', "/");
+    let paths = file_paths
+        .iter()
+        .map(|path| {
+            let rel = assert_relative(&project, path)?;
+            Ok(if prefix.is_empty() { rel } else { format!("{prefix}/{rel}") })
+        })
+        .collect::<Result<Vec<_>>>()?;
+    Ok((real, paths))
+}
+
+pub fn stage_files(root: &str, file_paths: &[String]) -> Result<()> {
+    if file_paths.is_empty() {
+        return Ok(());
+    }
+    let (real, paths) = scoped_paths(root, file_paths)?;
+    let mut args = vec!["add".to_string(), "--".into()];
+    args.extend(paths);
+    let refs = args.iter().map(String::as_str).collect::<Vec<_>>();
+    git_ok(&real, &refs)?;
     Ok(())
 }
 
-pub fn unstage_file(root: &str, file_path: &str) -> Result<()> {
-    let real = confined_root(root)?;
-    ensure_repo(&real)?;
-    let rel = assert_relative(&real, file_path)?;
-    if has_head(&real) {
-        git_ok(&real, &["restore", "--staged", "--", &rel])?;
-    } else {
-        let _ = git_ok(&real, &["rm", "--cached", "--ignore-unmatch", "--", &rel]);
+pub fn unstage_files(root: &str, file_paths: &[String]) -> Result<()> {
+    if file_paths.is_empty() {
+        return Ok(());
     }
+    let (real, paths) = scoped_paths(root, file_paths)?;
+    let mut args = if has_head(&real) {
+        vec!["restore".to_string(), "--staged".into(), "--".into()]
+    } else {
+        vec!["rm".to_string(), "--cached".into(), "--ignore-unmatch".into(), "--".into()]
+    };
+    args.extend(paths);
+    let refs = args.iter().map(String::as_str).collect::<Vec<_>>();
+    git_ok(&real, &refs)?;
     Ok(())
+}
+
+pub fn stage_file(root: &str, file_path: &str) -> Result<()> {
+    stage_files(root, &[file_path.to_string()])
+}
+
+pub fn unstage_file(root: &str, file_path: &str) -> Result<()> {
+    unstage_files(root, &[file_path.to_string()])
 }
 
 pub fn revert_file(root: &str, file_path: &str) -> Result<()> {
@@ -636,5 +715,30 @@ mod tests {
         let dir = init_repo();
         let root = dir.path().to_str().unwrap();
         assert!(stage_file(root, "../outside").is_err());
+    }
+
+    #[test]
+    fn staged_diff_excludes_unstaged_changes() {
+        let dir = init_repo();
+        let root = dir.path().to_str().unwrap();
+        std::fs::write(dir.path().join("a.txt"), b"staged version").unwrap();
+        stage_file(root, "a.txt").unwrap();
+        std::fs::write(dir.path().join("a.txt"), b"unstaged version").unwrap();
+        let staged = diff_staged(root, Some("a.txt")).unwrap();
+        assert!(staged.contains("staged version"));
+        assert!(!staged.contains("unstaged version"));
+    }
+
+    #[test]
+    fn empty_file_list_commits_only_the_existing_index() {
+        let dir = init_repo();
+        let root = dir.path().to_str().unwrap();
+        std::fs::write(dir.path().join("a.txt"), b"staged version").unwrap();
+        stage_file(root, "a.txt").unwrap();
+        std::fs::write(dir.path().join("b.txt"), b"leave me untracked").unwrap();
+        commit(root, "test staged only", Some(&[])).unwrap();
+        let st = status(root).unwrap();
+        assert!(st.files.iter().any(|file| file.path == "b.txt" && file.status == "?"));
+        assert!(!st.files.iter().any(|file| file.path == "a.txt"));
     }
 }

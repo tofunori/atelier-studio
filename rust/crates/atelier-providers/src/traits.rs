@@ -18,6 +18,8 @@ pub struct SendRequest {
     pub thread_id: String,
     pub turn_id: String,
     pub prompt: String,
+    /// Provider-native structured inputs (images, skills, mentions).
+    pub inputs: Option<Vec<Value>>,
     pub project_root: String,
     pub session_id: Option<String>,
     pub model: Option<String>,
@@ -53,6 +55,21 @@ pub trait Provider: Send + Sync {
     fn efforts(&self) -> Vec<String>;
 
     async fn send(&self, req: SendRequest) -> SendResult;
+
+    /// Optional lightweight semantic title generation for a new conversation.
+    /// Providers that do not expose a cheap title path keep the UI fallback.
+    async fn title_conversation(&self, _first_message: &str) -> Option<String> {
+        None
+    }
+
+    /// Optional low-cost commit subject generation from an already-scoped diff.
+    async fn commit_message(
+        &self,
+        _diff: &str,
+        _project_root: &str,
+    ) -> Result<Option<String>, String> {
+        Ok(None)
+    }
 
     /// Optional native steer (Codex). Default: not supported.
     async fn steer(&self, _req: SendRequest) -> bool {

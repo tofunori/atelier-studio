@@ -11,6 +11,7 @@ const GeneratorSurface = lazyWithRetry(() => import("./GeneratorSurface"));
 import { t } from "../lib/i18n";
 import { CloseIcon, HomeIcon, RefreshIcon } from "./icons";
 import { DocumentTabMeta } from "./AtelierHeaders";
+import { GallerySkeleton } from "./GallerySkeleton";
 import { Button, IconButton, Tab, TabList } from "./ui";
 import {
   ContextMenu,
@@ -24,10 +25,9 @@ import {
   ContextMenuSubTrigger,
   ContextMenuTrigger,
 } from "./shadcn/context-menu";
-import { Skeleton } from "./shadcn/skeleton";
 import type { Surface } from "./surfaces";
 
-type Tab = { id: string; url: string; title: string; color?: string; pinned?: boolean; kind?: "term"; cwd?: string };
+type Tab = { id: string; url: string; title: string; color?: string; pinned?: boolean; kind?: "term"; cwd?: string; projectRoot?: string };
 const TAB_COLORS = ["#e05d5d", "#e8823a", "#8b5cf6", "#3b82f6", "#22b07d", "#e0b74a"];
 
 /** Retrouve le chemin projet du fichier d'un onglet (inverse d'openFileTab :
@@ -43,7 +43,7 @@ export function relFromTabUrl(url: string, projectRoot: string, baseUrl?: string
       } catch { /* baseUrl invalide → pas de filtre */ }
     }
     const page = u.pathname.split("/").pop() ?? "";
-    if (page === "pdf_viewer.html") return u.searchParams.get("file");
+    if (page === "pdf_viewer.html" || page === "svg_viewer.html") return u.searchParams.get("file");
     if (page.endsWith("_studio.html") || page === "code_editor.html") {
       const abs = u.searchParams.get("path");
       if (!abs) return null;
@@ -343,14 +343,7 @@ export default function AtelierPane({
             </div>
           )}
           {activeTab === "gallery" && !galleryLoaded && (
-            <div className="atelier-skeleton">
-              <div className="atelier-skeleton-grid">
-                {Array.from({ length: 6 }).map((_, i) => (
-                  <Skeleton key={i} />
-                ))}
-              </div>
-              <div className="atelier-skeleton-text">{t("atelier.loading")}</div>
-            </div>
+            <GallerySkeleton />
           )}
           {url && (
             <iframe

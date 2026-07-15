@@ -103,7 +103,8 @@ class FullscreenRegressionTests(unittest.TestCase):
 
         self.assertIn("get('embedded')==='atelier' || window.self!==window.top", gallery)
         self.assertIn("function openInContext(rel){", gallery)
-        self.assertIn("if(EMB && f && (f.ext==='tex'||f.ext==='md'||f.ext==='pdf'||codeExt(f.ext)))", gallery)
+        self.assertIn("if(EMB && f && (f.ext==='tex'||f.ext==='md'||f.ext==='pdf'||f.ext==='svg'||codeExt(f.ext)))", gallery)
+        self.assertIn("else if(isSvg) u='/.fig_thumbs/svg_viewer.html?file='", gallery)
         self.assertIn("lbOpenAny(rel);", gallery.split("function openInContext(rel){", 1)[1].split("function ", 1)[0])
         self.assertIn("body.querySelector('#inspOpen').onclick=()=>openInContext(rel);", gallery)
         self.assertIn("if(EMB || el.tagName==='BUTTON') openInContext(rel);", gallery)

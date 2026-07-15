@@ -93,6 +93,23 @@ export async function fetchFileById(
   };
 }
 
+/** Move a file to the recoverable Atelier trash using its opaque id. */
+export async function trashFileById(
+  creds: DeviceCredentials,
+  fileId: string,
+  signal?: AbortSignal,
+): Promise<void> {
+  const res = await fetch(
+    `${base(creds.gatewayBaseUrl)}/remote/v1/file/${encodeURIComponent(fileId)}`,
+    {
+      method: "DELETE",
+      headers: authHeaders(creds.token),
+      signal,
+    },
+  );
+  if (!res.ok) throw await parseError(res);
+}
+
 export async function fetchProjects(
   creds: DeviceCredentials,
   signal?: AbortSignal,

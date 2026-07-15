@@ -158,6 +158,8 @@ describe("composer — caractérisation", () => {
     renderUi(<Chat {...chatProps({ commands: [{ name: "recherche", source: "user" }] })} />);
     fireEvent.change(ta(), { target: { value: "/recherche @src/App.tsx" } });
     const backdrop = document.querySelector(".ta-backdrop") as HTMLElement;
+    expect(ta().className).toContain("tw:px-0");
+    expect(ta().className).toContain("tw:py-0");
     expect(backdrop.textContent).toContain("/recherche");
     expect(backdrop.textContent).toContain("App.tsx");
     expect(backdrop.querySelector(".slash-cmd-inline")).toBeTruthy();
@@ -262,16 +264,17 @@ describe("composer — catalogue et capabilities sidecar (plan 025, step 9)", ()
 
     const view = renderUi(<Chat {...chatProps({ threadId: "thread-A", threadProvider: "codex", defaults, providers })} />);
     const modelButton = () => document.querySelector(".model-pick .mp-btn") as HTMLButtonElement;
+    const effortButton = () => document.querySelector(".effort-pick .mp-effort") as HTMLButtonElement;
     await waitFor(() => expect(modelButton().textContent).toContain("GPT-5.6 Sol"));
-    expect(modelButton().textContent).toContain("medium");
+    expect(effortButton().textContent).toContain("Medium");
 
     view.rerender(<Chat {...chatProps({ threadId: "thread-B", threadProvider: "codex", defaults, providers })} />);
     await waitFor(() => expect(modelButton().textContent).toContain("GPT-5.5"));
-    expect(modelButton().textContent).toContain("high");
+    expect(effortButton().textContent).toContain("High");
 
     view.rerender(<Chat {...chatProps({ threadId: "thread-A", threadProvider: "codex", defaults, providers })} />);
     await waitFor(() => expect(modelButton().textContent).toContain("GPT-5.6 Sol"));
-    expect(modelButton().textContent).toContain("medium");
+    expect(effortButton().textContent).toContain("Medium");
   });
 
   it("un modèle présent dans info.models apparaît sans modification frontend", () => {
@@ -298,10 +301,11 @@ describe("composer — catalogue et capabilities sidecar (plan 025, step 9)", ()
       })],
     })} />);
     const button = document.querySelector(".model-pick .mp-btn") as HTMLButtonElement;
+    const effortButton = document.querySelector(".effort-pick .mp-effort") as HTMLButtonElement;
     fireEvent.click(button);
     fireEvent.click(screen.getByText("Opus 4.8"));
     await waitFor(() => expect(button.textContent).toContain("Opus 4.8 · 1M"));
-    expect(button.textContent).toContain("xhigh");
+    expect(effortButton.textContent).toContain("Extra High");
   });
 
   it("un modèle absent du catalogue n'apparaît pas (la liste hardcodée ne ressuscite pas)", () => {
@@ -376,24 +380,34 @@ describe("composer — caractérisation complémentaire (plan 020)", () => {
   });
 });
 
-// Plan 020, étape 6 : hiérarchie de la barre — effort en popover (résumé
-// visible), menus navigables au clavier (flèches + Échap → focus au bouton).
+// Le modèle et l'effort ont chacun leur déclencheur : changer l'un ne doit
+// jamais ouvrir le menu de l'autre.
 describe("composer — barre hiérarchisée (plan 020)", () => {
-  it("l'effort courant reste résumé dans le bouton provider·modèle", () => {
+  it("affiche deux boutons indépendants pour le modèle et l'effort", () => {
     renderUi(<Chat {...chatProps({ providers: [makeProviderInfo()] })} />);
-    expect(document.querySelector(".mp-btn .mp-effort-sum")).toBeTruthy();
+    expect(document.querySelector(".model-pick .mp-model")).toBeTruthy();
+    expect(document.querySelector(".effort-pick .mp-effort")).toBeTruthy();
+    expect(document.querySelector(".mp-model .mp-effort-sum")).toBeNull();
   });
 
-  it("le réglage d'effort vit dans le popover modèle et répond aux flèches", () => {
+  it("le bouton effort ouvre seulement son popover et répond aux flèches", () => {
     renderUi(<Chat {...chatProps({ providers: [makeProviderInfo()] })} />);
     expect(document.querySelector(".ef-track")).toBeNull(); // pas dans la barre
-    fireEvent.click(document.querySelector(".model-pick .mp-btn") as HTMLButtonElement);
+    fireEvent.click(document.querySelector(".effort-pick .mp-effort") as HTMLButtonElement);
     const track = document.querySelector(".ef-track") as HTMLElement;
     expect(track).toBeTruthy();
+    expect(document.querySelector(".model-menu")).toBeNull();
     const before = track.getAttribute("aria-valuenow");
     fireEvent.keyDown(track, { key: "ArrowRight" });
     const after = document.querySelector(".ef-track")!.getAttribute("aria-valuenow");
     expect(Number(after)).toBe(Number(before) + 1);
+  });
+
+  it("le bouton modèle ouvre seulement la liste des modèles", () => {
+    renderUi(<Chat {...chatProps({ providers: [makeProviderInfo()] })} />);
+    fireEvent.click(document.querySelector(".model-pick .mp-model") as HTMLButtonElement);
+    expect(document.querySelector(".model-menu")).toBeTruthy();
+    expect(document.querySelector(".ef-track")).toBeNull();
   });
 
   it("le favori modèle est un Toggle shadcn avec état pressed", () => {

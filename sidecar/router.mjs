@@ -8,6 +8,7 @@ import { generateImageViaCodex } from "./providers/codex_image.mjs";
 import { createHarnessThread } from "./harness_events.mjs";
 import { HANDOFF_END } from "./handoff.mjs";
 import { stripGalleryToolInstruction, withGalleryToolInstruction } from "./gallery_tool_prompt.mjs";
+import { stripZoteroPassageInstruction, withZoteroPassageInstruction } from "./zotero_passage_prompt.mjs";
 
 // ctx: { send(obj), store, providers, broadcast(obj) }
 
@@ -20,6 +21,29 @@ const lastTurnByThread = new Map(); // threadId -> { entry, responseText, diffs 
 let retitleAllRunning = false;
 
 const DEFAULT_APP_DIR = join(homedir(), "Library", "Application Support", "atelier-studio");
+
+function commitGenerationContext(status, stagedOnly) {
+  const files = (status?.files ?? []).filter((file) =>
+    file.status !== "!" && (!stagedOnly || (file.status !== "?" && file.status?.[0] !== ".")),
+  );
+  if (!files.length) return "";
+  const untracked = files.filter((file) => file.status === "?").length;
+  const deleted = files.filter((file) => String(file.status).includes("D")).length;
+  const modified = Math.max(0, files.length - untracked - deleted);
+  const shown = files.slice(0, 120);
+  const lines = [
+    `Git change summary for branch ${status?.branch ?? "unknown"}: ${files.length} files (${modified} modified, ${deleted} deleted, ${untracked} untracked).`,
+    `Changed files (${shown.length} shown):`,
+    ...shown.map((file) => {
+      const stats = Number.isFinite(file.add) && Number.isFinite(file.del)
+        ? ` (+${file.add} -${file.del})`
+        : "";
+      return `${file.status} ${file.path}${stats}`;
+    }),
+  ];
+  if (shown.length < files.length) lines.push(`… and ${files.length - shown.length} more files`);
+  return lines.join("\n");
+}
 
 function buildForkContext(events, provider) {
   const lines = (Array.isArray(events) ? events : []).flatMap((event) => {
@@ -480,7 +504,7 @@ function preferRicherDialogue(journalEvents, nativeEvents) {
     for (const event of nativeEvents) {
       if (event?.kind === "user") {
         const display = displayUsers[displayIndex];
-        const nativeText = stripGalleryToolInstruction(event.text).trim();
+        const nativeText = stripZoteroPassageInstruction(stripGalleryToolInstruction(event.text)).trim();
         const displayText = String(display?.text ?? "").trim();
         keepTurn = !!displayText &&
           (nativeText === displayText || nativeText.endsWith(`\n\n${displayText}`));
@@ -630,7 +654,7 @@ async function handleTurnEvent(ctx, threadId, event) {
   ctx.store.upsert({ id: threadId, status: publicEvent.kind === "done" ? "done" : "idle" });
   emit({ type: "threads", threads: ctx.store.list() });
   if (publicEvent.kind === "done" && publicEvent.ok !== false) {
-    maybeTitleThread(ctx, emit, threadId, turn.prompt).catch(() => {});
+    maybeTitleThread(ctx, emit, threadId, turn.titlePrompt).catch(() => {});
   }
   drainQueue(ctx, threadId);
 }
@@ -673,9 +697,12 @@ async function startProviderTurn(ctx, h, msg, { reservedTurnId = null } = {}) {
   const baseProviderPrompt = typeof prev?.forkContext === "string" && prev.forkContext
     ? prev.forkContext + prompt
     : prompt;
-  const providerPrompt = withGalleryToolInstruction(baseProviderPrompt, {
+  const galleryPrompt = withGalleryToolInstruction(baseProviderPrompt, {
     projectRoot,
     toolPath: join(dirname(fileURLToPath(import.meta.url)), "atelier-gallery-tool"),
+  });
+  const providerPrompt = withZoteroPassageInstruction(galleryPrompt, {
+    toolPath: join(dirname(fileURLToPath(import.meta.url)), "atelier-zotero-passages"),
   });
 
   ctx.store.upsert({
@@ -692,7 +719,9 @@ async function startProviderTurn(ctx, h, msg, { reservedTurnId = null } = {}) {
 
   const tools = [];
   const snapshotSha = await snapshotBeforeProvider(ctx, threadId);
-  const turn = { threadId, projectRoot, provider, model, effort, prompt, tools, snapshotSha, lastText: "" };
+  const displayEvent = normalizeDisplayEvent(msg);
+  const titlePrompt = String(displayEvent?.text ?? "").trim() || prompt;
+  const turn = { threadId, projectRoot, provider, model, effort, prompt, titlePrompt, tools, snapshotSha, lastText: "" };
 
   let turnId;
   if (reservedTurnId) {
@@ -701,7 +730,7 @@ async function startProviderTurn(ctx, h, msg, { reservedTurnId = null } = {}) {
   } else {
     turnId = h.startTurn({
       messageId: msg.clientMessageId,
-      userEvent: normalizeDisplayEvent(msg),
+      userEvent: displayEvent,
       nativeThreadId: prev?.sessionId ?? undefined,
     });
   }
@@ -1003,6 +1032,15 @@ export async function route(msg, ctx) {
     case "listCommands":
       ctx.send({ type: "commands", commands: ctx.catalog.listCommands(msg.projectRoot) });
       break;
+    case "listPlugins": {
+      try {
+        const plugins = await ctx.providers.codex.listAtelierPlugins(msg.projectRoot ?? "");
+        ctx.send({ type: "plugins", plugins });
+      } catch (e) {
+        ctx.send({ type: "error", message: `plugins: ${String(e?.message ?? e)}` });
+      }
+      break;
+    }
     case "listFiles":
       ctx.send({ type: "files", projectRoot: msg.projectRoot,
         files: ctx.catalog.listFiles(msg.projectRoot) });
@@ -1015,27 +1053,31 @@ export async function route(msg, ctx) {
     case "gitDiff": {
       const root = gitRootFor(ctx, msg);
       try {
+        const scope = msg.scope === "changes" ? "changes" : "staged";
         ctx.send({ type: "gitDiff", requestId: msg.requestId ?? null, projectRoot: root, path: msg.path ?? null,
-          diff: await ctx.gitops.diff(root, msg.path ?? null) });
+          scope, diff: scope === "staged"
+            ? await ctx.gitops.diffStaged(root, msg.path ?? null)
+            : await ctx.gitops.diff(root, msg.path ?? null) });
       } catch (error) {
         ctx.send({ type: "gitDiff", requestId: msg.requestId ?? null, projectRoot: root, path: msg.path ?? null,
-          diff: "", error: String(error?.message ?? error) });
+          scope: msg.scope ?? "changes", diff: "", error: String(error?.message ?? error) });
       }
       break;
     }
     case "generateCommitMsg": {
       const root = gitRootFor(ctx, msg);
       try {
-        const st = await ctx.gitops.status(root);
-        const diff = await ctx.gitops.diff(root, null);
-        // git diff HEAD ignore les fichiers non suivis (??) : toujours donner
-        // la liste des fichiers au modèle, le diff en complément
-        const fileList = st.files.map((f) => `${f.status} ${f.path}`).join("\n");
-        const payload = `Fichiers modifiés :\n${fileList}\n\n${diff}`;
-        const message = st.files.length
-          ? await ctx.providers?.claude?.commitMessage?.(payload)
-          : "";
-        ctx.send({ type: "commitMsg", projectRoot: root, message: message ?? "" });
+        const scope = msg.scope === "staged" ? "staged" : "changes";
+        const status = await ctx.gitops.status(root);
+        const context = commitGenerationContext(status, scope === "staged");
+        if (!context) throw new Error(scope === "staged"
+          ? "Indexe au moins un fichier avant de générer le message."
+          : "Aucune modification à résumer.");
+        const generate = ctx.providers?.claude?.commitMessage;
+        if (typeof generate !== "function") throw new Error("Claude Code est indisponible pour générer le message.");
+        const message = await generate.call(ctx.providers.claude, context);
+        if (!String(message ?? "").trim()) throw new Error("L’IA n’a retourné aucun message de commit.");
+        ctx.send({ type: "commitMsg", projectRoot: root, message });
       } catch (e) {
         ctx.send({ type: "commitMsg", projectRoot: root, message: "", error: String(e?.message ?? e) });
       }
@@ -1156,16 +1198,18 @@ export async function route(msg, ctx) {
     }
     case "gitStage": {
       const root = gitRootFor(ctx, msg);
-      await ctx.gitops.stageFile(root, msg.path);
+      const paths = Array.isArray(msg.paths) ? msg.paths : [msg.path].filter(Boolean);
+      await ctx.gitops.stageFiles(root, paths);
       emitGitChanged(ctx, msg.threadId, root);
-      ctx.send({ type: "gitStageDone", projectRoot: root, path: msg.path });
+      ctx.send({ type: "gitStageDone", projectRoot: root, paths });
       break;
     }
     case "gitUnstage": {
       const root = gitRootFor(ctx, msg);
-      await ctx.gitops.unstageFile(root, msg.path);
+      const paths = Array.isArray(msg.paths) ? msg.paths : [msg.path].filter(Boolean);
+      await ctx.gitops.unstageFiles(root, paths);
       emitGitChanged(ctx, msg.threadId, root);
-      ctx.send({ type: "gitUnstageDone", projectRoot: root, path: msg.path });
+      ctx.send({ type: "gitUnstageDone", projectRoot: root, paths });
       break;
     }
     case "gitRevertFile": {
@@ -1565,11 +1609,12 @@ async function handleSend(msg, ctx) {
     ctx.store.upsert({ id: threadId, sessionId: null, resumeAt: null });
     prev = ctx.store.get(threadId);
   }
+  const titlePrompt = String(normalizeDisplayEvent(msg)?.text ?? "").trim() || prompt;
   ctx.store.upsert({
     id: threadId,
     projectRoot,
     provider,
-    title: prev?.title ?? title ?? prompt.slice(0, 40),
+    title: prev?.title ?? title ?? titlePrompt.slice(0, 40),
   });
 
   await ensureLegacySeed(ctx, threadId, provider);

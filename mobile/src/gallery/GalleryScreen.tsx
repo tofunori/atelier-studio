@@ -1,6 +1,11 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { DeviceCredentials, ProjectSummary } from "../transport/types.ts";
-import { fetchGalleryIndex, fetchProjects, fetchFileById } from "../transport/filesClient.ts";
+import {
+  fetchGalleryIndex,
+  fetchProjects,
+  fetchFileById,
+  trashFileById,
+} from "../transport/filesClient.ts";
 import {
   filterItems,
   formatBytes,
@@ -11,6 +16,11 @@ import type { GalleryFilter, GalleryItem } from "../files/types.ts";
 import { THUMB_MAX_BYTES } from "../files/types.ts";
 import { thumbCacheGet, thumbCacheSet } from "../files/thumbnailCache.ts";
 import { FileViewer } from "../files/FileViewer.tsx";
+import {
+  loadGalleryFavorites,
+  saveGalleryFavorites,
+  toggleGalleryFavorite,
+} from "./favorites.ts";
 import { Alert, AlertDescription } from "@/components/ui/alert.tsx";
 import { Badge } from "@/components/ui/badge.tsx";
 import { Button } from "@/components/ui/button.tsx";
@@ -37,8 +47,25 @@ import {
 } from "@/components/ui/select.tsx";
 import { Spinner } from "@/components/ui/spinner.tsx";
 import { Item } from "@/components/ui/item.tsx";
+import { Toggle } from "@/components/ui/toggle.tsx";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group.tsx";
-import { FolderOpenIcon, RefreshCwIcon, SearchIcon } from "lucide-react";
+import {
+  FolderOpenIcon,
+  RefreshCwIcon,
+  SearchIcon,
+  StarIcon,
+  Trash2Icon,
+} from "lucide-react";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog.tsx";
 import {
   Pagination,
   PaginationContent,
@@ -49,6 +76,7 @@ import {
 import { toast } from "sonner";
 
 const PAGE_SIZE = 24;
+const GALLERY_BATCH_SIZE = 30;
 const TEXT_PREVIEW_MAX_BYTES = 128 * 1024;
 const TEXT_PREVIEW_MAX_CHARS = 900;
 const FILTERS: { id: GalleryFilter; label: string }[] = [
@@ -83,8 +111,13 @@ export function GalleryScreen(p: Props) {
   const [items, setItems] = useState<GalleryItem[]>([]);
   const [filter, setFilter] = useState<GalleryFilter>("all");
   const [query, setQuery] = useState("");
-  const [sort, setSort] = useState<"recent" | "name" | "size">("recent");
+  const [sort, setSort] = useState<"recent" | "oldest" | "name" | "nameDesc" | "size" | "sizeAsc">("recent");
   const [page, setPage] = useState(0);
+  const [visibleCount, setVisibleCount] = useState(GALLERY_BATCH_SIZE);
+  const [favorites, setFavorites] = useState<Set<string>>(() => loadGalleryFavorites());
+  const [showFavorites, setShowFavorites] = useState(false);
+  const [deleteCandidate, setDeleteCandidate] = useState<GalleryItem | null>(null);
+  const [deleting, setDeleting] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [open, setOpen] = useState<GalleryItem | null>(null);
@@ -97,8 +130,11 @@ export function GalleryScreen(p: Props) {
   const sortOptions = useMemo(
     () => [
       { label: "Récents", value: "recent" },
-      { label: "Nom", value: "name" },
-      { label: "Taille", value: "size" },
+      { label: "Plus anciens", value: "oldest" },
+      { label: "Nom A–Z", value: "name" },
+      { label: "Nom Z–A", value: "nameDesc" },
+      { label: "Plus grands", value: "size" },
+      { label: "Plus petits", value: "sizeAsc" },
     ],
     [],
   );
@@ -122,6 +158,7 @@ export function GalleryScreen(p: Props) {
       const idx = await fetchGalleryIndex(p.credentials, projectId);
       setItems(idx.items);
       setPage(0);
+      setVisibleCount(GALLERY_BATCH_SIZE);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
       setItems([]);
@@ -141,20 +178,62 @@ export function GalleryScreen(p: Props) {
 
   const filtered = useMemo(() => {
     const needle = query.trim().toLocaleLowerCase("fr");
-    const next = filterItems(items, filter).filter((item) =>
+    const source = layout === "grid"
+      ? items.filter((item) => item.ext.toLocaleLowerCase("fr") === "png")
+      : filterItems(items, filter);
+    const next = source.filter((item) =>
       needle ? `${item.name} ${item.ext} ${item.kind}`.toLocaleLowerCase("fr").includes(needle) : true,
-    );
+    ).filter((item) => layout !== "grid" || !showFavorites || favorites.has(item.fileId));
     return next.sort((a, b) => {
+      if (sort === "oldest") return (a.modifiedAt ?? 0) - (b.modifiedAt ?? 0);
       if (sort === "name") return a.name.localeCompare(b.name, "fr", { sensitivity: "base" });
+      if (sort === "nameDesc") return b.name.localeCompare(a.name, "fr", { sensitivity: "base" });
       if (sort === "size") return b.size - a.size;
+      if (sort === "sizeAsc") return a.size - b.size;
       return (b.modifiedAt ?? 0) - (a.modifiedAt ?? 0);
     });
-  }, [items, filter, query, sort]);
+  }, [items, filter, query, sort, layout, showFavorites, favorites]);
   const pageCount = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
   const pageItemsList = useMemo(
-    () => pageItems(filtered, page, PAGE_SIZE),
-    [filtered, page],
+    () => layout === "grid"
+      ? filtered.slice(0, visibleCount)
+      : pageItems(filtered, page, PAGE_SIZE),
+    [filtered, layout, page, visibleCount],
   );
+
+  useEffect(() => {
+    setVisibleCount(GALLERY_BATCH_SIZE);
+  }, [projectId, query, sort, showFavorites]);
+
+  const toggleFavorite = useCallback((fileId: string) => {
+    setFavorites((current) => toggleGalleryFavorite(current, fileId));
+  }, []);
+
+  const confirmDelete = useCallback(async () => {
+    if (!p.credentials || !deleteCandidate) return;
+    setDeleting(true);
+    try {
+      await trashFileById(p.credentials, deleteCandidate.fileId);
+      setItems((current) => current.filter((item) => item.fileId !== deleteCandidate.fileId));
+      setFavorites((current) => {
+        const next = new Set(current);
+        next.delete(deleteCandidate.fileId);
+        saveGalleryFavorites(next);
+        return next;
+      });
+      setThumbs((current) => {
+        const next = { ...current };
+        delete next[deleteCandidate.fileId];
+        return next;
+      });
+      toast.success("Image déplacée dans la corbeille Atelier");
+      setDeleteCandidate(null);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Suppression impossible");
+    } finally {
+      setDeleting(false);
+    }
+  }, [deleteCandidate, p.credentials]);
 
   // progressive thumbs for small figures only
   useEffect(() => {
@@ -296,31 +375,33 @@ export function GalleryScreen(p: Props) {
         </p>
       )}
 
-      <ToggleGroup
-        className="gallery-filters"
-        size="sm"
-        variant="default"
-        spacing={1}
-        value={[filter]}
-        onValueChange={(value) => {
-          const next = value[0] as GalleryFilter | undefined;
-          if (!next) return;
-          setFilter(next);
-          setPage(0);
-        }}
-        aria-label="Filtres"
-      >
-        {FILTERS.map((f) => (
-          <ToggleGroupItem
-            key={f.id}
-            value={f.id}
-            className="gallery-filter"
-            aria-label={`Filtrer par ${f.label}`}
-          >
-            {f.label}
-          </ToggleGroupItem>
-        ))}
-      </ToggleGroup>
+      {layout === "list" && (
+        <ToggleGroup
+          className="gallery-filters"
+          size="sm"
+          variant="default"
+          spacing={1}
+          value={[filter]}
+          onValueChange={(value) => {
+            const next = value[0] as GalleryFilter | undefined;
+            if (!next) return;
+            setFilter(next);
+            setPage(0);
+          }}
+          aria-label="Filtres"
+        >
+          {FILTERS.map((f) => (
+            <ToggleGroupItem
+              key={f.id}
+              value={f.id}
+              className="gallery-filter"
+              aria-label={`Filtrer par ${f.label}`}
+            >
+              {f.label}
+            </ToggleGroupItem>
+          ))}
+        </ToggleGroup>
+      )}
 
       <div className="gallery-tools">
         <InputGroup>
@@ -330,6 +411,7 @@ export function GalleryScreen(p: Props) {
             onChange={(event) => {
               setQuery(event.target.value);
               setPage(0);
+              setVisibleCount(GALLERY_BATCH_SIZE);
             }}
             placeholder="Rechercher…"
             aria-label="Rechercher dans les fichiers"
@@ -341,7 +423,7 @@ export function GalleryScreen(p: Props) {
           value={sort}
           onValueChange={(value) => {
             if (!value) return;
-            setSort(value as "recent" | "name" | "size");
+            setSort(value as "recent" | "oldest" | "name" | "nameDesc" | "size" | "sizeAsc");
             setPage(0);
           }}
         >
@@ -358,6 +440,25 @@ export function GalleryScreen(p: Props) {
         </Select>
       </div>
 
+      {layout === "grid" && (
+        <div className="gallery-library-bar">
+          <Toggle
+            pressed={showFavorites}
+            onPressedChange={setShowFavorites}
+            variant="outline"
+            size="sm"
+            aria-label="Afficher seulement les favoris"
+          >
+            <StarIcon data-icon="inline-start" className={showFavorites ? "gallery-star-filled" : ""} />
+            Favoris
+            <Badge variant="secondary">
+              {items.filter((item) => item.ext.toLowerCase() === "png" && favorites.has(item.fileId)).length}
+            </Badge>
+          </Toggle>
+          <span className="gallery-result-count">{filtered.length} PNG</span>
+        </div>
+      )}
+
       {error && (
         <Alert variant="destructive"><AlertDescription>{error}</AlertDescription></Alert>
       )}
@@ -367,7 +468,50 @@ export function GalleryScreen(p: Props) {
       )}
 
       <div className="gallery-grid">
-        {pageItemsList.map((it) => (
+        {pageItemsList.map((it) => layout === "grid" ? (
+          <article key={it.fileId} className="gallery-card gallery-image-card">
+            <button
+              type="button"
+              className="gallery-card-open"
+              onClick={() => setOpen(it)}
+              aria-label={`Ouvrir ${it.name}`}
+            >
+              <div className="gallery-thumb">
+                {thumbs[it.fileId] ? (
+                  <img src={thumbs[it.fileId]} alt={it.name} loading="lazy" />
+                ) : (
+                  <Badge variant="secondary">PNG</Badge>
+                )}
+              </div>
+              <div className="gallery-card-body">
+                <div className="list-item-title">{it.name}</div>
+                <div className="list-item-meta">{formatBytes(it.size)} · {formatDate(it.modifiedAt)}</div>
+              </div>
+            </button>
+            <div className="gallery-card-actions">
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon-sm"
+                aria-label={favorites.has(it.fileId) ? `Retirer ${it.name} des favoris` : `Ajouter ${it.name} aux favoris`}
+                aria-pressed={favorites.has(it.fileId)}
+                onClick={() => toggleFavorite(it.fileId)}
+              >
+                <StarIcon className={favorites.has(it.fileId) ? "gallery-star-filled" : ""} />
+              </Button>
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon-sm"
+                className="gallery-delete-button"
+                aria-label={`Supprimer ${it.name}`}
+                onClick={() => setDeleteCandidate(it)}
+              >
+                <Trash2Icon />
+              </Button>
+            </div>
+          </article>
+        ) : (
           <Item
             key={it.fileId}
             render={<button type="button" onClick={() => setOpen(it)} />}
@@ -395,7 +539,18 @@ export function GalleryScreen(p: Props) {
         ))}
       </div>
 
-      {pageCount > 1 && (
+      {layout === "grid" && visibleCount < filtered.length && (
+        <Button
+          type="button"
+          variant="outline"
+          className="gallery-load-more"
+          onClick={() => setVisibleCount((current) => current + GALLERY_BATCH_SIZE)}
+        >
+          Afficher plus · {Math.min(GALLERY_BATCH_SIZE, filtered.length - visibleCount)}
+        </Button>
+      )}
+
+      {layout === "list" && pageCount > 1 && (
         <Pagination className="mt-4">
           <PaginationContent>
             <PaginationItem>
@@ -424,6 +579,37 @@ export function GalleryScreen(p: Props) {
           </PaginationContent>
         </Pagination>
       )}
+
+      <AlertDialog
+        open={deleteCandidate != null}
+        onOpenChange={(nextOpen) => {
+          if (!nextOpen && !deleting) setDeleteCandidate(null);
+        }}
+      >
+        <AlertDialogContent size="sm">
+          <AlertDialogHeader>
+            <AlertDialogTitle>Supprimer cette image ?</AlertDialogTitle>
+            <AlertDialogDescription>
+              {deleteCandidate?.name} sera déplacée dans la corbeille réversible
+              <code> .atelier-trash</code> du projet sur le Mac.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={deleting}>Annuler</AlertDialogCancel>
+            <AlertDialogAction
+              variant="destructive"
+              disabled={deleting}
+              onClick={(event) => {
+                event.preventDefault();
+                void confirmDelete();
+              }}
+            >
+              {deleting ? <Spinner /> : <Trash2Icon />}
+              Supprimer
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

@@ -24,6 +24,14 @@ export type AtelierAddToChatMessage = {
   path?: string;
   name?: string;
   previewUrl?: string;
+  requestId?: string;
+};
+
+export type AtelierAddToChatAckMessage = {
+  type: "atelier-add-to-chat-ack";
+  nonce: string;
+  requestId: string;
+  ok: true;
 };
 
 export type BrowserAddToChatMessage = {
@@ -74,6 +82,7 @@ export type AtelierOutboundMessage =
       nonce: string;
       vars: Record<string, string>;
     }
+  | AtelierAddToChatAckMessage
   | AtelierGalleryCommandMessage;
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -137,11 +146,12 @@ export function isTrustedAtelierMessage(
       );
     case "atelier-add-to-chat":
       return (
-        hasOnlyKeys(data, ["type", "nonce", "text", "path", "name", "previewUrl"]) &&
+        hasOnlyKeys(data, ["type", "nonce", "text", "path", "name", "previewUrl", "requestId"]) &&
         isBoundedString(data.text, MAX_TEXT_LENGTH) &&
         isOptionalBoundedString(data.path, MAX_URL_LENGTH) &&
         isOptionalBoundedString(data.name, MAX_TITLE_LENGTH) &&
-        (data.previewUrl === undefined || isValidMessageUrl(data.previewUrl))
+        (data.previewUrl === undefined || isValidMessageUrl(data.previewUrl)) &&
+        isOptionalBoundedString(data.requestId, MAX_NONCE_LENGTH)
       );
     case "browser-add-to-chat":
       return (

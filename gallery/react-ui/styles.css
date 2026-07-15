@@ -1,27 +1,68 @@
 @import "../../src/styles/shadcn.css";
 @source "./main.tsx";
-@source "../../src/components/shadcn/{alert-dialog,button,dropdown-menu,input-group,input,select,sheet,spinner,toggle,toggle-group,tooltip}.tsx";
+@source "../../src/components/shadcn/{alert-dialog,button,dropdown-menu,input-group,input,popover,select,separator,sheet,spinner,toggle,toggle-group,tooltip}.tsx";
 @source "../../src/components/ui/Tooltip.tsx";
 
-#gallery-react-toolbar { min-width:0;overflow:hidden; }
-.gallery-command-bar { display:flex;min-width:0;flex-wrap:nowrap;align-items:center;gap:7px; }
-.gallery-command-search { width:auto;min-width:160px;max-width:360px;flex:1 1 300px;background:var(--surface-sunken);box-shadow:inset 0 1px 1px rgb(0 0 0 / 12%); }
-.gallery-command-select { width:auto;max-width:min(220px,24vw);flex:0 1 auto; }
-.gallery-command-density { gap:0;overflow:hidden;border:1px solid var(--border);border-radius:var(--radius-control); }
-.gallery-command-density [data-slot="toggle-group-item"] { border-radius:0; }
+/* The React command surface owns the toolbar footprint. Legacy controls stay
+   mounted as the gallery state engine, but cannot add a second row. */
+html.gallery-react-mounted #activeChips,
+html.gallery-react-mounted #selBar { display:none!important;margin:0!important;padding:0!important;border:0!important; }
+
+#gallery-react-toolbar { min-width:0;overflow:visible; }
+.gallery-command-bar { display:flex;min-width:0;height:36px;min-height:36px;flex-wrap:nowrap;align-items:center;gap:7px; }
+.gallery-command-search { width:auto;min-width:176px;max-width:350px;flex:1 1 270px;background:var(--surface-sunken);box-shadow:inset 0 1px 1px rgb(0 0 0 / 12%); }
+.gallery-command-select { width:auto;max-width:min(180px,18vw);flex:0 1 auto; }
+.gallery-command-sort { min-width:112px; }
+.gallery-command-spacer { min-width:0;flex:1 1 auto; }
+.gallery-active-filters { display:flex;min-width:0;max-width:360px;align-items:center;gap:5px;overflow:hidden; }
+.gallery-filter-chip { min-width:0;max-width:180px;flex:0 1 auto;overflow:hidden; }
+.gallery-filter-chip > span,
+.gallery-filter-chip { text-overflow:ellipsis;white-space:nowrap; }
+.gallery-selection-count { display:flex;min-width:0;align-items:center;gap:8px;font-size:13px;font-weight:600;white-space:nowrap; }
+.gallery-selection-count svg { width:16px;height:16px;color:var(--primary); }
+
+.gallery-filter-popover { max-height:min(620px,var(--available-height));overflow:hidden;border-radius:10px; }
+.gallery-filter-panel-head { display:flex;min-height:42px;flex-direction:row;align-items:center;justify-content:space-between;gap:8px;padding:6px 10px; }
+.gallery-filter-panel-title { margin:0;font-size:14px;font-weight:650;line-height:1.25; }
+.gallery-filter-scroll { min-height:0;max-height:none;flex:1 1 auto;overflow-x:hidden;overflow-y:auto;overscroll-behavior:contain; }
+.gallery-filter-section { display:flex;flex-direction:column;gap:7px;padding:8px 10px; }
+.gallery-filter-section-heading { display:flex;align-items:center;justify-content:space-between;gap:8px; }
+.gallery-filter-section-label { color:var(--foreground);font-size:11px;font-weight:700;letter-spacing:.06em;text-transform:uppercase; }
+.gallery-filter-sub-label { color:var(--muted-foreground);font-size:11px;font-weight:600; }
+.gallery-filter-helper { margin-top:1px;color:var(--muted-foreground);font-size:11px;line-height:1.25; }
+.gallery-type-group { display:grid;grid-template-columns:48px minmax(0,1fr);align-items:center;gap:6px; }
+.gallery-quick-types,
+.gallery-type-customize-grid,
+.gallery-workflow-types,
+.gallery-collection-filters,
+.gallery-project-presets { display:flex;flex-wrap:wrap;gap:4px; }
+.gallery-type-customize-grid [data-slot="toggle-group-item"] { justify-content:flex-start; }
+.gallery-project-preset { display:flex;align-items:center;gap:1px; }
+.gallery-all-types { display:flex;max-height:150px;flex-direction:column;gap:1px;overflow:auto;padding-right:2px; }
+.gallery-all-type-row { display:flex;min-width:0;align-items:center;justify-content:space-between;gap:4px;border-radius:6px; }
+.gallery-all-type-row:hover { background:var(--accent); }
+.gallery-all-type-row > :first-child { min-width:0;flex:1 1 auto;justify-content:flex-start; }
+.gallery-all-type-row [aria-pressed="true"]:last-child { color:var(--primary); }
+.gallery-other-filters { gap:8px; }
+.gallery-other-filter-row { display:flex;align-items:center;gap:6px; }
+.gallery-other-filter-row > svg { width:15px;height:15px;flex:0 0 auto;color:var(--muted-foreground); }
+.gallery-other-filter-row [data-slot="select-trigger"] { min-width:0;flex:1 1 auto; }
+.gallery-filter-panel-foot { display:flex;align-items:center;justify-content:flex-start;padding:5px 7px; }
+
+@media (max-width:1000px) {
+  .gallery-active-filters { display:none; }
+  .gallery-command-search { max-width:none; }
+}
 
 @media (max-width:800px) {
   .gallery-command-bar { gap:5px; }
-  .gallery-command-search { min-width:130px;max-width:none;flex:1 1 160px; }
-  .gallery-command-select { width:82px;max-width:82px; }
-  .gallery-command-sort { width:88px;max-width:88px; }
-  .gallery-command-density [data-slot="toggle-group-item"] { width:30px;padding-inline:0; }
-  .gallery-command-rescan-label { display:none; }
+  .gallery-command-search { min-width:130px;flex:1 1 160px; }
+  .gallery-command-sort { width:96px;min-width:96px;max-width:96px; }
+  .gallery-view-label { display:none; }
 }
 
 @media (max-width:560px) {
-  #gallery-react-toolbar { overflow:visible; }
-  .gallery-command-bar { flex-wrap:wrap; }
-  .gallery-command-search { width:100%;min-width:0;max-width:none;flex-basis:100%; }
-  .gallery-command-select { width:auto;max-width:42vw; }
+  .gallery-command-search { min-width:84px; }
+  .gallery-command-sort { display:none; }
+  .gallery-selection-count { font-size:12px; }
 }

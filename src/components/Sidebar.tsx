@@ -115,7 +115,7 @@ export default function Sidebar(p: {
   onSelect: (threadId: string, projectRoot: string) => void;
   onNew: (projectRoot: string) => void;
   onNewChat: () => void;
-  onImportSession: (provider: "claude" | "codex", sessionId: string, title: string) => void;
+  onImportSession: (provider: "claude" | "codex", sessionId: string, title: string, projectRoot?: string) => void;
   onDelete: (threadId: string) => void;
   onRemoveProject: (root: string) => void;
   onRename: (threadId: string, title: string) => void;
@@ -132,7 +132,8 @@ export default function Sidebar(p: {
   const [projMenu, setProjMenu] = useState<{ root: string; x: number; y: number } | null>(null);
   const [resumeOpen, setResumeOpen] = useState(false);
   const [resumeProv, setResumeProv] = useState<"claude" | "codex">("claude");
-  const [sessions, setSessions] = useState<{ id: string; title: string; mtime: number }[] | null>(null);
+  const [sessions, setSessions] = useState<{ id: string; title: string; mtime: number; projectRoot?: string }[] | null>(null);
+  const [resumeQuery, setResumeQuery] = useState("");
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editText, setEditText] = useState("");
   const editRef = useRef<HTMLInputElement>(null);
@@ -182,6 +183,7 @@ export default function Sidebar(p: {
   function openResume(prov: "claude" | "codex") {
     setResumeProv(prov);
     setSessions(null);
+    setResumeQuery("");
     setResumeOpen(true);
     wsSend({ type: "listSessions", provider: prov, projectRoot: p.activeProject ?? "" });
   }
@@ -516,16 +518,28 @@ export default function Sidebar(p: {
               </button>
             ))}
           </div>
+          <input
+            className="resume-search"
+            type="search"
+            value={resumeQuery}
+            onChange={(event) => setResumeQuery(event.target.value)}
+            placeholder={`${t("sidebar.search")}…`}
+            aria-label={t("sidebar.search")}
+          />
           <div className="resume-list">
             {sessions === null && <div className="bh-empty">{t("sidebar.loading")}</div>}
             {sessions?.length === 0 && <div className="bh-empty">{t("sidebar.no-session")}</div>}
-            {sessions?.map((s) => (
+            {sessions?.filter((s) => {
+              const needle = resumeQuery.trim().toLocaleLowerCase();
+              return !needle || `${s.title} ${s.projectRoot ?? ""}`.toLocaleLowerCase().includes(needle);
+            }).map((s) => (
               <div key={s.id} className="resume-item"
                 onClick={() => {
-                  p.onImportSession(resumeProv, s.id, s.title);
+                  p.onImportSession(resumeProv, s.id, s.title, s.projectRoot);
                   setResumeOpen(false);
                 }}>
                 <span className="resume-title">{s.title}</span>
+                {s.projectRoot && <span className="resume-project">{s.projectRoot.split("/").filter(Boolean).slice(-1)[0]}</span>}
                 <span className="resume-date">
                   {new Date(s.mtime).toLocaleDateString([], { day: "2-digit", month: "2-digit" })}{" "}
                   {new Date(s.mtime).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}

@@ -51,6 +51,8 @@ export type ComposerMenus = {
   setPlusOpen: Dispatch<boolean>;
   menuOpen: boolean;
   setMenuOpen: Dispatch<boolean>;
+  effortOpen: boolean;
+  setEffortOpen: Dispatch<boolean>;
   modelMenuProvider: string;
   setModelMenuProvider: (v: string) => void;
   goalOpen: boolean;
@@ -133,6 +135,7 @@ export function ChatComposer(props: {
         model.setEffort(catalog.effortFor(model.provider, match.id));
       } else {
         menus.setModelMenuProvider(model.provider);
+        menus.setEffortOpen(false);
         menus.setMenuOpen(true);
       }
       setText("");

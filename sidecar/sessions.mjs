@@ -4,6 +4,11 @@ import { join } from "node:path";
 import readline from "node:readline";
 import { stripHandoff } from "./handoff.mjs";
 import { stripGalleryToolInstruction } from "./gallery_tool_prompt.mjs";
+import { stripZoteroPassageInstruction } from "./zotero_passage_prompt.mjs";
+
+function stripAtelierToolInstructions(text) {
+  return stripZoteroPassageInstruction(stripGalleryToolInstruction(text));
+}
 
 // Lister les sessions existantes (CLI + Studio) pour reprise.
 
@@ -70,7 +75,7 @@ async function firstGrokUserText(path) {
       const d = JSON.parse(line);
       if (d.type !== "user") continue;
       const query = grokUserQueryFromContent(d.content);
-      if (query) { rl.close(); return stripGalleryToolInstruction(query).slice(0, 70); }
+      if (query) { rl.close(); return stripAtelierToolInstructions(query).slice(0, 70); }
     } catch {}
   }
   rl.close();
@@ -210,7 +215,7 @@ export async function grokHistory(sessionId, projectRoot, opts = {}) {
         // jamais à l'écran)
         if (query) events.push({
           kind: "user",
-          text: stripGalleryToolInstruction(stripHandoff(query)),
+          text: stripAtelierToolInstructions(stripHandoff(query)),
         });
       } else if (d.type === "assistant") {
         const text = String(d.content ?? "").trim();

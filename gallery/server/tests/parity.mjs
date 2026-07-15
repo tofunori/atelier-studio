@@ -257,7 +257,9 @@ async function main() {
   assert.match(reactToolbar, /dataset\.galleryUi = "shadcn-react-v1"/, "gallery marks the live React contract");
   assert.ok(fs.existsSync(reactBundle), "gallery React bundle is built");
   assert.ok(fs.existsSync(reactStyles), "gallery React styles are built");
-  assert.ok(fs.statSync(reactBundle).size < 750_000, "gallery React bundle stays below 750 KB");
+  // The project-scoped file-type manager adds the shadcn Popover runtime while
+  // retaining a deliberately tight ceiling for the standalone gallery asset.
+  assert.ok(fs.statSync(reactBundle).size < 780_000, "gallery React bundle stays below 780 KB");
   assert.ok(fs.statSync(reactStyles).size < 75_000, "gallery React CSS stays below 75 KB");
   fs.mkdirSync(path.join(home, ".claude"), { recursive: true });
   writeFixture(root);

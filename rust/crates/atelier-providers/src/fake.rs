@@ -103,6 +103,7 @@ mod tests {
             thread_id: "t".into(),
             turn_id: "turn".into(),
             prompt: "hi".into(),
+            inputs: None,
             project_root: "/tmp".into(),
             session_id: None,
             model: None,

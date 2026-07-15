@@ -47,6 +47,7 @@ describe("isTrustedAtelierMessage", () => {
       path: "/projet/plot.png",
       name: "plot.png",
       previewUrl: "http://127.0.0.1:19000/plot.png",
+      requestId: "add-plot-1",
     });
     expect(isTrustedAtelierMessage(e, nonce)).toBe(true);
   });

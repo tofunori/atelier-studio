@@ -43,6 +43,8 @@ export function ComposerControls(p: {
   setPlusOpen: React.Dispatch<React.SetStateAction<boolean>>;
   menuOpen: boolean;
   setMenuOpen: React.Dispatch<React.SetStateAction<boolean>>;
+  effortOpen: boolean;
+  setEffortOpen: React.Dispatch<React.SetStateAction<boolean>>;
   modelMenuProvider: string;
   setModelMenuProvider: (v: string) => void;
   setGoalOpen: React.Dispatch<React.SetStateAction<boolean>>;
@@ -77,6 +79,7 @@ export function ComposerControls(p: {
   const {
     text, setText, provider, model, setModel, effort, setEffort,
     permissionMode, setPermissionMode, plusOpen, setPlusOpen, menuOpen, setMenuOpen,
+    effortOpen, setEffortOpen,
     setModelMenuProvider,
     setGoalOpen, attachFiles, providerInfo, resolvedModelId, autoReasoningLabel,
     levelsFor, effortFor, modelsFor, sortByFav, modelLabel, modelButtonLabel,
@@ -92,13 +95,35 @@ export function ComposerControls(p: {
   // seuls les modes connus du front sont listés, dans l'ordre UI existant
   const permissionOptions = PERMISSION_MODES.filter((m) => allowedPermissionModes.includes(m.id));
   const goalsSupported = caps ? caps.goals === true : provider === "codex";
+  const activeProviderInfo = providerInfo();
+  const effortTitle = activeProviderInfo?.kind === "api" ? t("chat.thinking") : t("chat.effort");
+  const effortLevels = levelsFor(provider, resolvedModelId());
+  const effortLabels: Record<string, string> = {
+    "": activeProviderInfo?.kind === "api"
+      ? autoReasoningLabel(activeProviderInfo, resolvedModelId())
+      : t("common.auto-default"),
+    none: "Off",
+    minimal: "Minimal",
+    low: "Low",
+    medium: "Medium",
+    high: "High",
+    xhigh: "Extra High",
+    max: "Max",
+  };
+  const effortIndex = Math.max(0, effortLevels.indexOf(effort));
+  const effortSummary = effortLabels[effort] ?? effort;
   // navigation clavier des menus (plan 020, étape 6) : flèches + Échap ;
   // focus posé sur le premier item à l'ouverture, rendu au déclencheur en sortie
   const modelMenuRef = useRef<HTMLDivElement | null>(null);
   const modelBtnRef = useRef<HTMLButtonElement | null>(null);
+  const effortMenuRef = useRef<HTMLDivElement | null>(null);
+  const effortBtnRef = useRef<HTMLButtonElement | null>(null);
   useEffect(() => {
     if (menuOpen) modelMenuRef.current?.querySelector<HTMLButtonElement>("button")?.focus();
   }, [menuOpen]);
+  useEffect(() => {
+    if (effortOpen) effortMenuRef.current?.querySelector<HTMLElement>('[role="slider"]')?.focus();
+  }, [effortOpen]);
   function menuKeys(close: () => void, anchor: React.RefObject<HTMLButtonElement | null>) {
     return (e: React.KeyboardEvent) => {
       const panel = e.currentTarget as HTMLElement;
@@ -229,18 +254,17 @@ export function ComposerControls(p: {
             <button
               type="button"
               ref={modelBtnRef}
-              className="mp-btn"
+              className="mp-btn mp-model"
               aria-haspopup="menu"
               aria-expanded={menuOpen}
-              title={t("chat.model-effort-title")}
-              onClick={() => { setMenuOpen((v) => !v); setModelMenuProvider(""); }}
+              title={t("chat.model-title")}
+              onClick={() => {
+                setEffortOpen(false);
+                setMenuOpen((v) => !v);
+                setModelMenuProvider("");
+              }}
             >
               <span className={!model ? "mp-dim" : undefined}>{modelButtonLabel}</span>
-              <span className="mp-effort-sum mp-dim">
-                · {effort || (providerInfo()?.kind === "api"
-                  ? autoReasoningLabel(providerInfo(), resolvedModelId())
-                  : t("common.auto-default"))}
-              </span>
             </button>
             {menuOpen && (() => {
               const visibleProviders = orderedVisibleProviders(
@@ -255,9 +279,9 @@ export function ComposerControls(p: {
               const menuProvider = provider;
               const menuModels = sortByFav(modelsFor(menuProvider), menuProvider);
               return (
-                <div className="mp-menu model-menu" ref={modelMenuRef} role="menu"
+                <div className="mp-menu model-menu model-only" ref={modelMenuRef} role="menu"
                   onKeyDown={menuKeys(() => setMenuOpen(false), modelBtnRef)}>
-                  <div className="model-provider-list">
+                  {false && <div className="model-provider-list model-effort-legacy" aria-hidden="true">
                     {(() => {
                       // effort du provider COURANT — popover unique modèle+effort
                       // (décision composer 2026-07-09 : options avancées en popover,
@@ -313,7 +337,7 @@ export function ComposerControls(p: {
                         </div>
                       );
                     })()}
-                  </div>
+                  </div>}
                   {menuInfo && (
                   <div className="model-list">
                     <div className="model-list-head">
@@ -396,6 +420,89 @@ export function ComposerControls(p: {
               );
             })()}
           </span>
+          {effortLevels.length >= 2 && (
+            <span className="effort-pick" onClick={(e) => e.stopPropagation()}>
+              <button
+                type="button"
+                ref={effortBtnRef}
+                className="mp-btn mp-effort"
+                aria-haspopup="dialog"
+                aria-expanded={effortOpen}
+                title={effortTitle}
+                onClick={() => {
+                  setMenuOpen(false);
+                  setEffortOpen((open) => !open);
+                }}
+              >
+                {effortSummary}
+              </button>
+              {effortOpen && (
+                <div
+                  className="mp-menu effort-menu"
+                  ref={effortMenuRef}
+                  role="dialog"
+                  aria-label={effortTitle}
+                  onKeyDown={(e) => {
+                    if (e.key === "Escape") {
+                      e.stopPropagation();
+                      setEffortOpen(false);
+                      effortBtnRef.current?.focus();
+                    }
+                  }}
+                >
+                  <div className="ef-block">
+                    <div className="ef-title">{effortTitle} <b>{effortSummary}</b></div>
+                    <div className="ef-scale"><span>{t("effort.faster")}</span><span>{t("effort.smarter")}</span></div>
+                    <div
+                      className="ef-track"
+                      role="slider"
+                      tabIndex={0}
+                      aria-label={effortTitle}
+                      aria-valuemin={0}
+                      aria-valuemax={effortLevels.length - 1}
+                      aria-valuenow={effortIndex}
+                      aria-valuetext={effortSummary}
+                      onKeyDown={(e) => {
+                        if (e.key === "ArrowRight" || e.key === "ArrowUp") {
+                          e.preventDefault();
+                          e.stopPropagation();
+                          setEffort(effortLevels[Math.min(effortLevels.length - 1, effortIndex + 1)]);
+                        } else if (e.key === "ArrowLeft" || e.key === "ArrowDown") {
+                          e.preventDefault();
+                          e.stopPropagation();
+                          setEffort(effortLevels[Math.max(0, effortIndex - 1)]);
+                        }
+                      }}
+                      onPointerDown={(e) => {
+                        (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+                        const rect = e.currentTarget.getBoundingClientRect();
+                        const index = Math.min(effortLevels.length - 1, Math.max(0,
+                          Math.round(((e.clientX - rect.left) / rect.width) * (effortLevels.length - 1))));
+                        if (effortLevels[index] !== effort) setEffort(effortLevels[index]);
+                      }}
+                      onPointerMove={(e) => {
+                        if (!e.buttons) return;
+                        const rect = e.currentTarget.getBoundingClientRect();
+                        const index = Math.min(effortLevels.length - 1, Math.max(0,
+                          Math.round(((e.clientX - rect.left) / rect.width) * (effortLevels.length - 1))));
+                        if (effortLevels[index] !== effort) setEffort(effortLevels[index]);
+                      }}
+                    >
+                      <div className="ef-fill" style={{ width: `${(effortIndex / (effortLevels.length - 1)) * 100}%` }} />
+                      {effortLevels.map((level, index) => (
+                        <span
+                          key={level}
+                          className={`ef-dot ${index === effortLevels.length - 1 ? "last" : ""}`}
+                          style={{ left: `${(index / (effortLevels.length - 1)) * 100}%` }}
+                        />
+                      ))}
+                      <div className="ef-thumb" style={{ left: `${(effortIndex / (effortLevels.length - 1)) * 100}%` }} />
+                    </div>
+                  </div>
+                </div>
+              )}
+            </span>
+          )}
           {p.workingSince != null ? (
             text.trim() ? (
               <ButtonGroup className="composer-submit-group">

@@ -170,15 +170,46 @@ test('browse: search filters the generated gallery cards', async ({ page }) => {
     await expect(page.locator('#grid .card')).toHaveCount(1);
     await expect(page.locator('#grid')).toContainText('analysis.py');
 
-    // Les extensions individuelles restent disponibles dans le menu shadcn.
+    // Les extensions individuelles restent disponibles dans le gestionnaire
+    // de types, sans sous-menu ni compteurs de fichiers.
     await page.locator('[data-gallery-command="filters"]').click();
-    await page.locator('[data-gallery-filter-group="file types"]').hover();
-    await expect(page.locator('[data-gallery-filter-item="py"]')).toContainText('Python');
-    await page.locator('[data-gallery-filter-item="svg"]').click();
+    const typePanel = page.locator('[data-gallery-file-type-panel]');
+    await expect(typePanel).toBeVisible();
+    await expect(typePanel.locator('[data-gallery-file-type="py"]')).toContainText('Python');
+    await typePanel.locator('[data-gallery-file-type="svg"]').click();
 
     // Un type désactivé explicitement se combine avec la requête texte.
     await page.locator('[data-gallery-command="search"]').fill('plot-alpha.svg');
     await expect(page.locator('#grid .empty')).toContainText('No matching files');
+  });
+});
+
+test('browse: repeated rerenders release detached code preview observers', async ({ page }) => {
+  await withGallery(async ({ url }) => {
+    await page.addInitScript(() => {
+      const active = new Set();
+      window.__activeSnippetObserverTargets = active;
+      window.IntersectionObserver = class {
+        observe(target) { active.add(target); }
+        unobserve(target) { active.delete(target); }
+        disconnect() { active.clear(); }
+      };
+    });
+    await page.goto(url);
+    const search = page.locator('[data-gallery-command="search"]');
+
+    for (let i = 0; i < 30; i += 1) {
+      await search.fill('analysis.py');
+      await expect(page.locator('#grid .card')).toHaveCount(1);
+      await search.fill('plot');
+      await expect(page.locator('#grid .card')).toHaveCount(2);
+    }
+    await search.fill('analysis.py');
+    await expect(page.locator('#grid .card')).toHaveCount(1);
+
+    expect(await page.evaluate(() => window.__activeSnippetObserverTargets.size)).toBe(1);
+    await page.locator('#grid .card').click();
+    await expect(page.locator('#lb')).toHaveClass(/show/);
   });
 });
 
@@ -255,12 +286,22 @@ test('chat bridge: open, compare and reset drive the existing gallery surfaces',
       { action, mode, rels, requestId, projectRoot: root, nonce },
     );
 
+    const openedTab = page.evaluate(() => new Promise((resolve, reject) => {
+      const timer = window.setTimeout(() => reject(new Error('open tab timeout')), 3000);
+      const onMessage = event => {
+        if (event.data?.type !== 'atelier-open-tab') return;
+        window.clearTimeout(timer);
+        window.removeEventListener('message', onMessage);
+        resolve(event.data);
+      };
+      window.addEventListener('message', onMessage);
+    }));
     await expect(send('open', 'viewer', ['plot-alpha.svg'], 'e2e-open')).resolves.toMatchObject({
       ok: true, action: 'open', applied: true, matched: ['plot-alpha.svg'],
     });
-    await expect(page.locator('#lb')).toHaveClass(/show/);
-    await expect(page.locator('#lbCap')).toContainText('plot-alpha.svg');
-    await page.locator('#lbClose').click();
+    await expect(openedTab).resolves.toMatchObject({
+      type: 'atelier-open-tab', title: 'plot-alpha.svg',
+    });
 
     await expect(send('compare', 'selection', ['plot-alpha.svg', 'plot-beta.svg'], 'e2e-compare')).resolves.toMatchObject({
       ok: true, action: 'compare', applied: true, matched: ['plot-alpha.svg', 'plot-beta.svg'],
@@ -307,16 +348,22 @@ test('export and delete use selected files without mutating disk when endpoints 
     });
 
     await page.goto(url);
+    const gridTopBefore = await page.locator('#grid').evaluate(element => element.getBoundingClientRect().top);
     await page.locator('[data-act="sel"][data-rel="plot-beta.svg"]').click();
-    await expect(page.locator('#exportSel')).toBeVisible();
+    await expect(page.locator('[data-gallery-toolbar-state="selection"]')).toBeVisible();
+    const gridTopAfter = await page.locator('#grid').evaluate(element => element.getBoundingClientRect().top);
+    expect(Math.abs(gridTopAfter - gridTopBefore)).toBeLessThanOrEqual(1);
 
-    await page.locator('#exportSel').click();
+    await page.locator('[data-gallery-selection-action="export"]').click();
     await page.locator('[data-exp="zip"]').click();
     await expect.poll(() => calls.export).toEqual({ mode: 'zip', rels: ['plot-beta.svg'] });
-    await expect(page.locator('#exportSel')).toContainText('✓ 1');
 
-    await page.locator('#delSel').click();
+    await page.getByRole('button', { name: 'More selection actions' }).click();
+    await page.getByRole('menuitem', { name: 'Move to Trash' }).click();
     await expect(page.getByRole('alertdialog')).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Move 1 file to Trash?' })).toBeVisible();
+    await expect(page.getByRole('alertdialog')).toContainText('You can recover it from Trash.');
+    await expect(page.locator('[data-slot="alert-dialog-media"]')).toBeVisible();
     await page.locator('[data-gallery-confirm="accept"]').click();
     await expect.poll(() => calls.delete).toEqual({ rels: ['plot-beta.svg'] });
     await expect(page.locator('#grid')).not.toContainText('plot-beta.svg');
@@ -397,17 +444,79 @@ test('filters: workflow filter via popover shows an active chip, reset restores 
     await expect(page.locator('#grid .card')).toHaveCount(3);
 
     await page.locator('[data-gallery-command="filters"]').click();
-    await page.locator('[data-gallery-filter-group="status"]').hover();
-    await page.locator('[data-gallery-filter-item="draft"]').click();
+    await page.locator('[data-gallery-status="draft"]').click();
 
     await expect(page.locator('#activeChips .fchip').first()).toContainText('Status: Draft');
-    await expect(page.locator('[data-gallery-command="filters"]')).toContainText('Filters (1)');
+    await expect(page.locator('[data-gallery-command="filters"]')).toContainText('Filters 1');
     await expect(page.locator('#grid .empty')).toContainText('No matching files');
 
     // suppression via la chip → grille restaurée, compteur remis à zéro
-    await page.locator('#activeChips [data-fx="wf"]').click();
+    await page.locator('[data-gallery-filter-chip="wf"]').click();
     await expect(page.locator('#grid .card')).toHaveCount(3);
-    await expect(page.locator('[data-gallery-command="filters"]')).not.toContainText('(1)');
+    await expect(page.locator('[data-gallery-command="filters"]')).not.toContainText(' 1');
+  });
+});
+
+test('file types: quick types and custom presets persist only for the project', async ({ page }) => {
+  await withGallery(async ({ root, url }) => {
+    await page.goto(url);
+    await page.locator('[data-gallery-command="filters"]').click();
+    const dialog = page.getByRole('dialog', { name: 'File types' });
+    await expect(dialog).toBeVisible();
+    await expect(dialog).not.toContainText(/\b\d+ files?\b/i);
+
+    await dialog.getByRole('button', { name: 'Customize' }).click();
+    const shell = dialog.locator('[data-gallery-customize-type="sh"]');
+    await expect(shell).toHaveAttribute('aria-pressed', 'false');
+    await shell.click();
+    await dialog.getByRole('button', { name: 'Done' }).click();
+    await expect(dialog.locator('[data-gallery-quick-type="sh"]')).toBeVisible();
+
+    await dialog.locator('[data-gallery-new-preset]').click();
+    await dialog.getByRole('textbox', { name: 'New preset name' }).fill('Manuscript');
+    await dialog.getByRole('button', { name: 'Save' }).click();
+    await expect(dialog.getByRole('button', { name: 'Manuscript', exact: true })).toBeVisible();
+
+    const scopedKeys = await page.evaluate(projectRoot => Object.keys(localStorage).filter(key => key.includes(projectRoot)), root);
+    expect(scopedKeys.some(key => key.startsWith('galleryPinnedFileTypesV1:'))).toBe(true);
+    expect(scopedKeys.some(key => key.startsWith('galleryFileTypePresetsV1:'))).toBe(true);
+
+    await page.reload();
+    await page.locator('[data-gallery-command="filters"]').click();
+    await expect(page.locator('[data-gallery-quick-type="sh"]')).toBeVisible();
+    await expect(page.getByRole('dialog', { name: 'File types' }).getByRole('button', { name: 'Manuscript', exact: true })).toBeVisible();
+  });
+});
+
+test('file types: compact popover stays inside narrow gallery viewports', async ({ page }) => {
+  await withGallery(async ({ url }) => {
+    for (const viewport of [{ width: 375, height: 667 }, { width: 520, height: 795 }]) {
+      await page.setViewportSize(viewport);
+      await page.goto(url);
+      await page.locator('[data-gallery-command="filters"]').click();
+
+      const geometry = await page.locator('[data-slot="popover-content"]').evaluate(element => {
+        const panel = element.getBoundingClientRect();
+        const header = element.querySelector('[data-slot="popover-header"]').getBoundingClientRect();
+        const footer = element.querySelector('.gallery-filter-panel-foot').getBoundingClientRect();
+        return {
+          panel: { left: panel.left, right: panel.right, top: panel.top, bottom: panel.bottom, width: panel.width },
+          headerHeight: header.height,
+          footerBottom: footer.bottom,
+          viewport: { width: innerWidth, height: innerHeight },
+          documentWidth: document.documentElement.scrollWidth,
+        };
+      });
+
+      expect(geometry.panel.left).toBeGreaterThanOrEqual(0);
+      expect(geometry.panel.right).toBeLessThanOrEqual(geometry.viewport.width);
+      expect(geometry.panel.bottom).toBeLessThanOrEqual(geometry.viewport.height);
+      expect(geometry.panel.width).toBeLessThanOrEqual(400);
+      expect(geometry.headerHeight).toBeLessThanOrEqual(44);
+      expect(geometry.footerBottom).toBeLessThanOrEqual(geometry.viewport.height);
+      expect(geometry.documentWidth).toBeLessThanOrEqual(geometry.viewport.width);
+      await expect(page.getByRole('button', { name: 'Reset filters' })).toBeVisible();
+    }
   });
 });
 
@@ -444,8 +553,8 @@ test('add-to-chat from an embedded gallery card is idempotent on rapid double ac
     // la galerie doit se croire embarquée (window.self !== window.top) : une
     // page hôte servie par le MÊME serveur l'encadre et capture les postMessage
     writeFileSync(path.join(root, 'host.html'), `<!doctype html><body style="margin:0">
-<script>window.__msgs=[];window.addEventListener('message',e=>{if(e.data&&e.data.type)window.__msgs.push(e.data)});</script>
-<iframe id="g" src="/figures_index.html" style="width:1200px;height:800px;border:0"></iframe></body>`);
+<script>window.__msgs=[];window.addEventListener('message',e=>{if(e.data&&e.data.type){window.__msgs.push(e.data);if(e.data.type==='atelier-add-to-chat')e.source.postMessage({type:'atelier-add-to-chat-ack',nonce:e.data.nonce,requestId:e.data.requestId,ok:true},e.origin)}});</script>
+<iframe id="g" src="/figures_index.html#atelier_nonce=test-nonce" style="width:1200px;height:800px;border:0"></iframe></body>`);
     await page.goto(`http://127.0.0.1:${port}/host.html`);
     const g = page.frameLocator('#g');
     await g.locator('#grid .card').first().waitFor();
@@ -465,6 +574,27 @@ test('add-to-chat from an embedded gallery card is idempotent on rapid double ac
     expect(realpathSync(msg.path)).toBe(realpathSync(path.join(root, 'preview-alpha.png')));
     expect(msg.name).toBe('preview-alpha.png');
     expect(msg.previewUrl).toBe(`http://127.0.0.1:${port}/preview-alpha.png`);
+    expect(msg.requestId).toBeTruthy();
+  });
+});
+
+test('add-to-chat retries when the host misses the first postMessage during startup', async ({ page }) => {
+  await withGallery(async ({ root, port }) => {
+    writeFileSync(path.join(root, 'host.html'), `<!doctype html><body style="margin:0">
+<script>window.__msgs=[];window.addEventListener('message',e=>{if(e.data&&e.data.type==='atelier-add-to-chat'){window.__msgs.push(e.data);if(window.__msgs.length>1)e.source.postMessage({type:'atelier-add-to-chat-ack',nonce:e.data.nonce,requestId:e.data.requestId,ok:true},e.origin)}});</script>
+<iframe id="g" src="/figures_index.html#atelier_nonce=test-nonce" style="width:1200px;height:800px;border:0"></iframe></body>`);
+    await page.goto(`http://127.0.0.1:${port}/host.html`);
+    const g = page.frameLocator('#g');
+    const card = g.locator('.card[data-card="preview-alpha.png"]');
+    await card.waitFor();
+    await card.hover();
+    const chat = card.locator('[data-act="chat"]');
+    await chat.click();
+
+    await expect.poll(() => page.evaluate(() => window.__msgs.length)).toBe(2);
+    await expect(chat).toContainText('✓');
+    const ids = await page.evaluate(() => window.__msgs.map(m => m.requestId));
+    expect(new Set(ids).size).toBe(1);
   });
 });
 
@@ -489,7 +619,7 @@ test('keyboard: arrows move the selection, Enter opens, Escape closes in cascade
   });
 });
 
-test('shadcn command bar: menu returns focus and density supports arrow keys', async ({ page }) => {
+test('shadcn command bar: popover returns focus and view menu controls density', async ({ page }) => {
   await withGallery(async ({ url }) => {
     let rescanRequests = 0;
     await page.route('**/rescan', async route => {
@@ -501,36 +631,26 @@ test('shadcn command bar: menu returns focus and density supports arrow keys', a
     const filters = page.locator('button:has([data-gallery-command="filters"])');
     await filters.focus();
     await page.keyboard.press('Enter');
-    await expect(page.getByRole('menu')).toBeVisible();
+    await expect(page.getByRole('dialog', { name: 'File types' })).toBeVisible();
     await page.locator('#grid').click({ position: { x: 2, y: 2 } });
-    await expect(page.getByRole('menu')).toBeHidden();
+    await expect(page.getByRole('dialog', { name: 'File types' })).toBeHidden();
 
     // La fermeture extérieure ne casse pas le retour de focus au trigger.
     await filters.focus();
     await page.keyboard.press('Enter');
-    await expect(page.getByRole('menu')).toBeVisible();
+    await expect(page.getByRole('dialog', { name: 'File types' })).toBeVisible();
     await page.keyboard.press('Escape');
     await expect(filters).toBeFocused();
-
-    const rescan = page.getByRole('button', { name: 'Rescan' });
-    await expect(rescan).toBeVisible();
-    await expect(rescan).toHaveAttribute('data-gallery-command', 'rescan');
-    await rescan.click();
-    await expect(rescan).toHaveAttribute('aria-busy', 'true');
-    await expect.poll(() => rescanRequests).toBe(1);
-    await expect(rescan).toHaveAttribute('aria-busy', 'false');
 
     const tools = page.getByRole('button', { name: 'Gallery tools' });
     await tools.hover();
     await expect(page.getByRole('tooltip', { name: 'Gallery tools' })).toBeVisible();
     await tools.click();
     await expect(page.getByRole('menu')).toBeVisible();
-    await expect(page.getByRole('menu').getByRole('menuitem', { name: 'Rescan' })).toHaveCount(0);
-    await page.locator('#grid').click({ position: { x: 2, y: 2 } });
-    await expect(page.getByRole('menu')).toBeHidden();
-    await tools.click();
-    await expect(page.getByRole('menu')).toBeVisible();
-    await page.keyboard.press('Escape');
+    const rescan = page.getByRole('menuitem', { name: 'Rescan project' });
+    await expect(rescan).toHaveAttribute('data-gallery-command', 'rescan');
+    await rescan.click();
+    await expect.poll(() => rescanRequests).toBe(1);
 
     const favorites = page.locator('[data-gallery-command="favorites"]');
     await expect(favorites).toHaveAttribute('data-gallery-command', 'favorites');
@@ -545,11 +665,8 @@ test('shadcn command bar: menu returns focus and density supports arrow keys', a
     await page.locator('#grid').click({ position: { x: 2, y: 2 } });
     await expect(openSelect).toHaveCount(0);
 
-    const density = page.getByRole('group', { name: 'Card density' });
-    await density.getByRole('button', { name: 'Medium cards' }).focus();
-    await page.keyboard.press('ArrowRight');
-    await expect(density.getByRole('button', { name: 'Large cards' })).toBeFocused();
-    await page.keyboard.press('Space');
+    await page.getByRole('button', { name: 'View options' }).click();
+    await page.getByRole('menuitemcheckbox', { name: 'Large' }).click();
     await expect(page.locator('#densitySeg [data-d="l"]')).toHaveClass(/on/);
   });
 });

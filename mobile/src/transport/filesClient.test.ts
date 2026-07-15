@@ -1,5 +1,10 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { assertNoPathInRequest, fetchFileById, fetchGalleryIndex } from "./filesClient.ts";
+import {
+  assertNoPathInRequest,
+  fetchFileById,
+  fetchGalleryIndex,
+  trashFileById,
+} from "./filesClient.ts";
 import type { DeviceCredentials } from "./types.ts";
 
 const creds: DeviceCredentials = {
@@ -73,5 +78,18 @@ describe("filesClient", () => {
   it("assertNoPathInRequest rejects traversal", () => {
     expect(() => assertNoPathInRequest("/remote/v1/files/p/%2e%2e/etc")).toThrow();
     expect(() => assertNoPathInRequest("/remote/v1/file/f_ok")).not.toThrow();
+  });
+
+  it("moves a file to trash by opaque id", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        expect(String(input)).toMatch(/\/remote\/v1\/file\/f_delete$/);
+        expect(init?.method).toBe("DELETE");
+        expect(new Headers(init?.headers).get("x-atelier-device-token")).toBe("tok");
+        return Response.json({ ok: true });
+      }),
+    );
+    await expect(trashFileById(creds, "f_delete")).resolves.toBeUndefined();
   });
 });

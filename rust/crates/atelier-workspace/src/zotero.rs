@@ -211,7 +211,10 @@ pub fn search(
         let terms: Vec<_> = q.split_whitespace().collect();
         items.retain(|it| {
             let hay = format!(
-                "{} {} {} {} {}",
+                "{} {} {} {} {} {} {} {}",
+                it.key,
+                it.pdf_key.as_deref().unwrap_or(""),
+                it.pdf_file.as_deref().unwrap_or(""),
                 it.title,
                 it.creators,
                 it.year,

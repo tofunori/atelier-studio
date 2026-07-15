@@ -167,4 +167,31 @@ describe("gitops", () => {
     expect(hash).toMatch(/^[0-9a-f]{40}$/);
     expect(stdout.trim()).toBe(hash);
   });
+
+  it("limite le diff IA aux changements indexés", async () => {
+    const root = await makeRepo();
+    writeFileSync(join(root, "tracked file.txt"), "staged\n");
+    await gitops.stageFile(root, "tracked file.txt");
+    writeFileSync(join(root, "tracked file.txt"), "unstaged\n");
+
+    const text = await gitops.diffStaged(root, "tracked file.txt");
+
+    expect(text).toContain("+staged");
+    expect(text).not.toContain("unstaged");
+  });
+
+  it("commit avec files vide conserve les changements non indexés", async () => {
+    const root = await makeRepo();
+    writeFileSync(join(root, "tracked file.txt"), "staged\n");
+    await gitops.stageFile(root, "tracked file.txt");
+    writeFileSync(join(root, "left-out.txt"), "untracked\n");
+
+    await gitops.commit(root, "staged only", []);
+    const current = await gitops.status(root);
+
+    expect(current.files).toEqual(expect.arrayContaining([
+      expect.objectContaining({ path: "left-out.txt", status: "?" }),
+    ]));
+    expect(current.files.some((file) => file.path === "tracked file.txt")).toBe(false);
+  });
 });

@@ -244,6 +244,7 @@ describe("orchestration App — caractérisation", () => {
     const hash = new URL(iframe!.src).hash.replace(/^#/, "");
     const nonce = new URLSearchParams(hash).get("atelier_nonce");
     expect(nonce, `nonce absent de l'URL atelier: ${iframe!.src}`).toBeTruthy();
+    const postMessage = vi.spyOn(iframe!.contentWindow!, "postMessage");
 
     await act(async () => {
       window.dispatchEvent(new MessageEvent("message", {
@@ -254,8 +255,10 @@ describe("orchestration App — caractérisation", () => {
           path: "/Users/test/projet/fig3_spatial.png",
           name: "fig3_spatial.png",
           previewUrl: "http://127.0.0.1:18790/fig3_spatial.png",
+          requestId: "add-fig3-1",
         },
         origin: "http://127.0.0.1:18790",
+        source: iframe!.contentWindow,
       }));
       await flushMicrotasks(4);
     });
@@ -264,6 +267,12 @@ describe("orchestration App — caractérisation", () => {
     expect(screen.getByText("fig3_spatial")).toBeTruthy();
     const preview = screen.getByRole("img", { name: "fig3_spatial.png" }) as HTMLImageElement;
     expect(preview.src).toBe("http://127.0.0.1:18790/fig3_spatial.png");
+    expect(postMessage).toHaveBeenCalledWith({
+      type: "atelier-add-to-chat-ack",
+      nonce,
+      requestId: "add-fig3-1",
+      ok: true,
+    }, "http://127.0.0.1:18790");
   });
 
   it("envoie une commande show unique à l'iframe Galerie et accepte son résultat", async () => {
@@ -320,6 +329,67 @@ describe("orchestration App — caractérisation", () => {
     });
 
     window.removeEventListener("switch-surface", onSwitch);
+  });
+
+  it("ouvre les liens PNG/PDF dans la Galerie et les SVG dans leur éditeur", async () => {
+    const { sock } = await mountApp();
+    await pushThreads(sock, [THREAD_A]);
+    await selectThread(sock, "Fil A — albédo");
+    await push(sock, {
+      type: "files",
+      files: [
+        "outputs/figures/albedo_annuel.png",
+        "outputs/figures/albedo_annuel.pdf",
+        "outputs/figures/albedo_annuel.svg",
+      ],
+    });
+    await push(sock, {
+      type: "history",
+      threadId: "thread-A",
+      events: [
+        events.user("Montre-moi les sorties"),
+        events.text([
+          "- [Figure PNG](outputs/figures/albedo_annuel.png)",
+          "- [Figure PDF](outputs/figures/albedo_annuel.pdf)",
+          "- [Figure SVG](outputs/figures/albedo_annuel.svg)",
+        ].join("\n")),
+      ],
+    });
+
+    const iframe = document.querySelector<HTMLIFrameElement>('iframe[data-atelier-role="gallery"]');
+    expect(iframe).toBeTruthy();
+    fireEvent.load(iframe!);
+    await act(async () => { await flushMicrotasks(2); });
+    const postMessage = vi.spyOn(iframe!.contentWindow!, "postMessage");
+
+    fireEvent.click(screen.getByRole("button", { name: "Figure PNG" }));
+    fireEvent.click(screen.getByRole("button", { name: "Figure PDF" }));
+    fireEvent.click(screen.getByRole("button", { name: "Figure SVG" }));
+    await act(async () => { await flushMicrotasks(2); });
+
+    const openCalls = postMessage.mock.calls.filter(([message]) =>
+      (message as { action?: string }).action === "open",
+    );
+    expect(openCalls).toHaveLength(2);
+    expect(openCalls.map(([message]) => message)).toEqual([
+      expect.objectContaining({
+        type: "atelier-gallery-command",
+        action: "open",
+        mode: "viewer",
+        projectRoot: PROJECT_ROOT,
+        rels: ["outputs/figures/albedo_annuel.png"],
+      }),
+      expect.objectContaining({
+        type: "atelier-gallery-command",
+        action: "open",
+        mode: "viewer",
+        projectRoot: PROJECT_ROOT,
+        rels: ["outputs/figures/albedo_annuel.pdf"],
+      }),
+    ]);
+    const svgFrame = document.querySelector<HTMLIFrameElement>('iframe[src*="svg_viewer.html"]');
+    expect(svgFrame).toBeTruthy();
+    expect(svgFrame!.src).toContain("file=outputs%2Ffigures%2Falbedo_annuel.svg");
   });
 
   it("bascule Chat/Split/Atelier : en Atelier plein, le panneau chat est masqué SANS être démonté", async () => {

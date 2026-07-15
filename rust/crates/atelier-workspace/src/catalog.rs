@@ -19,6 +19,7 @@ const BUILTINS: &[&str] = &[
     "plan",
     "diff",
     "usage",
+    "resume",
 ];
 
 pub fn list_files(project_root: &str) -> Vec<String> {

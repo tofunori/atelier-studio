@@ -1,15 +1,17 @@
 //! WebSocket message routing (plan 033 — full Node case inventory, Porte 9).
 
 use crate::state::{AppState, QaSession};
+use crate::codex_history::{list_codex_sessions, load_codex_history};
 use crate::grok_history::{load_grok_history, prefer_richer_dialogue};
 use atelier_protocol::{ErrorMessage, PongMessage};
 use atelier_store::{get_all_ledgers, get_ledger, iso_now, read_settings, write_settings};
 use atelier_workspace::{
-    check_frame, clear_pasted, commit as git_commit, diff as git_diff, ignore_pattern,
-    list_commands, list_files, list_pasted, pull as git_pull, push as git_push, restore as git_restore,
-    revert_file, save_image, scan_local, stage_file, status as git_status, unstage_file,
+    check_frame, clear_pasted, commit as git_commit, diff as git_diff,
+    diff_staged as git_diff_staged, ignore_pattern, list_commands, list_files, list_pasted,
+    pull as git_pull, push as git_push, restore as git_restore, revert_file, save_image, scan_local,
+    stage_files, status as git_status, unstage_files,
     zotero_available, zotero_collections, zotero_load_favs, zotero_search, zotero_toggle_fav,
-    pdf_absolute_path, TermEvent,
+    pdf_absolute_path, GitStatus, TermEvent,
 };
 use serde_json::{json, Value};
 
@@ -35,6 +37,7 @@ pub const ALL_MESSAGE_TYPES: &[&str] = &[
     "upsertThread",
     "listFiles",
     "listCommands",
+    "listPlugins",
     "listPasted",
     "clearPasted",
     "saveImage",
@@ -85,6 +88,50 @@ pub const ALL_MESSAGE_TYPES: &[&str] = &[
     "goalGet",
     "goalClear",
 ];
+
+fn commit_generation_context(status: &GitStatus, staged_only: bool) -> Option<String> {
+    let files = status
+        .files
+        .iter()
+        .filter(|file| {
+            file.status != "!"
+                && (!staged_only
+                    || (file.status != "?" && file.status.chars().next() != Some('.')))
+        })
+        .collect::<Vec<_>>();
+    if files.is_empty() {
+        return None;
+    }
+
+    let untracked = files.iter().filter(|file| file.status == "?").count();
+    let deleted = files
+        .iter()
+        .filter(|file| file.status.contains('D'))
+        .count();
+    let modified = files.len().saturating_sub(untracked + deleted);
+    let shown = files.len().min(120);
+    let mut lines = Vec::with_capacity(shown + 4);
+    lines.push(format!(
+        "Git change summary for branch {}: {} files ({} modified, {} deleted, {} untracked).",
+        status.branch.as_deref().unwrap_or("unknown"),
+        files.len(),
+        modified,
+        deleted,
+        untracked,
+    ));
+    lines.push(format!("Changed files ({shown} shown):"));
+    for file in files.iter().take(shown) {
+        let stats = match (file.add, file.del) {
+            (Some(add), Some(del)) => format!(" (+{add} -{del})"),
+            _ => String::new(),
+        };
+        lines.push(format!("{} {}{}", file.status, file.path, stats));
+    }
+    if shown < files.len() {
+        lines.push(format!("… and {} more files", files.len() - shown));
+    }
+    Some(lines.join("\n"))
+}
 
 /// Route one client JSON text frame.
 ///
@@ -161,6 +208,16 @@ pub async fn route_ws(state: &AppState, text: &str) -> Vec<String> {
             };
             let thread = state.threads().lock().await.get(id).cloned();
             let events = match thread {
+                Some(t) if t.provider == "codex" => {
+                    if let Some(session_id) = t.session_id {
+                        let native = tokio::task::spawn_blocking(move || load_codex_history(&session_id))
+                            .await
+                            .unwrap_or_default();
+                        prefer_richer_dialogue(journal, native)
+                    } else {
+                        journal
+                    }
+                }
                 Some(t) if t.provider == "grok" => {
                     if let Some(session_id) = t.session_id.as_deref() {
                         prefer_richer_dialogue(journal, load_grok_history(session_id))
@@ -246,6 +303,22 @@ pub async fn route_ws(state: &AppState, text: &str) -> Vec<String> {
             let commands = list_commands(root);
             vec![json_msg(json!({"type":"commands","commands": commands}))]
         }
+        "listPlugins" => {
+            let root = msg.get("projectRoot").and_then(Value::as_str).unwrap_or("");
+            let Some(provider) = state.provider("codex") else {
+                return vec![err("plugins: provider Codex absent")];
+            };
+            match provider
+                .native_command("pluginsInstalled", json!({"projectRoot": root}))
+                .await
+            {
+                Ok(value) => vec![json_msg(json!({
+                    "type": "plugins",
+                    "plugins": value.get("plugins").cloned().unwrap_or_else(|| json!([])),
+                }))],
+                Err(error) => vec![err(format!("plugins: {error}"))],
+            }
+        }
         "listPasted" => {
             let files = list_pasted(state.app_dir());
             vec![json_msg(json!({"type":"pastedList","files": files}))]
@@ -323,13 +396,20 @@ pub async fn route_ws(state: &AppState, text: &str) -> Vec<String> {
         "gitDiff" => {
             let root = git_root(state, &msg).await;
             let path = msg.get("path").and_then(|v| v.as_str());
+            let scope = msg.get("scope").and_then(|v| v.as_str()).unwrap_or("changes");
             let request_id = msg.get("requestId").cloned().unwrap_or(Value::Null);
-            match git_diff(&root, path) {
+            let result = if scope == "staged" {
+                git_diff_staged(&root, path)
+            } else {
+                git_diff(&root, path)
+            };
+            match result {
                 Ok(diff) => vec![json_msg(json!({
                     "type": "gitDiff",
                     "requestId": request_id,
                     "projectRoot": root,
                     "path": path,
+                    "scope": scope,
                     "diff": diff,
                 }))],
                 Err(e) => vec![json_msg(json!({
@@ -337,6 +417,7 @@ pub async fn route_ws(state: &AppState, text: &str) -> Vec<String> {
                     "requestId": request_id,
                     "projectRoot": root,
                     "path": path,
+                    "scope": scope,
                     "diff": "",
                     "error": e.to_string(),
                 }))],
@@ -344,10 +425,10 @@ pub async fn route_ws(state: &AppState, text: &str) -> Vec<String> {
         }
         "gitStage" => {
             let root = git_root(state, &msg).await;
-            let path = msg.get("path").and_then(|v| v.as_str()).unwrap_or("");
-            match stage_file(&root, path) {
+            let paths = git_paths(&msg);
+            match stage_files(&root, &paths) {
                 Ok(()) => {
-                    let mut out = vec![json_msg(json!({"type":"gitStageDone","projectRoot": root, "path": path}))];
+                    let mut out = vec![json_msg(json!({"type":"gitStageDone","projectRoot": root, "paths": paths}))];
                     out.extend(git_changed(state, &msg, &root).await);
                     out
                 }
@@ -356,11 +437,11 @@ pub async fn route_ws(state: &AppState, text: &str) -> Vec<String> {
         }
         "gitUnstage" => {
             let root = git_root(state, &msg).await;
-            let path = msg.get("path").and_then(|v| v.as_str()).unwrap_or("");
-            match unstage_file(&root, path) {
+            let paths = git_paths(&msg);
+            match unstage_files(&root, &paths) {
                 Ok(()) => {
                     let mut out =
-                        vec![json_msg(json!({"type":"gitUnstageDone","projectRoot": root, "path": path}))];
+                        vec![json_msg(json!({"type":"gitUnstageDone","projectRoot": root, "paths": paths}))];
                     out.extend(git_changed(state, &msg, &root).await);
                     out
                 }
@@ -617,12 +698,18 @@ pub async fn route_ws(state: &AppState, text: &str) -> Vec<String> {
         "listApiModels" => handle_list_api_models(state, &msg).await,
         "exportThread" => handle_export_thread(state, &msg).await,
         "listSessions" => {
-            // Session filesystem scan deferred; shape-compatible empty list.
-            let provider = msg.get("provider").cloned().unwrap_or(Value::Null);
+            let provider = msg.get("provider").and_then(Value::as_str).unwrap_or("");
+            let sessions = if provider == "codex" {
+                tokio::task::spawn_blocking(list_codex_sessions)
+                    .await
+                    .unwrap_or_default()
+            } else {
+                Vec::new()
+            };
             vec![json_msg(json!({
                 "type": "sessions",
                 "provider": provider,
-                "sessions": [],
+                "sessions": sessions,
             }))]
         }
         "importSession" => {
@@ -819,12 +906,58 @@ pub async fn route_ws(state: &AppState, text: &str) -> Vec<String> {
         }
         "generateCommitMsg" => {
             let root = git_root(state, &msg).await;
-            // Claude title helper not ported; empty message is valid UI fallback.
-            vec![json_msg(json!({
-                "type": "commitMsg",
-                "projectRoot": root,
-                "message": "",
-            }))]
+            let scope = msg
+                .get("scope")
+                .and_then(Value::as_str)
+                .filter(|scope| *scope == "changes")
+                .unwrap_or("staged");
+            let status = match git_status(&root) {
+                Ok(status) => status,
+                Err(error) => return vec![json_msg(json!({
+                    "type": "commitMsg",
+                    "projectRoot": root,
+                    "error": error.to_string(),
+                }))],
+            };
+            let Some(context) = commit_generation_context(&status, scope == "staged") else {
+                let error = if scope == "staged" {
+                    "Indexe au moins un fichier avant de générer le message."
+                } else {
+                    "Aucune modification à résumer."
+                };
+                return vec![json_msg(json!({
+                    "type": "commitMsg",
+                    "projectRoot": root,
+                    "error": error,
+                }))];
+            };
+            {
+                let Some(provider) = state.provider("claude") else {
+                    return vec![json_msg(json!({
+                        "type": "commitMsg",
+                        "projectRoot": root,
+                        "error": "Claude Code est indisponible pour générer le message.",
+                    }))];
+                };
+                match provider.commit_message(&context, &root).await {
+                    Ok(Some(message)) => vec![json_msg(json!({
+                        "type": "commitMsg",
+                        "projectRoot": root,
+                        "message": message,
+                        "provider": provider.id(),
+                    }))],
+                    Ok(None) => vec![json_msg(json!({
+                        "type": "commitMsg",
+                        "projectRoot": root,
+                        "error": "L’IA n’a retourné aucun message de commit.",
+                    }))],
+                    Err(error) => vec![json_msg(json!({
+                        "type": "commitMsg",
+                        "projectRoot": root,
+                        "error": error,
+                    }))],
+                }
+            }
         }
         "zoteroAddPdf" => {
             vec![err(
@@ -856,6 +989,22 @@ async fn git_root(state: &AppState, msg: &Value) -> String {
         }
     }
     String::new()
+}
+
+fn git_paths(msg: &Value) -> Vec<String> {
+    if let Some(paths) = msg.get("paths").and_then(Value::as_array) {
+        return paths
+            .iter()
+            .filter_map(Value::as_str)
+            .filter(|path| !path.is_empty())
+            .map(str::to_string)
+            .collect();
+    }
+    msg.get("path")
+        .and_then(Value::as_str)
+        .filter(|path| !path.is_empty())
+        .map(|path| vec![path.to_string()])
+        .unwrap_or_default()
 }
 
 async fn git_changed(state: &AppState, msg: &Value, root: &str) -> Vec<String> {
@@ -1395,6 +1544,7 @@ async fn handle_quick_ask(state: &AppState, msg: &Value) -> Vec<String> {
             thread_id: format!("qa:{qa_id_bg}"),
             turn_id: uuid_v4(),
             prompt,
+            inputs: None,
             project_root: std::env::var("HOME").unwrap_or_else(|_| "/tmp".into()),
             session_id: prev.map(|s| s.session_id),
             model,
@@ -1788,6 +1938,7 @@ fn err_thread(thread_id: &str, message: impl Into<String>) -> String {
 mod tests {
     use super::*;
     use crate::paths::AppPaths;
+    use atelier_workspace::GitFile;
     use tempfile::tempdir;
 
     fn state(dir: &std::path::Path) -> AppState {
@@ -1799,6 +1950,36 @@ mod tests {
             "h".into(),
             "/tmp".into(),
         )
+    }
+
+    #[test]
+    fn commit_context_is_bounded_and_does_not_read_file_contents() {
+        let status = GitStatus {
+            branch: Some("main".into()),
+            ahead: 0,
+            behind: 0,
+            files: vec![
+                GitFile {
+                    path: "scripts/analysis/model.py".into(),
+                    status: ".M".into(),
+                    original_path: None,
+                    add: Some(12),
+                    del: Some(2),
+                },
+                GitFile {
+                    path: "outputs/large-result.bin".into(),
+                    status: "?".into(),
+                    original_path: None,
+                    add: None,
+                    del: None,
+                },
+            ],
+        };
+        let context = commit_generation_context(&status, false).unwrap();
+        assert!(context.contains("2 files"));
+        assert!(context.contains("scripts/analysis/model.py (+12 -2)"));
+        assert!(context.contains("outputs/large-result.bin"));
+        assert!(commit_generation_context(&status, true).is_none());
     }
 
     #[tokio::test]

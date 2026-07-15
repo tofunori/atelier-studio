@@ -1,15 +1,22 @@
 import * as React from "react"
 import { createRoot } from "react-dom/client"
 import {
+  Check,
+  CheckSquare2,
+  ChevronDown,
   Ellipsis,
   Filter,
+  FolderOpen,
   LayoutGrid,
   NotebookPen,
+  Plus,
   RefreshCw,
   RotateCcw,
   Search,
   Settings,
   Star,
+  Trash2,
+  X,
 } from "lucide-react"
 
 import { Button } from "@/components/shadcn/button"
@@ -21,6 +28,7 @@ import {
   AlertDialogDescription,
   AlertDialogFooter,
   AlertDialogHeader,
+  AlertDialogMedia,
   AlertDialogTitle,
 } from "@/components/shadcn/alert-dialog"
 import {
@@ -39,8 +47,18 @@ import {
 import {
   InputGroup,
   InputGroupAddon,
+  InputGroupButton,
   InputGroupInput,
 } from "@/components/shadcn/input-group"
+import {
+  Popover,
+  PopoverContent,
+  PopoverDescription,
+  PopoverHeader,
+  PopoverTitle,
+  PopoverTrigger,
+} from "@/components/shadcn/popover"
+import { Separator } from "@/components/shadcn/separator"
 import {
   Select,
   SelectContent,
@@ -64,11 +82,48 @@ import "./styles.css"
 
 type LegacyOption = { value: string; label: string }
 type LegacyMenuItem = { key: string; label: string; active: boolean; element: HTMLElement }
+type GalleryFileType = { key: string; label: string; active: boolean; pinned: boolean }
+type GalleryFileTypePreset = { id: string; label: string; extensions: string[]; custom: boolean; active: boolean }
+type GalleryFileTypeState = {
+  projectName: string
+  types: GalleryFileType[]
+  pinned: string[]
+  presets: GalleryFileTypePreset[]
+  summary: string
+}
+type GalleryFileTypeAdapter = {
+  getState: () => GalleryFileTypeState
+  setActive: (extensions: string[]) => void
+  setPinned: (extensions: string[]) => void
+  applyPreset: (id: string) => void
+  savePreset: (name: string) => void
+  removePreset: (id: string) => void
+  resetFilters: () => void
+}
+type GallerySelectionState = { rels: string[]; imageCount: number }
+type GallerySelectionAdapter = {
+  getState: () => GallerySelectionState
+  open: () => void
+  compare: () => void
+  collect: (anchor: HTMLElement) => void
+  export: (anchor: HTMLElement) => void
+  hide: () => void
+  delete: () => void
+  clear: () => void
+}
 type ConfirmRequest = { message: string; acceptLabel: string; resolve: (accepted: boolean) => void }
+type ConfirmPresentation = {
+  title: string
+  description?: string
+  acceptLabel: string
+  destructive?: boolean
+}
 
 declare global {
   interface Window {
     __galleryConfirm?: (message: string, acceptLabel?: string) => Promise<boolean>
+    __galleryFileTypes?: GalleryFileTypeAdapter
+    __gallerySelection?: GallerySelectionAdapter
   }
 }
 
@@ -102,44 +157,407 @@ function legacyItems(menuId: string, selector: string): LegacyMenuItem[] {
   }))
 }
 
-function LegacySubmenu({ label, items }: { label: string; items: LegacyMenuItem[] }) {
-  if (!items.length) return null
-  return (
-    <DropdownMenuSub>
-      <DropdownMenuSubTrigger data-gallery-filter-group={label.toLowerCase()}>{label}</DropdownMenuSubTrigger>
-      <DropdownMenuSubContent>
-        <DropdownMenuGroup>
-          {items.map((item) => (
-            <DropdownMenuCheckboxItem
-              key={`${label}-${item.key}`}
-              checked={item.active}
-              data-gallery-filter-item={item.key}
-              onClick={() => item.element.click()}
+const OUTPUT_TYPE_KEYS = new Set(["png", "jpg", "svg", "mp4", "pdf", "html", "docx", "xlsx", "csv", "md"])
+
+function stripLegacyCount(label: string) {
+  return label.replace(/\s+\d+$/, "").trim()
+}
+
+function sortLabel(value: string) {
+  const labels: Record<string, string> = {
+    mtime: "Modified ↓",
+    mtime_asc: "Modified ↑",
+    btime: "Created ↓",
+    btime_asc: "Created ↑",
+    name: "Name A–Z",
+    size: "Size ↓",
+    rating: "Rating ↓",
+  }
+  return labels[value] ?? value
+}
+
+function readActiveFilterChips(fileTypes: GalleryFileTypeState | null) {
+  return [...document.querySelectorAll<HTMLElement>("#activeChips [data-fx]")].map((remove) => {
+    const key = remove.dataset.fx ?? "filter"
+    let label = remove.parentElement?.textContent?.replace("×", "").trim() || "Filter"
+    if (key === "fmt" && fileTypes?.summary) label = fileTypes.summary
+    else label = label.replace(/^(Formats|Status|Folder|Collection):\s*/, "")
+    return { key, label, remove }
+  })
+}
+
+function GalleryFileTypePanel({
+  state,
+  folder,
+  collectionItems,
+  workflowItems,
+  onClose,
+}: {
+  state: GalleryFileTypeState
+  folder: HTMLSelectElement | null
+  collectionItems: LegacyMenuItem[]
+  workflowItems: LegacyMenuItem[]
+  onClose: () => void
+}) {
+  const [query, setQuery] = React.useState("")
+  const [customizing, setCustomizing] = React.useState(false)
+  const [creatingPreset, setCreatingPreset] = React.useState(false)
+  const [presetName, setPresetName] = React.useState("")
+  const adapter = window.__galleryFileTypes
+  const activeKeys = state.types.filter((type) => type.active).map((type) => type.key)
+  const pinnedTypes = state.pinned
+    .map((key) => state.types.find((type) => type.key === key))
+    .filter((type): type is GalleryFileType => Boolean(type))
+  const outputTypes = pinnedTypes.filter((type) => OUTPUT_TYPE_KEYS.has(type.key))
+  const sourceTypes = pinnedTypes.filter((type) => !OUTPUT_TYPE_KEYS.has(type.key))
+  const matchingTypes = state.types.filter((type) => {
+    const needle = query.trim().toLowerCase()
+    return !needle || type.key.includes(needle) || type.label.toLowerCase().includes(needle)
+  })
+  const folderItems = selectOptions("folder").map((option) => ({
+    value: option.value,
+    label: option.value ? option.label : "All folders",
+  }))
+
+  const updateTypeGroup = (keys: string[], next: string[]) => {
+    const group = new Set(keys)
+    adapter?.setActive([...activeKeys.filter((key) => !group.has(key)), ...next])
+  }
+
+  const savePreset = () => {
+    const name = presetName.trim()
+    if (!name) return
+    adapter?.savePreset(name)
+    setPresetName("")
+    setCreatingPreset(false)
+  }
+
+  if (customizing) {
+    return (
+      <>
+        <PopoverHeader className="gallery-filter-panel-head">
+          <PopoverTitle className="tw:sr-only">File types</PopoverTitle>
+          <PopoverDescription className="tw:sr-only">Customize quick file types for this project</PopoverDescription>
+          <div>
+            <div className="gallery-filter-panel-title">Customize Quick Types</div>
+            <div className="gallery-filter-helper">Saved for {state.projectName}</div>
+          </div>
+          <Button variant="ghost" size="sm" onClick={() => setCustomizing(false)}>Done</Button>
+        </PopoverHeader>
+        <Separator />
+        <div className="gallery-filter-scroll">
+          <div className="gallery-filter-section">
+            <div className="gallery-filter-section-label">Choose pinned types</div>
+            <ToggleGroup
+              multiple
+              value={state.pinned}
+              onValueChange={(values) => adapter?.setPinned(values)}
+              className="gallery-type-customize-grid"
+              aria-label="Quick file types for this project"
             >
-              {item.label}
-            </DropdownMenuCheckboxItem>
+              {state.types.map((type) => (
+                <ToggleGroupItem
+                  key={type.key}
+                  value={type.key}
+                  variant="outline"
+                  size="sm"
+                  data-gallery-customize-type={type.key}
+                >
+                  <Star data-icon="inline-start" />
+                  {type.label}
+                </ToggleGroupItem>
+              ))}
+            </ToggleGroup>
+          </div>
+        </div>
+      </>
+    )
+  }
+
+  const renderQuickGroup = (label: string, types: GalleryFileType[]) => {
+    if (!types.length) return null
+    const keys = types.map((type) => type.key)
+    return (
+      <div className="gallery-type-group">
+        <div className="gallery-filter-sub-label">{label}</div>
+        <ToggleGroup
+          multiple
+          value={activeKeys.filter((key) => keys.includes(key))}
+          onValueChange={(values) => updateTypeGroup(keys, values)}
+          className="gallery-quick-types"
+          aria-label={`${label.toLowerCase()} file types`}
+        >
+          {types.map((type) => (
+            <ToggleGroupItem
+              key={type.key}
+              value={type.key}
+              variant="outline"
+              size="sm"
+              data-gallery-quick-type={type.key}
+            >
+              {type.active && <Check data-icon="inline-start" />}
+              {type.label}
+            </ToggleGroupItem>
           ))}
-        </DropdownMenuGroup>
-      </DropdownMenuSubContent>
-    </DropdownMenuSub>
+        </ToggleGroup>
+      </div>
+    )
+  }
+
+  return (
+    <>
+      <PopoverHeader className="gallery-filter-panel-head">
+        <div>
+          <PopoverTitle className="gallery-filter-panel-title">File types</PopoverTitle>
+          <PopoverDescription className="tw:sr-only">Filter and customize file types for this project</PopoverDescription>
+        </div>
+        <Button variant="ghost" size="icon-sm" aria-label="Close file type filters" onClick={onClose}>
+          <X />
+        </Button>
+      </PopoverHeader>
+      <Separator />
+      <div className="gallery-filter-scroll" data-gallery-file-type-panel>
+        <section className="gallery-filter-section" aria-labelledby="quick-types-heading">
+          <div className="gallery-filter-section-heading">
+            <div>
+              <div id="quick-types-heading" className="gallery-filter-section-label">Quick Types</div>
+              <div className="gallery-filter-helper">Pinned for this project</div>
+            </div>
+            <Button variant="ghost" size="xs" onClick={() => setCustomizing(true)}>
+              <Settings data-icon="inline-start" />
+              Customize
+            </Button>
+          </div>
+          {renderQuickGroup("Outputs", outputTypes)}
+          {renderQuickGroup("Sources", sourceTypes)}
+        </section>
+
+        <Separator />
+
+        <section className="gallery-filter-section" aria-labelledby="project-presets-heading">
+          <div>
+            <div id="project-presets-heading" className="gallery-filter-section-label">Project Presets</div>
+            <div className="gallery-filter-helper">Saved only in this project</div>
+          </div>
+          <div className="gallery-project-presets">
+            {state.presets.map((preset) => (
+              <div key={preset.id} className="gallery-project-preset">
+                <Button
+                  variant={preset.active ? "secondary" : "outline"}
+                  size="sm"
+                  data-gallery-file-preset={preset.id}
+                  onClick={() => adapter?.applyPreset(preset.id)}
+                >
+                  {preset.label}
+                </Button>
+                {preset.custom && (
+                  <Button
+                    variant="ghost"
+                    size="icon-xs"
+                    aria-label={`Delete preset ${preset.label}`}
+                    onClick={() => adapter?.removePreset(preset.id)}
+                  >
+                    <X />
+                  </Button>
+                )}
+              </div>
+            ))}
+            <Button variant="outline" size="sm" data-gallery-new-preset onClick={() => setCreatingPreset(true)}>
+              <Plus data-icon="inline-start" />
+              New preset
+            </Button>
+          </div>
+          {creatingPreset && (
+            <InputGroup data-gallery-preset-form>
+              <InputGroupInput
+                aria-label="New preset name"
+                placeholder="Preset name…"
+                value={presetName}
+                onChange={(event) => setPresetName(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter") { event.preventDefault(); savePreset() }
+                  if (event.key === "Escape") { event.stopPropagation(); setCreatingPreset(false) }
+                }}
+                autoFocus
+              />
+              <InputGroupAddon align="inline-end">
+                <InputGroupButton onClick={savePreset} disabled={!presetName.trim()}>Save</InputGroupButton>
+              </InputGroupAddon>
+            </InputGroup>
+          )}
+        </section>
+
+        <Separator />
+
+        <section className="gallery-filter-section" aria-labelledby="all-file-types-heading">
+          <div id="all-file-types-heading" className="gallery-filter-section-label">All File Types</div>
+          <InputGroup>
+            <InputGroupInput
+              aria-label="Search file types"
+              placeholder="Search extension or language…"
+              value={query}
+              onChange={(event) => setQuery(event.target.value)}
+            />
+            <InputGroupAddon align="inline-start" aria-hidden="true"><Search /></InputGroupAddon>
+          </InputGroup>
+          <div className="gallery-all-types" role="list" aria-label="All file types">
+            {matchingTypes.map((type) => (
+              <div key={type.key} className="gallery-all-type-row" role="listitem">
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  data-gallery-file-type={type.key}
+                  aria-pressed={type.active}
+                  onClick={() => updateTypeGroup([type.key], type.active ? [] : [type.key])}
+                >
+                  {type.active && <Check data-icon="inline-start" />}
+                  {type.label}
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="icon-sm"
+                  aria-label={`${type.pinned ? "Unpin" : "Pin"} ${type.label} for this project`}
+                  aria-pressed={type.pinned}
+                  data-gallery-pin-type={type.key}
+                  onClick={() => adapter?.setPinned(type.pinned
+                    ? state.pinned.filter((key) => key !== type.key)
+                    : [...state.pinned, type.key])}
+                >
+                  <Star />
+                </Button>
+              </div>
+            ))}
+          </div>
+        </section>
+
+        <Separator />
+
+        <section className="gallery-filter-section gallery-other-filters" aria-labelledby="other-filters-heading">
+          <div id="other-filters-heading" className="gallery-filter-section-label">Other Filters</div>
+          <div className="gallery-other-filter-row">
+            <FolderOpen aria-hidden="true" />
+            <Select
+              items={folderItems}
+              modal={false}
+              value={folder?.value ?? ""}
+              onValueChange={(value) => setSelect("folder", value ?? "")}
+            >
+              <SelectTrigger size="sm" aria-label="Filter by folder">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectGroup>
+                  {folderItems.map((option) => (
+                    <SelectItem key={option.value || "all"} value={option.value}>{option.label}</SelectItem>
+                  ))}
+                </SelectGroup>
+              </SelectContent>
+            </Select>
+          </div>
+          {workflowItems.length > 0 && (
+            <div className="gallery-type-group">
+              <div className="gallery-filter-sub-label">Status</div>
+              <ToggleGroup
+                value={workflowItems.filter((item) => item.active).map((item) => item.key)}
+                onValueChange={(values) => {
+                  const next = values.at(-1) ?? ""
+                  workflowItems.find((item) => item.key === next)?.element.click()
+                }}
+                className="gallery-workflow-types"
+                aria-label="Workflow status"
+              >
+                {workflowItems.filter((item) => item.key).map((item) => (
+                  <ToggleGroupItem key={item.key} value={item.key} variant="outline" size="sm" data-gallery-status={item.key}>
+                    {stripLegacyCount(item.label)}
+                  </ToggleGroupItem>
+                ))}
+              </ToggleGroup>
+            </div>
+          )}
+          {collectionItems.length > 0 && (
+            <div className="gallery-type-group">
+              <div className="gallery-filter-sub-label">Collections</div>
+              <div className="gallery-collection-filters">
+                {collectionItems.map((item) => (
+                  <Button key={item.key} variant={item.active ? "secondary" : "outline"} size="sm" onClick={() => item.element.click()}>
+                    {stripLegacyCount(item.label)}
+                  </Button>
+                ))}
+              </div>
+            </div>
+          )}
+        </section>
+      </div>
+      <Separator />
+      <div className="gallery-filter-panel-foot">
+        <Button variant="ghost" size="sm" onClick={() => adapter?.resetFilters()}>
+          <RotateCcw data-icon="inline-start" />
+          Reset filters
+        </Button>
+      </div>
+    </>
   )
+}
+
+function presentConfirmation(request: ConfirmRequest): ConfirmPresentation {
+  const singleTrash = request.message.match(/^Move to Trash\?\s+(.+)$/)
+  if (singleTrash) {
+    const path = singleTrash[1]
+    const parts = path.split("/")
+    const fileName = parts.pop() || path
+    const folder = parts.join("/")
+    return {
+      title: `Move “${fileName}” to Trash?`,
+      description: folder
+        ? `This removes it from ${folder}. You can recover it from Trash.`
+        : "This removes it from the project. You can recover it from Trash.",
+      acceptLabel: "Move to Trash",
+      destructive: true,
+    }
+  }
+
+  const bulkTrash = request.message.match(/^(\d+) file\(s\) → trash\?$/)
+  if (bulkTrash) {
+    const count = Number(bulkTrash[1])
+    return {
+      title: `Move ${count} ${count === 1 ? "file" : "files"} to Trash?`,
+      description: `${count === 1 ? "This file" : "These files"} will be removed from the project. You can recover ${count === 1 ? "it" : "them"} from Trash.`,
+      acceptLabel: "Move to Trash",
+      destructive: true,
+    }
+  }
+
+  return {
+    title: request.message,
+    acceptLabel: request.acceptLabel,
+    destructive: ["Delete", "Discard", "Supprimer"].includes(request.acceptLabel),
+  }
 }
 
 function GalleryToolbar() {
   const [, refresh] = React.useReducer((value) => value + 1, 0)
+  const [filtersOpen, setFiltersOpen] = React.useState(false)
   const search = get<HTMLInputElement>("q")?.value ?? ""
   const sort = get<HTMLSelectElement>("sort")
   const folder = get<HTMLSelectElement>("folder")
   const favorite = get<HTMLElement>("favChip")
   const rescanning = get<HTMLElement>("rescan")?.classList.contains("spinning") === true
   const density = get<HTMLElement>("densitySeg")?.querySelector<HTMLElement>("button.on")?.dataset.d ?? "m"
-  const formatItems = legacyItems("fmtMenu", "[data-cat]")
-  const fileTypeItems = legacyItems("fmtMenu", "input[data-fmt]")
   const collectionItems = legacyItems("collMenu", "[data-pick]")
   const workflowItems = legacyItems("wfMenu", "[data-wfpick]")
   const recentItems = legacyItems("recMenu", "[data-rec]")
+  const fileTypeState = window.__galleryFileTypes?.getState() ?? {
+    projectName: "this project",
+    types: legacyItems("fmtMenu", "input[data-fmt]").map((item) => ({
+      key: item.key, label: stripLegacyCount(item.label), active: item.active, pinned: false,
+    })),
+    pinned: [], presets: [], summary: "File types",
+  }
+  const selection = window.__gallerySelection?.getState() ?? { rels: [], imageCount: 0 }
+  const activeChips = readActiveFilterChips(fileTypeState)
   const activeFilterCount = document.querySelectorAll("#activeChips [data-fx]").length
   const favoriteActive = favorite?.classList.contains("on") === true
+  const sortItems = selectOptions("sort").map((option) => ({ value: option.value, label: sortLabel(option.value) }))
 
   React.useEffect(() => {
     const update = () => refresh()
@@ -153,6 +571,7 @@ function GalleryToolbar() {
       get<HTMLElement>("collMenu"),
       get<HTMLElement>("wfMenu"),
       get<HTMLElement>("recMenu"),
+      get<HTMLElement>("selBar"),
     ].filter((element): element is HTMLElement => Boolean(element))
     observed.forEach((element) => observer.observe(element, {
       attributes: true,
@@ -166,6 +585,8 @@ function GalleryToolbar() {
       element.addEventListener("input", update)
       element.addEventListener("change", update)
     })
+    window.addEventListener("atelier-gallery-file-types-change", update)
+    window.addEventListener("atelier-gallery-selection-change", update)
     document.documentElement.classList.add("gallery-react-mounted")
     document.documentElement.dataset.galleryUi = "shadcn-react-v1"
     return () => {
@@ -174,9 +595,15 @@ function GalleryToolbar() {
         element.removeEventListener("input", update)
         element.removeEventListener("change", update)
       })
+      window.removeEventListener("atelier-gallery-file-types-change", update)
+      window.removeEventListener("atelier-gallery-selection-change", update)
       document.documentElement.classList.remove("gallery-react-mounted")
     }
   }, [])
+
+  React.useEffect(() => {
+    if (selection.rels.length) setFiltersOpen(false)
+  }, [selection.rels.length])
 
   const updateSearch = (value: string) => {
     const input = get<HTMLInputElement>("q")
@@ -185,8 +612,50 @@ function GalleryToolbar() {
     input.dispatchEvent(new Event("input", { bubbles: true }))
   }
 
+  if (selection.rels.length) {
+    const selectionAdapter = window.__gallerySelection
+    return (
+      <div className="gallery-command-bar gallery-selection-command-bar" role="toolbar" aria-label="Selected files actions" data-gallery-toolbar-state="selection">
+        <div className="gallery-selection-count" aria-live="polite">
+          <CheckSquare2 aria-hidden="true" />
+          <span>{selection.rels.length} selected</span>
+        </div>
+        <div className="gallery-command-spacer" />
+        {selection.rels.length === 1 && (
+          <Button variant="outline" size="sm" data-gallery-selection-action="open" onClick={() => selectionAdapter?.open()}>Open</Button>
+        )}
+        {selection.imageCount >= 2 && (
+          <Button variant="outline" size="sm" data-gallery-selection-action="compare" onClick={() => selectionAdapter?.compare()}>Compare</Button>
+        )}
+        <Button variant="outline" size="sm" data-gallery-selection-action="collect" onClick={(event) => { event.stopPropagation(); selectionAdapter?.collect(event.currentTarget) }}>Collect</Button>
+        <Button variant="outline" size="sm" data-gallery-selection-action="export" onClick={(event) => { event.stopPropagation(); selectionAdapter?.export(event.currentTarget) }}>
+          Export <ChevronDown data-icon="inline-end" />
+        </Button>
+        <DropdownMenu modal={false}>
+          <DropdownMenuTrigger render={<Button variant="ghost" size="icon-sm" aria-label="More selection actions"><Ellipsis /></Button>} />
+          <DropdownMenuContent align="end" className="tw:w-48">
+            <DropdownMenuGroup>
+              <DropdownMenuItem onClick={() => selectionAdapter?.hide()}>Hide selected</DropdownMenuItem>
+            </DropdownMenuGroup>
+            <DropdownMenuSeparator />
+            <DropdownMenuGroup>
+              <DropdownMenuItem variant="destructive" onClick={() => selectionAdapter?.delete()}>
+                <Trash2 data-icon="inline-start" /> Move to Trash
+              </DropdownMenuItem>
+            </DropdownMenuGroup>
+          </DropdownMenuContent>
+        </DropdownMenu>
+        <Tooltip label="Clear selection (Esc)">
+          <Button variant="ghost" size="icon-sm" aria-label="Clear selection" data-gallery-selection-action="clear" onClick={() => selectionAdapter?.clear()}>
+            <X />
+          </Button>
+        </Tooltip>
+      </div>
+    )
+  }
+
   return (
-    <div className="gallery-command-bar" role="toolbar" aria-label="Gallery commands">
+    <div className="gallery-command-bar" role="toolbar" aria-label="Gallery commands" data-gallery-toolbar-state="normal">
       <InputGroup className="gallery-command-search" data-gallery-command-group="search">
         <InputGroupInput
           aria-label="Search project files"
@@ -200,104 +669,89 @@ function GalleryToolbar() {
         </InputGroupAddon>
       </InputGroup>
 
-      <DropdownMenu modal={false}>
-        <DropdownMenuTrigger
+      <Popover open={filtersOpen} onOpenChange={setFiltersOpen}>
+        <PopoverTrigger
           render={
             <Button variant={activeFilterCount ? "secondary" : "outline"} size="sm">
               <Filter data-icon="inline-start" />
-              <span data-gallery-command="filters">Filters{activeFilterCount ? ` (${activeFilterCount})` : ""}</span>
+              <span data-gallery-command="filters">Filters{activeFilterCount ? ` ${activeFilterCount}` : ""}</span>
             </Button>
           }
         />
-        <DropdownMenuContent className="tw:w-56">
-          <DropdownMenuGroup>
-            <DropdownMenuLabel>Filter gallery</DropdownMenuLabel>
-            <DropdownMenuCheckboxItem checked={favorite?.classList.contains("on") === true} onClick={() => clickLegacy("favChip")}>
-              <Star data-icon="inline-start" /> Favorites
-            </DropdownMenuCheckboxItem>
-            <DropdownMenuSub>
-              <DropdownMenuSubTrigger data-gallery-filter-group="folders">Folders</DropdownMenuSubTrigger>
-              <DropdownMenuSubContent>
-                <DropdownMenuGroup>
-                  {selectOptions("folder").map((option) => (
-                    <DropdownMenuCheckboxItem
-                      key={option.value || "all"}
-                      checked={(folder?.value ?? "") === option.value}
-                      data-gallery-filter-item={option.value || "all"}
-                      onClick={() => setSelect("folder", option.value)}
-                    >
-                      {option.label}
-                    </DropdownMenuCheckboxItem>
-                  ))}
-                </DropdownMenuGroup>
-              </DropdownMenuSubContent>
-            </DropdownMenuSub>
-            <LegacySubmenu label="Formats" items={formatItems} />
-            <LegacySubmenu label="File types" items={fileTypeItems} />
-            <LegacySubmenu label="Collections" items={collectionItems} />
-            <LegacySubmenu label="Status" items={workflowItems} />
-            <LegacySubmenu label="Recent" items={recentItems} />
-          </DropdownMenuGroup>
-          <DropdownMenuSeparator />
-          <DropdownMenuGroup>
-            <DropdownMenuItem onClick={() => clickLegacy("filtersClear")}>
-              <RotateCcw data-icon="inline-start" /> Clear all filters
-            </DropdownMenuItem>
-          </DropdownMenuGroup>
-        </DropdownMenuContent>
-      </DropdownMenu>
+        <PopoverContent align="start" sideOffset={6} className="gallery-filter-popover tw:w-[min(400px,calc(100vw-24px))] tw:gap-0 tw:p-0">
+          <GalleryFileTypePanel
+            state={fileTypeState}
+            folder={folder}
+            collectionItems={collectionItems}
+            workflowItems={workflowItems}
+            onClose={() => setFiltersOpen(false)}
+          />
+        </PopoverContent>
+      </Popover>
 
-      <Button
-        variant={favoriteActive ? "secondary" : "outline"}
-        size="sm"
-        data-gallery-command="favorites"
-        aria-pressed={favoriteActive}
-        onClick={() => clickLegacy("favChip")}
-      >
-        <Star data-icon="inline-start" />
-        Favorites
-      </Button>
+      <Tooltip label="Favorites">
+        <Button
+          variant={favoriteActive ? "secondary" : "outline"}
+          size="icon-sm"
+          data-gallery-command="favorites"
+          aria-label="Favorites"
+          aria-pressed={favoriteActive}
+          onClick={() => clickLegacy("favChip")}
+        >
+          <Star />
+        </Button>
+      </Tooltip>
 
-      <Select modal={false} value={sort?.value ?? "mtime"} onValueChange={(value) => value && setSelect("sort", value)}>
+      <div className="gallery-active-filters" aria-label="Active filters">
+        {activeChips.map((chip) => (
+          <Button
+            key={chip.key}
+            variant="outline"
+            size="xs"
+            className="gallery-filter-chip"
+            data-gallery-filter-chip={chip.key}
+            aria-label={`Remove filter ${chip.label}`}
+            onClick={() => chip.remove.click()}
+          >
+            {chip.label}
+            <X data-icon="inline-end" />
+          </Button>
+        ))}
+      </div>
+
+      <div className="gallery-command-spacer" />
+
+      <Select items={sortItems} modal={false} value={sort?.value ?? "mtime"} onValueChange={(value) => value && setSelect("sort", value)}>
         <SelectTrigger size="sm" className="gallery-command-select gallery-command-sort" aria-label="Sort project files">
-          <SelectValue />
+          <SelectValue>{(value) => sortLabel(String(value))}</SelectValue>
         </SelectTrigger>
         <SelectContent>
           <SelectGroup>
-            {selectOptions("sort").map((option) => (
+            {sortItems.map((option) => (
               <SelectItem key={option.value} value={option.value}>{option.label}</SelectItem>
             ))}
           </SelectGroup>
         </SelectContent>
       </Select>
 
-      <ToggleGroup
-        value={[density]}
-        onValueChange={(values) => {
-          const next = values.at(-1)
-          if (next) get<HTMLElement>("densitySeg")?.querySelector<HTMLElement>(`[data-d="${next}"]`)?.click()
-        }}
-        className="gallery-command-density"
-        aria-label="Card density"
-      >
-        <ToggleGroupItem value="s" size="sm" aria-label="Compact cards">S</ToggleGroupItem>
-        <ToggleGroupItem value="m" size="sm" aria-label="Medium cards">M</ToggleGroupItem>
-        <ToggleGroupItem value="l" size="sm" aria-label="Large cards">L</ToggleGroupItem>
-      </ToggleGroup>
-
-      <Button
-        variant="outline"
-        size="sm"
-        data-gallery-command="rescan"
-        aria-busy={rescanning}
-        disabled={rescanning}
-        onClick={() => clickLegacy("rescan")}
-      >
-        {rescanning
-          ? <Spinner data-icon="inline-start" />
-          : <RefreshCw data-icon="inline-start" />}
-        <span className="gallery-command-rescan-label">Rescan</span>
-      </Button>
+      <DropdownMenu modal={false}>
+        <DropdownMenuTrigger render={<Button variant="outline" size="sm" aria-label="View options"><LayoutGrid data-icon="inline-start" /><span className="gallery-view-label">View</span></Button>} />
+        <DropdownMenuContent align="end" className="tw:w-44">
+          <DropdownMenuGroup>
+            <DropdownMenuLabel>Card size</DropdownMenuLabel>
+            {[{ key: "s", label: "Compact" }, { key: "m", label: "Standard" }, { key: "l", label: "Large" }].map((item) => (
+              <DropdownMenuCheckboxItem
+                key={item.key}
+                checked={density === item.key}
+                data-gallery-density={item.key}
+                onClick={() => get<HTMLElement>("densitySeg")?.querySelector<HTMLElement>(`[data-d="${item.key}"]`)?.click()}
+              >
+                {item.label}
+              </DropdownMenuCheckboxItem>
+            ))}
+          </DropdownMenuGroup>
+        </DropdownMenuContent>
+      </DropdownMenu>
 
       <DropdownMenu modal={false}>
         <Tooltip label="Gallery tools">
@@ -305,6 +759,10 @@ function GalleryToolbar() {
         </Tooltip>
         <DropdownMenuContent align="end" className="tw:w-48">
           <DropdownMenuGroup>
+            <DropdownMenuItem data-gallery-command="rescan" disabled={rescanning} onClick={() => clickLegacy("rescan")}>
+              {rescanning ? <Spinner data-icon="inline-start" /> : <RefreshCw data-icon="inline-start" />}
+              {rescanning ? "Rescanning…" : "Rescan project"}
+            </DropdownMenuItem>
             <DropdownMenuItem onClick={() => clickLegacy("viewChip")}><Settings data-icon="inline-start" /> Gallery settings…</DropdownMenuItem>
           </DropdownMenuGroup>
           <DropdownMenuSeparator />
@@ -312,6 +770,23 @@ function GalleryToolbar() {
             <DropdownMenuItem onClick={() => clickLegacy("boardChip")}><LayoutGrid data-icon="inline-start" /> Board</DropdownMenuItem>
             <DropdownMenuItem onClick={() => clickLegacy("notesChip")}><NotebookPen data-icon="inline-start" /> Notes</DropdownMenuItem>
           </DropdownMenuGroup>
+          {recentItems.length > 0 && (
+            <>
+              <DropdownMenuSeparator />
+              <DropdownMenuGroup>
+                <DropdownMenuSub>
+                  <DropdownMenuSubTrigger>Recent files</DropdownMenuSubTrigger>
+                  <DropdownMenuSubContent>
+                    <DropdownMenuGroup>
+                      {recentItems.map((item) => (
+                        <DropdownMenuItem key={item.key} onClick={() => item.element.click()}>{item.label}</DropdownMenuItem>
+                      ))}
+                    </DropdownMenuGroup>
+                  </DropdownMenuSubContent>
+                </DropdownMenuSub>
+              </DropdownMenuGroup>
+            </>
+          )}
         </DropdownMenuContent>
       </DropdownMenu>
     </div>
@@ -345,21 +820,30 @@ function GalleryConfirmDialog() {
     }
   }, [])
 
+  const presentation = request ? presentConfirmation(request) : null
+
   return (
     <AlertDialog open={Boolean(request)} onOpenChange={(nextOpen) => { if (!nextOpen) settle(false) }}>
       <AlertDialogContent>
         <AlertDialogHeader>
-          <AlertDialogTitle>Confirm action</AlertDialogTitle>
-          <AlertDialogDescription>{request?.message}</AlertDialogDescription>
+          {presentation?.destructive && (
+            <AlertDialogMedia variant="destructive">
+              <Trash2 />
+            </AlertDialogMedia>
+          )}
+          <AlertDialogTitle>{presentation?.title}</AlertDialogTitle>
+          {presentation?.description && (
+            <AlertDialogDescription>{presentation.description}</AlertDialogDescription>
+          )}
         </AlertDialogHeader>
-        <AlertDialogFooter>
-          <AlertDialogCancel onClick={() => settle(false)}>Cancel</AlertDialogCancel>
+        <AlertDialogFooter variant="plain">
+          <AlertDialogCancel variant="ghost" onClick={() => settle(false)}>Cancel</AlertDialogCancel>
           <AlertDialogAction
-            variant="destructive"
+            variant={presentation?.destructive ? "destructive" : "default"}
             data-gallery-confirm="accept"
             onClick={() => settle(true)}
           >
-            {request?.acceptLabel || "Delete"}
+            {presentation?.acceptLabel || "Delete"}
           </AlertDialogAction>
         </AlertDialogFooter>
       </AlertDialogContent>

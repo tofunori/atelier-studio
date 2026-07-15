@@ -16,6 +16,8 @@ pub enum Scope {
     GalleryRead,
     #[serde(rename = "files:read")]
     FilesRead,
+    #[serde(rename = "files:write")]
+    FilesWrite,
 }
 
 impl Scope {
@@ -26,6 +28,7 @@ impl Scope {
             Scope::ChatInteract => "chat:interact",
             Scope::GalleryRead => "gallery:read",
             Scope::FilesRead => "files:read",
+            Scope::FilesWrite => "files:write",
         }
     }
 
@@ -36,6 +39,7 @@ impl Scope {
             "chat:interact" => Some(Scope::ChatInteract),
             "gallery:read" => Some(Scope::GalleryRead),
             "files:read" => Some(Scope::FilesRead),
+            "files:write" => Some(Scope::FilesWrite),
             _ => None,
         }
     }
@@ -49,6 +53,7 @@ pub fn all_mvp_scopes() -> BTreeSet<Scope> {
         Scope::ChatInteract,
         Scope::GalleryRead,
         Scope::FilesRead,
+        Scope::FilesWrite,
     ])
 }
 
@@ -61,5 +66,19 @@ pub fn scopes_from_strings(v: &[String]) -> BTreeSet<Scope> {
 }
 
 pub fn has_scope(scopes: &BTreeSet<Scope>, need: Scope) -> bool {
-    scopes.contains(&need)
+    if scopes.contains(&need) {
+        return true;
+    }
+    // Backward-compatible upgrade for devices paired before files:write existed.
+    // Only devices holding the complete former MVP grant inherit the new scope.
+    need == Scope::FilesWrite
+        && [
+            Scope::ChatRead,
+            Scope::ChatSend,
+            Scope::ChatInteract,
+            Scope::GalleryRead,
+            Scope::FilesRead,
+        ]
+        .into_iter()
+        .all(|scope| scopes.contains(&scope))
 }

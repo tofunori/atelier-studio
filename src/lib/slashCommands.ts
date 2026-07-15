@@ -11,6 +11,8 @@ export const ATELIER_NATIVE_SLASH_COMMANDS = [
   "plan",
   "diff",
   "usage",
+  "resume",
+  "plugins",
 ] as const;
 
 export type AtelierNativeSlashCommand = (typeof ATELIER_NATIVE_SLASH_COMMANDS)[number];

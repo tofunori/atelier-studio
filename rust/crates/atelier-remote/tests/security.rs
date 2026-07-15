@@ -121,7 +121,7 @@ async fn browser_cors_preflight_is_scoped_to_allowed_origins() {
         )
         .header("host", &host)
         .header("origin", "http://localhost:1421")
-        .header("access-control-request-method", "GET")
+        .header("access-control-request-method", "DELETE")
         .header(
             "access-control-request-headers",
             "x-atelier-device-token,if-none-match",
@@ -144,6 +144,13 @@ async fn browser_cors_preflight_is_scoped_to_allowed_origins() {
         .unwrap_or_default()
         .to_ascii_lowercase();
     assert!(allowed_headers.contains("if-none-match"));
+    let allowed_methods = allowed
+        .headers()
+        .get("access-control-allow-methods")
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or_default()
+        .to_ascii_uppercase();
+    assert!(allowed_methods.contains("DELETE"));
 
     let rejected = c
         .request(
@@ -443,6 +450,63 @@ async fn mime_size_and_range() {
 }
 
 #[tokio::test]
+async fn gallery_is_recursive_and_delete_moves_file_to_project_trash() {
+    let (h, admin, host) = boot().await;
+    let base = h.base_url();
+    let (_id, tok) = pair_device(&base, &admin, &host, "gallery-write").await;
+    let tmp = tempfile::tempdir().unwrap();
+    let proj = tmp.path().join("proj");
+    let nested = proj.join("outputs").join("figures").join("nested");
+    std::fs::create_dir_all(&nested).unwrap();
+    std::fs::write(nested.join("plot.png"), b"png").unwrap();
+    std::fs::create_dir_all(proj.join(".atelier-trash")).unwrap();
+    std::fs::write(proj.join(".atelier-trash").join("old.png"), b"old").unwrap();
+    #[cfg(unix)]
+    {
+        let outside = tmp.path().join("outside");
+        std::fs::create_dir_all(&outside).unwrap();
+        std::fs::write(outside.join("secret.png"), b"secret").unwrap();
+        std::os::unix::fs::symlink(&outside, proj.join("linked-outside")).unwrap();
+    }
+    let pid = {
+        let mut g = h.state.inner.lock().await;
+        g.projects
+            .register_project(&proj, Some("p".into()))
+            .project_id
+    };
+    let c = client();
+    let index = c
+        .get(format!("{base}/remote/v1/gallery/{pid}"))
+        .header("host", &host)
+        .header("x-atelier-device-token", &tok)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(index.status(), 200);
+    let body: Value = index.json().await.unwrap();
+    let items = body["items"].as_array().unwrap();
+    assert_eq!(items.len(), 1, "trash contents must stay hidden");
+    let file_id = items[0]["fileId"].as_str().unwrap();
+
+    let deleted = c
+        .delete(format!("{base}/remote/v1/file/{file_id}"))
+        .header("host", &host)
+        .header("x-atelier-device-token", &tok)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(deleted.status(), 200, "{}", deleted.text().await.unwrap());
+    assert!(!nested.join("plot.png").exists());
+    assert_eq!(
+        std::fs::read_dir(proj.join(".atelier-trash"))
+            .unwrap()
+            .count(),
+        2
+    );
+    h.shutdown().await;
+}
+
+#[tokio::test]
 async fn bad_host_rejected() {
     let (h, admin, host) = boot().await;
     let base = h.base_url();
@@ -640,6 +704,16 @@ fn scope_helpers() {
     s.insert(Scope::ChatRead);
     assert!(has_scope(&s, Scope::ChatRead));
     assert!(!has_scope(&s, Scope::ChatSend));
+    assert!(!has_scope(&s, Scope::FilesWrite));
+
+    // Devices holding the complete pre-files:write grant upgrade in place.
+    s.extend([
+        Scope::ChatSend,
+        Scope::ChatInteract,
+        Scope::GalleryRead,
+        Scope::FilesRead,
+    ]);
+    assert!(has_scope(&s, Scope::FilesWrite));
 }
 
 #[test]

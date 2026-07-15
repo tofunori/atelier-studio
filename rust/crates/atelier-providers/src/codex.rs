@@ -140,8 +140,175 @@ async fn resolve_plan_mode(server: &CodexAppServer) -> Option<Value> {
         .cloned()
 }
 
-fn build_input(prompt: &str) -> Value {
-    json!([{ "type": "text", "text": prompt }])
+fn build_input(prompt: &str, inputs: Option<&[Value]>) -> Value {
+    let clean = inputs
+        .unwrap_or_default()
+        .iter()
+        .filter_map(|input| match input.get("type").and_then(Value::as_str) {
+            Some("text") => Some(json!({
+                "type": "text",
+                "text": input.get("text").and_then(Value::as_str).unwrap_or(""),
+                "text_elements": [],
+            })),
+            Some("local_image") | Some("localImage") => input
+                .get("path")
+                .and_then(Value::as_str)
+                .filter(|path| !path.is_empty())
+                .map(|path| json!({"type": "localImage", "path": path})),
+            Some("skill") => {
+                let name = input.get("name").and_then(Value::as_str)?;
+                let path = input.get("path").and_then(Value::as_str)?;
+                (!name.is_empty() && !path.is_empty())
+                    .then(|| json!({"type": "skill", "name": name, "path": path}))
+            }
+            Some("mention") => {
+                let name = input.get("name").and_then(Value::as_str)?;
+                let path = input.get("path").and_then(Value::as_str)?;
+                (!name.is_empty() && !path.is_empty())
+                    .then(|| json!({"type": "mention", "name": name, "path": path}))
+            }
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    if clean.is_empty() {
+        json!([{ "type": "text", "text": prompt, "text_elements": [] }])
+    } else {
+        Value::Array(clean)
+    }
+}
+
+const ATELIER_PLUGIN_MVP: &[&str] = &[
+    "visualize",
+    "latex",
+    "documents",
+    "pdf",
+    "presentations",
+    "spreadsheets",
+    "build-web-data-visualization",
+    "openai-developers",
+    "frontend-design",
+    "template-creator",
+];
+
+fn preferred_skill(plugin: &str, skills: &[Value]) -> Option<Value> {
+    let preferred = match plugin {
+        "latex" => "latex-compile",
+        "build-web-data-visualization" => "data-visualization",
+        "openai-developers" => "agents-sdk",
+        _ => plugin,
+    };
+    skills
+        .iter()
+        .find(|skill| {
+            skill
+                .get("name")
+                .and_then(Value::as_str)
+                .map(|name| name == preferred || name.ends_with(&format!(":{preferred}")))
+                .unwrap_or(false)
+        })
+        .or_else(|| skills.first())
+        .cloned()
+}
+
+fn hydrate_cached_skill_paths(marketplace: &str, plugin: &str, skills: &mut [Value]) {
+    let Some(home) = std::env::var_os("HOME") else { return };
+    let plugin_root = std::path::PathBuf::from(home)
+        .join(".codex/plugins/cache")
+        .join(marketplace)
+        .join(plugin);
+    let Ok(entries) = std::fs::read_dir(plugin_root) else { return };
+    let mut versions = entries
+        .flatten()
+        .map(|entry| entry.path())
+        .filter(|path| path.is_dir())
+        .collect::<Vec<_>>();
+    versions.sort();
+    for skill in skills {
+        if skill.get("path").and_then(Value::as_str).is_some_and(|path| !path.is_empty()) {
+            continue;
+        }
+        let Some(name) = skill.get("name").and_then(Value::as_str) else { continue };
+        let leaf = name.rsplit(':').next().unwrap_or(name);
+        if let Some(path) = versions
+            .iter()
+            .rev()
+            .map(|version| version.join("skills").join(leaf).join("SKILL.md"))
+            .find(|path| path.is_file())
+        {
+            skill["path"] = json!(path.to_string_lossy());
+        }
+    }
+}
+
+async fn list_atelier_plugins(server: &CodexAppServer, cwd: &str) -> Result<Value, String> {
+    let installed = server
+        .request(
+            "plugin/installed",
+            if cwd.is_empty() { json!({}) } else { json!({"cwds": [cwd]}) },
+        )
+        .await?;
+    let mut plugins = Vec::new();
+    for marketplace in installed
+        .get("marketplaces")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+    {
+        let marketplace_name = marketplace.get("name").and_then(Value::as_str).unwrap_or("");
+        let marketplace_path = marketplace.get("path").and_then(Value::as_str);
+        for summary in marketplace
+            .get("plugins")
+            .and_then(Value::as_array)
+            .into_iter()
+            .flatten()
+        {
+            let name = summary.get("name").and_then(Value::as_str).unwrap_or("");
+            if !ATELIER_PLUGIN_MVP.contains(&name)
+                || !summary.get("installed").and_then(Value::as_bool).unwrap_or(false)
+                || !summary.get("enabled").and_then(Value::as_bool).unwrap_or(false)
+            {
+                continue;
+            }
+            let remote_plugin_id = summary.get("remotePluginId").and_then(Value::as_str);
+            let read_name = if marketplace_path.is_none() {
+                remote_plugin_id.unwrap_or(name)
+            } else {
+                name
+            };
+            let mut read_params = json!({"pluginName": read_name});
+            if let Some(path) = marketplace_path {
+                read_params["marketplacePath"] = json!(path);
+            } else if !marketplace_name.is_empty() {
+                read_params["remoteMarketplaceName"] = json!(marketplace_name);
+            }
+            let detail = server.request("plugin/read", read_params).await?;
+            let plugin = detail.get("plugin").unwrap_or(&detail);
+            let mut skills = plugin
+                .get("skills")
+                .and_then(Value::as_array)
+                .cloned()
+                .unwrap_or_default();
+            hydrate_cached_skill_paths(marketplace_name, name, &mut skills);
+            let interface = summary.get("interface").cloned().unwrap_or_else(|| json!({}));
+            plugins.push(json!({
+                "id": summary.get("id").cloned().unwrap_or_else(|| json!(name)),
+                "name": name,
+                "displayName": interface.get("displayName").and_then(Value::as_str).unwrap_or(name),
+                "description": interface.get("shortDescription").and_then(Value::as_str).unwrap_or(""),
+                "version": summary.get("localVersion").cloned().unwrap_or(Value::Null),
+                "enabled": true,
+                "icon": interface.get("composerIcon").or_else(|| interface.get("composerIconUrl")).cloned().unwrap_or(Value::Null),
+                "skills": skills,
+                "primarySkill": preferred_skill(name, &skills),
+            }));
+        }
+    }
+    plugins.sort_by(|a, b| {
+        let ai = ATELIER_PLUGIN_MVP.iter().position(|name| Some(*name) == a.get("name").and_then(Value::as_str)).unwrap_or(usize::MAX);
+        let bi = ATELIER_PLUGIN_MVP.iter().position(|name| Some(*name) == b.get("name").and_then(Value::as_str)).unwrap_or(usize::MAX);
+        ai.cmp(&bi)
+    });
+    Ok(json!({"plugins": plugins}))
 }
 
 async fn open_thread(
@@ -231,7 +398,7 @@ impl Provider for CodexProvider {
                             "turn/steer",
                             json!({
                                 "threadId": t.codex_id,
-                                "input": build_input(&req.prompt),
+                                "input": build_input(&req.prompt, req.inputs.as_deref()),
                                 "expectedTurnId": turn_id,
                             }),
                         )
@@ -342,7 +509,7 @@ impl Provider for CodexProvider {
 
         let mut turn_params = json!({
             "threadId": codex_id,
-            "input": build_input(&req.prompt),
+            "input": build_input(&req.prompt, req.inputs.as_deref()),
         });
         if req.permission_mode.as_deref() == Some("plan") {
             if let Some(plan_mode) = resolve_plan_mode(&self.server).await {
@@ -449,6 +616,10 @@ impl Provider for CodexProvider {
     }
 
     async fn native_command(&self, name: &str, params: Value) -> Result<Value, String> {
+        if name == "pluginsInstalled" {
+            let cwd = params.get("projectRoot").and_then(Value::as_str).unwrap_or("");
+            return list_atelier_plugins(&self.server, cwd).await;
+        }
         let session_id = params
             .get("sessionId")
             .and_then(Value::as_str)

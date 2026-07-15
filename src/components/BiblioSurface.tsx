@@ -23,6 +23,7 @@ type ZoteroItem = {
 
 type ZoteroCollection = { id: number | string; name: string; parent: number | string | null };
 type FilterMode = "all" | "fav" | "collection";
+type PassageTarget = { key: string; pdfKey: string; pdfFile: string; page: number; quote: string };
 
 const STORAGE_KEY = "atelier-studio.biblio";
 
@@ -66,7 +67,7 @@ function inheritHash(rawUrl: string, galleryUrl: string): string {
   }
 }
 
-function pdfViewerUrl(item: ZoteroItem, galleryUrl: string): string | null {
+export function pdfViewerUrl(item: ZoteroItem, galleryUrl: string, passage?: PassageTarget | null): string | null {
   if (!item.pdfKey || !item.pdfFile) return null;
   const origin = galleryOrigin(galleryUrl);
   if (!origin) return null;
@@ -75,6 +76,10 @@ function pdfViewerUrl(item: ZoteroItem, galleryUrl: string): string | null {
   const params = new URLSearchParams();
   params.set("file", rel);
   params.set("path", pdfUrl);
+  if (passage && passage.key === item.key && passage.pdfKey === item.pdfKey && passage.pdfFile === item.pdfFile) {
+    params.set("page", String(passage.page));
+    params.set("quote", passage.quote.slice(0, 900));
+  }
   return inheritHash(`${origin}/.fig_thumbs/pdf_viewer.html?${params.toString()}`, galleryUrl);
 }
 
@@ -98,6 +103,7 @@ export default function BiblioSurface({
   const [filter, setFilter] = useState<FilterMode>(persisted.filter);
   const [collectionId, setCollectionId] = useState<string | null>(persisted.collectionId);
   const [selectedKey, setSelectedKey] = useState<string | null>(persisted.key);
+  const [passageTarget, setPassageTarget] = useState<PassageTarget | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [readerOpen, setReaderOpen] = useState(() => localStorage.getItem("atelier-studio.biblio.reader") !== "0");
   const [listOpen, setListOpen] = useState(() => localStorage.getItem("atelier-studio.biblio.list") !== "0");
@@ -197,6 +203,21 @@ export default function BiblioSurface({
       setFilter("all");
       setCollectionId(null);
       setSelectedKey(key);
+      setPassageTarget(null);
+      if (!readerOpen) {
+        localStorage.setItem("atelier-studio.biblio.reader", "1");
+        setReaderOpen(true);
+      }
+    };
+    const onOpenPassage = (e: Event) => {
+      const detail = (e as CustomEvent<PassageTarget>).detail;
+      if (!detail || typeof detail.key !== "string" || !Number.isInteger(detail.page)) return;
+      setSearch("");
+      setQuery("");
+      setFilter("all");
+      setCollectionId(null);
+      setSelectedKey(detail.key);
+      setPassageTarget(detail);
       if (!readerOpen) {
         localStorage.setItem("atelier-studio.biblio.reader", "1");
         setReaderOpen(true);
@@ -207,12 +228,14 @@ export default function BiblioSurface({
     window.addEventListener("zotero-collections", onCollections);
     window.addEventListener("zotero-fav", onFav);
     window.addEventListener("biblio-select", onSelect);
+    window.addEventListener("chat-open-zotero-passage", onOpenPassage);
     return () => {
       window.removeEventListener("zotero-changed", onChanged);
       window.removeEventListener("zotero-items", onItems);
       window.removeEventListener("zotero-collections", onCollections);
       window.removeEventListener("zotero-fav", onFav);
       window.removeEventListener("biblio-select", onSelect);
+      window.removeEventListener("chat-open-zotero-passage", onOpenPassage);
     };
   }, [selectedKey, ws, query, filter, collectionId, readerOpen]);
 
@@ -224,10 +247,10 @@ export default function BiblioSurface({
     const activeCollection = filter === "collection" ? collectionId : null;
     send(ws, {
       type: "zoteroSearch",
-      query,
+      query: passageTarget?.key ?? query,
       collectionId: activeCollection,
     });
-  }, [ws, query, filter, collectionId]);
+  }, [ws, query, filter, collectionId, passageTarget]);
 
   const modeItems = filter === "fav" ? items.filter((item) => item.fav) : items;
   const filteredItems = pdfOnly ? modeItems.filter((item) => item.hasPdf) : modeItems;
@@ -240,7 +263,7 @@ export default function BiblioSurface({
     return list;
   }, [filteredItems, sortBy]);
   const selected = visibleItems.find((item) => item.key === selectedKey) ?? null;
-  const selectedViewerUrl = selected?.hasPdf && galleryUrl ? pdfViewerUrl(selected, galleryUrl) : null;
+  const selectedViewerUrl = selected?.hasPdf && galleryUrl ? pdfViewerUrl(selected, galleryUrl, passageTarget) : null;
 
   function toggleFav(item: ZoteroItem) {
     const next = !item.fav;
@@ -306,7 +329,7 @@ export default function BiblioSurface({
           <Input
             className="biblio-search-input"
             value={search}
-            onChange={(e) => setSearch(e.target.value)}
+            onChange={(e) => { setPassageTarget(null); setSearch(e.target.value); }}
             placeholder={t("biblio.search")}
             aria-label={t("biblio.search")}
           />
@@ -370,7 +393,7 @@ export default function BiblioSurface({
               <button
                 type="button"
                 className="biblio-main-button"
-                onClick={() => { setSelectedKey(item.key); if (!readerOpen && item.hasPdf) toggleReader(); }}
+                onClick={() => { setSelectedKey(item.key); setPassageTarget(null); if (!readerOpen && item.hasPdf) toggleReader(); }}
                 title={item.title}
               >
                 <span className="biblio-title">{item.title}</span>

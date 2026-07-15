@@ -113,7 +113,7 @@ export function search({ query = "", collectionId = null, tag = null, limit = 40
   if (q) {
     const terms = q.split(/\s+/);
     rows = rows.filter((it) => {
-      const hay = `${it.title} ${it.creators} ${it.year} ${it.publication} ${it.tags.join(" ")}`.toLowerCase();
+      const hay = `${it.key} ${it.pdfKey ?? ""} ${it.pdfFile ?? ""} ${it.title} ${it.creators} ${it.year} ${it.publication} ${it.tags.join(" ")}`.toLowerCase();
       return terms.every((t) => hay.includes(t));
     });
   }

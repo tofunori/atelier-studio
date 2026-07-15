@@ -87,5 +87,26 @@
     return { ok: true, action, projectRoot, requestId: message.requestId, matched, missing, applied };
   }
 
-  root.AtelierGalleryCommands = Object.freeze({ execute });
+  async function executeWithRefresh(message, knownRels, adapter, refresh) {
+    let result = execute(message, knownRels, adapter);
+    if (
+      result.ok &&
+      result.action !== "reset" &&
+      result.missing.length > 0 &&
+      typeof refresh === "function"
+    ) {
+      try {
+        const refreshedRels = await refresh(result);
+        if (Array.isArray(refreshedRels)) {
+          result = execute(message, refreshedRels, adapter);
+        }
+      } catch {
+        // Conserver le résultat initial : l'hôte affichera alors l'état vide
+        // existant au lieu de transformer un échec de rescan en erreur IPC.
+      }
+    }
+    return result;
+  }
+
+  root.AtelierGalleryCommands = Object.freeze({ execute, executeWithRefresh });
 })(typeof window === "object" ? window : globalThis);

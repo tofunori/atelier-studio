@@ -19,6 +19,17 @@ fn with_gallery_tool_instruction(prompt: String, project_root: &str, server_dir:
     )
 }
 
+fn with_zotero_passage_instruction(prompt: String, server_dir: &str) -> String {
+    if server_dir.is_empty() {
+        return prompt;
+    }
+    let tool = std::path::Path::new(server_dir).join("atelier-zotero-passages");
+    format!(
+        "{prompt}\n\n<atelier-zotero-passages>\nWhen the user asks for important or relevant passages from an attached Zotero article, use the exact PDF metadata inside <zotero-reference> and call the terminal tool exactly once:\n{} search --pdf <absolute-pdf-path> --zotero-key <zotero-key> --pdf-key <pdf-key> --pdf-file <pdf-file> --query <user-question> --limit 5\nRead its JSON stdout. For every passage you cite, reproduce its markdownLink exactly so the user can open the PDF at that page with automatic highlighting. The displayed verbatim excerpt immediately associated with that link MUST be exactly the result's quote field: do not shorten, translate, normalize, or replace it with another sentence from context. You may explain it separately. Never invent a passage or link. If the article has no attached local PDF metadata, ask the user to attach it from Zotero. Do not call this tool for ordinary bibliography or metadata questions.\n</atelier-zotero-passages>",
+        serde_json::to_string(&tool.to_string_lossy()).unwrap_or_default(),
+    )
+}
+
 fn normalize_display_event(msg: &Value) -> Value {
     if let Some(d) = msg.get("displayEvent") {
         if d.get("kind").and_then(|v| v.as_str()) == Some("user")
@@ -39,6 +50,74 @@ fn now_ms() -> u128 {
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_millis())
         .unwrap_or(0)
+}
+
+fn first_message_for_title(msg: &Value, provider_prompt: &str) -> String {
+    msg.pointer("/displayEvent/text")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|text| !text.is_empty())
+        .unwrap_or(provider_prompt.trim())
+        .to_string()
+}
+
+fn is_new_chat_placeholder(title: &str) -> bool {
+    matches!(
+        title.trim().to_lowercase().as_str(),
+        "" | "sans titre" | "nouveau chat" | "new chat"
+    )
+}
+
+fn should_auto_title(previous: Option<&atelier_store::Thread>, explicit_title: Option<&str>) -> bool {
+    if explicit_title.is_some() {
+        return false;
+    }
+    match previous {
+        None => true,
+        Some(thread) => thread.session_id.is_none() && is_new_chat_placeholder(&thread.title),
+    }
+}
+
+async fn maybe_title_new_thread(
+    state: &AppState,
+    thread_id: &str,
+    provisional_title: &str,
+    first_message: &str,
+) {
+    let unchanged = state
+        .threads()
+        .lock()
+        .await
+        .get(thread_id)
+        .is_some_and(|thread| thread.title == provisional_title);
+    if !unchanged {
+        return;
+    }
+    let Some(title_provider) = state.provider("claude") else {
+        return;
+    };
+    let Some(title) = title_provider.title_conversation(first_message).await else {
+        return;
+    };
+    let list = {
+        let mut store = state.threads().lock().await;
+        let still_unchanged = store
+            .get(thread_id)
+            .is_some_and(|thread| thread.title == provisional_title);
+        if !still_unchanged {
+            return;
+        }
+        if store
+            .upsert(json!({"id": thread_id, "title": title}), true)
+            .is_err()
+        {
+            return;
+        }
+        store.list()
+    };
+    if let Ok(message) = serde_json::to_string(&json!({"type":"threads","threads": list})) {
+        state.publish(message);
+    }
 }
 
 fn make_emit(state: AppState, thread_id: String) -> EmitFn {
@@ -71,18 +150,22 @@ pub async fn handle_send(state: &AppState, msg: &Value) -> Vec<String> {
         .and_then(|v| v.as_str())
         .unwrap_or("")
         .to_string();
+    let inputs = msg.get("inputs").and_then(Value::as_array).cloned();
     let project_root = msg
         .get("projectRoot")
         .and_then(|v| v.as_str())
         .unwrap_or("")
         .to_string();
     let title = msg.get("title").and_then(|v| v.as_str()).map(str::to_string);
+    let first_message = first_message_for_title(msg, &prompt);
 
     if thread_id.is_empty() {
         return vec![err_json("threadId requis")];
     }
 
     let previous = state.threads().lock().await.get(&thread_id).cloned();
+    let auto_title = should_auto_title(previous.as_ref(), title.as_deref());
+    let provisional_title = first_message.chars().take(40).collect::<String>();
 
     // A conversation belongs to the provider selected when it was created.
     // Reject stale clients as well as deliberate cross-provider handoffs.
@@ -103,6 +186,7 @@ pub async fn handle_send(state: &AppState, msg: &Value) -> Vec<String> {
         .map(|context| format!("{context}{prompt}"))
         .unwrap_or_else(|| prompt.clone());
     let provider_prompt = with_gallery_tool_instruction(provider_prompt, &project_root, state.server_dir());
+    let provider_prompt = with_zotero_passage_instruction(provider_prompt, state.server_dir());
 
     let Some(provider_impl) = state.provider(&provider) else {
         return vec![err_json(format!(
@@ -141,11 +225,10 @@ pub async fn handle_send(state: &AppState, msg: &Value) -> Vec<String> {
                 .unwrap()
                 .insert("title".into(), json!(t));
         } else {
-            let t: String = prompt.chars().take(40).collect();
             patch
                 .as_object_mut()
                 .unwrap()
-                .insert("title".into(), json!(t));
+                .insert("title".into(), json!(provisional_title));
         }
         let _ = store.upsert(patch, false);
     }
@@ -188,6 +271,7 @@ pub async fn handle_send(state: &AppState, msg: &Value) -> Vec<String> {
                 thread_id: thread_id.clone(),
                 turn_id: turn_id.clone(),
                 prompt: prompt.clone(),
+                inputs: inputs.clone(),
                 project_root: project_root.clone(),
                 session_id,
                 model: msg
@@ -318,6 +402,7 @@ pub async fn handle_send(state: &AppState, msg: &Value) -> Vec<String> {
             thread_id: tid.clone(),
             turn_id: turn_id.clone(),
             prompt: provider_prompt,
+            inputs,
             project_root,
             session_id,
             model,
@@ -369,6 +454,19 @@ pub async fn handle_send(state: &AppState, msg: &Value) -> Vec<String> {
         let list = state2.threads().lock().await.list();
         if let Ok(s) = serde_json::to_string(&json!({"type":"threads","threads": list})) {
             state2.publish(s);
+        }
+        if succeeded && auto_title {
+            let title_state = state2.clone();
+            let title_thread_id = tid.clone();
+            tokio::spawn(async move {
+                maybe_title_new_thread(
+                    &title_state,
+                    &title_thread_id,
+                    &provisional_title,
+                    &first_message,
+                )
+                .await;
+            });
         }
     });
 
@@ -617,5 +715,41 @@ mod tests {
         assert!(enriched.contains("/app/Resources/rust-server/atelier-gallery-tool"));
         assert!(enriched.contains("show --project-root \"/projet\""));
         assert!(enriched.contains("Do not merely list the paths"));
+    }
+
+    #[test]
+    fn zotero_passage_instruction_points_to_the_bundled_tool() {
+        let enriched = with_zotero_passage_instruction(
+            "montre les passages importants".into(),
+            "/app/Resources/rust-server",
+        );
+        assert!(enriched.starts_with("montre les passages importants"));
+        assert!(enriched.contains("/app/Resources/rust-server/atelier-zotero-passages"));
+        assert!(enriched.contains("reproduce its markdownLink exactly"));
+    }
+
+    #[test]
+    fn titles_use_the_visible_message_not_injected_context() {
+        let msg = json!({
+            "prompt": "/Users/tofunori/Documents/projet/figure.png\n\nAnalyse cette figure",
+            "displayEvent": {"kind":"user", "text":"Analyse cette figure"}
+        });
+        assert_eq!(
+            first_message_for_title(&msg, msg["prompt"].as_str().unwrap()),
+            "Analyse cette figure"
+        );
+    }
+
+    #[test]
+    fn automatic_title_never_overwrites_an_explicit_or_existing_title() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut existing = atelier_store::ThreadStore::open(dir.path().join("threads.json"));
+        existing
+            .upsert(json!({"id":"t", "title":"Titre manuel", "provider":"codex"}), false)
+            .unwrap();
+        let thread = existing.get("t").unwrap();
+        assert!(!should_auto_title(Some(thread), None));
+        assert!(!should_auto_title(None, Some("Titre explicite")));
+        assert!(should_auto_title(None, None));
     }
 }

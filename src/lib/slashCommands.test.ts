@@ -8,9 +8,13 @@ import {
 describe("slash commands Atelier", () => {
   it("expose le premier lot Codex dans le catalogue natif", () => {
     expect(ATELIER_NATIVE_SLASH_COMMANDS).toEqual(expect.arrayContaining([
-      "status", "model", "permissions", "plan", "diff", "usage",
+      "status", "model", "permissions", "plan", "diff", "usage", "resume",
       "compact", "goal", "review", "clear",
     ]));
+  });
+
+  it("reconnaît /resume sans l'envoyer au provider", () => {
+    expect(parseNativeSlashCommand("/resume")).toMatchObject({ name: "resume", args: "" });
   });
 
   it("parse une commande native et préserve ses arguments", () => {

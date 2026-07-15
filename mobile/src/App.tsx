@@ -258,6 +258,10 @@ export default function App() {
     session.phase === "offline" ||
     session.phase === "tailscale_missing";
 
+  useEffect(() => {
+    document.querySelector<HTMLElement>(".app-main")?.scrollTo({ top: 0, left: 0 });
+  }, [tab, overlay]);
+
   return (
     <div className="app-shell">
       <Toaster position="top-center" richColors />

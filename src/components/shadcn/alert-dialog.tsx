@@ -1,5 +1,6 @@
 import * as React from "react"
 import { AlertDialog as AlertDialogPrimitive } from "@base-ui/react/alert-dialog"
+import { cva, type VariantProps } from "class-variance-authority"
 
 import { cn } from "@/lib/utils"
 import { Button } from "@/components/shadcn/button"
@@ -75,33 +76,60 @@ function AlertDialogHeader({
   )
 }
 
+const alertDialogFooterVariants = cva(
+  "tw:flex tw:flex-col-reverse tw:gap-2 tw:sm:flex-row tw:sm:justify-end",
+  {
+    variants: {
+      variant: {
+        default:
+          "tw:-mx-4 tw:-mb-4 tw:rounded-b-[var(--radius-surface)] tw:border-t tw:bg-muted/50 tw:p-4",
+        plain: "tw:pt-1",
+      },
+    },
+    defaultVariants: {
+      variant: "default",
+    },
+  }
+)
+
 function AlertDialogFooter({
   className,
+  variant = "default",
   ...props
-}: React.ComponentProps<"div">) {
+}: React.ComponentProps<"div"> & VariantProps<typeof alertDialogFooterVariants>) {
   return (
     <div
       data-slot="alert-dialog-footer"
-      className={cn(
-        "tw:-mx-4 tw:-mb-4 tw:flex tw:flex-col-reverse tw:gap-2 tw:rounded-b-[var(--radius-surface)] tw:border-t tw:bg-muted/50 tw:p-4 tw:sm:flex-row tw:sm:justify-end",
-        className
-      )}
+      className={cn(alertDialogFooterVariants({ variant }), className)}
       {...props}
     />
   )
 }
 
+const alertDialogMediaVariants = cva(
+  "tw:mb-2 tw:inline-flex tw:size-10 tw:items-center tw:justify-center tw:rounded-[var(--radius-control)] tw:sm:group-data-[size=default]/alert-dialog-content:row-span-2 tw:*:[svg:not([class*=size-])]:size-6",
+  {
+    variants: {
+      variant: {
+        default: "tw:bg-muted",
+        destructive: "tw:bg-destructive/10 tw:text-destructive",
+      },
+    },
+    defaultVariants: {
+      variant: "default",
+    },
+  }
+)
+
 function AlertDialogMedia({
   className,
+  variant = "default",
   ...props
-}: React.ComponentProps<"div">) {
+}: React.ComponentProps<"div"> & VariantProps<typeof alertDialogMediaVariants>) {
   return (
     <div
       data-slot="alert-dialog-media"
-      className={cn(
-        "tw:mb-2 tw:inline-flex tw:size-10 tw:items-center tw:justify-center tw:rounded-[var(--radius-control)] tw:bg-muted tw:sm:group-data-[size=default]/alert-dialog-content:row-span-2 tw:*:[svg:not([class*=size-])]:size-6",
-        className
-      )}
+      className={cn(alertDialogMediaVariants({ variant }), className)}
       {...props}
     />
   )

@@ -191,10 +191,15 @@ describe("Sidebar — contrats du panneau (projet actif)", () => {
     renderUi(<Sidebar {...p} />);
     fireEvent(window, new CustomEvent("atelier-open-resume", { detail: { provider: "codex" } }));
     fireEvent(window, new CustomEvent("sessions-list", {
-      detail: [{ id: "sess-1", title: "Session A", mtime: 1783684800000 }],
+      detail: [
+        { id: "sess-1", title: "Session A", mtime: 1783684800000, projectRoot: "/tmp/projet-a" },
+        { id: "sess-2", title: "Session B", mtime: 1783684700000, projectRoot: "/tmp/projet-b" },
+      ],
     }));
+    fireEvent.change(screen.getByRole("searchbox"), { target: { value: "projet-a" } });
+    expect(screen.queryByText("Session B")).toBeNull();
     fireEvent.click(screen.getByText("Session A"));
-    expect(p.onImportSession).toHaveBeenCalledWith("codex", "sess-1", "Session A");
+    expect(p.onImportSession).toHaveBeenCalledWith("codex", "sess-1", "Session A", "/tmp/projet-a");
   });
 
   it("remount : les listeners sessions-list ne sont pas dupliqués", () => {

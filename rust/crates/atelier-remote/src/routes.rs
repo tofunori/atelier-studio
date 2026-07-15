@@ -16,10 +16,10 @@ use axum::http::{header, HeaderMap, StatusCode};
 use axum::response::{Html, Response};
 use axum::routing::{get, post};
 use axum::{Json, Router};
+use futures_util::SinkExt;
 use serde::Deserialize;
 use serde_json::{json, Value};
 use std::net::SocketAddr;
-use futures_util::SinkExt;
 use tokio_tungstenite::{connect_async, tungstenite::Message};
 
 pub fn router(state: GatewayState) -> Router {
@@ -38,7 +38,10 @@ pub fn router(state: GatewayState) -> Router {
             "/remote/v1/files/{project_id}/{*rel}",
             get(get_file_by_path),
         )
-        .route("/remote/v1/file/{file_id}", get(get_file_by_id))
+        .route(
+            "/remote/v1/file/{file_id}",
+            get(get_file_by_id).delete(trash_file_by_id),
+        )
         // Admin (loopback + admin token)
         .route("/remote/admin", get(admin_page))
         .route("/remote/admin/pairing/start", post(admin_pairing_start))
@@ -65,7 +68,10 @@ async fn relay_sidecar(
 ) -> ApiResult<bool> {
     let (base, token) = {
         let g = state.inner.lock().await;
-        (g.config.sidecar_base.clone(), g.config.sidecar_token.clone())
+        (
+            g.config.sidecar_base.clone(),
+            g.config.sidecar_token.clone(),
+        )
     };
     let Some(base) = base else { return Ok(false) };
     let ws_base = if let Some(rest) = base.strip_prefix("https://") {
@@ -93,11 +99,23 @@ async fn relay_sidecar(
                 .into(),
         ))
         .await
-        .map_err(|_| ApiError::new(StatusCode::BAD_GATEWAY, "sidecar_send_failed", "commande impossible"))?;
+        .map_err(|_| {
+            ApiError::new(
+                StatusCode::BAD_GATEWAY,
+                "sidecar_send_failed",
+                "commande impossible",
+            )
+        })?;
     socket
         .send(Message::Text(payload.to_string().into()))
         .await
-        .map_err(|_| ApiError::new(StatusCode::BAD_GATEWAY, "sidecar_send_failed", "commande impossible"))?;
+        .map_err(|_| {
+            ApiError::new(
+                StatusCode::BAD_GATEWAY,
+                "sidecar_send_failed",
+                "commande impossible",
+            )
+        })?;
     let _ = socket.close(None).await;
     Ok(true)
 }
@@ -365,8 +383,14 @@ async fn create_thread(
     guard_headers(&state, &headers).await?;
     let _ = require_device(&state, &headers, Scope::ChatSend).await?;
     let provider = body.provider.trim();
-    if !matches!(provider, "claude" | "codex" | "grok" | "opencode" | "gemini") {
-        return Err(ApiError::bad_request("invalid_provider", "provider inconnu"));
+    if !matches!(
+        provider,
+        "claude" | "codex" | "grok" | "opencode" | "gemini"
+    ) {
+        return Err(ApiError::bad_request(
+            "invalid_provider",
+            "provider inconnu",
+        ));
     }
     let mut g = state.inner.lock().await;
     let project_root = match body.project_id.as_deref() {
@@ -541,7 +565,11 @@ async fn send_msg(
     let thread = g.threads.get(&body.thread_id).cloned();
     drop(g);
     let proxied = if let Some(thread) = thread {
-        let model = thread.extra.get("model").and_then(Value::as_str).unwrap_or("");
+        let model = thread
+            .extra
+            .get("model")
+            .and_then(Value::as_str)
+            .unwrap_or("");
         relay_sidecar(
             &state,
             &dev.device_id,
@@ -687,19 +715,45 @@ async fn gallery_index(
         .ok_or_else(|| ApiError::not_found("projet inconnu"))?;
 
     let mut items = Vec::new();
-    // Shallow scan of common dirs only
-    for sub in ["", "figures", "outputs", "docs"] {
-        let dir = if sub.is_empty() {
-            proj.root.clone()
-        } else {
-            proj.root.join(sub)
-        };
+    // Bounded recursive scan: enough for nested scientific outputs without
+    // descending into dependency/build trees.
+    let mut pending = vec![(proj.root.clone(), 0usize)];
+    while let Some((dir, depth)) = pending.pop() {
+        if depth > 10 || items.len() >= 1_000 {
+            continue;
+        }
         let Ok(rd) = std::fs::read_dir(&dir) else {
             continue;
         };
         for ent in rd.flatten() {
+            if items.len() >= 1_000 {
+                break;
+            }
             let path = ent.path();
-            if !path.is_file() {
+            let Ok(file_type) = ent.file_type() else {
+                continue;
+            };
+            if file_type.is_symlink() {
+                continue;
+            }
+            if file_type.is_dir() {
+                let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
+                if !matches!(
+                    name,
+                    ".git"
+                        | "node_modules"
+                        | "target"
+                        | ".atelier-trash"
+                        | ".venv"
+                        | "venv"
+                        | "__pycache__"
+                ) && !name.starts_with('.')
+                {
+                    pending.push((path, depth + 1));
+                }
+                continue;
+            }
+            if !file_type.is_file() {
                 continue;
             }
             let rel = path
@@ -738,9 +792,6 @@ async fn gallery_index(
                 "modifiedAt": modified,
                 "etag": format!("{:x}-{}", size, modified.unwrap_or(0)),
             }));
-            if items.len() >= 200 {
-                break;
-            }
         }
     }
     // stable sort: newest first, then name
@@ -757,6 +808,52 @@ async fn gallery_index(
         "projectId": project_id,
         "items": items,
         "count": items.len(),
+    })))
+}
+
+async fn trash_file_by_id(
+    State(state): State<GatewayState>,
+    headers: HeaderMap,
+    Path(file_id): Path<String>,
+) -> ApiResult<Json<Value>> {
+    guard_headers(&state, &headers).await?;
+    let _ = require_device(&state, &headers, Scope::FilesWrite).await?;
+    let g = state.inner.lock().await;
+    let (project, abs, rel) = g.projects.resolve_file_id(&file_id)?;
+    if !abs.is_file() {
+        return Err(ApiError::not_found("fichier introuvable"));
+    }
+
+    let trash_dir = project.root.join(".atelier-trash");
+    std::fs::create_dir_all(&trash_dir).map_err(|_| {
+        ApiError::new(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "trash_unavailable",
+            "impossible de préparer la corbeille Atelier",
+        )
+    })?;
+    let original_name = abs
+        .file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or("fichier");
+    let stamp = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis())
+        .unwrap_or(0);
+    let destination = trash_dir.join(format!("{stamp}-{original_name}"));
+    std::fs::rename(&abs, &destination).map_err(|_| {
+        ApiError::new(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "trash_failed",
+            "impossible de déplacer le fichier dans la corbeille Atelier",
+        )
+    })?;
+    Ok(Json(json!({
+        "ok": true,
+        "fileId": file_id,
+        "name": original_name,
+        "original": rel,
+        "recoverable": true,
     })))
 }
 

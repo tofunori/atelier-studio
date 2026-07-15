@@ -775,6 +775,33 @@ function chatAttachment(rel){
   if(['png','jpg','jpeg','gif','webp','svg'].includes(ext)) payload.previewUrl=new URL(rel,location.href).href;
   return payload;
 }
+const pendingChatAcks=new Map();
+window.addEventListener('message',e=>{
+  const data=e.data;
+  if(e.source!==window.top || !data || data.type!=='atelier-add-to-chat-ack') return;
+  const nonce=sessionStorage.getItem('atelier_nonce')||'';
+  if(!nonce || data.nonce!==nonce || data.ok!==true) return;
+  const pending=pendingChatAcks.get(data.requestId); if(!pending) return;
+  clearTimeout(pending.timer); pendingChatAcks.delete(data.requestId); pending.resolve();
+});
+function postChatAttachment(rel){
+  const requestId=(crypto.randomUUID?crypto.randomUUID():(Date.now()+'-'+Math.random().toString(16).slice(2)));
+  const payload=Object.assign(chatAttachment(rel),{requestId});
+  return new Promise((resolve,reject)=>{
+    const pending={resolve,reject,timer:0,attempt:0};
+    pendingChatAcks.set(requestId,pending);
+    const send=()=>{
+      pending.attempt++;
+      __atelierPost(payload);
+      pending.timer=setTimeout(()=>{
+        if(pending.attempt<3){ send(); return; }
+        pendingChatAcks.delete(requestId);
+        reject(new Error('atelier-add-to-chat-ack timeout'));
+      },450*pending.attempt);
+    };
+    send();
+  });
+}
 const EMB = new URLSearchParams(location.search).get('embedded')==='atelier' || window.self!==window.top;
 document.addEventListener('click',e=>{
   const el=e.target.closest('[data-act]'); if(!el) return;
@@ -795,13 +822,17 @@ document.addEventListener('click',e=>{
   else if(act==='rate') setRate(rel, +el.dataset.n, e);
   else if(act==='copy'){ navigator.clipboard.writeText(rel); el.textContent='✓'; setTimeout(()=>el.textContent='Path',1200); }
   else if(act==='chat'){
-    // Le bouton de carte remplace l'ancien bouton de l'inspecteur en mode
-    // embarqué. Bloquer la double activation rapide avant de poster au host.
-    if(el.dataset.addState==='added') return;
-    el.dataset.addState='added';
-    __atelierPost(chatAttachment(rel));
-    el.textContent='✓';
-    setTimeout(()=>{ el.textContent='Chat'; delete el.dataset.addState; },1200);
+    // Un redémarrage peut remonter la galerie avant que l'hôte écoute les
+    // postMessage. Ne montrer ✓ qu'après l'ACK réel, avec relance bornée.
+    if(el.dataset.addState) return;
+    el.dataset.addState='pending'; el.textContent='…';
+    postChatAttachment(rel).then(()=>{
+      el.dataset.addState='added'; el.textContent='✓';
+      setTimeout(()=>{ el.textContent='Chat'; delete el.dataset.addState; },1200);
+    }).catch(()=>{
+      el.textContent='Retry'; delete el.dataset.addState;
+      el.title='Add to chat was not received — click to retry';
+    });
   }
 });
 let favs = new Set(JSON.parse(localStorage.getItem('figFavs')||'[]'));
@@ -937,6 +968,7 @@ function updateDelBtn(){
   ex.style.display = selSet.size ? '' : 'none';
   ex.textContent = '⤓ Export (' + selSet.size + ') ▾';
   b.innerHTML = '<svg width="11" height="11" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" style="vertical-align:-1px;margin-right:5px"><path d="M2.5 4h11M6.5 4V2.5h3V4M4 4l.8 9.5h6.4L12 4M6.5 7v4M9.5 7v4"/></svg>Delete (' + selSet.size + ')';
+  window.dispatchEvent(new CustomEvent('atelier-gallery-selection-change'));
 }
 function toggleSel(rel, el, e){
   // Shift-click selects every card between the last-clicked one and this one (display order).
@@ -1534,24 +1566,22 @@ function updateInspector(){
   body.querySelector('#inspOpen').onclick=()=>openInContext(rel);
   const ic=body.querySelector('#inspChat');
   if(ic) ic.onclick=()=>{
-    // contrat de transfert (018/019) : pending bloque le double ajout ; le
-    // composer déduplique par texte de toute façon (idempotent)
+    // pending bloque le double ajout ; le composer déduplique aussi les
+    // éventuelles relances par texte (idempotent)
     if(inspAddState!=='idle') return;
     inspAddState='pending'; ic.textContent='Adding…';
-    try{
-      __atelierPost(chatAttachment(rel));
+    postChatAttachment(rel).then(()=>{
       inspAddState='added'; ic.textContent='Added to chat ✓';
-    }catch(err){
+      clearTimeout(inspAddTimer);
+      inspAddTimer=setTimeout(()=>{
+        inspAddState='idle';
+        const b=document.getElementById('inspChat'); if(b) b.textContent='Add to chat';
+      },1800);
+    }).catch(()=>{
       inspAddState='idle'; ic.textContent='Add to chat';
       const n=document.getElementById('inspNotice');
-      if(n){ n.textContent='Add to chat failed — gallery not embedded in Atelier Studio.'; n.classList.add('show'); }
-      return;
-    }
-    clearTimeout(inspAddTimer);
-    inspAddTimer=setTimeout(()=>{
-      inspAddState='idle';
-      const b=document.getElementById('inspChat'); if(b) b.textContent='Add to chat';
-    },1800);
+      if(n){ n.textContent='Add to chat was not received — try again.'; n.classList.add('show'); }
+    });
   };
   body.querySelector('#inspMore').onclick=e=>{ e.stopPropagation(); cardMenu(e.currentTarget, rel); };
 }
@@ -1583,7 +1613,7 @@ function openInContext(rel){
   // Dans Atelier, tous les documents pris en charge restent dans le même
   // espace de travail et s'ouvrent dans un onglet IDE. En mode navigateur
   // autonome, on conserve l'ouverture dans l'application système.
-  if(EMB && f && (f.ext==='tex'||f.ext==='md'||f.ext==='pdf'||codeExt(f.ext))){
+  if(EMB && f && (f.ext==='tex'||f.ext==='md'||f.ext==='pdf'||f.ext==='svg'||codeExt(f.ext))){
     lbOpenAny(rel);
     return;
   }
@@ -1609,10 +1639,11 @@ async function lbShow(i){
   const isTex=f.ext==='tex', isPdf=f.ext==='pdf', isMd=f.ext==='md', isCode=codeExt(f.ext), isSvg=f.ext==='svg', isVid=videoExt(f.ext);
   // Embarqué dans Atelier Studio : les fichiers texte/code s'ouvrent dans un
   // ONGLET Studio (la galerie reste navigable), pas dans la lightbox.
-  if(EMB && (isTex||isMd||isCode||isPdf)){
+  if(EMB && (isTex||isMd||isCode||isPdf||isSvg)){
     // Studio : latex_studio pour tex/code ; éditeur WYSIWYG pour markdown
     let u;
     if(isPdf) u='/.fig_thumbs/pdf_viewer.html?file='+encodeURIComponent(f.rel)+'&v=__VER__';
+    else if(isSvg) u='/.fig_thumbs/svg_viewer.html?file='+encodeURIComponent(f.rel)+'&v=__VER__';
     else if(isMd) u='/.fig_thumbs/md_studio.html?path='+encodeURIComponent('__ROOT__/'+f.rel)+'&v=__VER__';
     else u='/.fig_thumbs/latex_studio.html?path='+encodeURIComponent('__ROOT__/'+f.rel)+'&v=__VER__';
     __atelierPost({type:'atelier-open-tab', url:u, title:f.name});
@@ -1818,15 +1849,25 @@ function toggleFav(rel, el){
   render();
 }
 const DEFAULT_EXTS = {png:true,jpg:true,jpeg:true,svg:true,mp4:true,m4v:true,mov:true,webm:true,pdf:false,html:false,docx:false,xlsx:false,xls:false,csv:false,md:false,py:false,r:false,jl:false,tex:false,sh:false};
-const savedExts = JSON.parse(localStorage.getItem('figExts')||'{}');
+const GALLERY_PROJECT_SCOPE='__ROOT__';
+const galleryProjectStorageKey=name=>name+':'+GALLERY_PROJECT_SCOPE;
+function readGalleryJson(key, fallback){
+  try{ const value=JSON.parse(localStorage.getItem(key)||'null'); return value===null?fallback:value; }
+  catch(_){ return fallback; }
+}
+// Project-scoped settings prevent a LaTeX-heavy project from changing the
+// filters of a Python-, Julia-, or export-oriented project. Old global values
+// are read once as a migration fallback, then all writes stay project-local.
+const savedExts = readGalleryJson(galleryProjectStorageKey('figExts'), readGalleryJson('figExts', {}));
 const exts = Object.assign({}, DEFAULT_EXTS, savedExts);
-let formatFilterExplicit = localStorage.getItem('figExtsExplicit')==='true'
+const savedExtsExplicit=localStorage.getItem(galleryProjectStorageKey('figExtsExplicit'));
+let formatFilterExplicit = (savedExtsExplicit===null?localStorage.getItem('figExtsExplicit'):savedExtsExplicit)==='true'
   || Object.keys(DEFAULT_EXTS).some(k=>savedExts[k]!==undefined && savedExts[k]!==DEFAULT_EXTS[k]);
 function setFormatFilterExplicit(active){
   formatFilterExplicit=!!active;
-  localStorage.setItem('figExtsExplicit', formatFilterExplicit?'true':'false');
+  localStorage.setItem(galleryProjectStorageKey('figExtsExplicit'), formatFilterExplicit?'true':'false');
 }
-const saveExts = ()=>localStorage.setItem('figExts', JSON.stringify(exts));
+const saveExts = ()=>localStorage.setItem(galleryProjectStorageKey('figExts'), JSON.stringify(exts));
 let showArch = true;
 const fmtSize = b => b>1048576?(b/1048576).toFixed(1)+' MB':b>1024?(b/1024).toFixed(0)+' KB':b+' B';
 const imgExt = e => e==='png'||e==='jpg'||e==='jpeg'||e==='svg';
@@ -1835,6 +1876,18 @@ const appExt = e => e==='docx'||e==='xlsx'||e==='xls'||e==='csv';
 const codeExt = e => e==='py'||e==='r'||e==='jl'||e==='tex'||e==='sh';
 // All file types live in this one menu (PNG/PDF/SVG/Video are no longer standalone chips).
 const TYPE_LIST = [['png','PNG'],['jpg','JPG'],['svg','SVG'],['mp4','Video (mp4/mov/webm)'],['pdf','PDF'],['html','HTML'],['docx','DOCX'],['xlsx','XLSX'],['csv','CSV'],['md','Markdown'],['py','Python'],['r','R'],['jl','Julia'],['tex','LaTeX'],['sh','Shell']];
+const DEFAULT_PINNED_TYPES=['png','svg','pdf','html','tex','py','jl'];
+const BUILTIN_FILE_PRESETS=[
+  {id:'figures',label:'Figures',extensions:['png','svg','pdf']},
+  {id:'sources',label:'Sources',extensions:['tex','py','jl']},
+  {id:'interactive',label:'Interactive',extensions:['html']},
+];
+const pinnedTypesKey=galleryProjectStorageKey('galleryPinnedFileTypesV1');
+const customPresetsKey=galleryProjectStorageKey('galleryFileTypePresetsV1');
+const storedPinnedTypes=readGalleryJson(pinnedTypesKey, DEFAULT_PINNED_TYPES);
+const storedCustomPresets=readGalleryJson(customPresetsKey, []);
+let pinnedFileTypes=(Array.isArray(storedPinnedTypes)?storedPinnedTypes:DEFAULT_PINNED_TYPES).filter(k=>TYPE_LIST.some(([e])=>e===k));
+let customFilePresets=(Array.isArray(storedCustomPresets)?storedCustomPresets:[]).filter(p=>p&&p.id&&p.label&&Array.isArray(p.extensions));
 const fmtMenu=document.getElementById('fmtMenu'), fmtChip=document.getElementById('fmtChip');
 const typeGroup = e => e==='jpg'?['jpg','jpeg']:e==='mp4'?['mp4','m4v','mov','webm']:e==='xlsx'?['xlsx','xls']:[e];
 function fmtChipLabel(){
@@ -1885,6 +1938,62 @@ fmtChip.onclick=e=>{ e.stopPropagation(); buildFmtMenu(); menuToggle(fmtMenu, fm
 buildFmtMenu();
 fmtChipLabel();
 
+function galleryActiveTypeKeys(){ return TYPE_LIST.filter(([e])=>!!exts[e]).map(([e])=>e); }
+function sameTypeKeys(a,b){
+  const aa=[...new Set(a)].sort(), bb=[...new Set(b)].sort();
+  return aa.length===bb.length&&aa.every((value,index)=>value===bb[index]);
+}
+function galleryFileTypesChanged(){ window.dispatchEvent(new CustomEvent('atelier-gallery-file-types-change')); }
+function setGalleryActiveTypes(keys, explicit=true){
+  const selected=new Set(keys.filter(k=>TYPE_LIST.some(([e])=>e===k)));
+  Object.keys(exts).forEach(k=>exts[k]=false);
+  selected.forEach(k=>typeGroup(k).forEach(groupKey=>exts[groupKey]=true));
+  setFormatFilterExplicit(explicit);
+  saveExts(); buildFmtMenu(); fmtChipLabel(); render(); galleryFileTypesChanged();
+}
+function galleryFileTypePresets(){
+  const active=galleryActiveTypeKeys();
+  return [...BUILTIN_FILE_PRESETS.map(p=>({...p,custom:false})),...customFilePresets.map(p=>({...p,custom:true}))]
+    .map(p=>({...p,active:sameTypeKeys(active,p.extensions)}));
+}
+window.__galleryFileTypes={
+  getState(){
+    const active=galleryActiveTypeKeys(), presets=galleryFileTypePresets();
+    const match=presets.find(p=>p.active);
+    const activeLabels=TYPE_LIST.filter(([e])=>active.includes(e)).map(([,label])=>label);
+    return {
+      projectName:GALLERY_PROJECT_SCOPE.split('/').filter(Boolean).pop()||'this project',
+      types:TYPE_LIST.map(([key,label])=>({key,label,active:active.includes(key),pinned:pinnedFileTypes.includes(key)})),
+      pinned:[...pinnedFileTypes],
+      presets,
+      summary:match?match.label:(activeLabels.length<=2?activeLabels.join(' + '):'Custom file types'),
+    };
+  },
+  setActive(keys){ setGalleryActiveTypes(keys,true); },
+  setPinned(keys){
+    pinnedFileTypes=[...new Set(keys)].filter(k=>TYPE_LIST.some(([e])=>e===k));
+    localStorage.setItem(pinnedTypesKey,JSON.stringify(pinnedFileTypes));
+    galleryFileTypesChanged();
+  },
+  applyPreset(id){
+    const preset=galleryFileTypePresets().find(p=>p.id===id);
+    if(preset) setGalleryActiveTypes(preset.extensions,true);
+  },
+  savePreset(name){
+    const label=String(name||'').trim(); if(!label)return;
+    const id='custom-'+Date.now().toString(36);
+    customFilePresets.push({id,label,extensions:galleryActiveTypeKeys()});
+    localStorage.setItem(customPresetsKey,JSON.stringify(customFilePresets));
+    galleryFileTypesChanged();
+  },
+  removePreset(id){
+    customFilePresets=customFilePresets.filter(p=>p.id!==id);
+    localStorage.setItem(customPresetsKey,JSON.stringify(customFilePresets));
+    galleryFileTypesChanged();
+  },
+  resetFilters(){ clearAllFilters(); galleryFileTypesChanged(); },
+};
+
 const fsel = document.getElementById('folder');
 function populateFolders(){
   const keep=fsel.value;
@@ -1907,6 +2016,11 @@ const snipObserver = new IntersectionObserver((entries,obs)=>{
   }
 },{rootMargin:'250px'});
 function render(){
+  // Chaque rendu remplace entièrement la grille. IntersectionObserver conserve
+  // sinon les anciennes cartes code détachées tant qu'elles ne sont jamais
+  // entrées dans le viewport; après beaucoup de recherches/rescans, ces cibles
+  // mortes finissent par faire grossir la page et peuvent bloquer les clics.
+  snipObserver.disconnect();
   if(typeof renderActiveChips==='function') renderActiveChips();  // plan 019 : chips de filtres actifs
   const normalizeSearch = value => String(value||'').normalize('NFKD')
     .replace(/[\u0300-\u036f]/g,'').toLowerCase().replace(/[^a-z0-9]+/g,' ').trim();
@@ -2061,6 +2175,19 @@ document.getElementById('delSel').onclick=async function(){
   });
   updateDelBtn(); render();
 };
+window.__gallerySelection={
+  getState(){
+    const rels=[...selSet];
+    return {rels,imageCount:rels.filter(rel=>imgExt(rel.split('.').pop().toLowerCase())).length};
+  },
+  open(){ const rel=[...selSet][0]; if(rel)lbOpenAny(rel); },
+  compare(){ if([...selSet].filter(rel=>imgExt(rel.split('.').pop().toLowerCase())).length>=2)openCompare(); },
+  collect(anchor){ if(selSet.size)collectSelMenu(anchor); },
+  export(anchor){ if(selSet.size){buildExportMenu();menuToggle(document.getElementById('exportMenu'),anchor);} },
+  hide(){ document.getElementById('hideSel').click(); },
+  delete(){ document.getElementById('delSel').click(); },
+  clear(){ clearSel(); },
+};
 document.getElementById('q').oninput=render;
 document.getElementById('sort').onchange=render;
 fsel.onchange=render;
@@ -2072,6 +2199,7 @@ searchChip.onclick=()=>{ if(qEl.classList.contains('collapsed')) openSearch(); e
 qEl.addEventListener('keydown',e=>{ if(e.key==='Escape'){e.preventDefault();closeSearch();searchChip.focus();} });
 qEl.addEventListener('blur',()=>{ if(!qEl.value.trim()){qEl.classList.add('collapsed');searchChip.classList.remove('on');} });
 document.addEventListener('keydown',e=>{
+  if(e.key==='Escape'&&selSet.size&&!lb().classList.contains('show')){e.preventDefault();clearSel();return;}
   if(e.key!=='/'||e.metaKey||e.ctrlKey||e.altKey)return;
   if(lb().classList.contains('show'))return;
   const t=e.target, tag=t&&t.tagName;
@@ -2259,7 +2387,7 @@ function annotInit(){
       const knownRels=e.data.action==='compare'
         ? FILES.filter(f=>imgExt(f.ext)).map(f=>f.rel)
         : FILES.map(f=>f.rel);
-      const result=contract.execute(e.data, knownRels, {
+      const commandAdapter={
         projectRoot:'__ROOT__',
         show(rels){
           cmpClose();
@@ -2285,6 +2413,16 @@ function annotInit(){
           selSet.clear(); lastSelRel=null;
           cmpClose(); updateDelBtn(); render();
         }
+      };
+      const result=await contract.executeWithRefresh(e.data, knownRels, commandAdapter, async()=>{
+        const scan=await fetch('/rescan',{method:'POST'}).then(r=>r.json());
+        if(!scan || !scan.ok) return null;
+        const data=await fetch('/data',{cache:'no-store'}).then(r=>r.ok?r.json():null);
+        if(!data || !Array.isArray(data.files)) return null;
+        applyGalleryData(data);
+        return e.data.action==='compare'
+          ? FILES.filter(f=>imgExt(f.ext)).map(f=>f.rel)
+          : FILES.map(f=>f.rel);
       });
       __atelierPost(Object.assign({type:'atelier-gallery-result'}, result));
     });

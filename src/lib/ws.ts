@@ -228,7 +228,12 @@ export type SendOptions = {
   projectRoot: string;
   provider: string;
   prompt: string;
-  inputs?: ({ type: "text"; text: string } | { type: "local_image"; path: string })[];
+  inputs?: (
+    | { type: "text"; text: string }
+    | { type: "local_image"; path: string }
+    | { type: "skill"; name: string; path: string }
+    | { type: "mention"; name: string; path: string }
+  )[];
   imagePath?: string;
   attachments?: { path?: string; imagePath?: string }[];
   model?: string;
@@ -249,6 +254,7 @@ export function sendPrompt(ws: WebSocket, t: SendOptions) {
 export function requestCatalog(ws: WebSocket, projectRoot: string) {
   ws.send(JSON.stringify({ type: "listCommands", projectRoot }));
   ws.send(JSON.stringify({ type: "listFiles", projectRoot }));
+  ws.send(JSON.stringify({ type: "listPlugins", projectRoot }));
 }
 
 export type Command = { name: string; source: string };
