@@ -11,6 +11,7 @@ import "../App.css";
 import Chat from "./Chat";
 import type { AgentEvent } from "../lib/ws";
 import type { ProviderInfo } from "../lib/providers";
+import type { QueuedTurn } from "../lib/chatDraftStore";
 
 const NOW = Date.now();
 const ts = (offsetS: number) => NOW - offsetS * 1000;
@@ -126,13 +127,41 @@ const CONTEXTS_ATTACHMENTS = [
   { name: "ch3_methodologie.tex", lines: null, text: "ctx-6", kind: "file" as const },
 ];
 
-const STATES: Record<string, { events: AgentEvent[]; workingSince: number | null; attachments: typeof CONTEXTS_ATTACHMENTS; usage: { context: number; output: number; cost: number | null; turns: number | null } | null }> = {
+const QUEUED_TURNS: QueuedTurn[] = [
+  {
+    id: "queue-1", prompt: "Compare ensuite les résultats avec la version précédente.",
+    provider: "claude", model: "claude-fable-5", effort: "medium", permissionMode: "acceptEdits",
+    attachments: [], webSearch: false, additionalDirectories: [], pluginSkills: [], autoReview: null, createdAt: ts(8),
+  },
+  {
+    id: "queue-2", prompt: "Prépare finalement une légende courte pour la figure 3.",
+    provider: "claude", model: "claude-fable-5", effort: "medium", permissionMode: "acceptEdits",
+    attachments: [], webSearch: false, additionalDirectories: [], pluginSkills: [], autoReview: null, createdAt: ts(4),
+  },
+];
+
+type BenchState = {
+  events: AgentEvent[];
+  workingSince: number | null;
+  attachments: typeof CONTEXTS_ATTACHMENTS;
+  usage: { context: number; output: number; cost: number | null; turns: number | null } | null;
+  queuedTurns?: QueuedTurn[];
+  draftText?: string;
+};
+
+const STATES: Record<string, BenchState> = {
   rich: { events: RICH, workingSince: null, attachments: [], usage: { context: 84200, output: 8120, cost: 0.42, turns: 3 } },
   running: { events: RUNNING, workingSince: ts(272), attachments: [], usage: { context: 21000, output: 300, cost: null, turns: 1 } },
   error: { events: ERROR, workingSince: null, attachments: [], usage: null },
   contexts: { events: MARKDOWN.slice(0, 1), workingSince: null, attachments: CONTEXTS_ATTACHMENTS, usage: null },
   markdown: { events: MARKDOWN, workingSince: null, attachments: [], usage: null },
   overflow: { events: NO_HORIZONTAL_SCROLL, workingSince: null, attachments: [], usage: null },
+  queue: {
+    events: RUNNING, workingSince: ts(272), attachments: [],
+    usage: { context: 21000, output: 300, cost: null, turns: 1 },
+    queuedTurns: QUEUED_TURNS,
+    draftText: "Ajoute aussi une vérification des unités.",
+  },
   goal: {
     events: [...RICH, { kind: "goal", goal: {
       objective: "Reprendre l'analyse des tendances régionales et produire une figure 3 vérifiée pour le manuscrit",
@@ -161,6 +190,12 @@ export function ChatBench() {
         commands={[{ name: "recherche", source: "user" }]}
         files={[]} recentFiles={[]} zoteroItems={[]}
         injectText={null} onInjected={noop}
+        draftText={st.draftText}
+        queuedTurns={st.queuedTurns}
+        onSteerQueued={noop}
+        onEditQueued={noop}
+        onRemoveQueued={noop}
+        onReorderQueued={noop}
         attachments={st.attachments}
         onRemoveAttachment={noop}
         onQuote={noop}

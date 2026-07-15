@@ -682,6 +682,7 @@ export default function App() {
     updateDraft: updateComposerDraft,
     enqueueTurn,
     removeQueuedTurn,
+    reorderQueuedTurn,
     restoreQueuedTurn,
   } = useChatDraftStore(activeComposerKey);
   const attachments = activeComposerDraft.attachments;
@@ -2659,6 +2660,7 @@ export default function App() {
             requestAnimationFrame(focusComposer);
           }}
           onRemoveQueued={(queuedId) => removeQueuedTurn(activeComposerKey, queuedId)}
+          onReorderQueued={(draggedId, targetId) => reorderQueuedTurn(activeComposerKey, draggedId, targetId)}
           attachments={attachments}
           onRemoveAttachment={(i) => setAttachments((l) => l.filter((_, j) => j !== i))}
           onRevert={async (index, text, edit) => {

@@ -8,7 +8,7 @@ import {
   TooltipProvider as ShadcnTooltipProvider,
   TooltipTrigger,
 } from "../shadcn/tooltip";
-import type { Placement } from "./internal";
+import { cx, type Placement } from "./internal";
 
 /** Miroir TS du token CSS --tooltip-delay (tokens.css). */
 export const TOOLTIP_DELAY_MS = 420;
@@ -27,11 +27,12 @@ export function TooltipProvider({ children }: React.PropsWithChildren) {
 }
 
 export function Tooltip(props: {
-  label: string;
+  label: React.ReactNode;
   children: React.ReactElement;
   placement?: Placement;
+  contentClassName?: string;
 }) {
-  const { label, children, placement = "top" } = props;
+  const { label, children, placement = "top", contentClassName } = props;
   const id = React.useId();
   const [open, setOpen] = React.useState(false);
   return (
@@ -44,7 +45,7 @@ export function Tooltip(props: {
         onMouseLeave={() => setOpen(false)}
         render={children}
       />
-      <TooltipContent id={id} role="tooltip" {...placementProps(placement)} className="ui-tooltip open">
+      <TooltipContent id={id} role="tooltip" {...placementProps(placement)} className={cx("ui-tooltip open", contentClassName)}>
         {label}
       </TooltipContent>
     </ShadcnTooltip>

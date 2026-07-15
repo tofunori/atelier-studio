@@ -162,11 +162,13 @@ describe("orchestration App — caractérisation", () => {
     expect(textarea.value).toBe("");
     expect(sock.sent.map((value) => JSON.parse(value)).filter((message) => message.type === "send")).toHaveLength(before);
 
-    fireEvent.click(screen.getByRole("button", { name: t("queue.edit") }));
+    fireEvent.click(screen.getByRole("button", { name: t("queue.more") }));
+    await act(async () => { await flushMicrotasks(2); });
+    fireEvent.click(screen.getByRole("menuitem", { name: t("queue.edit") }));
     expect(screen.queryByTestId("queued-follow-up-row")).toBeNull();
     expect(textarea.value).toBe("compare ensuite les deux cartes");
 
-    fireEvent.click(document.querySelector(".queue-btn") as HTMLButtonElement);
+    fireEvent.click(document.querySelector(".follow-up-submit") as HTMLButtonElement);
     await push(sock, { type: "event", threadId: "thread-A", event: { kind: "done", ok: true, result: "" } });
     await act(async () => { await flushMicrotasks(6); });
     const sends = sock.sent.map((value) => JSON.parse(value)).filter((message) => message.type === "send");

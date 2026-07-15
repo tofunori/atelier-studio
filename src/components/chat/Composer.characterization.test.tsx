@@ -445,14 +445,14 @@ describe("composer — caractérisation complémentaire (plan 020)", () => {
     const onSubmit = vi.fn();
     renderUi(<Chat {...chatProps({ workingSince: FIXED_TS, onSubmit })} />);
     fireEvent.change(ta(), { target: { value: "à traiter ensuite" } });
-    const queue = document.querySelector(".queue-btn") as HTMLButtonElement;
+    const queue = document.querySelector(".follow-up-submit") as HTMLButtonElement;
     expect(queue).toBeTruthy();
     fireEvent.click(queue);
     expect(onSubmit).toHaveBeenCalledTimes(1);
     expect(onSubmit.mock.calls[0][5]).toBe("queue");
   });
 
-  it("pendant un run : Enter met en file par défaut et Steer reste une action explicite", () => {
+  it("pendant un run : Enter met en file et Cmd+Enter fait Steer sans changer le défaut", () => {
     const onSubmit = vi.fn();
     const onFollowUpModeChange = vi.fn();
     renderUi(<Chat {...chatProps({ workingSince: FIXED_TS, onSubmit, onFollowUpModeChange })} />);
@@ -460,20 +460,26 @@ describe("composer — caractérisation complémentaire (plan 020)", () => {
     fireEvent.change(ta(), { target: { value: "à traiter après" } });
     fireEvent.keyDown(ta(), { key: "Enter" });
     expect(onSubmit.mock.calls[0][5]).toBe("queue");
+    expect(document.querySelectorAll(".follow-up-submit")).toHaveLength(0);
 
     fireEvent.change(ta(), { target: { value: "corrige maintenant" } });
-    fireEvent.click(document.querySelector(".steer-btn") as HTMLButtonElement);
+    expect(document.querySelectorAll(".follow-up-submit")).toHaveLength(1);
+    fireEvent.keyDown(ta(), { key: "Enter", metaKey: true });
     expect(onSubmit.mock.calls[1][5]).toBe("steer");
-    expect(onFollowUpModeChange).toHaveBeenLastCalledWith("steer");
+    expect(onFollowUpModeChange).not.toHaveBeenCalled();
   });
 
   it("respecte le choix Steer mémorisé pour Enter", () => {
     const onSubmit = vi.fn();
     renderUi(<Chat {...chatProps({ workingSince: FIXED_TS, onSubmit, followUpMode: "steer" })} />);
     fireEvent.change(ta(), { target: { value: "précision immédiate" } });
-    expect(document.querySelector(".steer-btn.is-default")).toBeTruthy();
+    expect(document.querySelector(".follow-up-submit.follow-up-steer")).toBeTruthy();
     fireEvent.keyDown(ta(), { key: "Enter" });
     expect(onSubmit.mock.calls[0][5]).toBe("steer");
+
+    fireEvent.change(ta(), { target: { value: "à faire ensuite" } });
+    fireEvent.keyDown(ta(), { key: "Enter", metaKey: true });
+    expect(onSubmit.mock.calls[1][5]).toBe("queue");
   });
 
   it("n'affiche pas Steer quand le provider ne le supporte pas", () => {
@@ -482,8 +488,8 @@ describe("composer — caractérisation complémentaire (plan 020)", () => {
       providers: [makeProviderInfo({ capabilities: makeCapabilities({ steering: false, queue: true }) })],
     })} />);
     fireEvent.change(ta(), { target: { value: "à suivre" } });
-    expect(document.querySelector(".queue-btn.is-default")).toBeTruthy();
-    expect(document.querySelector(".steer-btn")).toBeNull();
+    expect(document.querySelector(".follow-up-submit.follow-up-queue")).toBeTruthy();
+    expect(document.querySelectorAll(".follow-up-submit")).toHaveLength(1);
   });
 });
 
@@ -551,7 +557,8 @@ describe("composer — barre hiérarchisée (plan 020)", () => {
     expect(group?.querySelector('.composer-tool-group[data-slot="button-group"]')).toBeTruthy();
 
     fireEvent.change(ta(), { target: { value: "à grouper" } });
-    expect(group?.querySelector('.composer-submit-group[data-slot="button-group"]')).toBeTruthy();
+    expect(group?.querySelector(".follow-up-submit")).toBeTruthy();
+    expect(group?.querySelector(".composer-submit-group")).toBeNull();
   });
 
   it("une seule action primaire : Envoyer au repos, Stop pendant le run", () => {

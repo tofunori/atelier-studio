@@ -69,6 +69,7 @@ export function PromptTextarea(p: {
   workingSince: number | null;
   disabled: boolean;
   onStop: () => void;
+  onAlternateSubmit?: () => void;
   onPasteImage: (dataURL: string) => void;
   onPasteText: (text: string) => void;
 }) {
@@ -163,6 +164,15 @@ export function PromptTextarea(p: {
             if (e.key === "Enter" && e.altKey) {
               e.preventDefault();
               window.dispatchEvent(new CustomEvent("quick-ask-open", { detail: { draft: text } }));
+              return;
+            }
+            if (e.key === "Enter" && (e.metaKey || e.ctrlKey) && !e.shiftKey) {
+              // Pendant un tour actif, Cmd/Ctrl+Enter exécute l'action inverse
+              // de l'envoi principal (Queue par défaut, donc Steer ici).
+              if (e.nativeEvent.isComposing) return;
+              e.preventDefault();
+              if (p.onAlternateSubmit) p.onAlternateSubmit();
+              else (e.currentTarget.form as HTMLFormElement).requestSubmit();
               return;
             }
             if (e.key === "Enter" && !e.shiftKey) {

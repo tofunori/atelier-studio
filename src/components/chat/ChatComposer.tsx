@@ -132,10 +132,17 @@ export function ChatComposer(props: {
     return "steer";
   }
 
+  function alternateFollowUpMode(): FollowUpMode {
+    const capabilities = catalog.providerInfo(model.provider)?.capabilities;
+    const preferred = resolvedFollowUpMode();
+    if (preferred === "queue" && capabilities?.steering !== false) return "steer";
+    if (preferred === "steer" && capabilities?.queue !== false) return "queue";
+    return preferred;
+  }
+
   function submit(mode: FollowUpMode) {
     const prompt = text.trim();
     if (!prompt) return;
-    if (host.workingSince != null) host.onFollowUpModeChange?.(mode);
     const command = parseNativeSlashCommand(prompt);
     if (command?.name === "model") {
       const requested = command.args.toLowerCase();
@@ -237,11 +244,12 @@ export function ChatComposer(props: {
             workingSince={host.workingSince}
             disabled={host.disabled}
             onStop={host.onStop}
+            onAlternateSubmit={host.workingSince != null ? () => submit(alternateFollowUpMode()) : undefined}
             onPasteImage={input.onPasteImage}
             onPasteText={input.onPasteText}
           />
           <InputGroupAddon align="block-end" className="composer-input-actions">
-            <ComposerControls {...controlsProps} submitComposer={submit} />
+            <ComposerControls {...controlsProps} />
           </InputGroupAddon>
         </InputGroup>
       </form>

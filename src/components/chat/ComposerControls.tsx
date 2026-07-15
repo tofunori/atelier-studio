@@ -17,7 +17,10 @@ import {
 } from "../shadcn/dropdown-menu";
 import { Button } from "../ui/Button";
 import { IconButton } from "../ui/IconButton";
+import { Tooltip } from "../ui/Tooltip";
+import { Kbd } from "../shadcn/kbd";
 import type { FollowUpMode } from "../../lib/chatDraftStore";
+import { ArrowUpIcon } from "lucide-react";
 
 const PERMISSION_MODES = [
   { id: "bypassPermissions", labelKey: "permission.full" },
@@ -68,9 +71,7 @@ export function ComposerControls(p: {
   workingSince: number | null;
   onStop: () => void;
   onSubmit: (prompt: string, provider: string, model: string, effort: string, permissionMode: string, mode: "steer" | "queue") => void;
-  submitComposer?: (mode: FollowUpMode) => void;
   followUpMode: FollowUpMode;
-  onFollowUpModeChange?: (mode: FollowUpMode) => void;
   onGoal?: (action: "set" | "clear", objective?: string, status?: "active" | "paused") => void;
   defaults: {
     autoReview?: { enabled: boolean };
@@ -80,7 +81,7 @@ export function ComposerControls(p: {
   providers?: ProviderInfo[];
 }) {
   const {
-    text, setText, provider, setProvider, model, setModel, effort, setEffort,
+    text, provider, setProvider, model, setModel, effort, setEffort,
     permissionMode, setPermissionMode, plusOpen, setPlusOpen, menuOpen, setMenuOpen,
     effortOpen, setEffortOpen,
     modelMenuProvider, setModelMenuProvider,
@@ -120,34 +121,10 @@ export function ComposerControls(p: {
   const preferredFollowUpMode: FollowUpMode = p.followUpMode === "steer" && steeringSupported
     ? "steer"
     : queueSupported ? "queue" : "steer";
-
-  function submitFollowUp(mode: FollowUpMode) {
-    if (!text.trim()) return;
-    if (p.submitComposer) p.submitComposer(mode);
-    else {
-      p.onFollowUpModeChange?.(mode);
-      p.onSubmit(text, provider, model, effort, permissionMode, mode);
-      setText("");
-    }
-  }
-
-  function followUpButton(mode: FollowUpMode, isDefault: boolean) {
-    const isQueue = mode === "queue";
-    return (
-      <Button
-        key={mode}
-        type={isDefault ? "submit" : "button"}
-        variant={isDefault ? "primary" : "ghost"}
-        className={`follow-up-action ${isQueue ? "queue-btn" : "steer-btn"} ${isDefault ? "is-default" : ""}`}
-        disabled={p.disabled}
-        title={isQueue ? t("action.queue-title") : t("action.send-now")}
-        onClick={isDefault ? undefined : () => submitFollowUp(mode)}
-      >
-        <span>{t(isQueue ? "action.queue" : "action.steer")}</span>
-        {isDefault ? <span className="follow-up-enter" aria-hidden="true">↑</span> : null}
-      </Button>
-    );
-  }
+  const alternateFollowUpMode: FollowUpMode | null = preferredFollowUpMode === "queue" && steeringSupported
+    ? "steer"
+    : preferredFollowUpMode === "steer" && queueSupported ? "queue" : null;
+  const followUpLabel = (mode: FollowUpMode) => t(mode === "queue" ? "action.queue" : "action.steer");
   // navigation clavier des menus (plan 020, étape 6) : flèches + Échap ;
   // focus posé sur le premier item à l'ouverture, rendu au déclencheur en sortie
   const modelMenuRef = useRef<HTMLDivElement | null>(null);
@@ -561,11 +538,32 @@ export function ComposerControls(p: {
           )}
           {p.workingSince != null ? (
             text.trim() ? (
-              <ButtonGroup className={`composer-submit-group follow-up-${preferredFollowUpMode}`}>
-                {queueSupported && preferredFollowUpMode !== "queue" ? followUpButton("queue", false) : null}
-                {steeringSupported && preferredFollowUpMode !== "steer" ? followUpButton("steer", false) : null}
-                {followUpButton(preferredFollowUpMode, true)}
-              </ButtonGroup>
+              <Tooltip
+                placement="top-end"
+                contentClassName="follow-up-tooltip"
+                label={(
+                  <span className="follow-up-tooltip-grid">
+                    <span>{followUpLabel(preferredFollowUpMode)}</span>
+                    <Kbd>{t("shortcut.enter")}</Kbd>
+                    {alternateFollowUpMode ? (
+                      <>
+                        <span>{followUpLabel(alternateFollowUpMode)}</span>
+                        <Kbd>⌘ {t("shortcut.enter")}</Kbd>
+                      </>
+                    ) : null}
+                  </span>
+                )}
+              >
+                <Button
+                  type="submit"
+                  variant="secondary"
+                  className={`send follow-up-submit follow-up-${preferredFollowUpMode}`}
+                  disabled={p.disabled}
+                  aria-label={followUpLabel(preferredFollowUpMode)}
+                >
+                  <ArrowUpIcon data-icon="inline-start" aria-hidden="true" />
+                </Button>
+              </Tooltip>
             ) : (
               <Button
                 type="button"

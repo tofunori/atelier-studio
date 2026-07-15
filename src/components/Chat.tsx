@@ -98,6 +98,7 @@ export default function Chat(p: {
   onSteerQueued?: (id: string) => void;
   onEditQueued?: (id: string) => void;
   onRemoveQueued?: (id: string) => void;
+  onReorderQueued?: (draggedId: string, targetId: string) => void;
   attachments: ChatAttachment[];
   onRemoveAttachment: (index: number) => void;
   onQuote: (text: string) => void;
@@ -908,6 +909,9 @@ export default function Chat(p: {
         onSteer={p.onSteerQueued ?? (() => {})}
         onEdit={p.onEditQueued ?? (() => {})}
         onRemove={p.onRemoveQueued ?? (() => {})}
+        onReorder={p.onReorderQueued ?? (() => {})}
+        followUpMode={p.followUpMode ?? "queue"}
+        onFollowUpModeChange={p.onFollowUpModeChange}
       />
       <ChatComposer
         input={{

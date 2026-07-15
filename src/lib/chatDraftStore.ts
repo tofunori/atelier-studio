@@ -213,6 +213,19 @@ export function useChatDraftStore(activeKey: string) {
     }));
   }, [updateDraft]);
 
+  const reorderQueuedTurn = useCallback((key: string, draggedId: string, targetId: string) => {
+    if (draggedId === targetId) return;
+    updateDraft(key, (draft) => {
+      const fromIndex = draft.queuedTurns.findIndex((turn) => turn.id === draggedId);
+      const targetIndex = draft.queuedTurns.findIndex((turn) => turn.id === targetId);
+      if (fromIndex < 0 || targetIndex < 0) return draft;
+      const queuedTurns = [...draft.queuedTurns];
+      const [dragged] = queuedTurns.splice(fromIndex, 1);
+      queuedTurns.splice(targetIndex, 0, dragged);
+      return { ...draft, queuedTurns };
+    });
+  }, [updateDraft]);
+
   const restoreQueuedTurn = useCallback((key: string, id: string) => {
     let restored: QueuedTurn | null = null;
     updateDraft(key, (draft) => {
@@ -255,6 +268,7 @@ export function useChatDraftStore(activeKey: string) {
     updateDraft,
     enqueueTurn,
     removeQueuedTurn,
+    reorderQueuedTurn,
     restoreQueuedTurn,
     flush,
   };
