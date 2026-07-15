@@ -24247,6 +24247,7 @@ const Tb = {
       },
       size: {
         default: "tw:h-8 tw:px-2.5",
+        xs: "tw:h-6 tw:px-2 tw:text-[var(--fs-caption)]",
         sm: "tw:h-7 tw:px-2 tw:text-[var(--fs-caption)]",
         lg: "tw:h-9 tw:px-3"
       }
@@ -24961,7 +24962,7 @@ function DA({
             {
               value: F.key,
               variant: "outline",
-              size: "sm",
+              size: "xs",
               "data-gallery-quick-type": F.key,
               "data-gallery-active": F.active ? "true" : void 0,
               children: [

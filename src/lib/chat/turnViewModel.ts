@@ -46,7 +46,8 @@ export type ChatTurnViewModel = {
     ms: number | null;
     status: "worked" | "stopped" | "failed";
   } | null;
-  activeInsertIndex: number | null;
+  activeHeaderIndex: number | null;
+  activeTailIndex: number | null;
   activeWorkIndexes: Set<number>;
   actionGroups: ToolActionGroup[];
   activityIndexes: number[];
@@ -57,7 +58,8 @@ export type ChatTurnViewModel = {
 export type ProjectedTimelineItem =
   | { type: "event"; key: string; event: AgentEvent; index: number }
   | { type: "fold"; key: string; fold: NonNullable<ChatTurnViewModel["fold"]>; open: boolean }
-  | { type: "active-turn"; key: string; turn: ChatTurnViewModel };
+  | { type: "active-turn-header"; key: string; turn: ChatTurnViewModel }
+  | { type: "active-turn-tail"; key: string; turn: ChatTurnViewModel };
 
 const TERMINAL_KINDS = new Set<AgentEvent["kind"]>(["done", "error"]);
 const REASONING_TOOL = "__thinking";
@@ -231,7 +233,15 @@ function activeStateFor(
   if (reasoningTexts.length > 0 && hasLiveReasoning) {
     return { kind: "reasoning", texts: reasoningTexts, live: true };
   }
-  if (finalAssistantIndex != null) return { kind: "answering", eventIndex: finalAssistantIndex };
+  const workContinuedAfterAssistant = finalAssistantIndex != null && indexes.some((index) => (
+    index > finalAssistantIndex && (
+      isReasoning(events[index]) || isToolAction(events[index]) || events[index].kind === "activity"
+    )
+  ));
+  if (workContinuedAfterAssistant) return { kind: "thinking" };
+  if (finalAssistantIndex != null && events[finalAssistantIndex].kind === "streaming") {
+    return { kind: "answering", eventIndex: finalAssistantIndex };
+  }
   if (reasoningTexts.length > 0 && groups.length === 0) {
     return { kind: "reasoning", texts: reasoningTexts, live: false };
   }
@@ -286,17 +296,16 @@ export function buildChatTurnViewModels(
         ? "waiting"
         : state.kind === "answering"
           ? "final_answer"
-          : state.kind === "thinking" && activeWorkIndexes.size === 0
-            ? "idle"
-            : "prework";
+          : "prework";
     }
 
     const activeState = isActive
       ? activeStateFor(events, indexes, groups, reasoningTexts, finalAssistantIndex)
       : null;
-    const activeInsertIndex = isActive
+    const activeHeaderIndex = isActive
       ? userIndex == null ? startIndex : userIndex + 1
       : null;
+    const activeTailIndex = isActive ? events.length : null;
 
     let fold: ChatTurnViewModel["fold"] = null;
     if (terminalIndex != null && userIndex != null) {
@@ -332,7 +341,8 @@ export function buildChatTurnViewModels(
       completedAtMs,
       durationMs,
       fold,
-      activeInsertIndex,
+      activeHeaderIndex,
+      activeTailIndex,
       activeWorkIndexes,
       actionGroups: groups,
       activityIndexes,
@@ -351,21 +361,29 @@ export function projectChatTimeline(
   const rows: ProjectedTimelineItem[] = [];
   const turnByIndex = new Map<number, ChatTurnViewModel>();
   const foldByStart = new Map<number, NonNullable<ChatTurnViewModel["fold"]>>();
-  const activeByInsert = new Map<number, ChatTurnViewModel>();
+  const activeHeaderByInsert = new Map<number, ChatTurnViewModel>();
+  const activeTailByInsert = new Map<number, ChatTurnViewModel>();
   const hiddenActiveIndexes = new Set<number>();
 
   for (const turn of turns) {
     for (let index = turn.startIndex; index < turn.endIndex; index += 1) turnByIndex.set(index, turn);
     if (turn.fold) foldByStart.set(turn.fold.start, turn.fold);
-    if (turn.activeInsertIndex != null) {
-      activeByInsert.set(turn.activeInsertIndex, turn);
+    if (turn.activeHeaderIndex != null && turn.activeTailIndex != null) {
+      activeHeaderByInsert.set(turn.activeHeaderIndex, turn);
+      activeTailByInsert.set(turn.activeTailIndex, turn);
       for (const index of turn.activeWorkIndexes) hiddenActiveIndexes.add(index);
     }
   }
 
   for (let index = 0; index <= events.length; index += 1) {
-    const active = activeByInsert.get(index);
-    if (active) rows.push({ type: "active-turn", key: `active:${active.key}`, turn: active });
+    const activeHeader = activeHeaderByInsert.get(index);
+    if (activeHeader) {
+      rows.push({ type: "active-turn-header", key: `active-header:${activeHeader.key}`, turn: activeHeader });
+    }
+    const activeTail = activeTailByInsert.get(index);
+    if (activeTail) {
+      rows.push({ type: "active-turn-tail", key: `active-tail:${activeTail.key}`, turn: activeTail });
+    }
     if (index === events.length) break;
 
     const fold = foldByStart.get(index);

@@ -301,7 +301,7 @@ function GalleryFileTypePanel({
               key={type.key}
               value={type.key}
               variant="outline"
-              size="sm"
+              size="xs"
               data-gallery-quick-type={type.key}
               data-gallery-active={type.active ? "true" : undefined}
             >

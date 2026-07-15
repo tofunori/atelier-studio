@@ -15,7 +15,7 @@ import { isValidSkill } from "./mentions";
 import { ZapIcon, ArrowDownIcon } from "../icons";
 import {
   ChatEmptyState, UserTurn, StreamingText, AssistantText, ResultCapsule,
-  ActivityFold, ActivityGroup, ActiveTurnWork, type ReviewState,
+  ActivityFold, ActivityGroup, ActiveTurnHeader, ActiveTurnTail, type ReviewState,
 } from "./turns";
 import { ResearchHome, type ResearchHomeBundle } from "../ResearchHome";
 import { ThinkingBlock, EditLine, ActivityCard, LiveThinking, Working, formatPermInput } from "./turnParts";
@@ -155,7 +155,7 @@ export function ChatTimeline(p: {
       const key = item.type === "event" ? `event-${item.index}` : item.type === "fold" ? item.fold.key : item.key;
       rows.push({ type: "rendered", key, item });
     }
-    if (workingSince != null && !renderedEvents.some((item) => item.type === "active-turn")) {
+    if (workingSince != null && !renderedEvents.some((item) => item.type === "active-turn-header")) {
       rows.push({ type: "working", key: "message-working" });
     }
     return rows;
@@ -405,14 +405,22 @@ export function ChatTimeline(p: {
               />
             );
           }
-          if (item.type === "active-turn") {
+          if (item.type === "active-turn-header") {
+            return (
+              <ActiveTurnHeader
+                key={item.key}
+                turn={item.turn}
+                since={workingSince ?? Date.now()}
+              />
+            );
+          }
+          if (item.type === "active-turn-tail") {
             const open = openToolGroups.has(item.key);
             return (
-              <ActiveTurnWork
+              <ActiveTurnTail
                 key={item.key}
                 turn={item.turn}
                 events={events}
-                since={workingSince ?? Date.now()}
                 open={open}
                 onToggle={() => setOpenToolGroups((prev) => {
                   const next = new Set(prev);

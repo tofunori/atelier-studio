@@ -56,13 +56,30 @@ describe("chat turn view model", () => {
     expect(buildChatTurnViewModels([user], T0)[0].activeState).toEqual({ kind: "thinking" });
   });
 
-  it("ne produit jamais un fallback Thinking en plus d'une réponse finale", () => {
+  it("ne produit jamais un fallback Thinking pendant une réponse en streaming", () => {
     const turns = buildChatTurnViewModels([
       { kind: "user", text: "Question", ts: T0 },
       { kind: "streaming", text: "Réponse en cours", ts: T0 + 100 },
     ], T0);
     expect(turns[0].phase).toBe("final_answer");
     expect(turns[0].activeState).toMatchObject({ kind: "answering" });
+  });
+
+  it("reprend Thinking après une narration intermédiaire et place l'activité courante en bas", () => {
+    const events: AgentEvent[] = [
+      { kind: "user", text: "Question", ts: T0 },
+      { kind: "text", text: "Je vérifie les données.", ts: T0 + 100 },
+      { kind: "tool", name: "__thinking" },
+    ];
+    const turn = buildChatTurnViewModels(events, T0)[0];
+    expect(turn.phase).toBe("prework");
+    expect(turn.activeState).toEqual({ kind: "thinking" });
+    expect(projectChatTimeline(events, [turn], new Set()).map((row) => row.type)).toEqual([
+      "event",
+      "active-turn-header",
+      "event",
+      "active-turn-tail",
+    ]);
   });
 
   it("consolide tous les reasoning du tour actif dans une seule ligne", () => {
@@ -75,7 +92,8 @@ describe("chat turn view model", () => {
     const turn = buildChatTurnViewModels(events, T0)[0];
     expect(turn.reasoningTexts).toEqual(["Premier point", "Deuxième point"]);
     const rows = projectChatTimeline(events, [turn], new Set());
-    expect(rows.filter((row) => row.type === "active-turn")).toHaveLength(1);
+    expect(rows.filter((row) => row.type === "active-turn-header")).toHaveLength(1);
+    expect(rows.filter((row) => row.type === "active-turn-tail")).toHaveLength(1);
     expect(rows.filter((row) => row.type === "event" && ["thinking", "thinking_live", "tool"].includes(row.event.kind))).toHaveLength(0);
   });
 

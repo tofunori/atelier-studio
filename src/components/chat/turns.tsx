@@ -418,10 +418,20 @@ function activeEventLabel(turn: ChatTurnViewModel, events: AgentEvent[]): ReactN
 
 /** Une seule ligne d'activité courante, comme Codex. Le détail conserve tous
  * les appels d'outils et la trace de reasoning du tour sans polluer le fil. */
-export function ActiveTurnWork(p: {
+export function ActiveTurnHeader(p: {
+  turn: ChatTurnViewModel;
+  since: number;
+}) {
+  return (
+    <div className="working-stack active-turn-header" data-turn-id={p.turn.turnId ?? p.turn.key}>
+      <div className="working-row"><Working since={p.turn.startedAtMs ?? p.since} /></div>
+    </div>
+  );
+}
+
+export function ActiveTurnTail(p: {
   turn: ChatTurnViewModel;
   events: AgentEvent[];
-  since: number;
   open: boolean;
   onToggle: () => void;
   onStop: () => void;
@@ -438,9 +448,8 @@ export function ActiveTurnWork(p: {
     : activeEvent?.kind === "activity" ? activityIconForPhase(activeEvent.phase) : undefined;
 
   return (
-    <div className="working-stack active-turn-work" data-turn-id={p.turn.turnId ?? p.turn.key}>
-      <div className="working-row"><Working since={p.turn.startedAtMs ?? p.since} /></div>
-      {state?.kind === "answering" ? null : state?.kind === "thinking" && !hasDetail ? (
+    <div className="working-stack active-turn-tail" data-turn-id={p.turn.turnId ?? p.turn.key}>
+      {(state?.kind === "answering" || state?.kind === "thinking") && !hasDetail ? (
         <LiveThinking />
       ) : (
         <ActivityDisclosure

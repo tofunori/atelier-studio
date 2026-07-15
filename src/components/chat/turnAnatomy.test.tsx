@@ -106,9 +106,9 @@ describe("anatomie du tour — header d'activité", () => {
     ];
     renderUi(<Chat {...chatProps({ events: evs, workingSince: FIXED_TS })} />);
 
-    const activity = document.querySelector(".active-turn-work .ui-activity") as HTMLElement;
+    const activity = document.querySelector(".active-turn-tail .ui-activity") as HTMLElement;
     expect(activity).toBeTruthy();
-    expect(document.querySelectorAll(".active-turn-work .ui-activity")).toHaveLength(1);
+    expect(document.querySelectorAll(".active-turn-tail .ui-activity")).toHaveLength(1);
     expect(activity.textContent).toContain(t("chat.active-action-n", { n: 8 }));
     fireEvent.click(activity.querySelector(".ui-activity-trigger") as HTMLButtonElement);
     expect(document.querySelectorAll(".active-work-detail .tool-output")).toHaveLength(8);
@@ -122,10 +122,28 @@ describe("anatomie du tour — header d'activité", () => {
     ];
     renderUi(<Chat {...chatProps({ events: evs, workingSince: FIXED_TS })} />);
 
-    const activity = document.querySelector(".active-turn-work .ui-activity") as HTMLElement;
+    const activity = document.querySelector(".active-turn-tail .ui-activity") as HTMLElement;
     expect(activity.querySelector("[data-activity-icon='command']")).toBeTruthy();
     expect(activity.textContent).toContain(t("chat.activity-running-tests"));
     expect(activity.querySelector("[data-activity-icon='read']")).toBeNull();
+  });
+
+  it("garde l'activité visible sous une narration intermédiaire tant que le tour travaille", () => {
+    const evs: AgentEvent[] = [
+      events.user("Analyse.", FIXED_TS),
+      events.text("Je vérifie les données locales.", FIXED_TS + 100),
+      { kind: "tool", name: "__thinking" },
+    ];
+    renderUi(<Chat {...chatProps({ events: evs, workingSince: FIXED_TS })} />);
+
+    const header = document.querySelector(".active-turn-header") as HTMLElement;
+    const message = screen.getByText("Je vérifie les données locales.");
+    const tail = document.querySelector(".active-turn-tail") as HTMLElement;
+    expect(header).toBeTruthy();
+    expect(tail).toBeTruthy();
+    expect(tail.querySelector(".thinking-shimmer")).toBeTruthy();
+    expect(header.compareDocumentPosition(message) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(message.compareDocumentPosition(tail) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 
   it("tour terminé : résumé ordonné comme Codex et icône de la première partie", () => {
