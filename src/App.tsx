@@ -65,6 +65,7 @@ import {
 } from "./lib/chatDraftStore";
 import {
   appSnapPreviewUrl,
+  appSnapContextText,
   onAppSnapCaptured,
   onAppSnapError,
   setAppSnapEnabled,
@@ -818,17 +819,18 @@ export default function App() {
             kind: "appsnap",
             path: capture.path,
             imageUrl,
-            text: [
-              `AppSnap captured from ${appName}.`,
-              `Window: ${windowTitle}`,
-              `Local image file: ${capture.path}`,
-              "Inspect the attached image when answering the user's message.",
-            ].join("\n"),
+            text: appSnapContextText(capture, appName, windowTitle),
             preview: {
               title: t("appsnap.preview-title"),
               rows: [
                 { label: t("appsnap.preview-app"), value: appName },
                 { label: t("appsnap.preview-window"), value: windowTitle },
+                {
+                  label: t("appsnap.preview-interface"),
+                  value: capture.accessibilitySnapshot
+                    ? `${t("appsnap.preview-interface-count", { count: capture.accessibilityElementCount ?? 0 })}${capture.accessibilitySnapshotTruncated ? t("appsnap.preview-truncated") : ""}`
+                    : t("appsnap.preview-interface-unavailable"),
+                },
                 { label: t("appsnap.preview-file"), value: capture.path },
               ],
             },

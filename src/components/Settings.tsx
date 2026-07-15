@@ -843,6 +843,9 @@ export default function SettingsPage(p: {
               <Row title={t("appsnap.screen-recording")} desc={t("appsnap.screen-recording-desc")}>
                 {permissionBadge(appSnapState?.screenRecordingPermission ?? "unknown")}
               </Row>
+              <Row title={t("appsnap.accessibility")} desc={t("appsnap.accessibility-desc")}>
+                {permissionBadge(appSnapState?.accessibilityPermission ?? "unknown")}
+              </Row>
               <Row
                 title={t("appsnap.status")}
                 desc={appSnapState?.message || t(`appsnap.status-${appSnapState?.status ?? "disabled"}` as any)}

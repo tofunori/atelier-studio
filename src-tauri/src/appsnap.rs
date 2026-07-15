@@ -17,6 +17,7 @@ const EVENT_CAPTURED: &str = "appsnap:captured";
 const EVENT_ERROR: &str = "appsnap:error";
 const EVENT_STATE: &str = "appsnap:state";
 const MAX_CAPTURE_BYTES: u64 = 25 * 1024 * 1024;
+const MAX_ACCESSIBILITY_SNAPSHOT_CHARS: usize = 24_000;
 const PNG_SIGNATURE: [u8; 8] = [137, 80, 78, 71, 13, 10, 26, 10];
 
 #[derive(Clone, Debug, Serialize)]
@@ -29,6 +30,7 @@ pub struct AppSnapState {
     shortcut: Option<String>,
     input_monitoring_permission: String,
     screen_recording_permission: String,
+    accessibility_permission: String,
     message: Option<String>,
 }
 
@@ -48,6 +50,7 @@ impl AppSnapState {
             shortcut: supported.then(|| "both-option-keys".to_string()),
             input_monitoring_permission: "unknown".to_string(),
             screen_recording_permission: "unknown".to_string(),
+            accessibility_permission: "unknown".to_string(),
             message: (!supported).then(|| "AppSnap is available only on macOS.".to_string()),
         }
     }
@@ -64,6 +67,9 @@ pub struct AppSnapCapture {
     source_bundle_identifier: Option<String>,
     source_app_icon_data_url: Option<String>,
     source_window_title: Option<String>,
+    accessibility_snapshot: Option<String>,
+    accessibility_element_count: Option<usize>,
+    accessibility_snapshot_truncated: Option<bool>,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -126,6 +132,9 @@ impl AppSnapManager {
         if state.screen_recording_permission != "granted" {
             missing.push("Screen Recording");
         }
+        if state.accessibility_permission != "granted" {
+            missing.push("Accessibility");
+        }
         format!(
             "Allow {} in macOS System Settings, then try again.",
             missing.join(" and ")
@@ -143,9 +152,15 @@ impl AppSnapManager {
             .and_then(Value::as_str)
             .unwrap_or("unknown")
             .to_string();
+        let accessibility = value
+            .get("accessibility")
+            .and_then(Value::as_str)
+            .unwrap_or("unknown")
+            .to_string();
         self.set_state(|state| {
             state.input_monitoring_permission = input;
             state.screen_recording_permission = screen;
+            state.accessibility_permission = accessibility;
         })
     }
 
@@ -197,6 +212,7 @@ impl AppSnapManager {
         let permissions = self.run_permission_command("--check-permissions")?;
         if permissions.input_monitoring_permission != "granted"
             || permissions.screen_recording_permission != "granted"
+            || permissions.accessibility_permission != "granted"
         {
             self.stop_watch();
             return Ok(self.set_state(|state| {
@@ -304,6 +320,7 @@ impl AppSnapManager {
                 self.set_state(|state| {
                     state.input_monitoring_permission = "granted".to_string();
                     state.screen_recording_permission = "granted".to_string();
+                    state.accessibility_permission = "granted".to_string();
                     state.status = "ready".to_string();
                     state.message = None;
                 });
@@ -333,12 +350,17 @@ impl AppSnapManager {
                     eprintln!("[appsnap] {message}");
                     return;
                 }
-                if code == "input-monitoring-required" || code == "screen-recording-required" {
+                if code == "input-monitoring-required"
+                    || code == "screen-recording-required"
+                    || code == "accessibility-required"
+                {
                     self.set_state(|state| {
                         if code == "input-monitoring-required" {
                             state.input_monitoring_permission = "denied".to_string();
-                        } else {
+                        } else if code == "screen-recording-required" {
                             state.screen_recording_permission = "denied".to_string();
+                        } else {
+                            state.accessibility_permission = "denied".to_string();
                         }
                         state.status = "permission-required".to_string();
                         state.message = Some(Self::permission_message(state));
@@ -350,11 +372,22 @@ impl AppSnapManager {
         }
     }
 
-    fn consume_capture(&self, capture: AppSnapCapture) {
+    fn consume_capture(&self, mut capture: AppSnapCapture) {
         let path = PathBuf::from(&capture.path);
         if let Err(error) = validate_capture_path(&self.capture_directory, &path) {
             self.emit_error("capture-read-failed", &error, Some(capture.captured_at));
             return;
+        }
+        if let Some(snapshot) = capture.accessibility_snapshot.take() {
+            let original_chars = snapshot.chars().count();
+            let bounded = snapshot
+                .chars()
+                .take(MAX_ACCESSIBILITY_SNAPSHOT_CHARS)
+                .collect::<String>();
+            capture.accessibility_snapshot = (!bounded.trim().is_empty()).then_some(bounded);
+            if original_chars > MAX_ACCESSIBILITY_SNAPSHOT_CHARS {
+                capture.accessibility_snapshot_truncated = Some(true);
+            }
         }
         focus_atelier(&self.app);
         let _ = self.app.emit(EVENT_CAPTURED, capture);
@@ -492,5 +525,22 @@ mod tests {
         let path = dir.path().join("appsnap-good.png");
         fs::write(&path, PNG_SIGNATURE).expect("write fixture");
         validate_capture_path(dir.path(), &path).expect("valid capture");
+    }
+
+    #[test]
+    fn capture_payload_accepts_and_bounds_accessibility_text() {
+        let raw = serde_json::json!({
+            "id": "capture-id",
+            "path": "/tmp/capture.png",
+            "name": "capture.png",
+            "capturedAt": "2026-07-15T12:00:00Z",
+            "accessibilitySnapshot": "[button] Send",
+            "accessibilityElementCount": 1,
+            "accessibilitySnapshotTruncated": false
+        });
+        let capture = serde_json::from_value::<AppSnapCapture>(raw).expect("valid payload");
+        assert_eq!(capture.accessibility_snapshot.as_deref(), Some("[button] Send"));
+        assert_eq!(capture.accessibility_element_count, Some(1));
+        assert_eq!(capture.accessibility_snapshot_truncated, Some(false));
     }
 }

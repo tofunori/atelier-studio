@@ -14,6 +14,7 @@ swiftc \
   -O \
   -target arm64-apple-macos12.3 \
   -framework AppKit \
+  -framework ApplicationServices \
   -framework CoreGraphics \
   -framework CoreImage \
   -framework CoreMedia \

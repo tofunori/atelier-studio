@@ -1,4 +1,5 @@
 import AppKit
+import ApplicationServices
 import CoreGraphics
 import CoreImage
 import CoreMedia
@@ -46,6 +47,7 @@ private func emitPermissions(_ emitter: NDJSONEmitter) {
         "type": "permissions",
         "inputMonitoring": permissionName(CGPreflightListenEventAccess()),
         "screenRecording": permissionName(CGPreflightScreenCaptureAccess()),
+        "accessibility": permissionName(AXIsProcessTrusted()),
     ])
 }
 
@@ -83,6 +85,168 @@ private func orderedWindowIDs(for processIdentifier: pid_t) -> [CGWindowID] {
               let number = item[kCGWindowNumber as String] as? NSNumber else { return nil }
         return CGWindowID(number.uint32Value)
     }
+}
+
+private struct AccessibilitySnapshot {
+    let text: String
+    let elementCount: Int
+    let truncated: Bool
+}
+
+private let accessibilitySnapshotMaxElements = 400
+private let accessibilitySnapshotMaxCharacters = 24_000
+private let accessibilitySnapshotMaxDepth = 14
+private let accessibilitySnapshotMaxChildrenPerElement = 80
+private let accessibilitySnapshotMaxFieldCharacters = 500
+
+private func accessibilityAttribute(_ element: AXUIElement, _ attribute: CFString) -> CFTypeRef? {
+    var value: CFTypeRef?
+    guard AXUIElementCopyAttributeValue(element, attribute, &value) == .success else { return nil }
+    return value
+}
+
+private func accessibilityString(_ element: AXUIElement, _ attribute: CFString) -> String? {
+    guard let value = accessibilityAttribute(element, attribute) else { return nil }
+    if let string = value as? String { return string }
+    if let url = value as? URL { return url.absoluteString }
+    return nil
+}
+
+private func accessibilityElement(_ element: AXUIElement, _ attribute: CFString) -> AXUIElement? {
+    guard let value = accessibilityAttribute(element, attribute),
+          CFGetTypeID(value) == AXUIElementGetTypeID() else { return nil }
+    return value as! AXUIElement
+}
+
+private func accessibilityChildren(_ element: AXUIElement) -> [AXUIElement] {
+    accessibilityAttribute(element, kAXChildrenAttribute as CFString) as? [AXUIElement] ?? []
+}
+
+private func normalizedAccessibilityText(_ value: String?) -> String? {
+    guard let value else { return nil }
+    let normalized = value
+        .components(separatedBy: .whitespacesAndNewlines)
+        .filter { !$0.isEmpty }
+        .joined(separator: " ")
+    guard !normalized.isEmpty else { return nil }
+    if normalized.count <= accessibilitySnapshotMaxFieldCharacters { return normalized }
+    let end = normalized.index(normalized.startIndex, offsetBy: accessibilitySnapshotMaxFieldCharacters)
+    return String(normalized[..<end]) + "…"
+}
+
+private func accessibilityRoleLabel(_ role: String?) -> String {
+    let known: [String: String] = [
+        kAXApplicationRole as String: "application",
+        kAXWindowRole as String: "window",
+        kAXGroupRole as String: "group",
+        kAXButtonRole as String: "button",
+        kAXCheckBoxRole as String: "checkbox",
+        kAXRadioButtonRole as String: "radio button",
+        kAXPopUpButtonRole as String: "pop up button",
+        kAXComboBoxRole as String: "combo box",
+        kAXTextFieldRole as String: "text field",
+        kAXTextAreaRole as String: "text entry area",
+        kAXStaticTextRole as String: "static text",
+        kAXImageRole as String: "image",
+        "AXLink": "link",
+        kAXScrollAreaRole as String: "scroll area",
+        kAXListRole as String: "list",
+        kAXTableRole as String: "table",
+        kAXRowRole as String: "row",
+        kAXMenuRole as String: "menu",
+        kAXMenuItemRole as String: "menu item",
+        kAXToolbarRole as String: "toolbar",
+        kAXTabGroupRole as String: "tab group",
+        "AXWebArea": "HTML content",
+    ]
+    guard let role else { return "element" }
+    if let label = known[role] { return label }
+    return role.hasPrefix("AX") ? String(role.dropFirst(2)).lowercased() : role.lowercased()
+}
+
+private func accessibilitySnapshot(
+    for application: NSRunningApplication,
+    windowTitle: String?
+) -> AccessibilitySnapshot? {
+    guard AXIsProcessTrusted() else { return nil }
+    let appElement = AXUIElementCreateApplication(application.processIdentifier)
+    let focusedWindow = accessibilityElement(appElement, kAXFocusedWindowAttribute as CFString)
+    let windows = accessibilityAttribute(appElement, kAXWindowsAttribute as CFString) as? [AXUIElement] ?? []
+    let matchingWindow = windows.first { candidate in
+        normalizedAccessibilityText(accessibilityString(candidate, kAXTitleAttribute as CFString)) ==
+            normalizedAccessibilityText(windowTitle)
+    }
+    guard let root = focusedWindow ?? matchingWindow ?? windows.first else { return nil }
+
+    var lines: [String] = []
+    var characterCount = 0
+    var elementCount = 0
+    var truncated = false
+
+    let appName = normalizedAccessibilityText(application.localizedName) ?? "Unknown app"
+    let title = normalizedAccessibilityText(windowTitle) ??
+        normalizedAccessibilityText(accessibilityString(root, kAXTitleAttribute as CFString)) ??
+        "Untitled window"
+    let header = "Window: \"\(title)\", App: \(appName)"
+    lines.append(header)
+    characterCount = header.count
+
+    func appendLine(_ line: String) -> Bool {
+        let extraCharacters = line.count + 1
+        guard characterCount + extraCharacters <= accessibilitySnapshotMaxCharacters else {
+            truncated = true
+            return false
+        }
+        lines.append(line)
+        characterCount += extraCharacters
+        return true
+    }
+
+    func visit(_ element: AXUIElement, depth: Int) {
+        guard !truncated else { return }
+        guard elementCount < accessibilitySnapshotMaxElements else {
+            truncated = true
+            return
+        }
+        guard depth <= accessibilitySnapshotMaxDepth else {
+            truncated = true
+            return
+        }
+
+        let role = accessibilityString(element, kAXRoleAttribute as CFString)
+        let subrole = accessibilityString(element, kAXSubroleAttribute as CFString)
+        let secure = role == "AXSecureTextField" || subrole == "AXSecureTextField"
+        let title = normalizedAccessibilityText(accessibilityString(element, kAXTitleAttribute as CFString))
+        let description = normalizedAccessibilityText(accessibilityString(element, kAXDescriptionAttribute as CFString))
+        let help = normalizedAccessibilityText(accessibilityString(element, kAXHelpAttribute as CFString))
+        let value = secure ? "[secure text hidden]" : normalizedAccessibilityText(
+            accessibilityString(element, kAXValueAttribute as CFString)
+        )
+        let url = normalizedAccessibilityText(accessibilityString(element, kAXURLAttribute as CFString))
+
+        var details: [String] = []
+        for candidate in [title, description, value, help, url] {
+            guard let candidate, !details.contains(candidate) else { continue }
+            details.append(candidate)
+        }
+        let prefix = String(repeating: "  ", count: depth)
+        let suffix = details.isEmpty ? "" : " " + details.joined(separator: " — ")
+        guard appendLine("\(prefix)[\(accessibilityRoleLabel(role))]\(suffix)") else { return }
+        elementCount += 1
+
+        let children = accessibilityChildren(element)
+        if children.count > accessibilitySnapshotMaxChildrenPerElement { truncated = true }
+        for child in children.prefix(accessibilitySnapshotMaxChildrenPerElement) {
+            visit(child, depth: depth + 1)
+            if truncated { break }
+        }
+    }
+
+    visit(root, depth: 0)
+    if truncated {
+        _ = appendLine("[… accessibility snapshot truncated …]")
+    }
+    return AccessibilitySnapshot(text: lines.joined(separator: "\n"), elementCount: elementCount, truncated: truncated)
 }
 
 private final class CaptureFeedback {
@@ -252,6 +416,10 @@ private final class AppSnapCaptureCoordinator {
                 self.emitter.error("screen-recording-required", "Screen Recording permission is required to capture a window.", id: id, capturedAt: capturedAt)
                 return
             }
+            guard AXIsProcessTrusted() else {
+                self.emitter.error("accessibility-required", "Accessibility permission is required to capture the visible interface text.", id: id, capturedAt: capturedAt)
+                return
+            }
             guard let application = NSWorkspace.shared.frontmostApplication else {
                 self.emitter.error("no_frontmost_application", "There is no frontmost application to capture.", id: id, capturedAt: capturedAt)
                 return
@@ -288,6 +456,11 @@ private final class AppSnapCaptureCoordinator {
                         return
                     }
 
+                    let interfaceSnapshot = accessibilitySnapshot(
+                        for: application,
+                        windowTitle: selected.title
+                    )
+
                     do {
                         let capture = try OneFrameWindowCapture(window: selected) { result in
                             self.queue.async {
@@ -301,7 +474,8 @@ private final class AppSnapCaptureCoordinator {
                                         id: id,
                                         capturedAt: capturedAt,
                                         application: application,
-                                        window: selected
+                                        window: selected,
+                                        interfaceSnapshot: interfaceSnapshot
                                     )
                                 }
                             }
@@ -321,7 +495,8 @@ private final class AppSnapCaptureCoordinator {
         id: String,
         capturedAt: String,
         application: NSRunningApplication,
-        window: SCWindow
+        window: SCWindow,
+        interfaceSnapshot: AccessibilitySnapshot?
     ) {
         let fileName = "appsnap-\(id.lowercased()).png"
         let destination = outputDirectory.appendingPathComponent(fileName, isDirectory: false)
@@ -344,6 +519,9 @@ private final class AppSnapCaptureCoordinator {
             "sourceBundleIdentifier": application.bundleIdentifier,
             "sourceAppIconDataUrl": appIconDataURL(application),
             "sourceWindowTitle": window.title,
+            "accessibilitySnapshot": interfaceSnapshot?.text,
+            "accessibilityElementCount": interfaceSnapshot?.elementCount,
+            "accessibilitySnapshotTruncated": interfaceSnapshot?.truncated,
         ])
     }
 }
@@ -476,6 +654,10 @@ do {
     case .requestPermissions:
         if !CGPreflightListenEventAccess() { _ = CGRequestListenEventAccess() }
         if !CGPreflightScreenCaptureAccess() { _ = CGRequestScreenCaptureAccess() }
+        if !AXIsProcessTrusted() {
+            let options = [kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String: true] as CFDictionary
+            _ = AXIsProcessTrustedWithOptions(options)
+        }
         emitPermissions(emitter)
     case .watch(let outputDirectory, let excludedBundleIdentifier, let parentProcessIdentifier):
         guard #available(macOS 12.3, *) else {

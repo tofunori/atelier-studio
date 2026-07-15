@@ -44,6 +44,9 @@ html.gallery-react-mounted #selBar { display:none!important;margin:0!important;p
 .gallery-type-customize-grid [data-slot="toggle-group-item"] { justify-content:flex-start; }
 /* Type actif : accent primaire (bordure + texte + ✓) au lieu d'un simple fond */
 .gallery-quick-types [data-gallery-active="true"] { color:var(--primary);border-color:var(--primary); }
+/* Hauteurs compactes du panneau : les classes tailwind h-* rendent ~25% trop haut dans ce contexte popover, on force ici */
+.gallery-quick-types [data-slot="toggle-group-item"] { height:24px;padding-inline:6px; }
+.gallery-project-presets [data-slot="button"] { height:24px; }
 .gallery-project-preset { display:flex;align-items:center;gap:1px; }
 .gallery-all-types { display:flex;max-height:150px;flex-direction:column;gap:1px;overflow:auto;padding-right:2px; }
 .gallery-all-type-row { display:flex;min-width:0;align-items:center;justify-content:space-between;gap:4px;border-radius:6px; }
@@ -55,7 +58,7 @@ html.gallery-react-mounted #selBar { display:none!important;margin:0!important;p
 .gallery-other-filter-row > svg { width:15px;height:15px;flex:0 0 auto;color:var(--muted-foreground); }
 .gallery-other-filter-row [data-slot="select-trigger"] { min-width:0;flex:1 1 auto; }
 .gallery-filter-panel-foot { display:flex;align-items:center;justify-content:flex-start;padding:8px 12px; }
-.gallery-filter-disclosure { width:calc(100% - 16px);height:32px;margin:4px 8px;justify-content:space-between;border-radius:6px;padding-inline:12px;font-weight:600; }
+.gallery-filter-disclosure { width:calc(100% - 16px);height:28px;margin:4px 8px;justify-content:space-between;border-radius:6px;padding-inline:12px;font-weight:600; }
 .gallery-filter-collapsible-content { display:flex;flex-direction:column;gap:8px;padding:0 12px 12px; }
 
 @media (max-width:1000px) {

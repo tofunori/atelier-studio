@@ -49,6 +49,7 @@ describe("Settings — navigation et fermeture", () => {
     expect(screen.getByText(t("appsnap.card-title"))).toBeTruthy();
     expect(screen.getByText("⌥ Option")).toBeTruthy();
     expect(screen.getByText(t("appsnap.destination-auto"))).toBeTruthy();
+    expect(screen.getByText(t("appsnap.accessibility"))).toBeTruthy();
     expect(screen.getByText(t("appsnap.local-note"))).toBeTruthy();
   });
 

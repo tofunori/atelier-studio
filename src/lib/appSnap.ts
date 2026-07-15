@@ -11,6 +11,7 @@ export type AppSnapState = {
   shortcut: "both-option-keys" | null;
   inputMonitoringPermission: AppSnapPermission;
   screenRecordingPermission: AppSnapPermission;
+  accessibilityPermission: AppSnapPermission;
   message: string | null;
 };
 
@@ -23,6 +24,9 @@ export type AppSnapCapture = {
   sourceBundleIdentifier: string | null;
   sourceAppIconDataUrl: string | null;
   sourceWindowTitle: string | null;
+  accessibilitySnapshot: string | null;
+  accessibilityElementCount: number | null;
+  accessibilitySnapshotTruncated: boolean | null;
 };
 
 export type AppSnapError = {
@@ -39,8 +43,30 @@ const WEB_STATE: AppSnapState = {
   shortcut: null,
   inputMonitoringPermission: "unknown",
   screenRecordingPermission: "unknown",
+  accessibilityPermission: "unknown",
   message: "AppSnap is available in the Atelier macOS app.",
 };
+
+export function appSnapContextText(
+  capture: AppSnapCapture,
+  appName: string,
+  windowTitle: string,
+): string {
+  const snapshot = capture.accessibilitySnapshot?.trim();
+  const context = [
+    `AppSnap captured from ${appName}.`,
+    `Window: ${windowTitle}`,
+    `Local image file: ${capture.path}`,
+    "Inspect the attached image when answering the user's message.",
+  ];
+  if (snapshot) {
+    context.push(
+      "Accessibility snapshot of the visible interface (text representation; it may be incomplete):",
+      snapshot,
+    );
+  }
+  return context.join("\n");
+}
 
 export async function getAppSnapState(): Promise<AppSnapState> {
   if (!isTauri()) return WEB_STATE;
