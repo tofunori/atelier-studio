@@ -365,10 +365,11 @@ function GalleryFileTypePanel({
                 )}
               </div>
             ))}
-            <Button variant="outline" size="xs" data-gallery-new-preset onClick={() => setCreatingPreset(true)}>
-              <Plus data-icon="inline-start" />
-              New preset
-            </Button>
+            <Tooltip label="New preset">
+              <Button variant="outline" size="icon-xs" data-gallery-new-preset aria-label="New preset" onClick={() => setCreatingPreset(true)}>
+                <Plus />
+              </Button>
+            </Tooltip>
           </div>
           {creatingPreset && (
             <InputGroup data-gallery-preset-form>
