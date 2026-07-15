@@ -31,6 +31,7 @@ src-tauri/node-dist/
 # staged binary only (directory kept so tauri-build resource path exists)
 src-tauri/rust-server-dist/atelier-studio-server
 src-tauri/rust-server-dist/BUILD_STAMP.txt
+src-tauri/appsnap-dist/
 .cache/node-runtime/
 .opencode/
 

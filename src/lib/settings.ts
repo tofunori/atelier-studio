@@ -17,6 +17,8 @@ export type Settings = {
   galleryExts: string; // extensions par défaut de la galerie ("" = liste intégrée)
   galleryExtsByProject: Record<string, string>; // racine projet -> extensions
   autoRefreshAtelier: boolean;
+  enableAppSnap: boolean;
+  appSnapPlaySound: boolean;
   autoReview: {
     enabled: boolean;
     provider: ProviderId;
@@ -59,6 +61,8 @@ export const DEFAULT_SETTINGS: Settings = {
   galleryExts: "",
   galleryExtsByProject: {},
   autoRefreshAtelier: true,
+  enableAppSnap: false,
+  appSnapPlaySound: true,
   autoReview: { enabled: false, provider: "codex", model: "gpt-5.5", effort: "high", trigger: "files-changed", autofix: false },
   language: "system",
   theme: "dark",

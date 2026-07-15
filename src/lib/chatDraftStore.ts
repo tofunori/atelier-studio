@@ -10,7 +10,7 @@ export type DraftAttachment = {
   text: string;
   imageUrl?: string;
   path?: string;
-  kind?: "file" | "folder" | "zotero" | "quote" | "paste";
+  kind?: "file" | "folder" | "zotero" | "quote" | "paste" | "appsnap";
   preview?: { title: string; rows: { label: string; value: string }[] };
 };
 

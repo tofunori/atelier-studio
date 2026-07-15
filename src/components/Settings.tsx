@@ -1,11 +1,19 @@
 import { useEffect, useState } from "react";
 import { confirm as tauriConfirm } from "@tauri-apps/plugin-dialog";
 import { Settings as S, DEFAULT_SETTINGS } from "../lib/settings";
+import {
+  getAppSnapState,
+  onAppSnapState,
+  requestAppSnapPermissions,
+  setAppSnapEnabled,
+  type AppSnapPermission,
+  type AppSnapState,
+} from "../lib/appSnap";
 import { THEME_PRESETS } from "../lib/themes";
 import { setLanguage, t } from "../lib/i18n";
 import { PlusIcon } from "./icons";
 import { Select } from "./Select";
-import { Button, InlineNotice, SegmentedControl } from "./ui";
+import { Button, InlineNotice, SegmentedControl, showError } from "./ui";
 import { Checkbox, CheckboxIndicator } from "./shadcn/checkbox";
 import { Field, FieldGroup, FieldLabel } from "./shadcn/field";
 import { Input } from "./shadcn/input";
@@ -13,7 +21,7 @@ import { Switch } from "./shadcn/switch";
 import { Textarea } from "./shadcn/textarea";
 import { ToggleGroup, ToggleGroupItem } from "./shadcn/toggle-group";
 import { Slider as ShadcnSlider } from "./shadcn/slider";
-import { CheckIcon } from "lucide-react";
+import { CheckIcon, ScanLineIcon } from "lucide-react";
 import { RemoteDevicesPanel } from "./RemoteDevicesPanel";
 
 const SECTIONS = [
@@ -22,6 +30,7 @@ const SECTIONS = [
   { id: "apparence", labelKey: "settings.appearance" },
   { id: "modeles", labelKey: "settings.models" },
   { id: "review", labelKey: "settings.review" },
+  { id: "appsnap", labelKey: "settings.appsnap" },
   { id: "atelier", labelKey: "settings.atelier" },
   { id: "providers", labelKey: "settings.providers" },
   { id: "avance", labelKey: "settings.advanced" },
@@ -180,6 +189,8 @@ export default function SettingsPage(p: {
   const [apiModelsBusy, setApiModelsBusy] = useState(false);
   const [apiModelsQuery, setApiModelsQuery] = useState("");
   const [pasted, setPasted] = useState<{ name: string; size: number; mtime: number; dataURL?: string }[] | null>(null);
+  const [appSnapState, setAppSnapState] = useState<AppSnapState | null>(null);
+  const [appSnapBusy, setAppSnapBusy] = useState(false);
   const s = p.settings;
   const customModels = s.customModels ?? [];
   const modelEfforts = s.modelEfforts ?? {};
@@ -251,6 +262,23 @@ export default function SettingsPage(p: {
     return () => p.ws?.removeEventListener("message", onMsg);
   }, [p.ws]);
 
+  useEffect(() => {
+    let disposed = false;
+    let unlisten = () => {};
+    void getAppSnapState()
+      .then((state) => { if (!disposed) setAppSnapState(state); })
+      .catch((error) => { if (!disposed) void showError(String(error)); });
+    void onAppSnapState((state) => { if (!disposed) setAppSnapState(state); })
+      .then((stop) => {
+        if (disposed) stop();
+        else unlisten = stop;
+      });
+    return () => {
+      disposed = true;
+      unlisten();
+    };
+  }, []);
+
   const themeMatches = THEME_PRESETS.filter((th) =>
     th.name.toLowerCase().includes(themeQuery.toLowerCase()));
   const currentTheme = themeMatches.find((th) => th.id === s.themePreset);
@@ -258,6 +286,45 @@ export default function SettingsPage(p: {
 
   function refreshSetup() {
     if (p.ws?.readyState === 1) p.ws.send(JSON.stringify({ type: "setupStatus" }));
+  }
+
+  async function toggleAppSnap(enabled: boolean) {
+    setAppSnapBusy(true);
+    try {
+      if (enabled) setAppSnapState(await requestAppSnapPermissions());
+      const state = await setAppSnapEnabled(enabled);
+      setAppSnapState(state);
+      set({ enableAppSnap: enabled });
+    } catch (error) {
+      void showError(t("appsnap.action-failed", { error: String(error) }));
+    } finally {
+      setAppSnapBusy(false);
+    }
+  }
+
+  async function recheckAppSnap() {
+    setAppSnapBusy(true);
+    try {
+      let state = await getAppSnapState();
+      if (s.enableAppSnap) state = await setAppSnapEnabled(true);
+      setAppSnapState(state);
+    } catch (error) {
+      void showError(t("appsnap.action-failed", { error: String(error) }));
+    } finally {
+      setAppSnapBusy(false);
+    }
+  }
+
+  function permissionBadge(permission: AppSnapPermission) {
+    return (
+      <span className={`set-badge ${permission === "granted" ? "ok" : permission === "denied" ? "ko" : "warn"}`}>
+        {permission === "granted"
+          ? t("appsnap.permission-granted")
+          : permission === "denied"
+            ? t("appsnap.permission-required")
+            : t("appsnap.permission-unknown")}
+      </span>
+    );
   }
 
   function authLabel(auth: string) {
@@ -724,6 +791,73 @@ export default function SettingsPage(p: {
                 />
               </Row>
             </Group>
+          </>
+        )}
+        {section === "appsnap" && (
+          <>
+            <h1>{t("settings.appsnap")}</h1>
+            <p className="set-sub">{t("settings.appsnap-sub")}</p>
+            <div className="appsnap-intro" role="note">
+              <div className="appsnap-intro-icon" aria-hidden="true">
+                <ScanLineIcon />
+              </div>
+              <div>
+                <div className="appsnap-intro-title">{t("appsnap.card-title")}</div>
+                <p>
+                  {t("appsnap.card-prefix")}{" "}
+                  <kbd className="appsnap-key">⌥ Option</kbd>{" "}
+                  {t("appsnap.card-suffix")}
+                </p>
+              </div>
+            </div>
+            <Group label={t("appsnap.group.capture")}>
+              <Row title={t("appsnap.enable")} desc={t("appsnap.enable-desc")}>
+                <Toggle
+                  label={t("appsnap.enable")}
+                  checked={s.enableAppSnap}
+                  onChange={(enabled) => { void toggleAppSnap(enabled); }}
+                />
+              </Row>
+              <Row title={t("appsnap.shortcut")} desc={t("appsnap.shortcut-desc")}>
+                <span className="appsnap-shortcut" aria-label={t("appsnap.shortcut-value-label")}>
+                  <kbd>⌥ {t("appsnap.left")}</kbd>
+                  <span>+</span>
+                  <kbd>⌥ {t("appsnap.right")}</kbd>
+                </span>
+              </Row>
+              <Row title={t("appsnap.destination")} desc={t("appsnap.destination-desc")}>
+                <span className="set-badge ok">{t("appsnap.destination-auto")}</span>
+              </Row>
+              <Row title={t("appsnap.sound")} desc={t("appsnap.sound-desc")}>
+                <Toggle
+                  label={t("appsnap.sound")}
+                  checked={s.appSnapPlaySound}
+                  onChange={(appSnapPlaySound) => set({ appSnapPlaySound })}
+                />
+              </Row>
+            </Group>
+            <Group label={t("appsnap.group.permissions")}>
+              <Row title={t("appsnap.input-monitoring")} desc={t("appsnap.input-monitoring-desc")}>
+                {permissionBadge(appSnapState?.inputMonitoringPermission ?? "unknown")}
+              </Row>
+              <Row title={t("appsnap.screen-recording")} desc={t("appsnap.screen-recording-desc")}>
+                {permissionBadge(appSnapState?.screenRecordingPermission ?? "unknown")}
+              </Row>
+              <Row
+                title={t("appsnap.status")}
+                desc={appSnapState?.message || t(`appsnap.status-${appSnapState?.status ?? "disabled"}` as any)}
+              >
+                <Button
+                  variant="ghost"
+                  className="set-btn quiet"
+                  disabled={appSnapBusy}
+                  onClick={() => { void recheckAppSnap(); }}
+                >
+                  {appSnapBusy ? t("settings.checking") : t("appsnap.recheck")}
+                </Button>
+              </Row>
+            </Group>
+            <p className="appsnap-local-note">{t("appsnap.local-note")}</p>
           </>
         )}
         {section === "atelier" && (

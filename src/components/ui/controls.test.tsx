@@ -51,8 +51,8 @@ describe("SegmentedControl", () => {
     render(<SegFixture onChange={onChange} />);
     fireEvent.click(screen.getByRole("radio", { name: "Atelier" }));
     expect(onChange).toHaveBeenCalledWith("atelier");
-    expect(screen.getByRole("radio", { name: "Atelier" }).className).toContain("on");
-    expect(screen.getByRole("radio", { name: "Chat" }).className).not.toContain("on");
+    expect(screen.getByRole("radio", { name: "Atelier" }).className.split(/\s+/)).toContain("on");
+    expect(screen.getByRole("radio", { name: "Chat" }).className.split(/\s+/)).not.toContain("on");
   });
 
   it("flèches : droite/bas avance (cycle), gauche/haut recule ; le focus suit la sélection", () => {

@@ -42,6 +42,7 @@ function attachmentKindLabel(kind?: string) {
     case "zotero":
       return t("context.kind-zotero");
     case "image":
+    case "appsnap":
       return t("context.kind-image");
     case "quote":
       return t("context.kind-quote");

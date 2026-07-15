@@ -31,7 +31,7 @@ import { LazyBoundary, lazyWithRetry } from "./components/LazyBoundary";
 const CommandPalette = lazyWithRetry(() => import("./components/CommandPalette"));
 import QuickAsk from "./components/QuickAsk";
 import { LazyDialog } from "./components/ui/LazyDialog";
-import { Button, IconButton, showInfo, showSuccess } from "./components/ui";
+import { Button, IconButton, showError, showInfo, showSuccess } from "./components/ui";
 import UsagePopover, { worstOf } from "./components/UsagePopover";
 import PluginPanel from "./components/PluginPanel";
 import { pluginSkillsForPrompt, type PluginCatalogEntry } from "./lib/plugins";
@@ -63,6 +63,13 @@ import {
   type DraftAttachment,
   type QueuedTurn,
 } from "./lib/chatDraftStore";
+import {
+  appSnapPreviewUrl,
+  onAppSnapCaptured,
+  onAppSnapError,
+  setAppSnapEnabled,
+  type AppSnapCapture,
+} from "./lib/appSnap";
 // tokens → shadcn/Typeset → primitives → App.css : les alias sémantiques et les classes ui-*
 // doivent être définis avant les règles historiques (cascade à égalité de
 // spécificité — App.css garde le dernier mot pendant la migration).
@@ -137,6 +144,30 @@ function parseAttachment(text: string): Attachment {
 
 function addAttachment(list: Attachment[], a: Attachment): Attachment[] {
   return list.some((x) => x.text === a.text) ? list : [...list, a];
+}
+
+function playAppSnapSound() {
+  try {
+    const AudioContextClass = window.AudioContext || (window as typeof window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+    if (!AudioContextClass) return;
+    const context = new AudioContextClass();
+    const gain = context.createGain();
+    const oscillator = context.createOscillator();
+    const now = context.currentTime;
+    oscillator.type = "sine";
+    oscillator.frequency.setValueAtTime(760, now);
+    oscillator.frequency.exponentialRampToValueAtTime(440, now + 0.08);
+    gain.gain.setValueAtTime(0.0001, now);
+    gain.gain.exponentialRampToValueAtTime(0.055, now + 0.008);
+    gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.09);
+    oscillator.connect(gain);
+    gain.connect(context.destination);
+    oscillator.start(now);
+    oscillator.stop(now + 0.1);
+    oscillator.addEventListener("ended", () => { void context.close(); }, { once: true });
+  } catch {
+    // Le son est un feedback facultatif; la capture reste utilisable sans lui.
+  }
 }
 
 function checkpointAfterUser(events: AgentEvent[], index: number) {
@@ -686,6 +717,94 @@ export default function App() {
     restoreQueuedTurn,
   } = useChatDraftStore(activeComposerKey);
   const attachments = activeComposerDraft.attachments;
+
+  useEffect(() => {
+    let disposed = false;
+    const stops: Array<() => void> = [];
+    const handledCaptures = new Set<string>();
+
+    const register = async () => {
+      const capturedStop = await onAppSnapCaptured((capture: AppSnapCapture) => {
+        if (disposed || handledCaptures.has(capture.id)) return;
+        handledCaptures.add(capture.id);
+
+        const projectRoot = activeProjectRef.current ?? "";
+        let threadId = activeIdRef.current;
+        if (!threadId) {
+          threadId = crypto.randomUUID();
+          const freshThread: Thread = {
+            id: threadId,
+            projectRoot,
+            title: t("app.new-chat-title"),
+            provider: settingsRef.current.defaultProvider,
+            sessionId: null,
+            status: "idle",
+            updatedAt: new Date().toISOString(),
+          };
+          setDraftThreads((current) => [freshThread, ...current]);
+          setActiveId(threadId);
+          activeIdRef.current = threadId;
+          setEvents((current) => ({ ...current, [threadId as string]: current[threadId as string] ?? [] }));
+        }
+
+        const appName = capture.sourceAppName || t("appsnap.source-unknown");
+        const windowTitle = capture.sourceWindowTitle?.trim() || t("appsnap.window-untitled");
+        const attachment: Attachment = {
+          name: capture.name,
+          lines: null,
+          kind: "appsnap",
+          path: capture.path,
+          imageUrl: appSnapPreviewUrl(capture.path),
+          text: [
+            `AppSnap captured from ${appName}.`,
+            `Window: ${windowTitle}`,
+            `Local image file: ${capture.path}`,
+            "Inspect the attached image when answering the user's message.",
+          ].join("\n"),
+          preview: {
+            title: t("appsnap.preview-title"),
+            rows: [
+              { label: t("appsnap.preview-app"), value: appName },
+              { label: t("appsnap.preview-window"), value: windowTitle },
+              { label: t("appsnap.preview-file"), value: capture.path },
+            ],
+          },
+        };
+        updateComposerDraft(composerDraftKey(threadId, projectRoot), (draft) => ({
+          ...draft,
+          attachments: addAttachment(draft.attachments, attachment),
+        }));
+        setShowSettings(false);
+        setSettings((current) => current.activeView === "chats" ? current : { ...current, activeView: "chats" });
+        setLayout((current) => current === "atelier" ? "split" : current);
+        if (settingsRef.current.appSnapPlaySound) playAppSnapSound();
+        requestAnimationFrame(focusComposer);
+        void showSuccess(t("appsnap.capture-added", { app: appName }));
+      });
+      if (disposed) capturedStop();
+      else stops.push(capturedStop);
+
+      const errorStop = await onAppSnapError((error) => {
+        if (!disposed) void showError(t("appsnap.capture-failed", { error: error.message }));
+      });
+      if (disposed) errorStop();
+      else stops.push(errorStop);
+    };
+    void register().catch((error) => {
+      if (!disposed) void showError(t("appsnap.action-failed", { error: String(error) }));
+    });
+    return () => {
+      disposed = true;
+      stops.forEach((stop) => stop());
+    };
+  }, [updateComposerDraft]);
+
+  useEffect(() => {
+    void setAppSnapEnabled(settings.enableAppSnap).catch((error) => {
+      if (settings.enableAppSnap) void showError(t("appsnap.action-failed", { error: String(error) }));
+    });
+  }, [settings.enableAppSnap]);
+
   // Serveur atelier extrait dans useAtelierServer (slice 2.2) — démarrage par
   // projet, sonde 15 s, relance dure ; restauration des onglets épinglés et
   // bannières restent ici (domaines App).

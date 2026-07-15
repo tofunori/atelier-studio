@@ -27,10 +27,10 @@ beforeEach(() => { resetTestState(); setLanguage("fr"); vi.clearAllMocks(); });
 afterEach(cleanup);
 
 describe("Settings — navigation et fermeture", () => {
-  it("rend les 8 sections ; la section active porte aria-current", () => {
+  it("rend les 9 sections ; la section active porte aria-current", () => {
     renderUi(<SettingsPage {...props()} />);
     const items = document.querySelectorAll(".set-nav-item");
-    expect(items.length).toBe(8);
+    expect(items.length).toBe(9);
     const active = document.querySelector('.set-nav-item[aria-current="true"]');
     expect(active?.textContent).toBe(t("settings.general"));
   });
@@ -41,6 +41,15 @@ describe("Settings — navigation et fermeture", () => {
     expect(document.querySelector('.set-nav-item[aria-current="true"]')?.textContent)
       .toBe(t("settings.appearance"));
     expect(screen.getByText(t("settings.appearance-sub"))).toBeTruthy();
+  });
+
+  it("AppSnap explique le vrai raccourci global et sa destination locale", () => {
+    renderUi(<SettingsPage {...props()} />);
+    fireEvent.click(screen.getByText(t("settings.appsnap")));
+    expect(screen.getByText(t("appsnap.card-title"))).toBeTruthy();
+    expect(screen.getByText("⌥ Option")).toBeTruthy();
+    expect(screen.getByText(t("appsnap.destination-auto"))).toBeTruthy();
+    expect(screen.getByText(t("appsnap.local-note"))).toBeTruthy();
   });
 
   it("Échap ferme la page — mais jamais pendant une saisie", () => {

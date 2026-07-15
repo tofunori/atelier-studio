@@ -865,6 +865,19 @@ html, body, #root, .app { height: 100vh; overflow: hidden;
 .set-badge.ok { background: rgba(52,201,142,0.15); color: #34c98e; }
 .set-badge.ko { background: rgba(224,108,117,0.15); color: #e06c75; }
 .set-badge.warn { background: rgba(224,183,74,0.16); color: #e0b74a; }
+.appsnap-intro { display: grid; grid-template-columns: 48px minmax(0, 1fr); gap: 18px;
+  align-items: start; margin: 0 0 28px; padding: 24px 26px; border: 1px solid var(--border2);
+  border-radius: 14px; background: color-mix(in srgb, var(--bg-card) 70%, transparent); }
+.appsnap-intro-icon { width: 44px; height: 44px; display: grid; place-items: center;
+  border: 1px solid var(--border2); border-radius: 13px; color: var(--fg2); background: var(--bg-ctl); }
+.appsnap-intro-icon svg { width: 23px; height: 23px; stroke-width: 1.65; }
+.appsnap-intro-title { color: var(--fg); font-size: var(--fs-l); font-weight: 600; line-height: 1.35; }
+.appsnap-intro p { margin: 7px 0 0; color: var(--fg2); font-size: var(--fs-l); line-height: 1.55; }
+.appsnap-key, .appsnap-shortcut kbd { font: inherit; color: var(--fg2); background: var(--bg-ctl);
+  border: 1px solid var(--border); border-bottom-color: var(--border2); border-radius: 6px;
+  padding: 2px 7px; white-space: nowrap; box-shadow: 0 1px 0 color-mix(in srgb, var(--border2) 80%, transparent); }
+.appsnap-shortcut { display: inline-flex; align-items: center; gap: 7px; color: var(--muted); font-size: var(--fs-m); }
+.appsnap-local-note { margin: -10px 2px 28px; color: var(--muted2); font-size: var(--fs-m); line-height: 1.5; }
 .setup-model-count, .setup-version { color: var(--muted); font-size: var(--fs-m); white-space: nowrap; }
 .setup-version { max-width: 180px; overflow: hidden; text-overflow: ellipsis; }
 .set-btn { background: var(--bg-ctl); border: 1px solid var(--border2); border-radius: var(--r-m);

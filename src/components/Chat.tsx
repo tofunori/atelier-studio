@@ -16,7 +16,7 @@ import { QueuedTurns } from "./chat/QueuedTurns";
 import { mentionLabel } from "./chat/mentions";
 import { BUILTIN_MODEL_LABELS } from "../lib/modelCatalog";
 import type { PluginCatalogEntry } from "../lib/plugins";
-import type { FollowUpMode, QueuedTurn } from "../lib/chatDraftStore";
+import type { DraftAttachment, FollowUpMode, QueuedTurn } from "../lib/chatDraftStore";
 import {
   buildChatTurnViewModels,
   projectChatTimeline,
@@ -47,15 +47,7 @@ type Suggestion = {
   attachZoteroKey?: string;
 };
 
-type ChatAttachment = {
-  name: string;
-  lines: string | null;
-  text: string;
-  imageUrl?: string;
-  path?: string;
-  kind?: "file" | "folder" | "zotero" | "quote" | "paste";
-  preview?: { title: string; rows: { label: string; value: string }[] };
-};
+type ChatAttachment = DraftAttachment;
 
 type ChatZoteroItem = {
   key: string;
