@@ -1,7 +1,7 @@
 import { fireEvent, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import { renderUi } from "../../test/render";
-import { ActivityDisclosure, JumpNavigation, Tab, TabList } from ".";
+import { ActivityDisclosure, ScrollToBottomButton, Tab, TabList } from ".";
 
 describe("patterns officiels du design system", () => {
   it("Tabs expose sélection, variante compacte et fermeture", () => {
@@ -21,12 +21,17 @@ describe("patterns officiels du design system", () => {
     expect(toggle).toHaveBeenCalledTimes(1);
   });
 
-  it("JumpNavigation sépare les deux destinations", () => {
-    const first = vi.fn(); const last = vi.fn();
-    renderUi(<JumpNavigation firstLabel="Dernier message" firstIcon="↑" onFirst={first} lastLabel="Bas" lastIcon="↓" onLast={last} />);
-    fireEvent.click(screen.getByTitle("Dernier message"));
+  it("ScrollToBottom reste inerte au bord bas et devient actionnable à distance", () => {
+    const scroll = vi.fn();
+    const { rerender } = renderUi(<ScrollToBottomButton label="Bas" show={false} onClick={scroll} />);
+    expect(screen.getByTitle("Bas")).toHaveAttribute("aria-hidden", "true");
     fireEvent.click(screen.getByTitle("Bas"));
-    expect(first).toHaveBeenCalledTimes(1);
-    expect(last).toHaveBeenCalledTimes(1);
+    expect(scroll).not.toHaveBeenCalled();
+
+    rerender(<ScrollToBottomButton label="Bas" show working onClick={scroll} />);
+    expect(screen.getByTitle("Bas")).toHaveAttribute("data-active", "true");
+    expect(document.querySelectorAll(".ui-scroll-working-dots > span")).toHaveLength(3);
+    fireEvent.click(screen.getByTitle("Bas"));
+    expect(scroll).toHaveBeenCalledTimes(1);
   });
 });

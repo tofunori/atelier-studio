@@ -24,4 +24,4 @@ export { TabList, Tab } from "./Tabs";
 export { ActivityDisclosure } from "./ActivityDisclosure";
 export { AppOverlays } from "./AppOverlays";
 export { showSuccess, showError, showInfo, showUndo } from "./toast";
-export { JumpNavigation } from "./JumpNavigation";
+export { ScrollToBottomButton } from "./ScrollToBottomButton";

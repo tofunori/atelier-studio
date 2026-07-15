@@ -12,7 +12,7 @@ import type { PluginCatalogEntry } from "../../lib/plugins";
 import { transitionScrollPolicy } from "../../lib/chat/scrollPolicy";
 import { t } from "../../lib/i18n";
 import { isValidSkill } from "./mentions";
-import { ZapIcon, ArrowDownIcon } from "../icons";
+import { ZapIcon } from "../icons";
 import {
   ChatEmptyState, UserTurn, StreamingText, AssistantText, ResultCapsule,
   ActivityFold, ActivityGroup, ActiveTurnHeader, ActiveTurnTail, type ReviewState,
@@ -21,7 +21,7 @@ import { ResearchHome, type ResearchHomeBundle } from "../ResearchHome";
 import { ThinkingBlock, EditLine, ActivityCard, LiveThinking, Working, formatPermInput } from "./turnParts";
 import { HarnessInteraction } from "./HarnessInteraction";
 import { ProposedPlanCard } from "./ProposedPlanCard";
-import { JumpNavigation } from "../ui";
+import { ScrollToBottomButton } from "../ui";
 import { Input } from "../shadcn/input";
 
 type RenderedItem =
@@ -87,31 +87,6 @@ export type TimelineEmpty = {
   home?: ResearchHomeBundle | null;
 };
 
-function TimelineJumpNavigation(p: { onLastUser: () => void; onBottom: () => void }) {
-  return (
-    <JumpNavigation
-      firstLabel={t("chat.jump-last-message")}
-      firstIcon={<svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round"><path d="M3.6 9.8L8 5.4l4.4 4.4" /></svg>}
-      onFirst={() => {
-        p.onLastUser();
-      }}
-      lastLabel={t("chat.jump-bottom")}
-      lastIcon={<ArrowDownIcon />}
-      lastControl={(
-        <button
-          type="button"
-          className="ui-jumpnav-end"
-          title={t("chat.jump-bottom")}
-          aria-label={t("chat.jump-bottom")}
-          onClick={p.onBottom}
-        >
-          <ArrowDownIcon />
-        </button>
-      )}
-    />
-  );
-}
-
 export function ChatTimeline(p: {
   thread: TimelineThread;
   rev: TimelineReview;
@@ -140,12 +115,9 @@ export function ChatTimeline(p: {
   const { onNewChat, onOpenProject } = p.empty;
   const { quote, setQuote, quoteHasHl, quoteHasUl, addMark, removeMark } = p.selection;
   void onQuote; void openFolds; // utilisés par des handlers/branches copiés verbatim
-  let lastUserIndex = -1;
-  for (let i = events.length - 1; i >= 0; i--) {
-    if (events[i].kind === "user") { lastUserIndex = i; break; }
-  }
   const timelineListRef = React.useRef<LegendListRef>(null);
   const [autoFollow, setAutoFollow] = React.useState(true);
+  const [isScrolledFromBottom, setIsScrolledFromBottom] = React.useState(false);
   const phaseRef = React.useRef<TurnPhase>(phase);
   const virtualItems = React.useMemo<TimelineVirtualItem[]>(() => {
     const rows: TimelineVirtualItem[] = [];
@@ -170,7 +142,6 @@ export function ChatTimeline(p: {
   const virtualIndexForEvent = React.useCallback((eventIndex: number) => (
     virtualItems.findIndex((row) => row.type === "rendered" && row.item.type === "event" && row.item.index === eventIndex)
   ), [virtualItems]);
-  const lastUserVirtualIndex = lastUserIndex >= 0 ? virtualIndexForEvent(lastUserIndex) : -1;
   let finalAnswerIndex = -1;
   if (phase === "final_answer") {
     for (let index = events.length - 1; index >= 0; index -= 1) {
@@ -187,11 +158,16 @@ export function ChatTimeline(p: {
     (messagesRef as MutableRefObject<HTMLDivElement | null>).current = native instanceof HTMLDivElement ? native : null;
     if (!(native instanceof HTMLDivElement)) return;
     const onWheel = (event: WheelEvent) => {
-      if (event.deltaY < 0) setAutoFollow(false);
+      if (event.deltaY < 0) {
+        setAutoFollow(false);
+        setIsScrolledFromBottom(true);
+      }
     };
     const onScroll = () => {
       const distance = native.scrollHeight - native.clientHeight - native.scrollTop;
-      if (distance <= 32) setAutoFollow(true);
+      const awayFromBottom = distance > 32;
+      setIsScrolledFromBottom((current) => current === awayFromBottom ? current : awayFromBottom);
+      if (!awayFromBottom) setAutoFollow(true);
     };
     native.addEventListener("wheel", onWheel, { passive: true });
     native.addEventListener("scroll", onScroll, { passive: true });
@@ -205,6 +181,7 @@ export function ChatTimeline(p: {
   React.useEffect(() => {
     phaseRef.current = phase;
     setAutoFollow(true);
+    setIsScrolledFromBottom(false);
   }, [threadId]);
 
   React.useEffect(() => {
@@ -221,14 +198,9 @@ export function ChatTimeline(p: {
     }
   }, [autoFollow, finalAnswerVirtualIndex, phase]);
 
-  const scrollToLastUser = React.useCallback(() => {
-    setAutoFollow(false);
-    if (lastUserVirtualIndex >= 0) {
-      void timelineListRef.current?.scrollToIndex({ index: lastUserVirtualIndex, animated: true, viewPosition: 0 });
-    }
-  }, [lastUserVirtualIndex]);
   const scrollToBottom = React.useCallback(() => {
     setAutoFollow(true);
+    setIsScrolledFromBottom(false);
     void timelineListRef.current?.scrollToEnd({ animated: true });
   }, []);
   return (
@@ -580,7 +552,12 @@ export function ChatTimeline(p: {
           );
         }}
       />
-      <TimelineJumpNavigation onLastUser={scrollToLastUser} onBottom={scrollToBottom} />
+      <ScrollToBottomButton
+        label={t("chat.jump-bottom")}
+        show={isScrolledFromBottom}
+        working={workingSince != null}
+        onClick={scrollToBottom}
+      />
       {pins.length > 0 && (
         <div className={`chapters${threadId && review ? " below-reviewer" : ""}`}>
           {[...pins].sort((a, b) => (tickPos[a.index] ?? a.index) - (tickPos[b.index] ?? b.index)).map((c) => (

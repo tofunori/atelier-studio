@@ -168,7 +168,7 @@ describe("contrat Quiet Instrument (sources CSS)", () => {
     for (const legacy of [".atab {", ".jump-pill {", ".tool-group.worklog", ".turn-fold {"]) {
       expect(appCss.includes(legacy), `ancienne implémentation encore présente: ${legacy}`).toBe(false);
     }
-    for (const primitive of [".ui-tab {", ".ui-activity {", ".ui-jumpnav {"]) {
+    for (const primitive of [".ui-tab {", ".ui-activity {", ".ui-scroll-to-bottom {"]) {
       expect(primitives.includes(primitive), `primitive absente: ${primitive}`).toBe(true);
     }
   });

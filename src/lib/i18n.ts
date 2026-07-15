@@ -279,7 +279,6 @@ const fr = {
   "qa.recents": "Récents",
   "qa.no-recents": "Aucun Quick Ask récent.",
 
-  "chat.jump-last-message": "Mon dernier message",
   "chat.unpin": "Retirer la marque",
   "biblio.search-aria": "Rechercher dans Zotero",
   "biblio.title": "Bibliothèque",
@@ -1089,7 +1088,6 @@ const en: Record<keyof typeof fr, string> = {
   "qa.recents": "Recents",
   "qa.no-recents": "No recent Quick Asks.",
 
-  "chat.jump-last-message": "Your last message",
   "chat.unpin": "Remove mark",
   "biblio.search-aria": "Search Zotero",
   "biblio.title": "Library",

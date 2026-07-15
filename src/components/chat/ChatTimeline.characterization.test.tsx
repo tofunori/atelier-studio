@@ -197,10 +197,13 @@ describe("timeline Chat — caractérisation avant extraction", () => {
     expect(screen.getByText("Question du fil B")).toBeTruthy();
   });
 
-  it("scroll : la navigation reste montée au-dessus de la liste virtualisée", () => {
+  it("scroll : le retour au bas apparaît seulement quand la lecture s'en éloigne", () => {
     renderUi(<Chat {...chatProps({ events: makeTurnEvents() })} />);
     const messages = document.querySelector(".messages") as HTMLElement;
     expect(messages).toBeTruthy();
+    const endButton = document.querySelector(".ui-scroll-to-bottom") as HTMLButtonElement;
+    expect(endButton).toHaveAttribute("data-active", "false");
+    expect(screen.queryByText("Your last message")).toBeNull();
 
     // simuler une remontée loin du bas (jsdom : géométrie contrôlée à la main)
     Object.defineProperty(messages, "scrollHeight", { value: 2000, configurable: true });
@@ -209,8 +212,7 @@ describe("timeline Chat — caractérisation avant extraction", () => {
     act(() => {
       messages.dispatchEvent(new Event("scroll", { bubbles: true }));
     });
-    const endButton = document.querySelector(".ui-jumpnav-end");
-    expect(endButton).toBeTruthy();
+    expect(endButton).toHaveAttribute("data-active", "true");
     expect(endButton?.closest(".timeline-scroll-wrap")).toBeTruthy();
   });
 
@@ -222,14 +224,14 @@ describe("timeline Chat — caractérisation avant extraction", () => {
 
     messages.scrollTop = 100;
     act(() => { messages.dispatchEvent(new Event("scroll", { bubbles: true })); });
-    expect(document.querySelector(".ui-jumpnav-end")).toBeTruthy();
+    expect(document.querySelector(".ui-scroll-to-bottom")).toHaveAttribute("data-active", "true");
 
     messages.scrollTop = 1550; // 50 px du bas : rattache le suivi (seuil actuel 80)
     act(() => { messages.dispatchEvent(new Event("scroll", { bubbles: true })); });
 
     rerender(<Chat {...chatProps({ events: [events.user(), events.text("Nouvelle réponse")] })} />);
     await waitFor(() => expect(screen.getByText("Nouvelle réponse")).toBeTruthy());
-    expect(document.querySelector(".ui-jumpnav-end")).toBeTruthy();
+    expect(document.querySelector(".ui-scroll-to-bottom")).toHaveAttribute("data-active", "true");
   });
 
   it("scroll : un nouveau tour ne rebobine pas la lecture vers une ancre utilisateur", async () => {
@@ -281,7 +283,7 @@ describe("timeline Chat — caractérisation avant extraction", () => {
     }
   });
 
-  it("navigation du fil : les deux actions ciblent le dernier tour utilisateur et le bord bas", async () => {
+  it("navigation du fil : le bouton compact revient au bord bas puis disparaît", async () => {
     renderUi(<Chat {...chatProps({ events: makeTurnEvents() })} />);
     const messages = document.querySelector(".messages") as HTMLElement;
     Object.defineProperty(messages, "scrollHeight", { value: 2000, configurable: true });
@@ -291,16 +293,23 @@ describe("timeline Chat — caractérisation avant extraction", () => {
     act(() => { messages.dispatchEvent(new Event("scroll", { bubbles: true })); });
 
     const scrollTo = vi.spyOn(messages, "scrollTo");
-
-    const nav = document.querySelector(".ui-jumpnav") as HTMLElement;
-    const buttons = nav.querySelectorAll("button");
-    act(() => { (buttons[0] as HTMLButtonElement).click(); });
-    await waitFor(() => expect(scrollTo).toHaveBeenCalled());
-
-    const endButton = buttons[1] as HTMLButtonElement;
-    scrollTo.mockClear();
+    const endButton = document.querySelector(".ui-scroll-to-bottom") as HTMLButtonElement;
+    expect(endButton).toHaveAttribute("data-active", "true");
     act(() => { endButton.click(); });
     await waitFor(() => expect(scrollTo).toHaveBeenCalled());
+    expect(endButton).toHaveAttribute("data-active", "false");
+  });
+
+  it("scroll : pendant un travail éloigné du bas, le bouton montre trois points", () => {
+    renderUi(<Chat {...chatProps({ events: makeTurnEvents(), workingSince: FIXED_TS })} />);
+    const messages = document.querySelector(".messages") as HTMLElement;
+    Object.defineProperty(messages, "scrollHeight", { value: 2000, configurable: true });
+    Object.defineProperty(messages, "clientHeight", { value: 400, configurable: true });
+    messages.scrollTop = 100;
+    act(() => { messages.dispatchEvent(new Event("scroll", { bubbles: true })); });
+
+    expect(document.querySelector(".ui-scroll-to-bottom")).toHaveAttribute("data-active", "true");
+    expect(document.querySelectorAll(".ui-scroll-working-dots > span")).toHaveLength(3);
   });
 
   it("markdown, code et liens fichier conservent leur rendu", () => {

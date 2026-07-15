@@ -24238,7 +24238,7 @@ const Tb = {
     })
   });
 }), rA = aa(
-  "tw:inline-flex tw:items-center tw:justify-center tw:gap-2 tw:rounded-[var(--radius-surface)] tw:text-[var(--fs-body-s)] tw:text-muted-foreground tw:hover:bg-accent tw:hover:text-accent-foreground tw:focus-visible:ring-2 tw:focus-visible:ring-ring/40 tw:data-pressed:bg-accent tw:data-pressed:text-accent-foreground tw:disabled:opacity-50",
+  "tw:inline-flex tw:items-center tw:justify-center tw:gap-1.5 tw:rounded-[var(--radius-surface)] tw:text-[var(--fs-body-s)] tw:text-muted-foreground tw:hover:bg-accent tw:hover:text-accent-foreground tw:focus-visible:ring-2 tw:focus-visible:ring-ring/40 tw:data-pressed:bg-accent tw:data-pressed:text-accent-foreground tw:disabled:opacity-50 tw:[&_svg]:pointer-events-none tw:[&_svg]:shrink-0 tw:[&_svg:not([class*=size-])]:size-3.5",
   {
     variants: {
       variant: {
@@ -24247,7 +24247,7 @@ const Tb = {
       },
       size: {
         default: "tw:h-8 tw:px-2.5",
-        xs: "tw:h-6 tw:px-2 tw:text-[var(--fs-caption)]",
+        xs: "tw:h-6 tw:gap-1 tw:px-2 tw:text-[var(--fs-caption)] tw:[&_svg:not([class*=size-])]:size-3",
         sm: "tw:h-7 tw:px-2 tw:text-[var(--fs-caption)]",
         lg: "tw:h-9 tw:px-3"
       }

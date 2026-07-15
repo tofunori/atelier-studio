@@ -237,13 +237,21 @@
   .working-label::before { animation: none; }
 }
 
-/* ---- JumpNavigation — overlay borné à la timeline ---------------------- */
-.ui-jumpnav { position: absolute; bottom: var(--sp-3); left: 50%; transform: translateX(-50%); display: flex; align-items: center;
-  z-index: var(--z-sticky); background: var(--surface-raised); border: 1px solid var(--border-default); border-radius: var(--radius-pill);
-  overflow: hidden; box-shadow: var(--elevation-overlay); }
-.ui-jumpnav button { display: flex; align-items: center; gap: 7px; padding: 7px 13px; background: transparent; border: 0;
-  color: var(--text-secondary); font-size: var(--fs-body-s); cursor: pointer; }
-.ui-jumpnav button:hover { background: var(--surface-inset); color: var(--text-primary); }
-.ui-jumpnav-separator { width: 1px; align-self: stretch; background: var(--border-subtle); }
-.ui-jumpnav:has(.ui-jumpnav-end[data-active="false"]) { opacity: 0; pointer-events: none; }
-.ui-jumpnav .ui-jumpnav-end { position: static; inset: auto; transform: none; border-radius: 0; opacity: 1; }
+/* ---- ScrollToBottom — bouton contextuel compact, façon Codex ---------- */
+.ui-scroll-to-bottom { position: absolute; bottom: var(--sp-3); left: 50%; transform: translateX(-50%); width: 32px; height: 32px;
+  display: flex; align-items: center; justify-content: center; z-index: var(--z-sticky); padding: 0; border: 1px solid var(--border-default);
+  border-radius: var(--radius-pill); background: var(--surface-raised); color: var(--text-secondary); box-shadow: var(--elevation-overlay);
+  cursor: pointer; opacity: 0; pointer-events: none; transition: opacity var(--motion-fast) var(--ease-out), color var(--motion-fast) var(--ease-out); }
+.ui-scroll-to-bottom.is-visible { opacity: 1; pointer-events: auto; }
+.ui-scroll-to-bottom:hover { color: var(--text-primary); }
+.ui-scroll-to-bottom svg { width: 16px; height: 16px; }
+.ui-scroll-working-dots { display: flex; align-items: center; justify-content: center; gap: 4px; }
+.ui-scroll-working-dots > span { width: 4px; height: 4px; border-radius: 50%; background: currentColor; opacity: .7;
+  animation: ui-scroll-working-wave 1.05s ease-in-out infinite; }
+.ui-scroll-working-dots > span:nth-child(2) { animation-delay: .12s; }
+.ui-scroll-working-dots > span:nth-child(3) { animation-delay: .24s; }
+@keyframes ui-scroll-working-wave { 0%, 60%, 100% { transform: translateY(0); opacity: .45; } 30% { transform: translateY(-2px); opacity: 1; } }
+
+@media (prefers-reduced-motion: reduce) {
+  .ui-scroll-working-dots > span { animation: none; }
+}
