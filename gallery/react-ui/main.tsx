@@ -201,12 +201,10 @@ function GalleryFileTypePanel({
   state,
   folder,
   collectionItems,
-  workflowItems,
 }: {
   state: GalleryFileTypeState
   folder: HTMLSelectElement | null
   collectionItems: LegacyMenuItem[]
-  workflowItems: LegacyMenuItem[]
 }) {
   const [query, setQuery] = React.useState("")
   const [customizing, setCustomizing] = React.useState(false)
@@ -456,7 +454,7 @@ function GalleryFileTypePanel({
             aria-expanded={showOtherFilters}
             onClick={() => setShowOtherFilters((open) => !open)}
           >
-            <span id="other-filters-heading">Folders, status & collections</span>
+            <span id="other-filters-heading">Folders & collections</span>
             {showOtherFilters ? <ChevronDown data-icon="inline-end" /> : <ChevronRight data-icon="inline-end" />}
           </Button>
           {showOtherFilters && (
@@ -481,26 +479,6 @@ function GalleryFileTypePanel({
                   </SelectContent>
                 </Select>
               </div>
-              {workflowItems.length > 0 && (
-                <div className="gallery-type-group">
-                  <div className="gallery-filter-sub-label">Status</div>
-                  <ToggleGroup
-                    value={workflowItems.filter((item) => item.active).map((item) => item.key)}
-                    onValueChange={(values) => {
-                      const next = values.at(-1) ?? ""
-                      workflowItems.find((item) => item.key === next)?.element.click()
-                    }}
-                    className="gallery-workflow-types"
-                    aria-label="Workflow status"
-                  >
-                    {workflowItems.filter((item) => item.key).map((item) => (
-                      <ToggleGroupItem key={item.key} value={item.key} variant="outline" size="sm" data-gallery-status={item.key}>
-                        {stripLegacyCount(item.label)}
-                      </ToggleGroupItem>
-                    ))}
-                  </ToggleGroup>
-                </div>
-              )}
               {collectionItems.length > 0 && (
                 <div className="gallery-type-group">
                   <div className="gallery-filter-sub-label">Collections</div>
@@ -567,6 +545,8 @@ function GalleryToolbar() {
   const [, refresh] = React.useReducer((value) => value + 1, 0)
   const [searchOpen, setSearchOpen] = React.useState(false)
   const [filtersOpen, setFiltersOpen] = React.useState(false)
+  const [collectionOpen, setCollectionOpen] = React.useState(false)
+  const [newCollection, setNewCollection] = React.useState("")
   const search = get<HTMLInputElement>("q")?.value ?? ""
   const sort = get<HTMLSelectElement>("sort")
   const folder = get<HTMLSelectElement>("folder")
@@ -593,6 +573,17 @@ function GalleryToolbar() {
   const statusActive = workflowItems.some((item) => item.active && item.key !== "")
   const collectionActive = collectionItems.some((item) => item.active)
   const clearCollection = () => get<HTMLElement>("collMenu")?.querySelector<HTMLElement>("[data-clear]")?.click()
+  const submitNewCollection = () => {
+    const name = newCollection.trim()
+    if (!name) return
+    const input = get<HTMLInputElement>("collQuick")
+    const addButton = get<HTMLElement>("collQuickAdd")
+    if (input && addButton) {
+      input.value = name
+      addButton.click()
+    }
+    setNewCollection("")
+  }
 
   React.useEffect(() => {
     const update = () => refresh()
@@ -764,7 +755,6 @@ function GalleryToolbar() {
             state={fileTypeState}
             folder={folder}
             collectionItems={collectionItems}
-            workflowItems={workflowItems}
           />
         </PopoverContent>
       </Popover>
@@ -781,24 +771,40 @@ function GalleryToolbar() {
         <span className="gallery-fav-label">Favorites</span>
       </Button>
 
-      <DropdownMenu modal={false}>
-        <DropdownMenuTrigger render={
-          <Button variant="outline" size="sm" data-gallery-command="collection" data-gallery-active={collectionActive ? "true" : undefined} aria-label="Filter by collection">
+      <Popover open={collectionOpen} onOpenChange={setCollectionOpen}>
+        <PopoverTrigger render={
+          <Button variant="outline" size="sm" data-gallery-command="collection" data-gallery-active={collectionActive ? "true" : undefined} aria-label="Collections">
             <Library data-icon="inline-start" />
             <span className="gallery-collection-label">Collection</span>
           </Button>
         } />
-        <DropdownMenuContent align="start" className="tw:w-52">
-          <DropdownMenuGroup>
-            <DropdownMenuCheckboxItem checked={!collectionActive} onClick={clearCollection}>All collections</DropdownMenuCheckboxItem>
-            {collectionItems.map((item) => (
-              <DropdownMenuCheckboxItem key={item.key} checked={item.active} onClick={() => item.element.click()}>
-                {item.label}
-              </DropdownMenuCheckboxItem>
-            ))}
-          </DropdownMenuGroup>
-        </DropdownMenuContent>
-      </DropdownMenu>
+        <PopoverContent align="start" className="tw:flex tw:flex-col tw:gap-1 tw:w-56 tw:p-1">
+          <PopoverTitle className="tw:sr-only">Collections</PopoverTitle>
+          <Button variant="ghost" size="sm" className="tw:w-full tw:justify-start" onClick={() => { clearCollection(); setCollectionOpen(false) }}>
+            <Check data-icon="inline-start" className={collectionActive ? "tw:opacity-0" : ""} />
+            All collections
+          </Button>
+          {collectionItems.map((item) => (
+            <Button key={item.key} variant="ghost" size="sm" className="tw:w-full tw:justify-start" onClick={() => { item.element.click(); setCollectionOpen(false) }}>
+              <Check data-icon="inline-start" className={item.active ? "" : "tw:opacity-0"} />
+              {stripLegacyCount(item.label)}
+            </Button>
+          ))}
+          <Separator className="tw:my-1" />
+          <InputGroup>
+            <InputGroupInput
+              value={newCollection}
+              onChange={(event) => setNewCollection(event.target.value)}
+              onKeyDown={(event) => { if (event.key === "Enter") { event.preventDefault(); submitNewCollection() } }}
+              placeholder="New collection…"
+              aria-label="New collection name"
+            />
+            <InputGroupAddon align="inline-end">
+              <InputGroupButton size="icon-xs" aria-label="Create collection" disabled={!newCollection.trim()} onClick={submitNewCollection}><Plus /></InputGroupButton>
+            </InputGroupAddon>
+          </InputGroup>
+        </PopoverContent>
+      </Popover>
 
       <DropdownMenu modal={false}>
         <DropdownMenuTrigger render={

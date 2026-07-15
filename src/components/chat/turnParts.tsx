@@ -233,12 +233,12 @@ export function ThinkingBlock({ text, live }: { text: string; live: boolean }) {
 }
 
 function reasoningSummary(text: string): string {
-  const line = text
+  const lines = text
     .replace(/<!--[\s\S]*?-->/gu, "")
     .split(/\r?\n/u)
     .map((part) => part.trim())
-    .filter((part) => part && !part.startsWith("<!--"))
-    .at(-1);
+    .filter((part) => part && !part.startsWith("<!--"));
+  const line = lines[lines.length - 1];
   if (!line) return "";
   const cleaned = line
     .replace(/^#{1,6}\s+/u, "")
@@ -257,7 +257,7 @@ function reasoningSummary(text: string): string {
 export function ReasoningTrace({ texts }: { texts: string[] }) {
   const [open, setOpen] = useState(false);
   const normalized = texts.map((text) => text.trim()).filter(Boolean);
-  const latest = normalized.at(-1) ?? "";
+  const latest = normalized[normalized.length - 1] ?? "";
   const summary = reasoningSummary(latest);
   if (!summary) return null;
   return (

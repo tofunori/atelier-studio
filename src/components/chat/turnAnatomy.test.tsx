@@ -1,6 +1,5 @@
-// Anatomie du tour (plan 020, étape 3) : le pli de tour est un header
-// d'activité structuré — « Activité · N étapes · durée » — dépliable, avec
-// les erreurs toujours hors du pli.
+// Anatomie du tour : modèle Synara — un seul état actif, journal humain
+// dépliable et, une fois terminé, pli compact « Worked for… ».
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, cleanup, fireEvent, screen } from "@testing-library/react";
 
@@ -42,14 +41,14 @@ beforeEach(() => { resetTestState(); setLanguage("fr"); });
 afterEach(cleanup);
 
 describe("anatomie du tour — header d'activité", () => {
-  it("tour terminé : header « A travaillé pendant… · 2 étapes », replié par défaut", () => {
+  it("tour terminé : header « A travaillé pendant… », replié par défaut", () => {
     renderUi(<Chat {...chatProps({ events: finishedTurn() })} />);
     const fold = document.querySelector(".ui-activity.is-summary .ui-activity-trigger") as HTMLButtonElement;
     expect(fold).toBeTruthy();
     expect(fold.getAttribute("aria-expanded")).toBe("false");
     expect(fold.textContent).toContain(t("chat.worked-for", { duration: "1s" }));
-    expect(fold.textContent).toContain(t("chat.activity-steps", { n: 2 }));
     expect(fold.textContent).toContain("1s"); // durée user→done (600 ms → ≥1s)
+    expect(fold.textContent).not.toContain(t("chat.activity-steps", { n: 2 }));
     // replié : le détail des outils n'est pas rendu
     expect(document.querySelector(".ui-activity:not(.is-summary)")).toBeNull();
   });
@@ -64,12 +63,14 @@ describe("anatomie du tour — header d'activité", () => {
     expect(document.querySelectorAll(".ui-activity-label")[1]?.textContent?.toLowerCase()).toContain(t("tools.read-1").toLowerCase());
   });
 
-  it("tour actif : timer et Thinking balayé remplacent les lignes Bash et réflexion", () => {
+  it("tour actif : un seul Thinking balayé, reasoning consolidé et actions humaines", () => {
     const evs: AgentEvent[] = [
       events.user("Inspecte puis corrige.", FIXED_TS),
+      { kind: "tool", name: "__thinking" },
       events.thinking("Je localise les fichiers utiles.", FIXED_TS + 50),
+      { kind: "thinking_live", text: "Running: Je confirme le chemin utile.", ts: FIXED_TS + 75 },
       events.tool({ id: "search-1", name: "Bash", detail: "rg -n albedo src", input: { command: "rg -n albedo src" } }),
-      events.thinking("Je vérifie ensuite le fichier trouvé.", FIXED_TS + 250),
+      { kind: "tool", name: "__thinking" },
       events.tool({ id: "read-1", name: "Bash", detail: "cat src/albedo.ts", input: { command: "cat src/albedo.ts" } }),
     ];
     renderUi(<Chat {...chatProps({ events: evs, workingSince: FIXED_TS })} />);
@@ -78,12 +79,50 @@ describe("anatomie du tour — header d'activité", () => {
     expect(working).toBeTruthy();
     expect(document.querySelectorAll(".working-header")).toHaveLength(1);
     expect(working.textContent).toContain("Travaille depuis");
-    expect(working.querySelector(".working-spin")).toBeTruthy();
+    expect(working.querySelector(".working-spin")).toBeNull();
+    expect(working.querySelector(".working-divider")).toBeTruthy();
     expect(document.querySelectorAll(".thinking-live-indicator")).toHaveLength(1);
     expect(document.querySelector(".thinking-shimmer")?.textContent).toBe(t("chat.thinking"));
     expect(document.querySelector(".thinking")).toBeNull();
-    expect(document.querySelector(".ui-activity")).toBeNull();
+    expect(document.querySelectorAll(".reasoning-trace")).toHaveLength(1);
+    expect(screen.getByText("Je confirme le chemin utile.")).toBeTruthy();
+    expect(document.querySelectorAll(".ui-activity:not(.is-summary)")).toHaveLength(2);
     expect(screen.queryByText("Bash")).toBeNull();
+  });
+
+  it("tour actif : montre les 6 dernières actions puis permet d'afficher le reste", () => {
+    const evs: AgentEvent[] = [
+      events.user("Inspecte.", FIXED_TS),
+      ...Array.from({ length: 8 }, (_, index) => events.tool({
+        id: `tool-${index}`,
+        name: "Read",
+        detail: `file-${index}.ts`,
+      })),
+    ];
+    renderUi(<Chat {...chatProps({ events: evs, workingSince: FIXED_TS })} />);
+
+    expect(document.querySelectorAll(".active-work-list .ui-activity")).toHaveLength(6);
+    const more = screen.getByRole("button", { name: t("chat.show-more-work", { n: 2 }) });
+    fireEvent.click(more);
+    expect(document.querySelectorAll(".active-work-list .ui-activity")).toHaveLength(8);
+    expect(screen.getByRole("button", { name: t("chat.show-less-work") })).toBeTruthy();
+  });
+
+  it("rattache les narrations intermédiaires au pli du message final", () => {
+    const evs: AgentEvent[] = [
+      events.user("Analyse.", FIXED_TS),
+      events.tool({ id: "read-1" }),
+      events.text("Je vérifie encore.", FIXED_TS + 300),
+      events.tool({ id: "read-2", detail: "second.csv" }),
+      events.text("Voici la réponse finale.", FIXED_TS + 600),
+      events.done({ ts: FIXED_TS + 700 }),
+    ];
+    renderUi(<Chat {...chatProps({ events: evs })} />);
+
+    expect(screen.queryByText("Je vérifie encore.")).toBeNull();
+    expect(screen.getByText("Voici la réponse finale.")).toBeTruthy();
+    fireEvent.click(document.querySelector(".ui-activity.is-summary .ui-activity-trigger") as HTMLButtonElement);
+    expect(screen.getByText("Je vérifie encore.")).toBeTruthy();
   });
 
   it("ne rend jamais une réflexion vide", () => {

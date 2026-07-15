@@ -167,8 +167,9 @@ describe("timeline Chat — caractérisation avant extraction", () => {
       <Chat {...chatProps({ workingSince: FIXED_TS, events: [events.user(), events.started()] })} />,
     );
     expect(document.querySelector(".working")).toBeTruthy();
-    expect(document.querySelector('[data-slot="marker"].working')).toBeTruthy();
-    expect(document.querySelector('[data-slot="marker-icon"] .working-spin')).toBeTruthy();
+    expect(document.querySelector(".working-header .working-divider")).toBeTruthy();
+    expect(document.querySelector(".working-spin")).toBeNull();
+    expect(document.querySelectorAll(".thinking-live-indicator")).toHaveLength(1);
 
     rerender(<Chat {...chatProps({ workingSince: null, events: makeTurnEvents() })} />);
     expect(document.querySelector(".working")).toBeNull();
