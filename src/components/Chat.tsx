@@ -7,8 +7,13 @@ import { buildHighlightContext } from "../lib/highlightContext";
 import type { HighlightEntry } from "./Rail";
 import { CloseIcon } from "./icons";
 import { ProviderInfo } from "../lib/providers";
-import { ToolOutputLine, groupIconCat, isSummarizableTool, summarizeTools, Tick, toolCategory } from "./chat/toolPresentation";
-import { ChatTimeline, type ActiveActivityDetail, type ActiveActivityItem, type ToolAction } from "./chat/ChatTimeline";
+import { ToolOutputLine, isSummarizableTool, Tick, toolCategory } from "./chat/toolPresentation";
+import {
+  ChatTimeline,
+  type ActiveThinkingItem,
+  type ActiveWorkHeaderItem,
+  type ToolAction,
+} from "./chat/ChatTimeline";
 import { ChatHeader } from "./chat/ChatHeader";
 import type { ResearchHomeBundle } from "./ResearchHome";
 import { ChatComposer } from "./chat/ChatComposer";
@@ -755,23 +760,22 @@ export default function Chat(p: {
   const actionId = (action: ToolAction, at: number) =>
     "id" in action && action.id ? String(action.id) : `event:${at}`;
 
-  // Pendant un tour actif, les outils et réflexions ne prennent plus une ligne
-  // principale chacun. Ils alimentent un résumé unique en bas du fil ; le
-  // journal chronologique complet reste disponible dans ses deux niveaux de
-  // détail (action sémantique, puis input/output technique).
+  // Architecture Synara : pendant le tour, une ligne chronométrée est insérée
+  // juste après la demande et un unique « Thinking » animé reste en queue. Les
+  // événements techniques sont conservés dans le modèle, mais ne remplissent
+  // pas la timeline de « Bash » / « thinking… » répétitifs. À la fin du tour,
+  // le pli normal « Worked for… » redonne accès à tout le journal.
   const activeActivityIndices = new Set<number>();
-  let activeActivity: ActiveActivityItem | null = null;
+  let activeUserIndex = -1;
+  let activeHeader: ActiveWorkHeaderItem | null = null;
+  let activeThinking: ActiveThinkingItem | null = null;
   if (p.workingSince != null) {
-    let activeUserIndex = -1;
     for (let index = p.events.length - 1; index >= 0; index--) {
       const event = p.events[index];
       if (event.kind === "user") { activeUserIndex = index; break; }
       if (event.kind === "done") break;
     }
     if (activeUserIndex >= 0) {
-      const details: ActiveActivityDetail[] = [];
-      const groups = new Map<string, Extract<ActiveActivityDetail, { type: "actions" }>>();
-      let activityStepCount = 0;
       for (let index = activeUserIndex + 1; index < p.events.length; index++) {
         const event = p.events[index];
         if (isSummarizableTool(event)) {
@@ -781,49 +785,15 @@ export default function Chat(p: {
             continue;
           }
           activeActivityIndices.add(index);
-          const identity = actionId(event, index);
-          const turnKey = event.meta && "turnId" in event.meta ? `${event.meta.turnId}:` : "";
-          const key = `active-tools:${turnKey}${identity}`;
-          const existing = groups.get(key);
-          if (existing) existing.actions.push(event);
-          else {
-            const detail: Extract<ActiveActivityDetail, { type: "actions" }> = { type: "actions", actions: [event], key };
-            groups.set(key, detail);
-            details.push(detail);
-          }
           continue;
         }
         if (event.kind === "thinking" || event.kind === "thinking_live" || event.kind === "activity") {
           activeActivityIndices.add(index);
-          details.push({ type: "event", event, index });
-          if (event.kind === "activity") activityStepCount += Math.max(1, event.steps?.length ?? 0);
         }
       }
-      if (details.length > 0) {
-        const representatives = [...groups.values()].map((group) => group.actions[group.actions.length - 1]);
-        const latestSemanticActivity = [...details].reverse().find(
-          (detail): detail is Extract<ActiveActivityDetail, { type: "event" }> =>
-            detail.type === "event" && detail.event.kind === "activity",
-        );
-        const activitySummary = latestSemanticActivity && latestSemanticActivity.event.kind === "activity"
-          ? [latestSemanticActivity.event.title, latestSemanticActivity.event.detail].filter(Boolean).join(" · ")
-          : "";
-        const summary = activitySummary || (representatives.length > 0
-          ? summarizeTools(representatives)
-          : t("chat.thinking-live"));
-        const turnId = representatives[0]?.meta && "turnId" in representatives[0].meta
-          ? representatives[0].meta.turnId
-          : activeUserIndex;
-        activeActivity = {
-          type: "active",
-          key: `active:${p.threadId ?? "thread"}:${turnId}`,
-          summary,
-          count: groups.size + activityStepCount,
-          since: p.workingSince,
-          icon: representatives.length > 0 ? groupIconCat(representatives) : undefined,
-          details,
-        };
-      }
+      const activeKey = `${p.threadId ?? "thread"}:${activeUserIndex}`;
+      activeHeader = { type: "active-header", key: `active-header:${activeKey}`, since: p.workingSince };
+      activeThinking = { type: "active-thinking", key: `active-thinking:${activeKey}` };
     }
   }
 
@@ -831,7 +801,8 @@ export default function Chat(p: {
     | { type: "event"; event: AgentEvent; index: number }
     | { type: "actions"; actions: Extract<AgentEvent, { kind: "tool" | "tool_update" }>[]; index: number; key: string }
     | { type: "fold"; fold: TurnFold; open: boolean }
-    | ActiveActivityItem
+    | ActiveWorkHeaderItem
+    | ActiveThinkingItem
   )[] = [];
   for (let i = 0; i < p.events.length; i++) {
     const fold = turnFolds.get(i);
@@ -854,6 +825,7 @@ export default function Chat(p: {
     // les sentinelles (__thinking, __compacted…) et non-outils gardent leur ligne
     if (!isSummarizableTool(e)) {
       renderedEvents.push({ type: "event", event: e, index: i });
+      if (activeHeader && i === activeUserIndex) renderedEvents.push(activeHeader);
       continue;
     }
     // Une action par ligne : on ne regroupe que l'appel et ses mises à jour
@@ -875,7 +847,7 @@ export default function Chat(p: {
     renderedEvents.push({ type: "actions", actions, index: i, key: groupKey });
     i = end - 1;
   }
-  if (activeActivity) renderedEvents.push(activeActivity);
+  if (activeThinking) renderedEvents.push(activeThinking);
   const currentTool = [...p.events].reverse().find((e) => e.kind === "tool_update" || e.kind === "tool");
   const currentToolName =
     currentTool?.kind === "tool_update" ? eventLabel(currentTool.name) :
@@ -889,7 +861,6 @@ export default function Chat(p: {
   const goalKey = latestGoal ? `${latestGoal.goal?.objective ?? ""}|${latestGoal.ts ?? ""}` : null;
   const activeGoal = latestGoal && !latestGoal.cleared && goalKey !== goalDismissed
     ? latestGoal.goal : null;
-  const activeToolGroupKey = [...renderedEvents].reverse().find((item) => item.type === "actions")?.key;
   const selectedModel = modelsFor(provider).find((m) => m.id === model);
   const selectedModelLabel = selectedModel ? modelLabel(selectedModel) : (model ? modelIdLabel(provider, model) : model);
   const modelButtonLabel = model ? selectedModelLabel : resolvedDefaultLabel(provider);
@@ -931,7 +902,7 @@ export default function Chat(p: {
       <ChatTimeline
         thread={{ threadId: p.threadId, events: p.events, workingSince: p.workingSince }}
         rev={{ review, reviewMin, setReviewMin, setReview, barOpen, setBarOpen, fixing, setFixing, reviewOpen, setReviewOpen }}
-        list={{ renderedEvents, openFolds, setOpenFolds, openToolGroups, setOpenToolGroups, activeToolGroupKey, renderToolLine, fmtWorkDur }}
+        list={{ renderedEvents, openFolds, setOpenFolds, openToolGroups, setOpenToolGroups, renderToolLine, fmtWorkDur }}
         msg={{
           editing, setEditing, pins: p.pins, onTogglePin: p.onTogglePin, onRevert: p.onRevert,
           onEditSend: p.onEditSend, onFork: p.onFork, setPasteView, commands: p.commands,

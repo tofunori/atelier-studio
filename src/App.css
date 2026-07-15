@@ -310,10 +310,14 @@ html, body, #root, .app { height: 100vh; overflow: hidden;
 .send:disabled { opacity: 0.4; cursor: default; }
 .working { color: var(--muted); font-size: var(--fs-l); padding: 4px 0; display: inline-flex;
   align-items: center; gap: 7px; }
-.working-spin { width: 10px; height: 10px; border-radius: var(--r-pill); border: 1.3px solid var(--border2);
-  border-top-color: var(--muted); display: inline-block; animation: spin 1s linear infinite; flex-shrink: 0; }
-/* label Working STATIQUE (plan 023, budget) : le spinner est l'unique boucle */
-.working-label { color: var(--fg2); }
+.working-header { margin: 1px 0 4px; }
+.working-spin { width: 12px; height: 12px; border-radius: var(--r-pill); display: inline-block;
+  flex-shrink: 0; color: var(--status-running);
+  background: conic-gradient(from 0deg, transparent 25%, currentColor);
+  -webkit-mask: radial-gradient(farthest-side, transparent calc(100% - 1.5px), #000 calc(100% - 1.5px));
+  mask: radial-gradient(farthest-side, transparent calc(100% - 1.5px), #000 calc(100% - 1.5px));
+  animation: spin 1.6s linear infinite; }
+.working-label { color: var(--muted); font-variant-numeric: tabular-nums; }
 @keyframes pulse { 0%,100% { opacity: 0.5; } 50% { opacity: 1; } }
 .suggest { list-style: none; padding: 5px; margin: 0 0 4px;
   background: color-mix(in srgb, var(--bg-side) 82%, black); border: 1px solid var(--border);
@@ -625,8 +629,7 @@ html, body, #root, .app { height: 100vh; overflow: hidden;
 .tool-group-list { display: flex; flex-direction: column; gap: 4px; }
 .active-turn-details { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
 .active-turn-details > .ui-activity, .active-turn-details > .activity-card { margin-left: 0; margin-right: 0; }
-.turn-fold-label { font-size: var(--fs-s); font-weight: 500; letter-spacing: 0.06em;
-  text-transform: uppercase; color: var(--muted); }
+.turn-fold-label { font-size: var(--fs-m); font-weight: 400; color: var(--muted); }
 .ui-activity-trigger:hover .turn-fold-label { color: var(--fg2); }
 .turn-fold-meta { color: var(--muted2); font-variant-numeric: tabular-nums; }
 .activity-card { max-width: min(760px, 100%); margin: 2px auto 5px; padding: 3px 0;
@@ -1775,7 +1778,8 @@ body.dragging iframe { pointer-events: none; }
 @media (prefers-reduced-motion: reduce) {
   .working-spin, .atelier-skeleton-grid [data-slot="skeleton"], .activity-pulse,
   .activity-step.running .activity-step-dot, .qa-minidot,
-  .review-badge.v-running, .thinking.live .thinking-label { animation: none; }
+  .review-badge.v-running, .thinking.live .thinking-label, .thinking-shimmer { animation: none; }
+  .thinking-shimmer { background-image: none; -webkit-text-fill-color: currentColor; }
 }
 
 /* focus visible sur les champs qui neutralisaient l'outline sans remplacement */
@@ -2127,6 +2131,14 @@ button.ctx-ring-wrap { border: none; font: inherit; color: inherit;
 .thinking-body { margin: 4px 0 6px 18px; padding: 8px 12px; border-left: 2px solid var(--border2);
   color: var(--muted); font-size: var(--fs-l); font-style: italic; white-space: pre-wrap;
   line-height: 1.55; }
+.thinking-live-indicator { margin: 2px 0 6px; padding: 2px 0; color: var(--muted);
+  font-size: var(--fs-l); font-style: normal; }
+.thinking-shimmer { color: var(--muted); background-image: linear-gradient(90deg,
+  var(--muted2) 20%, var(--fg2) 50%, var(--muted2) 80%);
+  background-repeat: no-repeat; background-size: 240% 100%; background-position: 100% 0;
+  -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent;
+  animation: thinking-shimmer 2s linear infinite; }
+@keyframes thinking-shimmer { from { background-position: 100% 0; } to { background-position: 0 0; } }
 /* ===== carte permission (mode Ask) ===== */
 .perm-card { border: 1px solid var(--border2); border-left: 2.5px solid var(--accent);
   border-radius: var(--r-m); padding: 10px 14px; margin: 6px 0; background: var(--bg-card);

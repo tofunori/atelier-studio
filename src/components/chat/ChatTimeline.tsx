@@ -11,10 +11,10 @@ import { isValidSkill } from "./mentions";
 import { ZapIcon, ArrowDownIcon } from "../icons";
 import {
   ChatEmptyState, UserTurn, StreamingText, AssistantText, ResultCapsule,
-  ActiveTurnActivity, ActivityFold, ActivityGroup, type ReviewState,
+  ActivityFold, ActivityGroup, type ReviewState,
 } from "./turns";
 import { ResearchHome, type ResearchHomeBundle } from "../ResearchHome";
-import { ThinkingBlock, EditLine, ActivityCard, Working, formatPermInput } from "./turnParts";
+import { ThinkingBlock, EditLine, ActivityCard, LiveThinking, Working, formatPermInput } from "./turnParts";
 import { HarnessInteraction } from "./HarnessInteraction";
 import { JumpNavigation } from "../ui";
 import { Input } from "../shadcn/input";
@@ -29,23 +29,18 @@ import {
 } from "../shadcn/message-scroller";
 
 export type ToolAction = Extract<AgentEvent, { kind: "tool" | "tool_update" }>;
-export type ActiveActivityDetail =
-  | { type: "actions"; actions: ToolAction[]; key: string }
-  | { type: "event"; event: Extract<AgentEvent, { kind: "thinking" | "thinking_live" | "activity" }>; index: number };
-export type ActiveActivityItem = {
-  type: "active";
+export type ActiveWorkHeaderItem = {
+  type: "active-header";
   key: string;
-  summary: string;
-  count: number;
   since: number;
-  icon?: Parameters<typeof ActiveTurnActivity>[0]["icon"];
-  details: ActiveActivityDetail[];
 };
+export type ActiveThinkingItem = { type: "active-thinking"; key: string };
 type RenderedItem =
   | { type: "event"; event: AgentEvent; index: number }
   | { type: "actions"; actions: ToolAction[]; index: number; key: string }
   | { type: "fold"; fold: { key: string; start: number; end: number; count: number; ms: number | null }; open: boolean }
-  | ActiveActivityItem;
+  | ActiveWorkHeaderItem
+  | ActiveThinkingItem;
 
 export type TimelineThread = { threadId: string | null; events: AgentEvent[]; workingSince: number | null };
 export type TimelineReview = {
@@ -60,7 +55,6 @@ export type TimelineList = {
   renderedEvents: RenderedItem[];
   openFolds: Set<string>; setOpenFolds: React.Dispatch<React.SetStateAction<Set<string>>>;
   openToolGroups: Set<string>; setOpenToolGroups: React.Dispatch<React.SetStateAction<Set<string>>>;
-  activeToolGroupKey: string | undefined;
   renderToolLine: (e: ToolAction, key: React.Key) => ReactNode;
   fmtWorkDur: (ms: number) => string;
 };
@@ -144,7 +138,7 @@ export function ChatTimeline(p: {
 }) {
   const { threadId, events, workingSince } = p.thread;
   const { review, reviewMin, setReviewMin, setReview, barOpen, setBarOpen, fixing, setFixing, reviewOpen, setReviewOpen } = p.rev;
-  const { renderedEvents, openFolds, setOpenFolds, openToolGroups, setOpenToolGroups, activeToolGroupKey, renderToolLine, fmtWorkDur } = p.list;
+  const { renderedEvents, openFolds, setOpenFolds, openToolGroups, setOpenToolGroups, renderToolLine, fmtWorkDur } = p.list;
   const { editing, setEditing, pins, onTogglePin, onRevert, onEditSend, onFork, setPasteView, commands, defaults, onQuote } = p.msg;
   const { messagesRef, onMessagesMouseUp } = p.scroll;
   const { onStop } = p.working;
@@ -314,8 +308,14 @@ export function ChatTimeline(p: {
               />
             );
           }
+          if (item.type === "active-header") {
+            return <Working key={item.key} since={item.since} />;
+          }
+          if (item.type === "active-thinking") {
+            return <LiveThinking key={item.key} />;
+          }
           if (item.type === "actions") {
-            const open = openToolGroups.has(item.key) || (workingSince != null && item.key === activeToolGroupKey);
+            const open = openToolGroups.has(item.key);
             return (
               <ActivityGroup
                 key={item.key}
@@ -331,55 +331,6 @@ export function ChatTimeline(p: {
                 }
                 renderToolLine={renderToolLine}
               />
-            );
-          }
-          if (item.type === "active") {
-            const open = openToolGroups.has(item.key);
-            return (
-              <ActiveTurnActivity
-                key={item.key}
-                summary={item.summary}
-                count={item.count}
-                since={item.since}
-                icon={item.icon}
-                open={open}
-                onToggle={() =>
-                  setOpenToolGroups((prev) => {
-                    const next = new Set(prev);
-                    if (next.has(item.key)) next.delete(item.key);
-                    else next.add(item.key);
-                    return next;
-                  })
-                }
-              >
-                <div className="active-turn-details">
-                  {item.details.map((detail) => {
-                    if (detail.type === "actions") {
-                      const detailOpen = openToolGroups.has(detail.key);
-                      return (
-                        <ActivityGroup
-                          key={detail.key}
-                          actions={detail.actions}
-                          open={detailOpen}
-                          onToggle={() =>
-                            setOpenToolGroups((prev) => {
-                              const next = new Set(prev);
-                              if (next.has(detail.key)) next.delete(detail.key);
-                              else next.add(detail.key);
-                              return next;
-                            })
-                          }
-                          renderToolLine={renderToolLine}
-                        />
-                      );
-                    }
-                    if (detail.event.kind === "activity") {
-                      return <ActivityCard key={`activity-${detail.event.id}`} event={detail.event} live={detail.event.status === "running"} />;
-                    }
-                    return <ThinkingBlock key={`thinking-${detail.index}`} text={detail.event.text} live={detail.event.kind === "thinking_live"} />;
-                  })}
-                </div>
-              </ActiveTurnActivity>
             );
           }
           const e = item.event;
@@ -505,12 +456,13 @@ export function ChatTimeline(p: {
           </MessageScrollerItem>
           );
         })}
-        {workingSince != null && !renderedEvents.some((item) => item.type === "active") && (
+        {workingSince != null && !renderedEvents.some((item) => item.type === "active-header") && (
           <MessageScrollerItem messageId="message-working">
           <div className="working-stack">
             <div className="working-row">
               <Working since={workingSince} />
             </div>
+            <LiveThinking />
             <button type="button" className="stop-hint" title={t("action.interrupt")} onClick={onStop}>
               <kbd>esc</kbd> {t("action.interrupt")}
             </button>

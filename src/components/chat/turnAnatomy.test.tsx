@@ -42,12 +42,12 @@ beforeEach(() => { resetTestState(); setLanguage("fr"); });
 afterEach(cleanup);
 
 describe("anatomie du tour — header d'activité", () => {
-  it("tour terminé : header « Activité · 2 étapes · durée », replié par défaut", () => {
+  it("tour terminé : header « A travaillé pendant… · 2 étapes », replié par défaut", () => {
     renderUi(<Chat {...chatProps({ events: finishedTurn() })} />);
     const fold = document.querySelector(".ui-activity.is-summary .ui-activity-trigger") as HTMLButtonElement;
     expect(fold).toBeTruthy();
     expect(fold.getAttribute("aria-expanded")).toBe("false");
-    expect(fold.textContent).toContain(t("chat.activity"));
+    expect(fold.textContent).toContain(t("chat.worked-for", { duration: "1s" }));
     expect(fold.textContent).toContain(t("chat.activity-steps", { n: 2 }));
     expect(fold.textContent).toContain("1s"); // durée user→done (600 ms → ≥1s)
     // replié : le détail des outils n'est pas rendu
@@ -64,7 +64,7 @@ describe("anatomie du tour — header d'activité", () => {
     expect(document.querySelectorAll(".ui-activity-label")[1]?.textContent?.toLowerCase()).toContain(t("tools.read-1").toLowerCase());
   });
 
-  it("tour actif : une seule activité résume Bash et réflexion, avec le brut à deux clics", () => {
+  it("tour actif : timer et Thinking balayé remplacent les lignes Bash et réflexion", () => {
     const evs: AgentEvent[] = [
       events.user("Inspecte puis corrige.", FIXED_TS),
       events.thinking("Je localise les fichiers utiles.", FIXED_TS + 50),
@@ -74,29 +74,24 @@ describe("anatomie du tour — header d'activité", () => {
     ];
     renderUi(<Chat {...chatProps({ events: evs, workingSince: FIXED_TS })} />);
 
-    const active = document.querySelector(".ui-activity.is-running") as HTMLElement;
-    expect(active).toBeTruthy();
-    expect(document.querySelectorAll(".ui-activity.is-running")).toHaveLength(1);
-    expect(active.textContent).toContain("Travaille");
-    expect(active.textContent?.toLowerCase()).toContain(t("tools.searched").toLowerCase());
-    expect(active.textContent?.toLowerCase()).toContain(t("tools.read-1").toLowerCase());
-    expect(active.textContent).toContain("2 actions");
-    expect(document.querySelector(".working")).toBeNull();
+    const working = document.querySelector(".working-header") as HTMLElement;
+    expect(working).toBeTruthy();
+    expect(document.querySelectorAll(".working-header")).toHaveLength(1);
+    expect(working.textContent).toContain("Travaille depuis");
+    expect(working.querySelector(".working-spin")).toBeTruthy();
+    expect(document.querySelectorAll(".thinking-live-indicator")).toHaveLength(1);
+    expect(document.querySelector(".thinking-shimmer")?.textContent).toBe(t("chat.thinking"));
     expect(document.querySelector(".thinking")).toBeNull();
+    expect(document.querySelector(".ui-activity")).toBeNull();
     expect(screen.queryByText("Bash")).toBeNull();
+  });
 
-    const activeTrigger = active.querySelector(":scope > .ui-activity-trigger") as HTMLButtonElement;
-    fireEvent.click(activeTrigger);
-    expect(document.querySelectorAll(".active-turn-details .thinking")).toHaveLength(2);
-    const semanticActions = [...document.querySelectorAll(".active-turn-details > .ui-activity")];
-    expect(semanticActions).toHaveLength(2);
-    expect(semanticActions[0].textContent?.toLowerCase()).toContain(t("tools.searched").toLowerCase());
-    expect(semanticActions[1].textContent?.toLowerCase()).toContain(t("tools.read-1").toLowerCase());
-    expect(screen.queryByText("Bash")).toBeNull();
-
-    fireEvent.click(semanticActions[0].querySelector(".ui-activity-trigger") as HTMLButtonElement);
-    expect(screen.getByText("Bash")).toBeTruthy();
-    expect(screen.getByText("rg -n albedo src")).toBeTruthy();
+  it("ne rend jamais une réflexion vide", () => {
+    renderUi(<Chat {...chatProps({ events: [
+      events.user("Inspecte."),
+      { kind: "thinking", text: "   " } as AgentEvent,
+    ] })} />);
+    expect(document.querySelector(".thinking")).toBeNull();
   });
 
   it("l'erreur d'un tour reste visible même pli fermé", () => {

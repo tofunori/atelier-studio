@@ -218,7 +218,9 @@ export function formatPermInput(tool: string, input: Record<string, unknown>): s
 
 export function ThinkingBlock({ text, live }: { text: string; live: boolean }) {
   const [open, setOpen] = useState(false);
-  const preview = text.replace(/\s+/g, " ").slice(-140);
+  const normalized = text.trim();
+  const preview = normalized.replace(/\s+/g, " ").slice(-140);
+  if (!normalized) return null;
   return (
     <div className={`thinking ${live ? "live" : ""}`}>
       <button type="button" className="thinking-head" onClick={() => setOpen((v) => !v)}>
@@ -226,9 +228,17 @@ export function ThinkingBlock({ text, live }: { text: string; live: boolean }) {
         <span className="thinking-label">{live ? t("chat.thinking-live") : t("chat.thinking")}</span>
         {!open && <span className="thinking-preview">{preview}</span>}
       </button>
-      {open && <div className="thinking-body">{text}</div>}
+      {open && <div className="thinking-body">{normalized}</div>}
     </div>
   );
+}
+
+function workDuration(ms: number): string {
+  const totalSeconds = Math.max(1, Math.round(ms / 1000));
+  if (totalSeconds < 60) return `${totalSeconds}s`;
+  const minutes = Math.floor(totalSeconds / 60);
+  if (minutes < 60) return `${minutes}m ${String(totalSeconds % 60).padStart(2, "0")}s`;
+  return `${Math.floor(minutes / 60)}h ${String(minutes % 60).padStart(2, "0")}m`;
 }
 
 export function Working({ since }: { since: number }) {
@@ -237,14 +247,24 @@ export function Working({ since }: { since: number }) {
     const t = setInterval(() => tick((n) => n + 1), 1000);
     return () => clearInterval(t);
   }, []);
-  const secs = Math.max(1, Math.round((Date.now() - since) / 1000));
+  const duration = workDuration(Date.now() - since);
   return (
-    <Marker className="working">
+    <Marker className="working working-header" role="status" aria-live="polite">
       <MarkerIcon><span className="working-spin" /></MarkerIcon>
       <MarkerContent>
-        <span className="working-label">{t("chat.working")}</span> {t("chat.working-for", { secs })}
+        <span className="working-label">{t("chat.working-elapsed", { duration })}</span>
       </MarkerContent>
     </Marker>
+  );
+}
+
+/** Indicateur unique placé à la position courante du tour. Le texte balayé
+ * remplace les sentinelles `thinking` vides et répétées du provider. */
+export function LiveThinking() {
+  return (
+    <div className="thinking-live-indicator" role="status" aria-live="polite">
+      <span className="thinking-shimmer">{t("chat.thinking")}</span>
+    </div>
   );
 }
 
