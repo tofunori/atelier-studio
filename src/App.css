@@ -1869,8 +1869,11 @@ body.dragging iframe { pointer-events: none; }
 @media (prefers-reduced-motion: reduce) {
   .atelier-skeleton-grid [data-slot="skeleton"], .activity-pulse,
   .activity-step.running .activity-step-dot, .qa-minidot,
-  .review-badge.v-running, .thinking.live .thinking-label, .thinking-shimmer { animation: none; }
-  .thinking-shimmer { background-image: none; -webkit-text-fill-color: currentColor; }
+  .review-badge.v-running, .thinking.live .thinking-label, .thinking-shimmer,
+  .ui-activity-label.is-shimmering { animation: none; }
+  .thinking-shimmer, .ui-activity-label.is-shimmering {
+    background-image: none; -webkit-text-fill-color: currentColor;
+  }
 }
 
 /* focus visible sur les champs qui neutralisaient l'outline sans remplacement */
@@ -2245,6 +2248,36 @@ button.ctx-ring-wrap { border: none; font: inherit; color: inherit;
   -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent;
   animation: thinking-shimmer 2s linear infinite; }
 @keyframes thinking-shimmer { from { background-position: 100% 0; } to { background-position: 0 0; } }
+
+/* Codex : seule l'intention de l'action réellement active est éclairée.
+   Le balayage dure 1 s, puis reste discret 3 s avant le passage suivant. */
+.ui-activity-label.is-shimmering {
+  --activity-shimmer-base: color-mix(in srgb, var(--text-secondary) 58%, transparent);
+  --activity-shimmer-highlight: color-mix(in srgb, var(--text-primary) 82%, transparent);
+  background-color: var(--activity-shimmer-base);
+  background-image: linear-gradient(to right,
+    transparent 0%,
+    var(--activity-shimmer-highlight) 40%,
+    var(--activity-shimmer-highlight) 60%,
+    transparent 100%);
+  background-position: -100% 0;
+  background-repeat: no-repeat;
+  background-size: 50% 200%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  animation: activity-label-shimmer 4s steps(48, end) .6s infinite;
+}
+.ui-activity-trigger:hover .ui-activity-label.is-shimmering {
+  animation: none;
+  background-image: none;
+  -webkit-text-fill-color: currentColor;
+}
+@keyframes activity-label-shimmer {
+  0% { background-position: -100% 0; }
+  25% { background-position: 250% 0; }
+  25.01%, 100% { background-position: 250% 0; }
+}
 /* ===== carte permission (mode Ask) ===== */
 .perm-card { border: 1px solid var(--border2); border-left: 2.5px solid var(--accent);
   border-radius: var(--r-m); padding: 10px 14px; margin: 6px 0; background: var(--bg-card);

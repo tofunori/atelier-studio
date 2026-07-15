@@ -748,7 +748,7 @@ function GalleryToolbar() {
             </Button>
           }
         />
-        <PopoverContent align="start" sideOffset={6} className="gallery-filter-popover tw:w-[min(360px,calc(100vw-24px))] tw:gap-0 tw:p-0">
+        <PopoverContent align="start" sideOffset={6} className="gallery-filter-popover tw:w-[min(320px,calc(100vw-24px))] tw:gap-0 tw:p-0">
           <GalleryFileTypePanel
             state={fileTypeState}
             folder={folder}

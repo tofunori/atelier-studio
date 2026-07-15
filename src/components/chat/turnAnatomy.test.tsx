@@ -126,6 +126,9 @@ describe("anatomie du tour — header d'activité", () => {
     expect(activity.querySelector("[data-activity-icon='command']")).toBeTruthy();
     expect(activity.textContent).toContain(t("chat.activity-running-tests"));
     expect(activity.querySelector("[data-activity-icon='read']")).toBeNull();
+    expect(activity.querySelector(".ui-activity-label.is-shimmering")).toBeTruthy();
+    expect(activity.querySelector(".ui-activity-icon.is-shimmering")).toBeNull();
+    expect(activity.querySelector(".ui-activity-meta.is-shimmering")).toBeNull();
   });
 
   it("garde l'activité visible sous une narration intermédiaire tant que le tour travaille", () => {
@@ -161,6 +164,7 @@ describe("anatomie du tour — header d'activité", () => {
     expect(activity.textContent).toContain("Fichiers consultés, commande exécutée");
     expect(activity.querySelector("[data-activity-icon='search']")).toBeTruthy();
     expect(activity.querySelector("[data-activity-icon='command']")).toBeNull();
+    expect(activity.querySelector(".ui-activity-label.is-shimmering")).toBeNull();
   });
 
   it("rattache les narrations intermédiaires au pli du message final", () => {

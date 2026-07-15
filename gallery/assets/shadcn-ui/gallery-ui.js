@@ -25320,7 +25320,7 @@ function _A() {
           ] })
         }
       ),
-      /* @__PURE__ */ b.jsx(ep, { align: "start", sideOffset: 6, className: "gallery-filter-popover tw:w-[min(360px,calc(100vw-24px))] tw:gap-0 tw:p-0", children: /* @__PURE__ */ b.jsx(
+      /* @__PURE__ */ b.jsx(ep, { align: "start", sideOffset: 6, className: "gallery-filter-popover tw:w-[min(320px,calc(100vw-24px))] tw:gap-0 tw:p-0", children: /* @__PURE__ */ b.jsx(
         jA,
         {
           state: O,

@@ -456,6 +456,7 @@ export function ActiveTurnTail(p: {
           open={p.open}
           onToggle={p.onToggle}
           status="running"
+          shimmer={state?.kind === "activity"}
           icon={icon}
           label={activeEventLabel(p.turn, p.events)}
           meta={actionCount > 0 ? t(actionCount === 1 ? "chat.active-action-1" : "chat.active-action-n", { n: actionCount }) : undefined}
@@ -493,7 +494,7 @@ export function ActivityGroup(p: {
   // Le nom technique (Bash, Read, execute_command…) n'est jamais le libellé
   // principal. Une action reste compréhensible avant d'ouvrir son détail brut.
   return (
-    <ActivityDisclosure open={p.open} onToggle={p.onToggle} status={status}
+    <ActivityDisclosure open={p.open} onToggle={p.onToggle} status={status} shimmer={status === "running"}
       icon={summary.icon} label={summary.label}
       meta={status === "running" ? t("chat.working") : undefined}>
         <div className="tool-group-list">
