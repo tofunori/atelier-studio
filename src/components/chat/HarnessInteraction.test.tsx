@@ -47,7 +47,7 @@ describe("HarnessInteraction — approval", () => {
 
       fireEvent.click(screen.getByRole("button", { name: t("interaction.allow-once") }));
       expect(cap.details).toEqual([
-        { threadId: THREAD, requestId: "req-001", response: { allow: true } },
+        { threadId: THREAD, requestId: "req-001", response: { allow: true, scope: "once" } },
       ]);
       // figée localement (optimiste) : plus aucun bouton, verdict visible
       expect(screen.queryByRole("button")).toBeNull();
@@ -63,8 +63,34 @@ describe("HarnessInteraction — approval", () => {
       render(<HarnessInteraction event={makeEvent()} threadId={THREAD} />);
       fireEvent.click(screen.getByRole("button", { name: t("interaction.deny") }));
       expect(cap.details).toEqual([
-        { threadId: THREAD, requestId: "req-001", response: { allow: false } },
+        { threadId: THREAD, requestId: "req-001", response: { allow: false, scope: "once" } },
       ]);
+    } finally {
+      cap.dispose();
+    }
+  });
+
+  it("propose les quatre décisions et les raccourcis 1–4", () => {
+    const cap = captureAnswers();
+    try {
+      const { unmount } = render(<HarnessInteraction event={makeEvent()} threadId={THREAD} />);
+      expect(screen.getByRole("button", { name: t("interaction.allow-session") })).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: t("interaction.cancel-turn") })).toBeInTheDocument();
+      fireEvent.keyDown(window, { key: "2" });
+      expect(cap.details[0]).toEqual({
+        threadId: THREAD,
+        requestId: "req-001",
+        response: { allow: true, scope: "session" },
+      });
+      unmount();
+
+      render(<HarnessInteraction event={makeEvent({ requestId: "req-002" })} threadId={THREAD} />);
+      fireEvent.keyDown(window, { key: "4" });
+      expect(cap.details[1]).toEqual({
+        threadId: THREAD,
+        requestId: "req-002",
+        response: { allow: false, scope: "once", cancelTurn: true },
+      });
     } finally {
       cap.dispose();
     }

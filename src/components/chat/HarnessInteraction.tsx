@@ -9,7 +9,7 @@
 //    réponse, jamais dans le DOM après envoi ni dans answerSummary ;
 //  - mode URL : on affiche seulement le domaine et on émet accept/decline —
 //    JAMAIS de window.open ici, le sidecar/l'OS gère l'ouverture.
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import type { AgentEvent, InteractionResponse } from "../../lib/ws";
 import { t } from "../../lib/i18n";
 import { Input } from "../shadcn/input";
@@ -43,6 +43,27 @@ export function HarnessInteraction({ event: e, threadId }: {
     }));
     setSent(true);
   };
+  useEffect(() => {
+    if (final || e.interactionType !== "approval") return;
+    const onKey = (event: KeyboardEvent) => {
+      if (event.metaKey || event.ctrlKey || event.altKey || event.shiftKey) return;
+      const target = event.target;
+      if (target instanceof Element && target.matches("input, textarea, select, [contenteditable=true]")) return;
+      const pendingCards = [...document.querySelectorAll<HTMLElement>('.int-card[data-approval-pending="true"]')];
+      if (pendingCards[pendingCards.length - 1]?.dataset.requestId !== e.requestId) return;
+      const response =
+        event.key === "1" ? { allow: true, scope: "once" as const }
+        : event.key === "2" ? { allow: true, scope: "session" as const }
+        : event.key === "3" ? { allow: false, scope: "once" as const }
+        : event.key === "4" ? { allow: false, scope: "once" as const, cancelTurn: true }
+        : null;
+      if (!response) return;
+      event.preventDefault();
+      answer(response);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [e.interactionType, final]);
   const collect = (): Record<string, string> => {
     const out: Record<string, string> = {};
     for (const f of fields) {
@@ -58,7 +79,11 @@ export function HarnessInteraction({ event: e, threadId }: {
     : (e.answerSummary || t("interaction.answered"));
 
   return (
-    <div className={`perm-card int-card ${final ? "answered" : ""}`}>
+    <div
+      className={`perm-card int-card ${final ? "answered" : ""}`}
+      data-approval-pending={!final && e.interactionType === "approval" ? "true" : undefined}
+      data-request-id={e.requestId}
+    >
       <div className="perm-head">
         <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
           <circle cx="8" cy="8" r="6.2" />
@@ -141,10 +166,20 @@ export function HarnessInteraction({ event: e, threadId }: {
       ) : (
         <div className="perm-actions">
           {e.interactionType === "approval" ? (
-            <>
-              <button className="perm-allow" onClick={() => answer({ allow: true })}>{t("interaction.allow-once")}</button>
-              <button className="perm-deny" onClick={() => answer({ allow: false })}>{t("interaction.deny")}</button>
-            </>
+            <div className="approval-decisions">
+              <button className="approval-decision primary" aria-label={t("interaction.allow-once")} onClick={() => answer({ allow: true, scope: "once" })}>
+                <kbd>1</kbd><span><b>{t("interaction.allow-once")}</b><small>{t("interaction.allow-once-desc")}</small></span>
+              </button>
+              <button className="approval-decision" aria-label={t("interaction.allow-session")} onClick={() => answer({ allow: true, scope: "session" })}>
+                <kbd>2</kbd><span><b>{t("interaction.allow-session")}</b><small>{t("interaction.allow-session-desc")}</small></span>
+              </button>
+              <button className="approval-decision" aria-label={t("interaction.deny")} onClick={() => answer({ allow: false, scope: "once" })}>
+                <kbd>3</kbd><span><b>{t("interaction.deny")}</b><small>{t("interaction.deny-desc")}</small></span>
+              </button>
+              <button className="approval-decision danger" aria-label={t("interaction.cancel-turn")} onClick={() => answer({ allow: false, scope: "once", cancelTurn: true })}>
+                <kbd>4</kbd><span><b>{t("interaction.cancel-turn")}</b><small>{t("interaction.cancel-turn-desc")}</small></span>
+              </button>
+            </div>
           ) : e.interactionType === "user_input" ? (
             <>
               <button className="perm-allow" onClick={() => answer({ answers: collect() })}>{t("interaction.submit")}</button>

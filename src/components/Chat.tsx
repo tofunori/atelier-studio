@@ -19,9 +19,11 @@ import {
 import { ChatHeader } from "./chat/ChatHeader";
 import type { ResearchHomeBundle } from "./ResearchHome";
 import { ChatComposer } from "./chat/ChatComposer";
+import { QueuedTurns } from "./chat/QueuedTurns";
 import { mentionLabel } from "./chat/mentions";
 import { BUILTIN_MODEL_LABELS } from "../lib/modelCatalog";
 import type { PluginCatalogEntry } from "../lib/plugins";
+import type { QueuedTurn } from "../lib/chatDraftStore";
 
 
 
@@ -89,6 +91,12 @@ export default function Chat(p: {
   plugins?: PluginCatalogEntry[];
   injectText: string | null;
   onInjected: () => void;
+  draftText?: string;
+  onDraftTextChange?: React.Dispatch<React.SetStateAction<string>>;
+  queuedTurns?: QueuedTurn[];
+  onSteerQueued?: (id: string) => void;
+  onEditQueued?: (id: string) => void;
+  onRemoveQueued?: (id: string) => void;
   attachments: ChatAttachment[];
   onRemoveAttachment: (index: number) => void;
   onQuote: (text: string) => void;
@@ -140,7 +148,9 @@ export default function Chat(p: {
     mode: "steer" | "queue",
   ) => void;
 }) {
-  const [text, setText] = useState("");
+  const [localText, setLocalText] = useState("");
+  const text = p.draftText ?? localText;
+  const setText = p.onDraftTextChange ?? setLocalText;
   const taRef = useRef<HTMLTextAreaElement>(null);
   // resync la hauteur quand le texte change autrement que par frappe
   // (suggestion appliquée, envoi qui vide la boîte…)
@@ -220,6 +230,10 @@ export default function Chat(p: {
   }
 
   type ModelSelection = { provider: string; model: string; effort: string; permissionMode: string };
+  type StoredModelSelections = {
+    activeProvider: string;
+    byProvider: Record<string, Omit<ModelSelection, "provider">>;
+  };
   // Le provider et le choix modèle/effort appartiennent au chat. La clé projet
   // historique reste uniquement un repli de migration pour les fils qui n'ont
   // pas encore leur propre entrée et pour le composer sans thread actif.
@@ -232,21 +246,46 @@ export default function Chat(p: {
   // momentanément le choix du fil précédent sous la clé du nouveau fil.
   const hydratedSelectionRef = useRef<{ key: string; value: ModelSelection; ready: boolean } | null>(null);
   useEffect(() => {
-    let saved: Partial<ModelSelection> | null = null;
+    let saved: StoredModelSelections | null = null;
+    const readSelections = (key: string): StoredModelSelections | null => {
+      try {
+        const parsed = JSON.parse(localStorage.getItem(key) ?? "null") as Record<string, unknown> | null;
+        if (!parsed || typeof parsed !== "object") return null;
+        if (parsed.byProvider && typeof parsed.byProvider === "object") {
+          return {
+            activeProvider: typeof parsed.activeProvider === "string" ? parsed.activeProvider : "",
+            byProvider: parsed.byProvider as StoredModelSelections["byProvider"],
+          };
+        }
+        // Migration transparente de l'ancien objet plat.
+        const legacy = parsed as Partial<ModelSelection>;
+        if (!legacy.provider) return null;
+        return {
+          activeProvider: legacy.provider,
+          byProvider: {
+            [legacy.provider]: {
+              model: legacy.model ?? "",
+              effort: legacy.effort ?? "",
+              permissionMode: legacy.permissionMode ?? p.defaults.defaultPermissionMode,
+            },
+          },
+        };
+      } catch { return null; }
+    };
     if (selectionKey) {
-      try { saved = JSON.parse(localStorage.getItem(selectionKey) ?? "null"); } catch { saved = null; }
+      saved = readSelections(selectionKey);
     }
     if (!saved && p.threadId && p.projectRoot) {
-      try { saved = JSON.parse(localStorage.getItem(legacyProjectModelSelKey(p.projectRoot)) ?? "null"); } catch { saved = null; }
+      saved = readSelections(legacyProjectModelSelKey(p.projectRoot));
     }
-    const pv = p.threadProvider || saved?.provider || p.defaults.defaultProvider;
-    const savedMatchesThread = saved?.provider === pv;
-    const m = (savedMatchesThread ? saved?.model : undefined) ?? (p.defaults.defaultModel[pv] ?? "");
+    const pv = p.threadProvider || saved?.activeProvider || p.defaults.defaultProvider;
+    const providerSelection = saved?.byProvider[pv];
+    const m = providerSelection?.model ?? (p.defaults.defaultModel[pv] ?? "");
     const next: ModelSelection = {
       provider: pv,
       model: m,
-      effort: (savedMatchesThread ? saved?.effort : undefined) ?? effortFor(pv, m),
-      permissionMode: saved?.permissionMode || p.defaults.defaultPermissionMode,
+      effort: providerSelection?.effort ?? effortFor(pv, m),
+      permissionMode: providerSelection?.permissionMode || p.defaults.defaultPermissionMode,
     };
     hydratedSelectionRef.current = selectionKey ? { key: selectionKey, value: next, ready: false } : null;
     setProvider(pv);
@@ -264,7 +303,15 @@ export default function Chat(p: {
       hydrated.ready = true;
     }
     try {
-      localStorage.setItem(hydrated.key, JSON.stringify(current));
+      const parsed = JSON.parse(localStorage.getItem(hydrated.key) ?? "null") as Partial<StoredModelSelections> | null;
+      const byProvider = parsed?.byProvider && typeof parsed.byProvider === "object" ? parsed.byProvider : {};
+      localStorage.setItem(hydrated.key, JSON.stringify({
+        activeProvider: provider,
+        byProvider: {
+          ...byProvider,
+          [provider]: { model, effort, permissionMode },
+        },
+      } satisfies StoredModelSelections));
     } catch {}
   }, [selectionKey, provider, model, effort, permissionMode]);
   const [selIdx, setSelIdx] = useState(0);
@@ -961,6 +1008,12 @@ export default function Chat(p: {
         chapters={{ tickPos, resolvePinEl, pinMenu, setPinMenu, onStylePin: p.onStylePin }}
         empty={{ onNewChat: p.onNewChat, onOpenProject: p.onOpenProject, home: p.home ?? null }}
         selection={{ quote, setQuote, quoteHasHl, quoteHasUl, addMark, removeMark }}
+      />
+      <QueuedTurns
+        turns={p.queuedTurns ?? []}
+        onSteer={p.onSteerQueued ?? (() => {})}
+        onEdit={p.onEditQueued ?? (() => {})}
+        onRemove={p.onRemoveQueued ?? (() => {})}
       />
       <ChatComposer
         input={{

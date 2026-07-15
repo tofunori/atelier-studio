@@ -57,6 +57,12 @@ import {
   type GalleryCommandRequest,
 } from "./lib/galleryCommandBridge";
 import { parseNativeSlashCommand } from "./lib/slashCommands";
+import {
+  composerDraftKey,
+  useChatDraftStore,
+  type DraftAttachment,
+  type QueuedTurn,
+} from "./lib/chatDraftStore";
 // tokens → shadcn/Typeset → primitives → App.css : les alias sémantiques et les classes ui-*
 // doivent être définis avant les règles historiques (cascade à égalité de
 // spécificité — App.css garde le dernier mot pendant la migration).
@@ -68,15 +74,7 @@ import "./App.css";
 
 const PROJECTS_KEY = "atelier-studio.projects";
 
-export type Attachment = {
-  name: string;
-  lines: string | null;
-  text: string;
-  imageUrl?: string;
-  path?: string;
-  kind?: "file" | "folder" | "zotero" | "quote" | "paste";
-  preview?: { title: string; rows: { label: string; value: string }[] };
-};
+export type Attachment = DraftAttachment;
 type ZoteroPaletteItem = {
   key: string;
   title: string;
@@ -462,7 +460,6 @@ export default function App() {
   const [files, setFiles] = useState<string[]>([]);
   const [annotation, setAnnotation] = useState<string | null>(null);
   const [injectText, setInjectText] = useState<string | null>(null);
-  const [attachments, setAttachments] = useState<Attachment[]>([]);
   const [appBanner, setAppBanner] = useState<{
     text: string;
     actionLabel?: string;
@@ -681,6 +678,18 @@ export default function App() {
   activeIdRef.current = activeId;
   const activeProjectRef = useRef(activeProject);
   activeProjectRef.current = activeProject;
+  const activeComposerKey = composerDraftKey(activeId, activeProject);
+  const {
+    draft: activeComposerDraft,
+    drafts: composerDrafts,
+    setPrompt: setComposerPrompt,
+    setAttachments,
+    updateDraft: updateComposerDraft,
+    enqueueTurn,
+    removeQueuedTurn,
+    restoreQueuedTurn,
+  } = useChatDraftStore(activeComposerKey);
+  const attachments = activeComposerDraft.attachments;
   // Serveur atelier extrait dans useAtelierServer (slice 2.2) — démarrage par
   // projet, sonde 15 s, relance dure ; restauration des onglets épinglés et
   // bannières restent ici (domaines App).
@@ -880,9 +889,12 @@ export default function App() {
           imageUrl: file.previewUrl,
         }
       : parsed;
-    ensureThreadForContext(attachment.name || t("app.context-chat-title"));
+    const threadId = ensureThreadForContext(attachment.name || t("app.context-chat-title"));
     lastInjected.current = text;
-    setAttachments((l) => addAttachment(l, attachment));
+    updateComposerDraft(composerDraftKey(threadId, activeProjectRef.current), (draft) => ({
+      ...draft,
+      attachments: addAttachment(draft.attachments, attachment),
+    }));
     setAnnotation(null);
     setLayout((l) => (l === "atelier" ? "split" : l));
   }
@@ -1339,6 +1351,9 @@ export default function App() {
         clientInstanceId: getClientInstanceId(),
         response,
       }));
+      if (response?.cancelTurn && threadId) {
+        ws.current?.send(JSON.stringify({ type: "interrupt", threadId }));
+      }
       setEvents((p) => ({
         ...p,
         [threadId]: (p[threadId] ?? []).map((ev: any) =>
@@ -1772,6 +1787,24 @@ export default function App() {
       return;
     }
     if (!activeId && !activeProject) return;
+    // Comme Synara, une relance explicitement mise en file reste dans le
+    // composer tant qu'elle n'est pas réellement exécutée. Elle conserve son
+    // contexte et ses paramètres, reste modifiable/supprimable et ne crée pas
+    // encore de bulle dans la timeline.
+    if (mode === "queue" && activeId && workingSinceRef.current[activeId] != null) {
+      enqueueTurn(composerDraftKey(activeId, activeProject), {
+        id: crypto.randomUUID(),
+        prompt: displayPrompt,
+        provider,
+        model,
+        effort,
+        permissionMode,
+        attachments: [...attachments],
+        createdAt: Date.now(),
+      });
+      setAttachments([]);
+      return;
+    }
     // /clear et /compact sur un thread CODEX : équivalents natifs app-server
     const codexActive = activeId && (activeThread?.provider ?? provider) === "codex";
     if (codexActive && ["/clear", "/compact"].includes(prompt.trim()) && ws.current?.readyState === 1) {
@@ -1996,11 +2029,117 @@ export default function App() {
     }
   }
 
+  /** Envoie un snapshot déjà placé dans la file, sans dépendre du chat actif.
+   * Le tour possède sa bulle et son messageId seulement à cet instant. */
+  function dispatchQueuedTurn(threadId: string, queued: QueuedTurn, mode: "steer" | "queue"): boolean {
+    if (ws.current?.readyState !== 1) return false;
+    const thread = allThreadsRef.current.find((entry) => entry.id === threadId);
+    if (!thread) return false;
+    const queuedAttachments = queued.attachments;
+    const priorEvents = eventsRef.current[threadId] ?? [];
+    const isSwitch = Boolean(thread.sessionId && thread.provider !== queued.provider && priorEvents.length);
+    const handoff = isSwitch ? buildHandoff(priorEvents, thread.provider) : "";
+    const fullPrompt = handoff + (queuedAttachments.length
+      ? `${queuedAttachments.map((attachment) => attachment.text).join("\n\n")}\n\n${queued.prompt}`.trim()
+      : queued.prompt);
+    const clientMessageId = crypto.randomUUID();
+    const imagePaths = queuedAttachments.map((attachment) => attachment.path).filter(Boolean) as string[];
+    const pluginSkills = queued.provider === "codex" ? pluginSkillsForPrompt(queued.prompt, plugins) : [];
+    const codexInputs = queued.provider === "codex" && (imagePaths.length || pluginSkills.length)
+      ? [
+          { type: "text" as const, text: fullPrompt },
+          ...imagePaths.map((path) => ({ type: "local_image" as const, path })),
+          ...pluginSkills.map((skill) => ({ type: "skill" as const, name: skill.name, path: skill.path })),
+        ]
+      : undefined;
+    const additionalDirectories = settingsRef.current.additionalDirectories
+      .split(/\r?\n|,/)
+      .map((dir) => dir.trim())
+      .filter(Boolean);
+    const userEvent: AgentEvent = {
+      kind: "user",
+      text: queued.prompt,
+      ts: Date.now(),
+      meta: { provisional: true, messageId: clientMessageId },
+      ...(queuedAttachments.some((attachment) => attachment.imageUrl)
+        ? { imageUrl: queuedAttachments.find((attachment) => attachment.imageUrl)!.imageUrl }
+        : {}),
+      ...(queuedAttachments.some((attachment) => !attachment.imageUrl && attachment.kind !== "paste")
+        ? {
+            label: queuedAttachments
+              .filter((attachment) => !attachment.imageUrl && attachment.kind !== "paste")
+              .map((attachment) => `${attachment.name}${attachment.lines ? ` (lines ${attachment.lines})` : ""}`)
+              .join(" · "),
+          }
+        : {}),
+      ...(queuedAttachments.some((attachment) => attachment.kind === "paste")
+        ? {
+            pastes: queuedAttachments
+              .filter((attachment) => attachment.kind === "paste")
+              .map((attachment) => ({ name: attachment.name, text: attachment.text })),
+          }
+        : {}),
+    };
+    setEvents((current) => ({
+      ...current,
+      [threadId]: [...(current[threadId] ?? []), userEvent],
+    }));
+    setWorkingSince((current) => ({
+      ...current,
+      [threadId]: current[threadId] ?? Date.now(),
+    }));
+    sendPrompt(ws.current, {
+      autoReview: settingsRef.current.autoReview,
+      threadId,
+      projectRoot: thread.projectRoot ?? "",
+      provider: queued.provider,
+      prompt: fullPrompt,
+      clientMessageId,
+      displayEvent: {
+        kind: "user",
+        text: queued.prompt,
+        ts: userEvent.ts,
+        ...(imagePaths.length ? { imagePaths } : {}),
+        ...(queuedAttachments.some((attachment) => attachment.kind === "paste")
+          ? {
+              pastes: queuedAttachments
+                .filter((attachment) => attachment.kind === "paste")
+                .map((attachment) => ({ name: attachment.name, lines: attachment.text.split("\n").length })),
+            }
+          : {}),
+      },
+      ...(codexInputs ? { inputs: codexInputs } : {}),
+      ...(imagePaths.length ? { attachments: imagePaths.map((path) => ({ path })) } : {}),
+      ...(queued.model ? { model: queued.model } : {}),
+      ...(queued.effort ? { effort: queued.effort } : {}),
+      ...(queued.permissionMode ? { permissionMode: queued.permissionMode } : {}),
+      ...(queued.provider === "codex" && settingsRef.current.webSearch ? { webSearch: true } : {}),
+      ...(queued.provider === "codex" && additionalDirectories.length ? { additionalDirectories } : {}),
+      mode,
+    });
+    return true;
+  }
+
   const allThreads = useMemo(() => {
     const knownIds = new Set(threads.map((t) => t.id));
     return [...draftThreads.filter((t) => !knownIds.has(t.id)), ...threads];
   }, [draftThreads, threads]);
   allThreadsRef.current = allThreads;
+  const drainingQueuedRef = useRef(new Set<string>());
+  useEffect(() => {
+    if (!wsReady) return;
+    for (const [key, draft] of Object.entries(composerDrafts)) {
+      if (!key.startsWith("thread:") || !draft.queuedTurns.length) continue;
+      const threadId = key.slice("thread:".length);
+      const thread = allThreads.find((entry) => entry.id === threadId);
+      if (!thread || thread.status === "running" || workingSince[threadId] != null || drainingQueuedRef.current.has(threadId)) continue;
+      drainingQueuedRef.current.add(threadId);
+      const first = draft.queuedTurns[0];
+      const sent = dispatchQueuedTurn(threadId, first, "queue");
+      if (sent) removeQueuedTurn(key, first.id);
+      drainingQueuedRef.current.delete(threadId);
+    }
+  }, [allThreads, composerDrafts, removeQueuedTurn, workingSince, wsReady]);
   useEffect(() => {
     if (!wsReady) return;
     const send = () => ws.current?.readyState === 1 && ws.current.send(JSON.stringify({ type: "getUsage" }));
@@ -2421,6 +2560,24 @@ export default function App() {
           providers={providerList}
           injectText={injectText}
           onInjected={() => setInjectText(null)}
+          draftText={activeComposerDraft.prompt}
+          onDraftTextChange={setComposerPrompt}
+          queuedTurns={activeComposerDraft.queuedTurns}
+          onSteerQueued={(queuedId) => {
+            if (!activeId) return;
+            const queued = activeComposerDraft.queuedTurns.find((turn) => turn.id === queuedId);
+            if (!queued) return;
+            if (dispatchQueuedTurn(activeId, queued, "steer")) {
+              removeQueuedTurn(activeComposerKey, queuedId);
+            }
+          }}
+          onEditQueued={(queuedId) => {
+            const queued = activeComposerDraft.queuedTurns.find((turn) => turn.id === queuedId);
+            if (!queued) return;
+            restoreQueuedTurn(activeComposerKey, queuedId);
+            requestAnimationFrame(focusComposer);
+          }}
+          onRemoveQueued={(queuedId) => removeQueuedTurn(activeComposerKey, queuedId)}
           attachments={attachments}
           onRemoveAttachment={(i) => setAttachments((l) => l.filter((_, j) => j !== i))}
           onRevert={(index, text, edit) => {

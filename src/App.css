@@ -575,6 +575,30 @@ html, body, #root, .app { height: 100vh; overflow: hidden;
 .queue-btn { background: transparent; border: 1px solid var(--border2); border-radius: var(--r-pill);
   color: var(--muted); font-size: var(--fs-m); padding: 5px 12px; cursor: pointer; white-space: nowrap; }
 .queue-btn:hover:not(:disabled) { color: var(--fg); border-color: var(--muted2); }
+.queued-turns { width: calc(100% - 32px); max-width: var(--chat-w, 760px); margin: 8px auto 0;
+  padding: 7px 9px; border: 1px solid color-mix(in srgb, var(--border) 72%, transparent);
+  border-radius: var(--r-m); background: color-mix(in srgb, var(--bg-card) 84%, transparent); }
+.queued-turns-head { display: flex; align-items: center; gap: 7px; padding: 1px 3px 5px;
+  color: var(--muted2); font-size: var(--fs-xs); font-weight: 500; letter-spacing: .025em; }
+.queued-turns-head svg { color: var(--accent); }
+.queued-turn { display: flex; align-items: center; gap: 10px; min-height: 34px; padding: 4px 4px 4px 8px;
+  border-top: 1px solid color-mix(in srgb, var(--border) 68%, transparent); }
+.queued-turn-copy { display: flex; align-items: baseline; gap: 8px; min-width: 0; flex: 1; }
+.queued-turn-prompt { overflow: hidden; white-space: nowrap; text-overflow: ellipsis;
+  color: var(--fg2); font-size: var(--fs-m); }
+.queued-turn-context { flex: none; color: var(--muted2); font-size: var(--fs-xs); }
+.queued-turn-actions { display: flex; align-items: center; gap: 2px; flex: none; }
+.queued-turn-actions button { display: inline-flex; align-items: center; justify-content: center; min-width: 26px;
+  height: 26px; padding: 0 6px; border: 0; border-radius: var(--r-s); background: transparent;
+  color: var(--muted); font: inherit; font-size: var(--fs-xs); cursor: pointer; }
+.queued-turn-actions button:hover { color: var(--fg); background: var(--bg-ctl); }
+.queued-turn-actions .queued-turn-steer { padding: 0 8px; color: var(--accent); }
+.queued-turns + .composer { margin-top: 8px; }
+@media (max-width: 620px) {
+  .queued-turn-context { display: none; }
+  .queued-turn-actions .queued-turn-steer { width: 26px; overflow: hidden; color: transparent; position: relative; }
+  .queued-turn-actions .queued-turn-steer::after { content: "↑"; position: absolute; color: var(--accent); }
+}
 .send.steer { background: var(--accent); color: var(--text-on-accent, #1a1408); }
 .send.stop { display: inline-flex; align-items: center; justify-content: center;
   background: var(--border2); color: var(--muted); transition: color var(--motion-fast) var(--ease-out), background var(--motion-fast) var(--ease-out); }
@@ -2171,6 +2195,19 @@ button.ctx-ring-wrap { border: none; font: inherit; color: inherit;
 .perm-deny { background: transparent; border: 1px solid var(--border2); color: var(--muted); }
 .perm-deny:hover { color: var(--fg2); border-color: var(--border-strong, var(--border2)); }
 .perm-verdict { margin-top: 8px; font-size: var(--fs-m); color: var(--muted); }
+.approval-decisions { display: grid; grid-template-columns: 1fr 1fr; gap: 5px; width: 100%; }
+.approval-decision { min-width: 0; display: grid; grid-template-columns: 22px 1fr; align-items: start; gap: 7px;
+  padding: 7px 8px; border: 1px solid var(--border2); border-radius: var(--r-s); background: transparent;
+  color: var(--fg2); font: inherit; text-align: left; cursor: pointer; }
+.approval-decision:hover { background: var(--bg-ctl); border-color: var(--muted2); color: var(--fg); }
+.approval-decision kbd { display: inline-flex; align-items: center; justify-content: center; width: 20px; height: 20px;
+  border: 1px solid var(--border2); border-radius: 5px; color: var(--muted2); font: inherit; font-size: var(--fs-xs); }
+.approval-decision span { display: flex; flex-direction: column; min-width: 0; }
+.approval-decision b { font-size: var(--fs-m); font-weight: 500; }
+.approval-decision small { margin-top: 2px; color: var(--muted2); font-size: var(--fs-xs); line-height: 1.25; }
+.approval-decision.primary b { color: var(--accent); }
+.approval-decision.danger:hover b { color: var(--u-hot, #e06c75); }
+@media (max-width: 620px) { .approval-decisions { grid-template-columns: 1fr; } }
 /* ===== carte interaction harnais (plan 025, step 5) — étend .perm-card ===== */
 .int-title { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .int-type { margin-left: auto; flex: none; font-size: var(--fs-xs); color: var(--muted2); }

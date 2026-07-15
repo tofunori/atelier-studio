@@ -115,7 +115,7 @@ export type AgentEvent = AgentEventBody & { meta?: HarnessEventMeta | Provisiona
  * message WS `interactionResponse` (les valeurs secret n'existent nulle part
  * ailleurs : ni AgentEvent, ni journal, ni logs). */
 export type InteractionResponse =
-  | { allow: boolean }
+  | { allow: boolean; scope?: "once" | "session"; cancelTurn?: boolean }
   | { answers: Record<string, string> }
   | { action: "accept" | "decline"; content?: Record<string, string> };
 

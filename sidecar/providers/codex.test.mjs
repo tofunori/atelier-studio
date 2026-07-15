@@ -76,6 +76,8 @@ describe("codex provider helpers (app-server)", () => {
     expect(buildApprovalResponse("execCommandApproval", false)).toEqual({ decision: "denied" });
     expect(buildApprovalResponse("item/commandExecution/requestApproval", true)).toEqual({ decision: "accept" });
     expect(buildApprovalResponse("item/fileChange/requestApproval", false)).toEqual({ decision: "decline" });
+    expect(buildApprovalResponse("execCommandApproval", true, {}, "session")).toEqual({ decision: "approved_for_session" });
+    expect(buildApprovalResponse("item/commandExecution/requestApproval", true, {}, "session")).toEqual({ decision: "acceptForSession" });
   });
 
   it("répond aux demandes de permissions additionnelles sans escalade hors full-access", () => {

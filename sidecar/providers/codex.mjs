@@ -132,12 +132,12 @@ export function classifyCodexError(params = {}) {
   };
 }
 
-export function buildApprovalResponse(method, fullAccess, params = {}) {
+export function buildApprovalResponse(method, fullAccess, params = {}, scope = "once") {
   if (method === "execCommandApproval" || method === "applyPatchApproval") {
-    return { decision: fullAccess ? "approved" : "denied" };
+    return { decision: fullAccess ? (scope === "session" ? "approved_for_session" : "approved") : "denied" };
   }
   if (method === "item/commandExecution/requestApproval" || method === "item/fileChange/requestApproval") {
-    return { decision: fullAccess ? "accept" : "decline" };
+    return { decision: fullAccess ? (scope === "session" ? "acceptForSession" : "accept") : "decline" };
   }
   if (method === "item/permissions/requestApproval") {
     return {
@@ -147,7 +147,7 @@ export function buildApprovalResponse(method, fullAccess, params = {}) {
             ...(params.permissions?.fileSystem ? { fileSystem: params.permissions.fileSystem } : {}),
           }
         : {},
-      scope: "turn",
+      scope: fullAccess && scope === "session" ? "session" : "turn",
       strictAutoReview: !fullAccess,
     };
   }
@@ -257,7 +257,7 @@ export function describeServerRequest(method, params = {}) {
 /** Construit la réponse RPC Codex depuis la réponse utilisateur (null = refus sûr). */
 export function answerFromInteraction(method, params, response, fullAccessFallback = false) {
   if (APPROVAL_METHODS.has(method)) {
-    return buildApprovalResponse(method, response?.allow === true, params);
+    return buildApprovalResponse(method, response?.allow === true, params, response?.scope ?? "once");
   }
   if (method === "item/tool/requestUserInput") {
     const answers = response?.answers && typeof response.answers === "object" ? response.answers : {};

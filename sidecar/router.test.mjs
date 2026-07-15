@@ -808,6 +808,27 @@ describe("relay d'interactions (plan 025 step 5)", () => {
     expect(kinds.indexOf("done")).toBeGreaterThan(kinds.lastIndexOf("interaction"));
   });
 
+  it("Always allow session approuve les demandes suivantes sans nouvelle carte", async () => {
+    const { ctx, emitted, getRelay } = interactionSetup();
+    await route({ type: "send", provider: "codex", threadId: "i-session", projectRoot: "/p",
+      prompt: "x", clientMessageId: "m1", displayEvent: { kind: "user", text: "x" } }, ctx);
+    await flush();
+
+    const first = getRelay()({ interactionType: "approval", title: "Commande", detail: "ls" });
+    await flush();
+    const pending = interactions(emitted).find((event) => event.state === "pending");
+    await route({ type: "interactionResponse", threadId: "i-session",
+      clientInstanceId: "11111111-1111-4111-8111-111111111111", requestId: pending.requestId,
+      response: { allow: true, scope: "session" } }, ctx);
+    expect(await first).toEqual({ allow: true, scope: "session" });
+    await flush();
+    const before = interactions(emitted).length;
+
+    await expect(getRelay()({ interactionType: "approval", title: "Commande", detail: "pwd" }))
+      .resolves.toEqual({ allow: true, scope: "session" });
+    expect(interactions(emitted)).toHaveLength(before);
+  });
+
   it("autoResolutionMs borné : expiration → refus sûr + état expired", async () => {
     const { ctx, emitted, getRelay } = interactionSetup();
     await route({ type: "send", provider: "codex", threadId: "i3", projectRoot: "/p",

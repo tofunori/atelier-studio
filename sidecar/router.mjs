@@ -17,6 +17,7 @@ import { stripZoteroPassageInstruction, withZoteroPassageInstruction } from "./z
 const pending = new Map(); // threadId -> [{ msg, turnId }...] — turns réservés en queue
 const permWaiters = new Map(); // requestId -> resolve(bool) — chemin Claude historique (mode Ask)
 const interactionWaiters = new Map(); // requestId -> { threadId, answer(response), decline(state) }
+const approvalSessions = new Set(); // threadId autorisés jusqu'au redémarrage du sidecar
 const lastTurnByThread = new Map(); // threadId -> { entry, responseText, diffs }
 let retitleAllRunning = false;
 
@@ -189,7 +190,11 @@ function makePermissionRelay(ctx, _emit, threadId, permissionMode) {
 /** Résumé non secret d'une réponse d'interaction (jamais de valeur secret). */
 function summarizeInteractionAnswer(spec, response) {
   if (!response) return "";
-  if (spec.interactionType === "approval") return response.allow ? "autorisé" : "refusé";
+  if (spec.interactionType === "approval") {
+    if (response.cancelTurn) return "tour annulé";
+    if (response.allow && response.scope === "session") return "toujours autorisé pour cette session";
+    return response.allow ? "autorisé une fois" : "refusé";
+  }
   if (spec.interactionType === "mcp_elicitation") {
     return response.action === "accept" ? "accepté" : "refusé";
   }
@@ -213,7 +218,11 @@ const INTERACTION_TIMEOUT_MS = 120000;
  * Le waiter survit à une déconnexion du client (répondable après reconnexion).
  */
 function makeInteractionRelay(ctx, threadId) {
-  return (spec) => new Promise((resolve) => {
+  return (spec) => {
+    if (spec.interactionType === "approval" && approvalSessions.has(threadId)) {
+      return Promise.resolve({ allow: true, scope: "session" });
+    }
+    return new Promise((resolve) => {
     const h = harnessThreads.get(threadId);
     const run = threadRuns.get(threadId);
     if (!h || !run) {
@@ -254,7 +263,8 @@ function makeInteractionRelay(ctx, threadId) {
       decline: (state = "declined") => finish(state, null),
     });
     h.emit(turnId, publicEvent("pending"), { itemId: spec.itemId ?? undefined });
-  });
+    });
+  };
 }
 
 /** Fin/interruption de turn : les interactions pendantes sont refusées sûrement. */
@@ -437,6 +447,7 @@ export function __resetHarnessStateForTest() {
   harnessJournalUsed.clear();
   pending.clear();
   interactionWaiters.clear();
+  approvalSessions.clear();
   permWaiters.clear();
 }
 
@@ -1017,6 +1028,9 @@ export async function route(msg, ctx) {
       if (w && msg.threadId === w.threadId && w.clientInstanceId != null &&
           msg.clientInstanceId === w.clientInstanceId &&
           ctx.clientInstanceId === w.clientInstanceId) {
+        if (msg.response?.allow === true && msg.response?.scope === "session") {
+          approvalSessions.add(w.threadId);
+        }
         w.answer(msg.response ?? null);
       }
       break;

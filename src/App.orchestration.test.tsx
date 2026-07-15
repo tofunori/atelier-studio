@@ -126,6 +126,56 @@ afterEach(() => {
 });
 
 describe("orchestration App — caractérisation", () => {
+  it("isole et restaure le brouillon du composer pour chaque conversation", async () => {
+    const { sock } = await mountApp();
+    await pushThreads(sock);
+    await selectThread(sock, "Fil A — albédo");
+    const textarea = document.querySelector(".composer textarea") as HTMLTextAreaElement;
+    fireEvent.change(textarea, { target: { value: "brouillon albédo" } });
+
+    await selectThread(sock, "Fil B — manuscrit");
+    expect((document.querySelector(".composer textarea") as HTMLTextAreaElement).value).toBe("");
+    fireEvent.change(document.querySelector(".composer textarea")!, { target: { value: "brouillon manuscrit" } });
+
+    await selectThread(sock, "Fil A — albédo");
+    expect((document.querySelector(".composer textarea") as HTMLTextAreaElement).value).toBe("brouillon albédo");
+    await act(async () => { await vi.advanceTimersByTimeAsync(300); });
+    expect(localStorage.getItem("atelier-studio.chat-drafts:v1")).toContain("brouillon manuscrit");
+  });
+
+  it("garde une relance visible et éditable, puis l’envoie automatiquement après le tour actif", async () => {
+    const { sock } = await mountApp();
+    await pushThreads(sock, [THREAD_A]);
+    await selectThread(sock, "Fil A — albédo");
+    await push(sock, { type: "event", threadId: "thread-A", event: { kind: "started" } });
+
+    const textarea = document.querySelector(".composer textarea") as HTMLTextAreaElement;
+    fireEvent.change(textarea, { target: { value: "compare ensuite les deux cartes" } });
+    const before = sock.sent.map((value) => JSON.parse(value)).filter((message) => message.type === "send").length;
+    fireEvent.click(document.querySelector(".queue-btn") as HTMLButtonElement);
+
+    expect(screen.getByTestId("queued-follow-up-row")).toHaveTextContent("compare ensuite les deux cartes");
+    expect(textarea.value).toBe("");
+    expect(sock.sent.map((value) => JSON.parse(value)).filter((message) => message.type === "send")).toHaveLength(before);
+
+    fireEvent.click(screen.getByRole("button", { name: t("queue.edit") }));
+    expect(screen.queryByTestId("queued-follow-up-row")).toBeNull();
+    expect(textarea.value).toBe("compare ensuite les deux cartes");
+
+    fireEvent.click(document.querySelector(".queue-btn") as HTMLButtonElement);
+    await push(sock, { type: "event", threadId: "thread-A", event: { kind: "done", ok: true, result: "" } });
+    await act(async () => { await flushMicrotasks(6); });
+    const sends = sock.sent.map((value) => JSON.parse(value)).filter((message) => message.type === "send");
+    expect(sends).toHaveLength(before + 1);
+    expect(sends[sends.length - 1]).toMatchObject({
+      threadId: "thread-A",
+      provider: "claude",
+      prompt: "compare ensuite les deux cartes",
+      mode: "queue",
+    });
+    expect(screen.queryByTestId("queued-follow-up-row")).toBeNull();
+  });
+
   it("choisit le provider avant de créer un chat et le conserve au premier envoi", async () => {
     const { sock } = await mountApp();
     const sidebar = document.querySelector(".sidebar") as HTMLElement;
@@ -598,7 +648,7 @@ describe("orchestration App — caractérisation", () => {
     expect(responses[0].requestId).toBe("req-appr-1");
     expect(responses[0].threadId).toBe("thread-A");
     expect(responses[0].clientInstanceId).toMatch(/^[0-9a-f-]{20,}$/i);
-    expect(responses[0].response).toEqual({ allow: true });
+    expect(responses[0].response).toEqual({ allow: true, scope: "once" });
     // marquage optimiste : la carte est déjà figée en attendant l'état final
     expect(screen.queryByRole("button", { name: t("interaction.allow-once") })).toBeNull();
 
