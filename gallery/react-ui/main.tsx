@@ -178,7 +178,7 @@ function sortLabel(value: string) {
 }
 
 function readActiveFilterChips(fileTypes: GalleryFileTypeState | null) {
-  return [...document.querySelectorAll<HTMLElement>("#activeChips [data-fx]")].map((remove) => {
+  return [...document.querySelectorAll<HTMLElement>("#activeChips [data-fx]:not([data-fx='fav'])")].map((remove) => {
     const key = remove.dataset.fx ?? "filter"
     let label = remove.parentElement?.textContent?.replace("×", "").trim() || "Filter"
     if (key === "fmt" && fileTypes?.summary) label = fileTypes.summary
@@ -575,7 +575,7 @@ function GalleryToolbar() {
   }
   const selection = window.__gallerySelection?.getState() ?? { rels: [], imageCount: 0 }
   const activeChips = readActiveFilterChips(fileTypeState)
-  const activeFilterCount = document.querySelectorAll("#activeChips [data-fx]").length
+  const activeFilterCount = document.querySelectorAll("#activeChips [data-fx]:not([data-fx='fav'])").length
   const favoriteActive = favorite?.classList.contains("on") === true
   const sortItems = selectOptions("sort").map((option) => ({ value: option.value, label: sortLabel(option.value) }))
 
@@ -754,18 +754,17 @@ function GalleryToolbar() {
         </PopoverContent>
       </Popover>
 
-      <Tooltip label="Favorites">
-        <Button
-          variant={favoriteActive ? "secondary" : "outline"}
-          size="icon-sm"
-          data-gallery-command="favorites"
-          aria-label="Favorites"
-          aria-pressed={favoriteActive}
-          onClick={() => clickLegacy("favChip")}
-        >
-          <Star />
-        </Button>
-      </Tooltip>
+      <Button
+        variant={favoriteActive ? "secondary" : "outline"}
+        size="sm"
+        data-gallery-command="favorites"
+        aria-label="Favorites"
+        aria-pressed={favoriteActive}
+        onClick={() => clickLegacy("favChip")}
+      >
+        <Star data-icon="inline-start" />
+        <span className="gallery-fav-label">Favorites</span>
+      </Button>
 
       <Select items={sortItems} modal={false} value={sort?.value ?? "mtime"} onValueChange={(value) => value && setSelect("sort", value)}>
         <SelectTrigger
