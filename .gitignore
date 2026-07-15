@@ -35,6 +35,7 @@ src-tauri/rust-server-dist/BUILD_STAMP.txt
 .opencode/
 
 # Local research/build artifacts
+/.fig_state.json
 /.fig_thumbs/
 /generated/
 /diff_test.*

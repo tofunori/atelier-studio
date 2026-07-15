@@ -1,0 +1,2 @@
+#!/bin/sh
+exec node "$(dirname "$0")/zotero_passage_cli.mjs" "$@"

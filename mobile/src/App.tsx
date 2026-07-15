@@ -239,6 +239,10 @@ export default function App() {
 
   useEdgeSwipeBack(closeOverlay, overlay !== "none");
 
+  useEffect(() => {
+    document.querySelector<HTMLElement>(".app-main")?.scrollTo?.({ top: 0, left: 0 });
+  }, [tab, overlay]);
+
   if (!booted) {
     return (
       <div className="app-shell">
@@ -257,10 +261,6 @@ export default function App() {
     session.net.state === "offline" ||
     session.phase === "offline" ||
     session.phase === "tailscale_missing";
-
-  useEffect(() => {
-    document.querySelector<HTMLElement>(".app-main")?.scrollTo({ top: 0, left: 0 });
-  }, [tab, overlay]);
 
   return (
     <div className="app-shell">
