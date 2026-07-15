@@ -21,6 +21,7 @@ describe("chatDraftStore", () => {
         autoReview: { enabled: true, provider: "codex", model: "gpt", effort: "high", trigger: "turn" },
         attachments: [{ name: "main.tex", lines: "12", text: "fichier", path: "/repo/main.tex" }],
       }],
+      followUpMode: "steer",
       updatedAt: 10,
     };
     const raw = serializeChatDrafts({ "thread:t1": draft });
@@ -29,6 +30,7 @@ describe("chatDraftStore", () => {
     expect(loaded["thread:t1"].prompt).toBe("suite de l’analyse");
     expect(loaded["thread:t1"].attachments[0].path).toBe("/tmp/plot.png");
     expect(loaded["thread:t1"].queuedTurns[0].prompt).toBe("puis compare");
+    expect(loaded["thread:t1"].followUpMode).toBe("steer");
     expect(loaded["thread:t1"].queuedTurns[0]).toMatchObject({
       webSearch: true,
       additionalDirectories: ["/data/reference"],
@@ -57,10 +59,20 @@ describe("chatDraftStore", () => {
     expect(turn.additionalDirectories).toEqual([]);
     expect(turn.pluginSkills).toEqual([]);
     expect(turn.autoReview).toBeNull();
+    expect(loadChatDrafts({ getItem: () => raw })["thread:t1"].followUpMode).toBe("queue");
   });
 
   it("ignore un schéma inconnu au lieu d’écraser le composer", () => {
     const loaded = loadChatDrafts({ getItem: () => JSON.stringify({ version: 99, drafts: { x: {} } }) });
     expect(loaded).toEqual({});
+  });
+
+  it("persiste Steer même quand le brouillon est vide; Queue reste le défaut implicite", () => {
+    const steerDraft: ChatDraft = {
+      prompt: "", attachments: [], queuedTurns: [], followUpMode: "steer", updatedAt: 1,
+    };
+    const queueDraft: ChatDraft = { ...steerDraft, followUpMode: "queue" };
+    expect(serializeChatDrafts({ "thread:steer": steerDraft })).toContain("followUpMode");
+    expect(serializeChatDrafts({ "thread:queue": queueDraft })).not.toContain("thread:queue");
   });
 });

@@ -155,7 +155,8 @@ describe("orchestration App — caractérisation", () => {
     const textarea = document.querySelector(".composer textarea") as HTMLTextAreaElement;
     fireEvent.change(textarea, { target: { value: "compare ensuite les deux cartes" } });
     const before = sock.sent.map((value) => JSON.parse(value)).filter((message) => message.type === "send").length;
-    fireEvent.click(document.querySelector(".queue-btn") as HTMLButtonElement);
+    // Contrat Codex : pendant un tour actif, Enter met la relance en file par défaut.
+    fireEvent.keyDown(textarea, { key: "Enter" });
 
     expect(screen.getByTestId("queued-follow-up-row")).toHaveTextContent("compare ensuite les deux cartes");
     expect(textarea.value).toBe("");

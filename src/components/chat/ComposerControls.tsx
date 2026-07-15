@@ -17,6 +17,7 @@ import {
 } from "../shadcn/dropdown-menu";
 import { Button } from "../ui/Button";
 import { IconButton } from "../ui/IconButton";
+import type { FollowUpMode } from "../../lib/chatDraftStore";
 
 const PERMISSION_MODES = [
   { id: "bypassPermissions", labelKey: "permission.full" },
@@ -67,7 +68,9 @@ export function ComposerControls(p: {
   workingSince: number | null;
   onStop: () => void;
   onSubmit: (prompt: string, provider: string, model: string, effort: string, permissionMode: string, mode: "steer" | "queue") => void;
-  submitComposer?: (mode: "steer" | "queue") => void;
+  submitComposer?: (mode: FollowUpMode) => void;
+  followUpMode: FollowUpMode;
+  onFollowUpModeChange?: (mode: FollowUpMode) => void;
   onGoal?: (action: "set" | "clear", objective?: string, status?: "active" | "paused") => void;
   defaults: {
     autoReview?: { enabled: boolean };
@@ -112,6 +115,39 @@ export function ComposerControls(p: {
   };
   const effortIndex = Math.max(0, effortLevels.indexOf(effort));
   const effortSummary = effortLabels[effort] ?? effort;
+  const queueSupported = caps?.queue !== false;
+  const steeringSupported = caps?.steering !== false;
+  const preferredFollowUpMode: FollowUpMode = p.followUpMode === "steer" && steeringSupported
+    ? "steer"
+    : queueSupported ? "queue" : "steer";
+
+  function submitFollowUp(mode: FollowUpMode) {
+    if (!text.trim()) return;
+    if (p.submitComposer) p.submitComposer(mode);
+    else {
+      p.onFollowUpModeChange?.(mode);
+      p.onSubmit(text, provider, model, effort, permissionMode, mode);
+      setText("");
+    }
+  }
+
+  function followUpButton(mode: FollowUpMode, isDefault: boolean) {
+    const isQueue = mode === "queue";
+    return (
+      <Button
+        key={mode}
+        type={isDefault ? "submit" : "button"}
+        variant={isDefault ? "primary" : "ghost"}
+        className={`follow-up-action ${isQueue ? "queue-btn" : "steer-btn"} ${isDefault ? "is-default" : ""}`}
+        disabled={p.disabled}
+        title={isQueue ? t("action.queue-title") : t("action.send-now")}
+        onClick={isDefault ? undefined : () => submitFollowUp(mode)}
+      >
+        <span>{t(isQueue ? "action.queue" : "action.steer")}</span>
+        {isDefault ? <span className="follow-up-enter" aria-hidden="true">↑</span> : null}
+      </Button>
+    );
+  }
   // navigation clavier des menus (plan 020, étape 6) : flèches + Échap ;
   // focus posé sur le premier item à l'ouverture, rendu au déclencheur en sortie
   const modelMenuRef = useRef<HTMLDivElement | null>(null);
@@ -525,27 +561,10 @@ export function ComposerControls(p: {
           )}
           {p.workingSince != null ? (
             text.trim() ? (
-              <ButtonGroup className="composer-submit-group">
-                <Button
-                  type="button"
-                  variant="ghost"
-                  className="queue-btn"
-                  disabled={p.disabled}
-                  title={t("action.queue-title")}
-                  onClick={() => {
-                    if (!text.trim()) return;
-                    if (p.submitComposer) p.submitComposer("queue");
-                    else {
-                      p.onSubmit(text, provider, model, effort, permissionMode, "queue");
-                      setText("");
-                    }
-                  }}
-                >
-                  ⏱ {t("action.queue")}
-                </Button>
-                <Button type="submit" className="send steer" disabled={p.disabled} title={t("action.send-now")}>
-                  ↑
-                </Button>
+              <ButtonGroup className={`composer-submit-group follow-up-${preferredFollowUpMode}`}>
+                {queueSupported && preferredFollowUpMode !== "queue" ? followUpButton("queue", false) : null}
+                {steeringSupported && preferredFollowUpMode !== "steer" ? followUpButton("steer", false) : null}
+                {followUpButton(preferredFollowUpMode, true)}
               </ButtonGroup>
             ) : (
               <Button

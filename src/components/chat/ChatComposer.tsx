@@ -15,6 +15,7 @@ import { Field, FieldLabel } from "../shadcn/field";
 import { ButtonGroup } from "../shadcn/button-group";
 import { Button } from "../ui/Button";
 import { parseNativeSlashCommand, permissionModeFromSlash } from "../../lib/slashCommands";
+import type { FollowUpMode } from "../../lib/chatDraftStore";
 
 type ModelEntry = { id: string; label: string };
 type Dispatch<T> = React.Dispatch<React.SetStateAction<T>>;
@@ -91,6 +92,8 @@ export type ComposerHost = {
   workingSince: number | null;
   onStop: () => void;
   onSubmit: (prompt: string, provider: string, model: string, effort: string, permissionMode: string, mode: "steer" | "queue") => void;
+  followUpMode: FollowUpMode;
+  onFollowUpModeChange?: (mode: FollowUpMode) => void;
   onGoal?: (action: "set" | "clear", objective?: string, status?: "active" | "paused") => void;
   /** goal Codex actif (dernier événement goal non-cleared) — pilote la barre épinglée */
   activeGoal?: GoalInfo | null;
@@ -120,9 +123,19 @@ export function ChatComposer(props: {
     ...model, ...menus, ...catalog, ...host,
   };
 
-  function submit(mode: "steer" | "queue") {
+  function resolvedFollowUpMode(): FollowUpMode {
+    const capabilities = catalog.providerInfo(model.provider)?.capabilities;
+    const queueSupported = capabilities?.queue !== false;
+    const steeringSupported = capabilities?.steering !== false;
+    if (host.followUpMode === "steer" && steeringSupported) return "steer";
+    if (queueSupported) return "queue";
+    return "steer";
+  }
+
+  function submit(mode: FollowUpMode) {
     const prompt = text.trim();
     if (!prompt) return;
+    if (host.workingSince != null) host.onFollowUpModeChange?.(mode);
     const command = parseNativeSlashCommand(prompt);
     if (command?.name === "model") {
       const requested = command.args.toLowerCase();
@@ -167,7 +180,7 @@ export function ChatComposer(props: {
         className="composer"
         onSubmit={(ev) => {
           ev.preventDefault();
-          submit("steer");
+          submit(host.workingSince != null ? resolvedFollowUpMode() : "steer");
         }}
       >
         <InputGroup className="composer-input-group">

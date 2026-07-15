@@ -451,6 +451,40 @@ describe("composer — caractérisation complémentaire (plan 020)", () => {
     expect(onSubmit).toHaveBeenCalledTimes(1);
     expect(onSubmit.mock.calls[0][5]).toBe("queue");
   });
+
+  it("pendant un run : Enter met en file par défaut et Steer reste une action explicite", () => {
+    const onSubmit = vi.fn();
+    const onFollowUpModeChange = vi.fn();
+    renderUi(<Chat {...chatProps({ workingSince: FIXED_TS, onSubmit, onFollowUpModeChange })} />);
+
+    fireEvent.change(ta(), { target: { value: "à traiter après" } });
+    fireEvent.keyDown(ta(), { key: "Enter" });
+    expect(onSubmit.mock.calls[0][5]).toBe("queue");
+
+    fireEvent.change(ta(), { target: { value: "corrige maintenant" } });
+    fireEvent.click(document.querySelector(".steer-btn") as HTMLButtonElement);
+    expect(onSubmit.mock.calls[1][5]).toBe("steer");
+    expect(onFollowUpModeChange).toHaveBeenLastCalledWith("steer");
+  });
+
+  it("respecte le choix Steer mémorisé pour Enter", () => {
+    const onSubmit = vi.fn();
+    renderUi(<Chat {...chatProps({ workingSince: FIXED_TS, onSubmit, followUpMode: "steer" })} />);
+    fireEvent.change(ta(), { target: { value: "précision immédiate" } });
+    expect(document.querySelector(".steer-btn.is-default")).toBeTruthy();
+    fireEvent.keyDown(ta(), { key: "Enter" });
+    expect(onSubmit.mock.calls[0][5]).toBe("steer");
+  });
+
+  it("n'affiche pas Steer quand le provider ne le supporte pas", () => {
+    renderUi(<Chat {...chatProps({
+      workingSince: FIXED_TS,
+      providers: [makeProviderInfo({ capabilities: makeCapabilities({ steering: false, queue: true }) })],
+    })} />);
+    fireEvent.change(ta(), { target: { value: "à suivre" } });
+    expect(document.querySelector(".queue-btn.is-default")).toBeTruthy();
+    expect(document.querySelector(".steer-btn")).toBeNull();
+  });
 });
 
 // Le modèle et l'effort ont chacun leur déclencheur : changer l'un ne doit

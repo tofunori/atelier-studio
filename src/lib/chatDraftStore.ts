@@ -38,10 +38,15 @@ export type QueuedTurn = {
   createdAt: number;
 };
 
+export type FollowUpMode = "queue" | "steer";
+
 export type ChatDraft = {
   prompt: string;
   attachments: DraftAttachment[];
   queuedTurns: QueuedTurn[];
+  /** Action utilisée par Enter pendant un tour actif. Codex met les relances
+   * en file par défaut et mémorise le choix explicite Queue/Steer. */
+  followUpMode: FollowUpMode;
   updatedAt: number;
 };
 
@@ -54,6 +59,7 @@ const EMPTY_DRAFT: ChatDraft = {
   prompt: "",
   attachments: [],
   queuedTurns: [],
+  followUpMode: "queue",
   updatedAt: 0,
 };
 
@@ -117,6 +123,7 @@ function normalizeDraft(value: unknown): ChatDraft {
     queuedTurns: Array.isArray(draft.queuedTurns)
       ? draft.queuedTurns.map(normalizeQueuedTurn).filter((turn): turn is QueuedTurn => turn !== null)
       : [],
+    followUpMode: draft.followUpMode === "steer" ? "steer" : "queue",
     updatedAt: Number.isFinite(draft.updatedAt) ? Number(draft.updatedAt) : 0,
   };
 }
@@ -150,7 +157,7 @@ function persistableAttachment(attachment: DraftAttachment): DraftAttachment {
 export function serializeChatDrafts(drafts: Record<string, ChatDraft>): string {
   const persisted: Record<string, ChatDraft> = {};
   for (const [key, draft] of Object.entries(drafts)) {
-    if (!draft.prompt && !draft.attachments.length && !draft.queuedTurns.length) continue;
+    if (!draft.prompt && !draft.attachments.length && !draft.queuedTurns.length && draft.followUpMode === "queue") continue;
     persisted[key] = {
       ...draft,
       attachments: draft.attachments.map(persistableAttachment),
@@ -189,6 +196,10 @@ export function useChatDraftStore(activeKey: string) {
       ...draft,
       attachments: typeof action === "function" ? action(draft.attachments) : action,
     }));
+  }, [updateDraft]);
+
+  const setFollowUpMode = useCallback((mode: FollowUpMode) => {
+    updateDraft(activeKeyRef.current, (draft) => ({ ...draft, followUpMode: mode }));
   }, [updateDraft]);
 
   const enqueueTurn = useCallback((key: string, turn: QueuedTurn) => {
@@ -240,6 +251,7 @@ export function useChatDraftStore(activeKey: string) {
     drafts,
     setPrompt,
     setAttachments,
+    setFollowUpMode,
     updateDraft,
     enqueueTurn,
     removeQueuedTurn,

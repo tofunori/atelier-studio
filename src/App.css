@@ -575,9 +575,16 @@ html, body, #root, .app { height: 100vh; overflow: hidden;
 .stop-hint kbd { background: var(--bg-ctl); border: 1px solid var(--border); border-radius: var(--r-s);
   padding: 0 5px; font-size: var(--fs-xs); font-family: inherit; color: var(--muted2); line-height: 1.5; }
 .stop-hint:hover, .stop-hint:hover kbd { color: var(--fg2); border-color: var(--border2); }
-.queue-btn { background: transparent; border: 1px solid var(--border2); border-radius: var(--r-pill);
-  color: var(--muted); font-size: var(--fs-m); padding: 5px 12px; cursor: pointer; white-space: nowrap; }
-.queue-btn:hover:not(:disabled) { color: var(--fg); border-color: var(--muted2); }
+.composer-submit-group { gap: 3px; }
+.follow-up-action { height: 30px; min-width: 0; border: 0; border-radius: var(--r-s);
+  padding: 0 9px; display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+  color: var(--muted); font-size: var(--fs-m); font-weight: 500; white-space: nowrap; }
+.follow-up-action:not(.is-default) { background: transparent; }
+.follow-up-action .ui-btn-label { display: inline-flex; align-items: center; gap: 6px; }
+.follow-up-action:hover:not(:disabled) { color: var(--fg); background: var(--bg-ctl); }
+.follow-up-action.is-default { background: var(--accent); color: var(--text-on-accent, #1a1408); }
+.follow-up-action.is-default:hover:not(:disabled) { background: var(--accent-hover, var(--accent)); color: var(--text-on-accent, #1a1408); }
+.follow-up-enter { font-size: var(--fs-l); line-height: 1; }
 .queued-turns { width: calc(100% - 32px); max-width: var(--chat-w, 760px); margin: 8px auto 0;
   padding: 7px 9px; border: 1px solid color-mix(in srgb, var(--border) 72%, transparent);
   border-radius: var(--r-m); background: color-mix(in srgb, var(--bg-card) 84%, transparent); }
@@ -602,7 +609,6 @@ html, body, #root, .app { height: 100vh; overflow: hidden;
   .queued-turn-actions .queued-turn-steer { width: 26px; overflow: hidden; color: transparent; position: relative; }
   .queued-turn-actions .queued-turn-steer::after { content: "↑"; position: absolute; color: var(--accent); }
 }
-.send.steer { background: var(--accent); color: var(--text-on-accent, #1a1408); }
 .send.stop { display: inline-flex; align-items: center; justify-content: center;
   background: var(--border2); color: var(--muted); transition: color var(--motion-fast) var(--ease-out), background var(--motion-fast) var(--ease-out); }
 .send.stop:hover:not(:disabled) { background: var(--border2); color: var(--fg); }

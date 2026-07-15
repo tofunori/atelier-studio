@@ -33,7 +33,7 @@ export function QueuedTurns({ turns, onSteer, onEdit, onRemove }: {
             ) : null}
           </div>
           <div className="queued-turn-actions">
-            <button type="button" className="queued-turn-steer" onClick={() => onSteer(turn.id)}>
+            <button type="button" className="queued-turn-steer" title={t("action.send-now")} onClick={() => onSteer(turn.id)}>
               {t("queue.send-now")}
             </button>
             <button type="button" onClick={() => onEdit(turn.id)} aria-label={t("queue.edit")} title={t("queue.edit")}>

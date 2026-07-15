@@ -16,7 +16,7 @@ import { QueuedTurns } from "./chat/QueuedTurns";
 import { mentionLabel } from "./chat/mentions";
 import { BUILTIN_MODEL_LABELS } from "../lib/modelCatalog";
 import type { PluginCatalogEntry } from "../lib/plugins";
-import type { QueuedTurn } from "../lib/chatDraftStore";
+import type { FollowUpMode, QueuedTurn } from "../lib/chatDraftStore";
 import {
   buildChatTurnViewModels,
   projectChatTimeline,
@@ -92,6 +92,8 @@ export default function Chat(p: {
   onInjected: () => void;
   draftText?: string;
   onDraftTextChange?: React.Dispatch<React.SetStateAction<string>>;
+  followUpMode?: FollowUpMode;
+  onFollowUpModeChange?: (mode: FollowUpMode) => void;
   queuedTurns?: QueuedTurn[];
   onSteerQueued?: (id: string) => void;
   onEditQueued?: (id: string) => void;
@@ -930,6 +932,8 @@ export default function Chat(p: {
         host={{
           usage: p.usage, disabled: p.disabled, workingSince: p.workingSince,
           onStop: p.onStop, onSubmit: p.onSubmit,
+          followUpMode: p.followUpMode ?? "queue",
+          onFollowUpModeChange: p.onFollowUpModeChange,
           // interception clear : fermeture optimiste de la pastille avant
           // (et indépendamment de) l'écho goal/cleared du sidecar
           onGoal: p.onGoal

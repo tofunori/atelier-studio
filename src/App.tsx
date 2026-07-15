@@ -678,6 +678,7 @@ export default function App() {
     drafts: composerDrafts,
     setPrompt: setComposerPrompt,
     setAttachments,
+    setFollowUpMode,
     updateDraft: updateComposerDraft,
     enqueueTurn,
     removeQueuedTurn,
@@ -2640,6 +2641,8 @@ export default function App() {
           onInjected={() => setInjectText(null)}
           draftText={activeComposerDraft.prompt}
           onDraftTextChange={setComposerPrompt}
+          followUpMode={activeComposerDraft.followUpMode}
+          onFollowUpModeChange={setFollowUpMode}
           queuedTurns={activeComposerDraft.queuedTurns}
           onSteerQueued={(queuedId) => {
             if (!activeId) return;
