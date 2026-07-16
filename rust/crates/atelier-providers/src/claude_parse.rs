@@ -5,6 +5,9 @@ use serde_json::{json, Value};
 
 const TOOL_OUTPUT_MAX: usize = 64 * 1024;
 const TOOL_INPUT_MAX: usize = 16 * 1024;
+/// Avant/après d'un Edit (ou contenu d'un Write de fichier NOUVEAU) porté par
+/// l'événement `edit` pour un diff immédiat côté front — au-delà, fallback git.
+const SNIPPET_MAX: usize = 24 * 1024;
 
 /// Pending tool_use awaiting tool_result.
 #[derive(Debug, Clone)]
@@ -15,6 +18,11 @@ pub struct PendingTool {
     pub input: Value,
     pub source: Option<String>,
     pub edit_path: Option<String>,
+    /// Avant/après capturé sur l'input (Edit/Write) pour le diff immédiat.
+    pub snippet: Option<Value>,
+    /// TodoWrite : jamais de ligne d'outil — la liste devient l'événement `todos`.
+    pub silent: bool,
+    pub todos_items: Option<Value>,
     pub started_at_ms: u128,
 }
 
@@ -23,6 +31,9 @@ pub struct PendingTool {
 pub struct ClaudeStreamState {
     pub session_id: Option<String>,
     pub last_ctx: Option<u64>,
+    /// Tokens de sortie cumulés du tour — ticker « Ns · Nk tokens » du front
+    /// (heartbeat, éphémère par kind : jamais journalisé).
+    pub turn_output_tokens: u64,
     pub pending_tools: std::collections::HashMap<String, PendingTool>,
     pub saw_terminal: bool,
 }
@@ -95,6 +106,11 @@ pub fn parse_message(state: &mut ClaudeStreamState, msg: &Value) -> Vec<Value> {
             if ctx > 0 {
                 state.last_ctx = Some(ctx);
             }
+            state.turn_output_tokens += au
+                .get("output_tokens")
+                .and_then(|v| v.as_u64())
+                .unwrap_or(0);
+            out.push(json!({"kind":"heartbeat","tokens": state.turn_output_tokens}));
         }
         if let Some(blocks) = msg.pointer("/message/content").and_then(|v| v.as_array()) {
             for block in blocks {
@@ -123,6 +139,58 @@ pub fn parse_message(state: &mut ClaudeStreamState, msg: &Value) -> Vec<Value> {
                         .unwrap_or("tool")
                         .to_string();
                     let input = block.get("input").cloned().unwrap_or(json!({}));
+                    // TodoWrite : pas de ligne d'outil — la liste devient l'événement
+                    // `todos` (checklist du fil, singleton côté reducer), émis au
+                    // succès. Même rendu que le plan Codex (turn/plan/updated).
+                    if name == "TodoWrite" {
+                        let items: Vec<Value> = input
+                            .get("todos")
+                            .and_then(|v| v.as_array())
+                            .map(|arr| {
+                                arr.iter()
+                                    .filter_map(|td| {
+                                        let text =
+                                            td.get("content").and_then(|v| v.as_str()).unwrap_or("");
+                                        if text.is_empty() {
+                                            return None;
+                                        }
+                                        let status =
+                                            td.get("status").and_then(|v| v.as_str()).unwrap_or("");
+                                        let mut item = json!({
+                                            "text": text,
+                                            "completed": status == "completed",
+                                        });
+                                        if status == "in_progress" {
+                                            item.as_object_mut()
+                                                .unwrap()
+                                                .insert("active".into(), json!(true));
+                                        }
+                                        Some(item)
+                                    })
+                                    .collect()
+                            })
+                            .unwrap_or_default();
+                        state.pending_tools.insert(
+                            id.clone(),
+                            PendingTool {
+                                id,
+                                name,
+                                detail: String::new(),
+                                input: json!({}),
+                                source: None,
+                                edit_path: None,
+                                snippet: None,
+                                silent: true,
+                                todos_items: if items.is_empty() {
+                                    None
+                                } else {
+                                    Some(Value::Array(items))
+                                },
+                                started_at_ms: now_ms(),
+                            },
+                        );
+                        continue;
+                    }
                     let detail = tool_detail(&name, &input);
                     let edit_path = if matches!(name.as_str(), "Edit" | "Write" | "NotebookEdit") {
                         input
@@ -131,6 +199,33 @@ pub fn parse_message(state: &mut ClaudeStreamState, msg: &Value) -> Vec<Value> {
                             .and_then(|v| v.as_str())
                             .map(str::to_string)
                             .filter(|s| !s.is_empty())
+                    } else {
+                        None
+                    };
+                    // Diff immédiat : l'input porte déjà l'avant/après (Edit) ou le
+                    // contenu d'un fichier NOUVEAU (Write, vérifié sur disque avant
+                    // exécution) — attaché à l'événement `edit` au succès.
+                    let snippet = if name == "Edit" {
+                        let old_text = input.get("old_string").and_then(|v| v.as_str()).unwrap_or("");
+                        let new_text = input.get("new_string").and_then(|v| v.as_str()).unwrap_or("");
+                        if old_text.len() <= SNIPPET_MAX && new_text.len() <= SNIPPET_MAX {
+                            Some(json!({"oldText": old_text, "newText": new_text}))
+                        } else {
+                            None
+                        }
+                    } else if name == "Write" {
+                        match edit_path.as_deref() {
+                            Some(p) if !std::path::Path::new(p).exists() => {
+                                let new_text =
+                                    input.get("content").and_then(|v| v.as_str()).unwrap_or("");
+                                if !new_text.is_empty() && new_text.len() <= SNIPPET_MAX {
+                                    Some(json!({"newText": new_text}))
+                                } else {
+                                    None
+                                }
+                            }
+                            _ => None,
+                        }
                     } else {
                         None
                     };
@@ -146,6 +241,9 @@ pub fn parse_message(state: &mut ClaudeStreamState, msg: &Value) -> Vec<Value> {
                         input: bounded_input(&input),
                         source: source.clone(),
                         edit_path,
+                        snippet,
+                        silent: false,
+                        todos_items: None,
                         started_at_ms: now_ms(),
                     };
                     state.pending_tools.insert(id.clone(), pt.clone());
@@ -194,6 +292,15 @@ pub fn parse_message(state: &mut ClaudeStreamState, msg: &Value) -> Vec<Value> {
                     .and_then(|v| v.as_bool())
                     .unwrap_or(false);
                 if let Some(pt) = state.pending_tools.remove(tool_use_id) {
+                    if pt.silent {
+                        // TodoWrite : la checklist remplace la ligne d'outil
+                        if !failed {
+                            if let Some(items) = pt.todos_items {
+                                out.push(json!({"kind":"todos","items": items}));
+                            }
+                        }
+                        continue;
+                    }
                     let duration = now_ms().saturating_sub(pt.started_at_ms);
                     let mut ev = json!({
                         "kind": "tool_update",
@@ -215,7 +322,15 @@ pub fn parse_message(state: &mut ClaudeStreamState, msg: &Value) -> Vec<Value> {
                     out.push(ev);
                     if let Some(path) = pt.edit_path {
                         if !failed {
-                            out.push(json!({"kind":"edit","files":[path]}));
+                            let mut edit = json!({"kind":"edit","files":[path.clone()]});
+                            if let Some(sn) = pt.snippet {
+                                let mut snippets = serde_json::Map::new();
+                                snippets.insert(path, sn);
+                                edit.as_object_mut()
+                                    .unwrap()
+                                    .insert("snippets".into(), Value::Object(snippets));
+                            }
+                            out.push(edit);
                         }
                     }
                 } else {
@@ -235,6 +350,7 @@ pub fn parse_message(state: &mut ClaudeStreamState, msg: &Value) -> Vec<Value> {
 
     if ty == "result" {
         flush_pending(state, &mut out);
+        state.turn_output_tokens = 0; // le ticker repart à zéro au prochain tour
         let subtype = msg.get("subtype").and_then(|v| v.as_str()).unwrap_or("");
         let ok = subtype == "success"
             && !msg
@@ -298,6 +414,9 @@ pub fn parse_message(state: &mut ClaudeStreamState, msg: &Value) -> Vec<Value> {
 
 pub fn flush_pending(state: &mut ClaudeStreamState, out: &mut Vec<Value>) {
     for pt in state.pending_tools.values() {
+        if pt.silent {
+            continue; // TodoWrite : jamais de ligne d'outil, même interrompue
+        }
         out.push(json!({
             "kind": "tool_update",
             "id": pt.id,
@@ -324,7 +443,16 @@ pub fn tool_detail(name: &str, input: &Value) -> String {
             .collect::<String>()
     };
     match name {
-        "Bash" => first(input.get("command")),
+        // même rendu que Claude Code desktop : la description rédigée par le
+        // modèle prime sur la commande brute (visible dans l'input déplié)
+        "Bash" => {
+            let d = first(input.get("description"));
+            if d.is_empty() {
+                first(input.get("command"))
+            } else {
+                d
+            }
+        }
         "Read" | "Edit" | "Write" | "NotebookEdit" => {
             let p = input
                 .get("file_path")
