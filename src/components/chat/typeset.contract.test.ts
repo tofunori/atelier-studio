@@ -7,6 +7,12 @@ const raw = readFileSync(join(root, "styles", "typeset.css"), "utf8");
 const css = raw.replace(/\/\*[\s\S]*?\*\//g, "");
 
 describe("shadcn/typeset — contrat Atelier", () => {
+  it("le reset universel d'App.css reste dans @layer base (hors layer, il écraserait toutes les marges typeset)", () => {
+    const app = readFileSync(join(root, "App.css"), "utf8");
+    expect(app).toMatch(/@layer base \{ \* \{ box-sizing: border-box; margin: 0; \} \}/);
+    expect(app).not.toMatch(/^\* \{[^}]*margin/m);
+  });
+
   it("conserve les variables publiques et le preset chat", () => {
     for (const variable of [
       "--typeset-font-body",

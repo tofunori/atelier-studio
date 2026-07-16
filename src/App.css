@@ -41,7 +41,11 @@
 :root, :root[data-density="comfortable"] { --pad-y: 6px; }
 :root[data-density="spacious"] { --pad-y: 10px; }
 html.no-smoothing, html.no-smoothing body { -webkit-font-smoothing: auto !important; }
-* { box-sizing: border-box; margin: 0; }
+/* PIÈGE (2026-07-16) : ce reset DOIT vivre dans @layer base — hors layer, il
+   bat TOUT @layer (marges typeset du chat, utilitaires tw:m*) et aplatit la
+   prose en bloc. Ordre des layers déclaré dans shadcn.css (theme, base,
+   components, utilities). Verrouillé par typeset.contract.test.ts. */
+@layer base { * { box-sizing: border-box; margin: 0; } }
 html, body, #root, .app { height: 100vh; overflow: hidden;
   font-family: var(--ui-font);
   font-size: var(--fs-xl);
