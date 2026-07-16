@@ -13,6 +13,10 @@
 @import "tailwindcss/utilities.css" layer(utilities) prefix(tw);
 
 :root {
+  /* PIÈGE VÉRIFIÉ (2026-07-16) : --accent, --muted et --border existent AUSSI
+   * dans la palette App.css (chargée après) et écraseraient le mapping
+   * sémantique — d'où le préfixe --sh- pour ces trois-là. Le contrat vérifie
+   * l'absence de tout clash de nom entre ce bloc et la palette. */
   --background: var(--surface-app);
   --foreground: var(--text-primary);
   --card: var(--surface-raised);
@@ -23,13 +27,13 @@
   --primary-foreground: var(--surface-app);
   --secondary: var(--surface-inset);
   --secondary-foreground: var(--text-secondary);
-  --muted: var(--surface-inset);
+  --sh-muted: var(--surface-inset);
   --muted-foreground: var(--text-muted);
-  --accent: var(--selection-surface);
+  --sh-accent: var(--selection-surface);
   --accent-foreground: var(--text-primary);
   --destructive: var(--status-error);
   --destructive-foreground: var(--surface-app);
-  --border: var(--border-subtle);
+  --sh-border: var(--border-subtle);
   --input: var(--border-interactive);
   --ring: var(--accent-base);
   --radius: var(--radius-surface);
@@ -55,13 +59,13 @@
   --color-primary-foreground: var(--primary-foreground);
   --color-secondary: var(--secondary);
   --color-secondary-foreground: var(--secondary-foreground);
-  --color-muted: var(--muted);
+  --color-muted: var(--sh-muted);
   --color-muted-foreground: var(--muted-foreground);
-  --color-accent: var(--accent);
+  --color-accent: var(--sh-accent);
   --color-accent-foreground: var(--accent-foreground);
   --color-destructive: var(--destructive);
   --color-destructive-foreground: var(--destructive-foreground);
-  --color-border: var(--border);
+  --color-border: var(--sh-border);
   --color-input: var(--input);
   --color-ring: var(--ring);
   --color-sidebar: var(--sidebar);

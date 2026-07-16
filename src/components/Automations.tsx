@@ -252,15 +252,15 @@ export default function AutomationsPanel(props: {
                             {running ? t("automations.in-progress") : automation.status === "PAUSED" ? t("automations.paused") : t("automations.active")}
                           </Badge>
                         </span>
-                        <span className="tw:truncate tw:text-[var(--fs-caption)] tw:text-muted-foreground">{scheduleLabel(automation)}</span>
-                        <span className="tw:line-clamp-2 tw:text-[var(--fs-caption)] tw:text-muted-foreground">
+                        <span className="tw:truncate tw:text-[length:var(--fs-caption)] tw:text-muted-foreground">{scheduleLabel(automation)}</span>
+                        <span className="tw:line-clamp-2 tw:text-[length:var(--fs-caption)] tw:text-muted-foreground">
                           {automation.kind === "heartbeat" ? t("automations.heartbeat-task", { task: target?.title ?? automation.targetThreadId }) : automation.projectRoot.split("/").pop()}
                         </span>
                       </span>
                     </Button>
                     <div className="tw:mt-1 tw:flex tw:items-center tw:gap-1">
                       {automation.status === "ACTIVE" && automation.nextRunAt && !running && (
-                        <span className="tw:min-w-0 tw:flex-1 tw:truncate tw:px-1 tw:text-[var(--fs-caption)] tw:text-muted-foreground">{t("automations.next-run", { time: relativeTime(automation.nextRunAt) })}</span>
+                        <span className="tw:min-w-0 tw:flex-1 tw:truncate tw:px-1 tw:text-[length:var(--fs-caption)] tw:text-muted-foreground">{t("automations.next-run", { time: relativeTime(automation.nextRunAt) })}</span>
                       )}
                       <Button className="tw:ml-auto" variant="ghost" size="icon-sm" aria-label={automation.status === "ACTIVE" ? t("automations.pause") : t("automations.resume")} onClick={() => changeStatus(automation)}>
                         {automation.status === "ACTIVE" ? <PauseIcon /> : <PlayIcon />}
@@ -354,7 +354,7 @@ export default function AutomationsPanel(props: {
                         <div className="tw:flex tw:flex-col tw:divide-y tw:divide-border">
                           {selected.runs.map((run) => {
                             const runThread = threadById.get(run.threadId);
-                            const content = <><span className="tw:min-w-0 tw:flex-1 tw:truncate">{runThread?.title ?? run.threadId}</span><Badge variant={run.status === "FAILED" ? "destructive" : run.status === "IN_PROGRESS" ? "secondary" : "outline"}>{run.status === "FAILED" ? t("automations.failed") : run.status === "IN_PROGRESS" ? t("automations.in-progress") : t("automations.completed")}</Badge><span className="tw:shrink-0 tw:text-[var(--fs-caption)] tw:text-muted-foreground">{new Date(run.createdAt).toLocaleString()}</span></>;
+                            const content = <><span className="tw:min-w-0 tw:flex-1 tw:truncate">{runThread?.title ?? run.threadId}</span><Badge variant={run.status === "FAILED" ? "destructive" : run.status === "IN_PROGRESS" ? "secondary" : "outline"}>{run.status === "FAILED" ? t("automations.failed") : run.status === "IN_PROGRESS" ? t("automations.in-progress") : t("automations.completed")}</Badge><span className="tw:shrink-0 tw:text-[length:var(--fs-caption)] tw:text-muted-foreground">{new Date(run.createdAt).toLocaleString()}</span></>;
                             return runThread ? <Button key={run.id} variant="ghost" className="tw:h-auto tw:w-full tw:justify-start tw:rounded-none tw:px-1 tw:py-2.5 tw:text-left" onClick={() => props.onOpenThread(runThread)}>{content}</Button> : <div key={run.id} className="tw:flex tw:items-center tw:gap-3 tw:px-1 tw:py-2.5">{content}</div>;
                           })}
                         </div>

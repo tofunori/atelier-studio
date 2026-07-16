@@ -72,7 +72,7 @@ function DialogContent({
         <DialogPrimitive.Popup
           data-slot="dialog-content"
           className={cn(
-            "tw:relative tw:grid tw:max-h-full tw:min-h-0 tw:w-full tw:max-w-[calc(100%-2rem)] tw:gap-4 tw:rounded-[var(--radius-surface)] tw:bg-popover tw:p-4 tw:text-[var(--fs-body-s)] tw:text-popover-foreground tw:ring-1 tw:ring-foreground/10 tw:duration-[var(--motion-fast)] tw:outline-none tw:sm:max-w-sm",
+            "tw:relative tw:grid tw:max-h-full tw:min-h-0 tw:w-full tw:max-w-[calc(100%-2rem)] tw:gap-4 tw:rounded-[var(--radius-surface)] tw:bg-popover tw:p-4 tw:text-[length:var(--fs-body-s)] tw:text-popover-foreground tw:ring-1 tw:ring-foreground/10 tw:duration-[var(--motion-fast)] tw:outline-none tw:sm:max-w-sm",
             className
           )}
           {...props}
@@ -141,7 +141,7 @@ function DialogTitle({ className, ...props }: DialogPrimitive.Title.Props) {
     <DialogPrimitive.Title
       data-slot="dialog-title"
       className={cn(
-        "tw:text-[var(--fs-title)] tw:leading-none tw:font-medium",
+        "tw:text-[length:var(--fs-title)] tw:leading-none tw:font-medium",
         className
       )}
       {...props}
@@ -157,7 +157,7 @@ function DialogDescription({
     <DialogPrimitive.Description
       data-slot="dialog-description"
       className={cn(
-        "tw:text-[var(--fs-body-s)] tw:text-muted-foreground tw:*:[a]:underline tw:*:[a]:underline-offset-3 tw:*:[a]:hover:text-foreground",
+        "tw:text-[length:var(--fs-body-s)] tw:text-muted-foreground tw:*:[a]:underline tw:*:[a]:underline-offset-3 tw:*:[a]:hover:text-foreground",
         className
       )}
       {...props}

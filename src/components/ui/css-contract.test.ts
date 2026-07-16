@@ -72,6 +72,12 @@ describe("contrat Quiet Instrument (sources CSS)", () => {
       );
       // voile de modale : token --scrim, jamais une couleur brute
       expect(source, `${name} : couleur brute black/white`).not.toMatch(/tw:bg-(black|white)\b/);
+      // PIÈGE VÉRIFIÉ (2026-07-16) : text-[var(--x)] est ambigu pour Tailwind
+      // (couleur vs taille) — avec une var() il émet `color:`, la taille n'est
+      // JAMAIS appliquée. Toujours utiliser le hint text-[length:var(--x)].
+      expect(source, `${name} : text-[var(...)] ambigu — utiliser text-[length:var(...)]`).not.toMatch(
+        /tw:text-\[var\(/,
+      );
     }
   });
 
@@ -180,6 +186,24 @@ describe("contrat Quiet Instrument (sources CSS)", () => {
     };
     walk(root, "");
     expect(offenders, `import direct shadcn/button|tooltip hors allowlist : ${offenders.join(", ")}`).toEqual([]);
+  });
+
+  it("aucun clash de nom entre le :root du pont shadcn et les palettes App.css/tokens.css", () => {
+    // PIÈGE VÉRIFIÉ (2026-07-16) : App.css est chargé après shadcn.css — toute
+    // custom property définie dans les deux écrase silencieusement le mapping
+    // sémantique du pont (ex. --accent : orange brut au lieu du mix sélection).
+    const rootProps = (css: string) => {
+      const names = new Set<string>();
+      for (const block of css.matchAll(/^:root[^{]*\{([^}]*)\}/gm)) {
+        for (const decl of block[1].matchAll(/(--[\w-]+)\s*:/g)) names.add(decl[1]);
+      }
+      return names;
+    };
+    const bridge = rootProps(shadcn);
+    for (const [name, other] of [["App.css", rootProps(appCss)], ["tokens.css", rootProps(tokens)]] as const) {
+      const clash = [...bridge].filter((p) => other.has(p));
+      expect(clash, `custom properties définies à la fois dans shadcn.css et ${name} : ${clash.join(", ")}`).toEqual([]);
+    }
   });
 
   it("le pont snappe les échelles Tailwind sur le système (rayons 6/10, texte 12/13)", () => {

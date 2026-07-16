@@ -208,8 +208,8 @@ export function RemoteDevicesPanel(p: Props) {
         <div className="tw:flex tw:min-w-0 tw:items-center tw:gap-2.5">
           <ShieldCheckIcon className="tw:text-muted-foreground" aria-hidden="true" />
           <div className="tw:min-w-0">
-            <div className="tw:text-[var(--fs-body-s)] tw:font-medium">Connexion sécurisée</div>
-            <div className="tw:text-[var(--fs-caption)] tw:text-muted-foreground">
+            <div className="tw:text-[length:var(--fs-body-s)] tw:font-medium">Connexion sécurisée</div>
+            <div className="tw:text-[length:var(--fs-caption)] tw:text-muted-foreground">
               Atelier relie ce Mac à tes appareils via Tailscale.
             </div>
           </div>
@@ -232,7 +232,7 @@ export function RemoteDevicesPanel(p: Props) {
       )}
 
       {devices === null && admin && !error && (
-        <div className="tw:flex tw:items-center tw:gap-2 tw:px-3 tw:py-5 tw:text-[var(--fs-body-s)] tw:text-muted-foreground">
+        <div className="tw:flex tw:items-center tw:gap-2 tw:px-3 tw:py-5 tw:text-[length:var(--fs-body-s)] tw:text-muted-foreground">
           <Spinner />
           Recherche des appareils…
         </div>
@@ -258,8 +258,8 @@ export function RemoteDevicesPanel(p: Props) {
                 <SmartphoneIcon aria-hidden="true" />
               </div>
               <div className="tw:min-w-0 tw:flex-1">
-                <div className="tw:truncate tw:text-[var(--fs-body-s)] tw:font-medium">{device.name}</div>
-                <div className="tw:text-[var(--fs-caption)] tw:text-muted-foreground">
+                <div className="tw:truncate tw:text-[length:var(--fs-body-s)] tw:font-medium">{device.name}</div>
+                <div className="tw:text-[length:var(--fs-caption)] tw:text-muted-foreground">
                   {connected ? "Actif maintenant" : `Vu ${relativeLastSeen(device.lastSeenAt).toLocaleLowerCase("fr-CA")}`}
                 </div>
               </div>
@@ -361,7 +361,7 @@ export function RemoteDevicesPanel(p: Props) {
               <Spinner />
             )}
           </div>
-          <div className="tw:flex tw:items-center tw:gap-2 tw:text-[var(--fs-caption)] tw:text-muted-foreground">
+          <div className="tw:flex tw:items-center tw:gap-2 tw:text-[length:var(--fs-caption)] tw:text-muted-foreground">
             <LinkIcon aria-hidden="true" />
             Le jeton permanent sera enregistré automatiquement sur l’appareil.
           </div>

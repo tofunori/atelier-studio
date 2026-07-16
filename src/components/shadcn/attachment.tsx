@@ -14,7 +14,7 @@ const attachmentVariants = cva(
         default:
           "tw:gap-2 tw:text-sm tw:has-data-[slot=attachment-content]:px-2.5 tw:has-data-[slot=attachment-content]:py-2 tw:has-data-[slot=attachment-media]:p-2",
         sm: "tw:gap-2.5 tw:text-xs tw:has-data-[slot=attachment-content]:px-2 tw:has-data-[slot=attachment-content]:py-1.5 tw:has-data-[slot=attachment-media]:p-1.5",
-        xs: "tw:gap-1.5 tw:rounded-[var(--radius-control)] tw:text-[var(--fs-caption)] tw:has-data-[slot=attachment-content]:px-1.5 tw:has-data-[slot=attachment-content]:py-1 tw:has-data-[slot=attachment-media]:p-1",
+        xs: "tw:gap-1.5 tw:rounded-[var(--radius-control)] tw:text-[length:var(--fs-caption)] tw:has-data-[slot=attachment-content]:px-1.5 tw:has-data-[slot=attachment-content]:py-1 tw:has-data-[slot=attachment-media]:p-1",
       },
       orientation: {
         horizontal: "tw:min-w-40 tw:items-center",

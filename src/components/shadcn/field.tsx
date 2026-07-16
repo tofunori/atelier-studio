@@ -25,7 +25,7 @@ function FieldLegend({
       data-slot="field-legend"
       data-variant={variant}
       className={cn(
-        "tw:mb-1.5 tw:p-0 tw:font-medium tw:data-[variant=label]:text-[var(--fs-caption)] tw:data-[variant=legend]:text-[var(--fs-body-s)]",
+        "tw:mb-1.5 tw:p-0 tw:font-medium tw:data-[variant=label]:text-[length:var(--fs-caption)] tw:data-[variant=legend]:text-[length:var(--fs-body-s)]",
         className,
       )}
       {...props}
@@ -86,7 +86,7 @@ function FieldLabel({ className, ...props }: React.ComponentProps<typeof FieldPr
   return (
     <FieldPrimitive.Label
       data-slot="field-label"
-      className={cn("tw:text-[var(--fs-caption)] tw:text-muted-foreground", className)}
+      className={cn("tw:text-[length:var(--fs-caption)] tw:text-muted-foreground", className)}
       {...props}
     />
   )
@@ -96,7 +96,7 @@ function FieldDescription({ className, ...props }: React.ComponentProps<typeof F
   return (
     <FieldPrimitive.Description
       data-slot="field-description"
-      className={cn("tw:text-[var(--fs-caption)] tw:text-muted-foreground", className)}
+      className={cn("tw:text-[length:var(--fs-caption)] tw:text-muted-foreground", className)}
       {...props}
     />
   )
@@ -106,7 +106,7 @@ function FieldError({ className, ...props }: React.ComponentProps<typeof FieldPr
   return (
     <FieldPrimitive.Error
       data-slot="field-error"
-      className={cn("tw:text-[var(--fs-caption)] tw:text-destructive", className)}
+      className={cn("tw:text-[length:var(--fs-caption)] tw:text-destructive", className)}
       {...props}
     />
   )
@@ -116,7 +116,7 @@ function FieldTitle({ className, ...props }: React.ComponentProps<"div">) {
   return (
     <div
       data-slot="field-title"
-      className={cn("tw:text-[var(--fs-body-s)] tw:font-medium tw:text-foreground", className)}
+      className={cn("tw:text-[length:var(--fs-body-s)] tw:font-medium tw:text-foreground", className)}
       {...props}
     />
   )
@@ -136,7 +136,7 @@ function FieldSeparator({
     >
       <Separator className="tw:absolute tw:inset-x-0" />
       {children && (
-        <span className="tw:relative tw:mx-auto tw:bg-background tw:px-2 tw:text-[var(--fs-caption)] tw:text-muted-foreground">
+        <span className="tw:relative tw:mx-auto tw:bg-background tw:px-2 tw:text-[length:var(--fs-caption)] tw:text-muted-foreground">
           {children}
         </span>
       )}

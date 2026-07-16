@@ -5,7 +5,7 @@ import { cva, type VariantProps } from "class-variance-authority"
 import { cn } from "@/lib/utils"
 
 const badgeVariants = cva(
-  "tw:group/badge tw:inline-flex tw:h-5 tw:w-fit tw:shrink-0 tw:items-center tw:justify-center tw:gap-1 tw:overflow-hidden tw:rounded-[var(--radius-pill)] tw:border tw:border-transparent tw:px-2 tw:py-0.5 tw:text-[var(--fs-caption)] tw:font-medium tw:whitespace-nowrap tw:focus-visible:outline tw:focus-visible:outline-[var(--focus-ring-color)] tw:focus-visible:outline-offset-1 tw:has-data-[icon=inline-end]:pr-1.5 tw:has-data-[icon=inline-start]:pl-1.5 tw:aria-invalid:border-destructive tw:[&>svg]:pointer-events-none tw:[&>svg]:size-3!",
+  "tw:group/badge tw:inline-flex tw:h-5 tw:w-fit tw:shrink-0 tw:items-center tw:justify-center tw:gap-1 tw:overflow-hidden tw:rounded-[var(--radius-pill)] tw:border tw:border-transparent tw:px-2 tw:py-0.5 tw:text-[length:var(--fs-caption)] tw:font-medium tw:whitespace-nowrap tw:focus-visible:outline tw:focus-visible:outline-[var(--focus-ring-color)] tw:focus-visible:outline-offset-1 tw:has-data-[icon=inline-end]:pr-1.5 tw:has-data-[icon=inline-start]:pl-1.5 tw:aria-invalid:border-destructive tw:[&>svg]:pointer-events-none tw:[&>svg]:size-3!",
   {
     variants: {
       variant: {

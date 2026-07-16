@@ -48,7 +48,7 @@ function PopoverContent({
           className={cn(
             plain
               ? "tw:origin-(--transform-origin) tw:outline-hidden"
-              : "tw:flex tw:w-72 tw:origin-(--transform-origin) tw:flex-col tw:gap-2.5 tw:rounded-[var(--radius-surface)] tw:bg-popover tw:p-2.5 tw:text-[var(--fs-body-s)] tw:text-popover-foreground tw:shadow-[var(--elevation-overlay)] tw:ring-1 tw:ring-foreground/10 tw:outline-hidden",
+              : "tw:flex tw:w-72 tw:origin-(--transform-origin) tw:flex-col tw:gap-2.5 tw:rounded-[var(--radius-surface)] tw:bg-popover tw:p-2.5 tw:text-[length:var(--fs-body-s)] tw:text-popover-foreground tw:shadow-[var(--elevation-overlay)] tw:ring-1 tw:ring-foreground/10 tw:outline-hidden",
             className
           )}
           {...props}
@@ -62,7 +62,7 @@ function PopoverHeader({ className, ...props }: React.ComponentProps<"div">) {
   return (
     <div
       data-slot="popover-header"
-      className={cn("tw:flex tw:flex-col tw:gap-0.5 tw:text-[var(--fs-body-s)]", className)}
+      className={cn("tw:flex tw:flex-col tw:gap-0.5 tw:text-[length:var(--fs-body-s)]", className)}
       {...props}
     />
   )

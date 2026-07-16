@@ -17,7 +17,7 @@ function Command({ className, ...props }: React.ComponentProps<typeof CommandPri
     <CommandPrimitive
       data-slot="command"
       className={cn(
-        "tw:flex tw:size-full tw:flex-col tw:overflow-hidden tw:rounded-[var(--radius-surface)] tw:bg-popover tw:p-1 tw:text-[var(--fs-body-s)] tw:text-popover-foreground",
+        "tw:flex tw:size-full tw:flex-col tw:overflow-hidden tw:rounded-[var(--radius-surface)] tw:bg-popover tw:p-1 tw:text-[length:var(--fs-body-s)] tw:text-popover-foreground",
         className,
       )}
       {...props}
@@ -64,7 +64,7 @@ function CommandInput({ className, ...props }: React.ComponentProps<typeof Comma
       <CommandPrimitive.Input
         data-slot="command-input"
         className={cn(
-          "tw:w-full tw:bg-transparent tw:text-[var(--fs-body-s)] tw:text-foreground tw:outline-none tw:placeholder:text-muted-foreground tw:disabled:cursor-not-allowed tw:disabled:opacity-50",
+          "tw:w-full tw:bg-transparent tw:text-[length:var(--fs-body-s)] tw:text-foreground tw:outline-none tw:placeholder:text-muted-foreground tw:disabled:cursor-not-allowed tw:disabled:opacity-50",
           className,
         )}
         {...props}
@@ -87,7 +87,7 @@ function CommandEmpty({ className, ...props }: React.ComponentProps<typeof Comma
   return (
     <CommandPrimitive.Empty
       data-slot="command-empty"
-      className={cn("tw:py-6 tw:text-center tw:text-[var(--fs-body-s)] tw:text-muted-foreground", className)}
+      className={cn("tw:py-6 tw:text-center tw:text-[length:var(--fs-body-s)] tw:text-muted-foreground", className)}
       {...props}
     />
   )
@@ -98,7 +98,7 @@ function CommandGroup({ className, ...props }: React.ComponentProps<typeof Comma
     <CommandPrimitive.Group
       data-slot="command-group"
       className={cn(
-        "tw:overflow-hidden tw:p-1 tw:text-foreground tw:**:[[cmdk-group-heading]]:px-2 tw:**:[[cmdk-group-heading]]:py-1.5 tw:**:[[cmdk-group-heading]]:text-[var(--fs-caption)] tw:**:[[cmdk-group-heading]]:font-medium tw:**:[[cmdk-group-heading]]:text-muted-foreground",
+        "tw:overflow-hidden tw:p-1 tw:text-foreground tw:**:[[cmdk-group-heading]]:px-2 tw:**:[[cmdk-group-heading]]:py-1.5 tw:**:[[cmdk-group-heading]]:text-[length:var(--fs-caption)] tw:**:[[cmdk-group-heading]]:font-medium tw:**:[[cmdk-group-heading]]:text-muted-foreground",
         className,
       )}
       {...props}
@@ -121,7 +121,7 @@ function CommandItem({ className, ...props }: React.ComponentProps<typeof Comman
     <CommandPrimitive.Item
       data-slot="command-item"
       className={cn(
-        "tw:relative tw:flex tw:cursor-default tw:items-center tw:gap-2 tw:rounded-[var(--radius-control)] tw:px-2 tw:py-1.5 tw:text-[var(--fs-body-s)] tw:outline-none tw:select-none tw:data-[disabled=true]:pointer-events-none tw:data-[disabled=true]:opacity-50 tw:data-[selected=true]:bg-muted tw:data-[selected=true]:text-foreground tw:[&_svg]:pointer-events-none tw:[&_svg]:shrink-0 tw:[&_svg:not([class*=size-])]:size-4",
+        "tw:relative tw:flex tw:cursor-default tw:items-center tw:gap-2 tw:rounded-[var(--radius-control)] tw:px-2 tw:py-1.5 tw:text-[length:var(--fs-body-s)] tw:outline-none tw:select-none tw:data-[disabled=true]:pointer-events-none tw:data-[disabled=true]:opacity-50 tw:data-[selected=true]:bg-muted tw:data-[selected=true]:text-foreground tw:[&_svg]:pointer-events-none tw:[&_svg]:shrink-0 tw:[&_svg:not([class*=size-])]:size-4",
         className,
       )}
       {...props}
@@ -133,7 +133,7 @@ function CommandShortcut({ className, ...props }: React.ComponentProps<"span">) 
   return (
     <span
       data-slot="command-shortcut"
-      className={cn("tw:ml-auto tw:text-[var(--fs-caption)] tw:tracking-widest tw:text-muted-foreground", className)}
+      className={cn("tw:ml-auto tw:text-[length:var(--fs-caption)] tw:tracking-widest tw:text-muted-foreground", className)}
       {...props}
     />
   )

@@ -25,7 +25,7 @@ const bubbleVariants = cva(
         secondary:
           "tw:*:data-[slot=bubble-content]:bg-secondary tw:*:data-[slot=bubble-content]:text-secondary-foreground tw:[&>[data-slot=bubble-content]:is(button,a):hover]:bg-[color-mix(in_oklch,var(--secondary),var(--foreground)_5%)]",
         muted:
-          "tw:*:data-[slot=bubble-content]:bg-muted tw:[&>[data-slot=bubble-content]:is(button,a):hover]:bg-[color-mix(in_oklch,var(--muted),var(--foreground)_5%)]",
+          "tw:*:data-[slot=bubble-content]:bg-muted tw:[&>[data-slot=bubble-content]:is(button,a):hover]:bg-[color-mix(in_oklch,var(--sh-muted),var(--foreground)_5%)]",
         tinted:
           "tw:*:data-[slot=bubble-content]:bg-[color-mix(in_oklch,var(--primary),var(--background)_85%)] tw:*:data-[slot=bubble-content]:text-foreground tw:[&>[data-slot=bubble-content]:is(button,a):hover]:bg-[color-mix(in_oklch,var(--primary),var(--background)_80%)]",
         outline:

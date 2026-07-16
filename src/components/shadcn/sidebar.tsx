@@ -159,7 +159,7 @@ function SidebarGroupLabel({ className, as: Component = "div", ...props }: React
       data-slot="sidebar-group-label"
       data-sidebar="group-label"
       className={cn(
-        "tw:flex tw:h-8 tw:shrink-0 tw:items-center tw:rounded-[var(--radius-control)] tw:px-2 tw:text-[var(--fs-caption)] tw:font-medium tw:text-sidebar-foreground/70",
+        "tw:flex tw:h-8 tw:shrink-0 tw:items-center tw:rounded-[var(--radius-control)] tw:px-2 tw:text-[length:var(--fs-caption)] tw:font-medium tw:text-sidebar-foreground/70",
         className,
       )}
       {...props}
@@ -172,7 +172,7 @@ function SidebarGroupContent({ className, ...props }: React.ComponentProps<"div"
     <div
       data-slot="sidebar-group-content"
       data-sidebar="group-content"
-      className={cn("tw:w-full tw:text-[var(--fs-body-s)]", className)}
+      className={cn("tw:w-full tw:text-[length:var(--fs-body-s)]", className)}
       {...props}
     />
   )
@@ -201,7 +201,7 @@ function SidebarMenuItem({ className, ...props }: React.ComponentProps<"li">) {
 }
 
 const sidebarMenuButtonVariants = cva(
-  "tw:group/menu-button tw:flex tw:w-full tw:min-w-0 tw:items-center tw:gap-2 tw:overflow-hidden tw:rounded-[var(--radius-control)] tw:p-2 tw:text-left tw:text-[var(--fs-body-s)] tw:text-sidebar-foreground tw:outline-none tw:focus-visible:ring-2 tw:focus-visible:ring-sidebar-ring tw:hover:bg-sidebar-accent tw:hover:text-sidebar-accent-foreground tw:data-active:bg-sidebar-accent tw:data-active:text-sidebar-accent-foreground tw:disabled:pointer-events-none tw:disabled:opacity-50 tw:[&>svg]:shrink-0 tw:[&>span:last-child]:truncate",
+  "tw:group/menu-button tw:flex tw:w-full tw:min-w-0 tw:items-center tw:gap-2 tw:overflow-hidden tw:rounded-[var(--radius-control)] tw:p-2 tw:text-left tw:text-[length:var(--fs-body-s)] tw:text-sidebar-foreground tw:outline-none tw:focus-visible:ring-2 tw:focus-visible:ring-sidebar-ring tw:hover:bg-sidebar-accent tw:hover:text-sidebar-accent-foreground tw:data-active:bg-sidebar-accent tw:data-active:text-sidebar-accent-foreground tw:disabled:pointer-events-none tw:disabled:opacity-50 tw:[&>svg]:shrink-0 tw:[&>span:last-child]:truncate",
   {
     variants: {
       variant: {
@@ -210,7 +210,7 @@ const sidebarMenuButtonVariants = cva(
       },
       size: {
         default: "tw:min-h-8",
-        sm: "tw:min-h-7 tw:text-[var(--fs-caption)]",
+        sm: "tw:min-h-7 tw:text-[length:var(--fs-caption)]",
         lg: "tw:min-h-10",
       },
     },

@@ -1908,7 +1908,9 @@ body.dragging iframe { pointer-events: none; }
 /* ===== Typographie de craft (plan 023, étape 3) ===== */
 /* titres courts équilibrés ; la prose évite les veuves quand le moteur le
    supporte (progressive enhancement, aucun impact layout sinon) */
-.ui-surface-header .title, .rh-title, .set-body h1, .pnav-name, .empty-title { text-wrap: balance; }
+/* PAS .ui-surface-header .title ici : son contrat = nowrap + ellipsis, or le
+   shorthand text-wrap réinitialise text-wrap-mode à wrap (piège vérifié) */
+.rh-title, .set-body h1, .pnav-name, .empty-title { text-wrap: balance; }
 .msg p, .rh-question, .set-sub { text-wrap: pretty; }
 
 /* ===== A11y (plan 021, partie B) ===== */
@@ -1916,8 +1918,9 @@ body.dragging iframe { pointer-events: none; }
 .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
   overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
 
-/* titres injectés dans les headers de surface (span → h2) : géométrie inchangée */
-.ui-surface-header .title { margin: 0; font-weight: inherit; }
+/* titres injectés dans les headers de surface (span → h2) : seul le margin UA
+   du h2 est neutralisé — le poids (600) vient de la primitive */
+.ui-surface-header .title { margin: 0; }
 
 /* boucles encore actives sous reduced-motion (audit §6) */
 @media (prefers-reduced-motion: reduce) {
