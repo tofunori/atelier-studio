@@ -1,19 +1,39 @@
-//! OpenCode provider via CLI JSON stream (plan 033 Porte 8).
+//! OpenCode provider — ACP d'abord (`opencode acp`, plan 045), repli sur le
+//! CLI JSON stream one-shot (plan 033 Porte 8) en cas d'échec de handshake.
 
+use crate::acp_map::{map_prompt_result, map_session_update, TurnCtx, TurnEmitter};
+use crate::acp_rpc::{AcpServer, SessionUpdateHandler};
 use crate::opencode_parse::parse_opencode_jsonl;
 use crate::traits::{Provider, ProviderCaps, SendRequest, SendResult};
 use async_trait::async_trait;
-use serde_json::json;
-use std::collections::HashMap;
+use serde_json::{json, Value};
+use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use std::process::Stdio;
+use std::sync::Arc;
+use std::sync::Mutex as StdMutex;
+use std::time::Duration;
 use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::process::{Child, Command};
 use tokio::sync::Mutex;
 
+/// État par-session du process ACP courant — invalidé quand la génération du
+/// process change (respawn) : les sessions "chargées" ne le sont plus.
+#[derive(Default)]
+struct AcpState {
+    generation: u64,
+    loaded_sessions: HashSet<String>,
+    /// sessionId → dernier modelId aligné/connu (currentValue de session/new).
+    session_model: HashMap<String, String>,
+}
+
 pub struct OpenCodeProvider {
     bin: PathBuf,
     runs: Mutex<HashMap<String, Child>>,
+    acp: AcpServer,
+    acp_state: Mutex<AcpState>,
+    /// thread_id → sessionId ACP du tour en cours (pour interrupt).
+    active_turns: Mutex<HashMap<String, String>>,
 }
 
 impl OpenCodeProvider {
@@ -21,7 +41,241 @@ impl OpenCodeProvider {
         resolve_bin().map(|bin| Self {
             bin,
             runs: Mutex::new(HashMap::new()),
+            acp: AcpServer::new("opencode"),
+            acp_state: Mutex::new(AcpState::default()),
+            active_turns: Mutex::new(HashMap::new()),
         })
+    }
+}
+
+/// `currentValue` de l'option `category=="model"` d'une réponse
+/// session/new|load (forme vérifiée par sonde, plan 045).
+fn current_model_of(result: &Value) -> Option<String> {
+    result
+        .get("configOptions")
+        .and_then(|v| v.as_array())?
+        .iter()
+        .find(|o| o.get("category").and_then(|c| c.as_str()) == Some("model"))
+        .and_then(|o| o.get("currentValue"))
+        .and_then(|v| v.as_str())
+        .map(str::to_string)
+}
+
+impl OpenCodeProvider {
+    /// Chemin ACP complet. `Err` = échec de HANDSHAKE (spawn/initialize/
+    /// ouverture de session) ⇒ repli legacy chez l'appelant. Une erreur en
+    /// cours de tour ne déclenche PAS de repli (décision 7 du plan 045) :
+    /// elle devient `{kind:"error"}` + `SendResult{ok:false}` dans le Ok.
+    async fn send_acp(&self, req: &SendRequest) -> Result<SendResult, String> {
+        let cwd = if req.project_root.is_empty() {
+            std::env::var("HOME").unwrap_or_else(|_| "/tmp".into())
+        } else {
+            req.project_root.clone()
+        };
+
+        self.acp
+            .ensure(
+                &self.bin,
+                &["acp".to_string()],
+                json!({
+                    "protocolVersion": 1,
+                    "clientCapabilities": {
+                        "fs": {"readTextFile": false, "writeTextFile": false},
+                        "terminal": false
+                    }
+                }),
+            )
+            .await?;
+
+        {
+            let mut st = self.acp_state.lock().await;
+            let generation = self.acp.generation();
+            if st.generation != generation {
+                *st = AcpState {
+                    generation,
+                    ..Default::default()
+                };
+            }
+        }
+
+        let sid = self.open_session(req, &cwd).await?;
+        self.align_model(&sid, req.model.as_deref()).await;
+        // req.effort : pas d'équivalent ACP (décision 3 du plan 045) — ignoré.
+
+        let state = Arc::new(StdMutex::new((
+            TurnCtx::default(),
+            TurnEmitter::new(req.on_event.clone()),
+        )));
+        let handler_state = Arc::clone(&state);
+        let handler: SessionUpdateHandler = Arc::new(move |update: &Value| {
+            let mut guard = handler_state.lock().unwrap();
+            let (ctx, emitter) = &mut *guard;
+            for ev in map_session_update(update, ctx) {
+                emitter.emit(ev);
+            }
+        });
+        self.acp.set_session_handler(&sid, handler).await;
+        self.active_turns
+            .lock()
+            .await
+            .insert(req.thread_id.clone(), sid.clone());
+
+        // Sonde d'annulation : le router pose is_cancelled, le prompt en cours
+        // se résout ensuite avec stopReason:"cancelled" (contrat sonde).
+        let cancel_acp = self.acp.clone();
+        let cancel_sid = sid.clone();
+        let is_cancelled = Arc::clone(&req.is_cancelled);
+        let watcher = tokio::spawn(async move {
+            loop {
+                if is_cancelled() {
+                    cancel_acp
+                        .notify("session/cancel", json!({"sessionId": cancel_sid}))
+                        .await;
+                    break;
+                }
+                tokio::time::sleep(Duration::from_millis(500)).await;
+            }
+        });
+
+        let prompt_res = self
+            .acp
+            .request(
+                "session/prompt",
+                json!({
+                    "sessionId": sid,
+                    "prompt": [{"type": "text", "text": req.prompt}]
+                }),
+                None,
+            )
+            .await;
+
+        watcher.abort();
+        self.acp.clear_session_handler(&sid).await;
+        self.active_turns.lock().await.remove(&req.thread_id);
+
+        let (ok, error) = match prompt_res {
+            Ok(result) => {
+                let done = {
+                    let mut guard = state.lock().unwrap();
+                    let (ctx, emitter) = &mut *guard;
+                    emitter.flush();
+                    map_prompt_result(&result, ctx)
+                };
+                let ok = done.get("ok").and_then(|v| v.as_bool()).unwrap_or(false);
+                (req.on_event)(done);
+                let error = if ok {
+                    None
+                } else {
+                    Some(
+                        result
+                            .get("stopReason")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("stopReason inconnu")
+                            .to_string(),
+                    )
+                };
+                (ok, error)
+            }
+            Err(e) => {
+                state.lock().unwrap().1.flush();
+                (req.on_event)(json!({"kind":"error","message": format!("opencode acp: {e}")}));
+                (false, Some(e))
+            }
+        };
+
+        Ok(SendResult {
+            session_id: Some(sid),
+            ok,
+            error,
+        })
+    }
+
+    /// session/load si un sessionId existe (repli session/new si refusé avec
+    /// process vivant — thread déplacé/cwd différent, même règle que
+    /// openGrokSession grok.mjs:719-748), sinon session/new.
+    async fn open_session(&self, req: &SendRequest, cwd: &str) -> Result<String, String> {
+        if let Some(sid) = req.session_id.as_ref().filter(|s| !s.is_empty()) {
+            let already = self
+                .acp_state
+                .lock()
+                .await
+                .loaded_sessions
+                .contains(sid.as_str());
+            if already {
+                return Ok(sid.clone());
+            }
+            match self
+                .acp
+                .request(
+                    "session/load",
+                    json!({"sessionId": sid, "cwd": cwd, "mcpServers": []}),
+                    Some(30_000),
+                )
+                .await
+            {
+                Ok(result) => {
+                    let mut st = self.acp_state.lock().await;
+                    st.loaded_sessions.insert(sid.clone());
+                    if let Some(m) = current_model_of(&result) {
+                        st.session_model.insert(sid.clone(), m);
+                    }
+                    return Ok(sid.clone());
+                }
+                Err(e) => {
+                    if !self.acp.is_alive().await {
+                        return Err(format!("session/load: {e}"));
+                    }
+                    eprintln!("[opencode] session/load refusé ({sid}), repli session/new: {e}");
+                }
+            }
+        }
+        let result = self
+            .acp
+            .request("session/new", json!({"cwd": cwd, "mcpServers": []}), Some(30_000))
+            .await?;
+        let sid = result
+            .get("sessionId")
+            .and_then(|v| v.as_str())
+            .ok_or("session/new sans sessionId")?
+            .to_string();
+        let mut st = self.acp_state.lock().await;
+        st.loaded_sessions.insert(sid.clone());
+        if let Some(m) = current_model_of(&result) {
+            st.session_model.insert(sid.clone(), m);
+        }
+        Ok(sid)
+    }
+
+    /// Alignement modèle best-effort — `modelId` = chaîne catalogue telle
+    /// quelle (vérifié par sonde) ; un refus n'interrompt jamais le tour.
+    async fn align_model(&self, sid: &str, model: Option<&str>) {
+        let Some(model) = model.filter(|m| !m.is_empty()) else {
+            return;
+        };
+        let known = self.acp_state.lock().await.session_model.get(sid).cloned();
+        if known.as_deref() == Some(model) {
+            return;
+        }
+        match self
+            .acp
+            .request(
+                "session/set_model",
+                json!({"sessionId": sid, "modelId": model}),
+                Some(10_000),
+            )
+            .await
+        {
+            Ok(_) => {
+                self.acp_state
+                    .lock()
+                    .await
+                    .session_model
+                    .insert(sid.to_string(), model.to_string());
+            }
+            Err(e) => {
+                eprintln!("[opencode] session/set_model({model}) refusé, ignoré (best-effort): {e}");
+            }
+        }
     }
 }
 
@@ -99,6 +353,41 @@ impl Provider for OpenCodeProvider {
     }
 
     async fn send(&self, req: SendRequest) -> SendResult {
+        match self.send_acp(&req).await {
+            Ok(r) => r,
+            Err(handshake_msg) => {
+                eprintln!("[opencode] handshake ACP échoué, repli run one-shot: {handshake_msg}");
+                self.send_legacy(req).await
+            }
+        }
+    }
+
+    async fn interrupt(&self, thread_id: &str) -> bool {
+        if let Some(sid) = self.active_turns.lock().await.get(thread_id).cloned() {
+            self.acp
+                .notify("session/cancel", json!({"sessionId": sid}))
+                .await;
+            return true;
+        }
+        if let Some(mut c) = self.runs.lock().await.remove(thread_id) {
+            #[cfg(unix)]
+            if let Some(pid) = c.id() {
+                unsafe {
+                    libc::kill(-(pid as i32), libc::SIGTERM);
+                }
+            }
+            let _ = c.kill().await;
+            true
+        } else {
+            false
+        }
+    }
+}
+
+impl OpenCodeProvider {
+    /// Chemin legacy one-shot (`--pure run --format json`) — inchangé (plan
+    /// 033 Porte 8), utilisé en repli quand le handshake ACP échoue.
+    async fn send_legacy(&self, req: SendRequest) -> SendResult {
         {
             let mut runs = self.runs.lock().await;
             if let Some(mut prev) = runs.remove(&req.thread_id) {
@@ -262,18 +551,52 @@ impl Provider for OpenCodeProvider {
         }
     }
 
-    async fn interrupt(&self, thread_id: &str) -> bool {
-        if let Some(mut c) = self.runs.lock().await.remove(thread_id) {
-            #[cfg(unix)]
-            if let Some(pid) = c.id() {
-                unsafe {
-                    libc::kill(-(pid as i32), libc::SIGTERM);
-                }
-            }
-            let _ = c.kill().await;
-            true
-        } else {
-            false
-        }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::traits::SendMode;
+
+    /// E2E réel (réseau + auth opencode requis) — plan 045 Step 7.4 :
+    /// `cargo test -p atelier-providers --manifest-path rust/Cargo.toml \
+    ///  --locked -- --ignored opencode_acp_e2e`
+    #[tokio::test]
+    #[ignore = "réseau + auth opencode requis"]
+    async fn opencode_acp_e2e() {
+        let Some(p) = OpenCodeProvider::new() else {
+            panic!("binaire opencode introuvable");
+        };
+        let events: Arc<StdMutex<Vec<Value>>> = Arc::new(StdMutex::new(vec![]));
+        let sink = Arc::clone(&events);
+        let req = SendRequest {
+            thread_id: "t-e2e-045".into(),
+            turn_id: "turn-1".into(),
+            prompt: "Réponds exactement: ok".into(),
+            inputs: None,
+            project_root: std::env::temp_dir().to_string_lossy().into_owned(),
+            session_id: None,
+            model: None,
+            effort: None,
+            permission_mode: None,
+            mode: SendMode::Normal,
+            on_event: Arc::new(move |ev| sink.lock().unwrap().push(ev)),
+            on_interaction: None,
+            is_cancelled: Arc::new(|| false),
+        };
+        let res = p.send(req).await;
+        assert!(res.ok, "tour en échec: {:?}", res.error);
+        assert!(
+            res.session_id.as_deref().unwrap_or("").starts_with("ses_"),
+            "session_id ACP attendu (ses_…), reçu {:?} — le repli legacy a probablement pris le relais",
+            res.session_id
+        );
+        let evs = events.lock().unwrap();
+        assert!(evs.iter().any(|e| e["kind"] == "delta"), "aucun delta reçu");
+        let done = evs.iter().find(|e| e["kind"] == "done").expect("pas de done");
+        assert!(
+            done["usage"]["window"].as_u64().unwrap_or(0) > 0,
+            "usage.window absent (usage_update non absorbé ?)"
+        );
     }
 }

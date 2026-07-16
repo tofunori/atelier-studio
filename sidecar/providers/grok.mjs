@@ -3,7 +3,12 @@ import { accessSync, constants as fsConstants, realpathSync, statSync } from "no
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { resolveBin } from "../bin_resolver.mjs";
+import { acpMethodNotFoundResponse, makeTurnEmitter, parseAcpLines } from "./acp_common.mjs";
 import { contextWindowFor } from "./registry.mjs";
+
+// Helpers ACP purs déplacés dans acp_common.mjs (partagés avec opencode.mjs,
+// plan 045) — ré-exportés ici pour les importeurs historiques.
+export { acpMethodNotFoundResponse, makeTurnEmitter, parseAcpLines };
 
 // Provider Grok — deux chemins :
 //  1) ACP (`grok agent stdio`, process persistant JSON-RPC) : chemin principal,
@@ -303,35 +308,6 @@ async function runLegacy({
 // ---------------------------------------------------------------------------
 // ACP (`grok agent stdio`) — framing NDJSON pur (testable sans process réel)
 // ---------------------------------------------------------------------------
-
-/** Découpe un buffer réseau en messages JSON-RPC ACP complets (une ligne =
- * un message, pas de Content-Length) ; renvoie les objets parsés (lignes
- * invalides ignorées, jamais fatal) et le reliquat à reporter au prochain
- * appel. */
-export function parseAcpLines(chunk, carry = "") {
-  const text = carry + chunk;
-  const lines = text.split(/\r?\n/);
-  const rest = lines.pop() ?? "";
-  const messages = [];
-  for (const line of lines) {
-    const trimmed = line.trim();
-    if (!trimmed) continue;
-    try {
-      messages.push(JSON.parse(trimmed));
-    } catch {
-      // ligne corrompue : ignorée silencieusement (pas de crash du provider)
-    }
-  }
-  return { messages, rest };
-}
-
-/** Réponse JSON-RPC "method not found" à renvoyer pour toute requête entrante
- * inattendue du serveur (fs/terminal désactivés à l'initialize : le serveur
- * ne devrait jamais nous en demander — s'il le fait quand même, jamais de
- * silence, cf. commentaire de module sur le blocage observé en sonde). */
-export function acpMethodNotFoundResponse(id, method) {
-  return { jsonrpc: "2.0", id, error: { code: -32601, message: `Method not found: ${method}` } };
-}
 
 /** Erreur JSON-RPC sur `session/prompt` (ou tout rejet du process ACP en
  * cours de tour) -> event `error` Atelier. */
@@ -766,36 +742,7 @@ async function alignSessionMode(srv, sessionId, wanted) {
   grokSessionSelection.set(sessionId, next);
 }
 
-/** Émetteur bufferisé d'un tour — maintient l'ADJACENCE bloc live → bloc
- * final exigée par le reducer du front (App.tsx : la bulle `streaming`/
- * `thinking_live` n'est remplacée par son bloc final `text`/`thinking` que si
- * elle est le DERNIER event de la liste). Tout event intercalé (tool, edit,
- * hook…) entre des deltas et leur bloc final laisserait une bulle orpheline
- * (caret clignotant à jamais) + un texte dupliqué — observé en réel
- * 2026-07-08 avec les hooks de fin de tour. Règle : avant d'émettre quoi que
- * ce soit d'autre que le delta du buffer actif, flusher le(s) buffer(s). */
-export function makeTurnEmitter(onEvent) {
-  let messageBuffer = "";
-  let thoughtBuffer = "";
-  const flushThinking = () => {
-    if (!thoughtBuffer) return;
-    onEvent({ kind: "thinking", text: thoughtBuffer });
-    thoughtBuffer = "";
-  };
-  const flushText = () => {
-    if (!messageBuffer) return;
-    onEvent({ kind: "text", text: messageBuffer });
-    messageBuffer = "";
-  };
-  const flush = () => { flushThinking(); flushText(); };
-  const emit = (ev) => {
-    if (ev.kind === "thinking_delta") { flushText(); thoughtBuffer += ev.text; onEvent(ev); return; }
-    if (ev.kind === "delta") { flushThinking(); messageBuffer += ev.text; onEvent(ev); return; }
-    flush();
-    onEvent(ev);
-  };
-  return { emit, flush };
-}
+// makeTurnEmitter : déplacé dans acp_common.mjs (ré-exporté en tête de module).
 
 async function runAcp({ threadId, cwd, prompt, sessionId, model, effort, imagePath, attachments, timeoutMs, onEvent }) {
   const workDir = cwd || process.env.HOME || process.cwd();

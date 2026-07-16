@@ -2,6 +2,8 @@
 //!
 //! Transport and lifecycle are shared; capabilities stay provider-specific.
 
+mod acp_map;
+mod acp_rpc;
 mod api;
 mod claude;
 mod claude_parse;

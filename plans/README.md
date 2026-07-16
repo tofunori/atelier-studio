@@ -237,6 +237,7 @@ planifiés sur demande.
 | 041 | Reducer chat O(N) au chargement + fast path streaming | P2 | M | 040 | TODO |
 | 043 | Purge de la file d'envoi + stop reconnexion sur `auth_expired` | P2 | M | — | TODO |
 | 044 | Fidélité du listing fichiers (formats scientifiques, troncature annoncée, grille, filtres kind+extension) | P2 | M | — | TODO |
+| 045 | Client ACP Rust partagé + OpenCode sur ACP (deux backends, grok full-duplex en phase 2) | P2 | L | — | DONE (branche `advisor/045-acp-client-rust`, non mergée ; E2E réels rs+mjs verts le 2026-07-16) |
 
 ### Dependency notes
 
