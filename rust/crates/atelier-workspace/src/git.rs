@@ -611,9 +611,10 @@ pub fn ignore_pattern(root: &str, pattern: &str) -> Result<String> {
     Ok("ajouté".into())
 }
 
-pub fn snapshot(root: &str) -> Result<String> {
-    let real = confined_root(root)?;
-    ensure_repo(&real)?;
+/// Arbre git du worktree COMPLET (untracked inclus) via un index temporaire —
+/// même séquence que le snapshot de début de tour (read-tree HEAD puis add -A),
+/// pour que deux arbres pris avant/après un tour soient comparables.
+fn worktree_tree(real: &std::path::Path) -> Result<String> {
     let dir = tempfile::tempdir().map_err(|e| msg(e.to_string()))?;
     let index = dir.path().join("index");
     let env = [
@@ -623,21 +624,33 @@ pub fn snapshot(root: &str) -> Result<String> {
         ("GIT_COMMITTER_NAME", "Atelier"),
         ("GIT_COMMITTER_EMAIL", "atelier@example.invalid"),
     ];
-    if has_head(&real) {
-        let out = git(&real, &["read-tree", "HEAD"], &env)?;
+    if has_head(real) {
+        let out = git(real, &["read-tree", "HEAD"], &env)?;
         if !out.status.success() {
             return Err(msg("read-tree HEAD failed"));
         }
     }
-    let out = git(&real, &["add", "-A"], &env)?;
+    let out = git(real, &["add", "-A"], &env)?;
     if !out.status.success() {
         return Err(msg("snapshot add failed"));
     }
-    let tree_out = git(&real, &["write-tree"], &env)?;
+    let tree_out = git(real, &["write-tree"], &env)?;
     if !tree_out.status.success() {
         return Err(msg("write-tree failed"));
     }
-    let tree = String::from_utf8_lossy(&tree_out.stdout).trim().to_string();
+    Ok(String::from_utf8_lossy(&tree_out.stdout).trim().to_string())
+}
+
+pub fn snapshot(root: &str) -> Result<String> {
+    let real = confined_root(root)?;
+    ensure_repo(&real)?;
+    let env = [
+        ("GIT_AUTHOR_NAME", "Atelier"),
+        ("GIT_AUTHOR_EMAIL", "atelier@example.invalid"),
+        ("GIT_COMMITTER_NAME", "Atelier"),
+        ("GIT_COMMITTER_EMAIL", "atelier@example.invalid"),
+    ];
+    let tree = worktree_tree(&real)?;
     let mut args = vec!["commit-tree".to_string(), tree, "-m".into(), "atelier snapshot".into()];
     if has_head(&real) {
         let head = git(&real, &["rev-parse", "HEAD"], &env)?;
@@ -670,7 +683,14 @@ pub fn changed_since(root: &str, sha: &str) -> Result<Vec<String>> {
     if !exists.status.success() {
         return Err(msg("snapshot inconnu"));
     }
-    let out = git(&real, &["diff", "--name-only", sha, "--"], &[])?;
+    // Comparer l'ARBRE du snapshot à l'arbre ACTUEL du worktree (untracked
+    // inclus des deux côtés) : seuls les fichiers réellement changés PENDANT
+    // le tour ressortent. L'ancien `git diff <sha>` + ajout de tous les
+    // untracked comptait les untracked PRÉEXISTANTS à chaque tour (carte
+    // « N files modified » mensongère sur un repo sale, vue le 2026-07-16).
+    let now_tree = worktree_tree(&real)?;
+    let snap_tree = format!("{sha}^{{tree}}");
+    let out = git(&real, &["diff-tree", "-r", "--name-only", &snap_tree, &now_tree], &[])?;
     if !out.status.success() {
         return Err(msg("diff snapshot impossible"));
     }
@@ -680,13 +700,6 @@ pub fn changed_since(root: &str, sha: &str) -> Result<Vec<String>> {
         .filter(|path| !path.is_empty())
         .map(str::to_string)
         .collect::<Vec<_>>();
-    changed.extend(
-        status(root)?
-            .files
-            .into_iter()
-            .filter(|file| file.status == "?")
-            .map(|file| file.path),
-    );
     changed.sort();
     changed.dedup();
     Ok(changed)
@@ -798,6 +811,25 @@ mod tests {
         assert_eq!(
             changed_since(dir.path().to_str().unwrap(), &sha).unwrap(),
             vec!["a.txt".to_string(), "new.txt".to_string()],
+        );
+    }
+
+    /// Un untracked présent AVANT le snapshot ne doit plus compter comme
+    /// « modifié par le tour » (carte gitops mensongère, 2026-07-16) — mais
+    /// une modification réelle de ce même fichier pendant le tour, si.
+    #[test]
+    fn changed_since_ignores_preexisting_untracked() {
+        let dir = init_repo();
+        std::fs::write(dir.path().join("deja_la.txt"), b"untracked avant tour").unwrap();
+        let sha = snapshot(dir.path().to_str().unwrap()).unwrap();
+        assert_eq!(
+            changed_since(dir.path().to_str().unwrap(), &sha).unwrap(),
+            Vec::<String>::new(),
+        );
+        std::fs::write(dir.path().join("deja_la.txt"), b"modifie pendant le tour").unwrap();
+        assert_eq!(
+            changed_since(dir.path().to_str().unwrap(), &sha).unwrap(),
+            vec!["deja_la.txt".to_string()],
         );
     }
 
