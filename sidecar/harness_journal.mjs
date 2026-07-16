@@ -108,6 +108,19 @@ function sanitizeForWrite(event) {
   if (event.kind === "tool" && typeof event.detail === "string") {
     return { ...event, detail: redactSensitiveText(event.detail) };
   }
+  // edit : l'avant/après du diff immédiat (input du tool Edit/Write) peut
+  // porter un secret (édition d'un .env) — même redaction que tool_update
+  // avant écriture, sans muter l'objet partagé avec le broadcast.
+  if (event.kind === "edit" && Array.isArray(event.files)) {
+    const files = event.files.map((f) => {
+      if (!f || typeof f !== "object") return f;
+      const clean = { ...f };
+      if (typeof clean.oldText === "string") clean.oldText = redactSensitiveText(clean.oldText);
+      if (typeof clean.newText === "string") clean.newText = redactSensitiveText(clean.newText);
+      return clean;
+    });
+    return { ...event, files };
+  }
   return event;
 }
 

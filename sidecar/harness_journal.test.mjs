@@ -135,6 +135,25 @@ describe("append", () => {
     expect(journal.hasJournal(TID)).toBe(false);
   });
 
+  it("edit : oldText/newText du diff immédiat sont redactés avant écriture", async () => {
+    const { journal, file } = setup();
+    await journal.openThread({ threadId: TID, provider: "claude" });
+    await journal.append(ev("edit", { files: [{
+      path: ".env", add: 1, del: 1,
+      oldText: "API_KEY=ancien-secret-123",
+      newText: "API_KEY=nouveau-secret-456",
+    }] }));
+    const raw = rawLines(file()).join("\n");
+    expect(raw).not.toContain("ancien-secret-123");
+    expect(raw).not.toContain("nouveau-secret-456");
+    const { events } = await journal.load(TID);
+    expect(events[0].files[0]).toMatchObject({
+      path: ".env",
+      oldText: "API_KEY=[REDACTED]",
+      newText: "API_KEY=[REDACTED]",
+    });
+  });
+
   it("50 appends concurrents → 50 lignes valides, aucune entrelacée", async () => {
     const { journal, file } = setup();
     await journal.openThread({ threadId: TID, provider: "claude" });

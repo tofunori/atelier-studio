@@ -358,6 +358,7 @@ async function enrichDoneEvent(ctx, turn, event) {
 }
 
 /** Événement « edit » d'un provider : ±lignes par fichier via git numstat. */
+export { enrichEditEvent as __enrichEditEventForTest };
 async function enrichEditEvent(ctx, turn, event) {
   const root = turn.projectRoot || null;
   const files = [];

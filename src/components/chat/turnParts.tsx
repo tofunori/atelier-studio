@@ -355,11 +355,12 @@ function workDuration(ms: number): string {
   return `${Math.floor(minutes / 60)}h ${String(minutes % 60).padStart(2, "0")}m`;
 }
 
-/** 842 → « 842 », 8 214 → « 8,2k », 128 400 → « 128k » (tabular-nums en CSS). */
+/** 842 → « 842 », 8 214 → « 8.2k », 128 400 → « 128k » (tabular-nums en CSS,
+ * point décimal quel que soit le locale — même rendu que Claude Code). */
 function fmtTokenCount(n: number): string {
   if (n < 1000) return String(n);
   const k = n / 1000;
-  return `${k >= 100 ? String(Math.round(k)) : k.toFixed(1).replace(/\.0$/, "").replace(".", ",")}k`;
+  return `${k >= 100 ? String(Math.round(k)) : k.toFixed(1).replace(/\.0$/, "")}k`;
 }
 
 export function Working({ since, tokens }: { since: number; tokens?: number | null }) {

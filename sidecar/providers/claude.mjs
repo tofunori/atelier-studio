@@ -7,8 +7,9 @@ export function toolDetail(name, input) {
   if (!input || typeof input !== "object") return "";
   const first = (v) => String(v ?? "").split("\n")[0].slice(0, 80);
   // même rendu que Claude Code desktop : la description rédigée par le modèle
-  // prime sur la commande brute (celle-ci reste visible dans l'input déplié)
-  if (name === "Bash") return first(input.description ?? input.command);
+  // prime sur la commande brute (celle-ci reste visible dans l'input déplié) ;
+  // || et non ?? — une description vide retombe sur la commande
+  if (name === "Bash") return first(input.description || input.command);
   if (["Read", "Edit", "Write", "NotebookEdit"].includes(name)) {
     const p = String(input.file_path ?? "");
     return p.length > 60 ? "…" + p.slice(-59) : p;
@@ -356,7 +357,8 @@ export function send({
               (au.cache_read_input_tokens ?? 0) +
               (au.cache_creation_input_tokens ?? 0);
             turnOutputTokens += au.output_tokens ?? 0;
-            emit({ kind: "heartbeat", tokens: turnOutputTokens });
+            // __ephemeral : broadcast seulement, jamais écrit dans le journal
+            emit({ kind: "heartbeat", tokens: turnOutputTokens, __ephemeral: true });
           }
           for (const block of msg.message.content ?? []) {
             if (block.type === "text") emit({ kind: "text", text: block.text });
