@@ -16,6 +16,7 @@ import {
   SparklesIcon,
 } from "lucide-react";
 import { Button, IconButton, RowButton, SegmentedControl } from "./ui";
+import { LazyDropdownMenu, type LazyDropdownMenuItem } from "./ui/LazyDropdownMenu";
 
 type GitFile = { path: string; status: string; originalPath?: string; add?: number; del?: number };
 type GitStatus = { branch: string | null; ahead: number; behind: number; files: GitFile[] };
@@ -369,33 +370,52 @@ export default function GitSurface({
             </Button>
           </span>
         )}
-        <span className="git-headmenu-wrap" onClick={(e) => e.stopPropagation()}>
-          <IconButton size="s" className="ghost git-icon-btn" title={t("project.actions")} label={t("project.actions")} onClick={() => { setHeadMenu((v) => !v); setUndoArmed(false); }}>
-            ⋯
-          </IconButton>
-          {headMenu && (
-            <div className="mp-menu git-headmenu">
-              <div className="mp-item" onClick={() => { setMode(mode === "git" ? "journal" : "git"); setHeadMenu(false); }}>
-                {mode === "git" ? <LedgerIcon /> : <BranchIcon size={14} />}
-                <span>{mode === "git" ? t("git.open-journal") : t("git.open-changes")}</span>
-              </div>
-              <div className="mp-item" onClick={() => { (mode === "git" ? refreshGit : refreshLedger)(); setHeadMenu(false); }}>
-                <RefreshIcon /> <span>{t("action.refresh")}</span>
-              </div>
-              <div
-                className={`mp-item ${undoArmed ? "danger" : ""} ${!activeThreadId ? "disabled" : ""}`}
-                onClick={() => {
+        <span className="git-headmenu-wrap">
+          <LazyDropdownMenu
+            open={headMenu}
+            onOpenChange={(open) => { setHeadMenu(open); if (!open) setUndoArmed(false); }}
+            align="end"
+            label={t("project.actions")}
+            trigger={
+              <IconButton size="s" className="ghost git-icon-btn" title={t("project.actions")} label={t("project.actions")} aria-haspopup="menu">
+                ⋯
+              </IconButton>
+            }
+            items={[
+              {
+                key: "toggle-mode",
+                label: (
+                  <>
+                    {mode === "git" ? <LedgerIcon /> : <BranchIcon size={14} />}
+                    <span>{mode === "git" ? t("git.open-journal") : t("git.open-changes")}</span>
+                  </>
+                ),
+                onSelect: () => setMode(mode === "git" ? "journal" : "git"),
+              },
+              {
+                key: "refresh",
+                label: (
+                  <>
+                    <RefreshIcon /> <span>{t("action.refresh")}</span>
+                  </>
+                ),
+                onSelect: () => (mode === "git" ? refreshGit : refreshLedger)(),
+              },
+              {
+                key: "undo",
+                label: <span>{undoArmed ? t("action.confirm-undo") : t("action.undo-agent-turn")}</span>,
+                destructive: undoArmed,
+                disabled: !activeThreadId,
+                keepOpen: !undoArmed,
+                onSelect: () => {
                   if (!activeThreadId) return;
                   if (!undoArmed) { setUndoArmed(true); return; }
                   setUndoArmed(false);
-                  setHeadMenu(false);
                   send(ws, { type: "gitUndoLastTurn", threadId: activeThreadId });
-                }}
-              >
-                <span>{undoArmed ? t("action.confirm-undo") : t("action.undo-agent-turn")}</span>
-              </div>
-            </div>
-          )}
+                },
+              },
+            ]}
+          />
         </span>
       </div>
 
@@ -446,30 +466,43 @@ export default function GitSurface({
                               onClick={() => updateStage(grp, [file.path])}>
                               {grp === "staged" ? <MinusIcon /> : <PlusIcon />}
                             </IconButton>
-                            <span className="git-file-menu-wrap" onClick={(e) => e.stopPropagation()}>
-                              <IconButton size="s" className="git-file-menu git-icon-btn" label={t("project.actions")} onClick={() => { setMenuPath(menuPath === file.path ? null : file.path); setRestorePath(null); }}>
-                                ⋯
-                              </IconButton>
-                              {menuPath === file.path && (
-                                <div className="mp-menu git-filemenu">
-                                  <div className={`mp-item ${restorePath === file.path ? "danger" : ""}`} onClick={() => {
-                                    if (restorePath !== file.path) { setRestorePath(file.path); return; }
-                                    setRestorePath(null);
-                                    setMenuPath(null);
-                                    send(ws, { type: "gitRevertFile", projectRoot, path: file.path });
-                                  }}>
-                                    <span>{restorePath === file.path ? t("action.confirm") : t("action.restore")}</span>
-                                  </div>
-                                  <div className="mp-item" onClick={() => { setMenuPath(null); send(ws, { type: "gitIgnore", projectRoot, pattern: file.path }); }}>
-                                    <span>{t("git.ignore-file")}</span>
-                                  </div>
-                                  {file.path.includes("/") && (
-                                    <div className="mp-item" onClick={() => { setMenuPath(null); send(ws, { type: "gitIgnore", projectRoot, pattern: file.path.split("/")[0] + "/" }); }}>
-                                      <span>{t("git.ignore-dir", { dir: file.path.split("/")[0] + "/" })}</span>
-                                    </div>
-                                  )}
-                                </div>
-                              )}
+                            <span className="git-file-menu-wrap">
+                              <LazyDropdownMenu
+                                open={menuPath === file.path}
+                                onOpenChange={(o) => { setMenuPath(o ? file.path : null); if (!o) setRestorePath(null); }}
+                                align="end"
+                                label={t("project.actions")}
+                                trigger={
+                                  <IconButton size="s" className="git-file-menu git-icon-btn" label={t("project.actions")} aria-haspopup="menu">
+                                    ⋯
+                                  </IconButton>
+                                }
+                                items={[
+                                  {
+                                    key: "restore",
+                                    label: <span>{restorePath === file.path ? t("action.confirm") : t("action.restore")}</span>,
+                                    destructive: restorePath === file.path,
+                                    keepOpen: restorePath !== file.path,
+                                    onSelect: () => {
+                                      if (restorePath !== file.path) { setRestorePath(file.path); return; }
+                                      setRestorePath(null);
+                                      send(ws, { type: "gitRevertFile", projectRoot, path: file.path });
+                                    },
+                                  },
+                                  {
+                                    key: "ignore-file",
+                                    label: <span>{t("git.ignore-file")}</span>,
+                                    onSelect: () => send(ws, { type: "gitIgnore", projectRoot, pattern: file.path }),
+                                  },
+                                  ...(file.path.includes("/")
+                                    ? ([{
+                                        key: "ignore-dir",
+                                        label: <span>{t("git.ignore-dir", { dir: file.path.split("/")[0] + "/" })}</span>,
+                                        onSelect: () => send(ws, { type: "gitIgnore", projectRoot, pattern: file.path.split("/")[0] + "/" }),
+                                      }] as LazyDropdownMenuItem[])
+                                    : []),
+                                ]}
+                              />
                             </span>
                           </div>
                         </div>

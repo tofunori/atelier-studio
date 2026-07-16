@@ -18,6 +18,7 @@ function PopoverContent({
   side = "bottom",
   sideOffset = 4,
   anchor,
+  plain = false,
   portalContainer,
   positionerClassName,
   ...props
@@ -28,6 +29,9 @@ function PopoverContent({
   > & {
     portalContainer?: React.ComponentProps<typeof PopoverPrimitive.Portal>["container"]
     positionerClassName?: string
+    /** Panneau produit : positionnement/portal/z-index Base UI mais aucun
+     * chrome tw — le skin (fond, bordure, ombre) vient de la classe produit. */
+    plain?: boolean
   }) {
   return (
     <PopoverPrimitive.Portal container={portalContainer}>
@@ -42,7 +46,9 @@ function PopoverContent({
         <PopoverPrimitive.Popup
           data-slot="popover-content"
           className={cn(
-            "tw:flex tw:w-72 tw:origin-(--transform-origin) tw:flex-col tw:gap-2.5 tw:rounded-[var(--radius-surface)] tw:bg-popover tw:p-2.5 tw:text-[var(--fs-body-s)] tw:text-popover-foreground tw:shadow-[var(--elevation-overlay)] tw:ring-1 tw:ring-foreground/10 tw:outline-hidden",
+            plain
+              ? "tw:origin-(--transform-origin) tw:outline-hidden"
+              : "tw:flex tw:w-72 tw:origin-(--transform-origin) tw:flex-col tw:gap-2.5 tw:rounded-[var(--radius-surface)] tw:bg-popover tw:p-2.5 tw:text-[var(--fs-body-s)] tw:text-popover-foreground tw:shadow-[var(--elevation-overlay)] tw:ring-1 tw:ring-foreground/10 tw:outline-hidden",
             className
           )}
           {...props}

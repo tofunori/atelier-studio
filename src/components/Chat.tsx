@@ -376,12 +376,6 @@ export default function Chat(p: {
     return () => cancelAnimationFrame(id);
   }, [p.pins, p.events.length, p.threadId]);
   const [pinMenu, setPinMenu] = useState<{ index: number; x: number; y: number } | null>(null);
-  useEffect(() => {
-    if (!pinMenu) return;
-    const close = () => setPinMenu(null);
-    window.addEventListener("click", close);
-    return () => window.removeEventListener("click", close);
-  }, [pinMenu]);
 
   // ---- marques persistantes (Highlight / Underline) sur les réponses ----
   type Mark = { text: string; kind: "hl" | "ul" };
@@ -474,12 +468,6 @@ export default function Chat(p: {
   const [goalDismissed, setGoalDismissed] = useState<string | null>(null);
   useEffect(() => { setGoalDismissed(null); }, [p.threadId]);
 
-  useEffect(() => {
-    if (!plusOpen) return;
-    const close = () => setPlusOpen(false);
-    window.addEventListener("click", close);
-    return () => window.removeEventListener("click", close);
-  }, [plusOpen]);
   const [favModels, setFavModels] = useState<string[]>(() => {
     try { return JSON.parse(localStorage.getItem("atelier-studio.favModels") ?? "[]"); }
     catch { return []; }
@@ -538,18 +526,8 @@ export default function Chat(p: {
     });
   }
 
-  useEffect(() => {
-    if (!menuOpen) return;
-    const close = () => setMenuOpen(false);
-    window.addEventListener("click", close);
-    return () => window.removeEventListener("click", close);
-  }, [menuOpen]);
-  useEffect(() => {
-    if (!effortOpen) return;
-    const close = () => setEffortOpen(false);
-    window.addEventListener("click", close);
-    return () => window.removeEventListener("click", close);
-  }, [effortOpen]);
+  // dismiss (clic extérieur, Escape, retour focus) : géré par Base UI dans
+  // les Popover/DropdownMenu du composer — plus aucun listener window ici
   useEffect(() => {
     // cascade : à l'ouverture, ne montrer QUE la liste des providers (sous-menu fermé)
     if (menuOpen) setModelMenuProvider("");

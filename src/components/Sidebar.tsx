@@ -32,6 +32,7 @@ import { ProjectHeader } from "./sidebar/ProjectHeader";
 import { ThreadRow } from "./sidebar/ThreadRow";
 import { PROJ_ICONS, ProjIcon } from "./sidebar/projectIcons";
 import { ProjectStyleMenu } from "./sidebar/ProjectStyleMenu";
+import { Popover, PopoverContent } from "./shadcn/popover";
 
 // ré-exports publics — Rail et TopBar importent depuis ./Sidebar
 export { PROJ_ICONS, ProjIcon };
@@ -190,14 +191,15 @@ export default function Sidebar(p: {
     wsSend({ type: "listSessions", provider: prov, projectRoot: p.activeProject ?? "" });
   }
 
-  // popovers non gérés par <Menu> : clic extérieur + Échap
+  // popover non géré par <Menu> : clic extérieur + Échap (ProjectStyleMenu
+  // uniquement — resume-pop est désormais un Popover Base UI, qui gère son
+  // propre dismiss/Escape/retour focus)
   useEffect(() => {
-    if (!projMenu && !resumeOpen) return;
+    if (!projMenu) return;
     const close = () => setProjMenu(null);
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== "Escape") return;
       setProjMenu(null);
-      setResumeOpen(false);
     };
     window.addEventListener("click", close);
     window.addEventListener("keydown", onKey);
@@ -205,7 +207,7 @@ export default function Sidebar(p: {
       window.removeEventListener("click", close);
       window.removeEventListener("keydown", onKey);
     };
-  }, [projMenu, resumeOpen]);
+  }, [projMenu]);
 
   useEffect(() => {
     if (editingId) editRef.current?.focus();
@@ -511,48 +513,66 @@ export default function Sidebar(p: {
           </div>
         </SidebarContent>
 
-        {resumeOpen && (
-        <div className="rail-menu resume-pop" onClick={(e) => e.stopPropagation()}>
-          <div className="rail-menu-title">{t("sidebar.resume-title")}</div>
-          <div className="seg">
-            {(["claude", "codex"] as const).map((pv) => (
-              <RowButton key={pv} className={resumeProv === pv ? "on" : ""} onClick={() => openResume(pv)}>
-                {pv === "claude" ? "Claude" : "Codex"}
-              </RowButton>
-            ))}
-          </div>
-          <input
-            className="resume-search"
-            type="search"
-            value={resumeQuery}
-            onChange={(event) => setResumeQuery(event.target.value)}
-            placeholder={`${t("sidebar.search")}…`}
-            aria-label={t("sidebar.search")}
-          />
-          <div className="resume-list">
-            {sessions === null && <div className="bh-empty">{t("sidebar.loading")}</div>}
-            {sessions?.length === 0 && <div className="bh-empty">{t("sidebar.no-session")}</div>}
-            {sessions?.filter((s) => {
-              const needle = resumeQuery.trim().toLocaleLowerCase();
-              return !needle || `${s.title} ${s.projectRoot ?? ""}`.toLocaleLowerCase().includes(needle);
-            }).map((s) => (
-              <div key={s.id} className="resume-item"
-                onClick={() => {
-                  p.onImportSession(resumeProv, s.id, s.title, s.projectRoot);
-                  setResumeOpen(false);
-                }}>
-                <span className="resume-title">{s.title}</span>
-                {s.projectRoot && <span className="resume-project">{s.projectRoot.split("/").filter(Boolean).slice(-1)[0]}</span>}
-                <span className="resume-date">
-                  {new Date(s.mtime).toLocaleDateString([], { day: "2-digit", month: "2-digit" })}{" "}
-                  {new Date(s.mtime).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
-                </span>
-              </div>
-            ))}
-          </div>
-          <Button variant="secondary" className="set-btn" onClick={() => setResumeOpen(false)}>{t("sidebar.close")}</Button>
-        </div>
-      )}
+        <Popover open={resumeOpen} onOpenChange={(next) => { if (!next) setResumeOpen(false); }}>
+          <PopoverContent
+            plain
+            className="rail-menu resume-pop"
+            anchor={() => ({
+              getBoundingClientRect: () => ({
+                x: 240,
+                y: 120,
+                left: 240,
+                top: 120,
+                right: 240,
+                bottom: 120,
+                width: 0,
+                height: 0,
+              }),
+            })}
+            side="right"
+            align="start"
+            sideOffset={0}
+          >
+            <div className="rail-menu-title">{t("sidebar.resume-title")}</div>
+            <div className="seg">
+              {(["claude", "codex"] as const).map((pv) => (
+                <RowButton key={pv} className={resumeProv === pv ? "on" : ""} onClick={() => openResume(pv)}>
+                  {pv === "claude" ? "Claude" : "Codex"}
+                </RowButton>
+              ))}
+            </div>
+            <input
+              className="resume-search"
+              type="search"
+              value={resumeQuery}
+              onChange={(event) => setResumeQuery(event.target.value)}
+              placeholder={`${t("sidebar.search")}…`}
+              aria-label={t("sidebar.search")}
+            />
+            <div className="resume-list">
+              {sessions === null && <div className="bh-empty">{t("sidebar.loading")}</div>}
+              {sessions?.length === 0 && <div className="bh-empty">{t("sidebar.no-session")}</div>}
+              {sessions?.filter((s) => {
+                const needle = resumeQuery.trim().toLocaleLowerCase();
+                return !needle || `${s.title} ${s.projectRoot ?? ""}`.toLocaleLowerCase().includes(needle);
+              }).map((s) => (
+                <div key={s.id} className="resume-item"
+                  onClick={() => {
+                    p.onImportSession(resumeProv, s.id, s.title, s.projectRoot);
+                    setResumeOpen(false);
+                  }}>
+                  <span className="resume-title">{s.title}</span>
+                  {s.projectRoot && <span className="resume-project">{s.projectRoot.split("/").filter(Boolean).slice(-1)[0]}</span>}
+                  <span className="resume-date">
+                    {new Date(s.mtime).toLocaleDateString([], { day: "2-digit", month: "2-digit" })}{" "}
+                    {new Date(s.mtime).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+                  </span>
+                </div>
+              ))}
+            </div>
+            <Button variant="secondary" className="set-btn" onClick={() => setResumeOpen(false)}>{t("sidebar.close")}</Button>
+          </PopoverContent>
+        </Popover>
 
       {projMenu && (
         <ProjectStyleMenu

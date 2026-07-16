@@ -20,6 +20,7 @@ import { IconButton } from "../ui/IconButton";
 import { Tooltip } from "../ui/Tooltip";
 import { RowButton } from "../ui";
 import { Kbd } from "../shadcn/kbd";
+import { Popover, PopoverContent, PopoverTrigger } from "../shadcn/popover";
 import type { FollowUpMode } from "../../lib/chatDraftStore";
 import { ArrowUpIcon, SquareIcon } from "lucide-react";
 
@@ -263,21 +264,24 @@ export function ComposerControls(p: {
               })()}
             </RowButton>
           )}
-          <span className="model-pick" onClick={(e) => e.stopPropagation()}>
-            <RowButton
-              ref={modelBtnRef}
-              className="mp-btn mp-model"
-              aria-haspopup="menu"
-              aria-expanded={menuOpen}
-              title={t("chat.model-title")}
-              onClick={() => {
-                setEffortOpen(false);
-                setMenuOpen((v) => !v);
-                setModelMenuProvider(provider);
+          <span className="model-pick">
+            <Popover
+              open={menuOpen}
+              onOpenChange={(next) => {
+                if (next) {
+                  setEffortOpen(false);
+                  setModelMenuProvider(provider);
+                }
+                setMenuOpen(next);
               }}
             >
-              <span className={!model ? "mp-dim" : undefined}>{modelButtonLabel}</span>
-            </RowButton>
+            <PopoverTrigger
+              render={
+                <RowButton ref={modelBtnRef} className="mp-btn mp-model" title={t("chat.model-title")}>
+                  <span className={!model ? "mp-dim" : undefined}>{modelButtonLabel}</span>
+                </RowButton>
+              }
+            />
             {menuOpen && (() => {
               const visibleProviders = orderedVisibleProviders(
                 p.providers?.length ? p.providers : ([
@@ -293,8 +297,17 @@ export function ComposerControls(p: {
               const menuInfo = visibleProviders.find((info) => info.id === menuProvider) ?? providerInfo(menuProvider);
               const menuModels = sortByFav(modelsFor(menuProvider), menuProvider);
               return (
-                <div className="mp-menu model-menu model-only" ref={modelMenuRef} role="menu"
-                  onKeyDown={menuKeys(() => setMenuOpen(false), modelBtnRef)}>
+                <PopoverContent
+                  plain
+                  side="top"
+                  align="end"
+                  sideOffset={6}
+                  className="mp-menu model-menu model-only"
+                  ref={modelMenuRef}
+                  role="menu"
+                  aria-label={t("chat.model-title")}
+                  onKeyDown={menuKeys(() => setMenuOpen(false), modelBtnRef)}
+                >
                   <div className="model-provider-tabs" aria-label="Provider">
                     {visibleProviders.map((info) => (
                       <RowButton
@@ -446,38 +459,36 @@ export function ComposerControls(p: {
                     )}
                   </div>
                   )}
-                </div>
+                </PopoverContent>
               );
             })()}
+            </Popover>
           </span>
           {effortLevels.length >= 2 && (
-            <span className="effort-pick" onClick={(e) => e.stopPropagation()}>
-              <RowButton
-                ref={effortBtnRef}
-                className="mp-btn mp-effort"
-                aria-haspopup="dialog"
-                aria-expanded={effortOpen}
-                title={effortTitle}
-                onClick={() => {
-                  setMenuOpen(false);
-                  setEffortOpen((open) => !open);
+            <span className="effort-pick">
+              <Popover
+                open={effortOpen}
+                onOpenChange={(next) => {
+                  if (next) setMenuOpen(false);
+                  setEffortOpen(next);
                 }}
               >
-                {effortSummary}
-              </RowButton>
+              <PopoverTrigger
+                render={
+                  <RowButton ref={effortBtnRef} className="mp-btn mp-effort" title={effortTitle}>
+                    {effortSummary}
+                  </RowButton>
+                }
+              />
               {effortOpen && (
-                <div
+                <PopoverContent
+                  plain
+                  side="top"
+                  align="end"
+                  sideOffset={6}
                   className="mp-menu effort-menu"
                   ref={effortMenuRef}
-                  role="dialog"
                   aria-label={effortTitle}
-                  onKeyDown={(e) => {
-                    if (e.key === "Escape") {
-                      e.stopPropagation();
-                      setEffortOpen(false);
-                      effortBtnRef.current?.focus();
-                    }
-                  }}
                 >
                   <div className="ef-block">
                     <div className="ef-title">{effortTitle} <b>{effortSummary}</b></div>
@@ -528,8 +539,9 @@ export function ComposerControls(p: {
                       <div className="ef-thumb" style={{ left: `${(effortIndex / (effortLevels.length - 1)) * 100}%` }} />
                     </div>
                   </div>
-                </div>
+                </PopoverContent>
               )}
+              </Popover>
             </span>
           )}
           {p.workingSince != null ? (

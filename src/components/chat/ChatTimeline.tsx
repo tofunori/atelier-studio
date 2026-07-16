@@ -23,6 +23,7 @@ import { HarnessInteraction } from "./HarnessInteraction";
 import { ProposedPlanCard } from "./ProposedPlanCard";
 import { Button, IconButton, RowButton, ScrollToBottomButton } from "../ui";
 import { Input } from "../shadcn/input";
+import { Popover, PopoverContent } from "../shadcn/popover";
 import {
   AgentActivityGroup,
   type AgentDisplay,
@@ -611,8 +612,20 @@ export function ChatTimeline(p: {
         </div>
       )}
       {pinMenu && (
-        <div className="ctx-menu pin-menu" style={{ position: "fixed", left: pinMenu.x, top: pinMenu.y, zIndex: 200 }}
-          onClick={(e) => e.stopPropagation()}>
+        <Popover open onOpenChange={(next) => { if (!next) setPinMenu(null); }}>
+        <PopoverContent
+          className="pin-menu"
+          side="bottom"
+          align="start"
+          sideOffset={2}
+          anchor={() => ({
+            getBoundingClientRect: () => ({
+              x: pinMenu.x, y: pinMenu.y, left: pinMenu.x, top: pinMenu.y,
+              right: pinMenu.x, bottom: pinMenu.y, width: 0, height: 0,
+              toJSON: () => ({}),
+            }),
+          })}
+        >
           <Input
             className="pin-rename"
             defaultValue={pins.find((x) => x.index === pinMenu.index)?.label ?? ""}
@@ -652,14 +665,15 @@ export function ChatTimeline(p: {
               </RowButton>
             ))}
           </div>
-          <div className="danger" onClick={() => {
+          <RowButton className="pin-unpin" onClick={() => {
             const pin = pins.find((x) => x.index === pinMenu.index);
             if (pin) onTogglePin(pinMenu.index, pin.label);
             setPinMenu(null);
           }}>
             {t("chat.unpin")}
-          </div>
-        </div>
+          </RowButton>
+        </PopoverContent>
+        </Popover>
       )}
       {quote && (
         <div className="sel-toolbar" style={{ left: quote.x, top: quote.y - 44 }}>

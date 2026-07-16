@@ -25,6 +25,7 @@ export type LazyDropdownMenuItem = {
   label: ReactNode
   onSelect: () => void
   destructive?: boolean
+  disabled?: boolean
   separatorBefore?: boolean
   className?: string
   /** Keep the controlled menu open when the action changes its item set. */
