@@ -262,6 +262,58 @@ describe("orchestration App — caractérisation", () => {
     expect(screen.queryByText(t("highlights.empty"))).toBeNull();
   });
 
+  it("ouvre les automatisations dans le panneau latéral sans remplacer le workspace", async () => {
+    await mountApp();
+
+    fireEvent.click(screen.getByRole("button", { name: t("automations.title") }));
+    await act(async () => { await flushMicrotasks(4); });
+
+    expect(document.querySelector(".automation-panel")).toBeTruthy();
+    expect(document.querySelector(".main-card .app")).toBeTruthy();
+    expect(screen.getByText(t("automations.empty"))).toBeTruthy();
+
+    fireEvent.click(screen.getAllByRole("button", { name: t("automations.create") })[0]);
+    await act(async () => { await flushMicrotasks(4); });
+    expect(screen.getByRole("dialog")).toBeTruthy();
+    expect(screen.getByText(t("automations.new"))).toBeTruthy();
+    expect(document.querySelector(".main-card .app")).toBeTruthy();
+    expect(document.querySelector("#workspace-inspector-host")).toBeNull();
+  });
+
+  it("affiche l’horloge Codex seulement pour un heartbeat actif ciblant le chat", async () => {
+    const { sock } = await mountApp();
+    expect(sock.sentTypes()).toContain("listAutomations");
+    await pushThreads(sock, [THREAD_A]);
+
+    const heartbeat = {
+      id: "heartbeat-A",
+      name: "Audit périodique",
+      prompt: "Vérifie les résultats",
+      status: "ACTIVE",
+      kind: "heartbeat",
+      rrule: "FREQ=MINUTELY;INTERVAL=30",
+      targetThreadId: "thread-A",
+      projectRoot: PROJECT_ROOT,
+      provider: "codex",
+      runs: [],
+      createdAt: 1,
+      updatedAt: 1,
+    };
+    await push(sock, { type: "automations", automations: [heartbeat] });
+
+    const sidebar = document.querySelector(".sidebar") as HTMLElement;
+    const row = within(sidebar).getByText("Fil A — albédo").closest(".pnav-row");
+    expect(row?.querySelector(".pnav-heartbeat")).toBeTruthy();
+    expect(row?.querySelector(".pnav-row-main")?.getAttribute("aria-label"))
+      .toContain(t("automations.heartbeat-active"));
+
+    await push(sock, {
+      type: "automations",
+      automations: [{ ...heartbeat, status: "PAUSED" }],
+    });
+    expect(row?.querySelector(".pnav-heartbeat")).toBeNull();
+  });
+
   it("sélectionne un thread et charge son historique (getHistory du bon id)", async () => {
     const { sock } = await mountApp();
     await pushThreads(sock);

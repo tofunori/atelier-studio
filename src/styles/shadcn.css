@@ -103,7 +103,13 @@
     opacity: 1;
   }
 
-  [data-slot="dialog-content"],
+  [data-slot="dialog-content"] {
+    opacity: 0;
+    transform: scale(0.98);
+    transition: opacity var(--motion-fast) var(--ease-out),
+      transform var(--motion-fast) var(--ease-out);
+  }
+
   [data-slot="alert-dialog-content"] {
     opacity: 0;
     transform: translate(-50%, -50%) scale(0.98);
@@ -111,7 +117,11 @@
       transform var(--motion-fast) var(--ease-out);
   }
 
-  [data-slot="dialog-content"][data-open],
+  [data-slot="dialog-content"][data-open] {
+    opacity: 1;
+    transform: scale(1);
+  }
+
   [data-slot="alert-dialog-content"][data-open] {
     opacity: 1;
     transform: translate(-50%, -50%) scale(1);
@@ -155,7 +165,10 @@
       animation: none;
     }
 
-    [data-slot="dialog-content"],
+    [data-slot="dialog-content"] {
+      transform: none;
+    }
+
     [data-slot="alert-dialog-content"] {
       transform: translate(-50%, -50%);
     }

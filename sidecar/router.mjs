@@ -722,6 +722,7 @@ async function handleTurnEvent(ctx, threadId, event) {
   const outEvent = publicEvent.kind === "done" ? await enrichDoneEvent(ctx, turn, publicEvent) : publicEvent;
   const accepted = await h.terminal(turnId, outEvent);
   if (!accepted) return;
+  ctx.automations?.recordEvent(threadId, publicEvent, ctx.broadcast ?? ctx.send);
   threadRuns.delete(threadId);
 
   if (publicEvent.kind === "done") {
@@ -872,6 +873,31 @@ async function startProviderTurn(ctx, h, msg, { reservedTurnId = null } = {}) {
 
 export async function route(msg, ctx) {
   switch (msg.type) {
+    case "listAutomations": {
+      ctx.send({ type: "automations", automations: ctx.automations?.list() ?? [] });
+      break;
+    }
+    case "createAutomation": {
+      ctx.automations?.create(msg.automation ?? msg);
+      ctx.send({ type: "automations", automations: ctx.automations?.list() ?? [] });
+      break;
+    }
+    case "updateAutomation": {
+      ctx.automations?.update(msg.automation ?? msg);
+      ctx.send({ type: "automations", automations: ctx.automations?.list() ?? [] });
+      break;
+    }
+    case "deleteAutomation": {
+      ctx.automations?.delete(String(msg.id ?? ""));
+      ctx.send({ type: "automations", automations: ctx.automations?.list() ?? [] });
+      break;
+    }
+    case "runAutomationNow": {
+      const threadId = await ctx.automations?.execute(String(msg.id ?? ""), ctx, route, false);
+      ctx.send({ type: "automationRunStarted", id: msg.id, threadId });
+      ctx.send({ type: "automations", automations: ctx.automations?.list() ?? [] });
+      break;
+    }
     case "interrupt": {
       const t = ctx.store.get(msg.threadId);
       const prov = t?.provider && ctx.providers[t.provider];

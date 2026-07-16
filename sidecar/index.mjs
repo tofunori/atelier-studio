@@ -9,6 +9,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { route, emitProviderGlobal } from "./router.mjs";
 import { ThreadStore, writeFileAtomic } from "./store.mjs";
+import { AutomationManager } from "./automations.mjs";
 import { HighlightStore } from "./highlights.mjs";
 import * as catalog from "./catalog.mjs";
 import * as history from "./history.mjs";
@@ -63,6 +64,9 @@ if (instance.action === "defer") {
 writeFileAtomic(PID_FILE, String(process.pid));
 
 const store = new ThreadStore(`${APP_DIR}/threads.json`);
+const automations = new AutomationManager(`${APP_DIR}/automations.json`, store);
+let automationContext = null;
+let automationTimer = null;
 // journal canonique du harnais (plan 025) : ~/…/atelier-studio/harness-history/
 const harnessJournal = createHarnessJournal({ baseDir: APP_DIR });
 const highlights = new HighlightStore(`${APP_DIR}/highlights.json`);
@@ -189,6 +193,7 @@ function listPasted() {
 }
 
 function cleanup() {
+  if (automationTimer) clearInterval(automationTimer);
   try { terminal.closeAll(); } catch {}
   try {
     if (Number(readFileSync(PID_FILE, "utf8")) === process.pid) rmSync(PID_FILE);
@@ -599,6 +604,7 @@ wss.on("connection", (ws) => {
     send: (obj) => ws.readyState === 1 && ws.send(JSON.stringify(obj)),
     broadcast,
     store,
+    automations,
     highlights,
     providers,
     catalog,
@@ -659,6 +665,7 @@ wss.on("connection", (ws) => {
     scanLocal,
     checkFrame,
   };
+  automationContext = { ...ctx, send: broadcast };
   ws.on("message", async (data) => {
     let msg;
     try {
@@ -673,3 +680,8 @@ wss.on("connection", (ws) => {
     }
   });
 });
+
+automationTimer = setInterval(() => {
+  if (automationContext) automations.runDue(automationContext, route).catch(() => {});
+}, 30_000);
+automationTimer.unref?.();

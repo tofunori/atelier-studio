@@ -16,6 +16,7 @@ const tokens = stripComments(readFileSync(join(root, "styles", "tokens.css"), "u
 const primitives = stripComments(readFileSync(join(root, "styles", "primitives.css"), "utf8"));
 const shadcn = stripComments(readFileSync(join(root, "styles", "shadcn.css"), "utf8"));
 const shadcnButton = readFileSync(join(root, "components", "shadcn", "button.tsx"), "utf8");
+const shadcnDialog = readFileSync(join(root, "components", "shadcn", "dialog.tsx"), "utf8");
 const shadcnDir = join(root, "components", "shadcn");
 const shadcnSources = readdirSync(shadcnDir)
   .filter((file) => file.endsWith(".tsx") && !file.endsWith(".test.tsx"))
@@ -67,7 +68,7 @@ describe("contrat Quiet Instrument (sources CSS)", () => {
       "dropdown-menu.tsx", "empty.tsx", "field.tsx", "input-group.tsx",
       "input.tsx", "kbd.tsx", "marker.tsx", "message-scroller.tsx",
       "message.tsx", "popover.tsx", "progress.tsx", "radio-group.tsx",
-      "select.tsx", "separator.tsx", "sheet.tsx", "sidebar.tsx",
+      "scroll-area.tsx", "select.tsx", "separator.tsx", "sheet.tsx", "sidebar.tsx",
       "skeleton.tsx", "slider.tsx", "sonner.tsx", "spinner.tsx",
       "switch.tsx", "tabs.tsx", "textarea.tsx", "toggle-group.tsx",
       "toggle.tsx", "tooltip.tsx",
@@ -144,6 +145,10 @@ describe("contrat Quiet Instrument (sources CSS)", () => {
     expect(shadcn).toContain("--color-ring: var(--ring)");
     expect(shadcnButton).toContain("tw:rounded-[var(--radius-control)]");
     expect(shadcnButton).toContain("tw:duration-[var(--motion-fast)]");
+    expect(shadcnButton).toContain('ghost:\n          "tw:bg-transparent');
+    expect(shadcnSources.find(([name]) => name === "field.tsx")?.[1]).toContain("tw:border-0 tw:p-0");
+    expect(shadcnDialog).toContain("<DialogViewport>");
+    expect(shadcnDialog).toContain("tw:flex tw:items-center tw:justify-center");
     expect(appCss).toMatch(/\.custom-select-trigger\s*\{[\s\S]*?min-height:\s*var\(--control-height\)/);
     expect(appCss).toMatch(/\.exp-search\s*\{[\s\S]*?min-height:\s*var\(--control-height\)/);
   });

@@ -30,6 +30,11 @@ pub const ALL_MESSAGE_TYPES: &[&str] = &[
     "getHistory",
     "getAgentHistory",
     "listHighlights",
+    "listAutomations",
+    "createAutomation",
+    "updateAutomation",
+    "deleteAutomation",
+    "runAutomationNow",
     "addHighlight",
     "removeHighlight",
     "getSettings",
@@ -265,6 +270,11 @@ pub async fn route_ws(state: &AppState, text: &str) -> Vec<String> {
             let list = state.highlights().lock().await.list();
             vec![json_msg(json!({"type":"highlights","highlights": list}))]
         }
+        "listAutomations" => crate::automations::list(state).await,
+        "createAutomation" => crate::automations::create(state, &msg).await,
+        "updateAutomation" => crate::automations::update(state, &msg).await,
+        "deleteAutomation" => crate::automations::delete(state, &msg).await,
+        "runAutomationNow" => crate::automations::run_now(state, &msg).await,
         "addHighlight" => {
             let entry = msg.get("highlight").cloned().unwrap_or(json!({}));
             // Drop the mutex before broadcast_highlights (tokio Mutex is not reentrant).

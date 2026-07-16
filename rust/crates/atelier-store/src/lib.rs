@@ -2,12 +2,14 @@
 //!
 //! Paths under `~/Library/Application Support/atelier-studio/` unless overridden.
 
+mod automations;
 mod highlights;
 mod journal;
 mod ledger;
 mod settings;
 mod threads;
 
+pub use automations::{Automation, AutomationRun, AutomationStore};
 pub use highlights::{Highlight, HighlightStore};
 pub use journal::HarnessJournal;
 pub use ledger::{append_ledger, get_all_ledgers, get_ledger, slug_for};

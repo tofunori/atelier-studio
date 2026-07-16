@@ -62,6 +62,7 @@ pub struct ServerHandle {
     pub state: AppState,
     shutdown: Option<oneshot::Sender<()>>,
     join: Option<tokio::task::JoinHandle<()>>,
+    automation_join: Option<tokio::task::JoinHandle<()>>,
 }
 
 impl ServerHandle {
@@ -71,6 +72,9 @@ impl ServerHandle {
         }
         if let Some(join) = self.join.take() {
             let _ = join.await;
+        }
+        if let Some(join) = self.automation_join.take() {
+            join.abort();
         }
         clear_pid_if_ours(self.state.paths(), std::process::id());
     }
@@ -187,12 +191,14 @@ pub async fn serve_once(
     });
 
     info!(port, "atelier-studio-server listening");
+    let automation_join = crate::automations::spawn_scheduler(state.clone());
 
     Ok(ServerHandle {
         port,
         state,
         shutdown: Some(shutdown_tx),
         join: Some(join),
+        automation_join: Some(automation_join),
     })
 }
 

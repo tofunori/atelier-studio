@@ -17,6 +17,22 @@ function DialogPortal({ ...props }: DialogPrimitive.Portal.Props) {
   return <DialogPrimitive.Portal data-slot="dialog-portal" {...props} />
 }
 
+function DialogViewport({
+  className,
+  ...props
+}: DialogPrimitive.Viewport.Props) {
+  return (
+    <DialogPrimitive.Viewport
+      data-slot="dialog-viewport"
+      className={cn(
+        "tw:fixed tw:inset-0 tw:z-[var(--z-modal)] tw:flex tw:items-center tw:justify-center tw:overflow-hidden tw:p-6",
+        className
+      )}
+      {...props}
+    />
+  )
+}
+
 function DialogClose({ ...props }: DialogPrimitive.Close.Props) {
   return <DialogPrimitive.Close data-slot="dialog-close" {...props} />
 }
@@ -49,34 +65,36 @@ function DialogContent({
   closeLabel?: React.ReactNode
   overlayClassName?: string
 }) {
-  return (
+    return (
     <DialogPortal>
       <DialogOverlay className={overlayClassName} />
-      <DialogPrimitive.Popup
-        data-slot="dialog-content"
-        className={cn(
-          "tw:fixed tw:top-1/2 tw:left-1/2 tw:z-[var(--z-modal)] tw:grid tw:w-full tw:max-w-[calc(100%-2rem)] tw:-translate-x-1/2 tw:-translate-y-1/2 tw:gap-4 tw:rounded-[var(--radius-surface)] tw:bg-popover tw:p-4 tw:text-[var(--fs-body-s)] tw:text-popover-foreground tw:ring-1 tw:ring-foreground/10 tw:duration-[var(--motion-fast)] tw:outline-none tw:sm:max-w-sm",
-          className
-        )}
-        {...props}
-      >
-        {children}
-        {showCloseButton && (
-          <DialogPrimitive.Close
-            data-slot="dialog-close"
-            render={
-              <Button
-                variant="ghost"
-                className="tw:absolute tw:top-2 tw:right-2"
-                size="icon-sm"
-              />
-            }
-          >
-            <XIcon />
-            <span className="tw:sr-only">{closeLabel}</span>
-          </DialogPrimitive.Close>
-        )}
-      </DialogPrimitive.Popup>
+      <DialogViewport>
+        <DialogPrimitive.Popup
+          data-slot="dialog-content"
+          className={cn(
+            "tw:relative tw:grid tw:max-h-full tw:min-h-0 tw:w-full tw:max-w-[calc(100%-2rem)] tw:gap-4 tw:rounded-[var(--radius-surface)] tw:bg-popover tw:p-4 tw:text-[var(--fs-body-s)] tw:text-popover-foreground tw:ring-1 tw:ring-foreground/10 tw:duration-[var(--motion-fast)] tw:outline-none tw:sm:max-w-sm",
+            className
+          )}
+          {...props}
+        >
+          {children}
+          {showCloseButton && (
+            <DialogPrimitive.Close
+              data-slot="dialog-close"
+              render={
+                <Button
+                  variant="ghost"
+                  className="tw:absolute tw:top-2 tw:right-2"
+                  size="icon-sm"
+                />
+              }
+            >
+              <XIcon />
+              <span className="tw:sr-only">{closeLabel}</span>
+            </DialogPrimitive.Close>
+          )}
+        </DialogPrimitive.Popup>
+      </DialogViewport>
     </DialogPortal>
   )
 }
@@ -158,4 +176,5 @@ export {
   DialogPortal,
   DialogTitle,
   DialogTrigger,
+  DialogViewport,
 }

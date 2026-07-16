@@ -107,6 +107,7 @@ export default function Sidebar(p: {
   projects: string[];
   threads: Thread[];
   unread: Set<string>;
+  heartbeatThreadIds?: Set<string>;
   favorites: string[];
   onToggleFavorite: (id: string) => void;
   threadOrder: "recent" | "manual";
@@ -369,6 +370,7 @@ export default function Sidebar(p: {
         active={th.id === p.activeId}
         selected={selected.has(th.id)}
         unread={p.unread.has(th.id)}
+        heartbeat={p.heartbeatThreadIds?.has(th.id) ?? false}
         favorite={p.favorites.includes(th.id)}
         editing={editingId === th.id}
         editText={editText}
