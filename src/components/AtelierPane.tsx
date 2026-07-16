@@ -8,6 +8,7 @@ const TerminalSurface = lazyWithRetry(() => import("./TerminalSurface"));
 import { LazyBoundary, lazyWithRetry } from "./LazyBoundary";
 const BiblioSurface = lazyWithRetry(() => import("./BiblioSurface"));
 const GeneratorSurface = lazyWithRetry(() => import("./GeneratorSurface"));
+const NarvalSurface = lazyWithRetry(() => import("./NarvalSurface"));
 import { t } from "../lib/i18n";
 import { CloseIcon, HomeIcon, RefreshIcon } from "./icons";
 import { DocumentTabMeta } from "./AtelierHeaders";
@@ -116,6 +117,7 @@ export default function AtelierPane({
   onCloseAgent?: () => void;
 }) {
   const [surface, setSurface] = useState<Surface>("atelier");
+  const [terminalBootstrap, setTerminalBootstrap] = useState<string | null>(null);
   // split 2 panes : surface secondaire + largeur (%) du pane primaire, par projet
   const splitKey = `atelier-studio.split.${projectRoot}`;
   const [second, setSecond] = useState<Surface | null>(() => {
@@ -170,6 +172,10 @@ export default function AtelierPane({
     setVisited((v) => new Set(v).add(s));
     if (s === surface) return; // déjà en primaire
     setSecond(s);
+  }
+  function openNarvalTerminal(command: string) {
+    setTerminalBootstrap(command);
+    switchSurface("terminal");
   }
   const shown = (id: Surface) => id === surface || id === second;
   function slotStyle(id: Surface): React.CSSProperties {
@@ -412,7 +418,13 @@ export default function AtelierPane({
       {visited.has("terminal") && (
         <div className="pane-slot" style={slotStyle("terminal")}>
           <LazyBoundary fallback={<div className="term-cell" />}>
-            <TerminalSurface ws={ws} cwd={projectRoot} visible={shown("terminal")} />
+            <TerminalSurface
+              ws={ws}
+              cwd={projectRoot}
+              visible={shown("terminal")}
+              bootstrapCommand={terminalBootstrap}
+              onBootstrapHandled={() => setTerminalBootstrap(null)}
+            />
           </LazyBoundary>
         </div>
       )}
@@ -440,6 +452,18 @@ export default function AtelierPane({
         <div className="surface-body pane-slot" style={slotStyle("generateur")}>
           <LazyBoundary fallback={<div className="pane-slot" />}>
             <GeneratorSurface ws={ws} projectRoot={projectRoot} galleryUrl={url} />
+          </LazyBoundary>
+        </div>
+      )}
+
+      {/* ---- surface Narval / Slurm (lecture seule) ---- */}
+      {visited.has("narval") && (
+        <div className="surface-body pane-slot" style={slotStyle("narval")}>
+          <LazyBoundary fallback={<div className="pane-slot" />}>
+            <NarvalSurface
+              visible={shown("narval")}
+              onOpenTerminal={openNarvalTerminal}
+            />
           </LazyBoundary>
         </div>
       )}

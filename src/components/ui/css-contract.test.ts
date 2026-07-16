@@ -70,9 +70,17 @@ describe("contrat Quiet Instrument (sources CSS)", () => {
       "message.tsx", "popover.tsx", "progress.tsx", "radio-group.tsx",
       "scroll-area.tsx", "select.tsx", "separator.tsx", "sheet.tsx", "sidebar.tsx",
       "skeleton.tsx", "slider.tsx", "sonner.tsx", "spinner.tsx",
-      "switch.tsx", "tabs.tsx", "textarea.tsx", "toggle-group.tsx",
+      "switch.tsx", "table.tsx", "tabs.tsx", "textarea.tsx", "toggle-group.tsx",
       "toggle.tsx", "tooltip.tsx",
     ]);
+  });
+
+  it("les primitives bouton sans Preflight neutralisent le chrome WebKit natif", () => {
+    const sources = Object.fromEntries(shadcnSources);
+    expect(sources["tabs.tsx"]).toContain("tw:appearance-none");
+    expect(sources["tabs.tsx"]).toContain("tw:border-0 tw:bg-transparent tw:p-0");
+    expect(sources["button.tsx"]).toMatch(/ghost:\s*\n?\s*"[^"]*tw:bg-transparent/);
+    expect(sources["button.tsx"]).toMatch(/link:\s*"[^"]*tw:bg-transparent/);
   });
 
   it("le chrome Galerie délègue le stacking aux primitives partagées", () => {

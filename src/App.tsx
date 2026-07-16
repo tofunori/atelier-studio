@@ -1522,6 +1522,9 @@ export default function App() {
       if (msg.type === "commands") setCommands(msg.commands);
       if (msg.type === "plugins") setPlugins(Array.isArray(msg.plugins) ? msg.plugins : []);
       if (msg.type === "files") setFiles(msg.files);
+      if (["narvalStatus", "narvalSnapshot", "narvalDirectory", "narvalJobDetail", "narvalText"].includes(msg.type)) {
+        window.dispatchEvent(new CustomEvent("narval-message", { detail: msg }));
+      }
       if (msg.type === "error") {
         console.error("sidecar:", msg.message);
         const pr = pendingResend.current;

@@ -4,12 +4,13 @@
 // Tailles à 19px (viewBox 16x16 inchangée) : mêmes icônes qu'avant, rendues
 // plus grandes pour s'aligner sur les icônes Chats/Surlignés du rail (19px).
 import { BookIcon, BranchIcon } from "./icons";
+import { ServerCogIcon } from "lucide-react";
 
-export type Surface = "atelier" | "browser" | "terminal" | "git" | "biblio" | "generateur";
+export type Surface = "atelier" | "browser" | "terminal" | "git" | "biblio" | "generateur" | "narval";
 
 export const SURFACES: {
   id: Surface;
-  labelKey: "atelier.surface" | "atelier.browser" | "atelier.terminal" | "atelier.git" | "atelier.biblio" | "atelier.generateur";
+  labelKey: "atelier.surface" | "atelier.browser" | "atelier.terminal" | "atelier.git" | "atelier.biblio" | "atelier.generateur" | "atelier.narval";
   icon: React.ReactNode;
 }[] = [
   {
@@ -53,6 +54,11 @@ export const SURFACES: {
     id: "biblio",
     labelKey: "atelier.biblio",
     icon: <BookIcon size={19} />,
+  },
+  {
+    id: "narval",
+    labelKey: "atelier.narval",
+    icon: <ServerCogIcon width={19} height={19} strokeWidth={1.3} />,
   },
   {
     id: "generateur",
