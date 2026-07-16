@@ -231,11 +231,12 @@ export function ComposerControls(p: {
               aria-label={t("chat.context-window")}>
               {(() => {
                 // Priorité : window fourni par le provider (Codex, Grok registry),
-                // sinon heuristique modèle (Claude [1m], Grok 4.5 = 500k docs xAI),
-                // sinon défaut historique 200k.
+                // sinon heuristique modèle (Claude [1m], Grok 4.5 = 500k docs xAI,
+                // Kimi K3 = 1M platform.kimi.ai), sinon défaut historique 200k.
                 const WINDOW = p.usage.window
                   ?? (model.includes("[1m]") ? 1_000_000
                     : /^grok-4\.5\b/.test(model) ? 500_000
+                    : /(^|\/)kimi-k3\b/.test(model) ? 1_000_000
                     : 200_000);
                 const pct = Math.min(100, Math.round((p.usage.context / WINDOW) * 100));
                 const r = 6.5, c = 2 * Math.PI * r;
