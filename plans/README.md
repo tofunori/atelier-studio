@@ -236,6 +236,7 @@ planifiés sur demande.
 | 042 | Keychain iOS pour le token d'appareil (fin du fichier en clair) | P1 | M | — | TODO |
 | 041 | Reducer chat O(N) au chargement + fast path streaming | P2 | M | 040 | TODO |
 | 043 | Purge de la file d'envoi + stop reconnexion sur `auth_expired` | P2 | M | — | TODO |
+| 044 | Fidélité du listing fichiers (formats scientifiques, troncature annoncée, grille) | P2 | M | — | TODO |
 
 ### Dependency notes
 
@@ -247,6 +248,15 @@ planifiés sur demande.
   le même secure store (raison de plus de purger : limites de taille Keychain).
 - Après 042 : rotation opérateur obligatoire (révocation + ré-appairage), le
   token de l'ère « fichier en clair » est considéré brûlé.
+- 044 (ajouté 2026-07-16 sur signalement de Thierry « les fichiers de mes
+  projets ne correspondent pas à ceux dans l'app ») : cause racine confirmée
+  sur code = quatre filtres silencieux — allowlist de 26 extensions
+  (`path_policy.rs:11`, exclut .nc/.tif/.parquet/.gpkg/.xlsx/.ipynb…), vue
+  grille PNG-only (`GalleryScreen.tsx:181`), plafond 1 000 items appliqué
+  AVANT le tri par date sans indicateur (`routes.rs:722`), liste de projets =
+  threads existants + `projects.json` non documenté (`state.rs:90-117`). Les
+  exclusions sécurité (symlinks, dossiers cachés, profondeur 10) sont
+  conformes au threat model T3 et restent inchangées.
 
 ### Findings vérifiés, non planifiés (disponibles sur demande)
 
