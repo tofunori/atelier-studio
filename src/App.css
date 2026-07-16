@@ -795,12 +795,12 @@ html, body, #root, .app { height: 100vh; overflow: hidden;
   border-radius: var(--radius-lg); background: color-mix(in srgb, var(--bg2) 88%, transparent); }
 .proposed-plan-head { min-height: 42px; display: flex; align-items: center; gap: 9px;
   padding: 0 12px; border-bottom: 1px solid var(--line); }
-.proposed-plan-badge { padding: 2px 7px; border-radius: 999px; color: var(--accent);
+.proposed-plan-badge { padding: 2px 7px; border-radius: var(--r-pill); color: var(--accent);
   background: color-mix(in srgb, var(--accent) 13%, transparent); font-size: 10px; font-weight: 600; }
 .proposed-plan-title { min-width: 0; flex: 1; overflow: hidden; text-overflow: ellipsis;
   white-space: nowrap; color: var(--fg); font-size: 12px; font-weight: 600; }
 .proposed-plan-expand { display: grid; place-items: center; width: 26px; height: 26px;
-  border: 0; border-radius: 6px; color: var(--muted); background: transparent; }
+  border: 0; border-radius: var(--r-s); color: var(--muted); background: transparent; }
 .proposed-plan-expand:hover { color: var(--fg); background: var(--hover); }
 .proposed-plan-body { position: relative; padding: 12px 14px; color: var(--fg2);
   font-size: 12px; line-height: 1.6; overflow-wrap: anywhere; }
@@ -811,7 +811,7 @@ html, body, #root, .app { height: 100vh; overflow: hidden;
 .proposed-plan-body > :last-child { margin-bottom: 0; }
 .proposed-plan-actions { min-height: 38px; display: flex; align-items: center; gap: 4px;
   padding: 5px 8px; border-top: 1px solid var(--line); }
-.proposed-plan-actions button { border: 0; border-radius: 6px; padding: 5px 8px;
+.proposed-plan-actions button { border: 0; border-radius: var(--r-s); padding: 5px 8px;
   color: var(--muted); background: transparent; font-size: 10px; }
 .proposed-plan-actions button:hover { color: var(--fg); background: var(--hover); }
 .proposed-plan-status { margin-left: auto; padding-right: 4px; color: var(--muted2); font-size: 10px; }
@@ -819,7 +819,7 @@ html, body, #root, .app { height: 100vh; overflow: hidden;
   border: none; color: var(--muted); padding: 0; cursor: pointer; font: inherit;
   font-size: var(--fs-m); }
 .turn-diff-toggle:hover { color: var(--fg2); }
-.turn-diff-undo { margin-left: 8px; border: 0; border-radius: 6px; padding: 4px 7px;
+.turn-diff-undo { margin-left: 8px; border: 0; border-radius: var(--r-s); padding: 4px 7px;
   color: var(--muted); background: transparent; font-size: 10px; }
 .turn-diff-undo:hover { color: var(--fg); background: var(--hover); }
 .turn-diff-body { margin-top: 6px; max-height: 320px; overflow: auto;
@@ -914,7 +914,7 @@ html, body, #root, .app { height: 100vh; overflow: hidden;
 .set-group-label { font-size: var(--fs-xs); text-transform: uppercase; letter-spacing: 0.08em;
   color: var(--muted2); margin: 0 2px 8px; font-weight: 600; }
 .set-card { background: var(--bg-card); border: 1px solid var(--border);
-  border-radius: 10px; overflow: hidden; }
+  border-radius: var(--r-m); overflow: hidden; }
 .set-row { display: flex; align-items: center; gap: 20px; padding: 13px 16px; }
 .set-card > .set-row + .set-row { border-top: 1px solid var(--border); }
 .set-empty { color: var(--muted2); font-size: var(--fs-m); margin: 4px 2px; }
@@ -939,7 +939,7 @@ html, body, #root, .app { height: 100vh; overflow: hidden;
 .appsnap-intro-title { color: var(--fg); font-size: var(--fs-l); font-weight: 600; line-height: 1.35; }
 .appsnap-intro p { margin: 7px 0 0; color: var(--fg2); font-size: var(--fs-l); line-height: 1.55; }
 .appsnap-key, .appsnap-shortcut kbd { font: inherit; color: var(--fg2); background: var(--bg-ctl);
-  border: 1px solid var(--border); border-bottom-color: var(--border2); border-radius: 6px;
+  border: 1px solid var(--border); border-bottom-color: var(--border2); border-radius: var(--r-s);
   padding: 2px 7px; white-space: nowrap; box-shadow: 0 1px 0 color-mix(in srgb, var(--border2) 80%, transparent); }
 .appsnap-shortcut { display: inline-flex; align-items: center; gap: 7px; color: var(--muted); font-size: var(--fs-m); }
 .appsnap-local-note { margin: -10px 2px 28px; color: var(--muted2); font-size: var(--fs-m); line-height: 1.5; }
@@ -1386,13 +1386,13 @@ button.ghost.danger, button.ghost.danger:hover { color: var(--status-error); bac
 .browser-bar { min-width: 0; }
 /* galerie de thèmes */
 .theme-search { display: block; width: 100%; box-sizing: border-box;
-  background: var(--bg-ctl); border: 1px solid var(--border2); border-radius: 10px;
+  background: var(--bg-ctl); border: 1px solid var(--border2); border-radius: var(--r-m);
   color: inherit; padding: 9px 14px; font-size: var(--fs-l); outline: none; margin-bottom: 10px; }
 .theme-search:focus { border-color: var(--border2); box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 15%, transparent); }
 .theme-gallery { margin-bottom: 4px; }
-.theme-current { border: 1px solid var(--border2); border-radius: 10px;
+.theme-current { border: 1px solid var(--border2); border-radius: var(--r-m);
   background: var(--bg-card); margin-bottom: 6px; }
-.theme-current .theme-row { border-radius: 10px; }
+.theme-current .theme-row { border-radius: var(--r-m); }
 .theme-check { width: 18px; text-align: center; color: var(--fg); font-size: var(--fs-l); }
 .theme-row { display: flex; align-items: center; gap: 14px; padding: 9px 14px;
   border-radius: var(--r-m); cursor: pointer;
@@ -1422,7 +1422,7 @@ button.ghost.danger, button.ghost.danger:hover { color: var(--status-error); bac
    de .rail-menu (toujours nécessaire à Rail.tsx, non migré) — le Popup Base UI
    n'a plus besoin de se positionner lui-même, le Positioner Base UI s'en charge. */
 .resume-pop { width: 340px; }
-.resume-search { width: 100%; margin: 8px 0; padding: 7px 9px; border: 1px solid var(--border-subtle); border-radius: 6px; background: var(--surface-inset); color: var(--text-primary); font: inherit; }
+.resume-search { width: 100%; margin: 8px 0; padding: 7px 9px; border: 1px solid var(--border-subtle); border-radius: var(--r-s); background: var(--surface-inset); color: var(--text-primary); font: inherit; }
 .resume-list { max-height: 320px; overflow-y: auto; display: flex; flex-direction: column; gap: 2px; }
 .resume-item { display: flex; align-items: baseline; gap: 8px; padding: 7px 9px;
   border-radius: var(--r-m); cursor: pointer; }
