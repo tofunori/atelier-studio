@@ -72,6 +72,7 @@ const PROVIDERS = [
       "openrouter/minimax/minimax-m3",
       "openrouter/tencent/hy3:free",
       "openrouter/qwen/qwen3-coder",
+      "openrouter/moonshotai/kimi-k3",
       "openrouter/moonshotai/kimi-k2.7-code",
       "openrouter/cohere/north-mini-code:free",
       "openrouter/openrouter/auto",

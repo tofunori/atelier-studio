@@ -364,6 +364,7 @@ pub fn builtin_providers() -> Vec<ProviderStatus> {
                 "openrouter/minimax/minimax-m3".into(),
                 "openrouter/tencent/hy3:free".into(),
                 "openrouter/qwen/qwen3-coder".into(),
+                "openrouter/moonshotai/kimi-k3".into(),
                 "openrouter/moonshotai/kimi-k2.7-code".into(),
                 "openrouter/cohere/north-mini-code:free".into(),
                 "openrouter/openrouter/auto".into(),
