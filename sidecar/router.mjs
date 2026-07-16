@@ -9,6 +9,7 @@ import { createHarnessThread } from "./harness_events.mjs";
 import { HANDOFF_END } from "./handoff.mjs";
 import { stripGalleryToolInstruction, withGalleryToolInstruction } from "./gallery_tool_prompt.mjs";
 import { stripZoteroPassageInstruction, withZoteroPassageInstruction } from "./zotero_passage_prompt.mjs";
+import * as narval from "./narval.mjs";
 
 // ctx: { send(obj), store, providers, broadcast(obj) }
 
@@ -1173,6 +1174,32 @@ export async function route(msg, ctx) {
       ctx.send({ type: "files", projectRoot: msg.projectRoot,
         files: ctx.catalog.listFiles(msg.projectRoot) });
       break;
+    case "narvalStatus":
+    case "narvalSnapshot":
+    case "narvalListDirectory":
+    case "narvalInspectJob":
+    case "narvalReadText": {
+      const requestId = msg.requestId ?? null;
+      const types = {
+        narvalStatus: "narvalStatus",
+        narvalSnapshot: "narvalSnapshot",
+        narvalListDirectory: "narvalDirectory",
+        narvalInspectJob: "narvalJobDetail",
+        narvalReadText: "narvalText",
+      };
+      try {
+        let data;
+        if (msg.type === "narvalStatus") data = await narval.status(msg.profile);
+        else if (msg.type === "narvalSnapshot") data = await narval.snapshot(msg.profile);
+        else if (msg.type === "narvalListDirectory") data = await narval.listDirectory(msg.profile, msg.path);
+        else if (msg.type === "narvalInspectJob") data = await narval.inspectJob(msg.profile, msg.jobId);
+        else data = await narval.readText(msg.profile, msg.path, msg.tailLines);
+        ctx.send({ type: types[msg.type], requestId, ...(msg.path ? { path: msg.path } : {}), data });
+      } catch (error) {
+        ctx.send({ type: types[msg.type], requestId, ...(msg.path ? { path: msg.path } : {}), error: narval.publicError(error) });
+      }
+      break;
+    }
     case "gitStatus": {
       const root = gitRootFor(ctx, msg);
       ctx.send({ type: "gitStatus", projectRoot: root, status: await ctx.gitops.status(root) });

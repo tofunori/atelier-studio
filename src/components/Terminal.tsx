@@ -24,6 +24,7 @@ export default function Terminal(p: {
   ws: WebSocket | null;
   visible: boolean;
   onShortcut?: (termId: string, shortcut: TerminalShortcut) => void;
+  onReady?: (termId: string) => void;
 }) {
   const ref = useRef<HTMLDivElement>(null);
   const xtermRef = useRef<XTerm | null>(null);
@@ -31,12 +32,18 @@ export default function Terminal(p: {
   const mounted = useRef(false);   // term.open() effectué (après préchargement police)
   const opened = useRef(false);    // PTY ouvert côté sidecar
   const shortcutRef = useRef(p.onShortcut);
+  const readyRef = useRef(p.onReady);
   useEffect(() => { shortcutRef.current = p.onShortcut; }, [p.onShortcut]);
+  useEffect(() => { readyRef.current = p.onReady; }, [p.onReady]);
   function tryOpen() {
     const term = xtermRef.current;
     if (opened.current || !term || !mounted.current || !wsReady()) return;
     opened.current = true;
-    wsSend({ type: "termOpen", termId: p.termId, cwd: p.cwd, cols: term.cols, rows: term.rows });
+    if (!wsSend({ type: "termOpen", termId: p.termId, cwd: p.cwd, cols: term.cols, rows: term.rows })) {
+      opened.current = false;
+      return;
+    }
+    readyRef.current?.(p.termId);
     setTimeout(() => term.focus(), 100);
   }
 

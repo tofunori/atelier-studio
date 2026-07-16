@@ -11,7 +11,8 @@ use atelier_workspace::{
     pull as git_pull, push as git_push, restore as git_restore, revert_file, save_image, scan_local,
     stage_files, status as git_status, unstage_files,
     zotero_available, zotero_collections, zotero_load_favs, zotero_search, zotero_toggle_fav,
-    pdf_absolute_path, GitStatus, TermEvent,
+    pdf_absolute_path, narval_inspect_job, narval_list_directory, narval_read_text,
+    narval_snapshot, narval_status, GitStatus, NarvalError, TermEvent,
 };
 use serde_json::{json, Value};
 
@@ -36,6 +37,11 @@ pub const ALL_MESSAGE_TYPES: &[&str] = &[
     "getLedger",
     "upsertThread",
     "listFiles",
+    "narvalStatus",
+    "narvalSnapshot",
+    "narvalListDirectory",
+    "narvalInspectJob",
+    "narvalReadText",
     "listCommands",
     "listPlugins",
     "listPasted",
@@ -133,6 +139,40 @@ fn commit_generation_context(status: &GitStatus, staged_only: bool) -> Option<St
         lines.push(format!("… and {} more files", files.len() - shown));
     }
     Some(lines.join("\n"))
+}
+
+fn narval_reply<T: serde::Serialize>(
+    response_type: &str,
+    request_id: Value,
+    result: Result<Result<T, NarvalError>, tokio::task::JoinError>,
+) -> Vec<String> {
+    narval_reply_with(response_type, request_id, json!({}), result)
+}
+
+fn narval_reply_with<T: serde::Serialize>(
+    response_type: &str,
+    request_id: Value,
+    extra: Value,
+    result: Result<Result<T, NarvalError>, tokio::task::JoinError>,
+) -> Vec<String> {
+    let mut base = extra.as_object().cloned().unwrap_or_default();
+    base.insert("type".into(), json!(response_type));
+    base.insert("requestId".into(), request_id);
+    match result {
+        Ok(Ok(data)) => {
+            base.insert("data".into(), serde_json::to_value(data).unwrap_or(Value::Null));
+        }
+        Ok(Err(error)) => {
+            base.insert("error".into(), serde_json::to_value(error).unwrap_or(Value::Null));
+        }
+        Err(error) => {
+            base.insert(
+                "error".into(),
+                json!({"code":"internal", "message": format!("tâche Narval interrompue: {error}")}),
+            );
+        }
+    }
+    vec![json_msg(Value::Object(base))]
 }
 
 /// Route one client JSON text frame.
@@ -299,6 +339,41 @@ pub async fn route_ws(state: &AppState, text: &str) -> Vec<String> {
                 .unwrap_or("");
             let files = list_files(root);
             vec![json_msg(json!({"type":"files","projectRoot": root, "files": files}))]
+        }
+        "narvalStatus" => {
+            let profile = msg.get("profile").and_then(Value::as_str).unwrap_or("narval").to_string();
+            let request_id = msg.get("requestId").cloned().unwrap_or(Value::Null);
+            narval_reply("narvalStatus", request_id, tokio::task::spawn_blocking(move || narval_status(&profile)).await)
+        }
+        "narvalSnapshot" => {
+            let profile = msg.get("profile").and_then(Value::as_str).unwrap_or("narval").to_string();
+            let request_id = msg.get("requestId").cloned().unwrap_or(Value::Null);
+            narval_reply("narvalSnapshot", request_id, tokio::task::spawn_blocking(move || narval_snapshot(&profile)).await)
+        }
+        "narvalListDirectory" => {
+            let profile = msg.get("profile").and_then(Value::as_str).unwrap_or("narval").to_string();
+            let path = msg.get("path").and_then(Value::as_str).unwrap_or("").to_string();
+            let request_id = msg.get("requestId").cloned().unwrap_or(Value::Null);
+            let path_out = path.clone();
+            narval_reply_with(
+                "narvalDirectory",
+                request_id,
+                json!({"path": path_out}),
+                tokio::task::spawn_blocking(move || narval_list_directory(&profile, &path)).await,
+            )
+        }
+        "narvalInspectJob" => {
+            let profile = msg.get("profile").and_then(Value::as_str).unwrap_or("narval").to_string();
+            let job_id = msg.get("jobId").and_then(Value::as_str).unwrap_or("").to_string();
+            let request_id = msg.get("requestId").cloned().unwrap_or(Value::Null);
+            narval_reply("narvalJobDetail", request_id, tokio::task::spawn_blocking(move || narval_inspect_job(&profile, &job_id)).await)
+        }
+        "narvalReadText" => {
+            let profile = msg.get("profile").and_then(Value::as_str).unwrap_or("narval").to_string();
+            let path = msg.get("path").and_then(Value::as_str).unwrap_or("").to_string();
+            let tail_lines = msg.get("tailLines").and_then(Value::as_u64).unwrap_or(400) as u32;
+            let request_id = msg.get("requestId").cloned().unwrap_or(Value::Null);
+            narval_reply("narvalText", request_id, tokio::task::spawn_blocking(move || narval_read_text(&profile, &path, tail_lines)).await)
         }
         "listCommands" => {
             let root = msg.get("projectRoot").and_then(|v| v.as_str());
@@ -2101,6 +2176,22 @@ mod tests {
         let v: Value = serde_json::from_str(&out[0]).unwrap();
         assert_eq!(v["type"], "threads");
         assert!(v["threads"].as_array().unwrap().is_empty());
+    }
+
+    #[tokio::test]
+    async fn narval_status_preserves_request_id_and_rejects_unknown_profiles() {
+        let dir = tempdir().unwrap();
+        let s = state(dir.path());
+        let out = route_ws(
+            &s,
+            r#"{"type":"narvalStatus","profile":"other","requestId":"narval-1"}"#,
+        )
+        .await;
+        let v: Value = serde_json::from_str(&out[0]).unwrap();
+        assert_eq!(v["type"], "narvalStatus");
+        assert_eq!(v["requestId"], "narval-1");
+        assert_eq!(v["error"]["code"], "invalid_profile");
+        assert!(v.get("data").is_none());
     }
 
     #[tokio::test]

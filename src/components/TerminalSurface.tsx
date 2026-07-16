@@ -18,10 +18,31 @@ export default function TerminalSurface(p: {
   ws: WebSocket | null;
   cwd: string;
   visible: boolean;
+  bootstrapCommand?: string | null;
+  onBootstrapHandled?: () => void;
 }) {
   const [terms, setTerms] = useState<Term[]>([]);
   const [activeId, setActiveId] = useState<string | null>(null);
   const [layout, setLayout] = useState<"single" | "cols" | "rows">("single");
+  const readyTerms = useRef(new Set<string>());
+  const bootstrapRef = useRef(p.bootstrapCommand);
+  const handledRef = useRef(p.onBootstrapHandled);
+  useEffect(() => { bootstrapRef.current = p.bootstrapCommand; }, [p.bootstrapCommand]);
+  useEffect(() => { handledRef.current = p.onBootstrapHandled; }, [p.onBootstrapHandled]);
+
+  function runBootstrap(termId: string) {
+    const command = bootstrapRef.current;
+    if (!command || !readyTerms.current.has(termId)) return;
+    bootstrapRef.current = null;
+    window.setTimeout(() => {
+      wsSend({ type: "termInput", termId, data: `${command}\r` });
+      handledRef.current?.();
+    }, 120);
+  }
+
+  useEffect(() => {
+    if (p.visible && activeId) runBootstrap(activeId);
+  }, [p.visible, p.bootstrapCommand, activeId]);
 
   function addTerm(): Term {
     const n = terms.length ? Math.max(...terms.map((t) => t.n)) + 1 : 1;
@@ -129,6 +150,10 @@ export default function TerminalSurface(p: {
               ws={p.ws}
               visible={p.visible && (layout !== "single" || activeId === t.id)}
               onShortcut={runShortcut}
+              onReady={(termId) => {
+                readyTerms.current.add(termId);
+                runBootstrap(termId);
+              }}
             />
           </div>
         ))}
