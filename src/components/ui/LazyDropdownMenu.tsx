@@ -1,7 +1,5 @@
 import {
   cloneElement,
-  lazy,
-  Suspense,
   useEffect,
   useRef,
   useState,
@@ -12,10 +10,14 @@ import {
   type RefObject,
 } from "react"
 
-const dropdownMenuModule = import("./DropdownMenuSurface")
-const DropdownMenuSurface = lazy(async () => {
-  const module = await dropdownMenuModule
-  return { default: module.DropdownMenuSurface }
+// Composant résolu stocké au niveau module (pas de React.lazy/Suspense : on
+// piste déjà le chargement nous-mêmes — une fois le chunk arrivé, le rendu
+// est entièrement synchrone, sans fallback non câblé). Vite code-splitte
+// toujours grâce à l'import dynamique.
+let LoadedSurface: typeof import("./DropdownMenuSurface").DropdownMenuSurface | null = null
+const dropdownMenuModule = import("./DropdownMenuSurface").then((module) => {
+  LoadedSurface = module.DropdownMenuSurface
+  return module
 })
 
 export type LazyDropdownMenuItem = {
@@ -42,7 +44,7 @@ export function LazyDropdownMenu(props: {
 }) {
   const fallbackAnchorRef = useRef<HTMLButtonElement | null>(null)
   const anchorRef = props.triggerRef ?? fallbackAnchorRef
-  const [ready, setReady] = useState(false)
+  const [ready, setReady] = useState(LoadedSurface != null)
   const keepOpenRef = useRef(false)
 
   const onOpenChange = (open: boolean) => {
@@ -67,7 +69,7 @@ export function LazyDropdownMenu(props: {
     void dropdownMenuModule.then(() => setReady(true))
   }, [])
 
-  if (!ready) {
+  if (!ready || LoadedSurface == null) {
     // Fenêtre de quelques ms pendant le chargement du chunk Base UI : le
     // clic est quand même enregistré (open passe à true) et le menu s'ouvre
     // dès que la surface est prête — plus de moteur d'overlay maison.
@@ -81,9 +83,6 @@ export function LazyDropdownMenu(props: {
     })
   }
 
-  return (
-    <Suspense fallback={props.trigger}>
-      <DropdownMenuSurface {...props} items={items} onOpenChange={onOpenChange} triggerRef={anchorRef} />
-    </Suspense>
-  )
+  const Surface = LoadedSurface
+  return <Surface {...props} items={items} onOpenChange={onOpenChange} triggerRef={anchorRef} />
 }

@@ -17,6 +17,8 @@ Toute valeur visuelle vient des tokens — **ne jamais inventer de valeur locale
 - **Typo** : `letter-spacing:-0.01em` sur les titres ; `font-variant-numeric:tabular-nums` sur tout chiffre aligné (heures, tailles, compteurs) ; interligne 1.5 corps, 1.3 titres.
 - **Motion** : tout changement d'état visible transitionne en 120–150ms (opacity/transform). Jamais plus de 200ms. Respecter `prefers-reduced-motion`.
 - **Thèmes** : toute couleur passe par les variables CSS — jamais de hex en dur dans un composant (exceptions existantes : sémantique ok/warn/erreur documentée dans App.css).
+- **Boutons** : jamais de `<button>` nu hors `src/components/ui/` et `src/components/shadcn/` — utiliser `Button` (action textuelle), `IconButton` (icône seule) ou `RowButton` (rangée/chip/cellule/swatch/trigger cloné ; transmet ref et tous attributs natifs). Verrouillé par `css-contract.test.ts`.
+- **Échelles Tailwind snappées** : dans `src/styles/shadcn.css`, `--radius-sm/md`→6px, `--radius-lg/xl`→10px, `--text-xs`→12px, `--text-sm`→13px — les classes nommées `rounded-*`/`text-xs/sm` restent donc dans le système, même dans du code généré par le CLI shadcn. Ombres d'overlay via `shadow-[var(--elevation-overlay)]`, voile de modale via `bg-[var(--scrim)]` (verrouillé aussi).
 
 ## Contraintes techniques
 

@@ -1,7 +1,7 @@
 // ChatHeader (plan 018, étape 2) — RTL : eyebrow projet + titre au nom
 // accessible complet, badge piloté par le statut présenté (masqué si null ou
 // idle), menu overflow conditionné à onRename. Aucune assertion de couleur.
-import { render, screen, fireEvent, cleanup } from "@testing-library/react";
+import { render, screen, fireEvent, cleanup, waitFor } from "@testing-library/react";
 import { describe, it, expect, vi, afterEach, beforeEach } from "vitest";
 import { ChatHeader } from "./ChatHeader";
 import { setLanguage, t } from "../../lib/i18n";
@@ -67,17 +67,19 @@ describe("ChatHeader", () => {
     expect(screen.queryByRole("button", { name: MORE_LABEL })).toBeNull();
   });
 
-  it("onRename présent → ⋯ ouvre le menu, Renommer appelle onRename et ferme", () => {
+  it("onRename présent → ⋯ ouvre le menu, Renommer appelle onRename et ferme", async () => {
     const onRename = vi.fn();
     render(<ChatHeader {...base} onRename={onRename} />);
 
     expect(screen.queryByRole("menu")).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: MORE_LABEL }));
-    expect(screen.getByRole("menu")).toBeInTheDocument();
+    // Base UI monte le popup en portal après positionnement — asynchrone
+    const menu = await screen.findByRole("menu");
+    expect(menu).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("menuitem", { name: t("action.rename") }));
     expect(onRename).toHaveBeenCalledTimes(1);
-    expect(screen.queryByRole("menu")).toBeNull();
+    await waitFor(() => expect(screen.queryByRole("menu")).toBeNull());
   });
 
   it("titre long → attribut title complet présent (troncature CSS)", () => {

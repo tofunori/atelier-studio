@@ -4,16 +4,17 @@
 // deux appelants (popover Personnaliser du Research Navigator, menu
 // contextuel des puces du rail).
 //
-// Cellules = <button> natifs (et non des <span onClick>) pour que Tab +
-// Entrée/Espace fonctionnent sans JS additionnel ; aria-label décrit
-// l'action (couleur hex ou « sans couleur »), aria-pressed reflète l'icône
-// active. Classes CSS conservées à l'identique (swatch, emoji-cell, …) — le
-// CSS existant continue de s'appliquer, voir le rapport pour le reset natif
-// <button> qui manque encore côté App.css.
+// Cellules = wrappers RowButton/IconButton (boutons natifs, et non des
+// <span onClick>) pour que Tab + Entrée/Espace fonctionnent sans JS
+// additionnel ; aria-label décrit l'action (couleur hex ou « sans couleur »),
+// aria-pressed reflète l'icône active. Classes CSS conservées à l'identique
+// (swatch, emoji-cell, …) — le CSS existant continue de s'appliquer, le reset
+// natif du bouton étant fourni par les wrappers ui/ eux-mêmes.
 import type { CSSProperties } from "react";
 import { t } from "../../lib/i18n";
 import { PROJ_COLORS, PROJ_ICONS, ProjIcon } from "./projectIcons";
 import { Input } from "../shadcn/input";
+import { IconButton, RowButton } from "../ui";
 
 export type ProjMetaLite = { color?: string; label?: string };
 
@@ -45,41 +46,38 @@ export function ProjectStyleMenu(props: {
       <div className="rail-menu-title">{root.split("/").pop()}</div>
       <div className="swatches">
         {PROJ_COLORS.map((c) => (
-          <button
+          <RowButton
             key={c}
-            type="button"
             className="swatch"
             style={{ background: c }}
             aria-label={c}
             onClick={() => onSetMeta(root, { ...meta, color: c })}
           />
         ))}
-        <button
-          type="button"
+        <RowButton
           className="swatch none"
           aria-label={t("sidebar.without-color")}
           onClick={() => onSetMeta(root, { ...meta, color: undefined })}
         >
           ∅
-        </button>
+        </RowButton>
       </div>
       <div className="emoji-grid">
         {Object.keys(PROJ_ICONS).map((name) => {
           const active = meta?.label === "icon:" + name;
           return (
-            <button
+            <IconButton
               key={name}
-              type="button"
               className={`emoji-cell ${active ? "on" : ""}`}
               aria-pressed={active}
-              aria-label={iconLabel(name)}
+              label={iconLabel(name)}
               onClick={() => {
                 onSetMeta(root, { ...meta, label: "icon:" + name });
                 onClose();
               }}
             >
               <ProjIcon name={name} size={14} />
-            </button>
+            </IconButton>
           );
         })}
         <Input
@@ -97,8 +95,7 @@ export function ProjectStyleMenu(props: {
             }
           }}
         />
-        <button
-          type="button"
+        <RowButton
           className="emoji-cell none"
           aria-label={t("sidebar.without-color")}
           onClick={() => {
@@ -107,7 +104,7 @@ export function ProjectStyleMenu(props: {
           }}
         >
           ∅
-        </button>
+        </RowButton>
       </div>
     </div>
   );
