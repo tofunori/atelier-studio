@@ -669,7 +669,7 @@ pub async fn handle_send(state: &AppState, msg: &Value) -> Vec<String> {
     let project_root_events = project_root.clone();
     let permission_mode_events = permission_mode.clone();
     let snapshot_events = snapshot_sha.clone();
-    tokio::spawn(async move {
+    let pump = tokio::spawn(async move {
         while let Some(ev) = ev_rx.recv().await {
             let ev = normalize_provider_event(
                 ev,
@@ -726,7 +726,15 @@ pub async fn handle_send(state: &AppState, msg: &Value) -> Vec<String> {
             is_cancelled: Arc::new(move || cancelled_probe.load(Ordering::SeqCst)),
         };
         let result = pimpl.send(req).await;
-        // drop sender by ending — force terminal if needed
+        // Quand send() retourne, tous les clones d'ev_tx (on_event, relais
+        // d'interaction) sont droppés → le channel se ferme et la pompe finit
+        // de transférer TOUT ce que le provider a émis. L'attendre avant le
+        // check évite la course « done synthétique avant le text final du
+        // provider » (bulle dupliquée + usage perdu, vu en réel avec opencode
+        // ACP le 2026-07-16). Borné : un provider qui retiendrait son
+        // on_event ne doit pas geler le tour (comportement d'avant en repli).
+        let _ = tokio::time::timeout(std::time::Duration::from_secs(2), pump).await;
+        // force terminal if needed (providers sans done natif, ex. fake)
         {
             let mut g = h2.lock().await;
             if g.turn_status(&turn_id) != Some(atelier_harness::TurnStatus::Done) {
@@ -989,6 +997,50 @@ mod tests {
         assert!(
             events.iter().any(|e| e["kind"] == "text" || e["kind"] == "done"),
             "text/done missing: {events:?}"
+        );
+    }
+
+    /// Régression (2026-07-16, vu en réel avec opencode ACP) : le `done`
+    /// synthétique du runtime doublait le tour en court-circuitant la pompe
+    /// d'events — au journal, `done` précédait le `text` final du provider,
+    /// et le front dupliquait la bulle. L'ordre text < done doit être
+    /// déterministe : la pompe est drainée AVANT le check de fin de tour.
+    #[tokio::test]
+    async fn provider_events_drain_before_synthetic_done() {
+        let dir = tempdir().unwrap();
+        let state = AppState::new(
+            AppPaths::from_app_dir(dir.path().to_path_buf()),
+            None,
+            "t".into(),
+            "0.1.0".into(),
+            "h".into(),
+            "/tmp".into(),
+        );
+        let msg = json!({
+            "type": "send",
+            "threadId": "t-order",
+            "provider": "fake",
+            "prompt": "hello",
+            "projectRoot": dir.path().to_string_lossy(),
+        });
+        let _ = handle_send(&state, &msg).await;
+        for _ in 0..50 {
+            if !state.harness().is_running("t-order").await {
+                break;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+        }
+        let events = state.harness().journal().materialize("t-order");
+        let pos_text = events.iter().position(|e| e["kind"] == "text");
+        let pos_done = events.iter().position(|e| e["kind"] == "done");
+        let dones = events.iter().filter(|e| e["kind"] == "done").count();
+        assert_eq!(dones, 1, "exactement un done attendu: {events:?}");
+        let (Some(pos_text), Some(pos_done)) = (pos_text, pos_done) else {
+            panic!("text et done attendus au journal: {events:?}");
+        };
+        assert!(
+            pos_text < pos_done,
+            "le text du provider doit précéder le done (course pompe/synthèse): {events:?}"
         );
     }
 
