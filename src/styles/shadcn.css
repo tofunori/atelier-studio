@@ -72,10 +72,19 @@
   --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
   --color-sidebar-border: var(--sidebar-border);
   --color-sidebar-ring: var(--sidebar-ring);
-  --radius-sm: calc(var(--radius) - 4px);
-  --radius-md: calc(var(--radius) - 2px);
-  --radius-lg: var(--radius);
-  --radius-xl: calc(var(--radius) + 4px);
+  /* Échelle Tailwind snappée sur le système (rayons 6/10/999 uniquement) :
+   * les classes nommées rounded-sm/md/lg/xl ne peuvent produire que des
+   * valeurs du système, y compris dans du code généré par le CLI shadcn. */
+  --radius-sm: var(--radius-control);
+  --radius-md: var(--radius-control);
+  --radius-lg: var(--radius-surface);
+  --radius-xl: var(--radius-surface);
+  /* Idem pour les tailles de texte (échelle 10/11/12/13/15) : text-xs/sm
+   * retombent sur les tokens au lieu des 12px/14px Tailwind. */
+  --text-xs: var(--fs-body-s);
+  --text-xs--line-height: 1.5;
+  --text-sm: var(--fs-body);
+  --text-sm--line-height: 1.5;
 }
 
 /* The generated Base UI primitives expose their lifecycle through data
@@ -91,15 +100,13 @@
   }
 
   [data-slot="dialog-overlay"],
-  [data-slot="alert-dialog-overlay"],
-  [data-slot="sheet-overlay"] {
+  [data-slot="alert-dialog-overlay"] {
     opacity: 0;
     transition: opacity var(--motion-fast) var(--ease-out);
   }
 
   [data-slot="dialog-overlay"][data-open],
-  [data-slot="alert-dialog-overlay"][data-open],
-  [data-slot="sheet-overlay"][data-open] {
+  [data-slot="alert-dialog-overlay"][data-open] {
     opacity: 1;
   }
 
@@ -143,10 +150,6 @@
   [data-slot="tooltip-content"][data-open] {
     opacity: 1;
     transform: scale(1);
-  }
-
-  [data-slot="sheet-content"] {
-    opacity: 1;
   }
 
   [data-slot="dialog-content"][data-closed],

@@ -7,7 +7,7 @@ import { cn } from "@/lib/utils"
 import { Button } from "@/components/shadcn/button"
 
 const attachmentVariants = cva(
-  "tw:group/attachment tw:relative tw:flex tw:w-fit tw:max-w-full tw:min-w-0 tw:shrink-0 tw:flex-wrap tw:rounded-[var(--radius-control)] tw:border tw:border-border/65 tw:bg-background/70 tw:text-foreground tw:shadow-xs tw:transition-[background-color,border-color,box-shadow] tw:duration-[var(--motion-fast)] tw:ease-[var(--ease-out)] tw:focus-within:border-ring/55 tw:focus-within:ring-2 tw:focus-within:ring-ring/15 tw:hover:border-border tw:hover:bg-muted/25 tw:data-[state=error]:border-destructive/30 tw:data-[state=idle]:border-dashed",
+  "tw:group/attachment tw:relative tw:flex tw:w-fit tw:max-w-full tw:min-w-0 tw:shrink-0 tw:flex-wrap tw:rounded-[var(--radius-control)] tw:border tw:border-border/65 tw:bg-background/70 tw:text-foreground tw:transition-[background-color,border-color,box-shadow] tw:duration-[var(--motion-fast)] tw:ease-[var(--ease-out)] tw:focus-within:border-ring/55 tw:focus-within:ring-2 tw:focus-within:ring-ring/15 tw:hover:border-border tw:hover:bg-muted/25 tw:data-[state=error]:border-destructive/30 tw:data-[state=idle]:border-dashed",
   {
     variants: {
       size: {
@@ -47,7 +47,7 @@ function Attachment({
 }
 
 const attachmentMediaVariants = cva(
-  "tw:relative tw:flex tw:aspect-square tw:w-10 tw:shrink-0 tw:items-center tw:justify-center tw:overflow-hidden tw:rounded-[calc(var(--radius-control)-2px)] tw:bg-primary/8 tw:text-primary tw:group-data-[orientation=vertical]/attachment:w-full tw:group-data-[size=sm]/attachment:w-8 tw:group-data-[size=xs]/attachment:w-6 tw:group-data-[state=error]/attachment:bg-destructive/10 tw:group-data-[state=error]/attachment:text-destructive tw:group-data-[orientation=vertical]/attachment:*:data-[slot=spinner]:size-6! tw:[&_svg]:pointer-events-none tw:[&_svg:not([class*=size-])]:size-4 tw:group-data-[orientation=vertical]/attachment:[&_svg:not([class*=size-])]:size-6 tw:group-data-[size=xs]/attachment:[&_svg:not([class*=size-])]:size-3.5",
+  "tw:relative tw:flex tw:aspect-square tw:w-10 tw:shrink-0 tw:items-center tw:justify-center tw:overflow-hidden tw:rounded-[var(--radius-control)] tw:bg-primary/8 tw:text-primary tw:group-data-[orientation=vertical]/attachment:w-full tw:group-data-[size=sm]/attachment:w-8 tw:group-data-[size=xs]/attachment:w-6 tw:group-data-[state=error]/attachment:bg-destructive/10 tw:group-data-[state=error]/attachment:text-destructive tw:group-data-[orientation=vertical]/attachment:*:data-[slot=spinner]:size-6! tw:[&_svg]:pointer-events-none tw:[&_svg:not([class*=size-])]:size-4 tw:group-data-[orientation=vertical]/attachment:[&_svg:not([class*=size-])]:size-6 tw:group-data-[size=xs]/attachment:[&_svg:not([class*=size-])]:size-3.5",
   {
     variants: {
       variant: {

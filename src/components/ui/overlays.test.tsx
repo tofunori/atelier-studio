@@ -1,17 +1,15 @@
-// Tests Tooltip + Menu + Popover (matrice plan 016) : délai 420 ms et hover
-// rapide sans apparition, Escape avec retour focus, flèches avec cycle et
-// items désactivés sautés, clic extérieur, aucun double événement après
-// remontage (cleanup des listeners document et des timers).
+// Tests Tooltip + menu ancré (DropdownMenuSurface/Base UI) + Popover (matrice
+// plan 016) : délai 420 ms et hover rapide sans apparition, Escape avec retour
+// focus, item désactivé inerte, clic extérieur, aucun double événement après
+// remontage.
 // NB : fireEvent.mouseOver/mouseOut (bulles) — React synthétise enter/leave
 // depuis mouseover/mouseout délégués ; mouseEnter ne bulle pas jusqu'à la racine.
-import { useRef, useState } from "react";
+import { useState } from "react";
 import { render, screen, fireEvent, cleanup, act, waitFor } from "@testing-library/react";
 import { describe, it, expect, vi, afterEach } from "vitest";
 import {
   Tooltip,
   TOOLTIP_DELAY_MS,
-  Menu,
-  MenuItem,
   Popover,
   PopoverContent,
   PopoverDescription,
@@ -20,6 +18,7 @@ import {
   PopoverTrigger,
   IconButton,
 } from "./index";
+import { DropdownMenuSurface } from "./DropdownMenuSurface";
 
 afterEach(() => {
   cleanup();
@@ -92,109 +91,104 @@ describe("Tooltip", () => {
   });
 });
 
-/* fixture Menu réaliste : une ancre-toggle + trois items */
+/* fixture menu ancré réaliste : un déclencheur + trois items (Base UI) */
 function MenuFixture(props: { onSelect?: () => void; onClose?: () => void; disableBeta?: boolean }) {
-  const anchorRef = useRef<HTMLButtonElement | null>(null);
   const [open, setOpen] = useState(false);
   return (
-    <>
-      <button ref={anchorRef} onClick={() => setOpen((o) => !o)}>
-        ouvrir
-      </button>
-      <Menu
-        open={open}
-        onClose={() => {
-          setOpen(false);
-          props.onClose?.();
-        }}
-        anchorRef={anchorRef}
-        label="Actions"
-      >
-        <MenuItem onSelect={props.onSelect}>Alpha</MenuItem>
-        <MenuItem disabled={props.disableBeta}>Beta</MenuItem>
-        <MenuItem selected>Gamma</MenuItem>
-      </Menu>
-    </>
+    <DropdownMenuSurface
+      open={open}
+      onOpenChange={(next) => {
+        setOpen(next);
+        if (!next) props.onClose?.();
+      }}
+      label="Actions"
+      trigger={<button type="button">ouvrir</button>}
+      items={[
+        { key: "alpha", label: "Alpha", onSelect: () => props.onSelect?.() },
+        { key: "beta", label: "Beta", onSelect: () => {}, disabled: props.disableBeta },
+        { key: "gamma", label: "Gamma", onSelect: () => {}, destructive: true, separatorBefore: true },
+      ]}
+    />
   );
 }
 
-describe("Menu", () => {
-  it("fermé : rien dans le DOM ; ouvert : rôle menu et focus sur le premier item", () => {
+describe("DropdownMenuSurface (menu ancré Base UI)", () => {
+  it("fermé : rien dans le DOM ; ouvert : rôle menu, items et déclencheur aria-haspopup", async () => {
     render(<MenuFixture />);
     expect(screen.queryByRole("menu")).toBeNull();
-    fireEvent.click(screen.getByRole("button", { name: "ouvrir" }));
-    expect(screen.getByRole("menu", { name: "Actions" })).toBeInTheDocument();
-    expect(screen.getByRole("menuitem", { name: "Alpha" })).toHaveFocus();
+    const trigger = screen.getByRole("button", { name: "ouvrir" });
+    expect(trigger).toHaveAttribute("aria-haspopup", "menu");
+    fireEvent.click(trigger);
+    // APG : le menu est nommé par son déclencheur (aria-labelledby posé par
+    // Base UI sur le popup), pas par la prop label
+    const menu = await waitFor(() => screen.getByRole("menu", { name: "ouvrir" }));
+    expect(menu).toBeInTheDocument();
+    expect(screen.getByRole("menuitem", { name: "Alpha" })).toBeInTheDocument();
+    expect(screen.getByRole("separator")).toBeInTheDocument();
   });
 
-  it("flèches : descente, cycle, Home/End ; l'item désactivé est sauté", () => {
-    render(<MenuFixture disableBeta />);
-    fireEvent.click(screen.getByRole("button", { name: "ouvrir" }));
-    const menu = screen.getByRole("menu");
-    const alpha = screen.getByRole("menuitem", { name: "Alpha" });
-    const gamma = screen.getByRole("menuitemradio", { name: "Gamma" });
-
-    fireEvent.keyDown(menu, { key: "ArrowDown" });
-    expect(gamma).toHaveFocus(); // Beta désactivé → sauté
-    fireEvent.keyDown(menu, { key: "ArrowDown" });
-    expect(alpha).toHaveFocus(); // cycle
-    fireEvent.keyDown(menu, { key: "ArrowUp" });
-    expect(gamma).toHaveFocus();
-    fireEvent.keyDown(menu, { key: "Home" });
-    expect(alpha).toHaveFocus();
-    fireEvent.keyDown(menu, { key: "End" });
-    expect(gamma).toHaveFocus();
-  });
-
-  it("sélection : onSelect une fois, fermeture, focus rendu à l'ancre", () => {
+  it("sélection : onSelect une fois, fermeture notifiée, menu retiré du DOM", async () => {
     const onSelect = vi.fn();
     const onClose = vi.fn();
     render(<MenuFixture onSelect={onSelect} onClose={onClose} />);
-    const anchor = screen.getByRole("button", { name: "ouvrir" });
-    fireEvent.click(anchor);
-    fireEvent.click(screen.getByRole("menuitem", { name: "Alpha" }));
+    fireEvent.click(screen.getByRole("button", { name: "ouvrir" }));
+    const alpha = await waitFor(() => screen.getByRole("menuitem", { name: "Alpha" }));
+    fireEvent.click(alpha);
     expect(onSelect).toHaveBeenCalledTimes(1);
+    await waitFor(() => expect(screen.queryByRole("menu")).toBeNull());
     expect(onClose).toHaveBeenCalledTimes(1);
-    expect(anchor).toHaveFocus();
-    expect(screen.queryByRole("menu")).toBeNull();
   });
 
-  it("Escape ferme et rend le focus à l'ancre ; clic extérieur ferme ; mousedown sur l'ancre laisse le toggle décider", () => {
+  it("Escape ferme et rend le focus au déclencheur", async () => {
     const onClose = vi.fn();
     render(<MenuFixture onClose={onClose} />);
-    const anchor = screen.getByRole("button", { name: "ouvrir" });
-
-    fireEvent.click(anchor);
-    fireEvent.keyDown(document, { key: "Escape" });
+    const trigger = screen.getByRole("button", { name: "ouvrir" });
+    fireEvent.click(trigger);
+    const menu = await waitFor(() => screen.getByRole("menu"));
+    fireEvent.keyDown(menu, { key: "Escape" });
+    await waitFor(() => expect(screen.queryByRole("menu")).toBeNull());
     expect(onClose).toHaveBeenCalledTimes(1);
-    expect(anchor).toHaveFocus();
-
-    fireEvent.click(anchor); // rouvre
-    fireEvent.mouseDown(anchor); // guard : pas de fermeture par le listener document
-    expect(onClose).toHaveBeenCalledTimes(1);
-    fireEvent.mouseDown(document.body); // extérieur → ferme
-    expect(onClose).toHaveBeenCalledTimes(2);
+    await waitFor(() => expect(trigger).toHaveFocus());
   });
 
-  it("l'item selected expose menuitemradio coché ; aucun double événement après fermeture/réouverture", () => {
+  it("item désactivé : exposé aria-disabled et inerte au clic", async () => {
+    const onClose = vi.fn();
+    render(<MenuFixture disableBeta onClose={onClose} />);
+    fireEvent.click(screen.getByRole("button", { name: "ouvrir" }));
+    const beta = await waitFor(() => screen.getByRole("menuitem", { name: "Beta" }));
+    expect(beta).toHaveAttribute("aria-disabled", "true");
+    fireEvent.click(beta);
+    expect(screen.getByRole("menu")).toBeInTheDocument(); // pas de fermeture
+    expect(onClose).not.toHaveBeenCalled();
+  });
+
+  it("item destructif : variante destructive exposée pour le style sémantique", async () => {
+    render(<MenuFixture />);
+    fireEvent.click(screen.getByRole("button", { name: "ouvrir" }));
+    const gamma = await waitFor(() => screen.getByRole("menuitem", { name: "Gamma" }));
+    expect(gamma).toHaveAttribute("data-variant", "destructive");
+  });
+
+  it("réouverture : aucun double événement", async () => {
     const onSelect = vi.fn();
     render(<MenuFixture onSelect={onSelect} />);
-    const anchor = screen.getByRole("button", { name: "ouvrir" });
+    const trigger = screen.getByRole("button", { name: "ouvrir" });
 
-    fireEvent.click(anchor);
-    expect(screen.getByRole("menuitemradio", { name: "Gamma" })).toHaveAttribute("aria-checked", "true");
-    fireEvent.click(screen.getByRole("menuitem", { name: "Alpha" }));
+    fireEvent.click(trigger);
+    fireEvent.click(await waitFor(() => screen.getByRole("menuitem", { name: "Alpha" })));
     expect(onSelect).toHaveBeenCalledTimes(1);
+    await waitFor(() => expect(screen.queryByRole("menu")).toBeNull());
 
-    fireEvent.click(anchor); // réouverture
-    fireEvent.click(screen.getByRole("menuitem", { name: "Alpha" }));
+    fireEvent.click(trigger); // réouverture
+    fireEvent.click(await waitFor(() => screen.getByRole("menuitem", { name: "Alpha" })));
     expect(onSelect).toHaveBeenCalledTimes(2); // exactement +1, pas de listener doublé
   });
 
-  it("après démontage, plus aucun listener document actif", () => {
+  it("après démontage, plus aucun listener document actif", async () => {
     const onClose = vi.fn();
     const { unmount } = render(<MenuFixture onClose={onClose} />);
     fireEvent.click(screen.getByRole("button", { name: "ouvrir" }));
+    await waitFor(() => expect(screen.getByRole("menu")).toBeInTheDocument());
     unmount();
     const outsidePointer = new MouseEvent("pointerdown", { bubbles: true, button: 0 });
     Object.defineProperty(outsidePointer, "pointerType", { value: "mouse" });

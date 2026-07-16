@@ -1799,7 +1799,6 @@ body.dragging iframe { pointer-events: none; }
 .foot-ib:hover { background: var(--bg-ctl) !important; }
 .usage-dot { position: absolute; top: 4px; right: 4px; width: 6px; height: 6px;
   border-radius: var(--r-pill); background: transparent; }
-.ur-overlay { position: fixed; inset: 0; z-index: 280; }
 
 .plugin-overlay { position: fixed; inset: 0; z-index: 285; display: grid; place-items: center; padding: 24px; background: rgba(0, 0, 0, 0.42); backdrop-filter: blur(8px); }
 .plugin-panel { width: min(720px, 100%); max-height: min(720px, calc(100vh - 48px)); display: flex; flex-direction: column; overflow: hidden; color: var(--fg); background: color-mix(in srgb, var(--bg-pop) 96%, transparent); border: 1px solid var(--border2); border-radius: 18px; box-shadow: 0 24px 80px rgba(0, 0, 0, 0.34); }
@@ -1821,9 +1820,9 @@ body.dragging iframe { pointer-events: none; }
 .plugin-ready { margin-top: 2px; color: #50b879; font-size: 10px; font-weight: 600; }
 .plugin-empty { padding: 28px; color: var(--muted); text-align: center; }
 .plugin-panel-foot { padding: 13px 22px 16px; color: var(--muted); border-top: 1px solid var(--border); font-size: 11px; }
-.ur-pop { position: fixed; left: 14px; bottom: 52px; width: 290px; z-index: 285;
-  background: var(--bg-pop); border: 1px solid var(--border2); border-radius: var(--r-m);
-  box-shadow: 0 16px 44px rgba(0,0,0,0.4); padding: 14px; font-size: var(--fs-m);
+/* chrome (fond/bordure/ombre/position) fourni par la primitive Popover
+ * (Base UI) — ici seulement la géométrie interne et les couleurs de statut */
+.ur-pop { width: 290px; padding: 14px; font-size: var(--fs-m);
   --u-ok: #98c379; --u-warn: #e0b74a; --u-hot: #e06c75; }
 .ur-pop h4 { margin: 0 0 10px; font-size: var(--fs-s); letter-spacing: 0.08em;
   text-transform: uppercase; color: var(--muted2); font-weight: 600; }
@@ -2077,9 +2076,6 @@ button.ctx-ring-wrap { border: none; font: inherit; color: inherit;
   transition: color var(--motion-fast) var(--ease-out); }
 .sidebar button.pnav-more:hover { color: var(--fg2); }
 
-/* menu de conversation (primitive ui-menu) : variante danger locale */
-.ui-menu-item.danger:hover, .ui-menu-item.danger:focus-visible {
-  background: #4a2328; color: var(--u-hot, #e06c75); }
 .pnav-menu-back { color: var(--muted); }
 
 /* focus clavier visible sur les contrôles maison du panneau */
@@ -2262,12 +2258,12 @@ button.ctx-ring-wrap { border: none; font: inherit; color: inherit;
 .sidebar li, .ctx-menu div, .suggest li, .mp-menu div, .seg button,
 .codeblock-copy, .tool-group-row, .turn-diff-toggle, .empty-action {
   transition: background var(--ease), color var(--ease), border-color var(--ease); }
-.ctx-menu, .mp-menu, .ur-pop, .reviewer-menu, .suggest, .custom-select-menu {
+.ctx-menu, .mp-menu, .reviewer-menu, .suggest, .custom-select-menu {
   animation: pop-in 130ms ease; transform-origin: top; }
 .custom-select-menu.top { transform-origin: bottom; }
 @keyframes pop-in { from { opacity: 0; transform: translateY(-3px); } to { opacity: 1; transform: none; } }
 @media (prefers-reduced-motion: reduce) {
-  .ctx-menu, .mp-menu, .ur-pop, .reviewer-menu, .suggest, .custom-select-menu { animation: none; } }
+  .ctx-menu, .mp-menu, .reviewer-menu, .suggest, .custom-select-menu { animation: none; } }
 
 /* ===== switches (remplace le rendu checkbox natif partout dans les réglages) ===== */
 .set-row-ctl input[type="checkbox"], .mp-menu input[type="checkbox"] {

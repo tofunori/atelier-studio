@@ -50,8 +50,7 @@ export function ProjectHeader(p: {
   onRemoveProject?: () => void;
 }) {
   const [menuOpen, setMenuOpen] = useState(false);
-  // ancre = wrapper span (IconButton ne transmet pas de ref) ; focusAnchor
-  // sait retrouver le premier focusable du conteneur
+  // triggerRef transmis au menu Base UI (dismiss et retour focus gérés là)
   const overflowRef = useRef<HTMLButtonElement | null>(null);
   const searchWrapRef = useRef<HTMLSpanElement | null>(null);
   const inputRef = useRef<HTMLInputElement | null>(null);

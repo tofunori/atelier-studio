@@ -2682,9 +2682,7 @@ export default function App() {
             <CommandPalette open items={paletteItems} onClose={() => setPaletteOpen(false)} />
           </LazyBoundary>
         )}
-      {usageOpen && <div className="ur-overlay" onClick={() => setUsageOpen(false)}>
-        <UsagePopover open={usageOpen} onClose={() => setUsageOpen(false)} />
-      </div>}
+      <UsagePopover open={usageOpen} onClose={() => setUsageOpen(false)} />
       {pluginsOpen && <div className="plugin-overlay" onClick={() => setPluginsOpen(false)}>
         <LazyBoundary fallback={null}>
           <PluginPanel plugins={plugins} onClose={() => setPluginsOpen(false)} />
@@ -2901,9 +2899,7 @@ export default function App() {
           />
         </LazyBoundary>
       )}
-      {usageOpen && <div className="ur-overlay" onClick={() => setUsageOpen(false)}>
-        <UsagePopover open={usageOpen} onClose={() => setUsageOpen(false)} />
-      </div>}
+      <UsagePopover open={usageOpen} onClose={() => setUsageOpen(false)} />
       {pluginsOpen && <div className="plugin-overlay" onClick={() => setPluginsOpen(false)}>
         <LazyBoundary fallback={null}>
           <PluginPanel plugins={plugins} onClose={() => setPluginsOpen(false)} />

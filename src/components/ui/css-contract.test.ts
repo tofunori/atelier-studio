@@ -52,6 +52,60 @@ describe("contrat Quiet Instrument (sources CSS)", () => {
     expect(shadcn).toContain("prefers-reduced-motion: reduce");
   });
 
+  it("les primitives ne réintroduisent aucune valeur hors système (tailles/rayons/ombres/couleurs)", () => {
+    for (const [name, source] of shadcnSources) {
+      // tailles de texte : uniquement l'échelle 10/11/12/13/15 via tokens —
+      // ni littéral px/rem, ni cran Tailwind non snappé par le pont
+      expect(source, `${name} : taille de texte littérale hors tokens`).not.toMatch(
+        /tw:text-\[[\d.]+(px|rem)\]/,
+      );
+      expect(source, `${name} : cran de texte Tailwind non snappé (base et +)`).not.toMatch(
+        /tw:text-(base|lg|xl|2xl|3xl)\b/,
+      );
+      // rayons : 6/10/999 uniquement — aucun px littéral dans rounded-[...]
+      expect(source, `${name} : rayon littéral hors système`).not.toMatch(
+        /tw:rounded(-[a-z]+)?-\[[^\]]*\d+px[^\]]*\]/,
+      );
+      // profondeur : ombre uniquement via le token d'élévation
+      expect(source, `${name} : preset d'ombre Tailwind au lieu de --elevation-overlay`).not.toMatch(
+        /tw:shadow-(2xs|xs|sm|md|lg|xl|2xl)\b/,
+      );
+      // voile de modale : token --scrim, jamais une couleur brute
+      expect(source, `${name} : couleur brute black/white`).not.toMatch(/tw:bg-(black|white)\b/);
+    }
+  });
+
+  it("aucun <button> nu hors ui/ et shadcn/ — Button, IconButton ou RowButton", () => {
+    // le contrat bouton est TOTAL : toute surface activable passe par les
+    // wrappers (action → Button/IconButton ; rangée/cellule/chip/trigger
+    // cloné → RowButton, qui transmet ref et attributs natifs)
+    const stripTsx = (code: string) =>
+      code.replace(/\/\*[\s\S]*?\*\//g, "").replace(/(^|\s)\/\/.*$/gm, "");
+    const offenders: string[] = [];
+    const walk = (dir: string) => {
+      for (const entry of readdirSync(dir, { withFileTypes: true })) {
+        const p = join(dir, entry.name);
+        if (entry.isDirectory()) {
+          if (p.endsWith(join("components", "ui")) || p.endsWith(join("components", "shadcn"))) continue;
+          walk(p);
+        } else if (entry.name.endsWith(".tsx") && !entry.name.includes(".test.")) {
+          if (stripTsx(readFileSync(p, "utf8")).includes("<button")) offenders.push(p);
+        }
+      }
+    };
+    walk(root);
+    expect(offenders, `<button> nu dans : ${offenders.join(", ")}`).toEqual([]);
+  });
+
+  it("le pont snappe les échelles Tailwind sur le système (rayons 6/10, texte 12/13)", () => {
+    expect(shadcn).toContain("--radius-sm: var(--radius-control)");
+    expect(shadcn).toContain("--radius-md: var(--radius-control)");
+    expect(shadcn).toContain("--radius-lg: var(--radius-surface)");
+    expect(shadcn).toContain("--radius-xl: var(--radius-surface)");
+    expect(shadcn).toContain("--text-xs: var(--fs-body-s)");
+    expect(shadcn).toContain("--text-sm: var(--fs-body)");
+  });
+
   it("la couche shadcn ne contient que des primitives de registre", () => {
     expect(readdirSync(shadcnDir)).not.toContain("dialog-surface.tsx");
     expect(readdirSync(shadcnDir)).not.toContain("dropdown-menu-surface.tsx");
@@ -66,9 +120,9 @@ describe("contrat Quiet Instrument (sources CSS)", () => {
       "bubble.tsx", "button-group.tsx", "button.tsx", "checkbox.tsx",
       "collapsible.tsx", "command.tsx", "context-menu.tsx", "dialog.tsx",
       "dropdown-menu.tsx", "empty.tsx", "field.tsx", "input-group.tsx",
-      "input.tsx", "kbd.tsx", "marker.tsx", "message-scroller.tsx",
+      "input.tsx", "kbd.tsx",
       "message.tsx", "popover.tsx", "progress.tsx", "radio-group.tsx",
-      "scroll-area.tsx", "select.tsx", "separator.tsx", "sheet.tsx", "sidebar.tsx",
+      "scroll-area.tsx", "select.tsx", "separator.tsx", "sidebar.tsx",
       "skeleton.tsx", "slider.tsx", "sonner.tsx", "spinner.tsx",
       "switch.tsx", "table.tsx", "tabs.tsx", "textarea.tsx", "toggle-group.tsx",
       "toggle.tsx", "tooltip.tsx",

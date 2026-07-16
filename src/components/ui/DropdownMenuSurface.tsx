@@ -14,6 +14,7 @@ export type DropdownMenuSurfaceItem = {
   label: ReactNode
   onSelect: () => void
   destructive?: boolean
+  disabled?: boolean
   separatorBefore?: boolean
   className?: string
 }
@@ -45,6 +46,7 @@ export function DropdownMenuSurface(props: {
               {item.separatorBefore && <DropdownMenuSeparator />}
               <DropdownMenuItem
                 variant={item.destructive ? "destructive" : "default"}
+                disabled={item.disabled}
                 className={item.className}
                 onClick={item.onSelect}
               >

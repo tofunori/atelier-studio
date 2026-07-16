@@ -11,7 +11,6 @@ import {
   type ReactNode,
   type RefObject,
 } from "react"
-import { Menu, MenuItem, MenuSeparator } from "./index"
 
 const dropdownMenuModule = import("./DropdownMenuSurface")
 const DropdownMenuSurface = lazy(async () => {
@@ -69,41 +68,17 @@ export function LazyDropdownMenu(props: {
   }, [])
 
   if (!ready) {
+    // Fenêtre de quelques ms pendant le chargement du chunk Base UI : le
+    // clic est quand même enregistré (open passe à true) et le menu s'ouvre
+    // dès que la surface est prête — plus de moteur d'overlay maison.
     const triggerProps = props.trigger.props as { onClick?: MouseEventHandler<HTMLButtonElement> }
-    const trigger = cloneElement(props.trigger as ReactElement<any>, {
+    return cloneElement(props.trigger as ReactElement<any>, {
       ref: anchorRef,
       onClick: (event: MouseEvent<HTMLButtonElement>) => {
         triggerProps.onClick?.(event)
         if (!event.defaultPrevented) props.onOpenChange(!props.open)
       },
     })
-
-    return (
-      <>
-        {trigger}
-        <Menu
-          open={props.open}
-          onClose={() => onOpenChange(false)}
-          anchorRef={anchorRef}
-          label={props.label}
-          placement={props.align === "end" ? "bottom-end" : "bottom-start"}
-          className={props.className}
-        >
-          {props.header}
-          {items.map((item) => (
-            <span key={item.key} className="ui-menu-fragment">
-              {item.separatorBefore && <MenuSeparator />}
-              <MenuItem
-                className={[item.className, item.destructive ? "danger" : ""].filter(Boolean).join(" ") || undefined}
-                onSelect={item.onSelect}
-              >
-                {item.label}
-              </MenuItem>
-            </span>
-          ))}
-        </Menu>
-      </>
-    )
   }
 
   return (

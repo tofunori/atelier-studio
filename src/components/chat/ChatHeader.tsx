@@ -24,8 +24,7 @@ export function ChatHeader(p: {
   onRename?: (() => void) | null;
 }) {
   const [menuOpen, setMenuOpen] = useState(false);
-  // IconButton ne transmet pas de ref : l'ancre du Menu est le wrapper —
-  // focusAnchor/useDismiss savent traverser un conteneur non focusable.
+  // triggerRef transmis à LazyDropdownMenu (Base UI gère dismiss et focus)
   const moreAnchor = useRef<HTMLButtonElement | null>(null);
 
   const status = p.status;

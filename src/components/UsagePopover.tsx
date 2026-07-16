@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { Popover, PopoverContent } from "./shadcn/popover";
 import { t } from "../lib/i18n";
 import { wsSend } from "../lib/wsBus";
 
@@ -72,13 +73,31 @@ export default function UsagePopover({ open, onClose }: { open: boolean; onClose
     return () => clearInterval(iv);
   }, [open, usage == null]);
 
-  if (!open) return null;
   const cl: { primary?: Limit; secondary?: Limit } = usage?.claude?.data ?? {};
   const cx: { primary?: Limit; secondary?: Limit } = usage?.codex?.data ?? {};
   const models = Object.entries(usage?.models ?? {}).sort((a, b) => b[1].output - a[1].output);
 
+  // ancre = bouton usage du Rail (déclencheur découplé via l'événement
+  // "usage-toggle") ; résolue paresseusement à l'ouverture
+  const anchor = () => document.querySelector<HTMLElement>(".usage-ib");
+
   return (
-    <div className="ur-pop" onClick={(e) => e.stopPropagation()}>
+    <Popover
+      open={open}
+      onOpenChange={(next, details) => {
+        if (next) return;
+        // le bouton du Rail toggle déjà usageOpen : ignorer l'outside-press
+        // sur l'ancre, sinon Base UI ferme puis le clic rouvre aussitôt
+        if (
+          details.reason === "outside-press" &&
+          anchor()?.contains(details.event.target as Node)
+        ) {
+          return;
+        }
+        onClose();
+      }}
+    >
+      <PopoverContent anchor={anchor} side="top" align="start" sideOffset={8} className="ur-pop">
       <h4>{t("usage.title")}</h4>
       <div className="ur-rings">
         <Ring pct={cl.primary?.used_percent ?? null} label={t("usage.claude-5h")} />
@@ -108,6 +127,7 @@ export default function UsagePopover({ open, onClose }: { open: boolean; onClose
         <div className="ur-empty">{t("usage.empty")}</div>
       )}
       <button className="ur-close" onClick={onClose}>esc</button>
-    </div>
+      </PopoverContent>
+    </Popover>
   );
 }

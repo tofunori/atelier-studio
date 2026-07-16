@@ -7,8 +7,8 @@
 .ui-focusable:focus-visible,
 .ui-btn:focus-visible,
 .ui-iconbtn:focus-visible,
+.ui-rowbtn:focus-visible,
 .ui-seg button:focus-visible,
-.ui-menu-item:focus-visible,
 .ui-ctxchip button:focus-visible {
   outline: var(--focus-ring-width) solid var(--focus-ring-color);
   outline-offset: var(--focus-ring-offset);
@@ -70,41 +70,18 @@
 }
 .ui-tooltip.open { opacity: 1; }
 
-/* ---- Menu / MenuItem --------------------------------------------------------- */
-.ui-menu {
-  position: fixed; z-index: var(--z-popover); min-width: 160px;
-  background: var(--surface-overlay); border-radius: var(--radius-surface);
-  box-shadow: var(--elevation-overlay); padding: var(--sp-1);
-  display: flex; flex-direction: column;
-  opacity: 0; transform: translateY(2px);
-  transition: opacity var(--motion-standard) var(--ease-out),
-              transform var(--motion-standard) var(--ease-out);
-}
-.ui-menu.open { opacity: 1; transform: translateY(0); }
-@media (prefers-reduced-motion: reduce) { .ui-menu { transform: none; } }
-.ui-menu-item {
-  display: flex; align-items: center; gap: var(--sp-2); width: 100%;
-  padding: 5px var(--sp-2); border: none; background: transparent; text-align: left;
-  color: var(--text-secondary); font: 400 var(--fs-body-s)/1.4 var(--font-chrome);
-  border-radius: var(--radius-control); cursor: pointer;
-  transition: background-color var(--motion-fast) var(--ease-out),
-              color var(--motion-fast) var(--ease-out);
-}
-.ui-menu-item:hover:not(:disabled), .ui-menu-item.active { background: var(--surface-inset); color: var(--text-primary); }
-.ui-menu-item:disabled { color: var(--text-disabled); cursor: default; }
-.ui-menu-sep { height: 1px; background: var(--border-subtle); margin: var(--sp-1) 0; }
+/* ---- Menu / Popover : primitives Base UI (shadcn/) — plus d'implémentation
+ * maison ; le chrome vit dans les classes tw des composants générés. ------- */
 
-/* ---- Popover ------------------------------------------------------------------ */
-.ui-popover {
-  position: fixed; z-index: var(--z-popover);
-  background: var(--surface-overlay); border-radius: var(--radius-surface);
-  box-shadow: var(--elevation-overlay); padding: var(--sp-3);
-  opacity: 0; transform: translateY(2px);
-  transition: opacity var(--motion-standard) var(--ease-out),
-              transform var(--motion-standard) var(--ease-out);
+/* ---- RowButton : surface activable non-bouton-d'action ---------------------
+ * (rangée, cellule, chip, vignette). Reset seulement — la géométrie vient de
+ * la classe produit ; le focus ring vient du groupe partagé ci-dessus. */
+.ui-rowbtn {
+  appearance: none; border: none; background: transparent;
+  padding: 0; margin: 0; font: inherit; color: inherit; text-align: inherit;
+  cursor: pointer;
 }
-.ui-popover.open { opacity: 1; transform: translateY(0); }
-@media (prefers-reduced-motion: reduce) { .ui-popover { transform: none; } }
+.ui-rowbtn:disabled { cursor: default; }
 
 /* ---- SegmentedControl — parité pixel avec .tb-seg historique ------------------- */
 .ui-seg { display: inline-flex; background: var(--surface-inset); border-radius: var(--radius-surface); padding: 3px; gap: 2px; }

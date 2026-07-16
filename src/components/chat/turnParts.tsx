@@ -7,7 +7,7 @@ import { wsSend } from "../../lib/wsBus";
 import { t } from "../../lib/i18n";
 import { diffLineClass, openFileRef } from "./md";
 import { Tick } from "./toolPresentation";
-import { ActivityDisclosure, IconButton, Tooltip } from "../ui";
+import { ActivityDisclosure, Button, IconButton, RowButton, Tooltip } from "../ui";
 
 const AtelierDiffView = lazy(() => import("../AtelierDiffView"));
 type ChatDiffPayload = { diff: string; before?: string; after?: string; binary?: boolean };
@@ -45,8 +45,7 @@ export function DoneDiffToggle({ event, threadId }: {
   if (!files.length) return null;
   return (
     <div className="turn-diff">
-      <button
-        type="button"
+      <RowButton
         className="turn-diff-toggle"
         aria-expanded={open}
         onClick={() => {

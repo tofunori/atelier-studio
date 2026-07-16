@@ -3,8 +3,11 @@
 // src/styles/primitives.css ; valeurs : src/styles/tokens.css.
 export { Button, type ButtonProps, type ButtonVariant } from "./Button";
 export { IconButton } from "./IconButton";
+export { RowButton } from "./RowButton";
 export { Tooltip, TooltipProvider, TOOLTIP_DELAY_MS } from "./Tooltip";
-export { Menu, MenuItem, MenuSeparator } from "./Menu";
+// Menu ancré : LazyDropdownMenu (import par chemin) → DropdownMenuSurface.
+// PAS de re-export statique ici : il tirerait le chunk Base UI dans le bundle
+// principal et annulerait le lazy-loading.
 export {
   Popover,
   PopoverTrigger,

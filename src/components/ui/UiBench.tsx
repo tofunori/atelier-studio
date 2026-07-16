@@ -2,7 +2,7 @@
 // main.tsx quand l'URL porte #uibench (jamais dans le parcours normal).
 // Sert aux captures de validation (deux thèmes) et à la revue manuelle
 // clavier/focus. Pas de Storybook : une page, états canoniques, zéro réseau.
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 // le banc court-circuite App.tsx : il charge lui-même les couches CSS,
 // dans le même ordre que l'app
 import "../../styles/tokens.css";
@@ -14,9 +14,6 @@ import {
   Button,
   IconButton,
   Tooltip,
-  Menu,
-  MenuItem,
-  MenuSeparator,
   Popover,
   PopoverContent,
   PopoverDescription,
@@ -31,6 +28,9 @@ import {
   InspectorPanel,
   ContextChip,
 } from "./index";
+// import direct (pas via le barrel) : le banc est hors parcours normal,
+// l'eager-load du chunk Base UI y est voulu
+import { DropdownMenuSurface } from "./DropdownMenuSurface";
 
 const GearIcon = (
   <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" aria-hidden="true">
@@ -54,7 +54,6 @@ export function UiBench() {
   const [menuOpen, setMenuOpen] = useState(false);
   const [popOpen, setPopOpen] = useState(false);
   const [chips, setChips] = useState<string[]>(["fig3_albedo.pdf", "notes.md"]);
-  const menuAnchor = useRef<HTMLDivElement | null>(null);
 
   const applyTheme = (next: "dark" | "light") => {
     setTheme(next);
@@ -129,10 +128,20 @@ export function UiBench() {
 
         <section className="ui-bench-card">
           <h2>Menu</h2>
-          <div className="ui-bench-row" ref={menuAnchor}>
-            <Button onClick={() => setMenuOpen((o) => !o)} aria-haspopup="menu" aria-expanded={menuOpen}>
-              Ouvrir le menu
-            </Button>
+          <div className="ui-bench-row">
+            <DropdownMenuSurface
+              open={menuOpen}
+              onOpenChange={setMenuOpen}
+              label="Exemple"
+              align="start"
+              trigger={<Button>Ouvrir le menu</Button>}
+              items={[
+                { key: "new", label: "Nouvelle conversation", onSelect: () => {} },
+                { key: "resume", label: "Reprendre une session…", onSelect: () => {} },
+                { key: "export", label: "Exporter (bientôt)", onSelect: () => {}, disabled: true },
+                { key: "delete", label: "Supprimer la conversation", onSelect: () => {}, destructive: true, separatorBefore: true },
+              ]}
+            />
           </div>
           {/* iframe témoin : le menu ouvert doit passer AU-DESSUS (gate 016
               « menus au-dessus des webviews/iframes », cas panneau Atelier) */}
@@ -141,19 +150,7 @@ export function UiBench() {
             style={{ width: "100%", height: 72, border: "1px solid var(--border-subtle)", borderRadius: "var(--radius-control)", background: "transparent" }}
             srcDoc="<body style='margin:0;display:flex;align-items:center;justify-content:center;background:#3a3f4b;color:#9aa0a6;font:11px system-ui'>iframe (le menu doit recouvrir ceci)</body>"
           />
-          <Menu open={menuOpen} onClose={() => setMenuOpen(false)} anchorRef={menuAnchor} label="Exemple">
-            <MenuItem onSelect={() => {}}>Nouvelle conversation</MenuItem>
-            <MenuItem onSelect={() => {}}>Reprendre une session…</MenuItem>
-            <MenuItem disabled>Exporter (bientôt)</MenuItem>
-            <MenuSeparator />
-            <MenuItem selected onSelect={() => {}}>
-              Densité confortable
-            </MenuItem>
-            <MenuItem selected={false} onSelect={() => {}}>
-              Densité compacte
-            </MenuItem>
-          </Menu>
-          <span className="note">flèches + Home/End, Escape rend le focus, item désactivé sauté</span>
+          <span className="note">Base UI : flèches + Home/End, Escape rend le focus, item désactivé sauté</span>
         </section>
 
         <section className="ui-bench-card">
