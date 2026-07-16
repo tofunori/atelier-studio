@@ -3296,7 +3296,7 @@ export default function App() {
           className="provider-new-dialog"
         >
             <div className="provider-new-grid">
-              {["claude", "codex", "grok"].map((provider) => {
+              {["claude", "codex", "grok", "opencode"].map((provider) => {
                 const info = providerList.find((item) => item.id === provider);
                 const available = info?.ok !== false;
                 return (
