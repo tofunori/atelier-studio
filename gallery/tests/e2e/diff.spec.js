@@ -1,10 +1,11 @@
 import { test, expect } from '@playwright/test';
 import { spawn, execFileSync } from 'node:child_process';
-import { mkdtempSync, writeFileSync, rmSync, utimesSync, renameSync } from 'node:fs';
+import { mkdtempSync, writeFileSync, utimesSync, renameSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 import net from 'node:net';
+import { removeTempRoot } from './temp-root.js';
 
 const GALLERY = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 const INITIAL_TEXT = [
@@ -102,7 +103,7 @@ async function withEditor(kind, run, engine = 'cm6') {
     await run({ root, filePath, texPath: filePath, port, url, kind, initialText: editor.initialText });
   } finally {
     await stopServer(server);
-    rmSync(root, { recursive: true, force: true, maxRetries: 4, retryDelay: 100 });
+    await removeTempRoot(root);
   }
 }
 

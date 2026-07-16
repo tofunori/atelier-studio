@@ -61,12 +61,13 @@ jobs:
           tagName: ${{ github.ref_name }}
           releaseName: "Atelier Studio ${{ github.ref_name }}"
           releaseBody: |
-            Atelier Studio 1.3 introduces the Rust-first agent runtime, a shared
-            desktop/mobile protocol, the first iOS companion foundation, a remote
-            gateway, and a major reliability and usability pass across chat, the
-            scientific gallery, and the LaTeX/CodeMirror editor.
+            Atelier Studio 1.3.1 adds scheduled agent automations, a read-only
+            Narval/Slurm monitor, richer Codex activity and native commands,
+            fullscreen Mermaid diagrams, AppSnap image context, expanded gallery
+            actions, unified CodeMirror review surfaces, and a broad shadcn/Base UI
+            refinement across desktop and mobile.
 
-            See `docs/releases/v1.3.0.md` in the repository for the complete
+            See `docs/releases/v1.3.1.md` in the repository for the complete
             release notes, upgrade guidance, validation coverage, and known limits.
 
             **Platform:** macOS on Apple Silicon.
@@ -86,3 +87,7 @@ jobs:
           test -x "$NODE"
           test "$("$NODE" --version)" = "v22.22.3"
           file "$NODE" | grep -q "arm64"
+      - name: Publish verified release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh release edit "$GITHUB_REF_NAME" --draft=false --latest

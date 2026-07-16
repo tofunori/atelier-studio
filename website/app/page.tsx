@@ -3,7 +3,7 @@ import { SurfaceExplorer } from "./components/SurfaceExplorer";
 
 const GITHUB = "https://github.com/tofunori/atelier-studio";
 const RELEASES = `${GITHUB}/releases/latest`;
-const PRODUCT = { version: "1.3.0", versionLabel: "v1.3" } as const;
+const PRODUCT = { version: "1.3.1", versionLabel: "v1.3.1" } as const;
 
 const featureGroups = [
   {

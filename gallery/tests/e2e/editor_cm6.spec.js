@@ -1,10 +1,11 @@
 import {test, expect} from '@playwright/test';
 import {spawn} from 'node:child_process';
-import {mkdtempSync, writeFileSync, readFileSync, rmSync, renameSync, utimesSync} from 'node:fs';
+import {mkdtempSync, writeFileSync, readFileSync, renameSync, utimesSync} from 'node:fs';
 import {tmpdir} from 'node:os';
 import {fileURLToPath} from 'node:url';
 import path from 'node:path';
 import net from 'node:net';
+import { removeTempRoot } from './temp-root.js';
 
 const GALLERY = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 
@@ -37,7 +38,7 @@ async function withProject(files, run) {
     await expect.poll(async () => fetch(`http://127.0.0.1:${port}/ping`).then(r => r.ok).catch(() => false)).toBe(true);
     await run({root, port, url: (asset, name, extra = '') =>
       `http://127.0.0.1:${port}/.fig_thumbs/${asset}?path=${encodeURIComponent(path.join(root, name))}${extra}`});
-  } finally { await stop(server); rmSync(root, {recursive: true, force: true}); }
+  } finally { await stop(server); await removeTempRoot(root); }
 }
 
 async function expectEngine(page, engine) {

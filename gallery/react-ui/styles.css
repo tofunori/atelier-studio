@@ -10,6 +10,7 @@ html.gallery-react-mounted #selBar { display:none!important;margin:0!important;p
 
 #gallery-react-toolbar { min-width:0;overflow:visible; }
 .gallery-command-bar { display:flex;min-width:0;height:36px;min-height:36px;flex-wrap:nowrap;align-items:center;gap:8px; }
+.gallery-command-group { display:flex;min-width:0;align-items:center;gap:8px; }
 .gallery-search-popover { width:min(320px,calc(100vw - 24px)); }
 .gallery-command-select { width:auto;max-width:min(180px,18vw);flex:0 1 auto; }
 .gallery-command-sort { min-width:112px; }
@@ -66,12 +67,13 @@ html.gallery-react-mounted #selBar { display:none!important;margin:0!important;p
 }
 
 @media (max-width:800px) {
-  .gallery-command-bar { gap:5px; }
+  .gallery-command-bar, .gallery-command-group { gap:5px; }
   .gallery-command-sort { width:96px;min-width:96px;max-width:96px; }
   .gallery-view-label, .gallery-status-label, .gallery-collection-label { display:none; }
 }
 
 @media (max-width:560px) {
   .gallery-command-sort { display:none; }
+  .gallery-filter-label, .gallery-fav-label { display:none; }
   .gallery-selection-count { font-size:12px; }
 }

@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import net from 'node:net';
 import zlib from 'node:zlib';
+import { removeTempRoot } from './temp-root.js';
 
 const REPO = path.resolve(path.dirname(new URL(import.meta.url).pathname), '..', '..');
 
@@ -142,7 +143,7 @@ async function withGallery(run) {
       server.kill('SIGTERM');
       await new Promise(resolve => server.once('exit', resolve));
     }
-    rmSync(root, { recursive: true, force: true, maxRetries: 3, retryDelay: 100 });
+    await removeTempRoot(root);
   }
 }
 
@@ -447,8 +448,7 @@ test('filters: workflow filter via popover shows an active chip, reset restores 
     await page.goto(url);
     await expect(page.locator('#grid .card')).toHaveCount(3);
 
-    await page.locator('[data-gallery-command="filters"]').click();
-    await page.getByRole('button', { name: 'Folders, status & collections' }).click();
+    await page.locator('[data-gallery-command="status"]').click();
     await page.locator('[data-gallery-status="draft"]').click();
 
     await expect(page.locator('#activeChips .fchip').first()).toContainText('Status: Draft');
@@ -651,7 +651,7 @@ test('shadcn command bar: popover returns focus and view menu controls density',
       await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ ok: false }) });
     });
     await page.goto(url);
-    const filters = page.locator('button:has([data-gallery-command="filters"])');
+    const filters = page.locator('[data-gallery-command="filters"]');
     await filters.focus();
     await page.keyboard.press('Enter');
     await expect(page.getByRole('dialog', { name: 'File types' })).toBeVisible();
@@ -670,7 +670,10 @@ test('shadcn command bar: popover returns focus and view menu controls density',
     await expect(page.getByRole('tooltip', { name: 'Gallery tools' })).toBeVisible();
     await tools.click();
     await expect(page.getByRole('menu')).toBeVisible();
-    const rescan = page.getByRole('menuitem', { name: 'Rescan project' });
+    await expect(page.getByRole('menuitem', { name: 'Gallery settings…' })).toBeVisible();
+    await page.keyboard.press('Escape');
+
+    const rescan = page.getByRole('button', { name: 'Rescan project' });
     await expect(rescan).toHaveAttribute('data-gallery-command', 'rescan');
     await rescan.click();
     await expect.poll(() => rescanRequests).toBe(1);

@@ -27,17 +27,17 @@ import Chat from "./components/Chat";
 import { agentsFromActions, isAgentActivityAction, type AgentDisplay } from "./components/chat/AgentActivity";
 import Banner from "./components/Banner";
 import AtelierPane from "./components/AtelierPane";
-const SettingsPage = lazyWithRetry(() => import("./components/Settings"));
 import { LazyBoundary, lazyWithRetry } from "./components/LazyBoundary";
+const SettingsPage = lazyWithRetry(() => import("./components/Settings"));
 const CommandPalette = lazyWithRetry(() => import("./components/CommandPalette"));
-import AutomationsPanel from "./components/Automations";
-import QuickAsk from "./components/QuickAsk";
+const AutomationsPanel = lazyWithRetry(() => import("./components/Automations"));
+const QuickAsk = lazyWithRetry(() => import("./components/QuickAsk"));
+const PluginPanel = lazyWithRetry(() => import("./components/PluginPanel"));
 import { LazyDialog } from "./components/ui/LazyDialog";
 import { Button } from "./components/ui/Button";
 import { IconButton } from "./components/ui/IconButton";
 import { showError, showInfo, showSuccess } from "./components/ui/toast";
 import UsagePopover, { worstOf } from "./components/UsagePopover";
-import PluginPanel from "./components/PluginPanel";
 import { pluginSkillsForPrompt, type PluginCatalogEntry } from "./lib/plugins";
 import { init as initNotify, notifyRunDone, notifyReview } from "./lib/notify";
 import { CloseIcon, DownloadIcon, HighlighterIcon, ProviderIcon, SidebarIcon } from "./components/icons";
@@ -2686,7 +2686,9 @@ export default function App() {
         <UsagePopover open={usageOpen} onClose={() => setUsageOpen(false)} />
       </div>}
       {pluginsOpen && <div className="plugin-overlay" onClick={() => setPluginsOpen(false)}>
-        <PluginPanel plugins={plugins} onClose={() => setPluginsOpen(false)} />
+        <LazyBoundary fallback={null}>
+          <PluginPanel plugins={plugins} onClose={() => setPluginsOpen(false)} />
+        </LazyBoundary>
       </div>}
       </>
     );
@@ -2780,6 +2782,7 @@ export default function App() {
             onCompact={() => setCompact(true)}
           />
   ) : activeView === "automations" ? (
+      <LazyBoundary fallback={<div className="sidebar" />}>
         <AutomationsPanel
           ws={ws.current}
           threads={allThreads}
@@ -2794,6 +2797,7 @@ export default function App() {
             setLayout((current) => current === "atelier" ? "split" : current);
           }}
         />
+      </LazyBoundary>
   ) : (
         <Sidebar
           projects={projects}
@@ -2863,41 +2867,47 @@ export default function App() {
           <CommandPalette open items={paletteItems} onClose={() => setPaletteOpen(false)} />
         </LazyBoundary>
       )}
-      <QuickAsk
-        open={qaMode === "open"}
-        minimized={qaMode === "min"}
-        draft={qaDraft}
-        context={qaContext}
-        providers={providerList}
-        customModels={settings.customModels}
-        defaultModels={settings.defaultModel}
-        defaultEfforts={settings.defaultEffort}
-        modelEfforts={settings.modelEfforts}
-        onMinimize={() => setQaMode("min")}
-        onClose={() => setQaMode("closed")}
-        onInject={(text) => {
-          setAttachments((l) => addAttachment(l, { name: "Quick Ask", lines: null, text }));
-        }}
-        onPromote={(qaId, title) => {
-          const newId = crypto.randomUUID();
-          if (ws.current?.readyState === 1) {
-            ws.current.send(JSON.stringify({
-              type: "qaPromote", qaId, newThreadId: newId, title,
-              projectRoot: "",
-            }));
-            setTimeout(() => {
-              setActiveId(newId);
-              activeIdRef.current = newId;
-              ws.current?.send(JSON.stringify({ type: "getHistory", threadId: newId }));
-            }, 250);
-          }
-        }}
-      />
+      {qaMode !== "closed" && (
+        <LazyBoundary fallback={null}>
+          <QuickAsk
+            open={qaMode === "open"}
+            minimized={qaMode === "min"}
+            draft={qaDraft}
+            context={qaContext}
+            providers={providerList}
+            customModels={settings.customModels}
+            defaultModels={settings.defaultModel}
+            defaultEfforts={settings.defaultEffort}
+            modelEfforts={settings.modelEfforts}
+            onMinimize={() => setQaMode("min")}
+            onClose={() => setQaMode("closed")}
+            onInject={(text) => {
+              setAttachments((l) => addAttachment(l, { name: "Quick Ask", lines: null, text }));
+            }}
+            onPromote={(qaId, title) => {
+              const newId = crypto.randomUUID();
+              if (ws.current?.readyState === 1) {
+                ws.current.send(JSON.stringify({
+                  type: "qaPromote", qaId, newThreadId: newId, title,
+                  projectRoot: "",
+                }));
+                setTimeout(() => {
+                  setActiveId(newId);
+                  activeIdRef.current = newId;
+                  ws.current?.send(JSON.stringify({ type: "getHistory", threadId: newId }));
+                }, 250);
+              }
+            }}
+          />
+        </LazyBoundary>
+      )}
       {usageOpen && <div className="ur-overlay" onClick={() => setUsageOpen(false)}>
         <UsagePopover open={usageOpen} onClose={() => setUsageOpen(false)} />
       </div>}
       {pluginsOpen && <div className="plugin-overlay" onClick={() => setPluginsOpen(false)}>
-        <PluginPanel plugins={plugins} onClose={() => setPluginsOpen(false)} />
+        <LazyBoundary fallback={null}>
+          <PluginPanel plugins={plugins} onClose={() => setPluginsOpen(false)} />
+        </LazyBoundary>
       </div>}
     </>
   );

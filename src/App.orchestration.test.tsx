@@ -266,7 +266,10 @@ describe("orchestration App — caractérisation", () => {
     await mountApp();
 
     fireEvent.click(screen.getByRole("button", { name: t("automations.title") }));
-    await act(async () => { await flushMicrotasks(4); });
+    await act(async () => {
+      await vi.dynamicImportSettled();
+      await flushMicrotasks(4);
+    });
 
     expect(document.querySelector(".automation-panel")).toBeTruthy();
     expect(document.querySelector(".main-card .app")).toBeTruthy();

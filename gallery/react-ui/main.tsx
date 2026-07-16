@@ -541,6 +541,7 @@ function presentConfirmation(request: ConfirmRequest): ConfirmPresentation {
 
 function GalleryToolbar() {
   const [, refresh] = React.useReducer((value) => value + 1, 0)
+  const filterTriggerRef = React.useRef<HTMLButtonElement>(null)
   const [searchOpen, setSearchOpen] = React.useState(false)
   const [filtersOpen, setFiltersOpen] = React.useState(false)
   const [collectionOpen, setCollectionOpen] = React.useState(false)
@@ -633,6 +634,19 @@ function GalleryToolbar() {
   }, [selection.rels.length])
 
   React.useEffect(() => {
+    if (!filtersOpen) return
+    const closeFiltersOnEscape = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return
+      event.preventDefault()
+      event.stopPropagation()
+      setFiltersOpen(false)
+      requestAnimationFrame(() => filterTriggerRef.current?.focus())
+    }
+    window.addEventListener("keydown", closeFiltersOnEscape, true)
+    return () => window.removeEventListener("keydown", closeFiltersOnEscape, true)
+  }, [filtersOpen])
+
+  React.useEffect(() => {
     const openSearch = (event: KeyboardEvent) => {
       const target = event.target as HTMLElement | null
       const isEditable = target?.matches("input, textarea, select") || target?.isContentEditable
@@ -696,6 +710,7 @@ function GalleryToolbar() {
 
   return (
     <div className="gallery-command-bar" role="toolbar" aria-label="Gallery commands" data-gallery-toolbar-state="normal">
+      <div className="gallery-command-group" role="group" aria-label="Search and filter gallery">
       <Popover open={searchOpen} onOpenChange={(open) => {
         setSearchOpen(open)
         if (open) setFiltersOpen(false)
@@ -742,13 +757,24 @@ function GalleryToolbar() {
       }}>
         <PopoverTrigger
           render={
-            <Button variant={activeFilterCount ? "secondary" : "outline"} size="sm">
+            <Button
+              ref={filterTriggerRef}
+              variant={activeFilterCount ? "secondary" : "outline"}
+              size="sm"
+              data-gallery-command="filters"
+              aria-label={activeFilterCount ? `Filters, ${activeFilterCount} active` : "Filters"}
+            >
               <Filter data-icon="inline-start" />
-              <span data-gallery-command="filters">Filters</span>
+              <span className="gallery-filter-label">Filters{activeFilterCount ? ` ${activeFilterCount}` : ""}</span>
             </Button>
           }
         />
-        <PopoverContent align="start" sideOffset={6} className="gallery-filter-popover tw:w-[min(320px,calc(100vw-24px))] tw:gap-0 tw:p-0">
+        <PopoverContent
+          align="start"
+          sideOffset={6}
+          finalFocus={filterTriggerRef}
+          className="gallery-filter-popover tw:w-[min(320px,calc(100vw-24px))] tw:gap-0 tw:p-0"
+        >
           <GalleryFileTypePanel
             state={fileTypeState}
             folder={folder}
@@ -814,14 +840,21 @@ function GalleryToolbar() {
         <DropdownMenuContent align="start" className="tw:w-48">
           <DropdownMenuGroup>
             {workflowItems.map((item) => (
-              <DropdownMenuCheckboxItem key={item.key || "all"} checked={item.active} onClick={() => item.element.click()}>
+              <DropdownMenuCheckboxItem
+                key={item.key || "all"}
+                checked={item.active}
+                data-gallery-status={item.key}
+                onClick={() => item.element.click()}
+              >
                 {item.label}
               </DropdownMenuCheckboxItem>
             ))}
           </DropdownMenuGroup>
         </DropdownMenuContent>
       </DropdownMenu>
+      </div>
 
+      <div className="gallery-command-group" role="group" aria-label="Sort and display gallery">
       <Select items={sortItems} modal={false} value={sort?.value ?? "mtime"} onValueChange={(value) => value && setSelect("sort", value)}>
         <SelectTrigger
           size="sm"
@@ -870,6 +903,7 @@ function GalleryToolbar() {
           </DropdownMenuGroup>
         </DropdownMenuContent>
       </DropdownMenu>
+      </div>
 
       <Tooltip label={rescanning ? "Rescanning…" : "Rescan project"}>
         <Button
