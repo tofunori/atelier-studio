@@ -510,6 +510,48 @@ pub fn build(options: &GalleryBuildOptions) -> Result<GalleryBuildResult, CoreEr
     })
 }
 
+/// Coquille « live » (parité Node `serveLiveShell`) : le template rempli SANS
+/// données inline (`__DATA__` = null → le client fetch /data). Sert `/` et
+/// `/figures_index.html` depuis la mémoire du serveur — jamais le fichier
+/// disque, qu'un autre outil (cmux sur le même projet) peut écraser avec SON
+/// template aux assets incompatibles.
+pub fn render_live_shell(options: &GalleryBuildOptions) -> Result<String, CoreError> {
+    let root = fs::canonicalize(&options.root)?;
+    let version = options
+        .version_tag
+        .clone()
+        .filter(|tag| !tag.is_empty())
+        .unwrap_or_else(|| Local::now().timestamp().to_string());
+    let wordmark = html_escape(if options.title.is_empty() {
+        "Atelier"
+    } else {
+        &options.title
+    });
+    let project = html_escape(
+        root.file_name()
+            .and_then(|value| value.to_str())
+            .unwrap_or("project"),
+    );
+    let template = fs::read_to_string(&options.template)?;
+    let html = template
+        .replace("__TITLE__", &format!("{wordmark} · {project}"))
+        .replace("__WORDMARK__", &wordmark)
+        .replace("__PROJECT__", &project)
+        .replace("__COUNT__", "0")
+        .replace("__GEN__", "")
+        .replace("__VER__", &version)
+        .replace("__DATA__", "null")
+        .replace("__FOLDERS__", "[]")
+        .replace("__FAVS__", "[]")
+        .replace("__ROOT__", &js_escape(&root.to_string_lossy()));
+    if html.matches("</script>").count() != template.matches("</script>").count() {
+        return Err(CoreError::Io(std::io::Error::other(
+            "generated script boundary mismatch",
+        )));
+    }
+    Ok(html)
+}
+
 pub fn parse_extensions(value: Option<&str>) -> Option<BTreeSet<String>> {
     value
         .map(|raw| {

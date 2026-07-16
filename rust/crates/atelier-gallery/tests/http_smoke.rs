@@ -23,6 +23,16 @@ fn free_port() -> u16 {
 }
 
 fn http(port: u16, method: &str, path: &str, body: Option<&str>) -> (u16, String) {
+    http_with_origin(port, method, path, body, None)
+}
+
+fn http_with_origin(
+    port: u16,
+    method: &str,
+    path: &str,
+    body: Option<&str>,
+    origin: Option<&str>,
+) -> (u16, String) {
     let mut stream = TcpStream::connect(("127.0.0.1", port)).unwrap();
     stream
         .set_read_timeout(Some(Duration::from_secs(10)))
@@ -31,6 +41,9 @@ fn http(port: u16, method: &str, path: &str, body: Option<&str>) -> (u16, String
     let mut req = format!(
         "{method} {path} HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\nConnection: close\r\n"
     );
+    if let Some(origin) = origin {
+        req.push_str(&format!("Origin: {origin}\r\n"));
+    }
     if body.is_some() {
         req.push_str(&format!(
             "Content-Type: application/json\r\nContent-Length: {}\r\n",
@@ -209,6 +222,71 @@ fn rescan_uses_rust_builder() {
     // cache-bust de la coquille : ?v= porte le BUNDLE_HASH, pas un timestamp
     let index = fs::read_to_string(srv.root.join("figures_index.html")).unwrap();
     assert!(index.contains("http-smoke"), "index must carry ATELIER_BUNDLE_HASH as asset revision");
+}
+
+#[test]
+fn origin_boundary_guards_every_route_before_routing() {
+    let srv = start_server();
+    // plan 005 : inter-origines refusé AVANT tout routage — y compris les
+    // routes qui n'ont pas de vérification locale (vu : /data fuyait)
+    for route in ["/data", "/state", "/ls", "/rev", "/claude-targets", "/ping"] {
+        let (st, _) =
+            http_with_origin(srv.port, "GET", route, None, Some("https://evil.example"));
+        assert_eq!(st, 403, "{route} inter-origines doit être refusé");
+    }
+    // un AUTRE port loopback n'est pas la même origine (parité Node)
+    let (st, _) = http_with_origin(
+        srv.port,
+        "GET",
+        "/data",
+        None,
+        Some(&format!("http://127.0.0.1:{}", srv.port + 1)),
+    );
+    assert_eq!(st, 403, "autre port loopback → 403");
+    // la même origine, le webview de l'app et l'absence d'Origin passent
+    let (st, _) = http_with_origin(
+        srv.port,
+        "GET",
+        "/data",
+        None,
+        Some(&format!("http://127.0.0.1:{}", srv.port)),
+    );
+    assert_eq!(st, 200, "même origine → 200");
+    let (st, _) = http_with_origin(srv.port, "GET", "/data", None, Some("tauri://localhost"));
+    assert_eq!(st, 200, "origine webview de l'app → 200");
+    let (st, _) = http(srv.port, "GET", "/data", None);
+    assert_eq!(st, 200, "sans Origin → 200");
+    // Origin null (iframe sandboxée) refusé, et OPTIONS reste 200 sans Origin
+    let (st, _) = http_with_origin(srv.port, "GET", "/state", None, Some("null"));
+    assert_eq!(st, 403, "Origin null → 403");
+    let (st, _) = http(srv.port, "OPTIONS", "/state", None);
+    assert_eq!(st, 200, "OPTIONS sans Origin → 200");
+}
+
+#[test]
+fn live_shell_ignores_disk_index_written_by_other_tools() {
+    let srv = start_server();
+    // un autre outil (cmux sur le même projet) écrase l'index disque avec SON
+    // template — la coquille servie doit venir du template bundlé, en mémoire
+    fs::write(
+        srv.root.join("figures_index.html"),
+        "<html>CMUX_CORRUPTED</html>",
+    )
+    .unwrap();
+    let (st, body) = http(srv.port, "GET", "/figures_index.html", None);
+    assert_eq!(st, 200);
+    assert!(
+        !body.contains("CMUX_CORRUPTED"),
+        "la coquille ne vient JAMAIS du fichier disque"
+    );
+    assert!(body.contains("applyGalleryData"), "coquille live du template");
+    let (st2, body2) = http(srv.port, "GET", "/", None);
+    assert_eq!(st2, 200);
+    assert_eq!(body2, body, "les deux URLs d'entrée partagent la même coquille");
+    // parité Node : la coquille n'inline AUCUNE donnée scannée (le client
+    // récupère /data) et le cache-bust des assets porte le BUNDLE_HASH
+    assert!(!body.contains("script.py"), "shell has no inline scanned data");
+    assert!(body.contains("http-smoke"), "assets versionnés par ATELIER_BUNDLE_HASH");
 }
 
 #[test]

@@ -78,6 +78,9 @@ pub(crate) struct AppState {
     workspace_lock: Arc<Mutex<()>>,
     /// Zotero readonly copy mtime cache.
     zotero: Arc<std::sync::Mutex<ZoteroCache>>,
+    /// Coquille live `/` (+`/figures_index.html`) rendue au boot depuis le
+    /// template bundlé — parité Node serveLiveShell, immune au fichier disque.
+    live_shell: Option<Arc<str>>,
     /// Studio identity fields (parity with gallery/server Node).
     started_at: String,
     app_version: String,
@@ -581,21 +584,38 @@ struct SelectionQuery {
     destination: Option<String>,
 }
 
-fn loopback_origin(headers: &HeaderMap) -> bool {
+fn loopback_origin(headers: &HeaderMap, own_port: u16) -> bool {
     let Some(origin) = headers.get("origin").and_then(|value| value.to_str().ok()) else {
-        return true;
+        return true; // probes, navigation, fetch même origine : pas d'Origin
     };
-    let authority = origin
+    // webview de l'app (parité Node plan 005 : « origine webview autorisée »)
+    if origin == "tauri://localhost" {
+        return true;
+    }
+    let Some(rest) = origin
         .strip_prefix("http://")
         .or_else(|| origin.strip_prefix("https://"))
-        .and_then(|value| value.split('/').next())
-        .unwrap_or_default();
-    let host = if let Some(value) = authority.strip_prefix('[') {
-        value.split(']').next().unwrap_or_default()
-    } else {
-        authority.split(':').next().unwrap_or_default()
+    else {
+        return false; // schémas inconnus et Origin « null » (iframe sandboxée)
     };
-    matches!(host, "127.0.0.1" | "localhost" | "::1")
+    let authority = rest.split('/').next().unwrap_or_default();
+    let (host, port) = if let Some(value) = authority.strip_prefix('[') {
+        let host = value.split(']').next().unwrap_or_default();
+        let port = authority
+            .split("]:")
+            .nth(1)
+            .and_then(|p| p.parse::<u16>().ok());
+        (host, port)
+    } else {
+        let mut parts = authority.split(':');
+        let host = parts.next().unwrap_or_default();
+        let port = parts.next().and_then(|p| p.parse::<u16>().ok());
+        (host, port)
+    };
+    // MÊME origine seulement, port compris : un autre serveur loopback ne peut
+    // pas piloter la galerie (parité Node plan 005 — l'autre port → 403)
+    let default_port = if origin.starts_with("https://") { 443 } else { 80 };
+    matches!(host, "127.0.0.1" | "localhost" | "::1") && port.unwrap_or(default_port) == own_port
 }
 
 fn authorized(headers: &HeaderMap, token: &str) -> bool {
@@ -610,7 +630,8 @@ fn authorized(headers: &HeaderMap, token: &str) -> bool {
 }
 
 pub(crate) fn request_allowed(headers: &HeaderMap, state: &AppState) -> bool {
-    (!state.remote && loopback_origin(headers)) || authorized(headers, &state.agent_token)
+    (!state.remote && loopback_origin(headers, state.port))
+        || authorized(headers, &state.agent_token)
 }
 
 fn trusted_static_path(requested: &str, bytes: &[u8]) -> bool {
@@ -650,6 +671,25 @@ async fn options_middleware(req: Request, next: Next) -> axum::response::Respons
     next.run(req).await
 }
 
+/// Frontière d'origine (plan 005) appliquée AVANT tout routage — parité avec
+/// le serveur Node qui refuse l'inter-origines en amont. Les vérifications
+/// locales des handlers restent (défense en profondeur), mais plus aucune
+/// route ne peut être oubliée (vu : /data servi à une origine externe).
+async fn origin_guard_middleware(
+    State(state): State<AppState>,
+    req: Request,
+    next: Next,
+) -> axum::response::Response {
+    if !request_allowed(req.headers(), &state) {
+        return (
+            StatusCode::FORBIDDEN,
+            Json(json!({"error": "loopback origin required"})),
+        )
+            .into_response();
+    }
+    next.run(req).await
+}
+
 async fn remote_auth_middleware(
     State(state): State<AppState>,
     req: Request,
@@ -663,6 +703,22 @@ async fn remote_auth_middleware(
             .into_response();
     }
     next.run(req).await
+}
+
+/// `/` et `/figures_index.html` — coquille LIVE depuis le template bundlé
+/// (parité Node serveLiveShell) ; fallback disque si les assets manquent.
+async fn live_shell_route(State(state): State<AppState>) -> axum::response::Response {
+    let headers = [
+        ("content-type", "text/html; charset=utf-8"),
+        ("cache-control", "no-cache"),
+    ];
+    if let Some(html) = &state.live_shell {
+        return (StatusCode::OK, headers, html.to_string()).into_response();
+    }
+    match tokio::fs::read(state.root.join("figures_index.html")).await {
+        Ok(bytes) => (StatusCode::OK, headers, bytes).into_response(),
+        Err(_) => (StatusCode::NOT_FOUND, "not found").into_response(),
+    }
 }
 
 async fn static_asset(
@@ -1860,6 +1916,33 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .map(|n| n.get())
         .unwrap_or(4);
     let thumb_permits = cpu.clamp(2, 8);
+    // Coquille live (parité Node serveLiveShell) : `/` et `/figures_index.html`
+    // rendus depuis le TEMPLATE BUNDLÉ, jamais le fichier disque du projet —
+    // un autre outil (cmux sur le même dossier) peut écraser celui-ci avec un
+    // template dont les assets n'existent pas côté Atelier (page cassée).
+    let live_shell: Option<Arc<str>> = std::env::var_os("ATELIER_ASSETS_DIR")
+        .map(PathBuf::from)
+        .or_else(|| {
+            std::env::var_os("ATELIER_TOOL_ROOT").map(|r| PathBuf::from(r).join("assets"))
+        })
+        .map(|assets| assets.join("gallery_template.html"))
+        .filter(|template| template.is_file())
+        .and_then(|template| {
+            atelier_core::gallery_builder::render_live_shell(
+                &atelier_core::gallery_builder::GalleryBuildOptions {
+                    root: root.clone(),
+                    template,
+                    title: std::env::var("GALLERY_TITLE").unwrap_or_else(|_| "Atelier".into()),
+                    extensions: None,
+                    show_frames: false,
+                    no_thumbs: true,
+                    version_tag: Some(bundle_hash.clone())
+                        .filter(|hash| !hash.is_empty() && hash != "dev"),
+                },
+            )
+            .ok()
+        })
+        .map(Arc::from);
     let state = AppState {
         root: root.clone(),
         port,
@@ -1881,6 +1964,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         started_at,
         app_version,
         bundle_hash,
+        live_shell,
     };
     if args.watch && !args.no_watch {
         let watcher_state = state.clone();
@@ -1893,6 +1977,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         });
     }
     let app = Router::new()
+        .route("/", get(live_shell_route))
+        .route("/figures_index.html", get(live_shell_route))
         .route("/ping", get(ping))
         .route("/health", get(health))
         .route("/rev", get(revision))
@@ -1978,6 +2064,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .route("/agent-batches/release", post(batch_release))
         .route("/agent-batches/cancel", post(batch_cancel))
         .fallback(static_asset)
+        // couche la plus INTERNE : s'exécute après options/remote-auth, avant les routes
+        .layer(middleware::from_fn_with_state(
+            state.clone(),
+            origin_guard_middleware,
+        ))
         .layer(middleware::from_fn(options_middleware))
         .layer(middleware::from_fn_with_state(
             state.clone(),
