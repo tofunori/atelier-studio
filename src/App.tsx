@@ -493,6 +493,8 @@ export default function App() {
   const [workingSince, setWorkingSince] = useState<Record<string, number | null>>({});
   const workingSinceRef = useRef<Record<string, number | null>>({});
   workingSinceRef.current = workingSince;
+  // tokens de sortie du tour en cours (heartbeat provider) — ticker Working
+  const [liveTokens, setLiveTokens] = useState<Record<string, number | null>>({});
   const [usageByThread, setUsageByThread] = useState<
     Record<string, { context: number; output: number; cost: number | null; turns: number | null; window?: number | null }>
   >({});
@@ -1234,8 +1236,13 @@ export default function App() {
           return;
         }
         if (msg.event.kind === "heartbeat") {
-          // signal de vie seulement : maintient l'indicateur "Working", rien d'affiché
+          // signal de vie : maintient l'indicateur "Working" ; tokens = sortie
+          // cumulée du tour quand le provider la fournit (ticker Working)
           setWorkingSince((p) => ({ ...p, [msg.threadId]: p[msg.threadId] ?? Date.now() }));
+          const tokens = msg.event.tokens;
+          if (typeof tokens === "number") {
+            setLiveTokens((p) => ({ ...p, [msg.threadId]: tokens }));
+          }
           return;
         }
         if (msg.event.kind === "usage") {
@@ -1253,6 +1260,10 @@ export default function App() {
         });
         if (msg.event.kind === "done" && msg.event.usage) {
           setUsageByThread((p) => ({ ...p, [msg.threadId]: msg.event.usage }));
+        }
+        if (msg.event.kind === "done" || msg.event.kind === "error") {
+          // le ticker du tour ne survit pas au tour
+          setLiveTokens((p) => (p[msg.threadId] == null ? p : { ...p, [msg.threadId]: null }));
         }
         // tour AUTONOME (goal poursuivi par le serveur, aucun submit local) :
         // le spinner démarre sur le started du provider — sans écraser un
@@ -2944,6 +2955,7 @@ export default function App() {
           home={homeBundle}
           events={activeId ? (events[activeId] ?? []) : []}
           workingSince={activeId ? (workingSince[activeId] ?? null) : null}
+          liveTokens={activeId ? (liveTokens[activeId] ?? null) : null}
           usage={activeId ? (usageByThread[activeId] ?? null) : null}
           commands={commands}
           files={files}

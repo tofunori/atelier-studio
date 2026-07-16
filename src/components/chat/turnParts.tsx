@@ -167,6 +167,9 @@ export function EditLine({ event, threadId }: {
         const open = openPath === f.path;
         const diff = diffs[f.path];
         const error = errors[f.path];
+        // avant/après portés par l'événement (input du tool) : diff immédiat,
+        // sans aller-retour git — sinon fallback historique gitDiff à la demande
+        const snippet = f.newText !== undefined ? { before: f.oldText ?? "", after: f.newText } : null;
         return (
           <div key={f.path} className="edit-line">
             <div className="edit-line-row" title={f.path}>
@@ -189,7 +192,7 @@ export function EditLine({ event, threadId }: {
                 onClick={() => {
                   const next = open ? null : f.path;
                   setOpenPath(next);
-                  if (!next || diffs[f.path] != null || loading === f.path) return;
+                  if (!next || snippet || diffs[f.path] != null || loading === f.path) return;
                   setErrors((current) => {
                     const following = { ...current };
                     delete following[f.path];
@@ -220,7 +223,11 @@ export function EditLine({ event, threadId }: {
             </div>
             {open && (
               <div className="turn-diff-body">
-                {loading === f.path && diff == null ? (
+                {snippet ? (
+                  <Suspense fallback={<span className="muted">{t("common.loading")}</span>}>
+                    <AtelierDiffView before={snippet.before} after={snippet.after} path={f.path} compact />
+                  </Suspense>
+                ) : loading === f.path && diff == null ? (
                   <span className="muted">{t("common.loading")}</span>
                 ) : error ? (
                   <span className="muted">{error}</span>
@@ -348,7 +355,14 @@ function workDuration(ms: number): string {
   return `${Math.floor(minutes / 60)}h ${String(minutes % 60).padStart(2, "0")}m`;
 }
 
-export function Working({ since }: { since: number }) {
+/** 842 → « 842 », 8 214 → « 8,2k », 128 400 → « 128k » (tabular-nums en CSS). */
+function fmtTokenCount(n: number): string {
+  if (n < 1000) return String(n);
+  const k = n / 1000;
+  return `${k >= 100 ? String(Math.round(k)) : k.toFixed(1).replace(/\.0$/, "").replace(".", ",")}k`;
+}
+
+export function Working({ since, tokens }: { since: number; tokens?: number | null }) {
   const [, tick] = useState(0);
   useEffect(() => {
     const t = setInterval(() => tick((n) => n + 1), 1000);
@@ -357,7 +371,12 @@ export function Working({ since }: { since: number }) {
   const duration = workDuration(Date.now() - since);
   return (
     <div className="working working-header">
-      <span className="working-label">{t("chat.working-elapsed", { duration })}</span>
+      <span className="working-label">
+        {t("chat.working-elapsed", { duration })}
+        {tokens != null && tokens > 0 ? (
+          <span className="working-tokens">{t("chat.working-tokens", { n: fmtTokenCount(tokens) })}</span>
+        ) : null}
+      </span>
       <div className="working-divider" aria-hidden="true" />
     </div>
   );

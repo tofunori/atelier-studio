@@ -168,4 +168,95 @@ describe("outils Claude — contrat tool_update (plan 025)", () => {
     expect(running.input.preview.length).toBe(16 * 1024);
     await s.finish();
   });
+
+  it("Bash : la description rédigée par le modèle prime sur la commande brute", async () => {
+    const s = await session("ct-9");
+    s.q.feed(assistantToolUse("tu-9", "Bash", {
+      command: "python3 -c 'import statsmodels'",
+      description: "Checked Python imports availability",
+    }));
+    await flush();
+    expect(s.tools().at(-1).detail).toBe("Checked Python imports availability");
+    s.q.feed(userToolResult("tu-9", "ok"));
+    await s.finish();
+  });
+
+  it("TodoWrite : événement todos au succès (statuts mappés), jamais de ligne d'outil", async () => {
+    const s = await session("ct-10");
+    s.q.feed(assistantToolUse("tu-10", "TodoWrite", { todos: [
+      { content: "Lire le fichier", status: "completed" },
+      { content: "Corriger le bug", status: "in_progress" },
+      { content: "Lancer les tests", status: "pending" },
+    ] }));
+    s.q.feed(userToolResult("tu-10", "Todos have been modified successfully"));
+    await flush();
+    expect(s.tools()).toHaveLength(0);
+    const todos = s.events.find((e) => e.kind === "todos");
+    expect(todos?.items).toEqual([
+      { text: "Lire le fichier", completed: true },
+      { text: "Corriger le bug", completed: false, active: true },
+      { text: "Lancer les tests", completed: false },
+    ]);
+    await s.finish();
+  });
+
+  it("TodoWrite en échec ou interrompu : ni todos, ni ligne d'outil fantôme", async () => {
+    const s = await session("ct-11");
+    s.q.feed(assistantToolUse("tu-11a", "TodoWrite", { todos: [{ content: "X", status: "pending" }] }));
+    s.q.feed(userToolResult("tu-11a", "denied", true));
+    s.q.feed(assistantToolUse("tu-11b", "TodoWrite", { todos: [{ content: "Y", status: "pending" }] }));
+    await flush();
+    s.q.feed(resultMsg()); // tu-11b jamais résolu → flushPendingTools
+    await flush();
+    expect(s.tools()).toHaveLength(0);
+    expect(s.events.some((e) => e.kind === "todos")).toBe(false);
+    s.q.end();
+    await flush();
+    claude.endSession("ct-11");
+  });
+
+  it("Edit : l'événement edit porte l'avant/après de l'input (diff immédiat)", async () => {
+    const s = await session("ct-12");
+    s.q.feed(assistantToolUse("tu-12", "Edit", { file_path: "/p/a.py", old_string: "x = 1", new_string: "x = 2" }));
+    s.q.feed(userToolResult("tu-12", "ok"));
+    await flush();
+    const edit = s.events.find((e) => e.kind === "edit");
+    expect(edit?.files).toEqual(["/p/a.py"]);
+    expect(edit?.snippets?.["/p/a.py"]).toEqual({ oldText: "x = 1", newText: "x = 2" });
+    await s.finish();
+  });
+
+  it("Write d'un fichier NOUVEAU : snippet newText ; fichier existant : pas de snippet", async () => {
+    const s = await session("ct-13");
+    s.q.feed(assistantToolUse("tu-13a", "Write", { file_path: "/p/inexistant.py", content: "print(1)\n" }));
+    s.q.feed(userToolResult("tu-13a", "ok"));
+    s.q.feed(assistantToolUse("tu-13b", "Write", { file_path: "/etc/hosts", content: "x" }));
+    s.q.feed(userToolResult("tu-13b", "ok"));
+    await flush();
+    const edits = s.events.filter((e) => e.kind === "edit");
+    expect(edits[0]?.snippets?.["/p/inexistant.py"]).toEqual({ newText: "print(1)\n" });
+    expect(edits[1]?.snippets).toBeUndefined();
+    await s.finish();
+  });
+
+  it("Edit volumineux (> 24 KiB) : pas de snippet (fallback git), l'edit reste émis", async () => {
+    const s = await session("ct-14");
+    s.q.feed(assistantToolUse("tu-14", "Edit", { file_path: "/p/gros.py", old_string: "a", new_string: "z".repeat(30 * 1024) }));
+    s.q.feed(userToolResult("tu-14", "ok"));
+    await flush();
+    const edit = s.events.find((e) => e.kind === "edit");
+    expect(edit?.files).toEqual(["/p/gros.py"]);
+    expect(edit?.snippets).toBeUndefined();
+    await s.finish();
+  });
+
+  it("heartbeat tokens : cumul de la sortie par message assistant, ticker du front", async () => {
+    const s = await session("ct-15");
+    s.q.feed({ type: "assistant", message: { usage: { output_tokens: 120 }, content: [{ type: "text", text: "a" }] } });
+    s.q.feed({ type: "assistant", message: { usage: { output_tokens: 80 }, content: [] } });
+    await flush();
+    const beats = s.events.filter((e) => e.kind === "heartbeat");
+    expect(beats.map((e) => e.tokens)).toEqual([120, 200]);
+    await s.finish();
+  });
 });

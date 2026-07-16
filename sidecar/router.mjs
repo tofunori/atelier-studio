@@ -370,7 +370,16 @@ async function enrichEditEvent(ctx, turn, event) {
     if (root && !rel.startsWith("/") && ctx.gitops?.numstat) {
       try { ({ add, del } = await ctx.gitops.numstat(root, rel)); } catch {}
     }
-    files.push({ path: rel, add, del });
+    // avant/après fournis par le provider (diff immédiat sans git) — clé =
+    // chemin ORIGINAL de event.files, portés sur l'entrée fichier normalisée
+    const sn = event.snippets && typeof event.snippets === "object" ? event.snippets[p] : null;
+    files.push({
+      path: rel, add, del,
+      ...(sn && typeof sn.newText === "string" ? {
+        newText: sn.newText,
+        ...(typeof sn.oldText === "string" ? { oldText: sn.oldText } : {}),
+      } : {}),
+    });
   }
   return {
     kind: "edit",

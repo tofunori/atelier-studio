@@ -44,6 +44,8 @@ export type TimelineThread = {
   threadId: string | null;
   events: AgentEvent[];
   workingSince: number | null;
+  /** tokens de sortie du tour en cours — affichés à côté du temps écoulé */
+  liveTokens: number | null;
   phase: TurnPhase;
 };
 export type TimelineReview = {
@@ -113,7 +115,7 @@ export function ChatTimeline(p: {
     removeMark: (text: string, kind: "hl" | "ul") => void;
   };
 }) {
-  const { threadId, events, workingSince, phase } = p.thread;
+  const { threadId, events, workingSince, liveTokens, phase } = p.thread;
   const { review, reviewMin, setReviewMin, setReview, barOpen, setBarOpen, fixing, setFixing, reviewOpen, setReviewOpen } = p.rev;
   const {
     renderedEvents, openFolds, setOpenFolds, openToolGroups, setOpenToolGroups,
@@ -358,7 +360,7 @@ export function ChatTimeline(p: {
               <div className="timeline-virtual-row" id="message-working" data-message-id="message-working">
                 <div className="working-stack">
                   <div className="working-row">
-                    <Working since={workingSince!} />
+                    <Working since={workingSince!} tokens={liveTokens} />
                   </div>
                   <LiveThinking />
                   <RowButton className="stop-hint" title={t("action.interrupt")} onClick={onStop}>
@@ -398,6 +400,7 @@ export function ChatTimeline(p: {
                 key={item.key}
                 turn={item.turn}
                 since={workingSince ?? Date.now()}
+                tokens={liveTokens}
               />
             );
           }
@@ -526,7 +529,7 @@ export function ChatTimeline(p: {
             return (
               <div key={i} className="todos">
                 {e.items.map((todo, idx) => (
-                  <div key={idx} className={todo.completed ? "todo done" : "todo"}>
+                  <div key={idx} className={todo.completed ? "todo done" : todo.active ? "todo active" : "todo"}>
                     <span className="todo-box">{todo.completed ? "✓" : ""}</span>
                     <span>{todo.text}</span>
                   </div>

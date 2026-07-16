@@ -1,12 +1,14 @@
 import { query } from "@anthropic-ai/claude-agent-sdk";
-import { readFileSync, writeFileSync, mkdirSync } from "node:fs";
+import { readFileSync, writeFileSync, mkdirSync, existsSync } from "node:fs";
 
 // Bundle allégé : le binaire embarqué du SDK est retiré → utiliser le CLI système.
 /** Détail court d'un tool_use pour l'affichage (Bash(git status), Edit(file.py)…). */
 export function toolDetail(name, input) {
   if (!input || typeof input !== "object") return "";
   const first = (v) => String(v ?? "").split("\n")[0].slice(0, 80);
-  if (name === "Bash") return first(input.command);
+  // même rendu que Claude Code desktop : la description rédigée par le modèle
+  // prime sur la commande brute (celle-ci reste visible dans l'input déplié)
+  if (name === "Bash") return first(input.description ?? input.command);
   if (["Read", "Edit", "Write", "NotebookEdit"].includes(name)) {
     const p = String(input.file_path ?? "");
     return p.length > 60 ? "…" + p.slice(-59) : p;
@@ -284,6 +286,13 @@ export function send({
     const pendingTools = new Map();
     const TOOL_OUTPUT_MAX = 64 * 1024;
     const TOOL_INPUT_MAX = 16 * 1024;
+    // avant/après d'un Edit (ou contenu d'un Write de fichier NOUVEAU) porté
+    // par l'événement `edit` pour un diff immédiat côté front — au-delà de
+    // cette borne, retomber sur le diff git à la demande
+    const SNIPPET_MAX = 24 * 1024;
+    // tokens de sortie cumulés du tour — ticker « Ns · Nk tokens » du front,
+    // via heartbeat (éphémère : jamais journalisé)
+    let turnOutputTokens = 0;
     const boundedInput = (input) => {
       try {
         const s = JSON.stringify(input ?? {});
@@ -310,6 +319,7 @@ export function send({
     // un tool_use jamais résolu au terminal ne reste pas « running » éternel
     const flushPendingTools = () => {
       for (const pt of pendingTools.values()) {
+        if (pt.silent) continue; // TodoWrite : jamais de ligne d'outil
         emit({ kind: "tool_update", id: pt.id, name: pt.name, detail: pt.detail,
           input: pt.input, source: pt.source, status: "interrupted", output: "" });
       }
@@ -345,14 +355,42 @@ export function send({
               (au.input_tokens ?? 0) +
               (au.cache_read_input_tokens ?? 0) +
               (au.cache_creation_input_tokens ?? 0);
+            turnOutputTokens += au.output_tokens ?? 0;
+            emit({ kind: "heartbeat", tokens: turnOutputTokens });
           }
           for (const block of msg.message.content ?? []) {
             if (block.type === "text") emit({ kind: "text", text: block.text });
             if (block.type === "thinking" && block.thinking) emit({ kind: "thinking", text: block.thinking });
             if (block.type === "tool_use") {
+              // TodoWrite : pas de ligne d'outil — la liste devient l'événement
+              // `todos` (checklist du fil, singleton côté reducer), émis au
+              // succès. Même rendu que le plan Codex (turn/plan/updated).
+              if (block.name === "TodoWrite") {
+                const items = (Array.isArray(block.input?.todos) ? block.input.todos : [])
+                  .map((td) => ({
+                    text: String(td?.content ?? ""),
+                    completed: td?.status === "completed",
+                    ...(td?.status === "in_progress" ? { active: true } : {}),
+                  }))
+                  .filter((td) => td.text);
+                pendingTools.set(block.id, { id: block.id, silent: true, todosItems: items, startedAt: Date.now() });
+                continue;
+              }
               const editPath = ["Edit", "Write", "NotebookEdit"].includes(block.name)
                 ? String(block.input?.file_path ?? block.input?.notebook_path ?? "")
                 : "";
+              // diff immédiat : l'input porte déjà l'avant/après (Edit) ou le
+              // contenu d'un fichier NOUVEAU (Write, vérifié sur disque avant
+              // exécution) — attaché à l'événement `edit` au succès
+              let snippet = null;
+              if (block.name === "Edit") {
+                const oldText = String(block.input?.old_string ?? "");
+                const newText = String(block.input?.new_string ?? "");
+                if (oldText.length <= SNIPPET_MAX && newText.length <= SNIPPET_MAX) snippet = { oldText, newText };
+              } else if (block.name === "Write" && editPath && !existsSync(editPath)) {
+                const newText = String(block.input?.content ?? "");
+                if (newText && newText.length <= SNIPPET_MAX) snippet = { newText };
+              }
               const pt = {
                 id: block.id,
                 name: block.name, // nom EXACT conservé (mcp__<server>__<tool> compris)
@@ -360,6 +398,7 @@ export function send({
                 input: boundedInput(block.input),
                 source: block.name?.startsWith("mcp__") ? "mcp" : null,
                 editPath,
+                snippet,
                 startedAt: Date.now(),
               };
               pendingTools.set(block.id, pt);
@@ -382,6 +421,11 @@ export function send({
             }
             pendingTools.delete(block.tool_use_id);
             const failed = !!block.is_error;
+            if (pt.silent) {
+              // TodoWrite : la checklist remplace la ligne d'outil
+              if (!failed && pt.todosItems?.length) emit({ kind: "todos", items: pt.todosItems });
+              continue;
+            }
             emit({ kind: "tool_update", id: pt.id, name: pt.name, detail: pt.detail,
               input: pt.input, source: pt.source,
               status: failed ? "failed" : "completed", output,
@@ -389,7 +433,8 @@ export function send({
               ...(truncated ? { truncated: true, outputLength: originalLength } : {}) });
             // la ligne « edit » (±lignes, diff dépliable) une fois le fichier
             // réellement modifié — le tool_update qui porte statut/sortie reste
-            if (pt.editPath && !failed) emit({ kind: "edit", files: [pt.editPath] });
+            if (pt.editPath && !failed) emit({ kind: "edit", files: [pt.editPath],
+              ...(pt.snippet ? { snippets: { [pt.editPath]: pt.snippet } } : {}) });
           }
         }
         if (msg.type === "system" && msg.subtype === "compact_boundary") {
@@ -397,6 +442,7 @@ export function send({
         }
         if (msg.type === "result") {
           flushPendingTools();
+          turnOutputTokens = 0; // le ticker repart à zéro au prochain tour
           const u = msg.usage ?? {};
           emit({
             kind: "done",

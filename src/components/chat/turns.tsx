@@ -444,10 +444,11 @@ function activeEventLabel(turn: ChatTurnViewModel, events: AgentEvent[]): ReactN
 export function ActiveTurnHeader(p: {
   turn: ChatTurnViewModel;
   since: number;
+  tokens?: number | null;
 }) {
   return (
     <div className="working-stack active-turn-header" data-turn-id={p.turn.turnId ?? p.turn.key}>
-      <div className="working-row"><Working since={p.turn.startedAtMs ?? p.since} /></div>
+      <div className="working-row"><Working since={p.turn.startedAtMs ?? p.since} tokens={p.tokens} /></div>
     </div>
   );
 }

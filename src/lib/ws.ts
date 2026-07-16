@@ -55,7 +55,8 @@ type AgentEventBody =
   | { kind: "stream_set"; text: string; ts?: number }
   | { kind: "streaming"; text: string; ts?: number }
   | { kind: "started"; ts?: number }
-  | { kind: "heartbeat"; elapsedMs?: number; ts?: number }
+  /** tokens : sortie cumulée du tour (ticker « Ns · Nk tokens ») — éphémère, jamais journalisé */
+  | { kind: "heartbeat"; elapsedMs?: number; tokens?: number; ts?: number }
   | {
       kind: "activity";
       id: string;
@@ -71,7 +72,9 @@ type AgentEventBody =
       kind: "edit";
       projectRoot?: string | null;
       baseSha?: string | null;
-      files: { path: string; add: number | null; del: number | null }[];
+      /** oldText/newText : avant/après fournis par le provider (input du tool
+       * Edit, contenu d'un Write de fichier nouveau) — diff immédiat sans git */
+      files: { path: string; add: number | null; del: number | null; oldText?: string; newText?: string }[];
       ts?: number;
     }
   | {
@@ -105,7 +108,8 @@ type AgentEventBody =
       ts?: number;
     }
   | { kind: "usage"; usage: { context: number | null; output: number | null; cost: number | null; turns: number | null }; ts?: number }
-  | { kind: "todos"; items: { text: string; completed: boolean }[]; ts?: number }
+  /** active : l'item en cours (TodoWrite in_progress) — rendu accentué */
+  | { kind: "todos"; items: { text: string; completed: boolean; active?: boolean }[]; ts?: number }
   | {
       kind: "proposed_plan";
       planId: string;

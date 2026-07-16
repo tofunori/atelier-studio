@@ -240,6 +240,8 @@ html, body, #root, .app { height: 100vh; overflow: hidden;
 .todos { display: flex; flex-direction: column; gap: 5px; }
 .todo { display: flex; align-items: flex-start; gap: 7px; color: var(--fg2); }
 .todo.done { color: var(--muted2); text-decoration: line-through; }
+.todo.active { color: var(--fg); }
+.todo.active .todo-box { border-color: var(--fg2); }
 .todo-box { width: 13px; height: 13px; margin-top: 2px; border: 1px solid var(--border2);
   border-radius: var(--r-s); display: inline-flex; align-items: center; justify-content: center;
   flex-shrink: 0; font-size: var(--fs-xs); color: var(--accent); }
@@ -373,6 +375,7 @@ html, body, #root, .app { height: 100vh; overflow: hidden;
 .working-label::before { content: ""; width: 12px; height: 12px; flex: 0 0 12px; box-sizing: border-box;
   border: 2px solid color-mix(in srgb, var(--accent) 24%, transparent); border-top-color: var(--accent);
   border-radius: var(--r-pill); animation: working-spin .8s linear infinite; }
+.working-tokens { color: var(--muted2); font-variant-numeric: tabular-nums; }
 .working-divider { width: 100%; height: 1px; margin-top: 8px; background: var(--border); }
 @keyframes working-spin { to { transform: rotate(360deg); } }
 @keyframes pulse { 0%,100% { opacity: 0.5; } 50% { opacity: 1; } }
