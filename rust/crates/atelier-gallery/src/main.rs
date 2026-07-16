@@ -4,6 +4,7 @@ mod files;
 mod gallery;
 mod git;
 mod host;
+mod suggest;
 mod workspace;
 mod zotero;
 
@@ -1645,6 +1646,10 @@ pub(crate) async fn rebuild(
         ),
         show_frames: std::env::var_os("GALLERY_SHOW_FRAMES").is_some(),
         no_thumbs: std::env::var_os("GALLERY_NO_THUMBS").is_some(),
+        // cache-bust des assets UI par version d'app (parité Node ver:BUNDLE_HASH)
+        version_tag: std::env::var("ATELIER_BUNDLE_HASH")
+            .ok()
+            .filter(|hash| !hash.is_empty() && hash != "dev"),
     };
     let result =
         tokio::task::spawn_blocking(move || atelier_core::gallery_builder::build(&options)).await;
@@ -1921,10 +1926,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .route("/githead", get(git::githead))
         .route("/gitlog", get(git::gitlog))
         .route("/gitshow", get(git::gitshow))
-        .route("/commitmsg", post(git::commitmsg))
+        .route("/commitmsg", get(git::commitmsg))
         .route("/gitcommit", post(git::gitcommit))
         .route("/versions", get(git::get_versions).post(git::post_versions))
         // Phase 4 — LaTeX / PDF / export PNG
+        .route("/latex-suggest", post(suggest::latex_suggest))
         .route("/compile", post(documents::compile))
         .route("/synctex", post(documents::synctex))
         .route(

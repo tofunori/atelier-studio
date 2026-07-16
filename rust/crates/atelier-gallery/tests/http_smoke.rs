@@ -71,6 +71,10 @@ impl Drop for Server {
 }
 
 fn start_server() -> Server {
+    start_server_with(&[])
+}
+
+fn start_server_with(extra_env: &[(&str, String)]) -> Server {
     let root = std::env::temp_dir().join(format!(
         "atelier-http-smoke-{}-{}",
         std::process::id(),
@@ -106,7 +110,8 @@ fn start_server() -> Server {
         .expect("build atelier-gallery first (cargo build -p atelier-gallery)");
 
     let port = free_port();
-    let mut child = Command::new(binary)
+    let mut command = Command::new(binary);
+    command
         .args([
             "--root",
             root.to_str().unwrap(),
@@ -122,9 +127,11 @@ fn start_server() -> Server {
         .env("ATELIER_AGENT_TOKEN", "smoke-token")
         .env("HOME", root.join("home"))
         .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .spawn()
-        .expect("spawn server");
+        .stderr(Stdio::null());
+    for (key, value) in extra_env {
+        command.env(key, value);
+    }
+    let mut child = command.spawn().expect("spawn server");
 
     let deadline = Instant::now() + Duration::from_secs(15);
     loop {
@@ -199,4 +206,71 @@ fn rescan_uses_rust_builder() {
     let (st, body) = http(srv.port, "POST", "/rescan", Some("{}"));
     assert_eq!(st, 200, "{body}");
     assert!(body.contains("\"ok\":true") || body.contains("\"ok\": true"), "{body}");
+    // cache-bust de la coquille : ?v= porte le BUNDLE_HASH, pas un timestamp
+    let index = fs::read_to_string(srv.root.join("figures_index.html")).unwrap();
+    assert!(index.contains("http-smoke"), "index must carry ATELIER_BUNDLE_HASH as asset revision");
+}
+
+#[test]
+fn commitmsg_is_a_get_route_like_the_client_calls_it() {
+    let srv = start_server();
+    // fixture sans repo git → soft-fail {ok:false}, mais JAMAIS un 405 :
+    // diff_versions.js appelle fetch("/commitmsg?path=…") en GET
+    let (st, body) = http(srv.port, "GET", "/commitmsg?path=script.py", None);
+    assert_eq!(st, 200, "{body}");
+    assert!(body.contains("\"ok\":false") || body.contains("\"ok\": false"), "{body}");
+}
+
+#[test]
+fn latex_suggest_warm_roundtrip_empty_and_normalized() {
+    // faux CLI `claude` : un result stream-json par ligne reçue sur stdin —
+    // exerce le process chaud réel (boot, tour, normalisation) sans réseau
+    let fake_dir = std::env::temp_dir().join(format!(
+        "fake-claude-{}-{}",
+        std::process::id(),
+        FIXTURE_SEQUENCE.fetch_add(1, Ordering::Relaxed),
+    ));
+    fs::create_dir_all(&fake_dir).unwrap();
+    let script = fake_dir.join("claude");
+    fs::write(
+        &script,
+        "#!/bin/sh\nwhile IFS= read -r line; do\n  printf '%s\\n' '{\"type\":\"result\",\"subtype\":\"success\",\"result\":\"`la suite  logique`\"}'\ndone\n",
+    )
+    .unwrap();
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        fs::set_permissions(&script, fs::Permissions::from_mode(0o755)).unwrap();
+    }
+    let path_env = format!(
+        "{}:{}",
+        fake_dir.display(),
+        std::env::var("PATH").unwrap_or_default()
+    );
+    let srv = start_server_with(&[("PATH", path_env)]);
+
+    // before vide → réponse locale, aucun process lancé
+    let (st, body) = http(
+        srv.port,
+        "POST",
+        "/latex-suggest",
+        Some(r#"{"before":"   ","after":""}"#),
+    );
+    assert_eq!(st, 200, "{body}");
+    assert!(body.contains("\"source\":\"empty\""), "{body}");
+
+    // tour chaud : réponse du faux CLI, normalisée (backticks et espaces doublés retirés)
+    let (st, body) = http(
+        srv.port,
+        "POST",
+        "/latex-suggest",
+        Some(r#"{"before":"Le glacier ","after":" fond."}"#),
+    );
+    assert_eq!(st, 200, "{body}");
+    assert!(body.contains("\"ok\":true"), "{body}");
+    assert!(body.contains("la suite logique"), "{body}");
+    assert!(!body.contains('`'), "{body}");
+    assert!(body.contains("\"model\":\"haiku\""), "{body}");
+
+    let _ = fs::remove_dir_all(&fake_dir);
 }

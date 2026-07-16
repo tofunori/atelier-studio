@@ -104,7 +104,7 @@ const fr = {
   "action.add-to-chat": "Ajouter au chat",
   "action.ask-default": "Ask (default)",
   "action.attach-file": "Ajouter un fichier",
-  "action.cancel": "Cancel",
+  "action.cancel": "Annuler",
   "action.clear": "Vider",
   "action.close": "Fermer",
   "action.close-active-terminal": "Fermer le terminal actif",

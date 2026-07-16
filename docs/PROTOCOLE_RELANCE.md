@@ -10,7 +10,9 @@ du vieux code et font croire que le fix « ne marche pas ».
   Son process s'appelle **`tauri-app`** (PAS « Atelier ») → `pkill -x Atelier` ne matche jamais.
 - 3 familles de process : l'app (`tauri-app`), le **sidecar chat** (défaut R10+ :
   `Resources/rust-server/atelier-studio-server` ; soak Node si `ATELIER_BACKEND=node`),
-  les **serveurs galerie** (`node …/server/main.mjs`, un par projet — zombies si non tués).
+  les **serveurs galerie** (défaut 2026-07-16 : `atelier-gallery-server` Rust, un par
+  projet ; soak Node `node …/server/main.mjs` si `ATELIER_GALLERY_BACKEND=node` —
+  zombies si non tués, dans les DEUX variantes).
 - `npm run tauri dev` ne survit PAS lancé par un agent (reaping du harness).
   Seul Thierry le lance depuis son terminal. Les agents utilisent le BUILD.
 - Vite dev sert `src/` en direct, mais l'app buildée fige tout au build :
@@ -38,6 +40,7 @@ pkill -9 -f "Resources/sidecar/index.mjs"
 pkill -9 -f "sidecar/index.mjs"
 pkill -9 -f "atelier-studio-server"
 pkill -9 -f "Resources/rust-server/atelier-studio-server"
+pkill -9 -f "atelier-gallery-server"
 for p in $(lsof -nP -iTCP -sTCP:LISTEN 2>/dev/null | grep node | awk '{print $2}' | sort -u); do
   case "$(ps -p $p -o command= 2>/dev/null)" in *"server/main.mjs"*) kill -9 $p;; esac
 done

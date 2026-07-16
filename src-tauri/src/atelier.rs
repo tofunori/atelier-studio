@@ -116,6 +116,20 @@ fn resolve_gallery_rust_bin(app: &tauri::AppHandle) -> Result<PathBuf, String> {
             p.display()
         ));
     }
+    // Le binaire STAGÉ du bundle prime sur les builds du repo : une app release
+    // qui préférerait rust/target/debug servirait du vieux code dès que le repo
+    // n'est pas recompilé (piège « je ne vois pas mon changement »). En dev
+    // (tauri dev), le bundle n'a pas ce binaire → fallback repo ci-dessous.
+    if let Ok(resource_dir) = app.path().resource_dir() {
+        for staged in [
+            resource_dir.join("rust-server/atelier-gallery-server"),
+            resource_dir.join("atelier-gallery-server"),
+        ] {
+            if staged.is_file() {
+                return Ok(staged);
+            }
+        }
+    }
     let candidates = [
         std::env::current_dir()
             .ok()
@@ -139,16 +153,6 @@ fn resolve_gallery_rust_bin(app: &tauri::AppHandle) -> Result<PathBuf, String> {
     for c in candidates.into_iter().flatten() {
         if c.is_file() {
             return Ok(c);
-        }
-    }
-    let resource_dir = app.path().resource_dir().map_err(|e| e.to_string())?;
-    // binaire stagé avec les autres serveurs Rust (scripts/stage-rust-server.sh)
-    for candidate in [
-        resource_dir.join("rust-server/atelier-gallery-server"),
-        resource_dir.join("atelier-gallery-server"),
-    ] {
-        if candidate.is_file() {
-            return Ok(candidate);
         }
     }
     Err(

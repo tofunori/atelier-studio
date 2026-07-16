@@ -788,10 +788,12 @@ pub async fn gitshow(
     (StatusCode::OK, Json(json!({"ok": true, "text": text}))).into_response()
 }
 
+// GET + query — le client (`diff_versions.js`) appelle `fetch("/commitmsg?path=…")`;
+// un extracteur body ici rendrait le bouton « msg de commit IA » muet (405).
 pub async fn commitmsg(
     State(state): State<AppState>,
     headers: HeaderMap,
-    Json(query): Json<PathQuery>,
+    Query(query): Query<PathQuery>,
 ) -> impl IntoResponse {
     if !request_allowed(&headers, &state) {
         return json_error(StatusCode::FORBIDDEN, "cross-origin blocked");

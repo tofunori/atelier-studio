@@ -710,14 +710,23 @@ html, body, #root, .app { height: 100vh; overflow: hidden;
 }
 .msg-time { font-size: var(--fs-s); }
 .edit-box-shell { width: 100%; padding: 1px; align-self: stretch; }
+/* La boîte d'édition remplace la bulle user EN PLACE : même géométrie que
+   .user-bubble (rayon = même token que tw:rounded-2xl, texte 12px/8px,
+   interligne 1.55) — jamais de pilule (--r-pill) sur un conteneur
+   multi-lignes, les courbes mangent le texte. Un seul scroll : le textarea. */
 .edit-box { position: relative; width: 100%; display: flex; flex-direction: column;
-  border-radius: var(--r-pill); background: var(--secondary); color: var(--secondary-foreground); }
-.edit-message-body { flex: 1; min-height: 0; margin-bottom: 8px; padding: 12px 12px 0;
-  overflow-y: auto; }
+  border-radius: var(--tw-radius-2xl, 16px);
+  background: var(--secondary); color: var(--secondary-foreground); }
+.edit-message-body { flex: 1; min-height: 0; padding: 8px 12px 0; margin-bottom: 8px; }
 .edit-message-textarea { overflow-y: auto; font-family: inherit;
   font-size: var(--chat-fs, var(--fs-xl)); font-weight: inherit;
   letter-spacing: inherit; line-height: 1.55; }
-.edit-actions { display: flex; justify-content: flex-end; gap: 6px; padding: 0 12px 12px; }
+.edit-message-textarea::-webkit-scrollbar { width: 8px; }
+.edit-message-textarea::-webkit-scrollbar-track { background: transparent; }
+.edit-message-textarea::-webkit-scrollbar-thumb { background: var(--muted2);
+  border-radius: var(--r-pill); border: 2px solid transparent; background-clip: padding-box; }
+.edit-message-textarea::-webkit-scrollbar-thumb:hover { background: var(--muted); }
+.edit-actions { display: flex; justify-content: flex-end; gap: 8px; padding: 0 8px 8px; }
 
 .quote-pill { display: inline-flex; align-items: center; }
 .tool-tick { color: var(--muted2); }

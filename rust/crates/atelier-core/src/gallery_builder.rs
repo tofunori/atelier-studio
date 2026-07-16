@@ -51,6 +51,10 @@ pub struct GalleryBuildOptions {
     pub extensions: Option<BTreeSet<String>>,
     pub show_frames: bool,
     pub no_thumbs: bool,
+    /// Révision `?v=` des assets UI de la coquille. Le serveur passe son
+    /// BUNDLE_HASH pour qu'une mise à jour d'app invalide le cache navigateur
+    /// (parité Node `ver: BUNDLE_HASH`) ; None = timestamp du build.
+    pub version_tag: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -452,7 +456,11 @@ pub fn build(options: &GalleryBuildOptions) -> Result<GalleryBuildResult, CoreEr
     let favs = favorites(&root);
     let now = Local::now();
     let generated = now.format("%Y-%m-%d %H:%M").to_string();
-    let version = now.timestamp().to_string();
+    let version = options
+        .version_tag
+        .clone()
+        .filter(|tag| !tag.is_empty())
+        .unwrap_or_else(|| now.timestamp().to_string());
     let wordmark = html_escape(if options.title.is_empty() {
         "Atelier"
     } else {
@@ -555,6 +563,7 @@ mod tests {
         )
         .unwrap();
         let result = build(&GalleryBuildOptions {
+            version_tag: None,
             root: root.clone(),
             template,
             title: "Atelier".into(),
