@@ -86,7 +86,7 @@ describe("anatomie du tour — header d'activité", () => {
       .toContain(t("tools.summary.exploration-n").toLowerCase());
   });
 
-  it("tour actif : regroupe recherche et lecture sans narration intermédiaire", () => {
+  it("tour actif : remplace la recherche précédente par la lecture courante", () => {
     const evs: AgentEvent[] = [
       events.user("Inspecte puis corrige.", FIXED_TS),
       { kind: "tool", name: "__thinking" },
@@ -94,7 +94,7 @@ describe("anatomie du tour — header d'activité", () => {
       { kind: "thinking_live", text: "Running: Je confirme le chemin utile.", ts: FIXED_TS + 75 },
       events.tool({ id: "search-1", name: "Bash", detail: "rg -n albedo src", input: { command: "rg -n albedo src" } }),
       { kind: "tool", name: "__thinking" },
-      events.tool({ id: "read-1", name: "Bash", detail: "cat src/albedo.ts", input: { command: "cat src/albedo.ts" } }),
+      events.tool({ id: "read-1", name: "Bash", detail: "cat src/albedo.ts", status: "inProgress", input: { command: "cat src/albedo.ts" } }),
     ];
     renderUi(<Chat {...chatProps({ events: evs, workingSince: FIXED_TS })} />);
 
@@ -111,12 +111,12 @@ describe("anatomie du tour — header d'activité", () => {
     const activity = document.querySelector(".active-turn-tail .ui-activity-trigger") as HTMLButtonElement;
     expect(activity.textContent).toContain("Lit albedo.ts");
     expect(activity.querySelector("[data-activity-icon='read']")).toBeTruthy();
-    expect(activity.querySelector(".ui-activity-label.is-shimmering")).toBeNull();
+    expect(activity.querySelector(".ui-activity-label.is-shimmering")).toBeTruthy();
     expect(screen.queryByText("Bash")).toBeNull();
     fireEvent.click(activity);
     expect(document.querySelectorAll(".reasoning-trace")).toHaveLength(0);
     expect(screen.queryByText("Je confirme le chemin utile.")).toBeNull();
-    expect(screen.getAllByText("Bash")).toHaveLength(2);
+    expect(screen.getAllByText("Bash")).toHaveLength(1);
   });
 
   it("rend statique une commande running fermée par une narration plus récente", () => {
@@ -158,13 +158,14 @@ describe("anatomie du tour — header d'activité", () => {
     expect(tail.textContent).not.toContain("3 actions");
   });
 
-  it("tour actif : consolide huit actions dans une seule activité dépliable", () => {
+  it("tour actif : n'affiche que l'action courante dans le slot vivant", () => {
     const evs: AgentEvent[] = [
       events.user("Inspecte.", FIXED_TS),
       ...Array.from({ length: 8 }, (_, index) => events.tool({
         id: `tool-${index}`,
         name: "Read",
         detail: `file-${index}.ts`,
+        status: index === 7 ? "inProgress" : "completed",
       })),
     ];
     renderUi(<Chat {...chatProps({ events: evs, workingSince: FIXED_TS })} />);
@@ -172,9 +173,36 @@ describe("anatomie du tour — header d'activité", () => {
     const activity = document.querySelector(".active-turn-tail .ui-activity") as HTMLElement;
     expect(activity).toBeTruthy();
     expect(document.querySelectorAll(".active-turn-tail .ui-activity")).toHaveLength(1);
-    expect(activity.textContent).toContain(t("chat.active-action-n", { n: 8 }));
+    expect(activity.textContent).toContain("file-7.ts");
+    expect(activity.textContent).not.toContain(t("chat.active-action-n", { n: 8 }));
     fireEvent.click(activity.querySelector(".ui-activity-trigger") as HTMLButtonElement);
-    expect(document.querySelectorAll(".active-work-detail .tool-output")).toHaveLength(8);
+    expect(document.querySelectorAll(".active-work-detail .tool-output")).toHaveLength(1);
+  });
+
+  it("remplace Read par Thinking dans exactement le même slot sans ligne dupliquée", () => {
+    const read: AgentEvent[] = [
+      events.user("Inspecte.", FIXED_TS),
+      events.tool({ id: "read", name: "Read", detail: "src/App.tsx", status: "inProgress" }),
+    ];
+    const view = renderUi(<Chat {...chatProps({ events: read, workingSince: FIXED_TS })} />);
+    const initialTail = document.querySelector(".active-turn-tail") as HTMLElement;
+    expect(initialTail.querySelector("[data-activity-icon='read']")).toBeTruthy();
+    expect(initialTail.querySelector(".ui-activity-label.is-shimmering")).toBeTruthy();
+    expect(initialTail.querySelector(".thinking-shimmer")).toBeNull();
+
+    const thinking: AgentEvent[] = [
+      events.user("Inspecte.", FIXED_TS),
+      events.tool({ id: "read", name: "Read", detail: "src/App.tsx", status: "completed" }),
+      { kind: "tool", name: "__thinking" },
+    ];
+    view.rerender(<Chat {...chatProps({ events: thinking, workingSince: FIXED_TS })} />);
+
+    const updatedTail = document.querySelector(".active-turn-tail") as HTMLElement;
+    expect(updatedTail).toBe(initialTail);
+    expect(document.querySelectorAll(".active-turn-tail")).toHaveLength(1);
+    expect(updatedTail.querySelector(".ui-activity")).toBeNull();
+    expect(updatedTail.querySelector(".thinking-shimmer")).toBeTruthy();
+    expect(document.querySelectorAll(".timeline-virtual-row .ui-activity:not(.is-summary)")).toHaveLength(0);
   });
 
   it("tour actif : l'icône suit l'appel réellement en cours, pas les actions précédentes", () => {
@@ -329,7 +357,7 @@ describe("anatomie du tour — header d'activité", () => {
       events.user("Améliore la figure.", FIXED_TS),
       { kind: "tool_update", id: "edit-1", name: "Edit", output: "", status: "completed", durationMs: 117 },
       { kind: "edit", files: [{ path: "scripts/plot.py", add: 2, del: 1 }] },
-      { kind: "tool_update", id: "edit-2", name: "Edit", output: "", status: "completed", durationMs: 140 },
+      { kind: "tool_update", id: "edit-2", name: "Edit", output: "", status: "inProgress", durationMs: 140 },
       { kind: "edit", files: [{ path: "scripts/plot.py", add: 3, del: 2 }] },
     ] as AgentEvent[];
     renderUi(<Chat {...chatProps({ events: evs, workingSince: FIXED_TS })} />);
@@ -341,7 +369,7 @@ describe("anatomie du tour — header d'activité", () => {
     const activity = document.querySelector(".ui-activity:not(.is-summary)") as HTMLElement;
     expect(activity.textContent).toContain(t("chat.activity-editing"));
     expect(activity.querySelector("[data-activity-icon='edit']")).toBeTruthy();
-    expect(activity.querySelector(".ui-activity-label.is-shimmering")).toBeNull();
+    expect(activity.querySelector(".ui-activity-label.is-shimmering")).toBeTruthy();
   });
 
   it("ouvre un fichier édité dans l'IDE avec le diff exact du tour", () => {

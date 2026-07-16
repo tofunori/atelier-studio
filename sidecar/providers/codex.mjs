@@ -417,6 +417,23 @@ function goalCommandName(item) {
   return cmd.length > 64 ? cmd.slice(0, 64) + "…" : cmd;
 }
 
+function goalWebSearchUpdate(item, status) {
+  return {
+    kind: "tool_update", id: item.id ?? "web-search", name: "web_search",
+    output: "", status, detail: String(item.query ?? ""),
+    input: { query: item.query ?? "", action: item.action ?? null }, source: "codex",
+  };
+}
+
+function goalImageGenerationUpdate(item, status) {
+  return {
+    kind: "tool_update", id: item.id ?? "image-generation", name: "image_generation",
+    output: item.savedPath ?? item.result ?? "", status,
+    detail: item.revisedPrompt ?? undefined,
+    input: { revisedPrompt: item.revisedPrompt ?? null }, source: "codex",
+  };
+}
+
 /** Mapping pur (testé) : (method, params, state) → AgentEvents à émettre.
  * `state.streamText` est muté ; `state.turn` porte le nativeTurnId courant. */
 export function mapGoalTurnNotification(method, params, state) {
@@ -430,15 +447,25 @@ export function mapGoalTurnNotification(method, params, state) {
   if (method === "item/started") {
     if (item.type === "reasoning") events.push({ kind: "tool", name: "__thinking" });
     if (item.type === "webSearch") {
-      events.push({ kind: "tool", name: `recherche web : ${String(item.query ?? "").slice(0, 50)}` });
+      events.push(goalWebSearchUpdate(item, "inProgress"));
     }
     if (item.type === "commandExecution") {
       events.push({
         kind: "tool_update", id: item.id, name: "Bash",
         ...boundToolOutput(item.aggregatedOutput ?? ""),
         status: item.status ?? "inProgress", detail: goalCommandName(item),
-        input: { command: item.command ?? "", cwd: item.cwd ?? null }, source: "codex",
+        input: {
+          command: item.command ?? "", cwd: item.cwd ?? null,
+          source: item.source ?? null, commandActions: item.commandActions ?? [],
+        }, source: "codex",
       });
+    }
+    if (item.type === "imageGeneration") events.push(goalImageGenerationUpdate(item, item.status ?? "inProgress"));
+    if (item.type === "sleep") {
+      events.push({ kind: "tool_update", id: item.id ?? "sleep", name: "sleep", output: "", status: "inProgress", source: "codex" });
+    }
+    if (item.type === "contextCompaction") {
+      events.push({ kind: "tool_update", id: item.id ?? "__compacted", name: "__compacted", output: "", status: "inProgress", source: "codex" });
     }
   }
   if (method === "item/agentMessage/delta") {
@@ -461,7 +488,10 @@ export function mapGoalTurnNotification(method, params, state) {
         status: item.status ?? "completed",
         ...(item.exitCode != null ? { exitCode: item.exitCode } : {}),
         detail: goalCommandName(item),
-        input: { command: item.command ?? "", cwd: item.cwd ?? null }, source: "codex",
+        input: {
+          command: item.command ?? "", cwd: item.cwd ?? null,
+          source: item.source ?? null, commandActions: item.commandActions ?? [],
+        }, source: "codex",
       });
     }
     if (item.type === "fileChange") {
@@ -481,6 +511,14 @@ export function mapGoalTurnNotification(method, params, state) {
         name: [item.server, item.tool].filter(Boolean).join("/") || "mcp",
         ...boundToolOutput(raw), status: item.status ?? "completed", source: "mcp",
       });
+    }
+    if (item.type === "webSearch") events.push(goalWebSearchUpdate(item, "completed"));
+    if (item.type === "imageGeneration") events.push(goalImageGenerationUpdate(item, item.status ?? "completed"));
+    if (item.type === "sleep") {
+      events.push({ kind: "tool_update", id: item.id ?? "sleep", name: "sleep", output: "", status: "completed", source: "codex" });
+    }
+    if (item.type === "contextCompaction") {
+      events.push({ kind: "tool_update", id: item.id ?? "__compacted", name: "__compacted", output: "", status: "completed", source: "codex" });
     }
   }
   if (method === "turn/completed") {
@@ -963,6 +1001,40 @@ export async function run({
       ...(patch.ephemeral ? { __ephemeral: true } : {}),
     });
   };
+  const emitWebSearchUpdate = (item, status) => {
+    onEvent({
+      kind: "tool_update",
+      id: item.id ?? "web-search",
+      name: "web_search",
+      output: "",
+      status,
+      detail: String(item.query ?? ""),
+      input: { query: item.query ?? "", action: item.action ?? null },
+      source: "codex",
+    });
+  };
+  const emitImageGenerationUpdate = (item, status) => {
+    onEvent({
+      kind: "tool_update",
+      id: item.id ?? "image-generation",
+      name: "image_generation",
+      output: item.savedPath ?? item.result ?? "",
+      status,
+      detail: item.revisedPrompt ?? undefined,
+      input: { revisedPrompt: item.revisedPrompt ?? null },
+      source: "codex",
+    });
+  };
+  const emitSimpleActivity = (item, name, status) => {
+    onEvent({
+      kind: "tool_update",
+      id: item.id ?? name,
+      name,
+      output: "",
+      status,
+      source: "codex",
+    });
+  };
   const fileChangeMeta = new Map(); // itemId -> dernier patch reçu
   const mcpMeta = new Map(); // itemId -> dernier état MCP connu
   const dynamicToolMeta = new Map(); // itemId -> dernier état dynamicToolCall connu
@@ -1043,18 +1115,51 @@ export async function run({
   };
   const collabToolName = (item) => `agent:${String(item.tool ?? "collab")}`;
   const emitCollabToolUpdate = (item) => {
+    const receiverThreadIds = item.receiverThreadIds ?? [];
+    const agentsStates = item.agentsStates ?? {};
     onEvent({
       kind: "tool_update",
       id: item.id ?? collabToolName(item),
       name: collabToolName(item),
       output: jsonText({
-        receiverThreadIds: item.receiverThreadIds ?? [],
-        agentsStates: item.agentsStates ?? {},
+        receiverThreadIds,
+        agentsStates,
       }),
       status: item.status,
       detail: item.model ? `${item.model}${item.reasoningEffort ? ` · ${item.reasoningEffort}` : ""}` : undefined,
       input: { prompt: item.prompt, model: item.model, reasoningEffort: item.reasoningEffort },
       source: "codex",
+      agentActivity: {
+        tool: item.tool ?? "collab",
+        senderThreadId: item.senderThreadId ?? null,
+        receiverThreadIds,
+        agentsStates,
+        prompt: item.prompt ?? null,
+        model: item.model ?? null,
+        reasoningEffort: item.reasoningEffort ?? null,
+      },
+    });
+  };
+  const emitSubagentActivity = (item) => {
+    const threadId = String(item.agentThreadId ?? "unknown");
+    const interrupted = item.kind === "interrupted";
+    onEvent({
+      kind: "tool_update",
+      id: item.id ?? `subagent:${threadId}:${item.kind ?? "started"}`,
+      name: "agent:activity",
+      output: "",
+      status: interrupted ? "completed" : "inProgress",
+      source: "codex",
+      agentActivity: {
+        tool: "activity",
+        receiverThreadIds: [threadId],
+        agentsStates: {
+          [threadId]: { status: interrupted ? "interrupted" : "running", message: null },
+        },
+        agentThreadId: threadId,
+        agentPath: item.agentPath ?? null,
+        activityKind: item.kind ?? "started",
+      },
     });
   };
   const approvalDecision = (result) => String(result?.decision ?? "");
@@ -1119,7 +1224,7 @@ export async function run({
           emitTool("__thinking");
         }
         if (item.type === "webSearch") {
-          emitTool(`recherche web : ${String(item.query ?? "").slice(0, 50)}`);
+          emitWebSearchUpdate(item, "inProgress");
         }
         if (item.type === "fileChange") {
           fileChangeMeta.set(item.id, item);
@@ -1139,11 +1244,17 @@ export async function run({
           emitTool(collabToolName(item));
           emitCollabToolUpdate(item);
         }
+        if (item.type === "subAgentActivity") {
+          emitSubagentActivity(item);
+        }
         if (item.type === "imageGeneration") {
-          emitTool("image_generation");
+          emitImageGenerationUpdate(item, item.status ?? "inProgress");
         }
         if (item.type === "sleep") {
-          emitTool("sleep");
+          emitSimpleActivity(item, "sleep", "inProgress");
+        }
+        if (item.type === "contextCompaction") {
+          emitSimpleActivity(item, "__compacted", "inProgress");
         }
         if (item.type === "imageView") {
           onEvent(imageViewEvent(item));
@@ -1170,6 +1281,12 @@ export async function run({
         if (item.type === "mcpToolCall") {
           mcpMeta.set(item.id, { ...(mcpMeta.get(item.id) ?? {}), ...item });
           emitMcpUpdate(mcpMeta.get(item.id));
+        }
+        if (item.type === "collabAgentToolCall") {
+          emitCollabToolUpdate(item);
+        }
+        if (item.type === "subAgentActivity") {
+          emitSubagentActivity(item);
         }
         break;
       }
@@ -1250,17 +1367,20 @@ export async function run({
         if (item.type === "collabAgentToolCall") {
           emitCollabToolUpdate(item);
         }
+        if (item.type === "subAgentActivity") {
+          emitSubagentActivity(item);
+        }
         if (item.type === "imageGeneration") {
-          onEvent({
-            kind: "tool_update",
-            id: item.id ?? "imageGeneration",
-            name: "image_generation",
-            output: item.savedPath ?? item.result ?? "",
-            status: item.status,
-            detail: item.revisedPrompt ?? undefined,
-            input: { revisedPrompt: item.revisedPrompt },
-            source: "codex",
-          });
+          emitImageGenerationUpdate(item, item.status ?? "completed");
+        }
+        if (item.type === "webSearch") {
+          emitWebSearchUpdate(item, "completed");
+        }
+        if (item.type === "sleep") {
+          emitSimpleActivity(item, "sleep", "completed");
+        }
+        if (item.type === "contextCompaction") {
+          emitSimpleActivity(item, "__compacted", "completed");
         }
         break;
       }

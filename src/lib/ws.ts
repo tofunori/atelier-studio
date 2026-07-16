@@ -88,6 +88,20 @@ type AgentEventBody =
       truncated?: boolean;
       outputLength?: number;
       durationMs?: number;
+      /** Activité multi-agent native Codex. Ces champs restent structurés afin
+       * que le transcript puisse grouper les agents et suivre leur état. */
+      agentActivity?: {
+        tool: string;
+        senderThreadId?: string | null;
+        receiverThreadIds: string[];
+        agentsStates: Record<string, { status: string; message?: string | null }>;
+        prompt?: string | null;
+        model?: string | null;
+        reasoningEffort?: string | null;
+        agentThreadId?: string | null;
+        agentPath?: string | null;
+        activityKind?: "started" | "interacted" | "interrupted" | string;
+      };
       ts?: number;
     }
   | { kind: "usage"; usage: { context: number | null; output: number | null; cost: number | null; turns: number | null }; ts?: number }

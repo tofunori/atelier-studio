@@ -2,7 +2,7 @@
 // composer. Monté par main.tsx sur #chatbench[-état][-light] ; jamais dans le
 // parcours normal (chunk lazy). Rend le VRAI composant Chat avec des fixtures
 // figées : aucun sidecar requis.
-// États : rich (défaut) · running · stream · thinking · error · contexts · markdown.
+// États : rich (défaut) · running · stream · activityparity · slottransition · thinking · agents · error · contexts · markdown.
 import { useEffect } from "react";
 import "../styles/tokens.css";
 import "../styles/typeset.css";
@@ -89,6 +89,40 @@ const STREAM: AgentEvent[] = [
   } as AgentEvent,
 ];
 
+const ACTIVITY_PARITY: AgentEvent[] = [
+  { kind: "user", text: "Lis le composant puis génère une visualisation de contrôle.", ts: ts(36) } as AgentEvent,
+  { kind: "text", text: "Je vérifie d’abord l’état réel du composant et ses tests.", ts: ts(34) } as AgentEvent,
+  {
+    kind: "tool_update", id: "parity-read", name: "Bash", detail: "pwd && sed -n '1,160p' src/components/Chat.tsx",
+    output: "", status: "completed", source: "codex", ts: ts(31),
+    input: {
+      command: "pwd && sed -n '1,160p' src/components/Chat.tsx",
+      commandActions: [
+        { type: "unknown", command: "pwd" },
+        { type: "read", command: "sed -n '1,160p' src/components/Chat.tsx", name: "Chat.tsx", path: "/repo/src/components/Chat.tsx" },
+      ],
+    },
+  } as AgentEvent,
+  { kind: "text", text: "La lecture confirme le chemin de rendu. Je produis maintenant l’aperçu demandé.", ts: ts(25) } as AgentEvent,
+  {
+    kind: "tool_update", id: "parity-image", name: "image_generation", detail: "Scientific activity timeline",
+    output: "", status: "inProgress", source: "codex", ts: ts(4),
+    input: { revisedPrompt: "Scientific activity timeline" },
+  } as AgentEvent,
+  { kind: "thinking_live", text: "Je prépare aussi le libellé final.", ts: ts(2) } as AgentEvent,
+];
+
+const SLOT_TRANSITION: AgentEvent[] = [
+  { kind: "user", text: "Lis le composant puis poursuis l’analyse.", ts: ts(24) } as AgentEvent,
+  { kind: "text", text: "Je vérifie le composant concerné.", ts: ts(22) } as AgentEvent,
+  {
+    kind: "tool_update", id: "slot-read", name: "Read", detail: "src/components/Chat.tsx",
+    output: "", status: "completed", source: "codex", ts: ts(8),
+    input: { file_path: "src/components/Chat.tsx" },
+  } as AgentEvent,
+  { kind: "tool", name: "__thinking" } as AgentEvent,
+];
+
 const IMAGE_VIEW: AgentEvent[] = [
   { kind: "user", text: "Inspecte cette capture.", ts: ts(20) } as AgentEvent,
   {
@@ -98,6 +132,32 @@ const IMAGE_VIEW: AgentEvent[] = [
     },
     source: "codex", ts: ts(10),
   } as AgentEvent,
+];
+
+const AGENTS: AgentEvent[] = [
+  { kind: "user", text: "/recherche Trouve les meilleures pratiques pour nos figures scientifiques.", ts: ts(32) } as AgentEvent,
+  { kind: "text", text: "Je sépare la recherche éditoriale, la télédétection et la pile Python, puis je recoupe les résultats.", ts: ts(30) } as AgentEvent,
+  {
+    kind: "tool_update", id: "spawn-editorial", name: "agent:spawnAgent", output: "", status: "completed", source: "codex",
+    agentActivity: { tool: "spawnAgent", receiverThreadIds: ["agent-editorial"], agentsStates: { "agent-editorial": { status: "running", message: null } }, prompt: "Review editorial figure guidelines", model: "gpt-5.6-codex", reasoningEffort: "high" },
+    ts: ts(28),
+  } as AgentEvent,
+  {
+    kind: "tool_update", id: "activity-editorial", name: "agent:activity", output: "", status: "inProgress", source: "codex",
+    agentActivity: { tool: "activity", receiverThreadIds: ["agent-editorial"], agentsStates: { "agent-editorial": { status: "running", message: null } }, agentThreadId: "agent-editorial", agentPath: "/root/editorial", activityKind: "started" },
+    ts: ts(27),
+  } as AgentEvent,
+  {
+    kind: "tool_update", id: "spawn-remote", name: "agent:spawnAgent", output: "", status: "completed", source: "codex",
+    agentActivity: { tool: "spawnAgent", receiverThreadIds: ["agent-remote"], agentsStates: { "agent-remote": { status: "running", message: null } }, prompt: "Review remote sensing figure design", model: "gpt-5.6-codex", reasoningEffort: "high" },
+    ts: ts(26),
+  } as AgentEvent,
+  {
+    kind: "tool_update", id: "activity-remote", name: "agent:activity", output: "", status: "inProgress", source: "codex",
+    agentActivity: { tool: "activity", receiverThreadIds: ["agent-remote"], agentsStates: { "agent-remote": { status: "running", message: null } }, agentThreadId: "agent-remote", agentPath: "/root/remote_sensing", activityKind: "started" },
+    ts: ts(25),
+  } as AgentEvent,
+  { kind: "tool", name: "__thinking" } as AgentEvent,
 ];
 
 const ERROR: AgentEvent[] = [
@@ -182,8 +242,11 @@ const STATES: Record<string, BenchState> = {
   rich: { events: RICH, workingSince: null, attachments: [], usage: { context: 84200, output: 8120, cost: 0.42, turns: 3 } },
   running: { events: RUNNING, workingSince: ts(272), attachments: [], usage: { context: 21000, output: 300, cost: null, turns: 1 } },
   stream: { events: STREAM, workingSince: ts(30), attachments: [], usage: { context: 18500, output: 420, cost: null, turns: 1 } },
+  activityparity: { events: ACTIVITY_PARITY, workingSince: ts(36), attachments: [], usage: { context: 16200, output: 280, cost: null, turns: 1 } },
+  slottransition: { events: SLOT_TRANSITION, workingSince: ts(24), attachments: [], usage: { context: 15100, output: 210, cost: null, turns: 1 } },
   thinking: { events: THINKING, workingSince: ts(20), attachments: [], usage: { context: 14000, output: 0, cost: null, turns: 1 } },
   image: { events: IMAGE_VIEW, workingSince: ts(20), attachments: [], usage: { context: 14000, output: 0, cost: null, turns: 1 } },
+  agents: { events: AGENTS, workingSince: ts(32), attachments: [], usage: { context: 22000, output: 420, cost: null, turns: 1 } },
   error: { events: ERROR, workingSince: null, attachments: [], usage: null },
   contexts: { events: MARKDOWN.slice(0, 1), workingSince: null, attachments: CONTEXTS_ATTACHMENTS, usage: null },
   markdown: { events: MARKDOWN, workingSince: null, attachments: [], usage: null },
@@ -233,7 +296,7 @@ export function ChatBench() {
         onQuote={noop}
         threadId="bench-thread"
         threadTitle="Validation W&M — régions ouest"
-        threadProvider={key === "goal" ? "codex" : "claude"}
+        threadProvider={key === "goal" || key === "agents" ? "codex" : "claude"}
         onPasteImage={noop} onPasteText={noop} onStop={noop}
         layout="chat" onToggleExpand={noop}
         usage={st.usage}

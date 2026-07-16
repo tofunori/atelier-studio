@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { cleanup, render } from "@testing-library/react";
+import { cleanup, render, screen } from "@testing-library/react";
 import AtelierPane, { relFromTabUrl } from "./AtelierPane";
 
 vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn().mockResolvedValue({}) }));
@@ -86,5 +86,51 @@ describe("AtelierPane", () => {
     expect(container.querySelector('.gallery-skeleton-toolbar')).toBeInTheDocument();
     expect(container.querySelector('.gallery-skeleton-subbar')).toBeInTheDocument();
     expect(container.querySelectorAll('[data-slot="skeleton"]').length).toBeGreaterThan(10);
+  });
+
+  it("rend le sous-agent dans un onglet Atelier avec les primitives shadcn", () => {
+    const onCloseAgent = vi.fn();
+    const { container } = render(
+      <AtelierPane
+        url="http://127.0.0.1:18790/"
+        projectRoot="/tmp/projet"
+        activeThreadId="parent"
+        ws={null}
+        files={[]}
+        onOpenFile={() => {}}
+        onPinTab={() => {}}
+        onColorTab={() => {}}
+        onReorderTabs={() => {}}
+        tabs={[]}
+        activeTab="agent:editorial"
+        onSelectTab={() => {}}
+        onCloseTab={() => {}}
+        reloadKey={0}
+        showExplorer={false}
+        recentFiles={[]}
+        onOpenExplorer={() => {}}
+        layout="split"
+        onToggleExpand={() => {}}
+        agent={{
+          threadId: "editorial",
+          displayName: "Editorial",
+          status: "working",
+          statusMessage: null,
+          prompt: "Review editorial figure guidelines",
+          model: "gpt-5.6-codex",
+          reasoningEffort: "high",
+          agentPath: "/root/editorial",
+        }}
+        agentEvents={[{ kind: "text", text: "Child message visible in the panel" }]}
+        onCloseAgent={onCloseAgent}
+      />,
+    );
+
+    expect(screen.getByRole("complementary", { name: "Editorial" })).toBeInTheDocument();
+    expect(screen.getByText("Review editorial figure guidelines")).toBeInTheDocument();
+    expect(container.querySelector('[data-slot="scroll-area"]')).toBeInTheDocument();
+    expect(container.querySelector('[data-slot="badge"]')).toBeInTheDocument();
+    expect(container.querySelector('[data-slot="separator"]')).toBeInTheDocument();
+    expect(screen.getByTestId("agent-transcript")).toHaveTextContent("Child message visible in the panel");
   });
 });

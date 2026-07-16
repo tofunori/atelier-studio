@@ -28,6 +28,7 @@ pub const ALL_MESSAGE_TYPES: &[&str] = &[
     "moveThread",
     "deleteThread",
     "getHistory",
+    "getAgentHistory",
     "listHighlights",
     "addHighlight",
     "removeHighlight",
@@ -232,6 +233,31 @@ pub async fn route_ws(state: &AppState, text: &str) -> Vec<String> {
             vec![json_msg(json!({
                 "type": "history",
                 "threadId": id,
+                "events": events,
+            }))]
+        }
+        // Chaque sous-agent Codex a son propre rollout. Le panneau Atelier
+        // demande ce transcript directement, sans dupliquer le prompt parent.
+        "getAgentHistory" => {
+            let agent_thread_id = msg
+                .get("agentThreadId")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
+            let parent_thread_id = msg
+                .get("parentThreadId")
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
+            let events = tokio::task::spawn_blocking(move || load_codex_history(&agent_thread_id))
+                .await
+                .unwrap_or_default()
+                .into_iter()
+                .filter(|event| event.get("kind").and_then(|v| v.as_str()) != Some("user"))
+                .collect::<Vec<_>>();
+            vec![json_msg(json!({
+                "type": "agentHistory",
+                "parentThreadId": parent_thread_id,
+                "agentThreadId": msg.get("agentThreadId").and_then(|v| v.as_str()).unwrap_or(""),
                 "events": events,
             }))]
         }

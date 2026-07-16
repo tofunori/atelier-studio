@@ -86,10 +86,51 @@ html, body, #root, .app { height: 100vh; overflow: hidden;
 .dot.codex { background: color-mix(in srgb, var(--fg2) 72%, var(--bg)); }
 .spinner { margin-left: auto; animation: spin 1s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }
-.chat { display: flex; flex-direction: column; height: 100%; }
+.chat { display: flex; flex-direction: row; height: 100%; min-width: 0; }
+.chat-primary { position: relative; display: flex; flex: 1 1 auto; flex-direction: column;
+  min-width: 0; min-height: 0; height: 100%; }
 .timeline-scroll-wrap { position: relative; flex: 1; min-height: 0; display: flex; }
 .messages { flex: 1; min-width: 0; min-height: 0; overflow-y: auto; padding: 24px 24px 8px 40px; }
 .timeline-virtual-row { max-width: 760px; width: 100%; margin: 0 auto; padding-bottom: 14px; }
+/* Le slot actif prolonge le dernier segment du tour : il doit rester proche du
+   texte/de l'action qui le précède, sans compacter le reste du transcript. */
+.timeline-virtual-row:has(+ .timeline-virtual-row .active-turn-tail),
+.messages [data-index]:has(+ [data-index] > .timeline-virtual-row .active-turn-tail) > .timeline-virtual-row {
+  padding-bottom: 2px;
+}
+.agent-activity-group { display: flex; min-width: 0; align-items: center; flex-wrap: wrap;
+  gap: 6px; color: var(--muted); font-size: var(--fs-l); line-height: 28px; }
+.agent-chip { display: inline-flex; height: 28px; max-width: 192px; min-width: 0;
+  align-items: center; gap: 6px; padding: 0 9px 0 6px; border: 1px solid var(--border);
+  border-radius: var(--r-pill); color: var(--fg2); background: var(--bg-card);
+  font: inherit; cursor: pointer; vertical-align: middle;
+  transition: border-color var(--motion-fast) var(--ease-out), background var(--motion-fast) var(--ease-out), color var(--motion-fast) var(--ease-out); }
+.agent-chip:hover { border-color: var(--border2); background: var(--hover); color: var(--fg); }
+.agent-chip:focus-visible { outline: 2px solid var(--selection-border); outline-offset: 2px; }
+.agent-chip > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.agent-glyph { flex: 0 0 auto; overflow: visible; }
+.agent-group-status { color: var(--muted); white-space: nowrap; }
+.agent-detail-panel { flex: 0 0 clamp(320px, 31vw, 470px); min-width: 0; height: 100%;
+  display: flex; flex-direction: column; border-left: 1px solid var(--border);
+  background: var(--bg); color: var(--fg2); }
+.agent-detail-panel.agent-detail-embedded { flex: 1 1 auto; width: 100%; border-left: 0; }
+.agent-detail-header { height: 58px; flex: 0 0 58px; display: flex; align-items: center;
+  gap: 11px; padding: 0 18px; }
+.agent-detail-title { min-width: 0; overflow: hidden; text-overflow: ellipsis;
+  white-space: nowrap; color: var(--fg2); font-size: var(--fs-xl); font-weight: 500; }
+.agent-detail-scroll { flex: 1 1 auto; min-height: 0; }
+.agent-detail-body { padding: 22px 24px; }
+.agent-detail-prompt { margin: 20px 0 0; color: var(--fg2); font-size: var(--fs-l);
+  line-height: 1.55; white-space: pre-wrap; overflow-wrap: anywhere; }
+.agent-detail-meta, .agent-detail-message { margin-top: 14px; color: var(--muted);
+  font-size: var(--fs-m); line-height: 1.45; }
+.agent-transcript { margin-top: 20px; gap: 10px; }
+.agent-transcript-thinking { color: var(--muted); font-style: italic; }
+.agent-detail-empty { margin: 20px 0 0; color: var(--muted); font-size: var(--fs-m); }
+@media (max-width: 900px) {
+  .agent-detail-panel:not(.agent-detail-embedded) { position: absolute; inset: 0 0 0 auto; z-index: 70; width: min(420px, 86%);
+    box-shadow: -16px 0 40px color-mix(in srgb, #000 28%, transparent); }
+}
 .empty { color: var(--muted); padding-top: 24px; }
 .empty-card { width: min(360px, 100%); margin: auto; border: 1px solid var(--border);
   border-radius: var(--r-m); background: var(--bg-card); padding: 18px; display: flex;
@@ -141,6 +182,22 @@ html, body, #root, .app { height: 100vh; overflow: hidden;
 .mermaid-toggle:hover { color: var(--fg2); background: var(--bg-ctl); }
 .mermaid-svg-wrap { display: flex; justify-content: center; max-width: 100%; overflow-x: hidden; padding: 14px; }
 .mermaid-svg-wrap svg { max-width: 100%; height: auto; }
+.mermaid-fullscreen-dialog { overflow: hidden; border: 1px solid var(--border2);
+  border-radius: var(--r-l); background: var(--bg); color: var(--fg2);
+  box-shadow: var(--shadow-popover); }
+.mermaid-fullscreen-toolbar { display: flex; min-height: 38px; flex: none; align-items: center;
+  justify-content: space-between; padding: 4px 6px 4px 12px; border-bottom: 1px solid var(--border);
+  background: var(--bg-side); }
+.mermaid-fullscreen-close { display: inline-flex; width: 28px; height: 28px; flex: none;
+  align-items: center; justify-content: center; padding: 0; border: 0; border-radius: var(--r-s);
+  background: transparent; color: var(--muted2); cursor: pointer; }
+.mermaid-fullscreen-close:hover,
+.mermaid-fullscreen-close:focus-visible { background: transparent; color: var(--fg); }
+.mermaid-fullscreen-close:focus-visible { outline: none; }
+.mermaid-fullscreen-close svg { width: 16px; height: 16px; }
+.mermaid-fullscreen-canvas { display: flex; flex: 1 1 auto; min-width: 0; min-height: 0;
+  align-items: center; justify-content: center; overflow: auto; padding: 24px; background: var(--bg); }
+.mermaid-fullscreen-canvas svg { display: block; width: 100%; height: 100%; max-width: 100%; max-height: 100%; }
 .mermaid-invalid-note { padding: 0 12px 10px; font-size: var(--fs-s); color: var(--muted); }
 /* task-lists GFM (lecture seule) : bullet retiré, checkbox custom sobre —
    calque du pattern .git-file-line (ci-dessous). */
@@ -650,12 +707,15 @@ html, body, #root, .app { height: 100vh; overflow: hidden;
   background: color-mix(in srgb, var(--accent) 14%, transparent);
 }
 .msg-time { font-size: var(--fs-s); }
-.edit-box { width: min(72%, 680px); max-width: 100%; align-self: flex-end;
-  display: flex; flex-direction: column; gap: 8px; }
-.edit-message-field { gap: 0; }
-.edit-message-textarea { overflow-y: auto; font-family: inherit; }
-.edit-actions { display: flex; justify-content: flex-end; gap: 8px; }
-@media (max-width: 720px) { .edit-box { width: 100%; } }
+.edit-box-shell { width: 100%; padding: 1px; align-self: stretch; }
+.edit-box { position: relative; width: 100%; display: flex; flex-direction: column;
+  border-radius: 24px; background: var(--secondary); color: var(--secondary-foreground); }
+.edit-message-body { flex: 1; min-height: 0; margin-bottom: 8px; padding: 12px 12px 0;
+  overflow-y: auto; }
+.edit-message-textarea { overflow-y: auto; font-family: inherit;
+  font-size: var(--chat-fs, var(--fs-xl)); font-weight: inherit;
+  letter-spacing: inherit; line-height: 1.55; }
+.edit-actions { display: flex; justify-content: flex-end; gap: 6px; padding: 0 12px 12px; }
 
 .quote-pill { display: inline-flex; align-items: center; }
 .tool-tick { color: var(--muted2); }

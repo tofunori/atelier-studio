@@ -171,6 +171,7 @@ export function toolCategory(name: string, detail?: string): ToolCat {
   if (n === "__compacted" || n.includes("context_compact") || n.includes("context-compaction")) return "compaction";
   if (n.startsWith("permission") || n.includes("approval") || n.includes("request_user_input") || n.includes("elicitation")) return "permission";
   if (n.startsWith("agent:") || n.includes("spawn_agent") || n.includes("subagent") || n.includes("multi_agent") || n.includes("multi-agent")) return "agent";
+  if (n.includes("image_generation") || n.includes("image-generation") || n.includes("generate_image") || n.includes("generate-image")) return "visualization";
   if (n.includes("view_image") || n.includes("image_view") || n.includes("open_image") || n === "image" || n.startsWith("image ")) return "image";
   if (n === "webfetch" || n === "websearch" || n.includes("web_search") || n.includes("web-search") || n.includes("browser") || n.includes("recherche web")) return "web";
   // exécution shell (Bash, Execute, run_terminal…) : affiner via la commande
@@ -265,6 +266,26 @@ function actionIdentity(action: ToolAction, index: number): string {
   return itemId ? `${meta?.turnId ?? "legacy"}:${itemId}` : `event:${index}`;
 }
 
+function structuredCommandActivity(action: ToolAction): { kind: "read" | "search" | "list"; target: string } | null {
+  if (action.kind !== "tool_update" || action.input == null || typeof action.input !== "object") return null;
+  const input = action.input as Record<string, unknown>;
+  if (!Array.isArray(input.commandActions)) return null;
+  const actions = input.commandActions.filter((value): value is Record<string, unknown> => (
+    value != null && typeof value === "object"
+  ));
+  // Codex fournit une analyse structurée de chaque commande. Une commande
+  // composée (`pwd && sed ...`) reste une lecture si l'une de ses actions lit
+  // réellement un fichier; inutile de réinterpréter le shell avec des regex.
+  const picked = actions.find((entry) => entry.type === "read")
+    ?? actions.find((entry) => entry.type === "search")
+    ?? actions.find((entry) => entry.type === "listFiles");
+  if (!picked) return null;
+  const kind = picked.type === "read" ? "read" : picked.type === "search" ? "search" : "list";
+  const target = [picked.name, picked.path, picked.query, picked.command]
+    .find((value): value is string => typeof value === "string" && value.trim().length > 0) ?? "";
+  return { kind, target };
+}
+
 /** Dernier état de chaque appel, dans l'ordre de première apparition. */
 export function distinctToolActions(actions: ToolAction[]): ToolAction[] {
   const byIdentity = new Map<string, ToolAction>();
@@ -277,19 +298,20 @@ function normalizeKey(value: string) {
 }
 
 function semanticActivity(action: ToolAction): SemanticToolActivity {
-  const rawTarget = actionTarget(action);
+  const structuredCommand = structuredCommandActivity(action);
+  const rawTarget = structuredCommand?.target || actionTarget(action);
   const name = action.name.toLowerCase();
   const source = action.kind === "tool_update" ? action.source?.toLowerCase() ?? "" : "";
   const status = action.kind === "tool_update"
     ? action.status?.replace(/([a-z])([A-Z])/g, "$1-$2").toLowerCase().replace(/_/g, "-") ?? ""
     : "";
-  let kind = toolCategory(action.name, shellCommand(rawTarget));
+  let kind = structuredCommand?.kind ?? toolCategory(action.name, shellCommand(rawTarget));
   const target = conciseActionTarget(action.name, rawTarget, kind);
 
   // Codex distingue un SKILL.md lu d'une lecture de fichier ordinaire.
   if (kind === "read" && /(?:^|[/\\])skill\.md(?:$|\s)/iu.test(target)) kind = "skill";
   else if (source === "approval") kind = "permission";
-  else if (source === "mcp" || source === "dynamic" || name.startsWith("mcp__")) kind = "integration";
+  else if (source === "mcp" || name.startsWith("mcp__") || (source === "dynamic" && kind === "tool")) kind = "integration";
 
   const sourceKey = kind === "integration"
     ? (action.name.split(/[/:]/)[0]?.replace(/^mcp__/, "") || source || null)
@@ -348,8 +370,9 @@ export function activityIconForPhase(phase?: string): ActivityIcon | undefined {
 
 /** Libellé présent et orienté intention pour l'unique activité du tour actif. */
 export function activeToolLabel(action: Extract<AgentEvent, { kind: "tool" | "tool_update" }>): string {
-  const target = actionTarget(action);
-  const cat = semanticActivity(action).kind;
+  const activity = semanticActivity(action);
+  const target = activity.target;
+  const cat = activity.kind;
   const status = action.kind === "tool_update"
     ? action.status?.replace(/([a-z])([A-Z])/g, "$1-$2").toLowerCase().replace(/_/g, "-") ?? ""
     : "";

@@ -1514,6 +1514,19 @@ export async function route(msg, ctx) {
       ctx.send({ type: "history", threadId: msg.threadId, events: events ?? [] });
       break;
     }
+    case "getAgentHistory": {
+      const agentThreadId = String(msg.agentThreadId ?? "");
+      const events = await (ctx.sessions?.codexHistory?.(agentThreadId) ?? []);
+      ctx.send({
+        type: "agentHistory",
+        parentThreadId: msg.parentThreadId ?? "",
+        agentThreadId,
+        // Le prompt parent appartient au chat principal. Le panneau enfant ne
+        // montre que les messages réellement émis par le sous-agent.
+        events: events.filter((event) => event?.kind !== "user"),
+      });
+      break;
+    }
     case "listThreads":
       ctx.send({ type: "threads", threads: ctx.store.list() });
       break;

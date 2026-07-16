@@ -420,12 +420,38 @@ describe("mapGoalTurnNotification (tours autonomes du goal)", () => {
         type: "commandExecution", id: "c1",
         command: `/bin/zsh -lc "ls -la"`, aggregatedOutput: "total 0",
         status: "completed", exitCode: 0, cwd: "/repo",
+        commandActions: [{ type: "listFiles", command: "ls -la", path: "/repo" }],
       },
     }, state);
     expect(evs).toHaveLength(1);
     expect(evs[0]).toMatchObject({
       kind: "tool_update", id: "c1", name: "Bash", output: "total 0",
       status: "completed", exitCode: 0, detail: "ls -la", source: "codex",
+    });
+    expect(evs[0].input.commandActions[0].type).toBe("listFiles");
+  });
+
+  it("webSearch et imageGeneration conservent leur identité du running au completed", async () => {
+    const { mapGoalTurnNotification } = await import("./codex.mjs");
+    const state = { streamText: "", turn: null };
+    const web = { item: { type: "webSearch", id: "web-1", query: "Nature figures" } };
+    expect(mapGoalTurnNotification("item/started", web, state)[0]).toMatchObject({
+      kind: "tool_update", id: "web-1", name: "web_search", status: "inProgress",
+    });
+    expect(mapGoalTurnNotification("item/completed", web, state)[0]).toMatchObject({
+      id: "web-1", name: "web_search", status: "completed",
+    });
+
+    const imageStarted = { item: {
+      type: "imageGeneration", id: "image-1", status: "inProgress",
+      revisedPrompt: "Scientific map",
+    } };
+    expect(mapGoalTurnNotification("item/started", imageStarted, state)[0]).toMatchObject({
+      id: "image-1", name: "image_generation", status: "inProgress",
+    });
+    const image = { item: { ...imageStarted.item, status: "completed", savedPath: "/tmp/map.png" } };
+    expect(mapGoalTurnNotification("item/completed", image, state)[0]).toMatchObject({
+      id: "image-1", name: "image_generation", output: "/tmp/map.png", status: "completed",
     });
   });
 

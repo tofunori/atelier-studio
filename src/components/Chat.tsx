@@ -14,6 +14,12 @@ import { ChatHeader } from "./chat/ChatHeader";
 import type { ResearchHomeBundle } from "./ResearchHome";
 import { ChatComposer } from "./chat/ChatComposer";
 import { QueuedTurns } from "./chat/QueuedTurns";
+import {
+  AgentDetailPanel,
+  isAgentActivityAction,
+  type AgentDisplay,
+  type AgentToolAction,
+} from "./chat/AgentActivity";
 import { mentionLabel } from "./chat/mentions";
 import { BUILTIN_MODEL_LABELS } from "../lib/modelCatalog";
 import type { PluginCatalogEntry } from "../lib/plugins";
@@ -134,6 +140,8 @@ export default function Chat(p: {
   onTogglePin: (index: number, label: string) => void;
   disabled: boolean;
   onGoal?: (action: "set" | "clear", objective?: string, status?: "active" | "paused") => void;
+  /** L'application hôte peut ouvrir l'agent dans son panneau secondaire. */
+  onOpenAgent?: (agent: AgentDisplay) => void;
   onSubmit: (
     prompt: string,
     provider: string,
@@ -143,6 +151,8 @@ export default function Chat(p: {
     mode: "steer" | "queue",
   ) => void;
 }) {
+  const [localSelectedAgent, setLocalSelectedAgent] = useState<AgentDisplay | null>(null);
+  const openAgent = p.onOpenAgent ?? setLocalSelectedAgent;
   const [localText, setLocalText] = useState("");
   const text = p.draftText ?? localText;
   const setText = p.onDraftTextChange ?? setLocalText;
@@ -791,13 +801,15 @@ export default function Chat(p: {
   const renderedEvents = React.useMemo(() => {
     const rows: Array<
       ProjectedTimelineItem |
-      { type: "actions"; actions: ToolAction[]; index: number; key: string }
+      { type: "actions"; actions: ToolAction[]; index: number; key: string } |
+      { type: "agents"; actions: AgentToolAction[]; index: number; key: string }
     > = [];
     const suppressDuplicateEditTool = (row: Extract<ProjectedTimelineItem, { type: "event" }>) =>
       isSummarizableTool(row.event) && editTurns.has(row.index) &&
       toolCategory(row.event.name, "detail" in row.event ? row.event.detail : undefined) === "edit";
     const isStandaloneTool = (event: ToolAction) =>
-      toolCategory(event.name, "detail" in event ? event.detail : undefined) === "image";
+      toolCategory(event.name, "detail" in event ? event.detail : undefined) === "image" ||
+      isAgentActivityAction(event);
     for (let offset = 0; offset < projectedTimeline.length; offset += 1) {
       const row = projectedTimeline[offset];
       if (row.type !== "event") {
@@ -815,6 +827,26 @@ export default function Chat(p: {
       }
       if (!isSummarizableTool(event)) {
         rows.push(row);
+        continue;
+      }
+      if (isAgentActivityAction(event)) {
+        const actionRows = [{ action: event, index: row.index }];
+        let nextOffset = offset + 1;
+        while (nextOffset < projectedTimeline.length) {
+          const next = projectedTimeline[nextOffset];
+          if (next.type !== "event" || !isAgentActivityAction(next.event)) break;
+          actionRows.push({ action: next.event, index: next.index });
+          nextOffset += 1;
+        }
+        const first = actionRows[0];
+        const last = actionRows[actionRows.length - 1];
+        rows.push({
+          type: "agents",
+          actions: actionRows.map(({ action }) => action),
+          index: row.index,
+          key: `agents:${actionId(first.action, first.index)}:${actionId(last.action, last.index)}`,
+        });
+        offset = nextOffset - 1;
         continue;
       }
       const actionRows = [{ action: event, index: row.index }];
@@ -875,7 +907,8 @@ export default function Chat(p: {
   const headerStatus = null;
 
   return (
-    <div className="chat">
+    <div className={`chat ${localSelectedAgent ? "with-agent-detail" : ""}`}>
+      <div className="chat-primary">
       {p.threadId && (
         <ChatHeader
           title={p.threadTitle || t("app.new-chat-title")}
@@ -893,7 +926,10 @@ export default function Chat(p: {
           phase: turnViewModels[turnViewModels.length - 1]?.phase ?? "idle",
         }}
         rev={{ review, reviewMin, setReviewMin, setReview, barOpen, setBarOpen, fixing, setFixing, reviewOpen, setReviewOpen }}
-        list={{ renderedEvents, openFolds, setOpenFolds, openToolGroups, setOpenToolGroups, renderToolLine, fmtWorkDur, plugins: p.plugins ?? [] }}
+        list={{
+          renderedEvents, openFolds, setOpenFolds, openToolGroups, setOpenToolGroups,
+          renderToolLine, fmtWorkDur, plugins: p.plugins ?? [], onOpenAgent: openAgent,
+        }}
         msg={{
           editing, setEditing, pins: p.pins, onTogglePin: p.onTogglePin, onRevert: p.onRevert,
           onEditSend: p.onEditSend, onFork: p.onFork, setPasteView, commands: p.commands,
@@ -972,6 +1008,8 @@ export default function Chat(p: {
           </div>
         </div>
       )}
+      </div>
+      {!p.onOpenAgent && localSelectedAgent ? <AgentDetailPanel agent={localSelectedAgent} onClose={() => setLocalSelectedAgent(null)} /> : null}
     </div>
   );
 }

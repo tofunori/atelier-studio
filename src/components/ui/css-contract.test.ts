@@ -157,6 +157,23 @@ describe("contrat Quiet Instrument (sources CSS)", () => {
     expect(appCss).toMatch(/\.ta-wrap textarea\s*\{[^}]*flex:\s*none;/s);
   });
 
+  it("modifier un message conserve exactement sa typographie de bulle", () => {
+    expect(appCss).toMatch(/\.user-bubble\s*\{[^}]*font-size:\s*var\(--chat-fs, var\(--fs-xl\)\)/s);
+    expect(appCss).toMatch(/\.user-bubble\s*\{[^}]*line-height:\s*1\.55/s);
+    expect(appCss).toMatch(/\.edit-message-textarea\s*\{[^}]*font-size:\s*var\(--chat-fs, var\(--fs-xl\)\)/s);
+    expect(appCss).toMatch(/\.edit-message-textarea\s*\{[^}]*font-weight:\s*inherit/s);
+    expect(appCss).toMatch(/\.edit-message-textarea\s*\{[^}]*letter-spacing:\s*inherit/s);
+    expect(appCss).toMatch(/\.edit-message-textarea\s*\{[^}]*line-height:\s*1\.55/s);
+  });
+
+  it("le bouton de fermeture Mermaid reste transparent dans tous ses états", () => {
+    expect(appCss).toMatch(/\.mermaid-fullscreen-close\s*\{[^}]*background:\s*transparent/s);
+    expect(appCss).toMatch(
+      /\.mermaid-fullscreen-close:hover,\s*\.mermaid-fullscreen-close:focus-visible\s*\{[^}]*background:\s*transparent/s,
+    );
+    expect(appCss).toMatch(/\.mermaid-fullscreen-close:focus-visible\s*\{[^}]*outline:\s*none/s);
+  });
+
   it("les tabs Atelier restent compacts et neutres, sans accent de marque", () => {
     expect(appCss).toMatch(/\.sidebar li\.active::before\s*\{[\s\S]*?background:\s*var\(--selection-line\)/);
     expect(primitives).toMatch(/\.ui-tab\s*\{[\s\S]*?height:\s*28px/);

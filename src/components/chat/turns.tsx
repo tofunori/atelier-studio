@@ -19,7 +19,7 @@ import {
 } from "./toolPresentation";
 import { ActivityDisclosure, Button, EmptyState, IconButton, Tooltip, showError, showSuccess } from "../ui";
 import { Bubble, BubbleContent } from "../shadcn/bubble";
-import { Field, FieldLabel } from "../shadcn/field";
+import { Button as ShadcnButton } from "../shadcn/button";
 import { Message, MessageContent, MessageFooter } from "../shadcn/message";
 import { Textarea } from "../shadcn/textarea";
 
@@ -158,53 +158,61 @@ export const UserTurn = memo(function UserTurn(p: {
         </button>
       ))}
       {p.editingText != null ? (
-        <form className="edit-box" onSubmit={(ev) => { ev.preventDefault(); submitEdit(); }}>
-          <Field className="edit-message-field">
-            <FieldLabel className="sr-only" htmlFor={`edit-message-${i}`}>
-              {t("action.edit-resend")}
-            </FieldLabel>
-            <Textarea
-              ref={editTextareaRef}
-              id={`edit-message-${i}`}
-              className="edit-message-textarea tw:min-h-12 tw:max-h-40 tw:resize-none"
-              autoFocus
-              value={p.editingText}
-              rows={1}
-              onChange={(ev) => p.onEditingChange(ev.target.value)}
-              onKeyDown={(ev) => {
-                if (ev.key === "Escape") p.onEditingChange(null);
-                if (ev.key === "Enter" && !ev.shiftKey) {
-                  // même garde IME que le composer (fix plan 015)
-                  if (ev.nativeEvent.isComposing) return;
-                  ev.preventDefault();
-                  submitEdit();
-                }
-              }}
-            />
-          </Field>
-          <div className="edit-actions">
-            <Button type="button" variant="secondary" size="sm" className="edit-cancel" onClick={() => p.onEditingChange(null)}>
-              {t("action.cancel")}
-            </Button>
-            <Button
-              type="submit"
-              variant="primary"
-              size="sm"
-              className="edit-send"
-              disabled={!p.editingText.trim()}
-            >
-              {t("action.send")}
-            </Button>
-          </div>
-        </form>
+        <div className="edit-box-shell">
+          <form className="edit-box" onSubmit={(ev) => { ev.preventDefault(); submitEdit(); }}>
+            <div className="edit-message-body">
+              <label className="sr-only" htmlFor={`edit-message-${i}`}>
+                {t("action.edit-resend")}
+              </label>
+              <Textarea
+                ref={editTextareaRef}
+                id={`edit-message-${i}`}
+                variant="bare"
+                className="edit-message-textarea tw:min-h-12 tw:max-h-40 tw:resize-none"
+                autoFocus
+                value={p.editingText}
+                rows={1}
+                onChange={(ev) => p.onEditingChange(ev.target.value)}
+                onKeyDown={(ev) => {
+                  if (ev.key === "Escape") p.onEditingChange(null);
+                  if (ev.key === "Enter" && !ev.shiftKey) {
+                    // même garde IME que le composer (fix plan 015)
+                    if (ev.nativeEvent.isComposing) return;
+                    ev.preventDefault();
+                    submitEdit();
+                  }
+                }}
+              />
+            </div>
+            <div className="edit-actions">
+              <ShadcnButton
+                type="button"
+                variant="outline"
+                size="sm"
+                className="edit-cancel tw:rounded-full tw:px-3"
+                onClick={() => p.onEditingChange(null)}
+              >
+                {t("action.cancel")}
+              </ShadcnButton>
+              <ShadcnButton
+                type="submit"
+                size="sm"
+                className="edit-send tw:rounded-full tw:px-3"
+                disabled={!p.editingText.trim()}
+              >
+                {t("action.send")}
+              </ShadcnButton>
+            </div>
+          </form>
+        </div>
       ) : (
         <Bubble variant="secondary" align="end" className="user-bubble-shell">
-          <BubbleContent className="user-bubble tw:rounded-[var(--radius-control)]">
+          <BubbleContent className="user-bubble tw:rounded-2xl">
             {p.renderBubbleText(e.text)}
           </BubbleContent>
         </Bubble>
       )}
-      <MessageFooter className="msg-actions tw:px-0">
+      {p.editingText == null && <MessageFooter className="msg-actions tw:px-0">
         {e.ts && (
           <span className="msg-time">
             {fmtTime(e.ts, p.timeFormat)}
@@ -218,7 +226,7 @@ export const UserTurn = memo(function UserTurn(p: {
           <span aria-hidden="true">↩</span>
         </MessageAction>
         <PinBtn pinned={p.pinned} onClick={() => p.onTogglePin(i, e.text.slice(0, 44))} />
-      </MessageFooter>
+      </MessageFooter>}
     </MessageContent>
     </Message>
   );

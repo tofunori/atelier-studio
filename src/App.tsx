@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Panel, PanelGroup, PanelResizeHandle } from "react-resizable-panels";
-import { confirm as confirmDialog, open } from "@tauri-apps/plugin-dialog";
+import { open } from "@tauri-apps/plugin-dialog";
 import { invoke } from "@tauri-apps/api/core";
 import {
   sendPrompt,
@@ -10,7 +10,7 @@ import {
   AgentEvent,
   Command,
 } from "./lib/ws";
-import { mergeHarnessHistory, reduceHarnessEvent } from "./lib/harnessEvents";
+import { materializeHarnessHistory, mergeHarnessHistory, reduceHarnessEvent } from "./lib/harnessEvents";
 import { buildForkThreadPayload } from "./lib/forkThread";
 import { useSidecarConnection, type SidecarStatus } from "./hooks/useSidecarConnection";
 import { useAtelierServer } from "./hooks/useAtelierServer";
@@ -24,6 +24,7 @@ import Rail, { ProjMeta, HighlightEntry } from "./components/Rail";
 import TopBar from "./components/TopBar";
 import type { Surface } from "./components/surfaces";
 import Chat from "./components/Chat";
+import { agentsFromActions, isAgentActivityAction, type AgentDisplay } from "./components/chat/AgentActivity";
 import Banner from "./components/Banner";
 import AtelierPane from "./components/AtelierPane";
 const SettingsPage = lazyWithRetry(() => import("./components/Settings"));
@@ -700,8 +701,60 @@ export default function App() {
   }, [projMeta, projects]);
 
   const [activeTab, setActiveTab] = useState<string>("gallery");
+  const [openedAgent, setOpenedAgent] = useState<AgentDisplay | null>(null);
+  const previousAtelierTab = useRef("gallery");
   const [activeId, setActiveId] = useState<string | null>(null);
   activeIdRef.current = activeId;
+  // Les mises à jour Codex arrivent sur le fil parent. Garder l'id de l'agent
+  // ouvert, mais dériver son état actuel depuis ce fil afin que le panneau droit
+  // évolue sans devoir être refermé puis rouvert.
+  const activeAgent = useMemo(() => {
+    if (!openedAgent || !activeId) return null;
+    const refreshed = agentsFromActions((events[activeId] ?? []).filter(isAgentActivityAction));
+    return refreshed.find((agent) => agent.threadId === openedAgent.threadId) ?? openedAgent;
+  }, [activeId, events, openedAgent]);
+  const activeAgentEvents = useMemo(
+    () => activeAgent ? (events[activeAgent.threadId] ?? []) : [],
+    [activeAgent, events],
+  );
+  const openAgentInAtelier = (agent: AgentDisplay) => {
+    const nextId = `agent:${agent.threadId}`;
+    setOpenedAgent(agent);
+    setActiveTab((current) => {
+      if (!current.startsWith("agent:")) previousAtelierTab.current = current;
+      return nextId;
+    });
+    switchToSurface("atelier");
+  };
+  const closeAgentInAtelier = () => {
+    const closingId = openedAgent ? `agent:${openedAgent.threadId}` : null;
+    setOpenedAgent(null);
+    setActiveTab((current) => current === closingId ? previousAtelierTab.current : current);
+  };
+  // Le flux d'activité parent indique qu'un sous-agent existe mais ne contient
+  // pas son transcript. Celui-ci vit dans le rollout enfant Codex : on le
+  // charge à l'ouverture, puis on le rafraîchit doucement tant qu'il travaille.
+  useEffect(() => {
+    const agentThreadId = activeAgent?.threadId;
+    const agentWorking = activeAgent?.status === "working";
+    if (!activeId || !agentThreadId || !wsReady) return;
+    const request = () => {
+      if (ws.current?.readyState !== WebSocket.OPEN) return;
+      ws.current.send(JSON.stringify({
+        type: "getAgentHistory",
+        parentThreadId: activeId,
+        agentThreadId,
+      }));
+    };
+    request();
+    if (!agentWorking) return;
+    const timer = window.setInterval(request, 2500);
+    return () => window.clearInterval(timer);
+  }, [activeAgent?.status, activeAgent?.threadId, activeId, wsReady]);
+  useEffect(() => {
+    setOpenedAgent(null);
+    setActiveTab((current) => current.startsWith("agent:") ? previousAtelierTab.current : current);
+  }, [activeId]);
   const activeProjectRef = useRef(activeProject);
   activeProjectRef.current = activeProject;
   const activeComposerKey = composerDraftKey(activeId, activeProject);
@@ -1234,6 +1287,18 @@ export default function App() {
           const u = lastDone.usage;
           setUsageByThread((p) => (p[msg.threadId] ? p : { ...p, [msg.threadId]: u }));
         }
+      }
+      if (msg.type === "agentHistory" && typeof msg.agentThreadId === "string") {
+        const next = materializeHarnessHistory((msg.events ?? []) as AgentEvent[]);
+        setEvents((prev) => {
+          const current = prev[msg.agentThreadId] ?? [];
+          // Les rollouts natifs ne portent pas tous la meta durable des events
+          // harnais. Une substitution contrôlée est donc nécessaire pour que
+          // les nouveaux fragments réellement produits deviennent visibles.
+          return JSON.stringify(current) === JSON.stringify(next)
+            ? prev
+            : { ...prev, [msg.agentThreadId]: next };
+        });
       }
       if (msg.type === "annotation" && msg.text !== lastInjected.current) setAnnotation(msg.text);
       if (msg.type === "reverted") {
@@ -2870,13 +2935,12 @@ export default function App() {
           onReorderQueued={(draggedId, targetId) => reorderQueuedTurn(activeComposerKey, draggedId, targetId)}
           attachments={attachments}
           onRemoveAttachment={(i) => setAttachments((l) => l.filter((_, j) => j !== i))}
-          onRevert={async (index, text, edit) => {
+          onRevert={(index, text, edit) => {
             if (!activeId) return;
             const id = activeId;
             const snapshot = eventsRef.current[id] ?? [];
             const eventId = (snapshot[index]?.meta as any)?.eventId;
             const checkpoint = checkpointAfterUser(snapshot, index);
-            if (!await confirmDialog(t("checkpoint.thread-confirm"), { title: "Atelier", kind: "warning" })) return;
             if (ws.current?.readyState === 1) {
               pendingRevert.current = { threadId: id, snapshot, index };
               ws.current.send(JSON.stringify({
@@ -2908,13 +2972,12 @@ export default function App() {
               };
             });
           }}
-          onEditSend={async (index, oldText, newText) => {
+          onEditSend={(index, oldText, newText) => {
             if (!activeId) return;
             const id = activeId;
             const snapshot = eventsRef.current[id] ?? [];
             const eventId = (snapshot[index]?.meta as any)?.eventId;
             const checkpoint = checkpointAfterUser(snapshot, index);
-            if (!await confirmDialog(t("checkpoint.thread-confirm"), { title: "Atelier", kind: "warning" })) return;
             pendingResend.current = {
               threadId: id,
               prompt: newText,
@@ -2950,6 +3013,7 @@ export default function App() {
           }}
           onNewChat={newChat}
           onOpenProject={addProject}
+          onOpenAgent={activeProject ? openAgentInAtelier : undefined}
           layout={layout}
           onToggleExpand={() => setLayout((l) => (l === "chat" ? "split" : "chat"))}
           onAttachPath={(path) => {
@@ -3139,6 +3203,9 @@ export default function App() {
               projectName={null /* le crumb TopBar porte déjà le projet — pas de duplication */}
               onGalleryReload={hardReloadAtelier}
               onInspectFile={openInspector}
+              agent={activeAgent}
+              agentEvents={activeAgentEvents}
+              onCloseAgent={closeAgentInAtelier}
             />
             {inspected && (
               <>

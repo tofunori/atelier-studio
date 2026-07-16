@@ -23,10 +23,16 @@ import { HarnessInteraction } from "./HarnessInteraction";
 import { ProposedPlanCard } from "./ProposedPlanCard";
 import { ScrollToBottomButton } from "../ui";
 import { Input } from "../shadcn/input";
+import {
+  AgentActivityGroup,
+  type AgentDisplay,
+  type AgentToolAction,
+} from "./AgentActivity";
 
 type RenderedItem =
   | ProjectedTimelineItem
-  | { type: "actions"; actions: ToolAction[]; index: number; key: string };
+  | { type: "actions"; actions: ToolAction[]; index: number; key: string }
+  | { type: "agents"; actions: AgentToolAction[]; index: number; key: string };
 
 type TimelineVirtualItem =
   | { type: "empty"; key: "timeline-empty" }
@@ -54,6 +60,7 @@ export type TimelineList = {
   renderToolLine: (e: ToolAction, key: React.Key) => ReactNode;
   fmtWorkDur: (ms: number) => string;
   plugins: PluginCatalogEntry[];
+  onOpenAgent: (agent: AgentDisplay) => void;
 };
 export type TimelineMsg = {
   editing: { index: number; text: string } | null;
@@ -107,7 +114,10 @@ export function ChatTimeline(p: {
 }) {
   const { threadId, events, workingSince, phase } = p.thread;
   const { review, reviewMin, setReviewMin, setReview, barOpen, setBarOpen, fixing, setFixing, reviewOpen, setReviewOpen } = p.rev;
-  const { renderedEvents, openFolds, setOpenFolds, openToolGroups, setOpenToolGroups, renderToolLine, fmtWorkDur, plugins } = p.list;
+  const {
+    renderedEvents, openFolds, setOpenFolds, openToolGroups, setOpenToolGroups,
+    renderToolLine, fmtWorkDur, plugins, onOpenAgent,
+  } = p.list;
   const { editing, setEditing, pins, onTogglePin, onRevert, onEditSend, onFork, setPasteView, commands, defaults, onQuote } = p.msg;
   const { messagesRef, onMessagesMouseUp } = p.scroll;
   const { onStop } = p.working;
@@ -427,6 +437,15 @@ export function ChatTimeline(p: {
                   })
                 }
                 renderToolLine={renderToolLine}
+              />
+            );
+          }
+          if (item.type === "agents") {
+            return (
+              <AgentActivityGroup
+                key={item.key}
+                actions={item.actions}
+                onOpenAgent={onOpenAgent}
               />
             );
           }

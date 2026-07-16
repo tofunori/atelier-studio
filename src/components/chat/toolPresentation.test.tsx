@@ -97,6 +97,40 @@ describe("Codex-style activity presentation", () => {
     expect(activeToolLabel(completed)).toBe("Ran tests");
   });
 
+  it("préfère commandActions à l'heuristique shell pour les lectures Codex", () => {
+    const reading = tool("read-structured", "Bash", "pwd && sed -n '1,20p' src/App.tsx", {
+      status: "inProgress",
+      input: {
+        command: "pwd && sed -n '1,20p' src/App.tsx",
+        commandActions: [
+          { type: "unknown", command: "pwd" },
+          { type: "read", command: "sed -n '1,20p' src/App.tsx", name: "App.tsx", path: "/repo/src/App.tsx" },
+        ],
+      },
+    });
+    expect(activityIconForAction(reading).cat).toBe("read");
+    expect(activeToolLabel(reading)).toBe("Reading App.tsx");
+    const completedReading = tool("read-structured", "Bash", "pwd && sed -n '1,20p' src/App.tsx", {
+      status: "completed",
+      input: reading.kind === "tool_update" ? reading.input : undefined,
+    });
+    expect(summarizeActivity([completedReading]).label).toBe("Read files");
+  });
+
+  it("présente imageGeneration comme une génération, pas comme un outil générique", () => {
+    const generating = tool("image-1", "image_generation", "Scientific map", {
+      status: "inProgress",
+      source: "codex",
+      input: { revisedPrompt: "Scientific map" },
+    });
+    expect(activityIconForAction(generating).cat).toBe("visualization");
+    expect(activeToolLabel(generating)).toBe("Creating Scientific map");
+    const completedGeneration = tool("image-1", "image_generation", "Scientific map", {
+      status: "completed", source: "codex", input: { revisedPrompt: "Scientific map" },
+    });
+    expect(summarizeActivity([completedGeneration]).label).toBe("Created a visualization");
+  });
+
   it("uses the real catalog image for a matching MCP/plugin source", () => {
     const plugins: PluginCatalogEntry[] = [{
       id: "google-drive",

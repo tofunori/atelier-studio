@@ -13,6 +13,8 @@ import { CloseIcon, HomeIcon, RefreshIcon } from "./icons";
 import { DocumentTabMeta } from "./AtelierHeaders";
 import { GallerySkeleton } from "./GallerySkeleton";
 import { Button, IconButton, Tab, TabList } from "./ui";
+import { AgentDetailPanel, AgentGlyph, type AgentDisplay } from "./chat/AgentActivity";
+import type { AgentEvent } from "../lib/ws";
 import {
   ContextMenu,
   ContextMenuContent,
@@ -79,6 +81,9 @@ export default function AtelierPane({
   onOpenExplorer,
   onGalleryReload,
   onInspectFile,
+  agent,
+  agentEvents,
+  onCloseAgent,
 }: {
   url: string;
   projectRoot: string;
@@ -104,6 +109,11 @@ export default function AtelierPane({
   onGalleryReload?: () => void;
   /** ouvre l'inspecteur de contexte sur le fichier d'un onglet */
   onInspectFile?: (rel: string) => void;
+  /** Sous-agent Codex actuellement inspecté, rendu comme un onglet Atelier. */
+  agent?: AgentDisplay | null;
+  /** Transcript du rollout du sous-agent actuellement inspecté. */
+  agentEvents?: AgentEvent[];
+  onCloseAgent?: () => void;
 }) {
   const [surface, setSurface] = useState<Surface>("atelier");
   // split 2 panes : surface secondaire + largeur (%) du pane primaire, par projet
@@ -204,6 +214,7 @@ export default function AtelierPane({
   }
 
   const documentTabs = tabs.filter((tab) => tab.kind !== "term");
+  const agentTabId = agent ? `agent:${agent.threadId}` : null;
   const activeDocument = documentTabs.find((tab) => tab.id === activeTab);
   const activeDocumentRel = activeDocument
     ? relFromTabUrl(activeDocument.url, projectRoot, url)
@@ -304,6 +315,20 @@ export default function AtelierPane({
               </ContextMenu>
             );
           })}
+          {agent && agentTabId && (
+            <Tab
+              active={activeTab === agentTabId}
+              label={agent.displayName}
+              icon={<AgentGlyph seed={agent.threadId} size={15} />}
+              closeLabel={`${t("action.close")} ${agent.displayName}`}
+              closeIcon={<CloseIcon />}
+              onClose={onCloseAgent}
+              onClick={() => onSelectTab(agentTabId)}
+              title={agent.displayName}
+            >
+              {agent.displayName}
+            </Tab>
+          )}
           <span className="flex" />
           {activeTab === "gallery" && onGalleryReload && (
             <IconButton label={t("action.refresh-hard")} title={t("action.refresh-hard")}
@@ -367,6 +392,9 @@ export default function AtelierPane({
               title={t.title}
             />
           ))}
+          {agent && agentTabId === activeTab && onCloseAgent && (
+            <AgentDetailPanel agent={agent} events={agentEvents} embedded onClose={onCloseAgent} />
+          )}
         </div>
         </div>
       </div>

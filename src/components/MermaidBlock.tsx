@@ -21,9 +21,11 @@
 //   ne doivent jamais relancer mermaid sur un diagramme inchangé.
 
 import { useEffect, useRef, useState } from "react";
+import { Maximize2Icon, XIcon } from "lucide-react";
 import { LruCache } from "../lib/lruCache";
 import { t } from "../lib/i18n";
 import { CopyIcon } from "./icons";
+import { Dialog, DialogClose, DialogContent, DialogTitle } from "./shadcn/dialog";
 
 // ============================================================
 // Helpers purs — exportés pour test (sidecar/mermaid.test.mjs)
@@ -224,6 +226,7 @@ export function MermaidBlock({ source, highlight }: MermaidBlockProps) {
   const [state, setState] = useState<RenderState>({ status: "loading" });
   const [mode, setMode] = useState<ViewMode>("diagram");
   const [copied, setCopied] = useState(false);
+  const [expanded, setExpanded] = useState(false);
   const mountedRef = useRef(true);
 
   useEffect(() => {
@@ -261,13 +264,26 @@ export function MermaidBlock({ source, highlight }: MermaidBlockProps) {
         <span className="codeblock-lang">mermaid</span>
         <div className="codeblock-bar-actions">
           {ready && (
-            <button
-              type="button"
-              className="mermaid-toggle"
-              onClick={() => setMode((m) => (m === "diagram" ? "code" : "diagram"))}
-            >
-              {mode === "diagram" ? t("chat.mermaid-view-code") : t("chat.mermaid-view-diagram")}
-            </button>
+            <>
+              <button
+                type="button"
+                className="mermaid-toggle"
+                onClick={() => setMode((m) => (m === "diagram" ? "code" : "diagram"))}
+              >
+                {mode === "diagram" ? t("chat.mermaid-view-code") : t("chat.mermaid-view-diagram")}
+              </button>
+              {mode === "diagram" && (
+                <button
+                  type="button"
+                  className="codeblock-copy mermaid-expand"
+                  title={t("chat.mermaid-expand")}
+                  aria-label={t("chat.mermaid-expand")}
+                  onClick={() => setExpanded(true)}
+                >
+                  <Maximize2Icon size={12} />
+                </button>
+              )}
+            </>
           )}
           <button
             type="button"
@@ -298,6 +314,42 @@ export function MermaidBlock({ source, highlight }: MermaidBlockProps) {
           {state.status === "invalid" && <div className="mermaid-invalid-note">{t("chat.mermaid-invalid")}</div>}
         </>
       )}
+      <Dialog open={expanded} onOpenChange={setExpanded}>
+        {state.status === "ready" ? (
+          <DialogContent
+            showCloseButton={false}
+            closeLabel={t("chat.mermaid-close-fullscreen")}
+            overlayClassName="tw:bg-black/70 tw:backdrop-blur-sm"
+            className="mermaid-fullscreen-dialog tw:fixed tw:flex tw:max-w-none tw:translate-x-0 tw:translate-y-0 tw:flex-col tw:gap-0 tw:p-0 tw:ring-0"
+            style={{
+              inset: 12,
+              top: 12,
+              left: 12,
+              width: "calc(100dvw - 24px)",
+              height: "calc(100dvh - 24px)",
+              maxWidth: "none",
+              transform: "none",
+              translate: "none",
+            }}
+          >
+            <DialogTitle className="tw:sr-only">{t("chat.mermaid-fullscreen-title")}</DialogTitle>
+            <div className="mermaid-fullscreen-toolbar">
+              <span className="codeblock-lang">mermaid</span>
+              <DialogClose
+                className="mermaid-fullscreen-close"
+                aria-label={t("chat.mermaid-close-fullscreen")}
+              >
+                <XIcon aria-hidden="true" />
+                <span className="tw:sr-only">{t("chat.mermaid-close-fullscreen")}</span>
+              </DialogClose>
+            </div>
+            <div
+              className="mermaid-fullscreen-canvas"
+              dangerouslySetInnerHTML={{ __html: state.svg }}
+            />
+          </DialogContent>
+        ) : null}
+      </Dialog>
     </div>
   );
 }

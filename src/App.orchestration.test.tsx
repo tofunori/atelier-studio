@@ -11,6 +11,11 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, cleanup, fireEvent, screen, within } from "@testing-library/react";
 
+const dialogMock = vi.hoisted(() => ({
+  open: vi.fn(async () => null),
+  confirm: vi.fn(async () => true),
+}));
+
 vi.mock("@tauri-apps/api/core", () => ({
   invoke: vi.fn(async (cmd: string) => {
     if (cmd === "sidecar_port") return { port: 4242, token: "tok-fixture" };
@@ -18,10 +23,7 @@ vi.mock("@tauri-apps/api/core", () => ({
     return null;
   }),
 }));
-vi.mock("@tauri-apps/plugin-dialog", () => ({
-  open: vi.fn(async () => null),
-  confirm: vi.fn(async () => true),
-}));
+vi.mock("@tauri-apps/plugin-dialog", () => dialogMock);
 vi.mock("./lib/notify", () => ({
   init: vi.fn(async () => {}),
   notifyRunDone: vi.fn(async () => {}),
@@ -118,6 +120,8 @@ beforeEach(() => {
   resetTestState();
   resetSidecarInfo();
   FakeWS.reset();
+  dialogMock.open.mockClear();
+  dialogMock.confirm.mockClear();
   vi.stubGlobal("WebSocket", FakeWS as unknown as typeof WebSocket);
   localStorage.setItem("atelier-studio.projects", JSON.stringify([PROJECT_ROOT]));
 });
@@ -745,6 +749,7 @@ describe("orchestration App — caractérisation", () => {
     const reverts = sock.sent.map((s) => JSON.parse(s)).filter((m) => m.type === "revert");
     const sent = reverts[reverts.length - 1];
     expect(sent).toMatchObject({ threadId: "thread-A", eventId: "event-user-exact" });
+    expect(dialogMock.confirm).not.toHaveBeenCalled();
   });
 
   it("Edit & resend transmet l'eventId exact du message remplacé", async () => {
@@ -759,9 +764,21 @@ describe("orchestration App — caractérisation", () => {
     expect(textarea).toBeTruthy();
     expect(textarea.dataset.slot).toBe("textarea");
     expect(textarea.rows).toBe(1);
+    expect(textarea.className).toContain("tw:bg-transparent");
+    expect(textarea.className).toContain("tw:focus-visible:ring-0");
+    expect(textarea.className).not.toContain("tw:focus-visible:border-[var(--border-strong)]");
     expect(document.querySelector(".edit-box")?.tagName).toBe("FORM");
+    expect(document.querySelector(".edit-box-shell")?.parentElement?.classList.contains("user-wrap")).toBe(true);
+    expect(document.querySelector(".user-bubble")).toBeNull();
+    expect(document.querySelector(".user-message [data-slot='message-footer']")).toBeNull();
+    const cancelButton = document.querySelector(".edit-cancel") as HTMLButtonElement;
+    expect(cancelButton.dataset.slot).toBe("button");
+    expect(cancelButton.className).toContain("tw:border-border");
+    expect(cancelButton.className).toContain("tw:rounded-full");
     const sendButton = document.querySelector(".edit-send") as HTMLButtonElement;
     expect(sendButton.dataset.slot).toBe("button");
+    expect(sendButton.className).toContain("tw:bg-primary");
+    expect(sendButton.className).toContain("tw:rounded-full");
     fireEvent.change(textarea, { target: { value: "   " } });
     expect(sendButton.disabled).toBe(true);
     fireEvent.change(textarea, { target: { value: "Question corrigée" } });
@@ -774,6 +791,7 @@ describe("orchestration App — caractérisation", () => {
     const reverts = sock.sent.map((s) => JSON.parse(s)).filter((m) => m.type === "revert");
     const sent = reverts[reverts.length - 1];
     expect(sent).toMatchObject({ threadId: "thread-A", eventId: "event-user-exact" });
+    expect(dialogMock.confirm).not.toHaveBeenCalled();
 
     await push(sock, { type: "reverted", threadId: "thread-A" });
     const resend = sock.sent.map((s) => JSON.parse(s)).filter((m) => m.type === "send").slice(-1)[0];

@@ -56,14 +56,17 @@ describe("chat turn view model", () => {
     expect(buildChatTurnViewModels([user], T0)[0].activeState).toEqual({ kind: "thinking" });
   });
 
-  it("conserve la dernière action terminée jusqu'au prochain signal de phase, comme Codex", () => {
+  it("remplace l'action terminée par Thinking dans le même slot actif", () => {
     const user: AgentEvent = { kind: "user", text: "Inspecte", ts: T0 };
     const completed: AgentEvent = {
       kind: "tool_update", id: "read-1", name: "Bash", output: "ok",
       status: "completed", detail: "cat src/App.tsx", input: { command: "cat src/App.tsx" },
     };
     const afterFastTool = buildChatTurnViewModels([user, completed], T0)[0];
-    expect(afterFastTool.activeState).toEqual({ kind: "activity", eventIndex: 1, live: false });
+    expect(afterFastTool.activeState).toEqual({ kind: "thinking" });
+    expect(projectChatTimeline([user, completed], [afterFastTool], new Set()).map((row) => row.type)).toEqual([
+      "event", "active-turn-header", "active-turn-tail",
+    ]);
 
     const backToThinking = buildChatTurnViewModels([
       user,
@@ -78,7 +81,7 @@ describe("chat turn view model", () => {
       { kind: "tool", name: "__thinking" },
       { ...completed, id: "read-2", detail: "cat src/Chat.tsx", input: { command: "cat src/Chat.tsx" } },
     ], T0)[0];
-    expect(nextFastTool.activeState).toEqual({ kind: "activity", eventIndex: 3, live: false });
+    expect(nextFastTool.activeState).toEqual({ kind: "thinking" });
   });
 
   it("ne produit jamais un fallback Thinking pendant une réponse en streaming", () => {
@@ -122,7 +125,7 @@ describe("chat turn view model", () => {
     ]);
   });
 
-  it("garde le groupe outil ouvert mais rend le reasoning le plus récent", () => {
+  it("garde l'action concrète prioritaire sur le reasoning plus récent", () => {
     const events: AgentEvent[] = [
       { kind: "user", text: "Inspecte", ts: T0 },
       { kind: "thinking", text: "Premier point", ts: T0 + 10 },
@@ -137,7 +140,60 @@ describe("chat turn view model", () => {
     const visibleWork = rows.filter((row) => row.type === "event" && ["thinking", "thinking_live", "tool"].includes(row.event.kind));
     expect(visibleWork).toHaveLength(0);
     expect(turn.activeActionGroups).toHaveLength(1);
-    expect(turn.activeState).toMatchObject({ kind: "reasoning", live: true });
+    expect(turn.activeState).toMatchObject({ kind: "activity", eventIndex: 2, live: true });
+  });
+
+  it("garde une seule activité vivante puis fixe les actions à la prochaine narration", () => {
+    const base: AgentEvent[] = [
+      { kind: "user", text: "Analyse", ts: T0 },
+      { kind: "text", text: "Je lis les sources puis je produis une figure.", ts: T0 + 10 },
+      {
+        kind: "tool_update", id: "read-1", name: "Bash", output: "", status: "completed",
+        detail: "sed -n '1,80p' src/App.tsx", input: { command: "sed -n '1,80p' src/App.tsx" },
+      },
+      { kind: "tool", name: "__thinking" },
+    ];
+    const betweenActions = buildChatTurnViewModels(base, T0)[0];
+    expect(betweenActions.activeState).toEqual({ kind: "thinking" });
+    expect(projectChatTimeline(base, [betweenActions], new Set()).some((row) => (
+      row.type === "event" && row.event.kind === "tool_update" && row.event.id === "read-1"
+    ))).toBe(false);
+
+    const narrated: AgentEvent[] = [
+      ...base,
+      { kind: "text", text: "La lecture est terminée; je passe à la figure.", ts: T0 + 20 },
+      { kind: "tool", name: "__thinking" },
+    ];
+    const afterNarration = buildChatTurnViewModels(narrated, T0)[0];
+    expect(projectChatTimeline(narrated, [afterNarration], new Set()).some((row) => (
+      row.type === "event" && row.event.kind === "tool_update" && row.event.id === "read-1"
+    ))).toBe(true);
+
+    const generating: AgentEvent[] = [
+      ...base,
+      {
+        kind: "tool_update", id: "image-1", name: "image_generation", output: "",
+        status: "inProgress", detail: "Scientific map", source: "codex",
+      },
+      { kind: "thinking_live", text: "Je prépare aussi la légende." },
+    ];
+    const whileGenerating = buildChatTurnViewModels(generating, T0)[0];
+    expect(whileGenerating.activeState).toMatchObject({ kind: "activity", eventIndex: 4, live: true });
+    expect(whileGenerating.activeActionGroups).toHaveLength(1);
+
+    const completedGeneration: AgentEvent[] = [
+      ...base,
+      {
+        kind: "tool_update", id: "image-1", name: "image_generation", output: "/tmp/map.png",
+        status: "completed", detail: "Scientific map", source: "codex",
+      },
+      { kind: "tool", name: "__thinking" },
+    ];
+    const afterGeneration = buildChatTurnViewModels(completedGeneration, T0)[0];
+    expect(afterGeneration.activeState).toEqual({ kind: "thinking" });
+    expect(projectChatTimeline(completedGeneration, [afterGeneration], new Set()).some((row) => (
+      row.type === "event" && row.event.kind === "tool_update" && row.event.id === "image-1"
+    ))).toBe(false);
   });
 
   it("ancre les updates d'un outil avant la narration qui ferme son segment", () => {
@@ -183,6 +239,26 @@ describe("chat turn view model", () => {
       expect(visibleToolNames).toEqual(["Bash", imageName]);
     },
   );
+
+  it("garde les agents parallèles visibles hors du Thinking actif", () => {
+    const events: AgentEvent[] = [
+      { kind: "user", text: "Recherche", ts: T0 },
+      { kind: "text", text: "Je lance deux axes en parallèle.", ts: T0 + 10 },
+      {
+        kind: "tool_update", id: "spawn-1", name: "agent:spawnAgent", output: "", status: "completed",
+        agentActivity: {
+          tool: "spawnAgent", receiverThreadIds: ["child-1"],
+          agentsStates: { "child-1": { status: "running", message: null } },
+        },
+      },
+      { kind: "tool", name: "__thinking" },
+    ];
+    const turn = buildChatTurnViewModels(events, T0)[0];
+    const rows = projectChatTimeline(events, [turn], new Set());
+    expect(rows.some((row) => row.type === "event" && row.event.kind === "tool_update" && row.event.agentActivity != null)).toBe(true);
+    expect(turn.activeActionGroups).toHaveLength(0);
+    expect(turn.activeState).toEqual({ kind: "thinking" });
+  });
 
   it("distingue commentary et réponse finale pour le pli terminé", () => {
     const commentaryThenTool: AgentEvent[] = [

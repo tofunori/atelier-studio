@@ -106,6 +106,7 @@ function isToolAction(event: AgentEvent): event is ToolAction {
 
 function isStandaloneToolAction(event: ToolAction) {
   const name = event.name.toLowerCase();
+  if (event.kind === "tool_update" && event.agentActivity != null) return true;
   return name.includes("view_image") || name.includes("image_view") ||
     name.includes("open_image") || name === "image" || name.startsWith("image ");
 }
@@ -124,6 +125,11 @@ function isRunningTool(event: ToolAction) {
   if (event.kind !== "tool_update") return false;
   const status = event.status?.replace(/([a-z])([A-Z])/g, "$1-$2").toLowerCase().replace(/_/g, "-") ?? "";
   return status === "running" || status === "pending" || status === "in-progress";
+}
+
+function isRunningToolGroup(group: ToolActionGroup) {
+  const latest = group.actions[group.actions.length - 1];
+  return latest?.kind === "tool" || (latest != null && isRunningTool(latest));
 }
 
 function isRunningActivity(event: AgentEvent) {
@@ -241,7 +247,7 @@ function activeStateFor(
     const event = events[index];
     if (event.kind === "activity") {
       const live = isRunningActivity(event);
-      if (index > activityBoundary) candidates.push({ eventIndex: index, anchorIndex: index, live });
+      if (live && index > activityBoundary) candidates.push({ eventIndex: index, anchorIndex: index, live });
     }
   }
   for (const group of groups) {
@@ -251,7 +257,7 @@ function activeStateFor(
     const live = latest.kind === "tool" || isRunningTool(latest);
     // Comme Codex, un message assistant ferme le segment même si le provider
     // n'a pas encore envoyé la terminalisation d'une ancienne commande.
-    if (group.index <= activityBoundary) continue;
+    if (group.index <= activityBoundary || !live) continue;
     candidates.push({
       eventIndex,
       anchorIndex: group.index,
@@ -259,24 +265,21 @@ function activeStateFor(
       live,
     });
   }
-  // L'unité visible la plus récente gagne. Le reasoning ne ferme pas le groupe
-  // mais reprend temporairement le libellé courant jusqu'au prochain outil.
+  // Une action concrète réellement active reste prioritaire même si Codex émet
+  // ensuite un petit item de reasoning. Le placeholder Thinking ne reprend que
+  // lorsqu'aucune lecture, recherche, génération ou commande n'est en cours.
   candidates.sort((a, b) => a.anchorIndex - b.anchorIndex);
   const latestCandidate = candidates[candidates.length - 1];
-  if (latestReasoningIndex != null && latestReasoningIndex > (latestCandidate?.eventIndex ?? -1)) {
+  if (latestCandidate) {
+    return { kind: "activity", eventIndex: latestCandidate.eventIndex, live: latestCandidate.live };
+  }
+  if (latestReasoningIndex != null) {
     const latestReasoning = events[latestReasoningIndex];
     return latestReasoning.kind === "thinking_live"
       ? { kind: "reasoning", texts: reasoningTexts, live: true }
       : { kind: "thinking" };
   }
-  if (latestCandidate) {
-    return { kind: "activity", eventIndex: latestCandidate.eventIndex, live: latestCandidate.live };
-  }
 
-  const latestReasoning = latestReasoningIndex == null ? null : events[latestReasoningIndex];
-  if (reasoningTexts.length > 0 && latestReasoning?.kind === "thinking_live") {
-    return { kind: "reasoning", texts: reasoningTexts, live: true };
-  }
   const workContinuedAfterAssistant = latestAssistantIndex != null && indexes.some((index) => (
     index > latestAssistantIndex && (
       isReasoning(events[index]) || isToolAction(events[index]) || events[index].kind === "activity"
@@ -343,17 +346,23 @@ export function buildChatTurnViewModels(
     });
     const activeBoundary = activeSegmentBoundary(groups, latestAssistantIndex);
     const activeActionGroups = isActive
-      ? groups.filter((group) => group.index > activeBoundary && !isStandaloneToolGroup(group))
+      ? groups.filter((group) => (
+          group.index > activeBoundary && !isStandaloneToolGroup(group) && isRunningToolGroup(group)
+        ))
       : [];
     const activeGroupIndexes = new Set(activeActionGroups.flatMap((group) => group.indexes));
+    const openSegmentGroupIndexes = new Set(groups.flatMap((group) => (
+      group.index > activeBoundary && !isStandaloneToolGroup(group) ? group.indexes : []
+    )));
     const activeWorkIndexes = new Set(indexes.filter((index) => {
       const event = events[index];
       // Le reasoning reste une donnée de statut, pas une ligne de transcript.
-      // Seules les actions du segment courant sont déplacées dans la queue
-      // active; les segments fermés restent exactement à leur position.
+      // Toutes les actions de la tranche encore ouverte partagent le même slot
+      // vivant : Read → Thinking → Search. Elles ne deviennent une ligne
+      // durable du transcript qu'une fois fermées par une narration assistant.
       if (!isActive) return isReasoning(event) || isToolAction(event) || event.kind === "activity";
-      return isReasoning(event) || activeGroupIndexes.has(index) ||
-        (event.kind === "activity" && index > activeBoundary);
+      return isReasoning(event) || openSegmentGroupIndexes.has(index) || activeGroupIndexes.has(index) ||
+        (event.kind === "activity" && index > activeBoundary && isRunningActivity(event));
     }));
     const firstTs = (userIndex == null ? null : timestampOf(events[userIndex])) ??
       indexes.map((index) => timestampOf(events[index])).find((value) => value != null) ??

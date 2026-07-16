@@ -37,6 +37,26 @@ describe("route", () => {
     await route({ type: "nope" }, { send: (m) => sent.push(m) });
     expect(sent[0].type).toBe("error");
   });
+
+  it("getAgentHistory lit le rollout enfant Codex sans recopier le prompt parent", async () => {
+    const sent = [];
+    const codexHistory = vi.fn(async (threadId) => [
+      { kind: "user", text: "très long prompt parent" },
+      { kind: "text", text: `mise à jour de ${threadId}` },
+    ]);
+    await route({ type: "getAgentHistory", parentThreadId: "parent", agentThreadId: "child" }, {
+      send: (message) => sent.push(message),
+      sessions: { codexHistory },
+    });
+    expect(codexHistory).toHaveBeenCalledWith("child");
+    expect(sent).toEqual([{
+      type: "agentHistory",
+      parentThreadId: "parent",
+      agentThreadId: "child",
+      events: [{ kind: "text", text: "mise à jour de child" }],
+    }]);
+  });
+
   it("getHistory route chaque provider vers SON loader, jamais celui d'un autre", async () => {
     const mkCtx = (provider, extra = {}) => {
       const sent = [];
