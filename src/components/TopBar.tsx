@@ -93,13 +93,9 @@ export default function TopBar({
             align="start"
             className="proj-menu"
             trigger={
-              <RowButton className="topbar-crumb" title={shortPath(activeProject)}
-                style={{ "--pc": color } as React.CSSProperties}>
-                <span className="crumb-tile">
-                  {meta?.label?.startsWith("icon:")
-                    ? <ProjIcon name={meta.label.slice(5)} size={12} />
-                    : projInitial(activeProject, meta)}
-                </span>
+              // aminci (demande Thierry 2026-07-16) : nom seul en texte
+              // discret — la couleur/tuile du projet vit déjà dans le rail
+              <RowButton className="topbar-crumb" title={shortPath(activeProject)}>
                 <span className="topbar-crumb-name">{displayName(activeProject, meta)}</span>
                 <svg className="crumb-chev" width="9" height="9" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.8"><path d="M4 6l4 4 4-4" /></svg>
               </RowButton>

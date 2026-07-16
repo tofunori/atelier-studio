@@ -75,13 +75,16 @@
 
 /* ---- RowButton : surface activable non-bouton-d'action ---------------------
  * (rangée, cellule, chip, vignette). Reset seulement — la géométrie vient de
- * la classe produit ; le focus ring vient du groupe partagé ci-dessus. */
-.ui-rowbtn {
+ * la classe produit ; le focus ring vient du groupe partagé ci-dessus.
+ * :where() = spécificité zéro : le reset est un FALLBACK que toute classe
+ * produit bat, quel que soit l'ordre d'injection des feuilles (piège vérifié
+ * 2026-07-16 : font:inherit écrasait le font: des rangées injecté avant). */
+:where(.ui-rowbtn) {
   appearance: none; border: none; background: transparent;
   padding: 0; margin: 0; font: inherit; color: inherit; text-align: inherit;
   cursor: pointer;
 }
-.ui-rowbtn:disabled { cursor: default; }
+:where(.ui-rowbtn:disabled) { cursor: default; }
 
 /* ---- SegmentedControl — parité pixel avec .tb-seg historique ------------------- */
 .ui-seg { display: inline-flex; background: var(--surface-inset); border-radius: var(--radius-surface); padding: 3px; gap: 2px; }
