@@ -92,15 +92,16 @@ enum GalleryBackend {
 }
 
 fn gallery_backend_kind() -> GalleryBackend {
+    // Défaut Rust (bascule 2026-07-16) — fallback soak : ATELIER_GALLERY_BACKEND=node
     match std::env::var("ATELIER_GALLERY_BACKEND")
         .or_else(|_| std::env::var("ATELIER_GALLERY_ENGINE"))
         .unwrap_or_default()
         .to_ascii_lowercase()
         .as_str()
     {
-        "rust" => GalleryBackend::Rust,
+        "node" => GalleryBackend::Node,
         "python" => GalleryBackend::Python,
-        _ => GalleryBackend::Node,
+        _ => GalleryBackend::Rust,
     }
 }
 
@@ -140,13 +141,15 @@ fn resolve_gallery_rust_bin(app: &tauri::AppHandle) -> Result<PathBuf, String> {
             return Ok(c);
         }
     }
-    let resource = app
-        .path()
-        .resource_dir()
-        .map_err(|e| e.to_string())?
-        .join("atelier-gallery-server");
-    if resource.is_file() {
-        return Ok(resource);
+    let resource_dir = app.path().resource_dir().map_err(|e| e.to_string())?;
+    // binaire stagé avec les autres serveurs Rust (scripts/stage-rust-server.sh)
+    for candidate in [
+        resource_dir.join("rust-server/atelier-gallery-server"),
+        resource_dir.join("atelier-gallery-server"),
+    ] {
+        if candidate.is_file() {
+            return Ok(candidate);
+        }
     }
     Err(
         "atelier-gallery-server introuvable (cargo build -p atelier-gallery --manifest-path rust/Cargo.toml)"

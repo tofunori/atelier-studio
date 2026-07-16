@@ -4,13 +4,13 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 DIST=src-tauri/rust-server-dist
-BIN_NAMES=(atelier-studio-server atelier-remote-gateway)
+BIN_NAMES=(atelier-studio-server atelier-remote-gateway atelier-gallery-server)
 
 mkdir -p "$DIST"
 
 if [[ "${ATELIER_SKIP_RUST_BUILD:-}" != "1" ]]; then
-  echo "[stage-rust-server] cargo build -p atelier-server -p atelier-remote --release"
-  cargo build -p atelier-server -p atelier-remote --release --manifest-path rust/Cargo.toml
+  echo "[stage-rust-server] cargo build -p atelier-server -p atelier-remote -p atelier-gallery --release"
+  cargo build -p atelier-server -p atelier-remote -p atelier-gallery --release --manifest-path rust/Cargo.toml
 fi
 
 for BIN_NAME in "${BIN_NAMES[@]}"; do
