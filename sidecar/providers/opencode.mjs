@@ -364,6 +364,7 @@ const ACP_HANDSHAKE_TIMEOUT_MS = 10000; // initialize
 const ACP_OPEN_TIMEOUT_MS = 30000;
 
 let acpServer = null; // { proc, request(method,params,timeoutMs), notify(method,params), realBin }
+let currentAcpProc = null; // process du spawn le plus récent (garde anti-lignes tardives)
 const acpPendingRpc = new Map(); // id -> { resolve, reject }
 const acpSessionHandlers = new Map(); // sessionId -> (update) => void (tour en cours)
 const acpLoadedSessions = new Set(); // sessions ouvertes (new|load) dans CE process
@@ -448,11 +449,19 @@ async function spawnAcpServer() {
     stdio: ["pipe", "pipe", "pipe"],
     env: { ...process.env },
   });
-  proc.on("exit", () => resetAcpState(new Error("opencode acp a quitté")));
-  proc.on("error", (e) => resetAcpState(e));
+  // Garde d'identité : l'exit TARDIF d'un ancien process (remplacé par
+  // ensureAcpServer) ne doit pas réinitialiser l'état du remplaçant
+  // (course relevée en revue indépendante, 2026-07-16).
+  const isCurrent = () => !acpServer || acpServer.proc === proc;
+  currentAcpProc = proc;
+  proc.on("exit", () => { if (isCurrent()) resetAcpState(new Error("opencode acp a quitté")); });
+  proc.on("error", (e) => { if (isCurrent()) resetAcpState(e); });
   proc.stderr.on("data", () => {}); // logs/warnings plugins : bruyants, jamais bloquer le pipe
   let carry = "";
   proc.stdout.on("data", (buf) => {
+    // les dernières lignes d'un ANCIEN process (tué au remplacement) ne
+    // doivent jamais se dispatcher dans les maps du remplaçant (ids partagés)
+    if (currentAcpProc !== proc) return;
     const { messages, rest } = parseAcpLines(String(buf), carry);
     carry = rest;
     for (const msg of messages) handleOpencodeIncoming(proc, msg);
@@ -471,20 +480,32 @@ async function spawnAcpServer() {
     proc.once("error", (e) => reject(acpHandshakeFailure(`spawn opencode acp: ${e.message}`)));
     proc.once("exit", (code) => reject(acpHandshakeFailure(`opencode acp a quitté immédiatement (code ${code})`)));
   });
-  await Promise.race([
-    withAcpTimeout(
-      srv.request("initialize", {
-        protocolVersion: 1,
-        clientCapabilities: { fs: { readTextFile: false, writeTextFile: false }, terminal: false },
-      }),
-      "initialize",
-      ACP_HANDSHAKE_TIMEOUT_MS,
-    ),
-    earlyExit,
-  ]);
+  try {
+    await Promise.race([
+      withAcpTimeout(
+        srv.request("initialize", {
+          protocolVersion: 1,
+          clientCapabilities: { fs: { readTextFile: false, writeTextFile: false }, terminal: false },
+        }),
+        "initialize",
+        ACP_HANDSHAKE_TIMEOUT_MS,
+      ),
+      earlyExit,
+    ]);
+  } catch (e) {
+    // Pas de zombie : un handshake raté tue le process et purge son pending
+    // (sinon le repli legacy masquerait un `opencode acp` orphelin).
+    try { proc.kill("SIGTERM"); } catch {}
+    resetAcpState(e instanceof Error ? e : new Error(String(e)));
+    throw e;
+  }
   acpServer = srv;
   return srv;
 }
+
+// Spawn single-flight : deux premiers tours concurrents partagent le même
+// handshake au lieu de lancer deux singletons aux ids JSON-RPC entremêlés.
+let acpSpawnPromise = null;
 
 async function ensureAcpServer() {
   if (acpServer) {
@@ -494,7 +515,10 @@ async function ensureAcpServer() {
     try { acpServer.proc.kill("SIGTERM"); } catch {}
     resetAcpState(new Error("opencode acp remplacé (version/process)"));
   }
-  return spawnAcpServer();
+  if (!acpSpawnPromise) {
+    acpSpawnPromise = spawnAcpServer().finally(() => { acpSpawnPromise = null; });
+  }
+  return acpSpawnPromise;
 }
 
 export function stopAcpServer() {
@@ -708,7 +732,13 @@ async function openOpencodeSession(srv, { sessionId, cwd }) {
 async function alignOpencodeModel(srv, sessionId, model) {
   if (!model || acpSessionModel.get(sessionId) === model) return;
   try {
-    await srv.request("session/set_model", { sessionId, modelId: model });
+    // borné : un serveur vivant mais muet ne doit pas bloquer le tour avant
+    // même l'enregistrement d'activeTurns (le tour serait ininterrompable)
+    await withAcpTimeout(
+      srv.request("session/set_model", { sessionId, modelId: model }),
+      "session/set_model",
+      10000,
+    );
     acpSessionModel.set(sessionId, model);
   } catch (e) {
     console.warn(`[opencode] session/set_model(${model}) refusé, ignoré (best-effort):`, e?.message ?? e);
