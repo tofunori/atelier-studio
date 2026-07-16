@@ -41,7 +41,8 @@
 
 import process from "node:process";
 
-const MODE = process.env.FAKE_KIMI_MODE || "nominal";
+// argv[2] prioritaire (les tests parallèles ne peuvent pas partager un env global).
+const MODE = process.argv[2] || process.env.FAKE_KIMI_MODE || "nominal";
 const FRAGMENT = process.env.FAKE_KIMI_FRAGMENT === "1";
 const LATE_MS = Number(process.env.FAKE_KIMI_LATE_MS || 250);
 const VERSION = MODE === "old_version" ? "0.20.0" : "0.26.0";
@@ -326,7 +327,14 @@ async function handlePrompt(id, params) {
         await update(sid, { sessionUpdate: "agent_message_chunk", content: { type: "text", text: t } });
       }
     }
-    const resp = await pending;
+    // session/cancel pendant l'attente : le tour se termine `cancelled`
+    // même si la réponse de permission n'est jamais arrivée (contrat Kimi).
+    const cancelDuringPermission = new Promise((resolve) => (st.cancel = () => resolve(null)));
+    const resp = await Promise.race([pending, cancelDuringPermission]);
+    st.cancel = null;
+    if (resp === null) {
+      return reply(id, { stopReason: "cancelled" });
+    }
     const outcome = resp && resp.result && resp.result.outcome ? resp.result.outcome : { outcome: "cancelled" };
     const label =
       outcome.outcome === "selected" ? `selected:${outcome.optionId}` : String(outcome.outcome || "cancelled");

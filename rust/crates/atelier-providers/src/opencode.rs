@@ -2,7 +2,7 @@
 //! CLI JSON stream one-shot (plan 033 Porte 8) en cas d'échec de handshake.
 
 use crate::acp_map::{map_prompt_result, map_session_update, TurnCtx, TurnEmitter};
-use crate::acp_rpc::{AcpServer, SessionUpdateHandler};
+use crate::acp_rpc::{AcpServer, ServerRequestHandler, SessionUpdateHandler};
 use crate::opencode_parse::parse_opencode_jsonl;
 use crate::traits::{Provider, ProviderCaps, SendRequest, SendResult};
 use async_trait::async_trait;
@@ -38,14 +38,46 @@ pub struct OpenCodeProvider {
 
 impl OpenCodeProvider {
     pub fn new() -> Option<Self> {
-        resolve_bin().map(|bin| Self {
-            bin,
-            runs: Mutex::new(HashMap::new()),
-            acp: AcpServer::new("opencode"),
-            acp_state: Mutex::new(AcpState::default()),
-            active_turns: Mutex::new(HashMap::new()),
+        resolve_bin().map(|bin| {
+            let acp = AcpServer::new("opencode");
+            // Politique du plan 045 conservée PAR OpenCode (plan 046 §2.4) :
+            // le client générique n'auto-approuve plus rien, c'est ce handler
+            // par défaut qui porte la parité `--auto` du chemin legacy
+            // (le catalogue déclare toujours `permissions:false`).
+            acp.set_default_server_handler(opencode_server_policy());
+            Self {
+                bin,
+                runs: Mutex::new(HashMap::new()),
+                acp,
+                acp_state: Mutex::new(AcpState::default()),
+                active_turns: Mutex::new(HashMap::new()),
+            }
         })
     }
+}
+
+/// Auto-approbation `allow_once` (sinon la première option, sinon refus sûr) ;
+/// toute autre méthode serveur→client ⇒ `Null` ⇒ -32601 côté client générique.
+fn opencode_server_policy() -> ServerRequestHandler {
+    Arc::new(|method: String, params: Value| {
+        Box::pin(async move {
+            if method != "session/request_permission" {
+                return Value::Null;
+            }
+            let options = params.get("options").and_then(Value::as_array);
+            let picked = options.and_then(|opts| {
+                opts.iter()
+                    .find(|o| o.get("kind").and_then(Value::as_str) == Some("allow_once"))
+                    .or_else(|| opts.first())
+            });
+            match picked.and_then(|o| o.get("optionId")).cloned() {
+                Some(option_id) => {
+                    json!({"outcome": {"outcome": "selected", "optionId": option_id}})
+                }
+                None => json!({"outcome": {"outcome": "cancelled"}}),
+            }
+        })
+    })
 }
 
 /// `currentValue` de l'option `category=="model"` d'une réponse
@@ -179,7 +211,7 @@ impl OpenCodeProvider {
             Err(e) => {
                 state.lock().unwrap().1.flush();
                 (req.on_event)(json!({"kind":"error","message": format!("opencode acp: {e}")}));
-                (false, Some(e))
+                (false, Some(e.to_string()))
             }
         };
 
@@ -222,7 +254,11 @@ impl OpenCodeProvider {
                     return Ok(sid.clone());
                 }
                 Err(e) => {
-                    if !self.acp.is_alive().await {
+                    // Repli session/new UNIQUEMENT sur une erreur applicative
+                    // non-auth (session inconnue/cwd différent) — plan 046
+                    // §2.1 : auth, réseau ou process mort ne créent jamais
+                    // une nouvelle session en silence.
+                    if e.transport || e.is_auth_required() || !self.acp.is_alive().await {
                         return Err(format!("session/load: {e}"));
                     }
                     eprintln!("[opencode] session/load refusé ({sid}), repli session/new: {e}");
@@ -231,7 +267,11 @@ impl OpenCodeProvider {
         }
         let result = self
             .acp
-            .request("session/new", json!({"cwd": cwd, "mcpServers": []}), Some(30_000))
+            .request(
+                "session/new",
+                json!({"cwd": cwd, "mcpServers": []}),
+                Some(30_000),
+            )
             .await?;
         let sid = result
             .get("sessionId")
@@ -273,7 +313,9 @@ impl OpenCodeProvider {
                     .insert(sid.to_string(), model.to_string());
             }
             Err(e) => {
-                eprintln!("[opencode] session/set_model({model}) refusé, ignoré (best-effort): {e}");
+                eprintln!(
+                    "[opencode] session/set_model({model}) refusé, ignoré (best-effort): {e}"
+                );
             }
         }
     }
@@ -447,10 +489,7 @@ impl OpenCodeProvider {
         };
         let stdout = child.stdout.take().expect("stdout");
         let _ = child.stderr.take();
-        self.runs
-            .lock()
-            .await
-            .insert(req.thread_id.clone(), child);
+        self.runs.lock().await.insert(req.thread_id.clone(), child);
 
         let mut rest = String::new();
         let mut reader = BufReader::new(stdout).lines();
@@ -475,7 +514,9 @@ impl OpenCodeProvider {
                 if !full_text.is_empty() {
                     (req.on_event)(json!({"kind":"text","text": full_text}));
                 }
-                (req.on_event)(json!({"kind":"done","ok": false, "result": full_text, "usage": last_usage}));
+                (req.on_event)(
+                    json!({"kind":"done","ok": false, "result": full_text, "usage": last_usage}),
+                );
                 return SendResult {
                     session_id: sid,
                     ok: false,
@@ -550,13 +591,54 @@ impl OpenCodeProvider {
             error: err_msg,
         }
     }
-
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::traits::SendMode;
+
+    /// Politique plan 045 portée par OpenCode (déplacée du client générique,
+    /// plan 046 §2.4) — mêmes cas que les anciens tests d'acp_rpc.
+    #[tokio::test]
+    async fn policy_auto_allow_once() {
+        let policy = opencode_server_policy();
+        let r = policy(
+            "session/request_permission".into(),
+            json!({"options":[
+                {"optionId":"reject","kind":"reject_once","name":"Reject"},
+                {"optionId":"once","kind":"allow_once","name":"Allow once"}
+            ]}),
+        )
+        .await;
+        assert_eq!(r["outcome"]["outcome"], "selected");
+        assert_eq!(r["outcome"]["optionId"], "once");
+    }
+
+    #[tokio::test]
+    async fn policy_sans_allow_once_prend_la_premiere() {
+        let policy = opencode_server_policy();
+        let r = policy(
+            "session/request_permission".into(),
+            json!({"options":[{"optionId":"always","kind":"allow_always"}]}),
+        )
+        .await;
+        assert_eq!(r["outcome"]["optionId"], "always");
+    }
+
+    #[tokio::test]
+    async fn policy_sans_options_cancelled() {
+        let policy = opencode_server_policy();
+        let r = policy("session/request_permission".into(), json!({})).await;
+        assert_eq!(r["outcome"]["outcome"], "cancelled");
+    }
+
+    #[tokio::test]
+    async fn policy_methode_inconnue_null_donc_32601() {
+        let policy = opencode_server_policy();
+        let r = policy("fs/read_text_file".into(), json!({"path":"/x"})).await;
+        assert!(r.is_null(), "Null ⇒ -32601 émis par le client générique");
+    }
 
     /// E2E réel (réseau + auth opencode requis) — plan 045 Step 7.4 :
     /// `cargo test -p atelier-providers --manifest-path rust/Cargo.toml \
@@ -593,7 +675,10 @@ mod tests {
         );
         let evs = events.lock().unwrap();
         assert!(evs.iter().any(|e| e["kind"] == "delta"), "aucun delta reçu");
-        let done = evs.iter().find(|e| e["kind"] == "done").expect("pas de done");
+        let done = evs
+            .iter()
+            .find(|e| e["kind"] == "done")
+            .expect("pas de done");
         assert!(
             done["usage"]["window"].as_u64().unwrap_or(0) > 0,
             "usage.window absent (usage_update non absorbé ?)"

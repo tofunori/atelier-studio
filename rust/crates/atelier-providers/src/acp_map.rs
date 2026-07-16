@@ -30,7 +30,7 @@ pub struct TurnCtx {
     pub last_usage_update: Option<Value>,
 }
 
-fn text_of(update: &Value) -> String {
+pub(crate) fn text_of(update: &Value) -> String {
     update
         .pointer("/content/text")
         .and_then(|v| v.as_str())
@@ -118,6 +118,8 @@ fn remember(ctx: &mut TurnCtx, id: &str, name: &str, detail: Option<&str>, input
 }
 
 /// Construit l'event `tool_update` — `output` TOUJOURS string (contrat front).
+/// `source` identifie le provider émetteur (plan 046 : Kimi ne porte pas
+/// `source:"opencode"`).
 fn tool_event(
     id: &str,
     name: &str,
@@ -125,6 +127,7 @@ fn tool_event(
     detail: Option<&str>,
     output: String,
     input: Value,
+    source: &str,
 ) -> Value {
     let mut m = Map::new();
     m.insert("kind".into(), json!("tool_update"));
@@ -137,11 +140,11 @@ fn tool_event(
     }
     m.insert("output".into(), json!(output));
     m.insert("input".into(), input);
-    m.insert("source".into(), json!("opencode"));
+    m.insert("source".into(), json!(source));
     Value::Object(m)
 }
 
-fn tool_call_event(update: &Value, ctx: &mut TurnCtx) -> Value {
+pub(crate) fn tool_call_event(update: &Value, ctx: &mut TurnCtx, source: &str) -> Value {
     let id = update
         .get("toolCallId")
         .and_then(|v| v.as_str())
@@ -152,10 +155,10 @@ fn tool_call_event(update: &Value, ctx: &mut TurnCtx) -> Value {
     let detail = kind.filter(|k| *k != name);
     let input = update.get("rawInput").cloned().unwrap_or(Value::Null);
     remember(ctx, id, name, detail, &input);
-    tool_event(id, name, "running", detail, String::new(), input)
+    tool_event(id, name, "running", detail, String::new(), input, source)
 }
 
-fn tool_call_update_event(update: &Value, ctx: &mut TurnCtx) -> Value {
+pub(crate) fn tool_call_update_event(update: &Value, ctx: &mut TurnCtx, source: &str) -> Value {
     let id = update
         .get("toolCallId")
         .and_then(|v| v.as_str())
@@ -187,13 +190,14 @@ fn tool_call_update_event(update: &Value, ctx: &mut TurnCtx) -> Value {
         detail.as_deref(),
         tool_output(update),
         input,
+        source,
     )
 }
 
 /// Events `edit` depuis les contenus diff, dédupliqués par
 /// (toolCallId, path, len(newText)) — grok.mjs:427-441. `files` seulement,
 /// pas de snippets (piège redaction journal, décision 6 du plan 045).
-fn edit_events(update: &Value, ctx: &mut TurnCtx) -> Vec<Value> {
+pub(crate) fn edit_events(update: &Value, ctx: &mut TurnCtx) -> Vec<Value> {
     let id = update
         .get("toolCallId")
         .and_then(|v| v.as_str())
@@ -236,9 +240,9 @@ pub fn map_session_update(update: &Value, ctx: &mut TurnCtx) -> Vec<Value> {
         Some("agent_message_chunk") => {
             vec![json!({"kind": "delta", "text": text_of(update)})]
         }
-        Some("tool_call") => vec![tool_call_event(update, ctx)],
+        Some("tool_call") => vec![tool_call_event(update, ctx, "opencode")],
         Some("tool_call_update") => {
-            let mut evs = vec![tool_call_update_event(update, ctx)];
+            let mut evs = vec![tool_call_update_event(update, ctx, "opencode")];
             evs.extend(edit_events(update, ctx));
             evs
         }
@@ -256,7 +260,10 @@ pub fn map_session_update(update: &Value, ctx: &mut TurnCtx) -> Vec<Value> {
 /// (interruption utilisateur = succès, comme grok.mjs:518-535). Usage fusionné :
 /// tokens de la réponse prompt + window/cost du dernier `usage_update`.
 pub fn map_prompt_result(result: &Value, ctx: &TurnCtx) -> Value {
-    let stop = result.get("stopReason").and_then(|v| v.as_str()).unwrap_or("");
+    let stop = result
+        .get("stopReason")
+        .and_then(|v| v.as_str())
+        .unwrap_or("");
     let ok = stop == "end_turn" || stop == "cancelled";
     let uu = ctx.last_usage_update.as_ref();
     let context = result
@@ -358,7 +365,10 @@ mod tests {
         let u = json!({"sessionUpdate":"agent_thought_chunk","messageId":"msg_1",
             "content":{"type":"text","text":"The user wants me"}});
         let evs = map_session_update(&u, &mut ctx);
-        assert_eq!(evs, vec![json!({"kind":"thinking_delta","text":"The user wants me"})]);
+        assert_eq!(
+            evs,
+            vec![json!({"kind":"thinking_delta","text":"The user wants me"})]
+        );
     }
 
     #[test]
@@ -381,20 +391,38 @@ mod tests {
         assert_eq!(ev["name"], "bash");
         assert_eq!(ev["status"], "running");
         assert_eq!(ev["source"], "opencode");
-        assert!(ev["output"].is_string(), "output doit être une string, jamais absent");
+        assert!(
+            ev["output"].is_string(),
+            "output doit être une string, jamais absent"
+        );
         assert_eq!(ev["output"], "");
     }
 
     #[test]
     fn tool_call_update_statuses() {
         let cases = [
-            (json!({"sessionUpdate":"tool_call_update","toolCallId":"c","status":"failed"}), "failed"),
-            (json!({"sessionUpdate":"tool_call_update","toolCallId":"c","status":"completed"}), "completed"),
-            (json!({"sessionUpdate":"tool_call_update","toolCallId":"c","status":"in_progress"}), "running"),
+            (
+                json!({"sessionUpdate":"tool_call_update","toolCallId":"c","status":"failed"}),
+                "failed",
+            ),
+            (
+                json!({"sessionUpdate":"tool_call_update","toolCallId":"c","status":"completed"}),
+                "completed",
+            ),
+            (
+                json!({"sessionUpdate":"tool_call_update","toolCallId":"c","status":"in_progress"}),
+                "running",
+            ),
             // pas de statut mais un contenu -> completed (heuristique grok)
-            (json!({"sessionUpdate":"tool_call_update","toolCallId":"c",
-                "content":[{"type":"text","text":"fini"}]}), "completed"),
-            (json!({"sessionUpdate":"tool_call_update","toolCallId":"c"}), "running"),
+            (
+                json!({"sessionUpdate":"tool_call_update","toolCallId":"c",
+                "content":[{"type":"text","text":"fini"}]}),
+                "completed",
+            ),
+            (
+                json!({"sessionUpdate":"tool_call_update","toolCallId":"c"}),
+                "running",
+            ),
         ];
         for (u, want) in cases {
             let mut ctx = TurnCtx::default();
@@ -411,7 +439,8 @@ mod tests {
             "kind":"edit","rawInput":{"path":"/tmp/a"}});
         map_session_update(&call, &mut ctx);
         // update de suivi SANS title ni rawInput (vu en réel avec grok)
-        let follow = json!({"sessionUpdate":"tool_call_update","toolCallId":"call_2","status":"completed"});
+        let follow =
+            json!({"sessionUpdate":"tool_call_update","toolCallId":"call_2","status":"completed"});
         let evs = map_session_update(&follow, &mut ctx);
         assert_eq!(evs[0]["name"], "write");
         assert_eq!(evs[0]["input"]["path"], "/tmp/a");
@@ -447,9 +476,17 @@ mod tests {
     #[test]
     fn updates_ignorees() {
         let mut ctx = TurnCtx::default();
-        for k in ["user_message_chunk", "available_commands_update", "current_mode_update", "inconnu_futur"] {
+        for k in [
+            "user_message_chunk",
+            "available_commands_update",
+            "current_mode_update",
+            "inconnu_futur",
+        ] {
             let u = json!({"sessionUpdate": k});
-            assert!(map_session_update(&u, &mut ctx).is_empty(), "{k} doit être ignoré");
+            assert!(
+                map_session_update(&u, &mut ctx).is_empty(),
+                "{k} doit être ignoré"
+            );
         }
     }
 
@@ -496,8 +533,10 @@ mod tests {
         }));
         em.emit(json!({"kind":"thinking_delta","text":"a"}));
         em.emit(json!({"kind":"delta","text":"b"}));
-        em.emit(json!({"kind":"tool_update","id":"t","name":"bash","status":"running",
-            "output":"","input":null,"source":"opencode"}));
+        em.emit(
+            json!({"kind":"tool_update","id":"t","name":"bash","status":"running",
+            "output":"","input":null,"source":"opencode"}),
+        );
         em.flush();
         // le tool_update est précédé des blocs finaux thinking puis text
         assert_eq!(
