@@ -60,7 +60,10 @@ fn extract_user_query(text: &str) -> Option<String> {
 fn strip_gallery_tool_instruction(text: &str) -> String {
     let mut out = text.to_string();
     for (open, close) in [
-        ("<atelier-gallery-integration>", "</atelier-gallery-integration>"),
+        (
+            "<atelier-gallery-integration>",
+            "</atelier-gallery-integration>",
+        ),
         ("<atelier-zotero-passages>", "</atelier-zotero-passages>"),
     ] {
         while let Some(start) = out.find(open) {

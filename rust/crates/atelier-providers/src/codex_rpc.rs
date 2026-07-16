@@ -14,9 +14,8 @@ use tokio::process::{Child, ChildStdin, Command};
 use tokio::sync::{mpsc, oneshot, Mutex};
 
 type NotifHandler = Arc<dyn Fn(&str, &Value) + Send + Sync>;
-pub type ServerRequestHandler = Arc<
-    dyn Fn(String, Value) -> Pin<Box<dyn Future<Output = Value> + Send>> + Send + Sync,
->;
+pub type ServerRequestHandler =
+    Arc<dyn Fn(String, Value) -> Pin<Box<dyn Future<Output = Value> + Send>> + Send + Sync>;
 
 struct Pending {
     tx: oneshot::Sender<Result<Value, String>>,
@@ -80,7 +79,9 @@ impl CodexAppServer {
         {
             cmd.process_group(0);
         }
-        let mut child = cmd.spawn().map_err(|e| format!("spawn codex app-server: {e}"))?;
+        let mut child = cmd
+            .spawn()
+            .map_err(|e| format!("spawn codex app-server: {e}"))?;
         let stdin = child.stdin.take().ok_or("pas de stdin")?;
         let stdout = child.stdout.take().ok_or("pas de stdout")?;
 
@@ -172,9 +173,8 @@ impl CodexAppServer {
                                 .unwrap_or("erreur app-server");
                             let _ = p.tx.send(Err(m.to_string()));
                         } else {
-                            let _ = p
-                                .tx
-                                .send(Ok(msg.get("result").cloned().unwrap_or(Value::Null)));
+                            let _ =
+                                p.tx.send(Ok(msg.get("result").cloned().unwrap_or(Value::Null)));
                         }
                     }
                     continue;
@@ -233,7 +233,10 @@ impl CodexAppServer {
                     .write_all(s.as_bytes())
                     .await
                     .map_err(|e| e.to_string())?;
-                inn.stdin.write_all(b"\n").await.map_err(|e| e.to_string())?;
+                inn.stdin
+                    .write_all(b"\n")
+                    .await
+                    .map_err(|e| e.to_string())?;
             }
         }
         Ok(())
@@ -252,7 +255,10 @@ impl CodexAppServer {
                 .write_all(s.as_bytes())
                 .await
                 .map_err(|e| e.to_string())?;
-            inn.stdin.write_all(b"\n").await.map_err(|e| e.to_string())?;
+            inn.stdin
+                .write_all(b"\n")
+                .await
+                .map_err(|e| e.to_string())?;
         }
         rx.await.map_err(|_| "rpc cancelled".to_string())?
     }
@@ -265,8 +271,7 @@ impl CodexAppServer {
     pub async fn set_handler(&self, codex_thread_id: &str, handler: NotifHandler) {
         let mut g = self.inner.lock().await;
         if let Some(inn) = g.as_mut() {
-            inn.handlers
-                .insert(codex_thread_id.to_string(), handler);
+            inn.handlers.insert(codex_thread_id.to_string(), handler);
         }
     }
 
@@ -277,14 +282,11 @@ impl CodexAppServer {
         }
     }
 
-    pub async fn set_request_handler(
-        &self,
-        codex_thread_id: &str,
-        handler: ServerRequestHandler,
-    ) {
+    pub async fn set_request_handler(&self, codex_thread_id: &str, handler: ServerRequestHandler) {
         let mut g = self.inner.lock().await;
         if let Some(inn) = g.as_mut() {
-            inn.request_handlers.insert(codex_thread_id.to_string(), handler);
+            inn.request_handlers
+                .insert(codex_thread_id.to_string(), handler);
         }
     }
 

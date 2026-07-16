@@ -156,10 +156,7 @@ impl Provider for GrokProvider {
             });
         }
 
-        self.runs
-            .lock()
-            .await
-            .insert(req.thread_id.clone(), child);
+        self.runs.lock().await.insert(req.thread_id.clone(), child);
 
         let mut rest = String::new();
         let mut reader = BufReader::new(stdout).lines();

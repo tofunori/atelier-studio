@@ -55,9 +55,7 @@ fn clean_conversation_title(raw: &str) -> Option<String> {
         }
     }
     title = title
-        .trim_matches(|c: char| {
-            c.is_whitespace() || matches!(c, '"' | '\'' | '«' | '»' | '.')
-        })
+        .trim_matches(|c: char| c.is_whitespace() || matches!(c, '"' | '\'' | '«' | '»' | '.'))
         .to_string();
     let title: String = title.chars().take(70).collect();
     (!title.is_empty()).then_some(title)
@@ -85,7 +83,9 @@ fn clean_commit_message(raw: &str) -> Option<String> {
 fn compact_commit_context(diff: &str) -> String {
     let mut files = Vec::new();
     for line in diff.lines().filter(|line| line.starts_with("diff --git ")) {
-        let Some(path) = line.split(" b/").nth(1) else { continue };
+        let Some(path) = line.split(" b/").nth(1) else {
+            continue;
+        };
         if !path.is_empty() && !files.iter().any(|known| *known == path) {
             files.push(path);
         }
@@ -177,7 +177,10 @@ fn resolve_claude_bin() -> Option<PathBuf> {
 }
 
 fn build_args(req: &SendRequest) -> Vec<String> {
-    let permission_mode = req.permission_mode.as_deref().unwrap_or("bypassPermissions");
+    let permission_mode = req
+        .permission_mode
+        .as_deref()
+        .unwrap_or("bypassPermissions");
     // Contrat Atelier/SDK : « default ». Le CLI Claude récent nomme le même
     // comportement explicite « manual »; lui transmettre « default » fait
     // échouer le process avant même le premier événement.
@@ -215,9 +218,7 @@ fn build_args(req: &SendRequest) -> Vec<String> {
         }
     }
     if let Some(sid) = &req.session_id {
-        if !sid.is_empty()
-            && regex_is_uuid(sid)
-        {
+        if !sid.is_empty() && regex_is_uuid(sid) {
             args.push("--resume".into());
             args.push(sid.clone());
         }
@@ -412,9 +413,7 @@ impl Provider for ClaudeProvider {
                                 .and_then(|v| v.as_str())
                                 .map(str::to_string);
                         }
-                        if kind == "done"
-                            && ev.get("ok").and_then(|v| v.as_bool()) == Some(false)
-                        {
+                        if kind == "done" && ev.get("ok").and_then(|v| v.as_bool()) == Some(false) {
                             ok = false;
                             err_msg = ev
                                 .get("result")
@@ -587,10 +586,18 @@ mod title_tests {
 
     fn request(permission_mode: &str) -> SendRequest {
         SendRequest {
-            thread_id: "t".into(), turn_id: "turn".into(), prompt: "bonjour".into(),
-            inputs: None, project_root: "/tmp".into(), session_id: None,
-            model: None, effort: Some("high".into()), permission_mode: Some(permission_mode.into()),
-            mode: SendMode::Normal, on_event: Arc::new(|_| {}), on_interaction: None,
+            thread_id: "t".into(),
+            turn_id: "turn".into(),
+            prompt: "bonjour".into(),
+            inputs: None,
+            project_root: "/tmp".into(),
+            session_id: None,
+            model: None,
+            effort: Some("high".into()),
+            permission_mode: Some(permission_mode.into()),
+            mode: SendMode::Normal,
+            on_event: Arc::new(|_| {}),
+            on_interaction: None,
             is_cancelled: Arc::new(|| false),
         }
     }
@@ -603,12 +610,19 @@ mod title_tests {
             ("plan", "plan"),
         ] {
             let args = build_args(&request(mode));
-            let index = args.iter().position(|arg| arg == "--permission-mode").unwrap();
+            let index = args
+                .iter()
+                .position(|arg| arg == "--permission-mode")
+                .unwrap();
             assert_eq!(args[index + 1], expected_cli_mode);
-            assert!(!args.iter().any(|arg| arg == "--dangerously-skip-permissions"));
+            assert!(!args
+                .iter()
+                .any(|arg| arg == "--dangerously-skip-permissions"));
         }
         let bypass = build_args(&request("bypassPermissions"));
-        assert!(bypass.iter().any(|arg| arg == "--dangerously-skip-permissions"));
+        assert!(bypass
+            .iter()
+            .any(|arg| arg == "--dangerously-skip-permissions"));
         assert!(bypass.windows(2).any(|pair| pair == ["--effort", "high"]));
     }
 
@@ -628,7 +642,13 @@ mod title_tests {
             Some("Indexer les changements Git".into())
         );
         assert_eq!(clean_commit_message("   "), None);
-        assert!(clean_commit_message(&"x".repeat(90)).unwrap().chars().count() <= 72);
+        assert!(
+            clean_commit_message(&"x".repeat(90))
+                .unwrap()
+                .chars()
+                .count()
+                <= 72
+        );
     }
 
     #[test]
@@ -657,7 +677,9 @@ mod title_tests {
 }
 
 fn dirs_log() -> PathBuf {
-    let home = std::env::var_os("HOME").map(PathBuf::from).unwrap_or_else(|| PathBuf::from("."));
+    let home = std::env::var_os("HOME")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| PathBuf::from("."));
     home.join("Library/Logs/atelier-studio")
 }
 

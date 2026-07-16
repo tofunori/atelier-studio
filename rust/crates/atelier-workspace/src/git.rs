@@ -199,11 +199,7 @@ fn parse_status(output: &str) -> GitStatus {
 pub fn status(root: &str) -> Result<GitStatus> {
     let real = confined_root(root)?;
     ensure_repo(&real)?;
-    let out = git(
-        &real,
-        &["status", "--porcelain=v2", "--branch", "-z"],
-        &[],
-    )?;
+    let out = git(&real, &["status", "--porcelain=v2", "--branch", "-z"], &[])?;
     // porcelain -z mixes nulls; include stderr empty path
     let text = String::from_utf8_lossy(&out.stdout);
     let mut parsed = parse_status(&text);
@@ -415,15 +411,25 @@ pub fn diff_contents(
         return Err(msg("projet hors repo git"));
     }
     let within_project = assert_relative(&project, file_path)?;
-    let prefix = project.strip_prefix(&real).unwrap_or(Path::new(""))
-        .to_string_lossy().replace('\\', "/");
-    let rel = if prefix.is_empty() { within_project } else { format!("{prefix}/{within_project}") };
+    let prefix = project
+        .strip_prefix(&real)
+        .unwrap_or(Path::new(""))
+        .to_string_lossy()
+        .replace('\\', "/");
+    let rel = if prefix.is_empty() {
+        within_project
+    } else {
+        format!("{prefix}/{within_project}")
+    };
     if let Some(sha) = base {
         if sha.len() < 4 || sha.len() > 64 || !sha.chars().all(|c| c.is_ascii_hexdigit()) {
             return Err(msg("sha invalide"));
         }
         let commit = format!("{sha}^{{commit}}");
-        if !git(&real, &["cat-file", "-e", &commit], &[])?.status.success() {
+        if !git(&real, &["cat-file", "-e", &commit], &[])?
+            .status
+            .success()
+        {
             return Err(msg("sha introuvable"));
         }
     }
@@ -441,7 +447,11 @@ pub fn diff_contents(
     };
     let (before, before_binary) = decode_diff_content(before_bytes);
     let (after, after_binary) = decode_diff_content(after_bytes);
-    Ok(DiffContents { before, after, binary: before_binary || after_binary })
+    Ok(DiffContents {
+        before,
+        after,
+        binary: before_binary || after_binary,
+    })
 }
 
 fn scoped_paths(root: &str, file_paths: &[String]) -> Result<(PathBuf, Vec<String>)> {
@@ -461,7 +471,11 @@ fn scoped_paths(root: &str, file_paths: &[String]) -> Result<(PathBuf, Vec<Strin
         .iter()
         .map(|path| {
             let rel = assert_relative(&project, path)?;
-            Ok(if prefix.is_empty() { rel } else { format!("{prefix}/{rel}") })
+            Ok(if prefix.is_empty() {
+                rel
+            } else {
+                format!("{prefix}/{rel}")
+            })
         })
         .collect::<Result<Vec<_>>>()?;
     Ok((real, paths))
@@ -487,7 +501,12 @@ pub fn unstage_files(root: &str, file_paths: &[String]) -> Result<()> {
     let mut args = if has_head(&real) {
         vec!["restore".to_string(), "--staged".into(), "--".into()]
     } else {
-        vec!["rm".to_string(), "--cached".into(), "--ignore-unmatch".into(), "--".into()]
+        vec![
+            "rm".to_string(),
+            "--cached".into(),
+            "--ignore-unmatch".into(),
+            "--".into(),
+        ]
     };
     args.extend(paths);
     let refs = args.iter().map(String::as_str).collect::<Vec<_>>();
@@ -651,7 +670,12 @@ pub fn snapshot(root: &str) -> Result<String> {
         ("GIT_COMMITTER_EMAIL", "atelier@example.invalid"),
     ];
     let tree = worktree_tree(&real)?;
-    let mut args = vec!["commit-tree".to_string(), tree, "-m".into(), "atelier snapshot".into()];
+    let mut args = vec![
+        "commit-tree".to_string(),
+        tree,
+        "-m".into(),
+        "atelier snapshot".into(),
+    ];
     if has_head(&real) {
         let head = git(&real, &["rev-parse", "HEAD"], &env)?;
         let h = String::from_utf8_lossy(&head.stdout).trim().to_string();
@@ -690,7 +714,11 @@ pub fn changed_since(root: &str, sha: &str) -> Result<Vec<String>> {
     // « N files modified » mensongère sur un repo sale, vue le 2026-07-16).
     let now_tree = worktree_tree(&real)?;
     let snap_tree = format!("{sha}^{{tree}}");
-    let out = git(&real, &["diff-tree", "-r", "--name-only", &snap_tree, &now_tree], &[])?;
+    let out = git(
+        &real,
+        &["diff-tree", "-r", "--name-only", &snap_tree, &now_tree],
+        &[],
+    )?;
     if !out.status.success() {
         return Err(msg("diff snapshot impossible"));
     }
@@ -726,7 +754,11 @@ pub fn restore(root: &str, sha: &str) -> Result<()> {
         return Err(msg("snapshot inconnu"));
     }
     let tree_ref = format!("{sha}^{{tree}}");
-    let snap_out = git(&real, &["ls-tree", "-r", "--name-only", "-z", &tree_ref], &env)?;
+    let snap_out = git(
+        &real,
+        &["ls-tree", "-r", "--name-only", "-z", &tree_ref],
+        &env,
+    )?;
     let snap_paths: std::collections::HashSet<_> = String::from_utf8_lossy(&snap_out.stdout)
         .split('\0')
         .filter(|s| !s.is_empty())
@@ -734,7 +766,13 @@ pub fn restore(root: &str, sha: &str) -> Result<()> {
         .collect();
     let now_out = git(
         &real,
-        &["ls-files", "-z", "--cached", "--others", "--exclude-standard"],
+        &[
+            "ls-files",
+            "-z",
+            "--cached",
+            "--others",
+            "--exclude-standard",
+        ],
         &[],
     )?;
     let now_paths: Vec<_> = String::from_utf8_lossy(&now_out.stdout)
@@ -747,7 +785,12 @@ pub fn restore(root: &str, sha: &str) -> Result<()> {
         .filter(|p| !snap_paths.contains(p))
         .collect();
     if !new_paths.is_empty() {
-        let shown = new_paths.iter().take(10).cloned().collect::<Vec<_>>().join(", ");
+        let shown = new_paths
+            .iter()
+            .take(10)
+            .cloned()
+            .collect::<Vec<_>>()
+            .join(", ");
         return Err(msg(format!(
             "restauration refusée : {} chemin(s) créé(s) après le snapshot ({shown}{}). Rien n'a été modifié.",
             new_paths.len(),
@@ -899,7 +942,10 @@ mod tests {
         std::fs::write(dir.path().join("b.txt"), b"leave me untracked").unwrap();
         commit(root, "test staged only", Some(&[])).unwrap();
         let st = status(root).unwrap();
-        assert!(st.files.iter().any(|file| file.path == "b.txt" && file.status == "?"));
+        assert!(st
+            .files
+            .iter()
+            .any(|file| file.path == "b.txt" && file.status == "?"));
         assert!(!st.files.iter().any(|file| file.path == "a.txt"));
     }
 }

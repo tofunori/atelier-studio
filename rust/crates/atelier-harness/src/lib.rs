@@ -97,7 +97,10 @@ impl HarnessManager {
                 status: "running".into(),
             },
         );
-        self.cancel.lock().await.insert(thread_id.to_string(), false);
+        self.cancel
+            .lock()
+            .await
+            .insert(thread_id.to_string(), false);
     }
 
     pub async fn clear_running(&self, thread_id: &str) {

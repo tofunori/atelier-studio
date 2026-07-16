@@ -112,7 +112,11 @@ pub fn map_session_update(
                 .pointer("/_meta/x.ai/tool/name")
                 .or_else(|| update.get("title"))
                 .and_then(|v| v.as_str())
-                .or_else(|| cached.as_ref().and_then(|c| c.get("name").and_then(|v| v.as_str())))
+                .or_else(|| {
+                    cached
+                        .as_ref()
+                        .and_then(|c| c.get("name").and_then(|v| v.as_str()))
+                })
                 .unwrap_or("tool");
             let status = update
                 .pointer("/_meta/updateParams/status")
@@ -143,7 +147,10 @@ pub fn map_session_update(
                         "{}:{}:{}",
                         id,
                         path,
-                        c.get("newText").and_then(|v| v.as_str()).unwrap_or("").len()
+                        c.get("newText")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("")
+                            .len()
                     );
                     if seen_edits.insert(key) {
                         files.push(path.to_string());
@@ -220,7 +227,8 @@ mod tests {
         assert_eq!(e[0]["kind"], "thinking_delta");
         let e = normalize_grok_message(&json!({"type":"text","data":"hi"}));
         assert_eq!(e[0]["kind"], "delta");
-        let e = normalize_grok_message(&json!({"type":"end","stopReason":"EndTurn","sessionId":"s1"}));
+        let e =
+            normalize_grok_message(&json!({"type":"end","stopReason":"EndTurn","sessionId":"s1"}));
         assert_eq!(e[0]["kind"], "done");
         assert_eq!(e[0]["ok"], true);
     }

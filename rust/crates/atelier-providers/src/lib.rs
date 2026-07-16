@@ -14,6 +14,8 @@ mod fake;
 mod grok;
 mod grok_parse;
 mod images;
+mod kimi;
+mod kimi_map;
 mod opencode;
 mod opencode_parse;
 mod registry;
@@ -28,8 +30,14 @@ pub use codex::CodexProvider;
 pub use codex_parse::{map_turn_notification, TurnMapState};
 pub use fake::FakeProvider;
 pub use grok::GrokProvider;
-pub use grok_parse::{map_prompt_result, map_session_update, normalize_grok_message, parse_grok_jsonl};
-pub use images::{generate_image, resolve_ark_api_key, resolve_ark_model, DEFAULT_MODEL as IMAGE_DEFAULT_MODEL};
+pub use grok_parse::{
+    map_prompt_result, map_session_update, normalize_grok_message, parse_grok_jsonl,
+};
+pub use images::{
+    generate_image, resolve_ark_api_key, resolve_ark_model, DEFAULT_MODEL as IMAGE_DEFAULT_MODEL,
+};
+pub use kimi::KimiProvider;
+pub use kimi_map::{map_kimi_prompt_result, map_kimi_session_update};
 pub use opencode::OpenCodeProvider;
 pub use opencode_parse::{normalize_opencode_message, parse_opencode_jsonl};
 pub use registry::{build_registry, builtin_catalog, provider_status_list, ProviderId};

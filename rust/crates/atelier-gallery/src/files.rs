@@ -395,8 +395,9 @@ pub async fn findfile(
 }
 
 fn walk_findfile(project: &Path, name: &str) -> Vec<String> {
-    let skip: std::collections::HashSet<&str> =
-        ["node_modules", "__pycache__", "test-results"].into_iter().collect();
+    let skip: std::collections::HashSet<&str> = ["node_modules", "__pycache__", "test-results"]
+        .into_iter()
+        .collect();
     let mut hits = Vec::new();
     fn walk(
         dir: &Path,

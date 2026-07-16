@@ -51,11 +51,7 @@ pub fn append_ledger(
     f.write_all(line.as_bytes())
 }
 
-pub fn get_ledger(
-    base_dir: &Path,
-    project_root: &str,
-    limit: usize,
-) -> Vec<serde_json::Value> {
+pub fn get_ledger(base_dir: &Path, project_root: &str, limit: usize) -> Vec<serde_json::Value> {
     let max = limit.clamp(1, 1000);
     let path = ledger_path(base_dir, project_root);
     let Ok(text) = std::fs::read_to_string(path) else {
@@ -109,18 +105,8 @@ mod tests {
     fn append_and_get() {
         let dir = tempdir().unwrap();
         let root = "/tmp/My Project!";
-        append_ledger(
-            dir.path(),
-            root,
-            &serde_json::json!({"ts":"1","n":1}),
-        )
-        .unwrap();
-        append_ledger(
-            dir.path(),
-            root,
-            &serde_json::json!({"ts":"2","n":2}),
-        )
-        .unwrap();
+        append_ledger(dir.path(), root, &serde_json::json!({"ts":"1","n":1})).unwrap();
+        append_ledger(dir.path(), root, &serde_json::json!({"ts":"2","n":2})).unwrap();
         let entries = get_ledger(dir.path(), root, 10);
         assert_eq!(entries.len(), 2);
         assert_eq!(entries[0]["n"], 2); // newest first

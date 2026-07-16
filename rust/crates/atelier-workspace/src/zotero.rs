@@ -151,7 +151,9 @@ pub fn search(
     let mut sql = BASE_SQL.to_string();
     let mut params: Vec<Box<dyn rusqlite::types::ToSql>> = Vec::new();
     if let Some(cid) = collection_id {
-        sql.push_str(" AND i.itemID IN (SELECT itemID FROM collectionItems WHERE collectionID = ?)");
+        sql.push_str(
+            " AND i.itemID IN (SELECT itemID FROM collectionItems WHERE collectionID = ?)",
+        );
         params.push(Box::new(cid));
     }
     if let Some(tag) = tag.filter(|t| !t.is_empty()) {
@@ -191,7 +193,9 @@ pub fn search(
             Ok(ZoteroItem {
                 key: r.get(1)?,
                 date_added: r.get::<_, Option<String>>(2)?.unwrap_or_default(),
-                title: r.get::<_, Option<String>>(3)?.unwrap_or_else(|| "(sans titre)".into()),
+                title: r
+                    .get::<_, Option<String>>(3)?
+                    .unwrap_or_else(|| "(sans titre)".into()),
                 creators: r.get::<_, Option<String>>(8)?.unwrap_or_default(),
                 year,
                 publication: r.get::<_, Option<String>>(5)?.unwrap_or_default(),

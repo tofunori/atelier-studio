@@ -37,8 +37,10 @@ fn default_status() -> String {
 }
 
 fn known_provider(id: &str) -> bool {
-    matches!(id, "claude" | "codex" | "grok" | "opencode" | "gemini" | "fake")
-        || id.starts_with("api-")
+    matches!(
+        id,
+        "claude" | "codex" | "grok" | "opencode" | "gemini" | "fake"
+    ) || id.starts_with("api-")
         || id.starts_with("openai")
 }
 
@@ -170,11 +172,7 @@ impl ThreadStore {
         Ok(existed)
     }
 
-    pub fn upsert(
-        &mut self,
-        patch: Value,
-        preserve_updated_at: bool,
-    ) -> Result<Thread, String> {
+    pub fn upsert(&mut self, patch: Value, preserve_updated_at: bool) -> Result<Thread, String> {
         let id = patch
             .get("id")
             .and_then(|v| v.as_str())

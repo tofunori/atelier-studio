@@ -13,6 +13,7 @@ pub enum ProviderId {
     Claude,
     Codex,
     Grok,
+    Kimi,
     OpenCode,
     Fake,
 }
@@ -23,6 +24,7 @@ impl ProviderId {
             Self::Claude => "claude",
             Self::Codex => "codex",
             Self::Grok => "grok",
+            Self::Kimi => "kimi",
             Self::OpenCode => "opencode",
             Self::Fake => "fake",
         }
@@ -33,6 +35,7 @@ impl ProviderId {
             "claude" => Some(Self::Claude),
             "codex" => Some(Self::Codex),
             "grok" => Some(Self::Grok),
+            "kimi" => Some(Self::Kimi),
             "opencode" => Some(Self::OpenCode),
             "fake" => Some(Self::Fake),
             _ => None,
@@ -80,8 +83,7 @@ pub fn builtin_catalog(app_dir: Option<&Path>) -> Vec<ProviderStatus> {
         });
     }
     if let Some(dir) = app_dir {
-        let builtin_ids: std::collections::HashSet<_> =
-            list.iter().map(|p| p.id.clone()).collect();
+        let builtin_ids: std::collections::HashSet<_> = list.iter().map(|p| p.id.clone()).collect();
         for cfg in load_api_configs(dir) {
             if builtin_ids.contains(&cfg.id) {
                 continue;
@@ -147,13 +149,17 @@ pub fn build_registry(app_dir: &Path) -> HashMap<String, Arc<dyn Provider>> {
     if let Some(grok) = crate::grok::GrokProvider::new() {
         m.insert("grok".into(), Arc::new(grok));
     }
+    if let Some(kimi) = crate::kimi::KimiProvider::new() {
+        m.insert("kimi".into(), Arc::new(kimi));
+    }
     if let Some(oc) = crate::opencode::OpenCodeProvider::new() {
         m.insert("opencode".into(), Arc::new(oc));
     }
-    let builtin_ids: std::collections::HashSet<&str> =
-        ["claude", "codex", "grok", "opencode", "fake", "gemini"]
-            .into_iter()
-            .collect();
+    let builtin_ids: std::collections::HashSet<&str> = [
+        "claude", "codex", "grok", "kimi", "opencode", "fake", "gemini",
+    ]
+    .into_iter()
+    .collect();
     for cfg in load_api_configs(app_dir) {
         if builtin_ids.contains(cfg.id.as_str()) {
             continue;

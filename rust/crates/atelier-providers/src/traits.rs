@@ -89,6 +89,9 @@ pub trait Provider: Send + Sync {
     }
 
     async fn native_command(&self, name: &str, _params: Value) -> Result<Value, String> {
-        Err(format!("commande native non supportée par {}: {name}", self.id()))
+        Err(format!(
+            "commande native non supportée par {}: {name}",
+            self.id()
+        ))
     }
 }

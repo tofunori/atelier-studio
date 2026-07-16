@@ -356,6 +356,49 @@ pub fn builtin_providers() -> Vec<ProviderStatus> {
             key_missing: None,
         },
         ProviderStatus {
+            id: "kimi".into(),
+            label: "Kimi Code".into(),
+            kind: "cli".into(),
+            // Décision 7 du plan 046 : AUCUN modèle en dur — le catalogue
+            // vient de la discovery Kimi (setup probe + configOptions).
+            models: vec![],
+            model_reasoning: Value::Object(Default::default()),
+            default_model: String::new(),
+            // Thinking off/on exposé par-modèle via model_reasoning dynamique.
+            efforts: vec![],
+            capabilities: ProviderCapabilities {
+                reasoning: true,
+                resume: true,
+                steering: false,
+                queue: true,
+                goals: false,
+                tools: true,
+                tool_output: true,
+                permissions: true,
+                interactive_input: true,
+                mcp_elicitation: false,
+                mcp_tools: true,
+                mcp_widgets: false,
+                plugins: false,
+                skills: true,
+                // Pas de commande review dans les builtins ACP 0.26
+                // (compact/status/usage/mcp/tasks/help) — règle du plan :
+                // sans méthode documentée, la capability reste false.
+                review: false,
+                compact: true,
+                durable_history: true,
+                permission_modes: vec![
+                    "default".into(),
+                    "acceptEdits".into(),
+                    "plan".into(),
+                    "bypassPermissions".into(),
+                ],
+            },
+            version: None,
+            ok: false,
+            key_missing: None,
+        },
+        ProviderStatus {
             id: "opencode".into(),
             label: "OpenCode".into(),
             kind: "cli".into(),
@@ -439,6 +482,23 @@ mod tests {
     #[test]
     fn builtin_provider_ids() {
         let ids: Vec<_> = builtin_providers().into_iter().map(|p| p.id).collect();
-        assert_eq!(ids, vec!["claude", "codex", "grok", "opencode"]);
+        assert_eq!(ids, vec!["claude", "codex", "grok", "kimi", "opencode"]);
+    }
+
+    #[test]
+    fn kimi_catalogue_sans_modele_en_dur() {
+        let kimi = builtin_providers()
+            .into_iter()
+            .find(|p| p.id == "kimi")
+            .expect("kimi présent");
+        assert!(
+            kimi.models.is_empty(),
+            "modèles Kimi = discovery uniquement"
+        );
+        assert!(kimi.default_model.is_empty());
+        assert!(kimi.capabilities.permissions);
+        assert!(kimi.capabilities.interactive_input);
+        assert!(!kimi.capabilities.review, "pas de builtin review ACP 0.26");
+        assert_eq!(kimi.capabilities.permission_modes.len(), 4);
     }
 }

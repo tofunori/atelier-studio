@@ -34,13 +34,10 @@ fn http_with_origin(
     origin: Option<&str>,
 ) -> (u16, String) {
     let mut stream = TcpStream::connect(("127.0.0.1", port)).unwrap();
-    stream
-        .set_read_timeout(Some(Duration::from_secs(10)))
-        .ok();
+    stream.set_read_timeout(Some(Duration::from_secs(10))).ok();
     let body_bytes = body.unwrap_or("").as_bytes();
-    let mut req = format!(
-        "{method} {path} HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\nConnection: close\r\n"
-    );
+    let mut req =
+        format!("{method} {path} HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\nConnection: close\r\n");
     if let Some(origin) = origin {
         req.push_str(&format!("Origin: {origin}\r\n"));
     }
@@ -94,7 +91,11 @@ fn start_server_with(extra_env: &[(&str, String)]) -> Server {
         FIXTURE_SEQUENCE.fetch_add(1, Ordering::Relaxed),
     ));
     fs::create_dir_all(&root).unwrap();
-    fs::write(root.join("tiny.png"), [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]).unwrap();
+    fs::write(
+        root.join("tiny.png"),
+        [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a],
+    )
+    .unwrap();
     fs::write(root.join("script.py"), b"print('fixture')\n").unwrap();
     fs::write(root.join("notes.md"), b"# notes\n").unwrap();
     // Minimal gallery artefacts
@@ -218,10 +219,16 @@ fn rescan_uses_rust_builder() {
     // Ensure assets available so rebuild succeeds
     let (st, body) = http(srv.port, "POST", "/rescan", Some("{}"));
     assert_eq!(st, 200, "{body}");
-    assert!(body.contains("\"ok\":true") || body.contains("\"ok\": true"), "{body}");
+    assert!(
+        body.contains("\"ok\":true") || body.contains("\"ok\": true"),
+        "{body}"
+    );
     // cache-bust de la coquille : ?v= porte le BUNDLE_HASH, pas un timestamp
     let index = fs::read_to_string(srv.root.join("figures_index.html")).unwrap();
-    assert!(index.contains("http-smoke"), "index must carry ATELIER_BUNDLE_HASH as asset revision");
+    assert!(
+        index.contains("http-smoke"),
+        "index must carry ATELIER_BUNDLE_HASH as asset revision"
+    );
 }
 
 #[test]
@@ -230,8 +237,7 @@ fn origin_boundary_guards_every_route_before_routing() {
     // plan 005 : inter-origines refusé AVANT tout routage — y compris les
     // routes qui n'ont pas de vérification locale (vu : /data fuyait)
     for route in ["/data", "/state", "/ls", "/rev", "/claude-targets", "/ping"] {
-        let (st, _) =
-            http_with_origin(srv.port, "GET", route, None, Some("https://evil.example"));
+        let (st, _) = http_with_origin(srv.port, "GET", route, None, Some("https://evil.example"));
         assert_eq!(st, 403, "{route} inter-origines doit être refusé");
     }
     // un AUTRE port loopback n'est pas la même origine (parité Node)
@@ -279,14 +285,26 @@ fn live_shell_ignores_disk_index_written_by_other_tools() {
         !body.contains("CMUX_CORRUPTED"),
         "la coquille ne vient JAMAIS du fichier disque"
     );
-    assert!(body.contains("applyGalleryData"), "coquille live du template");
+    assert!(
+        body.contains("applyGalleryData"),
+        "coquille live du template"
+    );
     let (st2, body2) = http(srv.port, "GET", "/", None);
     assert_eq!(st2, 200);
-    assert_eq!(body2, body, "les deux URLs d'entrée partagent la même coquille");
+    assert_eq!(
+        body2, body,
+        "les deux URLs d'entrée partagent la même coquille"
+    );
     // parité Node : la coquille n'inline AUCUNE donnée scannée (le client
     // récupère /data) et le cache-bust des assets porte le BUNDLE_HASH
-    assert!(!body.contains("script.py"), "shell has no inline scanned data");
-    assert!(body.contains("http-smoke"), "assets versionnés par ATELIER_BUNDLE_HASH");
+    assert!(
+        !body.contains("script.py"),
+        "shell has no inline scanned data"
+    );
+    assert!(
+        body.contains("http-smoke"),
+        "assets versionnés par ATELIER_BUNDLE_HASH"
+    );
 }
 
 #[test]
@@ -296,7 +314,10 @@ fn commitmsg_is_a_get_route_like_the_client_calls_it() {
     // diff_versions.js appelle fetch("/commitmsg?path=…") en GET
     let (st, body) = http(srv.port, "GET", "/commitmsg?path=script.py", None);
     assert_eq!(st, 200, "{body}");
-    assert!(body.contains("\"ok\":false") || body.contains("\"ok\": false"), "{body}");
+    assert!(
+        body.contains("\"ok\":false") || body.contains("\"ok\": false"),
+        "{body}"
+    );
 }
 
 #[test]

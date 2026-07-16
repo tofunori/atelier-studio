@@ -46,11 +46,7 @@ pub fn list_pasted(app_dir: &Path) -> Vec<PastedFile> {
             Some((e.file_name().to_string_lossy().into_owned(), meta))
         })
         .collect();
-    entries.sort_by(|a, b| {
-        b.1.modified()
-            .ok()
-            .cmp(&a.1.modified().ok())
-    });
+    entries.sort_by(|a, b| b.1.modified().ok().cmp(&a.1.modified().ok()));
     entries.truncate(48);
     let mut out = Vec::new();
     for (name, meta) in entries {

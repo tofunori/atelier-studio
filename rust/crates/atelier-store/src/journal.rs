@@ -1,7 +1,7 @@
 //! Harness journal — `harness-history/<sha256(threadId)>.jsonl`
 //! (Node `sidecar/harness_journal.mjs` load/materialize/delete/append).
 
-use serde_json::{Value, json};
+use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
@@ -245,7 +245,11 @@ impl HarnessJournal {
             return false;
         };
         use std::io::Write;
-        let mut f = match std::fs::OpenOptions::new().create(true).append(true).open(&path) {
+        let mut f = match std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(&path)
+        {
             Ok(f) => f,
             Err(_) => return false,
         };
@@ -382,7 +386,11 @@ impl HarnessJournal {
             return false;
         }
         use std::io::Write;
-        let mut f = match std::fs::OpenOptions::new().create(true).append(true).open(&path) {
+        let mut f = match std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(&path)
+        {
             Ok(f) => f,
             Err(_) => return false,
         };

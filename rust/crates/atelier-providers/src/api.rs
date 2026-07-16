@@ -50,9 +50,7 @@ pub fn load_api_configs(app_dir: &Path) -> Vec<ApiProviderConfig> {
             .cloned()
             .unwrap_or_default()
     };
-    list.into_iter()
-        .filter_map(normalize_config)
-        .collect()
+    list.into_iter().filter_map(normalize_config).collect()
 }
 
 /// Persist API provider configs (chmod 600 when possible). Never logs keys.
@@ -124,10 +122,7 @@ fn normalize_config(p: Value) -> Option<ApiProviderConfig> {
             .map(str::to_string),
         models,
         default_model,
-        api_key: p
-            .get("apiKey")
-            .and_then(|v| v.as_str())
-            .map(str::to_string),
+        api_key: p.get("apiKey").and_then(|v| v.as_str()).map(str::to_string),
         api_key_env: p
             .get("apiKeyEnv")
             .and_then(|v| v.as_str())
@@ -480,11 +475,7 @@ impl Provider for ApiChatProvider {
         SendResult {
             session_id: Some(sid),
             ok,
-            error: if ok {
-                None
-            } else {
-                Some("interrupted".into())
-            },
+            error: if ok { None } else { Some("interrupted".into()) },
         }
     }
 

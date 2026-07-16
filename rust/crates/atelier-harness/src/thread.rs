@@ -267,9 +267,9 @@ fn now_ms() -> u128 {
 mod tests {
     use super::*;
     use atelier_store::HarnessJournal;
+    use serde_json::json;
     use std::sync::{Arc, Mutex as StdMutex};
     use tempfile::tempdir;
-    use serde_json::json;
 
     #[test]
     fn sequence_and_journal() {
@@ -281,11 +281,7 @@ mod tests {
             cap.lock().unwrap().push(e);
         });
         let mut h = HarnessThread::new("t1", "fake", emit, Some(journal.clone()), 0);
-        let turn = h.start_turn(
-            None,
-            Some("m1"),
-            Some(json!({"kind":"user","text":"hi"})),
-        );
+        let turn = h.start_turn(None, Some("m1"), Some(json!({"kind":"user","text":"hi"})));
         h.emit(&turn, json!({"kind":"text","text":"hello"}), None);
         assert!(h.terminal(&turn, json!({"kind":"done"})));
         assert!(!h.terminal(&turn, json!({"kind":"done"}))); // duplicate rejected

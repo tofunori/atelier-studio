@@ -121,16 +121,18 @@ fn thread_opts(req: &SendRequest) -> Value {
             .insert("model".into(), json!(model));
     }
     if let Some(effort) = req.effort.as_ref().filter(|e| !e.is_empty()) {
-        opts.as_object_mut().unwrap().insert(
-            "config".into(),
-            json!({"model_reasoning_effort": effort}),
-        );
+        opts.as_object_mut()
+            .unwrap()
+            .insert("config".into(), json!({"model_reasoning_effort": effort}));
     }
     opts
 }
 
 async fn resolve_plan_mode(server: &CodexAppServer) -> Option<Value> {
-    let response = server.request("collaborationMode/list", json!({})).await.ok()?;
+    let response = server
+        .request("collaborationMode/list", json!({}))
+        .await
+        .ok()?;
     response
         .get("modes")
         .or_else(|| response.get("collaborationModes"))
@@ -211,12 +213,16 @@ fn preferred_skill(plugin: &str, skills: &[Value]) -> Option<Value> {
 }
 
 fn hydrate_cached_skill_paths(marketplace: &str, plugin: &str, skills: &mut [Value]) {
-    let Some(home) = std::env::var_os("HOME") else { return };
+    let Some(home) = std::env::var_os("HOME") else {
+        return;
+    };
     let plugin_root = std::path::PathBuf::from(home)
         .join(".codex/plugins/cache")
         .join(marketplace)
         .join(plugin);
-    let Ok(entries) = std::fs::read_dir(plugin_root) else { return };
+    let Ok(entries) = std::fs::read_dir(plugin_root) else {
+        return;
+    };
     let mut versions = entries
         .flatten()
         .map(|entry| entry.path())
@@ -224,10 +230,16 @@ fn hydrate_cached_skill_paths(marketplace: &str, plugin: &str, skills: &mut [Val
         .collect::<Vec<_>>();
     versions.sort();
     for skill in skills {
-        if skill.get("path").and_then(Value::as_str).is_some_and(|path| !path.is_empty()) {
+        if skill
+            .get("path")
+            .and_then(Value::as_str)
+            .is_some_and(|path| !path.is_empty())
+        {
             continue;
         }
-        let Some(name) = skill.get("name").and_then(Value::as_str) else { continue };
+        let Some(name) = skill.get("name").and_then(Value::as_str) else {
+            continue;
+        };
         let leaf = name.rsplit(':').next().unwrap_or(name);
         if let Some(path) = versions
             .iter()
@@ -244,7 +256,11 @@ async fn list_atelier_plugins(server: &CodexAppServer, cwd: &str) -> Result<Valu
     let installed = server
         .request(
             "plugin/installed",
-            if cwd.is_empty() { json!({}) } else { json!({"cwds": [cwd]}) },
+            if cwd.is_empty() {
+                json!({})
+            } else {
+                json!({"cwds": [cwd]})
+            },
         )
         .await?;
     let mut plugins = Vec::new();
@@ -254,7 +270,10 @@ async fn list_atelier_plugins(server: &CodexAppServer, cwd: &str) -> Result<Valu
         .into_iter()
         .flatten()
     {
-        let marketplace_name = marketplace.get("name").and_then(Value::as_str).unwrap_or("");
+        let marketplace_name = marketplace
+            .get("name")
+            .and_then(Value::as_str)
+            .unwrap_or("");
         let marketplace_path = marketplace.get("path").and_then(Value::as_str);
         for summary in marketplace
             .get("plugins")
@@ -264,8 +283,14 @@ async fn list_atelier_plugins(server: &CodexAppServer, cwd: &str) -> Result<Valu
         {
             let name = summary.get("name").and_then(Value::as_str).unwrap_or("");
             if !ATELIER_PLUGIN_MVP.contains(&name)
-                || !summary.get("installed").and_then(Value::as_bool).unwrap_or(false)
-                || !summary.get("enabled").and_then(Value::as_bool).unwrap_or(false)
+                || !summary
+                    .get("installed")
+                    .and_then(Value::as_bool)
+                    .unwrap_or(false)
+                || !summary
+                    .get("enabled")
+                    .and_then(Value::as_bool)
+                    .unwrap_or(false)
             {
                 continue;
             }
@@ -289,7 +314,10 @@ async fn list_atelier_plugins(server: &CodexAppServer, cwd: &str) -> Result<Valu
                 .cloned()
                 .unwrap_or_default();
             hydrate_cached_skill_paths(marketplace_name, name, &mut skills);
-            let interface = summary.get("interface").cloned().unwrap_or_else(|| json!({}));
+            let interface = summary
+                .get("interface")
+                .cloned()
+                .unwrap_or_else(|| json!({}));
             plugins.push(json!({
                 "id": summary.get("id").cloned().unwrap_or_else(|| json!(name)),
                 "name": name,
@@ -304,8 +332,14 @@ async fn list_atelier_plugins(server: &CodexAppServer, cwd: &str) -> Result<Valu
         }
     }
     plugins.sort_by(|a, b| {
-        let ai = ATELIER_PLUGIN_MVP.iter().position(|name| Some(*name) == a.get("name").and_then(Value::as_str)).unwrap_or(usize::MAX);
-        let bi = ATELIER_PLUGIN_MVP.iter().position(|name| Some(*name) == b.get("name").and_then(Value::as_str)).unwrap_or(usize::MAX);
+        let ai = ATELIER_PLUGIN_MVP
+            .iter()
+            .position(|name| Some(*name) == a.get("name").and_then(Value::as_str))
+            .unwrap_or(usize::MAX);
+        let bi = ATELIER_PLUGIN_MVP
+            .iter()
+            .position(|name| Some(*name) == b.get("name").and_then(Value::as_str))
+            .unwrap_or(usize::MAX);
         ai.cmp(&bi)
     });
     Ok(json!({"plugins": plugins}))
@@ -389,7 +423,11 @@ impl Provider for CodexProvider {
 
         // Native steer
         if req.mode == SendMode::Steer {
-            let snap = self.active.lock().ok().and_then(|g| g.get(&req.thread_id).cloned());
+            let snap = self
+                .active
+                .lock()
+                .ok()
+                .and_then(|g| g.get(&req.thread_id).cloned());
             if let Some(t) = snap {
                 if let Some(turn_id) = t.turn_id {
                     if self
@@ -436,9 +474,12 @@ impl Provider for CodexProvider {
                 Box::pin(async move {
                     let response = relay(method.clone(), params.clone()).await;
                     answer_from_interaction(&method, &params, response.as_ref())
-                }) as std::pin::Pin<Box<dyn std::future::Future<Output = Value> + Send>>
+                })
+                    as std::pin::Pin<Box<dyn std::future::Future<Output = Value> + Send>>
             });
-            self.server.set_request_handler(&codex_id, request_handler).await;
+            self.server
+                .set_request_handler(&codex_id, request_handler)
+                .await;
         }
 
         if let Ok(mut a) = self.active.lock() {
@@ -550,7 +591,10 @@ impl Provider for CodexProvider {
         tokio::spawn(async move {
             loop {
                 if is_cancelled() {
-                    let snap = cancel_active.lock().ok().and_then(|g| g.get(&cancel_tid).cloned());
+                    let snap = cancel_active
+                        .lock()
+                        .ok()
+                        .and_then(|g| g.get(&cancel_tid).cloned());
                     if let Some(t) = snap {
                         if let Some(turn_id) = t.turn_id {
                             let _ = cancel_server
@@ -628,7 +672,10 @@ impl Provider for CodexProvider {
 
     async fn native_command(&self, name: &str, params: Value) -> Result<Value, String> {
         if name == "pluginsInstalled" {
-            let cwd = params.get("projectRoot").and_then(Value::as_str).unwrap_or("");
+            let cwd = params
+                .get("projectRoot")
+                .and_then(Value::as_str)
+                .unwrap_or("");
             return list_atelier_plugins(&self.server, cwd).await;
         }
         let session_id = params
@@ -636,8 +683,15 @@ impl Provider for CodexProvider {
             .and_then(Value::as_str)
             .filter(|value| !value.is_empty())
             .ok_or_else(|| format!("{name}: session Codex absente"))?;
-        let cwd = params.get("projectRoot").and_then(Value::as_str).unwrap_or("");
-        let sandbox = if name == "review" { "read-only" } else { "danger-full-access" };
+        let cwd = params
+            .get("projectRoot")
+            .and_then(Value::as_str)
+            .unwrap_or("");
+        let sandbox = if name == "review" {
+            "read-only"
+        } else {
+            "danger-full-access"
+        };
         let codex_id = open_thread(
             &self.server,
             Some(session_id),
@@ -649,10 +703,11 @@ impl Provider for CodexProvider {
         )
         .await?;
         match name {
-            "compact" => self
-                .server
-                .request("thread/compact/start", json!({"threadId": codex_id}))
-                .await,
+            "compact" => {
+                self.server
+                    .request("thread/compact/start", json!({"threadId": codex_id}))
+                    .await
+            }
             "goalSet" => self
                 .server
                 .request(
@@ -665,14 +720,16 @@ impl Provider for CodexProvider {
                     }),
                 )
                 .await,
-            "goalGet" => self
-                .server
-                .request("thread/goal/get", json!({"threadId": codex_id}))
-                .await,
-            "goalClear" => self
-                .server
-                .request("thread/goal/clear", json!({"threadId": codex_id}))
-                .await,
+            "goalGet" => {
+                self.server
+                    .request("thread/goal/get", json!({"threadId": codex_id}))
+                    .await
+            }
+            "goalClear" => {
+                self.server
+                    .request("thread/goal/clear", json!({"threadId": codex_id}))
+                    .await
+            }
             "review" => self.run_native_review(&codex_id).await,
             _ => Err(format!("commande Codex inconnue: {name}")),
         }
@@ -685,9 +742,18 @@ mod command_tests {
 
     #[test]
     fn permission_modes_map_to_real_codex_policies() {
-        assert_eq!(codex_safety(Some("bypassPermissions")), ("danger-full-access", "never"));
-        assert_eq!(codex_safety(Some("acceptEdits")), ("workspace-write", "on-request"));
-        assert_eq!(codex_safety(Some("default")), ("workspace-write", "untrusted"));
+        assert_eq!(
+            codex_safety(Some("bypassPermissions")),
+            ("danger-full-access", "never")
+        );
+        assert_eq!(
+            codex_safety(Some("acceptEdits")),
+            ("workspace-write", "on-request")
+        );
+        assert_eq!(
+            codex_safety(Some("default")),
+            ("workspace-write", "untrusted")
+        );
         assert_eq!(codex_safety(Some("plan")), ("read-only", "never"));
         assert_eq!(codex_safety(None), ("read-only", "on-request"));
     }

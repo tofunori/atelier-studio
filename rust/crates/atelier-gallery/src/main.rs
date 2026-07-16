@@ -614,7 +614,11 @@ fn loopback_origin(headers: &HeaderMap, own_port: u16) -> bool {
     };
     // MÊME origine seulement, port compris : un autre serveur loopback ne peut
     // pas piloter la galerie (parité Node plan 005 — l'autre port → 403)
-    let default_port = if origin.starts_with("https://") { 443 } else { 80 };
+    let default_port = if origin.starts_with("https://") {
+        443
+    } else {
+        80
+    };
     matches!(host, "127.0.0.1" | "localhost" | "::1") && port.unwrap_or(default_port) == own_port
 }
 
@@ -1899,10 +1903,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let data_path = root.join("figures_data.json");
     let shell_path = root.join("figures_index.html");
     if !data_path.is_file() || !shell_path.is_file() {
-        eprintln!(
-            "[gallery] initial build for {}",
-            root.display()
-        );
+        eprintln!("[gallery] initial build for {}", root.display());
         let lock = Arc::new(Mutex::new(()));
         let watcher = Arc::new(RwLock::new(WatcherStatus::default()));
         let revision = Arc::new(RwLock::new(0u64));
@@ -1922,9 +1923,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // template dont les assets n'existent pas côté Atelier (page cassée).
     let live_shell: Option<Arc<str>> = std::env::var_os("ATELIER_ASSETS_DIR")
         .map(PathBuf::from)
-        .or_else(|| {
-            std::env::var_os("ATELIER_TOOL_ROOT").map(|r| PathBuf::from(r).join("assets"))
-        })
+        .or_else(|| std::env::var_os("ATELIER_TOOL_ROOT").map(|r| PathBuf::from(r).join("assets")))
         .map(|assets| assets.join("gallery_template.html"))
         .filter(|template| template.is_file())
         .and_then(|template| {

@@ -133,12 +133,10 @@ pub fn parse_message(state: &mut ClaudeStreamState, msg: &Value) -> Vec<Value> {
     if ty == "assistant" {
         if let Some(au) = msg.pointer("/message/usage") {
             let ctx = au.get("input_tokens").and_then(|v| v.as_u64()).unwrap_or(0)
-                + au
-                    .get("cache_read_input_tokens")
+                + au.get("cache_read_input_tokens")
                     .and_then(|v| v.as_u64())
                     .unwrap_or(0)
-                + au
-                    .get("cache_creation_input_tokens")
+                + au.get("cache_creation_input_tokens")
                     .and_then(|v| v.as_u64())
                     .unwrap_or(0);
             if ctx > 0 {
@@ -182,8 +180,10 @@ pub fn parse_message(state: &mut ClaudeStreamState, msg: &Value) -> Vec<Value> {
                             .map(|arr| {
                                 arr.iter()
                                     .filter_map(|td| {
-                                        let text =
-                                            td.get("content").and_then(|v| v.as_str()).unwrap_or("");
+                                        let text = td
+                                            .get("content")
+                                            .and_then(|v| v.as_str())
+                                            .unwrap_or("");
                                         if text.is_empty() {
                                             return None;
                                         }
@@ -239,8 +239,14 @@ pub fn parse_message(state: &mut ClaudeStreamState, msg: &Value) -> Vec<Value> {
                     // contenu d'un fichier NOUVEAU (Write, vérifié sur disque avant
                     // exécution) — attaché à l'événement `edit` au succès.
                     let snippet = if name == "Edit" {
-                        let old_text = input.get("old_string").and_then(|v| v.as_str()).unwrap_or("");
-                        let new_text = input.get("new_string").and_then(|v| v.as_str()).unwrap_or("");
+                        let old_text = input
+                            .get("old_string")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("");
+                        let new_text = input
+                            .get("new_string")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("");
                         if old_text.len() <= SNIPPET_MAX && new_text.len() <= SNIPPET_MAX {
                             Some(json!({"oldText": old_text, "newText": new_text}))
                         } else {
@@ -347,7 +353,9 @@ pub fn parse_message(state: &mut ClaudeStreamState, msg: &Value) -> Vec<Value> {
                         "durationMs": duration,
                     });
                     if truncated {
-                        ev.as_object_mut().unwrap().insert("truncated".into(), json!(true));
+                        ev.as_object_mut()
+                            .unwrap()
+                            .insert("truncated".into(), json!(true));
                         ev.as_object_mut()
                             .unwrap()
                             .insert("outputLength".into(), json!(original_length));
@@ -519,7 +527,9 @@ pub fn tool_detail(name: &str, input: &Value) -> String {
 fn bounded_input(input: &Value) -> Value {
     match serde_json::to_string(input) {
         Ok(s) if s.len() <= TOOL_INPUT_MAX => input.clone(),
-        Ok(s) => json!({"truncated": true, "preview": s.chars().take(TOOL_INPUT_MAX).collect::<String>()}),
+        Ok(s) => {
+            json!({"truncated": true, "preview": s.chars().take(TOOL_INPUT_MAX).collect::<String>()})
+        }
         Err(_) => json!({}),
     }
 }
@@ -638,7 +648,10 @@ mod tests {
             &mut st2,
             r#"{"type":"assistant","message":{"content":[{"type":"tool_use","id":"t2","name":"Bash","input":{"command":"ls","description":""}}]}}"#,
         );
-        assert_eq!(e2[0]["detail"], "ls", "description vide → fallback commande");
+        assert_eq!(
+            e2[0]["detail"], "ls",
+            "description vide → fallback commande"
+        );
     }
 
     #[test]
@@ -718,7 +731,10 @@ mod tests {
             &mut st,
             r#"{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"t1","content":"ok"}]}}"#,
         );
-        assert_eq!(e[1]["snippets"]["/p/inexistant.py"], serde_json::json!({"newText":"print(1)\n"}));
+        assert_eq!(
+            e[1]["snippets"]["/p/inexistant.py"],
+            serde_json::json!({"newText":"print(1)\n"})
+        );
 
         // fichier EXISTANT → pas de snippet (le diff git dit vrai, pas l'input)
         let mut st2 = ClaudeStreamState::default();

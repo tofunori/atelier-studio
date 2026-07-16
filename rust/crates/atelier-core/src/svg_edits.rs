@@ -177,21 +177,22 @@ pub fn reapply_file(
     let default_edits = svg_path.with_extension("edits.json");
     // Prefer stem.edits.json: plot.svg → plot.edits.json
     let stem_edits = {
-        let stem = svg_path.file_stem().and_then(|s| s.to_str()).unwrap_or("file");
+        let stem = svg_path
+            .file_stem()
+            .and_then(|s| s.to_str())
+            .unwrap_or("file");
         svg_path
             .parent()
             .unwrap_or_else(|| Path::new("."))
             .join(format!("{stem}.edits.json"))
     };
-    let edits_file = edits_path
-        .map(Path::to_path_buf)
-        .unwrap_or_else(|| {
-            if stem_edits.is_file() {
-                stem_edits
-            } else {
-                default_edits
-            }
-        });
+    let edits_file = edits_path.map(Path::to_path_buf).unwrap_or_else(|| {
+        if stem_edits.is_file() {
+            stem_edits
+        } else {
+            default_edits
+        }
+    });
     if !edits_file.is_file() {
         return Ok(ReapplyReport {
             applied: 0,

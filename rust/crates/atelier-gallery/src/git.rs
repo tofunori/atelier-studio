@@ -698,7 +698,11 @@ pub async fn githead(
         .filter(|sha| matches!(sha.len(), 40 | 64) && sha.chars().all(|c| c.is_ascii_hexdigit()))
         .map(str::to_owned)
         .unwrap_or_else(|| "".into());
-    let base = if base.is_empty() { git_base(&root).await } else { base };
+    let base = if base.is_empty() {
+        git_base(&root).await
+    } else {
+        base
+    };
     let show_arg = format!("{base}:{rel}");
     let Some(text) = git_out(&["show", &show_arg], &root).await else {
         return ok_false();

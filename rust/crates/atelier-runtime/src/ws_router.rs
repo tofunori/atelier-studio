@@ -1,18 +1,18 @@
 //! WebSocket message routing (plan 033 — full Node case inventory, Porte 9).
 
-use crate::state::{AppState, QaSession};
 use crate::codex_history::{list_codex_sessions, load_codex_history};
 use crate::grok_history::{load_grok_history, prefer_richer_dialogue};
+use crate::state::{AppState, QaSession};
 use atelier_protocol::{ErrorMessage, PongMessage};
 use atelier_store::{get_all_ledgers, get_ledger, iso_now, read_settings, write_settings};
 use atelier_workspace::{
-    check_frame, clear_pasted, commit as git_commit, diff as git_diff, diff_contents as git_diff_contents,
-    diff_staged as git_diff_staged, ignore_pattern, list_commands, list_files, list_pasted,
-    pull as git_pull, push as git_push, restore as git_restore, revert_file, save_image, scan_local,
-    stage_files, status as git_status, unstage_files,
-    zotero_available, zotero_collections, zotero_load_favs, zotero_search, zotero_toggle_fav,
-    pdf_absolute_path, narval_inspect_job, narval_list_directory, narval_read_text,
-    narval_snapshot, narval_status, GitStatus, NarvalError, TermEvent,
+    check_frame, clear_pasted, commit as git_commit, diff as git_diff,
+    diff_contents as git_diff_contents, diff_staged as git_diff_staged, ignore_pattern,
+    list_commands, list_files, list_pasted, narval_inspect_job, narval_list_directory,
+    narval_read_text, narval_snapshot, narval_status, pdf_absolute_path, pull as git_pull,
+    push as git_push, restore as git_restore, revert_file, save_image, scan_local, stage_files,
+    status as git_status, unstage_files, zotero_available, zotero_collections, zotero_load_favs,
+    zotero_search, zotero_toggle_fav, GitStatus, NarvalError, TermEvent,
 };
 use serde_json::{json, Value};
 
@@ -109,8 +109,7 @@ fn commit_generation_context(status: &GitStatus, staged_only: bool) -> Option<St
         .iter()
         .filter(|file| {
             file.status != "!"
-                && (!staged_only
-                    || (file.status != "?" && file.status.chars().next() != Some('.')))
+                && (!staged_only || (file.status != "?" && file.status.chars().next() != Some('.')))
         })
         .collect::<Vec<_>>();
     if files.is_empty() {
@@ -166,10 +165,16 @@ fn narval_reply_with<T: serde::Serialize>(
     base.insert("requestId".into(), request_id);
     match result {
         Ok(Ok(data)) => {
-            base.insert("data".into(), serde_json::to_value(data).unwrap_or(Value::Null));
+            base.insert(
+                "data".into(),
+                serde_json::to_value(data).unwrap_or(Value::Null),
+            );
         }
         Ok(Err(error)) => {
-            base.insert("error".into(), serde_json::to_value(error).unwrap_or(Value::Null));
+            base.insert(
+                "error".into(),
+                serde_json::to_value(error).unwrap_or(Value::Null),
+            );
         }
         Err(error) => {
             base.insert(
@@ -258,9 +263,10 @@ pub async fn route_ws(state: &AppState, text: &str) -> Vec<String> {
             let events = match thread {
                 Some(t) if t.provider == "codex" => {
                     if let Some(session_id) = t.session_id {
-                        let native = tokio::task::spawn_blocking(move || load_codex_history(&session_id))
-                            .await
-                            .unwrap_or_default();
+                        let native =
+                            tokio::task::spawn_blocking(move || load_codex_history(&session_id))
+                                .await
+                                .unwrap_or_default();
                         prefer_richer_dialogue(journal, native)
                     } else {
                         journal
@@ -334,7 +340,9 @@ pub async fn route_ws(state: &AppState, text: &str) -> Vec<String> {
         }
         "getSettings" => {
             let settings = read_settings(&state.settings_path());
-            vec![json_msg(json!({"type":"settingsFile","settings": settings}))]
+            vec![json_msg(
+                json!({"type":"settingsFile","settings": settings}),
+            )]
         }
         "saveSettings" => {
             let settings = msg.get("settings").cloned().unwrap_or(Value::Null);
@@ -374,21 +382,47 @@ pub async fn route_ws(state: &AppState, text: &str) -> Vec<String> {
                 .and_then(|v| v.as_str())
                 .unwrap_or("");
             let files = list_files(root);
-            vec![json_msg(json!({"type":"files","projectRoot": root, "files": files}))]
+            vec![json_msg(
+                json!({"type":"files","projectRoot": root, "files": files}),
+            )]
         }
         "narvalStatus" => {
-            let profile = msg.get("profile").and_then(Value::as_str).unwrap_or("narval").to_string();
+            let profile = msg
+                .get("profile")
+                .and_then(Value::as_str)
+                .unwrap_or("narval")
+                .to_string();
             let request_id = msg.get("requestId").cloned().unwrap_or(Value::Null);
-            narval_reply("narvalStatus", request_id, tokio::task::spawn_blocking(move || narval_status(&profile)).await)
+            narval_reply(
+                "narvalStatus",
+                request_id,
+                tokio::task::spawn_blocking(move || narval_status(&profile)).await,
+            )
         }
         "narvalSnapshot" => {
-            let profile = msg.get("profile").and_then(Value::as_str).unwrap_or("narval").to_string();
+            let profile = msg
+                .get("profile")
+                .and_then(Value::as_str)
+                .unwrap_or("narval")
+                .to_string();
             let request_id = msg.get("requestId").cloned().unwrap_or(Value::Null);
-            narval_reply("narvalSnapshot", request_id, tokio::task::spawn_blocking(move || narval_snapshot(&profile)).await)
+            narval_reply(
+                "narvalSnapshot",
+                request_id,
+                tokio::task::spawn_blocking(move || narval_snapshot(&profile)).await,
+            )
         }
         "narvalListDirectory" => {
-            let profile = msg.get("profile").and_then(Value::as_str).unwrap_or("narval").to_string();
-            let path = msg.get("path").and_then(Value::as_str).unwrap_or("").to_string();
+            let profile = msg
+                .get("profile")
+                .and_then(Value::as_str)
+                .unwrap_or("narval")
+                .to_string();
+            let path = msg
+                .get("path")
+                .and_then(Value::as_str)
+                .unwrap_or("")
+                .to_string();
             let request_id = msg.get("requestId").cloned().unwrap_or(Value::Null);
             let path_out = path.clone();
             narval_reply_with(
@@ -399,17 +433,42 @@ pub async fn route_ws(state: &AppState, text: &str) -> Vec<String> {
             )
         }
         "narvalInspectJob" => {
-            let profile = msg.get("profile").and_then(Value::as_str).unwrap_or("narval").to_string();
-            let job_id = msg.get("jobId").and_then(Value::as_str).unwrap_or("").to_string();
+            let profile = msg
+                .get("profile")
+                .and_then(Value::as_str)
+                .unwrap_or("narval")
+                .to_string();
+            let job_id = msg
+                .get("jobId")
+                .and_then(Value::as_str)
+                .unwrap_or("")
+                .to_string();
             let request_id = msg.get("requestId").cloned().unwrap_or(Value::Null);
-            narval_reply("narvalJobDetail", request_id, tokio::task::spawn_blocking(move || narval_inspect_job(&profile, &job_id)).await)
+            narval_reply(
+                "narvalJobDetail",
+                request_id,
+                tokio::task::spawn_blocking(move || narval_inspect_job(&profile, &job_id)).await,
+            )
         }
         "narvalReadText" => {
-            let profile = msg.get("profile").and_then(Value::as_str).unwrap_or("narval").to_string();
-            let path = msg.get("path").and_then(Value::as_str).unwrap_or("").to_string();
+            let profile = msg
+                .get("profile")
+                .and_then(Value::as_str)
+                .unwrap_or("narval")
+                .to_string();
+            let path = msg
+                .get("path")
+                .and_then(Value::as_str)
+                .unwrap_or("")
+                .to_string();
             let tail_lines = msg.get("tailLines").and_then(Value::as_u64).unwrap_or(400) as u32;
             let request_id = msg.get("requestId").cloned().unwrap_or(Value::Null);
-            narval_reply("narvalText", request_id, tokio::task::spawn_blocking(move || narval_read_text(&profile, &path, tail_lines)).await)
+            narval_reply(
+                "narvalText",
+                request_id,
+                tokio::task::spawn_blocking(move || narval_read_text(&profile, &path, tail_lines))
+                    .await,
+            )
         }
         "listCommands" => {
             let root = msg.get("projectRoot").and_then(|v| v.as_str());
@@ -490,18 +549,26 @@ pub async fn route_ws(state: &AppState, text: &str) -> Vec<String> {
             vec![json_msg(json!({"type":"localServers","servers": servers}))]
         }
         "checkFrame" => {
-            let url = msg.get("url").and_then(|v| v.as_str()).unwrap_or("").to_string();
+            let url = msg
+                .get("url")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
             let blocked = tokio::task::spawn_blocking(move || check_frame(&url))
                 .await
                 .unwrap_or(false);
             let url = msg.get("url").and_then(|v| v.as_str()).unwrap_or("");
-            vec![json_msg(json!({"type":"frameChecked","url": url, "blocked": blocked}))]
+            vec![json_msg(
+                json!({"type":"frameChecked","url": url, "blocked": blocked}),
+            )]
         }
         "gitStatus" => {
             let root = git_root(state, &msg).await;
             match git_status(&root) {
                 Ok(status) => {
-                    vec![json_msg(json!({"type":"gitStatus","projectRoot": root, "status": status}))]
+                    vec![json_msg(
+                        json!({"type":"gitStatus","projectRoot": root, "status": status}),
+                    )]
                 }
                 Err(e) => vec![err(e.to_string())],
             }
@@ -509,7 +576,10 @@ pub async fn route_ws(state: &AppState, text: &str) -> Vec<String> {
         "gitDiff" => {
             let root = git_root(state, &msg).await;
             let path = msg.get("path").and_then(|v| v.as_str());
-            let scope = msg.get("scope").and_then(|v| v.as_str()).unwrap_or("changes");
+            let scope = msg
+                .get("scope")
+                .and_then(|v| v.as_str())
+                .unwrap_or("changes");
             let request_id = msg.get("requestId").cloned().unwrap_or(Value::Null);
             let base_sha = msg.get("baseSha").and_then(|v| v.as_str());
             let result = if scope == "staged" {
@@ -519,7 +589,8 @@ pub async fn route_ws(state: &AppState, text: &str) -> Vec<String> {
             };
             match result {
                 Ok(diff) => {
-                    let contents = path.and_then(|file| git_diff_contents(&root, file, scope, base_sha).ok());
+                    let contents =
+                        path.and_then(|file| git_diff_contents(&root, file, scope, base_sha).ok());
                     vec![json_msg(json!({
                         "type": "gitDiff",
                         "requestId": request_id,
@@ -531,7 +602,7 @@ pub async fn route_ws(state: &AppState, text: &str) -> Vec<String> {
                         "after": contents.as_ref().map(|item| item.after.as_str()),
                         "binary": contents.as_ref().map(|item| item.binary).unwrap_or(false),
                     }))]
-                },
+                }
                 Err(e) => vec![json_msg(json!({
                     "type": "gitDiff",
                     "requestId": request_id,
@@ -548,7 +619,9 @@ pub async fn route_ws(state: &AppState, text: &str) -> Vec<String> {
             let paths = git_paths(&msg);
             match stage_files(&root, &paths) {
                 Ok(()) => {
-                    let mut out = vec![json_msg(json!({"type":"gitStageDone","projectRoot": root, "paths": paths}))];
+                    let mut out = vec![json_msg(
+                        json!({"type":"gitStageDone","projectRoot": root, "paths": paths}),
+                    )];
                     out.extend(git_changed(state, &msg, &root).await);
                     out
                 }
@@ -560,8 +633,9 @@ pub async fn route_ws(state: &AppState, text: &str) -> Vec<String> {
             let paths = git_paths(&msg);
             match unstage_files(&root, &paths) {
                 Ok(()) => {
-                    let mut out =
-                        vec![json_msg(json!({"type":"gitUnstageDone","projectRoot": root, "paths": paths}))];
+                    let mut out = vec![json_msg(
+                        json!({"type":"gitUnstageDone","projectRoot": root, "paths": paths}),
+                    )];
                     out.extend(git_changed(state, &msg, &root).await);
                     out
                 }
@@ -594,8 +668,9 @@ pub async fn route_ws(state: &AppState, text: &str) -> Vec<String> {
             });
             match git_commit(&root, message, files.as_deref()) {
                 Ok(hash) => {
-                    let mut out =
-                        vec![json_msg(json!({"type":"gitCommitDone","projectRoot": root, "hash": hash}))];
+                    let mut out = vec![json_msg(
+                        json!({"type":"gitCommitDone","projectRoot": root, "hash": hash}),
+                    )];
                     out.extend(git_changed(state, &msg, &root).await);
                     out
                 }
@@ -608,7 +683,11 @@ pub async fn route_ws(state: &AppState, text: &str) -> Vec<String> {
         }
         "gitPush" | "gitPull" => {
             let root = git_root(state, &msg).await;
-            let op = if msg_type == "gitPush" { "push" } else { "pull" };
+            let op = if msg_type == "gitPush" {
+                "push"
+            } else {
+                "pull"
+            };
             let result = if msg_type == "gitPush" {
                 git_push(&root)
             } else {
@@ -689,19 +768,17 @@ pub async fn route_ws(state: &AppState, text: &str) -> Vec<String> {
                     "error": "zotero-introuvable",
                 }))];
             }
-            let query = msg.get("query").and_then(|v| v.as_str()).unwrap_or("").to_string();
+            let query = msg
+                .get("query")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
             let tag = msg.get("tag").and_then(|v| v.as_str()).map(str::to_string);
             let collection_id = msg.get("collectionId").and_then(|v| v.as_i64());
             let limit = msg.get("limit").and_then(|v| v.as_u64()).unwrap_or(400) as usize;
             let app_dir = state.app_dir().to_path_buf();
             let items = tokio::task::spawn_blocking(move || {
-                zotero_search(
-                    &app_dir,
-                    &query,
-                    collection_id,
-                    tag.as_deref(),
-                    limit,
-                )
+                zotero_search(&app_dir, &query, collection_id, tag.as_deref(), limit)
             })
             .await
             .unwrap_or_else(|e| Err(e.to_string()));
@@ -717,7 +794,9 @@ pub async fn route_ws(state: &AppState, text: &str) -> Vec<String> {
                     }
                     vec![json_msg(json!({"type":"zoteroItems","items": items}))]
                 }
-                Err(e) => vec![json_msg(json!({"type":"zoteroItems","items": [], "error": e}))],
+                Err(e) => vec![json_msg(
+                    json!({"type":"zoteroItems","items": [], "error": e}),
+                )],
             }
         }
         "zoteroCollections" => {
@@ -733,9 +812,13 @@ pub async fn route_ws(state: &AppState, text: &str) -> Vec<String> {
                 .await
                 .unwrap_or_else(|e| Err(e.to_string()))
             {
-                Ok(c) => vec![json_msg(json!({"type":"zoteroCollections","collections": c}))],
+                Ok(c) => vec![json_msg(
+                    json!({"type":"zoteroCollections","collections": c}),
+                )],
                 Err(e) => {
-                    vec![json_msg(json!({"type":"zoteroCollections","collections": [], "error": e}))]
+                    vec![json_msg(
+                        json!({"type":"zoteroCollections","collections": [], "error": e}),
+                    )]
                 }
             }
         }
@@ -748,7 +831,11 @@ pub async fn route_ws(state: &AppState, text: &str) -> Vec<String> {
             }
         }
         "zoteroDigest" => {
-            let key = msg.get("key").and_then(|v| v.as_str()).unwrap_or("").to_string();
+            let key = msg
+                .get("key")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
             let cite_key = msg
                 .get("citeKey")
                 .and_then(|v| v.as_str())
@@ -882,11 +969,7 @@ pub async fn route_ws(state: &AppState, text: &str) -> Vec<String> {
                 .get("clientInstanceId")
                 .and_then(|v| v.as_str())
                 .unwrap_or("");
-            if id.len() >= 20
-                && id
-                    .chars()
-                    .all(|c| c.is_ascii_hexdigit() || c == '-')
-            {
+            if id.len() >= 20 && id.chars().all(|c| c.is_ascii_hexdigit() || c == '-') {
                 *state.client_instance_id().lock().await = Some(id.to_string());
             }
             vec![]
@@ -903,13 +986,21 @@ pub async fn route_ws(state: &AppState, text: &str) -> Vec<String> {
                     waiter.thread_id == thread_id
                         && waiter.client_instance_id.as_deref() == client_id
                 });
-                if valid { waiters.remove(request_id) } else { None }
+                if valid {
+                    waiters.remove(request_id)
+                } else {
+                    None
+                }
             };
             if let Some(waiter) = waiter {
                 if response.get("allow").and_then(Value::as_bool) == Some(true)
                     && response.get("scope").and_then(Value::as_str) == Some("session")
                 {
-                    state.approval_sessions().lock().await.insert(thread_id.to_string());
+                    state
+                        .approval_sessions()
+                        .lock()
+                        .await
+                        .insert(thread_id.to_string());
                 }
                 let _ = waiter.tx.send(response);
             }
@@ -940,7 +1031,11 @@ pub async fn route_ws(state: &AppState, text: &str) -> Vec<String> {
                     .await;
                 let message = match result {
                     Ok(value) => {
-                        let review = value.get("review").and_then(Value::as_str).unwrap_or("").trim();
+                        let review = value
+                            .get("review")
+                            .and_then(Value::as_str)
+                            .unwrap_or("")
+                            .trim();
                         let lower = review.to_lowercase();
                         let clean = review.is_empty()
                             || lower.contains("no findings")
@@ -1010,7 +1105,10 @@ pub async fn route_ws(state: &AppState, text: &str) -> Vec<String> {
                 return vec![err_thread(thread_id, "goal: chat absent")];
             };
             if thread.provider != "codex" {
-                return vec![err_thread(thread_id, "goals disponibles seulement pour un chat Codex")];
+                return vec![err_thread(
+                    thread_id,
+                    "goals disponibles seulement pour un chat Codex",
+                )];
             }
             let Some(provider) = state.provider("codex") else {
                 return vec![err_thread(thread_id, "goal: provider Codex absent")];
@@ -1055,11 +1153,13 @@ pub async fn route_ws(state: &AppState, text: &str) -> Vec<String> {
                 .unwrap_or("staged");
             let status = match git_status(&root) {
                 Ok(status) => status,
-                Err(error) => return vec![json_msg(json!({
-                    "type": "commitMsg",
-                    "projectRoot": root,
-                    "error": error.to_string(),
-                }))],
+                Err(error) => {
+                    return vec![json_msg(json!({
+                        "type": "commitMsg",
+                        "projectRoot": root,
+                        "error": error.to_string(),
+                    }))]
+                }
             };
             let Some(context) = commit_generation_context(&status, scope == "staged") else {
                 let error = if scope == "staged" {
@@ -1358,7 +1458,12 @@ async fn handle_save_plan(state: &AppState, msg: &Value, export: bool) -> Vec<St
         let raw = msg.get("path").and_then(Value::as_str).unwrap_or("");
         let path = std::path::PathBuf::from(raw);
         if !path.is_absolute()
-            || path.extension().and_then(|value| value.to_str()).map(str::to_ascii_lowercase).as_deref() != Some("md")
+            || path
+                .extension()
+                .and_then(|value| value.to_str())
+                .map(str::to_ascii_lowercase)
+                .as_deref()
+                != Some("md")
         {
             return vec![err_thread(thread_id, "plan: destination invalide")];
         }
@@ -1368,11 +1473,20 @@ async fn handle_save_plan(state: &AppState, msg: &Value, export: bool) -> Vec<St
         let Some(thread) = thread.filter(|thread| !thread.project_root.is_empty()) else {
             return vec![err_thread(thread_id, "plan: projet introuvable")];
         };
-        let raw = msg.get("fileName").and_then(Value::as_str).unwrap_or("plan");
+        let raw = msg
+            .get("fileName")
+            .and_then(Value::as_str)
+            .unwrap_or("plan");
         let raw = raw.strip_suffix(".md").unwrap_or(raw);
         let stem = raw
             .chars()
-            .map(|character| if character.is_ascii_alphanumeric() || matches!(character, '.' | '_' | '-') { character } else { '-' })
+            .map(|character| {
+                if character.is_ascii_alphanumeric() || matches!(character, '.' | '_' | '-') {
+                    character
+                } else {
+                    '-'
+                }
+            })
             .collect::<String>()
             .trim_matches('-')
             .chars()
@@ -1380,7 +1494,10 @@ async fn handle_save_plan(state: &AppState, msg: &Value, export: bool) -> Vec<St
             .collect::<String>();
         std::path::PathBuf::from(thread.project_root)
             .join(".plan")
-            .join(format!("{}.md", if stem.is_empty() { "plan" } else { &stem }))
+            .join(format!(
+                "{}.md",
+                if stem.is_empty() { "plan" } else { &stem }
+            ))
     };
     if let Some(parent) = path.parent() {
         if let Err(error) = std::fs::create_dir_all(parent) {
@@ -1458,7 +1575,11 @@ async fn handle_export_thread(state: &AppState, msg: &Value) -> Vec<String> {
     } else {
         safe
     };
-    let stamp = iso_now().chars().take(16).collect::<String>().replace([':', 'T'], "-");
+    let stamp = iso_now()
+        .chars()
+        .take(16)
+        .collect::<String>()
+        .replace([':', 'T'], "-");
     let base = dir.join(format!("atelier-{safe}-{stamp}"));
     let md_path = base.with_extension("md");
     let json_path = base.with_extension("json");
@@ -1478,8 +1599,14 @@ async fn handle_export_thread(state: &AppState, msg: &Value) -> Vec<String> {
 }
 
 async fn handle_fork_thread(state: &AppState, msg: &Value) -> Vec<String> {
-    let from = msg.get("fromThreadId").and_then(|v| v.as_str()).unwrap_or("");
-    let new_id = msg.get("newThreadId").and_then(|v| v.as_str()).unwrap_or("");
+    let from = msg
+        .get("fromThreadId")
+        .and_then(|v| v.as_str())
+        .unwrap_or("");
+    let new_id = msg
+        .get("newThreadId")
+        .and_then(|v| v.as_str())
+        .unwrap_or("");
     if from.is_empty() || new_id.is_empty() {
         return vec![err("fork: fromThreadId et newThreadId requis")];
     }
@@ -1509,7 +1636,14 @@ async fn handle_fork_thread(state: &AppState, msg: &Value) -> Vec<String> {
     if transcript.chars().count() > MAX_CONTEXT_CHARS {
         transcript = format!(
             "[…début tronqué…]\n{}",
-            transcript.chars().rev().take(MAX_CONTEXT_CHARS).collect::<String>().chars().rev().collect::<String>()
+            transcript
+                .chars()
+                .rev()
+                .take(MAX_CONTEXT_CHARS)
+                .collect::<String>()
+                .chars()
+                .rev()
+                .collect::<String>()
         );
     }
     let fork_context = if transcript.is_empty() {
@@ -1519,7 +1653,14 @@ async fn handle_fork_thread(state: &AppState, msg: &Value) -> Vec<String> {
             "Tu reprends une conversation commencée avec un autre agent. Voici le fil jusqu'ici — prends-le comme contexte acquis, ne le résume pas, ne le répète pas :\n\n---\n{transcript}\n=== fin du fil transmis — message réel ci-dessous ===\n\n"
         ))
     };
-    let title = format!("⑂ {}", if src.title.is_empty() { "fork" } else { &src.title });
+    let title = format!(
+        "⑂ {}",
+        if src.title.is_empty() {
+            "fork"
+        } else {
+            &src.title
+        }
+    );
     let patch = json!({
         "id": new_id,
         "projectRoot": src.project_root,
@@ -1561,8 +1702,13 @@ async fn handle_revert(state: &AppState, msg: &Value) -> Vec<String> {
         let turn_id = msg.get("turnId").and_then(Value::as_str);
         let valid = state.journal().materialize(thread_id).iter().any(|event| {
             event.get("kind").and_then(Value::as_str) == Some("done")
-                && event.pointer("/checkpoint/snapshotSha").and_then(Value::as_str) == Some(sha)
-                && turn_id.is_none_or(|turn| event.pointer("/meta/turnId").and_then(Value::as_str) == Some(turn))
+                && event
+                    .pointer("/checkpoint/snapshotSha")
+                    .and_then(Value::as_str)
+                    == Some(sha)
+                && turn_id.is_none_or(|turn| {
+                    event.pointer("/meta/turnId").and_then(Value::as_str) == Some(turn)
+                })
         });
         if !valid || thread.project_root.is_empty() {
             return vec![err_thread(thread_id, "checkpoint introuvable")];
@@ -1810,10 +1956,7 @@ async fn handle_qa_promote(state: &AppState, msg: &Value) -> Vec<String> {
             "message": "session éphémère expirée — pose une nouvelle question puis promeus",
         }))];
     };
-    let title = msg
-        .get("title")
-        .and_then(|v| v.as_str())
-        .unwrap_or("");
+    let title = msg.get("title").and_then(|v| v.as_str()).unwrap_or("");
     let patch = json!({
         "id": new_id,
         "projectRoot": msg.get("projectRoot").cloned().unwrap_or(json!("")),
@@ -1840,10 +1983,7 @@ async fn handle_codex_clear(state: &AppState, msg: &Value) -> Vec<String> {
     {
         let mut store = state.threads().lock().await;
         if store.get(thread_id).is_some() {
-            let _ = store.upsert(
-                json!({"id": thread_id, "sessionId": Value::Null}),
-                false,
-            );
+            let _ = store.upsert(json!({"id": thread_id, "sessionId": Value::Null}), false);
         }
     }
     // Journal frontier marker (best-effort).
@@ -1933,13 +2073,8 @@ async fn handle_generate_image(state: &AppState, msg: &Value) -> Vec<String> {
             let b64 = base64::engine::general_purpose::STANDARD.encode(bytes);
             Some(format!("data:image/png;base64,{b64}"))
         });
-        let result = atelier_providers::generate_image(
-            &app_dir,
-            &prompt,
-            &size,
-            edit_uri.as_deref(),
-        )
-        .await;
+        let result =
+            atelier_providers::generate_image(&app_dir, &prompt, &size, edit_uri.as_deref()).await;
         let payload = match result {
             Ok(r) => {
                 let dir = std::path::Path::new(&root_bg).join("generated");
@@ -2031,7 +2166,10 @@ fn chrono_like_iso(ms: u128) -> String {
     let s = tod % 60;
     // 1970-01-01 + days — approximate Y-M-D via civil algorithm
     let (y, mo, d) = civil_from_days(days);
-    format!("{y:04}-{mo:02}-{d:02}T{h:02}:{m:02}:{s:02}.{:03}Z", ms % 1000)
+    format!(
+        "{y:04}-{mo:02}-{d:02}T{h:02}:{m:02}:{s:02}.{:03}Z",
+        ms % 1000
+    )
 }
 
 /// Howard Hinnant civil_from_days (proleptic Gregorian).
@@ -2110,7 +2248,9 @@ fn save_api_provider(app_dir: &std::path::Path, provider: Value) -> Result<Vec<V
         .map(|s| s.is_empty())
         .unwrap_or(true)
     {
-        if let Some(prev) = list.iter().find(|p| p.get("id").and_then(|v| v.as_str()) == Some(id.as_str()))
+        if let Some(prev) = list
+            .iter()
+            .find(|p| p.get("id").and_then(|v| v.as_str()) == Some(id.as_str()))
         {
             if let Some(k) = prev.get("apiKey").cloned() {
                 if let Some(obj) = provider.as_object_mut() {
@@ -2165,8 +2305,8 @@ fn err_thread(thread_id: &str, message: impl Into<String>) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::state::InteractionWaiter;
     use crate::paths::AppPaths;
+    use crate::state::InteractionWaiter;
     use atelier_workspace::GitFile;
     use tempfile::tempdir;
 
@@ -2249,11 +2389,7 @@ mod tests {
         let v: Value = serde_json::from_str(&out[0]).unwrap();
         assert_eq!(v["threads"][0]["title"], "A");
 
-        let out = route_ws(
-            &s,
-            r#"{"type":"renameThread","threadId":"t1","title":"B"}"#,
-        )
-        .await;
+        let out = route_ws(&s, r#"{"type":"renameThread","threadId":"t1","title":"B"}"#).await;
         let v: Value = serde_json::from_str(&out[0]).unwrap();
         assert_eq!(v["threads"][0]["title"], "B");
 
@@ -2299,7 +2435,10 @@ mod tests {
         let fork = s.threads().lock().await.get("grok-fork").cloned().unwrap();
         assert_eq!(fork.provider, "grok");
         assert!(fork.session_id.is_none());
-        assert!(fork.extra["forkContext"].as_str().unwrap().contains("réponse source"));
+        assert!(fork.extra["forkContext"]
+            .as_str()
+            .unwrap()
+            .contains("réponse source"));
     }
 
     #[tokio::test]
@@ -2315,11 +2454,7 @@ mod tests {
         assert_eq!(v["type"], "highlights");
         assert_eq!(v["highlights"].as_array().unwrap().len(), 1);
 
-        let out = route_ws(
-            &s,
-            r#"{"type":"saveSettings","settings":{"theme":"dark"}}"#,
-        )
-        .await;
+        let out = route_ws(&s, r#"{"type":"saveSettings","settings":{"theme":"dark"}}"#).await;
         assert!(out[0].contains(r#""ok":true"#) || out[0].contains(r#""ok": true"#));
         let out = route_ws(&s, r#"{"type":"getSettings"}"#).await;
         let v: Value = serde_json::from_str(&out[0]).unwrap();
@@ -2363,7 +2498,11 @@ mod tests {
         );
 
         route_ws(&s, r#"{"type":"interactionResponse","threadId":"other","clientInstanceId":"11111111-1111-4111-8111-111111111111","requestId":"request-1","response":{"allow":false}}"#).await;
-        assert!(s.interaction_waiters().lock().await.contains_key("request-1"));
+        assert!(s
+            .interaction_waiters()
+            .lock()
+            .await
+            .contains_key("request-1"));
 
         route_ws(&s, r#"{"type":"interactionResponse","threadId":"thread-1","clientInstanceId":"11111111-1111-4111-8111-111111111111","requestId":"request-1","response":{"allow":true,"scope":"session"}}"#).await;
         assert_eq!(rx.await.unwrap(), json!({"allow":true,"scope":"session"}));
@@ -2376,24 +2515,39 @@ mod tests {
         let project = dir.path().join("project");
         std::fs::create_dir_all(&project).unwrap();
         let s = state(dir.path());
-        s.threads().lock().await.upsert(json!({
-            "id":"plan-thread",
-            "provider":"claude",
-            "projectRoot":project.to_string_lossy(),
-        }), false).unwrap();
+        s.threads()
+            .lock()
+            .await
+            .upsert(
+                json!({
+                    "id":"plan-thread",
+                    "provider":"claude",
+                    "projectRoot":project.to_string_lossy(),
+                }),
+                false,
+            )
+            .unwrap();
 
-        let out = route_ws(&s, &json!({
-            "type":"savePlan",
-            "threadId":"plan-thread",
-            "planId":"plan-1",
-            "fileName":"audit complet",
-            "markdown":"# Plan\n\n1. Auditer",
-        }).to_string()).await;
+        let out = route_ws(
+            &s,
+            &json!({
+                "type":"savePlan",
+                "threadId":"plan-thread",
+                "planId":"plan-1",
+                "fileName":"audit complet",
+                "markdown":"# Plan\n\n1. Auditer",
+            })
+            .to_string(),
+        )
+        .await;
         let value: Value = serde_json::from_str(&out[0]).unwrap();
         let path = std::path::PathBuf::from(value["path"].as_str().unwrap());
         assert_eq!(value["type"], "planSaved");
         assert_eq!(path, project.join(".plan/audit-complet.md"));
-        assert_eq!(std::fs::read_to_string(path).unwrap(), "# Plan\n\n1. Auditer");
+        assert_eq!(
+            std::fs::read_to_string(path).unwrap(),
+            "# Plan\n\n1. Auditer"
+        );
     }
 
     #[tokio::test]
@@ -2401,18 +2555,29 @@ mod tests {
         let dir = tempdir().unwrap();
         let project = dir.path().join("repo");
         std::fs::create_dir_all(&project).unwrap();
-        std::process::Command::new("git").args(["init", "-q"]).current_dir(&project).status().unwrap();
+        std::process::Command::new("git")
+            .args(["init", "-q"])
+            .current_dir(&project)
+            .status()
+            .unwrap();
         let file = project.join("note.txt");
         std::fs::write(&file, "avant\n").unwrap();
         let sha = atelier_workspace::snapshot(project.to_str().unwrap()).unwrap();
         std::fs::write(&file, "après\n").unwrap();
 
         let s = state(dir.path());
-        s.threads().lock().await.upsert(json!({
-            "id":"revert-thread",
-            "provider":"codex",
-            "projectRoot":project.to_string_lossy(),
-        }), false).unwrap();
+        s.threads()
+            .lock()
+            .await
+            .upsert(
+                json!({
+                    "id":"revert-thread",
+                    "provider":"codex",
+                    "projectRoot":project.to_string_lossy(),
+                }),
+                false,
+            )
+            .unwrap();
         s.journal().append(&json!({
             "kind":"done",
             "ok":true,
@@ -2425,10 +2590,15 @@ mod tests {
         }));
 
         let before = s.journal().materialize("revert-thread");
-        let out = route_ws(&s, &json!({
-            "type":"revert","scope":"files","threadId":"revert-thread",
-            "turnId":"turn-1","snapshotSha":sha,
-        }).to_string()).await;
+        let out = route_ws(
+            &s,
+            &json!({
+                "type":"revert","scope":"files","threadId":"revert-thread",
+                "turnId":"turn-1","snapshotSha":sha,
+            })
+            .to_string(),
+        )
+        .await;
         let value: Value = serde_json::from_str(&out[0]).unwrap();
         assert_eq!(value["type"], "reverted");
         assert_eq!(value["scope"], "files");

@@ -24,9 +24,11 @@ fn tcp_alive(port: u16) -> bool {
 }
 
 fn html_title(port: u16) -> Option<String> {
-    let mut stream =
-        TcpStream::connect_timeout(&format!("127.0.0.1:{port}").parse().ok()?, Duration::from_millis(600))
-            .ok()?;
+    let mut stream = TcpStream::connect_timeout(
+        &format!("127.0.0.1:{port}").parse().ok()?,
+        Duration::from_millis(600),
+    )
+    .ok()?;
     let _ = stream.set_read_timeout(Some(Duration::from_millis(600)));
     let req = format!("GET / HTTP/1.0\r\nHost: 127.0.0.1:{port}\r\nConnection: close\r\n\r\n");
     stream.write_all(req.as_bytes()).ok()?;

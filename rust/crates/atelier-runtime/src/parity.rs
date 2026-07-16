@@ -96,9 +96,16 @@ pub fn normalize_for_compare(v: &Value) -> Value {
                     out.insert(k.clone(), json!("<path>"));
                     continue;
                 }
-                if k == "providers" || k == "threads" || k == "highlights" || k == "files"
-                    || k == "commands" || k == "entries" || k == "servers" || k == "sessions"
-                    || k == "items" || k == "collections"
+                if k == "providers"
+                    || k == "threads"
+                    || k == "highlights"
+                    || k == "files"
+                    || k == "commands"
+                    || k == "entries"
+                    || k == "servers"
+                    || k == "sessions"
+                    || k == "items"
+                    || k == "collections"
                 {
                     // Compare structure only for large arrays: type + length.
                     if let Some(arr) = val.as_array() {
@@ -155,11 +162,7 @@ pub fn diff_values(a: &Value, b: &Value, path: &str) -> Vec<String> {
         }
         (Value::Array(aa), Value::Array(ab)) => {
             if aa.len() != ab.len() {
-                return vec![format!(
-                    "{path}: array len {} vs {}",
-                    aa.len(),
-                    ab.len()
-                )];
+                return vec![format!("{path}: array len {} vs {}", aa.len(), ab.len())];
             }
             let mut out = Vec::new();
             for (i, (va, vb)) in aa.iter().zip(ab.iter()).enumerate() {
@@ -227,8 +230,10 @@ mod tests {
                 let v: Value = serde_json::from_str(first).unwrap_or(json!({}));
                 let ty = v.get("type").and_then(|x| x.as_str()).unwrap_or("");
                 // Host-dependent probes may return error (zotero missing, etc.)
-                if matches!(t, "zoteroCollections" | "zoteroSearch" | "zoteroDigest" | "gitStatus" | "gitDiff")
-                {
+                if matches!(
+                    t,
+                    "zoteroCollections" | "zoteroSearch" | "zoteroDigest" | "gitStatus" | "gitDiff"
+                ) {
                     continue;
                 }
                 assert_ne!(ty, "error", "unexpected error for {t}: {first}");

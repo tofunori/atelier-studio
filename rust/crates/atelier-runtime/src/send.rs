@@ -68,7 +68,10 @@ fn is_new_chat_placeholder(title: &str) -> bool {
     )
 }
 
-fn should_auto_title(previous: Option<&atelier_store::Thread>, explicit_title: Option<&str>) -> bool {
+fn should_auto_title(
+    previous: Option<&atelier_store::Thread>,
+    explicit_title: Option<&str>,
+) -> bool {
     if explicit_title.is_some() {
         return false;
     }
@@ -81,7 +84,12 @@ fn should_auto_title(previous: Option<&atelier_store::Thread>, explicit_title: O
 fn handoff_context(events: &[Value], provider: &str) -> Option<String> {
     let mut lines = Vec::new();
     for event in events {
-        let Some(text) = event.get("text").and_then(Value::as_str).map(str::trim).filter(|s| !s.is_empty()) else {
+        let Some(text) = event
+            .get("text")
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+        else {
             continue;
         };
         match event.get("kind").and_then(Value::as_str) {
@@ -96,8 +104,15 @@ fn handoff_context(events: &[Value], provider: &str) -> Option<String> {
     }
     const MAX_CONTEXT_CHARS: usize = 400_000;
     if transcript.chars().count() > MAX_CONTEXT_CHARS {
-        let tail = transcript.chars().rev().take(MAX_CONTEXT_CHARS).collect::<String>();
-        transcript = format!("[…début tronqué…]\n{}", tail.chars().rev().collect::<String>());
+        let tail = transcript
+            .chars()
+            .rev()
+            .take(MAX_CONTEXT_CHARS)
+            .collect::<String>();
+        transcript = format!(
+            "[…début tronqué…]\n{}",
+            tail.chars().rev().collect::<String>()
+        );
     }
     Some(format!(
         "Tu reprends une conversation commencée avec un autre agent. Voici le fil jusqu'ici — prends-le comme contexte acquis, ne le résume pas, ne le répète pas :\n\n---\n{transcript}\n=== fin du fil transmis — message réel ci-dessous ===\n\n"
@@ -111,7 +126,10 @@ async fn prepare_provider_handoff(
     provider: &str,
     project_root: &str,
 ) -> Result<(), String> {
-    let source_id = msg.get("handoffFromThreadId").and_then(Value::as_str).unwrap_or("");
+    let source_id = msg
+        .get("handoffFromThreadId")
+        .and_then(Value::as_str)
+        .unwrap_or("");
     if source_id.is_empty() {
         return Ok(());
     }
@@ -123,7 +141,10 @@ async fn prepare_provider_handoff(
         if store.get(thread_id).is_some() {
             return Err("handoff: la destination existe déjà".into());
         }
-        store.get(source_id).cloned().ok_or_else(|| "handoff: fil source introuvable".to_string())?
+        store
+            .get(source_id)
+            .cloned()
+            .ok_or_else(|| "handoff: fil source introuvable".to_string())?
     };
     if source.status == "running" || state.harness().is_running(source_id).await {
         return Err("handoff: arrêter le tour source avant de changer de provider".into());
@@ -136,7 +157,9 @@ async fn prepare_provider_handoff(
     } else {
         Vec::new()
     };
-    if state.journal().has_journal(source_id) && !state.journal().copy_thread(source_id, thread_id, None) {
+    if state.journal().has_journal(source_id)
+        && !state.journal().copy_thread(source_id, thread_id, None)
+    {
         return Err("handoff: copie atomique du journal impossible".into());
     }
     let patch = json!({
@@ -153,7 +176,12 @@ async fn prepare_provider_handoff(
             "targetProvider": provider,
         },
     });
-    state.threads().lock().await.upsert(patch, false).map(|_| ())
+    state
+        .threads()
+        .lock()
+        .await
+        .upsert(patch, false)
+        .map(|_| ())
 }
 
 async fn maybe_title_new_thread(
@@ -225,7 +253,8 @@ fn make_emit(state: AppState, thread_id: String) -> EmitFn {
 fn describe_server_request(method: &str, params: &Value) -> Option<Value> {
     let approval = matches!(
         method,
-        "execCommandApproval" | "applyPatchApproval"
+        "execCommandApproval"
+            | "applyPatchApproval"
             | "item/commandExecution/requestApproval"
             | "item/fileChange/requestApproval"
             | "item/permissions/requestApproval"
@@ -259,14 +288,16 @@ fn describe_server_request(method: &str, params: &Value) -> Option<Value> {
             .into_iter()
             .flatten()
             .take(3)
-            .map(|question| json!({
-                "id": question.get("id").and_then(Value::as_str).unwrap_or(""),
-                "question": question.get("question").and_then(Value::as_str).unwrap_or(""),
-                "header": question.get("header").cloned().unwrap_or(Value::Null),
-                "options": question.get("options").cloned().unwrap_or_else(|| json!([])),
-                "allowOther": question.get("isOther").and_then(Value::as_bool).unwrap_or(false),
-                "secret": question.get("isSecret").and_then(Value::as_bool).unwrap_or(false),
-            }))
+            .map(|question| {
+                json!({
+                    "id": question.get("id").and_then(Value::as_str).unwrap_or(""),
+                    "question": question.get("question").and_then(Value::as_str).unwrap_or(""),
+                    "header": question.get("header").cloned().unwrap_or(Value::Null),
+                    "options": question.get("options").cloned().unwrap_or_else(|| json!([])),
+                    "allowOther": question.get("isOther").and_then(Value::as_bool).unwrap_or(false),
+                    "secret": question.get("isSecret").and_then(Value::as_bool).unwrap_or(false),
+                })
+            })
             .collect::<Vec<_>>();
         return Some(json!({
             "interactionType":"user_input",
@@ -304,7 +335,9 @@ fn summarize_interaction(spec: &Value, response: &Value) -> String {
         Some("mcp_elicitation") => {
             if response.get("action").and_then(Value::as_str) == Some("accept") {
                 "accepté".into()
-            } else { "refusé".into() }
+            } else {
+                "refusé".into()
+            }
         }
         _ => {
             let answers = response.get("answers").and_then(Value::as_object);
@@ -316,11 +349,12 @@ fn summarize_interaction(spec: &Value, response: &Value) -> String {
                     let id = field.get("id").and_then(Value::as_str)?;
                     let answer = answers?.get(id)?.as_str()?;
                     let label = field.get("header").and_then(Value::as_str).unwrap_or(id);
-                    let shown: String = if field.get("secret").and_then(Value::as_bool) == Some(true) {
-                        "•••".into()
-                    } else {
-                        answer.chars().take(60).collect()
-                    };
+                    let shown: String =
+                        if field.get("secret").and_then(Value::as_bool) == Some(true) {
+                            "•••".into()
+                        } else {
+                            answer.chars().take(60).collect()
+                        };
                     Some(format!("{label}: {shown}"))
                 })
                 .collect::<Vec<_>>()
@@ -418,7 +452,10 @@ pub async fn handle_send(state: &AppState, msg: &Value) -> Vec<String> {
         .and_then(|v| v.as_str())
         .unwrap_or("")
         .to_string();
-    let title = msg.get("title").and_then(|v| v.as_str()).map(str::to_string);
+    let title = msg
+        .get("title")
+        .and_then(|v| v.as_str())
+        .map(str::to_string);
     let first_message = first_message_for_title(msg, &prompt);
 
     if thread_id.is_empty() {
@@ -430,15 +467,21 @@ pub async fn handle_send(state: &AppState, msg: &Value) -> Vec<String> {
             "provider inconnu ou non branché en Rust: {provider} (fake toujours; claude/codex/grok/opencode si binaires; API via api_providers.json)"
         ))];
     };
-    if let Err(error) = prepare_provider_handoff(state, msg, &thread_id, &provider, &project_root).await {
+    if let Err(error) =
+        prepare_provider_handoff(state, msg, &thread_id, &provider, &project_root).await
+    {
         return vec![err_json(error)];
     }
 
     let previous = state.threads().lock().await.get(&thread_id).cloned();
     if previous.as_ref().is_some_and(|thread| {
-        thread.provider != provider && (thread.session_id.is_some() || state.journal().has_journal(&thread_id))
+        thread.provider != provider
+            && (thread.session_id.is_some() || state.journal().has_journal(&thread_id))
     }) {
-        let current = previous.as_ref().map(|thread| thread.provider.as_str()).unwrap_or("unknown");
+        let current = previous
+            .as_ref()
+            .map(|thread| thread.provider.as_str())
+            .unwrap_or("unknown");
         return vec![err_json(format!(
             "provider immuable pour ce fil ({current}); créer un handoff vers {provider}"
         ))];
@@ -449,7 +492,8 @@ pub async fn handle_send(state: &AppState, msg: &Value) -> Vec<String> {
         .and_then(|thread| thread.extra.get("lastTurn"))
         .cloned()
         .unwrap_or_else(|| json!({}));
-    let same_provider = last_turn.get("provider").and_then(Value::as_str) == Some(provider.as_str());
+    let same_provider =
+        last_turn.get("provider").and_then(Value::as_str) == Some(provider.as_str());
     let provisional_title = first_message.chars().take(40).collect::<String>();
 
     let provider_prompt = previous
@@ -459,7 +503,8 @@ pub async fn handle_send(state: &AppState, msg: &Value) -> Vec<String> {
         .filter(|context| !context.is_empty())
         .map(|context| format!("{context}{prompt}"))
         .unwrap_or_else(|| prompt.clone());
-    let provider_prompt = with_gallery_tool_instruction(provider_prompt, &project_root, state.server_dir());
+    let provider_prompt =
+        with_gallery_tool_instruction(provider_prompt, &project_root, state.server_dir());
     let provider_prompt = with_zotero_passage_instruction(provider_prompt, state.server_dir());
 
     // Provider change while running: refuse
@@ -535,7 +580,8 @@ pub async fn handle_send(state: &AppState, msg: &Value) -> Vec<String> {
                 .get(&thread_id)
                 .and_then(|t| t.session_id.clone());
             let tx = ev_tx.clone();
-            let interaction = make_interaction_relay(state.clone(), thread_id.clone(), ev_tx.clone());
+            let interaction =
+                make_interaction_relay(state.clone(), thread_id.clone(), ev_tx.clone());
             let req = SendRequest {
                 thread_id: thread_id.clone(),
                 turn_id: turn_id.clone(),
@@ -639,12 +685,20 @@ pub async fn handle_send(state: &AppState, msg: &Value) -> Vec<String> {
     let model = msg
         .get("model")
         .and_then(|v| v.as_str())
-        .or_else(|| same_provider.then(|| last_turn.get("model").and_then(Value::as_str)).flatten())
+        .or_else(|| {
+            same_provider
+                .then(|| last_turn.get("model").and_then(Value::as_str))
+                .flatten()
+        })
         .map(str::to_string);
     let effort = msg
         .get("effort")
         .and_then(|v| v.as_str())
-        .or_else(|| same_provider.then(|| last_turn.get("effort").and_then(Value::as_str)).flatten())
+        .or_else(|| {
+            same_provider
+                .then(|| last_turn.get("effort").and_then(Value::as_str))
+                .flatten()
+        })
         .map(str::to_string);
     let permission_mode = msg
         .get("permissionMode")
@@ -652,15 +706,18 @@ pub async fn handle_send(state: &AppState, msg: &Value) -> Vec<String> {
         .or_else(|| last_turn.get("permissionMode").and_then(Value::as_str))
         .map(str::to_string);
     if msg.get("permissionMode").and_then(Value::as_str).is_some() {
-        let _ = state.threads().lock().await.upsert(json!({
-            "id": thread_id,
-            "lastTurn": {
-                "provider": provider,
-                "model": msg.get("model").cloned().unwrap_or(Value::Null),
-                "effort": msg.get("effort").cloned().unwrap_or(Value::Null),
-                "permissionMode": msg.get("permissionMode").cloned().unwrap_or(Value::Null),
-            }
-        }), true);
+        let _ = state.threads().lock().await.upsert(
+            json!({
+                "id": thread_id,
+                "lastTurn": {
+                    "provider": provider,
+                    "model": msg.get("model").cloned().unwrap_or(Value::Null),
+                    "effort": msg.get("effort").cloned().unwrap_or(Value::Null),
+                    "permissionMode": msg.get("permissionMode").cloned().unwrap_or(Value::Null),
+                }
+            }),
+            true,
+        );
     }
 
     // Event pump
@@ -820,8 +877,7 @@ fn normalize_provider_event(
     permission_mode: Option<&str>,
     snapshot_sha: Option<&str>,
 ) -> Value {
-    if permission_mode == Some("plan")
-        && event.get("kind").and_then(Value::as_str) == Some("text")
+    if permission_mode == Some("plan") && event.get("kind").and_then(Value::as_str) == Some("text")
     {
         return json!({
             "kind":"proposed_plan",
@@ -838,10 +894,13 @@ fn normalize_provider_event(
             obj.insert("projectRoot".into(), json!(project_root));
             obj.insert("filesChanged".into(), json!(files_changed));
             if let Some(sha) = snapshot_sha {
-                obj.insert("checkpoint".into(), json!({
-                    "snapshotSha":sha,
-                    "filesChanged":files_changed,
-                }));
+                obj.insert(
+                    "checkpoint".into(),
+                    json!({
+                        "snapshotSha":sha,
+                        "filesChanged":files_changed,
+                    }),
+                );
             }
         }
         return event;
@@ -923,8 +982,10 @@ pub async fn handle_provider_status(state: &AppState) -> Vec<String> {
             provider.version = Some("ok".into());
         }
     }
-    vec![serde_json::to_string(&json!({"type":"providerStatus","providers": list}))
-        .unwrap_or_else(|_| r#"{"type":"error","message":"serialize"}"#.into())]
+    vec![
+        serde_json::to_string(&json!({"type":"providerStatus","providers": list}))
+            .unwrap_or_else(|_| r#"{"type":"error","message":"serialize"}"#.into()),
+    ]
 }
 
 pub async fn handle_status(state: &AppState) -> Vec<String> {
@@ -995,7 +1056,9 @@ mod tests {
             "user event missing: {events:?}"
         );
         assert!(
-            events.iter().any(|e| e["kind"] == "text" || e["kind"] == "done"),
+            events
+                .iter()
+                .any(|e| e["kind"] == "text" || e["kind"] == "done"),
             "text/done missing: {events:?}"
         );
     }
@@ -1059,7 +1122,10 @@ mod tests {
             .threads()
             .lock()
             .await
-            .upsert(json!({"id":"t-locked","provider":"claude","sessionId":"claude-session"}), false)
+            .upsert(
+                json!({"id":"t-locked","provider":"claude","sessionId":"claude-session"}),
+                false,
+            )
             .unwrap();
         assert!(state.journal().append(&json!({
             "kind":"user","text":"question source",
@@ -1083,7 +1149,13 @@ mod tests {
         .await;
 
         assert!(out[0].contains("provider immuable"), "{out:?}");
-        let source = state.threads().lock().await.get("t-locked").cloned().unwrap();
+        let source = state
+            .threads()
+            .lock()
+            .await
+            .get("t-locked")
+            .cloned()
+            .unwrap();
         assert_eq!(source.provider, "claude");
         assert_eq!(source.session_id.as_deref(), Some("claude-session"));
 
@@ -1102,15 +1174,25 @@ mod tests {
 
         assert!(out[0].contains("threads"), "{out:?}");
         for _ in 0..50 {
-            if !state.harness().is_running("t-handoff").await { break; }
+            if !state.harness().is_running("t-handoff").await {
+                break;
+            }
             tokio::time::sleep(std::time::Duration::from_millis(20)).await;
         }
-        let thread = state.threads().lock().await.get("t-handoff").cloned().unwrap();
+        let thread = state
+            .threads()
+            .lock()
+            .await
+            .get("t-handoff")
+            .cloned()
+            .unwrap();
         assert_eq!(thread.provider, "fake");
         assert_eq!(thread.extra["handoff"]["sourceThreadId"], "t-locked");
         assert_eq!(thread.extra["handoff"]["sourceProvider"], "claude");
         let copied = state.journal().materialize("t-handoff");
-        assert!(copied.iter().any(|event| event["text"] == "question source"));
+        assert!(copied
+            .iter()
+            .any(|event| event["text"] == "question source"));
         assert!(copied.iter().any(|event| event["text"] == "réponse source"));
     }
 
@@ -1236,7 +1318,10 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let mut existing = atelier_store::ThreadStore::open(dir.path().join("threads.json"));
         existing
-            .upsert(json!({"id":"t", "title":"Titre manuel", "provider":"codex"}), false)
+            .upsert(
+                json!({"id":"t", "title":"Titre manuel", "provider":"codex"}),
+                false,
+            )
             .unwrap();
         let thread = existing.get("t").unwrap();
         assert!(!should_auto_title(Some(thread), None));

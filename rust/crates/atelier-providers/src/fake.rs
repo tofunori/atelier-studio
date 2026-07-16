@@ -57,7 +57,9 @@ impl Provider for FakeProvider {
             (req.on_event)(json!({"kind":"tool","name":"__steered"}));
             (req.on_event)(json!({"kind":"text","text":"steered reply"}));
             return SendResult {
-                session_id: req.session_id.or_else(|| Some(format!("fake-{}", req.thread_id))),
+                session_id: req
+                    .session_id
+                    .or_else(|| Some(format!("fake-{}", req.thread_id))),
                 ok: true,
                 error: None,
             };

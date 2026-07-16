@@ -3,8 +3,7 @@
 use serde_json::{json, Value};
 use std::path::Path;
 
-pub const ARK_BASE_URL: &str =
-    "https://ark.ap-southeast.bytepluses.com/api/v3/images/generations";
+pub const ARK_BASE_URL: &str = "https://ark.ap-southeast.bytepluses.com/api/v3/images/generations";
 pub const DEFAULT_MODEL: &str = "dola-seedream-5-0-pro-260628";
 const IMAGE_PROVIDER_ID: &str = "byteplus-images";
 
@@ -22,7 +21,9 @@ pub fn resolve_ark_api_key(app_dir: &Path) -> Option<String> {
     } else {
         val.get("providers")?.as_array()?.clone()
     };
-    let entry = list.iter().find(|p| p.get("id").and_then(|v| v.as_str()) == Some(IMAGE_PROVIDER_ID))?;
+    let entry = list
+        .iter()
+        .find(|p| p.get("id").and_then(|v| v.as_str()) == Some(IMAGE_PROVIDER_ID))?;
     if let Some(env) = entry.get("apiKeyEnv").and_then(|v| v.as_str()) {
         if let Ok(v) = std::env::var(env) {
             if !v.is_empty() {
@@ -70,8 +71,9 @@ pub async fn generate_image(
     if prompt.trim().is_empty() {
         return Err("prompt requis".into());
     }
-    let api_key = resolve_ark_api_key(app_dir)
-        .ok_or_else(|| "clé API BytePlus manquante (ARK_API_KEY ou api_providers.json)".to_string())?;
+    let api_key = resolve_ark_api_key(app_dir).ok_or_else(|| {
+        "clé API BytePlus manquante (ARK_API_KEY ou api_providers.json)".to_string()
+    })?;
     let model = resolve_ark_model(app_dir);
     let mut body = json!({
         "model": model,
@@ -100,7 +102,10 @@ pub async fn generate_image(
         .map_err(|e| e.to_string())?;
     let status = res.status();
     let data: Value = res.json().await.map_err(|e| e.to_string())?;
-    if !status.is_success() || data.get("error").is_some() || data.pointer("/data/0/error").is_some() {
+    if !status.is_success()
+        || data.get("error").is_some()
+        || data.pointer("/data/0/error").is_some()
+    {
         let msg = data
             .pointer("/error/message")
             .or_else(|| data.pointer("/data/0/error/message"))

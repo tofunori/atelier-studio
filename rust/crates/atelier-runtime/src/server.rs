@@ -376,7 +376,10 @@ async fn gallery_command_handler(
 ) -> Result<(StatusCode, Json<Value>), StatusCode> {
     auth_or_401(&state, &headers)?;
     if !command.valid() {
-        return Ok((StatusCode::BAD_REQUEST, Json(serde_json::json!({"ok":false,"error":"gallery-command-invalid"}))));
+        return Ok((
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({"ok":false,"error":"gallery-command-invalid"})),
+        ));
     }
     let payload = serde_json::json!({
         "type": "galleryCommand",
@@ -389,11 +392,14 @@ async fn gallery_command_handler(
         }
     });
     state.publish(payload.to_string());
-    Ok((StatusCode::ACCEPTED, Json(serde_json::json!({
-        "ok": true,
-        "queued": true,
-        "requestId": payload["command"]["requestId"],
-    }))))
+    Ok((
+        StatusCode::ACCEPTED,
+        Json(serde_json::json!({
+            "ok": true,
+            "queued": true,
+            "requestId": payload["command"]["requestId"],
+        })),
+    ))
 }
 
 #[derive(Debug, Deserialize)]
