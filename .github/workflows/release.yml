@@ -44,6 +44,8 @@ jobs:
           bash scripts/stage-sidecar.sh
           bash scripts/stage-gallery.sh
           bash scripts/stage-mobile.sh
+          bash scripts/stage-rust-server.sh
+          bash scripts/stage-appsnap.sh
       # le tag peut contourner la CI de PR : verify + E2E bloquent le bundle ici
       - name: Verify (typecheck, build, frontend, sidecar, gallery, Rust)
         run: npm run verify
