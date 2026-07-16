@@ -236,7 +236,7 @@ planifiés sur demande.
 | 042 | Keychain iOS pour le token d'appareil (fin du fichier en clair) | P1 | M | — | TODO |
 | 041 | Reducer chat O(N) au chargement + fast path streaming | P2 | M | 040 | TODO |
 | 043 | Purge de la file d'envoi + stop reconnexion sur `auth_expired` | P2 | M | — | TODO |
-| 044 | Fidélité du listing fichiers (formats scientifiques, troncature annoncée, grille) | P2 | M | — | TODO |
+| 044 | Fidélité du listing fichiers (formats scientifiques, troncature annoncée, grille, filtres kind+extension) | P2 | M | — | TODO |
 
 ### Dependency notes
 
