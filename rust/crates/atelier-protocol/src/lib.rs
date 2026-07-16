@@ -93,6 +93,9 @@ pub struct ProviderCapabilities {
     pub review: bool,
     #[serde(default)]
     pub compact: bool,
+    /// Inputs structurés avec images acceptés par le provider (plan 046).
+    #[serde(default)]
+    pub image_input: bool,
     pub durable_history: bool,
     pub permission_modes: Vec<String>,
 }
@@ -254,6 +257,7 @@ pub fn builtin_providers() -> Vec<ProviderStatus> {
                 skills: true,
                 review: false,
                 compact: false,
+                image_input: false,
                 durable_history: false,
                 permission_modes: vec![
                     "default".into(),
@@ -304,6 +308,7 @@ pub fn builtin_providers() -> Vec<ProviderStatus> {
                 skills: true,
                 review: true,
                 compact: true,
+                image_input: true,
                 durable_history: false,
                 permission_modes: vec![
                     "default".into(),
@@ -348,6 +353,7 @@ pub fn builtin_providers() -> Vec<ProviderStatus> {
                 skills: false,
                 review: false,
                 compact: false,
+                image_input: false,
                 durable_history: false,
                 permission_modes: vec![],
             },
@@ -386,6 +392,7 @@ pub fn builtin_providers() -> Vec<ProviderStatus> {
                 // sans méthode documentée, la capability reste false.
                 review: false,
                 compact: true,
+                image_input: true,
                 durable_history: true,
                 permission_modes: vec![
                     "default".into(),
@@ -439,6 +446,7 @@ pub fn builtin_providers() -> Vec<ProviderStatus> {
                 skills: false,
                 review: false,
                 compact: false,
+                image_input: false,
                 durable_history: false,
                 permission_modes: vec![],
             },

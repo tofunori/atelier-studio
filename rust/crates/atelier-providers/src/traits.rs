@@ -94,4 +94,17 @@ pub trait Provider: Send + Sync {
             self.id()
         ))
     }
+
+    /// Listing natif des sessions du provider (`{id, title, mtime, projectRoot}`).
+    /// `None` = pas de listing natif — le routeur garde son comportement
+    /// historique (plan 046 étape 8).
+    async fn list_sessions(&self, _project_root: &str) -> Option<Vec<Value>> {
+        None
+    }
+
+    /// Historique natif d'une session (import/reprise), events Atelier
+    /// `user/thinking/text/tool_update`. `None` = pas de source native.
+    async fn native_history(&self, _session_id: &str, _project_root: &str) -> Option<Vec<Value>> {
+        None
+    }
 }

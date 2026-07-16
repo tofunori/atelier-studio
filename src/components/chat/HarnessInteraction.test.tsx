@@ -277,3 +277,125 @@ describe("HarnessInteraction — états finaux non éditables", () => {
     expect(container.querySelector(".perm-card.answered")).toBeTruthy();
   });
 });
+
+describe("HarnessInteraction — choix dynamiques Kimi (plan 046)", () => {
+  const kimiChoices = [
+    { optionId: "approve_once", label: "Approve once", kind: "allow_once" as const },
+    { optionId: "approve_always", label: "Approve for this session", kind: "allow_always" as const },
+    { optionId: "reject", label: "Reject", kind: "reject_once" as const },
+  ];
+
+  it("rend les choix dans l'ordre reçu et renvoie l'optionId EXACT au clic", () => {
+    const cap = captureAnswers();
+    try {
+      render(
+        <HarnessInteraction
+          event={makeEvent({ requestId: "req-kimi", title: "Bash", choices: kimiChoices })}
+          threadId={THREAD}
+        />,
+      );
+      const buttons = screen.getAllByRole("button");
+      expect(buttons.map((b) => b.getAttribute("aria-label"))).toEqual([
+        "Approve once",
+        "Approve for this session",
+        "Reject",
+      ]);
+      fireEvent.click(screen.getByRole("button", { name: "Approve for this session" }));
+      expect(cap.details).toEqual([
+        { threadId: THREAD, requestId: "req-kimi", response: { optionId: "approve_always" } },
+      ]);
+      expect(screen.queryByRole("button")).toBeNull();
+    } finally {
+      cap.dispose();
+    }
+  });
+
+  it("review de plan : 5 options dynamiques, raccourci clavier n → optionId n", () => {
+    const cap = captureAnswers();
+    try {
+      render(
+        <HarnessInteraction
+          event={makeEvent({
+            requestId: "req-plan",
+            title: "ExitPlanMode",
+            choices: [
+              { optionId: "plan_opt_0", label: "Variante A", kind: "allow_once" },
+              { optionId: "plan_opt_1", label: "Variante B", kind: "allow_once" },
+              { optionId: "plan_opt_2", label: "Variante C", kind: "allow_once" },
+              { optionId: "plan_revise", label: "Revise", kind: "reject_once" },
+              { optionId: "plan_reject_and_exit", label: "Reject and Exit", kind: "reject_once" },
+            ],
+          })}
+          threadId={THREAD}
+        />,
+      );
+      expect(screen.getAllByRole("button")).toHaveLength(5);
+      fireEvent.keyDown(window, { key: "5" });
+      expect(cap.details).toEqual([
+        { threadId: THREAD, requestId: "req-plan", response: { optionId: "plan_reject_and_exit" } },
+      ]);
+    } finally {
+      cap.dispose();
+    }
+  });
+
+  it("question à valeurs opaques : affiche le label, renvoie la value", () => {
+    const cap = captureAnswers();
+    try {
+      render(
+        <HarnessInteraction
+          event={makeEvent({
+            requestId: "req-q",
+            interactionType: "user_input",
+            title: "Kimi — question",
+            fields: [
+              {
+                id: "q0",
+                question: "Quelle couleur ?",
+                options: [
+                  { label: "Rouge", value: "q0_opt_0" },
+                  { label: "Vert", value: "q0_opt_1" },
+                ],
+              },
+            ],
+          })}
+          threadId={THREAD}
+        />,
+      );
+      // Les ids wire ne sont pas visibles — seuls les labels le sont.
+      expect(screen.getByText("Vert")).toBeInTheDocument();
+      expect(screen.queryByText("q0_opt_1")).toBeNull();
+      fireEvent.click(screen.getByText("Vert"));
+      fireEvent.click(screen.getByRole("button", { name: t("interaction.submit") }));
+      expect(cap.details).toEqual([
+        { threadId: THREAD, requestId: "req-q", response: { answers: { q0: "q0_opt_1" } } },
+      ]);
+    } finally {
+      cap.dispose();
+    }
+  });
+
+  it("Annuler la question émet {answers:{}} (⇒ cancelled côté provider)", () => {
+    const cap = captureAnswers();
+    try {
+      render(
+        <HarnessInteraction
+          event={makeEvent({
+            requestId: "req-skip",
+            interactionType: "user_input",
+            fields: [
+              { id: "q0", question: "?", options: [{ label: "A", value: "q0_opt_0" }] },
+            ],
+          })}
+          threadId={THREAD}
+        />,
+      );
+      fireEvent.click(screen.getByRole("button", { name: t("interaction.cancel") }));
+      expect(cap.details).toEqual([
+        { threadId: THREAD, requestId: "req-skip", response: { answers: {} } },
+      ]);
+    } finally {
+      cap.dispose();
+    }
+  });
+});

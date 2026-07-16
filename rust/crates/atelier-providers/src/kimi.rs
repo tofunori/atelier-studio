@@ -18,6 +18,7 @@ use crate::acp_rpc::{
 use crate::kimi_map::{map_kimi_prompt_result, map_kimi_session_update};
 use crate::traits::{InteractionFn, Provider, ProviderCaps, SendRequest, SendResult};
 use async_trait::async_trait;
+use base64::Engine as _;
 use serde_json::{json, Value};
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
@@ -175,6 +176,181 @@ fn option_values(option: &Value) -> Vec<String> {
         }
     }
     out
+}
+
+/// Limite documentée d'une image envoyée à Kimi (octets sur disque,
+/// AVANT encodage base64) — testée dans ce module.
+pub(crate) const KIMI_IMAGE_MAX_BYTES: u64 = 5 * 1024 * 1024;
+
+fn image_mime_for(path: &std::path::Path) -> Option<&'static str> {
+    match path
+        .extension()
+        .and_then(|e| e.to_str())?
+        .to_ascii_lowercase()
+        .as_str()
+    {
+        "png" => Some("image/png"),
+        "jpg" | "jpeg" => Some("image/jpeg"),
+        "gif" => Some("image/gif"),
+        "webp" => Some("image/webp"),
+        _ => None,
+    }
+}
+
+/// Image locale → bloc `{type:"image", data, mimeType}` (plan 046 étape 7) :
+/// canonicalisation, MIME par extension, limite de taille, base64 encodé au
+/// dernier moment. Toute erreur porte le NOM du fichier — jamais le base64.
+pub(crate) fn kimi_image_block(path: &str) -> Result<Value, String> {
+    let canon =
+        std::fs::canonicalize(path).map_err(|e| format!("image illisible « {path} » : {e}"))?;
+    let Some(mime) = image_mime_for(&canon) else {
+        return Err(format!(
+            "extension d'image non supportée pour Kimi « {path} » (png/jpg/jpeg/gif/webp)."
+        ));
+    };
+    let meta =
+        std::fs::metadata(&canon).map_err(|e| format!("image illisible « {path} » : {e}"))?;
+    if meta.len() > KIMI_IMAGE_MAX_BYTES {
+        return Err(format!(
+            "image « {path} » trop volumineuse ({} octets, max {KIMI_IMAGE_MAX_BYTES}).",
+            meta.len()
+        ));
+    }
+    let bytes = std::fs::read(&canon).map_err(|e| format!("image illisible « {path} » : {e}"))?;
+    let data = base64::engine::general_purpose::STANDARD.encode(bytes);
+    Ok(json!({"type": "image", "data": data, "mimeType": mime}))
+}
+
+/// Inputs structurés Atelier → content blocks Kimi. Un input invalide échoue
+/// AVANT le prompt (jamais de drop silencieux) ; skills et mentions passent en
+/// `resource_link` file:// que le harnais Kimi résout localement.
+pub(crate) fn build_prompt_blocks(
+    prompt: &str,
+    inputs: Option<&Vec<Value>>,
+) -> Result<Vec<Value>, String> {
+    let Some(inputs) = inputs.filter(|list| !list.is_empty()) else {
+        return Ok(vec![json!({"type": "text", "text": prompt})]);
+    };
+    let mut blocks: Vec<Value> = Vec::new();
+    let mut has_text = false;
+    for input in inputs {
+        match input.get("type").and_then(Value::as_str).unwrap_or("") {
+            "text" => {
+                has_text = true;
+                let text = input.get("text").and_then(Value::as_str).unwrap_or("");
+                blocks.push(json!({"type": "text", "text": text}));
+            }
+            "local_image" => {
+                let path = input
+                    .get("path")
+                    .and_then(Value::as_str)
+                    .ok_or("input image sans chemin")?;
+                blocks.push(kimi_image_block(path)?);
+            }
+            "skill" | "mention" => {
+                let path = input.get("path").and_then(Value::as_str).unwrap_or("");
+                let name = input.get("name").and_then(Value::as_str).unwrap_or(path);
+                if path.is_empty() {
+                    return Err(format!("input « {name} » sans chemin pour Kimi."));
+                }
+                blocks.push(json!({
+                    "type": "resource_link",
+                    "uri": format!("file://{path}"),
+                    "name": name,
+                }));
+            }
+            other => {
+                return Err(format!(
+                    "type d'input non supporté pour Kimi : « {} ».",
+                    other.chars().take(32).collect::<String>()
+                ));
+            }
+        }
+    }
+    if !has_text {
+        blocks.insert(0, json!({"type": "text", "text": prompt}));
+    }
+    Ok(blocks)
+}
+
+/// `updatedAt` ISO-8601 UTC → epoch millisecondes (shape `mtime` du
+/// navigateur de sessions). Timestamp invalide ⇒ None (tolérance exigée).
+pub(crate) fn iso8601_to_epoch_ms(s: &str) -> Option<u64> {
+    let bytes = s.as_bytes();
+    if bytes.len() < 20 || bytes[4] != b'-' || bytes[7] != b'-' || bytes[10] != b'T' {
+        return None;
+    }
+    let num = |range: std::ops::Range<usize>| -> Option<i64> { s.get(range)?.parse::<i64>().ok() };
+    let (year, month, day) = (num(0..4)?, num(5..7)?, num(8..10)?);
+    let (hour, minute, second) = (num(11..13)?, num(14..16)?, num(17..19)?);
+    if !(1..=12).contains(&month) || !(1..=31).contains(&day) {
+        return None;
+    }
+    let millis = if bytes.get(19) == Some(&b'.') {
+        num(20..23).unwrap_or(0)
+    } else {
+        0
+    };
+    // Days from civil (Howard Hinnant) — UTC uniquement (suffixe Z de Kimi).
+    let y = if month <= 2 { year - 1 } else { year };
+    let era = if y >= 0 { y } else { y - 399 } / 400;
+    let yoe = y - era * 400;
+    let mp = (month + 9) % 12;
+    let doy = (153 * mp + 2) / 5 + day - 1;
+    let doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
+    let days = era * 146_097 + doe - 719_468;
+    let secs = days * 86_400 + hour * 3_600 + minute * 60 + second;
+    if secs < 0 {
+        return None;
+    }
+    Some((secs * 1_000 + millis) as u64)
+}
+
+/// Replay capturé de `session/load` → events d'historique Atelier
+/// (user/thinking/text coalescés, tool_update via le mapper kimi). Ces events
+/// servent à l'AFFICHAGE d'une session importée — jamais ré-émis dans un tour.
+pub(crate) fn replay_to_history(updates: &[Value]) -> Vec<Value> {
+    use crate::acp_map::text_of;
+    let mut events: Vec<Value> = Vec::new();
+    let mut ctx = TurnCtx::default();
+    let mut user = String::new();
+    let mut think = String::new();
+    let mut text = String::new();
+    fn flush(events: &mut Vec<Value>, buf: &mut String, kind: &str) {
+        if !buf.is_empty() {
+            events.push(json!({"kind": kind, "text": std::mem::take(buf)}));
+        }
+    }
+    for u in updates {
+        match u.get("sessionUpdate").and_then(Value::as_str) {
+            Some("user_message_chunk") => {
+                flush(&mut events, &mut think, "thinking");
+                flush(&mut events, &mut text, "text");
+                user.push_str(&text_of(u));
+            }
+            Some("agent_thought_chunk") => {
+                flush(&mut events, &mut user, "user");
+                flush(&mut events, &mut text, "text");
+                think.push_str(&text_of(u));
+            }
+            Some("agent_message_chunk") => {
+                flush(&mut events, &mut user, "user");
+                flush(&mut events, &mut think, "thinking");
+                text.push_str(&text_of(u));
+            }
+            Some("tool_call") | Some("tool_call_update") => {
+                flush(&mut events, &mut user, "user");
+                flush(&mut events, &mut think, "thinking");
+                flush(&mut events, &mut text, "text");
+                events.extend(map_kimi_session_update(u, &mut ctx));
+            }
+            _ => {}
+        }
+    }
+    flush(&mut events, &mut user, "user");
+    flush(&mut events, &mut think, "thinking");
+    flush(&mut events, &mut text, "text");
+    events
 }
 
 /// Message utilisateur actionnable pour une erreur ACP — jamais de repli.
@@ -495,6 +671,22 @@ impl KimiProvider {
         }
         self.reset_state_if_respawned();
 
+        // Inputs validés AVANT toute session/prompt : une image invalide
+        // échoue ici avec son nom de fichier (plan 046 étape 7), et la
+        // capacité image annoncée par Kimi est vérifiée.
+        let prompt_blocks = build_prompt_blocks(&req.prompt, req.inputs.as_ref())?;
+        if prompt_blocks
+            .iter()
+            .any(|b| b.get("type").and_then(Value::as_str) == Some("image"))
+            && init
+                .agent_capabilities
+                .pointer("/promptCapabilities/image")
+                .and_then(Value::as_bool)
+                != Some(true)
+        {
+            return Err("Kimi n'annonce pas la capacité image (promptCapabilities.image).".into());
+        }
+
         let sid = self.open_session(req, &cwd).await?;
         self.align_config(&sid, req).await?;
 
@@ -564,7 +756,7 @@ impl KimiProvider {
             .acp
             .request(
                 "session/prompt",
-                json!({"sessionId": sid, "prompt": [{"type": "text", "text": req.prompt}]}),
+                json!({"sessionId": sid, "prompt": prompt_blocks}),
                 None,
             )
             .await;
@@ -666,6 +858,104 @@ impl Provider for KimiProvider {
             true
         } else {
             false
+        }
+    }
+
+    /// Listing natif `session/list {cwd}` (plan 046 étape 8) — jamais le
+    /// parser de fichiers Codex pour Kimi.
+    async fn list_sessions(&self, project_root: &str) -> Option<Vec<Value>> {
+        self.ensure_acp().await.ok()?;
+        self.reset_state_if_respawned();
+        let params = if project_root.is_empty() {
+            json!({})
+        } else {
+            json!({"cwd": project_root})
+        };
+        let result = self
+            .acp
+            .request("session/list", params, Some(15_000))
+            .await
+            .ok()?;
+        let sessions = result
+            .get("sessions")?
+            .as_array()?
+            .iter()
+            .map(|s| {
+                let sid = s.get("sessionId").and_then(Value::as_str).unwrap_or("");
+                let title = s
+                    .get("title")
+                    .and_then(Value::as_str)
+                    .filter(|t| !t.is_empty())
+                    .map(str::to_string)
+                    .unwrap_or_else(|| sid.chars().take(16).collect());
+                json!({
+                    "id": sid,
+                    "title": title,
+                    // updatedAt invalide toléré : 0 (affichage epoch, pas de crash).
+                    "mtime": s
+                        .get("updatedAt")
+                        .and_then(Value::as_str)
+                        .and_then(iso8601_to_epoch_ms)
+                        .unwrap_or(0),
+                    "projectRoot": s.get("cwd").and_then(Value::as_str).unwrap_or(""),
+                })
+            })
+            .collect();
+        Some(sessions)
+    }
+
+    /// Import d'une session Kimi externe : `session/load` rejoue l'historique
+    /// AVANT la réponse ; capturé une seule fois par génération (la session
+    /// devient « ouverte » — le prochain prompt réutilise le même sessionId
+    /// sans re-replay). Thread Atelier déjà journalisé ⇒ le journal gagne.
+    async fn native_history(&self, session_id: &str, project_root: &str) -> Option<Vec<Value>> {
+        if session_id.is_empty() {
+            return None;
+        }
+        self.ensure_acp().await.ok()?;
+        self.reset_state_if_respawned();
+        if self
+            .state
+            .lock()
+            .unwrap()
+            .opened_sessions
+            .contains(session_id)
+        {
+            return None; // déjà importée dans cette génération — pas de doublon
+        }
+        let captured: Arc<StdMutex<Vec<Value>>> = Arc::new(StdMutex::new(Vec::new()));
+        let sink = Arc::clone(&captured);
+        let handler: SessionUpdateHandler =
+            Arc::new(move |u: &Value| sink.lock().unwrap().push(u.clone()));
+        self.acp.set_session_handler(session_id, handler).await;
+        let cwd = if project_root.is_empty() {
+            std::env::var("HOME").unwrap_or_else(|_| "/tmp".into())
+        } else {
+            project_root.to_string()
+        };
+        let res = self
+            .acp
+            .request(
+                "session/load",
+                json!({"sessionId": session_id, "cwd": cwd, "mcpServers": []}),
+                Some(30_000),
+            )
+            .await;
+        self.acp.clear_session_handler(session_id).await;
+        match res {
+            Ok(result) => {
+                self.state
+                    .lock()
+                    .unwrap()
+                    .opened_sessions
+                    .insert(session_id.to_string());
+                self.remember_snapshot(session_id, &result);
+                // La réponse n'est traitée qu'ici — tous les updates de replay
+                // sont déjà arrivés (contrat load vérifié).
+                let updates = captured.lock().unwrap().clone();
+                Some(replay_to_history(&updates))
+            }
+            Err(_) => None,
         }
     }
 }
@@ -1115,5 +1405,214 @@ mod tests {
             map_thinking("high").is_err(),
             "jamais low/medium/high inventés"
         );
+    }
+
+    // ------------------------------------------------------------------
+    // Images, inputs et resources (plan 046 étape 7).
+
+    #[test]
+    fn prompt_blocks_texte_seul_et_inputs() {
+        let blocks = build_prompt_blocks("salut", None).unwrap();
+        assert_eq!(blocks, vec![json!({"type":"text","text":"salut"})]);
+        let inputs = vec![
+            json!({"type":"text","text":"prompt complet"}),
+            json!({"type":"skill","name":"revue","path":"/tmp/skills/revue.md"}),
+            json!({"type":"mention","name":"a.rs","path":"/tmp/a.rs"}),
+        ];
+        let blocks = build_prompt_blocks("ignoré", Some(&inputs)).unwrap();
+        assert_eq!(blocks[0]["type"], "text");
+        assert_eq!(blocks[0]["text"], "prompt complet");
+        assert_eq!(blocks[1]["type"], "resource_link");
+        assert_eq!(blocks[1]["uri"], "file:///tmp/skills/revue.md");
+        assert_eq!(blocks[1]["name"], "revue");
+        assert_eq!(blocks[2]["type"], "resource_link");
+    }
+
+    #[test]
+    fn prompt_blocks_input_inconnu_echoue_fort() {
+        let inputs = vec![json!({"type":"blob","data":"xxx"})];
+        let err = build_prompt_blocks("p", Some(&inputs)).unwrap_err();
+        assert!(err.contains("blob"), "avertissement explicite: {err}");
+    }
+
+    #[test]
+    fn image_valide_encodee_invalide_refusee() {
+        let dir = tempfile::tempdir().unwrap();
+        let png = dir.path().join("mini.png");
+        std::fs::write(&png, [0x89, 0x50, 0x4E, 0x47, 0, 1, 2, 3]).unwrap();
+        let block = kimi_image_block(png.to_str().unwrap()).unwrap();
+        assert_eq!(block["type"], "image");
+        assert_eq!(block["mimeType"], "image/png");
+        assert!(!block["data"].as_str().unwrap().is_empty());
+
+        // Extension inconnue → erreur AVANT prompt, avec le nom du fichier.
+        let weird = dir.path().join("donnees.tiff");
+        std::fs::write(&weird, [1, 2, 3]).unwrap();
+        let err = kimi_image_block(weird.to_str().unwrap()).unwrap_err();
+        assert!(err.contains("donnees.tiff"), "{err}");
+
+        // Fichier absent → erreur nommée.
+        let err2 = kimi_image_block("/nulle/part/x.png").unwrap_err();
+        assert!(err2.contains("/nulle/part/x.png"), "{err2}");
+    }
+
+    #[test]
+    fn image_trop_volumineuse_refusee() {
+        let dir = tempfile::tempdir().unwrap();
+        let big = dir.path().join("grosse.png");
+        let f = std::fs::File::create(&big).unwrap();
+        f.set_len(KIMI_IMAGE_MAX_BYTES + 1).unwrap();
+        drop(f);
+        let err = kimi_image_block(big.to_str().unwrap()).unwrap_err();
+        assert!(err.contains("trop volumineuse"), "{err}");
+        assert!(err.contains("grosse.png"), "{err}");
+    }
+
+    #[tokio::test]
+    async fn image_envoyee_au_wire_sans_journaliser_le_base64() {
+        let Some(p) = fixture_provider("nominal") else {
+            return;
+        };
+        let dir = tempfile::tempdir().unwrap();
+        let png = dir.path().join("shot.png");
+        std::fs::write(&png, b"fake-png-bytes").unwrap();
+        let events: Arc<StdMutex<Vec<Value>>> = Arc::new(StdMutex::new(vec![]));
+        let sink = Arc::clone(&events);
+        let req = SendRequest {
+            thread_id: "t-img".into(),
+            turn_id: "turn-1".into(),
+            prompt: "regarde [image]".into(),
+            inputs: Some(vec![
+                json!({"type":"text","text":"regarde [image]"}),
+                json!({"type":"local_image","path": png.to_str().unwrap()}),
+            ]),
+            project_root: "/tmp/fake-kimi-proj".into(),
+            session_id: None,
+            model: None,
+            effort: None,
+            permission_mode: None,
+            mode: SendMode::Normal,
+            on_event: Arc::new(move |ev| sink.lock().unwrap().push(ev)),
+            on_interaction: None,
+            is_cancelled: Arc::new(|| false),
+        };
+        let result = p.send(req).await;
+        assert!(result.ok, "erreur: {:?}", result.error);
+        let evs = events.lock().unwrap();
+        let text: String = evs
+            .iter()
+            .filter(|e| e["kind"] == "delta")
+            .filter_map(|e| e["text"].as_str())
+            .collect();
+        // Le fixture répond img:<mime>:<longueur base64> — l'image est passée.
+        let expected_len = base64::engine::general_purpose::STANDARD
+            .encode(b"fake-png-bytes")
+            .len();
+        assert!(
+            text.contains(&format!("img:image/png:{expected_len}")),
+            "texte: {text}"
+        );
+        // Aucun event ne doit contenir le base64 (jamais journalisé).
+        let b64 = base64::engine::general_purpose::STANDARD.encode(b"fake-png-bytes");
+        for e in evs.iter() {
+            assert!(
+                !e.to_string().contains(&b64),
+                "base64 fuité dans un event: {}",
+                e["kind"]
+            );
+        }
+    }
+
+    // ------------------------------------------------------------------
+    // Sessions natives (plan 046 étape 8).
+
+    #[test]
+    fn iso8601_epoch_ms_et_tolerance() {
+        // Valeurs de référence vérifiées via datetime.fromisoformat (UTC).
+        assert_eq!(
+            iso8601_to_epoch_ms("2026-07-01T10:00:00.000Z"),
+            Some(1_782_900_000_000)
+        );
+        assert_eq!(
+            iso8601_to_epoch_ms("2026-07-16T14:39:58Z"),
+            Some(1_784_212_798_000)
+        );
+        assert_eq!(iso8601_to_epoch_ms("not-a-date"), None);
+        assert_eq!(iso8601_to_epoch_ms(""), None);
+        assert_eq!(iso8601_to_epoch_ms("2026-13-01T00:00:00Z"), None);
+    }
+
+    #[tokio::test]
+    async fn list_sessions_natif_mappage_et_filtre_cwd() {
+        let Some(p) = fixture_provider("nominal") else {
+            return;
+        };
+        let all = p.list_sessions("").await.expect("liste native");
+        assert_eq!(all.len(), 2);
+        let a = &all[0];
+        assert_eq!(a["id"], "session_known_a");
+        assert_eq!(a["title"], "Session A");
+        assert_eq!(a["projectRoot"], "/tmp/fake-kimi/proj-a");
+        assert!(a["mtime"].as_u64().unwrap() > 0);
+        // titre null → préfixe de l'id ; updatedAt invalide → 0 (toléré).
+        let b = &all[1];
+        assert_eq!(b["id"], "session_known_b");
+        assert_eq!(b["title"], "session_known_b");
+        assert_eq!(b["mtime"], 0);
+
+        let filtered = p.list_sessions("/tmp/fake-kimi/proj-b").await.unwrap();
+        assert_eq!(filtered.len(), 1);
+        assert_eq!(filtered[0]["id"], "session_known_b");
+    }
+
+    #[tokio::test]
+    async fn native_history_load_rejoue_une_seule_fois_puis_resume() {
+        let Some(p) = fixture_provider("nominal") else {
+            return;
+        };
+        let events = p
+            .native_history("session_known_a", "/tmp/fake-kimi/proj-a")
+            .await
+            .expect("replay importé");
+        let kinds: Vec<&str> = events
+            .iter()
+            .map(|e| e["kind"].as_str().unwrap_or(""))
+            .collect();
+        assert_eq!(kinds, vec!["user", "text", "tool_update", "tool_update"]);
+        assert_eq!(events[0]["text"], "question historique");
+        assert_eq!(events[1]["text"], "réponse historique");
+        assert_eq!(events[2]["id"], "1:call_hist");
+
+        // Second import : la session est ouverte, plus de replay (pas de doublon).
+        assert!(p
+            .native_history("session_known_a", "/tmp/fake-kimi/proj-a")
+            .await
+            .is_none());
+
+        // Le prochain prompt réutilise la MÊME session sans re-load.
+        let out = run_turn(
+            &p,
+            "suite",
+            Some("session_known_a".into()),
+            None,
+            None,
+            None,
+            None,
+        )
+        .await;
+        assert!(out.result.ok, "erreurs: {:?}", out.errors());
+        assert_eq!(out.result.session_id.as_deref(), Some("session_known_a"));
+        assert!(!out.events.iter().any(|e| e["kind"] == "user"));
+    }
+
+    #[tokio::test]
+    async fn native_history_session_supprimee_entre_list_et_load() {
+        let Some(p) = fixture_provider("nominal") else {
+            return;
+        };
+        assert!(p
+            .native_history("session_effacee", "/tmp/fake-kimi/proj-a")
+            .await
+            .is_none());
     }
 }

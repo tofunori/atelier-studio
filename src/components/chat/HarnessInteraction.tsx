@@ -52,6 +52,16 @@ export function HarnessInteraction({ event: e, threadId }: {
       if (target instanceof Element && target.matches("input, textarea, select, [contenteditable=true]")) return;
       const pendingCards = [...document.querySelectorAll<HTMLElement>('.int-card[data-approval-pending="true"]')];
       if (pendingCards[pendingCards.length - 1]?.dataset.requestId !== e.requestId) return;
+      // Choix dynamiques (Kimi) : la touche n sélectionne le n-ième optionId,
+      // renvoyé OPAQUE — jamais réinterprété en allow/deny.
+      if (e.choices?.length) {
+        const index = Number.parseInt(event.key, 10) - 1;
+        const choice = Number.isInteger(index) ? e.choices[index] : undefined;
+        if (!choice) return;
+        event.preventDefault();
+        answer({ optionId: choice.optionId });
+        return;
+      }
       const response =
         event.key === "1" ? { allow: true, scope: "once" as const }
         : event.key === "2" ? { allow: true, scope: "session" as const }
@@ -111,17 +121,21 @@ export function HarnessInteraction({ event: e, threadId }: {
                   value={values[f.id] ?? ""}
                   onValueChange={(value) => setValues((v) => ({ ...v, [f.id]: value }))}
                 >
-                  {f.options.map((o, index) => (
-                    <div
-                      key={o.label}
-                      className="int-opt"
-                      onClick={() => setValues((v) => ({ ...v, [f.id]: o.label }))}
-                    >
-                      <RadioGroupItem value={o.label} aria-labelledby={`${qid}-option-${index}`} />
-                      <span id={`${qid}-option-${index}`}>{o.label}</span>
-                      {o.description ? <span className="int-opt-desc">{o.description}</span> : null}
-                    </div>
-                  ))}
+                  {f.options.map((o, index) => {
+                    // value opaque (Kimi) : affichée jamais, renvoyée toujours.
+                    const optionValue = o.value ?? o.label;
+                    return (
+                      <div
+                        key={optionValue}
+                        className="int-opt"
+                        onClick={() => setValues((v) => ({ ...v, [f.id]: optionValue }))}
+                      >
+                        <RadioGroupItem value={optionValue} aria-labelledby={`${qid}-option-${index}`} />
+                        <span id={`${qid}-option-${index}`}>{o.label}</span>
+                        {o.description ? <span className="int-opt-desc">{o.description}</span> : null}
+                      </div>
+                    );
+                  })}
                   {f.allowOther ? (
                     <>
                       <div
@@ -166,7 +180,31 @@ export function HarnessInteraction({ event: e, threadId }: {
         <div className="perm-verdict" role="status">{verdict}</div>
       ) : (
         <div className="perm-actions">
-          {e.interactionType === "approval" ? (
+          {e.interactionType === "approval" && e.choices?.length ? (
+            // Choix dynamiques (Kimi) : ordre EXACT du provider, libellés tels
+            // quels, réponse = optionId opaque. Les kinds reject_* prennent le
+            // style danger ; le premier allow_* est l'action primaire.
+            <div className="approval-decisions">
+              {e.choices.map((c, index) => {
+                const reject = c.kind === "reject_once" || c.kind === "reject_always";
+                const primary = !reject && index === 0;
+                return (
+                  <RowButton
+                    key={c.optionId}
+                    className={`approval-decision${primary ? " primary" : ""}${reject ? " danger" : ""}`}
+                    aria-label={c.label}
+                    onClick={() => answer({ optionId: c.optionId })}
+                  >
+                    <kbd>{index + 1}</kbd>
+                    <span>
+                      <b>{c.label}</b>
+                      {c.description ? <small>{c.description}</small> : null}
+                    </span>
+                  </RowButton>
+                );
+              })}
+            </div>
+          ) : e.interactionType === "approval" ? (
             <div className="approval-decisions">
               <RowButton className="approval-decision primary" aria-label={t("interaction.allow-once")} onClick={() => answer({ allow: true, scope: "once" })}>
                 <kbd>1</kbd><span><b>{t("interaction.allow-once")}</b><small>{t("interaction.allow-once-desc")}</small></span>

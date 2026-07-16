@@ -22,6 +22,8 @@ export type ProviderCapabilities = {
   review?: boolean;
   compact?: boolean;
   durableHistory?: boolean;
+  /** Le provider accepte des inputs structurés avec images (plan 046). */
+  imageInput?: boolean;
   /** Modes de permission acceptés par le harnais ([] = pas de sélecteur). */
   permissionModes?: string[];
 };

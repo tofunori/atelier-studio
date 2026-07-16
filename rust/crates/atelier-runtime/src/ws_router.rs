@@ -279,6 +279,23 @@ pub async fn route_ws(state: &AppState, text: &str) -> Vec<String> {
                         journal
                     }
                 }
+                Some(t) if t.provider == "kimi" => {
+                    // Import une seule fois : native_history rend None quand la
+                    // session est déjà ouverte/importée — le journal Atelier
+                    // reste alors la source (pas de doublon après reprise).
+                    let native = match (t.session_id.as_deref(), state.provider("kimi")) {
+                        (Some(session_id), Some(p)) => {
+                            p.native_history(session_id, &t.project_root).await
+                        }
+                        _ => None,
+                    };
+                    match native {
+                        Some(native) if !native.is_empty() => {
+                            prefer_richer_dialogue(journal, native)
+                        }
+                        _ => journal,
+                    }
+                }
                 _ => journal,
             };
             vec![json_msg(json!({
@@ -912,6 +929,15 @@ pub async fn route_ws(state: &AppState, text: &str) -> Vec<String> {
                 tokio::task::spawn_blocking(list_codex_sessions)
                     .await
                     .unwrap_or_default()
+            } else if let Some(p) = state.provider(provider) {
+                // Listing natif (kimi : session/list ACP) — jamais le parser
+                // de fichiers Codex pour un provider qui a le sien (plan 046).
+                let project_root = msg
+                    .get("projectRoot")
+                    .and_then(Value::as_str)
+                    .unwrap_or("")
+                    .to_string();
+                p.list_sessions(&project_root).await.unwrap_or_default()
             } else {
                 Vec::new()
             };

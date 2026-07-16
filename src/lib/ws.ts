@@ -40,11 +40,15 @@ type AgentEventBody =
       title: string;
       detail?: string;
       urlDomain?: string;
+      // approbation à choix dynamiques (Kimi, plan 046) : optionId OPAQUE,
+      // rendu dans l'ordre reçu, renvoyé tel quel via { optionId }.
+      choices?: InteractionChoice[];
       fields?: {
         id: string;
         question: string;
         header?: string;
-        options?: { label: string; description?: string }[];
+        // value : identifiant opaque renvoyé à la place du label (plan 046)
+        options?: { label: string; description?: string; value?: string }[];
         allowOther?: boolean;
         secret?: boolean;
       }[];
@@ -145,11 +149,21 @@ type AgentEventBody =
 
 export type AgentEvent = AgentEventBody & { meta?: HarnessEventMeta | ProvisionalEventMeta };
 
+/** Choix d'approbation dynamique (Kimi, plan 046) : l'optionId fait
+ * l'aller-retour OPAQUE — l'UI affiche `label`, renvoie `optionId` tel quel. */
+export type InteractionChoice = {
+  optionId: string;
+  label: string;
+  description?: string;
+  kind?: "allow_once" | "allow_always" | "reject_once" | "reject_always";
+};
+
 /** Réponse frontend à un événement interaction — envoyée UNIQUEMENT dans le
  * message WS `interactionResponse` (les valeurs secret n'existent nulle part
  * ailleurs : ni AgentEvent, ni journal, ni logs). */
 export type InteractionResponse =
   | { allow: boolean; scope?: "once" | "session"; cancelTurn?: boolean }
+  | { optionId: string; cancelTurn?: boolean }
   | { answers: Record<string, string> }
   | { action: "accept" | "decline"; content?: Record<string, string> };
 

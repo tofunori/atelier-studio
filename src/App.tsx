@@ -2288,7 +2288,9 @@ export default function App() {
     };
     const imagePaths = attachments.map((a) => a.path).filter(Boolean) as string[];
     const pluginSkills = supportsPlugins ? pluginSkillsForPrompt(displayPrompt, plugins) : [];
-    const codexInputs = provider === "codex" && (imagePaths.length || pluginSkills.length)
+    // inputs structurés selon la capability (plan 046) — plus réservé à Codex
+    const supportsStructuredInputs = selectedCapabilities?.imageInput ?? provider === "codex";
+    const codexInputs = supportsStructuredInputs && (imagePaths.length || pluginSkills.length)
       ? [
           { type: "text" as const, text: fullPrompt },
           ...imagePaths.map((path) => ({ type: "local_image" as const, path })),
@@ -2431,7 +2433,10 @@ export default function App() {
     const clientMessageId = crypto.randomUUID();
     const imagePaths = queuedAttachments.map((attachment) => attachment.path).filter(Boolean) as string[];
     const pluginSkills = queued.pluginSkills;
-    const codexInputs = queued.provider === "codex" && (imagePaths.length || pluginSkills.length)
+    const queuedSupportsInputs =
+      providerList.find((entry) => entry.id === queued.provider)?.capabilities?.imageInput ??
+      queued.provider === "codex";
+    const codexInputs = queuedSupportsInputs && (imagePaths.length || pluginSkills.length)
       ? [
           { type: "text" as const, text: fullPrompt },
           ...imagePaths.map((path) => ({ type: "local_image" as const, path })),

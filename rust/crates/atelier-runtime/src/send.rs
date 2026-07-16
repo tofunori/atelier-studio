@@ -250,7 +250,113 @@ fn make_emit(state: AppState, thread_id: String) -> EmitFn {
     })
 }
 
+/// `session/request_permission` ACP (Kimi) → spec d'interaction fidèle
+/// (plan 046 étape 5) : les `optionId` traversent OPAQUES.
+///
+/// - AskUserQuestion (`toolCall.title` ou optionIds `q<i>_opt_<j>`/`q<i>_skip`)
+///   ⇒ `user_input` à UNE question dont les options portent `value` = optionId
+///   (l'UI affiche le label, renvoie l'id) ; Skip/fermeture ⇒ le provider
+///   traduit en `cancelled`.
+/// - Permission ordinaire et review de plan ⇒ `approval` avec `choices[]`
+///   dynamiques dans l'ordre EXACT reçu.
+/// - Sans options ⇒ None (refus sûr côté provider).
+fn describe_acp_permission(params: &Value) -> Option<Value> {
+    let options = params
+        .get("options")
+        .and_then(Value::as_array)
+        .filter(|o| !o.is_empty())?;
+    let title = params
+        .pointer("/toolCall/title")
+        .and_then(Value::as_str)
+        .unwrap_or("Permission");
+    // Premier contenu texte du toolCall = description/question, borné.
+    let detail: String = params
+        .pointer("/toolCall/content")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(|c| {
+            c.pointer("/content/text")
+                .and_then(Value::as_str)
+                .or_else(|| {
+                    c.get("path").and_then(Value::as_str) // diff → chemin seul, jamais le contenu
+                })
+        })
+        .collect::<Vec<_>>()
+        .join(" · ")
+        .chars()
+        .take(400)
+        .collect();
+
+    let is_question_id = |id: &str| {
+        id.starts_with('q')
+            && id[1..]
+                .split_once('_')
+                .map(|(n, rest)| {
+                    !n.is_empty()
+                        && n.chars().all(|c| c.is_ascii_digit())
+                        && (rest == "skip" || rest.starts_with("opt_"))
+                })
+                .unwrap_or(false)
+    };
+    let all_question_ids = options.iter().all(|o| {
+        o.get("optionId")
+            .and_then(Value::as_str)
+            .map(is_question_id)
+            .unwrap_or(false)
+    });
+    if title == "AskUserQuestion" || all_question_ids {
+        // Une seule question (Kimi 0.26 dégrade le multi-question) ; le Skip
+        // n'est pas une option de champ : le bouton Annuler du formulaire fait
+        // ce chemin (⇒ cancelled côté provider).
+        let field_options: Vec<Value> = options
+            .iter()
+            .filter(|o| {
+                o.get("kind").and_then(Value::as_str) != Some("reject_once")
+                    && o.get("kind").and_then(Value::as_str) != Some("reject_always")
+            })
+            .map(|o| {
+                json!({
+                    "label": o.get("name").and_then(Value::as_str).unwrap_or("?"),
+                    "value": o.get("optionId").cloned().unwrap_or(Value::Null),
+                })
+            })
+            .collect();
+        return Some(json!({
+            "interactionType": "user_input",
+            "title": "Kimi — question",
+            "fields": [{
+                "id": "q0",
+                "question": if detail.is_empty() { title.to_string() } else { detail },
+                "options": field_options,
+                "allowOther": false,
+                "secret": false,
+            }],
+        }));
+    }
+
+    let choices: Vec<Value> = options
+        .iter()
+        .map(|o| {
+            json!({
+                "optionId": o.get("optionId").cloned().unwrap_or(Value::Null),
+                "label": o.get("name").and_then(Value::as_str).unwrap_or("?"),
+                "kind": o.get("kind").cloned().unwrap_or(Value::Null),
+            })
+        })
+        .collect();
+    Some(json!({
+        "interactionType": "approval",
+        "title": title,
+        "detail": detail,
+        "choices": choices,
+    }))
+}
+
 fn describe_server_request(method: &str, params: &Value) -> Option<Value> {
+    if method == "session/request_permission" {
+        return describe_acp_permission(params);
+    }
     let approval = matches!(
         method,
         "execCommandApproval"
@@ -320,6 +426,23 @@ fn describe_server_request(method: &str, params: &Value) -> Option<Value> {
 fn summarize_interaction(spec: &Value, response: &Value) -> String {
     match spec.get("interactionType").and_then(Value::as_str) {
         Some("approval") => {
+            // Choix dynamique (Kimi) : afficher le LABEL du choix, jamais un
+            // contenu sensible — l'optionId brut n'apparaît qu'en repli borné.
+            if let Some(oid) = response.get("optionId").and_then(Value::as_str) {
+                let label = spec
+                    .get("choices")
+                    .and_then(Value::as_array)
+                    .into_iter()
+                    .flatten()
+                    .find(|c| c.get("optionId").and_then(Value::as_str) == Some(oid))
+                    .and_then(|c| c.get("label").and_then(Value::as_str))
+                    .unwrap_or(oid);
+                let mut out: String = label.chars().take(80).collect();
+                if response.get("cancelTurn").and_then(Value::as_bool) == Some(true) {
+                    out.push_str(" · tour annulé");
+                }
+                return out;
+            }
             if response.get("cancelTurn").and_then(Value::as_bool) == Some(true) {
                 "tour annulé".into()
             } else if response.get("allow").and_then(Value::as_bool) == Some(true) {
@@ -353,7 +476,19 @@ fn summarize_interaction(spec: &Value, response: &Value) -> String {
                         if field.get("secret").and_then(Value::as_bool) == Some(true) {
                             "•••".into()
                         } else {
-                            answer.chars().take(60).collect()
+                            // Option à valeur opaque (Kimi) : afficher le label
+                            // du choix, pas l'id wire.
+                            field
+                                .get("options")
+                                .and_then(Value::as_array)
+                                .into_iter()
+                                .flatten()
+                                .find(|o| o.get("value").and_then(Value::as_str) == Some(answer))
+                                .and_then(|o| o.get("label").and_then(Value::as_str))
+                                .unwrap_or(answer)
+                                .chars()
+                                .take(60)
+                                .collect()
                         };
                     Some(format!("{label}: {shown}"))
                 })
@@ -377,7 +512,13 @@ fn make_interaction_relay(
         let tx = tx.clone();
         Box::pin(async move {
             let spec = describe_server_request(&method, &params)?;
+            // Le cache « toujours autoriser » d'Atelier ne répond JAMAIS à la
+            // place d'une permission à choix dynamiques (Kimi) : seul le choix
+            // `approve_always` transmis à Kimi installe la règle de session
+            // (plan 046 étape 5). Il ne court-circuite que les approbations
+            // legacy oui/non (Codex).
             if spec.get("interactionType").and_then(Value::as_str) == Some("approval")
+                && spec.get("choices").is_none()
                 && state.approval_sessions().lock().await.contains(&thread_id)
             {
                 return Some(json!({"allow":true,"scope":"session"}));
@@ -1327,5 +1468,127 @@ mod tests {
         assert!(!should_auto_title(Some(thread), None));
         assert!(!should_auto_title(None, Some("Titre explicite")));
         assert!(should_auto_title(None, None));
+    }
+
+    #[test]
+    fn acp_permission_ordinaire_choices_dans_l_ordre() {
+        let params = json!({
+            "sessionId": "s1",
+            "toolCall": {"toolCallId": "3:c1", "title": "Bash", "content": [
+                {"type": "content", "content": {"type": "text", "text": "Requesting approval to run `ls`"}}
+            ]},
+            "options": [
+                {"optionId": "approve_once", "name": "Approve once", "kind": "allow_once"},
+                {"optionId": "approve_always", "name": "Approve for this session", "kind": "allow_always"},
+                {"optionId": "reject", "name": "Reject", "kind": "reject_once"}
+            ]
+        });
+        let spec = describe_server_request("session/request_permission", &params).unwrap();
+        assert_eq!(spec["interactionType"], "approval");
+        assert_eq!(spec["title"], "Bash");
+        assert!(spec["detail"]
+            .as_str()
+            .unwrap()
+            .contains("Requesting approval"));
+        let choices = spec["choices"].as_array().unwrap();
+        let ids: Vec<&str> = choices
+            .iter()
+            .map(|c| c["optionId"].as_str().unwrap())
+            .collect();
+        assert_eq!(ids, vec!["approve_once", "approve_always", "reject"]);
+        assert_eq!(choices[1]["label"], "Approve for this session");
+        assert_eq!(choices[2]["kind"], "reject_once");
+    }
+
+    #[test]
+    fn acp_plan_review_garde_l_ordre_et_les_ids() {
+        let params = json!({
+            "toolCall": {"title": "ExitPlanMode", "content": []},
+            "options": [
+                {"optionId": "plan_opt_0", "name": "A", "kind": "allow_once"},
+                {"optionId": "plan_opt_1", "name": "B", "kind": "allow_once"},
+                {"optionId": "plan_revise", "name": "Revise", "kind": "reject_once"},
+                {"optionId": "plan_reject_and_exit", "name": "Reject and Exit", "kind": "reject_once"}
+            ]
+        });
+        let spec = describe_server_request("session/request_permission", &params).unwrap();
+        assert_eq!(spec["interactionType"], "approval");
+        let ids: Vec<&str> = spec["choices"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|c| c["optionId"].as_str().unwrap())
+            .collect();
+        assert_eq!(
+            ids,
+            vec![
+                "plan_opt_0",
+                "plan_opt_1",
+                "plan_revise",
+                "plan_reject_and_exit"
+            ]
+        );
+    }
+
+    #[test]
+    fn acp_question_devient_user_input_avec_values_opaques() {
+        let params = json!({
+            "toolCall": {"title": "AskUserQuestion", "content": [
+                {"type": "content", "content": {"type": "text", "text": "Quelle couleur ?"}}
+            ]},
+            "options": [
+                {"optionId": "q0_opt_0", "name": "Rouge", "kind": "allow_once"},
+                {"optionId": "q0_opt_1", "name": "Vert", "kind": "allow_once"},
+                {"optionId": "q0_skip", "name": "Skip", "kind": "reject_once"}
+            ]
+        });
+        let spec = describe_server_request("session/request_permission", &params).unwrap();
+        assert_eq!(spec["interactionType"], "user_input");
+        let fields = spec["fields"].as_array().unwrap();
+        assert_eq!(fields.len(), 1, "une seule question (limitation Kimi 0.26)");
+        assert_eq!(fields[0]["question"], "Quelle couleur ?");
+        let opts = fields[0]["options"].as_array().unwrap();
+        // Skip exclu des options — le bouton Annuler couvre la dismissal.
+        assert_eq!(opts.len(), 2);
+        assert_eq!(opts[0]["label"], "Rouge");
+        assert_eq!(opts[0]["value"], "q0_opt_0");
+        assert_eq!(opts[1]["value"], "q0_opt_1");
+    }
+
+    #[test]
+    fn acp_permission_sans_options_refus_sur() {
+        let params = json!({"toolCall": {"title": "Bash"}, "options": []});
+        assert!(describe_server_request("session/request_permission", &params).is_none());
+    }
+
+    #[test]
+    fn summary_optionid_affiche_le_label_du_choix() {
+        let spec = json!({
+            "interactionType": "approval",
+            "choices": [
+                {"optionId": "plan_opt_1", "label": "Variante B", "kind": "allow_once"}
+            ]
+        });
+        let s = summarize_interaction(&spec, &json!({"optionId": "plan_opt_1"}));
+        assert_eq!(s, "Variante B");
+        let s2 = summarize_interaction(
+            &spec,
+            &json!({"optionId": "plan_opt_1", "cancelTurn": true}),
+        );
+        assert!(s2.contains("tour annulé"));
+    }
+
+    #[test]
+    fn summary_user_input_value_opaque_affiche_le_label() {
+        let spec = json!({
+            "interactionType": "user_input",
+            "fields": [{
+                "id": "q0", "question": "Couleur ?",
+                "options": [{"label": "Vert", "value": "q0_opt_1"}]
+            }]
+        });
+        let s = summarize_interaction(&spec, &json!({"answers": {"q0": "q0_opt_1"}}));
+        assert!(s.contains("Vert"), "label affiché, pas l'id wire: {s}");
+        assert!(!s.contains("q0_opt_1"));
     }
 }
