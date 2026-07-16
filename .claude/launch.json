@@ -9,8 +9,8 @@
     },
     {
       "name": "dev",
-      "runtimeExecutable": "npx",
-      "runtimeArgs": ["vite", "--port", "4174", "--strictPort"],
+      "runtimeExecutable": "env",
+      "runtimeArgs": ["VITE_VISUAL_BENCH=1", "npx", "vite", "--port", "4174", "--strictPort"],
       "port": 4174
     },
     {
