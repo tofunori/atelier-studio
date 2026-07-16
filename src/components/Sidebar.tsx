@@ -191,23 +191,8 @@ export default function Sidebar(p: {
     wsSend({ type: "listSessions", provider: prov, projectRoot: p.activeProject ?? "" });
   }
 
-  // popover non géré par <Menu> : clic extérieur + Échap (ProjectStyleMenu
-  // uniquement — resume-pop est désormais un Popover Base UI, qui gère son
-  // propre dismiss/Escape/retour focus)
-  useEffect(() => {
-    if (!projMenu) return;
-    const close = () => setProjMenu(null);
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key !== "Escape") return;
-      setProjMenu(null);
-    };
-    window.addEventListener("click", close);
-    window.addEventListener("keydown", onKey);
-    return () => {
-      window.removeEventListener("click", close);
-      window.removeEventListener("keydown", onKey);
-    };
-  }, [projMenu]);
+  // plus aucun overlay géré à la main ici : ProjectStyleMenu et resume-pop
+  // sont des Popover Base UI (dismiss, Escape et retour focus inclus)
 
   useEffect(() => {
     if (editingId) editRef.current?.focus();
@@ -581,7 +566,7 @@ export default function Sidebar(p: {
           meta={p.projMeta[projMenu.root]}
           onSetMeta={p.onSetMeta}
           onClose={() => setProjMenu(null)}
-          style={{ left: projMenu.x, top: projMenu.y, position: "fixed" }}
+          anchor={{ x: projMenu.x, y: projMenu.y }}
         />
       )}
       </ShadcnSidebar>

@@ -5,7 +5,7 @@
 // qui disparaît avec la liste de projets (le rail/topbar restent les seuls
 // sélecteurs globaux).
 import { describe, it, expect, vi, beforeEach, beforeAll } from "vitest";
-import { fireEvent, screen, cleanup } from "@testing-library/react";
+import { fireEvent, screen, cleanup, waitFor } from "@testing-library/react";
 import Sidebar from "./Sidebar";
 import { renderUi, resetTestState } from "../test/render";
 import { makeThread, PROJECT_ROOT, OTHER_PROJECT_ROOT, FIXED_ISO } from "../test/fixtures";
@@ -186,7 +186,7 @@ describe("Sidebar — contrats du panneau (projet actif)", () => {
     });
   });
 
-  it("sessions-list remplit la liste ; clic importe la session", () => {
+  it("sessions-list remplit la liste ; clic importe la session", async () => {
     const p = makeProps({ threads: projectThreads() });
     renderUi(<Sidebar {...p} />);
     fireEvent(window, new CustomEvent("atelier-open-resume", { detail: { provider: "codex" } }));
@@ -196,7 +196,9 @@ describe("Sidebar — contrats du panneau (projet actif)", () => {
         { id: "sess-2", title: "Session B", mtime: 1783684700000, projectRoot: "/tmp/projet-b" },
       ],
     }));
-    fireEvent.change(screen.getByRole("searchbox"), { target: { value: "projet-a" } });
+    // le popup Base UI (resume-pop) monte en portal après une microtâche
+    const searchbox = await screen.findByRole("searchbox");
+    fireEvent.change(searchbox, { target: { value: "projet-a" } });
     expect(screen.queryByText("Session B")).toBeNull();
     fireEvent.click(screen.getByText("Session A"));
     expect(p.onImportSession).toHaveBeenCalledWith("codex", "sess-1", "Session A", "/tmp/projet-a");
@@ -398,13 +400,17 @@ describe("Research Navigator — actions projet de l'overflow (câblage réel)",
     expect(opener.revealItemInDir).toHaveBeenCalledWith(PROJECT_ROOT);
   });
 
-  it("Personnaliser ouvre le popover couleur/icône ; un swatch appelle onSetMeta", () => {
+  it("Personnaliser ouvre le popover couleur/icône ; un swatch appelle onSetMeta", async () => {
     const p = makeProps({ threads: projectThreads() });
-    const { container } = renderUi(<Sidebar {...p} />);
+    renderUi(<Sidebar {...p} />);
     fireEvent.click(screen.getByRole("button", { name: t("project.actions") }));
     fireEvent.click(screen.getByText(t("project.customize")));
-    const swatch = container.querySelector(".swatches .swatch") as HTMLElement;
-    expect(swatch).toBeTruthy();
+    // le popover monte en portal Base UI (document.body), hors du container
+    const swatch = await waitFor(() => {
+      const el = document.querySelector<HTMLElement>(".swatches .swatch");
+      expect(el).toBeTruthy();
+      return el!;
+    });
     fireEvent.click(swatch);
     expect(p.onSetMeta).toHaveBeenCalledWith(
       PROJECT_ROOT,

@@ -12,7 +12,7 @@ Toute valeur visuelle vient des tokens — **ne jamais inventer de valeur locale
 - **Poids** : 400 (corps), 500 (accent léger), 600 (titres). Rien d'autre.
 - **Rayons** : 6px (contrôles), 10px (cartes/panneaux/menus), 999px (pilules). Rien d'autre.
 - **Espacement** : multiples de 4 (4/8/12/16/20/24). Paddings de panneaux : 16 ou 20.
-- **Gris de texte** : 3 niveaux max — `--fg` (contenu), `--muted` (secondaire), `--muted2` (éteint). Ne pas multiplier les gris.
+- **Gris de texte** : 4 niveaux — `--fg` (contenu), `--fg2` (secondaire fort / `--text-secondary`), `--muted` (secondaire / `--text-muted`), `--muted2` (éteint / `--text-disabled`). Ne pas multiplier les gris au-delà.
 - **Profondeur** : surfaces élevées (menus, popovers, modales) = fond + ombre douce (`0 4px 16px rgba(0,0,0,.25)` env.), pas une bordure de plus. Bordures 1px réservées aux séparateurs internes.
 - **Typo** : `letter-spacing:-0.01em` sur les titres ; `font-variant-numeric:tabular-nums` sur tout chiffre aligné (heures, tailles, compteurs) ; interligne 1.5 corps, 1.3 titres.
 - **Motion** : tout changement d'état visible transitionne en 120–150ms (opacity/transform). Jamais plus de 200ms. Respecter `prefers-reduced-motion`.

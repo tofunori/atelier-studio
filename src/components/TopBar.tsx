@@ -91,7 +91,7 @@ export default function TopBar({
             onOpenChange={setProjMenu}
             label={t("topbar.switch-to")}
             align="start"
-            className="proj-menu proj-menu--shadcn"
+            className="proj-menu"
             trigger={
               <RowButton className="topbar-crumb" title={shortPath(activeProject)}
                 style={{ "--pc": color } as React.CSSProperties}>

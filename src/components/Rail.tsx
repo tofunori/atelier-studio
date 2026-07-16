@@ -60,7 +60,7 @@ export default function Rail(p: {
   const [dragOver, setDragOver] = useState<string | null>(null);
 
   return (
-    <div className="rail" onClick={() => setMenu(null)}>
+    <div className="rail">
       {/* zone scrollable : tout sauf Réglages (épinglé en bas) */}
       <div className="rail-scroll">
       <IconButton className={`rail-btn ${!p.compact ? "on" : ""}`}
@@ -183,7 +183,7 @@ export default function Rail(p: {
           meta={p.meta[menu.root]}
           onSetMeta={p.onSetMeta}
           onClose={() => setMenu(null)}
-          style={{ top: menu.y }}
+          anchor={{ x: 56, y: menu.y }}
         />
       )}
     </div>

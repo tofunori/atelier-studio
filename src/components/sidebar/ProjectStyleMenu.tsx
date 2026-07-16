@@ -10,10 +10,10 @@
 // aria-pressed reflète l'icône active. Classes CSS conservées à l'identique
 // (swatch, emoji-cell, …) — le CSS existant continue de s'appliquer, le reset
 // natif du bouton étant fourni par les wrappers ui/ eux-mêmes.
-import type { CSSProperties } from "react";
 import { t } from "../../lib/i18n";
 import { PROJ_COLORS, PROJ_ICONS, ProjIcon } from "./projectIcons";
 import { Input } from "../shadcn/input";
+import { Popover, PopoverContent } from "../shadcn/popover";
 import { IconButton, RowButton } from "../ui";
 
 export type ProjMetaLite = { color?: string; label?: string };
@@ -32,16 +32,27 @@ export function ProjectStyleMenu(props: {
   onSetMeta: (root: string, meta: ProjMetaLite) => void;
   /** ferme le popover — appelé après le choix d'une icône ou la validation de la lettre */
   onClose: () => void;
-  style?: CSSProperties;
+  /** point d'ancrage (coordonnées viewport du clic ou du bouton déclencheur) */
+  anchor: { x: number; y: number };
   className?: string;
 }) {
-  const { root, meta, onSetMeta, onClose, style, className } = props;
+  const { root, meta, onSetMeta, onClose, anchor, className } = props;
 
   return (
-    <div
+    <Popover open onOpenChange={(next) => { if (!next) onClose(); }}>
+    <PopoverContent
+      plain
+      side="bottom"
+      align="start"
+      sideOffset={4}
       className={className ? `rail-menu ${className}` : "rail-menu"}
-      style={style}
-      onClick={(e) => e.stopPropagation()}
+      anchor={() => ({
+        getBoundingClientRect: () => ({
+          x: anchor.x, y: anchor.y, left: anchor.x, top: anchor.y,
+          right: anchor.x, bottom: anchor.y, width: 0, height: 0,
+          toJSON: () => ({}),
+        }),
+      })}
     >
       <div className="rail-menu-title">{root.split("/").pop()}</div>
       <div className="swatches">
@@ -106,6 +117,7 @@ export function ProjectStyleMenu(props: {
           ∅
         </RowButton>
       </div>
-    </div>
+    </PopoverContent>
+    </Popover>
   );
 }

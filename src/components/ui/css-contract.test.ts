@@ -97,6 +97,38 @@ describe("contrat Quiet Instrument (sources CSS)", () => {
     expect(offenders, `<button> nu dans : ${offenders.join(", ")}`).toEqual([]);
   });
 
+  it("frontière d'imports : shadcn/button et shadcn/tooltip via les wrappers ui/ (allowlist gelée)", () => {
+    // Ces deux primitives ont des wrappers produit complets (Button/IconButton/
+    // RowButton, Tooltip). La liste ci-dessous fige l'existant : elle ne peut
+    // QUE rétrécir — retirer une entrée quand on migre le fichier, ne jamais
+    // en ajouter.
+    const allowed = new Set([
+      "components/RemoteDevicesPanel.tsx",
+      "components/QuickAsk.tsx",
+      "components/Automations.tsx",
+      "components/chat/ContextShelf.tsx",
+      "components/chat/ImageViewPreview.tsx",
+      "components/chat/turns.tsx",
+      "components/chat/AgentActivity.tsx",
+    ]);
+    const offenders: string[] = [];
+    const walk = (dir: string, rel: string) => {
+      for (const entry of readdirSync(dir, { withFileTypes: true })) {
+        const p = join(dir, entry.name);
+        const r = rel ? `${rel}/${entry.name}` : entry.name;
+        if (entry.isDirectory()) {
+          if (p.endsWith(join("components", "ui")) || p.endsWith(join("components", "shadcn"))) continue;
+          walk(p, r);
+        } else if (entry.name.endsWith(".tsx") && !entry.name.includes(".test.")) {
+          const src = readFileSync(p, "utf8");
+          if (/from\s+"[^"]*shadcn\/(button|tooltip)"/.test(src) && !allowed.has(r)) offenders.push(r);
+        }
+      }
+    };
+    walk(root, "");
+    expect(offenders, `import direct shadcn/button|tooltip hors allowlist : ${offenders.join(", ")}`).toEqual([]);
+  });
+
   it("le pont snappe les échelles Tailwind sur le système (rayons 6/10, texte 12/13)", () => {
     expect(shadcn).toContain("--radius-sm: var(--radius-control)");
     expect(shadcn).toContain("--radius-md: var(--radius-control)");
