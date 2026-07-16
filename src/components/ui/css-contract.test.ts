@@ -207,7 +207,7 @@ describe("contrat Quiet Instrument (sources CSS)", () => {
       "dropdown-menu.tsx", "empty.tsx", "field.tsx", "input-group.tsx",
       "input.tsx", "kbd.tsx",
       "message.tsx", "popover.tsx", "progress.tsx", "radio-group.tsx",
-      "scroll-area.tsx", "select.tsx", "separator.tsx", "sidebar.tsx",
+      "scroll-area.tsx", "select.tsx", "separator.tsx", "sheet.tsx", "sidebar.tsx",
       "skeleton.tsx", "slider.tsx", "sonner.tsx", "spinner.tsx",
       "switch.tsx", "table.tsx", "tabs.tsx", "textarea.tsx", "toggle-group.tsx",
       "toggle.tsx", "tooltip.tsx",

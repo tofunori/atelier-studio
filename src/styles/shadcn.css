@@ -100,13 +100,19 @@
   }
 
   [data-slot="dialog-overlay"],
-  [data-slot="alert-dialog-overlay"] {
+  [data-slot="alert-dialog-overlay"],
+  [data-slot="sheet-overlay"] {
     opacity: 0;
     transition: opacity var(--motion-fast) var(--ease-out);
   }
 
   [data-slot="dialog-overlay"][data-open],
-  [data-slot="alert-dialog-overlay"][data-open] {
+  [data-slot="alert-dialog-overlay"][data-open],
+  [data-slot="sheet-overlay"][data-open] {
+    opacity: 1;
+  }
+
+  [data-slot="sheet-content"] {
     opacity: 1;
   }
 
