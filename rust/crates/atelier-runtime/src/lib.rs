@@ -1,6 +1,7 @@
 //! Runtime for the Atelier Studio Rust backend (plan 033 R1).
 
 pub mod atomic;
+pub mod automations;
 mod codex_history;
 mod grok_history;
 pub mod instance;

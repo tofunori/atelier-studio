@@ -200,6 +200,17 @@ async fn maybe_title_new_thread(
 
 fn make_emit(state: AppState, thread_id: String) -> EmitFn {
     Arc::new(move |event: Value| {
+        let automation_state = state.clone();
+        let automation_thread_id = thread_id.clone();
+        let automation_event = event.clone();
+        tokio::spawn(async move {
+            crate::automations::record_thread_event(
+                &automation_state,
+                &automation_thread_id,
+                &automation_event,
+            )
+            .await;
+        });
         let payload = json!({
             "type": "event",
             "threadId": thread_id,
@@ -433,6 +444,12 @@ pub async fn handle_send(state: &AppState, msg: &Value) -> Vec<String> {
         ))];
     }
     let auto_title = should_auto_title(previous.as_ref(), title.as_deref());
+    let last_turn = previous
+        .as_ref()
+        .and_then(|thread| thread.extra.get("lastTurn"))
+        .cloned()
+        .unwrap_or_else(|| json!({}));
+    let same_provider = last_turn.get("provider").and_then(Value::as_str) == Some(provider.as_str());
     let provisional_title = first_message.chars().take(40).collect::<String>();
 
     let provider_prompt = previous
@@ -622,15 +639,29 @@ pub async fn handle_send(state: &AppState, msg: &Value) -> Vec<String> {
     let model = msg
         .get("model")
         .and_then(|v| v.as_str())
+        .or_else(|| same_provider.then(|| last_turn.get("model").and_then(Value::as_str)).flatten())
         .map(str::to_string);
     let effort = msg
         .get("effort")
         .and_then(|v| v.as_str())
+        .or_else(|| same_provider.then(|| last_turn.get("effort").and_then(Value::as_str)).flatten())
         .map(str::to_string);
     let permission_mode = msg
         .get("permissionMode")
         .and_then(|v| v.as_str())
+        .or_else(|| last_turn.get("permissionMode").and_then(Value::as_str))
         .map(str::to_string);
+    if msg.get("permissionMode").and_then(Value::as_str).is_some() {
+        let _ = state.threads().lock().await.upsert(json!({
+            "id": thread_id,
+            "lastTurn": {
+                "provider": provider,
+                "model": msg.get("model").cloned().unwrap_or(Value::Null),
+                "effort": msg.get("effort").cloned().unwrap_or(Value::Null),
+                "permissionMode": msg.get("permissionMode").cloned().unwrap_or(Value::Null),
+            }
+        }), true);
+    }
 
     // Event pump
     let h_pump = Arc::clone(&h2);

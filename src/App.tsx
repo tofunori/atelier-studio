@@ -29,9 +29,12 @@ import AtelierPane from "./components/AtelierPane";
 const SettingsPage = lazyWithRetry(() => import("./components/Settings"));
 import { LazyBoundary, lazyWithRetry } from "./components/LazyBoundary";
 const CommandPalette = lazyWithRetry(() => import("./components/CommandPalette"));
+import AutomationsPanel from "./components/Automations";
 import QuickAsk from "./components/QuickAsk";
 import { LazyDialog } from "./components/ui/LazyDialog";
-import { Button, IconButton, showError, showInfo, showSuccess } from "./components/ui";
+import { Button } from "./components/ui/Button";
+import { IconButton } from "./components/ui/IconButton";
+import { showError, showInfo, showSuccess } from "./components/ui/toast";
 import UsagePopover, { worstOf } from "./components/UsagePopover";
 import PluginPanel from "./components/PluginPanel";
 import { pluginSkillsForPrompt, type PluginCatalogEntry } from "./lib/plugins";
@@ -42,6 +45,7 @@ import { ProviderInfo } from "./lib/providers";
 import { THEME_PRESETS, presetById } from "./lib/themes";
 import { setLanguage, t } from "./lib/i18n";
 import { buildItems } from "./lib/palette";
+import type { Automation } from "./lib/automations";
 import { setDockBadge } from "./lib/dockBadge";
 import {
   atelierTargetOrigin,
@@ -445,6 +449,7 @@ export default function App() {
         sock.send(JSON.stringify({ type: "getSettings" }));
         sock.send(JSON.stringify({ type: "listHighlights" }));
       }
+      if (sock) sock.send(JSON.stringify({ type: "listAutomations" }));
     } else {
       setAppBanner({ text: t("app.sidecar-disconnected") });
     }
@@ -465,6 +470,19 @@ export default function App() {
   // fiches « Surlignés » (lot 2) : source de vérité = sidecar (highlights.json),
   // synchronisée par broadcast — jamais recalculée depuis les chats en mémoire
   const [highlights, setHighlights] = useState<HighlightEntry[]>([]);
+  const [automations, setAutomations] = useState<Automation[]>([]);
+  const heartbeatThreadIds = useMemo(
+    () => new Set(
+      automations.flatMap((automation) =>
+        automation.kind === "heartbeat"
+          && automation.status === "ACTIVE"
+          && automation.targetThreadId
+          ? [automation.targetThreadId]
+          : [],
+      ),
+    ),
+    [automations],
+  );
   const [hlFilterProject, setHlFilterProject] = useState<string | null>(null);
   const marksMigratedRef = useRef(false);
   const [events, setEvents] = useState<Record<string, AgentEvent[]>>({});
@@ -1086,6 +1104,9 @@ export default function App() {
   // Dispatcher des messages sidecar — corps inchangé (slice 2.1), branché via
   // useSidecarConnection. Function hissée : le hook est appelé plus haut.
   function handleMessage(msg: any) {
+      if (msg.type === "automations") {
+        setAutomations(Array.isArray(msg.automations) ? msg.automations : []);
+      }
       if (msg.type === "settingsFile") {
         const hasLocal = localStorage.getItem("atelier-studio.settings") !== null;
         const { projMeta: diskMeta, projects: diskProjects, ...diskSettings } = msg.settings ?? {};
@@ -2645,7 +2666,7 @@ export default function App() {
           }
         />
   );
-  const viewPanelNode = compact ? null : activeView !== "chats" ? (
+  const viewPanelNode = compact ? null : activeView === "highlights" ? (
           <HighlightsPanel
             highlights={highlights}
             threads={allThreads}
@@ -2671,11 +2692,27 @@ export default function App() {
             }}
             onCompact={() => setCompact(true)}
           />
+  ) : activeView === "automations" ? (
+        <AutomationsPanel
+          ws={ws.current}
+          threads={allThreads}
+          favorites={favorites}
+          projects={projects}
+          preferredThreadId={activeId}
+          preferredProjectRoot={activeProject}
+          onCompact={() => setCompact(true)}
+          onOpenThread={(thread) => {
+            setActiveView("chats");
+            selectThread(thread.id, thread.projectRoot);
+            setLayout((current) => current === "atelier" ? "split" : current);
+          }}
+        />
   ) : (
         <Sidebar
           projects={projects}
           threads={allThreads}
           unread={unread}
+          heartbeatThreadIds={heartbeatThreadIds}
           favorites={favorites}
           onToggleFavorite={(id) =>
             setFavorites((f) => (f.includes(id) ? f.filter((x) => x !== id) : [...f, id]))

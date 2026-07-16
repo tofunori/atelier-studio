@@ -14,6 +14,7 @@ import {
 import { IconButton } from "../ui";
 import { LazyDropdownMenu, type LazyDropdownMenuItem } from "../ui/LazyDropdownMenu";
 import { presentStatus } from "../../lib/statusPresentation";
+import { Clock3Icon } from "lucide-react";
 
 function cx(...parts: Array<string | false | null | undefined>): string {
   return parts.filter(Boolean).join(" ");
@@ -81,6 +82,7 @@ export function ThreadRow(p: {
   active: boolean;
   selected: boolean;
   unread: boolean;
+  heartbeat: boolean;
   favorite: boolean;
   editing: boolean;
   editText: string;
@@ -102,6 +104,7 @@ export function ThreadRow(p: {
   const status = presentStatus({ kind: running ? "running" : p.thread.status === "done" ? "done" : "idle" });
   const a11ySuffix = [
     p.unread ? t("sidebar.unread") : null,
+    p.heartbeat ? t("automations.heartbeat-active") : null,
     running ? status.label : null,
   ].filter(Boolean);
 
@@ -144,9 +147,14 @@ export function ThreadRow(p: {
             <ProviderIcon provider={p.thread.provider} />
           </span>
           <span className="pnav-row-copy">
-            <span className="title">
-              {p.unread && <span className="unread-dot" />}
-              {p.title}
+            <span className="pnav-title-row">
+              <span className="title">
+                {p.unread && <span className="unread-dot" />}
+                {p.title}
+              </span>
+              {p.heartbeat && (
+                <Clock3Icon className="pnav-heartbeat" aria-hidden="true" />
+              )}
             </span>
             {p.kind === "continue" && (
               <span className="pnav-row-meta">

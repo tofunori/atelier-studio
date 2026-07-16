@@ -1,11 +1,12 @@
 import { useState } from "react";
+import { Clock3Icon } from "lucide-react";
 import { t } from "../lib/i18n";
 import { ChatsIcon, HighlighterIcon, PlusIcon, SettingsIcon, SidebarIcon } from "./icons";
 import { ProjIcon } from "./sidebar/projectIcons";
 import { ProjectStyleMenu } from "./sidebar/ProjectStyleMenu";
 import { SURFACES, type Surface } from "./surfaces";
 import type { ViewId } from "../lib/settings";
-import { IconButton } from "./ui";
+import { IconButton } from "./ui/IconButton";
 
 export type ProjMeta = { color?: string; label?: string };
 
@@ -74,6 +75,10 @@ export default function Rail(p: {
         <IconButton className={`rail-view ${p.activeView === "highlights" ? "on" : ""}`}
           label={t("view.highlights")} title={t("view.highlights")} onClick={() => p.onSelectView("highlights")}>
           <HighlighterIcon size={19} />
+        </IconButton>
+        <IconButton className={`rail-view ${p.activeView === "automations" ? "on" : ""}`}
+          label={t("automations.title")} title={t("automations.title")} onClick={() => p.onSelectView("automations")}>
+          <Clock3Icon size={19} />
         </IconButton>
       </div>
       <div className="rail-sep" />

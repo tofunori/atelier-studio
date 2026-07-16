@@ -9,7 +9,7 @@ function FieldSet({ className, ...props }: React.ComponentProps<"fieldset">) {
   return (
     <fieldset
       data-slot="field-set"
-      className={cn("tw:flex tw:min-w-0 tw:flex-col tw:gap-4", className)}
+      className={cn("tw:m-0 tw:flex tw:min-w-0 tw:flex-col tw:gap-4 tw:border-0 tw:p-0", className)}
       {...props}
     />
   )
@@ -25,7 +25,7 @@ function FieldLegend({
       data-slot="field-legend"
       data-variant={variant}
       className={cn(
-        "tw:mb-1.5 tw:font-medium tw:data-[variant=label]:text-[var(--fs-caption)] tw:data-[variant=legend]:text-[var(--fs-body-s)]",
+        "tw:mb-1.5 tw:p-0 tw:font-medium tw:data-[variant=label]:text-[var(--fs-caption)] tw:data-[variant=legend]:text-[var(--fs-body-s)]",
         className,
       )}
       {...props}

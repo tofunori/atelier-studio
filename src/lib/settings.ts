@@ -2,7 +2,7 @@ export type ProviderId = string;
 
 // vue active du panneau latéral (barre d'activité) — "highlights" arrive
 // fonctionnellement au lot 2, seul le placeholder existe pour l'instant
-export type ViewId = "chats" | "highlights";
+export type ViewId = "chats" | "highlights" | "automations";
 
 export type Settings = {
   defaultProvider: ProviderId;

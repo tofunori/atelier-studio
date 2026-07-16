@@ -4,7 +4,7 @@ use crate::paths::AppPaths;
 use atelier_harness::HarnessManager;
 use atelier_protocol::Health;
 use atelier_providers::{build_registry, Provider};
-use atelier_store::{HarnessJournal, HighlightStore, ThreadStore};
+use atelier_store::{AutomationStore, HarnessJournal, HighlightStore, ThreadStore};
 use atelier_workspace::{TermEvent, TerminalHub};
 use serde_json::Value;
 use std::collections::{HashMap, HashSet};
@@ -39,6 +39,8 @@ struct Inner {
     port: RwLock<Option<u16>>,
     threads: Mutex<ThreadStore>,
     highlights: Mutex<HighlightStore>,
+    automations: Mutex<AutomationStore>,
+    automation_runs: Mutex<HashMap<String, (String, String)>>,
     journal: HarnessJournal,
     /// Fan-out for multi-client WS (threads/highlights broadcasts).
     bus: broadcast::Sender<String>,
@@ -63,6 +65,7 @@ impl AppState {
     ) -> Self {
         let threads = ThreadStore::open(paths.app_dir.join("threads.json"));
         let highlights = HighlightStore::open(paths.app_dir.join("highlights.json"));
+        let automations = AutomationStore::open(paths.app_dir.join("automations.json"));
         let journal = HarnessJournal::new(&paths.app_dir);
         let (bus, _) = broadcast::channel(128);
         let terminal_bus = bus.clone();
@@ -101,6 +104,8 @@ impl AppState {
                 port: RwLock::new(None),
                 threads: Mutex::new(threads),
                 highlights: Mutex::new(highlights),
+                automations: Mutex::new(automations),
+                automation_runs: Mutex::new(HashMap::new()),
                 journal,
                 bus,
                 terminals,
@@ -182,6 +187,14 @@ impl AppState {
 
     pub fn highlights(&self) -> &Mutex<HighlightStore> {
         &self.inner.highlights
+    }
+
+    pub fn automations(&self) -> &Mutex<AutomationStore> {
+        &self.inner.automations
+    }
+
+    pub fn automation_runs(&self) -> &Mutex<HashMap<String, (String, String)>> {
+        &self.inner.automation_runs
     }
 
     pub fn journal(&self) -> &HarnessJournal {
