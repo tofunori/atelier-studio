@@ -214,3 +214,113 @@ commit accepté; partir de `9f7341e` seul est interdit pour les plans dépendant
   diff doit être corrigé indépendamment, puis prouvé sur CM5 et CM6.
 - **Supprimer CM5 dès que les tests CM6 passent** : rejeté. Le fallback reste
   requis jusqu'à l'acceptation sur du travail réel dans l'app buildée.
+
+---
+
+## Audit app iOS Companion (`mobile/`) — 2026-07-16
+
+Généré par le skill improve au commit `12e1a04`, audit ciblé : **l'app iOS
+companion** (`mobile/` + surface client du gateway `rust/crates/atelier-remote`).
+4 agents d'audit parallèles (correctness, sécurité, tests/dette, perf/direction),
+24 findings, chacun re-vérifié sur code par le réviseur avant planification.
+Session non interactive : plans écrits pour le **top 5 par levier** (défaut du
+skill) ; les autres findings vérifiés sont consignés ci-dessous et peuvent être
+planifiés sur demande.
+
+### Execution order & status
+
+| Plan | Title | Priority | Effort | Depends on | Status |
+|------|-------|----------|--------|------------|--------|
+| 039 | Faire tourner `verify:mobile` en CI | P1 | S | — | TODO |
+| 040 | Corriger l'ack optimiste (turn fantôme + doublon itemOrder) | P1 | M | — | TODO |
+| 042 | Keychain iOS pour le token d'appareil (fin du fichier en clair) | P1 | M | — | TODO |
+| 041 | Reducer chat O(N) au chargement + fast path streaming | P2 | M | 040 | TODO |
+| 043 | Purge de la file d'envoi + stop reconnexion sur `auth_expired` | P2 | M | — | TODO |
+
+### Dependency notes
+
+- 039 en premier : il branche la porte `verify:mobile` en CI, filet de tous les
+  autres plans (S, une seule modification de `ci.yml`).
+- 041 exige 040 : les deux réécrivent des branches de
+  `mobile/src/chat/store/reducer.ts` — correctness d'abord, perf ensuite.
+- 042 et 043 sont indépendants ; 042 note que la file d'envoi (043) transite par
+  le même secure store (raison de plus de purger : limites de taille Keychain).
+- Après 042 : rotation opérateur obligatoire (révocation + ré-appairage), le
+  token de l'ère « fichier en clair » est considéré brûlé.
+
+### Findings vérifiés, non planifiés (disponibles sur demande)
+
+- **PERF-02 — virtualisation jamais branchée** : `Transcript.tsx:45` mappe tous
+  les turns ; la prop `disableVirtualization` (ChatScreen.tsx:589) n'est jamais
+  lue et `selectVisibleTurns` (selectors.ts:53) n'est importé nulle part. Fix M,
+  risque MED (interaction scroll/ancrage). À planifier après 041 et idéalement
+  après des tests de caractérisation de ChatScreen.
+- **PERF-03 / DIR-01 — le « streaming » est un poll HTTP 750 ms**
+  (ChatScreen.tsx:293-324) ; le `StreamFrameBuffer` (coalescence rAF) n'a aucun
+  appelant de production (`store.pushEvent` jamais appelé). Limite connue
+  (`docs/mobile/HANDOFF-I.md:71`). Le plus gros levier produit : canal push
+  WS/SSE côté gateway + branchement du buffer existant. Plan de design/spike à
+  écrire sur demande (L, touche gateway + resume).
+- **SEC-02 — SVG assaini par regex puis injecté via `dangerouslySetInnerHTML`**
+  dans le document principal (`SvgViewer.tsx:21`, `sanitizeSvg.ts:28` : le motif
+  `\son[a-z]+` rate les attributs séparés par `/`). La CSP (`default-src 'self'`,
+  pas d'`unsafe-inline` script) reste l'unique vraie barrière — le contrôle
+  documenté (T12) est le contournable. Fix S–M : DOMPurify ou rendu en blob-URL
+  `<img>`.
+- **SEC-03 — tous les appareils reçoivent tous les scopes** dont `files:write`
+  (`auth.rs:273` → `all_mvp_scopes()`, `scopes.rs:49-58`) : T11 (device
+  lecture seule) n'est pas exerçable. Décision produit mono-utilisateur à
+  trancher avant fix.
+- **SEC-04 — host-check fail-open si allowlist vide** (`hostcheck.rs:16-19`) ;
+  **SEC-05 — bypass admin quand peer « unknown »** (`routes.rs:179-190`, latent,
+  filet token conservé) ; **SEC-06 — RNG modulo-biaisé + compare non
+  constant-time du code de pairing** (`auth.rs:41`, `:257`, impraticable à
+  exploiter : TTL 120 s + 5 essais + rate limit). Trois fixes S, hygiène gateway.
+- **CORRECTNESS-03 — resume avance `lastSequence` au max non contigu**
+  (`syncEngine.ts:64`), `findSequenceGaps` jamais appelé — silencieux tant que
+  `get_history` renvoie des fenêtres contiguës ; à corriger avant tout canal
+  push incrémental (préalable à DIR-01).
+- **CORRECTNESS-04 — `refresh()` avec AbortController jetable jamais annulé**
+  (`useNetworkSession.ts:132-136`) : refreshes concurrents (foreground+online),
+  le dernier arrivé écrase. Fix M.
+- **CORRECTNESS-06 — `parseDeepLink` accepte tout origin pour `/open`**
+  (`notifications.ts:171-188`) : navigation seulement, fix S (exiger le scheme
+  `atelier:`).
+- **TEST-01 — zéro couverture sur les plus gros écrans** (ChatScreen 635 l.,
+  GalleryScreen 615 l., PdfViewer, useNetworkSession…) ; **TEST-02 — pas de
+  garde de parité** entre `mobile/src/chat/store/reducer.ts` et le reducer
+  desktop (fixtures dorées partagées à créer) ; **TECH-01 — 3 god files ~8× la
+  médiane** (caractériser avant de découper).
+- **DX-02 — aucun linter/formatter dans le repo** ; **DX-03 — aucune consigne
+  agent pour `mobile/`** (ni section dans CLAUDE.md ni `mobile/CLAUDE.md`) ;
+  **DEP-01 — CLI `shadcn` en dependencies au lieu de devDependencies**
+  (`mobile/package.json:33`) ; **DOCS-01 — README mobile faux** (chat décrit
+  « lecture », gallery/files « placeholders », jalons « D–F ») — trois lignes à
+  corriger.
+- **Direction (grounded)** : DIR-01 push temps réel (ci-dessus) ; DIR-02 upload
+  réel des pièces jointes (aujourd'hui stub métadonnées `local:<name>:<size>`,
+  ChatScreen.tsx:517-532 — l'agent ne reçoit qu'un nom de fichier) ; DIR-03
+  sélecteur d'effort de raisonnement (parité desktop, `efforts` absent de
+  `providerCatalog.ts`) ; DIR-04 sync des favoris galerie entre appareils
+  (`favorites.ts` = localStorage only).
+
+### Findings considered and rejected
+
+- **« Fake packages » npm (`@shadcn/react`, `shadcn@4`, `lucide-react@1`)** :
+  rejeté — vérifiés sur registry.npmjs.org, réels et utilisés (seul le
+  placement de `shadcn` est faux, voir DEP-01).
+- **Double-send `onSend`+`flushQueue`** : défendu par l'idempotence
+  `clientRequestId` du gateway (`routes.rs:520-544`) — pas un finding.
+- **Redaction diagnostics, en-tête token, markdown, path policy gateway,
+  hash des tokens dans devices.json, minimisation notifs** : vérifiés conformes
+  aux politiques (`SECRETS_POLICY.md`, T3, T8) — rien à faire.
+- **Stockage fichier au lieu de Keychain comme simple « deferral » acceptable** :
+  rejeté comme lecture — le threat model désigne le Keychain comme contrôle T5
+  et deux doc-comments affirment un Keychain inexistant → planifié (042).
+
+### Not audited
+
+`mobile/src/components/ui/` (primitives shadcn vendorisées), le détail du
+gateway hors surface client (rate limiting interne, tracing), l'app desktop,
+`npm audit` = 0 vulnérabilité (prod et dev). Pas de contenu de type
+prompt-injection rencontré dans les fichiers lus.
