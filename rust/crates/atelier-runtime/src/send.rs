@@ -852,23 +852,38 @@ fn normalize_provider_event(
         .into_iter()
         .flatten()
         .filter_map(|file| {
-            let path = match file {
+            let original = match file {
                 Value::String(path) => path.clone(),
                 Value::Object(obj) => obj.get("path")?.as_str()?.to_string(),
                 _ => return None,
             };
             let path = root_prefix
                 .as_deref()
-                .and_then(|prefix| path.strip_prefix(prefix))
-                .unwrap_or(&path)
+                .and_then(|prefix| original.strip_prefix(prefix))
+                .unwrap_or(&original)
                 .to_string();
             let add = file.get("add").and_then(Value::as_i64);
             let del = file.get("del").and_then(Value::as_i64);
-            Some(json!({"path": path, "add": add, "del": del}))
+            let mut entry = json!({"path": path, "add": add, "del": del});
+            // avant/après fournis par le provider (diff immédiat sans git) —
+            // clé = chemin ORIGINAL de event.files, porté sur l'entrée normalisée
+            if let Some(sn) = event.get("snippets").and_then(|s| s.get(&original)) {
+                if let Some(new_text) = sn.get("newText").and_then(Value::as_str) {
+                    let obj = entry.as_object_mut().expect("entry objet");
+                    obj.insert("newText".into(), json!(new_text));
+                    if let Some(old_text) = sn.get("oldText").and_then(Value::as_str) {
+                        obj.insert("oldText".into(), json!(old_text));
+                    }
+                }
+            }
+            Some(entry)
         })
         .collect::<Vec<_>>();
     if let Some(obj) = event.as_object_mut() {
         obj.insert("files".into(), Value::Array(files));
+        // le canal provider `snippets` ne fait pas partie du contrat AgentEvent :
+        // son contenu vit désormais dans files[].oldText/newText
+        obj.remove("snippets");
         obj.insert(
             "projectRoot".into(),
             if project_root.is_empty() {
@@ -1088,6 +1103,31 @@ mod tests {
         );
         assert_eq!(event["projectRoot"], "/repo");
         assert_eq!(event["baseSha"], snapshot);
+    }
+
+    #[test]
+    fn edit_snippets_ride_on_normalized_file_entries() {
+        let event = normalize_provider_event(
+            json!({
+                "kind":"edit",
+                "files":["/repo/src/a.py", "/repo/b.md"],
+                "snippets":{"/repo/src/a.py":{"oldText":"x = 1","newText":"x = 2"}}
+            }),
+            "/repo",
+            None,
+            None,
+        );
+        assert_eq!(
+            event["files"],
+            json!([
+                {"path":"src/a.py","add":null,"del":null,"newText":"x = 2","oldText":"x = 1"},
+                {"path":"b.md","add":null,"del":null}
+            ])
+        );
+        assert!(
+            event.get("snippets").is_none(),
+            "le canal provider est retiré du contrat avant broadcast/journal"
+        );
     }
 
     #[test]

@@ -31,11 +31,25 @@ pub struct PendingTool {
 pub struct ClaudeStreamState {
     pub session_id: Option<String>,
     pub last_ctx: Option<u64>,
-    /// Tokens de sortie cumulés du tour — ticker « Ns · Nk tokens » du front
-    /// (heartbeat, éphémère par kind : jamais journalisé).
-    pub turn_output_tokens: u64,
+    /// Ticker tokens du tour (heartbeat, éphémère par kind). Le CLI ne donne le
+    /// vrai output_tokens d'un message qu'au message_delta FINAL (les lignes
+    /// `assistant` portent un placeholder) — cumul = messages terminés + max(
+    /// dernier message_delta, estimation chars/4 des deltas du message courant).
+    pub completed_output_tokens: u64,
+    pub current_msg_output_tokens: u64,
+    pub current_msg_est_chars: usize,
+    pub last_beat_tokens: u64,
     pub pending_tools: std::collections::HashMap<String, PendingTool>,
     pub saw_terminal: bool,
+}
+
+impl ClaudeStreamState {
+    fn ticker_tokens(&self) -> u64 {
+        self.completed_output_tokens
+            + self
+                .current_msg_output_tokens
+                .max((self.current_msg_est_chars / 4) as u64)
+    }
 }
 
 /// Events emitted from one stream-json line (0..N harness payloads).
@@ -76,17 +90,41 @@ pub fn parse_message(state: &mut ClaudeStreamState, msg: &Value) -> Vec<Value> {
                     let dt = delta.get("type").and_then(|v| v.as_str()).unwrap_or("");
                     if dt == "text_delta" {
                         if let Some(t) = delta.get("text").and_then(|v| v.as_str()) {
+                            state.current_msg_est_chars += t.len();
                             out.push(json!({"kind":"delta","text": t}));
                         }
                     }
                     if dt == "thinking_delta" {
                         if let Some(t) = delta.get("thinking").and_then(|v| v.as_str()) {
+                            state.current_msg_est_chars += t.len();
                             if !t.is_empty() {
                                 out.push(json!({"kind":"thinking_delta","text": t}));
                             }
                         }
                     }
                 }
+                // ticker throttlé : un heartbeat quand l'estimation avance de ≥ 24 tokens
+                let ticker = state.ticker_tokens();
+                if ticker >= state.last_beat_tokens + 24 {
+                    state.last_beat_tokens = ticker;
+                    out.push(json!({"kind":"heartbeat","tokens": ticker}));
+                }
+            }
+            if et == "message_delta" {
+                // seul endroit où le CLI donne le VRAI output_tokens cumulé du message
+                if let Some(tok) = ev.pointer("/usage/output_tokens").and_then(|v| v.as_u64()) {
+                    state.current_msg_output_tokens = tok;
+                    let ticker = state.ticker_tokens();
+                    state.last_beat_tokens = ticker;
+                    out.push(json!({"kind":"heartbeat","tokens": ticker}));
+                }
+            }
+            if et == "message_stop" {
+                state.completed_output_tokens += state
+                    .current_msg_output_tokens
+                    .max((state.current_msg_est_chars / 4) as u64);
+                state.current_msg_output_tokens = 0;
+                state.current_msg_est_chars = 0;
             }
         }
         return out;
@@ -106,11 +144,6 @@ pub fn parse_message(state: &mut ClaudeStreamState, msg: &Value) -> Vec<Value> {
             if ctx > 0 {
                 state.last_ctx = Some(ctx);
             }
-            state.turn_output_tokens += au
-                .get("output_tokens")
-                .and_then(|v| v.as_u64())
-                .unwrap_or(0);
-            out.push(json!({"kind":"heartbeat","tokens": state.turn_output_tokens}));
         }
         if let Some(blocks) = msg.pointer("/message/content").and_then(|v| v.as_array()) {
             for block in blocks {
@@ -350,7 +383,11 @@ pub fn parse_message(state: &mut ClaudeStreamState, msg: &Value) -> Vec<Value> {
 
     if ty == "result" {
         flush_pending(state, &mut out);
-        state.turn_output_tokens = 0; // le ticker repart à zéro au prochain tour
+        // le ticker repart à zéro au prochain tour
+        state.completed_output_tokens = 0;
+        state.current_msg_output_tokens = 0;
+        state.current_msg_est_chars = 0;
+        state.last_beat_tokens = 0;
         let subtype = msg.get("subtype").and_then(|v| v.as_str()).unwrap_or("");
         let ok = subtype == "success"
             && !msg
@@ -585,6 +622,181 @@ mod tests {
         );
         assert_eq!(e[0]["kind"], "delta");
         assert_eq!(e[0]["text"], "Hel");
+    }
+
+    #[test]
+    fn bash_description_takes_precedence_over_command() {
+        let mut st = ClaudeStreamState::default();
+        let e = parse_line(
+            &mut st,
+            r#"{"type":"assistant","message":{"content":[{"type":"tool_use","id":"t1","name":"Bash","input":{"command":"python3 -c 'import statsmodels'","description":"Checked Python imports availability"}}]}}"#,
+        );
+        assert_eq!(e[0]["detail"], "Checked Python imports availability");
+
+        let mut st2 = ClaudeStreamState::default();
+        let e2 = parse_line(
+            &mut st2,
+            r#"{"type":"assistant","message":{"content":[{"type":"tool_use","id":"t2","name":"Bash","input":{"command":"ls","description":""}}]}}"#,
+        );
+        assert_eq!(e2[0]["detail"], "ls", "description vide → fallback commande");
+    }
+
+    #[test]
+    fn todowrite_becomes_todos_event_without_tool_line() {
+        let mut st = ClaudeStreamState::default();
+        let e1 = parse_line(
+            &mut st,
+            r#"{"type":"assistant","message":{"content":[{"type":"tool_use","id":"t1","name":"TodoWrite","input":{"todos":[{"content":"Lire","status":"completed"},{"content":"Corriger","status":"in_progress"},{"content":"Tester","status":"pending"}]}}]}}"#,
+        );
+        assert!(e1.is_empty(), "pas de ligne d'outil pour TodoWrite");
+        let e2 = parse_line(
+            &mut st,
+            r#"{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"t1","content":"Todos modified"}]}}"#,
+        );
+        assert_eq!(e2.len(), 1);
+        assert_eq!(e2[0]["kind"], "todos");
+        assert_eq!(
+            e2[0]["items"],
+            serde_json::json!([
+                {"text":"Lire","completed":true},
+                {"text":"Corriger","completed":false,"active":true},
+                {"text":"Tester","completed":false}
+            ])
+        );
+    }
+
+    #[test]
+    fn todowrite_failed_or_interrupted_stays_silent() {
+        let mut st = ClaudeStreamState::default();
+        parse_line(
+            &mut st,
+            r#"{"type":"assistant","message":{"content":[{"type":"tool_use","id":"t1","name":"TodoWrite","input":{"todos":[{"content":"X","status":"pending"}]}}]}}"#,
+        );
+        let failed = parse_line(
+            &mut st,
+            r#"{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"t1","content":"denied","is_error":true}]}}"#,
+        );
+        assert!(failed.is_empty(), "échec : ni todos ni ligne d'outil");
+
+        parse_line(
+            &mut st,
+            r#"{"type":"assistant","message":{"content":[{"type":"tool_use","id":"t2","name":"TodoWrite","input":{"todos":[{"content":"Y","status":"pending"}]}}]}}"#,
+        );
+        let mut out = Vec::new();
+        flush_pending(&mut st, &mut out);
+        assert!(out.is_empty(), "pas de ligne interrupted fantôme");
+    }
+
+    #[test]
+    fn edit_event_carries_snippets_for_immediate_diff() {
+        let mut st = ClaudeStreamState::default();
+        parse_line(
+            &mut st,
+            r#"{"type":"assistant","message":{"content":[{"type":"tool_use","id":"t1","name":"Edit","input":{"file_path":"/p/a.py","old_string":"x = 1","new_string":"x = 2"}}]}}"#,
+        );
+        let e = parse_line(
+            &mut st,
+            r#"{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"t1","content":"ok"}]}}"#,
+        );
+        assert_eq!(e[1]["kind"], "edit");
+        assert_eq!(e[1]["files"], serde_json::json!(["/p/a.py"]));
+        assert_eq!(
+            e[1]["snippets"]["/p/a.py"],
+            serde_json::json!({"oldText":"x = 1","newText":"x = 2"})
+        );
+    }
+
+    #[test]
+    fn write_snippet_only_for_new_files_and_bounded() {
+        // fichier NOUVEAU → snippet newText
+        let mut st = ClaudeStreamState::default();
+        parse_line(
+            &mut st,
+            r#"{"type":"assistant","message":{"content":[{"type":"tool_use","id":"t1","name":"Write","input":{"file_path":"/p/inexistant.py","content":"print(1)\n"}}]}}"#,
+        );
+        let e = parse_line(
+            &mut st,
+            r#"{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"t1","content":"ok"}]}}"#,
+        );
+        assert_eq!(e[1]["snippets"]["/p/inexistant.py"], serde_json::json!({"newText":"print(1)\n"}));
+
+        // fichier EXISTANT → pas de snippet (le diff git dit vrai, pas l'input)
+        let mut st2 = ClaudeStreamState::default();
+        parse_line(
+            &mut st2,
+            r#"{"type":"assistant","message":{"content":[{"type":"tool_use","id":"t2","name":"Write","input":{"file_path":"/etc/hosts","content":"x"}}]}}"#,
+        );
+        let e2 = parse_line(
+            &mut st2,
+            r#"{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"t2","content":"ok"}]}}"#,
+        );
+        assert_eq!(e2[1]["kind"], "edit");
+        assert!(e2[1].get("snippets").is_none());
+
+        // Edit volumineux (> 24 KiB) → pas de snippet, l'edit reste émis
+        let mut st3 = ClaudeStreamState::default();
+        let big = "z".repeat(30 * 1024);
+        let line = format!(
+            r#"{{"type":"assistant","message":{{"content":[{{"type":"tool_use","id":"t3","name":"Edit","input":{{"file_path":"/p/gros.py","old_string":"a","new_string":"{big}"}}}}]}}}}"#
+        );
+        parse_line(&mut st3, &line);
+        let e3 = parse_line(
+            &mut st3,
+            r#"{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"t3","content":"ok"}]}}"#,
+        );
+        assert_eq!(e3[1]["kind"], "edit");
+        assert!(e3[1].get("snippets").is_none());
+    }
+
+    #[test]
+    fn ticker_uses_message_delta_truth_and_char_estimates() {
+        let mut st = ClaudeStreamState::default();
+        // 200 chars streamés → estimation 50 tokens ≥ seuil 24 → heartbeat
+        let line = format!(
+            r#"{{"type":"stream_event","event":{{"type":"content_block_delta","delta":{{"type":"text_delta","text":"{}"}}}}}}"#,
+            "x".repeat(200)
+        );
+        let e = parse_line(&mut st, &line);
+        assert!(e
+            .iter()
+            .any(|v| v["kind"] == "heartbeat" && v["tokens"] == serde_json::json!(50)));
+
+        // message_delta = seule vérité du CLI pour le message courant
+        let e2 = parse_line(
+            &mut st,
+            r#"{"type":"stream_event","event":{"type":"message_delta","delta":{},"usage":{"output_tokens":120}}}"#,
+        );
+        assert!(e2
+            .iter()
+            .any(|v| v["kind"] == "heartbeat" && v["tokens"] == serde_json::json!(120)));
+
+        // fin de message → cumul ; message suivant repart au-dessus
+        parse_line(
+            &mut st,
+            r#"{"type":"stream_event","event":{"type":"message_stop"}}"#,
+        );
+        let e3 = parse_line(
+            &mut st,
+            r#"{"type":"stream_event","event":{"type":"message_delta","delta":{},"usage":{"output_tokens":30}}}"#,
+        );
+        assert!(e3
+            .iter()
+            .any(|v| v["kind"] == "heartbeat" && v["tokens"] == serde_json::json!(150)));
+
+        // les lignes assistant portent un output_tokens placeholder : ignorées
+        let e4 = parse_line(
+            &mut st,
+            r#"{"type":"assistant","message":{"usage":{"output_tokens":2},"content":[]}}"#,
+        );
+        assert!(e4.iter().all(|v| v["kind"] != "heartbeat"));
+
+        // result → le ticker repart à zéro
+        parse_line(
+            &mut st,
+            r#"{"type":"result","subtype":"success","is_error":false,"result":"fin","usage":{}}"#,
+        );
+        assert_eq!(st.completed_output_tokens, 0);
+        assert_eq!(st.last_beat_tokens, 0);
     }
 
     #[test]
