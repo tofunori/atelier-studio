@@ -483,16 +483,14 @@ html, body, #root, .app { height: 100vh; overflow: hidden;
   background: var(--surface-header); border-bottom: 1px solid var(--border); gap: 8px; }
 .topbar-left { display: flex; align-items: center; height: 100%; min-width: 0;
   padding-left: 92px; /* réserve les feux natifs (fin ≈ x66) + ~26 de respiration */ }
-/* pilule projet : tuile monogramme (identité du rail, miniaturisée) + nom ;
-   chevron seulement au survol ; clic → menu sélecteur de projet */
-.topbar-crumb { display: inline-flex; align-items: center; gap: 8px; height: 26px; padding: 0 8px 0 4px;
+/* crumb projet aminci (2026-07-16) : nom seul en texte discret + chevron au
+   survol ; la tuile colorée a été retirée — l'identité visuelle du projet vit
+   dans la puce active du rail. Clic → menu sélecteur de projet. */
+.topbar-crumb { display: inline-flex; align-items: center; gap: 6px; height: 26px; padding: 0 8px;
   border: none; background: transparent; border-radius: var(--r-s); cursor: pointer; max-width: 260px;
-  color: var(--fg); font-size: var(--fs-s); font-weight: 500; transition: background-color var(--ease); }
-.topbar-crumb:hover { background: var(--bg-ctl); }
-.crumb-tile { width: 20px; height: 20px; border-radius: var(--r-s); flex: none;
-  display: inline-flex; align-items: center; justify-content: center;
-  font-size: var(--fs-xs); font-weight: 600;
-  background: color-mix(in srgb, var(--pc) 16%, transparent); color: var(--pc); }
+  color: var(--muted); font-size: var(--fs-s); font-weight: 500;
+  transition: background-color var(--ease), color var(--ease); }
+.topbar-crumb:hover { background: var(--bg-ctl); color: var(--fg); }
 .topbar-crumb-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .crumb-chev { color: var(--muted2); flex: none; opacity: 0; transition: opacity var(--ease); }
 .topbar-crumb:hover .crumb-chev { opacity: 1; }
