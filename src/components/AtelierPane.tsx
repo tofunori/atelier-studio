@@ -13,7 +13,7 @@ import { t } from "../lib/i18n";
 import { CloseIcon, HomeIcon, RefreshIcon } from "./icons";
 import { DocumentTabMeta } from "./AtelierHeaders";
 import { GallerySkeleton } from "./GallerySkeleton";
-import { Button, IconButton, Tab, TabList } from "./ui";
+import { Button, IconButton, RowButton, Tab, TabList } from "./ui";
 import { AgentDetailPanel, AgentGlyph, type AgentDisplay } from "./chat/AgentActivity";
 import type { AgentEvent } from "../lib/ws";
 import {
@@ -361,10 +361,10 @@ export default function AtelierPane({
                 <div className="ide-home-recents">
                   <div className="ide-home-label">{t("ide.recent")}</div>
                   {recentFiles.map((rel) => (
-                    <button key={rel} className="ide-home-file" onClick={() => onOpenFile(rel)} title={rel}>
+                    <RowButton key={rel} className="ide-home-file" onClick={() => onOpenFile(rel)} title={rel}>
                       <span className="ide-home-name">{rel.split("/").pop()}</span>
                       {rel.includes("/") && <span className="ide-home-dir">{rel.split("/").slice(0, -1).join("/")}</span>}
-                    </button>
+                    </RowButton>
                   ))}
                 </div>
               )}

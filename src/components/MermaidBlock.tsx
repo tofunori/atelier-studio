@@ -26,6 +26,7 @@ import { LruCache } from "../lib/lruCache";
 import { t } from "../lib/i18n";
 import { CopyIcon } from "./icons";
 import { Dialog, DialogClose, DialogContent, DialogTitle } from "./shadcn/dialog";
+import { Button, IconButton } from "./ui";
 
 // ============================================================
 // Helpers purs — exportés pour test (sidecar/mermaid.test.mjs)
@@ -265,31 +266,29 @@ export function MermaidBlock({ source, highlight }: MermaidBlockProps) {
         <div className="codeblock-bar-actions">
           {ready && (
             <>
-              <button
-                type="button"
+              <Button
+                variant="ghost"
                 className="mermaid-toggle"
                 onClick={() => setMode((m) => (m === "diagram" ? "code" : "diagram"))}
               >
                 {mode === "diagram" ? t("chat.mermaid-view-code") : t("chat.mermaid-view-diagram")}
-              </button>
+              </Button>
               {mode === "diagram" && (
-                <button
-                  type="button"
+                <IconButton
                   className="codeblock-copy mermaid-expand"
                   title={t("chat.mermaid-expand")}
-                  aria-label={t("chat.mermaid-expand")}
+                  label={t("chat.mermaid-expand")}
                   onClick={() => setExpanded(true)}
                 >
                   <Maximize2Icon size={12} />
-                </button>
+                </IconButton>
               )}
             </>
           )}
-          <button
-            type="button"
+          <IconButton
             className={`codeblock-copy${copied ? " copied" : ""}`}
             title={copied ? t("chat.output-copied") : t("chat.output-copy")}
-            aria-label={copied ? t("chat.output-copied") : t("chat.output-copy")}
+            label={copied ? t("chat.output-copied") : t("chat.output-copy")}
             onClick={() => {
               void navigator.clipboard.writeText(source).then(() => {
                 setCopied(true);
@@ -298,7 +297,7 @@ export function MermaidBlock({ source, highlight }: MermaidBlockProps) {
             }}
           >
             <CopyIcon size={12} />
-          </button>
+          </IconButton>
         </div>
       </div>
       {mode === "diagram" && state.status === "ready" ? (

@@ -135,6 +135,14 @@ export function CloseIcon({ size = 13 }: IconProps) {
   );
 }
 
+export function MinusIcon({ size = 13 }: IconProps) {
+  return (
+    <StrokeIcon size={size}>
+      <path d="M3 8h10" />
+    </StrokeIcon>
+  );
+}
+
 export function RefreshIcon({ size = 13 }: IconProps) {
   return (
     <StrokeIcon size={size}>

@@ -17,7 +17,7 @@ import {
   activeToolLabel, activityIconForAction, activityIconForPhase,
   distinctToolActions, summarizeActivity,
 } from "./toolPresentation";
-import { ActivityDisclosure, Button, EmptyState, IconButton, Tooltip, showError, showSuccess } from "../ui";
+import { ActivityDisclosure, Button, EmptyState, IconButton, RowButton, Tooltip, showError, showSuccess } from "../ui";
 import { Bubble, BubbleContent } from "../shadcn/bubble";
 import { Button as ShadcnButton } from "../shadcn/button";
 import { Message, MessageContent, MessageFooter } from "../shadcn/message";
@@ -147,7 +147,7 @@ export const UserTurn = memo(function UserTurn(p: {
       {e.imageUrl && <img className="user-img" src={e.imageUrl} alt="" />}
       {e.label && <div className="user-label">{e.label}</div>}
       {e.pastes && e.pastes.map((pa, j) => (
-        <button key={j} type="button" className="chip paste-chip"
+        <RowButton key={j} className="chip paste-chip"
           onClick={() => p.onOpenPaste({ name: pa.name, text: pa.text })}>
           <svg className="chip-doc" width="11" height="13" viewBox="0 0 11 13" fill="none" stroke="currentColor" strokeWidth="1.1" strokeLinecap="round">
             <rect x="0.8" y="0.8" width="9.4" height="11.4" rx="1.6" />
@@ -155,7 +155,7 @@ export const UserTurn = memo(function UserTurn(p: {
           </svg>
           <span className="chip-label">{pa.name}</span>
           <span className="chip-lines">{t("chat.lines", { lines: String(pa.text.split("\n").length) })}</span>
-        </button>
+        </RowButton>
       ))}
       {p.editingText != null ? (
         <div className="edit-box-shell">
@@ -341,14 +341,14 @@ export function ResultCapsule(p: {
         )}
         <span className="capsule-actions">
           {p.isLastDone && p.onRevertTurn && (
-            <button type="button" className="capsule-act" title={t("chat.revert-title")}
+            <Button variant="ghost" className="capsule-act" title={t("chat.revert-title")}
               onClick={p.onRevertTurn}>
               {t("chat.revert-turn")}
-            </button>
+            </Button>
           )}
           {p.isLastDone && !review && (
-            <button
-              type="button"
+            <Button
+              variant="ghost"
               className="done-verify"
               title={t("review.verify")}
               onClick={p.onStartReview}
@@ -358,13 +358,12 @@ export function ResultCapsule(p: {
                 <path d="M5.8 8l1.6 1.6L10.5 6.3" />
               </svg>
               {t("review.verify-now")}
-            </button>
+            </Button>
           )}
         </span>
       </div>
       {p.isLastDone && review && (
-        <button
-          type="button"
+        <RowButton
           className={`review-badge v-${review.status === "running" ? "running" : review.verdict}`}
           disabled={!review.issues?.length}
           aria-expanded={p.reviewOpen}
@@ -374,7 +373,7 @@ export function ResultCapsule(p: {
             : review.verdict === "ok" ? t("review.ok")
             : review.verdict === "issues" ? t("review.issues", { n: review.issues?.length ?? 0 })
             : t("review.inconclusive")}
-        </button>
+        </RowButton>
       )}
       {p.isLastDone && p.reviewOpen && review?.issues?.length ? (
         <div className="review-detail">
@@ -503,9 +502,9 @@ export function ActiveTurnTail(p: {
           </div> : null}
         </ActivityDisclosure>
       )}
-      <button type="button" className="stop-hint" title={t("action.interrupt")} onClick={p.onStop}>
+      <RowButton className="stop-hint" title={t("action.interrupt")} onClick={p.onStop}>
         <kbd>esc</kbd> {t("action.interrupt")}
-      </button>
+      </RowButton>
     </div>
   );
 }

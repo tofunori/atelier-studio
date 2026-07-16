@@ -12,7 +12,7 @@ import {
   type HomeRelativeDate,
   type ResearchHomeModel,
 } from "../lib/researchHome";
-import { Button, EmptyState, InlineNotice, StatusBadge } from "./ui";
+import { Button, EmptyState, InlineNotice, RowButton, StatusBadge } from "./ui";
 import "../styles/research-home.css";
 
 /** Paquet passé d'App à la timeline (via Chat) — modèle dérivé + vrais workflows. */
@@ -210,29 +210,29 @@ export function ResearchHome(p: { model: ResearchHomeModel; actions: ResearchHom
     <section className="rh-section rh-sec-start" aria-label={t("home.start")}>
       <h2>{t("home.start")}</h2>
       <div className="rh-rows">
-        <button type="button" className="rh-row" onClick={actions.onNewChat}>
+        <RowButton className="rh-row" onClick={actions.onNewChat}>
           <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" aria-hidden="true">
             <path d="M8 3.5v9M3.5 8h9" />
           </svg>
           <span className="name">{t("action.new-chat")}</span>
-        </button>
-        <button type="button" className="rh-row" onClick={actions.onOpenPalette}>
+        </RowButton>
+        <RowButton className="rh-row" onClick={actions.onOpenPalette}>
           <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3" aria-hidden="true">
             <circle cx="7" cy="7" r="4" />
             <path d="M13 13l-3-3" strokeLinecap="round" />
           </svg>
           <span className="name">{t("home.search-file")}</span>
-        </button>
-        <button type="button" className="rh-row" onClick={actions.onOpenGallery}>
+        </RowButton>
+        <RowButton className="rh-row" onClick={actions.onOpenGallery}>
           {KIND_GLYPHS.figure}
           <span className="name">{t("home.open-gallery")}</span>
-        </button>
-        <button type="button" className="rh-row" onClick={actions.onResumeSession}>
+        </RowButton>
+        <RowButton className="rh-row" onClick={actions.onResumeSession}>
           <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
             <path d="M8 2.5v8M8 10.5L5 7.7M8 10.5l3-2.8M3 13.5h10" />
           </svg>
           <span className="name">{t("action.resume-session")}</span>
-        </button>
+        </RowButton>
       </div>
     </section>
   );
@@ -242,9 +242,8 @@ export function ResearchHome(p: { model: ResearchHomeModel; actions: ResearchHom
       <h2>{t("home.artefacts")}</h2>
       <div className="rh-rows">
         {model.artefacts.map((a) => (
-          <button
+          <RowButton
             key={a.rel}
-            type="button"
             className="rh-row"
             title={`${t("home.open-in-atelier")} — ${a.rel}`}
             onClick={() => actions.onOpenArtefact(a.rel)}
@@ -253,7 +252,7 @@ export function ResearchHome(p: { model: ResearchHomeModel; actions: ResearchHom
             <span className="name">{a.name}</span>
             {a.dir && <span className="src">{a.dir}</span>}
             <span className="kind">{t(KIND_KEYS[a.kind])}</span>
-          </button>
+          </RowButton>
         ))}
       </div>
     </section>

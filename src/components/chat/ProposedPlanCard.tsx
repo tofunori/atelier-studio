@@ -6,6 +6,7 @@ import { t } from "../../lib/i18n";
 import type { AgentEvent } from "../../lib/ws";
 import { wsSend } from "../../lib/wsBus";
 import { Tick } from "./toolPresentation";
+import { Button, IconButton } from "../ui";
 
 type PlanEvent = Extract<AgentEvent, { kind: "proposed_plan" }>;
 
@@ -44,32 +45,32 @@ export function ProposedPlanCard({ event, threadId }: { event: PlanEvent; thread
         <span className="proposed-plan-badge">{t("plan.badge")}</span>
         <span className="proposed-plan-title">{planTitle(event.markdown)}</span>
         {collapsible ? (
-          <button type="button" className="proposed-plan-expand" aria-expanded={expanded}
-            aria-label={expanded ? t("plan.collapse") : t("plan.expand")}
+          <IconButton className="proposed-plan-expand" aria-expanded={expanded}
+            label={expanded ? t("plan.collapse") : t("plan.expand")}
             onClick={() => setExpanded((value) => !value)}>
             <Tick open={expanded} />
-          </button>
+          </IconButton>
         ) : null}
       </header>
       <div className={`proposed-plan-body${!expanded && collapsible ? " is-preview" : ""}`}>
         <ReactMarkdown remarkPlugins={[remarkGfm]}>{markdown}</ReactMarkdown>
       </div>
       <footer className="proposed-plan-actions">
-        <button type="button" onClick={async () => {
+        <Button variant="ghost" onClick={async () => {
           try {
             await navigator.clipboard.writeText(event.markdown);
             setStatus(t("plan.copied"));
           } catch {
             setStatus(t("plan.unavailable"));
           }
-        }}>{t("action.copy")}</button>
-        <button type="button" onClick={() => sendSave({ type: "savePlan", fileName })}>
+        }}>{t("action.copy")}</Button>
+        <Button variant="secondary" onClick={() => sendSave({ type: "savePlan", fileName })}>
           {t("plan.save-project")}
-        </button>
-        <button type="button" onClick={async () => {
+        </Button>
+        <Button variant="secondary" onClick={async () => {
           const path = await save({ defaultPath: fileName, filters: [{ name: "Markdown", extensions: ["md"] }] });
           if (typeof path === "string") sendSave({ type: "exportPlan", path });
-        }}>{t("plan.export")}</button>
+        }}>{t("plan.export")}</Button>
         {status ? <span className="proposed-plan-status" role="status">{status}</span> : null}
       </footer>
     </section>

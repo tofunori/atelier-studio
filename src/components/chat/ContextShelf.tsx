@@ -32,6 +32,7 @@ import {
   PopoverTrigger,
 } from "../shadcn/popover";
 import { citeLabel } from "./turnParts";
+import { RowButton } from "../ui";
 
 export type ShelfAttachment = {
   name: string;
@@ -101,8 +102,7 @@ export function ContextShelf(p: {
     <AttachmentGroup className="chips-row" aria-label={t("context.attachments")}>
       {p.attachments.map((attachment, index) => attachment.imageUrl ? (
         <Attachment key={index} size="xs" orientation="vertical" className="context-attachment-image">
-          <button
-            type="button"
+          <RowButton
             className="tw:flex tw:w-full tw:min-w-0 tw:cursor-zoom-in tw:flex-col tw:items-stretch tw:rounded-[inherit] tw:border-0 tw:bg-transparent tw:p-0 tw:text-left tw:text-inherit tw:outline-none tw:focus-visible:ring-2 tw:focus-visible:ring-ring/60"
             aria-label={t("context.preview-image", { name: attachment.name })}
             onClick={() => setExpandedImageIndex(
@@ -116,7 +116,7 @@ export function ContextShelf(p: {
               <AttachmentTitle title={attachment.name}>{citeLabel(attachment.name)}</AttachmentTitle>
               <AttachmentDescription>{t("context.kind-image")}</AttachmentDescription>
             </AttachmentContent>
-          </button>
+          </RowButton>
           <AttachmentActions>
             <AttachmentAction
               type="button"

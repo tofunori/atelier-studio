@@ -11,6 +11,7 @@ import { wsSend } from "../lib/wsBus";
 import { t } from "../lib/i18n";
 const tr = t; // alias historique (t masqué par des variables locales dans les .map)
 import { LazyDropdownMenuItem } from "./ui/LazyDropdownMenu";
+import { Button, RowButton } from "./ui";
 import {
   Sidebar as ShadcnSidebar,
   SidebarContent,
@@ -493,14 +494,14 @@ export default function Sidebar(p: {
                     ))}
                   </SidebarMenu>
                   {model.hiddenCount > 0 && (
-                    <button type="button" className="pnav-more" onClick={() => setExpanded(true)}>
+                    <Button variant="ghost" className="pnav-more" onClick={() => setExpanded(true)}>
                       {t("sidebar.older-count", { count: model.hiddenCount })}
-                    </button>
+                    </Button>
                   )}
                   {expanded && !model.searching && shownConversations > CONVERSATIONS_VISIBLE && (
-                    <button type="button" className="pnav-more" onClick={() => setExpanded(false)}>
+                    <Button variant="ghost" className="pnav-more" onClick={() => setExpanded(false)}>
                       {t("sidebar.show-less")}
-                    </button>
+                    </Button>
                   )}
                 </SidebarGroupContent>
               </SidebarGroup>
@@ -515,9 +516,9 @@ export default function Sidebar(p: {
           <div className="rail-menu-title">{t("sidebar.resume-title")}</div>
           <div className="seg">
             {(["claude", "codex"] as const).map((pv) => (
-              <button key={pv} className={resumeProv === pv ? "on" : ""} onClick={() => openResume(pv)}>
+              <RowButton key={pv} className={resumeProv === pv ? "on" : ""} onClick={() => openResume(pv)}>
                 {pv === "claude" ? "Claude" : "Codex"}
-              </button>
+              </RowButton>
             ))}
           </div>
           <input
@@ -549,7 +550,7 @@ export default function Sidebar(p: {
               </div>
             ))}
           </div>
-          <button className="set-btn" onClick={() => setResumeOpen(false)}>{t("sidebar.close")}</button>
+          <Button variant="secondary" className="set-btn" onClick={() => setResumeOpen(false)}>{t("sidebar.close")}</Button>
         </div>
       )}
 

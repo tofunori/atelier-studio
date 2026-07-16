@@ -4,6 +4,7 @@ import { localImagePreviewUrl } from "../../lib/localImage";
 import { t } from "../../lib/i18n";
 import { Button } from "../shadcn/button";
 import { Dialog, DialogClose, DialogContent, DialogTitle } from "../shadcn/dialog";
+import { RowButton } from "../ui";
 
 function imageName(path: string): string {
   const clean = path.split(/[?#]/u, 1)[0] ?? path;
@@ -65,12 +66,12 @@ export function ImageViewPreview({ paths }: { paths: string[] }) {
           const url = urls[index];
           const name = imageName(path);
           return (
-            <button type="button" key={`${path}:${index}`} className="image-view-thumbnail" disabled={!url}
+            <RowButton key={`${path}:${index}`} className="image-view-thumbnail" disabled={!url}
               aria-label={t("context.preview-image", { name })} onClick={() => setExpandedIndex(index)}>
               {url ? <img src={url} alt={name} draggable={false} />
                 : failed.has(index) ? <ImageOffIcon aria-hidden="true" />
                 : <span className="image-view-loading" aria-hidden="true" />}
-            </button>
+            </RowButton>
           );
         })}
       </div>

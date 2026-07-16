@@ -6,6 +6,7 @@ import { eventLabel, t } from "../lib/i18n";
 import { buildHighlightContext } from "../lib/highlightContext";
 import type { HighlightEntry } from "./Rail";
 import { CloseIcon } from "./icons";
+import { Button, IconButton } from "./ui";
 import { ProviderInfo, providerAllowsCommand } from "../lib/providers";
 import { ImageViewPreview } from "./chat/ImageViewPreview";
 import { ToolOutputLine, imagePathsForActions, isSummarizableTool, Tick, toolCategory } from "./chat/toolPresentation";
@@ -994,15 +995,15 @@ export default function Chat(p: {
               <span className="paste-modal-title">{pasteView.name}</span>
               <span className="paste-modal-lines">{t("chat.lines", { lines: String(pasteView.text.split("\n").length) })}</span>
               <span className="flex" />
-              <button type="button" className="ghost" onClick={() => {
+              <Button variant="ghost" className="ghost" onClick={() => {
                 navigator.clipboard.writeText(pasteView.text);
                 setPasteCopied(true);
               }}>
                 {pasteCopied ? t("chat.output-copied") : t("chat.output-copy")}
-              </button>
-              <button type="button" className="ghost" onClick={() => setPasteView(null)}>
+              </Button>
+              <IconButton className="ghost" label={t("action.close")} onClick={() => setPasteView(null)}>
                 <CloseIcon />
-              </button>
+              </IconButton>
             </div>
             <div className="paste-modal-body">{pasteView.text}</div>
           </div>

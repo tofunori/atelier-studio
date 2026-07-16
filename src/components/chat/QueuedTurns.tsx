@@ -15,6 +15,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "../shadcn/dropdown-menu";
+import { IconButton, RowButton } from "../ui";
 
 export function QueuedTurns({
   turns,
@@ -58,8 +59,7 @@ export function QueuedTurns({
             setOverId(null);
           }}
         >
-          <button
-            type="button"
+          <RowButton
             className="queued-turn-drag"
             draggable
             aria-label={t("queue.drag")}
@@ -75,7 +75,7 @@ export function QueuedTurns({
             }}
           >
             <GripVerticalIcon aria-hidden="true" />
-          </button>
+          </RowButton>
           <div className="queued-turn-copy">
             <span className="queued-turn-prompt">{turn.prompt}</span>
             {turn.attachments.length ? (
@@ -85,30 +85,28 @@ export function QueuedTurns({
             ) : null}
           </div>
           <div className="queued-turn-actions">
-            <button
-              type="button"
+            <RowButton
               className="queued-turn-steer"
               title={t("action.send-now")}
               onClick={() => onSteer(turn.id)}
             >
               <CornerUpRightIcon aria-hidden="true" />
               <span>{t("queue.send-now")}</span>
-            </button>
-            <button
-              type="button"
+            </RowButton>
+            <IconButton
               className="queued-turn-icon"
               onClick={() => onRemove(turn.id)}
-              aria-label={t("queue.delete")}
+              label={t("queue.delete")}
               title={t("queue.delete")}
             >
               <Trash2Icon aria-hidden="true" />
-            </button>
+            </IconButton>
             <DropdownMenu>
               <DropdownMenuTrigger
                 render={(
-                  <button type="button" className="queued-turn-icon" aria-label={t("queue.more")} title={t("queue.more")}>
+                  <RowButton className="queued-turn-icon" aria-label={t("queue.more")} title={t("queue.more")}>
                     <MoreHorizontalIcon aria-hidden="true" />
-                  </button>
+                  </RowButton>
                 )}
               />
               <DropdownMenuContent side="top" align="end" sideOffset={6} className="queued-turn-menu tw:w-48">

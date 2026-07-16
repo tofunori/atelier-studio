@@ -4,7 +4,7 @@ import { t } from "../lib/i18n";
 import { CloseIcon, PanelIcon, SearchIcon, StarIcon } from "./icons";
 import { Select } from "./Select";
 import { Input } from "./shadcn/input";
-import { Button, IconButton } from "./ui";
+import { Button, IconButton, RowButton } from "./ui";
 
 type ZoteroItem = {
   key: string;
@@ -390,15 +390,14 @@ export default function BiblioSurface({
               key={item.key}
               className={`biblio-row ${selected?.key === item.key ? "on" : ""}`}
             >
-              <button
-                type="button"
+              <RowButton
                 className="biblio-main-button"
                 onClick={() => { setSelectedKey(item.key); setPassageTarget(null); if (!readerOpen && item.hasPdf) toggleReader(); }}
                 title={item.title}
               >
                 <span className="biblio-title">{item.title}</span>
                 <span className="biblio-meta">{creatorLine(item)}</span>
-              </button>
+              </RowButton>
               <IconButton
                 className={`biblio-star ${item.fav ? "on" : ""}`}
                 label={item.fav ? t("action.remove-favorite") : t("action.add-favorite")}

@@ -18,6 +18,7 @@ import {
 import { Button } from "../ui/Button";
 import { IconButton } from "../ui/IconButton";
 import { Tooltip } from "../ui/Tooltip";
+import { RowButton } from "../ui";
 import { Kbd } from "../shadcn/kbd";
 import type { FollowUpMode } from "../../lib/chatDraftStore";
 import { ArrowUpIcon, SquareIcon } from "lucide-react";
@@ -225,7 +226,7 @@ export function ComposerControls(p: {
           )}
           <span className="flex" />
           {p.usage && (
-            <button type="button" className="ctx-ring-wrap"
+            <RowButton className="ctx-ring-wrap"
               aria-label={t("chat.context-window")}>
               {(() => {
                 // Priorité : window fourni par le provider (Codex, Grok registry),
@@ -260,11 +261,10 @@ export function ComposerControls(p: {
                   </>
                 );
               })()}
-            </button>
+            </RowButton>
           )}
           <span className="model-pick" onClick={(e) => e.stopPropagation()}>
-            <button
-              type="button"
+            <RowButton
               ref={modelBtnRef}
               className="mp-btn mp-model"
               aria-haspopup="menu"
@@ -277,7 +277,7 @@ export function ComposerControls(p: {
               }}
             >
               <span className={!model ? "mp-dim" : undefined}>{modelButtonLabel}</span>
-            </button>
+            </RowButton>
             {menuOpen && (() => {
               const visibleProviders = orderedVisibleProviders(
                 p.providers?.length ? p.providers : ([
@@ -297,9 +297,8 @@ export function ComposerControls(p: {
                   onKeyDown={menuKeys(() => setMenuOpen(false), modelBtnRef)}>
                   <div className="model-provider-tabs" aria-label="Provider">
                     {visibleProviders.map((info) => (
-                      <button
+                      <RowButton
                         key={info.id}
-                        type="button"
                         role="menuitemradio"
                         aria-checked={menuProvider === info.id}
                         className={`model-provider-tab ${menuProvider === info.id ? "active" : ""}`}
@@ -307,7 +306,7 @@ export function ComposerControls(p: {
                       >
                         <ProviderIcon provider={info.id} size={12} />
                         <span>{info.label}</span>
-                      </button>
+                      </RowButton>
                     ))}
                   </div>
                   {false && <div className="model-provider-list model-effort-legacy" aria-hidden="true">
@@ -393,8 +392,7 @@ export function ComposerControls(p: {
                         // interactifs JAMAIS imbriqués (contrat ThreadRow) :
                         // rangée = wrapper, sélection et favori = boutons frères
                         <div key={key} className={`mp-item model-row ${active ? "active" : ""}`}>
-                          <button
-                            type="button"
+                          <RowButton
                             role="menuitemradio"
                             aria-checked={active}
                             className="mp-row-main"
@@ -406,7 +404,7 @@ export function ComposerControls(p: {
                             }}
                           >
                             <span>{modelLabel(m, menuProvider)}</span>
-                          </button>
+                          </RowButton>
                           <span className="mp-end">
                             {active && <span className="mp-check">✓</span>}
                             <Toggle
@@ -431,7 +429,7 @@ export function ComposerControls(p: {
                           { id: "200k", label: t("chat.context-200k"), on: provider === "claude" && !model.includes("[1m]") },
                           { id: "1m", label: "1M", on: provider === "claude" && model.includes("[1m]") },
                         ].map((ctx) => (
-                          <button key={ctx.id} type="button" role="menuitemradio" aria-checked={ctx.on}
+                          <RowButton key={ctx.id} role="menuitemradio" aria-checked={ctx.on}
                             className="mp-item model-row"
                             onClick={() => {
                               if (ctx.id === "1m" && !model.includes("[1m]")) {
@@ -442,7 +440,7 @@ export function ComposerControls(p: {
                             }}>
                             <span>{ctx.label}</span>
                             {ctx.on && <span className="mp-check">✓</span>}
-                          </button>
+                          </RowButton>
                         ))}
                       </>
                     )}
@@ -454,8 +452,7 @@ export function ComposerControls(p: {
           </span>
           {effortLevels.length >= 2 && (
             <span className="effort-pick" onClick={(e) => e.stopPropagation()}>
-              <button
-                type="button"
+              <RowButton
                 ref={effortBtnRef}
                 className="mp-btn mp-effort"
                 aria-haspopup="dialog"
@@ -467,7 +464,7 @@ export function ComposerControls(p: {
                 }}
               >
                 {effortSummary}
-              </button>
+              </RowButton>
               {effortOpen && (
                 <div
                   className="mp-menu effort-menu"

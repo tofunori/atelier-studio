@@ -6,6 +6,7 @@ import { AgentEvent } from "../../lib/ws";
 import { eventLabel, t } from "../../lib/i18n";
 import type { PluginCatalogEntry } from "../../lib/plugins";
 import { highlightCode } from "./md";
+import { RowButton } from "../ui";
 
 export type ToolCat =
   | "search" | "read" | "list" | "edit" | "command" | "web" | "todo"
@@ -91,7 +92,7 @@ export function ToolOutputLine({ event }: { event: Extract<AgentEvent, { kind: "
   const summary = event.detail || toolOutputSummary(output) || (inputView ? "input" : "");
   return (
     <div className={`tool-output ${open ? "open" : "collapsed"} ${failed ? "failed" : ""}`}>
-      <button type="button" className="tool-output-head" onClick={() => setOpen((v) => !v)}>
+      <RowButton className="tool-output-head" onClick={() => setOpen((v) => !v)}>
         <Tick open={open} />
         <span className="tool-output-name">
           {eventLabel(event.name)}
@@ -99,7 +100,7 @@ export function ToolOutputLine({ event }: { event: Extract<AgentEvent, { kind: "
         </span>
         {summary && <span className="tool-output-summary">{summary}</span>}
         {event.status && <span className="tool-status">{event.status}</span>}
-      </button>
+      </RowButton>
       {open && (inputView || output.trim()) && (
         <div className="tool-output-body">
           {inputView && (

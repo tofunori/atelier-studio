@@ -37,6 +37,7 @@ import { LazyDialog } from "./components/ui/LazyDialog";
 import { Button } from "./components/ui/Button";
 import { IconButton } from "./components/ui/IconButton";
 import { showError, showInfo, showSuccess } from "./components/ui/toast";
+import { RowButton } from "./components/ui";
 import UsagePopover, { worstOf } from "./components/UsagePopover";
 import { pluginSkillsForPrompt, type PluginCatalogEntry } from "./lib/plugins";
 import { init as initNotify, notifyRunDone, notifyReview } from "./lib/notify";
@@ -383,16 +384,16 @@ function HighlightsPanel(p: {
       </div>
       {!!groups.length && (
         <div className="hl-chips">
-          <button type="button" className={`chip ${p.filterProject == null ? "on" : ""}`}
+          <RowButton className={`chip ${p.filterProject == null ? "on" : ""}`}
             onClick={() => p.onSetFilterProject(null)}>
             {t("highlights.all-count", { n: p.highlights.length })}
-          </button>
+          </RowButton>
           {groups.map((g) => (
-            <button key={g.key} type="button" className={`chip ${p.filterProject === g.key ? "on" : ""}`}
+            <RowButton key={g.key} className={`chip ${p.filterProject === g.key ? "on" : ""}`}
               onClick={() => p.onSetFilterProject(p.filterProject === g.key ? null : g.key)}>
               <span className="hl-dot" style={{ background: p.projMeta[g.projectRoot]?.color || "var(--muted2)" }} />
               {g.projectName || t("highlights.no-project")} · {g.count}
-            </button>
+            </RowButton>
           ))}
         </div>
       )}
@@ -3287,12 +3288,12 @@ export default function App() {
                 const info = providerList.find((item) => item.id === provider);
                 const available = info?.ok !== false;
                 return (
-                  <button type="button" key={provider} className="provider-new-card" disabled={!available}
+                  <RowButton key={provider} className="provider-new-card" disabled={!available}
                     onClick={() => createChat(newChatRequest.projectRoot, provider)}>
                     <ProviderIcon provider={provider} size={18} />
                     <span>{info?.label ?? provider[0].toUpperCase() + provider.slice(1)}</span>
                     <small>{available ? t("app.independent-chat") : t("app.provider-unavailable")}</small>
-                  </button>
+                  </RowButton>
                 );
               })}
             </div>

@@ -7,7 +7,7 @@ import { wsSend } from "../lib/wsBus";
 import type { ProviderInfo } from "../lib/providers";
 import { modelDisplayLabel } from "../lib/modelCatalog";
 import { Textarea } from "./shadcn/textarea";
-import { Button, IconButton } from "./ui";
+import { Button, IconButton, RowButton } from "./ui";
 import { Select as ProductSelect } from "./Select";
 import { Button as ShadcnButton } from "./shadcn/button";
 import { Field, FieldGroup, FieldLabel } from "./shadcn/field";
@@ -401,14 +401,14 @@ export default function QuickAsk({
           <div className="qa-recents">
             {loadRecents().length === 0 && <div className="qa-empty">{t("qa.no-recents")}</div>}
             {loadRecents().map((r) => (
-              <button key={r.qaId} className="qa-recent-row" onClick={() => {
+              <RowButton key={r.qaId} className="qa-recent-row" onClick={() => {
                 setQaId(r.qaId);
                 setMsgs(r.msgs);
                 setRecentsOpen(false);
               }}>
                 <span className="qa-recent-q">{r.msgs.find((m) => m.role === "user")?.text.slice(0, 60) ?? "—"}</span>
                 <span className="qa-recent-ts">{new Date(r.ts).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</span>
-              </button>
+              </RowButton>
             ))}
           </div>
         )}

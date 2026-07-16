@@ -75,10 +75,10 @@ export function DoneDiffToggle({ event, threadId }: {
       >
         <span>{t("chat.files-modified", { count: files.length })}</span>
         <Tick open={open} />
-      </button>
+      </RowButton>
       {event.checkpoint ? (
-        <button
-          type="button"
+        <Button
+          variant="danger"
           className="turn-diff-undo"
           title={t("checkpoint.files-title")}
           onClick={() => {
@@ -93,7 +93,7 @@ export function DoneDiffToggle({ event, threadId }: {
           }}
         >
           {t("checkpoint.undo-files")}
-        </button>
+        </Button>
       ) : null}
       {open && <div className="turn-diff-files">
         {files.map((path) => {
@@ -170,8 +170,7 @@ export function EditLine({ event, threadId }: {
         return (
           <div key={f.path} className="edit-line">
             <div className="edit-line-row" title={f.path}>
-              <button
-                type="button"
+              <RowButton
                 className="edit-line-open"
                 onClick={() => openFileRef(f.path, { diff: true, baseSha: event.baseSha })}
                 title={`${t("action.open-file", { ref: f.path })} · diff avant/après`}
@@ -181,12 +180,12 @@ export function EditLine({ event, threadId }: {
                 <span className="edit-line-file">{base}</span>
                 {f.add != null && <span className="edit-line-add">+{f.add}</span>}
                 {f.del != null && <span className="edit-line-del">-{f.del}</span>}
-              </button>
-              <button
-                type="button"
+              </RowButton>
+              <IconButton
+                label="diff"
+                title="diff"
                 className="edit-line-difftoggle"
                 aria-expanded={open}
-                title="diff"
                 onClick={() => {
                   const next = open ? null : f.path;
                   setOpenPath(next);
@@ -217,7 +216,7 @@ export function EditLine({ event, threadId }: {
                 }}
               >
                 <Tick open={open} />
-              </button>
+              </IconButton>
             </div>
             {open && (
               <div className="turn-diff-body">
@@ -288,11 +287,11 @@ export function ThinkingBlock({ text, live }: { text: string; live: boolean }) {
   if (!normalized) return null;
   return (
     <div className={`thinking ${live ? "live" : ""}`}>
-      <button type="button" className="thinking-head" onClick={() => setOpen((v) => !v)}>
+      <RowButton className="thinking-head" onClick={() => setOpen((v) => !v)}>
         <Tick open={open} />
         <span className="thinking-label">{live ? t("chat.thinking-live") : t("chat.thinking")}</span>
         {!open && <span className="thinking-preview">{preview}</span>}
-      </button>
+      </RowButton>
       {open && <div className="thinking-body">{normalized}</div>}
     </div>
   );
@@ -328,15 +327,14 @@ export function ReasoningTrace({ texts }: { texts: string[] }) {
   if (!summary) return null;
   return (
     <div className="reasoning-trace">
-      <button
-        type="button"
+      <RowButton
         className="reasoning-trace-head"
         aria-expanded={open}
         onClick={() => setOpen((value) => !value)}
       >
         <span className="reasoning-trace-summary">{summary}</span>
         <Tick open={open} />
-      </button>
+      </RowButton>
       {open ? <div className="reasoning-trace-body">{normalized.join("\n\n")}</div> : null}
     </div>
   );

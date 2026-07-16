@@ -12,7 +12,7 @@ import type { PluginCatalogEntry } from "../../lib/plugins";
 import { transitionScrollPolicy } from "../../lib/chat/scrollPolicy";
 import { t } from "../../lib/i18n";
 import { isValidSkill } from "./mentions";
-import { ZapIcon } from "../icons";
+import { CloseIcon, MinusIcon, ZapIcon } from "../icons";
 import {
   ChatEmptyState, UserTurn, StreamingText, AssistantText, ResultCapsule,
   ActivityFold, ActivityGroup, ActiveTurnHeader, ActiveTurnTail, type ReviewState,
@@ -21,7 +21,7 @@ import { ResearchHome, type ResearchHomeBundle } from "../ResearchHome";
 import { ThinkingBlock, EditLine, ActivityCard, LiveThinking, Working, formatPermInput } from "./turnParts";
 import { HarnessInteraction } from "./HarnessInteraction";
 import { ProposedPlanCard } from "./ProposedPlanCard";
-import { ScrollToBottomButton } from "../ui";
+import { Button, IconButton, RowButton, ScrollToBottomButton } from "../ui";
 import { Input } from "../shadcn/input";
 import {
   AgentActivityGroup,
@@ -220,7 +220,7 @@ export function ChatTimeline(p: {
   return (
     <>
       {threadId && review && reviewMin && (
-        <button
+        <RowButton
           className={`reviewer-strip v-${review.status === "running" ? "running" : review.verdict}`}
           title={t("review.expand")}
           aria-label={
@@ -240,8 +240,7 @@ export function ChatTimeline(p: {
           <div
             className={`reviewer-bar v-${review.status === "running" ? "running" : review.verdict} ${review.status === "done" ? "clickable" : ""}`}
           >
-            <button
-              type="button"
+            <RowButton
               className="rb-main"
               onClick={() => review.status === "done" && setBarOpen((v) => !v)}
             >
@@ -269,9 +268,9 @@ export function ChatTimeline(p: {
                 </>
               )}
               {review.status === "done" ? <span className="rb-chevron"><Tick open={barOpen} /></span> : null}
-            </button>
-            <button type="button" className="rb-min" title={t("review.minimize")} aria-label={t("review.minimize")} onClick={(e) => { e.stopPropagation(); setBarOpen(false); setReviewMin(true); }}>–</button>
-            <button type="button" className="rb-close" title={t("review.close")} aria-label={t("review.close")} onClick={(e) => { e.stopPropagation(); setReview(null); }}>✕</button>
+            </RowButton>
+            <IconButton size="s" className="rb-min" title={t("review.minimize")} label={t("review.minimize")} onClick={(e) => { e.stopPropagation(); setBarOpen(false); setReviewMin(true); }}><MinusIcon size={11} /></IconButton>
+            <IconButton size="s" className="rb-close" title={t("review.close")} label={t("review.close")} onClick={(e) => { e.stopPropagation(); setReview(null); }}><CloseIcon size={11} /></IconButton>
           </div>
           {barOpen && review.status === "done" ? (
             <div className="reviewer-menu">
@@ -284,7 +283,8 @@ export function ChatTimeline(p: {
                       {iss.fix && <div className="rm-fix">→ {iss.fix}</div>}
                     </div>
                   ))}
-                  <button
+                  <Button
+                    variant="primary"
                     className="rm-correct"
                     disabled={fixing}
                     onClick={() => {
@@ -294,7 +294,7 @@ export function ChatTimeline(p: {
                     }}
                   >
                     {fixing ? t("review.fixing") : t("review.correct")}
-                  </button>
+                  </Button>
                 </>
               ) : (
                 <div className="rm-ok">{t("review.ok-detail")}</div>
@@ -360,9 +360,9 @@ export function ChatTimeline(p: {
                     <Working since={workingSince!} />
                   </div>
                   <LiveThinking />
-                  <button type="button" className="stop-hint" title={t("action.interrupt")} onClick={onStop}>
+                  <RowButton className="stop-hint" title={t("action.interrupt")} onClick={onStop}>
                     <kbd>esc</kbd> {t("action.interrupt")}
-                  </button>
+                  </RowButton>
                 </div>
               </div>
             );
@@ -507,8 +507,8 @@ export function ChatTimeline(p: {
                 {e.input ? <pre className="perm-input">{formatPermInput(e.toolName, e.input)}</pre> : null}
                 {e.answered == null ? (
                   <div className="perm-actions">
-                    <button className="perm-allow" onClick={() => window.dispatchEvent(new CustomEvent("permission-answer", { detail: { threadId: threadId, requestId: e.requestId, allow: true } }))}>{t("perm.allow")}</button>
-                    <button className="perm-deny" onClick={() => window.dispatchEvent(new CustomEvent("permission-answer", { detail: { threadId: threadId, requestId: e.requestId, allow: false } }))}>{t("perm.deny")}</button>
+                    <Button variant="primary" className="perm-allow" onClick={() => window.dispatchEvent(new CustomEvent("permission-answer", { detail: { threadId: threadId, requestId: e.requestId, allow: true } }))}>{t("perm.allow")}</Button>
+                    <Button variant="secondary" className="perm-deny" onClick={() => window.dispatchEvent(new CustomEvent("permission-answer", { detail: { threadId: threadId, requestId: e.requestId, allow: false } }))}>{t("perm.deny")}</Button>
                   </div>
                 ) : (
                   <div className="perm-verdict">{e.answered ? t("perm.allowed") : t("perm.denied")}</div>
@@ -646,10 +646,10 @@ export function ChatTimeline(p: {
               { id: "square", el: <span className="chapter-bar st-square" style={{ background: "var(--fg2)" }} /> },
               { id: "flag", el: <span className="chapter-bar st-flag" style={{ background: "var(--fg2)" }} /> },
             ].map((st) => (
-              <button key={st.id} type="button" className="pin-style-btn"
+              <RowButton key={st.id} className="pin-style-btn"
                 onClick={() => { onStylePin(pinMenu.index, { style: st.id }); setPinMenu(null); }}>
                 {st.el}
-              </button>
+              </RowButton>
             ))}
           </div>
           <div className="danger" onClick={() => {
@@ -663,7 +663,7 @@ export function ChatTimeline(p: {
       )}
       {quote && (
         <div className="sel-toolbar" style={{ left: quote.x, top: quote.y - 44 }}>
-          <button
+          <RowButton
             onMouseDown={(e) => {
               e.preventDefault();
               if (quoteHasHl) removeMark(quote.text, "hl"); else addMark(quote.text, "hl");
@@ -675,8 +675,8 @@ export function ChatTimeline(p: {
               <path d="M10.5 2.5l3 3L6 13H3v-3z" /><path d="M9 4l3 3" />
             </svg>
             {quoteHasHl ? t("chat.remove-highlight") : t("chat.highlight")}
-          </button>
-          <button
+          </RowButton>
+          <RowButton
             onMouseDown={(e) => {
               e.preventDefault();
               if (quoteHasUl) removeMark(quote.text, "ul"); else addMark(quote.text, "ul");
@@ -688,8 +688,8 @@ export function ChatTimeline(p: {
               <path d="M4 2.5v5a4 4 0 008 0v-5" /><path d="M3.5 13.5h9" />
             </svg>
             {quoteHasUl ? t("chat.remove-underline") : t("chat.underline")}
-          </button>
-          <button
+          </RowButton>
+          <RowButton
             onMouseDown={(e) => {
               e.preventDefault();
               window.dispatchEvent(new CustomEvent("quick-ask-open", { detail: { context: quote.text } }));
@@ -699,8 +699,8 @@ export function ChatTimeline(p: {
           >
             <ZapIcon />
             {t("qa.title")}
-          </button>
-          <button
+          </RowButton>
+          <RowButton
             onMouseDown={(e) => {
               e.preventDefault();
               onQuote(quote.text);
@@ -712,7 +712,7 @@ export function ChatTimeline(p: {
               <path d="M14 8c0 3-2.7 5.2-6 5.2-.8 0-1.6-.1-2.3-.4L2.5 14l1-2.6C2.6 10.5 2 9.3 2 8c0-3 2.7-5.2 6-5.2S14 5 14 8z" />
             </svg>
             {t("action.add-to-chat")}
-          </button>
+          </RowButton>
         </div>
       )}
       </div>

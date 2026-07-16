@@ -8,6 +8,7 @@ import { Button } from "../shadcn/button";
 import { Message, MessageContent, MessageGroup } from "../shadcn/message";
 import { ScrollArea } from "../shadcn/scroll-area";
 import { Separator } from "../shadcn/separator";
+import { RowButton } from "../ui";
 
 export type AgentToolAction = Extract<AgentEvent, { kind: "tool_update" }> & {
   agentActivity: NonNullable<Extract<AgentEvent, { kind: "tool_update" }>["agentActivity"]>;
@@ -157,16 +158,15 @@ export function AgentActivityGroup({
   return (
     <div className="agent-activity-group" data-testid="subagent-activity-inline-group">
       {visible.map((agent) => (
-        <button
+        <RowButton
           key={agent.threadId}
-          type="button"
           className="agent-chip"
           aria-label={t("chat.subagent-open", { name: agent.displayName })}
           onClick={() => onOpenAgent(agent)}
         >
           <AgentGlyph seed={agent.threadId} size={18} />
           <span>{agent.displayName}</span>
-        </button>
+        </RowButton>
       ))}
       {hidden > 0 ? <span className="agent-group-status">{t("chat.subagents-more", { count: hidden })} </span> : null}
       <span className="agent-group-status">{groupStatus(agents)}</span>

@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { t } from "../lib/i18n";
 import { SearchIcon, ZapIcon, PlusIcon } from "./icons";
-import { Button, IconButton, SegmentedControl } from "./ui";
+import { Button, IconButton, RowButton, SegmentedControl } from "./ui";
 import { LazyDropdownMenu } from "./ui/LazyDropdownMenu";
 import { projInitial, type ProjMeta } from "./Rail";
 import { ProjIcon } from "./Sidebar";
@@ -93,7 +93,7 @@ export default function TopBar({
             align="start"
             className="proj-menu proj-menu--shadcn"
             trigger={
-              <button type="button" className="topbar-crumb" title={shortPath(activeProject)}
+              <RowButton className="topbar-crumb" title={shortPath(activeProject)}
                 style={{ "--pc": color } as React.CSSProperties}>
                 <span className="crumb-tile">
                   {meta?.label?.startsWith("icon:")
@@ -102,7 +102,7 @@ export default function TopBar({
                 </span>
                 <span className="topbar-crumb-name">{displayName(activeProject, meta)}</span>
                 <svg className="crumb-chev" width="9" height="9" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.8"><path d="M4 6l4 4 4-4" /></svg>
-              </button>
+              </RowButton>
             }
             header={
               <>

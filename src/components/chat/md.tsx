@@ -11,6 +11,7 @@ import { LruCache } from "../../lib/lruCache";
 import { MermaidBlock } from "../MermaidBlock";
 import { CopyIcon } from "../icons";
 import { openUrl } from "@tauri-apps/plugin-opener";
+import { IconButton, RowButton } from "../ui";
 
 hljs.registerLanguage("julia", julia);
 hljs.registerLanguage("latex", latex);
@@ -142,11 +143,10 @@ export function renderCodeBlock(props: any, highlight: boolean) {
     <div className="codeblock not-typeset">
       <div className="codeblock-bar">
         <span className="codeblock-lang">{label}</span>
-        <button
-          type="button"
+        <IconButton
           className={`codeblock-copy${copied ? " copied" : ""}`}
+          label={copied ? t("chat.output-copied") : t("chat.output-copy")}
           title={copied ? t("chat.output-copied") : t("chat.output-copy")}
-          aria-label={copied ? t("chat.output-copied") : t("chat.output-copy")}
           onClick={() => {
             void navigator.clipboard.writeText(raw).then(() => {
               setCopied(true);
@@ -155,7 +155,7 @@ export function renderCodeBlock(props: any, highlight: boolean) {
           }}
         >
           <CopyIcon size={12} />
-        </button>
+        </IconButton>
       </div>
       <pre>
         <code
@@ -205,22 +205,22 @@ export const MD_COMPONENTS = {
     const passage = parseZoteroPassageRef(href);
     if (passage)
       return (
-        <button className="file-ref zotero-passage-ref" onClick={() => openZoteroPassage(passage)} title={`Ouvrir le PDF à la page ${passage.page}`}>
+        <RowButton className="file-ref zotero-passage-ref" onClick={() => openZoteroPassage(passage)} title={`Ouvrir le PDF à la page ${passage.page}`}>
           <svg width="10" height="10" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5">
             <path d="M3 1.8h7l3 3v9.4H3z" /><path d="M10 1.8v3h3M5.2 8h5.6M5.2 10.5h4" />
           </svg>
           {label}
-        </button>
+        </RowButton>
       );
     const ref = FILE_REF.test(label) ? label : FILE_REF.test(href) ? href : null;
     if (ref)
       return (
-        <button className="file-ref" onClick={() => openFileRef(ref)} title={t("action.open-file", { ref })}>
+        <RowButton className="file-ref" onClick={() => openFileRef(ref)} title={t("action.open-file", { ref })}>
           <svg width="10" height="10" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5">
             <path d="M4 1.8h5.2L13 5.6v8.6H4z" /><path d="M9 1.8v4h4" />
           </svg>
           {label}
-        </button>
+        </RowButton>
       );
     return (
       <a
@@ -236,12 +236,12 @@ export const MD_COMPONENTS = {
     const txt = mdText(props.children);
     if (!props.className && FILE_REF.test(txt))
       return (
-        <button className="file-ref" onClick={() => openFileRef(txt)} title={t("action.open-file", { ref: txt })}>
+        <RowButton className="file-ref" onClick={() => openFileRef(txt)} title={t("action.open-file", { ref: txt })}>
           <svg width="10" height="10" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5">
             <path d="M4 1.8h5.2L13 5.6v8.6H4z" /><path d="M9 1.8v4h4" />
           </svg>
           {txt}
-        </button>
+        </RowButton>
       );
     return <code className={props.className}>{props.children}</code>;
   },

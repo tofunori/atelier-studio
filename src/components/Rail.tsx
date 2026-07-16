@@ -7,6 +7,7 @@ import { ProjectStyleMenu } from "./sidebar/ProjectStyleMenu";
 import { SURFACES, type Surface } from "./surfaces";
 import type { ViewId } from "../lib/settings";
 import { IconButton } from "./ui/IconButton";
+import { RowButton } from "./ui";
 
 export type ProjMeta = { color?: string; label?: string };
 
@@ -115,7 +116,7 @@ export default function Rail(p: {
         const m = p.meta[root];
         const active = root === p.activeProject;
         return (
-          <button
+          <RowButton
             key={root}
             className={`rail-proj ${active ? "on" : ""} ${dragOver === root && dragRoot !== root ? "drag-over" : ""}`}
             style={{ "--proj-c": m?.color ?? "transparent" } as React.CSSProperties}
@@ -154,7 +155,7 @@ export default function Rail(p: {
           >
             {m?.label?.startsWith("icon:") ? <ProjIcon name={m.label.slice(5)} size={18} /> : projInitial(root, m)}
             {p.running.has(root) && <span className="rail-dot" />}
-          </button>
+          </RowButton>
         );
       })}
       <IconButton className="rail-btn" label={t("action.add-project")} title={t("action.add-project")} onClick={p.onAddProject}>

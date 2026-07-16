@@ -7,6 +7,7 @@ import { t } from "../../lib/i18n";
 import type { AgentEvent } from "../../lib/ws";
 import { Input } from "../shadcn/input";
 import { Progress } from "../shadcn/progress";
+import { Button, RowButton } from "../ui";
 
 export type GoalInfo = NonNullable<Extract<AgentEvent, { kind: "goal" }>["goal"]>;
 
@@ -66,8 +67,7 @@ export function GoalBar(props: {
   return (
     <div className={`goal-bar ${goal.status}${open ? " open" : ""}`}>
       <div className="goal-head">
-        <button
-          type="button"
+        <RowButton
           className="goal-bar-summary"
           title={t("goal.expand")}
           aria-expanded={open}
@@ -83,18 +83,18 @@ export function GoalBar(props: {
             <span className="goal-bar-obj" title={goal.objective}>{goal.objective}</span>
           </span>
           <svg className="goal-bar-chev" width="12" height="12" viewBox="0 0 13 13" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M4.5 2.5l4 4-4 4" /></svg>
-        </button>
+        </RowButton>
         <span className="goal-bar-actions">
           {(active || resumable) && (
-            <button
-              type="button" className="goal-bar-control" title={resumable ? t("goal.resume") : t("goal.pause")}
+            <RowButton
+              className="goal-bar-control" title={resumable ? t("goal.resume") : t("goal.pause")}
               onClick={() => onGoal("set", goal.objective, resumable ? "active" : "paused")}
             >
               {resumable
                 ? <svg width="12" height="12" viewBox="0 0 13 13" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"><path d="M4 2.8l6 3.7-6 3.7z" /></svg>
                 : <svg width="12" height="12" viewBox="0 0 13 13" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"><path d="M4.4 2.8v7.4M8.6 2.8v7.4" /></svg>}
               <span>{resumable ? t("goal.resume-short") : t("goal.pause-short")}</span>
-            </button>
+            </RowButton>
           )}
         </span>
       </div>
@@ -113,20 +113,20 @@ export function GoalBar(props: {
             )}
           </div>
           <div className="goal-bar-detail-actions">
-            <button
-              type="button" className="goal-bar-detail-btn" title={t("goal.edit")}
+            <Button
+              variant="ghost" className="goal-bar-detail-btn" title={t("goal.edit")}
               onClick={() => { setEditing(true); setOpen(true); }}
             >
               <svg width="12" height="12" viewBox="0 0 13 13" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M9.5 1.8l1.7 1.7L4.5 10.2l-2.3.6.6-2.3z" /></svg>
               <span>{t("goal.edit-short")}</span>
-            </button>
-            <button
-              type="button" className="goal-bar-detail-btn goal-bar-stop" title={t("goal.stop")}
+            </Button>
+            <Button
+              variant="danger" className="goal-bar-detail-btn goal-bar-stop" title={t("goal.stop")}
               onClick={() => { onGoal("clear"); onStop(); }}
             >
               <svg width="12" height="12" viewBox="0 0 13 13" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M2.2 3.5h8.6M5 3.5V2.2h3v1.3M3.3 3.5l.5 7.3h5.4l.5-7.3M5.3 5.5v3.5M7.7 5.5v3.5" /></svg>
               <span>{t("goal.stop-short")}</span>
-            </button>
+            </Button>
           </div>
         </div>
       )}
@@ -141,10 +141,10 @@ export function GoalBar(props: {
               if (ev.key === "Escape") { ev.stopPropagation(); setEditing(false); setEditText(goal.objective); }
             }}
           />
-          <button type="button" className="ghost goal-bar-save" onClick={commitEdit}>{t("goal.update")}</button>
-          <button type="button" className="ghost" onClick={() => { setEditing(false); setEditText(goal.objective); }}>
+          <Button variant="ghost" className="ghost goal-bar-save" onClick={commitEdit}>{t("goal.update")}</Button>
+          <Button variant="ghost" className="ghost" onClick={() => { setEditing(false); setEditText(goal.objective); }}>
             {t("action.cancel")}
-          </button>
+          </Button>
         </div>
       )}
     </div>

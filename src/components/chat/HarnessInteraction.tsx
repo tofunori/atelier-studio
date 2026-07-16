@@ -15,6 +15,7 @@ import { t } from "../../lib/i18n";
 import { Input } from "../shadcn/input";
 import { RadioGroup, RadioGroupItem } from "../shadcn/radio-group";
 import { Field, FieldLabel, FieldTitle } from "../shadcn/field";
+import { Button, RowButton } from "../ui";
 
 export type InteractionEvent = Extract<AgentEvent, { kind: "interaction" }>;
 
@@ -167,39 +168,40 @@ export function HarnessInteraction({ event: e, threadId }: {
         <div className="perm-actions">
           {e.interactionType === "approval" ? (
             <div className="approval-decisions">
-              <button className="approval-decision primary" aria-label={t("interaction.allow-once")} onClick={() => answer({ allow: true, scope: "once" })}>
+              <RowButton className="approval-decision primary" aria-label={t("interaction.allow-once")} onClick={() => answer({ allow: true, scope: "once" })}>
                 <kbd>1</kbd><span><b>{t("interaction.allow-once")}</b><small>{t("interaction.allow-once-desc")}</small></span>
-              </button>
-              <button className="approval-decision" aria-label={t("interaction.allow-session")} onClick={() => answer({ allow: true, scope: "session" })}>
+              </RowButton>
+              <RowButton className="approval-decision" aria-label={t("interaction.allow-session")} onClick={() => answer({ allow: true, scope: "session" })}>
                 <kbd>2</kbd><span><b>{t("interaction.allow-session")}</b><small>{t("interaction.allow-session-desc")}</small></span>
-              </button>
-              <button className="approval-decision" aria-label={t("interaction.deny")} onClick={() => answer({ allow: false, scope: "once" })}>
+              </RowButton>
+              <RowButton className="approval-decision" aria-label={t("interaction.deny")} onClick={() => answer({ allow: false, scope: "once" })}>
                 <kbd>3</kbd><span><b>{t("interaction.deny")}</b><small>{t("interaction.deny-desc")}</small></span>
-              </button>
-              <button className="approval-decision danger" aria-label={t("interaction.cancel-turn")} onClick={() => answer({ allow: false, scope: "once", cancelTurn: true })}>
+              </RowButton>
+              <RowButton className="approval-decision danger" aria-label={t("interaction.cancel-turn")} onClick={() => answer({ allow: false, scope: "once", cancelTurn: true })}>
                 <kbd>4</kbd><span><b>{t("interaction.cancel-turn")}</b><small>{t("interaction.cancel-turn-desc")}</small></span>
-              </button>
+              </RowButton>
             </div>
           ) : e.interactionType === "user_input" ? (
             <>
-              <button className="perm-allow" onClick={() => answer({ answers: collect() })}>{t("interaction.submit")}</button>
-              <button className="perm-deny" onClick={() => answer({ answers: {} })}>{t("interaction.cancel")}</button>
+              <Button variant="primary" className="perm-allow" onClick={() => answer({ answers: collect() })}>{t("interaction.submit")}</Button>
+              <Button variant="secondary" className="perm-deny" onClick={() => answer({ answers: {} })}>{t("interaction.cancel")}</Button>
             </>
           ) : urlMode ? (
             <>
               {/* « Ouvrir » n'ouvre RIEN ici : accept part au sidecar, qui gère */}
-              <button className="perm-allow" onClick={() => answer({ action: "accept" })}>{t("interaction.open")}</button>
-              <button className="perm-deny" onClick={() => answer({ action: "decline" })}>{t("interaction.deny")}</button>
+              <Button variant="primary" className="perm-allow" onClick={() => answer({ action: "accept" })}>{t("interaction.open")}</Button>
+              <Button variant="secondary" className="perm-deny" onClick={() => answer({ action: "decline" })}>{t("interaction.deny")}</Button>
             </>
           ) : (
             <>
-              <button
+              <Button
+                variant="primary"
                 className="perm-allow"
                 onClick={() => answer(fields.length ? { action: "accept", content: collect() } : { action: "accept" })}
               >
                 {t("interaction.submit")}
-              </button>
-              <button className="perm-deny" onClick={() => answer({ action: "decline" })}>{t("interaction.cancel")}</button>
+              </Button>
+              <Button variant="secondary" className="perm-deny" onClick={() => answer({ action: "decline" })}>{t("interaction.cancel")}</Button>
             </>
           )}
         </div>

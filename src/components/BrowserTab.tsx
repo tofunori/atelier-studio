@@ -5,7 +5,7 @@ import { wsSend } from "../lib/wsBus";
 import { t } from "../lib/i18n";
 import { CloseIcon, RefreshIcon } from "./icons";
 import { Input } from "./shadcn/input";
-import { IconButton } from "./ui";
+import { Button, IconButton, RowButton } from "./ui";
 
 type LocalServer = { port: number; title: string | null };
 type BrowserAddMode = "selection" | "page";
@@ -455,7 +455,7 @@ export default function BrowserTab(p: {
       <div className="browser-chrome" ref={barRef}>
         <div className="browser-tabs" role="tablist" aria-label="Browser tabs">
           {tabs.map((tab) => (
-            <button
+            <RowButton
               key={tab.id}
               className={`browser-mini-tab ${tab.id === activeTabId ? "on" : ""}`}
               role="tab"
@@ -475,7 +475,7 @@ export default function BrowserTab(p: {
               >
                 <CloseIcon />
               </span>
-            </button>
+            </RowButton>
           ))}
           <IconButton size="s" className="browser-tab-add" onClick={newTab} title={t("action.new-tab")} label={t("action.new-tab")}>+</IconButton>
         </div>
@@ -548,7 +548,7 @@ export default function BrowserTab(p: {
                 <div className="browser-hub-head">
                   <span className="browser-hub-title">{t("browser.bookmarks")}</span>
                   <span className="browser-hub-actions">
-                    <button className="browser-hub-text-btn" onClick={importFromVivaldi}>{t("browser.import-vivaldi")}</button>
+                    <Button variant="ghost" className="browser-hub-text-btn" onClick={importFromVivaldi}>{t("browser.import-vivaldi")}</Button>
                     <span className="browser-hub-count">{bookmarks.length}</span>
                   </span>
                 </div>
@@ -556,13 +556,13 @@ export default function BrowserTab(p: {
                   {importNote && <div className="browser-hub-note">{importNote}</div>}
                   {bookmarks.length === 0 && <div className="browser-hub-empty">{t("browser.no-bookmarks")}</div>}
                   {bookmarks.slice(0, 8).map((item) => (
-                    <button key={item.url} className="browser-hub-item" onClick={() => activeTab && navigate(item.url, activeTab.id)}>
+                    <RowButton key={item.url} className="browser-hub-item" onClick={() => activeTab && navigate(item.url, activeTab.id)}>
                       <span className="browser-hub-status bookmark" />
                       <span className="browser-hub-item-main">
                         <span className="browser-hub-item-title">{item.title || tabTitleFor(item.url)}</span>
                         <span className="browser-hub-item-sub">{compactUrl(item.url)}</span>
                       </span>
-                    </button>
+                    </RowButton>
                   ))}
                 </div>
               </section>
@@ -575,13 +575,13 @@ export default function BrowserTab(p: {
                 <div className="browser-hub-list">
                   {history.length === 0 && <div className="browser-hub-empty">{t("browser.no-history")}</div>}
                   {history.slice(0, 8).map((item) => (
-                    <button key={item.url} className="browser-hub-item" onClick={() => activeTab && navigate(item.url, activeTab.id)}>
+                    <RowButton key={item.url} className="browser-hub-item" onClick={() => activeTab && navigate(item.url, activeTab.id)}>
                       <span className="browser-hub-status recent" />
                       <span className="browser-hub-item-main">
                         <span className="browser-hub-item-title">{item.title || tabTitleFor(item.url)}</span>
                         <span className="browser-hub-item-sub">{compactUrl(item.url)}</span>
                       </span>
-                    </button>
+                    </RowButton>
                   ))}
                 </div>
               </section>
@@ -589,21 +589,21 @@ export default function BrowserTab(p: {
               <section className="browser-hub-section">
                 <div className="browser-hub-head">
                   <span className="browser-hub-title">{t("browser.local")}</span>
-                  <button className="ghost browser-hub-refresh" title={t("action.rescan")} onClick={scan}>
+                  <IconButton className="ghost browser-hub-refresh" label={t("action.rescan")} title={t("action.rescan")} onClick={scan}>
                     <RefreshIcon />
-                  </button>
+                  </IconButton>
                 </div>
                 <div className="browser-hub-list">
                   {servers === null && <div className="browser-hub-empty">{t("browser.scanning")}</div>}
                   {servers?.length === 0 && <div className="browser-hub-empty">{t("browser.empty")}</div>}
                   {servers?.map((s) => (
-                    <button key={s.port} className="browser-hub-item" onClick={() => activeTab && navigate(`http://localhost:${s.port}`, activeTab.id)}>
+                    <RowButton key={s.port} className="browser-hub-item" onClick={() => activeTab && navigate(`http://localhost:${s.port}`, activeTab.id)}>
                       <span className="browser-hub-status local" />
                       <span className="browser-hub-item-main">
                         <span className="browser-hub-item-title">{s.title || `localhost:${s.port}`}</span>
                         <span className="browser-hub-item-sub">localhost:{s.port}</span>
                       </span>
-                    </button>
+                    </RowButton>
                   ))}
                 </div>
               </section>

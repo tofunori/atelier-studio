@@ -15,7 +15,7 @@ import {
   PlusIcon,
   SparklesIcon,
 } from "lucide-react";
-import { Button, IconButton, SegmentedControl } from "./ui";
+import { Button, IconButton, RowButton, SegmentedControl } from "./ui";
 
 type GitFile = { path: string; status: string; originalPath?: string; add?: number; del?: number };
 type GitStatus = { branch: string | null; ahead: number; behind: number; files: GitFile[] };
@@ -411,13 +411,13 @@ export default function GitSurface({
                 return (
                   <div key={grp} className="git-group">
                     <div className="git-group-head">
-                      <button className="git-group-h" disabled={!inGrp.length} onClick={() => setClosedGroups((s) => {
+                      <RowButton className="git-group-h" disabled={!inGrp.length} onClick={() => setClosedGroups((s) => {
                         const n = new Set(s); if (n.has(grp)) n.delete(grp); else n.add(grp); return n;
                       })}>
                         <span className="chev">{closed ? "▸" : "▾"}</span>
                         <span>{t(`git.group-${grp}` as any)}</span>
                         <span className="git-group-n">{inGrp.length}</span>
-                      </button>
+                      </RowButton>
                       {!!inGrp.length && (
                         <Button variant="ghost" className="git-group-action" onClick={() => updateStage(grp, inGrp.map((file) => file.path))}>
                           {grp === "staged" ? <MinusIcon data-icon="inline-start" /> : <PlusIcon data-icon="inline-start" />}
@@ -430,7 +430,7 @@ export default function GitSurface({
                       return (
                         <div key={file.path} className={`git-file ${rowSelected ? "selected" : ""} ${/\.bak|~$|\.log$|\.aux$/.test(file.path) ? "dim" : ""}`}>
                           <div className="git-file-line">
-                            <button className="git-file-row" onClick={() => selectFile(file.path, grp)}>
+                            <RowButton className="git-file-row" onClick={() => selectFile(file.path, grp)}>
                               <span className={`git-status s-${shortStatus(file).replace("U", "untracked")}`}>{shortStatus(file)}</span>
                               <span className="git-path">{file.path}</span>
                               <span className="git-stats">
@@ -441,7 +441,7 @@ export default function GitSurface({
                                   </>
                                 )}
                               </span>
-                            </button>
+                            </RowButton>
                             <IconButton size="s" className="git-row-stage" label={grp === "staged" ? t("git.unstage-file", { path: file.path }) : t("git.stage-file", { path: file.path })}
                               onClick={() => updateStage(grp, [file.path])}>
                               {grp === "staged" ? <MinusIcon /> : <PlusIcon />}
@@ -591,13 +591,13 @@ export default function GitSurface({
                 const isOpen = expanded === rowId;
                 return (
                   <div key={rowId} className="ledger-entry">
-                    <button className="ledger-row" onClick={() => setExpanded(isOpen ? null : rowId)}>
+                    <RowButton className="ledger-row" onClick={() => setExpanded(isOpen ? null : rowId)}>
                       <span className="ledger-time">{timeKey(entry.ts)}</span>
                       <span>{entry.provider ?? t("common.agent")}</span>
                       <span className="ledger-prompt">{entry.promptExcerpt || entry.threadTitle || t("git.agent-turn")}</span>
                       <span>{formatCost(entry.usage?.cost)}</span>
                       <span>{t("git.files-count", { count: entry.filesChanged?.length ?? 0 })}</span>
-                    </button>
+                    </RowButton>
                     {isOpen && (
                       <div className="ledger-detail">
                         <div className="ledger-detail-row">

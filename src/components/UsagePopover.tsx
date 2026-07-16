@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { Popover, PopoverContent } from "./shadcn/popover";
 import { t } from "../lib/i18n";
 import { wsSend } from "../lib/wsBus";
+import { Button } from "./ui";
 
 type Limit = { used_percent?: number; window_minutes?: number; resets_at?: number } | null;
 type Usage = {
@@ -126,7 +127,7 @@ export default function UsagePopover({ open, onClose }: { open: boolean; onClose
       {!usage?.claude && !usage?.codex && (
         <div className="ur-empty">{t("usage.empty")}</div>
       )}
-      <button className="ur-close" onClick={onClose}>esc</button>
+      <Button variant="ghost" className="ur-close" onClick={onClose}>esc</Button>
       </PopoverContent>
     </Popover>
   );

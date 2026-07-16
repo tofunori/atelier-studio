@@ -23,6 +23,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "./shadcn/tabs";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "./shadcn/table";
 import { Button } from "./ui/Button";
 import { StatusBadge } from "./ui/StatusBadge";
+import { RowButton } from "./ui";
 
 const PROFILE = "narval";
 const POLL_MS = 30_000;
@@ -276,7 +277,7 @@ export default function NarvalSurface({ visible, onOpenTerminal }: {
       const children = directories[entry.path];
       return (
         <Collapsible key={entry.path} open={open} onOpenChange={(next) => toggleDirectory(entry.path, next)}>
-          <CollapsibleTrigger render={<button type="button" className="narval-tree-row" style={{ paddingLeft: depth * 14 + 8 }} title={entry.path} />}>
+          <CollapsibleTrigger render={<RowButton className="narval-tree-row" style={{ paddingLeft: depth * 14 + 8 }} title={entry.path} />}>
             <ChevronRightIcon className={open ? "narval-tree-chevron open" : "narval-tree-chevron"} />
             {open ? <FolderOpenIcon /> : <FolderIcon />}
             <span>{entry.name}</span>
@@ -289,8 +290,7 @@ export default function NarvalSurface({ visible, onOpenTerminal }: {
       );
     }
     return (
-      <button
-        type="button"
+      <RowButton
         key={entry.path}
         className={selectedPath === entry.path ? "narval-tree-row selected" : "narval-tree-row"}
         style={{ paddingLeft: depth * 14 + 28 }}
@@ -300,7 +300,7 @@ export default function NarvalSurface({ visible, onOpenTerminal }: {
         <FileIcon />
         <span>{entry.name}</span>
         <small>{formatBytes(entry.size)}</small>
-      </button>
+      </RowButton>
     );
   };
 
@@ -335,7 +335,7 @@ export default function NarvalSurface({ visible, onOpenTerminal }: {
               const open = expanded.has(root);
               return (
                 <Collapsible key={root} open={open} onOpenChange={(next) => toggleDirectory(root, next)}>
-                  <CollapsibleTrigger render={<button type="button" className="narval-tree-row narval-root" title={root} />}>
+                  <CollapsibleTrigger render={<RowButton className="narval-tree-row narval-root" title={root} />}>
                     <ChevronRightIcon className={open ? "narval-tree-chevron open" : "narval-tree-chevron"} />
                     {open ? <FolderOpenIcon /> : <FolderIcon />}
                     <span>{root === status?.home ? `~  ${remoteName(root)}` : root}</span>
@@ -428,12 +428,12 @@ export default function NarvalSurface({ visible, onOpenTerminal }: {
             <div className="narval-section-title"><h2 id="narval-runs-title">{t("narval.recent-runs")}</h2></div>
             <div className="narval-runs">
               {(snapshot?.recent ?? []).slice(0, 12).map((job) => (
-                <button type="button" key={job.id} className="narval-run" onClick={() => inspectJob(job)}>
+                <RowButton key={job.id} className="narval-run" onClick={() => inspectJob(job)}>
                   <StatusBadge status={statusTone(job.state)}>{displayState(job.state)}</StatusBadge>
                   <strong>{job.name}</strong>
                   <code>{job.id}</code>
                   <span>{job.endedAt || job.startedAt || job.elapsed}</span>
-                </button>
+                </RowButton>
               ))}
               {snapshot && snapshot.recent.length === 0 && <p className="narval-muted">{t("narval.no-recent-runs")}</p>}
             </div>
@@ -495,10 +495,10 @@ export default function NarvalSurface({ visible, onOpenTerminal }: {
                 <ScrollArea className="narval-inspector-scroll">
                   <div className="narval-output-list">
                     {outputEntries.map((entry) => (
-                      <button type="button" key={entry.path} onClick={() => entry.kind === "directory" ? toggleDirectory(entry.path, true) : readText(entry.path)}>
+                      <RowButton key={entry.path} onClick={() => entry.kind === "directory" ? toggleDirectory(entry.path, true) : readText(entry.path)}>
                         {entry.kind === "directory" ? <FolderIcon /> : <FileIcon />}
                         <span>{entry.name}</span><small>{formatBytes(entry.size)}</small>
-                      </button>
+                      </RowButton>
                     ))}
                     {detail && outputEntries.length === 0 && <p className="narval-muted">{t("narval.no-outputs")}</p>}
                   </div>

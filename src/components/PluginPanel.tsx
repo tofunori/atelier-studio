@@ -1,5 +1,6 @@
 import type { PluginCatalogEntry } from "../lib/plugins";
 import { CloseIcon } from "./icons";
+import { IconButton } from "./ui";
 
 export default function PluginPanel({
   plugins,
@@ -15,7 +16,7 @@ export default function PluginPanel({
           <h2>Plugins Codex</h2>
           <p>{plugins.length} plugins disponibles dans Atelier</p>
         </div>
-        <button type="button" className="plugin-close" aria-label="Fermer" onClick={onClose}><CloseIcon /></button>
+        <IconButton className="plugin-close" label="Fermer" onClick={onClose}><CloseIcon /></IconButton>
       </header>
       <div className="plugin-list">
         {plugins.map((plugin) => (

@@ -3,6 +3,7 @@ import { t } from "../lib/i18n";
 import { Input } from "./shadcn/input";
 import { Textarea } from "./shadcn/textarea";
 import { ToggleGroup, ToggleGroupItem } from "./shadcn/toggle-group";
+import { Button } from "./ui";
 
 type ImageGeneratedMsg = {
   projectRoot?: string;
@@ -161,9 +162,9 @@ export default function GeneratorSurface({
         <div className="generateur-cost">
           {engine === "codex" ? t("generateur.cost-codex") : t("generateur.cost-estimate")}
         </div>
-        <button className="generateur-generate" disabled={busy || !prompt.trim()} onClick={() => generate()}>
+        <Button variant="primary" className="generateur-generate" disabled={busy || !prompt.trim()} onClick={() => generate()}>
           {busy ? t("generateur.generating") : t("generateur.generate")}
-        </button>
+        </Button>
         {error && <div className="generateur-error">{error}</div>}
       </div>
 
@@ -188,7 +189,8 @@ export default function GeneratorSurface({
                 onChange={(e) => setEditPrompt(e.target.value)}
                 disabled={busy}
               />
-              <button
+              <Button
+                variant="secondary"
                 className="generateur-edit-btn"
                 disabled={busy || !editPrompt.trim() || !result?.path}
                 onClick={() => {
@@ -198,7 +200,7 @@ export default function GeneratorSurface({
                 }}
               >
                 {t("generateur.edit")}
-              </button>
+              </Button>
             </div>
           </>
         )}
