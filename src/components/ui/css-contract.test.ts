@@ -97,6 +97,59 @@ describe("contrat Quiet Instrument (sources CSS)", () => {
     expect(offenders, `<button> nu dans : ${offenders.join(", ")}`).toEqual([]);
   });
 
+  it("App.css : poids 400/500/600 et rayons uniquement via tokens", () => {
+    // les @font-face déclarent les fontes disponibles (descripteurs), pas des
+    // styles appliqués — seuls blocs autorisés à porter un 700
+    const noFontFace = appCss.replace(/@font-face\s*\{[^}]*\}/g, "");
+    for (const m of noFontFace.matchAll(/font-weight:\s*([^;]+);/g)) {
+      const v = m[1].trim();
+      if (v.includes("var(") || v === "inherit" || v === "normal") continue;
+      expect(["400", "500", "600"], `font-weight hors système : ${v}`).toContain(v);
+    }
+    for (const m of noFontFace.matchAll(/font:\s*(\d{3})\s/g)) {
+      expect(["400", "500", "600"], `font: shorthand hors système : ${m[1]}`).toContain(m[1]);
+    }
+    for (const m of appCss.matchAll(/border-radius:\s*([^;]+);/g)) {
+      const v = m[1].trim();
+      if (v.includes("var(") || v === "inherit" || v === "0" || v === "50%") continue;
+      expect.fail(`border-radius hors tokens : ${v}`);
+    }
+  });
+
+  it("App.css : hex et z-index bruts gelés (sous-multisets — ne peuvent que rétrécir)", () => {
+    // hors blocs :root (palette source de vérité), .hljs-* (palette syntaxique)
+    // et fallbacks var(--x, #hex)
+    const body = appCss
+      .replace(/^:root[^{]*\{[^}]*\}/gm, "")
+      .split("\n")
+      .filter((l) => !l.includes("hljs"))
+      .join("\n")
+      .replace(/var\(--[\w-]+,\s*#[0-9a-fA-F]{3,8}\)/g, "");
+    const count = (arr: string[]) =>
+      arr.reduce<Record<string, number>>((acc, v) => ((acc[v] = (acc[v] ?? 0) + 1), acc), {});
+    // #000 : ombres/masques ; #fff : knobs de switch/toggle + fonds d'iframe
+    // web ; la triade : locals documentés de .ur-pop
+    const hexAllow: Record<string, number> = { "#000": 3, "#fff": 6, "#98c379": 1, "#e06c75": 1, "#e0b74a": 1 };
+    const hexActual = count([...body.matchAll(/#[0-9a-fA-F]{3,8}\b/g)].map((m) => m[0].toLowerCase()));
+    for (const [v, n] of Object.entries(hexActual)) {
+      expect(n, `hex ${v} : ${n} occurrence(s) > allowlist (${hexAllow[v] ?? 0})`).toBeLessThanOrEqual(hexAllow[v] ?? 0);
+    }
+    // z-index historiques (tokens.css : « migrent au fil des surfaces ») —
+    // retirer une entrée quand une surface passe sur l'échelle --z-*
+    const zAllow: Record<string, number> = {
+      "2": 2, "30": 2, "40": 1, "45": 1, "50": 2, "55": 1, "70": 1, "80": 1,
+      "90": 1, "95": 1, "120": 1, "160": 1, "240": 1, "260": 1, "285": 1,
+    };
+    const zActual = count(
+      [...appCss.matchAll(/z-index:\s*([^;]+);/g)]
+        .map((m) => m[1].trim())
+        .filter((v) => !v.includes("var(") && !["0", "1", "-1", "auto"].includes(v)),
+    );
+    for (const [v, n] of Object.entries(zActual)) {
+      expect(n, `z-index ${v} : ${n} occurrence(s) > allowlist (${zAllow[v] ?? 0})`).toBeLessThanOrEqual(zAllow[v] ?? 0);
+    }
+  });
+
   it("frontière d'imports : shadcn/button et shadcn/tooltip via les wrappers ui/ (allowlist gelée)", () => {
     // Ces deux primitives ont des wrappers produit complets (Button/IconButton/
     // RowButton, Tooltip). La liste ci-dessous fige l'existant : elle ne peut
