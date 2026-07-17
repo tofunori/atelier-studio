@@ -57,6 +57,7 @@ pub const ALL_MESSAGE_TYPES: &[&str] = &[
     "kbList",
     "kbRemove",
     "kbPromote",
+    "gbrainSearch",
     "generateImage",
     "apiProviders",
     "saveApiProvider",
@@ -556,6 +557,7 @@ pub async fn route_ws(state: &AppState, text: &str) -> Vec<String> {
         "kbList" => handle_kb_list(state),
         "kbRemove" => handle_kb_remove(state, &msg).await,
         "kbPromote" => handle_kb_promote(state, &msg).await,
+        "gbrainSearch" => handle_gbrain_search(state, &msg),
         "generateImage" => handle_generate_image(state, &msg).await,
         "apiProviders" => {
             let list = list_api_providers_public(state.app_dir());
@@ -1493,6 +1495,45 @@ async fn handle_kb_promote(state: &AppState, msg: &Value) -> Vec<String> {
             kb_error(if message.is_empty() { "gbrain capture: échec".into() } else { message })
         }
         Ok(Ok(_)) => vec![json_msg(json!({"type": "kbPromoted", "id": id}))],
+    }
+}
+
+/// Recherche du corpus gbrain (plan 050 P3) — relais du CLI `atelier-kb
+/// gbrain-search`. Échec (NAS coupé, binaire absent) = `gbrainResults` avec
+/// `error`, jamais un kbError générique : la section du panneau l'affiche en
+/// place sans polluer le flux d'épinglage.
+fn handle_gbrain_search(state: &AppState, msg: &Value) -> Vec<String> {
+    let query = msg
+        .get("query")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .trim()
+        .to_string();
+    if query.is_empty() {
+        return vec![json_msg(
+            json!({"type": "gbrainResults", "query": "", "results": [], "error": "requête vide"}),
+        )];
+    }
+    let limit = msg
+        .get("limit")
+        .and_then(Value::as_u64)
+        .unwrap_or(12)
+        .clamp(1, 25)
+        .to_string();
+    match kb_cli_run(
+        state.server_dir(),
+        state.app_dir(),
+        &["gbrain-search", "--query", &query, "--limit", &limit],
+        "",
+    ) {
+        Ok(v) => vec![json_msg(json!({
+            "type": "gbrainResults",
+            "query": v.get("query").cloned().unwrap_or_else(|| json!(query)),
+            "results": v.get("results").cloned().unwrap_or_else(|| json!([])),
+        }))],
+        Err(e) => vec![json_msg(
+            json!({"type": "gbrainResults", "query": query, "results": [], "error": e}),
+        )],
     }
 }
 
@@ -2722,6 +2763,22 @@ mod tests {
         let v: Value = serde_json::from_str(&out[0]).unwrap();
         assert_eq!(v["type"], "kbError");
         assert!(v["message"].as_str().unwrap().contains("kb_cli.mjs introuvable"));
+    }
+
+    #[tokio::test]
+    async fn gbrain_search_echec_en_place_jamais_kb_error() {
+        let dir = tempdir().unwrap();
+        let s = state(dir.path());
+        // requête vide → réponse en place
+        let out = route_ws(&s, r#"{"type":"gbrainSearch","query":"  "}"#).await;
+        let v: Value = serde_json::from_str(&out[0]).unwrap();
+        assert_eq!(v["type"], "gbrainResults");
+        assert_eq!(v["results"].as_array().unwrap().len(), 0);
+        // server_dir=/tmp sans kb_cli.mjs → error portée par gbrainResults
+        let out = route_ws(&s, r#"{"type":"gbrainSearch","query":"albédo"}"#).await;
+        let v: Value = serde_json::from_str(&out[0]).unwrap();
+        assert_eq!(v["type"], "gbrainResults");
+        assert!(v["error"].as_str().unwrap().contains("kb_cli.mjs introuvable"));
     }
 
     #[tokio::test]

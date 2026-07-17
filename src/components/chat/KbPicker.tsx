@@ -32,8 +32,33 @@ const GROUP_LABELS: Record<string, Parameters<typeof t>[0]> = {
   web: "kb.group-web",
   youtube: "kb.group-youtube",
   note: "kb.group-notes",
+  gbrain: "kb.group-gbrain",
 };
-const GROUP_ORDER = ["file", "folder", "pdf", "web", "youtube", "note"];
+const GROUP_ORDER = ["file", "folder", "pdf", "web", "youtube", "note", "gbrain"];
+
+// Âge de la dernière synchro NAS d'une page gbrain épinglée.
+function fmtSyncAge(syncedAt: unknown): string {
+  const ts = typeof syncedAt === "string" ? Date.parse(syncedAt) : NaN;
+  if (!Number.isFinite(ts)) return "";
+  const minutes = Math.max(0, Math.round((Date.now() - ts) / 60_000));
+  if (minutes < 60) return t("kb.gbrain-sync-age", { age: `${minutes} min` });
+  if (minutes < 60 * 24) return t("kb.gbrain-sync-age", { age: `${Math.round(minutes / 60)} h` });
+  return t("kb.gbrain-sync-age", { age: `${Math.round(minutes / (60 * 24))} j` });
+}
+
+/** Résultat de recherche du corpus gbrain (plan 050 P3). */
+export type GbrainResult = { slug: string; snippet?: string };
+export type GbrainSectionProps = {
+  query: string;
+  results: GbrainResult[];
+  error: string | null;
+  searching: boolean;
+  /** au moins une recherche a répondu (affiche « aucune page » à bon escient) */
+  searched: boolean;
+  onQueryChange: (query: string) => void;
+  onSearch: () => void;
+  onPin: (slug: string) => void;
+};
 
 function fmtChars(chars: number): string {
   if (!Number.isFinite(chars) || chars <= 0) return "";
@@ -138,6 +163,10 @@ export function KbPickerPanel(p: {
   onAddNote: (title: string, text: string) => void;
   layout?: "popover" | "surface";
   threadTitle?: string;
+  /** Re-synchroniser une page gbrain épinglée depuis le NAS (kind gbrain). */
+  onResync?: (slug: string) => void;
+  /** Section « Pages gbrain » (surface seulement, plan 050 P3). */
+  gbrain?: GbrainSectionProps;
 }) {
   const [query, setQuery] = useState("");
   const [noteOpen, setNoteOpen] = useState(false);
@@ -190,9 +219,24 @@ export function KbPickerPanel(p: {
           <span className={`kb-check ${on ? "on" : ""}`} aria-hidden />
           <span className="kb-kind"><KindIcon kind={source.kind} /></span>
           <span className="kb-name">{source.title}</span>
-          <span className="kb-meta">{fmtChars(source.chars)}</span>
+          <span className="kb-meta">
+            {source.kind === "gbrain" ? fmtSyncAge(source.meta?.syncedAt) : fmtChars(source.chars)}
+          </span>
         </RowButton>
         <span className="kb-row-actions">
+          {source.kind === "gbrain" && p.onResync && typeof source.meta?.slug === "string" && (
+            <IconButton
+              size="s"
+              className="ghost"
+              label={t("kb.gbrain-resync")}
+              title={t("kb.gbrain-resync")}
+              onClick={() => p.onResync?.(source.meta?.slug as string)}
+            >
+              <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3">
+                <path d="M13.5 8a5.5 5.5 0 1 1-1.6-3.9M13.5 1.8v2.7h-2.7" />
+              </svg>
+            </IconButton>
+          )}
           <IconButton
             size="s"
             className={`ghost ${p.promoted === source.id ? "on" : ""}`}
@@ -328,6 +372,49 @@ export function KbPickerPanel(p: {
             </RowButton>
           </div>
         </div>
+        {surface && p.gbrain && (
+          <div className="kb-gbrain-section">
+            <div className="kb-group kb-group-section">{t("kb.gbrain-pages")}</div>
+            <Input
+              className="kb-gbrain-search"
+              placeholder={t("kb.gbrain-search-placeholder")}
+              value={p.gbrain.query}
+              onChange={(e) => p.gbrain?.onQueryChange(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  e.preventDefault();
+                  p.gbrain?.onSearch();
+                }
+              }}
+            />
+            {p.gbrain.error && <div className="kb-error">{p.gbrain.error}</div>}
+            {p.gbrain.searching && <div className="kb-empty">{t("kb.gbrain-searching")}</div>}
+            {p.gbrain.searched && !p.gbrain.searching && !p.gbrain.error
+              && p.gbrain.results.length === 0 && (
+              <div className="kb-empty">{t("kb.gbrain-none")}</div>
+            )}
+            {p.gbrain.results.map((result) => {
+              const pinned = p.sources.find(
+                (source) => source.kind === "gbrain" && source.meta?.slug === result.slug,
+              );
+              if (pinned) return renderRow(pinned);
+              return (
+                <div key={result.slug} className="kb-row">
+                  <RowButton
+                    className="kb-row-main"
+                    title={result.snippet ?? result.slug}
+                    onClick={() => p.gbrain?.onPin(result.slug)}
+                  >
+                    <span className="kb-check" aria-hidden />
+                    <span className="kb-kind"><KindIcon kind="gbrain" /></span>
+                    <span className="kb-name">{result.slug}</span>
+                    <span className="kb-meta">{t("kb.gbrain-meta-nas")}</span>
+                  </RowButton>
+                </div>
+              );
+            })}
+          </div>
+        )}
       </div>
       <div className="kb-foot">
         <span>{t("kb.attached-count").replace("{n}", String(p.attached.length))}</span>

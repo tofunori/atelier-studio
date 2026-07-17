@@ -23,8 +23,11 @@ import { KB_INLINE_MAX } from "./kb_prompt.mjs";
 const REGISTRY_VERSION = 1;
 const PAGES_CACHE_VERSION = 1;
 export { KB_INLINE_MAX };
-// T3: zotero — T7: gbrain (id réservé, hors registre)
-export const KB_KINDS = new Set(["file", "pdf", "web", "note", "folder", "youtube"]);
+// T3: zotero. Kind "gbrain" (plan 050 P3) = UNE page du corpus NAS épinglée
+// (gbrain get → cache local) ; l'id réservé "gbrain" (outil corpus entier)
+// reste hors registre.
+export const KB_KINDS = new Set(["file", "pdf", "web", "note", "folder", "youtube", "gbrain"]);
+const GBRAIN_TIMEOUT_MS = 20_000;
 const TEXT_EXTS = new Set([".md", ".tex", ".txt"]);
 const WEB_TEXT_MAX = 300_000;
 // Dossiers / vaults Obsidian (plan 049 T6) : fichiers texte seulement — les
@@ -270,6 +273,81 @@ function sleepMs(ms) {
   Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
 }
 
+// --- gbrain (plan 050 P3) : lecture du corpus NAS via le CLI utilisateur ---
+
+export function resolveGbrainBin() {
+  const test = process.env.ATELIER_TEST_GBRAIN;
+  if (test && existsSync(test)) return test;
+  const which = spawnSync("which", ["gbrain"], { encoding: "utf8" });
+  if (which.status === 0) {
+    const found = String(which.stdout ?? "").trim();
+    if (found) return found;
+  }
+  const home = homedir();
+  // installation bun (cas réel) puis emplacements classiques — le PATH GUI
+  // de l'app ne contient pas ~/.bun/bin
+  return [
+    join(home, ".bun", "bin", "gbrain"),
+    "/opt/homebrew/bin/gbrain",
+    "/usr/local/bin/gbrain",
+    join(home, "bin", "gbrain"),
+    join(home, ".local", "bin", "gbrain"),
+  ].find((candidate) => existsSync(candidate)) ?? null;
+}
+
+export function runGbrain(args, { timeout = GBRAIN_TIMEOUT_MS } = {}) {
+  const bin = resolveGbrainBin();
+  if (!bin) throw new Error("gbrain introuvable (PATH, ~/.bun/bin) — corpus NAS indisponible");
+  const run = spawnSync(bin, args, { encoding: "utf8", timeout, maxBuffer: 32 * 1024 * 1024 });
+  if (run.error) {
+    throw new Error(run.error.code === "ETIMEDOUT"
+      ? "gbrain : délai dépassé (NAS injoignable ?)"
+      : `gbrain: ${run.error.message}`);
+  }
+  if (run.status !== 0) {
+    throw new Error(String(run.stderr || run.stdout || "gbrain: échec").trim().slice(0, 300));
+  }
+  return String(run.stdout ?? "");
+}
+
+// `gbrain search` : lignes `[score] slug -- extrait…`, extraits parfois
+// multi-lignes ; « No results. » = liste vide.
+export function parseGbrainSearch(output) {
+  const results = [];
+  let current = null;
+  for (const line of String(output ?? "").split("\n")) {
+    const match = line.match(/^\[\d+(?:\.\d+)?\]\s+(\S+)\s+--\s*(.*)$/);
+    if (match) {
+      current = { slug: match[1], snippet: match[2].replace(/^#+\s*/, "").trim() };
+      results.push(current);
+    } else if (current && line.trim()) {
+      if (current.snippet.length < 180) {
+        current.snippet = `${current.snippet} ${line.trim()}`.trim();
+      }
+    }
+  }
+  return results;
+}
+
+// Titre d'une page gbrain : front-matter YAML (`title:` inline ou plié `>-`),
+// sinon premier titre markdown, sinon le slug.
+export function gbrainTitle(markdown, slug) {
+  const fm = String(markdown ?? "").match(/^---\n([\s\S]*?)\n---/);
+  if (fm) {
+    const folded = fm[1].match(/^title:\s*>-?\s*\n((?:[ \t]+\S.*\n?)+)/m);
+    const inline = fm[1].match(/^title:\s*(\S.*)$/m);
+    const raw = folded
+      ? folded[1].split("\n").map((line) => line.trim()).filter(Boolean).join(" ")
+      : inline
+        ? inline[1].trim()
+        : "";
+    const clean = raw.replace(/^["']|["']$/g, "").trim();
+    if (clean && !clean.startsWith(">")) return clean;
+  }
+  const heading = String(markdown ?? "").match(/^#\s+(.+)$/m);
+  return heading ? heading[1].trim() : slug;
+}
+
 export class KnowledgeStore {
   constructor(dir = defaultKnowledgeDir(), deps = {}) {
     this.dir = dir;
@@ -277,7 +355,7 @@ export class KnowledgeStore {
     this.cacheDir = join(dir, "cache");
     this.pdfCacheDir = join(dir, "pdf-cache");
     this.lockDir = join(dir, ".lock");
-    this.deps = { fetchPage: defaultFetchPage, extractPdf: extractPdfPages, fetchYoutube: defaultFetchYoutube, ...deps };
+    this.deps = { fetchPage: defaultFetchPage, extractPdf: extractPdfPages, fetchYoutube: defaultFetchYoutube, runGbrain, ...deps };
     this.sources = new Map();
     this.warning = null;
     this.lockHeld = false;
@@ -438,6 +516,20 @@ export class KnowledgeStore {
       return this.upsertEntry({
         id: sourceId("file", path), kind, title: title || basename(path), origin: path,
         pages, meta: { mtimeMs: stat.mtimeMs, size: stat.size },
+      });
+    }
+    if (kind === "gbrain") {
+      const slug = String(origin ?? "").trim();
+      if (!slug || /\s/.test(slug)) throw new Error("Slug gbrain requis (--origin <slug>, sans espace)");
+      const markdown = String(this.deps.runGbrain(["get", slug])).trim();
+      if (!markdown || /^(Page not found|No such page|null)$/im.test(markdown)) {
+        throw new Error(`Page gbrain introuvable: ${slug}`);
+      }
+      return this.upsertEntry({
+        id: sourceId("gbrain", slug), kind,
+        title: title || gbrainTitle(markdown, slug), origin: slug,
+        pages: pagesFromText(markdown),
+        meta: { slug, syncedAt: new Date().toISOString() },
       });
     }
     if (kind === "youtube") {

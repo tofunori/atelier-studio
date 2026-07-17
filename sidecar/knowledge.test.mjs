@@ -443,6 +443,73 @@ describe("base de connaissances — CLI", () => {
     expect(webFound.passages[0].markdownLink).toBe("[Ouvrir la page](https://exemple.org/revue)");
   });
 
+  it("gbrain-search : parse les résultats du CLI (score, slug, extrait multi-ligne)", async () => {
+    const raw = [
+      "[0.3040] papers/aubry-wake-2022 -- # Fire and Ice: The Impact of Wildfire-Affected Albedo",
+      "**Caroline Aubry-Wake**",
+      "[0.2100] notes/albedo-feedback -- Boucle de rétroaction",
+      "",
+    ].join("\n");
+    const out = await runKbCommand(
+      ["gbrain-search", "--query", "albédo", "--limit", "5"],
+      { runGbrain: () => raw },
+    );
+    expect(out.count).toBe(2);
+    expect(out.results[0]).toMatchObject({ slug: "papers/aubry-wake-2022" });
+    expect(out.results[0].snippet).toContain("Fire and Ice");
+    expect(out.results[0].snippet).toContain("Aubry-Wake");
+    const empty = await runKbCommand(
+      ["gbrain-search", "--query", "zzz"],
+      { runGbrain: () => "No results.\n" },
+    );
+    expect(empty).toMatchObject({ ok: true, count: 0, results: [] });
+  });
+
+  it("épingle une page gbrain : titre du front-matter (plié), cite = slug", async () => {
+    const markdown = [
+      "---",
+      "type: concept",
+      "title: >-",
+      "  The influence of forest fire aerosol and air temperature on glacier",
+      "  albedo, western North America",
+      "year: 2021",
+      "---",
+      "",
+      "# Résumé",
+      "La suie des feux réduit l'albédo estival des glaciers de l'Ouest nord-américain.",
+    ].join("\n");
+    const dir = tmp();
+    const store = new KnowledgeStore(dir, { runGbrain: (args) => {
+      expect(args).toEqual(["get", "papers/williamson-2021"]);
+      return markdown;
+    } });
+    const { source } = await store.add({ kind: "gbrain", origin: "papers/williamson-2021" });
+    expect(source.title).toBe("The influence of forest fire aerosol and air temperature on glacier albedo, western North America");
+    expect(source.meta.slug).toBe("papers/williamson-2021");
+    expect(source.meta.syncedAt).toBeTruthy();
+    const found = await runKbCommand(
+      ["search", "--dir", dir, "--id", source.id, "--query", "suie feux albédo estival"],
+      { runGbrain: () => markdown },
+    );
+    expect(found.passages[0].cite).toBe(`[kb:${source.id} · papers/williamson-2021]`);
+    expect(found.passages[0].quote).toContain("suie");
+  });
+
+  it("page gbrain sans front-matter : titre = premier heading, sinon slug", async () => {
+    const store = new KnowledgeStore(tmp(), { runGbrain: () => "# Un titre net\n\nContenu suffisant pour être indexé proprement dans le moteur." });
+    const { source } = await store.add({ kind: "gbrain", origin: "notes/x" });
+    expect(source.title).toBe("Un titre net");
+    const store2 = new KnowledgeStore(tmp(), { runGbrain: () => "Texte brut sans structure, assez long pour produire un extrait correct." });
+    const { source: s2 } = await store2.add({ kind: "gbrain", origin: "notes/brut" });
+    expect(s2.title).toBe("notes/brut");
+  });
+
+  it("gbrain injoignable : erreur propre, jamais de source fantôme", async () => {
+    const store = new KnowledgeStore(tmp(), { runGbrain: () => { throw new Error("gbrain : délai dépassé (NAS injoignable ?)"); } });
+    await expect(store.add({ kind: "gbrain", origin: "notes/x" })).rejects.toThrow(/NAS injoignable/);
+    expect(store.list()).toHaveLength(0);
+  });
+
   it("--text - lit le contenu sur stdin (gros textes, capture browser)", async () => {
     const dir = tmp();
     const { Readable } = await import("node:stream");

@@ -2904,6 +2904,7 @@ button.ctx-ring-wrap { border: none; font: inherit; color: inherit;
   display: flex; flex-direction: column; gap: 8px; min-height: 0; }
 .ksurface .kb-panel-surface .kb-list { max-height: none; flex: 1; }
 .ksurface .kb-panel-surface .kb-search { width: 200px; }
+.kb-gbrain-search { height: 24px; font-size: var(--fs-s); margin: 2px 0 4px; }
 .kb-group-section { margin-top: 8px; border-top: 1px solid var(--border);
   padding-top: 10px; color: var(--fg2); }
 /* Rangée de contexte unifiée (plan 050 P2) : pilules fines pour toutes les

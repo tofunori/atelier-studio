@@ -115,6 +115,53 @@ describe("KbPickerPanel — layout surface (plan 050)", () => {
     expect(screen.queryByText(/Attachées à/)).toBeNull();
     expect(screen.getByText("Albedo feedbacks review")).toBeTruthy();
   });
+
+  it("section gbrain : résultats épinglables, page déjà épinglée = rangée complète", () => {
+    const onPin = vi.fn();
+    const pinnedGbrain: KbSource = {
+      id: "dddd4444", kind: "gbrain", title: "Fire and Ice", origin: "papers/aubry-wake-2022",
+      chars: 3177, addedAt: "2026-07-17T10:03:00Z", updatedAt: "2026-07-17T10:03:00Z",
+      meta: { slug: "papers/aubry-wake-2022", syncedAt: new Date().toISOString() },
+    };
+    renderUi(
+      <KbPickerPanel
+        {...panelProps({
+          layout: "surface",
+          sources: [...SOURCES, pinnedGbrain],
+          gbrain: {
+            query: "albédo", results: [
+              { slug: "papers/aubry-wake-2022", snippet: "Fire and Ice" },
+              { slug: "notes/albedo-feedback", snippet: "Boucle" },
+            ],
+            error: null, searching: false, searched: true,
+            onQueryChange: vi.fn(), onSearch: vi.fn(), onPin,
+          },
+        })}
+      />,
+    );
+    // page non épinglée : clic = épingler
+    fireEvent.click(screen.getByRole("button", { name: /notes\/albedo-feedback/ }));
+    expect(onPin).toHaveBeenCalledWith("notes/albedo-feedback");
+    // page déjà épinglée : rendue comme une vraie rangée (titre + sync)
+    expect(screen.getAllByText("Fire and Ice").length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/sync /).length).toBeGreaterThan(0);
+  });
+
+  it("section gbrain : échec NAS affiché en place", () => {
+    renderUi(
+      <KbPickerPanel
+        {...panelProps({
+          layout: "surface",
+          gbrain: {
+            query: "x", results: [], error: "gbrain : délai dépassé (NAS injoignable ?)",
+            searching: false, searched: true,
+            onQueryChange: vi.fn(), onSearch: vi.fn(), onPin: vi.fn(),
+          },
+        })}
+      />,
+    );
+    expect(screen.getByText(/NAS injoignable/)).toBeTruthy();
+  });
 });
 
 describe("KbChips", () => {

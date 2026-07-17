@@ -1,16 +1,17 @@
 // CLI terminal de la base de connaissances (plan 049) — JSON sur stdout,
 // erreurs sur stderr + exit 1, comme atelier-zotero-passages.
 import { pathToFileURL } from "node:url";
-import { KnowledgeStore, defaultKnowledgeDir } from "./knowledge.mjs";
+import { KnowledgeStore, defaultKnowledgeDir, parseGbrainSearch, runGbrain } from "./knowledge.mjs";
 
-const COMMANDS = new Set(["add", "list", "remove", "search"]);
+const COMMANDS = new Set(["add", "list", "remove", "search", "gbrain-search"]);
 const USAGE = [
-  "Usage: atelier-kb <add|list|remove|search> [options]",
-  "  add    --kind file|pdf|web|note [--origin <chemin|url>] [--title <t>] [--text <t>]",
+  "Usage: atelier-kb <add|list|remove|search|gbrain-search> [options]",
+  "  add    --kind file|pdf|web|youtube|note|folder|gbrain [--origin <chemin|url|slug>] [--title <t>] [--text <t>]",
   "         (--text - lit le texte sur stdin — gros contenus, capture browser)",
   "  list",
   "  remove --id <id>",
   "  search --id <id> --query <question> [--limit 5]",
+  "  gbrain-search --query <mots-clés> [--limit 12]   (corpus NAS)",
   `Option commune: --dir <répertoire> (défaut: ${defaultKnowledgeDir()})`,
 ].join("\n");
 
@@ -44,6 +45,11 @@ function decoratePassage(source, passage) {
   if (source.kind === "pdf") {
     out.location = `p.${passage.page}`;
     out.cite = `[kb:${source.id} · p.${passage.page}]`;
+    return out;
+  }
+  if (source.kind === "gbrain" && source.origin) {
+    out.location = source.origin;
+    out.cite = `[kb:${source.id} · ${source.origin}]`;
     return out;
   }
   out.location = null;
@@ -81,6 +87,13 @@ export async function runKbCommand(argv, deps = {}) {
     if (!options.id) throw new Error("Argument requis: --id");
     store.remove(options.id);
     return flag({ ok: true, removed: options.id });
+  }
+  if (command === "gbrain-search") {
+    if (!options.query) throw new Error("Argument requis: --query");
+    const limit = Math.max(1, Math.min(25, Number(options.limit) || 12));
+    const raw = (deps.runGbrain ?? runGbrain)(["search", options.query]);
+    const results = parseGbrainSearch(raw).slice(0, limit);
+    return { ok: true, query: options.query, count: results.length, results };
   }
   if (command === "search") {
     for (const required of ["id", "query"]) {

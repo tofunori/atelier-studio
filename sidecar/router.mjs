@@ -10,6 +10,7 @@ import { HANDOFF_END } from "./handoff.mjs";
 import { stripGalleryToolInstruction, withGalleryToolInstruction } from "./gallery_tool_prompt.mjs";
 import { stripZoteroPassageInstruction, withZoteroPassageInstruction } from "./zotero_passage_prompt.mjs";
 import { KnowledgeStore, defaultKnowledgeDir, kbBlockEntries, promoteToGbrain } from "./knowledge.mjs";
+import { runKbCommand } from "./kb_cli.mjs";
 import { withKbBlock } from "./kb_prompt.mjs";
 import * as narval from "./narval.mjs";
 
@@ -1072,6 +1073,23 @@ export async function route(msg, ctx) {
         ctx.send({ type: "kbPromoted", id });
       } catch (error) {
         ctx.send({ type: "kbError", message: error instanceof Error ? error.message : String(error) });
+      }
+      break;
+    }
+    case "gbrainSearch": {
+      // recherche du corpus NAS (plan 050 P3) — relais du CLI. Échec (NAS
+      // coupé, binaire absent) = gbrainResults avec `error`, en place.
+      try {
+        const out = await runKbCommand(
+          ["gbrain-search", "--query", String(msg.query ?? ""), "--limit", String(msg.limit ?? 12)],
+          ctx.kbDeps ?? {},
+        );
+        ctx.send({ type: "gbrainResults", query: out.query, results: out.results });
+      } catch (error) {
+        ctx.send({
+          type: "gbrainResults", query: String(msg.query ?? ""), results: [],
+          error: error instanceof Error ? error.message : String(error),
+        });
       }
       break;
     }

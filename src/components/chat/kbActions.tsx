@@ -142,9 +142,16 @@ export function useKbActions(binding: KbBinding, isActive: () => boolean) {
     wsSend({ type: "kbAdd", kind: "note", title, text });
   }
 
+  // Épingle (ou re-synchronise : id déterministe par slug) une page du corpus
+  // gbrain — plan 050 P3.
+  function addGbrain(slug: string) {
+    trackPendingAdds(1);
+    wsSend({ type: "kbAdd", kind: "gbrain", origin: slug });
+  }
+
   return {
     error, setError, promoted,
     toggle, toggleFull, removeSource, promote,
-    addFiles, addFolder, addUrl, addNote,
+    addFiles, addFolder, addUrl, addNote, addGbrain,
   };
 }

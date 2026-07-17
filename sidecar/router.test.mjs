@@ -964,6 +964,26 @@ describe("base de connaissances (kbAdd)", () => {
     }
   });
 
+  it("gbrainSearch relaie les résultats et met l'échec NAS dans la réponse", async () => {
+    const sent = [];
+    const ctx = {
+      send: (m) => sent.push(m),
+      kbDeps: { runGbrain: () => "[0.42] papers/aubry-wake-2022 -- Fire and Ice\n" },
+    };
+    await route({ type: "gbrainSearch", query: "albédo", limit: 5 }, ctx);
+    expect(sent[0].type).toBe("gbrainResults");
+    expect(sent[0].results).toEqual([{ slug: "papers/aubry-wake-2022", snippet: "Fire and Ice" }]);
+
+    const down = [];
+    await route({ type: "gbrainSearch", query: "albédo" }, {
+      send: (m) => down.push(m),
+      kbDeps: { runGbrain: () => { throw new Error("gbrain : délai dépassé (NAS injoignable ?)"); } },
+    });
+    expect(down[0].type).toBe("gbrainResults");
+    expect(down[0].results).toEqual([]);
+    expect(down[0].error).toMatch(/NAS injoignable/);
+  });
+
   it("kbPromote répond kbPromoted (spawn injecté) et kbError en échec", async () => {
     const prev = process.env.ATELIER_APP_DIR;
     process.env.ATELIER_APP_DIR = mkdtempSync(join(tmpdir(), "atelier-kb-promote-"));

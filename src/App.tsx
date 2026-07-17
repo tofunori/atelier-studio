@@ -1417,6 +1417,13 @@ export default function App() {
       if (msg.type === "kbPromoted") {
         window.dispatchEvent(new CustomEvent("kb-source-promoted", { detail: { id: msg.id } }));
       }
+      if (msg.type === "gbrainResults") {
+        // recherche du corpus NAS (plan 050 P3) — consommée par la surface
+        // Connaissances ; l'échec voyage dans detail.error, en place
+        window.dispatchEvent(new CustomEvent("kb-gbrain-results", {
+          detail: { query: msg.query, results: msg.results ?? [], error: msg.error ?? null },
+        }));
+      }
       if (msg.type === "localServers") {
         window.dispatchEvent(new CustomEvent("local-servers", { detail: msg.servers }));
       }
