@@ -527,31 +527,35 @@ export function KbChips(p: {
       </span>
     );
   };
-  // Dès 3 sources ordinaires : une pilule agrégée qui ouvre le picker (le
-  // gestionnaire) — 30 PDF ne font plus 30 pilules. gbrain garde sa pilule.
+  // TOUJOURS une pilule agrégée (décision Thierry : même comportement quel
+  // que soit le nombre) qui ouvre le picker, le gestionnaire — 30 PDF ne font
+  // jamais 30 pilules. gbrain garde sa pilule propre.
   const regular = p.attached.filter((id) => id !== "gbrain");
-  if (regular.length >= 3) {
-    const preview = regular
-      .slice(0, 2)
-      .map((id) => sources.find((entry) => entry.id === id)?.title ?? id)
-      .join(", ");
-    return (
-      <div className="kb-chips">
+  const preview = regular
+    .slice(0, 2)
+    .map((id) => sources.find((entry) => entry.id === id)?.title ?? id)
+    .join(", ");
+  return (
+    <div className="kb-chips">
+      {regular.length > 0 && (
         <RowButton
           className="chip kb-chip kb-chip-agg"
           title={t("kb.chips-open")}
           onClick={openKbPicker}
         >
           <BookIcon />
-          <span className="chip-label">{t("kb.chips-aggregate", { n: regular.length })}</span>
-          <span className="kb-chip-preview">{preview}…</span>
+          <span className="chip-label">
+            {regular.length === 1
+              ? t("kb.chips-aggregate-one")
+              : t("kb.chips-aggregate", { n: regular.length })}
+          </span>
+          <span className="kb-chip-preview">{preview}{regular.length > 2 ? "…" : ""}</span>
           <svg width="10" height="10" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3" aria-hidden="true">
             <path d="m4 6 4 4 4-4" />
           </svg>
         </RowButton>
-        {p.attached.includes("gbrain") && chipFor("gbrain")}
-      </div>
-    );
-  }
-  return <div className="kb-chips">{p.attached.map(chipFor)}</div>;
+      )}
+      {p.attached.includes("gbrain") && chipFor("gbrain")}
+    </div>
+  );
 }

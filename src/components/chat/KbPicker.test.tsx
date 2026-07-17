@@ -88,22 +88,35 @@ describe("KbPickerPanel", () => {
 });
 
 describe("KbChips", () => {
-  it("rend les pilules des sources attachées et détache au clic", () => {
+  it("une seule source = déjà la pilule agrégée, titre en aperçu", () => {
+    act(() => {
+      window.dispatchEvent(new CustomEvent("kb-sources", { detail: SOURCES }));
+    });
+    const opened = vi.fn();
+    const unsubscribe = onOpenKbPicker(opened);
+    renderUi(<KbChips attached={["aaaa1111"]} fullContent={["aaaa1111"]} onDetach={vi.fn()} />);
+    expect(screen.getByText("1 source attachée")).toBeTruthy();
+    expect(screen.getByText(/Cuffey & Paterson ch\. 5/)).toBeTruthy();
+    fireEvent.click(screen.getByText("1 source attachée"));
+    expect(opened).toHaveBeenCalledTimes(1);
+    unsubscribe();
+  });
+
+  it("gbrain garde sa pilule propre, détachable directement", () => {
     act(() => {
       window.dispatchEvent(new CustomEvent("kb-sources", { detail: SOURCES }));
     });
     const onDetach = vi.fn();
-    renderUi(<KbChips attached={["aaaa1111"]} fullContent={["aaaa1111"]} onDetach={onDetach} />);
-    expect(screen.getByText("Cuffey & Paterson ch. 5")).toBeTruthy();
-    expect(screen.getByText("100%")).toBeTruthy();
+    renderUi(<KbChips attached={["gbrain"]} fullContent={[]} onDetach={onDetach} />);
+    expect(screen.getByText("Corpus thèse (gbrain)")).toBeTruthy();
     fireEvent.click(screen.getByLabelText("Détacher de la conversation"));
-    expect(onDetach).toHaveBeenCalledWith("aaaa1111");
+    expect(onDetach).toHaveBeenCalledWith("gbrain");
   });
 
   it("demande la liste si des ids attachés n'ont pas encore de titres", () => {
     renderUi(<KbChips attached={["zzzz9999"]} fullContent={[]} onDetach={vi.fn()} />);
     expect(wsSend).toHaveBeenCalledWith({ type: "kbList" });
-    expect(screen.getByText("zzzz9999")).toBeTruthy();
+    expect(screen.getByText(/zzzz9999/)).toBeTruthy();
   });
 
   it("agrège dès 3 sources : une seule pilule, aperçu des titres, ouvre le picker", () => {
@@ -130,13 +143,14 @@ describe("KbChips", () => {
     unsubscribe();
   });
 
-  it("reste en pilules individuelles sous 3 sources ordinaires", () => {
+  it("agrège aussi à 2 : même comportement quel que soit le nombre", () => {
     act(() => {
       window.dispatchEvent(new CustomEvent("kb-sources", { detail: SOURCES }));
     });
     renderUi(<KbChips attached={["aaaa1111", "bbbb2222"]} fullContent={[]} onDetach={vi.fn()} />);
-    expect(screen.queryByText("2 sources attachées")).toBeNull();
-    expect(screen.getByText("Cuffey & Paterson ch. 5")).toBeTruthy();
-    expect(screen.getByText("Albedo feedbacks review")).toBeTruthy();
+    expect(screen.getByText("2 sources attachées")).toBeTruthy();
+    // aperçu complet sans ellipse (tout est déjà listé)
+    expect(screen.getByText("Cuffey & Paterson ch. 5, Albedo feedbacks review")).toBeTruthy();
+    expect(screen.queryByText(/…/)).toBeNull();
   });
 });

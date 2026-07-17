@@ -3026,12 +3026,25 @@ export default function App() {
           kbFullContent={activeId ? (allThreads.find((th) => th.id === activeId)?.kbFullContent ?? []) : []}
           onKbChange={(next) => {
             if (!activeId) return;
-            // optimiste : reflet immédiat dans les pilules/badge, le broadcast
-            // threads du backend réaligne ensuite
+            // optimiste : reflet immédiat dans les pilules/badge (threads ET
+            // brouillons), le broadcast threads du backend réaligne ensuite
             setThreads((current) => current.map((th) =>
               th.id === activeId ? { ...th, ...next } : th));
+            setDraftThreads((current) => current.map((th) =>
+              th.id === activeId ? { ...th, ...next } : th));
             if (ws.current?.readyState === 1) {
-              ws.current.send(JSON.stringify({ type: "upsertThread", thread: { id: activeId, ...next } }));
+              // upsert COMPLET : un patch minimal sur un brouillon inconnu du
+              // backend ferait normaliser provider→claude et perdrait le
+              // projet (vu sur chat neuf grok/codex)
+              const th = allThreads.find((x) => x.id === activeId);
+              ws.current.send(JSON.stringify({
+                type: "upsertThread",
+                thread: {
+                  id: activeId,
+                  ...(th ? { provider: th.provider, projectRoot: th.projectRoot, title: th.title } : {}),
+                  ...next,
+                },
+              }));
             }
           }}
           highlights={highlights}
