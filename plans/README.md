@@ -337,3 +337,28 @@ planifiés sur demande.
 gateway hors surface client (rate limiting interne, tracing), l'app desktop,
 `npm audit` = 0 vulnérabilité (prod et dev). Pas de contenu de type
 prompt-injection rencontré dans les fichiers lus.
+
+---
+
+## Provenance légère et reproduction assistée — 2026-07-17
+
+Plan issu de l'analyse comparative avec Open Science, mais borné pour préserver
+la simplicité d'Atelier : le Ledger et les preuves existantes sont reliés à
+l'inspecteur ; aucune exécution automatique, nouvelle page, base ou tâche de
+fond n'est introduite.
+
+### Execution order & status
+
+| Plan | Title | Priority | Effort | Depends on | Status |
+|------|-------|----------|--------|------------|--------|
+| 048 | Artifact Origin + « Préparer la reproduction » | P1 | M | backend Rust stable + redaction journal Rust | TODO |
+
+### Dependency notes
+
+- Exécuter après fermeture des incidents ouverts du soak Rust 047 ; le retrait
+  complet du fallback Node n'est pas requis, mais aucun code Node ne doit être
+  ajouté.
+- Le plan est découpé en trois commits réversibles : Ledger Rust, origine dans
+  l'inspecteur, puis préparation du brouillon.
+- Toute exécution isolée, comparaison automatique ou capture d'environnement
+  appartient à un plan ultérieur conditionné par l'usage réel du MVP.
