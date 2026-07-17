@@ -25,6 +25,7 @@ import * as zotero from "./zotero.mjs";
 import * as claude from "./providers/claude.mjs";
 import * as codex from "./providers/codex.mjs";
 import * as grok from "./providers/grok.mjs";
+import * as kimi from "./providers/kimi.mjs";
 import * as opencode from "./providers/opencode.mjs";
 import { listProviders } from "./providers/registry.mjs";
 import { loadApiProviderConfigs, writeApiProviderConfigs, makeApiProvider, fetchAvailableModels } from "./providers/openai_api.mjs";
@@ -70,7 +71,7 @@ let automationTimer = null;
 // journal canonique du harnais (plan 025) : ~/…/atelier-studio/harness-history/
 const harnessJournal = createHarnessJournal({ baseDir: APP_DIR });
 const highlights = new HighlightStore(`${APP_DIR}/highlights.json`);
-const providers = { claude, codex, grok, opencode };
+const providers = { claude, codex, grok, kimi, opencode };
 const BUILTIN_PROVIDER_IDS = new Set(Object.keys(providers).concat("gemini"));
 // providers API OpenAI-compatible (api_providers.json) — chat pur, runtime dédié.
 // Rechargeable à chaud quand l'UI ajoute/modifie un provider.
@@ -195,6 +196,9 @@ function listPasted() {
 function cleanup() {
   if (automationTimer) clearInterval(automationTimer);
   try { terminal.closeAll(); } catch {}
+  // pas de process `… acp` zombie après l'arrêt du sidecar
+  try { opencode.stopAcpServer(); } catch {}
+  try { kimi.stopAcpServer(); } catch {}
   try {
     if (Number(readFileSync(PID_FILE, "utf8")) === process.pid) rmSync(PID_FILE);
   } catch {}
@@ -287,6 +291,12 @@ function authHintForProvider(provider, modelError) {
   if (provider.id === "grok") {
     return modelError ? "login_or_models_needed" : "ready";
   }
+  if (provider.id === "kimi") {
+    // jamais atteint en pratique : setupStatus passe par kimi.setupProbe()
+    // (états not_installed/version_unsupported/login_needed/
+    // model_config_needed/ready/protocol_error) — repli sûr sinon.
+    return "login_needed";
+  }
   if (provider.id === "opencode") {
     return "check_provider_config";
   }
@@ -297,6 +307,28 @@ async function setupStatus() {
   const runtimeNodePath = process.execPath;
   const runtimeBundled = runtimeNodePath.includes(".app/Contents/Resources/");
   const providerRows = await Promise.all(listProviders().map(async (provider) => {
+    if (provider.id === "kimi") {
+      // Sonde dédiée SANS quota (plan 046 étape 10) : binaire (résolution
+      // spécifique ~/.kimi-code), --version, initialize, authenticate(login),
+      // discovery modèles — jamais session/prompt. `auth` porte les états
+      // not_installed/version_unsupported/login_needed/model_config_needed/
+      // ready/protocol_error.
+      const probe = await kimi.setupProbe();
+      return {
+        id: provider.id,
+        label: provider.label,
+        kind: provider.kind,
+        installed: probe.state !== "not_installed",
+        version: probe.version ?? null,
+        binPath: probe.binPath ?? null,
+        auth: probe.state,
+        models: probe.models ?? 0,
+        defaultModel: "",
+        modelError: probe.shadowed
+          ? `installation officielle masquée : ${probe.shadowed} (binaire utilisé : ${probe.binPath})`
+          : (probe.error ?? null),
+      };
+    }
     const binPath = provider.bin ? resolveBin(provider.bin) : null;
     let version = null;
     let models = provider.models;
@@ -434,12 +466,21 @@ async function providerStatus() {
         }
       } catch {}
     }
+    let modelReasoning = provider.modelReasoning ?? {};
+    if (provider.id === "kimi") {
+      // Catalogue vivant : discovery CLI + derniers snapshots configOptions.
+      // Le thinking off/on n'apparaît QUE pour les modèles confirmés par Kimi
+      // (option `thinking` présente dans le snapshot) — plan 046 étape 6.
+      const catalog = kimi.cachedKimiCatalog();
+      if (!models.length && catalog.models.length) models = catalog.models;
+      modelReasoning = { ...modelReasoning, ...catalog.modelReasoning };
+    }
     const base = {
       id: provider.id,
       label: provider.label,
       kind: provider.kind,
       models,
-      modelReasoning: provider.modelReasoning ?? {},
+      modelReasoning,
       defaultModel,
       efforts: provider.efforts,
       // le sidecar est l'autorité des capacités (plan 025) : le composer ne

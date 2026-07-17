@@ -51,7 +51,7 @@ const PROVIDERS = [
       "gpt-5.1-codex",
     ],
     efforts: ["low", "medium", "high", "xhigh", "max"],
-    capabilities: { reasoning: true, resume: true, steering: true, queue: true, goals: true, tools: true, toolOutput: true, permissions: true, interactiveInput: true, mcpElicitation: true, mcpTools: true, mcpWidgets: true, plugins: true, skills: true, review: true, compact: true, durableHistory: false, permissionModes: ["default", "acceptEdits", "plan", "bypassPermissions"] },
+    capabilities: { reasoning: true, resume: true, steering: true, queue: true, goals: true, tools: true, toolOutput: true, permissions: true, interactiveInput: true, mcpElicitation: true, mcpTools: true, mcpWidgets: true, plugins: true, skills: true, review: true, compact: true, imageInput: true, durableHistory: false, permissionModes: ["default", "acceptEdits", "plan", "bypassPermissions"] },
   },
   {
     id: "grok",
@@ -61,6 +61,18 @@ const PROVIDERS = [
     models: ["grok-4.5", "grok-composer-2.5-fast"],
     efforts: ["minimal", "low", "medium", "high", "xhigh", "max"],
     capabilities: { reasoning: true, resume: true, steering: false, queue: true, goals: false, tools: true, toolOutput: false, permissions: false, interactiveInput: false, mcpElicitation: false, mcpTools: false, mcpWidgets: false, plugins: false, skills: false, review: false, compact: false, durableHistory: false, permissionModes: [] },
+  },
+  {
+    id: "kimi",
+    label: "Kimi Code",
+    bin: "kimi",
+    // Décision 7 du plan 046 : AUCUN modèle en dur — catalogue par discovery
+    // (setup probe + configOptions). Thinking off/on par-modèle via
+    // modelReasoning dynamique (providerStatus).
+    defaultModel: "",
+    models: [],
+    efforts: [],
+    capabilities: { reasoning: true, resume: true, steering: false, queue: true, goals: false, tools: true, toolOutput: true, permissions: true, interactiveInput: true, mcpElicitation: false, mcpTools: true, mcpWidgets: false, plugins: false, skills: true, review: false, compact: true, imageInput: true, durableHistory: true, permissionModes: ["default", "acceptEdits", "plan", "bypassPermissions"] },
   },
   {
     id: "opencode",

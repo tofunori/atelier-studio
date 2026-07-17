@@ -230,6 +230,12 @@ function makePermissionRelay(ctx, _emit, threadId, permissionMode) {
 function summarizeInteractionAnswer(spec, response) {
   if (!response) return "";
   if (spec.interactionType === "approval") {
+    // Choix dynamique (Kimi) : afficher le LABEL du choix, jamais l'id wire.
+    if (typeof response.optionId === "string") {
+      const choice = (spec.choices ?? []).find((c) => c?.optionId === response.optionId);
+      const label = String(choice?.label ?? response.optionId).slice(0, 80);
+      return response.cancelTurn ? `${label} · tour annulé` : label;
+    }
     if (response.cancelTurn) return "tour annulé";
     if (response.allow && response.scope === "session") return "toujours autorisé pour cette session";
     return response.allow ? "autorisé une fois" : "refusé";
@@ -242,7 +248,9 @@ function summarizeInteractionAnswer(spec, response) {
   for (const f of spec.fields ?? []) {
     const v = answers[f.id];
     if (v == null || v === "") continue;
-    parts.push(`${f.header ?? f.id}: ${f.secret ? "•••" : String(v).slice(0, 60)}`);
+    // Option à valeur opaque (Kimi) : afficher le label, pas l'id wire.
+    const label = (f.options ?? []).find((o) => o?.value === v)?.label;
+    parts.push(`${f.header ?? f.id}: ${f.secret ? "•••" : String(label ?? v).slice(0, 60)}`);
   }
   return parts.join(" · ").slice(0, 200);
 }
@@ -258,7 +266,10 @@ const INTERACTION_TIMEOUT_MS = 120000;
  */
 function makeInteractionRelay(ctx, threadId) {
   return (spec) => {
-    if (spec.interactionType === "approval" && approvalSessions.has(threadId)) {
+    // Le cache « toujours autoriser » ne répond JAMAIS à la place d'une
+    // permission à choix dynamiques (Kimi, plan 046) : seul le choix
+    // `approve_always` transmis au harnais installe la règle de session.
+    if (spec.interactionType === "approval" && !spec.choices && approvalSessions.has(threadId)) {
       return Promise.resolve({ allow: true, scope: "session" });
     }
     return new Promise((resolve) => {
@@ -277,6 +288,7 @@ function makeInteractionRelay(ctx, threadId) {
       title: spec.title,
       ...(spec.detail ? { detail: spec.detail } : {}),
       ...(spec.urlDomain ? { urlDomain: spec.urlDomain } : {}),
+      ...(spec.choices ? { choices: spec.choices } : {}),
       ...(spec.fields ? { fields: spec.fields } : {}),
       state,
       ...(answerSummary ? { answerSummary } : {}),

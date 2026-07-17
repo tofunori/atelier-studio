@@ -5,6 +5,7 @@ import readline from "node:readline";
 import { stripHandoff } from "./handoff.mjs";
 import { stripGalleryToolInstruction } from "./gallery_tool_prompt.mjs";
 import { stripZoteroPassageInstruction } from "./zotero_passage_prompt.mjs";
+import { listSessions as listKimiSessions } from "./providers/kimi.mjs";
 
 function stripAtelierToolInstructions(text) {
   return stripZoteroPassageInstruction(stripGalleryToolInstruction(text));
@@ -95,6 +96,10 @@ export async function listSessions(provider, projectRoot) {
       const id = f.replace(/\.jsonl$/, "");
       out.push({ id, mtime: m, title: (await firstUserText(join(dir, f), false)) ?? id.slice(0, 8) });
     }
+  } else if (provider === "kimi") {
+    // Branche EXPLICITE (plan 046 étape 8) : listing natif session/list ACP —
+    // il est interdit de tomber sur le parser de fichiers Codex ci-dessous.
+    return listKimiSessions(projectRoot);
   } else if (provider === "grok") {
     const dir = grokProjectDir(projectRoot);
     if (!existsSync(dir)) return [];

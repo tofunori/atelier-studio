@@ -41,8 +41,11 @@
 
 import process from "node:process";
 
-// argv[2] prioritaire (les tests parallèles ne peuvent pas partager un env global).
-const MODE = process.argv[2] || process.env.FAKE_KIMI_MODE || "nominal";
+// argv prioritaire (les tests parallèles ne peuvent pas partager un env
+// global). "acp" est transparent : le client Node lance `<bin> acp` — le mode
+// suit alors en argv[3] ou retombe sur l'env.
+const argvMode = process.argv[2] === "acp" ? process.argv[3] : process.argv[2];
+const MODE = argvMode || process.env.FAKE_KIMI_MODE || "nominal";
 const FRAGMENT = process.env.FAKE_KIMI_FRAGMENT === "1";
 const LATE_MS = Number(process.env.FAKE_KIMI_LATE_MS || 250);
 const VERSION = MODE === "old_version" ? "0.20.0" : "0.26.0";

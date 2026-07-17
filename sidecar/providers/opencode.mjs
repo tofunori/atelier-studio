@@ -3,7 +3,14 @@ import { appendFileSync, existsSync, mkdirSync, readFileSync, realpathSync } fro
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { resolveBin } from "../bin_resolver.mjs";
-import { acpMethodNotFoundResponse, makeTurnEmitter, parseAcpLines } from "./acp_common.mjs";
+import {
+  acpEdits,
+  acpMethodNotFoundResponse,
+  acpToolCall,
+  acpToolCallUpdate,
+  makeTurnEmitter,
+} from "./acp_common.mjs";
+import { makeAcpClient } from "./acp_client.mjs";
 
 const OPENCODE_BIN = resolveBin("opencode") ?? "opencode";
 
@@ -363,19 +370,45 @@ const ACP_HANDSHAKE_TIMEOUT_MS = 10000; // initialize
 // >15 s observés en sonde) ; 30 s de marge.
 const ACP_OPEN_TIMEOUT_MS = 30000;
 
-let acpServer = null; // { proc, request(method,params,timeoutMs), notify(method,params), realBin }
-let currentAcpProc = null; // process du spawn le plus récent (garde anti-lignes tardives)
-const acpPendingRpc = new Map(); // id -> { resolve, reject }
-const acpSessionHandlers = new Map(); // sessionId -> (update) => void (tour en cours)
+// Cycle de vie du process (spawn singleton, pending RPC, framing, garde de
+// génération) : extrait vers acp_client.mjs (plan 046 étape 9). Ici ne
+// restent que les états PROVIDER : sessions ouvertes, modèle par session,
+// tours actifs — invalidés quand la génération du client change.
 const acpLoadedSessions = new Set(); // sessions ouvertes (new|load) dans CE process
 const acpSessionModel = new Map(); // sessionId -> dernier modelId aligné/connu
 const acpActiveTurns = new Map(); // clé de tour (threadId ?? sessionId) -> sessionId
+let acpKnownGeneration = 0;
 
 function acpHandshakeFailure(message) {
   const e = new Error(message);
   e.acpHandshakeFailure = true;
   return e;
 }
+
+/** Politique OpenCode du plan 045, conservée PAR OpenCode (plan 046 §2.4) :
+ * auto-approbation allow_once (parité `--auto` legacy, le catalogue déclare
+ * permissions:false). Toute autre méthode ⇒ null ⇒ repli sûr du client
+ * (-32601). */
+export function opencodeServerPolicy(method, params) {
+  if (method !== "session/request_permission") return null;
+  const options = params?.options ?? [];
+  const picked = options.find((o) => o?.kind === "allow_once") ?? options[0];
+  return picked?.optionId != null
+    ? { outcome: { outcome: "selected", optionId: picked.optionId } }
+    : { outcome: { outcome: "cancelled" } };
+}
+
+const acpClient = makeAcpClient({
+  label: "opencode",
+  binPath: () => OPENCODE_BIN,
+  args: ["acp"],
+  initParams: {
+    protocolVersion: 1,
+    clientCapabilities: { fs: { readTextFile: false, writeTextFile: false }, terminal: false },
+  },
+  onServerRequest: opencodeServerPolicy,
+  handshakeTimeoutMs: ACP_HANDSHAKE_TIMEOUT_MS,
+});
 
 function withAcpTimeout(promise, label, ms) {
   return new Promise((resolve, reject) => {
@@ -390,237 +423,56 @@ function withAcpTimeout(promise, label, ms) {
   });
 }
 
-function safeAcpRealpath(p) {
-  try {
-    return realpathSync(p);
-  } catch {
-    return p;
-  }
-}
-
-function resetAcpState(err) {
-  const e = err ?? new Error("opencode acp terminé");
-  for (const { reject } of acpPendingRpc.values()) reject(e);
-  acpPendingRpc.clear();
-  acpLoadedSessions.clear();
-  acpSessionModel.clear();
-  acpServer = null;
-  acpSessionHandlers.clear(); // les tours en cours voient leur request() rejeter (acpPendingRpc ci-dessus)
-}
-
-/** Réponse automatique aux requêtes serveur→client. `session/request_permission`
- * est approuvée (allow_once — parité avec le `--auto` du chemin legacy, le
- * catalogue déclare permissions:false) ; toute autre méthode reçoit une erreur
- * JSON-RPC standard — jamais de silence (le tour se bloquerait). Exporté pour
- * être testable sans process réel. */
+/** Compat plan 045 (tests) : réponse automatique aux requêtes serveur→client,
+ * écrite de façon SYNCHRONE sur `proc.stdin` — même comportement que la
+ * politique branchée dans le client partagé. Le flux réel passe par
+ * acp_client.mjs ; cette fonction reste l'entrée testable sans process. */
 export function handleOpencodeIncoming(proc, msg) {
   if (msg.id != null && msg.method) {
-    if (msg.method === "session/request_permission") {
-      const options = msg.params?.options ?? [];
-      const picked = options.find((o) => o?.kind === "allow_once") ?? options[0];
-      const outcome = picked?.optionId != null
-        ? { outcome: "selected", optionId: picked.optionId }
-        : { outcome: "cancelled" };
-      proc.stdin.write(JSON.stringify({ jsonrpc: "2.0", id: msg.id, result: { outcome } }) + "\n");
-      return;
+    const body = opencodeServerPolicy(msg.method, msg.params);
+    if (body != null) {
+      proc.stdin.write(JSON.stringify({ jsonrpc: "2.0", id: msg.id, result: body }) + "\n");
+    } else {
+      proc.stdin.write(JSON.stringify(acpMethodNotFoundResponse(msg.id, msg.method)) + "\n");
     }
-    proc.stdin.write(JSON.stringify(acpMethodNotFoundResponse(msg.id, msg.method)) + "\n");
     return;
   }
-  if (msg.id != null) {
-    const p = acpPendingRpc.get(msg.id);
-    if (!p) return;
-    acpPendingRpc.delete(msg.id);
-    if (msg.error) p.reject(new Error(msg.error.message ?? "erreur ACP opencode"));
-    else p.resolve(msg.result);
-    return;
-  }
-  if (msg.method === "session/update") {
-    const sid = msg.params?.sessionId;
-    const handler = sid ? acpSessionHandlers.get(sid) : null;
-    handler?.(msg.params?.update ?? {}); // pas de handler = tour fini / replay de session/load : silence attendu
-    return;
-  }
-  // Autres notifications : ignorées, jamais journalisées.
+  // Réponses et notifications : dispatchées par le client partagé sur le vrai
+  // flux ; ce shim de test n'a pas d'état à mettre à jour.
 }
 
-async function spawnAcpServer() {
-  const proc = spawn(OPENCODE_BIN, ["acp"], {
-    stdio: ["pipe", "pipe", "pipe"],
-    env: { ...process.env },
-  });
-  // Garde d'identité : l'exit TARDIF d'un ancien process (remplacé par
-  // ensureAcpServer) ne doit pas réinitialiser l'état du remplaçant
-  // (course relevée en revue indépendante, 2026-07-16).
-  const isCurrent = () => !acpServer || acpServer.proc === proc;
-  currentAcpProc = proc;
-  proc.on("exit", () => { if (isCurrent()) resetAcpState(new Error("opencode acp a quitté")); });
-  proc.on("error", (e) => { if (isCurrent()) resetAcpState(e); });
-  proc.stderr.on("data", () => {}); // logs/warnings plugins : bruyants, jamais bloquer le pipe
-  let carry = "";
-  proc.stdout.on("data", (buf) => {
-    // les dernières lignes d'un ANCIEN process (tué au remplacement) ne
-    // doivent jamais se dispatcher dans les maps du remplaçant (ids partagés)
-    if (currentAcpProc !== proc) return;
-    const { messages, rest } = parseAcpLines(String(buf), carry);
-    carry = rest;
-    for (const msg of messages) handleOpencodeIncoming(proc, msg);
-  });
-  let nextId = 1;
-  const request = (method, params) => new Promise((resolve, reject) => {
-    const id = nextId++;
-    acpPendingRpc.set(id, { resolve, reject });
-    proc.stdin.write(JSON.stringify({ jsonrpc: "2.0", id, method, params }) + "\n");
-  });
-  const notify = (method, params) => {
-    proc.stdin.write(JSON.stringify({ jsonrpc: "2.0", method, params }) + "\n");
-  };
-  const srv = { proc, request, notify, realBin: safeAcpRealpath(OPENCODE_BIN) };
-  const earlyExit = new Promise((_, reject) => {
-    proc.once("error", (e) => reject(acpHandshakeFailure(`spawn opencode acp: ${e.message}`)));
-    proc.once("exit", (code) => reject(acpHandshakeFailure(`opencode acp a quitté immédiatement (code ${code})`)));
-  });
-  try {
-    await Promise.race([
-      withAcpTimeout(
-        srv.request("initialize", {
-          protocolVersion: 1,
-          clientCapabilities: { fs: { readTextFile: false, writeTextFile: false }, terminal: false },
-        }),
-        "initialize",
-        ACP_HANDSHAKE_TIMEOUT_MS,
-      ),
-      earlyExit,
-    ]);
-  } catch (e) {
-    // Pas de zombie : un handshake raté tue le process et purge son pending
-    // (sinon le repli legacy masquerait un `opencode acp` orphelin).
-    try { proc.kill("SIGTERM"); } catch {}
-    resetAcpState(e instanceof Error ? e : new Error(String(e)));
-    throw e;
-  }
-  acpServer = srv;
-  return srv;
-}
-
-// Spawn single-flight : deux premiers tours concurrents partagent le même
-// handshake au lieu de lancer deux singletons aux ids JSON-RPC entremêlés.
-let acpSpawnPromise = null;
-
+/** Spawn + initialize via le client partagé. Toute erreur devient un échec de
+ * HANDSHAKE (déclencheur du repli legacy) ; un respawn invalide les états
+ * par-session du provider (sessions ouvertes, modèle). */
 async function ensureAcpServer() {
-  if (acpServer) {
-    const alive = acpServer.proc.exitCode == null && !acpServer.proc.killed;
-    const currentBin = safeAcpRealpath(OPENCODE_BIN);
-    if (alive && currentBin === acpServer.realBin) return acpServer;
-    try { acpServer.proc.kill("SIGTERM"); } catch {}
-    resetAcpState(new Error("opencode acp remplacé (version/process)"));
+  try {
+    await acpClient.ensure();
+  } catch (e) {
+    throw e?.acpHandshakeFailure ? e : acpHandshakeFailure(String(e?.message ?? e));
   }
-  if (!acpSpawnPromise) {
-    acpSpawnPromise = spawnAcpServer().finally(() => { acpSpawnPromise = null; });
+  const generation = acpClient.generation();
+  if (generation !== acpKnownGeneration) {
+    acpKnownGeneration = generation;
+    acpLoadedSessions.clear();
+    acpSessionModel.clear();
   }
-  return acpSpawnPromise;
+  return acpClient;
 }
 
 export function stopAcpServer() {
-  if (acpServer?.proc && !acpServer.proc.killed) {
-    try { acpServer.proc.kill("SIGTERM"); } catch {}
-  }
-  resetAcpState(new Error("opencode acp arrêté"));
+  acpClient.stop("opencode acp arrêté");
+  acpLoadedSessions.clear();
+  acpSessionModel.clear();
 }
 
 // --- Mapping session/update -> kinds Atelier (formes ACP standard) ----------
 
-function opencodeToolStatus(update) {
-  const raw = update?.status;
-  if (raw) {
-    const s = String(raw).toLowerCase();
-    if (s.includes("fail") || s.includes("error") || s.includes("reject")) return "failed";
-    if (s.includes("complet") || s.includes("done") || s.includes("success")) return "completed";
-    if (s.includes("progress") || s.includes("pending")) return "running";
-    return s;
-  }
-  // pas de statut explicite : la présence d'un contenu signale la fin
-  return (update?.content ?? []).length ? "completed" : "running";
-}
-
-function opencodeToolOutput(update) {
-  const parts = [];
-  for (const c of update?.content ?? []) {
-    if (c?.type === "diff") {
-      const label = c.path ? `# ${c.path}` : "# fichier";
-      parts.push(`${label}\n${String(c.newText ?? "")}`);
-    } else if (c?.type === "text" && c.text) {
-      parts.push(String(c.text));
-    } else if (typeof c?.content?.text === "string") {
-      parts.push(c.content.text);
-    }
-  }
-  return parts.join("\n\n");
-}
-
-function rememberOpencodeToolMeta(toolMetaCache, toolCallId, patch) {
-  if (!toolMetaCache || !toolCallId) return;
-  const prev = toolMetaCache.get(toolCallId) ?? {};
-  const next = { ...prev };
-  if (patch.name && patch.name !== "tool") next.name = patch.name;
-  if (patch.detail) next.detail = patch.detail;
-  if (patch.input != null) next.input = patch.input;
-  toolMetaCache.set(toolCallId, next);
-}
-
-function opencodeToolCall(update, toolMetaCache) {
-  const title = update?.title || undefined;
-  const kind = update?.kind || undefined;
-  const name = title || kind || "tool";
-  const ev = {
-    kind: "tool_update",
-    id: update?.toolCallId,
-    name,
-    status: "running",
-    detail: kind && kind !== name ? kind : undefined,
-    // `output` est un string REQUIS côté front (ws.ts, Chat.tsx fait
-    // event.output.length sans garde — crash blanc constaté 2026-07-08)
-    output: "",
-    input: update?.rawInput ?? null,
-    source: "opencode",
-  };
-  rememberOpencodeToolMeta(toolMetaCache, update?.toolCallId, ev);
-  return ev;
-}
-
-function opencodeToolCallUpdate(update, toolMetaCache) {
-  const cached = toolMetaCache?.get(update?.toolCallId);
-  const title = update?.title || undefined;
-  const kind = update?.kind || undefined;
-  const name = title || cached?.name || kind || "tool";
-  const ev = {
-    kind: "tool_update",
-    id: update?.toolCallId,
-    name,
-    status: opencodeToolStatus(update),
-    detail: (kind && kind !== name ? kind : undefined) || cached?.detail || undefined,
-    output: opencodeToolOutput(update),
-    input: update?.rawInput ?? cached?.input ?? null,
-    source: "opencode",
-  };
-  rememberOpencodeToolMeta(toolMetaCache, update?.toolCallId, ev);
-  return ev;
-}
-
-function opencodeEdits(update, seenEdits) {
-  const files = [];
-  for (const c of update?.content ?? []) {
-    if (c?.type !== "diff" || !c.path) continue;
-    const key = `${update.toolCallId}:${c.path}:${String(c.newText ?? "").length}`;
-    if (seenEdits) {
-      if (seenEdits.has(key)) continue;
-      seenEdits.add(key);
-    }
-    files.push(String(c.path));
-  }
-  // `files` seulement, pas de snippets (piège redaction journal, décision 6)
-  return files.length ? [{ kind: "edit", files }] : [];
-}
+// Helpers tool_call partagés : acp_common.mjs (paramétrés par source —
+// plan 046). Les wrappers gardent la signature historique d'opencode.
+const opencodeToolCall = (update, toolMetaCache) => acpToolCall(update, toolMetaCache, "opencode");
+const opencodeToolCallUpdate = (update, toolMetaCache) =>
+  acpToolCallUpdate(update, toolMetaCache, "opencode");
+const opencodeEdits = (update, seenEdits) => acpEdits(update, seenEdits);
 
 /** Mapping `sessionUpdate` ACP standard -> kind(s) Atelier. `ctx` porte l'état
  * mémoire du tour ({toolMeta: Map, seenEdits: Set, lastUsageUpdate}) — sans
@@ -708,8 +560,7 @@ async function openOpencodeSession(srv, { sessionId, cwd }) {
       if (m) acpSessionModel.set(sessionId, m);
       return { sessionId };
     } catch (e) {
-      const alive = srv?.proc && srv.proc.exitCode == null && !srv.proc.killed;
-      if (!alive) throw e;
+      if (!acpClient.isAlive()) throw e;
       console.warn(`[opencode] session/load refusé (${sessionId}), repli session/new:`, e?.message ?? e);
     }
   }
@@ -750,8 +601,8 @@ async function alignOpencodeModel(srv, sessionId, model) {
  * (router.mjs, case "interrupt"). */
 export async function interrupt(threadId) {
   const sid = acpActiveTurns.get(threadId);
-  if (!sid || !acpServer) return;
-  try { acpServer.notify("session/cancel", { sessionId: sid }); } catch {}
+  if (!sid || !acpClient.isAlive()) return;
+  acpClient.notify("session/cancel", { sessionId: sid });
 }
 
 async function runAcp({ threadId, cwd, prompt, sessionId, model, timeoutMs, onEvent }) {
@@ -779,7 +630,7 @@ async function runAcp({ threadId, cwd, prompt, sessionId, model, timeoutMs, onEv
   const handler = (update) => {
     for (const ev of mapOpencodeSessionUpdate(update, ctx)) emitter.emit(ev);
   };
-  acpSessionHandlers.set(sid, handler);
+  acpClient.setSessionHandler(sid, handler);
   const turnKey = threadId ?? sid;
   acpActiveTurns.set(turnKey, sid);
 
@@ -800,7 +651,7 @@ async function runAcp({ threadId, cwd, prompt, sessionId, model, timeoutMs, onEv
   } finally {
     if (timer) clearTimeout(timer);
     recorder.persist(sid);
-    acpSessionHandlers.delete(sid);
+    acpClient.clearSessionHandler(sid);
     acpActiveTurns.delete(turnKey);
   }
   return { sessionId: sid };
