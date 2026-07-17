@@ -265,6 +265,71 @@ describe("base de connaissances — dossiers (T6)", () => {
   });
 });
 
+describe("base de connaissances — YouTube (T8)", () => {
+  const VTT = [
+    "WEBVTT",
+    "Kind: captions",
+    "",
+    "00:00:01.000 --> 00:00:04.000",
+    "Bienvenue à ce cours sur le <c>bilan</c> énergétique des glaciers.",
+    "",
+    "00:00:05.000 --> 00:00:08.000",
+    "Bienvenue à ce cours sur le bilan énergétique des glaciers.",
+    "",
+    "00:00:40.000 --> 00:00:43.000",
+    "L'albédo contrôle la part du rayonnement solaire absorbée en surface.",
+    "",
+    "01:02.000 --> 01:06.000",
+    "La suie des feux de forêt assombrit la neige et accélère la fonte estivale.",
+  ].join("\n");
+
+  it("vttToPages : buckets par minute, balises et répétitions retirées", async () => {
+    const { vttToPages } = await import("./knowledge.mjs");
+    const pages = vttToPages(VTT);
+    expect(pages).toHaveLength(2);
+    expect(pages[0].page).toBe(1);
+    expect(pages[0].text).toContain("bilan énergétique");
+    expect(pages[0].text).not.toContain("<c>");
+    expect(pages[0].text.match(/Bienvenue/g)).toHaveLength(1);
+    expect(pages[1].page).toBe(2);
+    expect(pages[1].text).toContain("suie des feux");
+  });
+
+  it("parseYoutubeUrl : formats acceptés et rejets", async () => {
+    const { parseYoutubeUrl } = await import("./knowledge.mjs");
+    expect(parseYoutubeUrl("https://www.youtube.com/watch?v=dQw4w9WgXcQ").href)
+      .toBe("https://www.youtube.com/watch?v=dQw4w9WgXcQ");
+    expect(parseYoutubeUrl("https://youtu.be/dQw4w9WgXcQ?t=30").id).toBe("dQw4w9WgXcQ");
+    expect(parseYoutubeUrl("https://www.youtube.com/shorts/dQw4w9WgXcQ").id).toBe("dQw4w9WgXcQ");
+    expect(() => parseYoutubeUrl("https://vimeo.com/12345")).toThrow(/YouTube non reconnue/);
+  });
+
+  it("épingle une vidéo (fetch injecté) : timestamps cités et lien &t=", async () => {
+    const dir = tmp();
+    const store = new KnowledgeStore(dir, {
+      fetchYoutube: () => ({ title: "Lecture — Glacier energy balance", duration: 2880, vtt: VTT }),
+    });
+    const { source } = await store.add({ kind: "youtube", origin: "https://youtu.be/dQw4w9WgXcQ" });
+    expect(source.title).toBe("Lecture — Glacier energy balance");
+    expect(source.origin).toBe("https://www.youtube.com/watch?v=dQw4w9WgXcQ");
+    expect(source.meta.segments).toBe(2);
+    const found = await runKbCommand([
+      "search", "--dir", dir, "--id", source.id, "--query", "suie feux fonte estivale",
+    ], { store });
+    expect(found.passages[0].location).toBe("1:00");
+    expect(found.passages[0].cite).toBe(`[kb:${source.id} · 1:00]`);
+    expect(found.passages[0].markdownLink).toBe(
+      "[Ouvrir à 1:00](https://www.youtube.com/watch?v=dQw4w9WgXcQ&t=60s)",
+    );
+  });
+
+  it("vidéo sans sous-titres : erreur claire", async () => {
+    const store = new KnowledgeStore(tmp(), { fetchYoutube: () => ({ title: "Muette", duration: 10, vtt: "WEBVTT\n" }) });
+    await expect(store.add({ kind: "youtube", origin: "https://youtu.be/dQw4w9WgXcQ" }))
+      .rejects.toThrow(/Aucun sous-titre/);
+  });
+});
+
 describe("base de connaissances — promotion gbrain (T7)", () => {
   it("capture titre + origine + extrait via gbrain capture", async () => {
     const store = new KnowledgeStore(tmp());

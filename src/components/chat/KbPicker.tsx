@@ -31,9 +31,10 @@ const GROUP_LABELS: Record<string, Parameters<typeof t>[0]> = {
   folder: "kb.group-folders",
   pdf: "kb.group-pdf",
   web: "kb.group-web",
+  youtube: "kb.group-youtube",
   note: "kb.group-notes",
 };
-const GROUP_ORDER = ["file", "folder", "pdf", "web", "note"];
+const GROUP_ORDER = ["file", "folder", "pdf", "web", "youtube", "note"];
 
 function fmtChars(chars: number): string {
   if (!Number.isFinite(chars) || chars <= 0) return "";
@@ -73,6 +74,14 @@ function KindIcon({ kind, size = 13 }: { kind: string; size?: number }) {
     return (
       <svg {...common}>
         <path d="M1.8 4.6c0-.7.6-1.3 1.3-1.3h3l1.5 1.5h5.6c.7 0 1.3.6 1.3 1.3v6c0 .7-.6 1.3-1.3 1.3H3.1c-.7 0-1.3-.6-1.3-1.3v-7.5z" />
+      </svg>
+    );
+  }
+  if (kind === "youtube") {
+    return (
+      <svg {...common}>
+        <rect x="1.8" y="3.2" width="12.4" height="9.6" rx="2" />
+        <path d="m6.6 6 3.4 2-3.4 2V6z" />
       </svg>
     );
   }
@@ -460,7 +469,9 @@ export function KbPicker({ binding }: { binding: KbBinding }) {
             onAddFolder={() => { void addFolder(); }}
             onAddUrl={(url) => {
               trackPendingAdds(1);
-              wsSend({ type: "kbAdd", kind: "web", origin: url });
+              // une URL YouTube s'épingle par son transcript horodaté (T8)
+              const kind = /(^|\.)youtube\.com\/|youtu\.be\//.test(url) ? "youtube" : "web";
+              wsSend({ type: "kbAdd", kind, origin: url });
             }}
             onAddNote={(title, text) => {
               trackPendingAdds(1);

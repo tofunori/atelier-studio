@@ -3,8 +3,8 @@
 // Zotero pour la recherche lexicale. Aucune dépendance externe.
 import { createHash } from "node:crypto";
 import { spawnSync } from "node:child_process";
-import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
-import { homedir } from "node:os";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { homedir, tmpdir } from "node:os";
 import { basename, dirname, extname, join, resolve } from "node:path";
 import { extractPdfPages, searchPassages } from "./zotero_passages.mjs";
 
@@ -23,8 +23,8 @@ import { KB_INLINE_MAX } from "./kb_prompt.mjs";
 const REGISTRY_VERSION = 1;
 const PAGES_CACHE_VERSION = 1;
 export { KB_INLINE_MAX };
-// T3: zotero — T7: gbrain (id réservé, hors registre) — T8: youtube
-export const KB_KINDS = new Set(["file", "pdf", "web", "note", "folder"]);
+// T3: zotero — T7: gbrain (id réservé, hors registre)
+export const KB_KINDS = new Set(["file", "pdf", "web", "note", "folder", "youtube"]);
 const TEXT_EXTS = new Set([".md", ".tex", ".txt"]);
 const WEB_TEXT_MAX = 300_000;
 // Dossiers / vaults Obsidian (plan 049 T6) : fichiers texte seulement — les
@@ -177,6 +177,81 @@ function parseHttpUrl(origin) {
   return url;
 }
 
+// YouTube (plan 049 T8) : le transcript horodaté est la source. Les pages
+// sont des tranches de 60 s — page N ↔ timestamp (N-1)*60 s, ce qui donne
+// des citations mm:ss et des liens &t= sans format de cache dédié.
+export const YT_BUCKET_SECONDS = 60;
+
+export function parseYoutubeUrl(origin) {
+  const url = parseHttpUrl(origin);
+  const host = url.hostname.replace(/^(www|m|music)\./, "");
+  let id = "";
+  if (host === "youtu.be") {
+    id = url.pathname.slice(1).split("/")[0] ?? "";
+  } else if (host === "youtube.com") {
+    if (url.pathname === "/watch") id = url.searchParams.get("v") ?? "";
+    else if (/^\/(shorts|live|embed)\//.test(url.pathname)) id = url.pathname.split("/")[2] ?? "";
+  }
+  if (!/^[\w-]{6,20}$/.test(id)) throw new Error(`URL YouTube non reconnue: ${origin}`);
+  return { id, href: `https://www.youtube.com/watch?v=${id}` };
+}
+
+export function vttToPages(vtt, { bucketSeconds = YT_BUCKET_SECONDS } = {}) {
+  const buckets = new Map();
+  let currentStart = null;
+  let lastText = "";
+  for (const rawLine of String(vtt ?? "").split(/\r?\n/)) {
+    const line = rawLine.trim();
+    const cue = line.match(/^(?:(\d+):)?(\d{1,2}):(\d{2})[.,]\d{3}\s*-->/);
+    if (cue) {
+      const hours = cue[1] ? Number(cue[1]) : 0;
+      currentStart = hours * 3600 + Number(cue[2]) * 60 + Number(cue[3]);
+      continue;
+    }
+    if (!line || line === "WEBVTT" || /^(Kind|Language|NOTE|STYLE|Region)\b/i.test(line) || /^\d+$/.test(line)) {
+      continue;
+    }
+    if (currentStart === null) continue;
+    const text = line.replace(/<[^>]+>/g, "").replace(/\s+/g, " ").trim();
+    if (!text || text === lastText) continue; // les sous-titres auto répètent chaque ligne
+    lastText = text;
+    const bucket = Math.floor(currentStart / bucketSeconds);
+    buckets.set(bucket, `${buckets.get(bucket) ?? ""}${buckets.get(bucket) ? " " : ""}${text}`);
+  }
+  return [...buckets.entries()]
+    .sort((a, b) => a[0] - b[0])
+    .map(([bucket, text]) => ({ page: bucket + 1, text }))
+    .filter((page) => page.text);
+}
+
+function defaultFetchYoutube(url, { ytdlp = "yt-dlp" } = {}) {
+  const meta = spawnSync(ytdlp, [
+    "--no-download", "--no-playlist", "--print", "%(title)s\n%(duration)s", url,
+  ], { encoding: "utf8", timeout: 45_000, maxBuffer: 8 * 1024 * 1024 });
+  if (meta.error) throw new Error(`yt-dlp indisponible: ${meta.error.message} (brew install yt-dlp)`);
+  if (meta.status !== 0) throw new Error(String(meta.stderr || "yt-dlp: échec").trim() || "yt-dlp: échec");
+  const [title, durationRaw] = meta.stdout.trim().split("\n");
+  const subsDir = mkdtempSync(join(tmpdir(), "atelier-kb-yt-"));
+  try {
+    const subs = spawnSync(ytdlp, [
+      "--skip-download", "--no-playlist", "--write-subs", "--write-auto-subs",
+      "--sub-langs", "fr,fr-*,en,en-*", "--sub-format", "vtt",
+      "-o", join(subsDir, "sub"), url,
+    ], { encoding: "utf8", timeout: 90_000, maxBuffer: 8 * 1024 * 1024 });
+    if (subs.error) throw new Error(`yt-dlp indisponible: ${subs.error.message}`);
+    const rank = (name) => (/\.fr[.-]|\.fr\.vtt$/.test(name) ? 0 : /\.en[.-]|\.en\.vtt$/.test(name) ? 1 : 2);
+    const vtts = readdirSync(subsDir).filter((name) => name.endsWith(".vtt")).sort((a, b) => rank(a) - rank(b));
+    if (!vtts.length) {
+      throw new Error("Aucun sous-titre disponible pour cette vidéo (transcript requis)");
+    }
+    const vtt = readFileSync(join(subsDir, vtts[0]), "utf8");
+    const duration = Number(durationRaw);
+    return { title: String(title ?? "").trim(), duration: Number.isFinite(duration) ? duration : null, vtt };
+  } finally {
+    rmSync(subsDir, { recursive: true, force: true });
+  }
+}
+
 async function defaultFetchPage(url) {
   const res = await fetch(url, {
     redirect: "follow",
@@ -202,7 +277,7 @@ export class KnowledgeStore {
     this.cacheDir = join(dir, "cache");
     this.pdfCacheDir = join(dir, "pdf-cache");
     this.lockDir = join(dir, ".lock");
-    this.deps = { fetchPage: defaultFetchPage, extractPdf: extractPdfPages, ...deps };
+    this.deps = { fetchPage: defaultFetchPage, extractPdf: extractPdfPages, fetchYoutube: defaultFetchYoutube, ...deps };
     this.sources = new Map();
     this.warning = null;
     this.lockHeld = false;
@@ -365,6 +440,22 @@ export class KnowledgeStore {
         pages, meta: { mtimeMs: stat.mtimeMs, size: stat.size },
       });
     }
+    if (kind === "youtube") {
+      const url = parseYoutubeUrl(origin);
+      const fetched = this.deps.fetchYoutube(url.href);
+      const pages = vttToPages(fetched.vtt);
+      if (!pages.length) throw new Error("Aucun sous-titre exploitable pour cette vidéo");
+      return this.upsertRaw({
+        id: sourceId("youtube", url.href), kind,
+        title: title || fetched.title || url.href, origin: url.href,
+        chars: pages.reduce((sum, page) => sum + page.text.length, 0),
+        meta: {
+          segmentSeconds: YT_BUCKET_SECONDS, segments: pages.length,
+          ...(fetched.duration ? { duration: fetched.duration } : {}),
+        },
+        cachePayload: { pages },
+      });
+    }
     if (kind === "folder") {
       const path = resolve(String(origin ?? ""));
       if (!origin || !existsSync(path) || !statSync(path).isDirectory()) {
@@ -500,7 +591,15 @@ export class KnowledgeStore {
       return { source: summary, passages: merged.slice(0, capped) };
     }
     const pages = this.pagesFor(id);
-    return { source: summary, passages: searchPassages(pages, query, { limit }) };
+    const passages = searchPassages(pages, query, { limit });
+    if (entry.kind === "youtube") {
+      const seconds = entry.meta?.segmentSeconds ?? YT_BUCKET_SECONDS;
+      return {
+        source: summary,
+        passages: passages.map((passage) => ({ ...passage, timestamp: (passage.page - 1) * seconds })),
+      };
+    }
+    return { source: summary, passages };
   }
 
   fullText(id) {
