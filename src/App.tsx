@@ -1403,12 +1403,15 @@ export default function App() {
       }
       if (msg.type === "kbAdded" || msg.type === "kbError") {
         // base de connaissances (plan 049) : retour d'épinglage relayé aux
-        // surfaces intéressées (bouton browser, futur picker T3)
+        // surfaces intéressées (bouton browser, picker du composer)
         window.dispatchEvent(new CustomEvent("kb-source-added", {
           detail: msg.type === "kbAdded"
             ? { ok: true, source: msg.source, refreshed: msg.refreshed, warning: msg.warning }
             : { ok: false, message: msg.message },
         }));
+      }
+      if (msg.type === "kbSources") {
+        window.dispatchEvent(new CustomEvent("kb-sources", { detail: msg.sources }));
       }
       if (msg.type === "localServers") {
         window.dispatchEvent(new CustomEvent("local-servers", { detail: msg.servers }));
@@ -3000,6 +3003,18 @@ export default function App() {
           projectName={displayProjectName}
           threadTitle={activeId ? (allThreads.find((th) => th.id === activeId)?.title ?? "") : ""}
           threadProvider={activeId ? (allThreads.find((th) => th.id === activeId)?.provider ?? "") : ""}
+          kbSourceIds={activeId ? (allThreads.find((th) => th.id === activeId)?.kbSourceIds ?? []) : []}
+          kbFullContent={activeId ? (allThreads.find((th) => th.id === activeId)?.kbFullContent ?? []) : []}
+          onKbChange={(next) => {
+            if (!activeId) return;
+            // optimiste : reflet immédiat dans les pilules/badge, le broadcast
+            // threads du backend réaligne ensuite
+            setThreads((current) => current.map((th) =>
+              th.id === activeId ? { ...th, ...next } : th));
+            if (ws.current?.readyState === 1) {
+              ws.current.send(JSON.stringify({ type: "upsertThread", thread: { id: activeId, ...next } }));
+            }
+          }}
           highlights={highlights}
           defaults={settings as any}
           providers={providerList}

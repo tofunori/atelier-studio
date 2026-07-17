@@ -970,6 +970,48 @@ describe("base de connaissances (kbAdd)", () => {
     expect(sent[0].type).toBe("kbError");
     expect(sent[0].message).toMatch(/Kind non pris en charge/);
   });
+
+  it("kbList puis kbRemove renvoient la liste à jour", async () => {
+    const prev = process.env.ATELIER_APP_DIR;
+    process.env.ATELIER_APP_DIR = mkdtempSync(join(tmpdir(), "atelier-kb-router-"));
+    try {
+      const sent = [];
+      const ctx = { send: (m) => sent.push(m) };
+      await route({
+        type: "kbAdd", kind: "note", title: "Note picker",
+        text: "Contenu de note suffisamment long pour être indexé par le moteur de passages.",
+      }, ctx);
+      await route({ type: "kbList" }, ctx);
+      expect(sent[1].type).toBe("kbSources");
+      expect(sent[1].sources).toHaveLength(1);
+      await route({ type: "kbRemove", id: sent[0].source.id }, ctx);
+      expect(sent[2]).toMatchObject({ type: "kbSources", sources: [] });
+    } finally {
+      if (prev === undefined) delete process.env.ATELIER_APP_DIR;
+      else process.env.ATELIER_APP_DIR = prev;
+    }
+  });
+
+  it("upsertThread persiste kbSourceIds/kbFullContent et broadcast threads", async () => {
+    const storePath = join(mkdtempSync(join(tmpdir(), "atelier-kb-threads-")), "threads.json");
+    const store = new threadStoreModule.ThreadStore(storePath);
+    const sent = [];
+    const ctx = { send: (m) => sent.push(m), store };
+    await route({ type: "upsertThread", thread: {
+      id: "t-kb", provider: "codex", kbSourceIds: ["9c81", "gbrain"], kbFullContent: ["9c81"],
+    } }, ctx);
+    expect(sent[0].type).toBe("threads");
+    expect(sent[0].threads[0]).toMatchObject({ id: "t-kb", kbSourceIds: ["9c81", "gbrain"] });
+    // patch partiel : les champs kb survivent au merge et au disque
+    await route({ type: "upsertThread", thread: { id: "t-kb", title: "Renommé" } }, ctx);
+    const reloaded = new threadStoreModule.ThreadStore(storePath);
+    expect(reloaded.get("t-kb")).toMatchObject({
+      title: "Renommé", kbSourceIds: ["9c81", "gbrain"], kbFullContent: ["9c81"],
+    });
+    // id manquant → erreur propre
+    await route({ type: "upsertThread", thread: { title: "sans id" } }, ctx);
+    expect(sent.at(-1).type).toBe("error");
+  });
 });
 
 describe("quickAsk", () => {

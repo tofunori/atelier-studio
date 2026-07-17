@@ -194,6 +194,9 @@ export type Thread = {
     sourceProvider: string;
     targetProvider: string;
   };
+  // base de connaissances (plan 049) : sources attachées à la conversation
+  kbSourceIds?: string[];
+  kbFullContent?: string[];
 };
 
 type Handler = (msg: any) => void;

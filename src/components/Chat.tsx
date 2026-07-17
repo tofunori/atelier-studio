@@ -111,6 +111,10 @@ export default function Chat(p: {
   onAttachPath?: (path: string) => void;
   onAttachFolder?: (folder: string) => void;
   onAttachZotero?: (key: string) => void;
+  // base de connaissances (plan 049 T3) — attache persistée par thread
+  kbSourceIds?: string[];
+  kbFullContent?: string[];
+  onKbChange?: (next: { kbSourceIds: string[]; kbFullContent: string[] }) => void;
   layout: "split" | "chat" | "atelier";
   onToggleExpand: () => void;
   usage: { context: number; output: number; cost: number | null; turns: number | null; window?: number | null } | null;
@@ -969,6 +973,11 @@ export default function Chat(p: {
           toggleFavModel, attachFiles,
         }}
         context={{ attachments: p.attachments, onRemoveAttachment: p.onRemoveAttachment, onOpenPaste: setPasteView }}
+        kb={p.threadId && p.onKbChange ? {
+          attached: p.kbSourceIds ?? [],
+          fullContent: p.kbFullContent ?? [],
+          onChange: p.onKbChange,
+        } : undefined}
         host={{
           usage: p.usage, disabled: p.disabled, workingSince: p.workingSince,
           onStop: p.onStop, onSubmit: p.onSubmit,

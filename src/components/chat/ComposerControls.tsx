@@ -22,6 +22,7 @@ import { RowButton } from "../ui";
 import { Kbd } from "../shadcn/kbd";
 import { Popover, PopoverContent, PopoverTrigger } from "../shadcn/popover";
 import type { FollowUpMode } from "../../lib/chatDraftStore";
+import { KbPicker, type KbBinding } from "./KbPicker";
 import { ArrowUpIcon, SquareIcon } from "lucide-react";
 
 const PERMISSION_MODES = [
@@ -81,6 +82,8 @@ export function ComposerControls(p: {
   };
   providers?: ProviderInfo[];
   onOpenModelSettings?: () => void;
+  // base de connaissances (plan 049 T3) — picker d'attache par conversation
+  kb?: KbBinding;
 }) {
   const {
     provider, setProvider, model, setModel, effort, setEffort,
@@ -179,6 +182,7 @@ export function ComposerControls(p: {
                   </IconButton>
                 }
               />
+              {p.kb && <KbPicker binding={p.kb} />}
             </ButtonGroup>
             <DropdownMenuContent side="top" align="start" sideOffset={8} className="plus-up tw:w-60">
                 <DropdownMenuItem className="mp-item" onClick={() => attachFiles()}>

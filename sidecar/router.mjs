@@ -1011,6 +1011,38 @@ export async function route(msg, ctx) {
       }
       break;
     }
+    case "kbList": {
+      // liste des sources pour le picker du composer (plan 049 T3)
+      try {
+        const store = new KnowledgeStore(defaultKnowledgeDir());
+        ctx.send({ type: "kbSources", sources: store.list(), ...(store.warning ? { warning: store.warning } : {}) });
+      } catch (error) {
+        ctx.send({ type: "kbError", message: error instanceof Error ? error.message : String(error) });
+      }
+      break;
+    }
+    case "kbRemove": {
+      // suppression d'une source depuis le picker ; renvoie la liste à jour
+      try {
+        const store = new KnowledgeStore(defaultKnowledgeDir());
+        store.remove(msg.id);
+        ctx.send({ type: "kbSources", sources: store.list() });
+      } catch (error) {
+        ctx.send({ type: "kbError", message: error instanceof Error ? error.message : String(error) });
+      }
+      break;
+    }
+    case "upsertThread": {
+      // patch partiel d'un thread (parité avec la route Rust) — utilisé par le
+      // picker KB (T3) pour persister kbSourceIds/kbFullContent par thread.
+      try {
+        ctx.store.upsert(msg.thread ?? {});
+        (ctx.broadcast ?? ctx.send)({ type: "threads", threads: ctx.store.list() });
+      } catch (error) {
+        ctx.send({ type: "error", message: error instanceof Error ? error.message : String(error) });
+      }
+      break;
+    }
     case "checkFrame": {
       const res = await ctx.checkFrame(msg.url);
       ctx.send({ type: "frameChecked", url: msg.url, blocked: res.blocked });

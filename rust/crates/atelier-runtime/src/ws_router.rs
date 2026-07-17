@@ -54,6 +54,8 @@ pub const ALL_MESSAGE_TYPES: &[&str] = &[
     "clearPasted",
     "saveImage",
     "kbAdd",
+    "kbList",
+    "kbRemove",
     "generateImage",
     "apiProviders",
     "saveApiProvider",
@@ -534,6 +536,8 @@ pub async fn route_ws(state: &AppState, text: &str) -> Vec<String> {
             }
         }
         "kbAdd" => handle_kb_add(state, &msg),
+        "kbList" => handle_kb_list(state),
+        "kbRemove" => handle_kb_remove(state, &msg),
         "generateImage" => handle_generate_image(state, &msg).await,
         "apiProviders" => {
             let list = list_api_providers_public(state.app_dir());
@@ -1355,17 +1359,15 @@ fn kb_node_bin() -> Option<std::path::PathBuf> {
     None
 }
 
-fn kb_add_via_cli(
+/// Exécute une commande du CLI kb (`kb_cli.mjs` stagé dans server_dir) et
+/// parse sa sortie JSON. `stdin_text` non vide est transmis via `--text -`
+/// ajouté par l'appelant ; l'APP_DIR du serveur est propagé au CLI.
+fn kb_cli_run(
     server_dir: &str,
     app_dir: &std::path::Path,
-    kind: &str,
-    origin: &str,
-    title: &str,
-    text: &str,
+    args: &[&str],
+    stdin_text: &str,
 ) -> Result<Value, String> {
-    if kind.is_empty() {
-        return Err("kbAdd: kind requis".into());
-    }
     let cli = std::path::Path::new(server_dir).join("kb_cli.mjs");
     if !cli.is_file() {
         return Err(format!("kb_cli.mjs introuvable dans {server_dir}"));
@@ -1373,28 +1375,20 @@ fn kb_add_via_cli(
     let node = kb_node_bin().ok_or("node introuvable pour atelier-kb")?;
     let mut cmd = std::process::Command::new(node);
     cmd.arg(&cli)
-        .arg("add")
-        .arg("--kind")
-        .arg(kind)
+        .args(args)
         .env("ATELIER_APP_DIR", app_dir)
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped());
-    if !origin.is_empty() {
-        cmd.arg("--origin").arg(origin);
-    }
-    if !title.is_empty() {
-        cmd.arg("--title").arg(title);
-    }
-    if text.is_empty() {
+    if stdin_text.is_empty() {
         cmd.stdin(std::process::Stdio::null());
     } else {
-        cmd.arg("--text").arg("-").stdin(std::process::Stdio::piped());
+        cmd.stdin(std::process::Stdio::piped());
     }
     let mut child = cmd.spawn().map_err(|e| format!("spawn atelier-kb: {e}"))?;
-    if !text.is_empty() {
+    if !stdin_text.is_empty() {
         use std::io::Write;
         let mut stdin = child.stdin.take().ok_or("stdin atelier-kb indisponible")?;
-        stdin.write_all(text.as_bytes()).map_err(|e| e.to_string())?;
+        stdin.write_all(stdin_text.as_bytes()).map_err(|e| e.to_string())?;
         drop(stdin);
     }
     let out = child.wait_with_output().map_err(|e| e.to_string())?;
@@ -1405,16 +1399,27 @@ fn kb_add_via_cli(
     serde_json::from_slice::<Value>(&out.stdout).map_err(|e| format!("sortie atelier-kb invalide: {e}"))
 }
 
+fn kb_error(message: String) -> Vec<String> {
+    vec![json_msg(json!({"type": "kbError", "message": message}))]
+}
+
 fn handle_kb_add(state: &AppState, msg: &Value) -> Vec<String> {
     let get = |key: &str| msg.get(key).and_then(|v| v.as_str()).unwrap_or("");
-    match kb_add_via_cli(
-        state.server_dir(),
-        state.app_dir(),
-        get("kind"),
-        get("origin"),
-        get("title"),
-        get("text"),
-    ) {
+    let (kind, origin, title, text) = (get("kind"), get("origin"), get("title"), get("text"));
+    if kind.is_empty() {
+        return kb_error("kbAdd: kind requis".into());
+    }
+    let mut args = vec!["add", "--kind", kind];
+    if !origin.is_empty() {
+        args.extend_from_slice(&["--origin", origin]);
+    }
+    if !title.is_empty() {
+        args.extend_from_slice(&["--title", title]);
+    }
+    if !text.is_empty() {
+        args.extend_from_slice(&["--text", "-"]);
+    }
+    match kb_cli_run(state.server_dir(), state.app_dir(), &args, text) {
         Ok(v) => {
             let mut out = json!({
                 "type": "kbAdded",
@@ -1426,8 +1431,37 @@ fn handle_kb_add(state: &AppState, msg: &Value) -> Vec<String> {
             }
             vec![json_msg(out)]
         }
-        Err(message) => vec![json_msg(json!({"type": "kbError", "message": message}))],
+        Err(message) => kb_error(message),
     }
+}
+
+fn kb_sources_msg(v: &Value) -> Vec<String> {
+    let mut out = json!({
+        "type": "kbSources",
+        "sources": v.get("sources").cloned().unwrap_or(json!([])),
+    });
+    if let Some(warning) = v.get("warning") {
+        out["warning"] = warning.clone();
+    }
+    vec![json_msg(out)]
+}
+
+fn handle_kb_list(state: &AppState) -> Vec<String> {
+    match kb_cli_run(state.server_dir(), state.app_dir(), &["list"], "") {
+        Ok(v) => kb_sources_msg(&v),
+        Err(message) => kb_error(message),
+    }
+}
+
+fn handle_kb_remove(state: &AppState, msg: &Value) -> Vec<String> {
+    let id = msg.get("id").and_then(|v| v.as_str()).unwrap_or("");
+    if id.is_empty() {
+        return kb_error("kbRemove: id requis".into());
+    }
+    if let Err(message) = kb_cli_run(state.server_dir(), state.app_dir(), &["remove", "--id", id], "") {
+        return kb_error(message);
+    }
+    handle_kb_list(state)
 }
 
 async fn handle_setup_status(state: &AppState) -> Vec<String> {
@@ -2584,6 +2618,46 @@ mod tests {
         assert_eq!(v["refreshed"], false);
         // le CLI a bien écrit dans l'APP_DIR du serveur (env ATELIER_APP_DIR)
         assert!(dir.path().join("knowledge/knowledge.json").is_file());
+
+        // list → la source épinglée est visible
+        let source_id = v["source"]["id"].as_str().unwrap().to_string();
+        let out = route_ws(&s, r#"{"type":"kbList"}"#).await;
+        let v: Value = serde_json::from_str(&out[0]).unwrap();
+        assert_eq!(v["type"], "kbSources", "réponse: {v}");
+        assert_eq!(v["sources"].as_array().unwrap().len(), 1);
+        assert_eq!(v["sources"][0]["id"], source_id.as_str());
+
+        // remove → liste à jour vide
+        let remove = json!({"type": "kbRemove", "id": source_id});
+        let out = route_ws(&s, &remove.to_string()).await;
+        let v: Value = serde_json::from_str(&out[0]).unwrap();
+        assert_eq!(v["type"], "kbSources", "réponse: {v}");
+        assert_eq!(v["sources"].as_array().unwrap().len(), 0);
+    }
+
+    #[tokio::test]
+    async fn upsert_thread_persiste_les_champs_kb() {
+        let dir = tempdir().unwrap();
+        let s = state(dir.path());
+        let msg = json!({"type": "upsertThread", "thread": {
+            "id": "t-kb", "provider": "codex",
+            "kbSourceIds": ["9c81", "gbrain"], "kbFullContent": ["9c81"],
+        }});
+        let out = route_ws(&s, &msg.to_string()).await;
+        let v: Value = serde_json::from_str(&out[0]).unwrap();
+        assert_eq!(v["type"], "threads", "réponse: {v}");
+        let thread = v["threads"].as_array().unwrap().iter()
+            .find(|t| t["id"] == "t-kb").expect("thread présent");
+        assert_eq!(thread["kbSourceIds"], json!(["9c81", "gbrain"]));
+        assert_eq!(thread["kbFullContent"], json!(["9c81"]));
+        // patch partiel ultérieur : les champs kb survivent au merge
+        let rename = json!({"type": "upsertThread", "thread": {"id": "t-kb", "title": "Renommé"}});
+        let out = route_ws(&s, &rename.to_string()).await;
+        let v: Value = serde_json::from_str(&out[0]).unwrap();
+        let thread = v["threads"].as_array().unwrap().iter()
+            .find(|t| t["id"] == "t-kb").expect("thread présent");
+        assert_eq!(thread["title"], "Renommé");
+        assert_eq!(thread["kbSourceIds"], json!(["9c81", "gbrain"]));
     }
 
     #[test]

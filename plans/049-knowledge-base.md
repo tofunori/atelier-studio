@@ -180,6 +180,13 @@ mjs + rs, comme `zotero_passage_prompt.mjs` / `send.rs`).
   PDF via `zotero.mjs`/`atelier-workspace`), URL collée.
 - **Acceptation** : attacher/retirer survit à un reload ; `css-contract.test.ts`
   vert ; parité stores mjs/rs sur les nouveaux champs.
+- **Écarts v1 livrés (2026-07-17)** : portée « ce message » différée (la
+  portée conversation couvre le besoin « garde en contexte ») ; renommage
+  différé (l'id des notes dérive du titre) ; entrée Zotero du picker différée
+  — le PDF d'une réf s'épingle déjà par le dialogue fichier. Ajout non prévu :
+  une source épinglée depuis le picker ouvert est attachée automatiquement à
+  la conversation. Routes ajoutées : `kbList`, `kbRemove`, `upsertThread`
+  (Node, parité Rust existante).
 
 ### T4 — Injection double backend
 
