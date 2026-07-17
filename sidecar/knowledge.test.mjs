@@ -251,6 +251,33 @@ describe("base de connaissances — CLI", () => {
     expect(sourceId("file", "/a/b.md")).not.toBe(sourceId("pdf", "/a/b.md"));
   });
 
+  it("search décore les passages : cite, location, markdownLink", async () => {
+    const dir = tmp();
+    const pdfPages = [
+      { page: 1, text: "Abstract. Wildfire carbon deposition on glacier surfaces and albedo." },
+      { page: 2, text: "Results. The albedo decreases by 2.4 percent in August after fire events." },
+    ];
+    const store = new KnowledgeStore(dir, { extractPdf: () => ({ pages: pdfPages, cached: false }) });
+    const pdfFile = join(dir, "papier.pdf");
+    writeFileSync(pdfFile, "%PDF");
+    const pdf = await store.add({ kind: "pdf", origin: pdfFile });
+    const found = await runKbCommand([
+      "search", "--dir", dir, "--id", pdf.source.id, "--query", "albedo decrease August",
+    ], { store });
+    expect(found.passages[0].location).toBe("p.2");
+    expect(found.passages[0].cite).toBe(`[kb:${pdf.source.id} · p.2]`);
+
+    const web = await store.add({
+      kind: "web", origin: "https://exemple.org/revue", title: "Revue",
+      text: "Les rétroactions d'albédo amplifient la fonte estivale des glaciers de l'Ouest.",
+    });
+    const webFound = await runKbCommand([
+      "search", "--dir", dir, "--id", web.source.id, "--query", "rétroactions albédo fonte",
+    ], { store });
+    expect(webFound.passages[0].cite).toBe(`[kb:${web.source.id}]`);
+    expect(webFound.passages[0].markdownLink).toBe("[Ouvrir la page](https://exemple.org/revue)");
+  });
+
   it("--text - lit le contenu sur stdin (gros textes, capture browser)", async () => {
     const dir = tmp();
     const { Readable } = await import("node:stream");

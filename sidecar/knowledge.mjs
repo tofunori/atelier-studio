@@ -363,7 +363,7 @@ export class KnowledgeStore {
     const pages = this.pagesFor(id);
     const entry = this.sources.get(id);
     return {
-      source: { id: entry.id, title: entry.title, kind: entry.kind },
+      source: { id: entry.id, title: entry.title, kind: entry.kind, origin: entry.origin ?? null },
       passages: searchPassages(pages, query, { limit }),
     };
   }

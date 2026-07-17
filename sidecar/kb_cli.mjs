@@ -20,6 +20,42 @@ async function readAllStdin(stream = process.stdin) {
   return Buffer.concat(chunks).toString("utf8");
 }
 
+// Citations (plan 049 T5) : chaque passage porte `location`, `cite` (la forme
+// exacte exigée par le bloc <atelier-kb>) et un lien ouvrable quand il existe.
+// T6 ajoute passage.file (dossiers), T8 passage.timestamp (YouTube).
+function decoratePassage(source, passage) {
+  const out = { ...passage };
+  if (typeof passage.timestamp === "number") {
+    const mm = Math.floor(passage.timestamp / 60);
+    const ss = String(Math.floor(passage.timestamp % 60)).padStart(2, "0");
+    out.location = `${mm}:${ss}`;
+    out.cite = `[kb:${source.id} · ${mm}:${ss}]`;
+    if (source.origin) {
+      const sep = source.origin.includes("?") ? "&" : "?";
+      out.markdownLink = `[Ouvrir à ${mm}:${ss}](${source.origin}${sep}t=${Math.floor(passage.timestamp)}s)`;
+    }
+    return out;
+  }
+  if (passage.file) {
+    out.location = passage.file;
+    out.cite = `[kb:${source.id} · ${passage.file}]`;
+    return out;
+  }
+  if (source.kind === "pdf") {
+    out.location = `p.${passage.page}`;
+    out.cite = `[kb:${source.id} · p.${passage.page}]`;
+    return out;
+  }
+  out.location = null;
+  out.cite = `[kb:${source.id}]`;
+  if (source.kind === "web" && source.origin) {
+    out.markdownLink = `[Ouvrir la page](${source.origin})`;
+  } else if (source.kind === "file" && source.origin) {
+    out.markdownLink = `[${source.origin}](${source.origin})`;
+  }
+  return out;
+}
+
 function parseArgs(argv) {
   const command = argv[0];
   if (!COMMANDS.has(command ?? "")) throw new Error(USAGE);
@@ -52,7 +88,8 @@ export async function runKbCommand(argv, deps = {}) {
     }
     const limit = Math.max(1, Math.min(10, Number(options.limit) || 5));
     const { source, passages } = store.search(options.id, options.query, { limit });
-    return flag({ ok: true, source, query: options.query, count: passages.length, passages });
+    const decorated = passages.map((passage) => decoratePassage(source, passage));
+    return flag({ ok: true, source, query: options.query, count: decorated.length, passages: decorated });
   }
   const text = options.text === "-" ? await readAllStdin(deps.stdin) : options.text;
   const { source, refreshed } = await store.add({

@@ -214,6 +214,13 @@ mjs + rs, comme `zotero_passage_prompt.mjs` / `send.rs`).
 - **Acceptation** : conversation réelle avec un PDF 100+ pages attaché :
   le provider appelle l'outil, cite page + quote exacte ; vérifié sur les
   familles claude / codex / ACP.
+- **Écarts v1 livrés (2026-07-17)** : chaque passage porte `location`,
+  `cite` (forme exacte exigée par le bloc) et `markdownLink` quand ouvrable
+  (web → URL, fichier → chemin, YouTube → `&t=`) ; le lien profond vers le
+  viewer PDF galerie (page + surlignage) est différé — il demande un handler
+  d'ancre côté front, les PDF Zotero gardent le flux passages Zotero
+  existant. La validation « conversation réelle par famille de providers »
+  est l'étape de test utilisateur (l'app ne se lance pas depuis le harness).
 
 ### T6 — Sources composées : dossiers & vaults
 
