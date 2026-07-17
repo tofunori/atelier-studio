@@ -334,11 +334,12 @@
   #annotNote textarea{flex:1;background:transparent;border:none;outline:none;color:var(--txt);
       font-size:14px;line-height:1.35;padding:0;margin:8px 0;resize:none;font-family:inherit;height:19px;max-height:120px;align-self:center}
   #annotNote textarea::placeholder{color:var(--muted)}
-  #annotNote .anSave{width:38px;height:38px;border-radius:50%;background:color-mix(in srgb,var(--txt) 78%,var(--card));
-      color:var(--bg);border:none;cursor:pointer;display:flex;align-items:center;justify-content:center;flex:none;padding:0;align-self:flex-end}
+  /* 30px + marges 4px = 38px de rangée : centré au repos, ancré en bas en multiligne */
+  #annotNote .anSave{width:30px;height:30px;border-radius:50%;background:color-mix(in srgb,var(--txt) 78%,var(--card));
+      color:var(--bg);border:none;cursor:pointer;display:flex;align-items:center;justify-content:center;flex:none;padding:0;margin:4px 0;align-self:flex-end}
   #annotNote .anSave:hover{background:var(--txt)}
   #annotNote .anSave:disabled{opacity:.38;cursor:default}
-  #annotNote .anSave svg{width:19px;height:19px;fill:none;stroke:currentColor;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round}
+  #annotNote .anSave svg{width:16px;height:16px;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
   #annotPill{position:fixed;bottom:26px;left:50%;transform:translateX(-50%);z-index:102;display:none;
       align-items:center;gap:2px;background:rgba(26,29,34,.92);backdrop-filter:blur(10px);
       border:1px solid #333a45;border-radius:10px;
