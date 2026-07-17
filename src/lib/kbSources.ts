@@ -15,6 +15,13 @@ export type KbSource = {
   meta?: Record<string, unknown>;
 };
 
+// Liaison d'attache d'une conversation (partagée picker/panneau, plan 050).
+export type KbBinding = {
+  attached: string[];
+  fullContent: string[];
+  onChange: (next: { kbSourceIds: string[]; kbFullContent: string[] }) => void;
+};
+
 let sources: KbSource[] = [];
 let loaded = false;
 const listeners = new Set<() => void>();

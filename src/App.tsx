@@ -2565,6 +2565,27 @@ export default function App() {
     return [...draftThreads.filter((t) => !knownIds.has(t.id)), ...threads];
   }, [draftThreads, threads]);
   allThreadsRef.current = allThreads;
+  // Attache KB de la conversation active (plan 049/050) — partagé entre le
+  // picker du composer et la surface Connaissances. Optimiste sur threads ET
+  // brouillons ; upsert COMPLET (un patch minimal sur un brouillon inconnu du
+  // backend ferait normaliser provider→claude et perdrait le projet).
+  function handleKbChange(next: { kbSourceIds: string[]; kbFullContent: string[] }) {
+    const id = activeIdRef.current;
+    if (!id) return;
+    setThreads((current) => current.map((th) => (th.id === id ? { ...th, ...next } : th)));
+    setDraftThreads((current) => current.map((th) => (th.id === id ? { ...th, ...next } : th)));
+    if (ws.current?.readyState === 1) {
+      const th = allThreadsRef.current.find((x) => x.id === id);
+      ws.current.send(JSON.stringify({
+        type: "upsertThread",
+        thread: {
+          id,
+          ...(th ? { provider: th.provider, projectRoot: th.projectRoot, title: th.title } : {}),
+          ...next,
+        },
+      }));
+    }
+  }
   const drainingQueuedRef = useRef(new Set<string>());
   useEffect(() => {
     if (!wsReady) return;
@@ -3024,29 +3045,7 @@ export default function App() {
           threadProvider={activeId ? (allThreads.find((th) => th.id === activeId)?.provider ?? "") : ""}
           kbSourceIds={activeId ? (allThreads.find((th) => th.id === activeId)?.kbSourceIds ?? []) : []}
           kbFullContent={activeId ? (allThreads.find((th) => th.id === activeId)?.kbFullContent ?? []) : []}
-          onKbChange={(next) => {
-            if (!activeId) return;
-            // optimiste : reflet immédiat dans les pilules/badge (threads ET
-            // brouillons), le broadcast threads du backend réaligne ensuite
-            setThreads((current) => current.map((th) =>
-              th.id === activeId ? { ...th, ...next } : th));
-            setDraftThreads((current) => current.map((th) =>
-              th.id === activeId ? { ...th, ...next } : th));
-            if (ws.current?.readyState === 1) {
-              // upsert COMPLET : un patch minimal sur un brouillon inconnu du
-              // backend ferait normaliser provider→claude et perdrait le
-              // projet (vu sur chat neuf grok/codex)
-              const th = allThreads.find((x) => x.id === activeId);
-              ws.current.send(JSON.stringify({
-                type: "upsertThread",
-                thread: {
-                  id: activeId,
-                  ...(th ? { provider: th.provider, projectRoot: th.projectRoot, title: th.title } : {}),
-                  ...next,
-                },
-              }));
-            }
-          }}
+          onKbChange={handleKbChange}
           highlights={highlights}
           defaults={settings as any}
           providers={providerList}
@@ -3299,6 +3298,12 @@ export default function App() {
               onToggleExpand={() => setLayout((l) => (l === "atelier" ? "split" : "atelier"))}
               projectRoot={activeProject ?? ""}
               activeThreadId={activeId}
+              kbBinding={activeId ? {
+                attached: allThreads.find((th) => th.id === activeId)?.kbSourceIds ?? [],
+                fullContent: allThreads.find((th) => th.id === activeId)?.kbFullContent ?? [],
+                onChange: handleKbChange,
+              } : null}
+              kbThreadTitle={activeId ? (allThreads.find((th) => th.id === activeId)?.title ?? "") : ""}
               files={files}
               onReorderTabs={(ids) => {
                 setAtelierTabs((tabs) => {

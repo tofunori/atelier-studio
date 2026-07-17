@@ -87,6 +87,36 @@ describe("KbPickerPanel", () => {
   });
 });
 
+describe("KbPickerPanel — layout surface (plan 050)", () => {
+  it("montre les attachées d'abord, la bibliothèque sans doublon", () => {
+    renderUi(
+      <KbPickerPanel
+        {...panelProps({ attached: ["bbbb2222"], layout: "surface", threadTitle: "Abstract AGU" })}
+      />,
+    );
+    expect(screen.getByText("Attachées à « Abstract AGU » — 1")).toBeTruthy();
+    expect(screen.getByText("Bibliothèque")).toBeTruthy();
+    // la source attachée apparaît une seule fois (étage attachées, pas bibliothèque)
+    expect(screen.getAllByText("Albedo feedbacks review")).toHaveLength(1);
+    // les non-attachées restent dans leurs groupes de type
+    expect(screen.getByText("Cuffey & Paterson ch. 5")).toBeTruthy();
+  });
+
+  it("sans attache : message d'invite, pas de doublon gbrain", () => {
+    renderUi(
+      <KbPickerPanel {...panelProps({ layout: "surface", threadTitle: "" })} />,
+    );
+    expect(screen.getByText(/Rien d'attaché à cette conversation/)).toBeTruthy();
+    expect(screen.getAllByText("Corpus thèse (gbrain)")).toHaveLength(1);
+  });
+
+  it("le layout popover reste inchangé (pas d'étage attachées)", () => {
+    renderUi(<KbPickerPanel {...panelProps({ attached: ["bbbb2222"] })} />);
+    expect(screen.queryByText(/Attachées à/)).toBeNull();
+    expect(screen.getByText("Albedo feedbacks review")).toBeTruthy();
+  });
+});
+
 describe("KbChips", () => {
   it("une seule source = déjà la pilule agrégée, titre en aperçu", () => {
     act(() => {

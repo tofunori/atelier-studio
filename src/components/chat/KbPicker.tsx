@@ -4,9 +4,7 @@
 // note, retirer une source de la base. La bibliothèque est globale ; l'attache
 // est par conversation — portée « ce message » et Zotero viendront ensuite.
 import { useEffect, useRef, useState, useSyncExternalStore } from "react";
-import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import { t } from "../../lib/i18n";
-import { wsSend } from "../../lib/wsBus";
 import {
   kbSourcesLoaded,
   kbSourcesSnapshot,
@@ -14,19 +12,18 @@ import {
   openKbPicker,
   requestKbSources,
   subscribeKbSources,
+  type KbBinding,
   type KbSource,
 } from "../../lib/kbSources";
+import { useKbActions } from "./kbActions";
 import { Popover, PopoverContent, PopoverTrigger } from "../shadcn/popover";
 import { Input } from "../shadcn/input";
 import { Button } from "../ui/Button";
 import { IconButton } from "../ui/IconButton";
 import { RowButton } from "../ui/RowButton";
 
-export type KbBinding = {
-  attached: string[];
-  fullContent: string[];
-  onChange: (next: { kbSourceIds: string[]; kbFullContent: string[] }) => void;
-};
+// ré-export : les consommateurs historiques importent le type depuis ce module
+export type { KbBinding } from "../../lib/kbSources";
 
 const GROUP_LABELS: Record<string, Parameters<typeof t>[0]> = {
   file: "kb.group-files",
@@ -121,7 +118,10 @@ function ExpandIcon() {
   );
 }
 
-/** Panneau interne — pur vis-à-vis du réseau, testable sans popover/portal. */
+/** Panneau interne — pur vis-à-vis du réseau, testable sans popover/portal.
+ * layout "popover" (défaut) : groupes par type, compact.
+ * layout "surface" (plan 050) : Attachées à la conversation d'abord, puis la
+ * bibliothèque (non attachées) groupée par type — même rangées, mêmes actions. */
 export function KbPickerPanel(p: {
   sources: KbSource[];
   attached: string[];
@@ -136,18 +136,30 @@ export function KbPickerPanel(p: {
   onAddFolder: () => void;
   onAddUrl: (url: string) => void;
   onAddNote: (title: string, text: string) => void;
+  layout?: "popover" | "surface";
+  threadTitle?: string;
 }) {
   const [query, setQuery] = useState("");
   const [noteOpen, setNoteOpen] = useState(false);
   const [noteTitle, setNoteTitle] = useState("");
   const [noteText, setNoteText] = useState("");
   const [url, setUrl] = useState("");
+  const surface = p.layout === "surface";
 
   const filtered = p.sources.filter((source) =>
     !query.trim() || source.title.toLowerCase().includes(query.trim().toLowerCase()));
+  const attachedSources = surface
+    ? p.attached
+        .filter((id) => id !== "gbrain")
+        .map((id) => filtered.find((source) => source.id === id))
+        .filter((source): source is KbSource => Boolean(source))
+    : [];
+  const librarySources = surface
+    ? filtered.filter((source) => !p.attached.includes(source.id))
+    : filtered;
   const kinds = [
-    ...GROUP_ORDER.filter((kind) => filtered.some((source) => source.kind === kind)),
-    ...[...new Set(filtered.map((source) => source.kind))].filter((kind) => !GROUP_ORDER.includes(kind)),
+    ...GROUP_ORDER.filter((kind) => librarySources.some((source) => source.kind === kind)),
+    ...[...new Set(librarySources.map((source) => source.kind))].filter((kind) => !GROUP_ORDER.includes(kind)),
   ];
 
   function submitUrl() {
@@ -165,8 +177,59 @@ export function KbPickerPanel(p: {
     setNoteOpen(false);
   }
 
+  const renderRow = (source: KbSource) => {
+    const on = p.attached.includes(source.id);
+    const full = p.fullContent.includes(source.id);
+    return (
+      <div key={source.id} className={`kb-row ${on ? "on" : ""}`}>
+        <RowButton
+          className="kb-row-main"
+          title={source.origin ?? source.title}
+          onClick={() => p.onToggle(source.id)}
+        >
+          <span className={`kb-check ${on ? "on" : ""}`} aria-hidden />
+          <span className="kb-kind"><KindIcon kind={source.kind} /></span>
+          <span className="kb-name">{source.title}</span>
+          <span className="kb-meta">{fmtChars(source.chars)}</span>
+        </RowButton>
+        <span className="kb-row-actions">
+          <IconButton
+            size="s"
+            className={`ghost ${p.promoted === source.id ? "on" : ""}`}
+            label={t("kb.promote")}
+            title={p.promoted === source.id ? t("kb.promoted") : t("kb.promote")}
+            onClick={() => p.onPromote(source.id)}
+          >
+            <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3">
+              <path d="M8 12.5V4M4.5 7.5 8 4l3.5 3.5" />
+              <path d="M3 14h10" />
+            </svg>
+          </IconButton>
+          <IconButton
+            size="s"
+            className={`ghost kb-full ${full ? "on" : ""}`}
+            label={t("kb.full-content")}
+            title={full ? t("kb.full-content-on") : t("kb.full-content")}
+            onClick={() => p.onToggleFull(source.id)}
+          >
+            <ExpandIcon />
+          </IconButton>
+          <IconButton
+            size="s"
+            className="ghost"
+            label={t("kb.remove-source")}
+            title={t("kb.remove-source")}
+            onClick={() => p.onRemoveSource(source.id)}
+          >
+            ×
+          </IconButton>
+        </span>
+      </div>
+    );
+  };
+
   return (
-    <div className="kb-panel">
+    <div className={`kb-panel ${surface ? "kb-panel-surface" : ""}`}>
       <div className="kb-head">
         <span className="kb-title">{t("kb.title")}</span>
         <Input
@@ -226,60 +289,28 @@ export function KbPickerPanel(p: {
       )}
       {p.error && <div className="kb-error">{p.error}</div>}
       <div className="kb-list">
-        {filtered.length === 0 && <div className="kb-empty">{t("kb.empty")}</div>}
+        {surface && (
+          <div>
+            <div className="kb-group">
+              {t("kb.panel-attached", {
+                title: p.threadTitle?.trim() || t("app.new-chat-title"),
+                n: p.attached.length,
+              })}
+            </div>
+            {attachedSources.map(renderRow)}
+            {attachedSources.length === 0 && !p.attached.includes("gbrain") && (
+              <div className="kb-empty">{t("kb.panel-attached-empty")}</div>
+            )}
+          </div>
+        )}
+        {surface && filtered.length > 0 && (
+          <div className="kb-group kb-group-section">{t("kb.panel-library")}</div>
+        )}
+        {!surface && filtered.length === 0 && <div className="kb-empty">{t("kb.empty")}</div>}
         {kinds.map((kind) => (
           <div key={kind}>
             <div className="kb-group">{GROUP_LABELS[kind] ? t(GROUP_LABELS[kind]) : kind}</div>
-            {filtered.filter((source) => source.kind === kind).map((source) => {
-              const on = p.attached.includes(source.id);
-              const full = p.fullContent.includes(source.id);
-              return (
-                <div key={source.id} className={`kb-row ${on ? "on" : ""}`}>
-                  <RowButton
-                    className="kb-row-main"
-                    title={source.origin ?? source.title}
-                    onClick={() => p.onToggle(source.id)}
-                  >
-                    <span className={`kb-check ${on ? "on" : ""}`} aria-hidden />
-                    <span className="kb-kind"><KindIcon kind={source.kind} /></span>
-                    <span className="kb-name">{source.title}</span>
-                    <span className="kb-meta">{fmtChars(source.chars)}</span>
-                  </RowButton>
-                  <span className="kb-row-actions">
-                    <IconButton
-                      size="s"
-                      className={`ghost ${p.promoted === source.id ? "on" : ""}`}
-                      label={t("kb.promote")}
-                      title={p.promoted === source.id ? t("kb.promoted") : t("kb.promote")}
-                      onClick={() => p.onPromote(source.id)}
-                    >
-                      <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3">
-                        <path d="M8 12.5V4M4.5 7.5 8 4l3.5 3.5" />
-                        <path d="M3 14h10" />
-                      </svg>
-                    </IconButton>
-                    <IconButton
-                      size="s"
-                      className={`ghost kb-full ${full ? "on" : ""}`}
-                      label={t("kb.full-content")}
-                      title={full ? t("kb.full-content-on") : t("kb.full-content")}
-                      onClick={() => p.onToggleFull(source.id)}
-                    >
-                      <ExpandIcon />
-                    </IconButton>
-                    <IconButton
-                      size="s"
-                      className="ghost"
-                      label={t("kb.remove-source")}
-                      title={t("kb.remove-source")}
-                      onClick={() => p.onRemoveSource(source.id)}
-                    >
-                      ×
-                    </IconButton>
-                  </span>
-                </div>
-              );
-            })}
+            {librarySources.filter((source) => source.kind === kind).map(renderRow)}
           </div>
         ))}
         <div>
@@ -308,137 +339,25 @@ export function KbPickerPanel(p: {
 
 export function KbPicker({ binding }: { binding: KbBinding }) {
   const [pickerOpen, setPickerOpen] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [promoted, setPromoted] = useState<string | null>(null);
   const sources = useSyncExternalStore(subscribeKbSources, kbSourcesSnapshot);
+  const openRef = useRef(pickerOpen);
+  openRef.current = pickerOpen;
+  // toute la logique d'actions vit dans le hook partagé avec la surface
+  // Connaissances (plan 050) — le popover n'est qu'une coquille
+  const actions = useKbActions(binding, () => openRef.current);
   // ouverture externe (pilule agrégée)
   useEffect(() => onOpenKbPicker(() => {
-    setError(null);
+    actions.setError(null);
     requestKbSources();
     setPickerOpen(true);
   }), []);
-  const openRef = useRef(pickerOpen);
-  openRef.current = pickerOpen;
-  // Auto-attache corrélée : un épinglage initié ICI capture le binding du
-  // thread AU MOMENT de l'envoi (l'utilisateur peut changer de conversation
-  // avant la réponse — un kbAdd web peut prendre 20 s). `attachedNext` suit
-  // les attaches successives d'une même rafale (plusieurs fichiers).
-  const pendingRef = useRef<{
-    remaining: number;
-    attachedNext: string[];
-    fullContent: string[];
-    onChange: KbBinding["onChange"];
-  } | null>(null);
-
-  function trackPendingAdds(count: number) {
-    const pending = pendingRef.current;
-    if (pending && pending.onChange === binding.onChange) {
-      pending.remaining += count;
-    } else {
-      pendingRef.current = {
-        remaining: count,
-        attachedNext: [...binding.attached],
-        fullContent: binding.fullContent,
-        onChange: binding.onChange,
-      };
-    }
-  }
-
-  useEffect(() => {
-    const onAdded = (e: Event) => {
-      const detail = (e as CustomEvent).detail as
-        | { ok?: boolean; message?: string; source?: KbSource }
-        | undefined;
-      const pending = pendingRef.current;
-      if (!detail?.ok) {
-        if (pending && pending.remaining > 0) pending.remaining -= 1;
-        if (openRef.current) setError(detail?.message ?? t("kb.error-generic"));
-        return;
-      }
-      const id = detail.source?.id;
-      if (!pending || pending.remaining <= 0 || !id) return;
-      pending.remaining -= 1;
-      if (!pending.attachedNext.includes(id)) {
-        pending.attachedNext = [...pending.attachedNext, id];
-        pending.onChange({
-          kbSourceIds: pending.attachedNext,
-          kbFullContent: pending.fullContent,
-        });
-      }
-    };
-    window.addEventListener("kb-source-added", onAdded);
-    return () => window.removeEventListener("kb-source-added", onAdded);
-  }, []);
-
-  useEffect(() => {
-    const onPromoted = (e: Event) => {
-      const detail = (e as CustomEvent).detail as { id?: string } | undefined;
-      if (detail?.id) setPromoted(detail.id);
-    };
-    window.addEventListener("kb-source-promoted", onPromoted);
-    return () => window.removeEventListener("kb-source-promoted", onPromoted);
-  }, []);
-
-  useEffect(() => {
-    if (!promoted) return;
-    const timer = setTimeout(() => setPromoted(null), 2000);
-    return () => clearTimeout(timer);
-  }, [promoted]);
-
-  function toggle(id: string) {
-    const on = binding.attached.includes(id);
-    binding.onChange({
-      kbSourceIds: on ? binding.attached.filter((x) => x !== id) : [...binding.attached, id],
-      kbFullContent: on ? binding.fullContent.filter((x) => x !== id) : binding.fullContent,
-    });
-  }
-
-  function toggleFull(id: string) {
-    const full = binding.fullContent.includes(id);
-    binding.onChange({
-      kbSourceIds: binding.attached.includes(id) ? binding.attached : [...binding.attached, id],
-      kbFullContent: full ? binding.fullContent.filter((x) => x !== id) : [...binding.fullContent, id],
-    });
-  }
-
-  function removeSource(id: string) {
-    wsSend({ type: "kbRemove", id });
-    if (binding.attached.includes(id) || binding.fullContent.includes(id)) {
-      binding.onChange({
-        kbSourceIds: binding.attached.filter((x) => x !== id),
-        kbFullContent: binding.fullContent.filter((x) => x !== id),
-      });
-    }
-  }
-
-  async function addFiles() {
-    const picked = await openDialog({
-      multiple: true,
-      filters: [{ name: "Sources", extensions: ["md", "tex", "txt", "pdf"] }],
-    });
-    if (!picked) return;
-    const paths = Array.isArray(picked) ? picked : [picked];
-    trackPendingAdds(paths.length);
-    for (const path of paths) {
-      const kind = String(path).toLowerCase().endsWith(".pdf") ? "pdf" : "file";
-      wsSend({ type: "kbAdd", kind, origin: path });
-    }
-  }
-
-  async function addFolder() {
-    const picked = await openDialog({ directory: true, multiple: false });
-    if (!picked || Array.isArray(picked)) return;
-    trackPendingAdds(1);
-    wsSend({ type: "kbAdd", kind: "folder", origin: picked });
-  }
-
   return (
     <Popover
       open={pickerOpen}
       onOpenChange={(next) => {
         setPickerOpen(next);
         if (next) {
-          setError(null);
+          actions.setError(null);
           requestKbSources();
         }
       }}
@@ -464,28 +383,16 @@ export function KbPicker({ binding }: { binding: KbBinding }) {
             sources={sources}
             attached={binding.attached}
             fullContent={binding.fullContent}
-            error={error}
-            onToggle={toggle}
-            onToggleFull={toggleFull}
-            onRemoveSource={removeSource}
-            onPromote={(id) => {
-              setError(null);
-              wsSend({ type: "kbPromote", id });
-            }}
-            promoted={promoted}
-            onAddFiles={() => { void addFiles(); }}
-            onAddFolder={() => { void addFolder(); }}
-            onAddUrl={(url) => {
-              trackPendingAdds(1);
-              // une URL YouTube s'épingle par son transcript horodaté (T8) ;
-              // détection large — le backend valide l'hôte exactement
-              const kind = /youtube\.com\/|youtu\.be\//.test(url) ? "youtube" : "web";
-              wsSend({ type: "kbAdd", kind, origin: url });
-            }}
-            onAddNote={(title, text) => {
-              trackPendingAdds(1);
-              wsSend({ type: "kbAdd", kind: "note", title, text });
-            }}
+            error={actions.error}
+            onToggle={actions.toggle}
+            onToggleFull={actions.toggleFull}
+            onRemoveSource={actions.removeSource}
+            onPromote={actions.promote}
+            promoted={actions.promoted}
+            onAddFiles={() => { void actions.addFiles(); }}
+            onAddFolder={() => { void actions.addFolder(); }}
+            onAddUrl={actions.addUrl}
+            onAddNote={actions.addNote}
           />
         </PopoverContent>
       )}

@@ -2897,6 +2897,15 @@ button.ctx-ring-wrap { border: none; font: inherit; color: inherit;
 .user-kb-meta-titles { overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
   max-width: 340px; }
 .kb-list { max-height: 280px; overflow-y: auto; display: flex; flex-direction: column; gap: 2px; }
+/* Surface Connaissances (plan 050) : le même panneau, en pleine hauteur de
+   pane — la liste prend l'espace restant, la recherche s'élargit. */
+.ksurface { height: 100%; overflow: hidden; display: flex; justify-content: center; }
+.ksurface .kb-panel-surface { width: 100%; max-width: 640px; padding: 16px 20px;
+  display: flex; flex-direction: column; gap: 8px; min-height: 0; }
+.ksurface .kb-panel-surface .kb-list { max-height: none; flex: 1; }
+.ksurface .kb-panel-surface .kb-search { width: 200px; }
+.kb-group-section { margin-top: 8px; border-top: 1px solid var(--border);
+  padding-top: 10px; color: var(--fg2); }
 .kb-group { font-size: var(--fs-xs); letter-spacing: .08em; text-transform: uppercase;
   color: var(--muted2); padding: 8px 4px 3px; font-weight: 500; }
 .kb-empty { font-size: var(--fs-m); color: var(--muted); padding: 12px 4px; }
