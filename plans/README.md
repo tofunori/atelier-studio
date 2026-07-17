@@ -238,6 +238,7 @@ planifiés sur demande.
 | 043 | Purge de la file d'envoi + stop reconnexion sur `auth_expired` | P2 | M | — | TODO |
 | 044 | Fidélité du listing fichiers (formats scientifiques, troncature annoncée, grille, filtres kind+extension) | P2 | M | — | TODO |
 | 045 | Client ACP Rust partagé + OpenCode sur ACP (deux backends, grok full-duplex en phase 2) | P2 | L | — | DONE (branche `advisor/045-acp-client-rust`, non mergée ; E2E réels rs+mjs verts le 2026-07-16) |
+| 046 | Kimi Code 0.26+ natif via ACP, robuste et fidèle (Rust + Node) | P1 | XL | 045 | IN PROGRESS (branche `codex/046-kimi-acp-native` — implémentation complète, suites Rust/Node/UI vertes, parité live fake ACP 0 divergence le 2026-07-16 ; RESTE : smoke réel Rust+Node après `kimi login` opérateur, cf. section statut du plan) |
 | 047 | Soak des backends Rust puis retrait du runtime Node embarqué (−170 Mo) | P2 | M | soak 2-3 sem. + redaction journal Rust | IN PROGRESS (phase 0 — soak démarré 2026-07-16) |
 
 ### Dependency notes
