@@ -9,7 +9,8 @@ import { createHarnessThread } from "./harness_events.mjs";
 import { HANDOFF_END } from "./handoff.mjs";
 import { stripGalleryToolInstruction, withGalleryToolInstruction } from "./gallery_tool_prompt.mjs";
 import { stripZoteroPassageInstruction, withZoteroPassageInstruction } from "./zotero_passage_prompt.mjs";
-import { KnowledgeStore, defaultKnowledgeDir } from "./knowledge.mjs";
+import { KnowledgeStore, defaultKnowledgeDir, kbBlockEntries } from "./knowledge.mjs";
+import { withKbBlock } from "./kb_prompt.mjs";
 import * as narval from "./narval.mjs";
 
 // ctx: { send(obj), store, providers, broadcast(obj) }
@@ -809,9 +810,23 @@ async function startProviderTurn(ctx, h, msg, { reservedTurnId = null } = {}) {
     projectRoot,
     toolPath: join(dirname(fileURLToPath(import.meta.url)), "atelier-gallery-tool"),
   });
-  const providerPrompt = withZoteroPassageInstruction(galleryPrompt, {
+  const zoteroPrompt = withZoteroPassageInstruction(galleryPrompt, {
     toolPath: join(dirname(fileURLToPath(import.meta.url)), "atelier-zotero-passages"),
   });
+  // Bloc base de connaissances (plan 049 T4) : sources attachées au thread.
+  // La KB ne bloque JAMAIS un envoi — toute erreur dégrade en prompt inchangé.
+  let providerPrompt = zoteroPrompt;
+  try {
+    const kbIds = Array.isArray(prev?.kbSourceIds) ? prev.kbSourceIds : [];
+    if (kbIds.length) {
+      const kbStore = new KnowledgeStore(defaultKnowledgeDir());
+      providerPrompt = withKbBlock(zoteroPrompt, {
+        toolPath: join(dirname(fileURLToPath(import.meta.url)), "atelier-kb"),
+        entries: kbBlockEntries(kbStore, kbIds, prev?.kbFullContent),
+        gbrain: kbIds.includes("gbrain"),
+      });
+    }
+  } catch {}
 
   ctx.store.upsert({
     id: threadId,

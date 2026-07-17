@@ -5,10 +5,11 @@ import readline from "node:readline";
 import { stripHandoff } from "./handoff.mjs";
 import { stripGalleryToolInstruction } from "./gallery_tool_prompt.mjs";
 import { stripZoteroPassageInstruction } from "./zotero_passage_prompt.mjs";
+import { stripKbBlock } from "./kb_prompt.mjs";
 import { listSessions as listKimiSessions } from "./providers/kimi.mjs";
 
 function stripAtelierToolInstructions(text) {
-  return stripZoteroPassageInstruction(stripGalleryToolInstruction(text));
+  return stripKbBlock(stripZoteroPassageInstruction(stripGalleryToolInstruction(text)));
 }
 
 // Lister les sessions existantes (CLI + Studio) pour reprise.

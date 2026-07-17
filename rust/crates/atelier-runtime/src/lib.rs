@@ -5,6 +5,7 @@ pub mod automations;
 mod codex_history;
 mod grok_history;
 pub mod instance;
+pub mod kb_block;
 pub mod parity;
 pub mod paths;
 pub mod send;

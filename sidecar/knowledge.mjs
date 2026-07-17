@@ -17,9 +17,11 @@ function writeFileAtomic(filePath, data) {
   renameSync(tmp, filePath);
 }
 
+import { KB_INLINE_MAX } from "./kb_prompt.mjs";
+
 const REGISTRY_VERSION = 1;
 const PAGES_CACHE_VERSION = 1;
-export const KB_INLINE_MAX = 8000;
+export { KB_INLINE_MAX };
 // T3: zotero — T6: folder — T7: gbrain (id réservé, hors registre) — T8: youtube
 export const KB_KINDS = new Set(["file", "pdf", "web", "note"]);
 const TEXT_EXTS = new Set([".md", ".tex", ".txt"]);
@@ -369,4 +371,37 @@ export class KnowledgeStore {
   fullText(id) {
     return this.pagesFor(id).map((page) => page.text).join("\n\n");
   }
+}
+
+// Prépare les entrées du bloc <atelier-kb> (plan 049 T4) pour un thread.
+// Jamais d'exception : une source illisible dégrade en fiche, un id inconnu
+// est ignoré. L'id réservé "gbrain" est géré par l'appelant (withKbBlock).
+export function kbBlockEntries(store, sourceIds = [], fullContent = []) {
+  const ids = Array.isArray(sourceIds) ? sourceIds : [];
+  const forced = Array.isArray(fullContent) ? fullContent : [];
+  const entries = [];
+  for (const id of ids) {
+    if (id === "gbrain") continue;
+    const known = store.get(id);
+    if (!known) continue;
+    const wantInline = known.chars <= KB_INLINE_MAX || forced.includes(id);
+    let text = null;
+    if (wantInline) {
+      try {
+        text = store.fullText(id); // rafraîchit mtime au passage (fichiers/PDF)
+      } catch {
+        text = null;
+      }
+    }
+    const fresh = store.get(id) ?? known;
+    entries.push({
+      id: fresh.id,
+      title: fresh.title,
+      kind: fresh.kind,
+      chars: fresh.chars,
+      inline: Boolean(wantInline && text !== null),
+      ...(wantInline && text !== null ? { text } : {}),
+    });
+  }
+  return entries;
 }

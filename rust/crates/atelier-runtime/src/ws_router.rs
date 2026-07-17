@@ -1403,6 +1403,11 @@ fn kb_error(message: String) -> Vec<String> {
     vec![json_msg(json!({"type": "kbError", "message": message}))]
 }
 
+#[cfg(test)]
+pub(crate) fn kb_node_bin_for_tests() -> Option<std::path::PathBuf> {
+    kb_node_bin()
+}
+
 fn handle_kb_add(state: &AppState, msg: &Value) -> Vec<String> {
     let get = |key: &str| msg.get(key).and_then(|v| v.as_str()).unwrap_or("");
     let (kind, origin, title, text) = (get("kind"), get("origin"), get("title"), get("text"));
