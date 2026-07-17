@@ -1,6 +1,6 @@
 // Settings (plan 021, partie A) : navigation, Échap, confirmations
 // destructives, nav compacte ≤880 px, contrôles primitives, diagnostic.
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, cleanup, fireEvent, screen, waitFor } from "@testing-library/react";
 
 vi.mock("@tauri-apps/plugin-dialog", () => ({
@@ -33,6 +33,18 @@ function fakeWs() {
 function emitWs(ws: WebSocket, message: unknown) {
   act(() => ws.dispatchEvent(new MessageEvent("message", { data: JSON.stringify(message) })));
 }
+
+const originalGetAnimations = Element.prototype.getAnimations;
+beforeAll(() => {
+  // Base UI ScrollArea consulte l'API Web Animations, absente de jsdom. Le
+  // double reste volontairement local à Settings pour ne pas altérer les
+  // transitions de fermeture testées par les autres primitives Base UI.
+  Element.prototype.getAnimations = () => [];
+});
+afterAll(() => {
+  if (originalGetAnimations) Element.prototype.getAnimations = originalGetAnimations;
+  else delete (Element.prototype as Partial<Element>).getAnimations;
+});
 
 beforeEach(() => { resetTestState(); setLanguage("fr"); vi.clearAllMocks(); });
 afterEach(cleanup);
