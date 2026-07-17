@@ -415,10 +415,10 @@ describe("orchestration App — caractérisation", () => {
     // la pilule du composer affiche le nom sans extension (citeLabel) ;
     // l'image ne s'affiche plus en vignette mais via le zoom (plan 050 P2)
     expect(screen.getByText("fig3_spatial")).toBeTruthy();
-    fireEvent.click(screen.getByRole("button", { name: "Aperçu de fig3_spatial.png" }));
+    fireEvent.click(screen.getByRole("button", { name: t("context.preview-image", { name: "fig3_spatial.png" }) }));
     const preview = screen.getByRole("img", { name: "fig3_spatial.png" }) as HTMLImageElement;
     expect(preview.src).toBe("http://127.0.0.1:18790/fig3_spatial.png");
-    fireEvent.click(screen.getByRole("button", { name: "Fermer l’aperçu de l’image" }));
+    fireEvent.click(screen.getByRole("button", { name: t("context.close-image-preview") }));
     expect(postMessage).toHaveBeenCalledWith({
       type: "atelier-add-to-chat-ack",
       nonce,

@@ -130,7 +130,9 @@ describe("composer — caractérisation", () => {
 
     // plan 050 P2 : plus de cartes shadcn — des pilules fines uniformes
     expect(document.querySelectorAll(".context-pills .context-pill").length).toBe(2);
-    const removeButtons = screen.getAllByRole("button", { name: /^Retirer / });
+    const removeButtons = screen.getAllByRole("button", {
+      name: new RegExp(`^${t("action.remove")} `),
+    });
     expect(removeButtons.length).toBe(2);
     act(() => { removeButtons[0].click(); });
     expect(onRemoveAttachment).toHaveBeenCalledWith(0);
