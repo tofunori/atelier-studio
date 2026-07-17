@@ -537,7 +537,7 @@ pub async fn route_ws(state: &AppState, text: &str) -> Vec<String> {
         }
         "kbAdd" => handle_kb_add(state, &msg),
         "kbList" => handle_kb_list(state),
-        "kbRemove" => handle_kb_remove(state, &msg),
+        "kbRemove" => handle_kb_remove(state, &msg).await,
         "generateImage" => handle_generate_image(state, &msg).await,
         "apiProviders" => {
             let list = list_api_providers_public(state.app_dir());
@@ -1453,7 +1453,7 @@ fn handle_kb_list(state: &AppState) -> Vec<String> {
     }
 }
 
-fn handle_kb_remove(state: &AppState, msg: &Value) -> Vec<String> {
+async fn handle_kb_remove(state: &AppState, msg: &Value) -> Vec<String> {
     let id = msg.get("id").and_then(|v| v.as_str()).unwrap_or("");
     if id.is_empty() {
         return kb_error("kbRemove: id requis".into());
@@ -1461,7 +1461,47 @@ fn handle_kb_remove(state: &AppState, msg: &Value) -> Vec<String> {
     if let Err(message) = kb_cli_run(state.server_dir(), state.app_dir(), &["remove", "--id", id], "") {
         return kb_error(message);
     }
-    handle_kb_list(state)
+    let mut out = handle_kb_list(state);
+    // purge des références dans les threads (miroir du routeur Node) — sinon
+    // les conversations non actives gardent des pilules orphelines
+    let strip = |value: Option<&Value>| -> (Vec<String>, bool) {
+        let items: Vec<String> = value
+            .and_then(|v| v.as_array())
+            .map(|arr| arr.iter().filter_map(|x| x.as_str().map(str::to_string)).collect())
+            .unwrap_or_default();
+        let had = items.iter().any(|x| x == id);
+        (items.into_iter().filter(|x| x != id).collect(), had)
+    };
+    let patches: Vec<Value> = {
+        let store = state.threads().lock().await;
+        store
+            .list()
+            .iter()
+            .filter_map(|thread| {
+                let raw = serde_json::to_value(thread).ok()?;
+                let (ids, had_ids) = strip(raw.get("kbSourceIds"));
+                let (full, had_full) = strip(raw.get("kbFullContent"));
+                if !had_ids && !had_full {
+                    return None;
+                }
+                Some(json!({
+                    "id": raw.get("id").cloned().unwrap_or(Value::Null),
+                    "kbSourceIds": ids,
+                    "kbFullContent": full,
+                }))
+            })
+            .collect()
+    };
+    if !patches.is_empty() {
+        {
+            let mut store = state.threads().lock().await;
+            for patch in patches {
+                let _ = store.upsert(patch, true);
+            }
+        }
+        out.extend(broadcast_threads(state).await);
+    }
+    out
 }
 
 async fn handle_setup_status(state: &AppState) -> Vec<String> {
@@ -2627,12 +2667,25 @@ mod tests {
         assert_eq!(v["sources"].as_array().unwrap().len(), 1);
         assert_eq!(v["sources"][0]["id"], source_id.as_str());
 
-        // remove → liste à jour vide
+        // un thread référence la source → remove doit purger ses champs kb
+        let attach = json!({"type": "upsertThread", "thread": {
+            "id": "t-purge", "provider": "codex",
+            "kbSourceIds": [source_id, "autre"], "kbFullContent": [source_id],
+        }});
+        route_ws(&s, &attach.to_string()).await;
+
+        // remove → liste à jour vide + threads purgés broadcastés
         let remove = json!({"type": "kbRemove", "id": source_id});
         let out = route_ws(&s, &remove.to_string()).await;
         let v: Value = serde_json::from_str(&out[0]).unwrap();
         assert_eq!(v["type"], "kbSources", "réponse: {v}");
         assert_eq!(v["sources"].as_array().unwrap().len(), 0);
+        let threads: Value = serde_json::from_str(&out[1]).unwrap();
+        assert_eq!(threads["type"], "threads", "réponse: {threads}");
+        let thread = threads["threads"].as_array().unwrap().iter()
+            .find(|t| t["id"] == "t-purge").expect("thread présent");
+        assert_eq!(thread["kbSourceIds"], json!(["autre"]));
+        assert_eq!(thread["kbFullContent"], json!([]));
     }
 
     #[tokio::test]

@@ -183,9 +183,13 @@ mjs + rs, comme `zotero_passage_prompt.mjs` / `send.rs`).
 - **Écarts v1 livrés (2026-07-17)** : portée « ce message » différée (la
   portée conversation couvre le besoin « garde en contexte ») ; renommage
   différé (l'id des notes dérive du titre) ; entrée Zotero du picker différée
-  — le PDF d'une réf s'épingle déjà par le dialogue fichier. Ajout non prévu :
-  une source épinglée depuis le picker ouvert est attachée automatiquement à
-  la conversation. Routes ajoutées : `kbList`, `kbRemove`, `upsertThread`
+  — le PDF d'une réf s'épingle déjà par le dialogue fichier. Ajouts non
+  prévus : une source épinglée depuis le picker ouvert est attachée
+  automatiquement à la conversation (corrélée au thread d'origine — on peut
+  changer de conversation avant la réponse) ; `kbRemove` purge les références
+  de la source dans TOUS les threads (deux backends) et broadcast la liste.
+  Les pilules sont un composant `KbChips` dédié à côté du ContextShelf (pas
+  un kind du shelf). Routes ajoutées : `kbList`, `kbRemove`, `upsertThread`
   (Node, parité Rust existante).
 
 ### T4 — Injection double backend

@@ -971,21 +971,32 @@ describe("base de connaissances (kbAdd)", () => {
     expect(sent[0].message).toMatch(/Kind non pris en charge/);
   });
 
-  it("kbList puis kbRemove renvoient la liste à jour", async () => {
+  it("kbList puis kbRemove renvoient la liste à jour et purgent les threads", async () => {
     const prev = process.env.ATELIER_APP_DIR;
     process.env.ATELIER_APP_DIR = mkdtempSync(join(tmpdir(), "atelier-kb-router-"));
     try {
+      const storePath = join(mkdtempSync(join(tmpdir(), "atelier-kb-purge-")), "threads.json");
+      const store = new threadStoreModule.ThreadStore(storePath);
       const sent = [];
-      const ctx = { send: (m) => sent.push(m) };
+      const ctx = { send: (m) => sent.push(m), store };
       await route({
         type: "kbAdd", kind: "note", title: "Note picker",
         text: "Contenu de note suffisamment long pour être indexé par le moteur de passages.",
       }, ctx);
+      const sourceId = sent[0].source.id;
+      // deux threads référencent la source ; un troisième non
+      store.upsert({ id: "t-a", kbSourceIds: [sourceId, "autre"], kbFullContent: [sourceId] });
+      store.upsert({ id: "t-b", kbSourceIds: [sourceId] });
+      store.upsert({ id: "t-c", kbSourceIds: ["autre"] });
       await route({ type: "kbList" }, ctx);
       expect(sent[1].type).toBe("kbSources");
       expect(sent[1].sources).toHaveLength(1);
-      await route({ type: "kbRemove", id: sent[0].source.id }, ctx);
+      await route({ type: "kbRemove", id: sourceId }, ctx);
       expect(sent[2]).toMatchObject({ type: "kbSources", sources: [] });
+      expect(sent[3].type).toBe("threads");
+      expect(store.get("t-a")).toMatchObject({ kbSourceIds: ["autre"], kbFullContent: [] });
+      expect(store.get("t-b")).toMatchObject({ kbSourceIds: [] });
+      expect(store.get("t-c")).toMatchObject({ kbSourceIds: ["autre"] });
     } finally {
       if (prev === undefined) delete process.env.ATELIER_APP_DIR;
       else process.env.ATELIER_APP_DIR = prev;

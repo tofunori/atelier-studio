@@ -1022,11 +1022,28 @@ export async function route(msg, ctx) {
       break;
     }
     case "kbRemove": {
-      // suppression d'une source depuis le picker ; renvoie la liste à jour
+      // suppression d'une source depuis le picker : liste à jour + purge des
+      // références dans TOUS les threads (sinon pilules orphelines dans les
+      // conversations non actives), threads broadcastés si touchés.
       try {
         const store = new KnowledgeStore(defaultKnowledgeDir());
         store.remove(msg.id);
-        ctx.send({ type: "kbSources", sources: store.list() });
+        ctx.send({ type: "kbSources", sources: store.list(), ...(store.warning ? { warning: store.warning } : {}) });
+        if (ctx.store) {
+          let touched = false;
+          for (const thread of ctx.store.list()) {
+            const ids = Array.isArray(thread.kbSourceIds) ? thread.kbSourceIds : [];
+            const full = Array.isArray(thread.kbFullContent) ? thread.kbFullContent : [];
+            if (!ids.includes(msg.id) && !full.includes(msg.id)) continue;
+            ctx.store.upsert({
+              id: thread.id,
+              kbSourceIds: ids.filter((x) => x !== msg.id),
+              kbFullContent: full.filter((x) => x !== msg.id),
+            }, { preserveUpdatedAt: true });
+            touched = true;
+          }
+          if (touched) (ctx.broadcast ?? ctx.send)({ type: "threads", threads: ctx.store.list() });
+        }
       } catch (error) {
         ctx.send({ type: "kbError", message: error instanceof Error ? error.message : String(error) });
       }

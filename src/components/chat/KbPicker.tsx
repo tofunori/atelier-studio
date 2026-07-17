@@ -250,25 +250,50 @@ export function KbPicker({ binding }: { binding: KbBinding }) {
   const sources = useSyncExternalStore(subscribeKbSources, kbSourcesSnapshot);
   const openRef = useRef(pickerOpen);
   openRef.current = pickerOpen;
-  const bindingRef = useRef(binding);
-  bindingRef.current = binding;
+  // Auto-attache corrélée : un épinglage initié ICI capture le binding du
+  // thread AU MOMENT de l'envoi (l'utilisateur peut changer de conversation
+  // avant la réponse — un kbAdd web peut prendre 20 s). `attachedNext` suit
+  // les attaches successives d'une même rafale (plusieurs fichiers).
+  const pendingRef = useRef<{
+    remaining: number;
+    attachedNext: string[];
+    fullContent: string[];
+    onChange: KbBinding["onChange"];
+  } | null>(null);
+
+  function trackPendingAdds(count: number) {
+    const pending = pendingRef.current;
+    if (pending && pending.onChange === binding.onChange) {
+      pending.remaining += count;
+    } else {
+      pendingRef.current = {
+        remaining: count,
+        attachedNext: [...binding.attached],
+        fullContent: binding.fullContent,
+        onChange: binding.onChange,
+      };
+    }
+  }
 
   useEffect(() => {
     const onAdded = (e: Event) => {
       const detail = (e as CustomEvent).detail as
         | { ok?: boolean; message?: string; source?: KbSource }
         | undefined;
+      const pending = pendingRef.current;
       if (!detail?.ok) {
+        if (pending && pending.remaining > 0) pending.remaining -= 1;
         if (openRef.current) setError(detail?.message ?? t("kb.error-generic"));
         return;
       }
-      // épinglage initié depuis le picker ouvert → attacher directement
       const id = detail.source?.id;
-      const current = bindingRef.current;
-      if (openRef.current && id && !current.attached.includes(id)) {
-        current.onChange({
-          kbSourceIds: [...current.attached, id],
-          kbFullContent: current.fullContent,
+      if (!pending || pending.remaining <= 0 || !id) return;
+      pending.remaining -= 1;
+      if (!pending.attachedNext.includes(id)) {
+        pending.attachedNext = [...pending.attachedNext, id];
+        pending.onChange({
+          kbSourceIds: pending.attachedNext,
+          kbFullContent: pending.fullContent,
         });
       }
     };
@@ -309,6 +334,7 @@ export function KbPicker({ binding }: { binding: KbBinding }) {
     });
     if (!picked) return;
     const paths = Array.isArray(picked) ? picked : [picked];
+    trackPendingAdds(paths.length);
     for (const path of paths) {
       const kind = String(path).toLowerCase().endsWith(".pdf") ? "pdf" : "file";
       wsSend({ type: "kbAdd", kind, origin: path });
@@ -352,8 +378,14 @@ export function KbPicker({ binding }: { binding: KbBinding }) {
             onToggleFull={toggleFull}
             onRemoveSource={removeSource}
             onAddFiles={() => { void addFiles(); }}
-            onAddUrl={(url) => wsSend({ type: "kbAdd", kind: "web", origin: url })}
-            onAddNote={(title, text) => wsSend({ type: "kbAdd", kind: "note", title, text })}
+            onAddUrl={(url) => {
+              trackPendingAdds(1);
+              wsSend({ type: "kbAdd", kind: "web", origin: url });
+            }}
+            onAddNote={(title, text) => {
+              trackPendingAdds(1);
+              wsSend({ type: "kbAdd", kind: "note", title, text });
+            }}
           />
         </PopoverContent>
       )}
