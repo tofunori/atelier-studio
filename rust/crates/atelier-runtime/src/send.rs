@@ -1135,16 +1135,18 @@ pub async fn handle_provider_status(state: &AppState) -> Vec<String> {
                             .map(str::to_string)
                             .collect();
                         if provider.default_model.is_empty() {
-                            if let Some(d) =
-                                dynamic.get("defaultModel").and_then(Value::as_str)
-                            {
+                            if let Some(d) = dynamic.get("defaultModel").and_then(Value::as_str) {
                                 provider.default_model = d.to_string();
                             }
                         }
                     }
                 }
                 if let Some(reasoning) = dynamic.get("modelReasoning") {
-                    if reasoning.as_object().map(|o| !o.is_empty()).unwrap_or(false) {
+                    if reasoning
+                        .as_object()
+                        .map(|o| !o.is_empty())
+                        .unwrap_or(false)
+                    {
                         provider.model_reasoning = reasoning.clone();
                     }
                 }

@@ -589,7 +589,7 @@ export default function SettingsPage(p: {
                         // après le login : Refresh ⇒ authenticate + modèles.
                         <Button
                           variant="secondary"
-                          size="s"
+                          className="set-btn"
                           onClick={() =>
                             window.dispatchEvent(
                               new CustomEvent("atelier-terminal-command", {

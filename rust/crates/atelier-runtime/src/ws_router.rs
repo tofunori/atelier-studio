@@ -1347,6 +1347,7 @@ async fn handle_setup_status(state: &AppState) -> Vec<String> {
                 "auth": probe.get("state").cloned().unwrap_or(json!("unknown")),
                 "models": probe.get("models").cloned().unwrap_or(json!(0)),
                 "defaultModel": p.default_model,
+                "loginCommand": probe.get("loginCommand").cloned().unwrap_or(Value::Null),
                 "modelError": match shadowed {
                     Some(official) => json!(format!(
                         "installation officielle masquée : {official} (binaire utilisé : {})",

@@ -324,6 +324,7 @@ async function setupStatus() {
         auth: probe.state,
         models: probe.models ?? 0,
         defaultModel: "",
+        loginCommand: probe.loginCommand ?? null,
         modelError: probe.shadowed
           ? `installation officielle masquée : ${probe.shadowed} (binaire utilisé : ${probe.binPath})`
           : (probe.error ?? null),

@@ -503,7 +503,9 @@ impl KimiProvider {
         }
         let out = tokio::time::timeout(
             Duration::from_secs(8),
-            tokio::process::Command::new(&self.bin).arg("--version").output(),
+            tokio::process::Command::new(&self.bin)
+                .arg("--version")
+                .output(),
         )
         .await
         .ok()?
@@ -1019,7 +1021,8 @@ impl Provider for KimiProvider {
     /// session/prompt. La commande de login vient d'`authMethods`.
     async fn setup_probe(&self) -> Option<Value> {
         let version = self.cli_version().await;
-        let shadowed = shadowed_official_install(&self.bin).map(|p| p.to_string_lossy().into_owned());
+        let shadowed =
+            shadowed_official_install(&self.bin).map(|p| p.to_string_lossy().into_owned());
         let base = |state: &str, models: usize, error: Option<String>| {
             json!({
                 "state": state,
@@ -1054,7 +1057,11 @@ impl Provider for KimiProvider {
             .map(|n| n == "Kimi Code CLI")
             .unwrap_or(true);
         if init.protocol_version != 1 || !name_ok {
-            return Some(base("protocol_error", 0, Some("handshake inattendu".into())));
+            return Some(base(
+                "protocol_error",
+                0,
+                Some("handshake inattendu".into()),
+            ));
         }
         let mut probe = base("ready", 0, None);
         // La commande de login annoncée par le CLI prime sur le défaut.
@@ -1879,7 +1886,10 @@ mod tests {
             d(true, Some("0.26.0"), Some(true), false, false, 0),
             "model_config_needed"
         );
-        assert_eq!(d(true, Some("0.26.0"), Some(true), false, false, 2), "ready");
+        assert_eq!(
+            d(true, Some("0.26.0"), Some(true), false, false, 2),
+            "ready"
+        );
         // version inconnue : pas bloquante, la sonde tranche
         assert_eq!(d(true, None, Some(true), false, false, 2), "ready");
     }
