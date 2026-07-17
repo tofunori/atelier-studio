@@ -18,6 +18,12 @@ import { Button, InlineNotice, SegmentedControl, showError } from "./ui";
 import { Checkbox, CheckboxIndicator } from "./shadcn/checkbox";
 import { Field, FieldGroup, FieldLabel } from "./shadcn/field";
 import { Input } from "./shadcn/input";
+import {
+  InputGroup,
+  InputGroupAddon,
+  InputGroupButton,
+  InputGroupInput,
+} from "./shadcn/input-group";
 import { ScrollArea } from "./shadcn/scroll-area";
 import { Switch } from "./shadcn/switch";
 import { Toggle as ShadcnToggle } from "./shadcn/toggle";
@@ -1049,21 +1055,22 @@ export default function SettingsPage(p: {
                   >
                     <Field className="set-model-search-field">
                       <FieldLabel className="tw:sr-only">{t("settings.model-search")}</FieldLabel>
-                      <Input
-                        className="set-text"
-                        value={openCodeModelQuery}
-                        placeholder={t("settings.model-search")}
-                        onChange={(event) => setOpenCodeModelQuery(event.target.value)}
-                      />
+                      <InputGroup>
+                        <InputGroupInput
+                          value={openCodeModelQuery}
+                          placeholder={t("settings.model-search")}
+                          onChange={(event) => setOpenCodeModelQuery(event.target.value)}
+                        />
+                        <InputGroupAddon align="inline-end">
+                          <InputGroupButton
+                            onClick={() => p.ws?.readyState === 1
+                              && p.ws.send(JSON.stringify({ type: "providerStatus" }))}
+                          >
+                            {t("action.refresh")}
+                          </InputGroupButton>
+                        </InputGroupAddon>
+                      </InputGroup>
                     </Field>
-                    <Button
-                      variant="ghost"
-                      className="set-btn quiet"
-                      onClick={() => p.ws?.readyState === 1
-                        && p.ws.send(JSON.stringify({ type: "providerStatus" }))}
-                    >
-                      {t("action.refresh")}
-                    </Button>
                   </Row>
                   <ScrollArea className="set-model-scroll">
                     <div className="set-model-list">

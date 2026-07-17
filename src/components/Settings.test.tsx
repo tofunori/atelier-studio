@@ -181,7 +181,11 @@ describe("Settings — contrôles et diagnostic", () => {
     });
 
     await waitFor(() => expect(screen.getByText("GLM 5.2")).toBeTruthy());
-    fireEvent.change(screen.getByPlaceholderText(t("settings.model-search")), {
+    const modelSearch = screen.getByPlaceholderText(t("settings.model-search"));
+    const refreshButton = screen.getByRole("button", { name: t("action.refresh") });
+    expect(modelSearch.closest('[data-slot="input-group"]')).toBe(refreshButton.closest('[data-slot="input-group"]'));
+    expect(refreshButton.className).toContain("tw:text-foreground");
+    fireEvent.change(modelSearch, {
       target: { value: "Fable" },
     });
     expect(screen.queryByText("GLM 5.2")).toBeNull();

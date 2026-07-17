@@ -54,8 +54,6 @@ export type ComposerMenus = {
   setMenuOpen: Dispatch<boolean>;
   effortOpen: boolean;
   setEffortOpen: Dispatch<boolean>;
-  modelMenuProvider: string;
-  setModelMenuProvider: (v: string) => void;
   goalOpen: boolean;
   setGoalOpen: Dispatch<boolean>;
   goalText: string;
@@ -98,7 +96,6 @@ export type ComposerHost = {
   /** goal Codex actif (dernier événement goal non-cleared) — pilote la barre épinglée */
   activeGoal?: GoalInfo | null;
   defaults: { autoReview?: { enabled: boolean }; providerOrder?: string[]; hiddenProviders?: string[] };
-  providers?: ProviderInfo[];
   onOpenModelSettings?: () => void;
 };
 
@@ -156,7 +153,6 @@ export function ChatComposer(props: {
         model.setModel(match.id);
         model.setEffort(catalog.effortFor(model.provider, match.id));
       } else {
-        menus.setModelMenuProvider(model.provider);
         menus.setEffortOpen(false);
         menus.setMenuOpen(true);
       }

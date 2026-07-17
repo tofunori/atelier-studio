@@ -471,7 +471,6 @@ export default function Chat(p: {
   }, [marks, p.events]);
   const [menuOpen, setMenuOpen] = useState(false);
   const [effortOpen, setEffortOpen] = useState(false);
-  const [modelMenuProvider, setModelMenuProvider] = useState(provider);
   const [plusOpen, setPlusOpen] = useState(false);
   const [goalOpen, setGoalOpen] = useState(false);
   const [goalText, setGoalText] = useState("");
@@ -547,10 +546,6 @@ export default function Chat(p: {
 
   // dismiss (clic extérieur, Escape, retour focus) : géré par Base UI dans
   // les Popover/DropdownMenu du composer — plus aucun listener window ici
-  useEffect(() => {
-    // cascade : à l'ouverture, ne montrer QUE la liste des providers (sous-menu fermé)
-    if (menuOpen) setModelMenuProvider("");
-  }, [menuOpen, provider]);
   const [editing, setEditing] = useState<{ index: number; text: string } | null>(null);
   const [openToolGroups, setOpenToolGroups] = useState<Set<string>>(new Set());
   // plis « A travaillé Xm Ys » : tours terminés dont le détail est déplié
@@ -959,8 +954,7 @@ export default function Chat(p: {
           permissionMode, setPermissionMode,
         }}
         menus={{
-          plusOpen, setPlusOpen, menuOpen, setMenuOpen, effortOpen, setEffortOpen, modelMenuProvider,
-          setModelMenuProvider,
+          plusOpen, setPlusOpen, menuOpen, setMenuOpen, effortOpen, setEffortOpen,
           goalOpen, setGoalOpen, goalText, setGoalText,
         }}
         catalog={{
@@ -984,7 +978,7 @@ export default function Chat(p: {
               }
             : undefined,
           activeGoal,
-          defaults: p.defaults, providers: p.providers,
+          defaults: p.defaults,
         }}
       />
       {pasteView && (
