@@ -34,7 +34,9 @@ import { resolveSingleInstance } from "./single_instance.mjs";
 import { validGalleryCommand } from "./gallery_command.mjs";
 enrichPath(); // PATH Finder minimal → complété pour tous les spawns
 
-const APP_DIR = `${homedir()}/Library/Application Support/atelier-studio`;
+// ATELIER_APP_DIR : répertoire isolé pour les harnais de parité/tests
+// (même variable que le serveur Rust) — défaut inchangé pour l'app.
+const APP_DIR = process.env.ATELIER_APP_DIR || `${homedir()}/Library/Application Support/atelier-studio`;
 const PID_FILE = `${APP_DIR}/sidecar.pid`;
 const LOCK_FILE = `${APP_DIR}/sidecar.lock`;
 const SIDECAR_DIR = path.dirname(fileURLToPath(import.meta.url));

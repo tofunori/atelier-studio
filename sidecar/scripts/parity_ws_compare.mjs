@@ -46,6 +46,9 @@ const CORPUS = [
   { type: "getLedger", projectRoot: "/tmp", limit: 5 },
   { type: "getHistory", threadId: "__parity_missing__" },
   { type: "listSessions", provider: "claude", projectRoot: "/tmp" },
+  // kimi (plan 046) : listing natif ACP — même mapping des deux côtés
+  // (session/list réel, ou [] identique quand kimi est absent/éteint).
+  { type: "listSessions", provider: "kimi", projectRoot: "/tmp" },
   { type: "clientLog", note: "parity" },
   { type: "clientHello", clientInstanceId: "00000000-0000-4000-8000-000000000001" },
 ];
