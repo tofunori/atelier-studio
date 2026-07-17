@@ -36,11 +36,20 @@
   Zotero, store threads, browser embarqué)
 - **Category** : feature / chat / harness
 - **Planned at** : 2026-07-17, worktree `atelier-knowledge-base`
-- **Implémenté** : T1→T8 livrés le 2026-07-17 (commits `483062a`…`cffe43e`
-  + correctifs des 3 audits indépendants). Gates finales : sidecar 509,
-  front 537 (css-contract inclus), cargo runtime 60 (parité node réelle),
-  tsc, vite build. Reste : validation en app relancée (protocole) — picker,
-  bouton browser, bloc reçu par chaque famille de providers, gbrain réel.
+- **Implémenté** : T1→T8 livrés le 2026-07-17 (commits `483062a`…) +
+  correctifs des 3 audits indépendants + UX v2 (pilule agrégée dès 3 sources,
+  méta « envoyé avec N sources » persistée dans l'événement). Gates : sidecar
+  509, front 539, cargo runtime 60 (parité node réelle), tsc, vite build.
+- **Validé en app relancée (2026-07-17, e2e WS contre le backend Rust vivant)** :
+  épinglage note/web-fetch/dossier/YouTube (transcript fr, citations mm:ss,
+  lien &t=) ; repli fetch sans texte (cas bouton browser, page eos.org) ;
+  attache persistée ; **bloc reçu par claude qui a exécuté atelier-kb search
+  et cité la quote exacte (p./ELA Wikipedia)** ; strip vérifié (ni en-tête ni
+  balise fermante dans l'historique, texte user intact) ; méta kb persistée ;
+  **kbPromote → gbrain capture réel OK** (~/.bun/bin résolu). Pièges corrigés :
+  liste cp de stage-rust-server (garde-fou d'imports ajouté), canal titre
+  WebKit borné (repli 24k puis fetch), PATH GUI pour gbrain. Restent aux yeux
+  de Thierry : le clic réel du bouton browser et le rendu visuel chips/méta.
 
 ## Objectif
 
