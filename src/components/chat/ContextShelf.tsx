@@ -1,9 +1,13 @@
-// ContextShelf : composition produit au-dessus de la primitive Attachment
-// officielle shadcn. Les comportements métier Atelier restent intacts :
-// images, textes collés, citations groupées, lignes, aperçu riche et retrait
-// unitaire sans mutation de la source.
+// ContextShelf : rangée de contexte UNIFIÉE (plan 050 P2) — chaque pièce
+// jointe éphémère (citation, image, fichier, collage, capture…) est une
+// pilule fine du même gabarit que les pilules KB. Comportements intacts :
+// zoom image (dialog + navigation clavier), aperçu des collages, citations
+// groupées en popover, aperçu riche Zotero, retrait unitaire.
 import { useEffect, useState } from "react";
-import { ChevronLeftIcon, ChevronRightIcon, ClipboardIcon, FilesIcon, FileTextIcon, XIcon } from "lucide-react";
+import {
+  CameraIcon, ChevronLeftIcon, ChevronRightIcon, ClipboardIcon,
+  FileTextIcon, FolderIcon, ImageIcon, QuoteIcon, XIcon,
+} from "lucide-react";
 import { t } from "../../lib/i18n";
 import { Button } from "../shadcn/button";
 import {
@@ -19,9 +23,7 @@ import {
   AttachmentContent,
   AttachmentDescription,
   AttachmentGroup,
-  AttachmentMedia,
   AttachmentTitle,
-  AttachmentTrigger,
 } from "../shadcn/attachment";
 import {
   Popover,
@@ -32,7 +34,7 @@ import {
   PopoverTrigger,
 } from "../shadcn/popover";
 import { citeLabel } from "./turnParts";
-import { RowButton } from "../ui";
+import { IconButton, RowButton } from "../ui";
 
 export type ShelfAttachment = {
   name: string;
@@ -43,21 +45,13 @@ export type ShelfAttachment = {
   preview?: { title: string; rows: { label: string; value: string }[] };
 };
 
-function attachmentKindLabel(kind?: string) {
+function kindGlyph(kind?: string) {
   switch (kind) {
-    case "folder":
-      return t("context.kind-folder");
-    case "zotero":
-      return t("context.kind-zotero");
-    case "image":
-    case "appsnap":
-      return t("context.kind-image");
-    case "quote":
-      return t("context.kind-quote");
-    case "paste":
-      return t("context.kind-paste");
-    default:
-      return t("context.kind-file");
+    case "quote": return <QuoteIcon className="context-pill-glyph" />;
+    case "paste": return <ClipboardIcon className="context-pill-glyph" />;
+    case "folder": return <FolderIcon className="context-pill-glyph" />;
+    case "appsnap": return <CameraIcon className="context-pill-glyph" />;
+    default: return <FileTextIcon className="context-pill-glyph" />;
   }
 }
 
@@ -99,34 +93,29 @@ export function ContextShelf(p: {
     `${t("action.remove")} ${name}${suffix}`;
 
   return (
-    <AttachmentGroup className="chips-row" aria-label={t("context.attachments")}>
+    <div className="chips-row context-pills" aria-label={t("context.attachments")}>
       {p.attachments.map((attachment, index) => attachment.imageUrl ? (
-        <Attachment key={index} size="xs" orientation="vertical" className="context-attachment-image">
+        <span key={`image-${index}`} className="chip context-pill" title={attachment.name}>
           <RowButton
-            className="tw:flex tw:w-full tw:min-w-0 tw:cursor-zoom-in tw:flex-col tw:items-stretch tw:rounded-[inherit] tw:border-0 tw:bg-transparent tw:p-0 tw:text-left tw:text-inherit tw:outline-none tw:focus-visible:ring-2 tw:focus-visible:ring-ring/60"
+            className="context-pill-main"
             aria-label={t("context.preview-image", { name: attachment.name })}
             onClick={() => setExpandedImageIndex(
               imageAttachments.findIndex((candidate) => candidate.attachmentIndex === index),
             )}
           >
-            <AttachmentMedia variant="image">
-              <img src={attachment.imageUrl} alt={attachment.name} />
-            </AttachmentMedia>
-            <AttachmentContent>
-              <AttachmentTitle title={attachment.name}>{citeLabel(attachment.name)}</AttachmentTitle>
-              <AttachmentDescription>{t("context.kind-image")}</AttachmentDescription>
-            </AttachmentContent>
+            <ImageIcon className="context-pill-glyph" />
+            <span className="chip-label">{citeLabel(attachment.name)}</span>
           </RowButton>
-          <AttachmentActions>
-            <AttachmentAction
-              type="button"
-              aria-label={removeLabel(attachment.name)}
-              onClick={() => p.onRemoveAttachment(index)}
-            >
-              <XIcon />
-            </AttachmentAction>
-          </AttachmentActions>
-        </Attachment>
+          <IconButton
+            size="s"
+            className="ghost"
+            label={removeLabel(attachment.name)}
+            title={removeLabel(attachment.name)}
+            onClick={() => p.onRemoveAttachment(index)}
+          >
+            <XIcon className="context-pill-glyph" />
+          </IconButton>
+        </span>
       ) : null)}
 
       <Dialog
@@ -212,60 +201,67 @@ export function ContextShelf(p: {
         return groups.map((group) => {
           const attachment = group.first;
           const grouped = group.indexes.length > 1;
-          const pasted = attachment.kind === "paste";
-          const card = (
-            <Attachment key={group.name} size="xs" className="context-attachment" title={attachment.text || attachment.name}>
+          const pillBody = (
+            <>
+              {kindGlyph(grouped ? "quote" : attachment.kind)}
+              <span className="chip-label">{citeLabel(group.name)}</span>
+              {grouped
+                ? <span className="context-pill-count">{group.indexes.length}</span>
+                : attachment.lines
+                  ? <span className="chip-lines">{attachment.lines}</span>
+                  : null}
+            </>
+          );
+          const pill = (
+            <span key={group.name} className="chip context-pill" title={attachment.text || attachment.name}>
               {grouped ? (
                 <PopoverTrigger
-                  render={<AttachmentTrigger aria-label={t("action.open-file", { ref: attachment.name })} />}
+                  render={
+                    <RowButton
+                      className="context-pill-main"
+                      aria-label={t("action.open-file", { ref: group.name })}
+                    >
+                      {pillBody}
+                    </RowButton>
+                  }
                 />
-              ) : pasted ? (
-                <AttachmentTrigger
-                  aria-label={t("action.open-file", { ref: attachment.name })}
+              ) : (
+                <RowButton
+                  className="context-pill-main"
+                  aria-label={t("action.open-file", { ref: group.name })}
                   onClick={() => p.onOpenPaste({ name: attachment.name, text: attachment.text })}
-                />
-              ) : null}
-              <AttachmentMedia>
-                {grouped ? <FilesIcon /> : pasted ? <ClipboardIcon /> : <FileTextIcon />}
-              </AttachmentMedia>
-              <AttachmentContent>
-                <AttachmentTitle title={attachment.name}>{citeLabel(attachment.name)}</AttachmentTitle>
-                <AttachmentDescription>
-                  {grouped
-                    ? `${group.indexes.length} ${t("context.kind-quote")}`
-                    : attachment.lines
-                      ? t("chat.lines", { lines: attachment.lines })
-                      : attachmentKindLabel(attachment.kind)}
-                </AttachmentDescription>
-                {attachment.preview && (
-                  <span className="chip-preview" role="tooltip">
-                    <strong>{attachment.preview.title}</strong>
-                    {attachment.preview.rows.map((row, rowIndex) => (
-                      <span key={rowIndex} className="chip-preview-row">
-                        <em>{row.label}</em>
-                        <span>{row.value}</span>
-                      </span>
-                    ))}
-                  </span>
-                )}
-              </AttachmentContent>
-              <AttachmentActions>
-                <AttachmentAction
-                  type="button"
-                  aria-label={removeLabel(group.name)}
-                  onClick={() => {
-                    [...group.indexes].sort((left, right) => right - left)
-                      .forEach((index) => p.onRemoveAttachment(index));
-                    setOpenGroup(null);
-                  }}
                 >
-                  <XIcon />
-                </AttachmentAction>
-              </AttachmentActions>
-            </Attachment>
+                  {pillBody}
+                </RowButton>
+              )}
+              {attachment.preview && (
+                <span className="chip-preview" role="tooltip">
+                  <strong>{attachment.preview.title}</strong>
+                  {attachment.preview.rows.map((row, rowIndex) => (
+                    <span key={rowIndex} className="chip-preview-row">
+                      <em>{row.label}</em>
+                      <span>{row.value}</span>
+                    </span>
+                  ))}
+                </span>
+              )}
+              <IconButton
+                size="s"
+                className="ghost"
+                label={removeLabel(group.name)}
+                title={removeLabel(group.name)}
+                onClick={() => {
+                  [...group.indexes].sort((left, right) => right - left)
+                    .forEach((index) => p.onRemoveAttachment(index));
+                  setOpenGroup(null);
+                }}
+              >
+                <XIcon className="context-pill-glyph" />
+              </IconButton>
+            </span>
           );
 
-          if (!grouped) return card;
+          if (!grouped) return pill;
 
           return (
             <Popover
@@ -273,7 +269,7 @@ export function ContextShelf(p: {
               open={openGroup === group.name}
               onOpenChange={(open) => setOpenGroup(open ? group.name : null)}
             >
-              {card}
+              {pill}
               <PopoverContent align="start" side="top" className="tw:w-80">
                 <PopoverHeader>
                   <PopoverTitle>{citeLabel(group.name)}</PopoverTitle>
@@ -312,6 +308,6 @@ export function ContextShelf(p: {
           );
         });
       })()}
-    </AttachmentGroup>
+    </div>
   );
 }

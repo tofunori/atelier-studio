@@ -2906,6 +2906,16 @@ button.ctx-ring-wrap { border: none; font: inherit; color: inherit;
 .ksurface .kb-panel-surface .kb-search { width: 200px; }
 .kb-group-section { margin-top: 8px; border-top: 1px solid var(--border);
   padding-top: 10px; color: var(--fg2); }
+/* Rangée de contexte unifiée (plan 050 P2) : pilules fines pour toutes les
+   pièces jointes éphémères — même gabarit que les pilules KB. */
+.context-pills { display: flex; flex-wrap: wrap; gap: 6px; }
+.context-pill { padding: 3px 6px 3px 8px; font-size: var(--fs-s); }
+.context-pill .context-pill-main { display: inline-flex; align-items: center; gap: 6px;
+  background: transparent; border: 0; padding: 0; color: inherit; font: inherit;
+  cursor: pointer; min-width: 0; }
+.context-pill .context-pill-glyph { width: 12px; height: 12px; flex: none; color: var(--muted); }
+.context-pill .context-pill-count { color: var(--muted); font-variant-numeric: tabular-nums; }
+.context-pill .chip-lines { font-variant-numeric: tabular-nums; }
 .kb-group { font-size: var(--fs-xs); letter-spacing: .08em; text-transform: uppercase;
   color: var(--muted2); padding: 8px 4px 3px; font-weight: 500; }
 .kb-empty { font-size: var(--fs-m); color: var(--muted); padding: 12px 4px; }
