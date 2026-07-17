@@ -663,3 +663,55 @@ describe("composer — barre hiérarchisée (plan 020)", () => {
     expect(indicator.textContent).toContain("1.25");
   });
 });
+
+// Plan 046 : Kimi — catalogue serveur-autoritaire, thinking off/on PAR MODÈLE
+// (annoncé via modelReasoning), contrôle masqué quand Kimi ne l'annonce pas.
+describe("Kimi — modèles dynamiques et thinking par modèle (plan 046)", () => {
+  const kimiInfo = (over: Partial<ReturnType<typeof makeProviderInfo>> = {}) =>
+    makeProviderInfo({
+      id: "kimi",
+      label: "Kimi Code",
+      models: ["kimi-for-coding", "kimi-plain"],
+      defaultModel: "",
+      efforts: [],
+      modelReasoning: {
+        // seul kimi-for-coding a le thinking confirmé par le harnais
+        "kimi-for-coding": { supported_efforts: ["off", "on"], default_effort: "on" },
+      },
+      capabilities: makeCapabilities({
+        steering: false,
+        interactiveInput: true,
+        imageInput: true,
+        durableHistory: true,
+      }),
+      ...over,
+    });
+
+  it("modèle avec thinking annoncé : contrôle visible avec Auto/Off/On", () => {
+    renderUi(<Chat {...chatProps({
+      defaults: { defaultProvider: "kimi", defaultModel: { kimi: "kimi-for-coding" }, defaultEffort: {}, defaultPermissionMode: "default" },
+      providers: [kimiInfo()],
+    })} />);
+    const effortButton = document.querySelector(".effort-pick .mp-effort");
+    expect(effortButton).toBeTruthy();
+  });
+
+  it("modèle sans thinking annoncé : contrôle MASQUÉ (jamais de niveaux inventés)", () => {
+    renderUi(<Chat {...chatProps({
+      defaults: { defaultProvider: "kimi", defaultModel: { kimi: "kimi-plain" }, defaultEffort: {}, defaultPermissionMode: "default" },
+      providers: [kimiInfo()],
+    })} />);
+    expect(document.querySelector(".effort-pick .mp-effort")).toBeNull();
+  });
+
+  it("les modèles Kimi viennent du serveur (aucune liste locale ne ressuscite)", async () => {
+    renderUi(<Chat {...chatProps({
+      defaults: { defaultProvider: "kimi", defaultModel: {}, defaultEffort: {}, defaultPermissionMode: "default" },
+      providers: [kimiInfo({ models: ["kimi-du-serveur"] })],
+    })} />);
+    fireEvent.click(document.querySelector(".model-pick .mp-model") as HTMLButtonElement);
+    const menu = await screen.findByRole("menu");
+    expect(within(menu).getByText("kimi-du-serveur")).toBeInTheDocument();
+    expect(within(menu).queryByText("kimi-k3")).toBeNull();
+  });
+});

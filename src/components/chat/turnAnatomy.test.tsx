@@ -510,3 +510,30 @@ describe("en-tête et goal — retours utilisateur", () => {
     expect(document.querySelector(".goal-bar")).toBeNull();
   });
 });
+
+// Régression 2026-07-16 : au boot, le replay renvoie la bulle user ARCHIVÉE
+// (UserDisplayEvent : pastes {name, lines}, jamais de texte) — le fil doit la
+// rendre sans crasher, méta lignes comprise, chip inerte (rien à ouvrir).
+describe("bulle user restaurée — pastes archivés sans texte", () => {
+  it("pastes {name, lines} : rendu sans crash, nom + méta lignes affichés", () => {
+    const restored: AgentEvent = {
+      kind: "user", text: "Regarde ma sélection.", ts: FIXED_TS,
+      pastes: [{ name: "atelier", lines: 12 }],
+    };
+    renderUi(<Chat {...chatProps({ events: [restored] })} />);
+    const chip = document.querySelector(".paste-chip") as HTMLElement;
+    expect(chip).toBeTruthy();
+    expect(chip.textContent).toContain("atelier");
+    expect(chip.textContent).toContain(t("chat.lines", { lines: "12" }));
+  });
+
+  it("pastes locaux {name, text} : méta lignes calculée depuis le texte", () => {
+    const local: AgentEvent = {
+      kind: "user", text: "Voici le fichier.", ts: FIXED_TS,
+      pastes: [{ name: "extrait.txt", text: "a\nb\nc" }],
+    };
+    renderUi(<Chat {...chatProps({ events: [local] })} />);
+    const chip = document.querySelector(".paste-chip") as HTMLElement;
+    expect(chip.textContent).toContain(t("chat.lines", { lines: "3" }));
+  });
+});

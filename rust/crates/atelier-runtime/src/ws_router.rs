@@ -109,7 +109,7 @@ fn commit_generation_context(status: &GitStatus, staged_only: bool) -> Option<St
         .iter()
         .filter(|file| {
             file.status != "!"
-                && (!staged_only || (file.status != "?" && file.status.chars().next() != Some('.')))
+                && (!staged_only || (file.status != "?" && !file.status.starts_with('.')))
         })
         .collect::<Vec<_>>();
     if files.is_empty() {

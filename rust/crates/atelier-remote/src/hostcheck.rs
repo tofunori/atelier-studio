@@ -19,7 +19,7 @@ pub fn check_host(headers: &HeaderMap, allowed: &[String]) -> Result<(), ApiErro
     }
     let ok = allowed.iter().any(|a| {
         let a = a.to_ascii_lowercase();
-        a == host_lower || host_lower.starts_with(&format!("{a}:")) || a == host_lower
+        a == host_lower || host_lower.starts_with(&format!("{a}:"))
     });
     // Also allow host without port matching allowed with port
     let host_no_port = host_lower.split(':').next().unwrap_or(&host_lower);

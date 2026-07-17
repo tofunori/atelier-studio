@@ -35,29 +35,29 @@ fn comment_id_map(raw: &str) -> HashMap<String, String> {
     let bytes = raw.as_bytes();
     let mut i = 0;
     while i + 4 < bytes.len() {
-        if &bytes[i..i + 4] == b"<!--" {
-            if let Some(end) = raw[i..].find("-->") {
-                let comment = raw[i + 4..i + end].trim();
-                let after = &raw[i + end + 3..];
-                let after_trim = after.trim_start();
-                if let Some(id_pos) = after_trim.find("id=\"") {
-                    let id_start = id_pos + 4;
-                    if let Some(id_end) = after_trim[id_start..].find('"') {
-                        let id = &after_trim[id_start..id_start + id_end];
-                        map.entry(comment.to_string())
-                            .or_insert_with(|| id.to_string());
-                    }
+        if &bytes[i..i + 4] == b"<!--"
+            && let Some(end) = raw[i..].find("-->")
+        {
+            let comment = raw[i + 4..i + end].trim();
+            let after = &raw[i + end + 3..];
+            let after_trim = after.trim_start();
+            if let Some(id_pos) = after_trim.find("id=\"") {
+                let id_start = id_pos + 4;
+                if let Some(id_end) = after_trim[id_start..].find('"') {
+                    let id = &after_trim[id_start..id_start + id_end];
+                    map.entry(comment.to_string())
+                        .or_insert_with(|| id.to_string());
                 }
-                i += end + 3;
-                continue;
             }
+            i += end + 3;
+            continue;
         }
         i += 1;
     }
     map
 }
 
-fn find_open_tag<'a>(raw: &'a str, elid: &str) -> Option<std::ops::Range<usize>> {
+fn find_open_tag(raw: &str, elid: &str) -> Option<std::ops::Range<usize>> {
     let needle = format!("id=\"{elid}\"");
     let mut search = 0;
     while let Some(rel) = raw[search..].find(&needle) {
@@ -94,12 +94,12 @@ fn with_delta(tag: &str, delta: &str) -> (String, bool) {
             return (out, true);
         }
     }
-    if tag.ends_with("/>") {
-        let base = tag[..tag.len() - 2].trim_end();
+    if let Some(stripped) = tag.strip_suffix("/>") {
+        let base = stripped.trim_end();
         return (format!("{base} transform=\"{delta}\"/>"), true);
     }
-    if tag.ends_with('>') {
-        let base = tag[..tag.len() - 1].trim_end();
+    if let Some(stripped) = tag.strip_suffix('>') {
+        let base = stripped.trim_end();
         return (format!("{base} transform=\"{delta}\">"), true);
     }
     (tag.to_string(), false)
@@ -136,11 +136,12 @@ pub fn reapply(raw: &str, edits: &[Value]) -> (String, ReapplyReport) {
         } else {
             None
         };
-        if range.is_none() && !text.is_empty() {
-            if let Some(mapped) = by_text.get(&text) {
-                elid = mapped.clone();
-                range = find_open_tag(&out, &elid);
-            }
+        if range.is_none()
+            && !text.is_empty()
+            && let Some(mapped) = by_text.get(&text)
+        {
+            elid = mapped.clone();
+            range = find_open_tag(&out, &elid);
         }
         let Some(range) = range else {
             missing_detail.push(format!("id={elid} text={text:?}"));

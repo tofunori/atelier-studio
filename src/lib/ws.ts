@@ -22,7 +22,9 @@ export type ProvisionalEventMeta = { provisional: true; messageId: string };
 
 // meta par intersection : une seule déclaration pour toutes les branches de l'union
 type AgentEventBody =
-  | { kind: "user"; text: string; imageUrl?: string; label?: string; pastes?: { name: string; text: string }[]; ts?: number }
+  | { kind: "user"; text: string; imageUrl?: string; label?: string;
+      /* pastes locaux = texte complet ; restaurés (UserDisplayEvent archivé) = name+lines seulement */
+      pastes?: { name: string; text?: string; lines?: number }[]; ts?: number }
   | { kind: "text"; text: string; ts?: number }
   | { kind: "delta"; text: string; ts?: number }
   | { kind: "thinking_delta"; text: string; ts?: number }

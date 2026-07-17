@@ -325,26 +325,26 @@ fn parse_job(fields: &[&str], recent: bool) -> Option<SlurmJob> {
     if recent {
         Some(SlurmJob {
             id: id.into(),
-            name: fields.get(1).unwrap_or(&&"").trim().into(),
-            state: normalize_state(fields.get(2).unwrap_or(&&"")),
-            elapsed: fields.get(3).unwrap_or(&&"").trim().into(),
-            cpus: fields.get(4).unwrap_or(&&"0").trim().parse().unwrap_or(0),
-            partition: fields.get(5).unwrap_or(&&"").trim().into(),
+            name: fields.get(1).unwrap_or(&"").trim().into(),
+            state: normalize_state(fields.get(2).unwrap_or(&"")),
+            elapsed: fields.get(3).unwrap_or(&"").trim().into(),
+            cpus: fields.get(4).unwrap_or(&"0").trim().parse().unwrap_or(0),
+            partition: fields.get(5).unwrap_or(&"").trim().into(),
             reason: String::new(),
-            work_dir: fields.get(8).unwrap_or(&&"").trim().into(),
-            started_at: fields.get(6).unwrap_or(&&"").trim().into(),
-            ended_at: fields.get(7).unwrap_or(&&"").trim().into(),
+            work_dir: fields.get(8).unwrap_or(&"").trim().into(),
+            started_at: fields.get(6).unwrap_or(&"").trim().into(),
+            ended_at: fields.get(7).unwrap_or(&"").trim().into(),
         })
     } else {
         Some(SlurmJob {
             id: id.into(),
-            name: fields.get(1).unwrap_or(&&"").trim().into(),
-            state: normalize_state(fields.get(2).unwrap_or(&&"")),
-            elapsed: fields.get(3).unwrap_or(&&"").trim().into(),
-            cpus: fields.get(4).unwrap_or(&&"0").trim().parse().unwrap_or(0),
-            partition: fields.get(5).unwrap_or(&&"").trim().into(),
-            reason: fields.get(6).unwrap_or(&&"").trim().into(),
-            work_dir: fields.get(7).unwrap_or(&&"").trim().into(),
+            name: fields.get(1).unwrap_or(&"").trim().into(),
+            state: normalize_state(fields.get(2).unwrap_or(&"")),
+            elapsed: fields.get(3).unwrap_or(&"").trim().into(),
+            cpus: fields.get(4).unwrap_or(&"0").trim().parse().unwrap_or(0),
+            partition: fields.get(5).unwrap_or(&"").trim().into(),
+            reason: fields.get(6).unwrap_or(&"").trim().into(),
+            work_dir: fields.get(7).unwrap_or(&"").trim().into(),
             started_at: String::new(),
             ended_at: String::new(),
         })
@@ -413,8 +413,8 @@ pub fn parse_directory(path: &str, output: &str) -> Vec<RemoteEntry> {
                 name: name.into(),
                 path: format!("{}/{}", path.trim_end_matches('/'), name),
                 kind: kind.into(),
-                size: fields.get(2).unwrap_or(&&"0").parse().unwrap_or(0),
-                modified_at: fields.get(3).unwrap_or(&&"0").parse().unwrap_or(0.0),
+                size: fields.get(2).unwrap_or(&"0").parse().unwrap_or(0),
+                modified_at: fields.get(3).unwrap_or(&"0").parse().unwrap_or(0.0),
             })
         })
         .take(MAX_DIRECTORY_ENTRIES)
@@ -448,32 +448,32 @@ pub fn parse_job_detail(output: &str) -> Option<SlurmJobDetail> {
         .collect::<Vec<_>>();
     let job = SlurmJob {
         id: fields.first()?.trim().into(),
-        name: fields.get(1).unwrap_or(&&"").trim().into(),
-        state: normalize_state(fields.get(2).unwrap_or(&&"")),
-        elapsed: fields.get(3).unwrap_or(&&"").trim().into(),
-        cpus: fields.get(4).unwrap_or(&&"0").trim().parse().unwrap_or(0),
-        partition: fields.get(6).unwrap_or(&&"").trim().into(),
+        name: fields.get(1).unwrap_or(&"").trim().into(),
+        state: normalize_state(fields.get(2).unwrap_or(&"")),
+        elapsed: fields.get(3).unwrap_or(&"").trim().into(),
+        cpus: fields.get(4).unwrap_or(&"0").trim().parse().unwrap_or(0),
+        partition: fields.get(6).unwrap_or(&"").trim().into(),
         reason: String::new(),
-        work_dir: fields.get(10).unwrap_or(&&"").trim().into(),
-        started_at: fields.get(8).unwrap_or(&&"").trim().into(),
-        ended_at: fields.get(9).unwrap_or(&&"").trim().into(),
+        work_dir: fields.get(10).unwrap_or(&"").trim().into(),
+        started_at: fields.get(8).unwrap_or(&"").trim().into(),
+        ended_at: fields.get(9).unwrap_or(&"").trim().into(),
     };
     let stdout_path = fields
         .get(11)
-        .unwrap_or(&&"")
+        .unwrap_or(&"")
         .trim()
         .replace("%j", &job.id)
         .replace("%A", &job.id);
     let stderr_path = fields
         .get(12)
-        .unwrap_or(&&"")
+        .unwrap_or(&"")
         .trim()
         .replace("%j", &job.id)
         .replace("%A", &job.id);
     Some(SlurmJobDetail {
         job,
-        requested_memory: fields.get(5).unwrap_or(&&"").trim().into(),
-        submitted_at: fields.get(7).unwrap_or(&&"").trim().into(),
+        requested_memory: fields.get(5).unwrap_or(&"").trim().into(),
+        submitted_at: fields.get(7).unwrap_or(&"").trim().into(),
         stdout_path,
         stderr_path,
     })

@@ -168,10 +168,10 @@ async fn manager(mut rx: mpsc::Receiver<SuggestReq>, cwd: PathBuf) {
             continue;
         };
         // recyclage uniquement au repos — jamais en plein tour (parité claude_warm)
-        if warm.as_ref().is_some_and(|w| w.turns >= MAX_TURNS) {
-            if let Some(w) = warm.take() {
-                w.kill().await;
-            }
+        if warm.as_ref().is_some_and(|w| w.turns >= MAX_TURNS)
+            && let Some(w) = warm.take()
+        {
+            w.kill().await;
         }
         if warm.is_none() {
             warm = boot(&bin, &cwd);

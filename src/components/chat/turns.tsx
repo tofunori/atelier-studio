@@ -146,17 +146,22 @@ export const UserTurn = memo(function UserTurn(p: {
     <MessageContent className="user-wrap">
       {e.imageUrl && <img className="user-img" src={e.imageUrl} alt="" />}
       {e.label && <div className="user-label">{e.label}</div>}
-      {e.pastes && e.pastes.map((pa, j) => (
+      {e.pastes && e.pastes.map((pa, j) => {
+        // bulle restaurée : l'archive ne porte que {name, lines} — chip inerte
+        const text = pa.text;
+        const lineCount = text != null ? text.split("\n").length : pa.lines;
+        return (
         <RowButton key={j} className="chip paste-chip"
-          onClick={() => p.onOpenPaste({ name: pa.name, text: pa.text })}>
+          onClick={text == null ? undefined : () => p.onOpenPaste({ name: pa.name, text })}>
           <svg className="chip-doc" width="11" height="13" viewBox="0 0 11 13" fill="none" stroke="currentColor" strokeWidth="1.1" strokeLinecap="round">
             <rect x="0.8" y="0.8" width="9.4" height="11.4" rx="1.6" />
             <path d="M3 4.4h5M3 6.8h5M3 9.2h3.4" />
           </svg>
           <span className="chip-label">{pa.name}</span>
-          <span className="chip-lines">{t("chat.lines", { lines: String(pa.text.split("\n").length) })}</span>
+          {lineCount != null && <span className="chip-lines">{t("chat.lines", { lines: String(lineCount) })}</span>}
         </RowButton>
-      ))}
+        );
+      })}
       {p.editingText != null ? (
         <div className="edit-box-shell">
           <form className="edit-box" onSubmit={(ev) => { ev.preventDefault(); submitEdit(); }}>

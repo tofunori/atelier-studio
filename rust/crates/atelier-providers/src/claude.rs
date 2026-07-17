@@ -86,7 +86,7 @@ fn compact_commit_context(diff: &str) -> String {
         let Some(path) = line.split(" b/").nth(1) else {
             continue;
         };
-        if !path.is_empty() && !files.iter().any(|known| *known == path) {
+        if !path.is_empty() && !files.contains(&path) {
             files.push(path);
         }
         if files.len() >= 80 {
@@ -575,6 +575,23 @@ fn kill_process_group(pid: u32) {
     }
 }
 
+fn dirs_log() -> PathBuf {
+    let home = std::env::var_os("HOME")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| PathBuf::from("."));
+    home.join("Library/Logs/atelier-studio")
+}
+
+fn append_log(dir: &std::path::Path, line: &str) -> std::io::Result<()> {
+    std::fs::create_dir_all(dir)?;
+    use std::io::Write;
+    let mut f = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(dir.join("claude-cli.log"))?;
+    writeln!(f, "{line}")
+}
+
 #[cfg(test)]
 mod title_tests {
     use super::{
@@ -674,21 +691,4 @@ mod title_tests {
             "Improve Git commit workflow"
         );
     }
-}
-
-fn dirs_log() -> PathBuf {
-    let home = std::env::var_os("HOME")
-        .map(PathBuf::from)
-        .unwrap_or_else(|| PathBuf::from("."));
-    home.join("Library/Logs/atelier-studio")
-}
-
-fn append_log(dir: &std::path::Path, line: &str) -> std::io::Result<()> {
-    std::fs::create_dir_all(dir)?;
-    use std::io::Write;
-    let mut f = std::fs::OpenOptions::new()
-        .create(true)
-        .append(true)
-        .open(dir.join("claude-cli.log"))?;
-    writeln!(f, "{line}")
 }
