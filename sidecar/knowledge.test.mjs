@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { execFile } from "node:child_process";
-import { existsSync, mkdtempSync, readFileSync, readdirSync, utimesSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { KnowledgeStore, htmlToText, sourceId } from "./knowledge.mjs";
@@ -195,6 +195,73 @@ describe("base de connaissances — robustesse", () => {
   it("web sans --origin : message explicite", async () => {
     const store = new KnowledgeStore(tmp());
     await expect(store.add({ kind: "web", text: LONG_NOTE })).rejects.toThrow(/--origin/);
+  });
+});
+
+describe("base de connaissances — dossiers (T6)", () => {
+  const seedVault = (root) => {
+    mkdirSync(join(root, "notes"), { recursive: true });
+    mkdirSync(join(root, ".obsidian"), { recursive: true });
+    mkdirSync(join(root, "node_modules", "x"), { recursive: true });
+    writeFileSync(join(root, "notes", "albedo.md"), "La suie des feux réduit la réflectance de surface pendant la saison chaude.");
+    writeFileSync(join(root, "biblio.txt"), "Références du chapitre deux sur le bilan de masse, à compléter bientôt.");
+    writeFileSync(join(root, "script.py"), "print('ignoré')");
+    writeFileSync(join(root, ".obsidian", "config.md"), "caché");
+    writeFileSync(join(root, "node_modules", "x", "lisez.md"), "ignoré aussi");
+  };
+
+  it("épingle un vault : filtres, tri déterministe, recherche avec fichier", async () => {
+    const dir = tmp();
+    const root = join(dir, "vault");
+    seedVault(root);
+    const store = new KnowledgeStore(dir);
+    const { source } = await store.add({ kind: "folder", origin: root, title: "Vault Thèse" });
+    expect(source.meta.files).toBe(2);
+    expect(source.chars).toBeGreaterThan(0);
+    const { passages } = store.search(source.id, "suie feux réflectance");
+    expect(passages[0].file).toBe(join("notes", "albedo.md"));
+    const found = await runKbCommand([
+      "search", "--dir", dir, "--id", source.id, "--query", "suie feux réflectance",
+    ], { store });
+    expect(found.passages[0].cite).toBe(`[kb:${source.id} · ${join("notes", "albedo.md")}]`);
+    expect(found.passages[0].location).toBe(join("notes", "albedo.md"));
+  });
+
+  it("re-scan mtime : modification et suppression vues sans ré-épingler", async () => {
+    const dir = tmp();
+    const root = join(dir, "vault");
+    seedVault(root);
+    const store = new KnowledgeStore(dir);
+    const { source } = await store.add({ kind: "folder", origin: root });
+    writeFileSync(join(root, "notes", "albedo.md"), "Nouvelle version : la poussière minérale domine le forçage de surface au printemps.");
+    utimesSync(join(root, "notes", "albedo.md"), new Date(), new Date(Date.now() + 5000));
+    const { passages } = store.search(source.id, "poussière minérale forçage");
+    expect(passages[0].quote).toContain("poussière");
+    const { rmSync } = await import("node:fs");
+    rmSync(join(root, "biblio.txt"));
+    store.search(source.id, "bilan de masse");
+    expect(store.get(source.id).meta.files).toBe(1);
+  });
+
+  it("fullText compose des en-têtes # rel (format partagé avec Rust)", async () => {
+    const dir = tmp();
+    const root = join(dir, "vault");
+    seedVault(root);
+    const store = new KnowledgeStore(dir);
+    const { source } = await store.add({ kind: "folder", origin: root });
+    const text = store.fullText(source.id);
+    expect(text.startsWith("# biblio.txt\n\n")).toBe(true);
+    expect(text).toContain(`# ${join("notes", "albedo.md")}\n\n`);
+  });
+
+  it("dossier sans fichier texte ou introuvable : erreurs claires", async () => {
+    const dir = tmp();
+    const store = new KnowledgeStore(dir);
+    await expect(store.add({ kind: "folder", origin: join(dir, "absent") })).rejects.toThrow(/Dossier introuvable/);
+    const empty = join(dir, "vide");
+    mkdirSync(empty, { recursive: true });
+    writeFileSync(join(empty, "image.png"), "png");
+    await expect(store.add({ kind: "folder", origin: empty })).rejects.toThrow(/Aucun fichier texte/);
   });
 });
 

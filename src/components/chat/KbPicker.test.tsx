@@ -29,6 +29,7 @@ function panelProps(over: Partial<Parameters<typeof KbPickerPanel>[0]> = {}) {
     onToggleFull: vi.fn(),
     onRemoveSource: vi.fn(),
     onAddFiles: vi.fn(),
+    onAddFolder: vi.fn(),
     onAddUrl: vi.fn(),
     onAddNote: vi.fn(),
     ...over,

@@ -28,11 +28,12 @@ export type KbBinding = {
 
 const GROUP_LABELS: Record<string, Parameters<typeof t>[0]> = {
   file: "kb.group-files",
+  folder: "kb.group-folders",
   pdf: "kb.group-pdf",
   web: "kb.group-web",
   note: "kb.group-notes",
 };
-const GROUP_ORDER = ["file", "pdf", "web", "note"];
+const GROUP_ORDER = ["file", "folder", "pdf", "web", "note"];
 
 function fmtChars(chars: number): string {
   if (!Number.isFinite(chars) || chars <= 0) return "";
@@ -65,6 +66,13 @@ function KindIcon({ kind, size = 13 }: { kind: string; size?: number }) {
       <svg {...common}>
         <path d="M3.5 2.5h9a.5.5 0 0 1 .5.5v10a.5.5 0 0 1-.5.5h-9a.5.5 0 0 1-.5-.5V3a.5.5 0 0 1 .5-.5z" />
         <path d="M5.5 5.5h5M5.5 8h5M5.5 10.5h3" />
+      </svg>
+    );
+  }
+  if (kind === "folder") {
+    return (
+      <svg {...common}>
+        <path d="M1.8 4.6c0-.7.6-1.3 1.3-1.3h3l1.5 1.5h5.6c.7 0 1.3.6 1.3 1.3v6c0 .7-.6 1.3-1.3 1.3H3.1c-.7 0-1.3-.6-1.3-1.3v-7.5z" />
       </svg>
     );
   }
@@ -102,6 +110,7 @@ export function KbPickerPanel(p: {
   onToggleFull: (id: string) => void;
   onRemoveSource: (id: string) => void;
   onAddFiles: () => void;
+  onAddFolder: () => void;
   onAddUrl: (url: string) => void;
   onAddNote: (title: string, text: string) => void;
 }) {
@@ -147,6 +156,9 @@ export function KbPickerPanel(p: {
       <div className="kb-actions">
         <Button type="button" variant="ghost" className="ghost kb-action" onClick={p.onAddFiles}>
           {t("kb.add-file")}
+        </Button>
+        <Button type="button" variant="ghost" className="ghost kb-action" onClick={p.onAddFolder}>
+          {t("kb.add-folder")}
         </Button>
         <Button type="button" variant="ghost" className="ghost kb-action" onClick={() => setNoteOpen((v) => !v)}>
           {t("kb.add-note")}
@@ -341,6 +353,13 @@ export function KbPicker({ binding }: { binding: KbBinding }) {
     }
   }
 
+  async function addFolder() {
+    const picked = await openDialog({ directory: true, multiple: false });
+    if (!picked || Array.isArray(picked)) return;
+    trackPendingAdds(1);
+    wsSend({ type: "kbAdd", kind: "folder", origin: picked });
+  }
+
   return (
     <Popover
       open={pickerOpen}
@@ -378,6 +397,7 @@ export function KbPicker({ binding }: { binding: KbBinding }) {
             onToggleFull={toggleFull}
             onRemoveSource={removeSource}
             onAddFiles={() => { void addFiles(); }}
+            onAddFolder={() => { void addFolder(); }}
             onAddUrl={(url) => {
               trackPendingAdds(1);
               wsSend({ type: "kbAdd", kind: "web", origin: url });

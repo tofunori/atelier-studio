@@ -2,7 +2,7 @@
 // épinglées + cache d'extraction en pages, réutilisant le moteur de passages
 // Zotero pour la recherche lexicale. Aucune dépendance externe.
 import { createHash } from "node:crypto";
-import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { basename, dirname, extname, join, resolve } from "node:path";
 import { extractPdfPages, searchPassages } from "./zotero_passages.mjs";
@@ -22,10 +22,16 @@ import { KB_INLINE_MAX } from "./kb_prompt.mjs";
 const REGISTRY_VERSION = 1;
 const PAGES_CACHE_VERSION = 1;
 export { KB_INLINE_MAX };
-// T3: zotero — T6: folder — T7: gbrain (id réservé, hors registre) — T8: youtube
-export const KB_KINDS = new Set(["file", "pdf", "web", "note"]);
+// T3: zotero — T7: gbrain (id réservé, hors registre) — T8: youtube
+export const KB_KINDS = new Set(["file", "pdf", "web", "note", "folder"]);
 const TEXT_EXTS = new Set([".md", ".tex", ".txt"]);
 const WEB_TEXT_MAX = 300_000;
+// Dossiers / vaults Obsidian (plan 049 T6) : fichiers texte seulement — les
+// PDF d'un dossier sont exclus v1 (extraction massive), à épingler un par un.
+const FOLDER_EXTS = new Set([".md", ".tex", ".txt"]);
+const FOLDER_SKIP_DIRS = new Set(["node_modules", "target", "dist", "build", "__pycache__"]);
+const FOLDER_MAX_FILES = 2000;
+const FOLDER_MAX_FILE_BYTES = 2 * 1024 * 1024;
 const LOCK_TIMEOUT_MS = 3000;
 const LOCK_STALE_MS = 10_000;
 
@@ -88,6 +94,72 @@ export function htmlToText(html) {
 function pagesFromText(text) {
   const clean = String(text ?? "").replace(/\r/g, "").trim();
   return clean ? [{ page: 1, text: clean }] : [];
+}
+
+// Parcours récursif déterministe (trié) : fichiers texte, dotfiles et
+// répertoires bruyants exclus, liens symboliques non suivis.
+function walkFolder(root) {
+  const out = [];
+  const stack = [""];
+  while (stack.length && out.length < FOLDER_MAX_FILES) {
+    const rel = stack.pop();
+    let dirents;
+    try {
+      dirents = readdirSync(join(root, rel), { withFileTypes: true });
+    } catch {
+      continue;
+    }
+    for (const dirent of dirents) {
+      if (dirent.name.startsWith(".")) continue;
+      const childRel = rel ? join(rel, dirent.name) : dirent.name;
+      if (dirent.isDirectory()) {
+        if (!FOLDER_SKIP_DIRS.has(dirent.name)) stack.push(childRel);
+      } else if (dirent.isFile() && FOLDER_EXTS.has(extname(dirent.name).toLowerCase())) {
+        out.push(childRel);
+        if (out.length >= FOLDER_MAX_FILES) break;
+      }
+    }
+  }
+  return out.sort();
+}
+
+// Balaye un dossier en réutilisant les extractions dont mtime/size n'ont pas
+// bougé (re-scan bon marché à chaque attache/recherche).
+function scanFolder(root, previous = []) {
+  const prevByRel = new Map(previous.map((file) => [file.rel, file]));
+  const files = [];
+  let skipped = 0;
+  for (const rel of walkFolder(root)) {
+    let stat;
+    try {
+      stat = statSync(join(root, rel));
+    } catch {
+      continue;
+    }
+    if (stat.size > FOLDER_MAX_FILE_BYTES) {
+      skipped += 1;
+      continue;
+    }
+    const prev = prevByRel.get(rel);
+    if (prev && prev.mtimeMs === stat.mtimeMs && prev.size === stat.size) {
+      files.push(prev);
+      continue;
+    }
+    let text = "";
+    try {
+      text = readFileSync(join(root, rel), "utf8");
+    } catch {
+      continue;
+    }
+    const pages = pagesFromText(text);
+    if (!pages.length) continue;
+    files.push({ rel, mtimeMs: stat.mtimeMs, size: stat.size, chars: pages[0].text.length, pages });
+  }
+  return { files, skipped };
+}
+
+function folderFingerprint(files) {
+  return files.map((file) => `${file.rel}:${file.mtimeMs}:${file.size}`).join("|");
 }
 
 function parseHttpUrl(origin) {
@@ -217,7 +289,15 @@ export class KnowledgeStore {
     return null;
   }
 
-  upsertEntry({ id, kind, title, origin, pages, meta }) {
+  readFolderFiles(id) {
+    try {
+      const cached = JSON.parse(readFileSync(this.cachePath(id), "utf8"));
+      if (cached.version === PAGES_CACHE_VERSION && Array.isArray(cached.files)) return cached.files;
+    } catch {}
+    return null;
+  }
+
+  upsertRaw({ id, kind, title, origin, chars, meta, cachePayload }) {
     return this.withLock(() => {
       this.reloadFromDisk();
       const prev = this.sources.get(id);
@@ -227,15 +307,23 @@ export class KnowledgeStore {
         kind,
         title: title || prev?.title || "Sans titre",
         origin: origin ?? null,
-        chars: pages.reduce((sum, page) => sum + page.text.length, 0),
+        chars,
         addedAt: prev?.addedAt ?? now,
         updatedAt: now,
         meta: meta ?? {},
       };
       this.sources.set(id, entry);
-      writeFileAtomic(this.cachePath(id), JSON.stringify({ version: PAGES_CACHE_VERSION, pages }));
+      writeFileAtomic(this.cachePath(id), JSON.stringify({ version: PAGES_CACHE_VERSION, ...cachePayload }));
       this.persist();
       return { source: entry, refreshed: Boolean(prev) };
+    });
+  }
+
+  upsertEntry({ id, kind, title, origin, pages, meta }) {
+    return this.upsertRaw({
+      id, kind, title, origin, meta,
+      chars: pages.reduce((sum, page) => sum + page.text.length, 0),
+      cachePayload: { pages },
     });
   }
 
@@ -274,6 +362,22 @@ export class KnowledgeStore {
       return this.upsertEntry({
         id: sourceId("file", path), kind, title: title || basename(path), origin: path,
         pages, meta: { mtimeMs: stat.mtimeMs, size: stat.size },
+      });
+    }
+    if (kind === "folder") {
+      const path = resolve(String(origin ?? ""));
+      if (!origin || !existsSync(path) || !statSync(path).isDirectory()) {
+        throw new Error(`Dossier introuvable: ${origin}`);
+      }
+      const { files, skipped } = scanFolder(path, this.readFolderFiles(sourceId("folder", path)) ?? []);
+      if (!files.length) {
+        throw new Error(`Aucun fichier texte (${[...FOLDER_EXTS].join(" ")}) dans ${path}`);
+      }
+      return this.upsertRaw({
+        id: sourceId("folder", path), kind, title: title || basename(path), origin: path,
+        chars: files.reduce((sum, file) => sum + file.chars, 0),
+        meta: { files: files.length, ...(skipped ? { skipped } : {}) },
+        cachePayload: { files },
       });
     }
     if (kind === "pdf") {
@@ -336,8 +440,27 @@ export class KnowledgeStore {
           meta: { pages: extracted.pages.length, mtimeMs: stat.mtimeMs, size: stat.size },
         });
       }
+    } else if (entry.kind === "folder" && entry.origin && existsSync(entry.origin)) {
+      const previous = this.readFolderFiles(id) ?? [];
+      const { files, skipped } = scanFolder(entry.origin, previous);
+      if (folderFingerprint(previous) !== folderFingerprint(files)) {
+        this.upsertRaw({
+          id, kind: "folder", title: entry.title, origin: entry.origin,
+          chars: files.reduce((sum, file) => sum + file.chars, 0),
+          meta: { files: files.length, ...(skipped ? { skipped } : {}) },
+          cachePayload: { files },
+        });
+      }
     }
     return this.sources.get(id);
+  }
+
+  // Fichiers d'un dossier, cache reconstruit quand l'origine le permet.
+  folderFilesFor(id) {
+    const entry = this.ensureFresh(id);
+    const cached = this.readFolderFiles(id);
+    if (cached) return cached;
+    throw new Error(`Cache absent pour ${id} — ré-épingler la source`);
   }
 
   // Pages d'une source, en reconstruisant le cache quand l'origine le permet.
@@ -360,15 +483,32 @@ export class KnowledgeStore {
   }
 
   search(id, query, { limit = 5 } = {}) {
-    const pages = this.pagesFor(id);
     const entry = this.sources.get(id);
-    return {
-      source: { id: entry.id, title: entry.title, kind: entry.kind, origin: entry.origin ?? null },
-      passages: searchPassages(pages, query, { limit }),
-    };
+    if (!entry) throw new Error(`Source inconnue: ${id}`);
+    const summary = { id: entry.id, title: entry.title, kind: entry.kind, origin: entry.origin ?? null };
+    if (entry.kind === "folder") {
+      const capped = Math.max(1, Math.min(10, limit));
+      const files = this.folderFilesFor(id);
+      const merged = [];
+      for (const file of files) {
+        for (const passage of searchPassages(file.pages, query, { limit: capped })) {
+          merged.push({ ...passage, file: file.rel });
+        }
+      }
+      merged.sort((a, b) => b.score - a.score);
+      return { source: summary, passages: merged.slice(0, capped) };
+    }
+    const pages = this.pagesFor(id);
+    return { source: summary, passages: searchPassages(pages, query, { limit }) };
   }
 
   fullText(id) {
+    const entry = this.sources.get(id);
+    if (entry?.kind === "folder") {
+      return this.folderFilesFor(id)
+        .map((file) => `# ${file.rel}\n\n${file.pages.map((page) => page.text).join("\n\n")}`)
+        .join("\n\n");
+    }
     return this.pagesFor(id).map((page) => page.text).join("\n\n");
   }
 }

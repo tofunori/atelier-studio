@@ -82,6 +82,26 @@ fn read_cache_text(knowledge_dir: &Path, id: &str) -> Option<String> {
     if v.get("version").and_then(Value::as_u64) != Some(1) {
         return None;
     }
+    // Source composée (dossier, T6) : miroir du fullText Node — un en-tête
+    // `# rel` par fichier, pages jointes par lignes vides.
+    if let Some(files) = v.get("files").and_then(Value::as_array) {
+        return Some(
+            files
+                .iter()
+                .filter_map(|file| {
+                    let rel = file.get("rel").and_then(Value::as_str)?;
+                    let pages = file.get("pages")?.as_array()?;
+                    let text = pages
+                        .iter()
+                        .filter_map(|page| page.get("text").and_then(Value::as_str))
+                        .collect::<Vec<_>>()
+                        .join("\n\n");
+                    Some(format!("# {rel}\n\n{text}"))
+                })
+                .collect::<Vec<_>>()
+                .join("\n\n"),
+        );
+    }
     let pages = v.get("pages")?.as_array()?;
     Some(
         pages
@@ -259,7 +279,11 @@ mod tests {
                     { "id": "bbbb2222", "kind": "pdf", "title": "Cuffey & Paterson ch. 5",
                       "origin": "/nulle/part.pdf", "chars": 118432,
                       "addedAt": "2026-07-17T10:01:00.000Z",
-                      "updatedAt": "2026-07-17T10:01:00.000Z", "meta": { "pages": 2 } }
+                      "updatedAt": "2026-07-17T10:01:00.000Z", "meta": { "pages": 2 } },
+                    { "id": "cccc3333", "kind": "folder", "title": "Vault Obsidian — Thèse",
+                      "origin": "/nulle/vault", "chars": 120,
+                      "addedAt": "2026-07-17T10:02:00.000Z",
+                      "updatedAt": "2026-07-17T10:02:00.000Z", "meta": { "files": 2 } }
                 ]
             }))
             .unwrap(),
@@ -286,6 +310,20 @@ mod tests {
             .unwrap(),
         )
         .unwrap();
+        std::fs::write(
+            knowledge.join("cache/cccc3333.json"),
+            serde_json::to_string(&json!({
+                "version": 1,
+                "files": [
+                    { "rel": "notes/albedo.md", "mtimeMs": 1.0, "size": 60, "chars": 60,
+                      "pages": [{ "page": 1, "text": "La suie des feux réduit la réflectance de surface." }] },
+                    { "rel": "biblio.md", "mtimeMs": 1.0, "size": 60, "chars": 60,
+                      "pages": [{ "page": 1, "text": "Références du chapitre deux, à compléter." }] }
+                ]
+            }))
+            .unwrap(),
+        )
+        .unwrap();
     }
 
     #[test]
@@ -295,9 +333,9 @@ mod tests {
         let mut extra = HashMap::new();
         extra.insert(
             "kbSourceIds".to_string(),
-            json!(["aaaa1111", "bbbb2222", "inconnu", "gbrain"]),
+            json!(["aaaa1111", "bbbb2222", "cccc3333", "inconnu", "gbrain"]),
         );
-        extra.insert("kbFullContent".to_string(), json!([]));
+        extra.insert("kbFullContent".to_string(), json!(["cccc3333"]));
         let out = with_kb_block_for_thread(
             "Question de départ".into(),
             dir.path(),
@@ -308,6 +346,10 @@ mod tests {
         assert!(out.contains("[kb:aaaa1111] Décisions chap. 2 — note, 74 car. — texte intégral :"));
         assert!(out.contains("fenêtre de fonte estivale."));
         assert!(out.contains("[kb:bbbb2222] Cuffey & Paterson ch. 5 — pdf, 118k car. — fiche."));
+        // dossier forcé plein contenu : en-têtes # rel du fullText composé
+        assert!(out.contains("[kb:cccc3333] Vault Obsidian — Thèse — folder, 120 car. — texte intégral :"));
+        assert!(out.contains("# notes/albedo.md"));
+        assert!(out.contains("# biblio.md"));
         assert!(out.contains("\"/srv/rust-server/atelier-kb\" search --id <id>"));
         assert!(out.contains("[kb:gbrain] Corpus thèse (gbrain) — outil NAS."));
         assert!(!out.contains("inconnu"));
@@ -362,9 +404,10 @@ mod tests {
         let ids = vec![
             "aaaa1111".to_string(),
             "bbbb2222".to_string(),
+            "cccc3333".to_string(),
             "gbrain".to_string(),
         ];
-        let full: Vec<String> = vec![];
+        let full: Vec<String> = vec!["cccc3333".to_string()];
         let entries = kb_block_entries(&knowledge_dir, &ids, &full);
         let rust_out = with_kb_block(
             "PROMPT".into(),
@@ -379,7 +422,7 @@ const { pathToFileURL } = require("node:url");
   const kbPrompt = await import(pathToFileURL(process.env.SIDECAR + "/kb_prompt.mjs").href);
   const knowledge = await import(pathToFileURL(process.env.SIDECAR + "/knowledge.mjs").href);
   const store = new knowledge.KnowledgeStore(process.env.KDIR);
-  const entries = knowledge.kbBlockEntries(store, ["aaaa1111", "bbbb2222", "gbrain"], []);
+  const entries = knowledge.kbBlockEntries(store, ["aaaa1111", "bbbb2222", "cccc3333", "gbrain"], ["cccc3333"]);
   process.stdout.write(kbPrompt.withKbBlock("PROMPT", {
     toolPath: "/srv/atelier-kb", entries, gbrain: true,
   }));
