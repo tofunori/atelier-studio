@@ -36,6 +36,11 @@
   Zotero, store threads, browser embarqué)
 - **Category** : feature / chat / harness
 - **Planned at** : 2026-07-17, worktree `atelier-knowledge-base`
+- **Implémenté** : T1→T8 livrés le 2026-07-17 (commits `483062a`…`cffe43e`
+  + correctifs des 3 audits indépendants). Gates finales : sidecar 509,
+  front 537 (css-contract inclus), cargo runtime 60 (parité node réelle),
+  tsc, vite build. Reste : validation en app relancée (protocole) — picker,
+  bouton browser, bloc reçu par chaque famille de providers, gbrain réel.
 
 ## Objectif
 
@@ -203,6 +208,16 @@ mjs + rs, comme `zotero_passage_prompt.mjs` / `send.rs`).
 - **Acceptation** : test de parité — même thread, mêmes sources → bloc
   octet-pour-octet identique mjs vs rs ; l'historique affiché ne contient
   jamais `<atelier-kb>` ; vitest sidecar + `cargo test` verts.
+- **Écarts v1 livrés (2026-07-17, après audit)** : les TITRES de sources
+  passent aussi par l'échappement du fermant (un titre web/YouTube tiers ne
+  peut pas casser le bloc) ; le strip est appliqué en plus dans les
+  chargeurs d'historique natifs (codexHistory + firstUserText Node,
+  eventsFromSessionMessages Claude, codex_history.rs titres+tours Rust) —
+  trou pré-existant partagé avec gallery/zotero, comblé pour les trois
+  balises ; strip Rust rendu insensible à la casse (miroir du /gi) ; parité
+  prouvée aussi sur le strip, un titre piégé, un dossier forcé, YouTube et
+  des caractères astraux. Côté Rust le bloc lit les caches tels quels (pas
+  de refresh mtime au send — le refresh vit dans les chemins Node/CLI).
 
 ### T5 — kb-search citations bout en bout
 
@@ -230,6 +245,10 @@ mjs + rs, comme `zotero_passage_prompt.mjs` / `send.rs`).
   `file` relatif ; citations `[kb:id · fichier]`.
 - **Acceptation** : vault Obsidian réel (200+ fichiers) épinglé, recherche
   < 2 s à cache chaud, modification d'un fichier visible sans ré-épingler.
+- **Écarts v1 livrés (2026-07-17)** : les PDF d'un dossier sont EXCLUS
+  (extraction massive coûteuse — épingler les PDF individuellement) ;
+  plafonds : 2000 fichiers, 2 Mo par fichier (ignorés + comptés en
+  `meta.skipped`) ; symlinks non suivis.
 
 ### T7 — Étage gbrain
 

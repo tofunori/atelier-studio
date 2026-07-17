@@ -44,14 +44,16 @@ export function withKbBlock(prompt, { toolPath, entries = [], gbrain = false } =
   let block = "<atelier-kb>\nSources attachées par l'utilisateur (base de connaissances Atelier).\n\n";
   for (const entry of valid) {
     if (!entry.inline) continue;
-    block += `[kb:${entry.id}] ${oneLine(entry.title)} — ${entry.kind}, ${fmtChars(entry.chars)} — texte intégral :\n`;
+    // titre assaini aussi : un titre web/YouTube contrôlé par un tiers ne doit
+    // pas pouvoir fermer le bloc (audit T4-T8)
+    block += `[kb:${entry.id}] ${sanitizeBody(oneLine(entry.title))} — ${entry.kind}, ${fmtChars(entry.chars)} — texte intégral :\n`;
     block += `${sanitizeBody(capScalars(entry.text, KB_FORCED_MAX))}\n\n`;
   }
   let fiches = 0;
   for (const entry of valid) {
     if (entry.inline) continue;
     fiches += 1;
-    block += `[kb:${entry.id}] ${oneLine(entry.title)} — ${entry.kind}, ${fmtChars(entry.chars)} — fiche.\n`;
+    block += `[kb:${entry.id}] ${sanitizeBody(oneLine(entry.title))} — ${entry.kind}, ${fmtChars(entry.chars)} — fiche.\n`;
   }
   if (fiches) {
     block += `\nPour un passage précis d'une source en fiche, appelle le terminal exactement :\n`;

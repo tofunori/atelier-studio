@@ -57,7 +57,9 @@ fn extract_user_query(text: &str) -> Option<String> {
     (!query.is_empty()).then_some(query)
 }
 
-fn strip_gallery_tool_instruction(text: &str) -> String {
+// Partagé avec codex_history : les sessions natives persistent le prompt
+// provider complet (blocs gallery/zotero/kb inclus).
+pub(crate) fn strip_gallery_tool_instruction(text: &str) -> String {
     let mut out = text.to_string();
     for (open, close) in [
         (

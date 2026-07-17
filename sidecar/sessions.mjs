@@ -25,12 +25,17 @@ async function firstUserText(path, isCodex) {
         const c = d.message.content;
         const text = typeof c === "string" ? c
           : Array.isArray(c) ? c.filter((b) => b.type === "text").map((b) => b.text).join(" ") : "";
-        const t = text.trim();
+        // les sessions natives portent le prompt provider complet — un bloc
+        // d'outil Atelier ne doit pas déborder dans le titre
+        const t = stripAtelierToolInstructions(text.trim()).trim();
         if (t && !t.startsWith("<")) { rl.close(); return t.slice(0, 70); }
       }
       if (isCodex) {
         const payload = d.payload ?? d;
-        if (payload?.type === "user_message" && payload.message) { rl.close(); return String(payload.message).slice(0, 70); }
+        if (payload?.type === "user_message" && payload.message) {
+          const t = stripAtelierToolInstructions(String(payload.message).trim()).trim();
+          if (t) { rl.close(); return t.slice(0, 70); }
+        }
         if (payload?.role === "user") {
           const c = payload.content;
           const text = Array.isArray(c) ? c.map((b) => b.text ?? "").join(" ") : String(c ?? "");
@@ -160,7 +165,9 @@ export async function codexHistory(sessionId) {
       const d = JSON.parse(line);
       const p = d.payload ?? d;
       if (p.type === "user_message" && p.message) {
-        const t = stripHandoff(String(p.message).trim());
+        // strip des blocs d'outils Atelier (gallery/zotero/kb) : le rollout
+        // natif loggue le prompt provider complet, pas le texte affiché
+        const t = stripAtelierToolInstructions(stripHandoff(String(p.message).trim()));
         if (t && !t.startsWith("<") && !t.startsWith("# AGENTS")) {
           events.push({ kind: "user", text: t });
         }

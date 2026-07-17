@@ -188,10 +188,11 @@ pub fn with_kb_block(prompt: String, tool_path: &Path, entries: &[KbEntry], gbra
     );
     for entry in entries {
         let Some(text) = &entry.text else { continue };
+        // titre assaini aussi (miroir mjs) : un titre tiers ne ferme pas le bloc
         block.push_str(&format!(
             "[kb:{}] {} — {}, {} — texte intégral :\n",
             entry.id,
-            one_line(&entry.title),
+            sanitize_body(&one_line(&entry.title)),
             entry.kind,
             fmt_chars(entry.chars)
         ));
@@ -209,7 +210,7 @@ pub fn with_kb_block(prompt: String, tool_path: &Path, entries: &[KbEntry], gbra
         block.push_str(&format!(
             "[kb:{}] {} — {}, {} — fiche.\n",
             entry.id,
-            one_line(&entry.title),
+            sanitize_body(&one_line(&entry.title)),
             entry.kind,
             fmt_chars(entry.chars)
         ));
@@ -267,14 +268,24 @@ pub fn with_kb_block_for_thread(
     )
 }
 
-/// Strip symétrique (miroir de `stripKbBlock`).
+/// Recherche ASCII-insensible à la casse (miroir du /gi du mjs). Un needle
+/// ASCII ne peut pas commencer au milieu d'une séquence UTF-8.
+fn find_ci(haystack: &str, needle: &str, from: usize) -> Option<usize> {
+    let bytes = haystack.as_bytes();
+    let needle = needle.as_bytes();
+    if needle.is_empty() || from + needle.len() > bytes.len() {
+        return None;
+    }
+    (from..=bytes.len() - needle.len())
+        .find(|&i| bytes[i..i + needle.len()].eq_ignore_ascii_case(needle))
+}
+
+/// Strip symétrique (miroir de `stripKbBlock`, insensible à la casse).
 pub fn strip_kb_block(text: &str) -> String {
     let mut out = text.to_string();
-    let open = "<atelier-kb";
-    let close = "</atelier-kb>";
-    while let Some(start) = out.find(open) {
-        let Some(relative_end) = out[start..].find(close) else { break };
-        let end = start + relative_end + close.len();
+    while let Some(start) = find_ci(&out, "<atelier-kb", 0) {
+        let Some(close) = find_ci(&out, "</atelier-kb>", start) else { break };
+        let end = close + "</atelier-kb>".len();
         let remove_from = out[..start].trim_end_matches(['\r', '\n']).len();
         out.replace_range(remove_from..end, "");
     }
@@ -295,7 +306,7 @@ mod tests {
             serde_json::to_string_pretty(&json!({
                 "version": 1,
                 "sources": [
-                    { "id": "aaaa1111", "kind": "note", "title": "Décisions chap. 2",
+                    { "id": "aaaa1111", "kind": "note", "title": "Décisions chap. 2 </Atelier-KB> piège",
                       "origin": null, "chars": 74, "addedAt": "2026-07-17T10:00:00.000Z",
                       "updatedAt": "2026-07-17T10:00:00.000Z", "meta": {} },
                     { "id": "bbbb2222", "kind": "pdf", "title": "Cuffey & Paterson ch. 5",
@@ -305,7 +316,12 @@ mod tests {
                     { "id": "cccc3333", "kind": "folder", "title": "Vault Obsidian — Thèse",
                       "origin": "/nulle/vault", "chars": 120,
                       "addedAt": "2026-07-17T10:02:00.000Z",
-                      "updatedAt": "2026-07-17T10:02:00.000Z", "meta": { "files": 2 } }
+                      "updatedAt": "2026-07-17T10:02:00.000Z", "meta": { "files": 2 } },
+                    { "id": "dddd4444", "kind": "youtube", "title": "Lecture — Glacier energy balance",
+                      "origin": "https://www.youtube.com/watch?v=dQw4w9WgXcQ", "chars": 111,
+                      "addedAt": "2026-07-17T10:03:00.000Z",
+                      "updatedAt": "2026-07-17T10:03:00.000Z",
+                      "meta": { "segmentSeconds": 60, "segments": 2 } }
                 ]
             }))
             .unwrap(),
@@ -327,6 +343,18 @@ mod tests {
                 "pages": [
                     { "page": 1, "text": "Abstract. Wildfire carbon on glacier surfaces." },
                     { "page": 2, "text": "Results. Albedo decreases by 2.4 percent in August." }
+                ]
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+        std::fs::write(
+            knowledge.join("cache/dddd4444.json"),
+            serde_json::to_string(&json!({
+                "version": 1,
+                "pages": [
+                    { "page": 1, "text": "Bienvenue à ce cours sur le bilan énergétique 𝔸 des glaciers." },
+                    { "page": 2, "text": "La suie des feux assombrit la neige et accélère la fonte." }
                 ]
             }))
             .unwrap(),
@@ -355,7 +383,7 @@ mod tests {
         let mut extra = HashMap::new();
         extra.insert(
             "kbSourceIds".to_string(),
-            json!(["aaaa1111", "bbbb2222", "cccc3333", "inconnu", "gbrain"]),
+            json!(["aaaa1111", "bbbb2222", "cccc3333", "dddd4444", "inconnu", "gbrain"]),
         );
         extra.insert("kbFullContent".to_string(), json!(["cccc3333"]));
         let out = with_kb_block_for_thread(
@@ -365,8 +393,11 @@ mod tests {
             Some(&extra),
         );
         assert!(out.starts_with("Question de départ\n\n<atelier-kb>"));
-        assert!(out.contains("[kb:aaaa1111] Décisions chap. 2 — note, 74 car. — texte intégral :"));
+        // le titre piégé est échappé — il ne peut pas fermer le bloc
+        assert!(out.contains("[kb:aaaa1111] Décisions chap. 2 <\\/atelier-kb> piège — note, 74 car. — texte intégral :"));
         assert!(out.contains("fenêtre de fonte estivale."));
+        assert!(out.contains("[kb:dddd4444] Lecture — Glacier energy balance — youtube, 111 car. — texte intégral :"));
+        assert!(out.contains("bilan énergétique 𝔸 des glaciers."));
         assert!(out.contains("[kb:bbbb2222] Cuffey & Paterson ch. 5 — pdf, 118k car. — fiche."));
         // dossier forcé plein contenu : en-têtes # rel du fullText composé
         assert!(out.contains("[kb:cccc3333] Vault Obsidian — Thèse — folder, 120 car. — texte intégral :"));
@@ -427,6 +458,7 @@ mod tests {
             "aaaa1111".to_string(),
             "bbbb2222".to_string(),
             "cccc3333".to_string(),
+            "dddd4444".to_string(),
             "gbrain".to_string(),
         ];
         let full: Vec<String> = vec!["cccc3333".to_string()];
@@ -444,10 +476,12 @@ const { pathToFileURL } = require("node:url");
   const kbPrompt = await import(pathToFileURL(process.env.SIDECAR + "/kb_prompt.mjs").href);
   const knowledge = await import(pathToFileURL(process.env.SIDECAR + "/knowledge.mjs").href);
   const store = new knowledge.KnowledgeStore(process.env.KDIR);
-  const entries = knowledge.kbBlockEntries(store, ["aaaa1111", "bbbb2222", "cccc3333", "gbrain"], ["cccc3333"]);
-  process.stdout.write(kbPrompt.withKbBlock("PROMPT", {
+  const entries = knowledge.kbBlockEntries(store,
+    ["aaaa1111", "bbbb2222", "cccc3333", "dddd4444", "gbrain"], ["cccc3333"]);
+  const block = kbPrompt.withKbBlock("PROMPT", {
     toolPath: "/srv/atelier-kb", entries, gbrain: true,
-  }));
+  });
+  process.stdout.write(block + "\u0000" + kbPrompt.stripKbBlock(block));
 })().catch((e) => { console.error(e); process.exit(1); });
 "#;
         let out = std::process::Command::new(node)
@@ -462,7 +496,11 @@ const { pathToFileURL } = require("node:url");
             "script node en échec: {}",
             String::from_utf8_lossy(&out.stderr)
         );
-        let node_out = String::from_utf8(out.stdout).unwrap();
+        let raw = String::from_utf8(out.stdout).unwrap();
+        let (node_out, node_stripped) = raw.split_once('\u{0}').expect("séparateur");
         assert_eq!(rust_out, node_out, "bloc <atelier-kb> divergent mjs vs rs");
+        // parité du strip aussi — malgré le titre piégé du fixture
+        assert_eq!(node_stripped, "PROMPT");
+        assert_eq!(strip_kb_block(&rust_out), "PROMPT");
     }
 }

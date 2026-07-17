@@ -3,7 +3,16 @@ import { existsSync, readdirSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { stripHandoff } from "./handoff.mjs";
+import { stripGalleryToolInstruction } from "./gallery_tool_prompt.mjs";
+import { stripZoteroPassageInstruction } from "./zotero_passage_prompt.mjs";
+import { stripKbBlock } from "./kb_prompt.mjs";
 import { toolDetail } from "./providers/claude.mjs";
+
+// Les sessions natives persistent le prompt provider complet : retirer les
+// blocs d'outils Atelier avant affichage (même famille que sessions.mjs).
+function stripAtelierToolInstructions(text) {
+  return stripKbBlock(stripZoteroPassageInstruction(stripGalleryToolInstruction(text)));
+}
 
 const DEFAULT_CLAUDE_PROJECTS_DIR = () => join(homedir(), ".claude", "projects");
 
@@ -57,7 +66,7 @@ export function eventsFromSessionMessages(msgs) {
           .map((b) => b.text)
           .join("\n");
       }
-      text = stripHandoff(text.trim());
+      text = stripAtelierToolInstructions(stripHandoff(text.trim()));
       // filtrer uniquement les injections systèmes connues (garder « <div>… » légitime)
       if (text && !SYSTEM_TAG.test(text)) {
         events.push({ kind: "user", text });

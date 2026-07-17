@@ -68,7 +68,10 @@ fn session_metadata(path: &Path) -> (Option<String>, Option<String>) {
             title = payload
                 .get("message")
                 .and_then(Value::as_str)
-                .map(str::trim)
+                // le rollout loggue le prompt provider complet : retirer les
+                // blocs d'outils Atelier avant d'en faire un titre
+                .map(|text| crate::grok_history::strip_gallery_tool_instruction(text.trim()))
+                .map(|text| text.trim().to_string())
                 .filter(|text| {
                     !text.is_empty() && !text.starts_with('<') && !text.starts_with("# AGENTS")
                 })
@@ -144,13 +147,21 @@ pub(crate) fn load_codex_history_from_base(base: &Path, session_id: &str) -> Vec
             Some("agent_message") => "text",
             _ => continue,
         };
-        let Some(text) = payload
+        let Some(raw) = payload
             .get("message")
             .and_then(Value::as_str)
             .map(str::trim)
         else {
             continue;
         };
+        // strip des blocs d'outils Atelier (gallery/zotero/kb) sur les tours
+        // utilisateur : le rollout Codex loggue le prompt provider complet
+        let text = if kind == "user" {
+            crate::grok_history::strip_gallery_tool_instruction(raw)
+        } else {
+            raw.to_string()
+        };
+        let text = text.trim();
         if text.is_empty()
             || kind == "user" && (text.starts_with('<') || text.starts_with("# AGENTS"))
         {
@@ -184,7 +195,7 @@ mod tests {
             json!({"type":"session_meta","payload":{"cwd":"/tmp/projet"}})
         )
         .unwrap();
-        writeln!(file, "{}", json!({"type":"event_msg","payload":{"type":"user_message","message":"Analyse cette figure"}})).unwrap();
+        writeln!(file, "{}", json!({"type":"event_msg","payload":{"type":"user_message","message":"Analyse cette figure\n\n<atelier-kb>\nSources attachées par l'utilisateur.\n</atelier-kb>"}})).unwrap();
         writeln!(file, "{}", json!({"type":"event_msg","payload":{"type":"agent_message","message":"Voici l’analyse."}})).unwrap();
         path
     }

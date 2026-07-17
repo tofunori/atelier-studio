@@ -469,8 +469,9 @@ export function KbPicker({ binding }: { binding: KbBinding }) {
             onAddFolder={() => { void addFolder(); }}
             onAddUrl={(url) => {
               trackPendingAdds(1);
-              // une URL YouTube s'épingle par son transcript horodaté (T8)
-              const kind = /(^|\.)youtube\.com\/|youtu\.be\//.test(url) ? "youtube" : "web";
+              // une URL YouTube s'épingle par son transcript horodaté (T8) ;
+              // détection large — le backend valide l'hôte exactement
+              const kind = /youtube\.com\/|youtu\.be\//.test(url) ? "youtube" : "web";
               wsSend({ type: "kbAdd", kind, origin: url });
             }}
             onAddNote={(title, text) => {
