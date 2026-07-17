@@ -46,6 +46,7 @@ import { loadSettings, saveSettings, Settings, ProviderId, DEFAULT_SETTINGS } fr
 import { ProviderInfo } from "./lib/providers";
 import { THEME_PRESETS, presetById } from "./lib/themes";
 import { setLanguage, t } from "./lib/i18n";
+import { kbSourcesSnapshot } from "./lib/kbSources";
 import { buildItems } from "./lib/palette";
 import type { Automation } from "./lib/automations";
 import { setDockBadge } from "./lib/dockBadge";
@@ -2316,6 +2317,21 @@ export default function App() {
               .map((a) => ({ name: a.name, text: a.text })),
           }
         : {}),
+      // méta KB fidèle à l'envoi (plan 049) : sources attachées à CE moment,
+      // titres depuis le cache kbSources (repli sur l'id si pas encore chargé)
+      ...(() => {
+        const kbIds = Array.isArray(activeThread?.kbSourceIds) ? activeThread.kbSourceIds : [];
+        if (!kbIds.length) return {};
+        const known = kbSourcesSnapshot();
+        return {
+          kb: {
+            count: kbIds.length,
+            titles: kbIds.slice(0, 6).map((id) =>
+              id === "gbrain" ? t("kb.gbrain-title") : known.find((s) => s.id === id)?.title ?? id,
+            ),
+          },
+        };
+      })(),
     };
     const imagePaths = attachments.map((a) => a.path).filter(Boolean) as string[];
     const pluginSkills = supportsPlugins ? pluginSkillsForPrompt(displayPrompt, plugins) : [];

@@ -146,6 +146,21 @@ export const UserTurn = memo(function UserTurn(p: {
     <MessageContent className="user-wrap">
       {e.imageUrl && <img className="user-img" src={e.imageUrl} alt="" />}
       {e.label && <div className="user-label">{e.label}</div>}
+      {e.kb && e.kb.count > 0 && (
+        <div className="user-kb-meta">
+          <svg width="11" height="11" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3" aria-hidden="true">
+            <path d="M3.2 12.9V4.1c0-.9.7-1.6 1.6-1.6h8v9.4H4.8c-.9 0-1.6.7-1.6 1s.7 1.6 1.6 1.6h8v-2.6" />
+          </svg>
+          {t("kb.sent-with", { n: e.kb.count })}
+          {e.kb.titles.length > 0 && (
+            <span className="user-kb-meta-titles">
+              {" · "}
+              {e.kb.titles.slice(0, 2).join(", ")}
+              {e.kb.count > 2 ? ` +${e.kb.count - 2}` : ""}
+            </span>
+          )}
+        </div>
+      )}
       {e.pastes && e.pastes.map((pa, j) => {
         // bulle restaurée : l'archive ne porte que {name, lines} — chip inerte
         const text = pa.text;

@@ -10,6 +10,8 @@ import { wsSend } from "../../lib/wsBus";
 import {
   kbSourcesLoaded,
   kbSourcesSnapshot,
+  onOpenKbPicker,
+  openKbPicker,
   requestKbSources,
   subscribeKbSources,
   type KbSource,
@@ -309,6 +311,12 @@ export function KbPicker({ binding }: { binding: KbBinding }) {
   const [error, setError] = useState<string | null>(null);
   const [promoted, setPromoted] = useState<string | null>(null);
   const sources = useSyncExternalStore(subscribeKbSources, kbSourcesSnapshot);
+  // ouverture externe (pilule agrégée)
+  useEffect(() => onOpenKbPicker(() => {
+    setError(null);
+    requestKbSources();
+    setPickerOpen(true);
+  }), []);
   const openRef = useRef(pickerOpen);
   openRef.current = pickerOpen;
   // Auto-attache corrélée : un épinglage initié ICI capture le binding du
@@ -496,31 +504,54 @@ export function KbChips(p: {
     if (p.attached.length && !kbSourcesLoaded()) requestKbSources();
   }, [p.attached.length]);
   if (!p.attached.length) return null;
-  return (
-    <div className="kb-chips">
-      {p.attached.map((id) => {
-        const source = sources.find((entry) => entry.id === id);
-        const isGbrain = id === "gbrain";
-        const label = isGbrain ? t("kb.gbrain-title") : source?.title ?? id;
-        return (
-          <span key={id} className="chip kb-chip" title={source?.origin ?? label}>
-            <KindIcon kind={isGbrain ? "gbrain" : source?.kind ?? "file"} size={11} />
-            <span className="chip-label">{label}</span>
-            {p.fullContent.includes(id) && (
-              <span className="kb-chip-full">{t("kb.chip-full")}</span>
-            )}
-            <IconButton
-              size="s"
-              className="ghost"
-              label={t("kb.detach")}
-              title={t("kb.detach")}
-              onClick={() => p.onDetach(id)}
-            >
-              ×
-            </IconButton>
-          </span>
-        );
-      })}
-    </div>
-  );
+  const chipFor = (id: string) => {
+    const source = sources.find((entry) => entry.id === id);
+    const isGbrain = id === "gbrain";
+    const label = isGbrain ? t("kb.gbrain-title") : source?.title ?? id;
+    return (
+      <span key={id} className="chip kb-chip" title={source?.origin ?? label}>
+        <KindIcon kind={isGbrain ? "gbrain" : source?.kind ?? "file"} size={11} />
+        <span className="chip-label">{label}</span>
+        {p.fullContent.includes(id) && (
+          <span className="kb-chip-full">{t("kb.chip-full")}</span>
+        )}
+        <IconButton
+          size="s"
+          className="ghost"
+          label={t("kb.detach")}
+          title={t("kb.detach")}
+          onClick={() => p.onDetach(id)}
+        >
+          ×
+        </IconButton>
+      </span>
+    );
+  };
+  // Dès 3 sources ordinaires : une pilule agrégée qui ouvre le picker (le
+  // gestionnaire) — 30 PDF ne font plus 30 pilules. gbrain garde sa pilule.
+  const regular = p.attached.filter((id) => id !== "gbrain");
+  if (regular.length >= 3) {
+    const preview = regular
+      .slice(0, 2)
+      .map((id) => sources.find((entry) => entry.id === id)?.title ?? id)
+      .join(", ");
+    return (
+      <div className="kb-chips">
+        <RowButton
+          className="chip kb-chip kb-chip-agg"
+          title={t("kb.chips-open")}
+          onClick={openKbPicker}
+        >
+          <BookIcon />
+          <span className="chip-label">{t("kb.chips-aggregate", { n: regular.length })}</span>
+          <span className="kb-chip-preview">{preview}…</span>
+          <svg width="10" height="10" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3" aria-hidden="true">
+            <path d="m4 6 4 4 4-4" />
+          </svg>
+        </RowButton>
+        {p.attached.includes("gbrain") && chipFor("gbrain")}
+      </div>
+    );
+  }
+  return <div className="kb-chips">{p.attached.map(chipFor)}</div>;
 }

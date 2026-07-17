@@ -19,6 +19,17 @@ let sources: KbSource[] = [];
 let loaded = false;
 const listeners = new Set<() => void>();
 
+// Signal d'ouverture du picker : la pilule agrégée (et tout autre déclencheur
+// externe) ouvre le popover sans dépendance de props à travers le composer.
+const openPickerListeners = new Set<() => void>();
+export function onOpenKbPicker(listener: () => void): () => void {
+  openPickerListeners.add(listener);
+  return () => openPickerListeners.delete(listener);
+}
+export function openKbPicker() {
+  for (const listener of [...openPickerListeners]) listener();
+}
+
 function emit() {
   for (const listener of [...listeners]) listener();
 }

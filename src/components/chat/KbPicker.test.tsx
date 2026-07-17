@@ -7,7 +7,7 @@ vi.mock("@tauri-apps/plugin-dialog", () => ({ open: vi.fn(async () => null) }));
 vi.mock("../../lib/wsBus", () => ({ wsSend: vi.fn(() => true) }));
 
 import { wsSend } from "../../lib/wsBus";
-import { resetKbSourcesForTests, type KbSource } from "../../lib/kbSources";
+import { onOpenKbPicker, resetKbSourcesForTests, type KbSource } from "../../lib/kbSources";
 import { KbChips, KbPickerPanel } from "./KbPicker";
 
 const SOURCES: KbSource[] = [
@@ -104,5 +104,39 @@ describe("KbChips", () => {
     renderUi(<KbChips attached={["zzzz9999"]} fullContent={[]} onDetach={vi.fn()} />);
     expect(wsSend).toHaveBeenCalledWith({ type: "kbList" });
     expect(screen.getByText("zzzz9999")).toBeTruthy();
+  });
+
+  it("agrège dès 3 sources : une seule pilule, aperçu des titres, ouvre le picker", () => {
+    act(() => {
+      window.dispatchEvent(new CustomEvent("kb-sources", { detail: SOURCES }));
+    });
+    const opened = vi.fn();
+    const unsubscribe = onOpenKbPicker(opened);
+    renderUi(
+      <KbChips
+        attached={["aaaa1111", "bbbb2222", "cccc3333", "gbrain"]}
+        fullContent={[]}
+        onDetach={vi.fn()}
+      />,
+    );
+    expect(screen.getByText("3 sources attachées")).toBeTruthy();
+    expect(screen.getByText(/Cuffey & Paterson ch\. 5, Albedo feedbacks review/)).toBeTruthy();
+    // les sources ordinaires ne sont plus des pilules individuelles…
+    expect(screen.queryByText("Décisions chap. 2")).toBeNull();
+    // …mais gbrain garde la sienne, détachable
+    expect(screen.getByText("Corpus thèse (gbrain)")).toBeTruthy();
+    fireEvent.click(screen.getByText("3 sources attachées"));
+    expect(opened).toHaveBeenCalledTimes(1);
+    unsubscribe();
+  });
+
+  it("reste en pilules individuelles sous 3 sources ordinaires", () => {
+    act(() => {
+      window.dispatchEvent(new CustomEvent("kb-sources", { detail: SOURCES }));
+    });
+    renderUi(<KbChips attached={["aaaa1111", "bbbb2222"]} fullContent={[]} onDetach={vi.fn()} />);
+    expect(screen.queryByText("2 sources attachées")).toBeNull();
+    expect(screen.getByText("Cuffey & Paterson ch. 5")).toBeTruthy();
+    expect(screen.getByText("Albedo feedbacks review")).toBeTruthy();
   });
 });

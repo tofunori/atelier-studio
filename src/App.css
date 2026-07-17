@@ -2883,6 +2883,19 @@ button.ctx-ring-wrap { border: none; font: inherit; color: inherit;
 .kb-error { font-size: var(--fs-s); color: var(--u-hot, #e06c75); }
 /* échec d'épinglage depuis le browser : le livre vire brièvement au rouge sémantique */
 .browser-bar .kb-flash-err, .browser-bar .kb-flash-err:hover { color: var(--u-hot, #e06c75); }
+/* pilule agrégée (3+ sources) : ouvre le picker ; aperçu des premiers titres */
+.kb-chip-agg { cursor: pointer; gap: 6px; }
+.kb-chip-agg svg { color: var(--accent); flex: none; }
+.kb-chip-agg svg:last-child { color: var(--muted2); }
+.kb-chip-agg .kb-chip-preview { color: var(--muted); max-width: 220px; overflow: hidden;
+  text-overflow: ellipsis; white-space: nowrap; }
+/* méta sous la bulle : « envoyé avec N sources · … » (fidèle au moment de l'envoi) */
+.user-kb-meta { display: inline-flex; align-items: center; gap: 6px;
+  font-size: var(--fs-xs); color: var(--muted2); margin-top: 2px;
+  font-variant-numeric: tabular-nums; }
+.user-kb-meta svg { color: var(--accent); flex: none; }
+.user-kb-meta-titles { overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  max-width: 340px; }
 .kb-list { max-height: 280px; overflow-y: auto; display: flex; flex-direction: column; gap: 2px; }
 .kb-group { font-size: var(--fs-xs); letter-spacing: .08em; text-transform: uppercase;
   color: var(--muted2); padding: 8px 4px 3px; font-weight: 500; }

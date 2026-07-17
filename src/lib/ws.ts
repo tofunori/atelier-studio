@@ -24,7 +24,9 @@ export type ProvisionalEventMeta = { provisional: true; messageId: string };
 type AgentEventBody =
   | { kind: "user"; text: string; imageUrl?: string; label?: string;
       /* pastes locaux = texte complet ; restaurés (UserDisplayEvent archivé) = name+lines seulement */
-      pastes?: { name: string; text?: string; lines?: number }[]; ts?: number }
+      pastes?: { name: string; text?: string; lines?: number }[];
+      /* sources KB attachées AU MOMENT de l'envoi (plan 049) — méta fidèle à l'historique */
+      kb?: { count: number; titles: string[] }; ts?: number }
   | { kind: "text"; text: string; ts?: number }
   | { kind: "delta"; text: string; ts?: number }
   | { kind: "thinking_delta"; text: string; ts?: number }
