@@ -12,7 +12,7 @@ import {
 import { THEME_PRESETS } from "../lib/themes";
 import { modelDisplayLabel } from "../lib/modelCatalog";
 import { setLanguage, t } from "../lib/i18n";
-import { PlusIcon } from "./icons";
+import { PlusIcon, StarIcon } from "./icons";
 import { Select } from "./Select";
 import { Button, InlineNotice, SegmentedControl, showError } from "./ui";
 import { Checkbox, CheckboxIndicator } from "./shadcn/checkbox";
@@ -1073,12 +1073,13 @@ export default function SettingsPage(p: {
                           <Row key={id} title={modelDisplayLabel("opencode", id)} desc={id}>
                             <ShadcnToggle
                               size="sm"
+                              className="set-model-favorite tw:size-7 tw:min-w-7 tw:border tw:border-transparent tw:p-0"
                               pressed={favorite}
                               aria-label={favorite ? t("action.remove-favorite") : t("action.add-favorite")}
                               title={favorite ? t("action.remove-favorite") : t("action.add-favorite")}
                               onPressedChange={() => toggleFavoriteModel("opencode", id)}
                             >
-                              {favorite ? "★" : "☆"}
+                              <StarIcon size={14} />
                             </ShadcnToggle>
                           </Row>
                         );

@@ -185,7 +185,10 @@ describe("Settings — contrôles et diagnostic", () => {
       target: { value: "Fable" },
     });
     expect(screen.queryByText("GLM 5.2")).toBeNull();
-    fireEvent.click(screen.getByLabelText(t("action.add-favorite")));
+    const favoriteButton = screen.getByLabelText(t("action.add-favorite"));
+    expect(favoriteButton).toHaveAttribute("data-slot", "toggle");
+    expect(favoriteButton.className).toContain("tw:border-transparent");
+    fireEvent.click(favoriteButton);
     expect(p.onChange).toHaveBeenCalledWith(expect.objectContaining({
       favoriteModels: { opencode: ["opencode/claude-fable-5"] },
     }));

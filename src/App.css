@@ -945,6 +945,12 @@ html, body, #root, .app { height: 100vh; overflow: hidden;
 .set-model-list > .set-row + .set-row { border-top: 1px solid var(--border); }
 .set-model-list .set-row-desc { font-family: var(--code-font); font-size: var(--fs-s); }
 .set-model-list .set-empty { padding: 18px 16px; }
+.set-model-favorite { color: var(--muted2); box-shadow: none; appearance: none; -webkit-appearance: none; }
+.set-model-favorite:hover { color: var(--fg); }
+.set-model-favorite[aria-pressed="true"] {
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+}
 .set-row-ctl select, .set-text { background: var(--bg-ctl); border: 1px solid var(--border2);
   border-radius: var(--r-m); color: inherit; padding: 6px 10px; font-size: var(--fs-l); outline: none; }
 .set-text { width: 320px; }
