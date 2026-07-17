@@ -322,17 +322,20 @@
   #lbWrap{position:relative;cursor:default}
   #annotCv{position:absolute;inset:0;display:none;touch-action:none}
   /* Capsule contextuelle : elle n'apparaît qu'après le tracé et l'unique
-     action envoie directement l'annotation au chat. */
+     action envoie directement l'annotation au chat. Elle grandit avec le texte
+     (jusqu'à ~6 lignes puis scroll interne) ; rayon 24px = pilule au repos
+     (48px/2), gardé constant pour que texte et bouton ne soient pas rognés
+     par overflow:hidden en multiligne. */
   #annotNote{position:fixed;z-index:103;display:none;align-items:center;gap:8px;
-      width:min(320px,calc(100vw - 24px));height:48px;box-sizing:border-box;
+      width:min(320px,calc(100vw - 24px));min-height:48px;box-sizing:border-box;
       background:color-mix(in srgb,var(--card,#24282d) 96%,#111);border:1px solid color-mix(in srgb,var(--txt) 9%,transparent);
-      border-radius:999px;padding:5px 6px 5px 16px;overflow:hidden;
+      border-radius:24px;padding:5px 6px 5px 16px;overflow:hidden;
       box-shadow:0 10px 26px rgba(0,0,0,.34);backdrop-filter:blur(18px)}
   #annotNote textarea{flex:1;background:transparent;border:none;outline:none;color:var(--txt);
-      font-size:14px;line-height:1.35;padding:0;resize:none;font-family:inherit;height:19px;max-height:38px;align-self:center}
+      font-size:14px;line-height:1.35;padding:0;margin:8px 0;resize:none;font-family:inherit;height:19px;max-height:120px;align-self:center}
   #annotNote textarea::placeholder{color:var(--muted)}
   #annotNote .anSave{width:38px;height:38px;border-radius:50%;background:color-mix(in srgb,var(--txt) 78%,var(--card));
-      color:var(--bg);border:none;cursor:pointer;display:flex;align-items:center;justify-content:center;flex:none;padding:0}
+      color:var(--bg);border:none;cursor:pointer;display:flex;align-items:center;justify-content:center;flex:none;padding:0;align-self:flex-end}
   #annotNote .anSave:hover{background:var(--txt)}
   #annotNote .anSave:disabled{opacity:.38;cursor:default}
   #annotNote .anSave svg{width:19px;height:19px;fill:none;stroke:currentColor;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round}
@@ -2321,7 +2324,14 @@ function annotAskNote(stroke, clientX, clientY){
     close();
   };
   box.querySelector('.anSave').onclick=e=>{e.stopPropagation();save();};
-  inp.oninput=()=>{send.disabled=!inp.value.trim();};
+  inp.oninput=()=>{
+    send.disabled=!inp.value.trim();
+    inp.style.height='19px';
+    inp.style.height=Math.min(120,inp.scrollHeight)+'px';
+    // La capsule grandit vers le bas : remonter si elle déborde de l'écran.
+    const r=box.getBoundingClientRect();
+    if(r.bottom>window.innerHeight-12) box.style.top=Math.max(12,window.innerHeight-12-r.height)+'px';
+  };
   inp.oninput();
   inp.onkeydown=e=>{
     e.stopPropagation();
