@@ -22,5 +22,49 @@ export const BUILTIN_MODEL_LABELS: Record<string, Record<string, string>> = {
 };
 
 export function modelDisplayLabel(provider: string, model: string): string {
-  return BUILTIN_MODEL_LABELS[provider]?.[model] ?? model;
+  const known = BUILTIN_MODEL_LABELS[provider]?.[model];
+  if (known) return known;
+  if (provider !== "opencode") return model;
+
+  // OpenCode renvoie des ids routés (`opencode/...`, `openrouter/...`, etc.).
+  // Le provider est déjà visible dans l'en-tête du picker : n'afficher que le
+  // nom humain du modèle, tout en conservant l'id exact pour l'envoi/tooltip.
+  const leaf = model.split("/").filter(Boolean).pop() ?? model;
+  const free = /(?::|-)(?:free)$/i.test(leaf);
+  const base = leaf.replace(/(?::|-)(?:free)$/i, "");
+  const words = base.split("-").filter(Boolean).map((word) => {
+    const lower = word.toLowerCase();
+    const exact: Record<string, string> = {
+      auto: "Auto",
+      claude: "Claude",
+      code: "Code",
+      coder: "Coder",
+      deepseek: "DeepSeek",
+      flash: "Flash",
+      glm: "GLM",
+      gpt: "GPT",
+      grok: "Grok",
+      kimi: "Kimi",
+      minimax: "MiniMax",
+      mimo: "MiMo",
+      nano: "Nano",
+      nemotron: "Nemotron",
+      north: "North",
+      opus: "Opus",
+      pro: "Pro",
+      qwen: "Qwen",
+      sonnet: "Sonnet",
+      spark: "Spark",
+      terra: "Terra",
+      luna: "Luna",
+      sol: "Sol",
+      ultra: "Ultra",
+    };
+    if (exact[lower]) return exact[lower];
+    if (/^(?:m|k|hy)\d/i.test(word)) return word.toUpperCase();
+    const qwen = /^qwen(.+)$/i.exec(word);
+    if (qwen) return `Qwen ${qwen[1]}`;
+    return word.charAt(0).toUpperCase() + word.slice(1);
+  });
+  return `${words.join(" ")}${free ? " · Free" : ""}` || model;
 }

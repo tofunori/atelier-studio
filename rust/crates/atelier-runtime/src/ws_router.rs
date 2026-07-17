@@ -2259,6 +2259,20 @@ fn list_api_providers_public(app_dir: &std::path::Path) -> Vec<Value> {
             .unwrap_or_default()
     };
     list.into_iter()
+        // `api_providers.json` contient aussi des credentials spécialisés
+        // (ex. byteplus-images) qui ne sont pas des providers de chat. Le
+        // frontend Providers attend un endpoint + au moins un modèle : ne
+        // jamais lui exposer ces entrées auxiliaires.
+        .filter(|p| {
+            p.get("baseURL")
+                .or_else(|| p.get("baseUrl"))
+                .or_else(|| p.get("base_url"))
+                .and_then(Value::as_str)
+                .is_some_and(|base| !base.trim().is_empty())
+                && p.get("models")
+                    .and_then(Value::as_array)
+                    .is_some_and(|models| !models.is_empty())
+        })
         .map(|mut p| {
             if let Some(obj) = p.as_object_mut() {
                 let has_key = obj
@@ -2266,8 +2280,44 @@ fn list_api_providers_public(app_dir: &std::path::Path) -> Vec<Value> {
                     .and_then(|v| v.as_str())
                     .map(|s| !s.is_empty())
                     .unwrap_or(false);
+                let env_key_set = obj
+                    .get("apiKeyEnv")
+                    .and_then(|v| v.as_str())
+                    .and_then(|name| std::env::var(name).ok())
+                    .is_some_and(|value| !value.is_empty());
+                let model_entries = obj
+                    .get("models")
+                    .and_then(Value::as_array)
+                    .cloned()
+                    .unwrap_or_default();
+                let mut model_ids = Vec::new();
+                let mut model_reasoning = serde_json::Map::new();
+                for model in model_entries {
+                    let (id, reasoning) = if let Some(id) = model.as_str() {
+                        (Some(id.to_string()), None)
+                    } else {
+                        (
+                            model
+                                .get("id")
+                                .or_else(|| model.get("name"))
+                                .and_then(Value::as_str)
+                                .map(str::to_string),
+                            model.get("reasoning").cloned(),
+                        )
+                    };
+                    let Some(id) = id.filter(|id| !id.is_empty()) else {
+                        continue;
+                    };
+                    if let Some(reasoning) = reasoning {
+                        model_reasoning.insert(id.clone(), reasoning);
+                    }
+                    model_ids.push(id);
+                }
                 obj.remove("apiKey");
-                obj.insert("hasApiKey".into(), json!(has_key));
+                // Nom partagé avec le backend Node et le contrat Settings.
+                obj.insert("keySet".into(), json!(has_key || env_key_set));
+                obj.insert("models".into(), json!(model_ids));
+                obj.insert("modelReasoning".into(), Value::Object(model_reasoning));
             }
             p
         })
@@ -2373,6 +2423,44 @@ mod tests {
             "h".into(),
             "/tmp".into(),
         )
+    }
+
+    #[test]
+    fn api_provider_public_list_excludes_auxiliary_image_credentials() {
+        let dir = tempdir().unwrap();
+        std::fs::write(
+            dir.path().join("api_providers.json"),
+            serde_json::to_vec(&json!([
+                {
+                    "id": "openrouter",
+                    "label": "OpenRouter",
+                    "baseURL": "https://openrouter.ai/api/v1",
+                    "models": [{
+                        "id": "openrouter/auto",
+                        "reasoning": {"supported_efforts": ["low", "high"]}
+                    }],
+                    "apiKey": "secret"
+                },
+                {
+                    "id": "byteplus-images",
+                    "apiKey": "image-secret",
+                    "apiKeyEnv": "ARK_API_KEY"
+                }
+            ]))
+            .unwrap(),
+        )
+        .unwrap();
+
+        let list = list_api_providers_public(dir.path());
+        assert_eq!(list.len(), 1);
+        assert_eq!(list[0]["id"], "openrouter");
+        assert_eq!(list[0]["keySet"], true);
+        assert_eq!(list[0]["models"], json!(["openrouter/auto"]));
+        assert_eq!(
+            list[0]["modelReasoning"]["openrouter/auto"]["supported_efforts"],
+            json!(["low", "high"])
+        );
+        assert!(list[0].get("apiKey").is_none());
     }
 
     #[test]

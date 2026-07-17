@@ -12,7 +12,7 @@ use std::path::PathBuf;
 use std::process::Stdio;
 use std::sync::Arc;
 use std::sync::Mutex as StdMutex;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::process::{Child, Command};
 use tokio::sync::Mutex;
@@ -27,6 +27,33 @@ struct AcpState {
     session_model: HashMap<String, String>,
 }
 
+struct CachedModelCatalog {
+    fetched_at: Instant,
+    value: Value,
+}
+
+const MODEL_CATALOG_TTL: Duration = Duration::from_secs(5 * 60);
+const MODEL_CATALOG_TIMEOUT: Duration = Duration::from_secs(12);
+const MAX_CATALOG_MODELS: usize = 5_000;
+
+fn parse_model_catalog(output: &str) -> Vec<String> {
+    let mut seen = HashSet::new();
+    output
+        .lines()
+        .map(str::trim)
+        .filter(|line| {
+            !line.is_empty()
+                && line.len() <= 512
+                && line.contains('/')
+                && !line.contains("://")
+                && !line.chars().any(char::is_whitespace)
+        })
+        .filter(|line| seen.insert((*line).to_string()))
+        .take(MAX_CATALOG_MODELS)
+        .map(str::to_string)
+        .collect()
+}
+
 pub struct OpenCodeProvider {
     bin: PathBuf,
     runs: Mutex<HashMap<String, Child>>,
@@ -34,6 +61,7 @@ pub struct OpenCodeProvider {
     acp_state: Mutex<AcpState>,
     /// thread_id → sessionId ACP du tour en cours (pour interrupt).
     active_turns: Mutex<HashMap<String, String>>,
+    model_catalog: Mutex<Option<CachedModelCatalog>>,
 }
 
 impl OpenCodeProvider {
@@ -51,6 +79,7 @@ impl OpenCodeProvider {
                 acp,
                 acp_state: Mutex::new(AcpState::default()),
                 active_turns: Mutex::new(HashMap::new()),
+                model_catalog: Mutex::new(None),
             }
         })
     }
@@ -394,6 +423,45 @@ impl Provider for OpenCodeProvider {
         ]
     }
 
+    async fn dynamic_models(&self) -> Option<Value> {
+        {
+            let cache = self.model_catalog.lock().await;
+            if let Some(cached) = cache.as_ref() {
+                if cached.fetched_at.elapsed() < MODEL_CATALOG_TTL {
+                    return Some(cached.value.clone());
+                }
+            }
+        }
+
+        let mut command = Command::new(&self.bin);
+        command
+            .arg("models")
+            .stdin(Stdio::null())
+            .stderr(Stdio::null())
+            .kill_on_drop(true);
+        let output = tokio::time::timeout(MODEL_CATALOG_TIMEOUT, command.output())
+            .await
+            .ok()?
+            .ok()?;
+        if !output.status.success() {
+            return None;
+        }
+        let models = parse_model_catalog(&String::from_utf8_lossy(&output.stdout));
+        if models.is_empty() {
+            return None;
+        }
+        let value = json!({
+            "models": models,
+            "defaultModel": self.default_model(),
+            "modelReasoning": {}
+        });
+        *self.model_catalog.lock().await = Some(CachedModelCatalog {
+            fetched_at: Instant::now(),
+            value: value.clone(),
+        });
+        Some(value)
+    }
+
     async fn send(&self, req: SendRequest) -> SendResult {
         match self.send_acp(&req).await {
             Ok(r) => r,
@@ -596,6 +664,17 @@ impl OpenCodeProvider {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn parses_and_deduplicates_opencode_model_catalog() {
+        let models = parse_model_catalog(
+            "opencode/glm-5.2\nopenrouter/z-ai/glm-5.2\n\nwarning ignored\nopencode/glm-5.2\n",
+        );
+        assert_eq!(
+            models,
+            vec!["opencode/glm-5.2", "openrouter/z-ai/glm-5.2"]
+        );
+    }
     use crate::traits::SendMode;
 
     /// Politique plan 045 portée par OpenCode (déplacée du client générique,

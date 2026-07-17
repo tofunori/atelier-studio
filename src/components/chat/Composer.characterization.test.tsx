@@ -591,6 +591,36 @@ describe("composer — barre hiérarchisée (plan 020)", () => {
     expect(favorite).toHaveAttribute("aria-pressed", "true");
   });
 
+  it("OpenCode affiche seulement défaut, favoris et modèle actif avec des libellés propres", () => {
+    const onOpenModelSettings = vi.fn();
+    renderUi(<Chat {...chatProps({
+      threadProvider: "opencode",
+      defaults: {
+        defaultProvider: "opencode",
+        defaultModel: { opencode: "opencode/glm-5.2" },
+        defaultEffort: { opencode: "high" },
+        defaultPermissionMode: "bypassPermissions",
+        favoriteModels: { opencode: ["opencode/claude-fable-5"] },
+      },
+      providers: [makeProviderInfo({
+        id: "opencode", label: "OpenCode",
+        models: ["opencode/glm-5.2", "opencode/claude-fable-5", "opencode/minimax-m3"],
+        defaultModel: "opencode/glm-5.2",
+      })],
+      onOpenModelSettings,
+    })} />);
+
+    fireEvent.click(document.querySelector(".model-pick .mp-btn") as HTMLButtonElement);
+    const list = document.querySelector(".model-menu .model-list") as HTMLElement;
+    expect(within(list).getByText("GLM 5.2")).toBeTruthy();
+    expect(within(list).getByText("Claude Fable 5")).toBeTruthy();
+    expect(within(list).queryByText("MiniMax M3")).toBeNull();
+    expect(list.textContent).not.toContain("opencode/");
+
+    fireEvent.click(within(list).getByText(t("chat.manage-models")));
+    expect(onOpenModelSettings).toHaveBeenCalledTimes(1);
+  });
+
   it("menu + : le premier item est actif, flèches naviguent, Échap rend le focus", async () => {
     renderUi(<Chat {...chatProps({ providers: [makeProviderInfo()] })} />);
     const plusBtn = screen.getByTitle(t("action.add-file-image")) as HTMLButtonElement;

@@ -52,4 +52,16 @@ describe("settings defaults", () => {
     }));
     expect(loadSettings().activeView).toBe("chats");
   });
+
+  it("migre les anciens favoris de modèles vers les réglages par provider", () => {
+    localStorage.setItem("atelier-studio.favModels", JSON.stringify([
+      "opencode:opencode/glm-5.2",
+      "opencode:openrouter/north-mini-code:free",
+      "codex:gpt-5.6-sol",
+    ]));
+    expect(loadSettings().favoriteModels).toEqual({
+      opencode: ["opencode/glm-5.2", "openrouter/north-mini-code:free"],
+      codex: ["gpt-5.6-sol"],
+    });
+  });
 });

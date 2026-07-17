@@ -99,6 +99,7 @@ export type ComposerHost = {
   activeGoal?: GoalInfo | null;
   defaults: { autoReview?: { enabled: boolean }; providerOrder?: string[]; hiddenProviders?: string[] };
   providers?: ProviderInfo[];
+  onOpenModelSettings?: () => void;
 };
 
 export function ChatComposer(props: {

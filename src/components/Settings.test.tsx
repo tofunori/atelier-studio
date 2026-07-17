@@ -1,7 +1,7 @@
 // Settings (plan 021, partie A) : navigation, Échap, confirmations
 // destructives, nav compacte ≤880 px, contrôles primitives, diagnostic.
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { cleanup, fireEvent, screen } from "@testing-library/react";
+import { act, cleanup, fireEvent, screen, waitFor } from "@testing-library/react";
 
 vi.mock("@tauri-apps/plugin-dialog", () => ({
   confirm: vi.fn(async () => true),
@@ -21,6 +21,17 @@ function props(over: Partial<Parameters<typeof SettingsPage>[0]> = {}) {
     ws: null,
     ...over,
   };
+}
+
+function fakeWs() {
+  const ws = new EventTarget() as WebSocket;
+  Object.defineProperty(ws, "readyState", { value: WebSocket.OPEN });
+  Object.defineProperty(ws, "send", { value: vi.fn() });
+  return ws;
+}
+
+function emitWs(ws: WebSocket, message: unknown) {
+  act(() => ws.dispatchEvent(new MessageEvent("message", { data: JSON.stringify(message) })));
 }
 
 beforeEach(() => { resetTestState(); setLanguage("fr"); vi.clearAllMocks(); });
@@ -131,6 +142,41 @@ describe("Settings — contrôles et diagnostic", () => {
     const row = document.querySelector(".theme-row") as HTMLElement;
     expect(row.tagName).toBe("BUTTON");
     expect(row.getAttribute("aria-pressed")).toBeTruthy();
+  });
+
+  it("Providers ignore une entrée auxiliaire sans models au lieu de planter", () => {
+    const ws = fakeWs();
+    renderUi(<SettingsPage {...props({ ws, initialSection: "providers" })} />);
+    emitWs(ws, {
+      type: "apiProviders",
+      providers: [{ id: "byteplus-images", hasApiKey: true }],
+    });
+    expect(screen.getByRole("heading", { name: t("settings.providers") })).toBeTruthy();
+    expect(screen.queryByText("byteplus-images")).toBeNull();
+  });
+
+  it("permet de chercher et mettre un modèle OpenCode en favori", async () => {
+    const ws = fakeWs();
+    const p = props({ ws, initialSection: "providers" });
+    renderUi(<SettingsPage {...p} />);
+    emitWs(ws, {
+      type: "providerStatus",
+      providers: [{
+        id: "opencode", label: "OpenCode", version: "1.18.3", ok: true, kind: "cli",
+        models: ["opencode/glm-5.2", "opencode/claude-fable-5"],
+        defaultModel: "opencode/glm-5.2", efforts: [],
+      }],
+    });
+
+    await waitFor(() => expect(screen.getByText("GLM 5.2")).toBeTruthy());
+    fireEvent.change(screen.getByPlaceholderText(t("settings.model-search")), {
+      target: { value: "Fable" },
+    });
+    expect(screen.queryByText("GLM 5.2")).toBeNull();
+    fireEvent.click(screen.getByLabelText(t("action.add-favorite")));
+    expect(p.onChange).toHaveBeenCalledWith(expect.objectContaining({
+      favoriteModels: { opencode: ["opencode/claude-fable-5"] },
+    }));
   });
 });
 

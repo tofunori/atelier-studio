@@ -22,6 +22,12 @@ if (!HTMLElement.prototype.scrollIntoView) {
   HTMLElement.prototype.scrollIntoView = function scrollIntoView() {};
 }
 
+// Base UI ScrollArea attend l'API Web Animations pour déterminer si le
+// viewport est encore animé. jsdom ne l'implémente pas.
+if (!Element.prototype.getAnimations) {
+  Element.prototype.getAnimations = () => [];
+}
+
 // cmdk observe la hauteur de sa liste pour l'animation et le scroll. jsdom ne
 // fournit pas ResizeObserver; ce double suffit au contrat DOM des tests.
 if (!globalThis.ResizeObserver) {

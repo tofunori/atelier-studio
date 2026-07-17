@@ -1,4 +1,4 @@
-import { spawn } from "node:child_process";
+import { execFile, spawn } from "node:child_process";
 import { appendFileSync, existsSync, mkdirSync, readFileSync, realpathSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
@@ -13,6 +13,44 @@ import {
 import { makeAcpClient } from "./acp_client.mjs";
 
 const OPENCODE_BIN = resolveBin("opencode") ?? "opencode";
+const MODEL_CATALOG_TTL_MS = 5 * 60_000;
+let modelCatalogCache = null;
+
+export function parseOpenCodeModelsOutput(output) {
+  const seen = new Set();
+  const models = [];
+  for (const raw of String(output ?? "").split(/\r?\n/)) {
+    const id = raw.trim();
+    if (!id || id.length > 512 || !id.includes("/") || id.includes("://") || /\s/.test(id) || seen.has(id)) continue;
+    seen.add(id);
+    models.push(id);
+    if (models.length >= 5_000) break;
+  }
+  return models;
+}
+
+export function listModels(timeoutMs = 12_000) {
+  if (modelCatalogCache && Date.now() - modelCatalogCache.fetchedAt < MODEL_CATALOG_TTL_MS) {
+    return Promise.resolve(modelCatalogCache.value);
+  }
+  return new Promise((resolve, reject) => {
+    const child = execFile(OPENCODE_BIN, ["models"], { timeout: timeoutMs }, (error, stdout, stderr) => {
+      if (error) {
+        reject(new Error(String(stderr || error.message || error).trim()));
+        return;
+      }
+      const models = parseOpenCodeModelsOutput(stdout);
+      if (!models.length) {
+        reject(new Error("opencode models: aucun modèle détecté"));
+        return;
+      }
+      const value = { models, defaultModel: "openrouter/z-ai/glm-5.2" };
+      modelCatalogCache = { fetchedAt: Date.now(), value };
+      resolve(value);
+    });
+    child.stdin?.end?.();
+  });
+}
 
 // ---------------------------------------------------------------------------
 // Transcripts locaux (JSONL) : OpenCode ne fournit pas d'API d'historique —

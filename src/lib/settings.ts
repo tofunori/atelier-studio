@@ -41,6 +41,7 @@ export type Settings = {
   timeFormat: "system" | "24h" | "12h";
   customModels: { provider: ProviderId; id: string }[];
   modelEfforts: Record<string, string>; // "provider:modelId" -> effort
+  favoriteModels: Record<string, string[]>; // provider -> ids visibles dans le picker compact
   webSearch: boolean;
   additionalDirectories: string;
   providerOrder: ProviderId[]; // ordre du picker ([] = ordre du catalogue)
@@ -78,6 +79,7 @@ export const DEFAULT_SETTINGS: Settings = {
   timeFormat: "system",
   customModels: [],
   modelEfforts: {},
+  favoriteModels: {},
   webSearch: false,
   additionalDirectories: "",
   providerOrder: [],
@@ -86,6 +88,7 @@ export const DEFAULT_SETTINGS: Settings = {
 };
 
 const KEY = "atelier-studio.settings";
+const LEGACY_FAVORITE_MODELS_KEY = "atelier-studio.favModels";
 const CLAUDE_DEFAULTS_MIGRATION_KEY = "atelier-studio.defaults.claude-sonnet-1m-xhigh";
 
 export function loadSettings(): Settings {
@@ -107,6 +110,20 @@ export function loadSettings(): Settings {
     }
     // migration : ancienne clé de taille de police
     const legacyFs = localStorage.getItem("atelier-studio.chatFontSize");
+    const legacyFavoriteModels: Record<string, string[]> = {};
+    try {
+      const legacy = JSON.parse(localStorage.getItem(LEGACY_FAVORITE_MODELS_KEY) ?? "[]");
+      if (Array.isArray(legacy)) {
+        for (const entry of legacy) {
+          if (typeof entry !== "string") continue;
+          const separator = entry.indexOf(":");
+          if (separator <= 0 || separator === entry.length - 1) continue;
+          const provider = entry.slice(0, separator);
+          const model = entry.slice(separator + 1);
+          legacyFavoriteModels[provider] = [...new Set([...(legacyFavoriteModels[provider] ?? []), model])];
+        }
+      }
+    } catch {}
     return {
       ...DEFAULT_SETTINGS,
       ...(legacyFs ? { chatFontSize: Number(legacyFs) } : {}),
@@ -116,6 +133,9 @@ export function loadSettings(): Settings {
       defaultEffort: { ...DEFAULT_SETTINGS.defaultEffort, ...storedDefaultEffort },
       customModels: stored.customModels ?? [],
       modelEfforts: stored.modelEfforts ?? {},
+      favoriteModels: stored.favoriteModels && typeof stored.favoriteModels === "object"
+        ? stored.favoriteModels
+        : legacyFavoriteModels,
       // La vue latérale est un état de session : un démarrage à froid revient
       // toujours aux conversations, même si l'app a été quittée sur Highlights.
       activeView: "chats",

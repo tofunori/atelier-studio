@@ -940,6 +940,11 @@ html, body, #root, .app { height: 100vh; overflow: hidden;
 .set-row-title { font-size: var(--fs-l); }
 .set-row-desc { font-size: var(--fs-m); color: var(--muted); margin-top: 2px; }
 .set-row-ctl { display: flex; align-items: center; gap: 10px; }
+.set-model-search-field { width: min(280px, 34vw); }
+.set-model-scroll { max-height: 380px; }
+.set-model-list > .set-row + .set-row { border-top: 1px solid var(--border); }
+.set-model-list .set-row-desc { font-family: var(--code-font); font-size: var(--fs-s); }
+.set-model-list .set-empty { padding: 18px 16px; }
 .set-row-ctl select, .set-text { background: var(--bg-ctl); border: 1px solid var(--border2);
   border-radius: var(--r-m); color: inherit; padding: 6px 10px; font-size: var(--fs-l); outline: none; }
 .set-text { width: 320px; }

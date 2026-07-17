@@ -10,6 +10,7 @@ import {
   type AppSnapState,
 } from "../lib/appSnap";
 import { THEME_PRESETS } from "../lib/themes";
+import { modelDisplayLabel } from "../lib/modelCatalog";
 import { setLanguage, t } from "../lib/i18n";
 import { PlusIcon } from "./icons";
 import { Select } from "./Select";
@@ -17,7 +18,9 @@ import { Button, InlineNotice, SegmentedControl, showError } from "./ui";
 import { Checkbox, CheckboxIndicator } from "./shadcn/checkbox";
 import { Field, FieldGroup, FieldLabel } from "./shadcn/field";
 import { Input } from "./shadcn/input";
+import { ScrollArea } from "./shadcn/scroll-area";
 import { Switch } from "./shadcn/switch";
+import { Toggle as ShadcnToggle } from "./shadcn/toggle";
 import { Textarea } from "./shadcn/textarea";
 import { ToggleGroup, ToggleGroupItem } from "./shadcn/toggle-group";
 import { Slider as ShadcnSlider } from "./shadcn/slider";
@@ -60,6 +63,44 @@ type ProviderCatalogRow = {
   defaultModel?: string | null;
   efforts?: string[];
 };
+
+type ApiProviderRow = {
+  id: string;
+  label: string;
+  baseURL: string;
+  protocol: "openai" | "anthropic";
+  models: string[];
+  defaultModel: string;
+  keySet: boolean;
+  apiKeyEnv?: string | null;
+  modelReasoning?: Record<string, any>;
+};
+
+function normalizeApiProviderRows(value: unknown): ApiProviderRow[] {
+  if (!Array.isArray(value)) return [];
+  return value.flatMap((entry) => {
+    if (!entry || typeof entry !== "object") return [];
+    const row = entry as Record<string, unknown>;
+    const models = Array.isArray(row.models)
+      ? row.models.filter((model): model is string => typeof model === "string" && Boolean(model.trim()))
+      : [];
+    const baseURL = typeof row.baseURL === "string" ? row.baseURL : "";
+    if (!baseURL || !models.length) return [];
+    return [{
+      id: String(row.id ?? ""),
+      label: String(row.label ?? row.id ?? ""),
+      baseURL,
+      protocol: row.protocol === "anthropic" ? "anthropic" as const : "openai" as const,
+      models,
+      defaultModel: typeof row.defaultModel === "string" ? row.defaultModel : models[0],
+      keySet: Boolean(row.keySet ?? row.hasApiKey),
+      apiKeyEnv: typeof row.apiKeyEnv === "string" ? row.apiKeyEnv : null,
+      modelReasoning: row.modelReasoning && typeof row.modelReasoning === "object"
+        ? row.modelReasoning as Record<string, any>
+        : {},
+    }];
+  });
+}
 
 type SetupProvider = {
   id: string;
@@ -165,8 +206,9 @@ export default function SettingsPage(p: {
   onClose: () => void;
   ws: WebSocket | null;
   projects?: string[];
+  initialSection?: string;
 }) {
-  const [section, setSection] = useState("general");
+  const [section, setSection] = useState(p.initialSection ?? "general");
   // ≤880 px : la nav colonne écraserait le contenu — select compact au-dessus
   const [narrow, setNarrow] = useState(() =>
     typeof window !== "undefined" && window.matchMedia?.("(max-width: 880px)")?.matches === true);
@@ -177,11 +219,7 @@ export default function SettingsPage(p: {
   const [provs, setProvs] = useState<ProviderCatalogRow[] | null>(null);
   const [setup, setSetup] = useState<SetupStatus | null>(null);
   const [retitleStatus, setRetitleStatus] = useState("");
-  const [apiProvs, setApiProvs] = useState<{
-    id: string; label: string; baseURL: string; protocol: "openai" | "anthropic";
-    models: string[]; defaultModel: string; keySet: boolean; apiKeyEnv?: string | null;
-    modelReasoning?: Record<string, any>;
-  }[]>([]);
+  const [apiProvs, setApiProvs] = useState<ApiProviderRow[]>([]);
   const [apiForm, setApiForm] = useState<{
     id: string; label: string; baseURL: string; protocol: "openai" | "anthropic";
     apiKey: string; models: string; modelMetadata?: Record<string, { label?: string; reasoning?: any }>;
@@ -190,13 +228,23 @@ export default function SettingsPage(p: {
   const [apiModelsError, setApiModelsError] = useState("");
   const [apiModelsBusy, setApiModelsBusy] = useState(false);
   const [apiModelsQuery, setApiModelsQuery] = useState("");
+  const [openCodeModelQuery, setOpenCodeModelQuery] = useState("");
   const [pasted, setPasted] = useState<{ name: string; size: number; mtime: number; dataURL?: string }[] | null>(null);
   const [appSnapState, setAppSnapState] = useState<AppSnapState | null>(null);
   const [appSnapBusy, setAppSnapBusy] = useState(false);
   const s = p.settings;
   const customModels = s.customModels ?? [];
   const modelEfforts = s.modelEfforts ?? {};
+  const favoriteModels = s.favoriteModels ?? {};
   const set = (patch: Partial<S>) => p.onChange({ ...s, ...patch });
+
+  function toggleFavoriteModel(provider: string, model: string) {
+    const current = favoriteModels[provider] ?? [];
+    const next = current.includes(model)
+      ? current.filter((id) => id !== model)
+      : [...current, model];
+    set({ favoriteModels: { ...favoriteModels, [provider]: next } });
+  }
 
   function providerModels(provider: "claude" | "codex") {
     if (provider === "claude") return CLAUDE_MODELS;
@@ -238,9 +286,16 @@ export default function SettingsPage(p: {
     const onMsg = (e: MessageEvent) => {
       const m = JSON.parse(e.data);
       if (m.type === "status") setStatus(m);
-      if (m.type === "providerStatus") setProvs(m.providers);
+      if (m.type === "providerStatus") {
+        const providers = Array.isArray(m.providers) ? m.providers : [];
+        setProvs(providers.map((provider: ProviderCatalogRow) => ({
+          ...provider,
+          models: Array.isArray(provider?.models) ? provider.models : [],
+          efforts: Array.isArray(provider?.efforts) ? provider.efforts : [],
+        })));
+      }
       if (m.type === "setupStatus") setSetup(m.status ?? null);
-      if (m.type === "apiProviders") setApiProvs(m.providers ?? []);
+      if (m.type === "apiProviders") setApiProvs(normalizeApiProviderRows(m.providers));
       if (m.type === "apiModels") {
         setApiModelsBusy(false);
         setApiModels(m.models ?? null);
@@ -973,6 +1028,69 @@ export default function SettingsPage(p: {
               );
             })()}
             <p className="set-sub">{t("settings.providers-visibility-sub")}</p>
+            {(() => {
+              const provider = provs?.find((row) => row.id === "opencode");
+              if (!provider) return null;
+              const favorites = favoriteModels.opencode ?? [];
+              const query = openCodeModelQuery.trim().toLowerCase();
+              const models = (provider.models ?? []).filter((id) => {
+                if (!query) return true;
+                return id.toLowerCase().includes(query)
+                  || modelDisplayLabel("opencode", id).toLowerCase().includes(query);
+              });
+              return (
+                <Group label={t("settings.opencode-models")}>
+                  <Row
+                    title={t("settings.opencode-models")}
+                    desc={t("settings.opencode-models-sub", {
+                      favorites: favorites.length,
+                      total: provider.models?.length ?? 0,
+                    })}
+                  >
+                    <Field className="set-model-search-field">
+                      <FieldLabel className="tw:sr-only">{t("settings.model-search")}</FieldLabel>
+                      <Input
+                        className="set-text"
+                        value={openCodeModelQuery}
+                        placeholder={t("settings.model-search")}
+                        onChange={(event) => setOpenCodeModelQuery(event.target.value)}
+                      />
+                    </Field>
+                    <Button
+                      variant="ghost"
+                      className="set-btn quiet"
+                      onClick={() => p.ws?.readyState === 1
+                        && p.ws.send(JSON.stringify({ type: "providerStatus" }))}
+                    >
+                      {t("action.refresh")}
+                    </Button>
+                  </Row>
+                  <ScrollArea className="set-model-scroll">
+                    <div className="set-model-list">
+                      {models.map((id) => {
+                        const favorite = favorites.includes(id);
+                        return (
+                          <Row key={id} title={modelDisplayLabel("opencode", id)} desc={id}>
+                            <ShadcnToggle
+                              size="sm"
+                              pressed={favorite}
+                              aria-label={favorite ? t("action.remove-favorite") : t("action.add-favorite")}
+                              title={favorite ? t("action.remove-favorite") : t("action.add-favorite")}
+                              onPressedChange={() => toggleFavoriteModel("opencode", id)}
+                            >
+                              {favorite ? "★" : "☆"}
+                            </ShadcnToggle>
+                          </Row>
+                        );
+                      })}
+                      {!models.length && (
+                        <p className="set-empty">{t("settings.model-no-match")}</p>
+                      )}
+                    </div>
+                  </ScrollArea>
+                </Group>
+              );
+            })()}
             <Group label={t("settings.api-providers")}>
               {apiProvs.map((ap) => (
                 <Row key={ap.id} title={ap.label}

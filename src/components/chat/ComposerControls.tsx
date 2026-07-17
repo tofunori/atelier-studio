@@ -80,6 +80,7 @@ export function ComposerControls(p: {
     hiddenProviders?: string[];
   };
   providers?: ProviderInfo[];
+  onOpenModelSettings?: () => void;
 }) {
   const {
     provider, setProvider, model, setModel, effort, setEffort,
@@ -299,7 +300,14 @@ export function ComposerControls(p: {
                 ? modelMenuProvider
                 : provider;
               const menuInfo = visibleProviders.find((info) => info.id === menuProvider) ?? providerInfo(menuProvider);
-              const menuModels = sortByFav(modelsFor(menuProvider), menuProvider);
+              const sortedModels = sortByFav(modelsFor(menuProvider), menuProvider);
+              const menuModels = menuProvider === "opencode"
+                ? sortedModels.filter((entry) => (
+                    entry.id === ""
+                    || favModels.includes(`${menuProvider}:${entry.id}`)
+                    || (provider === menuProvider && model === entry.id)
+                  ))
+                : sortedModels;
               return (
                 <PopoverContent
                   plain
@@ -420,20 +428,22 @@ export function ComposerControls(p: {
                               setMenuOpen(false);
                             }}
                           >
-                            <span>{modelLabel(m, menuProvider)}</span>
+                            <span title={m.id || undefined}>{modelLabel(m, menuProvider)}</span>
                           </RowButton>
                           <span className="mp-end">
                             {active && <span className="mp-check">✓</span>}
-                            <Toggle
-                              className={`mp-star ${fav ? "on" : ""}`}
-                              pressed={fav}
-                              aria-label={fav ? t("action.remove-favorite") : t("action.add-favorite")}
-                              title={fav ? t("action.remove-favorite") : t("action.add-favorite")}
-                              onClick={(e) => e.stopPropagation()}
-                              onPressedChange={() => toggleFavModel(key)}
-                            >
-                              {fav ? "★" : "☆"}
-                            </Toggle>
+                            {m.id && (
+                              <Toggle
+                                className={`mp-star ${fav ? "on" : ""}`}
+                                pressed={fav}
+                                aria-label={fav ? t("action.remove-favorite") : t("action.add-favorite")}
+                                title={fav ? t("action.remove-favorite") : t("action.add-favorite")}
+                                onClick={(e) => e.stopPropagation()}
+                                onPressedChange={() => toggleFavModel(key)}
+                              >
+                                {fav ? "★" : "☆"}
+                              </Toggle>
+                            )}
                           </span>
                         </div>
                       );
@@ -459,6 +469,20 @@ export function ComposerControls(p: {
                             {ctx.on && <span className="mp-check">✓</span>}
                           </RowButton>
                         ))}
+                      </>
+                    )}
+                    {menuProvider === "opencode" && p.onOpenModelSettings && (
+                      <>
+                        <div className="mp-sep" />
+                        <RowButton
+                          className="mp-item model-row model-manage-row"
+                          onClick={() => {
+                            setMenuOpen(false);
+                            p.onOpenModelSettings?.();
+                          }}
+                        >
+                          <span>{t("chat.manage-models")}</span>
+                        </RowButton>
                       </>
                     )}
                   </div>

@@ -561,6 +561,11 @@ export default function App() {
   }, [recentFiles]);
   const [, setLanguageRev] = useState(0);
   const [showSettings, setShowSettings] = useState(false);
+  const [settingsInitialSection, setSettingsInitialSection] = useState("general");
+  const openSettings = (section = "general") => {
+    setSettingsInitialSection(section);
+    setShowSettings(true);
+  };
   const settingsRef = useRef(settings);
   useEffect(() => {
     const onLanguage = () => setLanguageRev((n) => n + 1);
@@ -967,7 +972,7 @@ export default function App() {
     onError: (message) => setAppBanner({
       text: `start_atelier: ${message}`,
       actionLabel: t("app.start-settings"),
-      onAction: () => setShowSettings(true),
+      onAction: () => openSettings("providers"),
       closable: true,
     }),
     onReady: (project) => {
@@ -1168,7 +1173,16 @@ export default function App() {
         const { projMeta: diskMeta, projects: diskProjects, ...diskSettings } = msg.settings ?? {};
         if (msg.settings && !hasLocal) {
           // webview vierge (mise à jour, reset WebKit) : le fichier disque fait foi
-          setSettings({ ...DEFAULT_SETTINGS, ...diskSettings, activeView: "chats" });
+          // sauf pour une migration locale qui n'existait pas encore dans ce
+          // fichier (favoris historiques de l'ancien picker de modèles).
+          setSettings((current) => ({
+            ...DEFAULT_SETTINGS,
+            ...diskSettings,
+            favoriteModels: diskSettings.favoriteModels && typeof diskSettings.favoriteModels === "object"
+              ? diskSettings.favoriteModels
+              : current.favoriteModels,
+            activeView: "chats",
+          }));
         } else if (ws.current?.readyState === 1) {
           // sinon pousser l'état courant vers le fichier pour l'amorcer
           ws.current.send(JSON.stringify({
@@ -2657,7 +2671,7 @@ export default function App() {
       openResume: () => window.dispatchEvent(new CustomEvent("atelier-open-resume", { detail: { provider: "claude" } })),
       switchSurface: switchToSurface,
       setLayout,
-      openSettings: () => setShowSettings(true),
+      openSettings: () => openSettings(),
       retitleAll: () => ws.current?.readyState === 1 && ws.current.send(JSON.stringify({ type: "retitleAll" })),
       nextTheme: () => {
         setSettings((current) => {
@@ -2694,6 +2708,7 @@ export default function App() {
             onClose={() => setShowSettings(false)}
             ws={ws.current}
             projects={projects}
+            initialSection={settingsInitialSection}
           />
         </LazyBoundary>
         {paletteOpen && (
@@ -2759,7 +2774,10 @@ export default function App() {
           onAddProject={addProject}
           compact={compact}
           onExpand={() => setCompact((c) => !c)}
-          onSettings={() => setShowSettings((v) => !v)}
+          onSettings={() => {
+            if (showSettings) setShowSettings(false);
+            else openSettings();
+          }}
           onSetMeta={(root, m) => setProjMeta((p) => ({ ...p, [root]: m }))}
           onReorder={(from, to) =>
             setProjects((prev) => {
@@ -2976,6 +2994,9 @@ export default function App() {
           highlights={highlights}
           defaults={settings as any}
           providers={providerList}
+          onFavoriteModelsChange={(favoriteModels) =>
+            setSettings((current) => ({ ...current, favoriteModels }))}
+          onOpenModelSettings={() => openSettings("providers")}
           injectText={injectText}
           onInjected={() => setInjectText(null)}
           draftText={activeComposerDraft.prompt}

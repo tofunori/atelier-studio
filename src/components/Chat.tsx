@@ -22,7 +22,7 @@ import {
   type AgentToolAction,
 } from "./chat/AgentActivity";
 import { mentionLabel } from "./chat/mentions";
-import { BUILTIN_MODEL_LABELS } from "../lib/modelCatalog";
+import { modelDisplayLabel } from "../lib/modelCatalog";
 import type { PluginCatalogEntry } from "../lib/plugins";
 import type { DraftAttachment, FollowUpMode, QueuedTurn } from "../lib/chatDraftStore";
 import {
@@ -136,6 +136,7 @@ export default function Chat(p: {
     autoReview?: { enabled: boolean };
     providerOrder?: string[];
     hiddenProviders?: string[];
+    favoriteModels?: Record<string, string[]>;
   };
   providers?: ProviderInfo[];
   pins: { index: number; label: string; color?: string; style?: string }[];
@@ -143,6 +144,8 @@ export default function Chat(p: {
   onTogglePin: (index: number, label: string) => void;
   disabled: boolean;
   onGoal?: (action: "set" | "clear", objective?: string, status?: "active" | "paused") => void;
+  onFavoriteModelsChange?: (favorites: Record<string, string[]>) => void;
+  onOpenModelSettings?: () => void;
   /** L'application hôte peut ouvrir l'agent dans son panneau secondaire. */
   onOpenAgent?: (agent: AgentDisplay) => void;
   onSubmit: (
@@ -477,26 +480,33 @@ export default function Chat(p: {
   const [goalDismissed, setGoalDismissed] = useState<string | null>(null);
   useEffect(() => { setGoalDismissed(null); }, [p.threadId]);
 
-  const [favModels, setFavModels] = useState<string[]>(() => {
-    try { return JSON.parse(localStorage.getItem("atelier-studio.favModels") ?? "[]"); }
-    catch { return []; }
-  });
+  const [fallbackFavoriteModels, setFallbackFavoriteModels] = useState<Record<string, string[]>>({});
+  const favoriteModels = p.defaults.favoriteModels ?? fallbackFavoriteModels;
+  const favModels = Object.entries(favoriteModels)
+    .flatMap(([providerId, models]) => models.map((modelId) => `${providerId}:${modelId}`));
   function toggleFavModel(key: string) {
-    setFavModels((f) => {
-      const n = f.includes(key) ? f.filter((x) => x !== key) : [...f, key];
-      localStorage.setItem("atelier-studio.favModels", JSON.stringify(n));
-      return n;
-    });
+    const separator = key.indexOf(":");
+    if (separator <= 0) return;
+    const providerId = key.slice(0, separator);
+    const modelId = key.slice(separator + 1);
+    const current = favoriteModels[providerId] ?? [];
+    const next = {
+      ...favoriteModels,
+      [providerId]: current.includes(modelId)
+        ? current.filter((id) => id !== modelId)
+        : [...current, modelId],
+    };
+    if (p.onFavoriteModelsChange) p.onFavoriteModelsChange(next);
+    else setFallbackFavoriteModels(next);
   }
   // modèles connus : catalogue sidecar UNIQUEMENT (plan 025, step 9), avec
   // libellés locaux seulement quand ils apportent une meilleure présentation
   // que l'id brut. L'entrée Auto ("" → défaut) reste en tête.
   function baseModelsFor(pv: string): { id: string; label: string }[] {
     const info = (p.providers ?? []).find((pr) => pr.id === pv);
-    const labels = BUILTIN_MODEL_LABELS[pv] ?? {};
     return [
       { id: "", label: "__default" },
-      ...(info?.models ?? []).map((id) => ({ id, label: labels[id] ?? id })),
+      ...(info?.models ?? []).map((id) => ({ id, label: modelDisplayLabel(pv, id) })),
     ];
   }
   function modelsFor(pv: string) {
@@ -962,6 +972,7 @@ export default function Chat(p: {
         host={{
           usage: p.usage, disabled: p.disabled, workingSince: p.workingSince,
           onStop: p.onStop, onSubmit: p.onSubmit,
+          onOpenModelSettings: p.onOpenModelSettings,
           followUpMode: p.followUpMode ?? "queue",
           onFollowUpModeChange: p.onFollowUpModeChange,
           // interception clear : fermeture optimiste de la pastille avant

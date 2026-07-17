@@ -1,7 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { normalizeOpenCodeMessage, parseOpenCodeJsonl } from "./opencode.mjs";
+import { normalizeOpenCodeMessage, parseOpenCodeJsonl, parseOpenCodeModelsOutput } from "./opencode.mjs";
 
 describe("opencode provider stream normalization", () => {
+  it("parse le catalogue modèles et retire les doublons", () => {
+    expect(parseOpenCodeModelsOutput(
+      "opencode/glm-5.2\nopenrouter/z-ai/glm-5.2\nwarning ignored\nopencode/glm-5.2\n",
+    )).toEqual(["opencode/glm-5.2", "openrouter/z-ai/glm-5.2"]);
+  });
   it("normalizes the real headless JSONL event shapes", () => {
     const fixture = [
       '{"type":"step_start","timestamp":1783389776989,"sessionID":"ses_abc","part":{"type":"step-start"}}',
