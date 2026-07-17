@@ -107,10 +107,10 @@ export default function Rail(p: {
         {/* Nouveau chat : seulement en compact — le panneau déplié a déjà son bouton */}
         {p.compact && (
           <IconButton className="rail-btn" label={t("action.new-chat")} title={t("action.new-chat")} onClick={p.onNewChat}>
+            {/* compose : crayon entrant dans un carré ouvert (standard « nouveau message ») */}
             <svg width="19" height="19" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-              <rect x="2.2" y="3" width="11.6" height="8" rx="2.4" />
-              <path d="M5.6 11v2.6l3.2-2.6" />
-              <path d="M8 5.2v3.6M6.2 7h3.6" />
+              <path d="M13.6 8.8v3a1.8 1.8 0 0 1-1.8 1.8H4.2a1.8 1.8 0 0 1-1.8-1.8V4.4a1.8 1.8 0 0 1 1.8-1.8h3" />
+              <path d="M13.9 3.5a1.35 1.35 0 0 0-1.9-1.9L6.3 7.3l-.6 2.5 2.5-.6z" />
             </svg>
           </IconButton>
         )}
