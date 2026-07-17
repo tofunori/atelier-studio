@@ -102,6 +102,22 @@ pub trait Provider: Send + Sync {
         None
     }
 
+    /// Sonde Setup SANS quota (plan 046 étape 10) :
+    /// `{state, version, binPath, models, loginCommand?, shadowed?, error?}` —
+    /// `state` ∈ not_installed / version_unsupported / login_needed /
+    /// model_config_needed / ready / protocol_error. `None` = pas de sonde
+    /// dédiée (comportement historique : présent ⇒ ready).
+    async fn setup_probe(&self) -> Option<Value> {
+        None
+    }
+
+    /// Catalogue dynamique pour providerStatus :
+    /// `{models: [...], defaultModel, modelReasoning: {...}}`.
+    /// `None` = catalogue statique du registre (comportement historique).
+    async fn dynamic_models(&self) -> Option<Value> {
+        None
+    }
+
     /// Historique natif d'une session (import/reprise), events Atelier
     /// `user/thinking/text/tool_update`. `None` = pas de source native.
     async fn native_history(&self, _session_id: &str, _project_root: &str) -> Option<Vec<Value>> {

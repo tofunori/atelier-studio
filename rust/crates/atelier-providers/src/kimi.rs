@@ -49,6 +49,9 @@ pub struct KimiProvider {
     commands: Arc<StdMutex<HashMap<String, Value>>>,
     /// thread_id → sessionId ACP du tour en cours (pour interrupt).
     active_turns: StdMutex<HashMap<String, String>>,
+    /// Derniers modèles découverts (`kimi provider list --json`) — catalogue
+    /// vivant pour providerStatus, jamais codé en dur (décision 7).
+    discovered_models: StdMutex<Vec<String>>,
 }
 
 impl KimiProvider {
@@ -66,6 +69,7 @@ impl KimiProvider {
             config: Arc::new(StdMutex::new(HashMap::new())),
             commands: Arc::new(StdMutex::new(HashMap::new())),
             active_turns: StdMutex::new(HashMap::new()),
+            discovered_models: StdMutex::new(Vec::new()),
         }
     }
 
@@ -73,6 +77,57 @@ impl KimiProvider {
     pub fn bin_path(&self) -> &PathBuf {
         &self.bin
     }
+}
+
+/// Version CLI minimale supportée (plan 046, décision 2).
+pub(crate) const KIMI_MIN_VERSION: &str = "0.26.0";
+
+/// Compare deux versions a.b.c ; négatif si a < b.
+pub(crate) fn compare_kimi_versions(a: &str, b: &str) -> i64 {
+    let parse = |s: &str| -> Vec<i64> {
+        s.trim()
+            .split('.')
+            .map(|n| n.parse::<i64>().unwrap_or(0))
+            .collect()
+    };
+    let (pa, pb) = (parse(a), parse(b));
+    for i in 0..pa.len().max(pb.len()) {
+        let d = pa.get(i).copied().unwrap_or(0) - pb.get(i).copied().unwrap_or(0);
+        if d != 0 {
+            return d;
+        }
+    }
+    0
+}
+
+/// Dérivation PURE de l'état Setup (plan 046 étape 10) — testée exhaustivement.
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn derive_kimi_setup_state(
+    bin_present: bool,
+    version: Option<&str>,
+    protocol_ok: Option<bool>,
+    auth_required: bool,
+    probe_error: bool,
+    model_count: usize,
+) -> &'static str {
+    if !bin_present {
+        return "not_installed";
+    }
+    if let Some(v) = version {
+        if compare_kimi_versions(v, KIMI_MIN_VERSION) < 0 {
+            return "version_unsupported";
+        }
+    }
+    if probe_error || protocol_ok == Some(false) {
+        return "protocol_error";
+    }
+    if auth_required {
+        return "login_needed";
+    }
+    if model_count == 0 {
+        return "model_config_needed";
+    }
+    "ready"
 }
 
 /// Résolution du binaire (plan 046 étape 4) :
@@ -438,6 +493,59 @@ pub(crate) fn kimi_permission_outcome(params: &Value, answer: Option<Value>) -> 
 }
 
 impl KimiProvider {
+    /// `--version` du binaire réel (jamais du fixture de test — la version
+    /// d'un wrapper node n'est pas celle de Kimi).
+    async fn cli_version(&self) -> Option<String> {
+        if self.acp_args != vec!["acp".to_string()] {
+            return None;
+        }
+        let out = tokio::time::timeout(
+            Duration::from_secs(8),
+            tokio::process::Command::new(&self.bin).arg("--version").output(),
+        )
+        .await
+        .ok()?
+        .ok()?;
+        if !out.status.success() {
+            return None;
+        }
+        let v = String::from_utf8_lossy(&out.stdout).trim().to_string();
+        if v.is_empty() {
+            None
+        } else {
+            Some(v)
+        }
+    }
+
+    /// Catalogue modèles SANS quota ni prompt : `kimi provider list --json`
+    /// (vide tant qu'aucun provider Kimi n'est configuré côté CLI).
+    async fn discover_models(&self) -> Vec<String> {
+        if self.acp_args != vec!["acp".to_string()] {
+            return Vec::new();
+        }
+        let Ok(Ok(out)) = tokio::time::timeout(
+            Duration::from_secs(5),
+            tokio::process::Command::new(&self.bin)
+                .args(["provider", "list", "--json"])
+                .output(),
+        )
+        .await
+        else {
+            return Vec::new();
+        };
+        if !out.status.success() {
+            return Vec::new();
+        }
+        serde_json::from_slice::<Value>(&out.stdout)
+            .ok()
+            .and_then(|v| {
+                v.get("models")
+                    .and_then(Value::as_object)
+                    .map(|m| m.keys().cloned().collect())
+            })
+            .unwrap_or_default()
+    }
+
     async fn ensure_acp(&self) -> Result<AcpInitializeResult, AcpRpcError> {
         let init = self
             .acp

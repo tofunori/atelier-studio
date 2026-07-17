@@ -108,6 +108,9 @@ export function ComposerControls(p: {
       ? autoReasoningLabel(activeProviderInfo, resolvedModelId())
       : t("common.auto-default"),
     none: "Off",
+    // thinking Kimi : valeurs natives off/on (plan 046, décision 10)
+    off: "Off",
+    on: "On",
     minimal: "Minimal",
     low: "Low",
     medium: "Medium",

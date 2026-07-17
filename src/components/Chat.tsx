@@ -214,6 +214,13 @@ export default function Chat(p: {
   function levelsFor(pv: string, modelId: string) {
     const info = providerInfo(pv);
     if (info?.kind !== "api") {
+      // Thinking annoncé PAR MODÈLE par le harnais (Kimi : off/on seulement,
+      // uniquement quand le modèle actif le supporte — plan 046). Absent =
+      // contrôle masqué (1 seul niveau), jamais de niveaux inventés.
+      const meta = info?.modelReasoning?.[modelId];
+      if (Array.isArray(meta?.supported_efforts)) {
+        return ["", ...meta.supported_efforts];
+      }
       // Catalogue sidecar = source des efforts. "" (Auto — le CLI décide)
       // en tête, sauf providers sans Auto (NO_AUTO_EFFORT). Catalogue pas
       // encore chargé : [""] dégradé (Auto seul), comme avant pour les

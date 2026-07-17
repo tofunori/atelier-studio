@@ -1493,7 +1493,9 @@ export default function App() {
             actionLabel: t("app.cli-missing-copy"),
             onAction: () => {
               const cmds = missing.map((p: any) =>
-                p.id === "claude" ? "npm install -g @anthropic-ai/claude-code" : "npm install -g @openai/codex");
+                p.id === "claude" ? "npm install -g @anthropic-ai/claude-code"
+                : p.id === "kimi" ? "npm install -g @moonshot-ai/kimi-code"
+                : "npm install -g @openai/codex");
               navigator.clipboard?.writeText(cmds.join(" && "));
             },
             closable: true,
@@ -3301,7 +3303,7 @@ export default function App() {
           className="provider-new-dialog"
         >
             <div className="provider-new-grid">
-              {["claude", "codex", "grok", "opencode"].map((provider) => {
+              {["claude", "codex", "grok", "kimi", "opencode"].map((provider) => {
                 const info = providerList.find((item) => item.id === provider);
                 const available = info?.ok !== false;
                 return (

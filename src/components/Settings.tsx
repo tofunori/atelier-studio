@@ -336,13 +336,23 @@ export default function SettingsPage(p: {
       check_provider_config: t("settings.setup-auth-provider-config"),
       not_installed: t("settings.setup-auth-not-installed"),
       unknown: t("settings.setup-auth-unknown"),
+      // états de la sonde Kimi (plan 046 étape 10)
+      version_unsupported: t("settings.setup-auth-version-unsupported"),
+      model_config_needed: t("settings.setup-auth-model-config"),
+      protocol_error: t("settings.setup-auth-protocol-error"),
     };
     return labels[auth] ?? auth;
   }
 
   function authClass(auth: string) {
     if (auth === "ready") return "ok";
-    if (auth === "check_provider_config" || auth === "unknown") return "warn";
+    if (
+      auth === "check_provider_config" ||
+      auth === "unknown" ||
+      auth === "model_config_needed" ||
+      auth === "version_unsupported"
+    )
+      return "warn";
     return "ko";
   }
 

@@ -202,7 +202,7 @@
 .ui-tab.drop-target { box-shadow: inset 2px 0 0 var(--border-strong); }
 
 /* ---- ActivityDisclosure — journal sans carte --------------------------- */
-.ui-activity { max-width: min(760px, 100%); margin: 2px auto; color: var(--text-muted); font-size: var(--fs-body-s); }
+.ui-activity { max-width: min(var(--chat-col, 760px), 100%); margin: 2px auto; color: var(--text-muted); font-size: var(--fs-body-s); }
 .ui-activity-trigger { width: 100%; display: grid; grid-template-columns: minmax(0,1fr) auto 10px; align-items: center; gap: 7px;
   padding: 3px 0; border: 0; background: transparent; color: inherit; font: inherit; text-align: left; cursor: pointer; }
 .ui-activity-trigger.has-icon { grid-template-columns: 15px minmax(0,1fr) auto 10px; }
