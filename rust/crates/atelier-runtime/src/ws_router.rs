@@ -302,6 +302,22 @@ pub async fn route_ws(state: &AppState, text: &str) -> Vec<String> {
                 }
                 _ => journal,
             };
+            // Les reloads natifs (jsonl des CLIs) portent le prompt réellement
+            // envoyé, bloc <atelier-kb> inclus — jamais dans l'affichage.
+            let events: Vec<Value> = events
+                .into_iter()
+                .map(|mut event| {
+                    if event.get("kind").and_then(Value::as_str) == Some("user") {
+                        if let Some(text) = event.get("text").and_then(Value::as_str) {
+                            if text.contains("<atelier-kb") {
+                                let stripped = crate::kb_block::strip_kb_block(text);
+                                event["text"] = json!(stripped);
+                            }
+                        }
+                    }
+                    event
+                })
+                .collect();
             vec![json_msg(json!({
                 "type": "history",
                 "threadId": id,
@@ -1434,6 +1450,8 @@ fn gbrain_bin() -> Option<std::path::PathBuf> {
     if let Some(home) = home {
         candidates.push(home.join("bin/gbrain"));
         candidates.push(home.join(".local/bin/gbrain"));
+        // installation bun (cas réel de Thierry) : jamais dans le PATH GUI
+        candidates.push(home.join(".bun/bin/gbrain"));
     }
     candidates.into_iter().find(|p| p.is_file())
 }

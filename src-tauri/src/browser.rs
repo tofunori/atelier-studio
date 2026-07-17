@@ -43,13 +43,16 @@ const CAPTURE_SELECTION_JS: &str = r#"
 // Texte intégral de la page (base de connaissances, plan 049 T2). Même canal
 // titre que la sélection : plafond 100k éprouvé par ce canal — un plafond plus
 // haut demanderait un transport chunké.
-const CAPTURE_PAGE_JS: &str = r#"
+// Plafond param\u00e9trable : le canal titre (WebKit) refuse silencieusement les
+// tr\u00e8s longues valeurs \u2014 le front retente avec un plafond r\u00e9duit avant de se
+// replier sur un fetch backend (pages publiques).
+const CAPTURE_PAGE_JS_TEMPLATE: &str = r#"
 (() => {
   try {
     const previousTitle = String(document.title || "");
     const text = String(document.body?.innerText || "").replace(/\u00a0/g, " ").trim();
     const payload = {
-      text: text.slice(0, 100000),
+      text: text.slice(0, __MAX__),
       title: previousTitle.slice(0, 500),
       url: String(location.href || "").slice(0, 4096)
     };
@@ -339,6 +342,7 @@ pub fn browser_capture_selection(
 pub fn browser_capture_page(
     app: AppHandle,
     label: Option<String>,
+    max_chars: Option<u32>,
 ) -> Result<BrowserCapture, String> {
     let label = browser_label(label);
     let Some(wv) = find_webview(&app, &label) else {
@@ -347,7 +351,9 @@ pub fn browser_capture_page(
     if let Ok(mut slot) = capture_store().lock() {
         *slot = None;
     }
-    wv.eval(CAPTURE_PAGE_JS).map_err(|e| e.to_string())?;
+    let max = max_chars.unwrap_or(100_000).clamp(1_000, 300_000);
+    let js = CAPTURE_PAGE_JS_TEMPLATE.replace("__MAX__", &max.to_string());
+    wv.eval(&js).map_err(|e| e.to_string())?;
     for _ in 0..30 {
         if let Ok(mut slot) = capture_store().lock() {
             if let Some(capture) = slot.take() {

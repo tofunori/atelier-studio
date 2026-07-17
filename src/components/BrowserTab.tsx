@@ -342,23 +342,28 @@ export default function BrowserTab(p: {
 
   async function addCurrentPageToKb() {
     if (!activeTab?.url) return;
-    const capture = await invoke<BrowserCapture>("browser_capture_page", { label: activeTab.label })
-      .catch(() => null);
+    const grab = (maxChars: number) =>
+      invoke<BrowserCapture>("browser_capture_page", { label: activeTab.label, maxChars })
+        .catch(() => null);
+    // Canal titre : 100k d'abord ; WebKit refuse silencieusement les titres
+    // très longs → retente à 24k (couvre les pages derrière un login).
+    let capture = await grab(100000);
+    if (!capture?.text?.trim()) capture = await grab(24000);
     const url = capture?.url || activeTab.url || "";
-    const text = capture?.text?.trim() ?? "";
-    if (!url || !text) {
+    if (!url) {
       setKbFlash("err");
       return;
     }
-    // texte capturé transmis tel quel (pas de re-fetch : la page peut être
-    // derrière un login) ; réponse kbAdded/kbError relayée par App en
-    // événement "kb-source-added"
+    const text = capture?.text?.trim() ?? "";
+    // Texte capturé transmis tel quel (pas de re-fetch : login possible) ;
+    // sans texte, le backend re-télécharge la page (publique). Réponse
+    // kbAdded/kbError relayée par App en événement "kb-source-added".
     const sent = wsSend({
       type: "kbAdd",
       kind: "web",
       origin: url,
       title: capture?.title || activeTab.title || "",
-      text,
+      ...(text ? { text } : {}),
     });
     if (!sent) setKbFlash("err");
   }
@@ -538,7 +543,7 @@ export default function BrowserTab(p: {
           </IconButton>
           <IconButton
             size="s"
-            className={`ghost ${kbFlash === "ok" ? "on" : ""}`}
+            className={`ghost ${kbFlash === "ok" ? "on" : ""}${kbFlash === "err" ? " kb-flash-err" : ""}`}
             label={t("browser.add-kb")}
             disabled={!activeTab?.url}
             title={kbFlash === "ok" ? t("browser.added-kb") : kbFlash === "err" ? t("browser.add-kb-error") : t("browser.add-kb")}

@@ -2881,6 +2881,8 @@ button.ctx-ring-wrap { border: none; font: inherit; color: inherit;
   border: 1px solid var(--border2); border-radius: var(--r-s); padding: 6px 8px; }
 .kb-note-actions { display: flex; justify-content: flex-end; gap: 6px; }
 .kb-error { font-size: var(--fs-s); color: var(--u-hot, #e06c75); }
+/* échec d'épinglage depuis le browser : le livre vire brièvement au rouge sémantique */
+.browser-bar .kb-flash-err, .browser-bar .kb-flash-err:hover { color: var(--u-hot, #e06c75); }
 .kb-list { max-height: 280px; overflow-y: auto; display: flex; flex-direction: column; gap: 2px; }
 .kb-group { font-size: var(--fs-xs); letter-spacing: .08em; text-transform: uppercase;
   color: var(--muted2); padding: 8px 4px 3px; font-weight: 500; }
