@@ -112,6 +112,28 @@ fn read_cache_text(knowledge_dir: &Path, id: &str) -> Option<String> {
     )
 }
 
+/// Métadonnées d'une source (titre, origine, kind) — pour la promotion T7.
+pub(crate) fn source_meta(
+    knowledge_dir: &Path,
+    id: &str,
+) -> Option<(String, Option<String>, String)> {
+    read_registry(knowledge_dir)
+        .into_iter()
+        .find(|s| s.get("id").and_then(Value::as_str) == Some(id))
+        .map(|s| {
+            (
+                s.get("title").and_then(Value::as_str).unwrap_or("Sans titre").to_string(),
+                s.get("origin").and_then(Value::as_str).map(str::to_string),
+                s.get("kind").and_then(Value::as_str).unwrap_or("file").to_string(),
+            )
+        })
+}
+
+/// Extrait borné du texte en cache (scalaires Unicode, comme le mjs).
+pub(crate) fn cache_excerpt(knowledge_dir: &Path, id: &str, max: usize) -> Option<String> {
+    read_cache_text(knowledge_dir, id).map(|text| text.chars().take(max).collect())
+}
+
 /// Prépare les entrées (miroir de `kbBlockEntries`) : id inconnu ignoré,
 /// cache illisible → fiche, `"gbrain"` géré par l'appelant.
 pub fn kb_block_entries(

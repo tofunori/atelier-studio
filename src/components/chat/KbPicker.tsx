@@ -76,6 +76,16 @@ function KindIcon({ kind, size = 13 }: { kind: string; size?: number }) {
       </svg>
     );
   }
+  if (kind === "gbrain") {
+    return (
+      <svg {...common}>
+        <circle cx="3.5" cy="8" r="1.7" />
+        <circle cx="12" cy="3.8" r="1.7" />
+        <circle cx="12" cy="12.2" r="1.7" />
+        <path d="m5 7.2 5.5-2.7M5 8.8l5.5 2.7" />
+      </svg>
+    );
+  }
   return (
     <svg {...common}>
       <path d="M4 1.8h6l3 3v9.4a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V2.8a1 1 0 0 1 1-1z" />
@@ -109,6 +119,8 @@ export function KbPickerPanel(p: {
   onToggle: (id: string) => void;
   onToggleFull: (id: string) => void;
   onRemoveSource: (id: string) => void;
+  onPromote: (id: string) => void;
+  promoted: string | null;
   onAddFiles: () => void;
   onAddFolder: () => void;
   onAddUrl: (url: string) => void;
@@ -225,6 +237,18 @@ export function KbPickerPanel(p: {
                   <span className="kb-row-actions">
                     <IconButton
                       size="s"
+                      className={`ghost ${p.promoted === source.id ? "on" : ""}`}
+                      label={t("kb.promote")}
+                      title={p.promoted === source.id ? t("kb.promoted") : t("kb.promote")}
+                      onClick={() => p.onPromote(source.id)}
+                    >
+                      <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3">
+                        <path d="M8 12.5V4M4.5 7.5 8 4l3.5 3.5" />
+                        <path d="M3 14h10" />
+                      </svg>
+                    </IconButton>
+                    <IconButton
+                      size="s"
                       className={`ghost kb-full ${full ? "on" : ""}`}
                       label={t("kb.full-content")}
                       title={full ? t("kb.full-content-on") : t("kb.full-content")}
@@ -247,6 +271,21 @@ export function KbPickerPanel(p: {
             })}
           </div>
         ))}
+        <div>
+          <div className="kb-group">{t("kb.group-corpus")}</div>
+          <div className={`kb-row ${p.attached.includes("gbrain") ? "on" : ""}`}>
+            <RowButton
+              className="kb-row-main"
+              title={t("kb.gbrain-title")}
+              onClick={() => p.onToggle("gbrain")}
+            >
+              <span className={`kb-check ${p.attached.includes("gbrain") ? "on" : ""}`} aria-hidden />
+              <span className="kb-kind"><KindIcon kind="gbrain" /></span>
+              <span className="kb-name">{t("kb.gbrain-title")}</span>
+              <span className="kb-meta">{t("kb.gbrain-meta")}</span>
+            </RowButton>
+          </div>
+        </div>
       </div>
       <div className="kb-foot">
         <span>{t("kb.attached-count").replace("{n}", String(p.attached.length))}</span>
@@ -259,6 +298,7 @@ export function KbPickerPanel(p: {
 export function KbPicker({ binding }: { binding: KbBinding }) {
   const [pickerOpen, setPickerOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [promoted, setPromoted] = useState<string | null>(null);
   const sources = useSyncExternalStore(subscribeKbSources, kbSourcesSnapshot);
   const openRef = useRef(pickerOpen);
   openRef.current = pickerOpen;
@@ -312,6 +352,21 @@ export function KbPicker({ binding }: { binding: KbBinding }) {
     window.addEventListener("kb-source-added", onAdded);
     return () => window.removeEventListener("kb-source-added", onAdded);
   }, []);
+
+  useEffect(() => {
+    const onPromoted = (e: Event) => {
+      const detail = (e as CustomEvent).detail as { id?: string } | undefined;
+      if (detail?.id) setPromoted(detail.id);
+    };
+    window.addEventListener("kb-source-promoted", onPromoted);
+    return () => window.removeEventListener("kb-source-promoted", onPromoted);
+  }, []);
+
+  useEffect(() => {
+    if (!promoted) return;
+    const timer = setTimeout(() => setPromoted(null), 2000);
+    return () => clearTimeout(timer);
+  }, [promoted]);
 
   function toggle(id: string) {
     const on = binding.attached.includes(id);
@@ -396,6 +451,11 @@ export function KbPicker({ binding }: { binding: KbBinding }) {
             onToggle={toggle}
             onToggleFull={toggleFull}
             onRemoveSource={removeSource}
+            onPromote={(id) => {
+              setError(null);
+              wsSend({ type: "kbPromote", id });
+            }}
+            promoted={promoted}
             onAddFiles={() => { void addFiles(); }}
             onAddFolder={() => { void addFolder(); }}
             onAddUrl={(url) => {
@@ -428,10 +488,12 @@ export function KbChips(p: {
     <div className="kb-chips">
       {p.attached.map((id) => {
         const source = sources.find((entry) => entry.id === id);
+        const isGbrain = id === "gbrain";
+        const label = isGbrain ? t("kb.gbrain-title") : source?.title ?? id;
         return (
-          <span key={id} className="chip kb-chip" title={source?.origin ?? source?.title ?? id}>
-            <KindIcon kind={source?.kind ?? "file"} size={11} />
-            <span className="chip-label">{source?.title ?? id}</span>
+          <span key={id} className="chip kb-chip" title={source?.origin ?? label}>
+            <KindIcon kind={isGbrain ? "gbrain" : source?.kind ?? "file"} size={11} />
+            <span className="chip-label">{label}</span>
             {p.fullContent.includes(id) && (
               <span className="kb-chip-full">{t("kb.chip-full")}</span>
             )}

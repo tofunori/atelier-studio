@@ -2,6 +2,7 @@
 // épinglées + cache d'extraction en pages, réutilisant le moteur de passages
 // Zotero pour la recherche lexicale. Aucune dépendance externe.
 import { createHash } from "node:crypto";
+import { spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { basename, dirname, extname, join, resolve } from "node:path";
@@ -511,6 +512,27 @@ export class KnowledgeStore {
     }
     return this.pagesFor(id).map((page) => page.text).join("\n\n");
   }
+}
+
+// Promotion vers gbrain (plan 049 T7) : une source épinglée qui mérite le
+// corpus permanent part dans inbox/ via `gbrain capture` (titre + origine +
+// extrait). NAS injoignable = erreur propre après timeout — jamais bloquant.
+export function promoteToGbrain(store, id, { spawn = spawnSync, timeoutMs = 15_000 } = {}) {
+  const entry = store.get(id);
+  if (!entry) throw new Error(`Source inconnue: ${id}`);
+  let extrait = "";
+  try {
+    extrait = Array.from(store.fullText(id)).slice(0, 700).join("");
+  } catch {}
+  const lines = [`${entry.title} — ${entry.origin ?? entry.kind}`];
+  if (extrait) lines.push("", extrait);
+  const run = spawn("gbrain", ["capture", lines.join("\n")], { encoding: "utf8", timeout: timeoutMs });
+  if (run.error) throw new Error(`gbrain indisponible: ${run.error.message}`);
+  if (run.status !== 0) {
+    const message = String(run.stderr || run.stdout || "").trim();
+    throw new Error(message || "gbrain capture: échec");
+  }
+  return { id, captured: true };
 }
 
 // Prépare les entrées du bloc <atelier-kb> (plan 049 T4) pour un thread.

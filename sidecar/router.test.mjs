@@ -964,6 +964,30 @@ describe("base de connaissances (kbAdd)", () => {
     }
   });
 
+  it("kbPromote répond kbPromoted (spawn injecté) et kbError en échec", async () => {
+    const prev = process.env.ATELIER_APP_DIR;
+    process.env.ATELIER_APP_DIR = mkdtempSync(join(tmpdir(), "atelier-kb-promote-"));
+    try {
+      const sent = [];
+      const ctx = {
+        send: (m) => sent.push(m),
+        kbPromoteDeps: { spawn: () => ({ status: 0, stdout: "ok", stderr: "" }) },
+      };
+      await route({
+        type: "kbAdd", kind: "note", title: "À promouvoir",
+        text: "Contenu de note suffisamment long pour être indexé par le moteur de passages.",
+      }, ctx);
+      await route({ type: "kbPromote", id: sent[0].source.id }, ctx);
+      expect(sent[1]).toEqual({ type: "kbPromoted", id: sent[0].source.id });
+      await route({ type: "kbPromote", id: "inexistant" }, ctx);
+      expect(sent[2].type).toBe("kbError");
+      expect(sent[2].message).toMatch(/Source inconnue/);
+    } finally {
+      if (prev === undefined) delete process.env.ATELIER_APP_DIR;
+      else process.env.ATELIER_APP_DIR = prev;
+    }
+  });
+
   it("répond kbError sur kind invalide, sans jeter", async () => {
     const sent = [];
     await route({ type: "kbAdd", kind: "vhs" }, { send: (m) => sent.push(m) });

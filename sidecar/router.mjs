@@ -9,7 +9,7 @@ import { createHarnessThread } from "./harness_events.mjs";
 import { HANDOFF_END } from "./handoff.mjs";
 import { stripGalleryToolInstruction, withGalleryToolInstruction } from "./gallery_tool_prompt.mjs";
 import { stripZoteroPassageInstruction, withZoteroPassageInstruction } from "./zotero_passage_prompt.mjs";
-import { KnowledgeStore, defaultKnowledgeDir, kbBlockEntries } from "./knowledge.mjs";
+import { KnowledgeStore, defaultKnowledgeDir, kbBlockEntries, promoteToGbrain } from "./knowledge.mjs";
 import { withKbBlock } from "./kb_prompt.mjs";
 import * as narval from "./narval.mjs";
 
@@ -1059,6 +1059,17 @@ export async function route(msg, ctx) {
           }
           if (touched) (ctx.broadcast ?? ctx.send)({ type: "threads", threads: ctx.store.list() });
         }
+      } catch (error) {
+        ctx.send({ type: "kbError", message: error instanceof Error ? error.message : String(error) });
+      }
+      break;
+    }
+    case "kbPromote": {
+      // promotion d'une source vers le corpus gbrain (plan 049 T7)
+      try {
+        const store = new KnowledgeStore(defaultKnowledgeDir());
+        const { id } = promoteToGbrain(store, msg.id, ctx.kbPromoteDeps ?? {});
+        ctx.send({ type: "kbPromoted", id });
       } catch (error) {
         ctx.send({ type: "kbError", message: error instanceof Error ? error.message : String(error) });
       }

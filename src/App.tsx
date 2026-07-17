@@ -1413,6 +1413,9 @@ export default function App() {
       if (msg.type === "kbSources") {
         window.dispatchEvent(new CustomEvent("kb-sources", { detail: msg.sources }));
       }
+      if (msg.type === "kbPromoted") {
+        window.dispatchEvent(new CustomEvent("kb-source-promoted", { detail: { id: msg.id } }));
+      }
       if (msg.type === "localServers") {
         window.dispatchEvent(new CustomEvent("local-servers", { detail: msg.servers }));
       }

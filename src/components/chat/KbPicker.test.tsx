@@ -28,6 +28,8 @@ function panelProps(over: Partial<Parameters<typeof KbPickerPanel>[0]> = {}) {
     onToggle: vi.fn(),
     onToggleFull: vi.fn(),
     onRemoveSource: vi.fn(),
+    onPromote: vi.fn(),
+    promoted: null,
     onAddFiles: vi.fn(),
     onAddFolder: vi.fn(),
     onAddUrl: vi.fn(),
@@ -62,6 +64,9 @@ describe("KbPickerPanel", () => {
     renderUi(<KbPickerPanel {...props} />);
     fireEvent.click(screen.getByText("Albedo feedbacks review"));
     expect(props.onToggle).toHaveBeenCalledWith("bbbb2222");
+    // la source spéciale corpus est toujours proposée et bascule sur "gbrain"
+    fireEvent.click(screen.getByText("Corpus thèse (gbrain)"));
+    expect(props.onToggle).toHaveBeenCalledWith("gbrain");
     fireEvent.change(screen.getByPlaceholderText("Rechercher…"), { target: { value: "décisions" } });
     expect(screen.queryByText("Albedo feedbacks review")).toBeNull();
     expect(screen.getByText("Décisions chap. 2")).toBeTruthy();

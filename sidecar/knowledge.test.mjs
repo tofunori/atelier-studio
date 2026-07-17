@@ -265,6 +265,39 @@ describe("base de connaissances — dossiers (T6)", () => {
   });
 });
 
+describe("base de connaissances — promotion gbrain (T7)", () => {
+  it("capture titre + origine + extrait via gbrain capture", async () => {
+    const store = new KnowledgeStore(tmp());
+    const { source } = await store.add({ kind: "note", title: "Idée durable", text: LONG_NOTE });
+    const calls = [];
+    const { promoteToGbrain } = await import("./knowledge.mjs");
+    const result = promoteToGbrain(store, source.id, {
+      spawn: (cmd, args) => {
+        calls.push([cmd, ...args]);
+        return { status: 0, stdout: "ok", stderr: "" };
+      },
+    });
+    expect(result).toEqual({ id: source.id, captured: true });
+    expect(calls[0][0]).toBe("gbrain");
+    expect(calls[0][1]).toBe("capture");
+    expect(calls[0][2]).toContain("Idée durable — note");
+    expect(calls[0][2]).toContain("troncature de septembre");
+  });
+
+  it("NAS injoignable ou id inconnu : erreurs propres", async () => {
+    const store = new KnowledgeStore(tmp());
+    const { source } = await store.add({ kind: "note", title: "Éphémère", text: LONG_NOTE });
+    const { promoteToGbrain } = await import("./knowledge.mjs");
+    expect(() => promoteToGbrain(store, "absent")).toThrow(/Source inconnue/);
+    expect(() => promoteToGbrain(store, source.id, {
+      spawn: () => ({ status: 1, stdout: "", stderr: "ssh: connect to host rorqual timed out" }),
+    })).toThrow(/rorqual timed out/);
+    expect(() => promoteToGbrain(store, source.id, {
+      spawn: () => ({ error: new Error("ENOENT") }),
+    })).toThrow(/gbrain indisponible/);
+  });
+});
+
 describe("base de connaissances — htmlToText", () => {
   it("extrait titre et texte, décode les entités, saute des lignes aux blocs", () => {
     const { title, text } = htmlToText(

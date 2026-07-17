@@ -56,6 +56,7 @@ pub const ALL_MESSAGE_TYPES: &[&str] = &[
     "kbAdd",
     "kbList",
     "kbRemove",
+    "kbPromote",
     "generateImage",
     "apiProviders",
     "saveApiProvider",
@@ -538,6 +539,7 @@ pub async fn route_ws(state: &AppState, text: &str) -> Vec<String> {
         "kbAdd" => handle_kb_add(state, &msg),
         "kbList" => handle_kb_list(state),
         "kbRemove" => handle_kb_remove(state, &msg).await,
+        "kbPromote" => handle_kb_promote(state, &msg).await,
         "generateImage" => handle_generate_image(state, &msg).await,
         "apiProviders" => {
             let list = list_api_providers_public(state.app_dir());
@@ -1406,6 +1408,74 @@ fn kb_error(message: String) -> Vec<String> {
 #[cfg(test)]
 pub(crate) fn kb_node_bin_for_tests() -> Option<std::path::PathBuf> {
     kb_node_bin()
+}
+
+/// Résout le binaire gbrain (PATH Finder minimal → repl. usuels).
+fn gbrain_bin() -> Option<std::path::PathBuf> {
+    if let Ok(p) = std::env::var("ATELIER_TEST_GBRAIN") {
+        let pb = std::path::PathBuf::from(p);
+        if pb.is_file() {
+            return Some(pb);
+        }
+    }
+    if let Ok(out) = std::process::Command::new("which").arg("gbrain").output() {
+        if out.status.success() {
+            let p = String::from_utf8_lossy(&out.stdout).trim().to_string();
+            if !p.is_empty() {
+                return Some(std::path::PathBuf::from(p));
+            }
+        }
+    }
+    let home = std::env::var_os("HOME").map(std::path::PathBuf::from);
+    let mut candidates = vec![
+        std::path::PathBuf::from("/opt/homebrew/bin/gbrain"),
+        std::path::PathBuf::from("/usr/local/bin/gbrain"),
+    ];
+    if let Some(home) = home {
+        candidates.push(home.join("bin/gbrain"));
+        candidates.push(home.join(".local/bin/gbrain"));
+    }
+    candidates.into_iter().find(|p| p.is_file())
+}
+
+/// Promotion d'une source vers le corpus gbrain (plan 049 T7) — miroir du
+/// routeur Node : titre + origine + extrait (700 scalaires), timeout 15 s.
+async fn handle_kb_promote(state: &AppState, msg: &Value) -> Vec<String> {
+    let id = msg.get("id").and_then(|v| v.as_str()).unwrap_or("");
+    if id.is_empty() {
+        return kb_error("kbPromote: id requis".into());
+    }
+    let knowledge_dir = state.app_dir().join("knowledge");
+    let Some((title, origin, kind)) = crate::kb_block::source_meta(&knowledge_dir, id) else {
+        return kb_error(format!("Source inconnue: {id}"));
+    };
+    let Some(gbrain) = gbrain_bin() else {
+        return kb_error("gbrain indisponible: introuvable sur le PATH".into());
+    };
+    let mut text = format!("{title} — {}", origin.unwrap_or(kind));
+    if let Some(excerpt) = crate::kb_block::cache_excerpt(&knowledge_dir, id, 700) {
+        if !excerpt.is_empty() {
+            text.push_str("\n\n");
+            text.push_str(&excerpt);
+        }
+    }
+    let run = tokio::process::Command::new(gbrain)
+        .arg("capture")
+        .arg(&text)
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .output();
+    match tokio::time::timeout(std::time::Duration::from_secs(15), run).await {
+        Err(_) => kb_error("gbrain: délai dépassé (NAS injoignable ?)".into()),
+        Ok(Err(e)) => kb_error(format!("gbrain indisponible: {e}")),
+        Ok(Ok(out)) if !out.status.success() => {
+            let stderr = String::from_utf8_lossy(&out.stderr).trim().to_string();
+            let stdout = String::from_utf8_lossy(&out.stdout).trim().to_string();
+            let message = if !stderr.is_empty() { stderr } else { stdout };
+            kb_error(if message.is_empty() { "gbrain capture: échec".into() } else { message })
+        }
+        Ok(Ok(_)) => vec![json_msg(json!({"type": "kbPromoted", "id": id}))],
+    }
 }
 
 fn handle_kb_add(state: &AppState, msg: &Value) -> Vec<String> {
@@ -2634,6 +2704,22 @@ mod tests {
         let v: Value = serde_json::from_str(&out[0]).unwrap();
         assert_eq!(v["type"], "kbError");
         assert!(v["message"].as_str().unwrap().contains("kb_cli.mjs introuvable"));
+    }
+
+    #[tokio::test]
+    async fn kb_promote_erreurs_propres() {
+        let dir = tempdir().unwrap();
+        let s = state(dir.path());
+        // id manquant
+        let out = route_ws(&s, r#"{"type":"kbPromote"}"#).await;
+        let v: Value = serde_json::from_str(&out[0]).unwrap();
+        assert_eq!(v["type"], "kbError");
+        assert!(v["message"].as_str().unwrap().contains("id requis"));
+        // source inconnue (registre vide) — testé AVANT la résolution gbrain
+        let out = route_ws(&s, r#"{"type":"kbPromote","id":"absent"}"#).await;
+        let v: Value = serde_json::from_str(&out[0]).unwrap();
+        assert_eq!(v["type"], "kbError");
+        assert!(v["message"].as_str().unwrap().contains("Source inconnue"));
     }
 
     #[tokio::test]
