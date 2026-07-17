@@ -586,6 +586,12 @@ html, body, #root, .app { height: 100vh; overflow: hidden;
 .rail-view.on::before { content: ""; position: absolute; left: -5px; top: 7px; bottom: 7px;
   width: 2px; border-radius: var(--r-s); background: var(--accent); }
 .rail-sep { width: 26px; height: 1px; background: var(--border); margin: 2px 0 4px; flex-shrink: 0; }
+/* tiroir « Autres surfaces » : les surfaces secondaires se déplient en place */
+.rail-more svg { transition: transform var(--motion-fast) var(--ease-out); }
+.rail-more.open svg { transform: rotate(90deg); }
+.rail-fold { display: grid; grid-template-rows: 0fr; transition: grid-template-rows var(--motion-standard) var(--ease-out); width: 100%; }
+.rail-fold.open { grid-template-rows: 1fr; }
+.rail-fold > div { overflow: hidden; min-height: 0; display: flex; flex-direction: column; align-items: center; gap: 4px; }
 .rail-proj { position: relative; width: 38px; height: 38px; border-radius: var(--r-m);
   border: none; background: transparent !important; color: var(--fg2);
   font-size: var(--fs-xl); font-weight: 600; cursor: pointer; overflow: hidden;

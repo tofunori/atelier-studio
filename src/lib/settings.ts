@@ -47,6 +47,7 @@ export type Settings = {
   providerOrder: ProviderId[]; // ordre du picker ([] = ordre du catalogue)
   hiddenProviders: ProviderId[]; // masqués du picker (le provider du thread actif reste visible)
   activeView: ViewId;
+  railMoreOpen: boolean; // rail : section « Autres surfaces » dépliée (la surface active reste toujours visible)
 };
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -85,6 +86,7 @@ export const DEFAULT_SETTINGS: Settings = {
   providerOrder: [],
   hiddenProviders: [],
   activeView: "chats",
+  railMoreOpen: false,
 };
 
 const KEY = "atelier-studio.settings";

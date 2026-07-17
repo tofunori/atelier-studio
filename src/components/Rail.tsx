@@ -45,6 +45,8 @@ export default function Rail(p: {
   onSelectGallery: () => void;
   onSelectIde: () => void;
   ideActive: boolean;
+  moreOpen: boolean;
+  onToggleMore: () => void;
   showExplorer: boolean;
   onToggleExplorer: () => void;
   onSelectView: (view: ViewId) => void;
@@ -58,6 +60,29 @@ export default function Rail(p: {
   const [menu, setMenu] = useState<{ root: string; y: number } | null>(null);
   const [dragRoot, setDragRoot] = useState<string | null>(null);
   const [dragOver, setDragOver] = useState<string | null>(null);
+
+  // Tiroir de surfaces : IDE et Galerie restent toujours visibles, les surfaces
+  // secondaires se replient derrière « Autres surfaces ». La surface active
+  // rangée reste visible même repliée (même règle que le provider du thread
+  // courant dans le picker de providers).
+  const secondarySurfaces = SURFACES.filter((s) => s.id !== "git" && s.id !== "atelier");
+  const atelierSurface = SURFACES.find((s) => s.id === "atelier")!;
+  const revealedSurface = p.moreOpen ? null : (secondarySurfaces.find((s) => s.id === p.activeSurface) ?? null);
+  const surfaceBtn = (s: (typeof SURFACES)[number]) => (
+    <IconButton
+      key={s.id}
+      /* Galerie (surface "atelier") n'est active que sur l'onglet gallery,
+         pas quand un fichier est ouvert (là c'est l'IDE qui est actif) */
+      className={`rail-view ${p.layout !== "chat" && p.activeSurface === s.id && !(s.id === "atelier" && p.ideActive) ? "on" : ""}`}
+      label={t(s.labelKey)}
+      title={t(s.labelKey)}
+      /* Galerie (atelier) : revient à l'onglet galerie même si un fichier
+         est ouvert (IDE) — sinon on resterait bloqué sur le fichier */
+      onClick={() => (s.id === "atelier" ? p.onSelectGallery() : p.onSelectSurface(s.id))}
+    >
+      {s.icon}
+    </IconButton>
+  );
 
   return (
     <div className="rail">
@@ -95,21 +120,22 @@ export default function Rail(p: {
           </svg>
         </IconButton>
         {/* Git et Explorateur sont montés dans la TopBar → exclus du rail */}
-        {SURFACES.filter((s) => s.id !== "git").map((s) => (
-          <IconButton
-            key={s.id}
-            /* Galerie (surface "atelier") n'est active que sur l'onglet gallery,
-               pas quand un fichier est ouvert (là c'est l'IDE qui est actif) */
-            className={`rail-view ${p.layout !== "chat" && p.activeSurface === s.id && !(s.id === "atelier" && p.ideActive) ? "on" : ""}`}
-            label={t(s.labelKey)}
-            title={t(s.labelKey)}
-            /* Galerie (atelier) : revient à l'onglet galerie même si un fichier
-               est ouvert (IDE) — sinon on resterait bloqué sur le fichier */
-            onClick={() => (s.id === "atelier" ? p.onSelectGallery() : p.onSelectSurface(s.id))}
-          >
-            {s.icon}
-          </IconButton>
-        ))}
+        {surfaceBtn(atelierSurface)}
+        <IconButton
+          className={`rail-view rail-more ${p.moreOpen ? "open" : ""}`}
+          label={t("atelier.more")}
+          title={t("atelier.more")}
+          aria-expanded={p.moreOpen}
+          onClick={p.onToggleMore}
+        >
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M6 4.5 9.5 8 6 11.5" />
+          </svg>
+        </IconButton>
+        {revealedSurface && surfaceBtn(revealedSurface)}
+        <div className={`rail-fold ${p.moreOpen ? "open" : ""}`}>
+          <div>{secondarySurfaces.filter((s) => s !== revealedSurface).map(surfaceBtn)}</div>
+        </div>
       </div>
       <div className="rail-sep" />
       {p.projects.map((root) => {

@@ -53,6 +53,12 @@ describe("settings defaults", () => {
     expect(loadSettings().activeView).toBe("chats");
   });
 
+  it("replie les surfaces secondaires du rail par défaut et persiste le dépliage", () => {
+    expect(loadSettings().railMoreOpen).toBe(false);
+    localStorage.setItem("atelier-studio.settings", JSON.stringify({ railMoreOpen: true }));
+    expect(loadSettings().railMoreOpen).toBe(true);
+  });
+
   it("migre les anciens favoris de modèles vers les réglages par provider", () => {
     localStorage.setItem("atelier-studio.favModels", JSON.stringify([
       "opencode:opencode/glm-5.2",
