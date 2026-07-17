@@ -299,11 +299,11 @@ export function ComposerControls(p: {
                 efforts: [],
               };
               const sortedModels = sortByFav(modelsFor(menuProvider), menuProvider);
+              const activeModelId = resolvedModelId(menuProvider);
               const menuModels = menuProvider === "opencode"
                 ? sortedModels.filter((entry) => (
-                    entry.id === ""
-                    || favModels.includes(`${menuProvider}:${entry.id}`)
-                    || (provider === menuProvider && model === entry.id)
+                    favModels.includes(`${menuProvider}:${entry.id}`)
+                    || (provider === menuProvider && activeModelId === entry.id)
                   ))
                 : sortedModels;
               return (
@@ -394,7 +394,7 @@ export function ComposerControls(p: {
                       const selectedModelId = menuProvider === "claude" && !baseModelId.endsWith("[1m]")
                         ? `${baseModelId}[1m]`
                         : baseModelId;
-                      const active = provider === menuProvider && model === selectedModelId;
+                      const active = provider === menuProvider && activeModelId === selectedModelId;
                       const fav = favModels.includes(key);
                       return (
                         // interactifs JAMAIS imbriqués (contrat ThreadRow) :
@@ -435,16 +435,16 @@ export function ComposerControls(p: {
                         <div className="mp-sep" />
                         <div className="mp-hd">{t("chat.context")}</div>
                         {[
-                          { id: "200k", label: t("chat.context-200k"), on: provider === "claude" && !model.includes("[1m]") },
-                          { id: "1m", label: "1M", on: provider === "claude" && model.includes("[1m]") },
+                          { id: "200k", label: t("chat.context-200k"), on: provider === "claude" && !activeModelId.includes("[1m]") },
+                          { id: "1m", label: "1M", on: provider === "claude" && activeModelId.includes("[1m]") },
                         ].map((ctx) => (
                           <RowButton key={ctx.id} role="menuitemradio" aria-checked={ctx.on}
                             className="mp-item model-row"
                             onClick={() => {
-                              if (ctx.id === "1m" && !model.includes("[1m]")) {
-                                setModel((model || "claude-sonnet-5") + "[1m]");
-                              } else if (ctx.id === "200k" && model.includes("[1m]")) {
-                                setModel(model.replace(/\[1m\]$/, ""));
+                              if (ctx.id === "1m" && !activeModelId.includes("[1m]")) {
+                                setModel(activeModelId + "[1m]");
+                              } else if (ctx.id === "200k" && activeModelId.includes("[1m]")) {
+                                setModel(activeModelId.replace(/\[1m\]$/, ""));
                               }
                             }}>
                             <span>{ctx.label}</span>

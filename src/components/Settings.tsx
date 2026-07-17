@@ -46,7 +46,6 @@ const SECTIONS = [
 ];
 
 const CLAUDE_MODELS = [
-  { id: "", labelKey: "common.default-cli" },
   { id: "claude-fable-5[1m]", label: "Fable 5 · 1M" },
   { id: "claude-opus-4-8[1m]", label: "Opus 4.8 · 1M" },
   { id: "claude-sonnet-5[1m]", label: "Sonnet 5 · 1M" },
@@ -257,10 +256,7 @@ export default function SettingsPage(p: {
     const row = provs?.find((pr) => pr.id === provider);
     const ids = row?.models?.length ? row.models : [s.defaultModel[provider]].filter(Boolean);
     const labels = MODEL_LABELS[provider] ?? {};
-    return [
-      { id: "", labelKey: "common.default-cli" },
-      ...ids.map((id) => ({ id, label: labels[id] ?? id })),
-    ];
+    return ids.map((id) => ({ id, label: labels[id] ?? id }));
   }
 
   useEffect(() => {
