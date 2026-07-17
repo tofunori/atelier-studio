@@ -34,6 +34,7 @@ function makeProps(over: Partial<React.ComponentProps<typeof Rail>> = {}) {
     onReorder: vi.fn(),
     moreOpen: false,
     onToggleMore: vi.fn(),
+    onNewChat: vi.fn(),
     ...over,
   };
 }
@@ -51,8 +52,9 @@ describe("Rail — tiroir de surfaces", () => {
     expect(more.getAttribute("aria-expanded")).toBe("false");
     const fold = container.querySelector(".rail-fold");
     expect(fold?.classList.contains("open")).toBe(false);
-    // les 5 secondaires vivent dans le pli, la Galerie hors du pli
-    expect(fold?.querySelectorAll(".rail-view").length).toBe(5);
+    // les 5 surfaces secondaires + Surlignés vivent dans le pli, la Galerie hors du pli
+    expect(fold?.querySelectorAll(".rail-view").length).toBe(6);
+    expect(screen.getByRole("button", { name: t("view.highlights") }).closest(".rail-fold")).not.toBeNull();
     expect(screen.getByRole("button", { name: t("atelier.surface") }).closest(".rail-fold")).toBeNull();
   });
 
@@ -62,8 +64,27 @@ describe("Rail — tiroir de surfaces", () => {
     expect(narval.length).toBe(1);
     expect(narval[0].closest(".rail-fold")).toBeNull();
     expect(narval[0].classList.contains("on")).toBe(true);
-    // le pli ne contient plus que les 4 autres
-    expect(container.querySelector(".rail-fold")?.querySelectorAll(".rail-view").length).toBe(4);
+    // le pli garde Surlignés + les 4 autres surfaces
+    expect(container.querySelector(".rail-fold")?.querySelectorAll(".rail-view").length).toBe(5);
+  });
+
+  it("replié avec vue Surlignés active : le crayon reste révélé hors du pli", () => {
+    const { container } = renderUi(<Rail {...makeProps({ activeView: "highlights" })} />);
+    const hl = screen.getAllByRole("button", { name: t("view.highlights") });
+    expect(hl.length).toBe(1);
+    expect(hl[0].closest(".rail-fold")).toBeNull();
+    expect(hl[0].classList.contains("on")).toBe(true);
+    expect(container.querySelector(".rail-fold")?.querySelectorAll(".rail-view").length).toBe(5);
+  });
+
+  it("compact : bouton Nouveau chat présent et câblé ; absent quand le panneau est déplié", () => {
+    const props = makeProps({ compact: true });
+    renderUi(<Rail {...props} />);
+    fireEvent.click(screen.getByRole("button", { name: t("action.new-chat") }));
+    expect(props.onNewChat).toHaveBeenCalledTimes(1);
+    cleanup();
+    renderUi(<Rail {...makeProps({ compact: false })} />);
+    expect(screen.queryByRole("button", { name: t("action.new-chat") })).toBeNull();
   });
 
   it("déplié : le pli s'ouvre, chaque secondaire une seule fois, clic → onSelectSurface", () => {
@@ -72,6 +93,7 @@ describe("Rail — tiroir de surfaces", () => {
     expect(screen.getByRole("button", { name: t("atelier.more") }).getAttribute("aria-expanded")).toBe("true");
     expect(container.querySelector(".rail-fold")?.classList.contains("open")).toBe(true);
     expect(screen.getAllByRole("button", { name: t("atelier.narval") }).length).toBe(1);
+    expect(screen.getAllByRole("button", { name: t("view.highlights") }).length).toBe(1);
     fireEvent.click(screen.getByRole("button", { name: t("atelier.terminal") }));
     expect(props.onSelectSurface).toHaveBeenCalledWith("terminal");
   });

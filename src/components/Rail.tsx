@@ -47,6 +47,7 @@ export default function Rail(p: {
   ideActive: boolean;
   moreOpen: boolean;
   onToggleMore: () => void;
+  onNewChat: () => void;
   showExplorer: boolean;
   onToggleExplorer: () => void;
   onSelectView: (view: ViewId) => void;
@@ -83,6 +84,15 @@ export default function Rail(p: {
       {s.icon}
     </IconButton>
   );
+  // Surlignés vit aussi dans le tiroir (vue moins fréquente) — même règle de
+  // révélation que les surfaces : visible tant que c'est la vue active.
+  const revealedHighlights = !p.moreOpen && p.activeView === "highlights";
+  const highlightsBtn = (
+    <IconButton key="highlights" className={`rail-view ${p.activeView === "highlights" ? "on" : ""}`}
+      label={t("view.highlights")} title={t("view.highlights")} onClick={() => p.onSelectView("highlights")}>
+      <HighlighterIcon size={19} />
+    </IconButton>
+  );
 
   return (
     <div className="rail">
@@ -94,13 +104,19 @@ export default function Rail(p: {
         <SidebarIcon size={19} />
       </IconButton>
       <div className="rail-views">
+        {/* Nouveau chat : seulement en compact — le panneau déplié a déjà son bouton */}
+        {p.compact && (
+          <IconButton className="rail-btn" label={t("action.new-chat")} title={t("action.new-chat")} onClick={p.onNewChat}>
+            <svg width="19" height="19" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <rect x="2.2" y="3" width="11.6" height="8" rx="2.4" />
+              <path d="M5.6 11v2.6l3.2-2.6" />
+              <path d="M8 5.2v3.6M6.2 7h3.6" />
+            </svg>
+          </IconButton>
+        )}
         <IconButton className={`rail-view ${p.activeView === "chats" ? "on" : ""}`}
           label={t("view.chats")} title={t("view.chats")} onClick={() => p.onSelectView("chats")}>
           <ChatsIcon size={19} />
-        </IconButton>
-        <IconButton className={`rail-view ${p.activeView === "highlights" ? "on" : ""}`}
-          label={t("view.highlights")} title={t("view.highlights")} onClick={() => p.onSelectView("highlights")}>
-          <HighlighterIcon size={19} />
         </IconButton>
         <IconButton className={`rail-view ${p.activeView === "automations" ? "on" : ""}`}
           label={t("automations.title")} title={t("automations.title")} onClick={() => p.onSelectView("automations")}>
@@ -132,9 +148,13 @@ export default function Rail(p: {
             <path d="M6 4.5 9.5 8 6 11.5" />
           </svg>
         </IconButton>
+        {revealedHighlights && highlightsBtn}
         {revealedSurface && surfaceBtn(revealedSurface)}
         <div className={`rail-fold ${p.moreOpen ? "open" : ""}`}>
-          <div>{secondarySurfaces.filter((s) => s !== revealedSurface).map(surfaceBtn)}</div>
+          <div>
+            {!revealedHighlights && highlightsBtn}
+            {secondarySurfaces.filter((s) => s !== revealedSurface).map(surfaceBtn)}
+          </div>
         </div>
       </div>
       <div className="rail-sep" />
