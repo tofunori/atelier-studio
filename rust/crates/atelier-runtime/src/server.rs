@@ -275,24 +275,60 @@ async fn setup_handler(
     headers: HeaderMap,
 ) -> Result<impl IntoResponse, StatusCode> {
     auth_or_401(&state, &headers)?;
-    let providers = atelier_providers::provider_status_list(Some(state.app_dir()))
-        .into_iter()
-        .map(|p| {
-            let installed = state.provider(&p.id).is_some();
-            SetupProviderRow {
+    let mut providers = Vec::new();
+    for p in atelier_providers::provider_status_list(Some(state.app_dir())) {
+        let live = state.provider(&p.id);
+        // Sonde dédiée (kimi, plan 046) : mêmes états que la route WS
+        // setupStatus — l'endpoint HTTP /setup doit rester en parité.
+        if let Some(probe) = match &live {
+            Some(provider) => provider.setup_probe().await,
+            None => None,
+        } {
+            let state_str = probe
+                .get("state")
+                .and_then(serde_json::Value::as_str)
+                .unwrap_or("unknown")
+                .to_string();
+            providers.push(SetupProviderRow {
                 id: p.id,
                 label: p.label,
                 kind: p.kind,
-                installed,
-                version: installed.then(|| "ok".into()),
-                bin_path: None,
-                auth: if installed { "ready" } else { "not_installed" }.into(),
-                models: p.models.len(),
+                installed: state_str != "not_installed",
+                version: probe
+                    .get("version")
+                    .and_then(serde_json::Value::as_str)
+                    .map(str::to_string),
+                bin_path: probe
+                    .get("binPath")
+                    .and_then(serde_json::Value::as_str)
+                    .map(str::to_string),
+                auth: state_str,
+                models: probe
+                    .get("models")
+                    .and_then(serde_json::Value::as_u64)
+                    .unwrap_or(0) as usize,
                 default_model: p.default_model,
-                model_error: None,
-            }
-        })
-        .collect();
+                model_error: probe
+                    .get("error")
+                    .and_then(serde_json::Value::as_str)
+                    .map(str::to_string),
+            });
+            continue;
+        }
+        let installed = live.is_some();
+        providers.push(SetupProviderRow {
+            id: p.id,
+            label: p.label,
+            kind: p.kind,
+            installed,
+            version: installed.then(|| "ok".into()),
+            bin_path: None,
+            auth: if installed { "ready" } else { "not_installed" }.into(),
+            models: p.models.len(),
+            default_model: p.default_model,
+            model_error: None,
+        });
+    }
     let status = SetupStatus {
         runtime: SetupRuntime {
             node: "rust".into(),
