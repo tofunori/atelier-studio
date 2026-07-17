@@ -1401,6 +1401,15 @@ export default function App() {
       if (msg.type === "frameChecked") {
         window.dispatchEvent(new CustomEvent("frame-checked", { detail: msg }));
       }
+      if (msg.type === "kbAdded" || msg.type === "kbError") {
+        // base de connaissances (plan 049) : retour d'épinglage relayé aux
+        // surfaces intéressées (bouton browser, futur picker T3)
+        window.dispatchEvent(new CustomEvent("kb-source-added", {
+          detail: msg.type === "kbAdded"
+            ? { ok: true, source: msg.source, refreshed: msg.refreshed, warning: msg.warning }
+            : { ok: false, message: msg.message },
+        }));
+      }
       if (msg.type === "localServers") {
         window.dispatchEvent(new CustomEvent("local-servers", { detail: msg.servers }));
       }

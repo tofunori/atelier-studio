@@ -138,6 +138,23 @@ export default function BrowserTab(p: {
   const [searchEngine, setSearchEngine] = useState<BrowserSearchEngine>(() => readSearchEngine());
   const [importNote, setImportNote] = useState("");
   const [servers, setServers] = useState<LocalServer[] | null>(null);
+  // épinglage base de connaissances (plan 049 T2) : retour visuel bref
+  const [kbFlash, setKbFlash] = useState<"ok" | "err" | null>(null);
+
+  useEffect(() => {
+    const onKbAdded = (e: Event) => {
+      const detail = (e as CustomEvent).detail as { ok?: boolean } | undefined;
+      setKbFlash(detail?.ok ? "ok" : "err");
+    };
+    window.addEventListener("kb-source-added", onKbAdded);
+    return () => window.removeEventListener("kb-source-added", onKbAdded);
+  }, []);
+
+  useEffect(() => {
+    if (!kbFlash) return;
+    const timer = setTimeout(() => setKbFlash(null), 1600);
+    return () => clearTimeout(timer);
+  }, [kbFlash]);
   const scanned = useRef(false);
   const barRef = useRef<HTMLDivElement>(null);
   const controlsRef = useRef<HTMLDivElement>(null);
@@ -323,6 +340,29 @@ export default function BrowserTab(p: {
     }));
   }
 
+  async function addCurrentPageToKb() {
+    if (!activeTab?.url) return;
+    const capture = await invoke<BrowserCapture>("browser_capture_page", { label: activeTab.label })
+      .catch(() => null);
+    const url = capture?.url || activeTab.url || "";
+    const text = capture?.text?.trim() ?? "";
+    if (!url || !text) {
+      setKbFlash("err");
+      return;
+    }
+    // texte capturé transmis tel quel (pas de re-fetch : la page peut être
+    // derrière un login) ; réponse kbAdded/kbError relayée par App en
+    // événement "kb-source-added"
+    const sent = wsSend({
+      type: "kbAdd",
+      kind: "web",
+      origin: url,
+      title: capture?.title || activeTab.title || "",
+      text,
+    });
+    if (!sent) setKbFlash("err");
+  }
+
   function newTab() {
     const tab = makeBrowserTab();
     setTabs((current) => [...current, tab]);
@@ -494,6 +534,19 @@ export default function BrowserTab(p: {
           >
             <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3">
               <path d="M14 8c0 3-2.7 5.2-6 5.2-.8 0-1.6-.1-2.3-.4L2.5 14l1-2.6C2.6 10.5 2 9.3 2 8c0-3 2.7-5.2 6-5.2S14 5 14 8z" />
+            </svg>
+          </IconButton>
+          <IconButton
+            size="s"
+            className={`ghost ${kbFlash === "ok" ? "on" : ""}`}
+            label={t("browser.add-kb")}
+            disabled={!activeTab?.url}
+            title={kbFlash === "ok" ? t("browser.added-kb") : kbFlash === "err" ? t("browser.add-kb-error") : t("browser.add-kb")}
+            onClick={() => { void addCurrentPageToKb(); }}
+          >
+            <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3">
+              <path d="M3.2 12.9V4.1c0-.9.7-1.6 1.6-1.6h8v9.4H4.8c-.9 0-1.6.7-1.6 1s.7 1.6 1.6 1.6h8v-2.6" />
+              <path d="M6.8 6.4h3.4M8.5 4.7v3.4" />
             </svg>
           </IconButton>
           <IconButton

@@ -53,6 +53,7 @@ pub const ALL_MESSAGE_TYPES: &[&str] = &[
     "listPasted",
     "clearPasted",
     "saveImage",
+    "kbAdd",
     "generateImage",
     "apiProviders",
     "saveApiProvider",
@@ -532,6 +533,7 @@ pub async fn route_ws(state: &AppState, text: &str) -> Vec<String> {
                 None => vec![err("dataURL d'image invalide")],
             }
         }
+        "kbAdd" => handle_kb_add(state, &msg),
         "generateImage" => handle_generate_image(state, &msg).await,
         "apiProviders" => {
             let list = list_api_providers_public(state.app_dir());
@@ -1323,6 +1325,109 @@ fn json_msg(v: Value) -> String {
 
 fn err(message: impl Into<String>) -> String {
     ok(ErrorMessage::new(message))
+}
+
+/// Base de connaissances (plan 049 T2) : l'écriture passe par le CLI Node
+/// `kb_cli.mjs` stagé dans server_dir — une seule implémentation du store
+/// (verrou inter-processus, registre, extraction) au lieu d'un portage double.
+/// Le texte transite par stdin (`--text -`) pour éviter la limite ARG_MAX.
+fn kb_node_bin() -> Option<std::path::PathBuf> {
+    if let Ok(p) = std::env::var("ATELIER_TEST_NODE") {
+        let pb = std::path::PathBuf::from(p);
+        if pb.is_file() {
+            return Some(pb);
+        }
+    }
+    if let Ok(out) = std::process::Command::new("which").arg("node").output() {
+        if out.status.success() {
+            let p = String::from_utf8_lossy(&out.stdout).trim().to_string();
+            if !p.is_empty() {
+                return Some(std::path::PathBuf::from(p));
+            }
+        }
+    }
+    for p in ["/opt/homebrew/bin/node", "/usr/local/bin/node"] {
+        let pb = std::path::PathBuf::from(p);
+        if pb.is_file() {
+            return Some(pb);
+        }
+    }
+    None
+}
+
+fn kb_add_via_cli(
+    server_dir: &str,
+    app_dir: &std::path::Path,
+    kind: &str,
+    origin: &str,
+    title: &str,
+    text: &str,
+) -> Result<Value, String> {
+    if kind.is_empty() {
+        return Err("kbAdd: kind requis".into());
+    }
+    let cli = std::path::Path::new(server_dir).join("kb_cli.mjs");
+    if !cli.is_file() {
+        return Err(format!("kb_cli.mjs introuvable dans {server_dir}"));
+    }
+    let node = kb_node_bin().ok_or("node introuvable pour atelier-kb")?;
+    let mut cmd = std::process::Command::new(node);
+    cmd.arg(&cli)
+        .arg("add")
+        .arg("--kind")
+        .arg(kind)
+        .env("ATELIER_APP_DIR", app_dir)
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped());
+    if !origin.is_empty() {
+        cmd.arg("--origin").arg(origin);
+    }
+    if !title.is_empty() {
+        cmd.arg("--title").arg(title);
+    }
+    if text.is_empty() {
+        cmd.stdin(std::process::Stdio::null());
+    } else {
+        cmd.arg("--text").arg("-").stdin(std::process::Stdio::piped());
+    }
+    let mut child = cmd.spawn().map_err(|e| format!("spawn atelier-kb: {e}"))?;
+    if !text.is_empty() {
+        use std::io::Write;
+        let mut stdin = child.stdin.take().ok_or("stdin atelier-kb indisponible")?;
+        stdin.write_all(text.as_bytes()).map_err(|e| e.to_string())?;
+        drop(stdin);
+    }
+    let out = child.wait_with_output().map_err(|e| e.to_string())?;
+    if !out.status.success() {
+        let message = String::from_utf8_lossy(&out.stderr).trim().to_string();
+        return Err(if message.is_empty() { "atelier-kb: échec".into() } else { message });
+    }
+    serde_json::from_slice::<Value>(&out.stdout).map_err(|e| format!("sortie atelier-kb invalide: {e}"))
+}
+
+fn handle_kb_add(state: &AppState, msg: &Value) -> Vec<String> {
+    let get = |key: &str| msg.get(key).and_then(|v| v.as_str()).unwrap_or("");
+    match kb_add_via_cli(
+        state.server_dir(),
+        state.app_dir(),
+        get("kind"),
+        get("origin"),
+        get("title"),
+        get("text"),
+    ) {
+        Ok(v) => {
+            let mut out = json!({
+                "type": "kbAdded",
+                "source": v.get("source").cloned().unwrap_or(Value::Null),
+                "refreshed": v.get("refreshed").cloned().unwrap_or(Value::Bool(false)),
+            });
+            if let Some(warning) = v.get("warning") {
+                out["warning"] = warning.clone();
+            }
+            vec![json_msg(out)]
+        }
+        Err(message) => vec![json_msg(json!({"type": "kbError", "message": message}))],
+    }
 }
 
 async fn handle_setup_status(state: &AppState) -> Vec<String> {
@@ -2423,6 +2528,62 @@ mod tests {
             "h".into(),
             "/tmp".into(),
         )
+    }
+
+    fn state_with_server_dir(dir: &std::path::Path, server_dir: String) -> AppState {
+        AppState::new(
+            AppPaths::from_app_dir(dir.to_path_buf()),
+            None,
+            "t".into(),
+            "0.1.0".into(),
+            "h".into(),
+            server_dir,
+        )
+    }
+
+    #[tokio::test]
+    async fn kb_add_erreurs_propres_kind_et_cli_absent() {
+        let dir = tempdir().unwrap();
+        let s = state(dir.path());
+        // kind manquant → kbError local, sans spawn
+        let out = route_ws(&s, r#"{"type":"kbAdd"}"#).await;
+        let v: Value = serde_json::from_str(&out[0]).unwrap();
+        assert_eq!(v["type"], "kbError");
+        assert!(v["message"].as_str().unwrap().contains("kind requis"));
+        // server_dir=/tmp sans kb_cli.mjs → kbError explicite
+        let out = route_ws(&s, r#"{"type":"kbAdd","kind":"web","origin":"https://x.org","text":"t"}"#).await;
+        let v: Value = serde_json::from_str(&out[0]).unwrap();
+        assert_eq!(v["type"], "kbError");
+        assert!(v["message"].as_str().unwrap().contains("kb_cli.mjs introuvable"));
+    }
+
+    #[tokio::test]
+    async fn kb_add_reel_via_cli_node_stdin() {
+        // Gated : sans node on ne peut pas exercer le CLI réel.
+        if kb_node_bin().is_none() {
+            return;
+        }
+        let sidecar = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../sidecar");
+        if !sidecar.join("kb_cli.mjs").is_file() {
+            return;
+        }
+        let dir = tempdir().unwrap();
+        let s = state_with_server_dir(dir.path(), sidecar.to_string_lossy().into_owned());
+        let msg = json!({
+            "type": "kbAdd",
+            "kind": "web",
+            "origin": "https://exemple.org/parite",
+            "title": "Parité Rust",
+            "text": "Texte capturé transmis par stdin au CLI, assez long pour être indexé sans problème.",
+        });
+        let out = route_ws(&s, &msg.to_string()).await;
+        let v: Value = serde_json::from_str(&out[0]).unwrap();
+        assert_eq!(v["type"], "kbAdded", "réponse: {v}");
+        assert_eq!(v["source"]["kind"], "web");
+        assert_eq!(v["source"]["title"], "Parité Rust");
+        assert_eq!(v["refreshed"], false);
+        // le CLI a bien écrit dans l'APP_DIR du serveur (env ATELIER_APP_DIR)
+        assert!(dir.path().join("knowledge/knowledge.json").is_file());
     }
 
     #[test]

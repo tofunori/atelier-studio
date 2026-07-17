@@ -2,11 +2,20 @@
 // épinglées + cache d'extraction en pages, réutilisant le moteur de passages
 // Zotero pour la recherche lexicale. Aucune dépendance externe.
 import { createHash } from "node:crypto";
-import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, statSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
-import { basename, extname, join, resolve } from "node:path";
-import { writeFileAtomic } from "./store.mjs";
+import { basename, dirname, extname, join, resolve } from "node:path";
 import { extractPdfPages, searchPassages } from "./zotero_passages.mjs";
+
+// Écriture atomique locale (même pattern que store.mjs) — pas d'import de
+// store.mjs pour que le staging rust-server-dist reste autonome
+// (knowledge.mjs + zotero_passages.mjs seulement).
+function writeFileAtomic(filePath, data) {
+  mkdirSync(dirname(filePath), { recursive: true });
+  const tmp = `${filePath}.${process.pid}.${Date.now()}.tmp`;
+  writeFileSync(tmp, data);
+  renameSync(tmp, filePath);
+}
 
 const REGISTRY_VERSION = 1;
 const PAGES_CACHE_VERSION = 1;

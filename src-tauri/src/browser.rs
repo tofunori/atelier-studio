@@ -40,6 +40,35 @@ const CAPTURE_SELECTION_JS: &str = r#"
 })();
 "#;
 
+// Texte intégral de la page (base de connaissances, plan 049 T2). Même canal
+// titre que la sélection : plafond 100k éprouvé par ce canal — un plafond plus
+// haut demanderait un transport chunké.
+const CAPTURE_PAGE_JS: &str = r#"
+(() => {
+  try {
+    const previousTitle = String(document.title || "");
+    const text = String(document.body?.innerText || "").replace(/\u00a0/g, " ").trim();
+    const payload = {
+      text: text.slice(0, 100000),
+      title: previousTitle.slice(0, 500),
+      url: String(location.href || "").slice(0, 4096)
+    };
+    document.title = "__ATELIER_BROWSER_CAPTURE__" + JSON.stringify(payload);
+    setTimeout(() => {
+      try { document.title = previousTitle; } catch {}
+    }, 60);
+  } catch {
+    try {
+      document.title = "__ATELIER_BROWSER_CAPTURE__" + JSON.stringify({
+        text: "",
+        title: String(document.title || "").slice(0, 500),
+        url: String(location.href || "").slice(0, 4096)
+      });
+    } catch {}
+  }
+})();
+"#;
+
 #[derive(Clone, Debug, Default, Deserialize, Serialize)]
 pub struct BrowserCapture {
     text: String,
@@ -292,6 +321,33 @@ pub fn browser_capture_selection(
         *slot = None;
     }
     wv.eval(CAPTURE_SELECTION_JS).map_err(|e| e.to_string())?;
+    for _ in 0..30 {
+        if let Ok(mut slot) = capture_store().lock() {
+            if let Some(capture) = slot.take() {
+                return Ok(capture);
+            }
+        }
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    Ok(BrowserCapture {
+        url: wv.url().map_err(|e| e.to_string())?.to_string(),
+        ..BrowserCapture::default()
+    })
+}
+
+#[tauri::command]
+pub fn browser_capture_page(
+    app: AppHandle,
+    label: Option<String>,
+) -> Result<BrowserCapture, String> {
+    let label = browser_label(label);
+    let Some(wv) = find_webview(&app, &label) else {
+        return Err("pas de webview".into());
+    };
+    if let Ok(mut slot) = capture_store().lock() {
+        *slot = None;
+    }
+    wv.eval(CAPTURE_PAGE_JS).map_err(|e| e.to_string())?;
     for _ in 0..30 {
         if let Ok(mut slot) = capture_store().lock() {
             if let Some(capture) = slot.take() {

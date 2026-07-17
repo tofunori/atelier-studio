@@ -9,6 +9,7 @@ import { createHarnessThread } from "./harness_events.mjs";
 import { HANDOFF_END } from "./handoff.mjs";
 import { stripGalleryToolInstruction, withGalleryToolInstruction } from "./gallery_tool_prompt.mjs";
 import { stripZoteroPassageInstruction, withZoteroPassageInstruction } from "./zotero_passage_prompt.mjs";
+import { KnowledgeStore, defaultKnowledgeDir } from "./knowledge.mjs";
 import * as narval from "./narval.mjs";
 
 // ctx: { send(obj), store, providers, broadcast(obj) }
@@ -993,6 +994,21 @@ export async function route(msg, ctx) {
       }
       const path = ctx.saveImage(m[1], m[2]);
       ctx.send({ type: "imageSaved", path });
+      break;
+    }
+    case "kbAdd": {
+      // Base de connaissances (plan 049 T2) : épinglage d'une source — web
+      // depuis le browser intégré (texte capturé fourni, pas de re-fetch) ou
+      // tout kind accepté par le store. Réponse kbAdded / kbError.
+      try {
+        const store = new KnowledgeStore(defaultKnowledgeDir());
+        const { source, refreshed } = await store.add({
+          kind: msg.kind, origin: msg.origin, title: msg.title, text: msg.text,
+        });
+        ctx.send({ type: "kbAdded", source, refreshed, ...(store.warning ? { warning: store.warning } : {}) });
+      } catch (error) {
+        ctx.send({ type: "kbError", message: error instanceof Error ? error.message : String(error) });
+      }
       break;
     }
     case "checkFrame": {

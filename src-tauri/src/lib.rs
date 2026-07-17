@@ -40,6 +40,7 @@ pub fn run() {
             browser::browser_close,
             browser::browser_eval,
             browser::browser_capture_selection,
+            browser::browser_capture_page,
             browser::browser_import_vivaldi,
             browser::browser_url,
             browser::browser_probe

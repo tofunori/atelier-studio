@@ -944,6 +944,34 @@ describe("relay d'interactions (plan 025 step 5)", () => {
   });
 });
 
+describe("base de connaissances (kbAdd)", () => {
+  it("épingle une source web avec texte fourni et répond kbAdded", async () => {
+    const prev = process.env.ATELIER_APP_DIR;
+    process.env.ATELIER_APP_DIR = mkdtempSync(join(tmpdir(), "atelier-kb-router-"));
+    try {
+      const sent = [];
+      await route({
+        type: "kbAdd", kind: "web", origin: "https://exemple.org/revue",
+        title: "Page capturée",
+        text: "Texte capturé depuis le browser intégré, suffisamment long pour être indexé et retrouvé.",
+      }, { send: (m) => sent.push(m) });
+      expect(sent[0].type).toBe("kbAdded");
+      expect(sent[0].source).toMatchObject({ kind: "web", title: "Page capturée" });
+      expect(sent[0].refreshed).toBe(false);
+    } finally {
+      if (prev === undefined) delete process.env.ATELIER_APP_DIR;
+      else process.env.ATELIER_APP_DIR = prev;
+    }
+  });
+
+  it("répond kbError sur kind invalide, sans jeter", async () => {
+    const sent = [];
+    await route({ type: "kbAdd", kind: "vhs" }, { send: (m) => sent.push(m) });
+    expect(sent[0].type).toBe("kbError");
+    expect(sent[0].message).toMatch(/Kind non pris en charge/);
+  });
+});
+
 describe("quickAsk", () => {
   // laisse se dérouler les microtâches du .then/.catch de p.run(...)
   const flush = () => new Promise((r) => setTimeout(r, 0));

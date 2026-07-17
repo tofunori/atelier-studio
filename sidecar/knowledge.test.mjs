@@ -250,4 +250,15 @@ describe("base de connaissances — CLI", () => {
   it("les ids restent stables entre kinds distincts", () => {
     expect(sourceId("file", "/a/b.md")).not.toBe(sourceId("pdf", "/a/b.md"));
   });
+
+  it("--text - lit le contenu sur stdin (gros textes, capture browser)", async () => {
+    const dir = tmp();
+    const { Readable } = await import("node:stream");
+    const added = await runKbCommand(
+      ["add", "--dir", dir, "--kind", "note", "--title", "Depuis stdin", "--text", "-"],
+      { stdin: Readable.from([LONG_NOTE]) },
+    );
+    expect(added.ok).toBe(true);
+    expect(added.source.chars).toBe(LONG_NOTE.length);
+  });
 });

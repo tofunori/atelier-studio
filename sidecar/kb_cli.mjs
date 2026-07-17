@@ -7,11 +7,18 @@ const COMMANDS = new Set(["add", "list", "remove", "search"]);
 const USAGE = [
   "Usage: atelier-kb <add|list|remove|search> [options]",
   "  add    --kind file|pdf|web|note [--origin <chemin|url>] [--title <t>] [--text <t>]",
+  "         (--text - lit le texte sur stdin — gros contenus, capture browser)",
   "  list",
   "  remove --id <id>",
   "  search --id <id> --query <question> [--limit 5]",
   `Option commune: --dir <répertoire> (défaut: ${defaultKnowledgeDir()})`,
 ].join("\n");
+
+async function readAllStdin(stream = process.stdin) {
+  const chunks = [];
+  for await (const chunk of stream) chunks.push(Buffer.from(chunk));
+  return Buffer.concat(chunks).toString("utf8");
+}
 
 function parseArgs(argv) {
   const command = argv[0];
@@ -47,8 +54,9 @@ export async function runKbCommand(argv, deps = {}) {
     const { source, passages } = store.search(options.id, options.query, { limit });
     return flag({ ok: true, source, query: options.query, count: passages.length, passages });
   }
+  const text = options.text === "-" ? await readAllStdin(deps.stdin) : options.text;
   const { source, refreshed } = await store.add({
-    kind: options.kind, origin: options.origin, title: options.title, text: options.text,
+    kind: options.kind, origin: options.origin, title: options.title, text,
   });
   return flag({ ok: true, source, refreshed });
 }
