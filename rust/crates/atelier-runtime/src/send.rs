@@ -1117,10 +1117,38 @@ pub async fn handle_provider_status(state: &AppState) -> Vec<String> {
     // démarrage, sinon React affiche « CLI introuvable » même quand le binaire
     // a été résolu et que le provider est prêt.
     for provider in &mut list {
-        let installed = state.provider(&provider.id).is_some();
+        let live = state.provider(&provider.id);
+        let installed = live.is_some();
         provider.ok = installed;
         if installed && provider.version.is_none() {
             provider.version = Some("ok".into());
+        }
+        // Catalogue vivant (kimi, plan 046 étape 6) : modèles découverts +
+        // thinking off/on par modèle confirmé — jamais de liste en dur.
+        if let Some(p) = live {
+            if let Some(dynamic) = p.dynamic_models().await {
+                if let Some(models) = dynamic.get("models").and_then(Value::as_array) {
+                    if !models.is_empty() {
+                        provider.models = models
+                            .iter()
+                            .filter_map(Value::as_str)
+                            .map(str::to_string)
+                            .collect();
+                        if provider.default_model.is_empty() {
+                            if let Some(d) =
+                                dynamic.get("defaultModel").and_then(Value::as_str)
+                            {
+                                provider.default_model = d.to_string();
+                            }
+                        }
+                    }
+                }
+                if let Some(reasoning) = dynamic.get("modelReasoning") {
+                    if reasoning.as_object().map(|o| !o.is_empty()).unwrap_or(false) {
+                        provider.model_reasoning = reasoning.clone();
+                    }
+                }
+            }
         }
     }
     vec![

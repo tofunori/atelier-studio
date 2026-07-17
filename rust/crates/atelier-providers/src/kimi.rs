@@ -100,8 +100,10 @@ pub(crate) fn compare_kimi_versions(a: &str, b: &str) -> i64 {
     0
 }
 
-/// Dérivation PURE de l'état Setup (plan 046 étape 10) — testée exhaustivement.
-#[allow(clippy::too_many_arguments)]
+/// Table de décision de l'état Setup (plan 046 étape 10) — MIROIR documenté
+/// de la séquence de `setup_probe` (et de deriveKimiSetupState côté Node),
+/// verrouillée par le test exhaustif `etats_setup_derives_exhaustivement`.
+#[cfg(test)]
 pub(crate) fn derive_kimi_setup_state(
     bin_present: bool,
     version: Option<&str>,
@@ -1012,6 +1014,123 @@ impl Provider for KimiProvider {
         Some(sessions)
     }
 
+    /// Sonde Setup SANS quota (plan 046 étape 10) : binaire → `--version` →
+    /// initialize → `authenticate(login)` → discovery modèles. JAMAIS de
+    /// session/prompt. La commande de login vient d'`authMethods`.
+    async fn setup_probe(&self) -> Option<Value> {
+        let version = self.cli_version().await;
+        let shadowed = shadowed_official_install(&self.bin).map(|p| p.to_string_lossy().into_owned());
+        let base = |state: &str, models: usize, error: Option<String>| {
+            json!({
+                "state": state,
+                "version": version,
+                "binPath": self.bin.to_string_lossy(),
+                "models": models,
+                "loginCommand": "kimi login",
+                "shadowed": shadowed,
+                "error": error,
+            })
+        };
+        if let Some(v) = &version {
+            if compare_kimi_versions(v, KIMI_MIN_VERSION) < 0 {
+                return Some(base("version_unsupported", 0, None));
+            }
+        }
+        let init = match self.ensure_acp().await {
+            Ok(init) => init,
+            Err(e) => {
+                if e.is_auth_required() {
+                    return Some(base("login_needed", 0, None));
+                }
+                return Some(base("protocol_error", 0, Some(e.to_string())));
+            }
+        };
+        self.reset_state_if_respawned();
+        let name_ok = init
+            .agent_info
+            .as_ref()
+            .and_then(|i| i.get("name"))
+            .and_then(Value::as_str)
+            .map(|n| n == "Kimi Code CLI")
+            .unwrap_or(true);
+        if init.protocol_version != 1 || !name_ok {
+            return Some(base("protocol_error", 0, Some("handshake inattendu".into())));
+        }
+        let mut probe = base("ready", 0, None);
+        // La commande de login annoncée par le CLI prime sur le défaut.
+        if let Some(ta) = init
+            .auth_methods
+            .iter()
+            .find(|m| m.get("id").and_then(Value::as_str) == Some("login"))
+            .and_then(|m| m.pointer("/_meta/terminal-auth"))
+        {
+            let cmd = ta.get("command").and_then(Value::as_str).unwrap_or("kimi");
+            let args: Vec<&str> = ta
+                .get("args")
+                .and_then(Value::as_array)
+                .map(|a| a.iter().filter_map(Value::as_str).collect())
+                .unwrap_or_default();
+            probe["loginCommand"] = json!(format!("{cmd} {}", args.join(" ")).trim().to_string());
+        }
+        match self
+            .acp
+            .request("authenticate", json!({"methodId": "login"}), Some(10_000))
+            .await
+        {
+            Ok(_) => {}
+            Err(e) if e.is_auth_required() => {
+                probe["state"] = json!("login_needed");
+                return Some(probe);
+            }
+            Err(e) => {
+                probe["state"] = json!("protocol_error");
+                probe["error"] = json!(e.to_string());
+                return Some(probe);
+            }
+        }
+        let models = self.discover_models().await;
+        *self.discovered_models.lock().unwrap() = models.clone();
+        probe["models"] = json!(models.len());
+        if models.is_empty() {
+            probe["state"] = json!("model_config_needed");
+        }
+        Some(probe)
+    }
+
+    /// Catalogue vivant pour providerStatus : discovery CLI + derniers
+    /// snapshots configOptions. Le thinking off/on n'apparaît QUE pour les
+    /// modèles confirmés par Kimi (option présente dans le snapshot).
+    async fn dynamic_models(&self) -> Option<Value> {
+        let mut models: Vec<String> = self.discovered_models.lock().unwrap().clone();
+        let mut reasoning = serde_json::Map::new();
+        for snapshot in self.config.lock().unwrap().values() {
+            if let Some(model_opt) = find_config_option(snapshot, "model") {
+                for v in option_values(model_opt) {
+                    if !models.contains(&v) {
+                        models.push(v);
+                    }
+                }
+                let current = model_opt.get("currentValue").and_then(Value::as_str);
+                if let (Some(current), Some(thinking)) =
+                    (current, find_config_option(snapshot, "thinking"))
+                {
+                    reasoning.insert(
+                        current.to_string(),
+                        json!({
+                            "supported_efforts": ["off", "on"],
+                            "default_effort": thinking.get("currentValue").cloned().unwrap_or(json!("on")),
+                        }),
+                    );
+                }
+            }
+        }
+        Some(json!({
+            "models": models,
+            "defaultModel": models.first().cloned().unwrap_or_default(),
+            "modelReasoning": Value::Object(reasoning),
+        }))
+    }
+
     /// Import d'une session Kimi externe : `session/load` rejoue l'historique
     /// AVANT la réponse ; capturé une seule fois par génération (la session
     /// devient « ouverte » — le prochain prompt réutilise le même sessionId
@@ -1722,5 +1841,94 @@ mod tests {
             .native_history("session_effacee", "/tmp/fake-kimi/proj-a")
             .await
             .is_none());
+    }
+
+    // ------------------------------------------------------------------
+    // Setup et catalogue dynamique (plan 046 étapes 6/10).
+
+    #[test]
+    fn versions_kimi_comparees() {
+        assert_eq!(compare_kimi_versions("0.26.0", "0.26.0"), 0);
+        assert!(compare_kimi_versions("0.25.9", "0.26.0") < 0);
+        assert!(compare_kimi_versions("0.26.1", "0.26.0") > 0);
+        assert!(compare_kimi_versions("1.0.0", "0.26.0") > 0);
+        assert_eq!(compare_kimi_versions("0.26", "0.26.0"), 0);
+    }
+
+    #[test]
+    fn etats_setup_derives_exhaustivement() {
+        let d = derive_kimi_setup_state;
+        assert_eq!(d(false, None, None, false, false, 2), "not_installed");
+        assert_eq!(
+            d(true, Some("0.20.0"), Some(true), false, false, 2),
+            "version_unsupported"
+        );
+        assert_eq!(
+            d(true, Some("0.26.0"), None, false, true, 2),
+            "protocol_error"
+        );
+        assert_eq!(
+            d(true, Some("0.26.0"), Some(false), false, false, 2),
+            "protocol_error"
+        );
+        assert_eq!(
+            d(true, Some("0.26.0"), Some(true), true, false, 2),
+            "login_needed"
+        );
+        assert_eq!(
+            d(true, Some("0.26.0"), Some(true), false, false, 0),
+            "model_config_needed"
+        );
+        assert_eq!(d(true, Some("0.26.0"), Some(true), false, false, 2), "ready");
+        // version inconnue : pas bloquante, la sonde tranche
+        assert_eq!(d(true, None, Some(true), false, false, 2), "ready");
+    }
+
+    #[tokio::test]
+    async fn setup_probe_nominal_et_auth() {
+        // nominal : authenticate {} + discovery vide (fixture sans CLI
+        // provider list) ⇒ model_config_needed, login tiré d'authMethods.
+        let Some(p) = fixture_provider("nominal") else {
+            return;
+        };
+        let probe = p.setup_probe().await.expect("sonde");
+        assert_eq!(probe["state"], "model_config_needed");
+        assert_eq!(probe["loginCommand"], "/fake/bin/kimi login");
+        assert_eq!(probe["models"], 0);
+
+        // authRequired : authenticate -32000 ⇒ login_needed.
+        let Some(p2) = fixture_provider("auth_required") else {
+            return;
+        };
+        let probe2 = p2.setup_probe().await.expect("sonde");
+        assert_eq!(probe2["state"], "login_needed");
+    }
+
+    #[tokio::test]
+    async fn dynamic_models_depuis_les_snapshots() {
+        let Some(p) = fixture_provider("nominal") else {
+            return;
+        };
+        // aucun snapshot : catalogue vide, jamais de liste en dur
+        let empty = p.dynamic_models().await.unwrap();
+        assert_eq!(empty["models"].as_array().unwrap().len(), 0);
+        // un tour ouvre une session ⇒ snapshot configOptions capté
+        let out = run_turn(&p, "hello", None, None, None, None, None).await;
+        assert!(out.result.ok);
+        let dynamic = p.dynamic_models().await.unwrap();
+        let models: Vec<&str> = dynamic["models"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|v| v.as_str().unwrap())
+            .collect();
+        assert!(models.contains(&"fake-k3"));
+        assert!(models.contains(&"fake-k3-mini"));
+        // thinking confirmé pour le modèle ACTIF seulement
+        assert_eq!(
+            dynamic["modelReasoning"]["fake-k3"]["supported_efforts"],
+            json!(["off", "on"])
+        );
+        assert!(dynamic["modelReasoning"].get("fake-k3-mini").is_none());
     }
 }

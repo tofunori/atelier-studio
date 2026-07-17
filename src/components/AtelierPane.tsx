@@ -177,6 +177,16 @@ export default function AtelierPane({
     setTerminalBootstrap(command);
     switchSurface("terminal");
   }
+  // Commande à exécuter dans le terminal Atelier, demandée hors du pane
+  // (ex. Réglages → Kimi « kimi login », plan 046 étape 10). Instance unique.
+  useEffect(() => {
+    const onCommand = (e: Event) => {
+      const command = (e as CustomEvent).detail?.command;
+      if (typeof command === "string" && command.trim()) openNarvalTerminal(command);
+    };
+    window.addEventListener("atelier-terminal-command", onCommand);
+    return () => window.removeEventListener("atelier-terminal-command", onCommand);
+  }, []);
   const shown = (id: Surface) => id === surface || id === second;
   function slotStyle(id: Surface): React.CSSProperties {
     if (!shown(id)) return { display: "none" };

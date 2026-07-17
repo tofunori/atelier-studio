@@ -72,6 +72,8 @@ type SetupProvider = {
   models: number;
   defaultModel?: string | null;
   modelError?: string | null;
+  /** Commande de login annoncée par le harnais (Kimi, plan 046). */
+  loginCommand?: string | null;
 };
 
 type SetupStatus = {
@@ -581,6 +583,24 @@ export default function SettingsPage(p: {
                       <span className={`set-badge ${authClass(pr.auth)}`}>
                         {authLabel(pr.auth)}
                       </span>
+                      {pr.auth === "login_needed" && pr.loginCommand ? (
+                        // ouvre le terminal Atelier avec la commande exacte
+                        // annoncée par le harnais (jamais le canal stdio ACP) ;
+                        // après le login : Refresh ⇒ authenticate + modèles.
+                        <Button
+                          variant="secondary"
+                          size="s"
+                          onClick={() =>
+                            window.dispatchEvent(
+                              new CustomEvent("atelier-terminal-command", {
+                                detail: { command: pr.loginCommand },
+                              }),
+                            )
+                          }
+                        >
+                          {t("settings.setup-login-terminal")}
+                        </Button>
+                      ) : null}
                       <span className="setup-model-count">
                         {pr.models} {t("settings.api-models-count")}
                       </span>

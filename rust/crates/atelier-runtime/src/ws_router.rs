@@ -1326,24 +1326,51 @@ fn err(message: impl Into<String>) -> String {
 }
 
 async fn handle_setup_status(state: &AppState) -> Vec<String> {
-    let providers: Vec<Value> = atelier_providers::provider_status_list(Some(state.app_dir()))
-        .into_iter()
-        .map(|p| {
-            let installed = state.provider(&p.id).is_some() || p.kind == "api";
-            json!({
+    let mut providers: Vec<Value> = Vec::new();
+    for p in atelier_providers::provider_status_list(Some(state.app_dir())) {
+        let live = state.provider(&p.id);
+        // Sonde dédiée (kimi, plan 046 étape 10) : états
+        // not_installed/version_unsupported/login_needed/model_config_needed/
+        // ready/protocol_error, chemin réel du binaire et masquage signalé.
+        if let Some(probe) = match &live {
+            Some(provider) => provider.setup_probe().await,
+            None => None,
+        } {
+            let shadowed = probe.get("shadowed").and_then(Value::as_str);
+            providers.push(json!({
                 "id": p.id,
                 "label": p.label,
                 "kind": p.kind,
-                "installed": installed,
-                "version": if installed { json!("ok") } else { Value::Null },
-                "binPath": Value::Null,
-                "auth": if installed { "ready" } else { "not_installed" },
-                "models": p.models.len(),
+                "installed": probe.get("state").and_then(Value::as_str) != Some("not_installed"),
+                "version": probe.get("version").cloned().unwrap_or(Value::Null),
+                "binPath": probe.get("binPath").cloned().unwrap_or(Value::Null),
+                "auth": probe.get("state").cloned().unwrap_or(json!("unknown")),
+                "models": probe.get("models").cloned().unwrap_or(json!(0)),
                 "defaultModel": p.default_model,
-                "modelError": Value::Null,
-            })
-        })
-        .collect();
+                "modelError": match shadowed {
+                    Some(official) => json!(format!(
+                        "installation officielle masquée : {official} (binaire utilisé : {})",
+                        probe.get("binPath").and_then(Value::as_str).unwrap_or("?")
+                    )),
+                    None => probe.get("error").cloned().unwrap_or(Value::Null),
+                },
+            }));
+            continue;
+        }
+        let installed = live.is_some() || p.kind == "api";
+        providers.push(json!({
+            "id": p.id,
+            "label": p.label,
+            "kind": p.kind,
+            "installed": installed,
+            "version": if installed { json!("ok") } else { Value::Null },
+            "binPath": Value::Null,
+            "auth": if installed { "ready" } else { "not_installed" },
+            "models": p.models.len(),
+            "defaultModel": p.default_model,
+            "modelError": Value::Null,
+        }));
+    }
     vec![json_msg(json!({
         "type": "setupStatus",
         "status": {
