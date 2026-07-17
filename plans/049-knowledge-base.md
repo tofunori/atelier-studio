@@ -48,8 +48,15 @@
   balise fermante dans l'historique, texte user intact) ; méta kb persistée ;
   **kbPromote → gbrain capture réel OK** (~/.bun/bin résolu). Pièges corrigés :
   liste cp de stage-rust-server (garde-fou d'imports ajouté), canal titre
-  WebKit borné (repli 24k puis fetch), PATH GUI pour gbrain. Restent aux yeux
-  de Thierry : le clic réel du bouton browser et le rendu visuel chips/méta.
+  WebKit borné (repli 24k puis fetch), PATH GUI pour gbrain.
+- **UX v3 + multi-provider validés (2026-07-17 soir)** : pilule agrégée
+  SYSTÉMATIQUE (« N source(s) attachée(s) », clic → picker ; gbrain garde sa
+  pilule) ; l'attache depuis un chat neuf préserve le provider (upsert complet
+  — le patch minimal faisait normaliser provider→claude, vu par Thierry sur
+  grok/codex). E2e vivant : brouillon grok conservé avec kb ; **send codex
+  réel → les deux ids cités + mot exact de la note extrait**. L'injection est
+  composée avant le dispatch provider (commune aux 5 familles). Restent aux
+  yeux de Thierry : rendu visuel (pilule, méta, livre en chat neuf non-claude).
 
 ## Objectif
 
