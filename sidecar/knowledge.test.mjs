@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { existsSync, mkdtempSync, utimesSync, writeFileSync } from "node:fs";
+import { execFile } from "node:child_process";
+import { existsSync, mkdtempSync, readFileSync, readdirSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { KnowledgeStore, htmlToText, sourceId } from "./knowledge.mjs";
@@ -131,6 +132,72 @@ describe("base de connaissances — store", () => {
   });
 });
 
+describe("base de connaissances — robustesse", () => {
+  it("registre corrompu : sauvegarde .corrupt-* signalée, rien d'écrasé en silence", async () => {
+    const dir = tmp();
+    const seed = new KnowledgeStore(dir);
+    await seed.add({ kind: "note", title: "Avant corruption", text: LONG_NOTE });
+    writeFileSync(join(dir, "knowledge.json"), "{ tronqué");
+    const store = new KnowledgeStore(dir);
+    expect(store.warning).toMatch(/corrupt/);
+    expect(store.list()).toHaveLength(0);
+    const backups = readdirSync(dir).filter((name) => name.startsWith("knowledge.json.corrupt-"));
+    expect(backups).toHaveLength(1);
+    expect(readFileSync(join(dir, backups[0]), "utf8")).toBe("{ tronqué");
+    // le processus suivant repart sur un registre sain ; la sauvegarde demeure
+    const added = await runKbCommand(["add", "--dir", dir, "--kind", "note", "--title", "Après", "--text", LONG_NOTE]);
+    expect(added.ok).toBe(true);
+    expect(added.warning).toBeUndefined();
+    expect(readdirSync(dir).filter((name) => name.startsWith("knowledge.json.corrupt-"))).toHaveLength(1);
+    // et l'avertissement du processus témoin est bien relayé par le CLI
+    const flagged = await runKbCommand(["list", "--dir", dir], { store });
+    expect(flagged.warning).toMatch(/corrupt/);
+  });
+
+  it("PDF remplacé sur disque : ré-extraction au prochain search", async () => {
+    const dir = tmp();
+    let calls = 0;
+    const versions = [
+      [{ page: 1, text: "Preprint version: the albedo decline reaches 1.1 percent in the accumulation zone." }],
+      [{ page: 1, text: "Corrected version: the albedo decline reaches 3.7 percent in the ablation zone." }],
+    ];
+    const store = new KnowledgeStore(dir, {
+      extractPdf: () => ({ pages: versions[Math.min(calls++, 1)], cached: false }),
+    });
+    const file = join(dir, "papier.pdf");
+    writeFileSync(file, "%PDF-version-1");
+    const { source } = await store.add({ kind: "pdf", origin: file });
+    expect(calls).toBe(1);
+    writeFileSync(file, "%PDF-version-2-plus-longue");
+    const fresh = new KnowledgeStore(dir, {
+      extractPdf: () => ({ pages: versions[1], cached: false }),
+    });
+    const { passages } = fresh.search(source.id, "albedo decline percent");
+    expect(passages[0].quote).toContain("3.7 percent");
+    expect(fresh.get(source.id).meta.size).toBeGreaterThan(0);
+  });
+
+  it("ajouts concurrents depuis deux processus : aucune perte", async () => {
+    const dir = tmp();
+    const cli = join(process.cwd(), "kb_cli.mjs");
+    const run = (title) => new Promise((resolvePromise, rejectPromise) => {
+      execFile(process.execPath, [
+        cli, "add", "--dir", dir, "--kind", "note", "--title", title, "--text", LONG_NOTE,
+      ], (error, stdout, stderr) => (error ? rejectPromise(new Error(stderr || String(error))) : resolvePromise(stdout)));
+    });
+    await Promise.all([run("Note parallèle A"), run("Note parallèle B")]);
+    const listed = await runKbCommand(["list", "--dir", dir]);
+    expect(listed.count).toBe(2);
+    const titles = listed.sources.map((entry) => entry.title).sort();
+    expect(titles).toEqual(["Note parallèle A", "Note parallèle B"]);
+  });
+
+  it("web sans --origin : message explicite", async () => {
+    const store = new KnowledgeStore(tmp());
+    await expect(store.add({ kind: "web", text: LONG_NOTE })).rejects.toThrow(/--origin/);
+  });
+});
+
 describe("base de connaissances — htmlToText", () => {
   it("extrait titre et texte, décode les entités, saute des lignes aux blocs", () => {
     const { title, text } = htmlToText(
@@ -138,6 +205,17 @@ describe("base de connaissances — htmlToText", () => {
     );
     expect(title).toBe("A & B");
     expect(text).toBe("Premier bloc\nDeuxième bloc");
+  });
+
+  it("décode les entités hexadécimales et nommées courantes", () => {
+    const { text } = htmlToText(
+      "<body><p>Fonte &#x2014; bilan n&eacute;gatif&hellip; &laquo;record&raquo; &amp;&nbsp;fin</p></body>",
+    );
+    expect(text).toBe("Fonte — bilan négatif… «record» & fin");
+  });
+
+  it("laisse intactes les entités inconnues", () => {
+    expect(htmlToText("<p>a &zorglub; b</p>").text).toBe("a &zorglub; b");
   });
 
   it("ignore un HTML vide", () => {

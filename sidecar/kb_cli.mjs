@@ -28,14 +28,16 @@ function parseArgs(argv) {
 export async function runKbCommand(argv, deps = {}) {
   const { command, options } = parseArgs(argv);
   const store = deps.store ?? new KnowledgeStore(options.dir || undefined, deps);
+  // Registre récupéré d'une corruption : signalé dans chaque réponse.
+  const flag = (payload) => (store.warning ? { ...payload, warning: store.warning } : payload);
   if (command === "list") {
     const sources = store.list();
-    return { ok: true, count: sources.length, sources };
+    return flag({ ok: true, count: sources.length, sources });
   }
   if (command === "remove") {
     if (!options.id) throw new Error("Argument requis: --id");
     store.remove(options.id);
-    return { ok: true, removed: options.id };
+    return flag({ ok: true, removed: options.id });
   }
   if (command === "search") {
     for (const required of ["id", "query"]) {
@@ -43,12 +45,12 @@ export async function runKbCommand(argv, deps = {}) {
     }
     const limit = Math.max(1, Math.min(10, Number(options.limit) || 5));
     const { source, passages } = store.search(options.id, options.query, { limit });
-    return { ok: true, source, query: options.query, count: passages.length, passages };
+    return flag({ ok: true, source, query: options.query, count: passages.length, passages });
   }
   const { source, refreshed } = await store.add({
     kind: options.kind, origin: options.origin, title: options.title, text: options.text,
   });
-  return { ok: true, source, refreshed };
+  return flag({ ok: true, source, refreshed });
 }
 
 export async function main(argv = process.argv.slice(2)) {

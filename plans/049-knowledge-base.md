@@ -85,6 +85,13 @@ ${ATELIER_APP_DIR:-~/Library/Application Support/atelier-studio}/knowledge/
   moteur `searchPassages` fonctionne tel quel sur tout.
 - Écritures via `writeFileAtomic` (pattern `store.mjs`). Miroir Rust
   **lecture seule** (T4) : le runtime lit registre + caches au send.
+- **Robustesse (vérifiée par tests)** : toute mutation prend un verrou
+  inter-processus (`.lock/` par mkdir atomique, vol si > 10 s) et relit le
+  registre avant d'écrire — deux processus concurrents ne se perdent plus
+  d'entrées. Un registre illisible est sauvegardé en
+  `knowledge.json.corrupt-<ts>` (jamais écrasé en silence) et signalé.
+  Fraîcheur mtime/size revérifiée avant usage pour les fichiers **et** les
+  PDF (un PDF remplacé au même chemin est ré-extrait).
 
 ### Contrat CLI `atelier-kb` (JSON sur stdout, erreurs stderr + exit 1)
 
@@ -94,9 +101,11 @@ atelier-kb add --kind file|pdf|web|note [--origin <chemin|url>]
 atelier-kb list                                → { ok, count, sources }
 atelier-kb remove --id <id>                    → { ok, removed }
 atelier-kb search --id <id> --query <q> [--limit 5]
-               → { ok, source:{id,title,kind}, count,
+               → { ok, source:{id,title,kind}, query, count,
                    passages:[{ page, quote, context, score }] }
 ```
+
+Toute réponse peut porter `warning` (ex. registre récupéré d'une corruption).
 
 T5 ajoute `markdownLink` par passage ; T6 ajoute `file` (chemin relatif) aux
 passages des dossiers ; T8 remplace `page` par `timestamp` pour YouTube.
