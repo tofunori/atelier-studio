@@ -375,12 +375,12 @@ que les services convergent ensuite avec leurs contrôles d'identité actuels.
 
 | Plan | Title | Priority | Effort | Depends on | Status |
 |------|-------|----------|--------|------------|--------|
-| 051 | Démarrage interactif rapide — état natif, sidecar asynchrone, gateway différé | P1 | L | build canonique de `main` | TODO |
+| 053 | Démarrage interactif rapide — état natif, sidecar asynchrone, gateway différé | P1 | L | build canonique de `main` | IN PROGRESS (soak J0/3) |
 
 ### Dependency notes
 
 - P0 mesure obligatoirement la build canonique avant toute optimisation.
 - P1-P3 sont trois commits réversibles : état natif, bootstrap single-flight,
   puis gateway hors chemin critique.
-- Le soak de trois jours ferme uniquement le plan 051 ; il ne remplace pas le
+- Le soak de trois jours ferme uniquement le plan 053 ; il ne remplace pas le
   soak 2–3 semaines du plan 047 avant retrait de Node.

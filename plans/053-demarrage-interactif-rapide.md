@@ -1,4 +1,4 @@
-# Plan 051 : Démarrage interactif rapide — état natif, sidecar asynchrone et gateway hors chemin critique
+# Plan 053 : Démarrage interactif rapide — état natif, sidecar asynchrone et gateway hors chemin critique
 
 > **Instructions d'exécution** : lire ce plan en entier avant toute
 > modification. Exécuter les tranches P0 → P5 dans l'ordre et conserver chaque
@@ -42,7 +42,8 @@
 - **Compatible avec** : plan 047 ; aucun nouveau chemin runtime Node
 - **Category** : performance / fiabilité / bootstrap desktop
 - **Planned at** : 2026-07-18, `main`
-- **Status** : TODO
+- **Status** : IN PROGRESS — P0-P4 livrés dans `48cd3ea9`, soak P5 en cours
+- **Soak started at** : 2026-07-18 (jour 0/3)
 
 ## Résultat attendu
 
@@ -459,7 +460,7 @@ tranche. Ils sont hors du premier rendu après P2 et protègent le cas TCC.
 
 ### Premier tour Codex — explicitement après le boot
 
-Le préchauffage Codex n'est pas requis pour déclarer le plan 051 DONE. S'il est
+Le préchauffage Codex n'est pas requis pour déclarer le plan 053 DONE. S'il est
 réalisé dans une tranche ultérieure :
 
 - déclencheur : provider Codex actif + première saisie non vide ;
@@ -528,7 +529,7 @@ utiliser un `ATELIER_APP_DIR` temporaire dans les tests unitaires/harness.
 - au moins 20 ouvertures warm enregistrées ;
 - au moins 5 ouvertures cold normales ;
 - aucun incident ouvert lié à l'ordre d'hydratation ou au lifecycle ;
-- ce soak valide le plan 051 seulement et ne remplace pas le soak 2–3 semaines
+- ce soak valide le plan 053 seulement et ne remplace pas le soak 2–3 semaines
   du plan 047 avant retrait de Node.
 
 ## Risques et parades
@@ -561,44 +562,126 @@ utiliser un `ATELIER_APP_DIR` temporaire dans les tests unitaires/harness.
 
 ## Definition of Done
 
-- [ ] Baseline P0 enregistrée sur la build canonique.
-- [ ] `ui.json` est lu nativement et borné avant le premier rendu.
-- [ ] React ne dépend plus de `sidecar_port`, `/uistate` HTTP ou Tailscale.
-- [ ] Un seul bootstrap sidecar frontend peut être actif.
-- [ ] Le write-through capture les changements effectués avant sidecarReady.
-- [ ] Le gateway démarre hors chemin critique et Remote Control reste sain.
-- [ ] Les budgets first paint et WS sont atteints sur les échantillons P5.
-- [ ] Tous les scénarios de la matrice native sont documentés avec preuve.
-- [ ] `npm run verify`, tests Tauri, build release et health sont verts.
-- [ ] L'app finale visible provient du bundle canonique de `main`.
-- [ ] Trois jours de soak 051 sans incident ouvert.
-- [ ] La section suivante contient les résultats finaux et les commits.
+- [x] Baseline P0 enregistrée sur la build canonique (échantillon initial limité,
+  documenté ci-dessous sans lui attribuer un p95 représentatif).
+- [x] `ui.json` est lu nativement et borné avant le premier rendu.
+- [x] React ne dépend plus de `sidecar_port`, `/uistate` HTTP ou Tailscale.
+- [x] Un seul bootstrap sidecar frontend peut être actif.
+- [x] Le write-through capture les changements effectués avant sidecarReady.
+- [x] Le gateway démarre hors chemin critique et Remote Control reste sain.
+- [x] Les budgets first paint et WS sont atteints sur les échantillons P5.
+- [x] Tous les scénarios de la matrice native sont documentés avec preuve.
+- [x] `npm run verify`, tests Tauri, build release et health sont verts.
+- [x] L'app finale visible provient du bundle canonique de `main`.
+- [ ] Trois jours de soak 053 sans incident ouvert.
+- [x] La section suivante contient les résultats disponibles et les commits.
 
 ## Résultats d'exécution
 
-À remplir par l'exécuteur, sans remplacer les cibles initiales :
+État d'exécution au 2026-07-18, sans remplacer les cibles initiales :
 
 ### Baseline avant
 
-- Commit / bundle :
-- Machine / macOS :
-- Warm, n / p50 / p95 :
-- Cold, n / p50 / p95 :
-- Post-build :
-- Tailscale indisponible :
+- Commit / bundle : worktree basé sur `d730d166` ; bundle intermédiaire P0
+  instrumenté mais non conservé. La provenance du checkout est certaine, son
+  SHA-256 de bundle ne peut donc pas être reporté rétrospectivement.
+- Machine / macOS : MacBook Pro de Thierry, macOS 26.5 (25F71).
+- Warm : `n=1`, chemin historique `legacy-http|in-process`; UI hydratée
+  6,731 s, React commité 6,773 s, FMP 37,076 s et WS 37,868 s. Un seul run ne
+  définit pas un p50/p95 représentatif.
+- Cold : `n=1`, chemin historique `legacy-http|spawn`; sidecar 7,655 s, React
+  7,733 s et WS 38,722 s. Le FMP n'a pas été persisté avant l'arrêt du run.
+- Post-build : la trace a montré `start_atelier` et le scan d'artefacts sur le
+  chemin synchrone pendant environ 31 s ; cette observation a déclenché P4.
+- Tailscale indisponible : non forcé sur le profil réel afin de ne pas couper le
+  réseau utilisateur. L'échec reste isolé dans la tâche gateway détachée ; le
+  scénario natif contrôlé reste ouvert dans la matrice.
+- Limitation : la baseline historique n'a pas atteint les 10 warm + 5 cold
+  demandés. Elle est conservée telle quelle, sans inventer de quantiles ; les
+  échantillons d'acceptation après changement sont complets.
 
 ### Résultats après
 
-- Commits P0-P5 :
-- Warm, n / p50 / p95 :
-- Cold, n / p50 / p95 :
-- Post-build :
-- Gain first paint :
-- Effet sur wsReady :
-- Galerie P4 modifiée : oui/non + preuve :
-- Remote Control :
-- Gates :
-- Incidents du soak :
+- Commit P0-P4 : `48cd3ea9` (`perf(boot): make packaged startup interactive`).
+  P5 documentation/soak est conservé dans un commit séparé.
+- Bundle final mesuré :
+  `src-tauri/target/release/bundle/macos/Atelier.app`, binaire `tauri-app`
+  SHA-256 `d9e96eafcb321e3f7fdbf211c1d8ae6951cdf5f16d5f0aea460cc594e265a9df`.
+  Les 20 runs warm ont tous `uiStateSource=native`,
+  `sidecarPath=lock-reuse` et `gatewayDeferred=true`.
+- Warm final (`n=20`, secondes, min / p50 / p95 / max) :
+
+  | Mesure | min | p50 | p95 | max | Budget |
+  |---|---:|---:|---:|---:|---:|
+  | FMP | 0,877 | 0,903 | 0,921 | 0,929 | p95 <= 1,2 s — PASS |
+  | sidecar | 0,904 | 0,941 | 0,966 | 0,978 | p95 <= 2 s — PASS |
+  | WS | 0,917 | 0,958 | 0,985 | 0,999 | p95 <= 2,5 s — PASS |
+  | galerie | 0,907 | 0,935 | 0,980 | 0,982 | observation |
+
+- Cold normal final (`n=5`, secondes, min / p50 / p95 / max) :
+
+  | Mesure | min | p50 | p95 | max | Budget |
+  |---|---:|---:|---:|---:|---:|
+  | FMP | 0,884 | 0,901 | 1,072 | 1,072 | p95 <= 2 s — PASS |
+  | sidecar | 0,931 | 1,971 | 3,148 | 3,148 | observation cold |
+  | WS | 0,945 | 1,999 | 3,175 | 3,175 | p95 <= 8 s — PASS |
+  | galerie | 1,909 | 1,932 | 3,103 | 3,103 | observation |
+
+- Première ouverture post-build finale : FMP 1,015 s, sidecar 1,092 s,
+  WS 1,119 s, galerie 1,040 s ; convergence totale < 2 s, donc PASS sous le
+  contrat TCC de 30 s.
+- Gain first paint : indicatif, car la baseline avant ne contient qu'un warm :
+  37,076 s avant contre 0,921 s au p95 final (environ -97,5 %).
+- Effet sur `wsReady` : 37,868 s sur l'unique warm historique contre 0,985 s
+  au p95 final (environ -97,4 %), sans raccourcir les retries health/TCC.
+- Galerie P4 modifiée : oui. La trace initiale montrait environ 31 s de travail
+  synchrone. La galerie visible démarre au frame suivant ; cachée, elle attend
+  `wsReady` puis l'idle callback (fallback 1 s). Les tests couvrent les deux
+  politiques et le runtime final converge.
+- Lock incompatible : FMP 0,879 s, sidecar 2,749 s, WS 2,766 s ; l'ancien PID
+  a disparu, un seul nouveau sidecar sain est resté actif.
+- Reconnexion : le sidecar PID 1741 tué seul a été remplacé par le PID 9757 en
+  environ 5 s, tandis que `tauri-app` est resté PID 1604 ; un seul sidecar final
+  et health `ok=true`.
+- Remote Control : `gatewayDeferred=true`; gateway final unique sur TCP 18765,
+  lock aligné avec le port et le hash du token sidecar. Avec l'exécution de la
+  CLI Tailscale refusée uniquement dans un sandbox macOS, FMP 1,439 s, sidecar
+  1,555 s et WS 1,592 s ; le sidecar PID 9757 est resté unique et sain, tandis
+  que seule la tâche gateway a journalisé « Tailscale n'est pas connecté ».
+- `ui.json` absent/corrompu/trop grand/tableau/valeurs invalides : profils
+  temporaires couverts par les tests Rust et frontend ; le vrai fichier n'a
+  jamais été déplacé ni corrompu.
+- Sidecar >10 s : lancement natif avec un shim temporaire retardant le sidecar
+  de 12 s. React a été commité à 1,055 s et le FMP à 1,094 s ; après 11 s,
+  l'app restait vivante et utilisable sans marque `sidecarReady` ni `wsReady`.
+  Le shim a ensuite été supprimé et le bundle normal a reconvergé avec un seul
+  sidecar sain.
+- Gates : `npm run verify` vert (571 tests frontend, 526 sidecar, suites
+  galerie/parity/diff, Rust workspace et backend-policy), Tauri 30 tests verts,
+  puis `tsc`, Vite et sidecar verts après l'optimisation finale. Build `.app`
+  release sain ; la signature standard a échoué uniquement sur le trousseau
+  (`errSecInternalComponent`) et le fallback sans signature a produit l'app et
+  le DMG avec exit 0.
+- Métriques : `boot-metrics.json` est en mode 0600, schéma v1, 77 runs au jour
+  0 et aucune occurrence des champs interdits token/port/projet/thread/prompt/modèle.
+- Preuve visuelle : capture native du bundle final après focus, interface
+  complète avec projet, conversations et galerie ; process `tauri-app`,
+  sidecar et gateway issus du bundle canonique.
+- Incidents du soak : aucun au jour 0 ; soak 3 jours encore ouvert.
+
+### État de la matrice native au jour 0
+
+| Scénario | État | Preuve |
+|---|---|---|
+| Warm | PASS | 20/20 runs finaux, FMP et WS sous budget |
+| Cold normal | PASS | 5/5 runs finaux, FMP et WS sous budget |
+| Lock périmé | PASS | PID incompatible remplacé, un seul sidecar final |
+| Sidecar lent >10 s | PASS | FMP 1,094 s ; UI vivante après 11 s sans sidecar/WS |
+| Tailscale absent | PASS | sandbox CLI : WS 1,592 s, sidecar réel inchangé et sain |
+| `ui.json` absent | PASS TEST | profil temporaire, fallback sans crash |
+| `ui.json` corrompu | PASS TEST | erreur diagnostique, aucun écrasement |
+| Post-build TCC | PASS | convergence <10 s, budget 30 s |
+| Reconnexion | PASS | app conservée, sidecar unique respawné et sain |
 
 ## Hors périmètre
 
