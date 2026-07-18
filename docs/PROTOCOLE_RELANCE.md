@@ -164,6 +164,9 @@ npm run rust:targets:prune -- --days 30 --apply
 ### Construire un DMG de release
 
 Une relance quotidienne n'a besoin que du `.app`. Pour une vraie release :
+**tuer l'app d'abord (phase 2)** — le build DMG restage le même bundle que
+l'app vivante (voir Interdits) — puis re-dérouler le protocole complet après
+pour rendre l'app utilisable (le DMG laisse un bundle signé adhoc sur disque).
 
 ```bash
 ROOT="$(git rev-parse --show-toplevel)"
@@ -181,6 +184,13 @@ même si la création du DMG échoue. Il ne supprime ni `Atelier.app` ni le DMG 
 
 ## Interdits
 
+- ❌ **builder (app OU DMG) pendant que l'app de CE worktree tourne** — le stage
+  réécrit le bundle `.app` SOUS le process vivant → macOS invalide la signature
+  du code en cours d'exécution : serveurs galerie en 500 sur toute lecture,
+  vignettes perdues au rescan, enfants (sidecar, sessions claude) en
+  « Operation not permitted » sur ~/Documents (vécu 2026-07-18 : DMG release
+  adhoc buildé sous l'app dev-signée vivante). Toujours TUER d'abord (phase 2),
+  builder ensuite, relancer après.
 - ❌ `pkill -x Atelier` / `pgrep -x Atelier` (mauvais nom ; utiliser `tauri-app`)
 - ❌ `open Atelier.app` sans avoir tué l'existant (active le zombie, ne relance rien)
 - ❌ builder sans avoir tué les serveurs galerie (ils serviront le vieux code)
