@@ -998,6 +998,9 @@ async function load(){
   cm.on("cursorActivity", () => {
     clearTimeout(selT);
     selT = setTimeout(() => {
+      // mode Comparaison : dPill (pilule du diff) s'en charge — sans ce garde,
+      // DEUX bulles « Add to chat » apparaissaient sur la même sélection
+      if(__dv.isShown()){ selHide(); return; }
       const sel = cm.getSelection();
       const f = cm.getCursor("from"), t = cm.getCursor("to");
       if(sel && sel.trim()){
