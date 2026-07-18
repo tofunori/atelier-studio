@@ -1637,10 +1637,13 @@ fn kb_sources_msg(v: &Value) -> Vec<String> {
 }
 
 fn handle_kb_list(state: &AppState) -> Vec<String> {
-    match kb_cli_run(state.server_dir(), state.app_dir(), &["list"], "") {
-        Ok(v) => kb_sources_msg(&v),
-        Err(message) => kb_error(message),
-    }
+    // Plan 051 P3 : lecture native du registre (~1 ms) — plus de spawn Node
+    // pour lister. Les mutations continuent de passer par le CLI puis
+    // reviennent ici pour la liste fraîche.
+    let knowledge_dir = std::path::Path::new(state.app_dir()).join("knowledge");
+    let mut payload = crate::kb_block::kb_list_payload(&knowledge_dir);
+    payload.insert("type".into(), json!("kbSources"));
+    vec![json_msg(Value::Object(payload))]
 }
 
 // Organisation de la base (plan 051 P1) : mutation via le CLI (une seule

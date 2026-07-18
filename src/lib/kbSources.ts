@@ -71,7 +71,12 @@ export function subscribeKbSources(listener: () => void): () => void {
   };
 }
 
-export function requestKbSources(): void {
+let fetchedAt = 0;
+const KB_LIST_TTL_MS = 30_000;
+
+/** Demande la liste — no-op si le cache a moins de 30 s (plan 051 P3). */
+export function requestKbSources(opts: { force?: boolean } = {}): void {
+  if (!opts.force && loaded && Date.now() - fetchedAt < KB_LIST_TTL_MS) return;
   wsSend({ type: "kbList" });
 }
 
@@ -81,6 +86,7 @@ export function resetKbSourcesForTests(): void {
   collections = [];
   archived = { count: 0, sources: [] };
   loaded = false;
+  fetchedAt = 0;
 }
 
 if (typeof window !== "undefined") {
@@ -98,11 +104,12 @@ if (typeof window !== "undefined") {
       sources: Array.isArray(payload.archivedSources) ? payload.archivedSources : archived.sources,
     };
     loaded = true;
+    fetchedAt = Date.now();
     emit();
   });
   // après un épinglage réussi (browser, picker), la liste est rafraîchie
   window.addEventListener("kb-source-added", (e) => {
     const detail = (e as CustomEvent).detail as { ok?: boolean } | undefined;
-    if (detail?.ok) requestKbSources();
+    if (detail?.ok) requestKbSources({ force: true });
   });
 }
