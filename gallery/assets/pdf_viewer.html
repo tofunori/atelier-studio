@@ -14,6 +14,7 @@
 })();</script>
 <script src="/.fig_thumbs/pdfjs/pdf.min.js"></script>
 <script src="annot_kit.js"></script>
+<script src="sel_pill.js"></script>
 <script src="pdf_passage.js"></script>
 <style>
   :root{--ui-font:-apple-system,'SF Pro Text','Inter Variable',sans-serif;--code-font:ui-monospace,'SF Mono',Menlo,monospace;--bg:#202024;--card:#27272a;--card2:#1f1f23;--txt:#dbdfe5;--muted:#a1a1aa;--accent:#5b9dff;--border:#3f3f46}
@@ -403,107 +404,31 @@ btn.onclick = async () => {
   setTimeout(()=>document.getElementById("status").textContent="", 3000);
 };
 
-// --- selection pill: annotate + send directly to the Claude session (same flow
-//     as the LaTeX studio pill and the HTML report overlay; /quote with direct:true) ---
+// --- pilule de sélection : comportement partagé via SelPill (sel_pill.js) —
+//     l'hôte fournit le payload (rel/page/texte) et le nettoyage du surlignage
 const selPill = document.getElementById("selPill");
 const selTa = selPill.querySelector("textarea");
-  // Mode Studio : pilule simple « Add to chat » (comme la sélection du chat) —
-  // pas de commentaire ni corbeille, le texte part en puce dans le composer.
-  if (window.self!==window.top){
-    var __go = selPill.querySelector('.go');
-    ['textarea','.del','.tgt','.nb'].forEach(function(sel){
-      var el = selPill.querySelector(sel); if (el) el.style.display = 'none';
-    });
-    selPill.style.cssText += ';background:transparent;border:none;box-shadow:none;padding:0;min-width:0;width:auto';
-    if (__go){ __go.innerHTML = '<svg width=\'13\' height=\'13\' viewBox=\'0 0 16 16\' fill=\'none\' stroke=\'currentColor\' stroke-width=\'1.3\' style=\'vertical-align:-2px\'><path d=\'M14 8c0 3-2.7 5.2-6 5.2-.8 0-1.6-.1-2.3-.4L2.5 14l1-2.6C2.6 10.5 2 9.3 2 8c0-3 2.7-5.2 6-5.2S14 5 14 8z\'/></svg>&nbsp; Add to chat';
-      __go.style.cssText = 'width:auto;min-width:0;height:auto;border-radius:999px;padding:7px 14px;font-size:13px;white-space:nowrap;background:#2c313a;color:#dbdfe5;border:1px solid #3a414d;box-shadow:0 6px 18px rgba(0,0,0,0.5);cursor:pointer'; }
+const selApi = SelPill.attach({
+  pill: selPill,
+  menu: document.getElementById("tgMenu"),
+  getQuote(){ const text = hlText(); return text ? {rel, page: selPage, text} : null; },
+  onCancel(){
+    clearHl();
+    fetch("/selinfo", {method:"POST", headers:{"Content-Type":"application/json"},
+      body: JSON.stringify({lines:0, words:0})}).catch(()=>{});
   }
-
-const __goHTML = (window.self!==window.top && selPill.querySelector('.go')) ? selPill.querySelector('.go').innerHTML : null;
-function goReset(go){ if (__goHTML) go.innerHTML = __goHTML; else go.textContent = "↑"; }
+});
 function selPillShow(hls){
-  const text = hlText();
-  if(!text){ selHide(); return; }
-  // union rect of the highlighted spans (viewport coords)
+  if(!hlText()){ selApi.hide(); return; }
+  // rectangle union des spans surlignés (coordonnées viewport)
   let l = Infinity, r = -Infinity, top = Infinity, bot = -Infinity;
   hls.forEach(s => { const b = s.getBoundingClientRect();
     l = Math.min(l, b.left); r = Math.max(r, b.right); top = Math.min(top, b.top); bot = Math.max(bot, b.bottom); });
-  selPill.style.display = "flex";
-  const w = selPill.offsetWidth, h = selPill.offsetHeight;
-  let x = Math.min(Math.max(8, (l + r)/2 - w/2), innerWidth - w - 8);
-  let y = bot + 10;
-  if(y + h > innerHeight - 8) y = top - h - 10;
-  selPill.style.left = x + "px"; selPill.style.top = Math.max(8, y) + "px";
+  selApi.placeAt({left: l, width: r - l, top, bottom: bot});
 }
-function selHide(){ selPill.style.display = "none"; }
-function selCancel(){ selHide(); selTa.value = ""; clearHl();
-  fetch("/selinfo", {method:"POST", headers:{"Content-Type":"application/json"},
-    body: JSON.stringify({lines:0, words:0})}).catch(()=>{});
-}
-const __EMB=(function(){try{return window.self!==window.top;}catch(e){return true;}})();
-function selSend(){
-  const text = hlText();
-  if(!text) return;
-  const comment = selTa.value.trim();
-  const go = selPill.querySelector(".go");
-  go.textContent = "⏳";
-  fetch("/quote", {method:"POST", headers:{"Content-Type":"application/json"},
-    body: JSON.stringify({rel, page: selPage, text, comment: comment || "", direct: true, target: __ct(), embed: __EMB})})
-    .then(r => r.json())
-    .then(j => { if(__EMB && j && j.message) __atelierPost({type:'atelier-add-to-chat', text:j.message});
-      go.textContent = "✓"; setTimeout(() => { goReset(go); selTa.value = ""; selHide(); }, 1200); })
-    .catch(() => { go.textContent = "!"; setTimeout(() => { goReset(go); }, 1600); });
-}
-// clicks on the bar must not destroy the selection — except the textarea, which needs focus
-selPill.addEventListener("mousedown", e => { if(e.target !== selTa) e.preventDefault(); });
-selPill.querySelector(".go").onclick = () => selSend();
-selPill.querySelector(".del").onclick = e => { e.stopPropagation(); selCancel(); };
-/* ---- Claude-session target picker (stores localStorage 'claudeTargetV1') ---- */
-(function(){
-  const esc = s => String(s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
-  const tgtBtn = selPill.querySelector(".tgt"), tgMenu = document.getElementById("tgMenu");
-  if(__EMB) tgtBtn.style.display = "none";
-  const markTgt = () => tgtBtn.classList.toggle("set", !!__ct());
-  markTgt();
-  tgMenu.addEventListener("mousedown", e => e.preventDefault());
-  tgtBtn.onclick = async e => {
-    e.stopPropagation();
-    const cur = __ct();
-    let html = '<div class="hd">Envoyer vers</div>'
-      + '<div class="it' + (cur ? '' : ' on') + '" data-i="-1"><span class="app">auto</span>'
-      + '<span class="t">Session du projet (auto)</span></div>';
-    try{
-      const j = await (await fetch("/claude-targets")).json();
-      (j.targets || []).forEach((t, i) => {
-        const on = cur && cur.app === t.app && cur.id === t.id;
-        html += '<div class="it' + (on ? ' on' : '') + '" data-i="' + i + '"><span class="app">'
-          + esc(t.app) + '</span><span class="t">' + esc(t.title || t.id)
-          + (t.inProject ? '' : ' — ' + esc(String(t.cwd || '').split('/').pop())) + '</span></div>';
-      });
-      tgMenu.innerHTML = html;
-      tgMenu.style.display = "flex";
-      const r = tgtBtn.getBoundingClientRect();
-      tgMenu.style.left = Math.max(8, Math.min(r.left - 120, innerWidth - tgMenu.offsetWidth - 8)) + "px";
-      tgMenu.style.top = Math.max(8, r.top - tgMenu.offsetHeight - 10) + "px";
-      tgMenu.querySelectorAll(".it").forEach(it => {
-        it.onclick = ev => {
-          ev.stopPropagation();
-          const i = +it.dataset.i;
-          if(i < 0) localStorage.removeItem("claudeTargetV1");
-          else localStorage.setItem("claudeTargetV1", JSON.stringify({app:j.targets[i].app, id:j.targets[i].id, title:j.targets[i].title}));
-          markTgt(); tgMenu.style.display = "none";
-        };
-      });
-      document.addEventListener("click", function h(){ tgMenu.style.display = "none"; document.removeEventListener("click", h); });
-    }catch(err){ console.warn("claude-targets failed", err); }
-  };
-})();
-selTa.addEventListener("input", () => { selTa.style.height = "20px"; selTa.style.height = Math.min(120, selTa.scrollHeight) + "px"; });
-selTa.addEventListener("keydown", e => {
-  e.stopPropagation();
-  if(e.key === "Enter" && !e.shiftKey){ e.preventDefault(); selSend(); }
-  else if(e.key === "Escape"){ e.preventDefault(); selCancel(); }
-});
+function selHide(){ selApi.hide(); }
+function selCancel(){ selApi.cancel(); }
+const __EMB = SelPill.embedded;
 document.addEventListener("keydown", e => { if(e.key === "Escape") selCancel(); });
 
 // --- drawn annotation (shared AnnotKit): one transparent overlay per page,

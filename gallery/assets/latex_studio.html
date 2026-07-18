@@ -73,6 +73,7 @@
 <script src="/.fig_thumbs/cm/shell.min.js"></script>
 <script src="/.fig_thumbs/cm/javascript.min.js"></script>
 <script src="/.fig_thumbs/pdfjs/pdf.min.js"></script>
+<script src="/.fig_thumbs/sel_pill.js"></script>
 <script src="/.fig_thumbs/marked.min.js"></script>
 <script src="/.fig_thumbs/purify.min.js"></script>
 <script src="/.fig_thumbs/diff.min.js"></script>
@@ -1712,33 +1713,32 @@ if(bc) bc.onmessage = e => {
   }
 };
 
-// --- selection pill: annotate + send directly to the Claude session (same flow
-//     as the figure pill and the HTML report overlay; /quote with direct:true) ---
+// --- pilule de sélection : comportement partagé via SelPill (sel_pill.js) —
+//     l'hôte garde le payload Lx-y, le nettoyage des marques CM et le bouton
+//     « Commenter » (fil de commentaires ancrés) du mode embarqué
 const selPill = document.getElementById("selPill");
-const __goHTML0 = (window.self!==window.top && selPill.querySelector('.go')) ? null : null; // rempli après restyle
-let __goHTML = null;
-function goReset(go){ if (__goHTML) go.innerHTML = __goHTML; else go.textContent = "↑"; }
-setTimeout(function(){ var g = selPill.querySelector('.go'); if (window.self!==window.top && g) __goHTML = g.innerHTML; }, 0);
 const selTa = selPill.querySelector("textarea");
-  // Mode Studio : pilule simple « Add to chat » (comme la sélection du chat) —
-  // pas de commentaire ni corbeille, le texte part en puce dans le composer.
-  if (window.self!==window.top){
-    var __go = selPill.querySelector('.go');
-    ['textarea','.del','.tgt','.nb'].forEach(function(sel){
-      var el = selPill.querySelector(sel); if (el) el.style.display = 'none';
-    });
-    selPill.style.cssText += ';background:transparent;border:none;box-shadow:none;padding:0;min-width:0;width:auto';
-    if (__go){ __go.innerHTML = '<svg width=\'13\' height=\'13\' viewBox=\'0 0 16 16\' fill=\'none\' stroke=\'currentColor\' stroke-width=\'1.3\' style=\'vertical-align:-2px\'><path d=\'M14 8c0 3-2.7 5.2-6 5.2-.8 0-1.6-.1-2.3-.4L2.5 14l1-2.6C2.6 10.5 2 9.3 2 8c0-3 2.7-5.2 6-5.2S14 5 14 8z\'/></svg>&nbsp; Add to chat';
-      __go.style.cssText = 'width:auto;min-width:0;height:auto;border-radius:999px;padding:7px 14px;font-size:13px;white-space:nowrap;background:#2c313a;color:#dbdfe5;border:1px solid #3a414d;box-shadow:0 6px 18px rgba(0,0,0,0.5);cursor:pointer';
-      var __cbtn = document.createElement('button');
-      __cbtn.innerHTML = '<svg width=\'13\' height=\'13\' viewBox=\'0 0 16 16\' fill=\'none\' stroke=\'currentColor\' stroke-width=\'1.3\' style=\'vertical-align:-2px\'><path d=\'M3 2.5h10v8H8l-3 3v-3H3v-8z\'/></svg>&nbsp; Commenter';
-      __cbtn.style.cssText = __go.style.cssText;
-      __cbtn.onmousedown = function(e){ e.preventDefault(); e.stopPropagation(); if(lastSel) texcOpen(lastSel); selHide(); };
-      __go.insertAdjacentElement('afterend', __cbtn);
-    }
-  }
-
 let lastSel = null;
+const selApi = SelPill.attach({
+  pill: selPill,
+  menu: document.getElementById("tgMenu"),
+  getQuote(){ return lastSel ? {rel: path, page: lastSel.page, text: lastSel.text} : null; },
+  onSent(){ if(window._clMark){ window._clMark.clear(); window._clMark = null; } },
+  onCancel(){
+    lastSel = null;
+    if(cm) cm.setCursor(cm.getCursor());
+    if(window._clMark){ window._clMark.clear(); window._clMark = null; }
+    fetch("/selinfo", {method:"POST", headers:{"Content-Type":"application/json"},
+      body: JSON.stringify({lines:0, words:0})}).catch(()=>{});
+  },
+  embedExtras(go){
+    var __cbtn = document.createElement('button');
+    __cbtn.innerHTML = '<svg width=\'13\' height=\'13\' viewBox=\'0 0 16 16\' fill=\'none\' stroke=\'currentColor\' stroke-width=\'1.3\' style=\'vertical-align:-2px\'><path d=\'M3 2.5h10v8H8l-3 3v-3H3v-8z\'/></svg>&nbsp; Commenter';
+    __cbtn.style.cssText = go.style.cssText;
+    __cbtn.onmousedown = function(e){ e.preventDefault(); e.stopPropagation(); if(lastSel) texcOpen(lastSel); selHide(); };
+    go.insertAdjacentElement('afterend', __cbtn);
+  }
+});
 function selPillShow(f, t, sel){
   // don't reposition/steal focus while the user is typing a comment
   if(selPill.style.display === "flex" && (document.activeElement === selTa || selTa.value)) return;
@@ -1760,78 +1760,8 @@ function selPillShow(f, t, sel){
   y = Math.min(Math.max(top, y), Math.max(top, bottom)); // jamais hors de l'éditeur
   selPill.style.left = Math.max(6, x) + "px"; selPill.style.top = y + "px";
 }
-function selHide(){ selPill.style.display = "none"; }
-function selCancel(){
-  selHide(); lastSel = null; selTa.value = "";
-  if(cm) cm.setCursor(cm.getCursor());
-  if(window._clMark){ window._clMark.clear(); window._clMark = null; }
-  fetch("/selinfo", {method:"POST", headers:{"Content-Type":"application/json"},
-    body: JSON.stringify({lines:0, words:0})}).catch(()=>{});
-}
-const __EMB=(function(){try{return window.self!==window.top;}catch(e){return true;}})();
-function selSend(){
-  if(!lastSel) return;
-  const comment = selTa.value.trim();
-  const go = selPill.querySelector(".go");
-  go.textContent = "⏳";
-  fetch("/quote", {method:"POST", headers:{"Content-Type":"application/json"},
-    body: JSON.stringify({rel: path, page: lastSel.page, text: lastSel.text, comment: comment || "", direct: true, target: __ct(), embed: __EMB})})
-    .then(r => r.json())
-    .then(j => { if(__EMB && j && j.message) __atelierPost({type:'atelier-add-to-chat', text:j.message});
-      if(window._clMark){ window._clMark.clear(); window._clMark = null; }
-      go.textContent = "✓"; setTimeout(() => { goReset(go); selTa.value = ""; selHide(); }, 1200); })
-    .catch(() => { go.textContent = "!"; setTimeout(() => { goReset(go); }, 1600); });
-}
-// clicks on the bar must not destroy the selection — except the textarea, which needs focus
-selPill.addEventListener("mousedown", e => { if(e.target !== selTa) e.preventDefault(); });
-selPill.querySelector(".go").onclick = () => selSend();
-selPill.querySelector(".del").onclick = e => { e.stopPropagation(); selCancel(); };
-/* ---- Claude-session target picker (stores localStorage 'claudeTargetV1') ---- */
-(function(){
-  const esc = s => String(s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
-  const tgtBtn = selPill.querySelector(".tgt"), tgMenu = document.getElementById("tgMenu");
-  if(__EMB) tgtBtn.style.display = "none";
-  const markTgt = () => tgtBtn.classList.toggle("set", !!__ct());
-  markTgt();
-  tgMenu.addEventListener("mousedown", e => e.preventDefault());
-  tgtBtn.onclick = async e => {
-    e.stopPropagation();
-    const cur = __ct();
-    let html = '<div class="hd">Envoyer vers</div>'
-      + '<div class="it' + (cur ? '' : ' on') + '" data-i="-1"><span class="app">auto</span>'
-      + '<span class="t">Session du projet (auto)</span></div>';
-    try{
-      const j = await (await fetch("/claude-targets")).json();
-      (j.targets || []).forEach((t, i) => {
-        const on = cur && cur.app === t.app && cur.id === t.id;
-        html += '<div class="it' + (on ? ' on' : '') + '" data-i="' + i + '"><span class="app">'
-          + esc(t.app) + '</span><span class="t">' + esc(t.title || t.id)
-          + (t.inProject ? '' : ' — ' + esc(String(t.cwd || '').split('/').pop())) + '</span></div>';
-      });
-      tgMenu.innerHTML = html;
-      tgMenu.style.display = "flex";
-      const r = tgtBtn.getBoundingClientRect();
-      tgMenu.style.left = Math.max(8, Math.min(r.left - 120, innerWidth - tgMenu.offsetWidth - 8)) + "px";
-      tgMenu.style.top = Math.max(8, r.top - tgMenu.offsetHeight - 10) + "px";
-      tgMenu.querySelectorAll(".it").forEach(it => {
-        it.onclick = ev => {
-          ev.stopPropagation();
-          const i = +it.dataset.i;
-          if(i < 0) localStorage.removeItem("claudeTargetV1");
-          else localStorage.setItem("claudeTargetV1", JSON.stringify({app:j.targets[i].app, id:j.targets[i].id, title:j.targets[i].title}));
-          markTgt(); tgMenu.style.display = "none";
-        };
-      });
-      document.addEventListener("click", function h(){ tgMenu.style.display = "none"; document.removeEventListener("click", h); });
-    }catch(err){ console.warn("claude-targets failed", err); }
-  };
-})();
-selTa.addEventListener("input", () => { selTa.style.height = "20px"; selTa.style.height = Math.min(120, selTa.scrollHeight) + "px"; });
-selTa.addEventListener("keydown", e => {
-  e.stopPropagation();
-  if(e.key === "Enter" && !e.shiftKey){ e.preventDefault(); selSend(); }
-  else if(e.key === "Escape"){ e.preventDefault(); selCancel(); }
-});
+function selHide(){ selApi.hide(); }
+function selCancel(){ selApi.cancel(); }
 
 document.getElementById("build").onclick = compile;
 document.getElementById("saveBtn").onclick = () => save();
