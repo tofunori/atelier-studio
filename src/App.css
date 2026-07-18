@@ -2299,9 +2299,9 @@ button.ctx-ring-wrap { border: none; font: inherit; color: inherit;
 .thinking-head { appearance: none; background: transparent; border: none; display: flex;
   align-items: center; gap: 7px; padding: 2px 0; cursor: pointer; font: inherit;
   font-size: var(--fs-m); color: var(--muted); max-width: 100%; text-align: left; }
-.thinking-icon { width: 14px; height: 14px; flex: none; color: currentColor; }
+.thinking-icon { width: 12px; height: 12px; flex: none; color: currentColor; }
 .thinking.live .thinking-icon, .thinking-live-indicator .thinking-icon {
-  animation: thinking-icon-flash 1s ease-in-out infinite; }
+  animation: thinking-icon-flash 2s ease-in-out infinite; }
 @keyframes thinking-icon-flash {
   0%, 35%, 100% { opacity: .42; }
   12% { opacity: 1; }
