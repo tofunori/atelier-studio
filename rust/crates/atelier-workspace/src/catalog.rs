@@ -110,6 +110,10 @@ fn read_dir_bounded(root: &Path) -> Vec<String> {
 pub struct CommandEntry {
     pub name: String,
     pub source: String,
+    /// SKILL.md (skill) ou fichier .md (commande) — absent pour les builtins.
+    /// Consommé par les providers skillsAttach (kimi) qui joignent le fichier.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub path: Option<String>,
 }
 
 pub fn list_commands(project_root: Option<&str>) -> Vec<CommandEntry> {
@@ -132,15 +136,21 @@ pub fn list_commands(project_root: Option<&str>) -> Vec<CommandEntry> {
             }
             let p = e.path();
             if kind == "skills" && p.is_dir() {
+                let skill_md = p.join("SKILL.md");
+                let path = skill_md
+                    .is_file()
+                    .then(|| skill_md.to_string_lossy().into_owned());
                 map.entry(name.clone()).or_insert(CommandEntry {
                     name,
                     source: source.into(),
+                    path,
                 });
             } else if kind == "commands" && name.ends_with(".md") {
                 let n = name.trim_end_matches(".md").to_string();
                 map.entry(n.clone()).or_insert(CommandEntry {
                     name: n,
                     source: source.into(),
+                    path: Some(p.to_string_lossy().into_owned()),
                 });
             }
         }
@@ -158,6 +168,7 @@ pub fn list_commands(project_root: Option<&str>) -> Vec<CommandEntry> {
         out.entry((*name).into()).or_insert(CommandEntry {
             name: (*name).into(),
             source: "builtin".into(),
+            path: None,
         });
     }
     out.into_values().collect()
@@ -174,5 +185,34 @@ mod tests {
         std::fs::write(dir.path().join("a.py"), b"x").unwrap();
         let files = list_files(dir.path().to_str().unwrap());
         assert!(files.iter().any(|f| f == "a.py"));
+    }
+
+    #[test]
+    fn list_commands_expose_le_path_skill_et_commande() {
+        let dir = tempdir().unwrap();
+        let skills = dir.path().join(".claude/skills/mon-skill");
+        std::fs::create_dir_all(&skills).unwrap();
+        std::fs::write(skills.join("SKILL.md"), b"instructions").unwrap();
+        let vide = dir.path().join(".claude/skills/skill-vide");
+        std::fs::create_dir_all(&vide).unwrap();
+        let commands = dir.path().join(".claude/commands");
+        std::fs::create_dir_all(&commands).unwrap();
+        std::fs::write(commands.join("ma-commande.md"), b"prompt").unwrap();
+
+        let out = list_commands(Some(dir.path().to_str().unwrap()));
+        let skill = out.iter().find(|c| c.name == "mon-skill").unwrap();
+        assert_eq!(
+            skill.path.as_deref(),
+            Some(skills.join("SKILL.md").to_str().unwrap())
+        );
+        let sans_md = out.iter().find(|c| c.name == "skill-vide").unwrap();
+        assert!(sans_md.path.is_none(), "pas de SKILL.md ⇒ pas de path");
+        let cmd = out.iter().find(|c| c.name == "ma-commande").unwrap();
+        assert_eq!(
+            cmd.path.as_deref(),
+            Some(commands.join("ma-commande.md").to_str().unwrap())
+        );
+        let builtin = out.iter().find(|c| c.source == "builtin").unwrap();
+        assert!(builtin.path.is_none());
     }
 }

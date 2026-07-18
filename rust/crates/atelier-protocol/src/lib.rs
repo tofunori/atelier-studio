@@ -89,6 +89,10 @@ pub struct ProviderCapabilities {
     pub plugins: bool,
     #[serde(default)]
     pub skills: bool,
+    /// Atelier joint le SKILL.md (input `skill` + consigne) sur `/nom` du
+    /// catalogue — providers sans chargement natif des skills (kimi).
+    #[serde(default)]
+    pub skills_attach: bool,
     #[serde(default)]
     pub review: bool,
     #[serde(default)]
@@ -255,6 +259,7 @@ pub fn builtin_providers() -> Vec<ProviderStatus> {
                 mcp_widgets: false,
                 plugins: false,
                 skills: true,
+                skills_attach: false,
                 review: false,
                 compact: false,
                 image_input: false,
@@ -306,6 +311,7 @@ pub fn builtin_providers() -> Vec<ProviderStatus> {
                 mcp_widgets: true,
                 plugins: true,
                 skills: true,
+                skills_attach: false,
                 review: true,
                 compact: true,
                 image_input: true,
@@ -351,6 +357,7 @@ pub fn builtin_providers() -> Vec<ProviderStatus> {
                 mcp_widgets: false,
                 plugins: false,
                 skills: false,
+                skills_attach: false,
                 review: false,
                 compact: false,
                 image_input: false,
@@ -387,6 +394,7 @@ pub fn builtin_providers() -> Vec<ProviderStatus> {
                 mcp_widgets: false,
                 plugins: false,
                 skills: true,
+                skills_attach: true,
                 // Pas de commande review dans les builtins ACP 0.26
                 // (compact/status/usage/mcp/tasks/help) — règle du plan :
                 // sans méthode documentée, la capability reste false.
@@ -444,6 +452,7 @@ pub fn builtin_providers() -> Vec<ProviderStatus> {
                 mcp_widgets: false,
                 plugins: false,
                 skills: false,
+                skills_attach: false,
                 review: false,
                 compact: false,
                 image_input: false,

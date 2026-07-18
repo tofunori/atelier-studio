@@ -20,10 +20,17 @@ export function listCommands(projectRoot) {
       const p = join(dir, entry);
       try {
         if (kind === "skills" && statSync(p).isDirectory()) {
-          out.set(entry, { name: entry, source: dir.includes(homedir()) ? "user" : "project" });
+          // path = SKILL.md pour les providers skillsAttach (kimi) qui
+          // reçoivent le fichier en resource_link au lieu du /nom textuel.
+          const skillMd = join(p, "SKILL.md");
+          out.set(entry, {
+            name: entry,
+            source: dir.includes(homedir()) ? "user" : "project",
+            ...(existsSync(skillMd) ? { path: skillMd } : {}),
+          });
         } else if (kind === "commands" && entry.endsWith(".md")) {
           const name = entry.replace(/\.md$/, "");
-          out.set(name, { name, source: dir.includes(homedir()) ? "user" : "project" });
+          out.set(name, { name, source: dir.includes(homedir()) ? "user" : "project", path: p });
         }
       } catch {}
     }

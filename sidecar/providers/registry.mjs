@@ -72,7 +72,7 @@ const PROVIDERS = [
     defaultModel: "",
     models: [],
     efforts: [],
-    capabilities: { reasoning: true, resume: true, steering: false, queue: true, goals: false, tools: true, toolOutput: true, permissions: true, interactiveInput: true, mcpElicitation: false, mcpTools: true, mcpWidgets: false, plugins: false, skills: true, review: false, compact: true, imageInput: true, durableHistory: true, permissionModes: ["default", "acceptEdits", "plan", "bypassPermissions"] },
+    capabilities: { reasoning: true, resume: true, steering: false, queue: true, goals: false, tools: true, toolOutput: true, permissions: true, interactiveInput: true, mcpElicitation: false, mcpTools: true, mcpWidgets: false, plugins: false, skills: true, skillsAttach: true, review: false, compact: true, imageInput: true, durableHistory: true, permissionModes: ["default", "acceptEdits", "plan", "bypassPermissions"] },
   },
   {
     id: "opencode",

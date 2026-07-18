@@ -19,6 +19,10 @@ export type ProviderCapabilities = {
   mcpWidgets?: boolean;
   plugins?: boolean;
   skills?: boolean;
+  /** Atelier joint le SKILL.md (`{type:"skill"}` + consigne) quand le prompt
+   *  commence par `/nom` du catalogue — providers sans chargement natif des
+   *  skills (kimi). */
+  skillsAttach?: boolean;
   review?: boolean;
   compact?: boolean;
   durableHistory?: boolean;

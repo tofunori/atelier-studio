@@ -40,6 +40,7 @@ import { showError, showInfo, showSuccess } from "./components/ui/toast";
 import { RowButton } from "./components/ui";
 import UsagePopover, { worstOf } from "./components/UsagePopover";
 import { pluginSkillsForPrompt, type PluginCatalogEntry } from "./lib/plugins";
+import { catalogSkillForPrompt, skillAttachInstruction } from "./lib/skills";
 import { init as initNotify, notifyRunDone, notifyReview } from "./lib/notify";
 import { CloseIcon, DownloadIcon, HighlighterIcon, ProviderIcon, SidebarIcon } from "./components/icons";
 import { loadSettings, saveSettings, Settings, ProviderId, DEFAULT_SETTINGS } from "./lib/settings";
@@ -2442,13 +2443,26 @@ export default function App() {
     };
     const imagePaths = localImagePathsForAttachments(attachments, threadRoot);
     const pluginSkills = supportsPlugins ? pluginSkillsForPrompt(displayPrompt, plugins) : [];
-    // inputs structurés selon la capability (plan 046) — plus réservé à Codex
-    const supportsStructuredInputs = selectedCapabilities?.imageInput ?? provider === "codex";
-    const codexInputs = supportsStructuredInputs && (imagePaths.length || pluginSkills.length)
+    // skillsAttach (kimi) : /nom du catalogue ⇒ SKILL.md joint + consigne
+    const catalogSkill = selectedCapabilities?.skillsAttach === true
+      ? catalogSkillForPrompt(displayPrompt, commands)
+      : null;
+    // inputs structurés selon la capability (plan 046) — plus réservé à Codex ;
+    // skillsAttach implique le support des inputs structurés
+    const supportsStructuredInputs =
+      (selectedCapabilities?.imageInput ?? provider === "codex") ||
+      selectedCapabilities?.skillsAttach === true;
+    const codexInputs = supportsStructuredInputs && (imagePaths.length || pluginSkills.length || catalogSkill)
       ? [
-          { type: "text" as const, text: fullPrompt },
+          {
+            type: "text" as const,
+            text: catalogSkill ? `${fullPrompt}\n\n${skillAttachInstruction(catalogSkill)}` : fullPrompt,
+          },
           ...imagePaths.map((path) => ({ type: "local_image" as const, path })),
           ...pluginSkills.map((skill) => ({ type: "skill" as const, name: skill.name, path: skill.path })),
+          ...(catalogSkill
+            ? [{ type: "skill" as const, name: catalogSkill.name, path: catalogSkill.path }]
+            : []),
         ]
       : undefined;
     const additionalDirectories = settingsRef.current.additionalDirectories
@@ -2592,14 +2606,26 @@ export default function App() {
     const clientMessageId = crypto.randomUUID();
     const imagePaths = localImagePathsForAttachments(queuedAttachments, thread.projectRoot ?? "");
     const pluginSkills = queued.pluginSkills;
+    const queuedCapabilities = providerList.find((entry) => entry.id === queued.provider)?.capabilities;
     const queuedSupportsInputs =
-      providerList.find((entry) => entry.id === queued.provider)?.capabilities?.imageInput ??
-      queued.provider === "codex";
-    const codexInputs = queuedSupportsInputs && (imagePaths.length || pluginSkills.length)
+      (queuedCapabilities?.imageInput ?? queued.provider === "codex") ||
+      queuedCapabilities?.skillsAttach === true;
+    // skillsAttach recalculé au flush (le catalogue est stable, pas besoin de
+    // le persister dans la file comme pluginSkills)
+    const catalogSkill = queuedCapabilities?.skillsAttach === true
+      ? catalogSkillForPrompt(queued.prompt, commands)
+      : null;
+    const codexInputs = queuedSupportsInputs && (imagePaths.length || pluginSkills.length || catalogSkill)
       ? [
-          { type: "text" as const, text: fullPrompt },
+          {
+            type: "text" as const,
+            text: catalogSkill ? `${fullPrompt}\n\n${skillAttachInstruction(catalogSkill)}` : fullPrompt,
+          },
           ...imagePaths.map((path) => ({ type: "local_image" as const, path })),
           ...pluginSkills.map((skill) => ({ type: "skill" as const, name: skill.name, path: skill.path })),
+          ...(catalogSkill
+            ? [{ type: "skill" as const, name: catalogSkill.name, path: catalogSkill.path }]
+            : []),
         ]
       : undefined;
     const userEvent: AgentEvent = {
