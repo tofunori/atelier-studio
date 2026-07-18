@@ -1037,7 +1037,38 @@ export async function route(msg, ctx) {
       // liste des sources pour le picker du composer (plan 049 T3)
       try {
         const store = new KnowledgeStore(defaultKnowledgeDir());
-        ctx.send({ type: "kbSources", sources: store.list(), ...(store.warning ? { warning: store.warning } : {}) });
+        ctx.send({
+          type: "kbSources", sources: store.list(),
+          collections: store.collections ?? [],
+          archivedCount: store.listAll().length - store.list().length,
+          archivedSources: store.list({ archived: true }),
+          ...(store.warning ? { warning: store.warning } : {}),
+        });
+      } catch (error) {
+        ctx.send({ type: "kbError", message: error instanceof Error ? error.message : String(error) });
+      }
+      break;
+    }
+    case "kbCollection":
+    case "kbTag":
+    case "kbArchive": {
+      // organisation de la base (plan 051 P1) : mutation puis liste complète
+      try {
+        const store = new KnowledgeStore(defaultKnowledgeDir());
+        if (msg.type === "kbCollection") {
+          store.collectionOp({ op: msg.op, slug: msg.slug, title: msg.title });
+        } else if (msg.type === "kbTag") {
+          store.tagSource(msg.id, msg.collection, msg.off === true);
+        } else {
+          store.archiveSource(msg.id, msg.off === true);
+        }
+        ctx.send({
+          type: "kbSources", sources: store.list(),
+          collections: store.collections ?? [],
+          archivedCount: store.listAll().length - store.list().length,
+          archivedSources: store.list({ archived: true }),
+          ...(store.warning ? { warning: store.warning } : {}),
+        });
       } catch (error) {
         ctx.send({ type: "kbError", message: error instanceof Error ? error.message : String(error) });
       }
@@ -1050,7 +1081,13 @@ export async function route(msg, ctx) {
       try {
         const store = new KnowledgeStore(defaultKnowledgeDir());
         store.remove(msg.id);
-        ctx.send({ type: "kbSources", sources: store.list(), ...(store.warning ? { warning: store.warning } : {}) });
+        ctx.send({
+          type: "kbSources", sources: store.list(),
+          collections: store.collections ?? [],
+          archivedCount: store.listAll().length - store.list().length,
+          archivedSources: store.list({ archived: true }),
+          ...(store.warning ? { warning: store.warning } : {}),
+        });
         if (ctx.store) {
           let touched = false;
           for (const thread of ctx.store.list()) {

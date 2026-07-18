@@ -55,6 +55,9 @@ pub const ALL_MESSAGE_TYPES: &[&str] = &[
     "saveImage",
     "kbAdd",
     "kbList",
+    "kbCollection",
+    "kbTag",
+    "kbArchive",
     "kbRemove",
     "kbPromote",
     "kbPromotePage",
@@ -556,6 +559,7 @@ pub async fn route_ws(state: &AppState, text: &str) -> Vec<String> {
         }
         "kbAdd" => handle_kb_add(state, &msg),
         "kbList" => handle_kb_list(state),
+        "kbCollection" | "kbTag" | "kbArchive" => handle_kb_organize(state, msg_type, &msg),
         "kbRemove" => handle_kb_remove(state, &msg).await,
         "kbPromote" => handle_kb_promote(state, &msg).await,
         "gbrainSearch" => handle_gbrain_search(state, &msg),
@@ -1622,6 +1626,9 @@ fn kb_sources_msg(v: &Value) -> Vec<String> {
     let mut out = json!({
         "type": "kbSources",
         "sources": v.get("sources").cloned().unwrap_or(json!([])),
+        "collections": v.get("collections").cloned().unwrap_or(json!([])),
+        "archivedCount": v.get("archivedCount").cloned().unwrap_or(json!(0)),
+        "archivedSources": v.get("archivedSources").cloned().unwrap_or(json!([])),
     });
     if let Some(warning) = v.get("warning") {
         out["warning"] = warning.clone();
@@ -1634,6 +1641,41 @@ fn handle_kb_list(state: &AppState) -> Vec<String> {
         Ok(v) => kb_sources_msg(&v),
         Err(message) => kb_error(message),
     }
+}
+
+// Organisation de la base (plan 051 P1) : mutation via le CLI (une seule
+// implémentation d'écriture) puis liste complète relue.
+fn handle_kb_organize(state: &AppState, msg_type: &str, msg: &Value) -> Vec<String> {
+    let arg = |k: &str| msg.get(k).and_then(|v| v.as_str()).unwrap_or("").to_string();
+    let off = msg.get("off").and_then(Value::as_bool).unwrap_or(false);
+    let mut args: Vec<String> = Vec::new();
+    match msg_type {
+        "kbCollection" => {
+            args.push("collection".into());
+            match arg("op").as_str() {
+                "add" => { args.push("--add".into()); args.push(arg("title")); }
+                "rename" => {
+                    args.push("--rename".into()); args.push(arg("slug"));
+                    args.push("--title".into()); args.push(arg("title"));
+                }
+                "remove" => { args.push("--remove".into()); args.push(arg("slug")); }
+                other => return kb_error(format!("kbCollection: op inconnue {other}")),
+            }
+        }
+        "kbTag" => {
+            args.extend(["tag".into(), "--id".into(), arg("id"), "--collection".into(), arg("collection")]);
+            if off { args.push("--off".into()); }
+        }
+        _ => {
+            args.extend(["archive".into(), "--id".into(), arg("id")]);
+            if off { args.push("--off".into()); }
+        }
+    }
+    let refs: Vec<&str> = args.iter().map(String::as_str).collect();
+    if let Err(message) = kb_cli_run(state.server_dir(), state.app_dir(), &refs, "") {
+        return kb_error(message);
+    }
+    handle_kb_list(state)
 }
 
 async fn handle_kb_remove(state: &AppState, msg: &Value) -> Vec<String> {
