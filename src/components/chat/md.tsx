@@ -202,6 +202,22 @@ export const MD_COMPONENTS = {
   a: (props: any) => {
     const label = mdText(props.children);
     const href = String(props.href ?? "");
+    // Citation de la base de connaissances (plan 052) : pilule discrète avec
+    // le titre réel — clic → surface Connaissances.
+    if (href.startsWith("#atelier-kb-src?")) {
+      return (
+        <RowButton
+          className="kb-cite"
+          title={label}
+          onClick={() => window.dispatchEvent(new CustomEvent("switch-surface", { detail: { surface: "connaissances" } }))}
+        >
+          <svg width="9" height="9" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden="true">
+            <path d="M3.2 12.9V4.1c0-.9.7-1.6 1.6-1.6h8v9.4H4.8c-.9 0-1.6.7-1.6 1s.7 1.6 1.6 1.6h8v-2.6" />
+          </svg>
+          {label}
+        </RowButton>
+      );
+    }
     const passage = parseZoteroPassageRef(href);
     if (passage)
       return (
