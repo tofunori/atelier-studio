@@ -48,6 +48,7 @@ import { THEME_PRESETS, presetById } from "./lib/themes";
 import { setLanguage, t } from "./lib/i18n";
 import { kbSourcesSnapshot, requestKbSources } from "./lib/kbSources";
 import { openFileRef } from "./components/chat/md";
+import { openPath } from "@tauri-apps/plugin-opener";
 import { buildItems } from "./lib/palette";
 import type { Automation } from "./lib/automations";
 import { setDockBadge } from "./lib/dockBadge";
@@ -1095,8 +1096,15 @@ export default function App() {
         }, 250);
         return;
       }
-      if (source.kind === "file" && source.origin) { openFileRef(source.origin); return; }
-      if (source.kind === "folder" && source.origin && loc) { openFileRef(`${source.origin}/${loc}`); return; }
+      // fichier local : dans le projet actif → viewer/éditeur atelier ;
+      // hors projet → ouverture système (Preview, éditeur par défaut…)
+      const openLocal = (absolute: string) => {
+        const root = activeProjectRef.current;
+        if (root && absolute.startsWith(`${root}/`)) openFileRef(absolute.slice(root.length + 1));
+        else void openPath(absolute);
+      };
+      if ((source.kind === "pdf" || source.kind === "file") && source.origin) { openLocal(source.origin); return; }
+      if (source.kind === "folder" && source.origin && loc) { openLocal(`${source.origin}/${loc}`); return; }
       switchToSurface("connaissances");
     };
     window.addEventListener("kb-cite-open", onCiteOpen);
