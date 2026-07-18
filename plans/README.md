@@ -362,3 +362,25 @@ fond n'est introduite.
   l'inspecteur, puis préparation du brouillon.
 - Toute exécution isolée, comparaison automatique ou capture d'environnement
   appartient à un plan ultérieur conditionné par l'usage réel du MVP.
+
+---
+
+## Démarrage desktop et fiabilité perceptible — 2026-07-18
+
+Le premier rendu ne doit plus attendre le sidecar, le stockage HTTP ou
+Tailscale. L'état UI demeure fidèle grâce à une lecture native bornée, tandis
+que les services convergent ensuite avec leurs contrôles d'identité actuels.
+
+### Execution order & status
+
+| Plan | Title | Priority | Effort | Depends on | Status |
+|------|-------|----------|--------|------------|--------|
+| 051 | Démarrage interactif rapide — état natif, sidecar asynchrone, gateway différé | P1 | L | build canonique de `main` | TODO |
+
+### Dependency notes
+
+- P0 mesure obligatoirement la build canonique avant toute optimisation.
+- P1-P3 sont trois commits réversibles : état natif, bootstrap single-flight,
+  puis gateway hors chemin critique.
+- Le soak de trois jours ferme uniquement le plan 051 ; il ne remplace pas le
+  soak 2–3 semaines du plan 047 avant retrait de Node.
