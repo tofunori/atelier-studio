@@ -240,6 +240,16 @@
   font-variant-numeric:tabular-nums}
 #statusbar span{cursor:default}
 #sbWrap:hover,#sbLint:hover{color:#dbdfe5;cursor:pointer}
+#sbCompile{display:none;align-items:center;gap:6px;border-radius:999px;padding:1px 10px;font-size:11px;
+  cursor:pointer;transition:background .13s,color .13s}
+#sbCompile .sbdot{width:6px;height:6px;border-radius:999px;background:currentColor;flex:none}
+#sbCompile.run{background:rgba(217,119,87,.14);color:#e5a389}
+#sbCompile.run .sbdot{animation:sbpulse 1.1s infinite}
+#sbCompile.ok{background:rgba(142,196,154,.12);color:#8ec49a}
+#sbCompile.err{background:rgba(224,114,106,.14);color:#e0726a}
+@keyframes sbpulse{50%{opacity:.25}}
+@media (prefers-reduced-motion: reduce){ #sbCompile.run .sbdot{animation:none} }
+#sbConsole:hover{color:#dbdfe5;cursor:pointer}
 #wrapMenu{position:fixed;z-index:400;background:#1b1f26;border:1px solid #333a45;border-radius:10px;
   padding:5px;min-width:150px;box-shadow:0 8px 24px rgba(0,0,0,.5);font-size:13px;color:#b6bdc7;display:none}
 #wrapMenu .wm-it{padding:6px 10px;border-radius:6px;cursor:pointer}
@@ -483,6 +493,8 @@ function __ct(){try{return JSON.parse(localStorage.getItem('claudeTargetV1')||'n
 <div id="texlog"><div class="tl-head"><b>Compilation</b><span id="tlStatus"></span><button class="tl-chat" id="tlChat" title="Envoyer le log au chat"><svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" style="vertical-align:-2px"><path d="M14 8c0 3-2.7 5.2-6 5.2-.8 0-1.6-.1-2.3-.4L2.5 14l1-2.6C2.6 10.5 2 9.3 2 8c0-3 2.7-5.2 6-5.2S14 5 14 8z"/></svg>&nbsp;Add to chat</button><button class="tl-close" id="tlClose">✕</button></div><pre id="tlBody"></pre></div>
 <div id="statusbar" class="editonly">
   <span id="sbPos">Ln 1, Col 1</span>
+  <span id="sbCompile" title="Afficher/masquer la console de compilation"><span class="sbdot"></span><span id="sbCompileTxt"></span></span>
+  <span id="sbConsole" style="display:none" title="Afficher/masquer la console de compilation">Console</span>
   <span id="sbMode"></span>
   <span id="sbWrap" title="Cliquer pour changer le retour à la ligne"></span>
   <div id="wrapMenu">
@@ -1212,8 +1224,40 @@ function texPreflight(text){
   return null;
 }
 let __preflightAt = 0;
+// ---- chip de compilation (barre de statut) : état permanent, jamais muet —
+//      un clic (chip ou « Console ») replie/déplie la console de compilation
+const sbCompile = document.getElementById("sbCompile");
+const sbCompileTxt = document.getElementById("sbCompileTxt");
+const sbConsole = document.getElementById("sbConsole");
+let __compTick = null, __compT0 = 0;
+function compChip(kind, txt){
+  if(!sbCompile) return;
+  clearInterval(__compTick); __compTick = null;
+  sbCompile.style.display = "inline-flex";
+  sbCompile.className = kind;
+  sbCompileTxt.textContent = txt;
+}
+function compChipRun(){
+  __compT0 = Date.now();
+  compChip("run", "compilation…");
+  __compTick = setInterval(() => {
+    sbCompileTxt.textContent = "compilation… " + Math.round((Date.now() - __compT0) / 1000) + " s";
+  }, 1000);
+}
+function consoleToggle(force){
+  const el = document.getElementById("texlog");
+  el.classList.toggle("open", force ?? !el.classList.contains("open"));
+}
+if(sbCompile) sbCompile.onclick = () => consoleToggle();
+if(IS_TEX && sbConsole){ sbConsole.style.display = ""; sbConsole.onclick = () => consoleToggle(); }
+
 async function compile(){
-  if(dirty && !(await save())) return;
+  // AUCUNE sortie muette : chaque abandon écrit sa raison dans le chip ET le statut
+  if(dirty && !(await save())){
+    compChip("err", "sauvegarde refusée — compilation annulée");
+    setState("err", "sauvegarde refusée — compilation annulée");
+    return;
+  }
   // typos fatales évidentes : bloquer avec la ligne — re-⌘B dans les 8 s = forcer
   if(IS_TEX && cm){
     const pf = texPreflight(cm.getValue());
@@ -1222,16 +1266,32 @@ async function compile(){
       cm.setCursor({line: pf.line - 1, ch: 0});
       cm.scrollIntoView({line: pf.line - 1, ch: 0}, 120);
       cm.focus();
+      compChip("err", "L." + pf.line + " : " + pf.msg);
       setState("err", "L." + pf.line + " : " + pf.msg + " — re-⌘B pour compiler quand même");
       return;
     }
   }
   setState("dirty", "compiling…");
-  const r = await fetch("/compile", {method:"POST", headers:{"Content-Type":"application/json"},
-    body: JSON.stringify({path})});
-  const j = await r.json();
-  showCompileLog(j);
-  if(!j.ok) return setState("err", "✗ compilation échouée — voir la console");
+  compChipRun();
+  let j;
+  try{
+    const r = await fetch("/compile", {method:"POST", headers:{"Content-Type":"application/json"},
+      body: JSON.stringify({path})});
+    j = await r.json();
+  }catch(e){
+    compChip("err", "serveur galerie injoignable");
+    setState("err", "compilation : serveur injoignable");
+    return;
+  }
+  const dur = ((Date.now() - __compT0) / 1000).toFixed(1).replace(".", ",");
+  const n = showCompileLog(j);
+  if(!j.ok){
+    compChip("err", n.errs
+      ? n.errs + (n.errs > 1 ? " erreurs" : " erreur") + (n.warns ? " · " + n.warns + " warning" + (n.warns > 1 ? "s" : "") : "")
+      : "échec — voir la console");
+    return setState("err", "✗ compilation échouée — voir la console");
+  }
+  compChip("ok", "compilé en " + dur + " s · " + new Date().toLocaleTimeString([], {hour: "2-digit", minute: "2-digit"}));
   if(j.pdf) pdfPath = j.pdf;
   setState("ok", "✓ compiled " + new Date().toLocaleTimeString());
   loadPdf();
@@ -1245,11 +1305,12 @@ function showCompileLog(j){
   lastCompile = { log: String(j.log || j.error || ""), ok: !!j.ok };
   document.getElementById("tlStatus").textContent = j.ok ? "· réussie" : "· échec";
   const esc = (t) => t.replace(/&/g,"&amp;").replace(/</g,"&lt;");
+  let errs = 0, warns = 0;
   const html = esc(String(j.log || j.error || "(pas de log)"))
     .split("\n").map(line => {
       let cls = "";
-      if(/^!|Fatal error|Emergency stop/.test(line)) cls = "tl-err";
-      else if(/^LaTeX Warning|^Package .* Warning|Overfull|Underfull/.test(line)) cls = "tl-warn";
+      if(/^!|Fatal error|Emergency stop/.test(line)){ cls = "tl-err"; errs++; }
+      else if(/^LaTeX Warning|^Package .* Warning|Overfull|Underfull/.test(line)){ cls = "tl-warn"; warns++; }
       const withJump = line.replace(/\bl\.(\d+)/g, (m,n)=>`<span class="tl-jump" data-l="${n}">l.${n}</span>`)
                            .replace(/lines? (\d+)/g, (m,n)=>`<span class="tl-jump" data-l="${n}">${m}</span>`);
       return cls ? `<span class="${cls}">${withJump}</span>` : withJump;
@@ -1257,6 +1318,7 @@ function showCompileLog(j){
   body.innerHTML = html;
   el.classList.toggle("open", !j.ok);   // s'ouvre à l'échec, se ferme si succès
   if(!j.ok){ const firstErr = body.querySelector(".tl-err"); if(firstErr) firstErr.scrollIntoView({block:"start"}); }
+  return {errs, warns};
 }
 // ---- commentaires ancrés : stockés via /pdfannot (rel = tex:<path>) ----
 const texcPop = document.getElementById("texcPop");
