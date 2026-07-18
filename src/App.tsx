@@ -1000,6 +1000,34 @@ export default function App() {
       } catch {}
     },
   });
+  // « Modifiés récemment » de l'accueil : VRAIS derniers fichiers modifiés sur
+  // disque (index du serveur galerie, mtime), pas les derniers ouverts dans
+  // l'app — repli sur recentFiles si la galerie ne répond pas. Sous-produits
+  // LaTeX et fichiers cachés exclus, sinon chaque compile inonde la rangée.
+  const [diskRecents, setDiskRecents] = useState<string[]>([]);
+  useEffect(() => {
+    if (!atelierUrl) { setDiskRecents([]); return; }
+    const origin = new URL(atelierUrl).origin;
+    const JUNK = /\.(aux|log|synctex(\.gz)?|fls|fdb_latexmk|out|toc|bbl|blg|bak)$/i;
+    const HIDDEN = new Set(["figures_index.html", "figures_data.json"]);
+    let stop = false;
+    const load = async () => {
+      try {
+        const j = await (await fetch(`${origin}/figures_data.json`)).json();
+        if (stop) return;
+        const rels = (Array.isArray(j.files) ? j.files : [])
+          .filter((f: { rel?: string; mtime?: number }) =>
+            f.rel && f.mtime && !HIDDEN.has(f.rel) && !JUNK.test(f.rel) && !/(^|\/)\./.test(f.rel))
+          .sort((a: { mtime: number }, b: { mtime: number }) => b.mtime - a.mtime)
+          .slice(0, 12)
+          .map((f: { rel: string }) => f.rel);
+        setDiskRecents(rels);
+      } catch { /* galerie pas prête : on garde le repli */ }
+    };
+    load();
+    const timer = setInterval(load, 60_000);
+    return () => { stop = true; clearInterval(timer); };
+  }, [atelierUrl]);
   // jeton d'accès éditeur hors projet : posé par le serveur galerie au boot
   // (~/.atelier-studio/gallery_token), lu via Rust. Absent (vieux serveur) →
   // l'ouverture hors projet est simplement indisponible.
@@ -3213,7 +3241,7 @@ export default function App() {
           usage={activeId ? (usageByThread[activeId] ?? null) : null}
           commands={commands}
           files={files}
-          recentFiles={recentFiles.filter((file) => files.includes(file)).slice(0, 12)}
+          recentFiles={(diskRecents.length ? diskRecents : recentFiles.filter((file) => files.includes(file))).slice(0, 12)}
           zoteroItems={zoteroItems}
           plugins={plugins}
           projectRoot={activeProject}
