@@ -1963,6 +1963,10 @@ export default function App() {
       url = `${origin}/.fig_thumbs/svg_viewer.html?file=${encodeURIComponent(rel)}`;
     } else if (["png", "jpg", "jpeg", "gif", "webp"].includes(ext)) {
       url = `${origin}/${rel}`;
+    } else if (["html", "htm"].includes(ext) && !line && !options.diff) {
+      // pages web : rendu direct (comme les ouvertures depuis la galerie) ;
+      // une ligne ciblée ou un diff demandé garde l'éditeur de code
+      url = `${origin}/${rel}`;
     } else if (ext === "md" && !options.diff) {
       url = `${origin}/.fig_thumbs/md_studio.html?path=${encodeURIComponent(`${activeProject}/${rel}`)}`;
     } else {
