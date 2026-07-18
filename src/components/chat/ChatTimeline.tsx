@@ -132,12 +132,13 @@ export function ChatTimeline(p: {
   const timelineWrapRef = React.useRef<HTMLDivElement>(null);
   const [autoFollow, setAutoFollow] = React.useState(true);
   const [isScrolledFromBottom, setIsScrolledFromBottom] = React.useState(false);
+  const [isFirstTurnSettling, setIsFirstTurnSettling] = React.useState(false);
+  const hadTimelineEventsRef = React.useRef(events.length > 0);
   const phaseRef = React.useRef<TurnPhase>(phase);
   const virtualItems = React.useMemo<TimelineVirtualItem[]>(() => {
     const rows: TimelineVirtualItem[] = [];
     if (!threadId || events.length === 0) rows.push({ type: "empty", key: "timeline-empty" });
     for (const item of renderedEvents) {
-      if (item.type === "event" && item.event.kind === "goal") continue;
       const key = item.type === "event" ? `event-${item.index}` : item.type === "fold" ? item.fold.key : item.key;
       rows.push({ type: "rendered", key, item });
     }
@@ -166,6 +167,47 @@ export function ChatTimeline(p: {
     }
   }
   const finalAnswerVirtualIndex = finalAnswerIndex >= 0 ? virtualIndexForEvent(finalAnswerIndex) : -1;
+
+  // LegendList aligne les conversations courtes en bas avec un spacer calculé
+  // depuis estimatedItemSize, puis le recalcule après la mesure réelle. Lors du
+  // tout premier envoi, cette correction faisait bouger le tour d'une frame à
+  // l'autre. On laisse la liste mesurer hors vue et on la révèle dès que son
+  // dernier élément est stable pendant deux frames consécutives.
+  const hasTimelineEvents = events.length > 0;
+  React.useLayoutEffect(() => {
+    const hadTimelineEvents = hadTimelineEventsRef.current;
+    hadTimelineEventsRef.current = hasTimelineEvents;
+    if (!hasTimelineEvents) {
+      setIsFirstTurnSettling(false);
+      return;
+    }
+    if (hadTimelineEvents) return;
+
+    setIsFirstTurnSettling(true);
+    let animationFrame = 0;
+    let attempts = 0;
+    let stableFrames = 0;
+    let previousAnchorTop: number | null = null;
+    const revealWhenStable = () => {
+      const rows = timelineWrapRef.current?.querySelectorAll<HTMLElement>(".timeline-virtual-row");
+      const anchor = rows?.item((rows?.length ?? 0) - 1) ?? null;
+      const anchorTop = anchor?.getBoundingClientRect().top ?? null;
+      attempts += 1;
+      if (anchorTop != null && previousAnchorTop != null && Math.abs(anchorTop - previousAnchorTop) < 0.5) {
+        stableFrames += 1;
+      } else {
+        stableFrames = 0;
+      }
+      previousAnchorTop = anchorTop;
+      if ((anchor && stableFrames >= 2) || attempts >= 10) {
+        setIsFirstTurnSettling(false);
+        return;
+      }
+      animationFrame = requestAnimationFrame(revealWhenStable);
+    };
+    animationFrame = requestAnimationFrame(revealWhenStable);
+    return () => cancelAnimationFrame(animationFrame);
+  }, [hasTimelineEvents, threadId]);
 
   React.useEffect(() => {
     const listScrollRef = timelineListRef.current?.getNativeScrollRef();
@@ -333,7 +375,8 @@ export function ChatTimeline(p: {
         maintainScrollAtEnd={autoFollow}
         maintainScrollAtEndThreshold={0.1}
         maintainVisibleContentPosition
-        className="messages"
+        className={`messages${isFirstTurnSettling ? " is-first-turn-settling" : ""}`}
+        data-first-turn-settling={isFirstTurnSettling ? "true" : undefined}
         aria-label={t("chat.jump-bottom")}
         onMouseUp={onMessagesMouseUp}
         renderItem={({ item: row }) => {

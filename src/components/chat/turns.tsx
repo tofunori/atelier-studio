@@ -299,7 +299,7 @@ export const AssistantText = memo(function AssistantText(p: {
         </ReactMarkdown>
       </BubbleContent>
       </Bubble>
-      <MessageFooter className="msg-actions tw:px-0">
+      <MessageFooter className="msg-actions is-persistent tw:px-0">
         {"ts" in e && e.ts && (
           <span className="msg-time">
             {fmtTime(e.ts, p.timeFormat)}
@@ -316,16 +316,10 @@ export const AssistantText = memo(function AssistantText(p: {
   );
 });
 
-/** Formatage compact des tokens (« 8,1k ») — jamais de valeur inventée. */
-function fmtTokens(n: number): string {
-  if (n < 1000) return String(n);
-  return `${(n / 1000).toFixed(1).replace(".", ",")}k`;
-}
-
 /** Capsule résultat (plan 020, étape 5) — UNIQUEMENT des données attribuables
  * au tour : statut terminal, fichiers réellement modifiés (diff à la demande),
- * usage enregistré (« Usage indisponible » sinon), review si lancée, annulation
- * du tour. Vocabulaire honnête : « Tour terminé », jamais « réussi ». */
+ * review si lancée et annulation du tour. La télémétrie tokens/coût reste hors
+ * de l'interface. Vocabulaire honnête : « Tour terminé », jamais « réussi ». */
 export function ResultCapsule(p: {
   event: DoneEvent;
   isLastDone: boolean;
@@ -339,25 +333,21 @@ export function ResultCapsule(p: {
 }) {
   const e = p.event;
   const review = p.review;
-  const usage = e.usage;
+  const minimalSuccess = e.ok;
   return (
     <div id={p.isLastDone ? "last-done" : undefined}
       className={`done result-capsule ${e.ok ? "" : "warn"}`}>
-      <div className="capsule-head">
-        {/* glyphe + libellé sr-only : le record reste lisible aux lecteurs
-            d'écran sans texte « Tour terminé » à l'écran (demande Thierry) */}
-        <span className={`capsule-status ${e.ok ? "ok" : "warn"}`} title={e.ok ? t("chat.turn-done") : t("chat.turn-interrupted")}>
-          {e.ok ? "✓" : "✗"}
-          <span className="sr-only">{e.ok ? t("chat.turn-done") : t("chat.turn-interrupted")}</span>
-        </span>
-        {usage && usage.output != null ? (
-          <span className="capsule-meta">
-            {`${fmtTokens(usage.output)} tokens${usage.cost != null ? ` · ${usage.cost.toFixed(2).replace(".", ",")} $` : ""}`}
-          </span>
+      <div className={`capsule-head ${minimalSuccess ? "is-success-minimal" : ""}`}>
+        {/* Le repli « Worked for… » porte déjà le succès. On ne garde un
+            glyphe visible que pour l'interruption ; le succès reste annoncé
+            aux lecteurs d'écran sans créer une ligne ✓ isolée. */}
+        {e.ok ? (
+          <span className="sr-only">{t("chat.turn-done")}</span>
         ) : (
-          // honnêteté sans bruit : l'absence d'usage reste un fait annoncé
-          // aux lecteurs d'écran, pas une ligne visible
-          <span className="sr-only">{t("chat.usage-unavailable")}</span>
+          <span className="capsule-status warn" title={t("chat.turn-interrupted")}>
+            ✗
+            <span className="sr-only">{t("chat.turn-interrupted")}</span>
+          </span>
         )}
         <span className="capsule-actions">
           {p.isLastDone && p.onRevertTurn && (

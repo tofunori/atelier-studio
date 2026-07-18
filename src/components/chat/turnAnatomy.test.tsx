@@ -434,23 +434,28 @@ describe("anatomie du tour — header d'activité", () => {
 });
 
 describe("capsule résultat — honnêteté et actions", () => {
-  it("tour ok : « Tour terminé » + usage enregistré (tokens)", () => {
+  it("tour ok : garde le statut et masque tokens et coût", () => {
     renderUi(<Chat {...chatProps({ events: finishedTurn() })} />);
     const capsule = document.querySelector(".result-capsule") as HTMLElement;
     expect(capsule).toBeTruthy();
     expect(capsule.textContent).toContain(t("chat.turn-done"));
-    expect(capsule.textContent).toContain("512 tokens"); // done.usage.output du fixture
+    expect(capsule.textContent).not.toMatch(/tokens|\$/i);
+    expect(capsule.querySelector(".capsule-meta")).toBeNull();
+    expect(capsule.querySelector(".capsule-head.is-success-minimal")).toBeTruthy();
+    expect(capsule.querySelector(".capsule-status")).toBeNull();
   });
 
-  it("done sans usage : « Usage indisponible », jamais de valeur inventée", () => {
+  it("done sans usage : aucune ligne de télémétrie vide", () => {
     const evs: AgentEvent[] = [
       events.user("Question.", FIXED_TS),
       { kind: "done", ok: true, result: "ok", projectRoot: "/tmp/fixtures/albedo-pipeline",
         filesChanged: [], ts: FIXED_TS + 100 } as unknown as AgentEvent,
     ];
     renderUi(<Chat {...chatProps({ events: evs })} />);
-    expect(document.querySelector(".result-capsule")!.textContent)
-      .toContain(t("chat.usage-unavailable"));
+    const capsule = document.querySelector(".result-capsule") as HTMLElement;
+    expect(capsule.querySelector(".capsule-head.is-success-minimal")).toBeTruthy();
+    expect(capsule.querySelector(".capsule-meta")).toBeNull();
+    expect(capsule.textContent).not.toContain("✓");
   });
 
   it("tour ok:false : « Tour interrompu » en ton warning", () => {
@@ -462,6 +467,7 @@ describe("capsule résultat — honnêteté et actions", () => {
     const capsule = document.querySelector(".result-capsule.warn") as HTMLElement;
     expect(capsule).toBeTruthy();
     expect(capsule.textContent).toContain(t("chat.turn-interrupted"));
+    expect(capsule.querySelector(".capsule-status.warn")?.textContent).toContain("✗");
   });
 
   it("« Annuler le tour » appelle onRevert avec le message user du tour", () => {

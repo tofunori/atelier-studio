@@ -101,6 +101,7 @@ html, body, #root, .app { height: 100vh; overflow: hidden;
   --chat-col: max(var(--chat-w, 760px), 92cqw); }
 .timeline-scroll-wrap { position: relative; flex: 1; min-height: 0; display: flex; }
 .messages { flex: 1; min-width: 0; min-height: 0; overflow-y: auto; padding: 24px 24px 8px 40px; }
+.messages.is-first-turn-settling { visibility: hidden; }
 .timeline-virtual-row { max-width: var(--chat-col, 760px); width: 100%; margin: 0 auto; padding-bottom: 14px; }
 /* Le slot actif prolonge le dernier segment du tour : il doit rester proche du
    texte/de l'action qui le précède, sans compacter le reste du transcript. */
@@ -706,6 +707,7 @@ html, body, #root, .app { height: 100vh; overflow: hidden;
 /* actions de tour : hover ET focus clavier (jamais hover seul — plan 020 §4) */
 .msg-actions { display: flex; gap: 8px; align-items: center; opacity: 0;
   transition: opacity var(--motion-fast) var(--ease-out); font-size: var(--fs-m); color: var(--muted2); }
+.assistant-message .msg-actions.is-persistent { opacity: 1; }
 .user-wrap:hover .msg-actions, .msg-wrap:hover .msg-actions,
 .user-wrap:focus-within .msg-actions, .msg-wrap:focus-within .msg-actions { opacity: 1; }
 .msg-actions button { background: transparent; border: none; color: var(--muted2);
@@ -794,9 +796,12 @@ html, body, #root, .app { height: 100vh; overflow: hidden;
 /* capsule résultat (plan 020, retouche 2026-07-10) : LIGNE discrète cardless
    — glyphe + méta muted, actions révélées au hover/focus (pattern msg-actions).
    Les erreurs/warnings restent visibles en permanence via le glyphe warn. */
-.result-capsule { display: flex; flex-direction: column; gap: 4px;
+.result-capsule { position: relative; display: flex; flex-direction: column; gap: 4px;
   max-width: min(var(--chat-col, 760px), 100%); }
 .capsule-head { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.capsule-head.is-success-minimal { height: 0; min-height: 0; }
+.capsule-head.is-success-minimal .capsule-actions {
+  position: absolute; z-index: 1; top: 0; right: 0; }
 .capsule-status { color: var(--muted); white-space: nowrap; }
 .capsule-status.warn { color: var(--u-warn); }
 .result-capsule .capsule-actions { opacity: 0;
