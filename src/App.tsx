@@ -1103,7 +1103,32 @@ export default function App() {
         if (root && absolute.startsWith(`${root}/`)) openFileRef(absolute.slice(root.length + 1));
         else void openPath(absolute);
       };
-      if ((source.kind === "pdf" || source.kind === "file") && source.origin) { openLocal(source.origin); return; }
+      if (source.kind === "pdf" && source.origin) {
+        // panneau de droite : viewer PDF de la galerie en onglet atelier,
+        // servi par /kb-pdf/<id> (registre), avec saut à la page citée
+        let galleryOrigin: string | null = null;
+        try { galleryOrigin = atelierUrlRef.current ? new URL(atelierUrlRef.current).origin : null; } catch {}
+        if (galleryOrigin) {
+          const page = /^p\.(\d+)/.exec(loc ?? "")?.[1];
+          const params = new URLSearchParams();
+          params.set("file", `kb/${source.id}.pdf`);
+          params.set("path", `${galleryOrigin}/kb-pdf/${source.id}`);
+          if (page) params.set("page", page);
+          const tabId = crypto.randomUUID();
+          setAtelierTabs((tabs) => [...tabs, {
+            id: tabId,
+            url: withAtelierNonce(`${galleryOrigin}/.fig_thumbs/pdf_viewer.html?${params.toString()}`, atelierNonce),
+            title: source.title,
+            projectRoot: activeProjectRef.current ?? undefined,
+          }]);
+          setActiveTab(tabId);
+          switchToSurface("atelier");
+          return;
+        }
+        openLocal(source.origin);
+        return;
+      }
+      if (source.kind === "file" && source.origin) { openLocal(source.origin); return; }
       if (source.kind === "folder" && source.origin && loc) { openLocal(`${source.origin}/${loc}`); return; }
       switchToSurface("connaissances");
     };

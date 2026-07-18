@@ -585,6 +585,49 @@ async fn post_connector_pdf(data: &[u8], metadata: &str) -> Result<u16, String> 
 }
 
 /// GET /zotero/<KEY>/<file>.pdf — only meaningful in studio; always registered.
+/// PDF de la base de connaissances (plan 052) : sert le fichier pointé par
+/// le REGISTRE (`knowledge.json`) — jamais un chemin de la requête, aucune
+/// traversée possible. Miroir de la route Node (boards.mjs).
+pub async fn kb_pdf(
+    axum::extract::Path(id): axum::extract::Path<String>,
+) -> impl IntoResponse {
+    if id.len() != 8 || !id.chars().all(|c| c.is_ascii_hexdigit()) {
+        return json_error(StatusCode::NOT_FOUND, "not found");
+    }
+    let app_dir = std::env::var("ATELIER_APP_DIR")
+        .map(std::path::PathBuf::from)
+        .unwrap_or_else(|_| home().join("Library/Application Support/atelier-studio"));
+    let Ok(raw) = fs::read_to_string(app_dir.join("knowledge/knowledge.json")) else {
+        return json_error(StatusCode::NOT_FOUND, "not found");
+    };
+    let Ok(registry) = serde_json::from_str::<serde_json::Value>(&raw) else {
+        return json_error(StatusCode::NOT_FOUND, "not found");
+    };
+    let Some(source) = registry
+        .get("sources")
+        .and_then(|v| v.as_array())
+        .and_then(|arr| arr.iter().find(|s| s.get("id").and_then(|v| v.as_str()) == Some(id.as_str())))
+    else {
+        return json_error(StatusCode::NOT_FOUND, "not found");
+    };
+    let kind = source.get("kind").and_then(|v| v.as_str()).unwrap_or("");
+    let Some(origin) = source.get("origin").and_then(|v| v.as_str()) else {
+        return json_error(StatusCode::NOT_FOUND, "not found");
+    };
+    if !(kind == "pdf" || kind == "zotero") || !origin.to_ascii_lowercase().ends_with(".pdf") {
+        return json_error(StatusCode::NOT_FOUND, "not found");
+    }
+    match fs::read(origin) {
+        Ok(data) => (
+            StatusCode::OK,
+            [(header::CONTENT_TYPE, "application/pdf")],
+            data,
+        )
+            .into_response(),
+        Err(_) => json_error(StatusCode::NOT_FOUND, "not found"),
+    }
+}
+
 pub async fn zotero_pdf(
     axum::extract::Path((key, fname)): axum::extract::Path<(String, String)>,
 ) -> impl IntoResponse {
