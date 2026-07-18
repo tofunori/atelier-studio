@@ -151,9 +151,32 @@ export function useKbActions(binding: KbBinding, isActive: () => boolean) {
     wsSend({ type: "kbAdd", kind: "gbrain", origin: slug });
   }
 
+  // Organisation (plan 051) : collections et archivage.
+  function createCollection(title: string) {
+    const clean = title.trim();
+    if (!clean) return;
+    wsSend({ type: "kbCollection", op: "add", title: clean });
+  }
+
+  function tagSource(id: string, slug: string, off: boolean) {
+    wsSend({ type: "kbTag", id, collection: slug, off });
+  }
+
+  function archiveSource(id: string, off: boolean) {
+    wsSend({ type: "kbArchive", id, off });
+    // une source archivée quitte le contexte de la conversation
+    if (!off && (binding.attached.includes(id) || binding.fullContent.includes(id))) {
+      binding.onChange({
+        kbSourceIds: binding.attached.filter((x) => x !== id),
+        kbFullContent: binding.fullContent.filter((x) => x !== id),
+      });
+    }
+  }
+
   return {
     error, setError, promoted,
     toggle, toggleFull, removeSource, promote,
     addFiles, addFolder, addUrl, addNote, addGbrain,
+    createCollection, tagSource, archiveSource,
   };
 }

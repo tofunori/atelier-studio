@@ -7,6 +7,8 @@ import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { t } from "../../lib/i18n";
 import {
   onOpenKbPicker,
+  kbArchivedSnapshot,
+  kbCollectionsSnapshot,
   kbSourcesSnapshot,
   requestKbSources,
   subscribeKbSources,
@@ -180,6 +182,12 @@ export function KbPickerPanel(p: {
   onPromotePage?: (id: string) => void;
   /** Destination de la zone d'ajout (surface) : base locale ou corpus. */
   destination?: { value: "local" | "gbrain"; onChange: (value: "local" | "gbrain") => void };
+  /** Plan 051 : collections (chips-filtres) et archivage. */
+  collections?: { slug: string; title: string }[];
+  archived?: { count: number; sources: KbSource[] };
+  onCreateCollection?: (title: string) => void;
+  onTag?: (id: string, slug: string, off: boolean) => void;
+  onArchive?: (id: string, off: boolean) => void;
 }) {
   const [query, setQuery] = useState("");
   const [noteOpen, setNoteOpen] = useState(false);
@@ -187,22 +195,76 @@ export function KbPickerPanel(p: {
   const [noteText, setNoteText] = useState("");
   const [url, setUrl] = useState("");
   const surface = p.layout === "surface";
+  // Plan 051 : chips-collections, tri, groupes repliables, plafond 20.
+  const [collFilter, setCollFilter] = useState<string | null>(null);
+  const [sortMode, setSortMode] = useState<"recent" | "alpha" | "size">("recent");
+  const [newCollOpen, setNewCollOpen] = useState(false);
+  const [newCollTitle, setNewCollTitle] = useState("");
+  const [collMenuFor, setCollMenuFor] = useState<string | null>(null);
+  const [expandedKinds, setExpandedKinds] = useState<Set<string>>(() => new Set());
+  const [openGroups, setOpenGroups] = useState<Record<string, boolean>>(() => {
+    try {
+      const raw = JSON.parse(localStorage.getItem("atelier-studio.kbGroupsOpen") ?? "{}");
+      return raw && typeof raw === "object" ? raw : {};
+    } catch { return {}; }
+  });
+  function toggleGroup(kind: string) {
+    setOpenGroups((current) => {
+      const next = { ...current, [kind]: !(current[kind] ?? false) };
+      try { localStorage.setItem("atelier-studio.kbGroupsOpen", JSON.stringify(next)); } catch {}
+      return next;
+    });
+  }
 
-  const filtered = p.sources.filter((source) =>
-    !query.trim() || source.title.toLowerCase().includes(query.trim().toLowerCase()));
-  const attachedSources = surface
+  // Recherche étendue : préfixes type:<kind> et coll:<slug>, texte sur
+  // titre + origine (domaine, chemin, slug).
+  const parsed = (() => {
+    let text = query.trim().toLowerCase();
+    let kindFilter: string | null = null;
+    let collPrefix: string | null = null;
+    text = text.replace(/(?:^|\s)type:([a-z]+)/g, (_, v) => { kindFilter = v; return " "; });
+    text = text.replace(/(?:^|\s)coll:([a-z0-9-]+)/g, (_, v) => { collPrefix = v; return " "; });
+    return { text: text.replace(/\s+/g, " ").trim(), kindFilter, collPrefix };
+  })();
+  const activeColl = parsed.collPrefix ?? (collFilter !== "__archived" ? collFilter : null);
+  const archivedView = collFilter === "__archived";
+  const filtering = Boolean(parsed.text || parsed.kindFilter || activeColl);
+
+  const matches = (source: KbSource) => {
+    if (parsed.kindFilter && source.kind !== parsed.kindFilter) return false;
+    if (activeColl && !(source as { collections?: string[] }).collections?.includes(activeColl)) return false;
+    if (!parsed.text) return true;
+    const haystack = `${source.title} ${source.origin ?? ""}`.toLowerCase();
+    return haystack.includes(parsed.text);
+  };
+  const sortFn = (a: KbSource, b: KbSource) =>
+    sortMode === "alpha" ? a.title.localeCompare(b.title, "fr")
+    : sortMode === "size" ? (b.chars || 0) - (a.chars || 0)
+    : (b.updatedAt ?? "").localeCompare(a.updatedAt ?? "");
+  const base = archivedView ? (p.archived?.sources ?? []) : p.sources;
+  const filtered = base.filter(matches).sort(sortFn);
+  const attachedSources = surface && !archivedView
     ? p.attached
         .filter((id) => id !== "gbrain")
         .map((id) => filtered.find((source) => source.id === id))
         .filter((source): source is KbSource => Boolean(source))
     : [];
-  const librarySources = surface
+  const librarySources = surface && !archivedView
     ? filtered.filter((source) => !p.attached.includes(source.id))
     : filtered;
+  // Récents : bases assez grosses seulement (sinon redondant avec les groupes)
+  const recents = !archivedView && !filtering && p.sources.length > 8
+    ? [...p.sources]
+        .sort((a, b) => (b.updatedAt ?? "").localeCompare(a.updatedAt ?? ""))
+        .filter((source) => !p.attached.includes(source.id))
+        .slice(0, 5)
+    : [];
   const kinds = [
     ...GROUP_ORDER.filter((kind) => librarySources.some((source) => source.kind === kind)),
     ...[...new Set(librarySources.map((source) => source.kind))].filter((kind) => !GROUP_ORDER.includes(kind)),
   ];
+  const collCount = (slug: string) =>
+    p.sources.filter((source) => (source as { collections?: string[] }).collections?.includes(slug)).length;
 
   function submitUrl() {
     const value = url.trim();
@@ -223,7 +285,8 @@ export function KbPickerPanel(p: {
     const on = p.attached.includes(source.id);
     const full = p.fullContent.includes(source.id);
     return (
-      <div key={source.id} className={`kb-row ${on ? "on" : ""}`}>
+      <div key={source.id} className="kb-row-wrap">
+      <div className={`kb-row ${on ? "on" : ""}`}>
         <RowButton
           className="kb-row-main"
           title={source.origin ?? source.title}
@@ -285,6 +348,32 @@ export function KbPickerPanel(p: {
           >
             <ExpandIcon />
           </IconButton>
+          {p.onTag && (p.collections?.length ?? 0) > 0 && (
+            <IconButton
+              size="s"
+              className={`ghost ${collMenuFor === source.id ? "on" : ""}`}
+              label={t("kb.collections-menu")}
+              title={t("kb.collections-menu")}
+              onClick={() => setCollMenuFor((current) => (current === source.id ? null : source.id))}
+            >
+              <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3">
+                <path d="M2.5 4.5h11M4.5 8h7M6.5 11.5h3" />
+              </svg>
+            </IconButton>
+          )}
+          {p.onArchive && (
+            <IconButton
+              size="s"
+              className="ghost"
+              label={source.archived ? t("kb.unarchive") : t("kb.archive")}
+              title={source.archived ? t("kb.unarchive") : t("kb.archive")}
+              onClick={() => p.onArchive?.(source.id, source.archived === true)}
+            >
+              <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3">
+                <path d="M2.2 3h11.6v3H2.2zM3.2 6v6.5a.8.8 0 0 0 .8.8h8a.8.8 0 0 0 .8-.8V6M6.5 9h3" />
+              </svg>
+            </IconButton>
+          )}
           <IconButton
             size="s"
             className="ghost"
@@ -296,6 +385,24 @@ export function KbPickerPanel(p: {
           </IconButton>
         </span>
       </div>
+      {collMenuFor === source.id && p.onTag && (
+        <div className="kb-coll-menu">
+          {(p.collections ?? []).map((coll) => {
+            const tagged = ((source as { collections?: string[] }).collections ?? []).includes(coll.slug);
+            return (
+              <RowButton
+                key={coll.slug}
+                className={`kb-coll-opt ${tagged ? "on" : ""}`}
+                onClick={() => p.onTag?.(source.id, coll.slug, tagged)}
+              >
+                <span className={`kb-check ${tagged ? "on" : ""}`} aria-hidden />
+                <span className="kb-name">{coll.title}</span>
+              </RowButton>
+            );
+          })}
+        </div>
+      )}
+    </div>
     );
   };
 
@@ -303,6 +410,18 @@ export function KbPickerPanel(p: {
     <div className={`kb-panel ${surface ? "kb-panel-surface" : ""}`}>
       <div className="kb-head">
         <span className="kb-title">{t("kb.title")}</span>
+        {surface && (
+          <RowButton
+            className="kb-sort"
+            title={t("kb.sort-title")}
+            onClick={() => setSortMode((mode) => mode === "recent" ? "alpha" : mode === "alpha" ? "size" : "recent")}
+          >
+            {t(sortMode === "recent" ? "kb.sort-recent" : sortMode === "alpha" ? "kb.sort-alpha" : "kb.sort-size")}
+            <svg width="9" height="9" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3" aria-hidden="true">
+              <path d="m4 6 4 4 4-4" />
+            </svg>
+          </RowButton>
+        )}
         <Input
           className="kb-search"
           placeholder={t("kb.search")}
@@ -310,6 +429,56 @@ export function KbPickerPanel(p: {
           onChange={(e) => setQuery(e.target.value)}
         />
       </div>
+      {((p.collections?.length ?? 0) > 0 || p.onCreateCollection || (p.archived?.count ?? 0) > 0) && (
+        <div className="kb-chips-row">
+          <RowButton
+            className={`kb-chip-filter ${!collFilter ? "on" : ""}`}
+            onClick={() => setCollFilter(null)}
+          >
+            {t("kb.chips-all", { n: p.sources.length })}
+          </RowButton>
+          {(p.collections ?? []).map((coll) => (
+            <RowButton
+              key={coll.slug}
+              className={`kb-chip-filter ${collFilter === coll.slug ? "on" : ""}`}
+              onClick={() => setCollFilter((current) => (current === coll.slug ? null : coll.slug))}
+            >
+              {coll.title} · {collCount(coll.slug)}
+            </RowButton>
+          ))}
+          {(p.archived?.count ?? 0) > 0 && (
+            <RowButton
+              className={`kb-chip-filter kb-chip-archived ${archivedView ? "on" : ""}`}
+              onClick={() => setCollFilter((current) => (current === "__archived" ? null : "__archived"))}
+            >
+              {t("kb.chips-archived", { n: p.archived?.count ?? 0 })}
+            </RowButton>
+          )}
+          {p.onCreateCollection && !newCollOpen && (
+            <RowButton className="kb-chip-filter kb-chip-new" onClick={() => setNewCollOpen(true)}>
+              {t("kb.chips-new")}
+            </RowButton>
+          )}
+          {p.onCreateCollection && newCollOpen && (
+            <Input
+              autoFocus
+              className="kb-chip-input"
+              placeholder={t("kb.coll-name-placeholder")}
+              value={newCollTitle}
+              onChange={(e) => setNewCollTitle(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  e.preventDefault();
+                  p.onCreateCollection?.(newCollTitle);
+                  setNewCollTitle("");
+                  setNewCollOpen(false);
+                }
+                if (e.key === "Escape") setNewCollOpen(false);
+              }}
+            />
+          )}
+        </div>
+      )}
       <div className="kb-actions">
         <Button type="button" variant="ghost" className="ghost kb-action" onClick={p.onAddFiles}>
           {t("kb.add-file")}
@@ -393,7 +562,14 @@ export function KbPickerPanel(p: {
         </div>
       )}
       <div className="kb-list">
-        {surface && (
+        {archivedView && (
+          <div>
+            <div className="kb-group">{t("kb.archived-title", { n: p.archived?.count ?? 0 })}</div>
+            {filtered.map(renderRow)}
+            {filtered.length === 0 && <div className="kb-empty">{t("kb.archived-empty")}</div>}
+          </div>
+        )}
+        {surface && !archivedView && (
           <div>
             <div className="kb-group">
               {t("kb.panel-attached", {
@@ -407,32 +583,66 @@ export function KbPickerPanel(p: {
             )}
           </div>
         )}
-        {surface && filtered.length > 0 && (
+        {!archivedView && recents.length > 0 && (
+          <div>
+            <div className="kb-group">{t("kb.recents")}</div>
+            {recents.map(renderRow)}
+          </div>
+        )}
+        {surface && !archivedView && filtered.length > 0 && (
           <div className="kb-group kb-group-section">{t("kb.panel-library")}</div>
         )}
-        {!surface && filtered.length === 0 && <div className="kb-empty">{t("kb.empty")}</div>}
-        {kinds.map((kind) => (
-          <div key={kind}>
-            <div className="kb-group">{GROUP_LABELS[kind] ? t(GROUP_LABELS[kind]) : kind}</div>
-            {librarySources.filter((source) => source.kind === kind).map(renderRow)}
-          </div>
-        ))}
+        {!surface && !archivedView && filtered.length === 0 && <div className="kb-empty">{t("kb.empty")}</div>}
+        {!archivedView && kinds.map((kind) => {
+          const group = librarySources.filter((source) => source.kind === kind);
+          // surface : groupes repliés par défaut (comptes visibles), le filtre
+          // ou la recherche ouvre tout ; plafond 20 + « tout afficher »
+          const open = !surface || filtering || (openGroups[kind] ?? false);
+          const expanded = expandedKinds.has(kind);
+          const rows = surface && !expanded ? group.slice(0, 20) : group;
+          const label = GROUP_LABELS[kind] ? t(GROUP_LABELS[kind]) : kind;
+          return (
+            <div key={kind}>
+              {surface ? (
+                <RowButton className="kb-group kb-group-toggle" onClick={() => toggleGroup(kind)}>
+                  <svg width="9" height="9" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3" aria-hidden="true">
+                    {open ? <path d="m4 6 4 4 4-4" /> : <path d="m6 4 4 4-4 4" />}
+                  </svg>
+                  <span>{label}</span>
+                  <span className="kb-group-count">— {group.length}</span>
+                </RowButton>
+              ) : (
+                <div className="kb-group">{label}</div>
+              )}
+              {open && rows.map(renderRow)}
+              {open && surface && group.length > rows.length && (
+                <RowButton className="kb-more" onClick={() => setExpandedKinds((s2) => new Set(s2).add(kind))}>
+                  {t("kb.show-all", { n: group.length })}
+                </RowButton>
+              )}
+            </div>
+          );
+        })}
         <div>
-          <div className="kb-group">{t("kb.group-corpus")}</div>
-          <div className={`kb-row ${p.attached.includes("gbrain") ? "on" : ""}`}>
-            <RowButton
-              className="kb-row-main"
-              title={t("kb.gbrain-title")}
-              onClick={() => p.onToggle("gbrain")}
-            >
-              <span className={`kb-check ${p.attached.includes("gbrain") ? "on" : ""}`} aria-hidden />
-              <span className="kb-kind"><KindIcon kind="gbrain" /></span>
-              <span className="kb-name">{t("kb.gbrain-title")}</span>
-              <span className="kb-meta">{t("kb.gbrain-meta")}</span>
-            </RowButton>
-          </div>
+          {!archivedView && (
+            <>
+              <div className="kb-group">{t("kb.group-corpus")}</div>
+              <div className={`kb-row ${p.attached.includes("gbrain") ? "on" : ""}`}>
+                <RowButton
+                  className="kb-row-main"
+                  title={t("kb.gbrain-title")}
+                  onClick={() => p.onToggle("gbrain")}
+                >
+                  <span className={`kb-check ${p.attached.includes("gbrain") ? "on" : ""}`} aria-hidden />
+                  <span className="kb-kind"><KindIcon kind="gbrain" /></span>
+                  <span className="kb-name">{t("kb.gbrain-title")}</span>
+                  <span className="kb-meta">{t("kb.gbrain-meta")}</span>
+                </RowButton>
+              </div>
+            </>
+          )}
         </div>
-        {surface && p.gbrain && (
+        {surface && !archivedView && p.gbrain && (
           <div className="kb-gbrain-section">
             <div className="kb-group kb-group-section">{t("kb.gbrain-pages")}</div>
             <Input
@@ -478,6 +688,9 @@ export function KbPickerPanel(p: {
       </div>
       <div className="kb-foot">
         <span>{t("kb.attached-count").replace("{n}", String(p.attached.length))}</span>
+        {surface && (p.archived?.count ?? 0) > 0 && !archivedView && (
+          <span className="kb-foot-archived">{t("kb.foot-archived", { n: p.archived?.count ?? 0 })}</span>
+        )}
         <span className="kb-scope">{t("kb.scope-conversation")}</span>
       </div>
     </div>
@@ -487,6 +700,8 @@ export function KbPickerPanel(p: {
 export function KbPicker({ binding }: { binding: KbBinding }) {
   const [pickerOpen, setPickerOpen] = useState(false);
   const sources = useSyncExternalStore(subscribeKbSources, kbSourcesSnapshot);
+  const collections = useSyncExternalStore(subscribeKbSources, kbCollectionsSnapshot);
+  const archived = useSyncExternalStore(subscribeKbSources, kbArchivedSnapshot);
   const openRef = useRef(pickerOpen);
   openRef.current = pickerOpen;
   // toute la logique d'actions vit dans le hook partagé avec la surface
@@ -544,6 +759,11 @@ export function KbPicker({ binding }: { binding: KbBinding }) {
             onPromote={actions.promote}
             promoted={actions.promoted}
             onDismissError={() => actions.setError(null)}
+            collections={collections}
+            archived={archived}
+            onCreateCollection={actions.createCollection}
+            onTag={actions.tagSource}
+            onArchive={actions.archiveSource}
             onAddFiles={() => { void actions.addFiles(); }}
             onAddFolder={() => { void actions.addFolder(); }}
             onAddUrl={actions.addUrl}

@@ -13,6 +13,9 @@ export type KbSource = {
   addedAt: string;
   updatedAt: string;
   meta?: Record<string, unknown>;
+  /** plan 051 : organisation */
+  collections?: string[];
+  archived?: boolean;
 };
 
 // Liaison d'attache d'une conversation (partagée picker/panneau, plan 050).
@@ -22,7 +25,11 @@ export type KbBinding = {
   onChange: (next: { kbSourceIds: string[]; kbFullContent: string[] }) => void;
 };
 
+export type KbCollection = { slug: string; title: string };
+
 let sources: KbSource[] = [];
+let collections: KbCollection[] = [];
+let archived: { count: number; sources: KbSource[] } = { count: 0, sources: [] };
 let loaded = false;
 const listeners = new Set<() => void>();
 
@@ -45,6 +52,14 @@ export function kbSourcesSnapshot(): KbSource[] {
   return sources;
 }
 
+export function kbCollectionsSnapshot(): KbCollection[] {
+  return collections;
+}
+
+export function kbArchivedSnapshot(): { count: number; sources: KbSource[] } {
+  return archived;
+}
+
 export function kbSourcesLoaded(): boolean {
   return loaded;
 }
@@ -63,17 +78,27 @@ export function requestKbSources(): void {
 // test seulement : remet le cache à zéro entre deux cas
 export function resetKbSourcesForTests(): void {
   sources = [];
+  collections = [];
+  archived = { count: 0, sources: [] };
   loaded = false;
 }
 
 if (typeof window !== "undefined") {
   window.addEventListener("kb-sources", (e) => {
-    const detail = (e as CustomEvent).detail;
-    if (Array.isArray(detail)) {
-      sources = detail as KbSource[];
-      loaded = true;
-      emit();
-    }
+    const detail = (e as CustomEvent).detail as
+      | KbSource[]
+      | { sources?: KbSource[]; collections?: KbCollection[]; archivedCount?: number; archivedSources?: KbSource[] };
+    // deux formes : tableau (héritage/tests) ou payload complet du backend
+    const payload = Array.isArray(detail) ? { sources: detail } : detail;
+    if (!payload || !Array.isArray(payload.sources)) return;
+    sources = payload.sources;
+    collections = Array.isArray(payload.collections) ? payload.collections : collections;
+    archived = {
+      count: typeof payload.archivedCount === "number" ? payload.archivedCount : archived.count,
+      sources: Array.isArray(payload.archivedSources) ? payload.archivedSources : archived.sources,
+    };
+    loaded = true;
+    emit();
   });
   // après un épinglage réussi (browser, picker), la liste est rafraîchie
   window.addEventListener("kb-source-added", (e) => {

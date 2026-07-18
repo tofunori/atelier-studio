@@ -7,6 +7,8 @@ import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "reac
 import { t } from "../lib/i18n";
 import { wsSend } from "../lib/wsBus";
 import {
+  kbArchivedSnapshot,
+  kbCollectionsSnapshot,
   kbSourcesSnapshot,
   requestKbSources,
   subscribeKbSources,
@@ -34,6 +36,8 @@ export default function KnowledgeSurface(p: {
   visible: boolean;
 }) {
   const sources = useSyncExternalStore(subscribeKbSources, kbSourcesSnapshot);
+  const collections = useSyncExternalStore(subscribeKbSources, kbCollectionsSnapshot);
+  const archived = useSyncExternalStore(subscribeKbSources, kbArchivedSnapshot);
   const noopBinding = useMemo<KbBinding>(
     () => ({ attached: [], fullContent: [], onChange: () => {} }),
     [],
@@ -161,6 +165,11 @@ export default function KnowledgeSurface(p: {
         onRemoveSource={actions.removeSource}
         onPromote={actions.promote}
         onDismissError={() => actions.setError(null)}
+        collections={collections}
+        archived={archived}
+        onCreateCollection={actions.createCollection}
+        onTag={actions.tagSource}
+        onArchive={actions.archiveSource}
         onAddFiles={() => { void actions.addFiles(); }}
         onAddFolder={() => { void actions.addFolder(); }}
         onAddUrl={(url) => {

@@ -2883,6 +2883,32 @@ button.ctx-ring-wrap { border: none; font: inherit; color: inherit;
 .kb-error { font-size: var(--fs-s); color: var(--u-hot, #e06c75);
   display: flex; align-items: flex-start; gap: 6px; }
 .kb-error .kb-error-text { flex: 1; min-width: 0; }
+/* plan 051 : chips-collections, tri, groupes repliables, menu collections */
+.kb-row-wrap { display: contents; }
+.kb-chips-row { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.kb-chip-filter { font-size: var(--fs-xs); color: var(--fg2); background: var(--bg-ctl);
+  border: 1px solid var(--border); border-radius: var(--r-pill); padding: 2px 10px;
+  font-variant-numeric: tabular-nums; }
+.kb-chip-filter.on { color: var(--accent); background: color-mix(in srgb, var(--accent) 12%, transparent);
+  border-color: color-mix(in srgb, var(--accent) 30%, transparent); }
+.kb-chip-filter.kb-chip-new { border-style: dashed; color: var(--muted); }
+.kb-chip-input { width: 170px; height: 24px; font-size: var(--fs-xs); }
+.kb-sort { display: inline-flex; align-items: center; gap: 4px; font-size: var(--fs-xs);
+  color: var(--muted); border-radius: var(--r-s); padding: 2px 8px; }
+.kb-sort:hover { color: var(--fg2); }
+.kb-group-toggle { display: flex; align-items: center; gap: 6px; width: 100%;
+  text-align: left; border-radius: var(--r-s); }
+.kb-group-toggle svg { color: var(--muted2); flex: none; }
+.kb-group-count { color: var(--muted2); font-weight: 400; }
+.kb-more { font-size: var(--fs-xs); color: var(--muted); padding: 3px 8px 5px 22px;
+  border-radius: var(--r-s); }
+.kb-more:hover { color: var(--fg2); }
+.kb-coll-menu { display: flex; flex-direction: column; gap: 1px; padding: 2px 6px 6px 26px; }
+.kb-coll-opt { display: flex; align-items: center; gap: 8px; font-size: var(--fs-s);
+  color: var(--fg2); padding: 3px 6px; border-radius: var(--r-s); }
+.kb-coll-opt.on { color: var(--fg); }
+.kb-foot-archived { color: var(--muted2); }
+
 /* épinglage depuis le browser : coche accent (réussi) / rouge sémantique (échec) */
 .browser-bar .kb-flash-ok, .browser-bar .kb-flash-ok:hover,
 .biblio-reader-head .kb-flash-ok, .biblio-reader-head .kb-flash-ok:hover { color: var(--accent); }

@@ -1412,7 +1412,7 @@ export default function App() {
         }));
       }
       if (msg.type === "kbSources") {
-        window.dispatchEvent(new CustomEvent("kb-sources", { detail: msg.sources }));
+        window.dispatchEvent(new CustomEvent("kb-sources", { detail: msg }));
       }
       if (msg.type === "kbPromoted") {
         window.dispatchEvent(new CustomEvent("kb-source-promoted", { detail: { id: msg.id } }));
