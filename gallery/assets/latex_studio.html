@@ -104,7 +104,10 @@
   #build:hover{border-color:var(--accent);color:var(--accent)}
   #fname{font-size:13px;font-weight:600;letter-spacing:-.01em;color:var(--txt);max-width:260px;overflow:hidden;text-overflow:ellipsis;flex:none;white-space:nowrap}
   header .sep{display:none}
-  #findBtn,#moreBtn{width:26px;height:24px;display:inline-flex;align-items:center;justify-content:center;padding:0}
+  #findBtn,#moreBtn,#rewrapAllBtn{width:26px;height:24px;display:inline-flex;align-items:center;justify-content:center;padding:0}
+  #rewrapAllBtn{position:relative}
+  #rewrapAutoDot{display:none;position:absolute;top:2px;right:2px;width:5px;height:5px;border-radius:999px;background:var(--accent)}
+  #rewrapAllBtn.auto #rewrapAutoDot{display:block}
   header .grp:has(#findBtn){margin-left:auto}
   #ddot{color:var(--accent);display:none;flex:none}
   #state{color:var(--muted);flex:1;min-width:0;text-align:right;overflow:hidden;
@@ -436,6 +439,7 @@ function __ct(){try{return JSON.parse(localStorage.getItem('claudeTargetV1')||'n
     <button id="outlineBtn" title="Plan du document (&#8984;&#8679;O)"><svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"><path d="M5.5 3.5h8M5.5 8h8M5.5 12.5h8M2 3.5h.01M2 8h.01M2 12.5h.01"/></svg></button>
     <button id="texcBtn" title="Commentaires"><svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"><path d="M14 8c0 3-2.7 5.2-6 5.2-.8 0-1.6-.1-2.3-.4L2.5 14l1-2.6C2.6 10.5 2 9.3 2 8c0-3 2.7-5.2 6-5.2S14 5 14 8z"/><path d="M5.5 6.8h5M5.5 9.2h3.4"/></svg></button>
     <button id="findBtn" title="Rechercher (&#8984;F)"><svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><circle cx="7" cy="7" r="4.4"/><path d="M10.4 10.4L14 14"/></svg></button>
+    <button id="rewrapAllBtn" title="Rewrap tout le document (&#8679;&#8997;Q)"><svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"><path d="M2 3.5h12"/><path d="M2 8h9a2.4 2.4 0 0 1 0 4.8h-1.5"/><path d="M11.2 11.1 9.4 12.8l1.8 1.7"/><path d="M2 12.8h4"/></svg><span id="rewrapAutoDot"></span></button>
     <button id="moreBtn" title="Plus&hellip;">&#8943;</button>
   </span>
   <span id="state"></span>
@@ -2447,8 +2451,11 @@ if(window.self !== window.top){
   };
   // menu ⋯
   function refreshAutoRw(){
+    const on = localStorage.getItem("texAutoRewrap") === "1";
     const el = document.getElementById("moreAutoRw");
-    if (el) el.textContent = localStorage.getItem("texAutoRewrap") === "1" ? "activé" : "désactivé";
+    if (el) el.textContent = on ? "activé" : "désactivé";
+    const b = document.getElementById("rewrapAllBtn");
+    if (b) b.classList.toggle("auto", on);
   }
   window.refreshAutoRw = refreshAutoRw;
   moreBtn.onclick = (e) => {
@@ -2481,6 +2488,12 @@ if(window.self !== window.top){
   };
   const findBtn = document.getElementById("findBtn");
   if (findBtn) findBtn.onclick = () => { if (window.cm) cm.execCommand("findPersistent"); };
+  const rewrapAllBtn = document.getElementById("rewrapAllBtn");
+  if (rewrapAllBtn) rewrapAllBtn.onclick = () => {
+    if (window.__rewrapAll) window.__rewrapAll();
+    if (window.cm) cm.focus();
+  };
+  refreshAutoRw();
   // ---- lint ruff (.py, au save) ----
   let lintMarks = [];
   async function runLint(){
