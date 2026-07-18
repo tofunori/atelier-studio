@@ -1058,7 +1058,10 @@ export async function route(msg, ctx) {
         if (msg.type === "kbCollection") {
           store.collectionOp({ op: msg.op, slug: msg.slug, title: msg.title });
         } else if (msg.type === "kbTag") {
-          store.tagSource(msg.id, msg.collection, msg.off === true);
+          if (Array.isArray(msg.ids)) store.tagMany(msg.ids, msg.collection, msg.off === true);
+          else store.tagSource(msg.id, msg.collection, msg.off === true);
+        } else if (Array.isArray(msg.ids)) {
+          store.archiveMany(msg.ids, msg.off === true);
         } else {
           store.archiveSource(msg.id, msg.off === true);
         }

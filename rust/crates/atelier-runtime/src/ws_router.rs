@@ -1648,6 +1648,16 @@ fn handle_kb_list(state: &AppState) -> Vec<String> {
 
 // Organisation de la base (plan 051 P1) : mutation via le CLI (une seule
 // implémentation d'écriture) puis liste complète relue.
+fn ids_arg(msg: &Value) -> Option<String> {
+    let ids: Vec<String> = msg
+        .get("ids")?
+        .as_array()?
+        .iter()
+        .filter_map(|v| v.as_str().map(str::to_string))
+        .collect();
+    if ids.is_empty() { None } else { Some(ids.join(",")) }
+}
+
 fn handle_kb_organize(state: &AppState, msg_type: &str, msg: &Value) -> Vec<String> {
     let arg = |k: &str| msg.get(k).and_then(|v| v.as_str()).unwrap_or("").to_string();
     let off = msg.get("off").and_then(Value::as_bool).unwrap_or(false);
@@ -1666,11 +1676,21 @@ fn handle_kb_organize(state: &AppState, msg_type: &str, msg: &Value) -> Vec<Stri
             }
         }
         "kbTag" => {
-            args.extend(["tag".into(), "--id".into(), arg("id"), "--collection".into(), arg("collection")]);
+            args.push("tag".into());
+            match ids_arg(msg) {
+                Some(ids) => { args.push("--ids".into()); args.push(ids); }
+                None => { args.push("--id".into()); args.push(arg("id")); }
+            }
+            args.push("--collection".into());
+            args.push(arg("collection"));
             if off { args.push("--off".into()); }
         }
         _ => {
-            args.extend(["archive".into(), "--id".into(), arg("id")]);
+            args.push("archive".into());
+            match ids_arg(msg) {
+                Some(ids) => { args.push("--ids".into()); args.push(ids); }
+                None => { args.push("--id".into()); args.push(arg("id")); }
+            }
             if off { args.push("--off".into()); }
         }
     }

@@ -15,8 +15,8 @@ const USAGE = [
   "  gbrain-search --query <mots-clés> [--limit 12]   (corpus NAS)",
   "  promote-page --id <id> [--slug atelier/…] [--write]   (page directe gbrain)",
   "  collection --add <titre> | --rename <slug> --title <t> | --remove <slug>",
-  "  tag --id <id> --collection <slug> [--off]",
-  "  archive --id <id> [--off]",
+  "  tag (--id <id> | --ids a,b,c) --collection <slug> [--off]",
+  "  archive (--id <id> | --ids a,b,c) [--off]",
   `Option commune: --dir <répertoire> (défaut: ${defaultKnowledgeDir()})`,
 ].join("\n");
 
@@ -124,14 +124,23 @@ export async function runKbCommand(argv, deps = {}) {
     throw new Error(`collection: --add, --rename ou --remove requis\n${USAGE}`);
   }
   if (command === "tag") {
-    for (const required of ["id", "collection"]) {
-      if (!options[required]) throw new Error(`Argument requis: --${required}`);
+    if (!options.collection) throw new Error("Argument requis: --collection");
+    if (options.ids) {
+      const ids = String(options.ids).split(",").map((x) => x.trim()).filter(Boolean);
+      const applied = store.tagMany(ids, options.collection, options.off === true);
+      return flag({ ok: true, applied });
     }
+    if (!options.id) throw new Error("Argument requis: --id (ou --ids a,b,c)");
     store.tagSource(options.id, options.collection, options.off === true);
     return flag({ ok: true, source: store.get(options.id) });
   }
   if (command === "archive") {
-    if (!options.id) throw new Error("Argument requis: --id");
+    if (options.ids) {
+      const ids = String(options.ids).split(",").map((x) => x.trim()).filter(Boolean);
+      const applied = store.archiveMany(ids, options.off === true);
+      return flag({ ok: true, applied });
+    }
+    if (!options.id) throw new Error("Argument requis: --id (ou --ids a,b,c)");
     store.archiveSource(options.id, options.off === true);
     return flag({ ok: true, source: store.get(options.id) });
   }

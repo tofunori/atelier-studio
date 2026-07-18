@@ -10,11 +10,20 @@ import { wsSend } from "../../lib/wsBus";
 import { t } from "../../lib/i18n";
 import type { KbBinding, KbSource } from "../../lib/kbSources";
 
-export function useKbActions(binding: KbBinding, isActive: () => boolean) {
+export function useKbActions(
+  binding: KbBinding,
+  isActive: () => boolean,
+  opts: {
+    /** Plan 052 C : collection active — tout épinglage initié ici y entre. */
+    activeCollection?: () => string | null;
+  } = {},
+) {
   const [error, setError] = useState<string | null>(null);
   const [promoted, setPromoted] = useState<string | null>(null);
   const activeRef = useRef(isActive);
   activeRef.current = isActive;
+  const optsRef = useRef(opts);
+  optsRef.current = opts;
   const pendingRef = useRef<{
     remaining: number;
     attachedNext: string[];
@@ -52,6 +61,9 @@ export function useKbActions(binding: KbBinding, isActive: () => boolean) {
       const id = detail.source?.id;
       if (!pending || pending.remaining <= 0 || !id) return;
       pending.remaining -= 1;
+      // plan 052 C : la collection active absorbe le nouvel épinglage
+      const active = optsRef.current.activeCollection?.() ?? null;
+      if (active) wsSend({ type: "kbTag", id, collection: active, off: false });
       if (!pending.attachedNext.includes(id)) {
         pending.attachedNext = [...pending.attachedNext, id];
         pending.onChange({
@@ -162,6 +174,30 @@ export function useKbActions(binding: KbBinding, isActive: () => boolean) {
     wsSend({ type: "kbTag", id, collection: slug, off });
   }
 
+  // Lots (plan 052) : UNE mutation backend, UNE liste fraîche.
+  function tagMany(ids: string[], slug: string) {
+    if (ids.length) wsSend({ type: "kbTag", ids, collection: slug, off: false });
+  }
+
+  function archiveMany(ids: string[]) {
+    if (!ids.length) return;
+    wsSend({ type: "kbArchive", ids, off: false });
+    const dropped = new Set(ids);
+    if (binding.attached.some((x) => dropped.has(x)) || binding.fullContent.some((x) => dropped.has(x))) {
+      binding.onChange({
+        kbSourceIds: binding.attached.filter((x) => !dropped.has(x)),
+        kbFullContent: binding.fullContent.filter((x) => !dropped.has(x)),
+      });
+    }
+  }
+
+  function attachMany(ids: string[]) {
+    const next = [...new Set([...binding.attached, ...ids])];
+    if (next.length !== binding.attached.length) {
+      binding.onChange({ kbSourceIds: next, kbFullContent: binding.fullContent });
+    }
+  }
+
   function archiveSource(id: string, off: boolean) {
     wsSend({ type: "kbArchive", id, off });
     // une source archivée quitte le contexte de la conversation
@@ -178,5 +214,6 @@ export function useKbActions(binding: KbBinding, isActive: () => boolean) {
     toggle, toggleFull, removeSource, promote,
     addFiles, addFolder, addUrl, addNote, addGbrain,
     createCollection, tagSource, archiveSource,
+    tagMany, archiveMany, attachMany,
   };
 }

@@ -45,7 +45,11 @@ export default function KnowledgeSurface(p: {
   const binding = p.binding ?? noopBinding;
   const visibleRef = useRef(p.visible);
   visibleRef.current = p.visible;
-  const actions = useKbActions(binding, () => visibleRef.current);
+  // plan 052 C : la chip-collection active absorbe les nouveaux épinglages
+  const activeCollRef = useRef<string | null>(null);
+  const actions = useKbActions(binding, () => visibleRef.current, {
+    activeCollection: () => activeCollRef.current,
+  });
 
   const [gbrainQuery, setGbrainQuery] = useState("");
   const [gbrainResults, setGbrainResults] = useState<GbrainResult[]>([]);
@@ -170,6 +174,10 @@ export default function KnowledgeSurface(p: {
         onCreateCollection={actions.createCollection}
         onTag={actions.tagSource}
         onArchive={actions.archiveSource}
+        onBatchTag={actions.tagMany}
+        onBatchArchive={actions.archiveMany}
+        onBatchAttach={actions.attachMany}
+        onCollFilterChange={(slug) => { activeCollRef.current = slug; }}
         onAddFiles={() => { void actions.addFiles(); }}
         onAddFolder={() => { void actions.addFolder(); }}
         onAddUrl={(url) => {

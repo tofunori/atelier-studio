@@ -188,6 +188,12 @@ export function KbPickerPanel(p: {
   onCreateCollection?: (title: string) => void;
   onTag?: (id: string, slug: string, off: boolean) => void;
   onArchive?: (id: string, off: boolean) => void;
+  /** Plan 052 : actions en lot (mode sélection, surface) et collection
+   * active remontée (l'épinglage y entre automatiquement). */
+  onBatchTag?: (ids: string[], slug: string) => void;
+  onBatchArchive?: (ids: string[]) => void;
+  onBatchAttach?: (ids: string[]) => void;
+  onCollFilterChange?: (slug: string | null) => void;
 }) {
   const [query, setQuery] = useState("");
   const [noteOpen, setNoteOpen] = useState(false);
@@ -202,6 +208,11 @@ export function KbPickerPanel(p: {
   const [newCollTitle, setNewCollTitle] = useState("");
   const [collMenuFor, setCollMenuFor] = useState<string | null>(null);
   const [expandedKinds, setExpandedKinds] = useState<Set<string>>(() => new Set());
+  // Plan 052 : mode sélection + lot.
+  const [selectMode, setSelectMode] = useState(false);
+  const [selected, setSelected] = useState<Set<string>>(() => new Set());
+  const [batchCollOpen, setBatchCollOpen] = useState(false);
+  const lastSelRef = useRef<string | null>(null);
   const [openGroups, setOpenGroups] = useState<Record<string, boolean>>(() => {
     try {
       const raw = JSON.parse(localStorage.getItem("atelier-studio.kbGroupsOpen") ?? "{}");
@@ -227,6 +238,16 @@ export function KbPickerPanel(p: {
     return { text: text.replace(/\s+/g, " ").trim(), kindFilter, collPrefix };
   })();
   const activeColl = parsed.collPrefix ?? (collFilter !== "__archived" ? collFilter : null);
+  useEffect(() => {
+    p.onCollFilterChange?.(collFilter && collFilter !== "__archived" ? collFilter : null);
+    // eslint hors périmètre : notification volontairement limitée au filtre
+  }, [collFilter]);
+  useEffect(() => {
+    if (!selectMode) return;
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") exitSelect(); };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [selectMode]);
   const archivedView = collFilter === "__archived";
   const filtering = Boolean(parsed.text || parsed.kindFilter || activeColl);
 
@@ -263,6 +284,47 @@ export function KbPickerPanel(p: {
     ...GROUP_ORDER.filter((kind) => librarySources.some((source) => source.kind === kind)),
     ...[...new Set(librarySources.map((source) => source.kind))].filter((kind) => !GROUP_ORDER.includes(kind)),
   ];
+  function exitSelect() {
+    setSelectMode(false);
+    setSelected(new Set());
+    setBatchCollOpen(false);
+    lastSelRef.current = null;
+  }
+
+  // Ordre visible aplati (miroir du rendu) — support des plages ⇧-clic.
+  const visibleIds: string[] = (() => {
+    if (archivedView) return filtered.map((s2) => s2.id);
+    const out: string[] = [];
+    if (surface) out.push(...attachedSources.map((s2) => s2.id));
+    out.push(...recents.map((s2) => s2.id));
+    for (const kind of kinds) {
+      const group = librarySources.filter((s2) => s2.kind === kind);
+      const open = !surface || filtering || (openGroups[kind] ?? false);
+      if (!open) continue;
+      const rows = surface && !expandedKinds.has(kind) ? group.slice(0, 20) : group;
+      out.push(...rows.map((s2) => s2.id));
+    }
+    return [...new Set(out)];
+  })();
+
+  function handleSelect(id: string, shift: boolean) {
+    setSelected((current) => {
+      const next = new Set(current);
+      const last = lastSelRef.current;
+      if (shift && last && visibleIds.includes(last) && visibleIds.includes(id)) {
+        const a = visibleIds.indexOf(last);
+        const b = visibleIds.indexOf(id);
+        for (const vid of visibleIds.slice(Math.min(a, b), Math.max(a, b) + 1)) next.add(vid);
+      } else if (next.has(id)) {
+        next.delete(id);
+      } else {
+        next.add(id);
+      }
+      return next;
+    });
+    lastSelRef.current = id;
+  }
+
   const collCount = (slug: string) =>
     p.sources.filter((source) => (source as { collections?: string[] }).collections?.includes(slug)).length;
 
@@ -284,22 +346,26 @@ export function KbPickerPanel(p: {
   const renderRow = (source: KbSource) => {
     const on = p.attached.includes(source.id);
     const full = p.fullContent.includes(source.id);
+    const isSelected = selected.has(source.id);
     return (
       <div key={source.id} className="kb-row-wrap">
-      <div className={`kb-row ${on ? "on" : ""}`}>
+      <div className={`kb-row ${on ? "on" : ""} ${selectMode && isSelected ? "sel" : ""}`}>
         <RowButton
           className="kb-row-main"
           title={source.origin ?? source.title}
-          onClick={() => p.onToggle(source.id)}
+          onClick={(e: React.MouseEvent) => {
+            if (selectMode) handleSelect(source.id, e.shiftKey);
+            else p.onToggle(source.id);
+          }}
         >
-          <span className={`kb-check ${on ? "on" : ""}`} aria-hidden />
+          <span className={`kb-check ${selectMode ? (isSelected ? "on" : "") : on ? "on" : ""}`} aria-hidden />
           <span className="kb-kind"><KindIcon kind={source.kind} /></span>
           <span className="kb-name">{source.title}</span>
           <span className="kb-meta">
             {source.kind === "gbrain" ? fmtSyncAge(source.meta?.syncedAt) : fmtChars(source.chars)}
           </span>
         </RowButton>
-        <span className="kb-row-actions">
+        <span className="kb-row-actions" style={selectMode ? { display: "none" } : undefined}>
           {source.kind === "gbrain" && p.onResync && typeof source.meta?.slug === "string" && (
             <IconButton
               size="s"
@@ -410,6 +476,15 @@ export function KbPickerPanel(p: {
     <div className={`kb-panel ${surface ? "kb-panel-surface" : ""}`}>
       <div className="kb-head">
         <span className="kb-title">{t("kb.title")}</span>
+        {surface && !archivedView && (
+          <RowButton
+            className={`kb-sort kb-select-btn ${selectMode ? "on" : ""}`}
+            title={t(selectMode ? "kb.select-cancel" : "kb.select")}
+            onClick={() => (selectMode ? exitSelect() : setSelectMode(true))}
+          >
+            {t(selectMode ? "kb.select-cancel" : "kb.select")}
+          </RowButton>
+        )}
         {surface && (
           <RowButton
             className="kb-sort"
@@ -604,7 +679,20 @@ export function KbPickerPanel(p: {
           return (
             <div key={kind}>
               {surface ? (
-                <RowButton className="kb-group kb-group-toggle" onClick={() => toggleGroup(kind)}>
+                <RowButton
+                  className="kb-group kb-group-toggle"
+                  onClick={() => {
+                    if (selectMode) {
+                      setSelected((current) => {
+                        const next = new Set(current);
+                        for (const s2 of group) next.add(s2.id);
+                        return next;
+                      });
+                    } else {
+                      toggleGroup(kind);
+                    }
+                  }}
+                >
                   <svg width="9" height="9" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3" aria-hidden="true">
                     {open ? <path d="m4 6 4 4 4-4" /> : <path d="m6 4 4 4-4 4" />}
                   </svg>
@@ -686,6 +774,57 @@ export function KbPickerPanel(p: {
           </div>
         )}
       </div>
+      {selectMode && (
+        <div className="kb-batchbar">
+          <span className="kb-batch-count">{t("kb.selected-count", { n: selected.size })}</span>
+          {filtering && visibleIds.some((id) => !selected.has(id)) && (
+            <RowButton className="kb-batch-act" onClick={() => setSelected(new Set([...selected, ...visibleIds]))}>
+              {t("kb.select-visible", { n: visibleIds.length })}
+            </RowButton>
+          )}
+          {(p.collections?.length ?? 0) > 0 && p.onBatchTag && (
+            <RowButton
+              className={`kb-batch-act ${batchCollOpen ? "on" : ""}`}
+              onClick={() => setBatchCollOpen((v) => !v)}
+            >
+              {t("kb.batch-add-to")}
+            </RowButton>
+          )}
+          {p.onBatchArchive && (
+            <RowButton
+              className="kb-batch-act"
+              onClick={() => { p.onBatchArchive?.([...selected]); exitSelect(); }}
+            >
+              {t("kb.batch-archive")}
+            </RowButton>
+          )}
+          {p.onBatchAttach && (
+            <RowButton
+              className="kb-batch-act"
+              onClick={() => { p.onBatchAttach?.([...selected]); exitSelect(); }}
+            >
+              {t("kb.batch-attach")}
+            </RowButton>
+          )}
+          <RowButton className="kb-batch-act kb-batch-cancel" onClick={exitSelect}>
+            {t("kb.select-cancel")}
+          </RowButton>
+        </div>
+      )}
+      {selectMode && batchCollOpen && (
+        <div className="kb-coll-menu kb-batch-coll">
+          {(p.collections ?? []).map((coll) => (
+            <RowButton
+              key={coll.slug}
+              className="kb-coll-opt"
+              onClick={() => { p.onBatchTag?.([...selected], coll.slug); exitSelect(); }}
+            >
+              <span className="kb-check" aria-hidden />
+              <span className="kb-name">{coll.title}</span>
+            </RowButton>
+          ))}
+        </div>
+      )}
       <div className="kb-foot">
         <span>{t("kb.attached-count").replace("{n}", String(p.attached.length))}</span>
         {surface && (p.archived?.count ?? 0) > 0 && !archivedView && (
@@ -706,7 +845,10 @@ export function KbPicker({ binding }: { binding: KbBinding }) {
   openRef.current = pickerOpen;
   // toute la logique d'actions vit dans le hook partagé avec la surface
   // Connaissances (plan 050) — le popover n'est qu'une coquille
-  const actions = useKbActions(binding, () => openRef.current);
+  const activeCollRef = useRef<string | null>(null);
+  const actions = useKbActions(binding, () => openRef.current, {
+    activeCollection: () => activeCollRef.current,
+  });
   // ouverture externe (pilule agrégée)
   useEffect(() => onOpenKbPicker(() => {
     actions.setError(null);
@@ -764,6 +906,7 @@ export function KbPicker({ binding }: { binding: KbBinding }) {
             onCreateCollection={actions.createCollection}
             onTag={actions.tagSource}
             onArchive={actions.archiveSource}
+            onCollFilterChange={(slug) => { activeCollRef.current = slug; }}
             onAddFiles={() => { void actions.addFiles(); }}
             onAddFolder={() => { void actions.addFolder(); }}
             onAddUrl={actions.addUrl}

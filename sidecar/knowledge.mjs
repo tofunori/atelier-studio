@@ -670,6 +670,45 @@ export class KnowledgeStore {
     });
   }
 
+  // Lots (plan 052) : UNE prise de verrou et UNE écriture pour N sources —
+  // les ids inconnus sont ignorés (une sélection peut contenir une source
+  // supprimée entre-temps), le compte appliqué est retourné.
+  tagMany(ids, slug, off = false) {
+    return this.withLock(() => {
+      this.reloadFromDisk();
+      if (!(this.collections ?? []).some((c) => c.slug === slug)) {
+        throw new Error(`Collection inconnue: ${slug}`);
+      }
+      let applied = 0;
+      for (const id of ids) {
+        const entry = this.sources.get(id);
+        if (!entry) continue;
+        const set = new Set(entry.collections ?? []);
+        if (off) set.delete(slug);
+        else set.add(slug);
+        entry.collections = [...set];
+        applied += 1;
+      }
+      this.persist();
+      return applied;
+    });
+  }
+
+  archiveMany(ids, off = false) {
+    return this.withLock(() => {
+      this.reloadFromDisk();
+      let applied = 0;
+      for (const id of ids) {
+        const entry = this.sources.get(id);
+        if (!entry) continue;
+        entry.archived = !off;
+        applied += 1;
+      }
+      this.persist();
+      return applied;
+    });
+  }
+
   async add({ kind, origin, title, text } = {}) {
     if (!KB_KINDS.has(kind)) {
       throw new Error(`Kind non pris en charge (v1: ${[...KB_KINDS].join(", ")}) : ${kind}`);

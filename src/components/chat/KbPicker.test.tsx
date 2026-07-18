@@ -217,3 +217,38 @@ describe("KbPickerPanel — layout surface (plan 050)", () => {
   });
 });
 
+
+describe("KbPickerPanel — sélection multiple (plan 052)", () => {
+  it("mode sélection : groupe entier, lot vers collection, archivage groupé", () => {
+    const onBatchTag = vi.fn();
+    const onBatchArchive = vi.fn();
+    renderUi(
+      <KbPickerPanel
+        {...panelProps({
+          layout: "surface",
+          collections: [{ slug: "agu26", title: "AGU26" }],
+          onCreateCollection: vi.fn(),
+          onTag: vi.fn(),
+          onArchive: vi.fn(),
+          onBatchTag,
+          onBatchArchive,
+          onBatchAttach: vi.fn(),
+        })}
+      />,
+    );
+    fireEvent.click(screen.getByText("Sélectionner"));
+    // en mode sélection, cliquer l'en-tête d'un groupe sélectionne tout le groupe
+    fireEvent.click(screen.getByText("PDF"));
+    expect(screen.getByText("1 sélectionnée(s)")).toBeTruthy();
+    fireEvent.click(screen.getByText("Ajouter à…"));
+    fireEvent.click(screen.getByText("AGU26"));
+    expect(onBatchTag).toHaveBeenCalledWith(["aaaa1111"], "agu26");
+    // la barre se ferme après l'action
+    expect(screen.queryByText("Ajouter à…")).toBeNull();
+    // deuxième passe : archiver le groupe web en lot
+    fireEvent.click(screen.getByText("Sélectionner"));
+    fireEvent.click(screen.getByText("Web"));
+    fireEvent.click(screen.getByText("Archiver"));
+    expect(onBatchArchive).toHaveBeenCalledWith(["bbbb2222"]);
+  });
+});

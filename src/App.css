@@ -2908,6 +2908,20 @@ button.ctx-ring-wrap { border: none; font: inherit; color: inherit;
   color: var(--fg2); padding: 3px 6px; border-radius: var(--r-s); }
 .kb-coll-opt.on { color: var(--fg); }
 .kb-foot-archived { color: var(--muted2); }
+/* plan 052 : mode sélection + barre d'actions groupées */
+.kb-row.sel { background: var(--bg-ctl); }
+.kb-select-btn.on { color: var(--accent); }
+.kb-batchbar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  padding: 8px 12px; margin-top: 8px; border-top: 1px solid var(--border);
+  background: var(--bg-pop); border-radius: var(--r-m); }
+.kb-batch-count { font-size: var(--fs-xs); color: var(--fg2); font-variant-numeric: tabular-nums; }
+.kb-batch-act { font-size: var(--fs-xs); color: var(--fg2); border: 1px solid var(--border);
+  border-radius: var(--r-pill); padding: 2px 10px; }
+.kb-batch-act.on, .kb-batch-act:hover { color: var(--accent);
+  border-color: color-mix(in srgb, var(--accent) 30%, transparent); }
+.kb-batch-cancel { border-color: transparent; color: var(--muted); }
+.kb-batch-coll { padding-left: 12px; }
+
 
 /* épinglage depuis le browser : coche accent (réussi) / rouge sémantique (échec) */
 .browser-bar .kb-flash-ok, .browser-bar .kb-flash-ok:hover,
