@@ -15,6 +15,19 @@
 - **Depends on** : plan 049 livré ; CLI gbrain 0.42 (`get/put/search/list`,
   résolution `~/.bun/bin` déjà en place côté Rust et Node)
 - **Planned at** : 2026-07-17, worktree `atelier-knowledge-base`
+- **Livré et validé (2026-07-17 soir)** : P1→P5 implémentés. Formats gbrain
+  figés par sondes réelles : `search` = `[score] slug -- extrait` (« No
+  results. » = vide), `get` slug absent = « Error [page_not_found] » **exit
+  0** (détection d'existence), `put` sur stdin. Gates : sidecar 517, rust 62,
+  front 66 fichiers (css-contract a refusé un 999px nu → token). **E2e vivant
+  8/8 contre l'app relancée** : gbrainSearch réel, épinglage d'une page NAS
+  (Aubry-Wake 2022, titre du front-matter plié), aperçu sans écriture,
+  écriture confirmée `atelier/e2e-050-validation`, page relue dans le corpus
+  (`from: atelier`), garde-fou exists=true au re-aperçu, soft-delete +
+  dépinglage de nettoyage. Écart assumé : pas d'indicateur NAS dédié ni de
+  squelettes — l'état voyage par les erreurs/états en place
+  (gbrainResults.error, « Recherche dans le corpus… »). Restent aux yeux de
+  Thierry : rendu visuel du panneau, du dialogue et des pilules unifiées.
 
 ## Décisions actées (design v3)
 
