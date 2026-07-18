@@ -126,3 +126,14 @@ describe("claudeHistory — repli global par id (thread déplacé vers un autre 
     expect(getSessionMessagesMock).toHaveBeenCalledWith("s-4", undefined);
   });
 });
+
+describe("strip des blocs d'outils Atelier (audit plan 049)", () => {
+  it("retire <atelier-kb>/<atelier-zotero-passages>/<atelier-gallery-integration> des tours utilisateur", () => {
+    const events = eventsFromSessionMessages([
+      { type: "user", message: { content: "vulgarise ce chapitre\n\n<atelier-gallery-integration>outil</atelier-gallery-integration>\n\n<atelier-zotero-passages>outil pdf</atelier-zotero-passages>\n\n<atelier-kb>\nSources attachées par l'utilisateur.\n[kb:aaaa1111] Note — note, 74 car.\n</atelier-kb>" } },
+      { type: "assistant", message: { content: [{ type: "text", text: "réponse" }] } },
+    ]);
+    expect(events[0]).toEqual({ kind: "user", text: "vulgarise ce chapitre" });
+    expect(events[1]).toEqual({ kind: "text", text: "réponse" });
+  });
+});

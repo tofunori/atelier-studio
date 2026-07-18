@@ -6,6 +6,7 @@ import React, { useEffect, type MutableRefObject } from "react";
 import { t } from "../../lib/i18n";
 import { ProviderInfo } from "../../lib/providers";
 import { ContextShelf, type ShelfAttachment } from "./ContextShelf";
+import { type KbBinding } from "./KbPicker";
 import { SuggestionsList, PromptTextarea, type Suggestion } from "./PromptInput";
 import { ComposerControls } from "./ComposerControls";
 import { GoalBar, GoalGlyph, type GoalInfo } from "./GoalBar";
@@ -83,6 +84,9 @@ export type ComposerContextBundle = {
   onOpenPaste: (paste: { name: string; text: string }) => void;
 };
 
+/** Base de connaissances (plan 049 T3) — attache par conversation. */
+export type ComposerKbBundle = KbBinding;
+
 /** État hôte : envoi, usage, disabled, réglages par défaut. */
 export type ComposerHost = {
   usage: { context: number; output: number; cost: number | null; turns: number | null; window?: number | null } | null;
@@ -106,8 +110,9 @@ export function ChatComposer(props: {
   catalog: ComposerCatalog;
   context: ComposerContextBundle;
   host: ComposerHost;
+  kb?: ComposerKbBundle;
 }) {
-  const { input, model, menus, catalog, context, host } = props;
+  const { input, model, menus, catalog, context, host, kb } = props;
   const { text, setText } = input;
   const { goalOpen, goalText, setGoalText, setGoalOpen } = menus;
   const hasContent = Boolean(text.trim()) || context.attachments.length > 0;
@@ -120,6 +125,7 @@ export function ChatComposer(props: {
   const controlsProps = {
     hasContent,
     ...model, ...menus, ...catalog, ...host,
+    kb,
   };
 
   function resolvedFollowUpMode(): FollowUpMode {
@@ -230,6 +236,10 @@ export function ChatComposer(props: {
             onRemoveAttachment={context.onRemoveAttachment}
             onOpenPaste={context.onOpenPaste}
           />
+          {/* plan 050 : plus de pilules KB au-dessus du champ — le badge du
+              livre porte le compte, son survol les titres, la méta sous
+              chaque message la trace ; les pilules éphémères (citations,
+              images) restent dans le ContextShelf ci-dessus. */}
           <PromptTextarea
             text={input.text}
             setText={input.setText}

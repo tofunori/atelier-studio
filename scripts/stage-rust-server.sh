@@ -28,8 +28,13 @@ for BIN_NAME in "${BIN_NAMES[@]}"; do
   chmod +x "$DIST/$BIN_NAME"
 done
 cp sidecar/gallery_tool_cli.mjs sidecar/atelier-gallery-tool \
-  sidecar/zotero_passages.mjs sidecar/zotero_passage_cli.mjs sidecar/atelier-zotero-passages "$DIST/"
-chmod +x "$DIST/atelier-gallery-tool" "$DIST/atelier-zotero-passages"
+  sidecar/zotero_passages.mjs sidecar/zotero_passage_cli.mjs sidecar/atelier-zotero-passages \
+  sidecar/knowledge.mjs sidecar/kb_prompt.mjs sidecar/kb_cli.mjs sidecar/atelier-kb "$DIST/"
+chmod +x "$DIST/atelier-gallery-tool" "$DIST/atelier-zotero-passages" "$DIST/atelier-kb"
+# Garde-fou : la chaîne d'imports des modules stagés doit se résoudre DANS le
+# dist (un import ajouté côté sidecar/ mais absent de la liste cp ci-dessus a
+# déjà cassé le CLI kb dans le bundle — échouer au build, pas au runtime).
+node -e "import(require('node:url').pathToFileURL(process.argv[1]).href).then(()=>{}, (e)=>{ console.error('[stage-rust-server] import du dist KO:', e.message); process.exit(1); })" "$DIST/knowledge.mjs"
 # Drop a tiny stamp for diagnostics (not hashed as the server binary itself is the identity).
 {
   echo "built_at=$(date -u +%Y-%m-%dT%H:%M:%SZ)"

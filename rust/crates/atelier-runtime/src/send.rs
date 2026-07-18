@@ -647,6 +647,14 @@ pub async fn handle_send(state: &AppState, msg: &Value) -> Vec<String> {
     let provider_prompt =
         with_gallery_tool_instruction(provider_prompt, &project_root, state.server_dir());
     let provider_prompt = with_zotero_passage_instruction(provider_prompt, state.server_dir());
+    // Bloc base de connaissances (plan 049 T4) : sources attachées au thread —
+    // ne bloque jamais un envoi (dégrade en prompt inchangé / fiches).
+    let provider_prompt = crate::kb_block::with_kb_block_for_thread(
+        provider_prompt,
+        state.app_dir(),
+        state.server_dir(),
+        previous.as_ref().map(|thread| &thread.extra),
+    );
 
     // Provider change while running: refuse
     if state.harness().is_running(&thread_id).await {

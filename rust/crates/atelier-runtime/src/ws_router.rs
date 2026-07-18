@@ -53,6 +53,12 @@ pub const ALL_MESSAGE_TYPES: &[&str] = &[
     "listPasted",
     "clearPasted",
     "saveImage",
+    "kbAdd",
+    "kbList",
+    "kbRemove",
+    "kbPromote",
+    "kbPromotePage",
+    "gbrainSearch",
     "generateImage",
     "apiProviders",
     "saveApiProvider",
@@ -298,6 +304,22 @@ pub async fn route_ws(state: &AppState, text: &str) -> Vec<String> {
                 }
                 _ => journal,
             };
+            // Les reloads natifs (jsonl des CLIs) portent le prompt réellement
+            // envoyé, bloc <atelier-kb> inclus — jamais dans l'affichage.
+            let events: Vec<Value> = events
+                .into_iter()
+                .map(|mut event| {
+                    if event.get("kind").and_then(Value::as_str) == Some("user") {
+                        if let Some(text) = event.get("text").and_then(Value::as_str) {
+                            if text.contains("<atelier-kb") {
+                                let stripped = crate::kb_block::strip_kb_block(text);
+                                event["text"] = json!(stripped);
+                            }
+                        }
+                    }
+                    event
+                })
+                .collect();
             vec![json_msg(json!({
                 "type": "history",
                 "threadId": id,
@@ -532,6 +554,12 @@ pub async fn route_ws(state: &AppState, text: &str) -> Vec<String> {
                 None => vec![err("dataURL d'image invalide")],
             }
         }
+        "kbAdd" => handle_kb_add(state, &msg),
+        "kbList" => handle_kb_list(state),
+        "kbRemove" => handle_kb_remove(state, &msg).await,
+        "kbPromote" => handle_kb_promote(state, &msg).await,
+        "gbrainSearch" => handle_gbrain_search(state, &msg),
+        "kbPromotePage" => handle_kb_promote_page(state, &msg),
         "generateImage" => handle_generate_image(state, &msg).await,
         "apiProviders" => {
             let list = list_api_providers_public(state.app_dir());
@@ -1323,6 +1351,340 @@ fn json_msg(v: Value) -> String {
 
 fn err(message: impl Into<String>) -> String {
     ok(ErrorMessage::new(message))
+}
+
+/// Base de connaissances (plan 049 T2) : l'écriture passe par le CLI Node
+/// `kb_cli.mjs` stagé dans server_dir — une seule implémentation du store
+/// (verrou inter-processus, registre, extraction) au lieu d'un portage double.
+/// Le texte transite par stdin (`--text -`) pour éviter la limite ARG_MAX.
+fn kb_node_bin() -> Option<std::path::PathBuf> {
+    if let Ok(p) = std::env::var("ATELIER_TEST_NODE") {
+        let pb = std::path::PathBuf::from(p);
+        if pb.is_file() {
+            return Some(pb);
+        }
+    }
+    if let Ok(out) = std::process::Command::new("which").arg("node").output() {
+        if out.status.success() {
+            let p = String::from_utf8_lossy(&out.stdout).trim().to_string();
+            if !p.is_empty() {
+                return Some(std::path::PathBuf::from(p));
+            }
+        }
+    }
+    for p in ["/opt/homebrew/bin/node", "/usr/local/bin/node"] {
+        let pb = std::path::PathBuf::from(p);
+        if pb.is_file() {
+            return Some(pb);
+        }
+    }
+    None
+}
+
+/// Exécute une commande du CLI kb (`kb_cli.mjs` stagé dans server_dir) et
+/// parse sa sortie JSON. `stdin_text` non vide est transmis via `--text -`
+/// ajouté par l'appelant ; l'APP_DIR du serveur est propagé au CLI.
+fn kb_cli_run(
+    server_dir: &str,
+    app_dir: &std::path::Path,
+    args: &[&str],
+    stdin_text: &str,
+) -> Result<Value, String> {
+    let cli = std::path::Path::new(server_dir).join("kb_cli.mjs");
+    if !cli.is_file() {
+        return Err(format!("kb_cli.mjs introuvable dans {server_dir}"));
+    }
+    let node = kb_node_bin().ok_or("node introuvable pour atelier-kb")?;
+    let mut cmd = std::process::Command::new(node);
+    cmd.arg(&cli)
+        .args(args)
+        .env("ATELIER_APP_DIR", app_dir)
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped());
+    if stdin_text.is_empty() {
+        cmd.stdin(std::process::Stdio::null());
+    } else {
+        cmd.stdin(std::process::Stdio::piped());
+    }
+    let mut child = cmd.spawn().map_err(|e| format!("spawn atelier-kb: {e}"))?;
+    if !stdin_text.is_empty() {
+        use std::io::Write;
+        let mut stdin = child.stdin.take().ok_or("stdin atelier-kb indisponible")?;
+        stdin.write_all(stdin_text.as_bytes()).map_err(|e| e.to_string())?;
+        drop(stdin);
+    }
+    let out = child.wait_with_output().map_err(|e| e.to_string())?;
+    if !out.status.success() {
+        let message = String::from_utf8_lossy(&out.stderr).trim().to_string();
+        return Err(if message.is_empty() { "atelier-kb: échec".into() } else { message });
+    }
+    serde_json::from_slice::<Value>(&out.stdout).map_err(|e| format!("sortie atelier-kb invalide: {e}"))
+}
+
+fn kb_error(message: String) -> Vec<String> {
+    vec![json_msg(json!({"type": "kbError", "message": message}))]
+}
+
+#[cfg(test)]
+pub(crate) fn kb_node_bin_for_tests() -> Option<std::path::PathBuf> {
+    kb_node_bin()
+}
+
+/// Résout le binaire gbrain (PATH Finder minimal → repl. usuels).
+fn gbrain_bin() -> Option<std::path::PathBuf> {
+    if let Ok(p) = std::env::var("ATELIER_TEST_GBRAIN") {
+        let pb = std::path::PathBuf::from(p);
+        if pb.is_file() {
+            return Some(pb);
+        }
+    }
+    if let Ok(out) = std::process::Command::new("which").arg("gbrain").output() {
+        if out.status.success() {
+            let p = String::from_utf8_lossy(&out.stdout).trim().to_string();
+            if !p.is_empty() {
+                return Some(std::path::PathBuf::from(p));
+            }
+        }
+    }
+    let home = std::env::var_os("HOME").map(std::path::PathBuf::from);
+    let mut candidates = vec![
+        std::path::PathBuf::from("/opt/homebrew/bin/gbrain"),
+        std::path::PathBuf::from("/usr/local/bin/gbrain"),
+    ];
+    if let Some(home) = home {
+        candidates.push(home.join("bin/gbrain"));
+        candidates.push(home.join(".local/bin/gbrain"));
+        // installation bun (cas réel de Thierry) : jamais dans le PATH GUI
+        candidates.push(home.join(".bun/bin/gbrain"));
+    }
+    candidates.into_iter().find(|p| p.is_file())
+}
+
+/// Promotion d'une source vers le corpus gbrain (plan 049 T7) — miroir du
+/// routeur Node : titre + origine + extrait (700 scalaires), timeout 15 s.
+async fn handle_kb_promote(state: &AppState, msg: &Value) -> Vec<String> {
+    let id = msg.get("id").and_then(|v| v.as_str()).unwrap_or("");
+    if id.is_empty() {
+        return kb_error("kbPromote: id requis".into());
+    }
+    let knowledge_dir = state.app_dir().join("knowledge");
+    let Some((title, origin, kind)) = crate::kb_block::source_meta(&knowledge_dir, id) else {
+        return kb_error(format!("Source inconnue: {id}"));
+    };
+    let Some(gbrain) = gbrain_bin() else {
+        return kb_error("gbrain indisponible: introuvable sur le PATH".into());
+    };
+    let mut text = format!("{title} — {}", origin.unwrap_or(kind));
+    if let Some(excerpt) = crate::kb_block::cache_excerpt(&knowledge_dir, id, 700) {
+        if !excerpt.is_empty() {
+            text.push_str("\n\n");
+            text.push_str(&excerpt);
+        }
+    }
+    let run = tokio::process::Command::new(gbrain)
+        .arg("capture")
+        .arg(&text)
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .output();
+    match tokio::time::timeout(std::time::Duration::from_secs(15), run).await {
+        Err(_) => kb_error("gbrain: délai dépassé (NAS injoignable ?)".into()),
+        Ok(Err(e)) => kb_error(format!("gbrain indisponible: {e}")),
+        Ok(Ok(out)) if !out.status.success() => {
+            let stderr = String::from_utf8_lossy(&out.stderr).trim().to_string();
+            let stdout = String::from_utf8_lossy(&out.stdout).trim().to_string();
+            let message = if !stderr.is_empty() { stderr } else { stdout };
+            kb_error(if message.is_empty() { "gbrain capture: échec".into() } else { message })
+        }
+        Ok(Ok(_)) => vec![json_msg(json!({"type": "kbPromoted", "id": id}))],
+    }
+}
+
+/// Recherche du corpus gbrain (plan 050 P3) — relais du CLI `atelier-kb
+/// gbrain-search`. Échec (NAS coupé, binaire absent) = `gbrainResults` avec
+/// `error`, jamais un kbError générique : la section du panneau l'affiche en
+/// place sans polluer le flux d'épinglage.
+fn handle_gbrain_search(state: &AppState, msg: &Value) -> Vec<String> {
+    let query = msg
+        .get("query")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .trim()
+        .to_string();
+    if query.is_empty() {
+        return vec![json_msg(
+            json!({"type": "gbrainResults", "query": "", "results": [], "error": "requête vide"}),
+        )];
+    }
+    let limit = msg
+        .get("limit")
+        .and_then(Value::as_u64)
+        .unwrap_or(12)
+        .clamp(1, 25)
+        .to_string();
+    match kb_cli_run(
+        state.server_dir(),
+        state.app_dir(),
+        &["gbrain-search", "--query", &query, "--limit", &limit],
+        "",
+    ) {
+        Ok(v) => vec![json_msg(json!({
+            "type": "gbrainResults",
+            "query": v.get("query").cloned().unwrap_or_else(|| json!(query)),
+            "results": v.get("results").cloned().unwrap_or_else(|| json!([])),
+        }))],
+        Err(e) => vec![json_msg(
+            json!({"type": "gbrainResults", "query": query, "results": [], "error": e}),
+        )],
+    }
+}
+
+/// Page directe gbrain (plan 050 P4) — relais du CLI `promote-page` :
+/// aperçu sans `--write`, écriture uniquement sur confirmation UI.
+fn handle_kb_promote_page(state: &AppState, msg: &Value) -> Vec<String> {
+    let id = msg.get("id").and_then(|v| v.as_str()).unwrap_or("");
+    if id.is_empty() {
+        return kb_error("kbPromotePage: id requis".into());
+    }
+    let slug = msg.get("slug").and_then(|v| v.as_str()).unwrap_or("");
+    let write = msg.get("write").and_then(Value::as_bool).unwrap_or(false);
+    let mut args = vec!["promote-page", "--id", id];
+    if !slug.is_empty() {
+        args.extend_from_slice(&["--slug", slug]);
+    }
+    if write {
+        args.push("--write");
+    }
+    match kb_cli_run(state.server_dir(), state.app_dir(), &args, "") {
+        Ok(v) if v.get("written").and_then(Value::as_bool) == Some(true) => {
+            vec![json_msg(json!({
+                "type": "kbPageWritten",
+                "id": v.get("id").cloned().unwrap_or(json!(id)),
+                "slug": v.get("slug").cloned().unwrap_or(json!(null)),
+                "updated": v.get("updated").cloned().unwrap_or(json!(false)),
+            }))]
+        }
+        Ok(v) => vec![json_msg(json!({
+            "type": "kbPagePreview",
+            "id": v.get("id").cloned().unwrap_or(json!(id)),
+            "slug": v.get("slug").cloned().unwrap_or(json!(null)),
+            "exists": v.get("exists").cloned().unwrap_or(json!(false)),
+            "title": v.get("title").cloned().unwrap_or(json!(null)),
+            "chars": v.get("chars").cloned().unwrap_or(json!(null)),
+            "preview": v.get("preview").cloned().unwrap_or(json!("")),
+        }))],
+        Err(e) => kb_error(e),
+    }
+}
+
+fn handle_kb_add(state: &AppState, msg: &Value) -> Vec<String> {
+    let get = |key: &str| msg.get(key).and_then(|v| v.as_str()).unwrap_or("");
+    let (kind, origin, title, text) = (get("kind"), get("origin"), get("title"), get("text"));
+    if kind.is_empty() {
+        return kb_error("kbAdd: kind requis".into());
+    }
+    let mut args = vec!["add", "--kind", kind];
+    if !origin.is_empty() {
+        args.extend_from_slice(&["--origin", origin]);
+    }
+    if !title.is_empty() {
+        args.extend_from_slice(&["--title", title]);
+    }
+    if !text.is_empty() {
+        args.extend_from_slice(&["--text", "-"]);
+    }
+    match kb_cli_run(state.server_dir(), state.app_dir(), &args, text) {
+        Ok(v) => {
+            let mut out = json!({
+                "type": "kbAdded",
+                "source": v.get("source").cloned().unwrap_or(Value::Null),
+                "refreshed": v.get("refreshed").cloned().unwrap_or(Value::Bool(false)),
+            });
+            if let Some(warning) = v.get("warning") {
+                out["warning"] = warning.clone();
+            }
+            vec![json_msg(out)]
+        }
+        Err(message) => {
+            // échec du repli fetch alors que l'utilisateur vient DÉJÀ du
+            // bouton livre : message non circulaire (miroir router.mjs)
+            let via_browser = msg.get("via").and_then(|v| v.as_str()) == Some("browser");
+            if via_browser && message.contains("bloque le téléchargement direct") {
+                kb_error("La capture du texte n'a rien donné et le site bloque le téléchargement direct — recharge la page, attends la fin du chargement, puis reclique le livre.".into())
+            } else {
+                kb_error(message)
+            }
+        }
+    }
+}
+
+fn kb_sources_msg(v: &Value) -> Vec<String> {
+    let mut out = json!({
+        "type": "kbSources",
+        "sources": v.get("sources").cloned().unwrap_or(json!([])),
+    });
+    if let Some(warning) = v.get("warning") {
+        out["warning"] = warning.clone();
+    }
+    vec![json_msg(out)]
+}
+
+fn handle_kb_list(state: &AppState) -> Vec<String> {
+    match kb_cli_run(state.server_dir(), state.app_dir(), &["list"], "") {
+        Ok(v) => kb_sources_msg(&v),
+        Err(message) => kb_error(message),
+    }
+}
+
+async fn handle_kb_remove(state: &AppState, msg: &Value) -> Vec<String> {
+    let id = msg.get("id").and_then(|v| v.as_str()).unwrap_or("");
+    if id.is_empty() {
+        return kb_error("kbRemove: id requis".into());
+    }
+    if let Err(message) = kb_cli_run(state.server_dir(), state.app_dir(), &["remove", "--id", id], "") {
+        return kb_error(message);
+    }
+    let mut out = handle_kb_list(state);
+    // purge des références dans les threads (miroir du routeur Node) — sinon
+    // les conversations non actives gardent des pilules orphelines
+    let strip = |value: Option<&Value>| -> (Vec<String>, bool) {
+        let items: Vec<String> = value
+            .and_then(|v| v.as_array())
+            .map(|arr| arr.iter().filter_map(|x| x.as_str().map(str::to_string)).collect())
+            .unwrap_or_default();
+        let had = items.iter().any(|x| x == id);
+        (items.into_iter().filter(|x| x != id).collect(), had)
+    };
+    let patches: Vec<Value> = {
+        let store = state.threads().lock().await;
+        store
+            .list()
+            .iter()
+            .filter_map(|thread| {
+                let raw = serde_json::to_value(thread).ok()?;
+                let (ids, had_ids) = strip(raw.get("kbSourceIds"));
+                let (full, had_full) = strip(raw.get("kbFullContent"));
+                if !had_ids && !had_full {
+                    return None;
+                }
+                Some(json!({
+                    "id": raw.get("id").cloned().unwrap_or(Value::Null),
+                    "kbSourceIds": ids,
+                    "kbFullContent": full,
+                }))
+            })
+            .collect()
+    };
+    if !patches.is_empty() {
+        {
+            let mut store = state.threads().lock().await;
+            for patch in patches {
+                let _ = store.upsert(patch, true);
+            }
+        }
+        out.extend(broadcast_threads(state).await);
+    }
+    out
 }
 
 async fn handle_setup_status(state: &AppState) -> Vec<String> {
@@ -2423,6 +2785,162 @@ mod tests {
             "h".into(),
             "/tmp".into(),
         )
+    }
+
+    fn state_with_server_dir(dir: &std::path::Path, server_dir: String) -> AppState {
+        AppState::new(
+            AppPaths::from_app_dir(dir.to_path_buf()),
+            None,
+            "t".into(),
+            "0.1.0".into(),
+            "h".into(),
+            server_dir,
+        )
+    }
+
+    #[tokio::test]
+    async fn kb_add_erreurs_propres_kind_et_cli_absent() {
+        let dir = tempdir().unwrap();
+        let s = state(dir.path());
+        // kind manquant → kbError local, sans spawn
+        let out = route_ws(&s, r#"{"type":"kbAdd"}"#).await;
+        let v: Value = serde_json::from_str(&out[0]).unwrap();
+        assert_eq!(v["type"], "kbError");
+        assert!(v["message"].as_str().unwrap().contains("kind requis"));
+        // server_dir=/tmp sans kb_cli.mjs → kbError explicite
+        let out = route_ws(&s, r#"{"type":"kbAdd","kind":"web","origin":"https://x.org","text":"t"}"#).await;
+        let v: Value = serde_json::from_str(&out[0]).unwrap();
+        assert_eq!(v["type"], "kbError");
+        assert!(v["message"].as_str().unwrap().contains("kb_cli.mjs introuvable"));
+    }
+
+    #[tokio::test]
+    async fn gbrain_search_echec_en_place_jamais_kb_error() {
+        let dir = tempdir().unwrap();
+        let s = state(dir.path());
+        // requête vide → réponse en place
+        let out = route_ws(&s, r#"{"type":"gbrainSearch","query":"  "}"#).await;
+        let v: Value = serde_json::from_str(&out[0]).unwrap();
+        assert_eq!(v["type"], "gbrainResults");
+        assert_eq!(v["results"].as_array().unwrap().len(), 0);
+        // server_dir=/tmp sans kb_cli.mjs → error portée par gbrainResults
+        let out = route_ws(&s, r#"{"type":"gbrainSearch","query":"albédo"}"#).await;
+        let v: Value = serde_json::from_str(&out[0]).unwrap();
+        assert_eq!(v["type"], "gbrainResults");
+        assert!(v["error"].as_str().unwrap().contains("kb_cli.mjs introuvable"));
+    }
+
+    #[tokio::test]
+    async fn kb_promote_page_erreurs_propres() {
+        let dir = tempdir().unwrap();
+        let s = state(dir.path());
+        let out = route_ws(&s, r#"{"type":"kbPromotePage"}"#).await;
+        let v: Value = serde_json::from_str(&out[0]).unwrap();
+        assert_eq!(v["type"], "kbError");
+        assert!(v["message"].as_str().unwrap().contains("id requis"));
+        // server_dir=/tmp sans kb_cli.mjs → kbError explicite, jamais d'écriture
+        let out = route_ws(&s, r#"{"type":"kbPromotePage","id":"x","write":true}"#).await;
+        let v: Value = serde_json::from_str(&out[0]).unwrap();
+        assert_eq!(v["type"], "kbError");
+        assert!(v["message"].as_str().unwrap().contains("kb_cli.mjs introuvable"));
+    }
+
+    #[tokio::test]
+    async fn kb_promote_erreurs_propres() {
+        let dir = tempdir().unwrap();
+        let s = state(dir.path());
+        // id manquant
+        let out = route_ws(&s, r#"{"type":"kbPromote"}"#).await;
+        let v: Value = serde_json::from_str(&out[0]).unwrap();
+        assert_eq!(v["type"], "kbError");
+        assert!(v["message"].as_str().unwrap().contains("id requis"));
+        // source inconnue (registre vide) — testé AVANT la résolution gbrain
+        let out = route_ws(&s, r#"{"type":"kbPromote","id":"absent"}"#).await;
+        let v: Value = serde_json::from_str(&out[0]).unwrap();
+        assert_eq!(v["type"], "kbError");
+        assert!(v["message"].as_str().unwrap().contains("Source inconnue"));
+    }
+
+    #[tokio::test]
+    async fn kb_add_reel_via_cli_node_stdin() {
+        // Gated : sans node on ne peut pas exercer le CLI réel.
+        if kb_node_bin().is_none() {
+            return;
+        }
+        let sidecar = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../sidecar");
+        if !sidecar.join("kb_cli.mjs").is_file() {
+            return;
+        }
+        let dir = tempdir().unwrap();
+        let s = state_with_server_dir(dir.path(), sidecar.to_string_lossy().into_owned());
+        let msg = json!({
+            "type": "kbAdd",
+            "kind": "web",
+            "origin": "https://exemple.org/parite",
+            "title": "Parité Rust",
+            "text": "Texte capturé transmis par stdin au CLI, assez long pour être indexé sans problème.",
+        });
+        let out = route_ws(&s, &msg.to_string()).await;
+        let v: Value = serde_json::from_str(&out[0]).unwrap();
+        assert_eq!(v["type"], "kbAdded", "réponse: {v}");
+        assert_eq!(v["source"]["kind"], "web");
+        assert_eq!(v["source"]["title"], "Parité Rust");
+        assert_eq!(v["refreshed"], false);
+        // le CLI a bien écrit dans l'APP_DIR du serveur (env ATELIER_APP_DIR)
+        assert!(dir.path().join("knowledge/knowledge.json").is_file());
+
+        // list → la source épinglée est visible
+        let source_id = v["source"]["id"].as_str().unwrap().to_string();
+        let out = route_ws(&s, r#"{"type":"kbList"}"#).await;
+        let v: Value = serde_json::from_str(&out[0]).unwrap();
+        assert_eq!(v["type"], "kbSources", "réponse: {v}");
+        assert_eq!(v["sources"].as_array().unwrap().len(), 1);
+        assert_eq!(v["sources"][0]["id"], source_id.as_str());
+
+        // un thread référence la source → remove doit purger ses champs kb
+        let attach = json!({"type": "upsertThread", "thread": {
+            "id": "t-purge", "provider": "codex",
+            "kbSourceIds": [source_id, "autre"], "kbFullContent": [source_id],
+        }});
+        route_ws(&s, &attach.to_string()).await;
+
+        // remove → liste à jour vide + threads purgés broadcastés
+        let remove = json!({"type": "kbRemove", "id": source_id});
+        let out = route_ws(&s, &remove.to_string()).await;
+        let v: Value = serde_json::from_str(&out[0]).unwrap();
+        assert_eq!(v["type"], "kbSources", "réponse: {v}");
+        assert_eq!(v["sources"].as_array().unwrap().len(), 0);
+        let threads: Value = serde_json::from_str(&out[1]).unwrap();
+        assert_eq!(threads["type"], "threads", "réponse: {threads}");
+        let thread = threads["threads"].as_array().unwrap().iter()
+            .find(|t| t["id"] == "t-purge").expect("thread présent");
+        assert_eq!(thread["kbSourceIds"], json!(["autre"]));
+        assert_eq!(thread["kbFullContent"], json!([]));
+    }
+
+    #[tokio::test]
+    async fn upsert_thread_persiste_les_champs_kb() {
+        let dir = tempdir().unwrap();
+        let s = state(dir.path());
+        let msg = json!({"type": "upsertThread", "thread": {
+            "id": "t-kb", "provider": "codex",
+            "kbSourceIds": ["9c81", "gbrain"], "kbFullContent": ["9c81"],
+        }});
+        let out = route_ws(&s, &msg.to_string()).await;
+        let v: Value = serde_json::from_str(&out[0]).unwrap();
+        assert_eq!(v["type"], "threads", "réponse: {v}");
+        let thread = v["threads"].as_array().unwrap().iter()
+            .find(|t| t["id"] == "t-kb").expect("thread présent");
+        assert_eq!(thread["kbSourceIds"], json!(["9c81", "gbrain"]));
+        assert_eq!(thread["kbFullContent"], json!(["9c81"]));
+        // patch partiel ultérieur : les champs kb survivent au merge
+        let rename = json!({"type": "upsertThread", "thread": {"id": "t-kb", "title": "Renommé"}});
+        let out = route_ws(&s, &rename.to_string()).await;
+        let v: Value = serde_json::from_str(&out[0]).unwrap();
+        let thread = v["threads"].as_array().unwrap().iter()
+            .find(|t| t["id"] == "t-kb").expect("thread présent");
+        assert_eq!(thread["title"], "Renommé");
+        assert_eq!(thread["kbSourceIds"], json!(["9c81", "gbrain"]));
     }
 
     #[test]

@@ -944,6 +944,164 @@ describe("relay d'interactions (plan 025 step 5)", () => {
   });
 });
 
+describe("base de connaissances (kbAdd)", () => {
+  it("épingle une source web avec texte fourni et répond kbAdded", async () => {
+    const prev = process.env.ATELIER_APP_DIR;
+    process.env.ATELIER_APP_DIR = mkdtempSync(join(tmpdir(), "atelier-kb-router-"));
+    try {
+      const sent = [];
+      await route({
+        type: "kbAdd", kind: "web", origin: "https://exemple.org/revue",
+        title: "Page capturée",
+        text: "Texte capturé depuis le browser intégré, suffisamment long pour être indexé et retrouvé.",
+      }, { send: (m) => sent.push(m) });
+      expect(sent[0].type).toBe("kbAdded");
+      expect(sent[0].source).toMatchObject({ kind: "web", title: "Page capturée" });
+      expect(sent[0].refreshed).toBe(false);
+    } finally {
+      if (prev === undefined) delete process.env.ATELIER_APP_DIR;
+      else process.env.ATELIER_APP_DIR = prev;
+    }
+  });
+
+  it("kbPromotePage : aperçu puis écriture confirmée seulement", async () => {
+    const prev = process.env.ATELIER_APP_DIR;
+    process.env.ATELIER_APP_DIR = mkdtempSync(join(tmpdir(), "atelier-kb-page-"));
+    try {
+      const sent = [];
+      const puts = [];
+      const ctx = {
+        send: (m) => sent.push(m),
+        kbDeps: { runGbrain: (args, opts) => {
+          if (args[0] === "get") return "Error [page_not_found]: Page not found\n";
+          puts.push({ args, input: opts?.input });
+          return "ok";
+        } },
+      };
+      await route({
+        type: "kbAdd", kind: "note", title: "Page à écrire",
+        text: "Contenu de note suffisamment long pour être indexé par le moteur de passages.",
+      }, ctx);
+      const id = sent[0].source.id;
+      await route({ type: "kbPromotePage", id }, ctx);
+      expect(sent[1].type).toBe("kbPagePreview");
+      expect(sent[1].slug).toBe("atelier/page-a-ecrire");
+      expect(puts).toHaveLength(0);
+      await route({ type: "kbPromotePage", id, slug: sent[1].slug, write: true }, ctx);
+      expect(sent[2]).toMatchObject({ type: "kbPageWritten", slug: "atelier/page-a-ecrire", updated: false });
+      expect(puts).toHaveLength(1);
+      expect(puts[0].input).toContain("from: atelier");
+    } finally {
+      if (prev === undefined) delete process.env.ATELIER_APP_DIR;
+      else process.env.ATELIER_APP_DIR = prev;
+    }
+  });
+
+  it("gbrainSearch relaie les résultats et met l'échec NAS dans la réponse", async () => {
+    const sent = [];
+    const ctx = {
+      send: (m) => sent.push(m),
+      kbDeps: { runGbrain: () => "[0.42] papers/aubry-wake-2022 -- Fire and Ice\n" },
+    };
+    await route({ type: "gbrainSearch", query: "albédo", limit: 5 }, ctx);
+    expect(sent[0].type).toBe("gbrainResults");
+    expect(sent[0].results).toEqual([{ slug: "papers/aubry-wake-2022", snippet: "Fire and Ice" }]);
+
+    const down = [];
+    await route({ type: "gbrainSearch", query: "albédo" }, {
+      send: (m) => down.push(m),
+      kbDeps: { runGbrain: () => { throw new Error("gbrain : délai dépassé (NAS injoignable ?)"); } },
+    });
+    expect(down[0].type).toBe("gbrainResults");
+    expect(down[0].results).toEqual([]);
+    expect(down[0].error).toMatch(/NAS injoignable/);
+  });
+
+  it("kbPromote répond kbPromoted (spawn injecté) et kbError en échec", async () => {
+    const prev = process.env.ATELIER_APP_DIR;
+    process.env.ATELIER_APP_DIR = mkdtempSync(join(tmpdir(), "atelier-kb-promote-"));
+    try {
+      const sent = [];
+      const ctx = {
+        send: (m) => sent.push(m),
+        kbPromoteDeps: { spawn: () => ({ status: 0, stdout: "ok", stderr: "" }) },
+      };
+      await route({
+        type: "kbAdd", kind: "note", title: "À promouvoir",
+        text: "Contenu de note suffisamment long pour être indexé par le moteur de passages.",
+      }, ctx);
+      await route({ type: "kbPromote", id: sent[0].source.id }, ctx);
+      expect(sent[1]).toEqual({ type: "kbPromoted", id: sent[0].source.id });
+      await route({ type: "kbPromote", id: "inexistant" }, ctx);
+      expect(sent[2].type).toBe("kbError");
+      expect(sent[2].message).toMatch(/Source inconnue/);
+    } finally {
+      if (prev === undefined) delete process.env.ATELIER_APP_DIR;
+      else process.env.ATELIER_APP_DIR = prev;
+    }
+  });
+
+  it("répond kbError sur kind invalide, sans jeter", async () => {
+    const sent = [];
+    await route({ type: "kbAdd", kind: "vhs" }, { send: (m) => sent.push(m) });
+    expect(sent[0].type).toBe("kbError");
+    expect(sent[0].message).toMatch(/Kind non pris en charge/);
+  });
+
+  it("kbList puis kbRemove renvoient la liste à jour et purgent les threads", async () => {
+    const prev = process.env.ATELIER_APP_DIR;
+    process.env.ATELIER_APP_DIR = mkdtempSync(join(tmpdir(), "atelier-kb-router-"));
+    try {
+      const storePath = join(mkdtempSync(join(tmpdir(), "atelier-kb-purge-")), "threads.json");
+      const store = new threadStoreModule.ThreadStore(storePath);
+      const sent = [];
+      const ctx = { send: (m) => sent.push(m), store };
+      await route({
+        type: "kbAdd", kind: "note", title: "Note picker",
+        text: "Contenu de note suffisamment long pour être indexé par le moteur de passages.",
+      }, ctx);
+      const sourceId = sent[0].source.id;
+      // deux threads référencent la source ; un troisième non
+      store.upsert({ id: "t-a", kbSourceIds: [sourceId, "autre"], kbFullContent: [sourceId] });
+      store.upsert({ id: "t-b", kbSourceIds: [sourceId] });
+      store.upsert({ id: "t-c", kbSourceIds: ["autre"] });
+      await route({ type: "kbList" }, ctx);
+      expect(sent[1].type).toBe("kbSources");
+      expect(sent[1].sources).toHaveLength(1);
+      await route({ type: "kbRemove", id: sourceId }, ctx);
+      expect(sent[2]).toMatchObject({ type: "kbSources", sources: [] });
+      expect(sent[3].type).toBe("threads");
+      expect(store.get("t-a")).toMatchObject({ kbSourceIds: ["autre"], kbFullContent: [] });
+      expect(store.get("t-b")).toMatchObject({ kbSourceIds: [] });
+      expect(store.get("t-c")).toMatchObject({ kbSourceIds: ["autre"] });
+    } finally {
+      if (prev === undefined) delete process.env.ATELIER_APP_DIR;
+      else process.env.ATELIER_APP_DIR = prev;
+    }
+  });
+
+  it("upsertThread persiste kbSourceIds/kbFullContent et broadcast threads", async () => {
+    const storePath = join(mkdtempSync(join(tmpdir(), "atelier-kb-threads-")), "threads.json");
+    const store = new threadStoreModule.ThreadStore(storePath);
+    const sent = [];
+    const ctx = { send: (m) => sent.push(m), store };
+    await route({ type: "upsertThread", thread: {
+      id: "t-kb", provider: "codex", kbSourceIds: ["9c81", "gbrain"], kbFullContent: ["9c81"],
+    } }, ctx);
+    expect(sent[0].type).toBe("threads");
+    expect(sent[0].threads[0]).toMatchObject({ id: "t-kb", kbSourceIds: ["9c81", "gbrain"] });
+    // patch partiel : les champs kb survivent au merge et au disque
+    await route({ type: "upsertThread", thread: { id: "t-kb", title: "Renommé" } }, ctx);
+    const reloaded = new threadStoreModule.ThreadStore(storePath);
+    expect(reloaded.get("t-kb")).toMatchObject({
+      title: "Renommé", kbSourceIds: ["9c81", "gbrain"], kbFullContent: ["9c81"],
+    });
+    // id manquant → erreur propre
+    await route({ type: "upsertThread", thread: { title: "sans id" } }, ctx);
+    expect(sent.at(-1).type).toBe("error");
+  });
+});
+
 describe("quickAsk", () => {
   // laisse se dérouler les microtâches du .then/.catch de p.run(...)
   const flush = () => new Promise((r) => setTimeout(r, 0));

@@ -57,7 +57,9 @@ fn extract_user_query(text: &str) -> Option<String> {
     (!query.is_empty()).then_some(query)
 }
 
-fn strip_gallery_tool_instruction(text: &str) -> String {
+// Partagé avec codex_history : les sessions natives persistent le prompt
+// provider complet (blocs gallery/zotero/kb inclus).
+pub(crate) fn strip_gallery_tool_instruction(text: &str) -> String {
     let mut out = text.to_string();
     for (open, close) in [
         (
@@ -65,6 +67,7 @@ fn strip_gallery_tool_instruction(text: &str) -> String {
             "</atelier-gallery-integration>",
         ),
         ("<atelier-zotero-passages>", "</atelier-zotero-passages>"),
+        ("<atelier-kb>", "</atelier-kb>"),
     ] {
         while let Some(start) = out.find(open) {
             let Some(relative_end) = out[start + open.len()..].find(close) else {
@@ -247,7 +250,7 @@ mod tests {
         let native = vec![
             json!({"kind":"user","text":"tour supprimé"}),
             json!({"kind":"text","text":"réponse supprimée"}),
-            json!({"kind":"user","text":"citation brute\n\nvulgarise\n\n<atelier-gallery-integration>secret</atelier-gallery-integration>\n<atelier-zotero-passages>secret pdf</atelier-zotero-passages>"}),
+            json!({"kind":"user","text":"citation brute\n\nvulgarise\n\n<atelier-gallery-integration>secret</atelier-gallery-integration>\n<atelier-zotero-passages>secret pdf</atelier-zotero-passages>\n<atelier-kb>sources secrètes</atelier-kb>"}),
             json!({"kind":"text","text":"réponse complète"}),
         ];
 

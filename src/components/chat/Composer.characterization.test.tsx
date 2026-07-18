@@ -115,7 +115,7 @@ describe("composer — caractérisation", () => {
     );
   });
 
-  it("attachments : composants shadcn visibles et suppression accessible", () => {
+  it("attachments : pilules unifiées et suppression accessible", () => {
     const onRemoveAttachment = vi.fn();
     renderUi(<Chat {...chatProps({
       onRemoveAttachment,
@@ -128,9 +128,13 @@ describe("composer — caractérisation", () => {
     expect(screen.getByText("fig3_spatial")).toBeTruthy();
     expect(screen.getByText("notes")).toBeTruthy();
 
-    const removeButtons = document.querySelectorAll('.chips-row [data-slot="attachment-action"]');
+    // plan 050 P2 : plus de cartes shadcn — des pilules fines uniformes
+    expect(document.querySelectorAll(".context-pills .context-pill").length).toBe(2);
+    const removeButtons = screen.getAllByRole("button", {
+      name: new RegExp(`^${t("action.remove")} `),
+    });
     expect(removeButtons.length).toBe(2);
-    act(() => { (removeButtons[0] as HTMLButtonElement).click(); });
+    act(() => { removeButtons[0].click(); });
     expect(onRemoveAttachment).toHaveBeenCalledWith(0);
   });
 

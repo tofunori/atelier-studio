@@ -46,6 +46,7 @@ import { loadSettings, saveSettings, Settings, ProviderId, DEFAULT_SETTINGS } fr
 import { ProviderInfo } from "./lib/providers";
 import { THEME_PRESETS, presetById } from "./lib/themes";
 import { setLanguage, t } from "./lib/i18n";
+import { kbSourcesSnapshot } from "./lib/kbSources";
 import { buildItems } from "./lib/palette";
 import type { Automation } from "./lib/automations";
 import { setDockBadge } from "./lib/dockBadge";
@@ -1401,6 +1402,35 @@ export default function App() {
       if (msg.type === "frameChecked") {
         window.dispatchEvent(new CustomEvent("frame-checked", { detail: msg }));
       }
+      if (msg.type === "kbAdded" || msg.type === "kbError") {
+        // base de connaissances (plan 049) : retour d'épinglage relayé aux
+        // surfaces intéressées (bouton browser, picker du composer)
+        window.dispatchEvent(new CustomEvent("kb-source-added", {
+          detail: msg.type === "kbAdded"
+            ? { ok: true, source: msg.source, refreshed: msg.refreshed, warning: msg.warning }
+            : { ok: false, message: msg.message },
+        }));
+      }
+      if (msg.type === "kbSources") {
+        window.dispatchEvent(new CustomEvent("kb-sources", { detail: msg.sources }));
+      }
+      if (msg.type === "kbPromoted") {
+        window.dispatchEvent(new CustomEvent("kb-source-promoted", { detail: { id: msg.id } }));
+      }
+      if (msg.type === "kbPagePreview" || msg.type === "kbPageWritten") {
+        // page directe gbrain (plan 050 P4) : dialogue de la surface
+        window.dispatchEvent(new CustomEvent(
+          msg.type === "kbPagePreview" ? "kb-page-preview" : "kb-page-written",
+          { detail: msg },
+        ));
+      }
+      if (msg.type === "gbrainResults") {
+        // recherche du corpus NAS (plan 050 P3) — consommée par la surface
+        // Connaissances ; l'échec voyage dans detail.error, en place
+        window.dispatchEvent(new CustomEvent("kb-gbrain-results", {
+          detail: { query: msg.query, results: msg.results ?? [], error: msg.error ?? null },
+        }));
+      }
       if (msg.type === "localServers") {
         window.dispatchEvent(new CustomEvent("local-servers", { detail: msg.servers }));
       }
@@ -2032,6 +2062,8 @@ export default function App() {
 
   function createChat(projectRoot: string, provider: string) {
     const id = crypto.randomUUID();
+    // sélection KB faite avant toute conversation : adoptée par le fil créé
+    const kbInit = consumePendingKb({ id, provider, projectRoot, title: t("app.new-chat-title") });
     setDraftThreads((p) => [
       {
         id,
@@ -2041,6 +2073,7 @@ export default function App() {
         sessionId: null,
         status: "idle" as const,
         updatedAt: new Date().toISOString(),
+        ...kbInit,
       },
       ...p,
     ]);
@@ -2301,6 +2334,25 @@ export default function App() {
               .map((a) => ({ name: a.name, text: a.text })),
           }
         : {}),
+      // méta KB fidèle à l'envoi (plan 049) : sources attachées à CE moment,
+      // titres depuis le cache kbSources (repli sur l'id si pas encore chargé)
+      ...(() => {
+        // premier message d'un chat neuf : la sélection encore « en attente »
+        // compte aussi (elle sera transférée au fil créé dans ce même envoi)
+        const kbIds = Array.isArray(activeThread?.kbSourceIds) && activeThread.kbSourceIds.length
+          ? activeThread.kbSourceIds
+          : (!activeIdRef.current ? pendingKbRef.current.kbSourceIds : []);
+        if (!kbIds.length) return {};
+        const known = kbSourcesSnapshot();
+        return {
+          kb: {
+            count: kbIds.length,
+            titles: kbIds.slice(0, 6).map((id) =>
+              id === "gbrain" ? t("kb.gbrain-title") : known.find((s) => s.id === id)?.title ?? id,
+            ),
+          },
+        };
+      })(),
     };
     const imagePaths = attachments.map((a) => a.path).filter(Boolean) as string[];
     const pluginSkills = supportsPlugins ? pluginSkillsForPrompt(displayPrompt, plugins) : [];
@@ -2321,6 +2373,10 @@ export default function App() {
     // pas de thread sélectionné → en créer un à la volée
     if (!id) {
       id = crypto.randomUUID();
+      // sélection KB « en attente » (accueil/boot) adoptée par ce fil
+      const kbInit = consumePendingKb({
+        id, provider, projectRoot: activeProject ?? "", title: displayPrompt.slice(0, 40),
+      });
       setDraftThreads((p) => [
         {
           id: id as string,
@@ -2330,6 +2386,7 @@ export default function App() {
           sessionId: null,
           status: "idle" as const,
           updatedAt: new Date().toISOString(),
+          ...kbInit,
         },
         ...p,
       ]);
@@ -2534,6 +2591,46 @@ export default function App() {
     return [...draftThreads.filter((t) => !knownIds.has(t.id)), ...threads];
   }, [draftThreads, threads]);
   allThreadsRef.current = allThreads;
+  // Attache KB de la conversation active (plan 049/050) — partagé entre le
+  // picker du composer et la surface Connaissances. Optimiste sur threads ET
+  // brouillons ; upsert COMPLET (un patch minimal sur un brouillon inconnu du
+  // backend ferait normaliser provider→claude et perdrait le projet).
+  // Sans conversation active (boot, accueil) : la sélection vit « en
+  // attente » et se transfère au fil dès sa création.
+  const [pendingKb, setPendingKb] = useState<{ kbSourceIds: string[]; kbFullContent: string[] }>(
+    { kbSourceIds: [], kbFullContent: [] },
+  );
+  const pendingKbRef = useRef(pendingKb);
+  pendingKbRef.current = pendingKb;
+  function consumePendingKb(thread: { id: string; provider: string; projectRoot: string; title: string }) {
+    const pending = pendingKbRef.current;
+    if (!pending.kbSourceIds.length && !pending.kbFullContent.length) return {};
+    setPendingKb({ kbSourceIds: [], kbFullContent: [] });
+    if (ws.current?.readyState === 1) {
+      ws.current.send(JSON.stringify({ type: "upsertThread", thread: { ...thread, ...pending } }));
+    }
+    return pending;
+  }
+  function handleKbChange(next: { kbSourceIds: string[]; kbFullContent: string[] }) {
+    const id = activeIdRef.current;
+    if (!id) {
+      setPendingKb(next);
+      return;
+    }
+    setThreads((current) => current.map((th) => (th.id === id ? { ...th, ...next } : th)));
+    setDraftThreads((current) => current.map((th) => (th.id === id ? { ...th, ...next } : th)));
+    if (ws.current?.readyState === 1) {
+      const th = allThreadsRef.current.find((x) => x.id === id);
+      ws.current.send(JSON.stringify({
+        type: "upsertThread",
+        thread: {
+          id,
+          ...(th ? { provider: th.provider, projectRoot: th.projectRoot, title: th.title } : {}),
+          ...next,
+        },
+      }));
+    }
+  }
   const drainingQueuedRef = useRef(new Set<string>());
   useEffect(() => {
     if (!wsReady) return;
@@ -2994,6 +3091,9 @@ export default function App() {
           projectName={displayProjectName}
           threadTitle={activeId ? (allThreads.find((th) => th.id === activeId)?.title ?? "") : ""}
           threadProvider={activeId ? (allThreads.find((th) => th.id === activeId)?.provider ?? "") : ""}
+          kbSourceIds={activeId ? (allThreads.find((th) => th.id === activeId)?.kbSourceIds ?? []) : pendingKb.kbSourceIds}
+          kbFullContent={activeId ? (allThreads.find((th) => th.id === activeId)?.kbFullContent ?? []) : pendingKb.kbFullContent}
+          onKbChange={handleKbChange}
           highlights={highlights}
           defaults={settings as any}
           providers={providerList}
@@ -3246,6 +3346,16 @@ export default function App() {
               onToggleExpand={() => setLayout((l) => (l === "atelier" ? "split" : "atelier"))}
               projectRoot={activeProject ?? ""}
               activeThreadId={activeId}
+              kbBinding={{
+                attached: activeId
+                  ? (allThreads.find((th) => th.id === activeId)?.kbSourceIds ?? [])
+                  : pendingKb.kbSourceIds,
+                fullContent: activeId
+                  ? (allThreads.find((th) => th.id === activeId)?.kbFullContent ?? [])
+                  : pendingKb.kbFullContent,
+                onChange: handleKbChange,
+              }}
+              kbThreadTitle={activeId ? (allThreads.find((th) => th.id === activeId)?.title ?? "") : ""}
               files={files}
               onReorderTabs={(ids) => {
                 setAtelierTabs((tabs) => {

@@ -2856,3 +2856,99 @@ button.ctx-ring-wrap { border: none; font: inherit; color: inherit;
   .narval-run { grid-template-columns: 104px minmax(90px, 1fr) 74px; }
   .narval-run > span:last-child { display: none; }
 }
+
+/* ---------- Base de connaissances (plan 049 T3) ---------- */
+.kb-trigger { position: relative; }
+.kb-badge { position: absolute; top: -4px; right: -5px; padding: 0 4px; border-radius: var(--r-pill);
+  background: var(--accent); color: var(--bg); font-size: var(--fs-xs); line-height: 14px;
+  font-weight: 500; font-variant-numeric: tabular-nums; }
+.kb-pop { width: 320px; padding: 12px; display: flex; flex-direction: column; gap: 8px;
+  background: var(--bg-pop); border-radius: var(--r-m); box-shadow: var(--elev); }
+.kb-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.kb-title { font-size: var(--fs-m); font-weight: 600; letter-spacing: -0.01em; color: var(--fg); }
+.kb-search { width: 148px; height: 24px; font-size: var(--fs-s); }
+.kb-actions { display: flex; align-items: center; gap: 6px; }
+.kb-action { font-size: var(--fs-s); padding: 2px 8px; }
+.kb-url { flex: 1; min-width: 0; height: 24px; font-size: var(--fs-s); }
+.kb-note-form { display: flex; flex-direction: column; gap: 6px; }
+.kb-note-text { resize: vertical; min-height: 56px; font-family: var(--ui-font);
+  font-size: var(--fs-m); line-height: 1.5; color: var(--fg); background: var(--bg-ctl);
+  border: 1px solid var(--border2); border-radius: var(--r-s); padding: 6px 8px; }
+.kb-note-actions { display: flex; justify-content: flex-end; gap: 6px; }
+.kb-error { font-size: var(--fs-s); color: var(--u-hot, #e06c75);
+  display: flex; align-items: flex-start; gap: 6px; }
+.kb-error .kb-error-text { flex: 1; min-width: 0; }
+/* épinglage depuis le browser : coche accent (réussi) / rouge sémantique (échec) */
+.browser-bar .kb-flash-ok, .browser-bar .kb-flash-ok:hover { color: var(--accent); }
+.browser-bar .kb-flash-err, .browser-bar .kb-flash-err:hover { color: var(--u-hot, #e06c75); }
+/* méta sous la bulle : « envoyé avec N sources · … » (fidèle au moment de l'envoi) */
+.user-kb-meta { display: inline-flex; align-items: center; gap: 6px;
+  font-size: var(--fs-xs); color: var(--muted2); margin-top: 2px;
+  font-variant-numeric: tabular-nums; }
+.user-kb-meta svg { color: var(--accent); flex: none; }
+.user-kb-meta-titles { overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  max-width: 340px; }
+.kb-list { max-height: 280px; overflow-y: auto; display: flex; flex-direction: column; gap: 2px; }
+/* Surface Connaissances (plan 050) : le même panneau, en pleine hauteur de
+   pane — la liste prend l'espace restant, la recherche s'élargit. */
+.ksurface { height: 100%; overflow: hidden; display: flex; justify-content: center; }
+.ksurface .kb-panel-surface { width: 100%; max-width: 640px; padding: 16px 20px;
+  display: flex; flex-direction: column; gap: 8px; min-height: 0; }
+.ksurface .kb-panel-surface .kb-list { max-height: none; flex: 1; }
+.ksurface .kb-panel-surface .kb-search { width: 200px; }
+.kb-gbrain-search { height: 24px; font-size: var(--fs-s); margin: 2px 0 4px; }
+/* Destination des ajouts (surface) + dialogue de page directe (plan 050 P4) */
+.kb-dest { display: flex; background: var(--bg-ctl); border-radius: var(--r-pill, 999px);
+  padding: 2px; width: max-content; gap: 0; }
+.kb-dest-opt { font-size: var(--fs-xs); color: var(--muted); padding: 2px 10px;
+  border: 0; background: transparent; border-radius: var(--r-pill, 999px); cursor: pointer; }
+.kb-dest-opt.on { background: var(--bg-pop); color: var(--fg); }
+.kb-page-dialog { display: flex; flex-direction: column; gap: 8px; max-width: 520px; }
+.kb-page-title { font-size: var(--fs-m); font-weight: 600; letter-spacing: -0.01em; }
+.kb-page-source { font-size: var(--fs-s); color: var(--fg2); }
+.kb-page-slug-label { font-size: var(--fs-xs); letter-spacing: .07em;
+  text-transform: uppercase; color: var(--muted2); }
+.kb-page-preview { max-height: 260px; overflow: auto; font-size: var(--fs-s);
+  line-height: 1.5; background: var(--bg-ctl); border: 1px solid var(--border2);
+  border-radius: var(--r-s); padding: 8px 10px; white-space: pre-wrap; margin: 0; }
+.kb-page-confirm { color: var(--accent); }
+.kb-page-toast { position: absolute; bottom: 14px; left: 50%; transform: translateX(-50%);
+  font-size: var(--fs-s); color: var(--fg); background: var(--bg-pop);
+  border-radius: var(--r-m); box-shadow: var(--elev); padding: 6px 14px; }
+.ksurface { position: relative; }
+.kb-group-section { margin-top: 8px; border-top: 1px solid var(--border);
+  padding-top: 10px; color: var(--fg2); }
+/* Rangée de contexte unifiée (plan 050 P2) : pilules fines pour toutes les
+   pièces jointes éphémères — même gabarit que les pilules KB. */
+.context-pills { display: flex; flex-wrap: wrap; gap: 6px; }
+.context-pill { padding: 3px 6px 3px 8px; font-size: var(--fs-s); }
+.context-pill .context-pill-main { display: inline-flex; align-items: center; gap: 6px;
+  background: transparent; border: 0; padding: 0; color: inherit; font: inherit;
+  cursor: pointer; min-width: 0; }
+.context-pill .context-pill-glyph { width: 12px; height: 12px; flex: none; color: var(--muted); }
+.context-pill .context-pill-count { color: var(--muted); font-variant-numeric: tabular-nums; }
+.context-pill .chip-lines { font-variant-numeric: tabular-nums; }
+.kb-group { font-size: var(--fs-xs); letter-spacing: .08em; text-transform: uppercase;
+  color: var(--muted2); padding: 8px 4px 3px; font-weight: 500; }
+.kb-empty { font-size: var(--fs-m); color: var(--muted); padding: 12px 4px; }
+.kb-row { display: flex; align-items: center; gap: 2px; border-radius: var(--r-s);
+  transition: background var(--ease); }
+.kb-row:hover { background: var(--bg-ctl); }
+.kb-row.on { background: color-mix(in srgb, var(--accent) 12%, transparent); }
+.kb-row-main { display: flex; flex: 1; min-width: 0; align-items: center; gap: 8px;
+  padding: 5px 6px; font-size: var(--fs-m); color: var(--fg); border-radius: var(--r-s);
+  text-align: left; }
+.kb-check { width: 13px; height: 13px; border: 1.5px solid var(--muted); border-radius: var(--r-s);
+  flex: none; position: relative; }
+.kb-check.on { border-color: var(--accent); background: var(--accent); }
+.kb-check.on::after { content: ""; position: absolute; left: 3.5px; top: 0.5px; width: 3px;
+  height: 7px; border: solid var(--bg); border-width: 0 1.5px 1.5px 0; transform: rotate(45deg); }
+.kb-kind { display: inline-flex; color: var(--muted); flex: none; }
+.kb-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.kb-meta { flex: none; font-size: var(--fs-s); color: var(--muted2);
+  font-variant-numeric: tabular-nums; }
+.kb-row-actions { display: none; align-items: center; flex: none; }
+.kb-row:hover .kb-row-actions, .kb-row.on .kb-row-actions { display: inline-flex; }
+.kb-full.on { color: var(--accent); }
+.kb-foot { display: flex; justify-content: space-between; font-size: var(--fs-s);
+  color: var(--muted); padding-top: 6px; border-top: 1px solid var(--border); }

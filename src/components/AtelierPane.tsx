@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import Explorer from "./Explorer";
 const BrowserTab = lazyWithRetry(() => import("./BrowserTab"));
+const KnowledgeSurface = lazyWithRetry(() => import("./KnowledgeSurface"));
 const GitSurface = lazyWithRetry(() => import("./GitSurface"));
 // xterm (~350 KB min) hors de l'entrée : chargé à la PREMIÈRE visite du
 // terminal, puis reste monté (visited) — cycle de vie inchangé (plan 022)
@@ -82,6 +83,8 @@ export default function AtelierPane({
   onOpenExplorer,
   onGalleryReload,
   onInspectFile,
+  kbBinding,
+  kbThreadTitle,
   agent,
   agentEvents,
   onCloseAgent,
@@ -111,6 +114,9 @@ export default function AtelierPane({
   /** ouvre l'inspecteur de contexte sur le fichier d'un onglet */
   onInspectFile?: (rel: string) => void;
   /** Sous-agent Codex actuellement inspecté, rendu comme un onglet Atelier. */
+  /** Base de connaissances (plan 050) : liaison de la conversation active. */
+  kbBinding?: import("../lib/kbSources").KbBinding | null;
+  kbThreadTitle?: string;
   agent?: AgentDisplay | null;
   /** Transcript du rollout du sous-agent actuellement inspecté. */
   agentEvents?: AgentEvent[];
@@ -444,6 +450,19 @@ export default function AtelierPane({
         <div className="surface-body pane-slot" style={slotStyle("git")}>
           <LazyBoundary fallback={<div className="pane-slot" />}>
             <GitSurface ws={ws} projectRoot={projectRoot} activeThreadId={activeThreadId} />
+          </LazyBoundary>
+        </div>
+      )}
+
+      {/* ---- surface Connaissances (plan 050) ---- */}
+      {visited.has("connaissances") && (
+        <div className="surface-body pane-slot" style={slotStyle("connaissances")}>
+          <LazyBoundary fallback={<div className="pane-slot" />}>
+            <KnowledgeSurface
+              binding={kbBinding ?? null}
+              threadTitle={kbThreadTitle ?? ""}
+              visible={shown("connaissances")}
+            />
           </LazyBoundary>
         </div>
       )}

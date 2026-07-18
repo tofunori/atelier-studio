@@ -40,6 +40,37 @@ const CAPTURE_SELECTION_JS: &str = r#"
 })();
 "#;
 
+// Canal CHUNKÉ (plan 050) : WKWebView tronque document.title à 1000
+// caractères (sonde 2026-07-17) — un payload page entière ne passe JAMAIS en
+// un seul titre. Le JS découpe le JSON en tranches de 600 caractères émises
+// toutes les 35 ms ; store_capture_from_title réassemble côté Rust.
+const CAPTURE_PAGE_JS_TEMPLATE: &str = r#"
+(() => {
+  try {
+    const prev = String(document.title || "");
+    const payload = JSON.stringify({
+      text: String(document.body?.innerText || document.documentElement?.innerText || "").replace(/\u00a0/g, " ").trim().slice(0, __MAX__),
+      title: prev.slice(0, 500),
+      url: String(location.href || "").slice(0, 4096)
+    });
+    const id = Math.random().toString(16).slice(2, 10);
+    const SIZE = 600;
+    const total = Math.max(1, Math.ceil(payload.length / SIZE));
+    let seq = 0;
+    const emit = () => {
+      try {
+        if (seq >= total) { document.title = prev; return; }
+        document.title = "__ATELIER_KB_CHUNK__" + id + "|" + seq + "|" + total + "|" +
+          payload.slice(seq * SIZE, (seq + 1) * SIZE);
+        seq += 1;
+        setTimeout(emit, 35);
+      } catch {}
+    };
+    emit();
+  } catch {}
+})();
+"#;
+
 #[derive(Clone, Debug, Default, Deserialize, Serialize)]
 pub struct BrowserCapture {
     text: String,
@@ -101,7 +132,56 @@ fn apply_zoom(wv: &tauri::Webview, width: f64) -> Result<(), String> {
         .map_err(|e| e.to_string())
 }
 
+const CHUNK_PREFIX: &str = "__ATELIER_KB_CHUNK__";
+
+struct ChunkBuf {
+    id: String,
+    parts: Vec<Option<String>>,
+}
+
+fn chunk_store() -> &'static Mutex<Option<ChunkBuf>> {
+    static STORE: OnceLock<Mutex<Option<ChunkBuf>>> = OnceLock::new();
+    STORE.get_or_init(|| Mutex::new(None))
+}
+
 fn store_capture_from_title(title: &str) {
+    // Canal chunké (capture pleine page) : id|seq|total|data — data peut
+    // contenir des « | », seuls les 3 premiers séparateurs comptent.
+    if let Some(raw) = title.strip_prefix(CHUNK_PREFIX) {
+        let mut it = raw.splitn(4, '|');
+        let (Some(id), Some(seq), Some(total), Some(data)) =
+            (it.next(), it.next(), it.next(), it.next())
+        else {
+            return;
+        };
+        let (Ok(seq), Ok(total)) = (seq.parse::<usize>(), total.parse::<usize>()) else {
+            return;
+        };
+        if total == 0 || total > 512 || seq >= total {
+            return;
+        }
+        let Ok(mut guard) = chunk_store().lock() else { return };
+        let reset = match guard.as_ref() {
+            Some(buf) => buf.id != id || buf.parts.len() != total,
+            None => true,
+        };
+        if reset {
+            *guard = Some(ChunkBuf { id: id.to_string(), parts: vec![None; total] });
+        }
+        let Some(buf) = guard.as_mut() else { return };
+        buf.parts[seq] = Some(data.to_string());
+        if buf.parts.iter().all(Option::is_some) {
+            let joined: String = buf.parts.iter().flatten().map(String::as_str).collect();
+            *guard = None;
+            drop(guard);
+            if let Ok(capture) = serde_json::from_str::<BrowserCapture>(&joined) {
+                if let Ok(mut slot) = capture_store().lock() {
+                    *slot = Some(capture);
+                }
+            }
+        }
+        return;
+    }
     let Some(raw) = title.strip_prefix(CAPTURE_PREFIX) else {
         return;
     };
@@ -279,7 +359,7 @@ pub fn browser_bounds(
     Ok(())
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn browser_capture_selection(
     app: AppHandle,
     label: Option<String>,
@@ -293,6 +373,42 @@ pub fn browser_capture_selection(
     }
     wv.eval(CAPTURE_SELECTION_JS).map_err(|e| e.to_string())?;
     for _ in 0..30 {
+        if let Ok(mut slot) = capture_store().lock() {
+            if let Some(capture) = slot.take() {
+                return Ok(capture);
+            }
+        }
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    Ok(BrowserCapture {
+        url: wv.url().map_err(|e| e.to_string())?.to_string(),
+        ..BrowserCapture::default()
+    })
+}
+
+#[tauri::command(async)]
+pub fn browser_capture_page(
+    app: AppHandle,
+    label: Option<String>,
+    max_chars: Option<u32>,
+) -> Result<BrowserCapture, String> {
+    let label = browser_label(label);
+    let Some(wv) = find_webview(&app, &label) else {
+        return Err("pas de webview".into());
+    };
+    if let Ok(mut slot) = capture_store().lock() {
+        *slot = None;
+    }
+    if let Ok(mut chunks) = chunk_store().lock() {
+        *chunks = None;
+    }
+    // 24k car. max : ~47 chunks × 35 ms ≈ 1,7 s d'émission — la fenêtre de
+    // 9 s couvre large (le bloc inline plafonne à 8k de toute façon,
+    // au-delà kb-search fouille le cache).
+    let max = max_chars.unwrap_or(24_000).clamp(1_000, 24_000);
+    let js = CAPTURE_PAGE_JS_TEMPLATE.replace("__MAX__", &max.to_string());
+    wv.eval(&js).map_err(|e| e.to_string())?;
+    for _ in 0..450 {
         if let Ok(mut slot) = capture_store().lock() {
             if let Some(capture) = slot.take() {
                 return Ok(capture);
@@ -363,4 +479,30 @@ pub fn browser_probe(app: AppHandle, label: Option<String>) -> Result<(f64, f64)
         return Ok((pos.x as f64 / scale, pos.y as f64 / scale));
     }
     Err("pas de webview".into())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn chunks_reassembles_et_legacy_intact() {
+        // payload JSON découpé en 3, émis dans le désordre avec du bruit
+        let payload = r#"{"text":"contenu de page assez long pour trois chunks","title":"T","url":"https://x.org"}"#;
+        let parts: Vec<&str> = vec![&payload[..30], &payload[30..60], &payload[60..]];
+        let total = parts.len();
+        store_capture_from_title("titre ordinaire sans préfixe");
+        store_capture_from_title(&format!("__ATELIER_KB_CHUNK__abc12345|1|{total}|{}", parts[1]));
+        store_capture_from_title(&format!("__ATELIER_KB_CHUNK__abc12345|0|{total}|{}", parts[0]));
+        assert!(capture_store().lock().unwrap().is_none(), "incomplet = rien");
+        store_capture_from_title(&format!("__ATELIER_KB_CHUNK__abc12345|2|{total}|{}", parts[2]));
+        let got = capture_store().lock().unwrap().take().expect("capture réassemblée");
+        assert_eq!(got.url, "https://x.org");
+        assert!(got.text.contains("trois chunks"));
+
+        // canal legacy (sélection) inchangé
+        store_capture_from_title(r#"__ATELIER_BROWSER_CAPTURE__{"text":"sel","title":"t","url":"u"}"#);
+        let legacy = capture_store().lock().unwrap().take().expect("legacy");
+        assert_eq!(legacy.text, "sel");
+    }
 }

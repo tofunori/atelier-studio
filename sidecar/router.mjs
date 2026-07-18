@@ -9,6 +9,9 @@ import { createHarnessThread } from "./harness_events.mjs";
 import { HANDOFF_END } from "./handoff.mjs";
 import { stripGalleryToolInstruction, withGalleryToolInstruction } from "./gallery_tool_prompt.mjs";
 import { stripZoteroPassageInstruction, withZoteroPassageInstruction } from "./zotero_passage_prompt.mjs";
+import { KnowledgeStore, defaultKnowledgeDir, kbBlockEntries, promotePage, promoteToGbrain } from "./knowledge.mjs";
+import { runKbCommand } from "./kb_cli.mjs";
+import { withKbBlock } from "./kb_prompt.mjs";
 import * as narval from "./narval.mjs";
 
 // ctx: { send(obj), store, providers, broadcast(obj) }
@@ -808,9 +811,23 @@ async function startProviderTurn(ctx, h, msg, { reservedTurnId = null } = {}) {
     projectRoot,
     toolPath: join(dirname(fileURLToPath(import.meta.url)), "atelier-gallery-tool"),
   });
-  const providerPrompt = withZoteroPassageInstruction(galleryPrompt, {
+  const zoteroPrompt = withZoteroPassageInstruction(galleryPrompt, {
     toolPath: join(dirname(fileURLToPath(import.meta.url)), "atelier-zotero-passages"),
   });
+  // Bloc base de connaissances (plan 049 T4) : sources attachées au thread.
+  // La KB ne bloque JAMAIS un envoi — toute erreur dégrade en prompt inchangé.
+  let providerPrompt = zoteroPrompt;
+  try {
+    const kbIds = Array.isArray(prev?.kbSourceIds) ? prev.kbSourceIds : [];
+    if (kbIds.length) {
+      const kbStore = new KnowledgeStore(defaultKnowledgeDir());
+      providerPrompt = withKbBlock(zoteroPrompt, {
+        toolPath: join(dirname(fileURLToPath(import.meta.url)), "atelier-kb"),
+        entries: kbBlockEntries(kbStore, kbIds, prev?.kbFullContent),
+        gbrain: kbIds.includes("gbrain"),
+      });
+    }
+  } catch {}
 
   ctx.store.upsert({
     id: threadId,
@@ -993,6 +1010,120 @@ export async function route(msg, ctx) {
       }
       const path = ctx.saveImage(m[1], m[2]);
       ctx.send({ type: "imageSaved", path });
+      break;
+    }
+    case "kbAdd": {
+      // Base de connaissances (plan 049 T2) : épinglage d'une source — web
+      // depuis le browser intégré (texte capturé fourni, pas de re-fetch) ou
+      // tout kind accepté par le store. Réponse kbAdded / kbError.
+      try {
+        const store = new KnowledgeStore(defaultKnowledgeDir());
+        const { source, refreshed } = await store.add({
+          kind: msg.kind, origin: msg.origin, title: msg.title, text: msg.text,
+        });
+        ctx.send({ type: "kbAdded", source, refreshed, ...(store.warning ? { warning: store.warning } : {}) });
+      } catch (error) {
+        let message = error instanceof Error ? error.message : String(error);
+        // échec du repli fetch alors que l'utilisateur vient DÉJÀ du bouton
+        // livre : ne pas le renvoyer en boucle vers ce même bouton
+        if (msg.via === "browser" && message.includes("bloque le téléchargement direct")) {
+          message = "La capture du texte n'a rien donné et le site bloque le téléchargement direct — recharge la page, attends la fin du chargement, puis reclique le livre.";
+        }
+        ctx.send({ type: "kbError", message });
+      }
+      break;
+    }
+    case "kbList": {
+      // liste des sources pour le picker du composer (plan 049 T3)
+      try {
+        const store = new KnowledgeStore(defaultKnowledgeDir());
+        ctx.send({ type: "kbSources", sources: store.list(), ...(store.warning ? { warning: store.warning } : {}) });
+      } catch (error) {
+        ctx.send({ type: "kbError", message: error instanceof Error ? error.message : String(error) });
+      }
+      break;
+    }
+    case "kbRemove": {
+      // suppression d'une source depuis le picker : liste à jour + purge des
+      // références dans TOUS les threads (sinon pilules orphelines dans les
+      // conversations non actives), threads broadcastés si touchés.
+      try {
+        const store = new KnowledgeStore(defaultKnowledgeDir());
+        store.remove(msg.id);
+        ctx.send({ type: "kbSources", sources: store.list(), ...(store.warning ? { warning: store.warning } : {}) });
+        if (ctx.store) {
+          let touched = false;
+          for (const thread of ctx.store.list()) {
+            const ids = Array.isArray(thread.kbSourceIds) ? thread.kbSourceIds : [];
+            const full = Array.isArray(thread.kbFullContent) ? thread.kbFullContent : [];
+            if (!ids.includes(msg.id) && !full.includes(msg.id)) continue;
+            ctx.store.upsert({
+              id: thread.id,
+              kbSourceIds: ids.filter((x) => x !== msg.id),
+              kbFullContent: full.filter((x) => x !== msg.id),
+            }, { preserveUpdatedAt: true });
+            touched = true;
+          }
+          if (touched) (ctx.broadcast ?? ctx.send)({ type: "threads", threads: ctx.store.list() });
+        }
+      } catch (error) {
+        ctx.send({ type: "kbError", message: error instanceof Error ? error.message : String(error) });
+      }
+      break;
+    }
+    case "kbPromote": {
+      // promotion d'une source vers le corpus gbrain (plan 049 T7)
+      try {
+        const store = new KnowledgeStore(defaultKnowledgeDir());
+        const { id } = promoteToGbrain(store, msg.id, ctx.kbPromoteDeps ?? {});
+        ctx.send({ type: "kbPromoted", id });
+      } catch (error) {
+        ctx.send({ type: "kbError", message: error instanceof Error ? error.message : String(error) });
+      }
+      break;
+    }
+    case "kbPromotePage": {
+      // page directe gbrain (plan 050 P4) : aperçu sans write, écriture
+      // seulement sur confirmation explicite de l'UI (write: true)
+      try {
+        const store = new KnowledgeStore(defaultKnowledgeDir(), ctx.kbDeps ?? {});
+        const out = promotePage(store, {
+          id: msg.id, slug: msg.slug, write: msg.write === true,
+        }, ctx.kbDeps ?? {});
+        ctx.send(out.written
+          ? { type: "kbPageWritten", id: out.id, slug: out.slug, updated: out.updated }
+          : { type: "kbPagePreview", id: out.id, slug: out.slug, exists: out.exists, title: out.title, chars: out.chars, preview: out.preview });
+      } catch (error) {
+        ctx.send({ type: "kbError", message: error instanceof Error ? error.message : String(error) });
+      }
+      break;
+    }
+    case "gbrainSearch": {
+      // recherche du corpus NAS (plan 050 P3) — relais du CLI. Échec (NAS
+      // coupé, binaire absent) = gbrainResults avec `error`, en place.
+      try {
+        const out = await runKbCommand(
+          ["gbrain-search", "--query", String(msg.query ?? ""), "--limit", String(msg.limit ?? 12)],
+          ctx.kbDeps ?? {},
+        );
+        ctx.send({ type: "gbrainResults", query: out.query, results: out.results });
+      } catch (error) {
+        ctx.send({
+          type: "gbrainResults", query: String(msg.query ?? ""), results: [],
+          error: error instanceof Error ? error.message : String(error),
+        });
+      }
+      break;
+    }
+    case "upsertThread": {
+      // patch partiel d'un thread (parité avec la route Rust) — utilisé par le
+      // picker KB (T3) pour persister kbSourceIds/kbFullContent par thread.
+      try {
+        ctx.store.upsert(msg.thread ?? {});
+        (ctx.broadcast ?? ctx.send)({ type: "threads", threads: ctx.store.list() });
+      } catch (error) {
+        ctx.send({ type: "error", message: error instanceof Error ? error.message : String(error) });
+      }
       break;
     }
     case "checkFrame": {
