@@ -14,6 +14,8 @@ export type BootMetricsV1 = {
   schemaVersion: 1;
   appVersion: string;
   bootId: string;
+  /** Ajouté uniquement par Tauri lors de la persistance sur disque. */
+  recordedAtUnixMs?: number;
   nativeProcessElapsedAtFrontendEvalMs: number;
   marksMs: Partial<Record<BootMetricName, number>>;
   flags: {

@@ -44,6 +44,10 @@ pub struct BootMetricsV1 {
     schema_version: u8,
     app_version: String,
     boot_id: String,
+    /// Ajouté par le backend au premier enregistrement du run. Le frontend ne
+    /// fournit jamais cette valeur : elle sert de preuve calendaire au soak.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    recorded_at_unix_ms: Option<u64>,
     native_process_elapsed_at_frontend_eval_ms: f64,
     marks_ms: BTreeMap<String, f64>,
     flags: BootMetricFlags,
@@ -228,12 +232,39 @@ fn write_metrics_file_atomic(path: &Path, file: &BootMetricsFileV1) -> Result<()
     Ok(())
 }
 
+fn unix_time_ms() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis()
+        .try_into()
+        .unwrap_or(u64::MAX)
+}
+
 fn record_boot_metrics_at(path: &Path, payload: BootMetricsV1) -> Result<(), String> {
+    record_boot_metrics_at_time(path, payload, unix_time_ms())
+}
+
+fn record_boot_metrics_at_time(
+    path: &Path,
+    mut payload: BootMetricsV1,
+    recorded_at_unix_ms: u64,
+) -> Result<(), String> {
     validate_payload(&payload)?;
     let _guard = METRICS_WRITE_LOCK
         .lock()
         .map_err(|_| "verrou boot metrics empoisonné".to_string())?;
     let mut file = load_metrics_file(path)?;
+    // Une marque de boot est persistée plusieurs fois pendant la convergence.
+    // Conserver la date du premier write empêche un run lent de changer de
+    // journée et ignore toute date éventuellement injectée par le frontend.
+    let first_recorded_at = file
+        .runs
+        .iter()
+        .find(|run| run.boot_id == payload.boot_id)
+        .and_then(|run| run.recorded_at_unix_ms)
+        .unwrap_or(recorded_at_unix_ms);
+    payload.recorded_at_unix_ms = Some(first_recorded_at);
     file.runs.retain(|run| run.boot_id != payload.boot_id);
     file.runs.push(payload);
     if file.runs.len() > MAX_RUNS {
@@ -253,6 +284,7 @@ mod tests {
             schema_version: 1,
             app_version: "1.3.1".into(),
             boot_id: id.into(),
+            recorded_at_unix_ms: None,
             native_process_elapsed_at_frontend_eval_ms: elapsed,
             marks_ms: BTreeMap::from([
                 ("frontendEvaluated".into(), elapsed),
@@ -300,6 +332,25 @@ mod tests {
                 .native_process_elapsed_at_frontend_eval_ms,
             999.0
         );
+        assert!(file
+            .runs
+            .iter()
+            .all(|run| run.recorded_at_unix_ms.is_some()));
+    }
+
+    #[test]
+    fn native_timestamp_is_added_once_and_preserved_on_upsert() {
+        let temp = tempdir().unwrap();
+        let path = temp.path().join("boot-metrics.json");
+        let mut spoofed = payload("dated", 4.0);
+        spoofed.recorded_at_unix_ms = Some(1);
+        record_boot_metrics_at_time(&path, spoofed, 1_000).unwrap();
+        record_boot_metrics_at_time(&path, payload("dated", 9.0), 2_000).unwrap();
+
+        let file: BootMetricsFileV1 = serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
+        assert_eq!(file.runs.len(), 1);
+        assert_eq!(file.runs[0].recorded_at_unix_ms, Some(1_000));
+        assert_eq!(file.runs[0].native_process_elapsed_at_frontend_eval_ms, 9.0);
     }
 
     #[test]
