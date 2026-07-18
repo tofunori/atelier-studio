@@ -2,7 +2,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn() }));
 
-import { installUiStateWriteThrough, type StorageLike } from "./uiStateWriteThrough";
+import {
+  installUiStateWriteThrough,
+  type StorageLike,
+  type UiStateWriteThroughController,
+} from "./uiStateWriteThrough";
 import { resetSidecarInfo, setSidecarInfo } from "./sidecarInfo";
 
 // storage simple (le localStorage de jsdom est un Proxy : impossible d'y
@@ -19,22 +23,22 @@ function makeStorage(): StorageLike & { map: Map<string, string> } {
 }
 
 describe("installUiStateWriteThrough", () => {
-  let uninstall: (() => void) | null = null;
+  let controller: UiStateWriteThroughController | null = null;
   beforeEach(() => {
     vi.useFakeTimers();
     resetSidecarInfo();
     setSidecarInfo({ port: 1111, token: "t" });
   });
   afterEach(() => {
-    uninstall?.();
-    uninstall = null;
+    controller?.dispose();
+    controller = null;
     vi.useRealTimers();
   });
 
   it("une écriture atelier-studio.* déclenche UN flush débouncé vers /uistate", async () => {
     const fetchImpl = vi.fn().mockResolvedValue({});
     const storage = makeStorage();
-    uninstall = installUiStateWriteThrough(fetchImpl as unknown as typeof fetch, storage);
+    controller = installUiStateWriteThrough(fetchImpl as unknown as typeof fetch, storage);
 
     storage.setItem("atelier-studio.pins", "[1]");
     storage.setItem("atelier-studio.pins", "[1,2]"); // débounce : 1 seul envoi
@@ -47,9 +51,11 @@ describe("installUiStateWriteThrough", () => {
     expect(JSON.parse(opts.body)["atelier-studio.pins"]).toBe("[1,2]");
   });
 
-  it("pagehide flushe en keepalive", () => {
+  it("pagehide flushe un état sale en keepalive", () => {
     const fetchImpl = vi.fn().mockResolvedValue({});
-    uninstall = installUiStateWriteThrough(fetchImpl as unknown as typeof fetch, makeStorage());
+    const storage = makeStorage();
+    controller = installUiStateWriteThrough(fetchImpl as unknown as typeof fetch, storage);
+    storage.setItem("atelier-studio.pins", "[1]");
 
     window.dispatchEvent(new Event("pagehide"));
 
@@ -61,11 +67,11 @@ describe("installUiStateWriteThrough", () => {
     const fetchImpl = vi.fn().mockResolvedValue({});
     const storage = makeStorage();
     const before = storage.setItem;
-    uninstall = installUiStateWriteThrough(fetchImpl as unknown as typeof fetch, storage);
+    controller = installUiStateWriteThrough(fetchImpl as unknown as typeof fetch, storage);
     expect(storage.setItem).not.toBe(before);
 
-    uninstall();
-    uninstall = null;
+    controller.dispose();
+    controller = null;
     expect(storage.setItem).toBe(before); // méthode d'origine restaurée
 
     storage.setItem("atelier-studio.pins", "[9]");
@@ -73,5 +79,25 @@ describe("installUiStateWriteThrough", () => {
     window.dispatchEvent(new Event("pagehide"));
     expect(fetchImpl).not.toHaveBeenCalled();
     expect(storage.getItem("atelier-studio.pins")).toBe("[9]"); // écriture intacte
+  });
+
+  it("garde une écriture sale sans sidecar puis l'envoie au premier flushNow", async () => {
+    resetSidecarInfo();
+    const fetchImpl = vi.fn().mockResolvedValue({});
+    const storage = makeStorage();
+    controller = installUiStateWriteThrough(fetchImpl as unknown as typeof fetch, storage);
+
+    storage.setItem("atelier-studio.theme", "dark");
+    await vi.advanceTimersByTimeAsync(500);
+    expect(fetchImpl).not.toHaveBeenCalled();
+
+    setSidecarInfo({ port: 2222, token: "fresh" });
+    expect(await controller.flushNow()).toBe(true);
+
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+    expect(fetchImpl.mock.calls[0][0]).toBe("http://127.0.0.1:2222/uistate");
+    expect(JSON.parse(fetchImpl.mock.calls[0][1].body)).toEqual({
+      "atelier-studio.theme": "dark",
+    });
   });
 });

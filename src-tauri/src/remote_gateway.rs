@@ -19,6 +19,51 @@ use tauri::Manager;
 
 const GATEWAY_PORT: u16 = 18765;
 static REMOTE_GATEWAY: Mutex<Option<GatewayLock>> = Mutex::new(None);
+static GATEWAY_SCHEDULE: Mutex<GatewaySchedule> = Mutex::new(GatewaySchedule::new());
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct GatewayIdentity {
+    sidecar_port: u16,
+    sidecar_token_hash: String,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum GatewayStatus {
+    Starting,
+    Ready,
+    Failed,
+}
+
+#[derive(Debug)]
+struct GatewaySchedule {
+    identity: Option<GatewayIdentity>,
+    status: Option<GatewayStatus>,
+}
+
+impl GatewaySchedule {
+    const fn new() -> Self {
+        Self {
+            identity: None,
+            status: None,
+        }
+    }
+
+    fn begin(&mut self, identity: GatewayIdentity) -> bool {
+        if self.identity.as_ref() == Some(&identity) && self.status == Some(GatewayStatus::Starting)
+        {
+            return false;
+        }
+        self.identity = Some(identity);
+        self.status = Some(GatewayStatus::Starting);
+        true
+    }
+
+    fn finish(&mut self, identity: &GatewayIdentity, status: GatewayStatus) {
+        if self.identity.as_ref() == Some(identity) {
+            self.status = Some(status);
+        }
+    }
+}
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -39,6 +84,39 @@ fn lock_path() -> Option<PathBuf> {
 
 fn token_hash(token: &str) -> String {
     format!("{:x}", md5::compute(token.as_bytes()))
+}
+
+/// Planifie Remote Control hors du retour bloquant de `sidecar_port`.
+/// Deux réponses rapprochées pour la même identité partagent le travail déjà
+/// en cours; une nouvelle identité peut remplacer le statut sans qu'une tâche
+/// ancienne n'écrase son résultat.
+pub fn schedule(app: tauri::AppHandle, sidecar: SidecarInfo) {
+    let identity = GatewayIdentity {
+        sidecar_port: sidecar.port,
+        sidecar_token_hash: token_hash(&sidecar.token),
+    };
+    let should_start = GATEWAY_SCHEDULE
+        .lock()
+        .map(|mut state| state.begin(identity.clone()))
+        .unwrap_or(false);
+    if !should_start {
+        return;
+    }
+
+    tauri::async_runtime::spawn_blocking(move || {
+        let result = ensure(&app, &sidecar);
+        let status = if result.is_ok() {
+            GatewayStatus::Ready
+        } else {
+            GatewayStatus::Failed
+        };
+        if let Ok(mut state) = GATEWAY_SCHEDULE.lock() {
+            state.finish(&identity, status);
+        }
+        if let Err(error) = result {
+            eprintln!("[atelier] gateway iPhone non disponible: {error}");
+        }
+    });
 }
 
 fn read_lock() -> Option<GatewayLock> {
@@ -261,5 +339,36 @@ mod tests {
             paths[0],
             Path::new("/App/Resources/rust-server/atelier-remote-gateway")
         );
+    }
+
+    fn identity(port: u16, token: &str) -> GatewayIdentity {
+        GatewayIdentity {
+            sidecar_port: port,
+            sidecar_token_hash: token_hash(token),
+        }
+    }
+
+    #[test]
+    fn identical_schedule_is_deduplicated_while_starting() {
+        let mut schedule = GatewaySchedule::new();
+        let current = identity(1234, "token-a");
+        assert!(schedule.begin(current.clone()));
+        assert!(!schedule.begin(current.clone()));
+
+        schedule.finish(&current, GatewayStatus::Ready);
+        assert!(schedule.begin(current));
+    }
+
+    #[test]
+    fn stale_gateway_completion_does_not_replace_new_identity_status() {
+        let mut schedule = GatewaySchedule::new();
+        let old = identity(1234, "token-a");
+        let new = identity(5678, "token-b");
+        assert!(schedule.begin(old.clone()));
+        assert!(schedule.begin(new.clone()));
+
+        schedule.finish(&old, GatewayStatus::Failed);
+        assert_eq!(schedule.identity, Some(new));
+        assert_eq!(schedule.status, Some(GatewayStatus::Starting));
     }
 }

@@ -730,6 +730,7 @@ export default function App() {
   }, [projMeta, projects]);
 
   const [activeTab, setActiveTab] = useState<string>("gallery");
+  const [layout, setLayout] = useState<"split" | "chat" | "atelier">("split");
   const [openedAgent, setOpenedAgent] = useState<AgentDisplay | null>(null);
   const previousAtelierTab = useRef("gallery");
   const [activeId, setActiveId] = useState<string | null>(null);
@@ -965,6 +966,8 @@ export default function App() {
     hardReload: hardReloadAtelier,
   } = useAtelierServer(activeProject, {
     atelierNonce,
+    galleryVisible: layout !== "chat" && activeTab === "gallery",
+    coreReady: wsReady,
     galleryConfig: () => ({
       galleryDir: settingsRef.current.galleryPath,
       galleryExts: (activeProjectRef.current
@@ -1042,7 +1045,6 @@ export default function App() {
       ws.current.send(JSON.stringify({ type: "goalGet", threadId: activeId }));
     }
   }, [activeId, threads]);
-  const [layout, setLayout] = useState<"split" | "chat" | "atelier">("split");
   const showAtelier = layout !== "chat";
   // miroir de la surface active de AtelierPane (côté App, pour l'icône active
   // du rail) — AtelierPane ne change sa surface qu'en réaction à l'event

@@ -1,4 +1,9 @@
-import { refreshSidecarInfo } from "./sidecarInfo";
+import {
+  ensureSidecarInfo,
+  invalidateSidecarInfo,
+  refreshSidecarInfo,
+} from "./sidecarInfo";
+import { markBootMetric } from "./bootMetrics";
 
 /** Metadata harnais (plan 025, schema v1) portée par tout événement sidecar durable. */
 export type HarnessEventMeta = {
@@ -228,10 +233,20 @@ export async function connectSidecar(
   onDisconnect?: () => void,
   signal?: AbortSignal,
 ): Promise<WebSocket> {
+  return connectSidecarAttempt(onMessage, onReconnect, onDisconnect, signal, false);
+}
+
+async function connectSidecarAttempt(
+  onMessage: Handler,
+  onReconnect: ((ws: WebSocket) => void) | undefined,
+  onDisconnect: (() => void) | undefined,
+  signal: AbortSignal | undefined,
+  forceRefresh: boolean,
+): Promise<WebSocket> {
   if (signal?.aborted) throw abortError();
-  // chaque (re)connexion rafraîchit la SidecarInfo partagée : les clients HTTP
-  // (write-through ui.json) suivent automatiquement le nouveau port/token
-  const { port, token } = await refreshSidecarInfo();
+  const { port, token } = forceRefresh
+    ? await refreshSidecarInfo()
+    : await ensureSidecarInfo();
   if (signal?.aborted) throw abortError();
   const q = token ? `?token=${encodeURIComponent(token)}` : "";
   const ws = new WebSocket(`ws://127.0.0.1:${port}${q}`);
@@ -259,6 +274,7 @@ export async function connectSidecar(
   ws.send(JSON.stringify({ type: "clientHello", clientInstanceId: getClientInstanceId() }));
   ws.send(JSON.stringify({ type: "listThreads" }));
   ws.send(JSON.stringify({ type: "providerStatus" }));
+  markBootMetric("wsReady");
   // reconnexion auto : sidecar tué/crashé → sidecar_port respawn + nouveau WS.
   // Backoff exponentiel : marteler sidecar_port pendant qu'un spawn+health est
   // déjà en cours empile des sidecars rivaux qui s'entre-tuent via sidecar.pid.
@@ -266,11 +282,12 @@ export async function connectSidecar(
   // Tout est neutralisé par l'abort : onclose détaché, timers annulés.
   ws.onclose = () => {
     if (signal?.aborted) return;
+    invalidateSidecarInfo();
     onDisconnect?.();
     let delay = 1000;
     const retry = () => {
       if (signal?.aborted) return;
-      connectSidecar(onMessage, onReconnect, onDisconnect, signal)
+      connectSidecarAttempt(onMessage, onReconnect, onDisconnect, signal, true)
         .then((next) => onReconnect?.(next))
         .catch(() => {
           if (signal?.aborted) return;

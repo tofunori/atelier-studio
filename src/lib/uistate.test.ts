@@ -19,7 +19,7 @@ describe("createUiStateFlusher", () => {
     const fetchImpl = vi.fn().mockResolvedValue({});
     const flush = createUiStateFlusher(() => ({ k: "v" }), fetchImpl as unknown as typeof fetch);
 
-    flush(false);
+    expect(await flush(false)).toBe(true);
 
     expect(fetchImpl).toHaveBeenCalledTimes(1);
     const [url, opts] = fetchImpl.mock.calls[0];
@@ -36,8 +36,7 @@ describe("createUiStateFlusher", () => {
       .mockResolvedValueOnce({});
     const flush = createUiStateFlusher(() => ({ k: "v" }), fetchImpl as unknown as typeof fetch);
 
-    flush(false);
-    await vi.waitFor(() => expect(fetchImpl).toHaveBeenCalledTimes(2));
+    expect(await flush(false)).toBe(true);
 
     expect(fetchImpl.mock.calls[0][0]).toBe("http://127.0.0.1:1111/uistate");
     expect(fetchImpl.mock.calls[1][0]).toBe("http://127.0.0.1:2222/uistate");
@@ -49,19 +48,17 @@ describe("createUiStateFlusher", () => {
     const fetchImpl = vi.fn().mockRejectedValue(new Error("down"));
     const flush = createUiStateFlusher(() => ({}), fetchImpl as unknown as typeof fetch);
 
-    flush(true);
-    await Promise.resolve();
-    await Promise.resolve();
+    expect(await flush(true)).toBe(false);
 
     expect(fetchImpl).toHaveBeenCalledTimes(1);
     expect(fetchImpl.mock.calls[0][1].keepalive).toBe(true);
     expect(invokeMock).not.toHaveBeenCalled();
   });
 
-  it("sans SidecarInfo connue, ne poste rien", () => {
+  it("sans SidecarInfo connue, ne poste rien et signale que l'état reste sale", async () => {
     const fetchImpl = vi.fn();
     const flush = createUiStateFlusher(() => ({}), fetchImpl as unknown as typeof fetch);
-    flush(false);
+    expect(await flush(false)).toBe(false);
     expect(fetchImpl).not.toHaveBeenCalled();
   });
 });

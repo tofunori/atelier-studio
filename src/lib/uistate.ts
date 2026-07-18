@@ -9,24 +9,37 @@ type FetchLike = typeof fetch;
 export function createUiStateFlusher(
   collect: () => Record<string, string>,
   fetchImpl?: FetchLike,
-): (keepalive?: boolean) => void {
+): (keepalive?: boolean) => Promise<boolean> {
   const doFetch: FetchLike = fetchImpl ?? ((...args) => fetch(...args));
-  const post = (port: number, headers: Record<string, string> | undefined, keepalive: boolean) =>
-    doFetch(`http://127.0.0.1:${port}/uistate`, {
+  const post = async (
+    port: number,
+    headers: Record<string, string> | undefined,
+    keepalive: boolean,
+  ) => {
+    const response = await doFetch(`http://127.0.0.1:${port}/uistate`, {
       method: "POST",
       headers,
       body: JSON.stringify(collect()),
       keepalive,
     });
-  return (keepalive = false) => {
+    if (response.ok === false) throw new Error(`uistate HTTP ${response.status}`);
+  };
+  return async (keepalive = false) => {
     const info = getSidecarInfo();
-    if (!info) return;
-    post(info.port, sidecarHeaders(info), keepalive).catch(() => {
+    if (!info) return false;
+    try {
+      await post(info.port, sidecarHeaders(info), keepalive);
+      return true;
+    } catch {
       // pagehide/visibilitychange : pas de chaîne async non bornée pendant l'unload
-      if (keepalive) return;
-      refreshSidecarInfo()
-        .then((fresh) => post(fresh.port, sidecarHeaders(fresh), false))
-        .catch(() => {});
-    });
+      if (keepalive) return false;
+      try {
+        const fresh = await refreshSidecarInfo();
+        await post(fresh.port, sidecarHeaders(fresh), false);
+        return true;
+      } catch {
+        return false;
+      }
+    }
   };
 }

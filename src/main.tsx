@@ -2,9 +2,14 @@ import React from "react";
 import "@fontsource-variable/inter";
 import ReactDOM from "react-dom/client";
 import App from "./App";
-import { getSidecarInfo, refreshSidecarInfo, sidecarHeaders } from "./lib/sidecarInfo";
+import { ensureSidecarInfo } from "./lib/sidecarInfo";
 import { installUiStateWriteThrough } from "./lib/uiStateWriteThrough";
+import { hydrateUiStateBeforeRender } from "./lib/uiStateBootstrap";
 import { AppOverlays } from "./components/ui";
+import { BootProbe } from "./components/BootProbe";
+import { markBootMetric, setBootMetricFlags, startBootMetrics } from "./lib/bootMetrics";
+
+void startBootMetrics().catch(() => {});
 
 function fatalText(error: unknown) {
   if (!(error instanceof Error)) return String(error);
@@ -76,17 +81,6 @@ window.addEventListener("error", (event) => {
   renderFatal(event.error ?? event.message);
 });
 window.addEventListener("unhandledrejection", (event) => renderFatal(event.reason));
-
-// Hydrate le localStorage depuis l'état UI partagé du sidecar (ui.json) AVANT
-// le rendu — dev (localhost:1420) et app buildée (tauri://) ont des stockages
-// séparés ; sans ça, l'app buildée démarre vierge (projets, réglages, favoris).
-/** Course une promesse contre un délai — jamais de blocage infini. */
-function withTimeout<T>(p: Promise<T>, ms: number): Promise<T> {
-  return Promise.race([
-    p,
-    new Promise<T>((_, rej) => setTimeout(() => rej(new Error("timeout")), ms)),
-  ]);
-}
 
 async function boot() {
   // Les fixtures visuelles ne font pas partie du bundle release. Le script
@@ -191,46 +185,32 @@ async function boot() {
     return;
   }
 
-  // GARDE-FOU : invoke borné. Sinon, si le sidecar a redémarré (nouveau port)
-  // ou traîne, ce await bloque et le rendu React n'arrive JAMAIS → fenêtre vide.
-  // 10 s : un lancement froid légitime peut prendre ~8 s (startup 4 s + retries
-  // health côté Rust) — un timeout plus court abandonnait un spawn en train de réussir.
-  try {
-    await withTimeout(refreshSidecarInfo(), 10000);
-  } catch (error) {
-    console.warn("Atelier: sidecar injoignable, stockage local seul:", error);
-  }
+  // P1 : ui.json est lu directement par Tauri. Cette lecture fixe, bornée et
+  // en lecture seule ne dépend ni du sidecar, ni de son health, ni de Tailscale.
+  const uiStateSource = await hydrateUiStateBeforeRender();
+  setBootMetricFlags({ uiStateSource });
+  markBootMetric("uiStateHydrated");
+  const uiStateBridge = installUiStateWriteThrough();
 
-  const bootInfo = getSidecarInfo();
-  if (bootInfo != null) {
-    // hydratation best-effort (bornée) — ne doit jamais bloquer le rendu
-    try {
-      const ctrl = new AbortController();
-      const killer = setTimeout(() => ctrl.abort(), 2000);
-      const snap: Record<string, string> = await withTimeout(
-        fetch(`http://127.0.0.1:${bootInfo.port}/uistate`, { headers: sidecarHeaders(bootInfo), signal: ctrl.signal }).then((r) => r.json()),
-        2500,
-      );
-      clearTimeout(killer);
-      for (const [k, v] of Object.entries(snap)) localStorage.setItem(k, v);
-    } catch (error) {
-      console.warn("Atelier: hydratation ui.json échouée:", error);
-    }
-
-    // write-through installé DÈS qu'on a un port — MÊME si l'hydratation a
-    // échoué. Lifecycle extrait dans lib/uiStateWriteThrough (exception
-    // architecturale documentée là-bas : bootstrap, pas hook React — l'ordre
-    // d'hydratation ci-dessus ne change pas).
-    installUiStateWriteThrough();
-  }
   ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
     <React.StrictMode>
       <BootBoundary>
         <AppOverlays>
+          <BootProbe />
           <App />
         </AppOverlays>
       </BootBoundary>
     </React.StrictMode>,
   );
+
+  // P2 : le rendu ne dépend plus du sidecar. Le hook de connexion et cette
+  // continuation peuvent demander l'info en parallèle : SidecarInfo garantit
+  // une seule invocation native. Le second frame laisse le premier paint
+  // passer avant les travaux de convergence et ferme le write-through sale.
+  requestAnimationFrame(() => requestAnimationFrame(() => {
+    void ensureSidecarInfo()
+      .then(() => uiStateBridge.flushNow())
+      .catch((error) => console.warn("Atelier: sidecar injoignable, stockage local seul:", error));
+  }));
 }
 boot().catch(renderFatal);

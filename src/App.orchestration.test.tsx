@@ -55,6 +55,9 @@ async function mountApp() {
   const sock = FakeWS.last();
   await act(async () => {
     sock.open();
+    // P4 plan 053 : la galerie visible démarre au frame suivant, après que la
+    // connexion cœur a eu la priorité sur la file IPC Tauri.
+    await vi.advanceTimersByTimeAsync(16);
     await flushMicrotasks(10);
   });
   return { utils, sock };

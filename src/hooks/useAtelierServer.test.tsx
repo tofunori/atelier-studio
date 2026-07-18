@@ -54,6 +54,47 @@ describe("useAtelierServer", () => {
     expect(invokeMock).not.toHaveBeenCalled();
   });
 
+  it("P4 diffère une galerie masquée jusqu'à wsReady puis au créneau idle", async () => {
+    const { rerender } = renderHook(
+      ({ ready }: { ready: boolean }) => useAtelierServer("/tmp/proj", {
+        ...CONFIG,
+        galleryVisible: false,
+        coreReady: ready,
+      }),
+      { initialProps: { ready: false } },
+    );
+    await act(async () => { await vi.advanceTimersByTimeAsync(2000); });
+    expect(invokeMock).not.toHaveBeenCalled();
+
+    rerender({ ready: true });
+    await act(async () => { await vi.advanceTimersByTimeAsync(999); });
+    expect(invokeMock).not.toHaveBeenCalled();
+    await act(async () => { await vi.advanceTimersByTimeAsync(1); await flushMicrotasks(6); });
+    expect(invokeMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("P4 démarre une galerie visible au frame suivant sans double invoke", async () => {
+    let resolve!: (url: string) => void;
+    invokeMock.mockImplementation(() => new Promise((done) => { resolve = done; }));
+    const { rerender } = renderHook(
+      ({ ready }: { ready: boolean }) => useAtelierServer("/tmp/proj", {
+        ...CONFIG,
+        galleryVisible: true,
+        coreReady: ready,
+      }),
+      { initialProps: { ready: false } },
+    );
+    expect(invokeMock).not.toHaveBeenCalled();
+
+    await act(async () => { await vi.advanceTimersByTimeAsync(16); });
+    expect(invokeMock).toHaveBeenCalledTimes(1);
+    rerender({ ready: true });
+    await act(async () => { await vi.advanceTimersByTimeAsync(16); });
+    expect(invokeMock).toHaveBeenCalledTimes(1);
+
+    await act(async () => { resolve("http://127.0.0.1:18790/"); await flushMicrotasks(6); });
+  });
+
   it("mort du serveur : 2 échecs de sonde → REDÉMARRAGE réel et URL restaurée", async () => {
     const failing = vi.fn()
       .mockResolvedValueOnce({ ok: true } as Response) // tick1 OK

@@ -25,6 +25,12 @@ pub struct SidecarInfo {
     /// Diagnostic only — "rust" | "node" (optional for old lock files).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     backend: Option<String>,
+    /// Diagnostic P0 plan 053 — chemin ayant fourni cette réponse.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    lifecycle: Option<String>,
+    /// Plan 053 P3 — le gateway est planifié après cette réponse.
+    #[serde(default)]
+    gateway_deferred: bool,
 }
 
 static SIDECAR: Mutex<Option<SidecarInfo>> = Mutex::new(None);
@@ -205,35 +211,74 @@ fn verified_info(mut info: SidecarInfo, expected_hash: &str) -> Option<SidecarIn
     }
 }
 
-/// Verrou d'instance unique : {port, token} du sidecar vivant, partagé entre
-/// les instances (dev + build). Une app réutilise le sidecar existant au lieu
-/// d'en lancer un rival seulement si son identité correspond au build courant.
-fn read_lockfile(expected_hash: &str) -> Option<SidecarInfo> {
-    let p = lockfile_path()?;
-    let raw = std::fs::read_to_string(p).ok()?;
-    let info: SidecarInfo = serde_json::from_str(&raw).ok()?;
-    verified_info(info, expected_hash)
+fn with_lifecycle(mut info: SidecarInfo, lifecycle: &str) -> SidecarInfo {
+    info.lifecycle = Some(lifecycle.to_string());
+    info.gateway_deferred = true;
+    info
 }
 
-/// If lock exists but is not healthy/compatible, best-effort SIGTERM of the
-/// recorded pid so a fresh spawn is not racing a zombie Node or old Rust.
-fn terminate_stale_lock(expected_hash: &str) {
-    let Some(p) = lockfile_path() else {
-        return;
+fn process_alive(pid: u32) -> bool {
+    pid > 0
+        && Command::new("kill")
+            .args(["-0", &pid.to_string()])
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status()
+            .map(|status| status.success())
+            .unwrap_or(false)
+}
+
+enum LockInspection {
+    Missing,
+    Compatible(SidecarInfo),
+    Stale {
+        path: PathBuf,
+        info: Option<SidecarInfo>,
+    },
+}
+
+/// Inspecte une seule fois le verrou partagé. Un PID déjà mort est classé
+/// périmé immédiatement; un PID vivant conserve tous les retries health/TCC.
+fn inspect_lockfile(expected_hash: &str) -> LockInspection {
+    let Some(path) = lockfile_path() else {
+        return LockInspection::Missing;
     };
-    let Ok(raw) = std::fs::read_to_string(&p) else {
-        return;
+    let raw = match std::fs::read_to_string(&path) {
+        Ok(raw) => raw,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            return LockInspection::Missing
+        }
+        Err(_) => return LockInspection::Stale { path, info: None },
     };
-    let Ok(info) = serde_json::from_str::<SidecarInfo>(&raw) else {
-        return;
+    let info = match serde_json::from_str::<SidecarInfo>(&raw) {
+        Ok(info) => info,
+        Err(_) => return LockInspection::Stale { path, info: None },
     };
-    // Compatible live instance — leave it (read_lockfile will reuse).
-    if verified_info(info.clone(), expected_hash).is_some() {
-        return;
+    let pid = info.identity.as_ref().and_then(|health| health.pid);
+    if pid.is_some_and(|pid| !process_alive(pid)) {
+        return LockInspection::Stale {
+            path,
+            info: Some(info),
+        };
     }
-    let pid = info.identity.as_ref().and_then(|h| h.pid);
+    match verified_info(info.clone(), expected_hash) {
+        Some(info) => LockInspection::Compatible(info),
+        None => LockInspection::Stale {
+            path,
+            info: Some(info),
+        },
+    }
+}
+
+/// Best-effort SIGTERM d'un verrou inspecté comme incompatible, sans refaire
+/// une deuxième série de health retries.
+fn terminate_stale_lock(path: PathBuf, info: Option<SidecarInfo>) {
+    let pid = info
+        .as_ref()
+        .and_then(|info| info.identity.as_ref())
+        .and_then(|health| health.pid);
     if let Some(pid) = pid {
-        if pid > 0 {
+        if process_alive(pid) {
             // Best-effort: only kill a pid we previously wrote into our own lock.
             let _ = Command::new("kill")
                 .args(["-TERM", &pid.to_string()])
@@ -244,7 +289,7 @@ fn terminate_stale_lock(expected_hash: &str) {
             thread::sleep(Duration::from_millis(200));
         }
     }
-    let _ = std::fs::remove_file(p);
+    let _ = std::fs::remove_file(path);
 }
 
 fn write_lockfile(info: &SidecarInfo) {
@@ -361,25 +406,25 @@ pub fn sidecar_port(app: tauri::AppHandle) -> Result<SidecarInfo, String> {
     if let Some(info) = guard.clone() {
         // Le sidecar peut être mort ou appartenir à un ancien bundle.
         if let Some(info) = verified_info(info, &bundle_hash) {
-            if let Err(e) = crate::remote_gateway::ensure(&app, &info) {
-                eprintln!("[atelier] gateway iPhone non disponible: {e}");
-            }
+            let info = with_lifecycle(info, "in-process");
+            crate::remote_gateway::schedule(app.clone(), info.clone());
             return Ok(info);
         }
         *guard = None;
     }
-    // un sidecar d'une AUTRE instance tourne déjà ? le réutiliser (verrou partagé)
-    if let Some(info) = read_lockfile(&bundle_hash) {
-        *guard = Some(info.clone());
-        if let Err(e) = crate::remote_gateway::ensure(&app, &info) {
-            eprintln!("[atelier] gateway iPhone non disponible: {e}");
+    // Un sidecar d'une AUTRE instance tourne déjà ? Inspection unique : le
+    // réutiliser s'il est compatible, sinon nettoyer le verrou sans doubler
+    // les retries health (et sans attendre du tout si son PID est mort).
+    match inspect_lockfile(&bundle_hash) {
+        LockInspection::Compatible(info) => {
+            let info = with_lifecycle(info, "lock-reuse");
+            *guard = Some(info.clone());
+            crate::remote_gateway::schedule(app.clone(), info.clone());
+            return Ok(info);
         }
-        return Ok(info);
+        LockInspection::Stale { path, info } => terminate_stale_lock(path, info),
+        LockInspection::Missing => {}
     }
-
-    // Lock présent mais incompatible (ex. Node → bascule Rust) : terminer
-    // l'orphelin identifié avant de spawner, sinon course sur le port / pid.
-    terminate_stale_lock(&bundle_hash);
 
     let token = session_token()?;
     // Runtime du bundle en production; PATH réparé uniquement en secours dev.
@@ -413,6 +458,8 @@ pub fn sidecar_port(app: tauri::AppHandle) -> Result<SidecarInfo, String> {
             token,
             identity: Some(startup),
             backend: Some(backend.as_str().into()),
+            lifecycle: Some("spawn".into()),
+            gateway_deferred: false,
         };
         let health = fetch_health_retry(&info, &bundle_hash).map_err(|e| {
             format!(
@@ -430,11 +477,10 @@ pub fn sidecar_port(app: tauri::AppHandle) -> Result<SidecarInfo, String> {
             return Err(e);
         }
     };
+    let info = with_lifecycle(info, "spawn");
     write_lockfile(&info);
     *guard = Some(info.clone());
-    if let Err(e) = crate::remote_gateway::ensure(&app, &info) {
-        eprintln!("[atelier] gateway iPhone non disponible: {e}");
-    }
+    crate::remote_gateway::schedule(app, info.clone());
     Ok(info)
 }
 
@@ -466,12 +512,22 @@ mod tests {
     #[test]
     fn rust_candidates_include_staged_and_resource() {
         let list = rust_server_candidates(Some(Path::new("/App/Resources")));
-        assert!(list.iter().any(|p| p.ends_with("rust-server/atelier-studio-server")));
+        assert!(list
+            .iter()
+            .any(|p| p.ends_with("rust-server/atelier-studio-server")));
         assert!(list.iter().any(|p| p.ends_with("atelier-studio-server")));
         assert_eq!(
             list.first().map(PathBuf::as_path),
-            Some(Path::new("/App/Resources/rust-server/atelier-studio-server")),
+            Some(Path::new(
+                "/App/Resources/rust-server/atelier-studio-server"
+            )),
             "le binaire du bundle doit précéder les fallbacks du checkout",
         );
+    }
+
+    #[test]
+    fn process_liveness_distinguishes_current_and_impossible_pid() {
+        assert!(process_alive(std::process::id()));
+        assert!(!process_alive(u32::MAX));
     }
 }

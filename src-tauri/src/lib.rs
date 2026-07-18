@@ -1,19 +1,23 @@
 mod appsnap;
 mod atelier;
 mod bin_resolver;
+mod boot_metrics;
 mod browser;
 mod identity;
 mod local_image;
 mod macos_badge_permission;
 mod remote_gateway;
 mod sidecar;
+mod ui_state;
 
 use tauri::Manager;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    let boot_clock = boot_metrics::BootClock::new();
     let _ = fix_path_env::fix();
     tauri::Builder::default()
+        .manage(boot_clock)
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_opener::init())
@@ -43,7 +47,10 @@ pub fn run() {
             browser::browser_capture_page,
             browser::browser_import_vivaldi,
             browser::browser_url,
-            browser::browser_probe
+            browser::browser_probe,
+            boot_metrics::boot_clock_elapsed_ms,
+            boot_metrics::record_boot_metrics,
+            ui_state::ui_state_snapshot
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

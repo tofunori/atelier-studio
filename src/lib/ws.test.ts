@@ -68,6 +68,7 @@ describe("connectSidecar", () => {
 
     FakeWS.instances[0].fireClose();
     expect(disconnects).toHaveLength(1);
+    expect(getSidecarInfo()).toBeNull();
     await vi.advanceTimersByTimeAsync(1000);
     expect(FakeWS.instances).toHaveLength(2);
     expect(FakeWS.instances[1].url).toBe("ws://127.0.0.1:2222");
@@ -78,6 +79,7 @@ describe("connectSidecar", () => {
     const firstHello = JSON.parse(FakeWS.instances[0].sent[0]);
     const secondHello = JSON.parse(FakeWS.instances[1].sent[0]);
     expect(secondHello.clientInstanceId).toBe(firstHello.clientInstanceId);
+    expect(invokeMock).toHaveBeenCalledTimes(2);
   });
 
   it("abort pendant l'attente de retry annule le timer : aucune nouvelle socket", async () => {

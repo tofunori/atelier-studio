@@ -10,6 +10,7 @@
 import { useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { withAtelierNonce } from "../lib/ipc";
+import { markBootMetric } from "../lib/bootMetrics";
 
 type GalleryConfig = { galleryDir: string; galleryExts: string };
 
@@ -17,6 +18,10 @@ export function useAtelierServer(
   activeProject: string | null,
   opts: {
     atelierNonce: string;
+    /** P4 plan 053 : surface Galerie actuellement visible. */
+    galleryVisible?: boolean;
+    /** P4 plan 053 : WebSocket cœur prêt; autorise un démarrage idle. */
+    coreReady?: boolean;
     /** lu À CHAQUE démarrage (équivalent de settingsRef.current) */
     galleryConfig: () => GalleryConfig;
     /** serveur prêt pour ce projet (ex. restaurer les onglets épinglés) */
@@ -39,6 +44,7 @@ export function useAtelierServer(
   optsRef.current = opts;
   const activeProjectRef = useRef(activeProject);
   activeProjectRef.current = activeProject;
+  const startingRef = useRef(new Set<string>());
   const mountedRef = useRef(true);
   useEffect(() => {
     mountedRef.current = true;
@@ -46,6 +52,8 @@ export function useAtelierServer(
   }, []);
 
   function start(project: string, onUrl?: (nonceUrl: string) => void) {
+    if (startingRef.current.has(project)) return;
+    startingRef.current.add(project);
     const { galleryDir, galleryExts } = optsRef.current.galleryConfig();
     invoke<string>("start_atelier", { root: project, galleryDir, galleryExts })
       .then((url) => {
@@ -53,6 +61,7 @@ export function useAtelierServer(
         // → ne rien appliquer (ni URL, ni onReady, ni bannière)
         if (!mountedRef.current || activeProjectRef.current !== project) return;
         const nonceUrl = withAtelierNonce(url, optsRef.current.atelierNonce);
+        markBootMetric("galleryReady");
         optsRef.current.onRecovered?.();
         setAtelierUrls((p) => ({ ...p, [project]: nonceUrl }));
         onUrl?.(nonceUrl);
@@ -61,16 +70,41 @@ export function useAtelierServer(
         if (!mountedRef.current || activeProjectRef.current !== project) return;
         console.error("start_atelier:", e);
         optsRef.current.onError?.(String(e));
-      });
+      })
+      .finally(() => startingRef.current.delete(project));
   }
 
   // (ré)ouvre le serveur atelier du projet actif
   useEffect(() => {
     if (!activeProject || atelierUrls[activeProject]) return;
-    start(activeProject, (nonceUrl) => optsRef.current.onReady?.(activeProject, nonceUrl));
+    const run = () => start(
+      activeProject,
+      (nonceUrl) => optsRef.current.onReady?.(activeProject, nonceUrl),
+    );
+    const hasP4Policy = opts.galleryVisible != null || opts.coreReady != null;
+    if (!hasP4Policy) {
+      run();
+      return;
+    }
+    if (opts.galleryVisible) {
+      const frame = requestAnimationFrame(run);
+      return () => cancelAnimationFrame(frame);
+    }
+    if (!opts.coreReady) return;
+
+    const idleWindow = window as Window & {
+      requestIdleCallback?: (callback: () => void, options?: { timeout: number }) => number;
+      cancelIdleCallback?: (id: number) => void;
+    };
+    if (idleWindow.requestIdleCallback) {
+      const idle = idleWindow.requestIdleCallback(run, { timeout: 1000 });
+      return () => idleWindow.cancelIdleCallback?.(idle);
+    }
+    const timer = setTimeout(run, 1000);
+    return () => clearTimeout(timer);
     // eslint-disable-next-line react-hooks/exhaustive-deps -- même contrat
-    // que l'effet historique : uniquement au changement de projet actif
-  }, [activeProject]);
+    // que l'effet historique, étendu uniquement par la politique P4
+  }, [activeProject, opts.galleryVisible, opts.coreReady]);
 
   const atelierUrl = activeProject ? atelierUrls[activeProject] ?? null : null;
 
