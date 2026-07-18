@@ -429,6 +429,46 @@ describe("orchestration App — caractérisation", () => {
     }, "http://127.0.0.1:18790");
   });
 
+  it("garde un fichier TEX comme contexte Read sans l'envoyer comme image", async () => {
+    const { sock } = await mountApp();
+    await pushThreads(sock, [THREAD_A]);
+    await selectThread(sock, "Fil A — albédo");
+    await act(async () => { await flushMicrotasks(10); });
+
+    const iframe = document.querySelector("iframe");
+    expect(iframe).toBeTruthy();
+    const nonce = new URLSearchParams(new URL(iframe!.src).hash.replace(/^#/, "")).get("atelier_nonce");
+    expect(nonce).toBeTruthy();
+
+    await act(async () => {
+      window.dispatchEvent(new MessageEvent("message", {
+        data: {
+          type: "atelier-add-to-chat",
+          nonce,
+          text: "conferences/agu2026/abstract_agu26.tex\nFichier joint depuis la galerie atelier — lis-le (outil Read) avant de répondre.",
+          path: "conferences/agu2026/abstract_agu26.tex",
+          name: "abstract_agu26.tex",
+          requestId: "add-abstract-1",
+        },
+        origin: "http://127.0.0.1:18790",
+        source: iframe!.contentWindow,
+      }));
+      await flushMicrotasks(4);
+    });
+
+    const textarea = document.querySelector(".composer textarea") as HTMLTextAreaElement;
+    fireEvent.change(textarea, { target: { value: "Respecte-t-il les règles ?" } });
+    fireEvent.submit(textarea.closest("form")!);
+    await act(async () => { await flushMicrotasks(6); });
+
+    const sends = sock.sent.map((value) => JSON.parse(value)).filter((message) => message.type === "send");
+    const sent = sends[sends.length - 1];
+    expect(sent.prompt).toContain("conferences/agu2026/abstract_agu26.tex");
+    expect(sent.attachments).toBeUndefined();
+    expect(sent.displayEvent.imagePaths).toBeUndefined();
+    expect(sent.inputs?.some((input: { type?: string }) => input.type === "local_image") ?? false).toBe(false);
+  });
+
   it("envoie une commande show unique à l'iframe Galerie et accepte son résultat", async () => {
     const { sock } = await mountApp();
     await act(async () => { await flushMicrotasks(10); });

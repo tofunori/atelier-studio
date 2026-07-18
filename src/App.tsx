@@ -72,6 +72,7 @@ import {
   type DraftAttachment,
   type QueuedTurn,
 } from "./lib/chatDraftStore";
+import { localImagePathsForAttachments } from "./lib/chatAttachments";
 import {
   appSnapPreviewUrl,
   appSnapContextText,
@@ -2439,7 +2440,7 @@ export default function App() {
         };
       })(),
     };
-    const imagePaths = attachments.map((a) => a.path).filter(Boolean) as string[];
+    const imagePaths = localImagePathsForAttachments(attachments, threadRoot);
     const pluginSkills = supportsPlugins ? pluginSkillsForPrompt(displayPrompt, plugins) : [];
     // inputs structurés selon la capability (plan 046) — plus réservé à Codex
     const supportsStructuredInputs = selectedCapabilities?.imageInput ?? provider === "codex";
@@ -2589,7 +2590,7 @@ export default function App() {
       ? `${queuedAttachments.map((attachment) => attachment.text).join("\n\n")}\n\n${queued.prompt}`.trim()
       : queued.prompt;
     const clientMessageId = crypto.randomUUID();
-    const imagePaths = queuedAttachments.map((attachment) => attachment.path).filter(Boolean) as string[];
+    const imagePaths = localImagePathsForAttachments(queuedAttachments, thread.projectRoot ?? "");
     const pluginSkills = queued.pluginSkills;
     const queuedSupportsInputs =
       providerList.find((entry) => entry.id === queued.provider)?.capabilities?.imageInput ??
