@@ -2140,14 +2140,16 @@ new ResizeObserver(() => {
   }, 500);
 }).observe(rightEl);
 document.getElementById("popPdf").onclick = () => {
-  // synctex-aware PDF tab (same studio in mode=pdf; BroadcastChannel links the two)
-  const __pdfUrl = "/.fig_thumbs/latex_studio.html?path=" + encodeURIComponent(path) + "&mode=pdf";
+  if(!path || !pdfPath) return;
   if(window.self !== window.top){
-    // embarqué dans Atelier Studio : ouvrir dans un onglet du panneau
-    __atelierPost({type:'atelier-open-tab', url: __pdfUrl,
+    // embarqué dans Atelier Studio : l'app route vers le viewer PDF complet
+    // (annotations persistantes) relié en synctex quand le PDF est dans le
+    // projet, sinon repli sur ce même studio en mode=pdf (fichiers hors projet)
+    __atelierPost({type:'atelier-open-pdf', tex: path, pdf: pdfPath,
       title: (path.split("/").pop() || "PDF") + " — PDF"});
   } else {
-    window.open(__pdfUrl, "_blank");
+    // navigateur autonome : onglet synctex historique (pas de conversion projet)
+    window.open("/.fig_thumbs/latex_studio.html?path=" + encodeURIComponent(path) + "&mode=pdf", "_blank");
   }
   applyPdfVisible(false);
 };

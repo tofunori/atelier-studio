@@ -17,6 +17,16 @@ export type AtelierOpenTabMessage = {
   title?: string;
 };
 
+// « PDF ↗ » du studio LaTeX : l'app choisit le viewer (pdf_viewer si le PDF
+// est dans le projet, sinon studio mode=pdf) — chemins absolus, pas des URLs
+export type AtelierOpenPdfMessage = {
+  type: "atelier-open-pdf";
+  nonce: string;
+  tex: string;
+  pdf: string;
+  title?: string;
+};
+
 export type AtelierAddToChatMessage = {
   type: "atelier-add-to-chat";
   nonce: string;
@@ -70,6 +80,7 @@ export type AtelierGalleryResultMessage = {
 export type AtelierInboundMessage =
   | AtelierThemeRequestMessage
   | AtelierOpenTabMessage
+  | AtelierOpenPdfMessage
   | AtelierAddToChatMessage
   | BrowserAddToChatMessage
   | AtelierGalleryResultMessage;
@@ -142,6 +153,13 @@ export function isTrustedAtelierMessage(
       return (
         hasOnlyKeys(data, ["type", "nonce", "url", "title"]) &&
         isValidMessageUrl(data.url) &&
+        isOptionalBoundedString(data.title, MAX_TITLE_LENGTH)
+      );
+    case "atelier-open-pdf":
+      return (
+        hasOnlyKeys(data, ["type", "nonce", "tex", "pdf", "title"]) &&
+        isBoundedString(data.tex, MAX_URL_LENGTH) &&
+        isBoundedString(data.pdf, MAX_URL_LENGTH) &&
         isOptionalBoundedString(data.title, MAX_TITLE_LENGTH)
       );
     case "atelier-add-to-chat":

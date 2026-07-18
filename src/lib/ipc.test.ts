@@ -39,6 +39,16 @@ describe("isTrustedAtelierMessage", () => {
     expect(isTrustedAtelierMessage(ko, nonce)).toBe(false);
   });
 
+  it("accepte atelier-open-pdf avec tex+pdf et refuse un chemin manquant", () => {
+    const ok = msg("http://127.0.0.1:19789", {
+      type: "atelier-open-pdf", nonce,
+      tex: "/projet/doc.tex", pdf: "/projet/doc.pdf", title: "doc.tex — PDF",
+    });
+    const ko = msg("http://127.0.0.1:19789", { type: "atelier-open-pdf", nonce, tex: "/projet/doc.tex" });
+    expect(isTrustedAtelierMessage(ok, nonce)).toBe(true);
+    expect(isTrustedAtelierMessage(ko, nonce)).toBe(false);
+  });
+
   it("accepte une pièce jointe galerie structurée avec aperçu", () => {
     const e = msg("http://127.0.0.1:19000", {
       type: "atelier-add-to-chat",

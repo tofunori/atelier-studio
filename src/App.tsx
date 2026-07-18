@@ -1868,8 +1868,23 @@ export default function App() {
         const message = themeMessage(settingsRef.current, atelierNonce);
         (e.source as Window).postMessage(message, e.origin);
       }
-      if (data.type === "atelier-open-tab") {
-        const abs = withAtelierNonce(data.url.startsWith("http") ? data.url : e.origin + data.url, atelierNonce);
+      if (data.type === "atelier-open-tab" || data.type === "atelier-open-pdf") {
+        let openUrl: string;
+        if (data.type === "atelier-open-pdf") {
+          // « PDF ↗ » du studio LaTeX : viewer PDF complet (annotations) relié
+          // en synctex quand le PDF est dans le projet ; hors projet, le statique
+          // reste sandboxé → repli sur le studio en mode=pdf (jeton via ?path=)
+          const root = activeProjectRef.current;
+          const rootSlash = root ? (root.endsWith("/") ? root : root + "/") : null;
+          const pdfAbs = typeof data.pdf === "string" ? data.pdf : "";
+          const texAbs = typeof data.tex === "string" ? data.tex : "";
+          openUrl = rootSlash && pdfAbs.startsWith(rootSlash)
+            ? `/.fig_thumbs/pdf_viewer.html?file=${encodeURIComponent(pdfAbs.slice(rootSlash.length))}&tex=${encodeURIComponent(texAbs)}&texpdf=${encodeURIComponent(pdfAbs)}`
+            : `/.fig_thumbs/latex_studio.html?path=${encodeURIComponent(texAbs)}&mode=pdf${galleryTokenRef.current ? `&token=${encodeURIComponent(galleryTokenRef.current)}` : ""}`;
+        } else {
+          openUrl = data.url;
+        }
+        const abs = withAtelierNonce(openUrl.startsWith("http") ? openUrl : e.origin + openUrl, atelierNonce);
         // pas de setState imbriqué (StrictMode double-exécute les updaters) :
         // on lit l'état courant via la ref pour décider, puis on commit les deux.
         const existing = atelierTabsRef.current.find((t) => t.url === abs);

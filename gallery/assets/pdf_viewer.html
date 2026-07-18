@@ -117,6 +117,7 @@ const targetQuote = (__passageParams.get("quote") || "").slice(0, 900);
 let targetRevealed = false;
 document.getElementById("fname").textContent = rel ? rel.split("/").pop() : "(no file)";
 let selPage = 1;
+let __reloadPdf = null;  // posé par main() — rechargement en place après compile LaTeX
 
 async function main(){
   let pdf;
@@ -172,6 +173,7 @@ async function main(){
     const vp = page.getViewport({scale});
     const div = document.createElement("div");
     div.className = "pg"; div.dataset.page = n;
+    div.dataset.vscale = vp.scale;  // px CSS par unité PDF — requis par le synctex
     div.style.width = vp.width + "px"; div.style.height = vp.height + "px";
     const cv = document.createElement("canvas");
     cv.width = vp.width * devicePixelRatio; cv.height = vp.height * devicePixelRatio;
@@ -199,6 +201,23 @@ async function main(){
   document.getElementById("zIn").onclick = () => setZoom(ZOOM * 1.2);
   document.getElementById("zOut").onclick = () => setZoom(ZOOM / 1.2);
   document.getElementById("zPct").onclick = () => setZoom(1); // retour fit-width
+  // rechargement en place (compile LaTeX) : nouveau document, mêmes annotations —
+  // jeton anti-course : deux getDocument() concurrents peuvent deadlocker le worker
+  let _rlTok = 0;
+  __reloadPdf = async function(){
+    const t = ++_rlTok;
+    try{
+      const doc = await pdfjsLib.getDocument({url: "/" + rel + "?t=" + Date.now(),
+        standardFontDataUrl: "/.fig_thumbs/pdfjs/standard_fonts/",
+        cMapUrl: "/.fig_thumbs/pdfjs/cmaps/", cMapPacked: true}).promise;
+      if(t !== _rlTok) return;
+      pdf = doc;
+      const el = document.scrollingElement || document.documentElement;
+      const st = el.scrollTop;
+      await renderAll();
+      el.scrollTop = st;
+    }catch(e){ console.warn("reloadPdf:", e); }
+  };
   window.addEventListener("keydown", (e) => {
     if (!(e.metaKey || e.ctrlKey)) return;
     if (e.key === "=" || e.key === "+") { e.preventDefault(); setZoom(ZOOM * 1.2); }
@@ -752,6 +771,74 @@ if(window.self !== window.top){
   `;
   document.head.appendChild(st);
 }
+
+// ---- mode synctex : onglet PDF d'un studio LaTeX (ouvert via « PDF ↗ ») ----
+// tex/texpdf en query → canal BroadcastChannel partagé avec l'onglet éditeur :
+// compile → rechargement en place ; ⌘J/curseur → marqueur ici ; double-clic
+// sur la page → ligne source dans l'éditeur. Aucun endpoint nouveau : /synctex
+// existe déjà (backends Node et Rust).
+(function(){
+  const texPath = __passageParams.get("tex");
+  const texPdf = __passageParams.get("texpdf");
+  if(!texPath || !texPdf || !("BroadcastChannel" in window)) return;
+  const bc = new BroadcastChannel("latexstudio:" + texPath);
+  const marker = document.createElement("div");
+  marker.style.cssText = "position:absolute;left:0;right:0;height:26px;display:none;"
+    + "background:rgba(91,157,255,.18);border-left:3px solid #5b9dff;pointer-events:none;z-index:5";
+  let mkT = null;
+  function showMarker(page, y0){
+    const pg = document.querySelector('.pg[data-page="' + page + '"]');
+    const sc = pg ? parseFloat(pg.dataset.vscale || "0") : 0;
+    if(!sc) return false;
+    pg.appendChild(marker);
+    marker.style.top = (y0 * sc - 14) + "px";
+    marker.style.display = "block";
+    const el = document.scrollingElement || document.documentElement;
+    const top = pg.getBoundingClientRect().top + el.scrollTop;
+    el.scrollTo({top: top + y0 * sc - window.innerHeight / 2, behavior: "smooth"});
+    clearTimeout(mkT);
+    mkT = setTimeout(() => marker.style.display = "none", 2500);
+    return true;
+  }
+  bc.onmessage = e => {
+    const m = e.data || {};
+    if(m.t === "compiled" && __reloadPdf) __reloadPdf();
+    else if(m.t === "view") showMarker(m.page, m.y);
+  };
+  // l'onglet réclame la position du curseur quand il (re)devient visible.
+  // Onglet interne en display:none : NI visibilitychange NI IntersectionObserver
+  // ne se déclenchent — l'app envoie atelier-tab-activated (PIEGES_CONNUS §4).
+  let _lastReq = 0;
+  function requestView(){
+    const now = (window.performance ? performance.now() : Date.now());
+    if(now - _lastReq < 250) return;   // anti-doublon (activation + visibility)
+    _lastReq = now;
+    bc.postMessage({t: "want-view"});
+  }
+  document.addEventListener("visibilitychange", () => { if(!document.hidden) requestView(); });
+  window.addEventListener("message", e => {
+    if(e.source === window.parent && e.data && e.data.type === "atelier-tab-activated") requestView();
+  });
+  setTimeout(requestView, 800);   // premier rendu : se caler sur le curseur courant
+  // double-clic sur la page → saut à la ligne source dans l'onglet éditeur
+  document.addEventListener("dblclick", async e => {
+    const pg = e.target.closest(".pg");
+    if(!pg) return;
+    const sc = parseFloat(pg.dataset.vscale || "0");
+    if(!sc) return;
+    const r = pg.getBoundingClientRect();
+    const st = document.getElementById("status");
+    try{
+      const res = await fetch("/synctex", {method: "POST", headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({dir: "edit", tex: texPath, pdf: texPdf, page: +pg.dataset.page,
+          x: (e.clientX - r.left) / sc, y: (e.clientY - r.top) / sc})});
+      const j = await res.json();
+      if(j.line){ bc.postMessage({t: "jump", line: j.line}); st.textContent = "→ ligne " + j.line + " (éditeur)"; }
+      else st.textContent = "synctex : pas de correspondance ici";
+    }catch(err){ st.textContent = "synctex : erreur serveur"; }
+    setTimeout(() => { st.textContent = ""; }, 3000);
+  });
+})();
 </script>
 </body>
 </html>
