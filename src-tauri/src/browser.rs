@@ -50,7 +50,7 @@ const CAPTURE_PAGE_JS_TEMPLATE: &str = r#"
 (() => {
   try {
     const previousTitle = String(document.title || "");
-    const text = String(document.body?.innerText || "").replace(/\u00a0/g, " ").trim();
+    const text = String(document.body?.innerText || document.documentElement?.innerText || "").replace(/\u00a0/g, " ").trim();
     const payload = {
       text: text.slice(0, __MAX__),
       title: previousTitle.slice(0, 500),

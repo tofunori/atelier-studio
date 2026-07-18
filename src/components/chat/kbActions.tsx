@@ -47,6 +47,8 @@ export function useKbActions(binding: KbBinding, isActive: () => boolean) {
         if (activeRef.current()) setError(detail?.message ?? t("kb.error-generic"));
         return;
       }
+      // un épinglage réussi efface l'erreur précédente (message résiduel)
+      setError(null);
       const id = detail.source?.id;
       if (!pending || pending.remaining <= 0 || !id) return;
       pending.remaining -= 1;

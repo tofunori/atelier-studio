@@ -2880,8 +2880,11 @@ button.ctx-ring-wrap { border: none; font: inherit; color: inherit;
   font-size: var(--fs-m); line-height: 1.5; color: var(--fg); background: var(--bg-ctl);
   border: 1px solid var(--border2); border-radius: var(--r-s); padding: 6px 8px; }
 .kb-note-actions { display: flex; justify-content: flex-end; gap: 6px; }
-.kb-error { font-size: var(--fs-s); color: var(--u-hot, #e06c75); }
-/* échec d'épinglage depuis le browser : le livre vire brièvement au rouge sémantique */
+.kb-error { font-size: var(--fs-s); color: var(--u-hot, #e06c75);
+  display: flex; align-items: flex-start; gap: 6px; }
+.kb-error .kb-error-text { flex: 1; min-width: 0; }
+/* épinglage depuis le browser : coche accent (réussi) / rouge sémantique (échec) */
+.browser-bar .kb-flash-ok, .browser-bar .kb-flash-ok:hover { color: var(--accent); }
 .browser-bar .kb-flash-err, .browser-bar .kb-flash-err:hover { color: var(--u-hot, #e06c75); }
 /* pilule agrégée (3+ sources) : ouvre le picker ; aperçu des premiers titres */
 .kb-chip-agg { cursor: pointer; gap: 6px; }

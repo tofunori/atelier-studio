@@ -1605,7 +1605,16 @@ fn handle_kb_add(state: &AppState, msg: &Value) -> Vec<String> {
             }
             vec![json_msg(out)]
         }
-        Err(message) => kb_error(message),
+        Err(message) => {
+            // échec du repli fetch alors que l'utilisateur vient DÉJÀ du
+            // bouton livre : message non circulaire (miroir router.mjs)
+            let via_browser = msg.get("via").and_then(|v| v.as_str()) == Some("browser");
+            if via_browser && message.contains("bloque le téléchargement direct") {
+                kb_error("La capture du texte n'a rien donné et le site bloque le téléchargement direct — recharge la page, attends la fin du chargement, puis reclique le livre.".into())
+            } else {
+                kb_error(message)
+            }
+        }
     }
 }
 

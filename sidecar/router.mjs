@@ -1023,7 +1023,13 @@ export async function route(msg, ctx) {
         });
         ctx.send({ type: "kbAdded", source, refreshed, ...(store.warning ? { warning: store.warning } : {}) });
       } catch (error) {
-        ctx.send({ type: "kbError", message: error instanceof Error ? error.message : String(error) });
+        let message = error instanceof Error ? error.message : String(error);
+        // échec du repli fetch alors que l'utilisateur vient DÉJÀ du bouton
+        // livre : ne pas le renvoyer en boucle vers ce même bouton
+        if (msg.via === "browser" && message.includes("bloque le téléchargement direct")) {
+          message = "La capture du texte n'a rien donné et le site bloque le téléchargement direct — recharge la page, attends la fin du chargement, puis reclique le livre.";
+        }
+        ctx.send({ type: "kbError", message });
       }
       break;
     }

@@ -160,6 +160,7 @@ export default function KnowledgeSurface(p: {
         onToggleFull={actions.toggleFull}
         onRemoveSource={actions.removeSource}
         onPromote={actions.promote}
+        onDismissError={() => actions.setError(null)}
         onAddFiles={() => { void actions.addFiles(); }}
         onAddFolder={() => { void actions.addFolder(); }}
         onAddUrl={(url) => {

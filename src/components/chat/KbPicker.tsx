@@ -167,6 +167,8 @@ export function KbPickerPanel(p: {
   onResync?: (slug: string) => void;
   /** Section « Pages gbrain » (surface seulement, plan 050 P3). */
   gbrain?: GbrainSectionProps;
+  /** Fermer le message d'erreur (sinon il reste jusqu'au prochain succès). */
+  onDismissError?: () => void;
   /** Page directe gbrain (plan 050 P4) : ouvre le dialogue d'aperçu. */
   onPromotePage?: (id: string) => void;
   /** Destination de la zone d'ajout (surface) : base locale ou corpus. */
@@ -367,7 +369,22 @@ export function KbPickerPanel(p: {
           </div>
         </div>
       )}
-      {p.error && <div className="kb-error">{p.error}</div>}
+      {p.error && (
+        <div className="kb-error">
+          <span className="kb-error-text">{p.error}</span>
+          {p.onDismissError && (
+            <IconButton
+              size="s"
+              className="ghost"
+              label={t("kb.error-dismiss")}
+              title={t("kb.error-dismiss")}
+              onClick={() => p.onDismissError?.()}
+            >
+              ×
+            </IconButton>
+          )}
+        </div>
+      )}
       <div className="kb-list">
         {surface && (
           <div>
@@ -512,6 +529,7 @@ export function KbPicker({ binding }: { binding: KbBinding }) {
             onRemoveSource={actions.removeSource}
             onPromote={actions.promote}
             promoted={actions.promoted}
+            onDismissError={() => actions.setError(null)}
             onAddFiles={() => { void actions.addFiles(); }}
             onAddFolder={() => { void actions.addFolder(); }}
             onAddUrl={actions.addUrl}

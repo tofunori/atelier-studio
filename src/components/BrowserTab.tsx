@@ -152,7 +152,7 @@ export default function BrowserTab(p: {
 
   useEffect(() => {
     if (!kbFlash) return;
-    const timer = setTimeout(() => setKbFlash(null), 1600);
+    const timer = setTimeout(() => setKbFlash(null), 2400);
     return () => clearTimeout(timer);
   }, [kbFlash]);
   const scanned = useRef(false);
@@ -346,9 +346,10 @@ export default function BrowserTab(p: {
       invoke<BrowserCapture>("browser_capture_page", { label: activeTab.label, maxChars })
         .catch(() => null);
     // Canal titre : 100k d'abord ; WebKit refuse silencieusement les titres
-    // très longs → retente à 24k (couvre les pages derrière un login).
+    // très longs → retente à 24k puis 8k (pages lourdes, login, SPA lentes).
     let capture = await grab(100000);
     if (!capture?.text?.trim()) capture = await grab(24000);
+    if (!capture?.text?.trim()) capture = await grab(8000);
     const url = capture?.url || activeTab.url || "";
     if (!url) {
       setKbFlash("err");
@@ -356,13 +357,15 @@ export default function BrowserTab(p: {
     }
     const text = capture?.text?.trim() ?? "";
     // Texte capturé transmis tel quel (pas de re-fetch : login possible) ;
-    // sans texte, le backend re-télécharge la page (publique). Réponse
-    // kbAdded/kbError relayée par App en événement "kb-source-added".
+    // sans texte, le backend re-télécharge la page (publique) — via:"browser"
+    // permet un message d'échec non circulaire. Réponse kbAdded/kbError
+    // relayée par App en événement "kb-source-added".
     const sent = wsSend({
       type: "kbAdd",
       kind: "web",
       origin: url,
       title: capture?.title || activeTab.title || "",
+      via: "browser",
       ...(text ? { text } : {}),
     });
     if (!sent) setKbFlash("err");
@@ -543,16 +546,23 @@ export default function BrowserTab(p: {
           </IconButton>
           <IconButton
             size="s"
-            className={`ghost ${kbFlash === "ok" ? "on" : ""}${kbFlash === "err" ? " kb-flash-err" : ""}`}
+            className={`ghost${kbFlash === "ok" ? " kb-flash-ok" : ""}${kbFlash === "err" ? " kb-flash-err" : ""}`}
             label={t("browser.add-kb")}
             disabled={!activeTab?.url}
             title={kbFlash === "ok" ? t("browser.added-kb") : kbFlash === "err" ? t("browser.add-kb-error") : t("browser.add-kb")}
             onClick={() => { void addCurrentPageToKb(); }}
           >
-            <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3">
-              <path d="M3.2 12.9V4.1c0-.9.7-1.6 1.6-1.6h8v9.4H4.8c-.9 0-1.6.7-1.6 1s.7 1.6 1.6 1.6h8v-2.6" />
-              <path d="M6.8 6.4h3.4M8.5 4.7v3.4" />
-            </svg>
+            {kbFlash === "ok" ? (
+              // confirmation visible : coche accent pendant le flash
+              <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6">
+                <path d="m2.8 8.6 3.4 3.4 7-7.4" />
+              </svg>
+            ) : (
+              <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3">
+                <path d="M3.2 12.9V4.1c0-.9.7-1.6 1.6-1.6h8v9.4H4.8c-.9 0-1.6.7-1.6 1s.7 1.6 1.6 1.6h8v-2.6" />
+                <path d="M6.8 6.4h3.4M8.5 4.7v3.4" />
+              </svg>
+            )}
           </IconButton>
           <IconButton
             size="s"
