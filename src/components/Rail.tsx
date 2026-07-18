@@ -11,6 +11,9 @@ import { RowButton } from "./ui";
 
 export type ProjMeta = { color?: string; label?: string };
 
+// Surfaces « outil » montées dans la TopBar (avec l'Explorateur) — jamais dans le rail.
+const TOPBAR_SURFACES: Surface[] = ["git", "browser", "terminal"];
+
 // fiche « Surlignés » (lot 2) : photographie autonome — cf. sidecar/highlights.mjs
 export type HighlightEntry = {
   id: string;
@@ -65,8 +68,9 @@ export default function Rail(p: {
   // Tiroir de surfaces : IDE et Galerie restent toujours visibles, les surfaces
   // secondaires se replient derrière « Autres surfaces ». La surface active
   // rangée reste visible même repliée (même règle que le provider du thread
-  // courant dans le picker de providers).
-  const secondarySurfaces = SURFACES.filter((s) => s.id !== "git" && s.id !== "atelier");
+  // courant dans le picker de providers). Les surfaces « outil » (git,
+  // navigateur, terminal) vivent dans la TopBar avec l'Explorateur.
+  const secondarySurfaces = SURFACES.filter((s) => !TOPBAR_SURFACES.includes(s.id) && s.id !== "atelier");
   const atelierSurface = SURFACES.find((s) => s.id === "atelier")!;
   const revealedSurface = p.moreOpen ? null : (secondarySurfaces.find((s) => s.id === p.activeSurface) ?? null);
   const surfaceBtn = (s: (typeof SURFACES)[number]) => (
@@ -135,7 +139,7 @@ export default function Rail(p: {
             <path d="M5.5 5 3 8l2.5 3M10.5 5 13 8l-2.5 3M8.8 3.5 7.2 12.5" />
           </svg>
         </IconButton>
-        {/* Git et Explorateur sont montés dans la TopBar → exclus du rail */}
+        {/* Git, Navigateur, Terminal et Explorateur sont montés dans la TopBar → exclus du rail */}
         {surfaceBtn(atelierSurface)}
         <IconButton
           className={`rail-view rail-more ${p.moreOpen ? "open" : ""}`}

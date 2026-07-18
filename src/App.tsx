@@ -2849,6 +2849,8 @@ export default function App() {
         setShowExplorer((v) => !v);
       }}
       onOpenGit={() => switchToSurface("git")}
+      onOpenBrowser={() => switchToSurface("browser")}
+      onOpenTerminal={() => switchToSurface("terminal")}
     />
   );
   const railNode = (

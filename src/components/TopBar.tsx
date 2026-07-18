@@ -61,6 +61,8 @@ export default function TopBar({
   showExplorer,
   onToggleExplorer,
   onOpenGit,
+  onOpenBrowser,
+  onOpenTerminal,
 }: {
   projects: string[];
   projMeta: Record<string, ProjMeta>;
@@ -76,8 +78,12 @@ export default function TopBar({
   showExplorer: boolean;
   onToggleExplorer: () => void;
   onOpenGit: () => void;
+  onOpenBrowser: () => void;
+  onOpenTerminal: () => void;
 }) {
   const gitActive = showAtelier && activeSurface === "git";
+  const browserActive = showAtelier && activeSurface === "browser";
+  const terminalActive = showAtelier && activeSurface === "terminal";
   const [projMenu, setProjMenu] = useState(false);
   const meta = activeProject ? projMeta[activeProject] : undefined;
   const color = meta?.color || "var(--accent)";
@@ -162,6 +168,14 @@ export default function TopBar({
         </IconButton>
         <IconButton label={t("atelier.git")} className={`ghost topbar-qa ${gitActive ? "on" : ""}`} title={t("atelier.git")} onClick={onOpenGit}>
           <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3"><circle cx="4" cy="4" r="1.6"/><circle cx="4" cy="12" r="1.6"/><circle cx="12" cy="6" r="1.6"/><path d="M4 5.6v4.8M4 8h4a4 4 0 0 0 4-.4"/></svg>
+        </IconButton>
+        {/* Navigateur + Terminal remontés du tiroir du rail (option A) : mêmes
+            icônes que surfaces.tsx, rendues à 15px comme Explorateur/Git */}
+        <IconButton label={t("atelier.browser")} className={`ghost topbar-qa ${browserActive ? "on" : ""}`} title={t("atelier.browser")} onClick={onOpenBrowser}>
+          <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.2"><circle cx="8" cy="8" r="6.2"/><path d="M1.8 8h12.4M8 1.8c2.2 2 2.2 10.4 0 12.4M8 1.8c-2.2 2-2.2 10.4 0 12.4"/></svg>
+        </IconButton>
+        <IconButton label={t("atelier.terminal")} className={`ghost topbar-qa ${terminalActive ? "on" : ""}`} title={t("atelier.terminal")} onClick={onOpenTerminal}>
+          <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round"><rect x="1.8" y="2.8" width="12.4" height="10.4" rx="2"/><path d="M4.5 6l2.2 2-2.2 2M8.5 10.5h3"/></svg>
         </IconButton>
         {/* pilote plan 016 : ex-.tb-seg (role=group) → SegmentedControl
             (radiogroup, flèches, roving tabindex) ; mêmes icônes, mêmes

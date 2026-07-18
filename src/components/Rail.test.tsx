@@ -52,8 +52,9 @@ describe("Rail — tiroir de surfaces", () => {
     expect(more.getAttribute("aria-expanded")).toBe("false");
     const fold = container.querySelector(".rail-fold");
     expect(fold?.classList.contains("open")).toBe(false);
-    // les 5 surfaces secondaires + Surlignés vivent dans le pli, la Galerie hors du pli
-    expect(fold?.querySelectorAll(".rail-view").length).toBe(6);
+    // les 4 surfaces secondaires + Surlignés vivent dans le pli (git, navigateur
+    // et terminal sont dans la TopBar), la Galerie hors du pli
+    expect(fold?.querySelectorAll(".rail-view").length).toBe(5);
     expect(screen.getByRole("button", { name: t("view.highlights") }).closest(".rail-fold")).not.toBeNull();
     expect(screen.getByRole("button", { name: t("atelier.surface") }).closest(".rail-fold")).toBeNull();
   });
@@ -64,8 +65,8 @@ describe("Rail — tiroir de surfaces", () => {
     expect(narval.length).toBe(1);
     expect(narval[0].closest(".rail-fold")).toBeNull();
     expect(narval[0].classList.contains("on")).toBe(true);
-    // le pli garde Surlignés + les 4 autres surfaces
-    expect(container.querySelector(".rail-fold")?.querySelectorAll(".rail-view").length).toBe(5);
+    // le pli garde Surlignés + les 3 autres surfaces
+    expect(container.querySelector(".rail-fold")?.querySelectorAll(".rail-view").length).toBe(4);
   });
 
   it("replié avec vue Surlignés active : le crayon reste révélé hors du pli", () => {
@@ -74,7 +75,7 @@ describe("Rail — tiroir de surfaces", () => {
     expect(hl.length).toBe(1);
     expect(hl[0].closest(".rail-fold")).toBeNull();
     expect(hl[0].classList.contains("on")).toBe(true);
-    expect(container.querySelector(".rail-fold")?.querySelectorAll(".rail-view").length).toBe(5);
+    expect(container.querySelector(".rail-fold")?.querySelectorAll(".rail-view").length).toBe(4);
   });
 
   it("compact : bouton Nouveau chat présent et câblé ; absent quand le panneau est déplié", () => {
@@ -94,8 +95,11 @@ describe("Rail — tiroir de surfaces", () => {
     expect(container.querySelector(".rail-fold")?.classList.contains("open")).toBe(true);
     expect(screen.getAllByRole("button", { name: t("atelier.narval") }).length).toBe(1);
     expect(screen.getAllByRole("button", { name: t("view.highlights") }).length).toBe(1);
-    fireEvent.click(screen.getByRole("button", { name: t("atelier.terminal") }));
-    expect(props.onSelectSurface).toHaveBeenCalledWith("terminal");
+    // terminal/navigateur vivent dans la TopBar — absents du rail
+    expect(screen.queryByRole("button", { name: t("atelier.terminal") })).toBeNull();
+    expect(screen.queryByRole("button", { name: t("atelier.browser") })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: t("atelier.biblio") }));
+    expect(props.onSelectSurface).toHaveBeenCalledWith("biblio");
   });
 
   it("le chevron bascule via onToggleMore", () => {
