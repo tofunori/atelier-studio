@@ -1951,6 +1951,7 @@ body.dragging iframe { pointer-events: none; }
   .atelier-skeleton-grid [data-slot="skeleton"], .activity-pulse,
   .activity-step.running .activity-step-dot, .qa-minidot,
   .review-badge.v-running, .thinking.live .thinking-label,
+  .thinking.live .thinking-icon, .thinking-live-indicator .thinking-icon,
   .thinking-shimmer-sweep, .thinking-shimmer-highlight,
   .ui-activity-label.is-shimmering, .active-activity-transition { animation: none; }
   .ui-activity-label.is-shimmering { background-image: none; -webkit-text-fill-color: currentColor; }
@@ -2298,7 +2299,13 @@ button.ctx-ring-wrap { border: none; font: inherit; color: inherit;
 .thinking-head { appearance: none; background: transparent; border: none; display: flex;
   align-items: center; gap: 7px; padding: 2px 0; cursor: pointer; font: inherit;
   font-size: var(--fs-m); color: var(--muted); max-width: 100%; text-align: left; }
-.thinking-icon { width: 17px; height: 17px; flex: none; color: currentColor; }
+.thinking-icon { width: 14px; height: 14px; flex: none; color: currentColor; }
+.thinking.live .thinking-icon, .thinking-live-indicator .thinking-icon {
+  animation: thinking-icon-flash 1s ease-in-out infinite; }
+@keyframes thinking-icon-flash {
+  0%, 35%, 100% { opacity: .42; }
+  12% { opacity: 1; }
+}
 .thinking-label { font-style: italic; flex: none; }
 .thinking.live .thinking-label { animation: pulse 1.4s ease-in-out infinite; }
 .thinking-preview { color: var(--muted2); font-style: italic; overflow: hidden;
@@ -2317,7 +2324,7 @@ button.ctx-ring-wrap { border: none; font: inherit; color: inherit;
 .reasoning-trace-body { margin: 4px 0 6px; padding: 7px 10px; border-left: 1px solid var(--border2);
   color: var(--muted); font-size: var(--fs-m); white-space: pre-wrap; line-height: 1.5; }
 .thinking-live-indicator { margin: 2px 0 6px; padding: 2px 0; color: var(--muted);
-  display: flex; align-items: center; gap: 8px; font-size: var(--fs-l); font-style: normal; }
+  display: flex; align-items: center; gap: 7px; font-size: var(--fs-l); font-style: normal; }
 /* ChatGPT/Codex : une seconde copie du mot traverse un masque étroit.
    Un passage dure 650 ms, puis le libellé reste calme jusqu'à la cadence suivante. */
 .thinking-shimmer {
