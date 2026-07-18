@@ -12,6 +12,17 @@
 - **Priority** : P1 — **Effort** : L (4 tranches) — **Risk** : LOW-MEDIUM
   (additif ; migration de registre v1→v2 douce ; refonte UI du panneau)
 - **Planned at** : 2026-07-18, worktree `atelier-knowledge-base`
+- **Livré et validé (2026-07-18 matin)** : P1→P4. Registre v2 (collections,
+  archive, chaîne YouTube), panneau à l'échelle (chips-filtres avec comptes,
+  recherche type:/coll:, tri cyclique, Récents >8 sources, groupes repliés
+  par défaut + plafond 20 + « tout afficher », menu collections par rangée,
+  vue archivées), kbList NATIF Rust + TTL 30 s front. Parité node verte
+  (payload natif ≡ CLI list). **Validation vivante contre l'app relancée :
+  kbList 0-1 ms aller-retour (~200 ms avant) ; cycle réel note → collection
+  → tag → archive → désarchive → suppression de collection sans perte.**
+  Gates : sidecar 524, front 66 fichiers, cargo 63. Bonus hors plan livré au
+  passage : bouton livre du reader Zotero (kind zotero + liens profonds).
+  Note : codesign refuse l'identité dev (trousseau verrouillé) → adhoc.
 
 ## Décisions actées (design v4)
 
