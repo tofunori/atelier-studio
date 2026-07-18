@@ -39,7 +39,7 @@ fn default_status() -> String {
 fn known_provider(id: &str) -> bool {
     matches!(
         id,
-        "claude" | "codex" | "grok" | "opencode" | "gemini" | "fake"
+        "claude" | "codex" | "grok" | "kimi" | "opencode" | "gemini" | "fake"
     ) || id.starts_with("api-")
         || id.starts_with("openai")
 }
@@ -237,6 +237,22 @@ mod tests {
         // reload
         let store2 = ThreadStore::open(&path);
         assert!(store2.list().is_empty());
+    }
+
+    #[test]
+    fn upsert_keeps_kimi_provider() {
+        // Régression plan 046 : « kimi » absent de known_provider ⇒ chaque
+        // upsert dégradait le fil en « claude » (l'UI retombait sur Claude).
+        let dir = tempdir().unwrap();
+        let path = dir.path().join("threads.json");
+        let mut store = ThreadStore::open(&path);
+        let t = store
+            .upsert(serde_json::json!({"id":"t1","provider":"kimi"}), false)
+            .unwrap();
+        assert_eq!(t.provider, "kimi");
+        // survit au rechargement disque (normalize au open aussi)
+        let store2 = ThreadStore::open(&path);
+        assert_eq!(store2.get("t1").unwrap().provider, "kimi");
     }
 
     #[test]
