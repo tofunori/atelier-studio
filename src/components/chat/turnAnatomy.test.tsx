@@ -6,7 +6,7 @@ import { act, cleanup, fireEvent, screen } from "@testing-library/react";
 vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn(async () => null), isTauri: () => false }));
 
 import Chat from "../Chat";
-import { ThinkingShimmer } from "./turnParts";
+import { LiveThinking, ThinkingBlock, ThinkingShimmer } from "./turnParts";
 import { renderUi, resetTestState } from "../../test/render";
 import { events, FIXED_TS } from "../../test/fixtures";
 import { setLanguage, t } from "../../lib/i18n";
@@ -42,6 +42,17 @@ beforeEach(() => { resetTestState(); setLanguage("fr"); });
 afterEach(cleanup);
 
 describe("anatomie du tour — header d'activité", () => {
+  it("affiche la même icône de réflexion dans l'état actif et le bloc repliable", () => {
+    const { rerender } = renderUi(<LiveThinking />);
+    expect(document.querySelector(".thinking-live-indicator > .thinking-icon[aria-hidden='true']")).toBeTruthy();
+
+    rerender(<ThinkingBlock text="Je vérifie les éléments utiles." live={false} />);
+    const head = document.querySelector(".thinking-head") as HTMLButtonElement;
+    expect(head.firstElementChild?.classList.contains("thinking-icon")).toBe(true);
+    expect(head.lastElementChild?.classList.contains("tool-tick")).toBe(true);
+    expect(head.getAttribute("aria-expanded")).toBe("false");
+  });
+
   it("cadence le reflet Thinking : délai de 600 ms, passage de 650 ms, puis toutes les 4 s", () => {
     vi.useFakeTimers();
     try {

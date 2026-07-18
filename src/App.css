@@ -2296,12 +2296,14 @@ button.ctx-ring-wrap { border: none; font: inherit; color: inherit;
 /* ===== thinking (raisonnement du modèle) ===== */
 .thinking { margin: 2px 0; }
 .thinking-head { appearance: none; background: transparent; border: none; display: flex;
-  align-items: baseline; gap: 6px; padding: 2px 0; cursor: pointer; font: inherit;
+  align-items: center; gap: 7px; padding: 2px 0; cursor: pointer; font: inherit;
   font-size: var(--fs-m); color: var(--muted); max-width: 100%; text-align: left; }
+.thinking-icon { width: 17px; height: 17px; flex: none; color: currentColor; }
 .thinking-label { font-style: italic; flex: none; }
 .thinking.live .thinking-label { animation: pulse 1.4s ease-in-out infinite; }
 .thinking-preview { color: var(--muted2); font-style: italic; overflow: hidden;
   text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.thinking-head .tool-tick { flex: none; margin-left: 1px; }
 .thinking-body { margin: 4px 0 6px 18px; padding: 8px 12px; border-left: 2px solid var(--border2);
   color: var(--muted); font-size: var(--fs-l); font-style: italic; white-space: pre-wrap;
   line-height: 1.55; }
@@ -2315,7 +2317,7 @@ button.ctx-ring-wrap { border: none; font: inherit; color: inherit;
 .reasoning-trace-body { margin: 4px 0 6px; padding: 7px 10px; border-left: 1px solid var(--border2);
   color: var(--muted); font-size: var(--fs-m); white-space: pre-wrap; line-height: 1.5; }
 .thinking-live-indicator { margin: 2px 0 6px; padding: 2px 0; color: var(--muted);
-  font-size: var(--fs-l); font-style: normal; }
+  display: flex; align-items: center; gap: 8px; font-size: var(--fs-l); font-style: normal; }
 /* ChatGPT/Codex : une seconde copie du mot traverse un masque étroit.
    Un passage dure 650 ms, puis le libellé reste calme jusqu'à la cadence suivante. */
 .thinking-shimmer {
