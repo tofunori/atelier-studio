@@ -16,7 +16,10 @@ function labelFor(part: string, sources: KbSource[]): string | null {
     : `source ${id.slice(0, 6)}`;
   const clean = short.replace(/[[\]()]/g, " ").replace(/\s+/g, " ").trim();
   const label = loc ? `${clean} · ${loc.trim()}` : clean;
-  return `[${label}](#atelier-kb-src?id=${id})`;
+  const anchor = loc
+    ? `#atelier-kb-src?id=${id}&loc=${encodeURIComponent(loc.trim())}`
+    : `#atelier-kb-src?id=${id}`;
+  return `[${label}](${anchor})`;
 }
 
 export function decorateKbCites(text: string, sources: KbSource[]): string {

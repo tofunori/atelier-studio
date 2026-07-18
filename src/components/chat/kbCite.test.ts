@@ -14,7 +14,7 @@ const SOURCES = [
 describe("decorateKbCites", () => {
   it("remplace l'id par le titre réel, avec la localisation", () => {
     const out = decorateKbCites("Règle X ✓ [kb:1d00b498 · p.4].", SOURCES);
-    expect(out).toContain("[Abstract Dos and Don'ts: AGU26 Ed… · p.4](#atelier-kb-src?id=1d00b498)");
+    expect(out).toContain("[Abstract Dos and Don'ts: AGU26 Ed… · p.4](#atelier-kb-src?id=1d00b498&loc=p.4)");
     expect(out).not.toContain("[kb:1d00b498");
   });
 

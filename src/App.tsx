@@ -46,7 +46,8 @@ import { loadSettings, saveSettings, Settings, ProviderId, DEFAULT_SETTINGS } fr
 import { ProviderInfo } from "./lib/providers";
 import { THEME_PRESETS, presetById } from "./lib/themes";
 import { setLanguage, t } from "./lib/i18n";
-import { kbSourcesSnapshot } from "./lib/kbSources";
+import { kbSourcesSnapshot, requestKbSources } from "./lib/kbSources";
+import { openFileRef } from "./components/chat/md";
 import { buildItems } from "./lib/palette";
 import type { Automation } from "./lib/automations";
 import { setDockBadge } from "./lib/dockBadge";
@@ -1056,6 +1057,50 @@ export default function App() {
     const openPassage = () => switchToSurface("biblio");
     window.addEventListener("chat-open-zotero-passage", openPassage);
     return () => window.removeEventListener("chat-open-zotero-passage", openPassage);
+  }, []);
+
+  // Citations kb cliquées (plan 052) : ouvrir la source À L'ENDROIT cité
+  // quand on le connaît — reader Zotero à la page, browser (web / YouTube à
+  // t=), éditeur pour fichiers/dossiers — sinon la surface Connaissances.
+  useEffect(() => {
+    const onCiteOpen = (e: Event) => {
+      const { id, loc } = (e as CustomEvent).detail as { id?: string | null; loc?: string | null };
+      if (!id) return;
+      const source = kbSourcesSnapshot().find((s) => s.id === id);
+      if (!source) {
+        requestKbSources({ force: true });
+        switchToSurface("connaissances");
+        return;
+      }
+      const meta = (source.meta ?? {}) as Record<string, unknown>;
+      if (source.kind === "zotero" && typeof meta.zoteroKey === "string"
+        && typeof meta.pdfKey === "string" && typeof meta.pdfFile === "string") {
+        const page = Number(/^p\.(\d+)/.exec(loc ?? "")?.[1] ?? 1);
+        window.dispatchEvent(new CustomEvent("chat-open-zotero-passage", {
+          detail: { key: meta.zoteroKey, pdfKey: meta.pdfKey, pdfFile: meta.pdfFile, page, quote: "" },
+        }));
+        return;
+      }
+      if ((source.kind === "web" || source.kind === "youtube") && source.origin) {
+        let url = source.origin;
+        if (source.kind === "youtube") {
+          const mmss = /^(\d+):(\d{2})/.exec(loc ?? "");
+          const seconds = mmss ? Number(mmss[1]) * 60 + Number(mmss[2]) : 0;
+          if (seconds) url = `${url}${url.includes("?") ? "&" : "?"}t=${seconds}s`;
+        }
+        switchToSurface("browser");
+        // la surface peut monter à l'instant : laisser son listener s'installer
+        window.setTimeout(() => {
+          window.dispatchEvent(new CustomEvent("browser-open-url", { detail: { url } }));
+        }, 250);
+        return;
+      }
+      if (source.kind === "file" && source.origin) { openFileRef(source.origin); return; }
+      if (source.kind === "folder" && source.origin && loc) { openFileRef(`${source.origin}/${loc}`); return; }
+      switchToSurface("connaissances");
+    };
+    window.addEventListener("kb-cite-open", onCiteOpen);
+    return () => window.removeEventListener("kb-cite-open", onCiteOpen);
   }, []);
   const galleryBridgeRef = useRef<GalleryCommandBridge | null>(null);
   useEffect(() => {
