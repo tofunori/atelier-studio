@@ -359,7 +359,7 @@ pub fn browser_bounds(
     Ok(())
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn browser_capture_selection(
     app: AppHandle,
     label: Option<String>,
@@ -386,7 +386,7 @@ pub fn browser_capture_selection(
     })
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn browser_capture_page(
     app: AppHandle,
     label: Option<String>,
