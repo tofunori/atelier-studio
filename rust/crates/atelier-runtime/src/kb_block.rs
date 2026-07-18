@@ -184,7 +184,7 @@ pub fn with_kb_block(prompt: String, tool_path: &Path, entries: &[KbEntry], gbra
         return prompt;
     }
     let mut block = String::from(
-        "<atelier-kb>\nSources attachées par l'utilisateur (base de connaissances Atelier).\n\n",
+        "<atelier-kb>\nSources attachées par l'utilisateur à CETTE conversation (base de connaissances Atelier). Quand l'utilisateur parle de « ma référence », « mon article », « mes sources » ou demande ce que tu vois comme documents, il s'agit d'abord des sources listées ici — nomme-les.\n\n",
     );
     for entry in entries {
         let Some(text) = &entry.text else { continue };

@@ -41,7 +41,11 @@ export function withKbBlock(prompt, { toolPath, entries = [], gbrain = false } =
   const valid = entries.filter((entry) => entry && entry.id);
   if (!valid.length && !gbrain) return base;
 
-  let block = "<atelier-kb>\nSources attachées par l'utilisateur (base de connaissances Atelier).\n\n";
+  // L'en-tête désambiguïse face aux autres mécanismes (sélection PDF,
+  // <zotero-reference>…) : « mon article / ma référence / mes sources »
+  // désigne d'abord CES sources — vu en réel, l'agent partait sinon
+  // chercher du côté Zotero et niait voir quoi que ce soit.
+  let block = "<atelier-kb>\nSources attachées par l'utilisateur à CETTE conversation (base de connaissances Atelier). Quand l'utilisateur parle de « ma référence », « mon article », « mes sources » ou demande ce que tu vois comme documents, il s'agit d'abord des sources listées ici — nomme-les.\n\n";
   for (const entry of valid) {
     if (!entry.inline) continue;
     // titre assaini aussi : un titre web/YouTube contrôlé par un tiers ne doit
