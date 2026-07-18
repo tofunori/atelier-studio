@@ -233,7 +233,11 @@ export function ComposerControls(p: {
                 const WINDOW = p.usage.window
                   ?? (model.includes("[1m]") ? 1_000_000
                     : /^grok-4\.5\b/.test(model) ? 500_000
-                    : /(^|\/)kimi-k3\b/.test(model) ? 1_000_000
+                    // ids Kimi réels : `kimi-code/k3` (1M) et
+                    // `kimi-code/kimi-for-coding*` (262 144) — maxContextSize
+                    // du `kimi provider list --json` 0.26.0
+                    : /(^|\/)(kimi-)?k3\b/.test(model) ? 1_000_000
+                    : /(^|\/)kimi-for-coding/.test(model) ? 262_144
                     : 200_000);
                 const pct = Math.min(100, Math.round((p.usage.context / WINDOW) * 100));
                 const r = 6.5, c = 2 * Math.PI * r;

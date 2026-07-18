@@ -46,6 +46,29 @@ import process from "node:process";
 // suit alors en argv[3] ou retombe sur l'env.
 const argvMode = process.argv[2] === "acp" ? process.argv[3] : process.argv[2];
 const MODE = argvMode || process.env.FAKE_KIMI_MODE || "nominal";
+
+// `kimi provider list --json` : catalogue modèles hors ACP (discovery sans
+// quota). Shape vérifié contre le binaire 0.26.0 configuré (2026-07-18) :
+// capabilities par modèle, dont `thinking`/`always_thinking`.
+// FAKE_KIMI_EMPTY_CATALOG=1 simule un CLI sans provider configuré.
+if (process.argv[2] === "provider" && process.argv[3] === "list") {
+  const empty = process.env.FAKE_KIMI_EMPTY_CATALOG === "1" || MODE === "auth_required";
+  process.stdout.write(JSON.stringify(empty ? { providers: {}, models: {} } : {
+    providers: { "managed:kimi-code": { type: "kimi" } },
+    models: {
+      "kimi-code/kimi-for-coding": {
+        displayName: "K2.7 Coding",
+        capabilities: ["thinking", "always_thinking", "tool_use"],
+      },
+      "kimi-code/k3": {
+        displayName: "K3",
+        capabilities: ["thinking", "always_thinking", "tool_use"],
+      },
+      "kimi-code/no-think": { displayName: "No Think", capabilities: ["tool_use"] },
+    },
+  }) + "\n");
+  process.exit(0);
+}
 const FRAGMENT = process.env.FAKE_KIMI_FRAGMENT === "1";
 const LATE_MS = Number(process.env.FAKE_KIMI_LATE_MS || 250);
 const VERSION = MODE === "old_version" ? "0.20.0" : "0.26.0";
