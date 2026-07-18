@@ -1111,8 +1111,9 @@ export default function App() {
         if (galleryOrigin) {
           const page = /^p\.(\d+)/.exec(loc ?? "")?.[1];
           const params = new URLSearchParams();
-          params.set("file", `kb/${source.id}.pdf`);
-          params.set("path", `${galleryOrigin}/kb-pdf/${source.id}`);
+          // le viewer charge toujours "/" + file — le rel DOIT être la route
+          // (le flux Zotero fonctionne par la même coïncidence assumée)
+          params.set("file", `kb-pdf/${source.id}`);
           if (page) params.set("page", page);
           const tabId = crypto.randomUUID();
           setAtelierTabs((tabs) => [...tabs, {
