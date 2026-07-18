@@ -11,7 +11,7 @@
   <img alt="Rust-first runtime" src="https://img.shields.io/badge/runtime-Rust--first-e8823a?style=flat-square&logo=rust&logoColor=white">
   <img alt="Tauri 2" src="https://img.shields.io/badge/Tauri-2-242a32?style=flat-square&logo=tauri&logoColor=white">
   <img alt="React 19" src="https://img.shields.io/badge/React-19-242a32?style=flat-square&logo=react&logoColor=79a7ff">
-  <img alt="Release 1.3.1" src="https://img.shields.io/badge/release-1.3.1-2f6f4e?style=flat-square">
+  <img alt="Release 1.3.5" src="https://img.shields.io/badge/release-1.3.5-2f6f4e?style=flat-square">
 </p>
 
 Atelier Studio keeps the working memory of a research project in one native macOS environment: agent conversations, papers, figures, code, terminals, annotations, project files, and verification state. Instead of moving fragments between unrelated tools, you can ask, inspect, organize, and produce inside the same project context.
@@ -107,7 +107,7 @@ The desktop backend is Rust-first. The packaged app also embeds a pinned Node 22
 
 ## Install
 
-1. Download `Atelier_1.3.1_aarch64.dmg` from the [latest release](https://github.com/tofunori/atelier-studio/releases).
+1. Download `Atelier_1.3.5_aarch64.dmg` from the [latest release](https://github.com/tofunori/atelier-studio/releases).
 2. Drag **Atelier** into **Applications**.
 3. Launch it and select a research project folder.
 

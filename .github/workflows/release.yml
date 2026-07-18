@@ -65,13 +65,14 @@ jobs:
           tagName: ${{ github.ref_name }}
           releaseName: "Atelier Studio ${{ github.ref_name }}"
           releaseBody: |
-            Atelier Studio 1.3.1 adds scheduled agent automations, a read-only
-            Narval/Slurm monitor, richer Codex activity and native commands,
-            fullscreen Mermaid diagrams, AppSnap image context, expanded gallery
-            actions, unified CodeMirror review surfaces, and a broad shadcn/Base UI
-            refinement across desktop and mobile.
+            Atelier Studio 1.3.5 adds a complete Knowledge Base surface with
+            source capture and citation-aware answers, Kimi as a native ACP
+            provider (including Kimi K3 with a 1M context ring), OpenCode over a
+            shared Rust ACP client, a fully annotatable SyncTeX-linked PDF tab in
+            the LaTeX studio, faster packaged startup, a reorganized rail, and
+            sccache-backed build tooling.
 
-            See `docs/releases/v1.3.1.md` in the repository for the complete
+            See `docs/releases/v1.3.5.md` in the repository for the complete
             release notes, upgrade guidance, validation coverage, and known limits.
 
             **Platform:** macOS on Apple Silicon.
