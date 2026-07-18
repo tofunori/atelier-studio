@@ -345,11 +345,9 @@ export default function BrowserTab(p: {
     const grab = (maxChars: number) =>
       invoke<BrowserCapture>("browser_capture_page", { label: activeTab.label, maxChars })
         .catch(() => null);
-    // Canal titre : 100k d'abord ; WebKit refuse silencieusement les titres
-    // très longs → retente à 24k puis 8k (pages lourdes, login, SPA lentes).
-    let capture = await grab(100000);
-    if (!capture?.text?.trim()) capture = await grab(24000);
-    if (!capture?.text?.trim()) capture = await grab(8000);
+    // Canal chunké (WebKit tronque les titres à 1000 car.) : un seul appel,
+    // le Rust réassemble — plafond 24k, kb-search fouille au-delà.
+    const capture = await grab(24000);
     const url = capture?.url || activeTab.url || "";
     if (!url) {
       setKbFlash("err");

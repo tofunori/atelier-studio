@@ -973,7 +973,9 @@ export default function Chat(p: {
           toggleFavModel, attachFiles,
         }}
         context={{ attachments: p.attachments, onRemoveAttachment: p.onRemoveAttachment, onOpenPaste: setPasteView }}
-        kb={p.threadId && p.onKbChange ? {
+        kb={p.onKbChange ? {
+          // sans thread actif (boot, accueil) : liaison « en attente » portée
+          // par App, transférée au fil dès sa création (plan 050)
           attached: p.kbSourceIds ?? [],
           fullContent: p.kbFullContent ?? [],
           onChange: p.onKbChange,

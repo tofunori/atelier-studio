@@ -2062,6 +2062,8 @@ export default function App() {
 
   function createChat(projectRoot: string, provider: string) {
     const id = crypto.randomUUID();
+    // sélection KB faite avant toute conversation : adoptée par le fil créé
+    const kbInit = consumePendingKb({ id, provider, projectRoot, title: t("app.new-chat-title") });
     setDraftThreads((p) => [
       {
         id,
@@ -2071,6 +2073,7 @@ export default function App() {
         sessionId: null,
         status: "idle" as const,
         updatedAt: new Date().toISOString(),
+        ...kbInit,
       },
       ...p,
     ]);
@@ -2334,7 +2337,11 @@ export default function App() {
       // méta KB fidèle à l'envoi (plan 049) : sources attachées à CE moment,
       // titres depuis le cache kbSources (repli sur l'id si pas encore chargé)
       ...(() => {
-        const kbIds = Array.isArray(activeThread?.kbSourceIds) ? activeThread.kbSourceIds : [];
+        // premier message d'un chat neuf : la sélection encore « en attente »
+        // compte aussi (elle sera transférée au fil créé dans ce même envoi)
+        const kbIds = Array.isArray(activeThread?.kbSourceIds) && activeThread.kbSourceIds.length
+          ? activeThread.kbSourceIds
+          : (!activeIdRef.current ? pendingKbRef.current.kbSourceIds : []);
         if (!kbIds.length) return {};
         const known = kbSourcesSnapshot();
         return {
@@ -2366,6 +2373,10 @@ export default function App() {
     // pas de thread sélectionné → en créer un à la volée
     if (!id) {
       id = crypto.randomUUID();
+      // sélection KB « en attente » (accueil/boot) adoptée par ce fil
+      const kbInit = consumePendingKb({
+        id, provider, projectRoot: activeProject ?? "", title: displayPrompt.slice(0, 40),
+      });
       setDraftThreads((p) => [
         {
           id: id as string,
@@ -2375,6 +2386,7 @@ export default function App() {
           sessionId: null,
           status: "idle" as const,
           updatedAt: new Date().toISOString(),
+          ...kbInit,
         },
         ...p,
       ]);
@@ -2583,9 +2595,28 @@ export default function App() {
   // picker du composer et la surface Connaissances. Optimiste sur threads ET
   // brouillons ; upsert COMPLET (un patch minimal sur un brouillon inconnu du
   // backend ferait normaliser provider→claude et perdrait le projet).
+  // Sans conversation active (boot, accueil) : la sélection vit « en
+  // attente » et se transfère au fil dès sa création.
+  const [pendingKb, setPendingKb] = useState<{ kbSourceIds: string[]; kbFullContent: string[] }>(
+    { kbSourceIds: [], kbFullContent: [] },
+  );
+  const pendingKbRef = useRef(pendingKb);
+  pendingKbRef.current = pendingKb;
+  function consumePendingKb(thread: { id: string; provider: string; projectRoot: string; title: string }) {
+    const pending = pendingKbRef.current;
+    if (!pending.kbSourceIds.length && !pending.kbFullContent.length) return {};
+    setPendingKb({ kbSourceIds: [], kbFullContent: [] });
+    if (ws.current?.readyState === 1) {
+      ws.current.send(JSON.stringify({ type: "upsertThread", thread: { ...thread, ...pending } }));
+    }
+    return pending;
+  }
   function handleKbChange(next: { kbSourceIds: string[]; kbFullContent: string[] }) {
     const id = activeIdRef.current;
-    if (!id) return;
+    if (!id) {
+      setPendingKb(next);
+      return;
+    }
     setThreads((current) => current.map((th) => (th.id === id ? { ...th, ...next } : th)));
     setDraftThreads((current) => current.map((th) => (th.id === id ? { ...th, ...next } : th)));
     if (ws.current?.readyState === 1) {
@@ -3057,8 +3088,8 @@ export default function App() {
           projectName={displayProjectName}
           threadTitle={activeId ? (allThreads.find((th) => th.id === activeId)?.title ?? "") : ""}
           threadProvider={activeId ? (allThreads.find((th) => th.id === activeId)?.provider ?? "") : ""}
-          kbSourceIds={activeId ? (allThreads.find((th) => th.id === activeId)?.kbSourceIds ?? []) : []}
-          kbFullContent={activeId ? (allThreads.find((th) => th.id === activeId)?.kbFullContent ?? []) : []}
+          kbSourceIds={activeId ? (allThreads.find((th) => th.id === activeId)?.kbSourceIds ?? []) : pendingKb.kbSourceIds}
+          kbFullContent={activeId ? (allThreads.find((th) => th.id === activeId)?.kbFullContent ?? []) : pendingKb.kbFullContent}
           onKbChange={handleKbChange}
           highlights={highlights}
           defaults={settings as any}
@@ -3312,11 +3343,15 @@ export default function App() {
               onToggleExpand={() => setLayout((l) => (l === "atelier" ? "split" : "atelier"))}
               projectRoot={activeProject ?? ""}
               activeThreadId={activeId}
-              kbBinding={activeId ? {
-                attached: allThreads.find((th) => th.id === activeId)?.kbSourceIds ?? [],
-                fullContent: allThreads.find((th) => th.id === activeId)?.kbFullContent ?? [],
+              kbBinding={{
+                attached: activeId
+                  ? (allThreads.find((th) => th.id === activeId)?.kbSourceIds ?? [])
+                  : pendingKb.kbSourceIds,
+                fullContent: activeId
+                  ? (allThreads.find((th) => th.id === activeId)?.kbFullContent ?? [])
+                  : pendingKb.kbFullContent,
                 onChange: handleKbChange,
-              } : null}
+              }}
               kbThreadTitle={activeId ? (allThreads.find((th) => th.id === activeId)?.title ?? "") : ""}
               files={files}
               onReorderTabs={(ids) => {
