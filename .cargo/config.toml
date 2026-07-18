@@ -1,0 +1,10 @@
+# Keep each worktree's Cargo outputs local, but reuse compiler results through
+# sccache when it is installed. The wrapper falls back to rustc so a fresh
+# checkout remains buildable before sccache is installed.
+[build]
+rustc-wrapper = "scripts/rustc-sccache-wrapper.sh"
+incremental = false
+
+[env]
+# sccache defaults to 10 GiB, but pin the ceiling for reproducible local setup.
+SCCACHE_CACHE_SIZE = { value = "10G", force = false }
