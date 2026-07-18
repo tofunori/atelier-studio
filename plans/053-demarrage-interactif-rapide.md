@@ -552,7 +552,7 @@ d'incident reste un constat humain quotidien à inscrire ci-dessous :
 
 | Jour | Date locale | Runs éligibles | Santé/visuel | Incident ouvert |
 |---|---|---:|---|---|
-| J0 | 2026-07-18 | 25 (20 warm + 5 cold) | app + sidecar + gateway uniques, health vert, UI visible | aucun |
+| J0 | 2026-07-18 | 27 (21 warm + 6 cold) | app + sidecar + gateway uniques, health vert, UI visible | aucun |
 | J1 | — | — | — | — |
 | J2 | — | — | — | — |
 
@@ -606,23 +606,40 @@ d'incident reste un constat humain quotidien à inscrire ci-dessous :
 
 ### Baseline avant
 
-- Commit / bundle : worktree basé sur `d730d166` ; bundle intermédiaire P0
-  instrumenté mais non conservé. La provenance du checkout est certaine, son
-  SHA-256 de bundle ne peut donc pas être reporté rétrospectivement.
+- Reconstruction en worktree détaché au commit historique `d730d166`, avec P0
+  seulement ajouté à l'ancien bootstrap séquentiel. Le worktree temporaire a
+  été supprimé après mesure. Binaire `tauri-app` SHA-256
+  `01fe3075172bd2d87efa445b13dca19c1464454628486360e867cb1b4ad426b5` ;
+  diff d'instrumentation SHA-256
+  `3f16f0f500953ca979ed0890978e59ca62f40fe34710cf59508425ccd92f8329`.
+  Les 16 runs bruts sont conservés dans
+  [`053-baseline-boot-metrics.json`](053-baseline-boot-metrics.json).
 - Machine / macOS : MacBook Pro de Thierry, macOS 26.5 (25F71).
-- Warm : `n=1`, chemin historique `legacy-http|in-process`; UI hydratée
-  6,731 s, React commité 6,773 s, FMP 37,076 s et WS 37,868 s. Un seul run ne
-  définit pas un p50/p95 représentatif.
-- Cold : `n=1`, chemin historique `legacy-http|spawn`; sidecar 7,655 s, React
-  7,733 s et WS 38,722 s. Le FMP n'a pas été persisté avant l'arrêt du run.
-- Post-build : la trace a montré `start_atelier` et le scan d'artefacts sur le
-  chemin synchrone pendant environ 31 s ; cette observation a déclenché P4.
-- Tailscale indisponible : non forcé sur le profil réel afin de ne pas couper le
-  réseau utilisateur. L'échec reste isolé dans la tâche gateway détachée ; le
-  scénario natif contrôlé reste ouvert dans la matrice.
-- Limitation : la baseline historique n'a pas atteint les 10 warm + 5 cold
-  demandés. Elle est conservée telle quelle, sans inventer de quantiles ; les
-  échantillons d'acceptation après changement sont complets.
+- Warm historique (`n=10`, secondes, min / p50 / p95 / max) :
+
+  | Mesure | min | p50 | p95 | max |
+  |---|---:|---:|---:|---:|
+  | FMP | 1,333 | 1,602 | 1,759 | 1,759 |
+  | sidecar | 1,237 | 1,483 | 1,661 | 1,661 |
+  | WS | 2,582 | 2,768 | 3,270 | 3,270 |
+  | galerie | 1,370 | 1,630 | 1,805 | 1,805 |
+
+- Cold historique (`n=5`, secondes, min / p50 / p95 / max) :
+
+  | Mesure | min | p50 | p95 | max |
+  |---|---:|---:|---:|---:|
+  | FMP | 6,208 | 6,278 | 8,379 | 8,379 |
+  | sidecar | 6,107 | 6,174 | 8,213 | 8,213 |
+  | WS | 8,283 | 9,496 | 39,125 | 39,125 |
+  | galerie (`n=4`) | 7,562 | 7,767 | 12,260 | 12,260 |
+
+- Post-build historique : le cold le plus lent reproduit le chemin synchrone
+  ancien avec FMP 8,379 s et WS 39,125 s. Cette mesure remplace l'ancienne
+  trace diagnostique isolée et fournit les quantiles requis.
+- Tailscale indisponible : exécution historique supplémentaire (`n=1`) dans un
+  sandbox refusant uniquement la CLI Tailscale, sans couper le réseau réel :
+  FMP 1,044 s, sidecar 0,966 s, galerie 7,017 s et WS 7,056 s. Seule la tâche
+  gateway a journalisé l'indisponibilité.
 
 ### Résultats après
 
@@ -655,10 +672,10 @@ d'incident reste un constat humain quotidien à inscrire ci-dessous :
 - Première ouverture post-build finale : FMP 1,696 s, sidecar 1,754 s,
   WS 1,818 s, galerie 1,780 s ; convergence totale < 2 s, donc PASS sous le
   contrat TCC de 30 s.
-- Gain first paint : indicatif, car la baseline avant ne contient qu'un warm :
-  37,076 s avant contre 0,973 s au p95 final (environ -97,4 %).
-- Effet sur `wsReady` : 37,868 s sur l'unique warm historique contre 1,052 s
-  au p95 final (environ -97,2 %), sans raccourcir les retries health/TCC.
+- Gain first paint p95 : warm 1,759 s -> 0,973 s (-44,7 %) ; cold 8,379 s ->
+  1,696 s (-79,8 %).
+- Effet sur `wsReady` p95 : warm 3,270 s -> 1,052 s (-67,8 %) ; cold
+  39,125 s -> 3,308 s (-91,5 %), sans raccourcir les retries health/TCC.
 - Galerie P4 modifiée : oui. La trace initiale montrait environ 31 s de travail
   synchrone. La galerie visible démarre au frame suivant ; cachée, elle attend
   `wsReady` puis l'idle callback (fallback 1 s). Les tests couvrent les deux
@@ -688,7 +705,7 @@ d'incident reste un constat humain quotidien à inscrire ci-dessous :
   (`errSecInternalComponent`) et le fallback sans signature a produit l'app ;
   seul `bundle_dmg.sh` a terminé en erreur cosmétique.
 - Métriques : `boot-metrics.json` est en mode 0600, schéma v1, borné à 100
-  runs. Depuis `2026-07-18T16:46:06.738Z`, 25 runs sont datés nativement ; les
+  runs. Depuis `2026-07-18T16:46:06.738Z`, 27 runs sont datés nativement ; les
   anciens runs sans date ne comptent pas pour la preuve calendaire. Aucune
   occurrence des champs interdits token/port/projet/thread/prompt/modèle.
 - Preuve visuelle : capture native du bundle final après focus, interface
