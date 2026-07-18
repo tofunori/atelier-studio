@@ -510,6 +510,61 @@ describe("base de connaissances — CLI", () => {
     expect(store.list()).toHaveLength(0);
   });
 
+  it("promote-page : aperçu avec slug proposé, existence sondée, jamais d'écriture sans --write", async () => {
+    const dir = tmp();
+    const calls = [];
+    const runGbrain = (args, opts) => {
+      calls.push({ args, input: opts?.input });
+      if (args[0] === "get") return "Error [page_not_found]: Page not found: x\n";
+      return "ok";
+    };
+    const added = await runKbCommand([
+      "add", "--dir", dir, "--kind", "note", "--title", "Décisions — chapitre 2 (été)", "--text", LONG_NOTE,
+    ]);
+    const preview = await runKbCommand(
+      ["promote-page", "--dir", dir, "--id", added.source.id],
+      { runGbrain },
+    );
+    expect(preview.slug).toBe("atelier/decisions-chapitre-2-ete");
+    expect(preview.exists).toBe(false);
+    expect(preview.preview).toContain("from: atelier");
+    expect(preview.preview).toContain(LONG_NOTE.slice(0, 40));
+    // aperçu = un seul get, aucun put
+    expect(calls.map((c) => c.args[0])).toEqual(["get"]);
+
+    const written = await runKbCommand(
+      ["promote-page", "--dir", dir, "--id", added.source.id, "--slug", "atelier/decisions-v2", "--write"],
+      { runGbrain },
+    );
+    expect(written).toMatchObject({ ok: true, written: true, slug: "atelier/decisions-v2", updated: false });
+    const put = calls.find((c) => c.args[0] === "put");
+    expect(put.args).toEqual(["put", "atelier/decisions-v2"]);
+    expect(put.input).toContain('title: "Décisions — chapitre 2 (été)"');
+    expect(put.input).toContain(LONG_NOTE);
+  });
+
+  it("promote-page : slug existant signalé, write → updated:true ; slug invalide refusé", async () => {
+    const dir = tmp();
+    const runGbrain = (args) => (args[0] === "get" ? "---\ntitle: x\n---\ncontenu existant" : "ok");
+    const added = await runKbCommand([
+      "add", "--dir", dir, "--kind", "note", "--title", "Existante", "--text", LONG_NOTE,
+    ]);
+    const preview = await runKbCommand(
+      ["promote-page", "--dir", dir, "--id", added.source.id],
+      { runGbrain },
+    );
+    expect(preview.exists).toBe(true);
+    const written = await runKbCommand(
+      ["promote-page", "--dir", dir, "--id", added.source.id, "--write"],
+      { runGbrain },
+    );
+    expect(written.updated).toBe(true);
+    await expect(runKbCommand(
+      ["promote-page", "--dir", dir, "--id", added.source.id, "--slug", "slug avec espaces"],
+      { runGbrain },
+    )).rejects.toThrow(/Slug invalide/);
+  });
+
   it("--text - lit le contenu sur stdin (gros textes, capture browser)", async () => {
     const dir = tmp();
     const { Readable } = await import("node:stream");

@@ -57,6 +57,7 @@ pub const ALL_MESSAGE_TYPES: &[&str] = &[
     "kbList",
     "kbRemove",
     "kbPromote",
+    "kbPromotePage",
     "gbrainSearch",
     "generateImage",
     "apiProviders",
@@ -558,6 +559,7 @@ pub async fn route_ws(state: &AppState, text: &str) -> Vec<String> {
         "kbRemove" => handle_kb_remove(state, &msg).await,
         "kbPromote" => handle_kb_promote(state, &msg).await,
         "gbrainSearch" => handle_gbrain_search(state, &msg),
+        "kbPromotePage" => handle_kb_promote_page(state, &msg),
         "generateImage" => handle_generate_image(state, &msg).await,
         "apiProviders" => {
             let list = list_api_providers_public(state.app_dir());
@@ -1534,6 +1536,44 @@ fn handle_gbrain_search(state: &AppState, msg: &Value) -> Vec<String> {
         Err(e) => vec![json_msg(
             json!({"type": "gbrainResults", "query": query, "results": [], "error": e}),
         )],
+    }
+}
+
+/// Page directe gbrain (plan 050 P4) — relais du CLI `promote-page` :
+/// aperçu sans `--write`, écriture uniquement sur confirmation UI.
+fn handle_kb_promote_page(state: &AppState, msg: &Value) -> Vec<String> {
+    let id = msg.get("id").and_then(|v| v.as_str()).unwrap_or("");
+    if id.is_empty() {
+        return kb_error("kbPromotePage: id requis".into());
+    }
+    let slug = msg.get("slug").and_then(|v| v.as_str()).unwrap_or("");
+    let write = msg.get("write").and_then(Value::as_bool).unwrap_or(false);
+    let mut args = vec!["promote-page", "--id", id];
+    if !slug.is_empty() {
+        args.extend_from_slice(&["--slug", slug]);
+    }
+    if write {
+        args.push("--write");
+    }
+    match kb_cli_run(state.server_dir(), state.app_dir(), &args, "") {
+        Ok(v) if v.get("written").and_then(Value::as_bool) == Some(true) => {
+            vec![json_msg(json!({
+                "type": "kbPageWritten",
+                "id": v.get("id").cloned().unwrap_or(json!(id)),
+                "slug": v.get("slug").cloned().unwrap_or(json!(null)),
+                "updated": v.get("updated").cloned().unwrap_or(json!(false)),
+            }))]
+        }
+        Ok(v) => vec![json_msg(json!({
+            "type": "kbPagePreview",
+            "id": v.get("id").cloned().unwrap_or(json!(id)),
+            "slug": v.get("slug").cloned().unwrap_or(json!(null)),
+            "exists": v.get("exists").cloned().unwrap_or(json!(false)),
+            "title": v.get("title").cloned().unwrap_or(json!(null)),
+            "chars": v.get("chars").cloned().unwrap_or(json!(null)),
+            "preview": v.get("preview").cloned().unwrap_or(json!("")),
+        }))],
+        Err(e) => kb_error(e),
     }
 }
 
@@ -2779,6 +2819,21 @@ mod tests {
         let v: Value = serde_json::from_str(&out[0]).unwrap();
         assert_eq!(v["type"], "gbrainResults");
         assert!(v["error"].as_str().unwrap().contains("kb_cli.mjs introuvable"));
+    }
+
+    #[tokio::test]
+    async fn kb_promote_page_erreurs_propres() {
+        let dir = tempdir().unwrap();
+        let s = state(dir.path());
+        let out = route_ws(&s, r#"{"type":"kbPromotePage"}"#).await;
+        let v: Value = serde_json::from_str(&out[0]).unwrap();
+        assert_eq!(v["type"], "kbError");
+        assert!(v["message"].as_str().unwrap().contains("id requis"));
+        // server_dir=/tmp sans kb_cli.mjs → kbError explicite, jamais d'écriture
+        let out = route_ws(&s, r#"{"type":"kbPromotePage","id":"x","write":true}"#).await;
+        let v: Value = serde_json::from_str(&out[0]).unwrap();
+        assert_eq!(v["type"], "kbError");
+        assert!(v["message"].as_str().unwrap().contains("kb_cli.mjs introuvable"));
     }
 
     #[tokio::test]

@@ -295,10 +295,17 @@ export function resolveGbrainBin() {
   ].find((candidate) => existsSync(candidate)) ?? null;
 }
 
-export function runGbrain(args, { timeout = GBRAIN_TIMEOUT_MS } = {}) {
+// `gbrain get <slug-absent>` répond « Error [page_not_found]: … » sur stdout
+// avec exit 0 (sonde 2026-07-17) — la détection d'existence passe par là.
+export const GBRAIN_NOT_FOUND = /^Error \[page_not_found\]/m;
+
+export function runGbrain(args, { timeout = GBRAIN_TIMEOUT_MS, input } = {}) {
   const bin = resolveGbrainBin();
   if (!bin) throw new Error("gbrain introuvable (PATH, ~/.bun/bin) — corpus NAS indisponible");
-  const run = spawnSync(bin, args, { encoding: "utf8", timeout, maxBuffer: 32 * 1024 * 1024 });
+  const run = spawnSync(bin, args, {
+    encoding: "utf8", timeout, maxBuffer: 32 * 1024 * 1024,
+    ...(input !== undefined ? { input } : {}),
+  });
   if (run.error) {
     throw new Error(run.error.code === "ETIMEDOUT"
       ? "gbrain : délai dépassé (NAS injoignable ?)"
@@ -327,6 +334,73 @@ export function parseGbrainSearch(output) {
     }
   }
   return results;
+}
+
+// --- Écriture gbrain (plan 050 P4) : page directe avec garde-fous ---
+
+export function slugifyTitle(title) {
+  const base = String(title ?? "")
+    .normalize("NFKD")
+    .replace(/[̀-ͯ]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 60)
+    .replace(/-+$/g, "");
+  return base || "page";
+}
+
+const GBRAIN_SLUG_RE = /^[a-z0-9][a-z0-9/_.-]*$/i;
+const GBRAIN_PREVIEW_MAX = 4000;
+const GBRAIN_PAGE_MAX = 100_000;
+
+// Compose la page markdown (front-matter traçable) depuis le cache local.
+export function buildGbrainPage(store, id) {
+  const entry = store.get(id);
+  if (!entry) throw new Error(`Source inconnue: ${id}`);
+  const text = store.fullText(id);
+  const capped = Array.from(text);
+  const body = capped.length > GBRAIN_PAGE_MAX
+    ? `${capped.slice(0, GBRAIN_PAGE_MAX).join("")}\n[…tronqué]`
+    : text;
+  const markdown = [
+    "---",
+    `title: ${JSON.stringify(entry.title)}`,
+    `origin: ${JSON.stringify(entry.origin ?? entry.kind)}`,
+    `captured: ${new Date().toISOString().slice(0, 10)}`,
+    "from: atelier",
+    "---",
+    "",
+    body,
+    "",
+  ].join("\n");
+  return { entry, markdown };
+}
+
+// Aperçu (write=false) puis écriture (write=true) d'une page directe.
+// JAMAIS d'écrasement silencieux : l'existence du slug est vérifiée par un
+// `get` préalable et retournée à l'UI, qui redemande confirmation.
+export function promotePage(store, { id, slug, write = false } = {}, deps = {}) {
+  const run = deps.runGbrain ?? runGbrain;
+  const { entry, markdown } = buildGbrainPage(store, id);
+  const target = String(slug ?? "").trim() || `atelier/${slugifyTitle(entry.title)}`;
+  if (!GBRAIN_SLUG_RE.test(target) || /\s/.test(target)) {
+    throw new Error(`Slug invalide: ${target}`);
+  }
+  const probe = String(run(["get", target])).trim();
+  const exists = Boolean(probe) && !GBRAIN_NOT_FOUND.test(probe);
+  if (!write) {
+    const scalars = Array.from(markdown);
+    const preview = scalars.length > GBRAIN_PREVIEW_MAX
+      ? `${scalars.slice(0, GBRAIN_PREVIEW_MAX).join("")}\n[…]`
+      : markdown;
+    return { ok: true, id, slug: target, exists, title: entry.title, chars: entry.chars, preview };
+  }
+  const out = String(run(["put", target], { input: markdown }));
+  if (GBRAIN_NOT_FOUND.test(out) || /^Error \[/m.test(out)) {
+    throw new Error(out.trim().slice(0, 300));
+  }
+  return { ok: true, id, slug: target, written: true, updated: exists };
 }
 
 // Titre d'une page gbrain : front-matter YAML (`title:` inline ou plié `>-`),
@@ -522,7 +596,7 @@ export class KnowledgeStore {
       const slug = String(origin ?? "").trim();
       if (!slug || /\s/.test(slug)) throw new Error("Slug gbrain requis (--origin <slug>, sans espace)");
       const markdown = String(this.deps.runGbrain(["get", slug])).trim();
-      if (!markdown || /^(Page not found|No such page|null)$/im.test(markdown)) {
+      if (!markdown || GBRAIN_NOT_FOUND.test(markdown)) {
         throw new Error(`Page gbrain introuvable: ${slug}`);
       }
       return this.upsertEntry({

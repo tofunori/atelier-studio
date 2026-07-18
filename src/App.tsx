@@ -1417,6 +1417,13 @@ export default function App() {
       if (msg.type === "kbPromoted") {
         window.dispatchEvent(new CustomEvent("kb-source-promoted", { detail: { id: msg.id } }));
       }
+      if (msg.type === "kbPagePreview" || msg.type === "kbPageWritten") {
+        // page directe gbrain (plan 050 P4) : dialogue de la surface
+        window.dispatchEvent(new CustomEvent(
+          msg.type === "kbPagePreview" ? "kb-page-preview" : "kb-page-written",
+          { detail: msg },
+        ));
+      }
       if (msg.type === "gbrainResults") {
         // recherche du corpus NAS (plan 050 P3) — consommée par la surface
         // Connaissances ; l'échec voyage dans detail.error, en place

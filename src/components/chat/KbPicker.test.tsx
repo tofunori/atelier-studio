@@ -147,6 +147,24 @@ describe("KbPickerPanel — layout surface (plan 050)", () => {
     expect(screen.getAllByText(/sync /).length).toBeGreaterThan(0);
   });
 
+  it("page directe + destination : bouton par rangée et bascule → gbrain", () => {
+    const onPromotePage = vi.fn();
+    const onDestChange = vi.fn();
+    renderUi(
+      <KbPickerPanel
+        {...panelProps({
+          layout: "surface",
+          onPromotePage,
+          destination: { value: "local", onChange: onDestChange },
+        })}
+      />,
+    );
+    fireEvent.click(screen.getAllByLabelText("Créer une page gbrain (directe)")[0]);
+    expect(onPromotePage).toHaveBeenCalledWith(SOURCES[0].id);
+    fireEvent.click(screen.getByText("→ gbrain"));
+    expect(onDestChange).toHaveBeenCalledWith("gbrain");
+  });
+
   it("section gbrain : échec NAS affiché en place", () => {
     renderUi(
       <KbPickerPanel

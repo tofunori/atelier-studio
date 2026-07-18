@@ -167,6 +167,10 @@ export function KbPickerPanel(p: {
   onResync?: (slug: string) => void;
   /** Section « Pages gbrain » (surface seulement, plan 050 P3). */
   gbrain?: GbrainSectionProps;
+  /** Page directe gbrain (plan 050 P4) : ouvre le dialogue d'aperçu. */
+  onPromotePage?: (id: string) => void;
+  /** Destination de la zone d'ajout (surface) : base locale ou corpus. */
+  destination?: { value: "local" | "gbrain"; onChange: (value: "local" | "gbrain") => void };
 }) {
   const [query, setQuery] = useState("");
   const [noteOpen, setNoteOpen] = useState(false);
@@ -249,6 +253,20 @@ export function KbPickerPanel(p: {
               <path d="M3 14h10" />
             </svg>
           </IconButton>
+          {p.onPromotePage && (
+            <IconButton
+              size="s"
+              className="ghost"
+              label={t("kb.promote-page")}
+              title={t("kb.promote-page")}
+              onClick={() => p.onPromotePage?.(source.id)}
+            >
+              <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3">
+                <path d="M4 1.8h6l3 3v9.4a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V2.8a1 1 0 0 1 1-1z" />
+                <path d="M10 1.8v3h3M8 7.5v4M6 9.5h4" />
+              </svg>
+            </IconButton>
+          )}
           <IconButton
             size="s"
             className={`ghost kb-full ${full ? "on" : ""}`}
@@ -306,6 +324,24 @@ export function KbPickerPanel(p: {
           }}
         />
       </div>
+      {surface && p.destination && (
+        <div className="kb-dest" role="group" aria-label={t("kb.dest-label")}>
+          <RowButton
+            className={`kb-dest-opt ${p.destination.value === "local" ? "on" : ""}`}
+            title={t("kb.dest-local-title")}
+            onClick={() => p.destination?.onChange("local")}
+          >
+            {t("kb.dest-local")}
+          </RowButton>
+          <RowButton
+            className={`kb-dest-opt ${p.destination.value === "gbrain" ? "on" : ""}`}
+            title={t("kb.dest-gbrain-title")}
+            onClick={() => p.destination?.onChange("gbrain")}
+          >
+            {t("kb.dest-gbrain")}
+          </RowButton>
+        </div>
+      )}
       {noteOpen && (
         <div className="kb-note-form">
           <Input

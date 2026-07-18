@@ -964,6 +964,39 @@ describe("base de connaissances (kbAdd)", () => {
     }
   });
 
+  it("kbPromotePage : aperçu puis écriture confirmée seulement", async () => {
+    const prev = process.env.ATELIER_APP_DIR;
+    process.env.ATELIER_APP_DIR = mkdtempSync(join(tmpdir(), "atelier-kb-page-"));
+    try {
+      const sent = [];
+      const puts = [];
+      const ctx = {
+        send: (m) => sent.push(m),
+        kbDeps: { runGbrain: (args, opts) => {
+          if (args[0] === "get") return "Error [page_not_found]: Page not found\n";
+          puts.push({ args, input: opts?.input });
+          return "ok";
+        } },
+      };
+      await route({
+        type: "kbAdd", kind: "note", title: "Page à écrire",
+        text: "Contenu de note suffisamment long pour être indexé par le moteur de passages.",
+      }, ctx);
+      const id = sent[0].source.id;
+      await route({ type: "kbPromotePage", id }, ctx);
+      expect(sent[1].type).toBe("kbPagePreview");
+      expect(sent[1].slug).toBe("atelier/page-a-ecrire");
+      expect(puts).toHaveLength(0);
+      await route({ type: "kbPromotePage", id, slug: sent[1].slug, write: true }, ctx);
+      expect(sent[2]).toMatchObject({ type: "kbPageWritten", slug: "atelier/page-a-ecrire", updated: false });
+      expect(puts).toHaveLength(1);
+      expect(puts[0].input).toContain("from: atelier");
+    } finally {
+      if (prev === undefined) delete process.env.ATELIER_APP_DIR;
+      else process.env.ATELIER_APP_DIR = prev;
+    }
+  });
+
   it("gbrainSearch relaie les résultats et met l'échec NAS dans la réponse", async () => {
     const sent = [];
     const ctx = {

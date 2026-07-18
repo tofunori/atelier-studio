@@ -9,7 +9,7 @@ import { createHarnessThread } from "./harness_events.mjs";
 import { HANDOFF_END } from "./handoff.mjs";
 import { stripGalleryToolInstruction, withGalleryToolInstruction } from "./gallery_tool_prompt.mjs";
 import { stripZoteroPassageInstruction, withZoteroPassageInstruction } from "./zotero_passage_prompt.mjs";
-import { KnowledgeStore, defaultKnowledgeDir, kbBlockEntries, promoteToGbrain } from "./knowledge.mjs";
+import { KnowledgeStore, defaultKnowledgeDir, kbBlockEntries, promotePage, promoteToGbrain } from "./knowledge.mjs";
 import { runKbCommand } from "./kb_cli.mjs";
 import { withKbBlock } from "./kb_prompt.mjs";
 import * as narval from "./narval.mjs";
@@ -1071,6 +1071,22 @@ export async function route(msg, ctx) {
         const store = new KnowledgeStore(defaultKnowledgeDir());
         const { id } = promoteToGbrain(store, msg.id, ctx.kbPromoteDeps ?? {});
         ctx.send({ type: "kbPromoted", id });
+      } catch (error) {
+        ctx.send({ type: "kbError", message: error instanceof Error ? error.message : String(error) });
+      }
+      break;
+    }
+    case "kbPromotePage": {
+      // page directe gbrain (plan 050 P4) : aperçu sans write, écriture
+      // seulement sur confirmation explicite de l'UI (write: true)
+      try {
+        const store = new KnowledgeStore(defaultKnowledgeDir(), ctx.kbDeps ?? {});
+        const out = promotePage(store, {
+          id: msg.id, slug: msg.slug, write: msg.write === true,
+        }, ctx.kbDeps ?? {});
+        ctx.send(out.written
+          ? { type: "kbPageWritten", id: out.id, slug: out.slug, updated: out.updated }
+          : { type: "kbPagePreview", id: out.id, slug: out.slug, exists: out.exists, title: out.title, chars: out.chars, preview: out.preview });
       } catch (error) {
         ctx.send({ type: "kbError", message: error instanceof Error ? error.message : String(error) });
       }

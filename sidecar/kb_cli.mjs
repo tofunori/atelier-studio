@@ -1,17 +1,18 @@
 // CLI terminal de la base de connaissances (plan 049) — JSON sur stdout,
 // erreurs sur stderr + exit 1, comme atelier-zotero-passages.
 import { pathToFileURL } from "node:url";
-import { KnowledgeStore, defaultKnowledgeDir, parseGbrainSearch, runGbrain } from "./knowledge.mjs";
+import { KnowledgeStore, defaultKnowledgeDir, parseGbrainSearch, promotePage, runGbrain } from "./knowledge.mjs";
 
-const COMMANDS = new Set(["add", "list", "remove", "search", "gbrain-search"]);
+const COMMANDS = new Set(["add", "list", "remove", "search", "gbrain-search", "promote-page"]);
 const USAGE = [
-  "Usage: atelier-kb <add|list|remove|search|gbrain-search> [options]",
+  "Usage: atelier-kb <add|list|remove|search|gbrain-search|promote-page> [options]",
   "  add    --kind file|pdf|web|youtube|note|folder|gbrain [--origin <chemin|url|slug>] [--title <t>] [--text <t>]",
   "         (--text - lit le texte sur stdin — gros contenus, capture browser)",
   "  list",
   "  remove --id <id>",
   "  search --id <id> --query <question> [--limit 5]",
   "  gbrain-search --query <mots-clés> [--limit 12]   (corpus NAS)",
+  "  promote-page --id <id> [--slug atelier/…] [--write]   (page directe gbrain)",
   `Option commune: --dir <répertoire> (défaut: ${defaultKnowledgeDir()})`,
 ].join("\n");
 
@@ -68,6 +69,10 @@ function parseArgs(argv) {
   const options = {};
   for (let i = 1; i < argv.length; i += 1) {
     const key = argv[i];
+    if (key === "--write") {
+      options.write = true;
+      continue;
+    }
     if (!key.startsWith("--") || i + 1 >= argv.length) throw new Error(`Argument invalide: ${key}\n${USAGE}`);
     options[key.slice(2)] = argv[++i];
   }
@@ -87,6 +92,14 @@ export async function runKbCommand(argv, deps = {}) {
     if (!options.id) throw new Error("Argument requis: --id");
     store.remove(options.id);
     return flag({ ok: true, removed: options.id });
+  }
+  if (command === "promote-page") {
+    if (!options.id) throw new Error("Argument requis: --id");
+    return promotePage(store, {
+      id: options.id,
+      slug: options.slug,
+      write: options.write === true,
+    }, deps);
   }
   if (command === "gbrain-search") {
     if (!options.query) throw new Error("Argument requis: --query");
