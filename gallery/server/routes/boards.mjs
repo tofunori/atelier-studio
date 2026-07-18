@@ -1,5 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
+import os from "node:os";
 import { spawn } from "node:child_process";
 import {
   GALLERY_DIR,
@@ -89,6 +90,26 @@ export async function handleBoardsGet(req, res, url) {
           }
         }
       }
+    }
+    return sendJson(res, 404, { error: "not found" });
+  }
+  // PDF de la base de connaissances (plan 052) : sert le fichier pointé par
+  // le REGISTRE (jamais un chemin de la requête — aucune traversée possible).
+  if (STUDIO && pathname.startsWith("/kb-pdf/")) {
+    const id = pathname.split("/")[2] ?? "";
+    if (/^[0-9a-f]{8}$/.test(id)) {
+      try {
+        const appDir = process.env.ATELIER_APP_DIR
+          || path.join(os.homedir(), "Library", "Application Support", "atelier-studio");
+        const registry = JSON.parse(fs.readFileSync(path.join(appDir, "knowledge", "knowledge.json"), "utf8"));
+        const source = (registry.sources ?? []).find((s) => s?.id === id);
+        const origin = source?.origin;
+        if ((source?.kind === "pdf" || source?.kind === "zotero")
+          && typeof origin === "string" && /\.pdf$/i.test(origin)
+          && fs.existsSync(origin) && fs.statSync(origin).isFile()) {
+          return serveBuffer(res, 200, fs.readFileSync(origin), { "Content-Type": "application/pdf" });
+        }
+      } catch {}
     }
     return sendJson(res, 404, { error: "not found" });
   }

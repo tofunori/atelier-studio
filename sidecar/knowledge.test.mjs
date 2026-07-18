@@ -565,6 +565,46 @@ describe("base de connaissances — CLI", () => {
     )).rejects.toThrow(/Slug invalide/);
   });
 
+  it("kind zotero : origine zotero:// résolue, meta pour liens profonds, fraîcheur pdf", async () => {
+    const dir = tmp();
+    const storage = join(dir, "Zotero-storage", "PBJV88DI");
+    mkdirSync(storage, { recursive: true });
+    const pdfPath = join(storage, "glambie 2025.pdf");
+    writeFileSync(pdfPath, "%PDF");
+    const pages = [
+      { page: 1, text: "Abstract\nCommunity estimate of global glacier mass changes from 2000 to 2023." },
+      { page: 2, text: "Results\nGlaciers worldwide lost 273 gigatonnes in mass annually from 2000 to 2023." },
+    ];
+    let extracted = 0;
+    const resolved = [];
+    const store = new KnowledgeStore(dir, {
+      // le resolver reçoit ~/Zotero/storage/<pdfKey>/<pdfFile> (décodé) et
+      // rend le chemin réel — ici notre stockage de test
+      resolveZotero: (p) => { resolved.push(p); return pdfPath; },
+      extractPdf: () => { extracted += 1; return { pages, cached: false }; },
+    });
+    // le chemin encodé (espace) est décodé, itemKey conservé pour les liens
+    const { source } = await store.add({
+      kind: "zotero",
+      origin: "zotero://PBJV88DI/glambie%202025.pdf#GLKEY123",
+      title: "Community estimate of global glacier mass changes",
+    });
+    expect(source.kind).toBe("zotero");
+    expect(source.meta).toMatchObject({ pdfKey: "PBJV88DI", pdfFile: "glambie 2025.pdf", zoteroKey: "GLKEY123", pages: 2 });
+    expect(resolved[0].endsWith(join("Zotero", "storage", "PBJV88DI", "glambie 2025.pdf"))).toBe(true);
+    // NB : resolveZotero injecté reçoit ~/Zotero/storage/<key>/<file> — ici on
+    // vérifie surtout le contrat CLI → recherche paginée + cite p.N
+    const found = await runKbCommand(["search", "--dir", dir, "--id", source.id, "--query", "gigatonnes mass annually"], { store });
+    expect(found.passages[0].cite).toBe(`[kb:${source.id} · p.2]`);
+    expect(found.passages[0].markdownLink).toContain("#atelier-zotero-passage?");
+    expect(found.passages[0].markdownLink).toContain("key=GLKEY123");
+    // ré-épingler = même id (pas de doublon)
+    const again = await store.add({ kind: "zotero", origin: "zotero://PBJV88DI/glambie%202025.pdf#GLKEY123" });
+    expect(again.source.id).toBe(source.id);
+    expect(again.refreshed).toBe(true);
+    expect(extracted).toBeGreaterThanOrEqual(2);
+  });
+
   it("--text - lit le contenu sur stdin (gros textes, capture browser)", async () => {
     const dir = tmp();
     const { Readable } = await import("node:stream");
@@ -574,5 +614,95 @@ describe("base de connaissances — CLI", () => {
     );
     expect(added.ok).toBe(true);
     expect(added.source.chars).toBe(LONG_NOTE.length);
+  });
+});
+
+describe("base de connaissances — collections & archive (plan 051)", () => {
+  it("cycle complet : créer, étiqueter, filtrer, renommer, supprimer sans perdre les sources", async () => {
+    const dir = tmp();
+    const store = new KnowledgeStore(dir);
+    const a = (await store.add({ kind: "note", title: "Note AGU", text: LONG_NOTE })).source;
+    const b = (await store.add({ kind: "note", title: "Note libre", text: LONG_NOTE })).source;
+    const slug = store.collectionOp({ op: "add", title: "AGU 2026" });
+    expect(slug).toBe("agu-2026");
+    store.tagSource(a.id, slug);
+    expect(store.list({ collection: slug }).map((s) => s.id)).toEqual([a.id]);
+    expect(store.list()).toHaveLength(2);
+    store.collectionOp({ op: "rename", slug, title: "AGU26" });
+    expect(store.collections.find((c) => c.slug === slug)?.title).toBe("AGU26");
+    store.collectionOp({ op: "remove", slug });
+    expect(store.list()).toHaveLength(2);
+    expect(store.get(a.id).collections).toEqual([]);
+    expect(store.get(b.id).collections).toEqual([]);
+  });
+
+  it("étiqueter ne remonte pas la source dans les récents (updatedAt intact)", async () => {
+    const dir = tmp();
+    const store = new KnowledgeStore(dir);
+    const { source } = await store.add({ kind: "note", title: "Stable", text: LONG_NOTE });
+    const slug = store.collectionOp({ op: "add", title: "Méthodo" });
+    store.tagSource(source.id, slug);
+    expect(store.get(source.id).updatedAt).toBe(source.updatedAt);
+  });
+
+  it("archive : masquée par défaut, listée via le filtre, attache préservée au refresh", async () => {
+    const dir = tmp();
+    const store = new KnowledgeStore(dir);
+    const file = join(dir, "n.md");
+    writeFileSync(file, LONG_NOTE);
+    const { source } = await store.add({ kind: "file", origin: file });
+    store.archiveSource(source.id);
+    expect(store.list()).toHaveLength(0);
+    expect(store.list({ archived: true }).map((s) => s.id)).toEqual([source.id]);
+    // le re-add (refresh) préserve archived + collections
+    const again = await store.add({ kind: "file", origin: file });
+    expect(again.source.archived).toBe(true);
+    store.archiveSource(source.id, true);
+    expect(store.list()).toHaveLength(1);
+  });
+
+  it("migration douce : registre v1 lu tel quel, réécrit en v2 à la première mutation", async () => {
+    const dir = tmp();
+    const first = new KnowledgeStore(dir);
+    const { source } = await first.add({ kind: "note", title: "V1", text: LONG_NOTE });
+    // rétrograde le fichier en v1 sans champs collections/archived
+    const raw = JSON.parse(readFileSync(join(dir, "knowledge.json"), "utf8"));
+    for (const s of raw.sources) { delete s.collections; delete s.archived; }
+    writeFileSync(join(dir, "knowledge.json"), JSON.stringify({ version: 1, sources: raw.sources }));
+    const second = new KnowledgeStore(dir);
+    expect(second.get(source.id).collections).toEqual([]);
+    expect(second.get(source.id).archived).toBe(false);
+    second.collectionOp({ op: "add", title: "Post-migration" });
+    const rewritten = JSON.parse(readFileSync(join(dir, "knowledge.json"), "utf8"));
+    expect(rewritten.version).toBe(2);
+    expect(rewritten.collections).toHaveLength(1);
+    expect(rewritten.sources[0].collections).toEqual([]);
+  });
+
+  it("youtube : la chaîne entre en méta quand yt-dlp la fournit", async () => {
+    const store = new KnowledgeStore(tmp(), {
+      fetchYoutube: () => ({
+        title: "Talk", duration: 120, channel: "TED",
+        vtt: "WEBVTT\n\n00:00:01.000 --> 00:00:05.000\nUne phrase assez longue pour être indexée correctement ici.",
+      }),
+    });
+    const { source } = await store.add({ kind: "youtube", origin: "https://youtu.be/abc12345678" });
+    expect(source.meta.channel).toBe("TED");
+  });
+
+  it("CLI : collection/tag/archive/list filtré bout en bout", async () => {
+    const dir = tmp();
+    const added = await runKbCommand(["add", "--dir", dir, "--kind", "note", "--title", "N1", "--text", LONG_NOTE]);
+    const coll = await runKbCommand(["collection", "--dir", dir, "--add", "Thèse ch. 2"]);
+    expect(coll.slug).toBe("these-ch-2");
+    await runKbCommand(["tag", "--dir", dir, "--id", added.source.id, "--collection", coll.slug]);
+    const filtered = await runKbCommand(["list", "--dir", dir, "--collection", coll.slug]);
+    expect(filtered.count).toBe(1);
+    expect(filtered.collections).toHaveLength(1);
+    await runKbCommand(["archive", "--dir", dir, "--id", added.source.id]);
+    const active = await runKbCommand(["list", "--dir", dir]);
+    expect(active.count).toBe(0);
+    expect(active.archivedCount).toBe(1);
+    expect(active.archivedSources).toHaveLength(1);
   });
 });

@@ -2,7 +2,7 @@
 // depuis le dispatcher de Chat.tsx. Chaque composant est memoizable : état
 // (editing, plis, review) et callbacks restent dans Chat, passés en props.
 // Clés et classes inchangées : le streaming et l'ancrage ne bougent pas.
-import { memo, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
+import { memo, useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
 import ReactMarkdown from "react-markdown";
 import { CheckIcon } from "lucide-react";
 import { AgentEvent } from "../../lib/ws";
@@ -10,6 +10,8 @@ import type { ChatTurnViewModel, ToolAction } from "../../lib/chat/turnViewModel
 import type { PluginCatalogEntry } from "../../lib/plugins";
 import { t } from "../../lib/i18n";
 import { normalizeMathDelimiters, hardenPartialMarkdown } from "../../lib/markdown";
+import { decorateKbCites } from "./kbCite";
+import { kbSourcesSnapshot, requestKbSources, subscribeKbSources } from "../../lib/kbSources";
 import { CopyIcon, ForkIcon, ResumeIcon } from "../icons";
 import { MD_COMPONENTS, MD_COMPONENTS_STREAMING, useMdPlugins } from "./md";
 import { DoneDiffToggle, fmtTime, PinBtn, LiveThinking, ThinkingShimmer, Working, reasoningSummary } from "./turnParts";
@@ -252,8 +254,21 @@ export const UserTurn = memo(function UserTurn(p: {
   );
 });
 
+
+// Titres réels pour les citations [kb:…] (plan 052) : lecture du store
+// partagé ; si un texte cite la base avant tout chargement, on demande la
+// liste (TTL 30 s — no-op sinon).
+function useKbCiteSources(text: string) {
+  const sources = useSyncExternalStore(subscribeKbSources, kbSourcesSnapshot);
+  useEffect(() => {
+    if (text.includes("[kb:")) requestKbSources();
+  }, [text]);
+  return sources;
+}
+
 export function StreamingText(p: { text: string; working: boolean }) {
   const plugins = useMdPlugins();
+  const kbCiteSources = useKbCiteSources(p.text);
   return (
     <Message align="start" className="chat-message assistant-message">
     <MessageContent className="msg-wrap">
@@ -264,7 +279,7 @@ export function StreamingText(p: { text: string; working: boolean }) {
           rehypePlugins={plugins.rehype}
           components={MD_COMPONENTS_STREAMING as any}
         >
-          {normalizeMathDelimiters(hardenPartialMarkdown(p.text))}
+          {decorateKbCites(normalizeMathDelimiters(hardenPartialMarkdown(p.text)), kbCiteSources)}
         </ReactMarkdown>
         {p.working && <span className="stream-caret" />}
       </BubbleContent>
@@ -285,6 +300,7 @@ export const AssistantText = memo(function AssistantText(p: {
   const e = p.event;
   const i = p.index;
   const plugins = useMdPlugins();
+  const kbCiteSources = useKbCiteSources(e.text);
   return (
     <Message id={`msg-${i}`} align="start" className="chat-message assistant-message">
     <MessageContent className="msg-wrap">
@@ -295,7 +311,7 @@ export const AssistantText = memo(function AssistantText(p: {
           rehypePlugins={plugins.rehype}
           components={MD_COMPONENTS as any}
         >
-          {normalizeMathDelimiters(e.text)}
+          {decorateKbCites(normalizeMathDelimiters(e.text), kbCiteSources)}
         </ReactMarkdown>
       </BubbleContent>
       </Bubble>

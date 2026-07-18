@@ -97,7 +97,9 @@ describe("KbPickerPanel — layout surface (plan 050)", () => {
     expect(screen.getByText("Bibliothèque")).toBeTruthy();
     // la source attachée apparaît une seule fois (étage attachées, pas bibliothèque)
     expect(screen.getAllByText("Albedo feedbacks review")).toHaveLength(1);
-    // les non-attachées restent dans leurs groupes de type
+    // plan 051 : les groupes de type sont repliés par défaut (compte visible)
+    expect(screen.queryByText("Cuffey & Paterson ch. 5")).toBeNull();
+    fireEvent.click(screen.getByText("PDF"));
     expect(screen.getByText("Cuffey & Paterson ch. 5")).toBeTruthy();
   });
 
@@ -158,10 +160,44 @@ describe("KbPickerPanel — layout surface (plan 050)", () => {
         })}
       />,
     );
+    // groupes repliés par défaut : ouvrir PDF pour exposer les actions de rangée
+    fireEvent.click(screen.getByText("PDF"));
     fireEvent.click(screen.getAllByLabelText("Créer une page gbrain (directe)")[0]);
     expect(onPromotePage).toHaveBeenCalledWith(SOURCES[0].id);
     fireEvent.click(screen.getByText("→ gbrain"));
     expect(onDestChange).toHaveBeenCalledWith("gbrain");
+  });
+
+  it("plan 051 : chips-collections filtrent (et ouvrent les groupes), archive par rangée", () => {
+    const onArchive = vi.fn();
+    const onTag = vi.fn();
+    const tagged = SOURCES.map((source) =>
+      source.id === "bbbb2222" ? { ...source, collections: ["agu26"] } : source);
+    renderUi(
+      <KbPickerPanel
+        {...panelProps({
+          layout: "surface",
+          sources: tagged,
+          collections: [{ slug: "agu26", title: "AGU26" }],
+          archived: { count: 1, sources: [{ ...SOURCES[2], archived: true }] },
+          onCreateCollection: vi.fn(),
+          onTag,
+          onArchive,
+        })}
+      />,
+    );
+    // chip avec compte ; le filtre ouvre les groupes → la source taguée est visible
+    fireEvent.click(screen.getByText("AGU26 · 1"));
+    expect(screen.getByText("Albedo feedbacks review")).toBeTruthy();
+    expect(screen.queryByText("Cuffey & Paterson ch. 5")).toBeNull();
+    // archive au survol de la rangée
+    fireEvent.click(screen.getAllByLabelText("Archiver")[0]);
+    expect(onArchive).toHaveBeenCalledWith("bbbb2222", false);
+    // vue archivées : chip dédiée, désarchiver disponible
+    fireEvent.click(screen.getByText("archivées · 1"));
+    expect(screen.getByText("Décisions chap. 2")).toBeTruthy();
+    fireEvent.click(screen.getAllByLabelText("Désarchiver")[0]);
+    expect(onArchive).toHaveBeenCalledWith("cccc3333", true);
   });
 
   it("section gbrain : échec NAS affiché en place", () => {
@@ -181,3 +217,38 @@ describe("KbPickerPanel — layout surface (plan 050)", () => {
   });
 });
 
+
+describe("KbPickerPanel — sélection multiple (plan 052)", () => {
+  it("mode sélection : groupe entier, lot vers collection, archivage groupé", () => {
+    const onBatchTag = vi.fn();
+    const onBatchArchive = vi.fn();
+    renderUi(
+      <KbPickerPanel
+        {...panelProps({
+          layout: "surface",
+          collections: [{ slug: "agu26", title: "AGU26" }],
+          onCreateCollection: vi.fn(),
+          onTag: vi.fn(),
+          onArchive: vi.fn(),
+          onBatchTag,
+          onBatchArchive,
+          onBatchAttach: vi.fn(),
+        })}
+      />,
+    );
+    fireEvent.click(screen.getByText("Sélectionner"));
+    // en mode sélection, cliquer l'en-tête d'un groupe sélectionne tout le groupe
+    fireEvent.click(screen.getByText("PDF"));
+    expect(screen.getByText("1 sélectionnée(s)")).toBeTruthy();
+    fireEvent.click(screen.getByText("Ajouter à…"));
+    fireEvent.click(screen.getByText("AGU26"));
+    expect(onBatchTag).toHaveBeenCalledWith(["aaaa1111"], "agu26");
+    // la barre se ferme après l'action
+    expect(screen.queryByText("Ajouter à…")).toBeNull();
+    // deuxième passe : archiver le groupe web en lot
+    fireEvent.click(screen.getByText("Sélectionner"));
+    fireEvent.click(screen.getByText("Web"));
+    fireEvent.click(screen.getByText("Archiver"));
+    expect(onBatchArchive).toHaveBeenCalledWith(["bbbb2222"]);
+  });
+});

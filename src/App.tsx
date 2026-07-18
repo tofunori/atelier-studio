@@ -46,7 +46,9 @@ import { loadSettings, saveSettings, Settings, ProviderId, DEFAULT_SETTINGS } fr
 import { ProviderInfo } from "./lib/providers";
 import { THEME_PRESETS, presetById } from "./lib/themes";
 import { setLanguage, t } from "./lib/i18n";
-import { kbSourcesSnapshot } from "./lib/kbSources";
+import { kbSourcesSnapshot, requestKbSources } from "./lib/kbSources";
+import { openFileRef } from "./components/chat/md";
+import { openPath } from "@tauri-apps/plugin-opener";
 import { buildItems } from "./lib/palette";
 import type { Automation } from "./lib/automations";
 import { setDockBadge } from "./lib/dockBadge";
@@ -1057,6 +1059,83 @@ export default function App() {
     window.addEventListener("chat-open-zotero-passage", openPassage);
     return () => window.removeEventListener("chat-open-zotero-passage", openPassage);
   }, []);
+
+  // Citations kb cliquées (plan 052) : ouvrir la source À L'ENDROIT cité
+  // quand on le connaît — reader Zotero à la page, browser (web / YouTube à
+  // t=), éditeur pour fichiers/dossiers — sinon la surface Connaissances.
+  useEffect(() => {
+    const onCiteOpen = (e: Event) => {
+      const { id, loc } = (e as CustomEvent).detail as { id?: string | null; loc?: string | null };
+      if (!id) return;
+      const source = kbSourcesSnapshot().find((s) => s.id === id);
+      if (!source) {
+        requestKbSources({ force: true });
+        switchToSurface("connaissances");
+        return;
+      }
+      const meta = (source.meta ?? {}) as Record<string, unknown>;
+      if (source.kind === "zotero" && typeof meta.zoteroKey === "string"
+        && typeof meta.pdfKey === "string" && typeof meta.pdfFile === "string") {
+        const page = Number(/^p\.(\d+)/.exec(loc ?? "")?.[1] ?? 1);
+        window.dispatchEvent(new CustomEvent("chat-open-zotero-passage", {
+          detail: { key: meta.zoteroKey, pdfKey: meta.pdfKey, pdfFile: meta.pdfFile, page, quote: "" },
+        }));
+        return;
+      }
+      if ((source.kind === "web" || source.kind === "youtube") && source.origin) {
+        let url = source.origin;
+        if (source.kind === "youtube") {
+          const mmss = /^(\d+):(\d{2})/.exec(loc ?? "");
+          const seconds = mmss ? Number(mmss[1]) * 60 + Number(mmss[2]) : 0;
+          if (seconds) url = `${url}${url.includes("?") ? "&" : "?"}t=${seconds}s`;
+        }
+        switchToSurface("browser");
+        // la surface peut monter à l'instant : laisser son listener s'installer
+        window.setTimeout(() => {
+          window.dispatchEvent(new CustomEvent("browser-open-url", { detail: { url } }));
+        }, 250);
+        return;
+      }
+      // fichier local : dans le projet actif → viewer/éditeur atelier ;
+      // hors projet → ouverture système (Preview, éditeur par défaut…)
+      const openLocal = (absolute: string) => {
+        const root = activeProjectRef.current;
+        if (root && absolute.startsWith(`${root}/`)) openFileRef(absolute.slice(root.length + 1));
+        else void openPath(absolute);
+      };
+      if (source.kind === "pdf" && source.origin) {
+        // panneau de droite : viewer PDF de la galerie en onglet atelier,
+        // servi par /kb-pdf/<id> (registre), avec saut à la page citée
+        let galleryOrigin: string | null = null;
+        try { galleryOrigin = atelierUrlRef.current ? new URL(atelierUrlRef.current).origin : null; } catch {}
+        if (galleryOrigin) {
+          const page = /^p\.(\d+)/.exec(loc ?? "")?.[1];
+          const params = new URLSearchParams();
+          // le viewer charge toujours "/" + file — le rel DOIT être la route
+          // (le flux Zotero fonctionne par la même coïncidence assumée)
+          params.set("file", `kb-pdf/${source.id}`);
+          if (page) params.set("page", page);
+          const tabId = crypto.randomUUID();
+          setAtelierTabs((tabs) => [...tabs, {
+            id: tabId,
+            url: withAtelierNonce(`${galleryOrigin}/.fig_thumbs/pdf_viewer.html?${params.toString()}`, atelierNonce),
+            title: source.title,
+            projectRoot: activeProjectRef.current ?? undefined,
+          }]);
+          setActiveTab(tabId);
+          switchToSurface("atelier");
+          return;
+        }
+        openLocal(source.origin);
+        return;
+      }
+      if (source.kind === "file" && source.origin) { openLocal(source.origin); return; }
+      if (source.kind === "folder" && source.origin && loc) { openLocal(`${source.origin}/${loc}`); return; }
+      switchToSurface("connaissances");
+    };
+    window.addEventListener("kb-cite-open", onCiteOpen);
+    return () => window.removeEventListener("kb-cite-open", onCiteOpen);
+  }, []);
   const galleryBridgeRef = useRef<GalleryCommandBridge | null>(null);
   useEffect(() => {
     if (!activeProject) return;
@@ -1412,7 +1491,7 @@ export default function App() {
         }));
       }
       if (msg.type === "kbSources") {
-        window.dispatchEvent(new CustomEvent("kb-sources", { detail: msg.sources }));
+        window.dispatchEvent(new CustomEvent("kb-sources", { detail: msg }));
       }
       if (msg.type === "kbPromoted") {
         window.dispatchEvent(new CustomEvent("kb-source-promoted", { detail: { id: msg.id } }));

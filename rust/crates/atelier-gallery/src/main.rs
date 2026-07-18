@@ -2039,6 +2039,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .route("/zotero-fav", post(zotero::zotero_fav))
         .route("/zotero-add", post(zotero::zotero_add))
         .route("/zotero/{key}/{fname}", get(zotero::zotero_pdf))
+        .route("/kb-pdf/{id}", get(zotero::kb_pdf))
         // Phase 7 — hôte macOS
         .route("/orca-fullscreen-exit", post(host::orca_fullscreen_exit))
         .route(

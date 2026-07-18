@@ -340,6 +340,18 @@ export default function BrowserTab(p: {
     }));
   }
 
+  // Navigation commandée (citations kb, plan 052) : « browser-open-url »
+  // ouvre l'URL dans l'onglet actif — navigate lit ses refs, pas de stale.
+  useEffect(() => {
+    const onOpen = (e: Event) => {
+      const url = (e as CustomEvent).detail?.url;
+      if (typeof url === "string" && url) navigate(url);
+    };
+    window.addEventListener("browser-open-url", onOpen);
+    return () => window.removeEventListener("browser-open-url", onOpen);
+    // eslint volontairement muet : navigate est stable via refs
+  }, []);
+
   async function addCurrentPageToKb() {
     if (!activeTab?.url) return;
     const grab = (maxChars: number) =>

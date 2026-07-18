@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import { t } from "../lib/i18n";
 import { CloseIcon, PanelIcon, SearchIcon, StarIcon } from "./icons";
@@ -271,6 +271,34 @@ export default function BiblioSurface({
     send(ws, { type: "zoteroFav", key: item.key, on: next });
   }
 
+  // Épingler la pièce jointe Zotero ouverte dans la base de connaissances
+  // (plan 051) : kind "zotero" — le backend résout ~/Zotero/storage et garde
+  // itemKey pour les liens profonds de citation.
+  const [kbPinned, setKbPinned] = useState<"ok" | "err" | null>(null);
+  useEffect(() => {
+    const onAdded = (e: Event) => {
+      const detail = (e as CustomEvent).detail as { ok?: boolean } | undefined;
+      if (detail && kbPinnedPendingRef.current) {
+        kbPinnedPendingRef.current = false;
+        setKbPinned(detail.ok ? "ok" : "err");
+      }
+    };
+    window.addEventListener("kb-source-added", onAdded);
+    return () => window.removeEventListener("kb-source-added", onAdded);
+  }, []);
+  useEffect(() => {
+    if (!kbPinned) return;
+    const timer = window.setTimeout(() => setKbPinned(null), 2000);
+    return () => window.clearTimeout(timer);
+  }, [kbPinned]);
+  const kbPinnedPendingRef = useRef(false);
+  function pinSelectedToKb() {
+    if (!selected?.pdfKey || !selected?.pdfFile) return;
+    kbPinnedPendingRef.current = true;
+    const origin = `zotero://${selected.pdfKey}/${encodeURIComponent(selected.pdfFile)}#${selected.key ?? ""}`;
+    send(ws, { type: "kbAdd", kind: "zotero", origin, title: selected.title ?? "" });
+  }
+
   const [cited, setCited] = useState(false);
   function citeSelected() {
     setCited(true);
@@ -431,6 +459,17 @@ export default function BiblioSurface({
             </svg>
             <span>{cited ? "✓" : (selected ? `@${selected.citeKey || selected.key}` : "@…")}</span>
           </Button>
+          <IconButton
+            className={`ghost ${kbPinned === "ok" ? "kb-flash-ok" : ""}${kbPinned === "err" ? " kb-flash-err" : ""}`}
+            disabled={!selected?.pdfKey || !selected?.pdfFile}
+            title={kbPinned === "ok" ? t("biblio.added-kb") : t("biblio.add-kb")}
+            label={t("biblio.add-kb")}
+            onClick={pinSelectedToKb}
+          >
+            <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3" aria-hidden="true">
+              <path d="M3.2 12.9V4.1c0-.9.7-1.6 1.6-1.6h8v9.4H4.8c-.9 0-1.6.7-1.6 1s.7 1.6 1.6 1.6h8v-2.6" />
+            </svg>
+          </IconButton>
           <IconButton className="ghost git-icon-btn" title={t("action.close-reader")}
             label={t("action.close-reader")} onClick={toggleReader}>
             <CloseIcon />

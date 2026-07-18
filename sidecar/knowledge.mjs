@@ -6,7 +6,7 @@ import { spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { basename, dirname, extname, join, resolve } from "node:path";
-import { extractPdfPages, searchPassages } from "./zotero_passages.mjs";
+import { extractPdfPages, resolveZoteroPdf, searchPassages } from "./zotero_passages.mjs";
 
 // Écriture atomique locale (même pattern que store.mjs) — pas d'import de
 // store.mjs pour que le staging rust-server-dist reste autonome
@@ -20,13 +20,13 @@ function writeFileAtomic(filePath, data) {
 
 import { KB_INLINE_MAX } from "./kb_prompt.mjs";
 
-const REGISTRY_VERSION = 1;
+const REGISTRY_VERSION = 2;
 const PAGES_CACHE_VERSION = 1;
 export { KB_INLINE_MAX };
 // T3: zotero. Kind "gbrain" (plan 050 P3) = UNE page du corpus NAS épinglée
 // (gbrain get → cache local) ; l'id réservé "gbrain" (outil corpus entier)
 // reste hors registre.
-export const KB_KINDS = new Set(["file", "pdf", "web", "note", "folder", "youtube", "gbrain"]);
+export const KB_KINDS = new Set(["file", "pdf", "web", "note", "folder", "youtube", "gbrain", "zotero"]);
 const GBRAIN_TIMEOUT_MS = 20_000;
 const TEXT_EXTS = new Set([".md", ".tex", ".txt"]);
 const WEB_TEXT_MAX = 300_000;
@@ -47,6 +47,17 @@ export function defaultKnowledgeDir() {
 
 // Id déterministe par origine : ré-épingler la même source met à jour au lieu
 // de dupliquer.
+// Slug lisible et stable d'une collection (plan 051).
+export function collectionSlug(title) {
+  return String(title ?? "")
+    .normalize("NFKD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 40);
+}
+
 export function sourceId(kind, key) {
   return createHash("sha256").update(`${kind}\n${key}`).digest("hex").slice(0, 8);
 }
@@ -229,11 +240,11 @@ export function vttToPages(vtt, { bucketSeconds = YT_BUCKET_SECONDS } = {}) {
 
 function defaultFetchYoutube(url, { ytdlp = "yt-dlp" } = {}) {
   const meta = spawnSync(ytdlp, [
-    "--no-download", "--no-playlist", "--print", "%(title)s\n%(duration)s", url,
+    "--no-download", "--no-playlist", "--print", "%(title)s\n%(duration)s\n%(channel)s", url,
   ], { encoding: "utf8", timeout: 45_000, maxBuffer: 8 * 1024 * 1024 });
   if (meta.error) throw new Error(`yt-dlp indisponible: ${meta.error.message} (brew install yt-dlp)`);
   if (meta.status !== 0) throw new Error(String(meta.stderr || "yt-dlp: échec").trim() || "yt-dlp: échec");
-  const [title, durationRaw] = meta.stdout.trim().split("\n");
+  const [title, durationRaw, channelRaw] = meta.stdout.trim().split("\n");
   const subsDir = mkdtempSync(join(tmpdir(), "atelier-kb-yt-"));
   try {
     const subs = spawnSync(ytdlp, [
@@ -249,7 +260,8 @@ function defaultFetchYoutube(url, { ytdlp = "yt-dlp" } = {}) {
     }
     const vtt = readFileSync(join(subsDir, vtts[0]), "utf8");
     const duration = Number(durationRaw);
-    return { title: String(title ?? "").trim(), duration: Number.isFinite(duration) ? duration : null, vtt };
+    const channel = String(channelRaw ?? "").trim();
+    return { title: String(title ?? "").trim(), duration: Number.isFinite(duration) ? duration : null, channel: channel && channel !== "NA" ? channel : null, vtt };
   } finally {
     rmSync(subsDir, { recursive: true, force: true });
   }
@@ -454,10 +466,19 @@ export class KnowledgeStore {
   // this.warning ; les caches restent sur disque.
   reloadFromDisk() {
     this.sources = new Map();
+    this.collections = [];
     if (!existsSync(this.registryPath)) return;
     try {
-      for (const entry of JSON.parse(readFileSync(this.registryPath, "utf8")).sources ?? []) {
-        if (entry && typeof entry.id === "string" && entry.id) this.sources.set(entry.id, entry);
+      const raw = JSON.parse(readFileSync(this.registryPath, "utf8"));
+      // v1 lu tel quel (plan 051) : champs absents = défauts, réécrit en v2 à
+      // la première mutation.
+      this.collections = (Array.isArray(raw.collections) ? raw.collections : [])
+        .filter((c) => c && typeof c.slug === "string" && c.slug);
+      for (const entry of raw.sources ?? []) {
+        if (!entry || typeof entry.id !== "string" || !entry.id) continue;
+        entry.collections = Array.isArray(entry.collections) ? entry.collections : [];
+        entry.archived = entry.archived === true;
+        this.sources.set(entry.id, entry);
       }
     } catch {
       const backup = `${this.registryPath}.corrupt-${Date.now()}`;
@@ -502,7 +523,15 @@ export class KnowledgeStore {
     }
   }
 
-  list() {
+  list({ collection = null, archived = false } = {}) {
+    return [...this.sources.values()]
+      .filter((s) => (archived ? s.archived === true : s.archived !== true))
+      .filter((s) => !collection || (s.collections ?? []).includes(collection))
+      .sort((a, b) => (b.updatedAt ?? "").localeCompare(a.updatedAt ?? ""));
+  }
+
+  // Liste brute (persistance) : toutes les sources, archivées comprises.
+  listAll() {
     return [...this.sources.values()]
       .sort((a, b) => (b.updatedAt ?? "").localeCompare(a.updatedAt ?? ""));
   }
@@ -514,7 +543,7 @@ export class KnowledgeStore {
   persist() {
     writeFileAtomic(
       this.registryPath,
-      JSON.stringify({ version: REGISTRY_VERSION, sources: this.list() }, null, 2),
+      JSON.stringify({ version: REGISTRY_VERSION, collections: this.collections ?? [], sources: this.listAll() }, null, 2),
     );
   }
 
@@ -552,6 +581,8 @@ export class KnowledgeStore {
         addedAt: prev?.addedAt ?? now,
         updatedAt: now,
         meta: meta ?? {},
+        collections: prev?.collections ?? [],
+        archived: prev?.archived === true,
       };
       this.sources.set(id, entry);
       writeFileAtomic(this.cachePath(id), JSON.stringify({ version: PAGES_CACHE_VERSION, ...cachePayload }));
@@ -574,6 +605,107 @@ export class KnowledgeStore {
       if (!this.sources.delete(id)) throw new Error(`Source inconnue: ${id}`);
       rmSync(this.cachePath(id), { force: true });
       this.persist();
+    });
+  }
+
+  // — Collections & archivage (plan 051) — l'étiquette organise, ne détruit
+  // jamais : supprimer une collection retire l'étiquette des sources.
+  collectionOp({ op, slug, title } = {}) {
+    return this.withLock(() => {
+      this.reloadFromDisk();
+      const clean = String(title ?? "").trim();
+      if (op === "add") {
+        if (!clean) throw new Error("Titre de collection requis (--add <titre>)");
+        const s = collectionSlug(clean);
+        if (!s) throw new Error(`Titre de collection invalide: ${clean}`);
+        if (!(this.collections ?? []).some((c) => c.slug === s)) {
+          this.collections = [{ slug: s, title: clean }, ...(this.collections ?? [])];
+        }
+        this.persist();
+        return s;
+      }
+      const target = (this.collections ?? []).find((c) => c.slug === slug);
+      if (!target) throw new Error(`Collection inconnue: ${slug}`);
+      if (op === "rename") {
+        if (!clean) throw new Error("Nouveau titre requis (--title)");
+        target.title = clean;
+      } else if (op === "remove") {
+        this.collections = this.collections.filter((c) => c.slug !== slug);
+        for (const source of this.sources.values()) {
+          source.collections = (source.collections ?? []).filter((x) => x !== slug);
+        }
+      } else {
+        throw new Error(`Opération collection inconnue: ${op}`);
+      }
+      this.persist();
+      return slug;
+    });
+  }
+
+  // Étiqueter n'est pas une mise à jour de contenu : updatedAt inchangé
+  // (sinon chaque tag remonterait la source dans « Récents »).
+  tagSource(id, slug, off = false) {
+    this.withLock(() => {
+      this.reloadFromDisk();
+      const entry = this.sources.get(id);
+      if (!entry) throw new Error(`Source inconnue: ${id}`);
+      if (!(this.collections ?? []).some((c) => c.slug === slug)) {
+        throw new Error(`Collection inconnue: ${slug}`);
+      }
+      const set = new Set(entry.collections ?? []);
+      if (off) set.delete(slug);
+      else set.add(slug);
+      entry.collections = [...set];
+      this.persist();
+    });
+  }
+
+  archiveSource(id, off = false) {
+    this.withLock(() => {
+      this.reloadFromDisk();
+      const entry = this.sources.get(id);
+      if (!entry) throw new Error(`Source inconnue: ${id}`);
+      entry.archived = !off;
+      this.persist();
+    });
+  }
+
+  // Lots (plan 052) : UNE prise de verrou et UNE écriture pour N sources —
+  // les ids inconnus sont ignorés (une sélection peut contenir une source
+  // supprimée entre-temps), le compte appliqué est retourné.
+  tagMany(ids, slug, off = false) {
+    return this.withLock(() => {
+      this.reloadFromDisk();
+      if (!(this.collections ?? []).some((c) => c.slug === slug)) {
+        throw new Error(`Collection inconnue: ${slug}`);
+      }
+      let applied = 0;
+      for (const id of ids) {
+        const entry = this.sources.get(id);
+        if (!entry) continue;
+        const set = new Set(entry.collections ?? []);
+        if (off) set.delete(slug);
+        else set.add(slug);
+        entry.collections = [...set];
+        applied += 1;
+      }
+      this.persist();
+      return applied;
+    });
+  }
+
+  archiveMany(ids, off = false) {
+    return this.withLock(() => {
+      this.reloadFromDisk();
+      let applied = 0;
+      for (const id of ids) {
+        const entry = this.sources.get(id);
+        if (!entry) continue;
+        entry.archived = !off;
+        applied += 1;
+      }
+      this.persist();
+      return applied;
     });
   }
 
@@ -631,6 +763,7 @@ export class KnowledgeStore {
         meta: {
           segmentSeconds: YT_BUCKET_SECONDS, segments: pages.length,
           ...(fetched.duration ? { duration: fetched.duration } : {}),
+          ...(fetched.channel ? { channel: fetched.channel } : {}),
         },
         cachePayload: { pages },
       });
@@ -661,6 +794,30 @@ export class KnowledgeStore {
         id: sourceId("pdf", path), kind, title: title || basename(path, ".pdf"), origin: path,
         pages: extracted.pages,
         meta: { pages: extracted.pages.length, mtimeMs: stat.mtimeMs, size: stat.size },
+      });
+    }
+    if (kind === "zotero") {
+      // Épinglage depuis la bibliothèque Zotero (plan 051) : l'origine
+      // encode la pièce jointe — zotero://<pdfKey>/<pdfFile>[#itemKey].
+      // Le PDF est résolu dans le stockage Zotero (garde anti-traversée),
+      // extrait comme un pdf ; itemKey permet les liens profonds de citation
+      // (#atelier-zotero-passage → page + surlignage dans le reader).
+      const m = /^zotero:\/\/([^/]+)\/(.+?)(?:#([A-Za-z0-9]*))?$/.exec(String(origin ?? ""));
+      if (!m) throw new Error("--kind zotero attend zotero://<pdfKey>/<pdfFile>[#itemKey]");
+      const [, pdfKey, pdfFileRaw, zoteroKey] = m;
+      const pdfFile = decodeURIComponent(pdfFileRaw);
+      const storagePath = join(homedir(), "Zotero", "storage", pdfKey, pdfFile);
+      const abs = (this.deps.resolveZotero ?? resolveZoteroPdf)(storagePath);
+      const stat = statSync(abs);
+      const extracted = this.deps.extractPdf(abs, { cacheDir: this.pdfCacheDir });
+      return this.upsertEntry({
+        id: sourceId("zotero", `${pdfKey}/${pdfFile}`), kind,
+        title: title || basename(pdfFile, ".pdf"), origin: abs,
+        pages: extracted.pages,
+        meta: {
+          pages: extracted.pages.length, mtimeMs: stat.mtimeMs, size: stat.size,
+          pdfKey, pdfFile, ...(zoteroKey ? { zoteroKey } : {}),
+        },
       });
     }
     // web : texte fourni (capture browser, page derrière login) sinon fetch
@@ -701,14 +858,14 @@ export class KnowledgeStore {
           });
         }
       }
-    } else if (entry.kind === "pdf" && entry.origin && existsSync(entry.origin)) {
+    } else if ((entry.kind === "pdf" || entry.kind === "zotero") && entry.origin && existsSync(entry.origin)) {
       const stat = statSync(entry.origin);
       if (stale(stat) || !this.readPages(id)) {
         const extracted = this.deps.extractPdf(entry.origin, { cacheDir: this.pdfCacheDir });
         this.upsertEntry({
-          id, kind: "pdf", title: entry.title, origin: entry.origin,
+          id, kind: entry.kind, title: entry.title, origin: entry.origin,
           pages: extracted.pages,
-          meta: { pages: extracted.pages.length, mtimeMs: stat.mtimeMs, size: stat.size },
+          meta: { ...entry.meta, pages: extracted.pages.length, mtimeMs: stat.mtimeMs, size: stat.size },
         });
       }
     } else if (entry.kind === "folder" && entry.origin && existsSync(entry.origin)) {
@@ -756,7 +913,7 @@ export class KnowledgeStore {
   search(id, query, { limit = 5 } = {}) {
     const entry = this.sources.get(id);
     if (!entry) throw new Error(`Source inconnue: ${id}`);
-    const summary = { id: entry.id, title: entry.title, kind: entry.kind, origin: entry.origin ?? null };
+    const summary = { id: entry.id, title: entry.title, kind: entry.kind, origin: entry.origin ?? null, meta: entry.meta ?? {} };
     if (entry.kind === "folder") {
       const capped = Math.max(1, Math.min(10, limit));
       const files = this.folderFilesFor(id);

@@ -280,6 +280,65 @@ fn find_ci(haystack: &str, needle: &str, from: usize) -> Option<usize> {
         .find(|&i| bytes[i..i + needle.len()].eq_ignore_ascii_case(needle))
 }
 
+/// Payload natif de `kbList` (plan 051 P3) : lecture DIRECTE du registre —
+/// le spawn Node (~200 ms de démarrage) n'a plus lieu pour une simple
+/// lecture. Miroir exact de `store.list()` côté Node : non archivées triées
+/// par `updatedAt` décroissant ; les écritures restent dans le CLI.
+/// Registre illisible → payload vide + warning, AUCUN effet de bord (le
+/// backup .corrupt reste le geste des chemins d'écriture Node).
+pub(crate) fn kb_list_payload(knowledge_dir: &Path) -> serde_json::Map<String, Value> {
+    use serde_json::json;
+    let mut out = serde_json::Map::new();
+    let empty = |out: &mut serde_json::Map<String, Value>| {
+        out.insert("sources".into(), json!([]));
+        out.insert("collections".into(), json!([]));
+        out.insert("archivedCount".into(), json!(0));
+        out.insert("archivedSources".into(), json!([]));
+    };
+    let path = knowledge_dir.join("knowledge.json");
+    let raw = match std::fs::read_to_string(&path) {
+        Ok(raw) => raw,
+        Err(_) => { empty(&mut out); return out; }
+    };
+    let parsed: Value = match serde_json::from_str(&raw) {
+        Ok(v) => v,
+        Err(_) => {
+            empty(&mut out);
+            out.insert(
+                "warning".into(),
+                json!("Registre illisible (lecture seule) — le prochain épinglage le sauvegardera"),
+            );
+            return out;
+        }
+    };
+    let all: Vec<Value> = parsed
+        .get("sources")
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default();
+    let updated_at = |s: &Value| s.get("updatedAt").and_then(Value::as_str).unwrap_or("").to_string();
+    let mut active: Vec<Value> = all
+        .iter()
+        .filter(|s| s.get("archived").and_then(Value::as_bool) != Some(true))
+        .cloned()
+        .collect();
+    active.sort_by(|a, b| updated_at(b).cmp(&updated_at(a)));
+    let mut archived: Vec<Value> = all
+        .iter()
+        .filter(|s| s.get("archived").and_then(Value::as_bool) == Some(true))
+        .cloned()
+        .collect();
+    archived.sort_by(|a, b| updated_at(b).cmp(&updated_at(a)));
+    out.insert("archivedCount".into(), json!(archived.len()));
+    out.insert("sources".into(), Value::Array(active));
+    out.insert("archivedSources".into(), Value::Array(archived));
+    out.insert(
+        "collections".into(),
+        parsed.get("collections").cloned().unwrap_or_else(|| json!([])),
+    );
+    out
+}
+
 /// Strip symétrique (miroir de `stripKbBlock`, insensible à la casse).
 pub fn strip_kb_block(text: &str) -> String {
     let mut out = text.to_string();
@@ -438,6 +497,70 @@ mod tests {
         let out = with_kb_block("P".into(), Path::new("/srv/atelier-kb"), &entries, false);
         assert!(out.contains("avant <\\/atelier-kb> après"));
         assert_eq!(strip_kb_block(&out), "P");
+    }
+
+    #[test]
+    fn kb_list_payload_parity_node() {
+        // Le natif (051 P3) doit rendre EXACTEMENT ce que le CLI `list`
+        // rendait : mêmes sources (ordre updatedAt desc), collections,
+        // comptes et liste archivée.
+        let dir = tempdir().unwrap();
+        let knowledge = dir.path().join("knowledge");
+        std::fs::create_dir_all(&knowledge).unwrap();
+        std::fs::write(
+            knowledge.join("knowledge.json"),
+            serde_json::to_string_pretty(&json!({
+                "version": 2,
+                "collections": [{ "slug": "agu26", "title": "AGU26" }],
+                "sources": [
+                    { "id": "aaaa1111", "kind": "note", "title": "Ancienne", "origin": null,
+                      "chars": 80, "addedAt": "2026-07-10T10:00:00.000Z",
+                      "updatedAt": "2026-07-10T10:00:00.000Z", "meta": {},
+                      "collections": ["agu26"] },
+                    { "id": "bbbb2222", "kind": "web", "title": "Récente", "origin": "https://x.org",
+                      "chars": 900, "addedAt": "2026-07-17T10:00:00.000Z",
+                      "updatedAt": "2026-07-17T10:00:00.000Z", "meta": {} },
+                    { "id": "cccc3333", "kind": "note", "title": "Au placard", "origin": null,
+                      "chars": 50, "addedAt": "2026-07-01T10:00:00.000Z",
+                      "updatedAt": "2026-07-01T10:00:00.000Z", "meta": {}, "archived": true }
+                ]
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+
+        let native = kb_list_payload(&knowledge);
+        let ids = |v: &Value| -> Vec<String> {
+            v.as_array().unwrap().iter()
+                .map(|s| s.get("id").and_then(Value::as_str).unwrap().to_string())
+                .collect()
+        };
+        assert_eq!(ids(&native["sources"]), vec!["bbbb2222", "aaaa1111"]);
+        assert_eq!(native["archivedCount"], json!(1));
+        assert_eq!(ids(&native["archivedSources"]), vec!["cccc3333"]);
+        assert_eq!(native["collections"][0]["slug"], json!("agu26"));
+
+        // parité contre le CLI réel quand node est disponible
+        let node = match crate::ws_router::kb_node_bin_for_tests() {
+            Some(node) => node,
+            None => return,
+        };
+        let sidecar = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../sidecar");
+        if !sidecar.join("kb_cli.mjs").is_file() {
+            return;
+        }
+        let out = std::process::Command::new(node)
+            .arg(sidecar.join("kb_cli.mjs"))
+            .args(["list", "--dir"])
+            .arg(&knowledge)
+            .output()
+            .expect("node exécutable");
+        assert!(out.status.success(), "CLI list: {}", String::from_utf8_lossy(&out.stderr));
+        let cli: Value = serde_json::from_slice(&out.stdout).unwrap();
+        assert_eq!(ids(&cli["sources"]), ids(&native["sources"]));
+        assert_eq!(cli["archivedCount"], native["archivedCount"]);
+        assert_eq!(ids(&cli["archivedSources"]), ids(&native["archivedSources"]));
+        assert_eq!(cli["collections"], native["collections"]);
     }
 
     #[test]
