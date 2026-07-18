@@ -258,10 +258,23 @@ function defaultFetchYoutube(url, { ytdlp = "yt-dlp" } = {}) {
 async function defaultFetchPage(url) {
   const res = await fetch(url, {
     redirect: "follow",
-    headers: { "user-agent": "atelier-studio/kb", accept: "text/html,text/plain,*/*" },
+    headers: {
+      // UA navigateur : passe les WAF naïfs (les protections par empreinte
+      // TLS type AGU restent infranchissables — voir le repli plus bas)
+      "user-agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4 Safari/605.1.15",
+      accept: "text/html,application/xhtml+xml,text/plain,*/*",
+      "accept-language": "fr-CA,fr;q=0.9,en;q=0.8",
+    },
     signal: AbortSignal.timeout(20_000),
   });
-  if (!res.ok) throw new Error(`Téléchargement échoué (HTTP ${res.status}) : ${url}`);
+  if (!res.ok) {
+    // sites anti-robot (éditeurs, paywalls) : le texte affiché reste
+    // capturable par la webview — guider vers ce chemin
+    const guidance = [403, 401, 406, 429, 451, 503].includes(res.status)
+      ? " — ce site bloque le téléchargement direct : ouvre la page dans le browser intégré et utilise son bouton livre (capture du texte affiché)"
+      : "";
+    throw new Error(`Téléchargement échoué (HTTP ${res.status}) : ${url}${guidance}`);
+  }
   const contentType = res.headers.get("content-type") ?? "";
   if (/application\/pdf/i.test(contentType)) {
     throw new Error("URL de PDF : télécharger le fichier puis l'épingler avec --kind pdf");
