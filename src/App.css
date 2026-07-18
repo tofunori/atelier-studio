@@ -2886,12 +2886,6 @@ button.ctx-ring-wrap { border: none; font: inherit; color: inherit;
 /* épinglage depuis le browser : coche accent (réussi) / rouge sémantique (échec) */
 .browser-bar .kb-flash-ok, .browser-bar .kb-flash-ok:hover { color: var(--accent); }
 .browser-bar .kb-flash-err, .browser-bar .kb-flash-err:hover { color: var(--u-hot, #e06c75); }
-/* pilule agrégée (3+ sources) : ouvre le picker ; aperçu des premiers titres */
-.kb-chip-agg { cursor: pointer; gap: 6px; }
-.kb-chip-agg svg { color: var(--accent); flex: none; }
-.kb-chip-agg svg:last-child { color: var(--muted2); }
-.kb-chip-agg .kb-chip-preview { color: var(--muted); max-width: 220px; overflow: hidden;
-  text-overflow: ellipsis; white-space: nowrap; }
 /* méta sous la bulle : « envoyé avec N sources · … » (fidèle au moment de l'envoi) */
 .user-kb-meta { display: inline-flex; align-items: center; gap: 6px;
   font-size: var(--fs-xs); color: var(--muted2); margin-top: 2px;
@@ -2963,6 +2957,3 @@ button.ctx-ring-wrap { border: none; font: inherit; color: inherit;
 .kb-full.on { color: var(--accent); }
 .kb-foot { display: flex; justify-content: space-between; font-size: var(--fs-s);
   color: var(--muted); padding-top: 6px; border-top: 1px solid var(--border); }
-.kb-chips { display: flex; flex-wrap: wrap; gap: 6px; padding: 8px 12px 0; }
-.kb-chip .kb-chip-full { font-size: var(--fs-xs); color: var(--accent);
-  font-variant-numeric: tabular-nums; }

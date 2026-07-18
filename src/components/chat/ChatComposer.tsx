@@ -6,7 +6,7 @@ import React, { useEffect, type MutableRefObject } from "react";
 import { t } from "../../lib/i18n";
 import { ProviderInfo } from "../../lib/providers";
 import { ContextShelf, type ShelfAttachment } from "./ContextShelf";
-import { KbChips, type KbBinding } from "./KbPicker";
+import { type KbBinding } from "./KbPicker";
 import { SuggestionsList, PromptTextarea, type Suggestion } from "./PromptInput";
 import { ComposerControls } from "./ComposerControls";
 import { GoalBar, GoalGlyph, type GoalInfo } from "./GoalBar";
@@ -240,16 +240,10 @@ export function ChatComposer(props: {
             onRemoveAttachment={context.onRemoveAttachment}
             onOpenPaste={context.onOpenPaste}
           />
-          {kb && (
-            <KbChips
-              attached={kb.attached}
-              fullContent={kb.fullContent}
-              onDetach={(id) => kb.onChange({
-                kbSourceIds: kb.attached.filter((x) => x !== id),
-                kbFullContent: kb.fullContent.filter((x) => x !== id),
-              })}
-            />
-          )}
+          {/* plan 050 : plus de pilules KB au-dessus du champ — le badge du
+              livre porte le compte, son survol les titres, la méta sous
+              chaque message la trace ; les pilules éphémères (citations,
+              images) restent dans le ContextShelf ci-dessus. */}
           <PromptTextarea
             text={input.text}
             setText={input.setText}

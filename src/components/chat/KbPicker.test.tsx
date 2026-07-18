@@ -1,14 +1,13 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { cleanup, fireEvent, screen, act } from "@testing-library/react";
+import { cleanup, fireEvent, screen } from "@testing-library/react";
 import { renderUi, resetTestState } from "../../test/render";
 import { setLanguage } from "../../lib/i18n";
 
 vi.mock("@tauri-apps/plugin-dialog", () => ({ open: vi.fn(async () => null) }));
 vi.mock("../../lib/wsBus", () => ({ wsSend: vi.fn(() => true) }));
 
-import { wsSend } from "../../lib/wsBus";
-import { onOpenKbPicker, resetKbSourcesForTests, type KbSource } from "../../lib/kbSources";
-import { KbChips, KbPickerPanel } from "./KbPicker";
+import { resetKbSourcesForTests, type KbSource } from "../../lib/kbSources";
+import { KbPickerPanel } from "./KbPicker";
 
 const SOURCES: KbSource[] = [
   { id: "aaaa1111", kind: "pdf", title: "Cuffey & Paterson ch. 5", origin: "/tmp/c.pdf",
@@ -182,70 +181,3 @@ describe("KbPickerPanel — layout surface (plan 050)", () => {
   });
 });
 
-describe("KbChips", () => {
-  it("une seule source = déjà la pilule agrégée, titre en aperçu", () => {
-    act(() => {
-      window.dispatchEvent(new CustomEvent("kb-sources", { detail: SOURCES }));
-    });
-    const opened = vi.fn();
-    const unsubscribe = onOpenKbPicker(opened);
-    renderUi(<KbChips attached={["aaaa1111"]} fullContent={["aaaa1111"]} onDetach={vi.fn()} />);
-    expect(screen.getByText("1 source attachée")).toBeTruthy();
-    expect(screen.getByText(/Cuffey & Paterson ch\. 5/)).toBeTruthy();
-    fireEvent.click(screen.getByText("1 source attachée"));
-    expect(opened).toHaveBeenCalledTimes(1);
-    unsubscribe();
-  });
-
-  it("gbrain garde sa pilule propre, détachable directement", () => {
-    act(() => {
-      window.dispatchEvent(new CustomEvent("kb-sources", { detail: SOURCES }));
-    });
-    const onDetach = vi.fn();
-    renderUi(<KbChips attached={["gbrain"]} fullContent={[]} onDetach={onDetach} />);
-    expect(screen.getByText("Corpus thèse (gbrain)")).toBeTruthy();
-    fireEvent.click(screen.getByLabelText("Détacher de la conversation"));
-    expect(onDetach).toHaveBeenCalledWith("gbrain");
-  });
-
-  it("demande la liste si des ids attachés n'ont pas encore de titres", () => {
-    renderUi(<KbChips attached={["zzzz9999"]} fullContent={[]} onDetach={vi.fn()} />);
-    expect(wsSend).toHaveBeenCalledWith({ type: "kbList" });
-    expect(screen.getByText(/zzzz9999/)).toBeTruthy();
-  });
-
-  it("agrège dès 3 sources : une seule pilule, aperçu des titres, ouvre le picker", () => {
-    act(() => {
-      window.dispatchEvent(new CustomEvent("kb-sources", { detail: SOURCES }));
-    });
-    const opened = vi.fn();
-    const unsubscribe = onOpenKbPicker(opened);
-    renderUi(
-      <KbChips
-        attached={["aaaa1111", "bbbb2222", "cccc3333", "gbrain"]}
-        fullContent={[]}
-        onDetach={vi.fn()}
-      />,
-    );
-    expect(screen.getByText("3 sources attachées")).toBeTruthy();
-    expect(screen.getByText(/Cuffey & Paterson ch\. 5, Albedo feedbacks review/)).toBeTruthy();
-    // les sources ordinaires ne sont plus des pilules individuelles…
-    expect(screen.queryByText("Décisions chap. 2")).toBeNull();
-    // …mais gbrain garde la sienne, détachable
-    expect(screen.getByText("Corpus thèse (gbrain)")).toBeTruthy();
-    fireEvent.click(screen.getByText("3 sources attachées"));
-    expect(opened).toHaveBeenCalledTimes(1);
-    unsubscribe();
-  });
-
-  it("agrège aussi à 2 : même comportement quel que soit le nombre", () => {
-    act(() => {
-      window.dispatchEvent(new CustomEvent("kb-sources", { detail: SOURCES }));
-    });
-    renderUi(<KbChips attached={["aaaa1111", "bbbb2222"]} fullContent={[]} onDetach={vi.fn()} />);
-    expect(screen.getByText("2 sources attachées")).toBeTruthy();
-    // aperçu complet sans ellipse (tout est déjà listé)
-    expect(screen.getByText("Cuffey & Paterson ch. 5, Albedo feedbacks review")).toBeTruthy();
-    expect(screen.queryByText(/…/)).toBeNull();
-  });
-});
