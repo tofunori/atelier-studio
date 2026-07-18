@@ -42,8 +42,8 @@
 - **Compatible avec** : plan 047 ; aucun nouveau chemin runtime Node
 - **Category** : performance / fiabilité / bootstrap desktop
 - **Planned at** : 2026-07-18, `main`
-- **Status** : IN PROGRESS — P0-P4 livrés dans `48cd3ea9`, soak P5 en cours
-- **Soak started at** : 2026-07-18 (jour 0/3)
+- **Status** : IN PROGRESS — P0-P5 livrés, soak daté en cours
+- **Soak started at** : 2026-07-18T16:46:06.738Z (jour 1/3, date locale J0)
 
 ## Résultat attendu
 
@@ -532,6 +532,30 @@ utiliser un `ATELIER_APP_DIR` temporaire dans les tests unitaires/harness.
 - ce soak valide le plan 053 seulement et ne remplace pas le soak 2–3 semaines
   du plan 047 avant retrait de Node.
 
+Preuve calendaire obligatoire : Tauri ajoute `recordedAtUnixMs` au premier
+enregistrement de chaque `bootId` et conserve cette date pendant les upserts.
+Le frontend ne fournit pas cette valeur. Les anciens runs sans date restent
+valides pour les comparaisons de performance, mais ne comptent pour aucun jour
+de soak. Vérification reproductible :
+
+```bash
+node scripts/check-boot-soak.mjs \
+  --since 2026-07-18T16:46:06.738Z \
+  --time-zone America/Toronto \
+  --app-version 1.3.1
+```
+
+Le vérificateur exige trois dates calendaires distinctes, 20 runs warm, 5 runs
+cold et les quatre budgets FMP/WS du plan. Un exit 1 signifie « soak encore
+incomplet » ; un exit 2 signifie « entrée ou fichier invalide ». L'absence
+d'incident reste un constat humain quotidien à inscrire ci-dessous :
+
+| Jour | Date locale | Runs éligibles | Santé/visuel | Incident ouvert |
+|---|---|---:|---|---|
+| J0 | 2026-07-18 | 25 (20 warm + 5 cold) | app + sidecar + gateway uniques, health vert, UI visible | aucun |
+| J1 | — | — | — | — |
+| J2 | — | — | — | — |
+
 ## Risques et parades
 
 | Risque | Symptôme | Parade |
@@ -603,37 +627,38 @@ utiliser un `ATELIER_APP_DIR` temporaire dans les tests unitaires/harness.
 ### Résultats après
 
 - Commit P0-P4 : `48cd3ea9` (`perf(boot): make packaged startup interactive`).
-  P5 documentation/soak est conservé dans un commit séparé.
+  Preuve calendaire P5 : `7e8d13c0` (`perf(boot): timestamp soak runs natively`).
+  La documentation/fermeture du soak est conservée dans un commit séparé.
 - Bundle final mesuré :
   `src-tauri/target/release/bundle/macos/Atelier.app`, binaire `tauri-app`
-  SHA-256 `d9e96eafcb321e3f7fdbf211c1d8ae6951cdf5f16d5f0aea460cc594e265a9df`.
+  SHA-256 `8ee2be2ccbc126a545c229127fb01fe61e04906b9a70e8e66b371bc991f7a55c`.
   Les 20 runs warm ont tous `uiStateSource=native`,
   `sidecarPath=lock-reuse` et `gatewayDeferred=true`.
 - Warm final (`n=20`, secondes, min / p50 / p95 / max) :
 
   | Mesure | min | p50 | p95 | max | Budget |
   |---|---:|---:|---:|---:|---:|
-  | FMP | 0,877 | 0,903 | 0,921 | 0,929 | p95 <= 1,2 s — PASS |
-  | sidecar | 0,904 | 0,941 | 0,966 | 0,978 | p95 <= 2 s — PASS |
-  | WS | 0,917 | 0,958 | 0,985 | 0,999 | p95 <= 2,5 s — PASS |
-  | galerie | 0,907 | 0,935 | 0,980 | 0,982 | observation |
+  | FMP | 0,888 | 0,915 | 0,973 | 1,018 | p95 <= 1,2 s — PASS |
+  | sidecar | 0,917 | 0,957 | 1,033 | 1,047 | p95 <= 2 s — PASS |
+  | WS | 0,930 | 0,979 | 1,052 | 1,061 | p95 <= 2,5 s — PASS |
+  | galerie | 0,920 | 0,960 | 1,007 | 1,067 | observation |
 
 - Cold normal final (`n=5`, secondes, min / p50 / p95 / max) :
 
   | Mesure | min | p50 | p95 | max | Budget |
   |---|---:|---:|---:|---:|---:|
-  | FMP | 0,884 | 0,901 | 1,072 | 1,072 | p95 <= 2 s — PASS |
-  | sidecar | 0,931 | 1,971 | 3,148 | 3,148 | observation cold |
-  | WS | 0,945 | 1,999 | 3,175 | 3,175 | p95 <= 8 s — PASS |
-  | galerie | 1,909 | 1,932 | 3,103 | 3,103 | observation |
+  | FMP | 0,926 | 0,936 | 1,696 | 1,696 | p95 <= 2 s — PASS |
+  | sidecar | 0,977 | 2,004 | 3,280 | 3,280 | observation cold |
+  | WS | 0,993 | 2,036 | 3,308 | 3,308 | p95 <= 8 s — PASS |
+  | galerie | 1,780 | 1,963 | 3,232 | 3,232 | observation |
 
-- Première ouverture post-build finale : FMP 1,015 s, sidecar 1,092 s,
-  WS 1,119 s, galerie 1,040 s ; convergence totale < 2 s, donc PASS sous le
+- Première ouverture post-build finale : FMP 1,696 s, sidecar 1,754 s,
+  WS 1,818 s, galerie 1,780 s ; convergence totale < 2 s, donc PASS sous le
   contrat TCC de 30 s.
 - Gain first paint : indicatif, car la baseline avant ne contient qu'un warm :
-  37,076 s avant contre 0,921 s au p95 final (environ -97,5 %).
-- Effet sur `wsReady` : 37,868 s sur l'unique warm historique contre 0,985 s
-  au p95 final (environ -97,4 %), sans raccourcir les retries health/TCC.
+  37,076 s avant contre 0,973 s au p95 final (environ -97,4 %).
+- Effet sur `wsReady` : 37,868 s sur l'unique warm historique contre 1,052 s
+  au p95 final (environ -97,2 %), sans raccourcir les retries health/TCC.
 - Galerie P4 modifiée : oui. La trace initiale montrait environ 31 s de travail
   synchrone. La galerie visible démarre au frame suivant ; cachée, elle attend
   `wsReady` puis l'idle callback (fallback 1 s). Les tests couvrent les deux
@@ -656,18 +681,21 @@ utiliser un `ATELIER_APP_DIR` temporaire dans les tests unitaires/harness.
   l'app restait vivante et utilisable sans marque `sidecarReady` ni `wsReady`.
   Le shim a ensuite été supprimé et le bundle normal a reconvergé avec un seul
   sidecar sain.
-- Gates : `npm run verify` vert (571 tests frontend, 526 sidecar, suites
-  galerie/parity/diff, Rust workspace et backend-policy), Tauri 30 tests verts,
+- Gates : `npm run verify` vert (573 tests frontend, 526 sidecar, suites
+  galerie/parity/diff, Rust workspace et backend-policy), Tauri 31 tests verts,
   puis `tsc`, Vite et sidecar verts après l'optimisation finale. Build `.app`
   release sain ; la signature standard a échoué uniquement sur le trousseau
-  (`errSecInternalComponent`) et le fallback sans signature a produit l'app et
-  le DMG avec exit 0.
-- Métriques : `boot-metrics.json` est en mode 0600, schéma v1, 77 runs au jour
-  0 et aucune occurrence des champs interdits token/port/projet/thread/prompt/modèle.
+  (`errSecInternalComponent`) et le fallback sans signature a produit l'app ;
+  seul `bundle_dmg.sh` a terminé en erreur cosmétique.
+- Métriques : `boot-metrics.json` est en mode 0600, schéma v1, borné à 100
+  runs. Depuis `2026-07-18T16:46:06.738Z`, 25 runs sont datés nativement ; les
+  anciens runs sans date ne comptent pas pour la preuve calendaire. Aucune
+  occurrence des champs interdits token/port/projet/thread/prompt/modèle.
 - Preuve visuelle : capture native du bundle final après focus, interface
   complète avec projet, conversations et galerie ; process `tauri-app`,
   sidecar et gateway issus du bundle canonique.
-- Incidents du soak : aucun au jour 0 ; soak 3 jours encore ouvert.
+- Incidents du soak : aucun à J0. Le vérificateur passe les six checks
+  échantillons/budgets et reste en exit 1 uniquement sur `calendarDays` (1/3).
 
 ### État de la matrice native au jour 0
 

@@ -375,7 +375,7 @@ que les services convergent ensuite avec leurs contrôles d'identité actuels.
 
 | Plan | Title | Priority | Effort | Depends on | Status |
 |------|-------|----------|--------|------------|--------|
-| 053 | Démarrage interactif rapide — état natif, sidecar asynchrone, gateway différé | P1 | L | build canonique de `main` | IN PROGRESS (soak J0/3) |
+| 053 | Démarrage interactif rapide — état natif, sidecar asynchrone, gateway différé | P1 | L | build canonique de `main` | IN PROGRESS (soak 1/3 jours) |
 
 ### Dependency notes
 
