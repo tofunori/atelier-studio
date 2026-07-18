@@ -5,7 +5,7 @@ import React, { useEffect, useRef } from "react";
 import { t } from "../../lib/i18n";
 import { Select } from "../Select";
 import { PlusIcon, ProviderIcon, ZapIcon } from "../icons";
-import { ProviderInfo, orderedVisibleProviders } from "../../lib/providers";
+import { ProviderInfo } from "../../lib/providers";
 import { ButtonGroup } from "../shadcn/button-group";
 import { Toggle } from "../shadcn/toggle";
 import {
@@ -38,7 +38,6 @@ export function ComposerControls(p: {
   // état composer (possédé par Chat)
   hasContent: boolean;
   provider: string;
-  setProvider: (v: string) => void;
   model: string;
   setModel: React.Dispatch<React.SetStateAction<string>>;
   effort: string;
@@ -51,8 +50,6 @@ export function ComposerControls(p: {
   setMenuOpen: React.Dispatch<React.SetStateAction<boolean>>;
   effortOpen: boolean;
   setEffortOpen: React.Dispatch<React.SetStateAction<boolean>>;
-  modelMenuProvider: string;
-  setModelMenuProvider: (v: string) => void;
   setGoalOpen: React.Dispatch<React.SetStateAction<boolean>>;
   attachFiles: () => void;
   // catalogues/helpers (closures Chat)
@@ -77,19 +74,15 @@ export function ComposerControls(p: {
   onGoal?: (action: "set" | "clear", objective?: string, status?: "active" | "paused") => void;
   defaults: {
     autoReview?: { enabled: boolean };
-    providerOrder?: string[];
-    hiddenProviders?: string[];
   };
-  providers?: ProviderInfo[];
   onOpenModelSettings?: () => void;
   // base de connaissances (plan 049 T3) — picker d'attache par conversation
   kb?: KbBinding;
 }) {
   const {
-    provider, setProvider, model, setModel, effort, setEffort,
+    provider, model, setModel, effort, setEffort,
     permissionMode, setPermissionMode, plusOpen, setPlusOpen, menuOpen, setMenuOpen,
     effortOpen, setEffortOpen,
-    modelMenuProvider, setModelMenuProvider,
     setGoalOpen, attachFiles, providerInfo, resolvedModelId, autoReasoningLabel,
     levelsFor, effortFor, modelsFor, sortByFav, modelLabel, modelButtonLabel,
     favModels, toggleFavModel,
@@ -244,7 +237,11 @@ export function ComposerControls(p: {
                 const WINDOW = p.usage.window
                   ?? (model.includes("[1m]") ? 1_000_000
                     : /^grok-4\.5\b/.test(model) ? 500_000
-                    : /(^|\/)kimi-k3\b/.test(model) ? 1_000_000
+                    // ids Kimi réels : `kimi-code/k3` (1M) et
+                    // `kimi-code/kimi-for-coding*` (262 144) — maxContextSize
+                    // du `kimi provider list --json` 0.26.0
+                    : /(^|\/)(kimi-)?k3\b/.test(model) ? 1_000_000
+                    : /(^|\/)kimi-for-coding/.test(model) ? 262_144
                     : 200_000);
                 const pct = Math.min(100, Math.round((p.usage.context / WINDOW) * 100));
                 const r = 6.5, c = 2 * Math.PI * r;
@@ -279,7 +276,6 @@ export function ComposerControls(p: {
               onOpenChange={(next) => {
                 if (next) {
                   setEffortOpen(false);
-                  setModelMenuProvider(provider);
                 }
                 setMenuOpen(next);
               }}
@@ -292,24 +288,30 @@ export function ComposerControls(p: {
               }
             />
             {menuOpen && (() => {
-              const visibleProviders = orderedVisibleProviders(
-                p.providers?.length ? p.providers : ([
-                  { id: "claude", label: "Claude", kind: "cli", version: null, ok: true, models: [], defaultModel: "", efforts: [] },
-                  { id: "codex", label: "Codex", kind: "cli", version: null, ok: true, models: [], defaultModel: "", efforts: [] },
-                ] as ProviderInfo[]),
-                { providerOrder: p.defaults.providerOrder ?? [], hiddenProviders: p.defaults.hiddenProviders ?? [] },
-                provider,
-              );
-              const menuProvider = visibleProviders.some((info) => info.id === modelMenuProvider)
-                ? modelMenuProvider
-                : provider;
-              const menuInfo = visibleProviders.find((info) => info.id === menuProvider) ?? providerInfo(menuProvider);
+              // Un fil possède déjà son provider. Le picker de modèles reste
+              // strictement dans ce provider; changer de provider se fait lors
+              // de la création d'un nouveau chat, jamais depuis ce popover.
+              const menuProvider = provider;
+              const menuInfo = providerInfo(menuProvider) ?? {
+                id: menuProvider as ProviderInfo["id"],
+                label: menuProvider === "claude"
+                  ? "Claude Code"
+                  : menuProvider === "opencode"
+                    ? "OpenCode"
+                    : menuProvider.charAt(0).toUpperCase() + menuProvider.slice(1),
+                kind: "cli" as const,
+                version: null,
+                ok: true,
+                models: [],
+                defaultModel: "",
+                efforts: [],
+              };
               const sortedModels = sortByFav(modelsFor(menuProvider), menuProvider);
+              const activeModelId = resolvedModelId(menuProvider);
               const menuModels = menuProvider === "opencode"
                 ? sortedModels.filter((entry) => (
-                    entry.id === ""
-                    || favModels.includes(`${menuProvider}:${entry.id}`)
-                    || (provider === menuProvider && model === entry.id)
+                    favModels.includes(`${menuProvider}:${entry.id}`)
+                    || (provider === menuProvider && activeModelId === entry.id)
                   ))
                 : sortedModels;
               return (
@@ -324,20 +326,6 @@ export function ComposerControls(p: {
                   aria-label={t("chat.model-title")}
                   onKeyDown={menuKeys(() => setMenuOpen(false), modelBtnRef)}
                 >
-                  <div className="model-provider-tabs" aria-label="Provider">
-                    {visibleProviders.map((info) => (
-                      <RowButton
-                        key={info.id}
-                        role="menuitemradio"
-                        aria-checked={menuProvider === info.id}
-                        className={`model-provider-tab ${menuProvider === info.id ? "active" : ""}`}
-                        onClick={() => setModelMenuProvider(info.id)}
-                      >
-                        <ProviderIcon provider={info.id} size={12} />
-                        <span>{info.label}</span>
-                      </RowButton>
-                    ))}
-                  </div>
                   {false && <div className="model-provider-list model-effort-legacy" aria-hidden="true">
                     {(() => {
                       // effort du provider COURANT — popover unique modèle+effort
@@ -395,7 +383,6 @@ export function ComposerControls(p: {
                       );
                     })()}
                   </div>}
-                  {menuInfo && (
                   <div className="model-list">
                     <div className="model-list-head">
                       <span>
@@ -415,7 +402,7 @@ export function ComposerControls(p: {
                       const selectedModelId = menuProvider === "claude" && !baseModelId.endsWith("[1m]")
                         ? `${baseModelId}[1m]`
                         : baseModelId;
-                      const active = provider === menuProvider && model === selectedModelId;
+                      const active = provider === menuProvider && activeModelId === selectedModelId;
                       const fav = favModels.includes(key);
                       return (
                         // interactifs JAMAIS imbriqués (contrat ThreadRow) :
@@ -426,7 +413,6 @@ export function ComposerControls(p: {
                             aria-checked={active}
                             className="mp-row-main"
                             onClick={() => {
-                              setProvider(menuProvider);
                               setModel(selectedModelId);
                               setEffort(effortFor(menuProvider, selectedModelId));
                               setMenuOpen(false);
@@ -457,16 +443,16 @@ export function ComposerControls(p: {
                         <div className="mp-sep" />
                         <div className="mp-hd">{t("chat.context")}</div>
                         {[
-                          { id: "200k", label: t("chat.context-200k"), on: provider === "claude" && !model.includes("[1m]") },
-                          { id: "1m", label: "1M", on: provider === "claude" && model.includes("[1m]") },
+                          { id: "200k", label: t("chat.context-200k"), on: provider === "claude" && !activeModelId.includes("[1m]") },
+                          { id: "1m", label: "1M", on: provider === "claude" && activeModelId.includes("[1m]") },
                         ].map((ctx) => (
                           <RowButton key={ctx.id} role="menuitemradio" aria-checked={ctx.on}
                             className="mp-item model-row"
                             onClick={() => {
-                              if (ctx.id === "1m" && !model.includes("[1m]")) {
-                                setModel((model || "claude-sonnet-5") + "[1m]");
-                              } else if (ctx.id === "200k" && model.includes("[1m]")) {
-                                setModel(model.replace(/\[1m\]$/, ""));
+                              if (ctx.id === "1m" && !activeModelId.includes("[1m]")) {
+                                setModel(activeModelId + "[1m]");
+                              } else if (ctx.id === "200k" && activeModelId.includes("[1m]")) {
+                                setModel(activeModelId.replace(/\[1m\]$/, ""));
                               }
                             }}>
                             <span>{ctx.label}</span>
@@ -490,7 +476,6 @@ export function ComposerControls(p: {
                       </>
                     )}
                   </div>
-                  )}
                 </PopoverContent>
               );
             })()}

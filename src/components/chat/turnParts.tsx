@@ -2,6 +2,7 @@
 // Chat.tsx : diff de fin de tour, ré-édition d'un edit, thinking, indicateur
 // Working, carte d'activité, épingle. Aucune logique modifiée.
 import { lazy, Suspense, useEffect, useRef, useState } from "react";
+import { BrainCircuitIcon } from "lucide-react";
 import { AgentEvent } from "../../lib/ws";
 import { wsSend } from "../../lib/wsBus";
 import { t } from "../../lib/i18n";
@@ -294,10 +295,11 @@ export function ThinkingBlock({ text, live }: { text: string; live: boolean }) {
   if (!normalized) return null;
   return (
     <div className={`thinking ${live ? "live" : ""}`}>
-      <RowButton className="thinking-head" onClick={() => setOpen((v) => !v)}>
-        <Tick open={open} />
+      <RowButton className="thinking-head" aria-expanded={open} onClick={() => setOpen((v) => !v)}>
+        <BrainCircuitIcon className="thinking-icon" aria-hidden="true" />
         <span className="thinking-label">{live ? t("chat.thinking-live") : t("chat.thinking")}</span>
         {!open && <span className="thinking-preview">{preview}</span>}
+        <Tick open={open} />
       </RowButton>
       {open && <div className="thinking-body">{normalized}</div>}
     </div>
@@ -431,6 +433,7 @@ export function ThinkingShimmer({ text = t("chat.thinking") }: { text?: string }
 export function LiveThinking() {
   return (
     <div className="thinking-live-indicator" role="status" aria-live="polite">
+      <BrainCircuitIcon className="thinking-icon" aria-hidden="true" />
       <ThinkingShimmer />
     </div>
   );

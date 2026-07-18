@@ -19,6 +19,13 @@ export const BUILTIN_MODEL_LABELS: Record<string, Record<string, string>> = {
     "gpt-5.1-codex-max": "GPT-5.1 Codex Max",
     "gpt-5.1-codex": "GPT-5.1 Codex",
   },
+  // displayName officiels du CLI (`kimi provider list --json`, 0.26.0) — la
+  // LISTE reste découverte dynamiquement, seul l'affichage est mappé ici.
+  kimi: {
+    "kimi-code/k3": "K3",
+    "kimi-code/kimi-for-coding": "K2.7 Coding",
+    "kimi-code/kimi-for-coding-highspeed": "K2.7 Coding Highspeed",
+  },
 };
 
 export function modelDisplayLabel(provider: string, model: string): string {

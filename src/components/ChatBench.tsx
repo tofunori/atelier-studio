@@ -3,7 +3,7 @@
 // parcours normal (chunk lazy). Rend le VRAI composant Chat avec des fixtures
 // figées : aucun sidecar requis.
 // États : rich (défaut) · running · stream · activityparity · slottransition · thinking · agents · error · contexts · markdown.
-import { useEffect } from "react";
+import { useEffect, useRef, useState } from "react";
 import "../styles/tokens.css";
 import "../styles/typeset.css";
 import "../styles/primitives.css";
@@ -239,6 +239,7 @@ type BenchState = {
 };
 
 const STATES: Record<string, BenchState> = {
+  firstmessage: { events: [], workingSince: null, attachments: [], usage: null },
   rich: { events: RICH, workingSince: null, attachments: [], usage: { context: 84200, output: 8120, cost: 0.42, turns: 3 } },
   running: { events: RUNNING, workingSince: ts(272), attachments: [], usage: { context: 21000, output: 300, cost: null, turns: 1 } },
   stream: { events: STREAM, workingSince: ts(30), attachments: [], usage: { context: 18500, output: 420, cost: null, turns: 1 } },
@@ -271,17 +272,27 @@ export function ChatBench() {
   const light = hash.includes("-light");
   const key = Object.keys(STATES).find((k) => hash.includes(`-${k}`)) ?? "rich";
   const st = STATES[key];
+  const [firstMessageEvents, setFirstMessageEvents] = useState<AgentEvent[]>([]);
+  const [firstMessageWorkingSince, setFirstMessageWorkingSince] = useState<number | null>(null);
+  const firstMessageStartedTimer = useRef<number | null>(null);
+  const interactiveFirstMessage = key === "firstmessage";
+  const activeState = interactiveFirstMessage
+    ? { ...st, events: firstMessageEvents, workingSince: firstMessageWorkingSince }
+    : st;
 
   useEffect(() => {
     if (light) document.documentElement.setAttribute("data-theme", "light");
     return () => document.documentElement.removeAttribute("data-theme");
   }, [light]);
+  useEffect(() => () => {
+    if (firstMessageStartedTimer.current != null) window.clearTimeout(firstMessageStartedTimer.current);
+  }, []);
 
   return (
     <div style={{ height: "100vh", display: "flex", flexDirection: "column", background: "var(--bg)", color: "var(--fg)" }}>
       <Chat
-        events={st.events}
-        workingSince={st.workingSince}
+        events={activeState.events}
+        workingSince={activeState.workingSince}
         commands={[{ name: "recherche", source: "user" }]}
         files={[]} recentFiles={[]} zoteroItems={[]}
         injectText={null} onInjected={noop}
@@ -291,7 +302,7 @@ export function ChatBench() {
         onEditQueued={noop}
         onRemoveQueued={noop}
         onReorderQueued={noop}
-        attachments={st.attachments}
+        attachments={activeState.attachments}
         onRemoveAttachment={noop}
         onQuote={noop}
         threadId="bench-thread"
@@ -299,14 +310,21 @@ export function ChatBench() {
         threadProvider={key === "goal" || key === "agents" ? "codex" : "claude"}
         onPasteImage={noop} onPasteText={noop} onStop={noop}
         layout="chat" onToggleExpand={noop}
-        usage={st.usage}
+        usage={activeState.usage}
         onRevert={noop} onFork={noop} onEditSend={noop}
         onNewChat={noop} onOpenProject={noop}
         highlights={[]}
         defaults={{ defaultProvider: "claude", defaultModel: {}, defaultEffort: {}, defaultPermissionMode: "acceptEdits" }}
         providers={PROVIDERS}
         pins={[]} onStylePin={noop} onTogglePin={noop}
-        disabled={false} onSubmit={noop}
+        disabled={false}
+        onSubmit={interactiveFirstMessage ? (prompt) => {
+          setFirstMessageEvents([{ kind: "user", text: prompt, ts: Date.now() } as AgentEvent]);
+          setFirstMessageWorkingSince(Date.now());
+          firstMessageStartedTimer.current = window.setTimeout(() => {
+            setFirstMessageEvents((current) => [...current, { kind: "started", ts: Date.now() } as AgentEvent]);
+          }, 250);
+        } : noop}
         onGoal={noop}
       />
     </div>

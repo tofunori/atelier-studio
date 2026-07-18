@@ -93,6 +93,20 @@ describe("chat turn view model", () => {
     expect(turns[0].activeState).toMatchObject({ kind: "answering" });
   });
 
+  it("ne crée aucune ligne virtuelle pour started et les événements techniques", () => {
+    const events: AgentEvent[] = [
+      { kind: "user", text: "Premier message", ts: T0 },
+      { kind: "started", ts: T0 + 10 },
+      { kind: "heartbeat", elapsedMs: 20, tokens: 0, ts: T0 + 20 },
+      { kind: "usage", usage: { context: 10, output: 0, cost: null, turns: 1 }, ts: T0 + 30 },
+    ];
+    const turn = buildChatTurnViewModels(events, T0 + 30)[0];
+    const rows = projectChatTimeline(events, [turn], new Set());
+
+    expect(rows.filter((row) => row.type === "event").map((row) => row.event.kind)).toEqual(["user"]);
+    expect(rows.map((row) => row.type)).toEqual(["event", "active-turn-header", "active-turn-tail"]);
+  });
+
   it("ferme le segment d'un outil running quand une narration plus récente arrive", () => {
     const events: AgentEvent[] = [
       { kind: "user", text: "Question", ts: T0 },

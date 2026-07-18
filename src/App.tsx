@@ -2928,6 +2928,8 @@ export default function App() {
         setShowExplorer((v) => !v);
       }}
       onOpenGit={() => switchToSurface("git")}
+      onOpenBrowser={() => switchToSurface("browser")}
+      onOpenTerminal={() => switchToSurface("terminal")}
     />
   );
   const railNode = (
@@ -2943,6 +2945,9 @@ export default function App() {
           onSelectGallery={() => { switchToSurface("atelier"); setActiveTab("gallery"); }}
           onSelectIde={goToIde}
           ideActive={showAtelier && activeSurface === "atelier" && activeTab !== "gallery" && (activeTab === "ide" || atelierTabs.some((tb) => tb.id === activeTab && tb.kind !== "term"))}
+          moreOpen={settings.railMoreOpen}
+          onToggleMore={() => setSettings((s) => ({ ...s, railMoreOpen: !s.railMoreOpen }))}
+          onNewChat={newChat}
           showExplorer={showExplorer}
           onToggleExplorer={() => { setShowExplorer((v) => !v); switchToSurface("atelier"); }}
           onSelectView={setActiveView}

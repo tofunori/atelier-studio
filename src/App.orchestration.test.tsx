@@ -202,7 +202,7 @@ describe("orchestration App — caractérisation", () => {
     expect(sends[sends.length - 1]).toMatchObject({ provider: "codex", prompt: "Analyse ce projet" });
   });
 
-  it("un changement de provider crée un nouveau fil par handoff atomique", async () => {
+  it("le picker de modèles reste verrouillé sur le provider du fil", async () => {
     const { sock } = await mountApp();
     await pushThreads(sock, [THREAD_A]);
     await selectThread(sock, "Fil A — albédo");
@@ -213,26 +213,25 @@ describe("orchestration App — caractérisation", () => {
     });
 
     fireEvent.click(document.querySelector(".mp-model") as HTMLButtonElement);
-    const providerTabs = document.querySelector(".model-provider-tabs") as HTMLElement;
-    fireEvent.click(within(providerTabs).getByText("Codex"));
-    fireEvent.click(document.querySelector(".model-list .mp-row-main") as HTMLButtonElement);
+    const modelMenu = document.querySelector(".model-menu") as HTMLElement;
+    expect(modelMenu.querySelector(".model-provider-tabs")).toBeNull();
+    expect(within(modelMenu).queryByText("Codex")).toBeNull();
 
     const textarea = document.querySelector(".composer textarea") as HTMLTextAreaElement;
-    fireEvent.change(textarea, { target: { value: "Continue avec Codex" } });
+    fireEvent.change(textarea, { target: { value: "Continue avec Claude" } });
     await act(async () => {
       fireEvent.submit(textarea.closest("form")!);
       await flushMicrotasks(6);
     });
 
     const sends = sock.sent.map((value) => JSON.parse(value)).filter((message) => message.type === "send");
-    const handoff = sends[sends.length - 1];
-    expect(handoff.provider).toBe("codex");
-    expect(handoff.threadId).not.toBe("thread-A");
-    expect(handoff.handoffFromThreadId).toBe("thread-A");
-    expect(handoff.prompt).toBe("Continue avec Codex");
-    expect(handoff.prompt).not.toContain("Question source");
+    const continuation = sends[sends.length - 1];
+    expect(continuation.provider).toBe("claude");
+    expect(continuation.threadId).toBe("thread-A");
+    expect(continuation.handoffFromThreadId).toBeUndefined();
+    expect(continuation.prompt).toBe("Continue avec Claude");
     expect(screen.getByText("Question source")).toBeTruthy();
-    expect(screen.getByText("Continue avec Codex")).toBeTruthy();
+    expect(screen.getByText("Continue avec Claude")).toBeTruthy();
   });
   it("squelette DOM du shell inchangé (TopBar → app-row → rail/panneau/poignée/main-card)", async () => {
     await mountApp();

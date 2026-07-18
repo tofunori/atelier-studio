@@ -299,7 +299,10 @@ describe("composer — catalogue et capabilities sidecar (plan 025, step 9)", ()
     const modelList = document.querySelector(".model-list") as HTMLElement;
     expect(modelList).toBeTruthy();
     expect(within(modelList).getByText("gpt-5.6")).toBeTruthy();
-    expect(screen.getByRole("menuitemradio", { name: "Codex" })).toHaveAttribute("aria-checked", "true");
+    expect(within(modelList).getByText("Codex")).toBeTruthy();
+    expect(modelList.textContent).not.toContain("Default model");
+    expect(modelList.textContent).not.toContain("CLI default");
+    expect(document.querySelector(".model-provider-tabs")).toBeNull();
   });
 
   it("restaure le modèle et l'effort propres à chaque chat", async () => {
@@ -341,7 +344,7 @@ describe("composer — catalogue et capabilities sidecar (plan 025, step 9)", ()
     // id inconnu du front : affiché tel quel, directement depuis le catalogue
     expect(screen.getByText("claude-nova-6-preview")).toBeTruthy();
     // id connu : libellé lisible (BUILTIN_MODEL_LABELS reste une map id→label)
-    expect(screen.getByText("Fable 5")).toBeTruthy();
+    expect(within(document.querySelector(".model-list") as HTMLElement).getByText("Fable 5")).toBeTruthy();
   });
 
   it("sélectionner n'importe quel modèle Claude active 1M par défaut", async () => {
@@ -450,7 +453,7 @@ describe("composer — catalogue et capabilities sidecar (plan 025, step 9)", ()
 // Plan 020, étape 1 : contrats supplémentaires à préserver pendant la
 // réorganisation de la barre (une seule action primaire, effort en popover).
 describe("composer — caractérisation complémentaire (plan 020)", () => {
-  it("change de provider et de modèle dans le même sélecteur", () => {
+  it("change de modèle sans quitter le provider du fil", () => {
     const onSubmit = vi.fn();
     renderUi(<Chat {...chatProps({
       defaults: { defaultProvider: "codex", defaultModel: { codex: "gpt-5.5" }, defaultEffort: {}, defaultPermissionMode: "bypassPermissions" },
@@ -463,18 +466,19 @@ describe("composer — caractérisation complémentaire (plan 020)", () => {
     })} />);
     const btn = () => document.querySelector(".model-pick .mp-btn") as HTMLButtonElement;
     fireEvent.click(btn());
-    fireEvent.click(screen.getByRole("menuitemradio", { name: /Claude/ }));
-    fireEvent.click(screen.getByText("Sonnet 5"));
-    expect(btn().textContent).toContain("Sonnet 5 · 1M");
+    expect(document.querySelector(".model-provider-tabs")).toBeNull();
+    expect(screen.queryByText("Claude")).toBeNull();
+    fireEvent.click(screen.getByText("gpt-5.6"));
+    expect(btn().textContent).toContain("gpt-5.6");
 
-    fireEvent.change(ta(), { target: { value: "continue avec Claude" } });
+    fireEvent.change(ta(), { target: { value: "continue avec Codex" } });
     fireEvent.submit(ta().closest("form")!);
     expect(onSubmit).toHaveBeenCalledWith(
-      "continue avec Claude", "claude", "claude-sonnet-5[1m]", expect.any(String), "bypassPermissions", "steer",
+      "continue avec Codex", "codex", "gpt-5.6", expect.any(String), "bypassPermissions", "steer",
     );
   });
 
-  it("résout le modèle Codex configuré même si le catalogue sidecar est momentanément absent", () => {
+  it("affiche le modèle Codex configuré sans pseudo-option défaut même si le catalogue est absent", () => {
     renderUi(<Chat {...chatProps({
       defaults: {
         defaultProvider: "claude",
@@ -482,13 +486,14 @@ describe("composer — caractérisation complémentaire (plan 020)", () => {
         defaultEffort: { codex: "medium" },
         defaultPermissionMode: "bypassPermissions",
       },
+      threadProvider: "codex",
       providers: [],
     })} />);
     const btn = () => document.querySelector(".model-pick .mp-btn") as HTMLButtonElement;
+    expect(btn().textContent).toContain("GPT-5.6 Sol");
     fireEvent.click(btn());
-    fireEvent.click(screen.getByRole("menuitemradio", { name: "Codex" }));
-    fireEvent.click(screen.getByRole("menuitemradio", { name: /Default model — gpt-5\.6-sol · medium/ }));
-    expect(btn().textContent).toContain("gpt-5.6-sol");
+    expect(screen.getByRole("menuitemradio", { name: "GPT-5.6 Sol" })).toHaveAttribute("aria-checked", "true");
+    expect(screen.queryByText(/Default model/)).toBeNull();
   });
 
   it("pendant un run sans texte : le bouton Stop appelle onStop", () => {
@@ -581,7 +586,11 @@ describe("composer — barre hiérarchisée (plan 020)", () => {
   it("le bouton modèle ouvre seulement la liste des modèles", () => {
     renderUi(<Chat {...chatProps({ providers: [makeProviderInfo()] })} />);
     fireEvent.click(document.querySelector(".model-pick .mp-model") as HTMLButtonElement);
-    expect(document.querySelector(".model-menu")).toBeTruthy();
+    const menu = document.querySelector(".model-menu") as HTMLElement;
+    expect(menu).toBeTruthy();
+    expect(menu.textContent).not.toContain("Default model");
+    expect(menu.textContent).not.toContain("(default)");
+    expect(within(menu).getByText("200k")).toBeTruthy();
     expect(document.querySelector(".ef-track")).toBeNull();
   });
 
@@ -595,7 +604,7 @@ describe("composer — barre hiérarchisée (plan 020)", () => {
     expect(favorite).toHaveAttribute("aria-pressed", "true");
   });
 
-  it("OpenCode affiche seulement défaut, favoris et modèle actif avec des libellés propres", () => {
+  it("OpenCode affiche seulement favoris et modèle actif avec des libellés propres", () => {
     const onOpenModelSettings = vi.fn();
     renderUi(<Chat {...chatProps({
       threadProvider: "opencode",
@@ -606,19 +615,28 @@ describe("composer — barre hiérarchisée (plan 020)", () => {
         defaultPermissionMode: "bypassPermissions",
         favoriteModels: { opencode: ["opencode/claude-fable-5"] },
       },
-      providers: [makeProviderInfo({
-        id: "opencode", label: "OpenCode",
-        models: ["opencode/glm-5.2", "opencode/claude-fable-5", "opencode/minimax-m3"],
-        defaultModel: "opencode/glm-5.2",
-      })],
+      providers: [
+        makeProviderInfo({
+          id: "opencode", label: "OpenCode",
+          models: ["opencode/glm-5.2", "opencode/claude-fable-5", "opencode/minimax-m3"],
+          defaultModel: "opencode/glm-5.2",
+        }),
+        makeProviderInfo({ id: "claude", label: "Claude Code" }),
+        makeProviderInfo({ id: "codex", label: "Codex" }),
+      ],
       onOpenModelSettings,
     })} />);
 
     fireEvent.click(document.querySelector(".model-pick .mp-btn") as HTMLButtonElement);
+    expect(document.querySelector(".model-provider-tabs")).toBeNull();
     const list = document.querySelector(".model-menu .model-list") as HTMLElement;
+    expect(within(list).queryByText("Claude Code")).toBeNull();
+    expect(within(list).queryByText("Codex")).toBeNull();
     expect(within(list).getByText("GLM 5.2")).toBeTruthy();
     expect(within(list).getByText("Claude Fable 5")).toBeTruthy();
     expect(within(list).queryByText("MiniMax M3")).toBeNull();
+    expect(list.textContent).not.toContain("Default model");
+    expect(list.textContent).not.toContain("CLI default");
     expect(list.textContent).not.toContain("opencode/");
 
     fireEvent.click(within(list).getByText(t("chat.manage-models")));

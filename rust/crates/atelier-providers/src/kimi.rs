@@ -52,6 +52,10 @@ pub struct KimiProvider {
     /// Derniers modèles découverts (`kimi provider list --json`) — catalogue
     /// vivant pour providerStatus, jamais codé en dur (décision 7).
     discovered_models: StdMutex<Vec<String>>,
+    /// Thinking par modèle découvert, dérivé des `capabilities` du catalogue
+    /// (`always_thinking` ⇒ ["on"], `thinking` ⇒ ["off","on"]) — raffiné
+    /// ensuite par les snapshots configOptions des sessions ouvertes.
+    discovered_reasoning: StdMutex<serde_json::Map<String, Value>>,
 }
 
 impl KimiProvider {
@@ -70,6 +74,7 @@ impl KimiProvider {
             commands: Arc::new(StdMutex::new(HashMap::new())),
             active_turns: StdMutex::new(HashMap::new()),
             discovered_models: StdMutex::new(Vec::new()),
+            discovered_reasoning: StdMutex::new(serde_json::Map::new()),
         }
     }
 
@@ -200,6 +205,41 @@ pub(crate) fn map_thinking(effort: &str) -> Result<Option<&'static str>, String>
             "thinking Kimi = off/on uniquement (reçu « {other} »)"
         )),
     }
+}
+
+/// Catalogue `kimi provider list --json` → (ids, thinking par modèle).
+/// Contrat vérifié contre le binaire 0.26.0 configuré (2026-07-18) : chaque
+/// modèle porte `capabilities`; `always_thinking` = pas de « off » proposé
+/// par le CLI (confirmé par le configOptions de session : options ["on"]).
+fn catalog_from_provider_list(v: &Value) -> (Vec<String>, serde_json::Map<String, Value>) {
+    let mut models = Vec::new();
+    let mut reasoning = serde_json::Map::new();
+    let Some(entries) = v.get("models").and_then(Value::as_object) else {
+        return (models, reasoning);
+    };
+    for (id, meta) in entries {
+        models.push(id.clone());
+        let caps: Vec<&str> = meta
+            .get("capabilities")
+            .and_then(Value::as_array)
+            .map(|a| a.iter().filter_map(Value::as_str).collect())
+            .unwrap_or_default();
+        let efforts = if caps.contains(&"always_thinking") {
+            json!(["on"])
+        } else if caps.contains(&"thinking") {
+            json!(["off", "on"])
+        } else {
+            continue;
+        };
+        reasoning.insert(
+            id.clone(),
+            json!({"supported_efforts": efforts, "default_effort": "on"}),
+        );
+    }
+    // Ordre déterministe partagé avec le sidecar Node (parité providerStatus :
+    // serde_json trie ses objets, Node garde l'ordre d'insertion — on trie).
+    models.sort();
+    (models, reasoning)
 }
 
 fn find_config_option<'a>(snapshot: &'a Value, id: &str) -> Option<&'a Value> {
@@ -523,10 +563,10 @@ impl KimiProvider {
 
     /// Catalogue modèles SANS quota ni prompt : `kimi provider list --json`
     /// (vide tant qu'aucun provider Kimi n'est configuré côté CLI).
-    async fn discover_models(&self) -> Vec<String> {
-        if self.acp_args != vec!["acp".to_string()] {
-            return Vec::new();
-        }
+    /// Renvoie (ids, thinking par modèle dérivé des capabilities) et met à
+    /// jour le cache seulement quand la découverte rapporte quelque chose.
+    async fn discover_models(&self) -> (Vec<String>, serde_json::Map<String, Value>) {
+        let empty = (Vec::new(), serde_json::Map::new());
         let Ok(Ok(out)) = tokio::time::timeout(
             Duration::from_secs(5),
             tokio::process::Command::new(&self.bin)
@@ -535,19 +575,19 @@ impl KimiProvider {
         )
         .await
         else {
-            return Vec::new();
+            return empty;
         };
         if !out.status.success() {
-            return Vec::new();
+            return empty;
         }
-        serde_json::from_slice::<Value>(&out.stdout)
-            .ok()
-            .and_then(|v| {
-                v.get("models")
-                    .and_then(Value::as_object)
-                    .map(|m| m.keys().cloned().collect())
-            })
-            .unwrap_or_default()
+        let (models, reasoning) = serde_json::from_slice::<Value>(&out.stdout)
+            .map(|v| catalog_from_provider_list(&v))
+            .unwrap_or(empty);
+        if !models.is_empty() {
+            *self.discovered_models.lock().unwrap() = models.clone();
+            *self.discovered_reasoning.lock().unwrap() = reasoning.clone();
+        }
+        (models, reasoning)
     }
 
     async fn ensure_acp(&self) -> Result<AcpInitializeResult, AcpRpcError> {
@@ -1095,8 +1135,7 @@ impl Provider for KimiProvider {
                 return Some(probe);
             }
         }
-        let models = self.discover_models().await;
-        *self.discovered_models.lock().unwrap() = models.clone();
+        let (models, _) = self.discover_models().await;
         probe["models"] = json!(models.len());
         if models.is_empty() {
             probe["state"] = json!("model_config_needed");
@@ -1104,12 +1143,18 @@ impl Provider for KimiProvider {
         Some(probe)
     }
 
-    /// Catalogue vivant pour providerStatus : discovery CLI + derniers
-    /// snapshots configOptions. Le thinking off/on n'apparaît QUE pour les
-    /// modèles confirmés par Kimi (option présente dans le snapshot).
+    /// Catalogue vivant pour providerStatus : discovery CLI À CHAQUE appel
+    /// (même sémantique que le providerStatus Node — le catalogue est frais
+    /// dès le boot, sans attendre la sonde Setup), complété par les derniers
+    /// snapshots configOptions. Le thinking vient des `capabilities` du
+    /// catalogue (confirmées par Kimi), raffiné par les options RÉELLES du
+    /// snapshot quand une session est ouverte.
     async fn dynamic_models(&self) -> Option<Value> {
+        // Discovery live ; en échec/vide, le cache (Setup ou appel précédent)
+        // reste la source — jamais de liste en dur.
+        let _ = self.discover_models().await;
         let mut models: Vec<String> = self.discovered_models.lock().unwrap().clone();
-        let mut reasoning = serde_json::Map::new();
+        let mut reasoning = self.discovered_reasoning.lock().unwrap().clone();
         for snapshot in self.config.lock().unwrap().values() {
             if let Some(model_opt) = find_config_option(snapshot, "model") {
                 for v in option_values(model_opt) {
@@ -1121,10 +1166,11 @@ impl Provider for KimiProvider {
                 if let (Some(current), Some(thinking)) =
                     (current, find_config_option(snapshot, "thinking"))
                 {
+                    let efforts = option_values(thinking);
                     reasoning.insert(
                         current.to_string(),
                         json!({
-                            "supported_efforts": ["off", "on"],
+                            "supported_efforts": if efforts.is_empty() { json!(["off", "on"]) } else { json!(efforts) },
                             "default_effort": thinking.get("currentValue").cloned().unwrap_or(json!("on")),
                         }),
                     );
@@ -1940,5 +1986,35 @@ mod tests {
             json!(["off", "on"])
         );
         assert!(dynamic["modelReasoning"].get("fake-k3-mini").is_none());
+    }
+
+    #[test]
+    fn catalog_du_provider_list_derive_le_thinking_des_capabilities() {
+        // Shape réel du binaire 0.26.0 configuré (sonde 2026-07-18).
+        let v = json!({
+            "providers": {"managed:kimi-code": {"type": "kimi"}},
+            "models": {
+                "kimi-code/k3": {"displayName": "K3", "capabilities": ["thinking", "always_thinking", "tool_use"]},
+                "kimi-code/opt": {"capabilities": ["thinking", "tool_use"]},
+                "kimi-code/none": {"capabilities": ["tool_use"]},
+            },
+        });
+        let (models, reasoning) = catalog_from_provider_list(&v);
+        assert_eq!(models.len(), 3);
+        // always_thinking : le CLI ne propose pas « off »
+        assert_eq!(
+            reasoning["kimi-code/k3"],
+            json!({"supported_efforts": ["on"], "default_effort": "on"})
+        );
+        // thinking optionnel : off/on
+        assert_eq!(
+            reasoning["kimi-code/opt"]["supported_efforts"],
+            json!(["off", "on"])
+        );
+        // sans thinking : pas d'entrée (contrôle masqué côté UI)
+        assert!(reasoning.get("kimi-code/none").is_none());
+        // catalogue vide (CLI non configuré) : rien d'inventé
+        let (m2, r2) = catalog_from_provider_list(&json!({"providers": {}, "models": {}}));
+        assert!(m2.is_empty() && r2.is_empty());
     }
 }

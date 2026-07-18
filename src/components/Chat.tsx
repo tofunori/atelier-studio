@@ -302,7 +302,12 @@ export default function Chat(p: {
     }
     const pv = p.threadProvider || saved?.activeProvider || p.defaults.defaultProvider;
     const providerSelection = saved?.byProvider[pv];
-    const m = providerSelection?.model ?? (p.defaults.defaultModel[pv] ?? "");
+    // Le choix par défaut est un réglage, pas une pseudo-option du picker.
+    // Matérialiser l'id résolu rend le modèle réel visible/coché dans le chat.
+    const m = providerSelection?.model
+      || p.defaults.defaultModel[pv]
+      || providerInfo(pv)?.defaultModel
+      || "";
     const next: ModelSelection = {
       provider: pv,
       model: m,
@@ -314,7 +319,7 @@ export default function Chat(p: {
     setModel(m);
     setEffort(next.effort);
     setPermissionMode(next.permissionMode);
-  }, [p.defaults, p.projectRoot, p.threadId, p.threadProvider, selectionKey]);
+  }, [p.defaults, p.projectRoot, p.providers, p.threadId, p.threadProvider, selectionKey]);
   // Mémoriser la sélection uniquement une fois l'hydratation du fil terminée.
   useEffect(() => {
     const hydrated = hydratedSelectionRef.current;
@@ -475,7 +480,6 @@ export default function Chat(p: {
   }, [marks, p.events]);
   const [menuOpen, setMenuOpen] = useState(false);
   const [effortOpen, setEffortOpen] = useState(false);
-  const [modelMenuProvider, setModelMenuProvider] = useState(provider);
   const [plusOpen, setPlusOpen] = useState(false);
   const [goalOpen, setGoalOpen] = useState(false);
   const [goalText, setGoalText] = useState("");
@@ -503,15 +507,13 @@ export default function Chat(p: {
     if (p.onFavoriteModelsChange) p.onFavoriteModelsChange(next);
     else setFallbackFavoriteModels(next);
   }
-  // modèles connus : catalogue sidecar UNIQUEMENT (plan 025, step 9), avec
-  // libellés locaux seulement quand ils apportent une meilleure présentation
-  // que l'id brut. L'entrée Auto ("" → défaut) reste en tête.
+  // Modèles connus : catalogue sidecar, complété par le modèle configuré quand
+  // le catalogue n'est pas encore disponible. Aucune pseudo-option « défaut ».
   function baseModelsFor(pv: string): { id: string; label: string }[] {
     const info = (p.providers ?? []).find((pr) => pr.id === pv);
-    return [
-      { id: "", label: "__default" },
-      ...(info?.models ?? []).map((id) => ({ id, label: modelDisplayLabel(pv, id) })),
-    ];
+    const configured = (p.defaults.defaultModel[pv] || info?.defaultModel || "").replace(/\[1m\]$/, "");
+    const ids = [...new Set([...(info?.models ?? []), configured].filter(Boolean))];
+    return ids.map((id) => ({ id, label: modelDisplayLabel(pv, id) }));
   }
   function modelsFor(pv: string) {
     const customs = (p.defaults.customModels ?? [])
@@ -527,19 +529,11 @@ export default function Chat(p: {
     const known = [...baseModelsFor(pv), ...(p.defaults.customModels ?? [])
       .filter((m) => m.provider === pv).map((m) => ({ id: m.id, label: m.id }))]
       .find((m) => m.id === baseId);
-    const base = known?.label && known.label !== "__default" ? known.label : baseId;
+    const base = known?.label || baseId;
     return is1m ? `${base} · 1M` : base;
   }
-  function resolvedDefaultLabel(pv: string): string {
-    const id = p.defaults.defaultModel[pv] ?? "";
-    if (!id) return t("common.default-cli");
-    const eff = p.defaults.defaultEffort?.[pv];
-    return modelIdLabel(pv, id) + (eff ? ` · ${eff}` : "");
-  }
-  function modelLabel(model: { label: string }, pv?: string) {
-    if (model.label !== "__default") return model.label;
-    // « Défaut » seul est amnésique : afficher ce qu'il résout réellement
-    return `${t("chat.model-default")} — ${resolvedDefaultLabel(pv ?? provider)}`;
+  function modelLabel(model: { label: string }) {
+    return model.label;
   }
   function sortByFav<T extends { id: string }>(list: T[], prov: string): T[] {
     return [...list].sort((a, b) => {
@@ -551,10 +545,6 @@ export default function Chat(p: {
 
   // dismiss (clic extérieur, Escape, retour focus) : géré par Base UI dans
   // les Popover/DropdownMenu du composer — plus aucun listener window ici
-  useEffect(() => {
-    // cascade : à l'ouverture, ne montrer QUE la liste des providers (sous-menu fermé)
-    if (menuOpen) setModelMenuProvider("");
-  }, [menuOpen, provider]);
   const [editing, setEditing] = useState<{ index: number; text: string } | null>(null);
   const [openToolGroups, setOpenToolGroups] = useState<Set<string>>(new Set());
   // plis « A travaillé Xm Ys » : tours terminés dont le détail est déplié
@@ -879,9 +869,8 @@ export default function Chat(p: {
   const goalKey = latestGoal ? `${latestGoal.goal?.objective ?? ""}|${latestGoal.ts ?? ""}` : null;
   const activeGoal = latestGoal && !latestGoal.cleared && goalKey !== goalDismissed
     ? latestGoal.goal : null;
-  const selectedModel = modelsFor(provider).find((m) => m.id === model);
-  const selectedModelLabel = selectedModel ? modelLabel(selectedModel) : (model ? modelIdLabel(provider, model) : model);
-  const modelButtonLabel = model ? selectedModelLabel : resolvedDefaultLabel(provider);
+  const activeModelId = resolvedModelId(provider);
+  const modelButtonLabel = activeModelId ? modelIdLabel(provider, activeModelId) : "";
   // popover de sélection : la sélection courante correspond-elle à un mark
   // déjà posé ? → le bouton devient une action "Retirer" explicite (jamais
   // de suppression silencieuse en re-cliquant le même bouton, spec §2)
@@ -963,8 +952,7 @@ export default function Chat(p: {
           permissionMode, setPermissionMode,
         }}
         menus={{
-          plusOpen, setPlusOpen, menuOpen, setMenuOpen, effortOpen, setEffortOpen, modelMenuProvider,
-          setModelMenuProvider,
+          plusOpen, setPlusOpen, menuOpen, setMenuOpen, effortOpen, setEffortOpen,
           goalOpen, setGoalOpen, goalText, setGoalText,
         }}
         catalog={{
@@ -995,7 +983,7 @@ export default function Chat(p: {
               }
             : undefined,
           activeGoal,
-          defaults: p.defaults, providers: p.providers,
+          defaults: p.defaults,
         }}
       />
       {pasteView && (

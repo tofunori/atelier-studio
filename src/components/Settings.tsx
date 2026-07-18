@@ -18,6 +18,12 @@ import { Button, InlineNotice, SegmentedControl, showError } from "./ui";
 import { Checkbox, CheckboxIndicator } from "./shadcn/checkbox";
 import { Field, FieldGroup, FieldLabel } from "./shadcn/field";
 import { Input } from "./shadcn/input";
+import {
+  InputGroup,
+  InputGroupAddon,
+  InputGroupButton,
+  InputGroupInput,
+} from "./shadcn/input-group";
 import { ScrollArea } from "./shadcn/scroll-area";
 import { Switch } from "./shadcn/switch";
 import { Toggle as ShadcnToggle } from "./shadcn/toggle";
@@ -40,7 +46,6 @@ const SECTIONS = [
 ];
 
 const CLAUDE_MODELS = [
-  { id: "", labelKey: "common.default-cli" },
   { id: "claude-fable-5[1m]", label: "Fable 5 · 1M" },
   { id: "claude-opus-4-8[1m]", label: "Opus 4.8 · 1M" },
   { id: "claude-sonnet-5[1m]", label: "Sonnet 5 · 1M" },
@@ -251,10 +256,7 @@ export default function SettingsPage(p: {
     const row = provs?.find((pr) => pr.id === provider);
     const ids = row?.models?.length ? row.models : [s.defaultModel[provider]].filter(Boolean);
     const labels = MODEL_LABELS[provider] ?? {};
-    return [
-      { id: "", labelKey: "common.default-cli" },
-      ...ids.map((id) => ({ id, label: labels[id] ?? id })),
-    ];
+    return ids.map((id) => ({ id, label: labels[id] ?? id }));
   }
 
   useEffect(() => {
@@ -1049,21 +1051,22 @@ export default function SettingsPage(p: {
                   >
                     <Field className="set-model-search-field">
                       <FieldLabel className="tw:sr-only">{t("settings.model-search")}</FieldLabel>
-                      <Input
-                        className="set-text"
-                        value={openCodeModelQuery}
-                        placeholder={t("settings.model-search")}
-                        onChange={(event) => setOpenCodeModelQuery(event.target.value)}
-                      />
+                      <InputGroup>
+                        <InputGroupInput
+                          value={openCodeModelQuery}
+                          placeholder={t("settings.model-search")}
+                          onChange={(event) => setOpenCodeModelQuery(event.target.value)}
+                        />
+                        <InputGroupAddon align="inline-end">
+                          <InputGroupButton
+                            onClick={() => p.ws?.readyState === 1
+                              && p.ws.send(JSON.stringify({ type: "providerStatus" }))}
+                          >
+                            {t("action.refresh")}
+                          </InputGroupButton>
+                        </InputGroupAddon>
+                      </InputGroup>
                     </Field>
-                    <Button
-                      variant="ghost"
-                      className="set-btn quiet"
-                      onClick={() => p.ws?.readyState === 1
-                        && p.ws.send(JSON.stringify({ type: "providerStatus" }))}
-                    >
-                      {t("action.refresh")}
-                    </Button>
                   </Row>
                   <ScrollArea className="set-model-scroll">
                     <div className="set-model-list">

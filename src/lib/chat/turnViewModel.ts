@@ -67,6 +67,15 @@ export type ProjectedTimelineItem =
 
 const TERMINAL_KINDS = new Set<AgentEvent["kind"]>(["done", "error"]);
 const REASONING_TOOL = "__thinking";
+const NON_VISUAL_TIMELINE_KINDS = new Set<AgentEvent["kind"]>([
+  "delta",
+  "thinking_delta",
+  "stream_set",
+  "started",
+  "heartbeat",
+  "usage",
+  "goal",
+]);
 
 function metaOf(event: AgentEvent) {
   const meta = event.meta;
@@ -514,6 +523,11 @@ export function projectChatTimeline(
       continue;
     }
     const event = events[index];
+    // Ces événements pilotent le tour mais n'ont aucun rendu propre. Les
+    // conserver comme lignes LegendList leur donne malgré tout une hauteur
+    // estimée, puis 0 px après mesure — exactement le saut observé au premier
+    // `started` reçu du provider.
+    if (NON_VISUAL_TIMELINE_KINDS.has(event.kind)) continue;
     const turn = turnByIndex.get(index);
     rows.push({
       type: "event",

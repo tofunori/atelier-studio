@@ -11,6 +11,9 @@ import { RowButton } from "./ui";
 
 export type ProjMeta = { color?: string; label?: string };
 
+// Surfaces « outil » montées dans la TopBar (avec l'Explorateur) — jamais dans le rail.
+const TOPBAR_SURFACES: Surface[] = ["git", "browser", "terminal"];
+
 // fiche « Surlignés » (lot 2) : photographie autonome — cf. sidecar/highlights.mjs
 export type HighlightEntry = {
   id: string;
@@ -45,6 +48,9 @@ export default function Rail(p: {
   onSelectGallery: () => void;
   onSelectIde: () => void;
   ideActive: boolean;
+  moreOpen: boolean;
+  onToggleMore: () => void;
+  onNewChat: () => void;
   showExplorer: boolean;
   onToggleExplorer: () => void;
   onSelectView: (view: ViewId) => void;
@@ -59,6 +65,39 @@ export default function Rail(p: {
   const [dragRoot, setDragRoot] = useState<string | null>(null);
   const [dragOver, setDragOver] = useState<string | null>(null);
 
+  // Tiroir de surfaces : IDE et Galerie restent toujours visibles, les surfaces
+  // secondaires se replient derrière « Autres surfaces ». La surface active
+  // rangée reste visible même repliée (même règle que le provider du thread
+  // courant dans le picker de providers). Les surfaces « outil » (git,
+  // navigateur, terminal) vivent dans la TopBar avec l'Explorateur.
+  const secondarySurfaces = SURFACES.filter((s) => !TOPBAR_SURFACES.includes(s.id) && s.id !== "atelier");
+  const atelierSurface = SURFACES.find((s) => s.id === "atelier")!;
+  const revealedSurface = p.moreOpen ? null : (secondarySurfaces.find((s) => s.id === p.activeSurface) ?? null);
+  const surfaceBtn = (s: (typeof SURFACES)[number]) => (
+    <IconButton
+      key={s.id}
+      /* Galerie (surface "atelier") n'est active que sur l'onglet gallery,
+         pas quand un fichier est ouvert (là c'est l'IDE qui est actif) */
+      className={`rail-view ${p.layout !== "chat" && p.activeSurface === s.id && !(s.id === "atelier" && p.ideActive) ? "on" : ""}`}
+      label={t(s.labelKey)}
+      title={t(s.labelKey)}
+      /* Galerie (atelier) : revient à l'onglet galerie même si un fichier
+         est ouvert (IDE) — sinon on resterait bloqué sur le fichier */
+      onClick={() => (s.id === "atelier" ? p.onSelectGallery() : p.onSelectSurface(s.id))}
+    >
+      {s.icon}
+    </IconButton>
+  );
+  // Surlignés vit aussi dans le tiroir (vue moins fréquente) — même règle de
+  // révélation que les surfaces : visible tant que c'est la vue active.
+  const revealedHighlights = !p.moreOpen && p.activeView === "highlights";
+  const highlightsBtn = (
+    <IconButton key="highlights" className={`rail-view ${p.activeView === "highlights" ? "on" : ""}`}
+      label={t("view.highlights")} title={t("view.highlights")} onClick={() => p.onSelectView("highlights")}>
+      <HighlighterIcon size={19} />
+    </IconButton>
+  );
+
   return (
     <div className="rail">
       {/* zone scrollable : tout sauf Réglages (épinglé en bas) */}
@@ -69,13 +108,19 @@ export default function Rail(p: {
         <SidebarIcon size={19} />
       </IconButton>
       <div className="rail-views">
+        {/* Nouveau chat : seulement en compact — le panneau déplié a déjà son bouton */}
+        {p.compact && (
+          <IconButton className="rail-btn" label={t("action.new-chat")} title={t("action.new-chat")} onClick={p.onNewChat}>
+            {/* compose : crayon entrant dans un carré ouvert (standard « nouveau message ») */}
+            <svg width="19" height="19" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <path d="M13.6 8.8v3a1.8 1.8 0 0 1-1.8 1.8H4.2a1.8 1.8 0 0 1-1.8-1.8V4.4a1.8 1.8 0 0 1 1.8-1.8h3" />
+              <path d="M13.9 3.5a1.35 1.35 0 0 0-1.9-1.9L6.3 7.3l-.6 2.5 2.5-.6z" />
+            </svg>
+          </IconButton>
+        )}
         <IconButton className={`rail-view ${p.activeView === "chats" ? "on" : ""}`}
           label={t("view.chats")} title={t("view.chats")} onClick={() => p.onSelectView("chats")}>
           <ChatsIcon size={19} />
-        </IconButton>
-        <IconButton className={`rail-view ${p.activeView === "highlights" ? "on" : ""}`}
-          label={t("view.highlights")} title={t("view.highlights")} onClick={() => p.onSelectView("highlights")}>
-          <HighlighterIcon size={19} />
         </IconButton>
         <IconButton className={`rail-view ${p.activeView === "automations" ? "on" : ""}`}
           label={t("automations.title")} title={t("automations.title")} onClick={() => p.onSelectView("automations")}>
@@ -94,22 +139,27 @@ export default function Rail(p: {
             <path d="M5.5 5 3 8l2.5 3M10.5 5 13 8l-2.5 3M8.8 3.5 7.2 12.5" />
           </svg>
         </IconButton>
-        {/* Git et Explorateur sont montés dans la TopBar → exclus du rail */}
-        {SURFACES.filter((s) => s.id !== "git").map((s) => (
-          <IconButton
-            key={s.id}
-            /* Galerie (surface "atelier") n'est active que sur l'onglet gallery,
-               pas quand un fichier est ouvert (là c'est l'IDE qui est actif) */
-            className={`rail-view ${p.layout !== "chat" && p.activeSurface === s.id && !(s.id === "atelier" && p.ideActive) ? "on" : ""}`}
-            label={t(s.labelKey)}
-            title={t(s.labelKey)}
-            /* Galerie (atelier) : revient à l'onglet galerie même si un fichier
-               est ouvert (IDE) — sinon on resterait bloqué sur le fichier */
-            onClick={() => (s.id === "atelier" ? p.onSelectGallery() : p.onSelectSurface(s.id))}
-          >
-            {s.icon}
-          </IconButton>
-        ))}
+        {/* Git, Navigateur, Terminal et Explorateur sont montés dans la TopBar → exclus du rail */}
+        {surfaceBtn(atelierSurface)}
+        <IconButton
+          className={`rail-view rail-more ${p.moreOpen ? "open" : ""}`}
+          label={t("atelier.more")}
+          title={t("atelier.more")}
+          aria-expanded={p.moreOpen}
+          onClick={p.onToggleMore}
+        >
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M6 4.5 9.5 8 6 11.5" />
+          </svg>
+        </IconButton>
+        {revealedHighlights && highlightsBtn}
+        {revealedSurface && surfaceBtn(revealedSurface)}
+        <div className={`rail-fold ${p.moreOpen ? "open" : ""}`}>
+          <div>
+            {!revealedHighlights && highlightsBtn}
+            {secondarySurfaces.filter((s) => s !== revealedSurface).map(surfaceBtn)}
+          </div>
+        </div>
       </div>
       <div className="rail-sep" />
       {p.projects.map((root) => {

@@ -98,6 +98,32 @@ describe("timeline Chat — caractérisation avant extraction", () => {
     expect([...rows].every((row) => row.hasAttribute("data-message-id"))).toBe(true);
   });
 
+  it("révèle le premier tour seulement après stabilisation de la liste", async () => {
+    vi.stubGlobal("requestAnimationFrame", (callback: FrameRequestCallback) => (
+      window.setTimeout(() => callback(performance.now()), 0)
+    ));
+    vi.stubGlobal("cancelAnimationFrame", (id: number) => window.clearTimeout(id));
+    try {
+      const { rerender } = renderUi(<Chat {...chatProps()} />);
+      rerender(
+        <Chat {...chatProps({
+          events: [events.user("Premier message")],
+          workingSince: FIXED_TS,
+        })} />,
+      );
+
+      const viewport = document.querySelector(".messages") as HTMLElement;
+      expect(viewport).toHaveClass("is-first-turn-settling");
+      expect(viewport).toHaveAttribute("data-first-turn-settling", "true");
+      await waitFor(() => {
+        expect(viewport).not.toHaveClass("is-first-turn-settling");
+        expect(viewport).not.toHaveAttribute("data-first-turn-settling");
+      });
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
   it("virtualise un long transcript au lieu de monter toutes les lignes", () => {
     const longTranscript = Array.from({ length: 400 }, (_, index) => (
       index % 2 === 0 ? events.user(`Question ${index}`) : events.text(`Réponse ${index}`)
@@ -122,7 +148,7 @@ describe("timeline Chat — caractérisation avant extraction", () => {
     const assistantBubble = assistantMessage.querySelector('[data-slot="bubble"][data-variant="ghost"]');
     expect(assistantMessage.querySelector('[data-slot="message-content"].msg-wrap')).toBeTruthy();
     expect(assistantBubble?.querySelector('[data-slot="bubble-content"].typeset-chat')).toBeTruthy();
-    expect(assistantMessage.querySelector('[data-slot="message-footer"].msg-actions')).toBeTruthy();
+    expect(assistantMessage.querySelector('[data-slot="message-footer"].msg-actions.is-persistent')).toBeTruthy();
   });
 
   it("confirme visuellement la copie d'un message et nomme toutes les petites actions", async () => {

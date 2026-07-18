@@ -7,6 +7,7 @@ import { chmodSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import {
+  catalogFromProviderList,
   compareKimiVersions,
   deriveKimiSetupState,
   resolveKimiBin,
@@ -125,5 +126,28 @@ describe("setupProbe contre le fixture (sans quota, jamais session/prompt)", () 
       listModels: async () => ({ models: ["m"], defaultModel: "m" }),
     });
     expect(probe.state).toBe("ready");
+  });
+});
+
+describe("catalogFromProviderList (miroir du test Rust)", () => {
+  it("dérive le thinking des capabilities — always_thinking sans off", () => {
+    // Shape réel du binaire 0.26.0 configuré (sonde 2026-07-18).
+    const { models, modelReasoning } = catalogFromProviderList({
+      providers: { "managed:kimi-code": { type: "kimi" } },
+      models: {
+        "kimi-code/k3": { displayName: "K3", capabilities: ["thinking", "always_thinking", "tool_use"] },
+        "kimi-code/opt": { capabilities: ["thinking", "tool_use"] },
+        "kimi-code/none": { capabilities: ["tool_use"] },
+      },
+    });
+    expect(models).toHaveLength(3);
+    expect(modelReasoning["kimi-code/k3"]).toEqual({ supported_efforts: ["on"], default_effort: "on" });
+    expect(modelReasoning["kimi-code/opt"].supported_efforts).toEqual(["off", "on"]);
+    expect(modelReasoning["kimi-code/none"]).toBeUndefined();
+  });
+  it("catalogue vide : rien d'inventé", () => {
+    const { models, modelReasoning } = catalogFromProviderList({ providers: {}, models: {} });
+    expect(models).toEqual([]);
+    expect(modelReasoning).toEqual({});
   });
 });

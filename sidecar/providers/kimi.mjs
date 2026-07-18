@@ -719,32 +719,63 @@ export function compareKimiVersions(a, b) {
   return 0;
 }
 
+/** Catalogue `kimi provider list --json` → { models, modelReasoning }.
+ * Le thinking par modèle vient des `capabilities` (contrat vérifié binaire
+ * 0.26.0 configuré, 2026-07-18) : `always_thinking` ⇒ pas de « off » proposé
+ * par le CLI (confirmé par le configOptions de session), `thinking` ⇒ off/on. */
+export function catalogFromProviderList(parsed) {
+  const models = [];
+  const modelReasoning = {};
+  for (const [id, meta] of Object.entries(parsed?.models ?? {})) {
+    models.push(id);
+    const caps = Array.isArray(meta?.capabilities) ? meta.capabilities : [];
+    if (caps.includes("always_thinking")) {
+      modelReasoning[id] = { supported_efforts: ["on"], default_effort: "on" };
+    } else if (caps.includes("thinking")) {
+      modelReasoning[id] = { supported_efforts: ["off", "on"], default_effort: "on" };
+    }
+  }
+  // Ordre déterministe partagé avec le backend Rust (parité providerStatus :
+  // serde_json trie ses objets, Node garde l'ordre d'insertion — on trie).
+  models.sort();
+  return { models, modelReasoning };
+}
+
 /** Catalogue modèles SANS quota ni prompt : `kimi provider list --json`
- * (vide tant qu'aucun provider Kimi n'est configuré). */
+ * (vide tant qu'aucun provider Kimi n'est configuré). Met à jour le cache
+ * du catalogue quand la découverte rapporte quelque chose. */
 export async function listModels(timeoutMs = 3500) {
   const bin = resolveKimiBin();
-  if (!bin) return { models: [], defaultModel: "" };
+  if (!bin) return { models: [], defaultModel: "", modelReasoning: {} };
   const out = await execFileText(bin, ["provider", "list", "--json"], timeoutMs);
-  const parsed = JSON.parse(out);
-  const models = Object.keys(parsed?.models ?? {});
-  return { models, defaultModel: models[0] ?? "" };
+  const { models, modelReasoning } = catalogFromProviderList(JSON.parse(out));
+  if (models.length) {
+    lastDiscoveredModels = models;
+    lastDiscoveredReasoning = modelReasoning;
+  }
+  return { models, defaultModel: models[0] ?? "", modelReasoning };
 }
 
 /** Catalogue courant pour providerStatus : discovery CLI + dernier snapshot
  * configOptions (source de vérité quand une session est ouverte). Le
- * modelReasoning n'expose off/on QUE pour les modèles dont Kimi a confirmé
- * le thinking (option présente dans le snapshot). */
+ * thinking vient des capabilities du catalogue découvert, raffiné par les
+ * options RÉELLES du snapshot pour le modèle actif. */
 let lastDiscoveredModels = [];
+let lastDiscoveredReasoning = {};
 export function cachedKimiCatalog() {
   const models = new Set(lastDiscoveredModels);
-  const modelReasoning = {};
+  const modelReasoning = { ...lastDiscoveredReasoning };
   for (const snapshot of configSnapshots.values()) {
     const modelOption = snapshot.find((o) => o?.id === "model");
     for (const v of optionValues(modelOption ?? {})) models.add(v);
     const current = modelOption?.currentValue;
     const thinking = snapshot.find((o) => o?.id === "thinking");
     if (current && thinking) {
-      modelReasoning[current] = { supported_efforts: ["off", "on"], default_effort: thinking.currentValue ?? "on" };
+      const efforts = optionValues(thinking);
+      modelReasoning[current] = {
+        supported_efforts: efforts.length ? efforts : ["off", "on"],
+        default_effort: thinking.currentValue ?? "on",
+      };
     }
   }
   return { models: [...models], modelReasoning };
