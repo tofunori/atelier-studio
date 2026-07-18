@@ -31,8 +31,9 @@ const GROUP_LABELS: Record<string, Parameters<typeof t>[0]> = {
   youtube: "kb.group-youtube",
   note: "kb.group-notes",
   gbrain: "kb.group-gbrain",
+  zotero: "kb.group-zotero",
 };
-const GROUP_ORDER = ["file", "folder", "pdf", "web", "youtube", "note", "gbrain"];
+const GROUP_ORDER = ["file", "folder", "pdf", "zotero", "web", "youtube", "note", "gbrain"];
 
 // Âge de la dernière synchro NAS d'une page gbrain épinglée.
 function fmtSyncAge(syncedAt: unknown): string {
@@ -114,6 +115,14 @@ function KindIcon({ kind, size = 13 }: { kind: string; size?: number }) {
         <circle cx="12" cy="3.8" r="1.7" />
         <circle cx="12" cy="12.2" r="1.7" />
         <path d="m5 7.2 5.5-2.7M5 8.8l5.5 2.7" />
+      </svg>
+    );
+  }
+  if (kind === "zotero") {
+    return (
+      <svg {...common}>
+        <rect x="2.2" y="2.2" width="11.6" height="11.6" rx="2" />
+        <path d="M5.5 5.3h5L5.5 10.7h5" />
       </svg>
     );
   }

@@ -2884,8 +2884,10 @@ button.ctx-ring-wrap { border: none; font: inherit; color: inherit;
   display: flex; align-items: flex-start; gap: 6px; }
 .kb-error .kb-error-text { flex: 1; min-width: 0; }
 /* épinglage depuis le browser : coche accent (réussi) / rouge sémantique (échec) */
-.browser-bar .kb-flash-ok, .browser-bar .kb-flash-ok:hover { color: var(--accent); }
-.browser-bar .kb-flash-err, .browser-bar .kb-flash-err:hover { color: var(--u-hot, #e06c75); }
+.browser-bar .kb-flash-ok, .browser-bar .kb-flash-ok:hover,
+.biblio-reader-head .kb-flash-ok, .biblio-reader-head .kb-flash-ok:hover { color: var(--accent); }
+.browser-bar .kb-flash-err, .browser-bar .kb-flash-err:hover,
+.biblio-reader-head .kb-flash-err, .biblio-reader-head .kb-flash-err:hover { color: var(--u-hot, #e06c75); }
 /* méta sous la bulle : « envoyé avec N sources · … » (fidèle au moment de l'envoi) */
 .user-kb-meta { display: inline-flex; align-items: center; gap: 6px;
   font-size: var(--fs-xs); color: var(--muted2); margin-top: 2px;
