@@ -349,6 +349,14 @@ describe("run() contre fake_kimi_acp.mjs (fixture partagé Rust/Node)", () => {
     expect("usage" in done).toBe(false);
   });
 
+  it("tour muet (end_turn sans aucun chunk) : erreur actionnable + done ok:false", async () => {
+    const { events } = await turn({ prompt: "[silent] question" });
+    const err = events.find((e) => e.kind === "error");
+    expect(err?.message).toContain("compact");
+    const done = events.find((e) => e.kind === "done");
+    expect(done.ok).toBe(false);
+  });
+
   it("alignement model/thinking/mode via session/set_config_option", async () => {
     const { text } = await turn({ model: "fake-k3", effort: "off", permissionMode: "acceptEdits" });
     expect(text).toContain("model=fake-k3,thinking=off,mode=auto");

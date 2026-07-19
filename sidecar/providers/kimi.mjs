@@ -519,6 +519,15 @@ export async function run({
 
   const ctx = { toolMeta: new Map(), seenEdits: new Set(), lastUsageUpdate: null };
   const emitter = makeTurnEmitter((ev) => onEvent?.(ev));
+  // Échec silencieux du CLI (vérifié kimi 0.27) : sur une erreur API (ex. 400
+  // « total message size exceeds limit », contexte > ~2 Mo), session/prompt
+  // répond {stopReason:"end_turn"} SANS aucun chunk ni notification d'erreur.
+  // Un end_turn sans le moindre contenu est donc un échec à dénoncer.
+  let sawContent = false;
+  const CONTENT_UPDATES = new Set([
+    "user_message_chunk", "agent_message_chunk", "agent_thought_chunk",
+    "tool_call", "tool_call_update", "plan",
+  ]);
   client.setSessionHandler(sid, (update) => {
     // États éphémères consommés ici — jamais le transcript.
     if (update?.sessionUpdate === "config_option_update" && Array.isArray(update.configOptions)) {
@@ -527,6 +536,7 @@ export async function run({
     if (update?.sessionUpdate === "available_commands_update" && Array.isArray(update.availableCommands)) {
       commandsCatalog.set(sid, update.availableCommands);
     }
+    if (CONTENT_UPDATES.has(update?.sessionUpdate)) sawContent = true;
     for (const ev of mapKimiSessionUpdate(update, ctx)) emitter.emit(ev);
   });
   client.setSessionServerHandler(sid, async (method, params) => {
@@ -541,7 +551,16 @@ export async function run({
   try {
     const result = await client.request("session/prompt", { sessionId: sid, prompt: blocks });
     emitter.flush();
-    onEvent?.(mapKimiPromptResult(result, ctx));
+    const done = mapKimiPromptResult(result, ctx);
+    if (done.ok && result?.stopReason === "end_turn" && !sawContent) {
+      done.ok = false;
+      onEvent?.({ kind: "error", message:
+        "Kimi a terminé le tour sans produire de réponse — échec silencieux du CLI, "
+        + "typiquement une conversation au-delà de la limite de contexte de l'API (~2 Mo de messages). "
+        + "Lance la commande « compact » de Kimi ou démarre une nouvelle conversation "
+        + "(détail : ~/.kimi-code/sessions/<session>/logs/kimi-code.log)." });
+    }
+    onEvent?.(done);
   } catch (e) {
     emitter.flush();
     onEvent?.({ kind: "error", message: kimiUserError(e) });

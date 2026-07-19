@@ -882,11 +882,30 @@ impl KimiProvider {
             TurnCtx::default(),
             TurnEmitter::new(req.on_event.clone()),
         )));
+        // Échec silencieux du CLI (vérifié kimi 0.27) : sur une erreur API (ex.
+        // 400 « total message size exceeds limit », contexte > ~2 Mo),
+        // session/prompt répond {stopReason:"end_turn"} SANS aucun chunk ni
+        // notification d'erreur. Un end_turn sans contenu = échec à dénoncer.
+        let saw_content = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let saw_content_handler = Arc::clone(&saw_content);
         let handler_state = Arc::clone(&state);
         let config_cache = Arc::clone(&self.config);
         let commands_cache = Arc::clone(&self.commands);
         let sid_for_handler = sid.clone();
         let handler: SessionUpdateHandler = Arc::new(move |update: &Value| {
+            if matches!(
+                update.get("sessionUpdate").and_then(Value::as_str),
+                Some(
+                    "user_message_chunk"
+                        | "agent_message_chunk"
+                        | "agent_thought_chunk"
+                        | "tool_call"
+                        | "tool_call_update"
+                        | "plan"
+                )
+            ) {
+                saw_content_handler.store(true, std::sync::atomic::Ordering::Relaxed);
+            }
             // États éphémères intraçables dans le journal : snapshot config et
             // catalogue de commandes, consommés directement ici.
             match update.get("sessionUpdate").and_then(Value::as_str) {
@@ -957,21 +976,35 @@ impl KimiProvider {
 
         let (ok, error) = match prompt_res {
             Ok(result) => {
-                let done = {
+                let mut done = {
                     let mut guard = state.lock().unwrap();
                     let (ctx, emitter) = &mut *guard;
                     emitter.flush();
                     map_kimi_prompt_result(&result, ctx)
                 };
-                let ok = done.get("ok").and_then(Value::as_bool).unwrap_or(false);
+                let mut ok = done.get("ok").and_then(Value::as_bool).unwrap_or(false);
+                let stop = result
+                    .get("stopReason")
+                    .and_then(Value::as_str)
+                    .unwrap_or("stopReason inconnu");
+                let silent_failure = ok
+                    && stop == "end_turn"
+                    && !saw_content.load(std::sync::atomic::Ordering::Relaxed);
+                if silent_failure {
+                    done["ok"] = json!(false);
+                    ok = false;
+                    (req.on_event)(json!({"kind": "error", "message":
+                        "Kimi a terminé le tour sans produire de réponse — échec silencieux du CLI, \
+                         typiquement une conversation au-delà de la limite de contexte de l'API \
+                         (~2 Mo de messages). Lance la commande « compact » de Kimi ou démarre une \
+                         nouvelle conversation (détail : ~/.kimi-code/sessions/<session>/logs/kimi-code.log)."}));
+                }
                 (req.on_event)(done);
                 let error = if ok {
                     None
+                } else if silent_failure {
+                    Some("tour Kimi vide (end_turn sans contenu) — échec silencieux du CLI".to_string())
                 } else {
-                    let stop = result
-                        .get("stopReason")
-                        .and_then(Value::as_str)
-                        .unwrap_or("stopReason inconnu");
                     Some(match stop {
                         "refusal" => "Kimi a refusé la requête (refusal).".to_string(),
                         other => format!("tour Kimi terminé: {other}"),
@@ -1398,6 +1431,22 @@ mod tests {
         let result = p.send(req).await;
         let events = events.lock().unwrap().clone();
         TurnOutput { result, events }
+    }
+
+    #[tokio::test]
+    async fn tour_muet_end_turn_sans_contenu_denonce_l_echec() {
+        let Some(p) = fixture_provider("nominal") else {
+            return;
+        };
+        let out = run_turn(&p, "[silent] question", None, None, None, None, None).await;
+        assert!(!out.result.ok);
+        let errs = out.errors();
+        assert!(
+            errs.iter().any(|m| m.contains("compact")),
+            "erreur actionnable attendue, reçu: {errs:?}"
+        );
+        let done = out.done().expect("done");
+        assert_eq!(done["ok"], false);
     }
 
     #[tokio::test]

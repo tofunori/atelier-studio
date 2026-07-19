@@ -198,6 +198,11 @@ async function handlePrompt(id, params) {
     await new Promise((r) => setTimeout(r, LATE_MS));
     return reply(id, { stopReason: "end_turn" });
   }
+  if (text.includes("[silent]")) {
+    // Échec silencieux observé sur kimi 0.27 (erreur API côté CLI) :
+    // end_turn immédiat, AUCUN chunk, aucune notification d'erreur.
+    return reply(id, { stopReason: "end_turn" });
+  }
 
   if (text.includes("[image]")) {
     const img = blocks.find((b) => b && b.type === "image");
