@@ -18,10 +18,13 @@ function emit(name: string, detail: Record<string, unknown>) {
   act(() => window.dispatchEvent(new CustomEvent(name, { detail })));
 }
 
-function status(files: Array<{ path: string; status: string }>) {
+function status(
+  files: Array<{ path: string; status: string; add?: number; del?: number }>,
+  sync: { ahead?: number; behind?: number } = {},
+) {
   emit("git-status", {
     projectRoot,
-    status: { branch: "main", ahead: 0, behind: 0, files },
+    status: { branch: "main", ahead: sync.ahead ?? 0, behind: sync.behind ?? 0, files },
   });
 }
 
@@ -135,5 +138,109 @@ describe("GitSurface staging-first", () => {
 
     emit("git-changed", { type: "gitCommitDone", projectRoot });
     expect(summary).toHaveValue("");
+  });
+
+  it("conserve le fichier sélectionné quand il passe des changements à l’index", () => {
+    const ws = makeSocket();
+    renderUi(<GitSurface ws={ws} projectRoot={projectRoot} activeThreadId={null} />);
+    status([{ path: "src/changed.ts", status: ".M", add: 4, del: 1 }]);
+
+    const fileRow = screen.getByRole("button", { pressed: false });
+    fireEvent.click(fileRow);
+    expect(ws.send).toHaveBeenCalledWith(JSON.stringify({
+      type: "gitDiff",
+      projectRoot,
+      path: "src/changed.ts",
+      scope: "changes",
+    }));
+
+    status([{ path: "src/changed.ts", status: "M.", add: 4, del: 1 }]);
+    expect(ws.send).toHaveBeenLastCalledWith(JSON.stringify({
+      type: "gitDiff",
+      projectRoot,
+      path: "src/changed.ts",
+      scope: "staged",
+    }));
+    expect(screen.getByRole("button", { pressed: true })).toHaveTextContent("changed.ts");
+    expect(screen.getByRole("button", { name: t("git.inspect-diff") })).toBeEnabled();
+  });
+
+  it("indexe et désindexe une section entière", () => {
+    const ws = makeSocket();
+    renderUi(<GitSurface ws={ws} projectRoot={projectRoot} activeThreadId={null} />);
+    status([
+      { path: "a.ts", status: "M." },
+      { path: "b.ts", status: "A." },
+      { path: "c.ts", status: ".M" },
+    ]);
+
+    fireEvent.click(screen.getByRole("button", { name: t("git.unstage-all") }));
+    expect(ws.send).toHaveBeenCalledWith(JSON.stringify({
+      type: "gitUnstage",
+      projectRoot,
+      paths: ["a.ts", "b.ts"],
+    }));
+
+    fireEvent.click(screen.getByRole("button", { name: t("git.stage-all") }));
+    expect(ws.send).toHaveBeenCalledWith(JSON.stringify({
+      type: "gitStage",
+      projectRoot,
+      paths: ["c.ts"],
+    }));
+  });
+
+  it("ajoute une description au corps du commit", () => {
+    const ws = makeSocket();
+    renderUi(<GitSurface ws={ws} projectRoot={projectRoot} activeThreadId={null} />);
+    status([{ path: "staged.ts", status: "M." }]);
+
+    fireEvent.change(screen.getByRole("textbox", { name: t("git.commit-placeholder") }), {
+      target: { value: "Titre du commit" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: t("git.add-description") }));
+    fireEvent.change(screen.getByRole("textbox", { name: t("git.description-placeholder") }), {
+      target: { value: "Contexte détaillé" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: t("git.commit-branch", { branch: "main" }) }));
+
+    expect(ws.send).toHaveBeenCalledWith(JSON.stringify({
+      type: "gitCommit",
+      projectRoot,
+      message: "Titre du commit\n\nContexte détaillé",
+      files: [],
+    }));
+  });
+
+  it("enchaîne le push seulement après la confirmation du commit", () => {
+    const ws = makeSocket();
+    renderUi(<GitSurface ws={ws} projectRoot={projectRoot} activeThreadId={null} />);
+    status([{ path: "staged.ts", status: "M." }]);
+    fireEvent.change(screen.getByRole("textbox", { name: t("git.commit-placeholder") }), {
+      target: { value: "Commit puis push" },
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: t("git.commit-push") }));
+    expect(ws.send).toHaveBeenLastCalledWith(JSON.stringify({
+      type: "gitCommit",
+      projectRoot,
+      message: "Commit puis push",
+      files: [],
+    }));
+
+    emit("git-changed", { type: "gitCommitDone", projectRoot });
+    expect(ws.send).toHaveBeenCalledWith(JSON.stringify({ type: "gitPush", projectRoot }));
+  });
+
+  it("affiche les compteurs de synchronisation et envoie pull/push", () => {
+    const ws = makeSocket();
+    renderUi(<GitSurface ws={ws} projectRoot={projectRoot} activeThreadId={null} />);
+    status([{ path: "changed.ts", status: ".M" }], { ahead: 2, behind: 1 });
+
+    fireEvent.click(screen.getByRole("button", { name: `${t("git.pull-short")} 1` }));
+    expect(ws.send).toHaveBeenCalledWith(JSON.stringify({ type: "gitPull", projectRoot }));
+    emit("git-sync-done", { op: "pull", out: "Already up to date." });
+
+    fireEvent.click(screen.getByRole("button", { name: `${t("git.push-short")} 2` }));
+    expect(ws.send).toHaveBeenCalledWith(JSON.stringify({ type: "gitPush", projectRoot }));
   });
 });

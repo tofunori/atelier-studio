@@ -122,6 +122,12 @@ describe("contrat Quiet Instrument (sources CSS)", () => {
     }
   });
 
+  it("réserve la zone du bouton fermer dans l’en-tête du diff mobile", () => {
+    expect(appCss).toMatch(
+      /\.git-diff-sheet\s+\.git-diff-pane-head\s*\{[^}]*padding-right:\s*52px;/,
+    );
+  });
+
   it("App.css : hex et z-index bruts gelés (sous-multisets — ne peuvent que rétrécir)", () => {
     // hors blocs :root (palette source de vérité), .hljs-* (palette syntaxique)
     // et fallbacks var(--x, #hex)
