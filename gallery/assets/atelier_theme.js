@@ -7,6 +7,11 @@
     nonce = match ? match[1] : (sessionStorage.getItem("atelier_nonce") || "");
     if (nonce) sessionStorage.setItem("atelier_nonce", nonce);
   } catch (_) {}
+  // le sessionStorage des iframes cross-origin peut être purgé par WKWebView
+  // (pression mémoire, onglets cachés) → les postMessage vers l'app partaient
+  // sans nonce et étaient rejetés en silence (« Add to chat » mort jusqu'au
+  // reload). La variable de page est la source primaire ; le parent ré-essaime.
+  if (nonce) window.__atelierNonce = nonce;
 
   var LEGACY = {
     "--surface-app": "--bg",
@@ -74,7 +79,15 @@
 
   window.addEventListener("message", function (event) {
     if (event.source !== window.top && event.source !== window.parent) return;
-    applyTheme(event.data);
+    var data = event.data;
+    // réadoption : un message du parent (source de vérité) porte le nonce —
+    // une page qui a perdu le sien (purge sessionStorage) redevient fonctionnelle
+    if (data && typeof data.nonce === "string" && data.nonce && !nonce) {
+      nonce = data.nonce;
+      window.__atelierNonce = nonce;
+      try { sessionStorage.setItem("atelier_nonce", nonce); } catch (_) {}
+    }
+    applyTheme(data);
   });
 
   function requestTheme() {

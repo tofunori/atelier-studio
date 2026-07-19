@@ -595,7 +595,7 @@ export default function App() {
     root.setAttribute("data-theme", theme);
     window.dispatchEvent(new CustomEvent("app-theme-changed", { detail: settings.themePreset }));
     // propager aux iframes atelier (galerie, viewers)
-    const broadcastTheme = setTimeout(() => {
+    const pushThemeToAtelierFrames = () => {
       document.querySelectorAll("iframe.atelier").forEach((f) => {
         const iframe = f as HTMLIFrameElement;
         const targetOrigin = atelierTargetOrigin(iframe.src);
@@ -603,7 +603,12 @@ export default function App() {
         const message = themeMessage(settings, atelierNonce);
         iframe.contentWindow?.postMessage(message, targetOrigin);
       });
-    }, 50);
+    };
+    const broadcastTheme = setTimeout(pushThemeToAtelierFrames, 50);
+    // ré-essaimage périodique : le message de thème porte le nonce IPC — une
+    // page dont WKWebView a purgé le sessionStorage (clics « Add to chat »
+    // muets jusqu'au reload) le réadopte et redevient fonctionnelle seule
+    const reseedNonce = setInterval(pushThemeToAtelierFrames, 30_000);
     // preset : pose toutes les variables ; "atelier" = valeurs de la feuille
     for (const k of ["--bg","--bg-side","--bg-pop","--bg-card","--bg-ctl","--border","--border2","--fg","--fg2","--muted","--muted2","--accent"]) {
       if (preset && preset.id !== "atelier") r.setProperty(k, preset.vars[k]);
@@ -630,6 +635,7 @@ export default function App() {
     }, 600);
     return () => {
       clearTimeout(broadcastTheme);
+      clearInterval(reseedNonce);
       clearTimeout(mirror);
     };
   }, [settings]);

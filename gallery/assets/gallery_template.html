@@ -617,12 +617,23 @@
 <footer>Double-click a thumbnail or "Open" to view the file. This file must stay at the project root for the links to work. Click Rescan to refresh.</footer>
 <script>
 (function(){
-  try{ var m=(location.hash||'').match(/atelier_nonce=([\w-]+)/); if(m) sessionStorage.setItem('atelier_nonce', m[1]); }catch(e){}
+  try{ var m=(location.hash||'').match(/atelier_nonce=([\w-]+)/); if(m){ sessionStorage.setItem('atelier_nonce', m[1]); window.__atelierNonce = m[1]; } }catch(e){}
   /* nonce IPC : inclus dans chaque message vers l'app hôte ; l'app rejette sans lui */
   window.__atelierPost = function(p){
-    try{ p = Object.assign({}, p, {nonce: sessionStorage.getItem('atelier_nonce')||''}); }catch(e){}
+    try{ p = Object.assign({}, p, {nonce: (window.__atelierNonce || sessionStorage.getItem('atelier_nonce') || '')}); }catch(e){}
     try{ window.top.postMessage(p, '*'); }catch(e){}
   };
+  /* réadoption : le sessionStorage des iframes peut être purgé par WKWebView →
+     nonce perdu = clics muets. Les messages du parent (thème, activation)
+     portent le nonce : on le réadopte quand le nôtre a disparu. */
+  window.addEventListener('message', function(e){
+    if(e.source !== window.top && e.source !== window.parent) return;
+    var d = e.data;
+    if(d && typeof d.nonce === 'string' && d.nonce && !window.__atelierNonce){
+      window.__atelierNonce = d.nonce;
+      try{ sessionStorage.setItem('atelier_nonce', d.nonce); }catch(err){}
+    }
+  });
 })();
 
 const INLINE_FILES = __DATA__;
