@@ -1,7 +1,7 @@
 // ComposerControls (plan 015, slice 5) : barre du composer — menu +, mode de
 // permission, anneau de contexte, sélecteurs provider/modèle/effort, envoi/
 // stop/queue. JSX déplacé verbatim ; états et catalogues restent chez Chat.
-import React, { useEffect, useRef } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { t } from "../../lib/i18n";
 import { Select } from "../Select";
 import { PlusIcon, ProviderIcon, ZapIcon } from "../icons";
@@ -21,9 +21,11 @@ import { Tooltip } from "../ui/Tooltip";
 import { RowButton } from "../ui";
 import { Kbd } from "../shadcn/kbd";
 import { Popover, PopoverContent, PopoverTrigger } from "../shadcn/popover";
+import { Field, FieldLabel } from "../shadcn/field";
+import { InputGroup, InputGroupAddon, InputGroupInput } from "../shadcn/input-group";
 import type { FollowUpMode } from "../../lib/chatDraftStore";
 import { KbPicker, type KbBinding } from "./KbPicker";
-import { ArrowUpIcon, SquareIcon } from "lucide-react";
+import { ArrowUpIcon, SearchIcon, SquareIcon } from "lucide-react";
 
 const PERMISSION_MODES = [
   { id: "bypassPermissions", labelKey: "permission.full" },
@@ -132,9 +134,15 @@ export function ComposerControls(p: {
   const modelBtnRef = useRef<HTMLButtonElement | null>(null);
   const effortMenuRef = useRef<HTMLDivElement | null>(null);
   const effortBtnRef = useRef<HTMLButtonElement | null>(null);
+  const [modelQuery, setModelQuery] = useState("");
   useEffect(() => {
-    if (menuOpen) modelMenuRef.current?.querySelector<HTMLButtonElement>("button")?.focus();
-  }, [menuOpen]);
+    if (!menuOpen) {
+      setModelQuery("");
+      return;
+    }
+    const selector = provider === "opencode" ? "input[type=search]" : "button";
+    modelMenuRef.current?.querySelector<HTMLElement>(selector)?.focus();
+  }, [menuOpen, provider]);
   useEffect(() => {
     if (effortOpen) effortMenuRef.current?.querySelector<HTMLElement>('[role="slider"]')?.focus();
   }, [effortOpen]);
@@ -308,11 +316,11 @@ export function ComposerControls(p: {
               };
               const sortedModels = sortByFav(modelsFor(menuProvider), menuProvider);
               const activeModelId = resolvedModelId(menuProvider);
+              const normalizedQuery = modelQuery.trim().toLowerCase();
               const menuModels = menuProvider === "opencode"
-                ? sortedModels.filter((entry) => (
-                    favModels.includes(`${menuProvider}:${entry.id}`)
-                    || (provider === menuProvider && activeModelId === entry.id)
-                  ))
+                ? sortedModels.filter((entry) => !normalizedQuery
+                    || entry.id.toLowerCase().includes(normalizedQuery)
+                    || modelLabel(entry, menuProvider).toLowerCase().includes(normalizedQuery))
                 : sortedModels;
               return (
                 <PopoverContent
@@ -383,7 +391,7 @@ export function ComposerControls(p: {
                       );
                     })()}
                   </div>}
-                  <div className="model-list">
+                  <div className={`model-list ${menuProvider === "opencode" ? "has-search" : ""}`}>
                     <div className="model-list-head">
                       <span>
                         <ProviderIcon provider={menuProvider} size={11} /> {menuInfo?.label ?? menuProvider}
@@ -392,6 +400,24 @@ export function ComposerControls(p: {
                         <small>{t("settings.key-missing")}</small>
                       )}
                     </div>
+                    {menuProvider === "opencode" && (
+                      <Field className="model-search-field">
+                        <FieldLabel className="tw:sr-only">{t("settings.model-search")}</FieldLabel>
+                        <InputGroup>
+                          <InputGroupInput
+                            type="search"
+                            value={modelQuery}
+                            placeholder={t("settings.model-search")}
+                            aria-label={t("settings.model-search")}
+                            onChange={(event) => setModelQuery(event.target.value)}
+                          />
+                          <InputGroupAddon align="inline-end">
+                            <SearchIcon />
+                          </InputGroupAddon>
+                        </InputGroup>
+                      </Field>
+                    )}
+                    <div className="model-options">
                     {menuModels.map((m) => {
                       const key = menuProvider + ":" + m.id;
                       // Claude : chaque nouveau choix part en contexte 1M. Le
@@ -438,6 +464,9 @@ export function ComposerControls(p: {
                         </div>
                       );
                     })}
+                    {!menuModels.length && (
+                      <p className="model-no-match">{t("settings.model-no-match")}</p>
+                    )}
                     {menuProvider === "claude" && (
                       <>
                         <div className="mp-sep" />
@@ -475,6 +504,7 @@ export function ComposerControls(p: {
                         </RowButton>
                       </>
                     )}
+                    </div>
                   </div>
                 </PopoverContent>
               );

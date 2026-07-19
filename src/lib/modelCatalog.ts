@@ -26,6 +26,9 @@ export const BUILTIN_MODEL_LABELS: Record<string, Record<string, string>> = {
     "kimi-code/kimi-for-coding": "K2.7 Coding",
     "kimi-code/kimi-for-coding-highspeed": "K2.7 Coding Highspeed",
   },
+  opencode: {
+    "kimi-for-coding/k3": "Kimi K3",
+  },
 };
 
 export function modelDisplayLabel(provider: string, model: string): string {

@@ -9,6 +9,7 @@ describe("modelDisplayLabel", () => {
   it("retire les préfixes techniques des modèles OpenCode", () => {
     expect(modelDisplayLabel("opencode", "openrouter/z-ai/glm-5.2")).toBe("GLM 5.2");
     expect(modelDisplayLabel("opencode", "opencode/claude-fable-5")).toBe("Claude Fable 5");
+    expect(modelDisplayLabel("opencode", "kimi-for-coding/k3")).toBe("Kimi K3");
     expect(modelDisplayLabel("opencode", "openrouter/cohere/north-mini-code:free"))
       .toBe("North Mini Code · Free");
   });

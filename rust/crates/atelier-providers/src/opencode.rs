@@ -406,11 +406,12 @@ impl Provider for OpenCodeProvider {
         vec![
             "openrouter/z-ai/glm-5.2".into(),
             "openrouter/minimax/minimax-m3".into(),
+            "kimi-for-coding/k3".into(),
             "openrouter/openrouter/auto".into(),
         ]
     }
     fn default_model(&self) -> String {
-        "openrouter/z-ai/glm-5.2".into()
+        "kimi-for-coding/k3".into()
     }
     fn efforts(&self) -> Vec<String> {
         vec![
@@ -670,10 +671,19 @@ mod tests {
         let models = parse_model_catalog(
             "opencode/glm-5.2\nopenrouter/z-ai/glm-5.2\n\nwarning ignored\nopencode/glm-5.2\n",
         );
-        assert_eq!(
-            models,
-            vec!["opencode/glm-5.2", "openrouter/z-ai/glm-5.2"]
-        );
+        assert_eq!(models, vec!["opencode/glm-5.2", "openrouter/z-ai/glm-5.2"]);
+    }
+
+    #[test]
+    fn fallback_models_include_authenticated_kimi_k3_route() {
+        let Some(provider) = OpenCodeProvider::new() else {
+            return;
+        };
+        assert!(provider
+            .models()
+            .iter()
+            .any(|id| id == "kimi-for-coding/k3"));
+        assert_eq!(provider.default_model(), "kimi-for-coding/k3");
     }
     use crate::traits::SendMode;
 

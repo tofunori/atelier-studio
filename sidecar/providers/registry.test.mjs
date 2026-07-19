@@ -21,11 +21,15 @@ describe("provider registry", () => {
     expect(provider.capabilities).toMatchObject({ resume: true, steering: true, goals: true });
   });
 
-  it("exposes only OpenRouter-backed OpenCode models", () => {
+  it("exposes OpenRouter models plus the authenticated Kimi K3 route", () => {
     const provider = getProvider("opencode");
     expect(provider).toBeTruthy();
+    expect(provider.defaultModel).toBe("kimi-for-coding/k3");
+    expect(provider.models).toContain("kimi-for-coding/k3");
     expect(provider.models).not.toContain("opencode/north-mini-code-free");
-    expect(provider.models.every((model) => model.startsWith("openrouter/"))).toBe(true);
+    expect(provider.models.every((model) => (
+      model.startsWith("openrouter/") || model === "kimi-for-coding/k3"
+    ))).toBe(true);
   });
 });
 

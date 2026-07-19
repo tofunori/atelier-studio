@@ -604,7 +604,7 @@ describe("composer — barre hiérarchisée (plan 020)", () => {
     expect(favorite).toHaveAttribute("aria-pressed", "true");
   });
 
-  it("OpenCode affiche seulement favoris et modèle actif avec des libellés propres", () => {
+  it("OpenCode rend tout le catalogue recherchable et sélectionnable dans le chat", async () => {
     const onOpenModelSettings = vi.fn();
     renderUi(<Chat {...chatProps({
       threadProvider: "opencode",
@@ -618,7 +618,12 @@ describe("composer — barre hiérarchisée (plan 020)", () => {
       providers: [
         makeProviderInfo({
           id: "opencode", label: "OpenCode",
-          models: ["opencode/glm-5.2", "opencode/claude-fable-5", "opencode/minimax-m3"],
+          models: [
+            "opencode/glm-5.2",
+            "opencode/claude-fable-5",
+            "opencode/minimax-m3",
+            "kimi-for-coding/k3",
+          ],
           defaultModel: "opencode/glm-5.2",
         }),
         makeProviderInfo({ id: "claude", label: "Claude Code" }),
@@ -634,12 +639,25 @@ describe("composer — barre hiérarchisée (plan 020)", () => {
     expect(within(list).queryByText("Codex")).toBeNull();
     expect(within(list).getByText("GLM 5.2")).toBeTruthy();
     expect(within(list).getByText("Claude Fable 5")).toBeTruthy();
-    expect(within(list).queryByText("MiniMax M3")).toBeNull();
+    expect(within(list).getByText("MiniMax M3")).toBeTruthy();
+    expect(within(list).getByText("Kimi K3")).toBeTruthy();
     expect(list.textContent).not.toContain("Default model");
     expect(list.textContent).not.toContain("CLI default");
     expect(list.textContent).not.toContain("opencode/");
 
-    fireEvent.click(within(list).getByText(t("chat.manage-models")));
+    const search = within(list).getByPlaceholderText(t("settings.model-search"));
+    fireEvent.change(search, { target: { value: "kimi k3" } });
+    expect(within(list).getByText("Kimi K3")).toBeTruthy();
+    expect(within(list).queryByText("GLM 5.2")).toBeNull();
+
+    fireEvent.click(within(list).getByText("Kimi K3"));
+    await waitFor(() => expect(
+      (document.querySelector(".model-pick .mp-btn") as HTMLButtonElement).textContent,
+    ).toContain("Kimi K3"));
+
+    fireEvent.click(document.querySelector(".model-pick .mp-btn") as HTMLButtonElement);
+    const reopenedList = document.querySelector(".model-menu .model-list") as HTMLElement;
+    fireEvent.click(within(reopenedList).getByText(t("chat.manage-models")));
     expect(onOpenModelSettings).toHaveBeenCalledTimes(1);
   });
 

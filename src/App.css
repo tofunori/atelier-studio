@@ -1094,6 +1094,11 @@ input[type="range"].slider::-webkit-slider-thumb:hover { transform: scale(1.15);
   max-height: 390px; overflow-y: auto; }
 .model-menu.model-only .model-effort-legacy { display: none; }
 .model-menu.model-only .model-list { position: static; width: 230px; }
+.model-menu.model-only .model-list.has-search { display: flex; flex-direction: column; overflow: hidden; }
+.model-search-field { flex: none; padding: 2px 6px 6px; }
+.model-options { min-width: 0; }
+.model-list.has-search .model-options { min-height: 0; overflow-y: auto; }
+.model-no-match { color: var(--muted2); font-size: var(--fs-m); margin: 0; padding: 12px 9px; }
 .effort-menu { width: 260px; padding: 8px 10px 12px; overflow: visible; }
 .mp-chev { color: var(--muted2); white-space: nowrap; }
 .model-provider-row { display: grid; grid-template-columns: 14px minmax(0, 1fr) auto; align-items: center;

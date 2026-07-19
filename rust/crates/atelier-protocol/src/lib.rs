@@ -422,13 +422,14 @@ pub fn builtin_providers() -> Vec<ProviderStatus> {
                 "openrouter/minimax/minimax-m3".into(),
                 "openrouter/tencent/hy3:free".into(),
                 "openrouter/qwen/qwen3-coder".into(),
+                "kimi-for-coding/k3".into(),
                 "openrouter/moonshotai/kimi-k3".into(),
                 "openrouter/moonshotai/kimi-k2.7-code".into(),
                 "openrouter/cohere/north-mini-code:free".into(),
                 "openrouter/openrouter/auto".into(),
             ],
             model_reasoning: Value::Object(Default::default()),
-            default_model: "openrouter/z-ai/glm-5.2".into(),
+            default_model: "kimi-for-coding/k3".into(),
             efforts: vec![
                 "minimal".into(),
                 "low".into(),
@@ -517,5 +518,15 @@ mod tests {
         assert!(kimi.capabilities.interactive_input);
         assert!(!kimi.capabilities.review, "pas de builtin review ACP 0.26");
         assert_eq!(kimi.capabilities.permission_modes.len(), 4);
+    }
+
+    #[test]
+    fn opencode_fallback_includes_authenticated_kimi_k3_route() {
+        let opencode = builtin_providers()
+            .into_iter()
+            .find(|p| p.id == "opencode")
+            .expect("opencode présent");
+        assert!(opencode.models.iter().any(|id| id == "kimi-for-coding/k3"));
+        assert_eq!(opencode.default_model, "kimi-for-coding/k3");
     }
 }

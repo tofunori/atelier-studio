@@ -44,7 +44,7 @@ export function listModels(timeoutMs = 12_000) {
         reject(new Error("opencode models: aucun modèle détecté"));
         return;
       }
-      const value = { models, defaultModel: "openrouter/z-ai/glm-5.2" };
+      const value = { models, defaultModel: "kimi-for-coding/k3" };
       modelCatalogCache = { fetchedAt: Date.now(), value };
       resolve(value);
     });
