@@ -145,7 +145,7 @@ export class AutomationManager {
   async execute(id, ctx, route, scheduled = false) {
     const item = this.get(id); if (!item) throw new Error("automatisation introuvable");
     if (scheduled && item.status !== "ACTIVE") throw new Error("automatisation en pause");
-    let threadId; let thread; let provider; let projectRoot; let model; let effort; let permissionMode;
+    let threadId; let thread; let provider; let projectRoot; let model; let effort;
     if (item.kind === "heartbeat") {
       threadId = item.targetThreadId; thread = this.threadStore.get(threadId);
       if (!thread) throw new Error("chat cible introuvable");
@@ -153,10 +153,10 @@ export class AutomationManager {
         if (scheduled) { item.nextRunAt = now() + 60_000; item.lastError = "Chat occupé; nouvel essai dans une minute"; item.updatedAt = now(); this.persist(); }
         throw new Error("chat cible occupé; nouvel essai dans une minute");
       }
-      provider = thread.provider; projectRoot = thread.projectRoot; ({ model, effort, permissionMode } = thread.lastTurn ?? {});
+      provider = thread.provider; projectRoot = thread.projectRoot; ({ model, effort } = thread.lastTurn ?? {});
     } else {
       threadId = `automation-${crypto.randomUUID()}`; provider = item.provider; projectRoot = item.projectRoot;
-      ({ model, effort, permissionMode } = item);
+      ({ model, effort } = item);
     }
     const timestamp = now(); const runId = crypto.randomUUID();
     item.runs.unshift({ id: runId, status: "IN_PROGRESS", threadId, createdAt: timestamp, completedAt: null, error: null });
@@ -166,7 +166,10 @@ export class AutomationManager {
     const prompt = item.kind === "heartbeat"
       ? `<heartbeat>\n  <automation_id>${item.id}</automation_id>\n  <current_time_ms>${timestamp}</current_time_ms>\n  <instructions>${item.prompt}</instructions>\n</heartbeat>`
       : item.prompt;
-    await route({ type: "send", threadId, provider, projectRoot, prompt, title: item.name, model, effort, permissionMode,
+    // Une automatisation se réveille sans utilisateur présent pour approuver un
+    // élargissement de périmètre. Elle reste donc toujours en plan/read-only ;
+    // toute correction doit être reprise dans un tour interactif explicite.
+    await route({ type: "send", threadId, provider, projectRoot, prompt, title: item.name, model, effort, permissionMode: "plan",
       clientMessageId: crypto.randomUUID(), displayEvent: { kind: "user", text: item.prompt, label: "Automatisation" } }, ctx);
     ctx.broadcast({ type: "automations", automations: this.list() });
     return threadId;

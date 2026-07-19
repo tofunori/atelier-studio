@@ -54,7 +54,7 @@ function tempGitEnv(indexFile) {
 }
 
 function parseStatus(output) {
-  const result = { branch: null, ahead: 0, behind: 0, files: [] };
+  const result = { branch: null, branches: [], ahead: 0, behind: 0, files: [] };
   const records = output.split("\0").filter(Boolean);
   for (let i = 0; i < records.length; i++) {
     const record = records[i];
@@ -139,6 +139,15 @@ export async function status(root) {
   await ensureRepo(realRoot);
   const { stdout } = await git(realRoot, ["status", "--porcelain=v2", "--branch", "-z"]);
   const parsed = parseStatus(stdout);
+  try {
+    const { stdout: refs } = await git(realRoot, [
+      "for-each-ref",
+      "--format=%(refname:short)",
+      "--sort=refname",
+      "refs/heads/",
+    ]);
+    parsed.branches = refs.split("\n").map((branch) => branch.trim()).filter(Boolean);
+  } catch {}
   // ±lignes par fichier (les non suivis n'ont pas de numstat HEAD)
   if (await hasHead(realRoot)) {
     try {
@@ -154,6 +163,95 @@ export async function status(root) {
     } catch {}
   }
   return parsed;
+}
+
+export async function switchBranch(root, branch) {
+  const realRoot = confinedRoot(root);
+  await ensureRepo(realRoot);
+  if (!branch || typeof branch !== "string" || branch.includes("\0")) {
+    throw new Error("branche requise");
+  }
+  const current = await status(realRoot);
+  if (current.files.length > 0) {
+    throw new Error("changement de branche refusé : l’arbre de travail doit être propre");
+  }
+  await git(realRoot, ["check-ref-format", "--branch", branch]);
+  try {
+    await git(realRoot, ["show-ref", "--verify", "--quiet", `refs/heads/${branch}`]);
+  } catch {
+    throw new Error(`branche locale introuvable : ${branch}`);
+  }
+  if (current.branch === branch) return branch;
+  await git(realRoot, ["switch", "--", branch]);
+  return branch;
+}
+
+export async function createBranch(root, branch) {
+  const realRoot = confinedRoot(root);
+  await ensureRepo(realRoot);
+  if (!branch || typeof branch !== "string" || branch.includes("\0")) {
+    throw new Error("branche requise");
+  }
+  await git(realRoot, ["check-ref-format", "--branch", branch]);
+  try {
+    await git(realRoot, ["show-ref", "--verify", "--quiet", `refs/heads/${branch}`]);
+    throw new Error(`branche locale déjà existante : ${branch}`);
+  } catch (error) {
+    if (String(error?.message ?? error).includes("déjà existante")) throw error;
+  }
+  await git(realRoot, ["switch", "-c", branch]);
+  return branch;
+}
+
+export async function deleteBranch(root, branch) {
+  const realRoot = confinedRoot(root);
+  await ensureRepo(realRoot);
+  if (!branch || typeof branch !== "string" || branch.includes("\0")) {
+    throw new Error("branche requise");
+  }
+  const current = await status(realRoot);
+  await git(realRoot, ["check-ref-format", "--branch", branch]);
+  if (current.branch === branch) {
+    throw new Error("suppression de la branche active refusée");
+  }
+  try {
+    await git(realRoot, ["show-ref", "--verify", "--quiet", `refs/heads/${branch}`]);
+  } catch {
+    throw new Error(`branche locale introuvable : ${branch}`);
+  }
+  await git(realRoot, ["branch", "-d", "--", branch]);
+  return branch;
+}
+
+export async function mergeBranch(root, branch) {
+  const realRoot = confinedRoot(root);
+  await ensureRepo(realRoot);
+  if (!branch || typeof branch !== "string" || branch.includes("\0")) {
+    throw new Error("branche requise");
+  }
+  const current = await status(realRoot);
+  if (current.files.length > 0) {
+    throw new Error("fusion refusée : l’arbre de travail doit être propre");
+  }
+  await git(realRoot, ["check-ref-format", "--branch", branch]);
+  if (current.branch === branch) {
+    throw new Error("fusion de la branche active avec elle-même refusée");
+  }
+  try {
+    await git(realRoot, ["show-ref", "--verify", "--quiet", `refs/heads/${branch}`]);
+  } catch {
+    throw new Error(`branche locale introuvable : ${branch}`);
+  }
+  try {
+    await git(realRoot, ["merge", "--no-edit", branch]);
+  } catch (error) {
+    const detail = [error?.stderr, error?.stdout]
+      .map((value) => String(value ?? "").trim())
+      .filter(Boolean)
+      .join("\n");
+    throw new Error(detail || String(error?.message ?? error));
+  }
+  return branch;
 }
 
 /** ±lignes d'un seul fichier vs HEAD ; fichier non suivi = tout en ajouts. */
@@ -319,17 +417,13 @@ export async function commit(root, message, files = null) {
   await ensureRepo(realRoot);
   const msg = String(message ?? "").trim();
   if (!msg) throw new Error("message de commit vide");
-  if (Array.isArray(files)) {
-    // [] signifie explicitement « commiter l'index actuel sans toucher au worktree ».
-    if (files.length) {
-      const rels = files.map((f) => assertRelativePath(realRoot, f));
-      await git(realRoot, ["add", "--", ...rels]);
-    }
-  } else {
-    // Compatibilité avec les anciens clients qui n'envoient pas `files`.
-    const st = await status(realRoot);
-    if (!st.files.length) throw new Error("rien à commiter");
-    await git(realRoot, ["add", "-A"]);
+  if (!Array.isArray(files)) {
+    throw new Error("sélection explicite requise : indexe les fichiers à committer");
+  }
+  // [] signifie explicitement « commiter l'index actuel sans toucher au worktree ».
+  if (files.length) {
+    const rels = files.map((f) => assertRelativePath(realRoot, f));
+    await git(realRoot, ["add", "--", ...rels]);
   }
   await git(realRoot, ["commit", "-m", msg]);
   const { stdout } = await git(realRoot, ["rev-parse", "HEAD"]);

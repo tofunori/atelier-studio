@@ -53,6 +53,12 @@ pub struct SendResult {
     pub error: Option<String>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CommitMessageDetails {
+    pub title: String,
+    pub description: String,
+}
+
 #[async_trait]
 pub trait Provider: Send + Sync {
     fn id(&self) -> &str;
@@ -70,12 +76,12 @@ pub trait Provider: Send + Sync {
         None
     }
 
-    /// Optional low-cost commit subject generation from an already-scoped diff.
+    /// Optional commit title and description generation from an already-scoped diff.
     async fn commit_message(
         &self,
         _diff: &str,
         _project_root: &str,
-    ) -> Result<Option<String>, String> {
+    ) -> Result<Option<CommitMessageDetails>, String> {
         Ok(None)
     }
 

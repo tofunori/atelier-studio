@@ -6,13 +6,14 @@ use crate::state::{AppState, QaSession};
 use atelier_protocol::{ErrorMessage, PongMessage};
 use atelier_store::{get_all_ledgers, get_ledger, iso_now, read_settings, write_settings};
 use atelier_workspace::{
-    check_frame, clear_pasted, commit as git_commit, diff as git_diff,
-    diff_contents as git_diff_contents, diff_staged as git_diff_staged, ignore_pattern,
-    list_commands, list_files, list_pasted, narval_inspect_job, narval_list_directory,
-    narval_read_text, narval_snapshot, narval_status, pdf_absolute_path, pull as git_pull,
-    push as git_push, restore as git_restore, revert_file, save_image, scan_local, stage_files,
-    status as git_status, unstage_files, zotero_available, zotero_collections, zotero_load_favs,
-    zotero_search, zotero_toggle_fav, GitStatus, NarvalError, TermEvent,
+    check_frame, clear_pasted, commit as git_commit, create_branch as git_create_branch,
+    delete_branch as git_delete_branch, diff as git_diff, diff_contents as git_diff_contents,
+    diff_staged as git_diff_staged, ignore_pattern, list_commands, list_file_catalog, list_pasted,
+    merge_branch as git_merge_branch, narval_inspect_job, narval_list_directory, narval_read_text,
+    narval_snapshot, narval_status, pdf_absolute_path, pull as git_pull, push as git_push,
+    restore as git_restore, revert_file, save_image, scan_local, stage_files, status as git_status,
+    switch_branch as git_switch_branch, unstage_files, zotero_available, zotero_collections,
+    zotero_load_favs, zotero_search, zotero_toggle_fav, NarvalError, TermEvent,
 };
 use serde_json::{json, Value};
 
@@ -70,6 +71,10 @@ pub const ALL_MESSAGE_TYPES: &[&str] = &[
     "scanLocal",
     "checkFrame",
     "gitStatus",
+    "gitSwitchBranch",
+    "gitCreateBranch",
+    "gitDeleteBranch",
+    "gitMergeBranch",
     "gitDiff",
     "gitStage",
     "gitUnstage",
@@ -111,49 +116,6 @@ pub const ALL_MESSAGE_TYPES: &[&str] = &[
     "goalGet",
     "goalClear",
 ];
-
-fn commit_generation_context(status: &GitStatus, staged_only: bool) -> Option<String> {
-    let files = status
-        .files
-        .iter()
-        .filter(|file| {
-            file.status != "!"
-                && (!staged_only || (file.status != "?" && !file.status.starts_with('.')))
-        })
-        .collect::<Vec<_>>();
-    if files.is_empty() {
-        return None;
-    }
-
-    let untracked = files.iter().filter(|file| file.status == "?").count();
-    let deleted = files
-        .iter()
-        .filter(|file| file.status.contains('D'))
-        .count();
-    let modified = files.len().saturating_sub(untracked + deleted);
-    let shown = files.len().min(120);
-    let mut lines = Vec::with_capacity(shown + 4);
-    lines.push(format!(
-        "Git change summary for branch {}: {} files ({} modified, {} deleted, {} untracked).",
-        status.branch.as_deref().unwrap_or("unknown"),
-        files.len(),
-        modified,
-        deleted,
-        untracked,
-    ));
-    lines.push(format!("Changed files ({shown} shown):"));
-    for file in files.iter().take(shown) {
-        let stats = match (file.add, file.del) {
-            (Some(add), Some(del)) => format!(" (+{add} -{del})"),
-            _ => String::new(),
-        };
-        lines.push(format!("{} {}{}", file.status, file.path, stats));
-    }
-    if shown < files.len() {
-        lines.push(format!("… and {} more files", files.len() - shown));
-    }
-    Some(lines.join("\n"))
-}
 
 fn narval_reply<T: serde::Serialize>(
     response_type: &str,
@@ -423,9 +385,14 @@ pub async fn route_ws(state: &AppState, text: &str) -> Vec<String> {
                 .get("projectRoot")
                 .and_then(|v| v.as_str())
                 .unwrap_or("");
-            let files = list_files(root);
+            let catalog = list_file_catalog(root);
             vec![json_msg(
-                json!({"type":"files","projectRoot": root, "files": files}),
+                json!({
+                    "type":"files",
+                    "projectRoot": root,
+                    "files": catalog.files,
+                    "recentFiles": catalog.recent_files,
+                }),
             )]
         }
         "narvalStatus" => {
@@ -621,6 +588,92 @@ pub async fn route_ws(state: &AppState, text: &str) -> Vec<String> {
                 }
                 Err(e) => vec![err(e.to_string())],
             }
+        }
+        "gitSwitchBranch" => {
+            let root = git_root(state, &msg).await;
+            let branch = msg.get("branch").and_then(|v| v.as_str()).unwrap_or("");
+            match git_switch_branch(&root, branch) {
+                Ok(branch) => {
+                    let mut out = vec![json_msg(json!({
+                        "type": "gitSyncDone",
+                        "op": "switch",
+                        "projectRoot": root,
+                        "out": branch,
+                    }))];
+                    out.extend(git_changed(state, &msg, &root).await);
+                    out
+                }
+                Err(error) => vec![json_msg(json!({
+                    "type": "gitSyncDone",
+                    "op": "switch",
+                    "projectRoot": root,
+                    "error": error.to_string(),
+                }))],
+            }
+        }
+        "gitCreateBranch" => {
+            let root = git_root(state, &msg).await;
+            let branch = msg.get("branch").and_then(|v| v.as_str()).unwrap_or("");
+            match git_create_branch(&root, branch) {
+                Ok(branch) => {
+                    let mut out = vec![json_msg(json!({
+                        "type": "gitSyncDone",
+                        "op": "create-branch",
+                        "projectRoot": root,
+                        "out": branch,
+                    }))];
+                    out.extend(git_changed(state, &msg, &root).await);
+                    out
+                }
+                Err(error) => vec![json_msg(json!({
+                    "type": "gitSyncDone",
+                    "op": "create-branch",
+                    "projectRoot": root,
+                    "error": error.to_string(),
+                }))],
+            }
+        }
+        "gitDeleteBranch" => {
+            let root = git_root(state, &msg).await;
+            let branch = msg.get("branch").and_then(|v| v.as_str()).unwrap_or("");
+            match git_delete_branch(&root, branch) {
+                Ok(branch) => {
+                    let mut out = vec![json_msg(json!({
+                        "type": "gitSyncDone",
+                        "op": "delete-branch",
+                        "projectRoot": root,
+                        "out": branch,
+                    }))];
+                    out.extend(git_changed(state, &msg, &root).await);
+                    out
+                }
+                Err(error) => vec![json_msg(json!({
+                    "type": "gitSyncDone",
+                    "op": "delete-branch",
+                    "projectRoot": root,
+                    "error": error.to_string(),
+                }))],
+            }
+        }
+        "gitMergeBranch" => {
+            let root = git_root(state, &msg).await;
+            let branch = msg.get("branch").and_then(|v| v.as_str()).unwrap_or("");
+            let mut out = match git_merge_branch(&root, branch) {
+                Ok(branch) => vec![json_msg(json!({
+                    "type": "gitSyncDone",
+                    "op": "merge-branch",
+                    "projectRoot": root,
+                    "out": branch,
+                }))],
+                Err(error) => vec![json_msg(json!({
+                    "type": "gitSyncDone",
+                    "op": "merge-branch",
+                    "projectRoot": root,
+                    "error": error.to_string(),
+                }))],
+            };
+            out.extend(git_changed(state, &msg, &root).await);
+            out
         }
         "gitDiff" => {
             let root = git_root(state, &msg).await;
@@ -1204,13 +1257,15 @@ pub async fn route_ws(state: &AppState, text: &str) -> Vec<String> {
         }
         "generateCommitMsg" => {
             let root = git_root(state, &msg).await;
-            let scope = msg
-                .get("scope")
-                .and_then(Value::as_str)
-                .filter(|scope| *scope == "changes")
-                .unwrap_or("staged");
-            let status = match git_status(&root) {
-                Ok(status) => status,
+            if msg.get("scope").and_then(Value::as_str) != Some("staged") {
+                return vec![json_msg(json!({
+                    "type": "commitMsg",
+                    "projectRoot": root,
+                    "error": "Indexe explicitement les fichiers avant de générer le message.",
+                }))];
+            }
+            let diff = match git_diff_staged(&root, None) {
+                Ok(diff) => diff,
                 Err(error) => {
                     return vec![json_msg(json!({
                         "type": "commitMsg",
@@ -1219,18 +1274,13 @@ pub async fn route_ws(state: &AppState, text: &str) -> Vec<String> {
                     }))]
                 }
             };
-            let Some(context) = commit_generation_context(&status, scope == "staged") else {
-                let error = if scope == "staged" {
-                    "Indexe au moins un fichier avant de générer le message."
-                } else {
-                    "Aucune modification à résumer."
-                };
+            if diff.trim().is_empty() {
                 return vec![json_msg(json!({
                     "type": "commitMsg",
                     "projectRoot": root,
-                    "error": error,
+                    "error": "Indexe au moins un fichier avant de générer le message.",
                 }))];
-            };
+            }
             {
                 let Some(provider) = state.provider("claude") else {
                     return vec![json_msg(json!({
@@ -1239,11 +1289,12 @@ pub async fn route_ws(state: &AppState, text: &str) -> Vec<String> {
                         "error": "Claude Code est indisponible pour générer le message.",
                     }))];
                 };
-                match provider.commit_message(&context, &root).await {
-                    Ok(Some(message)) => vec![json_msg(json!({
+                match provider.commit_message(&diff, &root).await {
+                    Ok(Some(details)) => vec![json_msg(json!({
                         "type": "commitMsg",
                         "projectRoot": root,
-                        "message": message,
+                        "message": details.title,
+                        "description": details.description,
                         "provider": provider.id(),
                     }))],
                     Ok(None) => vec![json_msg(json!({
@@ -2858,7 +2909,6 @@ mod tests {
     use super::*;
     use crate::paths::AppPaths;
     use crate::state::InteractionWaiter;
-    use atelier_workspace::GitFile;
     use tempfile::tempdir;
 
     fn state(dir: &std::path::Path) -> AppState {
@@ -3064,36 +3114,6 @@ mod tests {
             json!(["low", "high"])
         );
         assert!(list[0].get("apiKey").is_none());
-    }
-
-    #[test]
-    fn commit_context_is_bounded_and_does_not_read_file_contents() {
-        let status = GitStatus {
-            branch: Some("main".into()),
-            ahead: 0,
-            behind: 0,
-            files: vec![
-                GitFile {
-                    path: "scripts/analysis/model.py".into(),
-                    status: ".M".into(),
-                    original_path: None,
-                    add: Some(12),
-                    del: Some(2),
-                },
-                GitFile {
-                    path: "outputs/large-result.bin".into(),
-                    status: "?".into(),
-                    original_path: None,
-                    add: None,
-                    del: None,
-                },
-            ],
-        };
-        let context = commit_generation_context(&status, false).unwrap();
-        assert!(context.contains("2 files"));
-        assert!(context.contains("scripts/analysis/model.py (+12 -2)"));
-        assert!(context.contains("outputs/large-result.bin"));
-        assert!(commit_generation_context(&status, true).is_none());
     }
 
     #[tokio::test]

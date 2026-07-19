@@ -272,6 +272,7 @@ function makeModuleHarness({
   };
   const marksLog = [];
   const gutterLog = [];
+  const scrollLog = [];
   const posts = [];
   const workers = [];
   const headRequests = [];
@@ -289,6 +290,7 @@ function makeModuleHarness({
     },
     indexFromPos(p) { return p._idx ?? 0; },
     getCursor() { return cm.posFromIndex(0); },
+    getViewportAnchor() { return {line: 77, ch: 0}; },
     setValue(v) { cm._v = v; },
     getOption() { return false; },
     setBookmark(pos, o) { marksLog.push({ type: "del", idx: pos._idx, text: o.widget._t }); return { clear() { marksLog.push({type:"clear"}); } }; },
@@ -297,7 +299,7 @@ function makeModuleHarness({
     setOption(name, value) { cm._options[name] = value; }, on() {}, operation(f) { f(); },
     clearGutter() { gutterLog.length = 0; },
     setGutterMarker(line, g, cell) { gutterLog.push({ line, html: cell._h }); },
-    scrollIntoView() {}, refresh() {}, setCursor() {}, addLineClass() {}, removeLineClass() {},
+    scrollIntoView(pos) { scrollLog.push(pos); }, refresh() {}, setCursor() {}, addLineClass() {}, removeLineClass() {},
   };
   const ctx = {
     window: {}, console, Date, JSON, Math, Infinity, crypto: crypto.webcrypto, TextEncoder,
@@ -377,7 +379,7 @@ function makeModuleHarness({
     return pop?._q?.["#dvHistList"]?._children || [];
   };
   const setHead = (text, ts, sha = activeHead.sha) => Object.assign(activeHead, { text, ts, sha });
-  return { ctx, cm, dv, tag, restore, restored, notes, marksLog, gutterLog, posts, workers, headRequests, nav, storage, setHead, filePath,
+  return { ctx, cm, dv, tag, restore, restored, notes, marksLog, gutterLog, scrollLog, posts, workers, headRequests, nav, storage, setHead, filePath,
     historyButton, historyRows };
 }
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -482,6 +484,18 @@ async function moduleTests() {
     await sleep(0);
     contractOk("worker fermeture annule rendu pending", !h.dv.isShown() && h.marksLog.length === beforeCancel,
       JSON.stringify(h.marksLog));
+  }
+  {
+    const before = "avant\n", after = "après\n";
+    const h = makeModuleHarness({headText: before});
+    h.cm._v = after;
+    h.dv.push(before, after);
+    h.tag.onclick();
+    h.tag.onclick();
+    const restored = h.scrollLog.at(-1);
+    contractOk("sortie du diff restaure la ligne logique visible",
+      !h.dv.isShown() && restored?.line === 77,
+      JSON.stringify({shown:h.dv.isShown(), scroll:h.scrollLog}));
   }
   {
     const base = "ligne ancienne longue\n".repeat(1800);
@@ -1303,14 +1317,14 @@ function editorCallSiteTests() {
       src: fs.readFileSync(path.join(ASSETS, "latex_studio.html"), "utf8"),
       callee: "diffPush",
       saveEnd: "// Preflight",
-      watcherStart: "// L'agent modifie le .tex sur le disque",
+      watcherStart: "// Politique agent-prioritaire",
     },
     {
       name: "code_editor",
       src: fs.readFileSync(path.join(ASSETS, "code_editor.html"), "utf8"),
       callee: "__dv.push",
       saveEnd: "document.addEventListener(\"keydown\"",
-      watcherStart: "// L'agent modifie le fichier sur le disque",
+      watcherStart: "// Politique agent-prioritaire",
     },
   ];
 
@@ -1321,12 +1335,8 @@ function editorCallSiteTests() {
       callCarriesMeta(save, spec.callee, "lastSavedText", "savedNow", "user-save", "applied"));
     contractOk(`${spec.name} call site external-reload/applied`,
       callCarriesMeta(watcher, spec.callee, "before", "diskText", "external-reload", "applied"));
-    contractOk(`${spec.name} call site external-merge/applied`,
-      callCarriesMeta(watcher, spec.callee, "beforePush", "diskText", "external-merge", "applied"));
-    contractOk(`${spec.name} call site external-conflict/pending-conflict`,
-      callCarriesMeta(watcher, spec.callee, "base", "diskText", "external-conflict", "pending-conflict"));
-    contractOk(`${spec.name} effectivelyClean utilise la politique DiffVersions`,
-      /__dv\.isEquivalent\s*\(\s*cm\.getValue\(\)\s*,\s*lastSavedText\s*\)/.test(watcher));
+    contractOk(`${spec.name} politique agent-prioritaire sans fusion ni bandeau`,
+      !/Diff\.applyPatch/.test(watcher) && !/conflictGuard/.test(watcher) && /dirty\s*=\s*false/.test(watcher));
   }
 
   const latex = specs[0].src;

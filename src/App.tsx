@@ -5,6 +5,7 @@ import { invoke } from "@tauri-apps/api/core";
 import {
   sendPrompt,
   requestCatalog,
+  requestFileCatalog,
   getClientInstanceId,
   Thread,
   AgentEvent,
@@ -704,6 +705,10 @@ export default function App() {
       setHlFilterProject((cur) => (cur === root ? null : root));
       return;
     }
+    // Le projet est aussi le point d'entrée de son accueil. Sans remettre le
+    // thread actif à null, cet accueil n'était accessible qu'après une relance.
+    setActiveId(null);
+    activeIdRef.current = null;
     setActiveView("chats");
   };
   const [projMeta, setProjMeta] = useState<Record<string, ProjMeta>>(() => {
@@ -1007,34 +1012,10 @@ export default function App() {
       } catch {}
     },
   });
-  // « Modifiés récemment » de l'accueil : VRAIS derniers fichiers modifiés sur
-  // disque (index du serveur galerie, mtime), pas les derniers ouverts dans
-  // l'app — repli sur recentFiles si la galerie ne répond pas. Sous-produits
-  // LaTeX et fichiers cachés exclus, sinon chaque compile inonde la rangée.
+  // « Modifiés récemment » : envoyé par le catalogue natif avec les mtimes des
+  // fichiers Git suivis/non ignorés. Repli sur les derniers fichiers ouverts
+  // uniquement avec un ancien backend qui ne connaît pas encore recentFiles.
   const [diskRecents, setDiskRecents] = useState<string[]>([]);
-  useEffect(() => {
-    if (!atelierUrl) { setDiskRecents([]); return; }
-    const origin = new URL(atelierUrl).origin;
-    const JUNK = /\.(aux|log|synctex(\.gz)?|fls|fdb_latexmk|out|toc|bbl|blg|bak)$/i;
-    const HIDDEN = new Set(["figures_index.html", "figures_data.json"]);
-    let stop = false;
-    const load = async () => {
-      try {
-        const j = await (await fetch(`${origin}/figures_data.json`)).json();
-        if (stop) return;
-        const rels = (Array.isArray(j.files) ? j.files : [])
-          .filter((f: { rel?: string; mtime?: number }) =>
-            f.rel && f.mtime && !HIDDEN.has(f.rel) && !JUNK.test(f.rel) && !/(^|\/)\./.test(f.rel))
-          .sort((a: { mtime: number }, b: { mtime: number }) => b.mtime - a.mtime)
-          .slice(0, 12)
-          .map((f: { rel: string }) => f.rel);
-        setDiskRecents(rels);
-      } catch { /* galerie pas prête : on garde le repli */ }
-    };
-    load();
-    const timer = setInterval(load, 60_000);
-    return () => { stop = true; clearInterval(timer); };
-  }, [atelierUrl]);
   // jeton d'accès éditeur hors projet : posé par le serveur galerie au boot
   // (~/.atelier-studio/gallery_token), lu via Rust. Absent (vieux serveur) →
   // l'ouverture hors projet est simplement indisponible.
@@ -1700,7 +1681,10 @@ export default function App() {
       }
       if (msg.type === "commands") setCommands(msg.commands);
       if (msg.type === "plugins") setPlugins(Array.isArray(msg.plugins) ? msg.plugins : []);
-      if (msg.type === "files") setFiles(msg.files);
+      if (msg.type === "files" && msg.projectRoot === activeProjectRef.current) {
+        setFiles(Array.isArray(msg.files) ? msg.files : []);
+        setDiskRecents(Array.isArray(msg.recentFiles) ? msg.recentFiles : []);
+      }
       if (["narvalStatus", "narvalSnapshot", "narvalDirectory", "narvalJobDetail", "narvalText"].includes(msg.type)) {
         window.dispatchEvent(new CustomEvent("narval-message", { detail: msg }));
       }
@@ -1867,6 +1851,22 @@ export default function App() {
       requestCatalog(ws.current, activeProject);
     }
   }, [activeProject, wsReady]);
+
+  // Revenir à l'accueil relit les mtimes immédiatement, puis les garde frais
+  // tant que cette page reste visible (fichiers modifiés hors Atelier inclus).
+  // Au montage/changement de projet, l'effet requestCatalog ci-dessus fait déjà
+  // la première lecture : éviter ici un doublon coûteux sur les gros dépôts.
+  const previousRecentActiveId = useRef<string | null>(null);
+  useEffect(() => {
+    const returnedHome = previousRecentActiveId.current !== null && activeId === null;
+    previousRecentActiveId.current = activeId;
+    if (activeId || !activeProject || !wsReady || ws.current?.readyState !== 1) return;
+    if (returnedHome) requestFileCatalog(ws.current, activeProject);
+    const timer = window.setInterval(() => {
+      if (ws.current?.readyState === 1) requestFileCatalog(ws.current, activeProject);
+    }, 60_000);
+    return () => window.clearInterval(timer);
+  }, [activeId, activeProject, wsReady]);
 
 
   // "Add to chat" depuis le Browser (sélection si possible, sinon page courante)
@@ -2894,8 +2894,12 @@ export default function App() {
       events,
       workingSince,
       usageByThread,
-      recentFiles,
-      files,
+      recentFiles: diskRecents.length
+        ? diskRecents
+        : recentFiles.filter((file) => files.includes(file)),
+      // Le catalogue @ reste plafonné à 5 000 chemins ; un fichier récent du
+      // même projet peut donc être hors de cette fenêtre alphabétique.
+      files: diskRecents.length ? [...new Set([...files, ...diskRecents])] : files,
       sidecar: wsReady ? "ready" : sidecarEverConnected.current ? "disconnected" : "connecting",
       atelierError: appBanner?.text.startsWith("start_atelier:")
         ? appBanner.text.slice("start_atelier:".length).trim()

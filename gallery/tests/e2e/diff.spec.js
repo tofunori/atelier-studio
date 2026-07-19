@@ -1,6 +1,6 @@
 import { test, expect } from '@playwright/test';
 import { spawn, execFileSync } from 'node:child_process';
-import { mkdtempSync, writeFileSync, utimesSync, renameSync } from 'node:fs';
+import { mkdtempSync, readFileSync, writeFileSync, utimesSync, renameSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
@@ -567,9 +567,9 @@ for (const engine of ['cm5', 'cm6']) {
         await setEditorText(page, local);
         writeExternal(filePath, disk);
         await expect.poll(() => hasIntervention(versionPayloads, {
-          before: INITIAL_TEXT, after: disk, source: 'external-conflict', status: 'pending-conflict',
+          before: INITIAL_TEXT, after: disk, source: 'external-reload', status: 'applied',
         }), {timeout: 7000}).toBe(true);
-        await expect.poll(() => editorText(page)).toBe(local);
+        await expect.poll(() => editorText(page)).toBe(disk);
       });
     });
 
@@ -817,32 +817,27 @@ const DIRTY_SCENARIOS = {
 };
 
 for (const kind of ['latex', 'code']) {
-  test(`${kind}: dirty non-overlap merge records disk action and preserves merged buffer`, async ({ page }) => {
+  test(`${kind}: dirty non-overlap edit is replaced automatically by the agent version`, async ({ page }) => {
     await withEditor(kind, async ({ filePath, url, initialText }) => {
       const { versionPayloads } = watchEditorTraffic(page);
       await openEditor(page, url, kind);
       const { local, disk } = DIRTY_SCENARIOS[kind].merge;
-      const merged = kind === 'latex'
-        ? local.replace(
-          'Measured albedo declined near the exposed terminus late in the season.',
-          'Measured albedo recovered after the external observation was applied.',
-        )
-        : local.replace('return albedo, temperature', 'return {"albedo": albedo, "temperature": temperature}');
 
       await setEditorText(page, local);
       writeExternal(filePath, disk);
 
       await expect.poll(() => hasIntervention(versionPayloads, {
-        before: initialText, after: disk, source: 'external-merge', status: 'applied',
+        before: initialText, after: disk, source: 'external-reload', status: 'applied',
       }), { timeout: 7000 }).toBe(true);
-      await expect.poll(() => editorText(page)).toBe(merged);
+      await expect.poll(() => editorText(page)).toBe(disk);
+      await expect(page.locator('.atelier-conflict')).toBeHidden();
       await expectSingleStableIntervention(page, versionPayloads, {
-        before: initialText, after: disk, source: 'external-merge', status: 'applied',
+        before: initialText, after: disk, source: 'external-reload', status: 'applied',
       });
     });
   });
 
-  test(`${kind}: dirty same-zone conflict records pending disk action and preserves local buffer`, async ({ page }) => {
+  test(`${kind}: dirty same-zone edit is replaced automatically without a conflict banner`, async ({ page }) => {
     await withEditor(kind, async ({ filePath, url, initialText }) => {
       const { versionPayloads } = watchEditorTraffic(page);
       await openEditor(page, url, kind);
@@ -852,12 +847,14 @@ for (const kind of ['latex', 'code']) {
       writeExternal(filePath, disk);
 
       await expect.poll(() => hasIntervention(versionPayloads, {
-        before: initialText, after: disk, source: 'external-conflict', status: 'pending-conflict',
+        before: initialText, after: disk, source: 'external-reload', status: 'applied',
       }), { timeout: 7000 }).toBe(true);
-      await expect.poll(() => editorText(page)).toBe(local);
+      await expect.poll(() => editorText(page)).toBe(disk);
       await expectSingleStableIntervention(page, versionPayloads, {
-        before: initialText, after: disk, source: 'external-conflict', status: 'pending-conflict',
+        before: initialText, after: disk, source: 'external-reload', status: 'applied',
       });
+      await expect(page.locator('.atelier-conflict')).toBeHidden();
+      expect(readFileSync(filePath, 'utf8')).toBe(disk);
     });
   });
 }

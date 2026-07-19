@@ -19,7 +19,7 @@ const {languageKindFor} = await import("../../assets/cm6/studio_editor.mjs");
 test("CM6 facade exposes the complete engine-neutral diff contract", () => {
   for (const method of [
     "posFromIndex", "indexFromPos", "getRange", "setSelection", "setBookmark", "operation",
-    "setGutterMarker", "clearGutter",
+    "setGutterMarker", "clearGutter", "getViewportAnchor",
   ]) {
     assert.match(source, new RegExp(`\\b${method}\\s*:`), `missing ${method}`);
   }
@@ -45,6 +45,8 @@ test("CM6 exposes the official merge renderer behind the engine-neutral diff jou
   assert.match(source, /mergeControls:\s*false/);
   assert.match(source, /collapseUnchanged/);
   assert.match(diffVersionsSource, /cm\.hasNativeMergeDiff/);
+  assert.match(diffVersionsSource, /cm\.getViewportAnchor/);
+  assert.match(diffVersionsSource, /requestAnimationFrame\(\(\) => requestAnimationFrame\(restoreViewport\)\)/);
 });
 
 test("CM6 selectAll and native hanging indent are implemented", () => {

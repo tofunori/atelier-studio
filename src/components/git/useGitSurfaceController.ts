@@ -4,7 +4,6 @@ import {
   filterLedgerEntries,
   groupFiles,
   groupLedgerEntries,
-  immediateCommitSuggestion,
 } from "./gitSurfaceModel";
 import type {
   GitDiffContents,
@@ -61,7 +60,6 @@ export function useGitSurfaceController({
   const [expanded, setExpanded] = useState<string | null>(null);
   const [filter, setFilter] = useState("");
   const generationTimeout = useRef<number | null>(null);
-  const generationEdited = useRef(false);
   const commitInputRef = useRef<HTMLInputElement | null>(null);
   const selectedRef = useRef<SelectedFile | null>(null);
   const modeRef = useRef<GitMode>(mode);
@@ -127,12 +125,13 @@ export function useGitSurfaceController({
       generationTimeout.current = null;
       if (message.error) setCommitError(message.error);
       else if (message.message) {
-        if (!generationEdited.current) setCommitMsg(message.message);
+        setCommitMsg(message.message);
+        setCommitDescription(typeof message.description === "string" ? message.description : "");
+        if (String(message.description ?? "").trim()) setShowDescription(true);
         setSyncNote(t("git.generated-ready"));
         window.setTimeout(() => setSyncNote(""), 6000);
         commitInputRef.current?.focus();
       }
-      generationEdited.current = false;
       setGenerating(false);
     };
     const onLedger = (event: Event) => {
@@ -183,7 +182,17 @@ export function useGitSurfaceController({
     const onSync = (event: Event) => {
       const message = (event as CustomEvent).detail;
       setSyncBusy(null);
-      setSyncNote(message.error ? `${message.op}: ${message.error}` : (message.out || `${message.op} ✓`));
+      setSyncNote(message.error
+        ? `${message.op}: ${message.error}`
+        : message.op === "switch"
+          ? t("git.branch-switched", { branch: message.out ?? "" })
+          : message.op === "create-branch"
+            ? t("git.branch-created", { branch: message.out ?? "" })
+            : message.op === "delete-branch"
+              ? t("git.branch-deleted", { branch: message.out ?? "" })
+              : message.op === "merge-branch"
+                ? t("git.branch-merged", { branch: message.out ?? "" })
+              : (message.out || `${message.op} ✓`));
       window.setTimeout(() => setSyncNote(""), 6000);
     };
 
@@ -215,7 +224,7 @@ export function useGitSurfaceController({
   const files = status?.files ?? EMPTY_FILES;
   const filesByGroup = useMemo(() => groupFiles(files), [files]);
   const stagedCount = filesByGroup.staged.length;
-  const generationScope = stagedCount > 0 ? "staged" : files.length > 0 ? "changes" : null;
+  const generationScope = stagedCount > 0 ? "staged" : null;
   const groupedEntries = useMemo(
     () => groupLedgerEntries(filterLedgerEntries(entries, filter)),
     [entries, filter],
@@ -250,9 +259,6 @@ export function useGitSurfaceController({
 
   function generateCommitMessage() {
     if (!generationScope || generating) return;
-    generationEdited.current = false;
-    setCommitMsg(immediateCommitSuggestion(files));
-    commitInputRef.current?.focus();
     setGenerating(true);
     setCommitError(null);
     if (!send(ws, { type: "generateCommitMsg", projectRoot, scope: generationScope })) {
@@ -265,24 +271,26 @@ export function useGitSurfaceController({
       setGenerating(false);
       setCommitError(t("git.generation-timeout"));
       generationTimeout.current = null;
-    }, 15_000);
+    }, 65_000);
   }
 
   function editCommitMessage(message: string) {
-    if (generating) generationEdited.current = true;
     setCommitMsg(message);
   }
 
   function createCommit(shouldPush: boolean) {
     if (!commitMsg.trim() || files.length === 0 || commitBusy || generating) return;
+    if (stagedCount === 0) {
+      setCommitError(t("git.stage-required"));
+      return;
+    }
     const description = commitDescription.trim();
     const message = description ? `${commitMsg.trim()}\n\n${description}` : commitMsg.trim();
-    const commitFiles = stagedCount > 0 ? [] : null;
     setCommitError(null);
     setCommitAndPush(shouldPush);
     commitAndPushRef.current = shouldPush;
     setCommitBusy(true);
-    if (!send(ws, { type: "gitCommit", projectRoot, message, files: commitFiles })) {
+    if (!send(ws, { type: "gitCommit", projectRoot, message, files: [] })) {
       setCommitBusy(false);
       setCommitAndPush(false);
       commitAndPushRef.current = false;
@@ -299,11 +307,60 @@ export function useGitSurfaceController({
     }
   }
 
+  function switchBranch(branch: string) {
+    if (!branch || branch === status?.branch || syncBusy != null) return;
+    if (files.length > 0) {
+      setCommitError(t("git.branch-clean-required"));
+      return;
+    }
+    setSyncBusy("switch");
+    setCommitError(null);
+    if (!send(ws, { type: "gitSwitchBranch", projectRoot, branch })) {
+      setSyncBusy(null);
+      setCommitError(t("git.connection-unavailable"));
+    }
+  }
+
+  function createBranch(branch: string) {
+    const name = branch.trim();
+    if (!name || syncBusy != null) return;
+    setSyncBusy("create-branch");
+    setCommitError(null);
+    if (!send(ws, { type: "gitCreateBranch", projectRoot, branch: name })) {
+      setSyncBusy(null);
+      setCommitError(t("git.connection-unavailable"));
+    }
+  }
+
+  function deleteBranch(branch: string) {
+    if (!branch || branch === status?.branch || syncBusy != null) return;
+    setSyncBusy("delete-branch");
+    setCommitError(null);
+    if (!send(ws, { type: "gitDeleteBranch", projectRoot, branch })) {
+      setSyncBusy(null);
+      setCommitError(t("git.connection-unavailable"));
+    }
+  }
+
+  function mergeBranch(branch: string) {
+    if (!branch || branch === status?.branch || syncBusy != null) return;
+    if (files.length > 0) {
+      setCommitError(t("git.branch-clean-required"));
+      return;
+    }
+    setSyncBusy("merge-branch");
+    setCommitError(null);
+    if (!send(ws, { type: "gitMergeBranch", projectRoot, branch })) {
+      setSyncBusy(null);
+      setCommitError(t("git.connection-unavailable"));
+    }
+  }
+
   return {
     mode, setMode, status, files, filesByGroup, stagedCount,
     selected, selectFile, diff, diffContents, diffLoading,
     splitView, setSplitView, closedGroups, toggleGroup,
-    syncBusy, syncNote, sync, refreshGit, refreshLedger,
+    syncBusy, syncNote, sync, switchBranch, createBranch, deleteBranch, mergeBranch, refreshGit, refreshLedger,
     commitMsg, editCommitMessage, commitDescription, setCommitDescription,
     showDescription, setShowDescription, generating, commitBusy, commitAndPush,
     commitError, generationScope, generateCommitMessage, createCommit, commitInputRef,

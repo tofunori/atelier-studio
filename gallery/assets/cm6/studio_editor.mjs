@@ -497,6 +497,15 @@ export function createStudioEditor(parent, opts) {
     getWrapperElement: () => view.dom,
     getGutterElement: () => view.dom.querySelector(".cm-gutters") || view.dom,
     getScrollInfo: () => ({left: view.scrollDOM.scrollLeft, top: view.scrollDOM.scrollTop}),
+    // Position logique au centre du viewport. Le diff unifié replie les longues
+    // zones inchangées : conserver scrollTop ne suffit donc pas (0 px peut
+    // représenter la ligne 1 en mode normal mais la ligne 75 en mode diff).
+    getViewportAnchor: () => {
+      const rect = view.scrollDOM.getBoundingClientRect();
+      const viewportCenter = rect.top + rect.height / 2;
+      const block = view.lineBlockAtHeight(Math.max(0, viewportCenter - view.documentTop));
+      return toPos(Math.min(block.from, doc().length));
+    },
     scrollTo: (left, top) => {
       if (left != null) view.scrollDOM.scrollLeft = left;
       if (top != null) view.scrollDOM.scrollTop = top;

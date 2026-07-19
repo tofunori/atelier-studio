@@ -347,9 +347,11 @@ async fn execute(state: &AppState, id: &str, scheduled: bool) -> Result<String, 
     if let Some(value) = effort {
         send["effort"] = json!(value);
     }
-    if let Some(value) = permission_mode {
-        send["permissionMode"] = json!(value);
-    }
+    // Les exécutions planifiées n'ont aucun utilisateur présent pour approuver
+    // un élargissement de périmètre. Elles sont toujours read-only ; une
+    // mutation doit être reprise dans un tour interactif explicite.
+    let _ = permission_mode;
+    send["permissionMode"] = json!("plan");
 
     let replies = crate::send::handle_send(state, &send).await;
     let immediate_error = replies.iter().find_map(|reply| {

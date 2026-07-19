@@ -64,7 +64,7 @@ describe("AutomationManager", () => {
       projectRoot: "/tmp/project",
       model: "gpt-5",
       effort: "high",
-      permissionMode: "workspace-write",
+      permissionMode: "plan",
     });
     expect(message.prompt).toContain("<heartbeat>");
     manager.recordEvent("thread-1", { kind: "done", ok: true }, broadcast);

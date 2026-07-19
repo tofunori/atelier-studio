@@ -7,6 +7,12 @@ use serde_json::{json, Value};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
+fn with_file_scope_instruction(prompt: String) -> String {
+    format!(
+        "{prompt}\n\n<atelier-file-scope>\nRepository safety policy for the current turn:\n- Treat every pre-existing worktree change as user-owned or owned by another task. Never modify, stage, commit, restore, or delete it.\n- Modify only files directly required by the user's current request. Before expanding scope, stop and ask for approval with the exact paths and reason.\n- Automated, heartbeat, monitoring, status, and wait turns are read-only. If they discover a defect, report it and stop; a standing goal or automation is not permission to patch source files.\n- Never use git add -A, git commit -a, stage all, or commit unrelated changes. Report every path changed by this turn in the final response.\n</atelier-file-scope>"
+    )
+}
+
 fn with_gallery_tool_instruction(prompt: String, project_root: &str, server_dir: &str) -> String {
     if project_root.is_empty() || server_dir.is_empty() {
         return prompt;
@@ -635,6 +641,11 @@ pub async fn handle_send(state: &AppState, msg: &Value) -> Vec<String> {
         .unwrap_or_else(|| json!({}));
     let same_provider =
         last_turn.get("provider").and_then(Value::as_str) == Some(provider.as_str());
+    let permission_mode = msg
+        .get("permissionMode")
+        .and_then(|v| v.as_str())
+        .or_else(|| last_turn.get("permissionMode").and_then(Value::as_str))
+        .map(str::to_string);
     let provisional_title = first_message.chars().take(40).collect::<String>();
 
     let provider_prompt = previous
@@ -644,6 +655,7 @@ pub async fn handle_send(state: &AppState, msg: &Value) -> Vec<String> {
         .filter(|context| !context.is_empty())
         .map(|context| format!("{context}{prompt}"))
         .unwrap_or_else(|| prompt.clone());
+    let provider_prompt = with_file_scope_instruction(provider_prompt);
     // Cadence d'injection (2026-07-19) : ces blocs étaient REcollés à chaque
     // message alors que l'historique natif du provider les conserve tous — une
     // conversation Kimi à 7 sources a dépassé les 2 Mo de la limite API. Les
@@ -771,7 +783,7 @@ pub async fn handle_send(state: &AppState, msg: &Value) -> Vec<String> {
             let req = SendRequest {
                 thread_id: thread_id.clone(),
                 turn_id: turn_id.clone(),
-                prompt: prompt.clone(),
+                prompt: with_file_scope_instruction(prompt.clone()),
                 inputs: inputs.clone(),
                 project_root: project_root.clone(),
                 session_id,
@@ -831,6 +843,21 @@ pub async fn handle_send(state: &AppState, msg: &Value) -> Vec<String> {
     }
 
     // Start new turn
+    if let Err(error) = state
+        .acquire_project_writer(
+            &project_root,
+            &thread_id,
+            permission_mode.as_deref() != Some("plan"),
+        )
+        .await
+    {
+        let _ = state
+            .threads()
+            .lock()
+            .await
+            .upsert(json!({"id":thread_id,"status":"idle"}), true);
+        return vec![err_json(error)];
+    }
     let snapshot_sha = if project_root.is_empty() {
         None
     } else {
@@ -885,11 +912,6 @@ pub async fn handle_send(state: &AppState, msg: &Value) -> Vec<String> {
                 .then(|| last_turn.get("effort").and_then(Value::as_str))
                 .flatten()
         })
-        .map(str::to_string);
-    let permission_mode = msg
-        .get("permissionMode")
-        .and_then(|v| v.as_str())
-        .or_else(|| last_turn.get("permissionMode").and_then(Value::as_str))
         .map(str::to_string);
     if msg.get("permissionMode").and_then(Value::as_str).is_some() {
         let _ = state.threads().lock().await.upsert(
@@ -1022,6 +1044,7 @@ pub async fn handle_send(state: &AppState, msg: &Value) -> Vec<String> {
             let _ = store.upsert(patch, false);
         }
         state2.harness().clear_running(&tid).await;
+        state2.release_project_writer(&fallback_root, &tid).await;
         let list = state2.threads().lock().await.list();
         if let Ok(s) = serde_json::to_string(&json!({"type":"threads","threads": list})) {
             state2.publish(s);
@@ -1505,6 +1528,16 @@ mod tests {
         assert!(enriched.contains("/app/Resources/rust-server/atelier-gallery-tool"));
         assert!(enriched.contains("show --project-root \"/projet\""));
         assert!(enriched.contains("Do not merely list the paths"));
+    }
+
+    #[test]
+    fn file_scope_instruction_is_injected_on_every_turn() {
+        let enriched = with_file_scope_instruction("surveille ERA5".into());
+        assert!(enriched.starts_with("surveille ERA5"));
+        assert!(enriched
+            .contains("Automated, heartbeat, monitoring, status, and wait turns are read-only"));
+        assert!(enriched.contains("Never use git add -A"));
+        assert!(enriched.contains("pre-existing worktree change"));
     }
 
     #[test]

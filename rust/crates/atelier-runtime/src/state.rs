@@ -50,6 +50,9 @@ struct Inner {
     client_instance_id: Mutex<Option<String>>,
     interaction_waiters: Mutex<HashMap<String, InteractionWaiter>>,
     approval_sessions: Mutex<HashSet<String>>,
+    /// Un seul tour potentiellement écrivant à la fois par projet. Les tours
+    /// `plan` restent concurrents car ils sont forcés en lecture seule.
+    project_writers: Mutex<HashMap<String, String>>,
     qa_sessions: Mutex<HashMap<String, QaSession>>,
     retitle_running: AtomicBool,
 }
@@ -114,6 +117,7 @@ impl AppState {
                 client_instance_id: Mutex::new(None),
                 interaction_waiters: Mutex::new(HashMap::new()),
                 approval_sessions: Mutex::new(HashSet::new()),
+                project_writers: Mutex::new(HashMap::new()),
                 qa_sessions: Mutex::new(HashMap::new()),
                 retitle_running: AtomicBool::new(false),
             }),
@@ -245,6 +249,37 @@ impl AppState {
         &self.inner.approval_sessions
     }
 
+    pub async fn acquire_project_writer(
+        &self,
+        project_root: &str,
+        thread_id: &str,
+        writable: bool,
+    ) -> Result<(), String> {
+        let root = project_root.trim_end_matches('/');
+        if !writable || root.is_empty() {
+            return Ok(());
+        }
+        let mut writers = self.inner.project_writers.lock().await;
+        if let Some(owner) = writers.get(root) {
+            if owner != thread_id {
+                return Err(format!(
+                    "projet verrouillé par une autre tâche ({owner}) — attends sa fin ou arrête-la avant toute écriture"
+                ));
+            }
+            return Ok(());
+        }
+        writers.insert(root.to_string(), thread_id.to_string());
+        Ok(())
+    }
+
+    pub async fn release_project_writer(&self, project_root: &str, thread_id: &str) {
+        let root = project_root.trim_end_matches('/');
+        let mut writers = self.inner.project_writers.lock().await;
+        if writers.get(root).is_some_and(|owner| owner == thread_id) {
+            writers.remove(root);
+        }
+    }
+
     pub fn qa_sessions(&self) -> &Mutex<HashMap<String, QaSession>> {
         &self.inner.qa_sessions
     }
@@ -258,6 +293,48 @@ impl AppState {
 
     pub fn end_retitle(&self) {
         self.inner.retitle_running.store(false, Ordering::SeqCst);
+    }
+}
+
+#[cfg(test)]
+mod writer_tests {
+    use super::*;
+    use crate::paths::AppPaths;
+    use tempfile::tempdir;
+
+    fn test_state() -> AppState {
+        let dir = tempdir().unwrap().keep();
+        AppState::new(
+            AppPaths::from_app_dir(dir),
+            None,
+            "t".into(),
+            "0.1.0".into(),
+            "hash".into(),
+            "/tmp".into(),
+        )
+    }
+
+    #[tokio::test]
+    async fn one_writer_per_project_while_plan_readers_remain_allowed() {
+        let state = test_state();
+        state
+            .acquire_project_writer("/repo", "writer-1", true)
+            .await
+            .unwrap();
+        let error = state
+            .acquire_project_writer("/repo/", "writer-2", true)
+            .await
+            .unwrap_err();
+        assert!(error.contains("projet verrouillé"), "{error}");
+        state
+            .acquire_project_writer("/repo", "reader", false)
+            .await
+            .unwrap();
+        state.release_project_writer("/repo", "writer-1").await;
+        state
+            .acquire_project_writer("/repo", "writer-2", true)
+            .await
+            .unwrap();
     }
 }
 

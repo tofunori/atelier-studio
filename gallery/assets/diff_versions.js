@@ -727,6 +727,13 @@ window.DiffVersions = function(opts){
     if(next && !curVersion()) return;
     const cm = getCm();
     if(!cm) return;
+    // En diff unifié, les grandes zones inchangées sont repliées. Un même
+    // scrollTop ne pointe donc plus vers la même ligne après leur dépliage.
+    // Capturer une ancre logique AVANT de retirer le diff (et avant ttExit,
+    // qui peut remplacer le buffer affiché), puis la recentrer après mesure.
+    const viewportAnchor = !next
+      ? (typeof cm.getViewportAnchor === "function" ? cm.getViewportAnchor() : cm.getCursor())
+      : null;
     shown = next;
     els.tag.classList.toggle("on", shown);
     if(els.restore) els.restore.style.display = shown ? "" : "none";
@@ -746,6 +753,15 @@ window.DiffVersions = function(opts){
       changePts = [];
       if(navPill) navPill.style.display = "none";
       if(flashLine != null){ try{ cm.removeLineClass(flashLine, "wrap", "dv-flash"); }catch(e){} flashLine = null; }
+      const restoreViewport = () => {
+        if(shown || !viewportAnchor) return;
+        cm.scrollIntoView(viewportAnchor, 120);
+      };
+      // CM6 recalcule la géométrie du document après la reconfiguration de
+      // unifiedMergeView. Deux frames évitent de recentrer sur l'ancien layout.
+      if(typeof requestAnimationFrame === "function")
+        requestAnimationFrame(() => requestAnimationFrame(restoreViewport));
+      else setTimeout(restoreViewport, 0);
     }
   }
   function normalizeMeta(meta){

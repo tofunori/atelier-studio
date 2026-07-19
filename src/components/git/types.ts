@@ -8,6 +8,7 @@ export type GitFile = {
 
 export type GitStatus = {
   branch: string | null;
+  branches: string[];
   ahead: number;
   behind: number;
   files: GitFile[];
@@ -41,4 +42,4 @@ export type LedgerEntry = {
 };
 
 export type GitMode = "git" | "journal";
-export type SyncOperation = "push" | "pull";
+export type SyncOperation = "push" | "pull" | "switch" | "create-branch" | "delete-branch" | "merge-branch";

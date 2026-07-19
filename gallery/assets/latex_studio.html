@@ -1191,6 +1191,31 @@ async function load(){
   // initial loadPdf is triggered by the /texroot resolution (single-trigger rule)
 }
 
+async function readConflictSnapshot(fallbackMtime, knownText){
+  if(typeof knownText === "string") return {mtime: fallbackMtime, text: knownText};
+  try{
+    const r = await fetch("/code?path=" + encodeURIComponent(path));
+    const j = await r.json();
+    if(typeof j.text === "string" && Number.isFinite(Number(j.mtime))) return {mtime: j.mtime, text: j.text};
+  }catch(e){}
+  return null;
+}
+
+async function reloadDiskConflict(mtime, knownText){
+  const snapshot = await readConflictSnapshot(mtime, knownText);
+  if(!snapshot || !cm) return false;
+  const before = (typeof lastSavedText === "string") ? lastSavedText : cm.getValue();
+  const cur = cm.getCursor(), scroll = cm.getScrollInfo();
+  cm.setValue(snapshot.text); cm.setCursor(cur); cm.scrollTo(scroll.left, scroll.top);
+  diskMtime = snapshot.mtime; lastSavedText = snapshot.text; dirty = false;
+  ddot.style.display = "none";
+  setState("ok", "version de l'agent rechargée");
+  if(before !== snapshot.text && typeof diffPush === "function") {
+    diffPush(before, snapshot.text, {source:"external-reload", status:"applied"});
+  }
+  return false;
+}
+
 async function save(){
   // rewrap auto : reformater tout le document avant d'écrire (option ⋯)
   if(localStorage.getItem("texAutoRewrap") === "1" && typeof window.__rewrapAll === "function"){
@@ -1199,7 +1224,8 @@ async function save(){
   const r = await fetch("/codesave", {method:"POST", headers:{"Content-Type":"application/json"},
     body: JSON.stringify({path, text: cm.getValue(), mtime: diskMtime})});
   const j = await r.json();
-  if(j.error === "conflit"){ setState("err", "disk conflict — re-⌘S to overwrite"); diskMtime = j.mtime; return false; }
+  if(j.error === "conflit") return reloadDiskConflict(j.mtime);
+  if(j.error){ setState("err", j.error); return false; }
   diskMtime = j.mtime; dirty = false; ddot.style.display = "none"; setState("ok", "saved");
   // versionner AUSSI tes propres modifications (une version par sauvegarde)
   const savedNow = cm.getValue();
@@ -2173,21 +2199,9 @@ document.addEventListener("keydown", e => {
   if((e.metaKey || e.ctrlKey) && e.key === "j" && cm){ e.preventDefault(); synctexView(); }
 });
 
-// L'agent modifie le .tex sur le disque pendant que l'éditeur est ouvert :
-// - buffer propre → recharger (comportement historique) ;
-// - buffer MODIFIÉ (dirty) → fusion trois-voies (base = dernier texte sauvegardé,
-//   leurs = disque, mien = buffer) via jsdiff. Avant, on ignorait le disque tant
-//   que dirty : les modifs de l'agent n'apparaissaient jamais, et le ⌘S suivant
-//   les écrasait après le « disk conflict ».
-let __mergeConflictAt = 0;
-// Dirty « cosmétique » (rewrap auto, blancs) : même contenu que lastSaved aux
-// blancs près → traiter comme propre pour laisser entrer les écritures agent.
-// Sinon le pastille orange bloque le reload et le diff ne grossit plus.
-function __effectivelyClean(){
-  if(!dirty) return true;
-  if(typeof lastSavedText !== "string" || !cm) return false;
-  return __dv.isEquivalent(cm.getValue(), lastSavedText);
-}
+// Politique agent-prioritaire : toute écriture externe remplace immédiatement
+// le buffer affiché, y compris lorsqu'il contient des modifications locales non
+// sauvegardées. Aucun bandeau ni confirmation ne bloque le passage de l'agent.
 function __applyAgentRewrap(){
   if(localStorage.getItem("texAutoRewrap") !== "1" || typeof window.__rewrapAll !== "function") return;
   try{
@@ -2211,40 +2225,13 @@ setInterval(async () => {
     if(!(j.mtime && Math.abs(j.mtime - diskMtime) > 0.001)) return;
     const diskText = j.text;
     const cur = cm.getCursor(), s = cm.getScrollInfo();
-    // chemin « propre » (ou dirty cosmétique) : l'agent entre toujours
-    if(__effectivelyClean()){
-      diskMtime = j.mtime;
-      const before = (typeof lastSavedText === "string") ? lastSavedText : cm.getValue();
-      if(before === diskText && cm.getValue() === diskText){ lastSavedText = diskText; dirty = false; ddot.style.display = "none"; return; }
-      cm.setValue(diskText); cm.setCursor(cur); cm.scrollTo(s.left, s.top);
-      dirty = false; ddot.style.display = "none";
-      setState("ok", "reloaded (modified on disk)");
-      if(typeof diffPush === "function") diffPush(before, diskText, {source:"external-reload", status:"applied"});
-      lastSavedText = diskText;
-      __applyAgentRewrap();
-      return;
-    }
-    // fusion trois-voies : appliquer le patch base→disque sur mon buffer
-    const base = (typeof lastSavedText === "string") ? lastSavedText : null;
-    const merged = base === null ? false
-      : window.Diff && Diff.applyPatch(cm.getValue(), Diff.structuredPatch("a", "b", base, diskText, "", ""), {fuzzFactor: 2});
-    if(merged === false || typeof merged !== "string"){
-      // conflit réel : NE PAS écraser le buffer — mais TOUJOURS versionner
-      // l'écriture agent pour que la timeline / « tout » grossisse (sinon les
-      // mods agent disparaissent du radar tant que dirty reste collé)
-      if(j.mtime !== __mergeConflictAt){
-        __mergeConflictAt = j.mtime;
-        if(base != null && typeof diffPush === "function" && base !== diskText) diffPush(base, diskText, {source:"external-conflict", status:"pending-conflict"});
-        setState("err", "l'agent a modifié le fichier et tes modifs non sauvegardées se superposent — ⌘S affichera le conflit · timeline : nouvelle intervention enregistrée");
-      }
-      return;
-    }
     diskMtime = j.mtime;
-    const beforePush = base != null ? base : cm.getValue();
-    cm.setValue(merged); cm.setCursor(cur); cm.scrollTo(s.left, s.top);
-    dirty = true; ddot.style.display = "inline";
-    setState("ok", "modifs de l'agent fusionnées avec les tiennes (non sauvegardées)");
-    if(typeof diffPush === "function") diffPush(beforePush, diskText, {source:"external-merge", status:"applied"});
+    const before = (typeof lastSavedText === "string") ? lastSavedText : cm.getValue();
+    if(before === diskText && cm.getValue() === diskText){ lastSavedText = diskText; dirty = false; ddot.style.display = "none"; return; }
+    cm.setValue(diskText); cm.setCursor(cur); cm.scrollTo(s.left, s.top);
+    dirty = false; ddot.style.display = "none";
+    setState("ok", "version de l'agent rechargée");
+    if(before !== diskText && typeof diffPush === "function") diffPush(before, diskText, {source:"external-reload", status:"applied"});
     lastSavedText = diskText;
     __applyAgentRewrap();
   }catch(e){}

@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from "vitest";
+import { beforeEach, describe, it, expect, vi } from "vitest";
 import { mkdtempSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
@@ -23,8 +23,10 @@ vi.mock("./providers/codex_image.mjs", () => ({
   }),
 }));
 
-import { route } from "./router.mjs";
+import { __resetHarnessStateForTest, route } from "./router.mjs";
 import * as threadStoreModule from "./store.mjs";
+
+beforeEach(() => __resetHarnessStateForTest());
 
 describe("route", () => {
   it("répond pong au ping", async () => {
@@ -176,30 +178,64 @@ describe("route", () => {
     expect(sent.map((m) => m.type)).toEqual(["gitChanged", "gitUndoLastTurnDone"]);
     expect(sent[1].sha).toBe(sha);
   });
-  it("generateCommitMsg utilise les changements non indexés quand scope vaut changes", async () => {
+  it("generateCommitMsg envoie le vrai diff indexé et retourne résumé + description", async () => {
     const sent = [];
-    const commitMessage = vi.fn(async (context) => {
-      expect(context).toContain("2 files");
-      expect(context).toContain("src/app.ts (+12 -2)");
-      expect(context).toContain("results/output.csv");
-      return "Résume les changements";
+    const commitMessage = vi.fn(async (diff, root) => {
+      expect(diff).toContain("diff --git a/src/app.ts b/src/app.ts");
+      expect(diff).toContain("+export const ready = true;");
+      expect(root).toBe("/proj");
+      return {
+        title: "Améliore la génération des commits",
+        description: "Analyse le diff indexé et explique les changements importants.",
+      };
     });
-    const status = vi.fn(async () => ({ branch: "main", files: [
-      { path: "src/app.ts", status: ".M", add: 12, del: 2 },
-      { path: "results/output.csv", status: "?" },
-    ] }));
-    await route({ type: "generateCommitMsg", projectRoot: "/proj", scope: "changes" }, {
+    const diffStaged = vi.fn(async () => "diff --git a/src/app.ts b/src/app.ts\n+export const ready = true;");
+    await route({ type: "generateCommitMsg", projectRoot: "/proj", scope: "staged" }, {
       send: (message) => sent.push(message),
-      gitops: { status },
+      gitops: { diffStaged },
       providers: { claude: { commitMessage } },
     });
 
-    expect(status).toHaveBeenCalledWith("/proj");
+    expect(diffStaged).toHaveBeenCalledWith("/proj", null);
     expect(sent).toEqual([{
       type: "commitMsg",
       projectRoot: "/proj",
-      message: "Résume les changements",
+      message: "Améliore la génération des commits",
+      description: "Analyse le diff indexé et explique les changements importants.",
     }]);
+  });
+
+  it("generateCommitMsg refuse les changements non indexés", async () => {
+    const sent = [];
+    await route({ type: "generateCommitMsg", projectRoot: "/proj", scope: "changes" }, {
+      send: (message) => sent.push(message),
+      gitops: { diffStaged: vi.fn() },
+      providers: { claude: { commitMessage: vi.fn() } },
+    });
+    expect(sent[0].error).toMatch(/Indexe explicitement/);
+  });
+  it("route la création, la suppression et la fusion de branche avec un rafraîchissement Git", async () => {
+    const sent = [];
+    const createBranch = vi.fn(async () => "figures-2026");
+    const deleteBranch = vi.fn(async () => "topic");
+    const mergeBranch = vi.fn(async () => "topic");
+    const ctx = {
+      send: (message) => sent.push(message),
+      gitops: { createBranch, deleteBranch, mergeBranch },
+    };
+
+    await route({ type: "gitCreateBranch", projectRoot: "/proj", branch: "figures-2026" }, ctx);
+    await route({ type: "gitDeleteBranch", projectRoot: "/proj", branch: "topic" }, ctx);
+    await route({ type: "gitMergeBranch", projectRoot: "/proj", branch: "topic" }, ctx);
+
+    expect(createBranch).toHaveBeenCalledWith("/proj", "figures-2026");
+    expect(deleteBranch).toHaveBeenCalledWith("/proj", "topic");
+    expect(mergeBranch).toHaveBeenCalledWith("/proj", "topic");
+    expect(sent.filter((message) => message.type === "gitSyncDone")).toEqual([
+      { type: "gitSyncDone", op: "create-branch", projectRoot: "/proj", out: "figures-2026" },
+      { type: "gitSyncDone", op: "delete-branch", projectRoot: "/proj", out: "topic" },
+      { type: "gitSyncDone", op: "merge-branch", projectRoot: "/proj", out: "topic" },
+    ]);
   });
   it("répond zotero-introuvable quand la base Zotero manque", async () => {
     const sent = [];
@@ -478,7 +514,8 @@ describe("attribution des tours (plan 025)", () => {
     await sends[0].onEvent({ kind: "done", ok: true, result: "" });
     await flush();
     expect(sends).toHaveLength(2);
-    expect(sends[1].prompt).toMatch(/^ensuite\n\n<atelier-gallery-integration>/);
+    expect(sends[1].prompt).toMatch(/^ensuite\n\n<atelier-file-scope>/);
+    expect(sends[1].prompt).toContain("pre-existing worktree change");
     expect(sends[1].prompt).toContain("atelier-gallery-tool");
     // un snapshot par turn EXÉCUTÉ (jamais pour un queued en attente)
     expect(gitops.snapshot).toHaveBeenCalledTimes(2);
@@ -513,6 +550,43 @@ describe("attribution des tours (plan 025)", () => {
     });
     expect(plan.planId).toMatch(/^plan-/);
     expect(plan.meta?.durable).toBe(true);
+  });
+
+  it("verrouille les tours écrivants par projet mais autorise un lecteur plan", async () => {
+    const sends = [];
+    const { ctx, emitted } = makeTurnCtx({
+      providerImpl: { send: (opts) => sends.push(opts) },
+    });
+
+    await route({
+      type: "send", provider: "claude", threadId: "writer-1", projectRoot: "/shared",
+      prompt: "corrige", clientMessageId: "writer-message", permissionMode: "bypassPermissions",
+    }, ctx);
+    await route({
+      type: "send", provider: "claude", threadId: "writer-2", projectRoot: "/shared",
+      prompt: "corrige aussi", clientMessageId: "blocked-message", permissionMode: "bypassPermissions",
+    }, ctx);
+    expect(sends).toHaveLength(1);
+    expect(emitted.some((message) => message.type === "error"
+      && message.threadId === "writer-2"
+      && String(message.message).includes("projet verrouillé"))).toBe(true);
+
+    await route({
+      type: "send", provider: "claude", threadId: "reader", projectRoot: "/shared",
+      prompt: "audite seulement", clientMessageId: "reader-message", permissionMode: "plan",
+    }, ctx);
+    expect(sends).toHaveLength(2);
+
+    await sends[0].onEvent({ kind: "done", ok: true, result: "" });
+    await sends[1].onEvent({ kind: "done", ok: true, result: "" });
+    await flush();
+
+    await route({
+      type: "send", provider: "claude", threadId: "writer-2", projectRoot: "/shared",
+      prompt: "réessaie", clientMessageId: "retry-message", permissionMode: "bypassPermissions",
+    }, ctx);
+    expect(sends).toHaveLength(3);
+    await sends[2].onEvent({ kind: "done", ok: true, result: "" });
   });
 
   it("done : expose le checkpoint du tour et les fichiers réellement changés", async () => {

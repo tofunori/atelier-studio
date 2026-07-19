@@ -50,6 +50,13 @@
     const editor = window.CodeMirror(options.parent, cm5Options);
     editor.Pass = window.CodeMirror.Pass;
     editor.hasNativeGhost = false;
+    // Même contrat que la façade CM6 : une ligne logique visible, pas un
+    // scrollTop en pixels qui perd son sens lorsque le diff replie des lignes.
+    editor.getViewportAnchor = function () {
+      const info = editor.getScrollInfo();
+      const line = editor.lineAtHeight(info.top + info.clientHeight / 2, "local");
+      return {line, ch: 0};
+    };
     editor.onInput = (fn) => editor.on("inputRead", fn);
     editor.on("renderLine", function (cm, line, element) {
       const countColumn = window.CodeMirror.countColumn || ((text) => (/^\s*/.exec(text) || [""])[0].length);

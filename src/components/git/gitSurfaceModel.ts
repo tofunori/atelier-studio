@@ -19,22 +19,6 @@ export function groupFiles(files: GitFile[]): Record<GitGroup, GitFile[]> {
   };
 }
 
-export function immediateCommitSuggestion(files: GitFile[]) {
-  const paths = files.map((file) => file.path.toLowerCase()).join("\n");
-  const hasGit = ["gitsurface", "gitops", "/git.", "commit"].some((value) => paths.includes(value));
-  const hasAnalysis = ["analysis", "diagnostic", "model", ".jl", ".py", ".r"].some((value) => paths.includes(value));
-  const hasDocs = ["docs/", "manuscript", ".md", ".tex", ".bib"].some((value) => paths.includes(value));
-  const hasUi = [".tsx", ".css", ".html", "components/"].some((value) => paths.includes(value));
-  if (hasGit) return "Improve Git commit workflow";
-  if (hasAnalysis && hasDocs) return "Update analysis scripts and documentation";
-  if (hasAnalysis) return "Update analysis scripts and results";
-  if (hasDocs && hasUi) return "Update interface and documentation";
-  if (hasUi) return "Update application interface";
-  if (hasDocs) return "Update project documentation";
-  if (["test", "spec."].some((value) => paths.includes(value))) return "Update automated tests";
-  return "Update project files";
-}
-
 export function shortStatus(file: GitFile) {
   if (file.status === "?") return "U";
   if (file.status.includes("R")) return "R";

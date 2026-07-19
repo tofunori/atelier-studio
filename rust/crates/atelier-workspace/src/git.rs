@@ -122,6 +122,7 @@ pub struct GitFile {
 #[derive(Debug, Clone, Serialize, Default)]
 pub struct GitStatus {
     pub branch: Option<String>,
+    pub branches: Vec<String>,
     pub ahead: i64,
     pub behind: i64,
     pub files: Vec<GitFile>,
@@ -203,6 +204,22 @@ pub fn status(root: &str) -> Result<GitStatus> {
     // porcelain -z mixes nulls; include stderr empty path
     let text = String::from_utf8_lossy(&out.stdout);
     let mut parsed = parse_status(&text);
+    if let Ok(branches) = git_ok(
+        &real,
+        &[
+            "for-each-ref",
+            "--format=%(refname:short)",
+            "--sort=refname",
+            "refs/heads/",
+        ],
+    ) {
+        parsed.branches = branches
+            .lines()
+            .map(str::trim)
+            .filter(|branch| !branch.is_empty())
+            .map(str::to_string)
+            .collect();
+    }
     if has_head(&real) {
         if let Ok(ns) = git_ok(&real, &["diff", "--numstat", "HEAD", "--"]) {
             let mut stats = std::collections::HashMap::new();
@@ -223,6 +240,90 @@ pub fn status(root: &str) -> Result<GitStatus> {
         }
     }
     Ok(parsed)
+}
+
+pub fn switch_branch(root: &str, branch: &str) -> Result<String> {
+    let real = confined_root(root)?;
+    ensure_repo(&real)?;
+    if branch.is_empty() || branch.contains('\0') {
+        return Err(msg("branche requise"));
+    }
+    let current = status(root)?;
+    if !current.files.is_empty() {
+        return Err(msg(
+            "changement de branche refusé : l’arbre de travail doit être propre",
+        ));
+    }
+    git_ok(&real, &["check-ref-format", "--branch", branch])?;
+    let reference = format!("refs/heads/{branch}");
+    let exists = git(&real, &["show-ref", "--verify", "--quiet", &reference], &[])?;
+    if !exists.status.success() {
+        return Err(msg(format!("branche locale introuvable : {branch}")));
+    }
+    if current.branch.as_deref() == Some(branch) {
+        return Ok(branch.to_string());
+    }
+    git_ok(&real, &["switch", "--", branch])?;
+    Ok(branch.to_string())
+}
+
+pub fn create_branch(root: &str, branch: &str) -> Result<String> {
+    let real = confined_root(root)?;
+    ensure_repo(&real)?;
+    if branch.is_empty() || branch.contains('\0') {
+        return Err(msg("branche requise"));
+    }
+    git_ok(&real, &["check-ref-format", "--branch", branch])?;
+    let reference = format!("refs/heads/{branch}");
+    let exists = git(&real, &["show-ref", "--verify", "--quiet", &reference], &[])?;
+    if exists.status.success() {
+        return Err(msg(format!("branche locale déjà existante : {branch}")));
+    }
+    git_ok(&real, &["switch", "-c", branch])?;
+    Ok(branch.to_string())
+}
+
+pub fn delete_branch(root: &str, branch: &str) -> Result<String> {
+    let real = confined_root(root)?;
+    ensure_repo(&real)?;
+    if branch.is_empty() || branch.contains('\0') {
+        return Err(msg("branche requise"));
+    }
+    let current = status(root)?;
+    git_ok(&real, &["check-ref-format", "--branch", branch])?;
+    if current.branch.as_deref() == Some(branch) {
+        return Err(msg("suppression de la branche active refusée"));
+    }
+    let reference = format!("refs/heads/{branch}");
+    let exists = git(&real, &["show-ref", "--verify", "--quiet", &reference], &[])?;
+    if !exists.status.success() {
+        return Err(msg(format!("branche locale introuvable : {branch}")));
+    }
+    git_ok(&real, &["branch", "-d", "--", branch])?;
+    Ok(branch.to_string())
+}
+
+pub fn merge_branch(root: &str, branch: &str) -> Result<String> {
+    let real = confined_root(root)?;
+    ensure_repo(&real)?;
+    if branch.is_empty() || branch.contains('\0') {
+        return Err(msg("branche requise"));
+    }
+    let current = status(root)?;
+    if !current.files.is_empty() {
+        return Err(msg("fusion refusée : l’arbre de travail doit être propre"));
+    }
+    git_ok(&real, &["check-ref-format", "--branch", branch])?;
+    if current.branch.as_deref() == Some(branch) {
+        return Err(msg("fusion de la branche active avec elle-même refusée"));
+    }
+    let reference = format!("refs/heads/{branch}");
+    let exists = git(&real, &["show-ref", "--verify", "--quiet", &reference], &[])?;
+    if !exists.status.success() {
+        return Err(msg(format!("branche locale introuvable : {branch}")));
+    }
+    git_ok(&real, &["merge", "--no-edit", branch])?;
+    Ok(branch.to_string())
 }
 
 pub fn diff(root: &str, file_path: Option<&str>) -> Result<String> {
@@ -563,21 +664,18 @@ pub fn commit(root: &str, message: &str, files: Option<&[String]>) -> Result<Str
     if msg_s.is_empty() {
         return Err(msg("message de commit vide"));
     }
-    if let Some(files) = files {
-        if !files.is_empty() {
-            let mut args = vec!["add".to_string(), "--".into()];
-            for f in files {
-                args.push(assert_relative(&real, f)?);
-            }
-            let refs: Vec<&str> = args.iter().map(|s| s.as_str()).collect();
-            git_ok(&real, &refs)?;
+    let Some(files) = files else {
+        return Err(msg(
+            "sélection explicite requise : indexe les fichiers à committer",
+        ));
+    };
+    if !files.is_empty() {
+        let mut args = vec!["add".to_string(), "--".into()];
+        for f in files {
+            args.push(assert_relative(&real, f)?);
         }
-    } else {
-        let st = status(root)?;
-        if st.files.is_empty() {
-            return Err(msg("rien à commiter"));
-        }
-        git_ok(&real, &["add", "-A"])?;
+        let refs: Vec<&str> = args.iter().map(|s| s.as_str()).collect();
+        git_ok(&real, &refs)?;
     }
     git_ok(&real, &["commit", "-m", msg_s])?;
     Ok(git_ok(&real, &["rev-parse", "HEAD"])?.trim().to_string())
@@ -950,6 +1048,74 @@ mod tests {
     }
 
     #[test]
+    fn lists_and_switches_local_branches_only_when_clean() {
+        let dir = init_repo();
+        let root = dir.path().to_str().unwrap();
+        git_ok(dir.path(), &["branch", "topic"]).unwrap();
+        let initial = status(root).unwrap();
+        let original = initial.branch.clone().unwrap();
+        assert!(initial.branches.contains(&"topic".to_string()));
+
+        assert_eq!(switch_branch(root, "topic").unwrap(), "topic");
+        assert_eq!(status(root).unwrap().branch.as_deref(), Some("topic"));
+
+        std::fs::write(dir.path().join("a.txt"), b"dirty").unwrap();
+        let error = switch_branch(root, &original).unwrap_err().to_string();
+        assert!(
+            error.contains("arbre de travail doit être propre"),
+            "{error}"
+        );
+        assert_eq!(status(root).unwrap().branch.as_deref(), Some("topic"));
+    }
+
+    #[test]
+    fn creates_and_deletes_only_merged_inactive_branches() {
+        let dir = init_repo();
+        let root = dir.path().to_str().unwrap();
+        std::fs::write(dir.path().join("a.txt"), b"dirty but preserved").unwrap();
+
+        assert_eq!(create_branch(root, "figures-2026").unwrap(), "figures-2026");
+        assert_eq!(status(root).unwrap().branch.as_deref(), Some("figures-2026"));
+        assert_eq!(
+            std::fs::read(dir.path().join("a.txt")).unwrap(),
+            b"dirty but preserved"
+        );
+        assert!(delete_branch(root, "figures-2026")
+            .unwrap_err()
+            .to_string()
+            .contains("branche active"));
+
+        git_ok(dir.path(), &["restore", "--", "a.txt"]).unwrap();
+        switch_branch(root, "main").unwrap();
+        assert_eq!(delete_branch(root, "figures-2026").unwrap(), "figures-2026");
+        assert_eq!(status(root).unwrap().branches, vec!["main"]);
+    }
+
+    #[test]
+    fn merges_selected_branch_into_current_branch_only_when_clean() {
+        let dir = init_repo();
+        let root = dir.path().to_str().unwrap();
+        git_ok(dir.path(), &["switch", "-c", "topic"]).unwrap();
+        std::fs::write(dir.path().join("merged.txt"), b"from topic").unwrap();
+        git_ok(dir.path(), &["add", "merged.txt"]).unwrap();
+        git_ok(dir.path(), &["commit", "-m", "topic change"]).unwrap();
+        git_ok(dir.path(), &["switch", "main"]).unwrap();
+
+        assert_eq!(merge_branch(root, "topic").unwrap(), "topic");
+        assert_eq!(status(root).unwrap().branch.as_deref(), Some("main"));
+        assert_eq!(
+            std::fs::read(dir.path().join("merged.txt")).unwrap(),
+            b"from topic"
+        );
+
+        std::fs::write(dir.path().join("a.txt"), b"dirty").unwrap();
+        assert!(merge_branch(root, "topic")
+            .unwrap_err()
+            .to_string()
+            .contains("arbre de travail doit être propre"));
+    }
+
+    #[test]
     fn diff_accepts_project_nested_inside_repo() {
         let dir = init_repo();
         let nested = dir.path().join("manuscript_ch1");
@@ -1009,5 +1175,19 @@ mod tests {
             .iter()
             .any(|file| file.path == "b.txt" && file.status == "?"));
         assert!(!st.files.iter().any(|file| file.path == "a.txt"));
+    }
+
+    #[test]
+    fn missing_file_list_refuses_without_staging_everything() {
+        let dir = init_repo();
+        let root = dir.path().to_str().unwrap();
+        std::fs::write(dir.path().join("a.txt"), b"changed").unwrap();
+        std::fs::write(dir.path().join("b.txt"), b"untracked").unwrap();
+        let error = commit(root, "must fail", None).unwrap_err().to_string();
+        assert!(error.contains("sélection explicite"), "{error}");
+        assert!(git_ok(dir.path(), &["diff", "--cached", "--name-only"])
+            .unwrap()
+            .trim()
+            .is_empty());
     }
 }

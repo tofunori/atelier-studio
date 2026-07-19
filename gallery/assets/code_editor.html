@@ -430,16 +430,38 @@ async function load(){
   setState("saved", "saved");
 }
 
+async function readConflictSnapshot(fallbackMtime, knownText){
+  if(typeof knownText === "string") return {mtime: fallbackMtime, text: knownText};
+  try{
+    const r = await fetch("/code?path=" + encodeURIComponent(path));
+    const j = await r.json();
+    if(typeof j.text === "string" && Number.isFinite(Number(j.mtime))) return {mtime: j.mtime, text: j.text};
+  }catch(e){}
+  return null;
+}
+
+async function reloadDiskConflict(mtime, knownText){
+  const snapshot = await readConflictSnapshot(mtime, knownText);
+  if(!snapshot || !cm) return false;
+  const before = (typeof lastSavedText === "string") ? lastSavedText : cm.getValue();
+  const cur = cm.getCursor(), scroll = cm.getScrollInfo();
+  cm.setValue(snapshot.text); cm.setCursor(cur); cm.scrollTo(scroll.left, scroll.top);
+  diskMtime = snapshot.mtime; lastSavedText = snapshot.text; dirty = false;
+  setState("saved", "version de l'agent rechargée " + new Date().toLocaleTimeString());
+  if(before !== snapshot.text && __dv) {
+    __dv.push(before, snapshot.text, {source:"external-reload", status:"applied"});
+  }
+  if(isCsv && csvMode === "table") renderCsv(true);
+  return false;
+}
+
 async function save(){
-  if(!cm) return;
+  if(!cm) return false;
   const r = await fetch("/codesave", {method:"POST", headers:{"Content-Type":"application/json"},
     body: JSON.stringify({path, text: cm.getValue(), mtime: diskMtime})});
   const j = await r.json();
-  if(j.error === "conflit"){
-    setState("conflict", "conflict: the file changed on disk (Claude?) — reload or re-save to overwrite");
-    diskMtime = j.mtime;
-    return;
-  }
+  if(j.error === "conflit") return reloadDiskConflict(j.mtime);
+  if(j.error){ setState("conflict", j.error); return false; }
   diskMtime = j.mtime;
   dirty = false;
   setState("saved", "saved " + new Date().toLocaleTimeString());
@@ -447,6 +469,7 @@ async function save(){
   const savedNow = cm.getValue();
   if(lastSavedText !== null) __dv.push(lastSavedText, savedNow, {source:"user-save", status:"applied"});
   lastSavedText = savedNow;
+  return true;
 }
 
 document.addEventListener("keydown", e => {
@@ -460,15 +483,8 @@ document.addEventListener("keydown", e => {
   if((e.metaKey || e.ctrlKey) && e.key === "s"){ e.preventDefault(); save(); }
 });
 
-// L'agent modifie le fichier sur le disque : buffer propre (ou dirty cosmétique
-// aux blancs près) → reload ; buffer dirty réel → fusion trois-voies. En conflit
-// on versionne quand même l'écriture agent pour que la timeline grossisse.
-let __mergeConflictAt = 0;
-function __effectivelyClean(){
-  if(!dirty) return true;
-  if(typeof lastSavedText !== "string" || !cm) return false;
-  return __dv.isEquivalent(cm.getValue(), lastSavedText);
-}
+// Politique agent-prioritaire : toute écriture externe remplace immédiatement
+// le buffer affiché, même s'il contient des modifications locales non sauvegardées.
 setInterval(async () => {
   if(!cm) return;
   // vue historique du comparateur (± timeline) : buffer temporairement remplacé —
@@ -480,39 +496,15 @@ setInterval(async () => {
     if(!(j.mtime && Math.abs(j.mtime - diskMtime) > 0.001)) return;
     const diskText = j.text;
     const cur = cm.getCursor(), scroll = cm.getScrollInfo();
-    if(__effectivelyClean()){
-      diskMtime = j.mtime;
-      const before = (typeof lastSavedText === "string") ? lastSavedText : cm.getValue();
-      if(before === diskText && cm.getValue() === diskText){ lastSavedText = diskText; dirty = false; return; }
-      cm.setValue(diskText);
-      cm.setCursor(cur);
-      cm.scrollTo(scroll.left, scroll.top);
-      dirty = false;
-      setState("saved", "reloaded (modified on disk) " + new Date().toLocaleTimeString());
-      if(__dv) __dv.push(before, diskText, {source:"external-reload", status:"applied"});
-      lastSavedText = diskText;
-      if(isCsv && csvMode === "table") renderCsv(true);
-      return;
-    }
-    const base = (typeof lastSavedText === "string") ? lastSavedText : null;
-    const merged = base === null ? false
-      : window.Diff && Diff.applyPatch(cm.getValue(), Diff.structuredPatch("a", "b", base, diskText, "", ""), {fuzzFactor: 2});
-    if(merged === false || typeof merged !== "string"){
-      if(j.mtime !== __mergeConflictAt){
-        __mergeConflictAt = j.mtime;
-        if(base != null && __dv && base !== diskText) __dv.push(base, diskText, {source:"external-conflict", status:"pending-conflict"});
-        setState("err", "modifs superposées avec l'agent — ⌘S affichera le conflit · timeline : intervention enregistrée");
-      }
-      return;
-    }
     diskMtime = j.mtime;
-    const beforePush = base != null ? base : cm.getValue();
-    cm.setValue(merged);
+    const before = (typeof lastSavedText === "string") ? lastSavedText : cm.getValue();
+    if(before === diskText && cm.getValue() === diskText){ lastSavedText = diskText; dirty = false; return; }
+    cm.setValue(diskText);
     cm.setCursor(cur);
     cm.scrollTo(scroll.left, scroll.top);
-    dirty = true;
-    setState("saved", "modifs de l'agent fusionnées avec les tiennes (non sauvegardées)");
-    if(__dv) __dv.push(beforePush, diskText, {source:"external-merge", status:"applied"});
+    dirty = false;
+    setState("saved", "version de l'agent rechargée " + new Date().toLocaleTimeString());
+    if(before !== diskText && __dv) __dv.push(before, diskText, {source:"external-reload", status:"applied"});
     lastSavedText = diskText;
     if(isCsv && csvMode === "table") renderCsv(true);
   }catch(e){}

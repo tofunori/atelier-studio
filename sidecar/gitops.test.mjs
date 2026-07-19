@@ -34,10 +34,71 @@ describe("gitops", () => {
     expect(status.branch).toBe("main");
     expect(status.ahead).toBe(0);
     expect(status.behind).toBe(0);
+    expect(status.branches).toContain("main");
     expect(status.files).toEqual(expect.arrayContaining([
       expect.objectContaining({ path: "tracked file.txt", status: ".M" }),
       expect.objectContaining({ path: "new file.txt", status: "?" }),
     ]));
+  });
+
+  it("liste et change de branche uniquement avec un arbre propre", async () => {
+    const root = await makeRepo();
+    await git(root, ["branch", "topic"]);
+
+    expect((await gitops.status(root)).branches).toEqual(["main", "topic"]);
+    await expect(gitops.switchBranch(root, "topic")).resolves.toBe("topic");
+    expect((await gitops.status(root)).branch).toBe("topic");
+
+    writeFileSync(join(root, "tracked file.txt"), "dirty\n");
+    await expect(gitops.switchBranch(root, "main")).rejects.toThrow(/arbre de travail doit être propre/);
+    expect((await gitops.status(root)).branch).toBe("topic");
+  });
+
+  it("crée une branche et ne supprime qu’une branche fusionnée et inactive", async () => {
+    const root = await makeRepo();
+    writeFileSync(join(root, "tracked file.txt"), "dirty but preserved\n");
+
+    await expect(gitops.createBranch(root, "figures-2026")).resolves.toBe("figures-2026");
+    expect((await gitops.status(root)).branch).toBe("figures-2026");
+    expect(readFileSync(join(root, "tracked file.txt"), "utf8")).toBe("dirty but preserved\n");
+    await expect(gitops.deleteBranch(root, "figures-2026")).rejects.toThrow(/branche active/);
+
+    await git(root, ["restore", "--", "tracked file.txt"]);
+    await gitops.switchBranch(root, "main");
+    await expect(gitops.deleteBranch(root, "figures-2026")).resolves.toBe("figures-2026");
+    expect((await gitops.status(root)).branches).toEqual(["main"]);
+  });
+
+  it("fusionne la branche choisie dans la branche active et refuse un arbre sale", async () => {
+    const root = await makeRepo();
+    await git(root, ["switch", "-c", "topic"]);
+    writeFileSync(join(root, "merged.txt"), "from topic\n");
+    await git(root, ["add", "merged.txt"]);
+    await git(root, ["commit", "-m", "topic change"]);
+    await git(root, ["switch", "main"]);
+
+    await expect(gitops.mergeBranch(root, "topic")).resolves.toBe("topic");
+    expect((await gitops.status(root)).branch).toBe("main");
+    expect(readFileSync(join(root, "merged.txt"), "utf8")).toBe("from topic\n");
+
+    writeFileSync(join(root, "tracked file.txt"), "dirty\n");
+    await expect(gitops.mergeBranch(root, "topic")).rejects.toThrow(/arbre de travail doit être propre/);
+  });
+
+  it("préserve l’état Git lorsqu’une fusion produit un conflit", async () => {
+    const root = await makeRepo();
+    await git(root, ["switch", "-c", "topic"]);
+    writeFileSync(join(root, "tracked file.txt"), "topic\n");
+    await git(root, ["add", "tracked file.txt"]);
+    await git(root, ["commit", "-m", "topic side"]);
+    await git(root, ["switch", "main"]);
+    writeFileSync(join(root, "tracked file.txt"), "main\n");
+    await git(root, ["add", "tracked file.txt"]);
+    await git(root, ["commit", "-m", "main side"]);
+
+    await expect(gitops.mergeBranch(root, "topic")).rejects.toThrow(/CONFLICT|conflict/i);
+    expect((await gitops.status(root)).files.length).toBeGreaterThan(0);
+    await expect(git(root, ["rev-parse", "-q", "--verify", "MERGE_HEAD"])).resolves.toBeDefined();
   });
 
   it("ancre le snapshot dans une ref durable qui survit à git gc --prune=now", async () => {
@@ -192,7 +253,7 @@ describe("gitops", () => {
     writeFileSync(join(root, "tracked file.txt"), "committed\n");
 
     await gitops.stageFile(root, "tracked file.txt");
-    const hash = await gitops.commit(root, "change tracked");
+    const hash = await gitops.commit(root, "change tracked", []);
     const { stdout } = await git(root, ["rev-parse", "HEAD"]);
 
     expect(hash).toMatch(/^[0-9a-f]{40}$/);
@@ -236,5 +297,15 @@ describe("gitops", () => {
       expect.objectContaining({ path: "left-out.txt", status: "?" }),
     ]));
     expect(current.files.some((file) => file.path === "tracked file.txt")).toBe(false);
+  });
+
+  it("refuse tout commit sans sélection explicite sans toucher à l’index", async () => {
+    const root = await makeRepo();
+    writeFileSync(join(root, "tracked file.txt"), "changed\n");
+    writeFileSync(join(root, "new file.txt"), "new\n");
+
+    await expect(gitops.commit(root, "ne doit pas tout prendre")).rejects.toThrow(/sélection explicite/);
+    const { stdout } = await git(root, ["diff", "--cached", "--name-only"]);
+    expect(stdout).toBe("");
   });
 });

@@ -1,5 +1,5 @@
 import { lazy, Suspense } from "react";
-import { EyeIcon, FileTextIcon } from "lucide-react";
+import { Columns2Icon, EyeIcon, FileTextIcon, Rows3Icon } from "lucide-react";
 import { t } from "../../lib/i18n";
 import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from "../shadcn/empty";
 import {
@@ -77,8 +77,18 @@ function DiffHeader({ controller }: { controller: GitSurfaceController }) {
         value={controller.splitView ? "split" : "unified"}
         onChange={(value) => controller.setSplitView(value === "split")}
         options={[
-          { value: "unified", label: t("git.unified") },
-          { value: "split", label: t("git.split") },
+          {
+            value: "unified",
+            label: <Rows3Icon aria-hidden="true" />,
+            ariaLabel: t("git.unified"),
+            title: t("git.unified"),
+          },
+          {
+            value: "split",
+            label: <Columns2Icon aria-hidden="true" />,
+            ariaLabel: t("git.split"),
+            title: t("git.split"),
+          },
         ]}
       />
     </div>

@@ -336,4 +336,8 @@ export function requestCatalog(ws: WebSocket, projectRoot: string) {
   ws.send(JSON.stringify({ type: "listPlugins", projectRoot }));
 }
 
+export function requestFileCatalog(ws: WebSocket, projectRoot: string) {
+  ws.send(JSON.stringify({ type: "listFiles", projectRoot }));
+}
+
 export type Command = { name: string; source: string; path?: string };

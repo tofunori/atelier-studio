@@ -1,11 +1,12 @@
 import { act, cleanup, fireEvent, screen } from "@testing-library/react";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
 import GitSurface from "./GitSurface";
 import { t } from "../lib/i18n";
 import { renderUi, resetTestState } from "../test/render";
 
 const projectRoot = "/tmp/atelier-git-surface";
+const originalGetAnimations = Element.prototype.getAnimations;
 
 function makeSocket() {
   return {
@@ -28,10 +29,95 @@ function status(
   });
 }
 
+beforeAll(() => {
+  Element.prototype.getAnimations = () => [];
+});
+afterAll(() => {
+  if (originalGetAnimations) Element.prototype.getAnimations = originalGetAnimations;
+  else delete (Element.prototype as Partial<Element>).getAnimations;
+});
 beforeEach(resetTestState);
 afterEach(cleanup);
 
 describe("GitSurface staging-first", () => {
+  it("affiche le choix du diff avec des icônes accessibles et bascule la disposition", () => {
+    const ws = makeSocket();
+    renderUi(<GitSurface ws={ws} projectRoot={projectRoot} activeThreadId={null} />);
+
+    const unified = screen.getByRole("radio", { name: t("git.unified") });
+    const split = screen.getByRole("radio", { name: t("git.split") });
+    expect(unified).toHaveAttribute("aria-checked", "true");
+    expect(unified.querySelector("svg")).toBeTruthy();
+    expect(split.querySelector("svg")).toBeTruthy();
+
+    fireEvent.click(split);
+    expect(split).toHaveAttribute("aria-checked", "true");
+  });
+
+  it("affiche les branches et l’historique directement dans l’en-tête", async () => {
+    const ws = makeSocket();
+    renderUi(<GitSurface ws={ws} projectRoot={projectRoot} activeThreadId={null} />);
+    emit("git-status", {
+      projectRoot,
+      status: { branch: "main", branches: ["main", "topic"], ahead: 0, behind: 0, files: [] },
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: t("git.switch-branch", { branch: "main" }) }));
+    fireEvent.click(await screen.findByRole("button", { name: "topic" }));
+    expect(ws.send).toHaveBeenCalledWith(JSON.stringify({
+      type: "gitSwitchBranch",
+      projectRoot,
+      branch: "topic",
+    }));
+
+    expect(screen.getByRole("button", { name: t("git.history") })).toBeEnabled();
+  });
+
+  it("crée, fusionne et supprime une branche depuis ses actions contextuelles", async () => {
+    const ws = makeSocket();
+    renderUi(<GitSurface ws={ws} projectRoot={projectRoot} activeThreadId={null} />);
+    emit("git-status", {
+      projectRoot,
+      status: { branch: "main", branches: ["main", "topic"], ahead: 0, behind: 0, files: [] },
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: t("git.switch-branch", { branch: "main" }) }));
+    fireEvent.click(await screen.findByRole("button", { name: t("git.create-branch") }));
+    fireEvent.change(screen.getByRole("textbox", { name: t("git.branch-name") }), {
+      target: { value: "figures-2026" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: t("git.create-branch-title") }));
+    expect(ws.send).toHaveBeenCalledWith(JSON.stringify({
+      type: "gitCreateBranch",
+      projectRoot,
+      branch: "figures-2026",
+    }));
+
+    emit("git-sync-done", { projectRoot, op: "create-branch", out: "figures-2026" });
+    fireEvent.click(screen.getByRole("button", { name: t("git.switch-branch", { branch: "main" }) }));
+    fireEvent.click(await screen.findByRole("button", {
+      name: t("git.merge-branch-into", { branch: "topic", current: "main" }),
+    }));
+    expect(screen.getByText(t("git.merge-branch-title", { branch: "topic", current: "main" }))).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: t("git.merge-branch") }));
+    expect(ws.send).toHaveBeenCalledWith(JSON.stringify({
+      type: "gitMergeBranch",
+      projectRoot,
+      branch: "topic",
+    }));
+
+    emit("git-sync-done", { projectRoot, op: "merge-branch", out: "topic" });
+    fireEvent.click(screen.getByRole("button", { name: t("git.switch-branch", { branch: "main" }) }));
+    fireEvent.click(await screen.findByRole("button", { name: t("git.delete-branch-named", { branch: "topic" }) }));
+    expect(screen.getByText(t("git.delete-branch-title", { branch: "topic" }))).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: t("git.delete-branch-action") }));
+    expect(ws.send).toHaveBeenCalledWith(JSON.stringify({
+      type: "gitDeleteBranch",
+      projectRoot,
+      branch: "topic",
+    }));
+  });
+
   it("garde la génération IA désactivée quand le dépôt est propre", () => {
     const ws = makeSocket();
     renderUi(<GitSurface ws={ws} projectRoot={projectRoot} activeThreadId={null} />);
@@ -64,7 +150,7 @@ describe("GitSurface staging-first", () => {
     }));
   });
 
-  it("génère depuis les changements quand aucun fichier n’est encore indexé", () => {
+  it("exige des fichiers indexés avant toute génération IA", () => {
     const ws = makeSocket();
     renderUi(<GitSurface ws={ws} projectRoot={projectRoot} activeThreadId={null} />);
     status([
@@ -72,46 +158,11 @@ describe("GitSurface staging-first", () => {
       { path: "new.ts", status: "?" },
     ]);
 
-    const generate = screen.getByRole("button", { name: t("git.generate-ai") });
-    expect(generate).toBeEnabled();
-    fireEvent.click(generate);
-    expect(ws.send).toHaveBeenCalledWith(JSON.stringify({
-      type: "generateCommitMsg",
-      projectRoot,
-      scope: "changes",
-    }));
-    const generating = screen.getByRole("button", { name: t("git.generating-ai") });
-    expect(generating).toBeDisabled();
-    expect(generating).toHaveAttribute("aria-busy", "true");
-    expect(screen.getByRole("status")).toHaveTextContent(t("git.generation-note"));
-    const summary = screen.getByRole("textbox", { name: t("git.commit-placeholder") });
-    expect(summary).toHaveValue("Update project files");
-    expect(summary).toHaveFocus();
-
-    emit("commit-msg", { projectRoot, message: "Résume les changements Git" });
-    expect(summary).toHaveValue("Résume les changements Git");
-    expect(summary).toHaveFocus();
-    expect(screen.getByText(t("git.generated-ready"))).toBeTruthy();
-  });
-
-  it("commit tous les changements quand aucun fichier n’est indexé", () => {
-    const ws = makeSocket();
-    renderUi(<GitSurface ws={ws} projectRoot={projectRoot} activeThreadId={null} />);
-    status([
-      { path: "changed.ts", status: ".M" },
-      { path: "new.ts", status: "?" },
-    ]);
-
-    fireEvent.change(screen.getByRole("textbox", { name: t("git.commit-placeholder") }), {
-      target: { value: "Commit sans staging manuel" },
-    });
-    fireEvent.click(screen.getByRole("button", { name: t("git.commit-branch", { branch: "main" }) }));
-    expect(ws.send).toHaveBeenCalledWith(JSON.stringify({
-      type: "gitCommit",
-      projectRoot,
-      message: "Commit sans staging manuel",
-      files: null,
-    }));
+    expect(screen.getByRole("button", { name: t("git.generate-ai") })).toBeDisabled();
+    expect(screen.getByRole("button", { name: t("git.commit-branch", { branch: "main" }) })).toBeDisabled();
+    expect(screen.getByText(t("git.commit-scope-required"))).toBeTruthy();
+    expect(ws.send).not.toHaveBeenCalledWith(expect.stringContaining('"type":"generateCommitMsg"'));
+    expect(ws.send).not.toHaveBeenCalledWith(expect.stringContaining('"type":"gitCommit"'));
   });
 
   it("affiche les erreurs IA puis commit seulement l’index existant", () => {
@@ -123,15 +174,22 @@ describe("GitSurface staging-first", () => {
     emit("commit-msg", { projectRoot, error: "Claude indisponible" });
     expect(screen.getByText("Claude indisponible")).toBeTruthy();
 
-    emit("commit-msg", { projectRoot, message: "Améliore le flux Git" });
+    emit("commit-msg", {
+      projectRoot,
+      message: "Améliore le flux Git",
+      description: "Analyse le diff indexé et décrit la raison du changement.",
+    });
     const summary = screen.getByRole("textbox", { name: t("git.commit-placeholder") });
     expect(summary).toHaveValue("Améliore le flux Git");
+    expect(screen.getByRole("textbox", { name: t("git.description-placeholder") }))
+      .toHaveValue("Analyse le diff indexé et décrit la raison du changement.");
+    expect(screen.getByRole("button", { name: t("git.regenerate-ai") })).toBeEnabled();
 
     fireEvent.click(screen.getByRole("button", { name: t("git.commit-branch", { branch: "main" }) }));
     expect(ws.send).toHaveBeenCalledWith(JSON.stringify({
       type: "gitCommit",
       projectRoot,
-      message: "Améliore le flux Git",
+      message: "Améliore le flux Git\n\nAnalyse le diff indexé et décrit la raison du changement.",
       files: [],
     }));
     expect(summary).toHaveValue("Améliore le flux Git");

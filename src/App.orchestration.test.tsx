@@ -329,6 +329,33 @@ describe("orchestration App — caractérisation", () => {
     expect(req.threadId).toBe("thread-A");
   });
 
+  it("un clic sur le projet actif revient à l'accueil après avoir ouvert un fil", async () => {
+    const { sock } = await mountApp();
+    await pushThreads(sock, [THREAD_A]);
+    await selectThread(sock, "Fil A — albédo");
+    expect(screen.queryByText(t("home.start"))).toBeNull();
+
+    fireEvent.click(document.querySelector(".rail-proj") as HTMLButtonElement);
+    await act(async () => { await flushMicrotasks(4); });
+
+    expect(screen.getByText(t("home.start"))).toBeTruthy();
+  });
+
+  it("l'accueil montre les mtimes du catalogue plutôt que l'ancien localStorage", async () => {
+    localStorage.setItem("atelier-studio.recentFiles", JSON.stringify(["ancien-local.md"]));
+    const { sock } = await mountApp();
+    await push(sock, {
+      type: "files",
+      projectRoot: PROJECT_ROOT,
+      files: ["ancien-local.md", "frais.ts", "notes.md"],
+      recentFiles: ["frais.ts", "notes.md"],
+    });
+
+    expect(screen.getByText("frais.ts")).toBeTruthy();
+    expect(screen.getByText("notes.md")).toBeTruthy();
+    expect(screen.queryByText("ancien-local.md")).toBeNull();
+  });
+
   it("un cache Codex ne peut plus changer le provider d'un fil Claude", async () => {
     localStorage.setItem(`atelier-studio.modelSel:${PROJECT_ROOT}`, JSON.stringify({
       provider: "codex", model: "gpt-5.5", effort: "medium", permissionMode: "bypassPermissions",

@@ -9,6 +9,7 @@ import { generateImageViaCodex } from "./providers/codex_image.mjs";
 import { createHarnessThread } from "./harness_events.mjs";
 import { HANDOFF_END } from "./handoff.mjs";
 import { stripGalleryToolInstruction, withGalleryToolInstruction } from "./gallery_tool_prompt.mjs";
+import { withFileScopeInstruction } from "./file_scope_prompt.mjs";
 import { stripZoteroPassageInstruction, withZoteroPassageInstruction } from "./zotero_passage_prompt.mjs";
 import { KnowledgeStore, defaultKnowledgeDir, kbBlockEntries, promotePage, promoteToGbrain } from "./knowledge.mjs";
 import { runKbCommand } from "./kb_cli.mjs";
@@ -24,32 +25,10 @@ const permWaiters = new Map(); // requestId -> resolve(bool) — chemin Claude h
 const interactionWaiters = new Map(); // requestId -> { threadId, answer(response), decline(state) }
 const approvalSessions = new Set(); // threadId autorisés jusqu'au redémarrage du sidecar
 const lastTurnByThread = new Map(); // threadId -> { entry, responseText, diffs }
+const projectWriters = new Map(); // projectRoot -> threadId, un seul tour écrivant par projet
 let retitleAllRunning = false;
 
 const DEFAULT_APP_DIR = join(homedir(), "Library", "Application Support", "atelier-studio");
-
-function commitGenerationContext(status, stagedOnly) {
-  const files = (status?.files ?? []).filter((file) =>
-    file.status !== "!" && (!stagedOnly || (file.status !== "?" && file.status?.[0] !== ".")),
-  );
-  if (!files.length) return "";
-  const untracked = files.filter((file) => file.status === "?").length;
-  const deleted = files.filter((file) => String(file.status).includes("D")).length;
-  const modified = Math.max(0, files.length - untracked - deleted);
-  const shown = files.slice(0, 120);
-  const lines = [
-    `Git change summary for branch ${status?.branch ?? "unknown"}: ${files.length} files (${modified} modified, ${deleted} deleted, ${untracked} untracked).`,
-    `Changed files (${shown.length} shown):`,
-    ...shown.map((file) => {
-      const stats = Number.isFinite(file.add) && Number.isFinite(file.del)
-        ? ` (+${file.add} -${file.del})`
-        : "";
-      return `${file.status} ${file.path}${stats}`;
-    }),
-  ];
-  if (shown.length < files.length) lines.push(`… and ${files.length - shown.length} more files`);
-  return lines.join("\n");
-}
 
 function buildForkContext(events, provider) {
   const lines = (Array.isArray(events) ? events : []).flatMap((event) => {
@@ -534,6 +513,27 @@ export function __resetHarnessStateForTest() {
   interactionWaiters.clear();
   approvalSessions.clear();
   permWaiters.clear();
+  projectWriters.clear();
+}
+
+function writerProject(projectRoot, permissionMode) {
+  if (permissionMode === "plan") return null;
+  const root = String(projectRoot ?? "").replace(/\/+$/, "");
+  return root || null;
+}
+
+function acquireProjectWriter(projectRoot, threadId) {
+  if (!projectRoot) return null;
+  const owner = projectWriters.get(projectRoot);
+  if (owner && owner !== threadId) return owner;
+  projectWriters.set(projectRoot, threadId);
+  return null;
+}
+
+function releaseProjectWriter(projectRoot, threadId) {
+  if (projectRoot && projectWriters.get(projectRoot) === threadId) {
+    projectWriters.delete(projectRoot);
+  }
 }
 
 /** Sérialise le traitement des `send` d'un MÊME thread : deux frames WS
@@ -751,6 +751,7 @@ async function handleTurnEvent(ctx, threadId, event) {
   if (!accepted) return;
   ctx.automations?.recordEvent(threadId, publicEvent, ctx.broadcast ?? ctx.send);
   threadRuns.delete(threadId);
+  releaseProjectWriter(turn.writerProject, threadId);
 
   if (publicEvent.kind === "done") {
     emitGitChanged(ctx, threadId, turn.projectRoot);
@@ -805,9 +806,20 @@ async function startProviderTurn(ctx, h, msg, { reservedTurnId = null } = {}) {
   const model = msg.model ?? (sameProvider ? last.model : null) ?? null;
   const effort = msg.effort ?? (sameProvider ? last.effort : null) ?? null;
   const permissionMode = msg.permissionMode ?? last.permissionMode ?? null;
+  const writableProject = writerProject(projectRoot, permissionMode);
+  const writerOwner = acquireProjectWriter(writableProject, threadId);
+  if (writerOwner) {
+    emit({
+      type: "error",
+      threadId,
+      message: `projet verrouillé par une autre tâche (${writerOwner}) — attends sa fin ou arrête-la avant toute écriture`,
+    });
+    return;
+  }
   const baseProviderPrompt = typeof prev?.forkContext === "string" && prev.forkContext
     ? prev.forkContext + prompt
     : prompt;
+  const scopedProviderPrompt = withFileScopeInstruction(baseProviderPrompt);
   // Cadence d'injection (2026-07-19) : ces blocs étaient REcollés à chaque
   // message alors que l'historique natif du provider les conserve tous — une
   // conversation Kimi à 7 sources a dépassé les 2 Mo de la limite API. Les
@@ -816,7 +828,7 @@ async function startProviderTurn(ctx, h, msg, { reservedTurnId = null } = {}) {
   // (sélection/contenu). blocksSeededFor suit la session réellement utilisée :
   // une session neuve (repli provider) re-sème tout au tour suivant.
   const seeded = !!prev?.sessionId && prev?.blocksSeededFor === prev.sessionId;
-  const galleryPrompt = seeded ? baseProviderPrompt : withGalleryToolInstruction(baseProviderPrompt, {
+  const galleryPrompt = seeded ? scopedProviderPrompt : withGalleryToolInstruction(scopedProviderPrompt, {
     projectRoot,
     toolPath: join(dirname(fileURLToPath(import.meta.url)), "atelier-gallery-tool"),
   });
@@ -859,7 +871,7 @@ async function startProviderTurn(ctx, h, msg, { reservedTurnId = null } = {}) {
   const snapshotSha = await snapshotBeforeProvider(ctx, threadId);
   const displayEvent = normalizeDisplayEvent(msg);
   const titlePrompt = String(displayEvent?.text ?? "").trim() || prompt;
-  const turn = { threadId, projectRoot, provider, model, effort, permissionMode, prompt, titlePrompt, tools, snapshotSha, lastText: "" };
+  const turn = { threadId, projectRoot, provider, model, effort, permissionMode, prompt, titlePrompt, tools, snapshotSha, lastText: "", writerProject: writableProject };
 
   let turnId;
   if (reservedTurnId) {
@@ -1416,10 +1428,12 @@ export async function route(msg, ctx) {
       }
       break;
     }
-    case "listFiles":
+    case "listFiles": {
+      const catalog = ctx.catalog.listFileCatalog(msg.projectRoot);
       ctx.send({ type: "files", projectRoot: msg.projectRoot,
-        files: ctx.catalog.listFiles(msg.projectRoot) });
+        files: catalog.files, recentFiles: catalog.recentFiles });
       break;
+    }
     case "narvalStatus":
     case "narvalSnapshot":
     case "narvalListDirectory":
@@ -1451,6 +1465,54 @@ export async function route(msg, ctx) {
       ctx.send({ type: "gitStatus", projectRoot: root, status: await ctx.gitops.status(root) });
       break;
     }
+    case "gitSwitchBranch": {
+      const root = gitRootFor(ctx, msg);
+      try {
+        const branch = await ctx.gitops.switchBranch(root, String(msg.branch ?? ""));
+        ctx.send({ type: "gitSyncDone", op: "switch", projectRoot: root, out: branch });
+        emitGitChanged(ctx, msg.threadId, root);
+      } catch (error) {
+        ctx.send({ type: "gitSyncDone", op: "switch", projectRoot: root,
+          error: String(error?.message ?? error) });
+      }
+      break;
+    }
+    case "gitCreateBranch": {
+      const root = gitRootFor(ctx, msg);
+      try {
+        const branch = await ctx.gitops.createBranch(root, String(msg.branch ?? ""));
+        ctx.send({ type: "gitSyncDone", op: "create-branch", projectRoot: root, out: branch });
+        emitGitChanged(ctx, msg.threadId, root);
+      } catch (error) {
+        ctx.send({ type: "gitSyncDone", op: "create-branch", projectRoot: root,
+          error: String(error?.message ?? error) });
+      }
+      break;
+    }
+    case "gitDeleteBranch": {
+      const root = gitRootFor(ctx, msg);
+      try {
+        const branch = await ctx.gitops.deleteBranch(root, String(msg.branch ?? ""));
+        ctx.send({ type: "gitSyncDone", op: "delete-branch", projectRoot: root, out: branch });
+        emitGitChanged(ctx, msg.threadId, root);
+      } catch (error) {
+        ctx.send({ type: "gitSyncDone", op: "delete-branch", projectRoot: root,
+          error: String(error?.message ?? error) });
+      }
+      break;
+    }
+    case "gitMergeBranch": {
+      const root = gitRootFor(ctx, msg);
+      try {
+        const branch = await ctx.gitops.mergeBranch(root, String(msg.branch ?? ""));
+        ctx.send({ type: "gitSyncDone", op: "merge-branch", projectRoot: root, out: branch });
+      } catch (error) {
+        ctx.send({ type: "gitSyncDone", op: "merge-branch", projectRoot: root,
+          error: String(error?.message ?? error) });
+      }
+      emitGitChanged(ctx, msg.threadId, root);
+      break;
+    }
     case "gitDiff": {
       const root = gitRootFor(ctx, msg);
       try {
@@ -1471,17 +1533,19 @@ export async function route(msg, ctx) {
     case "generateCommitMsg": {
       const root = gitRootFor(ctx, msg);
       try {
-        const scope = msg.scope === "staged" ? "staged" : "changes";
-        const status = await ctx.gitops.status(root);
-        const context = commitGenerationContext(status, scope === "staged");
-        if (!context) throw new Error(scope === "staged"
-          ? "Indexe au moins un fichier avant de générer le message."
-          : "Aucune modification à résumer.");
+        if (msg.scope !== "staged") {
+          throw new Error("Indexe explicitement les fichiers avant de générer le message.");
+        }
+        const diff = await ctx.gitops.diffStaged(root, null);
+        if (!String(diff ?? "").trim()) {
+          throw new Error("Indexe au moins un fichier avant de générer le message.");
+        }
         const generate = ctx.providers?.claude?.commitMessage;
         if (typeof generate !== "function") throw new Error("Claude Code est indisponible pour générer le message.");
-        const message = await generate.call(ctx.providers.claude, context);
-        if (!String(message ?? "").trim()) throw new Error("L’IA n’a retourné aucun message de commit.");
-        ctx.send({ type: "commitMsg", projectRoot: root, message });
+        const details = await generate.call(ctx.providers.claude, diff, root);
+        if (!String(details?.title ?? "").trim()) throw new Error("L’IA n’a retourné aucun message de commit.");
+        ctx.send({ type: "commitMsg", projectRoot: root,
+          message: String(details.title).trim(), description: String(details.description ?? "").trim() });
       } catch (e) {
         ctx.send({ type: "commitMsg", projectRoot: root, message: "", error: String(e?.message ?? e) });
       }
@@ -1518,7 +1582,7 @@ export async function route(msg, ctx) {
         const metaPath = join(dir, `${base}.json`);
         writeFileSync(imagePath, Buffer.from(result.b64, "base64"));
         const meta = {
-          prompt,
+          prompt: withFileScopeInstruction(prompt),
           engine,
           model: result.model,
           size: result.size,
@@ -2084,7 +2148,7 @@ async function handleSend(msg, ctx) {
       }
       return;
     }
-    if (p.steer && await p.steer({ threadId, prompt, inputs: msg.inputs,
+    if (p.steer && await p.steer({ threadId, prompt: withFileScopeInstruction(prompt), inputs: msg.inputs,
         imagePath: msg.imagePath, attachments: msg.attachments })) {
       h.steer({ messageId: msg.clientMessageId, userEvent });
       h.emit(h.activeTurnId(), { kind: "tool", name: "__steered" });

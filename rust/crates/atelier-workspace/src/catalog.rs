@@ -23,24 +23,49 @@ const BUILTINS: &[&str] = &[
     "plugins",
 ];
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FileCatalog {
+    pub files: Vec<String>,
+    pub recent_files: Vec<String>,
+}
+
 pub fn list_files(project_root: &str) -> Vec<String> {
+    list_file_catalog(project_root).files
+}
+
+pub fn list_file_catalog(project_root: &str) -> FileCatalog {
     if project_root.is_empty() {
-        return Vec::new();
+        return FileCatalog {
+            files: Vec::new(),
+            recent_files: Vec::new(),
+        };
     }
     let root = Path::new(project_root);
     if !root.is_dir() {
-        return Vec::new();
+        return FileCatalog {
+            files: Vec::new(),
+            recent_files: Vec::new(),
+        };
     }
     // `git` can block indefinitely in a bundled macOS app while TCC asks for
     // access to the project directory. Keep stdout drained on a helper thread
     // so a large repository cannot deadlock the child before the timeout.
-    if let Some(files) = git_files_bounded(root) {
-        return files;
+    if let Some(all) = git_files_bounded(root) {
+        let recent_files = recent_project_files(root, &all, 12);
+        return FileCatalog {
+            files: all.into_iter().take(5000).collect(),
+            recent_files,
+        };
     }
     // The fallback can hit the same macOS TCC suspension as `git`, so keep
     // the directory read off the WebSocket worker and return an empty catalog
     // rather than making the whole sidecar unresponsive.
-    read_dir_bounded(root)
+    let all = read_dir_bounded(root);
+    let recent_files = recent_project_files(root, &all, 12);
+    FileCatalog {
+        files: all,
+        recent_files,
+    }
 }
 
 fn git_files_bounded(root: &Path) -> Option<Vec<String>> {
@@ -83,10 +108,68 @@ fn git_files_bounded(root: &Path) -> Option<Vec<String>> {
         String::from_utf8_lossy(&bytes)
             .lines()
             .filter(|line| !line.is_empty())
-            .take(5000)
             .map(str::to_string)
             .collect(),
     )
+}
+
+fn recent_project_files(root: &Path, files: &[String], limit: usize) -> Vec<String> {
+    const HIDDEN: &[&str] = &["figures_index.html", "figures_data.json"];
+    const GENERATED_PREFIXES: &[&str] = &[
+        "dist/",
+        "mobile/dist/",
+        "src-tauri/mobile-dist/",
+        "src-tauri/rust-server-dist/",
+        "src-tauri/sidecar-dist/",
+        "src-tauri/appsnap-dist/",
+        "src-tauri/gallery-dist/",
+        "gallery/assets/shadcn-ui/",
+    ];
+    const JUNK_SUFFIXES: &[&str] = &[
+        ".aux",
+        ".log",
+        ".synctex",
+        ".synctex.gz",
+        ".fls",
+        ".fdb_latexmk",
+        ".out",
+        ".toc",
+        ".bbl",
+        ".blg",
+        ".bak",
+    ];
+    let mut ranked: Vec<(u128, String)> = files
+        .iter()
+        .filter(|rel| {
+            let lower = rel.to_ascii_lowercase();
+            !rel.is_empty()
+                && !HIDDEN.contains(&rel.as_str())
+                && !rel.split('/').any(|part| part.starts_with('.'))
+                && !rel.split('/').any(|part| part == "target")
+                && !GENERATED_PREFIXES
+                    .iter()
+                    .any(|prefix| rel.starts_with(prefix))
+                && !(rel.starts_with("gallery/assets/cm6/") && rel.ends_with(".bundle.js"))
+                && !JUNK_SUFFIXES.iter().any(|suffix| lower.ends_with(suffix))
+        })
+        .filter_map(|rel| {
+            let metadata = std::fs::metadata(root.join(rel)).ok()?;
+            if !metadata.is_file() {
+                return None;
+            }
+            let modified = metadata
+                .modified()
+                .ok()?
+                .duration_since(std::time::UNIX_EPOCH)
+                .ok()?
+                .as_nanos();
+            Some((modified, rel.clone()))
+        })
+        .collect();
+    ranked.sort_by(|(mtime_a, rel_a), (mtime_b, rel_b)| {
+        mtime_b.cmp(mtime_a).then_with(|| rel_a.cmp(rel_b))
+    });
+    ranked.into_iter().take(limit).map(|(_, rel)| rel).collect()
 }
 
 fn read_dir_bounded(root: &Path) -> Vec<String> {
@@ -177,6 +260,8 @@ pub fn list_commands(project_root: Option<&str>) -> Vec<CommandEntry> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::fs::{File, FileTimes};
+    use std::time::{Duration, UNIX_EPOCH};
     use tempfile::tempdir;
 
     #[test]
@@ -185,6 +270,39 @@ mod tests {
         std::fs::write(dir.path().join("a.py"), b"x").unwrap();
         let files = list_files(dir.path().to_str().unwrap());
         assert!(files.iter().any(|f| f == "a.py"));
+    }
+
+    #[test]
+    fn recent_files_use_mtime_and_exclude_generated_noise() {
+        let dir = tempdir().unwrap();
+        for (name, seconds) in [
+            ("ancien.md", 10),
+            ("frais.ts", 20),
+            ("compile.log", 30),
+            ("figures_data.json", 40),
+        ] {
+            let path = dir.path().join(name);
+            std::fs::write(&path, name.as_bytes()).unwrap();
+            File::options()
+                .write(true)
+                .open(path)
+                .unwrap()
+                .set_times(FileTimes::new().set_modified(UNIX_EPOCH + Duration::from_secs(seconds)))
+                .unwrap();
+        }
+        std::fs::create_dir_all(dir.path().join("dist")).unwrap();
+        let generated = dir.path().join("dist/index.html");
+        std::fs::write(&generated, b"generated").unwrap();
+        File::options()
+            .write(true)
+            .open(generated)
+            .unwrap()
+            .set_times(FileTimes::new().set_modified(UNIX_EPOCH + Duration::from_secs(50)))
+            .unwrap();
+
+        let catalog = list_file_catalog(dir.path().to_str().unwrap());
+        assert_eq!(catalog.recent_files, vec!["frais.ts", "ancien.md"]);
+        assert!(catalog.files.iter().any(|file| file == "frais.ts"));
     }
 
     #[test]

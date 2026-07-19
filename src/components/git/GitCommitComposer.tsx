@@ -29,7 +29,8 @@ export function GitCommitComposer({ controller }: { controller: GitSurfaceContro
     syncNote,
     commitError,
   } = controller;
-  const disabled = !commitMsg.trim() || files.length === 0 || commitBusy || generating;
+  const disabled = !commitMsg.trim() || stagedCount === 0 || commitBusy || generating;
+  const hasCommitDetails = Boolean(commitMsg.trim() || commitDescription.trim());
 
   return (
     <form className="git-commit-zone" onSubmit={(event) => {
@@ -41,7 +42,7 @@ export function GitCommitComposer({ controller }: { controller: GitSurfaceContro
         {stagedCount > 0
           ? t("git.ready-n", { n: stagedCount, plural: stagedCount > 1 ? "s" : "" })
           : files.length > 0
-            ? t("git.ready-auto", { n: files.length, plural: files.length > 1 ? "s" : "" })
+            ? t("git.ready-stage-required")
             : t("git.ready-n", { n: 0, plural: "" })}
       </div>
 
@@ -56,6 +57,7 @@ export function GitCommitComposer({ controller }: { controller: GitSurfaceContro
               value={commitMsg}
               onChange={(event) => controller.editCommitMessage(event.target.value)}
               placeholder={t("git.commit-placeholder")}
+              readOnly={generating || commitBusy}
             />
             <InputGroupAddon align="inline-end">
               <InputGroupButton
@@ -67,7 +69,11 @@ export function GitCommitComposer({ controller }: { controller: GitSurfaceContro
                 {generating
                   ? <Spinner data-icon="inline-start" aria-hidden role={undefined} aria-label={undefined} />
                   : <SparklesIcon data-icon="inline-start" />}
-                {generating ? t("git.generating-ai") : t("git.generate-ai")}
+                {generating
+                  ? t("git.generating-ai")
+                  : hasCommitDetails
+                    ? t("git.regenerate-ai")
+                    : t("git.generate-ai")}
               </InputGroupButton>
             </InputGroupAddon>
           </InputGroup>
@@ -89,6 +95,7 @@ export function GitCommitComposer({ controller }: { controller: GitSurfaceContro
                 value={commitDescription}
                 onChange={(event) => controller.setCommitDescription(event.target.value)}
                 placeholder={t("git.description-placeholder")}
+                readOnly={generating || commitBusy}
               />
             </Field>
           </CollapsibleContent>
@@ -99,7 +106,7 @@ export function GitCommitComposer({ controller }: { controller: GitSurfaceContro
 
       <div className="git-commit-actions">
         <span className="git-commit-scope">
-          {stagedCount > 0 ? t("git.commit-scope-staged") : t("git.commit-scope-all")}
+          {stagedCount > 0 ? t("git.commit-scope-staged") : t("git.commit-scope-required")}
         </span>
         <span className="git-commit-buttons">
           <Button variant="primary" type="submit" loading={commitBusy && !commitAndPush} disabled={disabled}>
