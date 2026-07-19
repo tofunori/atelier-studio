@@ -11,6 +11,7 @@ import {
   Command,
 } from "./lib/ws";
 import { materializeHarnessHistory, mergeHarnessHistory, reduceHarnessEvent } from "./lib/harnessEvents";
+import { rebuildReplayQuotePastes } from "./lib/replayQuotes";
 import { buildForkThreadPayload } from "./lib/forkThread";
 import { useSidecarConnection, type SidecarStatus } from "./hooks/useSidecarConnection";
 import { useAtelierServer } from "./hooks/useAtelierServer";
@@ -1438,7 +1439,10 @@ export default function App() {
         // jamais écraser la session vivante (history legacy sans meta : no-op)
         setEvents((prev) => {
           const cur = prev[msg.threadId] ?? [];
-          const next = mergeHarnessHistory(cur, (msg.events ?? []) as AgentEvent[]);
+          // citations rejouées depuis une session native : re-découpées en
+          // pastilles (même bulle qu'en direct) avant la fusion
+          const replayed = rebuildReplayQuotePastes((msg.events ?? []) as AgentEvent[]);
+          const next = mergeHarnessHistory(cur, replayed);
           return next === cur ? prev : { ...prev, [msg.threadId]: next };
         });
         // replay de l'usage (plan 025) : l'anneau se vidait au reload — le
