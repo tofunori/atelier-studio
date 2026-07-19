@@ -289,17 +289,18 @@
 .cm-lint-line{border-bottom:1px dotted rgba(224,108,117,.7)}
 
   /* ===== commentaires ancrés (mode Review sobre) ===== */
-  .texc-hl{background:rgba(224,183,74,.14);border-bottom:1px dotted rgba(224,183,74,.6);cursor:pointer}
-  .texc-c-amber{background:rgba(224,183,74,.14);border-bottom-color:rgba(224,183,74,.6)}
-  .texc-c-red{background:rgba(224,114,106,.14);border-bottom-color:rgba(224,114,106,.6)}
-  .texc-c-blue{background:rgba(91,157,255,.14);border-bottom-color:rgba(91,157,255,.6)}
-  .texc-c-green{background:rgba(126,192,120,.14);border-bottom-color:rgba(126,192,120,.6)}
-  .texc-c-purple{background:rgba(170,140,224,.14);border-bottom-color:rgba(170,140,224,.6)}
+  /* option B (trait plein) : le repérage vient du trait, le fond reste discret */
+  .texc-hl{background:rgba(224,183,74,.20);border-bottom:1.5px solid rgba(224,183,74,.9);cursor:pointer}
+  .texc-c-amber{background:rgba(224,183,74,.20);border-bottom-color:rgba(224,183,74,.9)}
+  .texc-c-red{background:rgba(240,125,115,.20);border-bottom-color:rgba(240,125,115,.9)}
+  .texc-c-blue{background:rgba(91,157,255,.20);border-bottom-color:rgba(91,157,255,.9)}
+  .texc-c-green{background:rgba(126,192,120,.20);border-bottom-color:rgba(126,192,120,.9)}
+  .texc-c-purple{background:rgba(170,140,224,.20);border-bottom-color:rgba(170,140,224,.9)}
   #texcPop .tc-colors{display:flex;gap:6px;margin-top:8px}
   #texcPop .tc-colors button{width:14px;height:14px;border-radius:999px;border:1px solid transparent;cursor:pointer;padding:0}
   #texcPop .tc-colors button.on{border-color:var(--txt)}
   #texcPop .tc-colors .sw-amber{background:rgba(224,183,74,.85)}
-  #texcPop .tc-colors .sw-red{background:rgba(224,114,106,.85)}
+  #texcPop .tc-colors .sw-red{background:rgba(240,125,115,.85)}
   #texcPop .tc-colors .sw-blue{background:rgba(91,157,255,.85)}
   #texcPop .tc-colors .sw-green{background:rgba(126,192,120,.85)}
   #texcPop .tc-colors .sw-purple{background:rgba(170,140,224,.85)}
@@ -1552,7 +1553,7 @@ document.addEventListener("mousedown", (e) => {
 });
 // ---- panneau commentaires : liste, envoyer tout, tout supprimer ----
 const texcPanel = document.getElementById("texcPanel");
-const TEXC_SW = {amber:"rgba(224,183,74,.85)",red:"rgba(224,114,106,.85)",blue:"rgba(91,157,255,.85)",
+const TEXC_SW = {amber:"rgba(224,183,74,.85)",red:"rgba(240,125,115,.85)",blue:"rgba(91,157,255,.85)",
   green:"rgba(126,192,120,.85)",purple:"rgba(170,140,224,.85)"};
 const texcEsc = s => String(s).replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
 function texcSorted(){ return texcAll.slice().sort((a,b) => (a.from.line - b.from.line) || (a.from.ch - b.from.ch)); }
