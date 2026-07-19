@@ -406,6 +406,33 @@ pub(crate) fn iso8601_to_epoch_ms(s: &str) -> Option<u64> {
 /// Replay capturé de `session/load` → events d'historique Atelier
 /// (user/thinking/text coalescés, tool_update via le mapper kimi). Ces events
 /// servent à l'AFFICHAGE d'une session importée — jamais ré-émis dans un tour.
+/// Les sessions natives persistent le prompt provider COMPLET : blocs
+/// d'instructions injectés (`<atelier-*>`) et `<system-reminder>` des hooks.
+/// Au replay, ne montrer que ce que l'utilisateur a réellement tapé — un
+/// message réduit à un rappel système disparaît entièrement.
+pub(crate) fn sanitize_replay_user(text: &str) -> String {
+    let mut out = text.to_string();
+    for (open, close) in [
+        (
+            "<atelier-gallery-integration>",
+            "</atelier-gallery-integration>",
+        ),
+        ("<atelier-zotero-passages>", "</atelier-zotero-passages>"),
+        ("<atelier-kb>", "</atelier-kb>"),
+        ("<system-reminder>", "</system-reminder>"),
+    ] {
+        while let Some(start) = out.find(open) {
+            let Some(rel_end) = out[start + open.len()..].find(close) else {
+                break;
+            };
+            let end = start + open.len() + rel_end + close.len();
+            let remove_from = out[..start].trim_end_matches(['\r', '\n']).len();
+            out.replace_range(remove_from..end, "");
+        }
+    }
+    out.trim().to_string()
+}
+
 pub(crate) fn replay_to_history(updates: &[Value]) -> Vec<Value> {
     use crate::acp_map::text_of;
     let mut events: Vec<Value> = Vec::new();
@@ -414,8 +441,17 @@ pub(crate) fn replay_to_history(updates: &[Value]) -> Vec<Value> {
     let mut think = String::new();
     let mut text = String::new();
     fn flush(events: &mut Vec<Value>, buf: &mut String, kind: &str) {
-        if !buf.is_empty() {
-            events.push(json!({"kind": kind, "text": std::mem::take(buf)}));
+        if buf.is_empty() {
+            return;
+        }
+        let taken = std::mem::take(buf);
+        let cleaned = if kind == "user" {
+            sanitize_replay_user(&taken)
+        } else {
+            taken
+        };
+        if !cleaned.is_empty() {
+            events.push(json!({"kind": kind, "text": cleaned}));
         }
     }
     for u in updates {
@@ -1244,6 +1280,35 @@ impl Provider for KimiProvider {
 mod tests {
     use super::*;
     use crate::traits::SendMode;
+
+    #[test]
+    fn replay_sanitizes_injected_blocks_and_drops_pure_reminders() {
+        let updates = vec![
+            serde_json::json!({"sessionUpdate":"user_message_chunk",
+                "content":{"type":"text","text":"Ca veut dire quoi<atelier-zotero-passages>\noutil pdf\n</atelier-zotero-passages>"}}),
+            serde_json::json!({"sessionUpdate":"agent_message_chunk",
+                "content":{"type":"text","text":"réponse"}}),
+            serde_json::json!({"sessionUpdate":"user_message_chunk",
+                "content":{"type":"text","text":"<system-reminder>rappel outillage</system-reminder>"}}),
+            serde_json::json!({"sessionUpdate":"agent_message_chunk",
+                "content":{"type":"text","text":"suite"}}),
+        ];
+        let events = replay_to_history(&updates);
+        let users: Vec<&str> = events
+            .iter()
+            .filter(|e| e.get("kind").and_then(Value::as_str) == Some("user"))
+            .filter_map(|e| e.get("text").and_then(Value::as_str))
+            .collect();
+        // le bloc injecté disparaît ; le message réduit à un rappel système aussi
+        assert_eq!(users, vec!["Ca veut dire quoi"]);
+        assert_eq!(
+            events
+                .iter()
+                .filter(|e| e.get("kind").and_then(Value::as_str) == Some("text"))
+                .count(),
+            2
+        );
+    }
 
     fn node_bin() -> Option<PathBuf> {
         if let Ok(p) = std::env::var("ATELIER_TEST_NODE") {

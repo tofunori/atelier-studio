@@ -68,6 +68,7 @@ pub(crate) fn strip_gallery_tool_instruction(text: &str) -> String {
         ),
         ("<atelier-zotero-passages>", "</atelier-zotero-passages>"),
         ("<atelier-kb>", "</atelier-kb>"),
+        ("<system-reminder>", "</system-reminder>"),
     ] {
         while let Some(start) = out.find(open) {
             let Some(relative_end) = out[start + open.len()..].find(close) else {

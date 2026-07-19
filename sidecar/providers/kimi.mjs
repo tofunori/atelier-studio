@@ -610,6 +610,28 @@ export async function listSessions(projectRoot) {
 }
 
 /** Replay capturé de session/load → events d'historique Atelier (coalescés). */
+// Les sessions natives persistent le prompt provider COMPLET : blocs
+// d'instructions injectés (<atelier-*>) et <system-reminder> des hooks.
+// Au replay, ne montrer que ce que l'utilisateur a réellement tapé — un
+// message réduit à un rappel système disparaît entièrement.
+export function sanitizeReplayUser(text) {
+  let out = String(text ?? "");
+  for (const [open, close] of [
+    ["<atelier-gallery-integration>", "</atelier-gallery-integration>"],
+    ["<atelier-zotero-passages>", "</atelier-zotero-passages>"],
+    ["<atelier-kb>", "</atelier-kb>"],
+    ["<system-reminder>", "</system-reminder>"],
+  ]) {
+    let i;
+    while ((i = out.indexOf(open)) !== -1) {
+      const j = out.indexOf(close, i + open.length);
+      if (j === -1) break;
+      out = out.slice(0, i).replace(/[\r\n]+$/, "") + out.slice(j + close.length);
+    }
+  }
+  return out.trim();
+}
+
 export function replayToHistory(updates) {
   const events = [];
   const ctx = { toolMeta: new Map(), seenEdits: new Set(), lastUsageUpdate: null };
@@ -618,7 +640,8 @@ export function replayToHistory(updates) {
   let text = "";
   const flush = (kind) => {
     if (kind === "user" && user) {
-      events.push({ kind: "user", text: user });
+      const clean = sanitizeReplayUser(user);
+      if (clean) events.push({ kind: "user", text: clean });
       user = "";
     }
     if (kind === "thinking" && think) {
