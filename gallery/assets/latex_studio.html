@@ -122,6 +122,11 @@
            font-size:12px;color:var(--muted);box-shadow:0 8px 30px rgba(0,0,0,.5);line-height:1.5}
   #helpPop b{color:var(--txt);font-weight:600}
   @media (max-width: 640px){ #state{display:none} }
+  /* barre trop étroite (nav diff + Rétablir insérés) : compacter à gauche
+     plutôt que rogner les icônes de droite (overflow:hidden du header) */
+  header.tight #fname{display:none}
+  header.tight button{padding:0 7px}
+  header.tight2 #outlineBtn,header.tight2 #rewrapAllBtn{display:none}
   @media (max-width: 520px){ #popPdf .lbl, #build{padding:0 7px} header{gap:3px;padding:4px 6px} }
   .pdfmode .editonly{display:none!important}
   body:not(.pdfmode) .pdfonly{display:none!important}
@@ -2485,6 +2490,23 @@ if(window.self !== window.top){
   };
   const findBtn = document.getElementById("findBtn");
   if (findBtn) findBtn.onclick = () => { if (window.cm) cm.execCommand("findPersistent"); };
+  // ---- barre d'outils : compacter quand elle déborde (nav diff insérée)
+  // au lieu de laisser overflow:hidden rogner les icônes de droite ----
+  (function(){
+    const hdr = document.querySelector("header");
+    if (!hdr || typeof ResizeObserver === "undefined") return;
+    let fitT = null;
+    const fit = () => {
+      hdr.classList.remove("tight", "tight2");
+      if (hdr.scrollWidth > hdr.clientWidth + 1) hdr.classList.add("tight");
+      if (hdr.scrollWidth > hdr.clientWidth + 1) hdr.classList.add("tight2");
+    };
+    const kick = () => { clearTimeout(fitT); fitT = setTimeout(fit, 50); };
+    new ResizeObserver(kick).observe(hdr);
+    const dg = document.getElementById("diffGrp");
+    if (dg) new ResizeObserver(kick).observe(dg);
+    fit();
+  })();
   const rewrapAllBtn = document.getElementById("rewrapAllBtn");
   if (rewrapAllBtn) rewrapAllBtn.onclick = () => {
     if (window.__rewrapAll) window.__rewrapAll();
