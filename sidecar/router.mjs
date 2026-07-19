@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, isAbsolute, join } from "node:path";
 import { homedir } from "node:os";
@@ -807,25 +808,38 @@ async function startProviderTurn(ctx, h, msg, { reservedTurnId = null } = {}) {
   const baseProviderPrompt = typeof prev?.forkContext === "string" && prev.forkContext
     ? prev.forkContext + prompt
     : prompt;
-  const galleryPrompt = withGalleryToolInstruction(baseProviderPrompt, {
+  // Cadence d'injection (2026-07-19) : ces blocs étaient REcollés à chaque
+  // message alors que l'historique natif du provider les conserve tous — une
+  // conversation Kimi à 7 sources a dépassé les 2 Mo de la limite API. Les
+  // instructions statiques (galerie, zotero) ne partent qu'au PREMIER tour de
+  // la session provider ; le bloc KB repart seulement si son hash change
+  // (sélection/contenu). blocksSeededFor suit la session réellement utilisée :
+  // une session neuve (repli provider) re-sème tout au tour suivant.
+  const seeded = !!prev?.sessionId && prev?.blocksSeededFor === prev.sessionId;
+  const galleryPrompt = seeded ? baseProviderPrompt : withGalleryToolInstruction(baseProviderPrompt, {
     projectRoot,
     toolPath: join(dirname(fileURLToPath(import.meta.url)), "atelier-gallery-tool"),
   });
-  const zoteroPrompt = withZoteroPassageInstruction(galleryPrompt, {
+  const zoteroPrompt = seeded ? galleryPrompt : withZoteroPassageInstruction(galleryPrompt, {
     toolPath: join(dirname(fileURLToPath(import.meta.url)), "atelier-zotero-passages"),
   });
   // Bloc base de connaissances (plan 049 T4) : sources attachées au thread.
   // La KB ne bloque JAMAIS un envoi — toute erreur dégrade en prompt inchangé.
   let providerPrompt = zoteroPrompt;
+  let turnKbHash = null;
   try {
     const kbIds = Array.isArray(prev?.kbSourceIds) ? prev.kbSourceIds : [];
     if (kbIds.length) {
       const kbStore = new KnowledgeStore(defaultKnowledgeDir());
-      providerPrompt = withKbBlock(zoteroPrompt, {
+      const withBlock = withKbBlock(zoteroPrompt, {
         toolPath: join(dirname(fileURLToPath(import.meta.url)), "atelier-kb"),
         entries: kbBlockEntries(kbStore, kbIds, prev?.kbFullContent),
         gbrain: kbIds.includes("gbrain"),
       });
+      if (withBlock !== zoteroPrompt) {
+        turnKbHash = createHash("md5").update(withBlock.slice(zoteroPrompt.length)).digest("hex");
+        if (!seeded || turnKbHash !== (prev?.kbBlockHash ?? null)) providerPrompt = withBlock;
+      }
     }
   } catch {}
 
@@ -876,7 +890,8 @@ async function startProviderTurn(ctx, h, msg, { reservedTurnId = null } = {}) {
         resumeAt: prev?.resumeAt ?? null,
         fork: prev?.forkPending ?? false,
         onSession: (sessionId) =>
-          ctx.store.upsert({ id: threadId, sessionId, resumeAt: null, forkPending: false }),
+          ctx.store.upsert({ id: threadId, sessionId, resumeAt: null, forkPending: false,
+            blocksSeededFor: sessionId, kbBlockHash: turnKbHash }),
         onEvent: dispatcher,
       });
     } catch (e) {
@@ -905,7 +920,8 @@ async function startProviderTurn(ctx, h, msg, { reservedTurnId = null } = {}) {
     onEvent: dispatcher,
   })
     .then(({ sessionId }) => {
-      ctx.store.upsert({ id: threadId, sessionId, forkContext: null, forkPending: false });
+      ctx.store.upsert({ id: threadId, sessionId, forkContext: null, forkPending: false,
+        blocksSeededFor: sessionId, kbBlockHash: turnKbHash });
       emit({ type: "threads", threads: ctx.store.list() });
     })
     .catch((e) => dispatcher({ kind: "error", message: String(e) }));

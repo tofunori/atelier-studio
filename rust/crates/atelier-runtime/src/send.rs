@@ -644,17 +644,54 @@ pub async fn handle_send(state: &AppState, msg: &Value) -> Vec<String> {
         .filter(|context| !context.is_empty())
         .map(|context| format!("{context}{prompt}"))
         .unwrap_or_else(|| prompt.clone());
-    let provider_prompt =
-        with_gallery_tool_instruction(provider_prompt, &project_root, state.server_dir());
-    let provider_prompt = with_zotero_passage_instruction(provider_prompt, state.server_dir());
+    // Cadence d'injection (2026-07-19) : ces blocs étaient REcollés à chaque
+    // message alors que l'historique natif du provider les conserve tous — une
+    // conversation Kimi à 7 sources a dépassé les 2 Mo de la limite API. Les
+    // instructions statiques (galerie, zotero) ne partent qu'au PREMIER tour de
+    // la session provider ; le bloc KB repart seulement si son hash change.
+    // blocksSeededFor suit la session réellement utilisée : une session neuve
+    // (repli provider) re-sème tout au tour suivant.
+    let prev_session = previous
+        .as_ref()
+        .and_then(|t| t.session_id.clone())
+        .filter(|s| !s.is_empty());
+    let seeded = prev_session.is_some()
+        && previous
+            .as_ref()
+            .and_then(|t| t.extra.get("blocksSeededFor"))
+            .and_then(Value::as_str)
+            == prev_session.as_deref();
+    let provider_prompt = if seeded {
+        provider_prompt
+    } else {
+        let p = with_gallery_tool_instruction(provider_prompt, &project_root, state.server_dir());
+        with_zotero_passage_instruction(p, state.server_dir())
+    };
     // Bloc base de connaissances (plan 049 T4) : sources attachées au thread —
     // ne bloque jamais un envoi (dégrade en prompt inchangé / fiches).
-    let provider_prompt = crate::kb_block::with_kb_block_for_thread(
+    let pre_kb = provider_prompt.clone();
+    let kb_enriched = crate::kb_block::with_kb_block_for_thread(
         provider_prompt,
         state.app_dir(),
         state.server_dir(),
         previous.as_ref().map(|thread| &thread.extra),
     );
+    let mut turn_kb_hash: Option<String> = None;
+    let provider_prompt = if kb_enriched.len() > pre_kb.len() {
+        use std::hash::{Hash, Hasher};
+        let mut hasher = std::collections::hash_map::DefaultHasher::new();
+        kb_enriched[pre_kb.len()..].hash(&mut hasher);
+        let hash = format!("{:016x}", hasher.finish());
+        let prev_hash = previous
+            .as_ref()
+            .and_then(|t| t.extra.get("kbBlockHash"))
+            .and_then(Value::as_str);
+        let inject = !seeded || prev_hash != Some(hash.as_str());
+        turn_kb_hash = Some(hash);
+        if inject { kb_enriched } else { pre_kb }
+    } else {
+        kb_enriched
+    };
 
     // Provider change while running: refuse
     if state.harness().is_running(&thread_id).await {
@@ -968,7 +1005,8 @@ pub async fn handle_send(state: &AppState, msg: &Value) -> Vec<String> {
         let succeeded = result.ok;
         if let Some(sid) = result.session_id {
             let mut store = state2.threads().lock().await;
-            let mut patch = json!({"id": tid, "sessionId": sid, "status": "idle"});
+            let mut patch = json!({"id": tid, "sessionId": sid.clone(), "status": "idle",
+                "blocksSeededFor": sid, "kbBlockHash": turn_kb_hash});
             if succeeded {
                 patch["forkContext"] = Value::Null;
                 patch["forkPending"] = Value::Bool(false);

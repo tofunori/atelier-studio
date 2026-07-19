@@ -392,6 +392,33 @@ describe("Bug 4/5 — fork par fromThreadId+eventId, revert par eventId (journal
     expect(mat.some((e) => e.kind === "user")).toBe(true);
   });
 
+  it("blocs galerie/zotero : injectés au premier tour de session seulement", async () => {
+    const prompts = [];
+    const { ctx, emitted } = setup({
+      providerImpl: {
+        send: (opts) => {
+          prompts.push(opts.prompt);
+          opts.onSession?.("123e4567-e89b-42d3-a456-426614174000");
+          opts.onEvent({ kind: "text", text: "ok" });
+          opts.onEvent({ kind: "done", ok: true, result: "" });
+        },
+      },
+    });
+    await route(send({ clientMessageId: "m1", prompt: "premier" }), ctx);
+    await vi.waitFor(() => {
+      if (evs(emitted).filter((e) => e.kind === "done").length < 1) throw new Error("tour 1 pas fini");
+    });
+    await route(send({ clientMessageId: "m2", prompt: "second" }), ctx);
+    await vi.waitFor(() => {
+      if (evs(emitted).filter((e) => e.kind === "done").length < 2) throw new Error("tour 2 pas fini");
+    });
+    expect(prompts[0]).toContain("<atelier-gallery-integration>");
+    expect(prompts[0]).toContain("<atelier-zotero-passages>");
+    // session déjà semée : plus de re-injection des instructions statiques
+    expect(prompts[1]).not.toContain("<atelier-gallery-integration>");
+    expect(prompts[1]).not.toContain("<atelier-zotero-passages>");
+  });
+
   it("revert files restaure le checkpoint sans tronquer le transcript", async () => {
     const { ctx, harnessJournal, durable } = await seededThread();
     const done = durable.find((e) => e.kind === "done");
