@@ -407,8 +407,41 @@ describe("Bug 4/5 — fork par fromThreadId+eventId, revert par eventId (journal
     }, ctx);
     await flush();
 
-    expect(ctx.gitops.restore).toHaveBeenCalledWith("/p", done.checkpoint.snapshotSha);
+    // checkpoint sans filesChanged (changedSince → []) : restauration complète
+    expect(ctx.gitops.restore).toHaveBeenCalledWith("/p", done.checkpoint.snapshotSha, null);
     expect(await harnessJournal.materialize("t")).toEqual(before);
+  });
+
+  it("revert files passe le périmètre du checkpoint (filesChanged) à restore", async () => {
+    const { ctx, emitted, harnessJournal } = setup({
+      providerImpl: {
+        send: (opts) => {
+          opts.onSession?.("123e4567-e89b-42d3-a456-426614174000");
+          opts.onEvent({ kind: "text", text: "réponse 1" });
+          opts.onEvent({ kind: "done", ok: true, result: "réponse 1" });
+        },
+      },
+    });
+    // le tour a touché deux fichiers : le checkpoint durable porte le périmètre
+    ctx.gitops.changedSince = async () => ["src/a.ts", "README.md"];
+    await route(send({ clientMessageId: "m1", prompt: "question 1" }), ctx);
+    await vi.waitFor(() => {
+      if (!evs(emitted).some((e) => e.kind === "done")) throw new Error("turn pas terminé");
+    });
+    await harnessJournal.flush("t");
+    const done = evs(emitted).filter((e) => e.meta?.eventId).find((e) => e.kind === "done");
+
+    await route({
+      type: "revert",
+      scope: "files",
+      threadId: "t",
+      eventId: done.meta.eventId,
+      turnId: done.meta.turnId,
+      snapshotSha: done.checkpoint.snapshotSha,
+    }, ctx);
+    await flush();
+
+    expect(ctx.gitops.restore).toHaveBeenCalledWith("/p", done.checkpoint.snapshotSha, ["src/a.ts", "README.md"]);
   });
 });
 

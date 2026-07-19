@@ -390,20 +390,34 @@ export async function snapshot(root) {
   }
 }
 
-export async function restore(root, sha) {
+export async function restore(root, sha, paths = null) {
   const realRoot = confinedRoot(root);
   await ensureRepo(realRoot);
   if (!/^[0-9a-fA-F]{4,64}$/.test(String(sha ?? ""))) throw new Error("sha invalide");
+  const scoped = Array.isArray(paths) && paths.length > 0;
   const dir = await mkdtemp(join(tmpdir(), "atelier-git-index-"));
   const indexFile = join(dir, "index");
   const env = tempGitEnv(indexFile);
   try {
     await git(realRoot, ["cat-file", "-e", `${sha}^{commit}`], { env });
-    // Chemins présents maintenant mais absents du snapshot : les écraser ou les
-    // orpheliner serait destructif → refus atomique AVANT toute écriture.
-    // (suivis/stagés via l'index réel + untracked non ignorés, dédupliqués)
     const { stdout: snapOut } = await git(realRoot, ["ls-tree", "-r", "--name-only", "-z", `${sha}^{tree}`], { env });
     const snapPaths = new Set(snapOut.split("\0").filter(Boolean));
+    if (scoped) {
+      // Restauration CIBLÉE (annulation d'un tour : fichiers du checkpoint) —
+      // les créations d'autres sessions ailleurs dans le dépôt ne bloquent
+      // plus l'annulation. Fichiers créés PAR le tour (absents du snapshot) :
+      // laissés en place, jamais supprimés (même politique que le mode complet).
+      for (const p of paths) assertRelativePath(realRoot, p);
+      const targets = [...new Set(paths)].filter((p) => snapPaths.has(p));
+      await git(realRoot, ["read-tree", `${sha}^{tree}`], { env });
+      for (let i = 0; i < targets.length; i += 50)
+        await git(realRoot, ["checkout-index", "-f", "--", ...targets.slice(i, i + 50)], { env });
+      return;
+    }
+    // Mode complet (aucun périmètre connu) : chemins présents maintenant mais
+    // absents du snapshot → les écraser ou les orpheliner serait destructif →
+    // refus atomique AVANT toute écriture. (suivis/stagés via l'index réel +
+    // untracked non ignorés, dédupliqués)
     const { stdout: nowOut } = await git(realRoot, ["ls-files", "-z", "--cached", "--others", "--exclude-standard"]);
     const nowPaths = [...new Set(nowOut.split("\0").filter(Boolean))];
     for (const p of nowPaths) assertRelativePath(realRoot, p);

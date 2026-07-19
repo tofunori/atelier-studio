@@ -111,6 +111,37 @@ describe("gitops", () => {
     expect(readFileSync(join(root, "tracked file.txt"), "utf8")).toBe("after\n");
   });
 
+  it("restauration ciblée : les créations d'autres sessions ne bloquent plus", async () => {
+    const root = await makeRepo();
+    writeFileSync(join(root, "tracked file.txt"), "snapshot\n");
+    writeFileSync(join(root, "other.txt"), "other snapshot\n");
+    const sha = await gitops.snapshot(root);
+    // le tour modifie sa cible ; une AUTRE session crée un fichier et en modifie un autre
+    writeFileSync(join(root, "tracked file.txt"), "turn change\n");
+    writeFileSync(join(root, "appeared.txt"), "keep me\n");
+    writeFileSync(join(root, "other.txt"), "other change\n");
+
+    await gitops.restore(root, sha, ["tracked file.txt"]);
+
+    // la cible du tour est revenue au snapshot ; le reste est intact
+    expect(readFileSync(join(root, "tracked file.txt"), "utf8")).toBe("snapshot\n");
+    expect(readFileSync(join(root, "appeared.txt"), "utf8")).toBe("keep me\n");
+    expect(readFileSync(join(root, "other.txt"), "utf8")).toBe("other change\n");
+  });
+
+  it("restauration ciblée : un chemin créé par le tour (hors snapshot) est laissé en place", async () => {
+    const root = await makeRepo();
+    writeFileSync(join(root, "tracked file.txt"), "snapshot\n");
+    const sha = await gitops.snapshot(root);
+    writeFileSync(join(root, "created-by-turn.txt"), "created\n");
+    writeFileSync(join(root, "tracked file.txt"), "turn change\n");
+
+    await gitops.restore(root, sha, ["tracked file.txt", "created-by-turn.txt"]);
+
+    expect(readFileSync(join(root, "tracked file.txt"), "utf8")).toBe("snapshot\n");
+    expect(readFileSync(join(root, "created-by-turn.txt"), "utf8")).toBe("created\n");
+  });
+
   it("snapshot et restore fonctionnent avec HEAD unborn", async () => {
     const root = mkdtempSync(join(tmpdir(), "atelier-gitops-unborn-"));
     await git(root, ["init"]);

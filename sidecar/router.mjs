@@ -1302,7 +1302,12 @@ export async function route(msg, ctx) {
           break;
         }
         try {
-          await ctx.gitops.restore(t.projectRoot, checkpoint.sha);
+          // périmètre du checkpoint : ne restaurer QUE les fichiers du tour —
+          // les fichiers créés ailleurs par d'autres sessions ne bloquent plus
+          const scopePaths = Array.isArray(checkpoint.event?.checkpoint?.filesChanged) && checkpoint.event.checkpoint.filesChanged.length
+            ? checkpoint.event.checkpoint.filesChanged
+            : null;
+          await ctx.gitops.restore(t.projectRoot, checkpoint.sha, scopePaths);
         } catch (e) {
           ctx.send({ type: "error", threadId: msg.threadId, message: String(e?.message ?? e) });
           break;

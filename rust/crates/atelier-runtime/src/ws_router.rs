@@ -786,7 +786,7 @@ pub async fn route_ws(state: &AppState, text: &str) -> Vec<String> {
             if t.project_root.is_empty() || sha.is_empty() {
                 return vec![err_thread(thread_id, "snapshot introuvable")];
             }
-            match git_restore(&t.project_root, sha) {
+            match git_restore(&t.project_root, sha, None) {
                 Ok(()) => {
                     let mut out = vec![json_msg(json!({
                         "type": "gitUndoLastTurnDone",
@@ -2181,7 +2181,8 @@ async fn handle_revert(state: &AppState, msg: &Value) -> Vec<String> {
     };
     if let Some(sha) = msg.get("snapshotSha").and_then(Value::as_str) {
         let turn_id = msg.get("turnId").and_then(Value::as_str);
-        let valid = state.journal().materialize(thread_id).iter().any(|event| {
+        let events = state.journal().materialize(thread_id);
+        let checkpoint_event = events.iter().find(|event| {
             event.get("kind").and_then(Value::as_str) == Some("done")
                 && event
                     .pointer("/checkpoint/snapshotSha")
@@ -2191,12 +2192,31 @@ async fn handle_revert(state: &AppState, msg: &Value) -> Vec<String> {
                     event.pointer("/meta/turnId").and_then(Value::as_str) == Some(turn)
                 })
         });
-        if !valid || thread.project_root.is_empty() {
+        let Some(checkpoint_event) = checkpoint_event else {
+            return vec![err_thread(thread_id, "checkpoint introuvable")];
+        };
+        if thread.project_root.is_empty() {
             return vec![err_thread(thread_id, "checkpoint introuvable")];
         }
+        // périmètre du checkpoint : ne restaurer QUE les fichiers du tour —
+        // les fichiers créés ailleurs par d'autres sessions ne bloquent plus
+        let scope_paths: Option<Vec<String>> = checkpoint_event
+            .pointer("/checkpoint/filesChanged")
+            .and_then(Value::as_array)
+            .map(|list| {
+                list.iter()
+                    .filter_map(Value::as_str)
+                    .map(str::to_string)
+                    .collect::<Vec<_>>()
+            })
+            .filter(|list| !list.is_empty());
         let root = thread.project_root.clone();
         let sha_owned = sha.to_string();
-        match tokio::task::spawn_blocking(move || git_restore(&root, &sha_owned)).await {
+        match tokio::task::spawn_blocking(move || {
+            git_restore(&root, &sha_owned, scope_paths.as_deref())
+        })
+        .await
+        {
             Ok(Ok(())) => {}
             Ok(Err(error)) => return vec![err_thread(thread_id, error.to_string())],
             Err(error) => return vec![err_thread(thread_id, error.to_string())],

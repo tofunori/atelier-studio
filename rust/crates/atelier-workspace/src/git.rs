@@ -733,12 +733,20 @@ pub fn changed_since(root: &str, sha: &str) -> Result<Vec<String>> {
     Ok(changed)
 }
 
-pub fn restore(root: &str, sha: &str) -> Result<()> {
+pub fn restore(root: &str, sha: &str, paths: Option<&[String]>) -> Result<()> {
     let real = confined_root(root)?;
     ensure_repo(&real)?;
     if !sha.chars().all(|c| c.is_ascii_hexdigit()) || sha.len() < 4 {
         return Err(msg("sha invalide"));
     }
+    let scoped: Option<Vec<String>> = match paths {
+        Some(list) if !list.is_empty() => Some(
+            list.iter()
+                .map(|p| assert_relative(&real, p))
+                .collect::<Result<Vec<_>>>()?,
+        ),
+        _ => None,
+    };
     let dir = tempfile::tempdir().map_err(|e| msg(e.to_string()))?;
     let index = dir.path().join("index");
     let env = [
@@ -764,6 +772,31 @@ pub fn restore(root: &str, sha: &str) -> Result<()> {
         .filter(|s| !s.is_empty())
         .map(str::to_string)
         .collect();
+    if let Some(targets) = scoped {
+        // Restauration CIBLÉE (annulation d'un tour : fichiers du checkpoint) —
+        // les créations d'autres sessions ailleurs dans le dépôt ne bloquent
+        // plus l'annulation. Fichiers créés PAR le tour (absents du snapshot) :
+        // laissés en place, jamais supprimés (même politique que le mode complet).
+        let mut keep: Vec<String> = targets
+            .into_iter()
+            .filter(|p| snap_paths.contains(p))
+            .collect();
+        keep.sort();
+        keep.dedup();
+        let out = git(&real, &["read-tree", &tree_ref], &env)?;
+        if !out.status.success() {
+            return Err(msg("read-tree failed"));
+        }
+        for chunk in keep.chunks(50) {
+            let mut args: Vec<&str> = vec!["checkout-index", "-f", "--"];
+            args.extend(chunk.iter().map(String::as_str));
+            let out = git(&real, &args, &env)?;
+            if !out.status.success() {
+                return Err(msg("checkout-index failed"));
+            }
+        }
+        return Ok(());
+    }
     let now_out = git(
         &real,
         &[
@@ -874,6 +907,35 @@ mod tests {
             changed_since(dir.path().to_str().unwrap(), &sha).unwrap(),
             vec!["deja_la.txt".to_string()],
         );
+    }
+
+    #[test]
+    fn restore_scoped_ignores_foreign_creations_and_keeps_turn_files() {
+        let dir = init_repo();
+        let root = dir.path().to_str().unwrap();
+        std::fs::write(dir.path().join("other.txt"), b"other snapshot").unwrap();
+        let sha = snapshot(root).unwrap();
+        std::fs::write(dir.path().join("a.txt"), b"turn change").unwrap();
+        std::fs::write(dir.path().join("created-by-turn.txt"), b"created").unwrap();
+        std::fs::write(dir.path().join("appeared.txt"), b"keep me").unwrap();
+        std::fs::write(dir.path().join("other.txt"), b"other change").unwrap();
+        let scope = vec!["a.txt".to_string(), "created-by-turn.txt".to_string()];
+        restore(root, &sha, Some(&scope)).unwrap();
+        assert_eq!(std::fs::read(dir.path().join("a.txt")).unwrap(), b"hello");
+        assert_eq!(std::fs::read(dir.path().join("created-by-turn.txt")).unwrap(), b"created");
+        assert_eq!(std::fs::read(dir.path().join("appeared.txt")).unwrap(), b"keep me");
+        assert_eq!(std::fs::read(dir.path().join("other.txt")).unwrap(), b"other change");
+    }
+
+    #[test]
+    fn restore_full_still_refuses_on_new_paths() {
+        let dir = init_repo();
+        let root = dir.path().to_str().unwrap();
+        let sha = snapshot(root).unwrap();
+        std::fs::write(dir.path().join("appeared.txt"), b"keep me").unwrap();
+        let err = restore(root, &sha, None).unwrap_err().to_string();
+        assert!(err.contains("refus"), "{err}");
+        assert_eq!(std::fs::read(dir.path().join("appeared.txt")).unwrap(), b"keep me");
     }
 
     #[test]
