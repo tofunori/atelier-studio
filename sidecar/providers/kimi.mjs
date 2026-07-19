@@ -9,7 +9,7 @@
 // review plan_*, questions q0_*, session/prompt → {stopReason} seul.
 
 import { execFile } from "node:child_process";
-import { existsSync, readFileSync, realpathSync, statSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync, realpathSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { extname, join } from "node:path";
 import { resolveBin } from "../bin_resolver.mjs";
@@ -554,11 +554,18 @@ export async function run({
     const done = mapKimiPromptResult(result, ctx);
     if (done.ok && result?.stopReason === "end_turn" && !sawContent) {
       done.ok = false;
-      onEvent?.({ kind: "error", message:
-        "Kimi a terminé le tour sans produire de réponse — échec silencieux du CLI, "
-        + "typiquement une conversation au-delà de la limite de contexte de l'API (~2 Mo de messages). "
-        + "Lance la commande « compact » de Kimi ou démarre une nouvelle conversation "
-        + "(détail : ~/.kimi-code/sessions/<session>/logs/kimi-code.log)." });
+      const detail = kimiLastCliError(sid);
+      const message = detail && /exceeds limit/i.test(detail)
+        ? `Kimi a terminé le tour sans répondre — erreur avalée par le CLI : « ${detail} ». `
+          + "C'est la limite de TAILLE DE REQUÊTE du serveur kimi-code (octets), pas ta fenêtre "
+          + "de contexte du modèle. Lance la commande « compact » de Kimi ou démarre une nouvelle conversation."
+        : detail
+          ? `Kimi a terminé le tour sans répondre — erreur avalée par le CLI : « ${detail} ». `
+            + "Réessaie, lance « compact », ou démarre une nouvelle conversation."
+          : "Kimi a terminé le tour sans produire de réponse — échec silencieux du CLI. "
+            + "Réessaie, lance la commande « compact » de Kimi, ou démarre une nouvelle conversation "
+            + "(détail : ~/.kimi-code/sessions/<session>/logs/kimi-code.log).";
+      onEvent?.({ kind: "error", message });
     }
     onEvent?.(done);
   } catch (e) {
@@ -629,6 +636,28 @@ export async function listSessions(projectRoot) {
 }
 
 /** Replay capturé de session/load → events d'historique Atelier (coalescés). */
+// Dernière erreur avalée par le CLI : lue dans le log de la session
+// (~/.kimi-code/sessions/<wd>/<sid>/logs/kimi-code.log) pour citer la cause
+// réelle (ex. « 400 total message size … exceeds limit … »). Best-effort.
+export function kimiLastCliError(sessionId) {
+  try {
+    const sessions = join(homedir(), ".kimi-code", "sessions");
+    for (const wd of readdirSync(sessions)) {
+      const log = join(sessions, wd, sessionId, "logs", "kimi-code.log");
+      if (!existsSync(log)) continue;
+      const tail = readFileSync(log, "utf8").split("\n").slice(-200).reverse();
+      for (const line of tail) {
+        const i = line.indexOf("APIStatusError:");
+        if (i !== -1) return line.slice(i + "APIStatusError:".length).trim();
+      }
+      for (const line of tail) {
+        if (line.includes("failed reason")) return line.trim().slice(0, 300);
+      }
+    }
+  } catch {}
+  return null;
+}
+
 // Les sessions natives persistent le prompt provider COMPLET : blocs
 // d'instructions injectés (<atelier-*>) et <system-reminder> des hooks.
 // Au replay, ne montrer que ce que l'utilisateur a réellement tapé — un

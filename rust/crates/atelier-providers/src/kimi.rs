@@ -406,6 +406,33 @@ pub(crate) fn iso8601_to_epoch_ms(s: &str) -> Option<u64> {
 /// Replay capturé de `session/load` → events d'historique Atelier
 /// (user/thinking/text coalescés, tool_update via le mapper kimi). Ces events
 /// servent à l'AFFICHAGE d'une session importée — jamais ré-émis dans un tour.
+/// Dernière erreur avalée par le CLI : lue dans le log de la session
+/// (`~/.kimi-code/sessions/<wd>/<sid>/logs/kimi-code.log`) pour citer la
+/// cause réelle (ex. « 400 total message size … exceeds limit … ») au lieu
+/// d'une supposition. Best-effort : None si introuvable.
+fn kimi_last_cli_error(session_id: &str) -> Option<String> {
+    let home = std::env::var("HOME").ok()?;
+    let sessions = std::path::Path::new(&home).join(".kimi-code/sessions");
+    for entry in std::fs::read_dir(&sessions).ok()?.flatten() {
+        let log = entry.path().join(session_id).join("logs/kimi-code.log");
+        let Ok(raw) = std::fs::read_to_string(&log) else {
+            continue;
+        };
+        let tail: Vec<&str> = raw.lines().rev().take(200).collect();
+        for line in &tail {
+            if let Some(idx) = line.find("APIStatusError:") {
+                return Some(line[idx + "APIStatusError:".len()..].trim().to_string());
+            }
+        }
+        for line in &tail {
+            if line.contains("failed reason") {
+                return Some(line.trim().chars().take(300).collect());
+            }
+        }
+    }
+    None
+}
+
 /// Les sessions natives persistent le prompt provider COMPLET : blocs
 /// d'instructions injectés (`<atelier-*>`) et `<system-reminder>` des hooks.
 /// Au replay, ne montrer que ce que l'utilisateur a réellement tapé — un
@@ -993,11 +1020,24 @@ impl KimiProvider {
                 if silent_failure {
                     done["ok"] = json!(false);
                     ok = false;
-                    (req.on_event)(json!({"kind": "error", "message":
-                        "Kimi a terminé le tour sans produire de réponse — échec silencieux du CLI, \
-                         typiquement une conversation au-delà de la limite de contexte de l'API \
-                         (~2 Mo de messages). Lance la commande « compact » de Kimi ou démarre une \
-                         nouvelle conversation (détail : ~/.kimi-code/sessions/<session>/logs/kimi-code.log)."}));
+                    let message = match kimi_last_cli_error(&sid) {
+                        Some(detail) if detail.to_lowercase().contains("exceeds limit") => format!(
+                            "Kimi a terminé le tour sans répondre — erreur avalée par le CLI : \
+                             « {detail} ». C'est la limite de TAILLE DE REQUÊTE du serveur kimi-code \
+                             (octets), pas ta fenêtre de contexte du modèle. Lance la commande \
+                             « compact » de Kimi ou démarre une nouvelle conversation."
+                        ),
+                        Some(detail) => format!(
+                            "Kimi a terminé le tour sans répondre — erreur avalée par le CLI : \
+                             « {detail} ». Réessaie, lance « compact », ou démarre une nouvelle \
+                             conversation."
+                        ),
+                        None => "Kimi a terminé le tour sans produire de réponse — échec silencieux \
+                             du CLI. Réessaie, lance la commande « compact » de Kimi, ou démarre une \
+                             nouvelle conversation (détail : ~/.kimi-code/sessions/<session>/logs/kimi-code.log)."
+                            .to_string(),
+                    };
+                    (req.on_event)(json!({"kind": "error", "message": message}));
                 }
                 (req.on_event)(done);
                 let error = if ok {
