@@ -11,6 +11,8 @@ import {
   placeWorkspaceTab,
   resizeWorkspaceSplit,
   saveWorkspaceLayout,
+  workspaceDropPreviewRect,
+  workspaceDropZoneAtPoint,
   workspaceTabId,
   type WorkspaceLayout,
 } from "./workspaceLayout";
@@ -30,6 +32,19 @@ function storage(initial: Record<string, string> = {}) {
 }
 
 describe("workspaceLayout", () => {
+  it("rend les bords magnétiques et réserve le centre à l'empilement", () => {
+    const rect = { left: 100, top: 50, width: 800, height: 600 };
+    expect(workspaceDropZoneAtPoint(rect, 110, 350)).toBe("left");
+    expect(workspaceDropZoneAtPoint(rect, 890, 350)).toBe("right");
+    expect(workspaceDropZoneAtPoint(rect, 500, 58)).toBe("top");
+    expect(workspaceDropZoneAtPoint(rect, 500, 642)).toBe("bottom");
+    expect(workspaceDropZoneAtPoint(rect, 500, 350)).toBe("center");
+
+    expect(workspaceDropPreviewRect(rect, "right", 0)).toEqual({
+      left: 500, top: 50, width: 400, height: 600,
+    });
+  });
+
   it("crée un pane avec Galerie et les documents existants", () => {
     const layout = createWorkspaceLayout(["main.tex", "analysis.py"], "analysis.py", ids());
     const panes = listWorkspacePanes(layout.root);

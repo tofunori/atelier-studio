@@ -6,6 +6,7 @@ export const LEGACY_SPLIT_PREFIX = "atelier-studio.split.";
 
 export type WorkspaceDirection = "horizontal" | "vertical";
 export type WorkspaceDropZone = "center" | "left" | "right" | "top" | "bottom";
+export type WorkspaceRect = { left: number; top: number; width: number; height: number };
 
 export type WorkspaceTabRef =
   | { kind: "document"; tabId: string }
@@ -52,6 +53,42 @@ const SURFACES = new Set<Surface>([
 ]);
 
 let fallbackId = 0;
+
+export function workspaceDropZoneAtPoint(
+  rect: WorkspaceRect,
+  clientX: number,
+  clientY: number,
+): WorkspaceDropZone {
+  if (rect.width <= 0 || rect.height <= 0) return "center";
+  const x = Math.max(0, Math.min(rect.width, clientX - rect.left));
+  const y = Math.max(0, Math.min(rect.height, clientY - rect.top));
+  const horizontalBand = Math.min(112, rect.width * 0.28);
+  const verticalBand = Math.min(96, rect.height * 0.28);
+  const candidates: Array<{ zone: Exclude<WorkspaceDropZone, "center">; score: number }> = [];
+  if (x <= horizontalBand) candidates.push({ zone: "left", score: x / horizontalBand });
+  if (rect.width - x <= horizontalBand) candidates.push({ zone: "right", score: (rect.width - x) / horizontalBand });
+  if (y <= verticalBand) candidates.push({ zone: "top", score: y / verticalBand });
+  if (rect.height - y <= verticalBand) candidates.push({ zone: "bottom", score: (rect.height - y) / verticalBand });
+  candidates.sort((a, b) => a.score - b.score);
+  return candidates[0]?.zone ?? "center";
+}
+
+export function workspaceDropPreviewRect(
+  rect: WorkspaceRect,
+  zone: WorkspaceDropZone,
+  inset = 6,
+): WorkspaceRect {
+  const left = rect.left + inset;
+  const top = rect.top + inset;
+  const width = Math.max(0, rect.width - inset * 2);
+  const height = Math.max(0, rect.height - inset * 2);
+  if (zone === "left") return { left, top, width: width / 2, height };
+  if (zone === "right") return { left: left + width / 2, top, width: width / 2, height };
+  if (zone === "top") return { left, top, width, height: height / 2 };
+  if (zone === "bottom") return { left, top: top + height / 2, width, height: height / 2 };
+  return { left, top, width, height };
+}
+
 export function createWorkspaceId(): string {
   if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
     return crypto.randomUUID();

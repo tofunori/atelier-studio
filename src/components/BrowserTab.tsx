@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { invoke } from "@tauri-apps/api/core";
 
 import { wsSend } from "../lib/wsBus";
@@ -128,6 +128,7 @@ export default function BrowserTab(p: {
   tabId: string;
   visible: boolean;
   onTitle: (title: string) => void;
+  paneControls?: ReactNode;
 }) {
   const initialSessionRef = useRef<BrowserSession | null>(null);
   if (initialSessionRef.current === null) initialSessionRef.current = readSession();
@@ -536,6 +537,7 @@ export default function BrowserTab(p: {
             </RowButton>
           ))}
           <IconButton size="s" className="browser-tab-add" onClick={newTab} title={t("action.new-tab")} label={t("action.new-tab")}>+</IconButton>
+          {p.paneControls && <div className="workspace-pane-controls-slot">{p.paneControls}</div>}
         </div>
         <div className="browser-bar" ref={controlsRef}>
           <IconButton size="s" className="ghost" label={t("browser.back")} onClick={() => invoke("browser_eval", { label: activeTab?.label, js: "history.back()" })} title={t("browser.back")}>←</IconButton>

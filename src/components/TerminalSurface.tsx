@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 
 function useRefBool() {
   return useRef(false);
@@ -20,6 +20,7 @@ export default function TerminalSurface(p: {
   visible: boolean;
   bootstrapCommand?: string | null;
   onBootstrapHandled?: () => void;
+  paneControls?: ReactNode;
 }) {
   const [terms, setTerms] = useState<Term[]>([]);
   const [activeId, setActiveId] = useState<string | null>(null);
@@ -135,6 +136,7 @@ export default function TerminalSurface(p: {
         <IconButton size="s" className="ghost" label={t("action.close-active-terminal")} title={t("action.close-active-terminal")} onClick={closeActive}>
           <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.2"><path d="M2.5 4h11M6 4V2.8c0-.4.3-.8.8-.8h2.4c.5 0 .8.4.8.8V4M4 4l.7 9c0 .6.5 1 1 1h4.6c.5 0 1-.4 1-1L12 4M6.5 7v4M9.5 7v4"/></svg>
         </IconButton>
+        {p.paneControls && <div className="workspace-pane-controls-slot">{p.paneControls}</div>}
       </div>
       <div className={`term-grid ${layout}`}>
         {terms.map((t) => (

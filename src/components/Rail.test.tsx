@@ -6,6 +6,7 @@ import { fireEvent, screen, cleanup } from "@testing-library/react";
 import Rail from "./Rail";
 import { renderUi, resetTestState } from "../test/render";
 import { setLanguage, t } from "../lib/i18n";
+import { WORKSPACE_POINTER_DRAG_START } from "../lib/workspaceDrag";
 import type { Surface } from "./surfaces";
 import type { ViewId } from "../lib/settings";
 
@@ -112,13 +113,14 @@ describe("Rail — tiroir de surfaces", () => {
   it("rend les surfaces glissables vers le workspace modulaire", () => {
     renderUi(<Rail {...makeProps({ moreOpen: true })} />);
     const listener = vi.fn();
-    window.addEventListener("workspace-surface-drag-start", listener);
-    const dataTransfer = { effectAllowed: "none", setData: vi.fn() };
+    window.addEventListener(WORKSPACE_POINTER_DRAG_START, listener);
 
-    fireEvent.dragStart(screen.getByRole("button", { name: t("atelier.biblio") }).parentElement!, { dataTransfer });
+    fireEvent.pointerDown(screen.getByRole("button", { name: t("atelier.biblio") }).parentElement!, {
+      button: 0, clientX: 24, clientY: 160, pointerId: 7,
+    });
 
-    expect(dataTransfer.setData).toHaveBeenCalledWith("application/x-atelier-surface", "biblio");
     expect(listener).toHaveBeenCalledTimes(1);
-    window.removeEventListener("workspace-surface-drag-start", listener);
+    expect((listener.mock.calls[0][0] as CustomEvent).detail.ref).toEqual({ kind: "surface", surface: "biblio" });
+    window.removeEventListener(WORKSPACE_POINTER_DRAG_START, listener);
   });
 });

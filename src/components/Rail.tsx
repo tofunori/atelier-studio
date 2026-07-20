@@ -8,6 +8,7 @@ import { SURFACES, type Surface } from "./surfaces";
 import type { ViewId } from "../lib/settings";
 import { IconButton } from "./ui/IconButton";
 import { RowButton } from "./ui";
+import { dispatchWorkspacePointerDragStart, shouldSuppressWorkspaceSourceClick } from "../lib/workspaceDrag";
 
 export type ProjMeta = { color?: string; label?: string };
 
@@ -77,13 +78,15 @@ export default function Rail(p: {
     <span
       key={s.id}
       className="rail-surface-drag"
-      draggable
-      onDragStart={(event) => {
-        event.dataTransfer.effectAllowed = "move";
-        event.dataTransfer.setData("application/x-atelier-surface", s.id);
-        window.dispatchEvent(new CustomEvent("workspace-surface-drag-start", { detail: { surface: s.id } }));
+      onClickCapture={(event) => {
+        if (!shouldSuppressWorkspaceSourceClick({ kind: "surface", surface: s.id })) return;
+        event.preventDefault();
+        event.stopPropagation();
       }}
-      onDragEnd={() => window.dispatchEvent(new CustomEvent("workspace-surface-drag-end"))}
+      onPointerDown={(event) => {
+        if (!dispatchWorkspacePointerDragStart(event.nativeEvent, { kind: "surface", surface: s.id })) return;
+        event.currentTarget.setPointerCapture?.(event.pointerId);
+      }}
     >
       <IconButton
         /* Galerie (surface "atelier") n'est active que sur l'onglet gallery,

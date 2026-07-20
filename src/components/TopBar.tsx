@@ -4,6 +4,21 @@ import { SearchIcon, ZapIcon, PlusIcon } from "./icons";
 import { Button, IconButton, RowButton, SegmentedControl } from "./ui";
 import { LazyDropdownMenu } from "./ui/LazyDropdownMenu";
 import { type ProjMeta } from "./Rail";
+import { dispatchWorkspacePointerDragStart, shouldSuppressWorkspaceSourceClick } from "../lib/workspaceDrag";
+
+function surfaceDragProps(surface: "git" | "browser" | "terminal") {
+  return {
+    onClickCapture: (event: React.MouseEvent<HTMLSpanElement>) => {
+      if (!shouldSuppressWorkspaceSourceClick({ kind: "surface", surface })) return;
+      event.preventDefault();
+      event.stopPropagation();
+    },
+    onPointerDown: (event: React.PointerEvent<HTMLSpanElement>) => {
+      if (!dispatchWorkspacePointerDragStart(event.nativeEvent, { kind: "surface", surface })) return;
+      event.currentTarget.setPointerCapture?.(event.pointerId);
+    },
+  };
+}
 
 // chemin compact pour l'en-tête du menu projet : ~/… au lieu de /Users/x/…
 function shortPath(root: string) {
@@ -166,37 +181,19 @@ export default function TopBar({
         <IconButton label={t("atelier.file-explorer")} className={`ghost topbar-qa ${showExplorer ? "on" : ""}`} title={t("atelier.file-explorer")} onClick={onToggleExplorer}>
           <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"><path d="M1.8 4.2c0-.7.5-1.2 1.2-1.2h3l1.4 1.6h5.6c.7 0 1.2.5 1.2 1.2v6c0 .7-.5 1.2-1.2 1.2H3c-.7 0-1.2-.5-1.2-1.2v-7.6z" /></svg>
         </IconButton>
-        <span className="topbar-surface-drag" draggable
-          onDragStart={(event) => {
-            event.dataTransfer.effectAllowed = "move";
-            event.dataTransfer.setData("application/x-atelier-surface", "git");
-            window.dispatchEvent(new CustomEvent("workspace-surface-drag-start", { detail: { surface: "git" } }));
-          }}
-          onDragEnd={() => window.dispatchEvent(new CustomEvent("workspace-surface-drag-end"))}>
+        <span className="topbar-surface-drag" {...surfaceDragProps("git")}>
           <IconButton label={t("atelier.git")} className={`ghost topbar-qa ${gitActive ? "on" : ""}`} title={t("atelier.git")} onClick={onOpenGit}>
             <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3"><circle cx="4" cy="4" r="1.6"/><circle cx="4" cy="12" r="1.6"/><circle cx="12" cy="6" r="1.6"/><path d="M4 5.6v4.8M4 8h4a4 4 0 0 0 4-.4"/></svg>
           </IconButton>
         </span>
         {/* Navigateur + Terminal remontés du tiroir du rail (option A) : mêmes
             icônes que surfaces.tsx, rendues à 15px comme Explorateur/Git */}
-        <span className="topbar-surface-drag" draggable
-          onDragStart={(event) => {
-            event.dataTransfer.effectAllowed = "move";
-            event.dataTransfer.setData("application/x-atelier-surface", "browser");
-            window.dispatchEvent(new CustomEvent("workspace-surface-drag-start", { detail: { surface: "browser" } }));
-          }}
-          onDragEnd={() => window.dispatchEvent(new CustomEvent("workspace-surface-drag-end"))}>
+        <span className="topbar-surface-drag" {...surfaceDragProps("browser")}>
           <IconButton label={t("atelier.browser")} className={`ghost topbar-qa ${browserActive ? "on" : ""}`} title={t("atelier.browser")} onClick={onOpenBrowser}>
             <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.2"><circle cx="8" cy="8" r="6.2"/><path d="M1.8 8h12.4M8 1.8c2.2 2 2.2 10.4 0 12.4M8 1.8c-2.2 2-2.2 10.4 0 12.4"/></svg>
           </IconButton>
         </span>
-        <span className="topbar-surface-drag" draggable
-          onDragStart={(event) => {
-            event.dataTransfer.effectAllowed = "move";
-            event.dataTransfer.setData("application/x-atelier-surface", "terminal");
-            window.dispatchEvent(new CustomEvent("workspace-surface-drag-start", { detail: { surface: "terminal" } }));
-          }}
-          onDragEnd={() => window.dispatchEvent(new CustomEvent("workspace-surface-drag-end"))}>
+        <span className="topbar-surface-drag" {...surfaceDragProps("terminal")}>
           <IconButton label={t("atelier.terminal")} className={`ghost topbar-qa ${terminalActive ? "on" : ""}`} title={t("atelier.terminal")} onClick={onOpenTerminal}>
             <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round"><rect x="1.8" y="2.8" width="12.4" height="10.4" rx="2"/><path d="M4.5 6l2.2 2-2.2 2M8.5 10.5h3"/></svg>
           </IconButton>
