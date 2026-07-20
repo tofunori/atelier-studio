@@ -122,9 +122,14 @@ describe("contrat Quiet Instrument (sources CSS)", () => {
     }
   });
 
-  it("réserve la zone du bouton fermer dans l’en-tête du diff mobile", () => {
+  it("ouvre le diff dans la surface Git et garde les actions de commit compactes", () => {
+    expect(appCss).not.toContain(".git-diff-sheet");
+    expect(appCss).not.toContain(".git-mobile-diff-trigger");
     expect(appCss).toMatch(
-      /\.git-diff-sheet\s+\.git-diff-pane-head\s*\{[^}]*padding-right:\s*52px;/,
+      /\.git-commit-buttons\s*\{[^}]*width:\s*auto;[^}]*margin-left:\s*auto;/,
+    );
+    expect(appCss).toMatch(
+      /\.git-commit-buttons\s+\.ui-btn\s*\{[^}]*flex:\s*none;/,
     );
   });
 

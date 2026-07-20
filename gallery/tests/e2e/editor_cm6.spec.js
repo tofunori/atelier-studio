@@ -201,7 +201,8 @@ test('latex deterministic parity', async ({page}) => {
     await page.keyboard.press('Tab');
     await expect.poll(() => page.evaluate(() => cm.getValue())).toContain('Therefore the');
 
-    await page.locator('#outlineBtn').click();
+    await page.locator('#moreBtn').click();
+    await page.locator('#morePop [data-act="outline"]').click();
     await expect(page.locator('#outline')).toHaveClass(/open/);
     await expect(page.locator('#outline')).toContainText('Alpha');
 
@@ -238,4 +239,58 @@ test('latex deterministic parity', async ({page}) => {
     await expectEngine(page, 'cm6');
     await expect(page.locator('#sbLint')).toContainText('1 ruff');
   });
+});
+
+test('latex auto rewrap saves numbered physical lines that fit the window', async ({page}) => {
+  const paragraph = 'Wildfire carbon deposition is measured across many glacier pixels and compared with local climate controls so that a narrow editor still keeps every physical source line visible without a second visual continuation row.';
+  await withProject({'wrap.tex': `\\section{Results}\n${paragraph}\n`}, async ({root, url}) => {
+    await page.setViewportSize({width: 772, height: 926});
+    await page.goto(url('latex_studio.html', 'wrap.tex'));
+    await expectEngine(page, 'cm6');
+    await expect(page.locator('#sbRewrap')).toHaveText('Rewrap: off');
+    expect(await page.evaluate(() => localStorage.getItem('texAutoRewrap'))).toBeNull();
+    await page.locator('#sbRewrap').click();
+    await expect(page.locator('#sbRewrap')).toHaveText('Rewrap: auto');
+
+    await page.evaluate(text => cm.setValue(`\\section{Results}\n${text}\n`), paragraph);
+    await saveShortcut(page);
+    const savedLines = readFileSync(path.join(root, 'wrap.tex'), 'utf8').trimEnd().split('\n');
+    expect(savedLines.length).toBeGreaterThan(3);
+    expect(Math.max(...savedLines.map(line => line.length))).toBeLessThanOrEqual(90);
+    await expect.poll(() => page.evaluate(() => {
+      const rows = [...document.querySelectorAll('.cm-line')];
+      if (!rows.length) return -1;
+      const base = rows.find(row => row.textContent)?.getBoundingClientRect().height || 0;
+      return rows.filter(row => row.getBoundingClientRect().height > base * 1.5).length;
+    })).toBe(0);
+    const numbered = await page.evaluate(() => [...document.querySelectorAll('.cm-lineNumbers .cm-gutterElement')]
+      .filter(node => getComputedStyle(node).visibility !== 'hidden')
+      .map(node => node.textContent?.trim() || '').filter(value => /^\d+$/.test(value)).length);
+    expect(numbered).toBe(await page.evaluate(() => cm.lineCount()));
+
+    await page.locator('#sbRewrap').click();
+    await expect(page.locator('#sbRewrap')).toHaveText('Rewrap: off');
+    expect(await page.evaluate(() => localStorage.getItem('texAutoRewrap'))).toBe('0');
+  });
+});
+
+test('latex anchored comments persist through the typed controller in CM5 and CM6', async ({page}) => {
+  for (const engine of ['cm5', 'cm6']) {
+    await withProject({'comments.tex': '\\section{Review}\nAnchored comment text\n'}, async ({url}) => {
+      await page.goto(url('latex_studio.html', 'comments.tex', `&engine=${engine}`));
+      await expectEngine(page, engine);
+      await page.evaluate(() => texcOpen({
+        from: {line: 1, ch: 0}, to: {line: 1, ch: 8}, text: 'Anchored',
+      }));
+      await expect(page.locator('#texcPop')).toBeVisible();
+      await page.locator('#texcPop textarea').fill('Vérifier ce passage');
+      const saved = page.waitForResponse(response => response.url().includes('/pdfannot')
+        && response.request().method() === 'POST');
+      await page.locator('#texcPop .tc-save').click();
+      expect((await saved).ok()).toBe(true);
+      await expect(page.locator('.texc-hl')).toBeVisible();
+      await page.locator('#texcBtn').click();
+      await expect(page.locator('#texcPanel')).toContainText('Vérifier ce passage');
+    });
+  }
 });

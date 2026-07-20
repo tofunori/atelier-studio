@@ -131,6 +131,22 @@ describe("route", () => {
     ]);
   });
 
+  it("getHistory ne réaffiche jamais le bloc file-scope archivé dans le journal", async () => {
+    const sent = [];
+    await route({ type: "getHistory", threadId: "k1" }, {
+      send: (message) => sent.push(message),
+      store: { get: () => ({ id: "k1", provider: "kimi", sessionId: "sid", projectRoot: "/p" }) },
+      harnessJournal: {
+        hasJournal: () => true,
+        materialize: async () => [{
+          kind: "user",
+          text: "question\n\n<atelier-file-scope>old</atelier-file-scope>",
+        }],
+      },
+    });
+    expect(sent[0].events).toEqual([{ kind: "user", text: "question" }]);
+  });
+
   it("getUsage agrège turns/output par modèle pour aujourd'hui via ledger.getAll", async () => {
     const sent = [];
     const today = new Date().toISOString();
@@ -205,14 +221,21 @@ describe("route", () => {
     }]);
   });
 
-  it("generateCommitMsg refuse les changements non indexés", async () => {
+  it("generateCommitMsg résume les changements non indexés sans toucher à l’index", async () => {
     const sent = [];
+    const diff = vi.fn(async () => "diff --git a/src/app.ts b/src/app.ts\n+const ready = true;");
+    const commitMessage = vi.fn(async () => ({
+      title: "Ajoute l’état prêt",
+      description: "Décrit les changements du worktree avant leur indexation.",
+    }));
     await route({ type: "generateCommitMsg", projectRoot: "/proj", scope: "changes" }, {
       send: (message) => sent.push(message),
-      gitops: { diffStaged: vi.fn() },
-      providers: { claude: { commitMessage: vi.fn() } },
+      gitops: { diff },
+      providers: { claude: { commitMessage } },
     });
-    expect(sent[0].error).toMatch(/Indexe explicitement/);
+    expect(diff).toHaveBeenCalledWith("/proj", null);
+    expect(commitMessage).toHaveBeenCalledWith(expect.stringContaining("const ready"), "/proj");
+    expect(sent[0]).toMatchObject({ type: "commitMsg", message: "Ajoute l’état prêt" });
   });
   it("route la création, la suppression et la fusion de branche avec un rafraîchissement Git", async () => {
     const sent = [];
@@ -236,6 +259,24 @@ describe("route", () => {
       { type: "gitSyncDone", op: "delete-branch", projectRoot: "/proj", out: "topic" },
       { type: "gitSyncDone", op: "merge-branch", projectRoot: "/proj", out: "topic" },
     ]);
+  });
+
+  it("route le log, les détails, le diff d’un fichier et le revert avec le HEAD attendu", async () => {
+    const sent = []; const broadcast = [];
+    const log = vi.fn(async () => ({ commits: [{ sha: "a".repeat(40) }], hasMore: false, skip: 0 }));
+    const commitDetails = vi.fn(async () => ({ sha: "a".repeat(40), subject: "test" }));
+    const commitFileContents = vi.fn(async () => ({ before: "old", after: "new", binary: false }));
+    const revertCommit = vi.fn(async () => "b".repeat(40));
+    const ctx = { send: (m) => sent.push(m), broadcast: (m) => broadcast.push(m), gitops: { log, commitDetails, commitFileContents, revertCommit } };
+    await route({ type: "gitLog", projectRoot: "/proj", limit: 20 }, ctx);
+    await route({ type: "gitCommitDetails", projectRoot: "/proj", sha: "a".repeat(40) }, ctx);
+    await route({ type: "gitCommitFileDiff", projectRoot: "/proj", sha: "a".repeat(40), path: "src/a.ts", previousPath: "src/old.ts" }, ctx);
+    await route({ type: "gitRevertCommit", projectRoot: "/proj", sha: "a".repeat(40), expectedHead: "c".repeat(40) }, ctx);
+    expect(log).toHaveBeenCalled(); expect(commitDetails).toHaveBeenCalled();
+    expect(commitFileContents).toHaveBeenCalledWith("/proj", "a".repeat(40), "src/a.ts", "src/old.ts");
+    expect(revertCommit).toHaveBeenCalledWith("/proj", "a".repeat(40), "c".repeat(40));
+    expect(sent.map((m) => m.type)).toEqual(["gitLog", "gitCommitDetails", "gitCommitFileDiff", "gitHistoryActionDone"]);
+    expect(broadcast.at(-1)?.type).toBe("gitChanged");
   });
   it("répond zotero-introuvable quand la base Zotero manque", async () => {
     const sent = [];

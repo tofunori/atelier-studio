@@ -9,7 +9,7 @@ import { generateImageViaCodex } from "./providers/codex_image.mjs";
 import { createHarnessThread } from "./harness_events.mjs";
 import { HANDOFF_END } from "./handoff.mjs";
 import { stripGalleryToolInstruction, withGalleryToolInstruction } from "./gallery_tool_prompt.mjs";
-import { withFileScopeInstruction } from "./file_scope_prompt.mjs";
+import { stripFileScopeInstruction, withFileScopeInstruction } from "./file_scope_prompt.mjs";
 import { stripZoteroPassageInstruction, withZoteroPassageInstruction } from "./zotero_passage_prompt.mjs";
 import { KnowledgeStore, defaultKnowledgeDir, kbBlockEntries, promotePage, promoteToGbrain } from "./knowledge.mjs";
 import { runKbCommand } from "./kb_cli.mjs";
@@ -615,6 +615,12 @@ function preferRicherDialogue(journalEvents, nativeEvents) {
     if (displayIndex === displayUsers.length) return merged;
   }
   return nativeEvents;
+}
+
+function sanitizeHistoryEvents(events) {
+  return (events ?? []).map((event) => event?.kind === "user" && typeof event.text === "string"
+    ? { ...event, text: stripFileScopeInstruction(event.text) }
+    : event);
 }
 
 async function harnessFor(ctx, threadId, provider) {
@@ -1460,6 +1466,67 @@ export async function route(msg, ctx) {
       }
       break;
     }
+    case "gitLog": {
+      const root = gitRootFor(ctx, msg);
+      try { ctx.send({ type: "gitLog", projectRoot: root, ...(await ctx.gitops.log(root, msg)) }); }
+      catch (e) { ctx.send({ type: "gitLog", projectRoot: root, commits: [], hasMore: false, error: String(e?.message ?? e) }); }
+      break;
+    }
+    case "gitCommitDetails": {
+      const root = gitRootFor(ctx, msg);
+      try { ctx.send({ type: "gitCommitDetails", projectRoot: root, details: await ctx.gitops.commitDetails(root, msg.sha) }); }
+      catch (e) { ctx.send({ type: "gitCommitDetails", projectRoot: root, error: String(e?.message ?? e) }); }
+      break;
+    }
+    case "gitCommitFileDiff": {
+      const root = gitRootFor(ctx, msg);
+      try {
+        ctx.send({
+          type: "gitCommitFileDiff",
+          projectRoot: root,
+          sha: msg.sha,
+          path: msg.path,
+          ...(await ctx.gitops.commitFileContents(root, msg.sha, msg.path, msg.previousPath ?? null)),
+        });
+      } catch (e) {
+        ctx.send({ type: "gitCommitFileDiff", projectRoot: root, sha: msg.sha, path: msg.path, error: String(e?.message ?? e) });
+      }
+      break;
+    }
+    case "gitCreateBranchAt": {
+      const root = gitRootFor(ctx, msg);
+      try {
+        const out = await ctx.gitops.createBranchAt(root, msg.branch, msg.sha);
+        ctx.send({ type: "gitHistoryActionDone", op: "create-branch", projectRoot: root, out });
+        emitGitChanged(ctx, msg.threadId, root);
+      } catch (e) { ctx.send({ type: "gitHistoryActionDone", op: "create-branch", projectRoot: root, error: String(e?.message ?? e) }); }
+      break;
+    }
+    case "gitRestoreFileFromCommit": {
+      const root = gitRootFor(ctx, msg);
+      try {
+        const out = await ctx.gitops.restoreFileFromCommit(root, msg.sha, msg.path, msg.expectedHead);
+        ctx.send({ type: "gitHistoryActionDone", op: "restore-file", projectRoot: root, out });
+        emitGitChanged(ctx, msg.threadId, root);
+      } catch (e) { ctx.send({ type: "gitHistoryActionDone", op: "restore-file", projectRoot: root, error: String(e?.message ?? e) }); }
+      break;
+    }
+    case "gitRevertCommit":
+    case "gitUndoCommit":
+    case "gitResetToCommit":
+    case "gitFetch": {
+      const root = gitRootFor(ctx, msg);
+      const op = msg.type === "gitRevertCommit" ? "revert" : msg.type === "gitUndoCommit" ? "undo-commit" : msg.type === "gitResetToCommit" ? "reset" : "fetch";
+      try {
+        const out = msg.type === "gitRevertCommit" ? await ctx.gitops.revertCommit(root, msg.sha, msg.expectedHead)
+          : msg.type === "gitUndoCommit" ? await ctx.gitops.undoLastCommit(root, msg.expectedHead)
+            : msg.type === "gitResetToCommit" ? await ctx.gitops.resetToCommit(root, msg.sha, msg.mode, msg.expectedHead)
+              : await ctx.gitops.fetchAll(root);
+        ctx.send({ type: "gitHistoryActionDone", op, projectRoot: root, out });
+        emitGitChanged(ctx, msg.threadId, root);
+      } catch (e) { ctx.send({ type: "gitHistoryActionDone", op, projectRoot: root, error: String(e?.message ?? e) }); }
+      break;
+    }
     case "gitStatus": {
       const root = gitRootFor(ctx, msg);
       ctx.send({ type: "gitStatus", projectRoot: root, status: await ctx.gitops.status(root) });
@@ -1533,12 +1600,13 @@ export async function route(msg, ctx) {
     case "generateCommitMsg": {
       const root = gitRootFor(ctx, msg);
       try {
-        if (msg.scope !== "staged") {
-          throw new Error("Indexe explicitement les fichiers avant de générer le message.");
-        }
-        const diff = await ctx.gitops.diffStaged(root, null);
+        const scope = msg.scope === "staged" ? "staged" : msg.scope === "changes" ? "changes" : null;
+        if (!scope) throw new Error("Portée de génération Git invalide.");
+        const diff = scope === "staged"
+          ? await ctx.gitops.diffStaged(root, null)
+          : await ctx.gitops.diff(root, null);
         if (!String(diff ?? "").trim()) {
-          throw new Error("Indexe au moins un fichier avant de générer le message.");
+          throw new Error("Aucun changement à résumer.");
         }
         const generate = ctx.providers?.claude?.commitMessage;
         if (typeof generate !== "function") throw new Error("Claude Code est indisponible pour générer le message.");
@@ -1812,7 +1880,7 @@ export async function route(msg, ctx) {
             const native = await ctx.sessions.grokHistory(t.sessionId, t.projectRoot);
             events = preferRicherDialogue(events, native);
           }
-          ctx.send({ type: "history", threadId: msg.threadId, events });
+          ctx.send({ type: "history", threadId: msg.threadId, events: sanitizeHistoryEvents(events) });
           break;
         } catch (e) {
           console.warn("[atelier] journal illisible, repli loaders provider:", e);
@@ -1842,7 +1910,7 @@ export async function route(msg, ctx) {
         console.warn(`[atelier] history ${t.provider} indisponible:`, String(e?.message ?? e).slice(0, 200));
         events = [];
       }
-      ctx.send({ type: "history", threadId: msg.threadId, events: events ?? [] });
+      ctx.send({ type: "history", threadId: msg.threadId, events: sanitizeHistoryEvents(events) });
       break;
     }
     case "getAgentHistory": {

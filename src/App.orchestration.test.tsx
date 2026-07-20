@@ -617,7 +617,7 @@ describe("orchestration App — caractérisation", () => {
     const { sock } = await mountApp();
     await pushThreads(sock, [THREAD_A]);
     await selectThread(sock, "Fil A — albédo");
-    await push(sock, { type: "files", files: ["scripts/plot.py"] });
+    await push(sock, { type: "files", projectRoot: PROJECT_ROOT, files: ["scripts/plot.py"] });
     const baseSha = "a".repeat(40);
 
     await act(async () => {

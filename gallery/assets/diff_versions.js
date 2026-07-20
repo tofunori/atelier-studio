@@ -155,14 +155,50 @@ window.DiffVersions = function(opts){
       ".dv-del{position:absolute;left:0;top:-5px;width:0;height:0;cursor:pointer;" +
         "border-left:7px solid rgba(224,108,117,.95);border-top:5px solid transparent;border-bottom:5px solid transparent}" +
       ".dv-del.eof{top:auto;bottom:-4px}" +
-      // navigateur de changements ‹ n/N › (sobre, monochrome, hérite du chrome)
-      "#dvNav{display:none;align-items:center;height:24px;border:1px solid #3a4150;border-radius:6px;overflow:hidden;vertical-align:middle}" +
-      "#dvNav .dvNavA{display:inline-flex;align-items:center;justify-content:center;width:20px;height:24px;background:transparent;border:none;color:#8b93a1;cursor:pointer;padding:0}" +
-      "#dvNav .dvNavA:hover{color:#dbdfe5;background:rgba(255,255,255,.06)}" +
-      "#dvNav .dvNavA:disabled{color:#3d434f;cursor:default;background:none}" +
-      "#dvNav .dvNavC{font-size:11px;font-variant-numeric:tabular-nums;color:#dbdfe5;padding:0 8px;height:100%;" +
-        "display:inline-flex;align-items:center;border-left:1px solid #3a4150;border-right:1px solid #3a4150;cursor:pointer;user-select:none}" +
-      "#dvNav .dvNavC:hover{background:rgba(255,255,255,.04)}" +
+      // Instrument de versions stable : commit | ‹ ±N › | restaurer | historique.
+      // Les contrôles sont désactivés, jamais retirés, pour supprimer tout jitter.
+      "#dvNav{display:inline-flex;align-items:center;height:24px;overflow:hidden;vertical-align:middle}" +
+      "#dvNav .dvNavA{display:inline-flex;align-items:center;justify-content:center;width:28px;height:24px;background:transparent;border:none;color:var(--muted,#8b93a1);cursor:pointer;padding:0}" +
+      "#dvNav .dvNavA:hover:not(:disabled){color:var(--txt,#dbdfe5);background:rgba(255,255,255,.06)}" +
+      "#dvNav .dvNavA:disabled{color:color-mix(in srgb,var(--muted,#8b93a1) 42%,transparent);cursor:default;background:none}" +
+      "#dvNav .dvNavC{min-width:58px;width:auto!important;gap:5px;padding:0 7px!important;font-variant-numeric:tabular-nums;user-select:none}" +
+      "#dvNav .dvNavC .dv-count{min-width:14px;text-align:left;font-size:0}" +
+      "#dvNav .dvNavC .dv-count::after{content:attr(data-compact);font-size:10px}" +
+      // compositeur de commit ciblé : mêmes tokens que l'app Atelier, sans
+      // palette bleue autonome ni changement de géométrie pendant l'IA.
+      "#dvCommitPop{position:fixed;z-index:400;display:none;flex-direction:column;gap:10px;" +
+        "box-sizing:border-box;width:min(390px,calc(100vw - 16px));padding:12px;" +
+        "background:var(--popover,var(--surface-overlay,var(--surface-raised,var(--card,#1a1d22))));" +
+        "color:var(--popover-foreground,var(--text-primary,var(--txt,#dbdfe5)));" +
+        "border:1px solid var(--border-subtle,var(--border,#333a45));border-radius:10px;" +
+        "box-shadow:0 16px 44px rgba(0,0,0,.42);font:13px/1.4 var(--ui-font,-apple-system,sans-serif)}" +
+      ".dvCommitHead{display:flex;align-items:center;min-width:0;gap:8px}" +
+      ".dvCommitTitle{display:flex;align-items:baseline;min-width:0;gap:7px;color:var(--text-tertiary,var(--muted));font-size:11px}" +
+      ".dvCommitTitle strong{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--text-primary,var(--txt));font:500 12px/1.3 var(--code-font,ui-monospace,monospace)}" +
+      ".dvCommitClose{margin-left:auto;width:26px;height:26px;display:inline-flex;align-items:center;justify-content:center;padding:0;" +
+        "border:0;border-radius:6px;background:transparent;color:var(--text-tertiary,var(--muted));cursor:pointer}" +
+      ".dvCommitClose:hover{background:color-mix(in srgb,var(--text-primary,var(--txt)) 7%,transparent);color:var(--text-primary,var(--txt))}" +
+      ".dvCommitClose svg{width:14px;height:14px}" +
+      "#dvCommitText{box-sizing:border-box;width:100%;min-height:72px;max-height:150px;resize:vertical;padding:8px 10px;" +
+        "border:1px solid var(--border-interactive,var(--border-strong,var(--border,#333a45)));border-radius:7px;outline:0;" +
+        "background:var(--surface-inset,var(--card2,#1a1d22));color:var(--text-primary,var(--txt,#dbdfe5));" +
+        "font:12px/1.5 var(--ui-font,-apple-system,sans-serif)}" +
+      "#dvCommitText::placeholder{color:var(--text-tertiary,var(--muted));opacity:.72}" +
+      "#dvCommitText:focus{border-color:var(--ring,var(--accent));box-shadow:0 0 0 2px color-mix(in srgb,var(--ring,var(--accent)) 22%,transparent)}" +
+      ".dvCommitFoot{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:center;gap:8px;min-width:0}" +
+      ".dvCommitHint{min-width:0;overflow:hidden;text-overflow:ellipsis;color:var(--text-tertiary,var(--muted));font-size:10px;white-space:nowrap}" +
+      ".dvCommitActions{display:flex;align-items:center;gap:7px;flex:none}" +
+      ".dvCommitBtn{height:30px;display:inline-flex;align-items:center;justify-content:center;gap:6px;padding:0 10px;" +
+        "border:1px solid transparent;border-radius:7px;font:500 11px/1 var(--ui-font,-apple-system,sans-serif);cursor:pointer;white-space:nowrap}" +
+      ".dvCommitBtn svg{width:13px;height:13px;flex:none}" +
+      ".dvCommitBtn:active:not(:disabled){transform:scale(.97)}" +
+      ".dvCommitBtn:focus-visible,.dvCommitClose:focus-visible{outline:2px solid var(--ring,var(--accent));outline-offset:2px}" +
+      ".dvCommitBtn:disabled{cursor:default;opacity:.46}" +
+      ".dvCommitAi{min-width:108px;background:transparent;border-color:var(--border-subtle,var(--border));color:var(--text-secondary,var(--txt))}" +
+      ".dvCommitAi:hover:not(:disabled){background:color-mix(in srgb,var(--text-primary,var(--txt)) 7%,transparent)}" +
+      ".dvCommitDo{background:var(--primary,var(--accent));color:var(--primary-foreground,var(--surface-app,var(--bg)));border-color:var(--primary,var(--accent))}" +
+      ".dvCommitDo:hover:not(:disabled){filter:brightness(1.08)}" +
+      "@media(max-width:430px){.dvCommitHint{display:none}.dvCommitActions{margin-left:auto}}" +
       ".CodeMirror .dv-flash{animation:dvflash 700ms ease-out}" +
       "@keyframes dvflash{0%{background:rgba(255,255,255,.14)}100%{background:transparent}}";
     document.head.appendChild(st);
@@ -333,12 +369,12 @@ window.DiffVersions = function(opts){
   function arm(){
     if(els.group) els.group.style.display = "";
     els.tag.disabled = false; els.tag.style.opacity = "";
-    // ‹ › retirés de la barre : la navigation entre versions passe par l'historique
-    [els.prev, els.next].forEach(b => { if(b) b.style.display = "none"; });
-    // Rétablir n'a de sens que pendant la comparaison (réécrit la version affichée)
-    if(els.restore) els.restore.style.display = shown ? "" : "none";
+    if(els.restore){ els.restore.style.display = ""; els.restore.disabled = !shown; }
+    ensureNavUi();
+    ensureCommitUi();
     ensureHistUi();
     updateTag();
+    updateNav();
   }
   function labelOf(v){
     if(!v) return "";
@@ -684,12 +720,29 @@ window.DiffVersions = function(opts){
     if(navPill || !els.group || !els.tag) return;
     navPill = document.createElement("span");
     navPill.id = "dvNav";
-    const chev = (d) => '<button class="dvNavA" data-d="' + d + '" tabindex="-1"><svg width="11" height="11" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="' + (d < 0 ? "M10 3L5 8l5 5" : "M6 3l5 5-5 5") + '"/></svg></button>';
-    navPill.innerHTML = chev(-1) + '<span class="dvNavC"></span>' + chev(1);
-    els.group.insertBefore(navPill, els.tag.nextSibling);
-    navPrev = navPill.querySelector('[data-d="-1"]');
-    navNext = navPill.querySelector('[data-d="1"]');
-    navCount = navPill.querySelector(".dvNavC");
+    const chev = (d) => {
+      const button = document.createElement("button");
+      button.className = "dvNavA";
+      button.dataset.d = String(d);
+      button.tabIndex = -1;
+      button.setAttribute("aria-label", d < 0 ? "Intervention précédente" : "Intervention suivante");
+      button.innerHTML = '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="'
+        + (d < 0 ? "M10 3L5 8l5 5" : "M6 3l5 5-5 5") + '"/></svg>';
+      return button;
+    };
+    navPrev = chev(-1);
+    navNext = chev(1);
+    els.tag.classList.add("dvNavC");
+    navCount = els.tag.querySelector(".dv-count");
+    if(!navCount){
+      navCount = document.createElement("span");
+      navCount.className = "dv-count";
+      els.tag.appendChild(navCount);
+    }
+    navPill.appendChild(navPrev);
+    navPill.appendChild(els.tag);
+    navPill.appendChild(navNext);
+    els.group.insertBefore(navPill, els.restore || null);
     // ‹ › : timeline des interventions. Depuis « tout », ‹ entre sur la plus
     // récente ; › depuis la plus récente revient à « tout ».
     navPrev.onclick = () => { navMode < 0 ? showStep(interList().length - 1) : showStep(navMode - 1); };
@@ -698,16 +751,22 @@ window.DiffVersions = function(opts){
       const last = interList().length - 1;
       navMode >= last ? showAll() : showStep(navMode + 1);
     };
-    navCount.onclick = () => { navMode < 0 ? gotoChange(changeAt, true) : showAll(); };
   }
   function updateNav(){
     ensureNavUi();
     if(!navPill) return;
-    const list = shown ? interList() : [];
+    const list = interList();
     const n = list.length;
     const on = shown && !!curVersion();
-    navPill.style.display = on ? "inline-flex" : "none";
-    if(!on) return;
+    navPill.style.display = "inline-flex";
+    navCount.dataset.compact = navMode < 0 ? String(n) : (navMode + 1) + "/" + n;
+    if(!on){
+      navCount.textContent = "tout · " + n;
+      navCount.title = n ? n + " intervention" + (n > 1 ? "s" : "") + " disponible" : "Aucune intervention";
+      navPrev.disabled = true;
+      navNext.disabled = true;
+      return;
+    }
     if(navMode < 0){
       navCount.textContent = "tout · " + n;
       navCount.title = n + " intervention" + (n > 1 ? "s" : "") + " depuis la base — ‹ pour les revoir une à une · cliquer : recentrer";
@@ -736,7 +795,7 @@ window.DiffVersions = function(opts){
       : null;
     shown = next;
     els.tag.classList.toggle("on", shown);
-    if(els.restore) els.restore.style.display = shown ? "" : "none";
+    if(els.restore){ els.restore.style.display = ""; els.restore.disabled = !shown; }
     if(shown){
       navMode = -1;
       render();
@@ -751,7 +810,7 @@ window.DiffVersions = function(opts){
       if(typeof cm.hideMergeDiff === "function") cm.hideMergeDiff();
       cm.setOption("readOnly", false); cm.refresh(); notify("");
       changePts = [];
-      if(navPill) navPill.style.display = "none";
+      updateNav();
       if(flashLine != null){ try{ cm.removeLineClass(flashLine, "wrap", "dv-flash"); }catch(e){} flashLine = null; }
       const restoreViewport = () => {
         if(shown || !viewportAnchor) return;
@@ -806,40 +865,41 @@ window.DiffVersions = function(opts){
     fetchHead().then(refreshGutter);
   }
 
-  // ---- commit rapide du fichier courant (sobre : hérite du style des boutons
-  // de la barre ; visible seulement quand le fichier diffère de HEAD) ----
+  // ---- commit rapide du fichier courant : empreinte permanente, état désactivé
+  // sans diff, point bleu-gris lorsque le fichier diffère de HEAD. ----
   let commitBtn = null, commitPop = null;
   function ensureCommitUi(){
     if(commitBtn || !els.group) return;
     commitBtn = document.createElement("button");
     commitBtn.id = "dvCommit";
-    commitBtn.style.display = "none";
-    commitBtn.innerHTML = '<svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"><circle cx="8" cy="8" r="2.6"/><path d="M8 1.5v4M8 10.5v4"/></svg>';
-    // ordre : ± · commit · historique
-    if(histBtn) els.group.insertBefore(commitBtn, histBtn);
-    else els.group.appendChild(commitBtn);
+    commitBtn.disabled = true;
+    commitBtn.setAttribute("aria-label", "Committer le fichier courant");
+    commitBtn.innerHTML = '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.45" stroke-linecap="round" aria-hidden="true"><path d="M1.5 8h4M10.5 8h4"/><circle cx="8" cy="8" r="2.7"/><circle cx="8" cy="8" r=".75" fill="currentColor" stroke="none"/></svg>';
+    // L'ordre visuel est fixé par CSS : commit | navigation | restore | historique.
+    els.group.insertBefore(commitBtn, navPill || els.restore || histBtn || null);
     commitPop = document.createElement("div");
-    commitPop.style.cssText = "position:fixed;z-index:400;display:none;flex-direction:column;gap:8px;width:320px;"
-      + "background:rgba(24,27,34,.98);border:1px solid #3a4150;border-radius:10px;padding:12px;"
-      + "box-shadow:0 14px 48px rgba(0,0,0,.55);font-size:13px";
+    commitPop.id = "dvCommitPop";
+    commitPop.style.display = "none";
+    commitPop.setAttribute("role", "dialog");
+    commitPop.setAttribute("aria-label", "Committer le fichier courant");
     const name = path.split("/").pop();
     commitPop.innerHTML =
-      '<div style="font-size:11px;letter-spacing:.05em;text-transform:uppercase;opacity:.55">Commit — ' + name + '</div>'
-      + '<textarea rows="2" style="width:100%;box-sizing:border-box;background:transparent;border:1px solid #3a4150;'
-      + 'border-radius:6px;color:inherit;font:inherit;font-size:12px;line-height:1.5;padding:6px 8px;resize:none;outline:none"></textarea>'
-      + '<div style="display:flex;align-items:center;gap:8px">'
-      + '<span style="font-size:10px;opacity:.45;margin-right:auto">ce fichier seulement · &#9166; valider · &#8963; fermer</span>'
-      + '<button data-act="ai" title="Message proposé par Haiku à partir du diff" style="background:transparent;'
-      + 'border:1px solid #3a4150;border-radius:6px;color:inherit;font:inherit;font-size:11px;padding:4px 10px;'
-      + 'cursor:pointer;opacity:.75">Message IA</button>'
-      + '<button data-act="do" style="background:transparent;border:1px solid #3a4150;border-radius:6px;color:inherit;'
-      + 'font:inherit;font-size:11px;font-weight:500;padding:4px 12px;cursor:pointer">Commit</button></div>';
+      '<div class="dvCommitHead"><div class="dvCommitTitle"><span>Commit</span><strong>' + name + '</strong></div>'
+      + '<button type="button" class="dvCommitClose" data-act="close" aria-label="Fermer" title="Fermer">'
+      + '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M3 3l10 10M13 3L3 13"/></svg></button></div>'
+      + '<textarea id="dvCommitText" rows="3" aria-label="Message de commit" placeholder="Décris le changement ou génère un message avec l’IA"></textarea>'
+      + '<div class="dvCommitFoot"><span class="dvCommitHint">Ce fichier seulement · ↵ valider · esc fermer</span>'
+      + '<div class="dvCommitActions"><button type="button" class="dvCommitBtn dvCommitAi" data-act="ai" title="Générer depuis le diff du fichier">'
+      + '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.35" stroke-linecap="round" stroke-linejoin="round"><path d="M8 1.5l.8 2.7L11.5 5l-2.7.8L8 8.5l-.8-2.7L4.5 5l2.7-.8L8 1.5zM12.5 9l.55 1.45 1.45.55-1.45.55L12.5 13l-.55-1.45L10.5 11l1.45-.55L12.5 9z"/></svg><span>Générer</span></button>'
+      + '<button type="button" class="dvCommitBtn dvCommitDo" data-act="do" disabled>Commit</button></div></div>';
     document.body.appendChild(commitPop);
     const ta = commitPop.querySelector("textarea");
     const closePop = () => { commitPop.style.display = "none"; };
+    const doBtn = commitPop.querySelector('[data-act="do"]');
+    const syncCommitState = () => { doBtn.disabled = !ta.value.trim(); };
     async function doCommit(){
       const message = ta.value.trim();
-      if(!message) return;
+      if(!message){ ta.focus(); return; }
       closePop();
       notify("commit en cours…");
       try{
@@ -858,32 +918,30 @@ window.DiffVersions = function(opts){
       const rc = commitBtn.getBoundingClientRect();
       commitPop.style.display = "flex";
       commitPop.style.top = (rc.bottom + 8) + "px";
-      commitPop.style.left = Math.max(8, Math.min(rc.left, window.innerWidth - 336)) + "px";
-      const auto = "maj " + name;
-      ta.value = auto;
-      ta.focus(); ta.select();
-      // message Haiku en arrière-plan : ne remplace que si l'utilisateur n'a pas touché
-      const seq = ++aiSeq;
-      fetch("/commitmsg?path=" + encodeURIComponent(path))
-        .then(r => r.json())
-        .then(j => {
-          if(seq !== aiSeq || commitPop.style.display === "none") return;
-          if(j && j.ok && j.msg && ta.value === auto){ ta.value = j.msg; ta.select(); }
-        })
-        .catch(() => {});
+      commitPop.style.left = Math.max(8, Math.min(rc.left, window.innerWidth - Math.min(398, window.innerWidth - 8))) + "px";
+      ta.value = "";
+      syncCommitState();
+      ta.focus();
     };
-    commitPop.querySelector('[data-act="do"]').onclick = doCommit;
+    doBtn.onclick = doCommit;
+    commitPop.querySelector('[data-act="close"]').onclick = closePop;
     const aiBtn = commitPop.querySelector('[data-act="ai"]');
+    const aiLabel = aiBtn.querySelector("span");
     aiBtn.onclick = async () => {
-      aiBtn.disabled = true; aiBtn.textContent = "…";
+      const seq = ++aiSeq;
+      aiBtn.disabled = true; aiLabel.textContent = "Génération…";
       try{
         const r = await fetch("/commitmsg?path=" + encodeURIComponent(path));
         const j = await r.json();
-        if(j && j.ok && j.msg){ ta.value = j.msg; ta.focus(); ta.select(); }
-        else notify("pas de proposition (fichier sans diff ?)");
+        if(seq !== aiSeq || commitPop.style.display === "none") return;
+        if(j && j.ok && (j.title || j.msg)){
+          ta.value = [j.title || j.msg, j.description || ""].filter(Boolean).join("\n\n");
+          syncCommitState(); ta.focus(); ta.setSelectionRange(0, 0); ta.scrollTop = 0;
+        } else notify("proposition impossible : " + ((j && j.error) || "aucun diff à résumer"));
       }catch(e){ notify("proposition impossible : " + e.message); }
-      aiBtn.disabled = false; aiBtn.textContent = "Message IA";
+      finally { aiBtn.disabled = false; aiLabel.textContent = "Générer"; }
     };
+    ta.addEventListener("input", syncCommitState);
     ta.addEventListener("keydown", (e) => {
       if(e.key === "Enter" && !e.shiftKey){ e.preventDefault(); doCommit(); }
       if(e.key === "Escape"){ e.stopPropagation(); closePop(); }
@@ -895,19 +953,12 @@ window.DiffVersions = function(opts){
   function updateCommitBtn(blocks){
     ensureCommitUi();
     if(!commitBtn) return;
-    commitBtn.style.display = blocks > 0 ? "" : "none";
+    commitBtn.style.display = "";
+    commitBtn.disabled = blocks <= 0;
+    commitBtn.classList.toggle("has-changes", blocks > 0);
     commitBtn.title = blocks > 0
       ? "Committer " + path.split("/").pop() + " — " + blocks + " bloc" + (blocks > 1 ? "s" : "") + " modifié" + (blocks > 1 ? "s" : "") + " depuis HEAD" + (headSha ? " (" + headSha + ")" : "")
-      : "";
-    // compteur discret de blocs modifiés à côté de l'icône ±
-    let c = els.tag.querySelector(".dv-count");
-    if(!c){
-      c = document.createElement("span");
-      c.className = "dv-count";
-      c.style.cssText = "font-size:10px;opacity:.6;margin-left:4px;font-variant-numeric:tabular-nums";
-      els.tag.appendChild(c);
-    }
-    c.textContent = blocks > 0 ? String(blocks) : "";
+      : "Aucune modification Git à committer pour ce fichier";
   }
 
   // ---- historique : commits du fichier + sauvegardes de session, avec
@@ -963,7 +1014,8 @@ window.DiffVersions = function(opts){
     histBtn = document.createElement("button");
     histBtn.id = "dvHist";
     histBtn.title = "Historique du fichier — commits et sauvegardes de session";
-    histBtn.innerHTML = '<svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"><circle cx="8" cy="8" r="6"/><path d="M8 4.5V8l2.4 1.6"/></svg>';
+    histBtn.setAttribute("aria-label", "Historique du fichier");
+    histBtn.innerHTML = '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.45" stroke-linecap="round" aria-hidden="true"><circle cx="8" cy="8" r="6"/><path d="M8 4.4V8l2.5 1.7"/></svg>';
     els.group.appendChild(histBtn);
     histPop = document.createElement("div");
     histPop.style.cssText = "position:fixed;z-index:400;display:none;flex-direction:column;width:400px;max-height:60vh;"
@@ -1232,6 +1284,20 @@ window.DiffVersions = function(opts){
       return true;
     }catch(e){ return false; /* serveur sans /githead ou hors dépôt */ }
   }
+
+  // Construire immédiatement le chrome stable, même avant le chargement de HEAD.
+  // Les états natifs disabled indiquent ce qui est disponible sans déplacer rien.
+  ensureNavUi();
+  ensureCommitUi();
+  ensureHistUi();
+  if(els.restore){
+    els.restore.style.display = "";
+    els.restore.disabled = true;
+    els.restore.setAttribute("aria-label", "Rétablir la version affichée");
+    if(!els.restore.querySelector("svg"))
+      els.restore.innerHTML = '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.45" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5.2 4H2V.8"/><path d="M2.2 4A6.1 6.1 0 1 1 2.6 11"/></svg>';
+  }
+  updateNav();
 
   els.tag.onclick = () => toggle();
   if(els.prev) els.prev.onclick = () => {};

@@ -1,8 +1,8 @@
 (function(){
-  try{ var m=(location.hash||'').match(/atelier_nonce=([\w-]+)/); if(m) sessionStorage.setItem('atelier_nonce', m[1]); }catch(e){}
+  try{ var m=(location.hash||'').match(/atelier_nonce=([\w-]+)/); if(m){ sessionStorage.setItem('atelier_nonce', m[1]); window.__atelierNonce = m[1]; } }catch(e){}
   /* nonce IPC : inclus dans chaque message vers l'app hôte ; l'app rejette sans lui */
   window.__atelierPost = function(p){
-    try{ p = Object.assign({}, p, {nonce: sessionStorage.getItem('atelier_nonce')||''}); }catch(e){}
+    try{ p = Object.assign({}, p, {nonce: (window.__atelierNonce || sessionStorage.getItem('atelier_nonce') || '')}); }catch(e){}
     try{ window.top.postMessage(p, '*'); }catch(e){}
   };
 })();
@@ -188,8 +188,19 @@
       if (!stroke.n) stroke.n = strokes.filter(function(s){ return s.n; }).length + 1;
       note.querySelector('.nb').textContent = stroke.n;
       note.style.display = 'flex';
-      note.style.left = Math.min(cx, window.innerWidth - 480) + 'px';
-      note.style.top = Math.min(cy + 14, window.innerHeight - 70) + 'px';
+      // positionnement adaptatif : sous le point par défaut, basculé à gauche /
+      // au-dessus quand la place manque (la carte grandit avec le textarea)
+      var place = function(){
+        var w = note.offsetWidth, h = note.offsetHeight;
+        var W = window.innerWidth, H = window.innerHeight;
+        var left = cx;
+        if (left + w > W - 8) left = Math.max(8, cx - w);
+        var top = cy + 14;
+        if (top + h > H - 8) top = cy - h - 14;
+        if (top < 8) top = Math.max(8, H - h - 8);
+        note.style.left = left + 'px'; note.style.top = top + 'px';
+      };
+      place();
       inp.value = stroke.note || ''; inp.focus(); inp.select();
       redraw();
       var close = function(){ note.style.display = 'none'; redraw(); };
@@ -212,7 +223,7 @@
         renumber(); close();
       };
       note.querySelector('.anSave').onclick = function(e){ e.stopPropagation(); save(); };
-      inp.oninput = function(){ inp.style.height = '20px'; inp.style.height = Math.min(120, inp.scrollHeight) + 'px'; };
+      inp.oninput = function(){ inp.style.height = '20px'; inp.style.height = Math.min(120, inp.scrollHeight) + 'px'; place(); };
       inp.oninput();
       inp.onkeydown = function(e){
         e.stopPropagation();

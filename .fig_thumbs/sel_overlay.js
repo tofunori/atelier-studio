@@ -1,8 +1,8 @@
 (function(){
-  try{ var m=(location.hash||'').match(/atelier_nonce=([\w-]+)/); if(m) sessionStorage.setItem('atelier_nonce', m[1]); }catch(e){}
+  try{ var m=(location.hash||'').match(/atelier_nonce=([\w-]+)/); if(m){ sessionStorage.setItem('atelier_nonce', m[1]); window.__atelierNonce = m[1]; } }catch(e){}
   /* nonce IPC : inclus dans chaque message vers l'app hôte ; l'app rejette sans lui */
   window.__atelierPost = function(p){
-    try{ p = Object.assign({}, p, {nonce: sessionStorage.getItem('atelier_nonce')||''}); }catch(e){}
+    try{ p = Object.assign({}, p, {nonce: (window.__atelierNonce || sessionStorage.getItem('atelier_nonce') || '')}); }catch(e){}
     try{ window.top.postMessage(p, '*'); }catch(e){}
   };
 })();
@@ -68,16 +68,33 @@ function __ct(){try{return JSON.parse(localStorage.getItem('claudeTargetV1')||'n
   document.body.appendChild(tgMenu);
 
   var selText = '', selRect = null, tmr = 0;
+  var api = null;
 
-  function place(el, rect){
-    el.style.display = 'flex';
-    var w = el.offsetWidth, h = el.offsetHeight;
-    var x = Math.min(Math.max(8, rect.left + rect.width/2 - w/2), innerWidth - w - 8);
-    var y = rect.bottom + 10;
-    if (y + h > innerHeight - 8) y = rect.top - h - 10;
-    el.style.left = x + 'px'; el.style.top = Math.max(8, y) + 'px';
-  }
   function hideAll(){ pill.style.display = 'none'; }
+
+  // comportement partagé de la pilule (restyle Studio « Add to chat », picker
+  // de cible, /quote direct, Entrée/Échap) : SelPill, chargé depuis la galerie
+  // comme annot_kit — les rapports vivent n'importe où dans l'arbre projet
+  function initPill(){
+    api = window.SelPill.attach({
+      pill: pill, menu: tgMenu,
+      getQuote: function(){ return selText ? {rel: REL, page: '', text: selText} : null; },
+      onCancel: function(){
+        selText = '';
+        try{ window.getSelection().removeAllRanges(); }catch(e){}
+        hideAll();
+        pushSel('');
+      }
+    });
+  }
+  if (window.SelPill) initPill();
+  else {
+    var ps = document.createElement('script');
+    ps.src = '/.fig_thumbs/sel_pill.js';
+    ps.onload = initPill;
+    ps.onerror = function(){ console.warn('sel_pill load failed'); };
+    document.head.appendChild(ps);
+  }
 
   function pushSel(text){
     try{
@@ -99,97 +116,11 @@ function __ct(){try{return JSON.parse(localStorage.getItem('claudeTargetV1')||'n
       selText = t;
       selRect = s.getRangeAt(0).getBoundingClientRect();
       pushSel(t);
-      place(pill, selRect);
+      if (api) api.placeAt(selRect);
     }, 180);
   });
 
-  // clicks on the bar must not destroy the selection — except the textarea, which needs focus
-  pill.addEventListener('mousedown', function(e){ if (e.target !== pillTa) e.preventDefault(); });
-  // Mode Studio : pilule simple « Add to chat » (comme la sélection du chat) —
-  // pas de commentaire ni corbeille, le texte part en puce dans le composer.
-  if (EMBEDDED){
-    var __go = pill.querySelector('.go');
-    ['textarea','.del','.tgt','.nb'].forEach(function(sel){
-      var el = pill.querySelector(sel); if (el) el.style.display = 'none';
-    });
-    pill.style.cssText += ';background:transparent;border:none;box-shadow:none;padding:0;min-width:0;width:auto';
-    if (__go){ __go.innerHTML = '<svg width=\'13\' height=\'13\' viewBox=\'0 0 16 16\' fill=\'none\' stroke=\'currentColor\' stroke-width=\'1.3\' style=\'vertical-align:-2px\'><path d=\'M14 8c0 3-2.7 5.2-6 5.2-.8 0-1.6-.1-2.3-.4L2.5 14l1-2.6C2.6 10.5 2 9.3 2 8c0-3 2.7-5.2 6-5.2S14 5 14 8z\'/></svg>&nbsp; Add to chat';
-      __go.style.cssText = 'width:auto;min-width:0;height:auto;border-radius:999px;padding:7px 14px;font-size:13px;white-space:nowrap;background:#2c313a;color:#dbdfe5;border:1px solid #3a414d;box-shadow:0 6px 18px rgba(0,0,0,0.5);cursor:pointer'; }
-  }
-
-
-
-  function send(){
-    var go = pill.querySelector('.go');
-    var comment = pillTa.value.trim();
-    go.textContent = '⏳';
-    fetch('/quote', {method:'POST', headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({rel: REL, page: '', text: selText, comment: comment || '', direct: true, target: __ct(), embed: EMBEDDED})})
-      .then(function(r){ return r.json(); })
-      .then(function(j){ if (EMBEDDED && j && j.message) __atelierPost({type: 'atelier-add-to-chat', text: j.message});
-        go.textContent = '✓'; setTimeout(function(){ go.textContent = '↑'; pillTa.value = ''; hideAll(); }, 1200); })
-      .catch(function(){ go.textContent = '!'; setTimeout(function(){ go.textContent = '↑'; }, 1600); });
-  }
-
-  function cancel(){
-    selText = '';
-    pillTa.value = '';
-    try{ window.getSelection().removeAllRanges(); }catch(e){}
-    hideAll();
-    pushSel('');
-  }
-
-  pill.querySelector('.go').addEventListener('click', function(){ send(); });
-  pill.querySelector('.del').addEventListener('click', function(e){ e.stopPropagation(); cancel(); });
-  pillTa.addEventListener('input', function(){ pillTa.style.height = '20px'; pillTa.style.height = Math.min(120, pillTa.scrollHeight) + 'px'; });
-  pillTa.addEventListener('keydown', function(e){
-    e.stopPropagation();
-    if (e.key === 'Enter' && !e.shiftKey){ e.preventDefault(); send(); }
-    else if (e.key === 'Escape'){ e.preventDefault(); cancel(); }
-  });
-
-  /* ---- Claude-session target picker (stores localStorage 'claudeTargetV1') ---- */
-  (function(){
-    function esc(s){ return String(s).replace(/[&<>"]/g, function(c){
-      return { '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;' }[c]; }); }
-    var tgtBtn = pill.querySelector('.tgt');
-    if (EMBEDDED) tgtBtn.style.display = 'none';
-    function markTgt(){ tgtBtn.classList.toggle('set', !!__ct()); }
-    markTgt();
-    tgMenu.addEventListener('mousedown', function(e){ e.preventDefault(); });   // keep selection
-    tgtBtn.addEventListener('click', function(e){
-      e.stopPropagation();
-      var cur = __ct();
-      var html = '<div class="hd">Envoyer vers</div>'
-        + '<div class="it' + (cur ? '' : ' on') + '" data-i="-1"><span class="app">auto</span>'
-        + '<span class="t">Session du projet (auto)</span></div>';
-      fetch('/claude-targets').then(function(r){ return r.json(); }).then(function(j){
-        (j.targets || []).forEach(function(t, i){
-          var on = cur && cur.app === t.app && cur.id === t.id;
-          html += '<div class="it' + (on ? ' on' : '') + '" data-i="' + i + '"><span class="app">'
-            + esc(t.app) + '</span><span class="t">' + esc(t.title || t.id)
-            + (t.inProject ? '' : ' — ' + esc(String(t.cwd || '').split('/').pop())) + '</span></div>';
-        });
-        tgMenu.innerHTML = html;
-        tgMenu.style.display = 'flex';
-        var r = tgtBtn.getBoundingClientRect();
-        tgMenu.style.left = Math.max(8, Math.min(r.left - 120, innerWidth - tgMenu.offsetWidth - 8)) + 'px';
-        tgMenu.style.top = Math.max(8, r.top - tgMenu.offsetHeight - 10) + 'px';
-        tgMenu.querySelectorAll('.it').forEach(function(it){
-          it.addEventListener('click', function(ev){
-            ev.stopPropagation();
-            var i = +it.dataset.i;
-            if (i < 0) localStorage.removeItem('claudeTargetV1');
-            else localStorage.setItem('claudeTargetV1', JSON.stringify(
-              { app: j.targets[i].app, id: j.targets[i].id, title: j.targets[i].title }));
-            markTgt(); tgMenu.style.display = 'none';
-          });
-        });
-        document.addEventListener('click', function h(){ tgMenu.style.display = 'none'; document.removeEventListener('click', h); });
-      }).catch(function(err){ console.warn('claude-targets failed', err); });
-    });
-  })();
-  document.addEventListener('keydown', function(e){ if (e.key === 'Escape') cancel(); });
+  document.addEventListener('keydown', function(e){ if (e.key === 'Escape' && api) api.cancel(); });
 
   /* ---- drawn-annotation mode (shared AnnotKit over the whole document) ---- */
   var akBtnCss = '#csel-annot-btn{position:fixed;right:16px;bottom:16px;z-index:901;width:40px;height:40px;'

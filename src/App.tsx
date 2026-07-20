@@ -1548,6 +1548,18 @@ export default function App() {
       if (msg.type === "gitDiff") {
         window.dispatchEvent(new CustomEvent("git-diff", { detail: msg }));
       }
+      if (msg.type === "gitLog") {
+        window.dispatchEvent(new CustomEvent("git-log", { detail: msg }));
+      }
+      if (msg.type === "gitCommitDetails") {
+        window.dispatchEvent(new CustomEvent("git-commit-details", { detail: msg }));
+      }
+      if (msg.type === "gitCommitFileDiff") {
+        window.dispatchEvent(new CustomEvent("git-commit-file-diff", { detail: msg }));
+      }
+      if (msg.type === "gitHistoryActionDone") {
+        window.dispatchEvent(new CustomEvent("git-history-action", { detail: msg }));
+      }
       if (msg.type === "gitCommitError") {
         window.dispatchEvent(new CustomEvent("git-commit-error", { detail: msg }));
       }

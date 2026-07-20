@@ -53,6 +53,51 @@ function tempGitEnv(indexFile) {
   };
 }
 
+function assertSha(sha) {
+  const value = String(sha ?? "");
+  if (!/^[0-9a-f]{4,64}$/i.test(value)) throw new Error("sha invalide");
+  return value;
+}
+
+async function resolveHead(root) {
+  const { stdout } = await git(root, ["rev-parse", "HEAD"]);
+  return stdout.trim();
+}
+
+async function assertExpectedHead(root, expectedHead) {
+  const head = await resolveHead(root);
+  if (expectedHead && head !== assertSha(expectedHead)) {
+    throw new Error("opération refusée : HEAD a changé, actualise l’historique");
+  }
+  return head;
+}
+
+async function assertClean(root) {
+  if ((await status(root)).files.length) {
+    throw new Error("opération refusée : l’arbre de travail doit être propre");
+  }
+}
+
+async function upstreamSha(root) {
+  try { return (await git(root, ["rev-parse", "--verify", "@{upstream}"])).stdout.trim(); }
+  catch { return null; }
+}
+
+async function isAncestor(root, ancestor, descendant) {
+  try { await git(root, ["merge-base", "--is-ancestor", ancestor, descendant]); return true; }
+  catch { return false; }
+}
+
+function parseCommitRecords(output) {
+  return String(output ?? "").split("\x1e").filter(Boolean).map((record) => {
+    const [sha, shortSha, parents, author, authorEmail, authoredAt, subject, decorations] = record.replace(/^\n/, "").split("\x1f");
+    return {
+      sha, shortSha, parents: parents ? parents.split(" ") : [], author, authorEmail, authoredAt, subject,
+      decorations: decorations ? decorations.split(", ").filter(Boolean) : [],
+    };
+  }).filter((commit) => /^[0-9a-f]{40,64}$/i.test(commit.sha));
+}
+
 function parseStatus(output) {
   const result = { branch: null, branches: [], ahead: 0, behind: 0, files: [] };
   const records = output.split("\0").filter(Boolean);
@@ -163,6 +208,139 @@ export async function status(root) {
     } catch {}
   }
   return parsed;
+}
+
+export async function log(root, { all = false, skip = 0, limit = 50, query = "" } = {}) {
+  const realRoot = confinedRoot(root);
+  await ensureRepo(realRoot);
+  const pageSize = Math.max(1, Math.min(100, Number(limit) || 50));
+  const offset = Math.max(0, Number(skip) || 0);
+  const args = [
+    "log", "--topo-order", `--max-count=${pageSize + 1}`, `--skip=${offset}`,
+    "--format=%x1e%H%x1f%h%x1f%P%x1f%an%x1f%ae%x1f%aI%x1f%s%x1f%D",
+  ];
+  const search = String(query ?? "").trim().slice(0, 200);
+  if (search) args.push("--regexp-ignore-case", `--grep=${search}`);
+  if (all) args.push("--all");
+  const commits = parseCommitRecords((await git(realRoot, args)).stdout);
+  return { commits: commits.slice(0, pageSize), hasMore: commits.length > pageSize, skip: offset };
+}
+
+export async function commitDetails(root, sha) {
+  const realRoot = confinedRoot(root);
+  await ensureRepo(realRoot);
+  const commit = assertSha(sha);
+  await git(realRoot, ["cat-file", "-e", `${commit}^{commit}`]);
+  const metadata = parseCommitRecords((await git(realRoot, [
+    "show", "-s", "--format=%x1e%H%x1f%h%x1f%P%x1f%an%x1f%ae%x1f%aI%x1f%s%x1f%D", commit,
+  ])).stdout)[0];
+  const body = (await git(realRoot, ["show", "-s", "--format=%B", commit])).stdout.trim();
+  const names = (await git(realRoot, ["diff-tree", "--root", "--no-commit-id", "--name-status", "-r", "-M", commit])).stdout;
+  const files = names.split(/\r?\n/).filter(Boolean).map((line) => {
+    const [statusCode, ...paths] = line.split("\t");
+    return { status: statusCode, path: paths.at(-1) ?? "", previousPath: paths.length > 1 ? paths[0] : undefined };
+  });
+  const diff = (await git(realRoot, ["show", "--no-ext-diff", "--no-color", "--format=", "--binary", commit])).stdout;
+  const head = await resolveHead(realRoot);
+  const upstream = await upstreamSha(realRoot);
+  return {
+    ...metadata, body, files, diff, head, upstream,
+    isHead: head === metadata.sha,
+    isPublished: upstream ? await isAncestor(realRoot, metadata.sha, upstream) : false,
+  };
+}
+
+/** Exact before/after documents for one file in a historical commit. */
+export async function commitFileContents(root, sha, filePath, previousPath = null) {
+  const realRoot = confinedRoot(root);
+  await ensureRepo(realRoot);
+  const commit = assertSha(sha);
+  const rel = assertRelativePath(realRoot, filePath);
+  const previousRel = previousPath ? assertRelativePath(realRoot, previousPath) : rel;
+  await git(realRoot, ["cat-file", "-e", `${commit}^{commit}`]);
+  const parents = (await git(realRoot, ["show", "-s", "--format=%P", commit])).stdout.trim().split(/\s+/).filter(Boolean);
+  const beforeBytes = parents[0] ? await gitObject(realRoot, `${parents[0]}:${previousRel}`) : Buffer.alloc(0);
+  const afterBytes = await gitObject(realRoot, `${commit}:${rel}`);
+  const before = decodedDiffContent(beforeBytes);
+  const after = decodedDiffContent(afterBytes);
+  return { before: before.text, after: after.text, binary: before.binary || after.binary };
+}
+
+export async function createBranchAt(root, branch, sha) {
+  const realRoot = confinedRoot(root);
+  await ensureRepo(realRoot);
+  await assertClean(realRoot);
+  const commit = assertSha(sha);
+  const name = String(branch ?? "").trim();
+  await git(realRoot, ["check-ref-format", "--branch", name]);
+  await git(realRoot, ["cat-file", "-e", `${commit}^{commit}`]);
+  await git(realRoot, ["switch", "-c", name, commit]);
+  return name;
+}
+
+export async function restoreFileFromCommit(root, sha, filePath, expectedHead = null) {
+  const realRoot = confinedRoot(root);
+  await ensureRepo(realRoot);
+  await assertClean(realRoot);
+  await assertExpectedHead(realRoot, expectedHead);
+  const commit = assertSha(sha);
+  const rel = assertRelativePath(realRoot, filePath);
+  await git(realRoot, ["cat-file", "-e", `${commit}^{commit}`]);
+  await git(realRoot, ["restore", `--source=${commit}`, "--worktree", "--", rel]);
+  return rel;
+}
+
+export async function revertCommit(root, sha, expectedHead = null) {
+  const realRoot = confinedRoot(root);
+  await ensureRepo(realRoot);
+  await assertClean(realRoot);
+  await assertExpectedHead(realRoot, expectedHead);
+  const commit = assertSha(sha);
+  const parents = (await git(realRoot, ["show", "-s", "--format=%P", commit])).stdout.trim().split(/\s+/).filter(Boolean);
+  if (parents.length > 1) throw new Error("revert d’un commit de fusion non pris en charge");
+  try { await git(realRoot, ["revert", "--no-edit", commit]); }
+  catch (error) { try { await git(realRoot, ["revert", "--abort"]); } catch {} throw error; }
+  return resolveHead(realRoot);
+}
+
+export async function undoLastCommit(root, expectedHead = null) {
+  const realRoot = confinedRoot(root);
+  await ensureRepo(realRoot);
+  await assertClean(realRoot);
+  const head = await assertExpectedHead(realRoot, expectedHead);
+  const upstream = await upstreamSha(realRoot);
+  if (upstream && await isAncestor(realRoot, head, upstream)) {
+    throw new Error("annulation refusée : ce commit est déjà publié, utilise Revert");
+  }
+  await git(realRoot, ["rev-parse", "--verify", "HEAD^"]);
+  await git(realRoot, ["reset", "--mixed", "HEAD^"]);
+  return resolveHead(realRoot);
+}
+
+export async function resetToCommit(root, sha, mode = "mixed", expectedHead = null) {
+  const realRoot = confinedRoot(root);
+  await ensureRepo(realRoot);
+  await assertClean(realRoot);
+  const head = await assertExpectedHead(realRoot, expectedHead);
+  const commit = assertSha(sha);
+  const resetMode = ["soft", "mixed", "hard"].includes(mode) ? mode : null;
+  if (!resetMode) throw new Error("mode reset invalide");
+  await git(realRoot, ["cat-file", "-e", `${commit}^{commit}`]);
+  const upstream = await upstreamSha(realRoot);
+  if (upstream && !(await isAncestor(realRoot, upstream, commit))) {
+    throw new Error("reset refusé avant le dernier commit publié, utilise Revert");
+  }
+  const safetyRef = `refs/atelier/safety/reset-${Date.now()}`;
+  await git(realRoot, ["update-ref", safetyRef, head]);
+  await git(realRoot, ["reset", `--${resetMode}`, commit]);
+  return { head: await resolveHead(realRoot), safetyRef };
+}
+
+export async function fetchAll(root) {
+  const realRoot = confinedRoot(root);
+  await ensureRepo(realRoot);
+  const { stdout, stderr } = await git(realRoot, ["fetch", "--all", "--prune"]);
+  return (stdout + stderr).trim();
 }
 
 export async function switchBranch(root, branch) {

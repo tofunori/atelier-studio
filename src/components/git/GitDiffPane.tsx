@@ -1,17 +1,8 @@
 import { lazy, Suspense } from "react";
-import { Columns2Icon, EyeIcon, FileTextIcon, Rows3Icon } from "lucide-react";
+import { Columns2Icon, FileTextIcon, Rows3Icon } from "lucide-react";
 import { t } from "../../lib/i18n";
 import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from "../shadcn/empty";
-import {
-  Sheet,
-  SheetContent,
-  SheetDescription,
-  SheetHeader,
-  SheetTitle,
-  SheetTrigger,
-} from "../shadcn/sheet";
 import { Skeleton } from "../shadcn/skeleton";
-import { Button } from "../ui/Button";
 import { SegmentedControl } from "../ui/SegmentedControl";
 import { diffClass } from "./gitSurfaceModel";
 import type { GitSurfaceController } from "./useGitSurfaceController";
@@ -101,29 +92,5 @@ export function GitDiffPane({ controller }: { controller: GitSurfaceController }
       <DiffHeader controller={controller} />
       <div className="git-diff-pane-body"><DiffBody controller={controller} /></div>
     </section>
-  );
-}
-
-export function GitMobileDiffSheet({ controller }: { controller: GitSurfaceController }) {
-  return (
-    <Sheet>
-      <SheetTrigger
-        disabled={!controller.selected}
-        render={
-          <Button variant="secondary" className="git-mobile-diff-trigger">
-            <EyeIcon data-icon="inline-start" />
-            {t("git.inspect-diff")}
-          </Button>
-        }
-      />
-      <SheetContent side="right" className="git-diff-sheet tw:w-[min(94vw,760px)] tw:max-w-none tw:gap-0">
-        <SheetHeader className="tw:sr-only">
-          <SheetTitle>{t("git.diff-pane")}</SheetTitle>
-          <SheetDescription>{controller.selected?.path ?? t("git.select-file")}</SheetDescription>
-        </SheetHeader>
-        <DiffHeader controller={controller} />
-        <div className="git-diff-pane-body"><DiffBody controller={controller} /></div>
-      </SheetContent>
-    </Sheet>
   );
 }

@@ -9,8 +9,23 @@ use std::sync::Arc;
 
 fn with_file_scope_instruction(prompt: String) -> String {
     format!(
-        "{prompt}\n\n<atelier-file-scope>\nRepository safety policy for the current turn:\n- Treat every pre-existing worktree change as user-owned or owned by another task. Never modify, stage, commit, restore, or delete it.\n- Modify only files directly required by the user's current request. Before expanding scope, stop and ask for approval with the exact paths and reason.\n- Automated, heartbeat, monitoring, status, and wait turns are read-only. If they discover a defect, report it and stop; a standing goal or automation is not permission to patch source files.\n- Never use git add -A, git commit -a, stage all, or commit unrelated changes. Report every path changed by this turn in the final response.\n</atelier-file-scope>"
+        "{prompt}\n\n<atelier-file-scope>\nRepository safety policy for the current turn:\n- Treat every pre-existing worktree change as user-owned or owned by another task. Never modify, stage, commit, restore, or delete it.\n- Modify only files directly required by the user's current request. Before expanding scope, stop and ask for approval with the exact paths and reason.\n- Automated, heartbeat, monitoring, status, and wait turns are read-only. If they discover a defect, report it and stop; a standing goal or automation is not permission to patch source files.\n- Never use git add -A, git commit -a, stage all, or commit unrelated changes.\n- Do not include a file-change summary or mention whether files were modified in the final response.\n</atelier-file-scope>"
     )
+}
+
+pub(crate) fn strip_file_scope_instruction(text: &str) -> String {
+    let mut out = text.to_string();
+    const OPEN: &str = "<atelier-file-scope>";
+    const CLOSE: &str = "</atelier-file-scope>";
+    while let Some(start) = out.find(OPEN) {
+        let Some(rel_end) = out[start + OPEN.len()..].find(CLOSE) else {
+            break;
+        };
+        let end = start + OPEN.len() + rel_end + CLOSE.len();
+        let remove_from = out[..start].trim_end_matches(['\r', '\n']).len();
+        out.replace_range(remove_from..end, "");
+    }
+    out.trim().to_string()
 }
 
 fn with_gallery_tool_instruction(prompt: String, project_root: &str, server_dir: &str) -> String {
@@ -1543,6 +1558,13 @@ mod tests {
             .contains("Automated, heartbeat, monitoring, status, and wait turns are read-only"));
         assert!(enriched.contains("Never use git add -A"));
         assert!(enriched.contains("pre-existing worktree change"));
+        assert!(enriched.contains("Do not include a file-change summary"));
+    }
+
+    #[test]
+    fn file_scope_instruction_is_never_part_of_displayed_history() {
+        let text = "question\n\n<atelier-file-scope>old</atelier-file-scope>\n\n<atelier-file-scope>new</atelier-file-scope>";
+        assert_eq!(strip_file_scope_instruction(text), "question");
     }
 
     #[test]

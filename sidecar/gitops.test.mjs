@@ -308,4 +308,73 @@ describe("gitops", () => {
     const { stdout } = await git(root, ["diff", "--cached", "--name-only"]);
     expect(stdout).toBe("");
   });
+
+  it("pagine le log et retourne les détails et le diff d’un commit", async () => {
+    const root = await makeRepo();
+    writeFileSync(join(root, "tracked file.txt"), "second\n");
+    await git(root, ["add", "."]); await git(root, ["commit", "-m", "second commit"]);
+    const page = await gitops.log(root, { limit: 1 });
+    expect(page.commits).toHaveLength(1); expect(page.hasMore).toBe(true);
+    const details = await gitops.commitDetails(root, page.commits[0].sha);
+    expect(details.subject).toBe("second commit"); expect(details.diff).toContain("+second");
+    expect(details.files).toEqual(expect.arrayContaining([expect.objectContaining({ path: "tracked file.txt" })]));
+    const contents = await gitops.commitFileContents(root, page.commits[0].sha, "tracked file.txt");
+    expect(contents).toEqual({ before: "initial\n", after: "second\n", binary: false });
+  });
+
+  it("restaure un fichier depuis un commit historique sans créer de commit", async () => {
+    const root = await makeRepo(); const old = (await git(root, ["rev-parse", "HEAD"])).stdout.trim();
+    writeFileSync(join(root, "tracked file.txt"), "new\n"); await git(root, ["add", "."]); await git(root, ["commit", "-m", "new"]);
+    const head = (await git(root, ["rev-parse", "HEAD"])).stdout.trim();
+    await gitops.restoreFileFromCommit(root, old, "tracked file.txt", head);
+    expect(readFileSync(join(root, "tracked file.txt"), "utf8")).toBe("initial\n");
+    expect((await gitops.status(root)).files).toHaveLength(1);
+  });
+
+  it("crée une branche historique sans réécrire la branche courante", async () => {
+    const root = await makeRepo(); const old = (await git(root, ["rev-parse", "HEAD"])).stdout.trim();
+    writeFileSync(join(root, "tracked file.txt"), "new\n"); await git(root, ["add", "."]); await git(root, ["commit", "-m", "new"]);
+    await gitops.createBranchAt(root, "inspect-old", old);
+    expect((await gitops.status(root)).branch).toBe("inspect-old");
+    expect(readFileSync(join(root, "tracked file.txt"), "utf8")).toBe("initial\n");
+    expect((await git(root, ["rev-parse", "main"])).stdout.trim()).not.toBe(old);
+  });
+
+  it("annule le dernier commit local en conservant ses changements", async () => {
+    const root = await makeRepo(); writeFileSync(join(root, "tracked file.txt"), "local\n");
+    await git(root, ["add", "."]); await git(root, ["commit", "-m", "local"]); const head = (await git(root, ["rev-parse", "HEAD"])).stdout.trim();
+    await gitops.undoLastCommit(root, head);
+    expect(readFileSync(join(root, "tracked file.txt"), "utf8")).toBe("local\n");
+    expect((await gitops.status(root)).files).toHaveLength(1);
+  });
+
+  it("refuse d’annuler un commit publié et le revert sans réécrire l’historique", async () => {
+    const root = await makeRepo(); writeFileSync(join(root, "tracked file.txt"), "published\n");
+    await git(root, ["add", "."]); await git(root, ["commit", "-m", "published"]); const published = (await git(root, ["rev-parse", "HEAD"])).stdout.trim();
+    await git(root, ["branch", "published-tip", published]); await git(root, ["branch", "--set-upstream-to=published-tip", "main"]);
+    await expect(gitops.undoLastCommit(root, published)).rejects.toThrow(/déjà publié/);
+    const reverted = await gitops.revertCommit(root, published, published);
+    expect(reverted).not.toBe(published);
+    expect(readFileSync(join(root, "tracked file.txt"), "utf8")).toBe("initial\n");
+  });
+
+  it("crée une référence de sécurité avant un reset", async () => {
+    const root = await makeRepo(); const target = (await git(root, ["rev-parse", "HEAD"])).stdout.trim();
+    writeFileSync(join(root, "tracked file.txt"), "later\n"); await git(root, ["add", "."]); await git(root, ["commit", "-m", "later"]); const head = (await git(root, ["rev-parse", "HEAD"])).stdout.trim();
+    const result = await gitops.resetToCommit(root, target, "hard", head);
+    expect(result.safetyRef).toMatch(/^refs\/atelier\/safety\/reset-/);
+    expect((await git(root, ["rev-parse", result.safetyRef])).stdout.trim()).toBe(head);
+  });
+
+  it("refuse un reset avant l’upstream et un HEAD devenu obsolète", async () => {
+    const root = await makeRepo(); const initial = (await git(root, ["rev-parse", "HEAD"])).stdout.trim();
+    writeFileSync(join(root, "tracked file.txt"), "published\n"); await git(root, ["add", "."]); await git(root, ["commit", "-m", "published"]);
+    const published = (await git(root, ["rev-parse", "HEAD"])).stdout.trim();
+    await git(root, ["branch", "published-tip", published]); await git(root, ["branch", "--set-upstream-to=published-tip", "main"]);
+    writeFileSync(join(root, "tracked file.txt"), "local\n"); await git(root, ["add", "."]); await git(root, ["commit", "-m", "local"]);
+    const head = (await git(root, ["rev-parse", "HEAD"])).stdout.trim();
+    await expect(gitops.resetToCommit(root, initial, "hard", head)).rejects.toThrow(/avant le dernier commit publié/);
+    await expect(gitops.resetToCommit(root, published, "mixed", "f".repeat(40))).rejects.toThrow(/HEAD a changé/);
+    expect((await git(root, ["rev-parse", "HEAD"])).stdout.trim()).toBe(head);
+  });
 });

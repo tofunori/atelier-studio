@@ -90,7 +90,11 @@ fn compact_commit_context(diff: &str) -> String {
             "Changed files ({} shown):\n{}\n\nDiff{}:\n{}",
             files.len(),
             files.join("\n"),
-            if truncated { " excerpt (truncated by Atelier)" } else { "" },
+            if truncated {
+                " excerpt (truncated by Atelier)"
+            } else {
+                ""
+            },
             excerpt,
         )
     }

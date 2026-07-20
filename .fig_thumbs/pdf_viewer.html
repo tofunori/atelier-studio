@@ -5,16 +5,18 @@
 <meta charset="utf-8">
 <title>PDF — select and send to Claude</title>
 <script>(function(){
-  try{ var m=(location.hash||'').match(/atelier_nonce=([\w-]+)/); if(m) sessionStorage.setItem('atelier_nonce', m[1]); }catch(e){}
+  try{ var m=(location.hash||'').match(/atelier_nonce=([\w-]+)/); if(m){ sessionStorage.setItem('atelier_nonce', m[1]); window.__atelierNonce = m[1]; } }catch(e){}
   /* nonce IPC : inclus dans chaque message vers l'app hôte ; l'app rejette sans lui */
   window.__atelierPost = function(p){
-    try{ p = Object.assign({}, p, {nonce: sessionStorage.getItem('atelier_nonce')||''}); }catch(e){}
+    try{ p = Object.assign({}, p, {nonce: (window.__atelierNonce || sessionStorage.getItem('atelier_nonce') || '')}); }catch(e){}
     try{ window.top.postMessage(p, '*'); }catch(e){}
   };
 })();</script>
 <script src="/.fig_thumbs/pdfjs/pdf.min.js"></script>
 <script src="annot_kit.js"></script>
+<script src="sel_pill.js"></script>
 <script src="pdf_passage.js"></script>
+<script src="pdf_selection.js"></script>
 <style>
   :root{--ui-font:-apple-system,'SF Pro Text','Inter Variable',sans-serif;--code-font:ui-monospace,'SF Mono',Menlo,monospace;--bg:#202024;--card:#27272a;--card2:#1f1f23;--txt:#dbdfe5;--muted:#a1a1aa;--accent:#5b9dff;--border:#3f3f46}
   body{margin:0;background:var(--bg);color:var(--txt);font-family:var(--ui-font)}
@@ -29,7 +31,7 @@
   .pg canvas{display:block}
   .textLayer{position:absolute;inset:0;overflow:hidden;line-height:1;opacity:1;user-select:none}
   .textLayer span{position:absolute;color:transparent;white-space:pre;transform-origin:0 0;cursor:text}
-  .textLayer span.hl{background:rgba(91,157,255,.45);border-radius:2px}
+  .pdfsel{position:absolute;background:rgba(91,157,255,.45);border-radius:2px;pointer-events:none}
   .textLayer span.auto-hl{background:rgba(255,196,71,.58);border-radius:2px;box-shadow:0 0 0 1px rgba(184,126,20,.22)}
   .pdfhl{position:absolute;border-radius:2px;mix-blend-mode:multiply;cursor:pointer}
   .pdfnote{position:absolute;cursor:pointer;background:#1b1f26;border:1px solid #333a45;
@@ -117,6 +119,7 @@ const targetQuote = (__passageParams.get("quote") || "").slice(0, 900);
 let targetRevealed = false;
 document.getElementById("fname").textContent = rel ? rel.split("/").pop() : "(no file)";
 let selPage = 1;
+let __reloadPdf = null;  // posé par main() — rechargement en place après compile LaTeX
 
 async function main(){
   let pdf;
@@ -163,6 +166,8 @@ async function main(){
   let ZOOM = 1; // 1 = ajusté à la largeur ; +/- multiplient
   let RENDER_Z = 1;
   async function renderAll(){
+    clearHl();
+    selHide();
     RENDER_W = window.innerWidth;
     RENDER_Z = ZOOM;
     const scale = Math.max(0.3, ((window.innerWidth - 28) / 612) * ZOOM);
@@ -172,6 +177,7 @@ async function main(){
     const vp = page.getViewport({scale});
     const div = document.createElement("div");
     div.className = "pg"; div.dataset.page = n;
+    div.dataset.vscale = vp.scale;  // px CSS par unité PDF — requis par le synctex
     div.style.width = vp.width + "px"; div.style.height = vp.height + "px";
     const cv = document.createElement("canvas");
     cv.width = vp.width * devicePixelRatio; cv.height = vp.height * devicePixelRatio;
@@ -199,6 +205,23 @@ async function main(){
   document.getElementById("zIn").onclick = () => setZoom(ZOOM * 1.2);
   document.getElementById("zOut").onclick = () => setZoom(ZOOM / 1.2);
   document.getElementById("zPct").onclick = () => setZoom(1); // retour fit-width
+  // rechargement en place (compile LaTeX) : nouveau document, mêmes annotations —
+  // jeton anti-course : deux getDocument() concurrents peuvent deadlocker le worker
+  let _rlTok = 0;
+  __reloadPdf = async function(){
+    const t = ++_rlTok;
+    try{
+      const doc = await pdfjsLib.getDocument({url: "/" + rel + "?t=" + Date.now(),
+        standardFontDataUrl: "/.fig_thumbs/pdfjs/standard_fonts/",
+        cMapUrl: "/.fig_thumbs/pdfjs/cmaps/", cMapPacked: true}).promise;
+      if(t !== _rlTok) return;
+      pdf = doc;
+      const el = document.scrollingElement || document.documentElement;
+      const st = el.scrollTop;
+      await renderAll();
+      el.scrollTop = st;
+    }catch(e){ console.warn("reloadPdf:", e); }
+  };
   window.addEventListener("keydown", (e) => {
     if (!(e.metaKey || e.ctrlKey)) return;
     if (e.key === "=" || e.key === "+") { e.preventDefault(); setZoom(ZOOM * 1.2); }
@@ -253,11 +276,16 @@ function buildTextLayer(tc, tl, vp){
     if(fontSize <= 0 || w <= 0) continue;
     const s = document.createElement("span");
     s.textContent = item.str;
+    const fontStyle = tc.styles && tc.styles[item.fontName];
+    const fontAscent = window.AtelierPdfSelection.scaledFontAscent(fontStyle, fontSize);
+    const fontHeight = window.AtelierPdfSelection.scaledFontHeight(fontStyle, fontSize);
+    const textTop = tx[5] - fontAscent;
     s.style.left = tx[4] + "px";
-    s.style.top = (tx[5] - fontSize) + "px";
+    s.style.top = textTop + "px";
     s.style.fontSize = fontSize + "px";
     s.style.fontFamily = "sans-serif";
-    s.dataset.l = tx[4]; s.dataset.t = tx[5] - fontSize; s.dataset.r = tx[4] + w;
+    s.dataset.l = tx[4]; s.dataset.t = textTop; s.dataset.r = tx[4] + w;
+    s.dataset.fs = fontSize; s.dataset.fh = fontHeight;
     _measureCtx.font = fontSize + "px sans-serif";
     const nat = _measureCtx.measureText(item.str).width;
     if(nat > 0) s.style.transform = "scaleX(" + (w / nat) + ")";
@@ -293,10 +321,62 @@ function readingOrder(tl, pageW){
 }
 
 const btn = document.getElementById("sendBtn");
-let anchorIdx = null, dragLayer = null, layerSpans = [];
+let dragLayer = null, layerSpans = [], activeSelection = null;
+function clearSelectionRects(){
+  document.querySelectorAll(".pdfsel").forEach(el => el.remove());
+}
 function clearHl(){
-  document.querySelectorAll(".textLayer span.hl").forEach(s=>s.classList.remove("hl"));
+  clearSelectionRects();
+  activeSelection = null;
+  dragLayer = null;
+  layerSpans = [];
   document.getElementById("selinfo").textContent = "";
+}
+function selectionModel(){
+  if(!activeSelection || !window.AtelierPdfSelection) return null;
+  const model = window.AtelierPdfSelection.buildSelection(
+    activeSelection.spans.map(s => s.textContent || ""),
+    activeSelection.anchor,
+    activeSelection.focus
+  );
+  return model ? Object.assign({tl: activeSelection.tl, spans: activeSelection.spans}, model) : null;
+}
+function selectionClientRects(model){
+  const out = [];
+  if(!model) return out;
+  for(const segment of model.segments){
+    const span = model.spans[segment.index];
+    const textNode = span && span.firstChild;
+    if(!textNode || textNode.nodeType !== Node.TEXT_NODE) continue;
+    const range = document.createRange();
+    range.setStart(textNode, segment.start);
+    range.setEnd(textNode, segment.end);
+    for(const rawRect of range.getClientRects()){
+      const rect = window.AtelierPdfSelection.fitRectToFontMetrics(
+        rawRect, parseFloat(span.dataset.fs), parseFloat(span.dataset.fh)
+      );
+      if(rect.width > .25 && rect.height > .25) out.push({rect, span, segment});
+    }
+  }
+  return out;
+}
+function renderSelection(){
+  clearSelectionRects();
+  const model = selectionModel();
+  const entries = selectionClientRects(model);
+  for(const entry of entries){
+    const pg = entry.span.closest(".pg");
+    if(!pg) continue;
+    const pr = pg.getBoundingClientRect(), r = entry.rect;
+    const el = document.createElement("div");
+    el.className = "pdfsel";
+    el.style.left = ((r.left-pr.left)/pr.width*100) + "%";
+    el.style.top = ((r.top-pr.top)/pr.height*100) + "%";
+    el.style.width = (r.width/pr.width*100) + "%";
+    el.style.height = (r.height/pr.height*100) + "%";
+    pg.appendChild(el);
+  }
+  return entries;
 }
 let _selPushT = null;
 function pushSelInfo(lines, words, text){
@@ -308,11 +388,14 @@ function pushSelInfo(lines, words, text){
   }, 150);
 }
 function updateSelInfo(){
-  const hl = [...document.querySelectorAll(".textLayer span.hl")];
-  if(!hl.length) return;
-  const rows = new Set(hl.map(s => s.closest(".pg").dataset.page + ":" + Math.round(parseFloat(s.dataset.t)/4)));
-  const words = hl.map(s => s.textContent).join(" ").trim().split(/\s+/).length;
-  pushSelInfo(rows.size, words, hl.map(s=>s.textContent).join(" ").replace(/\s+/g," ").trim());
+  const model = selectionModel();
+  if(!model) return;
+  const rows = new Set(model.segments.map(segment => {
+    const span = model.spans[segment.index];
+    return span.closest(".pg").dataset.page + ":" + Math.round(parseFloat(span.dataset.t)/4);
+  }));
+  const words = model.text.split(/\s+/).filter(Boolean).length;
+  pushSelInfo(rows.size, words, model.text);
 }
 function spanAt(tl, x, y){
   // span under the pointer, else the nearest one on the same line
@@ -327,6 +410,41 @@ function spanAt(tl, x, y){
   }
   return best;
 }
+function offsetAt(span, x, y){
+  const textNode = span && span.firstChild;
+  if(!textNode || textNode.nodeType !== Node.TEXT_NODE) return 0;
+  const length = textNode.data.length;
+  try{
+    const caret = document.caretRangeFromPoint && document.caretRangeFromPoint(x, y);
+    if(caret && caret.startContainer === textNode)
+      return Math.min(length, Math.max(0, caret.startOffset));
+  }catch(e){}
+  const box = span.getBoundingClientRect();
+  if(x <= box.left) return 0;
+  if(x >= box.right) return length;
+  const boundaryX = offset => {
+    if(offset <= 0) return box.left;
+    if(offset >= length) return box.right;
+    const range = document.createRange();
+    range.setStart(textNode, 0); range.setEnd(textNode, offset);
+    const rect = range.getBoundingClientRect();
+    return rect.width ? rect.right : box.left;
+  };
+  let lo = 0, hi = length;
+  while(lo < hi){
+    const mid = Math.floor((lo + hi) / 2);
+    if(boundaryX(mid) < x) lo = mid + 1;
+    else hi = mid;
+  }
+  const before = Math.max(0, lo - 1);
+  return Math.abs(boundaryX(before) - x) <= Math.abs(boundaryX(lo) - x) ? before : lo;
+}
+function pointAt(tl, x, y){
+  const span = spanAt(tl, x, y);
+  if(!span) return null;
+  const index = layerSpans.indexOf(span);
+  return index < 0 ? null : {index, offset: offsetAt(span, x, y)};
+}
 document.addEventListener("pointerdown", e => {
   if(e.target.closest("#selPill")) return;  // the bar: keep selection
   const tl = e.target.closest(".textLayer");
@@ -336,36 +454,37 @@ document.addEventListener("pointerdown", e => {
   if(!tl) return;
   dragLayer = tl;
   layerSpans = tl._order || [...tl.querySelectorAll("span")].filter(s => s.textContent.trim());
-  const s = spanAt(tl, e.clientX, e.clientY);
-  anchorIdx = s ? layerSpans.indexOf(s) : null;
+  const point = pointAt(tl, e.clientX, e.clientY);
+  if(!point){ dragLayer = null; return; }
+  activeSelection = {tl, spans: layerSpans, anchor: point, focus: point};
   e.preventDefault();
 });
 document.addEventListener("pointermove", e => {
-  if(anchorIdx === null || !dragLayer) return;
-  const s = spanAt(dragLayer, e.clientX, e.clientY);
-  if(!s) return;
-  const i = layerSpans.indexOf(s);
-  const a = Math.min(anchorIdx, i), b = Math.max(anchorIdx, i);
-  layerSpans.forEach((sp, k) => sp.classList.toggle("hl", k >= a && k <= b));
+  if(!activeSelection || !dragLayer) return;
+  const point = pointAt(dragLayer, e.clientX, e.clientY);
+  if(!point) return;
+  activeSelection.focus = point;
+  renderSelection();
   updateSelInfo();
+  e.preventDefault();
 });
 document.addEventListener("pointerup", e => {
-  if(anchorIdx === null || !dragLayer) return;
-  anchorIdx = null;
-  layerSpansLast = layerSpans;
-  const hls = layerSpans.filter(s => s.classList.contains("hl"));
-  if(!hls.length){ dragLayer = null; return; }
+  if(!activeSelection || !dragLayer) return;
+  const point = pointAt(dragLayer, e.clientX, e.clientY);
+  if(point) activeSelection.focus = point;
+  const entries = renderSelection();
+  const model = selectionModel();
+  if(!model || !entries.length){ clearHl(); return; }
   const pg = dragLayer.closest(".pg");
   if(pg) selPage = pg.dataset.page;
   dragLayer = null;
-  layerSpansLast = layerSpans;
-  selPillShow(hls);
+  updateSelInfo();
+  selPillShow(entries);
 });
 function hlText(){
-  const spans = layerSpansLast.filter(s => s.classList.contains("hl"));
-  return spans.map(s => s.textContent).join(" ").replace(/\s+/g, " ").trim();
+  const model = selectionModel();
+  return model ? model.text : "";
 }
-let layerSpansLast = [];
 btn.onclick = async () => {
   const text = hlText();
   btn.textContent = "⏳";
@@ -384,107 +503,31 @@ btn.onclick = async () => {
   setTimeout(()=>document.getElementById("status").textContent="", 3000);
 };
 
-// --- selection pill: annotate + send directly to the Claude session (same flow
-//     as the LaTeX studio pill and the HTML report overlay; /quote with direct:true) ---
+// --- pilule de sélection : comportement partagé via SelPill (sel_pill.js) —
+//     l'hôte fournit le payload (rel/page/texte) et le nettoyage du surlignage
 const selPill = document.getElementById("selPill");
 const selTa = selPill.querySelector("textarea");
-  // Mode Studio : pilule simple « Add to chat » (comme la sélection du chat) —
-  // pas de commentaire ni corbeille, le texte part en puce dans le composer.
-  if (window.self!==window.top){
-    var __go = selPill.querySelector('.go');
-    ['textarea','.del','.tgt','.nb'].forEach(function(sel){
-      var el = selPill.querySelector(sel); if (el) el.style.display = 'none';
-    });
-    selPill.style.cssText += ';background:transparent;border:none;box-shadow:none;padding:0;min-width:0;width:auto';
-    if (__go){ __go.innerHTML = '<svg width=\'13\' height=\'13\' viewBox=\'0 0 16 16\' fill=\'none\' stroke=\'currentColor\' stroke-width=\'1.3\' style=\'vertical-align:-2px\'><path d=\'M14 8c0 3-2.7 5.2-6 5.2-.8 0-1.6-.1-2.3-.4L2.5 14l1-2.6C2.6 10.5 2 9.3 2 8c0-3 2.7-5.2 6-5.2S14 5 14 8z\'/></svg>&nbsp; Add to chat';
-      __go.style.cssText = 'width:auto;min-width:0;height:auto;border-radius:999px;padding:7px 14px;font-size:13px;white-space:nowrap;background:#2c313a;color:#dbdfe5;border:1px solid #3a414d;box-shadow:0 6px 18px rgba(0,0,0,0.5);cursor:pointer'; }
+const selApi = SelPill.attach({
+  pill: selPill,
+  menu: document.getElementById("tgMenu"),
+  getQuote(){ const text = hlText(); return text ? {rel, page: selPage, text} : null; },
+  onCancel(){
+    clearHl();
+    fetch("/selinfo", {method:"POST", headers:{"Content-Type":"application/json"},
+      body: JSON.stringify({lines:0, words:0})}).catch(()=>{});
   }
-
-const __goHTML = (window.self!==window.top && selPill.querySelector('.go')) ? selPill.querySelector('.go').innerHTML : null;
-function goReset(go){ if (__goHTML) go.innerHTML = __goHTML; else go.textContent = "↑"; }
-function selPillShow(hls){
-  const text = hlText();
-  if(!text){ selHide(); return; }
-  // union rect of the highlighted spans (viewport coords)
-  let l = Infinity, r = -Infinity, top = Infinity, bot = -Infinity;
-  hls.forEach(s => { const b = s.getBoundingClientRect();
-    l = Math.min(l, b.left); r = Math.max(r, b.right); top = Math.min(top, b.top); bot = Math.max(bot, b.bottom); });
-  selPill.style.display = "flex";
-  const w = selPill.offsetWidth, h = selPill.offsetHeight;
-  let x = Math.min(Math.max(8, (l + r)/2 - w/2), innerWidth - w - 8);
-  let y = bot + 10;
-  if(y + h > innerHeight - 8) y = top - h - 10;
-  selPill.style.left = x + "px"; selPill.style.top = Math.max(8, y) + "px";
-}
-function selHide(){ selPill.style.display = "none"; }
-function selCancel(){ selHide(); selTa.value = ""; clearHl();
-  fetch("/selinfo", {method:"POST", headers:{"Content-Type":"application/json"},
-    body: JSON.stringify({lines:0, words:0})}).catch(()=>{});
-}
-const __EMB=(function(){try{return window.self!==window.top;}catch(e){return true;}})();
-function selSend(){
-  const text = hlText();
-  if(!text) return;
-  const comment = selTa.value.trim();
-  const go = selPill.querySelector(".go");
-  go.textContent = "⏳";
-  fetch("/quote", {method:"POST", headers:{"Content-Type":"application/json"},
-    body: JSON.stringify({rel, page: selPage, text, comment: comment || "", direct: true, target: __ct(), embed: __EMB})})
-    .then(r => r.json())
-    .then(j => { if(__EMB && j && j.message) __atelierPost({type:'atelier-add-to-chat', text:j.message});
-      go.textContent = "✓"; setTimeout(() => { goReset(go); selTa.value = ""; selHide(); }, 1200); })
-    .catch(() => { go.textContent = "!"; setTimeout(() => { goReset(go); }, 1600); });
-}
-// clicks on the bar must not destroy the selection — except the textarea, which needs focus
-selPill.addEventListener("mousedown", e => { if(e.target !== selTa) e.preventDefault(); });
-selPill.querySelector(".go").onclick = () => selSend();
-selPill.querySelector(".del").onclick = e => { e.stopPropagation(); selCancel(); };
-/* ---- Claude-session target picker (stores localStorage 'claudeTargetV1') ---- */
-(function(){
-  const esc = s => String(s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
-  const tgtBtn = selPill.querySelector(".tgt"), tgMenu = document.getElementById("tgMenu");
-  if(__EMB) tgtBtn.style.display = "none";
-  const markTgt = () => tgtBtn.classList.toggle("set", !!__ct());
-  markTgt();
-  tgMenu.addEventListener("mousedown", e => e.preventDefault());
-  tgtBtn.onclick = async e => {
-    e.stopPropagation();
-    const cur = __ct();
-    let html = '<div class="hd">Envoyer vers</div>'
-      + '<div class="it' + (cur ? '' : ' on') + '" data-i="-1"><span class="app">auto</span>'
-      + '<span class="t">Session du projet (auto)</span></div>';
-    try{
-      const j = await (await fetch("/claude-targets")).json();
-      (j.targets || []).forEach((t, i) => {
-        const on = cur && cur.app === t.app && cur.id === t.id;
-        html += '<div class="it' + (on ? ' on' : '') + '" data-i="' + i + '"><span class="app">'
-          + esc(t.app) + '</span><span class="t">' + esc(t.title || t.id)
-          + (t.inProject ? '' : ' — ' + esc(String(t.cwd || '').split('/').pop())) + '</span></div>';
-      });
-      tgMenu.innerHTML = html;
-      tgMenu.style.display = "flex";
-      const r = tgtBtn.getBoundingClientRect();
-      tgMenu.style.left = Math.max(8, Math.min(r.left - 120, innerWidth - tgMenu.offsetWidth - 8)) + "px";
-      tgMenu.style.top = Math.max(8, r.top - tgMenu.offsetHeight - 10) + "px";
-      tgMenu.querySelectorAll(".it").forEach(it => {
-        it.onclick = ev => {
-          ev.stopPropagation();
-          const i = +it.dataset.i;
-          if(i < 0) localStorage.removeItem("claudeTargetV1");
-          else localStorage.setItem("claudeTargetV1", JSON.stringify({app:j.targets[i].app, id:j.targets[i].id, title:j.targets[i].title}));
-          markTgt(); tgMenu.style.display = "none";
-        };
-      });
-      document.addEventListener("click", function h(){ tgMenu.style.display = "none"; document.removeEventListener("click", h); });
-    }catch(err){ console.warn("claude-targets failed", err); }
-  };
-})();
-selTa.addEventListener("input", () => { selTa.style.height = "20px"; selTa.style.height = Math.min(120, selTa.scrollHeight) + "px"; });
-selTa.addEventListener("keydown", e => {
-  e.stopPropagation();
-  if(e.key === "Enter" && !e.shiftKey){ e.preventDefault(); selSend(); }
-  else if(e.key === "Escape"){ e.preventDefault(); selCancel(); }
 });
+function selPillShow(entries){
+  if(!hlText()){ selApi.hide(); return; }
+  // rectangle union des fragments sélectionnés (coordonnées viewport)
+  let l = Infinity, r = -Infinity, top = Infinity, bot = -Infinity;
+  entries.forEach(entry => { const b = entry.rect;
+    l = Math.min(l, b.left); r = Math.max(r, b.right); top = Math.min(top, b.top); bot = Math.max(bot, b.bottom); });
+  selApi.placeAt({left: l, width: r - l, top, bottom: bot});
+}
+function selHide(){ selApi.hide(); }
+function selCancel(){ selApi.cancel(); }
+const __EMB = SelPill.embedded;
 document.addEventListener("keydown", e => { if(e.key === "Escape") selCancel(); });
 
 // --- drawn annotation (shared AnnotKit): one transparent overlay per page,
@@ -584,22 +627,25 @@ function drawAnnots(pgDiv, n){
 const HL_COLORS = ["rgba(255,213,74,.40)","rgba(120,220,140,.40)","rgba(120,170,255,.40)","rgba(255,140,160,.40)"];
 function addHighlightFromSel(kind, color){
   kind = kind || "hl"; color = color || HL_COLORS[0];
-  const spans = [...document.querySelectorAll(".textLayer span.hl")];
-  if(!spans.length) return;
+  const model = selectionModel();
+  const entries = selectionClientRects(model);
+  if(!model || !entries.length) return;
   const byPage = new Map();
-  for(const sp of spans){
-    const pg = sp.closest(".pg"); if(!pg) continue;
+  for(const entry of entries){
+    const pg = entry.span.closest(".pg"); if(!pg) continue;
     const key = pg.dataset.page;
-    if(!byPage.has(key)) byPage.set(key, {pg, rects: [], texts: []});
-    const pr = pg.getBoundingClientRect(), r = sp.getBoundingClientRect();
+    if(!byPage.has(key)) byPage.set(key, {pg, rects: []});
+    const pr = pg.getBoundingClientRect(), r = entry.rect;
     byPage.get(key).rects.push([(r.left-pr.left)/pr.width, (r.top-pr.top)/pr.height,
       r.width/pr.width, r.height/pr.height]);
-    byPage.get(key).texts.push(sp.textContent);
   }
   let lastA = null, lastRect = null;
   for(const [pgNum, g] of byPage){
+    const text = model.segments.filter(segment =>
+      model.spans[segment.index].closest(".pg") === g.pg
+    ).map(segment => segment.text).join(" ").replace(/\s+/g," ").trim();
     const a = {id: Date.now() + "-" + pgNum, page: +pgNum, rects: g.rects,
-      text: g.texts.join(" ").replace(/\s+/g," ").trim(),
+      text: text,
       kind: kind, color: color, note: ""};
     PDF_ANNOTS.push(a);
     drawAnnots(g.pg, +pgNum);
@@ -708,7 +754,7 @@ if(window.self !== window.top){
   document.addEventListener("mouseup", () => {
     if(!TOOL || TOOL === "note") return;
     setTimeout(() => {
-      if(document.querySelectorAll(".textLayer span.hl").length){
+      if(hlText()){
         addHighlightFromSel(TOOL, HL_COLORS[TOOL_COLOR_IDX]);
       }
     }, 30);
@@ -752,6 +798,74 @@ if(window.self !== window.top){
   `;
   document.head.appendChild(st);
 }
+
+// ---- mode synctex : onglet PDF d'un studio LaTeX (ouvert via « PDF ↗ ») ----
+// tex/texpdf en query → canal BroadcastChannel partagé avec l'onglet éditeur :
+// compile → rechargement en place ; ⌘J/curseur → marqueur ici ; double-clic
+// sur la page → ligne source dans l'éditeur. Aucun endpoint nouveau : /synctex
+// existe déjà (backends Node et Rust).
+(function(){
+  const texPath = __passageParams.get("tex");
+  const texPdf = __passageParams.get("texpdf");
+  if(!texPath || !texPdf || !("BroadcastChannel" in window)) return;
+  const bc = new BroadcastChannel("latexstudio:" + texPath);
+  const marker = document.createElement("div");
+  marker.style.cssText = "position:absolute;left:0;right:0;height:26px;display:none;"
+    + "background:rgba(91,157,255,.18);border-left:3px solid #5b9dff;pointer-events:none;z-index:5";
+  let mkT = null;
+  function showMarker(page, y0){
+    const pg = document.querySelector('.pg[data-page="' + page + '"]');
+    const sc = pg ? parseFloat(pg.dataset.vscale || "0") : 0;
+    if(!sc) return false;
+    pg.appendChild(marker);
+    marker.style.top = (y0 * sc - 14) + "px";
+    marker.style.display = "block";
+    const el = document.scrollingElement || document.documentElement;
+    const top = pg.getBoundingClientRect().top + el.scrollTop;
+    el.scrollTo({top: top + y0 * sc - window.innerHeight / 2, behavior: "smooth"});
+    clearTimeout(mkT);
+    mkT = setTimeout(() => marker.style.display = "none", 2500);
+    return true;
+  }
+  bc.onmessage = e => {
+    const m = e.data || {};
+    if(m.t === "compiled" && __reloadPdf) __reloadPdf();
+    else if(m.t === "view") showMarker(m.page, m.y);
+  };
+  // l'onglet réclame la position du curseur quand il (re)devient visible.
+  // Onglet interne en display:none : NI visibilitychange NI IntersectionObserver
+  // ne se déclenchent — l'app envoie atelier-tab-activated (PIEGES_CONNUS §4).
+  let _lastReq = 0;
+  function requestView(){
+    const now = (window.performance ? performance.now() : Date.now());
+    if(now - _lastReq < 250) return;   // anti-doublon (activation + visibility)
+    _lastReq = now;
+    bc.postMessage({t: "want-view"});
+  }
+  document.addEventListener("visibilitychange", () => { if(!document.hidden) requestView(); });
+  window.addEventListener("message", e => {
+    if(e.source === window.parent && e.data && e.data.type === "atelier-tab-activated") requestView();
+  });
+  setTimeout(requestView, 800);   // premier rendu : se caler sur le curseur courant
+  // double-clic sur la page → saut à la ligne source dans l'onglet éditeur
+  document.addEventListener("dblclick", async e => {
+    const pg = e.target.closest(".pg");
+    if(!pg) return;
+    const sc = parseFloat(pg.dataset.vscale || "0");
+    if(!sc) return;
+    const r = pg.getBoundingClientRect();
+    const st = document.getElementById("status");
+    try{
+      const res = await fetch("/synctex", {method: "POST", headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({dir: "edit", tex: texPath, pdf: texPdf, page: +pg.dataset.page,
+          x: (e.clientX - r.left) / sc, y: (e.clientY - r.top) / sc})});
+      const j = await res.json();
+      if(j.line){ bc.postMessage({t: "jump", line: j.line}); st.textContent = "→ ligne " + j.line + " (éditeur)"; }
+      else st.textContent = "synctex : pas de correspondance ici";
+    }catch(err){ st.textContent = "synctex : erreur serveur"; }
+    setTimeout(() => { st.textContent = ""; }, 3000);
+  });
+})();
 </script>
 </body>
 </html>

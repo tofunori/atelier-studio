@@ -327,7 +327,10 @@ test('CM5: one multi-word save is one intervention', async ({ page }) => {
     await expect(count).toHaveText('1 / 1');
 
     await page.locator('#diffTag').click();
-    await expect(nav).toBeHidden();
+    await expect(nav).toBeVisible();
+    await expect(count).toHaveText('tout · 1');
+    await expect(nav.locator('[data-d="-1"]')).toBeDisabled();
+    await expect(nav.locator('[data-d="1"]')).toBeDisabled();
     await expect.poll(() => page.evaluate(() => window.cm.getOption('readOnly'))).toBe(false);
   });
 });

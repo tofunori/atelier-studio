@@ -128,6 +128,65 @@ pub struct GitStatus {
     pub files: Vec<GitFile>,
 }
 
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GitCommitSummary {
+    pub sha: String,
+    pub short_sha: String,
+    pub parents: Vec<String>,
+    pub author: String,
+    pub author_email: String,
+    pub authored_at: String,
+    pub subject: String,
+    pub decorations: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GitCommitFile {
+    pub status: String,
+    pub path: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub previous_path: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GitLogPage { pub commits: Vec<GitCommitSummary>, pub has_more: bool, pub skip: usize }
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GitCommitDetails {
+    #[serde(flatten)] pub commit: GitCommitSummary,
+    pub body: String, pub files: Vec<GitCommitFile>, pub diff: String,
+    pub head: String, pub upstream: Option<String>, pub is_head: bool, pub is_published: bool,
+}
+
+fn valid_sha(sha: &str) -> bool { (4..=64).contains(&sha.len()) && sha.chars().all(|c| c.is_ascii_hexdigit()) }
+
+fn parse_commit_records(output: &str) -> Vec<GitCommitSummary> {
+    output.split('\x1e').filter_map(|record| {
+        let fields: Vec<_> = record.trim_start_matches('\n').split('\x1f').collect();
+        if fields.len() < 8 || !valid_sha(fields[0]) { return None; }
+        Some(GitCommitSummary {
+            sha: fields[0].into(), short_sha: fields[1].into(),
+            parents: fields[2].split_whitespace().map(str::to_string).collect(),
+            author: fields[3].into(), author_email: fields[4].into(), authored_at: fields[5].into(),
+            subject: fields[6].into(), decorations: fields[7].split(", ").filter(|s| !s.is_empty()).map(str::to_string).collect(),
+        })
+    }).collect()
+}
+
+fn head_sha(root: &Path) -> Result<String> { Ok(git_ok(root, &["rev-parse", "HEAD"])?.trim().into()) }
+fn upstream_sha(root: &Path) -> Option<String> { git_ok(root, &["rev-parse", "--verify", "@{upstream}"]).ok().map(|s| s.trim().into()) }
+fn is_ancestor(root: &Path, a: &str, b: &str) -> bool { git(root, &["merge-base", "--is-ancestor", a, b], &[]).map(|o| o.status.success()).unwrap_or(false) }
+fn assert_clean(root: &Path) -> Result<()> { if !status(&root.to_string_lossy())?.files.is_empty() { Err(msg("opération refusée : l’arbre de travail doit être propre")) } else { Ok(()) } }
+fn assert_expected_head(root: &Path, expected: Option<&str>) -> Result<String> {
+    let head = head_sha(root)?;
+    if expected.is_some_and(|value| value != head) { return Err(msg("opération refusée : HEAD a changé, actualise l’historique")); }
+    Ok(head)
+}
+
 fn parse_status(output: &str) -> GitStatus {
     let mut result = GitStatus::default();
     let records: Vec<&str> = output.split('\0').filter(|s| !s.is_empty()).collect();
@@ -241,6 +300,83 @@ pub fn status(root: &str) -> Result<GitStatus> {
     }
     Ok(parsed)
 }
+
+pub fn log(root: &str, all: bool, skip: usize, limit: usize, query: &str) -> Result<GitLogPage> {
+    let real = confined_root(root)?; ensure_repo(&real)?;
+    let page = limit.clamp(1, 100); let count = format!("--max-count={}", page + 1); let offset = format!("--skip={skip}");
+    let mut args = vec!["log", "--topo-order", count.as_str(), offset.as_str(), "--format=%x1e%H%x1f%h%x1f%P%x1f%an%x1f%ae%x1f%aI%x1f%s%x1f%D"];
+    let search = query.trim().chars().take(200).collect::<String>(); let grep = format!("--grep={search}");
+    if !search.is_empty() { args.extend(["--regexp-ignore-case", grep.as_str()]); }
+    if all { args.push("--all"); }
+    let mut commits = parse_commit_records(&git_ok(&real, &args)?); let has_more = commits.len() > page; commits.truncate(page);
+    Ok(GitLogPage { commits, has_more, skip })
+}
+
+pub fn commit_details(root: &str, sha: &str) -> Result<GitCommitDetails> {
+    let real = confined_root(root)?; ensure_repo(&real)?; if !valid_sha(sha) { return Err(msg("sha invalide")); }
+    let cref = format!("{sha}^{{commit}}"); git_ok(&real, &["cat-file", "-e", &cref])?;
+    let commit = parse_commit_records(&git_ok(&real, &["show", "-s", "--format=%x1e%H%x1f%h%x1f%P%x1f%an%x1f%ae%x1f%aI%x1f%s%x1f%D", sha])?).into_iter().next().ok_or_else(|| msg("commit invalide"))?;
+    let body = git_ok(&real, &["show", "-s", "--format=%B", sha])?.trim().into();
+    let files = git_ok(&real, &["diff-tree", "--root", "--no-commit-id", "--name-status", "-r", "-M", sha])?.lines().filter_map(|line| {
+        let fields: Vec<_> = line.split('\t').collect(); if fields.len() < 2 { return None; }
+        Some(GitCommitFile { status: fields[0].into(), path: fields.last()?.to_string(), previous_path: (fields.len() > 2).then(|| fields[1].into()) })
+    }).collect();
+    let diff = git_ok(&real, &["show", "--no-ext-diff", "--no-color", "--format=", "--binary", sha])?;
+    let head = head_sha(&real)?; let upstream = upstream_sha(&real); let is_published = upstream.as_deref().is_some_and(|up| is_ancestor(&real, sha, up));
+    Ok(GitCommitDetails { is_head: head == commit.sha, commit, body, files, diff, head, upstream, is_published })
+}
+
+/// Exact before/after documents for one file in a historical commit.
+pub fn commit_file_contents(root: &str, sha: &str, path: &str, previous_path: Option<&str>) -> Result<DiffContents> {
+    let real = confined_root(root)?; ensure_repo(&real)?;
+    if !valid_sha(sha) { return Err(msg("sha invalide")); }
+    let rel = assert_relative(&real, path)?;
+    let previous = assert_relative(&real, previous_path.unwrap_or(path))?;
+    let cref = format!("{sha}^{{commit}}"); git_ok(&real, &["cat-file", "-e", &cref])?;
+    let parents = git_ok(&real, &["show", "-s", "--format=%P", sha])?;
+    let before_bytes = parents.split_whitespace().next()
+        .map(|parent| git_object(&real, &format!("{parent}:{previous}")))
+        .unwrap_or_default();
+    let after_bytes = git_object(&real, &format!("{sha}:{rel}"));
+    let (before, before_binary) = decode_diff_content(before_bytes);
+    let (after, after_binary) = decode_diff_content(after_bytes);
+    Ok(DiffContents { before, after, binary: before_binary || after_binary })
+}
+
+pub fn create_branch_at(root: &str, branch: &str, sha: &str) -> Result<String> {
+    let real = confined_root(root)?; ensure_repo(&real)?; assert_clean(&real)?; if !valid_sha(sha) { return Err(msg("sha invalide")); }
+    git_ok(&real, &["check-ref-format", "--branch", branch])?; let cref = format!("{sha}^{{commit}}"); git_ok(&real, &["cat-file", "-e", &cref])?;
+    git_ok(&real, &["switch", "-c", branch, sha])?; Ok(branch.into())
+}
+
+pub fn restore_file_from_commit(root: &str, sha: &str, path: &str, expected: Option<&str>) -> Result<String> {
+    let real = confined_root(root)?; ensure_repo(&real)?; assert_clean(&real)?; assert_expected_head(&real, expected)?;
+    if !valid_sha(sha) { return Err(msg("sha invalide")); } let rel = assert_relative(&real, path)?; let source = format!("--source={sha}");
+    git_ok(&real, &["restore", &source, "--worktree", "--", &rel])?; Ok(rel)
+}
+
+pub fn revert_commit(root: &str, sha: &str, expected: Option<&str>) -> Result<String> {
+    let real = confined_root(root)?; ensure_repo(&real)?; assert_clean(&real)?; assert_expected_head(&real, expected)?; if !valid_sha(sha) { return Err(msg("sha invalide")); }
+    if git_ok(&real, &["show", "-s", "--format=%P", sha])?.split_whitespace().count() > 1 { return Err(msg("revert d’un commit de fusion non pris en charge")); }
+    if let Err(error) = git_ok(&real, &["revert", "--no-edit", sha]) { let _ = git_ok(&real, &["revert", "--abort"]); return Err(error); }
+    head_sha(&real)
+}
+
+pub fn undo_last_commit(root: &str, expected: Option<&str>) -> Result<String> {
+    let real = confined_root(root)?; ensure_repo(&real)?; assert_clean(&real)?; let head = assert_expected_head(&real, expected)?;
+    if upstream_sha(&real).as_deref().is_some_and(|up| is_ancestor(&real, &head, up)) { return Err(msg("annulation refusée : ce commit est déjà publié, utilise Revert")); }
+    git_ok(&real, &["rev-parse", "--verify", "HEAD^"])?; git_ok(&real, &["reset", "--mixed", "HEAD^"])?; head_sha(&real)
+}
+
+pub fn reset_to_commit(root: &str, sha: &str, mode: &str, expected: Option<&str>) -> Result<(String, String)> {
+    let real = confined_root(root)?; ensure_repo(&real)?; assert_clean(&real)?; let head = assert_expected_head(&real, expected)?;
+    if !valid_sha(sha) { return Err(msg("sha invalide")); } if !matches!(mode, "soft" | "mixed" | "hard") { return Err(msg("mode reset invalide")); }
+    if upstream_sha(&real).as_deref().is_some_and(|up| !is_ancestor(&real, up, sha)) { return Err(msg("reset refusé avant le dernier commit publié, utilise Revert")); }
+    let stamp = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_millis(); let safety = format!("refs/atelier/safety/reset-{stamp}");
+    git_ok(&real, &["update-ref", &safety, &head])?; let flag = format!("--{mode}"); git_ok(&real, &["reset", &flag, sha])?; Ok((head_sha(&real)?, safety))
+}
+
+pub fn fetch_all(root: &str) -> Result<String> { let real = confined_root(root)?; ensure_repo(&real)?; git_ok(&real, &["fetch", "--all", "--prune"]).map(|s| s.trim().into()) }
 
 pub fn switch_branch(root: &str, branch: &str) -> Result<String> {
     let real = confined_root(root)?;
@@ -1189,5 +1325,57 @@ mod tests {
             .unwrap()
             .trim()
             .is_empty());
+    }
+
+    #[test]
+    fn log_and_details_expose_commit_diff() {
+        let dir = init_repo(); let root = dir.path().to_str().unwrap();
+        std::fs::write(dir.path().join("a.txt"), b"second").unwrap();
+        git_ok(dir.path(), &["add", "."]).unwrap(); git_ok(dir.path(), &["commit", "-m", "second commit"]).unwrap();
+        let page = log(root, false, 0, 1, "").unwrap();
+        assert_eq!(page.commits.len(), 1); assert!(page.has_more);
+        let details = commit_details(root, &page.commits[0].sha).unwrap();
+        assert_eq!(details.commit.subject, "second commit"); assert!(details.diff.contains("+second"));
+        let contents = commit_file_contents(root, &page.commits[0].sha, "a.txt", None).unwrap();
+        assert_eq!(contents.before, "hello"); assert_eq!(contents.after, "second"); assert!(!contents.binary);
+    }
+
+    #[test]
+    fn branch_from_commit_preserves_the_original_branch_tip() {
+        let dir = init_repo(); let root = dir.path().to_str().unwrap(); let old = head_sha(dir.path()).unwrap(); let original = status(root).unwrap().branch.unwrap();
+        std::fs::write(dir.path().join("a.txt"), b"new").unwrap(); git_ok(dir.path(), &["add", "."]).unwrap(); git_ok(dir.path(), &["commit", "-m", "new"]).unwrap();
+        let main_tip = head_sha(dir.path()).unwrap(); create_branch_at(root, "inspect-old", &old).unwrap();
+        assert_eq!(status(root).unwrap().branch.as_deref(), Some("inspect-old"));
+        assert_eq!(std::fs::read(dir.path().join("a.txt")).unwrap(), b"hello");
+        assert_eq!(git_ok(dir.path(), &["rev-parse", &original]).unwrap().trim(), main_tip);
+    }
+
+    #[test]
+    fn published_commit_requires_revert_instead_of_undo() {
+        let dir = init_repo(); let root = dir.path().to_str().unwrap();
+        std::fs::write(dir.path().join("a.txt"), b"published").unwrap(); git_ok(dir.path(), &["add", "."]).unwrap(); git_ok(dir.path(), &["commit", "-m", "published"]).unwrap();
+        let published = head_sha(dir.path()).unwrap(); let original = status(root).unwrap().branch.unwrap(); git_ok(dir.path(), &["branch", "published-tip", &published]).unwrap(); git_ok(dir.path(), &["branch", "--set-upstream-to=published-tip", &original]).unwrap();
+        assert!(undo_last_commit(root, Some(&published)).unwrap_err().to_string().contains("déjà publié"));
+        let reverted = revert_commit(root, &published, Some(&published)).unwrap();
+        assert_ne!(reverted, published); assert_eq!(std::fs::read(dir.path().join("a.txt")).unwrap(), b"hello");
+    }
+
+    #[test]
+    fn reset_creates_safety_ref() {
+        let dir = init_repo(); let root = dir.path().to_str().unwrap(); let target = head_sha(dir.path()).unwrap();
+        std::fs::write(dir.path().join("a.txt"), b"later").unwrap(); git_ok(dir.path(), &["add", "."]).unwrap(); git_ok(dir.path(), &["commit", "-m", "later"]).unwrap();
+        let head = head_sha(dir.path()).unwrap(); let (_, safety) = reset_to_commit(root, &target, "hard", Some(&head)).unwrap();
+        assert_eq!(git_ok(dir.path(), &["rev-parse", &safety]).unwrap().trim(), head);
+    }
+
+    #[test]
+    fn reset_refuses_to_cross_upstream_or_a_stale_head() {
+        let dir = init_repo(); let root = dir.path().to_str().unwrap(); let initial = head_sha(dir.path()).unwrap();
+        std::fs::write(dir.path().join("a.txt"), b"published").unwrap(); git_ok(dir.path(), &["add", "."]).unwrap(); git_ok(dir.path(), &["commit", "-m", "published"]).unwrap();
+        let published = head_sha(dir.path()).unwrap(); let original = status(root).unwrap().branch.unwrap(); git_ok(dir.path(), &["branch", "published-tip", &published]).unwrap(); git_ok(dir.path(), &["branch", "--set-upstream-to=published-tip", &original]).unwrap();
+        std::fs::write(dir.path().join("a.txt"), b"local").unwrap(); git_ok(dir.path(), &["add", "."]).unwrap(); git_ok(dir.path(), &["commit", "-m", "local"]).unwrap(); let head = head_sha(dir.path()).unwrap();
+        assert!(reset_to_commit(root, &initial, "hard", Some(&head)).unwrap_err().to_string().contains("avant le dernier commit publié"));
+        assert!(reset_to_commit(root, &published, "mixed", Some(&"f".repeat(40))).unwrap_err().to_string().contains("HEAD a changé"));
+        assert_eq!(head_sha(dir.path()).unwrap(), head);
     }
 }

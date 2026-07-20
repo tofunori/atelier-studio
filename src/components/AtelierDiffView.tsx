@@ -2,6 +2,7 @@ import { useEffect, useRef } from "react";
 import { EditorState } from "@codemirror/state";
 import { EditorView, drawSelection, lineNumbers } from "@codemirror/view";
 import { MergeView, unifiedMergeView } from "@codemirror/merge";
+import { codeHighlight } from "../lib/codeHighlight";
 
 export type AtelierDiffLayout = "unified" | "split";
 
@@ -52,13 +53,14 @@ function diffTheme(compact: boolean) {
   }, { dark: true });
 }
 
-function extensions(wrap: boolean, compact: boolean, original?: string) {
+function extensions(wrap: boolean, compact: boolean, path?: string, original?: string) {
   const result = [
     lineNumbers(),
     drawSelection(),
     diffTheme(compact),
     EditorState.readOnly.of(true),
     EditorView.editable.of(false),
+    codeHighlight(path),
   ];
   if (wrap) result.push(EditorView.lineWrapping);
   if (original !== undefined) result.push(unifiedMergeView({
@@ -89,18 +91,18 @@ export default function AtelierDiffView({
     if (layout === "split") {
       instance = new MergeView({
         parent: host,
-        a: { doc: before, extensions: extensions(wrap, compact) },
-        b: { doc: after, extensions: extensions(wrap, compact) },
+        a: { doc: before, extensions: extensions(wrap, compact, path) },
+        b: { doc: after, extensions: extensions(wrap, compact, path) },
         ...mergeOptions,
       });
     } else {
       instance = new EditorView({
         parent: host,
-        state: EditorState.create({ doc: after, extensions: extensions(wrap, compact, before) }),
+        state: EditorState.create({ doc: after, extensions: extensions(wrap, compact, path, before) }),
       });
     }
     return () => instance.destroy();
-  }, [after, before, compact, layout, wrap]);
+  }, [after, before, compact, layout, path, wrap]);
 
   return (
     <div

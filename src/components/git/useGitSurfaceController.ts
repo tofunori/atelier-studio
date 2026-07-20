@@ -7,6 +7,9 @@ import {
 } from "./gitSurfaceModel";
 import type {
   GitDiffContents,
+  GitCommitDetails,
+  GitCommitFile,
+  GitCommitSummary,
   GitGroup,
   GitMode,
   GitStatus,
@@ -57,6 +60,16 @@ export function useGitSurfaceController({
   const [commitAndPush, setCommitAndPush] = useState(false);
   const [commitError, setCommitError] = useState<string | null>(null);
   const [entries, setEntries] = useState<LedgerEntry[]>([]);
+  const [commits, setCommits] = useState<GitCommitSummary[]>([]);
+  const [commitDetails, setCommitDetails] = useState<GitCommitDetails | null>(null);
+  const [selectedCommitFile, setSelectedCommitFileState] = useState<GitCommitFile | null>(null);
+  const [commitDiffContents, setCommitDiffContents] = useState<GitDiffContents | null>(null);
+  const [commitDiffLoading, setCommitDiffLoading] = useState(false);
+  const [commitsLoading, setCommitsLoading] = useState(false);
+  const [commitsHasMore, setCommitsHasMore] = useState(false);
+  const [commitQuery, setCommitQuery] = useState("");
+  const [allRefs, setAllRefs] = useState(false);
+  const [historyBusy, setHistoryBusy] = useState<string | null>(null);
   const [expanded, setExpanded] = useState<string | null>(null);
   const [filter, setFilter] = useState("");
   const generationTimeout = useRef<number | null>(null);
@@ -64,6 +77,8 @@ export function useGitSurfaceController({
   const selectedRef = useRef<SelectedFile | null>(null);
   const modeRef = useRef<GitMode>(mode);
   const commitAndPushRef = useRef(commitAndPush);
+  const commitsRef = useRef<GitCommitSummary[]>([]);
+  const selectedCommitFileRef = useRef<GitCommitFile | null>(null);
 
   const setSelected = useCallback((nextSelection: SelectedFile | null) => {
     selectedRef.current = nextSelection;
@@ -72,9 +87,31 @@ export function useGitSurfaceController({
 
   useEffect(() => { modeRef.current = mode; }, [mode]);
   useEffect(() => { commitAndPushRef.current = commitAndPush; }, [commitAndPush]);
+  useEffect(() => { commitsRef.current = commits; }, [commits]);
 
   const refreshGit = useCallback(() => send(ws, { type: "gitStatus", projectRoot }), [projectRoot, ws]);
   const refreshLedger = useCallback(() => send(ws, { type: "getLedger", projectRoot, limit: 200 }), [projectRoot, ws]);
+  const refreshCommits = useCallback((append = false) => {
+    setCommitsLoading(true);
+    send(ws, { type: "gitLog", projectRoot, all: allRefs, query: commitQuery, skip: append ? commitsRef.current.length : 0, limit: 50 });
+  }, [allRefs, commitQuery, projectRoot, ws]);
+
+  const requestCommitFile = useCallback((sha: string, file: GitCommitFile) => {
+    selectedCommitFileRef.current = file;
+    setSelectedCommitFileState(file);
+    setCommitDiffContents(null);
+    setCommitDiffLoading(true);
+    if (!send(ws, {
+      type: "gitCommitFileDiff",
+      projectRoot,
+      sha,
+      path: file.path,
+      previousPath: file.previousPath,
+    })) {
+      setCommitDiffLoading(false);
+      setCommitError(t("git.connection-unavailable"));
+    }
+  }, [projectRoot, ws]);
 
   const requestDiff = useCallback((selection: SelectedFile) => {
     setDiff("");
@@ -138,6 +175,58 @@ export function useGitSurfaceController({
       const message = (event as CustomEvent).detail;
       if (message.projectRoot === projectRoot) setEntries(message.entries ?? []);
     };
+    const onLog = (event: Event) => {
+      const message = (event as CustomEvent).detail;
+      if (message.projectRoot !== projectRoot) return;
+      setCommits((current) => message.skip ? [...current, ...(message.commits ?? [])] : (message.commits ?? []));
+      setCommitsHasMore(Boolean(message.hasMore)); setCommitsLoading(false);
+      if (message.error) setCommitError(message.error);
+    };
+    const onDetails = (event: Event) => {
+      const message = (event as CustomEvent).detail;
+      if (message.projectRoot !== projectRoot) return;
+      const next = (message.details ?? null) as GitCommitDetails | null;
+      setCommitDetails(next); setHistoryBusy(null);
+      const first = next?.files?.[0] ?? null;
+      if (first && next) requestCommitFile(next.sha, first);
+      else {
+        selectedCommitFileRef.current = null;
+        setSelectedCommitFileState(null);
+        setCommitDiffContents(null);
+        setCommitDiffLoading(false);
+      }
+      if (message.error) setCommitError(message.error);
+    };
+    const onCommitFileDiff = (event: Event) => {
+      const message = (event as CustomEvent).detail;
+      const active = selectedCommitFileRef.current;
+      if (message.projectRoot !== projectRoot || message.path !== active?.path) return;
+      setCommitDiffLoading(false);
+      if (message.error) {
+        setCommitDiffContents(null);
+        setCommitError(message.error);
+        return;
+      }
+      setCommitDiffContents({
+        before: String(message.before ?? ""),
+        after: String(message.after ?? ""),
+        binary: Boolean(message.binary),
+      });
+    };
+    const onHistoryAction = (event: Event) => {
+      const message = (event as CustomEvent).detail;
+      if (message.projectRoot !== projectRoot) return;
+      setHistoryBusy(null); setCommitError(message.error ?? null);
+      if (!message.error) {
+        refreshGit(); refreshCommits(false);
+        if (!["fetch", "restore-file"].includes(message.op)) {
+          setCommitDetails(null);
+          selectedCommitFileRef.current = null;
+          setSelectedCommitFileState(null);
+          setCommitDiffContents(null);
+        }
+      }
+    };
     const onChanged = (event: Event) => {
       const message = (event as CustomEvent).detail;
       if (message.projectRoot && message.projectRoot !== projectRoot) return;
@@ -200,6 +289,10 @@ export function useGitSurfaceController({
     window.addEventListener("git-diff", onDiff);
     window.addEventListener("commit-msg", onCommitMessage);
     window.addEventListener("ledger", onLedger);
+    window.addEventListener("git-log", onLog);
+    window.addEventListener("git-commit-details", onDetails);
+    window.addEventListener("git-commit-file-diff", onCommitFileDiff);
+    window.addEventListener("git-history-action", onHistoryAction);
     window.addEventListener("git-changed", onChanged);
     window.addEventListener("git-undo-error", onUndoError);
     window.addEventListener("git-commit-error", onCommitError);
@@ -209,22 +302,27 @@ export function useGitSurfaceController({
       window.removeEventListener("git-diff", onDiff);
       window.removeEventListener("commit-msg", onCommitMessage);
       window.removeEventListener("ledger", onLedger);
+      window.removeEventListener("git-log", onLog);
+      window.removeEventListener("git-commit-details", onDetails);
+      window.removeEventListener("git-commit-file-diff", onCommitFileDiff);
+      window.removeEventListener("git-history-action", onHistoryAction);
       window.removeEventListener("git-changed", onChanged);
       window.removeEventListener("git-undo-error", onUndoError);
       window.removeEventListener("git-commit-error", onCommitError);
       window.removeEventListener("git-sync-done", onSync);
       if (generationTimeout.current != null) window.clearTimeout(generationTimeout.current);
     };
-  }, [projectRoot, refreshGit, refreshLedger, requestDiff, setSelected, ws]);
+  }, [projectRoot, refreshGit, refreshLedger, requestCommitFile, requestDiff, setSelected, ws]);
 
   useEffect(() => {
     if (mode === "journal") refreshLedger();
-  }, [mode, refreshLedger]);
+    if (mode === "commits") refreshCommits(false);
+  }, [mode, refreshCommits, refreshLedger]);
 
   const files = status?.files ?? EMPTY_FILES;
   const filesByGroup = useMemo(() => groupFiles(files), [files]);
   const stagedCount = filesByGroup.staged.length;
-  const generationScope = stagedCount > 0 ? "staged" : null;
+  const generationScope = stagedCount > 0 ? "staged" : files.length > 0 ? "changes" : null;
   const groupedEntries = useMemo(
     () => groupLedgerEntries(filterLedgerEntries(entries, filter)),
     [entries, filter],
@@ -356,6 +454,24 @@ export function useGitSurfaceController({
     }
   }
 
+  function selectCommit(sha: string) {
+    setHistoryBusy("details"); setCommitError(null); setCommitDetails(null);
+    selectedCommitFileRef.current = null; setSelectedCommitFileState(null); setCommitDiffContents(null);
+    send(ws, { type: "gitCommitDetails", projectRoot, sha });
+  }
+
+  function selectCommitFile(file: GitCommitFile) {
+    if (!commitDetails || (selectedCommitFile?.path === file.path && !commitDiffLoading)) return;
+    requestCommitFile(commitDetails.sha, file);
+  }
+
+  function historyAction(type: string, payload: Record<string, unknown> = {}) {
+    setHistoryBusy(type); setCommitError(null);
+    if (!send(ws, { type, projectRoot, expectedHead: commitDetails?.head, ...payload })) {
+      setHistoryBusy(null); setCommitError(t("git.connection-unavailable"));
+    }
+  }
+
   return {
     mode, setMode, status, files, filesByGroup, stagedCount,
     selected, selectFile, diff, diffContents, diffLoading,
@@ -365,6 +481,9 @@ export function useGitSurfaceController({
     showDescription, setShowDescription, generating, commitBusy, commitAndPush,
     commitError, generationScope, generateCommitMessage, createCommit, commitInputRef,
     updateStage, groupedEntries, filter, setFilter, expanded, setExpanded,
+    commits, commitDetails, commitsLoading, commitsHasMore, commitQuery, setCommitQuery, allRefs, setAllRefs,
+    refreshCommits, selectCommit, selectedCommitFile, selectCommitFile, commitDiffContents, commitDiffLoading,
+    historyAction, historyBusy,
   };
 }
 

@@ -6,6 +6,7 @@ import {
   cm5KeyToCm6,
   createOperationBatcher,
   indexFromPos,
+  normalizeScrollTarget,
   posFromIndex,
 } from "../../assets/cm6/studio_compat.mjs";
 
@@ -42,6 +43,17 @@ test("clampPos: line beyond end clamps to last line, ch to its length", () => {
 });
 test("clampPos: negative values clamp to zero", () => {
   assert.deepEqual(clampPos({line: -2, ch: -5}, 3, () => 8), {line: 0, ch: 0});
+});
+test("normalizeScrollTarget preserves CM5 positions and ranges", () => {
+  const lineLength = (line) => [5, 8, 3][line];
+  assert.deepEqual(normalizeScrollTarget({line: 1, ch: 4}, 3, lineLength), {
+    from: {line: 1, ch: 4}, to: null,
+  });
+  assert.deepEqual(normalizeScrollTarget({
+    from: {line: 1, ch: 2}, to: {line: 99, ch: 99},
+  }, 3, lineLength), {
+    from: {line: 1, ch: 2}, to: {line: 2, ch: 3},
+  });
 });
 test("countColumn: leading spaces and tabs", () => {
   assert.equal(countColumn("    x", null, 4), 4);

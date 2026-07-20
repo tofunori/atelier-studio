@@ -17,7 +17,8 @@ import WebSocket from "ws";
 const MUTATING = new Set([
   "send", "interrupt", "saveSettings", "saveImage", "generateImage", "clearPasted",
   "saveApiProvider", "deleteApiProvider", "gitStage", "gitUnstage", "gitRevertFile",
-  "gitCommit", "gitPush", "gitPull", "gitIgnore", "gitUndoLastTurn", "deleteThread",
+  "gitCommit", "gitPush", "gitPull", "gitIgnore", "gitUndoLastTurn", "gitCreateBranchAt",
+  "gitRestoreFileFromCommit", "gitRevertCommit", "gitUndoCommit", "gitResetToCommit", "gitFetch", "deleteThread",
   "renameThread", "moveThread", "upsertThread", "addHighlight", "removeHighlight",
   "importSession", "forkThread", "revert", "retitleAll", "qaPromote", "codexCompact",
   "codexClear", "goalSet", "goalClear", "permissionResponse", "interactionResponse",

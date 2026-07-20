@@ -392,3 +392,73 @@ que les services convergent ensuite avec leurs contrôles d'identité actuels.
 | Plan | Title | Priority | Effort | Depends on | Status |
 |------|-------|----------|--------|------------|--------|
 | 056 | Grok CLI natif via ACP Rust, runtime isolé par thread | P1 | XL | client ACP Rust 045 | DONE (2026-07-19 ; 119 provider + 64 runtime + 599 frontend + 542 sidecar, app worktree buildée/lancée saine) |
+
+---
+
+## Modularisation TypeScript des éditeurs — 2026-07-20
+
+Le plan 054 extrait progressivement les monolithes LaTeX, Code et Markdown
+vers un noyau TypeScript partagé. Il ne change pas l'apparence et ne contourne
+pas la porte humaine du plan 032 pour le retrait de CM5.
+
+### Execution order & status
+
+| Plan | Title | Priority | Effort | Depends on | Status |
+|------|-------|----------|--------|------------|--------|
+| 054 | Modulariser les éditeurs Studio en TypeScript autour de CM6 | P1 | XL | 031 fonctionnel; 032 pour retrait CM5 | DONE (2026-07-20) — bootstraps LaTeX/Code/Markdown, noyau, features, CSS et thème extraits; HTML ramené à 183/76/41 lignes; 111 Node + 37 Python + 545 sidecar + parity + 183 diff + 67 Playwright verts; app `main` buildée/lancée saine et bundles embarqués identiques; CM5 conservé derrière la porte humaine 032 |
+
+### Dependency notes
+
+- L'extraction reste incrémentale : runtime hôte, session documentaire, noyau
+  sélection/viewport, puis features LaTeX, Code et Markdown.
+- Les globals et routes actuels servent d'adaptateurs jusqu'à ce que les trois
+  surfaces passent la même matrice de parité.
+- CM5 reste un rollback disponible; sa suppression exige toujours le soak et
+  l'accord explicite du plan 032.
+
+---
+
+## Provider Cursor CLI entièrement en Rust — 2026-07-20
+
+Le plan 055 propose un provider Rust qui lance directement `cursor-agent` en
+`stream-json`. Aucun SDK Cursor, helper Node ou bridge Python n'est ajouté.
+
+### Execution order & status
+
+| Plan | Title | Priority | Effort | Depends on | Status |
+|------|-------|----------|--------|------------|--------|
+| 055 | Intégrer Cursor CLI entièrement en Rust | P1 | L–XL | cycle de vie provider par thread de `codex/grok-acp-rust` souhaitable | TODO |
+
+### Dependency notes
+
+- P0 doit confirmer auth, modèles, modes et contrat `stream-json` sans envoyer
+  de prompt modèle lorsque c'est possible.
+- Chaque tour lance un processus Cursor supervisé par Rust et reprend la
+  session exacte avec `--resume`.
+- Aucun mode de permission, thinking ou compactage n'est annoncé sans preuve
+  exécutable du contrat officiel.
+
+---
+
+## Sessions liées cross-provider via MCP — 2026-07-20
+
+Le plan 057 ajoute une relation explicite parent/enfant entre threads et un MCP
+Atelier limité au projet. Le contexte vient du journal canonique, tandis que les
+messages inter-agents passent par une mailbox durable respectant le verrou
+d'écriture par projet.
+
+### Execution order & status
+
+| Plan | Title | Priority | Effort | Depends on | Status |
+|------|-------|----------|--------|------------|--------|
+| 057 | Sessions liées cross-provider via Atelier Sessions MCP | P1 | XL | backend Rust 033; journal 025; sondes provider P0 | TODO |
+
+### Dependency notes
+
+- P0 doit prouver que Claude et Codex peuvent recevoir une capability MCP
+  distincte par thread; l'implémentation s'arrête si Codex impose une
+  configuration globale ou une identité de caller usurpable.
+- Le MVP relie explicitement Claude et Codex dans un même projet. Kimi, Grok et
+  OpenCode n'annoncent la parité qu'après une preuve d'injection MCP par session.
+- Le fallback Node reste hors périmètre et l'UI ne doit jamais afficher un faux
+  support lorsque le backend Rust n'est pas actif.

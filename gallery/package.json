@@ -4,6 +4,7 @@
   "type": "module",
   "scripts": {
     "build:cm6": "node scripts/build-cm6.mjs",
+    "typecheck:studio": "tsc -p tsconfig.json",
     "test": "python3 -m unittest discover -s tests -v && npm run test:e2e",
     "test:e2e": "playwright test"
   },
@@ -11,7 +12,7 @@
     "@codemirror/autocomplete": "^6.20.3",
     "@codemirror/commands": "^6.10.4",
     "@codemirror/lang-javascript": "^6.2.5",
-    "@codemirror/lang-markdown": "^6.5.0",
+    "@codemirror/lang-markdown": "^6.5.1",
     "@codemirror/lang-python": "^6.2.1",
     "@codemirror/language": "^6.12.4",
     "@codemirror/legacy-modes": "^6.5.3",
@@ -22,7 +23,8 @@
     "@lezer/highlight": "^1.2.3",
     "@playwright/test": "^1.61.0",
     "codemirror": "^6.0.2",
-    "esbuild": "^0.28.1"
+    "esbuild": "^0.28.1",
+    "typescript": "^5.8.3"
   },
   "dependencies": {
     "@uiw/codemirror-theme-dracula": "^4.25.11",

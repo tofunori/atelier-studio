@@ -1,4 +1,4 @@
-import { act, cleanup, fireEvent, screen } from "@testing-library/react";
+import { act, cleanup, fireEvent, screen, waitFor } from "@testing-library/react";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
 import GitSurface from "./GitSurface";
@@ -54,7 +54,7 @@ describe("GitSurface staging-first", () => {
     expect(split).toHaveAttribute("aria-checked", "true");
   });
 
-  it("affiche les branches et l’historique directement dans l’en-tête", async () => {
+  it("affiche les branches, les commits et l’activité directement dans l’en-tête", async () => {
     const ws = makeSocket();
     renderUi(<GitSurface ws={ws} projectRoot={projectRoot} activeThreadId={null} />);
     emit("git-status", {
@@ -70,7 +70,48 @@ describe("GitSurface staging-first", () => {
       branch: "topic",
     }));
 
-    expect(screen.getByRole("button", { name: t("git.history") })).toBeEnabled();
+    expect(screen.getByRole("button", { name: t("git.commits") })).toBeEnabled();
+    expect(screen.getByRole("button", { name: t("git.activity") })).toBeEnabled();
+  });
+
+  it("pagine le graphe, ouvre un commit et affiche son fichier en diff unifié ou split", async () => {
+    const ws = makeSocket();
+    renderUi(<GitSurface ws={ws} projectRoot={projectRoot} activeThreadId={null} />);
+    fireEvent.click(screen.getByRole("button", { name: t("git.commits") }));
+    expect(ws.send).toHaveBeenCalledWith(JSON.stringify({ type: "gitLog", projectRoot, all: false, query: "", skip: 0, limit: 50 }));
+    emit("git-log", { projectRoot, skip: 0, hasMore: true, commits: [
+      { sha: "a".repeat(40), shortSha: "aaaaaaa", parents: ["b".repeat(40), "c".repeat(40)], author: "Thierry", authorEmail: "t@example.com", authoredAt: "2026-07-20T12:00:00Z", subject: "Ajoute le log", decorations: ["HEAD -> main"] },
+      { sha: "b".repeat(40), shortSha: "bbbbbbb", parents: ["d".repeat(40)], author: "Thierry", authorEmail: "t@example.com", authoredAt: "2026-07-20T11:00:00Z", subject: "Branche principale", decorations: [] },
+      { sha: "c".repeat(40), shortSha: "ccccccc", parents: ["d".repeat(40)], author: "Thierry", authorEmail: "t@example.com", authoredAt: "2026-07-20T10:00:00Z", subject: "Branche fusionnée", decorations: ["topic"] },
+    ] });
+    expect(document.querySelector('.git-commit-graph[data-merge="true"]')).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: t("action.load-more") }));
+    expect(ws.send).toHaveBeenCalledWith(JSON.stringify({ type: "gitLog", projectRoot, all: false, query: "", skip: 3, limit: 50 }));
+    fireEvent.click(screen.getByRole("button", { name: /Ajoute le log/ }));
+    expect(ws.send).toHaveBeenCalledWith(JSON.stringify({ type: "gitCommitDetails", projectRoot, sha: "a".repeat(40) }));
+    emit("git-commit-details", { projectRoot, details: { sha: "a".repeat(40), shortSha: "aaaaaaa", parents: ["b".repeat(40), "c".repeat(40)], author: "Thierry", authorEmail: "t@example.com", authoredAt: "2026-07-20T12:00:00Z", subject: "Ajoute le log", decorations: [], body: "", files: [{ status: "M", path: "src/App.tsx" }], diff: "-ancien\n+nouveau", head: "a".repeat(40), upstream: null, isHead: true, isPublished: false } });
+    expect(ws.send).toHaveBeenCalledWith(JSON.stringify({ type: "gitCommitFileDiff", projectRoot, sha: "a".repeat(40), path: "src/App.tsx" }));
+    emit("git-commit-file-diff", { projectRoot, sha: "a".repeat(40), path: "src/App.tsx", before: "const oldValue = 1;\n", after: "const newValue = 2;\n", binary: false });
+    expect(screen.getByRole("button", { name: t("git.branch-from-commit") })).toBeEnabled();
+    expect(screen.getByRole("button", { name: t("git.undo-commit") })).toBeEnabled();
+    expect(screen.getByRole("button", { name: t("git.revert-commit") })).toBeDisabled();
+    expect(screen.getByRole("radiogroup", { name: t("git.commits-scope") })).toBeTruthy();
+    const diffView = await screen.findByLabelText("Diff src/App.tsx");
+    await waitFor(() => expect(diffView.querySelector(".hljs-keyword")).toBeTruthy());
+    fireEvent.click(screen.getByRole("radio", { name: t("git.split") }));
+    await waitFor(() => expect(diffView).toHaveAttribute("data-layout", "split"));
+    expect(screen.getByRole("button", { name: t("git.restore-file") })).toBeEnabled();
+  });
+
+  it("conserve le patch rouge et vert comme repli sans fichier textuel", () => {
+    const ws = makeSocket();
+    renderUi(<GitSurface ws={ws} projectRoot={projectRoot} activeThreadId={null} />);
+    fireEvent.click(screen.getByRole("button", { name: t("git.commits") }));
+    emit("git-log", { projectRoot, skip: 0, hasMore: false, commits: [{ sha: "a".repeat(40), shortSha: "aaaaaaa", parents: [], author: "Thierry", authorEmail: "t@example.com", authoredAt: "2026-07-20T12:00:00Z", subject: "Patch brut", decorations: [] }] });
+    fireEvent.click(screen.getByRole("button", { name: /Patch brut/ }));
+    emit("git-commit-details", { projectRoot, details: { sha: "a".repeat(40), shortSha: "aaaaaaa", parents: [], author: "Thierry", authorEmail: "t@example.com", authoredAt: "2026-07-20T12:00:00Z", subject: "Patch brut", decorations: [], body: "", files: [], diff: "-ancien\n+nouveau", head: "a".repeat(40), upstream: null, isHead: true, isPublished: false } });
+    expect(screen.getByText("-ancien")).toHaveClass("del");
+    expect(screen.getByText("+nouveau")).toHaveClass("add");
   });
 
   it("crée, fusionne et supprime une branche depuis ses actions contextuelles", async () => {
@@ -126,6 +167,26 @@ describe("GitSurface staging-first", () => {
     expect(screen.getByRole("button", { name: t("git.generate-ai") })).toBeDisabled();
   });
 
+  it("ancre le compositeur dans la colonne des fichiers et conserve une seule ligne d’état", () => {
+    const ws = makeSocket();
+    renderUi(<GitSurface ws={ws} projectRoot={projectRoot} activeThreadId={null} />);
+    status([{ path: "staged.ts", status: "M." }]);
+
+    const workspace = document.querySelector(".git-workspace");
+    const composer = document.querySelector(".git-commit-zone");
+    const statusLine = document.querySelector(".git-commit-status");
+    expect(composer?.parentElement).toBe(workspace);
+    expect(statusLine).toHaveTextContent(t("git.commit-scope-staged"));
+
+    fireEvent.click(screen.getByRole("button", { name: t("git.generate-ai") }));
+    expect(document.querySelector(".git-commit-status")).toBe(statusLine);
+    expect(statusLine).toHaveTextContent(t("git.generation-note"));
+
+    emit("commit-msg", { projectRoot, message: "Stabilise le compositeur", description: "" });
+    expect(document.querySelector(".git-commit-status")).toBe(statusLine);
+    expect(statusLine).toHaveTextContent(t("git.generated-ready"));
+  });
+
   it("indexe les fichiers par groupe et génère uniquement depuis l’index", () => {
     const ws = makeSocket();
     renderUi(<GitSurface ws={ws} projectRoot={projectRoot} activeThreadId={null} />);
@@ -150,7 +211,7 @@ describe("GitSurface staging-first", () => {
     }));
   });
 
-  it("exige des fichiers indexés avant toute génération IA", () => {
+  it("génère depuis les changements visibles avant leur indexation", () => {
     const ws = makeSocket();
     renderUi(<GitSurface ws={ws} projectRoot={projectRoot} activeThreadId={null} />);
     status([
@@ -158,10 +219,15 @@ describe("GitSurface staging-first", () => {
       { path: "new.ts", status: "?" },
     ]);
 
-    expect(screen.getByRole("button", { name: t("git.generate-ai") })).toBeDisabled();
-    expect(screen.getByRole("button", { name: t("git.commit-branch", { branch: "main" }) })).toBeDisabled();
     expect(screen.getByText(t("git.commit-scope-required"))).toBeTruthy();
-    expect(ws.send).not.toHaveBeenCalledWith(expect.stringContaining('"type":"generateCommitMsg"'));
+    fireEvent.click(screen.getByRole("button", { name: t("git.generate-ai") }));
+    expect(ws.send).toHaveBeenCalledWith(JSON.stringify({
+      type: "generateCommitMsg",
+      projectRoot,
+      scope: "changes",
+    }));
+    expect(screen.getByRole("button", { name: t("git.commit-branch", { branch: "main" }) })).toBeDisabled();
+    expect(screen.getByText(t("git.generation-note"))).toBeTruthy();
     expect(ws.send).not.toHaveBeenCalledWith(expect.stringContaining('"type":"gitCommit"'));
   });
 
@@ -198,13 +264,15 @@ describe("GitSurface staging-first", () => {
     expect(summary).toHaveValue("");
   });
 
-  it("conserve le fichier sélectionné quand il passe des changements à l’index", () => {
+  it("agrandit la surface au clic et conserve le fichier sélectionné quand il passe à l’index", () => {
     const ws = makeSocket();
-    renderUi(<GitSurface ws={ws} projectRoot={projectRoot} activeThreadId={null} />);
+    const onRequestExpand = vi.fn();
+    renderUi(<GitSurface ws={ws} projectRoot={projectRoot} activeThreadId={null} onRequestExpand={onRequestExpand} />);
     status([{ path: "src/changed.ts", status: ".M", add: 4, del: 1 }]);
 
     const fileRow = screen.getByRole("button", { pressed: false });
     fireEvent.click(fileRow);
+    expect(onRequestExpand).toHaveBeenCalledOnce();
     expect(ws.send).toHaveBeenCalledWith(JSON.stringify({
       type: "gitDiff",
       projectRoot,
@@ -220,7 +288,7 @@ describe("GitSurface staging-first", () => {
       scope: "staged",
     }));
     expect(screen.getByRole("button", { pressed: true })).toHaveTextContent("changed.ts");
-    expect(screen.getByRole("button", { name: t("git.inspect-diff") })).toBeEnabled();
+    expect(screen.queryByRole("button", { name: t("git.inspect-diff") })).toBeNull();
   });
 
   it("indexe et désindexe une section entière", () => {

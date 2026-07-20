@@ -1,7 +1,7 @@
 // studio_editor.mjs — CM6 engine wearing a CM5 façade, sized to exactly the
 // API surface latex_studio.html uses (inventoried 2026-07-07). Not a general
 // CM5 shim: methods the page doesn't call don't exist here.
-import {EditorState, StateEffect, StateField, Compartment, Prec, Annotation, RangeSet} from "@codemirror/state";
+import {EditorState, EditorSelection, StateEffect, StateField, Compartment, Prec, Annotation, RangeSet} from "@codemirror/state";
 import {EditorView, Decoration, keymap, highlightActiveLine, highlightActiveLineGutter,
         lineNumbers, drawSelection, gutter, GutterMarker, WidgetType, ViewPlugin} from "@codemirror/view";
 import {defaultKeymap, historyKeymap, history, indentWithTab, selectAll} from "@codemirror/commands";
@@ -28,7 +28,7 @@ import {gruvboxDark} from "@uiw/codemirror-theme-gruvbox-dark";
 import {materialDark} from "@uiw/codemirror-theme-material";
 import {solarizedDark} from "@uiw/codemirror-theme-solarized";
 import {ghostAiExtension} from "./ghost_ai.mjs";
-import {clampPos, countColumn, cm5KeyToCm6, createOperationBatcher} from "./studio_compat.mjs";
+import {clampPos, countColumn, cm5KeyToCm6, createOperationBatcher, normalizeScrollTarget} from "./studio_compat.mjs";
 
 export const Pass = Symbol("CodeMirror.Pass");
 export { countColumn };
@@ -278,6 +278,42 @@ const marksField = StateField.define({
   provide: (f) => EditorView.decorations.from(f, (v) => v.decos),
 });
 
+// The visible selection accent is derived in the same transaction as the
+// native CM6 selection. The old pages used markText 200 ms later, causing an
+// avoidable second view update precisely during the fragile first-focus path.
+const nativeSelectionHighlight = EditorView.decorations.compute(["selection"], (state) => {
+  const mark = Decoration.mark({class: "cm-clsel"});
+  const ranges = state.selection.ranges
+    .filter((range) => range.from < range.to)
+    .map((range) => mark.range(range.from, range.to));
+  return Decoration.set(ranges, true);
+});
+
+function captureScrollableState(view) {
+  const elements = [];
+  const seen = new Set();
+  const add = (element) => {
+    if (!element || seen.has(element)) return;
+    seen.add(element);
+    if (element === view.scrollDOM || element.scrollHeight > element.clientHeight ||
+        element.scrollWidth > element.clientWidth || element.scrollTop || element.scrollLeft) {
+      elements.push({element, top: element.scrollTop, left: element.scrollLeft});
+    }
+  };
+  add(view.scrollDOM);
+  for (let element = view.dom.parentElement; element; element = element.parentElement) add(element);
+  add(view.dom.ownerDocument.scrollingElement);
+  return elements;
+}
+
+function restoreScrollableState(snapshot) {
+  for (const {element, top, left} of snapshot) {
+    if (!element.isConnected) continue;
+    element.scrollTop = top;
+    element.scrollLeft = left;
+  }
+}
+
 const updateGutters = StateEffect.define();
 class NodeGutterMarker extends GutterMarker {
   constructor(name, node) { super(); this.name = name; this.node = node; }
@@ -406,7 +442,7 @@ export function createStudioEditor(parent, opts) {
         mergeDiffComp.of([]),
         themePickerBase,
         themePickerExtension(() => themeId, (id) => applyTheme(id)),
-        marksField, lineClsField, gutterField, hangingIndent,
+        marksField, nativeSelectionHighlight, lineClsField, gutterField, hangingIndent,
         gutter({
           class: "CodeMirror-diffgutter",
           markers: (view) => view.state.field(gutterField).ranges,
@@ -454,6 +490,31 @@ export function createStudioEditor(parent, opts) {
     const l = doc().lineAt(Math.max(0, Math.min(off, doc().length)));
     return {line: l.number - 1, ch: off - l.from};
   };
+  const offsetInText = (text, pos) => {
+    const p = clampPos(pos, text.lines, (line) => text.line(line + 1).length);
+    return text.line(p.line + 1).from + p.ch;
+  };
+  const replaceDocumentPreservingView = (text) => {
+    const nextText = view.state.toText(String(text ?? ""));
+    if (nextText.eq(doc())) return;
+    const scrollState = captureScrollableState(view);
+    const selection = view.state.selection.main;
+    const anchor = toPos(selection.anchor);
+    const head = toPos(selection.head);
+    const changes = view.state.changes({from: 0, to: doc().length, insert: nextText});
+    view.dispatch({
+      changes,
+      selection: EditorSelection.single(offsetInText(nextText, anchor), offsetInText(nextText, head)),
+      annotations: setValueAnno.of(true),
+    });
+    // EditorView.scrollSnapshot is intentionally not used across a full
+    // document replacement: its contract requires an identical document, and
+    // mapping a full replacement can anchor it to line zero. Restore the own
+    // scroller and every scrollable ancestor immediately, then once more in
+    // CM6's next measured write phase for Tauri/WKWebView layout convergence.
+    restoreScrollableState(scrollState);
+    view.requestMeasure({write: () => restoreScrollableState(scrollState)});
+  };
   const operationBatcher = createOperationBatcher((updates) => {
     view.dispatch({effects: updateGutters.of(updates)});
   });
@@ -461,10 +522,11 @@ export function createStudioEditor(parent, opts) {
   const facade = {
     hasNativeGhost: opts.ext === "tex",
     hasNativeMergeDiff: true,
+    hasNativeSelectionHighlight: true,
     Pass,
     // --- content ---
     getValue: () => doc().toString(),
-    setValue: (text) => view.dispatch({changes: {from: 0, to: doc().length, insert: text}, annotations: setValueAnno.of(true)}),
+    setValue: replaceDocumentPreservingView,
     getLine: (n) => (n >= 0 && n < doc().lines ? doc().line(n + 1).text : ""),
     lineCount: () => doc().lines,
     lastLine: () => doc().lines - 1,
@@ -486,17 +548,41 @@ export function createStudioEditor(parent, opts) {
     getSelection: () => view.state.sliceDoc(view.state.selection.main.from, view.state.selection.main.to),
     // --- view/geometry ---
     focus: () => view.focus(),
-    refresh: () => {},                        // CM6 measures automatically
-    scrollIntoView: (pos /*, margin */) =>
-      view.dispatch({effects: EditorView.scrollIntoView(toOffset(pos), {y: "center"})}),
+    refresh: () => view.requestMeasure(),
+    scrollIntoView: (target, margin) => {
+      const normalized = normalizeScrollTarget(target, doc().lines, (line) => doc().line(line + 1).length);
+      const scrollTarget = normalized.to
+        ? EditorSelection.range(toOffset(normalized.from), toOffset(normalized.to))
+        : toOffset(normalized.from);
+      const requestedMargin = Number.isFinite(Number(margin)) ? Number(margin) : 5;
+      const yMargin = Math.max(0, Math.min(requestedMargin, Math.max(0, view.scrollDOM.clientHeight - 1)));
+      view.dispatch({effects: EditorView.scrollIntoView(scrollTarget, {y: "nearest", yMargin})});
+    },
     charCoords: (pos /*, mode: "window" */) => {
-      const r = view.coordsAtPos(toOffset(pos));
-      return r ? {left: r.left, top: r.top, bottom: r.bottom} : {left: 0, top: 0, bottom: 0};
+      const offset = toOffset(pos);
+      const r = view.coordsAtPos(offset);
+      if (r) return {left: r.left, top: r.top, bottom: r.bottom};
+      const p = clampPos(pos, doc().lines, (line) => doc().line(line + 1).length);
+      const block = view.lineBlockAt(offset);
+      const contentRect = view.contentDOM.getBoundingClientRect();
+      const top = view.documentTop + block.top;
+      return {
+        left: contentRect.left + p.ch * view.defaultCharacterWidth,
+        top,
+        bottom: top + Math.max(block.height, view.defaultLineHeight),
+      };
     },
     defaultCharWidth: () => view.defaultCharacterWidth,
     getWrapperElement: () => view.dom,
     getGutterElement: () => view.dom.querySelector(".cm-gutters") || view.dom,
-    getScrollInfo: () => ({left: view.scrollDOM.scrollLeft, top: view.scrollDOM.scrollTop}),
+    getScrollInfo: () => ({
+      left: view.scrollDOM.scrollLeft,
+      top: view.scrollDOM.scrollTop,
+      width: view.scrollDOM.scrollWidth,
+      height: view.scrollDOM.scrollHeight,
+      clientWidth: view.scrollDOM.clientWidth,
+      clientHeight: view.scrollDOM.clientHeight,
+    }),
     // Position logique au centre du viewport. Le diff unifié replie les longues
     // zones inchangées : conserver scrollTop ne suffit donc pas (0 px peut
     // représenter la ligne 1 en mode normal mais la ligne 75 en mode diff).

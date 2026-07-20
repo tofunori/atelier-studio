@@ -79,6 +79,8 @@ export default function AtelierPane({
   onCloseTab,
   reloadKey,
   showExplorer,
+  layout,
+  onToggleExpand,
   recentFiles,
   onOpenExplorer,
   onGalleryReload,
@@ -449,7 +451,12 @@ export default function AtelierPane({
       {visited.has("git") && (
         <div className="surface-body pane-slot" style={slotStyle("git")}>
           <LazyBoundary fallback={<div className="pane-slot" />}>
-            <GitSurface ws={ws} projectRoot={projectRoot} activeThreadId={activeThreadId} />
+            <GitSurface
+              ws={ws}
+              projectRoot={projectRoot}
+              activeThreadId={activeThreadId}
+              onRequestExpand={layout === "atelier" ? undefined : onToggleExpand}
+            />
           </LazyBoundary>
         </div>
       )}

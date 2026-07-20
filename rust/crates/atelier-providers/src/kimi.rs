@@ -440,6 +440,7 @@ fn kimi_last_cli_error(session_id: &str) -> Option<String> {
 pub(crate) fn sanitize_replay_user(text: &str) -> String {
     let mut out = text.to_string();
     for (open, close) in [
+        ("<atelier-file-scope>", "</atelier-file-scope>"),
         (
             "<atelier-gallery-integration>",
             "</atelier-gallery-integration>",
@@ -1358,7 +1359,7 @@ mod tests {
     fn replay_sanitizes_injected_blocks_and_drops_pure_reminders() {
         let updates = vec![
             serde_json::json!({"sessionUpdate":"user_message_chunk",
-                "content":{"type":"text","text":"Ca veut dire quoi<atelier-zotero-passages>\noutil pdf\n</atelier-zotero-passages>"}}),
+                "content":{"type":"text","text":"Ca veut dire quoi<atelier-zotero-passages>\noutil pdf\n</atelier-zotero-passages>\n\n<atelier-file-scope>\npolitique interne\n</atelier-file-scope>"}}),
             serde_json::json!({"sessionUpdate":"agent_message_chunk",
                 "content":{"type":"text","text":"réponse"}}),
             serde_json::json!({"sessionUpdate":"user_message_chunk",

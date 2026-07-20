@@ -179,8 +179,10 @@ export function GitToolbar({
               </ScrollArea>
             </PopoverContent>
           </Popover>
+        ) : controller.mode === "commits" ? (
+          <><HistoryIcon /><span>{t("git.commits")}</span></>
         ) : (
-          <><LedgerIcon /><span>{t("git.journal")}</span></>
+          <><LedgerIcon /><span>{t("git.activity")}</span></>
         )}
         {mode === "git" && (
           <span className="git-muted">
@@ -193,15 +195,17 @@ export function GitToolbar({
         )}
       </div>
       <span className="git-head-spacer" />
-      <Button
-        variant="ghost"
-        className={`git-history-btn${mode === "journal" ? " is-active" : ""}`}
-        aria-label={mode === "git" ? t("git.history") : t("git.open-changes")}
-        onClick={() => controller.setMode(mode === "git" ? "journal" : "git")}
-      >
-        {mode === "git" ? <HistoryIcon data-icon="inline-start" /> : <BranchIcon size={14} />}
-        <span className="git-history-label">{mode === "git" ? t("git.history") : t("git.open-changes")}</span>
-      </Button>
+      <span className="git-view-switcher">
+        <Button variant="ghost" className={`git-history-btn${mode === "git" ? " is-active" : ""}`} aria-label={t("git.open-changes")} onClick={() => controller.setMode("git")}>
+          <BranchIcon size={14} /><span className="git-history-label">{t("git.open-changes")}</span>
+        </Button>
+        <Button variant="ghost" className={`git-history-btn${mode === "commits" ? " is-active" : ""}`} aria-label={t("git.commits")} onClick={() => controller.setMode("commits")}>
+          <HistoryIcon data-icon="inline-start" /><span className="git-history-label">{t("git.commits")}</span>
+        </Button>
+        <Button variant="ghost" className={`git-history-btn${mode === "journal" ? " is-active" : ""}`} aria-label={t("git.activity")} onClick={() => controller.setMode("journal")}>
+          <LedgerIcon /><span className="git-history-label">{t("git.activity")}</span>
+        </Button>
+      </span>
       {mode === "git" && status && (
         <span className="git-sync-ctl">
           <Button
@@ -241,7 +245,7 @@ export function GitToolbar({
             {
               key: "refresh",
               label: <><RefreshIcon /><span>{t("action.refresh")}</span></>,
-              onSelect: () => (mode === "git" ? controller.refreshGit() : controller.refreshLedger()),
+              onSelect: () => (mode === "git" ? controller.refreshGit() : mode === "commits" ? controller.refreshCommits(false) : controller.refreshLedger()),
             },
             {
               key: "undo",

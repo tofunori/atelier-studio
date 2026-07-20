@@ -665,6 +665,7 @@ export function kimiLastCliError(sessionId) {
 export function sanitizeReplayUser(text) {
   let out = String(text ?? "");
   for (const [open, close] of [
+    ["<atelier-file-scope>", "</atelier-file-scope>"],
     ["<atelier-gallery-integration>", "</atelier-gallery-integration>"],
     ["<atelier-zotero-passages>", "</atelier-zotero-passages>"],
     ["<atelier-kb>", "</atelier-kb>"],

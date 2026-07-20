@@ -6,13 +6,17 @@ use crate::state::{AppState, QaSession};
 use atelier_protocol::{ErrorMessage, PongMessage};
 use atelier_store::{get_all_ledgers, get_ledger, iso_now, read_settings, write_settings};
 use atelier_workspace::{
-    check_frame, clear_pasted, commit as git_commit, create_branch as git_create_branch,
+    check_frame, clear_pasted, commit as git_commit, commit_details as git_commit_details,
+    commit_file_contents as git_commit_file_contents,
+    create_branch as git_create_branch, create_branch_at as git_create_branch_at,
     delete_branch as git_delete_branch, diff as git_diff, diff_contents as git_diff_contents,
-    diff_staged as git_diff_staged, ignore_pattern, list_commands, list_file_catalog, list_pasted,
+    diff_staged as git_diff_staged, fetch_all as git_fetch_all, ignore_pattern, list_commands, list_file_catalog, list_pasted, log as git_log,
     merge_branch as git_merge_branch, narval_inspect_job, narval_list_directory, narval_read_text,
     narval_snapshot, narval_status, pdf_absolute_path, pull as git_pull, push as git_push,
-    restore as git_restore, revert_file, save_image, scan_local, stage_files, status as git_status,
-    switch_branch as git_switch_branch, unstage_files, zotero_available, zotero_collections,
+    reset_to_commit as git_reset_to_commit, restore as git_restore,
+    restore_file_from_commit as git_restore_file_from_commit, revert_commit as git_revert_commit,
+    revert_file, save_image, scan_local, stage_files, status as git_status,
+    switch_branch as git_switch_branch, undo_last_commit as git_undo_last_commit, unstage_files, zotero_available, zotero_collections,
     zotero_load_favs, zotero_search, zotero_toggle_fav, NarvalError, TermEvent,
 };
 use serde_json::{json, Value};
@@ -71,6 +75,15 @@ pub const ALL_MESSAGE_TYPES: &[&str] = &[
     "scanLocal",
     "checkFrame",
     "gitStatus",
+    "gitLog",
+    "gitCommitDetails",
+    "gitCommitFileDiff",
+    "gitCreateBranchAt",
+    "gitRestoreFileFromCommit",
+    "gitRevertCommit",
+    "gitUndoCommit",
+    "gitResetToCommit",
+    "gitFetch",
     "gitSwitchBranch",
     "gitCreateBranch",
     "gitDeleteBranch",
@@ -289,10 +302,9 @@ pub async fn route_ws(state: &AppState, text: &str) -> Vec<String> {
                 .map(|mut event| {
                     if event.get("kind").and_then(Value::as_str) == Some("user") {
                         if let Some(text) = event.get("text").and_then(Value::as_str) {
-                            if text.contains("<atelier-kb") {
-                                let stripped = crate::kb_block::strip_kb_block(text);
-                                event["text"] = json!(stripped);
-                            }
+                            let stripped = crate::send::strip_file_scope_instruction(text);
+                            let stripped = crate::kb_block::strip_kb_block(&stripped);
+                            event["text"] = json!(stripped);
                         }
                     }
                     event
@@ -590,6 +602,49 @@ pub async fn route_ws(state: &AppState, text: &str) -> Vec<String> {
             vec![json_msg(
                 json!({"type":"frameChecked","url": url, "blocked": blocked}),
             )]
+        }
+        "gitLog" => {
+            let root = git_root(state, &msg).await;
+            let all = msg.get("all").and_then(Value::as_bool).unwrap_or(false);
+            let skip = msg.get("skip").and_then(Value::as_u64).unwrap_or(0) as usize;
+            let limit = msg.get("limit").and_then(Value::as_u64).unwrap_or(50) as usize;
+            let query = msg.get("query").and_then(Value::as_str).unwrap_or("");
+            match git_log(&root, all, skip, limit, query) {
+                Ok(page) => vec![json_msg(json!({"type":"gitLog","projectRoot":root,"commits":page.commits,"hasMore":page.has_more,"skip":page.skip}))],
+                Err(e) => vec![json_msg(json!({"type":"gitLog","projectRoot":root,"commits":[],"hasMore":false,"error":e.to_string()}))],
+            }
+        }
+        "gitCommitDetails" => {
+            let root = git_root(state, &msg).await; let sha = msg.get("sha").and_then(Value::as_str).unwrap_or("");
+            match git_commit_details(&root, sha) {
+                Ok(details) => vec![json_msg(json!({"type":"gitCommitDetails","projectRoot":root,"details":details}))],
+                Err(e) => vec![json_msg(json!({"type":"gitCommitDetails","projectRoot":root,"error":e.to_string()}))],
+            }
+        }
+        "gitCommitFileDiff" => {
+            let root = git_root(state, &msg).await;
+            let sha = msg.get("sha").and_then(Value::as_str).unwrap_or("");
+            let path = msg.get("path").and_then(Value::as_str).unwrap_or("");
+            let previous = msg.get("previousPath").and_then(Value::as_str);
+            match git_commit_file_contents(&root, sha, path, previous) {
+                Ok(contents) => vec![json_msg(json!({"type":"gitCommitFileDiff","projectRoot":root,"sha":sha,"path":path,"before":contents.before,"after":contents.after,"binary":contents.binary}))],
+                Err(e) => vec![json_msg(json!({"type":"gitCommitFileDiff","projectRoot":root,"sha":sha,"path":path,"error":e.to_string()}))],
+            }
+        }
+        "gitCreateBranchAt" | "gitRestoreFileFromCommit" | "gitRevertCommit" | "gitUndoCommit" | "gitResetToCommit" | "gitFetch" => {
+            let root = git_root(state, &msg).await; let sha = msg.get("sha").and_then(Value::as_str).unwrap_or("");
+            let expected = msg.get("expectedHead").and_then(Value::as_str);
+            let (op, result): (&str, Result<Value, String>) = match msg_type {
+                "gitCreateBranchAt" => ("create-branch", git_create_branch_at(&root, msg.get("branch").and_then(Value::as_str).unwrap_or(""), sha).map(Value::String).map_err(|e| e.to_string())),
+                "gitRestoreFileFromCommit" => ("restore-file", git_restore_file_from_commit(&root, sha, msg.get("path").and_then(Value::as_str).unwrap_or(""), expected).map(Value::String).map_err(|e| e.to_string())),
+                "gitRevertCommit" => ("revert", git_revert_commit(&root, sha, expected).map(Value::String).map_err(|e| e.to_string())),
+                "gitUndoCommit" => ("undo-commit", git_undo_last_commit(&root, expected).map(Value::String).map_err(|e| e.to_string())),
+                "gitResetToCommit" => ("reset", git_reset_to_commit(&root, sha, msg.get("mode").and_then(Value::as_str).unwrap_or("mixed"), expected).map(|(head, safety_ref)| json!({"head":head,"safetyRef":safety_ref})).map_err(|e| e.to_string())),
+                _ => ("fetch", git_fetch_all(&root).map(Value::String).map_err(|e| e.to_string())),
+            };
+            let mut out = match result { Ok(value) => vec![json_msg(json!({"type":"gitHistoryActionDone","op":op,"projectRoot":root,"out":value}))], Err(error) => vec![json_msg(json!({"type":"gitHistoryActionDone","op":op,"projectRoot":root,"error":error}))] };
+            if out.first().is_some_and(|message| !message.contains("\"error\"")) { out.extend(git_changed(state, &msg, &root).await); }
+            out
         }
         "gitStatus" => {
             let root = git_root(state, &msg).await;
@@ -1277,14 +1332,19 @@ pub async fn route_ws(state: &AppState, text: &str) -> Vec<String> {
         }
         "generateCommitMsg" => {
             let root = git_root(state, &msg).await;
-            if msg.get("scope").and_then(Value::as_str) != Some("staged") {
+            let scope = msg.get("scope").and_then(Value::as_str).unwrap_or("changes");
+            if scope != "staged" && scope != "changes" {
                 return vec![json_msg(json!({
                     "type": "commitMsg",
                     "projectRoot": root,
-                    "error": "Indexe explicitement les fichiers avant de générer le message.",
+                    "error": "Portée de génération Git invalide.",
                 }))];
             }
-            let diff = match git_diff_staged(&root, None) {
+            let diff = match if scope == "staged" {
+                git_diff_staged(&root, None)
+            } else {
+                git_diff(&root, None)
+            } {
                 Ok(diff) => diff,
                 Err(error) => {
                     return vec![json_msg(json!({
@@ -1298,7 +1358,7 @@ pub async fn route_ws(state: &AppState, text: &str) -> Vec<String> {
                 return vec![json_msg(json!({
                     "type": "commitMsg",
                     "projectRoot": root,
-                    "error": "Indexe au moins un fichier avant de générer le message.",
+                    "error": "Aucun changement à résumer.",
                 }))];
             }
             {
@@ -3252,7 +3312,7 @@ mod tests {
         let s = state(dir.path());
         s.journal().append(&json!({
             "kind": "user",
-            "text": "hello",
+            "text": "hello\n\n<atelier-file-scope>old</atelier-file-scope>\n\n<atelier-file-scope>new</atelier-file-scope>",
             "meta": {
                 "eventId": "e1",
                 "sequence": 1,
@@ -3266,6 +3326,7 @@ mod tests {
         let v: Value = serde_json::from_str(&out[0]).unwrap();
         assert_eq!(v["type"], "history");
         assert_eq!(v["events"].as_array().unwrap().len(), 1);
+        assert_eq!(v["events"][0]["text"], "hello");
     }
 
     #[tokio::test]

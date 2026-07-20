@@ -10,10 +10,11 @@ mod zotero;
 
 pub use catalog::{list_commands, list_file_catalog, list_files, FileCatalog};
 pub use git::{
-    changed_since, commit, create_branch, delete_branch, diff, diff_contents, diff_staged,
-    ignore_pattern, merge_branch, pull, push, restore, revert_file, snapshot, stage_file,
-    stage_files, status, switch_branch, unstage_file, unstage_files, DiffContents, GitFile,
-    GitStatus,
+    changed_since, commit, commit_details, commit_file_contents, create_branch, create_branch_at, delete_branch, diff,
+    diff_contents, diff_staged, fetch_all, ignore_pattern, log, merge_branch, pull, push, reset_to_commit,
+    restore, restore_file_from_commit, revert_commit, revert_file, snapshot, stage_file, stage_files,
+    status, switch_branch, undo_last_commit, unstage_file, unstage_files, DiffContents, GitCommitDetails,
+    GitCommitFile, GitCommitSummary, GitFile, GitLogPage, GitStatus,
 };
 pub use narval::{
     inspect_job as narval_inspect_job, list_directory as narval_list_directory,

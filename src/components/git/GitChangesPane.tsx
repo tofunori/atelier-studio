@@ -9,9 +9,11 @@ import type { GitSurfaceController } from "./useGitSurfaceController";
 export function GitChangesPane({
   controller,
   onSend,
+  onFileSelected,
 }: {
   controller: GitSurfaceController;
   onSend: (message: Record<string, unknown>) => void;
+  onFileSelected?: () => void;
 }) {
   const { files, filesByGroup, selected, closedGroups } = controller;
 
@@ -33,7 +35,10 @@ export function GitChangesPane({
           open={filesByGroup[group].length > 0 && !closedGroups.has(group)}
           selected={selected}
           onOpenChange={() => controller.toggleGroup(group)}
-          onSelect={(file) => controller.selectFile(file.path, group)}
+          onSelect={(file) => {
+            controller.selectFile(file.path, group);
+            onFileSelected?.();
+          }}
           onUpdateStage={(paths) => controller.updateStage(group, paths)}
           onRevert={(path) => onSend({ type: "gitRevertFile", path })}
           onIgnore={(pattern) => onSend({ type: "gitIgnore", pattern })}

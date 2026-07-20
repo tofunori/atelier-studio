@@ -324,7 +324,7 @@ describe("replayToHistory (import session/load)", () => {
   it("nettoie les blocs injectés et supprime les messages réduits à un rappel système", () => {
     const events = replayToHistory([
       { sessionUpdate: "user_message_chunk", content: { type: "text",
-        text: "Ca veut dire quoi<atelier-zotero-passages>\noutil pdf\n</atelier-zotero-passages>" } },
+        text: "Ca veut dire quoi<atelier-zotero-passages>\noutil pdf\n</atelier-zotero-passages>\n\n<atelier-file-scope>\npolitique interne\n</atelier-file-scope>" } },
       { sessionUpdate: "agent_message_chunk", content: { type: "text", text: "réponse" } },
       { sessionUpdate: "user_message_chunk", content: { type: "text",
         text: "<system-reminder>rappel outillage</system-reminder>" } },

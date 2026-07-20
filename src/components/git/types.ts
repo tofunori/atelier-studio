@@ -41,5 +41,17 @@ export type LedgerEntry = {
   snapshotSha?: string | null;
 };
 
-export type GitMode = "git" | "journal";
+export type GitCommitSummary = {
+  sha: string; shortSha: string; parents: string[]; author: string; authorEmail: string;
+  authoredAt: string; subject: string; decorations: string[];
+};
+
+export type GitCommitFile = { status: string; path: string; previousPath?: string };
+
+export type GitCommitDetails = GitCommitSummary & {
+  body: string; files: GitCommitFile[]; diff: string; head: string; upstream?: string | null;
+  isHead: boolean; isPublished: boolean;
+};
+
+export type GitMode = "git" | "commits" | "journal";
 export type SyncOperation = "push" | "pull" | "switch" | "create-branch" | "delete-branch" | "merge-branch";

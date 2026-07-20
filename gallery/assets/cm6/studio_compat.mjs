@@ -7,6 +7,19 @@ export function clampPos(pos, lineCount, lineLength) {
   return { line, ch };
 }
 
+// CM5 accepts either a position or a {from, to} range in scrollIntoView.
+// Keep that distinction explicit so a range can never be mistaken for the
+// default {line: 0, ch: 0} position by the compatibility layer.
+export function normalizeScrollTarget(target, lineCount, lineLength) {
+  if (target && target.from && target.to) {
+    return {
+      from: clampPos(target.from, lineCount, lineLength),
+      to: clampPos(target.to, lineCount, lineLength),
+    };
+  }
+  return {from: clampPos(target || {line: 0, ch: 0}, lineCount, lineLength), to: null};
+}
+
 // CM5 CodeMirror.countColumn: column reached at `end` (or at the first
 // non-whitespace char when end == null), expanding tabs to tabSize.
 export function countColumn(text, end, tabSize) {

@@ -1,7 +1,7 @@
-import { Separator } from "./shadcn/separator";
 import { GitChangesPane } from "./git/GitChangesPane";
 import { GitCommitComposer } from "./git/GitCommitComposer";
-import { GitDiffPane, GitMobileDiffSheet } from "./git/GitDiffPane";
+import { GitCommitsView } from "./git/GitCommitsView";
+import { GitDiffPane } from "./git/GitDiffPane";
 import { GitJournalView } from "./git/GitJournalView";
 import { GitToolbar } from "./git/GitToolbar";
 import { useGitSurfaceController } from "./git/useGitSurfaceController";
@@ -10,10 +10,12 @@ export default function GitSurface({
   ws,
   projectRoot,
   activeThreadId,
+  onRequestExpand,
 }: {
   ws: WebSocket | null;
   projectRoot: string;
   activeThreadId: string | null;
+  onRequestExpand?: () => void;
 }) {
   const controller = useGitSurfaceController({ ws, projectRoot });
 
@@ -32,13 +34,13 @@ export default function GitSurface({
       {controller.mode === "git" ? (
         <>
           <div className="git-workspace">
-            <GitChangesPane controller={controller} onSend={send} />
+            <GitChangesPane controller={controller} onSend={send} onFileSelected={onRequestExpand} />
             <GitDiffPane controller={controller} />
+            <GitCommitComposer controller={controller} />
           </div>
-          <GitMobileDiffSheet controller={controller} />
-          <Separator />
-          <GitCommitComposer controller={controller} />
         </>
+      ) : controller.mode === "commits" ? (
+        <GitCommitsView controller={controller} />
       ) : (
         <GitJournalView controller={controller} />
       )}

@@ -1,6 +1,5 @@
 import { AlertCircleIcon, ChevronRightIcon, FileTextIcon, SparklesIcon } from "lucide-react";
 import { t } from "../../lib/i18n";
-import { Alert, AlertDescription } from "../shadcn/alert";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "../shadcn/collapsible";
 import { Field, FieldGroup, FieldLabel } from "../shadcn/field";
 import {
@@ -31,6 +30,15 @@ export function GitCommitComposer({ controller }: { controller: GitSurfaceContro
   } = controller;
   const disabled = !commitMsg.trim() || stagedCount === 0 || commitBusy || generating;
   const hasCommitDetails = Boolean(commitMsg.trim() || commitDescription.trim());
+  const statusText = commitError
+    ?? (generating
+      ? t("git.generation-note")
+      : syncNote || (stagedCount > 0 ? t("git.commit-scope-staged") : t("git.commit-scope-required")));
+  const generateLabel = generating
+    ? t("git.generating-ai")
+    : hasCommitDetails
+      ? t("git.regenerate-ai")
+      : t("git.generate-ai");
 
   return (
     <form className="git-commit-zone" onSubmit={(event) => {
@@ -63,17 +71,14 @@ export function GitCommitComposer({ controller }: { controller: GitSurfaceContro
               <InputGroupButton
                 className="git-generate-btn"
                 aria-busy={generating || undefined}
+                aria-label={generateLabel}
+                title={generateLabel}
                 disabled={!generationScope || generating || commitBusy}
                 onClick={controller.generateCommitMessage}
               >
                 {generating
                   ? <Spinner data-icon="inline-start" aria-hidden role={undefined} aria-label={undefined} />
                   : <SparklesIcon data-icon="inline-start" />}
-                {generating
-                  ? t("git.generating-ai")
-                  : hasCommitDetails
-                    ? t("git.regenerate-ai")
-                    : t("git.generate-ai")}
               </InputGroupButton>
             </InputGroupAddon>
           </InputGroup>
@@ -102,29 +107,31 @@ export function GitCommitComposer({ controller }: { controller: GitSurfaceContro
         </Collapsible>
       </FieldGroup>
 
-      {generating && <div className="git-generation-note" role="status" aria-live="polite">{t("git.generation-note")}</div>}
-
       <div className="git-commit-actions">
-        <span className="git-commit-scope">
-          {stagedCount > 0 ? t("git.commit-scope-staged") : t("git.commit-scope-required")}
+        <span
+          className={`git-commit-status${commitError ? " is-error" : ""}`}
+          role={commitError ? "alert" : "status"}
+          aria-live={commitError ? "assertive" : "polite"}
+        >
+          {commitError && <AlertCircleIcon aria-hidden="true" />}
+          <span>{statusText}</span>
         </span>
         <span className="git-commit-buttons">
-          <Button variant="primary" type="submit" loading={commitBusy && !commitAndPush} disabled={disabled}>
-            {t("git.commit-branch", { branch: status?.branch ?? t("git.branch-fallback") })}
+          <Button
+            variant="primary"
+            type="submit"
+            loading={commitBusy && !commitAndPush}
+            disabled={disabled}
+            aria-label={t("git.commit-branch", { branch: status?.branch ?? t("git.branch-fallback") })}
+            title={t("git.commit-branch", { branch: status?.branch ?? t("git.branch-fallback") })}
+          >
+            {t("action.commit")}
           </Button>
           <Button variant="secondary" loading={commitBusy && commitAndPush} disabled={disabled} onClick={() => controller.createCommit(true)}>
             {t("git.commit-push")}
           </Button>
         </span>
       </div>
-
-      {syncNote && <div className="git-syncnote" role="status">{syncNote}</div>}
-      {commitError && (
-        <Alert variant="destructive" className="git-commit-error">
-          <AlertCircleIcon />
-          <AlertDescription>{commitError}</AlertDescription>
-        </Alert>
-      )}
     </form>
   );
 }
