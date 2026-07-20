@@ -74,19 +74,30 @@ export default function Rail(p: {
   const atelierSurface = SURFACES.find((s) => s.id === "atelier")!;
   const revealedSurface = p.moreOpen ? null : (secondarySurfaces.find((s) => s.id === p.activeSurface) ?? null);
   const surfaceBtn = (s: (typeof SURFACES)[number]) => (
-    <IconButton
+    <span
       key={s.id}
-      /* Galerie (surface "atelier") n'est active que sur l'onglet gallery,
-         pas quand un fichier est ouvert (là c'est l'IDE qui est actif) */
-      className={`rail-view ${p.layout !== "chat" && p.activeSurface === s.id && !(s.id === "atelier" && p.ideActive) ? "on" : ""}`}
-      label={t(s.labelKey)}
-      title={t(s.labelKey)}
-      /* Galerie (atelier) : revient à l'onglet galerie même si un fichier
-         est ouvert (IDE) — sinon on resterait bloqué sur le fichier */
-      onClick={() => (s.id === "atelier" ? p.onSelectGallery() : p.onSelectSurface(s.id))}
+      className="rail-surface-drag"
+      draggable
+      onDragStart={(event) => {
+        event.dataTransfer.effectAllowed = "move";
+        event.dataTransfer.setData("application/x-atelier-surface", s.id);
+        window.dispatchEvent(new CustomEvent("workspace-surface-drag-start", { detail: { surface: s.id } }));
+      }}
+      onDragEnd={() => window.dispatchEvent(new CustomEvent("workspace-surface-drag-end"))}
     >
-      {s.icon}
-    </IconButton>
+      <IconButton
+        /* Galerie (surface "atelier") n'est active que sur l'onglet gallery,
+           pas quand un fichier est ouvert (là c'est l'IDE qui est actif) */
+        className={`rail-view ${p.layout !== "chat" && p.activeSurface === s.id && !(s.id === "atelier" && p.ideActive) ? "on" : ""}`}
+        label={t(s.labelKey)}
+        title={t(s.labelKey)}
+        /* Galerie (atelier) : revient à l'onglet galerie même si un fichier
+           est ouvert (IDE) — sinon on resterait bloqué sur le fichier */
+        onClick={() => (s.id === "atelier" ? p.onSelectGallery() : p.onSelectSurface(s.id))}
+      >
+        {s.icon}
+      </IconButton>
+    </span>
   );
   // Surlignés vit aussi dans le tiroir (vue moins fréquente) — même règle de
   // révélation que les surfaces : visible tant que c'est la vue active.

@@ -108,4 +108,17 @@ describe("Rail — tiroir de surfaces", () => {
     fireEvent.click(screen.getByRole("button", { name: t("atelier.more") }));
     expect(props.onToggleMore).toHaveBeenCalledTimes(1);
   });
+
+  it("rend les surfaces glissables vers le workspace modulaire", () => {
+    renderUi(<Rail {...makeProps({ moreOpen: true })} />);
+    const listener = vi.fn();
+    window.addEventListener("workspace-surface-drag-start", listener);
+    const dataTransfer = { effectAllowed: "none", setData: vi.fn() };
+
+    fireEvent.dragStart(screen.getByRole("button", { name: t("atelier.biblio") }).parentElement!, { dataTransfer });
+
+    expect(dataTransfer.setData).toHaveBeenCalledWith("application/x-atelier-surface", "biblio");
+    expect(listener).toHaveBeenCalledTimes(1);
+    window.removeEventListener("workspace-surface-drag-start", listener);
+  });
 });

@@ -1751,6 +1751,53 @@ body.dragging .pane-divider::after { background: var(--border-strong); }
   transition: background 0.1s, border-color 0.1s; }
 .drop-zone.hot { background: color-mix(in srgb, var(--info) 14%, transparent); border-color: color-mix(in srgb, var(--info) 55%, transparent); }
 body.dragging iframe { pointer-events: none; }
+.rail-surface-drag, .topbar-surface-drag { display: inline-flex; min-width: 0; min-height: 0; }
+.rail-surface-drag[draggable="true"], .topbar-surface-drag[draggable="true"] { cursor: grab; }
+.rail-surface-drag[draggable="true"]:active, .topbar-surface-drag[draggable="true"]:active { cursor: grabbing; }
+
+/* ===== workspace modulaire : arbre split/pane façon cmux ===== */
+.modular-workspace .pane-row { min-width: 0; }
+.workspace-root { flex: 1; min-width: 0; min-height: 0; display: flex; position: relative; overflow: hidden; }
+.workspace-root > .workspace-pane, .workspace-root > .workspace-split { flex: 1; }
+.workspace-split { min-width: 0; min-height: 0; display: flex; flex: 1; overflow: hidden; }
+.workspace-split.is-horizontal { flex-direction: row; }
+.workspace-split.is-vertical { flex-direction: column; }
+.workspace-branch { min-width: 0; min-height: 0; display: flex; overflow: hidden; }
+.workspace-branch > .workspace-pane, .workspace-branch > .workspace-split { flex: 1; }
+.workspace-divider { position: relative; flex: 0 0 var(--resize-handle-hit); background: transparent; z-index: var(--z-sticky); }
+.workspace-divider.is-horizontal { width: var(--resize-handle-hit); cursor: col-resize; }
+.workspace-divider.is-vertical { height: var(--resize-handle-hit); cursor: row-resize; }
+.workspace-divider::after { content: ""; position: absolute; background: var(--border-subtle); pointer-events: none; }
+.workspace-divider.is-horizontal::after { inset-block: 0; left: 50%; width: var(--resize-handle-line); transform: translateX(-50%); }
+.workspace-divider.is-vertical::after { inset-inline: 0; top: 50%; height: var(--resize-handle-line); transform: translateY(-50%); }
+.workspace-divider:hover::after, body.dragging .workspace-divider::after { background: var(--border-strong); }
+.workspace-pane { min-width: 0; min-height: 0; display: flex; flex-direction: column; position: relative; overflow: hidden; background: transparent; }
+.workspace-pane.is-focused > .workspace-pane-tabs { box-shadow: inset 0 -1px var(--border-strong); }
+.workspace-pane-tabs { min-width: 0; flex: 0 0 auto; overflow-x: auto; overflow-y: hidden; scrollbar-width: none; position: relative; z-index: var(--z-sticky); background: var(--bg); }
+.workspace-pane-tabs::-webkit-scrollbar { display: none; }
+.workspace-pane-body { position: relative; flex: 1; min-width: 0; min-height: 0; overflow: hidden; }
+.workspace-content-pool { position: absolute; inset: 0; pointer-events: none; }
+.workspace-content-layer { position: absolute; min-width: 0; min-height: 0; overflow: hidden; pointer-events: auto; background: var(--bg); }
+.workspace-pane-close { position: absolute !important; top: 6px; right: 6px; z-index: var(--z-sticky); opacity: 0.55; background: color-mix(in srgb, var(--bg-card) 84%, transparent) !important; backdrop-filter: blur(8px); }
+.workspace-pane-close:hover, .workspace-pane-close:focus-visible, .workspace-pane.has-native-chrome:focus-within > .workspace-pane-close { opacity: 1; }
+.workspace-tab-content { position: absolute; inset: 0; min-width: 0; min-height: 0; flex-direction: column; overflow: hidden; }
+.workspace-tab-content > .ksurface,
+.workspace-tab-content > .biblio-surface,
+.workspace-tab-content > .generateur-surface,
+.workspace-tab-content > .narval-surface { flex: 1; min-height: 0; }
+.workspace-empty-pane { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 5px; color: var(--muted); }
+.workspace-empty-pane span { color: var(--fg2); font-size: var(--fs-l); }
+.workspace-empty-pane small { font-size: var(--fs-s); }
+.workspace-drop-overlay { position: absolute; inset: 0; z-index: var(--z-popover); pointer-events: none; }
+.workspace-drop-zone { position: absolute; display: flex; align-items: center; justify-content: center; margin: 4px; border: 1px solid transparent; border-radius: var(--r-m); color: transparent; pointer-events: auto; transition: background var(--motion-fast) var(--ease-out), border-color var(--motion-fast) var(--ease-out); }
+.workspace-drop-zone.is-left { inset: 22% 75% 22% 0; }
+.workspace-drop-zone.is-right { inset: 22% 0 22% 75%; }
+.workspace-drop-zone.is-top { inset: 0 25% 75% 25%; }
+.workspace-drop-zone.is-bottom { inset: 75% 25% 0 25%; }
+.workspace-drop-zone.is-center { inset: 25%; }
+.workspace-drop-zone.hot { color: var(--fg2); background: color-mix(in srgb, var(--info) 16%, var(--bg) 84%); border-color: color-mix(in srgb, var(--info) 62%, transparent); }
+.workspace-drop-zone span { padding: 3px 7px; border-radius: var(--r-s); background: var(--bg-card); font-size: var(--fs-s); white-space: nowrap; opacity: 0; }
+.workspace-drop-zone.hot span { opacity: 1; }
 .jump-bottom { display: none; }
 /* ===== Quick Ask (side chat éphémère) — calme et spacieux ===== */
 .qa-overlay { position: fixed; inset: 0; z-index: var(--z-quick-ask); background: rgba(0,0,0,0.38);
