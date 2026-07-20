@@ -176,6 +176,21 @@ fn fallback_reply_body(method: &str) -> Value {
     }
 }
 
+#[cfg(unix)]
+fn terminate_process_group(child: &Child) {
+    if let Some(pid) = child.id() {
+        // Tous les serveurs ACP sont spawnés avec process_group(0). Le signal
+        // de groupe évite de laisser un helper CLI orphelin après éviction ou
+        // suppression d'un thread ; `child.kill()` reste le filet direct.
+        unsafe {
+            libc::kill(-(pid as i32), libc::SIGTERM);
+        }
+    }
+}
+
+#[cfg(not(unix))]
+fn terminate_process_group(_child: &Child) {}
+
 impl AcpServer {
     pub fn new(label: &'static str) -> Self {
         Self {
@@ -221,6 +236,19 @@ impl AcpServer {
         args: &[String],
         init_params: Value,
     ) -> Result<AcpInitializeResult, AcpRpcError> {
+        self.ensure_in(bin, args, init_params, None).await
+    }
+
+    /// Variante de `ensure` qui fixe le cwd du process ACP. Grok attache le
+    /// process agent à un projet : ses processus persistants sont donc créés
+    /// par thread avec le cwd réel, sans mutation globale du process Atelier.
+    pub async fn ensure_in(
+        &self,
+        bin: &Path,
+        args: &[String],
+        init_params: Value,
+        cwd: Option<&Path>,
+    ) -> Result<AcpInitializeResult, AcpRpcError> {
         // Single-flight : le second appelant attend la fin du handshake du
         // premier au lieu de retourner avec un initialize encore en vol.
         let _flight = self.ensure_lock.lock().await;
@@ -239,6 +267,9 @@ impl AcpServer {
             .stdout(Stdio::piped())
             .stderr(Stdio::null())
             .kill_on_drop(true);
+        if let Some(cwd) = cwd {
+            cmd.current_dir(cwd);
+        }
         #[cfg(unix)]
         {
             cmd.process_group(0);
@@ -344,8 +375,13 @@ impl AcpServer {
                     continue;
                 }
 
-                // Notification : seul session/update est routé (par sessionId).
-                if msg.get("method").and_then(Value::as_str) == Some("session/update") {
+                // Notifications de tour ACP standard OU extension xAI Grok.
+                // Les autres notifications xAI (notamment MCP, susceptibles
+                // de contenir des secrets d'environnement) restent ignorées.
+                if matches!(
+                    msg.get("method").and_then(Value::as_str),
+                    Some("session/update" | "_x.ai/session_notification")
+                ) {
                     let params = msg.get("params").cloned().unwrap_or(json!({}));
                     let sid = params
                         .get("sessionId")
@@ -372,6 +408,7 @@ impl AcpServer {
                     }
                     inn.handlers.clear();
                     inn.server_handlers.clear();
+                    terminate_process_group(&inn.child);
                     let _ = inn.child.kill().await;
                 }
                 // Le cache initialize vit exactement aussi longtemps que SON
@@ -500,7 +537,7 @@ impl AcpServer {
         }
     }
 
-    async fn shutdown(&self) {
+    pub async fn shutdown(&self) {
         let mut g = self.inner.lock().await;
         if let Some(mut inn) = g.take() {
             for (_, p) in inn.pending.drain() {
@@ -509,6 +546,7 @@ impl AcpServer {
                     self.label
                 ))));
             }
+            terminate_process_group(&inn.child);
             let _ = inn.child.kill().await;
             let mut cache = self.init_cache.lock().unwrap();
             if cache.as_ref().map(|(g, _)| *g) == Some(inn.generation) {
@@ -886,6 +924,28 @@ mod tests {
         let b = seen_b.lock().unwrap().join("");
         assert!(a.contains("réponse"), "session A doit recevoir SES updates");
         assert!(b.contains("réponse"), "session B doit recevoir SES updates");
+    }
+
+    #[tokio::test]
+    async fn notification_xai_grok_routee_comme_session_update() {
+        let Some(server) = fixture_server("nominal").await else {
+            return;
+        };
+        let sid = new_session(&server).await;
+        let (handler, seen) = collect_text();
+        server.set_session_handler(&sid, handler).await;
+        server
+            .request(
+                "session/prompt",
+                json!({"sessionId": sid, "prompt": [{"type": "text", "text": "[xai]"}]}),
+                Some(5_000),
+            )
+            .await
+            .unwrap();
+        assert!(
+            seen.lock().unwrap().join("").contains("notification-xai"),
+            "l'extension xAI doit suivre le même handler de session"
+        );
     }
 
     #[tokio::test]

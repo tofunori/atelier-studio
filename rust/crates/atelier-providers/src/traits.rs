@@ -94,6 +94,11 @@ pub trait Provider: Send + Sync {
         true
     }
 
+    /// Libère tout runtime persistant attaché à un thread. Le routeur appelle
+    /// ce hook avant suppression ou changement de projet ; les providers
+    /// one-shot n'ont rien à faire.
+    async fn stop_session(&self, _thread_id: &str) {}
+
     async fn native_command(&self, name: &str, _params: Value) -> Result<Value, String> {
         Err(format!(
             "commande native non supportée par {}: {name}",

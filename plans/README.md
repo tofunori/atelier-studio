@@ -384,3 +384,11 @@ que les services convergent ensuite avec leurs contrôles d'identité actuels.
   puis gateway hors chemin critique.
 - Le soak de trois jours ferme uniquement le plan 053 ; il ne remplace pas le
   soak 2–3 semaines du plan 047 avant retrait de Node.
+
+---
+
+## Grok CLI natif via ACP Rust — 2026-07-19
+
+| Plan | Title | Priority | Effort | Depends on | Status |
+|------|-------|----------|--------|------------|--------|
+| 056 | Grok CLI natif via ACP Rust, runtime isolé par thread | P1 | XL | client ACP Rust 045 | DONE (2026-07-19 ; 119 provider + 64 runtime + 599 frontend + 542 sidecar, app worktree buildée/lancée saine) |

@@ -196,7 +196,7 @@ pub async fn route_ws(state: &AppState, text: &str) -> Vec<String> {
         "moveThread" => {
             let id = msg.get("threadId").and_then(|v| v.as_str()).unwrap_or("");
             let target = msg.get("projectRoot").and_then(|v| v.as_str());
-            {
+            let provider_id = {
                 let mut store = state.threads().lock().await;
                 let Some(t) = store.get(id).cloned() else {
                     return vec![err_thread(id, "thread introuvable")];
@@ -214,11 +214,24 @@ pub async fn route_ws(state: &AppState, text: &str) -> Vec<String> {
                     return vec![];
                 }
                 let _ = store.upsert(json!({"id": id, "projectRoot": target}), false);
+                t.provider
+            };
+            if let Some(provider) = state.provider(&provider_id) {
+                provider.stop_session(id).await;
             }
             broadcast_threads(state).await
         }
         "deleteThread" => {
             let id = msg.get("threadId").and_then(|v| v.as_str()).unwrap_or("");
+            let provider_id = state
+                .threads()
+                .lock()
+                .await
+                .get(id)
+                .map(|thread| thread.provider.clone());
+            if let Some(provider) = provider_id.as_deref().and_then(|id| state.provider(id)) {
+                provider.stop_session(id).await;
+            }
             let _ = state.threads().lock().await.delete(id);
             let _ = state.journal().delete_thread(id);
             broadcast_threads(state).await
@@ -1190,13 +1203,20 @@ pub async fn route_ws(state: &AppState, text: &str) -> Vec<String> {
             let Some(thread) = thread else {
                 return vec![err_thread(thread_id, "compact: chat absent")];
             };
-            let Some(provider) = state.provider("codex") else {
-                return vec![err_thread(thread_id, "compact: provider Codex absent")];
+            let Some(provider) = state.provider(&thread.provider) else {
+                return vec![err_thread(
+                    thread_id,
+                    format!("compact: provider {} absent", thread.provider),
+                )];
             };
             match provider
                 .native_command(
                     "compact",
-                    json!({"sessionId": thread.session_id, "projectRoot": thread.project_root}),
+                    json!({
+                        "threadId": thread_id,
+                        "sessionId": thread.session_id,
+                        "projectRoot": thread.project_root,
+                    }),
                 )
                 .await
             {
