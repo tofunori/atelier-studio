@@ -9,7 +9,13 @@
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
+pub mod agent_link;
 pub mod remote;
+
+pub use agent_link::{
+    agent_mcp_errors, agent_mcp_limits, AgentLink, AgentMailboxMessage, AgentMessageKind,
+    AgentMessageStatus, AgentRelation, AtelierMcpLaunch,
+};
 
 /// Historical R1 constant — prefer `remote::PROTOCOL_VERSION` for new code.
 pub const PROTOCOL_VERSION: u32 = remote::PROTOCOL_VERSION;
@@ -83,6 +89,9 @@ pub struct ProviderCapabilities {
     pub mcp_elicitation: bool,
     #[serde(default)]
     pub mcp_tools: bool,
+    /// Provider can inject the scoped `atelier-sessions` MCP (plan 057).
+    #[serde(default)]
+    pub atelier_sessions_mcp: bool,
     #[serde(default)]
     pub mcp_widgets: bool,
     #[serde(default)]
@@ -256,6 +265,7 @@ pub fn builtin_providers() -> Vec<ProviderStatus> {
                 interactive_input: false,
                 mcp_elicitation: false,
                 mcp_tools: true,
+                atelier_sessions_mcp: true,
                 mcp_widgets: false,
                 plugins: false,
                 skills: true,
@@ -308,6 +318,7 @@ pub fn builtin_providers() -> Vec<ProviderStatus> {
                 interactive_input: true,
                 mcp_elicitation: true,
                 mcp_tools: true,
+                atelier_sessions_mcp: true,
                 mcp_widgets: true,
                 plugins: true,
                 skills: true,
@@ -350,6 +361,7 @@ pub fn builtin_providers() -> Vec<ProviderStatus> {
                 interactive_input: true,
                 mcp_elicitation: false,
                 mcp_tools: true,
+                atelier_sessions_mcp: true,
                 mcp_widgets: false,
                 plugins: false,
                 skills: true,
@@ -392,6 +404,7 @@ pub fn builtin_providers() -> Vec<ProviderStatus> {
                 interactive_input: true,
                 mcp_elicitation: false,
                 mcp_tools: true,
+                atelier_sessions_mcp: true,
                 mcp_widgets: false,
                 plugins: false,
                 skills: true,
@@ -451,6 +464,7 @@ pub fn builtin_providers() -> Vec<ProviderStatus> {
                 interactive_input: false,
                 mcp_elicitation: false,
                 mcp_tools: true,
+                atelier_sessions_mcp: true,
                 mcp_widgets: false,
                 plugins: false,
                 skills: false,

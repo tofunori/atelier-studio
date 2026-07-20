@@ -16,6 +16,8 @@ export type ProviderCapabilities = {
   interactiveInput?: boolean;
   mcpElicitation?: boolean;
   mcpTools?: boolean;
+  /** Plan 057 — injection MCP atelier-sessions supportée. */
+  atelierSessionsMcp?: boolean;
   mcpWidgets?: boolean;
   plugins?: boolean;
   skills?: boolean;

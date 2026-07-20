@@ -38,6 +38,16 @@ pub struct SendRequest {
     pub on_interaction: Option<InteractionFn>,
     /// Cancel probe — return true to stop generation.
     pub is_cancelled: Arc<dyn Fn() -> bool + Send + Sync>,
+    /// Scoped Atelier Sessions MCP launch (plan 057). Built only by the runtime.
+    pub atelier_mcp: Option<AtelierMcpLaunch>,
+}
+
+/// MCP subprocess config for a single thread (plan 057).
+#[derive(Debug, Clone)]
+pub struct AtelierMcpLaunch {
+    pub command: std::path::PathBuf,
+    pub server_name: String,
+    pub env: std::collections::HashMap<String, String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

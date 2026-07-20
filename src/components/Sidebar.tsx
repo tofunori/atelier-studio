@@ -124,6 +124,10 @@ export default function Sidebar(p: {
   onRename: (threadId: string, title: string) => void;
   projMeta: Record<string, { color?: string; label?: string }>;
   onSetMeta: (root: string, meta: { color?: string; label?: string }) => void;
+  /** Plan 057 — créer un agent lié depuis le menu du thread. */
+  onCreateLinkedAgent?: (thread: Thread) => void;
+  onUnlinkAgent?: (thread: Thread) => void;
+  onOpenThread?: (threadId: string) => void;
 }) {
   // -- état local ------------------------------------------------------------
   const [query, setQuery] = useState("");
@@ -314,6 +318,37 @@ export default function Sidebar(p: {
           setMenu(null);
         },
       },
+      ...(p.onCreateLinkedAgent
+        ? [{
+            key: "linked-add",
+            label: t("linkedAgent.add"),
+            disabled: thread.status === "running" || !thread.projectRoot,
+            onSelect: () => {
+              p.onCreateLinkedAgent?.(thread);
+              setMenu(null);
+            },
+          }]
+        : []),
+      ...(thread.agentLink && p.onUnlinkAgent
+        ? [{
+            key: "linked-unlink",
+            label: t("linkedAgent.unlink"),
+            onSelect: () => {
+              p.onUnlinkAgent?.(thread);
+              setMenu(null);
+            },
+          }]
+        : []),
+      ...(thread.agentLink && p.onOpenThread
+        ? [{
+            key: "linked-parent",
+            label: t("linkedAgent.viewParent"),
+            onSelect: () => {
+              p.onOpenThread?.(thread.agentLink!.parentThreadId);
+              setMenu(null);
+            },
+          }]
+        : []),
       ...(p.projects.some((root) => root !== threadRoot(thread))
         ? [{
             key: "move",

@@ -198,7 +198,7 @@ fn resolve_claude_bin() -> Option<PathBuf> {
     None
 }
 
-fn build_args(req: &SendRequest) -> Vec<String> {
+fn build_args(req: &SendRequest, mcp_config_path: Option<&std::path::Path>) -> Vec<String> {
     let permission_mode = req
         .permission_mode
         .as_deref()
@@ -245,9 +245,64 @@ fn build_args(req: &SendRequest) -> Vec<String> {
             args.push(sid.clone());
         }
     }
+    // Plan 057: session-scoped MCP (never global ~/.claude config).
+    if let Some(path) = mcp_config_path {
+        args.push("--strict-mcp-config".into());
+        args.push("--mcp-config".into());
+        args.push(path.display().to_string());
+    }
     // Prompt as final arg (one-shot). Steer = same with resume.
     args.push(req.prompt.clone());
     args
+}
+
+fn write_thread_mcp_config(req: &SendRequest) -> Option<std::path::PathBuf> {
+    let launch = req.atelier_mcp.as_ref()?;
+    let app_dir = std::env::var("ATELIER_APP_DIR")
+        .map(std::path::PathBuf::from)
+        .or_else(|_| {
+            std::env::var("HOME").map(|h| {
+                std::path::PathBuf::from(h)
+                    .join("Library/Application Support/atelier-studio")
+            })
+        })
+        .ok()?;
+    let dir = app_dir.join("mcp-configs");
+    let _ = std::fs::create_dir_all(&dir);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let _ = std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o700));
+    }
+    use sha2::{Digest, Sha256};
+    let mut h = Sha256::new();
+    h.update(req.thread_id.as_bytes());
+    let name = format!("{}.json", hex::encode(&h.finalize()[..16]));
+    let path = dir.join(name);
+    let cfg = serde_json::json!({
+        "mcpServers": {
+            launch.server_name.clone(): {
+                "command": launch.command,
+                "args": [],
+                "env": launch.env,
+            }
+        }
+    });
+    let data = serde_json::to_vec_pretty(&cfg).ok()?;
+    let tmp = path.with_extension("tmp");
+    std::fs::write(&tmp, &data).ok()?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let _ = std::fs::set_permissions(&tmp, std::fs::Permissions::from_mode(0o600));
+    }
+    std::fs::rename(&tmp, &path).ok()?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let _ = std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600));
+    }
+    Some(path)
 }
 
 fn regex_is_uuid(s: &str) -> bool {
@@ -328,7 +383,8 @@ impl Provider for ClaudeProvider {
             req.project_root.clone()
         };
 
-        let args = build_args(&req);
+        let mcp_cfg = write_thread_mcp_config(&req);
+        let args = build_args(&req, mcp_cfg.as_deref());
         let mut cmd = Command::new(&self.bin);
         cmd.args(&args)
             .current_dir(&cwd)
@@ -649,6 +705,7 @@ mod title_tests {
             on_event: Arc::new(|_| {}),
             on_interaction: None,
             is_cancelled: Arc::new(|| false),
+        atelier_mcp: None,
         }
     }
 
@@ -659,7 +716,7 @@ mod title_tests {
             ("acceptEdits", "acceptEdits"),
             ("plan", "plan"),
         ] {
-            let args = build_args(&request(mode));
+            let args = build_args(&request(mode), None);
             let index = args
                 .iter()
                 .position(|arg| arg == "--permission-mode")
@@ -669,7 +726,7 @@ mod title_tests {
                 .iter()
                 .any(|arg| arg == "--dangerously-skip-permissions"));
         }
-        let bypass = build_args(&request("bypassPermissions"));
+        let bypass = build_args(&request("bypassPermissions"), None);
         assert!(bypass
             .iter()
             .any(|arg| arg == "--dangerously-skip-permissions"));

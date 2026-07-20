@@ -29,6 +29,7 @@ import {
   type AgentDisplay,
   type AgentToolAction,
 } from "./AgentActivity";
+import { AgentMessageCard } from "./AgentMessageCard";
 
 type RenderedItem =
   | ProjectedTimelineItem
@@ -498,6 +499,18 @@ export function ChatTimeline(p: {
           }
           const e = item.event;
           const i = item.index;
+          if (e.kind === "agent_message")
+            return (
+              <AgentMessageCard
+                key={i}
+                direction={e.direction}
+                peerProvider={e.peerProvider}
+                peerTitle={e.peerTitle}
+                messageKind={e.messageKind}
+                text={e.text}
+                status={e.status}
+              />
+            );
           if (e.kind === "user")
             return (
               <UserTurn

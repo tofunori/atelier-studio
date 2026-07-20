@@ -100,6 +100,8 @@ pub const ALL_MESSAGE_TYPES: &[&str] = &[
     "listSessions",
     "importSession",
     "forkThread",
+    "createLinkedThread",
+    "unlinkThread",
     "revert",
     "clientLog",
     "clientHello",
@@ -207,6 +209,9 @@ pub async fn route_ws(state: &AppState, text: &str) -> Vec<String> {
                         "chat en cours d'exécution — attendre la fin du tour",
                     )];
                 }
+                if let Some(reason) = crate::agent_links::move_blocked_reason(&store, id) {
+                    return vec![err_thread(id, &reason)];
+                }
                 let Some(target) = target.filter(|s| s.starts_with('/')) else {
                     return vec![err_thread(id, "projet cible invalide")];
                 };
@@ -232,6 +237,7 @@ pub async fn route_ws(state: &AppState, text: &str) -> Vec<String> {
             if let Some(provider) = provider_id.as_deref().and_then(|id| state.provider(id)) {
                 provider.stop_session(id).await;
             }
+            crate::agent_links::on_delete_thread(state, id).await;
             let _ = state.threads().lock().await.delete(id);
             let _ = state.journal().delete_thread(id);
             broadcast_threads(state).await
@@ -1405,7 +1411,7 @@ fn term_events(state: &AppState) -> Vec<String> {
         .collect()
 }
 
-async fn broadcast_threads(state: &AppState) -> Vec<String> {
+pub(crate) async fn broadcast_threads(state: &AppState) -> Vec<String> {
     let list = state.threads().lock().await.list();
     // Direct reply only (avoid bus double-delivery on the requesting socket).
     vec![json_msg(json!({"type":"threads","threads": list}))]
@@ -1420,11 +1426,11 @@ fn ok<T: serde::Serialize>(v: T) -> String {
     serde_json::to_string(&v).unwrap_or_else(|_| r#"{"type":"error","message":"serialize"}"#.into())
 }
 
-fn json_msg(v: Value) -> String {
+pub(crate) fn json_msg(v: Value) -> String {
     serde_json::to_string(&v).unwrap_or_else(|_| r#"{"type":"error","message":"serialize"}"#.into())
 }
 
-fn err(message: impl Into<String>) -> String {
+pub(crate) fn err(message: impl Into<String>) -> String {
     ok(ErrorMessage::new(message))
 }
 
@@ -2499,6 +2505,7 @@ async fn handle_quick_ask(state: &AppState, msg: &Value) -> Vec<String> {
             on_event,
             on_interaction: None,
             is_cancelled: std::sync::Arc::new(|| false),
+        atelier_mcp: None,
         };
         let result = p.send(req).await;
         if let Some(sid) = result.session_id {
@@ -2916,7 +2923,7 @@ fn delete_api_provider(app_dir: &std::path::Path, id: &str) -> Result<Vec<Value>
     Ok(list_api_providers_public(app_dir))
 }
 
-fn err_thread(thread_id: &str, message: impl Into<String>) -> String {
+pub(crate) fn err_thread(thread_id: &str, message: impl Into<String>) -> String {
     json_msg(json!({
         "type": "error",
         "threadId": thread_id,

@@ -22,6 +22,7 @@ import { ContextInspector, type InspectedFile } from "./components/ContextInspec
 import { useWorkspaceEvents } from "./hooks/useWorkspaceEvents";
 import WorkspaceShell from "./components/shell/WorkspaceShell";
 import Sidebar from "./components/Sidebar";
+import { LinkedAgentDialog } from "./components/linked-agents/LinkedAgentDialog";
 import Rail, { ProjMeta, HighlightEntry } from "./components/Rail";
 import TopBar from "./components/TopBar";
 import type { Surface } from "./components/surfaces";
@@ -746,6 +747,7 @@ export default function App() {
   const [activeTab, setActiveTab] = useState<string>("gallery");
   const [layout, setLayout] = useState<"split" | "chat" | "atelier">("split");
   const [openedAgent, setOpenedAgent] = useState<AgentDisplay | null>(null);
+  const [linkedDialogSource, setLinkedDialogSource] = useState<Thread | null>(null);
   const previousAtelierTab = useRef("gallery");
   const [activeId, setActiveId] = useState<string | null>(null);
   activeIdRef.current = activeId;
@@ -3167,10 +3169,58 @@ export default function App() {
           }}
           projMeta={projMeta}
           onSetMeta={(root, m) => setProjMeta((prev) => ({ ...prev, [root]: m }))}
+          onCreateLinkedAgent={(thread) => setLinkedDialogSource(thread)}
+          onUnlinkAgent={(thread) => {
+            if (ws.current?.readyState === 1) {
+              ws.current.send(JSON.stringify({ type: "unlinkThread", threadId: thread.id }));
+            }
+          }}
+          onOpenThread={(threadId) => {
+            const th = allThreads.find((t) => t.id === threadId);
+            if (th) selectThread(th.id, th.projectRoot);
+          }}
         />
   );
   const overlaysNode = (
     <>
+      <LinkedAgentDialog
+        open={linkedDialogSource != null}
+        sourceTitle={linkedDialogSource?.title ?? ""}
+        providers={providerList
+          .filter((p) => p.capabilities?.atelierSessionsMcp !== false && p.kind !== "api")
+          .filter((p) => ["claude", "codex", "kimi", "grok", "opencode"].includes(p.id))
+          .map((p) => ({
+            id: p.id,
+            label: p.label,
+            models: p.models ?? [],
+            defaultModel: p.defaultModel ?? p.models?.[0] ?? "",
+            efforts: p.efforts ?? ["low", "medium", "high"],
+            atelierSessionsMcp: p.capabilities?.atelierSessionsMcp,
+          }))}
+        onClose={() => setLinkedDialogSource(null)}
+        onConfirm={(opts) => {
+          const source = linkedDialogSource;
+          setLinkedDialogSource(null);
+          if (!source || ws.current?.readyState !== 1) return;
+          const targetThreadId = crypto.randomUUID();
+          ws.current.send(
+            JSON.stringify({
+              type: "createLinkedThread",
+              sourceThreadId: source.id,
+              targetThreadId,
+              targetProvider: opts.targetProvider,
+              model: opts.model,
+              effort: opts.effort,
+              permissionMode: opts.permissionMode,
+              autoDeliveryLimit: opts.autoDeliveryLimit,
+            }),
+          );
+          setTimeout(() => {
+            setActiveId(targetThreadId);
+            activeIdRef.current = targetThreadId;
+          }, 200);
+        }}
+      />
       {paletteOpen && (
         <LazyBoundary fallback={null}>
           <CommandPalette open items={paletteItems} onClose={() => setPaletteOpen(false)} />

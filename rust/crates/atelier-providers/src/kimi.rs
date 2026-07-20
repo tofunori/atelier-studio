@@ -16,6 +16,7 @@ use crate::acp_rpc::{
     AcpInitializeResult, AcpRpcError, AcpServer, ServerRequestHandler, SessionUpdateHandler,
 };
 use crate::kimi_map::{map_kimi_prompt_result, map_kimi_session_update};
+
 use crate::traits::{InteractionFn, Provider, ProviderCaps, SendRequest, SendResult};
 use async_trait::async_trait;
 use base64::Engine as _;
@@ -25,6 +26,23 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::Mutex as StdMutex;
 use std::time::Duration;
+
+fn atelier_mcp_servers(req: &crate::traits::SendRequest) -> serde_json::Value {
+    let Some(launch) = req.atelier_mcp.as_ref() else {
+        return serde_json::json!([]);
+    };
+    let mut env = serde_json::Map::new();
+    for (k, v) in &launch.env {
+        env.insert(k.clone(), serde_json::json!(v));
+    }
+    serde_json::json!([{
+        "name": launch.server_name,
+        "command": launch.command,
+        "args": [],
+        "env": env,
+    }])
+}
+
 
 /// État lié à la génération du process ACP courant — invalidé au respawn.
 #[derive(Default)]
@@ -715,7 +733,7 @@ impl KimiProvider {
                 .acp
                 .request(
                     "session/resume",
-                    json!({"sessionId": sid, "cwd": cwd, "mcpServers": []}),
+                    json!({"sessionId": sid, "cwd": cwd, "mcpServers": atelier_mcp_servers(&req)}),
                     Some(30_000),
                 )
                 .await
@@ -748,7 +766,7 @@ impl KimiProvider {
             .acp
             .request(
                 "session/new",
-                json!({"cwd": cwd, "mcpServers": []}),
+                json!({"cwd": cwd, "mcpServers": atelier_mcp_servers(&req)}),
                 Some(30_000),
             )
             .await
@@ -1326,7 +1344,7 @@ impl Provider for KimiProvider {
             .acp
             .request(
                 "session/load",
-                json!({"sessionId": session_id, "cwd": cwd, "mcpServers": []}),
+                json!({"sessionId": session_id, "cwd": cwd, "mcpServers": serde_json::json!([])}),
                 Some(30_000),
             )
             .await;
@@ -1467,6 +1485,7 @@ mod tests {
             on_event: Arc::new(move |ev| sink.lock().unwrap().push(ev)),
             on_interaction,
             is_cancelled: Arc::new(|| false),
+        atelier_mcp: None,
         };
         let result = p.send(req).await;
         let events = events.lock().unwrap().clone();
@@ -1755,6 +1774,7 @@ mod tests {
             on_event: Arc::new(move |ev| sink.lock().unwrap().push(ev)),
             on_interaction: None,
             is_cancelled: Arc::new(move || cancelled2.load(std::sync::atomic::Ordering::SeqCst)),
+        atelier_mcp: None,
         };
         let flip = Arc::clone(&cancelled);
         tokio::spawn(async move {
@@ -1929,6 +1949,7 @@ mod tests {
             on_event: Arc::new(move |ev| sink.lock().unwrap().push(ev)),
             on_interaction: None,
             is_cancelled: Arc::new(|| false),
+        atelier_mcp: None,
         };
         let result = p.send(req).await;
         assert!(result.ok, "erreur: {:?}", result.error);

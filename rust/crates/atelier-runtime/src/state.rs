@@ -1,10 +1,13 @@
 //! Shared application state for the HTTP/WS runtime.
 
+use crate::agent_mcp::CapabilityRegistry;
 use crate::paths::AppPaths;
 use atelier_harness::HarnessManager;
 use atelier_protocol::Health;
 use atelier_providers::{build_registry, Provider};
-use atelier_store::{AutomationStore, HarnessJournal, HighlightStore, ThreadStore};
+use atelier_store::{
+    AgentMailboxStore, AutomationStore, HarnessJournal, HighlightStore, ThreadStore,
+};
 use atelier_workspace::{TermEvent, TerminalHub};
 use serde_json::Value;
 use std::collections::{HashMap, HashSet};
@@ -55,6 +58,13 @@ struct Inner {
     project_writers: Mutex<HashMap<String, String>>,
     qa_sessions: Mutex<HashMap<String, QaSession>>,
     retitle_running: AtomicBool,
+    /// Capability grants for atelier-agent-mcp (plan 057) — ephemeral, hashed.
+    capabilities: Mutex<CapabilityRegistry>,
+    /// Durable inter-agent mailbox (plan 057).
+    mailbox: Mutex<AgentMailboxStore>,
+    /// Pending agent-link deliveries (payload JSON for handle_send).
+    delivery_tx: tokio::sync::mpsc::UnboundedSender<Value>,
+    delivery_rx: Mutex<Option<tokio::sync::mpsc::UnboundedReceiver<Value>>>,
 }
 
 impl AppState {
@@ -70,6 +80,8 @@ impl AppState {
         let highlights = HighlightStore::open(paths.app_dir.join("highlights.json"));
         let automations = AutomationStore::open(paths.app_dir.join("automations.json"));
         let journal = HarnessJournal::new(&paths.app_dir);
+        let mailbox = AgentMailboxStore::open(paths.app_dir.join("agent-mailbox.json"));
+        let (delivery_tx, delivery_rx) = tokio::sync::mpsc::unbounded_channel();
         let (bus, _) = broadcast::channel(128);
         let terminal_bus = bus.clone();
         let terminals = Arc::new(TerminalHub::with_event_sink(move |event| {
@@ -120,6 +132,10 @@ impl AppState {
                 project_writers: Mutex::new(HashMap::new()),
                 qa_sessions: Mutex::new(HashMap::new()),
                 retitle_running: AtomicBool::new(false),
+                capabilities: Mutex::new(CapabilityRegistry::new()),
+                mailbox: Mutex::new(mailbox),
+                delivery_tx,
+                delivery_rx: Mutex::new(Some(delivery_rx)),
             }),
         }
     }
@@ -293,6 +309,29 @@ impl AppState {
 
     pub fn end_retitle(&self) {
         self.inner.retitle_running.store(false, Ordering::SeqCst);
+    }
+
+    pub fn capabilities(&self) -> &Mutex<CapabilityRegistry> {
+        &self.inner.capabilities
+    }
+
+    pub fn mailbox(&self) -> &Mutex<AgentMailboxStore> {
+        &self.inner.mailbox
+    }
+
+    pub async fn project_writers_snapshot(&self) -> HashMap<String, String> {
+        self.inner.project_writers.lock().await.clone()
+    }
+
+    pub fn enqueue_agent_delivery(&self, payload: Value) {
+        let _ = self.inner.delivery_tx.send(payload);
+    }
+
+    /// Take the delivery receiver once (server boot).
+    pub async fn take_delivery_rx(
+        &self,
+    ) -> Option<tokio::sync::mpsc::UnboundedReceiver<Value>> {
+        self.inner.delivery_rx.lock().await.take()
     }
 }
 

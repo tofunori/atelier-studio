@@ -2,19 +2,23 @@
 //!
 //! Paths under `~/Library/Application Support/atelier-studio/` unless overridden.
 
+mod agent_mailbox;
 mod automations;
+pub mod context_projection;
 mod highlights;
 mod journal;
 mod ledger;
 mod settings;
 mod threads;
 
+pub use agent_mailbox::{AgentMailboxStore, MailboxMessage};
 pub use automations::{Automation, AutomationRun, AutomationStore};
+pub use context_projection::{build_child_envelope, project_events};
 pub use highlights::{Highlight, HighlightStore};
 pub use journal::HarnessJournal;
 pub use ledger::{append_ledger, get_all_ledgers, get_ledger, slug_for};
 pub use settings::{read_settings, write_settings};
-pub use threads::{Thread, ThreadStore};
+pub use threads::{AgentLink, Thread, ThreadStore};
 
 /// Atomic write matching Node `writeFileAtomic` (tmp + rename).
 pub fn write_file_atomic(path: &std::path::Path, data: impl AsRef<[u8]>) -> std::io::Result<()> {

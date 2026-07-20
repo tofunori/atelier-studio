@@ -126,6 +126,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "atelier-agent-mcp"
+version = "0.1.0"
+dependencies = [
+ "reqwest",
+ "serde",
+ "serde_json",
+ "tokio",
+]
+
+[[package]]
 name = "atelier-core"
 version = "0.1.0"
 dependencies = [
@@ -194,10 +204,12 @@ dependencies = [
  "atelier-store",
  "base64",
  "futures-util",
+ "hex",
  "libc",
  "reqwest",
  "serde",
  "serde_json",
+ "sha2",
  "tempfile",
  "tokio",
  "uuid",
@@ -243,11 +255,13 @@ dependencies = [
  "base64",
  "chrono",
  "futures-util",
+ "hex",
  "http-body-util",
  "libc",
  "reqwest",
  "serde",
  "serde_json",
+ "sha2",
  "tempfile",
  "thiserror 2.0.18",
  "tokio",

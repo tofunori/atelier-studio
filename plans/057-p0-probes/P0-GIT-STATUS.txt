@@ -1,0 +1,15 @@
+# P0 Git preflight 2026-07-20T18:59:14Z
+
+## git status --short
+?? plans/057-p0-probes/
+?? plans/057-sessions-liees-mcp.md
+
+## git worktree list --porcelain (this worktree)
+worktree /Users/tofunori/Documents/atelier-studio/.worktrees/plan-057-sessions-liees-mcp
+HEAD 25f1b3971f586fe3f001567b88e8527b28ed09c6
+branch refs/heads/plan/057-sessions-liees-mcp
+
+
+## HEAD
+25f1b3971f586fe3f001567b88e8527b28ed09c6
+25f1b397 Merge branch 'codex/grok-acp-rust'

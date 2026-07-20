@@ -228,6 +228,18 @@ export function reduceHarnessEvent(list: AgentEvent[], ev: AgentEvent): AgentEve
     return next;
   }
 
+  // Plan 057 : compactage par messageId (statuts queued → delivered).
+  if (ev.kind === "agent_message") {
+    const mid = (ev as { messageId?: string }).messageId;
+    const idx = mid
+      ? next.findIndex((x) => x.kind === "agent_message" && (x as { messageId?: string }).messageId === mid)
+      : -1;
+    const upd: AgentEvent = { ...ev, ts: stamp(ev) };
+    if (idx >= 0) next[idx] = { ...next[idx], ...upd };
+    else next.push(upd);
+    return next;
+  }
+
   // fin de tour : les bulles live jamais finalisées (interruption, provider
   // sans bloc final) deviennent définitives — ou disparaissent si vides. Un
   // terminal avec meta ne fige que les bulles de SON turn.
