@@ -3,7 +3,7 @@
 // large, mêmes actions (hook partagé), synchrone par construction via
 // lib/kbSources — plus la section « Pages gbrain » (recherche du corpus NAS,
 // épinglage à la carte, re-sync).
-import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
+import { useEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
 import { t } from "../lib/i18n";
 import { wsSend } from "../lib/wsBus";
 import {
@@ -34,6 +34,7 @@ export default function KnowledgeSurface(p: {
   binding: KbBinding | null;
   threadTitle: string;
   visible: boolean;
+  paneControls?: ReactNode;
 }) {
   const sources = useSyncExternalStore(subscribeKbSources, kbSourcesSnapshot);
   const collections = useSyncExternalStore(subscribeKbSources, kbCollectionsSnapshot);
@@ -201,6 +202,7 @@ export default function KnowledgeSurface(p: {
           onSearch: searchGbrain,
           onPin: actions.addGbrain,
         }}
+        headerEnd={p.paneControls}
       />
       {pageWritten && (
         <div className="kb-page-toast">

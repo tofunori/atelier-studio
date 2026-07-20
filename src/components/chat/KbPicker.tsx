@@ -3,7 +3,7 @@
 // (kbSourceIds/kbFullContent persistés par thread), épingler fichier/PDF/URL/
 // note, retirer une source de la base. La bibliothèque est globale ; l'attache
 // est par conversation — portée « ce message » et Zotero viendront ensuite.
-import { useEffect, useRef, useState, useSyncExternalStore } from "react";
+import { useEffect, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
 import { t } from "../../lib/i18n";
 import {
   onOpenKbPicker,
@@ -194,6 +194,7 @@ export function KbPickerPanel(p: {
   onBatchArchive?: (ids: string[]) => void;
   onBatchAttach?: (ids: string[]) => void;
   onCollFilterChange?: (slug: string | null) => void;
+  headerEnd?: ReactNode;
 }) {
   const [query, setQuery] = useState("");
   const [noteOpen, setNoteOpen] = useState(false);
@@ -503,6 +504,7 @@ export function KbPickerPanel(p: {
           value={query}
           onChange={(e) => setQuery(e.target.value)}
         />
+        {p.headerEnd && <div className="workspace-pane-controls-slot">{p.headerEnd}</div>}
       </div>
       {((p.collections?.length ?? 0) > 0 || p.onCreateCollection || (p.archived?.count ?? 0) > 0) && (
         <div className="kb-chips-row">

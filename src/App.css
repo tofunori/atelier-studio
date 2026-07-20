@@ -1263,6 +1263,8 @@ input[type="range"].slider::-webkit-slider-thumb:hover { transform: scale(1.15);
 .browser-tabs { display: flex; align-items: end; gap: 4px; min-width: 0; overflow-x: auto;
   padding: 3px 8px 0; scrollbar-width: none; }
 .browser-tabs::-webkit-scrollbar { display: none; }
+.browser-tabs > .workspace-pane-controls-slot { position: sticky; right: 0; align-self: stretch;
+  padding-left: 4px; background: var(--surface-header); }
 .browser-mini-tab { min-width: 92px; max-width: 176px; height: 24px; flex: 0 1 150px;
   display: inline-flex; align-items: center; gap: 6px; padding: 0 6px 0 10px;
   border: 1px solid transparent; border-bottom: none; border-radius: var(--r-m) var(--r-m) 0 0;
@@ -1751,6 +1753,70 @@ body.dragging .pane-divider::after { background: var(--border-strong); }
   transition: background 0.1s, border-color 0.1s; }
 .drop-zone.hot { background: color-mix(in srgb, var(--info) 14%, transparent); border-color: color-mix(in srgb, var(--info) 55%, transparent); }
 body.dragging iframe { pointer-events: none; }
+.rail-surface-drag, .topbar-surface-drag { display: inline-flex; min-width: 0; min-height: 0; }
+.rail-surface-drag, .topbar-surface-drag { cursor: grab; touch-action: none; }
+.rail-surface-drag:active, .topbar-surface-drag:active, body.workspace-dragging { cursor: grabbing; }
+
+/* ===== workspace modulaire : arbre split/pane façon cmux ===== */
+.modular-workspace .pane-row { min-width: 0; }
+.workspace-root { flex: 1; min-width: 0; min-height: 0; display: flex; position: relative; overflow: hidden; }
+.workspace-root > .workspace-pane, .workspace-root > .workspace-split { flex: 1; }
+.workspace-split { min-width: 0; min-height: 0; display: flex; flex: 1; overflow: hidden; }
+.workspace-split.is-horizontal { flex-direction: row; }
+.workspace-split.is-vertical { flex-direction: column; }
+.workspace-branch { min-width: 0; min-height: 0; display: flex; overflow: hidden; }
+.workspace-branch > .workspace-pane, .workspace-branch > .workspace-split { flex: 1; }
+.workspace-divider { position: relative; flex: 0 0 var(--resize-handle-hit); background: transparent; z-index: var(--z-sticky); }
+.workspace-divider.is-horizontal { width: var(--resize-handle-hit); cursor: col-resize; }
+.workspace-divider.is-vertical { height: var(--resize-handle-hit); cursor: row-resize; }
+.workspace-divider::after { content: ""; position: absolute; background: var(--border-subtle); pointer-events: none; }
+.workspace-divider.is-horizontal::after { inset-block: 0; left: 50%; width: var(--resize-handle-line); transform: translateX(-50%); }
+.workspace-divider.is-vertical::after { inset-inline: 0; top: 50%; height: var(--resize-handle-line); transform: translateY(-50%); }
+.workspace-divider:hover::after, body.dragging .workspace-divider::after { background: var(--border-strong); }
+.workspace-pane { min-width: 0; min-height: 0; display: flex; flex-direction: column; position: relative; overflow: hidden; background: transparent; }
+.workspace-pane.is-focused > .workspace-pane-tabs { box-shadow: inset 0 -1px var(--border-strong); }
+.workspace-pane-tabs { min-width: 0; flex: 0 0 auto; overflow-x: auto; overflow-y: hidden; scrollbar-width: none; position: relative; z-index: var(--z-sticky); background: var(--bg); }
+.workspace-pane-tabs::-webkit-scrollbar { display: none; }
+.workspace-pane-body { position: relative; flex: 1; min-width: 0; min-height: 0; overflow: hidden; }
+.workspace-content-pool { position: absolute; inset: 0; pointer-events: none; }
+.workspace-content-layer { position: absolute; min-width: 0; min-height: 0; overflow: hidden; pointer-events: auto; background: var(--bg); transform-origin: top left; }
+.workspace-pane-controls-slot { flex: 0 0 auto; min-width: 0; margin-left: auto; display: flex; align-items: center; }
+.workspace-pane-controls { display: inline-flex; align-items: center; gap: 1px; color: var(--muted2); }
+.workspace-pane-controls .workspace-pane-grip { cursor: grab; touch-action: none; }
+.workspace-pane-controls .workspace-pane-grip:active { cursor: grabbing; }
+.workspace-pane-controls.is-integrated { padding-left: 3px; border-left: 1px solid var(--border-subtle); }
+.workspace-pane-controls.is-floating { position: absolute; top: 6px; right: 6px; z-index: var(--z-sticky);
+  padding: 2px; border-radius: var(--r-m); background: color-mix(in srgb, var(--surface-header) 94%, var(--bg) 6%);
+  box-shadow: 0 1px 5px rgba(0,0,0,0.28); opacity: 0.64;
+  transition: opacity var(--motion-fast) var(--ease-out), transform var(--motion-fast) var(--ease-out); }
+.workspace-pane-controls.is-floating:hover, .workspace-pane-controls.is-floating:focus-within { opacity: 1; }
+.workspace-pane-controls .workspace-pane-close { position: static !important; }
+.workspace-tab-content { position: absolute; inset: 0; min-width: 0; min-height: 0; flex-direction: column; overflow: hidden; }
+.workspace-tab-content > .ksurface,
+.workspace-tab-content > .biblio-surface,
+.workspace-tab-content > .generateur-surface,
+.workspace-tab-content > .narval-surface { flex: 1; min-height: 0; }
+.workspace-empty-pane { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 5px; color: var(--muted); }
+.workspace-empty-pane span { color: var(--fg2); font-size: var(--fs-l); }
+.workspace-empty-pane small { font-size: var(--fs-s); }
+.workspace-drag-layer { position: absolute; inset: 0; z-index: var(--z-popover); pointer-events: none; }
+.workspace-drag-shield { position: absolute; inset: 0; pointer-events: auto; cursor: grabbing; }
+.workspace-drop-preview { position: absolute; display: flex; align-items: center; justify-content: center;
+  box-sizing: border-box; border: 1px solid color-mix(in srgb, var(--info) 66%, transparent);
+  border-radius: var(--r-m); background: color-mix(in srgb, var(--info) 15%, var(--bg) 85%);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--info) 12%, transparent), 0 8px 28px rgba(0,0,0,0.18);
+  transform-origin: top left; will-change: transform, opacity; }
+.workspace-drop-preview span { padding: 4px 8px; border-radius: var(--r-s); background: var(--bg-pop);
+  color: var(--fg2); font-size: var(--fs-s); line-height: 1; white-space: nowrap;
+  box-shadow: 0 1px 5px rgba(0,0,0,0.22); }
+.workspace-drag-ghost { position: fixed; top: 0; left: 0; max-width: 220px; padding: 5px 9px;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; border-radius: var(--r-m);
+  background: var(--bg-pop); color: var(--fg2); box-shadow: 0 7px 22px rgba(0,0,0,0.3);
+  font-size: var(--fs-s); line-height: 1.1; will-change: transform, opacity; }
+@media (prefers-reduced-motion: reduce) {
+  .workspace-pane-controls.is-floating { transition: none; }
+  .workspace-drop-preview, .workspace-drag-ghost { will-change: auto; }
+}
 .jump-bottom { display: none; }
 /* ===== Quick Ask (side chat éphémère) — calme et spacieux ===== */
 .qa-overlay { position: fixed; inset: 0; z-index: var(--z-quick-ask); background: rgba(0,0,0,0.38);

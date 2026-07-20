@@ -8,6 +8,7 @@ import { SURFACES, type Surface } from "./surfaces";
 import type { ViewId } from "../lib/settings";
 import { IconButton } from "./ui/IconButton";
 import { RowButton } from "./ui";
+import { dispatchWorkspacePointerDragStart, shouldSuppressWorkspaceSourceClick } from "../lib/workspaceDrag";
 
 export type ProjMeta = { color?: string; label?: string };
 
@@ -74,19 +75,32 @@ export default function Rail(p: {
   const atelierSurface = SURFACES.find((s) => s.id === "atelier")!;
   const revealedSurface = p.moreOpen ? null : (secondarySurfaces.find((s) => s.id === p.activeSurface) ?? null);
   const surfaceBtn = (s: (typeof SURFACES)[number]) => (
-    <IconButton
+    <span
       key={s.id}
-      /* Galerie (surface "atelier") n'est active que sur l'onglet gallery,
-         pas quand un fichier est ouvert (là c'est l'IDE qui est actif) */
-      className={`rail-view ${p.layout !== "chat" && p.activeSurface === s.id && !(s.id === "atelier" && p.ideActive) ? "on" : ""}`}
-      label={t(s.labelKey)}
-      title={t(s.labelKey)}
-      /* Galerie (atelier) : revient à l'onglet galerie même si un fichier
-         est ouvert (IDE) — sinon on resterait bloqué sur le fichier */
-      onClick={() => (s.id === "atelier" ? p.onSelectGallery() : p.onSelectSurface(s.id))}
+      className="rail-surface-drag"
+      onClickCapture={(event) => {
+        if (!shouldSuppressWorkspaceSourceClick({ kind: "surface", surface: s.id })) return;
+        event.preventDefault();
+        event.stopPropagation();
+      }}
+      onPointerDown={(event) => {
+        if (!dispatchWorkspacePointerDragStart(event.nativeEvent, { kind: "surface", surface: s.id })) return;
+        event.currentTarget.setPointerCapture?.(event.pointerId);
+      }}
     >
-      {s.icon}
-    </IconButton>
+      <IconButton
+        /* Galerie (surface "atelier") n'est active que sur l'onglet gallery,
+           pas quand un fichier est ouvert (là c'est l'IDE qui est actif) */
+        className={`rail-view ${p.layout !== "chat" && p.activeSurface === s.id && !(s.id === "atelier" && p.ideActive) ? "on" : ""}`}
+        label={t(s.labelKey)}
+        title={t(s.labelKey)}
+        /* Galerie (atelier) : revient à l'onglet galerie même si un fichier
+           est ouvert (IDE) — sinon on resterait bloqué sur le fichier */
+        onClick={() => (s.id === "atelier" ? p.onSelectGallery() : p.onSelectSurface(s.id))}
+      >
+        {s.icon}
+      </IconButton>
+    </span>
   );
   // Surlignés vit aussi dans le tiroir (vue moins fréquente) — même règle de
   // révélation que les surfaces : visible tant que c'est la vue active.

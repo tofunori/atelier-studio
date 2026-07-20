@@ -32,6 +32,19 @@ if (!globalThis.ResizeObserver) {
   };
 }
 
+if (!window.matchMedia) {
+  window.matchMedia = (query: string) => ({
+    matches: false,
+    media: query,
+    onchange: null,
+    addListener: () => {},
+    removeListener: () => {},
+    addEventListener: () => {},
+    removeEventListener: () => {},
+    dispatchEvent: () => true,
+  });
+}
+
 // LegendList mesure synchroniquement son viewport avant de calculer la plage
 // virtualisée. jsdom retourne toujours 0×0, ce qui signifie « pas encore
 // monté » pour la vraie liste. On ne simule une géométrie que pour la timeline

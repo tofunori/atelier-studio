@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import { t } from "../lib/i18n";
 import { CloseIcon, PanelIcon, SearchIcon, StarIcon } from "./icons";
@@ -90,10 +90,12 @@ function creatorLine(item: ZoteroItem): string {
 export default function BiblioSurface({
   ws,
   galleryUrl,
+  paneControls,
 }: {
   ws: WebSocket | null;
   projectRoot: string;
   galleryUrl: string;
+  paneControls?: ReactNode;
 }) {
   const persisted = useMemo(loadState, []);
   const [search, setSearch] = useState("");
@@ -361,6 +363,7 @@ export default function BiblioSurface({
             placeholder={t("biblio.search")}
             aria-label={t("biblio.search")}
           />
+          {!readerOpen && paneControls && <div className="workspace-pane-controls-slot">{paneControls}</div>}
         </div>
         <div className="biblio-filters">
           <Button variant="ghost" className={filter === "all" ? "on" : ""} onClick={() => setFilter("all")}>{t("biblio.all")}</Button>
@@ -470,6 +473,7 @@ export default function BiblioSurface({
               <path d="M3.2 12.9V4.1c0-.9.7-1.6 1.6-1.6h8v9.4H4.8c-.9 0-1.6.7-1.6 1s.7 1.6 1.6 1.6h8v-2.6" />
             </svg>
           </IconButton>
+          {paneControls && <div className="workspace-pane-controls-slot">{paneControls}</div>}
           <IconButton className="ghost git-icon-btn" title={t("action.close-reader")}
             label={t("action.close-reader")} onClick={toggleReader}>
             <CloseIcon />

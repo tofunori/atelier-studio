@@ -6,6 +6,7 @@ import { fireEvent, screen, cleanup } from "@testing-library/react";
 import Rail from "./Rail";
 import { renderUi, resetTestState } from "../test/render";
 import { setLanguage, t } from "../lib/i18n";
+import { WORKSPACE_POINTER_DRAG_START } from "../lib/workspaceDrag";
 import type { Surface } from "./surfaces";
 import type { ViewId } from "../lib/settings";
 
@@ -107,5 +108,19 @@ describe("Rail — tiroir de surfaces", () => {
     renderUi(<Rail {...props} />);
     fireEvent.click(screen.getByRole("button", { name: t("atelier.more") }));
     expect(props.onToggleMore).toHaveBeenCalledTimes(1);
+  });
+
+  it("rend les surfaces glissables vers le workspace modulaire", () => {
+    renderUi(<Rail {...makeProps({ moreOpen: true })} />);
+    const listener = vi.fn();
+    window.addEventListener(WORKSPACE_POINTER_DRAG_START, listener);
+
+    fireEvent.pointerDown(screen.getByRole("button", { name: t("atelier.biblio") }).parentElement!, {
+      button: 0, clientX: 24, clientY: 160, pointerId: 7,
+    });
+
+    expect(listener).toHaveBeenCalledTimes(1);
+    expect((listener.mock.calls[0][0] as CustomEvent).detail.ref).toEqual({ kind: "surface", surface: "biblio" });
+    window.removeEventListener(WORKSPACE_POINTER_DRAG_START, listener);
   });
 });

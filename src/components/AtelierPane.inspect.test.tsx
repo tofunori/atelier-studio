@@ -77,10 +77,11 @@ describe("AtelierPane — en-têtes locaux", () => {
     expect(galleryFrame?.title).toBe("atelier");
     expect(galleryFrame?.dataset.atelierReady).toBe("false");
     expect(container.querySelector('.atelier-bar .ui-tab[title="albedo.pdf"]')).toBeInTheDocument();
-    fireEvent.click(container.querySelector('.atelier-bar .ui-tab[title="albedo.pdf"]')!);
-    expect(props.onSelectTab).toHaveBeenCalledWith("t1");
     fireEvent.click(screen.getByRole("button", { name: "Recharger (relance le serveur si mort)" }));
     expect(props.onGalleryReload).toHaveBeenCalledTimes(1);
+    fireEvent.click(container.querySelector('.atelier-bar .ui-tab[title="albedo.pdf"]')!);
+    expect(props.onSelectTab).toHaveBeenCalledWith("t1");
+    expect(screen.queryByRole("button", { name: "Recharger (relance le serveur si mort)" })).toBeNull();
   });
 
   it("document actif : onglet, provenance, type et inspecteur partagent une seule barre", () => {
@@ -89,14 +90,15 @@ describe("AtelierPane — en-têtes locaux", () => {
     expect(container.querySelectorAll(".atelier-bar")).toHaveLength(1);
     expect(container.querySelector(".atelier-surface-header")).toBeNull();
     expect(container.querySelector(".atelier-home.is-compact")).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("tab", { name: "galerie" }));
-    expect(props.onSelectTab).toHaveBeenCalledWith("gallery");
     // provenance + type dérivé + action accessible, rien d'inventé
     expect(screen.getByTitle("figs/albedo.pdf")).toBeInTheDocument();
     expect(screen.getByText("figs")).toBeInTheDocument();
     expect(screen.getByText("figure")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Inspecter le fichier" }));
     expect(props.onInspectFile).toHaveBeenCalledWith("figs/albedo.pdf");
+    fireEvent.click(screen.getByRole("tab", { name: "galerie" }));
+    expect(props.onSelectTab).toHaveBeenCalledWith("gallery");
+    expect(screen.queryByTitle("figs/albedo.pdf")).toBeNull();
   });
 
   it("onglet externe (autre origine) : aucune méta de document projet", () => {

@@ -3527,6 +3527,7 @@ export default function App() {
           <Panel id="atelier" order={3} defaultSize={50} minSize={20}>
             <div className="atelier-host">
             <AtelierPane
+              key={activeProject}
               url={atelierUrl ?? ""}
               layout={layout}
               onToggleExpand={() => setLayout((l) => (l === "atelier" ? "split" : "atelier"))}
@@ -3570,6 +3571,7 @@ export default function App() {
               tabs={atelierTabs}
               activeTab={activeTab}
               onSelectTab={setActiveTab}
+              onActiveSurfaceChange={setActiveSurface}
               onCloseTab={(id) => {
                 const t = atelierTabsRef.current.find((x) => x.id === id);
                 if (t?.kind === "term" && ws.current?.readyState === 1) {
