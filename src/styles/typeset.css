@@ -504,6 +504,10 @@
     --typeset-font-heading: inherit;
     --typeset-font-mono: var(--code-font);
     --typeset-size: var(--chat-fs, var(--fs-xl));
+    /* BubbleContent ships with text-sm, which the Atelier Tailwind theme maps
+     * to --fs-body. Remap that resolved token locally so user prompts and
+     * assistant prose follow the same chat-size setting. */
+    --fs-body: var(--typeset-size);
     --typeset-leading: 1.65;
     --typeset-flow: 0.75em;
   }
