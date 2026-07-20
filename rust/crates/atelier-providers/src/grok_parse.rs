@@ -84,7 +84,8 @@ pub fn map_session_update(
                 .unwrap_or("")
                 .to_string();
             let name = update
-                .pointer("/_meta/x.ai/tool/name")
+                // JSON Pointer : la clé littérale `x.ai/tool` encode `/` en `~1`.
+                .pointer("/_meta/x.ai~1tool/name")
                 .or_else(|| update.get("title"))
                 .and_then(|v| v.as_str())
                 .unwrap_or("tool");
@@ -109,7 +110,7 @@ pub fn map_session_update(
                 .to_string();
             let cached = tool_meta.get(&id).cloned();
             let name = update
-                .pointer("/_meta/x.ai/tool/name")
+                .pointer("/_meta/x.ai~1tool/name")
                 .or_else(|| update.get("title"))
                 .and_then(|v| v.as_str())
                 .or_else(|| {
@@ -122,7 +123,18 @@ pub fn map_session_update(
                 .pointer("/_meta/updateParams/status")
                 .or_else(|| update.get("status"))
                 .and_then(|v| v.as_str())
-                .unwrap_or("completed");
+                .map(normalize_tool_status)
+                .unwrap_or_else(|| {
+                    if update
+                        .get("content")
+                        .and_then(Value::as_array)
+                        .is_some_and(|items| !items.is_empty())
+                    {
+                        "completed"
+                    } else {
+                        "running"
+                    }
+                });
             let mut out = vec![json!({
                 "kind": "tool_update",
                 "id": id,
@@ -169,6 +181,33 @@ pub fn map_session_update(
                 "name": if k.is_empty() { "permission en attente".into() } else { format!("permission ({k})") },
             })]
         }
+        "plan" => {
+            let entries = update
+                .get("entries")
+                .or_else(|| update.get("plan"))
+                .or_else(|| update.get("items"))
+                .and_then(Value::as_array);
+            let items: Vec<Value> = entries
+                .into_iter()
+                .flatten()
+                .map(|entry| {
+                    json!({
+                        "text": entry.get("content")
+                            .or_else(|| entry.get("step"))
+                            .or_else(|| entry.get("text"))
+                            .and_then(Value::as_str)
+                            .unwrap_or(""),
+                        "completed": entry.get("status").and_then(Value::as_str) == Some("completed"),
+                    })
+                })
+                .filter(|item| item.get("text").and_then(Value::as_str).is_some_and(|s| !s.is_empty()))
+                .collect();
+            if items.is_empty() {
+                vec![]
+            } else {
+                vec![json!({"kind":"todos", "items": items})]
+            }
+        }
         "hook_execution"
         | "user_message_chunk"
         | "available_commands_update"
@@ -176,6 +215,17 @@ pub fn map_session_update(
         | "interaction_resolved"
         | "turn_completed" => vec![],
         _ => vec![], // unknown → ignore
+    }
+}
+
+fn normalize_tool_status(raw: &str) -> &'static str {
+    let status = raw.to_ascii_lowercase();
+    if status.contains("fail") || status.contains("error") || status.contains("reject") {
+        "failed"
+    } else if status.contains("complet") || status.contains("done") || status.contains("success") {
+        "completed"
+    } else {
+        "running"
     }
 }
 
@@ -201,9 +251,18 @@ fn tool_call_output(update: &Value) -> String {
 }
 
 pub fn map_prompt_result(result: &Value) -> Value {
+    map_prompt_result_for_model(result, None)
+}
+
+pub fn map_prompt_result_for_model(result: &Value, model: Option<&str>) -> Value {
     let stop = result.get("stopReason").and_then(|v| v.as_str());
     let ok = matches!(stop, Some("end_turn") | Some("cancelled") | None);
     let meta = result.get("_meta").cloned().unwrap_or(json!({}));
+    let window = model.and_then(|id| {
+        // Catalogue Grok actuel : la famille 4.x expose 500k. Inconnu ⇒ null,
+        // jamais une valeur inventée pour un futur modèle.
+        id.starts_with("grok-4").then_some(500_000_u64)
+    });
     json!({
         "kind": "done",
         "ok": ok,
@@ -213,6 +272,7 @@ pub fn map_prompt_result(result: &Value) -> Value {
             "output": meta.get("outputTokens").and_then(|v| v.as_u64()).unwrap_or(0),
             "cost": null,
             "turns": null,
+            "window": window,
         }
     })
 }
@@ -261,5 +321,66 @@ mod tests {
             &mut edits,
         );
         assert!(e.is_empty());
+    }
+
+    #[test]
+    fn xai_tool_metadata_status_and_cache_are_preserved() {
+        let mut meta = HashMap::new();
+        let mut edits = HashSet::new();
+        let call = map_session_update(
+            &json!({
+                "sessionUpdate":"tool_call",
+                "toolCallId":"call-xai",
+                "title":"Lecture",
+                "rawInput":{"path":"/tmp/a"},
+                "_meta":{"x.ai/tool":{"name":"read_file"}}
+            }),
+            &mut meta,
+            &mut edits,
+        );
+        assert_eq!(call[0]["name"], "read_file");
+        assert_eq!(call[0]["source"], "grok");
+
+        let update = map_session_update(
+            &json!({
+                "sessionUpdate":"tool_call_update",
+                "toolCallId":"call-xai",
+                "_meta":{"updateParams":{"status":"error"}}
+            }),
+            &mut meta,
+            &mut edits,
+        );
+        assert_eq!(update[0]["name"], "read_file");
+        assert_eq!(update[0]["status"], "failed");
+        assert!(update[0]["output"].is_string());
+    }
+
+    #[test]
+    fn grok_plan_becomes_todos() {
+        let mut meta = HashMap::new();
+        let mut edits = HashSet::new();
+        let events = map_session_update(
+            &json!({"sessionUpdate":"plan", "entries":[
+                {"content":"Inspecter", "status":"completed"},
+                {"content":"Corriger", "status":"in_progress"}
+            ]}),
+            &mut meta,
+            &mut edits,
+        );
+        assert_eq!(events[0]["kind"], "todos");
+        assert_eq!(events[0]["items"][0]["completed"], true);
+        assert_eq!(events[0]["items"][1]["text"], "Corriger");
+    }
+
+    #[test]
+    fn prompt_usage_reads_xai_meta_and_known_window() {
+        let done = map_prompt_result_for_model(
+            &json!({"stopReason":"end_turn", "_meta":{"totalTokens":42,"outputTokens":7}}),
+            Some("grok-4.5"),
+        );
+        assert_eq!(done["ok"], true);
+        assert_eq!(done["usage"]["context"], 42);
+        assert_eq!(done["usage"]["output"], 7);
+        assert_eq!(done["usage"]["window"], 500_000);
     }
 }

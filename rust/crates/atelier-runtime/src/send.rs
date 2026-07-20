@@ -1203,10 +1203,15 @@ pub async fn handle_provider_status(state: &AppState) -> Vec<String> {
                             .filter_map(Value::as_str)
                             .map(str::to_string)
                             .collect();
-                        if provider.default_model.is_empty() {
-                            if let Some(d) = dynamic.get("defaultModel").and_then(Value::as_str) {
-                                provider.default_model = d.to_string();
-                            }
+                        if let Some(default) = dynamic
+                            .get("defaultModel")
+                            .and_then(Value::as_str)
+                            .filter(|value| !value.is_empty())
+                        {
+                            // Un catalogue vivant prime sur le fallback
+                            // statique (Grok/Kimi peuvent changer de défaut
+                            // après une mise à jour ou une configuration CLI).
+                            provider.default_model = default.to_string();
                         }
                     }
                 }

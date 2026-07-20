@@ -15,6 +15,8 @@
 //   nominal (défaut) — capacités Kimi 0.26
 //   old_version      — agentInfo.version 0.20.0 (Setup: version_unsupported)
 //   auth_required    — authenticate/session/new|load|resume → -32000
+//   grok             — contrat Grok ACP (cached_token, x.ai sessionConfig,
+//                      session/set_model) pour les tests du provider Rust
 //
 // Marqueurs dans le texte du prompt (cumulables) :
 //   [tool]        tool_call + tool_call_update completed (texte)
@@ -38,6 +40,7 @@
 //                 réponse n'est pas l'erreur -32601 (capacité non annoncée)
 //   [image]       exige un bloc {type:"image",data,mimeType} ; répond
 //                 "img:<mimeType>:<octets base64>" sans jamais logguer data
+//   [xai]         émet un chunk via `_x.ai/session_notification` (Grok)
 
 import process from "node:process";
 
@@ -100,6 +103,7 @@ const replyErr = (id, code, message, data) =>
   writeLine({ jsonrpc: "2.0", id, error: { code, message, ...(data !== undefined ? { data } : {}) } });
 const notify = (method, params) => writeLine({ jsonrpc: "2.0", method, params });
 const update = (sessionId, u) => notify("session/update", { sessionId, update: u });
+const xaiUpdate = (sessionId, u) => notify("_x.ai/session_notification", { sessionId, update: u });
 
 // ---------------------------------------------------------------------------
 // Catalogue et sessions prédéfinies (aucune donnée réelle).
@@ -165,6 +169,28 @@ function configOptions(st) {
 
 function newSessionState() {
   return { model: "fake-k3", thinking: "on", mode: "default", turn: 0, cancel: null };
+}
+
+function grokSessionResult(sessionId, st) {
+  return {
+    ...(sessionId ? { sessionId } : {}),
+    models: {
+      currentModelId: st.model,
+      availableModels: [{ modelId: "grok-test", name: "Grok Test", description: "fixture" }],
+    },
+    _meta: {
+      "x.ai/sessionConfig": {
+        options: [
+          { id: st.model, category: "model", selected: true },
+          ...["high", "medium", "low"].map((id) => ({
+            id,
+            category: "mode",
+            selected: st.thinking === id,
+          })),
+        ],
+      },
+    },
+  };
 }
 
 function serverRequest(method, params) {
@@ -250,6 +276,13 @@ async function handlePrompt(id, params) {
         { name: "compact", description: "Compact the conversation context", input: { hint: "instructions" } },
         { name: "usage", description: "Show session token usage" },
       ],
+    });
+  }
+
+  if (text.includes("[xai]")) {
+    await xaiUpdate(sid, {
+      sessionUpdate: "agent_message_chunk",
+      content: { type: "text", text: "notification-xai " },
     });
   }
 
@@ -442,6 +475,18 @@ async function handle(msg) {
 
   switch (method) {
     case "initialize":
+      if (MODE === "grok") {
+        return reply(id, {
+          protocolVersion: 1,
+          agentCapabilities: {
+            loadSession: true,
+            promptCapabilities: { image: false, audio: false, embeddedContext: true },
+            mcpCapabilities: { http: true, sse: true },
+            sessionCapabilities: {},
+          },
+          authMethods: [{ id: "cached_token", name: "cached_token" }],
+        });
+      }
       return reply(id, {
         protocolVersion: 1,
         agentCapabilities: {
@@ -474,6 +519,7 @@ async function handle(msg) {
 
     case "authenticate":
       if (MODE === "auth_required") return replyErr(id, -32000, "Authentication required");
+      if (MODE === "grok" && params?.methodId === "cached_token") return reply(id, {});
       if (params?.methodId !== "login") return replyErr(id, -32602, "Unknown auth method");
       return reply(id, {});
 
@@ -486,6 +532,11 @@ async function handle(msg) {
         return replyErr(id, -32602, "cwd and mcpServers required");
       }
       sessions.set(sid, st);
+      if (MODE === "grok") {
+        st.model = "grok-test";
+        st.thinking = "high";
+        return reply(id, grokSessionResult(sid, st));
+      }
       return reply(id, { sessionId: sid, configOptions: configOptions(st) });
     }
 
@@ -498,6 +549,7 @@ async function handle(msg) {
       if (!sessions.has(sid)) sessions.set(sid, newSessionState());
       const st = sessions.get(sid);
       if (method === "session/load") await replayHistory(sid);
+      if (MODE === "grok") return reply(id, grokSessionResult(null, st));
       return reply(id, { configOptions: configOptions(st) });
     }
 
@@ -530,6 +582,16 @@ async function handle(msg) {
       await reply(id, { configOptions: snapshot });
       // Kimi double-canal : notification après la réponse.
       return update(params.sessionId, { sessionUpdate: "config_option_update", configOptions: snapshot });
+    }
+
+    case "session/set_model": {
+      if (MODE !== "grok") return replyErr(id, -32601, "Method not found: session/set_model");
+      const st = sessions.get(params?.sessionId);
+      if (!st) return replyErr(id, -32602, "Session not found");
+      if (params?.modelId !== "grok-test") return replyErr(id, -32602, "Unknown model");
+      st.model = params.modelId;
+      st.thinking = params?._meta?.reasoningEffort || st.thinking;
+      return reply(id, { _meta: { modelId: st.model, reasoningEffort: st.thinking } });
     }
 
     case "session/prompt":

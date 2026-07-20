@@ -2328,12 +2328,15 @@ export default function App() {
       setAttachments([]);
       return;
     }
-    // /clear et /compact sur un thread CODEX : équivalents natifs app-server
+    // /clear reste natif Codex ; /compact suit la capability du provider
+    // (Codex app-server ou Grok ACP).
     const codexActive = activeId && (activeThread?.provider ?? provider) === "codex";
     const compactSupported = selectedCapabilities?.compact ?? Boolean(codexActive);
-    if (codexActive && compactSupported && ["/clear", "/compact"].includes(prompt.trim()) && ws.current?.readyState === 1) {
+    const nativeClear = prompt.trim() === "/clear" && codexActive;
+    const nativeCompact = prompt.trim() === "/compact" && Boolean(activeId) && compactSupported;
+    if ((nativeClear || nativeCompact) && ws.current?.readyState === 1) {
       ws.current.send(JSON.stringify({
-        type: prompt.trim() === "/clear" ? "codexClear" : "codexCompact",
+        type: nativeClear ? "codexClear" : "codexCompact",
         threadId: activeId,
       }));
       return;

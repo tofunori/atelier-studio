@@ -625,9 +625,11 @@ fn append_log(dir: &std::path::Path, line: &str) -> std::io::Result<()> {
 
 #[cfg(test)]
 mod title_tests {
+    use crate::traits::CommitMessageDetails;
+
     use super::{
-        build_args, clean_commit_message, clean_conversation_title, compact_commit_context,
-        fallback_commit_message,
+        build_args, clean_conversation_title, commit_message_prompts, compact_commit_context,
+        parse_commit_message_details,
     };
     use crate::traits::{SendMode, SendRequest};
     use std::sync::Arc;
