@@ -2136,23 +2136,65 @@ button.ctx-ring-wrap { border: none; font: inherit; color: inherit;
 .pnav-heartbeat { width: 13px; height: 13px; flex: none; color: var(--muted); stroke-width: 1.6; }
 .pnav-row .unread-dot { display: inline-block; width: 6px; height: 6px;
   margin: 0 5px 1px 0; border-radius: var(--r-pill); background: var(--accent); }
-.pnav-row-meta { font-size: var(--fs-s); color: var(--muted); line-height: 1.3;
-  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.pnav-meta-running { color: var(--accent); }
 .pnav-row-end { width: 48px; flex: none; position: relative; display: flex;
-  align-items: center; justify-content: flex-end; align-self: stretch; }
-.pnav-row-end .row-time, .pnav-row-end .arc {
-  transition: opacity var(--motion-fast) var(--ease-out); }
+  align-items: center; justify-content: flex-end; align-self: stretch; gap: 6px; }
+.pnav-row-end.has-family { width: 92px; justify-content: space-between; }
+.pnav-row-end .row-status { min-width: 32px; display: inline-flex; align-items: center;
+  justify-content: flex-end; transition: opacity var(--motion-fast) var(--ease-out); }
 .pnav-row-end .row-actions { position: absolute; right: 0; top: 50%;
   transform: translateY(-50%); display: inline-flex; gap: 2px; opacity: 0;
   pointer-events: none; transition: opacity var(--motion-fast) var(--ease-out); }
-.pnav-row:hover .row-time, .pnav-row:focus-within .row-time,
-.pnav-row:hover .arc, .pnav-row:focus-within .arc { opacity: 0; }
+.pnav-row:hover .row-status, .pnav-row:focus-within .row-status { opacity: 0; }
 .pnav-row:hover .row-actions, .pnav-row:focus-within .row-actions {
   opacity: 1; pointer-events: auto; }
 .pnav-act { color: var(--muted2); }
 .pnav-act:hover { color: var(--fg); }
 .pnav-act.on { color: var(--u-warn); }
+
+/* La relation reste un signal discret : le survol révèle la famille entière,
+   le clic ouvre la structure. Aucun numéro ni couleur ne sert d'identifiant. */
+.pnav-family-marker.ui-btn { min-width: 28px; width: 28px; height: 28px;
+  padding: 0; flex: none; border-color: transparent; border-radius: var(--r-s);
+  background: transparent; color: var(--muted2); }
+.pnav-family-marker svg { width: 16px; height: 16px; }
+.pnav-family-marker.ui-btn:hover,
+.pnav-family-marker.ui-btn:focus-visible,
+.pnav-row.active .pnav-family-marker.ui-btn,
+.pnav-row.family-preview .pnav-family-marker.ui-btn {
+  background: var(--surface-inset); color: var(--fg2); }
+.pnav-family-marker .ui-btn-label { gap: 0; }
+
+.pnav-row.family-preview { background: color-mix(in srgb, var(--surface-inset) 72%, transparent);
+  box-shadow: inset 1px 0 var(--muted2); }
+.pnav-row.family-preview:not(.active)::after { content: ""; position: absolute; left: 5px; top: 50%;
+  width: 3px; height: 3px; border-radius: var(--r-pill); background: var(--fg2);
+  transform: translateY(-50%); opacity: .82; transition: opacity var(--motion-fast) var(--ease-out); }
+
+.pnav-family-popover { width: min(310px, calc(100vw - 24px)); padding: 10px; }
+.pnav-family-popover [data-slot="popover-header"] { gap: 2px; padding: 1px 2px 8px; }
+.pnav-family-tree { display: flex; flex-direction: column; gap: 2px; }
+.pnav-family-row { display: grid; grid-template-columns: minmax(0, 1fr) 26px;
+  align-items: center; min-width: 0; border-radius: var(--r-s); }
+.pnav-family-row.current { background: var(--surface-inset); }
+.pnav-family-open.ui-btn { width: 100%; min-width: 0; height: 38px;
+  justify-content: flex-start; padding: 3px 4px 3px
+  calc(6px + var(--pnav-family-depth, 0) * 13px); border-color: transparent;
+  background: transparent; color: var(--fg2); }
+.pnav-family-open.ui-btn:hover { background: var(--bg-ctl); color: var(--fg); }
+.pnav-family-open .ui-btn-label { width: 100%; min-width: 0; display: grid;
+  grid-template-columns: 18px minmax(0, 1fr); align-items: center; gap: 7px; text-align: left; }
+.pnav-family-provider { width: 18px; height: 18px; display: inline-flex;
+  align-items: center; justify-content: center; color: var(--muted2); }
+.pnav-family-provider .prov-ico, .pnav-family-provider svg { width: 14px; height: 14px; }
+.pnav-family-copy { min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+.pnav-family-copy > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pnav-family-copy > span:first-child { color: inherit; font-size: var(--fs-m); line-height: 1.25; }
+.pnav-family-copy > span:last-child { color: var(--muted2); font-size: var(--fs-s); line-height: 1.2; }
+.pnav-family-unlink { color: var(--muted2); opacity: 0; pointer-events: none;
+  transition: opacity var(--motion-fast) var(--ease-out), color var(--motion-fast) var(--ease-out); }
+.pnav-family-row:hover .pnav-family-unlink,
+.pnav-family-row:focus-within .pnav-family-unlink { opacity: 1; pointer-events: auto; }
+.pnav-family-unlink:hover { color: var(--fg); }
 
 /* icônes provider neutralisées dans le panneau : l'identité passe par la
    forme, pas la couleur de marque (budget accent — icône au repos ≠ orange) */
@@ -2202,7 +2244,7 @@ button.ctx-ring-wrap { border: none; font: inherit; color: inherit;
    avant de tronquer les actions essentielles */
 .side-fixed { container-type: inline-size; }
 @container (max-width: 220px) {
-  .pnav-path, .pnav-row-meta { display: none; }
+  .pnav-path { display: none; }
 }
 
 /* une seule boucle par surface + reduced-motion : aucun indicateur ne pulse */

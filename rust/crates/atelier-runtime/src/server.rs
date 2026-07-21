@@ -93,6 +93,10 @@ pub fn app_router(state: AppState) -> Router {
         .route("/setup", get(setup_handler))
         .route("/uistate", get(uistate_get).post(uistate_post))
         .route("/gallery-command", post(gallery_command_handler))
+        .route(
+            "/internal/agent-mcp",
+            post(crate::agent_mcp::agent_mcp_handler),
+        )
         .route("/", get(ws_upgrade))
         .layer(cors)
         .layer(TraceLayer::new_for_http())
@@ -174,6 +178,36 @@ pub async fn serve_once(
     let (shutdown_tx, shutdown_rx) = oneshot::channel::<()>();
     let app = app_router(state.clone());
     let paths = config.paths.clone();
+
+    // Plan 057: single worker for inter-agent mailbox deliveries.
+    if let Some(mut rx) = state.take_delivery_rx().await {
+        let worker_state = state.clone();
+        tokio::spawn(async move {
+            while let Some(delivery) = rx.recv().await {
+                let replies = crate::send::handle_send(&worker_state, &delivery.payload).await;
+                let error = replies.iter().find_map(|raw| {
+                    let value: serde_json::Value = serde_json::from_str(raw).ok()?;
+                    (value.get("type").and_then(|v| v.as_str()) == Some("error")).then(|| {
+                        value
+                            .get("message")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("delivery_failed")
+                            .to_string()
+                    })
+                });
+                let _ = delivery.accepted.send(error.map_or(Ok(()), Err));
+            }
+        });
+    }
+
+    {
+        let mut mailbox = state.mailbox().lock().await;
+        let _ = mailbox.recover_delivering(&atelier_store::iso_now());
+    }
+    let recovery_state = state.clone();
+    tokio::spawn(async move {
+        crate::agent_mailbox::drain_mailbox(&recovery_state).await;
+    });
 
     let join = tokio::spawn(async move {
         let serve = axum::serve(

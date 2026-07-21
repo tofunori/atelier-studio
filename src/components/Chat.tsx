@@ -143,6 +143,17 @@ export default function Chat(p: {
     favoriteModels?: Record<string, string[]>;
   };
   providers?: ProviderInfo[];
+  /** Agents réellement disponibles pour la mention Atelier (capability Rust confirmée). */
+  agentProviders?: { id: string; label: string }[];
+  linkedAgents?: {
+    id: string;
+    provider: string;
+    title: string;
+    paused: boolean;
+    direction: "parent" | "child";
+  }[];
+  onOpenLinkedAgent?: (threadId: string) => void;
+  onUnlinkLinkedAgent?: (threadId: string) => void;
   pins: { index: number; label: string; color?: string; style?: string }[];
   onStylePin: (index: number, patch: { color?: string; style?: string; label?: string }) => void;
   onTogglePin: (index: number, label: string) => void;
@@ -589,6 +600,17 @@ export default function Chat(p: {
     const q = atMatch[2].toLowerCase();
     const base = text.slice(0, atMatch.index) + atMatch[1];
     suggestions = [];
+    suggestions.push(
+      ...(p.agentProviders ?? [])
+        .filter((agent) => agent.label.toLowerCase().includes(q) || agent.id.toLowerCase().includes(q))
+        .map((agent) => ({
+          insert: `${base}@${agent.label} `,
+          label: `@${agent.label}`,
+          hint: t("linkedAgent.mentionHint"),
+          section: t("linkedAgent.agentsSection"),
+          icon: "bot",
+        })),
+    );
     const pluginsSupported = providerInfo()?.capabilities?.plugins ?? provider === "codex";
     suggestions.push(
       ...(pluginsSupported ? (p.plugins ?? []) : [])
@@ -907,6 +929,9 @@ export default function Chat(p: {
           projectName={p.projectName ?? (p.projectRoot ? p.projectRoot.split("/").filter(Boolean).pop() ?? null : null)}
           projectPath={p.projectRoot}
           status={headerStatus}
+          linkedAgents={p.linkedAgents}
+          onOpenLinkedAgent={p.onOpenLinkedAgent}
+          onUnlinkLinkedAgent={p.onUnlinkLinkedAgent}
         />
       )}
       <ChatTimeline

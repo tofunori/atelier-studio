@@ -87,6 +87,33 @@ describe("composer — caractérisation", () => {
     expect(ta().value).toContain("/recherche");
   });
 
+  it("@Agent apparaît avant les références et s'insère au clavier", () => {
+    const onSubmit = vi.fn();
+    renderUi(<Chat {...chatProps({
+      onSubmit,
+      agentProviders: [{ id: "codex", label: "Codex" }],
+      files: ["codex-notes.md"],
+    })} />);
+
+    fireEvent.change(ta(), { target: { value: "@co" } });
+    const options = screen.getAllByRole("option");
+    expect(options[0].textContent).toContain("@Codex");
+    fireEvent.keyDown(ta(), { key: "Enter" });
+    expect(onSubmit).not.toHaveBeenCalled();
+    expect(ta().value).toBe("@Codex ");
+
+    fireEvent.change(ta(), { target: { value: "@Codex vérifie cette décision" } });
+    fireEvent.keyDown(ta(), { key: "Enter" });
+    expect(onSubmit).toHaveBeenCalledWith(
+      "@Codex vérifie cette décision",
+      "claude",
+      expect.any(String),
+      expect.any(String),
+      "bypassPermissions",
+      "steer",
+    );
+  });
+
   it("/model ouvre le sélecteur sans envoyer de prompt", () => {
     const onSubmit = vi.fn();
     renderUi(<Chat {...chatProps({

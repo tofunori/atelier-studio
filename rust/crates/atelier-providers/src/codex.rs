@@ -120,10 +120,30 @@ fn thread_opts(req: &SendRequest) -> Value {
             .unwrap()
             .insert("model".into(), json!(model));
     }
+    let mut config = serde_json::Map::new();
     if let Some(effort) = req.effort.as_ref().filter(|e| !e.is_empty()) {
+        config.insert("model_reasoning_effort".into(), json!(effort));
+    }
+    // Plan 057: per-thread MCP capability via config.mcp_servers (merged by app-server).
+    if let Some(launch) = req.atelier_mcp.as_ref() {
+        let mut env = serde_json::Map::new();
+        for (k, v) in &launch.env {
+            env.insert(k.clone(), json!(v));
+        }
+        let server = json!({
+            "command": launch.command,
+            "args": [],
+            "env": env,
+        });
+        config.insert(
+            "mcp_servers".into(),
+            json!({ launch.server_name.clone(): server }),
+        );
+    }
+    if !config.is_empty() {
         opts.as_object_mut()
             .unwrap()
-            .insert("config".into(), json!({"model_reasoning_effort": effort}));
+            .insert("config".into(), Value::Object(config));
     }
     opts
 }

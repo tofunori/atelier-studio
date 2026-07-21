@@ -1,0 +1,71 @@
+{
+  "note": "P0 Codex: two ephemeral threads on one app-server with distinct MCP env capabilities",
+  "threadStart": {
+    "method": "thread/start",
+    "params": {
+      "cwd": "/tmp",
+      "sandbox": "read-only",
+      "approvalPolicy": "never",
+      "ephemeral": true,
+      "config": {
+        "mcp_servers": {
+          "atelier-sessions-probe": {
+            "command": "node",
+            "args": [
+              "fake-mcp.mjs"
+            ],
+            "env": {
+              "ATELIER_MCP_CAPABILITY": "<opaque-capability-per-thread>",
+              "ATELIER_MCP_CALLER_LABEL": "<label>"
+            }
+          }
+        }
+      }
+    }
+  },
+  "threadResume": {
+    "method": "thread/resume",
+    "params": {
+      "threadId": "<id>",
+      "config": {
+        "mcp_servers": {
+          "atelier-sessions-probe": {
+            "command": "node",
+            "args": [
+              "fake-mcp.mjs"
+            ],
+            "env": {
+              "ATELIER_MCP_CAPABILITY": "<same-or-new-capability>"
+            }
+          }
+        }
+      }
+    }
+  },
+  "mcpServerStatusList": {
+    "method": "mcpServerStatus/list",
+    "params": {
+      "threadId": "<id>",
+      "detail": "full"
+    }
+  },
+  "result": {
+    "distinctCaps": true,
+    "distinctPids": true,
+    "capsA": [
+      "<CAP_A>"
+    ],
+    "capsB": [
+      "<CAP_B>"
+    ],
+    "pidsA": [
+      70897,
+      71574,
+      73405
+    ],
+    "pidsB": [
+      71132,
+      72504
+    ]
+  }
+}

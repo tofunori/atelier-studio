@@ -588,9 +588,7 @@ async fn post_connector_pdf(data: &[u8], metadata: &str) -> Result<u16, String> 
 /// PDF de la base de connaissances (plan 052) : sert le fichier pointé par
 /// le REGISTRE (`knowledge.json`) — jamais un chemin de la requête, aucune
 /// traversée possible. Miroir de la route Node (boards.mjs).
-pub async fn kb_pdf(
-    axum::extract::Path(id): axum::extract::Path<String>,
-) -> impl IntoResponse {
+pub async fn kb_pdf(axum::extract::Path(id): axum::extract::Path<String>) -> impl IntoResponse {
     if id.len() != 8 || !id.chars().all(|c| c.is_ascii_hexdigit()) {
         return json_error(StatusCode::NOT_FOUND, "not found");
     }
@@ -606,7 +604,10 @@ pub async fn kb_pdf(
     let Some(source) = registry
         .get("sources")
         .and_then(|v| v.as_array())
-        .and_then(|arr| arr.iter().find(|s| s.get("id").and_then(|v| v.as_str()) == Some(id.as_str())))
+        .and_then(|arr| {
+            arr.iter()
+                .find(|s| s.get("id").and_then(|v| v.as_str()) == Some(id.as_str()))
+        })
     else {
         return json_error(StatusCode::NOT_FOUND, "not found");
     };

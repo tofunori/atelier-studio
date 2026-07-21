@@ -15,6 +15,7 @@ pub const DURABLE_KINDS: &[&str] = &[
     "done",
     "error",
     "permission",
+    "agent_message",
 ];
 
 const EPHEMERAL: &[&str] = &[

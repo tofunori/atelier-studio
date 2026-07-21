@@ -38,6 +38,8 @@ import {
   PROJECT_ROOT,
   events,
   makeFigureAddToChatText,
+  makeCapabilities,
+  makeProviderInfo,
   makeThread,
 } from "./test/fixtures";
 import { resetSidecarInfo } from "./lib/sidecarInfo";
@@ -958,5 +960,138 @@ describe("orchestration App — caractérisation", () => {
 
     const sent = sock.sent.map((s) => JSON.parse(s)).find((m) => m.type === "forkThread");
     expect(sent).toMatchObject({ fromThreadId: "thread-A", eventId: "event-text-exact" });
+  });
+
+  it("@Codex envoie une mention atomique sans sélectionner un UUID fantôme", async () => {
+    const { sock } = await mountApp();
+    await push(sock, {
+      type: "providerStatus",
+      providers: [
+        makeProviderInfo(),
+        makeProviderInfo({
+          id: "codex",
+          label: "Codex",
+          models: ["gpt-5.5"],
+          defaultModel: "gpt-5.5",
+          capabilities: makeCapabilities({ atelierSessionsMcp: true }),
+        }),
+      ],
+    });
+    await pushThreads(sock, [THREAD_A]);
+    await selectThread(sock, THREAD_A.title);
+
+    const textarea = document.querySelector(".composer textarea") as HTMLTextAreaElement;
+    fireEvent.change(textarea, { target: { value: "@Codex vérifie le contexte" } });
+    fireEvent.keyDown(textarea, { key: "Enter" });
+    await act(async () => { await flushMicrotasks(4); });
+
+    const mention = sock.sent.map((raw) => JSON.parse(raw)).find((message) => message.type === "mentionAgent");
+    expect(mention).toMatchObject({
+      sourceThreadId: "thread-A",
+      targetProvider: "codex",
+      text: "vérifie le contexte",
+      displayText: "@Codex vérifie le contexte",
+    });
+    expect(sock.sent.map((raw) => JSON.parse(raw)).filter((message) => message.type === "createLinkedThread")).toHaveLength(0);
+    expect(sock.sent.map((raw) => JSON.parse(raw)).filter((message) => message.type === "send")).toHaveLength(0);
+
+    await push(sock, {
+      type: "agentMentionFailed",
+      threadId: "thread-A",
+      requestId: mention.requestId,
+      message: "création refusée",
+    });
+    expect(screen.getAllByText("création refusée").length).toBeGreaterThan(0);
+    expect(document.querySelector(".chat-surface-header")?.textContent).toContain(THREAD_A.title);
+  });
+
+  it("crée une continuité depuis le menu, attend l'ack puis permet de la délier", async () => {
+    const { sock } = await mountApp();
+    await push(sock, {
+      type: "providerStatus",
+      providers: [
+        makeProviderInfo(),
+        makeProviderInfo({
+          id: "codex",
+          label: "Codex",
+          models: ["gpt-5.5"],
+          defaultModel: "gpt-5.5",
+          capabilities: makeCapabilities({ atelierSessionsMcp: true }),
+        }),
+      ],
+    });
+    await pushThreads(sock, [THREAD_A]);
+    await selectThread(sock, THREAD_A.title);
+
+    const sidebar = document.querySelector(".sidebar") as HTMLElement;
+    fireEvent.contextMenu(within(sidebar).getByText(THREAD_A.title));
+    await act(async () => {
+      await vi.dynamicImportSettled();
+      await flushMicrotasks(4);
+    });
+    fireEvent.click(screen.getByRole("menuitem", {
+      name: t("linkedConversation.continueWith"),
+    }));
+    await act(async () => { await flushMicrotasks(4); });
+    fireEvent.click(screen.getByRole("menuitem", { name: "Codex" }));
+    await act(async () => { await flushMicrotasks(4); });
+
+    const create = sock.sent
+      .map((raw) => JSON.parse(raw))
+      .find((message) => message.type === "createLinkedThread");
+    expect(create).toMatchObject({
+      sourceThreadId: THREAD_A.id,
+      targetProvider: "codex",
+      reuseExisting: true,
+      autoDeliveryLimit: 1,
+    });
+    expect(document.querySelector(".chat-surface-header")?.textContent).toContain(THREAD_A.title);
+
+    await push(sock, {
+      type: "linkedThreadCreated",
+      requestId: create.requestId,
+      sourceThreadId: THREAD_A.id,
+      requestedTargetThreadId: create.targetThreadId,
+      targetThreadId: create.targetThreadId,
+      targetProvider: "codex",
+      reused: false,
+    });
+    expect(sock.sent.map((raw) => JSON.parse(raw)).filter(
+      (message) => message.type === "getHistory" && message.threadId === create.targetThreadId,
+    )).toHaveLength(0);
+
+    const child = makeThread({
+      id: create.targetThreadId,
+      provider: "codex",
+      title: THREAD_A.title,
+      agentLink: {
+        parentThreadId: THREAD_A.id,
+        role: "collaborator",
+        access: "read_write",
+        createdAt: "2026-07-20T00:00:00.000Z",
+        createdBy: "user",
+        autoDeliveryLimit: 1,
+        autoDeliveryUsed: 0,
+        paused: false,
+      },
+    });
+    await pushThreads(sock, [THREAD_A, child]);
+    expect(sock.sent.map((raw) => JSON.parse(raw)).some(
+      (message) => message.type === "getHistory" && message.threadId === child.id,
+    )).toBe(true);
+    expect(screen.getAllByRole("button", {
+      name: t("linkedConversation.markerLabel", { count: 2 }),
+    })).toHaveLength(2);
+
+    fireEvent.click(screen.getByRole("button", { name: t("linkedConversation.title") }));
+    await act(async () => { await flushMicrotasks(4); });
+    fireEvent.click(screen.getByRole("button", {
+      name: t("linkedConversation.unlinkNamed", { provider: "Claude" }),
+    }));
+    const unlink = sock.sent
+      .map((raw) => JSON.parse(raw))
+      .filter((message) => message.type === "unlinkThread")
+      .slice(-1)[0];
+    expect(unlink).toEqual({ type: "unlinkThread", threadId: child.id });
   });
 });

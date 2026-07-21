@@ -1156,9 +1156,18 @@ mod tests {
         let scope = vec!["a.txt".to_string(), "created-by-turn.txt".to_string()];
         restore(root, &sha, Some(&scope)).unwrap();
         assert_eq!(std::fs::read(dir.path().join("a.txt")).unwrap(), b"hello");
-        assert_eq!(std::fs::read(dir.path().join("created-by-turn.txt")).unwrap(), b"created");
-        assert_eq!(std::fs::read(dir.path().join("appeared.txt")).unwrap(), b"keep me");
-        assert_eq!(std::fs::read(dir.path().join("other.txt")).unwrap(), b"other change");
+        assert_eq!(
+            std::fs::read(dir.path().join("created-by-turn.txt")).unwrap(),
+            b"created"
+        );
+        assert_eq!(
+            std::fs::read(dir.path().join("appeared.txt")).unwrap(),
+            b"keep me"
+        );
+        assert_eq!(
+            std::fs::read(dir.path().join("other.txt")).unwrap(),
+            b"other change"
+        );
     }
 
     #[test]
@@ -1169,7 +1178,10 @@ mod tests {
         std::fs::write(dir.path().join("appeared.txt"), b"keep me").unwrap();
         let err = restore(root, &sha, None).unwrap_err().to_string();
         assert!(err.contains("refus"), "{err}");
-        assert_eq!(std::fs::read(dir.path().join("appeared.txt")).unwrap(), b"keep me");
+        assert_eq!(
+            std::fs::read(dir.path().join("appeared.txt")).unwrap(),
+            b"keep me"
+        );
     }
 
     #[test]
@@ -1211,7 +1223,10 @@ mod tests {
         std::fs::write(dir.path().join("a.txt"), b"dirty but preserved").unwrap();
 
         assert_eq!(create_branch(root, "figures-2026").unwrap(), "figures-2026");
-        assert_eq!(status(root).unwrap().branch.as_deref(), Some("figures-2026"));
+        assert_eq!(
+            status(root).unwrap().branch.as_deref(),
+            Some("figures-2026")
+        );
         assert_eq!(
             std::fs::read(dir.path().join("a.txt")).unwrap(),
             b"dirty but preserved"

@@ -86,6 +86,28 @@ export function ForkIcon({ size = 13 }: IconProps) {
   );
 }
 
+/** Marqueur Atelier d'une continuité entre conversations. Ce n'est ni une
+ * chaîne ni une couleur de statut : deux sessions, un passage explicite. */
+export function SessionBridgeIcon({ size = 14 }: IconProps) {
+  return (
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 16 16"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.35"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <circle cx="3.75" cy="8" r="1.75" />
+      <path d="M5.5 8h5" />
+      <circle cx="12.25" cy="8" r="1.75" />
+    </svg>
+  );
+}
+
 export function BranchIcon({ size = 13 }: IconProps) {
   return (
     <StrokeIcon size={size}>

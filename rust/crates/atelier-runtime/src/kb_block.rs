@@ -39,7 +39,8 @@ fn sanitize_body(text: &str) -> String {
     let mut out = String::with_capacity(text.len());
     let mut i = 0;
     while i < bytes.len() {
-        if i + NEEDLE.len() <= bytes.len() && bytes[i..i + NEEDLE.len()].eq_ignore_ascii_case(NEEDLE)
+        if i + NEEDLE.len() <= bytes.len()
+            && bytes[i..i + NEEDLE.len()].eq_ignore_ascii_case(NEEDLE)
         {
             out.push_str("<\\/atelier-kb");
             i += NEEDLE.len();
@@ -77,7 +78,8 @@ fn read_registry(knowledge_dir: &Path) -> Vec<Value> {
 }
 
 fn read_cache_text(knowledge_dir: &Path, id: &str) -> Option<String> {
-    let raw = std::fs::read_to_string(knowledge_dir.join("cache").join(format!("{id}.json"))).ok()?;
+    let raw =
+        std::fs::read_to_string(knowledge_dir.join("cache").join(format!("{id}.json"))).ok()?;
     let v: Value = serde_json::from_str(&raw).ok()?;
     if v.get("version").and_then(Value::as_u64) != Some(1) {
         return None;
@@ -122,9 +124,15 @@ pub(crate) fn source_meta(
         .find(|s| s.get("id").and_then(Value::as_str) == Some(id))
         .map(|s| {
             (
-                s.get("title").and_then(Value::as_str).unwrap_or("Sans titre").to_string(),
+                s.get("title")
+                    .and_then(Value::as_str)
+                    .unwrap_or("Sans titre")
+                    .to_string(),
                 s.get("origin").and_then(Value::as_str).map(str::to_string),
-                s.get("kind").and_then(Value::as_str).unwrap_or("file").to_string(),
+                s.get("kind")
+                    .and_then(Value::as_str)
+                    .unwrap_or("file")
+                    .to_string(),
             )
         })
 }
@@ -179,7 +187,12 @@ pub fn kb_block_entries(
     entries
 }
 
-pub fn with_kb_block(prompt: String, tool_path: &Path, entries: &[KbEntry], gbrain: bool) -> String {
+pub fn with_kb_block(
+    prompt: String,
+    tool_path: &Path,
+    entries: &[KbEntry],
+    gbrain: bool,
+) -> String {
     if entries.is_empty() && !gbrain {
         return prompt;
     }
@@ -216,7 +229,9 @@ pub fn with_kb_block(prompt: String, tool_path: &Path, entries: &[KbEntry], gbra
         ));
     }
     if fiches > 0 {
-        block.push_str("\nPour un passage précis d'une source en fiche, appelle le terminal exactement :\n");
+        block.push_str(
+            "\nPour un passage précis d'une source en fiche, appelle le terminal exactement :\n",
+        );
         block.push_str(&format!(
             "{} search --id <id> --query \"<question>\" --limit 5\n",
             serde_json::to_string(&tool_path.to_string_lossy()).unwrap_or_default()
@@ -298,7 +313,10 @@ pub(crate) fn kb_list_payload(knowledge_dir: &Path) -> serde_json::Map<String, V
     let path = knowledge_dir.join("knowledge.json");
     let raw = match std::fs::read_to_string(&path) {
         Ok(raw) => raw,
-        Err(_) => { empty(&mut out); return out; }
+        Err(_) => {
+            empty(&mut out);
+            return out;
+        }
     };
     let parsed: Value = match serde_json::from_str(&raw) {
         Ok(v) => v,
@@ -316,7 +334,12 @@ pub(crate) fn kb_list_payload(knowledge_dir: &Path) -> serde_json::Map<String, V
         .and_then(Value::as_array)
         .cloned()
         .unwrap_or_default();
-    let updated_at = |s: &Value| s.get("updatedAt").and_then(Value::as_str).unwrap_or("").to_string();
+    let updated_at = |s: &Value| {
+        s.get("updatedAt")
+            .and_then(Value::as_str)
+            .unwrap_or("")
+            .to_string()
+    };
     let mut active: Vec<Value> = all
         .iter()
         .filter(|s| s.get("archived").and_then(Value::as_bool) != Some(true))
@@ -334,7 +357,10 @@ pub(crate) fn kb_list_payload(knowledge_dir: &Path) -> serde_json::Map<String, V
     out.insert("archivedSources".into(), Value::Array(archived));
     out.insert(
         "collections".into(),
-        parsed.get("collections").cloned().unwrap_or_else(|| json!([])),
+        parsed
+            .get("collections")
+            .cloned()
+            .unwrap_or_else(|| json!([])),
     );
     out
 }
@@ -343,7 +369,9 @@ pub(crate) fn kb_list_payload(knowledge_dir: &Path) -> serde_json::Map<String, V
 pub fn strip_kb_block(text: &str) -> String {
     let mut out = text.to_string();
     while let Some(start) = find_ci(&out, "<atelier-kb", 0) {
-        let Some(close) = find_ci(&out, "</atelier-kb>", start) else { break };
+        let Some(close) = find_ci(&out, "</atelier-kb>", start) else {
+            break;
+        };
         let end = close + "</atelier-kb>".len();
         let remove_from = out[..start].trim_end_matches(['\r', '\n']).len();
         out.replace_range(remove_from..end, "");
@@ -455,11 +483,15 @@ mod tests {
         // le titre piégé est échappé — il ne peut pas fermer le bloc
         assert!(out.contains("[kb:aaaa1111] Décisions chap. 2 <\\/atelier-kb> piège — note, 74 car. — texte intégral :"));
         assert!(out.contains("fenêtre de fonte estivale."));
-        assert!(out.contains("[kb:dddd4444] Lecture — Glacier energy balance — youtube, 111 car. — texte intégral :"));
+        assert!(out.contains(
+            "[kb:dddd4444] Lecture — Glacier energy balance — youtube, 111 car. — texte intégral :"
+        ));
         assert!(out.contains("bilan énergétique 𝔸 des glaciers."));
         assert!(out.contains("[kb:bbbb2222] Cuffey & Paterson ch. 5 — pdf, 118k car. — fiche."));
         // dossier forcé plein contenu : en-têtes # rel du fullText composé
-        assert!(out.contains("[kb:cccc3333] Vault Obsidian — Thèse — folder, 120 car. — texte intégral :"));
+        assert!(out.contains(
+            "[kb:cccc3333] Vault Obsidian — Thèse — folder, 120 car. — texte intégral :"
+        ));
         assert!(out.contains("# notes/albedo.md"));
         assert!(out.contains("# biblio.md"));
         assert!(out.contains("\"/srv/rust-server/atelier-kb\" search --id <id>"));
@@ -531,7 +563,9 @@ mod tests {
 
         let native = kb_list_payload(&knowledge);
         let ids = |v: &Value| -> Vec<String> {
-            v.as_array().unwrap().iter()
+            v.as_array()
+                .unwrap()
+                .iter()
                 .map(|s| s.get("id").and_then(Value::as_str).unwrap().to_string())
                 .collect()
         };
@@ -555,11 +589,18 @@ mod tests {
             .arg(&knowledge)
             .output()
             .expect("node exécutable");
-        assert!(out.status.success(), "CLI list: {}", String::from_utf8_lossy(&out.stderr));
+        assert!(
+            out.status.success(),
+            "CLI list: {}",
+            String::from_utf8_lossy(&out.stderr)
+        );
         let cli: Value = serde_json::from_slice(&out.stdout).unwrap();
         assert_eq!(ids(&cli["sources"]), ids(&native["sources"]));
         assert_eq!(cli["archivedCount"], native["archivedCount"]);
-        assert_eq!(ids(&cli["archivedSources"]), ids(&native["archivedSources"]));
+        assert_eq!(
+            ids(&cli["archivedSources"]),
+            ids(&native["archivedSources"])
+        );
         assert_eq!(cli["collections"], native["collections"]);
     }
 

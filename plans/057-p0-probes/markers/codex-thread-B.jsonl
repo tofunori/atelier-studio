@@ -1,0 +1,9 @@
+{"event":"boot","ts":"2026-07-20T18:57:38.865Z","pid":71132,"ppid":70642,"capability":"cap-thread-B-p0proof","label":"thread-B","threadHint":"thread-B","cwd":"/private/tmp"}
+{"event":"initialize","ts":"2026-07-20T18:57:38.881Z","pid":71132,"ppid":70642,"capability":"cap-thread-B-p0proof","label":"thread-B","threadHint":"thread-B","cwd":"/private/tmp","clientInfo":{"name":"codex-mcp-client","title":"Codex","version":"0.144.1"}}
+{"event":"initialized","ts":"2026-07-20T18:57:38.882Z","pid":71132,"ppid":70642,"capability":"cap-thread-B-p0proof","label":"thread-B","threadHint":"thread-B","cwd":"/private/tmp"}
+{"event":"boot","ts":"2026-07-20T18:57:51.925Z","pid":72504,"ppid":70642,"capability":"cap-thread-B-p0proof","label":"thread-B","threadHint":"thread-B","cwd":"/private/tmp"}
+{"event":"initialize","ts":"2026-07-20T18:57:51.935Z","pid":72504,"ppid":70642,"capability":"cap-thread-B-p0proof","label":"thread-B","threadHint":"thread-B","cwd":"/private/tmp","clientInfo":{"name":"codex-mcp-client","title":"Codex","version":"0.144.1"}}
+{"event":"initialized","ts":"2026-07-20T18:57:51.942Z","pid":72504,"ppid":70642,"capability":"cap-thread-B-p0proof","label":"thread-B","threadHint":"thread-B","cwd":"/private/tmp"}
+{"event":"stdin_end","ts":"2026-07-20T18:57:57.962Z","pid":72504,"ppid":70642,"capability":"cap-thread-B-p0proof","label":"thread-B","threadHint":"thread-B","cwd":"/private/tmp"}
+{"event":"sigterm","ts":"2026-07-20T18:57:57.965Z","pid":72504,"ppid":70642,"capability":"cap-thread-B-p0proof","label":"thread-B","threadHint":"thread-B","cwd":"/private/tmp"}
+{"event":"stdin_end","ts":"2026-07-20T18:58:06.139Z","pid":71132,"ppid":1,"capability":"cap-thread-B-p0proof","label":"thread-B","threadHint":"thread-B","cwd":"/private/tmp"}

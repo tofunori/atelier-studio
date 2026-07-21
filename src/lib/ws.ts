@@ -154,7 +154,20 @@ type AgentEventBody =
       usage?: { context: number; output: number; cost: number | null; turns: number | null };
       ts?: number;
     }
-  | { kind: "error"; message: string };
+  | { kind: "error"; message: string }
+  /** Plan 057 — message inter-agents (jamais rendu comme bulle utilisateur). */
+  | {
+      kind: "agent_message";
+      messageId: string;
+      direction: "sent" | "received";
+      peerThreadId: string;
+      peerProvider?: string;
+      peerTitle?: string;
+      messageKind?: "message" | "report";
+      text: string;
+      status: "queued" | "delivering" | "delivered" | "paused" | "failed";
+      ts?: number;
+    };
 
 export type AgentEvent = AgentEventBody & { meta?: HarnessEventMeta | ProvisionalEventMeta };
 
@@ -201,9 +214,34 @@ export type Thread = {
     sourceProvider: string;
     targetProvider: string;
   };
+  /** Plan 057 — relation parent/enfant (sur l'enfant seulement). */
+  agentLink?: {
+    parentThreadId: string;
+    role: "collaborator";
+    access: "read_write";
+    createdAt: string;
+    createdBy: "user";
+    autoDeliveryLimit: number;
+    autoDeliveryUsed: number;
+    paused: boolean;
+  };
+  agentContextSeededAt?: string;
   // base de connaissances (plan 049) : sources attachées à la conversation
   kbSourceIds?: string[];
   kbFullContent?: string[];
+};
+
+export type AgentMessageEvent = {
+  kind: "agent_message";
+  messageId: string;
+  direction: "sent" | "received";
+  peerThreadId: string;
+  peerProvider?: string;
+  peerTitle?: string;
+  messageKind?: "message" | "report";
+  text: string;
+  status: "queued" | "delivering" | "delivered" | "paused" | "failed";
+  meta?: { sequence?: number; eventId?: string; ts?: number };
 };
 
 type Handler = (msg: any) => void;

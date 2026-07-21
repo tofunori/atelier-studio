@@ -1318,6 +1318,19 @@ export async function route(msg, ctx) {
       (ctx.broadcast ?? ctx.send)({ type: "threads", threads: ctx.store.list() });
       break;
     }
+    case "createLinkedThread":
+    case "mentionAgent":
+    case "setLinkedThreadPaused":
+    case "unlinkThread": {
+      // Plan 057 — sessions liées MCP : Rust only (capabilities + mailbox + bridge).
+      ctx.send({
+        type: "error",
+        message: "feature_requires_rust_backend",
+        code: "feature_requires_rust_backend",
+        feature: "linkedAgents",
+      });
+      break;
+    }
     case "revert": {
       // revert = tombstone NON destructif dans le journal par eventId (source de
       // vérité du transcript), + rewind best-effort de la session provider pour

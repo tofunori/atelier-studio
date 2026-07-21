@@ -1,0 +1,96 @@
+{
+  "provider": "claude",
+  "version": "2.1.215 (Claude Code)",
+  "ok": true,
+  "verdict": {
+    "distinctCaps": true,
+    "distinctPids": true,
+    "capsA": [
+      "<CAP_A>"
+    ],
+    "capsB": [
+      "<CAP_B>"
+    ],
+    "pidsA": [
+      76972
+    ],
+    "pidsB": [
+      77085
+    ],
+    "sawInitA": true,
+    "sawInitB": true,
+    "configMode0600": true,
+    "configMode": "0o600"
+  },
+  "evidence": {
+    "A": {
+      "label": "claude-A",
+      "code": 1,
+      "markers": [
+        {
+          "event": "boot",
+          "pid": 76972,
+          "capability": "<CAP_A>",
+          "label": "claude-A"
+        },
+        {
+          "event": "initialize",
+          "pid": 76972,
+          "capability": "<CAP_A>",
+          "label": "claude-A"
+        },
+        {
+          "event": "initialized",
+          "pid": 76972,
+          "capability": "<CAP_A>",
+          "label": "claude-A"
+        },
+        {
+          "event": "stdin_end",
+          "pid": 76972,
+          "capability": "<CAP_A>",
+          "label": "claude-A"
+        }
+      ],
+      "stderr_head": ""
+    },
+    "B": {
+      "label": "claude-B",
+      "code": 1,
+      "markers": [
+        {
+          "event": "boot",
+          "pid": 77085,
+          "capability": "<CAP_B>",
+          "label": "claude-B"
+        },
+        {
+          "event": "initialize",
+          "pid": 77085,
+          "capability": "<CAP_B>",
+          "label": "claude-B"
+        },
+        {
+          "event": "initialized",
+          "pid": 77085,
+          "capability": "<CAP_B>",
+          "label": "claude-B"
+        },
+        {
+          "event": "stdin_end",
+          "pid": 77085,
+          "capability": "<CAP_B>",
+          "label": "claude-B"
+        }
+      ],
+      "stderr_head": ""
+    }
+  },
+  "protocol": {
+    "cli": "claude --strict-mcp-config --mcp-config <file> --print ...",
+    "configShape": "mcpServers.<name>.{command,args,env}",
+    "configMode": "0600",
+    "wroteGlobalConfig": false,
+    "note": "MCP subprocess boot proven via env marker before full turn completion; process killed after initialize"
+  }
+}

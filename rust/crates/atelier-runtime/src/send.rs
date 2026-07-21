@@ -636,6 +636,32 @@ pub async fn handle_send(state: &AppState, msg: &Value) -> Vec<String> {
     }
 
     let previous = state.threads().lock().await.get(&thread_id).cloned();
+    if msg.get("origin").and_then(Value::as_str) == Some("agent_link") {
+        let from = msg
+            .get("agentFromThreadId")
+            .and_then(Value::as_str)
+            .unwrap_or("");
+        let to = msg
+            .get("agentToThreadId")
+            .and_then(Value::as_str)
+            .unwrap_or("");
+        let relation_is_live = {
+            let store = state.threads().lock().await;
+            store.get(from).is_some()
+                && store.get(to).is_some()
+                && (store
+                    .get(to)
+                    .and_then(|thread| thread.agent_link.as_ref())
+                    .is_some_and(|link| link.parent_thread_id == from)
+                    || store
+                        .get(from)
+                        .and_then(|thread| thread.agent_link.as_ref())
+                        .is_some_and(|link| link.parent_thread_id == to))
+        };
+        if !relation_is_live {
+            return vec![err_json("agent_link_relation_revoked")];
+        }
+    }
     if previous.as_ref().is_some_and(|thread| {
         thread.provider != provider
             && (thread.session_id.is_some() || state.journal().has_journal(&thread_id))
@@ -715,9 +741,32 @@ pub async fn handle_send(state: &AppState, msg: &Value) -> Vec<String> {
             .and_then(Value::as_str);
         let inject = !seeded || prev_hash != Some(hash.as_str());
         turn_kb_hash = Some(hash);
-        if inject { kb_enriched } else { pre_kb }
+        if inject {
+            kb_enriched
+        } else {
+            pre_kb
+        }
     } else {
         kb_enriched
+    };
+
+    // Plan 057: first-turn envelope for linked child (not shown in user bubble).
+    let needs_agent_seed = previous
+        .as_ref()
+        .and_then(|t| t.agent_link.as_ref())
+        .is_some()
+        && previous
+            .as_ref()
+            .and_then(|t| t.extra.get("agentContextSeededAt"))
+            .is_none();
+    let provider_prompt = if needs_agent_seed {
+        if let Some(env) = crate::agent_mcp::maybe_child_envelope(state, &thread_id).await {
+            format!("{env}{provider_prompt}")
+        } else {
+            provider_prompt
+        }
+    } else {
+        provider_prompt
     };
 
     // Provider change while running: refuse
@@ -767,7 +816,13 @@ pub async fn handle_send(state: &AppState, msg: &Value) -> Vec<String> {
 
     let mode = msg.get("mode").and_then(|v| v.as_str()).unwrap_or("");
     let running = state.harness().is_running(&thread_id).await;
-    let user_event = normalize_display_event(msg);
+    let origin_agent = msg.get("origin").and_then(|v| v.as_str()) == Some("agent_link");
+    // Linked-agent deliveries must not create a second user bubble.
+    let user_event = if origin_agent {
+        json!({"kind":"agent_message","text": prompt, "status":"delivering", "direction":"received"})
+    } else {
+        normalize_display_event(msg)
+    };
     let client_mid = msg
         .get("clientMessageId")
         .and_then(|v| v.as_str())
@@ -820,6 +875,7 @@ pub async fn handle_send(state: &AppState, msg: &Value) -> Vec<String> {
                 }),
                 on_interaction: Some(interaction),
                 is_cancelled: Arc::new(move || cancelled_probe.load(Ordering::SeqCst)),
+                atelier_mcp: None,
             };
             // Pump events into harness
             let h_pump = Arc::clone(&h);
@@ -949,7 +1005,33 @@ pub async fn handle_send(state: &AppState, msg: &Value) -> Vec<String> {
     let project_root_events = project_root.clone();
     let permission_mode_events = permission_mode.clone();
     let snapshot_events = snapshot_sha.clone();
+    let linked_reply = if origin_agent {
+        let from = msg
+            .get("agentFromThreadId")
+            .and_then(Value::as_str)
+            .unwrap_or("");
+        let to = msg
+            .get("agentToThreadId")
+            .and_then(Value::as_str)
+            .unwrap_or("");
+        (to == thread_id && !from.is_empty()).then(|| {
+            (
+                from.to_string(),
+                thread_id.clone(),
+                provider.clone(),
+                client_mid
+                    .as_deref()
+                    .and_then(|id| id.strip_prefix("agent:"))
+                    .unwrap_or(&turn_id)
+                    .to_string(),
+            )
+        })
+    } else {
+        None
+    };
+    let linked_reply_state = state.clone();
     let pump = tokio::spawn(async move {
+        let mut linked_reply_text = String::new();
         while let Some(ev) = ev_rx.recv().await {
             let ev = normalize_provider_event(
                 ev,
@@ -957,6 +1039,50 @@ pub async fn handle_send(state: &AppState, msg: &Value) -> Vec<String> {
                 permission_mode_events.as_deref(),
                 snapshot_events.as_deref(),
             );
+            if let Some((source_thread_id, peer_thread_id, peer_provider, message_id)) =
+                linked_reply.as_ref()
+            {
+                let kind = ev.get("kind").and_then(Value::as_str).unwrap_or("");
+                let mirrored_text = match kind {
+                    "text" => ev.get("text").and_then(Value::as_str).map(|text| {
+                        if !linked_reply_text.is_empty() {
+                            linked_reply_text.push('\n');
+                        }
+                        linked_reply_text.push_str(text);
+                        linked_reply_text.as_str()
+                    }),
+                    "error" => ev.get("message").and_then(Value::as_str),
+                    _ => None,
+                };
+                if let Some(text) = mirrored_text.filter(|text| !text.trim().is_empty()) {
+                    let sequence = linked_reply_state.journal().last_sequence(source_thread_id) + 1;
+                    let mirrored = json!({
+                        "kind": "agent_message",
+                        "messageId": message_id,
+                        "direction": "received",
+                        "peerThreadId": peer_thread_id,
+                        "peerProvider": peer_provider,
+                        "messageKind": "report",
+                        "text": text,
+                        "status": if kind == "error" { "failed" } else { "delivered" },
+                        "meta": {
+                            "threadId": source_thread_id,
+                            "sequence": sequence,
+                            "eventId": uuid::Uuid::new_v4().to_string(),
+                            "ts": std::time::SystemTime::now()
+                                .duration_since(std::time::UNIX_EPOCH)
+                                .map(|duration| duration.as_millis() as i64)
+                                .unwrap_or(0),
+                        }
+                    });
+                    let _ = linked_reply_state.journal().append(&mirrored);
+                    linked_reply_state.publish(crate::ws_router::json_msg(json!({
+                        "type": "event",
+                        "threadId": source_thread_id,
+                        "event": mirrored,
+                    })));
+                }
+            }
             let mut g = h_pump.lock().await;
             let kind = ev.get("kind").and_then(|v| v.as_str()).unwrap_or("");
             if kind == "done" || kind == "error" {
@@ -984,6 +1110,42 @@ pub async fn handle_send(state: &AppState, msg: &Value) -> Vec<String> {
         }
     });
 
+    // Plan 057: issue scoped MCP capability for linked threads on compatible providers.
+    let atelier_mcp = {
+        let linked = previous
+            .as_ref()
+            .and_then(|t| t.agent_link.as_ref())
+            .is_some()
+            || {
+                let store = state.threads().lock().await;
+                !store.children_of(&thread_id).is_empty()
+            };
+        if linked && crate::agent_mcp::is_mcp_compatible_provider(&provider) {
+            match crate::agent_mcp::issue_mcp_launch(
+                state,
+                &thread_id,
+                &project_root,
+                &provider,
+                session_id.clone(),
+                crate::agent_mcp::provider_label(&provider),
+            )
+            .await
+            {
+                Ok(launch) => Some(atelier_providers::AtelierMcpLaunch {
+                    command: std::path::PathBuf::from(launch.command),
+                    server_name: launch.server_name,
+                    env: launch.env,
+                }),
+                Err(e) => {
+                    tracing::warn!(error = %e, "atelier MCP launch unavailable");
+                    None
+                }
+            }
+        } else {
+            None
+        }
+    };
+
     tokio::spawn(async move {
         let fallback_root = project_root.clone();
         let fallback_snapshot = snapshot_sha.clone();
@@ -1004,6 +1166,7 @@ pub async fn handle_send(state: &AppState, msg: &Value) -> Vec<String> {
             }),
             on_interaction: Some(interaction),
             is_cancelled: Arc::new(move || cancelled_probe.load(Ordering::SeqCst)),
+            atelier_mcp,
         };
         let result = pimpl.send(req).await;
         // Quand send() retourne, tous les clones d'ev_tx (on_event, relais
@@ -1040,6 +1203,9 @@ pub async fn handle_send(state: &AppState, msg: &Value) -> Vec<String> {
             }
         }
         let succeeded = result.ok;
+        if succeeded && needs_agent_seed {
+            crate::agent_mcp::mark_context_seeded(&state2, &tid).await;
+        }
         if let Some(sid) = result.session_id {
             let mut store = state2.threads().lock().await;
             let mut patch = json!({"id": tid, "sessionId": sid.clone(), "status": "idle",
@@ -1060,6 +1226,11 @@ pub async fn handle_send(state: &AppState, msg: &Value) -> Vec<String> {
         }
         state2.harness().clear_running(&tid).await;
         state2.release_project_writer(&fallback_root, &tid).await;
+        // Plan 057: schedule mailbox drain on a detached task (handle_send is re-entrant).
+        let drain_state = state2.clone();
+        tokio::spawn(async move {
+            crate::agent_mailbox::drain_mailbox(&drain_state).await;
+        });
         let list = state2.threads().lock().await.list();
         if let Ok(s) = serde_json::to_string(&json!({"type":"threads","threads": list})) {
             state2.publish(s);

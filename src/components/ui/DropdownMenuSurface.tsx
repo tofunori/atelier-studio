@@ -6,13 +6,17 @@ import {
   DropdownMenuItem,
   DropdownMenuLabel,
   DropdownMenuSeparator,
+  DropdownMenuSub,
+  DropdownMenuSubContent,
+  DropdownMenuSubTrigger,
   DropdownMenuTrigger,
 } from "../shadcn/dropdown-menu"
 
 export type DropdownMenuSurfaceItem = {
   key: string
   label: ReactNode
-  onSelect: () => void
+  onSelect?: () => void
+  children?: DropdownMenuSurfaceItem[]
   destructive?: boolean
   disabled?: boolean
   separatorBefore?: boolean
@@ -30,6 +34,33 @@ export function DropdownMenuSurface(props: {
   className?: string
   items: DropdownMenuSurfaceItem[]
 }) {
+  const renderItem = (item: DropdownMenuSurfaceItem) => (
+    <Fragment key={item.key}>
+      {item.separatorBefore && <DropdownMenuSeparator />}
+      {item.children?.length ? (
+        <DropdownMenuSub>
+          <DropdownMenuSubTrigger disabled={item.disabled} className={item.className}>
+            {item.label}
+          </DropdownMenuSubTrigger>
+          <DropdownMenuSubContent>
+            <DropdownMenuGroup>
+              {item.children.map(renderItem)}
+            </DropdownMenuGroup>
+          </DropdownMenuSubContent>
+        </DropdownMenuSub>
+      ) : (
+        <DropdownMenuItem
+          variant={item.destructive ? "destructive" : "default"}
+          disabled={item.disabled}
+          className={item.className}
+          onClick={item.onSelect}
+        >
+          {item.label}
+        </DropdownMenuItem>
+      )}
+    </Fragment>
+  )
+
   return (
     <DropdownMenu open={props.open} onOpenChange={props.onOpenChange}>
       <DropdownMenuTrigger ref={props.triggerRef} render={props.trigger} />
@@ -41,19 +72,7 @@ export function DropdownMenuSurface(props: {
       >
         <DropdownMenuGroup>
           {props.header && <DropdownMenuLabel>{props.header}</DropdownMenuLabel>}
-          {props.items.map((item) => (
-            <Fragment key={item.key}>
-              {item.separatorBefore && <DropdownMenuSeparator />}
-              <DropdownMenuItem
-                variant={item.destructive ? "destructive" : "default"}
-                disabled={item.disabled}
-                className={item.className}
-                onClick={item.onSelect}
-              >
-                {item.label}
-              </DropdownMenuItem>
-            </Fragment>
-          ))}
+          {props.items.map(renderItem)}
         </DropdownMenuGroup>
       </DropdownMenuContent>
     </DropdownMenu>

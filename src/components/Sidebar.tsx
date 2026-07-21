@@ -3,7 +3,7 @@
 // travail reprendre et quelles conversations ouvrir ? ». Le changement de
 // projet reste GLOBAL (rail / top bar) — le nom local n'est pas un sélecteur.
 // Sans projet actif, le même panneau devient « Chats sans projet ».
-import { Fragment, useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { confirm as tauriConfirm, message as tauriMessage } from "@tauri-apps/plugin-dialog";
 import { revealItemInDir, openUrl } from "@tauri-apps/plugin-opener";
 import { Thread } from "../lib/ws";
@@ -33,11 +33,17 @@ import { ThreadRow } from "./sidebar/ThreadRow";
 import { PROJ_ICONS, ProjIcon } from "./sidebar/projectIcons";
 import { ProjectStyleMenu } from "./sidebar/ProjectStyleMenu";
 import { Popover, PopoverContent } from "./shadcn/popover";
+import { conversationFamilies, linkedConversations } from "../lib/threadLinks";
 
 // ré-exports publics — Rail et TopBar importent depuis ./Sidebar
 export { PROJ_ICONS, ProjIcon };
 
-type ThreadMenu = { threadId: string; mode: "main" | "move" };
+type ThreadMenu = {
+  threadId: string;
+  /** A thread can be rendered in both the continuity tree and chronology. */
+  source: string;
+  mode: "main" | "move";
+};
 
 /** Envoie moveThread si le chat n'est pas en cours (refus serveur sinon,
  *  mais mieux vaut éviter l'aller-retour) ; ferme le menu appelant. */
@@ -124,6 +130,9 @@ export default function Sidebar(p: {
   onRename: (threadId: string, title: string) => void;
   projMeta: Record<string, { color?: string; label?: string }>;
   onSetMeta: (root: string, meta: { color?: string; label?: string }) => void;
+  linkProviders?: { id: string; label: string }[];
+  onContinueWith?: (thread: Thread, provider: string) => void;
+  onUnlinkConversation?: (childThreadId: string) => void;
 }) {
   // -- état local ------------------------------------------------------------
   const [query, setQuery] = useState("");
@@ -138,6 +147,7 @@ export default function Sidebar(p: {
   const [sessions, setSessions] = useState<{ id: string; title: string; mtime: number; projectRoot?: string }[] | null>(null);
   const [resumeQuery, setResumeQuery] = useState("");
   const [editingId, setEditingId] = useState<string | null>(null);
+  const [previewFamilyId, setPreviewFamilyId] = useState<string | null>(null);
   const [editText, setEditText] = useState("");
   const editRef = useRef<HTMLInputElement>(null);
 
@@ -155,6 +165,17 @@ export default function Sidebar(p: {
     [p.activeProject, p.activeId, p.threads, p.favorites, p.threadOrder, query, expanded],
   );
 
+  const familyByThread = useMemo(() => {
+    const root = p.activeProject ?? "";
+    return conversationFamilies(
+      p.threads.filter((thread) => threadRoot(thread) === root),
+    );
+  }, [p.activeProject, p.threads]);
+
+  const handleFamilyPreviewChange = useCallback((familyId: string, previewed: boolean) => {
+    setPreviewFamilyId((current) => previewed ? familyId : current === familyId ? null : current);
+  }, []);
+
   // changement de contexte : reset recherche + multi-sélection, menus fermés ;
   // « expanded » reste global (décision plan 024, étape 7)
   useEffect(() => {
@@ -165,6 +186,7 @@ export default function Sidebar(p: {
     setMenu(null);
     setProjMenu(null);
     setEditingId(null);
+    setPreviewFamilyId(null);
   }, [p.activeProject]);
 
   // -- reprise de session (contrat conservé : événements globaux) ------------
@@ -264,19 +286,19 @@ export default function Sidebar(p: {
   }, [selected]);
 
   // -- menu de conversation (bouton ⋯, clic droit) -----------------------------
-  function openThreadMenu(threadId: string) {
-    setMenu({ threadId, mode: "main" });
+  function openThreadMenu(threadId: string, source: string) {
+    setMenu({ threadId, source, mode: "main" });
   }
 
-  function threadMenuItems(thread: Thread): LazyDropdownMenuItem[] {
-    const isOpen = menu?.threadId === thread.id;
+  function threadMenuItems(thread: Thread, source: string): LazyDropdownMenuItem[] {
+    const isOpen = menu?.threadId === thread.id && menu.source === source;
     if (isOpen && menu?.mode === "move") {
       return [
         {
           key: "back",
           label: <>‹ {t("thread.move")}</>,
           keepOpen: true,
-          onSelect: () => setMenu({ threadId: thread.id, mode: "main" }),
+          onSelect: () => setMenu({ threadId: thread.id, source, mode: "main" }),
         },
         ...p.projects
           .filter((root) => root !== threadRoot(thread))
@@ -287,6 +309,21 @@ export default function Sidebar(p: {
           })),
       ];
     }
+    const related = linkedConversations(p.threads, thread.id);
+    const continueProviders = (p.linkProviders ?? []).filter(
+      (provider) => provider.id !== thread.provider,
+    );
+    const unlinkItems: LazyDropdownMenuItem[] = related.map((relation) => ({
+      key: `linked-unlink-${relation.childThreadId}`,
+      label: related.length === 1
+        ? t("linkedConversation.unlinkFrom", { title: threadTitle(relation.thread) })
+        : `${relation.thread.provider === "opencode" ? "OpenCode" : relation.thread.provider.charAt(0).toUpperCase() + relation.thread.provider.slice(1)} · ${threadTitle(relation.thread)}`,
+      onSelect: () => {
+        p.onUnlinkConversation?.(relation.childThreadId);
+        setMenu(null);
+      },
+    }));
+
     return [
       {
         key: "rename",
@@ -314,12 +351,36 @@ export default function Sidebar(p: {
           setMenu(null);
         },
       },
+      ...(p.onContinueWith && continueProviders.length
+        ? [{
+            key: "linked-continue",
+            label: t("linkedConversation.continueWith"),
+            disabled: thread.status === "running" || !thread.projectRoot,
+            children: continueProviders.map((provider) => ({
+              key: `linked-continue-${provider.id}`,
+              label: provider.label,
+              onSelect: () => {
+                p.onContinueWith?.(thread, provider.id);
+                setMenu(null);
+              },
+            })),
+          }]
+        : []),
+      ...(p.onUnlinkConversation && unlinkItems.length === 1
+        ? unlinkItems
+        : p.onUnlinkConversation && unlinkItems.length > 1
+          ? [{
+              key: "linked-unlink",
+              label: t("linkedConversation.unlinkFromMany"),
+              children: unlinkItems,
+            }]
+          : []),
       ...(p.projects.some((root) => root !== threadRoot(thread))
         ? [{
             key: "move",
             label: t("thread.move"),
             keepOpen: true,
-            onSelect: () => setMenu({ threadId: thread.id, mode: "move" }),
+            onSelect: () => setMenu({ threadId: thread.id, source, mode: "move" }),
           }]
         : []),
       {
@@ -347,7 +408,13 @@ export default function Sidebar(p: {
   }
 
   // -- rendu d'une ligne --------------------------------------------------------
-  function renderRow(th: Thread, kind: "continue" | "pinned" | "conversation") {
+  function renderRow(
+    th: Thread,
+    kind: "pinned" | "conversation",
+  ) {
+    const relatedCount = linkedConversations(p.threads, th.id).length;
+    const rowSource = `${kind}:${th.id}`;
+    const family = familyByThread.get(th.id);
     return (
       <ThreadRow
         key={th.id}
@@ -359,6 +426,12 @@ export default function Sidebar(p: {
         selected={selected.has(th.id)}
         unread={p.unread.has(th.id)}
         heartbeat={p.heartbeatThreadIds?.has(th.id) ?? false}
+        linkedConversationCount={relatedCount}
+        family={family}
+        familyPreviewed={family?.id === previewFamilyId}
+        onOpenFamilyThread={(thread) => p.onSelect(thread.id, threadRoot(thread))}
+        onUnlinkFamilyThread={p.onUnlinkConversation}
+        onFamilyPreviewChange={handleFamilyPreviewChange}
         favorite={p.favorites.includes(th.id)}
         editing={editingId === th.id}
         editText={editText}
@@ -370,16 +443,16 @@ export default function Sidebar(p: {
         onRowDoubleClick={() => startRename(th)}
         onRowContextMenu={(e) => {
           e.preventDefault();
-          openThreadMenu(th.id);
+          openThreadMenu(th.id, rowSource);
         }}
         onToggleFavorite={() => p.onToggleFavorite(th.id)}
-        onOpenMenu={() => openThreadMenu(th.id)}
-        menuOpen={menu?.threadId === th.id}
+        onOpenMenu={() => openThreadMenu(th.id, rowSource)}
+        menuOpen={menu?.threadId === th.id && menu.source === rowSource}
         onMenuOpenChange={(open) => {
-          if (open) openThreadMenu(th.id);
+          if (open) openThreadMenu(th.id, rowSource);
           else setMenu(null);
         }}
-        menuItems={threadMenuItems(th)}
+        menuItems={threadMenuItems(th, rowSource)}
       />
     );
   }
@@ -394,7 +467,6 @@ export default function Sidebar(p: {
 
   const contextEmpty =
     !model.searching &&
-    !model.continueThread &&
     model.pinnedThreads.length === 0 &&
     model.conversationSections.length === 0;
 
@@ -437,17 +509,6 @@ export default function Sidebar(p: {
             {t(model.mode === "project" ? "sidebar.empty-project" : "sidebar.empty-unscoped")}
           </p>
         )}
-
-            {model.continueThread && (
-              <SidebarGroup className="pnav-group tw:p-0">
-                <SidebarGroupLabel as="h3" className="pnav-sec tw:h-auto tw:rounded-none tw:p-0">
-                  {t("sidebar.continue")}
-                </SidebarGroupLabel>
-                <SidebarGroupContent className="tw:p-0">
-                  <SidebarMenu className="pnav-list tw:p-0">{renderRow(model.continueThread, "continue")}</SidebarMenu>
-                </SidebarGroupContent>
-              </SidebarGroup>
-            )}
 
             {model.pinnedThreads.length > 0 && (
               <SidebarGroup className="pnav-group tw:p-0">

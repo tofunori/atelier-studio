@@ -16,7 +16,10 @@ use crate::acp_rpc::{
     AcpInitializeResult, AcpRpcError, AcpServer, ServerRequestHandler, SessionUpdateHandler,
 };
 use crate::kimi_map::{map_kimi_prompt_result, map_kimi_session_update};
-use crate::traits::{InteractionFn, Provider, ProviderCaps, SendRequest, SendResult};
+
+use crate::traits::{
+    atelier_mcp_servers, InteractionFn, Provider, ProviderCaps, SendRequest, SendResult,
+};
 use async_trait::async_trait;
 use base64::Engine as _;
 use serde_json::{json, Value};
@@ -709,14 +712,16 @@ impl KimiProvider {
             .filter(|sid| !self.state.lock().unwrap().invalid_sessions.contains(sid));
 
         if let Some(sid) = requested {
-            if self.state.lock().unwrap().opened_sessions.contains(&sid) {
+            if self.state.lock().unwrap().opened_sessions.contains(&sid)
+                && req.atelier_mcp.is_none()
+            {
                 return Ok(sid);
             }
             match self
                 .acp
                 .request(
                     "session/resume",
-                    json!({"sessionId": sid, "cwd": cwd, "mcpServers": []}),
+                    json!({"sessionId": sid, "cwd": cwd, "mcpServers": atelier_mcp_servers(req.atelier_mcp.as_ref())}),
                     Some(30_000),
                 )
                 .await
@@ -749,7 +754,7 @@ impl KimiProvider {
             .acp
             .request(
                 "session/new",
-                json!({"cwd": cwd, "mcpServers": []}),
+                json!({"cwd": cwd, "mcpServers": atelier_mcp_servers(req.atelier_mcp.as_ref())}),
                 Some(30_000),
             )
             .await
@@ -1044,7 +1049,10 @@ impl KimiProvider {
                 let error = if ok {
                     None
                 } else if silent_failure {
-                    Some("tour Kimi vide (end_turn sans contenu) — échec silencieux du CLI".to_string())
+                    Some(
+                        "tour Kimi vide (end_turn sans contenu) — échec silencieux du CLI"
+                            .to_string(),
+                    )
                 } else {
                     Some(match stop {
                         "refusal" => "Kimi a refusé la requête (refusal).".to_string(),
@@ -1327,7 +1335,7 @@ impl Provider for KimiProvider {
             .acp
             .request(
                 "session/load",
-                json!({"sessionId": session_id, "cwd": cwd, "mcpServers": []}),
+                json!({"sessionId": session_id, "cwd": cwd, "mcpServers": serde_json::json!([])}),
                 Some(30_000),
             )
             .await;
@@ -1468,6 +1476,7 @@ mod tests {
             on_event: Arc::new(move |ev| sink.lock().unwrap().push(ev)),
             on_interaction,
             is_cancelled: Arc::new(|| false),
+            atelier_mcp: None,
         };
         let result = p.send(req).await;
         let events = events.lock().unwrap().clone();
@@ -1756,6 +1765,7 @@ mod tests {
             on_event: Arc::new(move |ev| sink.lock().unwrap().push(ev)),
             on_interaction: None,
             is_cancelled: Arc::new(move || cancelled2.load(std::sync::atomic::Ordering::SeqCst)),
+            atelier_mcp: None,
         };
         let flip = Arc::clone(&cancelled);
         tokio::spawn(async move {
@@ -1930,6 +1940,7 @@ mod tests {
             on_event: Arc::new(move |ev| sink.lock().unwrap().push(ev)),
             on_interaction: None,
             is_cancelled: Arc::new(|| false),
+            atelier_mcp: None,
         };
         let result = p.send(req).await;
         assert!(result.ok, "erreur: {:?}", result.error);

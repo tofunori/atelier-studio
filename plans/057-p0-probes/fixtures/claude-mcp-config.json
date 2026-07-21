@@ -1,0 +1,47 @@
+{
+  "note": "P0 Claude: per-session --mcp-config with distinct env capabilities",
+  "cli": [
+    "claude",
+    "--print",
+    "--strict-mcp-config",
+    "--mcp-config",
+    "<Application Support/atelier-studio/mcp-configs/<hash>.json>",
+    "--max-turns",
+    "1",
+    "--bare",
+    "<prompt>"
+  ],
+  "mcpConfig": {
+    "mcpServers": {
+      "atelier-sessions": {
+        "command": "<path-to-atelier-agent-mcp>",
+        "args": [],
+        "env": {
+          "ATELIER_MCP_ENDPOINT": "http://127.0.0.1:<port>/internal/agent-mcp",
+          "ATELIER_MCP_CAPABILITY": "<opaque-bearer>",
+          "ATELIER_MCP_CALLER_LABEL": "Claude Code"
+        }
+      }
+    }
+  },
+  "result": {
+    "distinctCaps": true,
+    "distinctPids": true,
+    "capsA": [
+      "<CAP_A>"
+    ],
+    "capsB": [
+      "<CAP_B>"
+    ],
+    "pidsA": [
+      76972
+    ],
+    "pidsB": [
+      77085
+    ],
+    "sawInitA": true,
+    "sawInitB": true,
+    "configMode0600": true,
+    "configMode": "0o600"
+  }
+}

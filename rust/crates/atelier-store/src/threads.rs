@@ -24,9 +24,42 @@ pub struct Thread {
     pub status: String,
     pub updated_at: String,
     pub created_at: String,
+    /// Linked-agent relation (plan 057) — only on child threads.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub agent_link: Option<AgentLink>,
     /// Preserve unknown Node fields (resumeAt, lastTurn, goals, …).
     #[serde(flatten)]
     pub extra: HashMap<String, Value>,
+}
+
+/// Local copy of the protocol shape so the store stays independent of
+/// atelier-protocol (avoids a circular dep). Mirrors plan 057 AgentLink.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct AgentLink {
+    pub parent_thread_id: String,
+    #[serde(default = "default_link_role")]
+    pub role: String,
+    #[serde(default = "default_link_access")]
+    pub access: String,
+    pub created_at: String,
+    #[serde(default = "default_link_created_by")]
+    pub created_by: String,
+    pub auto_delivery_limit: u32,
+    #[serde(default)]
+    pub auto_delivery_used: u32,
+    #[serde(default)]
+    pub paused: bool,
+}
+
+fn default_link_role() -> String {
+    "collaborator".into()
+}
+fn default_link_access() -> String {
+    "read_write".into()
+}
+fn default_link_created_by() -> String {
+    "user".into()
 }
 
 fn default_provider() -> String {
@@ -111,6 +144,7 @@ fn normalize(mut raw: Value) -> Option<Thread> {
         "status",
         "updatedAt",
         "createdAt",
+        "agentLink",
     ];
     let mut extra = HashMap::new();
     for (k, v) in obj.iter() {
@@ -118,6 +152,10 @@ fn normalize(mut raw: Value) -> Option<Thread> {
             extra.insert(k.clone(), v.clone());
         }
     }
+
+    let agent_link = obj
+        .get("agentLink")
+        .and_then(|v| serde_json::from_value::<AgentLink>(v.clone()).ok());
 
     Some(Thread {
         id,
@@ -128,6 +166,7 @@ fn normalize(mut raw: Value) -> Option<Thread> {
         status,
         updated_at,
         created_at,
+        agent_link,
         extra,
     })
 }
@@ -207,6 +246,36 @@ impl ThreadStore {
         let list = self.list();
         let data = serde_json::to_vec_pretty(&list).unwrap_or_else(|_| b"[]".to_vec());
         write_file_atomic(&self.file_path, data)
+    }
+
+    /// Children of `parent_id` derived from `agent_link.parent_thread_id`.
+    pub fn children_of(&self, parent_id: &str) -> Vec<Thread> {
+        let mut v: Vec<_> = self
+            .threads
+            .values()
+            .filter(|t| {
+                t.agent_link
+                    .as_ref()
+                    .map(|l| l.parent_thread_id == parent_id)
+                    .unwrap_or(false)
+            })
+            .cloned()
+            .collect();
+        v.sort_by(|a, b| a.created_at.cmp(&b.created_at));
+        v
+    }
+
+    /// True if the thread is a parent or child of an active agent link.
+    pub fn is_linked(&self, id: &str) -> bool {
+        if self
+            .threads
+            .get(id)
+            .and_then(|t| t.agent_link.as_ref())
+            .is_some()
+        {
+            return true;
+        }
+        !self.children_of(id).is_empty()
     }
 
     pub fn path(&self) -> &Path {

@@ -1,7 +1,7 @@
 //! Provider trait — common lifecycle, not capability normalization.
 
 use async_trait::async_trait;
-use serde_json::Value;
+use serde_json::{json, Value};
 use std::future::Future;
 use std::pin::Pin;
 use std::sync::Arc;
@@ -38,6 +38,37 @@ pub struct SendRequest {
     pub on_interaction: Option<InteractionFn>,
     /// Cancel probe — return true to stop generation.
     pub is_cancelled: Arc<dyn Fn() -> bool + Send + Sync>,
+    /// Scoped Atelier Sessions MCP launch (plan 057). Built only by the runtime.
+    pub atelier_mcp: Option<AtelierMcpLaunch>,
+}
+
+/// MCP subprocess config for a single thread (plan 057).
+#[derive(Debug, Clone)]
+pub struct AtelierMcpLaunch {
+    pub command: std::path::PathBuf,
+    pub server_name: String,
+    pub env: std::collections::HashMap<String, String>,
+}
+
+/// ACP représente les variables d'environnement d'un serveur MCP comme une
+/// liste de paires `{name, value}` (et non comme l'objet accepté par Claude).
+/// Centraliser ce wire évite que les adaptateurs Kimi/Grok/OpenCode divergent.
+pub(crate) fn atelier_mcp_servers(launch: Option<&AtelierMcpLaunch>) -> Value {
+    let Some(launch) = launch else {
+        return json!([]);
+    };
+    let mut env = launch
+        .env
+        .iter()
+        .map(|(name, value)| json!({"name": name, "value": value}))
+        .collect::<Vec<_>>();
+    env.sort_by(|left, right| left["name"].as_str().cmp(&right["name"].as_str()));
+    json!([{
+        "name": launch.server_name,
+        "command": launch.command,
+        "args": [],
+        "env": env,
+    }])
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -133,5 +164,38 @@ pub trait Provider: Send + Sync {
     /// `user/thinking/text/tool_update`. `None` = pas de source native.
     async fn native_history(&self, _session_id: &str, _project_root: &str) -> Option<Vec<Value>> {
         None
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::collections::HashMap;
+    use std::path::PathBuf;
+
+    #[test]
+    fn atelier_mcp_uses_the_acp_env_variable_wire() {
+        let launch = AtelierMcpLaunch {
+            command: PathBuf::from("/Applications/Atelier.app/atelier-agent-mcp"),
+            server_name: "atelier-sessions".into(),
+            env: HashMap::from([
+                ("ATELIER_THREAD_ID".into(), "thread-1".into()),
+                ("ATELIER_AGENT_CAPABILITY".into(), "secret".into()),
+            ]),
+        };
+
+        assert_eq!(
+            atelier_mcp_servers(Some(&launch)),
+            json!([{
+                "name": "atelier-sessions",
+                "command": "/Applications/Atelier.app/atelier-agent-mcp",
+                "args": [],
+                "env": [
+                    {"name": "ATELIER_AGENT_CAPABILITY", "value": "secret"},
+                    {"name": "ATELIER_THREAD_ID", "value": "thread-1"},
+                ],
+            }])
+        );
+        assert_eq!(atelier_mcp_servers(None), json!([]));
     }
 }

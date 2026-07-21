@@ -10,7 +10,10 @@ use crate::acp_rpc::{
     AcpInitializeResult, AcpRpcError, AcpServer, ServerRequestHandler, SessionUpdateHandler,
 };
 use crate::grok_parse::{map_prompt_result_for_model, map_session_update};
-use crate::traits::{InteractionFn, Provider, ProviderCaps, SendRequest, SendResult};
+
+use crate::traits::{
+    atelier_mcp_servers, InteractionFn, Provider, ProviderCaps, SendRequest, SendResult,
+};
 use async_trait::async_trait;
 use serde_json::{json, Value};
 use std::collections::{HashMap, HashSet};
@@ -199,9 +202,11 @@ impl GrokProvider {
         &self,
         runtime: &GrokThreadRuntime,
         requested: Option<&str>,
+        mcp_servers: Value,
+        refresh_mcp: bool,
     ) -> Result<String, String> {
         if let Some(sid) = requested.filter(|sid| !sid.is_empty()) {
-            if runtime.state.lock().unwrap().opened_sessions.contains(sid) {
+            if runtime.state.lock().unwrap().opened_sessions.contains(sid) && !refresh_mcp {
                 return Ok(sid.to_string());
             }
 
@@ -223,7 +228,7 @@ impl GrokProvider {
                 .acp
                 .request(
                     "session/load",
-                    json!({"sessionId": sid, "cwd": runtime.cwd, "mcpServers": []}),
+                    json!({"sessionId": sid, "cwd": runtime.cwd, "mcpServers": mcp_servers}),
                     Some(30_000),
                 )
                 .await;
@@ -247,7 +252,7 @@ impl GrokProvider {
             .acp
             .request(
                 "session/new",
-                json!({"cwd": runtime.cwd, "mcpServers": []}),
+                json!({"cwd": runtime.cwd, "mcpServers": mcp_servers}),
                 Some(30_000),
             )
             .await
@@ -419,7 +424,12 @@ impl GrokProvider {
         }
 
         let sid = self
-            .open_session(&runtime, req.session_id.as_deref())
+            .open_session(
+                &runtime,
+                req.session_id.as_deref(),
+                atelier_mcp_servers(req.atelier_mcp.as_ref()),
+                req.atelier_mcp.is_some(),
+            )
             .await?;
         let selection = self
             .align_selection(&runtime, &sid, req.model.as_deref(), req.effort.as_deref())
@@ -675,7 +685,12 @@ impl Provider for GrokProvider {
             .await
             .map_err(|error| grok_user_error(&error))?;
         let sid = self
-            .open_session(&runtime, params.get("sessionId").and_then(Value::as_str))
+            .open_session(
+                &runtime,
+                params.get("sessionId").and_then(Value::as_str),
+                json!([]),
+                false,
+            )
             .await?;
         *runtime.active_session.lock().unwrap() = Some(sid.clone());
         let result = runtime
@@ -1304,6 +1319,7 @@ mod tests {
             on_event: Arc::new(move |event| events.lock().unwrap().push(event)),
             on_interaction: None,
             is_cancelled: Arc::new(move || cancelled.load(Ordering::Relaxed)),
+            atelier_mcp: None,
         }
     }
 

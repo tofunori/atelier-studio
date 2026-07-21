@@ -4,6 +4,7 @@
 // en permanence 48 px : heure et actions partagent ce slot et se cross-fadent
 // au hover ou focus-within — aucun display:none, aucun layout shift.
 import { t } from "../../lib/i18n";
+import type { ConversationFamily } from "../../lib/threadLinks";
 import type { Thread } from "../../lib/ws";
 import { ProviderIcon } from "../icons";
 import { Input } from "../shadcn/input";
@@ -15,16 +16,10 @@ import { IconButton } from "../ui";
 import { LazyDropdownMenu, type LazyDropdownMenuItem } from "../ui/LazyDropdownMenu";
 import { presentStatus } from "../../lib/statusPresentation";
 import { Clock3Icon } from "lucide-react";
+import { ConversationFamilyMarker } from "./ConversationFamilyMarker";
 
 function cx(...parts: Array<string | false | null | undefined>): string {
   return parts.filter(Boolean).join(" ");
-}
-
-function providerLabel(provider: string): string {
-  if (!provider) return "";
-  if (provider === "claude") return "Claude";
-  if (provider === "codex") return "Codex";
-  return provider.charAt(0).toUpperCase() + provider.slice(1);
 }
 
 function shortTime(value?: string): string {
@@ -75,14 +70,19 @@ function MoreGlyph() {
 
 export function ThreadRow(p: {
   thread: Thread;
-  /** continue = ligne « Continuer » (méta provider · statut visible) */
-  kind: "continue" | "pinned" | "conversation";
+  kind: "pinned" | "conversation";
   title: string;
   rawTitle: string;
   active: boolean;
   selected: boolean;
   unread: boolean;
   heartbeat: boolean;
+  linkedConversationCount?: number;
+  family?: ConversationFamily;
+  familyPreviewed?: boolean;
+  onOpenFamilyThread: (thread: Thread) => void;
+  onUnlinkFamilyThread?: (childThreadId: string) => void;
+  onFamilyPreviewChange: (familyId: string, previewed: boolean) => void;
   favorite: boolean;
   editing: boolean;
   editText: string;
@@ -105,6 +105,9 @@ export function ThreadRow(p: {
   const a11ySuffix = [
     p.unread ? t("sidebar.unread") : null,
     p.heartbeat ? t("automations.heartbeat-active") : null,
+    p.linkedConversationCount
+      ? t("linkedConversation.relatedCount", { count: p.linkedConversationCount })
+      : null,
     running ? status.label : null,
   ].filter(Boolean);
 
@@ -112,10 +115,11 @@ export function ThreadRow(p: {
     <SidebarMenuItem
       className={cx(
         "pnav-row",
-        p.kind === "continue" && "pnav-continue",
         p.active && "active",
         p.selected && "multi-sel",
+        p.familyPreviewed && "family-preview",
       )}
+      data-family-id={p.family?.id}
     >
       {p.editing ? (
         <Input
@@ -156,27 +160,31 @@ export function ThreadRow(p: {
                 <Clock3Icon className="pnav-heartbeat" aria-hidden="true" />
               )}
             </span>
-            {p.kind === "continue" && (
-              <span className="pnav-row-meta">
-                {providerLabel(p.thread.provider)}
-                {" · "}
-                <span className={running ? "pnav-meta-running" : undefined}>{status.label}</span>
-              </span>
-            )}
           </span>
         </SidebarMenuButton>
       )}
-      <span className="pnav-row-end">
-        {running ? (
-          <svg className="arc" role="img" aria-label={status.label} width="13" height="13" viewBox="0 0 16 16" fill="none">
-            <circle cx="8" cy="8" r="6" stroke="var(--border2)" strokeWidth="2" />
-            <path d="M14 8a6 6 0 0 0-6-6" stroke="var(--accent)" strokeWidth="2" strokeLinecap="round" />
-          </svg>
-        ) : (
-          <span className="row-time" aria-label={relativeDate(p.thread.updatedAt)}>
-            {shortTime(p.thread.updatedAt)}
-          </span>
-        )}
+      <span className={cx("pnav-row-end", p.family && "has-family")}>
+        {p.family ? (
+          <ConversationFamilyMarker
+            family={p.family}
+            currentThreadId={p.thread.id}
+            onOpenThread={p.onOpenFamilyThread}
+            onUnlinkThread={p.onUnlinkFamilyThread}
+            onPreviewChange={p.onFamilyPreviewChange}
+          />
+        ) : null}
+        <span className="row-status">
+          {running ? (
+            <svg className="arc" role="img" aria-label={status.label} width="13" height="13" viewBox="0 0 16 16" fill="none">
+              <circle cx="8" cy="8" r="6" stroke="var(--border2)" strokeWidth="2" />
+              <path d="M14 8a6 6 0 0 0-6-6" stroke="var(--accent)" strokeWidth="2" strokeLinecap="round" />
+            </svg>
+          ) : (
+            <span className="row-time" aria-label={relativeDate(p.thread.updatedAt)}>
+              {shortTime(p.thread.updatedAt)}
+            </span>
+          )}
+        </span>
         <span className="row-actions">
           <IconButton
             size="s"
