@@ -1,0 +1,102 @@
+:root{--ui-font:-apple-system,'SF Pro Text','Inter Variable',sans-serif;--code-font:ui-monospace,'SF Mono',Menlo,monospace;--bg:#202024;--card:#27272a;--card2:#1f1f23;--txt:#dbdfe5;--muted:#a1a1aa;--accent:#5b9dff;--border:#3f3f46}
+  html,body{margin:0;height:100%;background:var(--bg);color:var(--txt);
+            font-family:var(--ui-font);display:flex;flex-direction:column}
+  header{background:var(--card);border-bottom:1px solid var(--border);padding:8px 14px;
+         display:flex;gap:12px;align-items:center;font-size:13px;flex-shrink:0}
+  #fname{font-weight:600}
+  #state{color:var(--muted)}
+  #state.dirty{color:#ffd54a}
+  #state.saved{color:#7ec97e}
+  #state.conflict{color:#ff6b6b}
+  .dvBtn{background:transparent;color:var(--muted);border:1px solid var(--border);border-radius:6px;
+         padding:3px 8px;font-size:12px;cursor:pointer}
+  .dvBtn:hover{color:var(--txt)}
+  .dvBtn:disabled{cursor:default}
+  #diffTag.on{background:var(--border);color:var(--txt)}
+  /* état visible (le masquage initial est inline ; le module l'efface pour armer) */
+  #diffGrp{display:inline-flex;align-items:center;gap:4px}
+  .CodeMirror,.cm-editor{flex:1;height:auto;font-size:13px;
+              font-family:var(--code-font);line-height:1.5}
+  .cm-editor{background:#1e2126;color:#d8d3c8;min-height:0}
+  .cm-editor .cm-scroller{font-family:var(--code-font);overflow:auto}
+  .cm-editor .cm-gutters{background:transparent;border-right:1px solid #2a2f3a;color:#5b6270}
+  /* breathing room between line numbers and code (esp. 3-digit lines) */
+  .CodeMirror-linenumber{padding:0 14px 0 22px !important;color:#5b6270}
+  .CodeMirror-gutters{background:transparent;border-right:1px solid #2a2f3a}
+  .CodeMirror-lines{padding-left:4px}
+  /* selection hugs the text (mark-selection) instead of filling the whole line */
+  .CodeMirror .CodeMirror-selected{background:transparent !important}
+  .CodeMirror-focused .CodeMirror-selected{background:transparent !important}
+  .CodeMirror-selectedtext{background:rgba(91,157,255,.45) !important;box-shadow:none !important;border-radius:2px}
+  /* last selection sent to Claude: persistent marker */
+  .cm-clsel{background:rgba(91,157,255,.28);border-radius:2px}
+  #picker{position:fixed;inset:0;background:rgba(0,0,0,.55);display:none;z-index:200;
+          align-items:flex-start;justify-content:center;padding-top:8vh}
+  #picker.show{display:flex}
+  #pickerBox{background:var(--card);border:1px solid var(--border);border-radius:10px;width:520px;
+             max-height:70vh;display:flex;flex-direction:column;overflow:hidden;
+             box-shadow:0 8px 40px rgba(0,0,0,.6)}
+  #pickerPath{padding:10px 14px;font-size:12px;color:var(--muted);border-bottom:1px solid var(--border);
+              white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  #pickerList{overflow-y:auto;flex:1}
+  #pickerList div{padding:7px 14px;font-size:13px;cursor:pointer;display:flex;gap:8px}
+  #pickerList div:hover{background:var(--border)}
+  #pickerList .d{color:var(--accent)}
+
+  /* ===== thème code « atelier » (surcharge material-darker) ===== */
+  .cm-s-material-darker.CodeMirror{background:#1e2126;color:#d8d3c8}
+  .cm-s-material-darker .cm-keyword{color:#e8823a}
+  .cm-s-material-darker .cm-def{color:#d8d3c8}
+  .cm-s-material-darker .cm-variable{color:#d8d3c8}
+  .cm-s-material-darker .cm-variable-2{color:#c9c3b6}
+  .cm-s-material-darker .cm-property{color:#c9c3b6}
+  .cm-s-material-darker .cm-string{color:#5fb0a5}
+  .cm-s-material-darker .cm-string-2{color:#5fb0a5}
+  .cm-s-material-darker .cm-number{color:#5fb0a5}
+  .cm-s-material-darker .cm-atom{color:#5fb0a5}
+  .cm-s-material-darker .cm-builtin{color:#7fbcb2}
+  .cm-s-material-darker .cm-operator{color:#9a958a}
+  .cm-s-material-darker .cm-comment{color:#868d9a;font-style:italic}
+  .cm-s-material-darker .cm-meta{color:#9a958a}
+  .cm-s-material-darker .cm-qualifier{color:#7fbcb2}
+
+  /* CSV data view: dense scientific table, same source buffer underneath. */
+  #csvTools{display:none;align-items:center;gap:8px;margin-left:2px}
+  #csvTools.show{display:flex}
+  .csvMode{display:inline-flex;padding:2px;background:var(--card2);border:1px solid var(--border);border-radius:7px}
+  .csvMode button{border:0;background:transparent;color:var(--muted);font:600 11px/1 var(--ui-font);
+                  padding:5px 9px;border-radius:5px;cursor:pointer}
+  .csvMode button[aria-pressed="true"]{background:var(--border);color:var(--txt)}
+  #csvSearch{width:min(230px,24vw);border:1px solid var(--border);border-radius:6px;background:var(--card2);
+             color:var(--txt);font:12px/1.2 var(--ui-font);padding:5px 9px;outline:none}
+  #csvSearch:focus{border-color:var(--accent);box-shadow:0 0 0 2px color-mix(in srgb,var(--accent) 22%,transparent)}
+  #csvMeta{font:11px/1.2 var(--ui-font);color:var(--muted);white-space:nowrap}
+  #csvView{display:none;flex:1;min-height:0;overflow:auto;background:var(--card2);position:relative}
+  #csvView.show{display:block}
+  #csvEmpty{display:none;padding:32px;color:var(--muted);font-size:13px}
+  #csvTable{border-collapse:separate;border-spacing:0;width:max-content;min-width:100%;font:12px/1.4 var(--code-font);
+            font-variant-numeric:tabular-nums;color:var(--txt)}
+  #csvTable th,#csvTable td{height:30px;box-sizing:border-box;border-right:1px solid color-mix(in srgb,var(--border) 62%,transparent);
+                           border-bottom:1px solid color-mix(in srgb,var(--border) 50%,transparent);padding:5px 10px;
+                           max-width:420px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  #csvTable thead th{position:sticky;top:0;z-index:3;background:color-mix(in srgb,var(--card) 96%,var(--accent) 4%);
+                     color:var(--txt);font-family:var(--ui-font);font-size:11px;font-weight:650;text-align:left;
+                     letter-spacing:.01em;cursor:pointer;box-shadow:0 1px 0 var(--border)}
+  #csvTable thead th:hover{background:color-mix(in srgb,var(--card) 88%,var(--accent) 12%)}
+  #csvTable .csvIndex{position:sticky;left:0;z-index:2;width:48px;min-width:48px;max-width:48px;text-align:right;
+                      color:var(--muted);background:var(--card2);font-size:10px;font-weight:500;user-select:none}
+  #csvTable thead .csvIndex{z-index:4;background:var(--card)}
+  #csvTable tbody tr:nth-child(even) td:not(.csvIndex){background:color-mix(in srgb,var(--card2) 96%,var(--txt) 4%)}
+  #csvTable tbody tr:hover td{background:color-mix(in srgb,var(--card2) 87%,var(--accent) 13%) !important}
+  #csvTable td.csv-number{text-align:right;color:color-mix(in srgb,var(--txt) 82%,var(--accent) 18%)}
+  #csvTable td.csv-path{color:var(--muted)}
+  #csvTable td.csv-empty{color:color-mix(in srgb,var(--muted) 48%,transparent)}
+  .csvBool{display:inline-flex;align-items:center;border-radius:4px;padding:1px 5px;font:650 10px/1.4 var(--ui-font);
+           background:color-mix(in srgb,var(--muted) 14%,transparent);color:var(--muted)}
+  .csvBool.true{background:color-mix(in srgb,#56b58c 18%,transparent);color:#78cfaa}
+  .csvSwatch{display:inline-block;width:10px;height:10px;border-radius:3px;margin-right:7px;vertical-align:-1px;
+             border:1px solid color-mix(in srgb,var(--txt) 26%,transparent);box-shadow:inset 0 0 0 1px rgba(0,0,0,.12)}
+  .csvSort{margin-left:6px;color:var(--accent);font-size:9px}
+  #csvMore{display:none;margin:12px auto 20px;border:1px solid var(--border);border-radius:6px;background:var(--card);
+           color:var(--txt);padding:6px 12px;font:12px var(--ui-font);cursor:pointer}
+  #csvMore:hover{border-color:var(--accent)}

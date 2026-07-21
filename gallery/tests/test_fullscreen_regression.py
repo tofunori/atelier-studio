@@ -202,10 +202,11 @@ class FullscreenRegressionTests(unittest.TestCase):
         self.assertIn("let recents = JSON.parse(localStorage.getItem('figRecent')", gallery)
         # Sans filtre de type explicite, la recherche doit couvrir aussi les
         # formats masqués par défaut; dès qu'un type est choisi, les deux
-        # contraintes se combinent. Les favoris restent toujours retrouvables.
+        # contraintes se combinent. Les favoris restent retrouvables avec le
+        # masque implicite, mais respectent un choix de type explicite.
         self.assertIn("let formatFilterExplicit", gallery)
         self.assertIn("(!terms.length || formatFilterExplicit) && !exts[f.ext]", gallery)
-        self.assertIn("!(onlyFavs && favs.has(f.rel))", gallery)
+        self.assertIn("onlyFavs && favs.has(f.rel) && !formatFilterExplicit", gallery)
         self.assertIn("function buildRecentChip()", gallery)
         self.assertIn("function checkHealth()", gallery)
         self.assertIn("function healthRows(data)", gallery)

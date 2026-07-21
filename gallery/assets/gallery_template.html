@@ -2049,11 +2049,13 @@ function render(){
     if(chatFocusRels.size) return chatFocusRels.has(f.rel);
     // Un favori durable ne doit pas sembler perdu après une relance quand les
     // formats reviennent à leur vue par défaut. Le filtre Favoris prime donc
-    // sur le masque de format, sans modifier les formats de la vue générale.
+    // sur ce masque implicite, mais un choix de type explicite doit se combiner
+    // avec Favoris comme avec les autres filtres.
     // Sans filtre de type choisi explicitement, une recherche textuelle porte
     // sur tous les fichiers indexés. Dès que l'utilisateur choisit un format,
     // recherche et types se combinent au lieu que l'un annule l'autre.
-    if((!terms.length || formatFilterExplicit) && !exts[f.ext] && !(onlyFavs && favs.has(f.rel))) return false;
+    if((!terms.length || formatFilterExplicit) && !exts[f.ext]
+      && !(onlyFavs && favs.has(f.rel) && !formatFilterExplicit)) return false;
     if(!showArch && f.archive) return false;
     if(!showHidden && (hidden.has(f.rel) || matchesRule(f.rel))) return false;
     if(activeCollection && !(collections[activeCollection]||[]).includes(f.rel)) return false;

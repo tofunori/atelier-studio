@@ -493,6 +493,28 @@ test('file types: quick types and custom presets persist only for the project', 
   });
 });
 
+test('file types: an explicit type selection filters favorites too', async ({ page }) => {
+  await withGallery(async ({ url }) => {
+    await page.goto(url);
+
+    for (const rel of ['preview-alpha.png', 'plot-alpha.svg']) {
+      await page.locator(`.card[data-card="${rel}"]`).hover();
+      await page.locator(`[data-act="fav"][data-rel="${rel}"]`).click();
+    }
+
+    await page.locator('[data-gallery-command="favorites"]').click();
+    await expect(page.locator('#grid .card')).toHaveCount(2);
+
+    await page.locator('[data-gallery-command="filters"]').click();
+    const typePanel = page.locator('[data-gallery-file-type-panel]');
+    await typePanel.locator('[data-gallery-quick-type="svg"]').click();
+
+    await expect(page.locator('#grid .card')).toHaveCount(1);
+    await expect(page.locator('#grid')).toContainText('preview-alpha.png');
+    await expect(page.locator('#grid')).not.toContainText('plot-alpha.svg');
+  });
+});
+
 test('file types: compact popover stays inside narrow gallery viewports', async ({ page }) => {
   await withGallery(async ({ url }) => {
     for (const viewport of [{ width: 375, height: 667 }, { width: 520, height: 795 }]) {
