@@ -3,7 +3,7 @@
   "bundle": {
     "targets": ["app", "dmg"],
     "macOS": {
-      "signingIdentity": null
+      "signingIdentity": "-"
     }
   }
 }

@@ -84,9 +84,11 @@ jobs:
             `xattr -cr "/Applications/Atelier.app"`
           releaseDraft: true
           prerelease: false
-      - name: Verify embedded Node artifact
+      - name: Verify packaged app artifact
         run: |
-          NODE="src-tauri/target/release/bundle/macos/Atelier.app/Contents/Resources/node-runtime/bin/node"
+          APP="src-tauri/target/release/bundle/macos/Atelier.app"
+          codesign --verify --deep --strict --verbose=2 "$APP"
+          NODE="$APP/Contents/Resources/node-runtime/bin/node"
           test -x "$NODE"
           test "$("$NODE" --version)" = "v22.22.3"
           file "$NODE" | grep -q "arm64"
