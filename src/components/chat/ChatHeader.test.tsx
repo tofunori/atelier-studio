@@ -87,4 +87,31 @@ describe("ChatHeader", () => {
     render(<ChatHeader {...base} title={long} />);
     expect(screen.getByTitle(long)).toHaveTextContent(long);
   });
+
+  it("affiche les agents associés dans un popover compact", async () => {
+    const onOpen = vi.fn();
+    const onUnlink = vi.fn();
+    render(
+      <ChatHeader
+        {...base}
+        linkedAgents={[
+          { id: "kimi-1", provider: "Kimi", title: "Analyse initiale", paused: false, direction: "parent" },
+          { id: "codex-1", provider: "Codex", title: "Deuxième avis", paused: false, direction: "child" },
+        ]}
+        onOpenLinkedAgent={onOpen}
+        onUnlinkLinkedAgent={onUnlink}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: t("linkedConversation.title") }));
+    expect(await screen.findByText(t("linkedConversation.title"))).toBeInTheDocument();
+    expect(screen.getByRole("region", { name: t("linkedConversation.createdFrom") }))
+      .toHaveTextContent("Kimi · Analyse initiale");
+    expect(screen.getByRole("region", { name: t("linkedConversation.continuesTo") }))
+      .toHaveTextContent("Codex · Deuxième avis");
+    fireEvent.click(screen.getByRole("button", { name: /Codex · Deuxième avis/ }));
+    expect(onOpen).toHaveBeenCalledWith("codex-1");
+    fireEvent.click(screen.getByRole("button", { name: t("linkedConversation.unlinkNamed", { provider: "Codex" }) }));
+    expect(onUnlink).toHaveBeenCalledWith("codex-1");
+  });
 });

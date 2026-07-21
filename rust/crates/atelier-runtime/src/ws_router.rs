@@ -101,6 +101,8 @@ pub const ALL_MESSAGE_TYPES: &[&str] = &[
     "importSession",
     "forkThread",
     "createLinkedThread",
+    "mentionAgent",
+    "setLinkedThreadPaused",
     "unlinkThread",
     "revert",
     "clientLog",
@@ -405,14 +407,12 @@ pub async fn route_ws(state: &AppState, text: &str) -> Vec<String> {
                 .and_then(|v| v.as_str())
                 .unwrap_or("");
             let catalog = list_file_catalog(root);
-            vec![json_msg(
-                json!({
-                    "type":"files",
-                    "projectRoot": root,
-                    "files": catalog.files,
-                    "recentFiles": catalog.recent_files,
-                }),
-            )]
+            vec![json_msg(json!({
+                "type":"files",
+                "projectRoot": root,
+                "files": catalog.files,
+                "recentFiles": catalog.recent_files,
+            }))]
         }
         "narvalStatus" => {
             let profile = msg
@@ -1081,6 +1081,10 @@ pub async fn route_ws(state: &AppState, text: &str) -> Vec<String> {
             }
         }
         "forkThread" => handle_fork_thread(state, &msg).await,
+        "createLinkedThread" => crate::agent_links::handle_create_linked_thread(state, &msg).await,
+        "mentionAgent" => crate::agent_links::handle_mention_agent(state, &msg).await,
+        "setLinkedThreadPaused" => crate::agent_links::handle_set_link_paused(state, &msg).await,
+        "unlinkThread" => crate::agent_links::handle_unlink_thread(state, &msg).await,
         "revert" => handle_revert(state, &msg).await,
         "clientLog" => {
             let note = msg
@@ -1491,15 +1495,22 @@ fn kb_cli_run(
     if !stdin_text.is_empty() {
         use std::io::Write;
         let mut stdin = child.stdin.take().ok_or("stdin atelier-kb indisponible")?;
-        stdin.write_all(stdin_text.as_bytes()).map_err(|e| e.to_string())?;
+        stdin
+            .write_all(stdin_text.as_bytes())
+            .map_err(|e| e.to_string())?;
         drop(stdin);
     }
     let out = child.wait_with_output().map_err(|e| e.to_string())?;
     if !out.status.success() {
         let message = String::from_utf8_lossy(&out.stderr).trim().to_string();
-        return Err(if message.is_empty() { "atelier-kb: échec".into() } else { message });
+        return Err(if message.is_empty() {
+            "atelier-kb: échec".into()
+        } else {
+            message
+        });
     }
-    serde_json::from_slice::<Value>(&out.stdout).map_err(|e| format!("sortie atelier-kb invalide: {e}"))
+    serde_json::from_slice::<Value>(&out.stdout)
+        .map_err(|e| format!("sortie atelier-kb invalide: {e}"))
 }
 
 fn kb_error(message: String) -> Vec<String> {
@@ -1575,7 +1586,11 @@ async fn handle_kb_promote(state: &AppState, msg: &Value) -> Vec<String> {
             let stderr = String::from_utf8_lossy(&out.stderr).trim().to_string();
             let stdout = String::from_utf8_lossy(&out.stdout).trim().to_string();
             let message = if !stderr.is_empty() { stderr } else { stdout };
-            kb_error(if message.is_empty() { "gbrain capture: échec".into() } else { message })
+            kb_error(if message.is_empty() {
+                "gbrain capture: échec".into()
+            } else {
+                message
+            })
         }
         Ok(Ok(_)) => vec![json_msg(json!({"type": "kbPromoted", "id": id}))],
     }
@@ -1732,43 +1747,76 @@ fn ids_arg(msg: &Value) -> Option<String> {
         .iter()
         .filter_map(|v| v.as_str().map(str::to_string))
         .collect();
-    if ids.is_empty() { None } else { Some(ids.join(",")) }
+    if ids.is_empty() {
+        None
+    } else {
+        Some(ids.join(","))
+    }
 }
 
 fn handle_kb_organize(state: &AppState, msg_type: &str, msg: &Value) -> Vec<String> {
-    let arg = |k: &str| msg.get(k).and_then(|v| v.as_str()).unwrap_or("").to_string();
+    let arg = |k: &str| {
+        msg.get(k)
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string()
+    };
     let off = msg.get("off").and_then(Value::as_bool).unwrap_or(false);
     let mut args: Vec<String> = Vec::new();
     match msg_type {
         "kbCollection" => {
             args.push("collection".into());
             match arg("op").as_str() {
-                "add" => { args.push("--add".into()); args.push(arg("title")); }
-                "rename" => {
-                    args.push("--rename".into()); args.push(arg("slug"));
-                    args.push("--title".into()); args.push(arg("title"));
+                "add" => {
+                    args.push("--add".into());
+                    args.push(arg("title"));
                 }
-                "remove" => { args.push("--remove".into()); args.push(arg("slug")); }
+                "rename" => {
+                    args.push("--rename".into());
+                    args.push(arg("slug"));
+                    args.push("--title".into());
+                    args.push(arg("title"));
+                }
+                "remove" => {
+                    args.push("--remove".into());
+                    args.push(arg("slug"));
+                }
                 other => return kb_error(format!("kbCollection: op inconnue {other}")),
             }
         }
         "kbTag" => {
             args.push("tag".into());
             match ids_arg(msg) {
-                Some(ids) => { args.push("--ids".into()); args.push(ids); }
-                None => { args.push("--id".into()); args.push(arg("id")); }
+                Some(ids) => {
+                    args.push("--ids".into());
+                    args.push(ids);
+                }
+                None => {
+                    args.push("--id".into());
+                    args.push(arg("id"));
+                }
             }
             args.push("--collection".into());
             args.push(arg("collection"));
-            if off { args.push("--off".into()); }
+            if off {
+                args.push("--off".into());
+            }
         }
         _ => {
             args.push("archive".into());
             match ids_arg(msg) {
-                Some(ids) => { args.push("--ids".into()); args.push(ids); }
-                None => { args.push("--id".into()); args.push(arg("id")); }
+                Some(ids) => {
+                    args.push("--ids".into());
+                    args.push(ids);
+                }
+                None => {
+                    args.push("--id".into());
+                    args.push(arg("id"));
+                }
             }
-            if off { args.push("--off".into()); }
+            if off {
+                args.push("--off".into());
+            }
         }
     }
     let refs: Vec<&str> = args.iter().map(String::as_str).collect();
@@ -1783,7 +1831,12 @@ async fn handle_kb_remove(state: &AppState, msg: &Value) -> Vec<String> {
     if id.is_empty() {
         return kb_error("kbRemove: id requis".into());
     }
-    if let Err(message) = kb_cli_run(state.server_dir(), state.app_dir(), &["remove", "--id", id], "") {
+    if let Err(message) = kb_cli_run(
+        state.server_dir(),
+        state.app_dir(),
+        &["remove", "--id", id],
+        "",
+    ) {
         return kb_error(message);
     }
     let mut out = handle_kb_list(state);
@@ -1792,7 +1845,11 @@ async fn handle_kb_remove(state: &AppState, msg: &Value) -> Vec<String> {
     let strip = |value: Option<&Value>| -> (Vec<String>, bool) {
         let items: Vec<String> = value
             .and_then(|v| v.as_array())
-            .map(|arr| arr.iter().filter_map(|x| x.as_str().map(str::to_string)).collect())
+            .map(|arr| {
+                arr.iter()
+                    .filter_map(|x| x.as_str().map(str::to_string))
+                    .collect()
+            })
             .unwrap_or_default();
         let had = items.iter().any(|x| x == id);
         (items.into_iter().filter(|x| x != id).collect(), had)
@@ -2505,7 +2562,7 @@ async fn handle_quick_ask(state: &AppState, msg: &Value) -> Vec<String> {
             on_event,
             on_interaction: None,
             is_cancelled: std::sync::Arc::new(|| false),
-        atelier_mcp: None,
+            atelier_mcp: None,
         };
         let result = p.send(req).await;
         if let Some(sid) = result.session_id {
@@ -2970,10 +3027,17 @@ mod tests {
         assert_eq!(v["type"], "kbError");
         assert!(v["message"].as_str().unwrap().contains("kind requis"));
         // server_dir=/tmp sans kb_cli.mjs → kbError explicite
-        let out = route_ws(&s, r#"{"type":"kbAdd","kind":"web","origin":"https://x.org","text":"t"}"#).await;
+        let out = route_ws(
+            &s,
+            r#"{"type":"kbAdd","kind":"web","origin":"https://x.org","text":"t"}"#,
+        )
+        .await;
         let v: Value = serde_json::from_str(&out[0]).unwrap();
         assert_eq!(v["type"], "kbError");
-        assert!(v["message"].as_str().unwrap().contains("kb_cli.mjs introuvable"));
+        assert!(v["message"]
+            .as_str()
+            .unwrap()
+            .contains("kb_cli.mjs introuvable"));
     }
 
     #[tokio::test]
@@ -2989,7 +3053,10 @@ mod tests {
         let out = route_ws(&s, r#"{"type":"gbrainSearch","query":"albédo"}"#).await;
         let v: Value = serde_json::from_str(&out[0]).unwrap();
         assert_eq!(v["type"], "gbrainResults");
-        assert!(v["error"].as_str().unwrap().contains("kb_cli.mjs introuvable"));
+        assert!(v["error"]
+            .as_str()
+            .unwrap()
+            .contains("kb_cli.mjs introuvable"));
     }
 
     #[tokio::test]
@@ -3004,7 +3071,10 @@ mod tests {
         let out = route_ws(&s, r#"{"type":"kbPromotePage","id":"x","write":true}"#).await;
         let v: Value = serde_json::from_str(&out[0]).unwrap();
         assert_eq!(v["type"], "kbError");
-        assert!(v["message"].as_str().unwrap().contains("kb_cli.mjs introuvable"));
+        assert!(v["message"]
+            .as_str()
+            .unwrap()
+            .contains("kb_cli.mjs introuvable"));
     }
 
     #[tokio::test]
@@ -3074,8 +3144,12 @@ mod tests {
         assert_eq!(v["sources"].as_array().unwrap().len(), 0);
         let threads: Value = serde_json::from_str(&out[1]).unwrap();
         assert_eq!(threads["type"], "threads", "réponse: {threads}");
-        let thread = threads["threads"].as_array().unwrap().iter()
-            .find(|t| t["id"] == "t-purge").expect("thread présent");
+        let thread = threads["threads"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|t| t["id"] == "t-purge")
+            .expect("thread présent");
         assert_eq!(thread["kbSourceIds"], json!(["autre"]));
         assert_eq!(thread["kbFullContent"], json!([]));
     }
@@ -3091,16 +3165,24 @@ mod tests {
         let out = route_ws(&s, &msg.to_string()).await;
         let v: Value = serde_json::from_str(&out[0]).unwrap();
         assert_eq!(v["type"], "threads", "réponse: {v}");
-        let thread = v["threads"].as_array().unwrap().iter()
-            .find(|t| t["id"] == "t-kb").expect("thread présent");
+        let thread = v["threads"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|t| t["id"] == "t-kb")
+            .expect("thread présent");
         assert_eq!(thread["kbSourceIds"], json!(["9c81", "gbrain"]));
         assert_eq!(thread["kbFullContent"], json!(["9c81"]));
         // patch partiel ultérieur : les champs kb survivent au merge
         let rename = json!({"type": "upsertThread", "thread": {"id": "t-kb", "title": "Renommé"}});
         let out = route_ws(&s, &rename.to_string()).await;
         let v: Value = serde_json::from_str(&out[0]).unwrap();
-        let thread = v["threads"].as_array().unwrap().iter()
-            .find(|t| t["id"] == "t-kb").expect("thread présent");
+        let thread = v["threads"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|t| t["id"] == "t-kb")
+            .expect("thread présent");
         assert_eq!(thread["title"], "Renommé");
         assert_eq!(thread["kbSourceIds"], json!(["9c81", "gbrain"]));
     }

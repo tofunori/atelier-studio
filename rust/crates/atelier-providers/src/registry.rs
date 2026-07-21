@@ -115,7 +115,7 @@ pub fn builtin_catalog(app_dir: Option<&Path>) -> Vec<ProviderStatus> {
                     interactive_input: false,
                     mcp_elicitation: false,
                     mcp_tools: false,
-                atelier_sessions_mcp: false,
+                    atelier_sessions_mcp: false,
                     mcp_widgets: false,
                     plugins: false,
                     skills: false,

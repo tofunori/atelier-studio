@@ -39,4 +39,25 @@ describe("DropdownMenuSurface", () => {
     expect(onSelect).toHaveBeenCalledTimes(1)
     await waitFor(() => expect(screen.queryByRole("menu")).toBeNull())
   })
+
+  it("expose un sous-menu Base UI pour les actions secondaires", async () => {
+    const onCodex = vi.fn()
+    render(
+      <DropdownMenuSurface
+        open
+        onOpenChange={() => {}}
+        label="Actions"
+        trigger={<button type="button">Actions</button>}
+        items={[{
+          key: "continue",
+          label: "Continue with…",
+          children: [{ key: "codex", label: "Codex", onSelect: onCodex }],
+        }]}
+      />,
+    )
+
+    fireEvent.click(await screen.findByRole("menuitem", { name: "Continue with…" }))
+    fireEvent.click(await screen.findByRole("menuitem", { name: "Codex" }))
+    expect(onCodex).toHaveBeenCalledTimes(1)
+  })
 })

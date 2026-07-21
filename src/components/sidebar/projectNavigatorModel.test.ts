@@ -63,7 +63,6 @@ describe("règles 1-2 — isolation du contexte", () => {
 
   it("zéro thread : modèle vide sans crash", () => {
     const m = deriveProjectNavigatorModel(baseInput());
-    expect(m.continueThread).toBeNull();
     expect(m.pinnedThreads).toEqual([]);
     expect(m.conversationSections).toEqual([]);
     expect(m.hiddenCount).toBe(0);
@@ -79,43 +78,12 @@ describe("règles 1-2 — isolation du contexte", () => {
   });
 });
 
-describe("règle 3 — priorité du thread Continuer", () => {
-  it("activeId du contexte prime", () => {
-    const m = deriveProjectNavigatorModel(
-      baseInput({ threads: mixedThreads(), activeId: "a2" }),
-    );
-    expect(m.continueThread?.id).toBe("a2");
-  });
-
-  it("activeId hors contexte ignoré (cross-project)", () => {
-    const m = deriveProjectNavigatorModel(
-      baseInput({ threads: mixedThreads(), activeId: "b1" }),
-    );
-    expect(m.continueThread?.id).toBe("a1"); // fallback : plus récent
-  });
-
-  it("sinon : thread running le plus récent", () => {
-    const threads = [
-      makeThread({ id: "a1", title: "Idle récent", updatedAt: iso(-1 * HOUR) }),
-      makeThread({ id: "a2", title: "Running vieux", status: "running", updatedAt: iso(-2 * DAY) }),
-    ];
-    const m = deriveProjectNavigatorModel(baseInput({ threads }));
-    expect(m.continueThread?.id).toBe("a2");
-  });
-
-  it("sinon : thread le plus récent", () => {
-    const m = deriveProjectNavigatorModel(baseInput({ threads: mixedThreads() }));
-    expect(m.continueThread?.id).toBe("a1");
-  });
-});
-
 describe("règles 4-5 — Épinglés et déduplication", () => {
-  it("chaque thread apparaît une seule fois : Continuer, puis Épinglés, puis Conversations", () => {
+  it("chaque thread apparaît une seule fois : Épinglés, puis Conversations", () => {
     const m = deriveProjectNavigatorModel(
       baseInput({ threads: mixedThreads(), activeId: "a1", favorites: ["a1", "a2"] }),
     );
-    expect(m.continueThread?.id).toBe("a1");
-    expect(m.pinnedThreads.map((t) => t.id)).toEqual(["a2"]); // a1 déjà en Continuer
+    expect(m.pinnedThreads.map((t) => t.id)).toEqual(["a1", "a2"]);
     const convIds = m.conversationSections.flatMap((s) => s.threads.map((t) => t.id));
     expect(convIds).toEqual(["a3"]);
     expect(new Set(m.visibleThreadIds).size).toBe(m.visibleThreadIds.length);
@@ -130,12 +98,29 @@ describe("règles 4-5 — Épinglés et déduplication", () => {
 });
 
 describe("règles 6-7 — ordre récent (buckets) et ordre manuel", () => {
+  it("une nouvelle activité fait remonter la conversation en tête", () => {
+    const before = deriveProjectNavigatorModel(baseInput({
+      threads: [
+        makeThread({ id: "older", title: "Ancienne", updatedAt: iso(-2 * HOUR) }),
+        makeThread({ id: "newer", title: "Récente", updatedAt: iso(-1 * HOUR) }),
+      ],
+    }));
+    expect(before.visibleThreadIds).toEqual(["newer", "older"]);
+
+    const after = deriveProjectNavigatorModel(baseInput({
+      threads: [
+        makeThread({ id: "older", title: "Ancienne", updatedAt: iso(0) }),
+        makeThread({ id: "newer", title: "Récente", updatedAt: iso(-1 * HOUR) }),
+      ],
+    }));
+    expect(after.visibleThreadIds).toEqual(["older", "newer"]);
+  });
+
   it("recent : buckets Aujourd'hui/Hier/7 jours dans l'ordre", () => {
     const m = deriveProjectNavigatorModel(
       baseInput({ threads: mixedThreads(), activeId: "a1" }),
     );
-    // a1 en Continuer ; conversations = a2 (hier), a3 (7 jours)
-    expect(m.conversationSections.map((s) => s.bucket)).toEqual(["yesterday", "last7"]);
+    expect(m.conversationSections.map((s) => s.bucket)).toEqual(["today", "yesterday", "last7"]);
   });
 
   it("manual : une seule section sans label temporel, ordre createdAt", () => {
@@ -152,17 +137,16 @@ describe("règles 6-7 — ordre récent (buckets) et ordre manuel", () => {
     );
     expect(m.conversationSections).toHaveLength(1);
     expect(m.conversationSections[0].bucket).toBeNull();
-    expect(m.conversationSections[0].threads.map((t) => t.id)).toEqual(["a2", "a3"]);
+    expect(m.conversationSections[0].threads.map((t) => t.id)).toEqual(["a2", "a3", "a1"]);
   });
 });
 
 describe("règles 8-9 — recherche", () => {
-  it("query non vide : une section Résultats unique, Continuer/Épinglés ignorés", () => {
+  it("query non vide : une section Résultats unique, Épinglés ignorés", () => {
     const m = deriveProjectNavigatorModel(
       baseInput({ threads: mixedThreads(), favorites: ["a2"], query: "figure" }),
     );
     expect(m.searching).toBe(true);
-    expect(m.continueThread).toBeNull();
     expect(m.pinnedThreads).toEqual([]);
     expect(m.conversationSections).toHaveLength(1);
     expect(m.conversationSections[0].key).toBe("results");
@@ -195,11 +179,11 @@ describe("règles 8-9 — recherche", () => {
 });
 
 describe("règles 10-12 — ordre visible, dates invalides, limite", () => {
-  it("visibleThreadIds suit l'ordre DOM : Continuer, Épinglés, Conversations", () => {
+  it("visibleThreadIds suit l'ordre DOM : Épinglés, puis Conversations récentes", () => {
     const m = deriveProjectNavigatorModel(
       baseInput({ threads: mixedThreads(), activeId: "a2", favorites: ["a3"] }),
     );
-    expect(m.visibleThreadIds).toEqual(["a2", "a3", "a1"]);
+    expect(m.visibleThreadIds).toEqual(["a3", "a1", "a2"]);
   });
 
   it("date invalide : bucket older, sans crash", () => {
@@ -217,9 +201,8 @@ describe("règles 10-12 — ordre visible, dates invalides, limite", () => {
       makeThread({ id: `t${i}`, title: `Conv ${i}`, updatedAt: iso(-i * HOUR) }),
     );
     const collapsed = deriveProjectNavigatorModel(baseInput({ threads: many, activeId: "t0" }));
-    // t0 en Continuer ; 8 restants, 5 visibles, 3 masqués
-    expect(collapsed.hiddenCount).toBe(8 - CONVERSATIONS_VISIBLE);
-    expect(collapsed.visibleThreadIds).toHaveLength(1 + CONVERSATIONS_VISIBLE);
+    expect(collapsed.hiddenCount).toBe(9 - CONVERSATIONS_VISIBLE);
+    expect(collapsed.visibleThreadIds).toHaveLength(CONVERSATIONS_VISIBLE);
 
     const expanded = deriveProjectNavigatorModel(
       baseInput({ threads: many, activeId: "t0", expanded: true }),

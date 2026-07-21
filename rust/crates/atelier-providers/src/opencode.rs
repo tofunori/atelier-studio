@@ -5,7 +5,7 @@ use crate::acp_map::{map_prompt_result, map_session_update, TurnCtx, TurnEmitter
 use crate::acp_rpc::{AcpServer, ServerRequestHandler, SessionUpdateHandler};
 use crate::opencode_parse::parse_opencode_jsonl;
 
-use crate::traits::{Provider, ProviderCaps, SendRequest, SendResult};
+use crate::traits::{atelier_mcp_servers, Provider, ProviderCaps, SendRequest, SendResult};
 use async_trait::async_trait;
 use serde_json::{json, Value};
 use std::collections::{HashMap, HashSet};
@@ -17,23 +17,6 @@ use std::time::{Duration, Instant};
 use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::process::{Child, Command};
 use tokio::sync::Mutex;
-
-fn atelier_mcp_servers(req: &crate::traits::SendRequest) -> serde_json::Value {
-    let Some(launch) = req.atelier_mcp.as_ref() else {
-        return serde_json::json!([]);
-    };
-    let mut env = serde_json::Map::new();
-    for (k, v) in &launch.env {
-        env.insert(k.clone(), serde_json::json!(v));
-    }
-    serde_json::json!([{
-        "name": launch.server_name,
-        "command": launch.command,
-        "args": [],
-        "env": env,
-    }])
-}
-
 
 /// État par-session du process ACP courant — invalidé quand la génération du
 /// process change (respawn) : les sessions "chargées" ne le sont plus.
@@ -280,14 +263,14 @@ impl OpenCodeProvider {
                 .await
                 .loaded_sessions
                 .contains(sid.as_str());
-            if already {
+            if already && req.atelier_mcp.is_none() {
                 return Ok(sid.clone());
             }
             match self
                 .acp
                 .request(
                     "session/load",
-                    json!({"sessionId": sid, "cwd": cwd, "mcpServers": atelier_mcp_servers(&req)}),
+                    json!({"sessionId": sid, "cwd": cwd, "mcpServers": atelier_mcp_servers(req.atelier_mcp.as_ref())}),
                     Some(30_000),
                 )
                 .await
@@ -316,7 +299,7 @@ impl OpenCodeProvider {
             .acp
             .request(
                 "session/new",
-                json!({"cwd": cwd, "mcpServers": atelier_mcp_servers(&req)}),
+                json!({"cwd": cwd, "mcpServers": atelier_mcp_servers(req.atelier_mcp.as_ref())}),
                 Some(30_000),
             )
             .await?;
@@ -772,7 +755,7 @@ mod tests {
             on_event: Arc::new(move |ev| sink.lock().unwrap().push(ev)),
             on_interaction: None,
             is_cancelled: Arc::new(|| false),
-        atelier_mcp: None,
+            atelier_mcp: None,
         };
         let res = p.send(req).await;
         assert!(res.ok, "tour en échec: {:?}", res.error);

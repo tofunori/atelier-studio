@@ -32,6 +32,11 @@ pub struct InteractionWaiter {
     pub tx: oneshot::Sender<Value>,
 }
 
+pub struct AgentDelivery {
+    pub payload: Value,
+    pub accepted: oneshot::Sender<Result<(), String>>,
+}
+
 struct Inner {
     paths: AppPaths,
     token: Option<String>,
@@ -62,9 +67,11 @@ struct Inner {
     capabilities: Mutex<CapabilityRegistry>,
     /// Durable inter-agent mailbox (plan 057).
     mailbox: Mutex<AgentMailboxStore>,
-    /// Pending agent-link deliveries (payload JSON for handle_send).
-    delivery_tx: tokio::sync::mpsc::UnboundedSender<Value>,
-    delivery_rx: Mutex<Option<tokio::sync::mpsc::UnboundedReceiver<Value>>>,
+    /// Pending agent-link deliveries. The worker must acknowledge handle_send
+    /// acceptance before the durable mailbox can mark a message delivered.
+    delivery_tx: tokio::sync::mpsc::UnboundedSender<AgentDelivery>,
+    delivery_rx: Mutex<Option<tokio::sync::mpsc::UnboundedReceiver<AgentDelivery>>>,
+    mailbox_drain_lock: Mutex<()>,
 }
 
 impl AppState {
@@ -136,6 +143,7 @@ impl AppState {
                 mailbox: Mutex::new(mailbox),
                 delivery_tx,
                 delivery_rx: Mutex::new(Some(delivery_rx)),
+                mailbox_drain_lock: Mutex::new(()),
             }),
         }
     }
@@ -323,15 +331,30 @@ impl AppState {
         self.inner.project_writers.lock().await.clone()
     }
 
-    pub fn enqueue_agent_delivery(&self, payload: Value) {
-        let _ = self.inner.delivery_tx.send(payload);
+    pub fn enqueue_agent_delivery(
+        &self,
+        payload: Value,
+    ) -> Result<oneshot::Receiver<Result<(), String>>, String> {
+        let (tx, rx) = oneshot::channel();
+        self.inner
+            .delivery_tx
+            .send(AgentDelivery {
+                payload,
+                accepted: tx,
+            })
+            .map_err(|_| "agent_delivery_worker_unavailable".to_string())?;
+        Ok(rx)
     }
 
     /// Take the delivery receiver once (server boot).
     pub async fn take_delivery_rx(
         &self,
-    ) -> Option<tokio::sync::mpsc::UnboundedReceiver<Value>> {
+    ) -> Option<tokio::sync::mpsc::UnboundedReceiver<AgentDelivery>> {
         self.inner.delivery_rx.lock().await.take()
+    }
+
+    pub fn mailbox_drain_lock(&self) -> &Mutex<()> {
+        &self.inner.mailbox_drain_lock
     }
 }
 

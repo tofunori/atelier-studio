@@ -35,7 +35,7 @@ pub struct AgentCapabilityGrant {
 #[derive(Debug, Default)]
 pub struct CapabilityRegistry {
     grants: HashMap<String, AgentCapabilityGrant>, // thread_id → grant
-    hash_index: HashMap<[u8; 32], String>,        // hash → thread_id
+    hash_index: HashMap<[u8; 32], String>,         // hash → thread_id
     generation: AtomicU64,
 }
 
@@ -80,20 +80,12 @@ impl CapabilityRegistry {
         }
     }
 
-    pub fn revoke_pair(&mut self, a: &str, b: &str) {
-        self.revoke_thread(a);
-        self.revoke_thread(b);
-    }
-
     pub fn resolve(&self, bearer: &str) -> Result<&AgentCapabilityGrant, &'static str> {
         if bearer.is_empty() {
             return Err(err::CAPABILITY_INVALID);
         }
         let h = hash_bearer(bearer);
-        let tid = self
-            .hash_index
-            .get(&h)
-            .ok_or(err::CAPABILITY_INVALID)?;
+        let tid = self.hash_index.get(&h).ok_or(err::CAPABILITY_INVALID)?;
         let g = self.grants.get(tid).ok_or(err::CAPABILITY_INVALID)?;
         if Instant::now() > g.expires_at {
             return Err(err::CAPABILITY_EXPIRED);
@@ -145,7 +137,9 @@ pub fn resolve_mcp_binary(server_dir: &str) -> PathBuf {
     // staged next to server
     let candidates = [
         PathBuf::from(server_dir).join("atelier-agent-mcp"),
-        PathBuf::from(server_dir).join("rust-server").join("atelier-agent-mcp"),
+        PathBuf::from(server_dir)
+            .join("rust-server")
+            .join("atelier-agent-mcp"),
         PathBuf::from("rust/target/release/atelier-agent-mcp"),
         PathBuf::from("rust/target/debug/atelier-agent-mcp"),
     ];
@@ -298,10 +292,7 @@ pub async fn agent_mcp_handler(
         match reg.resolve(bearer) {
             Ok(g) => g.caller_thread_id.clone(),
             Err(code) => {
-                return (
-                    StatusCode::UNAUTHORIZED,
-                    Json(json!({"error": code})),
-                );
+                return (StatusCode::UNAUTHORIZED, Json(json!({"error": code})));
             }
         }
     };
@@ -316,10 +307,7 @@ pub async fn agent_mcp_handler(
         }
     };
 
-    let action = req
-        .get("action")
-        .and_then(|v| v.as_str())
-        .unwrap_or("");
+    let action = req.get("action").and_then(|v| v.as_str()).unwrap_or("");
     let result = match handle_action(&state, &grant_thread, action, &req).await {
         Ok(v) => v,
         Err(code) => json!({"error": code}),
@@ -429,11 +417,7 @@ async fn action_list(state: &AppState, caller_id: &str) -> Result<Value, String>
     Ok(json!({"threads": related}))
 }
 
-async fn action_inspect(
-    state: &AppState,
-    caller_id: &str,
-    req: &Value,
-) -> Result<Value, String> {
+async fn action_inspect(state: &AppState, caller_id: &str, req: &Value) -> Result<Value, String> {
     let target_id = req
         .get("targetThreadId")
         .and_then(|v| v.as_str())
@@ -500,11 +484,7 @@ async fn action_read_context(
     ))
 }
 
-async fn action_wait(
-    state: &AppState,
-    caller_id: &str,
-    req: &Value,
-) -> Result<Value, String> {
+async fn action_wait(state: &AppState, caller_id: &str, req: &Value) -> Result<Value, String> {
     let target_id = req
         .get("targetThreadId")
         .and_then(|v| v.as_str())
@@ -530,14 +510,32 @@ async fn action_wait(
         let status = store.get(&target_id).map(|t| t.status.clone());
         drop(store);
         let seq = state.journal().last_sequence(&target_id);
-        let changed = after_seq.map(|a| seq > a).unwrap_or(false)
-            || status.as_deref() == Some("done")
-            || status.as_deref() == Some("idle");
-        if changed && after_seq.is_some() {
+        let mailbox_status = if target_id == caller_id {
+            None
+        } else {
+            state
+                .mailbox()
+                .lock()
+                .await
+                .list_for_link(caller_id, &target_id)
+                .last()
+                .map(|message| message.status.clone())
+        };
+        let terminal_status = matches!(status.as_deref(), Some("done" | "idle"));
+        let changed = after_seq
+            .map(|after| seq > after || terminal_status)
+            .unwrap_or(terminal_status || mailbox_status.is_some());
+        if changed {
+            let reason = if mailbox_status.is_some() {
+                "mailbox"
+            } else {
+                "sequence_or_status"
+            };
             return Ok(json!({
                 "status": status,
                 "sequence": seq,
-                "reason": "sequence_or_status",
+                "mailboxStatus": mailbox_status,
+                "reason": reason,
             }));
         }
         if start.elapsed() >= Duration::from_millis(timeout_ms) {
@@ -565,14 +563,13 @@ async fn would_deadlock(state: &AppState, caller_id: &str, target_id: &str) -> b
     }
     // if caller owns project writer lock and target is same project, wait would block delivery
     let writers = state.project_writers_snapshot().await;
-    writers.get(&root).map(|o| o == caller_id).unwrap_or(false)
-        && {
-            let store = state.threads().lock().await;
-            store
-                .get(target_id)
-                .map(|t| t.project_root.trim_end_matches('/') == root)
-                .unwrap_or(false)
-        }
+    writers.get(&root).map(|o| o == caller_id).unwrap_or(false) && {
+        let store = state.threads().lock().await;
+        store
+            .get(target_id)
+            .map(|t| t.project_root.trim_end_matches('/') == root)
+            .unwrap_or(false)
+    }
 }
 
 pub async fn authorize_target(
@@ -669,10 +666,5 @@ pub fn is_mcp_compatible_provider(id: &str) -> bool {
 pub async fn mark_context_seeded(state: &AppState, thread_id: &str) {
     let now = atelier_store::iso_now();
     let mut store = state.threads().lock().await;
-    let _ = store.upsert(
-        json!({"id": thread_id, "agentContextSeededAt": now}),
-        true,
-    );
+    let _ = store.upsert(json!({"id": thread_id, "agentContextSeededAt": now}), true);
 }
-
-

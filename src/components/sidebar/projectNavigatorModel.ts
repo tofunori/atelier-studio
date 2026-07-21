@@ -19,10 +19,9 @@ export type ProjectNavigatorModel = {
   mode: NavigatorMode;
   /** identité locale du header — null en mode chats sans projet */
   identity: { root: string; name: string } | null;
-  continueThread: Thread | null;
   pinnedThreads: Thread[];
   conversationSections: ConversationSection[];
-  /** recherche active : Résultats remplace Continuer/Épinglés/Conversations */
+  /** recherche active : Résultats remplace Épinglés/Conversations */
   searching: boolean;
   /** conversations masquées par la limite (hors recherche) */
   hiddenCount: number;
@@ -122,14 +121,13 @@ export function deriveProjectNavigatorModel(input: NavigatorInput): ProjectNavig
       : null;
 
   // règle 8 : recherche active → une section Résultats unique, sans
-  // Continuer/Épinglés, sans doublon, sans limite
+  // Épinglés, sans doublon, sans limite
   const query = normalizeQuery(input.query.trim());
   if (query) {
     const results = ordered.filter((t) => normalizeQuery(threadTitleRaw(t)).includes(query));
     return {
       mode,
       identity,
-      continueThread: null,
       pinnedThreads: [],
       conversationSections: [{ key: "results", bucket: null, threads: results }],
       searching: true,
@@ -138,26 +136,15 @@ export function deriveProjectNavigatorModel(input: NavigatorInput): ProjectNavig
     };
   }
 
-  // règle 3 : Continuer = thread actif du contexte, sinon running le plus
-  // récent, sinon le plus récent
-  const activeInContext = input.activeId
-    ? context.find((t) => t.id === input.activeId) ?? null
-    : null;
-  const continueThread =
-    activeInContext ??
-    byRecency.find((t) => t.status === "running") ??
-    byRecency[0] ??
-    null;
-
-  // règle 5 : Épinglés = favoris du contexte uniquement (ordre des favoris),
-  // règle 4 : moins le thread Continuer
+  // règle 5 : Épinglés = favoris du contexte uniquement (ordre des favoris)
   const pinnedThreads = input.favorites
     .map((id) => context.find((t) => t.id === id))
-    .filter((t): t is Thread => !!t && t.id !== continueThread?.id);
+    .filter((t): t is Thread => !!t);
 
-  // règle 4 : Conversations = le reste, chaque thread une seule fois
+  // règle 4 : Conversations = le reste, trié par dernière activité en mode
+  // récent. Le chat actif n'est plus extrait dans une section spéciale.
   const pinnedIds = new Set(pinnedThreads.map((t) => t.id));
-  const rest = ordered.filter((t) => t.id !== continueThread?.id && !pinnedIds.has(t.id));
+  const rest = ordered.filter((t) => !pinnedIds.has(t.id));
 
   // règle 12 : limite existante + décompte des masqués
   const shown = input.expanded ? rest : rest.slice(0, CONVERSATIONS_VISIBLE);
@@ -181,7 +168,6 @@ export function deriveProjectNavigatorModel(input: NavigatorInput): ProjectNavig
 
   // règle 10 : ordre DOM exact, aucun doublon par construction
   const visibleThreadIds = [
-    ...(continueThread ? [continueThread.id] : []),
     ...pinnedThreads.map((t) => t.id),
     ...shown.map((t) => t.id),
   ];
@@ -189,7 +175,6 @@ export function deriveProjectNavigatorModel(input: NavigatorInput): ProjectNavig
   return {
     mode,
     identity,
-    continueThread,
     pinnedThreads,
     conversationSections,
     searching: false,

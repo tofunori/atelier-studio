@@ -5,7 +5,7 @@
 // qui disparaît avec la liste de projets (le rail/topbar restent les seuls
 // sélecteurs globaux).
 import { describe, it, expect, vi, beforeEach, beforeAll } from "vitest";
-import { fireEvent, screen, cleanup, waitFor } from "@testing-library/react";
+import { fireEvent, screen, cleanup, waitFor, within } from "@testing-library/react";
 import Sidebar from "./Sidebar";
 import { renderUi, resetTestState } from "../test/render";
 import { makeThread, PROJECT_ROOT, OTHER_PROJECT_ROOT, FIXED_ISO } from "../test/fixtures";
@@ -115,6 +115,155 @@ describe("Sidebar — contrats du panneau (projet actif)", () => {
     fireEvent.contextMenu(screen.getByText("Révision figure"));
     fireEvent.click(screen.getByText(t("action.delete")));
     expect(p.onDelete).toHaveBeenCalledWith("th-b");
+  });
+
+  it("Continuer avec… choisit un provider compatible sans ouvrir de modale", async () => {
+    const onContinueWith = vi.fn();
+    const p = makeProps({
+      threads: projectThreads(),
+      linkProviders: [
+        { id: "kimi", label: "Kimi" },
+        { id: "codex", label: "Codex" },
+      ],
+      onContinueWith,
+    });
+    renderUi(<Sidebar {...p} />);
+    fireEvent.contextMenu(screen.getByText("Analyse albédo"));
+    const continueItem = await screen.findByRole("menuitem", {
+      name: t("linkedConversation.continueWith"),
+    });
+    fireEvent.click(continueItem);
+    fireEvent.click(await screen.findByRole("menuitem", { name: "Codex" }));
+    expect(onContinueWith).toHaveBeenCalledWith(
+      expect.objectContaining({ id: "th-a" }),
+      "codex",
+    );
+  });
+
+  it("représente les deux conversations liées et délie toujours via l'id enfant", async () => {
+    const parent = makeThread({ id: "kimi-parent", provider: "kimi", title: "Analyse initiale" });
+    const child = makeThread({
+      id: "codex-child",
+      provider: "codex",
+      title: "Analyse initiale",
+      agentLink: {
+        parentThreadId: "kimi-parent",
+        role: "collaborator",
+        access: "read_write",
+        createdAt: FIXED_ISO,
+        createdBy: "user",
+        autoDeliveryLimit: 1,
+        autoDeliveryUsed: 0,
+        paused: false,
+      },
+    });
+    const onUnlinkConversation = vi.fn();
+    const p = makeProps({
+      threads: [parent, child],
+      activeId: "kimi-parent",
+      onUnlinkConversation,
+    });
+    renderUi(<Sidebar {...p} />);
+    const markerLabel = t("linkedConversation.markerLabel", { count: 2 });
+    const markers = screen.getAllByRole("button", { name: markerLabel });
+    expect(markers).toHaveLength(2);
+    expect(screen.queryByRole("tree", {
+      name: t("linkedConversation.treeLabel"),
+    })).toBeNull();
+
+    fireEvent.click(markers[0]);
+    const tree = await screen.findByRole("tree", {
+      name: t("linkedConversation.treeLabel"),
+    });
+    expect(within(tree).getAllByRole("treeitem")).toHaveLength(2);
+    fireEvent.click(within(tree).getByRole("button", {
+      name: t("linkedConversation.unlinkFrom", { title: "Analyse initiale" }),
+    }));
+    expect(onUnlinkConversation).toHaveBeenCalledWith("codex-child");
+  });
+
+  it("ouvre au clic du marqueur toute la continuité 1 → {2, 3} et 3 → 4", async () => {
+    const linked = (id: string, title: string, parentThreadId?: string, createdAt = FIXED_ISO) => makeThread({
+      id,
+      title,
+      provider: id === "1" ? "kimi" : id === "2" ? "codex" : id === "3" ? "claude" : "grok",
+      agentLink: parentThreadId ? {
+        parentThreadId,
+        role: "collaborator",
+        access: "read_write",
+        createdAt,
+        createdBy: "user",
+        autoDeliveryLimit: 1,
+        autoDeliveryUsed: 0,
+        paused: false,
+      } : undefined,
+    });
+    const threads = [
+      linked("1", "Conversation 1"),
+      linked("2", "Conversation 2", "1", "2026-07-20T00:00:01.000Z"),
+      linked("3", "Conversation 3", "1", "2026-07-20T00:00:02.000Z"),
+      linked("4", "Conversation 4", "3", "2026-07-20T00:00:03.000Z"),
+    ];
+    const p = makeProps({ threads, activeId: "4" });
+    renderUi(<Sidebar {...p} />);
+    const markerLabel = t("linkedConversation.markerLabel", { count: 4 });
+    const markers = screen.getAllByRole("button", { name: markerLabel });
+
+    expect(markers).toHaveLength(4);
+    expect(screen.queryByRole("tree", { name: t("linkedConversation.treeLabel") })).toBeNull();
+    fireEvent.click(markers[3]);
+    const tree = await screen.findByRole("tree", { name: t("linkedConversation.treeLabel") });
+    const treeItems = within(tree).getAllByRole("treeitem");
+
+    expect(screen.queryByText("Continuer", { exact: true })).toBeNull();
+    expect(treeItems.map((item) => item.getAttribute("aria-level"))).toEqual(["1", "2", "2", "3"]);
+    expect(treeItems.map((item) => item.textContent)).toEqual([
+      expect.stringContaining("Conversation 1"),
+      expect.stringContaining("Conversation 2"),
+      expect.stringContaining("Conversation 3"),
+      expect.stringContaining("Conversation 4"),
+    ]);
+
+    fireEvent.click(within(tree).getByText("Conversation 3"));
+    expect(p.onSelect).toHaveBeenCalledWith("3", PROJECT_ROOT);
+  });
+
+  it("révèle au survol uniquement les membres de la même famille", () => {
+    const makeLinkedPair = (rootId: string, childId: string, createdAt: string) => [
+      makeThread({ id: rootId, title: `Racine ${rootId}` }),
+      makeThread({
+        id: childId,
+        title: `Enfant ${childId}`,
+        agentLink: {
+          parentThreadId: rootId,
+          role: "collaborator",
+          access: "read_write",
+          createdAt,
+          createdBy: "user",
+          autoDeliveryLimit: 1,
+          autoDeliveryUsed: 0,
+          paused: false,
+        },
+      }),
+    ];
+    renderUi(<Sidebar {...makeProps({
+      threads: [
+        ...makeLinkedPair("a", "b", "2026-07-20T00:00:01.000Z"),
+        ...makeLinkedPair("c", "d", "2026-07-20T00:00:02.000Z"),
+      ],
+    })} />);
+
+    const markerLabel = t("linkedConversation.markerLabel", { count: 2 });
+    expect(screen.getAllByRole("button", { name: markerLabel })).toHaveLength(4);
+
+    const row = (title: string) => screen.getByText(title, { selector: ".title" }).closest(".pnav-row")!;
+    fireEvent.mouseEnter(within(row("Racine a") as HTMLElement).getByRole("button", {
+      name: markerLabel,
+    }));
+    expect(row("Racine a")).toHaveClass("family-preview");
+    expect(row("Enfant b")).toHaveClass("family-preview");
+    expect(row("Racine c")).not.toHaveClass("family-preview");
+    expect(row("Enfant d")).not.toHaveClass("family-preview");
   });
 
   it("menu contextuel : Déplacer vers… envoie moveThread vers l'autre projet", () => {
@@ -317,7 +466,6 @@ describe("Research Navigator — recherche locale", () => {
     expect(screen.getByText(t("sidebar.results"))).toBeTruthy();
     expect(screen.getByText("Révision figure")).toBeTruthy();
     expect(screen.queryByText("Analyse albédo")).toBeNull();
-    expect(screen.queryByText(t("sidebar.continue"))).toBeNull();
   });
 
   it("zéro résultat : message dédié", () => {
@@ -341,16 +489,17 @@ describe("Research Navigator — recherche locale", () => {
 });
 
 describe("Research Navigator — sections et déduplication", () => {
-  it("Continuer et Épinglés sont conditionnels et sans doublon", () => {
+  it("Épinglés et Conversations sont conditionnels et sans doublon", () => {
     const p = makeProps({
       threads: projectThreads(),
       activeId: "th-a",
       favorites: ["th-a", "th-b"],
     });
     renderUi(<Sidebar {...p} />);
-    expect(screen.getByText(t("sidebar.continue"))).toBeTruthy();
+    expect(screen.queryByText("Continuer", { exact: true })).toBeNull();
     expect(screen.getByText(t("sidebar.pinned"))).toBeTruthy();
-    // th-a en Continuer uniquement, th-b en Épinglés uniquement
+    expect(screen.getByText(t("sidebar.conversations"))).toBeTruthy();
+    // th-a et th-b en Épinglés uniquement
     expect(screen.getAllByText("Analyse albédo")).toHaveLength(1);
     expect(screen.getAllByText("Révision figure")).toHaveLength(1);
   });
@@ -358,7 +507,6 @@ describe("Research Navigator — sections et déduplication", () => {
   it("panneau vide : phrase d'orientation, pas de sections", () => {
     renderUi(<Sidebar {...makeProps({ threads: [] })} />);
     expect(screen.getByText(t("sidebar.empty-project"))).toBeTruthy();
-    expect(screen.queryByText(t("sidebar.continue"))).toBeNull();
     expect(screen.queryByText(t("sidebar.conversations"))).toBeNull();
   });
 
@@ -367,7 +515,7 @@ describe("Research Navigator — sections et déduplication", () => {
       makeThread({ id: `t${i}`, title: `Conversation numéro ${i}` }),
     );
     renderUi(<Sidebar {...makeProps({ threads: many, activeId: "t0" })} />);
-    const more = screen.getByText(t("sidebar.older-count", { count: 3 }));
+    const more = screen.getByText(t("sidebar.older-count", { count: 4 }));
     fireEvent.click(more);
     expect(screen.getByText("Conversation numéro 8")).toBeTruthy();
     fireEvent.click(screen.getByText(t("sidebar.show-less")));

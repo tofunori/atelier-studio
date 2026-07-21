@@ -101,6 +101,29 @@ pub async fn action_report_to_parent(
     .await
 }
 
+/// Trusted user-initiated mention from the Atelier WebSocket. Relationship and
+/// budget checks still run in the same durable enqueue path as MCP messages.
+pub async fn enqueue_user_mention(
+    state: &AppState,
+    source_thread_id: &str,
+    target_thread_id: &str,
+    text: &str,
+    request_id: &str,
+) -> Result<Value, String> {
+    enqueue_and_schedule(
+        state,
+        source_thread_id,
+        target_thread_id,
+        text,
+        "message",
+        None,
+        request_id,
+        None,
+        0,
+    )
+    .await
+}
+
 async fn enqueue_and_schedule(
     state: &AppState,
     from: &str,
@@ -122,8 +145,14 @@ async fn enqueue_and_schedule(
     // resolve relation + budget
     let (relation, link_child_id, budget_ok, paused) = {
         let store = state.threads().lock().await;
-        let from_t = store.get(from).cloned().ok_or_else(|| err::CALLER_UNKNOWN.to_string())?;
-        let to_t = store.get(to).cloned().ok_or_else(|| err::THREAD_NOT_FOUND.to_string())?;
+        let from_t = store
+            .get(from)
+            .cloned()
+            .ok_or_else(|| err::CALLER_UNKNOWN.to_string())?;
+        let to_t = store
+            .get(to)
+            .cloned()
+            .ok_or_else(|| err::THREAD_NOT_FOUND.to_string())?;
         let relation = if from_t
             .agent_link
             .as_ref()
@@ -157,7 +186,11 @@ async fn enqueue_and_schedule(
     {
         let mb = state.mailbox().lock().await;
         if mb.count_queued_for_link(
-            if relation == "parent_to_child" { from } else { to },
+            if relation == "parent_to_child" {
+                from
+            } else {
+                to
+            },
             &link_child_id,
         ) >= lim::MAX_QUEUE_PER_LINK
         {
@@ -288,6 +321,9 @@ fn chrono_ts() -> i64 {
 
 /// Drain queued mailbox messages when writer lock allows.
 pub async fn drain_mailbox(state: &AppState) {
+    // Several send completions can request a drain at once. One durable queue
+    // consumer prevents two tasks from claiming the same queued message.
+    let _drain_guard = state.mailbox_drain_lock().lock().await;
     loop {
         let next = {
             let mb = state.mailbox().lock().await;
@@ -395,13 +431,7 @@ pub async fn drain_mailbox(state: &AppState) {
             let store = state.threads().lock().await;
             store
                 .get(&msg.from_thread_id)
-                .map(|t| {
-                    format!(
-                        "{} — {}",
-                        provider_label(&t.provider),
-                        t.title
-                    )
-                })
+                .map(|t| format!("{} — {}", provider_label(&t.provider), t.title))
                 .unwrap_or_else(|| "agent".into())
         };
         let relation_label = if msg.relation == "parent_to_child" {
@@ -441,24 +471,14 @@ pub async fn drain_mailbox(state: &AppState) {
             "effort": effort,
             "permissionMode": permission_mode,
             "projectRoot": target.project_root,
+            "agentFromThreadId": msg.from_thread_id,
+            "agentToThreadId": msg.to_thread_id,
         });
 
-        // Deliver on the current task (not nested spawn) — handle_send may hold
-        // non-Send guards; the outer drain is already scheduled on a Send task
-        // boundary via tokio::spawn from send/ws only when needed.
-        // Mark delivering; run send; update status. Avoid re-entering drain.
-        let now = iso_now();
-        {
-            let mut mb = state.mailbox().lock().await;
-            let _ = mb.update_status(&msg.id, "delivering", None, &now);
-        }
-
-        // Use a one-shot channel + dedicated runtime worker to avoid Send issues
-        // if handle_send is not Send: fall back to publishing for the router.
-        let deliver_ok = deliver_via_send(state, &send_msg).await;
+        let delivery = deliver_via_send(state, &send_msg).await;
 
         let now = iso_now();
-        if deliver_ok {
+        if delivery.is_ok() {
             {
                 let mut mb = state.mailbox().lock().await;
                 let _ = mb.update_status(&msg.id, "delivered", None, &now);
@@ -468,24 +488,16 @@ pub async fn drain_mailbox(state: &AppState) {
                 let mut store = state.threads().lock().await;
                 if let Some(t) = store.get(&child_id).cloned() {
                     if let Some(mut link) = t.agent_link {
-                        link.auto_delivery_used =
-                            link.auto_delivery_used.saturating_add(1);
-                        let _ = store.upsert(
-                            json!({"id": child_id, "agentLink": link}),
-                            true,
-                        );
+                        link.auto_delivery_used = link.auto_delivery_used.saturating_add(1);
+                        let _ = store.upsert(json!({"id": child_id, "agentLink": link}), true);
                     }
                 }
             }
         } else {
+            let code = delivery.err().unwrap_or_else(|| "delivery_failed".into());
             {
                 let mut mb = state.mailbox().lock().await;
-                let _ = mb.update_status(
-                    &msg.id,
-                    "failed",
-                    Some("delivery_failed".into()),
-                    &now,
-                );
+                let _ = mb.update_status(&msg.id, "failed", Some(code), &now);
             }
             update_agent_message_status(state, &msg, "failed").await;
         }
@@ -495,13 +507,17 @@ pub async fn drain_mailbox(state: &AppState) {
 }
 
 /// Enqueue delivery on the runtime worker (avoids nested handle_send futures).
-async fn deliver_via_send(state: &AppState, send_msg: &Value) -> bool {
-    state.enqueue_agent_delivery(send_msg.clone());
-    true
+async fn deliver_via_send(state: &AppState, send_msg: &Value) -> Result<(), String> {
+    let accepted = state.enqueue_agent_delivery(send_msg.clone())?;
+    tokio::time::timeout(std::time::Duration::from_secs(10), accepted)
+        .await
+        .map_err(|_| "agent_delivery_ack_timeout".to_string())?
+        .map_err(|_| "agent_delivery_worker_dropped".to_string())?
 }
 
 async fn update_agent_message_status(state: &AppState, msg: &MailboxMessage, status: &str) {
     for tid in [&msg.from_thread_id, &msg.to_thread_id] {
+        let sequence = state.journal().last_sequence(tid) + 1;
         let ev = json!({
             "kind": "agent_message",
             "messageId": msg.id,
@@ -510,7 +526,14 @@ async fn update_agent_message_status(state: &AppState, msg: &MailboxMessage, sta
             "peerThreadId": if tid == &msg.from_thread_id { &msg.to_thread_id } else { &msg.from_thread_id },
             "messageKind": msg.kind,
             "text": msg.text,
+            "meta": {
+                "threadId": tid,
+                "sequence": sequence,
+                "eventId": Uuid::new_v4().to_string(),
+                "ts": chrono_ts(),
+            }
         });
+        let _ = state.journal().append(&ev);
         state.publish(json_msg(json!({
             "type": "event",
             "threadId": tid,

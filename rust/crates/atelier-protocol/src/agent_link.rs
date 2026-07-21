@@ -34,7 +34,11 @@ fn default_created_by() -> String {
 }
 
 impl AgentLink {
-    pub fn new(parent_thread_id: impl Into<String>, created_at: impl Into<String>, limit: u32) -> Self {
+    pub fn new(
+        parent_thread_id: impl Into<String>,
+        created_at: impl Into<String>,
+        limit: u32,
+    ) -> Self {
         Self {
             parent_thread_id: parent_thread_id.into(),
             role: default_role(),

@@ -11,7 +11,9 @@ use crate::acp_rpc::{
 };
 use crate::grok_parse::{map_prompt_result_for_model, map_session_update};
 
-use crate::traits::{InteractionFn, Provider, ProviderCaps, SendRequest, SendResult};
+use crate::traits::{
+    atelier_mcp_servers, InteractionFn, Provider, ProviderCaps, SendRequest, SendResult,
+};
 use async_trait::async_trait;
 use serde_json::{json, Value};
 use std::collections::{HashMap, HashSet};
@@ -21,23 +23,6 @@ use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex as StdMutex};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tokio::sync::Mutex;
-
-fn atelier_mcp_servers(req: &crate::traits::SendRequest) -> serde_json::Value {
-    let Some(launch) = req.atelier_mcp.as_ref() else {
-        return serde_json::json!([]);
-    };
-    let mut env = serde_json::Map::new();
-    for (k, v) in &launch.env {
-        env.insert(k.clone(), serde_json::json!(v));
-    }
-    serde_json::json!([{
-        "name": launch.server_name,
-        "command": launch.command,
-        "args": [],
-        "env": env,
-    }])
-}
-
 
 const GROK_MIN_VERSION: &str = "0.2.101";
 const MAX_LIVE_RUNTIMES: usize = 8;
@@ -218,9 +203,10 @@ impl GrokProvider {
         runtime: &GrokThreadRuntime,
         requested: Option<&str>,
         mcp_servers: Value,
+        refresh_mcp: bool,
     ) -> Result<String, String> {
         if let Some(sid) = requested.filter(|sid| !sid.is_empty()) {
-            if runtime.state.lock().unwrap().opened_sessions.contains(sid) {
+            if runtime.state.lock().unwrap().opened_sessions.contains(sid) && !refresh_mcp {
                 return Ok(sid.to_string());
             }
 
@@ -441,7 +427,8 @@ impl GrokProvider {
             .open_session(
                 &runtime,
                 req.session_id.as_deref(),
-                atelier_mcp_servers(&req),
+                atelier_mcp_servers(req.atelier_mcp.as_ref()),
+                req.atelier_mcp.is_some(),
             )
             .await?;
         let selection = self
@@ -702,6 +689,7 @@ impl Provider for GrokProvider {
                 &runtime,
                 params.get("sessionId").and_then(Value::as_str),
                 json!([]),
+                false,
             )
             .await?;
         *runtime.active_session.lock().unwrap() = Some(sid.clone());
@@ -1331,7 +1319,7 @@ mod tests {
             on_event: Arc::new(move |event| events.lock().unwrap().push(event)),
             on_interaction: None,
             is_cancelled: Arc::new(move || cancelled.load(Ordering::Relaxed)),
-        atelier_mcp: None,
+            atelier_mcp: None,
         }
     }
 

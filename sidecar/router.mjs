@@ -1313,6 +1313,8 @@ export async function route(msg, ctx) {
       break;
     }
     case "createLinkedThread":
+    case "mentionAgent":
+    case "setLinkedThreadPaused":
     case "unlinkThread": {
       // Plan 057 — sessions liées MCP : Rust only (capabilities + mailbox + bridge).
       ctx.send({

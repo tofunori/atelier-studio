@@ -22,7 +22,6 @@ import { ContextInspector, type InspectedFile } from "./components/ContextInspec
 import { useWorkspaceEvents } from "./hooks/useWorkspaceEvents";
 import WorkspaceShell from "./components/shell/WorkspaceShell";
 import Sidebar from "./components/Sidebar";
-import { LinkedAgentDialog } from "./components/linked-agents/LinkedAgentDialog";
 import Rail, { ProjMeta, HighlightEntry } from "./components/Rail";
 import TopBar from "./components/TopBar";
 import type { Surface } from "./components/surfaces";
@@ -43,6 +42,8 @@ import { showError, showInfo, showSuccess } from "./components/ui/toast";
 import { RowButton } from "./components/ui";
 import UsagePopover, { worstOf } from "./components/UsagePopover";
 import { pluginSkillsForPrompt, type PluginCatalogEntry } from "./lib/plugins";
+import { parseLinkedAgentMention } from "./lib/linkedAgents";
+import { linkedConversationForProvider, linkedConversations } from "./lib/threadLinks";
 import { catalogSkillForPrompt, skillAttachInstruction } from "./lib/skills";
 import { init as initNotify, notifyRunDone, notifyReview } from "./lib/notify";
 import { CloseIcon, DownloadIcon, HighlighterIcon, ProviderIcon, SidebarIcon } from "./components/icons";
@@ -520,6 +521,12 @@ export default function App() {
   const cliBannerText = useRef<string | null>(null); // bandeau « CLI manquant » actif
   const pendingPaste = useRef<string | null>(null); // dataURL en attente de sauvegarde
   const pendingZoteroDigest = useRef(new Map<string, ZoteroPaletteItem>()); // clé Zotero -> item en attente du digest
+  const pendingAgentMentions = useRef(new Map<string, { threadId: string; provider: string }>());
+  const pendingLinkedCreations = useRef(new Map<string, {
+    sourceThreadId: string;
+    projectRoot: string;
+  }>());
+  const pendingLinkedSelection = useRef<{ threadId: string; projectRoot: string } | null>(null);
   const pendingResend = useRef<{
     threadId: string;
     prompt: string;
@@ -747,7 +754,6 @@ export default function App() {
   const [activeTab, setActiveTab] = useState<string>("gallery");
   const [layout, setLayout] = useState<"split" | "chat" | "atelier">("split");
   const [openedAgent, setOpenedAgent] = useState<AgentDisplay | null>(null);
-  const [linkedDialogSource, setLinkedDialogSource] = useState<Thread | null>(null);
   const previousAtelierTab = useRef("gallery");
   const [activeId, setActiveId] = useState<string | null>(null);
   activeIdRef.current = activeId;
@@ -1311,6 +1317,11 @@ export default function App() {
         const prevThreads = threadsRef.current;
         setThreads(msg.threads);
         threadsRef.current = msg.threads;
+        const linkedSelection = pendingLinkedSelection.current;
+        if (linkedSelection && msg.threads.some((thread: Thread) => thread.id === linkedSelection.threadId)) {
+          pendingLinkedSelection.current = null;
+          selectThread(linkedSelection.threadId, linkedSelection.projectRoot);
+        }
         // goal en attente : la session Codex vient d'apparaître → le poser
         const pg = pendingGoal.current;
         if (pg?.threadId) {
@@ -1690,8 +1701,54 @@ export default function App() {
       if (["narvalStatus", "narvalSnapshot", "narvalDirectory", "narvalJobDetail", "narvalText"].includes(msg.type)) {
         window.dispatchEvent(new CustomEvent("narval-message", { detail: msg }));
       }
+      if (msg.type === "agentMentionAccepted" && typeof msg.requestId === "string") {
+        pendingAgentMentions.current.delete(msg.requestId);
+      }
+      if (msg.type === "agentMentionFailed" && typeof msg.requestId === "string") {
+        const pending = pendingAgentMentions.current.get(msg.requestId);
+        pendingAgentMentions.current.delete(msg.requestId);
+        const threadId = pending?.threadId ?? msg.threadId;
+        if (threadId) {
+          setEvents((current) => ({
+            ...current,
+            [threadId]: [
+              ...(current[threadId] ?? []),
+              { kind: "error", message: String(msg.message ?? t("linkedAgent.mentionFailed")) },
+            ],
+          }));
+        }
+        setAppBanner({ text: String(msg.message ?? t("linkedAgent.mentionFailed")), closable: true });
+      }
+      if (msg.type === "linkedThreadCreated" && typeof msg.targetThreadId === "string") {
+        const requestedId = typeof msg.requestedTargetThreadId === "string"
+          ? msg.requestedTargetThreadId
+          : msg.targetThreadId;
+        const pending = pendingLinkedCreations.current.get(requestedId);
+        if (pending) {
+          pendingLinkedCreations.current.delete(requestedId);
+          const existing = allThreadsRef.current.find((thread) => thread.id === msg.targetThreadId);
+          if (existing) {
+            selectThread(existing.id, existing.projectRoot);
+          } else {
+            pendingLinkedSelection.current = {
+              threadId: msg.targetThreadId,
+              projectRoot: pending.projectRoot,
+            };
+          }
+        }
+      }
       if (msg.type === "error") {
         console.error("sidecar:", msg.message);
+        const failedLink = [...pendingLinkedCreations.current.entries()].find(
+          ([targetId, pending]) => msg.threadId === targetId || msg.threadId === pending.sourceThreadId,
+        );
+        if (failedLink) {
+          pendingLinkedCreations.current.delete(failedLink[0]);
+          setAppBanner({
+            text: String(msg.message ?? t("linkedConversation.createFailed")),
+            closable: true,
+          });
+        }
         const pr = pendingResend.current;
         if (pr && pr.threadId === msg.threadId) {
           // Le rewind a échoué : restaurer le fil original, mais ne jamais
@@ -2253,6 +2310,47 @@ export default function App() {
     }
   }
 
+  function continueConversationWith(source: Thread, targetProvider: string) {
+    const existing = linkedConversationForProvider(
+      allThreadsRef.current,
+      source.id,
+      targetProvider,
+    );
+    if (existing) {
+      selectThread(existing.thread.id, existing.thread.projectRoot);
+      return;
+    }
+    if (ws.current?.readyState !== 1) {
+      setAppBanner({ text: t("app.sidecar-disconnected"), closable: true });
+      return;
+    }
+    const target = providerList.find((entry) => entry.id === targetProvider);
+    if (!target?.ok || target.kind === "api" || target.capabilities?.atelierSessionsMcp !== true) {
+      setAppBanner({
+        text: t("linkedAgent.mentionUnavailable", { provider: target?.label ?? targetProvider }),
+        closable: true,
+      });
+      return;
+    }
+    const targetThreadId = crypto.randomUUID();
+    pendingLinkedCreations.current.set(targetThreadId, {
+      sourceThreadId: source.id,
+      projectRoot: source.projectRoot,
+    });
+    ws.current.send(JSON.stringify({
+      type: "createLinkedThread",
+      requestId: crypto.randomUUID(),
+      sourceThreadId: source.id,
+      targetThreadId,
+      targetProvider,
+      reuseExisting: true,
+      autoDeliveryLimit: 1,
+      model: settingsRef.current.defaultModel[targetProvider] ?? target.defaultModel ?? "",
+      effort: settingsRef.current.defaultEffort[targetProvider] ?? "",
+      permissionMode: settingsRef.current.defaultPermissionMode,
+    }));
+  }
+
   function submit(
     prompt: string,
     provider: ProviderId,
@@ -2302,6 +2400,59 @@ export default function App() {
       return;
     }
     if (!activeId && !activeProject) return;
+    const agentMention = parseLinkedAgentMention(prompt);
+    if (agentMention) {
+      const targetProvider = agentMention.provider;
+      const targetInfo = providerList.find((entry) => entry.id === targetProvider);
+      if (!activeId || !activeThread) {
+        void showInfo(t("linkedAgent.mentionNeedsThread"));
+        return;
+      }
+      if (!targetInfo?.ok || targetInfo.kind === "api" || targetInfo.capabilities?.atelierSessionsMcp !== true) {
+        setAppBanner({ text: t("linkedAgent.mentionUnavailable", { provider: agentMention.label }), closable: true });
+        return;
+      }
+      if (ws.current?.readyState !== 1) {
+        setAppBanner({ text: t("app.sidecar-disconnected"), closable: true });
+        return;
+      }
+      const targetText = agentMention.task;
+      if (!targetText && attachments.length === 0) {
+        void showInfo(t("linkedAgent.mentionNeedsPrompt"));
+        return;
+      }
+      const requestId = crypto.randomUUID();
+      const linkedPrompt = attachments.length
+        ? `${attachments.map((attachment) => attachment.text).join("\n\n")}\n\n${targetText}`.trim()
+        : targetText;
+      pendingAgentMentions.current.set(requestId, { threadId: activeId, provider: targetProvider });
+      setEvents((current) => ({
+        ...current,
+        [activeId]: [
+          ...(current[activeId] ?? []),
+          {
+            kind: "user",
+            text: displayPrompt,
+            ts: Date.now(),
+            meta: { provisional: true, messageId: requestId },
+          },
+        ],
+      }));
+      setAttachments([]);
+      ws.current.send(JSON.stringify({
+        type: "mentionAgent",
+        sourceThreadId: activeId,
+        targetProvider,
+        targetThreadId: crypto.randomUUID(),
+        text: linkedPrompt,
+        displayText: displayPrompt,
+        requestId,
+        model: settingsRef.current.defaultModel[targetProvider] ?? targetInfo.defaultModel ?? "",
+        effort: settingsRef.current.defaultEffort[targetProvider] ?? "",
+        permissionMode: settingsRef.current.defaultPermissionMode,
+      }));
+      return;
+    }
     // Comme Synara, une relance explicitement mise en file reste dans le
     // composer tant qu'elle n'est pas réellement exécutée. Elle conserve son
     // contexte et ses paramètres, reste modifiable/supprimable et ne crée pas
@@ -3096,7 +3247,7 @@ export default function App() {
       <LazyBoundary fallback={<div className="sidebar" />}>
         <AutomationsPanel
           ws={ws.current}
-          threads={allThreads}
+          threads={allThreads.filter((thread) => !thread.agentLink)}
           favorites={favorites}
           projects={projects}
           preferredThreadId={activeId}
@@ -3169,58 +3320,23 @@ export default function App() {
           }}
           projMeta={projMeta}
           onSetMeta={(root, m) => setProjMeta((prev) => ({ ...prev, [root]: m }))}
-          onCreateLinkedAgent={(thread) => setLinkedDialogSource(thread)}
-          onUnlinkAgent={(thread) => {
+          linkProviders={providerList
+            .filter((entry) => entry.ok && entry.kind !== "api" && entry.capabilities?.atelierSessionsMcp === true)
+            .filter((entry) => ["claude", "codex", "kimi", "grok", "opencode"].includes(entry.id))
+            .map((entry) => ({
+              id: entry.id,
+              label: entry.id === "opencode" ? "OpenCode" : entry.label.replace(/ Code$/i, ""),
+            }))}
+          onContinueWith={continueConversationWith}
+          onUnlinkConversation={(childThreadId) => {
             if (ws.current?.readyState === 1) {
-              ws.current.send(JSON.stringify({ type: "unlinkThread", threadId: thread.id }));
+              ws.current.send(JSON.stringify({ type: "unlinkThread", threadId: childThreadId }));
             }
-          }}
-          onOpenThread={(threadId) => {
-            const th = allThreads.find((t) => t.id === threadId);
-            if (th) selectThread(th.id, th.projectRoot);
           }}
         />
   );
   const overlaysNode = (
     <>
-      <LinkedAgentDialog
-        open={linkedDialogSource != null}
-        sourceTitle={linkedDialogSource?.title ?? ""}
-        providers={providerList
-          .filter((p) => p.capabilities?.atelierSessionsMcp !== false && p.kind !== "api")
-          .filter((p) => ["claude", "codex", "kimi", "grok", "opencode"].includes(p.id))
-          .map((p) => ({
-            id: p.id,
-            label: p.label,
-            models: p.models ?? [],
-            defaultModel: p.defaultModel ?? p.models?.[0] ?? "",
-            efforts: p.efforts ?? ["low", "medium", "high"],
-            atelierSessionsMcp: p.capabilities?.atelierSessionsMcp,
-          }))}
-        onClose={() => setLinkedDialogSource(null)}
-        onConfirm={(opts) => {
-          const source = linkedDialogSource;
-          setLinkedDialogSource(null);
-          if (!source || ws.current?.readyState !== 1) return;
-          const targetThreadId = crypto.randomUUID();
-          ws.current.send(
-            JSON.stringify({
-              type: "createLinkedThread",
-              sourceThreadId: source.id,
-              targetThreadId,
-              targetProvider: opts.targetProvider,
-              model: opts.model,
-              effort: opts.effort,
-              permissionMode: opts.permissionMode,
-              autoDeliveryLimit: opts.autoDeliveryLimit,
-            }),
-          );
-          setTimeout(() => {
-            setActiveId(targetThreadId);
-            activeIdRef.current = targetThreadId;
-          }, 200);
-        }}
-      />
       {paletteOpen && (
         <LazyBoundary fallback={null}>
           <CommandPalette open items={paletteItems} onClose={() => setPaletteOpen(false)} />
@@ -3321,6 +3437,33 @@ export default function App() {
           highlights={highlights}
           defaults={settings as any}
           providers={providerList}
+          agentProviders={providerList
+            .filter((entry) => entry.ok && entry.kind !== "api" && entry.capabilities?.atelierSessionsMcp === true)
+            .filter((entry) => ["claude", "codex", "kimi", "grok", "opencode"].includes(entry.id))
+            .map((entry) => ({ id: entry.id, label: entry.id === "opencode" ? "OpenCode" : entry.label.replace(/ Code$/i, "") }))}
+          linkedAgents={activeId ? (() => {
+            return linkedConversations(allThreads, activeId).map((relation) => ({
+              id: relation.thread.id,
+              provider: relation.thread.provider === "opencode" ? "OpenCode" : relation.thread.provider.charAt(0).toUpperCase() + relation.thread.provider.slice(1),
+              title: relation.thread.title,
+              paused: relation.paused,
+              direction: relation.direction,
+            }));
+          })() : []}
+          onOpenLinkedAgent={(threadId) => {
+            const thread = allThreads.find((entry) => entry.id === threadId);
+            if (thread) selectThread(thread.id, thread.projectRoot);
+          }}
+          onUnlinkLinkedAgent={(threadId) => {
+            const childId = activeId
+              ? linkedConversations(allThreads, activeId).find(
+                  (relation) => relation.thread.id === threadId,
+                )?.childThreadId
+              : null;
+            if (childId && ws.current?.readyState === 1) {
+              ws.current.send(JSON.stringify({ type: "unlinkThread", threadId: childId }));
+            }
+          }}
           onFavoriteModelsChange={(favoriteModels) =>
             setSettings((current) => ({ ...current, favoriteModels }))}
           onOpenModelSettings={() => openSettings("providers")}

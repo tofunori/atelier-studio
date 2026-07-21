@@ -22,9 +22,17 @@ const SECRET_HINTS: &[&str] = &[
     "authorization:",
     "bearer ",
     "password=",
+    "password:",
+    "passwd=",
     "secret=",
+    "client_secret",
     "token=",
-    "ATELIER_MCP_CAPABILITY",
+    "access_token",
+    "api-key",
+    "x-api-key",
+    "private key",
+    "-----begin",
+    "atelier_mcp_capability",
     "x-atelier-token",
     "x-atelier-agent-capability",
 ];
@@ -68,13 +76,17 @@ pub fn project_events(
     }
     filtered.sort_by_key(|(s, _)| *s);
 
-    // Pagination: if before_sequence set, take last `limit` before it; else first `limit` after.
+    // A cursor asks for forward/backward pagination. Without a cursor the linked
+    // agent needs the most recent context, not the oldest journal entries.
     let total = filtered.len();
     let page: Vec<(u64, Value)> = if before_sequence.is_some() {
         let start = total.saturating_sub(limit);
         filtered[start..].to_vec()
-    } else {
+    } else if after_sequence.is_some() {
         filtered.into_iter().take(limit).collect()
+    } else {
+        let start = total.saturating_sub(limit);
+        filtered[start..].to_vec()
     };
 
     let first_sequence = page.first().map(|(s, _)| *s);
@@ -121,8 +133,14 @@ pub fn project_events(
         }
         if s.len() > max_chars && out_events.is_empty() {
             // still emit one truncated event
-            if let Some(text) = ev.get_mut("text").and_then(|v| v.as_str().map(|t| t.to_string())) {
-                let cut = text.chars().take(max_chars.saturating_sub(32)).collect::<String>();
+            if let Some(text) = ev
+                .get_mut("text")
+                .and_then(|v| v.as_str().map(|t| t.to_string()))
+            {
+                let cut = text
+                    .chars()
+                    .take(max_chars.saturating_sub(32))
+                    .collect::<String>();
                 ev["text"] = json!(format!("{cut}…[truncated]"));
             }
             truncated = true;
@@ -180,7 +198,13 @@ fn project_one(ev: &Value, project_root: &str) -> Option<Value> {
             }
         }
         "todos" | "goal" => {
-            out["payload"] = redact_value(ev.get("todos").or_else(|| ev.get("goal")).or_else(|| ev.get("items")).cloned().unwrap_or(Value::Null));
+            out["payload"] = redact_value(
+                ev.get("todos")
+                    .or_else(|| ev.get("goal"))
+                    .or_else(|| ev.get("items"))
+                    .cloned()
+                    .unwrap_or(Value::Null),
+            );
         }
         "edit" => {
             let path = ev
@@ -244,24 +268,32 @@ fn redact_text(s: &str) -> String {
 }
 
 fn regex_replace_data_urls(s: &str) -> String {
-    // simple scan for data:...;base64,...
+    // Scan bytes for ASCII delimiters and copy untouched UTF-8 chunks. Indexing
+    // `&str` at arbitrary byte offsets would panic on accented text or emoji.
     let mut out = String::with_capacity(s.len());
     let bytes = s.as_bytes();
     let mut i = 0;
+    let mut copied_until = 0;
     while i < bytes.len() {
-        if i + 5 <= bytes.len() && &s[i..i + 5] == "data:" {
+        if bytes[i..].starts_with(b"data:") {
+            out.push_str(&s[copied_until..i]);
             // find end of token
             let mut j = i + 5;
-            while j < bytes.len() && !bytes[j].is_ascii_whitespace() && bytes[j] != b'"' && bytes[j] != b'\'' {
+            while j < bytes.len()
+                && !bytes[j].is_ascii_whitespace()
+                && bytes[j] != b'"'
+                && bytes[j] != b'\''
+            {
                 j += 1;
             }
             out.push_str("[data-url]");
             i = j;
+            copied_until = j;
         } else {
-            out.push(bytes[i] as char);
             i += 1;
         }
     }
+    out.push_str(&s[copied_until..]);
     out
 }
 
@@ -273,7 +305,10 @@ fn redact_value(v: Value) -> Value {
             let mut out = serde_json::Map::new();
             for (k, val) in map {
                 let lk = k.to_lowercase();
-                if SECRET_HINTS.iter().any(|h| lk.contains(h.trim_end_matches([':', '=']))) {
+                if SECRET_HINTS
+                    .iter()
+                    .any(|h| lk.contains(h.trim_end_matches([':', '='])))
+                {
                     out.insert(k, json!("[redacted]"));
                 } else {
                     out.insert(k, redact_value(val));
@@ -357,7 +392,10 @@ pub fn build_child_envelope(
         "\nPour davantage de contexte, utilise atelier_sessions avec current, inspect ou\nread_context. Ne prétends pas avoir reçu le raisonnement caché du parent.\n[Fin du contexte Atelier]\n\n",
     );
     if body.chars().count() > max_chars {
-        body.chars().take(max_chars.saturating_sub(1)).collect::<String>() + "…"
+        body.chars()
+            .take(max_chars.saturating_sub(1))
+            .collect::<String>()
+            + "…"
     } else {
         body
     }
@@ -392,5 +430,30 @@ mod tests {
         assert!(env.contains("Build feature X"));
         assert!(!env.contains("hidden"));
         assert!(env.contains("atelier_sessions"));
+    }
+
+    #[test]
+    fn default_projection_returns_recent_events() {
+        let events: Vec<Value> = (1..=20)
+            .map(|sequence| json!({"kind":"user","text":format!("event-{sequence}"),"meta":{"sequence":sequence}}))
+            .collect();
+        let out = project_events(&events, None, None, 3, false, 12_000, "/proj");
+        let arr = out["events"].as_array().unwrap();
+        assert_eq!(arr[0]["text"], "event-18");
+        assert_eq!(arr[2]["text"], "event-20");
+    }
+
+    #[test]
+    fn redaction_is_case_insensitive_and_utf8_safe() {
+        let events = vec![
+            json!({"kind":"user","text":"clé ATELIER_MCP_CAPABILITY=abc","meta":{"sequence":1}}),
+            json!({"kind":"text","text":"déjà 👋 data:image/png;base64,AAAA fin","meta":{"sequence":2}}),
+            json!({"kind":"text","text":"-----BEGIN PRIVATE KEY----- abc","meta":{"sequence":3}}),
+        ];
+        let out = project_events(&events, None, None, 10, false, 12_000, "/proj");
+        let arr = out["events"].as_array().unwrap();
+        assert_eq!(arr[0]["text"], "[redacted]");
+        assert_eq!(arr[1]["text"], "déjà 👋 [data-url] fin");
+        assert_eq!(arr[2]["text"], "[redacted]");
     }
 }

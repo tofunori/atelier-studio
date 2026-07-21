@@ -61,7 +61,11 @@ pub async fn run() -> Result<(), String> {
                 let name = params.get("name").and_then(|v| v.as_str()).unwrap_or("");
                 if name != TOOL_NAME {
                     error_result(&id, -32602, &format!("unknown tool: {name}")).await?;
-                    write_frame(&mut stdout, &error_result_value(&id, -32602, &format!("unknown tool: {name}"))).await?;
+                    write_frame(
+                        &mut stdout,
+                        &error_result_value(&id, -32602, &format!("unknown tool: {name}")),
+                    )
+                    .await?;
                     continue;
                 }
                 let args = params.get("arguments").cloned().unwrap_or(json!({}));
@@ -107,7 +111,11 @@ pub async fn run() -> Result<(), String> {
             }
         };
 
-        write_frame(&mut stdout, &json!({"jsonrpc":"2.0","id": id, "result": result})).await?;
+        write_frame(
+            &mut stdout,
+            &json!({"jsonrpc":"2.0","id": id, "result": result}),
+        )
+        .await?;
     }
     Ok(())
 }

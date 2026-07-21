@@ -1,3 +1,11 @@
+import { LoaderCircleIcon, SparklesIcon } from "lucide-react";
+import { Badge } from "../shadcn/badge";
+import { Bubble, BubbleContent } from "../shadcn/bubble";
+import {
+  Message,
+  MessageContent,
+  MessageHeader,
+} from "../shadcn/message";
 import { t } from "../../lib/i18n";
 
 type Props = {
@@ -14,41 +22,53 @@ export function AgentMessageCard({
   direction,
   peerProvider,
   peerTitle,
-  messageKind,
   text,
   status,
   onOpenPeer,
 }: Props) {
-  const dirLabel =
-    direction === "sent" ? t("linkedAgent.msgSent") : t("linkedAgent.msgReceived");
-  const kindLabel =
-    messageKind === "report" ? t("linkedAgent.kindReport") : t("linkedAgent.kindMessage");
+  const sent = direction === "sent";
+  const peerLabel = peerProvider === "opencode"
+    ? "OpenCode"
+    : peerProvider
+      ? peerProvider.charAt(0).toUpperCase() + peerProvider.slice(1)
+      : peerTitle || t("linkedAgent.agentFallback");
+
+  if (sent) {
+    if (status === "delivered") return null;
+    return (
+      <Message align="end" className="tw:my-1" role="status" aria-live="polite">
+        <MessageHeader className="tw:justify-end">
+          <Badge variant={status === "failed" ? "destructive" : "outline"}>
+            {status !== "failed" ? <LoaderCircleIcon className="tw:animate-spin" aria-hidden="true" /> : null}
+            {status === "failed"
+              ? t("linkedAgent.mentionFailed")
+              : t("linkedAgent.consulting", { provider: peerLabel })}
+          </Badge>
+        </MessageHeader>
+      </Message>
+    );
+  }
 
   return (
-    <div
-      className="tw my-2 rounded-[10px] border border-[var(--border)] bg-[var(--bg-elevated)] px-4 py-3 text-[13px] text-[var(--fg)]"
+    <Message
+      align="start"
+      className="tw:my-2"
       role="article"
-      aria-label={`${dirLabel} ${kindLabel}`}
+      aria-label={t("linkedAgent.replyFrom", { provider: peerLabel })}
     >
-      <div className="tw mb-2 flex flex-wrap items-center gap-2 text-[11px] text-[var(--muted)]">
-        <span className="tw font-medium text-[var(--fg2)]">{dirLabel}</span>
-        <span>·</span>
-        <span>{kindLabel}</span>
-        {peerProvider || peerTitle ? (
-          <>
-            <span>·</span>
-            <button
-              type="button"
-              className="tw text-[var(--fg2)] underline-offset-2 hover:underline"
-              onClick={onOpenPeer}
-            >
-              {[peerProvider, peerTitle].filter(Boolean).join(" — ")}
-            </button>
-          </>
-        ) : null}
-        <span className="tw ml-auto tabular-nums text-[var(--muted2)]">{status}</span>
-      </div>
-      <div className="tw whitespace-pre-wrap leading-[1.5] text-[var(--fg)]">{text}</div>
-    </div>
+      <MessageContent>
+        <MessageHeader>
+          <Badge variant="secondary">
+            <SparklesIcon data-icon="inline-start" aria-hidden="true" />
+            {peerLabel}
+          </Badge>
+        </MessageHeader>
+        <Bubble variant="tinted" align="start" onClick={onOpenPeer}>
+          <BubbleContent>
+            <span className="tw:whitespace-pre-wrap">{text}</span>
+          </BubbleContent>
+        </Bubble>
+      </MessageContent>
+    </Message>
   );
 }

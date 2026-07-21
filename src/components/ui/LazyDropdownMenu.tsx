@@ -23,7 +23,8 @@ const dropdownMenuModule = import("./DropdownMenuSurface").then((module) => {
 export type LazyDropdownMenuItem = {
   key: string
   label: ReactNode
-  onSelect: () => void
+  onSelect?: () => void
+  children?: LazyDropdownMenuItem[]
   destructive?: boolean
   disabled?: boolean
   separatorBefore?: boolean
@@ -58,13 +59,17 @@ export function LazyDropdownMenu(props: {
 
   const invoke = (item: LazyDropdownMenuItem) => {
     if (item.keepOpen) keepOpenRef.current = true
-    item.onSelect()
+    item.onSelect?.()
   }
 
-  const items = props.items.map((item) => ({
-    ...item,
-    onSelect: () => invoke(item),
-  }))
+  const bindItems = (source: LazyDropdownMenuItem[]): LazyDropdownMenuItem[] =>
+    source.map((item) => ({
+      ...item,
+      onSelect: item.children ? undefined : () => invoke(item),
+      children: item.children ? bindItems(item.children) : undefined,
+    }))
+
+  const items = bindItems(props.items)
 
   useEffect(() => {
     void dropdownMenuModule.then(() => setReady(true))

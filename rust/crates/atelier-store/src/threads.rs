@@ -52,10 +52,15 @@ pub struct AgentLink {
     pub paused: bool,
 }
 
-fn default_link_role() -> String { "collaborator".into() }
-fn default_link_access() -> String { "read_write".into() }
-fn default_link_created_by() -> String { "user".into() }
-
+fn default_link_role() -> String {
+    "collaborator".into()
+}
+fn default_link_access() -> String {
+    "read_write".into()
+}
+fn default_link_created_by() -> String {
+    "user".into()
+}
 
 fn default_provider() -> String {
     "claude".into()
@@ -242,7 +247,6 @@ impl ThreadStore {
         let data = serde_json::to_vec_pretty(&list).unwrap_or_else(|_| b"[]".to_vec());
         write_file_atomic(&self.file_path, data)
     }
-
 
     /// Children of `parent_id` derived from `agent_link.parent_thread_id`.
     pub fn children_of(&self, parent_id: &str) -> Vec<Thread> {

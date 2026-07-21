@@ -39,6 +39,17 @@ describe("route", () => {
     await route({ type: "nope" }, { send: (m) => sent.push(m) });
     expect(sent[0].type).toBe("error");
   });
+  it("refuse explicitement les mentions liées sur le backend Node", async () => {
+    const sent = [];
+    await route({ type: "mentionAgent", sourceThreadId: "a", targetProvider: "codex" }, {
+      send: (message) => sent.push(message),
+    });
+    expect(sent[0]).toMatchObject({
+      type: "error",
+      code: "feature_requires_rust_backend",
+      message: "feature_requires_rust_backend",
+    });
+  });
 
   it("getAgentHistory lit le rollout enfant Codex sans recopier le prompt parent", async () => {
     const sent = [];
