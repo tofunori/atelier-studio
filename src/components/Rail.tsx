@@ -84,8 +84,7 @@ export default function Rail(p: {
         event.stopPropagation();
       }}
       onPointerDown={(event) => {
-        if (!dispatchWorkspacePointerDragStart(event.nativeEvent, { kind: "surface", surface: s.id })) return;
-        event.currentTarget.setPointerCapture?.(event.pointerId);
+        dispatchWorkspacePointerDragStart(event.nativeEvent, { kind: "surface", surface: s.id });
       }}
     >
       <IconButton

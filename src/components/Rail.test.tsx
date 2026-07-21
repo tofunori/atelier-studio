@@ -111,16 +111,27 @@ describe("Rail — tiroir de surfaces", () => {
   });
 
   it("rend les surfaces glissables vers le workspace modulaire", () => {
-    renderUi(<Rail {...makeProps({ moreOpen: true })} />);
+    const props = makeProps({ moreOpen: true });
+    renderUi(<Rail {...props} />);
     const listener = vi.fn();
     window.addEventListener(WORKSPACE_POINTER_DRAG_START, listener);
+    const button = screen.getByRole("button", { name: t("atelier.biblio") });
+    const dragSource = button.parentElement!;
+    const setPointerCapture = vi.fn();
+    Object.defineProperty(dragSource, "setPointerCapture", { configurable: true, value: setPointerCapture });
 
-    fireEvent.pointerDown(screen.getByRole("button", { name: t("atelier.biblio") }).parentElement!, {
+    fireEvent.pointerDown(dragSource, {
       button: 0, clientX: 24, clientY: 160, pointerId: 7,
     });
 
     expect(listener).toHaveBeenCalledTimes(1);
     expect((listener.mock.calls[0][0] as CustomEvent).detail.ref).toEqual({ kind: "surface", surface: "biblio" });
+    // La capture sur le wrapper retargete le pointerup/click vers le <span>
+    // sous WebKit et avale le onClick du bouton. Les listeners globaux du drag
+    // n'en ont pas besoin : un appui simple doit rester un vrai clic.
+    expect(setPointerCapture).not.toHaveBeenCalled();
+    fireEvent.click(button);
+    expect(props.onSelectSurface).toHaveBeenCalledWith("biblio");
     window.removeEventListener(WORKSPACE_POINTER_DRAG_START, listener);
   });
 });

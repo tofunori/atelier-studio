@@ -14,8 +14,7 @@ function surfaceDragProps(surface: "git" | "browser" | "terminal") {
       event.stopPropagation();
     },
     onPointerDown: (event: React.PointerEvent<HTMLSpanElement>) => {
-      if (!dispatchWorkspacePointerDragStart(event.nativeEvent, { kind: "surface", surface })) return;
-      event.currentTarget.setPointerCapture?.(event.pointerId);
+      dispatchWorkspacePointerDragStart(event.nativeEvent, { kind: "surface", surface });
     },
   };
 }
