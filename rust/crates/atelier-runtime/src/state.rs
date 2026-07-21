@@ -261,6 +261,20 @@ impl AppState {
         self.inner.providers.get(id).cloned()
     }
 
+    /// Inject a deterministic provider into an otherwise production-shaped
+    /// state. Tests that exercise provider-gated flows must not depend on
+    /// whichever CLIs happen to be installed on the host running them.
+    #[cfg(test)]
+    pub(crate) fn with_test_provider(mut self, id: &str) -> Self {
+        let inner = Arc::get_mut(&mut self.inner)
+            .expect("test providers must be installed before AppState is cloned");
+        inner.providers.insert(
+            id.to_string(),
+            Arc::new(atelier_providers::FakeProvider::new(id)),
+        );
+        self
+    }
+
     pub fn client_instance_id(&self) -> &Mutex<Option<String>> {
         &self.inner.client_instance_id
     }

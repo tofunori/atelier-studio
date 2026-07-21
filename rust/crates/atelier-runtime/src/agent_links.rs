@@ -562,6 +562,7 @@ mod tests {
             "hash".into(),
             "/tmp".into(),
         )
+        .with_test_provider("codex")
     }
 
     #[tokio::test]
