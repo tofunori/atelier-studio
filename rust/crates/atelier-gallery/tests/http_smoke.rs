@@ -7,12 +7,16 @@ use std::{
     net::{TcpListener, TcpStream},
     path::PathBuf,
     process::{Child, Command, Stdio},
-    sync::atomic::{AtomicU64, Ordering},
+    sync::{
+        Mutex, MutexGuard,
+        atomic::{AtomicU64, Ordering},
+    },
     thread,
     time::{Duration, Instant},
 };
 
 static FIXTURE_SEQUENCE: AtomicU64 = AtomicU64::new(0);
+static SERVER_TEST_LOCK: Mutex<()> = Mutex::new(());
 
 fn free_port() -> u16 {
     TcpListener::bind("127.0.0.1:0")
@@ -70,6 +74,7 @@ struct Server {
     port: u16,
     #[allow(dead_code)]
     root: PathBuf,
+    _test_guard: MutexGuard<'static, ()>,
 }
 
 impl Drop for Server {
@@ -85,6 +90,14 @@ fn start_server() -> Server {
 }
 
 fn start_server_with(extra_env: &[(&str, String)]) -> Server {
+    // Each smoke test launches a real gallery server. Running all of those
+    // subprocesses concurrently makes the rescan/build test vulnerable to
+    // runner-level resource pressure and connection resets. Keep this binary's
+    // integration servers sequential while leaving the rest of the workspace
+    // test suite parallel.
+    let test_guard = SERVER_TEST_LOCK
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
     let root = std::env::temp_dir().join(format!(
         "atelier-http-smoke-{}-{}",
         std::process::id(),
@@ -168,7 +181,12 @@ fn start_server_with(extra_env: &[(&str, String)]) -> Server {
         }
         thread::sleep(Duration::from_millis(50));
     }
-    Server { child, port, root }
+    Server {
+        child,
+        port,
+        root,
+        _test_guard: test_guard,
+    }
 }
 
 #[test]
