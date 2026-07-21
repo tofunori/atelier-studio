@@ -3,6 +3,8 @@
 //! The bridge never persists SSH material and never exposes mutating commands.
 
 use serde::Serialize;
+use serde_json::Value;
+use std::collections::HashSet;
 use std::io::Read;
 use std::path::{Component, Path};
 use std::process::{Command, Stdio};
@@ -13,6 +15,7 @@ const MAX_STDOUT: usize = 2 * 1024 * 1024;
 const MAX_STDERR: usize = 64 * 1024;
 const SSH_TIMEOUT: Duration = Duration::from_secs(15);
 const MAX_DIRECTORY_ENTRIES: usize = 500;
+const MAX_RUN_FILES: usize = 300;
 const MAX_TAIL_LINES: u32 = 2_000;
 
 #[derive(Debug, Clone, Serialize, thiserror::Error)]
@@ -138,6 +141,34 @@ pub struct RemoteEntry {
     pub kind: String,
     pub size: u64,
     pub modified_at: f64,
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct RunFileEntry {
+    pub name: String,
+    pub path: String,
+    pub size: u64,
+    pub modified_at: f64,
+    pub attribution: String,
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct RunFileRoot {
+    pub path: String,
+    pub source: String,
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct NarvalRunFiles {
+    pub job_id: String,
+    pub work_dir: String,
+    pub roots: Vec<RunFileRoot>,
+    pub entries: Vec<RunFileEntry>,
+    pub truncated: bool,
+    pub observed_at_ms: u128,
 }
 
 #[derive(Debug, Clone, Serialize, PartialEq)]
@@ -372,12 +403,25 @@ pub fn parse_snapshot(profile: &str, output: &str) -> NarvalSnapshot {
         .map(|job| job.id.as_str())
         .collect::<std::collections::HashSet<_>>();
     let mut seen = std::collections::HashSet::new();
-    let recent = recent_raw
+    let mut recent = recent_raw
         .lines()
         .filter_map(|line| parse_job(&line.split('|').collect::<Vec<_>>(), true))
         .filter(|job| !active_ids.contains(job.id.as_str()) && seen.insert(job.id.clone()))
-        .take(50)
-        .collect();
+        .collect::<Vec<_>>();
+    recent.sort_by(|a, b| {
+        let a_date = if a.ended_at.is_empty() || a.ended_at == "Unknown" {
+            &a.started_at
+        } else {
+            &a.ended_at
+        };
+        let b_date = if b.ended_at.is_empty() || b.ended_at == "Unknown" {
+            &b.started_at
+        } else {
+            &b.ended_at
+        };
+        b_date.cmp(a_date).then_with(|| b.id.cmp(&a.id))
+    });
+    recent.truncate(300);
     NarvalSnapshot {
         profile: profile.into(),
         active,
@@ -386,11 +430,15 @@ pub fn parse_snapshot(profile: &str, output: &str) -> NarvalSnapshot {
     }
 }
 
-pub fn snapshot(profile_id: &str) -> Result<NarvalSnapshot, NarvalError> {
+pub fn snapshot(profile_id: &str, days: u32) -> Result<NarvalSnapshot, NarvalError> {
     let profile = NarvalProfile::from_env(profile_id)?;
+    let days = days.clamp(1, 90);
+    let command = format!(
+        "squeue --noheader --me --format='%i|%j|%T|%M|%C|%P|%R|%Z'; printf '__ATELIER_RECENT__\\n'; sacct -X --allocations --starttime now-{days}days --user=\"$USER\" --noheader --parsable2 --format=JobIDRaw,JobName,State,Elapsed,AllocCPUS,Partition,Start,End,WorkDir 2>/dev/null || true"
+    );
     let output = run_ssh(
         &profile,
-        "squeue --noheader --me --format='%i|%j|%T|%M|%C|%P|%R|%Z'; printf '__ATELIER_RECENT__\\n'; sacct -X --allocations --starttime now-7days --user=\"$USER\" --noheader --parsable2 --format=JobIDRaw,JobName,State,Elapsed,AllocCPUS,Partition,Start,End,WorkDir 2>/dev/null || true",
+        &command,
     )?;
     Ok(parse_snapshot(profile_id, &output))
 }
@@ -495,6 +543,236 @@ pub fn inspect_job(profile_id: &str, job_id: &str) -> Result<SlurmJobDetail, Nar
     parse_job_detail(&output).ok_or_else(|| NarvalError::new("not_found", "job Slurm introuvable"))
 }
 
+fn resolve_remote_path(work_dir: &str, path: &str) -> String {
+    if path.starts_with('/') {
+        path.to_string()
+    } else {
+        format!("{}/{}", work_dir.trim_end_matches('/'), path)
+    }
+}
+
+fn clean_logged_path(raw: &str) -> Option<String> {
+    let path = raw
+        .trim()
+        .trim_matches(['\'', '"'])
+        .trim_end_matches([',', ';']);
+    path.starts_with('/').then(|| path.to_string())
+}
+
+pub fn extract_run_roots(log: &str) -> Vec<RunFileRoot> {
+    let mut declared = Vec::new();
+    let mut run_roots = Vec::new();
+    let mut seen = HashSet::new();
+    for token in log.lines().flat_map(str::split_whitespace) {
+        let token = token.trim_matches(['[', ']']);
+        let (source, raw) = ["output_root=", "output_dir=", "out_dir=", "out="]
+            .iter()
+            .find_map(|prefix| token.strip_prefix(prefix).map(|value| ("declared", value)))
+            .or_else(|| token.strip_prefix("run_root=").map(|value| ("run-root", value)))
+            .unwrap_or(("", ""));
+        let Some(path) = clean_logged_path(raw) else {
+            continue;
+        };
+        if !seen.insert(path.clone()) {
+            continue;
+        }
+        let candidate = RunFileRoot {
+            path,
+            source: source.into(),
+        };
+        if source == "declared" {
+            declared.push(candidate);
+        } else {
+            run_roots.push(candidate);
+        }
+    }
+    if declared.is_empty() {
+        run_roots
+    } else {
+        declared
+    }
+}
+
+pub fn parse_run_manifest(raw: &str, work_dir: &str) -> Vec<String> {
+    let Ok(value) = serde_json::from_str::<Value>(raw.trim()) else {
+        return Vec::new();
+    };
+    let values = match &value {
+        Value::Array(values) => values.as_slice(),
+        Value::Object(object) => object
+            .get("outputs")
+            .and_then(Value::as_array)
+            .map(Vec::as_slice)
+            .unwrap_or(&[]),
+        _ => &[],
+    };
+    let mut seen = HashSet::new();
+    values
+        .iter()
+        .filter_map(|value| {
+            value.as_str().or_else(|| {
+                value
+                    .as_object()
+                    .and_then(|object| object.get("path"))
+                    .and_then(Value::as_str)
+            })
+        })
+        .map(|path| resolve_remote_path(work_dir, path))
+        .filter(|path| seen.insert(path.clone()))
+        .take(MAX_RUN_FILES)
+        .collect()
+}
+
+pub fn parse_run_file_records(raw: &str, attribution: &str) -> Vec<RunFileEntry> {
+    raw.lines()
+        .filter_map(|line| {
+            let fields = line.split('\x1f').collect::<Vec<_>>();
+            let path = fields.first()?.trim();
+            if !path.starts_with('/') {
+                return None;
+            }
+            Some(RunFileEntry {
+                name: Path::new(path)
+                    .file_name()
+                    .and_then(|name| name.to_str())
+                    .unwrap_or(path)
+                    .to_string(),
+                path: path.to_string(),
+                size: fields.get(1).unwrap_or(&"0").parse().unwrap_or(0),
+                modified_at: fields.get(2).unwrap_or(&"0").parse().unwrap_or(0.0),
+                attribution: attribution.into(),
+            })
+        })
+        .collect()
+}
+
+fn split_run_probe(output: &str) -> (&str, &str) {
+    let content = output
+        .strip_prefix("__ATELIER_LOG__\n")
+        .unwrap_or(output);
+    content
+        .rsplit_once("\n__ATELIER_MANIFEST__\n")
+        .unwrap_or((content, ""))
+}
+
+pub fn run_files(profile_id: &str, job_id: &str) -> Result<NarvalRunFiles, NarvalError> {
+    if job_id.is_empty() || !job_id.bytes().all(|byte| byte.is_ascii_digit()) {
+        return Err(NarvalError::new(
+            "invalid_job",
+            "identifiant Slurm invalide",
+        ));
+    }
+    let profile = NarvalProfile::from_env(profile_id)?;
+    let detail = inspect_job(profile_id, job_id)?;
+    let work_dir = profile.validate_path(&detail.job.work_dir)?;
+    let stdout_path = profile.validate_path(&resolve_remote_path(&work_dir, &detail.stdout_path))?;
+    let stderr_path = profile.validate_path(&resolve_remote_path(&work_dir, &detail.stderr_path))?;
+    let manifest_paths = [
+        format!("{work_dir}/.atelier-run-{job_id}.json"),
+        format!("{work_dir}/atelier-run-{job_id}.json"),
+    ];
+    let probe_command = format!(
+        "printf '__ATELIER_LOG__\\n'; head -n 800 -- {} 2>/dev/null || true; printf '\\n__ATELIER_MANIFEST__\\n'; for f in {} {}; do if [ -f \"$f\" ]; then head -c {} -- \"$f\"; break; fi; done",
+        shell_quote(&stdout_path),
+        shell_quote(&manifest_paths[0]),
+        shell_quote(&manifest_paths[1]),
+        MAX_STDOUT,
+    );
+    let probe = run_ssh(&profile, &probe_command)?;
+    let (log, manifest_raw) = split_run_probe(&probe);
+
+    let mut roots = extract_run_roots(log)
+        .into_iter()
+        .filter_map(|root| {
+            profile
+                .validate_path(&root.path)
+                .ok()
+                .map(|path| RunFileRoot { path, ..root })
+        })
+        .collect::<Vec<_>>();
+    if roots.is_empty() {
+        roots.push(RunFileRoot {
+            path: work_dir.clone(),
+            source: "work-dir".into(),
+        });
+    }
+
+    let confirmed_paths = parse_run_manifest(manifest_raw, &work_dir)
+        .into_iter()
+        .filter_map(|path| profile.validate_path(&path).ok())
+        .collect::<Vec<_>>();
+    let start_known = !detail.job.started_at.is_empty()
+        && !detail.job.started_at.eq_ignore_ascii_case("unknown");
+    let end_known = !detail.job.ended_at.is_empty()
+        && !detail.job.ended_at.eq_ignore_ascii_case("unknown");
+
+    let mut scan_command = String::from("printf '__ATELIER_CONFIRMED__\\n'; ");
+    for path in &confirmed_paths {
+        scan_command.push_str(&format!(
+            "if [ -f {0} ]; then stat -c '%n\\037%s\\037%Y' -- {0}; fi; ",
+            shell_quote(path)
+        ));
+    }
+    scan_command.push_str("printf '__ATELIER_PROBABLE__\\n'; ");
+    if start_known {
+        scan_command.push_str("{ ");
+        for root in &roots {
+            let depth = if root.source == "work-dir" { 3 } else { 6 };
+            let end_filter = if end_known {
+                format!(
+                    " ! -newermt {}",
+                    shell_quote(&format!("{} + 2 minutes", detail.job.ended_at))
+                )
+            } else {
+                String::new()
+            };
+            scan_command.push_str(&format!(
+                "find {} -mindepth 1 -maxdepth {} -type f -newermt {}{} -printf '%p\\037%s\\037%T@\\n' 2>/dev/null; ",
+                shell_quote(&root.path),
+                depth,
+                shell_quote(&format!("{} - 2 minutes", detail.job.started_at)),
+                end_filter,
+            ));
+        }
+        scan_command.push_str(&format!("}} | head -n {};", MAX_RUN_FILES + 1));
+    }
+    let scan = run_ssh(&profile, &scan_command)?;
+    let (confirmed_raw, probable_raw) = scan
+        .strip_prefix("__ATELIER_CONFIRMED__\n")
+        .unwrap_or(&scan)
+        .split_once("__ATELIER_PROBABLE__\n")
+        .unwrap_or(("", ""));
+    let confirmed = parse_run_file_records(confirmed_raw, "confirmed");
+    let probable = parse_run_file_records(probable_raw, "probable");
+    let truncated = probable.len() > MAX_RUN_FILES;
+    let excluded = [stdout_path, stderr_path]
+        .into_iter()
+        .chain(manifest_paths)
+        .collect::<HashSet<_>>();
+    let mut seen = HashSet::new();
+    let mut entries = confirmed
+        .into_iter()
+        .chain(probable)
+        .filter(|entry| !excluded.contains(&entry.path) && seen.insert(entry.path.clone()))
+        .collect::<Vec<_>>();
+    entries.sort_by(|a, b| {
+        (b.attribution == "confirmed")
+            .cmp(&(a.attribution == "confirmed"))
+            .then_with(|| b.modified_at.total_cmp(&a.modified_at))
+            .then_with(|| a.name.to_lowercase().cmp(&b.name.to_lowercase()))
+    });
+    entries.truncate(MAX_RUN_FILES);
+
+    Ok(NarvalRunFiles {
+        job_id: job_id.into(),
+        work_dir,
+        roots,
+        entries,
+        truncated,
+        observed_at_ms: observed_at_ms(),
+    })
+}
+
 fn text_extension_allowed(path: &str) -> bool {
     let lower = path.to_ascii_lowercase();
     [
@@ -541,12 +819,14 @@ mod tests {
              65659021|M42l-fit|RUNNING|1:43:18|32|cpubase|None|/home/u/m42l\n\
              __ATELIER_RECENT__\n\
              65659021|M42l-fit|RUNNING|01:43:18|32|cpubase|2026-07-15T09:58|Unknown|/home/u/m42l\n\
-             65648210|M40-final|COMPLETED|04:18:02|16|cpubase|2026-07-14T22:17|2026-07-15T02:35|/home/u/m40\n",
+             65648210|M40-final|COMPLETED|04:18:02|16|cpubase|2026-07-14T22:17|2026-07-15T02:35|/home/u/m40\n\
+             65658211|M41-newer|FAILED|00:18:02|16|cpubase|2026-07-15T07:17|2026-07-15T07:35|/home/u/m41\n",
         );
         assert_eq!(snapshot.active.len(), 2);
         assert_eq!(snapshot.active[0].reason, "Priority");
-        assert_eq!(snapshot.recent.len(), 1);
-        assert_eq!(snapshot.recent[0].id, "65648210");
+        assert_eq!(snapshot.recent.len(), 2);
+        assert_eq!(snapshot.recent[0].id, "65658211");
+        assert_eq!(snapshot.recent[1].id, "65648210");
     }
 
     #[test]
@@ -581,5 +861,30 @@ mod tests {
         assert_eq!(detail.job.id, "65659188");
         assert_eq!(detail.requested_memory, "64G");
         assert_eq!(detail.stdout_path, "slurm-65659188.out");
+    }
+
+    #[test]
+    fn run_roots_prefer_declared_output_directories() {
+        let roots = extract_run_roots(
+            "[env] run_root=/home/u/scratch/run\n[run] response=a out=/home/u/scratch/run/model_outputs/a\n",
+        );
+        assert_eq!(roots.len(), 1);
+        assert_eq!(roots[0].path, "/home/u/scratch/run/model_outputs/a");
+        assert_eq!(roots[0].source, "declared");
+    }
+
+    #[test]
+    fn run_manifest_resolves_relative_outputs_and_records_keep_attribution() {
+        let paths = parse_run_manifest(
+            r#"{"outputs":["fit.csv",{"path":"/home/u/run/figure.png"}]}"#,
+            "/home/u/run",
+        );
+        assert_eq!(paths, vec!["/home/u/run/fit.csv", "/home/u/run/figure.png"]);
+        let records = parse_run_file_records(
+            "/home/u/run/fit.csv\x1f42\x1f123.5\n",
+            "confirmed",
+        );
+        assert_eq!(records[0].name, "fit.csv");
+        assert_eq!(records[0].attribution, "confirmed");
     }
 }

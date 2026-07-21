@@ -1457,6 +1457,7 @@ export async function route(msg, ctx) {
     case "narvalSnapshot":
     case "narvalListDirectory":
     case "narvalInspectJob":
+    case "narvalRunFiles":
     case "narvalReadText": {
       const requestId = msg.requestId ?? null;
       const types = {
@@ -1464,14 +1465,16 @@ export async function route(msg, ctx) {
         narvalSnapshot: "narvalSnapshot",
         narvalListDirectory: "narvalDirectory",
         narvalInspectJob: "narvalJobDetail",
+        narvalRunFiles: "narvalRunFiles",
         narvalReadText: "narvalText",
       };
       try {
         let data;
         if (msg.type === "narvalStatus") data = await narval.status(msg.profile);
-        else if (msg.type === "narvalSnapshot") data = await narval.snapshot(msg.profile);
+        else if (msg.type === "narvalSnapshot") data = await narval.snapshot(msg.profile, msg.days);
         else if (msg.type === "narvalListDirectory") data = await narval.listDirectory(msg.profile, msg.path);
         else if (msg.type === "narvalInspectJob") data = await narval.inspectJob(msg.profile, msg.jobId);
+        else if (msg.type === "narvalRunFiles") data = await narval.runFiles(msg.profile, msg.jobId);
         else data = await narval.readText(msg.profile, msg.path, msg.tailLines);
         ctx.send({ type: types[msg.type], requestId, ...(msg.path ? { path: msg.path } : {}), data });
       } catch (error) {

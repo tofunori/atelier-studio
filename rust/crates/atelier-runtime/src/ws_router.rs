@@ -12,7 +12,7 @@ use atelier_workspace::{
     delete_branch as git_delete_branch, diff as git_diff, diff_contents as git_diff_contents,
     diff_staged as git_diff_staged, fetch_all as git_fetch_all, ignore_pattern, list_commands, list_file_catalog, list_pasted, log as git_log,
     merge_branch as git_merge_branch, narval_inspect_job, narval_list_directory, narval_read_text,
-    narval_snapshot, narval_status, pdf_absolute_path, pull as git_pull, push as git_push,
+    narval_run_files, narval_snapshot, narval_status, pdf_absolute_path, pull as git_pull, push as git_push,
     reset_to_commit as git_reset_to_commit, restore as git_restore,
     restore_file_from_commit as git_restore_file_from_commit, revert_commit as git_revert_commit,
     revert_file, save_image, scan_local, stage_files, status as git_status,
@@ -52,6 +52,7 @@ pub const ALL_MESSAGE_TYPES: &[&str] = &[
     "narvalSnapshot",
     "narvalListDirectory",
     "narvalInspectJob",
+    "narvalRunFiles",
     "narvalReadText",
     "listCommands",
     "listPlugins",
@@ -446,10 +447,15 @@ pub async fn route_ws(state: &AppState, text: &str) -> Vec<String> {
                 .unwrap_or("narval")
                 .to_string();
             let request_id = msg.get("requestId").cloned().unwrap_or(Value::Null);
+            let days = msg
+                .get("days")
+                .and_then(Value::as_u64)
+                .unwrap_or(7)
+                .clamp(1, 90) as u32;
             narval_reply(
                 "narvalSnapshot",
                 request_id,
-                tokio::task::spawn_blocking(move || narval_snapshot(&profile)).await,
+                tokio::task::spawn_blocking(move || narval_snapshot(&profile, days)).await,
             )
         }
         "narvalListDirectory" => {
@@ -488,6 +494,24 @@ pub async fn route_ws(state: &AppState, text: &str) -> Vec<String> {
                 "narvalJobDetail",
                 request_id,
                 tokio::task::spawn_blocking(move || narval_inspect_job(&profile, &job_id)).await,
+            )
+        }
+        "narvalRunFiles" => {
+            let profile = msg
+                .get("profile")
+                .and_then(Value::as_str)
+                .unwrap_or("narval")
+                .to_string();
+            let job_id = msg
+                .get("jobId")
+                .and_then(Value::as_str)
+                .unwrap_or("")
+                .to_string();
+            let request_id = msg.get("requestId").cloned().unwrap_or(Value::Null);
+            narval_reply(
+                "narvalRunFiles",
+                request_id,
+                tokio::task::spawn_blocking(move || narval_run_files(&profile, &job_id)).await,
             )
         }
         "narvalReadText" => {

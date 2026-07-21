@@ -3,6 +3,7 @@ import { promisify } from "node:util";
 
 const execFileAsync = promisify(execFile);
 const MAX_BUFFER = 2 * 1024 * 1024;
+const MAX_RUN_FILES = 300;
 const ALLOWED_TEXT = [".out", ".err", ".log", ".txt", ".md", ".json", ".csv", ".tsv", ".yaml", ".yml", ".toml", ".sh", ".py", ".r", ".jl"];
 
 export function profile(profileId = "narval") {
@@ -92,7 +93,12 @@ export function parseSnapshot(profileId, output) {
   const recent = recentRaw.split("\n")
     .map((line) => parseJob(line.split("|"), true))
     .filter((job) => job && !activeIds.has(job.id) && !seen.has(job.id) && seen.add(job.id))
-    .slice(0, 50);
+    .sort((a, b) => {
+      const aDate = a.endedAt && a.endedAt !== "Unknown" ? a.endedAt : a.startedAt;
+      const bDate = b.endedAt && b.endedAt !== "Unknown" ? b.endedAt : b.startedAt;
+      return bDate.localeCompare(aDate) || b.id.localeCompare(a.id);
+    })
+    .slice(0, 300);
   return { profile: profileId, active, recent, observedAtMs: Date.now() };
 }
 
@@ -105,9 +111,10 @@ export async function status(profileId = "narval") {
   return { profile: p.id, host: p.host, gateway: p.gateway, home, roots, connected: true, slurmAvailable: lines.includes("slurm=1"), observedAtMs: Date.now() };
 }
 
-export async function snapshot(profileId = "narval") {
+export async function snapshot(profileId = "narval", rawDays = 7) {
   const p = profile(profileId);
-  const output = await ssh(p, "squeue --noheader --me --format='%i|%j|%T|%M|%C|%P|%R|%Z'; printf '__ATELIER_RECENT__\\n'; sacct -X --allocations --starttime now-7days --user=\"$USER\" --noheader --parsable2 --format=JobIDRaw,JobName,State,Elapsed,AllocCPUS,Partition,Start,End,WorkDir 2>/dev/null || true");
+  const days = Math.max(1, Math.min(90, Number.parseInt(String(rawDays), 10) || 7));
+  const output = await ssh(p, `squeue --noheader --me --format='%i|%j|%T|%M|%C|%P|%R|%Z'; printf '__ATELIER_RECENT__\\n'; sacct -X --allocations --starttime now-${days}days --user="$USER" --noheader --parsable2 --format=JobIDRaw,JobName,State,Elapsed,AllocCPUS,Partition,Start,End,WorkDir 2>/dev/null || true`);
   return parseSnapshot(profileId, output);
 }
 
@@ -150,6 +157,117 @@ export async function inspectJob(profileId, jobId) {
   const detail = parseJobDetail(output);
   if (!detail) throw typed("not_found", "job Slurm introuvable");
   return detail;
+}
+
+function resolveRemotePath(workDir, path) {
+  if (String(path || "").startsWith("/")) return String(path);
+  return `${String(workDir || "").replace(/\/$/, "")}/${String(path || "")}`;
+}
+
+function cleanLoggedPath(raw) {
+  const path = String(raw || "").trim().replace(/^['"]|['"]$/g, "").replace(/[,;]$/, "");
+  return path.startsWith("/") ? path : "";
+}
+
+export function extractRunRoots(log) {
+  const declared = [];
+  const runRoots = [];
+  const seen = new Set();
+  for (const tokenValue of String(log || "").split(/\s+/)) {
+    const token = tokenValue.replace(/^\[|\]$/g, "");
+    const declaredPrefix = ["output_root=", "output_dir=", "out_dir=", "out="].find((prefix) => token.startsWith(prefix));
+    const source = declaredPrefix ? "declared" : token.startsWith("run_root=") ? "run-root" : "";
+    const prefix = declaredPrefix || (source ? "run_root=" : "");
+    const path = cleanLoggedPath(prefix ? token.slice(prefix.length) : "");
+    if (!path || seen.has(path)) continue;
+    seen.add(path);
+    (source === "declared" ? declared : runRoots).push({ path, source });
+  }
+  return declared.length ? declared : runRoots;
+}
+
+export function parseRunManifest(raw, workDir) {
+  let value;
+  try { value = JSON.parse(String(raw || "").trim()); } catch { return []; }
+  const values = Array.isArray(value) ? value : Array.isArray(value?.outputs) ? value.outputs : [];
+  return [...new Set(values.flatMap((entry) => {
+    const path = typeof entry === "string" ? entry : typeof entry?.path === "string" ? entry.path : "";
+    return path ? [resolveRemotePath(workDir, path)] : [];
+  }))].slice(0, MAX_RUN_FILES);
+}
+
+export function parseRunFileRecords(raw, attribution) {
+  return String(raw || "").split("\n").flatMap((line) => {
+    const [path, rawSize, rawModified] = line.split("\x1f");
+    if (!path?.startsWith("/")) return [];
+    return [{
+      name: path.split("/").filter(Boolean).pop() || path,
+      path,
+      size: Number(rawSize) || 0,
+      modifiedAt: Number(rawModified) || 0,
+      attribution,
+    }];
+  });
+}
+
+function boundedDate(value, deltaMs) {
+  const epoch = Date.parse(String(value || ""));
+  return Number.isFinite(epoch) ? new Date(epoch + deltaMs).toISOString() : "";
+}
+
+export async function runFiles(profileId, jobId) {
+  if (!/^\d+$/.test(String(jobId))) throw typed("invalid_job", "identifiant Slurm invalide");
+  const p = profile(profileId);
+  const detail = await inspectJob(profileId, jobId);
+  const workDir = validPath(p, detail.job.workDir);
+  const stdoutPath = validPath(p, resolveRemotePath(workDir, detail.stdoutPath));
+  const stderrPath = validPath(p, resolveRemotePath(workDir, detail.stderrPath));
+  const manifestPaths = [`${workDir}/.atelier-run-${jobId}.json`, `${workDir}/atelier-run-${jobId}.json`];
+  const probe = await ssh(p, `printf '__ATELIER_LOG__\n'; head -n 800 -- ${shellQuote(stdoutPath)} 2>/dev/null || true; printf '\n__ATELIER_MANIFEST__\n'; for f in ${manifestPaths.map(shellQuote).join(" ")}; do if [ -f "$f" ]; then head -c ${MAX_BUFFER} -- "$f"; break; fi; done`);
+  const content = probe.startsWith("__ATELIER_LOG__\n") ? probe.slice("__ATELIER_LOG__\n".length) : probe;
+  const marker = "\n__ATELIER_MANIFEST__\n";
+  const markerAt = content.lastIndexOf(marker);
+  const log = markerAt >= 0 ? content.slice(0, markerAt) : content;
+  const manifestRaw = markerAt >= 0 ? content.slice(markerAt + marker.length) : "";
+  let roots = extractRunRoots(log).flatMap((root) => {
+    try { return [{ ...root, path: validPath(p, root.path) }]; } catch { return []; }
+  });
+  if (!roots.length) roots = [{ path: workDir, source: "work-dir" }];
+  const confirmedPaths = parseRunManifest(manifestRaw, workDir).flatMap((path) => {
+    try { return [validPath(p, path)]; } catch { return []; }
+  });
+  const start = boundedDate(detail.job.startedAt, -120_000);
+  const end = boundedDate(detail.job.endedAt, 120_000);
+  let scanCommand = "printf '__ATELIER_CONFIRMED__\\n'; ";
+  for (const path of confirmedPaths) {
+    scanCommand += `if [ -f ${shellQuote(path)} ]; then stat -c '%n\\037%s\\037%Y' -- ${shellQuote(path)}; fi; `;
+  }
+  scanCommand += "printf '__ATELIER_PROBABLE__\\n'; ";
+  if (start) {
+    scanCommand += "{ ";
+    for (const root of roots) {
+      const depth = root.source === "work-dir" ? 3 : 6;
+      const endFilter = end ? ` ! -newermt ${shellQuote(end)}` : "";
+      scanCommand += `find ${shellQuote(root.path)} -mindepth 1 -maxdepth ${depth} -type f -newermt ${shellQuote(start)}${endFilter} -printf '%p\\037%s\\037%T@\\n' 2>/dev/null; `;
+    }
+    scanCommand += `} | head -n ${MAX_RUN_FILES + 1};`;
+  }
+  const scan = await ssh(p, scanCommand);
+  const scanContent = scan.startsWith("__ATELIER_CONFIRMED__\n") ? scan.slice("__ATELIER_CONFIRMED__\n".length) : scan;
+  const [confirmedRaw = "", probableRaw = ""] = scanContent.split("__ATELIER_PROBABLE__\n", 2);
+  const confirmed = parseRunFileRecords(confirmedRaw, "confirmed");
+  const probable = parseRunFileRecords(probableRaw, "probable");
+  const excluded = new Set([stdoutPath, stderrPath, ...manifestPaths]);
+  const seen = new Set();
+  const entries = [...confirmed, ...probable]
+    .filter((entry) => !excluded.has(entry.path) && !seen.has(entry.path) && seen.add(entry.path))
+    .sort((a, b) => Number(b.attribution === "confirmed") - Number(a.attribution === "confirmed") || b.modifiedAt - a.modifiedAt || a.name.localeCompare(b.name))
+    .slice(0, MAX_RUN_FILES);
+  return {
+    jobId: String(jobId), workDir, roots, entries,
+    truncated: probable.length > MAX_RUN_FILES,
+    observedAtMs: Date.now(),
+  };
 }
 
 export async function readText(profileId, rawPath, tailLines = 400) {

@@ -12,6 +12,7 @@ import {
 } from "lucide-react";
 import { t } from "../lib/i18n";
 import { wsSend } from "../lib/wsBus";
+import { SidebarIcon } from "./icons";
 import { Alert, AlertDescription, AlertTitle } from "./shadcn/alert";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "./shadcn/collapsible";
 import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from "./shadcn/empty";
@@ -20,13 +21,13 @@ import { ScrollArea } from "./shadcn/scroll-area";
 import { Separator } from "./shadcn/separator";
 import { Skeleton } from "./shadcn/skeleton";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "./shadcn/tabs";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "./shadcn/table";
 import { Button } from "./ui/Button";
 import { StatusBadge } from "./ui/StatusBadge";
-import { RowButton } from "./ui";
+import { IconButton, RowButton, SegmentedControl } from "./ui";
 
 const PROFILE = "narval";
 const POLL_MS = 30_000;
+const RUN_PAGE_SIZE = 25;
 
 type NarvalError = { code: string; message: string };
 type NarvalStatus = {
@@ -67,6 +68,22 @@ type JobDetail = {
   stderrPath: string;
 };
 type TextPreview = { path: string; content: string; truncated: boolean; observedAtMs: number };
+type RunFileEntry = {
+  name: string;
+  path: string;
+  size: number;
+  modifiedAt: number;
+  attribution: "confirmed" | "probable";
+};
+type RunFileRoot = { path: string; source: "declared" | "run-root" | "work-dir" };
+type RunFiles = {
+  jobId: string;
+  workDir: string;
+  roots: RunFileRoot[];
+  entries: RunFileEntry[];
+  truncated: boolean;
+  observedAtMs: number;
+};
 type NarvalMessage = {
   type: string;
   requestId?: string;
@@ -74,6 +91,7 @@ type NarvalMessage = {
   data?: unknown;
   error?: NarvalError;
 };
+type RunStateFilter = "all" | "completed" | "failed" | "cancelled";
 
 function requestId() {
   return crypto.randomUUID();
@@ -90,6 +108,20 @@ function statusTone(state: string): "neutral" | "running" | "success" | "warning
 
 function displayState(state: string) {
   return state.replace(/_/g, " ");
+}
+
+function runTimestamp(job: SlurmJob) {
+  const raw = job.endedAt && job.endedAt !== "Unknown" ? job.endedAt : job.startedAt;
+  const parsed = Date.parse(raw);
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function matchesRunState(job: SlurmJob, filter: RunStateFilter) {
+  const state = job.state.toUpperCase();
+  if (filter === "all") return true;
+  if (filter === "completed") return state === "COMPLETED";
+  if (filter === "cancelled") return state === "CANCELLED";
+  return ["FAILED", "TIMEOUT", "OUT_OF_MEMORY", "NODE_FAIL", "PREEMPTED", "BOOT_FAIL", "DEADLINE", "REVOKED"].includes(state);
 }
 
 function resolvePath(workDir: string, path: string) {
@@ -110,6 +142,12 @@ function remoteName(path: string) {
   return path.split("/").filter(Boolean).pop() || path;
 }
 
+function formatRemoteTimestamp(seconds: number) {
+  if (!seconds) return "";
+  return new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "short" })
+    .format(new Date(seconds * 1_000));
+}
+
 function sshTerminalCommand(status: NarvalStatus | null) {
   const host = status?.host ?? "narval-vpn";
   const gateway = status ? status.gateway : "nas";
@@ -128,17 +166,26 @@ export default function NarvalSurface({ visible, onOpenTerminal }: {
   const [selectedJobId, setSelectedJobId] = useState<string | null>(null);
   const [detail, setDetail] = useState<JobDetail | null>(null);
   const [preview, setPreview] = useState<TextPreview | null>(null);
+  const [runFiles, setRunFiles] = useState<RunFiles | null>(null);
+  const [runFilesError, setRunFilesError] = useState<string | null>(null);
   const [selectedPath, setSelectedPath] = useState<string | null>(null);
   const [query, setQuery] = useState("");
+  const [runQuery, setRunQuery] = useState("");
+  const [runStateFilter, setRunStateFilter] = useState<RunStateFilter>("all");
+  const [runDays, setRunDays] = useState(30);
+  const [visibleRunCount, setVisibleRunCount] = useState(RUN_PAGE_SIZE);
+  const [filesOpen, setFilesOpen] = useState(true);
   const [loading, setLoading] = useState(false);
   const [detailLoading, setDetailLoading] = useState(false);
   const [previewLoading, setPreviewLoading] = useState(false);
+  const [runFilesLoading, setRunFilesLoading] = useState(false);
   const [error, setError] = useState<NarvalError | null>(null);
   const [tab, setTab] = useState("overview");
   const statusRequest = useRef<string | null>(null);
   const snapshotRequest = useRef<string | null>(null);
   const detailRequest = useRef<string | null>(null);
   const textRequest = useRef<string | null>(null);
+  const runFilesRequest = useRef<string | null>(null);
   const directoryRequests = useRef(new Map<string, string>());
 
   const selectedJob = useMemo(
@@ -169,8 +216,8 @@ export default function NarvalSurface({ visible, onOpenTerminal }: {
     const id = requestId();
     snapshotRequest.current = id;
     setLoading(true);
-    wsSend({ type: "narvalSnapshot", profile: PROFILE, requestId: id });
-  }, []);
+    wsSend({ type: "narvalSnapshot", profile: PROFILE, days: runDays, requestId: id });
+  }, [runDays]);
 
   const refresh = () => {
     requestStatus();
@@ -181,12 +228,21 @@ export default function NarvalSurface({ visible, onOpenTerminal }: {
     setSelectedJobId(job.id);
     setDetail(null);
     setPreview(null);
+    setRunFiles(null);
+    setRunFilesError(null);
     setSelectedPath(null);
     setDetailLoading(true);
+    setRunFilesLoading(true);
     setTab("overview");
     const id = requestId();
     detailRequest.current = id;
     wsSend({ type: "narvalInspectJob", profile: PROFILE, jobId: job.id, requestId: id });
+    const filesId = requestId();
+    runFilesRequest.current = filesId;
+    if (!wsSend({ type: "narvalRunFiles", profile: PROFILE, jobId: job.id, requestId: filesId })) {
+      setRunFilesLoading(false);
+      setRunFilesError(t("narval.sidecar-offline"));
+    }
   }, []);
 
   const readText = useCallback((path: string) => {
@@ -249,6 +305,11 @@ export default function NarvalSurface({ visible, onOpenTerminal }: {
         if (msg.error) { setError(msg.error); return; }
         setPreview(msg.data as TextPreview);
       }
+      if (msg.type === "narvalRunFiles" && msg.requestId === runFilesRequest.current) {
+        setRunFilesLoading(false);
+        if (msg.error) { setRunFilesError(msg.error.message); return; }
+        setRunFiles(msg.data as RunFiles);
+      }
     };
     window.addEventListener("narval-message", onMessage);
     return () => window.removeEventListener("narval-message", onMessage);
@@ -261,6 +322,10 @@ export default function NarvalSurface({ visible, onOpenTerminal }: {
     const timer = window.setInterval(() => requestSnapshot(), POLL_MS);
     return () => window.clearInterval(timer);
   }, [requestSnapshot, requestStatus, visible]);
+
+  useEffect(() => {
+    setVisibleRunCount(RUN_PAGE_SIZE);
+  }, [runDays, runQuery, runStateFilter]);
 
   const toggleDirectory = (path: string, open: boolean) => {
     setExpanded((current) => {
@@ -311,17 +376,38 @@ export default function NarvalSurface({ visible, onOpenTerminal }: {
   const matches = query.trim()
     ? loadedEntries.filter((entry) => entry.path.toLowerCase().includes(query.trim().toLowerCase())).slice(0, 200)
     : null;
-  const outputEntries = detail?.job.workDir ? directories[detail.job.workDir] ?? [] : [];
+  const confirmedFiles = runFiles?.entries.filter((entry) => entry.attribution === "confirmed") ?? [];
+  const probableFiles = runFiles?.entries.filter((entry) => entry.attribution === "probable") ?? [];
+  const filteredRecentRuns = useMemo(() => {
+    const normalizedQuery = runQuery.trim().toLowerCase();
+    return [...(snapshot?.recent ?? [])]
+      .sort((a, b) => runTimestamp(b) - runTimestamp(a) || b.id.localeCompare(a.id))
+      .filter((job) => matchesRunState(job, runStateFilter))
+      .filter((job) => !normalizedQuery || job.name.toLowerCase().includes(normalizedQuery) || job.id.toLowerCase().includes(normalizedQuery));
+  }, [runQuery, runStateFilter, snapshot]);
+  const visibleRecentRuns = filteredRecentRuns.slice(0, visibleRunCount);
 
   return (
-    <div className="narval-surface" data-visible={visible}>
-      <aside className="narval-files" aria-label={t("narval.remote-files")}>
+    <div className="narval-surface" data-visible={visible} data-files-open={filesOpen}>
+      <aside id="narval-remote-files" className="narval-files" aria-label={t("narval.remote-files")}>
         <header className="narval-files-head">
           <div>
             <strong>{t("narval.title-short")}</strong>
             <span className={status?.connected ? "narval-connection connected" : "narval-connection"}>
               <i /> {status?.gateway ? `${status.gateway} → ` : ""}{status?.host ?? "narval-vpn"}
             </span>
+            <IconButton
+              className="narval-files-toggle"
+              size="s"
+              hit40
+              label={t("narval.hide-files")}
+              title={t("narval.hide-files")}
+              aria-expanded
+              aria-describedby="narval-files-toggle-description"
+              onClick={() => setFilesOpen(false)}
+            >
+              <SidebarIcon size={17} />
+            </IconButton>
           </div>
           <label className="narval-search">
             <SearchIcon />
@@ -353,9 +439,26 @@ export default function NarvalSurface({ visible, onOpenTerminal }: {
 
       <main className="narval-main">
         <header className="narval-toolbar">
-          <div>
-            <h1>{t("narval.monitor-title")}</h1>
-            <p>{status?.connected ? t("narval.connected-now") : t("narval.not-connected")}</p>
+          <div className="narval-toolbar-lead">
+            {!filesOpen && (
+              <IconButton
+                className="narval-files-toggle"
+                size="s"
+                hit40
+                label={t("narval.show-files")}
+                title={t("narval.show-files")}
+                aria-expanded={false}
+                aria-describedby="narval-files-toggle-description"
+                onClick={() => setFilesOpen(true)}
+              >
+                <SidebarIcon size={17} />
+              </IconButton>
+            )}
+            <span id="narval-files-toggle-description" className="sr-only">{t("narval.remote-files")}</span>
+            <div>
+              <h1>{t("narval.monitor-title")}</h1>
+              <p>{status?.connected ? t("narval.connected-now") : t("narval.not-connected")}</p>
+            </div>
           </div>
           <div className="narval-toolbar-actions">
             <Button variant="secondary" onClick={refresh} loading={loading}>
@@ -388,46 +491,68 @@ export default function NarvalSurface({ visible, onOpenTerminal }: {
                 </EmptyHeader>
               </Empty>
             ) : (
-              <Table className="narval-jobs-table">
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>{t("narval.job-id")}</TableHead>
-                    <TableHead>{t("narval.name")}</TableHead>
-                    <TableHead>{t("narval.state")}</TableHead>
-                    <TableHead>{t("narval.time")}</TableHead>
-                    <TableHead>{t("narval.cpus")}</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {snapshot?.active.map((job) => (
-                    <TableRow
-                      key={job.id}
-                      data-state={selectedJobId === job.id ? "selected" : undefined}
-                      tabIndex={0}
-                      aria-selected={selectedJobId === job.id}
-                      onClick={() => inspectJob(job)}
-                      onKeyDown={(event) => {
-                        if (event.key !== "Enter" && event.key !== " ") return;
-                        event.preventDefault();
-                        inspectJob(job);
-                      }}
-                    >
-                      <TableCell className="narval-mono">{job.id}</TableCell>
-                      <TableCell>{job.name}</TableCell>
-                      <TableCell><StatusBadge status={statusTone(job.state)}>{displayState(job.state)}</StatusBadge></TableCell>
-                      <TableCell className="narval-mono">{job.elapsed || "—"}</TableCell>
-                      <TableCell>{job.cpus || "—"}</TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
+              <div className="narval-active-jobs">
+                {snapshot?.active.map((job) => (
+                  <RowButton
+                    key={job.id}
+                    className="narval-job-row"
+                    data-state={selectedJobId === job.id ? "selected" : undefined}
+                    aria-pressed={selectedJobId === job.id}
+                    onClick={() => inspectJob(job)}
+                  >
+                    <span className="narval-job-identity">
+                      <strong title={job.name}>{job.name}</strong>
+                      <code>{job.id}</code>
+                    </span>
+                    <StatusBadge status={statusTone(job.state)}>{displayState(job.state)}</StatusBadge>
+                    <span className="narval-job-metrics">
+                      <span><small>{t("narval.time")}</small><code>{job.elapsed || "—"}</code></span>
+                      <span><small>{t("narval.cpus")}</small><b>{job.cpus || "—"}</b></span>
+                    </span>
+                  </RowButton>
+                ))}
+              </div>
             )}
           </section>
           <Separator />
           <section className="narval-section" aria-labelledby="narval-runs-title">
-            <div className="narval-section-title"><h2 id="narval-runs-title">{t("narval.recent-runs")}</h2></div>
+            <div className="narval-section-title narval-runs-title">
+              <h2 id="narval-runs-title">{t("narval.recent-runs")}</h2>
+              <span>{filteredRecentRuns.length} / {snapshot?.recent.length ?? 0}</span>
+            </div>
+            <div className="narval-run-controls">
+              <label className="narval-run-search">
+                <SearchIcon aria-hidden="true" />
+                <Input
+                  value={runQuery}
+                  onChange={(event) => setRunQuery(event.target.value)}
+                  placeholder={t("narval.search-runs")}
+                  aria-label={t("narval.search-runs")}
+                />
+              </label>
+              <SegmentedControl
+                className="narval-run-state-filter"
+                label={t("narval.filter-state")}
+                value={runStateFilter}
+                onChange={(value) => setRunStateFilter(value as RunStateFilter)}
+                options={[
+                  { value: "all", label: t("narval.filter-all") },
+                  { value: "completed", label: t("narval.filter-completed") },
+                  { value: "failed", label: t("narval.filter-failed") },
+                  { value: "cancelled", label: t("narval.filter-cancelled") },
+                ]}
+              />
+              <label className="narval-run-period">
+                <span>{t("narval.period")}</span>
+                <select value={runDays} onChange={(event) => setRunDays(Number(event.target.value))}>
+                  <option value={7}>{t("narval.days-7")}</option>
+                  <option value={30}>{t("narval.days-30")}</option>
+                  <option value={90}>{t("narval.days-90")}</option>
+                </select>
+              </label>
+            </div>
             <div className="narval-runs">
-              {(snapshot?.recent ?? []).slice(0, 12).map((job) => (
+              {visibleRecentRuns.map((job) => (
                 <RowButton key={job.id} className="narval-run" onClick={() => inspectJob(job)}>
                   <StatusBadge status={statusTone(job.state)}>{displayState(job.state)}</StatusBadge>
                   <strong>{job.name}</strong>
@@ -436,7 +561,15 @@ export default function NarvalSurface({ visible, onOpenTerminal }: {
                 </RowButton>
               ))}
               {snapshot && snapshot.recent.length === 0 && <p className="narval-muted">{t("narval.no-recent-runs")}</p>}
+              {snapshot && snapshot.recent.length > 0 && filteredRecentRuns.length === 0 && (
+                <p className="narval-muted">{t("narval.no-matching-runs")}</p>
+              )}
             </div>
+            {visibleRunCount < filteredRecentRuns.length && (
+              <Button className="narval-runs-more" variant="ghost" onClick={() => setVisibleRunCount((count) => count + RUN_PAGE_SIZE)}>
+                {t("narval.show-more-runs")} · {Math.min(RUN_PAGE_SIZE, filteredRecentRuns.length - visibleRunCount)}
+              </Button>
+            )}
           </section>
         </ScrollArea>
       </main>
@@ -461,7 +594,7 @@ export default function NarvalSurface({ visible, onOpenTerminal }: {
               <TabsList className="narval-tabs-list">
                 <TabsTrigger value="overview">{t("narval.overview")}</TabsTrigger>
                 <TabsTrigger value="logs">{t("narval.logs")}</TabsTrigger>
-                <TabsTrigger value="outputs">{t("narval.outputs")}</TabsTrigger>
+                <TabsTrigger value="files">{t("narval.run-files-tab")}</TabsTrigger>
               </TabsList>
               <TabsContent value="overview">
                 <ScrollArea className="narval-inspector-scroll">
@@ -491,16 +624,43 @@ export default function NarvalSurface({ visible, onOpenTerminal }: {
                   )}
                 </ScrollArea>
               </TabsContent>
-              <TabsContent value="outputs">
+              <TabsContent value="files">
                 <ScrollArea className="narval-inspector-scroll">
-                  <div className="narval-output-list">
-                    {outputEntries.map((entry) => (
-                      <RowButton key={entry.path} onClick={() => entry.kind === "directory" ? toggleDirectory(entry.path, true) : readText(entry.path)}>
-                        {entry.kind === "directory" ? <FolderIcon /> : <FileIcon />}
-                        <span>{entry.name}</span><small>{formatBytes(entry.size)}</small>
-                      </RowButton>
-                    ))}
-                    {detail && outputEntries.length === 0 && <p className="narval-muted">{t("narval.no-outputs")}</p>}
+                  <div className="narval-run-files">
+                    {runFilesLoading ? <DetailSkeleton /> : runFilesError ? (
+                      <p className="narval-muted">{runFilesError}</p>
+                    ) : runFiles ? (
+                      <>
+                        <header className="narval-run-files-summary">
+                          <strong>{t("narval.run-files-title", { count: runFiles.entries.length })}</strong>
+                          <p>{t("narval.run-files-help")}</p>
+                        </header>
+                        <div className="narval-run-file-roots">
+                          {runFiles.roots.map((root) => (
+                            <div key={`${root.source}:${root.path}`}>
+                              <span>{root.source === "declared" ? t("narval.run-root-declared") : root.source === "run-root" ? t("narval.run-root-run") : t("narval.run-root-workdir")}</span>
+                              <code title={root.path}>{root.path}</code>
+                            </div>
+                          ))}
+                        </div>
+                        {confirmedFiles.length > 0 && (
+                          <RunFileGroup title={t("narval.run-files-confirmed")} help={t("narval.run-files-confirmed-help")} entries={confirmedFiles} />
+                        )}
+                        {probableFiles.length > 0 && (
+                          <RunFileGroup title={t("narval.run-files-probable")} help={t("narval.run-files-probable-help")} entries={probableFiles} />
+                        )}
+                        {runFiles.entries.length === 0 && (
+                          <div className="narval-run-files-empty">
+                            <FileIcon aria-hidden="true" />
+                            <strong>{t("narval.run-files-none")}</strong>
+                            <p>{t("narval.run-files-none-help")}</p>
+                          </div>
+                        )}
+                        {runFiles.truncated && <p className="narval-run-files-truncated">{t("narval.run-files-truncated")}</p>}
+                      </>
+                    ) : (
+                      <p className="narval-muted">{t("narval.run-files-waiting")}</p>
+                    )}
                   </div>
                 </ScrollArea>
               </TabsContent>
@@ -528,4 +688,25 @@ function JobsSkeleton() {
 
 function DetailSkeleton() {
   return <div className="narval-detail-skeleton"><Skeleton /><Skeleton /><Skeleton /><Skeleton /></div>;
+}
+
+function RunFileGroup({ title, help, entries }: { title: string; help: string; entries: RunFileEntry[] }) {
+  return (
+    <section className="narval-run-file-group">
+      <header><strong>{title}</strong><span>{entries.length}</span></header>
+      <p>{help}</p>
+      <div className="narval-run-file-list">
+        {entries.map((entry) => (
+          <div key={entry.path} className="narval-run-file-row" title={entry.path}>
+            <FileIcon aria-hidden="true" />
+            <span>
+              <strong>{entry.name}</strong>
+              <code>{entry.path}</code>
+            </span>
+            <small>{formatBytes(entry.size)}{entry.modifiedAt ? ` · ${formatRemoteTimestamp(entry.modifiedAt)}` : ""}</small>
+          </div>
+        ))}
+      </div>
+    </section>
+  );
 }
