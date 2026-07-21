@@ -287,6 +287,19 @@ describe("orchestration App — caractérisation", () => {
     expect(document.querySelector("#workspace-inspector-host")).toBeNull();
   });
 
+  it("déplie le panneau demandé depuis les icônes du rail compact", async () => {
+    localStorage.setItem("atelier-studio.compact", "1");
+    await mountApp();
+    expect(document.querySelector(".side-fixed")).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: t("view.highlights") }));
+    await act(async () => { await flushMicrotasks(2); });
+
+    expect(document.querySelector(".side-fixed")).toBeTruthy();
+    expect(screen.getByRole("button", { name: t("view.highlights") })).toHaveClass("on");
+    expect(screen.getByText(t("highlights.empty"))).toBeTruthy();
+  });
+
   it("affiche l’horloge Codex seulement pour un heartbeat actif ciblant le chat", async () => {
     const { sock } = await mountApp();
     expect(sock.sentTypes()).toContain("listAutomations");
@@ -658,6 +671,31 @@ describe("orchestration App — caractérisation", () => {
     const chatBtn = screen.getAllByTitle(/⌘1/)[0];
     await act(async () => { chatBtn.click(); await flushMicrotasks(2); });
     expect(chatPanel()!.style.display).not.toBe("none");
+  });
+
+  it("ouvre une surface du rail après être passé par le layout Chat", async () => {
+    await mountApp();
+
+    const chatBtn = screen.getAllByTitle(/⌘1/)[0];
+    await act(async () => { chatBtn.click(); await flushMicrotasks(2); });
+    expect(document.querySelector('[data-panel-id="atelier"]')).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: t("atelier.more") }));
+    const switches: unknown[] = [];
+    const onSwitch = (event: Event) => switches.push((event as CustomEvent).detail);
+    window.addEventListener("switch-surface", onSwitch);
+
+    fireEvent.click(screen.getByRole("button", { name: t("atelier.biblio") }));
+    await act(async () => {
+      await vi.dynamicImportSettled();
+      await flushMicrotasks(6);
+    });
+
+    expect(document.querySelector('[data-panel-id="atelier"]')).toBeTruthy();
+    expect(switches).toContainEqual({ surface: "biblio" });
+    expect(document.querySelector(".biblio-surface")).toBeTruthy();
+    expect(screen.getByRole("button", { name: t("atelier.biblio") })).toHaveClass("on");
+    window.removeEventListener("switch-surface", onSwitch);
   });
 
   it("reconnexion : une seule subscription active, aucun rendu dupliqué", async () => {

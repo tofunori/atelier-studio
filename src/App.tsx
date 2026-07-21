@@ -1072,16 +1072,22 @@ export default function App() {
     }
   }, [activeId, threads]);
   const showAtelier = layout !== "chat";
-  // miroir de la surface active de AtelierPane (côté App, pour l'icône active
-  // du rail) — AtelierPane ne change sa surface qu'en réaction à l'event
-  // switch-surface, lui-même TOUJOURS dispatché par switchToSurface ci-dessous :
-  // les deux restent donc synchronisés sans toucher à la logique de AtelierPane.
+  // Miroir de la surface active de AtelierPane (côté App, pour l'icône active
+  // du rail). La requête d'ouverture est distincte de la valeur active : deux
+  // clics sur la même surface doivent tous deux l'ouvrir, et surtout l'event ne
+  // doit partir qu'après le remontage de AtelierPane quand on quitte le layout
+  // « chat ». Un dispatch synchrone ici serait perdu pendant ce remontage.
   const [activeSurface, setActiveSurface] = useState<Surface>("atelier");
+  const [surfaceRequest, setSurfaceRequest] = useState<{ surface: Surface; sequence: number } | null>(null);
   function switchToSurface(surface: Surface) {
     setLayout((l) => (l === "chat" ? "split" : l));
     setActiveSurface(surface);
-    window.dispatchEvent(new CustomEvent("switch-surface", { detail: { surface } }));
+    setSurfaceRequest((request) => ({ surface, sequence: (request?.sequence ?? 0) + 1 }));
   }
+  useEffect(() => {
+    if (!showAtelier || !surfaceRequest) return;
+    window.dispatchEvent(new CustomEvent("switch-surface", { detail: { surface: surfaceRequest.surface } }));
+  }, [showAtelier, surfaceRequest]);
   useEffect(() => {
     const openPassage = () => switchToSurface("biblio");
     window.addEventListener("chat-open-zotero-passage", openPassage);
@@ -3208,7 +3214,10 @@ export default function App() {
           onNewChat={newChat}
           showExplorer={showExplorer}
           onToggleExplorer={() => { setShowExplorer((v) => !v); switchToSurface("atelier"); }}
-          onSelectView={setActiveView}
+          onSelectView={(view) => {
+            setActiveView(view);
+            setCompact(false);
+          }}
           onSelectProject={selectProject}
           onAddProject={addProject}
           compact={compact}
