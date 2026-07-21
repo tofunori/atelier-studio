@@ -24,6 +24,7 @@ jobs:
             package-lock.json
             sidecar/package-lock.json
             gallery/package-lock.json
+            mobile/package-lock.json
             packages/atelier-protocol/package-lock.json
       - uses: dtolnay/rust-toolchain@stable
       - uses: swatinem/rust-cache@v2
@@ -36,6 +37,8 @@ jobs:
         run: npm --prefix sidecar ci
       - name: Install gallery deps
         run: npm --prefix gallery ci
+      - name: Install mobile deps
+        run: npm --prefix mobile ci
       - name: Install shared protocol deps
         run: npm --prefix packages/atelier-protocol ci
       - name: Install Playwright Chromium
