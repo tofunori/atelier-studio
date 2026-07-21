@@ -49,6 +49,7 @@ jobs:
           bash scripts/stage-sidecar.sh
           bash scripts/stage-gallery.sh
           bash scripts/stage-mobile.sh
+          bash scripts/stage-appsnap.sh
       - name: Backend policy (Rust default, soak gates)
         run: npm run check:backend-policy
       - name: Verify (typecheck, build, frontend, sidecar, gallery, Rust)
