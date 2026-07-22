@@ -1582,7 +1582,21 @@ button.ghost.danger, button.ghost.danger:hover { color: var(--status-error); bac
 }
 .biblio-filters .custom-select-trigger:hover,
 .biblio-filters .custom-select-trigger:focus-visible { color: var(--fg); }
-.biblio-filters .custom-select.biblio-sort { flex: 0 1 auto; min-width: 92px; max-width: 128px; }
+.biblio-actions { display: inline-flex; align-items: center; gap: 5px; flex: none; }
+.biblio-filters .custom-select.biblio-sort { flex: none; min-width: 0; max-width: none; }
+.biblio-filters .biblio-sort .custom-select-trigger,
+.biblio-filters .biblio-add { width: 28px; min-width: 28px; height: 28px; min-height: 28px; padding: 0; }
+.biblio-filters .biblio-sort .custom-select-trigger { justify-content: center; gap: 0;
+  background: transparent; border-color: transparent; }
+.biblio-filters .biblio-sort .custom-select-trigger[aria-expanded="true"] { background: var(--bg-ctl); color: var(--fg); }
+.biblio-sort .custom-select-trigger [data-icon="select-chevron"] { display: none; }
+.biblio-sort .custom-select-trigger-icon,
+.biblio-sort .custom-select-trigger-icon svg,
+.biblio-add svg { display: block; width: 14px; height: 14px; }
+.biblio-sort-menu { min-width: 176px; padding: 5px; }
+.biblio-sort-menu .custom-select-menu-label { padding: 6px 8px 5px; color: var(--muted2);
+  font-size: var(--fs-s); font-weight: 500; }
+.biblio-sort-menu .custom-select-option { min-height: 32px; padding-top: 6px; padding-bottom: 6px; }
 .biblio-add { flex-shrink: 0; }
 .biblio-add-note { padding: 6px 12px; font-size: var(--fs-s); color: var(--muted);
   border-bottom: 1px solid var(--border); }

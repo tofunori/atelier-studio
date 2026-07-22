@@ -110,6 +110,15 @@ function displayState(state: string) {
   return state.replace(/_/g, " ");
 }
 
+function logReadError(job: SlurmJob | null, error: NarvalError) {
+  const state = job?.state.toUpperCase() ?? "";
+  const missing = error.code === "not_found" || /no such file or directory/i.test(error.message);
+  if (missing && ["PENDING", "CONFIGURING", "REQUEUED"].includes(state)) {
+    return t("narval.log-pending");
+  }
+  return error.message;
+}
+
 function runTimestamp(job: SlurmJob) {
   const raw = job.endedAt && job.endedAt !== "Unknown" ? job.endedAt : job.startedAt;
   const parsed = Date.parse(raw);
@@ -166,6 +175,7 @@ export default function NarvalSurface({ visible, onOpenTerminal }: {
   const [selectedJobId, setSelectedJobId] = useState<string | null>(null);
   const [detail, setDetail] = useState<JobDetail | null>(null);
   const [preview, setPreview] = useState<TextPreview | null>(null);
+  const [previewError, setPreviewError] = useState<string | null>(null);
   const [runFiles, setRunFiles] = useState<RunFiles | null>(null);
   const [runFilesError, setRunFilesError] = useState<string | null>(null);
   const [selectedPath, setSelectedPath] = useState<string | null>(null);
@@ -228,6 +238,7 @@ export default function NarvalSurface({ visible, onOpenTerminal }: {
     setSelectedJobId(job.id);
     setDetail(null);
     setPreview(null);
+    setPreviewError(null);
     setRunFiles(null);
     setRunFilesError(null);
     setSelectedPath(null);
@@ -249,6 +260,7 @@ export default function NarvalSurface({ visible, onOpenTerminal }: {
     if (!path) return;
     setSelectedPath(path);
     setPreview(null);
+    setPreviewError(null);
     setPreviewLoading(true);
     setTab("logs");
     const id = requestId();
@@ -302,7 +314,8 @@ export default function NarvalSurface({ visible, onOpenTerminal }: {
       }
       if (msg.type === "narvalText" && msg.requestId === textRequest.current) {
         setPreviewLoading(false);
-        if (msg.error) { setError(msg.error); return; }
+        if (msg.error) { setPreviewError(logReadError(selectedJob, msg.error)); return; }
+        setPreviewError(null);
         setPreview(msg.data as TextPreview);
       }
       if (msg.type === "narvalRunFiles" && msg.requestId === runFilesRequest.current) {
@@ -313,7 +326,7 @@ export default function NarvalSurface({ visible, onOpenTerminal }: {
     };
     window.addEventListener("narval-message", onMessage);
     return () => window.removeEventListener("narval-message", onMessage);
-  }, [inspectJob, readText, requestDirectory, selectedJobId]);
+  }, [inspectJob, readText, requestDirectory, selectedJob, selectedJobId]);
 
   useEffect(() => {
     if (!visible) return;
@@ -619,7 +632,9 @@ export default function NarvalSurface({ visible, onOpenTerminal }: {
                   {selectedPath && <code>{remoteName(selectedPath)}</code>}
                 </div>
                 <ScrollArea className="narval-log-scroll">
-                  {previewLoading ? <DetailSkeleton /> : preview ? <pre>{preview.content || t("narval.empty-log")}</pre> : (
+                  {previewLoading ? <DetailSkeleton /> : previewError ? (
+                    <p className="narval-muted">{previewError}</p>
+                  ) : preview ? <pre>{preview.content || t("narval.empty-log")}</pre> : (
                     <p className="narval-muted">{t("narval.no-log")}</p>
                   )}
                 </ScrollArea>

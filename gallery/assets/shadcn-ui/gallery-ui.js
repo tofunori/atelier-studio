@@ -23777,12 +23777,21 @@ function fS({
   children: o,
   portalContainer: a,
   positionerClassName: i,
-  ...u
+  side: u,
+  align: f,
+  alignItemWithTrigger: p,
+  sideOffset: g = 4,
+  alignOffset: m,
+  ...d
 }) {
   return /* @__PURE__ */ b.jsx(T2, { container: a, children: /* @__PURE__ */ b.jsx(
     C2,
     {
-      sideOffset: 4,
+      side: u,
+      align: f,
+      alignItemWithTrigger: p,
+      sideOffset: g,
+      alignOffset: m,
       className: Ke("tw:z-[var(--z-popover)]", i),
       children: /* @__PURE__ */ b.jsx(
         N2,
@@ -23792,7 +23801,7 @@ function fS({
             "tw:min-w-(--anchor-width) tw:max-h-(--available-height) tw:origin-(--transform-origin) tw:overflow-x-hidden tw:overflow-y-auto tw:rounded-[var(--radius-control)] tw:border tw:border-border tw:bg-popover tw:p-1 tw:text-[length:var(--fs-body-s)] tw:text-popover-foreground tw:shadow-[var(--elevation-overlay)] tw:outline-none",
             n
           ),
-          ...u,
+          ...d,
           children: /* @__PURE__ */ b.jsx(j2, { className: "tw:flex tw:flex-col tw:gap-0.5", children: o })
         }
       )

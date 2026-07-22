@@ -16,8 +16,9 @@ use atelier_workspace::{
     reset_to_commit as git_reset_to_commit, restore as git_restore,
     restore_file_from_commit as git_restore_file_from_commit, revert_commit as git_revert_commit,
     revert_file, save_image, scan_local, stage_files, status as git_status,
-    switch_branch as git_switch_branch, undo_last_commit as git_undo_last_commit, unstage_files, zotero_available, zotero_collections,
-    zotero_load_favs, zotero_search, zotero_toggle_fav, NarvalError, TermEvent,
+    switch_branch as git_switch_branch, undo_last_commit as git_undo_last_commit, unstage_files,
+    zotero_add_pdfs, zotero_available, zotero_collections, zotero_load_favs, zotero_search,
+    zotero_toggle_fav, NarvalError, TermEvent,
 };
 use serde_json::{json, Value};
 
@@ -1425,9 +1426,21 @@ pub async fn route_ws(state: &AppState, text: &str) -> Vec<String> {
             }
         }
         "zoteroAddPdf" => {
-            vec![err(
-                "zoteroAddPdf: non encore porté en Rust — ATELIER_BACKEND=node",
-            )]
+            let paths = msg
+                .get("paths")
+                .and_then(|value| value.as_array())
+                .map(|values| {
+                    values
+                        .iter()
+                        .filter_map(|value| value.as_str().map(str::to_string))
+                        .collect::<Vec<_>>()
+                })
+                .unwrap_or_default();
+            let results = zotero_add_pdfs(state.app_dir(), paths).await;
+            vec![json_msg(json!({
+                "type": "zoteroAddResult",
+                "results": results,
+            }))]
         }
 
         other => vec![err(format!("type inconnu: {other}"))],
@@ -3099,6 +3112,24 @@ mod tests {
             "h".into(),
             server_dir,
         )
+    }
+
+    #[tokio::test]
+    async fn zotero_add_pdf_returns_the_ui_result_contract() {
+        let dir = tempdir().unwrap();
+        let s = state(dir.path());
+        let missing = dir.path().join("missing.pdf");
+        let message = json!({
+            "type": "zoteroAddPdf",
+            "paths": [missing.display().to_string()],
+        });
+        let out = route_ws(&s, &message.to_string()).await;
+        let response: Value = serde_json::from_str(&out[0]).unwrap();
+
+        assert_eq!(response["type"], "zoteroAddResult");
+        assert_eq!(response["results"][0]["name"], "missing.pdf");
+        assert_eq!(response["results"][0]["ok"], false);
+        assert_eq!(response["results"][0]["error"], "invalid-path");
     }
 
     #[tokio::test]

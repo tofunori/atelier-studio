@@ -4,9 +4,11 @@ import {
   SelectContent,
   SelectGroup,
   SelectItem,
+  SelectLabel,
   SelectTrigger,
   SelectValue,
 } from "./shadcn/select";
+import { cn } from "../lib/utils";
 
 export type SelectOption = {
   value: string;
@@ -26,15 +28,24 @@ export function Select(p: {
   compact?: boolean;
   title?: string;
   className?: string;
+  triggerIcon?: ReactNode;
+  menuLabel?: string;
+  menuClassName?: string;
   portalContainer?: ComponentProps<typeof SelectContent>["portalContainer"] | null;
   positionerClassName?: string;
+  alignItemWithTrigger?: ComponentProps<typeof SelectContent>["alignItemWithTrigger"];
+  align?: ComponentProps<typeof SelectContent>["align"];
 }) {
   const selected = p.options.find((option) => option.value === p.value);
   const items = p.options.map(({ value, label }) => ({ value, label }));
   const portalContainer = useRef<HTMLSpanElement>(null);
 
   return (
-    <span ref={portalContainer} className={`custom-select ${p.compact ? "compact" : ""} ${p.className ?? ""}`} data-value={p.value}>
+    <span
+      ref={portalContainer}
+      className={cn("custom-select", p.compact && "compact", p.triggerIcon && "icon-only", p.className)}
+      data-value={p.value}
+    >
       <ShadcnSelect
         value={p.value}
         items={items}
@@ -46,23 +57,30 @@ export function Select(p: {
         size={p.compact ? "sm" : "default"}
         title={p.title}
         aria-label={p.title}
-        className={`custom-select-trigger ${p.compact ? "compact" : ""}`}
+        className={cn("custom-select-trigger", p.compact && "compact", p.triggerIcon && "icon-only")}
       >
-        <SelectValue>
-          {() => (
-            <span className="custom-select-label tw:flex tw:min-w-0 tw:items-center tw:gap-1.5 tw:truncate">
-              {selected?.icon && <span className="custom-select-icon">{selected.icon}</span>}
-              <span>{selected?.label ?? p.value}</span>
-            </span>
-          )}
-        </SelectValue>
+        {p.triggerIcon ? (
+          <span className="custom-select-trigger-icon" aria-hidden="true">{p.triggerIcon}</span>
+        ) : (
+          <SelectValue>
+            {() => (
+              <span className="custom-select-label tw:flex tw:min-w-0 tw:items-center tw:gap-1.5 tw:truncate">
+                {selected?.icon && <span className="custom-select-icon">{selected.icon}</span>}
+                <span>{selected?.label ?? p.value}</span>
+              </span>
+            )}
+          </SelectValue>
+        )}
       </SelectTrigger>
       <SelectContent
-        className="custom-select-menu"
+        className={cn("custom-select-menu", p.menuClassName)}
         portalContainer={p.portalContainer === null ? undefined : p.portalContainer ?? portalContainer}
         positionerClassName={p.positionerClassName}
+        alignItemWithTrigger={p.alignItemWithTrigger}
+        align={p.align}
       >
         <SelectGroup>
+          {p.menuLabel && <SelectLabel className="custom-select-menu-label">{p.menuLabel}</SelectLabel>}
           {p.options.map((option) => (
             <SelectItem
               key={option.value}

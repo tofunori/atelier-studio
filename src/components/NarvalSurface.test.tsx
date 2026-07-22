@@ -76,6 +76,15 @@ describe("NarvalSurface", () => {
     });
     expect(lastRequest("narvalReadText")?.path).toBe("/home/tofunori/m42a/slurm-65659188.out");
 
+    const textRequest = lastRequest("narvalReadText");
+    deliver({
+      type: "narvalText",
+      requestId: textRequest.requestId,
+      error: { code: "command_failed", message: "tail: cannot open '/home/tofunori/m42a/slurm-65659188.out' for reading: No such file or directory" },
+    });
+    expect(screen.queryByText(/Narval indisponible|Narval unavailable/i)).toBeNull();
+    expect(screen.getByText(/job est en attente|job is pending/i)).toBeTruthy();
+
     const runFilesRequest = lastRequest("narvalRunFiles");
     deliver({
       type: "narvalRunFiles",

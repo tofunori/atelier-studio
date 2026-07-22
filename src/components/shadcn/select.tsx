@@ -47,15 +47,29 @@ function SelectContent({
   children,
   portalContainer,
   positionerClassName,
+  side,
+  align,
+  alignItemWithTrigger,
+  sideOffset = 4,
+  alignOffset,
   ...props
 }: React.ComponentProps<typeof SelectPrimitive.Popup> & {
   portalContainer?: React.ComponentProps<typeof SelectPrimitive.Portal>["container"]
   positionerClassName?: string
+  side?: React.ComponentProps<typeof SelectPrimitive.Positioner>["side"]
+  align?: React.ComponentProps<typeof SelectPrimitive.Positioner>["align"]
+  alignItemWithTrigger?: React.ComponentProps<typeof SelectPrimitive.Positioner>["alignItemWithTrigger"]
+  sideOffset?: React.ComponentProps<typeof SelectPrimitive.Positioner>["sideOffset"]
+  alignOffset?: React.ComponentProps<typeof SelectPrimitive.Positioner>["alignOffset"]
 }) {
   return (
     <SelectPrimitive.Portal container={portalContainer}>
       <SelectPrimitive.Positioner
-        sideOffset={4}
+        side={side}
+        align={align}
+        alignItemWithTrigger={alignItemWithTrigger}
+        sideOffset={sideOffset}
+        alignOffset={alignOffset}
         className={cn("tw:z-[var(--z-popover)]", positionerClassName)}
       >
         <SelectPrimitive.Popup

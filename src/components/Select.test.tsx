@@ -1,6 +1,7 @@
 import { cleanup, fireEvent, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { Select } from "./Select";
+import { ArrowUpDownIcon } from "lucide-react";
 import { renderUi } from "../test/render";
 
 afterEach(cleanup);
@@ -36,5 +37,26 @@ describe("Select product adapter", () => {
     fireEvent.pointerUp(option);
     fireEvent.click(option);
     await waitFor(() => expect(onChange).toHaveBeenCalledWith("two"));
+  });
+
+  it("peut ouvrir un menu libellé depuis un trigger icône sans afficher la valeur", async () => {
+    renderUi(
+      <Select
+        value="one"
+        title="Trier — Un"
+        triggerIcon={<ArrowUpDownIcon />}
+        menuLabel="Trier par"
+        alignItemWithTrigger={false}
+        align="start"
+        options={[{ value: "one", label: "Un" }, { value: "two", label: "Deux" }]}
+        onChange={() => {}}
+      />,
+    );
+
+    const trigger = screen.getByRole("combobox", { name: "Trier — Un" });
+    expect(trigger).not.toHaveTextContent("Un");
+    fireEvent.click(trigger);
+    expect(await screen.findByText("Trier par")).toBeVisible();
+    expect(screen.getByRole("option", { name: "Un" })).toHaveAttribute("aria-selected", "true");
   });
 });

@@ -27,7 +27,7 @@ pub use pasted::{clear_pasted, list_pasted, save_image};
 pub use scan::{check_frame, scan_local};
 pub use term::{TermEvent, TerminalHub};
 pub use zotero::{
-    available as zotero_available, collections as zotero_collections,
+    add_pdfs as zotero_add_pdfs, available as zotero_available, collections as zotero_collections,
     load_favs as zotero_load_favs, pdf_absolute_path, search as zotero_search,
-    toggle_fav as zotero_toggle_fav, ZoteroItem,
+    toggle_fav as zotero_toggle_fav, ZoteroAddResult, ZoteroItem,
 };

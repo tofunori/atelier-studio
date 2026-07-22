@@ -1,9 +1,11 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
+import { ArrowUpDownIcon, FilePlus2Icon } from "lucide-react";
 import { t } from "../lib/i18n";
 import { CloseIcon, PanelIcon, SearchIcon, StarIcon } from "./icons";
 import { Select } from "./Select";
 import { Input } from "./shadcn/input";
+import { Spinner } from "./shadcn/spinner";
 import { Button, IconButton, RowButton } from "./ui";
 
 type ZoteroItem = {
@@ -24,6 +26,12 @@ type ZoteroItem = {
 type ZoteroCollection = { id: number | string; name: string; parent: number | string | null };
 type FilterMode = "all" | "fav" | "collection";
 type PassageTarget = { key: string; pdfKey: string; pdfFile: string; page: number; quote: string };
+export type ZoteroAddResult = {
+  name: string;
+  ok: boolean;
+  error?: string;
+  match?: string;
+};
 
 const STORAGE_KEY = "atelier-studio.biblio";
 
@@ -46,6 +54,30 @@ function loadState(): { key: string | null; filter: FilterMode; collectionId: st
 
 function saveState(state: { key: string | null; filter: FilterMode; collectionId: string | null }) {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+}
+
+export function summarizeZoteroAddResults(results: ZoteroAddResult[]): string | null {
+  const ok = results.filter((result) => result.ok).length;
+  const duplicates = results.filter((result) => result.error === "duplicate");
+  const zoteroOff = results.some((result) => result.error === "zotero-off");
+  const zoteroTimeout = results.some((result) => result.error === "zotero-timeout");
+  const failed = results.filter(
+    (result) => !result.ok
+      && result.error !== "duplicate"
+      && result.error !== "zotero-off"
+      && result.error !== "zotero-timeout",
+  ).length;
+  const parts: string[] = [];
+  if (ok) parts.push(t("biblio.add-done", { count: ok }));
+  if (duplicates.length === 1) {
+    parts.push(t("biblio.add-dup-one", { title: (duplicates[0].match ?? duplicates[0].name).slice(0, 60) }));
+  } else if (duplicates.length > 1) {
+    parts.push(t("biblio.add-dup", { count: duplicates.length }));
+  }
+  if (zoteroOff) parts.push(t("biblio.add-zotero-off"));
+  if (zoteroTimeout) parts.push(t("biblio.add-zotero-timeout"));
+  if (failed) parts.push(t("biblio.add-failed", { count: failed }));
+  return parts.join(" · ") || null;
 }
 
 function galleryOrigin(galleryUrl: string): string | null {
@@ -121,17 +153,10 @@ export default function BiblioSurface({
   }
   useEffect(() => {
     const onAdd = (e: Event) => {
-      const results = ((e as CustomEvent).detail?.results ?? []) as { name: string; ok: boolean; error?: string; match?: string }[];
+      const results = ((e as CustomEvent).detail?.results ?? []) as ZoteroAddResult[];
       setAdding(false);
-      const ok = results.filter((r) => r.ok).length;
-      const dups = results.filter((r) => r.error === "duplicate");
-      const zoteroOff = results.some((r) => r.error === "zotero-off");
-      const parts: string[] = [];
-      if (ok) parts.push(t("biblio.add-done", { count: ok }));
-      if (dups.length === 1) parts.push(t("biblio.add-dup-one", { title: (dups[0].match ?? dups[0].name).slice(0, 60) }));
-      else if (dups.length > 1) parts.push(t("biblio.add-dup", { count: dups.length }));
-      if (zoteroOff) parts.push(t("biblio.add-zotero-off"));
-      setAddNote(parts.join(" · ") || null);
+      const ok = results.filter((result) => result.ok).length;
+      setAddNote(summarizeZoteroAddResults(results));
       window.setTimeout(() => setAddNote(null), 8000);
       // la reconnaissance des métadonnées prend quelques secondes : double refresh
       if (ok) {
@@ -157,6 +182,12 @@ export default function BiblioSurface({
     localStorage.setItem("atelier-studio.biblio.sort", v);
     setSortBy(v);
   }
+  const sortLabels = {
+    added: t("biblio.sort-added"),
+    year: t("biblio.sort-year"),
+    author: t("biblio.sort-author"),
+    title: t("biblio.sort-title"),
+  };
   function toggleList() {
     setListOpen((v) => {
       localStorage.setItem("atelier-studio.biblio.list", v ? "0" : "1");
@@ -391,26 +422,32 @@ export default function BiblioSurface({
               ...collections.map((collection) => ({ value: String(collection.id), label: collection.name })),
             ]}
           />
-          <Select
-            className="biblio-sort"
-            title={t("biblio.sort-aria")}
-            value={sortBy}
-            onChange={(value) => changeSort(value as "added" | "year" | "author" | "title")}
-            options={[
-              { value: "added", label: t("biblio.sort-added") },
-              { value: "year", label: t("biblio.sort-year") },
-              { value: "author", label: t("biblio.sort-author") },
-              { value: "title", label: t("biblio.sort-title") },
-            ]}
-          />
-          <IconButton size="s" className="biblio-add" onClick={addPdfs} disabled={adding}
-            title={t("biblio.add-pdf")} label={t("biblio.add-pdf")}>
-            {adding ? "…" : (
-              <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round">
-                <path d="M8 3v10M3 8h10" />
-              </svg>
-            )}
-          </IconButton>
+          <div className="biblio-actions">
+            <Select
+              className="biblio-sort"
+              title={t("biblio.sort-current", { sort: sortLabels[sortBy] })}
+              value={sortBy}
+              onChange={(value) => changeSort(value as "added" | "year" | "author" | "title")}
+              triggerIcon={<ArrowUpDownIcon />}
+              menuLabel={t("biblio.sort-menu")}
+              menuClassName="biblio-sort-menu"
+              positionerClassName="biblio-sort-positioner"
+              alignItemWithTrigger={false}
+              align="start"
+              options={[
+                { value: "added", label: sortLabels.added },
+                { value: "year", label: sortLabels.year },
+                { value: "author", label: sortLabels.author },
+                { value: "title", label: sortLabels.title },
+              ]}
+            />
+            <IconButton size="m" className="biblio-add" onClick={addPdfs} disabled={adding}
+              title={t("biblio.add-pdf")} label={t("biblio.add-pdf")}>
+              {adding
+                ? <Spinner data-icon="inline-start" />
+                : <FilePlus2Icon data-icon="inline-start" aria-hidden="true" />}
+            </IconButton>
+          </div>
         </div>
         {addNote && <div className="biblio-add-note">{addNote}</div>}
         {error && <div className="biblio-empty">{error}</div>}

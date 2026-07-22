@@ -300,7 +300,10 @@ name = "atelier-workspace"
 version = "0.1.0"
 dependencies = [
  "base64",
+ "hex",
+ "md-5",
  "portable-pty",
+ "reqwest",
  "rusqlite",
  "serde",
  "serde_json",
