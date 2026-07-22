@@ -139,6 +139,10 @@ export function ThreadList(p: Props) {
           <Button
             type="button"
             size="icon-lg"
+            /* Une seule action primaire par écran : quand la liste est vide, c'est
+             * l'état vide qui porte la primaire (« Appairer » ou « Nouveau chat »),
+             * donc l'icône d'en-tête recule en secondaire. */
+            variant={p.paired && p.threads.length > 0 ? "default" : "outline"}
             aria-label="Nouveau chat"
             onClick={() => setNewChatOpen(true)}
             disabled={p.creating}
