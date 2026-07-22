@@ -10,6 +10,20 @@ export function kindFromExt(ext: string): FileKind {
   return "other";
 }
 
+const KIND_LABELS: Record<FileKind, string> = {
+  pdf: "PDF",
+  figure: "Figure",
+  latex: "LaTeX",
+  data: "Données",
+  code: "Code",
+  other: "Autre",
+};
+
+/** Libellé français affichable pour un FileKind (l'UI ne doit jamais montrer la valeur brute). */
+export function labelForKind(kind: FileKind): string {
+  return KIND_LABELS[kind] ?? KIND_LABELS.other;
+}
+
 export function normalizeItem(raw: Record<string, unknown>): GalleryItem {
   const ext = String(raw.ext ?? "");
   const kind = (raw.kind as FileKind) || kindFromExt(ext);

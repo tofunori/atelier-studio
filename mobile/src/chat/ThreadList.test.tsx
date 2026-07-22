@@ -64,7 +64,7 @@ describe("ThreadList new chat", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Nouveau chat" }));
     expect(screen.getByRole("dialog", { name: "Nouveau chat" })).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("combobox", { name: /Provider : Codex/ }));
+    fireEvent.click(screen.getByRole("combobox", { name: /Agent : Codex/ }));
     const grok = await screen.findByRole("option", { name: "Grok" });
     fireEvent.pointerDown(grok, { pointerType: "mouse" });
     fireEvent.click(grok);

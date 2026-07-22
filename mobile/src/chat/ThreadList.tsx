@@ -9,7 +9,13 @@ import {
   DrawerHeader,
   DrawerTitle,
 } from "@/components/ui/drawer.tsx";
-import { Empty, EmptyHeader, EmptyTitle } from "@/components/ui/empty.tsx";
+import {
+  Empty,
+  EmptyContent,
+  EmptyDescription,
+  EmptyHeader,
+  EmptyTitle,
+} from "@/components/ui/empty.tsx";
 import { Field, FieldGroup, FieldLabel } from "@/components/ui/field.tsx";
 import {
   Select,
@@ -27,7 +33,7 @@ import {
   ItemGroup,
   ItemTitle,
 } from "@/components/ui/item.tsx";
-import { PlusIcon, RefreshCwIcon } from "lucide-react";
+import { LaptopIcon, MessageSquareIcon, PlusIcon, RefreshCwIcon } from "lucide-react";
 import { useMemo, useState } from "react";
 import type { ThreadSummary } from "../transport/types.ts";
 import { CHAT_PROVIDERS, modelLabel, providerLabel } from "./providerCatalog.ts";
@@ -40,6 +46,9 @@ type Props = {
   onRefresh: () => void;
   onCreate: (body: { title: string; provider: string; model: string }) => Promise<void>;
   creating: boolean;
+  /** Le Mac est-il appairé ? Sans appairage, aucune conversation ne peut être listée. */
+  paired?: boolean;
+  onNeedPair?: () => void;
 };
 
 const ACTIVE_STATUSES = new Set(["running", "thinking", "streaming", "pending", "working"]);
@@ -164,9 +173,31 @@ export function ThreadList(p: Props) {
       )}
       {!p.loading && p.threads.length === 0 && !p.error && (
         <Empty>
-          <EmptyHeader>
-            <EmptyTitle>Aucune conversation</EmptyTitle>
-          </EmptyHeader>
+          {p.paired ? (
+            <>
+              <EmptyHeader>
+                <MessageSquareIcon />
+                <EmptyTitle>Aucune conversation</EmptyTitle>
+                <EmptyDescription>Démarrez un chat pour lancer un agent sur le Mac.</EmptyDescription>
+              </EmptyHeader>
+              <EmptyContent>
+                <Button type="button" onClick={() => setNewChatOpen(true)} disabled={p.creating}>
+                  Nouveau chat
+                </Button>
+              </EmptyContent>
+            </>
+          ) : (
+            <>
+              <EmptyHeader>
+                <LaptopIcon />
+                <EmptyTitle>Mac non appairé</EmptyTitle>
+                <EmptyDescription>Appairez le Mac pour voir les conversations et lancer un agent.</EmptyDescription>
+              </EmptyHeader>
+              <EmptyContent>
+                <Button type="button" onClick={p.onNeedPair}>Appairer</Button>
+              </EmptyContent>
+            </>
+          )}
         </Empty>
       )}
 
@@ -226,7 +257,7 @@ export function ThreadList(p: Props) {
                   if (value) chooseProvider(value);
                 }}
               >
-                <SelectTrigger id="new-chat-provider" className="w-full" aria-label={`Provider : ${selectedProvider.label}`}>
+                <SelectTrigger id="new-chat-provider" className="w-full" aria-label={`Agent : ${selectedProvider.label}`}>
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent alignItemWithTrigger={false}>

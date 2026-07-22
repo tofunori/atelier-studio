@@ -170,7 +170,12 @@ export function SettingsScreen(p: Props) {
         </CardHeader>
         <CardContent className="flex flex-col gap-4">
         {!prefs.enabled ? (
-            <Button type="button" disabled={busy} onClick={() => void enableNotifs()}>
+            <Button
+              type="button"
+              variant={p.credentials ? "default" : "outline"}
+              disabled={busy}
+              onClick={() => void enableNotifs()}
+            >
               {busy ? <Spinner data-icon="inline-start" /> : <BellIcon data-icon="inline-start" />}
               {busy ? "Activation…" : "Activer les notifications"}
             </Button>
@@ -185,6 +190,12 @@ export function SettingsScreen(p: Props) {
         )}
           <FieldSet>
             <FieldLegend variant="label">M’avertir lorsque</FieldLegend>
+            {!prefs.enabled && (
+              <FieldDescription>
+                Ces choix sont enregistrés, mais aucune notification ne sera envoyée tant qu’elles ne
+                sont pas activées.
+              </FieldDescription>
+            )}
             <FieldGroup className="gap-3">
               <NotificationOption id="notif-done" label="Tour terminé" checked={prefs.onDone} disabled={!prefs.enabled} onChange={(checked) => update({ onDone: checked })} />
               <NotificationOption id="notif-error" label="Erreur" checked={prefs.onError} disabled={!prefs.enabled} onChange={(checked) => update({ onError: checked })} />

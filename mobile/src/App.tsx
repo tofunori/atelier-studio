@@ -324,6 +324,8 @@ export default function App() {
             onRefresh={() => void session.refresh()}
             onCreate={createChat}
             creating={creatingThread}
+            paired={!!creds}
+            onNeedPair={() => setOverlay("pairing")}
           />
         )}
         {overlay === "none" && tab === "gallery" && (

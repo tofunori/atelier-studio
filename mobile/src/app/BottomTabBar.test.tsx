@@ -22,7 +22,7 @@ describe("BottomTabBar", () => {
     expect(navigation).toHaveClass("app-tabbar");
     expect(screen.getAllByRole("tab")).toHaveLength(4);
 
-    fireEvent.click(screen.getByRole("tab", { name: "Gallery" }));
+    fireEvent.click(screen.getByRole("tab", { name: "Galerie" }));
     expect(screen.getByText("gallery", { selector: "output" })).toBeInTheDocument();
   });
 });

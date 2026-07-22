@@ -35,11 +35,24 @@ body,
   overflow: hidden;
 }
 
-button,
-input,
-textarea {
-  font: inherit;
-  color: inherit;
+/* @layer base OBLIGATOIRE — NE PAS RETIRER.
+ * mobile.css est chargé APRÈS Tailwind (src/main.tsx). En cascade CSS une règle
+ * hors layer l'emporte TOUJOURS sur une règle layered (@layer utilities), quelle
+ * que soit la spécificité. Hors layer, ce reset détruit tout le système de
+ * variants de src/components/ui/button.tsx :
+ *   - `font: inherit` (raccourci) écrase font-size ET font-weight → text-sm /
+ *     font-medium annulés ;
+ *   - `color: inherit` écrase text-primary-foreground / text-destructive.
+ * Dans @layer base il reste après le preflight Tailwind (même layer, source plus
+ * tardive) mais s'efface devant les utilitaires — comportement voulu.
+ */
+@layer base {
+  button,
+  input,
+  textarea {
+    font: inherit;
+    color: inherit;
+  }
 }
 
 /* iOS otherwise zooms the whole WebView when a smaller form control receives focus. */
@@ -51,11 +64,19 @@ textarea {
   }
 }
 
-button {
-  cursor: pointer;
-  border: none;
-  background: none;
-  touch-action: manipulation;
+/* @layer base OBLIGATOIRE — NE PAS RETIRER (voir le commentaire ci-dessus).
+ * Hors layer, `border: none` et `background: none` annulaient bg-primary,
+ * bg-secondary, bg-destructive/10, bg-background, border et border-border.
+ * Les <button> NUS restent neutres : le preflight Tailwind (déjà dans
+ * @layer base) leur applique `*{border:0 solid}` et un fond transparent.
+ */
+@layer base {
+  button {
+    cursor: pointer;
+    border: none;
+    background: none;
+    touch-action: manipulation;
+  }
 }
 
 button:active,
@@ -85,6 +106,11 @@ summary:active {
 
 .app-main {
   flex: 1;
+  /* Colonne flex : sans ça .app-main est une boîte de bloc et .screen ne reçoit
+   * aucune hauteur, donc le flex-1 de <Empty> reste inerte (états vides collés
+   * en haut de l'écran). */
+  display: flex;
+  flex-direction: column;
   width: 100%;
   max-width: 100%;
   min-width: 0;
@@ -151,12 +177,34 @@ summary:active {
 }
 
 .screen {
+  /* Chaîne de hauteur : .app-shell (100dvh) → .app-main (flex:1) → .screen.
+   * flex:1 0 auto + min-height:100% garantissent que .screen occupe au moins
+   * toute la hauteur visible sans jamais être compressé sous son contenu ;
+   * la colonne flex permet à <Empty> (flex-1) d'absorber la place restante et
+   * de se centrer verticalement. */
+  display: flex;
+  flex-direction: column;
+  flex: 1 0 auto;
+  min-height: 100%;
   width: 100%;
   min-width: 0;
   padding: var(--sp-4) var(--sp-5);
   max-width: 720px;
   margin: 0 auto;
   overflow-x: clip;
+}
+
+/* Anti-régression du passage de .screen en colonne flex : listes (.thread-list),
+ * grilles (.gallery-grid), cartes et en-têtes gardent leur hauteur intrinsèque —
+ * seul l'état vide s'étire. */
+.screen > *:not([data-slot="empty"]) {
+  flex-shrink: 0;
+}
+
+/* …et un bouton isolé garde sa largeur de contenu au lieu d'être étiré sur toute
+ * la largeur par l'alignement transversal (boutons « Retour », « Réglages »). */
+.screen > [data-slot="button"] {
+  align-self: flex-start;
 }
 
 .thread-list-header {
@@ -184,8 +232,8 @@ summary:active {
 
 .screen-title {
   font-size: var(--fs-xl);
-  font-weight: 650;
-  letter-spacing: -0.012em;
+  font-weight: 600;
+  letter-spacing: -0.01em;
   margin: 0 0 var(--sp-3);
   line-height: 1.3;
 }
@@ -229,7 +277,7 @@ summary:active {
   min-width: 0;
   overflow: hidden;
   color: var(--text-primary);
-  font-size: 16px;
+  font-size: var(--fs-l);
   font-weight: 560;
   line-height: 1.3;
   text-overflow: ellipsis;
@@ -307,8 +355,8 @@ summary:active {
 .sheet-head h2 {
   margin: 0;
   font-size: 18px;
-  font-weight: 650;
-  letter-spacing: -0.02em;
+  font-weight: 600;
+  letter-spacing: -0.01em;
 }
 
 .sheet-close {
@@ -515,7 +563,7 @@ summary:active {
   max-width: 100%;
   padding: var(--sp-2);
   border-radius: var(--radius-control);
-  background: #111518;
+  background: var(--surface-code);
   white-space: pre-wrap;
   overflow-wrap: anywhere;
   overflow-x: hidden;
@@ -607,7 +655,7 @@ summary:active {
   overflow: hidden;
   color: var(--text-primary);
   font-size: 15px;
-  font-weight: 620;
+  font-weight: 600;
   line-height: 1.25;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -711,7 +759,7 @@ summary:active {
   margin-bottom: 4px;
   color: var(--status-error);
   font-size: 11px;
-  font-weight: 650;
+  font-weight: 600;
   letter-spacing: 0.04em;
   text-transform: uppercase;
 }
@@ -784,7 +832,7 @@ summary:active {
   width: 100%;
   margin: 6px 0 0;
   padding: 7px 8px;
-  border-radius: 7px;
+  border-radius: var(--radius-control);
   background: color-mix(in srgb, var(--fg) 5%, var(--surface-app));
   color: var(--text-secondary);
   font-family: var(--font-mono);
@@ -990,7 +1038,7 @@ summary:active {
   min-width: 0;
   height: 30px;
   padding-inline: var(--sp-2);
-  border-radius: 7px;
+  border-radius: var(--radius-control);
   color: var(--text-muted);
   font-size: var(--fs-xs);
 }
@@ -1078,7 +1126,7 @@ summary:active {
 
 .gallery-star-filled {
   fill: currentColor;
-  color: #d7a83f;
+  color: var(--status-warning);
 }
 
 .gallery-sort {
@@ -1107,7 +1155,7 @@ summary:active {
   text-align: left;
   border-radius: var(--radius-control);
   border: 1px solid var(--border-subtle);
-  background: var(--surface-base);
+  background: var(--surface-raised);
   overflow: hidden;
   min-height: var(--touch-min);
   box-shadow: none;
@@ -1181,8 +1229,8 @@ summary:active {
   overflow: hidden;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
-  background: #111518;
-  color: #aeb8be;
+  background: var(--surface-code);
+  color: var(--text-secondary);
   font-family: var(--font-mono);
   font-size: 7px;
   line-height: 1.35;
@@ -1205,13 +1253,17 @@ summary:active {
   border-top: 1px solid var(--border-subtle);
 }
 
+/* Affordance destructive AU REPOS : sur iOS tactile le :hover n'existe pas, une
+ * mise à la corbeille peinte en gris resterait indiscernable d'une action
+ * anodine. Le hover/focus ne fait que renforcer. */
 .gallery-delete-button {
-  color: var(--text-muted);
+  color: var(--status-error);
 }
 
 .gallery-delete-button:hover,
 .gallery-delete-button:focus-visible {
-  color: var(--destructive);
+  color: var(--status-error);
+  background: color-mix(in srgb, var(--status-error) 14%, transparent);
 }
 
 .gallery-load-more {
@@ -1402,8 +1454,8 @@ summary:active {
   font-size: var(--fs-s);
   line-height: 1.45;
   -webkit-overflow-scrolling: touch;
-  background: #111518;
-  color: #d9e0e4;
+  background: var(--surface-code);
+  color: var(--text-primary);
   tab-size: 2;
   white-space: pre-wrap;
   overflow-x: hidden;
@@ -1415,7 +1467,7 @@ summary:active {
   gap: var(--sp-3);
   padding: 6px var(--sp-3);
   border-bottom: 1px solid var(--border-subtle);
-  background: #171c20;
+  background: var(--bg-side);
   color: var(--text-muted);
   font-family: var(--font-mono);
   font-size: var(--fs-xs);
@@ -1440,7 +1492,7 @@ summary:active {
   position: sticky;
   left: 0;
   flex: 0 0 3em;
-  background: #111518;
+  background: var(--surface-code);
   text-align: right;
   padding-right: var(--sp-2);
 }

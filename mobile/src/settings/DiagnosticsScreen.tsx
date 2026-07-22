@@ -30,7 +30,7 @@ export function DiagnosticsScreen(p: Props) {
           <pre className="diag-pre" aria-label="Diagnostics">{p.text}</pre>
         </CardContent>
         <CardFooter>
-          <Button type="button" variant="outline" onClick={p.onCopy}>
+          <Button type="button" variant="default" onClick={p.onCopy}>
             {p.copied ? <CheckIcon data-icon="inline-start" /> : <CopyIcon data-icon="inline-start" />}
             {p.copied ? "Copié" : "Copier"}
           </Button>

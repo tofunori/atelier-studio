@@ -13,6 +13,7 @@ import {
   showLocalNotification,
 } from "../native/notifications.ts";
 import { pickDocuments } from "../native/documentPicker.ts";
+import { labelForKind } from "../files/classify.ts";
 import { addPendingAttachment } from "../files/pendingAttach.ts";
 import type { InteractionResponse } from "./interactionTypes.ts";
 import {
@@ -603,7 +604,7 @@ export function ChatScreen(p: Props) {
                     <AttachmentDescription>
                       {attachment.excerpt
                         ? `L${attachment.lineStart ?? "?"}–${attachment.lineEnd ?? attachment.lineStart ?? "?"}`
-                        : attachment.kind}
+                        : labelForKind(attachment.kind)}
                     </AttachmentDescription>
                   </AttachmentContent>
                   <AttachmentActions>

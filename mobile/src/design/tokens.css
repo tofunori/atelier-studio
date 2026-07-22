@@ -32,6 +32,8 @@
   --surface-raised: var(--bg-card);
   --surface-inset: var(--bg-ctl);
   --surface-overlay: var(--bg-pop);
+  /* Fond des zones de code / texte brut (blocs <pre>, viewer texte, aperçus). */
+  --surface-code: #111518;
 
   --text-primary: var(--fg);
   --text-secondary: var(--fg2);

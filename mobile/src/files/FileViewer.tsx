@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import type { DeviceCredentials } from "../transport/types.ts";
 import { fetchFileById } from "../transport/filesClient.ts";
-import { formatBytes } from "./classify.ts";
+import { formatBytes, labelForKind } from "./classify.ts";
 import { LARGE_FILE_BYTES } from "./types.ts";
 import type { GalleryItem } from "./types.ts";
 import { ImageViewer } from "./viewers/ImageViewer.tsx";
@@ -168,7 +168,7 @@ export function FileViewer(p: Props) {
           {p.item.name}
         </h1>
         <div className="viewer-meta">
-          {p.item.kind} · {formatBytes(p.item.size)}
+          {labelForKind(p.item.kind)} · {formatBytes(p.item.size)}
         </div>
         <ButtonGroup aria-label="Actions du fichier">
           <Button type="button" variant="outline" size="sm" onClick={() => void share()} disabled={!url && !text}>

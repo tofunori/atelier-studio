@@ -14,7 +14,7 @@ const items: Array<{
   icon: typeof MessageSquareIcon;
 }> = [
   { value: "chats", label: "Chats", icon: MessageSquareIcon },
-  { value: "gallery", label: "Gallery", icon: ImagesIcon },
+  { value: "gallery", label: "Galerie", icon: ImagesIcon },
   { value: "files", label: "Fichiers", icon: FileTextIcon },
   { value: "settings", label: "Réglages", icon: SettingsIcon },
 ];

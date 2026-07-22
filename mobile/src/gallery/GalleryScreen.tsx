@@ -10,6 +10,7 @@ import {
   filterItems,
   formatBytes,
   formatDate,
+  labelForKind,
   pageItems,
 } from "../files/classify.ts";
 import type { GalleryFilter, GalleryItem } from "../files/types.ts";
@@ -100,7 +101,7 @@ type Props = {
 
 export function GalleryScreen(p: Props) {
   const layout = p.layout ?? "grid";
-  const title = p.title ?? "Gallery";
+  const title = p.title ?? "Galerie";
   const [projects, setProjects] = useState<ProjectSummary[]>([]);
   const [localProjectId, setLocalProjectId] = useState<string>("");
   const projectId = p.selectedProjectId ?? localProjectId;
@@ -526,13 +527,13 @@ export function GalleryScreen(p: Props) {
                   {textPreviews[it.fileId]}
                 </pre>
               ) : (
-                <Badge variant="secondary">{it.ext.toUpperCase() || it.kind}</Badge>
+                <Badge variant="secondary">{it.ext.toUpperCase() || labelForKind(it.kind)}</Badge>
               )}
             </div>
             <div className="gallery-card-body">
               <div className="list-item-title">{it.name}</div>
               <div className="list-item-meta">
-                {(it.ext || it.kind).toUpperCase()} · {formatBytes(it.size)} · {formatDate(it.modifiedAt)}
+                {it.ext ? it.ext.toUpperCase() : labelForKind(it.kind)} · {formatBytes(it.size)} · {formatDate(it.modifiedAt)}
               </div>
             </div>
           </Item>

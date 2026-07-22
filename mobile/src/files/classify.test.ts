@@ -3,6 +3,7 @@ import {
   filterItems,
   formatBytes,
   kindFromExt,
+  labelForKind,
   normalizeItem,
   pageItems,
 } from "./classify.ts";
@@ -14,6 +15,15 @@ describe("classify", () => {
     expect(kindFromExt("tex")).toBe("latex");
     expect(kindFromExt("csv")).toBe("data");
     expect(kindFromExt("py")).toBe("code");
+  });
+
+  it("labelForKind", () => {
+    expect(labelForKind("pdf")).toBe("PDF");
+    expect(labelForKind("figure")).toBe("Figure");
+    expect(labelForKind("latex")).toBe("LaTeX");
+    expect(labelForKind("data")).toBe("Données");
+    expect(labelForKind("code")).toBe("Code");
+    expect(labelForKind("other")).toBe("Autre");
   });
 
   it("normalizeItem strips path usage — only fileId", () => {
