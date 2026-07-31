@@ -2960,7 +2960,12 @@ button.ctx-ring-wrap { border: none; font: inherit; color: inherit;
 .mp-btn.tier-toggle { gap: 4px; padding: 4px 8px; font-size: var(--fs-m);
   font-weight: 400; color: var(--muted); }
 .mp-btn.tier-toggle:hover:not(:disabled) { color: var(--fg2); background: var(--bg-ctl); }
-.mp-btn.tier-toggle[aria-pressed="true"] { color: var(--accent); background: var(--accent-subtle); }
+/* l'état actif DOIT battre le survol : sans cette seconde règle (survol =
+ * 4 classes contre 3), le bouton restait gris tant que le curseur ne
+ * quittait pas le bouton — l'accent semblait arriver en retard */
+.mp-btn.tier-toggle[aria-pressed="true"],
+.mp-btn.tier-toggle[aria-pressed="true"]:hover:not(:disabled) {
+  color: var(--accent); background: var(--accent-subtle); }
 .mp-btn.tier-toggle:disabled { opacity: 0.4; cursor: default; }
 /* pilule @citekey — la clé de citation EST le bouton */
 .biblio-citekey { display: inline-flex; align-items: center; gap: 6px; flex: none;
