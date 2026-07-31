@@ -29,6 +29,10 @@ pub struct SendRequest {
     pub session_id: Option<String>,
     pub model: Option<String>,
     pub effort: Option<String>,
+    /// Codex "Fast" service tier. `true` maps to `service_tier = "priority"`
+    /// in the thread config; `false` forces nothing and keeps Codex defaults.
+    /// Orthogonal to `model` and `effort` — it never changes either.
+    pub fast_mode: bool,
     pub permission_mode: Option<String>,
     pub mode: SendMode,
     /// Called with each provider-native event (undecorated kind payload).

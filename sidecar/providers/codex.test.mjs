@@ -1,3 +1,7 @@
+import { readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
+
 import { describe, expect, it } from "vitest";
 import {
   buildApprovalResponse,
@@ -82,6 +86,50 @@ describe("codex provider helpers (app-server)", () => {
   it("normalise l'effort Codex minimal vers low pour préserver les tool calls", () => {
     expect(normalizeCodexEffort("minimal")).toBe("low");
     expect(buildThreadOptions({ cwd: "/repo", effort: "minimal" }).effortHint).toBe("low");
+  });
+
+  // --- Mode Fast (niveau de service `priority`) -----------------------------
+  // Fast n'est ni un modèle ni un effort : il n'ajoute QUE service_tier.
+  it("Standard ne force aucun niveau de service", () => {
+    const opts = buildThreadOptions({ cwd: "/repo", effort: "medium", permissionMode: "bypassPermissions" });
+    expect(opts.config?.service_tier).toBeUndefined();
+    expect(opts.effortHint).toBe("medium");
+  });
+
+  it("Fast transmet service_tier = priority", () => {
+    const opts = buildThreadOptions({ cwd: "/repo", effort: "medium", fastMode: true, permissionMode: "bypassPermissions" });
+    expect(opts.config.service_tier).toBe("priority");
+  });
+
+  it("Fast + High conserve l'effort high et le modèle", () => {
+    const base = { cwd: "/repo", model: "gpt-5.6-sol", effort: "high", permissionMode: "bypassPermissions" };
+    const standard = buildThreadOptions(base);
+    const fast = buildThreadOptions({ ...base, fastMode: true });
+    expect(fast.effortHint).toBe("high");
+    expect(fast.effortHint).toBe(standard.effortHint);
+    expect(fast.model).toBe(standard.model);
+    expect(fast.config?.model_reasoning_effort).toBeUndefined();
+  });
+
+  it("respecte le contrat partagé Rust/Node du niveau de service", () => {
+    // MÊME fixture que le test Rust (crates/atelier-providers/src/codex.rs).
+    const fixturePath = join(
+      dirname(fileURLToPath(import.meta.url)),
+      "../../rust/crates/atelier-providers/tests/fixtures/codex_service_tier.json",
+    );
+    const { cases } = JSON.parse(readFileSync(fixturePath, "utf8"));
+    expect(cases.length).toBeGreaterThan(0);
+    for (const c of cases) {
+      const opts = buildThreadOptions({
+        cwd: "/repo",
+        model: "gpt-5.6-sol",
+        effort: c.effort,
+        fastMode: c.fastMode,
+        permissionMode: "bypassPermissions",
+      });
+      expect(opts.config?.service_tier ?? null, `${c.name}: service_tier`).toBe(c.serviceTier);
+      expect(opts.effortHint ?? null, `${c.name}: effort`).toBe(c.effortOut);
+    }
   });
 
   it("répond aux approvals avec les enums attendus par chaque API Codex", () => {

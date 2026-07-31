@@ -17,6 +17,7 @@ import { ButtonGroup } from "../shadcn/button-group";
 import { Button } from "../ui/Button";
 import { parseNativeSlashCommand, permissionModeFromSlash } from "../../lib/slashCommands";
 import type { FollowUpMode } from "../../lib/chatDraftStore";
+import { codexSupportsFastMode } from "../../lib/modelCatalog";
 
 type ModelEntry = { id: string; label: string };
 type Dispatch<T> = React.Dispatch<React.SetStateAction<T>>;
@@ -43,6 +44,9 @@ export type ComposerModel = {
   setModel: Dispatch<string>;
   effort: string;
   setEffort: (v: string) => void;
+  /** Niveau de service Codex : `true` = Fast (service_tier priority). */
+  fastMode: boolean;
+  setFastMode: (v: boolean) => void;
   permissionMode: string;
   setPermissionMode: Dispatch<string>;
 };
@@ -93,7 +97,7 @@ export type ComposerHost = {
   disabled: boolean;
   workingSince: number | null;
   onStop: () => void;
-  onSubmit: (prompt: string, provider: string, model: string, effort: string, permissionMode: string, mode: "steer" | "queue") => void;
+  onSubmit: (prompt: string, provider: string, model: string, effort: string, permissionMode: string, mode: "steer" | "queue", fastMode: boolean) => void;
   followUpMode: FollowUpMode;
   onFollowUpModeChange?: (mode: FollowUpMode) => void;
   onGoal?: (action: "set" | "clear", objective?: string, status?: "active" | "paused") => void;
@@ -145,6 +149,15 @@ export function ChatComposer(props: {
     return preferred;
   }
 
+  /** Niveau de service réellement envoyé : la préférence Fast du fil ne part
+   * que si le provider ET le modèle courants l'exposent. Le choix reste
+   * mémorisé tel quel, donc réactivé dès qu'un modèle compatible revient. */
+  function effectiveFastMode(): boolean {
+    return model.provider === "codex"
+      && model.fastMode
+      && codexSupportsFastMode(catalog.resolvedModelId(model.provider, model.model));
+  }
+
   function submit(mode: FollowUpMode) {
     const prompt = text.trim();
     if (!hasContent) return;
@@ -177,12 +190,12 @@ export function ChatComposer(props: {
     if (command?.name === "plan") {
       model.setPermissionMode("plan");
       if (command.args) {
-        host.onSubmit(command.args, model.provider, model.model, model.effort, "plan", mode);
+        host.onSubmit(command.args, model.provider, model.model, model.effort, "plan", mode, effectiveFastMode());
       }
       setText("");
       return;
     }
-    host.onSubmit(text, model.provider, model.model, model.effort, model.permissionMode, mode);
+    host.onSubmit(text, model.provider, model.model, model.effort, model.permissionMode, mode, effectiveFastMode());
     setText("");
   }
 

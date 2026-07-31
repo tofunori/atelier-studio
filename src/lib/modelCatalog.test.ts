@@ -1,9 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { modelDisplayLabel } from "./modelCatalog";
+import { codexSupportsFastMode, modelDisplayLabel } from "./modelCatalog";
 
 describe("modelDisplayLabel", () => {
   it("conserve les libellés intégrés connus", () => {
     expect(modelDisplayLabel("codex", "gpt-5.6-sol")).toBe("GPT-5.6 Sol");
+    expect(modelDisplayLabel("claude", "claude-opus-5")).toBe("Opus 5");
   });
 
   it("retire les préfixes techniques des modèles OpenCode", () => {
@@ -16,5 +17,24 @@ describe("modelDisplayLabel", () => {
 
   it("laisse les ids inconnus des autres providers intacts", () => {
     expect(modelDisplayLabel("custom", "org/model-x")).toBe("org/model-x");
+  });
+});
+
+describe("codexSupportsFastMode", () => {
+  it("reconnaît les modèles Codex qui annoncent le niveau priority", () => {
+    expect(codexSupportsFastMode("gpt-5.6-sol")).toBe(true);
+    expect(codexSupportsFastMode("gpt-5.6-terra")).toBe(true);
+    expect(codexSupportsFastMode("gpt-5.6-luna")).toBe(true);
+    expect(codexSupportsFastMode("gpt-5.5")).toBe(true);
+  });
+
+  it("refuse les modèles Codex sans service_tier et les ids inconnus", () => {
+    // service_tiers vide dans le catalogue codex-cli
+    expect(codexSupportsFastMode("gpt-5.1-codex")).toBe(false);
+    expect(codexSupportsFastMode("gpt-5.1-codex-max")).toBe(false);
+    expect(codexSupportsFastMode("gpt-5.4-mini")).toBe(false);
+    // modèles d'autres providers : jamais de niveau Fast
+    expect(codexSupportsFastMode("claude-opus-5")).toBe(false);
+    expect(codexSupportsFastMode("")).toBe(false);
   });
 });

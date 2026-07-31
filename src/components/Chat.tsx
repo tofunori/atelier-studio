@@ -170,6 +170,7 @@ export default function Chat(p: {
     effort: string,
     permissionMode: string,
     mode: "steer" | "queue",
+    fastMode: boolean,
   ) => void;
 }) {
   const [localSelectedAgent, setLocalSelectedAgent] = useState<AgentDisplay | null>(null);
@@ -213,6 +214,9 @@ export default function Chat(p: {
   const [provider, setProvider] = useState<string>("claude");
   const [model, setModel] = useState("");
   const [effort, setEffort] = useState("");
+  // Niveau de service Codex : Standard par défaut, Fast (service_tier
+  // `priority`) choisi par conversation. Orthogonal au modèle et à l'effort.
+  const [fastMode, setFastMode] = useState(false);
   const [permissionMode, setPermissionMode] = useState("bypassPermissions");
 
   function providerInfo(pv = provider) {
@@ -262,7 +266,7 @@ export default function Chat(p: {
     );
   }
 
-  type ModelSelection = { provider: string; model: string; effort: string; permissionMode: string };
+  type ModelSelection = { provider: string; model: string; effort: string; permissionMode: string; fastMode: boolean };
   type StoredModelSelections = {
     activeProvider: string;
     byProvider: Record<string, Omit<ModelSelection, "provider">>;
@@ -300,6 +304,7 @@ export default function Chat(p: {
               model: legacy.model ?? "",
               effort: legacy.effort ?? "",
               permissionMode: legacy.permissionMode ?? p.defaults.defaultPermissionMode,
+              fastMode: legacy.fastMode === true,
             },
           },
         };
@@ -324,18 +329,22 @@ export default function Chat(p: {
       model: m,
       effort: providerSelection?.effort ?? effortFor(pv, m),
       permissionMode: providerSelection?.permissionMode || p.defaults.defaultPermissionMode,
+      // Standard par défaut : seule une sélection Fast explicitement mémorisée
+      // pour ce fil ET ce provider réactive le niveau priority.
+      fastMode: pv === "codex" && providerSelection?.fastMode === true,
     };
     hydratedSelectionRef.current = selectionKey ? { key: selectionKey, value: next, ready: false } : null;
     setProvider(pv);
     setModel(m);
     setEffort(next.effort);
+    setFastMode(next.fastMode);
     setPermissionMode(next.permissionMode);
   }, [p.defaults, p.projectRoot, p.providers, p.threadId, p.threadProvider, selectionKey]);
   // Mémoriser la sélection uniquement une fois l'hydratation du fil terminée.
   useEffect(() => {
     const hydrated = hydratedSelectionRef.current;
     if (!hydrated || hydrated.key !== selectionKey) return;
-    const current: ModelSelection = { provider, model, effort, permissionMode };
+    const current: ModelSelection = { provider, model, effort, permissionMode, fastMode };
     if (!hydrated.ready) {
       if (Object.keys(current).some((key) => current[key as keyof ModelSelection] !== hydrated.value[key as keyof ModelSelection])) return;
       hydrated.ready = true;
@@ -347,11 +356,11 @@ export default function Chat(p: {
         activeProvider: provider,
         byProvider: {
           ...byProvider,
-          [provider]: { model, effort, permissionMode },
+          [provider]: { model, effort, permissionMode, fastMode },
         },
       } satisfies StoredModelSelections));
     } catch {}
-  }, [selectionKey, provider, model, effort, permissionMode]);
+  }, [selectionKey, provider, model, effort, fastMode, permissionMode]);
   const [selIdx, setSelIdx] = useState(0);
   const [quote, setQuote] = useState<{ x: number; y: number; text: string } | null>(null);
   const [review, setReview] = useState<{ status: string; verdict?: string; model?: string; checks?: number; issues?: { claim: string; problem: string; severity: string; fix?: string }[]; checkedTools?: string[]; checkedFiles?: string[] } | null>(null);
@@ -974,6 +983,7 @@ export default function Chat(p: {
         }}
         model={{
           provider, setProvider, model, setModel, effort, setEffort,
+          fastMode, setFastMode,
           permissionMode, setPermissionMode,
         }}
         menus={{

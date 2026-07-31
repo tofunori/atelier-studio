@@ -771,6 +771,49 @@ describe("sélection de tour — repli lastTurn (pièges connus : démotion read
     expect(runs[1].effort).toBe("medium");
   });
 
+  it("mode Fast : transmis au provider et repris par un renvoi nu du même provider", async () => {
+    const runs = [];
+    const { ctx } = makeCtx({
+      codex: { run: vi.fn((opts) => { runs.push(opts); return Promise.resolve({ sessionId: "s-fast" }); }) },
+    });
+    await route({
+      type: "send", provider: "codex", threadId: "t-fast", projectRoot: "/p",
+      prompt: "avec Fast", clientMessageId: "m1",
+      model: "gpt-5.6-sol", effort: "high", fastMode: true, permissionMode: "bypassPermissions",
+      displayEvent: { kind: "user", text: "avec Fast" },
+    }, ctx);
+    await flush();
+    await runs[0].onEvent({ kind: "done", ok: true, result: "" });
+    await flush();
+    await route({
+      type: "send", provider: "codex", threadId: "t-fast", projectRoot: "/p",
+      prompt: "renvoi nu", clientMessageId: "m2",
+      displayEvent: { kind: "user", text: "renvoi nu" },
+    }, ctx);
+    await flush();
+
+    expect(runs[0].fastMode).toBe(true);
+    // Fast ne touche NI le modèle NI l'effort
+    expect(runs[0].effort).toBe("high");
+    expect(runs[0].model).toBe("gpt-5.6-sol");
+    expect(runs[1].fastMode).toBe(true);
+  });
+
+  it("Standard : aucun niveau de service forcé n'atteint le provider", async () => {
+    const runs = [];
+    const { ctx } = makeCtx({
+      codex: { run: vi.fn((opts) => { runs.push(opts); return Promise.resolve({ sessionId: "s-std" }); }) },
+    });
+    await route({
+      type: "send", provider: "codex", threadId: "t-std", projectRoot: "/p",
+      prompt: "sans Fast", clientMessageId: "m1",
+      model: "gpt-5.6-sol", effort: "high", permissionMode: "bypassPermissions",
+      displayEvent: { kind: "user", text: "sans Fast" },
+    }, ctx);
+    await flush();
+    expect(runs[0].fastMode).toBe(false);
+  });
+
   it("injecte au provider l’outil Galerie mais conserve le displayEvent utilisateur intact", async () => {
     const runs = [];
     const { ctx } = makeCtx({

@@ -352,13 +352,14 @@ impl Provider for ClaudeProvider {
     fn models(&self) -> Vec<String> {
         vec![
             "claude-fable-5".into(),
+            "claude-opus-5".into(),
             "claude-opus-4-8".into(),
             "claude-sonnet-5".into(),
             "claude-haiku-4-5-20251001".into(),
         ]
     }
     fn default_model(&self) -> String {
-        "claude-sonnet-5[1m]".into()
+        "claude-opus-5[1m]".into()
     }
     fn efforts(&self) -> Vec<String> {
         vec![
@@ -703,6 +704,7 @@ mod title_tests {
             session_id: None,
             model: None,
             effort: Some("high".into()),
+            fast_mode: false,
             permission_mode: Some(permission_mode.into()),
             mode: SendMode::Normal,
             on_event: Arc::new(|_| {}),

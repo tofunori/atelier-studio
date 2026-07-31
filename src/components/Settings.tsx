@@ -47,6 +47,7 @@ const SECTIONS = [
 
 const CLAUDE_MODELS = [
   { id: "claude-fable-5[1m]", label: "Fable 5 · 1M" },
+  { id: "claude-opus-5[1m]", label: "Opus 5 · 1M" },
   { id: "claude-opus-4-8[1m]", label: "Opus 4.8 · 1M" },
   { id: "claude-sonnet-5[1m]", label: "Sonnet 5 · 1M" },
   { id: "claude-haiku-4-5-20251001[1m]", label: "Haiku 4.5 · 1M" },

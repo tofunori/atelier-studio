@@ -19,6 +19,11 @@ const CODEX_EFFORT_ALIASES = new Map([
   ["minimal", "low"],
 ]);
 
+// Niveau de service Codex « Fast » : id du tier annoncé par le catalogue
+// app-server (`service_tiers: [{id:"priority", name:"Fast"}]`). Ce n'est ni un
+// modèle ni un effort — `model_reasoning_effort` n'est JAMAIS touché par lui.
+export const CODEX_PRIORITY_TIER = "priority";
+
 export function normalizeCodexEffort(effort) {
   const value = String(effort ?? "").trim();
   if (!value) return null;
@@ -741,7 +746,7 @@ export function resolveCodexSafety(permissionMode, { model } = {}) {
   }
 }
 
-export function buildThreadOptions({ cwd, model, effort, webSearch, additionalDirectories, sandbox, permissionMode }) {
+export function buildThreadOptions({ cwd, model, effort, fastMode, webSearch, additionalDirectories, sandbox, permissionMode }) {
   const config = {};
   let actualModel = model ?? null;
   const actualEffort = normalizeCodexEffort(effort);
@@ -752,6 +757,9 @@ export function buildThreadOptions({ cwd, model, effort, webSearch, additionalDi
   const safety = sandbox != null
     ? { sandbox, approvalPolicy: "never" }
     : resolveCodexSafety(permissionMode, { model: actualModel });
+  // Fast actif → service_tier `priority`. Standard n'écrit RIEN : Codex garde
+  // son `default_service_tier`, aucun niveau forcé.
+  if (fastMode) config.service_tier = CODEX_PRIORITY_TIER;
   if (webSearch) config.web_search = webSearch === "cached" ? "cached" : "live";
   if (Array.isArray(additionalDirectories) && additionalDirectories.length &&
       safety.sandbox !== "read-only") {
@@ -920,6 +928,7 @@ export async function run({
   sessionId,
   model,
   effort,
+  fastMode,
   webSearch,
   additionalDirectories,
   sandbox,
@@ -944,7 +953,7 @@ export async function run({
     return rawOnEvent(evt);
   };
   const srv = await ensureServer();
-  const threadOpts = buildThreadOptions({ cwd, model, effort, webSearch, additionalDirectories, sandbox, permissionMode });
+  const threadOpts = buildThreadOptions({ cwd, model, effort, fastMode, webSearch, additionalDirectories, sandbox, permissionMode });
   const actualEffort = normalizeCodexEffort(effort);
   const reservation = await claimAndOpenCodexRun({
     sessionId,

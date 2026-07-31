@@ -2954,6 +2954,14 @@ button.ctx-ring-wrap { border: none; font: inherit; color: inherit;
 /* bouton effort séparé du bouton modèle */
 .mp-btn.mp-effort { padding: 4px 8px; font-size: var(--fs-m); color: var(--muted); }
 .mp-btn.mp-effort:hover { color: var(--fg2); }
+/* niveau de service Codex — un seul interrupteur « Fast », même grammaire que
+ * le bouton effort voisin : plat au repos, accent quand il est actif */
+.tier-pick { display: inline-flex; flex: none; }
+.mp-btn.tier-toggle { gap: 4px; padding: 4px 8px; font-size: var(--fs-m);
+  font-weight: 400; color: var(--muted); }
+.mp-btn.tier-toggle:hover:not(:disabled) { color: var(--fg2); background: var(--bg-ctl); }
+.mp-btn.tier-toggle[aria-pressed="true"] { color: var(--accent); background: var(--accent-subtle); }
+.mp-btn.tier-toggle:disabled { opacity: 0.4; cursor: default; }
 /* pilule @citekey — la clé de citation EST le bouton */
 .biblio-citekey { display: inline-flex; align-items: center; gap: 6px; flex: none;
   background: transparent; border: 1px solid var(--border2); border-radius: var(--r-pill);

@@ -21,6 +21,8 @@ export type QueuedTurn = {
   model: string;
   effort: string;
   permissionMode: string;
+  /** Niveau de service Codex résolu à la mise en file (Fast = priority). */
+  fastMode: boolean;
   attachments: DraftAttachment[];
   /** Options résolues au moment de la mise en file. Elles ne doivent jamais
    * être recalculées depuis le composer courant lors du dispatch. */
@@ -107,6 +109,7 @@ function normalizeQueuedTurn(value: unknown): QueuedTurn | null {
     model: typeof item.model === "string" ? item.model : "",
     effort: typeof item.effort === "string" ? item.effort : "",
     permissionMode: typeof item.permissionMode === "string" ? item.permissionMode : "",
+    fastMode: item.fastMode === true,
     attachments: item.attachments!
       .map(normalizeAttachment)
       .filter((attachment): attachment is DraftAttachment => attachment !== null),

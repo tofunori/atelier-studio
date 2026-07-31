@@ -592,6 +592,21 @@ fn make_interaction_relay(
 }
 
 /// Handle `send` WS message. Returns immediate replies; streaming events go via bus.
+/// Niveau de service du tour (mode Fast Codex → `service_tier = "priority"`).
+/// Champ explicite `fastMode` du message ; comme `model`/`effort`, un renvoi
+/// « nu » (rewind, tour auto-review) reprend le dernier choix du MÊME provider,
+/// jamais celui d'un autre. Défaut : Standard, aucun niveau forcé.
+pub(crate) fn turn_fast_mode(msg: &Value, last_turn: &Value, same_provider: bool) -> bool {
+    msg.get("fastMode")
+        .and_then(Value::as_bool)
+        .or_else(|| {
+            same_provider
+                .then(|| last_turn.get("fastMode").and_then(Value::as_bool))
+                .flatten()
+        })
+        .unwrap_or(false)
+}
+
 pub async fn handle_send(state: &AppState, msg: &Value) -> Vec<String> {
     let thread_id = msg
         .get("threadId")
@@ -865,6 +880,10 @@ pub async fn handle_send(state: &AppState, msg: &Value) -> Vec<String> {
                     .get("effort")
                     .and_then(|v| v.as_str())
                     .map(str::to_string),
+                fast_mode: msg
+                    .get("fastMode")
+                    .and_then(Value::as_bool)
+                    .unwrap_or(false),
                 permission_mode: msg
                     .get("permissionMode")
                     .and_then(|v| v.as_str())
@@ -984,6 +1003,7 @@ pub async fn handle_send(state: &AppState, msg: &Value) -> Vec<String> {
                 .flatten()
         })
         .map(str::to_string);
+    let fast_mode = turn_fast_mode(msg, &last_turn, same_provider);
     if msg.get("permissionMode").and_then(Value::as_str).is_some() {
         let _ = state.threads().lock().await.upsert(
             json!({
@@ -992,6 +1012,7 @@ pub async fn handle_send(state: &AppState, msg: &Value) -> Vec<String> {
                     "provider": provider,
                     "model": msg.get("model").cloned().unwrap_or(Value::Null),
                     "effort": msg.get("effort").cloned().unwrap_or(Value::Null),
+                    "fastMode": msg.get("fastMode").and_then(Value::as_bool).unwrap_or(false),
                     "permissionMode": msg.get("permissionMode").cloned().unwrap_or(Value::Null),
                 }
             }),
@@ -1159,6 +1180,7 @@ pub async fn handle_send(state: &AppState, msg: &Value) -> Vec<String> {
             session_id,
             model,
             effort,
+            fast_mode,
             permission_mode,
             mode: SendMode::Normal,
             on_event: Arc::new(move |ev| {
@@ -1452,6 +1474,19 @@ mod tests {
     use super::*;
     use crate::paths::AppPaths;
     use tempfile::tempdir;
+
+    #[test]
+    fn fast_mode_est_explicite_et_suit_le_meme_provider() {
+        let last_fast = json!({"provider": "codex", "fastMode": true});
+        // Standard par défaut : rien dans le message, rien dans l'historique.
+        assert!(!turn_fast_mode(&json!({}), &json!({}), true));
+        // Choix explicite du composer.
+        assert!(turn_fast_mode(&json!({"fastMode": true}), &json!({}), false));
+        assert!(!turn_fast_mode(&json!({"fastMode": false}), &last_fast, true));
+        // Renvoi nu : reprise du dernier tour du MÊME provider seulement.
+        assert!(turn_fast_mode(&json!({}), &last_fast, true));
+        assert!(!turn_fast_mode(&json!({}), &last_fast, false));
+    }
 
     #[tokio::test]
     async fn send_fake_completes_and_journals() {

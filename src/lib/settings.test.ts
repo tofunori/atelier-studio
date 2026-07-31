@@ -4,8 +4,8 @@ import { DEFAULT_SETTINGS, loadSettings } from "./settings";
 beforeEach(() => localStorage.clear());
 
 describe("settings defaults", () => {
-  it("utilise Sonnet 5 en contexte 1M et xhigh par défaut pour Claude", () => {
-    expect(DEFAULT_SETTINGS.defaultModel.claude).toBe("claude-sonnet-5[1m]");
+  it("utilise Opus 5 en contexte 1M et xhigh par défaut pour Claude", () => {
+    expect(DEFAULT_SETTINGS.defaultModel.claude).toBe("claude-opus-5[1m]");
     expect(DEFAULT_SETTINGS.defaultEffort.claude).toBe("xhigh");
   });
 
@@ -28,12 +28,12 @@ describe("settings defaults", () => {
 
   it("applique la migration Claude une seule fois", () => {
     localStorage.setItem("atelier-studio.settings", JSON.stringify({
-      defaultModel: { claude: "claude-fable-5" },
+      defaultModel: { claude: "claude-sonnet-5[1m]" },
       defaultEffort: { claude: "high" },
     }));
     expect(loadSettings()).toMatchObject({
-      defaultModel: { claude: "claude-sonnet-5[1m]" },
-      defaultEffort: { claude: "xhigh" },
+      defaultModel: { claude: "claude-opus-5[1m]" },
+      defaultEffort: { claude: "high" },
     });
 
     localStorage.setItem("atelier-studio.settings", JSON.stringify({

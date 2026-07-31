@@ -2376,6 +2376,7 @@ export default function App() {
     effort: string,
     permissionMode: string,
     mode: "steer" | "queue" = "steer",
+    fastMode = false,
   ) {
     const displayPrompt = prompt;
     let optimisticGoal: AgentEvent | null = null;
@@ -2487,6 +2488,7 @@ export default function App() {
         model,
         effort,
         permissionMode,
+        fastMode: provider === "codex" && fastMode,
         attachments: [...attachments],
         webSearch: provider === "codex" && settingsRef.current.webSearch,
         additionalDirectories,
@@ -2786,6 +2788,9 @@ export default function App() {
         ...(model ? { model } : {}),
         ...(effort ? { effort } : {}),
         ...(permissionMode ? { permissionMode } : {}),
+        // Niveau de service Codex : `priority` seulement quand Fast est actif ;
+        // Standard n'envoie RIEN et laisse le défaut Codex décider.
+        ...(provider === "codex" && fastMode ? { fastMode: true } : {}),
         ...(provider === "codex" && settingsRef.current.webSearch ? { webSearch: true } : {}),
         ...(provider === "codex" && additionalDirectories.length ? { additionalDirectories } : {}),
         mode,
@@ -2915,6 +2920,7 @@ export default function App() {
       ...(queued.model ? { model: queued.model } : {}),
       ...(queued.effort ? { effort: queued.effort } : {}),
       ...(queued.permissionMode ? { permissionMode: queued.permissionMode } : {}),
+      ...(queued.provider === "codex" && queued.fastMode ? { fastMode: true } : {}),
       ...(queued.provider === "codex" && queued.webSearch ? { webSearch: true } : {}),
       ...(queued.provider === "codex" && queued.additionalDirectories.length
         ? { additionalDirectories: queued.additionalDirectories }

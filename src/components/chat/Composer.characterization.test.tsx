@@ -111,6 +111,7 @@ describe("composer — caractérisation", () => {
       expect.any(String),
       "bypassPermissions",
       "steer",
+      false,
     );
   });
 
@@ -139,6 +140,7 @@ describe("composer — caractérisation", () => {
       expect.any(String),
       "plan",
       "steer",
+      false,
     );
   });
 
@@ -187,6 +189,7 @@ describe("composer — caractérisation", () => {
       expect.any(String),
       "bypassPermissions",
       "steer",
+      false,
     );
   });
 
@@ -217,6 +220,7 @@ describe("composer — caractérisation", () => {
       expect.any(String),
       "bypassPermissions",
       "queue",
+      false,
     );
   });
 
@@ -501,7 +505,7 @@ describe("composer — caractérisation complémentaire (plan 020)", () => {
     fireEvent.change(ta(), { target: { value: "continue avec Codex" } });
     fireEvent.submit(ta().closest("form")!);
     expect(onSubmit).toHaveBeenCalledWith(
-      "continue avec Codex", "codex", "gpt-5.6", expect.any(String), "bypassPermissions", "steer",
+      "continue avec Codex", "codex", "gpt-5.6", expect.any(String), "bypassPermissions", "steer", false,
     );
   });
 

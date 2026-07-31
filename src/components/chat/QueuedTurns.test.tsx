@@ -13,6 +13,7 @@ function queuedTurn(id: string, prompt: string): QueuedTurn {
     model: "gpt-5.6-sol",
     effort: "medium",
     permissionMode: "bypassPermissions",
+    fastMode: false,
     attachments: [],
     webSearch: false,
     additionalDirectories: [],

@@ -3,6 +3,7 @@
 export const BUILTIN_MODEL_LABELS: Record<string, Record<string, string>> = {
   claude: {
     "claude-fable-5": "Fable 5",
+    "claude-opus-5": "Opus 5",
     "claude-opus-4-8": "Opus 4.8",
     "claude-sonnet-5": "Sonnet 5",
     "claude-haiku-4-5-20251001": "Haiku 4.5",
@@ -30,6 +31,25 @@ export const BUILTIN_MODEL_LABELS: Record<string, Record<string, string>> = {
     "kimi-for-coding/k3": "Kimi K3",
   },
 };
+
+// Niveau de service Codex « Fast » (= service_tier `priority` de l'app-server).
+// Ce n'est NI un modèle NI un effort : le catalogue Codex annonce par modèle
+// `service_tiers: [{id:"priority", name:"Fast", description:"1.5x speed,
+// increased usage"}]`. Seuls les modèles ci-dessous le déclarent (codex-cli
+// 0.144.6) ; les autres (gpt-5.1-codex*, mini, auto-review) ont un
+// `service_tiers` vide → contrôle désactivé côté UI, jamais de tier forcé.
+export const CODEX_FAST_TIER_MODELS = [
+  "gpt-5.6-sol",
+  "gpt-5.6-terra",
+  "gpt-5.6-luna",
+  "gpt-5.5",
+  "gpt-5.4",
+] as const;
+
+/** `true` si ce modèle Codex expose le niveau de service priority (Fast). */
+export function codexSupportsFastMode(model: string): boolean {
+  return (CODEX_FAST_TIER_MODELS as readonly string[]).includes(model);
+}
 
 export function modelDisplayLabel(provider: string, model: string): string {
   const known = BUILTIN_MODEL_LABELS[provider]?.[model];

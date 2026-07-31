@@ -240,12 +240,13 @@ pub fn builtin_providers() -> Vec<ProviderStatus> {
             kind: "cli".into(),
             models: vec![
                 "claude-fable-5".into(),
+                "claude-opus-5".into(),
                 "claude-opus-4-8".into(),
                 "claude-sonnet-5".into(),
                 "claude-haiku-4-5-20251001".into(),
             ],
             model_reasoning: Value::Object(Default::default()),
-            default_model: "claude-sonnet-5[1m]".into(),
+            default_model: "claude-opus-5[1m]".into(),
             efforts: vec![
                 "low".into(),
                 "medium".into(),
@@ -516,6 +517,15 @@ mod tests {
     fn builtin_provider_ids() {
         let ids: Vec<_> = builtin_providers().into_iter().map(|p| p.id).collect();
         assert_eq!(ids, vec!["claude", "codex", "grok", "kimi", "opencode"]);
+    }
+
+    #[test]
+    fn claude_catalogue_includes_opus_5() {
+        let claude = builtin_providers()
+            .into_iter()
+            .find(|p| p.id == "claude")
+            .expect("claude présent");
+        assert!(claude.models.iter().any(|id| id == "claude-opus-5"));
     }
 
     #[test]

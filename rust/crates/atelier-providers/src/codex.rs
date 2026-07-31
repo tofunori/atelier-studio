@@ -98,6 +98,10 @@ impl Default for CodexProvider {
     }
 }
 
+/// Identifiant du niveau de service Codex « Fast » (`service_tiers` du
+/// catalogue app-server : `{id: "priority", name: "Fast"}`).
+pub const CODEX_PRIORITY_TIER: &str = "priority";
+
 fn codex_safety(permission_mode: Option<&str>) -> (&'static str, &'static str) {
     match permission_mode {
         Some("bypassPermissions") => ("danger-full-access", "never"),
@@ -123,6 +127,12 @@ fn thread_opts(req: &SendRequest) -> Value {
     let mut config = serde_json::Map::new();
     if let Some(effort) = req.effort.as_ref().filter(|e| !e.is_empty()) {
         config.insert("model_reasoning_effort".into(), json!(effort));
+    }
+    // Mode Fast : niveau de SERVICE, pas de raisonnement. `model_reasoning_effort`
+    // reste intact — Fast + High envoie bien les deux. Standard n'écrit rien et
+    // laisse Codex appliquer son `default_service_tier`.
+    if req.fast_mode {
+        config.insert("service_tier".into(), json!(CODEX_PRIORITY_TIER));
     }
     // Plan 057: per-thread MCP capability via config.mcp_servers (merged by app-server).
     if let Some(launch) = req.atelier_mcp.as_ref() {
@@ -776,5 +786,90 @@ mod command_tests {
         );
         assert_eq!(codex_safety(Some("plan")), ("read-only", "never"));
         assert_eq!(codex_safety(None), ("read-only", "on-request"));
+    }
+}
+
+#[cfg(test)]
+mod service_tier_tests {
+    use super::*;
+    use crate::traits::SendMode;
+    use std::sync::Arc;
+
+    fn request(effort: &str, fast_mode: bool) -> SendRequest {
+        SendRequest {
+            thread_id: "thread-1".into(),
+            turn_id: "turn-1".into(),
+            prompt: "ping".into(),
+            inputs: None,
+            project_root: "/tmp/atelier".into(),
+            session_id: None,
+            model: Some("gpt-5.6-sol".into()),
+            effort: (!effort.is_empty()).then(|| effort.to_string()),
+            fast_mode,
+            permission_mode: Some("bypassPermissions".into()),
+            mode: SendMode::Normal,
+            on_event: Arc::new(|_| {}),
+            on_interaction: None,
+            is_cancelled: Arc::new(|| false),
+            atelier_mcp: None,
+        }
+    }
+
+    #[test]
+    fn standard_ne_force_aucun_niveau_de_service() {
+        let opts = thread_opts(&request("medium", false));
+        assert_eq!(opts["config"]["model_reasoning_effort"], json!("medium"));
+        assert!(opts["config"].get("service_tier").is_none());
+    }
+
+    #[test]
+    fn fast_transmet_le_niveau_priority() {
+        let opts = thread_opts(&request("medium", true));
+        assert_eq!(opts["config"]["service_tier"], json!("priority"));
+    }
+
+    #[test]
+    fn fast_ne_touche_pas_a_leffort_de_raisonnement() {
+        for effort in ["high", "xhigh"] {
+            let standard = thread_opts(&request(effort, false));
+            let fast = thread_opts(&request(effort, true));
+            assert_eq!(fast["config"]["model_reasoning_effort"], json!(effort));
+            assert_eq!(
+                standard["config"]["model_reasoning_effort"],
+                fast["config"]["model_reasoning_effort"],
+            );
+            // le modèle non plus
+            assert_eq!(standard["model"], fast["model"]);
+        }
+    }
+
+    /// Contrat PARTAGÉ avec le sidecar Node : le même fixture est rejoué par
+    /// `sidecar/providers/codex.test.mjs`. Le canal de l'effort diffère
+    /// (config.model_reasoning_effort ici, turn/start.effort là-bas) mais la
+    /// décision niveau de service + effort préservé doit être identique.
+    #[test]
+    fn le_contrat_partage_rust_node_est_respecte() {
+        let raw = include_str!("../tests/fixtures/codex_service_tier.json");
+        let fixture: Value = serde_json::from_str(raw).expect("fixture JSON valide");
+        let cases = fixture["cases"].as_array().expect("cases");
+        assert!(!cases.is_empty());
+        for case in cases {
+            let name = case["name"].as_str().unwrap_or("?");
+            let opts = thread_opts(&request(
+                case["effort"].as_str().unwrap_or(""),
+                case["fastMode"].as_bool().unwrap_or(false),
+            ));
+            let config = opts.get("config");
+            let tier = config
+                .and_then(|c| c.get("service_tier"))
+                .cloned()
+                .unwrap_or(Value::Null);
+            let effort_out = config
+                .and_then(|c| c.get("model_reasoning_effort"))
+                .cloned()
+                .unwrap_or(Value::Null);
+            assert_eq!(tier, case["serviceTier"], "{name}: service_tier");
+            assert_eq!(effort_out, case["effortOut"], "{name}: effort");
+        }
     }
 }

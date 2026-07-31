@@ -2,8 +2,12 @@ import { describe, expect, it } from "vitest";
 import { contextWindowFor, getProvider, listProviders } from "./registry.mjs";
 
 describe("provider registry", () => {
-  it("defaults Claude to Sonnet 5 with a 1M context", () => {
-    expect(getProvider("claude")?.defaultModel).toBe("claude-sonnet-5[1m]");
+  it("defaults Claude to Opus 5 with a 1M context", () => {
+    expect(getProvider("claude")?.defaultModel).toBe("claude-opus-5[1m]");
+  });
+
+  it("exposes Claude Opus 5 in the model catalog", () => {
+    expect(getProvider("claude")?.models).toContain("claude-opus-5");
   });
 
   it("exposes the current Codex app-server model catalog", () => {

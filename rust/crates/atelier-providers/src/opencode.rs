@@ -750,6 +750,7 @@ mod tests {
             session_id: None,
             model: None,
             effort: None,
+            fast_mode: false,
             permission_mode: None,
             mode: SendMode::Normal,
             on_event: Arc::new(move |ev| sink.lock().unwrap().push(ev)),

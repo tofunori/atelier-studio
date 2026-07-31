@@ -52,7 +52,7 @@ export type Settings = {
 
 export const DEFAULT_SETTINGS: Settings = {
   defaultProvider: "claude",
-  defaultModel: { claude: "claude-sonnet-5[1m]", codex: "gpt-5.6-sol" },
+  defaultModel: { claude: "claude-opus-5[1m]", codex: "gpt-5.6-sol" },
   defaultEffort: { claude: "xhigh", codex: "medium", grok: "high" },
   defaultPermissionMode: "bypassPermissions",
   threadOrder: "recent",
@@ -91,7 +91,7 @@ export const DEFAULT_SETTINGS: Settings = {
 
 const KEY = "atelier-studio.settings";
 const LEGACY_FAVORITE_MODELS_KEY = "atelier-studio.favModels";
-const CLAUDE_DEFAULTS_MIGRATION_KEY = "atelier-studio.defaults.claude-sonnet-1m-xhigh";
+const CLAUDE_DEFAULTS_MIGRATION_KEY = "atelier-studio.defaults.claude-opus-5-1m";
 
 export function loadSettings(): Settings {
   try {
@@ -103,11 +103,14 @@ export function loadSettings(): Settings {
       ...(stored.defaultModel?.codex === "gpt-5.5" ? { codex: DEFAULT_SETTINGS.defaultModel.codex } : {}),
     };
     const storedDefaultEffort = { ...stored.defaultEffort };
-    // Migration ponctuelle : appliquer la nouvelle préférence demandée à
-    // l'installation existante, puis laisser les changements futurs libres.
-    if (localStorage.getItem(CLAUDE_DEFAULTS_MIGRATION_KEY) !== "1") {
+    // Migration ponctuelle : promouvoir l'ancien défaut Sonnet vers Opus 5
+    // 1M, sans écraser un modèle Claude choisi explicitement auparavant.
+    const hadDefaultClaude = stored.defaultModel?.claude;
+    const isPreviousClaudeDefault = !hadDefaultClaude
+      || hadDefaultClaude === "claude-sonnet-5"
+      || hadDefaultClaude === "claude-sonnet-5[1m]";
+    if (localStorage.getItem(CLAUDE_DEFAULTS_MIGRATION_KEY) !== "1" && isPreviousClaudeDefault) {
       storedDefaultModel.claude = DEFAULT_SETTINGS.defaultModel.claude;
-      storedDefaultEffort.claude = DEFAULT_SETTINGS.defaultEffort.claude;
       localStorage.setItem(CLAUDE_DEFAULTS_MIGRATION_KEY, "1");
     }
     // migration : ancienne clé de taille de police

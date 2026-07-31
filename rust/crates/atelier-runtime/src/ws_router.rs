@@ -2654,6 +2654,7 @@ async fn handle_quick_ask(state: &AppState, msg: &Value) -> Vec<String> {
             session_id: prev.map(|s| s.session_id),
             model,
             effort,
+            fast_mode: false,
             permission_mode: Some("bypassPermissions".into()),
             mode: atelier_providers::SendMode::Normal,
             on_event,

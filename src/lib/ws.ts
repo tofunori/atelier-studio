@@ -353,6 +353,10 @@ export type SendOptions = {
   attachments?: { path?: string; imagePath?: string }[];
   model?: string;
   effort?: string;
+  /** Niveau de service Codex. `true` = Fast → service_tier `priority` côté
+   * provider. Absent/false : aucun niveau forcé (comportement Codex normal).
+   * Indépendant du modèle et de l'effort. */
+  fastMode?: boolean;
   permissionMode?: string;
   mode?: "steer" | "queue";
   clientMessageId?: string;

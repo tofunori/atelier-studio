@@ -811,6 +811,9 @@ async function startProviderTurn(ctx, h, msg, { reservedTurnId = null } = {}) {
   const sameProvider = last.provider === provider;
   const model = msg.model ?? (sameProvider ? last.model : null) ?? null;
   const effort = msg.effort ?? (sameProvider ? last.effort : null) ?? null;
+  // Niveau de service Codex (Fast). Même règle que model/effort : un renvoi nu
+  // reprend le dernier choix du MÊME provider, jamais d'un autre.
+  const fastMode = msg.fastMode ?? (sameProvider ? last.fastMode : null) ?? false;
   const permissionMode = msg.permissionMode ?? last.permissionMode ?? null;
   const writableProject = writerProject(projectRoot, permissionMode);
   const writerOwner = acquireProjectWriter(writableProject, threadId);
@@ -868,7 +871,7 @@ async function startProviderTurn(ctx, h, msg, { reservedTurnId = null } = {}) {
     // toujours permissionMode ; son absence signe un renvoi programmatique,
     // qu'on ne mémorise pas pour ne pas écraser le vrai choix utilisateur)
     ...(msg.permissionMode
-      ? { lastTurn: { provider, model: msg.model ?? null, effort: msg.effort ?? null, permissionMode: msg.permissionMode } }
+      ? { lastTurn: { provider, model: msg.model ?? null, effort: msg.effort ?? null, fastMode: msg.fastMode === true, permissionMode: msg.permissionMode } }
       : {}),
   });
   emit({ type: "threads", threads: ctx.store.list() });
@@ -877,7 +880,7 @@ async function startProviderTurn(ctx, h, msg, { reservedTurnId = null } = {}) {
   const snapshotSha = await snapshotBeforeProvider(ctx, threadId);
   const displayEvent = normalizeDisplayEvent(msg);
   const titlePrompt = String(displayEvent?.text ?? "").trim() || prompt;
-  const turn = { threadId, projectRoot, provider, model, effort, permissionMode, prompt, titlePrompt, tools, snapshotSha, lastText: "", writerProject: writableProject };
+  const turn = { threadId, projectRoot, provider, model, effort, fastMode, permissionMode, prompt, titlePrompt, tools, snapshotSha, lastText: "", writerProject: writableProject };
 
   let turnId;
   if (reservedTurnId) {
@@ -930,6 +933,7 @@ async function startProviderTurn(ctx, h, msg, { reservedTurnId = null } = {}) {
     sessionId: prev?.sessionId ?? null,
     model,
     effort,
+    fastMode,
     permissionMode,
     clientMessageId: msg.clientMessageId,
     webSearch: msg.webSearch,

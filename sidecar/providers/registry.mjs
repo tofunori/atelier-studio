@@ -25,9 +25,10 @@ const PROVIDERS = [
     id: "claude",
     label: "Claude Code",
     bin: "claude",
-    defaultModel: "claude-sonnet-5[1m]",
+    defaultModel: "claude-opus-5[1m]",
     models: [
       "claude-fable-5",
+      "claude-opus-5",
       "claude-opus-4-8",
       "claude-sonnet-5",
       "claude-haiku-4-5-20251001",

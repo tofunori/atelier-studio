@@ -219,12 +219,12 @@ const CONTEXTS_ATTACHMENTS = [
 const QUEUED_TURNS: QueuedTurn[] = [
   {
     id: "queue-1", prompt: "Compare ensuite les résultats avec la version précédente.",
-    provider: "claude", model: "claude-fable-5", effort: "medium", permissionMode: "acceptEdits",
+    provider: "claude", model: "claude-fable-5", effort: "medium", permissionMode: "acceptEdits", fastMode: false,
     attachments: [], webSearch: false, additionalDirectories: [], pluginSkills: [], autoReview: null, createdAt: ts(8),
   },
   {
     id: "queue-2", prompt: "Prépare finalement une légende courte pour la figure 3.",
-    provider: "claude", model: "claude-fable-5", effort: "medium", permissionMode: "acceptEdits",
+    provider: "claude", model: "claude-fable-5", effort: "medium", permissionMode: "acceptEdits", fastMode: false,
     attachments: [], webSearch: false, additionalDirectories: [], pluginSkills: [], autoReview: null, createdAt: ts(4),
   },
 ];

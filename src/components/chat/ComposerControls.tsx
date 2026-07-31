@@ -25,6 +25,7 @@ import { Field, FieldLabel } from "../shadcn/field";
 import { InputGroup, InputGroupAddon, InputGroupInput } from "../shadcn/input-group";
 import type { FollowUpMode } from "../../lib/chatDraftStore";
 import { KbPicker, type KbBinding } from "./KbPicker";
+import { codexSupportsFastMode, modelDisplayLabel } from "../../lib/modelCatalog";
 import { ArrowUpIcon, SearchIcon, SquareIcon } from "lucide-react";
 
 const PERMISSION_MODES = [
@@ -44,6 +45,9 @@ export function ComposerControls(p: {
   setModel: React.Dispatch<React.SetStateAction<string>>;
   effort: string;
   setEffort: (v: string) => void;
+  /** Niveau de service Codex : `true` = Fast (service_tier priority). */
+  fastMode: boolean;
+  setFastMode: (v: boolean) => void;
   permissionMode: string;
   setPermissionMode: React.Dispatch<React.SetStateAction<string>>;
   plusOpen: boolean;
@@ -71,7 +75,7 @@ export function ComposerControls(p: {
   disabled: boolean;
   workingSince: number | null;
   onStop: () => void;
-  onSubmit: (prompt: string, provider: string, model: string, effort: string, permissionMode: string, mode: "steer" | "queue") => void;
+  onSubmit: (prompt: string, provider: string, model: string, effort: string, permissionMode: string, mode: "steer" | "queue", fastMode: boolean) => void;
   followUpMode: FollowUpMode;
   onGoal?: (action: "set" | "clear", objective?: string, status?: "active" | "paused") => void;
   defaults: {
@@ -82,7 +86,7 @@ export function ComposerControls(p: {
   kb?: KbBinding;
 }) {
   const {
-    provider, model, setModel, effort, setEffort,
+    provider, model, setModel, effort, setEffort, fastMode, setFastMode,
     permissionMode, setPermissionMode, plusOpen, setPlusOpen, menuOpen, setMenuOpen,
     effortOpen, setEffortOpen,
     setGoalOpen, attachFiles, providerInfo, resolvedModelId, autoReasoningLabel,
@@ -119,6 +123,15 @@ export function ComposerControls(p: {
   };
   const effortIndex = Math.max(0, effortLevels.indexOf(effort));
   const effortSummary = effortLabels[effort] ?? effort;
+  // Niveau de service Codex (Fast = service_tier `priority`). Ni un modèle ni
+  // un effort : orthogonal aux deux, d'où un contrôle distinct entre eux. Les
+  // autres providers n'exposent aucun équivalent → contrôle absent.
+  const tierModelId = resolvedModelId();
+  const tierSupported = provider === "codex" && codexSupportsFastMode(tierModelId);
+  const tierValue = fastMode && tierSupported ? "priority" : "default";
+  const tierHint = tierSupported
+    ? t("chat.service-tier-hint")
+    : t("chat.service-tier-unsupported", { model: modelDisplayLabel(provider, tierModelId) });
   const queueSupported = caps?.queue !== false;
   const steeringSupported = caps?.steering !== false;
   const preferredFollowUpMode: FollowUpMode = p.followUpMode === "steer" && steeringSupported
@@ -511,6 +524,23 @@ export function ComposerControls(p: {
             })()}
             </Popover>
           </span>
+          {provider === "codex" && (
+            <Tooltip placement="top" label={tierHint}>
+              <span className="tier-pick">
+                <Toggle
+                  size="sm"
+                  className="mp-btn tier-toggle"
+                  pressed={tierValue === "priority"}
+                  disabled={!tierSupported}
+                  aria-label={t("chat.service-tier-fast")}
+                  onPressedChange={(pressed) => setFastMode(pressed)}
+                >
+                  <ZapIcon size={11} />
+                  {t("chat.service-tier-fast")}
+                </Toggle>
+              </span>
+            </Tooltip>
+          )}
           {effortLevels.length >= 2 && (
             <span className="effort-pick">
               <Popover

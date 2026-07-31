@@ -14,7 +14,7 @@ describe("chatDraftStore", () => {
       attachments: [{ name: "plot.png", lines: null, text: "image", path: "/tmp/plot.png", imageUrl: "data:image/png;base64,AAAA" }],
       queuedTurns: [{
         id: "q1", prompt: "puis compare", provider: "codex", model: "gpt", effort: "high",
-        permissionMode: "default", createdAt: 12,
+        permissionMode: "default", fastMode: false, createdAt: 12,
         webSearch: true,
         additionalDirectories: ["/data/reference"],
         pluginSkills: [{ name: "nature-figure", path: "/skills/nature-figure/SKILL.md" }],

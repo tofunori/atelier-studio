@@ -1314,6 +1314,7 @@ mod tests {
             session_id: session_id.map(str::to_string),
             model: Some("grok-test".into()),
             effort: Some("medium".into()),
+            fast_mode: false,
             permission_mode: Some("default".into()),
             mode: SendMode::Normal,
             on_event: Arc::new(move |event| events.lock().unwrap().push(event)),
