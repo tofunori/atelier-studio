@@ -208,6 +208,61 @@ pub fn map_session_update(
                 vec![json!({"kind":"todos", "items": items})]
             }
         }
+        // Sous-agents : Grok les lance lui-même et rend compte par
+        // notification. Sans traduction, seul l'appel `spawn_subagent`
+        // apparaissait — on voyait le départ, jamais le travail ni le
+        // résultat. Ils empruntent la carte d'outil existante : même
+        // affichage vivant, aucun composant neuf.
+        "subagent_spawned" | "subagent_progress" | "subagent_finished" => {
+            let Some(id) = update
+                .get("subagent_id")
+                .and_then(|v| v.as_str())
+                .filter(|id| !id.is_empty())
+            else {
+                return vec![];
+            };
+            let nombre = |cle: &str| update.get(cle).and_then(|v| v.as_u64());
+            let secondes = nombre("duration_ms").map(|ms| format!("{:.0} s", ms as f64 / 1000.0));
+            let detail = match kind {
+                "subagent_progress" | "subagent_finished" => {
+                    let mut parts = Vec::new();
+                    if let Some(t) = nombre("turn_count").or_else(|| nombre("turns")) {
+                        parts.push(format!("{t} tour{}", if t > 1 { "s" } else { "" }));
+                    }
+                    if let Some(c) = nombre("tool_call_count").or_else(|| nombre("tool_calls")) {
+                        parts.push(format!("{c} outil{}", if c > 1 { "s" } else { "" }));
+                    }
+                    if let Some(j) = nombre("tokens_used") {
+                        parts.push(format!("{j} jetons"));
+                    }
+                    if let Some(d) = secondes {
+                        parts.push(d);
+                    }
+                    parts.join(" · ")
+                }
+                _ => String::new(),
+            };
+            let status = if kind == "subagent_finished" {
+                match update.get("status").and_then(|v| v.as_str()) {
+                    Some("completed") => "completed",
+                    Some(other) if other.contains("cancel") => "cancelled",
+                    Some(_) => "failed",
+                    None => "completed",
+                }
+            } else {
+                "running"
+            };
+            vec![json!({
+                "kind": "tool_update",
+                "id": format!("subagent:{id}"),
+                "name": "sous-agent",
+                "status": status,
+                "detail": detail,
+                "output": update.get("output").and_then(|v| v.as_str()).unwrap_or(""),
+                "input": update.get("prompt").or_else(|| update.get("description")),
+                "source": "grok",
+            })]
+        }
         // Avancement MCP (liste blanche d'acp_rpc) : occupe l'attente avant le
         // premier jeton, là où Atelier n'affichait qu'un spinner muet.
         "x_mcp_progress" => match update.get("phase").and_then(|v| v.as_str()) {
@@ -397,6 +452,69 @@ mod tests {
         assert_eq!(update[0]["name"], "read_file");
         assert_eq!(update[0]["status"], "failed");
         assert!(update[0]["output"].is_string());
+    }
+
+    /// Charges utiles réelles (sonde 2026-08-13) : Grok annonce ses
+    /// sous-agents par notification. Sans traduction, seul l'appel
+    /// `spawn_subagent` était visible — le travail et le résultat, jamais.
+    #[test]
+    fn un_sous_agent_devient_une_carte_doutil_vivante() {
+        let mut meta = HashMap::new();
+        let mut edits = HashSet::new();
+        let map = |u: &Value, m: &mut HashMap<String, Value>, e: &mut HashSet<String>| {
+            map_session_update(u, m, e)
+        };
+
+        let depart = map(
+            &json!({"sessionUpdate":"subagent_spawned","subagent_id":"019ffc67-ad93",
+                "child_session_id":"019ffc67-ad93"}),
+            &mut meta,
+            &mut edits,
+        );
+        assert_eq!(depart[0]["kind"], "tool_update");
+        assert_eq!(depart[0]["id"], "subagent:019ffc67-ad93");
+        assert_eq!(depart[0]["status"], "running");
+
+        let avance = map(
+            &json!({"sessionUpdate":"subagent_progress","subagent_id":"019ffc67-ad93",
+                "turn_count":2,"tool_call_count":3,"tokens_used":15368,"duration_ms":4479}),
+            &mut meta,
+            &mut edits,
+        );
+        assert_eq!(avance[0]["status"], "running");
+        assert_eq!(avance[0]["detail"], "2 tours · 3 outils · 15368 jetons · 4 s");
+
+        let fin = map(
+            &json!({"sessionUpdate":"subagent_finished","subagent_id":"019ffc67-ad93",
+                "status":"completed","tool_calls":1,"turns":1,"duration_ms":11560,
+                "tokens_used":15368,"output":"**Total: 3**"}),
+            &mut meta,
+            &mut edits,
+        );
+        assert_eq!(fin[0]["status"], "completed");
+        assert_eq!(fin[0]["output"], "**Total: 3**");
+
+        // Même identifiant tout du long : une seule carte qui évolue, pas trois.
+        assert_eq!(fin[0]["id"], depart[0]["id"]);
+    }
+
+    /// Un sous-agent en échec ne doit pas passer pour terminé.
+    #[test]
+    fn un_sous_agent_en_echec_est_signale() {
+        let mut meta = HashMap::new();
+        let mut edits = HashSet::new();
+        let fin = map_session_update(
+            &json!({"sessionUpdate":"subagent_finished","subagent_id":"x","status":"error"}),
+            &mut meta,
+            &mut edits,
+        );
+        assert_eq!(fin[0]["status"], "failed");
+        assert!(map_session_update(
+            &json!({"sessionUpdate":"subagent_spawned"}),
+            &mut meta,
+            &mut edits
+        )
+        .is_empty());
     }
 
     /// Le coût d'un tour arrivait à chaque réponse et partait à la poubelle.
