@@ -420,6 +420,7 @@ pub async fn route_ws(state: &AppState, text: &str) -> Vec<String> {
                 .get("projectRoot")
                 .and_then(|v| v.as_str())
                 .unwrap_or("");
+            warm_snapshot_index(root);
             let catalog = list_file_catalog(root);
             vec![json_msg(json!({
                 "type":"files",
@@ -1560,6 +1561,37 @@ fn ok<T: serde::Serialize>(v: T) -> String {
 
 pub(crate) fn json_msg(v: Value) -> String {
     serde_json::to_string(&v).unwrap_or_else(|_| r#"{"type":"error","message":"serialize"}"#.into())
+}
+
+/// Chauffe l'index de snapshot du projet, en tâche de fond, dès son ouverture.
+/// Le premier `git add -A` d'un dépôt doit hacher tout le worktree (~45 s sur
+/// 55 Go) ; le payer ici plutôt qu'au premier message le sort du chemin
+/// critique. Une seule fois par dépôt et par processus : ensuite l'index est
+/// chaud et le snapshot coûte ~0,1 s.
+fn warm_snapshot_index(project_root: &str) {
+    use std::collections::HashSet;
+    use std::sync::{Mutex, OnceLock};
+
+    if project_root.is_empty() {
+        return;
+    }
+    static WARMED: OnceLock<Mutex<HashSet<String>>> = OnceLock::new();
+    let already = {
+        let mut guard = WARMED
+            .get_or_init(|| Mutex::new(HashSet::new()))
+            .lock()
+            .unwrap_or_else(|poison| poison.into_inner());
+        !guard.insert(project_root.to_string())
+    };
+    if already {
+        return;
+    }
+    let root = project_root.to_string();
+    tokio::task::spawn_blocking(move || {
+        // Échec sans conséquence : ce n'est qu'un préchauffage. Le tour
+        // reconstruira l'index lui-même si besoin.
+        let _ = atelier_workspace::snapshot(&root);
+    });
 }
 
 pub(crate) fn err(message: impl Into<String>) -> String {
