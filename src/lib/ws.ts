@@ -372,8 +372,10 @@ export function sendPrompt(ws: WebSocket, t: SendOptions) {
   ws.send(JSON.stringify({ type: "send", ...t }));
 }
 
-export function requestCatalog(ws: WebSocket, projectRoot: string) {
-  ws.send(JSON.stringify({ type: "listCommands", projectRoot }));
+export function requestCatalog(ws: WebSocket, projectRoot: string, provider?: string | null) {
+  // `provider` ajoute les commandes internes du CLI actif (Grok : compact,
+  // context, hooks-list…), absentes du disque et donc introuvables au scan.
+  ws.send(JSON.stringify({ type: "listCommands", projectRoot, provider: provider ?? undefined }));
   ws.send(JSON.stringify({ type: "listFiles", projectRoot }));
   ws.send(JSON.stringify({ type: "listPlugins", projectRoot }));
 }

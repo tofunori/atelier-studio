@@ -47,6 +47,7 @@ export type TimelineThread = {
   workingSince: number | null;
   /** tokens de sortie du tour en cours — affichés à côté du temps écoulé */
   liveTokens: number | null;
+  liveNote?: string | null;
   phase: TurnPhase;
 };
 export type TimelineReview = {
@@ -116,7 +117,7 @@ export function ChatTimeline(p: {
     removeMark: (text: string, kind: "hl" | "ul") => void;
   };
 }) {
-  const { threadId, events, workingSince, liveTokens, phase } = p.thread;
+  const { threadId, events, workingSince, liveTokens, liveNote, phase } = p.thread;
   const { review, reviewMin, setReviewMin, setReview, barOpen, setBarOpen, fixing, setFixing, reviewOpen, setReviewOpen } = p.rev;
   const {
     renderedEvents, openFolds, setOpenFolds, openToolGroups, setOpenToolGroups,
@@ -404,7 +405,7 @@ export function ChatTimeline(p: {
               <div className="timeline-virtual-row" id="message-working" data-message-id="message-working">
                 <div className="working-stack">
                   <div className="working-row">
-                    <Working since={workingSince!} tokens={liveTokens} />
+                    <Working since={workingSince!} tokens={liveTokens} note={liveNote} />
                   </div>
                   <LiveThinking />
                   <RowButton className="stop-hint" title={t("action.interrupt")} onClick={onStop}>

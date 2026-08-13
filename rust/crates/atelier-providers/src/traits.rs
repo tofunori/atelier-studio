@@ -169,6 +169,13 @@ pub trait Provider: Send + Sync {
     async fn native_history(&self, _session_id: &str, _project_root: &str) -> Option<Vec<Value>> {
         None
     }
+
+    /// Commandes que le CLI expose lui-même (`available_commands_update`) :
+    /// `[{name, description}]`. Elles n'existent nulle part sur le disque, un
+    /// scan de `skills/` ou `commands/` ne peut donc pas les découvrir.
+    fn native_commands(&self) -> Vec<Value> {
+        Vec::new()
+    }
 }
 
 #[cfg(test)]

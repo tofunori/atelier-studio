@@ -135,6 +135,10 @@ pub struct GrokProvider {
     agent_args: Vec<String>,
     runtimes: Mutex<HashMap<String, Arc<GrokThreadRuntime>>>,
     catalog: StdMutex<GrokCatalog>,
+    /// Dernier `availableCommands` annoncé par le CLI. Ces commandes sont
+    /// internes à Grok (compact, context, hooks-list…) : aucun scan de disque
+    /// ne peut les découvrir.
+    native_commands: Arc<StdMutex<Vec<Value>>>,
 }
 
 impl GrokProvider {
@@ -153,6 +157,7 @@ impl GrokProvider {
             agent_args,
             runtimes: Mutex::new(HashMap::new()),
             catalog: StdMutex::new(GrokCatalog::default()),
+            native_commands: Arc::new(StdMutex::new(Vec::new())),
         }
     }
 
@@ -512,8 +517,20 @@ impl GrokProvider {
         let handler_state = Arc::clone(&state);
         let saw = Arc::clone(&saw_content);
         let activity = Arc::clone(&last_update);
+        let commands_cache = Arc::clone(&self.native_commands);
         let handler: SessionUpdateHandler = Arc::new(move |update: &Value| {
             activity.store(now_ms(), Ordering::Relaxed);
+            if update.get("sessionUpdate").and_then(Value::as_str)
+                == Some("available_commands_update")
+            {
+                if let Some(commands) = update
+                    .get("availableCommands")
+                    .and_then(Value::as_array)
+                    .filter(|commands| !commands.is_empty())
+                {
+                    *commands_cache.lock().unwrap() = commands.clone();
+                }
+            }
             if matches!(
                 update.get("sessionUpdate").and_then(Value::as_str),
                 Some(
@@ -672,6 +689,10 @@ impl Provider for GrokProvider {
             .current_model()
             .map(|model| model.id.clone())
             .unwrap_or_else(|| FALLBACK_MODEL.to_string())
+    }
+
+    fn native_commands(&self) -> Vec<Value> {
+        self.native_commands.lock().unwrap().clone()
     }
 
     fn efforts(&self) -> Vec<String> {

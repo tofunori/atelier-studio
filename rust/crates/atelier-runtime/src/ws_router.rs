@@ -537,7 +537,38 @@ pub async fn route_ws(state: &AppState, text: &str) -> Vec<String> {
         }
         "listCommands" => {
             let root = msg.get("projectRoot").and_then(|v| v.as_str());
-            let commands = list_commands(root);
+            let mut commands = serde_json::to_value(list_commands(root))
+                .ok()
+                .and_then(|value| value.as_array().cloned())
+                .unwrap_or_default();
+            // Commandes internes du CLI actif (Grok : compact, context,
+            // hooks-list…). Elles ne vivent sur aucun disque, et restent
+            // portées par le provider du fil courant — jamais mélangées à
+            // celles d'un autre.
+            if let Some(provider) = msg
+                .get("provider")
+                .and_then(Value::as_str)
+                .and_then(|id| state.provider(id).map(|p| (id.to_string(), p)))
+            {
+                let (id, implementation) = provider;
+                let known: std::collections::HashSet<String> = commands
+                    .iter()
+                    .filter_map(|c| c.get("name").and_then(Value::as_str).map(str::to_string))
+                    .collect();
+                for command in implementation.native_commands() {
+                    let Some(name) = command.get("name").and_then(Value::as_str) else {
+                        continue;
+                    };
+                    if known.contains(name) {
+                        continue;
+                    }
+                    commands.push(json!({
+                        "name": name,
+                        "source": id,
+                        "description": command.get("description").and_then(Value::as_str),
+                    }));
+                }
+            }
             vec![json_msg(json!({"type":"commands","commands": commands}))]
         }
         "listPlugins" => {

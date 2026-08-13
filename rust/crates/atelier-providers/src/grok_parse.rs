@@ -208,6 +208,37 @@ pub fn map_session_update(
                 vec![json!({"kind":"todos", "items": items})]
             }
         }
+        // Avancement MCP (liste blanche d'acp_rpc) : occupe l'attente avant le
+        // premier jeton, là où Atelier n'affichait qu'un spinner muet.
+        "x_mcp_progress" => match update.get("phase").and_then(|v| v.as_str()) {
+            Some("_x.ai/mcp/init_progress") => {
+                let total = update.get("total").and_then(|v| v.as_u64()).unwrap_or(0);
+                if total == 0 {
+                    vec![]
+                } else {
+                    let connected = update.get("connected").and_then(|v| v.as_u64()).unwrap_or(0);
+                    vec![json!({"kind":"heartbeat",
+                        "note": format!("MCP {connected}/{total}")})]
+                }
+            }
+            Some("_x.ai/mcp_initialized") => {
+                let tools = update.get("mcpToolCount").and_then(|v| v.as_u64()).unwrap_or(0);
+                vec![json!({"kind":"heartbeat", "note": format!("MCP prêt · {tools} outils")})]
+            }
+            // Un serveur en panne est silencieux autrement : Thierry ne peut
+            // pas deviner qu'un MCP a échoué son handshake.
+            Some("_x.ai/mcp/server_status") => {
+                let status = update.get("status").and_then(|v| v.as_str()).unwrap_or("");
+                let name = update.get("name").and_then(|v| v.as_str()).unwrap_or("");
+                if status == "ok" || status.is_empty() || name.is_empty() {
+                    vec![]
+                } else {
+                    let reason = update.get("reason").and_then(|v| v.as_str()).unwrap_or(status);
+                    vec![json!({"kind":"heartbeat", "note": format!("MCP {name} : {reason}")})]
+                }
+            }
+            _ => vec![],
+        },
         "hook_execution"
         | "user_message_chunk"
         | "available_commands_update"
@@ -353,6 +384,72 @@ mod tests {
         assert_eq!(update[0]["name"], "read_file");
         assert_eq!(update[0]["status"], "failed");
         assert!(update[0]["output"].is_string());
+    }
+
+    /// Charges utiles réelles de grok 1.0.3 (sonde 2026-08-13).
+    #[test]
+    fn lavancement_mcp_occupe_lattente() {
+        let mut meta = HashMap::new();
+        let mut edits = HashSet::new();
+        let map = |update: &Value, meta: &mut HashMap<String, Value>, edits: &mut HashSet<String>| {
+            map_session_update(update, meta, edits)
+        };
+
+        let progress = map(
+            &json!({"sessionUpdate":"x_mcp_progress","phase":"_x.ai/mcp/init_progress",
+                "total":23,"connected":7}),
+            &mut meta,
+            &mut edits,
+        );
+        assert_eq!(progress[0]["kind"], "heartbeat");
+        assert_eq!(progress[0]["note"], "MCP 7/23");
+
+        let ready = map(
+            &json!({"sessionUpdate":"x_mcp_progress","phase":"_x.ai/mcp_initialized",
+                "mcpToolCount":225,"elapsedMs":798}),
+            &mut meta,
+            &mut edits,
+        );
+        assert_eq!(ready[0]["note"], "MCP prêt · 225 outils");
+
+        // Un serveur en panne doit se voir : sinon l'échec est muet.
+        let failed = map(
+            &json!({"sessionUpdate":"x_mcp_progress","phase":"_x.ai/mcp/server_status",
+                "name":"plan","status":"unavailable","reason":"handshake_failed"}),
+            &mut meta,
+            &mut edits,
+        );
+        assert_eq!(failed[0]["note"], "MCP plan : handshake_failed");
+
+        // Un serveur sain n'a rien à dire.
+        assert!(map(
+            &json!({"sessionUpdate":"x_mcp_progress","phase":"_x.ai/mcp/server_status",
+                "name":"exa","status":"ok"}),
+            &mut meta,
+            &mut edits,
+        )
+        .is_empty());
+    }
+
+    /// `detail` porte des URLs et des chemins internes, `servers_updated` des
+    /// commandes ssh complètes : rien de tout ça ne doit franchir acp_rpc.
+    #[test]
+    fn la_sanitisation_mcp_ne_laisse_passer_que_le_sur() {
+        let update = crate::acp_rpc::mcp_progress_update(
+            "_x.ai/mcp/server_status",
+            &json!({
+                "sessionId":"019f","name":"plan","source":"local","status":"unavailable",
+                "reason":"handshake_failed",
+                "detail":"MCP server 'plan' handshake failed: … http://rorqual.tail02163.ts.net:3131/mcp",
+                "tools":null
+            }),
+        );
+        assert_eq!(update["name"], "plan");
+        assert_eq!(update["reason"], "handshake_failed");
+        assert!(update.get("detail").is_none());
+        assert!(update.get("sessionId").is_none());
+        assert!(update.get("source").is_none());
+        assert!(!update.to_string().contains("rorqual"));
     }
 
     #[test]

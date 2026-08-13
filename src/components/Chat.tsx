@@ -85,6 +85,8 @@ export default function Chat(p: {
   workingSince: number | null;
   /** tokens de sortie du tour en cours (heartbeat provider) — ticker Working */
   liveTokens?: number | null;
+  /** note d'avancement du tour (démarrage MCP) — affichée sous le spinner */
+  liveNote?: string | null;
   commands: { name: string; source: string }[];
   files: string[];
   recentFiles: string[];
@@ -949,6 +951,7 @@ export default function Chat(p: {
           events: p.events,
           workingSince: p.workingSince,
           liveTokens: p.liveTokens ?? null,
+          liveNote: p.liveNote ?? null,
           phase: turnViewModels[turnViewModels.length - 1]?.phase ?? "idle",
         }}
         rev={{ review, reviewMin, setReviewMin, setReview, barOpen, setBarOpen, fixing, setFixing, reviewOpen, setReviewOpen }}

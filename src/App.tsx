@@ -504,6 +504,8 @@ export default function App() {
   workingSinceRef.current = workingSince;
   // tokens de sortie du tour en cours (heartbeat provider) — ticker Working
   const [liveTokens, setLiveTokens] = useState<Record<string, number | null>>({});
+  // note d'avancement du tour (démarrage MCP Grok) — affichée sous le spinner
+  const [liveNotes, setLiveNotes] = useState<Record<string, string | null>>({});
   const [usageByThread, setUsageByThread] = useState<
     Record<string, { context: number; output: number; cost: number | null; turns: number | null; window?: number | null }>
   >({});
@@ -1376,6 +1378,12 @@ export default function App() {
           if (typeof tokens === "number") {
             setLiveTokens((p) => ({ ...p, [msg.threadId]: tokens }));
           }
+          // note d'avancement (démarrage MCP Grok) : occupe l'attente avant
+          // le premier jeton, comme la TUI du provider
+          if (typeof msg.event.note === "string") {
+            const note = msg.event.note;
+            setLiveNotes((p) => (p[msg.threadId] === note ? p : { ...p, [msg.threadId]: note }));
+          }
           return;
         }
         if (msg.event.kind === "usage") {
@@ -1397,6 +1405,7 @@ export default function App() {
         if (msg.event.kind === "done" || msg.event.kind === "error") {
           // le ticker du tour ne survit pas au tour
           setLiveTokens((p) => (p[msg.threadId] == null ? p : { ...p, [msg.threadId]: null }));
+          setLiveNotes((p) => (p[msg.threadId] == null ? p : { ...p, [msg.threadId]: null }));
         }
         // tour AUTONOME (goal poursuivi par le serveur, aucun submit local) :
         // le spinner démarre sur le started du provider — sans écraser un
@@ -1922,12 +1931,19 @@ export default function App() {
     localStorage.setItem(PROJECTS_KEY, JSON.stringify(projects));
   }, [projects]);
 
-  // catalogue skills + fichiers du projet actif (pour les menus / et @)
+  // catalogue skills + fichiers du projet actif (pour les menus / et @).
+  // Le provider du fil actif en fait partie : ses commandes natives changent
+  // avec lui, donc le catalogue se redemande aussi quand il change.
+  // `allThreads` est mémoïsé plus bas : on lit la ref, entretenue à chaque
+  // rendu, et l'effet se redéclenche sur l'id du fil actif.
+  const activeProviderId = activeId
+    ? (allThreadsRef.current.find((thread) => thread.id === activeId)?.provider ?? null)
+    : null;
   useEffect(() => {
     if (activeProject && wsReady && ws.current?.readyState === 1) {
-      requestCatalog(ws.current, activeProject);
+      requestCatalog(ws.current, activeProject, activeProviderId);
     }
-  }, [activeProject, wsReady]);
+  }, [activeProject, wsReady, activeProviderId]);
 
   // Revenir à l'accueil relit les mtimes immédiatement, puis les garde frais
   // tant que cette page reste visible (fichiers modifiés hors Atelier inclus).
@@ -3448,6 +3464,7 @@ export default function App() {
           events={activeId ? (events[activeId] ?? []) : []}
           workingSince={activeId ? (workingSince[activeId] ?? null) : null}
           liveTokens={activeId ? (liveTokens[activeId] ?? null) : null}
+          liveNote={activeId ? (liveNotes[activeId] ?? null) : null}
           usage={activeId ? (usageByThread[activeId] ?? null) : null}
           commands={commands}
           files={files}

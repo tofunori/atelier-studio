@@ -365,7 +365,9 @@ function fmtTokenCount(n: number): string {
   return `${k >= 100 ? String(Math.round(k)) : k.toFixed(1).replace(/\.0$/, "")}k`;
 }
 
-export function Working({ since, tokens }: { since: number; tokens?: number | null }) {
+export function Working(
+  { since, tokens, note }: { since: number; tokens?: number | null; note?: string | null },
+) {
   const [, tick] = useState(0);
   useEffect(() => {
     const t = setInterval(() => tick((n) => n + 1), 1000);
@@ -379,6 +381,7 @@ export function Working({ since, tokens }: { since: number; tokens?: number | nu
         {tokens != null && tokens > 0 ? (
           <span className="working-tokens">{t("chat.working-tokens", { n: fmtTokenCount(tokens) })}</span>
         ) : null}
+        {note ? <span className="working-note">{note}</span> : null}
       </span>
       <div className="working-divider" aria-hidden="true" />
     </div>
