@@ -105,6 +105,24 @@ describe("anatomie du tour — header d'activité", () => {
     expect(indicator.querySelector(".thinking-shimmer")).toBeNull();
   });
 
+  // Fil réel (thread c41476bd) : Grok répond, part en outils, puis repense.
+  // S'arrêter au premier `text` rencontré rendait la ligne muette pendant
+  // tout le reste du tour — l'essentiel des 46 s d'attente.
+  it("garde la pensée quand le tour repart en outils après un premier texte", () => {
+    const live: AgentEvent[] = [
+      events.user("Que penses-tu du style ?", FIXED_TS),
+      { kind: "thinking", text: "The user is asking about the style.", ts: FIXED_TS + 10 } as AgentEvent,
+      { kind: "text", text: "Je relis le paragraphe.", ts: FIXED_TS + 20 } as AgentEvent,
+      events.tool({ id: "t1", name: "Read", ts: FIXED_TS + 30 }),
+      { kind: "thinking", text: "The user rewrote the paragraph. Now they want my opinion", ts: FIXED_TS + 40 } as AgentEvent,
+    ];
+    renderUi(<Chat {...chatProps({ events: live, workingSince: FIXED_TS })} />);
+    const indicator = document.querySelector(".thinking-live-indicator") as HTMLElement;
+    expect(indicator.textContent).toContain("they want my opinion");
+    // et surtout : pas la pensée d'AVANT le premier texte
+    expect(indicator.textContent).not.toContain("asking about the style");
+  });
+
   it("cadence le reflet Thinking : délai de 600 ms, passage de 650 ms, puis toutes les 4 s", () => {
     vi.useFakeTimers();
     try {

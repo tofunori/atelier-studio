@@ -472,13 +472,19 @@ function activeEventLabel(turn: ChatTurnViewModel, events: AgentEvent[]): ReactN
 export function currentThought(turn: ChatTurnViewModel | null, events: AgentEvent[]): string {
   const state = turn?.activeState;
   const blocks: string[] = [];
-  for (let i = events.length - 1; i >= 0 && blocks.length < 4; i--) {
+  for (let i = events.length - 1; i >= 0; i--) {
     const event = events[i];
     if (event.kind === "thinking_live" || event.kind === "thinking") {
       if (event.text) blocks.unshift(event.text);
       continue;
     }
-    if (event.kind === "text" || event.kind === "done" || event.kind === "error") break;
+    // Groupe contigu le plus récent : une fois qu'on en tient un, tout ce qui
+    // précède appartient à une réflexion antérieure.
+    if (blocks.length) break;
+    // Frontière du TOUR — et pas le premier `text` venu : Grok répond, part
+    // en outils, puis repense. S'arrêter au texte rendait la ligne muette
+    // pendant tout le reste du tour.
+    if (event.kind === "user" || event.kind === "done" || event.kind === "error") break;
   }
   // Recollage SANS séparateur : ces blocs ne sont pas des pensées distinctes
   // mais un flux continu découpé (Grok coupe en plein mot — « …I already
