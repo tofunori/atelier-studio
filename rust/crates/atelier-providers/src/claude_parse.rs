@@ -65,6 +65,21 @@ pub fn parse_line(state: &mut ClaudeStreamState, line: &str) -> Vec<Value> {
     parse_message(state, &msg)
 }
 
+/// Délai jusqu'à la reprise, en clair. Plus utile qu'une heure absolue et
+/// sans dépendance de fuseau : ce qu'on veut savoir, c'est l'attente.
+fn delai_jusqua(epoch: u64) -> Option<String> {
+    let maintenant = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .ok()?
+        .as_secs();
+    let reste = epoch.checked_sub(maintenant)?;
+    Some(match reste {
+        0..=90 => "moins d'une minute".to_string(),
+        91..=5400 => format!("{} min", reste.div_ceil(60)),
+        _ => format!("{} h {:02}", reste / 3600, (reste % 3600) / 60),
+    })
+}
+
 pub fn parse_message(state: &mut ClaudeStreamState, msg: &Value) -> Vec<Value> {
     let mut out = Vec::new();
     let ty = msg.get("type").and_then(|v| v.as_str()).unwrap_or("");
@@ -78,6 +93,63 @@ pub fn parse_message(state: &mut ClaudeStreamState, msg: &Value) -> Vec<Value> {
         }
         if subtype == "compact_boundary" {
             out.push(json!({"kind":"tool","name":"__compacted"}));
+        }
+        // Les hooks tournent invisiblement — 69 chez Thierry. Comme le
+        // démarrage MCP de Grok, ils occupent l'attente au lieu de laisser
+        // croire que rien ne se passe.
+        if subtype == "hook_started" || subtype == "hook_response" {
+            if let Some(nom) = msg
+                .get("hook_name")
+                .or_else(|| msg.get("hook_event_name"))
+                .or_else(|| msg.get("hook"))
+                .and_then(|v| v.as_str())
+                .filter(|nom| !nom.is_empty())
+            {
+                out.push(json!({"kind":"heartbeat", "note": format!("hook {nom}")}));
+            }
+        }
+        // Claude classe lui-même son tour. Un tour « bloqué » qui attend une
+        // précision se terminait sans que rien ne le dise.
+        if subtype == "post_turn_summary" {
+            let categorie = msg
+                .get("status_category")
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
+            if categorie == "blocked" || categorie == "failed" {
+                if let Some(attendu) = msg
+                    .get("needs_action")
+                    .or_else(|| msg.get("status_detail"))
+                    .and_then(|v| v.as_str())
+                    .filter(|texte| !texte.is_empty())
+                {
+                    out.push(json!({"kind":"tool", "name": format!("en attente : {attendu}")}));
+                }
+            }
+        }
+        return out;
+    }
+
+    // Fenêtre de quota annoncée à chaque tour. Sans elle, la limite se
+    // découvre en la heurtant.
+    if ty == "rate_limit_event" {
+        let info = msg.get("rate_limit_info").cloned().unwrap_or(json!({}));
+        let statut = info.get("status").and_then(|v| v.as_str()).unwrap_or("");
+        // `allowed` est le cas normal : ne rien afficher tant que tout va bien.
+        if statut != "allowed" && !statut.is_empty() {
+            let fenetre = info
+                .get("rateLimitType")
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
+            let reprise = info
+                .get("resetsAt")
+                .and_then(|v| v.as_u64())
+                .and_then(delai_jusqua)
+                .map(|delai| format!(" — reprise dans {delai}"))
+                .unwrap_or_default();
+            out.push(json!({
+                "kind": "error",
+                "message": format!("Limite d'usage Claude ({statut}, fenêtre {fenetre}){reprise}"),
+            }));
         }
         return out;
     }
@@ -577,6 +649,79 @@ fn now_ms() -> u128 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Charges utiles réelles (sonde 2026-08-13). Claude annonce sa fenêtre de
+    /// quota à chaque tour ; Atelier n'en montrait rien, donc la limite se
+    /// découvrait en la heurtant.
+    #[test]
+    fn la_limite_dusage_ne_parle_que_quand_elle_menace() {
+        let mut state = ClaudeStreamState::default();
+
+        // Cas normal : rien à dire, pas de bruit à chaque tour.
+        let ok = parse_message(
+            &mut state,
+            &json!({"type":"rate_limit_event","rate_limit_info":{
+                "status":"allowed","rateLimitType":"five_hour"}}),
+        );
+        assert!(ok.is_empty());
+
+        let epoch = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_secs()
+            + 1_800;
+        let alerte = parse_message(
+            &mut state,
+            &json!({"type":"rate_limit_event","rate_limit_info":{
+                "status":"rejected","rateLimitType":"five_hour","resetsAt":epoch}}),
+        );
+        assert_eq!(alerte[0]["kind"], "error");
+        let texte = alerte[0]["message"].as_str().unwrap();
+        assert!(texte.contains("five_hour"), "{texte}");
+        assert!(texte.contains("30 min"), "{texte}");
+    }
+
+    /// Claude classe lui-même son tour : « bloqué, en attente de précision ».
+    /// Sans ça, le tour se terminait sans rien dire.
+    #[test]
+    fn un_tour_bloque_dit_ce_quil_attend() {
+        let mut state = ClaudeStreamState::default();
+        let bloque = parse_message(
+            &mut state,
+            &json!({"type":"system","subtype":"post_turn_summary",
+                "status_category":"blocked",
+                "needs_action":"clarify the task: what would you like me to do?"}),
+        );
+        assert_eq!(bloque[0]["kind"], "tool");
+        assert!(bloque[0]["name"].as_str().unwrap().contains("clarify the task"));
+
+        // Un tour normal ne doit rien ajouter au transcript.
+        let normal = parse_message(
+            &mut state,
+            &json!({"type":"system","subtype":"post_turn_summary","status_category":"completed"}),
+        );
+        assert!(normal.is_empty());
+    }
+
+    /// Les hooks tournent invisiblement (69 chez Thierry) : ils occupent
+    /// l'attente, comme le démarrage MCP de Grok.
+    #[test]
+    fn les_hooks_occupent_lattente() {
+        let mut state = ClaudeStreamState::default();
+        let note = parse_message(
+            &mut state,
+            &json!({"type":"system","subtype":"hook_started","hook_event_name":"pre_tool_use"}),
+        );
+        assert_eq!(note[0]["kind"], "heartbeat");
+        assert_eq!(note[0]["note"], "hook pre_tool_use");
+
+        // Sans nom, pas de note vide dans le fil.
+        assert!(parse_message(
+            &mut state,
+            &json!({"type":"system","subtype":"hook_started"})
+        )
+        .is_empty());
+    }
 
     #[test]
     fn parses_init_and_text_and_result() {
