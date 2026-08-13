@@ -230,7 +230,12 @@ pub fn map_session_update(
             Some("_x.ai/mcp/server_status") => {
                 let status = update.get("status").and_then(|v| v.as_str()).unwrap_or("");
                 let name = update.get("name").and_then(|v| v.as_str()).unwrap_or("");
-                if status == "ok" || status.is_empty() || name.is_empty() {
+                // Grok émet un statut par serveur et par transition
+                // (`initialized`, `restart_succeeded`, `config_changed`…) :
+                // les relayer tous noierait le compteur sous 50 lignes en
+                // deux secondes. Seule une panne mérite un mot.
+                let failed = status.contains("fail") || status == "unavailable";
+                if !failed || name.is_empty() {
                     vec![]
                 } else {
                     let reason = update.get("reason").and_then(|v| v.as_str()).unwrap_or(status);
@@ -421,14 +426,29 @@ mod tests {
         );
         assert_eq!(failed[0]["note"], "MCP plan : handshake_failed");
 
-        // Un serveur sain n'a rien à dire.
-        assert!(map(
-            &json!({"sessionUpdate":"x_mcp_progress","phase":"_x.ai/mcp/server_status",
-                "name":"exa","status":"ok"}),
-            &mut meta,
-            &mut edits,
-        )
-        .is_empty());
+        // Un serveur sain n'a rien à dire — Grok émet un statut par serveur ET
+        // par transition, les relayer noierait le compteur.
+        for sain in ["initialized", "restart_succeeded", "config_changed", "ok"] {
+            assert!(
+                map(
+                    &json!({"sessionUpdate":"x_mcp_progress","phase":"_x.ai/mcp/server_status",
+                        "name":"exa","status":sain}),
+                    &mut meta,
+                    &mut edits,
+                )
+                .is_empty(),
+                "statut sain relayé : {sain}"
+            );
+        }
+        assert_eq!(
+            map(
+                &json!({"sessionUpdate":"x_mcp_progress","phase":"_x.ai/mcp/server_status",
+                    "name":"open-knowledge","status":"restart_failed"}),
+                &mut meta,
+                &mut edits,
+            )[0]["note"],
+            "MCP open-knowledge : restart_failed"
+        );
     }
 
     /// `detail` porte des URLs et des chemins internes, `servers_updated` des
