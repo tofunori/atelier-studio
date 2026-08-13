@@ -349,6 +349,13 @@ impl TurnEmitter {
                 }
                 (self.on_event)(ev);
             }
+            // Signaux de vie et d'état : ils ne disent RIEN du contenu et ne
+            // doivent donc rien clore. Le heartbeat tombant chaque seconde,
+            // les laisser vider les tampons coupait la réponse en autant de
+            // messages horodatés qu'il y avait eu de battements.
+            "heartbeat" | "started" | "streaming" | "stream_set" | "usage" => {
+                (self.on_event)(ev);
+            }
             _ => {
                 self.flush();
                 (self.on_event)(ev);
@@ -570,5 +577,28 @@ mod tests {
             .collect();
         assert_eq!(blocks.len(), 1, "la réponse doit rester UN seul message");
         assert_eq!(blocks[0]["text"], "Le défaut n'est pas le ton, c'est la syntaxe.");
+    }
+
+    /// Le heartbeat tombe chaque seconde pendant tout le tour. Le laisser
+    /// clore un bloc découpait la réponse en autant de messages qu'il y avait
+    /// eu de battements — vécu le 2026-08-13 sur une réponse de 1 min.
+    #[test]
+    fn le_battement_de_coeur_ne_coupe_pas_la_reponse() {
+        let seen: Arc<Mutex<Vec<Value>>> = Arc::new(Mutex::new(vec![]));
+        let seen2 = Arc::clone(&seen);
+        let mut em = TurnEmitter::new(Arc::new(move |ev: Value| seen2.lock().unwrap().push(ev)));
+        em.emit(json!({"kind":"delta","text":"Une phrase"}));
+        em.emit(json!({"kind":"heartbeat","tokens":12}));
+        em.emit(json!({"kind":"delta","text":" qui continue"}));
+        em.emit(json!({"kind":"heartbeat","tokens":24}));
+        em.emit(json!({"kind":"delta","text":" jusqu'au bout."}));
+        em.flush();
+
+        let events = seen.lock().unwrap();
+        let blocks: Vec<&Value> = events.iter().filter(|ev| ev["kind"] == "text").collect();
+        assert_eq!(blocks.len(), 1, "un battement ne clôt pas un message");
+        assert_eq!(blocks[0]["text"], "Une phrase qui continue jusqu'au bout.");
+        // le signal lui-même doit continuer de passer (ticker « Working »)
+        assert_eq!(events.iter().filter(|ev| ev["kind"] == "heartbeat").count(), 2);
     }
 }
