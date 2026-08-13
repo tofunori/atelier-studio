@@ -73,9 +73,9 @@ describe("anatomie du tour — header d'activité", () => {
     expect(long.textContent!.endsWith("fin de raisonnement")).toBe(true);
   });
 
-  // Régression : le tour actif rendait `LiveThinking` sans lui passer la
-  // pensée, alors que l'état actif la contient. Résultat : le mot
-  // « Réflexion » seul pendant toute l'attente, quelle que soit sa durée.
+  // Régression (vécu 2026-08-13) : le tour actif rendait `LiveThinking` sans
+  // lui passer la pensée. Résultat : le mot « Réflexion » seul pendant toute
+  // l'attente, quelle que soit sa durée.
   it("le tour en cours affiche la pensée, pas seulement le mot « Réflexion »", () => {
     const live: AgentEvent[] = [
       events.user("Ok et qu'est-ce que tu recommandes sinon", FIXED_TS),
@@ -84,6 +84,24 @@ describe("anatomie du tour — header d'activité", () => {
     renderUi(<Chat {...chatProps({ events: live, workingSince: FIXED_TS })} />);
     const indicator = document.querySelector(".active-turn-tail .thinking-live-indicator") as HTMLElement;
     expect(indicator.textContent).toBe("Je relis la section méthodes pour voir ce qui manque.");
+    expect(indicator.querySelector(".thinking-shimmer")).toBeNull();
+  });
+
+  // Flux Grok réel (capturé sur grok 1.0.3) : les blocs `thinking` durables
+  // remplacent le live, et ce ne sont PAS des pensées distinctes — c'est un
+  // flux continu coupé à ~100 caractères, parfois en plein mot. Prendre le
+  // dernier bloc seul donnait « fro... ».
+  it("recolle les blocs de pensée coupés en plein mot", () => {
+    const live: AgentEvent[] = [
+      events.user("Résume les règles de design.", FIXED_TS),
+      { kind: "thinking", text: "The user wants me to read CLAUDE.md. I already have CLA", ts: FIXED_TS + 10 } as AgentEvent,
+      { kind: "thinking", text: "UDE.md content in the workspace rules. Let me summarize the design system rules", ts: FIXED_TS + 20 } as AgentEvent,
+      { kind: "thinking", text: " fro...", ts: FIXED_TS + 30 } as AgentEvent,
+    ];
+    renderUi(<Chat {...chatProps({ events: live, workingSince: FIXED_TS })} />);
+    const indicator = document.querySelector(".active-turn-tail .thinking-live-indicator") as HTMLElement;
+    expect(indicator.textContent).toContain("CLAUDE.md content");
+    expect(indicator.textContent!.endsWith("fro...")).toBe(true);
     expect(indicator.querySelector(".thinking-shimmer")).toBeNull();
   });
 
