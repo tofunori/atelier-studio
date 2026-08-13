@@ -88,13 +88,18 @@
      texte, d'où un rendu dédoublé et une teinte qui n'était ni l'une ni
      l'autre. Neutralisée comme l'est déjà la sélection pleine ligne.
      `!important` obligatoire : le thème material-darker pose sa propre
-     sélection turquoise avec une spécificité supérieure. */
+     sélection turquoise avec une spécificité supérieure. Sélecteur
+     DESCENDANT et non enfant : CodeMirror imbrique ses jetons de
+     coloration sur plusieurs niveaux, une chaîne `> span > span` en rate. */
   .CodeMirror-line::selection,
-  .CodeMirror-line > span::selection,
-  .CodeMirror-line > span > span::selection{background:transparent !important}
+  .CodeMirror-line ::selection{background:transparent !important}
   .CodeMirror-line::-moz-selection,
-  .CodeMirror-line > span::-moz-selection,
-  .CodeMirror-line > span > span::-moz-selection{background:transparent !important}
+  .CodeMirror-line ::-moz-selection{background:transparent !important}
+  /* La sélection multi-lignes passe AUSSI par les div pleine largeur du
+     thème (`div.CodeMirror-selected`, spécificité supérieure aux règles
+     ci-dessus). Sans ça, seules les lignes du milieu restaient teintées. */
+  .cm-s-material-darker div.CodeMirror-selected,
+  .cm-s-material-darker.CodeMirror-focused div.CodeMirror-selected{background:transparent !important}
   .CodeMirror-selectedtext{background:rgba(232,130,58,.38) !important;box-shadow:none !important;border-radius:2px}
   .cm-line-flash{background:rgba(232,130,58,.16) !important;transition:background .6s}
   .cm-ghost-suggest{color:#7d858f;opacity:.72;pointer-events:none}
