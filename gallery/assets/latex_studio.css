@@ -83,6 +83,16 @@
   /* selection hugs the text (mark-selection) instead of filling the whole line */
   .CodeMirror .CodeMirror-selected{background:transparent !important}
   .CodeMirror-focused .CodeMirror-selected{background:transparent !important}
+  /* La sélection NATIVE du navigateur (#d7d4f0 dans codemirror.min.css) se
+     superposait à celle ci-dessous : deux calques translucides sur le même
+     texte, d'où un rendu dédoublé et une teinte qui n'était ni l'une ni
+     l'autre. Neutralisée comme l'est déjà la sélection pleine ligne. */
+  .CodeMirror-line::selection,
+  .CodeMirror-line > span::selection,
+  .CodeMirror-line > span > span::selection{background:transparent}
+  .CodeMirror-line::-moz-selection,
+  .CodeMirror-line > span::-moz-selection,
+  .CodeMirror-line > span > span::-moz-selection{background:transparent}
   .CodeMirror-selectedtext{background:rgba(232,130,58,.38) !important;box-shadow:none !important;border-radius:2px}
   .cm-line-flash{background:rgba(232,130,58,.16) !important;transition:background .6s}
   .cm-ghost-suggest{color:#7d858f;opacity:.72;pointer-events:none}
