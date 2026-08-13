@@ -122,6 +122,11 @@ pub struct ProviderStatus {
     pub models: Vec<String>,
     #[serde(default)]
     pub model_reasoning: Value,
+    /// Libellés officiels annoncés par le CLI (`{modelId: nom}`). Vide tant
+    /// qu'aucun catalogue vivant n'a répondu : l'UI retombe alors sur ses
+    /// libellés intégrés, puis sur l'identifiant brut.
+    #[serde(default)]
+    pub model_labels: Value,
     pub default_model: String,
     pub efforts: Vec<String>,
     pub capabilities: ProviderCapabilities,
@@ -246,6 +251,7 @@ pub fn builtin_providers() -> Vec<ProviderStatus> {
                 "claude-haiku-4-5-20251001".into(),
             ],
             model_reasoning: Value::Object(Default::default()),
+            model_labels: Value::Object(Default::default()),
             default_model: "claude-opus-5[1m]".into(),
             efforts: vec![
                 "low".into(),
@@ -299,6 +305,7 @@ pub fn builtin_providers() -> Vec<ProviderStatus> {
                 "gpt-5.1-codex".into(),
             ],
             model_reasoning: Value::Object(Default::default()),
+            model_labels: Value::Object(Default::default()),
             default_model: "gpt-5.6-sol".into(),
             efforts: vec![
                 "low".into(),
@@ -346,9 +353,10 @@ pub fn builtin_providers() -> Vec<ProviderStatus> {
             // Le provider Rust remplace cette valeur par `grok models` à
             // chaque providerStatus ; ce seul fallback correspond au CLI
             // officiellement installé/testé.
-            models: vec!["grok-4.5".into()],
+            models: vec!["grok-4.6".into()],
             model_reasoning: Value::Object(Default::default()),
-            default_model: "grok-4.5".into(),
+            model_labels: Value::Object(Default::default()),
+            default_model: "grok-4.6".into(),
             efforts: vec!["low".into(), "medium".into(), "high".into()],
             capabilities: ProviderCapabilities {
                 reasoning: true,
@@ -390,6 +398,7 @@ pub fn builtin_providers() -> Vec<ProviderStatus> {
             // vient de la discovery Kimi (setup probe + configOptions).
             models: vec![],
             model_reasoning: Value::Object(Default::default()),
+            model_labels: Value::Object(Default::default()),
             default_model: String::new(),
             // Thinking off/on exposé par-modèle via model_reasoning dynamique.
             efforts: vec![],
@@ -444,6 +453,7 @@ pub fn builtin_providers() -> Vec<ProviderStatus> {
                 "openrouter/openrouter/auto".into(),
             ],
             model_reasoning: Value::Object(Default::default()),
+            model_labels: Value::Object(Default::default()),
             default_model: "kimi-for-coding/k3".into(),
             efforts: vec![
                 "minimal".into(),

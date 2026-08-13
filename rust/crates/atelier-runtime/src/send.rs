@@ -1432,6 +1432,13 @@ pub async fn handle_provider_status(state: &AppState) -> Vec<String> {
                         provider.model_reasoning = reasoning.clone();
                     }
                 }
+                // Libellés officiels du CLI : ils priment sur ceux intégrés à
+                // l'UI, qui n'ont plus à être mis à jour à chaque modèle.
+                if let Some(labels) = dynamic.get("modelLabels") {
+                    if labels.as_object().map(|o| !o.is_empty()).unwrap_or(false) {
+                        provider.model_labels = labels.clone();
+                    }
+                }
             }
         }
     }

@@ -1,0 +1,51 @@
+{
+  "_comment": "Extrait réel de `session/new` (grok 1.0.3, sonde 2026-08-12). Conservé tel quel : c'est le contrat que le catalogue Atelier doit refléter — ordre du CLI, `name` officiel, efforts par modèle (xhigh sur 4.6 seulement).",
+  "sessionId": "019ff8e4-5990-70c0-b9a8-bee1a37b1f87",
+  "models": {
+    "currentModelId": "grok-4.6",
+    "availableModels": [
+      {
+        "modelId": "grok-4.6",
+        "name": "Grok 4.6",
+        "description": "SpaceXAI's latest frontier model",
+        "_meta": {
+          "totalContextTokens": 500000,
+          "agentType": "grok-build-plan",
+          "supportsReasoningEffort": true,
+          "reasoningEffort": "high",
+          "reasoningEfforts": [
+            { "id": "xhigh", "value": "xhigh", "label": "Extra High Effort", "default": true },
+            { "id": "high", "value": "high", "label": "High Effort", "default": true },
+            { "id": "medium", "value": "medium", "label": "Medium Effort", "default": false },
+            { "id": "low", "value": "low", "label": "Low Effort", "default": false }
+          ]
+        }
+      },
+      {
+        "modelId": "grok-4.5",
+        "name": "Grok 4.5",
+        "_meta": {
+          "totalContextTokens": 500000,
+          "agentType": "grok-build-plan",
+          "supportsReasoningEffort": true,
+          "reasoningEffort": "high",
+          "reasoningEfforts": [
+            { "id": "high", "value": "high", "label": "High Effort", "default": true },
+            { "id": "medium", "value": "medium", "label": "Medium Effort", "default": false },
+            { "id": "low", "value": "low", "label": "Low Effort", "default": false }
+          ]
+        }
+      },
+      {
+        "modelId": "ocx-gpt-5-6-sol",
+        "name": "OCX gpt-5.6-sol",
+        "_meta": { "totalContextTokens": 372000, "agentType": "grok-build-plan" }
+      },
+      {
+        "modelId": "ocx-anthropic-claude-opus-5",
+        "name": "OCX anthropic/claude-opus-5",
+        "_meta": { "totalContextTokens": 200000, "agentType": "grok-build-plan" }
+      }
+    ]
+  }
+}

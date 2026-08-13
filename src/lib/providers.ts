@@ -50,6 +50,9 @@ export type ProviderInfo = {
     mandatory?: boolean;
     supports_max_tokens?: boolean;
   }>;
+  // Libellés officiels annoncés par le CLI (`{modelId: nom}`) — priment sur
+  // BUILTIN_MODEL_LABELS, qui n'est plus qu'un repli hors ligne.
+  modelLabels?: Record<string, string>;
   defaultModel: string;
   efforts: string[];
   capabilities?: ProviderCapabilities;

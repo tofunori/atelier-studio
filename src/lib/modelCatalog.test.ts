@@ -18,6 +18,20 @@ describe("modelDisplayLabel", () => {
   it("laisse les ids inconnus des autres providers intacts", () => {
     expect(modelDisplayLabel("custom", "org/model-x")).toBe("org/model-x");
   });
+
+  it("préfère le libellé du catalogue vivant à celui intégré", () => {
+    const live = { "claude-opus-5": "Opus 5 (CLI)" };
+    expect(modelDisplayLabel("claude", "claude-opus-5", live)).toBe("Opus 5 (CLI)");
+    // Modèle absent du catalogue vivant : repli sur le libellé intégré.
+    expect(modelDisplayLabel("claude", "claude-sonnet-5", live)).toBe("Sonnet 5");
+  });
+
+  it("affiche les modèles Grok via les libellés annoncés par le CLI", () => {
+    // Aucun libellé Grok n'est codé en dur : sans catalogue vivant, l'id brut
+    // s'affiche, et c'est `session/new` qui fournit le nom officiel.
+    expect(modelDisplayLabel("grok", "grok-4.6")).toBe("grok-4.6");
+    expect(modelDisplayLabel("grok", "grok-4.6", { "grok-4.6": "Grok 4.6" })).toBe("Grok 4.6");
+  });
 });
 
 describe("codexSupportsFastMode", () => {

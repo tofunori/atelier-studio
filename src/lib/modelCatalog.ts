@@ -8,10 +8,8 @@ export const BUILTIN_MODEL_LABELS: Record<string, Record<string, string>> = {
     "claude-sonnet-5": "Sonnet 5",
     "claude-haiku-4-5-20251001": "Haiku 4.5",
   },
-  grok: {
-    "grok-4.5": "Grok 4.5",
-    "grok-composer-2.5-fast": "Composer 2.5 Fast",
-  },
+  // Grok : aucun libellé en dur. `session/new` renvoie le `name` officiel de
+  // chaque modèle, servi via providerStatus.modelLabels.
   codex: {
     "gpt-5.6-sol": "GPT-5.6 Sol",
     "gpt-5.6-terra": "GPT-5.6 Terra",
@@ -51,7 +49,15 @@ export function codexSupportsFastMode(model: string): boolean {
   return (CODEX_FAST_TIER_MODELS as readonly string[]).includes(model);
 }
 
-export function modelDisplayLabel(provider: string, model: string): string {
+export function modelDisplayLabel(
+  provider: string,
+  model: string,
+  // Libellés du catalogue vivant (providerStatus.modelLabels) : ils priment,
+  // pour qu'un modèle publié par le CLI s'affiche sans toucher au code.
+  dynamicLabels?: Record<string, string> | null,
+): string {
+  const live = dynamicLabels?.[model];
+  if (live) return live;
   const known = BUILTIN_MODEL_LABELS[provider]?.[model];
   if (known) return known;
   if (provider !== "opencode") return model;

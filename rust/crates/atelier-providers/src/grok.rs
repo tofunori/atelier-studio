@@ -25,6 +25,8 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tokio::sync::Mutex;
 
 const GROK_MIN_VERSION: &str = "0.2.101";
+/// Utilisé seulement tant qu'aucune session ACP ni `grok models` n'a répondu.
+const FALLBACK_MODEL: &str = "grok-4.6";
 const MAX_LIVE_RUNTIMES: usize = 8;
 const IDLE_TTL_MS: u64 = 60 * 60 * 1_000;
 const LATE_EVENT_QUIET_MS: u64 = 150;
@@ -78,11 +80,61 @@ impl GrokThreadRuntime {
     }
 }
 
+/// Un modèle annoncé par le CLI Grok. `label` et `efforts` ne sont connus que
+/// par la voie ACP (`session/new`) ; le repli `grok models` ne donne qu'un id.
+#[derive(Clone, Debug, Default, PartialEq)]
+struct GrokModelInfo {
+    id: String,
+    label: Option<String>,
+    efforts: Vec<String>,
+    default_effort: Option<String>,
+}
+
+/// Catalogue vivant du CLI. L'ordre est celui annoncé par Grok — jamais trié :
+/// c'est un tri alphabétique qui collait Atelier sur `grok-4.5` alors que le
+/// CLI proposait `grok-4.6`.
+#[derive(Clone, Debug, Default)]
+struct GrokCatalog {
+    models: Vec<GrokModelInfo>,
+    current: Option<String>,
+}
+
+impl GrokCatalog {
+    fn ids(&self) -> Vec<String> {
+        self.models.iter().map(|model| model.id.clone()).collect()
+    }
+
+    fn get(&self, id: &str) -> Option<&GrokModelInfo> {
+        self.models.iter().find(|model| model.id == id)
+    }
+
+    /// Modèle courant annoncé par Grok, à défaut le premier du catalogue.
+    fn current_model(&self) -> Option<&GrokModelInfo> {
+        self.current
+            .as_deref()
+            .and_then(|id| self.get(id))
+            .or_else(|| self.models.first())
+    }
+
+    /// Fusionne les ids issus de `grok models` sans écraser ce que la voie ACP
+    /// a déjà appris (libellés, efforts) : la sonde CLI est moins riche.
+    fn merge_cli_ids(&mut self, ids: Vec<String>) {
+        for id in ids {
+            if self.get(&id).is_none() {
+                self.models.push(GrokModelInfo {
+                    id,
+                    ..Default::default()
+                });
+            }
+        }
+    }
+}
+
 pub struct GrokProvider {
     bin: PathBuf,
     agent_args: Vec<String>,
     runtimes: Mutex<HashMap<String, Arc<GrokThreadRuntime>>>,
-    discovered_models: StdMutex<Vec<String>>,
+    catalog: StdMutex<GrokCatalog>,
 }
 
 impl GrokProvider {
@@ -100,7 +152,7 @@ impl GrokProvider {
             bin,
             agent_args,
             runtimes: Mutex::new(HashMap::new()),
-            discovered_models: StdMutex::new(Vec::new()),
+            catalog: StdMutex::new(GrokCatalog::default()),
         }
     }
 
@@ -237,7 +289,7 @@ impl GrokProvider {
             runtime.acp.clear_session_handler(sid).await;
             match loaded {
                 Ok(result) => {
-                    remember_session_result(runtime, sid, &result, &self.discovered_models);
+                    remember_session_result(runtime, sid, &result, &self.catalog);
                     return Ok(sid.to_string());
                 }
                 Err(error) if !error.transport => {
@@ -263,7 +315,7 @@ impl GrokProvider {
             .filter(|sid| !sid.is_empty())
             .ok_or("session/new Grok sans sessionId")?
             .to_string();
-        remember_session_result(runtime, &sid, &result, &self.discovered_models);
+        remember_session_result(runtime, &sid, &result, &self.catalog);
         Ok(sid)
     }
 
@@ -274,14 +326,6 @@ impl GrokProvider {
         model: Option<&str>,
         effort: Option<&str>,
     ) -> Result<GrokSelection, String> {
-        let effort = match effort.filter(|value| !value.is_empty()) {
-            Some(value) => Some(
-                map_effort(value)
-                    .ok_or_else(|| format!("effort Grok inconnu : {value}"))?
-                    .to_string(),
-            ),
-            None => None,
-        };
         let known = runtime
             .state
             .lock()
@@ -294,6 +338,25 @@ impl GrokProvider {
             .filter(|value| !value.is_empty())
             .map(str::to_string)
             .or_else(|| known.model.clone());
+        // L'effort dépend du modèle : `xhigh` existe sur 4.6, pas sur 4.5. On
+        // consulte donc le catalogue APRÈS avoir résolu le modèle visé.
+        let supported = wanted_model
+            .as_deref()
+            .and_then(|id| {
+                self.catalog
+                    .lock()
+                    .unwrap()
+                    .get(id)
+                    .map(|model| model.efforts.clone())
+            })
+            .unwrap_or_default();
+        let effort = match effort.filter(|value| !value.is_empty()) {
+            Some(value) => Some(
+                map_effort_for(&supported, value)
+                    .ok_or_else(|| format!("effort Grok inconnu : {value}"))?,
+            ),
+            None => None,
+        };
         let wanted_effort = effort.or_else(|| known.effort.clone());
         if wanted_model == known.model && wanted_effort == known.effort {
             return Ok(known);
@@ -545,11 +608,14 @@ impl GrokProvider {
         }
     }
 
-    async fn discover_models(&self) -> Vec<String> {
+    /// Repli hors session ACP : `grok models` ne donne que des identifiants.
+    /// Il complète le catalogue sans jamais écraser ce que `session/new` a
+    /// appris (libellés officiels, efforts par modèle).
+    async fn discover_models(&self) -> GrokCatalog {
         // Les fixtures ACP de test ne sont pas un CLI Grok et ne doivent pas
         // recevoir une commande `models` parasite.
         if self.agent_args != vec!["agent", "--no-leader", "stdio"] {
-            return self.discovered_models.lock().unwrap().clone();
+            return self.catalog.lock().unwrap().clone();
         }
         let output = tokio::time::timeout(
             Duration::from_secs(10),
@@ -562,12 +628,12 @@ impl GrokProvider {
         .and_then(Result::ok);
         if let Some(output) = output.filter(|output| output.status.success()) {
             let text = String::from_utf8_lossy(&output.stdout);
-            let models: Vec<String> = text.lines().filter_map(parse_model_line).collect();
-            if !models.is_empty() {
-                *self.discovered_models.lock().unwrap() = models;
+            let ids: Vec<String> = text.lines().filter_map(parse_model_line).collect();
+            if !ids.is_empty() {
+                self.catalog.lock().unwrap().merge_cli_ids(ids);
             }
         }
-        self.discovered_models.lock().unwrap().clone()
+        self.catalog.lock().unwrap().clone()
     }
 }
 
@@ -592,20 +658,29 @@ impl Provider for GrokProvider {
     }
 
     fn models(&self) -> Vec<String> {
-        self.discovered_models.lock().unwrap().clone()
+        self.catalog.lock().unwrap().ids()
     }
 
     fn default_model(&self) -> String {
-        self.discovered_models
+        self.catalog
             .lock()
             .unwrap()
-            .first()
-            .cloned()
-            .unwrap_or_else(|| "grok-4.5".into())
+            .current_model()
+            .map(|model| model.id.clone())
+            .unwrap_or_else(|| FALLBACK_MODEL.to_string())
     }
 
     fn efforts(&self) -> Vec<String> {
-        vec!["low".into(), "medium".into(), "high".into()]
+        let catalog = self.catalog.lock().unwrap();
+        let efforts = catalog
+            .current_model()
+            .map(|model| model.efforts.clone())
+            .unwrap_or_default();
+        if efforts.is_empty() {
+            fallback_efforts()
+        } else {
+            efforts
+        }
     }
 
     async fn send(&self, req: SendRequest) -> SendResult {
@@ -767,29 +842,42 @@ impl Provider for GrokProvider {
             }
         }
         server.shutdown().await;
-        let models = self.discover_models().await;
-        probe["models"] = json!(models.len());
-        if models.is_empty() {
+        let catalog = self.discover_models().await;
+        probe["models"] = json!(catalog.models.len());
+        if catalog.models.is_empty() {
             probe["state"] = json!("model_config_needed");
         }
         Some(probe)
     }
 
     async fn dynamic_models(&self) -> Option<Value> {
-        let models = self.discover_models().await;
-        let reasoning = models
-            .iter()
-            .map(|model| {
-                (
-                    model.clone(),
-                    json!({"supported_efforts":["low","medium","high"], "default_effort":"high"}),
-                )
-            })
-            .collect::<serde_json::Map<String, Value>>();
+        let catalog = self.discover_models().await;
+        let mut reasoning = serde_json::Map::new();
+        let mut labels = serde_json::Map::new();
+        for model in &catalog.models {
+            let efforts = if model.efforts.is_empty() {
+                fallback_efforts()
+            } else {
+                model.efforts.clone()
+            };
+            let default_effort = model
+                .default_effort
+                .clone()
+                .filter(|value| efforts.iter().any(|listed| listed == value))
+                .or_else(|| efforts.last().cloned());
+            reasoning.insert(
+                model.id.clone(),
+                json!({"supported_efforts": efforts, "default_effort": default_effort}),
+            );
+            if let Some(label) = &model.label {
+                labels.insert(model.id.clone(), json!(label));
+            }
+        }
         Some(json!({
-            "models": models,
+            "models": catalog.ids(),
             "defaultModel": self.default_model(),
             "modelReasoning": reasoning,
+            "modelLabels": labels,
         }))
     }
 }
@@ -841,7 +929,7 @@ fn remember_session_result(
     runtime: &GrokThreadRuntime,
     sid: &str,
     result: &Value,
-    discovered_models: &StdMutex<Vec<String>>,
+    catalog: &StdMutex<GrokCatalog>,
 ) {
     let mut selection = GrokSelection::default();
     if let Some(options) = result
@@ -866,26 +954,19 @@ fn remember_session_result(
             .and_then(Value::as_str)
             .map(str::to_string);
     }
-    let mut models = result
+    let models = result
         .pointer("/models/availableModels")
         .and_then(Value::as_array)
-        .map(|models| {
-            models
-                .iter()
-                .filter_map(|model| {
-                    model
-                        .get("modelId")
-                        .or_else(|| model.get("id"))
-                        .or_else(|| model.get("value"))
-                        .and_then(Value::as_str)
-                        .map(str::to_string)
-                })
-                .collect::<Vec<_>>()
-        })
+        .map(|models| models.iter().filter_map(parse_model_entry).collect::<Vec<_>>())
         .unwrap_or_default();
     if !models.is_empty() {
-        models.sort();
-        *discovered_models.lock().unwrap() = models;
+        // L'ordre du CLI fait foi : `grok-4.6` arrive en tête et devient le
+        // défaut, ce qu'un tri alphabétique inversait.
+        let current = result
+            .pointer("/models/currentModelId")
+            .and_then(Value::as_str)
+            .map(str::to_string);
+        *catalog.lock().unwrap() = GrokCatalog { models, current };
     }
     let mut state = runtime.state.lock().unwrap();
     state.opened_sessions.insert(sid.to_string());
@@ -1046,6 +1127,57 @@ async fn wait_for_quiet(last_activity: &AtomicU64) {
     }
 }
 
+/// Une entrée de `/models/availableModels` : id, nom officiel, et efforts de
+/// raisonnement propres à ce modèle (`xhigh` n'existe que sur certains).
+fn parse_model_entry(entry: &Value) -> Option<GrokModelInfo> {
+    let id = entry
+        .get("modelId")
+        .or_else(|| entry.get("id"))
+        .or_else(|| entry.get("value"))
+        .and_then(Value::as_str)
+        .filter(|id| !id.is_empty())?
+        .to_string();
+    let label = entry
+        .get("name")
+        .and_then(Value::as_str)
+        .filter(|name| !name.is_empty())
+        .map(str::to_string);
+    let listed = entry
+        .pointer("/_meta/reasoningEfforts")
+        .and_then(Value::as_array);
+    let mut efforts = Vec::new();
+    let mut default_effort = None;
+    for effort in listed.into_iter().flatten() {
+        let Some(effort_id) = effort
+            .get("id")
+            .or_else(|| effort.get("value"))
+            .and_then(Value::as_str)
+            .filter(|value| !value.is_empty())
+        else {
+            continue;
+        };
+        // Grok marque parfois plusieurs efforts `default: true` (4.6 annonce
+        // xhigh ET high) : le premier de la liste gagne, comme dans la TUI.
+        if default_effort.is_none() && effort.get("default").and_then(Value::as_bool) == Some(true) {
+            default_effort = Some(effort_id.to_string());
+        }
+        efforts.push(effort_id.to_string());
+    }
+    if default_effort.is_none() {
+        default_effort = entry
+            .pointer("/_meta/reasoningEffort")
+            .and_then(Value::as_str)
+            .filter(|value| efforts.iter().any(|listed| listed == value))
+            .map(str::to_string);
+    }
+    Some(GrokModelInfo {
+        id,
+        label,
+        efforts,
+        default_effort,
+    })
+}
+
 fn parse_model_line(line: &str) -> Option<String> {
     let trimmed = line.trim();
     let candidate = trimmed
@@ -1179,6 +1311,23 @@ fn request_cwd(project_root: &str) -> String {
     } else {
         project_root.to_string()
     }
+}
+
+/// Efforts servis tant que Grok n'a rien annoncé pour ce modèle.
+fn fallback_efforts() -> Vec<String> {
+    vec!["low".into(), "medium".into(), "high".into()]
+}
+
+/// Traduit un effort de l'UI vers un effort que CE modèle accepte. Un effort
+/// annoncé par Grok passe tel quel — c'est ce qui rend `xhigh` utilisable sur
+/// 4.6 ; sinon on retombe sur le repli historique à trois niveaux.
+fn map_effort_for(supported: &[String], effort: &str) -> Option<String> {
+    if supported.iter().any(|value| value == effort) {
+        return Some(effort.to_string());
+    }
+    // Sinon repli à trois niveaux : c'est ce qu'Atelier a toujours envoyé, et
+    // Grok l'accepte pour tous ses modèles connus.
+    Some(map_effort(effort)?.to_string())
 }
 
 fn map_effort(effort: &str) -> Option<&'static str> {
@@ -1395,6 +1544,120 @@ mod tests {
             Some("grok-4.5".into())
         );
         assert_eq!(parse_model_line("Available models:"), None);
+    }
+
+    fn session_new_fixture() -> Value {
+        serde_json::from_str(include_str!("../tests/fixtures/grok_session_new.json")).unwrap()
+    }
+
+    /// Le catalogue reflétait un tri alphabétique : `grok-4.5` passait devant
+    /// `grok-4.6` et devenait le défaut, alors que le CLI annonce l'inverse.
+    #[test]
+    fn le_catalogue_suit_lordre_et_le_modele_courant_du_cli() {
+        let runtime = GrokThreadRuntime::new("/tmp/projet".into());
+        let catalog = StdMutex::new(GrokCatalog::default());
+        remember_session_result(&runtime, "sid-1", &session_new_fixture(), &catalog);
+
+        let catalog = catalog.lock().unwrap();
+        assert_eq!(
+            catalog.ids(),
+            vec![
+                "grok-4.6",
+                "grok-4.5",
+                "ocx-gpt-5-6-sol",
+                "ocx-anthropic-claude-opus-5"
+            ]
+        );
+        assert_eq!(catalog.current.as_deref(), Some("grok-4.6"));
+        assert_eq!(catalog.current_model().unwrap().id, "grok-4.6");
+
+        let latest = catalog.get("grok-4.6").unwrap();
+        assert_eq!(latest.label.as_deref(), Some("Grok 4.6"));
+        assert_eq!(latest.efforts, vec!["xhigh", "high", "medium", "low"]);
+        assert_eq!(latest.default_effort.as_deref(), Some("xhigh"));
+
+        // xhigh n'existe pas sur 4.5 : le proposer serait un effort fantôme.
+        let previous = catalog.get("grok-4.5").unwrap();
+        assert_eq!(previous.label.as_deref(), Some("Grok 4.5"));
+        assert!(!previous.efforts.iter().any(|effort| effort == "xhigh"));
+        assert_eq!(previous.default_effort.as_deref(), Some("high"));
+
+        // Un modèle sans `_meta.reasoningEfforts` reste utilisable.
+        let routed = catalog.get("ocx-gpt-5-6-sol").unwrap();
+        assert!(routed.efforts.is_empty());
+        assert_eq!(routed.default_effort, None);
+    }
+
+    #[tokio::test]
+    async fn le_catalogue_dynamique_sert_libelles_et_efforts_par_modele() {
+        // Des args non-stdio empêchent la sonde `grok models` de s'exécuter :
+        // seul l'apport ACP est mesuré ici.
+        let provider = GrokProvider::with_command(PathBuf::from("/bin/false"), vec!["fixture".into()]);
+        let runtime = GrokThreadRuntime::new("/tmp/projet".into());
+        remember_session_result(&runtime, "sid-1", &session_new_fixture(), &provider.catalog);
+
+        assert_eq!(provider.default_model(), "grok-4.6");
+        assert_eq!(provider.efforts(), vec!["xhigh", "high", "medium", "low"]);
+
+        let dynamic = provider.dynamic_models().await.unwrap();
+        assert_eq!(dynamic["defaultModel"], "grok-4.6");
+        assert_eq!(dynamic["modelLabels"]["grok-4.6"], "Grok 4.6");
+        assert_eq!(dynamic["modelLabels"]["grok-4.5"], "Grok 4.5");
+        assert_eq!(
+            dynamic["modelReasoning"]["grok-4.6"]["supported_efforts"],
+            json!(["xhigh", "high", "medium", "low"])
+        );
+        assert_eq!(
+            dynamic["modelReasoning"]["grok-4.6"]["default_effort"],
+            "xhigh"
+        );
+        assert_eq!(
+            dynamic["modelReasoning"]["grok-4.5"]["supported_efforts"],
+            json!(["high", "medium", "low"])
+        );
+        // Modèle muet sur les efforts : repli à trois niveaux, pas de panique.
+        assert_eq!(
+            dynamic["modelReasoning"]["ocx-gpt-5-6-sol"]["supported_efforts"],
+            json!(["low", "medium", "high"])
+        );
+        assert_eq!(
+            dynamic["modelReasoning"]["ocx-gpt-5-6-sol"]["default_effort"],
+            "high"
+        );
+        assert!(dynamic["modelLabels"].get("aucun-modele").is_none());
+    }
+
+    /// La sonde `grok models` est plus pauvre que l'ACP : elle complète, mais
+    /// n'écrase jamais les libellés et efforts déjà appris.
+    #[test]
+    fn la_sonde_cli_complete_sans_ecraser_lacp() {
+        let mut catalog = GrokCatalog::default();
+        catalog.models.push(GrokModelInfo {
+            id: "grok-4.6".into(),
+            label: Some("Grok 4.6".into()),
+            efforts: vec!["xhigh".into()],
+            default_effort: Some("xhigh".into()),
+        });
+        catalog.merge_cli_ids(vec!["grok-4.6".into(), "grok-code-1".into()]);
+
+        assert_eq!(catalog.ids(), vec!["grok-4.6", "grok-code-1"]);
+        assert_eq!(catalog.get("grok-4.6").unwrap().label.as_deref(), Some("Grok 4.6"));
+        assert_eq!(catalog.get("grok-code-1").unwrap().label, None);
+    }
+
+    #[test]
+    fn les_efforts_annonces_passent_tels_quels() {
+        let riche = vec!["xhigh".into(), "high".into(), "medium".into(), "low".into()];
+        assert_eq!(map_effort_for(&riche, "xhigh").as_deref(), Some("xhigh"));
+        assert_eq!(map_effort_for(&riche, "medium").as_deref(), Some("medium"));
+        // `max` n'est pas un effort Grok : il retombe sur le repli historique.
+        assert_eq!(map_effort_for(&riche, "max").as_deref(), Some("high"));
+
+        // Modèle sans xhigh : l'ancien écrasement vers `high` reste correct.
+        let pauvre = vec!["high".into(), "medium".into(), "low".into()];
+        assert_eq!(map_effort_for(&pauvre, "xhigh").as_deref(), Some("high"));
+        assert_eq!(map_effort_for(&[], "minimal").as_deref(), Some("low"));
+        assert_eq!(map_effort_for(&riche, "inconnu"), None);
     }
 
     #[test]

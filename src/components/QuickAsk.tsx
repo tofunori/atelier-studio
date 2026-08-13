@@ -30,7 +30,7 @@ function saveRecent(qaId: string, msgs: QaMsg[]) {
 }
 type QaSelection = { provider: string; model: string; effort: string };
 const QA_SELECTION_KEY = "atelier-studio.qaSelection";
-const DEFAULT_QA_SELECTION: QaSelection = { provider: "grok", model: "grok-4.5", effort: "high" };
+const DEFAULT_QA_SELECTION: QaSelection = { provider: "grok", model: "grok-4.6", effort: "high" };
 
 function loadSelection(): QaSelection {
   try {
@@ -236,7 +236,13 @@ export default function QuickAsk({
   if (!open) return null;
 
   const fallbackProviders: ProviderInfo[] = [
-    { id: "grok", label: "Grok", kind: "cli", version: null, ok: true, defaultModel: "grok-4.5", models: ["grok-4.5", "grok-composer-2.5-fast"], efforts: ["minimal", "low", "medium", "high", "xhigh", "max"] },
+    // Repli affiché avant l'arrivée de providerStatus : aligné sur le défaut du CLI.
+    {
+      id: "grok", label: "Grok", kind: "cli", version: null, ok: true,
+      defaultModel: "grok-4.6", models: ["grok-4.6", "grok-4.5"],
+      modelLabels: { "grok-4.6": "Grok 4.6", "grok-4.5": "Grok 4.5" },
+      efforts: ["minimal", "low", "medium", "high", "xhigh", "max"],
+    },
   ];
   const catalog = (providers.length ? providers : fallbackProviders).map((info) => ({
     ...info,
@@ -324,7 +330,7 @@ export default function QuickAsk({
               }
             >
               <ProviderIcon provider={activeSelection.provider} />
-              <span>{modelDisplayLabel(activeSelection.provider, activeSelection.model)}</span>
+              <span>{modelDisplayLabel(activeSelection.provider, activeSelection.model, selectedProvider?.modelLabels)}</span>
               <span className="qa-model-effort">· {effortLabel(activeSelection.effort)}</span>
             </PopoverTrigger>
             <PopoverContent
@@ -371,7 +377,7 @@ export default function QuickAsk({
                     portalContainer={null}
                     positionerClassName="qa-model-positioner"
                     value={activeSelection.model}
-                    options={selectedModels.map((model) => ({ value: model, label: modelDisplayLabel(activeSelection.provider, model) }))}
+                    options={selectedModels.map((model) => ({ value: model, label: modelDisplayLabel(activeSelection.provider, model, selectedProvider?.modelLabels) }))}
                     onChange={(modelValue) => setSelection({
                       ...activeSelection,
                       model: modelValue,

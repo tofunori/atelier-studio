@@ -2,6 +2,10 @@
 // Grok 4.5 : docs.x.ai/developers/models/grok-4.5 → 500_000 (2026-07).
 // Les providers qui n'y figurent pas tombent sur le fallback front (200k / 1M).
 const CONTEXT_WINDOWS = {
+  // 4.6 annonce 500k dans `session/new` (_meta.totalContextTokens), vérifié
+  // sur grok 1.0.3.
+  "grok-4.6": 500_000,
+  "grok-4.6-latest": 500_000,
   "grok-4.5": 500_000,
   "grok-4.5-latest": 500_000,
   "grok-build-latest": 500_000, // alias doc xAI de grok-4.5
@@ -58,8 +62,10 @@ const PROVIDERS = [
     id: "grok",
     label: "Grok",
     bin: "grok",
-    defaultModel: "grok-4.5",
-    models: ["grok-4.5", "grok-composer-2.5-fast"],
+    // Repli statique seulement : `grok models` remplace cette liste dès que le
+    // CLI répond. Aligné sur le défaut du CLI (1.0.3).
+    defaultModel: "grok-4.6",
+    models: ["grok-4.6", "grok-4.5"],
     efforts: ["minimal", "low", "medium", "high", "xhigh", "max"],
     capabilities: { reasoning: true, resume: true, steering: false, queue: true, goals: false, tools: true, toolOutput: false, permissions: false, interactiveInput: false, mcpElicitation: false, mcpTools: false, mcpWidgets: false, plugins: false, skills: false, review: false, compact: false, durableHistory: false, permissionModes: [] },
   },

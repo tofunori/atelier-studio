@@ -533,7 +533,7 @@ export default function Chat(p: {
     const info = (p.providers ?? []).find((pr) => pr.id === pv);
     const configured = (p.defaults.defaultModel[pv] || info?.defaultModel || "").replace(/\[1m\]$/, "");
     const ids = [...new Set([...(info?.models ?? []), configured].filter(Boolean))];
-    return ids.map((id) => ({ id, label: modelDisplayLabel(pv, id) }));
+    return ids.map((id) => ({ id, label: modelDisplayLabel(pv, id, info?.modelLabels) }));
   }
   function modelsFor(pv: string) {
     const customs = (p.defaults.customModels ?? [])

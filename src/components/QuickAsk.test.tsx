@@ -11,7 +11,9 @@ import { makeProviderInfo } from "../test/fixtures";
 const providers = [
   makeProviderInfo({ id: "claude", label: "Claude", models: ["claude-fable-5", "claude-sonnet-5"], defaultModel: "claude-fable-5" }),
   makeProviderInfo({ id: "codex", label: "Codex", models: ["gpt-5.6-luna", "gpt-5.5"], defaultModel: "gpt-5.5", efforts: ["low", "medium", "high", "xhigh", "max"] }),
-  makeProviderInfo({ id: "grok", label: "Grok", models: ["grok-4.5", "grok-composer-2.5-fast"], defaultModel: "grok-4.5", efforts: ["minimal", "low", "medium", "high", "xhigh", "max"] }),
+  // Catalogue vivant tel que le CLI l'annonce : le libellé vient de
+  // `modelLabels`, plus aucun nom Grok n'est codé en dur côté UI.
+  makeProviderInfo({ id: "grok", label: "Grok", models: ["grok-4.6", "grok-4.5"], defaultModel: "grok-4.6", modelLabels: { "grok-4.6": "Grok 4.6", "grok-4.5": "Grok 4.5" }, efforts: ["minimal", "low", "medium", "high", "xhigh", "max"] }),
 ];
 
 function renderQuickAsk() {
@@ -21,7 +23,7 @@ function renderQuickAsk() {
       minimized={false}
       draft=""
       providers={providers}
-      defaultModels={{ grok: "grok-4.5" }}
+      defaultModels={{ grok: "grok-4.6" }}
       defaultEfforts={{ grok: "high" }}
       onMinimize={vi.fn()}
       onClose={vi.fn()}
@@ -38,9 +40,9 @@ beforeEach(() => {
 afterEach(cleanup);
 
 describe("Quick Ask", () => {
-  it("utilise Grok 4.5 high par défaut lors de l'envoi", async () => {
+  it("utilise Grok 4.6 high par défaut lors de l'envoi", async () => {
     renderQuickAsk();
-    expect(screen.getByText("Grok 4.5")).toBeTruthy();
+    expect(screen.getByText("Grok 4.6")).toBeTruthy();
     expect(screen.getByText("· High")).toBeTruthy();
 
     const input = screen.getByRole("textbox");
@@ -51,7 +53,7 @@ describe("Quick Ask", () => {
       type: "quickAsk",
       prompt: "Question rapide",
       provider: "grok",
-      model: "grok-4.5",
+      model: "grok-4.6",
       effort: "high",
     })));
   });
