@@ -252,10 +252,26 @@ pub fn map_session_update(
             } else {
                 "running"
             };
+            // `description` et `subagent_type` disent SUR QUOI il travaille —
+            // sans eux la carte n'affiche qu'un compteur anonyme.
+            let description = update
+                .get("description")
+                .and_then(|v| v.as_str())
+                .filter(|d| !d.is_empty());
+            let type_agent = update
+                .get("subagent_type")
+                .and_then(|v| v.as_str())
+                .filter(|t| !t.is_empty());
+            let nom = match (type_agent, description) {
+                (Some(t), Some(d)) => format!("sous-agent {t} · {d}"),
+                (Some(t), None) => format!("sous-agent {t}"),
+                (None, Some(d)) => format!("sous-agent · {d}"),
+                (None, None) => "sous-agent".to_string(),
+            };
             vec![json!({
                 "kind": "tool_update",
                 "id": format!("subagent:{id}"),
-                "name": "sous-agent",
+                "name": nom,
                 "status": status,
                 "detail": detail,
                 "output": update.get("output").and_then(|v| v.as_str()).unwrap_or(""),
@@ -499,6 +515,21 @@ mod tests {
     }
 
     /// Un sous-agent en échec ne doit pas passer pour terminé.
+    /// La description dit ce que fait le sous-agent : sans elle, la carte
+    /// n'affiche qu'un compteur anonyme.
+    #[test]
+    fn la_carte_dit_sur_quoi_le_sous_agent_travaille() {
+        let mut meta = HashMap::new();
+        let mut edits = HashSet::new();
+        let depart = map_session_update(
+            &json!({"sessionUpdate":"subagent_spawned","subagent_id":"a1",
+                "subagent_type":"explore","description":"Résumer PIEGES_CONNUS"}),
+            &mut meta,
+            &mut edits,
+        );
+        assert_eq!(depart[0]["name"], "sous-agent explore · Résumer PIEGES_CONNUS");
+    }
+
     #[test]
     fn un_sous_agent_en_echec_est_signale() {
         let mut meta = HashMap::new();
