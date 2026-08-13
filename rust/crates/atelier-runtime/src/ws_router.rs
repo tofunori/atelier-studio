@@ -2436,16 +2436,50 @@ async fn handle_fork_thread(state: &AppState, msg: &Value) -> Vec<String> {
             &src.title
         }
     );
+    // Fork NATIF quand le provider sait dupliquer sa session : la branche
+    // hérite de l'historique réel (outils, plan) au lieu d'un transcript
+    // recollé, et le fil source n'est pas touché. Le repli contextuel reste
+    // pour les providers qui ne savent pas faire.
+    let native_session = match (&src.session_id, state.provider(&src.provider)) {
+        (Some(session), Some(provider)) if !session.is_empty() => {
+            let prompt_index = msg.get("eventId").and_then(Value::as_str).map(|eid| {
+                state
+                    .journal()
+                    .materialize(from)
+                    .iter()
+                    .take_while(|event| {
+                        event.pointer("/meta/eventId").and_then(Value::as_str) != Some(eid)
+                    })
+                    .filter(|event| event.get("kind").and_then(Value::as_str) == Some("user"))
+                    .count()
+            });
+            match provider
+                .fork_session(from, session, &src.project_root, prompt_index)
+                .await
+            {
+                Ok(new_session) => Some(new_session),
+                Err(error) => {
+                    tracing::info!(
+                        provider = %src.provider,
+                        error = %error,
+                        "fork natif indisponible : repli sur le fork contextuel"
+                    );
+                    None
+                }
+            }
+        }
+        _ => None,
+    };
     let patch = json!({
         "id": new_id,
         "projectRoot": src.project_root,
         "provider": src.provider,
         "title": title,
-        // Le backend Rust emploie un fork contextuel sûr pour tous les
-        // providers : aucune session native n'est partagée avec la branche.
-        "sessionId": null,
+        "sessionId": native_session,
         "forkPending": false,
-        "forkContext": fork_context,
+        // Un fork natif porte déjà l'historique : lui ajouter le transcript
+        // le ferait relire deux fois.
+        "forkContext": if native_session.is_some() { Value::Null } else { fork_context },
         "status": "idle",
     });
     {

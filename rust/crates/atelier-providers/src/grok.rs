@@ -780,6 +780,44 @@ impl Provider for GrokProvider {
             .map_err(|error| grok_user_error(&error))
     }
 
+    /// `x.ai/session/fork` : la branche part d'une VRAIE copie de session,
+    /// pas d'un transcript recollé. Le fil source n'est pas touché.
+    async fn fork_session(
+        &self,
+        thread_id: &str,
+        source_session: &str,
+        cwd: &str,
+        prompt_index: Option<usize>,
+    ) -> Result<String, String> {
+        let runtime = self
+            .runtimes
+            .lock()
+            .await
+            .get(thread_id)
+            .cloned()
+            .ok_or("aucune session Grok connue pour ce fil")?;
+        let mut params = json!({
+            "sourceSessionId": source_session,
+            "sourceCwd": cwd,
+            "newCwd": cwd,
+        });
+        if let Some(index) = prompt_index {
+            params["targetPromptIndex"] = json!(index);
+        }
+        let result = runtime
+            .acp
+            .request("_x.ai/session/fork", params, Some(60_000))
+            .await
+            .map_err(|error| grok_user_error(&error))?;
+        result
+            .get("newSessionId")
+            .or_else(|| result.pointer("/result/newSessionId"))
+            .and_then(Value::as_str)
+            .filter(|id| !id.is_empty())
+            .map(str::to_string)
+            .ok_or_else(|| "fork Grok sans newSessionId".to_string())
+    }
+
     fn native_commands(&self) -> Vec<Value> {
         self.native_commands.lock().unwrap().clone()
     }

@@ -178,6 +178,19 @@ pub trait Provider: Send + Sync {
         Err("rewind non supporté par ce provider".into())
     }
 
+    /// Duplique la session du CLI jusqu'au prompt `prompt_index` et retourne
+    /// l'identifiant de la copie. La branche garde alors l'historique réel
+    /// (outils, plan) au lieu d'un texte reconstruit. `Err` = non supporté.
+    async fn fork_session(
+        &self,
+        _thread_id: &str,
+        _source_session: &str,
+        _cwd: &str,
+        _prompt_index: Option<usize>,
+    ) -> Result<String, String> {
+        Err("fork natif non supporté par ce provider".into())
+    }
+
     /// Commandes que le CLI expose lui-même (`available_commands_update`) :
     /// `[{name, description}]`. Elles n'existent nulle part sur le disque, un
     /// scan de `skills/` ou `commands/` ne peut donc pas les découvrir.
