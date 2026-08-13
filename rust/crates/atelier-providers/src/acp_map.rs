@@ -332,15 +332,18 @@ impl TurnEmitter {
 
     pub fn emit(&mut self, ev: Value) {
         match ev.get("kind").and_then(|v| v.as_str()).unwrap_or("") {
+            // Une alternance pensée↔texte ne clôt AUCUN bloc : Grok pense en
+            // écrivant, et vider le tampon à chaque bascule coupait la réponse
+            // en pleine phrase (« Le défaut n'est pas le » | « ton, c'est… »),
+            // chaque morceau devenant un message séparé avec son horodatage.
+            // Seul un vrai changement d'activité (outil, fin de tour) clôt.
             "thinking_delta" => {
-                self.flush_text();
                 if let Some(t) = ev.get("text").and_then(|v| v.as_str()) {
                     self.thought_buffer.push_str(t);
                 }
                 (self.on_event)(ev);
             }
             "delta" => {
-                self.flush_thinking();
                 if let Some(t) = ev.get("text").and_then(|v| v.as_str()) {
                     self.message_buffer.push_str(t);
                 }
@@ -541,7 +544,31 @@ mod tests {
         // le tool_update est précédé des blocs finaux thinking puis text
         assert_eq!(
             *seen.lock().unwrap(),
-            vec!["thinking_delta", "thinking", "delta", "text", "tool_update"]
+            vec!["thinking_delta", "delta", "thinking", "text", "tool_update"]
         );
+    }
+
+    /// Grok pense EN écrivant : il alterne sans cesse. Chaque bascule vidait
+    /// le tampon, produisant un message par morceau — la réponse arrivait
+    /// coupée en pleine phrase, chaque bout avec son propre horodatage.
+    #[test]
+    fn lalternance_pensee_texte_ne_coupe_pas_la_reponse() {
+        let seen: Arc<Mutex<Vec<Value>>> = Arc::new(Mutex::new(vec![]));
+        let seen2 = Arc::clone(&seen);
+        let mut em = TurnEmitter::new(Arc::new(move |ev: Value| seen2.lock().unwrap().push(ev)));
+        // séquence réelle observée (grok 1.0.3) : « Le défaut n'est pas le »
+        // puis une pensée, puis « ton, c'est la syntaxe… »
+        em.emit(json!({"kind":"delta","text":"Le défaut n'est pas le"}));
+        em.emit(json!({"kind":"thinking_delta","text":"je vérifie la phrase"}));
+        em.emit(json!({"kind":"delta","text":" ton, c'est la syntaxe."}));
+        em.flush();
+
+        let events = seen.lock().unwrap();
+        let blocks: Vec<&Value> = events
+            .iter()
+            .filter(|ev| ev["kind"] == "text")
+            .collect();
+        assert_eq!(blocks.len(), 1, "la réponse doit rester UN seul message");
+        assert_eq!(blocks[0]["text"], "Le défaut n'est pas le ton, c'est la syntaxe.");
     }
 }

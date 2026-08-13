@@ -469,8 +469,8 @@ function activeEventLabel(turn: ChatTurnViewModel, events: AgentEvent[]): ReactN
  * actif quand le raisonnement est encore vivant, sinon le dernier bloc
  * `thinking` durable — Grok clôt chaque bloc, ce qui efface le live. On
  * s'arrête au premier signe qu'un tour précédent est terminé. */
-function currentThought(turn: ChatTurnViewModel, events: AgentEvent[]): string {
-  const state = turn.activeState;
+export function currentThought(turn: ChatTurnViewModel | null, events: AgentEvent[]): string {
+  const state = turn?.activeState;
   const blocks: string[] = [];
   for (let i = events.length - 1; i >= 0 && blocks.length < 4; i--) {
     const event = events[i];

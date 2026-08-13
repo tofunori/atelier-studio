@@ -15,7 +15,8 @@ import { isValidSkill } from "./mentions";
 import { CloseIcon, MinusIcon, ZapIcon } from "../icons";
 import {
   ChatEmptyState, UserTurn, StreamingText, AssistantText, ResultCapsule,
-  ActivityFold, ActivityGroup, ActiveTurnHeader, ActiveTurnTail, type ReviewState,
+  ActivityFold, ActivityGroup, ActiveTurnHeader, ActiveTurnTail, currentThought,
+  type ReviewState,
 } from "./turns";
 import { ResearchHome, type ResearchHomeBundle } from "../ResearchHome";
 import { ThinkingBlock, EditLine, ActivityCard, LiveThinking, Working, formatPermInput } from "./turnParts";
@@ -128,17 +129,9 @@ export function ChatTimeline(p: {
   const { onStop } = p.working;
   const { tickPos, resolvePinEl, pinMenu, setPinMenu, onStylePin } = p.chapters;
   const { onNewChat, onOpenProject } = p.empty;
-  // Dernière pensée du tour EN COURS : la ligne vivante doit dire sur quoi
-  // l'agent travaille, pas seulement qu'il travaille. On remonte jusqu'au
-  // premier signe qu'un tour précédent est clos (texte ou fin).
-  const liveThought = useMemo(() => {
-    for (let i = events.length - 1; i >= 0; i--) {
-      const event = events[i];
-      if (event.kind === "thinking_live") return event.text;
-      if (event.kind === "text" || event.kind === "done" || event.kind === "error") break;
-    }
-    return "";
-  }, [events]);
+  // Même source que le tour actif : chercher `thinking_live` seul laissait
+  // cette ligne vide avec Grok, dont les blocs durables remplacent le live.
+  const liveThought = useMemo(() => currentThought(null, events), [events]);
   const { quote, setQuote, quoteHasHl, quoteHasUl, addMark, removeMark } = p.selection;
   void onQuote; void openFolds; // utilisés par des handlers/branches copiés verbatim
   const timelineListRef = React.useRef<LegendListRef>(null);

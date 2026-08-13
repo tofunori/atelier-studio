@@ -321,10 +321,12 @@ mod tests {
             }
         }
         em.flush();
-        // Le todos est précédé des blocs finaux thinking puis text.
+        // Le todos est précédé des blocs finaux thinking puis text. Une simple
+        // alternance pensée↔texte ne clôt plus de bloc : elle coupait la
+        // réponse en messages séparés (voir acp_map, TurnEmitter).
         assert_eq!(
             *seen.lock().unwrap(),
-            vec!["thinking_delta", "thinking", "delta", "text", "todos"]
+            vec!["thinking_delta", "delta", "thinking", "text", "todos"]
         );
     }
 }
