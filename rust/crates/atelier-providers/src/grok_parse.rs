@@ -299,6 +299,14 @@ pub fn map_prompt_result_for_model(result: &Value, model: Option<&str>) -> Value
         // jamais une valeur inventée pour un futur modèle.
         id.starts_with("grok-4").then_some(500_000_u64)
     });
+    // Grok chiffre le tour : `costUsdTicks` vaut 1e10 par dollar (source
+    // xai-chat-state/src/usage.rs). Atelier affichait `cost: null` alors que
+    // l'information arrivait à chaque tour.
+    let cost = meta
+        .pointer("/usage/costUsdTicks")
+        .and_then(|v| v.as_i64())
+        .filter(|ticks| *ticks > 0)
+        .map(|ticks| ticks as f64 / 1e10);
     json!({
         "kind": "done",
         "ok": ok,
@@ -306,8 +314,8 @@ pub fn map_prompt_result_for_model(result: &Value, model: Option<&str>) -> Value
         "usage": {
             "context": meta.get("totalTokens").and_then(|v| v.as_u64()).unwrap_or(0),
             "output": meta.get("outputTokens").and_then(|v| v.as_u64()).unwrap_or(0),
-            "cost": null,
-            "turns": null,
+            "cost": cost,
+            "turns": meta.pointer("/usage/numTurns").and_then(|v| v.as_u64()),
             "window": window,
         }
     })
@@ -389,6 +397,36 @@ mod tests {
         assert_eq!(update[0]["name"], "read_file");
         assert_eq!(update[0]["status"], "failed");
         assert!(update[0]["output"].is_string());
+    }
+
+    /// Le coût d'un tour arrivait à chaque réponse et partait à la poubelle.
+    /// Unité documentée dans la source amont : 1e10 ticks par dollar.
+    #[test]
+    fn le_cout_du_tour_est_converti_en_dollars() {
+        let done = map_prompt_result_for_model(
+            &json!({"stopReason":"end_turn","_meta":{
+                "totalTokens": 40646, "outputTokens": 40,
+                "usage": {"costUsdTicks": 726180000_i64, "numTurns": 3}
+            }}),
+            Some("grok-4.6"),
+        );
+        assert_eq!(done["usage"]["context"], 40646);
+        assert_eq!(done["usage"]["turns"], 3);
+        assert_eq!(done["usage"]["window"], 500_000);
+        let cost = done["usage"]["cost"].as_f64().unwrap();
+        assert!((cost - 0.072618).abs() < 1e-9, "coût obtenu : {cost}");
+    }
+
+    /// Un tour sans coût rapporté ne doit pas afficher 0 $ — c'est faux et
+    /// ça masquerait une facturation réelle.
+    #[test]
+    fn un_cout_absent_reste_nul_et_non_zero() {
+        let done = map_prompt_result_for_model(
+            &json!({"stopReason":"end_turn","_meta":{"totalTokens": 10}}),
+            Some("grok-4.6"),
+        );
+        assert!(done["usage"]["cost"].is_null());
+        assert!(done["usage"]["turns"].is_null());
     }
 
     /// Charges utiles réelles de grok 1.0.3 (sonde 2026-08-13).
