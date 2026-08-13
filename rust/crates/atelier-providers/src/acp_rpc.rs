@@ -103,6 +103,24 @@ impl From<AcpRpcError> for String {
     }
 }
 
+/// Réduit une notification d'avancement MCP à ce qui est sûr à afficher.
+/// `detail` est écarté : il contient des messages d'erreur bruts qui exposent
+/// des URLs et des chemins internes.
+pub(crate) fn mcp_progress_update(method: &str, params: &Value) -> Value {
+    let mut update = json!({"sessionUpdate": "x_mcp_progress", "phase": method});
+    for key in ["total", "connected", "mcpToolCount", "elapsedMs"] {
+        if let Some(value) = params.get(key).and_then(Value::as_u64) {
+            update[key] = json!(value);
+        }
+    }
+    for key in ["name", "status", "reason"] {
+        if let Some(value) = params.get(key).and_then(Value::as_str) {
+            update[key] = json!(value);
+        }
+    }
+    update
+}
+
 /// Résultat `initialize` conservé par génération (plan 046 §2.2).
 #[derive(Debug, Clone, Default)]
 pub struct AcpInitializeResult {
@@ -380,10 +398,9 @@ impl AcpServer {
                 }
 
                 // Notifications de tour ACP standard OU extension xAI Grok.
-                // Les autres notifications xAI (notamment MCP, susceptibles
-                // de contenir des secrets d'environnement) restent ignorées.
+                let method = msg.get("method").and_then(Value::as_str);
                 if matches!(
-                    msg.get("method").and_then(Value::as_str),
+                    method,
                     Some("session/update" | "_x.ai/session_notification")
                 ) {
                     let params = msg.get("params").cloned().unwrap_or(json!({}));
@@ -395,6 +412,30 @@ impl AcpServer {
                         if let Some(h) = inn.handlers.get(sid) {
                             let update = params.get("update").cloned().unwrap_or(json!({}));
                             h(&update);
+                        }
+                    }
+                }
+                // Avancement MCP : liste blanche stricte. Ces trois-là ne
+                // portent que des compteurs et un nom de serveur. Tout le
+                // reste (`_x.ai/mcp/servers_updated` en tête) reste ignoré :
+                // on y trouve commandes, arguments et URLs internes.
+                else if matches!(
+                    method,
+                    Some(
+                        "_x.ai/mcp/init_progress"
+                            | "_x.ai/mcp_initialized"
+                            | "_x.ai/mcp/server_status"
+                    )
+                ) {
+                    let params = msg.get("params").cloned().unwrap_or(json!({}));
+                    let sid = params
+                        .get("sessionId")
+                        .and_then(Value::as_str)
+                        .unwrap_or("")
+                        .to_string();
+                    if !sid.is_empty() {
+                        if let Some(h) = inn.handlers.get(&sid) {
+                            h(&mcp_progress_update(method.unwrap_or(""), &params));
                         }
                     }
                 }
