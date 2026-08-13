@@ -660,6 +660,22 @@ impl GrokProvider {
         }
     }
 
+    /// Catalogue natif (`x.ai/models/list`) : même charge utile que
+    /// `session/new`, mais disponible sans ouvrir de session ni attendre un
+    /// tour. Retourne `None` si aucun runtime n'est vivant.
+    async fn native_models(&self) -> Option<GrokCatalog> {
+        let runtime = self.runtimes.lock().await.values().next().cloned()?;
+        let result = runtime
+            .acp
+            .request("_x.ai/models/list", json!({}), Some(10_000))
+            .await
+            .ok()?;
+        // Le handler enveloppe sa réponse dans `result`.
+        let state = result.get("result").unwrap_or(&result);
+        absorb_model_state(&self.catalog, Some(state));
+        Some(self.catalog.lock().unwrap().clone())
+    }
+
     /// Repli hors session ACP : `grok models` ne donne que des identifiants.
     /// Il complète le catalogue sans jamais écraser ce que `session/new` a
     /// appris (libellés officiels, efforts par modèle).
@@ -919,7 +935,12 @@ impl Provider for GrokProvider {
     }
 
     async fn dynamic_models(&self) -> Option<Value> {
-        let catalog = self.discover_models().await;
+        // Priorité au catalogue natif : il porte libellés et efforts, là où
+        // `grok models` ne donne que des identifiants nus.
+        let catalog = match self.native_models().await {
+            Some(catalog) if !catalog.models.is_empty() => catalog,
+            _ => self.discover_models().await,
+        };
         let mut reasoning = serde_json::Map::new();
         let mut labels = serde_json::Map::new();
         for model in &catalog.models {
