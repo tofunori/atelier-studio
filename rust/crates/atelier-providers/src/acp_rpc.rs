@@ -110,6 +110,9 @@ pub struct AcpInitializeResult {
     pub agent_capabilities: Value,
     pub auth_methods: Vec<Value>,
     pub agent_info: Option<Value>,
+    /// `_meta` brut de l'agent. Grok y annonce son catalogue de modèles dès
+    /// `initialize` (`_meta.modelState`), avant toute session.
+    pub meta: Value,
 }
 
 impl AcpInitializeResult {
@@ -126,6 +129,7 @@ impl AcpInitializeResult {
                 .cloned()
                 .unwrap_or_default(),
             agent_info: v.get("agentInfo").filter(|i| !i.is_null()).cloned(),
+            meta: v.get("_meta").cloned().unwrap_or(json!({})),
         }
     }
 }

@@ -231,6 +231,10 @@ impl GrokProvider {
                 init.protocol_version
             )));
         }
+        // Le catalogue complet (libellés, efforts, modèle courant) est déjà
+        // là : l'attendre jusqu'au premier `session/new` afficherait des ids
+        // bruts et masquerait les efforts propres au modèle.
+        absorb_model_state(&self.catalog, init.meta.pointer("/modelState"));
 
         let generation = runtime.acp.generation();
         let must_authenticate = {
@@ -817,7 +821,9 @@ impl Provider for GrokProvider {
             .await;
         match init {
             Ok(init) => match authenticate(&server, &init).await {
-                Ok(()) => {}
+                Ok(()) => {
+                    absorb_model_state(&self.catalog, init.meta.pointer("/modelState"));
+                }
                 Err(error) if error.is_auth_required() => {
                     probe["state"] = json!("login_needed");
                     server.shutdown().await;
@@ -954,20 +960,7 @@ fn remember_session_result(
             .and_then(Value::as_str)
             .map(str::to_string);
     }
-    let models = result
-        .pointer("/models/availableModels")
-        .and_then(Value::as_array)
-        .map(|models| models.iter().filter_map(parse_model_entry).collect::<Vec<_>>())
-        .unwrap_or_default();
-    if !models.is_empty() {
-        // L'ordre du CLI fait foi : `grok-4.6` arrive en tête et devient le
-        // défaut, ce qu'un tri alphabétique inversait.
-        let current = result
-            .pointer("/models/currentModelId")
-            .and_then(Value::as_str)
-            .map(str::to_string);
-        *catalog.lock().unwrap() = GrokCatalog { models, current };
-    }
+    absorb_model_state(catalog, result.pointer("/models"));
     let mut state = runtime.state.lock().unwrap();
     state.opened_sessions.insert(sid.to_string());
     state.selection.insert(sid.to_string(), selection);
@@ -1125,6 +1118,31 @@ async fn wait_for_quiet(last_activity: &AtomicU64) {
         }
         tokio::time::sleep(Duration::from_millis(25)).await;
     }
+}
+
+/// Absorbe un bloc `{currentModelId, availableModels}`. Grok le sert à deux
+/// moments : dans `_meta.modelState` d'`initialize` (donc dès le démarrage,
+/// sans session) et dans `session/new`. L'ordre annoncé est conservé tel quel.
+fn absorb_model_state(catalog: &StdMutex<GrokCatalog>, state: Option<&Value>) {
+    let Some(state) = state else { return };
+    let models = state
+        .get("availableModels")
+        .and_then(Value::as_array)
+        .map(|models| {
+            models
+                .iter()
+                .filter_map(parse_model_entry)
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default();
+    if models.is_empty() {
+        return;
+    }
+    let current = state
+        .get("currentModelId")
+        .and_then(Value::as_str)
+        .map(str::to_string);
+    *catalog.lock().unwrap() = GrokCatalog { models, current };
 }
 
 /// Une entrée de `/models/availableModels` : id, nom officiel, et efforts de
@@ -1625,6 +1643,53 @@ mod tests {
             "high"
         );
         assert!(dynamic["modelLabels"].get("aucun-modele").is_none());
+    }
+
+    /// Grok annonce son catalogue dès `initialize`. S'en remettre au seul
+    /// `session/new` afficherait des ids bruts et aucun effort tant que
+    /// l'utilisateur n'a pas envoyé son premier message.
+    #[test]
+    fn le_catalogue_est_connu_des_initialize_sans_session() {
+        let catalog = StdMutex::new(GrokCatalog::default());
+        let init_meta = json!({
+            "grokShell": true,
+            "agentVersion": "1.0.3",
+            "modelState": session_new_fixture()["models"].clone(),
+        });
+
+        absorb_model_state(&catalog, init_meta.pointer("/modelState"));
+
+        let catalog = catalog.lock().unwrap();
+        assert_eq!(catalog.current.as_deref(), Some("grok-4.6"));
+        assert_eq!(
+            catalog.get("grok-4.6").unwrap().label.as_deref(),
+            Some("Grok 4.6")
+        );
+        assert!(catalog
+            .get("grok-4.6")
+            .unwrap()
+            .efforts
+            .iter()
+            .any(|effort| effort == "xhigh"));
+    }
+
+    /// Un `_meta` sans `modelState` (agent tiers, version ancienne) ne doit ni
+    /// vider le catalogue ni faire échouer l'initialisation.
+    #[test]
+    fn un_initialize_muet_laisse_le_catalogue_intact() {
+        let catalog = StdMutex::new(GrokCatalog::default());
+        remember_session_result(
+            &GrokThreadRuntime::new("/tmp/projet".into()),
+            "sid-1",
+            &session_new_fixture(),
+            &catalog,
+        );
+
+        absorb_model_state(&catalog, json!({"grokShell": true}).pointer("/modelState"));
+        absorb_model_state(&catalog, Some(&json!({"availableModels": []})));
+
+        assert_eq!(catalog.lock().unwrap().current.as_deref(), Some("grok-4.6"));
+        assert_eq!(catalog.lock().unwrap().models.len(), 4);
     }
 
     /// La sonde `grok models` est plus pauvre que l'ACP : elle complète, mais
