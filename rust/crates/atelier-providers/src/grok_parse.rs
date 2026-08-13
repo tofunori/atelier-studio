@@ -262,15 +262,25 @@ pub fn map_session_update(
                 .get("subagent_type")
                 .and_then(|v| v.as_str())
                 .filter(|t| !t.is_empty());
+            // Seul `subagent_spawned` porte la description ; les avancements
+            // ne la répètent pas. Sans mémoire, la carte perdait son sujet
+            // dès la première mise à jour.
+            let cle = format!("subagent:{id}");
             let nom = match (type_agent, description) {
                 (Some(t), Some(d)) => format!("sous-agent {t} · {d}"),
                 (Some(t), None) => format!("sous-agent {t}"),
                 (None, Some(d)) => format!("sous-agent · {d}"),
-                (None, None) => "sous-agent".to_string(),
+                (None, None) => tool_meta
+                    .get(&cle)
+                    .and_then(|cache| cache.get("name"))
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("sous-agent")
+                    .to_string(),
             };
+            tool_meta.insert(cle.clone(), json!({"name": nom}));
             vec![json!({
                 "kind": "tool_update",
-                "id": format!("subagent:{id}"),
+                "id": cle,
                 "name": nom,
                 "status": status,
                 "detail": detail,
@@ -528,6 +538,15 @@ mod tests {
             &mut edits,
         );
         assert_eq!(depart[0]["name"], "sous-agent explore · Résumer PIEGES_CONNUS");
+
+        // Les avancements ne répètent pas la description : la carte doit la
+        // garder au lieu de retomber sur un libellé anonyme.
+        let avance = map_session_update(
+            &json!({"sessionUpdate":"subagent_progress","subagent_id":"a1","turn_count":1}),
+            &mut meta,
+            &mut edits,
+        );
+        assert_eq!(avance[0]["name"], "sous-agent explore · Résumer PIEGES_CONNUS");
     }
 
     #[test]
