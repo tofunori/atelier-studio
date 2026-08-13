@@ -509,7 +509,11 @@ export function ActiveTurnTail(p: {
   return (
     <div className="working-stack active-turn-tail" data-turn-id={p.turn.turnId ?? p.turn.key}>
       {state?.kind === "answering" ? null : !showsActivity ? (
-        <LiveThinking />
+        // La pensée en cours vit déjà dans l'état actif : l'ignorer laissait
+        // le mot « Réflexion » seul pendant toute l'attente.
+        <LiveThinking
+          thought={state?.kind === "reasoning" ? state.texts[state.texts.length - 1] : null}
+        />
       ) : (
         <ActivityDisclosure
           open={p.open}

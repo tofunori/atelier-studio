@@ -73,6 +73,20 @@ describe("anatomie du tour — header d'activité", () => {
     expect(long.textContent!.endsWith("fin de raisonnement")).toBe(true);
   });
 
+  // Régression : le tour actif rendait `LiveThinking` sans lui passer la
+  // pensée, alors que l'état actif la contient. Résultat : le mot
+  // « Réflexion » seul pendant toute l'attente, quelle que soit sa durée.
+  it("le tour en cours affiche la pensée, pas seulement le mot « Réflexion »", () => {
+    const live: AgentEvent[] = [
+      events.user("Ok et qu'est-ce que tu recommandes sinon", FIXED_TS),
+      { kind: "thinking_live", text: "Je relis la section méthodes pour voir ce qui manque.", ts: FIXED_TS + 100 } as AgentEvent,
+    ];
+    renderUi(<Chat {...chatProps({ events: live, workingSince: FIXED_TS })} />);
+    const indicator = document.querySelector(".active-turn-tail .thinking-live-indicator") as HTMLElement;
+    expect(indicator.textContent).toBe("Je relis la section méthodes pour voir ce qui manque.");
+    expect(indicator.querySelector(".thinking-shimmer")).toBeNull();
+  });
+
   it("cadence le reflet Thinking : délai de 600 ms, passage de 650 ms, puis toutes les 4 s", () => {
     vi.useFakeTimers();
     try {
