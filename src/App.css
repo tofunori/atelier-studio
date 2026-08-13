@@ -3191,7 +3191,7 @@ button.ctx-ring-wrap { border: none; font: inherit; color: inherit;
 .narval-job-row[data-state="selected"] { background: var(--selection-surface); box-shadow: inset 2px 0 var(--selection-line); }
 .narval-job-identity { min-width: 0; display: flex; flex-direction: column; gap: 4px; }
 .narval-job-identity strong { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-  color: var(--text-primary); font-size: var(--fs-body-s); font-weight: 550; }
+  color: var(--text-primary); font-size: var(--fs-body-s); font-weight: 500; }
 .narval-job-identity code { color: var(--text-muted); font: var(--fs-caption) var(--font-code); font-variant-numeric: tabular-nums; }
 .narval-job-metrics { display: grid; grid-template-columns: minmax(66px, auto) minmax(34px, auto); gap: 12px; }
 .narval-job-metrics > span { min-width: 0; display: flex; flex-direction: column; align-items: flex-end; gap: 3px; }
@@ -3289,7 +3289,7 @@ button.ctx-ring-wrap { border: none; font: inherit; color: inherit;
 .narval-run-files-empty { min-height: 180px; display: flex; flex-direction: column; align-items: center; justify-content: center;
   padding: 28px; color: var(--text-secondary); text-align: center; }
 .narval-run-files-empty > svg { width: 20px; height: 20px; margin-bottom: 10px; color: var(--text-muted); stroke-width: 1.4; }
-.narval-run-files-empty strong { font-size: var(--fs-body-s); font-weight: 550; }
+.narval-run-files-empty strong { font-size: var(--fs-body-s); font-weight: 500; }
 .narval-run-files-truncated { margin: 12px 14px 0; color: var(--text-muted); font-size: var(--fs-caption); }
 .narval-inspector-foot { min-height: 54px; display: flex; align-items: center; justify-content: space-between; gap: 10px;
   padding: 9px 12px; border-top: 1px solid var(--border-subtle); }
