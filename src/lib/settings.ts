@@ -56,7 +56,7 @@ export const DEFAULT_SETTINGS: Settings = {
   defaultEffort: { claude: "xhigh", codex: "medium", grok: "high" },
   defaultPermissionMode: "bypassPermissions",
   threadOrder: "recent",
-  chatFontSize: 15,
+  chatFontSize: 13.5,
   chatWidth: 760,
   chatLineHeight: 1.7,
   galleryPath: "", // vide = galerie embarquée (gallery/ du repo ou ressource bundlée)
