@@ -101,6 +101,16 @@
   .cm-s-material-darker div.CodeMirror-selected,
   .cm-s-material-darker.CodeMirror-focused div.CodeMirror-selected{background:transparent !important}
   .CodeMirror-selectedtext{background:rgba(232,130,58,.38) !important;box-shadow:none !important;border-radius:2px}
+  /* MOTEUR CM6 (`[Atelier editor] active engine: cm6`) : la sélection ne
+     passe PAS par les classes CodeMirror 5 ci-dessus mais par une couche
+     dédiée. Son thème la peignait en rgb(34,51,51) — le vert sombre visible
+     dès qu'une sélection dépassait une ligne. Même orange que le reste du
+     studio, et sélection native neutralisée par-dessous. */
+  .cm-editor .cm-selectionLayer .cm-selectionBackground,
+  .cm-editor.cm-focused .cm-selectionLayer .cm-selectionBackground,
+  .cm-editor .cm-selectionBackground{background:rgba(232,130,58,.32) !important}
+  .cm-editor .cm-line::selection,
+  .cm-editor .cm-line ::selection{background:transparent !important}
   .cm-line-flash{background:rgba(232,130,58,.16) !important;transition:background .6s}
   .cm-ghost-suggest{color:#7d858f;opacity:.72;pointer-events:none}
   .cm-ghost-suggest::after{content:"Tab";display:inline-block;margin-left:8px;padding:0 5px;border:1px solid #3a414d;border-radius:4px;
