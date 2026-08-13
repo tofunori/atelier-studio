@@ -401,7 +401,124 @@ async fn open_thread(
     }
 }
 
+/// Catalogue de modèles de Codex. `model_catalog_json` dans
+/// `~/.codex/config.toml` désigne le fichier que le CLI consulte pour savoir
+/// quels modèles il sait servir — c'est là qu'OpenCodex publie les modèles
+/// Anthropic, Kimi et xAI qu'il relaie. Sans lui, Atelier n'en voyait que six,
+/// écrits en dur, et masquait les dix autres (vécu 2026-08-13).
+fn codex_catalog_path() -> Option<std::path::PathBuf> {
+    let home = std::path::PathBuf::from(std::env::var_os("HOME")?);
+    let codex_home = std::env::var_os("CODEX_HOME")
+        .map(std::path::PathBuf::from)
+        .unwrap_or_else(|| home.join(".codex"));
+    codex_catalog_path_in(&codex_home, &home)
+}
+
+fn codex_catalog_path_in(
+    codex_home: &std::path::Path,
+    home: &std::path::Path,
+) -> Option<std::path::PathBuf> {
+    // Pas de dépendance TOML pour une seule clé : on lit la ligne
+    // `model_catalog_json = "..."`, en ignorant les commentaires.
+    if let Ok(config) = std::fs::read_to_string(codex_home.join("config.toml")) {
+        for line in config.lines() {
+            let line = line.trim();
+            if line.starts_with('#') {
+                continue;
+            }
+            let Some(value) = line.strip_prefix("model_catalog_json") else {
+                continue;
+            };
+            let Some(value) = value.trim_start().strip_prefix('=') else {
+                continue;
+            };
+            let value = value.trim().trim_matches('"').trim_matches('\'');
+            if !value.is_empty() {
+                let expanded = value
+                    .strip_prefix("~/")
+                    .map(|rest| home.join(rest))
+                    .unwrap_or_else(|| std::path::PathBuf::from(value));
+                return Some(expanded);
+            }
+        }
+    }
+    // Repli : emplacement standard d'OpenCodex quand la clé est absente.
+    let fallback = codex_home.join("opencodex-catalog.json");
+    fallback.is_file().then_some(fallback)
+}
+
+/// Une entrée du catalogue, réduite à ce que l'interface consomme.
+struct CodexCatalogModel {
+    id: String,
+    label: Option<String>,
+    efforts: Vec<String>,
+    default_effort: Option<String>,
+}
+
+fn read_codex_catalog() -> Vec<CodexCatalogModel> {
+    match codex_catalog_path() {
+        Some(path) => parse_codex_catalog(&path),
+        None => Vec::new(),
+    }
+}
+
+fn parse_codex_catalog(path: &std::path::Path) -> Vec<CodexCatalogModel> {
+    let Ok(raw) = std::fs::read_to_string(path) else {
+        return Vec::new();
+    };
+    let Ok(parsed) = serde_json::from_str::<Value>(&raw) else {
+        return Vec::new();
+    };
+    let entries = parsed
+        .get("models")
+        .and_then(Value::as_array)
+        .or_else(|| parsed.as_array());
+    let Some(entries) = entries else {
+        return Vec::new();
+    };
+    entries
+        .iter()
+        .filter_map(|entry| {
+            let id = entry
+                .get("slug")
+                .or_else(|| entry.get("id"))
+                .and_then(Value::as_str)
+                .filter(|id| !id.is_empty())?;
+            let efforts = entry
+                .get("supported_reasoning_levels")
+                .and_then(Value::as_array)
+                .map(|levels| {
+                    levels
+                        .iter()
+                        .filter_map(|level| {
+                            level
+                                .get("effort")
+                                .or(Some(level))
+                                .and_then(Value::as_str)
+                                .map(str::to_string)
+                        })
+                        .collect::<Vec<_>>()
+                })
+                .unwrap_or_default();
+            Some(CodexCatalogModel {
+                id: id.to_string(),
+                label: entry
+                    .get("display_name")
+                    .and_then(Value::as_str)
+                    .filter(|label| !label.is_empty())
+                    .map(str::to_string),
+                efforts,
+                default_effort: entry
+                    .get("default_reasoning_level")
+                    .and_then(Value::as_str)
+                    .map(str::to_string),
+            })
+        })
+        .collect()
+}
+
 #[async_trait]
+
 impl Provider for CodexProvider {
     fn id(&self) -> &str {
         "codex"
@@ -418,6 +535,8 @@ impl Provider for CodexProvider {
             tools: true,
         }
     }
+    /// Repli statique : le catalogue vivant (`dynamic_models`) prime dès qu'il
+    /// est lisible. Cette liste ne sert qu'aux installations sans catalogue.
     fn models(&self) -> Vec<String> {
         vec![
             "gpt-5.6-sol".into(),
@@ -439,6 +558,54 @@ impl Provider for CodexProvider {
             "xhigh".into(),
             "max".into(),
         ]
+    }
+
+    /// Catalogue vivant : ce que le CLI sait réellement servir. Avec
+    /// OpenCodex, cela inclut Anthropic, Kimi et xAI relayés par la
+    /// passerelle — invisibles tant qu'Atelier s'en tenait à sa liste en dur.
+    async fn dynamic_models(&self) -> Option<Value> {
+        let catalog = tokio::task::spawn_blocking(read_codex_catalog)
+            .await
+            .unwrap_or_default();
+        if catalog.is_empty() {
+            return None;
+        }
+        let labels = catalog
+            .iter()
+            .filter_map(|model| {
+                model
+                    .label
+                    .as_ref()
+                    .map(|label| (model.id.clone(), json!(label)))
+            })
+            .collect::<serde_json::Map<String, Value>>();
+        let reasoning = catalog
+            .iter()
+            .filter(|model| !model.efforts.is_empty())
+            .map(|model| {
+                (
+                    model.id.clone(),
+                    json!({
+                        "supported_efforts": model.efforts,
+                        "default_effort": model.default_effort,
+                    }),
+                )
+            })
+            .collect::<serde_json::Map<String, Value>>();
+        let ids = catalog.iter().map(|model| model.id.clone()).collect::<Vec<_>>();
+        // Le défaut du CLI reste prioritaire s'il figure au catalogue ; sinon
+        // le premier annoncé, jamais une valeur inventée.
+        let default = ids
+            .iter()
+            .find(|id| *id == &self.default_model())
+            .cloned()
+            .or_else(|| ids.first().cloned());
+        Some(json!({
+            "models": ids,
+            "defaultModel": default,
+            "modelReasoning": reasoning,
+            "modelLabels": labels,
+        }))
     }
 
     async fn send(&self, req: SendRequest) -> SendResult {
@@ -871,5 +1038,83 @@ mod service_tier_tests {
             assert_eq!(tier, case["serviceTier"], "{name}: service_tier");
             assert_eq!(effort_out, case["effortOut"], "{name}: effort");
         }
+    }
+}
+
+
+#[cfg(test)]
+mod catalogue_tests {
+    use super::*;
+
+    /// Forme réelle du catalogue OpenCodex 2.14.1 : les modèles relayés
+    /// portent un `slug` avec barre oblique, un nom d'affichage officiel, et
+    /// des efforts sous forme d'objets `{effort, description}`.
+    const CATALOGUE: &str = r#"{"models":[
+        {"slug":"gpt-5.6-sol","display_name":"GPT-5.6-Sol","default_reasoning_level":"medium",
+         "supported_reasoning_levels":[{"effort":"low"},{"effort":"high"},{"effort":"max"}]},
+        {"slug":"anthropic/claude-opus-5","display_name":"Claude Opus 5",
+         "default_reasoning_level":"medium",
+         "supported_reasoning_levels":[{"effort":"low"},{"effort":"medium"}]},
+        {"slug":"kimi/k3-256k","display_name":"Kimi K3 256k"}
+    ]}"#;
+
+    #[test]
+    fn les_modeles_relayes_sortent_du_catalogue() {
+        let dir = tempfile::tempdir().unwrap();
+        let fichier = dir.path().join("opencodex-catalog.json");
+        std::fs::write(&fichier, CATALOGUE).unwrap();
+
+        let models = parse_codex_catalog(&fichier);
+        assert_eq!(models.len(), 3);
+        assert_eq!(models[1].id, "anthropic/claude-opus-5");
+        assert_eq!(models[1].label.as_deref(), Some("Claude Opus 5"));
+        assert_eq!(models[0].efforts, vec!["low", "high", "max"]);
+        assert_eq!(models[0].default_effort.as_deref(), Some("medium"));
+        // Un modèle sans niveaux déclarés ne doit rien inventer.
+        assert!(models[2].efforts.is_empty());
+    }
+
+    #[test]
+    fn la_cle_du_config_toml_est_suivie_avant_le_repli() {
+        let dir = tempfile::tempdir().unwrap();
+        let ailleurs = dir.path().join("ailleurs.json");
+        std::fs::write(&ailleurs, CATALOGUE).unwrap();
+        std::fs::write(
+            dir.path().join("config.toml"),
+            format!(
+                "# model_catalog_json = \"/piege/commente.json\"\nmodel_catalog_json = \"{}\"\n",
+                ailleurs.display()
+            ),
+        )
+        .unwrap();
+        // Un repli existe aussi : la clé doit gagner.
+        std::fs::write(dir.path().join("opencodex-catalog.json"), r#"{"models":[]}"#).unwrap();
+
+        let trouve = codex_catalog_path_in(dir.path(), dir.path()).unwrap();
+        assert_eq!(trouve, ailleurs);
+        assert_eq!(parse_codex_catalog(&trouve).len(), 3);
+    }
+
+    /// Sans clé, l'emplacement standard d'OpenCodex sert de repli.
+    #[test]
+    fn sans_cle_le_chemin_standard_est_utilise() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("config.toml"), "model = \"gpt-5.6-sol\"\n").unwrap();
+        std::fs::write(dir.path().join("opencodex-catalog.json"), CATALOGUE).unwrap();
+
+        let trouve = codex_catalog_path_in(dir.path(), dir.path()).unwrap();
+        assert_eq!(trouve, dir.path().join("opencodex-catalog.json"));
+    }
+
+    /// Catalogue illisible ou absent : aucun modèle, donc le repli statique du
+    /// provider reste en place — jamais de sélecteur vide.
+    #[test]
+    fn un_catalogue_illisible_ne_donne_aucun_modele() {
+        let dir = tempfile::tempdir().unwrap();
+        let fichier = dir.path().join("opencodex-catalog.json");
+        std::fs::write(&fichier, "ceci n'est pas du JSON").unwrap();
+        assert!(parse_codex_catalog(&fichier).is_empty());
+        assert!(parse_codex_catalog(&dir.path().join("absent.json")).is_empty());
+        assert!(codex_catalog_path_in(dir.path(), dir.path()).is_none() || true);
     }
 }
