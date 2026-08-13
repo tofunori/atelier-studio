@@ -2551,7 +2551,34 @@ async fn handle_revert(state: &AppState, msg: &Value) -> Vec<String> {
             }
         }
         if let Some(eid) = event_id {
+            // Index du prompt CHEZ LE PROVIDER : le rang du message utilisateur
+            // annulé parmi les messages utilisateur du fil. Calculé AVANT la
+            // troncature, sinon l'événement a déjà disparu.
+            let prompt_index = state
+                .journal()
+                .materialize(thread_id)
+                .iter()
+                .take_while(|event| {
+                    event.pointer("/meta/eventId").and_then(Value::as_str) != Some(eid.as_str())
+                })
+                .filter(|event| event.get("kind").and_then(Value::as_str) == Some("user"))
+                .count();
             truncated = state.journal().truncate_from(thread_id, &eid);
+            // Le provider doit oublier aussi : tronquer le seul journal
+            // d'Atelier laissait l'agent répondre d'après des tours qu'on
+            // croyait effacés.
+            if truncated {
+                if let Some(provider) = state.provider(&thread.provider) {
+                    match provider.rewind(thread_id, prompt_index).await {
+                        Ok(_) => {}
+                        Err(error) => tracing::info!(
+                            provider = %thread.provider,
+                            error = %error,
+                            "rewind natif indisponible : seul le journal Atelier est tronqué"
+                        ),
+                    }
+                }
+            }
         }
     }
     let _ = truncated;

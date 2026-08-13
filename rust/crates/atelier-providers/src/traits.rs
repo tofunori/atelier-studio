@@ -170,6 +170,14 @@ pub trait Provider: Send + Sync {
         None
     }
 
+    /// Annule les tours à partir du prompt `prompt_index` DANS la session du
+    /// CLI. Sans ça, Atelier tronque son journal mais l'agent garde tout en
+    /// mémoire : il continue de répondre en fonction de ce qu'on croyait
+    /// avoir effacé. `Err` = non supporté, l'appelant n'en fait pas un échec.
+    async fn rewind(&self, _thread_id: &str, _prompt_index: usize) -> Result<Value, String> {
+        Err("rewind non supporté par ce provider".into())
+    }
+
     /// Commandes que le CLI expose lui-même (`available_commands_update`) :
     /// `[{name, description}]`. Elles n'existent nulle part sur le disque, un
     /// scan de `skills/` ou `commands/` ne peut donc pas les découvrir.

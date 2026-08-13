@@ -741,6 +741,39 @@ impl Provider for GrokProvider {
             .unwrap_or_else(|| FALLBACK_MODEL.to_string())
     }
 
+    /// `x.ai/rewind/execute` en mode `conversation_only` : Atelier restaure
+    /// déjà les fichiers avec son propre instantané git, laisser Grok y
+    /// toucher aussi ferait deux vérités sur le disque.
+    async fn rewind(&self, thread_id: &str, prompt_index: usize) -> Result<Value, String> {
+        let runtime = self
+            .runtimes
+            .lock()
+            .await
+            .get(thread_id)
+            .cloned()
+            .ok_or("aucune session Grok vivante pour ce fil")?;
+        let session_id = runtime
+            .active_session
+            .lock()
+            .unwrap()
+            .clone()
+            .ok_or("aucune session Grok vivante pour ce fil")?;
+        runtime
+            .acp
+            .request(
+                "_x.ai/rewind/execute",
+                json!({
+                    "sessionId": session_id,
+                    "targetPromptIndex": prompt_index,
+                    "mode": "conversation_only",
+                    "force": true,
+                }),
+                Some(30_000),
+            )
+            .await
+            .map_err(|error| grok_user_error(&error))
+    }
+
     fn native_commands(&self) -> Vec<Value> {
         self.native_commands.lock().unwrap().clone()
     }
