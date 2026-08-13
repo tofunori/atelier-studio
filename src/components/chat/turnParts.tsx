@@ -433,11 +433,15 @@ export function ThinkingShimmer({ text = t("chat.thinking") }: { text?: string }
   );
 }
 
-export function LiveThinking() {
+export function LiveThinking({ thought }: { thought?: string | null } = {}) {
+  // Une seule ligne, la fin de la pensée en cours : on voit sur QUOI l'agent
+  // travaille sans dérouler des centaines de chunks (Grok en émet ~49 pour un
+  // simple « allo »). Le déroulé complet reste à un clic, tour terminé.
+  const tail = (thought ?? "").replace(/\s+/g, " ").trim().slice(-120);
   return (
     <div className="thinking-live-indicator" role="status" aria-live="polite">
       <BrainCircuitIcon className="thinking-icon" aria-hidden="true" />
-      <ThinkingShimmer />
+      {tail ? <span className="thinking-live-tail">{tail}</span> : <ThinkingShimmer />}
     </div>
   );
 }

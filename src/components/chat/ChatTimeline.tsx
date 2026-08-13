@@ -3,7 +3,7 @@
 // indicateur Working, chapitres épinglés, bouton « aller au dernier message ».
 // JSX déplacé VERBATIM depuis Chat.tsx ; les bundles sont déstructurés vers les
 // noms locaux d'origine pour garantir l'équivalence pixel.
-import React, { type MutableRefObject, type ReactNode, type RefObject } from "react";
+import React, { useMemo, type MutableRefObject, type ReactNode, type RefObject } from "react";
 import { LegendList, type LegendListRef } from "@legendapp/list/react";
 import { Tick } from "./toolPresentation";
 import { AgentEvent } from "../../lib/ws";
@@ -128,6 +128,17 @@ export function ChatTimeline(p: {
   const { onStop } = p.working;
   const { tickPos, resolvePinEl, pinMenu, setPinMenu, onStylePin } = p.chapters;
   const { onNewChat, onOpenProject } = p.empty;
+  // Dernière pensée du tour EN COURS : la ligne vivante doit dire sur quoi
+  // l'agent travaille, pas seulement qu'il travaille. On remonte jusqu'au
+  // premier signe qu'un tour précédent est clos (texte ou fin).
+  const liveThought = useMemo(() => {
+    for (let i = events.length - 1; i >= 0; i--) {
+      const event = events[i];
+      if (event.kind === "thinking_live") return event.text;
+      if (event.kind === "text" || event.kind === "done" || event.kind === "error") break;
+    }
+    return "";
+  }, [events]);
   const { quote, setQuote, quoteHasHl, quoteHasUl, addMark, removeMark } = p.selection;
   void onQuote; void openFolds; // utilisés par des handlers/branches copiés verbatim
   const timelineListRef = React.useRef<LegendListRef>(null);
@@ -407,7 +418,7 @@ export function ChatTimeline(p: {
                   <div className="working-row">
                     <Working since={workingSince!} tokens={liveTokens} note={liveNote} />
                   </div>
-                  <LiveThinking />
+                  <LiveThinking thought={liveThought} />
                   <RowButton className="stop-hint" title={t("action.interrupt")} onClick={onStop}>
                     <kbd>esc</kbd> {t("action.interrupt")}
                   </RowButton>

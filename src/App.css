@@ -2459,7 +2459,12 @@ button.ctx-ring-wrap { border: none; font: inherit; color: inherit;
 .reasoning-trace-body { margin: 4px 0 6px; padding: 7px 10px; border-left: 1px solid var(--border2);
   color: var(--muted); font-size: var(--fs-m); white-space: pre-wrap; line-height: 1.5; }
 .thinking-live-indicator { margin: 2px 0 6px; padding: 2px 0; color: var(--muted);
-  display: flex; align-items: center; gap: 7px; font-size: var(--fs-l); font-style: normal; }
+  display: flex; align-items: center; gap: 7px; font-size: var(--fs-l); font-style: normal;
+  min-width: 0; }
+/* fin de la pensée en cours : une ligne, éteinte, jamais concurrente du
+   contenu — même discrétion que l'aperçu du bloc replié */
+.thinking-live-tail { color: var(--muted2); font-style: italic; min-width: 0;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 /* ChatGPT/Codex : une seconde copie du mot traverse un masque étroit.
    Un passage dure 650 ms, puis le libellé reste calme jusqu'à la cadence suivante. */
 .thinking-shimmer {

@@ -53,6 +53,26 @@ describe("anatomie du tour — header d'activité", () => {
     expect(head.getAttribute("aria-expanded")).toBe("false");
   });
 
+  it("montre la fin de la pensée en cours, sur une seule ligne, sans dérouler", () => {
+    // Sans pensée encore reçue : le reflet occupe la place, pas de ligne vide.
+    const { rerender } = renderUi(<LiveThinking />);
+    expect(document.querySelector(".thinking-live-tail")).toBeNull();
+    expect(document.querySelector(".thinking-shimmer")).toBeTruthy();
+
+    // Dès qu'une pensée arrive, c'est ELLE qu'on lit — pas juste « ça travaille ».
+    const pensee = "J'ouvre methods_en.tex\n\n  puis je compare\tles deux sections";
+    rerender(<LiveThinking thought={pensee} />);
+    const tail = document.querySelector(".thinking-live-tail") as HTMLElement;
+    expect(tail.textContent).toBe("J'ouvre methods_en.tex puis je compare les deux sections");
+    expect(document.querySelector(".thinking-shimmer")).toBeNull();
+
+    // Une pensée longue reste UNE ligne : c'est la fin qui compte.
+    rerender(<LiveThinking thought={"x".repeat(400) + " fin de raisonnement"} />);
+    const long = document.querySelector(".thinking-live-tail") as HTMLElement;
+    expect(long.textContent!.length).toBe(120);
+    expect(long.textContent!.endsWith("fin de raisonnement")).toBe(true);
+  });
+
   it("cadence le reflet Thinking : délai de 600 ms, passage de 650 ms, puis toutes les 4 s", () => {
     vi.useFakeTimers();
     try {
