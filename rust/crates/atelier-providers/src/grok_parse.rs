@@ -174,11 +174,35 @@ pub fn map_session_update(
             }
             out
         }
-        "pending_interaction" => {
-            let k = update.get("kind").and_then(|v| v.as_str()).unwrap_or("");
+        // Attente bloquante (permission, question, approbation de plan). C'est
+        // un ÉTAT transitoire : Grok émet `interaction_resolved` dès la
+        // réponse. On l'affichait comme une ligne d'outil définitive, jamais
+        // retirée — d'où des « permission (permission) » empilées après coup.
+        "pending_interaction" | "interaction_resolved" => {
+            let Some(id) = update
+                .get("tool_call_id")
+                .and_then(|v| v.as_str())
+                .filter(|id| !id.is_empty())
+            else {
+                return vec![];
+            };
+            let resolue = kind == "interaction_resolved";
+            let libelle = match update.get("kind").and_then(|v| v.as_str()) {
+                Some("question") => "question posée",
+                Some("plan_approval") => "approbation du plan",
+                Some("permission") => "autorisation demandée",
+                _ if resolue => "autorisation",
+                _ => "en attente de votre réponse",
+            };
             vec![json!({
-                "kind": "tool",
-                "name": if k.is_empty() { "permission en attente".into() } else { format!("permission ({k})") },
+                "kind": "tool_update",
+                "id": format!("interaction:{id}"),
+                "name": libelle,
+                "status": if resolue { "completed" } else { "running" },
+                "detail": "",
+                "output": "",
+                "input": Value::Null,
+                "source": "grok",
             })]
         }
         "plan" => {
@@ -329,7 +353,6 @@ pub fn map_session_update(
         | "user_message_chunk"
         | "available_commands_update"
         | "session_summary_generated"
-        | "interaction_resolved"
         | "turn_completed" => vec![],
         _ => vec![], // unknown → ignore
     }
@@ -478,6 +501,63 @@ mod tests {
         assert_eq!(update[0]["name"], "read_file");
         assert_eq!(update[0]["status"], "failed");
         assert!(update[0]["output"].is_string());
+    }
+
+    /// Une attente de permission est un ÉTAT, pas un événement. Grok la
+    /// résout par `interaction_resolved` ; l'ignorer laissait des lignes
+    /// « permission (permission) » empilées, jamais retirées (vu 2026-08-13).
+    #[test]
+    fn une_attente_de_reponse_se_resout_au_lieu_de_sempiler() {
+        let mut meta = HashMap::new();
+        let mut edits = HashSet::new();
+
+        let attente = map_session_update(
+            &json!({"sessionUpdate":"pending_interaction","tool_call_id":"call-7","kind":"permission"}),
+            &mut meta,
+            &mut edits,
+        );
+        assert_eq!(attente[0]["kind"], "tool_update");
+        assert_eq!(attente[0]["id"], "interaction:call-7");
+        assert_eq!(attente[0]["name"], "autorisation demandée");
+        assert_eq!(attente[0]["status"], "running");
+
+        let resolue = map_session_update(
+            &json!({"sessionUpdate":"interaction_resolved","tool_call_id":"call-7"}),
+            &mut meta,
+            &mut edits,
+        );
+        // MÊME identifiant : la ligne se termine au lieu d'en créer une seconde.
+        assert_eq!(resolue[0]["id"], "interaction:call-7");
+        assert_eq!(resolue[0]["status"], "completed");
+    }
+
+    /// Chaque type d'attente se nomme ; « permission (permission) » ne disait
+    /// rien deux fois.
+    #[test]
+    fn chaque_type_dattente_porte_son_nom() {
+        let mut meta = HashMap::new();
+        let mut edits = HashSet::new();
+        let mut nom = |k: &str| {
+            map_session_update(
+                &json!({"sessionUpdate":"pending_interaction","tool_call_id":"c","kind":k}),
+                &mut meta,
+                &mut edits,
+            )[0]["name"]
+                .as_str()
+                .unwrap()
+                .to_string()
+        };
+        assert_eq!(nom("question"), "question posée");
+        assert_eq!(nom("plan_approval"), "approbation du plan");
+        assert_eq!(nom("permission"), "autorisation demandée");
+
+        // Sans identifiant, rien : pas de carte fantôme.
+        assert!(map_session_update(
+            &json!({"sessionUpdate":"pending_interaction","kind":"permission"}),
+            &mut meta,
+            &mut edits
+        )
+        .is_empty());
     }
 
     /// Charges utiles réelles (sonde 2026-08-13) : Grok annonce ses
