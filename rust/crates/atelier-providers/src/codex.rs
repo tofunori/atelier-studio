@@ -974,6 +974,7 @@ mod service_tier_tests {
             effort: (!effort.is_empty()).then(|| effort.to_string()),
             fast_mode,
             permission_mode: Some("bypassPermissions".into()),
+            fork_pending: false,
             mode: SendMode::Normal,
             on_event: Arc::new(|_| {}),
             on_interaction: None,

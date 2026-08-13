@@ -888,6 +888,7 @@ pub async fn handle_send(state: &AppState, msg: &Value) -> Vec<String> {
                     .get("permissionMode")
                     .and_then(|v| v.as_str())
                     .map(str::to_string),
+                fork_pending: false,
                 mode: SendMode::Steer,
                 on_event: Arc::new(move |ev| {
                     let _ = tx.send(ev);
@@ -1186,6 +1187,14 @@ pub async fn handle_send(state: &AppState, msg: &Value) -> Vec<String> {
             effort,
             fast_mode,
             permission_mode,
+            // Posé par le fork pour les providers sans fork hors tour
+            // (Claude) : le premier envoi reprend la session source avec
+            // `--fork-session` au lieu de l'écraser.
+            fork_pending: previous
+                .as_ref()
+                .and_then(|thread| thread.extra.get("forkPending"))
+                .and_then(Value::as_bool)
+                .unwrap_or(false),
             mode: SendMode::Normal,
             on_event: Arc::new(move |ev| {
                 // Le provider a-t-il produit sa propre fin de tour ? Si oui,

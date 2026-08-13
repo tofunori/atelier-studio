@@ -112,6 +112,7 @@ mod tests {
             effort: None,
             fast_mode: false,
             permission_mode: None,
+            fork_pending: false,
             mode: SendMode::Normal,
             on_event: Arc::new(move |v| e2.lock().unwrap().push(v)),
             on_interaction: None,

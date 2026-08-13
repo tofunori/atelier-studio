@@ -2440,6 +2440,9 @@ async fn handle_fork_thread(state: &AppState, msg: &Value) -> Vec<String> {
     // hérite de l'historique réel (outils, plan) au lieu d'un transcript
     // recollé, et le fil source n'est pas touché. Le repli contextuel reste
     // pour les providers qui ne savent pas faire.
+    // Claude Code n'a pas d'appel de fork : il le fait par `--fork-session`
+    // au moment de la reprise. On marque donc la branche au lieu d'appeler.
+    let fork_by_resume = src.provider == "claude";
     let native_session = match (&src.session_id, state.provider(&src.provider)) {
         (Some(session), Some(provider)) if !session.is_empty() => {
             let prompt_index = msg.get("eventId").and_then(Value::as_str).map(|eid| {
@@ -2475,11 +2478,23 @@ async fn handle_fork_thread(state: &AppState, msg: &Value) -> Vec<String> {
         "projectRoot": src.project_root,
         "provider": src.provider,
         "title": title,
-        "sessionId": native_session,
-        "forkPending": false,
+        // Sans fork natif, la branche reprend quand même la session source :
+        // le premier envoi ajoutera `--fork-session` (Claude) pour la
+        // dupliquer au lieu de l'écraser. Le transcript recollé ne sert donc
+        // plus que pour les providers qui ne savent faire ni l'un ni l'autre.
+        "sessionId": native_session.clone().or_else(|| {
+            src.session_id
+                .clone()
+                .filter(|session| !session.is_empty() && fork_by_resume)
+        }),
+        "forkPending": native_session.is_none() && fork_by_resume,
         // Un fork natif porte déjà l'historique : lui ajouter le transcript
         // le ferait relire deux fois.
-        "forkContext": if native_session.is_some() { Value::Null } else { fork_context },
+        "forkContext": if native_session.is_some() || fork_by_resume {
+            Value::Null
+        } else {
+            fork_context
+        },
         "status": "idle",
     });
     {
@@ -2780,6 +2795,7 @@ async fn handle_quick_ask(state: &AppState, msg: &Value) -> Vec<String> {
             effort,
             fast_mode: false,
             permission_mode: Some("bypassPermissions".into()),
+            fork_pending: false,
             mode: atelier_providers::SendMode::Normal,
             on_event,
             on_interaction: None,

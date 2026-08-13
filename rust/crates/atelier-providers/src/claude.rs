@@ -247,7 +247,57 @@ fn build_args(req: &SendRequest, mcp_config_path: Option<&std::path::Path>) -> V
         if !sid.is_empty() && regex_is_uuid(sid) {
             args.push("--resume".into());
             args.push(sid.clone());
+            // Branche : reprendre la session source sans l'écraser. Claude
+            // Code n'a pas d'appel de fork hors tour — c'est ce drapeau, au
+            // moment de la reprise, ou rien.
+            if req.fork_pending {
+                args.push("--fork-session".into());
+            }
         }
+    }
+    // Seuil d'auto-compaction et modèle de repli : réglés par l'environnement,
+    // comme ATELIER_CLAUDE_BARE. Rien n'est imposé par défaut — le CLI garde
+    // sa propre politique tant que Thierry n'a pas choisi la sienne.
+    if let Ok(seuil) = std::env::var("ATELIER_CLAUDE_AUTOCOMPACT") {
+        if !seuil.trim().is_empty() {
+            args.push("--autocompact".into());
+            args.push(seuil.trim().to_string());
+        }
+    }
+    if let Ok(repli) = std::env::var("ATELIER_CLAUDE_FALLBACK_MODEL") {
+        if !repli.trim().is_empty() {
+            args.push("--fallback-model".into());
+            args.push(repli.trim().to_string());
+        }
+    }
+    // Agent personnalisé, plugins de session, événements de hooks : mêmes
+    // leviers que la TUI, pilotés par l'environnement. Les listes acceptent
+    // plusieurs valeurs séparées par des virgules.
+    if let Ok(agent) = std::env::var("ATELIER_CLAUDE_AGENT") {
+        if !agent.trim().is_empty() {
+            args.push("--agent".into());
+            args.push(agent.trim().to_string());
+        }
+    }
+    if let Ok(agents) = std::env::var("ATELIER_CLAUDE_AGENTS_JSON") {
+        if !agents.trim().is_empty() {
+            args.push("--agents".into());
+            args.push(agents.trim().to_string());
+        }
+    }
+    for (variable, drapeau) in [
+        ("ATELIER_CLAUDE_PLUGIN_DIRS", "--plugin-dir"),
+        ("ATELIER_CLAUDE_PLUGIN_URLS", "--plugin-url"),
+    ] {
+        if let Ok(valeurs) = std::env::var(variable) {
+            for valeur in valeurs.split(',').map(str::trim).filter(|v| !v.is_empty()) {
+                args.push(drapeau.into());
+                args.push(valeur.to_string());
+            }
+        }
+    }
+    if std::env::var("ATELIER_CLAUDE_HOOK_EVENTS").is_ok() {
+        args.push("--include-hook-events".into());
     }
     // Plan 057: session-scoped MCP (never global ~/.claude config).
     if let Some(path) = mcp_config_path {
@@ -332,6 +382,47 @@ fn regex_is_uuid(s: &str) -> bool {
     true
 }
 
+
+/// Modèles supplémentaires auxquels ce compte a droit. Claude Code n'a
+/// AUCUNE commande de listing : il met en cache dans `~/.claude.json` les
+/// options qui s'ajoutent à son jeu intégré (`additionalModelOptionsCache`),
+/// avec leur libellé officiel. C'est la seule source qui suit les droits du
+/// compte — une liste en dur rend invisible tout modèle nouvellement ouvert
+/// (vécu avec Grok 4.6, resté caché des semaines).
+fn claude_additional_models() -> Vec<(String, Option<String>)> {
+    let Some(home) = std::env::var_os("HOME") else {
+        return Vec::new();
+    };
+    let path = std::path::PathBuf::from(home).join(".claude.json");
+    let Ok(raw) = std::fs::read_to_string(&path) else {
+        return Vec::new();
+    };
+    let Ok(parsed) = serde_json::from_str::<Value>(&raw) else {
+        return Vec::new();
+    };
+    parsed
+        .get("additionalModelOptionsCache")
+        .and_then(Value::as_array)
+        .map(|entries| {
+            entries
+                .iter()
+                .filter_map(|entry| {
+                    let id = entry
+                        .get("value")
+                        .and_then(Value::as_str)
+                        .filter(|id| !id.is_empty())?;
+                    let label = entry
+                        .get("label")
+                        .and_then(Value::as_str)
+                        .filter(|label| !label.is_empty())
+                        .map(str::to_string);
+                    Some((id.to_string(), label))
+                })
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
 #[async_trait]
 impl Provider for ClaudeProvider {
     fn id(&self) -> &str {
@@ -360,6 +451,32 @@ impl Provider for ClaudeProvider {
     }
     fn default_model(&self) -> String {
         "claude-opus-5[1m]".into()
+    }
+
+    /// Jeu intégré + droits du compte. Sans ce complément, un modèle ouvert
+    /// à Thierry mais absent de la liste en dur reste inaccessible.
+    async fn dynamic_models(&self) -> Option<Value> {
+        let extra = tokio::task::spawn_blocking(claude_additional_models)
+            .await
+            .unwrap_or_default();
+        if extra.is_empty() {
+            return None;
+        }
+        let mut ids = self.models();
+        let mut labels = serde_json::Map::new();
+        for (id, label) in extra {
+            if !ids.iter().any(|known| known == &id) {
+                ids.push(id.clone());
+            }
+            if let Some(label) = label {
+                labels.insert(id, json!(label));
+            }
+        }
+        Some(json!({
+            "models": ids,
+            "defaultModel": self.default_model(),
+            "modelLabels": labels,
+        }))
     }
     fn efforts(&self) -> Vec<String> {
         vec![
@@ -684,6 +801,106 @@ fn append_log(dir: &std::path::Path, line: &str) -> std::io::Result<()> {
 }
 
 #[cfg(test)]
+mod drapeaux_tests {
+    use super::*;
+    use crate::traits::SendMode;
+
+    fn req(session: Option<&str>, fork: bool) -> SendRequest {
+        SendRequest {
+            thread_id: "t".into(),
+            turn_id: "u".into(),
+            prompt: "salut".into(),
+            inputs: None,
+            project_root: "/tmp".into(),
+            session_id: session.map(str::to_string),
+            model: None,
+            effort: None,
+            fast_mode: false,
+            permission_mode: Some("default".into()),
+            fork_pending: fork,
+            mode: SendMode::Normal,
+            on_event: std::sync::Arc::new(|_| {}),
+            on_interaction: None,
+            is_cancelled: std::sync::Arc::new(|| false),
+            atelier_mcp: None,
+        }
+    }
+
+    const SESSION: &str = "0199aaaa-bbbb-4ccc-8ddd-eeeeffff0000";
+
+    /// Claude Code n'a pas d'appel de fork : la branche se crée en reprenant
+    /// la session source avec `--fork-session`. Sans ce drapeau, la reprise
+    /// ÉCRASERAIT la conversation d'origine.
+    #[test]
+    fn une_branche_reprend_la_session_sans_lecraser() {
+        let args = build_args(&req(Some(SESSION), true), None);
+        assert!(args.contains(&"--fork-session".to_string()), "{args:?}");
+        assert!(args.contains(&"--resume".to_string()));
+    }
+
+    #[test]
+    fn un_tour_ordinaire_ne_forke_pas() {
+        assert!(!build_args(&req(Some(SESSION), false), None)
+            .contains(&"--fork-session".to_string()));
+    }
+
+    /// Sans session à reprendre, le drapeau n'a aucun sens.
+    #[test]
+    fn sans_session_le_drapeau_de_fork_est_ignore() {
+        assert!(!build_args(&req(None, true), None).contains(&"--fork-session".to_string()));
+    }
+
+    /// Les leviers de la TUI passent par l'environnement, comme
+    /// ATELIER_CLAUDE_BARE. Un seul test les couvre : ces variables sont
+    /// globales au processus, deux tests parallèles se marcheraient dessus.
+    #[test]
+    fn les_leviers_denvironnement() {
+        const CLES: [&str; 5] = [
+            "ATELIER_CLAUDE_AUTOCOMPACT",
+            "ATELIER_CLAUDE_FALLBACK_MODEL",
+            "ATELIER_CLAUDE_AGENT",
+            "ATELIER_CLAUDE_PLUGIN_DIRS",
+            "ATELIER_CLAUDE_HOOK_EVENTS",
+        ];
+        for cle in CLES {
+            unsafe { std::env::remove_var(cle) };
+        }
+
+        // Rien n'est imposé quand rien n'est demandé : le CLI garde sa
+        // propre politique de compaction, de repli et de plugins.
+        let args = build_args(&req(None, false), None);
+        for drapeau in [
+            "--autocompact",
+            "--fallback-model",
+            "--agent",
+            "--plugin-dir",
+            "--include-hook-events",
+        ] {
+            assert!(!args.contains(&drapeau.to_string()), "{drapeau} imposé : {args:?}");
+        }
+
+        unsafe {
+            std::env::set_var("ATELIER_CLAUDE_AUTOCOMPACT", "120000");
+            std::env::set_var("ATELIER_CLAUDE_FALLBACK_MODEL", "claude-sonnet-5");
+            // Plusieurs plugins : une occurrence du drapeau par valeur, comme
+            // l'attend le CLI (`--plugin-dir A --plugin-dir B`).
+            std::env::set_var("ATELIER_CLAUDE_PLUGIN_DIRS", "/tmp/a, /tmp/b ,");
+            std::env::set_var("ATELIER_CLAUDE_HOOK_EVENTS", "1");
+        }
+        let args = build_args(&req(None, false), None);
+        for cle in CLES {
+            unsafe { std::env::remove_var(cle) };
+        }
+
+        assert!(args.windows(2).any(|w| w == ["--autocompact", "120000"]));
+        assert!(args.windows(2).any(|w| w == ["--fallback-model", "claude-sonnet-5"]));
+        assert_eq!(args.iter().filter(|a| *a == "--plugin-dir").count(), 2);
+        assert!(args.contains(&"/tmp/b".to_string()));
+        assert!(args.contains(&"--include-hook-events".to_string()));
+    }
+}
+
+#[cfg(test)]
 mod title_tests {
     use crate::traits::CommitMessageDetails;
 
@@ -706,6 +923,7 @@ mod title_tests {
             effort: Some("high".into()),
             fast_mode: false,
             permission_mode: Some(permission_mode.into()),
+            fork_pending: false,
             mode: SendMode::Normal,
             on_event: Arc::new(|_| {}),
             on_interaction: None,

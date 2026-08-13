@@ -34,6 +34,10 @@ pub struct SendRequest {
     /// Orthogonal to `model` and `effort` — it never changes either.
     pub fast_mode: bool,
     pub permission_mode: Option<String>,
+    /// Ce tour ouvre une branche : reprendre la session source SANS l'écraser.
+    /// Claude Code exprime ça par `--fork-session` au moment de la reprise —
+    /// il n'a pas d'appel de fork hors tour, contrairement à Grok.
+    pub fork_pending: bool,
     pub mode: SendMode,
     /// Called with each provider-native event (undecorated kind payload).
     pub on_event: Arc<dyn Fn(Value) + Send + Sync>,
