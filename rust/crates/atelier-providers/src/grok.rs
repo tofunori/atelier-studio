@@ -507,6 +507,11 @@ impl GrokProvider {
         let selection = self
             .align_selection(&runtime, &sid, req.model.as_deref(), req.effort.as_deref())
             .await?;
+        // Contexte déjà accumulé, AVANT le tour : sur un fil repris, c'est ce
+        // qui prévient au lieu de laisser découvrir la lenteur.
+        if let Some(usage) = session_usage(&runtime, &sid, selection.model.as_deref()).await {
+            (req.on_event)(usage);
+        }
 
         let state = Arc::new(StdMutex::new((
             HashMap::<String, Value>::new(),
@@ -1180,6 +1185,39 @@ async fn wait_for_quiet(last_activity: &AtomicU64) {
         }
         tokio::time::sleep(Duration::from_millis(25)).await;
     }
+}
+
+/// Usage de la session, demandé à Grok plutôt que déduit d'un tour
+/// (`x.ai/session/usage`). Sur un fil repris, c'est la seule façon de
+/// connaître le contexte AVANT d'envoyer quoi que ce soit : sans ça, la
+/// jauge reste vide jusqu'au premier tour, et Thierry ne voit la lenteur
+/// qu'une fois dedans (vécu 2026-08-13 : 78k jetons découverts après coup).
+async fn session_usage(runtime: &GrokThreadRuntime, session_id: &str, model: Option<&str>) -> Option<Value> {
+    let result = runtime
+        .acp
+        .request(
+            "_x.ai/session/usage",
+            json!({"sessionId": session_id}),
+            Some(10_000),
+        )
+        .await
+        .ok()?;
+    let usage = result.pointer("/usage").or(result.get("usage"))?;
+    let context = usage.get("totalTokens").and_then(Value::as_u64)?;
+    if context == 0 {
+        return None;
+    }
+    let window = model.and_then(|id| id.starts_with("grok-4").then_some(500_000_u64));
+    Some(json!({
+        "kind": "usage",
+        "usage": {
+            "context": context,
+            "output": usage.get("outputTokens").and_then(Value::as_u64).unwrap_or(0),
+            "cost": null,
+            "turns": null,
+            "window": window,
+        }
+    }))
 }
 
 /// Absorbe un bloc `{currentModelId, availableModels}`. Grok le sert à deux
