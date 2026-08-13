@@ -45,3 +45,6 @@ src-tauri/appsnap-dist/
 # artefacts Playwright (harnais golden)
 test-results/
 playwright-report/
+
+# Companion visuel brainstorming (superpowers)
+.superpowers/

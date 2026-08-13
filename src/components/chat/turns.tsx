@@ -465,6 +465,29 @@ function activeEventLabel(turn: ChatTurnViewModel, events: AgentEvent[]): ReactN
   return t("chat.thinking");
 }
 
+/** Dernière pensée du tour EN COURS. Deux sources selon le provider : l'état
+ * actif quand le raisonnement est encore vivant, sinon le dernier bloc
+ * `thinking` durable — Grok clôt chaque bloc, ce qui efface le live. On
+ * s'arrête au premier signe qu'un tour précédent est terminé. */
+function currentThought(turn: ChatTurnViewModel, events: AgentEvent[]): string {
+  const state = turn.activeState;
+  const blocks: string[] = [];
+  for (let i = events.length - 1; i >= 0 && blocks.length < 4; i--) {
+    const event = events[i];
+    if (event.kind === "thinking_live" || event.kind === "thinking") {
+      if (event.text) blocks.unshift(event.text);
+      continue;
+    }
+    if (event.kind === "text" || event.kind === "done" || event.kind === "error") break;
+  }
+  // Recollage SANS séparateur : ces blocs ne sont pas des pensées distinctes
+  // mais un flux continu découpé (Grok coupe en plein mot — « …I already
+  // have CLA » + « UDE.md content… »). Un espace casserait le mot.
+  const joined = blocks.join("");
+  if (joined.trim()) return joined;
+  return state?.kind === "reasoning" ? state.texts.join("") : "";
+}
+
 /** Une seule ligne d'activité courante, comme Codex. Les segments terminés
  * restent à leur place dans le transcript au lieu d'être aspirés ici. */
 export function ActiveTurnHeader(p: {
@@ -509,11 +532,12 @@ export function ActiveTurnTail(p: {
   return (
     <div className="working-stack active-turn-tail" data-turn-id={p.turn.turnId ?? p.turn.key}>
       {state?.kind === "answering" ? null : !showsActivity ? (
-        // La pensée en cours vit déjà dans l'état actif : l'ignorer laissait
-        // le mot « Réflexion » seul pendant toute l'attente.
-        <LiveThinking
-          thought={state?.kind === "reasoning" ? state.texts[state.texts.length - 1] : null}
-        />
+        // Sans ça, le mot « Réflexion » reste seul pendant toute l'attente.
+        // La pensée est soit dans l'état actif (`reasoning`), soit — cas de
+        // Grok, qui clôt chaque bloc — dans le dernier `thinking` durable :
+        // le live y est remplacé par le final, et l'état retombe sur
+        // `thinking`, muet.
+        <LiveThinking thought={currentThought(p.turn, p.events)} />
       ) : (
         <ActivityDisclosure
           open={p.open}
