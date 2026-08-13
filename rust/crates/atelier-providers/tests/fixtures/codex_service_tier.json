@@ -1,0 +1,47 @@
+{
+  "note": "Contrat PARTAGÉ Rust/Node du niveau de service Codex (mode Fast). Rejoué par le test Rust (crates/atelier-providers/src/codex.rs) ET par le test sidecar (sidecar/providers/codex.test.mjs). `serviceTier` = valeur exigée dans la config de thread/app-server (null = AUCUNE clé service_tier, Codex garde son défaut). `effortOut` = effort de raisonnement que le backend doit transmettre inchangé (null = aucun) — le canal diffère (config.model_reasoning_effort côté Rust, turn/start.effort côté Node) mais la DÉCISION doit être identique. Le mode Fast ne modifie jamais l'effort.",
+  "cases": [
+    {
+      "name": "standard-sans-effort",
+      "effort": "",
+      "fastMode": false,
+      "serviceTier": null,
+      "effortOut": null
+    },
+    {
+      "name": "standard-medium",
+      "effort": "medium",
+      "fastMode": false,
+      "serviceTier": null,
+      "effortOut": "medium"
+    },
+    {
+      "name": "standard-high",
+      "effort": "high",
+      "fastMode": false,
+      "serviceTier": null,
+      "effortOut": "high"
+    },
+    {
+      "name": "fast-sans-effort",
+      "effort": "",
+      "fastMode": true,
+      "serviceTier": "priority",
+      "effortOut": null
+    },
+    {
+      "name": "fast-high",
+      "effort": "high",
+      "fastMode": true,
+      "serviceTier": "priority",
+      "effortOut": "high"
+    },
+    {
+      "name": "fast-xhigh",
+      "effort": "xhigh",
+      "fastMode": true,
+      "serviceTier": "priority",
+      "effortOut": "xhigh"
+    }
+  ]
+}

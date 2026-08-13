@@ -868,8 +868,37 @@ pub fn ignore_pattern(root: &str, pattern: &str) -> Result<String> {
 /// même séquence que le snapshot de début de tour (read-tree HEAD puis add -A),
 /// pour que deux arbres pris avant/après un tour soient comparables.
 fn worktree_tree(real: &std::path::Path) -> Result<String> {
+    // Index PERSISTANT par dépôt. Un index neuf oblige git à re-hacher tout le
+    // worktree ; réutilisé, il s'appuie sur les dates de modification et ne
+    // touche que ce qui a bougé. Mesuré sur un dépôt de 55 Go / 21 221
+    // fichiers (thèse, 2026-08-13) : 43,5 s à froid, 0,10 s ensuite. Ce coût
+    // était payé DEUX fois par tour (snapshot d'ouverture + diff de clôture),
+    // soit ~90 s de latence par message.
+    let cached = snapshot_index_path(real);
+    if let Some(index) = cached.as_deref() {
+        if let Ok(tree) = worktree_tree_with_index(real, index) {
+            return Ok(tree);
+        }
+        // Index verrouillé (tour concurrent) ou corrompu : on ne bloque pas le
+        // tour, on retombe sur l'index jetable.
+        let _ = std::fs::remove_file(index);
+    }
     let dir = tempfile::tempdir().map_err(|e| msg(e.to_string()))?;
-    let index = dir.path().join("index");
+    worktree_tree_with_index(real, &dir.path().join("index"))
+}
+
+/// Emplacement de l'index de snapshot, dans le `.git` du dépôt : il suit le
+/// dépôt, reste hors des fichiers suivis, et disparaît avec lui.
+fn snapshot_index_path(real: &std::path::Path) -> Option<std::path::PathBuf> {
+    let out = git(real, &["rev-parse", "--absolute-git-dir"], &[]).ok()?;
+    if !out.status.success() {
+        return None;
+    }
+    let git_dir = String::from_utf8_lossy(&out.stdout).trim().to_string();
+    (!git_dir.is_empty()).then(|| std::path::PathBuf::from(git_dir).join("atelier-snapshot.index"))
+}
+
+fn worktree_tree_with_index(real: &std::path::Path, index: &std::path::Path) -> Result<String> {
     let env = [
         ("GIT_INDEX_FILE", index.to_str().unwrap_or("")),
         ("GIT_AUTHOR_NAME", "Atelier"),
@@ -877,7 +906,11 @@ fn worktree_tree(real: &std::path::Path) -> Result<String> {
         ("GIT_COMMITTER_NAME", "Atelier"),
         ("GIT_COMMITTER_EMAIL", "atelier@example.invalid"),
     ];
-    if has_head(real) {
+    // `read-tree HEAD` réécrit les entrées sans information de stat : le faire
+    // sur un index déjà chaud annulerait tout le bénéfice. Sur un index chaud,
+    // `add -A` seul converge vers le même arbre — il parcourt tout le worktree
+    // et retire ce qui a disparu.
+    if !index.exists() && has_head(real) {
         let out = git(real, &["read-tree", "HEAD"], &env)?;
         if !out.status.success() {
             return Err(msg("read-tree HEAD failed"));
@@ -1080,6 +1113,50 @@ mod tests {
     use super::*;
     use std::process::Command;
     use tempfile::tempdir;
+
+    /// L'index de snapshot est réutilisé d'un tour à l'autre — c'est ce qui
+    /// évite de re-hacher tout le worktree (55 Go chez Thierry : 43,5 s à
+    /// froid, 0,10 s ensuite, payé deux fois par tour). Le résultat doit
+    /// rester identique à celui d'un index jetable.
+    #[test]
+    fn lindex_de_snapshot_est_reutilise_et_donne_le_meme_arbre() {
+        let dir = init_repo();
+        let root = dir.path().to_string_lossy().to_string();
+        let real = confined_root(&root).unwrap();
+        let index = snapshot_index_path(&real).expect("chemin d'index");
+
+        assert!(!index.exists(), "aucun index avant le premier snapshot");
+        let premier = worktree_tree(&real).unwrap();
+        assert!(index.exists(), "l'index doit persister pour le tour suivant");
+
+        // Deuxième passage sur un worktree inchangé : même arbre.
+        assert_eq!(worktree_tree(&real).unwrap(), premier);
+
+        // Un fichier ajouté doit bien ressortir malgré l'index chaud : sans
+        // ça, l'optimisation rendrait les snapshots aveugles aux changements.
+        std::fs::write(dir.path().join("b.txt"), b"nouveau").unwrap();
+        let apres = worktree_tree(&real).unwrap();
+        assert_ne!(apres, premier, "un nouveau fichier change l'arbre");
+
+        // Et une suppression aussi.
+        std::fs::remove_file(dir.path().join("b.txt")).unwrap();
+        assert_eq!(worktree_tree(&real).unwrap(), premier);
+    }
+
+    /// Index illisible (verrou d'un tour concurrent, fichier corrompu) : le
+    /// snapshot doit retomber sur un index jetable, jamais échouer.
+    #[test]
+    fn un_index_corrompu_ne_casse_pas_le_snapshot() {
+        let dir = init_repo();
+        let root = dir.path().to_string_lossy().to_string();
+        let real = confined_root(&root).unwrap();
+        let attendu = worktree_tree(&real).unwrap();
+
+        let index = snapshot_index_path(&real).unwrap();
+        std::fs::write(&index, b"ceci n'est pas un index git").unwrap();
+
+        assert_eq!(worktree_tree(&real).unwrap(), attendu);
+    }
 
     fn init_repo() -> tempfile::TempDir {
         let dir = tempdir().unwrap();
