@@ -74,13 +74,28 @@ champs inconnus, écriture atomique. Le fichier vit à côté de `threads.json`
   "unrestricted": true,              // true = catalogue vivant complet
   "skillNames": [],                  // utilisé seulement si unrestricted=false
   "skillTombstones": [],             // soustractions sur un profil illimité
-  "mcpServers": [],
-  "mcpTombstones": [],
-  "excludedTools": { "gbrain": ["submit_job"] },
+  "deniedTools": ["Bash", "mcp__gbrain__submit_job"],
+  "allowedTools": [],                // vide = pas de liste blanche
   "enabled": true,
   "createdAt": "…", "updatedAt": "…"
 }
 ```
+
+### Pourquoi des outils, et non des connecteurs
+
+Claude Science restreint les **connecteurs** parce qu'il possède son registre
+MCP. Atelier n'en a pas : le seul serveur qu'il injecte est le sien
+(`atelier-providers/src/claude.rs:285`, `codex.rs:148`, `grok.rs:316`), et les
+connecteurs réels de Thierry vivent dans la configuration propre à chaque CLI,
+qu'atelier ne lit pas. Un `mcp_allowlist` n'aurait rien à filtrer.
+
+Le niveau **outil** est en revanche disponible et uniforme sur les trois
+providers, et les outils MCP y sont adressables par nom
+(`mcp__<serveur>__<outil>`) — on retire donc un connecteur entier par motif de
+refus, faute de pouvoir choisir de ne pas le lancer. Doter atelier d'un vrai
+catalogue de connecteurs reste possible plus tard ; c'est un chantier autonome
+(lire et fusionner les configs des trois CLI, gérer l'auth), plus gros que les
+spécialistes eux-mêmes, et hors de cette spec.
 
 ### Sur le fil
 
@@ -111,11 +126,12 @@ fois le fil créé, il possède son propre spécialiste.
 
 ```rust
 pub system_prompt: Option<String>,
-pub skills: Option<Vec<String>>,       // None = catalogue complet
-pub mcp_allowlist: Option<Vec<String>>,
+pub skills: Option<Vec<String>>,        // None = catalogue complet
+pub allowed_tools: Option<Vec<String>>, // None = aucune liste blanche
+pub denied_tools: Option<Vec<String>>,
 ```
 
-Une fonction unique `resolve_profile(thread, catalog) -> ProfileSpec` les
+Une fonction unique `resolve_profile(thread, profiles) -> ProfileSpec` les
 produit, appelée aux deux sites de construction de `SendRequest`
 (`atelier-runtime/src/send.rs:868`, `atelier-runtime/src/ws_router.rs:2679`).
 Règle de résolution :
@@ -123,21 +139,22 @@ Règle de résolution :
 - `unrestricted = true` → `skills = None`, sauf tombstones : alors
   `Some(catalogue − tombstones)`.
 - `unrestricted = false` → `Some(skillNames)`.
-- Idem pour les serveurs MCP.
-- Un skill ou un serveur absent du catalogue est ignoré silencieusement à la
-  résolution et affiché barré dans les Réglages.
+- Listes d'outils reprises telles quelles ; vides ⇒ `None`.
+- Un skill absent du catalogue est ignoré silencieusement à la résolution et
+  affiché barré dans les Réglages.
 
 ### Traduction par provider
 
-| Provider | Identité | Skills | MCP | Outils exclus |
-| --- | --- | --- | --- | --- |
-| **claude** | `--system-prompt` | `--disable-slash-commands` si la liste est vide ; **liste blanche fine non disponible en CLI** | fichier `--mcp-config` filtré, `--strict-mcp-config` (déjà câblé) | `--disallowedTools` |
-| **grok** | `--system-prompt-override` | `--tools` / `--disallowed-tools` | `mcpServers` filtré au `session/new` (déjà câblé) | `--deny` |
-| **codex** | `baseInstructions` sur `threadStart` **et** `threadResume` | — | `config.mcp_servers` filtré (déjà câblé) | non appliqué |
+| Provider | Identité | Outils | Skills |
+| --- | --- | --- | --- |
+| **claude** | `--system-prompt` | `--allowedTools` / `--disallowedTools` | `--disable-slash-commands` si la liste est vide ; **liste blanche fine non disponible en CLI** |
+| **grok** | `--system-prompt-override` | `--allow` / `--deny` | — (pas de chargement natif) |
+| **codex** | `baseInstructions` sur `threadStart` **et** `threadResume` | non appliqué en v1 | — |
 
-`excludedTools` est stocké par serveur MCP et n'est aplati en noms d'outils
-qualifiés qu'au moment de la traduction — le profil n'a jamais à connaître la
-convention de nommage d'un provider.
+Le champ `skills` sert dans tous les cas à filtrer le picker `/nom` d'atelier
+(`src/lib/skills.ts`, `src/lib/providers.ts:71`), y compris là où le provider
+n'a pas de chargement natif — c'est la part de réduction de bruit qui marche
+partout.
 
 La case creuse côté Claude est assumée et visible : le CLI n'offre que
 `--disable-slash-commands` (tout ou rien), alors que le SDK expose
@@ -174,11 +191,11 @@ de fils liés.
 
 | Action | Effet | Autorisation |
 | --- | --- | --- |
-| `list` | Profils + jeu de glyphes disponibles + catalogue skills/MCP | directe |
+| `list` | Profils + jeu de glyphes disponibles + catalogue des skills | directe |
 | `create` | Crée un profil (défaut : `unrestricted`) | directe |
-| `update` | Champs ciblés | directe |
-| `attach_skill` / `attach_mcp` | Ajoute, sans changer le mode | directe |
-| `detach_skill` / `detach_mcp` | Retire — **tombstone** si `unrestricted` | directe |
+| `update` | Champs ciblés, dont `allowedTools` / `deniedTools` | directe |
+| `attach_skill` | Ajoute un skill, sans changer le mode | directe |
+| `detach_skill` | Retire — **tombstone** si `unrestricted` | directe |
 | `switch` | Pose le profil sur le fil courant | carte d'autorisation |
 | `delete` | Supprime le profil | carte d'autorisation |
 
@@ -213,9 +230,10 @@ plus une pastille accent de 6px en haut à droite. Sans spécialiste, le glyphe
 d'origine et pas de pastille.
 
 **Réglages** — section « Spécialistes » : liste avec nom, description et
-chargement en tags (`4 skills`, `2 connecteurs`, ou `tous`), renommage,
-suppression, activation. Un skill ou serveur disparu s'affiche en tag barré.
-Aucune édition de prompt système ici : elle reste dans le chat avec l'agent.
+chargement en tags (`4 skills` ou `tous skills`, `3 outils refusés`),
+renommage, suppression, activation. Un skill disparu du catalogue s'affiche en
+tag barré. Aucune édition de prompt système ici : elle reste dans le chat avec
+l'agent.
 
 **Gating** — la rangée n'apparaît que si `capabilities.profiles`, déclarée
 dans `atelier-protocol/src/lib.rs` pour claude, grok et codex uniquement, et
@@ -232,7 +250,8 @@ SVG monochromes `stroke 1.3–1.5`, aucun `<button>` nu hors `ui/`, transitions
 | Cas | Comportement |
 | --- | --- |
 | `Thread.profile` orphelin | Résolu comme « aucun » + note dans le fil ; le tour part normalement |
-| Skill / serveur MCP disparu | Ignoré à la résolution, tag barré dans les Réglages |
+| Skill disparu du catalogue | Ignoré à la résolution, tag barré dans les Réglages |
+| `allowedTools` et `deniedTools` en conflit sur un nom | Le refus gagne — c'est déjà la règle des CLI |
 | Respawn ACP Grok en échec | Le tour échoue avec le message du provider ; le profil reste posé sur le fil, aucun retour arrière silencieux |
 | Nom de profil en collision | `create` refuse ; l'agent propose un autre nom |
 | Profil illimité entièrement vidé par tombstones | Autorisé — équivaut à un profil sans skill |
@@ -263,3 +282,6 @@ SVG monochromes `stroke 1.3–1.5`, aucun `<button>` nu hors `ui/`, transitions
 - Délégation à un spécialiste dans un fil enfant (plan 057).
 - Bascule du chemin Claude vers le SDK pour obtenir la liste blanche fine de
   skills.
+- **Catalogue de connecteurs MCP dans atelier** — prérequis d'une restriction
+  par connecteur plutôt que par motif d'outil. Chantier autonome.
+- Restriction d'outils côté Codex.
