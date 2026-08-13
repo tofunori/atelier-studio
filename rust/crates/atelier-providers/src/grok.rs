@@ -1164,7 +1164,7 @@ fn parse_model_entry(entry: &Value) -> Option<GrokModelInfo> {
         .pointer("/_meta/reasoningEfforts")
         .and_then(Value::as_array);
     let mut efforts = Vec::new();
-    let mut default_effort = None;
+    let mut flagged_default = None;
     for effort in listed.into_iter().flatten() {
         let Some(effort_id) = effort
             .get("id")
@@ -1174,20 +1174,22 @@ fn parse_model_entry(entry: &Value) -> Option<GrokModelInfo> {
         else {
             continue;
         };
-        // Grok marque parfois plusieurs efforts `default: true` (4.6 annonce
-        // xhigh ET high) : le premier de la liste gagne, comme dans la TUI.
-        if default_effort.is_none() && effort.get("default").and_then(Value::as_bool) == Some(true) {
-            default_effort = Some(effort_id.to_string());
+        if flagged_default.is_none() && effort.get("default").and_then(Value::as_bool) == Some(true)
+        {
+            flagged_default = Some(effort_id.to_string());
         }
         efforts.push(effort_id.to_string());
     }
-    if default_effort.is_none() {
-        default_effort = entry
-            .pointer("/_meta/reasoningEffort")
-            .and_then(Value::as_str)
-            .filter(|value| efforts.iter().any(|listed| listed == value))
-            .map(str::to_string);
-    }
+    // `_meta.reasoningEffort` est l'effort auquel le CLI tourne réellement, et
+    // fait donc foi. Le drapeau `default` ne suffit pas : 4.6 marque `xhigh`
+    // ET `high` par défaut, et suivre le premier ferait raisonner Atelier plus
+    // fort que la TUI sur le même modèle.
+    let default_effort = entry
+        .pointer("/_meta/reasoningEffort")
+        .and_then(Value::as_str)
+        .filter(|value| efforts.iter().any(|listed| listed == value))
+        .map(str::to_string)
+        .or(flagged_default);
     Some(GrokModelInfo {
         id,
         label,
@@ -1592,7 +1594,10 @@ mod tests {
         let latest = catalog.get("grok-4.6").unwrap();
         assert_eq!(latest.label.as_deref(), Some("Grok 4.6"));
         assert_eq!(latest.efforts, vec!["xhigh", "high", "medium", "low"]);
-        assert_eq!(latest.default_effort.as_deref(), Some("xhigh"));
+        // 4.6 marque xhigh ET high `default: true` ; c'est `_meta.reasoningEffort`
+        // qui dit à quoi le CLI tourne vraiment, sinon Atelier raisonnerait plus
+        // fort que la TUI sur le même modèle.
+        assert_eq!(latest.default_effort.as_deref(), Some("high"));
 
         // xhigh n'existe pas sur 4.5 : le proposer serait un effort fantôme.
         let previous = catalog.get("grok-4.5").unwrap();
@@ -1625,10 +1630,7 @@ mod tests {
             dynamic["modelReasoning"]["grok-4.6"]["supported_efforts"],
             json!(["xhigh", "high", "medium", "low"])
         );
-        assert_eq!(
-            dynamic["modelReasoning"]["grok-4.6"]["default_effort"],
-            "xhigh"
-        );
+        assert_eq!(dynamic["modelReasoning"]["grok-4.6"]["default_effort"], "high");
         assert_eq!(
             dynamic["modelReasoning"]["grok-4.5"]["supported_efforts"],
             json!(["high", "medium", "low"])
