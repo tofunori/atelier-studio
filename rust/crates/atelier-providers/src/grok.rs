@@ -12,7 +12,8 @@ use crate::acp_rpc::{
 use crate::grok_parse::{map_prompt_result_for_model, map_session_update};
 
 use crate::traits::{
-    atelier_mcp_servers, InteractionFn, Provider, ProviderCaps, SendRequest, SendResult,
+    atelier_mcp_servers, InteractionFn, Provider, ProviderCaps, SendMode, SendRequest,
+    SendResult,
 };
 use async_trait::async_trait;
 use serde_json::{json, Value};
@@ -629,6 +630,36 @@ impl GrokProvider {
         }
     }
 
+    /// Interjection en plein tour (`x.ai/interject`). Retourne `None` si
+    /// aucun tour n'est en vol pour ce fil — l'appelant retombe alors sur un
+    /// envoi normal.
+    async fn interject(&self, req: &SendRequest) -> Option<SendResult> {
+        let runtime = self.runtimes.lock().await.get(&req.thread_id).cloned()?;
+        let session_id = runtime.active_session.lock().unwrap().clone()?;
+        let text = build_prompt(&req.prompt, req.inputs.as_ref()).ok()?;
+        match runtime
+            .acp
+            .request(
+                "_x.ai/interject",
+                json!({"sessionId": session_id, "text": text}),
+                Some(15_000),
+            )
+            .await
+        {
+            Ok(_) => {
+                (req.on_event)(json!({"kind":"tool","name":"__steered"}));
+                Some(SendResult {
+                    session_id: Some(session_id),
+                    ok: true,
+                    error: None,
+                })
+            }
+            // Grok a refusé (session inconnue, tour déjà clos) : ne pas
+            // avaler le message, laisser l'envoi normal le porter.
+            Err(_) => None,
+        }
+    }
+
     /// Repli hors session ACP : `grok models` ne donne que des identifiants.
     /// Il complète le catalogue sans jamais écraser ce que `session/new` a
     /// appris (libellés officiels, efforts par modèle).
@@ -671,7 +702,10 @@ impl Provider for GrokProvider {
     fn caps(&self) -> ProviderCaps {
         ProviderCaps {
             resume: true,
-            steering: false,
+            // `x.ai/interject` : Grok accepte une interjection en plein tour
+            // et la draine au prochain point sûr. Ce n'est pas une file
+            // d'attente déguisée — le tour en cours la prend en compte.
+            steering: true,
             queue: true,
             goals: false,
             tools: true,
@@ -709,6 +743,13 @@ impl Provider for GrokProvider {
     }
 
     async fn send(&self, req: SendRequest) -> SendResult {
+        if req.mode == SendMode::Steer {
+            if let Some(result) = self.interject(&req).await {
+                return result;
+            }
+            // Aucun tour en vol : l'interjection devient un envoi normal
+            // plutôt que d'être perdue.
+        }
         match self.send_acp(&req).await {
             Ok(result) => result,
             Err(message) => {
@@ -1666,6 +1707,49 @@ mod tests {
             "high"
         );
         assert!(dynamic["modelLabels"].get("aucun-modele").is_none());
+    }
+
+    /// Le steering déclaré doit être réel : sans tour en vol, l'interjection
+    /// ne doit pas être avalée mais repartir en envoi normal (sinon le
+    /// message de Thierry disparaît sans trace).
+    #[test]
+    fn le_steering_est_declare_dans_les_capacites() {
+        let provider = GrokProvider::with_command(
+            PathBuf::from("/bin/true"),
+            vec!["agent".into(), "--no-leader".into(), "stdio".into()],
+        );
+        assert!(
+            provider.caps().steering,
+            "x.ai/interject est disponible : la capacité doit l'annoncer"
+        );
+    }
+
+    /// Sans runtime pour ce fil, `interject` renvoie None — l'appelant
+    /// bascule alors sur `send_acp`, jamais de message perdu.
+    #[tokio::test]
+    async fn une_interjection_sans_tour_en_vol_ne_prend_pas_la_main() {
+        let provider = GrokProvider::with_command(
+            PathBuf::from("/bin/true"),
+            vec!["agent".into(), "--no-leader".into(), "stdio".into()],
+        );
+        let req = SendRequest {
+            thread_id: "fil-sans-tour".into(),
+            turn_id: "t1".into(),
+            prompt: "attends, change d'approche".into(),
+            inputs: None,
+            project_root: "/tmp".into(),
+            session_id: None,
+            model: None,
+            effort: None,
+            fast_mode: false,
+            permission_mode: Some("default".into()),
+            mode: SendMode::Steer,
+            on_event: Arc::new(|_| {}),
+            on_interaction: None,
+            is_cancelled: Arc::new(|| false),
+            atelier_mcp: None,
+        };
+        assert!(provider.interject(&req).await.is_none());
     }
 
     /// Grok annonce son catalogue dès `initialize`. S'en remettre au seul
