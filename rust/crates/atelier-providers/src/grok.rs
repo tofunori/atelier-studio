@@ -53,6 +53,10 @@ struct GrokThreadRuntime {
     state: StdMutex<GrokRuntimeState>,
     turn_lock: Mutex<()>,
     active_session: StdMutex<Option<String>>,
+    /// Dernière session ouverte pour ce fil. `active_session` ne vaut que
+    /// PENDANT un tour ; les opérations d'après-coup (rewind, fork) ont besoin
+    /// de savoir à quelle session s'adresser une fois le tour fini.
+    last_session: StdMutex<Option<String>>,
     last_used_ms: AtomicU64,
     always_approve: AtomicBool,
     launch_configured: AtomicBool,
@@ -66,6 +70,7 @@ impl GrokThreadRuntime {
             state: StdMutex::new(GrokRuntimeState::default()),
             turn_lock: Mutex::new(()),
             active_session: StdMutex::new(None),
+            last_session: StdMutex::new(None),
             last_used_ms: AtomicU64::new(now_ms()),
             always_approve: AtomicBool::new(false),
             launch_configured: AtomicBool::new(false),
@@ -757,7 +762,8 @@ impl Provider for GrokProvider {
             .lock()
             .unwrap()
             .clone()
-            .ok_or("aucune session Grok vivante pour ce fil")?;
+            .or_else(|| runtime.last_session.lock().unwrap().clone())
+            .ok_or("aucune session Grok connue pour ce fil")?;
         runtime
             .acp
             .request(
@@ -1077,6 +1083,7 @@ fn remember_session_result(
             .map(str::to_string);
     }
     absorb_model_state(catalog, result.pointer("/models"));
+    *runtime.last_session.lock().unwrap() = Some(sid.to_string());
     let mut state = runtime.state.lock().unwrap();
     state.opened_sessions.insert(sid.to_string());
     state.selection.insert(sid.to_string(), selection);
