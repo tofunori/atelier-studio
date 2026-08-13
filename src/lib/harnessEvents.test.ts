@@ -419,3 +419,34 @@ describe("mergeHarnessHistory — history tardif", () => {
     expect((out[0] as Extract<AgentEvent, { kind: "tool_update" }>).output).toBe("état final live");
   });
 });
+
+describe("pensée découpée par le provider", () => {
+  // Grok n'émet pas une pensée par bloc : il découpe un flux continu tous les
+  // ~100 caractères, parfois en plein mot (vécu 2026-08-13). Un bloc par
+  // morceau donnait des dizaines de « Réflexion » repliables, chacune ne
+  // montrant qu'un fragment illisible.
+  it("recolle les blocs adjacents du même tour", () => {
+    const meta = (seq: number) => ({
+      threadId: "t", turnId: "tour-1", eventId: `e${seq}`, sequence: seq,
+      ts: 1_000 + seq, durable: true, origin: "provider", provider: "grok", schemaVersion: 1,
+    });
+    let list: AgentEvent[] = [];
+    for (const [i, text] of ["The user wants me to read CLA", "UDE.md and summarize", " the design rules."].entries()) {
+      list = reduceHarnessEvent(list, { kind: "thinking", text, ts: 1_000 + i, meta: meta(i) } as AgentEvent);
+    }
+    const blocs = list.filter((e) => e.kind === "thinking");
+    expect(blocs).toHaveLength(1);
+    expect((blocs[0] as any).text).toBe("The user wants me to read CLAUDE.md and summarize the design rules.");
+  });
+
+  it("ne recolle pas deux tours différents", () => {
+    const meta = (turnId: string, seq: number) => ({
+      threadId: "t", turnId, eventId: `e${seq}`, sequence: seq,
+      ts: 1_000 + seq, durable: true, origin: "provider", provider: "grok", schemaVersion: 1,
+    });
+    let list: AgentEvent[] = [];
+    list = reduceHarnessEvent(list, { kind: "thinking", text: "tour un", ts: 1, meta: meta("a", 1) } as AgentEvent);
+    list = reduceHarnessEvent(list, { kind: "thinking", text: "tour deux", ts: 2, meta: meta("b", 2) } as AgentEvent);
+    expect(list.filter((e) => e.kind === "thinking")).toHaveLength(2);
+  });
+});

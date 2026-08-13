@@ -153,9 +153,26 @@ export function reduceHarnessEvent(list: AgentEvent[], ev: AgentEvent): AgentEve
     // bloc final : remplace le live du même turn s'il termine le fil, sinon s'ajoute
     if (lastIsAttachableThinking(next, ev)) {
       next[next.length - 1] = { kind: "thinking", text: ev.text, ts: stamp(ev), meta: ev.meta };
-    } else {
-      next.push({ kind: "thinking", text: ev.text, ts: stamp(ev), meta: ev.meta });
+      return next;
     }
+    // Grok ne clôt pas une pensée : il découpe un flux continu tous les
+    // ~100 caractères, parfois en plein mot. Un bloc par morceau donnait des
+    // dizaines de « Réflexion » repliables ne montrant chacun qu'un fragment.
+    // Deux blocs adjacents du MÊME tour sont donc recollés sans séparateur.
+    const last = next[next.length - 1];
+    const evMeta = harnessMeta(ev);
+    if (
+      last?.kind === "thinking"
+      && (!evMeta || turnOf(last) === evMeta.turnId)
+    ) {
+      next[next.length - 1] = {
+        ...last,
+        text: last.text + ev.text,
+        meta: ev.meta ?? last.meta,
+      };
+      return next;
+    }
+    next.push({ kind: "thinking", text: ev.text, ts: stamp(ev), meta: ev.meta });
     return next;
   }
 
