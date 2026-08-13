@@ -1167,6 +1167,10 @@ pub async fn handle_send(state: &AppState, msg: &Value) -> Vec<String> {
         }
     };
 
+    // Vrai dès que le provider émet lui-même `done`/`error` : la pompe a alors
+    // seulement besoin de finir de le transférer, jamais d'être doublée.
+    let provider_terminal = Arc::new(AtomicBool::new(false));
+    let provider_terminal_check = Arc::clone(&provider_terminal);
     tokio::spawn(async move {
         let fallback_root = project_root.clone();
         let fallback_snapshot = snapshot_sha.clone();
@@ -1184,6 +1188,15 @@ pub async fn handle_send(state: &AppState, msg: &Value) -> Vec<String> {
             permission_mode,
             mode: SendMode::Normal,
             on_event: Arc::new(move |ev| {
+                // Le provider a-t-il produit sa propre fin de tour ? Si oui,
+                // le `done` synthétique ci-dessous n'a pas lieu d'être : il
+                // écraserait l'usage réel (contexte, jetons de sortie).
+                if matches!(
+                    ev.get("kind").and_then(Value::as_str),
+                    Some("done" | "error")
+                ) {
+                    provider_terminal.store(true, Ordering::SeqCst);
+                }
                 let _ = ev_tx.send(ev);
             }),
             on_interaction: Some(interaction),
@@ -1198,7 +1211,19 @@ pub async fn handle_send(state: &AppState, msg: &Value) -> Vec<String> {
         // provider » (bulle dupliquée + usage perdu, vu en réel avec opencode
         // ACP le 2026-07-16). Borné : un provider qui retiendrait son
         // on_event ne doit pas geler le tour (comportement d'avant en repli).
-        let _ = tokio::time::timeout(std::time::Duration::from_secs(2), pump).await;
+        //
+        // Le plafond dépend de ce que le provider a fait. S'il a déjà émis sa
+        // fin de tour, la vider intégralement est la SEULE issue correcte :
+        // 2 s suffisaient sur un tour léger, mais pas sur un tour chargé
+        // (78k jetons de contexte, des dizaines d'outils — fils Grok du
+        // 2026-08-13). Le `done` synthétique gagnait alors la course et
+        // l'usage réel disparaissait de l'historique, tour après tour.
+        let drain = if provider_terminal_check.load(Ordering::SeqCst) {
+            std::time::Duration::from_secs(30)
+        } else {
+            std::time::Duration::from_secs(2)
+        };
+        let _ = tokio::time::timeout(drain, pump).await;
         // force terminal if needed (providers sans done natif, ex. fake)
         {
             let mut g = h2.lock().await;
