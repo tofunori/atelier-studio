@@ -1205,6 +1205,26 @@ export async function route(msg, ctx) {
       }
       break;
     }
+    case "articleImportDoi": {
+      // fiche de référence par DOI (plan 054) : même réponse que l'import PDF,
+      // le dialogue et le store n'ont rien à connaître de plus
+      try {
+        const out = await runArticleCli(ctx, ["article-doi", "--doi", String(msg.doi ?? "")]);
+        ctx.send({
+          type: "articleImported", requestId: msg.requestId ?? null,
+          draftId: out.draftId, path: out.path, meta: out.meta, slug: out.slug,
+          exists: out.exists, chars: out.chars, preview: out.preview,
+          converter: out.converter, duplicates: out.duplicates ?? [],
+          metaSource: out.metaSource ?? null, warning: out.warning ?? null,
+        });
+      } catch (error) {
+        ctx.send({
+          type: "articleError", requestId: msg.requestId ?? null,
+          message: error instanceof Error ? error.message : String(error),
+        });
+      }
+      break;
+    }
     case "articleImport": {
       // Import d'article (plan 053) : conversion MinerU en SOUS-PROCESSUS —
       // spawnSync en direct gèlerait le sidecar plusieurs minutes. Aucune

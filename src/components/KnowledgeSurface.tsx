@@ -197,6 +197,8 @@ export default function KnowledgeSurface(p: {
         onAddFolder={() => { void actions.addFolder(); }}
         onAddNote={(title, text) => actions.addNote(title, text)}
         onAddUrl={(url) => actions.addUrl(url)}
+        onBatchAttach={actions.attachMany}
+        onBatchArchive={actions.archiveMany}
         onAddArticle={() => { actions.setError(null); openArticleDialog(); }}
         gbrain={{
           query: gbrainQuery,

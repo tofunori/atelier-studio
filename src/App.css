@@ -3430,6 +3430,11 @@ button.ctx-ring-wrap { border: none; font: inherit; color: inherit;
 .kbs .kb-row-actions { opacity: 0; transition: opacity var(--ease); }
 .kbs .kb-row:hover .kb-row-actions,
 .kbs .kb-row:focus-within .kb-row-actions { opacity: 1; }
+/* Rangée vivante : un import en cours occupe sa place dans la liste au lieu
+   d'ouvrir une modale — cliquer dessus rouvre la fiche. */
+.kbs-job .kb-name { color: var(--text-secondary); }
+.kbs-job .kb-kind { color: var(--accent); }
+.kbs-spin { animation: kb-article-spin 1.1s linear infinite; transform-origin: 50% 50%; }
 .kbs-flag { font-size: var(--fs-xs); color: var(--accent); padding: 1px 7px;
   border-radius: var(--r-pill); background: color-mix(in srgb, var(--accent) 12%, transparent);
   white-space: nowrap; flex: none; }

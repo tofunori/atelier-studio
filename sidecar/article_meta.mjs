@@ -120,6 +120,7 @@ export async function crossrefMeta(doi, {
     ? work["container-title"][0]
     : work["container-title"];
   return {
+    abstract: work.abstract ? String(work.abstract) : "",
     title: String(title).replace(/\s+/g, " ").trim(),
     authors: (work.author ?? [])
       .map((person) => (person.family

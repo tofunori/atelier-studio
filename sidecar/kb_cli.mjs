@@ -1,11 +1,11 @@
 // CLI terminal de la base de connaissances (plan 049) — JSON sur stdout,
 // erreurs sur stderr + exit 1, comme atelier-zotero-passages.
 import { pathToFileURL } from "node:url";
-import { importArticle, listArticles, readDraft, writeArticle } from "./article.mjs";
+import { importArticle, importDoi, listArticles, readDraft, writeArticle } from "./article.mjs";
 import { KnowledgeStore, defaultKnowledgeDir, parseGbrainSearch, promotePage, runGbrain } from "./knowledge.mjs";
 import { passageLink } from "./zotero_passages.mjs";
 
-const COMMANDS = new Set(["add", "list", "remove", "search", "gbrain-search", "promote-page", "collection", "tag", "archive", "article-import", "article-write", "article-draft", "article-list"]);
+const COMMANDS = new Set(["add", "list", "remove", "search", "gbrain-search", "promote-page", "collection", "tag", "archive", "article-import", "article-write", "article-draft", "article-list", "article-doi"]);
 const USAGE = [
   "Usage: atelier-kb <add|list|remove|search|gbrain-search|promote-page|article-import|article-write> [options]",
   "  add    --kind file|pdf|web|youtube|note|folder|gbrain [--origin <chemin|url|slug>] [--title <t>] [--text <t>]",
@@ -18,6 +18,7 @@ const USAGE = [
   "  article-import --path <article.pdf>              (PDF → markdown + fiche, sans écriture)",
   "  article-draft --draft <id>                       (texte complet du brouillon)",
   "  article-list [--limit 20]                        (articles du corpus, récents d'abord)",
+  "  article-doi --doi 10.xxxx/yyy                    (fiche de référence Crossref, sans PDF)",
   "  article-write --draft <id> --slug <articles/…> [--title/--authors/--year/--journal/--doi]",
   "                [--origin <pdf>] [--converter <mineru|local>] [--ragdoc]",
   "  collection --add <titre> | --rename <slug> --title <t> | --remove <slug>",
@@ -166,6 +167,9 @@ export async function runKbCommand(argv, deps = {}) {
   if (command === "article-import") {
     // conversion seule : le brouillon reste sur disque, le corpus intact
     return importArticle({ path: options.path, dir: options.dir || undefined }, deps);
+  }
+  if (command === "article-doi") {
+    return importDoi({ doi: options.doi, dir: options.dir || undefined }, deps);
   }
   if (command === "article-list") {
     const articles = listArticles({ limit: options.limit }, deps);
