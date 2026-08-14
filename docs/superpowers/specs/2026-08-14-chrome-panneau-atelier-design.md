@@ -52,7 +52,7 @@ Le mécanisme d'injection est **déjà en place** : quatre surfaces acceptent un
 | `TerminalSurface.tsx:139` | `.workspace-pane-controls-slot` |
 | `BrowserTab.tsx:540` | `.workspace-pane-controls-slot` |
 | `BiblioSurface.tsx:397` et `:513` | `.workspace-pane-controls-slot` |
-| `KnowledgeSurface.tsx:211` | prop `headerEnd` |
+| `KnowledgeSurface.tsx:213` | prop `headerEnd` de son en-tête propre |
 
 `AtelierPane.tsx:812/828/856/870` leur passe `renderPaneControls(..., "integrated")` ; `integratesPaneControls` (`:138`) décide qui y a droit, et les autres reçoivent des contrôles « flottants » (`:919`).
 
@@ -62,7 +62,16 @@ La phase 1 n'invente donc aucune architecture : elle généralise ce patron et l
 
 1. Nouveau composant `PaneSwitcher` dans `src/components/ui/` : pastille `⟨icône de surface⟩ nom ⌄ ⟨compteur⟩`, ouvrant un `DropdownMenuSurface` qui liste les onglets du panneau. Chaque entrée porte son icône, son nom, et une action de fermeture. L'entrée active est marquée par le contraste de surface, jamais par l'accent (§5 : la navigation est neutre).
 2. Le slot d'injection passe de un à deux passagers. Renommer la prop en `paneChrome?: { switcher: ReactNode; controls: ReactNode }` plutôt que d'ajouter une seconde prop à quatre signatures — le slot reste une seule zone, alignée à gauche pour la pastille et à droite pour les contrôles.
-3. Étendre `integratesPaneControls` à **toutes** les surfaces. Git, Narval, Generator et la galerie doivent recevoir le slot ; leurs en-têtes passent par `SurfaceHeader`, qui gagne un emplacement `headerStart`.
+3. Étendre `integratesPaneControls` à **toutes** les surfaces. Elles ne partent pas du même point, et le travail est inégal :
+
+   | Palier | Surfaces | Travail |
+   |---|---|---|
+   | Slot déjà présent | Terminal, Navigateur, Biblio, Connaissances | ajouter le passager `switcher` |
+   | Passe par `SurfaceHeader` | Galerie (`AtelierHeaders.tsx`) | ajouter un emplacement `headerStart` à `SurfaceHeader` — il n'expose aujourd'hui que `title`, `eyebrow`, `actions`, `className` |
+   | En-tête maison | Git, Narval, Generator | poser le slot à la main dans leur en-tête existant |
+
+   Le troisième palier ne migre **pas** vers `SurfaceHeader` dans ce plan. Ces trois surfaces ont des en-têtes propres (`.narval-files-head`, en-tête Git, formulaire Generator) que `css-contract.test.ts` verrouille déjà sur `--surface-header` ; les convertir est un chantier distinct, et le mélanger ici ferait porter au design du chrome le risque d'une refonte de trois surfaces.
+
 4. `ownsNativeChrome` devient uniformément vrai pour les surfaces, et la `TabList` n'est plus rendue pour aucune d'entre elles.
 
 À la fin de la phase 1, la bande d'onglets ne subsiste que pour les **documents**, qui gardent donc leurs deux barres. Le trou de navigation, lui, est bouché partout.
