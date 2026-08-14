@@ -92,6 +92,63 @@ export const DEFAULT_SETTINGS: Settings = {
 const KEY = "atelier-studio.settings";
 const LEGACY_FAVORITE_MODELS_KEY = "atelier-studio.favModels";
 const CLAUDE_DEFAULTS_MIGRATION_KEY = "atelier-studio.defaults.claude-opus-5-1m";
+const DEFAULT_MIGRATIONS_KEY = "atelier-studio.defaults.applied";
+
+/** Promotions de défauts déjà appliquées à CE profil, par id. */
+function appliedMigrations(): Set<string> {
+  try {
+    const raw = JSON.parse(localStorage.getItem(DEFAULT_MIGRATIONS_KEY) ?? "[]");
+    return new Set(Array.isArray(raw) ? raw.filter((id) => typeof id === "string") : []);
+  } catch {
+    return new Set();
+  }
+}
+
+/**
+ * Promotions de défauts — le seul mécanisme par lequel un défaut modifié dans
+ * le code atteint un profil DÉJÀ enregistré.
+ *
+ * `loadSettings` fusionne `{...DEFAULT_SETTINGS, ...stored}` : `stored` gagne,
+ * volontairement, sinon chaque mise à jour écraserait les choix de
+ * l'utilisateur. Conséquence : changer `DEFAULT_SETTINGS` n'a AUCUN effet sur
+ * une installation existante — c'est réservé aux profils neufs.
+ *
+ * Une promotion ne s'applique donc que si la valeur stockée vaut EXACTEMENT
+ * l'ancien défaut : on remplace un héritage, jamais un choix explicite. Elle ne
+ * tourne qu'une fois, son id étant retenu dans DEFAULT_MIGRATIONS_KEY.
+ *
+ * Ajouter un cas ici plutôt qu'un drapeau dédié (cf.
+ * CLAUDE_DEFAULTS_MIGRATION_KEY, antérieur à ce mécanisme).
+ */
+const DEFAULT_MIGRATIONS: { id: string; promote: (stored: Partial<Settings>) => Partial<Settings> }[] = [
+  {
+    // 2026-08-13 : le défaut de taille du chat passe de 15 à 13.5 (cohérence
+    // typographique). Sans cette promotion, un profil créé avant garde 15 pour
+    // toujours et le nouveau défaut reste invisible.
+    id: "2026-08-13.chat-font-13_5",
+    promote: (stored) => (stored.chatFontSize === 15 ? { chatFontSize: 13.5 } : {}),
+  },
+];
+
+function promoteDefaults(stored: Partial<Settings>): Partial<Settings> {
+  const applied = appliedMigrations();
+  const pending = DEFAULT_MIGRATIONS.filter((migration) => !applied.has(migration.id));
+  if (!pending.length) return {};
+  let promoted: Partial<Settings> = {};
+  for (const migration of pending) {
+    promoted = { ...promoted, ...migration.promote({ ...stored, ...promoted }) };
+    applied.add(migration.id);
+  }
+  // Le marquage vaut pour TOUTES les promotions examinées, y compris celles qui
+  // n'ont rien changé : une valeur déjà personnalisée ne doit pas être
+  // réexaminée au prochain démarrage. Un stockage en échec ne doit PAS faire
+  // échouer le chargement (le catch de loadSettings retomberait sur les défauts
+  // et effacerait tous les réglages) — au pire la promotion sera réexaminée.
+  try {
+    localStorage.setItem(DEFAULT_MIGRATIONS_KEY, JSON.stringify([...applied]));
+  } catch {}
+  return promoted;
+}
 
 export function loadSettings(): Settings {
   try {
@@ -133,6 +190,8 @@ export function loadSettings(): Settings {
       ...DEFAULT_SETTINGS,
       ...(legacyFs ? { chatFontSize: Number(legacyFs) } : {}),
       ...stored,
+      // après `stored` : une promotion ne vaut que face à un ancien défaut hérité
+      ...promoteDefaults(stored),
       defaultModel: { ...DEFAULT_SETTINGS.defaultModel, ...storedDefaultModel },
       autoReview: { ...DEFAULT_SETTINGS.autoReview, ...(stored as any).autoReview },
       defaultEffort: { ...DEFAULT_SETTINGS.defaultEffort, ...storedDefaultEffort },

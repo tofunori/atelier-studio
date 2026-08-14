@@ -59,6 +59,32 @@ describe("settings defaults", () => {
     expect(loadSettings().railMoreOpen).toBe(true);
   });
 
+  it("promeut l'ancien défaut de taille du chat (15) vers 13.5", () => {
+    // profil créé avant le 2026-08-13 : il porte l'ancien défaut hérité
+    localStorage.setItem("atelier-studio.settings", JSON.stringify({ chatFontSize: 15 }));
+    expect(loadSettings().chatFontSize).toBe(13.5);
+  });
+
+  it("ne touche pas une taille de chat choisie explicitement", () => {
+    localStorage.setItem("atelier-studio.settings", JSON.stringify({ chatFontSize: 17 }));
+    expect(loadSettings().chatFontSize).toBe(17);
+  });
+
+  it("ne rejoue pas la promotion : un retour à 15 après coup est un choix", () => {
+    localStorage.setItem("atelier-studio.settings", JSON.stringify({ chatFontSize: 15 }));
+    expect(loadSettings().chatFontSize).toBe(13.5);
+    // l'utilisateur remet 15 délibérément — le prochain démarrage doit le garder
+    localStorage.setItem("atelier-studio.settings", JSON.stringify({ chatFontSize: 15 }));
+    expect(loadSettings().chatFontSize).toBe(15);
+  });
+
+  it("marque aussi les promotions sans effet, pour ne pas les réexaminer", () => {
+    localStorage.setItem("atelier-studio.settings", JSON.stringify({ chatFontSize: 17 }));
+    loadSettings();
+    expect(JSON.parse(localStorage.getItem("atelier-studio.defaults.applied") ?? "[]"))
+      .toContain("2026-08-13.chat-font-13_5");
+  });
+
   it("migre les anciens favoris de modèles vers les réglages par provider", () => {
     localStorage.setItem("atelier-studio.favModels", JSON.stringify([
       "opencode:opencode/glm-5.2",
