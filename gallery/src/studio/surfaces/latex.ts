@@ -8,6 +8,7 @@ import {
   createLatexSelectionPill,
   createRewrapController,
   createStudioStatusBar,
+  isAutoCompileEnabled,
   isAutoRewrapEnabled,
   installLegacyLatexGhost,
   type KatexRenderer,
@@ -323,6 +324,7 @@ export function bootstrapLatexSurface(dependencies: LatexSurfaceDependencies): L
             diff.push(event.previousText, event.snapshot.text, {source: "user-save", status: "applied"});
           }
           statusBar?.notifySaved();
+          scheduleAutoCompile();
         } else if (event.kind === "external-reload") {
           dirtyDot.style.display = "none";
           setState("ok", "version de l'agent rechargée");
@@ -330,6 +332,7 @@ export function bootstrapLatexSurface(dependencies: LatexSurfaceDependencies): L
             diff.push(event.previousText, event.snapshot.text, {source: "external-reload", status: "applied"});
           }
           applyAgentRewrap();
+          scheduleAutoCompile();
         } else if (event.kind === "conflict" || event.kind === "error") setState("err", event.message);
       },
     });
@@ -523,6 +526,33 @@ export function bootstrapLatexSurface(dependencies: LatexSurfaceDependencies): L
   });
   const compile = (): Promise<void> => compileCoordinator.compile();
 
+  // Compilation automatique : débouncée (l'agent écrit par rafales), une seule
+  // à la fois, avec relance si un changement arrive pendant qu'elle tourne.
+  // C'est elle qui garde synctex aligné sur le texte courant — sans elle,
+  // chaque clic PDF↔source « tombe à côté » dès que l'agent a déplacé du texte.
+  let autoCompileTimer: number | null = null;
+  let autoCompileBusy = false;
+  let autoCompileQueued = false;
+  const scheduleAutoCompile = (delayMs = 3000): void => {
+    if (!isTex || !isAutoCompileEnabled(win.localStorage)) return;
+    if (autoCompileTimer !== null) win.clearTimeout(autoCompileTimer);
+    autoCompileTimer = win.setTimeout(() => {
+      autoCompileTimer = null;
+      if (autoCompileBusy) {
+        autoCompileQueued = true;
+        return;
+      }
+      autoCompileBusy = true;
+      void compileCoordinator.compile(true).finally(() => {
+        autoCompileBusy = false;
+        if (autoCompileQueued) {
+          autoCompileQueued = false;
+          scheduleAutoCompile();
+        }
+      });
+    }, delayMs);
+  };
+
   const picker = createStudioFilePicker({
     currentPath: path,
     picker: doc.getElementById("picker") as HTMLElement,
@@ -634,6 +664,7 @@ export function bootstrapLatexSurface(dependencies: LatexSurfaceDependencies): L
     getEditor: () => editor,
     applyWrap: (value) => wrap.apply(value),
     rewrapAll: () => win.__rewrapAll?.() || 0,
+    autoCompile: () => scheduleAutoCompile(0),
     revealLine: (target, line) => revealLineRange(target, {fromLine: line, margin: 100, focus: true}),
     document: doc,
     window: win,

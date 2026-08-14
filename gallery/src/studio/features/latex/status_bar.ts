@@ -27,6 +27,9 @@ export interface StudioStatusBarOptions {
   getEditor(): StatusEditor | null;
   applyWrap(value: string): void;
   rewrapAll?(): number;
+  /** Compilation immédiate quand on bascule « Compile: auto » — réaligne
+   * synctex sans attendre la prochaine sauvegarde. */
+  autoCompile?(): void;
   revealLine(editor: StatusEditor, line: number): void;
   document?: Document;
   window?: Window;
@@ -162,6 +165,7 @@ export function createStudioStatusBar(options: StudioStatusBarOptions): StudioSt
   if (!sbMode) return null;
   const sbWrap = doc.getElementById("sbWrap") as HTMLElement;
   const sbRewrap = doc.getElementById("sbRewrap") as HTMLElement | null;
+  const sbAutoCompile = doc.getElementById("sbAutoCompile") as HTMLElement | null;
   const sbSaved = doc.getElementById("sbSaved") as HTMLElement;
   const sbLint = doc.getElementById("sbLint") as HTMLElement;
   const lintPane = doc.getElementById("lintPane") as HTMLElement;
@@ -272,6 +276,25 @@ export function createStudioStatusBar(options: StudioStatusBarOptions): StudioSt
     sbRewrap.onclick = (event) => {
       event.stopPropagation();
       toggleAutoRewrap();
+    };
+  }
+  const refreshAutoCompile = (): void => {
+    if (!sbAutoCompile) return;
+    const enabled = isAutoCompileEnabled(storage);
+    sbAutoCompile.textContent = enabled ? "Compile: auto" : "Compile: off";
+    sbAutoCompile.classList.toggle("on", enabled);
+  };
+  if (sbAutoCompile) {
+    sbAutoCompile.style.display = options.extension === "tex" ? "" : "none";
+    sbAutoCompile.onclick = (event) => {
+      event.stopPropagation();
+      const enabled = isAutoCompileEnabled(storage);
+      storage.setItem("texAutoCompile", enabled ? "0" : "1");
+      void persistAutoCompile(!enabled, fetch);
+      refreshAutoCompile();
+      // Bascule vers auto : compiler tout de suite pour réaligner synctex sans
+      // attendre la prochaine sauvegarde.
+      if (!enabled) options.autoCompile?.();
     };
   }
   moreBtn.onclick = (event) => {
@@ -389,9 +412,12 @@ export function createStudioStatusBar(options: StudioStatusBarOptions): StudioSt
 
   refreshWrap();
   refreshAutoRewrap();
-  // Le réglage vit côté serveur : sans cette hydratation, chaque redémarrage
-  // de l'app le remettait à zéro et le rewrap automatique cessait en silence.
+  refreshAutoCompile();
+  // Les réglages vivent côté serveur : sans cette hydratation, chaque
+  // redémarrage de l'app les remettait à zéro et l'automatisme cessait en
+  // silence.
   void hydrateAutoRewrap(storage, fetch).then(refreshAutoRewrap);
+  void hydrateAutoCompile(storage, fetch).then(refreshAutoCompile);
   return {
     notifySaved,
     refreshWrap,

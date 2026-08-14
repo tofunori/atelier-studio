@@ -36,7 +36,10 @@ export interface LatexCompileCoordinatorOptions {
 }
 
 export interface LatexCompileCoordinator {
-  compile(): Promise<void>;
+  /** `auto` : déclenchement automatique (sauvegarde, passage d'agent) — la
+   * pastille rend compte, mais ni le curseur ni la barre d'état du document
+   * ne sont dérangés. */
+  compile(auto?: boolean): Promise<void>;
   dispose(): void;
 }
 
@@ -101,16 +104,23 @@ export function createLatexCompileCoordinator(
   };
 
   return {
-    async compile(): Promise<void> {
+    async compile(auto = false): Promise<void> {
       if (options.isDirty() && !(await options.save())) {
         setChip("err", "sauvegarde refusée — compilation annulée");
-        options.setState("err", "sauvegarde refusée — compilation annulée");
+        if (!auto) options.setState("err", "sauvegarde refusée — compilation annulée");
         return;
       }
 
       if (options.isTex) {
         const issue = texPreflight(options.getText());
         const checkedAt = now();
+        // Mode auto : la pastille suffit. Ni revealIssue (qui déplacerait le
+        // curseur et le défilement sous les doigts de l'utilisateur pendant
+        // qu'un agent travaille), ni prise de la barre d'état du document.
+        if (issue && auto) {
+          setChip("err", `L.${issue.line} : ${issue.msg}`);
+          return;
+        }
         if (issue && checkedAt - lastPreflightAt > 8000) {
           lastPreflightAt = checkedAt;
           options.revealIssue(issue);
