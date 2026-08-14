@@ -18,7 +18,7 @@ test('vue Lecture : plein cadre, pas de préambule, sélection annotable', async
     '\\makeatother',
     '\\ifdefined\\Root\\else\\expandafter\\Loader\\fi',
     '\\section{Study area}',
-    'The study area covers the glaciers of western North America over 22 melt seasons.',
+    'The study area covers the glaciers of western North America \\cite{rgi7consortium2023} over 22 melt seasons.',
   ].join('\n'));
   const port = await freePort();
   const server = spawn(process.execPath, [path.join(GALLERY,'server','main.mjs')], {cwd: root, env:{...process.env, FIG_PORT:String(port), GALLERY_ROOT:root}, stdio:'ignore'});
@@ -47,9 +47,12 @@ test('vue Lecture : plein cadre, pas de préambule, sélection annotable', async
     await fr().evaluate(() => {
       const p = [...document.querySelectorAll('#texread p')].find(e => e.textContent.includes('western North America'));
       const node = p.firstChild;
+      // Sélection qui TRAVERSE la citation rendue : « [rgi7consortium2023] »
+      // n'existe pas dans le source, l'ancrage doit passer par la prose.
       const start = node.textContent.indexOf('western North America');
+      const fin = p.lastChild;
       const r = document.createRange();
-      r.setStart(node, start); r.setEnd(node, start + 'western North America'.length);
+      r.setStart(node, start); r.setEnd(fin, (fin.textContent || '').indexOf('melt') + 4);
       const s = getSelection(); s.removeAllRanges(); s.addRange(r);
       p.dispatchEvent(new MouseEvent('mouseup', {bubbles: true}));
     });
@@ -57,13 +60,24 @@ test('vue Lecture : plein cadre, pas de préambule, sélection annotable', async
     const pill = await fr().evaluate(() => {
       const el = document.getElementById('selPill');
       const st = getComputedStyle(el);
-      return {visible: st.display, gauche: Math.round(el.getBoundingClientRect().left),
+      const r = el.getBoundingClientRect();
+      // `display` ment sous un parent masqué et `offsetParent` ment sur un
+      // élément fixed : on vérifie la géométrie ET ce que le point central
+      // renvoie réellement à l'écran.
+      const centre = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
+      return {visible: st.display, position: st.position, w: Math.round(r.width), h: Math.round(r.height),
+              vraimentVisible: r.width > 0 && r.height > 0 && st.visibility !== 'hidden'
+                && !!centre && (centre === el || el.contains(centre)),
+              gauche: Math.round(r.left),
               haut: Math.round(el.getBoundingClientRect().top),
               boutons: [...el.querySelectorAll('button')].map(b => (b.textContent||'').trim()).filter(Boolean),
               plage: el.dataset.page || null};
     });
     console.log('PASTILLE ' + JSON.stringify(pill));
     expect(pill.visible).toBe('flex');
+    // `display` reste « flex » même sous un parent masqué : c'est offsetParent
+    // qui dit si la pastille est réellement à l'écran.
+    expect(pill.vraimentVisible).toBe(true);
     expect(pill.boutons).toContain('Commenter');
     expect(pill.boutons).toContain('Add to chat');
     expect(vue.pleinCadre).toBe(true);
@@ -81,7 +95,11 @@ test('vue Lecture : plein cadre, pas de préambule, sélection annotable', async
     const envoi = JSON.parse(requete.postData() || '{}');
     console.log('ENVOI ' + JSON.stringify({page: envoi.page, text: envoi.text, rel: envoi.rel}));
     expect(envoi.page).toBe('L7-7');
-    expect(envoi.text).toBe('western North America');
+    // Le texte envoyé est le SOURCE (avec \cite), pas le rendu : c'est lui qui
+    // permettra de ré-ancrer un commentaire.
+    expect(envoi.text).toContain('western North America');
+    expect(envoi.text).toContain('\\cite{rgi7consortium2023}');
+    expect(envoi.text).toContain('melt');
     await fr().locator('header').screenshot({path: '/tmp/barre-lecture.png'});
   } finally { server.kill('SIGKILL'); }
 });

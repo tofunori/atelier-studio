@@ -85,6 +85,24 @@ test("LaTeX reading renderer preserves prose structure, source lines, and math",
   assert.match(html, /<li data-line="5">First<\/li>/);
 });
 
+test("le texte RENDU d'une citation n'existe pas dans le source — d'où l'ancrage par fragments", () => {
+  // Piège vécu : en vue Lecture, sélectionner un passage contenant une citation
+  // ne faisait apparaître aucune pastille, alors qu'un passage de prose pure
+  // fonctionnait. `\cite{clé}` est rendu « [clé] » : la sélection brute n'a
+  // aucun équivalent littéral dans le fichier.
+  const src = "The study area covers western North America \\cite{rgi7consortium2023} over 22 melt seasons.";
+  const editor = {indexFromPos: (p) => p.ch, posFromIndex: (i) => ({line: 0, ch: i})};
+  const rendu = "western North America [rgi7consortium2023] over 22 melt";
+  assert.equal(latex.findAnnotationRange(src, {text: rendu, from: {line: 0, ch: 0}}, editor), null);
+  // Les fragments de prose qui l'encadrent, eux, s'ancrent : c'est sur eux que
+  // la vue Lecture borne la sélection.
+  const head = latex.findAnnotationRange(src, {text: "western North America", from: {line: 0, ch: 0}}, editor);
+  const tail = latex.findAnnotationRange(src, {text: "over 22 melt", from: {line: 0, ch: 0}}, editor);
+  assert.ok(head && tail);
+  assert.ok(tail.to.ch > head.from.ch);
+  assert.match(src.slice(head.from.ch, tail.to.ch), /\\cite\{rgi7consortium2023\}/);
+});
+
 test("LaTeX reading renderer drops the loader plumbing of an included fragment", () => {
   // Cas réel : un chapitre sans \begin{document}, chargé par un fichier racine.
   // Le préambule est de la plomberie TeX, pas du texte à lire.

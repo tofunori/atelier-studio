@@ -289,6 +289,25 @@ export function createLatexReadingController(options: LatexReadingOptions): Late
   // pour remonter au source. On retrouve donc le passage PAR SON CONTENU, avec
   // la même primitive que le ré-ancrage des commentaires (piège connu n°6), en
   // partant de la ligne du bloc — l'ancre `data-line` sert de voisinage.
+  /** Éléments que le rendu a fabriqués : leur texte n'a pas d'équivalent
+   *  littéral dans le source, donc il ne peut pas servir d'ancre. */
+  const RENDERED_ONLY = ".tex-cite, .tex-ref, .tex-fn, .tex-matherr, .katex, .katex-display";
+  const literalFragments = (range: Range): string[] => {
+    const root = range.commonAncestorContainer;
+    const host = (root.nodeType === 1 ? root as Element : root.parentElement) || reading;
+    const walker = doc.createTreeWalker(host, 4 /* NodeFilter.SHOW_TEXT */);
+    const out: string[] = [];
+    for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+      if (!range.intersectsNode(node)) continue;
+      if (node.parentElement?.closest(RENDERED_ONLY)) continue;
+      const whole = node.textContent || "";
+      const from = node === range.startContainer ? range.startOffset : 0;
+      const to = node === range.endContainer ? range.endOffset : whole.length;
+      const piece = whole.slice(from, to).trim();
+      if (piece) out.push(piece);
+    }
+    return out;
+  };
   const proseSelection = (): void => {
     const selection = win.getSelection();
     const editor = options.getEditor();
@@ -305,17 +324,29 @@ export function createLatexReadingController(options: LatexReadingOptions): Late
       : range.startContainer.parentElement)?.closest<HTMLElement>("[data-line]");
     const line = Math.max(0, Number.parseInt(holder?.dataset.line || "1", 10) - 1);
     const source = editor.getValue();
-    // La prose rendue colle les lignes du source avec des espaces ; on cherche
-    // d'abord tel quel, puis en tolérant les blancs (retours à la ligne).
-    const found = findAnnotationRange(source, {text, from: {line, ch: 0}}, editor);
+    // Le rendu fabrique du texte absent du source : « [rgi7consortium2023] »
+    // pour \cite{...}, « §label » pour \ref{...}, et les formules composées par
+    // KaTeX. Chercher la sélection brute échouait donc dès qu'une citation s'y
+    // trouvait — le cas courant en prose scientifique. On n'ancre que sur les
+    // fragments de prose, seuls littéraux, puis on borne du premier au dernier.
+    const fragments = literalFragments(range);
+    const head = fragments.find((piece) => piece.length >= 4);
+    const tail = [...fragments].reverse().find((piece) => piece.length >= 4);
+    const start = head ? findAnnotationRange(source, {text: head, from: {line, ch: 0}}, editor) : null;
+    const end = tail === head ? start : (tail ? findAnnotationRange(source, {text: tail, from: {line, ch: 0}}, editor) : null);
+    const found = start && end ? {from: start.from, to: end.to} : null;
     if (!found) {
       options.onProseSelectionCleared?.();
       return;
     }
     const rect = range.getBoundingClientRect();
     if (!rect.width && !rect.height) return;
+    // On envoie le passage SOURCE, pas le rendu : un commentaire se ré-ancre en
+    // recherchant son texte dans le fichier (piège connu n°6). Stocker
+    // « [rgi7consortium2023] » condamnerait l'ancre dès le premier rechargement.
+    const sourceText = source.slice(editor.indexFromPos(found.from), editor.indexFromPos(found.to)) || text;
     options.onProseSelection({
-      text,
+      text: sourceText,
       from: found.from as StudioPosition,
       to: found.to as StudioPosition,
       anchor: {
