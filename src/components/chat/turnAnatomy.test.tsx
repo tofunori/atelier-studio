@@ -53,24 +53,27 @@ describe("anatomie du tour — header d'activité", () => {
     expect(head.getAttribute("aria-expanded")).toBe("false");
   });
 
-  it("montre la fin de la pensée en cours, sur une seule ligne, sans dérouler", () => {
-    // Sans pensée encore reçue : le reflet occupe la place, pas de ligne vide.
+  it("déroule la pensée en cours dans une fenêtre bornée, calée sur la fin", () => {
+    // Sans pensée encore reçue : le reflet occupe la place, pas de bloc vide.
     const { rerender } = renderUi(<LiveThinking />);
-    expect(document.querySelector(".thinking-live-tail")).toBeNull();
+    expect(document.querySelector(".thinking-live-stream")).toBeNull();
     expect(document.querySelector(".thinking-shimmer")).toBeTruthy();
 
-    // Dès qu'une pensée arrive, c'est ELLE qu'on lit — pas juste « ça travaille ».
-    const pensee = "J'ouvre methods_en.tex\n\n  puis je compare\tles deux sections";
+    // Dès qu'une pensée arrive, c'est ELLE qu'on lit — en entier, mise en
+    // forme conservée (pre-wrap), et non plus rabotée à une ligne.
+    const pensee = "J'ouvre methods_en.tex\n\n  puis je compare les deux sections";
     rerender(<LiveThinking thought={pensee} />);
-    const tail = document.querySelector(".thinking-live-tail") as HTMLElement;
-    expect(tail.textContent).toBe("J'ouvre methods_en.tex puis je compare les deux sections");
+    const flux = document.querySelector(".thinking-live-stream") as HTMLElement;
+    expect(flux.textContent).toBe(pensee);
     expect(document.querySelector(".thinking-shimmer")).toBeNull();
 
-    // Une pensée longue reste UNE ligne : c'est la fin qui compte.
-    rerender(<LiveThinking thought={"x".repeat(400) + " fin de raisonnement"} />);
-    const long = document.querySelector(".thinking-live-tail") as HTMLElement;
-    expect(long.textContent!.length).toBe(120);
-    expect(long.textContent!.endsWith("fin de raisonnement")).toBe(true);
+    // Une pensée longue n'est PAS tronquée : la hauteur est bornée par le CSS,
+    // le contenu reste entier et défile jusqu'à sa fin.
+    const longue = "x".repeat(400) + " fin de raisonnement";
+    rerender(<LiveThinking thought={longue} />);
+    const suite = document.querySelector(".thinking-live-stream") as HTMLElement;
+    expect(suite.textContent).toBe(longue);
+    expect(suite.textContent!.endsWith("fin de raisonnement")).toBe(true);
   });
 
   // Régression (vécu 2026-08-13) : le tour actif rendait `LiveThinking` sans
