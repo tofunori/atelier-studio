@@ -30,7 +30,7 @@ done
 cp sidecar/gallery_tool_cli.mjs sidecar/atelier-gallery-tool \
   sidecar/zotero_passages.mjs sidecar/zotero_passage_cli.mjs sidecar/atelier-zotero-passages \
   sidecar/knowledge.mjs sidecar/kb_prompt.mjs sidecar/kb_cli.mjs \
-  sidecar/article.mjs sidecar/article_meta.mjs \
+  sidecar/article.mjs sidecar/article_meta.mjs sidecar/csv_digest.mjs \
   sidecar/atelier-kb "$DIST/"
 chmod +x "$DIST/atelier-gallery-tool" "$DIST/atelier-zotero-passages" "$DIST/atelier-kb"
 # Garde-fou : la chaîne d'imports des modules stagés doit se résoudre DANS le
