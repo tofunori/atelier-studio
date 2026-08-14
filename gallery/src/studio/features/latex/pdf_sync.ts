@@ -221,6 +221,24 @@ export function createLatexPdfSyncController(options: LatexPdfSyncOptions): Late
     forwardTimer = win.setTimeout(() => { void synctexView(true); }, 350);
   };
 
+  // Recompilation EXTERNE (agent au terminal) : le canal « compiled » ne sonne
+  // que pour la compilation interne. Sans cette veille du mtime, le pane
+  // affiche une image périmée pendant que synctex répond pour le PDF neuf sur
+  // disque — les sauts tombent « à côté ».
+  let watchedMtime: number | null = null;
+  win.setInterval(() => {
+    const pdfPath = options.getPdfPath();
+    if (!pdfPath || !pdfDocument || doc.hidden) return;
+    void win.fetch(`/statfile?path=${encodeURIComponent(pdfPath)}${options.tokenQuery || ""}`)
+      .then((response) => response.ok ? response.json() as Promise<{mtime?: number}> : null)
+      .then((stat) => {
+        if (typeof stat?.mtime !== "number") return;
+        if (watchedMtime !== null && stat.mtime > watchedMtime) void loadPdf();
+        watchedMtime = stat.mtime;
+      })
+      .catch(() => undefined);
+  }, 2500);
+
   doc.addEventListener("visibilitychange", () => {
     if (options.isPdfMode && !doc.hidden) requestView();
   });

@@ -2008,6 +2008,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .route("/snippet", get(files::snippet))
         .route("/raw", get(files::raw))
         .route("/code", get(files::code))
+        .route("/statfile", get(files::statfile))
         .route("/texroot", get(files::texroot))
         .route("/findscript", get(files::findscript))
         .route("/findfile", get(files::findfile))

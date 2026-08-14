@@ -349,6 +349,23 @@ pub async fn code(
         .into_response()
 }
 
+/// `GET /statfile?path=` — mtime seul, sans lire le fichier. Les panes PDF
+/// s'en servent pour détecter une recompilation EXTERNE (agent au terminal)
+/// et recharger — sinon on clique sur une image périmée et synctex répond
+/// pour le PDF neuf, d'où des sauts « à côté ». Symétrique du serveur Node.
+pub async fn statfile(
+    State(state): State<AppState>,
+    Query(query): Query<PathQuery>,
+) -> impl IntoResponse {
+    let Ok(path) = safe_project_path(&state.root, &query.path) else {
+        return json_error(StatusCode::FORBIDDEN, "outside the project");
+    };
+    match file_mtime_secs(&path) {
+        Ok(mtime) => (StatusCode::OK, Json(json!({"mtime": mtime}))).into_response(),
+        Err(_) => json_error(StatusCode::NOT_FOUND, "not found"),
+    }
+}
+
 /// `GET /texroot?path=` — root document + sibling PDF path.
 pub async fn texroot(
     State(state): State<AppState>,

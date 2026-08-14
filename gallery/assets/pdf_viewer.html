@@ -228,6 +228,23 @@ async function main(){
     if (e.key === "-") { e.preventDefault(); setZoom(ZOOM / 1.2); }
     if (e.key === "0") { e.preventDefault(); setZoom(1); }
   });
+  // Recompilation EXTERNE (agent, script) : le message « compiled » ne sonne
+  // que pour la compilation interne du studio. On veille le mtime et on
+  // recharge en place — vaut pour tout PDF, figures régénérées comprises.
+  (function(){
+    let watched = null;
+    setInterval(async function(){
+      if (document.hidden || typeof __reloadPdf !== "function") return;
+      try{
+        const r = await fetch("/statfile?path=" + encodeURIComponent(rel));
+        if (!r.ok) return;
+        const j = await r.json();
+        if (typeof j.mtime !== "number") return;
+        if (watched !== null && j.mtime > watched) __reloadPdf();
+        watched = j.mtime;
+      }catch(e){}
+    }, 2500);
+  })();
   await renderAll();
   try {
     const k = "pdfv_scroll_" + location.search;

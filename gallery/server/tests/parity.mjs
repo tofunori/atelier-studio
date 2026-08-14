@@ -393,6 +393,13 @@ async function main() {
     const carried = JSON.parse(fs.readFileSync(path.join(root, ".fig_state.json"), "utf8"));
     assert.equal(carried.texAutoRewrap, true, "texAutoRewrap reporté quand la requête ne le mentionne pas");
 
+    // /statfile : mtime seul — la veille des panes PDF sur les recompiles externes.
+    r = await request(nodePort, `/statfile?path=${encodeURIComponent("plot.png")}`);
+    assert.equal(r.status, 200, "GET /statfile status");
+    assert.equal(typeof JSON.parse(r.body.toString()).mtime, "number", "statfile renvoie un mtime numérique");
+    r = await request(nodePort, `/statfile?path=${encodeURIComponent("absent.pdf")}`);
+    assert.equal(r.status, 404, "statfile 404 sur fichier absent");
+
     r = await request(nodePort, "/pdfannot", {
       method: "POST",
       body: { rel: "doc.pdf", annots: [{ page: 1, text: "keep" }] },

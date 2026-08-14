@@ -662,6 +662,21 @@ export async function handleEditorsGet(req, res, url) {
       return sendJson(res, 200, { ok: false });
     }
   }
+  if (pathname === "/statfile") {
+    // mtime seul, sans lire le fichier : les panes PDF s'en servent pour
+    // détecter une recompilation EXTERNE (agent au terminal) et recharger —
+    // sinon on clique sur une image périmée et synctex répond pour le PDF
+    // neuf, d'où des sauts « à côté ». Symétrique de statfile côté Rust.
+    try {
+      if (!url.searchParams.has("path")) throw new Error("path");
+      const p = editorPath(url.searchParams.get("path"), tok);
+      if (!p) return sendJson(res, 403, { error: "outside the project" });
+      return sendJson(res, 200, { mtime: fs.statSync(p).mtimeMs / 1000 });
+    } catch (error) {
+      return sendJson(res, error?.code === "ENOENT" ? 404 : 400,
+        { error: String(error.message || error) });
+    }
+  }
   if (pathname === "/texroot") {
     try {
       if (!url.searchParams.has("path")) throw new Error("path");
