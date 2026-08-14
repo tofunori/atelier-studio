@@ -3,7 +3,7 @@
 // BROUILLON SUR DISQUE, parce que le backend Rust relance `kb_cli.mjs` à
 // chaque commande : aucun état ne survit en mémoire entre l'import et
 // l'écriture. Rien n'entre dans le corpus sans confirmation explicite.
-import { spawn as nodeSpawn } from "node:child_process";
+import { spawn as nodeSpawn, spawnSync as nodeSpawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
