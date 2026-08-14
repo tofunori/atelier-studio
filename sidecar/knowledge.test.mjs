@@ -706,3 +706,25 @@ describe("base de connaissances — collections & archive (plan 051)", () => {
     expect(active.archivedSources).toHaveLength(1);
   });
 });
+
+// CSV dans la base (pas gbrain) : un tableau est profilé, jamais déversé.
+describe("tableaux CSV", () => {
+  it("accepte un .csv et en stocke le profil, pas le brut", () => {
+    const dir = mkdtempSync(join(tmpdir(), "kb-csv-"));
+    const csv = join(dir, "albedo.csv");
+    // au-delà de CSV_FULL_MAX : c'est le profil qui doit être stocké
+    const lignes = Array.from({ length: 3000 }, (_, i) => `0${(i % 2) + 1},${2002 + (i % 22)},${(0.3 + i / 10000).toFixed(4)},station-${i % 40}`);
+    writeFileSync(csv, `region,annee,albedo,station\n${lignes.join("\n")}\n`);
+    const store = new KnowledgeStore(mkdtempSync(join(tmpdir(), "kb-store-")));
+    store.add({ kind: "file", origin: csv });
+    const source = [...store.sources.values()][0];
+    expect(source.title).toBe("albedo.csv");
+    expect(source.meta.table).toBe(true);
+    const texte = store.pagesFor(source.id).map((p) => p.text).join("\n");
+    expect(texte).toContain("3000 lignes × 4 colonnes");
+    expect(texte).toContain("## Colonnes");
+    expect(texte).toContain("des 3000 lignes sont montrées");
+    expect(texte).not.toContain("```csv");
+  });
+
+});

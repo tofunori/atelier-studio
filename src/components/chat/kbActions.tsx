@@ -125,7 +125,8 @@ export function useKbActions(
   async function addFiles() {
     const picked = await openDialog({
       multiple: true,
-      filters: [{ name: "Sources", extensions: ["md", "tex", "txt", "pdf"] }],
+      // csv/tsv : un tableau entre dans la base profilé, pas déversé (csv_digest)
+      filters: [{ name: "Sources", extensions: ["md", "tex", "txt", "pdf", "csv", "tsv"] }],
     });
     if (!picked) return;
     const paths = Array.isArray(picked) ? picked : [picked];
