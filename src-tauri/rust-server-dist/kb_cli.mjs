@@ -88,7 +88,8 @@ function parseArgs(argv) {
   const options = {};
   for (let i = 1; i < argv.length; i += 1) {
     const key = argv[i];
-    if (key === "--write" || key === "--archived" || key === "--off" || key === "--ragdoc") {
+    if (key === "--write" || key === "--archived" || key === "--off" || key === "--ragdoc"
+      || key === "--progress") {
       options[key.slice(2)] = true;
       continue;
     }
@@ -165,8 +166,18 @@ export async function runKbCommand(argv, deps = {}) {
     }, deps);
   }
   if (command === "article-import") {
-    // conversion seule : le brouillon reste sur disque, le corpus intact
-    return importArticle({ path: options.path, dir: options.dir || undefined }, deps);
+    // conversion seule : le brouillon reste sur disque, le corpus intact.
+    // `--progress` fait précéder le résultat de lignes JSON {"progress":…} :
+    // une conversion MinerU dure des minutes et l'appelant doit pouvoir dire
+    // où elle en est. Sans le drapeau, la sortie reste UNE seule ligne JSON —
+    // c'est ce que tous les autres appelants (et le Rust) attendent.
+    const emit = options.progress === true
+      ? (step) => (deps.stdout ?? process.stdout).write(`${JSON.stringify({ progress: step })}\n`)
+      : undefined;
+    return importArticle(
+      { path: options.path, dir: options.dir || undefined },
+      emit ? { ...deps, onProgress: emit } : deps,
+    );
   }
   if (command === "article-doi") {
     return importDoi({ doi: options.doi, dir: options.dir || undefined }, deps);

@@ -3,7 +3,7 @@
 // BROUILLON SUR DISQUE, parce que le backend Rust relance `kb_cli.mjs` à
 // chaque commande : aucun état ne survit en mémoire entre l'import et
 // l'écriture. Rien n'entre dans le corpus sans confirmation explicite.
-import { spawnSync as nodeSpawnSync } from "node:child_process";
+import { spawn as nodeSpawn } from "node:child_process";
 import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
@@ -39,6 +39,82 @@ export function resolveMineru({ env = process.env, home = homedir() } = {}) {
   return { script, reason: null };
 }
 
+// --- étapes de conversion -------------------------------------------------
+
+// Le script MinerU raconte ce qu'il fait sur stdout ; on l'écoutait sans
+// jamais le répéter, d'où l'impression de trou noir pendant les minutes de
+// conversion. Chaque ligne connue devient une étape nommée.
+const MINERU_STAGES = [
+  [/^Uploading\b/i, () => ({ stage: "upload" })],
+  [/^Upload complete/i, () => ({ stage: "converting" })],
+  [/^Processing\.\.\.\s*\((\d+)s\)/i, (m) => ({ stage: "converting", seconds: Number(m[1]) })],
+  [/^Conversion complete/i, () => ({ stage: "download" })],
+  [/^Downloading result/i, () => ({ stage: "download" })],
+  [/^Extracted (\d+) figures?/i, (m) => ({ stage: "figures", count: Number(m[1]) })],
+  [/^Couche texte:.*is_ocr=(\w+)/i, (m) => ({ stage: "ocr", ocr: m[1] === "True" })],
+];
+
+export function mineruStage(line) {
+  const text = String(line ?? "").trim();
+  for (const [pattern, build] of MINERU_STAGES) {
+    const match = pattern.exec(text);
+    if (match) return build(match);
+  }
+  return null;
+}
+
+// Remplace `spawnSync` : la conversion doit pouvoir parler pendant qu'elle
+// dure. Rend la MÊME forme que spawnSync ({status, stdout, stderr, error})
+// pour que les appelants et les tests existants ne changent pas de contrat.
+export function runStreaming(command, args, { timeout = 0, onLine } = {}) {
+  return new Promise((resolve) => {
+    let child;
+    try {
+      child = nodeSpawn(command, args, { stdio: ["ignore", "pipe", "pipe"] });
+    } catch (error) {
+      resolve({ status: null, stdout: "", stderr: "", error });
+      return;
+    }
+    let stdout = "";
+    let stderr = "";
+    let pending = "";
+    let timer = null;
+    let settled = false;
+    const finish = (result) => {
+      if (settled) return;
+      settled = true;
+      if (timer) clearTimeout(timer);
+      resolve(result);
+    };
+    child.stdout.setEncoding("utf8");
+    child.stdout.on("data", (chunk) => {
+      stdout += chunk;
+      pending += chunk;
+      const lines = pending.split("\n");
+      pending = lines.pop() ?? "";
+      for (const line of lines) {
+        if (!onLine) continue;
+        try { onLine(line); } catch { /* un abonné qui tombe n'arrête pas la conversion */ }
+      }
+    });
+    child.stderr.setEncoding("utf8");
+    child.stderr.on("data", (chunk) => { stderr += chunk; });
+    child.on("error", (error) => finish({ status: null, stdout, stderr, error }));
+    child.on("close", (status) => {
+      if (pending && onLine) {
+        try { onLine(pending); } catch { /* idem */ }
+      }
+      finish({ status, stdout, stderr, error: null });
+    });
+    if (timeout > 0) {
+      timer = setTimeout(() => {
+        try { child.kill("SIGKILL"); } catch { /* déjà mort */ }
+        finish({ status: null, stdout, stderr, error: Object.assign(new Error("timeout"), { code: "ETIMEDOUT" }) });
+      }, timeout);
+    }
+  });
+}
+
 export function outputName(path) {
   const stem = slugifyTitle(basename(String(path)).replace(/\.pdf$/i, "")).slice(0, 40);
   const hash = createHash("sha1").update(String(path)).digest("hex").slice(0, 6);
@@ -63,13 +139,15 @@ export function mineruFailure(run = {}) {
 
 // Retourne { markdown, converter, warning } — `converter` vaut "mineru" ou
 // "local", `warning` explique la dégradation quand il y en a une.
-export function convertPdf(path, {
-  spawn = nodeSpawnSync,
+export async function convertPdf(path, {
+  spawn = runStreaming,
   python = "python3",
   timeout = MINERU_TIMEOUT_MS,
   extractPdf = extractPdfPages,
   cacheDir,
   mineru = resolveMineru(),
+  // Étapes en direct. Sans abonné, la conversion se déroule comme avant.
+  onProgress,
   // PIÈGE (vécu) : le script du skill écrit en dur dans /tmp/<nom>.md, alors
   // que os.tmpdir() vaut /var/folders/… sur macOS. Chercher au seul tmpdir()
   // faisait passer TOUTE conversion réussie pour un échec, et l'article
@@ -81,7 +159,14 @@ export function convertPdf(path, {
   let warning = mineru.reason;
   if (mineru.script) {
     const name = outputName(path);
-    const run = spawn(python, [mineru.script, path, name], { encoding: "utf8", timeout });
+    const run = await spawn(python, [mineru.script, path, name], {
+      encoding: "utf8",
+      timeout,
+      onLine: onProgress ? (line) => {
+        const stage = mineruStage(line);
+        if (stage) onProgress(stage);
+      } : undefined,
+    });
     const roots = Array.isArray(tmp) ? tmp : [tmp];
     const produced = roots.map((root) => join(root, `${name}.md`)).find((file) => existsSync(file));
     if (!run.error && produced) {
@@ -377,10 +462,14 @@ export function findDuplicates({ meta = {}, slug = "" } = {}, run = runGbrain, {
 // sonde d'existence du slug proposé et la recherche de doublons.
 export async function importArticle({ path, dir = defaultKnowledgeDir() } = {}, deps = {}) {
   if (!path) throw new Error("Argument requis: --path");
-  const { markdown, converter, warning } = convertPdf(path, deps);
+  // Un abonné aux étapes ne change rien au résultat : il permet seulement à
+  // l'interface de dire où en est une conversion qui dure des minutes.
+  const step = typeof deps.onProgress === "function" ? deps.onProgress : () => {};
+  const { markdown, converter, warning } = await convertPdf(path, deps);
   const guessed = parseArticleMeta(markdown, { filename: path });
   // Zotero puis Crossref avant de composer le slug : deviner le nom de
   // famille sur un titre bancal produisait des slugs à jeter.
+  step({ stage: "meta" });
   const resolve = deps.resolveArticleMeta ?? resolveArticleMeta;
   const { meta, source: metaSource } = await resolve({ path, guessed }, deps);
   const slug = articleSlug(meta);
@@ -390,6 +479,7 @@ export async function importArticle({ path, dir = defaultKnowledgeDir() } = {}, 
   const preview = scalars.length > ARTICLE_PREVIEW_MAX
     ? `${scalars.slice(0, ARTICLE_PREVIEW_MAX).join("")}\n[…]`
     : page;
+  step({ stage: "duplicates" });
   let exists = false;
   let probeError = null;
   try {
