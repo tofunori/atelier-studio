@@ -599,6 +599,40 @@ html, body, #root, .app { height: 100vh; overflow: hidden;
 .rail-scroll::-webkit-scrollbar, .rail-top::-webkit-scrollbar,
 .rail-projects::-webkit-scrollbar { display: none; }
 /* zone épinglée en bas : Réglages, toujours visible */
+/* Fichiers ouverts (plan 056) : monogramme en MINUSCULES — les capitales sont
+   prises par les projets, et c'est la casse qui empêche de les confondre. */
+.rail-files { width: 100%; flex: none; display: flex; flex-direction: column;
+  align-items: center; gap: 5px; padding-top: 8px; margin-top: 4px;
+  border-top: 1px solid var(--border); }
+.rail-file { position: relative; width: 34px; height: 34px; flex: none;
+  border-radius: var(--r-m); display: flex; align-items: center; justify-content: center;
+  background: transparent; transition: background-color var(--ease), color var(--ease); }
+.rail-file-mono { font-family: var(--code-font); font-size: var(--fs-m);
+  color: var(--text-secondary); letter-spacing: -0.02em; text-transform: lowercase; }
+.rail-file:hover { background: var(--bg-ctl); }
+.rail-file:hover .rail-file-mono { color: var(--text-primary); }
+.rail-file.on { background: var(--bg-ctl); }
+.rail-file.on .rail-file-mono { color: var(--text-primary); }
+.rail-file.on::before { content: ""; position: absolute; left: -7px; top: 8px; bottom: 8px;
+  width: 2px; border-radius: var(--r-pill); background: var(--accent); }
+.rail-file-kind { position: absolute; right: 2px; bottom: 1px; width: 9px; height: 9px;
+  color: var(--text-disabled); }
+.rail-file.on .rail-file-kind { color: var(--text-muted); }
+/* onglet qui n'est pas un fichier : l'icône de la surface remplace le monogramme */
+.rail-file-surface { display: inline-flex; align-items: center; justify-content: center;
+  color: var(--text-muted); }
+.rail-file-surface svg { width: 17px; height: 17px; }
+.rail-file.on .rail-file-surface { color: var(--text-primary); }
+/* nuancier du menu de pane (plan 057, rescapé du menu contextuel des onglets) */
+.workspace-pane-colors { display: flex; gap: 5px; padding: 4px 8px 6px; }
+.workspace-pane-swatch { width: 14px; height: 14px; border-radius: var(--r-s);
+  border: 1px solid var(--border); }
+.workspace-pane-swatch.is-none { background: transparent;
+  background-image: linear-gradient(45deg, transparent 44%, var(--border-strong) 44%,
+    var(--border-strong) 56%, transparent 56%); }
+.rail-file-more { font-size: var(--fs-xs); color: var(--text-disabled);
+  font-variant-numeric: tabular-nums; padding: 2px 6px; border-radius: var(--r-s); }
+.rail-file-more:hover { color: var(--text-secondary); }
 /* Zone d'activité (plan 055) : « ce qui tourne sans toi », en bas du rail.
    Vide = absente — pas de cadre « aucune activité ». */
 .rail-activity { width: 100%; flex: none; display: flex; flex-direction: column;

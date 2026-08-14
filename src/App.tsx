@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Panel, PanelGroup, PanelResizeHandle } from "react-resizable-panels";
 import { open } from "@tauri-apps/plugin-dialog";
 import { invoke } from "@tauri-apps/api/core";
@@ -3205,6 +3205,22 @@ export default function App() {
   // Slots du WorkspaceShell (slice 3) — contenus et props inchangés, seule la
   // composition est déléguée au shell.
   // feux NATIFS (titleBarStyle Overlay + trafficLightPosition, cf.
+  // Fermeture d'un onglet, partagée par la bande d'onglets et par les tuiles
+  // du rail (plan 056) : terminal fermé côté serveur, épinglés persistés,
+  // retour à la galerie si c'était l'onglet actif.
+  const closeAtelierTab = useCallback((id: string) => {
+    const tab = atelierTabsRef.current.find((x) => x.id === id);
+    if (tab?.kind === "term" && ws.current?.readyState === 1) {
+      ws.current.send(JSON.stringify({ type: "termClose", termId: id }));
+    }
+    setAtelierTabs((tabs) => {
+      const next = tabs.filter((x) => x.id !== id);
+      savePinned(next);
+      return next;
+    });
+    setActiveTab((cur) => (cur === id ? "gallery" : cur));
+  }, []);
+
   // IDE actif : l'atelier est visible, la surface est la galerie, et l'onglet
   // courant est un éditeur — partagé par le rail et la barre du haut (plan 055).
   const ideActive = showAtelier && activeSurface === "atelier" && activeTab !== "gallery"
@@ -3242,6 +3258,16 @@ export default function App() {
           activeProject={activeProject}
           meta={projMeta}
           running={runningProjects}
+          files={atelierTabs.filter((tb) => tb.kind !== "term").map((tb) => ({ id: tb.id, title: tb.title, url: tb.url }))}
+          activeFile={activeTab}
+          onSelectFile={(id) => {
+            // depuis le rail, sélectionner un fichier doit AUSSI ramener
+            // l'atelier à l'écran — sinon rien ne se voit en mode chat
+            setActiveTab(id);
+            setLayout((l) => (l === "chat" ? "split" : l));
+            switchToSurface("atelier");
+          }}
+          onCloseFile={closeAtelierTab}
           activeView={activeView}
           layout={layout}
           activeSurface={activeSurface}
@@ -3815,18 +3841,7 @@ export default function App() {
               activeTab={activeTab}
               onSelectTab={setActiveTab}
               onActiveSurfaceChange={setActiveSurface}
-              onCloseTab={(id) => {
-                const t = atelierTabsRef.current.find((x) => x.id === id);
-                if (t?.kind === "term" && ws.current?.readyState === 1) {
-                  ws.current.send(JSON.stringify({ type: "termClose", termId: id }));
-                }
-                setAtelierTabs((tabs) => {
-                  const next = tabs.filter((t) => t.id !== id);
-                  savePinned(next);
-                  return next;
-                });
-                setActiveTab((cur) => (cur === id ? "gallery" : cur));
-              }}
+              onCloseTab={closeAtelierTab}
               reloadKey={atelierReload}
               showExplorer={showExplorer}
               recentFiles={recentFiles.filter((f) => files.includes(f)).slice(0, 8)}
