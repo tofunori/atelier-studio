@@ -124,6 +124,24 @@ atterrit dans un `auto:`. Sans gravité (le code EST committé) mais surprenant.
 **Règle** : après un commit qui « ne trouve rien à committer », vérifier
 `git log` — le changement est probablement déjà dans le dernier `auto:`.
 
+## 10. Restaurer la PLAGE sélectionnée après un remplacement complet = sélection fantôme
+
+`setValue` (écriture d'agent, rechargement disque, restauration de version)
+remplaçait tout le document puis rejouait la sélection par coordonnées
+ligne/colonne. Le texte sous ces coordonnées n'est plus celui que l'utilisateur
+avait sélectionné. Pire : la vue n'ayant pas le focus, CM6 n'écrit pas cette
+sélection dans le DOM — l'état et le DOM divergent. Au retour dans l'éditeur, le
+clic héritait de l'ancre fantôme et surlignait tout un pan du document, et la
+pastille proposait de citer un passage jamais choisi.
+
+**Règle** : conserver la **place** (curseur à la tête + défilement), jamais la
+**plage**. Vaut pour les DEUX moteurs (`assets/cm6/studio_editor.mjs` et le
+repli CM5 dans `src/studio/core/editor_factory.ts`).
+
+**Vérification** : ce défaut ne se voit qu'à l'usage réel — Chromium seul le
+laisse passer au clic. Le projet Playwright `webkit-selection` rejoue la
+séquence dans WebKit, le moteur du WKWebView de l'app.
+
 ---
 
 # Annexe sidecar (hors galerie)
