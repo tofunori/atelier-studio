@@ -119,6 +119,16 @@ export function ChatTimeline(p: {
   };
 }) {
   const { threadId, events, workingSince, liveTokens, liveNote, phase } = p.thread;
+  // dernier bloc de pensée du fil : le seul qui puisse être « en cours »
+  const lastThinkingIndex = (() => {
+    for (let idx = events.length - 1; idx >= 0; idx -= 1) {
+      const kind = events[idx]?.kind;
+      if (kind === "thinking" || kind === "thinking_live") return idx;
+      // un texte d'assistant après la pensée signe la fin du raisonnement
+      if (kind === "text" || kind === "streaming") return -1;
+    }
+    return -1;
+  })();
   const { review, reviewMin, setReviewMin, setReview, barOpen, setBarOpen, fixing, setFixing, reviewOpen, setReviewOpen } = p.rev;
   const {
     renderedEvents, openFolds, setOpenFolds, openToolGroups, setOpenToolGroups,
@@ -559,7 +569,11 @@ export function ChatTimeline(p: {
               />
             );
           if (e.kind === "thinking_live" || e.kind === "thinking")
-            return <ThinkingBlock key={i} text={e.text} live={e.kind === "thinking_live"} />;
+            // « en direct » ne peut pas se déduire du KIND : Grok n'envoie
+            // jamais de thinking_delta, seulement des thinking complets tous
+            // les ~100 caractères. C'est le tour qui tourne encore, et le fait
+            // d'être le dernier bloc de pensée, qui font le direct.
+            return <ThinkingBlock key={i} text={e.text} live={workingSince != null && i === lastThinkingIndex} />;
           if (e.kind === "activity")
             return <ActivityCard key={e.id} event={e} live={workingSince != null && e.status === "running"} />;
           if (e.kind === "permission")
