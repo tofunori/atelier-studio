@@ -764,12 +764,6 @@ html, body, #root, .app { height: 100vh; overflow: hidden;
 .tool-tick { color: var(--text-disabled); }
 .tool-group { color: var(--text-muted); font-size: var(--fs-m); }
 .tool-group-list { display: flex; flex-direction: column; gap: 4px; }
-.active-work-list { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
-.active-work-more { width: fit-content; margin: 3px 0 1px; padding: 2px 0; border: 0;
-  background: transparent; color: var(--text-disabled); font: inherit; font-size: var(--fs-m); cursor: pointer; }
-.active-work-more:hover { color: var(--text-secondary); }
-.active-turn-details { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
-.active-turn-details > .ui-activity { margin-left: 0; margin-right: 0; }
 .turn-fold-label { font-size: var(--fs-m); font-weight: 400; color: var(--text-muted); }
 .ui-activity-trigger:hover .turn-fold-label { color: var(--text-secondary); }
 .turn-fold-meta { color: var(--text-disabled); font-variant-numeric: tabular-nums; }
