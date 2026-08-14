@@ -308,6 +308,34 @@ describe("contrat Quiet Instrument (sources CSS)", () => {
     expect(loops).toEqual([".working-label::before"]);
   });
 
+  // §7 : « Densité : compact 3 / comfortable 6 / spacious 10 px sur --pad-y ».
+  // Le token n'avait que trois consommateurs (.sidebar li, un `.sidebar button`
+  // trop large, .set-row) : le réglage était quasi placebo. Il pilote désormais
+  // toutes les familles de rangées denses.
+  it("le réglage Densité pilote les vraies listes denses (--pad-y)", () => {
+    for (const [name, rule] of [
+      [".sidebar li", /\.sidebar li\s*\{[^}]*padding:[^;]*var\(--pad-y/],
+      [".sidebar button (reset ciblé)", /\.sidebar button:not\(\[class\*="ui-"\]\)[^{]*\{[^}]*padding:\s*var\(--pad-y/],
+      [".exp-row", /\.exp-row\s*\{[^}]*padding:[^;]*var\(--pad-y/],
+      [".set-nav-item", /\.set-nav-item\s*\{[^}]*padding:[^;]*var\(--pad-y/],
+      [".git-file-row", /\.git-file-row\s*\{[^}]*padding:[^;]*var\(--pad-y/],
+      [".biblio-main-button", /\.biblio-main-button\s*\{[^}]*padding:[^;]*var\(--pad-y/],
+      [".ledger-row", /\.ledger-row\s*\{[^}]*padding:[^;]*var\(--pad-y/],
+      [".set-row", /\.set-row\s*\{[^}]*padding:[^;]*var\(--pad-y/],
+    ] as const) {
+      expect(appCss, `${name} ne consomme pas --pad-y`).toMatch(rule);
+    }
+    // le sélecteur trop large (0,1,1) écrasait .pnav-row-main et les ui/ : parti
+    expect(appCss).not.toMatch(/\.sidebar button\s*\{\s*padding:/);
+    // garde-fou de cible : la densité compacte ne fait pas passer une rangée de
+    // navigation sous --control-height
+    expect(appCss).toMatch(/\.set-nav-item\s*\{[^}]*min-height:\s*var\(--control-height\)/);
+    // --pad-y reste la SEULE dimension pilotée par la densité
+    const density = [...appCss.matchAll(/:root\[data-density="[a-z]+"\]\s*\{([^}]*)\}/g)]
+      .flatMap((m) => [...m[1].matchAll(/(--[\w-]+)\s*:/g)].map((d) => d[1]));
+    expect([...new Set(density)]).toEqual(["--pad-y"]);
+  });
+
   it("reduced motion : les tokens de durée sont neutralisés centralement (0ms)", () => {
     const block = tokens.match(/@media \(prefers-reduced-motion: reduce\)[\s\S]*?\n\}/);
     expect(block).not.toBeNull();

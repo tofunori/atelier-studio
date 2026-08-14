@@ -72,12 +72,14 @@ html, body, #root, .app { height: 100vh; overflow: hidden;
 .side-scroll > * { flex: none; }
 /* reset historique des boutons du panneau — ne touche NI les primitives ui/
    NI les contrôles du Research Navigator (qui définissent leur propre géométrie) */
-.sidebar button:not([class*="ui-"]):not(.pnav-row-main):not(.pnav-more) { padding: 6px; background: transparent; color: var(--muted);
+.sidebar button:not([class*="ui-"]):not(.pnav-row-main):not(.pnav-more) { padding: var(--pad-y, 6px); background: transparent; color: var(--muted);
   border: none; border-radius: var(--r-s); cursor: pointer; font-size: var(--fs-l); }
 .sidebar button:not([class*="ui-"]):not(.pnav-row-main):not(.pnav-more):hover { background: var(--bg-ctl); color: var(--fg); }
 .sidebar button:not([class*="ui-"]):disabled { opacity: 0.4; cursor: default; }
 .sidebar ul { list-style: none; padding: 0; } /* plus de scroller interne par liste */
-.sidebar li { padding: 6px 8px; border-radius: var(--r-s); cursor: pointer;
+/* rangée générique du panneau — c'est ELLE qui porte le réglage Densité pour
+   le Research Navigator (.pnav-row est un <li> de cette liste) */
+.sidebar li { padding: var(--pad-y, 6px) 8px; border-radius: var(--r-s); cursor: pointer;
   display: flex; gap: 6px; align-items: center; font-size: var(--fs-l); }
 .sidebar li.active { position: relative; background: color-mix(in srgb, var(--bg-ctl) 72%, transparent); }
 .sidebar li.active::before { content: ""; position: absolute; left: 1px; top: 7px; bottom: 7px;
@@ -922,8 +924,11 @@ html, body, #root, .app { height: 100vh; overflow: hidden;
 .set-back { text-align: left; background: transparent; border: none; color: var(--muted);
   cursor: pointer; padding: 6px 10px; font-size: var(--fs-l); margin-bottom: 12px; }
 .set-back:hover { color: var(--fg); }
+/* min-height : garde-fou de cible interactive — en densité compacte le padding
+   seul retomberait sous --control-height */
 .set-nav-item { text-align: left; background: transparent; border: none; color: var(--fg2);
-  padding: 7px 10px; border-radius: var(--r-m); cursor: pointer; font-size: var(--fs-l); }
+  padding: var(--pad-y, 6px) 10px; min-height: var(--control-height);
+  border-radius: var(--r-m); cursor: pointer; font-size: var(--fs-l); }
 .set-nav-item { position: relative; }
 .set-nav-item > .ui-btn-label, .theme-row > .ui-btn-label { display: contents; }
 .set-nav-item:hover { background: color-mix(in srgb, var(--bg-ctl) 60%, transparent); }
@@ -1029,8 +1034,12 @@ html, body, #root, .app { height: 100vh; overflow: hidden;
 .composer { max-width: var(--chat-col, var(--chat-w, 760px)); }
 
 pre, code, .msg pre, .msg code { font-family: var(--code-font); }
-.sidebar li { padding: var(--pad-y, 6px) 8px; }
-.sidebar button { padding: var(--pad-y, 6px); }
+/* densité : --pad-y est consommé À LA DÉCLARATION de chaque famille de rangées
+   (.sidebar li/button, .exp-row, .set-nav-item, .git-file-row,
+   .biblio-main-button, .ledger-row, .set-row). Un `.sidebar button` global
+   vivait ici : sa spécificité (0,1,1) écrasait silencieusement
+   `.pnav-row-main { padding: 0 }` et le padding des primitives ui/ — retiré au
+   profit du reset ciblé du haut de fichier. */
 .set-row { padding: calc(var(--pad-y, 6px) + 8px) 16px; }
 .seg { display: inline-flex; background: var(--bg-ctl); border-radius: var(--r-m); padding: 3px; gap: 2px; }
 .seg button { background: transparent; border: none; color: var(--muted); padding: 5px 12px;
@@ -1057,7 +1066,9 @@ input[type="range"].slider::-webkit-slider-thumb:hover { transform: scale(1.15);
   min-height: var(--control-height); border: 1px solid var(--border-interactive); border-radius: var(--r-s); color: inherit;
   font-size: var(--fs-m); outline: none; }
 .exp-tree { flex: 1; overflow-y: auto; padding-bottom: 12px; font-size: var(--fs-m); }
-.exp-row { display: flex; align-items: center; gap: 5px; padding: 3px 8px;
+/* arbre : rangée deux fois plus serrée qu'une liste — la densité s'y applique
+   à la même échelle (compact 1,5 / comfortable 3 / spacious 5 px) */
+.exp-row { display: flex; align-items: center; gap: 5px; padding: calc(var(--pad-y, 6px) / 2) 8px;
   cursor: pointer; color: var(--fg2); white-space: nowrap; }
 .exp-row:hover { background: var(--bg-ctl); }
 .exp-chev { color: var(--muted2); font-size: var(--fs-xs); width: 10px; flex-shrink: 0; }
@@ -1410,7 +1421,7 @@ button.ghost.danger, button.ghost.danger:hover { color: var(--status-error); bac
 .ledger-entry { border-radius: var(--r-m); background: color-mix(in srgb, var(--bg-card) 70%, transparent); }
 .ledger-row { width: 100%; display: grid; grid-template-columns: 48px 70px minmax(0, 1fr) 58px 64px;
   gap: 8px; align-items: center; border: none; background: transparent; color: var(--fg2);
-  padding: 7px 9px; cursor: pointer; font-size: var(--fs-m); text-align: left; }
+  padding: var(--pad-y, 6px) 9px; cursor: pointer; font-size: var(--fs-m); text-align: left; }
 .ledger-row:hover { background: var(--bg-ctl); color: var(--fg); }
 .ledger-time { color: var(--muted); font-variant-numeric: tabular-nums; }
 .ledger-prompt { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--fg2); }
@@ -1607,8 +1618,8 @@ button.ghost.danger, button.ghost.danger:hover { color: var(--status-error); bac
   align-items: center; gap: 5px; color: var(--fg2); border-radius: var(--r-m); padding: 0; }
 .biblio-row:hover, .biblio-row.on { background: var(--bg-ctl); color: var(--fg); }
 .biblio-main-button { min-width: 0; display: flex; flex-direction: column; gap: 2px;
-  background: transparent; border: none; color: inherit; text-align: left; padding: 7px 0 7px 9px;
-  cursor: pointer; }
+  background: transparent; border: none; color: inherit; text-align: left;
+  padding: var(--pad-y, 6px) 0 var(--pad-y, 6px) 9px; cursor: pointer; }
 .biblio-title, .biblio-meta { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .biblio-title { font-size: var(--fs-l); line-height: 1.25; color: inherit; }
 .biblio-meta { font-size: var(--fs-s); color: var(--muted); }
@@ -1705,8 +1716,8 @@ button.ghost.danger, button.ghost.danger:hover { color: var(--status-error); bac
 .git-file-line { display: flex; align-items: center; gap: 8px; padding: 0 4px; }
 .git-file-line input[type="checkbox"], .git-file-checkbox { accent-color: var(--accent); width: 13px; height: 13px; flex: none; }
 .git-file-row { flex: 1; display: flex; align-items: center; gap: 8px; min-width: 0;
-  background: transparent; border: none; color: var(--fg2); padding: 7px 4px; cursor: pointer;
-  text-align: left; border-radius: var(--r-s); }
+  background: transparent; border: none; color: var(--fg2); padding: var(--pad-y, 6px) 4px;
+  cursor: pointer; text-align: left; border-radius: var(--r-s); }
 .git-file-row:hover { background: var(--bg-ctl); }
 .git-status { font-family: var(--code-font); font-size: var(--fs-s); width: 22px; text-align: center;
   border-radius: var(--r-s); padding: 1px 0; flex-shrink: 0; }
