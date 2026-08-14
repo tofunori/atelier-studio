@@ -5,7 +5,8 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
   articleSlug, buildArticlePage, convertPdf, copyToRagdoc, draftDir, dropDraft,
-  findDuplicates, firstAuthorSlug, importArticle, listArticles, mineruFailure, outputName,
+  abstractText, findDuplicates, firstAuthorSlug, importArticle, importDoi, listArticles,
+  mineruFailure, outputName,
   parseArticleList, parseArticleMeta,
   pruneDrafts, ragdocName, readDraft, saveDraft, writeArticle,
 } from "./article.mjs";
@@ -236,6 +237,48 @@ describe("échec MinerU", () => {
       .toMatch(/quota exceeded/);
     expect(mineruFailure({ error: { code: "ETIMEDOUT" } })).toBe("délai dépassé");
     expect(mineruFailure({ status: 0 })).toBe("markdown introuvable en sortie");
+  });
+});
+
+describe("import par DOI", () => {
+  const CROSSREF = {
+    title: "Physically based snow albedo model", authors: "Aoki, T.; Kuchiki, K.",
+    journal: "J. Geophys. Res. Atmos.", year: 2011, doi: "10.1029/2010JD015507",
+    abstract: "<jats:p>A physically based snow albedo model has been developed.</jats:p>",
+  };
+
+  it("nettoie le résumé JATS de Crossref", () => {
+    expect(abstractText(CROSSREF.abstract)).toBe("A physically based snow albedo model has been developed.");
+    expect(abstractText(null)).toBe("");
+  });
+
+  it("compose une fiche de référence sans PDF", async () => {
+    const dir = fixtureDir();
+    const out = await importDoi({ doi: "https://doi.org/10.1029/2010JD015507", dir }, {
+      crossrefMeta: async () => CROSSREF,
+      runGbrain: () => "Error [page_not_found]: nope",
+    });
+    expect(out.slug).toBe("articles/aoki-2011-physically-snow-albedo-model");
+    expect(out.metaSource).toBe("crossref");
+    expect(out.path).toBe("doi:10.1029/2010JD015507");
+    expect(readDraft(dir, out.draftId)).toContain("A physically based snow albedo model");
+    expect(out.warning).toBeNull();
+  });
+
+  it("dit qu'il n'y a pas de texte quand Crossref n'a pas de résumé", async () => {
+    const dir = fixtureDir();
+    const out = await importDoi({ doi: "10.1029/2010JD015507", dir }, {
+      crossrefMeta: async () => ({ ...CROSSREF, abstract: "" }),
+      runGbrain: () => "Error [page_not_found]: nope",
+    });
+    expect(out.warning).toMatch(/Aucun résumé/);
+    expect(readDraft(dir, out.draftId)).toMatch(/Fiche de référence/);
+  });
+
+  it("refuse ce qui n'est pas un DOI, et le DOI inconnu", async () => {
+    await expect(importDoi({ doi: "pas-un-doi" }, {})).rejects.toThrow(/DOI invalide/);
+    await expect(importDoi({ doi: "10.9999/inexistant" }, { crossrefMeta: async () => null }))
+      .rejects.toThrow(/introuvable chez Crossref/);
   });
 });
 

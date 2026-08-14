@@ -9,7 +9,7 @@ import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, wri
 import { homedir, tmpdir } from "node:os";
 import { basename, join } from "node:path";
 import { GBRAIN_NOT_FOUND, defaultKnowledgeDir, parseGbrainSearch, runGbrain, slugifyTitle } from "./knowledge.mjs";
-import { resolveArticleMeta } from "./article_meta.mjs";
+import { crossrefMeta, resolveArticleMeta } from "./article_meta.mjs";
 import { extractPdfPages } from "./zotero_passages.mjs";
 
 export const ARTICLE_DRAFT_DIR = "article-drafts";
@@ -402,6 +402,48 @@ export async function importArticle({ path, dir = defaultKnowledgeDir() } = {}, 
     ok: true, draftId, path, meta, slug, exists, converter, duplicates, metaSource,
     chars: Array.from(markdown).length, preview,
     warning: warning ?? probeError ?? null,
+  };
+}
+
+// Crossref rend parfois le résumé en JATS (<jats:p>…</jats:p>) : on le rend
+// lisible plutôt que de le recracher balisé.
+export function abstractText(raw) {
+  return String(raw ?? "")
+    .replace(/<[^>]+>/g, " ")
+    .replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&amp;/g, "&")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+// Import par DOI (plan 054) : la moitié du temps on a la référence avant le
+// PDF. La page est une FICHE DE RÉFÉRENCE — métadonnées + résumé quand
+// Crossref en donne un — et elle le dit, pour qu'on ne la prenne pas pour un
+// article intégral.
+export async function importDoi({ doi, dir = defaultKnowledgeDir() } = {}, deps = {}) {
+  const clean = String(doi ?? "").trim().replace(/^https?:\/\/(dx\.)?doi\.org\//i, "");
+  if (!/^10\.\d{4,9}\//.test(clean)) throw new Error(`DOI invalide: ${doi}`);
+  const meta = await (deps.crossrefMeta ?? crossrefMeta)(clean, deps);
+  if (!meta) throw new Error(`DOI introuvable chez Crossref (ou hors ligne) : ${clean}`);
+  const abstract = abstractText(deps.abstract ?? meta.abstract);
+  const body = abstract
+    ? `## Résumé\n\n${abstract}\n`
+    : "_Fiche de référence — aucun texte intégral. Déposer le PDF pour l'ajouter._\n";
+  const draftId = saveDraft(dir, body);
+  const slug = articleSlug(meta);
+  const page = buildArticlePage(meta, body, { origin: `doi:${clean}`, converter: "crossref" });
+  let exists = false;
+  let probeError = null;
+  try {
+    exists = probeExists(slug, deps.runGbrain ?? runGbrain);
+  } catch (error) {
+    probeError = error instanceof Error ? error.message : String(error);
+  }
+  return {
+    ok: true, draftId, path: `doi:${clean}`, meta, slug, exists,
+    converter: "crossref", metaSource: "crossref",
+    duplicates: probeError ? [] : findDuplicates({ meta, slug }, deps.runGbrain ?? runGbrain),
+    chars: Array.from(body).length, preview: page,
+    warning: probeError ?? (abstract ? null : "Aucun résumé chez Crossref — fiche de référence sans texte"),
   };
 }
 
