@@ -3456,6 +3456,24 @@ button.ctx-ring-wrap { border: none; font: inherit; color: inherit;
   border-radius: var(--r-s); transition: background var(--ease), border-color var(--ease); }
 .kb-article-check.on .kb-article-box { border-color: var(--accent);
   background: color-mix(in srgb, var(--accent) 22%, transparent); }
+/* Imports simultanés : une rangée d'onglets fins, un par PDF déposé. Un échec
+   ou une conversion longue n'empêche jamais d'en déposer un autre. */
+.kb-article-jobs { display: flex; flex-wrap: wrap; gap: 4px; }
+.kb-article-job { display: inline-flex; align-items: center; gap: 5px; max-width: 190px;
+  padding: 3px 9px; border-radius: var(--r-pill); font-size: var(--fs-xs);
+  color: var(--muted); background: var(--bg-ctl);
+  transition: color var(--ease), background var(--ease); }
+.kb-article-job-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.kb-article-job-time { font-variant-numeric: tabular-nums; color: var(--muted2); }
+.kb-article-job:hover { color: var(--fg2); }
+.kb-article-job.on { color: var(--fg); background: var(--bg-pop); }
+.kb-article-job.converting svg { color: var(--accent); }
+.kb-article-job.ready svg { color: var(--ok, #79b892); }
+.kb-article-job.error svg { color: var(--u-hot, #e06c75); }
+.kb-article-spin { animation: kb-article-spin 1.1s linear infinite; transform-origin: 50% 50%; }
+@keyframes kb-article-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .kb-article-spin { animation: none; } }
+.kb-article-more { margin-right: auto; }
 /* Doublons du corpus : l'avertissement porte la liste, chaque rangée offre le
    slug existant en un clic — remplacer vaut mieux qu'une page de plus. */
 .kb-article-dups { display: flex; flex-direction: column; gap: 4px; }
