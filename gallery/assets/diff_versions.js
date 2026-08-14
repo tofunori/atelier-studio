@@ -158,7 +158,7 @@ window.DiffVersions = function(opts){
       // Instrument de versions stable : commit | ‹ ±N › | restaurer | historique.
       // Les contrôles sont désactivés, jamais retirés, pour supprimer tout jitter.
       "#dvNav{display:inline-flex;align-items:center;height:24px;overflow:hidden;vertical-align:middle}" +
-      "#dvNav .dvNavA{display:inline-flex;align-items:center;justify-content:center;width:28px;height:24px;background:transparent;border:none;color:var(--muted,#8b93a1);cursor:pointer;padding:0}" +
+      "#dvNav .dvNavA{display:inline-flex;align-items:center;justify-content:center;width:22px;height:24px;background:transparent;border:none;color:var(--muted,#8b93a1);cursor:pointer;padding:0}" +
       "#dvNav .dvNavA:hover:not(:disabled){color:var(--txt,#dbdfe5);background:rgba(255,255,255,.06)}" +
       "#dvNav .dvNavA:disabled{color:color-mix(in srgb,var(--muted,#8b93a1) 42%,transparent);cursor:default;background:none}" +
       "#dvNav .dvNavC{min-width:58px;width:auto!important;gap:5px;padding:0 7px!important;font-variant-numeric:tabular-nums;user-select:none}" +
@@ -167,8 +167,8 @@ window.DiffVersions = function(opts){
       // Ruban de révisions : une colonne par intervention, ce qui entre au-dessus
       // de la médiane, ce qui sort en dessous. Canvas et non DOM — la barre ne
       // doit pas grossir avec l'historique.
-      "#dvNav .dvRibHost{position:relative;display:inline-flex;align-items:center;padding:0 6px}" +
-      "#dvNav canvas.dvRib{display:block;width:132px;height:16px;border-radius:3px;" +
+      "#dvNav .dvRibHost{position:relative;display:inline-flex;align-items:center;padding:0 4px}" +
+      "#dvNav canvas.dvRib{display:block;width:132px;height:14px;border-radius:3px;" +
         "cursor:ew-resize;touch-action:none}" +
       "#dvNav canvas.dvRib.off{cursor:default;opacity:.7}" +
       "#dvNav canvas.dvRib:focus-visible{outline:2px solid var(--accent,#e8823a);outline-offset:2px}" +
@@ -801,7 +801,7 @@ window.DiffVersions = function(opts){
   // dessous ce qui sort : le vocabulaire du diff, à l'échelle du pixel. Rendu
   // au canvas et non en DOM — 137 nœuds dans une barre d'outils, non.
   let navRibHost = null, navRib = null, navPeek = null, ribHover = null;
-  const RIB_W = 132, RIB_H = 16, RIB_MIN = 3, RIB_MAX_COLS = 260;
+  const RIB_W = 132, RIB_H = 14, RIB_MIN = 3, RIB_MAX_COLS = 260;
   function canvasOk(cv){ return cv && typeof cv.getContext === "function"; }
   function ensureRibbon(){
     if(navRibHost || !document.createElement) return;
@@ -884,6 +884,10 @@ window.DiffVersions = function(opts){
     // mieux : il s'efface au lieu d'afficher deux traits perdus.
     navRibHost.style.display = wide ? "" : "none";
     if(!wide) return;
+    // Largeur proportionnelle au nombre d'interventions : trois traits n'ont
+    // aucune raison d'occuper la place de cent trente-sept. Le ruban grandit
+    // avec l'historique et plafonne à RIB_W.
+    if(navRib.style) navRib.style.width = Math.min(RIB_W, Math.max(28, Math.round(n * 2.2))) + "px";
     const w = navRib.clientWidth || RIB_W, h = navRib.clientHeight || RIB_H;
     const dpr = Math.min(3, window.devicePixelRatio || 1);
     if(navRib.width !== Math.round(w * dpr)){
@@ -925,13 +929,15 @@ window.DiffVersions = function(opts){
     for(const b of buckets) peak = Math.max(peak, b.added, b.removed);
 
     const mid = Math.round(h / 2) + .5;
-    g.globalAlpha = active ? .4 : .26;
-    g.fillStyle = cLine;
-    g.fillRect(0, mid - .5, w, 1);
-
     const step = w / cols;
-    const bw = Math.max(.7, Math.min(3, step - (step > 1.7 ? .6 : 0)));
-    const half = h / 2 - 1.5;
+    // Gouttière proportionnelle : à 1 px de large et 0 px d'écart, soixante
+    // colonnes se soudent en un bandeau plein et le ruban ne dit plus rien.
+    const gap = Math.min(1.2, Math.max(.4, step * .28));
+    const bw = Math.max(.7, Math.min(3, step - gap));
+    // Canal libre de part et d'autre de la médiane : sans lui, un ajout et un
+    // retrait d'une ligne se collent en un seul pâté et le bipolaire se perd.
+    const GUT = .75;
+    const half = h / 2 - 1.5 - GUT;
     // Racine carrée : sans elle, une réécriture de 60 lignes écrase toutes les
     // retouches d'une ligne à un trait invisible.
     const scale = (v) => v > 0 ? Math.max(1, Math.sqrt(v / peak) * half) : 0;
@@ -947,11 +953,16 @@ window.DiffVersions = function(opts){
       g.globalAlpha = cur ? 1 : active ? .62 : .34;
       g.fillStyle = cur ? cCur : cAdd;
       const up = scale(b.added);
-      if(up) g.fillRect(x, mid - up, bw, up);
+      if(up) g.fillRect(x, mid - GUT - up, bw, up);
       g.fillStyle = cur ? cCur : cDel;
       const dn = scale(b.removed);
-      if(dn) g.fillRect(x, mid, bw, dn);
+      if(dn) g.fillRect(x, mid + GUT, bw, dn);
     }
+    // Médiane par-dessus les barres : elle traverse le canal libre et donne au
+    // ruban sa ligne de flottaison, au lieu de disparaître sous les colonnes.
+    g.globalAlpha = active ? .34 : .22;
+    g.fillStyle = cLine;
+    g.fillRect(0, mid - .5, w, 1);
     // Aiguille : seulement en parcours. Au repos, aucun faux « ici ».
     if(navMode >= 0 && active){
       const col = Math.min(cols - 1, Math.floor(navMode / per));
