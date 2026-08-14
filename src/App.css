@@ -3456,6 +3456,18 @@ button.ctx-ring-wrap { border: none; font: inherit; color: inherit;
   border-radius: var(--r-s); transition: background var(--ease), border-color var(--ease); }
 .kb-article-check.on .kb-article-box { border-color: var(--accent);
   background: color-mix(in srgb, var(--accent) 22%, transparent); }
+/* Doublons du corpus : l'avertissement porte la liste, chaque rangée offre le
+   slug existant en un clic — remplacer vaut mieux qu'une page de plus. */
+.kb-article-dups { display: flex; flex-direction: column; gap: 4px; }
+.kb-article-dup { display: flex; align-items: center; gap: 8px; padding: 3px 9px;
+  font-size: var(--fs-m); color: var(--fg2); }
+.kb-article-dup-slug { font-family: var(--code-font); font-size: var(--fs-s);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.kb-article-dup .kb-article-hint { flex: 1; min-width: 0; }
+.kb-article-dup-use { font-size: var(--fs-xs); color: var(--muted); padding: 2px 8px;
+  border-radius: var(--r-s); transition: color var(--ease), background var(--ease); }
+.kb-article-dup-use:hover { color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 10%, transparent); }
 .ksurface { position: relative; }
 .kb-group-section { margin-top: 8px; border-top: 1px solid var(--border);
   padding-top: 10px; color: var(--fg2); }

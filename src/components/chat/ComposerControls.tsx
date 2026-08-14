@@ -37,6 +37,17 @@ const PERMISSION_MODES = [
 
 type ModelEntry = { id: string; label: string };
 
+/** Couleur de l'anneau de contexte. L'anneau vivait en doré dès 61 % — donc
+ * presque tout le temps, et la couleur ne voulait plus rien dire. Il reste
+ * gris tant que rien n'est à décider, prend un doré éteint quand la
+ * compaction approche vraiment, et ne passe au rouge qu'au bord de la
+ * fenêtre. */
+export function contextRingStroke(pct: number): string {
+  if (pct > 92) return "var(--status-error)";
+  if (pct > 80) return "color-mix(in srgb, var(--status-warning) 55%, var(--muted))";
+  return "var(--muted)";
+}
+
 export function ComposerControls(p: {
   // état composer (possédé par Chat)
   hasContent: boolean;
@@ -274,7 +285,7 @@ export function ComposerControls(p: {
                     <svg className="ctx-ring" width="18" height="18" viewBox="0 0 18 18">
                       <circle cx="9" cy="9" r={r} fill="none" stroke="var(--bg-ctl)" strokeWidth="2.4" />
                       <circle cx="9" cy="9" r={r} fill="none"
-                        stroke={pct > 80 ? "var(--status-error)" : pct > 60 ? "var(--status-warning)" : "var(--muted)"}
+                        stroke={contextRingStroke(pct)}
                         strokeWidth="2.4" strokeLinecap="round"
                         strokeDasharray={`${(pct / 100) * c} ${c}`}
                         transform="rotate(-90 9 9)" />
