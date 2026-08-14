@@ -1905,6 +1905,11 @@ body.dragging iframe { pointer-events: none; }
 .workspace-pane-body { position: relative; flex: 1; min-width: 0; min-height: 0; overflow: hidden; }
 .workspace-content-pool { position: absolute; inset: 0; pointer-events: none; }
 .workspace-content-layer { position: absolute; min-width: 0; min-height: 0; overflow: hidden; pointer-events: auto; background: var(--bg); transform-origin: top left; }
+/* plan 057 : la ligne du pane garde la hauteur d'en-tête commune — c'est elle
+   qui aligne l'atelier sur le chat. Elle ne porte plus d'onglets, seulement
+   les contrôles ; la fiche du document est descendue avec l'état. */
+.workspace-pane-head { justify-content: flex-end; padding-right: var(--sp-2); }
+.workspace-pane-head .flex { flex: 1; }
 .workspace-pane-controls-slot { flex: 0 0 auto; min-width: 0; margin-left: auto; display: flex; align-items: center; }
 .workspace-pane-controls { display: inline-flex; align-items: center; gap: 1px; color: var(--text-disabled); }
 .workspace-pane-controls .workspace-pane-grip { cursor: grab; touch-action: none; }

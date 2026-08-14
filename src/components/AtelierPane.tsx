@@ -11,7 +11,6 @@ const GeneratorSurface = lazyWithRetry(() => import("./GeneratorSurface"));
 const NarvalSurface = lazyWithRetry(() => import("./NarvalSurface"));
 import { t } from "../lib/i18n";
 import { CloseIcon, RefreshIcon } from "./icons";
-import { DocumentTabMeta } from "./AtelierHeaders";
 import { GallerySkeleton } from "./GallerySkeleton";
 import { Button, IconButton, RowButton } from "./ui";
 import { AgentDetailPanel, type AgentDisplay } from "./chat/AgentActivity";
@@ -576,8 +575,6 @@ export default function AtelierPane({
       : null;
     return (
       <div className={`workspace-pane-controls is-${placement}`} data-pane-controls={placement}>
-        {/* plan 057 : remontés de la bande d'onglets disparue */}
-        {relative && <DocumentTabMeta rel={relative} onInspect={onInspectFile} />}
         {ref.kind === "surface" && ref.surface === "atelier" && onGalleryReload && (
           <IconButton className="ghost" label={t("action.refresh-hard")} title={t("action.refresh-hard")} size="s" onClick={onGalleryReload}>
             <RefreshIcon />
@@ -873,9 +870,18 @@ export default function AtelierPane({
         data-pane-id={paneNode.id}
         data-pane-chrome={nativeChrome ? "native" : "workspace"}
       >
-        {/* plan 057 : plus de bande d'onglets — le rail les porte. Restent les
-            contrôles du pane, flottants, avec le rechargement de la galerie. */}
-        {activeRef && !integratedControls && renderPaneControls(paneNode, activeRef, "floating")}
+        {/* plan 057 : plus de bande d'ONGLETS — le rail les porte — mais la
+            LIGNE reste : c'est elle qui aligne la colonne de l'atelier sur
+            l'en-tête du chat (même --surface-header-height). La supprimer
+            laissait la barre de l'éditeur vendorisé en face du chat, à une
+            hauteur que personne n'accorde. */}
+        {!nativeChrome && activeRef && (
+          <div className="atelier-bar workspace-pane-head">
+            <span className="flex" />
+            {!integratedControls && renderPaneControls(paneNode, activeRef, "integrated")}
+          </div>
+        )}
+        {nativeChrome && activeRef && !integratedControls && renderPaneControls(paneNode, activeRef, "floating")}
         <div className="workspace-pane-body" data-workspace-pane-body={paneNode.id}>
           {paneNode.tabs.length === 0 && (
             <div className="workspace-empty-pane">
