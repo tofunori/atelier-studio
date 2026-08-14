@@ -271,6 +271,43 @@ describe("contrat Quiet Instrument (sources CSS)", () => {
     expect(keyframes).toEqual(["@keyframes ui-spin"]);
   });
 
+  // §9 : « Maximum une animation continue (boucle) par surface — un seul
+  // spinner ou indicateur running à la fois ». Le fil de chat en empilait sept,
+  // non harmoniques (1,4 s / 2 s / 4 s, elles battaient les unes contre les
+  // autres). Boucle unique retenue : l'anneau accent de .working-label, présent
+  // tant que le tour tourne et porteur de la durée écoulée. Tout le reste se
+  // différencie par la COULEUR et le TEXTE (--status-running, libellé), pas par
+  // le mouvement. Hors périmètre : le spinner de la barre Reviewer (.rb-spin),
+  // bannière au-dessus du fil, jamais co-visible — une revue ne démarre que sur
+  // un tour terminé.
+  it("chat : une seule boucle continue pendant un tour actif", () => {
+    const rules = [...appCss.matchAll(/([^{}]+)\{([^{}]*)\}/g)].map((m) => ({
+      selector: m[1].trim().replace(/\s+/g, " "),
+      body: m[2],
+    }));
+    for (const selector of [
+      ".thinking.live .thinking-label",
+      ".thinking.live .thinking-icon",
+      ".activity-step.running .activity-step-dot",
+      ".ui-activity-label.is-shimmering",
+      ".stream-caret",
+      ".review-badge.v-running",
+    ]) {
+      const animated = rules.filter(
+        (r) => r.selector.includes(selector)
+          && /animation[a-z-]*:/.test(r.body)
+          && !/animation:\s*none/.test(r.body),
+      );
+      expect(animated.map((r) => r.selector), `${selector} porte encore une animation`).toEqual([]);
+    }
+    const chatScope = /\b(msg|thinking|activity|working|stream-caret|turn|review-badge|capsule|queued)\b/;
+    const loops = rules
+      .filter((r) => /animation[^;]*infinite/.test(r.body))
+      .map((r) => r.selector)
+      .filter((selector) => chatScope.test(selector));
+    expect(loops).toEqual([".working-label::before"]);
+  });
+
   it("reduced motion : les tokens de durée sont neutralisés centralement (0ms)", () => {
     const block = tokens.match(/@media \(prefers-reduced-motion: reduce\)[\s\S]*?\n\}/);
     expect(block).not.toBeNull();

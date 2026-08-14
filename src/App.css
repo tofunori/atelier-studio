@@ -759,34 +759,25 @@ html, body, #root, .app { height: 100vh; overflow: hidden;
   background: transparent; color: var(--muted2); font: inherit; font-size: var(--fs-m); cursor: pointer; }
 .active-work-more:hover { color: var(--fg2); }
 .active-turn-details { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
-.active-turn-details > .ui-activity, .active-turn-details > .activity-card { margin-left: 0; margin-right: 0; }
+.active-turn-details > .ui-activity { margin-left: 0; margin-right: 0; }
 .turn-fold-label { font-size: var(--fs-m); font-weight: 400; color: var(--muted); }
 .ui-activity-trigger:hover .turn-fold-label { color: var(--fg2); }
 .turn-fold-meta { color: var(--muted2); font-variant-numeric: tabular-nums; }
-.activity-card { max-width: min(var(--chat-col, 760px), 100%); margin: 2px auto 5px; padding: 3px 0;
-  border: none; border-radius: 0; background: transparent;
-  color: var(--muted); font-size: var(--fs-m); }
-.activity-card.completed { opacity: 0.78; }
-.activity-card.failed { border-color: color-mix(in srgb, var(--status-error) 36%, transparent); }
-.activity-head { width: 100%; display: grid; grid-template-columns: 10px auto minmax(0, 1fr) auto auto;
-  align-items: center; gap: 7px; padding: 0; border: none; background: transparent;
-  color: inherit; font: inherit; text-align: left; cursor: pointer; }
-.activity-head:hover .activity-title { color: var(--fg2); }
-.activity-pulse { width: 7px; height: 7px; border-radius: var(--r-pill);
-  background: var(--status-running); box-shadow: 0 0 0 3px color-mix(in srgb, var(--status-running) 8%, transparent); }
-.activity-card.live .activity-pulse { animation: pulse 1.4s ease-in-out infinite; }
-.activity-card.completed .activity-pulse { background: var(--status-success); box-shadow: 0 0 0 3px color-mix(in srgb, var(--status-success) 8%, transparent); }
-.activity-card.failed .activity-pulse { background: var(--status-error); box-shadow: 0 0 0 3px color-mix(in srgb, var(--status-error) 8%, transparent); }
+/* ActivityCard passe par ActivityDisclosure (.ui-activity) depuis le plan 016 :
+   .activity-card / .activity-head / .activity-pulse n'avaient plus AUCUN
+   consommateur — dont la boucle .activity-card.live .activity-pulse. Seuls le
+   titre, le détail et les étapes ci-dessous sont encore rendus. */
 .activity-title { color: var(--fg2); font-weight: 600; white-space: nowrap; }
 .activity-detail { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted); }
-.activity-count { color: var(--muted2); white-space: nowrap; }
 .activity-steps { display: grid; gap: 4px; margin: 5px 0 3px 4px; padding: 2px 0 2px 17px;
   border-left: 1px solid var(--border-interactive); animation: toolGroupIn 0.12s ease-out; }
 .activity-step { display: grid; grid-template-columns: 12px auto minmax(0, 1fr);
   align-items: baseline; gap: 7px; min-height: 18px; }
 .activity-step-dot { width: 5px; height: 5px; border-radius: var(--r-pill); background: var(--muted2);
   align-self: center; justify-self: center; }
-.activity-step.running .activity-step-dot { background: var(--status-running); animation: pulse 1.4s ease-in-out infinite; }
+/* une étape en cours se lit à sa COULEUR : N étapes running = N boucles
+   concurrentes, interdit par §9 */
+.activity-step.running .activity-step-dot { background: var(--status-running); }
 .activity-step.completed .activity-step-dot { background: var(--status-success); }
 .activity-step.failed .activity-step-dot { background: var(--status-error); }
 .activity-step-title { color: var(--fg2); font-weight: 500; white-space: nowrap; }
@@ -1503,11 +1494,10 @@ button.ghost.danger, button.ghost.danger:hover { color: var(--status-error); bac
 .sel-toolbar button:hover { background: var(--bg-ctl); color: var(--fg); }
 ::highlight(chat-hl) { background: color-mix(in srgb, var(--accent) 32%, transparent); }
 ::highlight(chat-ul) { text-decoration: underline; text-decoration-color: var(--accent); text-underline-offset: 3px; }
+/* curseur de frappe : présent, pas clignotant — l'anneau de .working-label est
+   déjà la boucle du tour en cours (§9) */
 .stream-caret { display: inline-block; width: 7px; height: 15px; margin-left: 2px;
-  background: var(--accent); opacity: 0.7; vertical-align: text-bottom;
-  animation: caret-blink 1s steps(1) infinite; }
-@keyframes caret-blink { 50% { opacity: 0; } }
-@media (prefers-reduced-motion: reduce) { .stream-caret { animation: none; } }
+  background: var(--accent); opacity: 0.7; vertical-align: text-bottom; }
 
 /* Palette de commandes */
 .cmdk-dialog-overlay { z-index: 240; background: rgba(0,0,0,0.34); }
@@ -2046,15 +2036,13 @@ body.dragging iframe { pointer-events: none; }
    du h2 est neutralisé — le poids (600) vient de la primitive */
 .ui-surface-header .title { margin: 0; }
 
-/* boucles encore actives sous reduced-motion (audit §6) */
+/* boucles encore actives sous reduced-motion (audit §6). Le fil de chat n'y
+   figure plus : ses indicateurs sont statiques en permanence depuis le passage
+   « une seule boucle par surface » — seule subsiste l'entrée d'un libellé
+   d'activité (transform, à neutraliser ici). */
 @media (prefers-reduced-motion: reduce) {
-  .atelier-skeleton-grid [data-slot="skeleton"], .activity-pulse,
-  .activity-step.running .activity-step-dot, .qa-minidot,
-  .review-badge.v-running, .thinking.live .thinking-label,
-  .thinking.live .thinking-icon, .thinking-live-indicator .thinking-icon,
-  .thinking-shimmer-sweep, .thinking-shimmer-highlight,
-  .ui-activity-label.is-shimmering, .active-activity-transition { animation: none; }
-  .ui-activity-label.is-shimmering { background-image: none; -webkit-text-fill-color: currentColor; }
+  .atelier-skeleton-grid [data-slot="skeleton"], .qa-minidot,
+  .active-activity-transition { animation: none; }
 }
 
 /* focus visible sur les champs qui neutralisaient l'outline sans remplacement */
@@ -2306,7 +2294,9 @@ button.ctx-ring-wrap { border: none; font: inherit; color: inherit;
 /* ===== auto-review : badge + détail ===== */
 .review-badge { margin-left: 10px; font-size: var(--fs-s); padding: 2px 9px; border-radius: var(--r-pill);
   border: 1px solid var(--border); color: var(--muted); cursor: default; }
-.review-badge.v-running { animation: pulse 1.8s ease-in-out infinite; }
+/* même grammaire que v-ok / v-issues : la couleur porte l'état, pas la pulsation */
+.review-badge.v-running { color: var(--status-running);
+  border-color: color-mix(in srgb, var(--status-running) 40%, transparent); }
 .review-badge.v-ok { color: var(--status-success); border-color: color-mix(in srgb, var(--status-success) 40%, transparent); }
 .review-badge.v-issues { color: var(--status-warning); border-color: color-mix(in srgb, var(--status-warning) 45%, transparent);
   cursor: pointer; }
@@ -2442,14 +2432,11 @@ button.ctx-ring-wrap { border: none; font: inherit; color: inherit;
   align-items: center; gap: 7px; padding: 2px 0; cursor: pointer; font: inherit;
   font-size: var(--fs-m); color: var(--muted); max-width: 100%; text-align: left; }
 .thinking-icon { width: 12px; height: 12px; flex: none; color: currentColor; }
+/* réflexion en cours : différenciée par la COULEUR et le LIBELLÉ, jamais par
+   le mouvement (§9 — la seule boucle du chat est l'anneau de .working-label) */
 .thinking.live .thinking-icon, .thinking-live-indicator .thinking-icon {
-  animation: thinking-icon-flash 2s ease-in-out infinite; }
-@keyframes thinking-icon-flash {
-  0%, 35%, 100% { opacity: .42; }
-  12% { opacity: 1; }
-}
+  color: var(--status-running); }
 .thinking-label { font-style: italic; flex: none; }
-.thinking.live .thinking-label { animation: pulse 1.4s ease-in-out infinite; }
 .thinking-preview { color: var(--muted2); font-style: italic; overflow: hidden;
   text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
 .thinking-head .tool-tick { flex: none; margin-left: 1px; }
@@ -2472,57 +2459,18 @@ button.ctx-ring-wrap { border: none; font: inherit; color: inherit;
    contenu — même discrétion que l'aperçu du bloc replié */
 .thinking-live-tail { color: var(--muted2); font-style: italic; min-width: 0;
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-/* ChatGPT/Codex : une seconde copie du mot traverse un masque étroit.
-   Un passage dure 650 ms, puis le libellé reste calme jusqu'à la cadence suivante. */
+/* libellé « Réflexion » : STATIQUE. Le balayage (650 ms toutes les 4 s, piloté
+   en JS) battait contre l'anneau .working-label affiché juste au-dessus — deux
+   boucles dans la même surface, interdit par §9. La teinte est celle du repos
+   du balayage : rien ne change à l'œil, seule la boucle disparaît. */
 .thinking-shimmer {
-  --thinking-shimmer-base: color-mix(in srgb, var(--text-primary) 58%, transparent);
-  --thinking-shimmer-highlight: color-mix(in srgb, var(--text-primary) 96%, transparent);
-  position: relative; display: inline-block; color: var(--thinking-shimmer-base);
-  white-space: nowrap; }
-.thinking-shimmer-sweep {
-  pointer-events: none; position: absolute; inset: 0 auto 0 0; width: 100%;
-  overflow: hidden; transform: translateX(-50%);
-  -webkit-mask-image: linear-gradient(90deg, transparent 0%, #000 20% 30%, transparent 50% 100%);
-  mask-image: linear-gradient(90deg, transparent 0%, #000 20% 30%, transparent 50% 100%); }
-.thinking-shimmer-highlight {
-  display: block; width: 100%; color: var(--thinking-shimmer-highlight);
-  transform: translateX(50%); }
-.thinking-shimmer.is-sweeping .thinking-shimmer-sweep,
-.thinking-shimmer.is-sweeping .thinking-shimmer-highlight {
-  animation-duration: 650ms; animation-timing-function: steps(32, end);
-  animation-iteration-count: 1; }
-.thinking-shimmer.is-sweeping .thinking-shimmer-sweep {
-  animation-name: thinking-shimmer-sweep; }
-.thinking-shimmer.is-sweeping .thinking-shimmer-highlight {
-  animation-name: thinking-shimmer-highlight; }
-@keyframes thinking-shimmer-sweep {
-  from { transform: translateX(-50%); }
-  to { transform: translateX(125%); }
-}
-@keyframes thinking-shimmer-highlight {
-  from { transform: translateX(50%); }
-  to { transform: translateX(-125%); }
-}
+  display: inline-block; white-space: nowrap;
+  color: color-mix(in srgb, var(--text-primary) 58%, transparent); }
 
-/* Codex : seule l'intention de l'action réellement active est éclairée.
-   Le balayage dure 1 s, puis reste discret 3 s avant le passage suivant. */
-.ui-activity-label.is-shimmering {
-  --activity-shimmer-base: color-mix(in srgb, var(--text-secondary) 58%, transparent);
-  --activity-shimmer-highlight: color-mix(in srgb, var(--text-primary) 82%, transparent);
-  background-color: var(--activity-shimmer-base);
-  background-image: linear-gradient(to right,
-    transparent 0%,
-    var(--activity-shimmer-highlight) 40%,
-    var(--activity-shimmer-highlight) 60%,
-    transparent 100%);
-  background-position: -100% 0;
-  background-repeat: no-repeat;
-  background-size: 50% 200%;
-  -webkit-background-clip: text;
-  background-clip: text;
-  -webkit-text-fill-color: transparent;
-  animation: activity-label-shimmer 4s steps(48, end) .6s infinite;
-}
+/* Codex : l'action réellement en cours reste distinguée — mais par le
+   CONTRASTE du libellé, plus par un balayage (§9, une boucle par surface).
+   La classe garde son nom historique : elle marque le libellé ACTIF. */
+.ui-activity-label.is-shimmering { color: var(--text-primary); }
 
 .active-activity-transition {
   display: inline;
@@ -2532,16 +2480,6 @@ button.ctx-ring-wrap { border: none; font: inherit; color: inherit;
 @keyframes active-activity-enter {
   from { opacity: 0; transform: translateY(2px); }
   to { opacity: 1; transform: translateY(0); }
-}
-.ui-activity-trigger:hover .ui-activity-label.is-shimmering {
-  animation: none;
-  background-image: none;
-  -webkit-text-fill-color: currentColor;
-}
-@keyframes activity-label-shimmer {
-  0% { background-position: -100% 0; }
-  25% { background-position: 250% 0; }
-  25.01%, 100% { background-position: 250% 0; }
 }
 /* ===== carte permission (mode Ask) ===== */
 .perm-card { border: 1px solid var(--border2); border-left: 2.5px solid var(--accent);

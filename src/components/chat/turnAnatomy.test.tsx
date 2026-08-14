@@ -123,21 +123,19 @@ describe("anatomie du tour — header d'activité", () => {
     expect(indicator.textContent).not.toContain("asking about the style");
   });
 
-  it("cadence le reflet Thinking : délai de 600 ms, passage de 650 ms, puis toutes les 4 s", () => {
+  // Contrat §9 (« une seule boucle par surface ») : le reflet Thinking battait
+  // toutes les 4 s SOUS l'anneau de Working, qui tourne à 0,8 s. Le libellé est
+  // désormais statique — aucune classe de balayage, aucun minuteur.
+  it("le reflet Thinking est statique : aucune boucle ni minuteur", () => {
     vi.useFakeTimers();
     try {
       renderUi(<ThinkingShimmer text="Thinking" />);
       const shimmer = document.querySelector(".thinking-shimmer") as HTMLElement;
+      expect(shimmer.textContent).toBe("Thinking");
+      expect(shimmer.children).toHaveLength(0);
+      act(() => vi.advanceTimersByTime(10_000));
       expect(shimmer.classList.contains("is-sweeping")).toBe(false);
-
-      act(() => vi.advanceTimersByTime(600));
-      expect(shimmer.classList.contains("is-sweeping")).toBe(true);
-
-      act(() => vi.advanceTimersByTime(650));
-      expect(shimmer.classList.contains("is-sweeping")).toBe(false);
-
-      act(() => vi.advanceTimersByTime(3_350));
-      expect(shimmer.classList.contains("is-sweeping")).toBe(true);
+      expect(vi.getTimerCount()).toBe(0);
     } finally {
       cleanup();
       vi.useRealTimers();
@@ -316,9 +314,7 @@ describe("anatomie du tour — header d'activité", () => {
     const tail = document.querySelector(".active-turn-tail") as HTMLElement;
     expect(header).toBeTruthy();
     expect(tail).toBeTruthy();
-    expect(tail.querySelector(".thinking-shimmer")).toBeTruthy();
-    expect(tail.querySelector(".thinking-shimmer-sweep[aria-hidden='true']")).toBeTruthy();
-    expect(tail.querySelector(".thinking-shimmer-highlight")?.textContent).toBe(t("chat.thinking"));
+    expect(tail.querySelector(".thinking-shimmer")?.textContent).toBe(t("chat.thinking"));
     expect(header.compareDocumentPosition(message) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(message.compareDocumentPosition(tail) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
