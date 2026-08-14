@@ -397,14 +397,22 @@ export function ThinkingShimmer({ text = t("chat.thinking") }: { text?: string }
 }
 
 export function LiveThinking({ thought }: { thought?: string | null } = {}) {
-  // Une seule ligne, la fin de la pensée en cours : on voit sur QUOI l'agent
-  // travaille sans dérouler des centaines de chunks (Grok en émet ~49 pour un
-  // simple « allo »). Le déroulé complet reste à un clic, tour terminé.
-  const tail = (thought ?? "").replace(/\s+/g, " ").trim().slice(-120);
+  // La pensée se DÉROULE pendant le travail : une fenêtre de quelques lignes
+  // calée sur la fin, plutôt que les 120 derniers caractères sur une ligne.
+  // Bornée en hauteur — Grok émet des centaines de morceaux et le fil ne doit
+  // pas se faire pousser hors de l'écran par du raisonnement.
+  const texte = (thought ?? "").trim();
+  const flux = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const el = flux.current;
+    if (el) el.scrollTop = el.scrollHeight;
+  }, [texte]);
   return (
     <div className="thinking-live-indicator" role="status" aria-live="polite">
       <BrainCircuitIcon className="thinking-icon" aria-hidden="true" />
-      {tail ? <span className="thinking-live-tail">{tail}</span> : <ThinkingShimmer />}
+      {texte
+        ? <div ref={flux} className="thinking-live-stream">{texte}</div>
+        : <ThinkingShimmer />}
     </div>
   );
 }
