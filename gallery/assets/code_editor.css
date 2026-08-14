@@ -1,7 +1,7 @@
 :root{--ui-font:-apple-system,'SF Pro Text','Inter Variable',sans-serif;--code-font:ui-monospace,'SF Mono',Menlo,monospace;--bg:#202024;--card:#27272a;--card2:#1f1f23;--txt:#dbdfe5;--muted:#a1a1aa;--accent:#5b9dff;--border:#3f3f46}
   html,body{margin:0;height:100%;background:var(--bg);color:var(--txt);
             font-family:var(--ui-font);display:flex;flex-direction:column}
-  header{background:var(--card);border-bottom:1px solid var(--border);padding:8px 14px;
+  header{background:var(--card);border-bottom:1px solid var(--border);padding:8px 14px;height:44px;box-sizing:border-box;
          display:flex;gap:12px;align-items:center;font-size:13px;flex-shrink:0}
   #fname{font-weight:600}
   #state{color:var(--muted)}

@@ -1,7 +1,7 @@
 :root{--ui-font:-apple-system,'SF Pro Text','Inter Variable',sans-serif;--code-font:ui-monospace,'SF Mono',Menlo,monospace;--bg:#212429;--card:#1a1d22;--card2:#1a1d22;--txt:#dbdfe5;--muted:#868d9a;--accent:#e8823a;--border:#333a45;--border-strong:#3f4652;--toolbar-active:#2d3540;--toolbar-active-text:#b9c7d8;--radius-control:7px;--control-height:28px}
   html,body{margin:0;height:100%;background:var(--bg);color:var(--txt);
             font-family:var(--ui-font);display:flex;flex-direction:column;overflow:hidden}
-  header{background:var(--card);border-bottom:1px solid var(--border);padding:6px 10px;
+  header{background:var(--card);border-bottom:1px solid var(--border);padding:6px 10px;height:44px;box-sizing:border-box;
          display:flex;gap:8px;align-items:center;font-size:13px;flex-shrink:0;
          overflow:hidden;white-space:nowrap}
   header .grp{display:flex;gap:3px;align-items:center;flex:none}
