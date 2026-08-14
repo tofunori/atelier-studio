@@ -1030,7 +1030,7 @@ impl Provider for GrokProvider {
                 .default_effort
                 .clone()
                 .filter(|value| efforts.iter().any(|listed| listed == value))
-                .or_else(|| efforts.last().cloned());
+                .or_else(|| fallback_default_effort(&efforts));
             reasoning.insert(
                 model.id.clone(),
                 json!({"supported_efforts": efforts, "default_effort": default_effort}),
@@ -1495,8 +1495,34 @@ fn request_cwd(project_root: &str) -> String {
 }
 
 /// Efforts servis tant que Grok n'a rien annoncé pour ce modèle.
+///
+/// Le catalogue ne porte d'efforts qu'après un `session/new` ACP : au démarrage
+/// de l'app, et jusqu'au premier message, c'est CE repli que l'UI affiche. Il
+/// est donc visible en permanence, pas seulement en cas de panne — un repli à
+/// trois niveaux faisait disparaître `xhigh` du slider à chaque lancement alors
+/// que Grok 4.6 l'annonce (`["xhigh","high","medium","low"]`, cf. le fixture
+/// `session_new_fixture`).
+///
+/// Aligné sur ce que Grok annonce réellement, ni plus ni moins : `minimal` et
+/// `max` n'en font pas partie. Sur un modèle qui ne supporte pas `xhigh`
+/// (Grok 4.5), `map_effort_for` le ramène à `high` — le repli reste sûr.
 fn fallback_efforts() -> Vec<String> {
-    vec!["low".into(), "medium".into(), "high".into()]
+    vec!["low".into(), "medium".into(), "high".into(), "xhigh".into()]
+}
+
+/// Effort par défaut quand le modèle n'en annonce aucun.
+///
+/// `efforts.last()` ne peut pas servir : l'ordre appartient au provider et Grok
+/// annonce du plus fort au plus faible, donc le « dernier » vaut `low` sur un
+/// modèle riche et `xhigh` sur le repli — deux politiques opposées selon la
+/// source. On nomme la valeur voulue au lieu de la déduire d'un ordre qui n'est
+/// pas un contrat ; `high` est aussi ce que Grok annonce lui-même pour 4.6.
+fn fallback_default_effort(efforts: &[String]) -> Option<String> {
+    ["high", "medium", "low"]
+        .iter()
+        .find(|candidate| efforts.iter().any(|listed| listed == *candidate))
+        .map(|value| (*value).to_string())
+        .or_else(|| efforts.last().cloned())
 }
 
 /// Traduit un effort de l'UI vers un effort que CE modèle accepte. Un effort
@@ -1907,10 +1933,13 @@ mod tests {
             dynamic["modelReasoning"]["grok-4.5"]["supported_efforts"],
             json!(["high", "medium", "low"])
         );
-        // Modèle muet sur les efforts : repli à trois niveaux, pas de panique.
+        // Modèle muet sur les efforts : repli, pas de panique. Il porte xhigh
+        // depuis qu'on a constaté que ce repli est ce que l'UI affiche à CHAQUE
+        // démarrage (catalogue vide avant le premier `session/new`) — un repli
+        // à trois niveaux effaçait xhigh du slider à chaque lancement.
         assert_eq!(
             dynamic["modelReasoning"]["ocx-gpt-5-6-sol"]["supported_efforts"],
-            json!(["low", "medium", "high"])
+            json!(["low", "medium", "high", "xhigh"])
         );
         assert_eq!(
             dynamic["modelReasoning"]["ocx-gpt-5-6-sol"]["default_effort"],
@@ -2026,6 +2055,21 @@ mod tests {
         assert_eq!(catalog.ids(), vec!["grok-4.6", "grok-code-1"]);
         assert_eq!(catalog.get("grok-4.6").unwrap().label.as_deref(), Some("Grok 4.6"));
         assert_eq!(catalog.get("grok-code-1").unwrap().label, None);
+    }
+
+    #[test]
+    fn le_repli_expose_xhigh_avant_toute_session() {
+        // Aucun `session/new` : le catalogue est vide, c'est le repli qui part
+        // vers l'UI. C'est l'état de CHAQUE démarrage d'app, pas un cas d'erreur.
+        let provider = GrokProvider::with_command(PathBuf::from("/bin/false"), vec!["fixture".into()]);
+        assert_eq!(provider.efforts(), vec!["low", "medium", "high", "xhigh"]);
+        // et il reste envoyable même sur un modèle qui ne l'annonce pas
+        assert_eq!(map_effort_for(&[], "xhigh").as_deref(), Some("high"));
+        // élargir le repli ne doit PAS remonter le défaut : `high` reste `high`
+        assert_eq!(fallback_default_effort(&fallback_efforts()).as_deref(), Some("high"));
+        // ordre décroissant annoncé par Grok : même défaut, pas `low`
+        let annonce: Vec<String> = ["xhigh", "high", "medium", "low"].iter().map(|v| v.to_string()).collect();
+        assert_eq!(fallback_default_effort(&annonce).as_deref(), Some("high"));
     }
 
     #[test]
