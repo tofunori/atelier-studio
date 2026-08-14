@@ -144,6 +144,13 @@
      la marque/projet/stat sont déjà dans le chrome de l'app */
   html.emb .brand{display:none}
   html.emb header{padding:4px 10px;height:44px;box-sizing:border-box}
+  /* Les contrôles de la barre React font 30 px : dans une barre de 44 px il ne
+     reste que 7 px de respiration, et l'ensemble paraît serré (les boutons
+     sont pourtant centrés au pixel). On les ramène à 26 px, la taille des
+     contrôles d'Atelier, ce qui donne 9 px de marge. */
+  html.emb .gallery-command-bar :is(button,[role=button],[data-slot=select-trigger]){
+    height:26px;min-height:26px;padding:0 9px;font-size:11.5px}
+  html.emb .gallery-command-bar :is(button,[role=button]) svg{width:13px;height:13px}
   html.emb .controls .ctrl-sp{flex:1}
   /* Dans Atelier, la Gallery est un lanceur vers les onglets et viewers.
      L'inspecteur latéral appartient uniquement au mode navigateur autonome. */
