@@ -135,16 +135,22 @@ export function createLatexCompileCoordinator(
       const log = analyzeCompileResponse(response);
       options.renderLog(log);
       if (!response.ok) {
+        // La pastille de la barre d'état porte déjà le résultat, en plus
+        // précis (nombre d'erreurs et de warnings). Le répéter dans la barre
+        // du haut ne disait rien de neuf et occupait la place réservée à
+        // l'état du DOCUMENT — sauvegarde, rechargement, baseline.
         setChip("err", log.errors
           ? `${log.errors} ${log.errors > 1 ? "erreurs" : "erreur"}${log.warnings ? ` · ${log.warnings} warning${log.warnings > 1 ? "s" : ""}` : ""}`
           : "échec — voir la console");
-        options.setState("err", "✗ compilation échouée — voir la console");
+        // Rendre la barre du haut à l'état du document : sans ça elle
+        // resterait figée sur « compiling… ».
+        options.setState("ok", "saved");
         return;
       }
 
       const clock = clockLabel();
       setChip("ok", `compilé en ${duration} s · ${clock}`);
-      options.setState("ok", `✓ compiled ${clock}`);
+      options.setState("ok", "saved");
       options.onCompiled(response);
     },
     dispose(): void {
