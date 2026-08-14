@@ -2570,8 +2570,15 @@ button.ctx-ring-wrap { border: none; font: inherit; color: inherit;
 .reasoning-trace-body { margin: 4px 0 6px; padding: 7px 10px; border-left: 1px solid var(--border2);
   color: var(--text-muted); font-size: var(--fs-m); white-space: pre-wrap; line-height: 1.5; }
 .thinking-live-indicator { margin: 2px 0 6px; padding: 2px 0; color: var(--text-muted);
-  display: flex; align-items: center; gap: 7px; font-size: var(--fs-l); font-style: normal;
+  display: flex; align-items: flex-start; gap: 7px; font-size: var(--fs-l); font-style: normal;
   min-width: 0; }
+.thinking-live-indicator .thinking-icon { margin-top: 3px; }
+/* déroulé en cours : quatre lignes au plus, collées à la fin. La hauteur est
+   bornée pour que le raisonnement ne pousse jamais la réponse hors de l'écran. */
+.thinking-live-stream { flex: 1; min-width: 0; max-height: 6em; overflow-y: auto;
+  color: var(--text-disabled); font-style: italic; line-height: 1.5;
+  white-space: pre-wrap; overflow-wrap: anywhere; scrollbar-width: none; }
+.thinking-live-stream::-webkit-scrollbar { width: 0; height: 0; display: none; }
 /* fin de la pensée en cours : une ligne, éteinte, jamais concurrente du
    contenu — même discrétion que l'aperçu du bloc replié */
 .thinking-live-tail { color: var(--text-disabled); font-style: italic; min-width: 0;
