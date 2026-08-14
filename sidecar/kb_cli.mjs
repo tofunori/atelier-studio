@@ -1,12 +1,13 @@
 // CLI terminal de la base de connaissances (plan 049) — JSON sur stdout,
 // erreurs sur stderr + exit 1, comme atelier-zotero-passages.
 import { pathToFileURL } from "node:url";
+import { importArticle, writeArticle } from "./article.mjs";
 import { KnowledgeStore, defaultKnowledgeDir, parseGbrainSearch, promotePage, runGbrain } from "./knowledge.mjs";
 import { passageLink } from "./zotero_passages.mjs";
 
-const COMMANDS = new Set(["add", "list", "remove", "search", "gbrain-search", "promote-page", "collection", "tag", "archive"]);
+const COMMANDS = new Set(["add", "list", "remove", "search", "gbrain-search", "promote-page", "collection", "tag", "archive", "article-import", "article-write"]);
 const USAGE = [
-  "Usage: atelier-kb <add|list|remove|search|gbrain-search|promote-page> [options]",
+  "Usage: atelier-kb <add|list|remove|search|gbrain-search|promote-page|article-import|article-write> [options]",
   "  add    --kind file|pdf|web|youtube|note|folder|gbrain [--origin <chemin|url|slug>] [--title <t>] [--text <t>]",
   "         (--text - lit le texte sur stdin — gros contenus, capture browser)",
   "  list",
@@ -14,6 +15,9 @@ const USAGE = [
   "  search --id <id> --query <question> [--limit 5]",
   "  gbrain-search --query <mots-clés> [--limit 12]   (corpus NAS)",
   "  promote-page --id <id> [--slug atelier/…] [--write]   (page directe gbrain)",
+  "  article-import --path <article.pdf>              (PDF → markdown + fiche, sans écriture)",
+  "  article-write --draft <id> --slug <articles/…> [--title/--authors/--year/--journal/--doi]",
+  "                [--origin <pdf>] [--converter <mineru|local>] [--ragdoc]",
   "  collection --add <titre> | --rename <slug> --title <t> | --remove <slug>",
   "  tag (--id <id> | --ids a,b,c) --collection <slug> [--off]",
   "  archive (--id <id> | --ids a,b,c) [--off]",
@@ -81,7 +85,7 @@ function parseArgs(argv) {
   const options = {};
   for (let i = 1; i < argv.length; i += 1) {
     const key = argv[i];
-    if (key === "--write" || key === "--archived" || key === "--off") {
+    if (key === "--write" || key === "--archived" || key === "--off" || key === "--ragdoc") {
       options[key.slice(2)] = true;
       continue;
     }
@@ -155,6 +159,28 @@ export async function runKbCommand(argv, deps = {}) {
       id: options.id,
       slug: options.slug,
       write: options.write === true,
+    }, deps);
+  }
+  if (command === "article-import") {
+    // conversion seule : le brouillon reste sur disque, le corpus intact
+    return importArticle({ path: options.path, dir: options.dir || undefined }, deps);
+  }
+  if (command === "article-write") {
+    if (!options.draft) throw new Error("Argument requis: --draft");
+    return writeArticle({
+      draftId: options.draft,
+      slug: options.slug,
+      meta: {
+        title: options.title ?? "",
+        authors: options.authors ?? "",
+        year: options.year ? Number(options.year) : null,
+        journal: options.journal ?? "",
+        doi: options.doi ?? "",
+      },
+      origin: options.origin ?? "",
+      converter: options.converter ?? "",
+      ragdoc: options.ragdoc === true,
+      dir: options.dir || undefined,
     }, deps);
   }
   if (command === "gbrain-search") {

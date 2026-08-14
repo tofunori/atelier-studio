@@ -1,3 +1,4 @@
+import { execFile } from "node:child_process";
 import { createHash } from "node:crypto";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, isAbsolute, join } from "node:path";
@@ -29,6 +30,34 @@ const projectWriters = new Map(); // projectRoot -> threadId, un seul tour écri
 let retitleAllRunning = false;
 
 const DEFAULT_APP_DIR = join(homedir(), "Library", "Application Support", "atelier-studio");
+
+// Import d'article (plan 053) : le CLI kb tourne en SOUS-PROCESSUS — la
+// conversion MinerU dure des minutes et un spawnSync en direct gèlerait la
+// boucle d'événements (chat compris). `ctx.runArticleCli` court-circuite le
+// spawn dans les tests.
+const ARTICLE_CLI_TIMEOUT_MS = 960_000;
+function runArticleCli(ctx, args) {
+  if (ctx.runArticleCli) return Promise.resolve(ctx.runArticleCli(args));
+  const cli = fileURLToPath(new URL("./kb_cli.mjs", import.meta.url));
+  return new Promise((resolve, reject) => {
+    execFile(
+      process.execPath, [cli, ...args],
+      { timeout: ARTICLE_CLI_TIMEOUT_MS, maxBuffer: 64 * 1024 * 1024 },
+      (error, stdout, stderr) => {
+        if (error) {
+          const detail = String(stderr || error.message).trim();
+          reject(new Error(detail.slice(0, 400) || "atelier-kb: échec"));
+          return;
+        }
+        try {
+          resolve(JSON.parse(String(stdout)));
+        } catch {
+          reject(new Error("sortie atelier-kb invalide"));
+        }
+      },
+    );
+  });
+}
 
 function buildForkContext(events, provider) {
   const lines = (Array.isArray(events) ? events : []).flatMap((event) => {
@@ -1173,6 +1202,52 @@ export async function route(msg, ctx) {
           : { type: "kbPagePreview", id: out.id, slug: out.slug, exists: out.exists, title: out.title, chars: out.chars, preview: out.preview });
       } catch (error) {
         ctx.send({ type: "kbError", message: error instanceof Error ? error.message : String(error) });
+      }
+      break;
+    }
+    case "articleImport": {
+      // Import d'article (plan 053) : conversion MinerU en SOUS-PROCESSUS —
+      // spawnSync en direct gèlerait le sidecar plusieurs minutes. Aucune
+      // écriture gbrain ici : la réponse est une fiche à vérifier.
+      try {
+        const out = await runArticleCli(ctx, ["article-import", "--path", String(msg.path ?? "")]);
+        ctx.send({
+          type: "articleImported", requestId: msg.requestId ?? null,
+          draftId: out.draftId, path: out.path, meta: out.meta, slug: out.slug,
+          exists: out.exists, chars: out.chars, preview: out.preview,
+          converter: out.converter, warning: out.warning ?? null,
+        });
+      } catch (error) {
+        ctx.send({
+          type: "articleError", requestId: msg.requestId ?? null,
+          message: error instanceof Error ? error.message : String(error),
+        });
+      }
+      break;
+    }
+    case "articleWrite": {
+      // écriture confirmée : métadonnées corrigées par l'UI + brouillon
+      try {
+        const meta = msg.meta ?? {};
+        const args = ["article-write", "--draft", String(msg.draftId ?? ""), "--slug", String(msg.slug ?? "")];
+        for (const [flag, value] of [
+          ["--title", meta.title], ["--authors", meta.authors],
+          ["--year", meta.year], ["--journal", meta.journal], ["--doi", meta.doi],
+          ["--origin", msg.path], ["--converter", msg.converter],
+        ]) {
+          if (value !== undefined && value !== null && String(value).trim()) args.push(flag, String(value));
+        }
+        if (msg.ragdoc === true) args.push("--ragdoc");
+        const out = await runArticleCli(ctx, args);
+        ctx.send({
+          type: "articleWritten", requestId: msg.requestId ?? null,
+          slug: out.slug, updated: out.updated === true, ragdoc: out.ragdoc ?? null,
+        });
+      } catch (error) {
+        ctx.send({
+          type: "articleError", requestId: msg.requestId ?? null,
+          message: error instanceof Error ? error.message : String(error),
+        });
       }
       break;
     }

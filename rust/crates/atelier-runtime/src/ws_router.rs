@@ -68,6 +68,8 @@ pub const ALL_MESSAGE_TYPES: &[&str] = &[
     "kbRemove",
     "kbPromote",
     "kbPromotePage",
+    "articleImport",
+    "articleWrite",
     "gbrainSearch",
     "generateImage",
     "apiProviders",
@@ -619,6 +621,8 @@ pub async fn route_ws(state: &AppState, text: &str) -> Vec<String> {
         "kbPromote" => handle_kb_promote(state, &msg).await,
         "gbrainSearch" => handle_gbrain_search(state, &msg),
         "kbPromotePage" => handle_kb_promote_page(state, &msg),
+        "articleImport" => handle_article_import(state, &msg).await,
+        "articleWrite" => handle_article_write(state, &msg).await,
         "generateImage" => handle_generate_image(state, &msg).await,
         "apiProviders" => {
             let list = list_api_providers_public(state.app_dir());
@@ -1830,6 +1834,113 @@ fn handle_kb_promote_page(state: &AppState, msg: &Value) -> Vec<String> {
             "preview": v.get("preview").cloned().unwrap_or(json!("")),
         }))],
         Err(e) => kb_error(e),
+    }
+}
+
+/// Import d'article (plan 053) — relais du CLI `article-import` /
+/// `article-write`. La conversion MinerU dure des minutes : elle part sur le
+/// pool bloquant, sinon tout le routeur ws (chat compris) reste figé.
+async fn article_cli(state: &AppState, args: Vec<String>) -> Result<Value, String> {
+    let server_dir = state.server_dir().to_string();
+    let app_dir = state.app_dir().to_path_buf();
+    tokio::task::spawn_blocking(move || {
+        let refs: Vec<&str> = args.iter().map(String::as_str).collect();
+        kb_cli_run(&server_dir, &app_dir, &refs, "")
+    })
+    .await
+    .unwrap_or_else(|e| Err(format!("article: tâche interrompue ({e})")))
+}
+
+fn article_error(request_id: &Value, message: String) -> Vec<String> {
+    vec![json_msg(json!({
+        "type": "articleError",
+        "requestId": request_id,
+        "message": message,
+    }))]
+}
+
+/// Valeur de métadonnée en argument CLI : les nombres (année) comptent aussi.
+fn meta_arg(meta: &Value, key: &str) -> Option<String> {
+    match meta.get(key) {
+        Some(Value::String(s)) if !s.trim().is_empty() => Some(s.clone()),
+        Some(Value::Number(n)) => Some(n.to_string()),
+        _ => None,
+    }
+}
+
+async fn handle_article_import(state: &AppState, msg: &Value) -> Vec<String> {
+    let request_id = msg.get("requestId").cloned().unwrap_or(Value::Null);
+    let path = msg.get("path").and_then(|v| v.as_str()).unwrap_or("");
+    if path.is_empty() {
+        return article_error(&request_id, "articleImport: path requis".into());
+    }
+    let args = vec!["article-import".to_string(), "--path".to_string(), path.to_string()];
+    match article_cli(state, args).await {
+        Ok(v) => vec![json_msg(json!({
+            "type": "articleImported",
+            "requestId": request_id,
+            "draftId": v.get("draftId").cloned().unwrap_or(Value::Null),
+            "path": v.get("path").cloned().unwrap_or(json!(path)),
+            "meta": v.get("meta").cloned().unwrap_or(json!({})),
+            "slug": v.get("slug").cloned().unwrap_or(Value::Null),
+            "exists": v.get("exists").cloned().unwrap_or(json!(false)),
+            "chars": v.get("chars").cloned().unwrap_or(Value::Null),
+            "preview": v.get("preview").cloned().unwrap_or(json!("")),
+            "converter": v.get("converter").cloned().unwrap_or(Value::Null),
+            "warning": v.get("warning").cloned().unwrap_or(Value::Null),
+        }))],
+        Err(e) => article_error(&request_id, e),
+    }
+}
+
+async fn handle_article_write(state: &AppState, msg: &Value) -> Vec<String> {
+    let request_id = msg.get("requestId").cloned().unwrap_or(Value::Null);
+    let draft = msg.get("draftId").and_then(|v| v.as_str()).unwrap_or("");
+    let slug = msg.get("slug").and_then(|v| v.as_str()).unwrap_or("");
+    if draft.is_empty() {
+        return article_error(&request_id, "articleWrite: draftId requis".into());
+    }
+    if slug.is_empty() {
+        return article_error(&request_id, "articleWrite: slug requis".into());
+    }
+    let mut args = vec![
+        "article-write".to_string(),
+        "--draft".to_string(),
+        draft.to_string(),
+        "--slug".to_string(),
+        slug.to_string(),
+    ];
+    let meta = msg.get("meta").cloned().unwrap_or(json!({}));
+    for (flag, key) in [
+        ("--title", "title"),
+        ("--authors", "authors"),
+        ("--year", "year"),
+        ("--journal", "journal"),
+        ("--doi", "doi"),
+    ] {
+        if let Some(value) = meta_arg(&meta, key) {
+            args.push(flag.to_string());
+            args.push(value);
+        }
+    }
+    for (flag, key) in [("--origin", "path"), ("--converter", "converter")] {
+        if let Some(value) = meta_arg(msg, key) {
+            args.push(flag.to_string());
+            args.push(value);
+        }
+    }
+    if msg.get("ragdoc").and_then(Value::as_bool) == Some(true) {
+        args.push("--ragdoc".to_string());
+    }
+    match article_cli(state, args).await {
+        Ok(v) => vec![json_msg(json!({
+            "type": "articleWritten",
+            "requestId": request_id,
+            "slug": v.get("slug").cloned().unwrap_or(json!(slug)),
+            "updated": v.get("updated").cloned().unwrap_or(json!(false)),
+            "ragdoc": v.get("ragdoc").cloned().unwrap_or(Value::Null),
+        }))],
+        Err(e) => article_error(&request_id, e),
     }
 }
 
@@ -3294,6 +3405,51 @@ mod tests {
             .as_str()
             .unwrap()
             .contains("kb_cli.mjs introuvable"));
+    }
+
+    /// Import d'article (plan 053) : les gardes locales répondent SANS spawn,
+    /// et l'erreur voyage sur `articleError` avec le requestId du client —
+    /// sinon un dialogue resté ouvert ne saurait jamais que c'est fini.
+    #[tokio::test]
+    async fn article_import_et_write_erreurs_portent_le_request_id() {
+        let dir = tempdir().unwrap();
+        let s = state(dir.path());
+        let out = route_ws(&s, r#"{"type":"articleImport","requestId":"r1"}"#).await;
+        let v: Value = serde_json::from_str(&out[0]).unwrap();
+        assert_eq!(v["type"], "articleError");
+        assert_eq!(v["requestId"], "r1");
+        assert!(v["message"].as_str().unwrap().contains("path requis"));
+
+        let out = route_ws(&s, r#"{"type":"articleWrite","requestId":"r2","slug":"articles/x"}"#).await;
+        let v: Value = serde_json::from_str(&out[0]).unwrap();
+        assert_eq!(v["type"], "articleError");
+        assert!(v["message"].as_str().unwrap().contains("draftId requis"));
+
+        let out = route_ws(&s, r#"{"type":"articleWrite","requestId":"r3","draftId":"abc"}"#).await;
+        let v: Value = serde_json::from_str(&out[0]).unwrap();
+        assert!(v["message"].as_str().unwrap().contains("slug requis"));
+
+        // server_dir=/tmp sans kb_cli.mjs → échec explicite, pas de silence
+        let out = route_ws(&s, r#"{"type":"articleImport","requestId":"r4","path":"/tmp/a.pdf"}"#).await;
+        let v: Value = serde_json::from_str(&out[0]).unwrap();
+        assert_eq!(v["type"], "articleError");
+        assert_eq!(v["requestId"], "r4");
+        assert!(v["message"]
+            .as_str()
+            .unwrap()
+            .contains("kb_cli.mjs introuvable"));
+    }
+
+    /// L'année arrive en nombre depuis l'UI : elle doit survivre au passage
+    /// en argument CLI (un `as_str()` naïf la perdrait en silence).
+    #[test]
+    fn meta_arg_accepte_nombres_et_ignore_le_vide() {
+        let meta = json!({"year": 2011, "title": "T", "journal": "  ", "doi": null});
+        assert_eq!(meta_arg(&meta, "year").as_deref(), Some("2011"));
+        assert_eq!(meta_arg(&meta, "title").as_deref(), Some("T"));
+        assert_eq!(meta_arg(&meta, "journal"), None);
+        assert_eq!(meta_arg(&meta, "doi"), None);
+        assert_eq!(meta_arg(&meta, "absent"), None);
     }
 
     #[tokio::test]
