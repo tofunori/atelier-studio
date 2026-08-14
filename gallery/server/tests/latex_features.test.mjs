@@ -85,6 +85,23 @@ test("LaTeX reading renderer preserves prose structure, source lines, and math",
   assert.match(html, /<li data-line="5">First<\/li>/);
 });
 
+test("« 500 m » retrouve « 500~m » : recherche via les substitutions du rendu", () => {
+  // Piège vécu : sélectionner « 500 m » (rendu de « 500~m ») ne faisait rien —
+  // ni le littéral ni le repli blancs ne traversent un tilde. La vue
+  // transformée du source (mêmes substitutions que le rendu, offsets
+  // conservés) doit retrouver la plage réelle.
+  const tex = "old polygons. At 500~m these surfaces cannot be separated.";
+  const editor = {indexFromPos: (p) => p.ch, posFromIndex: (i) => ({line: 0, ch: i})};
+  assert.equal(latex.findAnnotationRange(tex, {text: "500 m", from: {line: 0, ch: 0}}, editor), null);
+  const range = latex.findRenderedText(tex, "500 m", 0, editor);
+  assert.ok(range);
+  assert.equal(tex.slice(range.from.ch, range.to.ch), "500~m");
+  // Plusieurs occurrences : la plus proche de l'indice de départ gagne.
+  const deux = "At 500~m first. Later again at 500~m second.";
+  const loin = latex.findRenderedText(deux, "500 m", deux.length, editor);
+  assert.equal(loin.from.ch, deux.lastIndexOf("500~m"));
+});
+
 test("ancrage par préfixe/suffixe : la prose rendue diffère du source (« \\% » → « % »)", () => {
   // Cas vécu (methods_en.tex) : la sélection commençait sur « with more than
   // 80\,% cloud cover » — rendu de « 80\,\% ». Exiger le fragment entier

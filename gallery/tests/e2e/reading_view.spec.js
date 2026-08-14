@@ -19,6 +19,8 @@ test('vue Lecture : plein cadre, pas de préambule, sélection annotable', async
     '\\ifdefined\\Root\\else\\expandafter\\Loader\\fi',
     '\\section{Study area}',
     'The study area covers the glaciers of western North America with more than 80\\,\\% cloud cover \\cite{rgi7consortium2023} over 22 melt seasons.',
+    '',
+    'At 500~m these surfaces cannot be separated from snow.',
   ].join('\n'));
   const port = await freePort();
   const server = spawn(process.execPath, [path.join(GALLERY,'server','main.mjs')], {cwd: root, env:{...process.env, FIG_PORT:String(port), GALLERY_ROOT:root}, stdio:'ignore'});
@@ -183,5 +185,37 @@ test('vue Lecture : plein cadre, pas de préambule, sélection annotable', async
     console.log('POLICE ' + JSON.stringify({avant: avantFs, apres: apresFs, serveur: etatServeur.texReadFontSize}));
     expect(parseFloat(apresFs)).toBe(parseFloat(avantFs) + 1);
     expect(etatServeur.texReadFontSize).toBe(parseFloat(apresFs));
+
+    // Sélection courte DANS une substitution du rendu : « 500 m » ← « 500~m ».
+    await fr().evaluate(() => {
+      // « ~ » est rendu en espace INSÉCABLE (\u00A0) — toute comparaison à
+      // l'espace simple rate silencieusement.
+      const CIBLE = '500\u00A0m';
+      const p = [...document.querySelectorAll('#texread p')].find(e => e.textContent.includes(CIBLE));
+      const node = p.firstChild;
+      const start = node.textContent.indexOf(CIBLE);
+      const r = document.createRange();
+      r.setStart(node, start); r.setEnd(node, start + CIBLE.length);
+      const sel = getSelection(); sel.removeAllRanges(); sel.addRange(r);
+      p.dispatchEvent(new MouseEvent('mouseup', {bubbles: true}));
+    });
+    await fr().waitForTimeout(300);
+    const pilluleCourte = await fr().evaluate(() => {
+      const el = document.getElementById('selPill');
+      const r = el.getBoundingClientRect();
+      const centre = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
+      return r.width > 0 && !!centre && (centre === el || el.contains(centre));
+    });
+    expect(pilluleCourte).toBe(true);
+    const [envoiCourt] = await Promise.all([
+      page.waitForRequest(r => r.url().includes('/quote') && r.method() === 'POST'),
+      // `.go` et non le libellé : pendant 1,2 s après un envoi le bouton
+      // affiche « ✓ » — c'est le même bouton, il envoie la sélection courante.
+      fr().evaluate(() => document.querySelector('#selPill .go').dispatchEvent(
+          new MouseEvent('click', {bubbles: true}))),
+    ]);
+    const courtPayload = JSON.parse(envoiCourt.postData() || '{}');
+    console.log('COURT ' + JSON.stringify({text: courtPayload.text, page: courtPayload.page}));
+    expect(courtPayload.text).toBe('500~m');
   } finally { server.kill('SIGKILL'); }
 });

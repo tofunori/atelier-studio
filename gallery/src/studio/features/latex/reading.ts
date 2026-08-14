@@ -211,6 +211,61 @@ export function renderLatexReadingHtml(source: string, katex: KatexRenderer): st
   }).join("\n");
 }
 
+/** Le rendu applique au texte des substitutions déterministes (« ~ » → espace,
+ *  « \% » → « % », tirets, guillemets…). Pour retrouver une sélection rendue
+ *  dans le fichier, on applique LES MÊMES substitutions au source en gardant,
+ *  caractère par caractère, l'offset d'origine — puis on cherche dans ce texte
+ *  transformé et on revient aux positions réelles par la carte. Sans ça,
+ *  sélectionner « 500 m » ne retrouvait jamais « 500~m » (48 tildes dans un
+ *  chapitre de méthodes réel : le cas n'est pas marginal). */
+const RENDER_SUBSTITUTIONS: ReadonlyArray<[string, string]> = [
+  ["---", "—"], ["--", "–"], ["``", "“"], ["''", "”"], ["`", "‘"],
+  ["\\%", "%"], ["\\&", "&"], ["\\_", "_"], ["\\#", "#"], ["\\$", "$"],
+  ["\\ ", " "], ["~", " "],
+];
+export function renderedSourceView(source: string): {text: string; map: number[]} {
+  const text: string[] = [];
+  const map: number[] = [];
+  let index = 0;
+  outer: while (index < source.length) {
+    for (const [needle, replacement] of RENDER_SUBSTITUTIONS) {
+      if (source.startsWith(needle, index)) {
+        for (const ch of replacement) { text.push(ch); map.push(index); }
+        index += needle.length;
+        continue outer;
+      }
+    }
+    text.push(source[index] as string);
+    map.push(index);
+    index += 1;
+  }
+  map.push(source.length);  // borne de fin pour la conversion des plages
+  return {text: text.join(""), map};
+}
+
+const escapeRegExp = (value: string): string => value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+/** Cherche `needle` (texte tel que RENDU, blancs libres) dans le source via la
+ *  vue transformée ; renvoie la plage SOURCE la plus proche de `nearIndex`. */
+export function findRenderedText(
+  source: string,
+  needle: string,
+  nearIndex: number,
+  editor: Pick<StudioEditor, "posFromIndex">,
+): {from: StudioPosition; to: StudioPosition} | null {
+  const words = needle.split(/\s+/).filter(Boolean);
+  if (!words.length) return null;
+  const view = renderedSourceView(source);
+  const pattern = new RegExp(words.map(escapeRegExp).join("[\\s]+"), "g");
+  let best: {start: number; end: number} | null = null;
+  for (const match of view.text.matchAll(pattern)) {
+    const start = view.map[match.index as number] as number;
+    const end = view.map[(match.index as number) + match[0].length] as number;
+    if (!best || Math.abs(start - nearIndex) < Math.abs(best.start - nearIndex)) best = {start, end};
+  }
+  return best ? {from: editor.posFromIndex(best.start), to: editor.posFromIndex(best.end)} : null;
+}
+
 /** Borne une sélection de prose rendue dans le texte SOURCE. Les fragments
  *  arrivent dans l'ordre du document, déjà débarrassés des nœuds fabriqués
  *  (citations, refs, math) — mais le rendu retouche aussi la prose elle-même
@@ -224,8 +279,15 @@ export function anchorProseFragments(
   line: number,
   editor: Pick<StudioEditor, "indexFromPos" | "posFromIndex">,
 ): {from: StudioPosition; to: StudioPosition} | null {
-  const locate = (text: string): ReturnType<typeof findAnnotationRange> =>
-    text.length >= 4 ? findAnnotationRange(source, {text, from: {line, ch: 0}}, editor) : null;
+  const nearIndex = editor.indexFromPos({line, ch: 0} as StudioPosition);
+  const locate = (text: string): ReturnType<typeof findAnnotationRange> => {
+    if (text.length < 4) return null;
+    // 1. Littéral (avec repli blancs) — le chemin des annotations.
+    const direct = findAnnotationRange(source, {text, from: {line, ch: 0}}, editor);
+    if (direct) return direct;
+    // 2. À travers les substitutions du rendu (« ~ » → espace, « \% » → % …).
+    return findRenderedText(source, text, nearIndex, editor);
+  };
   const shrink = (
     fragment: string,
     cut: (words: string[], keep: number) => string,
@@ -233,8 +295,8 @@ export function anchorProseFragments(
     const words = fragment.split(/\s+/).filter(Boolean);
     for (let keep = Math.min(words.length, 8); keep >= 1; keep -= 1) {
       const candidate = cut(words, keep);
-      // Un seul mot est trop ambigu pour ancrer, sauf s'il est long.
-      if (keep === 1 && candidate.length < 6) break;
+      // Un seul mot très court est trop ambigu pour ancrer.
+      if (keep === 1 && candidate.length < 4) break;
       const found = locate(candidate);
       if (found) return found;
     }
@@ -397,7 +459,10 @@ export function createLatexReadingController(options: LatexReadingOptions): Late
     if (next) {
       options.splitButton.classList.remove("on");
       render();
-    } else applyAnnotationHighlights();  // vide le registre en quittant
+    } else {
+      applyAnnotationHighlights();          // vide le registre en quittant
+      options.onProseSelectionCleared?.();  // la pastille de prose avec lui
+    }
     win.setTimeout(() => options.getEditor()?.refresh(), 60);
     syncMode();
   };

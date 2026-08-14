@@ -439,8 +439,11 @@ export function bootstrapLatexSurface(dependencies: LatexSurfaceDependencies): L
     win.latexSelectionBridge = attachEditorSelection({
       editor,
       canPublish: () => !diff.isShown(),
-      onSkipped: () => ensureSelectionPill().hide(),
-      onEmpty: () => ensureSelectionPill().hide(),
+      // En Lecture, la pastille appartient à la sélection de PROSE ; l'éditeur
+      // est masqué et sa sélection vide ne veut rien dire. Sans cette garde,
+      // le pont l'escamotait ~200 ms après son affichage (délai de publish).
+      onSkipped: () => { if (!reader?.isReading()) ensureSelectionPill().hide(); },
+      onEmpty: () => { if (!reader?.isReading()) ensureSelectionPill().hide(); },
       buildPayload: (selection) => ({
         lines: selection.lines,
         words: selection.words,

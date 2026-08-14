@@ -69,7 +69,15 @@
           if (EMBEDDED && j && j.message && window.__atelierPost) window.__atelierPost({type: "atelier-add-to-chat", text: j.message});
           if (opts.onSent) opts.onSent(j);
           go.textContent = "✓";
-          setTimeout(() => { goReset(); ta.value = ""; hide(); }, 1200);
+          // Le nettoyage différé ne doit JAMAIS escamoter une pilule qu'une
+          // NOUVELLE sélection a réaffichée pendant la confirmation : si la
+          // position a changé depuis l'envoi, elle appartient à quelqu'un
+          // d'autre — on remet le libellé, on ne cache pas.
+          const sentPos = pill.style.left + "|" + pill.style.top;
+          setTimeout(() => {
+            goReset(); ta.value = "";
+            if (pill.style.left + "|" + pill.style.top === sentPos) hide();
+          }, 1200);
         })
         .catch(() => { go.textContent = "!"; setTimeout(goReset, 1600); });
     }
