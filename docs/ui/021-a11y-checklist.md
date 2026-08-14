@@ -19,7 +19,7 @@ passe B. Référence de patrons : `ui/IconButton` (label imposé), `ui/Menu`
 | Banner | role=status (annonce des bannières) | — |
 | Focus CSS | `.rename`, `.edit-box textarea`, `.cmdk input`, `.exp-search`, `.fly-rename`, selects biblio/settings, slider — anneau token | — |
 | Hover-only | `.biblio-star`, `.qa-inject-one`, `.mp-star`, rb-min/close : visibles au focus | — |
-| **Explorer** | — | **surface entière non clavier (arbre 100 % souris) — plan dédié requis** |
+| Explorer | patron ARIA `tree` complet : roving tabindex (l'arbre est à UNE tabulation de la recherche), ↓/↑ nœud visible, → déplie/descend, ← replie/remonte, Home/End, Entrée/Espace, saisie rapide ; rangées = `RowButton` avec `aria-expanded`/`aria-level`/`aria-selected`, anneau de focus token (`styles/explorer.css`) ; contrat couvert par `Explorer.test.tsx` | — |
 | AtelierPane / GitSurface | GitSurface : bouton ⋯ nommé | menus contextuels div onClick (onglets, fichiers git) → migrer vers `ui/Menu` |
 | BiblioSurface | — | empty state sans action ; erreurs `.catch(() => {})` silencieuses (avec BrowserTab) |
 
