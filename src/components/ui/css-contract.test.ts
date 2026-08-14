@@ -167,6 +167,52 @@ describe("contrat Quiet Instrument (sources CSS)", () => {
     }
   });
 
+  // tokens.css est l'INTERFACE PUBLIQUE du système : --text-*, --border-*,
+  // --surface-*, --mark-*. Les noms historiques (--fg/--fg2/--muted/--muted2)
+  // restent la SOURCE DE VÉRITÉ des valeurs — ils sont définis dans les deux
+  // blocs :root d'App.css (dark et light) — mais plus personne ne les consomme
+  // ailleurs. Sans ce garde-fou les deux vocabulaires recohabitent et le code
+  // neuf ne sait plus lequel est canonique (baseline avant migration :
+  // 638 déclarations historiques contre 53 sémantiques).
+  it("App.css ne consomme les noms historiques que dans ses blocs :root (allowlist gelée)", () => {
+    // on retire les blocs dont le SÉLECTEUR est purement :root (la palette) —
+    // pas les règles descendantes du type `:root[data-theme="light"] .atelier`
+    const body = appCss.replace(/^:root[^{\s]*(?:\s*,\s*:root[^{\s]*)*\s*\{[^}]*\}/gm, "");
+    // --fg2 : cinq FONDS de marque en encre secondaire (pastilles d'agent
+    // .dot.claude/.dot.codex, pouces de slider et d'effort, point de
+    // prévisualisation pnav). C'est un troisième palier au-dessus de
+    // --mark-neutral/--mark-neutral-strong ; le budget de tokens (tokens.css :
+    // « ≥2 consommateurs réels ou une exigence sémantique ») a été alloué aux
+    // deux paliers qui couvrent 20 déclarations. currentColor ne s'y applique
+    // pas : ces éléments n'héritent pas de --fg2. Sous-multiset gelé — cette
+    // liste ne peut que RÉTRÉCIR, jamais accueillir une nouvelle entrée.
+    const legacyAllow: Record<string, number> = {
+      "--fg": 0, "--fg2": 5, "--muted": 0, "--muted2": 0,
+    };
+    const actual: Record<string, number> = {};
+    // `var(--fg)` comme `var(--fg, #hex)` : les deux formes consomment le nom
+    for (const m of body.matchAll(/var\(\s*--(fg2|fg|muted2|muted)\s*[,)]/g)) {
+      const name = `--${m[1]}`;
+      actual[name] = (actual[name] ?? 0) + 1;
+    }
+    for (const [name, n] of Object.entries(actual)) {
+      expect(
+        n,
+        `var(${name}) : ${n} occurrence(s) hors :root > allowlist (${legacyAllow[name] ?? 0}) — utiliser le token sémantique de tokens.css`,
+      ).toBeLessThanOrEqual(legacyAllow[name] ?? 0);
+    }
+    // les alias doivent rester des alias : si une valeur brute atterrit ici, la
+    // migration ci-dessus aurait changé le rendu sans que rien ne le signale
+    for (const alias of [
+      "--text-primary: var(--fg)", "--text-secondary: var(--fg2)",
+      "--text-muted: var(--muted)", "--text-disabled: var(--muted2)",
+      "--border-strong: var(--muted2)",
+      "--mark-neutral: var(--muted2)", "--mark-neutral-strong: var(--muted)",
+    ]) {
+      expect(tokens, `alias rompu : ${alias}`).toContain(alias);
+    }
+  });
+
   it("frontière d'imports : shadcn/button et shadcn/tooltip via les wrappers ui/ (allowlist gelée)", () => {
     // Ces deux primitives ont des wrappers produit complets (Button/IconButton/
     // RowButton, Tooltip). La liste ci-dessous fige l'existant : elle ne peut

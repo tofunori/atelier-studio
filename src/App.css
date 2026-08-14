@@ -3423,6 +3423,14 @@ button.ctx-ring-wrap { border: none; font: inherit; color: inherit;
   border-radius: var(--r-s); transition: background var(--ease), border-color var(--ease); }
 .kb-article-check.on .kb-article-box { border-color: var(--accent);
   background: color-mix(in srgb, var(--accent) 22%, transparent); }
+/* Texte complet : l'aperçu tronqué suffit pour vérifier les métadonnées, la
+   vue longue sert à relire la conversion avant de l'écrire dans le corpus. */
+.kb-article-preview-head { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
+.kb-article-expand { font-size: var(--fs-xs); color: var(--text-muted); padding: 2px 8px;
+  border-radius: var(--r-s); transition: color var(--ease), background var(--ease); }
+.kb-article-expand:hover { color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 10%, transparent); }
+.kb-page-preview.kb-article-full { max-height: 48vh; white-space: pre-wrap; word-break: break-word; }
 /* Imports simultanés : une rangée d'onglets fins, un par PDF déposé. Un échec
    ou une conversion longue n'empêche jamais d'en déposer un autre. */
 .kb-article-jobs { display: flex; flex-wrap: wrap; gap: 4px; }
