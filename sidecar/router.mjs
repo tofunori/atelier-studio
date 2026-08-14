@@ -1215,7 +1215,8 @@ export async function route(msg, ctx) {
           type: "articleImported", requestId: msg.requestId ?? null,
           draftId: out.draftId, path: out.path, meta: out.meta, slug: out.slug,
           exists: out.exists, chars: out.chars, preview: out.preview,
-          converter: out.converter, warning: out.warning ?? null,
+          converter: out.converter, duplicates: out.duplicates ?? [],
+          warning: out.warning ?? null,
         });
       } catch (error) {
         ctx.send({

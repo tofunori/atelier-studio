@@ -4,6 +4,7 @@
 // lib/kbSources — plus la section « Pages gbrain » (recherche du corpus NAS,
 // épinglage à la carte, re-sync).
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
+import { openArticleDialog } from "../lib/articleImports";
 import { t } from "../lib/i18n";
 import { wsSend } from "../lib/wsBus";
 import {
@@ -15,7 +16,6 @@ import {
   type KbBinding,
   type KbSource,
 } from "../lib/kbSources";
-import ArticleDialog, { type ArticleWritten } from "./chat/ArticleDialog";
 import { KbPickerPanel, type GbrainResult } from "./chat/KbPicker";
 import { useKbActions } from "./chat/kbActions";
 import { Dialog, DialogContent, DialogTitle } from "./shadcn/dialog";
@@ -65,9 +65,9 @@ export default function KnowledgeSurface(p: {
   // directe après l'épinglage local (URL et notes seulement)
   const [destination, setDestination] = useState<"local" | "gbrain">("local");
   const promoteNextRef = useRef(0);
-  // Import d'article (plan 053) : dialogue autonome, même toast de fin que la
-  // page directe.
-  const [articleOpen, setArticleOpen] = useState(false);
+  // Import d'article (plan 053) : le dialogue est monté globalement
+  // (AppOverlays) et l'état de conversion vit dans lib/articleImports — fermer
+  // la surface pendant une conversion ne l'interrompt pas.
 
   useEffect(() => {
     if (p.visible) requestKbSources();
@@ -185,7 +185,7 @@ export default function KnowledgeSurface(p: {
         onCollFilterChange={(slug) => { activeCollRef.current = slug; }}
         onAddFiles={() => { void actions.addFiles(); }}
         onAddFolder={() => { void actions.addFolder(); }}
-        onAddArticle={() => { actions.setError(null); setArticleOpen(true); }}
+        onAddArticle={() => { actions.setError(null); openArticleDialog(); }}
         onAddUrl={(url) => {
           if (destination === "gbrain") promoteNextRef.current += 1;
           actions.addUrl(url);
@@ -215,24 +215,6 @@ export default function KnowledgeSurface(p: {
           {pageWritten.extra}
         </div>
       )}
-      <ArticleDialog
-        open={articleOpen}
-        onClose={() => setArticleOpen(false)}
-        onPin={(path) => actions.addPdf(path)}
-        onWritten={(result: ArticleWritten) => {
-          // le sort de la copie ragdoc est dit dans le même toast : une
-          // indexation qui a échoué ne doit pas passer pour un succès
-          const rag = result.ragdoc;
-          const extra = rag
-            ? (rag.ok ? t("article.ragdoc-ok") : t("article.ragdoc-failed", { message: rag.message ?? "" }))
-            : "";
-          setPageWritten({
-            slug: String(result.slug ?? ""),
-            updated: result.updated === true,
-            extra,
-          });
-        }}
-      />
       <Dialog open={pageDraft !== null} onOpenChange={(open) => { if (!open) setPageDraft(null); }}>
         {pageDraft && (
           <DialogContent className="kb-page-dialog" aria-label={t("kb.page-direct")}>

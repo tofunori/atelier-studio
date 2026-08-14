@@ -1887,6 +1887,7 @@ async fn handle_article_import(state: &AppState, msg: &Value) -> Vec<String> {
             "chars": v.get("chars").cloned().unwrap_or(Value::Null),
             "preview": v.get("preview").cloned().unwrap_or(json!("")),
             "converter": v.get("converter").cloned().unwrap_or(Value::Null),
+            "duplicates": v.get("duplicates").cloned().unwrap_or(json!([])),
             "warning": v.get("warning").cloned().unwrap_or(Value::Null),
         }))],
         Err(e) => article_error(&request_id, e),

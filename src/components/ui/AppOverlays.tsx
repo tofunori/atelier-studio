@@ -6,6 +6,11 @@ const Toaster = lazy(async () => {
   return { default: module.Toaster };
 });
 
+// Import d'article (plan 053) : monté ici et pas dans la surface
+// Connaissances — une conversion MinerU dure des minutes et doit survivre à la
+// fermeture du panneau comme au changement de conversation.
+const ArticleDialog = lazy(() => import("../chat/ArticleDialog"));
+
 /** Portails globaux montés une seule fois au-dessus de l'application. */
 export function AppOverlays({ children }: React.PropsWithChildren) {
   return (
@@ -13,6 +18,9 @@ export function AppOverlays({ children }: React.PropsWithChildren) {
       {children}
       <Suspense fallback={null}>
         <Toaster position="bottom-right" closeButton />
+      </Suspense>
+      <Suspense fallback={null}>
+        <ArticleDialog />
       </Suspense>
     </TooltipProvider>
   );

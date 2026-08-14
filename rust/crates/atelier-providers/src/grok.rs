@@ -1590,8 +1590,118 @@ fn grok_user_error(error: &AcpRpcError) -> String {
     } else if error.transport {
         format!("Grok ACP injoignable : {error}")
     } else {
-        format!("Grok ACP : {error}")
+        // Le CLI renvoie souvent un `-32603 Internal error` NU : la cause
+        // réelle (crédits épuisés, 401, contexte incompactable) ne vit que
+        // dans `data` ou dans son journal. Sans elle, le chat n'affichait
+        // qu'un code opaque, impossible à actionner.
+        let detail = acp_data_detail(error.data.as_ref()).or_else(grok_last_cli_error);
+        match detail {
+            Some(detail) => {
+                let conseil = grok_error_hint(&detail).unwrap_or("");
+                format!("Grok ACP : {error} — {detail}{conseil}")
+            }
+            None => format!("Grok ACP : {error}"),
+        }
     }
+}
+
+/// Détail lisible porté par `error.data` (string nue ou objet).
+fn acp_data_detail(data: Option<&Value>) -> Option<String> {
+    let data = data?;
+    if let Some(text) = data.as_str() {
+        return (!text.is_empty()).then(|| text.to_string());
+    }
+    for key in ["message", "details", "detail", "reason", "error"] {
+        if let Some(text) = data.get(key).and_then(Value::as_str).filter(|t| !t.is_empty()) {
+            return Some(text.to_string());
+        }
+    }
+    None
+}
+
+/// Conseil actionnable pour les causes que le CLI ne réessaie pas.
+fn grok_error_hint(detail: &str) -> Option<&'static str> {
+    let bas = detail.to_lowercase();
+    if bas.contains("balance exhausted")
+        || bas.contains("out of credits")
+        || bas.contains("spending limit")
+        || bas.contains("402")
+    {
+        Some(". Crédit Grok épuisé : recharge le compte, le CLI ne réessaiera pas.")
+    } else if bas.contains("too large to compact") || bas.contains("can't be summarized") {
+        Some(". La conversation ne peut plus être compactée : démarre-en une nouvelle.")
+    } else if bas.contains("401") || bas.contains("unauthorized") || bas.contains("re-authenticate")
+    {
+        Some(". Exécute `grok login`, puis renvoie ton message.")
+    } else if bas.contains("rate limit") {
+        Some(". Limite de débit atteinte : attends un instant puis réessaie.")
+    } else {
+        None
+    }
+}
+
+/// Dernier échec terminal journalisé par le CLI (`~/.grok/logs/unified.jsonl`).
+/// Ignoré s'il est vieux : mieux vaut un code nu qu'une cause d'il y a une heure.
+fn grok_last_cli_error() -> Option<String> {
+    use std::io::{Read, Seek, SeekFrom};
+    let home = std::env::var("HOME").ok()?;
+    let path = std::path::Path::new(&home).join(".grok/logs/unified.jsonl");
+    let mut file = std::fs::File::open(&path).ok()?;
+    let len = file.metadata().ok()?.len();
+    file.seek(SeekFrom::Start(len.saturating_sub(96 * 1024)))
+        .ok()?;
+    let mut buf = Vec::new();
+    file.read_to_end(&mut buf).ok()?;
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .ok()?
+        .as_secs() as i64;
+    grok_log_failure(&String::from_utf8_lossy(&buf), now, 120)
+}
+
+fn grok_log_failure(tail: &str, now: i64, age_max_s: i64) -> Option<String> {
+    for line in tail.lines().rev().take(400) {
+        let Ok(entry) = serde_json::from_str::<Value>(line.trim()) else {
+            continue;
+        };
+        if !matches!(
+            entry.get("msg").and_then(Value::as_str),
+            Some("turn.terminal_failure" | "shell.turn.inference_failed")
+        ) {
+            continue;
+        }
+        let Some(detail) = entry
+            .pointer("/ctx/message")
+            .and_then(Value::as_str)
+            .filter(|m| !m.is_empty())
+        else {
+            continue;
+        };
+        let horodatage = entry.get("ts").and_then(Value::as_str).and_then(iso_epoch_s);
+        return match horodatage {
+            Some(ts) if now - ts <= age_max_s => Some(detail.chars().take(300).collect()),
+            _ => None,
+        };
+    }
+    None
+}
+
+/// `2026-08-14T01:21:11.222Z` → secondes epoch. Le journal du CLI est en UTC.
+fn iso_epoch_s(ts: &str) -> Option<i64> {
+    let nombre = |plage: std::ops::Range<usize>| ts.get(plage)?.parse::<i64>().ok();
+    let (annee, mois, jour) = (nombre(0..4)?, nombre(5..7)?, nombre(8..10)?);
+    let (heure, minute, seconde) = (nombre(11..13)?, nombre(14..16)?, nombre(17..19)?);
+    if !(1..=12).contains(&mois) {
+        return None;
+    }
+    // days_from_civil (Howard Hinnant) : calendrier grégorien proleptique.
+    let annee = annee - i64::from(mois <= 2);
+    let ere = if annee >= 0 { annee } else { annee - 399 } / 400;
+    let annee_ere = annee - ere * 400;
+    let jour_annee = (153 * (mois + if mois > 2 { -3 } else { 9 }) + 2) / 5 + jour - 1;
+    let jour_ere = annee_ere * 365 + annee_ere / 4 - annee_ere / 100 + jour_annee;
+    let jours = ere * 146_097 + jour_ere - 719_468;
+    Some(jours * 86_400 + heure * 3_600 + minute * 60 + seconde)
 }
 
 fn now_ms() -> u64 {
@@ -1931,6 +2041,68 @@ mod tests {
         assert_eq!(map_effort_for(&pauvre, "xhigh").as_deref(), Some("high"));
         assert_eq!(map_effort_for(&[], "minimal").as_deref(), Some("low"));
         assert_eq!(map_effort_for(&riche, "inconnu"), None);
+    }
+
+    #[test]
+    fn une_erreur_interne_nue_recupere_sa_cause_dans_le_journal() {
+        // Cas réel : `-32603 Internal error` renvoyé au chat pendant que le
+        // journal du CLI disait « usage balance exhausted » (HTTP 402).
+        let journal = [
+            json!({"ts":"2026-08-14T01:21:08.876Z","msg":"shell.turn.inference_retry",
+                   "ctx":{"reason":"request error"}}),
+            json!({"ts":"2026-08-14T01:21:11.221Z","msg":"shell.turn.inference_failed",
+                   "ctx":{"status_code":402,
+                          "message":"API error (status 402 Payment Required): Grok Build usage balance exhausted"}}),
+        ]
+        .map(|l| l.to_string())
+        .join("\n");
+        let horodatage = iso_epoch_s("2026-08-14T01:21:11.221Z").unwrap();
+        let cause = grok_log_failure(&journal, horodatage + 3, 120).unwrap();
+        assert!(cause.contains("usage balance exhausted"));
+        assert_eq!(
+            grok_error_hint(&cause),
+            Some(". Crédit Grok épuisé : recharge le compte, le CLI ne réessaiera pas.")
+        );
+
+        // Trop vieux : on préfère un code nu à une cause d'il y a une heure.
+        assert!(grok_log_failure(&journal, horodatage + 3_600, 120).is_none());
+        // Aucun échec journalisé : rien à ajouter.
+        assert!(grok_log_failure(
+            &json!({"ts":"2026-08-14T01:21:11.221Z","msg":"shell.handle_prompt.done"}).to_string(),
+            horodatage,
+            120
+        )
+        .is_none());
+    }
+
+    #[test]
+    fn le_detail_structure_de_lerreur_acp_prime_sur_le_journal() {
+        let erreur = AcpRpcError {
+            code: Some(-32603),
+            message: "Internal error".into(),
+            data: Some(json!({"message":"this conversation is too large to compact."})),
+            transport: false,
+        };
+        let rendu = grok_user_error(&erreur);
+        assert!(rendu.contains("Internal error (code -32603)"), "{rendu}");
+        assert!(rendu.contains("too large to compact"), "{rendu}");
+        assert!(rendu.contains("démarre-en une nouvelle"), "{rendu}");
+
+        // Une auth manquante garde son message dédié, sans détail parasite.
+        let auth = AcpRpcError {
+            code: Some(-32000),
+            message: "authRequired".into(),
+            data: None,
+            transport: false,
+        };
+        assert!(grok_user_error(&auth).contains("grok login"));
+    }
+
+    #[test]
+    fn lhorodatage_iso_du_journal_devient_des_secondes_epoch() {
+        assert_eq!(iso_epoch_s("1970-01-01T00:00:00.000Z"), Some(0));
+        assert_eq!(iso_epoch_s("2026-08-14T01:21:11.221Z"), Some(1_786_670_471));
+        assert_eq!(iso_epoch_s("pas une date"), None);
     }
 
     #[test]
