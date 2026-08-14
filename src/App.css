@@ -599,6 +599,44 @@ html, body, #root, .app { height: 100vh; overflow: hidden;
 .rail-scroll::-webkit-scrollbar, .rail-top::-webkit-scrollbar,
 .rail-projects::-webkit-scrollbar { display: none; }
 /* zone épinglée en bas : Réglages, toujours visible */
+/* Zone d'activité (plan 055) : « ce qui tourne sans toi », en bas du rail.
+   Vide = absente — pas de cadre « aucune activité ». */
+.rail-activity { width: 100%; flex: none; display: flex; flex-direction: column;
+  align-items: center; gap: 5px; padding-top: 8px; margin-top: 4px;
+  border-top: 1px solid var(--border); }
+.rail-act { position: relative; width: 34px; height: 34px; flex: none; border-radius: var(--r-pill);
+  display: flex; align-items: center; justify-content: center; color: var(--text-secondary);
+  background: transparent; transition: color var(--ease); }
+.rail-act:hover { color: var(--text-primary); }
+.rail-act.failed { color: var(--u-hot, #e06c75); }
+.rail-act-ring { position: absolute; inset: 0; width: 34px; height: 34px; transform: rotate(-90deg); }
+.rail-act.running .rail-act-ring { animation: rail-act-turn 1.6s linear infinite; }
+@keyframes rail-act-turn { to { transform: rotate(270deg); } }
+@media (prefers-reduced-motion: reduce) { .rail-act.running .rail-act-ring { animation: none; } }
+.rail-act-glyph { width: 15px; height: 15px; }
+.rail-act-tick { position: absolute; right: 0; bottom: 0; width: 9px; height: 9px;
+  border-radius: var(--r-pill); background: var(--act-c);
+  border: 2px solid var(--surface-panel); }
+.rail-act-more { font-size: var(--fs-xs); color: var(--text-disabled);
+  font-variant-numeric: tabular-nums; padding: 2px 6px; border-radius: var(--r-s); }
+.rail-act-more:hover { color: var(--text-secondary); }
+/* Barre du haut : groupes séparés, surface active soulignée sur la bordure */
+.topbar-surfaces { display: inline-flex; align-items: center; gap: 4px; }
+.topbar-div { width: 1px; height: 16px; background: var(--border); flex: none; margin: 0 2px; }
+.topbar-surface { position: relative; }
+.topbar-surface.on::after { content: ""; position: absolute; left: 5px; right: 5px; bottom: -8px;
+  height: 2px; border-radius: var(--r-pill); background: var(--accent); }
+.topbar-menu-icon { display: inline-flex; width: 15px; justify-content: center; color: var(--text-muted); }
+.topbar-menu-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.topbar-menu-pin { color: var(--text-disabled); opacity: 0; transition: opacity var(--ease), color var(--ease); }
+.topbar-menu-row:hover .topbar-menu-pin, .topbar-menu-pin.on { opacity: 1; }
+.topbar-menu-pin.on { color: var(--accent); }
+.topbar-menu-head { font-size: var(--fs-xs); letter-spacing: .07em; text-transform: uppercase;
+  color: var(--text-disabled); padding: 4px 8px 2px; }
+/* fenêtre étroite : les surfaces non actives cèdent avant le crumb */
+@media (max-width: 1100px) {
+  .topbar-surfaces .topbar-surface:not(.on):nth-of-type(n+4) { display: none; }
+}
 .rail-btn.usage-ib { position: relative; }
 .rail-pinned { flex: none; width: 100%; display: flex; flex-direction: column; align-items: center;
   gap: 6px; padding: 8px 0 10px; border-top: 1px solid var(--border); }

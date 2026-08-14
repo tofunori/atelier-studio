@@ -3,21 +3,10 @@ import { t } from "../lib/i18n";
 import { SearchIcon, ZapIcon, PlusIcon } from "./icons";
 import { Button, IconButton, RowButton, SegmentedControl } from "./ui";
 import { LazyDropdownMenu } from "./ui/LazyDropdownMenu";
+import TopBarSurfaces from "./TopBarSurfaces";
+import type { Surface } from "./surfaces";
 import { type ProjMeta } from "./Rail";
-import { dispatchWorkspacePointerDragStart, shouldSuppressWorkspaceSourceClick } from "../lib/workspaceDrag";
 
-function surfaceDragProps(surface: "git" | "browser" | "terminal") {
-  return {
-    onClickCapture: (event: React.MouseEvent<HTMLSpanElement>) => {
-      if (!shouldSuppressWorkspaceSourceClick({ kind: "surface", surface })) return;
-      event.preventDefault();
-      event.stopPropagation();
-    },
-    onPointerDown: (event: React.PointerEvent<HTMLSpanElement>) => {
-      dispatchWorkspacePointerDragStart(event.nativeEvent, { kind: "surface", surface });
-    },
-  };
-}
 
 // chemin compact pour l'en-tête du menu projet : ~/… au lieu de /Users/x/…
 function shortPath(root: string) {
@@ -74,9 +63,9 @@ export default function TopBar({
   showAtelier,
   showExplorer,
   onToggleExplorer,
-  onOpenGit,
-  onOpenBrowser,
-  onOpenTerminal,
+  onSelectSurface,
+  onSelectIde,
+  ideActive,
 }: {
   projects: string[];
   projMeta: Record<string, ProjMeta>;
@@ -87,17 +76,14 @@ export default function TopBar({
   onSetLayout: (layout: Layout) => void;
   onOpenPalette: () => void;
   onQuickAsk: () => void;
-  activeSurface: string;
+  activeSurface: Surface;
   showAtelier: boolean;
   showExplorer: boolean;
   onToggleExplorer: () => void;
-  onOpenGit: () => void;
-  onOpenBrowser: () => void;
-  onOpenTerminal: () => void;
+  onSelectSurface: (surface: Surface) => void;
+  onSelectIde: () => void;
+  ideActive: boolean;
 }) {
-  const gitActive = showAtelier && activeSurface === "git";
-  const browserActive = showAtelier && activeSurface === "browser";
-  const terminalActive = showAtelier && activeSurface === "terminal";
   const [projMenu, setProjMenu] = useState(false);
   const meta = activeProject ? projMeta[activeProject] : undefined;
   const color = meta?.color || "var(--accent)";
@@ -174,29 +160,18 @@ export default function TopBar({
       </Button>
       <span className="flex" />
       <div className="topbar-right">
-        {/* le refresh galerie vit désormais dans le GalleryHeader de la
-            surface (plan 018, étape 6 : action de surface → SurfaceHeader) */}
-        {/* Explorateur + Git remontés du rail */}
-        <IconButton label={t("atelier.file-explorer")} className={`ghost topbar-qa ${showExplorer ? "on" : ""}`} title={t("atelier.file-explorer")} onClick={onToggleExplorer}>
-          <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"><path d="M1.8 4.2c0-.7.5-1.2 1.2-1.2h3l1.4 1.6h5.6c.7 0 1.2.5 1.2 1.2v6c0 .7-.5 1.2-1.2 1.2H3c-.7 0-1.2-.5-1.2-1.2v-7.6z" /></svg>
-        </IconButton>
-        <span className="topbar-surface-drag" {...surfaceDragProps("git")}>
-          <IconButton label={t("atelier.git")} className={`ghost topbar-qa ${gitActive ? "on" : ""}`} title={t("atelier.git")} onClick={onOpenGit}>
-            <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3"><circle cx="4" cy="4" r="1.6"/><circle cx="4" cy="12" r="1.6"/><circle cx="12" cy="6" r="1.6"/><path d="M4 5.6v4.8M4 8h4a4 4 0 0 0 4-.4"/></svg>
-          </IconButton>
-        </span>
-        {/* Navigateur + Terminal remontés du tiroir du rail (option A) : mêmes
-            icônes que surfaces.tsx, rendues à 15px comme Explorateur/Git */}
-        <span className="topbar-surface-drag" {...surfaceDragProps("browser")}>
-          <IconButton label={t("atelier.browser")} className={`ghost topbar-qa ${browserActive ? "on" : ""}`} title={t("atelier.browser")} onClick={onOpenBrowser}>
-            <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.2"><circle cx="8" cy="8" r="6.2"/><path d="M1.8 8h12.4M8 1.8c2.2 2 2.2 10.4 0 12.4M8 1.8c-2.2 2-2.2 10.4 0 12.4"/></svg>
-          </IconButton>
-        </span>
-        <span className="topbar-surface-drag" {...surfaceDragProps("terminal")}>
-          <IconButton label={t("atelier.terminal")} className={`ghost topbar-qa ${terminalActive ? "on" : ""}`} title={t("atelier.terminal")} onClick={onOpenTerminal}>
-            <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round"><rect x="1.8" y="2.8" width="12.4" height="10.4" rx="2"/><path d="M4.5 6l2.2 2-2.2 2M8.5 10.5h3"/></svg>
-          </IconButton>
-        </span>
+        {/* Surfaces (plan 055) : toutes ici, épinglables. Le refresh galerie
+            vit dans le GalleryHeader de la surface (plan 018). */}
+        <TopBarSurfaces
+          activeSurface={activeSurface}
+          showAtelier={showAtelier}
+          ideActive={ideActive}
+          showExplorer={showExplorer}
+          onSelectSurface={onSelectSurface}
+          onSelectIde={onSelectIde}
+          onToggleExplorer={onToggleExplorer}
+        />
+        <span className="topbar-div" />
         {/* pilote plan 016 : ex-.tb-seg (role=group) → SegmentedControl
             (radiogroup, flèches, roving tabindex) ; mêmes icônes, mêmes
             titles avec raccourcis, même géométrie 26×22 */}
@@ -210,6 +185,7 @@ export default function TopBar({
             { value: "atelier", label: <LayoutAtelierIcon />, ariaLabel: t("layout.atelier"), title: `${t("layout.atelier")} (⌘2)` },
           ]}
         />
+        <span className="topbar-div" />
         <IconButton label={t("qa.open")} className="ghost topbar-qa" title={`${t("qa.open")} (⌥⌘K)`} onClick={onQuickAsk}>
           <ZapIcon size={14} />
         </IconButton>
