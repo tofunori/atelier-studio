@@ -3241,6 +3241,24 @@ export default function App() {
     setActiveTab((cur) => (cur === id ? "gallery" : cur));
   }, []);
 
+  // Onglets du pane focalisé, publiés par AtelierPane (plan 057) — la bande
+  // d'onglets a disparu, c'est le rail qui les porte.
+  const [paneTabs, setPaneTabs] = useState<
+    { id: string; title: string; kind?: "document" | "surface" | "agent" | "ide"; surface?: Surface; url?: string }[]
+  >([]);
+  const [paneActiveTab, setPaneActiveTab] = useState<string | null>(null);
+  useEffect(() => {
+    const onTabs = (event: Event) => {
+      const detail = (event as CustomEvent).detail as
+        | { tabs?: typeof paneTabs; activeId?: string | null }
+        | undefined;
+      setPaneTabs(Array.isArray(detail?.tabs) ? detail.tabs : []);
+      setPaneActiveTab(detail?.activeId ?? null);
+    };
+    window.addEventListener("workspace-tabs", onTabs);
+    return () => window.removeEventListener("workspace-tabs", onTabs);
+  }, []);
+
   // IDE actif : l'atelier est visible, la surface est la galerie, et l'onglet
   // courant est un éditeur — partagé par le rail et la barre du haut (plan 055).
   const ideActive = showAtelier && activeSurface === "atelier" && activeTab !== "gallery"
@@ -3278,16 +3296,17 @@ export default function App() {
           activeProject={activeProject}
           meta={projMeta}
           running={runningProjects}
-          files={atelierTabs.filter((tb) => tb.kind !== "term").map((tb) => ({ id: tb.id, title: tb.title, url: tb.url }))}
-          activeFile={activeTab}
+          files={paneTabs}
+          activeFile={paneActiveTab}
           onSelectFile={(id) => {
-            // depuis le rail, un fichier doit AUSSI ramener l'atelier à l'écran :
-            // le sélectionner en mode chat ne montrerait rien
-            setActiveTab(id);
+            // le workspace choisit lui-même ; le rail ne fait que demander —
+            // et l'atelier revient à l'écran, sinon la sélection ne se voit pas
+            window.dispatchEvent(new CustomEvent("workspace-select-tab", { detail: { id } }));
             setLayout((l) => (l === "chat" ? "split" : l));
-            switchToSurface("atelier");
           }}
-          onCloseFile={closeAtelierTab}
+          onCloseFile={(id) => {
+            window.dispatchEvent(new CustomEvent("workspace-close-tab", { detail: { id } }));
+          }}
           activeView={activeView}
           layout={layout}
           activeSurface={activeSurface}
