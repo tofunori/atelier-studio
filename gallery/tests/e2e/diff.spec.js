@@ -576,6 +576,57 @@ for (const engine of ['cm5', 'cm6']) {
       });
     });
 
+    test('ruban de révisions : dessiné, navigable, effacé sous trois interventions', async ({ page }) => {
+      await withLatexStudio(engine, async ({ url }) => {
+        await openEditor(page, url, 'latex', engine);
+        const ribbon = page.locator('#dvNav canvas.dvRib');
+        const host = page.locator('#dvNav .dvRibHost');
+        const count = page.locator('#dvNav .dvNavC');
+
+        // Deux interventions : le ruban ne dirait rien qu'un compteur ne dise
+        // mieux — il s'efface.
+        await replaceLineAndSave(page, 1, 'First intervention changes the glacier surface.');
+        await replaceLineAndSave(page, 2, 'Second intervention changes summer temperature.');
+        await page.locator('#diffTag').click();
+        await expect(count).toHaveText('tout · 2');
+        await expect(host).toBeHidden();
+
+        // Trois : il apparaît et il est réellement peint.
+        await page.locator('#diffTag').click();
+        await replaceLineAndSave(page, 3, 'Third intervention changes snow depth.');
+        await page.locator('#diffTag').click();
+        await expect(count).toHaveText('tout · 3');
+        await expect(host).toBeVisible();
+        const painted = await ribbon.evaluate((cv) => {
+          const g = cv.getContext('2d');
+          const data = g.getImageData(0, 0, cv.width, cv.height).data;
+          let n = 0;
+          for (let i = 3; i < data.length; i += 4) if (data[i] > 0) n += 1;
+          return n;
+        });
+        expect(painted).toBeGreaterThan(0);
+
+        // Au repos (cumul), aucune aiguille : pas de faux « ici ».
+        await expect(ribbon).toHaveAttribute('aria-valuenow', '3');
+        await expect(ribbon).toHaveAttribute('aria-valuetext', /3 interventions depuis la base/);
+
+        // Un clic dans le ruban positionne, et l'état vocal suit.
+        const box = await ribbon.boundingBox();
+        await page.mouse.click(box.x + box.width * 0.1, box.y + box.height / 2);
+        await expect(count).toHaveText('1 / 3');
+        await expect(ribbon).toHaveAttribute('aria-valuenow', '1');
+        await expect(ribbon).toHaveAttribute('aria-valuetext', /Intervention 1 sur 3.*\+\d+ −\d+/);
+
+        // Clavier : le ruban est un slider, pas seulement une cible de souris.
+        await ribbon.press('ArrowRight');
+        await expect(count).toHaveText('2 / 3');
+        await ribbon.press('End');
+        await expect(count).toHaveText('3 / 3');
+        await ribbon.press('Home');
+        await expect(count).toHaveText('1 / 3');
+      });
+    });
+
     test('diff restore exact target', async ({ page }) => {
       await withLatexStudio(engine, async ({ url }) => {
         await openEditor(page, url, 'latex', engine);

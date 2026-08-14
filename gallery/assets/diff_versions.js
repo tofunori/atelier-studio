@@ -164,6 +164,25 @@ window.DiffVersions = function(opts){
       "#dvNav .dvNavC{min-width:58px;width:auto!important;gap:5px;padding:0 7px!important;font-variant-numeric:tabular-nums;user-select:none}" +
       "#dvNav .dvNavC .dv-count{min-width:14px;text-align:left;font-size:0}" +
       "#dvNav .dvNavC .dv-count::after{content:attr(data-compact);font-size:10px}" +
+      // Ruban de révisions : une colonne par intervention, ce qui entre au-dessus
+      // de la médiane, ce qui sort en dessous. Canvas et non DOM — la barre ne
+      // doit pas grossir avec l'historique.
+      "#dvNav .dvRibHost{position:relative;display:inline-flex;align-items:center;padding:0 6px}" +
+      "#dvNav canvas.dvRib{display:block;width:132px;height:16px;border-radius:3px;" +
+        "cursor:ew-resize;touch-action:none}" +
+      "#dvNav canvas.dvRib.off{cursor:default;opacity:.7}" +
+      "#dvNav canvas.dvRib:focus-visible{outline:2px solid var(--accent,#e8823a);outline-offset:2px}" +
+      ".dvPeek{position:absolute;bottom:calc(100% + 8px);left:0;z-index:401;display:none;" +
+        "flex-direction:column;gap:2px;min-width:132px;padding:7px 9px;border-radius:8px;" +
+        "background:var(--popover,var(--card,#1a1d22));border:1px solid var(--border,#333a45);" +
+        "box-shadow:0 6px 20px rgba(0,0,0,.45);pointer-events:none;white-space:nowrap}" +
+      ".dvPeek.on{display:flex}" +
+      ".dvPeek .dvPeekTop{font-size:11px;font-weight:500;color:var(--txt,#dbdfe5);font-variant-numeric:tabular-nums}" +
+      ".dvPeek .dvPeekNum{display:flex;gap:8px;font-size:11px;font-variant-numeric:tabular-nums}" +
+      ".dvPeek .dvPeekNum .a{color:var(--dv-add,#34c98e);font-weight:500}" +
+      ".dvPeek .dvPeekNum .r{color:var(--dv-del,#e06c75);font-weight:500}" +
+      ".dvPeek .dvPeekSrc{font-size:10px;color:var(--muted,#8b93a1)}" +
+      ".dvPeek.bad .dvPeekSrc{color:var(--dv-del,#e06c75)}" +
       // compositeur de commit ciblé : mêmes tokens que l'app Atelier, sans
       // palette bleue autonome ni changement de géométrie pendant l'IA.
       "#dvCommitPop{position:fixed;z-index:400;display:none;flex-direction:column;gap:10px;" +
@@ -664,6 +683,29 @@ window.DiffVersions = function(opts){
       : "applied (appliqué)";
     return it.source + " · " + status;
   }
+  // ---- ampleur d'une intervention (hauteur des traits du ruban) -----------
+  // PAS un `Diff.diffLines` : 137 interventions × un document entier coûtent
+  // des secondes au premier dessin. Rognage préfixe/suffixe sur les lignes —
+  // exact pour une édition contiguë (le cas courant), majorant sinon, et O(n).
+  // Mémoïsé par id : une intervention est immuable une fois journalisée.
+  const CHURN = new Map();
+  function churnOf(it){
+    if(!it || typeof it.before !== "string" || typeof it.after !== "string") return {added: 0, removed: 0};
+    const hit = CHURN.get(it.id);
+    if(hit) return hit;
+    const a = it.before.split("\n"), b = it.after.split("\n");
+    const max = Math.min(a.length, b.length);
+    let head = 0;
+    while(head < max && a[head] === b[head]) head++;
+    let tail = 0;
+    while(tail < max - head && a[a.length - 1 - tail] === b[b.length - 1 - tail]) tail++;
+    const out = {added: Math.max(0, b.length - head - tail), removed: Math.max(0, a.length - head - tail)};
+    // Retouche à l'intérieur d'une ligne : les deux comptes tombent à 0 alors
+    // que quelque chose a bien changé. Un trait minimal vaut mieux qu'un trou.
+    if(!out.added && !out.removed && it.before !== it.after) out.added = 1;
+    CHURN.set(it.id, out);
+    return out;
+  }
   function ttExit(){
     if(!tt) return;
     const cm = getCm();
@@ -740,6 +782,8 @@ window.DiffVersions = function(opts){
       els.tag.appendChild(navCount);
     }
     navPill.appendChild(navPrev);
+    ensureRibbon();
+    if(navRibHost) navPill.appendChild(navRibHost);
     navPill.appendChild(els.tag);
     navPill.appendChild(navNext);
     els.group.insertBefore(navPill, els.restore || null);
@@ -752,6 +796,192 @@ window.DiffVersions = function(opts){
       navMode >= last ? showAll() : showStep(navMode + 1);
     };
   }
+  // ---- ruban de révisions -------------------------------------------------
+  // Une intervention = une colonne. Au-dessus de la médiane ce qui entre, en
+  // dessous ce qui sort : le vocabulaire du diff, à l'échelle du pixel. Rendu
+  // au canvas et non en DOM — 137 nœuds dans une barre d'outils, non.
+  let navRibHost = null, navRib = null, navPeek = null, ribHover = null;
+  const RIB_W = 132, RIB_H = 16, RIB_MIN = 3, RIB_MAX_COLS = 260;
+  function canvasOk(cv){ return cv && typeof cv.getContext === "function"; }
+  function ensureRibbon(){
+    if(navRibHost || !document.createElement) return;
+    navRibHost = document.createElement("span");
+    navRibHost.className = "dvRibHost";
+    navPeek = document.createElement("span");
+    navPeek.className = "dvPeek";
+    navRib = document.createElement("canvas");
+    navRib.className = "dvRib";
+    navRib.tabIndex = 0;
+    navRib.setAttribute("role", "slider");
+    navRib.setAttribute("aria-label", "Position dans les interventions");
+    navRib.setAttribute("aria-valuemin", "1");
+    navRibHost.appendChild(navPeek);
+    navRibHost.appendChild(navRib);
+    if(!navRib.addEventListener) return;      // harnais de test sans DOM réel
+    const hit = (event) => {
+      const list = interList();
+      if(!list.length || !navRib.getBoundingClientRect) return -1;
+      const rect = navRib.getBoundingClientRect();
+      if(!rect.width) return -1;
+      const ratio = Math.min(1, Math.max(0, (event.clientX - rect.left) / rect.width));
+      return Math.min(list.length - 1, Math.floor(ratio * list.length));
+    };
+    const peek = (j) => {
+      const list = interList();
+      const it = list[j];
+      if(!it || !navPeek){ if(navPeek) navPeek.className = "dvPeek"; return; }
+      const {added, removed} = churnOf(it);
+      navPeek.innerHTML = '<span class="dvPeekTop">' + (j + 1) + " / " + list.length + "</span>"
+        + '<span class="dvPeekNum"><b class="a">+' + added + '</b><b class="r">−' + removed + "</b></span>"
+        + '<span class="dvPeekSrc">' + escapeHtml(interventionLabel(it)) + "</span>";
+      navPeek.className = "dvPeek on" + (it.status === "pending-conflict" ? " bad" : "");
+    };
+    navRib.addEventListener("pointermove", (event) => {
+      const j = hit(event);
+      if(j < 0) return;
+      ribHover = j;
+      peek(j);
+      if(navRib.hasPointerCapture && navRib.hasPointerCapture(event.pointerId)) showStep(j);
+    });
+    navRib.addEventListener("pointerleave", () => {
+      ribHover = null;
+      if(navPeek) navPeek.className = "dvPeek";
+      drawRibbon();
+    });
+    navRib.addEventListener("pointerdown", (event) => {
+      const j = hit(event);
+      if(j < 0) return;
+      // Positionner d'abord : la capture peut échouer et ne doit jamais avaler
+      // le clic.
+      showStep(j);
+      peek(j);
+      try { navRib.setPointerCapture(event.pointerId); } catch(e){ /* glissé non suivi */ }
+    });
+    navRib.addEventListener("pointerup", (event) => {
+      try { navRib.releasePointerCapture(event.pointerId); } catch(e){}
+    });
+    navRib.addEventListener("keydown", (event) => {
+      const list = interList();
+      if(!list.length) return;
+      if(event.key === "ArrowLeft"){ event.preventDefault(); navPrev.onclick(); }
+      else if(event.key === "ArrowRight"){ event.preventDefault(); navNext.onclick(); }
+      else if(event.key === "Home"){ event.preventDefault(); showStep(0); }
+      else if(event.key === "End"){ event.preventDefault(); showStep(list.length - 1); }
+    });
+    navRib.addEventListener("blur", () => {
+      if(navPeek) navPeek.className = "dvPeek";
+    });
+  }
+  function escapeHtml(s){
+    return String(s).replace(/[&<>"]/g, (c) => ({"&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;"}[c]));
+  }
+  function drawRibbon(){
+    if(!canvasOk(navRib)) return;
+    const list = interList();
+    const n = list.length;
+    const wide = n >= RIB_MIN;
+    // Sous trois interventions, le ruban ne dit rien qu'un compteur ne dise
+    // mieux : il s'efface au lieu d'afficher deux traits perdus.
+    navRibHost.style.display = wide ? "" : "none";
+    if(!wide) return;
+    const w = navRib.clientWidth || RIB_W, h = navRib.clientHeight || RIB_H;
+    const dpr = Math.min(3, window.devicePixelRatio || 1);
+    if(navRib.width !== Math.round(w * dpr)){
+      navRib.width = Math.round(w * dpr);
+      navRib.height = Math.round(h * dpr);
+    }
+    const g = navRib.getContext("2d");
+    if(!g) return;
+    g.setTransform(dpr, 0, 0, dpr, 0, 0);
+    g.clearRect(0, 0, w, h);
+    const style = window.getComputedStyle ? window.getComputedStyle(navRib) : null;
+    const pick = (name, fallback) => {
+      const value = style && style.getPropertyValue ? style.getPropertyValue(name).trim() : "";
+      return value || fallback;
+    };
+    const cAdd = pick("--dv-add", "#34c98e"), cDel = pick("--dv-del", "#e06c75");
+    const cCur = pick("--accent", "#e8823a"), cLine = pick("--muted", "#8b93a1");
+    const active = shown && !!curVersion();
+
+    // Au-delà de RIB_MAX_COLS, un trait ferait moins d'un demi-pixel : on
+    // agrège par colonne et la hauteur devient le maximum du paquet — la
+    // silhouette reste vraie, la navigation fine passe par les chevrons.
+    const cols = Math.min(n, RIB_MAX_COLS);
+    const per = n / cols;
+    const buckets = [];
+    for(let c = 0; c < cols; c++){
+      const from = Math.floor(c * per), to = Math.max(from + 1, Math.floor((c + 1) * per));
+      let added = 0, removed = 0, bad = false, has = false;
+      for(let k = from; k < to && k < n; k++){
+        const churn = churnOf(list[k]);
+        added = Math.max(added, churn.added);
+        removed = Math.max(removed, churn.removed);
+        if(list[k].status === "pending-conflict") bad = true;
+        has = true;
+      }
+      if(has) buckets.push({c, added, removed, bad, from, to});
+    }
+    let peak = 1;
+    for(const b of buckets) peak = Math.max(peak, b.added, b.removed);
+
+    const mid = Math.round(h / 2) + .5;
+    g.globalAlpha = active ? .4 : .26;
+    g.fillStyle = cLine;
+    g.fillRect(0, mid - .5, w, 1);
+
+    const step = w / cols;
+    const bw = Math.max(.7, Math.min(3, step - (step > 1.7 ? .6 : 0)));
+    const half = h / 2 - 1.5;
+    // Racine carrée : sans elle, une réécriture de 60 lignes écrase toutes les
+    // retouches d'une ligne à un trait invisible.
+    const scale = (v) => v > 0 ? Math.max(1, Math.sqrt(v / peak) * half) : 0;
+    for(const b of buckets){
+      const x = b.c * step;
+      const cur = navMode >= 0 && navMode >= b.from && navMode < b.to;
+      if(b.bad){
+        g.globalAlpha = active ? .95 : .5;
+        g.fillStyle = cDel;
+        g.fillRect(x, 1, bw, h - 2);          // conflit : pleine hauteur
+        continue;
+      }
+      g.globalAlpha = cur ? 1 : active ? .62 : .34;
+      g.fillStyle = cur ? cCur : cAdd;
+      const up = scale(b.added);
+      if(up) g.fillRect(x, mid - up, bw, up);
+      g.fillStyle = cur ? cCur : cDel;
+      const dn = scale(b.removed);
+      if(dn) g.fillRect(x, mid, bw, dn);
+    }
+    // Aiguille : seulement en parcours. Au repos, aucun faux « ici ».
+    if(navMode >= 0 && active){
+      const col = Math.min(cols - 1, Math.floor(navMode / per));
+      const x = Math.round(col * step) + .5;
+      g.globalAlpha = .22; g.fillStyle = cCur;
+      g.fillRect(x - 2.5, 0, 5, h);
+      g.globalAlpha = 1;
+      g.fillRect(x - .5, 0, Math.max(1.4, bw), h);
+    }
+    g.globalAlpha = 1;
+  }
+  function updateRibbon(list, active){
+    if(!navRib) return;
+    const n = list.length;
+    if(navRib.setAttribute){
+      navRib.setAttribute("aria-valuemax", String(Math.max(1, n)));
+      navRib.setAttribute("aria-valuenow", String(navMode < 0 ? n : navMode + 1));
+      navRib.setAttribute("aria-disabled", active ? "false" : "true");
+      const it = navMode >= 0 ? list[navMode] : null;
+      if(it){
+        const churn = churnOf(it);
+        navRib.setAttribute("aria-valuetext", "Intervention " + (navMode + 1) + " sur " + n
+          + ", " + interventionLabel(it) + ", +" + churn.added + " −" + churn.removed);
+      } else {
+        navRib.setAttribute("aria-valuetext", n + " intervention" + (n > 1 ? "s" : "") + " depuis la base");
+      }
+    }
+    if(navRib.classList) navRib.classList.toggle("off", !active);
+    drawRibbon();
+  }
   function updateNav(){
     ensureNavUi();
     if(!navPill) return;
@@ -760,6 +990,7 @@ window.DiffVersions = function(opts){
     const on = shown && !!curVersion();
     navPill.style.display = "inline-flex";
     navCount.dataset.compact = navMode < 0 ? String(n) : (navMode + 1) + "/" + n;
+    updateRibbon(list, on);
     if(!on){
       navCount.textContent = "tout · " + n;
       navCount.title = n ? n + " intervention" + (n > 1 ? "s" : "") + " disponible" : "Aucune intervention";
