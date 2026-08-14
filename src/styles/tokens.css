@@ -25,6 +25,21 @@
   --text-disabled: var(--muted2);
   --text-inverse: #1a1408; /* lisible sur l'accent orange, deux thèmes */
 
+  /* -- marques (aplats et traits NON textuels) ------------------------------
+   * Un point d'état, un pouce de scrollbar, un knob d'interrupteur ou un
+   * liseré d'état sont peints dans la palette de gris — mais ce ne sont pas
+   * du texte : `background: var(--text-disabled)` serait un contresens. Deux
+   * paliers suffisent, et l'ordre tient dans les DEUX thèmes (--muted est le
+   * plus contrasté des deux sur fond sombre comme sur fond clair).
+   * --mark-neutral        : 12 consommateurs (points d'activité et de statut,
+   *   pouces de scrollbar au repos, piste de slider, liseré « en cours »,
+   *   rail de prévisualisation pnav, état par défaut de --goal-state).
+   * --mark-neutral-strong : 8 consommateurs (knobs switch/toggle/checkbox,
+   *   pouces de scrollbar survolés, arc du spinner Reviewer, contour de la
+   *   case Raccourcis, état « en pause » de --goal-state). */
+  --mark-neutral: var(--muted2);
+  --mark-neutral-strong: var(--muted);
+
   /* -- bordures ------------------------------------------------------------ */
   --border-subtle: var(--border);
   --border-default: var(--border2);
