@@ -22,27 +22,46 @@ html.gallery-react-mounted #selBar { display:none!important;margin:0!important;p
    on inverse. Au repos, aucun trait : seuls le survol (fond) et l'état actif
    (teinte accent) marquent les contrôles. Le tri est un SelectTrigger, il
    perd sa bordure ici aussi — sinon il reste le seul cadre de la barre. */
+/* PIÈGE : le CSS historique de la galerie borde TOUT bouton
+   (« select,button{border:1px solid var(--border)} », sélecteur d'élément).
+   La variante ghost, elle, ne déclare aucune bordure — il n'y a donc rien à
+   surcharger et le trait historique subsiste. On le remet à zéro ici, sur la
+   barre normale seulement : la barre de sélection garde ses boutons outline,
+   et les puces de filtre actif gardent leur contour. */
+.gallery-command-bar[data-gallery-toolbar-state="normal"]
+  :is(button,[role="button"]):not(.gallery-filter-chip) { border-color:transparent;background:transparent; }
+.gallery-command-bar[data-gallery-toolbar-state="normal"]
+  :is(button,[role="button"]):not(.gallery-filter-chip):hover {
+  background:color-mix(in srgb,var(--foreground) 10%,transparent);
+}
 .gallery-command-bar [data-slot="select-trigger"] { border-color:transparent;background:transparent; }
-.gallery-command-bar [data-slot="select-trigger"]:hover { background:var(--accent); }
 /* Le groupe de droite (tri, affichage, outils) règle le contenant, pas le
    contenu : il recule d'un plan tant qu'on ne le survole pas. */
 .gallery-command-bar [data-gallery-group="order"] [data-slot],
 .gallery-command-bar [data-gallery-group="display"] [data-slot] { color:var(--muted-foreground); }
 .gallery-command-bar [data-gallery-group="order"] [data-slot]:hover,
 .gallery-command-bar [data-gallery-group="display"] [data-slot]:hover { color:var(--foreground); }
-/* Seul trait de la barre : entre deux groupes. */
-.gallery-command-sep { height:18px;align-self:center;flex:0 0 auto; }
-/* Actif — recherche posée, filtres, favoris, collection, statut : fond teinté
-   + accent. Jamais de bordure, sinon on réintroduit ce qu'on vient d'ôter. */
-.gallery-command-bar [data-gallery-active="true"],
-.gallery-command-bar [data-gallery-command="favorites"][aria-pressed="true"] {
-  color:var(--primary);
-  background:color-mix(in srgb,var(--primary) 13%,transparent);
+/* Seul trait de la barre : entre deux groupes. La largeur est posée ici et pas
+   laissée à l'utilitaire `data-vertical:w-px` du composant Separator — il ne
+   s'applique pas dans ce contexte et le trait sortait à 0 px, donc invisible. */
+.gallery-command-sep {
+  width:1px;height:18px;align-self:center;flex:0 0 auto;
+  background:color-mix(in srgb,var(--foreground) 20%,transparent);
 }
-.gallery-command-bar [data-gallery-active="true"]:hover,
-.gallery-command-bar [data-gallery-command="favorites"][aria-pressed="true"]:hover {
+/* Actif — recherche posée, filtres, favoris, collection, statut : fond teinté
+   + accent. Jamais de bordure, sinon on réintroduit ce qu'on vient d'ôter.
+   Le préfixe `[data-gallery-toolbar-state="normal"]` n'est pas décoratif : sans
+   lui la règle pèse le même poids que le CSS historique de la galerie, qui est
+   déclaré après et gagne donc la cascade — l'accent ne s'affichait pas. */
+.gallery-command-bar[data-gallery-toolbar-state="normal"] [data-gallery-active="true"],
+.gallery-command-bar[data-gallery-toolbar-state="normal"] [data-gallery-command="favorites"][aria-pressed="true"] {
   color:var(--primary);
-  background:color-mix(in srgb,var(--primary) 20%,transparent);
+  background:color-mix(in srgb,var(--primary) 15%,transparent);
+}
+.gallery-command-bar[data-gallery-toolbar-state="normal"] [data-gallery-active="true"]:hover,
+.gallery-command-bar[data-gallery-toolbar-state="normal"] [data-gallery-command="favorites"][aria-pressed="true"]:hover {
+  color:var(--primary);
+  background:color-mix(in srgb,var(--primary) 22%,transparent);
 }
 .gallery-command-spacer { min-width:0;flex:1 1 auto; }
 .gallery-active-filters { display:flex;min-width:0;max-width:360px;align-items:center;gap:5px;overflow:hidden; }
