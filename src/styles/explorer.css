@@ -1,0 +1,19 @@
+/* Explorer (plan 021) — ce que le passage « rangée div » → « rangée bouton »
+ * (RowButton, patron ARIA `tree`) exige, et RIEN d'autre : la peau des
+ * rangées (.explorer, .exp-search, .exp-tree, .exp-row, .exp-name, .exp-ico,
+ * .exp-chev) reste dans App.css, inchangée. Tokens uniquement, aucune
+ * animation ajoutée — les transitions de .exp-row (App.css) continuent de
+ * s'appliquer telles quelles. */
+
+/* un bouton est shrink-to-fit : sans largeur explicite, le survol, la
+ * sélection et l'anneau de focus ne couvriraient que le texte au lieu de la
+ * rangée entière. */
+.exp-tree .exp-row { width: 100%; min-width: 0; }
+
+/* anneau tracé À L'INTÉRIEUR de la rangée : .exp-tree défile
+ * (overflow-y: auto → overflow-x calculé), un offset positif serait rogné sur
+ * les bords. Mêmes tokens que le reste de l'app, jamais outline: none. */
+.exp-tree .exp-row:focus-visible {
+  outline: var(--focus-ring-width) solid var(--focus-ring-color);
+  outline-offset: calc(-1 * var(--focus-ring-offset));
+}
