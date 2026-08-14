@@ -182,21 +182,37 @@ export function createLatexReadingController(options: LatexReadingOptions): Late
   const reading = doc.createElement("div");
   reading.id = "texread";
   options.right.appendChild(reading);
+  // Trois vues, un seul segment, icônes seules : les libellés « Édition » et
+  // « Split » coûtaient 114 px de barre pour redire ce que la forme montre.
+  // Lecture entre dans le segment — elle n'était atteignable que par le menu.
+  const glyph = (path: string): string =>
+    `<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.45"`
+    + ` stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${path}</svg>`;
   const readButton = doc.createElement("button");
   readButton.id = "readBtn";
   readButton.title = "Vue Lecture — prose rendue (KaTeX), sans le code";
-  readButton.textContent = "Lecture";
-  readButton.style.display = "none";
-  options.splitButton.insertAdjacentElement("afterend", readButton);
+  readButton.setAttribute("aria-label", "Vue Lecture");
+  // Un œil, pas un troisième rectangle : « Édition » et « Lecture » dessinés
+  // tous deux en panneau lignés devenaient indiscernables à 14 px.
+  readButton.innerHTML = glyph('<path d="M1.4 8s2.5-4.2 6.6-4.2S14.6 8 14.6 8s-2.5 4.2-6.6 4.2S1.4 8 1.4 8Z"/>'
+    + '<circle cx="8" cy="8" r="1.9"/>');
   const editButton = doc.createElement("button");
   editButton.id = "editBtn";
   editButton.title = "Éditeur seul";
-  editButton.textContent = "Édition";
+  editButton.setAttribute("aria-label", "Éditeur seul");
+  editButton.innerHTML = glyph('<rect x="2" y="3" width="12" height="10" rx="1.6"/>'
+    + '<path d="M4.6 6.2h5M4.6 8.6h6.4M4.6 11h3.2" opacity=".75"/><path d="M2 5.4h12" opacity=".45"/>');
+  if (!options.splitButton.querySelector("svg")) {
+    options.splitButton.title = "Vue scindée éditeur + PDF";
+    options.splitButton.setAttribute("aria-label", "Vue scindée éditeur et PDF");
+    options.splitButton.innerHTML = glyph('<rect x="2" y="3" width="12" height="10" rx="1.6"/><path d="M8 3v10"/>');
+  }
   const segment = doc.createElement("span");
   segment.className = "modeseg";
   options.splitButton.parentNode?.insertBefore(segment, options.splitButton);
   segment.appendChild(editButton);
   segment.appendChild(options.splitButton);
+  segment.appendChild(readButton);
   let enabled = false;
   let frame = 0;
   let bound = false;

@@ -156,7 +156,10 @@ window.DiffVersions = function(opts){
         "border-left:7px solid rgba(224,108,117,.95);border-top:5px solid transparent;border-bottom:5px solid transparent}" +
       ".dv-del.eof{top:auto;bottom:-4px}" +
       // Instrument de versions stable : commit | ‹ ±N › | restaurer | historique.
-      // Les contrôles sont désactivés, jamais retirés, pour supprimer tout jitter.
+      // Les contrôles sont désactivés, jamais retirés, pour supprimer tout
+      // jitter — sauf « rétablir », qui n'a aucun sens hors comparaison et
+      // occupait 30 px désactivés en permanence. Il revient AVEC la
+      // comparaison : la géométrie ne bouge donc que sur une action explicite.
       "#dvNav{display:inline-flex;align-items:center;height:24px;overflow:hidden;vertical-align:middle}" +
       "#dvNav .dvNavA{display:inline-flex;align-items:center;justify-content:center;width:22px;height:24px;background:transparent;border:none;color:var(--muted,#8b93a1);cursor:pointer;padding:0}" +
       "#dvNav .dvNavA:hover:not(:disabled){color:var(--txt,#dbdfe5);background:rgba(255,255,255,.06)}" +
@@ -388,7 +391,7 @@ window.DiffVersions = function(opts){
   function arm(){
     if(els.group) els.group.style.display = "";
     els.tag.disabled = false; els.tag.style.opacity = "";
-    if(els.restore){ els.restore.style.display = ""; els.restore.disabled = !shown; }
+    if(els.restore){ els.restore.style.display = shown ? "" : "none"; els.restore.disabled = !shown; }
     ensureNavUi();
     ensureCommitUi();
     ensureHistUi();
@@ -1037,7 +1040,7 @@ window.DiffVersions = function(opts){
       : null;
     shown = next;
     els.tag.classList.toggle("on", shown);
-    if(els.restore){ els.restore.style.display = ""; els.restore.disabled = !shown; }
+    if(els.restore){ els.restore.style.display = shown ? "" : "none"; els.restore.disabled = !shown; }
     if(shown){
       navMode = -1;
       render();
@@ -1533,7 +1536,8 @@ window.DiffVersions = function(opts){
   ensureCommitUi();
   ensureHistUi();
   if(els.restore){
-    els.restore.style.display = "";
+    // Fermé au départ : « rétablir » n'apparaît qu'avec la comparaison.
+    els.restore.style.display = "none";
     els.restore.disabled = true;
     els.restore.setAttribute("aria-label", "Rétablir la version affichée");
     if(!els.restore.querySelector("svg"))

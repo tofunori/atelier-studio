@@ -161,14 +161,22 @@ export function bootstrapLatexSurface(dependencies: LatexSurfaceDependencies): L
   let stateTimer: number | null = null;
   const state = doc.getElementById("state") as HTMLElement;
   const dirtyDot = doc.getElementById("ddot") as HTMLElement;
+  // La barre du haut ne commente plus le travail. « compilé en 2 s », « saved »,
+  // « loaded », « modified » sont des confirmations : la barre du bas porte
+  // déjà l'état de compilation, et la pastille `#ddot` dit le non-sauvegardé.
+  // Seul ce qui demande une réaction — erreur ou indice — s'affiche encore ici.
+  const SPEAKS = new Set(["err", "hint"]);
   const setState = (kind: "hint" | "dirty" | "ok" | "err", message: string): void => {
-    state.className = kind;
-    state.textContent = message;
-    state.title = message;
+    const speaks = SPEAKS.has(kind);
+    state.className = speaks ? kind : "";
+    state.textContent = speaks ? message : "";
+    state.title = speaks ? message : "";
     if (stateTimer !== null) win.clearTimeout(stateTimer);
-    if (kind === "ok") stateTimer = win.setTimeout(() => {
-      if (state.className === "ok") state.textContent = "";
-    }, 2500);
+    // Un indice est passager ; une erreur reste jusqu'à ce qu'autre chose la
+    // remplace.
+    if (kind === "hint") stateTimer = win.setTimeout(() => {
+      if (state.className === "hint") state.textContent = "";
+    }, 4000);
   };
   (doc.getElementById("fname") as HTMLElement).textContent = filename;
   doc.title = isPdfMode ? `${filename} — PDF` : filename;
