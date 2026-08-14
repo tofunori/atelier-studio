@@ -2,18 +2,15 @@ import { useState } from "react";
 import { Clock3Icon } from "lucide-react";
 import { t } from "../lib/i18n";
 import { ChatsIcon, HighlighterIcon, PlusIcon, SettingsIcon, SidebarIcon } from "./icons";
+import RailActivity from "./RailActivity";
 import { ProjIcon } from "./sidebar/projectIcons";
 import { ProjectStyleMenu } from "./sidebar/ProjectStyleMenu";
-import { SURFACES, type Surface } from "./surfaces";
+import type { Surface } from "./surfaces";
 import type { ViewId } from "../lib/settings";
 import { IconButton } from "./ui/IconButton";
 import { RowButton } from "./ui";
-import { dispatchWorkspacePointerDragStart, shouldSuppressWorkspaceSourceClick } from "../lib/workspaceDrag";
 
 export type ProjMeta = { color?: string; label?: string };
-
-// Surfaces « outil » montées dans la TopBar (avec l'Explorateur) — jamais dans le rail.
-const TOPBAR_SURFACES: Surface[] = ["git", "browser", "terminal"];
 
 // fiche « Surlignés » (lot 2) : photographie autonome — cf. sidecar/highlights.mjs
 export type HighlightEntry = {
@@ -66,44 +63,9 @@ export default function Rail(p: {
   const [dragRoot, setDragRoot] = useState<string | null>(null);
   const [dragOver, setDragOver] = useState<string | null>(null);
 
-  // Tiroir de surfaces : IDE et Galerie restent toujours visibles, les surfaces
-  // secondaires se replient derrière « Autres surfaces ». La surface active
-  // rangée reste visible même repliée (même règle que le provider du thread
-  // courant dans le picker de providers). Les surfaces « outil » (git,
-  // navigateur, terminal) vivent dans la TopBar avec l'Explorateur.
-  const secondarySurfaces = SURFACES.filter((s) => !TOPBAR_SURFACES.includes(s.id) && s.id !== "atelier");
-  const atelierSurface = SURFACES.find((s) => s.id === "atelier")!;
-  const revealedSurface = p.moreOpen ? null : (secondarySurfaces.find((s) => s.id === p.activeSurface) ?? null);
-  const surfaceBtn = (s: (typeof SURFACES)[number]) => (
-    <span
-      key={s.id}
-      className="rail-surface-drag"
-      onClickCapture={(event) => {
-        if (!shouldSuppressWorkspaceSourceClick({ kind: "surface", surface: s.id })) return;
-        event.preventDefault();
-        event.stopPropagation();
-      }}
-      onPointerDown={(event) => {
-        dispatchWorkspacePointerDragStart(event.nativeEvent, { kind: "surface", surface: s.id });
-      }}
-    >
-      <IconButton
-        /* Galerie (surface "atelier") n'est active que sur l'onglet gallery,
-           pas quand un fichier est ouvert (là c'est l'IDE qui est actif) */
-        className={`rail-view ${p.layout !== "chat" && p.activeSurface === s.id && !(s.id === "atelier" && p.ideActive) ? "on" : ""}`}
-        label={t(s.labelKey)}
-        title={t(s.labelKey)}
-        /* Galerie (atelier) : revient à l'onglet galerie même si un fichier
-           est ouvert (IDE) — sinon on resterait bloqué sur le fichier */
-        onClick={() => (s.id === "atelier" ? p.onSelectGallery() : p.onSelectSurface(s.id))}
-      >
-        {s.icon}
-      </IconButton>
-    </span>
-  );
-  // Surlignés vit aussi dans le tiroir (vue moins fréquente) — même règle de
-  // révélation que les surfaces : visible tant que c'est la vue active.
-  const revealedHighlights = !p.moreOpen && p.activeView === "highlights";
+  // Les surfaces ont déménagé dans la barre du haut (plan 055) : le rail ne
+  // porte plus que l'identité (projets) et les vues. « Surlignés » redevient
+  // une vue simple, à côté de Chats et Automations.
   const highlightsBtn = (
     <IconButton key="highlights" className={`rail-view ${p.activeView === "highlights" ? "on" : ""}`}
       label={t("view.highlights")} title={t("view.highlights")} onClick={() => p.onSelectView("highlights")}>
@@ -115,6 +77,10 @@ export default function Rail(p: {
     <div className="rail">
       {/* zone scrollable : tout sauf Réglages (épinglé en bas) */}
       <div className="rail-scroll">
+      {/* zone haute : vues et surfaces. Elle défile POUR ELLE-MÊME quand le
+          tiroir « autres surfaces » s'ouvre — sinon elle écrasait les projets,
+          qui n'ont rien demandé. */}
+      <div className="rail-top">
       <IconButton className={`rail-btn ${!p.compact ? "on" : ""}`}
         label={p.compact ? t("action.expand-sidebar") : t("action.collapse-sidebar")}
         title={p.compact ? t("action.expand-sidebar") : t("action.collapse-sidebar")} onClick={p.onExpand}>
@@ -139,42 +105,12 @@ export default function Rail(p: {
           label={t("automations.title")} title={t("automations.title")} onClick={() => p.onSelectView("automations")}>
           <Clock3Icon size={19} />
         </IconButton>
+        {highlightsBtn}
       </div>
+      </div>{/* fin rail-top */}
       <div className="rail-sep" />
-      {/* activity bar : surfaces de travail — clic bascule via switchSurface
-          (câblé côté App), icône active reflète l'état SI l'atelier est
-          visible (layout ≠ "chat") */}
-      <div className="rail-views">
-        {/* IDE : revient direct à la vue éditeur/PDF (fichiers ouverts) */}
-        <IconButton className={`rail-view ${p.ideActive ? "on" : ""}`}
-          label="IDE — éditeurs et fichiers ouverts" title="IDE — éditeurs & fichiers ouverts" onClick={p.onSelectIde}>
-          <svg width="18" height="18" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round">
-            <path d="M5.5 5 3 8l2.5 3M10.5 5 13 8l-2.5 3M8.8 3.5 7.2 12.5" />
-          </svg>
-        </IconButton>
-        {/* Git, Navigateur, Terminal et Explorateur sont montés dans la TopBar → exclus du rail */}
-        {surfaceBtn(atelierSurface)}
-        <IconButton
-          className={`rail-view rail-more ${p.moreOpen ? "open" : ""}`}
-          label={t("atelier.more")}
-          title={t("atelier.more")}
-          aria-expanded={p.moreOpen}
-          onClick={p.onToggleMore}
-        >
-          <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round">
-            <path d="M6 4.5 9.5 8 6 11.5" />
-          </svg>
-        </IconButton>
-        {revealedHighlights && highlightsBtn}
-        {revealedSurface && surfaceBtn(revealedSurface)}
-        <div className={`rail-fold ${p.moreOpen ? "open" : ""}`}>
-          <div>
-            {!revealedHighlights && highlightsBtn}
-            {secondarySurfaces.filter((s) => s !== revealedSurface).map(surfaceBtn)}
-          </div>
-        </div>
-      </div>
-      <div className="rail-sep" />
+      {/* zone des projets : sa propre zone de défilement, jamais comprimée */}
+      <div className="rail-projects">
       {p.projects.map((root) => {
         const m = p.meta[root];
         const active = root === p.activeProject;
@@ -224,6 +160,9 @@ export default function Rail(p: {
       <IconButton className="rail-btn" label={t("action.add-project")} title={t("action.add-project")} onClick={p.onAddProject}>
         <PlusIcon size={19} />
       </IconButton>
+      </div>{/* fin rail-projects */}
+      {/* ce qui tourne sans toi : agents, conversions (plan 055) */}
+      <RailActivity running={p.running} meta={p.meta} onSelectProject={p.onSelectProject} />
       </div>{/* fin rail-scroll */}
       {/* zone épinglée : Réglages toujours visible en bas, jamais scrollé */}
       <div className="rail-pinned">

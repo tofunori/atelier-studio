@@ -680,12 +680,17 @@ describe("orchestration App — caractérisation", () => {
     await act(async () => { chatBtn.click(); await flushMicrotasks(2); });
     expect(document.querySelector('[data-panel-id="atelier"]')).toBeNull();
 
+    // plan 055 : les surfaces vivent dans la barre du haut ; Bibliothèque
+    // n'est pas épinglée par défaut, on passe donc par le menu des surfaces
     fireEvent.click(screen.getByRole("button", { name: t("atelier.more") }));
+    // le menu est chargé en différé : laisser l'import dynamique se poser
+    await act(async () => { await vi.dynamicImportSettled(); await flushMicrotasks(4); });
     const switches: unknown[] = [];
     const onSwitch = (event: Event) => switches.push((event as CustomEvent).detail);
     window.addEventListener("switch-surface", onSwitch);
 
-    fireEvent.click(screen.getByRole("button", { name: t("atelier.biblio") }));
+    // les entrées du menu sont des menuitem, pas des boutons
+    fireEvent.click(screen.getByText(t("atelier.biblio")));
     await act(async () => {
       await vi.dynamicImportSettled();
       await flushMicrotasks(6);
@@ -694,7 +699,8 @@ describe("orchestration App — caractérisation", () => {
     expect(document.querySelector('[data-panel-id="atelier"]')).toBeTruthy();
     expect(switches).toContainEqual({ surface: "biblio" });
     expect(document.querySelector(".biblio-surface")).toBeTruthy();
-    expect(screen.getByRole("button", { name: t("atelier.biblio") })).toHaveClass("on");
+    // la surface active non épinglée se révèle dans la barre
+    expect(document.querySelector(".topbar-surface.on")).toBeTruthy();
     window.removeEventListener("switch-surface", onSwitch);
   });
 

@@ -3205,6 +3205,10 @@ export default function App() {
   // Slots du WorkspaceShell (slice 3) — contenus et props inchangés, seule la
   // composition est déléguée au shell.
   // feux NATIFS (titleBarStyle Overlay + trafficLightPosition, cf.
+  // IDE actif : l'atelier est visible, la surface est la galerie, et l'onglet
+  // courant est un éditeur — partagé par le rail et la barre du haut (plan 055).
+  const ideActive = showAtelier && activeSurface === "atelier" && activeTab !== "gallery"
+    && (activeTab === "ide" || atelierTabs.some((tb) => tb.id === activeTab && tb.kind !== "term"));
   // tauri.conf.json) repositionnés dans la TopBar — plus de feux custom
   const topBarNode = (
     <TopBar
@@ -3227,9 +3231,9 @@ export default function App() {
         setLayout((l) => (l === "chat" ? "split" : l));
         setShowExplorer((v) => !v);
       }}
-      onOpenGit={() => switchToSurface("git")}
-      onOpenBrowser={() => switchToSurface("browser")}
-      onOpenTerminal={() => switchToSurface("terminal")}
+      onSelectSurface={switchToSurface}
+      onSelectIde={goToIde}
+      ideActive={ideActive}
     />
   );
   const railNode = (
@@ -3244,7 +3248,7 @@ export default function App() {
           onSelectSurface={switchToSurface}
           onSelectGallery={() => { switchToSurface("atelier"); setActiveTab("gallery"); }}
           onSelectIde={goToIde}
-          ideActive={showAtelier && activeSurface === "atelier" && activeTab !== "gallery" && (activeTab === "ide" || atelierTabs.some((tb) => tb.id === activeTab && tb.kind !== "term"))}
+          ideActive={ideActive}
           moreOpen={settings.railMoreOpen}
           onToggleMore={() => setSettings((s) => ({ ...s, railMoreOpen: !s.railMoreOpen }))}
           onNewChat={newChat}
