@@ -8,6 +8,7 @@ import type { HighlightEntry } from "./Rail";
 import { CloseIcon } from "./icons";
 import { Button, IconButton } from "./ui";
 import { ProviderInfo, providerAllowsCommand } from "../lib/providers";
+import { sortEffortLevels } from "../lib/effortOrder";
 import { ImageViewPreview } from "./chat/ImageViewPreview";
 import { ToolOutputLine, imagePathsForActions, isSummarizableTool, Tick, toolCategory } from "./chat/toolPresentation";
 import { ChatTimeline } from "./chat/ChatTimeline";
@@ -243,21 +244,21 @@ export default function Chat(p: {
       // contrôle masqué (1 seul niveau), jamais de niveaux inventés.
       const meta = info?.modelReasoning?.[modelId];
       if (Array.isArray(meta?.supported_efforts)) {
-        return ["", ...meta.supported_efforts];
+        return sortEffortLevels(["", ...meta.supported_efforts]);
       }
       // Catalogue sidecar = source des efforts. "" (Auto — le CLI décide)
       // en tête, sauf providers sans Auto (NO_AUTO_EFFORT). Catalogue pas
       // encore chargé : [""] dégradé (Auto seul), comme avant pour les
       // providers hors liste.
       const efforts = info?.efforts ?? [];
-      if (NO_AUTO_EFFORT.has(pv) && efforts.length) return [...efforts];
-      return ["", ...efforts];
+      if (NO_AUTO_EFFORT.has(pv) && efforts.length) return sortEffortLevels([...efforts]);
+      return sortEffortLevels(["", ...efforts]);
     }
     const meta = info.modelReasoning?.[modelId];
     const supported = Array.isArray(meta?.supported_efforts) && meta.supported_efforts.length
       ? meta.supported_efforts.filter((lvl) => API_REASONING_LEVELS.includes(lvl))
       : API_REASONING_LEVELS.slice(2);
-    return ["", ...(meta?.mandatory ? [] : ["none"]), ...supported.filter((lvl) => lvl !== "none")];
+    return sortEffortLevels(["", ...(meta?.mandatory ? [] : ["none"]), ...supported.filter((lvl) => lvl !== "none")]);
   }
 
   function effortFor(pv: string, modelId: string): string {
