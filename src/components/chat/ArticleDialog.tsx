@@ -240,7 +240,9 @@ export default function ArticleDialog() {
   }
 
   const elapsed = (entry: ArticleJob) => Math.max(0, Math.round((now - entry.startedAt) / 1000));
-  const message = error ?? (job?.phase === "error" ? job.message : null);
+  // l'échec d'une écriture auto revient sur la fiche : le message du job
+  // compte autant que celui d'une écriture manuelle
+  const message = error ?? job?.message ?? null;
 
   const field = (key: keyof ArticleMeta, label: string, wide = false) => (
     <div className={`kb-article-field${wide ? " wide" : ""}`}>
