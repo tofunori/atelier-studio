@@ -1,4 +1,5 @@
-import type {StudioEditor} from "../../core/editor_contract";
+import type {StudioEditor, StudioPosition} from "../../core/editor_contract";
+import {findAnnotationRange} from "./annotations";
 
 export interface KatexRenderer {
   renderToString(source: string, options: Record<string, unknown>): string;
@@ -21,6 +22,17 @@ export interface LatexReadingOptions {
   popPdfButton?: HTMLElement | null;
   setPdfVisible(visible: boolean): void;
   revealLine(editor: StudioEditor, line: number): void;
+  /** Prose sélectionnée en vue Lecture, déjà ramenée à ses positions source :
+   *  l'hôte y branche la même pastille que dans l'éditeur (commenter, envoyer
+   *  au chat). Absent = pas de sélection annotable en Lecture. */
+  onProseSelection?(selection: {
+    text: string;
+    from: StudioPosition;
+    to: StudioPosition;
+    anchor: {box: DOMRect; caret: {left: number; top: number; bottom: number}};
+  }): void;
+  /** Appelé quand la sélection de prose disparaît, pour retirer la pastille. */
+  onProseSelectionCleared?(): void;
   katex: KatexRenderer;
   document?: Document;
   window?: Window;
@@ -44,6 +56,17 @@ export function renderLatexReadingHtml(source: string, katex: KatexRenderer): st
   const documentMatch = /\\begin\{document\}([\s\S]*?)\\end\{document\}/.exec(fullSource);
   let body = documentMatch?.[1] || fullSource;
   body = body.replace(/(^|[^\\])%.*$/gm, "$1");
+  // Plomberie TeX : entre \makeatletter et \makeatother vivent des définitions
+  // de macros, jamais de la prose. Sans ce retrait, un fragment sans
+  // \begin{document} (chapitre inclus par un fichier racine) fait rendre son
+  // préambule de chargement comme un paragraphe — « @path\@undefined@path ».
+  // Vidé ligne à ligne et non supprimé : `data-line` renvoie au source, et
+  // supprimer des lignes ferait sauter tous les ancrages suivants.
+  body = body.replace(/\\makeatletter[\s\S]*?\\makeatother/g, (block: string) => block.replace(/[^\n]/g, ""));
+  // Même famille, mais sur une ligne : chargement conditionnel d'une racine,
+  // définitions et inclusions. Une ligne qui commence par l'une de ces
+  // primitives ne porte pas de texte à lire.
+  body = body.replace(/^[ \t]*\\(?:ifdefined|ifx|else|fi|expandafter|endinput|input|include|def|makeatletter|makeatother)\b.*$/gm, "");
 
   const math: Array<{source: string; display: boolean}> = [];
   const stash = (tex: string, display: boolean): string => {
@@ -231,8 +254,11 @@ export function createLatexReadingController(options: LatexReadingOptions): Late
     storage.setItem("texReadMode", next ? "1" : "0");
     options.right.classList.toggle("reading", next);
     readButton.classList.toggle("on", next);
+    // Lecture = une vue à part entière, prose plein cadre. Le panneau droit
+    // doit d'abord exister (il porte #texread) avant qu'on masque l'éditeur.
+    if (next && options.right.style.display === "none") options.setPdfVisible(true);
+    doc.documentElement.classList.toggle("tex-read-only", next);
     if (next) {
-      if (options.right.style.display === "none") options.setPdfVisible(true);
       options.splitButton.classList.remove("on");
       render();
     }
@@ -248,11 +274,59 @@ export function createLatexReadingController(options: LatexReadingOptions): Late
   options.splitButton.addEventListener("click", () => { if (enabled) setRead(false); });
   options.popPdfButton?.addEventListener("click", () => { if (enabled) setRead(false); });
   reading.addEventListener("click", (event) => {
+    // Une sélection en cours n'est pas un clic de navigation : sans ça, finir
+    // de surligner un passage renverrait aussitôt vers la source.
+    if (!win.getSelection()?.isCollapsed) return;
     const element = (event.target as Element | null)?.closest<HTMLElement>("[data-line]");
     const editor = options.getEditor();
     if (!element || !editor) return;
     const line = Number.parseInt(element.dataset.line || "", 10) - 1;
     if (Number.isFinite(line)) options.revealLine(editor, line);
+  });
+
+  // ---- sélection de prose : commenter et envoyer au chat depuis la Lecture --
+  // Le rendu perd les commandes LaTeX : impossible de compter les caractères
+  // pour remonter au source. On retrouve donc le passage PAR SON CONTENU, avec
+  // la même primitive que le ré-ancrage des commentaires (piège connu n°6), en
+  // partant de la ligne du bloc — l'ancre `data-line` sert de voisinage.
+  const proseSelection = (): void => {
+    const selection = win.getSelection();
+    const editor = options.getEditor();
+    if (!selection || !editor || !options.onProseSelection) return;
+    const text = String(selection.toString() || "").trim();
+    if (!text || selection.isCollapsed || selection.rangeCount === 0) {
+      options.onProseSelectionCleared?.();
+      return;
+    }
+    const range = selection.getRangeAt(0);
+    if (!reading.contains(range.commonAncestorContainer)) return;
+    const holder = (range.startContainer.nodeType === 1
+      ? range.startContainer as Element
+      : range.startContainer.parentElement)?.closest<HTMLElement>("[data-line]");
+    const line = Math.max(0, Number.parseInt(holder?.dataset.line || "1", 10) - 1);
+    const source = editor.getValue();
+    // La prose rendue colle les lignes du source avec des espaces ; on cherche
+    // d'abord tel quel, puis en tolérant les blancs (retours à la ligne).
+    const found = findAnnotationRange(source, {text, from: {line, ch: 0}}, editor);
+    if (!found) {
+      options.onProseSelectionCleared?.();
+      return;
+    }
+    const rect = range.getBoundingClientRect();
+    if (!rect.width && !rect.height) return;
+    options.onProseSelection({
+      text,
+      from: found.from as StudioPosition,
+      to: found.to as StudioPosition,
+      anchor: {
+        box: reading.getBoundingClientRect(),
+        caret: {left: rect.right, top: rect.top, bottom: rect.bottom},
+      },
+    });
+  };
+  reading.addEventListener("mouseup", () => win.setTimeout(proseSelection, 0));
+  reading.addEventListener("keyup", (event) => {
+    if ((event as KeyboardEvent).shiftKey) win.setTimeout(proseSelection, 0);
   });
   const bind = (): void => {
     const editor = options.getEditor();

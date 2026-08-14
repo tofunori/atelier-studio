@@ -65,6 +65,10 @@
   /* défaut éditeur seul (pas de split) — appliqué avant le rendu, sans flash */
   html.tex-editor-only #right{display:none}
   html.tex-editor-only #left{width:100%;border-right:none}
+  /* Lecture seule : la prose prend tout le cadre. Le segment de vues promet
+     trois états — celui-ci doit être une vraie vue, pas une moitié d'écran. */
+  html.tex-read-only #left{display:none}
+  html.tex-read-only #right{width:100%}
   .CodeMirror,.cm-editor{flex:1;height:auto;font-size:13px;font-family:var(--code-font);line-height:1.62;background:var(--surface-app,var(--bg));color:var(--txt)}
   .cm-editor{min-height:0}
   .cm-editor .cm-scroller{font-family:var(--code-font);overflow:auto}
@@ -357,7 +361,9 @@
   #texread code{font-family:var(--code-font,"SF Mono",Menlo,monospace);font-size:.88em;
     background:rgba(255,255,255,.06);padding:1px 5px;border-radius:4px}
   #texread [data-line]{cursor:text;transition:background .12s;border-radius:3px}
-  #texread [data-line]:hover{background:rgba(232,130,58,.07)}
+  /* Pas de teinte au survol : en lecture continue, chaque paragraphe survolé
+     s'allumait sous la souris. Le renvoi vers la source reste au clic. */
+  #texread [data-line]:hover{background:none}
   #texread .tex-todo{color:#e0726a;font-weight:600}
   #texread .tex-cite{color:var(--accent);font-variant:small-caps;font-size:.92em}
   #texread .tex-ref{color:#868d9a}

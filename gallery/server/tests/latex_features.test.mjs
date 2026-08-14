@@ -85,6 +85,28 @@ test("LaTeX reading renderer preserves prose structure, source lines, and math",
   assert.match(html, /<li data-line="5">First<\/li>/);
 });
 
+test("LaTeX reading renderer drops the loader plumbing of an included fragment", () => {
+  // Cas réel : un chapitre sans \begin{document}, chargé par un fichier racine.
+  // Le préambule est de la plomberie TeX, pas du texte à lire.
+  const html = latex.renderLatexReadingHtml([
+    "% !TEX root = main_ncomms.tex",
+    "\\makeatletter",
+    "\\def\\AlbedoLoadNComms{%",
+    "  \\IfFileExists{main_ncomms.tex}{\\input{main_ncomms}\\endinput}{%",
+    "    \\ifx\\input@path\\@undefined\\def\\input@path{}\\fi",
+    "    \\g@addto@macro\\input@path{{manuscript_ch1/}}%",
+    "  }%",
+    "}",
+    "\\makeatother",
+    "\\ifdefined\\AlbedoNCommsRoot\\else\\expandafter\\AlbedoLoadNComms\\fi",
+    "\\section{Study area}",
+    "The study area covers western North America.",
+  ].join("\n"), {renderToString: source => `<math>${source}</math>`});
+  assert.doesNotMatch(html, /@path|@undefined|addto@macro|main_ncomms|manuscript_ch1/);
+  assert.match(html, /<h2 data-line="11">Study area<\/h2>/);
+  assert.match(html, /The study area covers western North America\./);
+});
+
 test("compile log analysis escapes HTML, counts diagnostics, and creates line jumps", () => {
   const result = latex.analyzeCompileResponse({
     ok: false,

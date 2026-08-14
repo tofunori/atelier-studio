@@ -30,8 +30,15 @@ export interface LatexSelectionPillOptions {
   window?: Window;
 }
 
+/** Boîte et caret de substitution quand la sélection ne vient pas de l'éditeur
+ *  (vue Lecture) : mêmes unités que `getBoundingClientRect` / `charCoords`. */
+export interface PillAnchor {
+  box: Pick<DOMRect, "left" | "right" | "top" | "bottom" | "width" | "height">;
+  caret: {left: number; top: number; bottom: number};
+}
+
 export interface LatexSelectionPillController {
-  show(from: StudioPosition, to: StudioPosition, text: string): void;
+  show(from: StudioPosition, to: StudioPosition, text: string, anchor?: PillAnchor): void;
   hide(): void;
   cancel(): void;
   current(): LatexPillSelection | null;
@@ -96,7 +103,7 @@ export function createLatexSelectionPill(
       go.insertAdjacentElement("afterend", comment);
     },
   });
-  const show = (from: StudioPosition, to: StudioPosition, text: string): void => {
+  const show = (from: StudioPosition, to: StudioPosition, text: string, anchor?: PillAnchor): void => {
     if (pill.style.display === "flex" && (doc.activeElement === textarea || textarea.value)) return;
     lastSelection = {
       text,
@@ -104,10 +111,13 @@ export function createLatexSelectionPill(
       from: {...from},
       to: {...to},
     };
-    const editor = options.getEditor();
-    if (!editor) return;
-    const box = editor.getWrapperElement().getBoundingClientRect();
-    const caret = editor.charCoords(to, "window");
+    // Un ancrage explicite permet d'afficher la pastille ailleurs que dans
+    // l'éditeur — en vue Lecture, celui-ci est masqué et ses coordonnées
+    // valent zéro, ce qui escamotait la pastille.
+    const editor = anchor ? null : options.getEditor();
+    if (!anchor && !editor) return;
+    const box = anchor ? anchor.box : editor!.getWrapperElement().getBoundingClientRect();
+    const caret = anchor ? anchor.caret : editor!.charCoords(to, "window");
     pill.style.display = "flex";
     const position = selectionPillPosition(box, caret, {
       width: pill.offsetWidth,

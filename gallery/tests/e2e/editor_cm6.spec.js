@@ -183,7 +183,7 @@ test('CM6 propose huit vrais thèmes sombres et les persiste entre éditeurs', a
 });
 
 test('latex deterministic parity', async ({page}) => {
-  await withProject({'main.tex': '\\section{Alpha}\nTherefore\n\nA paragraph with enough words that deterministic rewrap can split it into multiple shorter source lines for editing.\n',
+  await withProject({'main.tex': '\\section{Alpha}\nTherefore\n\nA paragraph with enough words that deterministic rewrap can split it into multiple shorter source lines for editing, long enough that it exceeds the widest automatic wrap column whatever the width of the editor pane happens to be at this point in the test.\n',
     'script.py': 'unused = 1\n'}, async ({root, url}) => {
     let quotePayload = null;
     await page.route('**/compile', route => route.fulfill({status: 200, contentType: 'application/json',
@@ -214,9 +214,19 @@ test('latex deterministic parity', async ({page}) => {
     await page.evaluate(() => document.getElementById('readBtn').click());
     await expect(page.locator('#right')).toHaveClass(/reading/);
     await expect(page.locator('#texread')).toContainText('Therefore');
+    // Lecture est une vue plein cadre : l'éditeur est masqué et ne peut donc
+    // plus recevoir le focus ni les raccourcis. On en ressort avant de tester
+    // l'édition — c'est aussi ce que fait l'utilisateur.
+    await expect(page.locator('#left')).toBeHidden();
+    await page.evaluate(() => document.getElementById('editBtn').click());
+    await expect(page.locator('#left')).toBeVisible();
 
-    await page.evaluate(() => cm.setValue('\\section{Alpha}\nA paragraph with enough words that deterministic rewrap can split it into multiple shorter source lines for editing.'));
-    await page.evaluate(() => { wrapSel.value = '50'; window.__rewrapAll(); });
+    await page.evaluate(() => cm.setValue('\\section{Alpha}\nA paragraph with enough words that deterministic rewrap can split it into multiple shorter source lines for editing, long enough that it exceeds the widest automatic wrap column whatever the width of the editor pane happens to be at this point in the test.'));
+    // `wrapSel` n'offre que « win »/« off » : lui affecter '50' ne prenait pas
+    // et la colonne retombait sur la largeur mesurée du panneau. Le paragraphe
+    // est donc plus long que la colonne automatique maximale (120), ce qui rend
+    // la coupe vraie quelle que soit la géométrie.
+    await page.evaluate(() => { window.__rewrapAll(); });
     await expect.poll(() => page.evaluate(() => cm.getValue().split('\n').length)).toBeGreaterThan(2);
 
     await page.locator('#build').click();

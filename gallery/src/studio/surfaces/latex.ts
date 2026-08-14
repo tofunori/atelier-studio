@@ -263,6 +263,11 @@ export function bootstrapLatexSurface(dependencies: LatexSurfaceDependencies): L
       popPdfButton: doc.getElementById("popPdf"),
       setPdfVisible: (visible) => ensurePdfControls().setVisible(visible),
       revealLine: (target, line) => revealLineRange(target, {fromLine: line, margin: 100, focus: true}),
+      // Même pastille que dans l'éditeur : « Commenter » et l'envoi au chat
+      // partent du passage lu, avec ses positions dans le source.
+      onProseSelection: (selection) => ensureSelectionPill()
+        .show(selection.from, selection.to, selection.text, selection.anchor),
+      onProseSelectionCleared: () => ensureSelectionPill().hide(),
       katex: dependencies.katex,
       document: doc,
       window: win,
