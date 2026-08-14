@@ -875,13 +875,11 @@ export default function AtelierPane({
             l'en-tête du chat (même --surface-header-height). La supprimer
             laissait la barre de l'éditeur vendorisé en face du chat, à une
             hauteur que personne n'accorde. */}
-        {!nativeChrome && activeRef && (
-          <div className="atelier-bar workspace-pane-head">
-            <span className="flex" />
-            {!integratedControls && renderPaneControls(paneNode, activeRef, "integrated")}
-          </div>
-        )}
-        {nativeChrome && activeRef && !integratedControls && renderPaneControls(paneNode, activeRef, "floating")}
+        {/* plan 057 : AUCUNE ligne d'app au-dessus de la surface — l'éditeur
+            vendorisé a déjà la sienne, deux bandes empilées sont un défaut.
+            Les trois contrôles du pane flottent sur le bord droit, là où la
+            barre de l'éditeur est vide. */}
+        {activeRef && !integratedControls && renderPaneControls(paneNode, activeRef, "floating")}
         <div className="workspace-pane-body" data-workspace-pane-body={paneNode.id}>
           {paneNode.tabs.length === 0 && (
             <div className="workspace-empty-pane">
