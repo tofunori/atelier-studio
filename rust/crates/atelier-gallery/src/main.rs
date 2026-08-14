@@ -226,7 +226,18 @@ async fn save_gallery_state(
         )
             .into_response();
     }
-    let sanitized = sanitize_gallery_state(&value);
+    let mut sanitized = sanitize_gallery_state(&value);
+    // Requête sans texAutoRewrap (la galerie POste /state avec ses seules
+    // clés) : reporter la valeur du fichier existant, sinon chaque ajout de
+    // favori effacerait le réglage d'éditeur. Symétrique du serveur Node.
+    if sanitized.get("texAutoRewrap").is_none() {
+        if let Ok(raw) = std::fs::read_to_string(state.root.join(".fig_state.json"))
+            && let Ok(previous) = serde_json::from_str::<Value>(&raw)
+            && let Some(auto_rewrap) = previous.get("texAutoRewrap").and_then(Value::as_bool)
+        {
+            sanitized["texAutoRewrap"] = json!(auto_rewrap);
+        }
+    }
     let counts = json!({
         "ok": true,
         "favs": sanitized["favs"].as_array().map(Vec::len).unwrap_or(0),
@@ -344,7 +355,7 @@ fn sanitize_gallery_state(request: &Value) -> Value {
         }
     }
 
-    json!({
+    let mut state = json!({
         "favs": favs,
         "ratings": ratings,
         "hidden": hidden,
@@ -352,7 +363,16 @@ fn sanitize_gallery_state(request: &Value) -> Value {
         "hideRules": hide_rules,
         "collections": collections,
         "workflow": workflow,
-    })
+    });
+    // Réglages d'éditeur persistés côté serveur (piège n°1 : le localStorage du
+    // WebView ne survit pas au redémarrage de l'app). Sans cette entrée dans la
+    // liste blanche, le POST du client était accepté puis la clé silencieusement
+    // jetée — « Rewrap: auto » retombait à off à chaque relance. Symétrique de
+    // la route /state du serveur Node (server/routes/core.mjs).
+    if let Some(auto_rewrap) = request.get("texAutoRewrap").and_then(Value::as_bool) {
+        state["texAutoRewrap"] = json!(auto_rewrap);
+    }
+    state
 }
 
 #[derive(serde::Deserialize, Default)]

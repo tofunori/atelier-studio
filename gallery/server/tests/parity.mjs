@@ -369,14 +369,29 @@ async function main() {
         hideRules: ["archive", ""],
         collections: { chosen: ["plot.png", "plot.png"] },
         workflow: { "plot.png": "final", "notes.md": "bogus" },
+        texAutoRewrap: true,
       },
     });
     assert.equal(r.status, 200, "POST /state status");
     assert.deepEqual(JSON.parse(r.body.toString()), { ok: true, favs: 1, ratings: 1, hidden: 1 });
     const state = JSON.parse(fs.readFileSync(path.join(root, ".fig_state.json"), "utf8"));
     assert.deepEqual(state.workflow, { "plot.png": "final" });
+    // Réglage d'éditeur : il doit survivre à la liste blanche du serveur, sinon
+    // « Rewrap: auto » retombe à off à chaque relance de l'app (piège n°1).
+    assert.equal(state.texAutoRewrap, true, "texAutoRewrap persisté dans .fig_state.json");
     r = await request(nodePort, "/state");
     assert.deepEqual(JSON.parse(r.body.toString()).workflow, { "plot.png": "final" }, "GET /state relit le workflow persisté");
+    assert.equal(JSON.parse(r.body.toString()).texAutoRewrap, true, "GET /state relit texAutoRewrap");
+
+    // Un POST SANS la clé (la galerie n'envoie que ses propres clés) ne doit
+    // pas effacer le réglage d'éditeur : le serveur le reporte du fichier.
+    r = await request(nodePort, "/state", {
+      method: "POST",
+      body: { favs: ["plot.png"], ratings: {}, hidden: [], tags: {}, hideRules: [], collections: {}, workflow: {} },
+    });
+    assert.equal(r.status, 200, "POST /state sans texAutoRewrap");
+    const carried = JSON.parse(fs.readFileSync(path.join(root, ".fig_state.json"), "utf8"));
+    assert.equal(carried.texAutoRewrap, true, "texAutoRewrap reporté quand la requête ne le mentionne pas");
 
     r = await request(nodePort, "/pdfannot", {
       method: "POST",

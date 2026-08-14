@@ -241,6 +241,22 @@ export async function handleCorePost(req, res, url) {
         collections,
         workflow,
       };
+      // Réglages d'éditeur persistés côté serveur (piège n°1 : le localStorage
+      // du WebView ne survit pas au redémarrage de l'app). Sans cette entrée
+      // dans la liste blanche, le POST du client était accepté puis la clé
+      // silencieusement jetée — « Rewrap: auto » retombait à off à chaque
+      // relance. Et comme la galerie POste /state avec ses seules clés (favoris,
+      // notes…), une requête SANS la clé doit reporter celle du fichier
+      // existant, sinon chaque favori l'effacerait. Symétrique de
+      // save_gallery_state côté Rust.
+      if (typeof reqJson.texAutoRewrap === "boolean") {
+        state.texAutoRewrap = reqJson.texAutoRewrap;
+      } else {
+        try {
+          const previous = JSON.parse(fs.readFileSync(path.join(PROJECT, ".fig_state.json"), "utf8"));
+          if (typeof previous.texAutoRewrap === "boolean") state.texAutoRewrap = previous.texAutoRewrap;
+        } catch { /* pas d'état antérieur : rien à reporter */ }
+      }
       const sp = path.join(PROJECT, ".fig_state.json");
       const tmp = `${sp}.tmp.${process.pid}.${Date.now()}`;
       fs.writeFileSync(tmp, JSON.stringify(state, null, 1));
