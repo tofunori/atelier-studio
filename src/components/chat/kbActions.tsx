@@ -136,6 +136,14 @@ export function useKbActions(
     }
   }
 
+  // Épinglage d'un PDF déjà choisi ailleurs (plan 053 : « Épingler seulement »
+  // du dialogue d'article) — même chemin que addFiles, sans re-sélection.
+  function addPdf(path: string) {
+    if (!path) return;
+    trackPendingAdds(1);
+    wsSend({ type: "kbAdd", kind: "pdf", origin: path });
+  }
+
   async function addFolder() {
     const picked = await openDialog({ directory: true, multiple: false });
     if (!picked || Array.isArray(picked)) return;
@@ -212,7 +220,7 @@ export function useKbActions(
   return {
     error, setError, promoted,
     toggle, toggleFull, removeSource, promote,
-    addFiles, addFolder, addUrl, addNote, addGbrain,
+    addFiles, addFolder, addPdf, addUrl, addNote, addGbrain,
     createCollection, tagSource, archiveSource,
     tagMany, archiveMany, attachMany,
   };

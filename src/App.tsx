@@ -1554,6 +1554,14 @@ export default function App() {
           { detail: msg },
         ));
       }
+      if (msg.type === "articleImported" || msg.type === "articleWritten" || msg.type === "articleError") {
+        // import d'article (plan 053) : le dialogue corrèle par requestId
+        window.dispatchEvent(new CustomEvent(
+          msg.type === "articleImported" ? "article-imported"
+            : msg.type === "articleWritten" ? "article-written" : "article-error",
+          { detail: msg },
+        ));
+      }
       if (msg.type === "gbrainResults") {
         // recherche du corpus NAS (plan 050 P3) — consommée par la surface
         // Connaissances ; l'échec voyage dans detail.error, en place

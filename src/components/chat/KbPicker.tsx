@@ -170,6 +170,8 @@ export function KbPickerPanel(p: {
   onAddFolder: () => void;
   onAddUrl: (url: string) => void;
   onAddNote: (title: string, text: string) => void;
+  /** Plan 053 — surface seulement : ouvre le dialogue d'import d'article. */
+  onAddArticle?: () => void;
   layout?: "popover" | "surface";
   threadTitle?: string;
   /** Re-synchroniser une page gbrain épinglée depuis le NAS (kind gbrain). */
@@ -566,6 +568,19 @@ export function KbPickerPanel(p: {
         <Button type="button" variant="ghost" className="ghost kb-action" onClick={() => setNoteOpen((v) => !v)}>
           {t("kb.add-note")}
         </Button>
+        {surface && p.onAddArticle && (
+          // plan 053 : ouvre un flux (conversion + fiche) au lieu d'épingler
+          // sur-le-champ — d'où le pointillé accent, distinct des autres.
+          <Button
+            type="button"
+            variant="ghost"
+            className="ghost kb-action kb-action-article"
+            title={t("article.add-title")}
+            onClick={p.onAddArticle}
+          >
+            {t("article.add")}
+          </Button>
+        )}
         <Input
           className="kb-url"
           placeholder={t("kb.url-placeholder")}
