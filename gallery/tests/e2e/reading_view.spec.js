@@ -170,5 +170,18 @@ test('vue Lecture : plein cadre, pas de préambule, sélection annotable', async
     // Et la vue re-rend la prose à jour, textarea disparue.
     await expect(fr().locator('#texread .texread-edit')).toHaveCount(0);
     await expect(fr().locator('#texread')).toContainText('23 melt seasons');
+
+    // Taille de police : A+ grossit la prose ET persiste côté serveur —
+    // le localStorage du WebView ne survit pas au redémarrage (piège n°1).
+    const avantFs = await fr().evaluate(() => getComputedStyle(document.getElementById('texread')).fontSize);
+    const [persiste] = await Promise.all([
+      page.waitForRequest(r => r.url().includes('/state') && r.method() === 'POST'),
+      fr().evaluate(() => document.querySelector('#texreadFs button[aria-label*="Agrandir"]').click()),
+    ]);
+    const apresFs = await fr().evaluate(() => getComputedStyle(document.getElementById('texread')).fontSize);
+    const etatServeur = JSON.parse(persiste.postData() || '{}');
+    console.log('POLICE ' + JSON.stringify({avant: avantFs, apres: apresFs, serveur: etatServeur.texReadFontSize}));
+    expect(parseFloat(apresFs)).toBe(parseFloat(avantFs) + 1);
+    expect(etatServeur.texReadFontSize).toBe(parseFloat(apresFs));
   } finally { server.kill('SIGKILL'); }
 });

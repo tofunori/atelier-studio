@@ -281,6 +281,65 @@ export function createLatexReadingController(options: LatexReadingOptions): Late
   const reading = doc.createElement("div");
   reading.id = "texread";
   options.right.appendChild(reading);
+
+  // ---- taille de police de la Lecture --------------------------------------
+  // Le cache local donne la valeur au premier rendu ; la vérité vient de
+  // `/state` (piège n°1 : le localStorage du WebView ne survit pas au
+  // redémarrage de l'app), comme texAutoRewrap.
+  const FS_MIN = 13, FS_MAX = 24, FS_DEFAULT = 17;
+  const FS_KEY = "texReadFontSize";
+  const clampFs = (value: unknown): number => {
+    const numeric = Number(value);
+    return Number.isFinite(numeric) ? Math.max(FS_MIN, Math.min(FS_MAX, Math.round(numeric))) : FS_DEFAULT;
+  };
+  let fontSize = clampFs(storage.getItem(FS_KEY) ?? FS_DEFAULT);
+  const fsControl = doc.createElement("span");
+  fsControl.id = "texreadFs";
+  const fsMinus = doc.createElement("button");
+  fsMinus.textContent = "−";
+  fsMinus.title = "Réduire le texte";
+  fsMinus.setAttribute("aria-label", "Réduire la taille du texte");
+  const fsValue = doc.createElement("span");
+  fsValue.className = "fs-val";
+  const fsPlus = doc.createElement("button");
+  fsPlus.textContent = "+";
+  fsPlus.title = "Agrandir le texte";
+  fsPlus.setAttribute("aria-label", "Agrandir la taille du texte");
+  fsControl.append(fsMinus, fsValue, fsPlus);
+  options.right.appendChild(fsControl);
+  const applyFontSize = (): void => {
+    reading.style.setProperty("--texread-fs", `${fontSize}px`);
+    fsValue.textContent = String(fontSize);
+    fsMinus.disabled = fontSize <= FS_MIN;
+    fsPlus.disabled = fontSize >= FS_MAX;
+  };
+  const setFontSize = (next: number): void => {
+    fontSize = clampFs(next);
+    applyFontSize();
+    storage.setItem(FS_KEY, String(fontSize));
+    void win.fetch("/state")
+      .then((response) => response.json() as Promise<Record<string, unknown>>)
+      .catch(() => ({}))
+      .then((state) => win.fetch("/state", {
+        method: "POST",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({...(state && typeof state === "object" ? state : {}), [FS_KEY]: fontSize}),
+      }))
+      .catch(() => { /* le réglage vaut pour la session en cours */ });
+  };
+  fsMinus.onclick = () => setFontSize(fontSize - 1);
+  fsPlus.onclick = () => setFontSize(fontSize + 1);
+  applyFontSize();
+  void win.fetch("/state")
+    .then((response) => response.json() as Promise<Record<string, unknown>>)
+    .then((state) => {
+      if (state && typeof state === "object" && state[FS_KEY] !== undefined) {
+        fontSize = clampFs(state[FS_KEY]);
+        storage.setItem(FS_KEY, String(fontSize));
+        applyFontSize();
+      }
+    })
+    .catch(() => { /* serveur muet : le cache local fait foi */ });
   // Trois vues, un seul segment, icônes seules : les libellés « Édition » et
   // « Split » coûtaient 114 px de barre pour redire ce que la forme montre.
   // Lecture entre dans le segment — elle n'était atteignable que par le menu.

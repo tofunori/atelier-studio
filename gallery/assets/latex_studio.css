@@ -346,14 +346,32 @@
   #texlog .tl-warn{color:#d7b47a}
   #texlog .tl-jump{color:var(--accent);cursor:pointer;text-decoration:underline}
   /* ===== mode Lecture (rendu LaTeX-prose façon Claude Science) ===== */
+  /* Taille de police de la Lecture : pilule discrète, visible en mode lecture
+     seulement. La valeur vit dans --texread-fs, persistée côté serveur
+     (piège n°1 : le localStorage du WebView ne survit pas au redémarrage). */
+  #texreadFs{display:none;position:absolute;top:10px;right:14px;z-index:5;
+    align-items:center;gap:2px;padding:2px;border-radius:999px;
+    background:color-mix(in srgb,var(--card) 88%,transparent);border:1px solid var(--border);
+    opacity:.45;transition:opacity 140ms ease}
+  #texreadFs:hover,#texreadFs:focus-within{opacity:1}
+  #right.reading #texreadFs{display:inline-flex}
+  #texreadFs button{width:22px;height:22px;padding:0;border:none;border-radius:999px;
+    display:inline-flex;align-items:center;justify-content:center;
+    background:transparent;color:var(--muted);font-size:12px;cursor:pointer}
+  #texreadFs button:hover{color:var(--txt);background:var(--border)}
+  #texreadFs button:disabled{color:color-mix(in srgb,var(--muted) 40%,transparent);background:none;cursor:default}
+  #texreadFs .fs-val{min-width:24px;text-align:center;font-size:10px;color:var(--muted);
+    font-variant-numeric:tabular-nums;user-select:none}
+
   #texread{display:none;max-width:760px;margin:0 auto;padding:36px 40px 120px;
-    font-family:Charter,Georgia,"Times New Roman",serif;font-size:17px;line-height:1.7;color:#e6e8ec}
+    font-family:Charter,Georgia,"Times New Roman",serif;line-height:1.7;color:#e6e8ec;
+    font-size:var(--texread-fs,17px)}
   #right.reading .pdfpage,#right.reading #marker{display:none!important}
   #right.reading #texread{display:block}
-  #texread h1{font-size:26px;font-weight:600;text-align:center;margin:0 0 22px;letter-spacing:-.01em}
-  #texread h2{font-size:20px;font-weight:600;margin:30px 0 12px;letter-spacing:-.01em}
-  #texread h3{font-size:17px;font-weight:600;margin:24px 0 10px}
-  #texread h4,#texread h5{font-size:15px;font-weight:600;margin:20px 0 8px;color:#c7ccd4}
+  #texread h1{font-size:1.53em;font-weight:600;text-align:center;margin:0 0 22px;letter-spacing:-.01em}
+  #texread h2{font-size:1.18em;font-weight:600;margin:30px 0 12px;letter-spacing:-.01em}
+  #texread h3{font-size:1em;font-weight:600;margin:24px 0 10px}
+  #texread h4,#texread h5{font-size:.88em;font-weight:600;margin:20px 0 8px;color:#c7ccd4}
   #texread p{margin:0 0 15px}
   #texread ul,#texread ol{margin:0 0 15px;padding-left:26px}
   #texread li{margin:4px 0}
