@@ -13,7 +13,9 @@ import "../styles/explorer.css";
 
 type Node = { name: string; path: string; children?: Map<string, Node> };
 
-/** Un nœud visible de l'arbre, tel qu'il est atteignable au clavier. */
+/** Un nœud visible de l'arbre, tel qu'il est atteignable au clavier.
+ * `pos`/`size` décrivent la FRATRIE du nœud (pas la liste visible globale) :
+ * dans un arbre aplati, c'est la seule façon d'annoncer « 3 sur 7 ». */
 type Row = {
   path: string;
   name: string;
@@ -21,6 +23,8 @@ type Row = {
   isDir: boolean;
   open: boolean;
   parent: string | null;
+  pos: number;
+  size: number;
 };
 
 const ICON_COLORS: Record<string, string> = {
@@ -113,12 +117,12 @@ function childrenOf(n: Node): Node[] {
 function visibleRows(root: Node, expanded: Set<string>): Row[] {
   const out: Row[] = [];
   const walk = (nodes: Node[], depth: number, parent: string | null) => {
-    for (const n of nodes) {
+    nodes.forEach((n, i) => {
       const isDir = !!n.children;
       const open = isDir && expanded.has(n.path);
-      out.push({ path: n.path, name: n.name, depth, isDir, open, parent });
+      out.push({ path: n.path, name: n.name, depth, isDir, open, parent, pos: i + 1, size: nodes.length });
       if (open) walk(childrenOf(n), depth + 1, n.path);
-    }
+    });
   };
   walk(childrenOf(root), 0, null);
   return out;
@@ -133,6 +137,7 @@ export default function Explorer(p: {
   // nœud porteur du focus clavier (roving tabindex)
   const [active, setActive] = useState<string | null>(null);
   const tree = useMemo(() => buildTree(p.files), [p.files]);
+  const roots = useMemo(() => childrenOf(tree), [tree]);
 
   const matches = useMemo(
     () =>
@@ -147,7 +152,10 @@ export default function Explorer(p: {
   const rows = useMemo<Row[]>(
     () =>
       matches
-        ? matches.map((f) => ({ path: f, name: f, depth: 0, isDir: false, open: false, parent: null }))
+        ? matches.map((f, i) => ({
+            path: f, name: f, depth: 0, isDir: false, open: false, parent: null,
+            pos: i + 1, size: matches.length,
+          }))
         : visibleRows(tree, expanded),
     [matches, tree, expanded],
   );
@@ -257,6 +265,8 @@ export default function Explorer(p: {
       },
       role: "treeitem",
       "aria-level": row.depth + 1,
+      "aria-posinset": row.pos,
+      "aria-setsize": row.size,
       "aria-selected": row.path === current,
       "aria-expanded": row.isDir ? row.open : undefined,
       tabIndex: row.path === current ? 0 : -1,
@@ -266,10 +276,17 @@ export default function Explorer(p: {
     } as const;
   }
 
-  function renderNode(n: Node, depth: number, parent: string | null): React.ReactNode {
+  // ARBRE APLATI (assumé jusqu'au bout) : tous les treeitem sont enfants
+  // directs de role="tree", sans role="group" intermédiaire. Un groupe ne peut
+  // pas être l'ENFANT DOM de son treeitem ici — la rangée est un RowButton
+  // (contrat design) et un bouton ne contient pas d'interactifs ; un groupe
+  // frère, lui, n'est rattaché à aucun parent et n'apprendrait rien à personne.
+  // La hiérarchie est donc portée entièrement par aria-level + aria-posinset/
+  // aria-setsize (fratrie) + aria-expanded.
+  function renderNode(n: Node, depth: number, parent: string | null, pos: number, size: number): React.ReactNode {
     const isDir = !!n.children;
     const open = isDir && expanded.has(n.path);
-    const row: Row = { path: n.path, name: n.name, depth, isDir, open, parent };
+    const row: Row = { path: n.path, name: n.name, depth, isDir, open, parent, pos, size };
     const item = (
       <RowButton className={isDir ? "exp-row" : "exp-row exp-file"} title={isDir ? undefined : n.path} {...rowProps(row)}>
         {isDir ? (
@@ -284,17 +301,11 @@ export default function Explorer(p: {
       </RowButton>
     );
     if (!isDir) return <Fragment key={n.path}>{item}</Fragment>;
-    // le groupe ne peut pas être un ENFANT DOM du treeitem : la rangée est un
-    // RowButton (contrat design), un bouton ne contient pas d'interactifs. La
-    // hiérarchie est donc portée par aria-level + aria-expanded.
+    const kids = open ? childrenOf(n) : [];
     return (
       <Fragment key={n.path}>
         {item}
-        {open && (
-          <div role="group">
-            {childrenOf(n).map((c) => renderNode(c, depth + 1, n.path))}
-          </div>
-        )}
+        {kids.map((c, i) => renderNode(c, depth + 1, n.path, i + 1, kids.length))}
       </Fragment>
     );
   }
@@ -316,7 +327,7 @@ export default function Explorer(p: {
                 <span className="exp-name">{row.name}</span>
               </RowButton>
             ))
-          : tree.children && childrenOf(tree).map((c) => renderNode(c, 0, null))}
+          : roots.map((c, i) => renderNode(c, 0, null, i + 1, roots.length))}
       </div>
     </div>
   );

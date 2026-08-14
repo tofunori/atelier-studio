@@ -22,6 +22,7 @@ function mount(onOpen = vi.fn()) {
 
 const item = (name: string) => screen.getByRole("treeitem", { name });
 const tabbables = () => screen.getAllByRole("treeitem").filter((el) => el.tabIndex === 0);
+const place = (el: HTMLElement) => [el.getAttribute("aria-posinset"), el.getAttribute("aria-setsize")];
 // entrer dans l'arbre comme le fait l'utilisateur (Tab ou clic) : le focus
 // réel déplace aussi l'index roving, via onFocus.
 const enter = (name: string) => {
@@ -33,15 +34,39 @@ const enter = (name: string) => {
 describe("Explorer", () => {
   it("expose un arbre nommé et des treeitems hiérarchisés", () => {
     mount();
-    const tree = screen.getByRole("tree", { name: t("atelier.file-explorer") });
-    expect(tree).toBeInTheDocument();
+    expect(screen.getByRole("tree", { name: t("atelier.file-explorer") })).toBeInTheDocument();
     expect(item("src")).toHaveAttribute("aria-expanded", "false");
     expect(item("src")).toHaveAttribute("aria-level", "1");
     expect(item("README.md")).not.toHaveAttribute("aria-expanded");
 
     fireEvent.click(item("src"));
-    expect(screen.getByRole("group")).toBeInTheDocument();
     expect(item("App.tsx")).toHaveAttribute("aria-level", "2");
+  });
+
+  it("annonce la position dans la FRATRIE, pas dans la liste visible", () => {
+    mount();
+    // racine : src (dossier) puis README.md
+    expect(place(item("src"))).toEqual(["1", "2"]);
+    expect(place(item("README.md"))).toEqual(["2", "2"]);
+
+    fireEvent.click(item("src"));
+    // enfants de src : lib (dossier) puis App.tsx — fratrie de 2, pas 4
+    expect(place(item("lib"))).toEqual(["1", "2"]);
+    expect(place(item("App.tsx"))).toEqual(["2", "2"]);
+    // et la fratrie racine n'a pas bougé alors que 2 nœuds visibles s'ajoutent
+    expect(place(item("README.md"))).toEqual(["2", "2"]);
+
+    fireEvent.click(item("lib"));
+    expect(place(item("i18n.ts"))).toEqual(["1", "1"]);
+  });
+
+  it("n'expose aucun groupe orphelin : l'arbre est aplati", () => {
+    mount();
+    fireEvent.click(item("src"));
+    expect(screen.queryAllByRole("group")).toEqual([]);
+    // tous les treeitem sont enfants directs du role=tree
+    const tree = screen.getByRole("tree");
+    for (const el of screen.getAllByRole("treeitem")) expect(el.parentElement).toBe(tree);
   });
 
   it("n'expose qu'un seul nœud tabbable (roving tabindex)", () => {
@@ -133,11 +158,14 @@ describe("Explorer", () => {
   it("garde le contrat clavier sur la liste plate de la recherche", () => {
     const onOpen = mount();
     fireEvent.change(screen.getByRole("textbox", { name: t("home.search-file") }), {
-      target: { value: "i18n" },
+      target: { value: "src" },
     });
     const match = item("src/lib/i18n.ts");
-    expect(match).toHaveAttribute("aria-level", "1");
-    expect(tabbables()).toEqual([match]);
+    // liste plate : tout au niveau 1, setsize = nombre de résultats
+    expect(item("src/App.tsx")).toHaveAttribute("aria-level", "1");
+    expect(place(item("src/App.tsx"))).toEqual(["1", "2"]);
+    expect(place(match)).toEqual(["2", "2"]);
+    expect(tabbables()).toEqual([item("src/App.tsx")]);
 
     enter("src/lib/i18n.ts");
     fireEvent.keyDown(document.activeElement!, { key: "Enter" });
