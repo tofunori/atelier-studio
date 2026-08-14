@@ -38,10 +38,28 @@ export type ArticleJob = {
   requestId: string;
   path: string;
   startedAt: number;
-  phase: "converting" | "ready" | "error";
+  phase: "converting" | "ready" | "writing" | "error";
   imported: ArticleImported | null;
   message: string | null;
 };
+
+const AUTO_KEY = "atelier-studio.article-auto";
+
+/** Mode automatique : convertir ET écrire sans confirmation. */
+export function isAutoWrite() {
+  try {
+    return localStorage.getItem(AUTO_KEY) !== "0";
+  } catch {
+    return true;
+  }
+}
+
+export function setAutoWrite(on: boolean) {
+  try {
+    localStorage.setItem(AUTO_KEY, on ? "1" : "0");
+  } catch { /* stockage indisponible : le mode reste celui de la session */ }
+  emit({ ...current });
+}
 
 export type ArticleImportState = {
   jobs: ArticleJob[];
@@ -145,6 +163,93 @@ function patch(requestId: string, change: Partial<ArticleJob>) {
   return job;
 }
 
+// Mode automatique : la cible d'écriture se choisit sans nous. Un doublon par
+// DOI, c'est le MÊME article — on écrit par-dessus la page existante plutôt
+// que d'en semer une deuxième. Un « titre très proche » ne suffit pas : trop
+// de faux positifs pour remplacer une page sans regarder.
+export function autoTargetSlug(imported: ArticleImported) {
+  const byDoi = (imported.duplicates ?? []).find((dup) => dup.why === "doi");
+  return String(byDoi?.slug || imported.slug || "").trim();
+}
+
+/** writeRequestId → requestId du job, pour les écritures lancées seules. */
+const autoWrites = new Map<string, string>();
+
+function autoWrite(job: ArticleJob, imported: ArticleImported) {
+  const slug = autoTargetSlug(imported);
+  if (!slug || !imported.draftId) {
+    patch(job.requestId, { phase: "ready" });
+    return false;
+  }
+  const writeId = `artw-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+  const meta = imported.meta ?? {};
+  const sent = wsSend({
+    type: "articleWrite",
+    requestId: writeId,
+    draftId: imported.draftId,
+    slug,
+    path: job.path,
+    converter: imported.converter ?? "",
+    ragdoc: false,
+    meta: { ...meta, year: meta.year ? Number(meta.year) : null },
+  });
+  if (!sent) {
+    patch(job.requestId, { phase: "ready" });
+    return false;
+  }
+  autoWrites.set(writeId, job.requestId);
+  patch(job.requestId, { phase: "writing" });
+  return true;
+}
+
+function onAutoWritten(event: Event) {
+  const detail = (event as CustomEvent).detail as
+    | { requestId?: string | null; slug?: string; updated?: boolean }
+    | undefined;
+  const writeId = String(detail?.requestId ?? "");
+  const jobId = autoWrites.get(writeId);
+  if (!jobId) return;
+  autoWrites.delete(writeId);
+  const job = current.jobs.find((entry) => entry.requestId === jobId);
+  const guessed = job?.imported?.metaSource === "texte";
+  const slug = String(detail?.slug ?? "");
+  dismissArticleImport(jobId);
+  // le sort de la page est dit en clair : créée, mise à jour, et si les
+  // métadonnées ont été devinées, l'invitation à relire suit
+  void showUndo(
+    t(detail?.updated ? "article.auto-updated" : "article.auto-written", { slug })
+    + (guessed ? t("article.auto-guessed") : ""),
+    () => { void openGbrainPage(slug); },
+    t("article.open-page"),
+  );
+  void notifyArticleReady({
+    file: job ? fileName(job.path) : slug,
+    ok: true,
+    detail: t(detail?.updated ? "article.auto-updated" : "article.auto-written", { slug }),
+  });
+}
+
+function onAutoWriteError(event: Event) {
+  const detail = (event as CustomEvent).detail as { requestId?: string | null; message?: string } | undefined;
+  const writeId = String(detail?.requestId ?? "");
+  const jobId = autoWrites.get(writeId);
+  if (!jobId) return;
+  autoWrites.delete(writeId);
+  // l'écriture a échoué : la fiche redevient manuelle, rien n'est perdu
+  patch(jobId, { phase: "ready", message: detail?.message ?? t("kb.error-generic") });
+  void showUndo(
+    t("article.auto-failed", { message: detail?.message ?? "" }),
+    () => openArticleDialog(jobId),
+    t("article.open-review"),
+  );
+}
+
+/** Ouvre la page écrite dans la surface Connaissances (épinglage gbrain). */
+async function openGbrainPage(slug: string) {
+  if (!slug) return;
+  wsSend({ type: "kbAdd", kind: "gbrain", origin: slug });
+}
+
 function onImported(event: Event) {
   const detail = (event as CustomEvent).detail as ArticleImported | undefined;
   const requestId = String(detail?.requestId ?? "");
@@ -154,6 +259,9 @@ function onImported(event: Event) {
   const job = patch(requestId, { phase: "ready", imported: detail, message: null });
   if (!job) return;
   const file = fileName(String(detail.path ?? job.path));
+  // Mode automatique : la page part sans confirmation. Les toasts et la
+  // notification disent ce qui a été écrit, et gbrain garde l'historique.
+  if (isAutoWrite() && autoWrite({ ...job, phase: "ready", imported: detail }, detail)) return;
   // notification système : elle ne part QUE si l'app n'a pas le focus (garde de
   // notify.ts) — c'est le seul rappel qui rattrape Thierry parti ailleurs
   void notifyArticleReady({
@@ -192,6 +300,8 @@ function onError(event: Event) {
 if (typeof window !== "undefined") {
   window.addEventListener("article-imported", onImported);
   window.addEventListener("article-error", onError);
+  window.addEventListener("article-written", onAutoWritten);
+  window.addEventListener("article-error", onAutoWriteError);
 }
 
 /** Tests : réinitialise l'état partagé entre deux cas (abonnés conservés). */

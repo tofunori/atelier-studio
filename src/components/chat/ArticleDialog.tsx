@@ -9,8 +9,8 @@ import { t } from "../../lib/i18n";
 import { wsSend } from "../../lib/wsBus";
 import {
   articleImportSnapshot, backgroundArticleDialog, closeArticleDialog,
-  dismissArticleImport, fileName, focusedJob, openArticleDialog,
-  startArticleImport, subscribeArticleImport,
+  dismissArticleImport, fileName, focusedJob, isAutoWrite, openArticleDialog,
+  setAutoWrite, startArticleImport, subscribeArticleImport,
   type ArticleDuplicate, type ArticleJob,
 } from "../../lib/articleImports";
 import { showError, showSuccess } from "../ui/toast";
@@ -100,6 +100,8 @@ export default function ArticleDialog() {
   const exists = imported?.exists === true;
   const converter = String(imported?.converter ?? "");
   const metaSource = String(imported?.metaSource ?? "texte");
+  // relu à chaque rendu du store : le réglage vit dans localStorage
+  const auto = isAutoWrite();
   const showReview = job?.phase === "ready" && Boolean(imported);
 
   // La fiche se charge une fois par import : les corrections de Thierry ne
@@ -299,11 +301,29 @@ export default function ArticleDialog() {
               </Button>
               <div className="kb-article-hint">{t("article.pick-hint")}</div>
             </div>
+            <RowButton
+              className={`kb-article-check${auto ? " on" : ""}`}
+              role="checkbox"
+              aria-checked={auto}
+              onClick={() => setAutoWrite(!auto)}
+            >
+              <span className="kb-article-box" aria-hidden="true" />
+              {t("article.auto")}
+              <span className="kb-article-hint">{t("article.auto-hint")}</span>
+            </RowButton>
             <div className="kb-note-actions">
               <Button type="button" variant="ghost" className="ghost" onClick={closeArticleDialog}>
                 {t("action.cancel")}
               </Button>
             </div>
+          </>
+        )}
+
+        {job?.phase === "writing" && (
+          <>
+            <div className="kb-page-source">{fileName(job.path)}</div>
+            <div className="kb-article-progress"><i /></div>
+            <div className="kb-article-hint">{t("article.writing")}</div>
           </>
         )}
 

@@ -16,7 +16,7 @@ vi.mock("../ui/toast", () => ({
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import { wsSend } from "../../lib/wsBus";
 import { showUndo } from "../ui/toast";
-import { openArticleDialog, resetArticleImportForTests } from "../../lib/articleImports";
+import { openArticleDialog, resetArticleImportForTests, setAutoWrite } from "../../lib/articleImports";
 import ArticleDialog, { duplicateReason, stripFrontMatter } from "./ArticleDialog";
 
 const sent = wsSend as unknown as ReturnType<typeof vi.fn>;
@@ -86,6 +86,8 @@ async function toReview(over: Record<string, unknown> = {}) {
 beforeEach(() => {
   setLanguage("fr");
   resetArticleImportForTests();
+  // les cas manuels vérifient la fiche : le mode auto est éteint par défaut ici
+  setAutoWrite(false);
 });
 
 afterEach(() => {
@@ -241,6 +243,64 @@ describe("ArticleDialog", () => {
     emit("article-imported", { requestId: stale, meta: META, slug: "articles/x", preview: PREVIEW });
     expect(screen.queryByText("Article converti")).toBeNull();
     expect(undo).not.toHaveBeenCalled();
+  });
+});
+
+describe("mode automatique", () => {
+  it("écrit la page sans confirmation, et vise le doublon par DOI", async () => {
+    setAutoWrite(true);
+    await toConverting();
+    emit("article-imported", {
+      requestId: lastRequestId(), draftId: "a8023bcc8c7f", path: "/tmp/aoki-2011.pdf",
+      meta: META, slug: "articles/aoki-2011-snow-albedo-model", preview: PREVIEW,
+      chars: 61240, converter: "mineru", metaSource: "crossref",
+      duplicates: [
+        { slug: "articles/aoki-snow", why: "titre" },
+        { slug: "papers/aoki-2011", why: "doi" },
+      ],
+    });
+    const msg = lastSent();
+    expect(msg.type).toBe("articleWrite");
+    // le DOI identique désigne LA page à mettre à jour ; le titre proche, non
+    expect(msg.slug).toBe("papers/aoki-2011");
+    expect(msg.draftId).toBe("a8023bcc8c7f");
+    expect(await screen.findByText(/Écriture dans gbrain/)).toBeTruthy();
+
+    emit("article-written", { requestId: msg.requestId, slug: "papers/aoki-2011", updated: true });
+    await waitFor(() => expect(screen.queryByText(/Écriture dans gbrain/)).toBeNull());
+    expect(undo).toHaveBeenCalled();
+    expect((undo.mock.calls[0] as [string])[0]).toContain("papers/aoki-2011");
+  });
+
+  it("prévient quand les métadonnées ont été devinées", async () => {
+    setAutoWrite(true);
+    await toConverting();
+    emit("article-imported", {
+      requestId: lastRequestId(), draftId: "a8023bcc8c7f", path: "/tmp/aoki-2011.pdf",
+      meta: META, slug: "articles/x", preview: PREVIEW, metaSource: "texte", duplicates: [],
+    });
+    emit("article-written", { requestId: lastSent().requestId, slug: "articles/x", updated: false });
+    await waitFor(() => expect(undo).toHaveBeenCalled());
+    expect((undo.mock.calls[0] as [string])[0]).toContain("déduites");
+  });
+
+  it("rend la main sur la fiche quand l'écriture échoue", async () => {
+    setAutoWrite(true);
+    await toConverting();
+    emit("article-imported", {
+      requestId: lastRequestId(), draftId: "a8023bcc8c7f", path: "/tmp/aoki-2011.pdf",
+      meta: META, slug: "articles/x", preview: PREVIEW, duplicates: [],
+    });
+    emit("article-error", { requestId: lastSent().requestId, message: "gbrain: disque plein" });
+    expect(await screen.findByText("Article converti")).toBeTruthy();
+    expect(screen.getByText("gbrain: disque plein")).toBeTruthy();
+  });
+
+  it("laisse la fiche en attente quand le mode est désactivé", async () => {
+    setAutoWrite(false);
+    await toReview();
+    expect(sent).not.toHaveBeenCalled();
+    expect(screen.getByText("Écrire la page")).toBeTruthy();
   });
 });
 
