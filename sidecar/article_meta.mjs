@@ -108,7 +108,12 @@ export async function crossrefMeta(doi, {
     // hors ligne, DOI inconnu, API lente : on garde ce qu'on avait
     return null;
   }
-  const work = payload?.message;
+  return shapeWork(payload?.message, clean);
+}
+
+/** Une entrée Crossref → nos champs. `fallbackDoi` sert quand l'entrée n'en
+ *  porte pas (elle en porte toujours un en pratique, mais on ne parie pas). */
+export function shapeWork(work, fallbackDoi = "") {
   const title = Array.isArray(work?.title) ? work.title[0] : work?.title;
   if (!title) return null;
   const parts = work.published?.["date-parts"]?.[0]
@@ -129,9 +134,84 @@ export async function crossrefMeta(doi, {
       .filter(Boolean)
       .join("; "),
     journal: container ? String(container) : "",
-    doi: work.DOI ? String(work.DOI) : clean,
+    doi: work.DOI ? String(work.DOI) : fallbackDoi,
     year: Number(parts[0]) || null,
   };
+}
+
+/** Recouvrement de mots entre deux titres, 0 → 1. Les mots courts ne comptent
+ *  pas : « the », « for », « and » rapprochent n'importe quoi. */
+export function titleOverlap(a, b) {
+  const words = (s) => new Set(String(s ?? "")
+    .toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "")
+    .split(/[^a-z0-9]+/).filter((w) => w.length > 3));
+  const left = words(a);
+  const right = words(b);
+  if (!left.size || !right.size) return 0;
+  let hits = 0;
+  for (const w of left) if (right.has(w)) hits += 1;
+  return hits / Math.min(left.size, right.size);
+}
+
+/** Nom de famille du premier auteur, tel que le texte l'a deviné. */
+function firstFamily(authors) {
+  const first = String(authors ?? "").split(/[;&]|(?:,\s*(?=[A-Z][a-z]))/)[0] ?? "";
+  const family = first.includes(",") ? first.split(",")[0] : first.trim().split(/\s+/).pop();
+  return String(family ?? "").toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "").trim();
+}
+
+export const TITLE_MATCH_MIN = 0.75;
+
+/**
+ * Crossref par titre — dernier recours quand le PDF n'imprime pas son DOI.
+ * PIÈGE : l'API répond TOUJOURS quelque chose. Prendre le premier résultat,
+ * c'est coller la notice d'un autre article sur celui-ci, et une fausse notice
+ * est pire qu'une notice devinée : elle a l'air sûre. On exige donc un
+ * recouvrement franc du titre, et l'accord du premier auteur quand on le
+ * connaît.
+ */
+export async function crossrefByTitle(guessed = {}, {
+  fetchJson,
+  timeout = CROSSREF_TIMEOUT_MS,
+  mailto = "laurentstpierrethierry@gmail.com",
+  rows = 5,
+} = {}) {
+  const title = String(guessed.title ?? "").replace(/\s+/g, " ").trim();
+  // Un titre court ne discrimine rien : mieux vaut rester sur le texte.
+  if (title.length < 20) return null;
+  const url = "https://api.crossref.org/works"
+    + `?rows=${rows}`
+    + `&query.bibliographic=${encodeURIComponent(title)}`
+    + `&mailto=${encodeURIComponent(mailto)}`;
+  let payload = null;
+  try {
+    if (fetchJson) {
+      payload = await fetchJson(url);
+    } else {
+      const response = await fetch(url, {
+        headers: { "User-Agent": `atelier-studio (mailto:${mailto})` },
+        signal: AbortSignal.timeout(timeout),
+      });
+      if (!response.ok) return null;
+      payload = await response.json();
+    }
+  } catch {
+    return null;
+  }
+  const family = firstFamily(guessed.authors);
+  for (const work of payload?.message?.items ?? []) {
+    const shaped = shapeWork(work);
+    if (!shaped) continue;
+    if (titleOverlap(title, shaped.title) < TITLE_MATCH_MIN) continue;
+    if (family) {
+      const families = (work.author ?? [])
+        .map((p) => String(p.family ?? "").toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, ""))
+        .filter(Boolean);
+      if (families.length && !families.includes(family)) continue;
+    }
+    return shaped;
+  }
+  return null;
 }
 
 // Une source ne vaut que par ce qu'elle apporte : on ne remplace un champ
@@ -160,5 +240,10 @@ export async function resolveArticleMeta({ path = "", guessed = {} } = {}, deps 
   const doi = guessed.doi || basename(String(path));
   const fromCrossref = await (deps.crossrefMeta ?? crossrefMeta)(guessed.doi || doi, deps);
   if (fromCrossref) return { meta: merge(guessed, fromCrossref), source: "crossref" };
+  // Beaucoup de revues n'impriment pas le DOI sur la page 1 : sans ce recours,
+  // l'année et le journal restaient devinés, et l'absence de DOI privait la
+  // détection de doublons de son seul identifiant fort.
+  const byTitle = await (deps.crossrefByTitle ?? crossrefByTitle)(guessed, deps);
+  if (byTitle) return { meta: merge(guessed, byTitle), source: "crossref-titre" };
   return { meta: guessed, source: "texte" };
 }
