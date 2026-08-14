@@ -2555,6 +2555,11 @@ button.ctx-ring-wrap { border: none; font: inherit; color: inherit;
 .thinking-body { margin: 4px 0 6px 18px; padding: 8px 12px; border-left: 2px solid var(--border2);
   color: var(--text-muted); font-size: var(--fs-l); font-style: italic; white-space: pre-wrap;
   line-height: 1.55; }
+/* En direct, la pensée est déroulée : elle doit défiler chez elle plutôt que
+   pousser la réponse et le composer hors de l'écran. Repliée en fin de tour,
+   elle retrouve sa hauteur libre. */
+.thinking.live.open .thinking-body { max-height: 190px; overflow-y: auto;
+  scrollbar-width: thin; overscroll-behavior: contain; }
 .reasoning-trace { margin: 1px 0; min-width: 0; }
 .reasoning-trace-head { width: 100%; min-width: 0; display: flex; align-items: center; gap: 7px;
   padding: 2px 0; border: 0; background: transparent; color: var(--text-muted); font: inherit;

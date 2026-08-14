@@ -2,11 +2,12 @@
 // l'extraction : streaming, ordre outils/texte, running→done, changement de
 // thread, ancrage du scroll, markdown/Mermaid, review/usage par tour.
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { act, cleanup, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, screen, waitFor } from "@testing-library/react";
 
 vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn(async () => null) }));
 
 import Chat from "../Chat";
+import { ThinkingBlock } from "./turnParts";
 import { renderUi, resetTestState } from "../../test/render";
 import { events, makeTurnEvents, FIXED_TS } from "../../test/fixtures";
 import type { AgentEvent } from "../../lib/ws";
@@ -405,5 +406,25 @@ describe("timeline Chat — caractérisation avant extraction", () => {
     expect(dones[0].id).toBe("");
     expect(document.querySelectorAll("#last-done")).toHaveLength(1);
     expect(document.querySelector(".done-verify")).toBeTruthy();
+  });
+});
+
+// Déroulement de la pensée (plan 058) : ouverte pendant le tour, repliée après.
+describe("ThinkingBlock — déroulement en direct", () => {
+  it("s'ouvre en direct, se replie à la fin, et respecte un clic manuel", async () => {
+    const { rerender } = renderUi(<ThinkingBlock text="je réfléchis longuement" live />);
+    // en direct : le corps est déroulé, l'aperçu de 140 caractères disparaît
+    expect(screen.getByText("je réfléchis longuement")).toBeTruthy();
+    expect(document.querySelector(".thinking-head")?.getAttribute("aria-expanded")).toBe("true");
+
+    // fin du tour : repli automatique, l'aperçu revient
+    rerender(<ThinkingBlock text="je réfléchis longuement" live={false} />);
+    expect(document.querySelector(".thinking-head")?.getAttribute("aria-expanded")).toBe("false");
+
+    // un clic reprend la main et survit au changement d'état
+    fireEvent.click(screen.getByRole("button"));
+    expect(document.querySelector(".thinking-head")?.getAttribute("aria-expanded")).toBe("true");
+    rerender(<ThinkingBlock text="je réfléchis encore" live={false} />);
+    expect(document.querySelector(".thinking-head")?.getAttribute("aria-expanded")).toBe("true");
   });
 });

@@ -1,7 +1,7 @@
 // Pièces de tour du chat (plan 015, slice 4) — déplacées verbatim depuis
 // Chat.tsx : diff de fin de tour, ré-édition d'un edit, thinking, indicateur
 // Working, carte d'activité, épingle. Aucune logique modifiée.
-import { lazy, Suspense, useEffect, useState } from "react";
+import { lazy, Suspense, useEffect, useRef, useState } from "react";
 import { BrainCircuitIcon } from "lucide-react";
 import { AgentEvent } from "../../lib/ws";
 import { wsSend } from "../../lib/wsBus";
@@ -289,19 +289,44 @@ export function formatPermInput(tool: string, input: Record<string, unknown>): s
 }
 
 export function ThinkingBlock({ text, live }: { text: string; live: boolean }) {
-  const [open, setOpen] = useState(false);
+  // La pensée se déroule PENDANT le tour, puis se replie quand la réponse
+  // arrive : on ne voyait que 140 caractères d'un texte qui en fait des
+  // dizaines de milliers. `manuel` garde la main dès que Thierry clique —
+  // son choix survit à la fin du tour, et repart en automatique au suivant.
+  const [manuel, setManuel] = useState<boolean | null>(null);
+  const bodyRef = useRef<HTMLDivElement | null>(null);
+  const liveRef = useRef(live);
+  const open = manuel ?? live;
   const normalized = text.trim();
   const preview = normalized.replace(/\s+/g, " ").slice(-140);
+
+  useEffect(() => {
+    // nouveau tour : on redonne la main à l'automatique
+    if (live && !liveRef.current) setManuel(null);
+    liveRef.current = live;
+  }, [live]);
+
+  useEffect(() => {
+    // en direct, on suit le fil : la dernière ligne reste sous les yeux
+    if (!open || !live) return;
+    const node = bodyRef.current;
+    if (node) node.scrollTop = node.scrollHeight;
+  }, [open, live, normalized]);
+
   if (!normalized) return null;
   return (
-    <div className={`thinking ${live ? "live" : ""}`}>
-      <RowButton className="thinking-head" aria-expanded={open} onClick={() => setOpen((v) => !v)}>
+    <div className={`thinking ${live ? "live" : ""} ${open ? "open" : ""}`}>
+      <RowButton
+        className="thinking-head"
+        aria-expanded={open}
+        onClick={() => setManuel(!open)}
+      >
         <BrainCircuitIcon className="thinking-icon" aria-hidden="true" />
         <span className="thinking-label">{live ? t("chat.thinking-live") : t("chat.thinking")}</span>
         {!open && <span className="thinking-preview">{preview}</span>}
         <Tick open={open} />
       </RowButton>
-      {open && <div className="thinking-body">{normalized}</div>}
+      {open && <div className="thinking-body" ref={bodyRef}>{normalized}</div>}
     </div>
   );
 }
