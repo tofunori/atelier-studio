@@ -158,18 +158,24 @@ export function reduceHarnessEvent(list: AgentEvent[], ev: AgentEvent): AgentEve
     // Grok ne clôt pas une pensée : il découpe un flux continu tous les
     // ~100 caractères, parfois en plein mot. Un bloc par morceau donnait des
     // dizaines de « Réflexion » repliables ne montrant chacun qu'un fragment.
-    // Deux blocs adjacents du MÊME tour sont donc recollés sans séparateur.
-    const last = next[next.length - 1];
+    // Les morceaux du MÊME tour sont donc recollés sans séparateur.
+    //
+    // Et le recollage ne regarde PAS que le dernier élément : Grok continue de
+    // penser APRÈS avoir répondu (85 pensées sur 208 arrivent après le texte
+    // final, mesuré sur un fil réel). Chercher seulement l'adjacence laissait
+    // un « Réflexion » orphelin sous la réponse, qui semblait sans rapport
+    // alors qu'il prolongeait celle d'au-dessus.
     const evMeta = harnessMeta(ev);
-    if (
-      last?.kind === "thinking"
-      && (!evMeta || turnOf(last) === evMeta.turnId)
-    ) {
-      next[next.length - 1] = {
-        ...last,
-        text: last.text + ev.text,
-        meta: ev.meta ?? last.meta,
-      };
+    for (let idx = next.length - 1; idx >= 0; idx -= 1) {
+      const item = next[idx];
+      if (item.kind !== "thinking") {
+        // on ne remonte que dans le tour courant : un texte d'assistant ne
+        // ferme pas la recherche, un tour précédent si
+        if (item.kind === "user" || item.kind === "done") break;
+        continue;
+      }
+      if (evMeta && turnOf(item) !== evMeta.turnId) break;
+      next[idx] = { ...item, text: item.text + ev.text, meta: ev.meta ?? item.meta };
       return next;
     }
     next.push({ kind: "thinking", text: ev.text, ts: stamp(ev), meta: ev.meta });

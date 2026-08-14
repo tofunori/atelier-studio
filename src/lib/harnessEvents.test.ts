@@ -450,3 +450,35 @@ describe("pensée découpée par le provider", () => {
     expect(list.filter((e) => e.kind === "thinking")).toHaveLength(2);
   });
 });
+
+describe("pensée qui continue après la réponse (Grok)", () => {
+  it("recolle sur le bloc du même tour au lieu de laisser un orphelin sous le texte", () => {
+    const meta = (eventId: string) => ({ turnId: "t1", eventId });
+    let list: AgentEvent[] = [];
+    list = reduceHarnessEvent(list, { kind: "thinking", text: "je pèse le pour", meta: meta("a") } as AgentEvent);
+    list = reduceHarnessEvent(list, { kind: "text", text: "Voici ma réponse.", meta: meta("b") } as AgentEvent);
+    list = reduceHarnessEvent(list, { kind: "thinking", text: " et le contre", meta: meta("c") } as AgentEvent);
+
+    const thinkings = list.filter((e) => e.kind === "thinking");
+    expect(thinkings).toHaveLength(1);
+    expect((thinkings[0] as { text: string }).text).toBe("je pèse le pour et le contre");
+    // la réponse reste la dernière chose visible du tour
+    expect(list[list.length - 1].kind).toBe("text");
+  });
+
+  it("n'aspire pas la pensée d'un autre tour", () => {
+    let list: AgentEvent[] = [];
+    list = reduceHarnessEvent(list, {
+      kind: "thinking", text: "tour un", meta: { turnId: "t1", eventId: "a" },
+    } as AgentEvent);
+    list = reduceHarnessEvent(list, {
+      kind: "text", text: "réponse un", meta: { turnId: "t1", eventId: "b" },
+    } as AgentEvent);
+    list = reduceHarnessEvent(list, {
+      kind: "thinking", text: "tour deux", meta: { turnId: "t2", eventId: "c" },
+    } as AgentEvent);
+
+    const thinkings = list.filter((e) => e.kind === "thinking");
+    expect(thinkings.map((e) => (e as { text: string }).text)).toEqual(["tour un", "tour deux"]);
+  });
+});

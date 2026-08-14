@@ -710,7 +710,7 @@ function GalleryToolbar() {
 
   return (
     <div className="gallery-command-bar" role="toolbar" aria-label="Gallery commands" data-gallery-toolbar-state="normal">
-      <div className="gallery-command-group" role="group" aria-label="Search and filter gallery">
+      <div className="gallery-command-group" data-gallery-group="filter" role="group" aria-label="Search and filter gallery">
       <Popover open={searchOpen} onOpenChange={(open) => {
         setSearchOpen(open)
         if (open) setFiltersOpen(false)
@@ -719,8 +719,10 @@ function GalleryToolbar() {
           <PopoverTrigger
             render={
               <Button
-                variant={search ? "secondary" : "outline"}
+                variant="ghost"
                 size="icon-sm"
+                data-gallery-command="search-trigger"
+                data-gallery-active={search ? "true" : undefined}
                 aria-label={search ? `Search files: ${search}` : "Search files"}
                 aria-pressed={searchOpen}
               >
@@ -759,9 +761,10 @@ function GalleryToolbar() {
           render={
             <Button
               ref={filterTriggerRef}
-              variant={activeFilterCount ? "secondary" : "outline"}
+              variant="ghost"
               size="sm"
               data-gallery-command="filters"
+              data-gallery-active={activeFilterCount ? "true" : undefined}
               aria-label={activeFilterCount ? `Filters, ${activeFilterCount} active` : "Filters"}
             >
               <Filter data-icon="inline-start" />
@@ -784,7 +787,7 @@ function GalleryToolbar() {
       </Popover>
 
       <Button
-        variant={favoriteActive ? "secondary" : "outline"}
+        variant="ghost"
         size="sm"
         data-gallery-command="favorites"
         aria-label="Favorites"
@@ -797,7 +800,7 @@ function GalleryToolbar() {
 
       <Popover open={collectionOpen} onOpenChange={setCollectionOpen}>
         <PopoverTrigger render={
-          <Button variant="outline" size="sm" data-gallery-command="collection" data-gallery-active={collectionActive ? "true" : undefined} aria-label="Collections">
+          <Button variant="ghost" size="sm" data-gallery-command="collection" data-gallery-active={collectionActive ? "true" : undefined} aria-label="Collections">
             <Library data-icon="inline-start" />
             <span className="gallery-collection-label">Collection</span>
           </Button>
@@ -832,7 +835,7 @@ function GalleryToolbar() {
 
       <DropdownMenu modal={false}>
         <DropdownMenuTrigger render={
-          <Button variant="outline" size="sm" data-gallery-command="status" data-gallery-active={statusActive ? "true" : undefined} aria-label="Filter by status">
+          <Button variant="ghost" size="sm" data-gallery-command="status" data-gallery-active={statusActive ? "true" : undefined} aria-label="Filter by status">
             <Flag data-icon="inline-start" />
             <span className="gallery-status-label">Status</span>
           </Button>
@@ -854,7 +857,9 @@ function GalleryToolbar() {
       </DropdownMenu>
       </div>
 
-      <div className="gallery-command-group" role="group" aria-label="Sort and display gallery">
+      <Separator orientation="vertical" className="gallery-command-sep" />
+
+      <div className="gallery-command-group" data-gallery-group="order" role="group" aria-label="Sort gallery">
       <Select items={sortItems} modal={false} value={sort?.value ?? "mtime"} onValueChange={(value) => value && setSelect("sort", value)}>
         <SelectTrigger
           size="sm"
@@ -874,7 +879,7 @@ function GalleryToolbar() {
 
       <Tooltip label={reverseSort ? "Reverse sort direction" : "No reverse for this sort"}>
         <Button
-          variant="outline"
+          variant="ghost"
           size="icon-sm"
           data-gallery-command="sort-dir"
           aria-label="Reverse sort direction"
@@ -884,9 +889,13 @@ function GalleryToolbar() {
           <ArrowUpDown />
         </Button>
       </Tooltip>
+      </div>
 
+      <Separator orientation="vertical" className="gallery-command-sep" />
+
+      <div className="gallery-command-group" data-gallery-group="display" role="group" aria-label="Display and gallery tools">
       <DropdownMenu modal={false}>
-        <DropdownMenuTrigger render={<Button variant="outline" size="sm" aria-label="View options"><LayoutGrid data-icon="inline-start" /><span className="gallery-view-label">View</span></Button>} />
+        <DropdownMenuTrigger render={<Button variant="ghost" size="sm" data-gallery-command="view" aria-label="View options"><LayoutGrid data-icon="inline-start" /><span className="gallery-view-label">View</span></Button>} />
         <DropdownMenuContent align="end" className="tw:w-44">
           <DropdownMenuGroup>
             <DropdownMenuLabel>Card size</DropdownMenuLabel>
@@ -903,11 +912,10 @@ function GalleryToolbar() {
           </DropdownMenuGroup>
         </DropdownMenuContent>
       </DropdownMenu>
-      </div>
 
       <Tooltip label={rescanning ? "Rescanning…" : "Rescan project"}>
         <Button
-          variant="outline"
+          variant="ghost"
           size="icon-sm"
           data-gallery-command="rescan"
           aria-label="Rescan project"
@@ -920,7 +928,7 @@ function GalleryToolbar() {
 
       <DropdownMenu modal={false}>
         <Tooltip label="Gallery tools">
-          <DropdownMenuTrigger render={<Button variant="outline" size="icon-sm" aria-label="Gallery tools"><Ellipsis /></Button>} />
+          <DropdownMenuTrigger render={<Button variant="ghost" size="icon-sm" data-gallery-command="tools" aria-label="Gallery tools"><Ellipsis /></Button>} />
         </Tooltip>
         <DropdownMenuContent align="end" className="tw:w-48">
           <DropdownMenuGroup>
@@ -950,6 +958,7 @@ function GalleryToolbar() {
           )}
         </DropdownMenuContent>
       </DropdownMenu>
+      </div>
 
       <div className="gallery-active-filters" aria-label="Active filters">
         {activeChips.map((chip) => (
