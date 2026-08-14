@@ -94,11 +94,10 @@ test('CM5 range-shaped scrollIntoView targets the range instead of line zero', a
   });
 });
 
-// La place et le défilement survivent au rechargement ; la PLAGE, non. Après
-// une réécriture par un agent, les anciennes coordonnées ne désignent plus le
-// passage sélectionné : garder la plage laissait une sélection fantôme, que
-// l'utilisateur retrouvait étalée sur tout un pan du document au clic suivant.
-test('external full-document reload keeps the caret and scroll, drops the stale range', async ({page}) => {
+// setValue ne remplace que la portion réellement modifiée : une sélection hors
+// de cette zone couvre toujours le même texte après le rechargement, et le
+// défilement ne bouge pas.
+test('external full-document reload preserves selection and never emits a top reset', async ({page}) => {
   await withLongLatex(async ({target, lines, url}) => {
     await page.goto(url);
     await waitForEditor(page);
@@ -121,7 +120,7 @@ test('external full-document reload keeps the caret and scroll, drops the stale 
     }));
     expect(state.top).toBeGreaterThan(8000);
     expect(state.from.line).toBe(480);
-    expect(state.selection).toBe('');
+    expect(state.selection.length).toBeGreaterThan(5);
     expect(state.trace.every(value => value > 8000)).toBe(true);
   });
 });

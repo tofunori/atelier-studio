@@ -295,13 +295,13 @@ test('latex anchored comments persist through the typed controller in CM5 and CM
   }
 });
 
-// Régression : après un rechargement agent, l'éditeur restaurait la PLAGE
-// sélectionnée par coordonnées ligne/colonne. Or l'agent a réécrit le texte :
-// ces coordonnées désignent maintenant autre chose, et l'état CM6 se retrouve
-// désynchronisé de la sélection DOM (que le moteur n'écrit pas tant que la vue
-// n'a pas le focus). Au retour dans l'éditeur, le clic hérite de cette ancre
-// fantôme et sélectionne tout un pan du document.
-test('rechargement agent : la sélection ne survit pas en plage fantôme', async ({page}) => {
+// Régression : le rechargement agent remplaçait le document ENTIER, et CM6
+// remappait toute position à travers ce changement [0, length] — une position
+// intérieure s'écrase alors au début ou à la fin du document. Sélections et
+// ancres du geste de souris en cours sautaient aux extrémités : un clic pendant
+// une écriture d'agent finissait en sélection de tout un pan du document.
+// Depuis, setValue ne remplace que la portion réellement modifiée.
+test('rechargement agent : la sélection hors zone survit, le clic reste un clic', async ({page}) => {
   const corps = Array.from({length: 60}, (_, i) =>
     `Paragraphe ${String(i + 1).padStart(2, '0')} : phrase de test pour la selection dans l'editeur du studio.`).join('\n\n');
   const source = `\\documentclass{article}\n\\begin{document}\n\n${corps}\n\n\\end{document}\n`;
@@ -314,27 +314,23 @@ test('rechargement agent : la sélection ne survit pas en plage fantôme', async
       cm.focus();
       cm.setSelection({line: 10, ch: 0}, {line: 16, ch: 30});
     });
-    expect(await page.evaluate(() => cm.getSelection().length)).toBeGreaterThan(0);
+    const passage = await page.evaluate(() => cm.getSelection());
+    expect(passage.length).toBeGreaterThan(0);
     await page.evaluate(() => document.activeElement?.blur());
 
-    // Un agent réécrit le fichier pendant ce temps.
+    // Un agent modifie un paragraphe SOUS la sélection pendant ce temps.
     const cible = path.join(root, 'agent.tex');
     const temporaire = `${cible}.external`;
-    writeFileSync(temporaire, source.replace('Paragraphe 05', 'Paragraphe 05 REECRIT PAR L AGENT AVEC UNE PHRASE PLUS LONGUE'));
+    writeFileSync(temporaire, source.replace('Paragraphe 30', 'Paragraphe 30 REECRIT PAR L AGENT AVEC UNE PHRASE PLUS LONGUE'));
     const futur = new Date(Date.now() + 1500);
     utimesSync(temporaire, futur, futur);
     renameSync(temporaire, cible);
     await expect.poll(() => page.evaluate(() => cm.getValue())).toContain('REECRIT PAR L AGENT');
 
-    // Invariant : un rechargement complet garde la place, jamais la plage.
-    const apresRechargement = await page.evaluate(() => ({
-      selection: cm.getSelection().length,
-      dom: window.getSelection().toString().length,
-    }));
-    expect(apresRechargement.selection).toBe(0);
-    expect(apresRechargement.dom).toBe(0);
+    // La sélection couvre toujours exactement le même texte.
+    expect(await page.evaluate(() => cm.getSelection())).toBe(passage);
 
-    // Et le retour dans le texte pose un simple curseur.
+    // Et le retour dans le texte pose un simple curseur, jamais une plage.
     await page.locator('.cm-content').click({position: {x: 120, y: 60}});
     const apresClic = await page.evaluate(() => ({
       selection: cm.getSelection().length,
@@ -342,5 +338,35 @@ test('rechargement agent : la sélection ne survit pas en plage fantôme', async
     }));
     expect(apresClic.selection).toBe(0);
     expect(apresClic.dom).toBe(0);
+  });
+});
+
+// Le scénario vécu : l'agent écrit PENDANT le clic de l'utilisateur. Le reload
+// tombe entre mousedown et mouseup ; l'ancre du geste doit rester au point de
+// clic, pas sauter à une extrémité du document.
+test('rechargement agent en plein clic : l ancre de la souris ne bouge pas', async ({page}) => {
+  const corps = Array.from({length: 200}, (_, i) =>
+    `Paragraphe ${i + 1} : phrase de test pour la selection dans l'editeur du studio.`).join('\n\n');
+  const source = `\\documentclass{article}\n\\begin{document}\n${corps}\n\\end{document}\n`;
+  await withProject({'midclick.tex': source}, async ({url}) => {
+    await page.goto(url('latex_studio.html', 'midclick.tex'));
+    await expectEngine(page, 'cm6');
+    await page.evaluate(() => { cm.focus(); cm.scrollIntoView({line: 100, ch: 0}, 80); });
+    const point = await page.evaluate(() => {
+      const c = cm.charCoords({line: 100, ch: 10}, 'window');
+      return {x: c.left, y: (c.top + c.bottom) / 2};
+    });
+    await page.mouse.move(point.x, point.y);
+    await page.mouse.down();
+    // Le rechargement complet arrive pendant que le bouton est enfoncé.
+    await page.evaluate((texte) => { cm.setValue(texte.replace('Paragraphe 50 :', 'Paragraphe 50 MODIFIE :')); }, source);
+    await page.mouse.move(point.x + 2, point.y + 1);
+    await page.mouse.up();
+    const etat = await page.evaluate(() => ({
+      selection: cm.getSelection().length,
+      anchor: cm.getCursor('anchor'),
+    }));
+    expect(etat.selection).toBeLessThan(50);
+    expect(Math.abs(etat.anchor.line - 100)).toBeLessThanOrEqual(1);
   });
 });

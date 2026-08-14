@@ -38,7 +38,12 @@ test("CM6 facade exposes the complete engine-neutral diff contract", () => {
 
 test("CM6 preserves viewport state and accepts CM5 scroll ranges", () => {
   assert.match(source, /captureScrollableState/);
-  assert.match(source, /scrollSnapshot is intentionally not used across a full/);
+  assert.match(source, /scrollSnapshot is intentionally not used here/);
+  // Le rechargement agent ne remplace que la portion modifiée : un changement
+  // [0, length] fait remapper toute position (ancre de souris comprise) vers
+  // une extrémité du document — sélection fantôme au clic (piège n°10).
+  assert.match(source, /charCodeAt\(prefix\) === newStr\.charCodeAt\(prefix\)/);
+  assert.doesNotMatch(source, /changes\(\{from: 0, to: doc\(\)\.length/);
   assert.match(source, /normalizeScrollTarget/);
   assert.match(source, /EditorSelection\.range/);
   assert.match(source, /y:\s*["']nearest["']/);

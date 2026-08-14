@@ -124,23 +124,29 @@ atterrit dans un `auto:`. Sans gravité (le code EST committé) mais surprenant.
 **Règle** : après un commit qui « ne trouve rien à committer », vérifier
 `git log` — le changement est probablement déjà dans le dernier `auto:`.
 
-## 10. Restaurer la PLAGE sélectionnée après un remplacement complet = sélection fantôme
+## 10. `setValue` plein document = ancre de souris projetée aux extrémités
 
-`setValue` (écriture d'agent, rechargement disque, restauration de version)
-remplaçait tout le document puis rejouait la sélection par coordonnées
-ligne/colonne. Le texte sous ces coordonnées n'est plus celui que l'utilisateur
-avait sélectionné. Pire : la vue n'ayant pas le focus, CM6 n'écrit pas cette
-sélection dans le DOM — l'état et le DOM divergent. Au retour dans l'éditeur, le
-clic héritait de l'ancre fantôme et surlignait tout un pan du document, et la
-pastille proposait de citer un passage jamais choisi.
+Le rechargement agent remplaçait le document par UN changement `[0, length]`.
+CM6 remappe toute position à travers chaque changement — y compris l'ancre du
+**geste de souris en cours** (`basicMouseSelection.update` :
+`start.pos = update.changes.mapPos(start.pos)`). Or `mapPos` projette toute
+position intérieure d'un remplacement total vers une extrémité. Quand l'écriture
+de l'agent tombait entre le `mousedown` et le `mouseup` d'un clic (fréquent :
+l'agent stream plusieurs écritures pendant que l'utilisateur navigue), le clic
+se terminait en sélection du point de clic jusqu'au début ou à la fin du
+document — ou en défilement brutal vers cette extrémité. Sélections posées et
+marques subissaient le même écrasement.
 
-**Règle** : conserver la **place** (curseur à la tête + défilement), jamais la
-**plage**. Vaut pour les DEUX moteurs (`assets/cm6/studio_editor.mjs` et le
-repli CM5 dans `src/studio/core/editor_factory.ts`).
+**Règle** : `setValue` ne remplace que la portion réellement modifiée (préfixe
+et suffixe communs élagués, sans couper une paire UTF-16). Le remappage naturel
+de CM6 fait alors le bon travail : ancre de souris, sélection, marques et
+défilement hors zone restent exactement en place — ne PAS poser de sélection
+explicite dans ce dispatch. Repli CM5 (`editor_factory.ts`) : remplacement
+complet assumé, curseur replié à la tête.
 
-**Vérification** : ce défaut ne se voit qu'à l'usage réel — Chromium seul le
-laisse passer au clic. Le projet Playwright `webkit-selection` rejoue la
-séquence dans WebKit, le moteur du WKWebView de l'app.
+**Vérification** : deux tests e2e (`rechargement agent…` dans
+`editor_cm6.spec.js`), rejoués dans WebKit — moteur du WKWebView — via le
+projet Playwright `webkit-selection`. Chromium seul ne suffit pas.
 
 ---
 

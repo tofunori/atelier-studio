@@ -490,34 +490,49 @@ export function createStudioEditor(parent, opts) {
     const l = doc().lineAt(Math.max(0, Math.min(off, doc().length)));
     return {line: l.number - 1, ch: off - l.from};
   };
-  const offsetInText = (text, pos) => {
-    const p = clampPos(pos, text.lines, (line) => text.line(line + 1).length);
-    return text.line(p.line + 1).from + p.ch;
-  };
   const replaceDocumentPreservingView = (text) => {
     const nextText = view.state.toText(String(text ?? ""));
     if (nextText.eq(doc())) return;
+    // On ne remplace QUE la portion réellement modifiée (préfixe et suffixe
+    // communs élagués), jamais le document entier. Un remplacement [0, length]
+    // force CM6 à remapper toute position à travers lui — et une position
+    // intérieure s'écrase alors au début ou à la fin du document. C'est vrai
+    // pour la sélection et les marques, mais surtout pour l'ancre du geste de
+    // souris EN COURS : quand le rechargement agent tombait entre le mousedown
+    // et le mouseup d'un clic, l'ancre sautait à une extrémité et le clic se
+    // terminait en sélection de tout un pan du document (ou en défilement vers
+    // cette extrémité). Avec un remplacement borné, tout ce qui vit hors de la
+    // zone modifiée — ancre de souris comprise — reste exactement en place.
+    const oldStr = doc().toString();
+    const newStr = nextText.toString();
+    let prefix = 0;
+    const prefixMax = Math.min(oldStr.length, newStr.length);
+    while (prefix < prefixMax && oldStr.charCodeAt(prefix) === newStr.charCodeAt(prefix)) prefix += 1;
+    // Ne jamais couper une paire de substitution UTF-16.
+    while (prefix > 0 && (oldStr.charCodeAt(prefix) & 0xFC00) === 0xDC00) prefix -= 1;
+    let oldEnd = oldStr.length;
+    let newEnd = newStr.length;
+    while (oldEnd > prefix && newEnd > prefix && oldStr.charCodeAt(oldEnd - 1) === newStr.charCodeAt(newEnd - 1)) {
+      oldEnd -= 1;
+      newEnd -= 1;
+    }
+    while (oldEnd < oldStr.length && (oldStr.charCodeAt(oldEnd) & 0xFC00) === 0xDC00) {
+      oldEnd += 1;
+      newEnd += 1;
+    }
     const scrollState = captureScrollableState(view);
-    const selection = view.state.selection.main;
-    const head = toPos(selection.head);
-    const changes = view.state.changes({from: 0, to: doc().length, insert: nextText});
-    // On garde la PLACE, jamais la PLAGE. Un remplacement complet vient d'un
-    // agent, d'un rechargement disque ou d'une restauration de version : le
-    // texte sous les anciennes coordonnées n'est plus celui que l'utilisateur
-    // avait sélectionné. Restaurer la plage laissait l'état CM6 porter une
-    // sélection fantôme que le DOM n'a pas (le moteur ne l'y écrit pas tant
-    // que la vue n'a pas le focus) ; au retour dans l'éditeur, le clic héritait
-    // de cette ancre et surlignait tout un pan du document.
+    // Pas de sélection explicite : le remappage naturel de CM6 fait le bon
+    // travail dès lors que le changement est borné. Une sélection hors zone
+    // couvre toujours le même texte ; une sélection dans la zone se replie
+    // localement, jamais aux extrémités du document.
     view.dispatch({
-      changes,
-      selection: EditorSelection.single(offsetInText(nextText, head)),
+      changes: {from: prefix, to: oldEnd, insert: newStr.slice(prefix, newEnd)},
       annotations: setValueAnno.of(true),
     });
-    // EditorView.scrollSnapshot is intentionally not used across a full
-    // document replacement: its contract requires an identical document, and
-    // mapping a full replacement can anchor it to line zero. Restore the own
-    // scroller and every scrollable ancestor immediately, then once more in
-    // CM6's next measured write phase for Tauri/WKWebView layout convergence.
+    // EditorView.scrollSnapshot is intentionally not used here: its contract
+    // requires an identical document. Restore the own scroller and every
+    // scrollable ancestor immediately, then once more in CM6's next measured
+    // write phase for Tauri/WKWebView layout convergence.
     restoreScrollableState(scrollState);
     view.requestMeasure({write: () => restoreScrollableState(scrollState)});
   };
