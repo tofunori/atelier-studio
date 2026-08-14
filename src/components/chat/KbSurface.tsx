@@ -7,8 +7,8 @@ import { useEffect, useMemo, useState, useSyncExternalStore } from "react";
 import { t } from "../../lib/i18n";
 import type { KbSource } from "../../lib/kbSources";
 import {
-  articleImportSnapshot, fileName, openArticleDialog, startDoiImport,
-  subscribeArticleImport, type ArticleJob,
+  articleImportSnapshot, dismissArticleImport, fileName, openArticleDialog, openGbrainPage,
+  stageLabel, startDoiImport, subscribeArticleImport, type ArticleJob,
 } from "../../lib/articleImports";
 import { KindIcon, type ArticleRow, type GbrainSectionProps } from "./KbPicker";
 import { LazyDropdownMenu, type LazyDropdownMenuItem } from "../ui/LazyDropdownMenu";
@@ -191,14 +191,17 @@ export default function KbSurface(p: {
   }, [live]);
 
   function renderJob(job: ArticleJob) {
-    const seconds = Math.max(0, Math.round((now - job.startedAt) / 1000));
     const guessed = job.imported?.metaSource === "texte";
+    const done = job.phase === "done";
     return (
-      <div className="kb-row kbs-job" key={job.requestId}>
+      <div className={`kb-row kbs-job${done ? " kbs-job-done" : ""}`} key={job.requestId}>
         <RowButton
           className="kb-row-main"
-          title={job.path}
-          onClick={() => openArticleDialog(job.requestId)}
+          title={done ? String(job.writtenSlug ?? "") : job.path}
+          // Une fiche terminée mène à SA page ; une conversion mène au suivi.
+          onClick={() => (done
+            ? void openGbrainPage(String(job.writtenSlug ?? ""))
+            : openArticleDialog(job.requestId))}
         >
           <span className="kb-check" aria-hidden />
           <span className="kb-kind">
@@ -206,6 +209,11 @@ export default function KbSurface(p: {
               <svg className="kbs-spin" width="13" height="13" viewBox="0 0 16 16" fill="none"
                 stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" aria-hidden="true">
                 <path d="M8 2a6 6 0 1 0 6 6" />
+              </svg>
+            ) : done ? (
+              <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor"
+                strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <path d="M3 8.5l3.5 3.5L13 4" />
               </svg>
             ) : (
               <KindIcon kind="pdf" />
@@ -217,10 +225,26 @@ export default function KbSurface(p: {
             {job.phase === "writing"
               ? t("article.writing")
               : job.phase === "converting"
-                ? t("kbs.job-converting", { s: seconds })
-                : t("kbs.job-ready")}
+                // l'étape réelle plutôt que le seul compteur : « conversion
+                // chez MinerU — 42 s » dit ce qui se passe, « 42 s » non
+                ? stageLabel(job, now)
+                : done
+                  ? `${t(job.writtenUpdated ? "kbs.job-updated" : "kbs.job-done")} · ${job.writtenSlug ?? ""}`
+                  : t("kbs.job-ready")}
           </span>
         </RowButton>
+        {done && (
+          <IconButton
+            className="kbs-job-clear"
+            label={t("kbs.job-clear")}
+            onClick={() => dismissArticleImport(job.requestId)}
+          >
+            <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor"
+              strokeWidth="1.4" strokeLinecap="round" aria-hidden="true">
+              <path d="M4 4l8 8M12 4l-8 8" />
+            </svg>
+          </IconButton>
+        )}
       </div>
     );
   }

@@ -1683,6 +1683,63 @@ fn kb_cli_run(
         .map_err(|e| format!("sortie atelier-kb invalide: {e}"))
 }
 
+/// Variante bavarde de `kb_cli_run` : lit la sortie ligne à ligne et remonte
+/// chaque `{"progress":…}` PENDANT que la commande tourne. La dernière ligne
+/// qui n'est pas un progrès est le résultat. Sans ça, une conversion MinerU de
+/// plusieurs minutes ne dit rien jusqu'à son terme et l'interface reste muette.
+fn kb_cli_stream(
+    server_dir: &str,
+    app_dir: &std::path::Path,
+    args: &[&str],
+    mut on_progress: impl FnMut(Value),
+) -> Result<Value, String> {
+    let cli = std::path::Path::new(server_dir).join("kb_cli.mjs");
+    if !cli.is_file() {
+        return Err(format!("kb_cli.mjs introuvable dans {server_dir}"));
+    }
+    let node = kb_node_bin().ok_or("node introuvable pour atelier-kb")?;
+    let mut child = std::process::Command::new(node)
+        .arg(&cli)
+        .args(args)
+        .env("ATELIER_APP_DIR", app_dir)
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+        .map_err(|e| format!("spawn atelier-kb: {e}"))?;
+    let stdout = child
+        .stdout
+        .take()
+        .ok_or("stdout atelier-kb indisponible")?;
+    let mut last: Option<Value> = None;
+    {
+        use std::io::BufRead;
+        for line in std::io::BufReader::new(stdout).lines() {
+            let line = line.map_err(|e| e.to_string())?;
+            if line.trim().is_empty() {
+                continue;
+            }
+            let Ok(value) = serde_json::from_str::<Value>(&line) else {
+                continue;
+            };
+            match value.get("progress") {
+                Some(step) => on_progress(step.clone()),
+                None => last = Some(value),
+            }
+        }
+    }
+    let out = child.wait_with_output().map_err(|e| e.to_string())?;
+    if !out.status.success() {
+        let message = String::from_utf8_lossy(&out.stderr).trim().to_string();
+        return Err(if message.is_empty() {
+            "atelier-kb: échec".into()
+        } else {
+            message
+        });
+    }
+    last.ok_or_else(|| "sortie atelier-kb vide".to_string())
+}
+
 fn kb_error(message: String) -> Vec<String> {
     vec![json_msg(json!({"type": "kbError", "message": message}))]
 }
@@ -1918,8 +1975,29 @@ async fn handle_article_import(state: &AppState, msg: &Value) -> Vec<String> {
     if path.is_empty() {
         return article_error(&request_id, "articleImport: path requis".into());
     }
-    let args = vec!["article-import".to_string(), "--path".to_string(), path.to_string()];
-    match article_cli(state, args).await {
+    // Les étapes partent sur le bus au fil de l'eau : l'utilisateur voit
+    // « envoi », « conversion (42 s) », « téléchargement », « métadonnées »,
+    // « doublons » au lieu d'un compteur muet.
+    let publisher = state.clone();
+    let progress_id = request_id.clone();
+    let server_dir = state.server_dir().to_string();
+    let app_dir = state.app_dir().to_path_buf();
+    let path_owned = path.to_string();
+    let streamed = tokio::task::spawn_blocking(move || {
+        let refs = vec!["article-import", "--path", path_owned.as_str(), "--progress"];
+        kb_cli_stream(&server_dir, &app_dir, &refs, |step| {
+            publisher.publish(json_msg(json!({
+                "type": "articleProgress",
+                "requestId": progress_id,
+                "stage": step.get("stage").cloned().unwrap_or(Value::Null),
+                "seconds": step.get("seconds").cloned().unwrap_or(Value::Null),
+                "count": step.get("count").cloned().unwrap_or(Value::Null),
+            })));
+        })
+    })
+    .await
+    .unwrap_or_else(|e| Err(format!("article: tâche interrompue ({e})")));
+    match streamed {
         Ok(v) => vec![json_msg(json!({
             "type": "articleImported",
             "requestId": request_id,

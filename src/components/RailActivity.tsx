@@ -5,7 +5,10 @@
 // pourcentage — son anneau tourne, il ne se remplit pas.
 import { useEffect, useState, useSyncExternalStore } from "react";
 import { t } from "../lib/i18n";
-import { articleImportSnapshot, fileName, openArticleDialog, subscribeArticleImport } from "../lib/articleImports";
+import {
+  articleImportSnapshot, fileName, openArticleDialog, stageLabel, subscribeArticleImport,
+  type ArticleJob,
+} from "../lib/articleImports";
 import { LazyDropdownMenu } from "./ui/LazyDropdownMenu";
 import { RowButton } from "./ui/RowButton";
 
@@ -63,18 +66,24 @@ function glyph(item: ActivityItem) {
 }
 
 /** Les conversions d'article, converties en pastilles. Exporté pour les tests. */
-export function articleItems(
-  jobs: { requestId: string; path: string; phase: string; message: string | null }[],
-): ActivityItem[] {
+export function articleItems(jobs: ArticleJob[]): ActivityItem[] {
   return jobs.map((job) => ({
     id: job.requestId,
     kind: "article" as const,
     label: fileName(job.path),
     // MinerU ne compte pas les pages : la conversion est indéterminée, mais
     // l'écriture qui suit est brève et se montre pleine.
-    ratio: job.phase === "writing" ? 0.9 : null,
-    state: job.phase === "error" ? "failed" : "running",
-    detail: t(job.phase === "error" ? "rail.act-failed" : "rail.act-converting"),
+    ratio: job.phase === "writing" ? 0.9 : job.phase === "done" ? 1 : null,
+    state: job.phase === "error" ? "failed" : job.phase === "done" ? "done" : "running",
+    // L'infobulle du rail dit l'étape en cours : c'est souvent le seul endroit
+    // regardé pendant qu'une conversion tourne en arrière-plan.
+    detail: job.phase === "error"
+      ? t("rail.act-failed")
+      : job.phase === "done"
+        ? t("kbs.job-done")
+        : job.phase === "converting"
+          ? stageLabel(job)
+          : t("rail.act-converting"),
     onOpen: () => openArticleDialog(job.requestId),
   }));
 }
@@ -99,7 +108,11 @@ export default function RailActivity(p: {
     detail: t("rail.act-agent"),
     onOpen: () => p.onSelectProject(root),
   }));
-  const items = [...agents, ...articleItems(imports.jobs)];
+  // Une réussite s'efface du rail après un court délai — la trace durable vit
+  // dans la surface Connaissances, pas dans une pastille qui s'accumule.
+  const jobs = imports.jobs.filter((job) => job.phase !== "done"
+    || Date.now() - (job.doneAt ?? 0) < DONE_LINGER_MS);
+  const items = [...agents, ...articleItems(jobs)];
 
   // rafraîchit l'affichage pendant qu'un anneau tourne (le temps écoulé vit
   // dans le store, pas ici — on ne fait que redessiner)

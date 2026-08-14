@@ -1189,7 +1189,28 @@ describe("base de connaissances (kbAdd)", () => {
       type: "articleImported", requestId: "r1", draftId: "abc123abc123",
       slug: "articles/aoki-2011-x", converter: "mineru", exists: false,
     });
-    expect(calls[0]).toEqual(["article-import", "--path", "/tmp/a.pdf"]);
+    expect(calls[0]).toEqual(["article-import", "--path", "/tmp/a.pdf", "--progress"]);
+
+    // Les étapes de la conversion partent au fil de l'eau : sans elles,
+    // l'utilisateur reste des minutes devant un compteur muet.
+    const suivi = [];
+    const ctxFlux = {
+      send: (m) => suivi.push(m),
+      runArticleCliStream: (args, onProgress) => {
+        expect(args).toContain("--progress");
+        onProgress({ stage: "upload" });
+        onProgress({ stage: "converting", seconds: 42 });
+        onProgress({ stage: "meta" });
+        return { ok: true, draftId: "d1", path: "/tmp/b.pdf", slug: "articles/x", meta: {} };
+      },
+    };
+    await route({ type: "articleImport", path: "/tmp/b.pdf", requestId: "r9" }, ctxFlux);
+    expect(suivi.slice(0, 3)).toEqual([
+      { type: "articleProgress", requestId: "r9", stage: "upload", seconds: null, count: null },
+      { type: "articleProgress", requestId: "r9", stage: "converting", seconds: 42, count: null },
+      { type: "articleProgress", requestId: "r9", stage: "meta", seconds: null, count: null },
+    ]);
+    expect(suivi[3]).toMatchObject({ type: "articleImported", requestId: "r9" });
 
     await route({
       type: "articleWrite", requestId: "r2", draftId: "abc123abc123", slug: "articles/aoki-2011-x",

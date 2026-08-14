@@ -15,6 +15,14 @@ vi.mock("../../lib/articleImports", () => ({
   openArticleDialog: vi.fn(),
   startDoiImport: vi.fn(),
   fileName: (path: string) => String(path).split("/").pop() ?? path,
+  // Le vrai libellé vit dans le module réel ; ici on veut seulement vérifier
+  // que la rangée montre bien l'étape qu'on lui donne, pas un compteur nu.
+  stageLabel: (job: { stage?: string | null; stageSeconds?: number | null; startedAt: number }) =>
+    (job.stage === "converting"
+      ? `conversion chez MinerU — ${job.stageSeconds} s`
+      : job.stage
+        ? `étape ${job.stage}`
+        : `conversion — ${Math.round((Date.now() - job.startedAt) / 1000)} s`),
 }));
 
 import { openArticleDialog, startDoiImport } from "../../lib/articleImports";
@@ -230,7 +238,11 @@ describe("KbSurface", () => {
 
   it("montre les imports en cours comme des rangées, pas comme une modale", () => {
     articleState.jobs = [
-      { requestId: "r1", path: "/tmp/rounce-2023.pdf", startedAt: Date.now() - 72_000, phase: "converting", imported: null, message: null },
+      {
+        requestId: "r1", path: "/tmp/rounce-2023.pdf", startedAt: Date.now() - 72_000,
+        phase: "converting", imported: null, message: null,
+        stage: "converting", stageSeconds: 42,
+      },
       {
         requestId: "r2", path: "/tmp/muff-2016.pdf", startedAt: Date.now() - 200_000, phase: "ready",
         imported: { metaSource: "texte", meta: { title: "Marginal or conditional regression models" } },
@@ -238,7 +250,8 @@ describe("KbSurface", () => {
       },
     ];
     renderUi(<KbSurface {...props()} />);
-    expect(screen.getByText(/conversion — 7[0-9] s/)).toBeTruthy();
+    // l'étape réelle remplace le compteur muet
+    expect(screen.getByText("conversion chez MinerU — 42 s")).toBeTruthy();
     expect(screen.getByText("rounce-2023.pdf")).toBeTruthy();
     // la fiche devinée se signale sur sa rangée, et le clic la rouvre
     expect(screen.getByText("à relire")).toBeTruthy();

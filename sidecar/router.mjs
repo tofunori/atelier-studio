@@ -1,4 +1,4 @@
-import { execFile } from "node:child_process";
+import { execFile, spawn } from "node:child_process";
 import { createHash } from "node:crypto";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, isAbsolute, join } from "node:path";
@@ -56,6 +56,56 @@ function runArticleCli(ctx, args) {
         }
       },
     );
+  });
+}
+
+// Import d'article : même commande, mais on écoute pendant qu'elle tourne.
+// Le CLI précède son résultat de lignes `{"progress":…}` sous `--progress` ;
+// tout le reste de la sortie est le résultat final. Sans ça, l'utilisateur
+// n'a rien à regarder pendant les minutes de conversion.
+function runArticleCliStream(ctx, args, onProgress) {
+  if (ctx.runArticleCliStream) return Promise.resolve(ctx.runArticleCliStream(args, onProgress));
+  if (ctx.runArticleCli) return Promise.resolve(ctx.runArticleCli(args));
+  const cli = fileURLToPath(new URL("./kb_cli.mjs", import.meta.url));
+  return new Promise((resolve, reject) => {
+    const child = spawn(process.execPath, [cli, ...args], { stdio: ["ignore", "pipe", "pipe"] });
+    let pending = "";
+    let stderr = "";
+    let last = null;
+    const timer = setTimeout(() => {
+      try { child.kill("SIGKILL"); } catch { /* déjà mort */ }
+      reject(new Error("atelier-kb: délai dépassé"));
+    }, ARTICLE_CLI_TIMEOUT_MS);
+    const consume = (line) => {
+      if (!line.trim()) return;
+      let value;
+      try { value = JSON.parse(line); } catch { return; }
+      if (value && typeof value === "object" && value.progress) onProgress?.(value.progress);
+      else last = value;
+    };
+    child.stdout.setEncoding("utf8");
+    child.stdout.on("data", (chunk) => {
+      pending += chunk;
+      const lines = pending.split("\n");
+      pending = lines.pop() ?? "";
+      for (const line of lines) consume(line);
+    });
+    child.stderr.setEncoding("utf8");
+    child.stderr.on("data", (chunk) => { stderr += chunk; });
+    child.on("error", (error) => { clearTimeout(timer); reject(error); });
+    child.on("close", (code) => {
+      clearTimeout(timer);
+      consume(pending);
+      if (code !== 0) {
+        reject(new Error(String(stderr).trim().slice(0, 400) || "atelier-kb: échec"));
+        return;
+      }
+      if (!last) {
+        reject(new Error("sortie atelier-kb invalide"));
+        return;
+      }
+      resolve(last);
+    });
   });
 }
 
@@ -1230,7 +1280,16 @@ export async function route(msg, ctx) {
       // spawnSync en direct gèlerait le sidecar plusieurs minutes. Aucune
       // écriture gbrain ici : la réponse est une fiche à vérifier.
       try {
-        const out = await runArticleCli(ctx, ["article-import", "--path", String(msg.path ?? "")]);
+        const out = await runArticleCliStream(
+          ctx,
+          ["article-import", "--path", String(msg.path ?? ""), "--progress"],
+          (step) => ctx.send({
+            type: "articleProgress", requestId: msg.requestId ?? null,
+            stage: step?.stage ?? null,
+            seconds: step?.seconds ?? null,
+            count: step?.count ?? null,
+          }),
+        );
         ctx.send({
           type: "articleImported", requestId: msg.requestId ?? null,
           draftId: out.draftId, path: out.path, meta: out.meta, slug: out.slug,

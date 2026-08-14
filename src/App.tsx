@@ -1565,6 +1565,10 @@ export default function App() {
           { detail: msg },
         ));
       }
+      if (msg.type === "articleProgress") {
+        // étape de conversion en direct (upload, conversion, métadonnées…)
+        window.dispatchEvent(new CustomEvent("article-progress", { detail: msg }));
+      }
       if (msg.type === "articleListed") {
         window.dispatchEvent(new CustomEvent("article-listed", { detail: msg }));
       }

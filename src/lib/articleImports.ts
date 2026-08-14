@@ -34,13 +34,27 @@ export type ArticleImported = {
   warning?: string | null;
 };
 
+/** Étapes annoncées par la conversion, dans l'ordre où elles arrivent. */
+export type ArticleStage =
+  | "upload" | "ocr" | "converting" | "download" | "figures" | "meta" | "duplicates";
+
 export type ArticleJob = {
   requestId: string;
   path: string;
   startedAt: number;
-  phase: "converting" | "ready" | "writing" | "error";
+  phase: "converting" | "ready" | "writing" | "done" | "error";
   imported: ArticleImported | null;
   message: string | null;
+  /** Page écrite (phase "done") — la trace qui reste une fois le travail fait. */
+  writtenSlug?: string | null;
+  writtenUpdated?: boolean;
+  /** Instant de l'écriture : le rail range la pastille après un court délai,
+   *  la surface Connaissances garde la rangée jusqu'à ce qu'on la range. */
+  doneAt?: number;
+  /** Dernière étape reçue, et son détail (secondes de conversion, figures). */
+  stage?: ArticleStage | null;
+  stageSeconds?: number | null;
+  stageCount?: number | null;
 };
 
 const AUTO_KEY = "atelier-studio.article-auto";
@@ -97,6 +111,32 @@ export function focusedJob(state: ArticleImportState = current) {
   return state.jobs.find((job) => job.phase === "ready") ?? null;
 }
 
+/** Secondes écoulées depuis le dépôt — le seul repère avant la 1re étape. */
+export function elapsedSeconds(job: ArticleJob, now = Date.now()) {
+  return Math.max(0, Math.round((now - job.startedAt) / 1000));
+}
+
+/** Ce que la conversion est en train de faire, en clair. Un seul libellé pour
+ *  le dialogue, la surface Connaissances et l'infobulle du rail : trois
+ *  formulations différentes du même état donneraient trois vérités. */
+export function stageLabel(job: ArticleJob, now = Date.now()) {
+  const seconds = elapsedSeconds(job, now);
+  switch (job.stage) {
+    case "upload": return t("article.stage-upload");
+    case "ocr": return t("article.stage-ocr");
+    case "download": return t("article.stage-download");
+    case "figures": return t("article.stage-figures", { n: job.stageCount ?? 0 });
+    case "meta": return t("article.stage-meta");
+    case "duplicates": return t("article.stage-duplicates");
+    case "converting":
+      // le compteur du script est plus juste que le nôtre : il ne compte que
+      // le temps passé chez MinerU, pas l'attente d'envoi
+      return t("article.stage-converting", { s: job.stageSeconds ?? seconds });
+    default:
+      return t("article.converting", { s: seconds });
+  }
+}
+
 export function openArticleDialog(requestId?: string) {
   emit({ ...current, open: true, focused: requestId ?? current.focused });
 }
@@ -120,7 +160,7 @@ export function dismissArticleImport(requestId: string) {
 /** Ferme le dialogue et oublie tout ce qui est terminé (garde les conversions). */
 export function closeArticleDialog() {
   emit({
-    jobs: current.jobs.filter((job) => job.phase === "converting"),
+    jobs: current.jobs.filter((job) => job.phase === "converting" || job.phase === "done"),
     focused: null,
     open: false,
   });
@@ -221,7 +261,14 @@ function onAutoWritten(event: Event) {
   const job = current.jobs.find((entry) => entry.requestId === jobId);
   const guessed = job?.imported?.metaSource === "texte";
   const slug = String(detail?.slug ?? "");
-  dismissArticleImport(jobId);
+  // PIÈGE (vécu) : on effaçait la fiche dès l'écriture. Le toast s'efface
+  // seul, la notification système ne part que si l'app n'a PAS le focus — donc
+  // quand Thierry regardait l'app, l'import se terminait sans laisser la
+  // moindre trace à l'écran. La fiche reste maintenant, marquée « ajouté ».
+  patch(jobId, {
+    phase: "done", writtenSlug: slug, writtenUpdated: detail?.updated === true,
+    message: null, doneAt: Date.now(),
+  });
   // le sort de la page est dit en clair : créée, mise à jour, et si les
   // métadonnées ont été devinées, l'invitation à relire suit
   void showUndo(
@@ -253,7 +300,7 @@ function onAutoWriteError(event: Event) {
 }
 
 /** Ouvre la page écrite dans la surface Connaissances (épinglage gbrain). */
-async function openGbrainPage(slug: string) {
+export async function openGbrainPage(slug: string) {
   if (!slug) return;
   wsSend({ type: "kbAdd", kind: "gbrain", origin: slug });
 }
@@ -287,6 +334,24 @@ function onImported(event: Event) {
   }
 }
 
+// L'étape n'est qu'un affichage : elle ne fait avancer aucune phase, elle dit
+// seulement où en est la conversion. Un job déjà prêt ou en échec l'ignore —
+// une étape en retard ne doit pas ressusciter une fiche terminée.
+function onProgress(event: Event) {
+  const detail = (event as CustomEvent).detail as
+    | { requestId?: string | null; stage?: string | null; seconds?: number | null; count?: number | null }
+    | undefined;
+  const requestId = String(detail?.requestId ?? "");
+  if (!detail || !requestId) return;
+  const job = current.jobs.find((entry) => entry.requestId === requestId);
+  if (!job || job.phase !== "converting") return;
+  patch(requestId, {
+    stage: (detail.stage ?? null) as ArticleStage | null,
+    stageSeconds: typeof detail.seconds === "number" ? detail.seconds : null,
+    stageCount: typeof detail.count === "number" ? detail.count : null,
+  });
+}
+
 function onError(event: Event) {
   const detail = (event as CustomEvent).detail as { requestId?: string | null; message?: string } | undefined;
   const requestId = String(detail?.requestId ?? "");
@@ -306,6 +371,7 @@ function onError(event: Event) {
 }
 
 if (typeof window !== "undefined") {
+  window.addEventListener("article-progress", onProgress);
   window.addEventListener("article-imported", onImported);
   window.addEventListener("article-error", onError);
   window.addEventListener("article-written", onAutoWritten);

@@ -17,6 +17,10 @@ vi.mock("../lib/articleImports", () => ({
   subscribeArticleImport: () => () => {},
   openArticleDialog: vi.fn(),
   fileName: (path: string) => String(path).split("/").pop() ?? path,
+  stageLabel: (job: { stage?: string | null; stageSeconds?: number | null }) =>
+    (job.stage === "converting"
+      ? `conversion chez MinerU — ${job.stageSeconds} s`
+      : "conversion d'article"),
 }));
 
 function makeProps(over: Partial<React.ComponentProps<typeof Rail>> = {}) {
@@ -105,6 +109,17 @@ describe("Rail — zone d'activité", () => {
     expect(pastilles.length).toBe(2);
     expect(screen.getByTitle(/thèse — agent au travail/)).toBeTruthy();
     expect(screen.getByTitle(/rounce-2023.pdf — conversion d'article/)).toBeTruthy();
+  });
+
+  it("l'infobulle dit l'étape en cours, pas seulement « conversion »", () => {
+    articleState.jobs = [
+      {
+        requestId: "r3", path: "/tmp/aoki-2011.pdf", phase: "converting", message: null,
+        stage: "converting", stageSeconds: 42,
+      },
+    ];
+    renderUi(<Rail {...makeProps()} />);
+    expect(screen.getByTitle("aoki-2011.pdf — conversion chez MinerU — 42 s")).toBeTruthy();
   });
 
   it("un échec se distingue et reste cliquable", () => {

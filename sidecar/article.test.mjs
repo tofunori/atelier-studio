@@ -6,7 +6,7 @@ import { describe, expect, it } from "vitest";
 import {
   articleSlug, buildArticlePage, convertPdf, copyToRagdoc, draftDir, dropDraft,
   findDuplicates, firstAuthorSlug, importArticle, listArticles, mineruFailure, outputName,
-  parseArticleList, parseArticleMeta,
+  mineruStage, parseArticleList, parseArticleMeta, runStreaming,
   pruneDrafts, ragdocName, readDraft, saveDraft, writeArticle,
 } from "./article.mjs";
 import { runKbCommand } from "./kb_cli.mjs";
@@ -97,12 +97,12 @@ describe("page markdown", () => {
 });
 
 describe("conversion", () => {
-  it("utilise MinerU quand le script produit un markdown", () => {
+  it("utilise MinerU quand le script produit un markdown", async () => {
     const dir = fixtureDir();
     const path = fakePdf(dir);
     const name = outputName(path);
     writeFileSync(join(dir, `${name}.md`), ARTICLE);
-    const out = convertPdf(path, {
+    const out = await convertPdf(path, {
       mineru: { script: "/faux/mineru.py", reason: null },
       tmp: dir,
       spawn: () => ({ status: 0, stdout: "ok", stderr: "" }),
@@ -112,10 +112,10 @@ describe("conversion", () => {
     expect(out.markdown).toContain("snow albedo model");
   });
 
-  it("retombe sur l'extraction locale et explique pourquoi", () => {
+  it("retombe sur l'extraction locale et explique pourquoi", async () => {
     const dir = fixtureDir();
     const path = fakePdf(dir);
-    const out = convertPdf(path, {
+    const out = await convertPdf(path, {
       mineru: { script: "/faux/mineru.py", reason: null },
       tmp: dir,
       spawn: () => ({ status: 1, stdout: "", stderr: "quota dépassé" }),
@@ -126,21 +126,72 @@ describe("conversion", () => {
     expect(out.markdown).toBe("page une\n\npage deux");
   });
 
-  it("signale un PDF sans couche texte au lieu d'écrire une page vide", () => {
+  it("signale un PDF sans couche texte au lieu d'écrire une page vide", async () => {
     const dir = fixtureDir();
     const path = fakePdf(dir);
-    expect(() => convertPdf(path, {
+    await expect(convertPdf(path, {
       mineru: { script: null, reason: "token absent" },
       extractPdf: () => ({ pages: [{ page: 1, text: "" }, { page: 2, text: "  " }], cached: false }),
-    })).toThrow(/Aucun texte extrait/);
+    })).rejects.toThrow(/Aucun texte extrait/);
   });
 
-  it("refuse un fichier absent ou non-PDF", () => {
+  it("refuse un fichier absent ou non-PDF", async () => {
     const dir = fixtureDir();
-    expect(() => convertPdf(join(dir, "rien.pdf"), {})).toThrow(/introuvable/);
+    await expect(convertPdf(join(dir, "rien.pdf"), {})).rejects.toThrow(/introuvable/);
     const notPdf = join(dir, "notes.md");
     writeFileSync(notPdf, "x");
-    expect(() => convertPdf(notPdf, {})).toThrow(/PDF est attendu/);
+    await expect(convertPdf(notPdf, {})).rejects.toThrow(/PDF est attendu/);
+  });
+});
+
+describe("étapes de conversion", () => {
+  it("nomme les lignes que le script MinerU annonce", () => {
+    expect(mineruStage("Uploading /tmp/a.pdf...")).toEqual({ stage: "upload" });
+    expect(mineruStage("Upload complete, processing...")).toEqual({ stage: "converting" });
+    expect(mineruStage("Processing... (42s)")).toEqual({ stage: "converting", seconds: 42 });
+    expect(mineruStage("Conversion complete!")).toEqual({ stage: "download" });
+    expect(mineruStage("Extracted 16 figures to /tmp/x_images")).toEqual({ stage: "figures", count: 16 });
+    expect(mineruStage("Couche texte: 12 car. -> is_ocr=True")).toEqual({ stage: "ocr", ocr: true });
+  });
+
+  it("ignore le bavardage sans étape connue", () => {
+    expect(mineruStage("Batch ID: abc123")).toBeNull();
+    expect(mineruStage("")).toBeNull();
+  });
+
+  it("rend compte de la conversion pendant qu'elle dure", async () => {
+    const dir = fixtureDir();
+    const path = fakePdf(dir);
+    const name = outputName(path);
+    writeFileSync(join(dir, `${name}.md`), ARTICLE);
+    const vues = [];
+    await convertPdf(path, {
+      mineru: { script: "/faux/mineru.py", reason: null },
+      tmp: dir,
+      onProgress: (step) => vues.push(step),
+      // le faux script rejoue les lignes réelles, une par une
+      spawn: (_cmd, _args, opts) => {
+        for (const line of ["Uploading x.pdf...", "Upload complete, processing...",
+          "Processing... (5s)", "Processing... (10s)", "Conversion complete!"]) opts.onLine(line);
+        return { status: 0, stdout: "", stderr: "" };
+      },
+    });
+    expect(vues).toEqual([
+      { stage: "upload" }, { stage: "converting" },
+      { stage: "converting", seconds: 5 }, { stage: "converting", seconds: 10 },
+      { stage: "download" },
+    ]);
+  });
+
+  it("runStreaming rend la forme de spawnSync et découpe les lignes", async () => {
+    const vues = [];
+    const run = await runStreaming(process.execPath,
+      ["-e", "process.stdout.write('une\\ndeux\\n'); process.stderr.write('bruit')"],
+      { onLine: (line) => vues.push(line) });
+    expect(vues).toEqual(["une", "deux"]);
+    expect(run.status).toBe(0);
+    expect(run.stderr).toBe("bruit");
+    expect(run.error).toBeNull();
   });
 });
 
@@ -215,13 +266,13 @@ describe("article Frontiers converti par MinerU", () => {
 });
 
 describe("échec MinerU", () => {
-  it("cherche le markdown dans /tmp, où le script l'écrit en dur", () => {
+  it("cherche le markdown dans /tmp, où le script l'écrit en dur", async () => {
     // le repli lit os.tmpdir() ; c'est /tmp que le script utilise
     const dir = fixtureDir();
     const path = fakePdf(dir);
     const name = outputName(path);
     writeFileSync(join("/tmp", `${name}.md`), FRONTIERS);
-    const out = convertPdf(path, {
+    const out = await convertPdf(path, {
       mineru: { script: "/faux/mineru.py", reason: null },
       spawn: () => ({ status: 0, stdout: "✓ Figures: 16 images", stderr: "" }),
     });

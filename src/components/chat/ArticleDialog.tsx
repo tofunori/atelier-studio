@@ -10,7 +10,7 @@ import { wsSend } from "../../lib/wsBus";
 import {
   articleImportSnapshot, backgroundArticleDialog, closeArticleDialog,
   dismissArticleImport, fileName, focusedJob, isAutoWrite, openArticleDialog,
-  setAutoWrite, startArticleImport, subscribeArticleImport,
+  setAutoWrite, stageLabel, startArticleImport, subscribeArticleImport,
   type ArticleDuplicate, type ArticleJob,
 } from "../../lib/articleImports";
 import { showError, showSuccess } from "../ui/toast";
@@ -283,7 +283,9 @@ export default function ArticleDialog() {
                 <JobIcon phase={entry.phase} />
                 <span className="kb-article-job-name">{fileName(entry.path)}</span>
                 {entry.phase === "converting" && (
-                  <span className="kb-article-job-time">{elapsed(entry)} s</span>
+                  <span className="kb-article-job-time" title={stageLabel(entry, now)}>
+                    {elapsed(entry)} s
+                  </span>
                 )}
               </RowButton>
             ))}
@@ -333,7 +335,7 @@ export default function ArticleDialog() {
           <>
             <div className="kb-page-source">{fileName(job.path)}</div>
             <div className="kb-article-progress"><i /></div>
-            <div className="kb-article-hint">{t("article.converting", { s: elapsed(job) })}</div>
+            <div className="kb-article-hint">{stageLabel(job, now)}</div>
             <div className="kb-article-hint">{t("article.background-hint")}</div>
             <div className="kb-note-actions">
               <Button
