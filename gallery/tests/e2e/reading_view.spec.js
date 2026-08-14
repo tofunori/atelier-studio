@@ -18,7 +18,7 @@ test('vue Lecture : plein cadre, pas de préambule, sélection annotable', async
     '\\makeatother',
     '\\ifdefined\\Root\\else\\expandafter\\Loader\\fi',
     '\\section{Study area}',
-    'The study area covers the glaciers of western North America \\cite{rgi7consortium2023} over 22 melt seasons.',
+    'The study area covers the glaciers of western North America with more than 80\\,\\% cloud cover \\cite{rgi7consortium2023} over 22 melt seasons.',
   ].join('\n'));
   const port = await freePort();
   const server = spawn(process.execPath, [path.join(GALLERY,'server','main.mjs')], {cwd: root, env:{...process.env, FIG_PORT:String(port), GALLERY_ROOT:root}, stdio:'ignore'});
@@ -49,7 +49,9 @@ test('vue Lecture : plein cadre, pas de préambule, sélection annotable', async
       const node = p.firstChild;
       // Sélection qui TRAVERSE la citation rendue : « [rgi7consortium2023] »
       // n'existe pas dans le source, l'ancrage doit passer par la prose.
-      const start = node.textContent.indexOf('western North America');
+      // Démarre sur la prose TRANSFORMÉE : le rendu affiche « 80\,% » là où
+      // le source dit « 80\,\% » — le fragment entier ne peut pas s'ancrer.
+      const start = node.textContent.indexOf('with more than');
       const fin = p.lastChild;
       const r = document.createRange();
       r.setStart(node, start); r.setEnd(fin, (fin.textContent || '').indexOf('melt') + 4);
@@ -97,7 +99,8 @@ test('vue Lecture : plein cadre, pas de préambule, sélection annotable', async
     expect(envoi.page).toBe('L7-7');
     // Le texte envoyé est le SOURCE (avec \cite), pas le rendu : c'est lui qui
     // permettra de ré-ancrer un commentaire.
-    expect(envoi.text).toContain('western North America');
+    expect(envoi.text).toContain('with more than');
+    expect(envoi.text).toContain('80\\,\\%');
     expect(envoi.text).toContain('\\cite{rgi7consortium2023}');
     expect(envoi.text).toContain('melt');
     await fr().locator('header').screenshot({path: '/tmp/barre-lecture.png'});

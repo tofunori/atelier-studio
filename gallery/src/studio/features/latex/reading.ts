@@ -198,6 +198,52 @@ export function renderLatexReadingHtml(source: string, katex: KatexRenderer): st
   }).join("\n");
 }
 
+/** Borne une sélection de prose rendue dans le texte SOURCE. Les fragments
+ *  arrivent dans l'ordre du document, déjà débarrassés des nœuds fabriqués
+ *  (citations, refs, math) — mais le rendu retouche aussi la prose elle-même
+ *  (« \% » → « % », commandes dépouillées) : aucun fragment n'est garanti
+ *  littéral en entier. On ancre donc le début sur le plus long PRÉFIXE du
+ *  premier fragment retrouvable dans le source, la fin sur le plus long
+ *  SUFFIXE du dernier, en raccourcissant mot à mot. */
+export function anchorProseFragments(
+  source: string,
+  fragments: string[],
+  line: number,
+  editor: Pick<StudioEditor, "indexFromPos" | "posFromIndex">,
+): {from: StudioPosition; to: StudioPosition} | null {
+  const locate = (text: string): ReturnType<typeof findAnnotationRange> =>
+    text.length >= 4 ? findAnnotationRange(source, {text, from: {line, ch: 0}}, editor) : null;
+  const shrink = (
+    fragment: string,
+    cut: (words: string[], keep: number) => string,
+  ): ReturnType<typeof findAnnotationRange> => {
+    const words = fragment.split(/\s+/).filter(Boolean);
+    for (let keep = Math.min(words.length, 8); keep >= 1; keep -= 1) {
+      const candidate = cut(words, keep);
+      // Un seul mot est trop ambigu pour ancrer, sauf s'il est long.
+      if (keep === 1 && candidate.length < 6) break;
+      const found = locate(candidate);
+      if (found) return found;
+    }
+    return null;
+  };
+  let start: ReturnType<typeof findAnnotationRange> = null;
+  for (const fragment of fragments) {
+    start = shrink(fragment, (words, keep) => words.slice(0, keep).join(" "));
+    if (start) break;
+  }
+  if (!start) return null;
+  let end: ReturnType<typeof findAnnotationRange> = null;
+  for (let index = fragments.length - 1; index >= 0 && !end; index -= 1) {
+    end = shrink(fragments[index] || "", (words, keep) => words.slice(-keep).join(" "));
+  }
+  if (!end) end = start;
+  // Ambiguïté résolue à l'envers (fin trouvée avant le début) : se rabattre
+  // sur la seule borne sûre plutôt que d'envoyer une plage négative.
+  if (editor.indexFromPos(end.to) < editor.indexFromPos(start.from)) end = start;
+  return {from: start.from as StudioPosition, to: end.to as StudioPosition};
+}
+
 export function createLatexReadingController(options: LatexReadingOptions): LatexReadingController {
   const doc = options.document || document;
   const win = options.window || window;
@@ -325,16 +371,13 @@ export function createLatexReadingController(options: LatexReadingOptions): Late
     const line = Math.max(0, Number.parseInt(holder?.dataset.line || "1", 10) - 1);
     const source = editor.getValue();
     // Le rendu fabrique du texte absent du source : « [rgi7consortium2023] »
-    // pour \cite{...}, « §label » pour \ref{...}, et les formules composées par
-    // KaTeX. Chercher la sélection brute échouait donc dès qu'une citation s'y
-    // trouvait — le cas courant en prose scientifique. On n'ancre que sur les
-    // fragments de prose, seuls littéraux, puis on borne du premier au dernier.
-    const fragments = literalFragments(range);
-    const head = fragments.find((piece) => piece.length >= 4);
-    const tail = [...fragments].reverse().find((piece) => piece.length >= 4);
-    const start = head ? findAnnotationRange(source, {text: head, from: {line, ch: 0}}, editor) : null;
-    const end = tail === head ? start : (tail ? findAnnotationRange(source, {text: tail, from: {line, ch: 0}}, editor) : null);
-    const found = start && end ? {from: start.from, to: end.to} : null;
+    // pour \cite{...}, « §label » pour \ref{...}, les formules KaTeX — mais
+    // aussi des retouches DANS la prose elle-même (« \% » rendu « % »,
+    // commandes dépouillées). Un fragment n'est donc jamais garanti littéral
+    // en entier : on cherche le plus long préfixe du premier fragment et le
+    // plus long suffixe du dernier qui existent dans le source, en
+    // raccourcissant mot à mot.
+    const found = anchorProseFragments(source, literalFragments(range), line, editor);
     if (!found) {
       options.onProseSelectionCleared?.();
       return;

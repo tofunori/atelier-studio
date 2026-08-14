@@ -85,6 +85,23 @@ test("LaTeX reading renderer preserves prose structure, source lines, and math",
   assert.match(html, /<li data-line="5">First<\/li>/);
 });
 
+test("ancrage par préfixe/suffixe : la prose rendue diffère du source (« \\% » → « % »)", () => {
+  // Cas vécu (methods_en.tex) : la sélection commençait sur « with more than
+  // 80\,% cloud cover » — rendu de « 80\,\% ». Exiger le fragment entier
+  // échouait sur ce seul caractère ; l'ancrage raccourcit mot à mot.
+  const tex = "Scenes with more than 80\\,\\% cloud cover are discarded, and the SCL and QA60 masks of the Level-2A product \\cite{mainknorn2017sen2cor} exclude pixels.";
+  const editor = {indexFromPos: (p) => p.ch, posFromIndex: (i) => ({line: 0, ch: i})};
+  // Le fragment tel que la vue Lecture le voit (vérifié via le rendu réel).
+  const fragment = "with more than 80\\,% cloud cover are discarded, and the SCL and QA60 masks of the Level-2A product";
+  assert.equal(latex.findAnnotationRange(tex, {text: fragment, from: {line: 0, ch: 0}}, editor), null);
+  const range = latex.anchorProseFragments(tex, [fragment], 0, editor);
+  assert.ok(range, "le préfixe raccourci doit s'ancrer malgré « \\% » rendu « % »");
+  const extrait = tex.slice(range.from.ch, range.to.ch);
+  assert.match(extrait, /^with more than/);
+  assert.match(extrait, /Level-2A product$/);
+  assert.match(extrait, /80\\,\\%/, "la plage couvre le passage transformé");
+});
+
 test("le texte RENDU d'une citation n'existe pas dans le source — d'où l'ancrage par fragments", () => {
   // Piège vécu : en vue Lecture, sélectionner un passage contenant une citation
   // ne faisait apparaître aucune pastille, alors qu'un passage de prose pure
