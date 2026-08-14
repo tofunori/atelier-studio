@@ -108,9 +108,16 @@
      studio, et sélection native neutralisée par-dessous. */
   .cm-editor .cm-selectionLayer .cm-selectionBackground,
   .cm-editor.cm-focused .cm-selectionLayer .cm-selectionBackground,
-  .cm-editor .cm-selectionBackground{background:rgba(232,130,58,.32) !important}
-  .cm-editor .cm-line::selection,
-  .cm-editor .cm-line ::selection{background:transparent !important}
+  .cm-editor .cm-selectionBackground{background:transparent !important}
+  /* Sélection NATIVE rendue au texte : elle épouse les mots au lieu de
+     remplir la ligne jusqu'au bord, ce que visait déjà le studio en CM5
+     (« selection hugs the text »). CM6 la neutralise lui-même avec
+     `!important` sur `.ͼ4 .cm-line ::selection` — d'où une chaîne plus
+     spécifique ici, sinon la sienne gagne. */
+  .cm-editor .cm-content .cm-line::selection,
+  .cm-editor .cm-content .cm-line ::selection{background:rgba(232,130,58,.38) !important}
+  .cm-editor .cm-content .cm-line::-moz-selection,
+  .cm-editor .cm-content .cm-line ::-moz-selection{background:rgba(232,130,58,.38) !important}
   .cm-line-flash{background:rgba(232,130,58,.16) !important;transition:background .6s}
   .cm-ghost-suggest{color:#7d858f;opacity:.72;pointer-events:none}
   .cm-ghost-suggest::after{content:"Tab";display:inline-block;margin-left:8px;padding:0 5px;border:1px solid #3a414d;border-radius:4px;

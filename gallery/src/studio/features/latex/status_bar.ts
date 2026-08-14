@@ -51,6 +51,48 @@ export function isAutoRewrapEnabled(storage: Pick<Storage, "getItem">): boolean 
   return storage.getItem("texAutoRewrap") === "1";
 }
 
+/** Clé serveur du réglage (piège connu n°1 : le `localStorage` du WebView ne
+ * survit pas au redémarrage de l'app, donc il ne peut pas être la source de
+ * vérité). Le cache local reste, mais l'état vient du serveur au démarrage. */
+const AUTO_REWRAP_STATE_KEY = "texAutoRewrap";
+
+/** Charge le réglage depuis `/state` et amorce le cache local. Un échec est
+ * sans conséquence : on garde ce que le cache contient. */
+export async function hydrateAutoRewrap(
+  storage: Pick<Storage, "getItem" | "setItem">,
+  fetchImpl: typeof fetch,
+): Promise<boolean> {
+  try {
+    const response = await fetchImpl("/state");
+    const state = await response.json() as Record<string, unknown>;
+    const value = state?.[AUTO_REWRAP_STATE_KEY];
+    if (value === true || value === false) {
+      storage.setItem("texAutoRewrap", value ? "1" : "0");
+      return value;
+    }
+  } catch { /* serveur muet : le cache local fait foi */ }
+  return isAutoRewrapEnabled(storage);
+}
+
+/** Persiste le réglage côté serveur, en fusionnant pour ne pas écraser le
+ * reste de l'état de la galerie. */
+export async function persistAutoRewrap(
+  enabled: boolean,
+  fetchImpl: typeof fetch,
+): Promise<void> {
+  try {
+    const current = await fetchImpl("/state")
+      .then((response) => response.json() as Promise<Record<string, unknown>>)
+      .catch(() => ({}));
+    const next = {...(current && typeof current === "object" ? current : {}), [AUTO_REWRAP_STATE_KEY]: enabled};
+    await fetchImpl("/state", {
+      method: "POST",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify(next),
+    });
+  } catch { /* le réglage reste actif pour la session en cours */ }
+}
+
 export function floatingMenuPosition(
   anchor: Pick<DOMRect, "left" | "top" | "bottom">,
   menu: {width: number; height: number},
@@ -187,6 +229,7 @@ export function createStudioStatusBar(options: StudioStatusBarOptions): StudioSt
   const toggleAutoRewrap = (): void => {
     const enabled = isAutoRewrapEnabled(storage);
     storage.setItem("texAutoRewrap", enabled ? "0" : "1");
+    void persistAutoRewrap(!enabled, fetch);
     if (!enabled) {
       options.rewrapAll?.();
       options.getEditor()?.focus();
@@ -315,6 +358,9 @@ export function createStudioStatusBar(options: StudioStatusBarOptions): StudioSt
 
   refreshWrap();
   refreshAutoRewrap();
+  // Le réglage vit côté serveur : sans cette hydratation, chaque redémarrage
+  // de l'app le remettait à zéro et le rewrap automatique cessait en silence.
+  void hydrateAutoRewrap(storage, fetch).then(refreshAutoRewrap);
   return {
     notifySaved,
     refreshWrap,
