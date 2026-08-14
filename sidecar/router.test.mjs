@@ -1166,6 +1166,55 @@ describe("base de connaissances (kbAdd)", () => {
     }
   });
 
+  it("articleImport/articleWrite relaient le CLI et corrèlent par requestId", async () => {
+    const sent = [];
+    const calls = [];
+    const ctx = {
+      send: (m) => sent.push(m),
+      runArticleCli: (args) => {
+        calls.push(args);
+        if (args[0] === "article-import") {
+          return {
+            ok: true, draftId: "abc123abc123", path: "/tmp/a.pdf", slug: "articles/aoki-2011-x",
+            meta: { title: "T", authors: "Aoki, T.", year: 2011, journal: "", doi: "10.1/x" },
+            exists: false, chars: 4200, preview: "---\ntype: article\n---\n\ncorps",
+            converter: "mineru", warning: null,
+          };
+        }
+        return { ok: true, slug: "articles/aoki-2011-x", written: true, updated: true, ragdoc: { ok: true } };
+      },
+    };
+    await route({ type: "articleImport", path: "/tmp/a.pdf", requestId: "r1" }, ctx);
+    expect(sent[0]).toMatchObject({
+      type: "articleImported", requestId: "r1", draftId: "abc123abc123",
+      slug: "articles/aoki-2011-x", converter: "mineru", exists: false,
+    });
+    expect(calls[0]).toEqual(["article-import", "--path", "/tmp/a.pdf"]);
+
+    await route({
+      type: "articleWrite", requestId: "r2", draftId: "abc123abc123", slug: "articles/aoki-2011-x",
+      meta: { title: "Titre corrigé", authors: "Aoki, T.", year: 2011, journal: "", doi: "" },
+      path: "/tmp/a.pdf", converter: "mineru", ragdoc: true,
+    }, ctx);
+    expect(sent[1]).toMatchObject({ type: "articleWritten", requestId: "r2", updated: true });
+    // les champs vides ne partent pas en arguments (sinon front-matter à trous)
+    expect(calls[1]).toEqual([
+      "article-write", "--draft", "abc123abc123", "--slug", "articles/aoki-2011-x",
+      "--title", "Titre corrigé", "--authors", "Aoki, T.", "--year", "2011",
+      "--origin", "/tmp/a.pdf", "--converter", "mineru", "--ragdoc",
+    ]);
+  });
+
+  it("articleImport : l'échec de conversion revient en articleError daté du requestId", async () => {
+    const sent = [];
+    await route({ type: "articleImport", path: "/tmp/a.pdf", requestId: "r9" }, {
+      send: (m) => sent.push(m),
+      runArticleCli: () => { throw new Error("Aucun texte extrait de ce PDF (scan sans couche texte ?)"); },
+    });
+    expect(sent[0]).toMatchObject({ type: "articleError", requestId: "r9" });
+    expect(sent[0].message).toMatch(/Aucun texte extrait/);
+  });
+
   it("gbrainSearch relaie les résultats et met l'échec NAS dans la réponse", async () => {
     const sent = [];
     const ctx = {
