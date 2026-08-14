@@ -28,6 +28,8 @@ export type ArticleImported = {
   chars?: number;
   preview?: string;
   converter?: string;
+  /** d'où viennent les métadonnées : "zotero" | "crossref" | "texte" */
+  metaSource?: string | null;
   duplicates?: ArticleDuplicate[];
   warning?: string | null;
 };

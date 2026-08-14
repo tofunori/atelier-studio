@@ -1216,6 +1216,7 @@ export async function route(msg, ctx) {
           draftId: out.draftId, path: out.path, meta: out.meta, slug: out.slug,
           exists: out.exists, chars: out.chars, preview: out.preview,
           converter: out.converter, duplicates: out.duplicates ?? [],
+          metaSource: out.metaSource ?? null,
           warning: out.warning ?? null,
         });
       } catch (error) {

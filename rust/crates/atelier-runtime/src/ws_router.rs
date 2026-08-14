@@ -1890,6 +1890,7 @@ async fn handle_article_import(state: &AppState, msg: &Value) -> Vec<String> {
             "preview": v.get("preview").cloned().unwrap_or(json!("")),
             "converter": v.get("converter").cloned().unwrap_or(Value::Null),
             "duplicates": v.get("duplicates").cloned().unwrap_or(json!([])),
+            "metaSource": v.get("metaSource").cloned().unwrap_or(Value::Null),
             "warning": v.get("warning").cloned().unwrap_or(Value::Null),
         }))],
         Err(e) => article_error(&request_id, e),

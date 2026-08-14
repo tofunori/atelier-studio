@@ -99,6 +99,7 @@ export default function ArticleDialog() {
   const body = useMemo(() => stripFrontMatter(String(imported?.preview ?? "")), [imported]);
   const exists = imported?.exists === true;
   const converter = String(imported?.converter ?? "");
+  const metaSource = String(imported?.metaSource ?? "texte");
   const showReview = job?.phase === "ready" && Boolean(imported);
 
   // La fiche se charge une fois par import : les corrections de Thierry ne
@@ -350,6 +351,11 @@ export default function ArticleDialog() {
           <>
             <div className="kb-page-source">
               {t("article.source", { file: fileName(job.path), n: Number(imported?.chars ?? 0) })}
+              <span className={`kb-article-origin ${metaSource}`}>
+                {t(metaSource === "zotero" ? "article.meta-from-zotero"
+                  : metaSource === "crossref" ? "article.meta-from-crossref"
+                    : "article.meta-from-text")}
+              </span>
             </div>
             <div className="kb-article-grid">
               {field("title", t("article.meta-title"), true)}

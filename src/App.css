@@ -3417,6 +3417,10 @@ button.ctx-ring-wrap { border: none; font: inherit; color: inherit;
   border-radius: var(--r-s); transition: background var(--ease), border-color var(--ease); }
 .kb-article-check.on .kb-article-box { border-color: var(--accent);
   background: color-mix(in srgb, var(--accent) 22%, transparent); }
+/* Provenance des métadonnées : Zotero et Crossref font foi, « déduites du
+   texte » signale une fiche à relire — d'où l'accent réservé à ce cas. */
+.kb-article-origin { margin-left: 8px; font-size: var(--fs-xs); color: var(--muted2); }
+.kb-article-origin.texte { color: var(--accent); }
 /* Texte complet : l'aperçu tronqué suffit pour vérifier les métadonnées, la
    vue longue sert à relire la conversion avant de l'écrire dans le corpus. */
 .kb-article-preview-head { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
