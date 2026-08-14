@@ -631,11 +631,25 @@ html, body, #root, .app { height: 100vh; overflow: hidden;
 .topbar-menu-pin { color: var(--text-disabled); opacity: 0; transition: opacity var(--ease), color var(--ease); }
 .topbar-menu-row:hover .topbar-menu-pin, .topbar-menu-pin.on { opacity: 1; }
 .topbar-menu-pin.on { color: var(--accent); }
+/* réorganisation : flèches au survol de la rangée — le glissé d'une icône est
+   déjà pris (dépôt dans un pane), on ne peut pas le réutiliser ici */
+.topbar-menu-move { color: var(--text-disabled); opacity: 0; display: inline-flex;
+  transition: opacity var(--ease), color var(--ease); }
+.topbar-menu-row:hover .topbar-menu-move { opacity: 1; }
+.topbar-menu-move:hover { color: var(--text-primary); }
+.topbar-menu-move.off { opacity: 0; pointer-events: none; }
 .topbar-menu-head { font-size: var(--fs-xs); letter-spacing: .07em; text-transform: uppercase;
   color: var(--text-disabled); padding: 4px 8px 2px; }
-/* fenêtre étroite : les surfaces non actives cèdent avant le crumb */
-@media (max-width: 1100px) {
-  .topbar-surfaces .topbar-surface:not(.on):nth-of-type(n+4) { display: none; }
+/* fenêtre étroite : les surfaces non actives cèdent avant le crumb, les
+   dernières épinglées d'abord — jamais de compression, seulement du repli */
+@media (max-width: 1400px) {
+  .topbar-surfaces .topbar-surface:not(.on):nth-of-type(n+8) { display: none; }
+}
+@media (max-width: 1150px) {
+  .topbar-surfaces .topbar-surface:not(.on):nth-of-type(n+5) { display: none; }
+}
+@media (max-width: 900px) {
+  .topbar-surfaces .topbar-surface:not(.on):nth-of-type(n+3) { display: none; }
 }
 .rail-btn.usage-ib { position: relative; }
 .rail-pinned { flex: none; width: 100%; display: flex; flex-direction: column; align-items: center;
