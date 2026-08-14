@@ -232,6 +232,68 @@ pub fn map_session_update(
                 vec![json!({"kind":"todos", "items": items})]
             }
         }
+        // Auto-compaction : le CLI Grok compacte de lui-même dès que le
+        // contexte atteint son seuil (`auto_compact_threshold_percent`, 85 %
+        // par défaut) — Atelier ne le déclenche pas. Sans traduction, la
+        // conversation était réécrite en silence : aucune frontière dans la
+        // timeline, aucun signe quand la compaction échoue. Ces mises à jour
+        // empruntent la carte `__compacted` déjà posée par Codex et Claude.
+        "auto_compact_started"
+        | "auto_compact_completed"
+        | "auto_compact_failed"
+        | "auto_compact_cancelled" => {
+            let nombre = |cle: &str| update.get(cle).and_then(Value::as_u64);
+            let detail = match kind {
+                "auto_compact_started" => {
+                    let pourcentage = update
+                        .get("percentage")
+                        .and_then(Value::as_f64)
+                        .map(|p| format!("{p:.0} % du contexte"));
+                    let jetons = match (nombre("tokens_used"), nombre("context_window")) {
+                        (Some(utilises), Some(fenetre)) if fenetre > 0 => {
+                            Some(format!("{utilises} / {fenetre} jetons"))
+                        }
+                        (Some(utilises), _) => Some(format!("{utilises} jetons")),
+                        _ => None,
+                    };
+                    [pourcentage, jetons]
+                        .into_iter()
+                        .flatten()
+                        .collect::<Vec<_>>()
+                        .join(" · ")
+                }
+                "auto_compact_completed" => match (nombre("tokens_before"), nombre("tokens_after")) {
+                    (Some(avant), Some(apres)) => format!("{avant} → {apres} jetons"),
+                    (Some(avant), None) => format!("{avant} jetons avant"),
+                    (None, Some(apres)) => format!("{apres} jetons après"),
+                    _ => String::new(),
+                },
+                "auto_compact_failed" => update
+                    .get("message")
+                    .or_else(|| update.get("error"))
+                    .or_else(|| update.get("reason"))
+                    .and_then(Value::as_str)
+                    .filter(|m| !m.is_empty())
+                    .unwrap_or("échec de la compaction automatique")
+                    .to_string(),
+                _ => "compaction annulée".to_string(),
+            };
+            vec![json!({
+                "kind": "tool_update",
+                "id": "__compacted",
+                "name": "__compacted",
+                "status": match kind {
+                    "auto_compact_started" => "running",
+                    "auto_compact_completed" => "completed",
+                    "auto_compact_failed" => "failed",
+                    _ => "cancelled",
+                },
+                "detail": detail,
+                "output": update.get("summary_preview").and_then(Value::as_str).unwrap_or(""),
+                "input": Value::Null,
+                "source": "grok",
+            })]
+        }
         // Sous-agents : Grok les lance lui-même et rend compte par
         // notification. Sans traduction, seul l'appel `spawn_subagent`
         // apparaissait — on voyait le départ, jamais le travail ni le
@@ -469,6 +531,73 @@ mod tests {
             &mut edits,
         );
         assert!(e.is_empty());
+    }
+
+    #[test]
+    fn auto_compaction_becomes_a_visible_compacted_boundary() {
+        let mut meta = HashMap::new();
+        let mut edits = HashSet::new();
+        let debut = map_session_update(
+            &json!({
+                "sessionUpdate":"auto_compact_started",
+                "tokens_used": 204_800, "context_window": 256_000, "percentage": 80.0
+            }),
+            &mut meta,
+            &mut edits,
+        );
+        assert_eq!(debut[0]["kind"], "tool_update");
+        assert_eq!(debut[0]["name"], "__compacted");
+        assert_eq!(debut[0]["id"], "__compacted");
+        assert_eq!(debut[0]["status"], "running");
+        assert_eq!(debut[0]["source"], "grok");
+        assert_eq!(debut[0]["detail"], "80 % du contexte · 204800 / 256000 jetons");
+
+        // Même id : la carte « en cours » se termine, elle ne s'empile pas.
+        let fin = map_session_update(
+            &json!({
+                "sessionUpdate":"auto_compact_completed",
+                "tokens_before": 204_800, "tokens_after": 42_000,
+                "summary_preview": "résumé…"
+            }),
+            &mut meta,
+            &mut edits,
+        );
+        assert_eq!(fin[0]["id"], "__compacted");
+        assert_eq!(fin[0]["status"], "completed");
+        assert_eq!(fin[0]["detail"], "204800 → 42000 jetons");
+        assert_eq!(fin[0]["output"], "résumé…");
+    }
+
+    #[test]
+    fn auto_compaction_failure_and_cancellation_are_reported() {
+        let mut meta = HashMap::new();
+        let mut edits = HashSet::new();
+        let echec = map_session_update(
+            &json!({"sessionUpdate":"auto_compact_failed","message":"this conversation is too large to compact."}),
+            &mut meta,
+            &mut edits,
+        );
+        assert_eq!(echec[0]["status"], "failed");
+        assert_eq!(
+            echec[0]["detail"],
+            "this conversation is too large to compact."
+        );
+
+        // Sans champ de message, on reste explicite plutôt que muet.
+        let nu = map_session_update(
+            &json!({"sessionUpdate":"auto_compact_failed"}),
+            &mut meta,
+            &mut edits,
+        );
+        assert_eq!(nu[0]["detail"], "échec de la compaction automatique");
+
+        let annule = map_session_update(
+            &json!({"sessionUpdate":"auto_compact_cancelled"}),
+            &mut meta,
+            &mut edits,
+        );
+        assert_eq!(annule[0]["status"], "cancelled");
+        assert_eq!(annule[0]["detail"], "compaction annulée");
     }
 
     #[test]
