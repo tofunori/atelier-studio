@@ -158,7 +158,7 @@ describe("KbSurface", () => {
     expect(onAddUrl).toHaveBeenCalledWith("https://eos.org/agu-abstract");
   });
 
-  it("propose la recherche du corpus depuis la même barre", () => {
+  it("propose la recherche gbrain depuis la même barre", () => {
     const onSearch = vi.fn();
     const onQueryChange = vi.fn();
     renderUi(<KbSurface {...props({
@@ -170,7 +170,7 @@ describe("KbSurface", () => {
     fireEvent.change(screen.getByPlaceholderText(/Chercher, ou coller une URL/), {
       target: { value: "albédo" },
     });
-    fireEvent.click(screen.getByText(/Chercher « albédo » dans le corpus/));
+    fireEvent.click(screen.getByText(/Chercher « albédo » dans gbrain/));
     expect(onQueryChange).toHaveBeenCalledWith("albédo");
     expect(onSearch).toHaveBeenCalled();
   });
