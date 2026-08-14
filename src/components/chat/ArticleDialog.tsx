@@ -82,6 +82,9 @@ export default function ArticleDialog() {
   const [writing, setWriting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [now, setNow] = useState(() => Date.now());
+  const [fullText, setFullText] = useState<{ draftId: string; markdown: string } | null>(null);
+  const [expanded, setExpanded] = useState(false);
+  const [loadingFull, setLoadingFull] = useState(false);
   const writeRef = useRef("");
   const writtenJobRef = useRef("");
   const loadedRef = useRef("");
@@ -115,7 +118,36 @@ export default function ArticleDialog() {
     setRagdoc(false);
     setWriting(false);
     setError(null);
+    setExpanded(false);
+    setFullText(null);
   }, [showReview, imported, job]);
+
+  // Texte complet : demandé au backend à la première expansion, gardé ensuite.
+  useEffect(() => {
+    const onDraft = (e: Event) => {
+      const detail = (e as CustomEvent).detail as { draftId?: string; markdown?: string } | undefined;
+      if (!detail?.draftId) return;
+      setLoadingFull(false);
+      setFullText({ draftId: detail.draftId, markdown: String(detail.markdown ?? "") });
+    };
+    window.addEventListener("article-draft-text", onDraft);
+    return () => window.removeEventListener("article-draft-text", onDraft);
+  }, []);
+
+  function toggleFull() {
+    if (expanded) {
+      setExpanded(false);
+      return;
+    }
+    setExpanded(true);
+    const draftId = imported?.draftId ?? "";
+    if (!draftId || fullText?.draftId === draftId) return;
+    setLoadingFull(true);
+    if (!wsSend({ type: "articleDraft", draftId, requestId: `artd-${draftId}` })) {
+      setLoadingFull(false);
+      setError(t("kb.error-generic"));
+    }
+  }
 
   // Compteur réel (le backend ne sait pas où en est la conversion cloud) —
   // recalculé depuis startedAt pour survivre à une fermeture du dialogue.
@@ -362,8 +394,21 @@ export default function ArticleDialog() {
             )}
             {message && <div className="kb-error">{message}</div>}
 
-            <div className="kb-article-label">{t("article.preview")}</div>
-            <pre className="kb-page-preview">{body}</pre>
+            <div className="kb-article-preview-head">
+              <span className="kb-article-label">
+                {t(expanded ? "article.full-text" : "article.preview")}
+              </span>
+              <RowButton className="kb-article-expand" onClick={toggleFull}>
+                {loadingFull
+                  ? t("article.full-loading")
+                  : t(expanded ? "article.collapse" : "article.expand", {
+                    n: Number(imported?.chars ?? 0),
+                  })}
+              </RowButton>
+            </div>
+            <pre className={`kb-page-preview${expanded ? " kb-article-full" : ""}`}>
+              {expanded && fullText && fullText.draftId === imported?.draftId ? fullText.markdown : body}
+            </pre>
 
             <RowButton
               className={`kb-article-check${ragdoc ? " on" : ""}`}

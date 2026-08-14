@@ -5,6 +5,7 @@
 // cours, ni un échec qu'on n'a pas encore rangé.
 import { showUndo } from "../components/ui/toast";
 import { t } from "./i18n";
+import { notifyArticleReady } from "./notify";
 import { wsSend } from "./wsBus";
 
 export type ArticleMetaPayload = {
@@ -150,6 +151,13 @@ function onImported(event: Event) {
   const focusedBefore = focusedJob();
   const job = patch(requestId, { phase: "ready", imported: detail, message: null });
   if (!job) return;
+  const file = fileName(String(detail.path ?? job.path));
+  // notification système : elle ne part QUE si l'app n'a pas le focus (garde de
+  // notify.ts) — c'est le seul rappel qui rattrape Thierry parti ailleurs
+  void notifyArticleReady({
+    file, ok: true,
+    detail: t("article.notify-ready", { n: Number(detail.chars ?? 0) }),
+  });
   // Le dialogue ne se met à jour sous les doigts de personne : s'il montre déjà
   // une autre fiche, celle-ci attend son tour et se signale par un toast.
   if (!wasOpen || (focusedBefore && focusedBefore.requestId !== requestId)) {
@@ -169,6 +177,7 @@ function onError(event: Event) {
   const focusedBefore = focusedJob();
   const job = patch(requestId, { phase: "error", message: detail.message ?? t("kb.error-generic") });
   if (!job) return;
+  void notifyArticleReady({ file: fileName(job.path), ok: false, detail: detail.message });
   if (!wasOpen || (focusedBefore && focusedBefore.requestId !== requestId)) {
     void showUndo(
       t("article.failed-toast", { file: fileName(job.path) }),

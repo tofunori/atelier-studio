@@ -66,13 +66,20 @@ function nextNotificationId(): number {
 }
 
 async function resolvePermission(): Promise<boolean> {
-  let granted = await isPermissionGranted();
-  if (!granted) {
-    const permission = await requestPermission();
-    granted = permission === "granted";
+  // Hors de la fenêtre Tauri (tests jsdom, navigateur nu), le plugin n'existe
+  // pas : ne jamais laisser une notification faire tomber l'appelant.
+  try {
+    let granted = await isPermissionGranted();
+    if (!granted) {
+      const permission = await requestPermission();
+      granted = permission === "granted";
+    }
+    cachedPermissionGranted = granted;
+    return granted;
+  } catch {
+    cachedPermissionGranted = false;
+    return false;
   }
-  cachedPermissionGranted = granted;
-  return granted;
 }
 
 async function emitNotification(args: EmitNotificationArgs): Promise<boolean> {
@@ -81,13 +88,17 @@ async function emitNotification(args: EmitNotificationArgs): Promise<boolean> {
   if (!(await init())) return false;
 
   const id = nextNotificationId();
-  sendNotification({
-    id,
-    title: args.title,
-    body: args.body,
-    extra: { threadId: args.threadId },
-    autoCancel: true,
-  });
+  try {
+    sendNotification({
+      id,
+      title: args.title,
+      body: args.body,
+      extra: { threadId: args.threadId },
+      autoCancel: true,
+    });
+  } catch {
+    return false;
+  }
   pendingNotificationThread.set(id, args.threadId);
   return true;
 }

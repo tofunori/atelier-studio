@@ -1,11 +1,11 @@
 // CLI terminal de la base de connaissances (plan 049) — JSON sur stdout,
 // erreurs sur stderr + exit 1, comme atelier-zotero-passages.
 import { pathToFileURL } from "node:url";
-import { importArticle, writeArticle } from "./article.mjs";
+import { importArticle, readDraft, writeArticle } from "./article.mjs";
 import { KnowledgeStore, defaultKnowledgeDir, parseGbrainSearch, promotePage, runGbrain } from "./knowledge.mjs";
 import { passageLink } from "./zotero_passages.mjs";
 
-const COMMANDS = new Set(["add", "list", "remove", "search", "gbrain-search", "promote-page", "collection", "tag", "archive", "article-import", "article-write"]);
+const COMMANDS = new Set(["add", "list", "remove", "search", "gbrain-search", "promote-page", "collection", "tag", "archive", "article-import", "article-write", "article-draft"]);
 const USAGE = [
   "Usage: atelier-kb <add|list|remove|search|gbrain-search|promote-page|article-import|article-write> [options]",
   "  add    --kind file|pdf|web|youtube|note|folder|gbrain [--origin <chemin|url|slug>] [--title <t>] [--text <t>]",
@@ -16,6 +16,7 @@ const USAGE = [
   "  gbrain-search --query <mots-clés> [--limit 12]   (corpus NAS)",
   "  promote-page --id <id> [--slug atelier/…] [--write]   (page directe gbrain)",
   "  article-import --path <article.pdf>              (PDF → markdown + fiche, sans écriture)",
+  "  article-draft --draft <id>                       (texte complet du brouillon)",
   "  article-write --draft <id> --slug <articles/…> [--title/--authors/--year/--journal/--doi]",
   "                [--origin <pdf>] [--converter <mineru|local>] [--ragdoc]",
   "  collection --add <titre> | --rename <slug> --title <t> | --remove <slug>",
@@ -164,6 +165,12 @@ export async function runKbCommand(argv, deps = {}) {
   if (command === "article-import") {
     // conversion seule : le brouillon reste sur disque, le corpus intact
     return importArticle({ path: options.path, dir: options.dir || undefined }, deps);
+  }
+  if (command === "article-draft") {
+    // texte complet du brouillon : la fiche n'en montre qu'un aperçu
+    if (!options.draft) throw new Error("Argument requis: --draft");
+    const markdown = readDraft(options.dir || undefined, options.draft);
+    return { ok: true, draftId: options.draft, chars: Array.from(markdown).length, markdown };
   }
   if (command === "article-write") {
     if (!options.draft) throw new Error("Argument requis: --draft");

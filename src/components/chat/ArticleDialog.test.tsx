@@ -5,6 +5,7 @@ import { setLanguage } from "../../lib/i18n";
 
 vi.mock("@tauri-apps/plugin-dialog", () => ({ open: vi.fn(async () => "/tmp/aoki-2011.pdf") }));
 vi.mock("../../lib/wsBus", () => ({ wsSend: vi.fn(() => true) }));
+vi.mock("../../lib/notify", () => ({ notifyArticleReady: vi.fn(async () => false) }));
 vi.mock("../ui/toast", () => ({
   showError: vi.fn(),
   showInfo: vi.fn(),
@@ -240,6 +241,32 @@ describe("ArticleDialog", () => {
     emit("article-imported", { requestId: stale, meta: META, slug: "articles/x", preview: PREVIEW });
     expect(screen.queryByText("Article converti")).toBeNull();
     expect(undo).not.toHaveBeenCalled();
+  });
+});
+
+describe("texte complet", () => {
+  it("demande le brouillon entier et le remplace dans l'aperçu", async () => {
+    await toReview();
+    // l'aperçu tronqué est là d'abord
+    expect(screen.getByText(/A physically based snow albedo model/)).toBeTruthy();
+    fireEvent.click(screen.getByText(/Tout voir/));
+    const msg = lastSent();
+    expect(msg.type).toBe("articleDraft");
+    expect(msg.draftId).toBe("a8023bcc8c7f");
+
+    emit("article-draft-text", {
+      draftId: "a8023bcc8c7f",
+      chars: 61240,
+      markdown: "## Abstract\n\nTexte intégral de l'article, section par section.",
+    });
+    expect(await screen.findByText(/Texte intégral de l'article/)).toBeTruthy();
+    expect(screen.getByText("Texte complet converti")).toBeTruthy();
+
+    // réduire ne redemande rien
+    sent.mockClear();
+    fireEvent.click(screen.getByText("Réduire l'aperçu"));
+    expect(screen.getByText(/A physically based snow albedo model/)).toBeTruthy();
+    expect(sent).not.toHaveBeenCalled();
   });
 });
 

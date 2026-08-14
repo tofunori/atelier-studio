@@ -1226,6 +1226,22 @@ export async function route(msg, ctx) {
       }
       break;
     }
+    case "articleDraft": {
+      // texte complet du brouillon (la fiche n'en montre qu'un aperçu)
+      try {
+        const out = await runArticleCli(ctx, ["article-draft", "--draft", String(msg.draftId ?? "")]);
+        ctx.send({
+          type: "articleDraftText", requestId: msg.requestId ?? null,
+          draftId: out.draftId, chars: out.chars, markdown: out.markdown,
+        });
+      } catch (error) {
+        ctx.send({
+          type: "articleError", requestId: msg.requestId ?? null,
+          message: error instanceof Error ? error.message : String(error),
+        });
+      }
+      break;
+    }
     case "articleWrite": {
       // écriture confirmée : métadonnées corrigées par l'UI + brouillon
       try {

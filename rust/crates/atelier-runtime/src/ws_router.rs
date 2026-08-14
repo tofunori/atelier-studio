@@ -70,6 +70,7 @@ pub const ALL_MESSAGE_TYPES: &[&str] = &[
     "kbPromotePage",
     "articleImport",
     "articleWrite",
+    "articleDraft",
     "gbrainSearch",
     "generateImage",
     "apiProviders",
@@ -623,6 +624,7 @@ pub async fn route_ws(state: &AppState, text: &str) -> Vec<String> {
         "kbPromotePage" => handle_kb_promote_page(state, &msg),
         "articleImport" => handle_article_import(state, &msg).await,
         "articleWrite" => handle_article_write(state, &msg).await,
+        "articleDraft" => handle_article_draft(state, &msg).await,
         "generateImage" => handle_generate_image(state, &msg).await,
         "apiProviders" => {
             let list = list_api_providers_public(state.app_dir());
@@ -1889,6 +1891,30 @@ async fn handle_article_import(state: &AppState, msg: &Value) -> Vec<String> {
             "converter": v.get("converter").cloned().unwrap_or(Value::Null),
             "duplicates": v.get("duplicates").cloned().unwrap_or(json!([])),
             "warning": v.get("warning").cloned().unwrap_or(Value::Null),
+        }))],
+        Err(e) => article_error(&request_id, e),
+    }
+}
+
+/// Texte complet du brouillon — la fiche n'affiche qu'un aperçu tronqué.
+async fn handle_article_draft(state: &AppState, msg: &Value) -> Vec<String> {
+    let request_id = msg.get("requestId").cloned().unwrap_or(Value::Null);
+    let draft = msg.get("draftId").and_then(|v| v.as_str()).unwrap_or("");
+    if draft.is_empty() {
+        return article_error(&request_id, "articleDraft: draftId requis".into());
+    }
+    let args = vec![
+        "article-draft".to_string(),
+        "--draft".to_string(),
+        draft.to_string(),
+    ];
+    match article_cli(state, args).await {
+        Ok(v) => vec![json_msg(json!({
+            "type": "articleDraftText",
+            "requestId": request_id,
+            "draftId": v.get("draftId").cloned().unwrap_or(json!(draft)),
+            "chars": v.get("chars").cloned().unwrap_or(Value::Null),
+            "markdown": v.get("markdown").cloned().unwrap_or(json!("")),
         }))],
         Err(e) => article_error(&request_id, e),
     }
