@@ -104,6 +104,19 @@ export function workspaceTabId(tab: WorkspaceTabRef): string {
   return "ide";
 }
 
+/** Inverse de `workspaceTabId` — le rail ne connaît des onglets que leur id,
+ *  et doit pouvoir en reconstruire la référence pour les rendre glissables. */
+export function parseWorkspaceTabId(id: string): WorkspaceTabRef | null {
+  if (id === "ide") return { kind: "ide" };
+  if (id.startsWith("document:")) return { kind: "document", tabId: id.slice("document:".length) };
+  if (id.startsWith("agent:")) return { kind: "agent", threadId: id.slice("agent:".length) };
+  if (id.startsWith("surface:")) {
+    const surface = id.slice("surface:".length);
+    return surface ? ({ kind: "surface", surface } as WorkspaceTabRef) : null;
+  }
+  return null;
+}
+
 export function externalTabRef(id: string): WorkspaceTabRef {
   if (id === "gallery") return { kind: "surface", surface: "atelier" };
   if (id === "ide") return { kind: "ide" };

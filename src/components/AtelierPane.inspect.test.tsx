@@ -3,7 +3,7 @@
 // le fichier » du menu d'onglet (sélectionne l'onglet puis ouvre), parsing
 // relFromTabUrl sur les URLs réelles d'openFileTab (nonce en hash), et
 // exclusion des onglets hors du serveur galerie du projet.
-import { render, screen, fireEvent, cleanup } from "@testing-library/react";
+import { act, render, screen, fireEvent, cleanup } from "@testing-library/react";
 import { describe, it, expect, vi, afterEach, beforeEach } from "vitest";
 import AtelierPane, { relFromTabUrl } from "./AtelierPane";
 import { setLanguage } from "../lib/i18n";
@@ -65,82 +65,79 @@ describe("relFromTabUrl", () => {
   });
 });
 
-describe("AtelierPane — en-têtes locaux", () => {
-  it("galerie active : Home compact, onglets ouverts et refresh dans un header unique", () => {
-    const { props, container } = pane({ tabs: [PDF_TAB], activeTab: "gallery" });
-    expect(container.querySelectorAll(".atelier-bar")).toHaveLength(1);
-    const home = screen.getByRole("tab", { name: "galerie" });
-    expect(home.querySelector("svg")).toBeInTheDocument();
-    expect(home.querySelector(".ui-tab-label")).toBeNull();
+describe("AtelierPane — chrome du pane (plan 057)", () => {
+  it("n'a plus de bande d'onglets : le rail les porte", () => {
+    const { container } = pane({ tabs: [PDF_TAB], activeTab: "gallery" });
+    expect(container.querySelector(".workspace-pane-tabs")).toBeNull();
+    expect(container.querySelectorAll(".atelier-bar")).toHaveLength(0);
+    // la galerie reste rendue, elle ne dépendait pas de la bande
     const galleryFrame = container.querySelector<HTMLIFrameElement>('iframe[data-atelier-role="gallery"]');
     expect(galleryFrame?.src).toContain("embedded=atelier");
-    expect(galleryFrame?.title).toBe("atelier");
-    expect(galleryFrame?.dataset.atelierReady).toBe("false");
-    expect(container.querySelector('.atelier-bar .ui-tab[title="albedo.pdf"]')).toBeInTheDocument();
+  });
+
+  it("publie ses onglets pour le rail, avec l'onglet actif", async () => {
+    const events: { tabs: { id: string; title: string }[]; activeId: string | null }[] = [];
+    const onTabs = (e: Event) => events.push((e as CustomEvent).detail);
+    window.addEventListener("workspace-tabs", onTabs);
+    pane({ tabs: [PDF_TAB], activeTab: "t1" });
+    window.removeEventListener("workspace-tabs", onTabs);
+    const last = events[events.length - 1];
+    expect(last?.tabs.some((tab: { title: string }) => tab.title === "albedo.pdf")).toBe(true);
+    expect(last?.activeId).toBe("document:t1");
+  });
+
+  it("sélectionne et ferme un onglet demandé par le rail", async () => {
+    const { props } = pane({ tabs: [PDF_TAB], activeTab: "gallery" });
+    await act(async () => {
+      window.dispatchEvent(new CustomEvent("workspace-select-tab", { detail: { id: "document:t1" } }));
+    });
+    expect(props.onSelectTab).toHaveBeenCalledWith("t1");
+    await act(async () => {
+      window.dispatchEvent(new CustomEvent("workspace-close-tab", { detail: { id: "document:t1" } }));
+    });
+    expect(props.onCloseTab).toHaveBeenCalledWith("t1");
+  });
+
+  it("le rechargement de la galerie vit dans les contrôles du pane", () => {
+    const { props } = pane({ tabs: [PDF_TAB], activeTab: "gallery" });
     fireEvent.click(screen.getByRole("button", { name: "Recharger (relance le serveur si mort)" }));
     expect(props.onGalleryReload).toHaveBeenCalledTimes(1);
-    fireEvent.click(container.querySelector('.atelier-bar .ui-tab[title="albedo.pdf"]')!);
-    expect(props.onSelectTab).toHaveBeenCalledWith("t1");
+  });
+
+  it("document actif : pas de rechargement galerie, mais le menu du pane", () => {
+    const { container } = pane({ tabs: [PDF_TAB], activeTab: "t1" });
     expect(screen.queryByRole("button", { name: "Recharger (relance le serveur si mort)" })).toBeNull();
-  });
-
-  it("document actif : onglet, provenance, type et inspecteur partagent une seule barre", () => {
-    const { props, container } = pane({ tabs: [PDF_TAB], activeTab: "t1" });
-    expect(container.querySelector('.atelier-bar .ui-tab[title="albedo.pdf"]')).toBeInTheDocument();
-    expect(container.querySelectorAll(".atelier-bar")).toHaveLength(1);
-    expect(container.querySelector(".atelier-surface-header")).toBeNull();
-    expect(container.querySelector(".atelier-home.is-compact")).toBeInTheDocument();
-    // provenance + type dérivé + action accessible, rien d'inventé
-    expect(screen.getByTitle("figs/albedo.pdf")).toBeInTheDocument();
-    expect(screen.getByText("figs")).toBeInTheDocument();
-    expect(screen.getByText("figure")).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "Inspecter le fichier" }));
-    expect(props.onInspectFile).toHaveBeenCalledWith("figs/albedo.pdf");
-    fireEvent.click(screen.getByRole("tab", { name: "galerie" }));
-    expect(props.onSelectTab).toHaveBeenCalledWith("gallery");
-    expect(screen.queryByTitle("figs/albedo.pdf")).toBeNull();
-  });
-
-  it("onglet externe (autre origine) : aucune méta de document projet", () => {
-    pane({
-      tabs: [{ id: "x", url: "https://example.com/rapport.html", title: "rapport" }],
-      activeTab: "x",
-    });
-    expect(screen.queryByText("figure")).toBeNull();
-    expect(screen.queryByRole("button", { name: "Inspecter le fichier" })).toBeNull();
+    expect(container.querySelector(".workspace-pane-controls")).toBeInTheDocument();
   });
 });
 
-describe("AtelierPane — menu contextuel d'onglet", () => {
-  it("« Inspecter le fichier » sélectionne l'onglet source PUIS ouvre l'inspecteur, et ferme le menu", () => {
-    const { props, container } = pane({ tabs: [PDF_TAB], activeTab: "t1" });
-    fireEvent.contextMenu(container.querySelector('.atelier-bar .ui-tab[title="albedo.pdf"]')!);
-    expect(document.querySelector('[data-slot="context-menu-content"]')).not.toBeNull();
-    fireEvent.click(screen.getByText("Inspecter le fichier"));
-    expect(props.onSelectTab).toHaveBeenCalledWith("t1");
-    expect(props.onInspectFile).toHaveBeenCalledWith("figs/albedo.pdf");
-    expect(screen.queryByText("Inspecter le fichier")).toBeNull(); // menu fermé
-  });
+describe("AtelierPane — menu du pane (actions rescapées de la bande)", () => {
+  async function openPaneMenu() {
+    fireEvent.click(screen.getByRole("button", { name: "Actions du pane" }));
+    await act(async () => { await vi.dynamicImportSettled?.(); });
+  }
 
-  it("onglet sans fichier projet : pas d'entrée Inspecter", () => {
-    const { container } = pane({
-      tabs: [{ id: "x", url: "https://example.com/doc.html", title: "externe" }],
-      activeTab: "x",
-    });
-    fireEvent.contextMenu(container.querySelector('.atelier-bar .ui-tab[title="externe"]')!);
-    expect(screen.queryByText("Inspecter le fichier")).toBeNull();
-  });
-
-  it("utilise les actions shadcn pour épingler et fermer", () => {
-    const { props, container } = pane({ tabs: [PDF_TAB], activeTab: "t1" });
-    const tab = container.querySelector('.atelier-bar .ui-tab[title="albedo.pdf"]')!;
-
-    fireEvent.contextMenu(tab);
+  it("épingle, colore et inspecte le document actif", async () => {
+    const { props } = pane({ tabs: [PDF_TAB], activeTab: "t1" });
+    await openPaneMenu();
     fireEvent.click(screen.getByText("Épingler l'onglet"));
     expect(props.onPinTab).toHaveBeenCalledWith("t1");
 
-    fireEvent.contextMenu(tab);
-    fireEvent.click(screen.getByText("Fermer"));
-    expect(props.onCloseTab).toHaveBeenCalledWith("t1");
+    await openPaneMenu();
+    fireEvent.click(screen.getByText("Inspecter le fichier"));
+    expect(props.onInspectFile).toHaveBeenCalledWith("figs/albedo.pdf");
+
+    await openPaneMenu();
+    fireEvent.click(document.querySelectorAll(".workspace-pane-swatch")[0]);
+    expect(props.onColorTab).toHaveBeenCalledWith("t1", expect.any(String));
+  });
+
+  it("onglet sans fichier projet : pas d'entrée Inspecter", async () => {
+    pane({
+      tabs: [{ id: "x", url: "https://example.com/doc.html", title: "externe" }],
+      activeTab: "x",
+    });
+    await openPaneMenu();
+    expect(screen.queryByText("Inspecter le fichier")).toBeNull();
   });
 });

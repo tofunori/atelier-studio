@@ -83,21 +83,21 @@ describe("AtelierPane — workspace modulaire", () => {
 
     const pane = container.querySelector<HTMLElement>("[data-pane-id]")!;
     expect(pane).toHaveAttribute("data-pane-chrome", "native");
-    expect(pane.querySelector(".workspace-pane-tabs")).toBeNull();
     await waitFor(() => expect(container.querySelector(".kb-head .workspace-pane-controls-slot")).toBeInTheDocument());
 
     fireEvent.click(screen.getByRole("button", { name: t("workspace.pane-actions") }));
     fireEvent.click(screen.getByText(t("atelier.gallery")));
     expect(pane).toHaveAttribute("data-pane-chrome", "workspace");
-    expect(pane.querySelector(".workspace-pane-tabs")).toBeInTheDocument();
+    // plan 057 : plus de bande d'onglets — les contrôles flottent sur le pane
+    expect(pane.querySelector(".workspace-pane-controls.is-floating")).toBeInTheDocument();
   });
 
   it("scinde un onglet de code à droite et garde un document actif dans chaque pane", () => {
     const { container } = renderWorkspace();
-    const mainTab = screen.getByRole("tab", { name: "main.tex" });
     const originalMainFrame = container.querySelector<HTMLIFrameElement>('iframe[data-atelier-tab="main"]');
 
-    fireEvent.contextMenu(mainTab);
+    // plan 057 : le split vit dans le menu du pane, la bande a disparu
+    fireEvent.click(screen.getByRole("button", { name: t("workspace.pane-actions") }));
     fireEvent.click(screen.getByText(t("workspace.split-right")));
 
     expect(container.querySelectorAll(".workspace-pane")).toHaveLength(2);
@@ -114,8 +114,13 @@ describe("AtelierPane — workspace modulaire", () => {
   it("affiche un aperçu magnétique unique pendant le drag et crée un split vertical", async () => {
     const { container } = renderWorkspace();
     mockWorkspaceGeometry(container);
-    fireEvent.pointerDown(screen.getByRole("tab", { name: "main.tex" }), {
-      button: 0, pointerId: 11, clientX: 500, clientY: 400,
+    act(() => {
+      window.dispatchEvent(new CustomEvent(WORKSPACE_POINTER_DRAG_START, {
+        detail: {
+          ref: { kind: "document", tabId: "main" },
+          clientX: 500, clientY: 400, pointerId: 11,
+        },
+      }));
     });
     fireEvent.pointerMove(window, { pointerId: 11, clientX: 500, clientY: 770 });
     await waitFor(() => expect(container.querySelector('[data-drop-zone="bottom"]')).toBeInTheDocument());
@@ -144,7 +149,6 @@ describe("AtelierPane — workspace modulaire", () => {
     expect(container.querySelectorAll(".workspace-pane")).toHaveLength(2);
     const nativePane = container.querySelector<HTMLElement>('[data-pane-chrome="native"]');
     expect(nativePane).toBeInTheDocument();
-    expect(nativePane?.querySelector(".workspace-pane-tabs")).toBeNull();
     await waitFor(() => expect(container.querySelector(".biblio-surface .workspace-pane-controls-slot")).toBeInTheDocument());
   });
 
@@ -160,11 +164,13 @@ describe("AtelierPane — workspace modulaire", () => {
 
     const nativePane = container.querySelector<HTMLElement>('[data-pane-chrome="native"]');
     expect(nativePane).toBeInTheDocument();
-    expect(nativePane?.querySelector(".workspace-pane-tabs")).toBeNull();
     expect(container.querySelectorAll('[data-pane-chrome="workspace"]')).toHaveLength(1);
     await waitFor(() => expect(container.querySelector(".term-bar .workspace-pane-controls-slot")).toBeInTheDocument());
 
-    fireEvent.click(screen.getByRole("button", { name: t("workspace.close-pane") }));
+    fireEvent.click(
+      container.querySelector<HTMLElement>('.term-bar .workspace-pane-close')
+      ?? screen.getAllByRole("button", { name: t("workspace.close-pane") })[0],
+    );
     expect(container.querySelector('[data-pane-chrome="native"]')).toBeNull();
     expect(container.querySelectorAll(".workspace-pane")).toHaveLength(1);
     expect(container.querySelector(".workspace-split")).toBeNull();
@@ -172,11 +178,14 @@ describe("AtelierPane — workspace modulaire", () => {
 
   it("ferme le dernier onglet d'un pane et collapse la branche vide", () => {
     const { container } = renderWorkspace();
-    fireEvent.contextMenu(screen.getByRole("tab", { name: "main.tex" }));
+    fireEvent.click(screen.getByRole("button", { name: t("workspace.pane-actions") }));
     fireEvent.click(screen.getByText(t("workspace.split-right")));
     expect(container.querySelectorAll(".workspace-pane")).toHaveLength(2);
 
-    fireEvent.click(screen.getByRole("button", { name: `${t("action.close")} main.tex` }));
+    // la croix de la bande a disparu : la fermeture passe par les contrôles du
+    // pane, et il faut viser celui qui vient d'être créé par le split
+    const panes = container.querySelectorAll<HTMLElement>(".workspace-pane");
+    fireEvent.click(panes[1].querySelector<HTMLElement>(".workspace-pane-close")!);
     expect(container.querySelectorAll(".workspace-pane")).toHaveLength(1);
     expect(container.querySelector(".workspace-split")).toBeNull();
   });

@@ -5,18 +5,19 @@ import { fireEvent, screen, cleanup, act } from "@testing-library/react";
 import RailFiles, { MAX_TILES, kindOf, monogram } from "./RailFiles";
 import { renderUi, resetTestState } from "../test/render";
 import { setLanguage } from "../lib/i18n";
+import { WORKSPACE_POINTER_DRAG_START } from "../lib/workspaceDrag";
 
 const FILES = [
-  { id: "t1", title: "methods_en.tex", url: "file:///p/manuscript_ch1/methods_en.tex" },
-  { id: "t2", title: "intro_en.tex", url: "file:///p/manuscript_ch1/intro_en.tex" },
-  { id: "t3", title: "albedo_trends.py", url: "file:///p/scripts/albedo_trends.py" },
-  { id: "t4", title: "notes-terrain.md", url: "file:///p/journal/notes-terrain.md" },
+  { id: "document:t1", title: "methods_en.tex", url: "file:///p/manuscript_ch1/methods_en.tex" },
+  { id: "document:t2", title: "intro_en.tex", url: "file:///p/manuscript_ch1/intro_en.tex" },
+  { id: "document:t3", title: "albedo_trends.py", url: "file:///p/scripts/albedo_trends.py" },
+  { id: "document:t4", title: "notes-terrain.md", url: "file:///p/journal/notes-terrain.md" },
 ];
 
 function props(over: Partial<React.ComponentProps<typeof RailFiles>> = {}) {
   return {
     files: FILES,
-    activeFile: "t1",
+    activeFile: "document:t1",
     onSelectFile: vi.fn(),
     onCloseFile: vi.fn(),
     ...over,
@@ -86,10 +87,10 @@ describe("RailFiles", () => {
     const onCloseFile = vi.fn();
     renderUi(<RailFiles {...props({ onSelectFile, onCloseFile })} />);
     fireEvent.click(screen.getByText("in"));
-    expect(onSelectFile).toHaveBeenCalledWith("t2");
+    expect(onSelectFile).toHaveBeenCalledWith("document:t2");
     // auxClick n'est pas exposé par fireEvent : on émet l'événement natif
     fireEvent(screen.getByText("al"), new MouseEvent("auxclick", { button: 1, bubbles: true }));
-    expect(onCloseFile).toHaveBeenCalledWith("t3");
+    expect(onCloseFile).toHaveBeenCalledWith("document:t3");
   });
 
   it("ignore le clic droit — il ne ferme rien", () => {
@@ -101,7 +102,7 @@ describe("RailFiles", () => {
 
   it("plafonne à huit tuiles et range le reste derrière un compteur", async () => {
     const many = Array.from({ length: 11 }, (_, i) => ({
-      id: `t${i}`, title: `fichier_${i}.tex`,
+      id: `document:t${i}`, title: `fichier_${i}.tex`,
     }));
     const onSelectFile = vi.fn();
     const { container } = renderUi(<RailFiles {...props({ files: many, onSelectFile })} />);
@@ -109,7 +110,35 @@ describe("RailFiles", () => {
     fireEvent.click(screen.getByText("+3"));
     await act(async () => { await vi.dynamicImportSettled(); });
     fireEvent.click(screen.getByText("fichier_10.tex"));
-    expect(onSelectFile).toHaveBeenCalledWith("t10");
+    expect(onSelectFile).toHaveBeenCalledWith("document:t10");
+  });
+
+  it("rend les tuiles glissables vers un autre pane", () => {
+    renderUi(<RailFiles {...props()} />);
+    const listener = vi.fn();
+    window.addEventListener(WORKSPACE_POINTER_DRAG_START, listener);
+    fireEvent.pointerDown(screen.getByText("in").closest(".rail-file")!, {
+      button: 0, clientX: 24, clientY: 300, pointerId: 5,
+    });
+    expect(listener).toHaveBeenCalledTimes(1);
+    expect((listener.mock.calls[0][0] as CustomEvent).detail.ref)
+      .toEqual({ kind: "document", tabId: "t2" });
+    window.removeEventListener(WORKSPACE_POINTER_DRAG_START, listener);
+  });
+
+  it("une surface glisse avec sa référence de surface", () => {
+    renderUi(<RailFiles {...props({
+      files: [{ id: "surface:narval", title: "Narval", kind: "surface", surface: "narval" }],
+      activeFile: "surface:narval",
+    })} />);
+    const listener = vi.fn();
+    window.addEventListener(WORKSPACE_POINTER_DRAG_START, listener);
+    fireEvent.pointerDown(document.querySelector(".rail-file")!, {
+      button: 0, clientX: 24, clientY: 300, pointerId: 6,
+    });
+    expect((listener.mock.calls[0][0] as CustomEvent).detail.ref)
+      .toEqual({ kind: "surface", surface: "narval" });
+    window.removeEventListener(WORKSPACE_POINTER_DRAG_START, listener);
   });
 
   it("annonce le raccourci de position dans l'infobulle", () => {

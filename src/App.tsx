@@ -3174,6 +3174,31 @@ export default function App() {
     },
   }), [activeProject, allThreads, files, zoteroItems]);
 
+  // Onglets du pane focalisé, publiés par AtelierPane (plan 057). Ces hooks
+  // DOIVENT rester au-dessus du `if (showSettings) return` : un hook posé
+  // après n'est exécuté que sur un des deux chemins de rendu, et React
+  // refuse alors de rendre (« Rendered fewer hooks than expected »).
+  const [paneTabs, setPaneTabs] = useState<
+    { id: string; title: string; kind?: "document" | "surface" | "agent" | "ide"; surface?: Surface; url?: string }[]
+  >([]);
+  const [paneActiveTab, setPaneActiveTab] = useState<string | null>(null);
+  useEffect(() => {
+    const onTabs = (event: Event) => {
+      const detail = (event as CustomEvent).detail as
+        | { tabs?: typeof paneTabs; activeId?: string | null }
+        | undefined;
+      const next = Array.isArray(detail?.tabs) ? detail.tabs : [];
+      // garde d'égalité côté réception aussi : un tableau neuf à chaque
+      // message relancerait un rendu même quand rien n'a bougé
+      setPaneTabs((current) => (
+        JSON.stringify(current) === JSON.stringify(next) ? current : next
+      ));
+      setPaneActiveTab(detail?.activeId ?? null);
+    };
+    window.addEventListener("workspace-tabs", onTabs);
+    return () => window.removeEventListener("workspace-tabs", onTabs);
+  }, []);
+
   // Fermeture d'un onglet, partagée par la bande d'onglets et par les tuiles
   // du rail (plan 056) : terminal fermé côté serveur, épinglés persistés,
   // retour à la galerie si c'était l'onglet actif.
@@ -3258,16 +3283,17 @@ export default function App() {
           activeProject={activeProject}
           meta={projMeta}
           running={runningProjects}
-          files={atelierTabs.filter((tb) => tb.kind !== "term").map((tb) => ({ id: tb.id, title: tb.title, url: tb.url }))}
-          activeFile={activeTab}
+          files={paneTabs}
+          activeFile={paneActiveTab}
           onSelectFile={(id) => {
-            // depuis le rail, sélectionner un fichier doit AUSSI ramener
-            // l'atelier à l'écran — sinon rien ne se voit en mode chat
-            setActiveTab(id);
+            // le workspace choisit lui-même ; le rail ne fait que demander —
+            // et l'atelier revient à l'écran, sinon la sélection ne se voit pas
+            window.dispatchEvent(new CustomEvent("workspace-select-tab", { detail: { id } }));
             setLayout((l) => (l === "chat" ? "split" : l));
-            switchToSurface("atelier");
           }}
-          onCloseFile={closeAtelierTab}
+          onCloseFile={(id) => {
+            window.dispatchEvent(new CustomEvent("workspace-close-tab", { detail: { id } }));
+          }}
           activeView={activeView}
           layout={layout}
           activeSurface={activeSurface}

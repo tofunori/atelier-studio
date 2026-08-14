@@ -6,6 +6,8 @@
 import { useState } from "react";
 import { t } from "../lib/i18n";
 import { SURFACES, type Surface } from "./surfaces";
+import { parseWorkspaceTabId } from "../lib/workspaceLayout";
+import { dispatchWorkspacePointerDragStart, shouldSuppressWorkspaceSourceClick } from "../lib/workspaceDrag";
 import { LazyDropdownMenu } from "./ui/LazyDropdownMenu";
 import { RowButton } from "./ui/RowButton";
 
@@ -90,11 +92,24 @@ export default function RailFiles(p: {
   const visible = p.files.slice(0, MAX_TILES);
   const overflow = p.files.slice(MAX_TILES);
 
-  const tile = (file: RailFile, index: number) => (
+  const tile = (file: RailFile, index: number) => {
+    // La bande d'onglets portait le glisser vers un autre pane ; sans elle, ce
+    // sont les tuiles qui en deviennent la source — même mécanisme, même
+    // cible, geste vertical au lieu d'horizontal.
+    const ref = parseWorkspaceTabId(file.id);
+    return (
     <RowButton
       key={file.id}
       className={`rail-file ${file.id === p.activeFile ? "on" : ""}`}
       title={`${file.title} — ⌥${index + 1}`}
+      onClickCapture={(event: React.MouseEvent) => {
+        if (!ref || !shouldSuppressWorkspaceSourceClick(ref)) return;
+        event.preventDefault();
+        event.stopPropagation();
+      }}
+      onPointerDown={(event: React.PointerEvent) => {
+        if (ref) dispatchWorkspacePointerDragStart(event.nativeEvent, ref);
+      }}
       onClick={() => p.onSelectFile(file.id)}
       onAuxClick={(event: React.MouseEvent) => {
         // clic milieu = fermer : une croix à 34 px mangerait le monogramme
@@ -112,7 +127,8 @@ export default function RailFiles(p: {
         </>
       )}
     </RowButton>
-  );
+    );
+  };
 
   return (
     <div className="rail-files" aria-label={t("rail.files")}>

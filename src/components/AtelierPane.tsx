@@ -10,25 +10,11 @@ const BiblioSurface = lazyWithRetry(() => import("./BiblioSurface"));
 const GeneratorSurface = lazyWithRetry(() => import("./GeneratorSurface"));
 const NarvalSurface = lazyWithRetry(() => import("./NarvalSurface"));
 import { t } from "../lib/i18n";
-import { CloseIcon, HomeIcon, RefreshIcon } from "./icons";
-import { DocumentTabMeta } from "./AtelierHeaders";
+import { CloseIcon, RefreshIcon } from "./icons";
 import { GallerySkeleton } from "./GallerySkeleton";
-import { Button, IconButton, RowButton, Tab, TabList } from "./ui";
-import { AgentDetailPanel, AgentGlyph, type AgentDisplay } from "./chat/AgentActivity";
+import { Button, IconButton, RowButton } from "./ui";
+import { AgentDetailPanel, type AgentDisplay } from "./chat/AgentActivity";
 import type { AgentEvent } from "../lib/ws";
-import {
-  ContextMenu,
-  ContextMenuContent,
-  ContextMenuGroup,
-  ContextMenuItem,
-  ContextMenuRadioGroup,
-  ContextMenuRadioItem,
-  ContextMenuSeparator,
-  ContextMenuSub,
-  ContextMenuSubContent,
-  ContextMenuSubTrigger,
-  ContextMenuTrigger,
-} from "./shadcn/context-menu";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -43,6 +29,7 @@ import {
   activateWorkspaceTab,
   closeWorkspaceTab,
   externalTabId,
+  findWorkspacePane,
   listWorkspacePanes,
   loadWorkspaceLayout,
   placeWorkspaceTab,
@@ -62,7 +49,6 @@ import {
 import {
   dispatchWorkspacePointerDragStart,
   markWorkspacePointerDragActivated,
-  shouldSuppressWorkspaceSourceClick,
   WORKSPACE_POINTER_DRAG_START,
   type WorkspacePointerDragStartDetail,
 } from "../lib/workspaceDrag";
@@ -127,7 +113,7 @@ function surfaceLabel(surface: Surface): string {
   return entry ? t(entry.labelKey) : surface;
 }
 
-function surfaceIcon(surface: Surface) {
+export function surfaceIcon(surface: Surface) {
   return SURFACES.find((candidate) => candidate.id === surface)?.icon ?? null;
 }
 
@@ -544,115 +530,63 @@ export default function AtelierPane({
     return "IDE";
   }
 
-  function renderTab(paneNode: WorkspacePaneNode, ref: WorkspaceTabRef) {
-    const id = workspaceTabId(ref);
-    const active = paneNode.activeTabId === id;
-    const title = tabTitle(ref);
-    const documentTab = ref.kind === "document" ? documentById.get(ref.tabId) : null;
-    const relative = documentTab ? relFromTabUrl(documentTab.url, projectRoot, url) : null;
-    const compact = ref.kind === "surface" && ref.surface === "atelier";
-    const icon = ref.kind === "surface"
-      ? (ref.surface === "atelier" ? <HomeIcon size={15} /> : surfaceIcon(ref.surface))
-      : ref.kind === "agent" && agent?.threadId === ref.threadId
-        ? <AgentGlyph seed={agent.threadId} size={15} />
-        : undefined;
+  // Pont vers le rail (plan 057) : le workspace reste la source de vérité — il
+  // publie ses onglets, et reçoit sélection et fermeture par événements plutôt
+  // que par des refs remontées à travers trois composants.
+  // PIÈGE : cet effet fait entrer un rendu d'enfant dans l'état du parent.
+  // Sans garde d'égalité, chaque publication déclenche un setState en haut,
+  // qui re-rend ce composant, qui republie… La signature coupe la boucle.
+  const lastTabsSignature = useRef("");
+  useEffect(() => {
+    const pane = findWorkspacePane(workspace.root, workspace.focusedPaneId)
+      ?? listWorkspacePanes(workspace.root)[0];
+    const tabs = (pane?.tabs ?? []).map((ref: WorkspaceTabRef) => ({
+      id: workspaceTabId(ref),
+      title: tabTitle(ref),
+      kind: ref.kind,
+      surface: ref.kind === "surface" ? ref.surface : undefined,
+      url: ref.kind === "document" ? documentById.get(ref.tabId)?.url : undefined,
+    }));
+    const signature = JSON.stringify({ tabs, activeId: pane?.activeTabId ?? null });
+    if (signature === lastTabsSignature.current) return;
+    lastTabsSignature.current = signature;
+    window.dispatchEvent(new CustomEvent("workspace-tabs", {
+      detail: { tabs, activeId: pane?.activeTabId ?? null },
+    }));
+  }, [workspace, documentById, agent]);
 
-    return (
-      <ContextMenu key={id}>
-        <ContextMenuTrigger
-          render={
-            <Tab
-              active={active}
-              compact={compact}
-              label={title}
-              icon={icon}
-              closeLabel={`${t("action.close")} ${title}`}
-              closeIcon={<CloseIcon />}
-              onClose={compact ? undefined : () => closeRef(ref)}
-              className={compact ? "atelier-home" : undefined}
-              onClick={() => selectRef(paneNode.id, ref)}
-              onClickCapture={(event) => {
-                if (!shouldSuppressWorkspaceSourceClick(ref)) return;
-                event.preventDefault();
-                event.stopPropagation();
-              }}
-              onPointerDown={(event) => {
-                if ((event.target as HTMLElement).closest(".ui-tab-close")) return;
-                beginPointerDrag(event, ref);
-              }}
-              title={title}
-            >
-              {documentTab?.color && <span className="atab-dot" style={{ background: documentTab.color }} />}
-              {documentTab?.pinned && <span className="atab-pin">⌖</span>}
-              {title}
-            </Tab>
-          }
-        />
-        <ContextMenuContent className="tw:min-w-48">
-          <ContextMenuGroup>
-            <ContextMenuItem onClick={() => splitTab(paneNode.id, ref, "right")}>
-              {t("workspace.split-right")}
-            </ContextMenuItem>
-            <ContextMenuItem onClick={() => splitTab(paneNode.id, ref, "bottom")}>
-              {t("workspace.split-down")}
-            </ContextMenuItem>
-            {layout !== "atelier" && (
-              <ContextMenuItem onClick={onToggleExpand}>{t("atelier.full")}</ContextMenuItem>
-            )}
-          </ContextMenuGroup>
-          {documentTab && (
-            <>
-              <ContextMenuSeparator />
-              <ContextMenuGroup>
-                <ContextMenuItem onClick={() => onPinTab(documentTab.id)}>
-                  {documentTab.pinned ? t("action.unpin-tab") : t("action.pin-tab")}
-                </ContextMenuItem>
-                {onInspectFile && relative && (
-                  <ContextMenuItem onClick={() => {
-                    selectRef(paneNode.id, ref);
-                    onInspectFile(relative);
-                  }}>
-                    {t("inspector.open")}
-                  </ContextMenuItem>
-                )}
-                <ContextMenuSub>
-                  <ContextMenuSubTrigger>{t("settings.group.colors")}</ContextMenuSubTrigger>
-                  <ContextMenuSubContent>
-                    <ContextMenuRadioGroup value={documentTab.color ?? "none"}>
-                      {TAB_COLORS.map((color) => (
-                        <ContextMenuRadioItem key={color} value={color} onClick={() => onColorTab(documentTab.id, color)}>
-                          <span className="swatch" style={{ background: color }} aria-hidden="true" />
-                          {color.toUpperCase()}
-                        </ContextMenuRadioItem>
-                      ))}
-                      <ContextMenuRadioItem value="none" onClick={() => onColorTab(documentTab.id, undefined)}>
-                        <span className="swatch none" aria-hidden="true">∅</span>
-                        {t("sidebar.without-color")}
-                      </ContextMenuRadioItem>
-                    </ContextMenuRadioGroup>
-                  </ContextMenuSubContent>
-                </ContextMenuSub>
-              </ContextMenuGroup>
-            </>
-          )}
-          {!compact && (
-            <>
-              <ContextMenuSeparator />
-              <ContextMenuGroup>
-                <ContextMenuItem variant="destructive" onClick={() => closeRef(ref)}>
-                  {t("action.close-tab")}
-                </ContextMenuItem>
-              </ContextMenuGroup>
-            </>
-          )}
-        </ContextMenuContent>
-      </ContextMenu>
-    );
-  }
+  useEffect(() => {
+    const paneOf = () => findWorkspacePane(workspace.root, workspace.focusedPaneId)
+      ?? listWorkspacePanes(workspace.root)[0];
+    const refOf = (id: string) => paneOf()?.tabs.find((c) => workspaceTabId(c) === id);
+    const onSelect = (event: Event) => {
+      const pane = paneOf();
+      const ref = refOf(String((event as CustomEvent).detail?.id ?? ""));
+      if (pane && ref) selectRef(pane.id, ref);
+    };
+    const onClose = (event: Event) => {
+      const ref = refOf(String((event as CustomEvent).detail?.id ?? ""));
+      if (ref) closeRef(ref);
+    };
+    window.addEventListener("workspace-select-tab", onSelect);
+    window.addEventListener("workspace-close-tab", onClose);
+    return () => {
+      window.removeEventListener("workspace-select-tab", onSelect);
+      window.removeEventListener("workspace-close-tab", onClose);
+    };
+  });
 
   function renderPaneControls(paneNode: WorkspacePaneNode, ref: WorkspaceTabRef, placement: "integrated" | "floating") {
+    const relative = ref.kind === "document"
+      ? relFromTabUrl(documentById.get(ref.tabId)?.url ?? "", projectRoot, url)
+      : null;
     return (
       <div className={`workspace-pane-controls is-${placement}`} data-pane-controls={placement}>
+        {ref.kind === "surface" && ref.surface === "atelier" && onGalleryReload && (
+          <IconButton className="ghost" label={t("action.refresh-hard")} title={t("action.refresh-hard")} size="s" onClick={onGalleryReload}>
+            <RefreshIcon />
+          </IconButton>
+        )}
         <span
           className="workspace-pane-grip"
           onPointerDown={(event) => {
@@ -707,6 +641,46 @@ export default function AtelierPane({
                         {tabTitle(candidate)}
                       </DropdownMenuItem>
                     ))}
+                </DropdownMenuGroup>
+              </>
+            )}
+            {/* plan 057 : rescapées du menu contextuel des onglets — sans
+                elles, épingler, colorer et inspecter partaient avec la bande. */}
+            {ref.kind === "document" && documentById.get(ref.tabId) && (
+              <>
+                <DropdownMenuSeparator />
+                <DropdownMenuGroup>
+                  <DropdownMenuItem onClick={onToggleExpand}>{t("atelier.full")}</DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => onPinTab(ref.tabId)}>
+                    {documentById.get(ref.tabId)?.pinned ? t("action.unpin-tab") : t("action.pin-tab")}
+                  </DropdownMenuItem>
+                  {relative && onInspectFile && (
+                    <DropdownMenuItem onClick={() => onInspectFile(relative)}>
+                      {t("inspector.open")}
+                    </DropdownMenuItem>
+                  )}
+                </DropdownMenuGroup>
+                <DropdownMenuSeparator />
+                <DropdownMenuGroup>
+                  <DropdownMenuLabel>{t("settings.group.colors")}</DropdownMenuLabel>
+                  <div className="workspace-pane-colors">
+                    {TAB_COLORS.map((color) => (
+                      <RowButton
+                        key={color}
+                        className="workspace-pane-swatch"
+                        style={{ background: color }}
+                        title={color}
+                        aria-label={color}
+                        onClick={() => onColorTab(ref.tabId, color)}
+                      />
+                    ))}
+                    <RowButton
+                      className="workspace-pane-swatch is-none"
+                      title={t("sidebar.without-color")}
+                      aria-label={t("sidebar.without-color")}
+                      onClick={() => onColorTab(ref.tabId, undefined)}
+                    />
+                  </div>
                 </DropdownMenuGroup>
               </>
             )}
@@ -893,8 +867,6 @@ export default function AtelierPane({
 
   function renderPane(paneNode: WorkspacePaneNode) {
     const activeRef = paneNode.tabs.find((ref) => workspaceTabId(ref) === paneNode.activeTabId) ?? null;
-    const activeDocument = activeRef?.kind === "document" ? documentById.get(activeRef.tabId) : null;
-    const activeRelative = activeDocument ? relFromTabUrl(activeDocument.url, projectRoot, url) : null;
     const nativeChrome = ownsNativeChrome(activeRef);
     const integratedControls = nativeChrome && integratesPaneControls(activeRef);
     return (
@@ -904,19 +876,10 @@ export default function AtelierPane({
         data-pane-id={paneNode.id}
         data-pane-chrome={nativeChrome ? "native" : "workspace"}
       >
-        {!nativeChrome && (
-          <TabList className="atelier-bar workspace-pane-tabs">
-            {paneNode.tabs.map((ref) => renderTab(paneNode, ref))}
-            <span className="flex" />
-            {activeRef?.kind === "surface" && activeRef.surface === "atelier" && onGalleryReload && (
-              <IconButton label={t("action.refresh-hard")} title={t("action.refresh-hard")} size="s" onClick={onGalleryReload}>
-                <RefreshIcon />
-              </IconButton>
-            )}
-            {activeRelative && <DocumentTabMeta rel={activeRelative} onInspect={onInspectFile} />}
-          </TabList>
-        )}
-        {nativeChrome && activeRef && !integratedControls && renderPaneControls(paneNode, activeRef, "floating")}
+        {/* plan 057 : plus de bande d'onglets — le rail les porte, et il en est
+            aussi la source de glisser vers un autre pane. Restent les
+            contrôles, flottants sur le bord droit. */}
+        {activeRef && !integratedControls && renderPaneControls(paneNode, activeRef, "floating")}
         <div className="workspace-pane-body" data-workspace-pane-body={paneNode.id}>
           {paneNode.tabs.length === 0 && (
             <div className="workspace-empty-pane">
