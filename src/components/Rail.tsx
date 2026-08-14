@@ -115,6 +115,10 @@ export default function Rail(p: {
     <div className="rail">
       {/* zone scrollable : tout sauf Réglages (épinglé en bas) */}
       <div className="rail-scroll">
+      {/* zone haute : vues et surfaces. Elle défile POUR ELLE-MÊME quand le
+          tiroir « autres surfaces » s'ouvre — sinon elle écrasait les projets,
+          qui n'ont rien demandé. */}
+      <div className="rail-top">
       <IconButton className={`rail-btn ${!p.compact ? "on" : ""}`}
         label={p.compact ? t("action.expand-sidebar") : t("action.collapse-sidebar")}
         title={p.compact ? t("action.expand-sidebar") : t("action.collapse-sidebar")} onClick={p.onExpand}>
@@ -174,7 +178,10 @@ export default function Rail(p: {
           </div>
         </div>
       </div>
+      </div>{/* fin rail-top */}
       <div className="rail-sep" />
+      {/* zone des projets : sa propre zone de défilement, jamais comprimée */}
+      <div className="rail-projects">
       {p.projects.map((root) => {
         const m = p.meta[root];
         const active = root === p.activeProject;
@@ -224,6 +231,7 @@ export default function Rail(p: {
       <IconButton className="rail-btn" label={t("action.add-project")} title={t("action.add-project")} onClick={p.onAddProject}>
         <PlusIcon size={19} />
       </IconButton>
+      </div>{/* fin rail-projects */}
       </div>{/* fin rail-scroll */}
       {/* zone épinglée : Réglages toujours visible en bas, jamais scrollé */}
       <div className="rail-pinned">

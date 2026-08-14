@@ -582,11 +582,22 @@ html, body, #root, .app { height: 100vh; overflow: hidden;
 .rail { width: 48px; flex-shrink: 0; background: var(--surface-panel); display: flex;
   flex-direction: column; align-items: center;
   border-right: 1px solid var(--border); position: relative; }
-/* zone scrollable : vues + surfaces + projets (peut déborder) */
-.rail-scroll { flex: 1 1 auto; min-height: 0; width: 100%; overflow-y: auto; overflow-x: hidden;
-  scrollbar-width: none; display: flex; flex-direction: column; align-items: center; gap: 8px;
+/* zone scrollable : vues + surfaces + projets. DEUX zones indépendantes —
+   ouvrir le tiroir des surfaces ne doit pas déplacer ni comprimer les projets.
+   PIÈGE : dans une colonne flex, `height: 38px` n'est qu'une base — sans
+   `flex: none`, les icônes s'écrasent au lieu de faire défiler le conteneur. */
+.rail-scroll { flex: 1 1 auto; min-height: 0; width: 100%; overflow: hidden;
+  display: flex; flex-direction: column; align-items: center; gap: 8px;
   padding: 10px 0 8px; }
-.rail-scroll::-webkit-scrollbar { display: none; }
+.rail-scroll > *, .rail-top > *, .rail-projects > * { flex: none; }
+.rail-top, .rail-projects { width: 100%; display: flex; flex-direction: column;
+  align-items: center; gap: 8px; overflow-y: auto; overflow-x: hidden;
+  scrollbar-width: none; min-height: 0; }
+/* la zone haute cède la place en premier ; les projets gardent trois rangées */
+.rail-top { flex: 0 1 auto; }
+.rail-projects { flex: 1 1 auto; gap: 4px; min-height: 90px; }
+.rail-scroll::-webkit-scrollbar, .rail-top::-webkit-scrollbar,
+.rail-projects::-webkit-scrollbar { display: none; }
 /* zone épinglée en bas : Réglages, toujours visible */
 .rail-btn.usage-ib { position: relative; }
 .rail-pinned { flex: none; width: 100%; display: flex; flex-direction: column; align-items: center;
