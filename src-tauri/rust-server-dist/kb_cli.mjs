@@ -2,10 +2,10 @@
 // erreurs sur stderr + exit 1, comme atelier-zotero-passages.
 import { pathToFileURL } from "node:url";
 import { importArticle, importDoi, listArticles, readDraft, writeArticle } from "./article.mjs";
-import { KnowledgeStore, defaultKnowledgeDir, parseGbrainSearch, promotePage, runGbrain } from "./knowledge.mjs";
+import { GBRAIN_NOT_FOUND, KnowledgeStore, defaultKnowledgeDir, parseGbrainSearch, promotePage, runGbrain } from "./knowledge.mjs";
 import { passageLink } from "./zotero_passages.mjs";
 
-const COMMANDS = new Set(["add", "list", "remove", "search", "gbrain-search", "promote-page", "collection", "tag", "archive", "article-import", "article-write", "article-draft", "article-list", "article-doi"]);
+const COMMANDS = new Set(["add", "list", "remove", "search", "gbrain-search", "gbrain-page", "promote-page", "collection", "tag", "archive", "article-import", "article-write", "article-draft", "article-list", "article-doi"]);
 const USAGE = [
   "Usage: atelier-kb <add|list|remove|search|gbrain-search|promote-page|article-import|article-write> [options]",
   "  add    --kind file|pdf|web|youtube|note|folder|gbrain [--origin <chemin|url|slug>] [--title <t>] [--text <t>]",
@@ -14,6 +14,7 @@ const USAGE = [
   "  remove --id <id>",
   "  search --id <id> --query <question> [--limit 5]",
   "  gbrain-search --query <mots-clés> [--limit 12]   (corpus NAS)",
+  "  gbrain-page --slug <articles/…>                  (markdown d'une page, lecture seule)",
   "  promote-page --id <id> [--slug atelier/…] [--write]   (page directe gbrain)",
   "  article-import --path <article.pdf>              (PDF → markdown + fiche, sans écriture)",
   "  article-draft --draft <id>                       (texte complet du brouillon)",
@@ -209,6 +210,16 @@ export async function runKbCommand(argv, deps = {}) {
       ragdoc: options.ragdoc === true,
       dir: options.dir || undefined,
     }, deps);
+  }
+  if (command === "gbrain-page") {
+    // Lecture seule : voir ce qui a VRAIMENT été ingéré. Rien n'entre dans la
+    // base au passage — épingler reste un geste distinct.
+    if (!options.slug) throw new Error("Argument requis: --slug");
+    const markdown = String((deps.runGbrain ?? runGbrain)(["get", options.slug])).trim();
+    if (!markdown || GBRAIN_NOT_FOUND.test(markdown)) {
+      throw new Error(`Page gbrain introuvable: ${options.slug}`);
+    }
+    return { ok: true, slug: options.slug, chars: Array.from(markdown).length, markdown };
   }
   if (command === "gbrain-search") {
     if (!options.query) throw new Error("Argument requis: --query");
