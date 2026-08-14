@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Panel, PanelGroup, PanelResizeHandle } from "react-resizable-panels";
 import { open } from "@tauri-apps/plugin-dialog";
 import { invoke } from "@tauri-apps/api/core";
@@ -2288,6 +2288,25 @@ export default function App() {
       if (e.metaKey && e.shiftKey && e.code === "KeyA") {
         setLayout((l) => (l === "chat" ? "split" : "chat"));
       }
+      // ⌥1…⌥9 : fichier ouvert par sa position dans le rail (plan 056) — c'est
+      // le raccourci annoncé par l'infobulle des tuiles, donc il doit exister.
+      // ⌘1/⌘2 sont pris par la disposition ; Alt reste libre.
+      if (e.altKey && !e.metaKey && !e.ctrlKey && /^Digit[1-9]$/.test(e.code)) {
+        const target = e.target as HTMLElement | null;
+        const typing = target?.tagName === "INPUT" || target?.tagName === "TEXTAREA"
+          || target?.isContentEditable === true;
+        if (!typing) {
+          const files = atelierTabsRef.current.filter((tb) => tb.kind !== "term");
+          const picked = files[Number(e.code.slice(5)) - 1];
+          if (picked) {
+            e.preventDefault();
+            setActiveTab(picked.id);
+            setLayout((l) => (l === "chat" ? "split" : l));
+            switchToSurface("atelier");
+            return;
+          }
+        }
+      }
       if (e.metaKey && !e.shiftKey && e.code === "Digit1") setLayout("chat");
       if (e.metaKey && !e.shiftKey && e.code === "Digit2") setLayout("atelier");
       if (e.metaKey && !e.shiftKey && e.code === "Digit0") setLayout("split");
@@ -3205,6 +3224,23 @@ export default function App() {
   // Slots du WorkspaceShell (slice 3) — contenus et props inchangés, seule la
   // composition est déléguée au shell.
   // feux NATIFS (titleBarStyle Overlay + trafficLightPosition, cf.
+  // Fermeture d'un onglet de l'atelier — partagée par le pane et par le rail
+  // (plan 056), pour que le clic milieu sur une tuile suive exactement le même
+  // chemin qu'une croix d'onglet : terminal fermé côté serveur, épinglés
+  // persistés, retour à la galerie si c'était l'onglet actif.
+  const closeAtelierTab = useCallback((id: string) => {
+    const tab = atelierTabsRef.current.find((x) => x.id === id);
+    if (tab?.kind === "term" && ws.current?.readyState === 1) {
+      ws.current.send(JSON.stringify({ type: "termClose", termId: id }));
+    }
+    setAtelierTabs((tabs) => {
+      const next = tabs.filter((x) => x.id !== id);
+      savePinned(next);
+      return next;
+    });
+    setActiveTab((cur) => (cur === id ? "gallery" : cur));
+  }, []);
+
   // IDE actif : l'atelier est visible, la surface est la galerie, et l'onglet
   // courant est un éditeur — partagé par le rail et la barre du haut (plan 055).
   const ideActive = showAtelier && activeSurface === "atelier" && activeTab !== "gallery"
@@ -3242,6 +3278,16 @@ export default function App() {
           activeProject={activeProject}
           meta={projMeta}
           running={runningProjects}
+          files={atelierTabs.filter((tb) => tb.kind !== "term").map((tb) => ({ id: tb.id, title: tb.title, url: tb.url }))}
+          activeFile={activeTab}
+          onSelectFile={(id) => {
+            // depuis le rail, un fichier doit AUSSI ramener l'atelier à l'écran :
+            // le sélectionner en mode chat ne montrerait rien
+            setActiveTab(id);
+            setLayout((l) => (l === "chat" ? "split" : l));
+            switchToSurface("atelier");
+          }}
+          onCloseFile={closeAtelierTab}
           activeView={activeView}
           layout={layout}
           activeSurface={activeSurface}
@@ -3815,18 +3861,7 @@ export default function App() {
               activeTab={activeTab}
               onSelectTab={setActiveTab}
               onActiveSurfaceChange={setActiveSurface}
-              onCloseTab={(id) => {
-                const t = atelierTabsRef.current.find((x) => x.id === id);
-                if (t?.kind === "term" && ws.current?.readyState === 1) {
-                  ws.current.send(JSON.stringify({ type: "termClose", termId: id }));
-                }
-                setAtelierTabs((tabs) => {
-                  const next = tabs.filter((t) => t.id !== id);
-                  savePinned(next);
-                  return next;
-                });
-                setActiveTab((cur) => (cur === id ? "gallery" : cur));
-              }}
+              onCloseTab={closeAtelierTab}
               reloadKey={atelierReload}
               showExplorer={showExplorer}
               recentFiles={recentFiles.filter((f) => files.includes(f)).slice(0, 8)}
