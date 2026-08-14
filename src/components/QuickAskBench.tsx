@@ -15,7 +15,7 @@ const PROVIDERS: ProviderInfo[] = [
 
 export function QuickAskBench() {
   return (
-    <div style={{ minHeight: "100vh", background: "var(--bg)", color: "var(--fg)" }}>
+    <div style={{ minHeight: "100vh", background: "var(--bg)", color: "var(--text-primary)" }}>
       <QuickAsk
         open
         minimized={false}

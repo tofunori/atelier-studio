@@ -146,7 +146,7 @@ export function FileTypeIcon({ ext }: { ext: string }) {
   if (ext === "local")
     return (
       <span className="fglyph">
-        <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="var(--muted)" strokeWidth="1.3">
+        <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="var(--text-muted)" strokeWidth="1.3">
           <rect x="2" y="3" width="12" height="8" rx="1.5" /><path d="M5.5 13.5h5" />
         </svg>
       </span>

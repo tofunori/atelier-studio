@@ -289,7 +289,7 @@ export function ChatBench() {
   }, []);
 
   return (
-    <div style={{ height: "100vh", display: "flex", flexDirection: "column", background: "var(--bg)", color: "var(--fg)" }}>
+    <div style={{ height: "100vh", display: "flex", flexDirection: "column", background: "var(--bg)", color: "var(--text-primary)" }}>
       <Chat
         events={activeState.events}
         workingSince={activeState.workingSince}

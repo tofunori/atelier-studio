@@ -75,7 +75,7 @@ export function ProjectHeader(p: {
   ) : p.meta?.label ? (
     <span className="pnav-id-letter">{p.meta.label}</span>
   ) : p.mode === "project" ? (
-    <span className="proj-dot" style={{ background: p.meta?.color ?? "var(--muted2)" }} />
+    <span className="proj-dot" style={{ background: p.meta?.color ?? "var(--mark-neutral)" }} />
   ) : (
     <ChatsIcon size={14} />
   );

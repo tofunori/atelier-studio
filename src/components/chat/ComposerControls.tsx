@@ -44,8 +44,8 @@ type ModelEntry = { id: string; label: string };
  * fenêtre. */
 export function contextRingStroke(pct: number): string {
   if (pct > 92) return "var(--status-error)";
-  if (pct > 80) return "color-mix(in srgb, var(--status-warning) 55%, var(--muted))";
-  return "var(--muted)";
+  if (pct > 80) return "color-mix(in srgb, var(--status-warning) 55%, var(--mark-neutral-strong))";
+  return "var(--mark-neutral-strong)";
 }
 
 export function ComposerControls(p: {

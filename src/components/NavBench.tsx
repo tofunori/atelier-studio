@@ -95,7 +95,7 @@ export function NavBench() {
   }, [light]);
 
   return (
-    <div style={{ height: "100vh", display: "flex", background: "var(--bg)", color: "var(--fg)" }}>
+    <div style={{ height: "100vh", display: "flex", background: "var(--bg)", color: "var(--text-primary)" }}>
       {/* rail 48 px factice : le sujet du banc est le panneau */}
       <div style={{ width: 48, flex: "none", background: "var(--bg-side)", borderRight: "1px solid var(--border)" }} />
       <div className="side-fixed" style={{ width }}>
@@ -121,7 +121,7 @@ export function NavBench() {
       </div>
       <div className="handle" style={{ flex: "none" }} />
       <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center",
-        color: "var(--muted2)", fontSize: "var(--fs-m)" }}>
+        color: "var(--text-disabled)", fontSize: "var(--fs-m)" }}>
         surface de travail (hors banc)
       </div>
     </div>

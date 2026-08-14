@@ -718,6 +718,9 @@ export function ChatTimeline(p: {
           </div>
           <div className="pin-styles" style={{ display: "flex", gap: 6, padding: "2px 10px 8px" }}>
             {[
+              // Aperçus pleins des marques de chapitre : même exception gelée
+              // que .dot.claude dans App.css — un fond de marque en encre
+              // secondaire, palier au-dessus de --mark-neutral-strong.
               { id: "bar", el: <span className="chapter-bar st-bar" style={{ background: "var(--fg2)" }} /> },
               { id: "dot", el: <span className="chapter-bar st-dot" style={{ background: "var(--fg2)" }} /> },
               { id: "square", el: <span className="chapter-bar st-square" style={{ background: "var(--fg2)" }} /> },

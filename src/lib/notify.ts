@@ -140,6 +140,22 @@ export async function notifyReview(args: NotifyReviewArgs): Promise<boolean> {
   });
 }
 
+type NotifyArticleArgs = { file: string; ok: boolean; detail?: string };
+
+/** Import d'article (plan 053) : la conversion dure des minutes et Thierry
+ *  part faire autre chose — la notification système est le seul rappel qui le
+ *  rattrape hors de l'app. `respectAttention` la tait quand l'app a le focus,
+ *  où le toast suffit. */
+export async function notifyArticleReady(args: NotifyArticleArgs): Promise<boolean> {
+  const file = truncateText(args.file, 60);
+  return emitNotification({
+    threadId: "article",
+    title: args.ok ? "Article converti" : "Conversion échouée",
+    body: args.detail ? truncateText(`${file} — ${args.detail}`, 100) : file,
+    respectAttention: true,
+  });
+}
+
 export async function demoNotification(): Promise<boolean> {
   return emitNotification({
     threadId: "demo",

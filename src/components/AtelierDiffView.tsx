@@ -27,7 +27,7 @@ function diffTheme(compact: boolean) {
   return EditorView.theme({
     "&": {
       height: "100%",
-      color: "var(--fg, #d9dde4)",
+      color: "var(--text-primary, #d9dde4)",
       backgroundColor: "var(--bg, #1f2023)",
     },
     ".cm-scroller": {
@@ -40,16 +40,16 @@ function diffTheme(compact: boolean) {
     ".cm-line": { padding: "0 12px 0 8px" },
     "&.cm-focused": { outline: "none" },
     ".cm-gutters": {
-      color: "var(--muted2, #747b86)",
+      color: "var(--text-disabled, #747b86)",
       backgroundColor: "var(--bg, #1f2023)",
       borderRight: "1px solid var(--border, #383c43)",
     },
-    ".cm-activeLine, .cm-activeLineGutter": { backgroundColor: "color-mix(in srgb, var(--fg) 3%, transparent)" },
+    ".cm-activeLine, .cm-activeLineGutter": { backgroundColor: "color-mix(in srgb, var(--text-primary) 3%, transparent)" },
     "&.cm-merge-a .cm-changedLine, .cm-deletedChunk": { backgroundColor: "rgba(248, 81, 73, .14)" },
     "&.cm-merge-b .cm-changedLine, .cm-inlineChangedLine": { backgroundColor: "rgba(46, 160, 67, .15)" },
     "&.cm-merge-a .cm-changedText, .cm-deletedChunk .cm-deletedText": { backgroundColor: "rgba(248, 81, 73, .28)" },
     "&.cm-merge-b .cm-changedText": { backgroundColor: "rgba(46, 160, 67, .3)" },
-    ".cm-collapsedLines": { color: "var(--muted2)", borderColor: "var(--border)" },
+    ".cm-collapsedLines": { color: "var(--text-disabled)", borderColor: "var(--border)" },
   }, { dark: true });
 }
 

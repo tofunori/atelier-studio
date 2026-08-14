@@ -141,7 +141,7 @@ export default function TopBar({
                   className: "pm-row",
                   label: (
                     <>
-                      <span className="pm-dot" style={{ "--pc": project?.color || "var(--muted2)" } as React.CSSProperties} />
+                      <span className="pm-dot" style={{ "--pc": project?.color || "var(--mark-neutral)" } as React.CSSProperties} />
                       <span className="pm-row-name">{displayName(root, project)}</span>
                     </>
                   ),

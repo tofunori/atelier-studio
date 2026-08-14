@@ -400,7 +400,7 @@ function HighlightsPanel(p: {
           {groups.map((g) => (
             <RowButton key={g.key} className={`chip ${p.filterProject === g.key ? "on" : ""}`}
               onClick={() => p.onSetFilterProject(p.filterProject === g.key ? null : g.key)}>
-              <span className="hl-dot" style={{ background: p.projMeta[g.projectRoot]?.color || "var(--muted2)" }} />
+              <span className="hl-dot" style={{ background: p.projMeta[g.projectRoot]?.color || "var(--mark-neutral)" }} />
               {g.projectName || t("highlights.no-project")} · {g.count}
             </RowButton>
           ))}
@@ -423,7 +423,7 @@ function HighlightsPanel(p: {
                   </Button>
                 )}
                 <div className="hl-foot">
-                  <span className="hl-dot" style={{ background: p.projMeta[h.projectRoot]?.color || "var(--muted2)" }} />
+                  <span className="hl-dot" style={{ background: p.projMeta[h.projectRoot]?.color || "var(--mark-neutral)" }} />
                   <span className="hl-proj">{h.projectName || t("highlights.no-project")}</span>
                   <span className="hl-time">{hlRelativeDate(h.createdAt)}</span>
                   <IconButton size="s" className="hl-remove" label={t("highlights.remove")} title={t("highlights.remove")}
@@ -1553,6 +1553,9 @@ export default function App() {
           msg.type === "kbPagePreview" ? "kb-page-preview" : "kb-page-written",
           { detail: msg },
         ));
+      }
+      if (msg.type === "articleDraftText") {
+        window.dispatchEvent(new CustomEvent("article-draft-text", { detail: msg }));
       }
       if (msg.type === "articleImported" || msg.type === "articleWritten" || msg.type === "articleError") {
         // import d'article (plan 053) : le dialogue corrèle par requestId

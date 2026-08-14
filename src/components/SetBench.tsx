@@ -20,7 +20,7 @@ export function SetBench() {
     btns.find((b) => (b.textContent ?? "").toLowerCase().includes("config") || (b.textContent ?? "").toLowerCase().includes("setup"))?.click();
   }, [hash]);
   return (
-    <div style={{ height: "100vh", display: "flex", background: "var(--bg)", color: "var(--fg)" }}>
+    <div style={{ height: "100vh", display: "flex", background: "var(--bg)", color: "var(--text-primary)" }}>
       <SettingsPage settings={{ ...DEFAULT_SETTINGS }} onChange={noop} onClose={noop} ws={null} />
     </div>
   );
