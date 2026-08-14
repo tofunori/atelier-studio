@@ -199,6 +199,7 @@ export function bootstrapLatexSurface(dependencies: LatexSurfaceDependencies): L
       panel: doc.getElementById("texcPanel") as HTMLElement,
       button: doc.getElementById("texcBtn") as HTMLElement,
       postToHost: dependencies.postToHost,
+      onMutated: () => reader?.refreshAnnotations(),
       document: doc,
       window: win,
     });
@@ -268,6 +269,11 @@ export function bootstrapLatexSurface(dependencies: LatexSurfaceDependencies): L
       onProseSelection: (selection) => ensureSelectionPill()
         .show(selection.from, selection.to, selection.text, selection.anchor),
       onProseSelectionCleared: () => ensureSelectionPill().hide(),
+      getAnnotations: () => ensureAnnotations().annotations(),
+      // Édition d'un paragraphe depuis la Lecture : même chemin de sauvegarde
+      // que ⌘S (rewrap auto compris), pour ne pas laisser un buffer dirty
+      // invisible derrière une vue qui masque l'éditeur.
+      onBlockEdited: () => { void save(); },
       katex: dependencies.katex,
       document: doc,
       window: win,

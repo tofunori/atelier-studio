@@ -1,6 +1,6 @@
 import {test, expect} from '@playwright/test';
 import {spawn} from 'node:child_process';
-import {mkdtempSync, writeFileSync} from 'node:fs';
+import {mkdtempSync, writeFileSync, readFileSync} from 'node:fs';
 import {tmpdir} from 'node:os';
 import {fileURLToPath} from 'node:url';
 import path from 'node:path';
@@ -104,5 +104,71 @@ test('vue Lecture : plein cadre, pas de préambule, sélection annotable', async
     expect(envoi.text).toContain('\\cite{rgi7consortium2023}');
     expect(envoi.text).toContain('melt');
     await fr().locator('header').screenshot({path: '/tmp/barre-lecture.png'});
+
+    // Un commentaire posé depuis la Lecture doit s'y VOIR : surlignage via
+    // l'API CSS Custom Highlight (aucun nœud ajouté, data-line intact).
+    await fr().evaluate(() => {
+      const p = [...document.querySelectorAll('#texread p')].find(e => e.textContent.includes('western North America'));
+      const node = p.firstChild;
+      const start = node.textContent.indexOf('covers the glaciers');
+      const r = document.createRange();
+      r.setStart(node, start); r.setEnd(node, start + 'covers the glaciers'.length);
+      const sel = getSelection(); sel.removeAllRanges(); sel.addRange(r);
+      p.dispatchEvent(new MouseEvent('mouseup', {bubbles: true}));
+    });
+    await fr().waitForTimeout(200);
+    await fr().evaluate(() => [...document.querySelectorAll('#selPill button')]
+      .find(b => (b.textContent||'').includes('Commenter')).dispatchEvent(
+        new MouseEvent('mousedown', {bubbles: true})));
+    await fr().waitForTimeout(150);
+    const [annotSave] = await Promise.all([
+      page.waitForRequest(r => r.url().includes('/pdfannot') && r.method() === 'POST'),
+      fr().evaluate(() => {
+        const pop = document.getElementById('texcPop');
+        pop.querySelector('textarea').value = 'à revoir';
+        pop.querySelector('.tc-save').click();
+      }),
+    ]);
+    const sauvegarde = JSON.parse(annotSave.postData() || '{}');
+    console.log('ANNOTATION ' + JSON.stringify({n: sauvegarde.annots?.length, text: sauvegarde.annots?.[0]?.text}));
+    expect(sauvegarde.annots?.[0]?.text).toBe('covers the glaciers');
+    await fr().waitForTimeout(200);
+    const surlignage = await fr().evaluate(() => {
+      const reg = CSS.highlights;
+      const noms = [...reg.keys()].filter(n => n.startsWith('texc-read-'));
+      let etendue = 0;
+      for (const n of noms) for (const r of reg.get(n)) etendue += String(r.toString()).length;
+      return {noms, etendue};
+    });
+    console.log('SURLIGNAGE ' + JSON.stringify(surlignage));
+    expect(surlignage.noms.length).toBeGreaterThan(0);
+    expect(surlignage.etendue).toBeGreaterThan(10);
+
+    // Édition sur place : double-clic → le paragraphe expose son SOURCE
+    // (\cite compris), ⌘⏎ applique au buffer et déclenche la sauvegarde.
+    await fr().evaluate(() => {
+      const p = [...document.querySelectorAll('#texread p')].find(e => e.textContent.includes('western North America'));
+      p.dispatchEvent(new MouseEvent('dblclick', {bubbles: true}));
+    });
+    const zone = fr().locator('#texread .texread-edit');
+    await zone.waitFor({state: 'visible'});
+    const sourceEdite = await zone.inputValue();
+    expect(sourceEdite).toContain('\\cite{rgi7consortium2023}');
+    expect(sourceEdite).toContain('80\\,\\%');
+    await zone.focus();
+    await fr().evaluate(() => {
+      const a = document.querySelector('#texread .texread-edit');
+      a.value = a.value.replace('22 melt seasons', '23 melt seasons');
+    });
+    const [ecrit] = await Promise.all([
+      page.waitForRequest(r => r.url().includes('/codesave') && r.method() === 'POST'),
+      zone.press(process.platform === 'darwin' ? 'Meta+Enter' : 'Control+Enter'),
+    ]);
+    console.log('EDITION ' + JSON.stringify({sauve: !!ecrit}));
+    await expect.poll(() => fr().evaluate(() => cm.getValue())).toContain('23 melt seasons');
+    await expect.poll(() => readFileSync(file, 'utf8')).toContain('23 melt seasons');
+    // Et la vue re-rend la prose à jour, textarea disparue.
+    await expect(fr().locator('#texread .texread-edit')).toHaveCount(0);
+    await expect(fr().locator('#texread')).toContainText('23 melt seasons');
   } finally { server.kill('SIGKILL'); }
 });

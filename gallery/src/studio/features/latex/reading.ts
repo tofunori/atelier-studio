@@ -8,6 +8,9 @@ export interface KatexRenderer {
 interface ReadingBlock {
   type: "h" | "p" | "list" | "env";
   line: number;
+  /** Dernière ligne source du bloc (paragraphes seulement) : porte
+   *  l'édition sur place en vue Lecture. */
+  end?: number;
   text?: string;
   tag?: string;
   ordered?: boolean;
@@ -33,6 +36,12 @@ export interface LatexReadingOptions {
   }): void;
   /** Appelé quand la sélection de prose disparaît, pour retirer la pastille. */
   onProseSelectionCleared?(): void;
+  /** Annotations du fichier (texte source + couleur) : la Lecture les surligne
+   *  dans la prose rendue. Absent = pas de surlignage. */
+  getAnnotations?(): readonly {text: string; from: StudioPosition; color?: string}[];
+  /** Un paragraphe édité sur place vient d'être appliqué au buffer : l'hôte
+   *  déclenche sa sauvegarde habituelle. Absent = pas d'édition en Lecture. */
+  onBlockEdited?(): void;
   katex: KatexRenderer;
   document?: Document;
   window?: Window;
@@ -45,6 +54,8 @@ export interface LatexReadingController {
   setRead(enabled: boolean): void;
   syncMode(): void;
   isReading(): boolean;
+  /** Redessine les surlignages d'annotations (appelé quand le jeu change). */
+  refreshAnnotations(): void;
 }
 
 function escapeHtml(value: string): string {
@@ -85,8 +96,9 @@ export function renderLatexReadingHtml(source: string, katex: KatexRenderer): st
   let paragraph: string[] = [];
   let paragraphLine = 0;
   let list: ReadingBlock | null = null;
+  let paragraphEnd = 0;
   const flushParagraph = (): void => {
-    if (paragraph.length) blocks.push({type: "p", text: paragraph.join(" "), line: paragraphLine});
+    if (paragraph.length) blocks.push({type: "p", text: paragraph.join(" "), line: paragraphLine, end: paragraphEnd});
     paragraph = [];
   };
   const flushList = (): void => {
@@ -146,6 +158,7 @@ export function renderLatexReadingHtml(source: string, katex: KatexRenderer): st
     }
     if (/^\\(maketitle|newpage|clearpage|pagebreak|bibliographystyle|bibliography|input|include|tableofcontents|noindent|centering|raggedright|hline|toprule|midrule|bottomrule)\b/.test(line)) continue;
     if (!paragraph.length) paragraphLine = sourceLine;
+    paragraphEnd = sourceLine;
     paragraph.push(line);
   }
   flushParagraph();
@@ -188,7 +201,7 @@ export function renderLatexReadingHtml(source: string, katex: KatexRenderer): st
   });
   return blocks.map((block) => {
     if (block.type === "h") return `<${block.tag} data-line="${block.line}">${withMath(inline(block.text || ""))}</${block.tag}>`;
-    if (block.type === "p") return `<p data-line="${block.line}">${withMath(inline(block.text || ""))}</p>`;
+    if (block.type === "p") return `<p data-line="${block.line}" data-line-end="${block.end ?? block.line}">${withMath(inline(block.text || ""))}</p>`;
     if (block.type === "list") {
       const tag = block.ordered ? "ol" : "ul";
       const items = (block.items || []).map((item) => `<li data-line="${item.line}">${withMath(inline(item.text))}</li>`).join("");
@@ -244,6 +257,23 @@ export function anchorProseFragments(
   return {from: start.from as StudioPosition, to: end.to as StudioPosition};
 }
 
+/** Séquences de mots d'un texte SOURCE sans aucune commande LaTeX — les seuls
+ *  passages garantis identiques dans la prose rendue. Une annotation qui
+ *  traverse un \cite{} donne deux séquences : avant et après. */
+export function proseRuns(text: string): string[] {
+  const words = String(text || "").split(/\s+/).filter(Boolean);
+  const runs: string[] = [];
+  let current: string[] = [];
+  for (const word of words) {
+    if (/[\\{}~$%]/.test(word)) {
+      if (current.length) runs.push(current.join(" "));
+      current = [];
+    } else current.push(word);
+  }
+  if (current.length) runs.push(current.join(" "));
+  return runs.filter((run) => run.length >= 4);
+}
+
 export function createLatexReadingController(options: LatexReadingOptions): LatexReadingController {
   const doc = options.document || document;
   const win = options.window || window;
@@ -290,6 +320,7 @@ export function createLatexReadingController(options: LatexReadingOptions): Late
     frame = 0;
     try { reading.innerHTML = renderLatexReadingHtml(options.getEditor()?.getValue() || "", options.katex); }
     catch (error) { reading.innerHTML = `<p style="color:#e0726a">Rendu impossible : ${escapeHtml(String(error))}</p>`; }
+    applyAnnotationHighlights();
   };
   const syncMode = (): void => {
     editButton.classList.toggle("on", options.right.style.display === "none" && !enabled);
@@ -307,7 +338,7 @@ export function createLatexReadingController(options: LatexReadingOptions): Late
     if (next) {
       options.splitButton.classList.remove("on");
       render();
-    }
+    } else applyAnnotationHighlights();  // vide le registre en quittant
     win.setTimeout(() => options.getEditor()?.refresh(), 60);
     syncMode();
   };
@@ -402,15 +433,146 @@ export function createLatexReadingController(options: LatexReadingOptions): Late
   reading.addEventListener("keyup", (event) => {
     if ((event as KeyboardEvent).shiftKey) win.setTimeout(proseSelection, 0);
   });
+
+  // ---- surlignage des annotations dans la prose rendue ---------------------
+  // API CSS Custom Highlight : aucun nœud ajouté, donc les ancres `data-line`
+  // et le calcul de sélection restent intacts. Les couleurs répondent à celles
+  // des marques de l'éditeur (SWATCHES d'annotations.ts, alpha adouci).
+  const HIGHLIGHT_COLORS: readonly string[] = ["amber", "red", "blue", "green", "purple"];
+  const blockForLine = (line: number): HTMLElement | null => {
+    let best: HTMLElement | null = null;
+    for (const el of reading.querySelectorAll<HTMLElement>("[data-line]")) {
+      const at = Number.parseInt(el.dataset.line || "", 10);
+      if (Number.isFinite(at) && at <= line) best = el;
+      else if (Number.isFinite(at) && at > line) break;
+    }
+    return best;
+  };
+  const rangeFromOffsets = (block: HTMLElement, start: number, end: number): Range | null => {
+    const walker = doc.createTreeWalker(block, 4 /* NodeFilter.SHOW_TEXT */);
+    let offset = 0;
+    let range: Range | null = null;
+    for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+      const length = (node.textContent || "").length;
+      if (!range && start < offset + length) {
+        range = doc.createRange();
+        range.setStart(node, Math.max(0, start - offset));
+      }
+      if (range && end <= offset + length) {
+        range.setEnd(node, Math.max(0, end - offset));
+        return range;
+      }
+      offset += length;
+    }
+    return null;
+  };
+  const locateAnnotation = (annotation: {text: string; from: StudioPosition}): Range | null => {
+    const block = blockForLine(annotation.from.line + 1);
+    if (!block) return null;
+    const runs = proseRuns(annotation.text);
+    if (!runs.length) return null;
+    const blockText = block.textContent || "";
+    let start = -1;
+    for (const run of runs) {
+      start = blockText.indexOf(run);
+      if (start >= 0) break;
+    }
+    if (start < 0) return null;
+    let end = start;
+    for (let index = runs.length - 1; index >= 0; index -= 1) {
+      const at = blockText.indexOf(runs[index] || "", start);
+      if (at >= 0) { end = at + (runs[index] || "").length; break; }
+    }
+    return end > start ? rangeFromOffsets(block, start, end) : null;
+  };
+  const applyAnnotationHighlights = (): void => {
+    const registry = (win as unknown as {CSS?: {highlights?: Map<string, unknown>}}).CSS?.highlights;
+    const HighlightCtor = (win as unknown as {Highlight?: new (...ranges: Range[]) => unknown}).Highlight;
+    if (!registry || !HighlightCtor) return;
+    for (const color of HIGHLIGHT_COLORS) registry.delete(`texc-read-${color}`);
+    if (!enabled || !options.getAnnotations) return;
+    const byColor = new Map<string, Range[]>();
+    for (const annotation of options.getAnnotations()) {
+      const span = locateAnnotation(annotation);
+      if (!span) continue;
+      const color = HIGHLIGHT_COLORS.includes(annotation.color || "") ? annotation.color as string : "amber";
+      const list = byColor.get(color) || [];
+      list.push(span);
+      byColor.set(color, list);
+    }
+    for (const [color, list] of byColor) registry.set(`texc-read-${color}`, new HighlightCtor(...list));
+  };
+  // ---- édition sur place : double-clic sur un paragraphe -------------------
+  // Le rendu est irréversible mot à mot (citations, math, commandes) : on
+  // n'édite donc jamais la prose rendue, mais le SOURCE du bloc, que le rendu
+  // borne exactement (`data-line`…`data-line-end`). ⌘⏎ ou ⇧⏎ applique via
+  // replaceRange — la sélection, les marques et le défilement de l'éditeur se
+  // remappent naturellement — puis l'hôte sauvegarde. Échap abandonne.
+  let editing = false;
+  const editBlock = (holder: HTMLElement): void => {
+    const editor = options.getEditor();
+    if (!editor || editing || !options.onBlockEdited) return;
+    const from = Number.parseInt(holder.dataset.line || "", 10) - 1;
+    const to = Number.parseInt(holder.dataset.lineEnd || "", 10) - 1;
+    if (!Number.isFinite(from) || !Number.isFinite(to) || to < from) return;
+    const lastLength = (editor.getLine(to) || "").length;
+    const sourceText = editor.getRange({line: from, ch: 0}, {line: to, ch: lastLength});
+    editing = true;
+    const area = doc.createElement("textarea");
+    area.className = "texread-edit";
+    area.value = sourceText;
+    area.rows = Math.max(3, sourceText.split("\n").length + 1);
+    area.setAttribute("aria-label", `Éditer les lignes ${from + 1} à ${to + 1}`);
+    holder.replaceChildren(area);
+    holder.classList.add("editing");
+    area.focus();
+    const leave = (apply: boolean): void => {
+      if (!editing) return;
+      editing = false;
+      const next = area.value;
+      if (apply && next !== sourceText) {
+        // Recontrôle juste avant d'écrire : un agent a pu recharger le buffer
+        // pendant l'édition. Si le bloc a bougé, ne rien écraser — re-rendre.
+        const still = options.getEditor();
+        const same = still && still.getRange({line: from, ch: 0}, {line: to, ch: (still.getLine(to) || "").length}) === sourceText;
+        if (same) {
+          still.replaceRange(next, {line: from, ch: 0}, {line: to, ch: (still.getLine(to) || "").length});
+          options.onBlockEdited?.();
+          return;  // le change de l'éditeur re-rend déjà la vue
+        }
+      }
+      render();
+    };
+    area.addEventListener("keydown", (event) => {
+      const key = event as KeyboardEvent;
+      if (key.key === "Escape") { key.preventDefault(); leave(false); }
+      else if (key.key === "Enter" && (key.metaKey || key.ctrlKey || key.shiftKey)) {
+        key.preventDefault();
+        leave(true);
+      }
+      key.stopPropagation();
+    });
+    area.addEventListener("blur", () => leave(true));
+  };
+  reading.addEventListener("dblclick", (event) => {
+    const holder = (event.target as Element | null)?.closest<HTMLElement>("p[data-line-end]");
+    if (!holder || !enabled) return;
+    event.preventDefault();
+    win.getSelection()?.removeAllRanges();
+    options.onProseSelectionCleared?.();
+    editBlock(holder);
+  });
+
   const bind = (): void => {
     const editor = options.getEditor();
     if (bound || !editor) return;
     bound = true;
     editor.on("change", () => {
-      if (enabled && !frame) frame = win.requestAnimationFrame(render);
+      if (enabled && !frame && !editing) frame = win.requestAnimationFrame(render);
     });
     if (storage.getItem("texReadMode") === "1") setRead(true);
   };
   syncMode();
-  return {bind, render, setRead, syncMode, isReading: () => enabled};
+  return {bind, render, setRead, syncMode, isReading: () => enabled,
+    refreshAnnotations: applyAnnotationHighlights};
 }

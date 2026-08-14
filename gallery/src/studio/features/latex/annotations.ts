@@ -26,6 +26,9 @@ export interface LatexAnnotationsOptions {
   panel: HTMLElement;
   button: HTMLElement;
   postToHost(payload: Record<string, unknown>): void;
+  /** Prévenu à chaque mutation du jeu (chargement, ajout, édition, retrait) —
+   *  la vue Lecture s'en sert pour rafraîchir ses surlignages. */
+  onMutated?(): void;
   document?: Document;
   window?: Window;
 }
@@ -136,6 +139,9 @@ export function createLatexAnnotationsController(
       headers: {"Content-Type": "application/json"},
       body: JSON.stringify({rel: relation, annots: all}),
     }).catch(() => {});
+    // La vue Lecture dessine ses propres surlignages : elle doit savoir quand
+    // le jeu d'annotations change (ajout, édition, suppression, ré-ancrage).
+    options.onMutated?.();
   };
   const mark = (annotation: LatexAnnotation): void => {
     const activeEditor = editor();
@@ -371,6 +377,7 @@ export function createLatexAnnotationsController(
       if (localMutation !== mutationAtStart) return;
       all = Array.isArray(payload.annots) ? payload.annots : [];
       anchorAll();
+      options.onMutated?.();
     } catch { /* annotations remain optional */ }
   };
   const bind = (): void => {

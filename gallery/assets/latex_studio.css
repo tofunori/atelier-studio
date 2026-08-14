@@ -364,6 +364,21 @@
   /* Pas de teinte au survol : en lecture continue, chaque paragraphe survolé
      s'allumait sous la souris. Le renvoi vers la source reste au clic. */
   #texread [data-line]:hover{background:none}
+  /* Annotations dans la prose rendue (API CSS Custom Highlight) : mêmes
+     familles que les marques de l'éditeur, alpha adouci pour la lecture. */
+  ::highlight(texc-read-amber){background:rgba(224,183,74,.26)}
+  ::highlight(texc-read-red){background:rgba(240,125,115,.26)}
+  ::highlight(texc-read-blue){background:rgba(91,157,255,.24)}
+  ::highlight(texc-read-green){background:rgba(126,192,120,.24)}
+  ::highlight(texc-read-purple){background:rgba(170,140,224,.26)}
+  /* Édition sur place d'un paragraphe (double-clic) : le bloc rendu cède sa
+     place à son source. Monospace — c'est du LaTeX, pas de la prose. */
+  #texread p.editing{padding:0}
+  #texread .texread-edit{display:block;box-sizing:border-box;width:100%;resize:vertical;
+    background:var(--surface-sunken,var(--card));color:var(--txt);
+    border:1px solid var(--accent);border-radius:6px;padding:10px 12px;
+    font:12.5px/1.55 var(--code-font);letter-spacing:0}
+  #texread .texread-edit:focus{outline:none;box-shadow:0 0 0 2px color-mix(in srgb,var(--accent) 25%,transparent)}
   #texread .tex-todo{color:#e0726a;font-weight:600}
   #texread .tex-cite{color:var(--accent);font-variant:small-caps;font-size:.92em}
   #texread .tex-ref{color:#868d9a}
