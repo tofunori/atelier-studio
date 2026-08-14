@@ -6,6 +6,7 @@ import { spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { basename, dirname, extname, join, resolve } from "node:path";
+import { csvDigest } from "./csv_digest.mjs";
 import { extractPdfPages, resolveZoteroPdf, searchPassages } from "./zotero_passages.mjs";
 
 // Écriture atomique locale (même pattern que store.mjs) — pas d'import de
@@ -29,6 +30,9 @@ export { KB_INLINE_MAX };
 export const KB_KINDS = new Set(["file", "pdf", "web", "note", "folder", "youtube", "gbrain", "zotero"]);
 const GBRAIN_TIMEOUT_MS = 20_000;
 const TEXT_EXTS = new Set([".md", ".tex", ".txt"]);
+// Les tableaux entrent dans la base, mais pas par la même porte : ils sont
+// profilés (colonnes, types, étendues) plutôt que déversés. Voir csv_digest.
+const TABLE_EXTS = new Set([".csv", ".tsv"]);
 const WEB_TEXT_MAX = 300_000;
 // Dossiers / vaults Obsidian (plan 049 T6) : fichiers texte seulement — les
 // PDF d'un dossier sont exclus v1 (extraction massive), à épingler un par un.
@@ -726,15 +730,20 @@ export class KnowledgeStore {
       const path = resolve(String(origin ?? ""));
       if (!origin || !existsSync(path)) throw new Error(`Fichier introuvable: ${origin}`);
       const ext = extname(path).toLowerCase();
-      if (!TEXT_EXTS.has(ext)) {
-        throw new Error(`Extension non prise en charge (v1: ${[...TEXT_EXTS].join(" ")} ; PDF via --kind pdf) : ${ext || path}`);
+      const table = TABLE_EXTS.has(ext);
+      if (!TEXT_EXTS.has(ext) && !table) {
+        const acceptees = [...TEXT_EXTS, ...TABLE_EXTS].join(" ");
+        throw new Error(`Extension non prise en charge (${acceptees} ; PDF via --kind pdf) : ${ext || path}`);
       }
       const stat = statSync(path);
-      const pages = pagesFromText(readFileSync(path, "utf8"));
+      const brut = readFileSync(path, "utf8");
+      const pages = pagesFromText(table
+        ? (this.deps.csvDigest ?? csvDigest)(brut, { name: basename(path) })
+        : brut);
       if (!pages.length) throw new Error(`Fichier vide: ${path}`);
       return this.upsertEntry({
         id: sourceId("file", path), kind, title: title || basename(path), origin: path,
-        pages, meta: { mtimeMs: stat.mtimeMs, size: stat.size },
+        pages, meta: { mtimeMs: stat.mtimeMs, size: stat.size, ...(table ? { table: true } : {}) },
       });
     }
     if (kind === "gbrain") {
