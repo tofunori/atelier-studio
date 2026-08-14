@@ -217,5 +217,26 @@ test('vue Lecture : plein cadre, pas de préambule, sélection annotable', async
     const courtPayload = JSON.parse(envoiCourt.postData() || '{}');
     console.log('COURT ' + JSON.stringify({text: courtPayload.text, page: courtPayload.page}));
     expect(courtPayload.text).toBe('500~m');
+
+    // Fond de lecture : sépia change le fond ET persiste ; « chat » aligne la
+    // Lecture sur --surface-app, le noir du chat de l'app.
+    const fondAvant = await fr().evaluate(() => getComputedStyle(document.getElementById('right')).backgroundColor);
+    const [persisteTheme] = await Promise.all([
+      page.waitForRequest(r => r.url().includes('/state') && r.method() === 'POST'),
+      fr().evaluate(() => document.querySelector('#texreadFs .tr-sw[data-theme="sepia"]').click()),
+    ]);
+    const fondSepia = await fr().evaluate(() => getComputedStyle(document.getElementById('right')).backgroundColor);
+    expect(JSON.parse(persisteTheme.postData() || '{}').texReadTheme).toBe('sepia');
+    expect(fondSepia).not.toBe(fondAvant);
+    expect(fondSepia).toBe('rgb(239, 231, 212)');
+    await fr().evaluate(() => document.querySelector('#texreadFs .tr-sw[data-theme="chat"]').click());
+    const fondChat = await fr().evaluate(() => ({
+      fond: getComputedStyle(document.getElementById('right')).backgroundColor,
+      attendu: getComputedStyle(document.getElementById('right')).getPropertyValue('--surface-app').trim(),
+    }));
+    console.log('FOND ' + JSON.stringify({avant: fondAvant, sepia: fondSepia, chat: fondChat}));
+    // Hors app, --surface-app est absente : le repli #1e2124 (le noir du chat)
+    // s'applique. Dans l'app, atelier_theme.js fournit la variable exacte.
+    expect(fondChat.fond).toBe('rgb(30, 33, 36)');
   } finally { server.kill('SIGKILL'); }
 });

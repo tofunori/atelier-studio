@@ -375,30 +375,81 @@ export function createLatexReadingController(options: LatexReadingOptions): Late
     fsMinus.disabled = fontSize <= FS_MIN;
     fsPlus.disabled = fontSize >= FS_MAX;
   };
-  const setFontSize = (next: number): void => {
-    fontSize = clampFs(next);
-    applyFontSize();
-    storage.setItem(FS_KEY, String(fontSize));
-    void win.fetch("/state")
-      .then((response) => response.json() as Promise<Record<string, unknown>>)
+  // Écritures /state sérialisées : deux réglages (taille, fond) fusionnent le
+  // même document — deux lecture-modification-écriture concurrents se
+  // perdraient l'un l'autre.
+  let persistChain: Promise<unknown> = Promise.resolve();
+  const persistState = (key: string, value: unknown): void => {
+    persistChain = persistChain
+      .then(() => win.fetch("/state").then((response) => response.json() as Promise<Record<string, unknown>>))
       .catch(() => ({}))
       .then((state) => win.fetch("/state", {
         method: "POST",
         headers: {"Content-Type": "application/json"},
-        body: JSON.stringify({...(state && typeof state === "object" ? state : {}), [FS_KEY]: fontSize}),
+        body: JSON.stringify({...(state && typeof state === "object" ? state : {}), [key]: value}),
       }))
       .catch(() => { /* le réglage vaut pour la session en cours */ });
+  };
+  const setFontSize = (next: number): void => {
+    fontSize = clampFs(next);
+    applyFontSize();
+    storage.setItem(FS_KEY, String(fontSize));
+    persistState(FS_KEY, fontSize);
   };
   fsMinus.onclick = () => setFontSize(fontSize - 1);
   fsPlus.onclick = () => setFontSize(fontSize + 1);
   applyFontSize();
+
+  // ---- fond de lecture : sombre (défaut), noir du chat, sépia --------------
+  const THEME_KEY = "texReadTheme";
+  const THEMES: ReadonlyArray<{name: string; swatch: string; label: string}> = [
+    {name: "dark", swatch: "#1a1d22", label: "Fond sombre (défaut)"},
+    {name: "chat", swatch: "#1e2124", label: "Fond noir du chat"},
+    {name: "sepia", swatch: "#efe7d4", label: "Fond sépia"},
+  ];
+  const themeNames = new Set(THEMES.map((theme) => theme.name));
+  let readTheme = themeNames.has(storage.getItem(THEME_KEY) || "") ? storage.getItem(THEME_KEY) as string : "dark";
+  const themeButtons: HTMLButtonElement[] = [];
+  const applyTheme = (): void => {
+    if (readTheme === "dark") delete options.right.dataset.trTheme;
+    else options.right.dataset.trTheme = readTheme;
+    themeButtons.forEach((button) => button.classList.toggle("on", button.dataset.theme === readTheme));
+  };
+  const setTheme = (name: string): void => {
+    readTheme = themeNames.has(name) ? name : "dark";
+    applyTheme();
+    storage.setItem(THEME_KEY, readTheme);
+    persistState(THEME_KEY, readTheme);
+  };
+  const fsSep = doc.createElement("span");
+  fsSep.className = "fs-sep";
+  fsControl.appendChild(fsSep);
+  for (const theme of THEMES) {
+    const button = doc.createElement("button");
+    button.className = "tr-sw";
+    button.dataset.theme = theme.name;
+    button.style.background = theme.swatch;
+    button.title = theme.label;
+    button.setAttribute("aria-label", theme.label);
+    button.onclick = () => setTheme(theme.name);
+    themeButtons.push(button);
+    fsControl.appendChild(button);
+  }
+  applyTheme();
+
   void win.fetch("/state")
     .then((response) => response.json() as Promise<Record<string, unknown>>)
     .then((state) => {
-      if (state && typeof state === "object" && state[FS_KEY] !== undefined) {
+      if (!state || typeof state !== "object") return;
+      if (state[FS_KEY] !== undefined) {
         fontSize = clampFs(state[FS_KEY]);
         storage.setItem(FS_KEY, String(fontSize));
         applyFontSize();
+      }
+      if (themeNames.has(String(state[THEME_KEY] || ""))) {
+        readTheme = String(state[THEME_KEY]);
+        storage.setItem(THEME_KEY, readTheme);
+        applyTheme();
       }
     })
     .catch(() => { /* serveur muet : le cache local fait foi */ });

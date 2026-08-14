@@ -355,6 +355,11 @@
     opacity:.45;transition:opacity 140ms ease}
   #texreadFs:hover,#texreadFs:focus-within{opacity:1}
   #right.reading #texreadFs{display:inline-flex}
+  #texreadFs .fs-sep{width:1px;height:14px;background:var(--border);margin:0 3px;flex:none}
+  #texreadFs .tr-sw{width:14px;height:14px;min-width:0;border-radius:999px;padding:0;
+    border:1px solid var(--border-strong,#3f4652)}
+  #texreadFs .tr-sw.on{outline:2px solid var(--accent);outline-offset:1px}
+
   #texreadFs button{width:22px;height:22px;padding:0;border:none;border-radius:999px;
     display:inline-flex;align-items:center;justify-content:center;
     background:transparent;color:var(--muted);font-size:12px;cursor:pointer}
@@ -363,21 +368,33 @@
   #texreadFs .fs-val{min-width:24px;text-align:center;font-size:10px;color:var(--muted);
     font-variant-numeric:tabular-nums;user-select:none}
 
+  /* Trois fonds de lecture (sombre, sépia, clair) : toutes les couleurs de la
+     prose passent par des variables --tr-*, redéfinies par [data-tr-theme] sur
+     #right. Défauts = le sombre historique. */
+  #right.reading{background:var(--tr-bg,var(--card2))}
   #texread{display:none;max-width:760px;margin:0 auto;padding:36px 40px 120px;
-    font-family:Charter,Georgia,"Times New Roman",serif;line-height:1.7;color:#e6e8ec;
+    font-family:Charter,Georgia,"Times New Roman",serif;line-height:1.7;color:var(--tr-fg,#e6e8ec);
     font-size:var(--texread-fs,17px)}
   #right.reading .pdfpage,#right.reading #marker{display:none!important}
   #right.reading #texread{display:block}
+  #right[data-tr-theme="sepia"]{--tr-bg:#efe7d4;--tr-fg:#3c3428;--tr-head2:#584c39;
+    --tr-strong:#221c12;--tr-code:rgba(92,72,40,.12);--tr-muted:#8a7a5f;--tr-faint:#93835f;
+    --tr-line:#cfc2a4;--tr-accent:#b45309}
+  /* « Noir du chat » : le fond de l'app (--surface-app, transmis par
+     atelier_theme.js en mode embarqué) — la Lecture s'aligne sur le chat.
+     Les couleurs de prose du sombre par défaut restent valables. */
+  #right[data-tr-theme="chat"]{--tr-bg:var(--surface-app,#1e2124)}
+
   #texread h1{font-size:1.53em;font-weight:600;text-align:center;margin:0 0 22px;letter-spacing:-.01em}
   #texread h2{font-size:1.18em;font-weight:600;margin:30px 0 12px;letter-spacing:-.01em}
   #texread h3{font-size:1em;font-weight:600;margin:24px 0 10px}
-  #texread h4,#texread h5{font-size:.88em;font-weight:600;margin:20px 0 8px;color:#c7ccd4}
+  #texread h4,#texread h5{font-size:.88em;font-weight:600;margin:20px 0 8px;color:var(--tr-head2,#c7ccd4)}
   #texread p{margin:0 0 15px}
   #texread ul,#texread ol{margin:0 0 15px;padding-left:26px}
   #texread li{margin:4px 0}
-  #texread strong{font-weight:650;color:#f2f4f7}
+  #texread strong{font-weight:650;color:var(--tr-strong,#f2f4f7)}
   #texread code{font-family:var(--code-font,"SF Mono",Menlo,monospace);font-size:.88em;
-    background:rgba(255,255,255,.06);padding:1px 5px;border-radius:4px}
+    background:var(--tr-code,rgba(255,255,255,.06));padding:1px 5px;border-radius:4px}
   #texread [data-line]{cursor:text;transition:background .12s;border-radius:3px}
   /* Pas de teinte au survol : en lecture continue, chaque paragraphe survolé
      s'allumait sous la souris. Le renvoi vers la source reste au clic. */
@@ -398,10 +415,10 @@
     font:12.5px/1.55 var(--code-font);letter-spacing:0}
   #texread .texread-edit:focus{outline:none;box-shadow:0 0 0 2px color-mix(in srgb,var(--accent) 25%,transparent)}
   #texread .tex-todo{color:#e0726a;font-weight:600}
-  #texread .tex-cite{color:var(--accent);font-variant:small-caps;font-size:.92em}
-  #texread .tex-ref{color:#868d9a}
-  #texread .tex-fn{color:var(--accent);cursor:help}
-  #texread .tex-env{color:#646d7b;font-style:italic;text-align:center;border:1px dashed #333a45;
+  #texread .tex-cite{color:var(--tr-accent,var(--accent));font-variant:small-caps;font-size:.92em}
+  #texread .tex-ref{color:var(--tr-muted,#868d9a)}
+  #texread .tex-fn{color:var(--tr-accent,var(--accent));cursor:help}
+  #texread .tex-env{color:var(--tr-faint,#646d7b);font-style:italic;text-align:center;border:1px dashed var(--tr-line,#333a45);
     border-radius:8px;padding:14px;margin:16px 0;font-family:var(--ui-font,sans-serif);font-size:13px}
   #texread .tex-matherr{color:#e0726a;font-family:monospace;font-size:.9em}
   #texread .katex{font-size:1.02em}
