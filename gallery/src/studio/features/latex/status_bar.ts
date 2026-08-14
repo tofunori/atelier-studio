@@ -51,40 +51,51 @@ export function isAutoRewrapEnabled(storage: Pick<Storage, "getItem">): boolean 
   return storage.getItem("texAutoRewrap") === "1";
 }
 
-/** Clé serveur du réglage (piège connu n°1 : le `localStorage` du WebView ne
- * survit pas au redémarrage de l'app, donc il ne peut pas être la source de
+/** Compilation automatique débouncée après sauvegarde et après rechargement
+ * agent. Sans elle, le PDF et son synctex datent de la dernière compilation
+ * manuelle : chaque clic PDF↔source « tombe à côté » d'autant de lignes que
+ * les agents en ont déplacé depuis. */
+export function isAutoCompileEnabled(storage: Pick<Storage, "getItem">): boolean {
+  return storage.getItem("texAutoCompile") === "1";
+}
+
+/** Clés serveur des réglages (piège connu n°1 : le `localStorage` du WebView
+ * ne survit pas au redémarrage de l'app, donc il ne peut pas être la source de
  * vérité). Le cache local reste, mais l'état vient du serveur au démarrage. */
 const AUTO_REWRAP_STATE_KEY = "texAutoRewrap";
+const AUTO_COMPILE_STATE_KEY = "texAutoCompile";
 
-/** Charge le réglage depuis `/state` et amorce le cache local. Un échec est
- * sans conséquence : on garde ce que le cache contient. */
-export async function hydrateAutoRewrap(
+/** Charge un réglage booléen depuis `/state` et amorce le cache local. Un
+ * échec est sans conséquence : on garde ce que le cache contient. */
+async function hydrateServerPref(
   storage: Pick<Storage, "getItem" | "setItem">,
   fetchImpl: typeof fetch,
+  key: string,
 ): Promise<boolean> {
   try {
     const response = await fetchImpl("/state");
     const state = await response.json() as Record<string, unknown>;
-    const value = state?.[AUTO_REWRAP_STATE_KEY];
+    const value = state?.[key];
     if (value === true || value === false) {
-      storage.setItem("texAutoRewrap", value ? "1" : "0");
+      storage.setItem(key, value ? "1" : "0");
       return value;
     }
   } catch { /* serveur muet : le cache local fait foi */ }
-  return isAutoRewrapEnabled(storage);
+  return storage.getItem(key) === "1";
 }
 
-/** Persiste le réglage côté serveur, en fusionnant pour ne pas écraser le
- * reste de l'état de la galerie. */
-export async function persistAutoRewrap(
+/** Persiste un réglage booléen côté serveur, en fusionnant pour ne pas
+ * écraser le reste de l'état de la galerie. */
+async function persistServerPref(
   enabled: boolean,
   fetchImpl: typeof fetch,
+  key: string,
 ): Promise<void> {
   try {
     const current = await fetchImpl("/state")
       .then((response) => response.json() as Promise<Record<string, unknown>>)
       .catch(() => ({}));
-    const next = {...(current && typeof current === "object" ? current : {}), [AUTO_REWRAP_STATE_KEY]: enabled};
+    const next = {...(current && typeof current === "object" ? current : {}), [key]: enabled};
     await fetchImpl("/state", {
       method: "POST",
       headers: {"Content-Type": "application/json"},
@@ -92,6 +103,26 @@ export async function persistAutoRewrap(
     });
   } catch { /* le réglage reste actif pour la session en cours */ }
 }
+
+export const hydrateAutoRewrap = (
+  storage: Pick<Storage, "getItem" | "setItem">,
+  fetchImpl: typeof fetch,
+): Promise<boolean> => hydrateServerPref(storage, fetchImpl, AUTO_REWRAP_STATE_KEY);
+
+export const persistAutoRewrap = (
+  enabled: boolean,
+  fetchImpl: typeof fetch,
+): Promise<void> => persistServerPref(enabled, fetchImpl, AUTO_REWRAP_STATE_KEY);
+
+export const hydrateAutoCompile = (
+  storage: Pick<Storage, "getItem" | "setItem">,
+  fetchImpl: typeof fetch,
+): Promise<boolean> => hydrateServerPref(storage, fetchImpl, AUTO_COMPILE_STATE_KEY);
+
+export const persistAutoCompile = (
+  enabled: boolean,
+  fetchImpl: typeof fetch,
+): Promise<void> => persistServerPref(enabled, fetchImpl, AUTO_COMPILE_STATE_KEY);
 
 export function floatingMenuPosition(
   anchor: Pick<DOMRect, "left" | "top" | "bottom">,
