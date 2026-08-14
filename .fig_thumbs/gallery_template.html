@@ -143,7 +143,9 @@
   /* mode embarqué (iframe Atelier) : header compact sur une rangée —
      la marque/projet/stat sont déjà dans le chrome de l'app */
   html.emb .brand{display:none}
-  html.emb header{padding:4px 10px;height:44px;box-sizing:border-box}
+  /* 4 + 36 (barre) + 4 = 44 : la barre est centrée dans l'en-tête, et les
+     boutons de 26 px retombent à 9 px des deux bords. */
+  html.emb header{padding:4px 12px;height:44px;box-sizing:border-box}
   /* Les contrôles de la barre React font 30 px : dans une barre de 44 px il ne
      reste que 7 px de respiration, et l'ensemble paraît serré (les boutons
      sont pourtant centrés au pixel). On les ramène à 26 px, la taille des
@@ -436,7 +438,12 @@
   }
   body{letter-spacing:-.004em;background:var(--bg)}
   header{background:var(--card);backdrop-filter:none;box-shadow:none}
-  html.emb header{padding:8px 12px;background:var(--bg)}
+  /* PIÈGE : cette règle posait aussi `padding:8px 12px`, à spécificité égale
+     avec celle du bloc « mode embarqué » plus haut — et gagnait, étant après.
+     Avec `height:44px`, 8 + 36 (barre) = 44 : le padding du bas était écrasé à
+     zéro et les boutons tombaient 4 px trop bas (13 en haut, 5 en bas). Le
+     padding appartient à la règle du haut ; ici, seul le fond. */
+  html.emb header{background:var(--bg)}
   .controls{gap:7px}
   input[type=search],.csel-btn,select,button,.chip{
     transition:background-color var(--motion-fast) ease-out,border-color var(--motion-fast) ease-out,

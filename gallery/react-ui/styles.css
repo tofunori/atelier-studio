@@ -15,10 +15,35 @@ html.gallery-react-mounted #selBar { display:none!important;margin:0!important;p
 .gallery-command-select { width:auto;max-width:min(180px,18vw);flex:0 1 auto; }
 .gallery-command-sort { min-width:112px; }
 .gallery-command-sort [data-icon="select-chevron"] { display:none; }
-/* Toggle favoris actif : accent primaire (étoile pleine + libellé) + léger enfoncement */
-.gallery-command-bar [data-gallery-command="favorites"][aria-pressed="true"] { color:var(--primary); box-shadow:inset 0 1px 3px rgb(0 0 0 / 32%); }
-/* Filtre actif (collection / statut) : accent primaire */
-.gallery-command-bar [data-gallery-active="true"] { color:var(--primary); }
+
+/* ── Traitement « fantôme » ─────────────────────────────────────────────
+   Contrat de design du projet : « bordures 1px réservées aux séparateurs
+   internes ». La barre portait dix bordures d'existence et aucun séparateur ;
+   on inverse. Au repos, aucun trait : seuls le survol (fond) et l'état actif
+   (teinte accent) marquent les contrôles. Le tri est un SelectTrigger, il
+   perd sa bordure ici aussi — sinon il reste le seul cadre de la barre. */
+.gallery-command-bar [data-slot="select-trigger"] { border-color:transparent;background:transparent; }
+.gallery-command-bar [data-slot="select-trigger"]:hover { background:var(--accent); }
+/* Le groupe de droite (tri, affichage, outils) règle le contenant, pas le
+   contenu : il recule d'un plan tant qu'on ne le survole pas. */
+.gallery-command-bar [data-gallery-group="order"] [data-slot],
+.gallery-command-bar [data-gallery-group="display"] [data-slot] { color:var(--muted-foreground); }
+.gallery-command-bar [data-gallery-group="order"] [data-slot]:hover,
+.gallery-command-bar [data-gallery-group="display"] [data-slot]:hover { color:var(--foreground); }
+/* Seul trait de la barre : entre deux groupes. */
+.gallery-command-sep { height:18px;align-self:center;flex:0 0 auto; }
+/* Actif — recherche posée, filtres, favoris, collection, statut : fond teinté
+   + accent. Jamais de bordure, sinon on réintroduit ce qu'on vient d'ôter. */
+.gallery-command-bar [data-gallery-active="true"],
+.gallery-command-bar [data-gallery-command="favorites"][aria-pressed="true"] {
+  color:var(--primary);
+  background:color-mix(in srgb,var(--primary) 13%,transparent);
+}
+.gallery-command-bar [data-gallery-active="true"]:hover,
+.gallery-command-bar [data-gallery-command="favorites"][aria-pressed="true"]:hover {
+  color:var(--primary);
+  background:color-mix(in srgb,var(--primary) 20%,transparent);
+}
 .gallery-command-spacer { min-width:0;flex:1 1 auto; }
 .gallery-active-filters { display:flex;min-width:0;max-width:360px;align-items:center;gap:5px;overflow:hidden; }
 .gallery-filter-chip { min-width:0;max-width:180px;flex:0 1 auto;overflow:hidden; }
