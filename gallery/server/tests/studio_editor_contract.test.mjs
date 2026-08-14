@@ -333,13 +333,17 @@ test("missing CM6 reports a controlled CM5 fallback", () => {
   assert.equal(harness.document.documentElement.dataset.editorEngine, "cm5");
 });
 
-test("CM5 fallback preserves selection and viewport when replacing the document", () => {
+// La place est préservée, la plage est abandonnée : après un remplacement
+// complet (agent, rechargement disque, restauration de version) les anciennes
+// coordonnées ne désignent plus le passage sélectionné, et garder la plage
+// laissait une sélection fantôme derrière l'utilisateur.
+test("CM5 fallback preserves the caret and viewport, never the range, when replacing the document", () => {
   const harness = factoryHarness({search: "?engine=cm5"});
   const editor = harness.factory.createEditor({parent: {}, value: "x", ext: "txt", defaultEngine: "cm6"});
   editor.setValue("replacement");
   assert.deepEqual(editor.events, [
     ["setValue", "replacement"],
-    ["setSelection", {line: 4, ch: 2}, {line: 4, ch: 7}],
+    ["setSelection", {line: 4, ch: 7}, {line: 4, ch: 7}],
     ["scrollTo", 11, 240],
   ]);
 });

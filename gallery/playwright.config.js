@@ -22,5 +22,13 @@ export default defineConfig({
       grep: /latex auto rewrap/,
       use: {browserName: 'webkit'},
     },
+    {
+      // L'app tourne dans un WKWebView : c'est là que la sélection fantôme
+      // d'après rechargement agent se voit, Chromium seul ne suffit pas.
+      name: 'webkit-selection',
+      testMatch: /editor_cm6\.spec\.js/,
+      grep: /rechargement agent/,
+      use: {browserName: 'webkit'},
+    },
   ],
 });

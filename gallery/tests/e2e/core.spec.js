@@ -545,19 +545,39 @@ test('file types: compact popover stays inside narrow gallery viewports', async 
   });
 });
 
-test('command bar: filter and display controls form one compact left-aligned cluster', async ({ page }) => {
+// Trois groupes — chercher/filtrer, trier, afficher — posés à gauche et
+// séparés par un filet, seul trait de la barre depuis le passage en fantôme.
+test('command bar: three left-aligned groups parted by a hairline', async ({ page }) => {
   await withGallery(async ({ url }) => {
     await page.setViewportSize({ width: 1280, height: 800 });
     await page.goto(url);
 
-    const filterGroup = page.getByRole('group', { name: 'Search and filter gallery' });
-    const displayGroup = page.getByRole('group', { name: 'Sort and display gallery' });
-    const [filterBox, displayBox] = await Promise.all([filterGroup.boundingBox(), displayGroup.boundingBox()]);
+    const groups = ['Search and filter gallery', 'Sort gallery', 'Display and gallery tools'];
+    const boxes = await Promise.all(
+      groups.map((name) => page.getByRole('group', { name }).boundingBox()),
+    );
+    boxes.forEach((box) => expect(box).not.toBeNull());
 
-    expect(filterBox).not.toBeNull();
-    expect(displayBox).not.toBeNull();
-    expect(displayBox.x - (filterBox.x + filterBox.width)).toBeGreaterThanOrEqual(0);
-    expect(displayBox.x - (filterBox.x + filterBox.width)).toBeLessThanOrEqual(10);
+    // Chaque groupe suit le précédent, à la largeur d'un filet et de ses marges.
+    for (let index = 1; index < boxes.length; index += 1) {
+      const gap = boxes[index].x - (boxes[index - 1].x + boxes[index - 1].width);
+      expect(gap).toBeGreaterThanOrEqual(0);
+      expect(gap).toBeLessThanOrEqual(24);
+    }
+
+    const separators = page.locator('.gallery-command-sep');
+    await expect(separators).toHaveCount(groups.length - 1);
+    const separatorBox = await separators.first().boundingBox();
+    expect(separatorBox.width).toBeGreaterThan(0);
+
+    // Aucune bordure de contrôle au repos : le filet est le seul trait.
+    const bordered = await page.evaluate(() => [...document.querySelectorAll(
+      '.gallery-command-bar[data-gallery-toolbar-state="normal"] button',
+    )].filter((element) => {
+      const color = getComputedStyle(element).borderTopColor;
+      return !/rgba\(0, 0, 0, 0\)|transparent/.test(color);
+    }).length);
+    expect(bordered).toBe(0);
 
     const sort = page.getByRole('combobox', { name: /Sort project files:/ });
     await expect(sort).toBeVisible();

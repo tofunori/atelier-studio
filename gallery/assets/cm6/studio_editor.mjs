@@ -499,12 +499,18 @@ export function createStudioEditor(parent, opts) {
     if (nextText.eq(doc())) return;
     const scrollState = captureScrollableState(view);
     const selection = view.state.selection.main;
-    const anchor = toPos(selection.anchor);
     const head = toPos(selection.head);
     const changes = view.state.changes({from: 0, to: doc().length, insert: nextText});
+    // On garde la PLACE, jamais la PLAGE. Un remplacement complet vient d'un
+    // agent, d'un rechargement disque ou d'une restauration de version : le
+    // texte sous les anciennes coordonnées n'est plus celui que l'utilisateur
+    // avait sélectionné. Restaurer la plage laissait l'état CM6 porter une
+    // sélection fantôme que le DOM n'a pas (le moteur ne l'y écrit pas tant
+    // que la vue n'a pas le focus) ; au retour dans l'éditeur, le clic héritait
+    // de cette ancre et surlignait tout un pan du document.
     view.dispatch({
       changes,
-      selection: EditorSelection.single(offsetInText(nextText, anchor), offsetInText(nextText, head)),
+      selection: EditorSelection.single(offsetInText(nextText, head)),
       annotations: setValueAnno.of(true),
     });
     // EditorView.scrollSnapshot is intentionally not used across a full

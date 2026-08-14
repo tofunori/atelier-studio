@@ -294,3 +294,53 @@ test('latex anchored comments persist through the typed controller in CM5 and CM
     });
   }
 });
+
+// Régression : après un rechargement agent, l'éditeur restaurait la PLAGE
+// sélectionnée par coordonnées ligne/colonne. Or l'agent a réécrit le texte :
+// ces coordonnées désignent maintenant autre chose, et l'état CM6 se retrouve
+// désynchronisé de la sélection DOM (que le moteur n'écrit pas tant que la vue
+// n'a pas le focus). Au retour dans l'éditeur, le clic hérite de cette ancre
+// fantôme et sélectionne tout un pan du document.
+test('rechargement agent : la sélection ne survit pas en plage fantôme', async ({page}) => {
+  const corps = Array.from({length: 60}, (_, i) =>
+    `Paragraphe ${String(i + 1).padStart(2, '0')} : phrase de test pour la selection dans l'editeur du studio.`).join('\n\n');
+  const source = `\\documentclass{article}\n\\begin{document}\n\n${corps}\n\n\\end{document}\n`;
+  await withProject({'agent.tex': source}, async ({root, url}) => {
+    await page.goto(url('latex_studio.html', 'agent.tex'));
+    await expectEngine(page, 'cm6');
+
+    // L'utilisateur sélectionne un passage, puis quitte l'éditeur pour le chat.
+    await page.evaluate(() => {
+      cm.focus();
+      cm.setSelection({line: 10, ch: 0}, {line: 16, ch: 30});
+    });
+    expect(await page.evaluate(() => cm.getSelection().length)).toBeGreaterThan(0);
+    await page.evaluate(() => document.activeElement?.blur());
+
+    // Un agent réécrit le fichier pendant ce temps.
+    const cible = path.join(root, 'agent.tex');
+    const temporaire = `${cible}.external`;
+    writeFileSync(temporaire, source.replace('Paragraphe 05', 'Paragraphe 05 REECRIT PAR L AGENT AVEC UNE PHRASE PLUS LONGUE'));
+    const futur = new Date(Date.now() + 1500);
+    utimesSync(temporaire, futur, futur);
+    renameSync(temporaire, cible);
+    await expect.poll(() => page.evaluate(() => cm.getValue())).toContain('REECRIT PAR L AGENT');
+
+    // Invariant : un rechargement complet garde la place, jamais la plage.
+    const apresRechargement = await page.evaluate(() => ({
+      selection: cm.getSelection().length,
+      dom: window.getSelection().toString().length,
+    }));
+    expect(apresRechargement.selection).toBe(0);
+    expect(apresRechargement.dom).toBe(0);
+
+    // Et le retour dans le texte pose un simple curseur.
+    await page.locator('.cm-content').click({position: {x: 120, y: 60}});
+    const apresClic = await page.evaluate(() => ({
+      selection: cm.getSelection().length,
+      dom: window.getSelection().toString().length,
+    }));
+    expect(apresClic.selection).toBe(0);
+    expect(apresClic.dom).toBe(0);
+  });
+});

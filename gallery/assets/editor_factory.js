@@ -76,12 +76,11 @@
     editor.hasNativeSelectionHighlight = false;
     const replaceValue = editor.setValue.bind(editor);
     editor.setValue = (text) => {
-      const anchor = editor.getCursor("anchor");
       const head = editor.getCursor("head");
       const scroll = editor.getScrollInfo();
       const replace = () => {
         replaceValue(text);
-        editor.setSelection(anchor, head);
+        editor.setSelection(head, head);
       };
       if (typeof editor.operation === "function") editor.operation(replace);
       else replace();

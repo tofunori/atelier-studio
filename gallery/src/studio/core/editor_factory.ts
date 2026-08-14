@@ -103,12 +103,14 @@ export function createEditor(options: StudioEditorOptions): StudioEditor {
 
   const replaceValue = editor.setValue.bind(editor);
   editor.setValue = (text: string): void => {
-    const anchor = editor.getCursor("anchor");
+    // La place, jamais la plage — même raison qu'en CM6 (studio_editor.mjs) :
+    // après un remplacement complet, les anciennes coordonnées ne désignent
+    // plus le passage que l'utilisateur avait sélectionné.
     const head = editor.getCursor("head");
     const scroll = editor.getScrollInfo();
     const replace = (): void => {
       replaceValue(text);
-      editor.setSelection(anchor, head);
+      editor.setSelection(head, head);
     };
     if (typeof editor.operation === "function") editor.operation(replace);
     else replace();
