@@ -226,7 +226,8 @@ export function createLatexPdfSyncController(options: LatexPdfSyncOptions): Late
   // affiche une image périmée pendant que synctex répond pour le PDF neuf sur
   // disque — les sauts tombent « à côté ».
   let watchedMtime: number | null = null;
-  win.setInterval(() => {
+  // Les harnais de test montent ce contrôleur avec un `window` minimal.
+  if (typeof win.setInterval === "function") win.setInterval(() => {
     const pdfPath = options.getPdfPath();
     if (!pdfPath || !pdfDocument || doc.hidden) return;
     void win.fetch(`/statfile?path=${encodeURIComponent(pdfPath)}${options.tokenQuery || ""}`)

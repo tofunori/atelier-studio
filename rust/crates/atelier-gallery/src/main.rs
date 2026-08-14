@@ -230,12 +230,13 @@ async fn save_gallery_state(
     // Requête sans texAutoRewrap (la galerie POste /state avec ses seules
     // clés) : reporter la valeur du fichier existant, sinon chaque ajout de
     // favori effacerait le réglage d'éditeur. Symétrique du serveur Node.
-    if sanitized.get("texAutoRewrap").is_none() {
-        if let Ok(raw) = std::fs::read_to_string(state.root.join(".fig_state.json"))
+    for editor_pref in ["texAutoRewrap", "texAutoCompile"] {
+        if sanitized.get(editor_pref).is_none()
+            && let Ok(raw) = std::fs::read_to_string(state.root.join(".fig_state.json"))
             && let Ok(previous) = serde_json::from_str::<Value>(&raw)
-            && let Some(auto_rewrap) = previous.get("texAutoRewrap").and_then(Value::as_bool)
+            && let Some(kept) = previous.get(editor_pref).and_then(Value::as_bool)
         {
-            sanitized["texAutoRewrap"] = json!(auto_rewrap);
+            sanitized[editor_pref] = json!(kept);
         }
     }
     let counts = json!({
@@ -371,6 +372,9 @@ fn sanitize_gallery_state(request: &Value) -> Value {
     // la route /state du serveur Node (server/routes/core.mjs).
     if let Some(auto_rewrap) = request.get("texAutoRewrap").and_then(Value::as_bool) {
         state["texAutoRewrap"] = json!(auto_rewrap);
+    }
+    if let Some(auto_compile) = request.get("texAutoCompile").and_then(Value::as_bool) {
+        state["texAutoCompile"] = json!(auto_compile);
     }
     state
 }

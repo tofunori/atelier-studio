@@ -370,6 +370,7 @@ async function main() {
         collections: { chosen: ["plot.png", "plot.png"] },
         workflow: { "plot.png": "final", "notes.md": "bogus" },
         texAutoRewrap: true,
+        texAutoCompile: true,
       },
     });
     assert.equal(r.status, 200, "POST /state status");
@@ -392,6 +393,7 @@ async function main() {
     assert.equal(r.status, 200, "POST /state sans texAutoRewrap");
     const carried = JSON.parse(fs.readFileSync(path.join(root, ".fig_state.json"), "utf8"));
     assert.equal(carried.texAutoRewrap, true, "texAutoRewrap reporté quand la requête ne le mentionne pas");
+    assert.equal(carried.texAutoCompile, true, "texAutoCompile reporté aussi — même liste blanche");
 
     // /statfile : mtime seul — la veille des panes PDF sur les recompiles externes.
     r = await request(nodePort, `/statfile?path=${encodeURIComponent("plot.png")}`);

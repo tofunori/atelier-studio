@@ -187,6 +187,25 @@ test("automatic LaTeX rewrap remains opt-in and respects the stored preference",
   assert.equal(latex.isAutoRewrapEnabled({getItem: () => "0"}), false);
 });
 
+test("la compilation automatique est opt-in, hydratée et persistée comme le rewrap", async () => {
+  assert.equal(latex.isAutoCompileEnabled({getItem: () => null}), false);
+  assert.equal(latex.isAutoCompileEnabled({getItem: () => "1"}), true);
+  // hydratation : la valeur serveur amorce le cache local
+  const cache = new Map();
+  const storage = {getItem: (k) => cache.get(k) ?? null, setItem: (k, v) => cache.set(k, v)};
+  const fetchServer = async () => ({json: async () => ({texAutoCompile: true})});
+  assert.equal(await latex.hydrateAutoCompile(storage, fetchServer), true);
+  assert.equal(cache.get("texAutoCompile"), "1");
+  // persistance : fusion avec l'état existant, sans l'écraser
+  const posts = [];
+  const fetchMerge = async (url, init) => {
+    if (init?.method === "POST") { posts.push(JSON.parse(init.body)); return {json: async () => ({})}; }
+    return {json: async () => ({autre: "réglage", texAutoRewrap: true})};
+  };
+  await latex.persistAutoCompile(true, fetchMerge);
+  assert.deepEqual(posts, [{autre: "réglage", texAutoRewrap: true, texAutoCompile: true}]);
+});
+
 test("window rewrap column uses the real text rectangle with a safety margin", () => {
   const line = {ownerDocument: {defaultView: {getComputedStyle: () => ({paddingLeft: "10px", paddingRight: "14px"})}}};
   const wrapper = {
