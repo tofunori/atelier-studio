@@ -16,7 +16,7 @@ import {
   type KbBinding,
   type KbSource,
 } from "../lib/kbSources";
-import { KbPickerPanel, type GbrainResult } from "./chat/KbPicker";
+import { KbPickerPanel, type ArticleRow, type GbrainResult } from "./chat/KbPicker";
 import { useKbActions } from "./chat/kbActions";
 import { Dialog, DialogContent, DialogTitle } from "./shadcn/dialog";
 import { Input } from "./shadcn/input";
@@ -53,6 +53,9 @@ export default function KnowledgeSurface(p: {
     activeCollection: () => activeCollRef.current,
   });
 
+  // Articles du corpus (plan 053) : rafraîchis à l'ouverture de la surface et
+  // après chaque écriture — en mode automatique, rien d'autre ne les annonce.
+  const [articles, setArticles] = useState<ArticleRow[]>([]);
   const [gbrainQuery, setGbrainQuery] = useState("");
   const [gbrainResults, setGbrainResults] = useState<GbrainResult[]>([]);
   const [gbrainError, setGbrainError] = useState<string | null>(null);
@@ -71,7 +74,24 @@ export default function KnowledgeSurface(p: {
 
   useEffect(() => {
     if (p.visible) requestKbSources();
+    if (p.visible) wsSend({ type: "articleList", limit: 20 });
   }, [p.visible]);
+
+  useEffect(() => {
+    const onListed = (e: Event) => {
+      const detail = (e as CustomEvent).detail as { articles?: ArticleRow[] } | undefined;
+      setArticles(Array.isArray(detail?.articles) ? detail.articles : []);
+    };
+    const onWritten = () => {
+      if (visibleRef.current) wsSend({ type: "articleList", limit: 20 });
+    };
+    window.addEventListener("article-listed", onListed);
+    window.addEventListener("article-written", onWritten);
+    return () => {
+      window.removeEventListener("article-listed", onListed);
+      window.removeEventListener("article-written", onWritten);
+    };
+  }, []);
 
   useEffect(() => {
     const onPreview = (e: Event) => {
@@ -185,6 +205,7 @@ export default function KnowledgeSurface(p: {
         onCollFilterChange={(slug) => { activeCollRef.current = slug; }}
         onAddFiles={() => { void actions.addFiles(); }}
         onAddFolder={() => { void actions.addFolder(); }}
+        articles={articles}
         onAddArticle={() => { actions.setError(null); openArticleDialog(); }}
         onAddUrl={(url) => {
           if (destination === "gbrain") promoteNextRef.current += 1;

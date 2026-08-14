@@ -1565,6 +1565,9 @@ export default function App() {
           { detail: msg },
         ));
       }
+      if (msg.type === "articleListed") {
+        window.dispatchEvent(new CustomEvent("article-listed", { detail: msg }));
+      }
       if (msg.type === "gbrainResults") {
         // recherche du corpus NAS (plan 050 P3) — consommée par la surface
         // Connaissances ; l'échec voyage dans detail.error, en place

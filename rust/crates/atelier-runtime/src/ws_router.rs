@@ -71,6 +71,7 @@ pub const ALL_MESSAGE_TYPES: &[&str] = &[
     "articleImport",
     "articleWrite",
     "articleDraft",
+    "articleList",
     "gbrainSearch",
     "generateImage",
     "apiProviders",
@@ -625,6 +626,7 @@ pub async fn route_ws(state: &AppState, text: &str) -> Vec<String> {
         "articleImport" => handle_article_import(state, &msg).await,
         "articleWrite" => handle_article_write(state, &msg).await,
         "articleDraft" => handle_article_draft(state, &msg).await,
+        "articleList" => handle_article_list(state, &msg).await,
         "generateImage" => handle_generate_image(state, &msg).await,
         "apiProviders" => {
             let list = list_api_providers_public(state.app_dir());
@@ -1894,6 +1896,30 @@ async fn handle_article_import(state: &AppState, msg: &Value) -> Vec<String> {
             "warning": v.get("warning").cloned().unwrap_or(Value::Null),
         }))],
         Err(e) => article_error(&request_id, e),
+    }
+}
+
+/// Articles déjà écrits dans le corpus. En mode automatique, c'est le seul
+/// endroit qui dit ce qui est entré — un échec de liste ne doit donc jamais
+/// rester muet : il voyage dans le champ `error` de la réponse.
+async fn handle_article_list(state: &AppState, msg: &Value) -> Vec<String> {
+    let limit = msg
+        .get("limit")
+        .and_then(Value::as_u64)
+        .unwrap_or(20)
+        .clamp(1, 100)
+        .to_string();
+    let args = vec!["article-list".to_string(), "--limit".to_string(), limit];
+    match article_cli(state, args).await {
+        Ok(v) => vec![json_msg(json!({
+            "type": "articleListed",
+            "articles": v.get("articles").cloned().unwrap_or(json!([])),
+        }))],
+        Err(e) => vec![json_msg(json!({
+            "type": "articleListed",
+            "articles": [],
+            "error": e,
+        }))],
     }
 }
 

@@ -1227,6 +1227,20 @@ export async function route(msg, ctx) {
       }
       break;
     }
+    case "articleList": {
+      // articles déjà dans le corpus — en mode automatique, c'est le seul
+      // endroit qui dit ce qui est entré
+      try {
+        const out = await runArticleCli(ctx, ["article-list", "--limit", String(msg.limit ?? 20)]);
+        ctx.send({ type: "articleListed", articles: out.articles ?? [] });
+      } catch (error) {
+        ctx.send({
+          type: "articleListed", articles: [],
+          error: error instanceof Error ? error.message : String(error),
+        });
+      }
+      break;
+    }
     case "articleDraft": {
       // texte complet du brouillon (la fiche n'en montre qu'un aperçu)
       try {

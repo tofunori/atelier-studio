@@ -49,6 +49,7 @@ function fmtSyncAge(syncedAt: unknown): string {
 
 /** Résultat de recherche du corpus gbrain (plan 050 P3). */
 export type GbrainResult = { slug: string; snippet?: string };
+export type ArticleRow = { slug: string; title?: string; date?: string };
 export type GbrainSectionProps = {
   query: string;
   results: GbrainResult[];
@@ -184,6 +185,8 @@ export function KbPickerPanel(p: {
   onPromotePage?: (id: string) => void;
   /** Destination de la zone d'ajout (surface) : base locale ou corpus. */
   destination?: { value: "local" | "gbrain"; onChange: (value: "local" | "gbrain") => void };
+  /** articles déjà écrits dans le corpus, récents d'abord */
+  articles?: ArticleRow[];
   /** Plan 051 : collections (chips-filtres) et archivage. */
   collections?: { slug: string; title: string }[];
   archived?: { count: number; sources: KbSource[] };
@@ -747,6 +750,33 @@ export function KbPickerPanel(p: {
             </>
           )}
         </div>
+        {/* Articles écrits dans le corpus (plan 053) : en mode automatique,
+            c'est le seul endroit qui dit ce qui vient d'entrer. */}
+        {surface && !archivedView && (p.articles?.length ?? 0) > 0 && (
+          <div className="kb-gbrain-section">
+            <div className="kb-group kb-group-section">{t("article.recent")}</div>
+            {p.articles?.map((article) => {
+              const pinned = p.sources.find(
+                (source) => source.kind === "gbrain" && source.meta?.slug === article.slug,
+              );
+              if (pinned) return renderRow(pinned);
+              return (
+                <div key={article.slug} className="kb-row">
+                  <RowButton
+                    className="kb-row-main"
+                    title={article.slug}
+                    onClick={() => p.gbrain?.onPin(article.slug)}
+                  >
+                    <span className="kb-check" aria-hidden />
+                    <span className="kb-kind"><KindIcon kind="gbrain" /></span>
+                    <span className="kb-name">{article.title || article.slug}</span>
+                    <span className="kb-meta kb-article-date">{article.date}</span>
+                  </RowButton>
+                </div>
+              );
+            })}
+          </div>
+        )}
         {surface && !archivedView && p.gbrain && (
           <div className="kb-gbrain-section">
             <div className="kb-group kb-group-section">{t("kb.gbrain-pages")}</div>
