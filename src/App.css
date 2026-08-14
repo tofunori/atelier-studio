@@ -93,14 +93,21 @@ html, body, #root, .app { height: 100vh; overflow: hidden;
 .spinner { margin-left: auto; animation: spin 1s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }
 .chat { display: flex; flex-direction: row; height: 100%; min-width: 0; }
-/* --chat-col : colonne de lecture du chat — plafonnée au réglage (--chat-w) en
-   panneau étroit/moyen, puis suit la largeur réelle du panneau (92cqw, 4% d'air
-   par côté). Consommée par le fil, le composer, les capsules et .ui-activity. */
+/* --chat-col : colonne de lecture du chat. Le réglage --chat-w est un VRAI
+   plafond (contrat §7 : largeur de lecture 640–720 px cible) — en panneau
+   large la colonne s'y arrête au lieu de suivre le panneau ; en panneau
+   étroit, 92cqw prend le relais et garde 4 % d'air par côté.
+   Consommée par le fil, le composer, les capsules et .ui-activity. */
 .chat-primary { position: relative; display: flex; flex: 1 1 auto; flex-direction: column;
   min-width: 0; min-height: 0; height: 100%; container-type: inline-size;
-  --chat-col: max(var(--chat-w, 760px), 92cqw); }
+  --chat-col: min(var(--chat-w, 760px), 92cqw); }
 .timeline-scroll-wrap { position: relative; flex: 1; min-height: 0; display: flex; }
-.messages { flex: 1; min-width: 0; min-height: 0; overflow-y: auto; padding: 24px 24px 8px 40px; }
+/* gouttières horizontales SYMÉTRIQUES (40 px) : la colonne est centrée par
+   `margin: 0 auto` dans la boîte de contenu de .messages, or le composer est
+   centré sur .chat-primary. Une fois --chat-col plafonné, les deux blocs font
+   la même largeur : 40/24 les décalait visiblement de 8 px l'un par rapport à
+   l'autre. 40 px à gauche garde aussi le rail .chapters (10→26 px) au clair. */
+.messages { flex: 1; min-width: 0; min-height: 0; overflow-y: auto; padding: 24px 40px 8px; }
 .messages.is-first-turn-settling { visibility: hidden; }
 .timeline-virtual-row { max-width: var(--chat-col, 760px); width: 100%; margin: 0 auto; padding-bottom: 14px; }
 /* Le slot actif prolonge le dernier segment du tour : il doit rester proche du
