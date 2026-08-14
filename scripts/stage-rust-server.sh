@@ -38,7 +38,12 @@ chmod +x "$DIST/atelier-gallery-tool" "$DIST/atelier-zotero-passages" "$DIST/ate
 # kb_cli.mjs est la RACINE réelle (il tire knowledge.mjs, article.mjs,
 # zotero_passages.mjs) : c'est lui qu'il faut charger, sinon un import ajouté
 # plus haut dans la chaîne passe le garde-fou et casse au runtime.
-node -e "import(require('node:url').pathToFileURL(process.argv[1]).href).then(()=>{}, (e)=>{ console.error('[stage-rust-server] import du dist KO:', e.message); process.exit(1); })" "$DIST/kb_cli.mjs"
+# Le chemin passe par l'ENVIRONNEMENT, pas par argv[1] : kb_cli.mjs décide
+# s'il est un point d'entrée en comparant `import.meta.url` à `process.argv[1]`.
+# Le lui donner en argv le faisait se croire lancé en CLI — il affichait son
+# mode d'emploi et sortait en 1, faisant échouer tous les builds alors que
+# l'import lui-même avait réussi.
+KB_ENTRY="$DIST/kb_cli.mjs" node -e "import(require('node:url').pathToFileURL(process.env.KB_ENTRY).href).then(()=>{}, (e)=>{ console.error('[stage-rust-server] import du dist KO:', e.message); process.exit(1); })"
 # Drop a tiny stamp for diagnostics (not hashed as the server binary itself is the identity).
 {
   echo "built_at=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
