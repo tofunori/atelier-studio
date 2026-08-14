@@ -67,7 +67,7 @@ function fmtChars(chars: number): string {
   return chars < 1000 ? String(chars) : `${Math.round(chars / 1000)}k`;
 }
 
-function KindIcon({ kind, size = 13 }: { kind: string; size?: number }) {
+export function KindIcon({ kind, size = 13 }: { kind: string; size?: number }) {
   const common = {
     width: size, height: size, viewBox: "0 0 16 16", fill: "none",
     stroke: "currentColor", strokeWidth: 1.3,

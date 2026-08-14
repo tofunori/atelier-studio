@@ -9,14 +9,14 @@ import { t } from "../lib/i18n";
 import { wsSend } from "../lib/wsBus";
 import {
   kbArchivedSnapshot,
-  kbCollectionsSnapshot,
   kbSourcesSnapshot,
   requestKbSources,
   subscribeKbSources,
   type KbBinding,
   type KbSource,
 } from "../lib/kbSources";
-import { KbPickerPanel, type ArticleRow, type GbrainResult } from "./chat/KbPicker";
+import { type ArticleRow, type GbrainResult } from "./chat/KbPicker";
+import KbSurface from "./chat/KbSurface";
 import { useKbActions } from "./chat/kbActions";
 import { Dialog, DialogContent, DialogTitle } from "./shadcn/dialog";
 import { Input } from "./shadcn/input";
@@ -38,7 +38,6 @@ export default function KnowledgeSurface(p: {
   paneControls?: ReactNode;
 }) {
   const sources = useSyncExternalStore(subscribeKbSources, kbSourcesSnapshot);
-  const collections = useSyncExternalStore(subscribeKbSources, kbCollectionsSnapshot);
   const archived = useSyncExternalStore(subscribeKbSources, kbArchivedSnapshot);
   const noopBinding = useMemo<KbBinding>(
     () => ({ attached: [], fullContent: [], onChange: () => {} }),
@@ -64,9 +63,6 @@ export default function KnowledgeSurface(p: {
   // Page directe (P4) : dialogue slug/aperçu ; l'écriture n'a lieu qu'au clic.
   const [pageDraft, setPageDraft] = useState<PageDraft | null>(null);
   const [pageWritten, setPageWritten] = useState<{ slug: string; updated: boolean; extra?: string } | null>(null);
-  // destination de la zone d'ajout : « gbrain » enchaîne l'aperçu de page
-  // directe après l'épinglage local (URL et notes seulement)
-  const [destination, setDestination] = useState<"local" | "gbrain">("local");
   const promoteNextRef = useRef(0);
   // Import d'article (plan 053) : le dialogue est monté globalement
   // (AppOverlays) et l'état de conversion vit dans lib/articleImports — fermer
@@ -181,43 +177,29 @@ export default function KnowledgeSurface(p: {
 
   return (
     <div className="ksurface">
-      <KbPickerPanel
-        layout="surface"
+      <KbSurface
         threadTitle={p.threadTitle}
         sources={sources}
         attached={binding.attached}
         fullContent={binding.fullContent}
+        articles={articles}
         error={actions.error}
-        promoted={actions.promoted}
+        onDismissError={() => actions.setError(null)}
         onToggle={actions.toggle}
         onToggleFull={actions.toggleFull}
         onRemoveSource={actions.removeSource}
         onPromote={actions.promote}
-        onDismissError={() => actions.setError(null)}
-        collections={collections}
-        archived={archived}
-        onCreateCollection={actions.createCollection}
-        onTag={actions.tagSource}
+        onPromotePage={requestPage}
+        onResync={actions.addGbrain}
         onArchive={actions.archiveSource}
-        onBatchTag={actions.tagMany}
-        onBatchArchive={actions.archiveMany}
-        onBatchAttach={actions.attachMany}
-        onCollFilterChange={(slug) => { activeCollRef.current = slug; }}
+        archived={archived}
         onAddFiles={() => { void actions.addFiles(); }}
         onAddFolder={() => { void actions.addFolder(); }}
-        articles={articles}
+        onAddNote={(title, text) => actions.addNote(title, text)}
+        onAddUrl={(url) => actions.addUrl(url)}
+        onBatchAttach={actions.attachMany}
+        onBatchArchive={actions.archiveMany}
         onAddArticle={() => { actions.setError(null); openArticleDialog(); }}
-        onAddUrl={(url) => {
-          if (destination === "gbrain") promoteNextRef.current += 1;
-          actions.addUrl(url);
-        }}
-        onAddNote={(title, text) => {
-          if (destination === "gbrain") promoteNextRef.current += 1;
-          actions.addNote(title, text);
-        }}
-        onResync={actions.addGbrain}
-        onPromotePage={requestPage}
-        destination={{ value: destination, onChange: setDestination }}
         gbrain={{
           query: gbrainQuery,
           results: gbrainResults,

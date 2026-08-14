@@ -69,6 +69,7 @@ pub const ALL_MESSAGE_TYPES: &[&str] = &[
     "kbPromote",
     "kbPromotePage",
     "articleImport",
+    "articleImportDoi",
     "articleWrite",
     "articleDraft",
     "articleList",
@@ -624,6 +625,7 @@ pub async fn route_ws(state: &AppState, text: &str) -> Vec<String> {
         "gbrainSearch" => handle_gbrain_search(state, &msg),
         "kbPromotePage" => handle_kb_promote_page(state, &msg),
         "articleImport" => handle_article_import(state, &msg).await,
+        "articleImportDoi" => handle_article_doi(state, &msg).await,
         "articleWrite" => handle_article_write(state, &msg).await,
         "articleDraft" => handle_article_draft(state, &msg).await,
         "articleList" => handle_article_list(state, &msg).await,
@@ -1870,6 +1872,44 @@ fn meta_arg(meta: &Value, key: &str) -> Option<String> {
         Some(Value::Number(n)) => Some(n.to_string()),
         _ => None,
     }
+}
+
+/// Fiche de référence par DOI — réponse identique à l'import PDF, pour que
+/// l'UI n'ait qu'un seul chemin de retour à connaître.
+async fn handle_article_doi(state: &AppState, msg: &Value) -> Vec<String> {
+    let request_id = msg.get("requestId").cloned().unwrap_or(Value::Null);
+    let doi = msg.get("doi").and_then(|v| v.as_str()).unwrap_or("");
+    if doi.is_empty() {
+        return article_error(&request_id, "articleImportDoi: doi requis".into());
+    }
+    let args = vec![
+        "article-doi".to_string(),
+        "--doi".to_string(),
+        doi.to_string(),
+    ];
+    match article_cli(state, args).await {
+        Ok(v) => vec![article_imported_msg(&request_id, doi, &v)],
+        Err(e) => article_error(&request_id, e),
+    }
+}
+
+/// Réponse `articleImported`, partagée par l'import PDF et l'import DOI.
+fn article_imported_msg(request_id: &Value, path: &str, v: &Value) -> String {
+    json_msg(json!({
+        "type": "articleImported",
+        "requestId": request_id,
+        "draftId": v.get("draftId").cloned().unwrap_or(Value::Null),
+        "path": v.get("path").cloned().unwrap_or(json!(path)),
+        "meta": v.get("meta").cloned().unwrap_or(json!({})),
+        "slug": v.get("slug").cloned().unwrap_or(Value::Null),
+        "exists": v.get("exists").cloned().unwrap_or(json!(false)),
+        "chars": v.get("chars").cloned().unwrap_or(Value::Null),
+        "preview": v.get("preview").cloned().unwrap_or(json!("")),
+        "converter": v.get("converter").cloned().unwrap_or(Value::Null),
+        "duplicates": v.get("duplicates").cloned().unwrap_or(json!([])),
+        "metaSource": v.get("metaSource").cloned().unwrap_or(Value::Null),
+        "warning": v.get("warning").cloned().unwrap_or(Value::Null),
+    }))
 }
 
 async fn handle_article_import(state: &AppState, msg: &Value) -> Vec<String> {

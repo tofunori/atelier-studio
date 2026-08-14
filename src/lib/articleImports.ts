@@ -126,9 +126,17 @@ export function closeArticleDialog() {
   });
 }
 
-export function startArticleImport(path: string) {
+/** Fiche de référence par DOI — même cycle de vie qu'un import de PDF. */
+export function startDoiImport(doi: string) {
+  return startArticleImport(`doi:${doi.trim()}`, { doi: doi.trim() });
+}
+
+export function startArticleImport(path: string, opts: { doi?: string } = {}) {
   const requestId = `art-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-  if (!wsSend({ type: "articleImport", path, requestId })) {
+  const message = opts.doi
+    ? { type: "articleImportDoi", doi: opts.doi, requestId }
+    : { type: "articleImport", path, requestId };
+  if (!wsSend(message)) {
     emit({
       ...current,
       open: true,

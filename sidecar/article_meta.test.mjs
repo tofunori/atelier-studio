@@ -86,6 +86,8 @@ describe("Crossref", () => {
       fetchJson: async () => CROSSREF_PAYLOAD,
     });
     expect(meta).toEqual({
+      // le résumé sert à l'import par DOI (fiche de référence sans PDF)
+      abstract: "",
       title: "Bayesian Hierarchical Models can Infer Interpretable Predictions",
       authors: "Stojanović, Olivera; Siegmann, Bastian; MinerU Consortium",
       journal: "Frontiers in Environmental Science",
