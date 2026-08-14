@@ -10,6 +10,15 @@ describe("sortEffortLevels", () => {
     ]);
   });
 
+  it("place xhigh au bout intelligent sur le vrai catalogue Grok", () => {
+    // ordre réellement annoncé par l'ACP Grok, repris du fixture de
+    // rust/crates/atelier-providers/src/grok.rs : ["xhigh","high","medium","low"],
+    // précédé de "" (Auto) par levelsFor
+    expect(sortEffortLevels(["", "xhigh", "high", "medium", "low"])).toEqual([
+      "", "low", "medium", "high", "xhigh",
+    ]);
+  });
+
   it("laisse une liste déjà croissante inchangée", () => {
     const levels = ["", "none", "minimal", "low", "medium", "high", "xhigh", "max"];
     expect(sortEffortLevels(levels)).toEqual(levels);
