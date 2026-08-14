@@ -26,7 +26,7 @@ vi.mock("../../lib/articleImports", () => ({
 }));
 
 import { openArticleDialog, startDoiImport } from "../../lib/articleImports";
-import KbSurface, { buildRows, filterOf, fmtAge } from "./KbSurface";
+import KbSurface, { buildCorpusRows, buildRows, filterOf, fmtAge } from "./KbSurface";
 
 const NOW = Date.parse("2026-08-14T12:00:00Z");
 
@@ -94,25 +94,32 @@ describe("classement", () => {
     expect(fmtAge(null, NOW)).toBe("");
   });
 
-  it("fond les articles du corpus dans la liste, les récents d'abord", () => {
-    const rows = buildRows(SOURCES, ARTICLES, { now: NOW });
+  // La base ne contient QUE ce que l'utilisateur y a mis : le dépôt gbrain ne
+  // s'y déverse plus, sinon la liste qu'il cure grossit à chaque ingestion.
+  it("ne liste que les sources de la base, les récentes d'abord", () => {
+    const rows = buildRows(SOURCES, { now: NOW });
     expect(rows.map((row) => row.title)).toEqual([
-      "Cuffey & Paterson ch. 5",          // il y a 30 min
-      "Albedo feedbacks review",          // hier
-      "Physically based snow albedo model", // avant-hier, page du corpus
-      "Notes terrain — Saskatchewan",     // il y a deux semaines
+      "Cuffey & Paterson ch. 5",      // il y a 30 min
+      "Albedo feedbacks review",      // hier
+      "Notes terrain — Saskatchewan", // il y a deux semaines
     ]);
+    expect(rows.some((row) => row.title.includes("snow albedo"))).toBe(false);
   });
 
-  it("ne montre pas deux fois une page de corpus déjà épinglée", () => {
+  it("le dépôt montre tous ses articles, et signale ceux déjà dans la base", () => {
     const pinned = {
       id: "dddd4444", kind: "gbrain", title: "Physically based snow albedo model",
       origin: "articles/aoki-2011-snow-albedo", chars: 3000,
       addedAt: "2026-08-12T12:00:00Z", updatedAt: "2026-08-12T12:00:00Z",
       meta: { slug: "articles/aoki-2011-snow-albedo" },
     } as unknown as KbSource;
-    const rows = buildRows([...SOURCES, pinned], ARTICLES, { now: NOW });
-    expect(rows.filter((row) => row.title.includes("snow albedo"))).toHaveLength(1);
+    // épinglée : elle reste visible dans le dépôt, marquée — on lit le dépôt
+    // pour ce qu'il contient, pas pour ce qui lui manque
+    const rows = buildCorpusRows([...SOURCES, pinned], ARTICLES, { now: NOW });
+    expect(rows).toHaveLength(ARTICLES.length);
+    expect(rows.find((row) => row.title.includes("snow albedo"))?.pinned).toBe(true);
+    // non épinglée : elle attend un geste
+    expect(buildCorpusRows(SOURCES, ARTICLES, { now: NOW })[0].pinned).toBe(false);
   });
 });
 
@@ -121,12 +128,30 @@ describe("KbSurface", () => {
     renderUi(<KbSurface {...props()} />);
     expect(screen.getByText("Cuffey & Paterson ch. 5")).toBeTruthy();
     expect(screen.getByText("Albedo feedbacks review")).toBeTruthy();
-    expect(screen.getByText("Physically based snow albedo model")).toBeTruthy();
+    // la page du dépôt n'est PAS dans la base : elle vit dans l'onglet gbrain
+    expect(screen.queryByText("Physically based snow albedo model")).toBeNull();
     // les sections d'avant ont disparu
     expect(screen.queryByText(/Attachées à/)).toBeNull();
     expect(screen.queryByText("Bibliothèque")).toBeNull();
     expect(screen.queryByText("+ collection")).toBeNull();
     expect(screen.queryByText("→ gbrain")).toBeNull();
+  });
+
+  it("sépare la base du dépôt gbrain, et n'y laisse entrer que par un geste", () => {
+    const onPin = vi.fn();
+    renderUi(<KbSurface {...props({
+      gbrain: { query: "", results: [], error: null, searching: false, searched: false,
+        onQueryChange: vi.fn(), onSearch: vi.fn(), onPin },
+    })} />);
+    // onglet Base par défaut : que les sources choisies
+    expect(screen.queryByText("Physically based snow albedo model")).toBeNull();
+    fireEvent.click(screen.getByRole("tab", { name: /gbrain/ }));
+    // onglet gbrain : le dépôt, et rien de la base
+    expect(screen.getByText("Physically based snow albedo model")).toBeTruthy();
+    expect(screen.queryByText("Cuffey & Paterson ch. 5")).toBeNull();
+    // le pont est explicite
+    fireEvent.click(screen.getByText("Physically based snow albedo model"));
+    expect(onPin).toHaveBeenCalledWith("articles/aoki-2011-snow-albedo");
   });
 
   it("les types filtrent au lieu de replier des groupes", () => {
@@ -184,9 +209,11 @@ describe("KbSurface", () => {
         onQueryChange: vi.fn(), onSearch: vi.fn(), onPin,
       },
     })} />);
+    fireEvent.click(screen.getByRole("tab", { name: /gbrain/ }));
     fireEvent.click(screen.getByText("Physically based snow albedo model"));
     expect(onPin).toHaveBeenCalledWith("articles/aoki-2011-snow-albedo");
 
+    fireEvent.click(screen.getByRole("tab", { name: /Base/ }));
     fireEvent.change(screen.getByPlaceholderText(/Chercher, ou coller une URL/), {
       target: { value: "albédo" },
     });
@@ -250,6 +277,9 @@ describe("KbSurface", () => {
       },
     ];
     renderUi(<KbSurface {...props()} />);
+    // une conversion ne concerne pas la base : elle vit dans l'onglet gbrain
+    expect(screen.queryByText("conversion chez MinerU — 42 s")).toBeNull();
+    fireEvent.click(screen.getByRole("tab", { name: /gbrain/ }));
     // l'étape réelle remplace le compteur muet
     expect(screen.getByText("conversion chez MinerU — 42 s")).toBeTruthy();
     expect(screen.getByText("rounce-2023.pdf")).toBeTruthy();

@@ -52,7 +52,7 @@ export function fmtAge(value: unknown, now = Date.now()): string {
   return new Date(ts).toISOString().slice(0, 10);
 }
 
-/** Rangée unifiée : une source épinglée OU une page du corpus pas encore épinglée. */
+/** Rangée : une source de la base, ou une page du dépôt gbrain. */
 type Row = {
   key: string;
   filter: KbFilter;
@@ -62,40 +62,60 @@ type Row = {
   meta: string;
   source: KbSource | null;
   slug: string | null;
+  /** Page gbrain déjà présente dans la base (onglet gbrain seulement). */
+  pinned?: boolean;
 };
 
-export function buildRows(
+/** Slugs des pages gbrain que l'utilisateur a épinglées dans sa base. */
+function pinnedSlugs(sources: KbSource[]) {
+  return new Set(
+    sources.filter((s) => s.kind === "gbrain").map((s) => String(s.meta?.slug ?? s.origin ?? "")),
+  );
+}
+
+/** La BASE : uniquement ce que l'utilisateur a mis là. Le dépôt gbrain ne s'y
+ *  déverse pas — sinon la liste qu'il cure grossit à chaque ingestion, ce qui
+ *  était exactement le reproche. Une page gbrain n'y entre que par un geste
+ *  explicite d'épinglage, et elle arrive alors comme une source ordinaire. */
+export function buildRows(sources: KbSource[], { now = Date.now() }: { now?: number } = {}): Row[] {
+  return sources
+    .map((source) => ({
+      key: source.id,
+      filter: filterOf(source.kind),
+      kind: source.kind,
+      title: source.title,
+      at: source.updatedAt || source.addedAt || "",
+      meta: fmtAge(source.updatedAt || source.addedAt, now),
+      source,
+      slug: source.kind === "gbrain" ? String(source.meta?.slug ?? source.origin ?? "") : null,
+    }))
+    .sort((a, b) => String(b.at).localeCompare(String(a.at)));
+}
+
+/** Le DÉPÔT : les articles ingérés, qu'ils soient déjà dans la base ou non.
+ *  Ceux qui y sont se signalent au lieu de disparaître — on doit pouvoir lire
+ *  le dépôt pour ce qu'il contient, pas pour ce qui lui manque. */
+export function buildCorpusRows(
   sources: KbSource[],
   articles: ArticleRow[],
   { now = Date.now() }: { now?: number } = {},
 ): Row[] {
-  const pinned = new Set(
-    sources.filter((s) => s.kind === "gbrain").map((s) => String(s.meta?.slug ?? s.origin ?? "")),
-  );
-  const rows: Row[] = sources.map((source) => ({
-    key: source.id,
-    filter: filterOf(source.kind),
-    kind: source.kind,
-    title: source.title,
-    at: source.updatedAt || source.addedAt || "",
-    meta: fmtAge(source.updatedAt || source.addedAt, now),
-    source,
-    slug: source.kind === "gbrain" ? String(source.meta?.slug ?? source.origin ?? "") : null,
-  }));
-  for (const article of articles) {
-    if (!article.slug || pinned.has(article.slug)) continue;
-    rows.push({
+  void now;
+  const pinned = pinnedSlugs(sources);
+  return articles
+    .filter((article) => Boolean(article.slug))
+    .map((article) => ({
       key: `corpus:${article.slug}`,
-      filter: "corpus",
+      filter: "corpus" as KbFilter,
       kind: "gbrain",
-      title: article.title || article.slug,
+      title: article.title || String(article.slug),
       at: article.date ? `${article.date}T12:00:00Z` : "",
       meta: article.date ?? "",
       source: null,
-      slug: article.slug,
-    });
-  }
-  return rows.sort((a, b) => String(b.at).localeCompare(String(a.at)));
+      slug: String(article.slug),
+      pinned: pinned.has(String(article.slug)),
+    }))
+    .sort((a, b) => String(b.at).localeCompare(String(a.at)));
 }
 
 export default function KbSurface(p: {
@@ -135,15 +155,20 @@ export default function KbSurface(p: {
   const [noteText, setNoteText] = useState("");
   const [selectMode, setSelectMode] = useState(false);
   const [selected, setSelected] = useState<Set<string>>(new Set());
+  // Deux territoires : « base » est ce que l'utilisateur a choisi et cure,
+  // « gbrain » est le dépôt qui s'accumule et où les PDF entrent. Ils n'ont pas
+  // la même vie ; les mélanger faisait grossir la base à chaque ingestion.
+  const [tab, setTab] = useState<"base" | "brain">("base");
   // imports en vol : rangées vivantes en tête de liste (plan 054)
   const imports = useSyncExternalStore(subscribeArticleImport, articleImportSnapshot);
   const [now, setNow] = useState(() => Date.now());
   const live = imports.jobs.filter((job) => job.phase !== "error");
 
   const shown = archivedView ? (p.archived?.sources ?? []) : p.sources;
-  const rows = useMemo(
-    () => buildRows(shown, archivedView ? [] : (p.articles ?? [])),
-    [shown, p.articles, archivedView],
+  const rows = useMemo(() => buildRows(shown), [shown]);
+  const corpusRows = useMemo(
+    () => buildCorpusRows(p.sources, p.articles ?? []),
+    [p.sources, p.articles],
   );
 
   const counts = useMemo(() => {
@@ -153,6 +178,8 @@ export default function KbSurface(p: {
   }, [rows, p.attached.length]);
 
   const needle = query.trim().toLowerCase();
+  const corpusVisible = corpusRows.filter((row) => !needle
+    || `${row.title} ${row.slug ?? ""}`.toLowerCase().includes(needle));
   const visible = rows.filter((row) => {
     if (filter === "attached") {
       if (!row.source || !p.attached.includes(row.source.id)) return false;
@@ -171,6 +198,8 @@ export default function KbSurface(p: {
     const value = query.trim();
     if (!value) return;
     if (doi) {
+      // un DOI est une ingestion : il appartient au dépôt, on y bascule
+      setTab("brain");
       startDoiImport(doi);
       setQuery("");
       return;
@@ -295,14 +324,21 @@ export default function KbSurface(p: {
       });
       return items;
     }
-    // page du corpus pas encore épinglée : une seule action possible
-    return [{ key: "pin", label: t("kbs.menu-pin"), onSelect: () => p.gbrain?.onPin(row.slug ?? "") }];
+    // page du dépôt : y entrer dans la base, ou l'ouvrir si elle y est déjà
+    return [{
+      key: "pin",
+      label: t(row.pinned ? "kbs.menu-open-page" : "kbs.menu-pin"),
+      onSelect: () => p.gbrain?.onPin(row.slug ?? ""),
+    }];
   }
 
   function renderRow(row: Row) {
     const source = row.source;
     const on = Boolean(source && p.attached.includes(source.id));
     const full = Boolean(source && p.fullContent.includes(source.id));
+    // Le dépôt ne s'attache pas à une conversation : on y puise. Pas de case,
+    // et une seule action utile — faire entrer la page dans la base.
+    const corpus = !source;
     return (
       <div className={`kb-row ${on ? "on" : ""}`} key={row.key}>
         <RowButton
@@ -311,17 +347,23 @@ export default function KbSurface(p: {
           onClick={() => {
             if (selectMode && source) toggleSelected(source.id);
             else if (source) p.onToggle(source.id);
-            else p.gbrain?.onPin(row.slug ?? "");
+            else if (!row.pinned) p.gbrain?.onPin(row.slug ?? "");
           }}
         >
-          <span
-            className={`kb-check ${selectMode ? (source && selected.has(source.id) ? "on" : "") : on ? "on" : ""}`}
-            aria-hidden
-          />
+          {!corpus && (
+            <span
+              className={`kb-check ${selectMode ? (source && selected.has(source.id) ? "on" : "") : on ? "on" : ""}`}
+              aria-hidden
+            />
+          )}
           <span className="kb-kind"><KindIcon kind={row.kind} /></span>
           <span className="kb-name">{row.title}</span>
           {full && <span className="kbs-flag">{t("kbs.flag-full")}</span>}
-          {!source && <span className="kbs-flag kbs-flag-quiet">{t("kbs.flag-corpus")}</span>}
+          {corpus && (
+            <span className="kbs-flag kbs-flag-quiet">
+              {t(row.pinned ? "kbs.flag-in-base" : "kbs.flag-pin")}
+            </span>
+          )}
           <span className="kb-meta">{row.meta}</span>
         </RowButton>
         <span className="kb-row-actions">
@@ -348,7 +390,25 @@ export default function KbSurface(p: {
     <div className="kb-panel kb-panel-surface kbs">
       <div className="kb-head">
         <span className="kb-title">{t("kbs.title")}</span>
-        {p.attached.length > 0 && (
+        <span className="kbs-seg" role="tablist" aria-label={t("kbs.tabs-label")}>
+          <RowButton
+            role="tab"
+            aria-selected={tab === "base"}
+            className={`kbs-seg-tab ${tab === "base" ? "on" : ""}`}
+            onClick={() => setTab("base")}
+          >
+            {t("kbs.tab-base")} <span className="kbs-seg-n">{rows.length}</span>
+          </RowButton>
+          <RowButton
+            role="tab"
+            aria-selected={tab === "brain"}
+            className={`kbs-seg-tab ${tab === "brain" ? "on" : ""}`}
+            onClick={() => setTab("brain")}
+          >
+            {t("kbs.tab-brain")} <span className="kbs-seg-n">{corpusRows.length}</span>
+          </RowButton>
+        </span>
+        {tab === "base" && p.attached.length > 0 && (
           <RowButton
             className={`kb-chip-filter ${filter === "attached" ? "on" : ""}`}
             title={t("kbs.attached-title", { title: p.threadTitle?.trim() || t("app.new-chat-title") })}
@@ -358,6 +418,17 @@ export default function KbSurface(p: {
           </RowButton>
         )}
         <span className="kbs-spacer" />
+        {tab === "brain" ? (
+          // Dans le dépôt, une seule entrée possible : un PDF à convertir.
+          <Button
+            type="button"
+            variant="ghost"
+            className="ghost kbs-add"
+            onClick={() => p.onAddArticle?.()}
+          >
+            {t("kbs.import-pdf")}
+          </Button>
+        ) : (
         <LazyDropdownMenu
           open={addOpen}
           onOpenChange={setAddOpen}
@@ -369,12 +440,19 @@ export default function KbSurface(p: {
             </Button>
           )}
           items={[
-            { key: "article", label: t("kbs.add-article"), onSelect: () => p.onAddArticle?.() },
             { key: "files", label: t("kb.add-file"), onSelect: () => p.onAddFiles() },
             { key: "folder", label: t("kb.add-folder"), onSelect: () => p.onAddFolder() },
             { key: "note", label: t("kb.add-note"), onSelect: () => setNoteOpen(true) },
+            // L'import d'article n'ajoute rien à la base : il alimente le dépôt.
+            {
+              key: "article",
+              separatorBefore: true,
+              label: t("kbs.add-article"),
+              onSelect: () => { setTab("brain"); p.onAddArticle?.(); },
+            },
           ]}
         />
+        )}
         <LazyDropdownMenu
           open={panelOpen}
           onOpenChange={setPanelOpen}
@@ -407,7 +485,7 @@ export default function KbSurface(p: {
 
       <Input
         className="kbs-search"
-        placeholder={t("kbs.search")}
+        placeholder={t(tab === "brain" ? "kbs.search-brain" : "kbs.search")}
         value={query}
         onChange={(e) => setQuery(e.target.value)}
         onKeyDown={(e) => {
@@ -420,23 +498,26 @@ export default function KbSurface(p: {
       {doi && <div className="kbs-hint">{t("kbs.hint-doi")}</div>}
       {looksLikeUrl && <div className="kbs-hint">{t("kbs.hint-url")}</div>}
 
-      <div className="kb-chips-row">
-        <RowButton
-          className={`kb-chip-filter ${filter === "all" ? "on" : ""}`}
-          onClick={() => setFilter("all")}
-        >
-          {t("kbs.filter-all", { n: counts.all ?? 0 })}
-        </RowButton>
-        {FILTER_ORDER.filter((key) => (counts[key] ?? 0) > 0).map((key) => (
+      {/* Le dépôt est d'une seule nature : rien à filtrer par type. */}
+      {tab === "base" && (
+        <div className="kb-chips-row">
           <RowButton
-            key={key}
-            className={`kb-chip-filter ${filter === key ? "on" : ""}`}
-            onClick={() => setFilter((current) => (current === key ? "all" : key))}
+            className={`kb-chip-filter ${filter === "all" ? "on" : ""}`}
+            onClick={() => setFilter("all")}
           >
-            {t(FILTER_LABELS[key])} · {counts[key]}
+            {t("kbs.filter-all", { n: counts.all ?? 0 })}
           </RowButton>
-        ))}
-      </div>
+          {FILTER_ORDER.filter((key) => (counts[key] ?? 0) > 0).map((key) => (
+            <RowButton
+              key={key}
+              className={`kb-chip-filter ${filter === key ? "on" : ""}`}
+              onClick={() => setFilter((current) => (current === key ? "all" : key))}
+            >
+              {t(FILTER_LABELS[key])} · {counts[key]}
+            </RowButton>
+          ))}
+        </div>
+      )}
 
       {noteOpen && (
         <div className="kb-note-form">
@@ -493,9 +574,18 @@ export default function KbSurface(p: {
       )}
 
       <div className="kb-list">
-        {!archivedView && live.map(renderJob)}
-        {visible.map(renderRow)}
-        {visible.length === 0 && (
+        {/* Les conversions vivent dans le dépôt : elles n'ont rien à faire dans
+            la liste que l'utilisateur cure. */}
+        {tab === "brain" && live.map(renderJob)}
+        {tab === "brain" && corpusVisible.map(renderRow)}
+        {tab === "brain" && corpusVisible.length === 0 && live.length === 0 && (
+          <div className="kb-empty">{t(needle ? "kbs.empty-search" : "kbs.empty-brain")}</div>
+        )}
+        {tab === "brain" && corpusRows.length > 0 && (
+          <div className="kbs-foot">{t("kbs.brain-cap", { n: corpusRows.length })}</div>
+        )}
+        {tab === "base" && visible.map(renderRow)}
+        {tab === "base" && visible.length === 0 && (
           <div className="kb-empty">{t(needle ? "kbs.empty-search" : "kbs.empty")}</div>
         )}
 

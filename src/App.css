@@ -3534,6 +3534,23 @@ button.ctx-ring-wrap { border: none; font: inherit; color: inherit;
 .kbs .kb-head { gap: 8px; }
 .kbs-spacer { flex: 1; }
 .kbs-add { font-size: var(--fs-s); padding: 2px 10px; }
+/* Segment Base | gbrain : deux territoires, pas deux filtres. Socle enfoncé,
+   onglet actif surélevé — le vocabulaire des segments macOS, pour dire qu'on
+   change de lieu et pas qu'on restreint une liste. */
+.kbs-seg { display: inline-flex; align-items: center; gap: 2px; padding: 3px;
+  background: var(--bg-sunken, var(--bg-ctl)); border-radius: var(--radius-pill); }
+.kbs-seg-tab { display: inline-flex; align-items: center; gap: 6px; height: 22px;
+  padding: 0 10px; border-radius: var(--radius-pill); background: transparent;
+  color: var(--text-muted); font-size: var(--fs-s); font-weight: 500;
+  transition: background var(--ease), color var(--ease); }
+.kbs-seg-tab:hover { color: var(--text); }
+.kbs-seg-tab.on { background: var(--bg-panel, var(--bg-ctl)); color: var(--text);
+  box-shadow: var(--elevation-overlay, 0 1px 3px rgb(0 0 0 / 35%)); }
+.kbs-seg-n { font-size: var(--fs-xs); font-variant-numeric: tabular-nums;
+  color: var(--text-muted); }
+.kbs-seg-tab.on .kbs-seg-n { color: var(--accent); }
+/* Plafond de la liste du dépôt : dit en clair ce qu'on ne montre pas. */
+.kbs-foot { padding: 6px 2px 0; font-size: var(--fs-xs); color: var(--text-muted); }
 .kbs-search { width: 100%; height: 28px; font-size: var(--fs-m); margin: 2px 0 4px; }
 .kbs-hint { font-size: var(--fs-s); color: var(--text-muted); padding: 0 2px 2px; }
 .kbs .kb-row-actions { opacity: 0; transition: opacity var(--ease); }
