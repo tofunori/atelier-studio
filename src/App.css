@@ -1356,7 +1356,7 @@ input[type="range"].slider::-webkit-slider-thumb:hover { transform: scale(1.15);
 
 /* surfaces terminal */
 .term-surface { flex-direction: column; flex: 1; min-height: 0; }
-.term-bar { display: flex; align-items: center; gap: 4px; padding: 5px 8px;
+.term-bar { min-height: var(--surface-header-height); box-sizing: border-box; display: flex; align-items: center; gap: 4px; padding: 5px 8px;
   border-bottom: 1px solid var(--border); background: var(--surface-header); }
 .term-bar > .term-tabs { flex-direction: row; flex-wrap: nowrap; min-width: 0; overflow-x: auto;
   scrollbar-width: none; }
@@ -1372,7 +1372,7 @@ input[type="range"].slider::-webkit-slider-thumb:hover { transform: scale(1.15);
 .browser-tab { flex-direction: column; flex: 1; min-height: 0; overflow: hidden; }
 .browser-chrome { display: flex; flex-direction: column; min-width: 0;
   border-bottom: 1px solid var(--border); background: var(--surface-header); }
-.browser-tabs { display: flex; align-items: end; gap: 4px; min-width: 0; overflow-x: auto;
+.browser-tabs { min-height: var(--surface-header-height); box-sizing: border-box; display: flex; align-items: end; gap: 4px; min-width: 0; overflow-x: auto;
   padding: 3px 8px 0; scrollbar-width: none; }
 .browser-tabs::-webkit-scrollbar { display: none; }
 .browser-tabs > .workspace-pane-controls-slot { position: sticky; right: 0; align-self: stretch;
@@ -1676,7 +1676,7 @@ button.ghost.danger, button.ghost.danger:hover { color: var(--status-error); bac
   border: 1px solid var(--border); border-radius: var(--r-m); color: inherit;
   padding: 7px 9px; font-size: var(--fs-m); outline: none; }
 .biblio-search-row input:focus { border-color: var(--border2); color: var(--text-primary); }
-.biblio-filters { display: flex; align-items: center; flex-wrap: wrap; gap: 5px; padding: 6px 10px;
+.biblio-filters { min-height: var(--surface-header-height); box-sizing: border-box; display: flex; align-items: center; flex-wrap: wrap; gap: 5px; padding: 6px 10px;
   min-height: 46px; box-sizing: border-box; border-bottom: 1px solid var(--border); }
 .biblio-filters button, .biblio-filters select { background: transparent; border: 1px solid transparent;
   color: var(--text-muted); border-radius: var(--r-m); padding: 5px 9px; font-size: var(--fs-m);
