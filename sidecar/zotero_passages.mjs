@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { existsSync, mkdirSync, readFileSync, realpathSync, renameSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, readdirSync, realpathSync, renameSync, statSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { basename, dirname, join, relative, resolve, sep } from "node:path";
 import { spawnSync } from "node:child_process";
@@ -111,27 +111,32 @@ export function focusPassageQuote(text, query) {
   return ranked[0].sentence.slice(0, 500);
 }
 
+function scoreCandidateText(text, queryTokens, normalizedQuery, generic) {
+  const normalized = normalizeSearchText(text);
+  let matched = 0;
+  let occurrences = 0;
+  for (const token of queryTokens) {
+    const re = new RegExp(`\\b${token.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`, "g");
+    const count = normalized.match(re)?.length ?? 0;
+    if (count) matched += 1;
+    occurrences += Math.min(count, 4);
+  }
+  let score = matched * 7 + occurrences * 1.5;
+  if (queryTokens.length > 1) score += (matched / queryTokens.length) * 8;
+  if (normalizedQuery.length > 12 && normalized.includes(normalizedQuery)) score += 14;
+  if (SECTION_BONUS.test(text)) score += generic ? 8 : 2;
+  if (/\b(we (find|found|show|demonstrate|estimate)|our results|nous (montrons|estimons)|principal result)\b/i.test(text)) score += 3;
+  if (/\b\d+(?:[.,]\d+)?\s*(?:%|km|kg|gt|w\s*m|years?|ans?)\b/i.test(text)) score += 1.5;
+  score += Math.min(text.length, 800) / 1600;
+  return score;
+}
+
 export function searchPassages(pages, query, { limit = 5 } = {}) {
   const queryTokens = [...new Set(tokens(query))];
   const normalizedQuery = normalizeSearchText(query);
   const generic = queryTokens.length === 0;
   const ranked = passageChunks(pages).map((chunk, index) => {
-    const normalized = normalizeSearchText(chunk.text);
-    let matched = 0;
-    let occurrences = 0;
-    for (const token of queryTokens) {
-      const re = new RegExp(`\\b${token.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`, "g");
-      const count = normalized.match(re)?.length ?? 0;
-      if (count) matched += 1;
-      occurrences += Math.min(count, 4);
-    }
-    let score = matched * 7 + occurrences * 1.5;
-    if (queryTokens.length > 1) score += (matched / queryTokens.length) * 8;
-    if (normalizedQuery.length > 12 && normalized.includes(normalizedQuery)) score += 14;
-    if (SECTION_BONUS.test(chunk.text)) score += generic ? 8 : 2;
-    if (/\b(we (find|found|show|demonstrate|estimate)|our results|nous (montrons|estimons)|principal result)\b/i.test(chunk.text)) score += 3;
-    if (/\b\d+(?:[.,]\d+)?\s*(?:%|km|kg|gt|w\s*m|years?|ans?)\b/i.test(chunk.text)) score += 1.5;
-    score += Math.min(chunk.text.length, 800) / 1600;
+    const score = scoreCandidateText(chunk.text, queryTokens, normalizedQuery, generic);
     return { ...chunk, score, index };
   }).filter((entry) => generic || entry.score >= 7);
 
@@ -172,6 +177,9 @@ function cachePathFor(pdfPath, cacheDir) {
 export function extractPdfPages(pdfPath, {
   cacheDir = join(homedir(), "Library", "Application Support", "atelier-studio", "zotero-passages"),
   pdftotext = "pdftotext",
+  zoteroKey,
+  pdfKey,
+  pdfFile,
 } = {}) {
   const stat = statSync(pdfPath);
   const cachePath = cachePathFor(pdfPath, cacheDir);
@@ -203,9 +211,60 @@ export function extractPdfPages(pdfPath, {
   if (!pages.length) throw new Error("Aucun texte extractible dans ce PDF (OCR requis)");
   mkdirSync(cacheDir, { recursive: true });
   const tmp = join(dirname(cachePath), `.${basename(cachePath)}.${process.pid}.tmp`);
-  writeFileSync(tmp, JSON.stringify({ version: CACHE_VERSION, size: stat.size, mtimeMs: stat.mtimeMs, pages }));
+  writeFileSync(tmp, JSON.stringify({ version: CACHE_VERSION, size: stat.size, mtimeMs: stat.mtimeMs, pages, zoteroKey, pdfKey, pdfFile }));
   renameSync(tmp, cachePath);
   return { pages, cached: false, cachePath };
+}
+
+export function searchCorpus({
+  cacheDir = join(homedir(), "Library", "Application Support", "atelier-studio", "zotero-passages"),
+  query,
+  limit = 5,
+} = {}) {
+  const cap = Math.max(1, Math.min(10, limit));
+  const queryTokens = [...new Set(tokens(query))];
+  const normalizedQuery = normalizeSearchText(query);
+  const generic = queryTokens.length === 0;
+  let files = [];
+  try {
+    files = readdirSync(cacheDir).filter((name) => name.endsWith(".json"));
+  } catch {
+    files = [];
+  }
+  const merged = [];
+  for (const name of files) {
+    let index;
+    try {
+      index = JSON.parse(readFileSync(join(cacheDir, name), "utf8"));
+    } catch {
+      continue;
+    }
+    if (index.version !== CACHE_VERSION || !Array.isArray(index.pages)) continue;
+    const { zoteroKey, pdfKey, pdfFile } = index;
+    // Index legacy (écrit avant l'ajout de la méta zotero) : aucun lien fiable
+    // ne peut être construit, donc exclu du corpus plutôt que de produire un
+    // markdownLink approximatif.
+    if (!zoteroKey || !pdfKey || !pdfFile) continue;
+    for (const page of index.pages) {
+      if (!page || !page.text) continue;
+      const score = scoreCandidateText(page.text, queryTokens, normalizedQuery, generic);
+      if (!generic && score < 7) continue;
+      const quote = focusPassageQuote(page.text, query);
+      merged.push({
+        page: page.page,
+        quote,
+        score: Number(score.toFixed(2)),
+        pdfFile,
+        zoteroKey,
+        pdfKey,
+        markdownLink: `[Ouvrir le passage — p. ${page.page}](${passageLink({
+          zoteroKey, pdfKey, pdfFile, page: page.page, quote,
+        })})`,
+      });
+    }
+  }
+  merged.sort((a, b) => b.score - a.score);
+  return { results: merged.slice(0, cap) };
 }
 
 export function passageLink({ zoteroKey, pdfKey, pdfFile, page, quote }) {

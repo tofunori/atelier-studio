@@ -2,9 +2,13 @@ import { describe, expect, it } from "vitest";
 import { mkdtempSync, mkdirSync, realpathSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { focusPassageQuote, passageLink, resolveZoteroPdf, searchPassages, splitPdfPages } from "./zotero_passages.mjs";
+import { focusPassageQuote, passageLink, resolveZoteroPdf, searchCorpus, searchPassages, splitPdfPages } from "./zotero_passages.mjs";
 import { runPassageSearch } from "./zotero_passage_cli.mjs";
 import { stripZoteroPassageInstruction, withZoteroPassageInstruction } from "./zotero_passage_prompt.mjs";
+
+function writeFixtureIndex(dir, name, { pdfFile, zoteroKey, pdfKey, pages }) {
+  writeFileSync(join(dir, name), JSON.stringify({ version: 2, size: 1, mtimeMs: 1, pdfFile, zoteroKey, pdfKey, pages }));
+}
 
 describe("passages Zotero", () => {
   const pages = splitPdfPages([
@@ -60,6 +64,37 @@ describe("passages Zotero", () => {
     const href = result.passages[0].markdownLink.match(/\]\((#[^)]+)\)$/)?.[1] ?? "";
     const params = new URLSearchParams(href.split("?")[1]);
     expect(params.get("quote")).toBe(result.passages[0].quote);
+  });
+
+  it("corpus : agrège les index du cache et garde les liens exacts", () => {
+    const dir = mkdtempSync(join(tmpdir(), "zp-"));
+    writeFixtureIndex(dir, "aaa.json", { pdfFile: "Williamson 2021.pdf", zoteroKey: "Z1", pdfKey: "P1",
+      pages: [{ page: 7, text: "Fire aerosol deposition reduced summer albedo substantially." }] });
+    writeFixtureIndex(dir, "bbb.json", { pdfFile: "Marshall 2022.pdf", zoteroKey: "Z2", pdfKey: "P2",
+      pages: [{ page: 3, text: "Black carbon concentrations peaked in late July." }] });
+    const out = searchCorpus({ cacheDir: dir, query: "albedo aerosol", limit: 5 });
+    expect(out.results[0].pdfFile).toBe("Williamson 2021.pdf");
+    expect(out.results[0].markdownLink).toContain("#atelier-zotero-passage?");
+    expect(out.results.every((r) => r.quote.length > 0)).toBe(true);
+  });
+
+  it("corpus : exclut les index legacy sans méta zotero", () => {
+    const dir = mkdtempSync(join(tmpdir(), "zp-legacy-"));
+    writeFileSync(join(dir, "legacy.json"), JSON.stringify({
+      version: 2, size: 1, mtimeMs: 1,
+      pages: [{ page: 1, text: "Fire aerosol deposition reduced summer albedo substantially." }],
+    }));
+    const out = searchCorpus({ cacheDir: dir, query: "albedo aerosol", limit: 5 });
+    expect(out.results).toEqual([]);
+  });
+
+  it("CLI : --corpus sans --pdf appelle searchCorpus au lieu d'exiger les métadonnées PDF", () => {
+    const result = runPassageSearch(
+      ["search", "--corpus", "--query", "albedo aerosol", "--limit", "1"],
+      { searchCorpus: () => ({ results: [{ page: 7, quote: "q", score: 10, pdfFile: "Williamson 2021.pdf", markdownLink: "[x](#atelier-zotero-passage?x)" }] }) },
+    );
+    expect(result.results[0].pdfFile).toBe("Williamson 2021.pdf");
+    expect(result.count).toBe(1);
   });
 
   it("injecte l'instruction au provider mais sait la retirer de l'historique", () => {
