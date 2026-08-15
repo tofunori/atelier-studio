@@ -141,6 +141,9 @@ pub const ALL_MESSAGE_TYPES: &[&str] = &[
     "goalSet",
     "goalGet",
     "goalClear",
+    "pinPassage",
+    "listPins",
+    "unpinPassage",
 ];
 
 fn narval_reply<T: serde::Serialize>(
@@ -3903,6 +3906,24 @@ mod tests {
         let out = route_ws(&s, r#"{"type":"deleteThread","threadId":"t1"}"#).await;
         let v: Value = serde_json::from_str(&out[0]).unwrap();
         assert!(v["threads"].as_array().unwrap().is_empty());
+    }
+
+    #[tokio::test]
+    async fn evidence_pin_roundtrip_over_ws() {
+        let dir = tempdir().unwrap();
+        let s = state(dir.path());
+        let pin = r#"{"type":"pinPassage","projectRoot":"/proj/a","pin":{"quote":"q","zoteroKey":"Z","pdfKey":"P","pdfFile":"a.pdf","page":3,"citeLabel":"Williamson 2021"}}"#;
+        let out = route_ws(&s, pin).await;
+        let v: Value = serde_json::from_str(&out[0]).unwrap();
+        assert_eq!(v["type"], "evidencePins");
+        assert_eq!(v["pins"][0]["citeLabel"], "Williamson 2021");
+        let id = v["pins"][0]["id"].as_str().unwrap().to_string();
+        let list = route_ws(&s, r#"{"type":"listPins","projectRoot":"/proj/a"}"#).await;
+        let lv: Value = serde_json::from_str(&list[0]).unwrap();
+        assert_eq!(lv["pins"].as_array().unwrap().len(), 1);
+        let unpin = format!(r#"{{"type":"unpinPassage","projectRoot":"/proj/a","pinId":"{id}"}}"#);
+        let uv: Value = serde_json::from_str(&route_ws(&s, &unpin).await[0]).unwrap();
+        assert!(uv["pins"].as_array().unwrap().is_empty());
     }
 
     #[tokio::test]

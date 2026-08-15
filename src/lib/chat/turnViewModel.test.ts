@@ -299,6 +299,28 @@ describe("chat turn view model", () => {
     ]);
   });
 
+  it("une annotation d'attente après le texte ne l'avale pas dans le repli", () => {
+    // Régression vécue (2026-08-15) : le marqueur « tour bloqué, attend une
+    // précision » émis APRÈS le texte final le déclassait en texte
+    // intermédiaire — la réponse disparaissait dans « A travaillé pendant Ns ».
+    for (const marqueur of [
+      { kind: "tool" as const, name: "__waiting", detail: "quelle heure ?" },
+      // nom historique (2026-08-13→15), présent dans les journaux de l'époque
+      { kind: "tool" as const, name: "en attente : quelle heure ?" },
+    ]) {
+      const events: AgentEvent[] = [
+        { kind: "user", text: "allo", ts: T0 },
+        { kind: "tool", name: "Read", detail: "a.ts" },
+        { kind: "text", text: "Allo ! Que puis-je faire ?", ts: T0 + 400 },
+        marqueur,
+        { kind: "done", ok: true, result: "", ts: T0 + 500 },
+      ];
+      const turn = buildChatTurnViewModels(events, null)[0];
+      expect(turn.finalAssistantIndex).toBe(2);
+      expect(turn.fold).toMatchObject({ start: 1, end: 2 });
+    }
+  });
+
   it("produit Worked/Stopped/Failed depuis le terminal et sa durée", () => {
     const completed = buildChatTurnViewModels([
       { kind: "user", text: "Q", ts: T0 },
