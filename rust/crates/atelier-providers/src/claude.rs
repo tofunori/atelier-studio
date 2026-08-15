@@ -203,10 +203,14 @@ fn resolve_claude_bin() -> Option<PathBuf> {
 }
 
 fn build_args(req: &SendRequest, mcp_config_path: Option<&std::path::Path>) -> Vec<String> {
+    // Le mode vient TOUJOURS de l'UI en pratique ; ce repli ne couvre que les
+    // requêtes malformées (permission_mode absent) — il doit rester sûr par
+    // défaut et ne jamais fabriquer --dangerously-skip-permissions de son
+    // propre chef (plan 063, finding SEC-05).
     let permission_mode = req
         .permission_mode
         .as_deref()
-        .unwrap_or("bypassPermissions");
+        .unwrap_or("acceptEdits");
     // Contrat Atelier/SDK : « default ». Le CLI Claude récent nomme le même
     // comportement explicite « manual »; lui transmettre « default » fait
     // échouer le process avant même le premier événement.
@@ -954,6 +958,25 @@ mod title_tests {
             .iter()
             .any(|arg| arg == "--dangerously-skip-permissions"));
         assert!(bypass.windows(2).any(|pair| pair == ["--effort", "high"]));
+    }
+
+    #[test]
+    fn absent_permission_mode_never_produces_dangerously_skip_permissions() {
+        // Le mode vient toujours de l'UI en pratique ; ce test verrouille le
+        // repli d'une requête malformée (permission_mode absent) — il ne doit
+        // JAMAIS fabriquer --dangerously-skip-permissions de son propre chef
+        // (plan 063, finding SEC-05).
+        let mut req = request("acceptEdits");
+        req.permission_mode = None;
+        let args = build_args(&req, None);
+        assert!(!args
+            .iter()
+            .any(|arg| arg == "--dangerously-skip-permissions"));
+        let index = args
+            .iter()
+            .position(|arg| arg == "--permission-mode")
+            .unwrap();
+        assert_eq!(args[index + 1], "acceptEdits");
     }
 
     #[test]
