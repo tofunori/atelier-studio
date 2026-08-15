@@ -9,6 +9,7 @@ use std::path::{Path, PathBuf};
 const EPHEMERAL: &[&str] = &[
     "delta",
     "thinking_delta",
+    "thinking_progress",
     "thinking_live",
     "stream_set",
     "streaming",

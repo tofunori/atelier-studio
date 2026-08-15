@@ -44,6 +44,7 @@ export const MAX_LINE_BYTES = 512 * 1024;
 const EPHEMERAL_KINDS = new Set([
   "delta",
   "thinking_delta",
+  "thinking_progress",
   "thinking_live",
   "stream_set",
   "streaming",

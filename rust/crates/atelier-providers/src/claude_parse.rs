@@ -39,6 +39,11 @@ pub struct ClaudeStreamState {
     pub current_msg_output_tokens: u64,
     pub current_msg_est_chars: usize,
     pub last_beat_tokens: u64,
+    /// Compteur de `thinking_delta` VIDES du message courant. Le CLI ≥2.1.8
+    /// caviarde le thinking en stream-json (`"thinking":""`) : le vrai texte
+    /// a disparu, mais ce compteur donne quand même un signal de progression
+    /// à l'UI. Remis à zéro partout où current_msg_* se réinitialise.
+    pub thinking_chunks: u64,
     pub pending_tools: std::collections::HashMap<String, PendingTool>,
     pub saw_terminal: bool,
 }
@@ -171,6 +176,13 @@ pub fn parse_message(state: &mut ClaudeStreamState, msg: &Value) -> Vec<Value> {
                             state.current_msg_est_chars += t.len();
                             if !t.is_empty() {
                                 out.push(json!({"kind":"thinking_delta","text": t}));
+                            } else {
+                                // Thinking caviardé par le CLI : pas de vrai texte, mais
+                                // un signal de progression pour que l'UI montre que la
+                                // réflexion avance. Si le texte revient un jour, la
+                                // branche ci-dessus reprend seule (aucun progress alors).
+                                state.thinking_chunks += 1;
+                                out.push(json!({"kind":"thinking_progress","count": state.thinking_chunks}));
                             }
                         }
                     }
@@ -197,6 +209,7 @@ pub fn parse_message(state: &mut ClaudeStreamState, msg: &Value) -> Vec<Value> {
                     .max((state.current_msg_est_chars / 4) as u64);
                 state.current_msg_output_tokens = 0;
                 state.current_msg_est_chars = 0;
+                state.thinking_chunks = 0;
             }
         }
         return out;
@@ -468,6 +481,7 @@ pub fn parse_message(state: &mut ClaudeStreamState, msg: &Value) -> Vec<Value> {
         state.current_msg_output_tokens = 0;
         state.current_msg_est_chars = 0;
         state.last_beat_tokens = 0;
+        state.thinking_chunks = 0;
         let subtype = msg.get("subtype").and_then(|v| v.as_str()).unwrap_or("");
         let ok = subtype == "success"
             && !msg
@@ -958,6 +972,53 @@ mod tests {
         );
         assert_eq!(st.completed_output_tokens, 0);
         assert_eq!(st.last_beat_tokens, 0);
+    }
+
+    /// CLI ≥2.1.8 caviarde le thinking en stream-json : les thinking_delta
+    /// arrivent avec `"thinking":""`. Le parseur ignorait ce vide en silence ;
+    /// il doit maintenant émettre une progression (count croissant) pour que
+    /// l'UI montre que la réflexion avance, sans jamais rejouer "thinking"
+    /// ni "thinking_delta" tant que le vrai texte ne revient pas.
+    #[test]
+    fn thinking_delta_vide_emet_une_progression_croissante() {
+        let mut st = ClaudeStreamState::default();
+        let line = r#"{"type":"stream_event","event":{"type":"content_block_delta","delta":{"type":"thinking_delta","thinking":""}}}"#;
+
+        let e1 = parse_line(&mut st, line);
+        assert!(e1
+            .iter()
+            .any(|v| v["kind"] == "thinking_progress" && v["count"] == serde_json::json!(1)));
+        assert!(!e1
+            .iter()
+            .any(|v| v["kind"] == "thinking" || v["kind"] == "thinking_delta"));
+
+        let e2 = parse_line(&mut st, line);
+        assert!(e2
+            .iter()
+            .any(|v| v["kind"] == "thinking_progress" && v["count"] == serde_json::json!(2)));
+
+        let e3 = parse_line(&mut st, line);
+        assert!(e3
+            .iter()
+            .any(|v| v["kind"] == "thinking_progress" && v["count"] == serde_json::json!(3)));
+        assert!(!e3
+            .iter()
+            .any(|v| v["kind"] == "thinking" || v["kind"] == "thinking_delta"));
+    }
+
+    /// Si le CLI rétablit le vrai texte, le flux normal reprend seul : aucune
+    /// progression ne doit s'ajouter à côté d'un thinking_delta non vide.
+    #[test]
+    fn thinking_delta_non_vide_najoute_pas_de_progression() {
+        let mut st = ClaudeStreamState::default();
+        let e = parse_line(
+            &mut st,
+            r#"{"type":"stream_event","event":{"type":"content_block_delta","delta":{"type":"thinking_delta","thinking":"réfléchit"}}}"#,
+        );
+        assert!(e
+            .iter()
+            .any(|v| v["kind"] == "thinking_delta" && v["text"] == "réfléchit"));
+        assert!(!e.iter().any(|v| v["kind"] == "thinking_progress"));
     }
 
     #[test]

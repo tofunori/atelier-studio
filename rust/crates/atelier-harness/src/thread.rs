@@ -312,4 +312,27 @@ mod tests {
         assert!(!mat.iter().any(|e| e["kind"] == "delta"));
         assert!(mat.iter().any(|e| e["kind"] == "done"));
     }
+
+    /// thinking_progress (compteur de thinking_delta caviardés par le CLI
+    /// ≥2.1.8) doit suivre exactement le même chemin que delta : diffusé à
+    /// l'UI, jamais journalisé.
+    #[test]
+    fn thinking_progress_not_journaled() {
+        let dir = tempdir().unwrap();
+        let journal = HarnessJournal::new(dir.path());
+        let captured = Arc::new(StdMutex::new(Vec::new()));
+        let cap = Arc::clone(&captured);
+        let emit: EmitFn = Arc::new(move |e| {
+            cap.lock().unwrap().push(e);
+        });
+        let mut h = HarnessThread::new("t1", "fake", emit, Some(journal.clone()), 0);
+        let turn = h.start_turn(None, None, None);
+        h.emit(&turn, json!({"kind":"thinking_progress","count":1}), None);
+        h.terminal(&turn, json!({"kind":"done"}));
+        let ui = captured.lock().unwrap();
+        assert!(ui.iter().any(|e| e["kind"] == "thinking_progress"));
+        let mat = journal.materialize("t1");
+        assert!(!mat.iter().any(|e| e["kind"] == "thinking_progress"));
+        assert!(mat.iter().any(|e| e["kind"] == "done"));
+    }
 }

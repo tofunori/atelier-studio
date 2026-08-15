@@ -21,6 +21,7 @@ pub const DURABLE_KINDS: &[&str] = &[
 const EPHEMERAL: &[&str] = &[
     "delta",
     "thinking_delta",
+    "thinking_progress",
     "thinking_live",
     "stream_set",
     "streaming",

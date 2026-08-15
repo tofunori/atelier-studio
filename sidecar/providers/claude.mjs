@@ -322,6 +322,11 @@ export function send({
     // tokens de sortie cumulés du tour — ticker « Ns · Nk tokens » du front,
     // via heartbeat (éphémère : jamais journalisé)
     let turnOutputTokens = 0;
+    // compteur de thinking_delta VIDES du message courant — le CLI ≥2.1.8
+    // caviarde le thinking en stream-json ("thinking":"") : le vrai texte a
+    // disparu, mais ce compteur donne quand même un signal de progression à
+    // l'UI (thinking_progress, éphémère : jamais journalisé)
+    let thinkingChunks = 0;
     const boundedInput = (input) => {
       try {
         const s = JSON.stringify(input ?? {});
@@ -373,8 +378,20 @@ export function send({
           if (ev?.type === "content_block_delta" && ev.delta?.type === "text_delta") {
             emit({ kind: "delta", text: ev.delta.text });
           }
-          if (ev?.type === "content_block_delta" && ev.delta?.type === "thinking_delta" && ev.delta.thinking) {
-            emit({ kind: "thinking_delta", text: ev.delta.thinking });
+          if (ev?.type === "content_block_delta" && ev.delta?.type === "thinking_delta" && typeof ev.delta.thinking === "string") {
+            if (ev.delta.thinking) {
+              emit({ kind: "thinking_delta", text: ev.delta.thinking });
+            } else {
+              // Thinking caviardé par le CLI : pas de vrai texte, mais un
+              // signal de progression pour que l'UI montre que la réflexion
+              // avance. Si le texte revient, la branche ci-dessus reprend
+              // seule (aucun progress alors).
+              thinkingChunks += 1;
+              emit({ kind: "thinking_progress", count: thinkingChunks });
+            }
+          }
+          if (ev?.type === "message_stop") {
+            thinkingChunks = 0;
           }
         }
         if (msg.type === "assistant") {
@@ -473,6 +490,7 @@ export function send({
         if (msg.type === "result") {
           flushPendingTools();
           turnOutputTokens = 0; // le ticker repart à zéro au prochain tour
+          thinkingChunks = 0;
           const u = msg.usage ?? {};
           emit({
             kind: "done",

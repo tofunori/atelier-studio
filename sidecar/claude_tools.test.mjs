@@ -47,6 +47,10 @@ const userToolResult = (toolUseId, content, isError = false) => ({
   message: { content: [{ type: "tool_result", tool_use_id: toolUseId, content, is_error: isError }] },
 });
 const resultMsg = () => ({ type: "result", subtype: "success", result: "fin", usage: {} });
+const thinkingDelta = (text) => ({
+  type: "stream_event",
+  event: { type: "content_block_delta", delta: { type: "thinking_delta", thinking: text } },
+});
 
 async function session(name) {
   const events = [];
@@ -257,6 +261,29 @@ describe("outils Claude — contrat tool_update (plan 025)", () => {
     await flush();
     const beats = s.events.filter((e) => e.kind === "heartbeat");
     expect(beats.map((e) => e.tokens)).toEqual([120, 200]);
+    await s.finish();
+  });
+});
+
+describe("thinking_progress — CLI ≥2.1.8 caviarde le thinking en stream-json", () => {
+  it("thinking_delta vide : progression comptée, jamais de thinking/thinking_delta", async () => {
+    const s = await session("ct-16");
+    s.q.feed(thinkingDelta(""));
+    s.q.feed(thinkingDelta(""));
+    s.q.feed(thinkingDelta(""));
+    await flush();
+    const progress = s.events.filter((e) => e.kind === "thinking_progress");
+    expect(progress.map((e) => e.count)).toEqual([1, 2, 3]);
+    expect(s.events.some((e) => e.kind === "thinking" || e.kind === "thinking_delta")).toBe(false);
+    await s.finish();
+  });
+
+  it("thinking_delta non vide : le vrai texte prime, pas de progression", async () => {
+    const s = await session("ct-17");
+    s.q.feed(thinkingDelta("réfléchit"));
+    await flush();
+    expect(s.events.some((e) => e.kind === "thinking_delta" && e.text === "réfléchit")).toBe(true);
+    expect(s.events.some((e) => e.kind === "thinking_progress")).toBe(false);
     await s.finish();
   });
 });
