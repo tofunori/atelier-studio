@@ -462,3 +462,40 @@ d'écriture par projet.
   OpenCode n'annoncent la parité qu'après une preuve d'injection MCP par session.
 - Le fallback Node reste hors périmètre et l'UI ne doit jamais afficher un faux
   support lorsque le backend Rust n'est pas actif.
+
+---
+
+# Audit commercialisable — 2026-08-15 (commit `49c52384`)
+
+Audit ciblé « ce qui sépare l'app d'un produit vendable » : portabilité,
+distribution, premier lancement, langue, échecs silencieux, sécurité.
+4 auditeurs parallèles, 43 findings, citations clés re-vérifiées.
+**Feuille de route : `plans/COMMERCIALISATION.md`.**
+
+## Execution order & status (plans 059+)
+
+| Plan | Title | Priority | Effort | Depends on | Status |
+|------|-------|----------|--------|------------|--------|
+| 064 | Lot pré-signature (identifier, notes release, README, rev-pin) | P1 | M | — | TODO |
+| 062 | Surface réseau gateway + jetons (SEC-01/02/03/08) | P1 | S-M | — | TODO |
+| 063 | Défauts de permission sûrs (SEC-05/06/07) | P1 | S-M | — | TODO |
+| 061 | Node embarqué pour le backend Rust (PORTA-01/02/04) | P1 | S | — | TODO |
+| 060 | Sonde d'environnement + toolchain-missing (PORTA-03/05/06/12/13) | P1 | M | — | TODO |
+| 059 | Canal de diagnostic (SILENT-09) | P1 | M | — | TODO |
+| 042 | Keychain mobile (SEC-04) — plan existant, toujours TODO | P1 | M | — | TODO |
+
+Dépendances : 064 précède toute signature Developer ID (DIST-01/02, à
+planifier). Le futur lot « échecs muets » (SILENT-01…08/10) dépend de 059.
+Les items sans plan (SEC-09/10/11, PORTA-07/08/09/10/11/14, DIST-01/02/04/05/06/07,
+LANG-01…08) sont détaillés dans `plans/COMMERCIALISATION.md`.
+
+## Findings considered and rejected (cet audit)
+
+- Usage de `open`/`sips`/`qlmanage` : légitime pour une app macOS (outils système).
+- Dégradation MinerU : correctement gérée — c'est le modèle à généraliser.
+- CORS `*` du sidecar : sans effet tant que le token est exigé (déjà acté 2026-07-07).
+- Chemin `agent-inbox` divergent : dette d'architecture, hors chemin produit.
+- `figures_data.json`/`figures_index.html` versionnés : hygiène de dépôt, hors périmètre.
+- Prémisses corrigées par l'audit lui-même : le README racine EXISTE (mais périmé),
+  le plan 013 A ÉTÉ exécuté (Node embarqué) — la dérive est venue de la bascule
+  Rust postérieure (2026-07-16), traitée par 061.
