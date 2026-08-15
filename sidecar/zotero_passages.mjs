@@ -47,11 +47,15 @@ export function splitPdfPages(text) {
   })).filter((entry) => entry.text);
 }
 
+function splitParagraphs(text) {
+  const normalized = String(text ?? "").replace(/([^\n])\n(?=[^\n])/g, "$1 ").replace(/\n{3,}/g, "\n\n");
+  return normalized.split(/\n\s*\n/).map((part) => part.replace(/\s+/g, " ").trim()).filter(Boolean);
+}
+
 export function passageChunks(pages, { target = 760, overlap = 150 } = {}) {
   const chunks = [];
   for (const entry of pages) {
-    const text = entry.text.replace(/([^\n])\n(?=[^\n])/g, "$1 ").replace(/\n{3,}/g, "\n\n");
-    const paragraphs = text.split(/\n\s*\n/).map((part) => part.replace(/\s+/g, " ").trim()).filter(Boolean);
+    const paragraphs = splitParagraphs(entry.text);
     for (const paragraph of paragraphs) {
       if (paragraph.length <= target) {
         if (paragraph.length >= 70) chunks.push({ page: entry.page, text: paragraph });
@@ -106,9 +110,16 @@ export function focusPassageQuote(text, query) {
     else if (/\b\d+[.,]\d+\b/.test(sentence)) score += 3;
     if (/root-mean-square/i.test(sentence)) score += 7;
     else if (/significant|increase|decrease|difference|correction|applicable|limitation/i.test(sentence)) score += 2;
-    return { sentence, index, score };
+    return { sentence, index, score, matched };
   }).sort((a, b) => b.score - a.score || a.index - b.index);
-  return ranked[0].sentence.slice(0, 500);
+  // Une phrase qui ne contient AUCUN token de la requête ne doit jamais
+  // l'emporter sur une phrase pertinente uniquement grâce à ses bonus
+  // structurels (« we show », motif numérique, root-mean-square, etc.) —
+  // sinon un fragment hors sujet mais à fort bonus peut devenir la citation
+  // affichée. Repli sur le meilleur score brut seulement si aucune phrase
+  // ne contient de token (requête générique, ou aucune correspondance).
+  const withMatch = queryTokens.length > 0 ? ranked.find((entry) => entry.matched > 0) : undefined;
+  return (withMatch ?? ranked[0]).sentence.slice(0, 500);
 }
 
 function scoreCandidateText(text, queryTokens, normalizedQuery, generic) {
@@ -216,6 +227,21 @@ export function extractPdfPages(pdfPath, {
   return { pages, cached: false, cachePath };
 }
 
+function bestPageParagraph(text, queryTokens, normalizedQuery, generic) {
+  const paragraphs = splitParagraphs(text);
+  if (!paragraphs.length) return String(text ?? "");
+  let best = paragraphs[0];
+  let bestScore = -Infinity;
+  for (const paragraph of paragraphs) {
+    const score = scoreCandidateText(paragraph, queryTokens, normalizedQuery, generic);
+    if (score > bestScore) {
+      bestScore = score;
+      best = paragraph;
+    }
+  }
+  return best;
+}
+
 export function searchCorpus({
   cacheDir = join(homedir(), "Library", "Application Support", "atelier-studio", "zotero-passages"),
   query,
@@ -249,7 +275,11 @@ export function searchCorpus({
       if (!page || !page.text) continue;
       const score = scoreCandidateText(page.text, queryTokens, normalizedQuery, generic);
       if (!generic && score < 7) continue;
-      const quote = focusPassageQuote(page.text, query);
+      // La page brute du cache contient en-têtes/pieds/fragments de tableau
+      // que le découpage paragraphe du mode mono-PDF aurait filtrés en
+      // amont : on ne laisse focusPassageQuote choisir une phrase que DANS
+      // le paragraphe le mieux noté de la page, jamais sur la page entière.
+      const quote = focusPassageQuote(bestPageParagraph(page.text, queryTokens, normalizedQuery, generic), query);
       merged.push({
         page: page.page,
         quote,

@@ -36,6 +36,11 @@ describe("passages Zotero", () => {
     );
   });
 
+  it("une phrase sans aucun token de la requête ne l'emporte jamais sur ses seuls bonus structurels", () => {
+    const text = "Fire aerosol deposition reduced summer albedo. We show root-mean-square differences of 0.016 for the calibration set.";
+    expect(focusPassageQuote(text, "albedo")).toBe("Fire aerosol deposition reduced summer albedo.");
+  });
+
   it("génère un lien profond local et réutilisable par le chat", () => {
     const href = passageLink({ zoteroKey: "ITEM1", pdfKey: "PDF1", pdfFile: "paper.pdf", page: 3, quote: "upper bound" });
     expect(href).toContain("#atelier-zotero-passage?");
@@ -86,6 +91,27 @@ describe("passages Zotero", () => {
     }));
     const out = searchCorpus({ cacheDir: dir, query: "albedo aerosol", limit: 5 });
     expect(out.results).toEqual([]);
+  });
+
+  it("corpus : ignore un fragment hors sujet à fort bonus au profit du paragraphe pertinent", () => {
+    const dir = mkdtempSync(join(tmpdir(), "zp-bonus-"));
+    const relevant = "Fire aerosol deposition reduced summer albedo.";
+    const offTopicBonus = "We show root-mean-square differences of 0.016 for the calibration set across all years.";
+    writeFixtureIndex(dir, "ccc.json", { pdfFile: "Williamson 2021.pdf", zoteroKey: "Z1", pdfKey: "P1",
+      pages: [{ page: 4, text: `${relevant}\n\n${offTopicBonus}` }] });
+    const out = searchCorpus({ cacheDir: dir, query: "albedo", limit: 5 });
+    expect(out.results).toHaveLength(1);
+    expect(out.results[0].quote).toBe(relevant);
+  });
+
+  it("corpus : le paramètre quote du markdownLink correspond exactement à la citation affichée", () => {
+    const dir = mkdtempSync(join(tmpdir(), "zp-fidelity-"));
+    writeFixtureIndex(dir, "ddd.json", { pdfFile: "Williamson 2021.pdf", zoteroKey: "Z1", pdfKey: "P1",
+      pages: [{ page: 9, text: "Fire aerosol deposition reduced summer albedo substantially." }] });
+    const out = searchCorpus({ cacheDir: dir, query: "albedo aerosol", limit: 5 });
+    const href = out.results[0].markdownLink.match(/\]\((#[^)]+)\)$/)?.[1] ?? "";
+    const params = new URLSearchParams(href.split("?")[1]);
+    expect(params.get("quote")).toBe(out.results[0].quote);
   });
 
   it("CLI : --corpus sans --pdf appelle searchCorpus au lieu d'exiger les métadonnées PDF", () => {
