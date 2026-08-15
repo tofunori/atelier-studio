@@ -69,6 +69,9 @@
      trois états — celui-ci doit être une vraie vue, pas une moitié d'écran. */
   html.tex-read-only #left{display:none}
   html.tex-read-only #right{width:100%}
+  /* La barre d'état est un instrument d'ÉDITION (Ln/Col, wrap, compile) : en
+     Lecture elle ne décrit plus rien de visible — elle sort avec l'éditeur. */
+  html.tex-read-only #statusbar{display:none}
   .CodeMirror,.cm-editor{flex:1;height:auto;font-size:13px;font-family:var(--code-font);line-height:1.62;background:var(--surface-app,var(--bg));color:var(--txt)}
   .cm-editor{min-height:0}
   .cm-editor .cm-scroller{font-family:var(--code-font);overflow:auto}

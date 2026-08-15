@@ -238,5 +238,13 @@ test('vue Lecture : plein cadre, pas de préambule, sélection annotable', async
     // Hors app, --surface-app est absente : le repli #1e2124 (le noir du chat)
     // s'applique. Dans l'app, atelier_theme.js fournit la variable exacte.
     expect(fondChat.fond).toBe('rgb(30, 33, 36)');
+
+    // La barre d'état (Ln/Col, wrap, compile) décrit l'éditeur : en Lecture
+    // elle disparaît, et revient avec lui.
+    await expect(fr().locator('#statusbar')).toBeHidden();
+    await fr().evaluate(() => document.getElementById('editBtn').click());
+    await expect(fr().locator('#statusbar')).toBeVisible();
+    await fr().evaluate(() => document.getElementById('readBtn').click());
+    await expect(fr().locator('#statusbar')).toBeHidden();
   } finally { server.kill('SIGKILL'); }
 });
