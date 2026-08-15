@@ -51,7 +51,6 @@ export type TimelineThread = {
   liveTokens: number | null;
   liveNote?: string | null;
   /** segments de réflexion (texte caviardé par le CLI headless) */
-  liveThinkingChunks?: number | null;
   phase: TurnPhase;
 };
 export type TimelineReview = {
@@ -121,7 +120,7 @@ export function ChatTimeline(p: {
     removeMark: (text: string, kind: "hl" | "ul") => void;
   };
 }) {
-  const { threadId, events, workingSince, liveTokens, liveNote, liveThinkingChunks, phase } = p.thread;
+  const { threadId, events, workingSince, liveTokens, liveNote, phase } = p.thread;
   // dernier bloc de pensée du fil : le seul qui puisse être « en cours »
   const lastThinkingIndex = (() => {
     for (let idx = events.length - 1; idx >= 0; idx -= 1) {
@@ -440,7 +439,7 @@ export function ChatTimeline(p: {
                   <div className="working-row">
                     <Working since={workingSince!} tokens={liveTokens} note={liveNote} />
                   </div>
-                  <LiveThinking thought={liveThought} progress={liveThinkingChunks} />
+                  <LiveThinking thought={liveThought} />
                   <RowButton className="stop-hint" title={t("action.interrupt")} onClick={onStop}>
                     <kbd>esc</kbd> {t("action.interrupt")}
                   </RowButton>
@@ -499,7 +498,6 @@ export function ChatTimeline(p: {
                 onStop={onStop}
                 plugins={plugins}
                 renderToolLine={renderToolLine}
-                thinkingProgress={liveThinkingChunks}
               />
             );
           }
