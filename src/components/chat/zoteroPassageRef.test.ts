@@ -1,5 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
-import { openGbrainPassage, openZoteroPassage, parseGbrainPassageRef, parseZoteroPassageRef } from "./md";
+import {
+  humanizeGbrainSlug, openGbrainPassage, openZoteroPassage, parseGbrainPassageRef, parseZoteroPassageRef,
+} from "./md";
 
 describe("lien de passage Zotero dans le chat", () => {
   const href = "#atelier-zotero-passage?key=ITEM1&pdfKey=PDF1&file=paper.pdf&page=7&quote=resultat+important";
@@ -93,5 +95,22 @@ describe("lien de passage gbrain dans le chat (tâche 6)", () => {
     const detail = (handler.mock.calls[0][0] as CustomEvent).detail;
     expect(detail).toEqual({ slug: "williamson-2021-fire-aerosol", quote: "resultat important" });
     window.removeEventListener("kb-open-gbrain-passage", handler);
+  });
+});
+
+// Arbitrage contrôleur (post-revue T6, finding 1) : un slug hiérarchique
+// humanisé EN ENTIER cassait le libellé de la carte — « papers/acp-19-1393-
+// 2019 » → « Papers/acp 19 1393 2019 » (slash brut, capitalisation ratée sur
+// le préfixe de classement). Le préfixe (papers/, articles/…) est du
+// classement, pas l'identité de l'article : seul le DERNIER segment se
+// humanise.
+describe("humanizeGbrainSlug — libellé source d'une carte gbrain (tâche 6)", () => {
+  it("slug plat (sans /) : humanisé en entier, comme avant", () => {
+    expect(humanizeGbrainSlug("williamson-2021-fire-aerosol")).toBe("Williamson 2021 Fire Aerosol");
+  });
+
+  it("slug hiérarchique : seul le dernier segment est humanisé", () => {
+    expect(humanizeGbrainSlug("papers/acp-19-1393-2019")).toBe("Acp 19 1393 2019");
+    expect(humanizeGbrainSlug("articles/bair-e.-h.-stillinger")).toBe("Bair E. H. Stillinger");
   });
 });

@@ -116,9 +116,13 @@ export function openGbrainPassage(ref: GbrainPassageRef) {
 }
 
 /** « williamson-2021-fire-aerosol » → « Williamson 2021 Fire Aerosol » —
- * libellé source d'une carte gbrain (pas de citeLabel/page comme Zotero). */
+ * libellé source d'une carte gbrain (pas de citeLabel/page comme Zotero).
+ * Slug hiérarchique (« papers/acp-19-1393-2019 ») : seul le DERNIER segment
+ * s'humanise — le préfixe (papers/, articles/…) est du classement de dépôt,
+ * pas l'identité de l'article que la carte veut montrer. */
 export function humanizeGbrainSlug(slug: string): string {
-  return slug
+  const last = slug.split("/").pop() || slug;
+  return last
     .split(/[-_]+/)
     .filter(Boolean)
     .map((word) => word.charAt(0).toUpperCase() + word.slice(1))

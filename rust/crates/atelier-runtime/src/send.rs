@@ -50,7 +50,7 @@ fn with_zotero_passage_instruction(prompt: String, server_dir: &str) -> String {
         serde_json::to_string(&tool.to_string_lossy()).unwrap_or_default(),
     );
     format!(
-        "{base}\n\n<atelier-gbrain-passages>\nA second, separate evidence source exists: the gbrain knowledge corpus (NAS-hosted notes and papers, reached through its own MCP tools — distinct from the Zotero PDFs above). When you consult it and a page contains a passage that directly supports what you are writing, cite it with a markdown link built from that exact page's slug and an exact verbatim excerpt: [« quoted excerpt »](#atelier-gbrain-passage?slug=<page-slug>&quote=<url-encoded-exact-quote>). The quote MUST be copied verbatim from the page — never paraphrase, translate, shorten, or invent it, and never invent a slug. Put this markdownLink ALONE in its own paragraph (blank line before and after) so the app renders it as a passage card; keep any explanation in a separate paragraph. Use atelier-gbrain-passage links only for gbrain corpus pages — Zotero PDF passages keep using atelier-zotero-passage links as described above.\n</atelier-gbrain-passages>"
+        "{base}\n\n<atelier-gbrain-passages>\nA second, separate evidence source exists: the gbrain knowledge corpus (NAS-hosted notes and papers, reached through its own MCP tools — distinct from the Zotero PDFs above). When you consult it and a page contains a passage that directly supports what you are writing, cite it with a markdown link built from that exact page's slug and an exact verbatim excerpt: [« quoted excerpt »](#atelier-gbrain-passage?slug=<page-slug>&quote=<url-encoded-exact-quote>). The quote MUST be copied verbatim from the page — never paraphrase, translate, shorten, or invent it, and never invent a slug. The verbatim excerpt MUST be copied from literal page content returned by mcp__gbrain__get_page or mcp__gbrain__get_chunks — NEVER from mcp__gbrain__query answers, which are synthesized. If you only have a query answer, fetch the page first. Put this markdownLink ALONE in its own paragraph (blank line before and after) so the app renders it as a passage card; keep any explanation in a separate paragraph. Use atelier-gbrain-passage links only for gbrain corpus pages — Zotero PDF passages keep using atelier-zotero-passage links as described above.\n</atelier-gbrain-passages>"
     )
 }
 
@@ -1838,6 +1838,10 @@ mod tests {
         assert!(out.contains("ONLY when they name a specific article"));
         // tâche 6 : second bloc pour le corpus gbrain (NAS), format de lien distinct
         assert!(out.contains("atelier-gbrain-passage"));
+        // arbitrage contrôleur (post-revue, finding 2) : ancre la source du
+        // verbatim — mcp__gbrain__query SYNTHÉTISE, jamais du texte littéral.
+        assert!(out.contains("get_page"));
+        assert!(out.contains("NEVER from"));
     }
 
     #[test]
