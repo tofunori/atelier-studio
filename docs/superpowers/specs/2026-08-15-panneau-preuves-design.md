@@ -23,10 +23,12 @@ phrase du manuscrit qu'il appuie. Fonctionne avec tous les providers (Claude, Gr
 
 ### Carte passage (chat)
 
-- **Convention d'émission** : un lien `#atelier-zotero-passage?…` **seul dans son paragraphe**
-  se rend en carte ; en inline il reste la pilule actuelle (rétro-compatible). Paramètres
-  existants (key, pdfKey, file, page, quote ≤ 900) + nouveau paramètre optionnel `supports`
-  (phrase appuyée, encodée) que l'agent joint quand une sélection était active.
+- **Convention d'émission** : un lien passage **seul dans son paragraphe** se rend en carte ;
+  en inline il reste une pilule (rétro-compatible). Deux schémas :
+  - `#atelier-zotero-passage?key…&pdfKey…&file…&page…&quote…` (existant) — « Ouvrir » = PDF à la page.
+  - `#atelier-gbrain-passage?slug=…&quote=…` (nouveau) — « Ouvrir » = lecteur SourceReader sur la
+    page du dépôt gbrain, **défilé et surligné** sur la citation (Custom Highlight API,
+    pattern `::highlight(chat-hl)` existant).
 - **Repliée (défaut)** : une ligne — début de citation en italique (ellipse), `citeLabel · p. N`,
   chevron (`Tick`) + icône épingle. Aucun bloc, max-width ~540px.
 - **Dépliée** : citation complète, source longue, actions « Ouvrir le PDF p. N » (flux
@@ -38,8 +40,10 @@ phrase du manuscrit qu'il appuie. Fonctionne avec tous les providers (Claude, Gr
 
 - Groupes = phrase appuyée (`supports.text`), avec `fichier · Llignes` en éteint ;
   épingles sans ancrage dans un groupe « Sans ancrage » en fin.
-- Rangée = citation (italique) + `citeLabel · p. N` ; clic → PDF à la page ; actions :
-  copier `\autocite{clé}` , retirer l'épingle (confirmation non requise — réversible en ré-épinglant).
+- Rangée = citation (italique) + `citeLabel · p. N` (Zotero) ou `titre/slug gbrain` ;
+  clic → PDF à la page (Zotero) ou lecteur défilé/surligné (gbrain) ; actions :
+  copier `\autocite{clé}` (Zotero SEULEMENT — une page gbrain n'a pas de clé fiable ;
+  gbrain : copier la citation brute), retirer l'épingle (réversible en ré-épinglant).
 - Tri : groupes par dernier ajout desc ; rangées par ajout desc. Vide : EmptyState sobre.
 
 ## Architecture
@@ -66,13 +70,15 @@ phrase du manuscrit qu'il appuie. Fonctionne avec tous les providers (Claude, Gr
    équivalent mjs). Schéma d'épingle :
    ```json
    {
-     "id": "uuid", "ts": 0,
-     "quote": "…", "zoteroKey": "…", "pdfKey": "…", "pdfFile": "….pdf", "page": 7,
-     "citeLabel": "Williamson 2021",
+     "id": "uuid", "ts": 0, "source": "zotero" | "gbrain",
+     "quote": "…", "citeLabel": "Williamson 2021",
+     "zoteroKey": "…", "pdfKey": "…", "pdfFile": "….pdf", "page": 7,
+     "gbrainSlug": "…",
      "supports": { "text": "…", "file": "intro.tex", "lines": "L42" } | null,
      "threadId": "…", "provider": "claude"
    }
    ```
+   (champs zotero* /page absents pour `source:"gbrain"`, `gbrainSlug` absent pour `"zotero"`.)
 4. **Surface Preuves** : onglet du rail (même mécanique que les surfaces existantes),
    composant `src/components/EvidenceSurface.tsx`, i18n fr/en complet.
 5. **Instruction renforcée** — côté Rust : localiser le point d'injection de l'instruction
@@ -81,6 +87,9 @@ phrase du manuscrit qu'il appuie. Fonctionne avec tous les providers (Claude, Gr
    sélection récente → chercher via l'outil, répondre avec le lien-carte seul dans son
    paragraphe, joindre `supports` depuis la sélection. Jamais de citation inventée :
    uniquement les passages retournés par l'outil. Le `.mjs` reste inchangé.
+   **gbrain** : quand le passage vient de `gbrain query` (MCP), émettre
+   `#atelier-gbrain-passage?slug=<slug>&quote=<citation exacte du chunk>` — même règle
+   de paragraphe seul, même interdiction d'inventer.
 
 ### Capture de l'ancrage
 
