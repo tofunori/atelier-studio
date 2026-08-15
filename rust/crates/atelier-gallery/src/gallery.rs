@@ -22,6 +22,7 @@ use std::{
 use tokio::process::Command;
 use zip::{ZipWriter, write::SimpleFileOptions};
 
+use crate::openable::is_openable_ext;
 use crate::{AppState, request_allowed};
 
 const SNIP_EXTS: &[&str] = &["py", "r", "jl", "sh", "tex", "md", "csv"];
@@ -914,6 +915,43 @@ fn html_escape(s: &str) -> String {
         .replace('"', "&quot;")
 }
 
+/// Bit exécutable (utilisateur/groupe/autre) — ceinture-bretelles de
+/// `open_path` : même une extension par ailleurs ouvrable ne doit pas
+/// s'exécuter si le fichier a été rendu exécutable (plan 063, SEC-06).
+#[cfg(unix)]
+fn is_executable(path: &Path) -> bool {
+    use std::os::unix::fs::PermissionsExt;
+    fs::metadata(path)
+        .map(|m| m.permissions().mode() & 0o111 != 0)
+        .unwrap_or(false)
+}
+
+#[cfg(not(unix))]
+fn is_executable(_path: &Path) -> bool {
+    false
+}
+
+/// Résout `rel` sous `root` et vérifie qu'il est sûr à passer à `open` :
+/// dans le sandbox du projet, existant, type autorisé, pas exécutable.
+/// Séparé du handler pour rester testable sans spawn (plan 063, SEC-06) :
+/// vérification faite EN AMONT de tout `Command::new("open")`.
+fn resolve_openable(root: &Path, rel: &str) -> Result<PathBuf, (StatusCode, &'static str)> {
+    let joined = root.join(rel);
+    let full = fs::canonicalize(&joined).map_err(|_| (StatusCode::NOT_FOUND, "not found"))?;
+    if !full.starts_with(root) || !full.exists() {
+        return Err((StatusCode::NOT_FOUND, "not found"));
+    }
+    // Allowlist de types (plan 063, finding SEC-06) : un `.command`/`.app`
+    // déposé dans un dépôt cloné ne doit jamais s'exécuter au premier clic
+    // sur /open-path. Ceinture-bretelles : bit exécutable refusé même pour
+    // une extension par ailleurs ouvrable (ex. un `.py` chmod +x).
+    let ext = full.extension().and_then(|e| e.to_str()).unwrap_or("");
+    if !full.is_file() || !is_openable_ext(ext) || is_executable(&full) {
+        return Err((StatusCode::FORBIDDEN, "type non ouvrable"));
+    }
+    Ok(full)
+}
+
 pub async fn open_path(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -925,18 +963,106 @@ pub async fn open_path(
     let Some(rel) = body.rel.as_deref() else {
         return json_error(StatusCode::BAD_REQUEST, "bad request: missing rel");
     };
-    let joined = state.root.join(rel);
-    let Ok(full) = fs::canonicalize(&joined) else {
-        return json_error(StatusCode::NOT_FOUND, "not found");
+    let full = match resolve_openable(&state.root, rel) {
+        Ok(full) => full,
+        Err((status, message)) => return json_error(status, message),
     };
-    if !full.starts_with(&state.root) || !full.exists() {
-        return json_error(StatusCode::NOT_FOUND, "not found");
-    }
     let mut cmd = Command::new("open");
     cmd.arg(&full);
     match tokio::time::timeout(Duration::from_secs(10), cmd.output()).await {
         Ok(Ok(_)) => (StatusCode::OK, Json(json!({"ok": true}))).into_response(),
         Ok(Err(error)) => json_error(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()),
         Err(_) => json_error(StatusCode::INTERNAL_SERVER_ERROR, "open timed out"),
+    }
+}
+
+#[cfg(test)]
+mod open_path_tests {
+    use super::resolve_openable;
+    use axum::http::StatusCode;
+    use std::fs;
+    use std::path::PathBuf;
+
+    #[cfg(unix)]
+    fn chmod(path: &std::path::Path, mode: u32) {
+        use std::os::unix::fs::PermissionsExt;
+        fs::set_permissions(path, fs::Permissions::from_mode(mode)).unwrap();
+    }
+
+    /// `state.root` en production est toujours canonicalisé au démarrage
+    /// (main.rs, `fs::canonicalize(&raw).unwrap_or(raw)`) — `resolve_openable`
+    /// compare `full.starts_with(root)` sur cette base. `tempdir()` renvoie
+    /// souvent un chemin sous /var/folders qui est un symlink vers
+    /// /private/var/folders sur macOS ; sans canonicaliser ici, cette
+    /// comparaison échouerait pour une raison indépendante du test.
+    fn canonical_root(dir: &tempfile::TempDir) -> PathBuf {
+        fs::canonicalize(dir.path()).unwrap()
+    }
+
+    #[test]
+    fn refuses_command_file_403() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = canonical_root(&dir);
+        let file = root.join("launch.command");
+        fs::write(&file, "#!/bin/sh\necho pwned\n").unwrap();
+        let err = resolve_openable(&root, "launch.command").unwrap_err();
+        assert_eq!(err.0, StatusCode::FORBIDDEN);
+        assert_eq!(err.1, "type non ouvrable");
+    }
+
+    #[test]
+    fn refuses_app_bundle_403() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = canonical_root(&dir);
+        // Un vrai bundle .app est un dossier (is_file() le rejette) ; un
+        // fichier régulier portant la même extension est aussi refusé, par
+        // l'allowlist cette fois — les deux chemins retombent sur 403.
+        let bundle = root.join("Evil.app");
+        fs::create_dir_all(&bundle).unwrap();
+        assert_eq!(
+            resolve_openable(&root, "Evil.app").unwrap_err().0,
+            StatusCode::FORBIDDEN
+        );
+        let file = root.join("shim.app");
+        fs::write(&file, "not a real bundle").unwrap();
+        assert_eq!(
+            resolve_openable(&root, "shim.app").unwrap_err().0,
+            StatusCode::FORBIDDEN
+        );
+    }
+
+    #[test]
+    fn allows_pdf_200() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = canonical_root(&dir);
+        let file = root.join("figure.pdf");
+        fs::write(&file, "%PDF-1.4\n").unwrap();
+        let resolved = resolve_openable(&root, "figure.pdf").unwrap();
+        assert_eq!(resolved, fs::canonicalize(&file).unwrap());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn refuses_executable_bit_even_for_openable_extension() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = canonical_root(&dir);
+        let file = root.join("script.py");
+        fs::write(&file, "print('hi')\n").unwrap();
+        chmod(&file, 0o755);
+        let err = resolve_openable(&root, "script.py").unwrap_err();
+        assert_eq!(err.0, StatusCode::FORBIDDEN);
+    }
+
+    #[test]
+    fn refuses_path_outside_root() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = canonical_root(&dir);
+        let outside = tempfile::tempdir().unwrap();
+        let file = outside.path().join("figure.pdf");
+        fs::write(&file, "%PDF-1.4\n").unwrap();
+        // rel qui remonte hors du sandbox : refusé (not found, comme avant).
+        let escaping = format!("../{}/figure.pdf", outside.path().file_name().unwrap().to_str().unwrap());
+        let err = resolve_openable(&root, &escaping).unwrap_err();
+        assert_eq!(err.0, StatusCode::NOT_FOUND);
     }
 }
