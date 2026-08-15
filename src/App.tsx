@@ -1576,6 +1576,10 @@ export default function App() {
         // lecture seule d'une page du dépôt : le lecteur corrèle par slug
         window.dispatchEvent(new CustomEvent("gbrain-page", { detail: msg }));
       }
+      if (msg.type === "sourceText") {
+        // texte stocké d'une source de la base : le lecteur corrèle par id
+        window.dispatchEvent(new CustomEvent("source-text", { detail: msg }));
+      }
       if (msg.type === "gbrainResults") {
         // recherche du corpus NAS (plan 050 P3) — consommée par la surface
         // Connaissances ; l'échec voyage dans detail.error, en place

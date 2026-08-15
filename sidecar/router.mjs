@@ -1362,6 +1362,19 @@ export async function route(msg, ctx) {
       }
       break;
     }
+    case "kbSourceText": {
+      // Lecture seule du texte stocké d'une source de la base.
+      try {
+        const out = await runKbCommand(["kb-text", "--id", String(msg.id ?? "")], ctx.kbDeps ?? {});
+        ctx.send({ type: "sourceText", ...out });
+      } catch (error) {
+        ctx.send({
+          type: "sourceText", id: String(msg.id ?? ""), text: "",
+          error: error instanceof Error ? error.message : String(error),
+        });
+      }
+      break;
+    }
     case "kbGbrainPage": {
       // Lecture seule d'une page du dépôt : rien n'entre dans la base au
       // passage — épingler reste un geste distinct.

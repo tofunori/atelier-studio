@@ -62,6 +62,7 @@ pub const ALL_MESSAGE_TYPES: &[&str] = &[
     "saveImage",
     "kbAdd",
     "kbGbrainPage",
+    "kbSourceText",
     "kbList",
     "kbCollection",
     "kbTag",
@@ -620,6 +621,7 @@ pub async fn route_ws(state: &AppState, text: &str) -> Vec<String> {
         }
         "kbAdd" => handle_kb_add(state, &msg),
         "kbGbrainPage" => handle_kb_gbrain_page(state, &msg),
+        "kbSourceText" => handle_kb_source_text(state, &msg),
         "kbList" => handle_kb_list(state),
         "kbCollection" | "kbTag" | "kbArchive" => handle_kb_organize(state, msg_type, &msg),
         "kbRemove" => handle_kb_remove(state, &msg).await,
@@ -2115,6 +2117,28 @@ async fn handle_article_write(state: &AppState, msg: &Value) -> Vec<String> {
             "ragdoc": v.get("ragdoc").cloned().unwrap_or(Value::Null),
         }))],
         Err(e) => article_error(&request_id, e),
+    }
+}
+
+/// Texte stocké d'une source de la base — ce que l'agent lit réellement.
+/// La réponse passe telle quelle : un dossier rend `files`, le reste `text`.
+fn handle_kb_source_text(state: &AppState, msg: &Value) -> Vec<String> {
+    let id = msg.get("id").and_then(|v| v.as_str()).unwrap_or("");
+    if id.is_empty() {
+        return vec![json_msg(json!({
+            "type": "sourceText", "id": "", "text": "", "error": "kbSourceText: id requis",
+        }))];
+    }
+    match kb_cli_run(state.server_dir(), state.app_dir(), &["kb-text", "--id", id], "") {
+        Ok(mut v) => {
+            if let Some(obj) = v.as_object_mut() {
+                obj.insert("type".into(), json!("sourceText"));
+            }
+            vec![json_msg(v)]
+        }
+        Err(e) => vec![json_msg(json!({
+            "type": "sourceText", "id": id, "text": "", "error": e,
+        }))],
     }
 }
 
