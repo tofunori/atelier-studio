@@ -96,6 +96,12 @@ import "./styles/primitives.css";
 import "./App.css";
 
 const PROJECTS_KEY = "atelier-studio.projects";
+// Le localStorage WKWebView peut perdre ses toutes dernières écritures si le
+// process est tué (kill -9, protocole de relance) — c'est pour ça que
+// projets/réglages/favoris/etc. sont aussi miroités sur disque (settings.json
+// via le sidecar). Ce miroir ne protège rien s'il traîne : on l'écrit vite
+// après chaque mutation plutôt que d'attendre une pause longue.
+const MIRROR_WRITE_DEBOUNCE_MS = 200;
 
 export type Attachment = DraftAttachment;
 type ZoteroPaletteItem = {
@@ -554,6 +560,14 @@ export default function App() {
       .filter((t) => t.pinned)
       .map((t) => ({ url: t.url, title: t.title, color: t.color }));
     localStorage.setItem("atelier-studio.pinnedTabs", JSON.stringify(store));
+    // pinnedTabs ne suit pas le cycle useEffect(deps) des autres clés
+    // miroitées (ce n'est pas un state React) — écriture disque immédiate ici.
+    if (ws.current?.readyState === 1) {
+      ws.current.send(JSON.stringify({
+        type: "saveSettings",
+        settings: buildMirrorSettings(settingsRef.current),
+      }));
+    }
   }
   const atelierTabsRef = useRef(atelierTabs);
   useEffect(() => {
@@ -641,10 +655,10 @@ export default function App() {
       if (ws.current?.readyState === 1) {
         ws.current.send(JSON.stringify({
           type: "saveSettings",
-          settings: { ...settings, projMeta: projMetaRef.current, projects: projectsRef.current },
+          settings: buildMirrorSettings(settings),
         }));
       }
-    }, 600);
+    }, MIRROR_WRITE_DEBOUNCE_MS);
     return () => {
       clearTimeout(broadcastTheme);
       clearInterval(reseedNonce);
@@ -739,6 +753,30 @@ export default function App() {
   projMetaRef.current = projMeta;
   const projectsRef = useRef(projects);
   projectsRef.current = projects;
+  const favoritesRef = useRef(favorites);
+  favoritesRef.current = favorites;
+  const pinsRef = useRef(pins);
+  pinsRef.current = pins;
+  const recentFilesRef = useRef(recentFiles);
+  recentFilesRef.current = recentFiles;
+  // Payload complet miroité vers settings.json (disque) via le sidecar —
+  // TOUT ce qui doit survivre à un `pkill -9` : réglages, projets, favoris,
+  // chapitres épinglés, onglets épinglés, fichiers récents. Le disque fait foi
+  // au boot (voir handleMessage/settingsFile plus bas) : un remplacement
+  // complet, pas une fusion, pour qu'une suppression locale (projet, favori,
+  // épingle…) puisse réellement s'y refléter au lieu d'être ressuscitée par
+  // un ancien miroir disque plus permissif.
+  function buildMirrorSettings(baseSettings: Settings) {
+    return {
+      ...baseSettings,
+      projMeta: projMetaRef.current,
+      projects: projectsRef.current,
+      favorites: favoritesRef.current,
+      pins: pinsRef.current,
+      recentFiles: recentFilesRef.current,
+      pinnedTabs: JSON.parse(localStorage.getItem("atelier-studio.pinnedTabs") ?? "{}"),
+    };
+  }
   // le localStorage WebKit s'écrit paresseusement et se perd si l'app est tuée :
   // icônes/lettres/ordre des projets partent aussi dans le miroir disque settings.json
   useEffect(() => {
@@ -746,12 +784,12 @@ export default function App() {
       if (ws.current?.readyState === 1) {
         ws.current.send(JSON.stringify({
           type: "saveSettings",
-          settings: { ...settingsRef.current, projMeta, projects },
+          settings: buildMirrorSettings(settingsRef.current),
         }));
       }
-    }, 600);
+    }, MIRROR_WRITE_DEBOUNCE_MS);
     return () => clearTimeout(id);
-  }, [projMeta, projects]);
+  }, [projMeta, projects, favorites, pins, recentFiles]);
 
   const [activeTab, setActiveTab] = useState<string>("gallery");
   const [layout, setLayout] = useState<"split" | "chat" | "atelier">("split");
@@ -1286,10 +1324,35 @@ export default function App() {
       }
       if (msg.type === "settingsFile") {
         const hasLocal = localStorage.getItem("atelier-studio.settings") !== null;
-        const { projMeta: diskMeta, projects: diskProjects, ...diskSettings } = msg.settings ?? {};
-        if (msg.settings && !hasLocal) {
-          // webview vierge (mise à jour, reset WebKit) : le fichier disque fait foi
-          // sauf pour une migration locale qui n'existait pas encore dans ce
+        // Rust renvoie `null` quand settings.json n'existe pas encore (tout
+        // premier lancement, avant la moindre écriture) — dans ce seul cas on
+        // amorce le fichier avec l'état local courant. Dès qu'il existe, le
+        // DISQUE FAIT FOI dans les deux sens : on ne pousse plus jamais l'état
+        // local par-dessus lui (ça écraserait un miroir correct avec un
+        // localStorage WKWebView périmé par un kill -9 — c'est justement le
+        // bug rapporté : projet supprimé qui revient au redémarrage).
+        if (msg.settings == null) {
+          if (ws.current?.readyState === 1) {
+            ws.current.send(JSON.stringify({
+              type: "saveSettings",
+              settings: buildMirrorSettings(settingsRef.current),
+            }));
+          }
+          return;
+        }
+        const {
+          projMeta: diskMeta,
+          projects: diskProjects,
+          favorites: diskFavorites,
+          pins: diskPins,
+          pinnedTabs: diskPinnedTabs,
+          recentFiles: diskRecentFiles,
+          ...diskSettings
+        } = msg.settings;
+        if (!hasLocal) {
+          // webview vierge (mise à jour, reset WebKit) : le fichier disque fait
+          // foi pour les réglages aussi, et on force la vue d'accueil — sauf
+          // pour une migration locale qui n'existait pas encore dans ce
           // fichier (favoris historiques de l'ancien picker de modèles).
           setSettings((current) => ({
             ...DEFAULT_SETTINGS,
@@ -1299,26 +1362,34 @@ export default function App() {
               : current.favoriteModels,
             activeView: "chats",
           }));
-        } else if (ws.current?.readyState === 1) {
-          // sinon pousser l'état courant vers le fichier pour l'amorcer
-          ws.current.send(JSON.stringify({
-            type: "saveSettings",
-            settings: { ...settingsRef.current, projMeta: projMetaRef.current, projects: projectsRef.current },
-          }));
+        } else if (Object.keys(diskSettings).length) {
+          // boot normal (webview déjà connue) : le disque fait foi pour les
+          // réglages simples aussi, mais sans piétiner la vue actuellement
+          // affichée (activeView reste local, non lié au bug rapporté).
+          setSettings((current) => ({ ...current, ...diskSettings }));
         }
-        // icônes/lettres/ordre : le disque fait foi — le localStorage WebKit peut
-        // avoir perdu les dernières écritures si l'app a été tuée
+        // Remplacement (pas fusion) pour chaque clé miroitée présente sur
+        // disque : une fusion additive/union ne peut jamais représenter une
+        // suppression (projet, favori, épingle, fichier récent…), ce qui
+        // ressuscitait l'élément supprimé à chaque redémarrage même quand
+        // l'écriture disque avait réussi.
         if (diskMeta && typeof diskMeta === "object") {
-          setProjMeta((cur) => ({ ...cur, ...diskMeta }));
+          setProjMeta(diskMeta);
         }
-        if (Array.isArray(diskProjects) && diskProjects.length) {
-          // union : le disque fait foi pour l'existence (le localStorage WebKit
-          // peut avoir perdu un projet récent si l'app a été tuée), puis on
-          // ajoute les créations locales pas encore synchronisées au disque.
-          setProjects((cur) => [
-            ...diskProjects,
-            ...cur.filter((r) => !diskProjects.includes(r)),
-          ]);
+        if (Array.isArray(diskProjects)) {
+          setProjects(diskProjects);
+        }
+        if (Array.isArray(diskFavorites)) {
+          setFavorites(diskFavorites);
+        }
+        if (diskPins && typeof diskPins === "object") {
+          setPins(diskPins);
+        }
+        if (diskPinnedTabs && typeof diskPinnedTabs === "object") {
+          localStorage.setItem("atelier-studio.pinnedTabs", JSON.stringify(diskPinnedTabs));
+        }
+        if (Array.isArray(diskRecentFiles)) {
+          setRecentFiles(diskRecentFiles);
         }
       }
       if (msg.type === "threads") {
