@@ -1605,6 +1605,12 @@ button.ghost.danger, button.ghost.danger:hover { color: var(--status-error); bac
 .sel-toolbar button:hover { background: var(--bg-ctl); color: var(--text-primary); }
 ::highlight(chat-hl) { background: color-mix(in srgb, var(--accent) 32%, transparent); }
 ::highlight(chat-ul) { text-decoration: underline; text-decoration-color: var(--accent); text-underline-offset: 3px; }
+/* citation surlignée à l'ouverture du lecteur depuis une carte passage gbrain
+   (tâche 6) : Custom Highlight API si dispo (mêmes classes que chat-hl
+   ci-dessus), repli <mark class="reader-quote"> sinon — même teinte. */
+::highlight(reader-quote) { background: color-mix(in srgb, var(--accent) 32%, transparent); }
+mark.reader-quote { background: color-mix(in srgb, var(--accent) 32%, transparent); color: inherit;
+  border-radius: var(--r-s); }
 /* curseur de frappe : présent, pas clignotant — l'anneau de .working-label est
    déjà la boucle du tour en cours (§9) */
 .stream-caret { display: inline-block; width: 7px; height: 15px; margin-left: 2px;

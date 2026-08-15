@@ -45,9 +45,12 @@ fn with_zotero_passage_instruction(prompt: String, server_dir: &str) -> String {
         return prompt;
     }
     let tool = std::path::Path::new(server_dir).join("atelier-zotero-passages");
-    format!(
+    let base = format!(
         "{prompt}\n\n<atelier-zotero-passages>\nWhen the user asks for important or relevant passages from an attached Zotero article, use the exact PDF metadata inside <zotero-reference> and call the terminal tool exactly once:\n{} search --pdf <absolute-pdf-path> --zotero-key <zotero-key> --pdf-key <pdf-key> --pdf-file <pdf-file> --query <user-question> --limit 5\nRead its JSON stdout. For every passage you cite, reproduce its markdownLink exactly so the user can open the PDF at that page with automatic highlighting. The displayed verbatim excerpt immediately associated with that link MUST be exactly the result's quote field: do not shorten, translate, normalize, or replace it with another sentence from context. You may explain it separately. Never invent a passage or link. If the article has no attached local PDF metadata, ask the user to attach it from Zotero. Do not call this tool for ordinary bibliography or metadata questions.\n\nWhen the user asks for a reference or supporting evidence for a sentence they are writing and no PARTICULAR article is in play, call the tool once with `search --corpus --query <the-claim> --limit 5` instead — do not ask them to attach anything. Asking the user to attach a PDF from Zotero applies ONLY when they name a specific article whose local PDF metadata is missing. When you present a found passage as the answer, put its markdownLink ALONE in its own paragraph (blank line before and after) so the app renders it as a passage card; keep your explanation in separate paragraphs.\n</atelier-zotero-passages>",
         serde_json::to_string(&tool.to_string_lossy()).unwrap_or_default(),
+    );
+    format!(
+        "{base}\n\n<atelier-gbrain-passages>\nA second, separate evidence source exists: the gbrain knowledge corpus (NAS-hosted notes and papers, reached through its own MCP tools — distinct from the Zotero PDFs above). When you consult it and a page contains a passage that directly supports what you are writing, cite it with a markdown link built from that exact page's slug and an exact verbatim excerpt: [« quoted excerpt »](#atelier-gbrain-passage?slug=<page-slug>&quote=<url-encoded-exact-quote>). The quote MUST be copied verbatim from the page — never paraphrase, translate, shorten, or invent it, and never invent a slug. Put this markdownLink ALONE in its own paragraph (blank line before and after) so the app renders it as a passage card; keep any explanation in a separate paragraph. Use atelier-gbrain-passage links only for gbrain corpus pages — Zotero PDF passages keep using atelier-zotero-passage links as described above.\n</atelier-gbrain-passages>"
     )
 }
 
@@ -1833,6 +1836,8 @@ mod tests {
         assert!(out.contains("Never invent a passage"));
         assert!(out.contains("no PARTICULAR article"));
         assert!(out.contains("ONLY when they name a specific article"));
+        // tâche 6 : second bloc pour le corpus gbrain (NAS), format de lien distinct
+        assert!(out.contains("atelier-gbrain-passage"));
     }
 
     #[test]

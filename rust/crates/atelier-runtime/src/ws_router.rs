@@ -2174,11 +2174,13 @@ fn handle_kb_gbrain_page(state: &AppState, msg: &Value) -> Vec<String> {
 }
 
 /// Payload `pin` de `pinPassage` — champs optionnels absents tolérés (pas de
-/// `#[serde(default)]` sur `EvidencePin` elle-même, qui reste stricte pour le
-/// stockage sur disque).
+/// `#[serde(default)]` sur `EvidencePin` elle-même pour `quote`/`cite_label`,
+/// qui restent stricts pour le stockage sur disque).
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct PinPassageInput {
+    #[serde(default = "evidence::default_source")]
+    source: String,
     #[serde(default)]
     quote: String,
     #[serde(default)]
@@ -2191,6 +2193,8 @@ struct PinPassageInput {
     page: u32,
     #[serde(default)]
     cite_label: String,
+    #[serde(default)]
+    gbrain_slug: Option<String>,
     #[serde(default)]
     supports: Option<evidence::EvidenceSupports>,
     #[serde(default)]
@@ -2223,10 +2227,21 @@ fn handle_pin_passage(state: &AppState, msg: &Value) -> Vec<String> {
         Ok(p) => p,
         Err(e) => return evidence_pins_error(project_root, format!("pinPassage: pin invalide: {e}")),
     };
-    // Schéma actuel (Zotero seulement) : quote/zoteroKey/pdfKey/pdfFile/citeLabel/page
-    // requis — sinon l'épingle est inutilisable pour la citation. La tâche 6
-    // assouplira ceci par source (gbrain) ; ne pas anticiper ici (YAGNI).
-    if input.quote.is_empty()
+    // Validation PAR SOURCE (tâche 6) : Zotero garde ses exigences d'origine
+    // (quote/zoteroKey/pdfKey/pdfFile/citeLabel/page) — un passage cité sans
+    // cette métadonnée est inutilisable pour rouvrir le PDF à la bonne page.
+    // gbrain n'a ni PDF ni page : seuls gbrainSlug/quote/citeLabel comptent,
+    // les champs zotero absents sont tolérés (défaut vide côté struct).
+    let is_gbrain = input.source == "gbrain";
+    if is_gbrain {
+        let slug_ok = input.gbrain_slug.as_deref().is_some_and(|s| !s.is_empty());
+        if input.quote.is_empty() || !slug_ok || input.cite_label.is_empty() {
+            return evidence_pins_error(
+                project_root,
+                "pinPassage: gbrainSlug/quote/citeLabel requis",
+            );
+        }
+    } else if input.quote.is_empty()
         || input.zotero_key.is_empty()
         || input.pdf_key.is_empty()
         || input.pdf_file.is_empty()
@@ -2243,11 +2258,13 @@ fn handle_pin_passage(state: &AppState, msg: &Value) -> Vec<String> {
         id: String::new(),
         ts: 0,
         quote: input.quote,
+        source: if is_gbrain { "gbrain".to_string() } else { "zotero".to_string() },
         zotero_key: input.zotero_key,
         pdf_key: input.pdf_key,
         pdf_file: input.pdf_file,
         page: input.page,
         cite_label: input.cite_label,
+        gbrain_slug: input.gbrain_slug,
         supports,
         thread_id: input.thread_id,
         provider: input.provider,
@@ -4042,6 +4059,8 @@ mod tests {
         let v: Value = serde_json::from_str(&out[0]).unwrap();
         assert_eq!(v["type"], "evidencePins");
         assert_eq!(v["pins"][0]["citeLabel"], "Williamson 2021");
+        // pas de "source" envoyé : défaut "zotero" côté store (épingles v1)
+        assert_eq!(v["pins"][0]["source"], "zotero");
         let id = v["pins"][0]["id"].as_str().unwrap().to_string();
         let list = route_ws(&s, r#"{"type":"listPins","projectRoot":"/proj/a"}"#).await;
         let lv: Value = serde_json::from_str(&list[0]).unwrap();
@@ -4069,6 +4088,42 @@ mod tests {
             lv["pins"].as_array().unwrap().is_empty(),
             "le store ne doit pas persister l'épingle incomplète: {lv}"
         );
+    }
+
+    #[tokio::test]
+    async fn evidence_pin_passage_gbrain_source_roundtrip_and_dedup() {
+        let dir = tempdir().unwrap();
+        let s = state(dir.path());
+        let pin = r#"{"type":"pinPassage","projectRoot":"/proj/a","pin":{"source":"gbrain","gbrainSlug":"williamson-2021-fire-aerosol","quote":"q","citeLabel":"Williamson 2021 Fire Aerosol"}}"#;
+        let out = route_ws(&s, pin).await;
+        let v: Value = serde_json::from_str(&out[0]).unwrap();
+        assert_eq!(v["type"], "evidencePins");
+        assert!(v["error"].is_null(), "attendu pas d'erreur: {v}");
+        assert_eq!(v["pins"].as_array().unwrap().len(), 1);
+        assert_eq!(v["pins"][0]["source"], "gbrain");
+        assert_eq!(v["pins"][0]["gbrainSlug"], "williamson-2021-fire-aerosol");
+        // ré-épingler le même (gbrainSlug, quote) : dédup, toujours 1
+        let out2 = route_ws(&s, pin).await;
+        let v2: Value = serde_json::from_str(&out2[0]).unwrap();
+        assert_eq!(v2["pins"].as_array().unwrap().len(), 1);
+    }
+
+    #[tokio::test]
+    async fn evidence_pin_passage_gbrain_rejects_missing_slug_or_quote_or_label() {
+        let dir = tempdir().unwrap();
+        let s = state(dir.path());
+        // gbrainSlug manquant
+        let no_slug = r#"{"type":"pinPassage","projectRoot":"/proj/a","pin":{"source":"gbrain","quote":"q","citeLabel":"C"}}"#;
+        let out = route_ws(&s, no_slug).await;
+        let v: Value = serde_json::from_str(&out[0]).unwrap();
+        assert!(v["error"].as_str().is_some(), "attendu une erreur (slug manquant): {v}");
+        assert!(v["pins"].as_array().unwrap().is_empty());
+
+        // les champs zotero (absents ici) ne doivent PAS être exigés côté gbrain
+        let ok = r#"{"type":"pinPassage","projectRoot":"/proj/a","pin":{"source":"gbrain","gbrainSlug":"s","quote":"q","citeLabel":"C"}}"#;
+        let out_ok = route_ws(&s, ok).await;
+        let v_ok: Value = serde_json::from_str(&out_ok[0]).unwrap();
+        assert!(v_ok["error"].is_null(), "gbrain ne doit pas exiger les champs zotero: {v_ok}");
     }
 
     #[tokio::test]

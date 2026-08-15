@@ -6,7 +6,7 @@
 // part réellement dans le contexte — pas le fichier sur le disque. L'écart
 // entre les deux est la raison d'être de ce lecteur : un CSV de 68 ko y entre
 // sous forme de profil de 2 ko, et rien d'autre ne le dit.
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import { MD_COMPONENTS, useMdPlugins } from "./md";
 import { mineruTablesToMarkdown, splitFrontMatter } from "../../lib/mineruTables";
@@ -15,6 +15,83 @@ import { Button } from "../ui/Button";
 import { IconButton } from "../ui/IconButton";
 import { RowButton } from "../ui/RowButton";
 import { wsSend } from "../../lib/wsBus";
+
+// ---- surlignage d'une citation (tâche 6) -----------------------------------
+// Custom Highlight API si `CSS.highlights` existe (mêmes classes que
+// ::highlight(chat-hl), Chat.tsx), sinon repli DOM `<mark class="reader-quote">`
+// (jsdom, et tout navigateur sans le support). Le match est normalisé (NFKD,
+// minuscules, espaces réduits) sur les ~80 premiers caractères de la citation
+// — le texte RENDU (markdown → DOM) peut différer légèrement de la citation
+// telle qu'émise (espaces, accents perdus au copier-coller, casse).
+
+const DIACRITIC = /[\u0300-\u036f]/;
+const WORD_CHAR = /[a-z0-9]/;
+
+/** Normalise `raw` pour la comparaison, en gardant pour chaque caractère
+ * normalisé conservé l'index du caractère d'ORIGINE dont il provient — la
+ * seule façon de reconstruire ensuite un Range DOM valide (offsets dans le
+ * texte réel, accents/casse intacts). */
+function normalizeWithMap(raw: string): { text: string; map: number[] } {
+  const text: string[] = [];
+  const map: number[] = [];
+  let lastWasSpace = true; // pas d'espace de tête
+  for (let i = 0; i < raw.length; i++) {
+    for (const ch of raw[i].normalize("NFKD")) {
+      if (DIACRITIC.test(ch)) continue;
+      const lower = ch.toLowerCase();
+      const isWord = WORD_CHAR.test(lower);
+      const outCh = isWord ? lower : " ";
+      if (outCh === " ") {
+        if (lastWasSpace) continue;
+        lastWasSpace = true;
+      } else {
+        lastWasSpace = false;
+      }
+      text.push(outCh);
+      map.push(i);
+    }
+  }
+  while (text.length && text[text.length - 1] === " ") {
+    text.pop();
+    map.pop();
+  }
+  return { text: text.join(""), map };
+}
+
+const normalizeQuote = (quote: string) => normalizeWithMap(quote.slice(0, 80)).text;
+
+/** Première occurrence normalisée de `quote` dans un nœud texte descendant de
+ * `root`, comme Range dans le texte D'ORIGINE — `null` si introuvable. Un seul
+ * nœud texte à la fois (comme le surlignage des citations du chat, Chat.tsx) :
+ * couvre l'immense majorité des passages, qui vivent dans un seul paragraphe. */
+function findQuoteRange(root: HTMLElement, quote: string): Range | null {
+  const needle = normalizeQuote(quote);
+  if (!needle) return null;
+  const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+  let node: Node | null;
+  while ((node = walker.nextNode())) {
+    const { text, map } = normalizeWithMap(node.textContent ?? "");
+    const idx = text.indexOf(needle);
+    if (idx < 0) continue;
+    const range = document.createRange();
+    range.setStart(node, map[idx]);
+    range.setEnd(node, map[idx + needle.length - 1] + 1);
+    return range;
+  }
+  return null;
+}
+
+/** Retire un éventuel repli `<mark class="reader-quote">` précédent en le
+ * dépliant dans son parent (texte compris), pour ne jamais empiler deux
+ * surlignages quand la citation change sans démonter le lecteur. */
+function clearFallbackMark(root: HTMLElement) {
+  const prev = root.querySelector("mark.reader-quote");
+  const parent = prev?.parentNode;
+  if (!prev || !parent) return;
+  while (prev.firstChild) parent.insertBefore(prev.firstChild, prev);
+  parent.removeChild(prev);
+  parent.normalize();
+}
 
 /** Page du dépôt, ou source de la base. */
 export type ReaderTarget =
@@ -31,6 +108,9 @@ export type SourceReaderProps = {
   /** Base : bascule « contenu complet » de cette source. */
   onToggleFull?(id: string): void;
   full?: boolean;
+  /** Citation à défiler et surligner dès que le texte rendu arrive (tâche 6,
+   * carte passage gbrain) — ignorée en vue « source » et pour les dossiers. */
+  highlightQuote?: string;
 };
 
 type Etat =
@@ -87,6 +167,32 @@ export default function SourceReader(p: SourceReaderProps) {
   const titre = page?.meta.title
     || (etat.phase === "prete" ? etat.title : undefined)
     || clef;
+
+  const docRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const registry = (CSS as any).highlights as
+      | { set(name: string, hl: unknown): void; delete(name: string): void }
+      | undefined;
+    const root = docRef.current;
+    registry?.delete("reader-quote");
+    if (root) clearFallbackMark(root);
+    if (!root || !p.highlightQuote || etat.phase !== "prete" || dossier || vue !== "rendu") return;
+    const range = findQuoteRange(root, p.highlightQuote);
+    if (!range) return;
+    const HighlightCtor = (window as any).Highlight;
+    if (HighlightCtor && registry) {
+      registry.set("reader-quote", new HighlightCtor(range));
+    } else {
+      const mark = document.createElement("mark");
+      mark.className = "reader-quote";
+      range.surroundContents(mark);
+    }
+    const target = range.startContainer.nodeType === Node.TEXT_NODE
+      ? range.startContainer.parentElement
+      : (range.startContainer as Element);
+    target?.scrollIntoView({ block: "center" });
+    return () => { registry?.delete("reader-quote"); };
+  }, [p.highlightQuote, etat, vue, dossier]);
 
   return (
     <div className="gbr">
@@ -179,7 +285,7 @@ export default function SourceReader(p: SourceReaderProps) {
                 ))}
               </div>
             ) : vue === "rendu" ? (
-              <div className="gbr-md msg typeset">
+              <div className="gbr-md msg typeset" ref={docRef}>
                 <ReactMarkdown
                   remarkPlugins={plugins.remark}
                   rehypePlugins={plugins.rehype}

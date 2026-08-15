@@ -165,6 +165,27 @@ export default function KbSurface(p: {
   // Page du dépôt ouverte en lecture : le lecteur remplace la liste, avec un
   // retour. Pas de modale — une lecture d'article dure.
   const [lecture, setLecture] = useState<ReaderTarget | null>(null);
+  // Citation à défiler/surligner dans le lecteur (carte passage gbrain, tâche
+  // 6) — distincte de `lecture` : une ouverture normale (rangée, menu) n'a
+  // rien à surligner et doit effacer un highlight resté d'une ouverture
+  // précédente.
+  const [lectureHighlight, setLectureHighlight] = useState<string | null>(null);
+  function openLecture(target: ReaderTarget, highlightQuote: string | null = null) {
+    setLecture(target);
+    setLectureHighlight(highlightQuote);
+  }
+  // Ouverture depuis une carte passage gbrain du chat (md.tsx,
+  // openGbrainPassage) — même schéma découplé que chat-open-zotero-passage/
+  // BiblioSurface : App.tsx bascule la surface, ce listener ouvre le lecteur.
+  useEffect(() => {
+    const onOpenGbrainPassage = (e: Event) => {
+      const detail = (e as CustomEvent).detail as { slug?: string; quote?: string } | undefined;
+      if (!detail?.slug) return;
+      openLecture({ kind: "gbrain", slug: detail.slug }, detail.quote || null);
+    };
+    window.addEventListener("kb-open-gbrain-passage", onOpenGbrainPassage);
+    return () => window.removeEventListener("kb-open-gbrain-passage", onOpenGbrainPassage);
+  }, []);
   // imports en vol : rangées vivantes en tête de liste (plan 054)
   const imports = useSyncExternalStore(subscribeArticleImport, articleImportSnapshot);
   const [now, setNow] = useState(() => Date.now());
@@ -332,7 +353,7 @@ export default function KbSurface(p: {
     }
     // page du dépôt : la lire, ou la faire entrer dans la base
     return [
-      { key: "read", label: t("kbs.menu-read"), onSelect: () => setLecture({ kind: "gbrain", slug: row.slug ?? "" }) },
+      { key: "read", label: t("kbs.menu-read"), onSelect: () => openLecture({ kind: "gbrain", slug: row.slug ?? "" }) },
       {
         key: "pin",
         separatorBefore: true,
@@ -370,8 +391,8 @@ export default function KbSurface(p: {
           title={source?.origin ?? row.slug ?? row.title}
           onClick={() => {
             if (selectMode && source) toggleSelected(source.id);
-            else if (source) setLecture({ kind: "source", id: source.id });
-            else setLecture({ kind: "gbrain", slug: row.slug ?? "" });
+            else if (source) openLecture({ kind: "source", id: source.id });
+            else openLecture({ kind: "gbrain", slug: row.slug ?? "" });
           }}
         >
           <span className="kb-kind"><KindIcon kind={row.kind} /></span>
@@ -407,10 +428,11 @@ export default function KbSurface(p: {
       <div className="kb-panel kb-panel-surface kbs">
         <SourceReader
           target={lecture}
-          onClose={() => setLecture(null)}
+          onClose={() => { setLecture(null); setLectureHighlight(null); }}
           onPin={(slug) => p.gbrain?.onPin(slug)}
           onToggleFull={p.onToggleFull}
           full={lecture.kind === "source" && p.fullContent.includes(lecture.id)}
+          highlightQuote={lectureHighlight ?? undefined}
         />
       </div>
     );

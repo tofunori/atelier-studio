@@ -38,6 +38,7 @@ export function openFileRef(ref: string, options: OpenFileRefOptions = {}) {
 }
 
 export type ZoteroPassageRef = {
+  kind: "zotero";
   key: string;
   pdfKey: string;
   pdfFile: string;
@@ -57,11 +58,56 @@ export function parseZoteroPassageRef(href: string): ZoteroPassageRef | null {
   if (!/^[A-Za-z0-9_-]{1,80}$/.test(key) || !/^[A-Za-z0-9_-]{1,80}$/.test(pdfKey)) return null;
   if (!pdfFile || pdfFile.length > 255 || /[/\\]/.test(pdfFile) || !pdfFile.toLowerCase().endsWith(".pdf")) return null;
   if (!Number.isInteger(page) || page < 1 || page > 100_000 || !quote.trim()) return null;
-  return { key, pdfKey, pdfFile, page, quote };
+  return { kind: "zotero", key, pdfKey, pdfFile, page, quote };
 }
 
 export function openZoteroPassage(ref: ZoteroPassageRef) {
   window.dispatchEvent(new CustomEvent("chat-open-zotero-passage", { detail: ref }));
+}
+
+// Deuxième source de cartes passage (tâche 6, plan Preuves) : une page du
+// dépôt gbrain (corpus NAS) au lieu d'un PDF Zotero — pas de page ni de
+// fichier, juste un slug de page et une citation exacte. `key` et `page`
+// n'ont pas d'équivalent gbrain : la carte s'ouvre dans le SourceReader
+// (surface Connaissances), défilé et surligné sur la citation, plutôt que
+// dans un PDF.
+export type GbrainPassageRef = {
+  kind: "gbrain";
+  slug: string;
+  quote: string;
+};
+
+export type PassageRef = ZoteroPassageRef | GbrainPassageRef;
+
+export function parseGbrainPassageRef(href: string): GbrainPassageRef | null {
+  const prefix = "#atelier-gbrain-passage?";
+  if (!href.startsWith(prefix)) return null;
+  const params = new URLSearchParams(href.slice(prefix.length));
+  const slug = params.get("slug") ?? "";
+  const quote = (params.get("quote") ?? "").slice(0, 900);
+  if (!/^[A-Za-z0-9_-]{1,120}$/.test(slug)) return null;
+  if (!quote.trim()) return null;
+  return { kind: "gbrain", slug, quote };
+}
+
+/** Bascule sur la surface Connaissances et ouvre le SourceReader défilé/surligné
+ * sur cette citation — écouté à la fois par App.tsx (bascule de surface) et
+ * KbSurface.tsx (ouverture du lecteur), même schéma que
+ * chat-open-zotero-passage / BiblioSurface. */
+export function openGbrainPassage(ref: GbrainPassageRef) {
+  window.dispatchEvent(new CustomEvent("kb-open-gbrain-passage", {
+    detail: { slug: ref.slug, quote: ref.quote },
+  }));
+}
+
+/** « williamson-2021-fire-aerosol » → « Williamson 2021 Fire Aerosol » —
+ * libellé source d'une carte gbrain (pas de citeLabel/page comme Zotero). */
+export function humanizeGbrainSlug(slug: string): string {
+  return slug
+    .split(/[-_]+/)
+    .filter(Boolean)
+    .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+    .join(" ");
 }
 
 // Carte passage (tâche 5) : un paragraphe dont l'UNIQUE enfant significatif
@@ -71,7 +117,7 @@ export function openZoteroPassage(ref: ZoteroPassageRef) {
 // mais n'appelle `a()` que plus tard, pendant le rendu de `p`) : `.props.href`
 // porte donc encore le href original du lien, avant toute transformation par
 // MD_COMPONENTS.a. Espaces (texte blanc) tolérés autour du lien.
-export function lonePassageRef(children: any): ZoteroPassageRef | null {
+export function lonePassageRef(children: any): PassageRef | null {
   const list = Array.isArray(children) ? children : [children];
   const meaningful = list.filter((child) => {
     if (child == null || child === false) return false;
@@ -82,7 +128,8 @@ export function lonePassageRef(children: any): ZoteroPassageRef | null {
   const only = meaningful[0];
   if (typeof only !== "object" || !only.props) return null;
   const href = only.props.href;
-  return typeof href === "string" ? parseZoteroPassageRef(href) : null;
+  if (typeof href !== "string") return null;
+  return parseZoteroPassageRef(href) ?? parseGbrainPassageRef(href);
 }
 
 // texte complet des enfants markdown (string, tableau, éléments imbriqués)
@@ -264,6 +311,17 @@ export const MD_COMPONENTS = {
         <RowButton className="file-ref zotero-passage-ref" onClick={() => openZoteroPassage(passage)} title={`Ouvrir le PDF à la page ${passage.page}`}>
           <svg width="10" height="10" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5">
             <path d="M3 1.8h7l3 3v9.4H3z" /><path d="M10 1.8v3h3M5.2 8h5.6M5.2 10.5h4" />
+          </svg>
+          {label}
+        </RowButton>
+      );
+    const gbrainPassage = parseGbrainPassageRef(href);
+    if (gbrainPassage)
+      return (
+        <RowButton className="file-ref gbrain-passage-ref" onClick={() => openGbrainPassage(gbrainPassage)} title={t("passage.open-gbrain")}>
+          <svg width="10" height="10" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5">
+            <circle cx="4" cy="4" r="1.5" /><circle cx="12" cy="4" r="1.5" /><circle cx="8" cy="12" r="1.5" />
+            <path d="M5.3 5.1L7 10.6M10.7 5.1L9 10.6M5.5 4h5" />
           </svg>
           {label}
         </RowButton>

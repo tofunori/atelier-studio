@@ -1,7 +1,9 @@
-// Carte passage Zotero dans le chat (plan Preuves, tâche 5) — un lien
-// #atelier-zotero-passage SEUL dans son paragraphe (cf. lonePassageRef,
-// md.tsx) se rend ici : repliée sur une ligne, dépliable au clic, épinglable
-// via WS (pinPassage/unpinPassage, contrat tâche 2).
+// Carte passage dans le chat (plan Preuves, tâche 5 + 6) — un lien
+// #atelier-zotero-passage OU #atelier-gbrain-passage SEUL dans son
+// paragraphe (cf. lonePassageRef, md.tsx) se rend ici : repliée sur une
+// ligne, dépliable au clic, épinglable via WS (pinPassage/unpinPassage,
+// contrat tâche 2). Deux sources, même carte : Zotero ouvre le PDF à la
+// page citée ; gbrain ouvre le SourceReader défilé/surligné sur la citation.
 import { useSyncExternalStore, useState } from "react";
 import { t } from "../../lib/i18n";
 import { wsSend } from "../../lib/wsBus";
@@ -9,7 +11,7 @@ import { evidencePinsSnapshot, isPinned, subscribeEvidencePins } from "../../lib
 import { citeLabel } from "./turnParts";
 import { Tick } from "./toolPresentation";
 import { Button, IconButton, RowButton } from "../ui";
-import { openZoteroPassage, type ZoteroPassageRef } from "./md";
+import { humanizeGbrainSlug, openGbrainPassage, openZoteroPassage, type PassageRef } from "./md";
 
 function PinIcon({ size = 12 }: { size?: number }) {
   return (
@@ -21,17 +23,31 @@ function PinIcon({ size = 12 }: { size?: number }) {
   );
 }
 
-export function PassageCard({ refData }: { refData: ZoteroPassageRef }) {
+export function PassageCard({ refData }: { refData: PassageRef }) {
   const [open, setOpen] = useState(false);
   const store = useSyncExternalStore(subscribeEvidencePins, evidencePinsSnapshot);
-  const pin = isPinned(refData.pdfKey, refData.page, refData.quote);
-  const label = citeLabel(refData.pdfFile);
+  const isGbrain = refData.kind === "gbrain";
+  const label = isGbrain ? humanizeGbrainSlug(refData.slug) : citeLabel(refData.pdfFile);
+  const pin = isGbrain
+    ? isPinned({ gbrainSlug: refData.slug, quote: refData.quote })
+    : isPinned({ pdfKey: refData.pdfKey, page: refData.page, quote: refData.quote });
 
   const togglePin = () => {
     const { projectRoot } = store;
     if (!projectRoot) return;
     if (pin) {
       wsSend({ type: "unpinPassage", projectRoot, pinId: pin.id });
+    } else if (isGbrain) {
+      wsSend({
+        type: "pinPassage",
+        projectRoot,
+        pin: {
+          source: "gbrain",
+          quote: refData.quote,
+          gbrainSlug: refData.slug,
+          citeLabel: label,
+        },
+      });
     } else {
       wsSend({
         type: "pinPassage",
@@ -48,6 +64,9 @@ export function PassageCard({ refData }: { refData: ZoteroPassageRef }) {
     }
   };
 
+  const openPassage = () => (isGbrain ? openGbrainPassage(refData) : openZoteroPassage(refData));
+  const openLabel = isGbrain ? t("passage.open-gbrain") : t("passage.open-pdf", { page: refData.page });
+
   if (!open) {
     return (
       <div className="passage-card">
@@ -57,7 +76,7 @@ export function PassageCard({ refData }: { refData: ZoteroPassageRef }) {
           onClick={() => setOpen(true)}
         >
           <span className="passage-card-quote">{refData.quote}</span>
-          <span className="passage-card-meta">{label} · p. {refData.page}</span>
+          <span className="passage-card-meta">{isGbrain ? label : `${label} · p. ${refData.page}`}</span>
           <Tick open={false} />
         </RowButton>
         <IconButton
@@ -75,10 +94,10 @@ export function PassageCard({ refData }: { refData: ZoteroPassageRef }) {
   return (
     <div className="passage-card open">
       <p className="passage-card-quote-full">{refData.quote}</p>
-      <div className="passage-card-meta">{label} · p. {refData.page}</div>
+      <div className="passage-card-meta">{isGbrain ? label : `${label} · p. ${refData.page}`}</div>
       <div className="passage-card-actions">
-        <Button variant="secondary" onClick={() => openZoteroPassage(refData)}>
-          {t("passage.open-pdf", { page: refData.page })}
+        <Button variant="secondary" onClick={openPassage}>
+          {openLabel}
         </Button>
         <Button
           variant="secondary"

@@ -8,22 +8,46 @@ use uuid::Uuid;
 
 use crate::atomic::write_file_atomic;
 
-/// Une épingle : un passage cité (quote) d'un PDF Zotero, éventuellement relié
-/// à un extrait de la Lecture/de l'éditeur de code (`supports`).
+/// Une épingle : un passage cité (quote), soit d'un PDF Zotero (`source:
+/// "zotero"`, champs `zotero_key`/`pdf_key`/`pdf_file`/`page` renseignés),
+/// soit d'une page du dépôt gbrain (`source: "gbrain"`, `gbrain_slug`
+/// renseigné, champs zotero vides) — éventuellement reliée à un extrait de la
+/// Lecture/de l'éditeur de code (`supports`).
+///
+/// `source` par défaut à `"zotero"` à la désérialisation : les épingles v1
+/// (avant la tâche 6) n'ont jamais eu ce champ sur disque, et doivent
+/// continuer à se lire comme des passages Zotero. Les champs zotero sont
+/// `#[serde(default)]` (chaîne vide / 0) pour tolérer leur absence côté
+/// gbrain — `EvidencePin` reste néanmoins stricte sur `quote`/`cite_label`
+/// (la validation par source vit dans `ws_router::handle_pin_passage`).
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct EvidencePin {
     pub id: String,
     pub ts: u64,
     pub quote: String,
+    #[serde(default = "default_source")]
+    pub source: String,
+    #[serde(default)]
     pub zotero_key: String,
+    #[serde(default)]
     pub pdf_key: String,
+    #[serde(default)]
     pub pdf_file: String,
+    #[serde(default)]
     pub page: u32,
     pub cite_label: String,
+    #[serde(default)]
+    pub gbrain_slug: Option<String>,
     pub supports: Option<EvidenceSupports>,
     pub thread_id: Option<String>,
     pub provider: Option<String>,
+}
+
+/// Valeur par défaut de `EvidencePin.source` à la désérialisation — épingles
+/// v1 (sans ce champ sur disque) : toujours Zotero.
+pub fn default_source() -> String {
+    "zotero".to_string()
 }
 
 /// Extrait de contexte (sélection Lecture/éditeur) appuyant l'épingle.
@@ -93,9 +117,11 @@ pub fn list_pins(app_dir: &Path, project_root: &str) -> Vec<EvidencePin> {
 
 /// Ajoute (ou fait remonter en tête si déjà épinglé) une épingle pour le projet.
 ///
-/// `id` vide → uuid généré ; `ts` à 0 → horodatage courant. Dédup sur
-/// `(pdf_key, page, quote)` : ré-épingler le même passage ne duplique pas,
-/// il remonte en tête (le doublon précédent est retiré).
+/// `id` vide → uuid généré ; `ts` à 0 → horodatage courant. Dédup PAR SOURCE
+/// (ré-épingler le même passage ne duplique pas, il remonte en tête — le
+/// doublon précédent est retiré) : Zotero sur `(pdf_key, page, quote)`,
+/// gbrain sur `(gbrain_slug, quote)`. Les deux sources ne se confondent
+/// jamais entre elles.
 pub fn add_pin(
     app_dir: &Path,
     project_root: &str,
@@ -108,7 +134,17 @@ pub fn add_pin(
         pin.ts = now_ms();
     }
     let mut pins = load(app_dir, project_root);
-    pins.retain(|p| !(p.pdf_key == pin.pdf_key && p.page == pin.page && p.quote == pin.quote));
+    let is_gbrain = pin.source == "gbrain";
+    pins.retain(|p| {
+        if (p.source == "gbrain") != is_gbrain {
+            return true;
+        }
+        if is_gbrain {
+            !(p.gbrain_slug == pin.gbrain_slug && p.quote == pin.quote)
+        } else {
+            !(p.pdf_key == pin.pdf_key && p.page == pin.page && p.quote == pin.quote)
+        }
+    });
     pins.push(pin);
     save(app_dir, project_root, pins)
 }
@@ -181,11 +217,13 @@ mod tests {
             id: String::new(),
             ts: 0,
             quote: "reducing summer albedo by 0.05".into(),
+            source: "zotero".into(),
             zotero_key: "ABC123".into(),
             pdf_key: "PDF456".into(),
             pdf_file: "Williamson 2021.pdf".into(),
             page: 7,
             cite_label: "Williamson 2021".into(),
+            gbrain_slug: None,
             supports: Some(EvidenceSupports {
                 text: "Les aérosols abaissent l'albédo.".into(),
                 file: Some("intro.tex".into()),
@@ -203,6 +241,60 @@ mod tests {
         assert!(list_pins(&dir, "/proj/b").is_empty());
         let id = list_pins(&dir, "/proj/a")[0].id.clone();
         assert!(remove_pin(&dir, "/proj/a", &id).unwrap().is_empty());
+    }
+
+    #[test]
+    fn evidence_pin_deserializes_legacy_json_without_source_field() {
+        // épingles v1 (avant la tâche 6) : pas de champ "source" du tout —
+        // doit désérialiser en "zotero" par défaut, gbrainSlug à None.
+        let json = r#"{
+            "id":"p1","ts":1,"quote":"q",
+            "zoteroKey":"Z","pdfKey":"P","pdfFile":"a.pdf","page":3,"citeLabel":"C",
+            "supports":null,"threadId":null,"provider":null
+        }"#;
+        let pin: EvidencePin = serde_json::from_str(json).unwrap();
+        assert_eq!(pin.source, "zotero");
+        assert_eq!(pin.gbrain_slug, None);
+        assert_eq!(pin.zotero_key, "Z");
+    }
+
+    #[test]
+    fn add_pin_gbrain_dedups_on_slug_and_quote_not_pdf_key() {
+        let dir = std::env::temp_dir().join(format!("evidence-test-gbrain-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let pin = EvidencePin {
+            id: String::new(),
+            ts: 0,
+            quote: "fire aerosol deposition reduces albedo".into(),
+            source: "gbrain".into(),
+            zotero_key: String::new(),
+            pdf_key: String::new(),
+            pdf_file: String::new(),
+            page: 0,
+            cite_label: "Williamson 2021 Fire Aerosol".into(),
+            gbrain_slug: Some("williamson-2021-fire-aerosol".into()),
+            supports: None,
+            thread_id: None,
+            provider: None,
+        };
+        let pins = add_pin(&dir, "/proj/g", pin.clone()).unwrap();
+        assert_eq!(pins.len(), 1);
+        assert_eq!(pins[0].source, "gbrain");
+        assert_eq!(pins[0].gbrain_slug.as_deref(), Some("williamson-2021-fire-aerosol"));
+        // dédup sur (gbrain_slug, quote), pas (pdf_key vide, page 0, quote) : toujours 1
+        assert_eq!(add_pin(&dir, "/proj/g", pin.clone()).unwrap().len(), 1);
+
+        // un pin zotero avec des champs zotero vides et la même quote ne se
+        // confond pas avec le pin gbrain (sources distinctes → pas de dédup croisé)
+        let zotero_empty = EvidencePin {
+            source: "zotero".into(),
+            gbrain_slug: None,
+            id: String::new(),
+            ts: 0,
+            ..pin
+        };
+        let pins = add_pin(&dir, "/proj/g", zotero_empty).unwrap();
+        assert_eq!(pins.len(), 2, "sources distinctes : pas de dédup croisé");
     }
 
     #[test]

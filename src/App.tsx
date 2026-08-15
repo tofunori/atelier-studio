@@ -1135,6 +1135,15 @@ export default function App() {
     return () => window.removeEventListener("chat-open-zotero-passage", openPassage);
   }, []);
 
+  // Passage gbrain (deuxième source, tâche 6) : même schéma que le passage
+  // Zotero ci-dessus — bascule de surface ici, ouverture réelle du lecteur
+  // (avec highlightQuote) dans KbSurface.tsx, découplée via le même event.
+  useEffect(() => {
+    const openGbrainPassage = () => switchToSurface("connaissances");
+    window.addEventListener("kb-open-gbrain-passage", openGbrainPassage);
+    return () => window.removeEventListener("kb-open-gbrain-passage", openGbrainPassage);
+  }, []);
+
   // Citations kb cliquées (plan 052) : ouvrir la source À L'ENDROIT cité
   // quand on le connaît — reader Zotero à la page, browser (web / YouTube à
   // t=), éditeur pour fichiers/dossiers — sinon la surface Connaissances.

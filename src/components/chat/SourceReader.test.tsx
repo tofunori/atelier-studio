@@ -1,7 +1,7 @@
 // Lecteur d'une page du dépôt : ce qu'il demande, ce qu'il montre, et surtout
 // ce qu'il n'écrit pas.
 import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
-import { act, cleanup, fireEvent, screen } from "@testing-library/react";
+import { act, cleanup, fireEvent, screen, waitFor } from "@testing-library/react";
 import SourceReader from "./SourceReader";
 import { renderUi, resetTestState } from "../../test/render";
 import { setLanguage } from "../../lib/i18n";
@@ -118,6 +118,40 @@ describe("SourceReader — page du dépôt", () => {
     expect(p.onPin).toHaveBeenCalledWith(SLUG);
     fireEvent.click(screen.getByText("Dépôt"));
     expect(p.onClose).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("SourceReader — highlightQuote (tâche 6)", () => {
+  const SLUG = "s";
+
+  it("highlightQuote surligne la première occurrence du texte rendu (repli mark, jsdom sans Custom Highlight API)", async () => {
+    renderUi(<SourceReader target={{ kind: "gbrain", slug: SLUG }} onClose={() => {}} highlightQuote="aerosol deposition" />);
+    repond(SLUG, { markdown: "Le fire aerosol deposition réduit l'albédo." });
+    await waitFor(() => {
+      expect((window as any).CSS?.highlights?.has?.("reader-quote") || document.querySelector("mark.reader-quote")).toBeTruthy();
+    });
+    const mark = document.querySelector("mark.reader-quote");
+    expect(mark?.textContent?.toLowerCase()).toContain("aerosol deposition");
+  });
+
+  it("citation introuvable dans le texte rendu : ne casse rien, aucun mark", async () => {
+    renderUi(<SourceReader target={{ kind: "gbrain", slug: SLUG }} onClose={() => {}} highlightQuote="texte totalement absent du corps" />);
+    repond(SLUG, { markdown: "Le fire aerosol deposition réduit l'albédo." });
+    await screen.findByText(/fire aerosol deposition/);
+    expect(document.querySelector("mark.reader-quote")).toBeNull();
+  });
+
+  it("citation robuste à un accent manquant (normalisation NFKD)", async () => {
+    renderUi(<SourceReader target={{ kind: "gbrain", slug: SLUG }} onClose={() => {}} highlightQuote="EPAISSEUR de 500 m" />);
+    repond(SLUG, { markdown: "Une épaisseur de 500 m a été mesurée." });
+    await waitFor(() => expect(document.querySelector("mark.reader-quote")).toBeTruthy());
+  });
+
+  it("sans highlightQuote : aucun mark posé", async () => {
+    renderUi(<SourceReader target={{ kind: "gbrain", slug: SLUG }} onClose={() => {}} />);
+    repond(SLUG, { markdown: "Le fire aerosol deposition réduit l'albédo." });
+    await screen.findByText(/fire aerosol deposition/);
+    expect(document.querySelector("mark.reader-quote")).toBeNull();
   });
 });
 

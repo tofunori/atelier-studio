@@ -1,6 +1,6 @@
 // Surface Connaissances refondue (plan 054) : une liste, une barre, un bouton.
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { cleanup, fireEvent, screen } from "@testing-library/react";
+import { act, cleanup, fireEvent, screen } from "@testing-library/react";
 import { renderUi, resetTestState } from "../../test/render";
 import { setLanguage } from "../../lib/i18n";
 import type { KbSource } from "../../lib/kbSources";
@@ -326,5 +326,20 @@ describe("KbSurface", () => {
       target: { value: "zzzz" },
     });
     expect(screen.getByText("Aucune source ne correspond.")).toBeTruthy();
+  });
+
+  // Carte passage gbrain du chat (tâche 6) : kb-open-gbrain-passage ouvre le
+  // lecteur sur le bon slug, prêt à surligner la citation dès la réponse WS.
+  it("un passage gbrain cité dans le chat ouvre le lecteur sur son slug", () => {
+    renderUi(<KbSurface {...props()} />);
+    act(() => {
+      window.dispatchEvent(new CustomEvent("kb-open-gbrain-passage", {
+        detail: { slug: "articles/aoki-2011-snow-albedo", quote: "physically based snow albedo" },
+      }));
+    });
+    // la liste a laissé place au lecteur, ouvert sur ce slug précis
+    expect(screen.queryByText("Cuffey & Paterson ch. 5")).toBeNull();
+    expect(screen.getByTitle("articles/aoki-2011-snow-albedo")).toBeTruthy();
+    expect(screen.getByText("Lecture de la page…")).toBeTruthy();
   });
 });
