@@ -52,7 +52,7 @@ import { ProviderInfo } from "./lib/providers";
 import { THEME_PRESETS, presetById } from "./lib/themes";
 import { setLanguage, t } from "./lib/i18n";
 import { kbSourcesSnapshot, requestKbSources } from "./lib/kbSources";
-import { pushEvidencePins } from "./lib/evidencePins";
+import { pushEvidencePins, requestEvidencePins } from "./lib/evidencePins";
 import { openFileRef } from "./components/chat/md";
 import { openPath } from "@tauri-apps/plugin-opener";
 import { buildItems } from "./lib/palette";
@@ -2063,6 +2063,15 @@ export default function App() {
       requestCatalog(ws.current, activeProject, activeProviderId);
     }
   }, [activeProject, wsReady, activeProviderId]);
+
+  // Preuves (tâche 7) : re-demander les épingles à chaque changement de
+  // projet actif — sans ça le store garde le projet précédent (ou reste
+  // vide) et l'épinglage depuis la carte (PassageCard) devient un no-op.
+  useEffect(() => {
+    if (activeProject && wsReady && ws.current?.readyState === 1) {
+      requestEvidencePins(activeProject);
+    }
+  }, [activeProject, wsReady]);
 
   // Revenir à l'accueil relit les mtimes immédiatement, puis les garde frais
   // tant que cette page reste visible (fichiers modifiés hors Atelier inclus).

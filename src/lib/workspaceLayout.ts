@@ -50,6 +50,7 @@ const SURFACES = new Set<Surface>([
   "connaissances",
   "generateur",
   "narval",
+  "preuves",
 ]);
 
 let fallbackId = 0;

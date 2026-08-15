@@ -9,6 +9,7 @@ import { LazyBoundary, lazyWithRetry } from "./LazyBoundary";
 const BiblioSurface = lazyWithRetry(() => import("./BiblioSurface"));
 const GeneratorSurface = lazyWithRetry(() => import("./GeneratorSurface"));
 const NarvalSurface = lazyWithRetry(() => import("./NarvalSurface"));
+const EvidenceSurface = lazyWithRetry(() => import("./EvidenceSurface"));
 import { t } from "../lib/i18n";
 import { CloseIcon, RefreshIcon } from "./icons";
 import { GallerySkeleton } from "./GallerySkeleton";
@@ -852,6 +853,15 @@ export default function AtelierPane({
         <div key="surface:generateur" className="workspace-tab-content surface-body" style={{ display }}>
           <LazyBoundary fallback={<div className="pane-slot" />}>
             <GeneratorSurface ws={ws} projectRoot={projectRoot} galleryUrl={url} />
+          </LazyBoundary>
+        </div>
+      );
+    }
+    if (ref.surface === "preuves") {
+      return (
+        <div key="surface:preuves" className="workspace-tab-content surface-body" style={{ display }}>
+          <LazyBoundary fallback={<div className="pane-slot" />}>
+            <EvidenceSurface projectRoot={projectRoot} />
           </LazyBoundary>
         </div>
       );

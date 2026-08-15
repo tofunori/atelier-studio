@@ -6,11 +6,11 @@
 import { BookIcon, BranchIcon } from "./icons";
 import { ServerCogIcon } from "lucide-react";
 
-export type Surface = "atelier" | "browser" | "terminal" | "git" | "biblio" | "connaissances" | "generateur" | "narval";
+export type Surface = "atelier" | "browser" | "terminal" | "git" | "biblio" | "connaissances" | "generateur" | "narval" | "preuves";
 
 export const SURFACES: {
   id: Surface;
-  labelKey: "atelier.surface" | "atelier.browser" | "atelier.terminal" | "atelier.git" | "atelier.biblio" | "atelier.connaissances" | "atelier.generateur" | "atelier.narval";
+  labelKey: "atelier.surface" | "atelier.browser" | "atelier.terminal" | "atelier.git" | "atelier.biblio" | "atelier.connaissances" | "atelier.generateur" | "atelier.narval" | "atelier.preuves";
   icon: React.ReactNode;
 }[] = [
   {
@@ -64,6 +64,19 @@ export const SURFACES: {
       <svg width="19" height="19" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3">
         <path d="M3 12.2V3.9c0-.8.6-1.4 1.4-1.4h7.4v8.4H4.4c-.8 0-1.4.6-1.4 1.3s.6 1.4 1.4 1.4h5.1" />
         <circle cx="12.6" cy="12.6" r="1.7" />
+      </svg>
+    ),
+  },
+  {
+    // Preuves (plan Preuves) : passages épinglés depuis Zotero/gbrain,
+    // groupés par phrase de manuscrit appuyée — même glyphe épingle que
+    // PassageCard/chat/PassageCard.tsx (identité visuelle du concept).
+    id: "preuves",
+    labelKey: "atelier.preuves",
+    icon: (
+      <svg width="19" height="19" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M6.6 2.6h2.8l-.4 4.2 2.4 2.4H4.6l2.4-2.4z" />
+        <path d="M8 9.2v4.2" />
       </svg>
     ),
   },
