@@ -234,14 +234,33 @@ export function AgentDetailPanel({
               {transcript.map((event, index) => {
                 const isError = event.kind === "error";
                 const isThinking = event.kind === "thinking" || event.kind === "thinking_live";
+                const isStreaming = event.kind === "streaming";
                 const text = isError ? event.message : event.text;
                 const eventTs = "ts" in event ? event.ts : undefined;
                 return (
                   <Message key={`${event.kind}-${eventTs ?? index}-${index}`}>
                     <MessageContent>
                       <Bubble variant={isError ? "destructive" : isThinking ? "ghost" : "outline"}>
-                        <BubbleContent className={isThinking ? "agent-transcript-thinking" : undefined}>
-                          {text}
+                        <BubbleContent className={isThinking ? "agent-transcript-thinking" : "msg typeset typeset-chat"}>
+                          {event.kind === "text" ? (
+                            <ReactMarkdown
+                              remarkPlugins={plugins.remark}
+                              rehypePlugins={plugins.rehype}
+                              components={MD_COMPONENTS as any}
+                            >
+                              {normalizeMathDelimiters(text)}
+                            </ReactMarkdown>
+                          ) : isStreaming ? (
+                            <ReactMarkdown
+                              remarkPlugins={plugins.remark}
+                              rehypePlugins={plugins.rehype}
+                              components={MD_COMPONENTS_STREAMING as any}
+                            >
+                              {normalizeMathDelimiters(hardenPartialMarkdown(text))}
+                            </ReactMarkdown>
+                          ) : (
+                            text
+                          )}
                         </BubbleContent>
                       </Bubble>
                     </MessageContent>
