@@ -235,7 +235,7 @@ impl AppSnapManager {
             .arg("--output-dir")
             .arg(&self.capture_directory)
             .arg("--excluded-bundle-id")
-            .arg("com.tofunori.tauri-app")
+            .arg(self.app.config().identifier.clone())
             .arg("--parent-pid")
             .arg(std::process::id().to_string())
             .stdin(Stdio::null())
