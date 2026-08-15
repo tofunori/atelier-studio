@@ -1,0 +1,90 @@
+{
+  "description": "Pipeline article-import/draft/write/list, MinerU forcé en repli local (ATELIER_MINERU_SCRIPT pointe vers un chemin inexistant — jamais d'appel payant réel au cloud MinerU pendant les tests). gbrain simulé et VIDE (isolé) pour que findDuplicates/article-list soient déterministes.",
+  "env": { "appdir": "c-article-local", "gbrain": true, "mineruDisabled": true },
+  "steps": [
+    {
+      "id": "article-import-local",
+      "notes": "draftId = sha1(markdown).slice(0,12) : contenu du PDF fixé → draftId toujours identique. parseArticleMeta devine titre/auteurs/DOI/année par regex sur le texte extrait ; metaSource=\"texte\" ici car ni Zotero (pas de DB) ni Crossref (DOI 10.1234/fixture.2022.001 n'existe pas) ne répondent — resolveArticleMeta appelle réellement Crossref (réseau) mais reçoit 404/aucune correspondance et dégrade proprement.",
+      "network": "best-effort (Crossref, dégrade proprement si hors-ligne)",
+      "args": ["article-import", "--path", "{{INPUTS}}/sample.pdf"],
+      "capture": { "draftId": "draftId" },
+      "expect": {
+        "exitCode": 0,
+        "stdout": {
+          "ok": true, "draftId": "f0a39a4d07f8", "path": "<INPUTS>/sample.pdf",
+          "meta": { "title": "Melting of Alpine Glaciers Under Recent Warming", "authors": "T. Aoki and K. Kuchiki", "journal": "", "doi": "10.1234/fixture.2022.001", "year": 2022 },
+          "slug": "articles/aoki-2022-melting-alpine-glaciers-under", "exists": false, "converter": "local", "duplicates": [], "metaSource": "texte", "chars": 497,
+          "preview": "---\ntitle: \"Melting of Alpine Glaciers Under Recent Warming\"\nauthors: [\"T. Aoki and K. Kuchiki\"]\nyear: 2022\ndoi: \"10.1234/fixture.2022.001\"\norigin: \"<INPUTS>/sample.pdf\"\ncaptured: <DATE>\nfrom: atelier\nconverter: local\ntype: article\n---\n\nMelting of Alpine Glaciers Under Recent Warming\nT. Aoki and K. Kuchiki\nPublished: 11 January 2022 DOI: 10.1234/fixture.2022.001\nAbstract\nWe present a fixture article used only to test the Atelier knowledge base CLI. It\nis not a real scientific publication.\nIntroduction\nAlbedo decline drives melt. Results show significant increase in melt rate during\nthe study period, with root-mean-square error below 5 percent.\nConclusion\nWe conclude that fixture PDFs are sufficient for CLI parity testing.\n\n1\n",
+          "warning": "script MinerU introuvable (<MINERU_SCRIPT>)"
+        }
+      }
+    },
+    {
+      "id": "article-import-progress",
+      "notes": "Même PDF, --progress : lignes {\"progress\":{\"stage\":…}} avant le résultat final (identique au run sans --progress). Ordre observé : meta puis duplicates (aucune étape MinerU puisque le convertisseur tombe en repli local avant même de streamer).",
+      "network": "best-effort (Crossref)",
+      "args": ["article-import", "--path", "{{INPUTS}}/sample.pdf", "--progress"],
+      "expect": {
+        "exitCode": 0,
+        "stdoutLines": [
+          { "progress": { "stage": "meta" } },
+          { "progress": { "stage": "duplicates" } },
+          {
+            "ok": true, "draftId": "f0a39a4d07f8", "path": "<INPUTS>/sample.pdf",
+            "meta": { "title": "Melting of Alpine Glaciers Under Recent Warming", "authors": "T. Aoki and K. Kuchiki", "journal": "", "doi": "10.1234/fixture.2022.001", "year": 2022 },
+            "slug": "articles/aoki-2022-melting-alpine-glaciers-under", "exists": false, "converter": "local", "duplicates": [], "metaSource": "texte", "chars": 497,
+            "preview": "---\ntitle: \"Melting of Alpine Glaciers Under Recent Warming\"\nauthors: [\"T. Aoki and K. Kuchiki\"]\nyear: 2022\ndoi: \"10.1234/fixture.2022.001\"\norigin: \"<INPUTS>/sample.pdf\"\ncaptured: <DATE>\nfrom: atelier\nconverter: local\ntype: article\n---\n\nMelting of Alpine Glaciers Under Recent Warming\nT. Aoki and K. Kuchiki\nPublished: 11 January 2022 DOI: 10.1234/fixture.2022.001\nAbstract\nWe present a fixture article used only to test the Atelier knowledge base CLI. It\nis not a real scientific publication.\nIntroduction\nAlbedo decline drives melt. Results show significant increase in melt rate during\nthe study period, with root-mean-square error below 5 percent.\nConclusion\nWe conclude that fixture PDFs are sufficient for CLI parity testing.\n\n1\n",
+            "warning": "script MinerU introuvable (<MINERU_SCRIPT>)"
+          }
+        ]
+      }
+    },
+    {
+      "id": "article-import-missing-path",
+      "args": ["article-import"],
+      "expect": { "exitCode": 1, "stderr": "Argument requis: --path" }
+    },
+    {
+      "id": "article-import-absent-file",
+      "args": ["article-import", "--path", "{{APPDIR}}/nope.pdf"],
+      "expect": { "exitCode": 1, "stderr": "PDF introuvable: <APPDIR>/nope.pdf" }
+    },
+    {
+      "id": "article-draft",
+      "notes": "Texte complet du brouillon (la fiche article-import ne montre qu'un aperçu tronqué à 4000 scalaires — ici sous le seuil, donc identique).",
+      "args": ["article-draft", "--draft", "f0a39a4d07f8"],
+      "expect": { "exitCode": 0, "stdout": { "ok": true, "draftId": "f0a39a4d07f8", "chars": 497, "markdown": "Melting of Alpine Glaciers Under Recent Warming\nT. Aoki and K. Kuchiki\nPublished: 11 January 2022 DOI: 10.1234/fixture.2022.001\nAbstract\nWe present a fixture article used only to test the Atelier knowledge base CLI. It\nis not a real scientific publication.\nIntroduction\nAlbedo decline drives melt. Results show significant increase in melt rate during\nthe study period, with root-mean-square error below 5 percent.\nConclusion\nWe conclude that fixture PDFs are sufficient for CLI parity testing.\n\n1" } }
+    },
+    {
+      "id": "article-draft-invalid-id-shape",
+      "args": ["article-draft", "--draft", "not-an-id"],
+      "expect": { "exitCode": 1, "stderr": "Brouillon invalide: not-an-id" }
+    },
+    {
+      "id": "article-draft-well-formed-but-absent",
+      "args": ["article-draft", "--draft", "aaaaaaaaaaaa"],
+      "expect": { "exitCode": 1, "stderr": "Brouillon expiré — relancer la conversion du PDF" }
+    },
+    {
+      "id": "article-write",
+      "notes": "gbrain put réel sur le store SIMULÉ (fake-gbrain.mjs) — jamais le NAS de l'opérateur. dropDraft supprime le brouillon après écriture réussie : le draft f0a39a4d07f8 est CONSOMMÉ après cette étape (voir le fixture suivant).",
+      "args": ["article-write", "--draft", "f0a39a4d07f8", "--slug", "articles/aoki-2022-fixture", "--title", "Melting of Alpine Glaciers (Fixture)", "--authors", "T. Aoki and K. Kuchiki", "--year", "2022", "--doi", "10.1234/fixture.2022.001"],
+      "expect": { "exitCode": 0, "stdout": { "ok": true, "slug": "articles/aoki-2022-fixture", "written": true, "updated": false, "ragdoc": null } }
+    },
+    {
+      "id": "article-list",
+      "args": ["article-list", "--limit", "5"],
+      "expect": { "exitCode": 0, "stdout": { "ok": true, "count": 1, "articles": [{ "slug": "articles/aoki-2022-fixture", "type": "article", "date": "<DATE>", "title": "Melting of Alpine Glaciers (Fixture)" }] } }
+    },
+    {
+      "id": "article-write-draft-already-consumed",
+      "args": ["article-write", "--draft", "f0a39a4d07f8", "--slug", "articles/aoki-2022-fixture", "--title", "x"],
+      "expect": { "exitCode": 1, "stderr": "Brouillon expiré — relancer la conversion du PDF" }
+    },
+    {
+      "id": "article-write-missing-draft-arg",
+      "args": ["article-write", "--slug", "articles/x"],
+      "expect": { "exitCode": 1, "stderr": "Argument requis: --draft" }
+    }
+  ]
+}

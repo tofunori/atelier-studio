@@ -12,6 +12,7 @@ members = [
   "crates/atelier-gallery",
   "crates/atelier-remote",
   "crates/atelier-agent-mcp",
+  "crates/atelier-kb",
 ]
 
 [workspace.package]

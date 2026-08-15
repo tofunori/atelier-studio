@@ -1,0 +1,47 @@
+{
+  "description": "Deux commandes qui appellent un vrai réseau externe (fetch HTML, Crossref) — capturées en exécution RÉELLE le 2026-08-15, rejouées en best-effort : le harnais saute (ne fait pas échouer la suite) si le réseau est indisponible, et compare seulement les champs structurellement stables si le contenu distant a dérivé. gbrain reste simulé et vide (findDuplicates ne doit jamais toucher le NAS réel).",
+  "env": { "appdir": "d-network", "gbrain": true },
+  "steps": [
+    {
+      "id": "add-web-real-fetch",
+      "network": true,
+      "notes": "example.com est un domaine IANA réservé, page statique stable depuis des années — fixture réaliste d'une capture web réelle (defaultFetchPage + htmlToText, UA navigateur, timeout 20s).",
+      "args": ["add", "--kind", "web", "--origin", "https://example.com/"],
+      "expect": {
+        "exitCode": 0,
+        "stdout": { "ok": true, "source": { "id": "31be9bb0", "kind": "web", "title": "Example Domain", "origin": "https://example.com/", "chars": 127, "addedAt": "<ISO>", "updatedAt": "<ISO>", "meta": { "contentType": "text/html" }, "collections": [], "archived": false }, "refreshed": false },
+        "soft": ["source.chars", "source.title"]
+      }
+    },
+    {
+      "id": "article-doi-crossref-real",
+      "network": true,
+      "notes": "DOI publié et stable (Zhang et al. 2023, Remote Sensing) — capturé réellement contre l'API Crossref. `duplicates` est vide parce que le store gbrain simulé de ce groupe est vide (isolation délibérée : en production, article-doi/article-import interrogent TOUJOURS le gbrain réel pour les doublons, voir plans/065-inventaire-kb.md §3).",
+      "args": ["article-doi", "--doi", "10.3390/rs15010031"],
+      "expect": {
+        "exitCode": 0,
+        "stdout": {
+          "ok": true, "draftId": "f38d5dccc485", "path": "doi:10.3390/rs15010031",
+          "meta": {
+            "abstract": "<jats:p>Annual mass balance is an important reflection of glacier status that is also very sensitive to climate fluctuations. However, there is no effective and universal albedo-based method for the reconstruction of annual mass balance due to the scarcity of field observations. Here, we present an improved albedo–mass balance (IAMB) method to estimate annual glacier surface mass balance series using remote sensing techniques. The averaged glacier-wide albedo derived with the MODImLab algorithm during the summer season provides an effective proxy of the annual mass change. Defined as the variation in the albedo as a function of elevation change, the altitude–albedo gradient (∂z/∂α) can be obtained from a glacier digital elevation model (DEM) and optical images. The Chhota Shigri glacier situated in the western Himalayas was selected to test and assess the accuracy of this method over the period from 2003 to 2014. Reconstructed annual mass budgets correlated well with those from the observed records, with an average difference and root mean square error (RMSE) of −0.75 mm w.e. a−1 and 274.91 mm w.e. a−1, respectively, indicating that the IAMB method holds promise for glacier mass change monitoring. This study provides a new technique for annual mass balance estimation that can be applied to glaciers with no or few mass balance observations.</jats:p>",
+            "title": "Reconstruction of Annual Glacier Mass Balance from Remote Sensing-Derived Average Glacier-Wide Albedo",
+            "authors": "Zhang, Zhimin; Jiang, Liming; Sun, Yafei; Sirguey, Pascal; Dumont, Marie; Liu, Lin; Gao, Ning; Gao, Songfeng",
+            "journal": "Remote Sensing", "doi": "10.3390/rs15010031", "year": 2022
+          },
+          "slug": "articles/zhang-2022-reconstruction-annual-glacier-mass", "exists": false, "converter": "crossref", "metaSource": "crossref", "duplicates": [],
+          "chars": 1365,
+          "preview": "<contains>Reconstruction of Annual Glacier Mass Balance",
+          "warning": null
+        },
+        "soft": ["meta.abstract", "chars", "preview"]
+      }
+    },
+    {
+      "id": "article-doi-invalid-format",
+      "notes": "Validation locale (regex 10\\.\\d{4,9}\\/) — aucun appel réseau pour un DOI mal formé.",
+      "network": false,
+      "args": ["article-doi", "--doi", "not-a-doi"],
+      "expect": { "exitCode": 1, "stderr": "DOI invalide: not-a-doi" }
+    }
+  ]
+}

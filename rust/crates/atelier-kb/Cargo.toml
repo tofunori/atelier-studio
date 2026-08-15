@@ -1,0 +1,23 @@
+[package]
+name = "atelier-kb"
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+description = "Base de connaissances Atelier — port Rust de sidecar/kb_cli.mjs (plan 065, vague 1 : store local)"
+
+[[bin]]
+name = "atelier-kb-rs"
+path = "src/main.rs"
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sha2 = "0.10"
+hex = "0.4"
+unicode-normalization = "0.1"
+chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
+regex = "1"
+once_cell = "1"
+
+[dev-dependencies]
+tempfile = "3"
