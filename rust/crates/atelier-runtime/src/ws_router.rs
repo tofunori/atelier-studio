@@ -1,6 +1,7 @@
 //! WebSocket message routing (plan 033 — full Node case inventory, Porte 9).
 
 use crate::codex_history::{list_codex_sessions, load_codex_history};
+use crate::evidence;
 use crate::grok_history::{load_grok_history, prefer_richer_dialogue};
 use crate::state::{AppState, QaSession};
 use atelier_protocol::{ErrorMessage, PongMessage};
@@ -20,6 +21,7 @@ use atelier_workspace::{
     zotero_add_pdfs, zotero_available, zotero_collections, zotero_load_favs, zotero_search,
     zotero_toggle_fav, NarvalError, TermEvent,
 };
+use serde::Deserialize;
 use serde_json::{json, Value};
 
 /// Exhaustive list of handled WS types (must cover Node `router.mjs` cases).
@@ -1474,6 +1476,9 @@ pub async fn route_ws(state: &AppState, text: &str) -> Vec<String> {
                 }
             }
         }
+        "pinPassage" => handle_pin_passage(state, &msg),
+        "listPins" => handle_list_pins(state, &msg),
+        "unpinPassage" => handle_unpin_passage(state, &msg),
         "zoteroAddPdf" => {
             let paths = msg
                 .get("paths")
@@ -2165,6 +2170,111 @@ fn handle_kb_gbrain_page(state: &AppState, msg: &Value) -> Vec<String> {
         Err(e) => vec![json_msg(json!({
             "type": "gbrainPage", "slug": slug, "markdown": "", "error": e,
         }))],
+    }
+}
+
+/// Payload `pin` de `pinPassage` — champs optionnels absents tolérés (pas de
+/// `#[serde(default)]` sur `EvidencePin` elle-même, qui reste stricte pour le
+/// stockage sur disque).
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct PinPassageInput {
+    #[serde(default)]
+    quote: String,
+    #[serde(default)]
+    zotero_key: String,
+    #[serde(default)]
+    pdf_key: String,
+    #[serde(default)]
+    pdf_file: String,
+    #[serde(default)]
+    page: u32,
+    #[serde(default)]
+    cite_label: String,
+    #[serde(default)]
+    supports: Option<evidence::EvidenceSupports>,
+    #[serde(default)]
+    thread_id: Option<String>,
+    #[serde(default)]
+    provider: Option<String>,
+}
+
+fn evidence_pins_error(project_root: &str, message: impl Into<String>) -> Vec<String> {
+    vec![json_msg(json!({
+        "type": "evidencePins",
+        "projectRoot": project_root,
+        "pins": [],
+        "error": message.into(),
+    }))]
+}
+
+/// `pinPassage { projectRoot, pin: {...} }` — épingle un passage cité. Quand
+/// `pin.supports` est absent, tente de le compléter via la sélection Lecture
+/// courante (`~/.claude/fig-selection.json`, fraîcheur 900s).
+fn handle_pin_passage(state: &AppState, msg: &Value) -> Vec<String> {
+    let project_root = msg.get("projectRoot").and_then(Value::as_str).unwrap_or("");
+    if project_root.is_empty() {
+        return evidence_pins_error("", "pinPassage: projectRoot requis");
+    }
+    let Some(raw_pin) = msg.get("pin").cloned() else {
+        return evidence_pins_error(project_root, "pinPassage: pin requis");
+    };
+    let input: PinPassageInput = match serde_json::from_value(raw_pin) {
+        Ok(p) => p,
+        Err(e) => return evidence_pins_error(project_root, format!("pinPassage: pin invalide: {e}")),
+    };
+    let supports = input.supports.or_else(|| evidence::fig_selection_supports(900));
+    let pin = evidence::EvidencePin {
+        id: String::new(),
+        ts: 0,
+        quote: input.quote,
+        zotero_key: input.zotero_key,
+        pdf_key: input.pdf_key,
+        pdf_file: input.pdf_file,
+        page: input.page,
+        cite_label: input.cite_label,
+        supports,
+        thread_id: input.thread_id,
+        provider: input.provider,
+    };
+    match evidence::add_pin(state.app_dir(), project_root, pin) {
+        Ok(pins) => vec![json_msg(json!({
+            "type": "evidencePins",
+            "projectRoot": project_root,
+            "pins": pins,
+        }))],
+        Err(e) => evidence_pins_error(project_root, e.to_string()),
+    }
+}
+
+/// `listPins { projectRoot }`.
+fn handle_list_pins(state: &AppState, msg: &Value) -> Vec<String> {
+    let project_root = msg.get("projectRoot").and_then(Value::as_str).unwrap_or("");
+    if project_root.is_empty() {
+        return evidence_pins_error("", "listPins: projectRoot requis");
+    }
+    let pins = evidence::list_pins(state.app_dir(), project_root);
+    vec![json_msg(json!({
+        "type": "evidencePins",
+        "projectRoot": project_root,
+        "pins": pins,
+    }))]
+}
+
+/// `unpinPassage { projectRoot, pinId }`.
+fn handle_unpin_passage(state: &AppState, msg: &Value) -> Vec<String> {
+    let project_root = msg.get("projectRoot").and_then(Value::as_str).unwrap_or("");
+    if project_root.is_empty() {
+        return evidence_pins_error("", "unpinPassage: projectRoot requis");
+    }
+    let pin_id = msg.get("pinId").and_then(Value::as_str).unwrap_or("");
+    match evidence::remove_pin(state.app_dir(), project_root, pin_id) {
+        Ok(pins) => vec![json_msg(json!({
+            "type": "evidencePins",
+            "projectRoot": project_root,
+            "pins": pins,
+        }))],
+        Err(e) => evidence_pins_error(project_root, e.to_string()),
     }
 }
 

@@ -287,3 +287,28 @@ describe("thinking_progress — CLI ≥2.1.8 caviarde le thinking en stream-json
     await s.finish();
   });
 });
+
+describe("post_turn_summary — tour bloqué en attente d'une précision", () => {
+  it("émet l'annotation __waiting avec le détail, jamais un nom d'outil ordinaire", async () => {
+    // Un nom ordinaire APRÈS le texte final déclassait la réponse en texte
+    // intermédiaire (terminalAssistantIndex) : elle disparaissait dans le
+    // repli du tour. Miroir de claude_parse.rs.
+    const s = await session("ct-waiting");
+    s.q.feed({
+      type: "system", subtype: "post_turn_summary",
+      status_category: "blocked", needs_action: "préciser la tâche",
+    });
+    await flush();
+    const marqueur = s.events.find((e) => e.kind === "tool" && e.name === "__waiting");
+    expect(marqueur).toMatchObject({ detail: "préciser la tâche" });
+    await s.finish();
+  });
+
+  it("un tour complété n'émet rien", async () => {
+    const s = await session("ct-waiting-2");
+    s.q.feed({ type: "system", subtype: "post_turn_summary", status_category: "completed" });
+    await flush();
+    expect(s.events.some((e) => e.kind === "tool" && e.name === "__waiting")).toBe(false);
+    await s.finish();
+  });
+});
