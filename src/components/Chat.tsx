@@ -88,6 +88,8 @@ export default function Chat(p: {
   liveTokens?: number | null;
   /** note d'avancement du tour (démarrage MCP) — affichée sous le spinner */
   liveNote?: string | null;
+  /** segments de réflexion reçus (texte caviardé par le CLI) — ligne Réflexion */
+  liveThinkingChunks?: number | null;
   commands: { name: string; source: string }[];
   files: string[];
   recentFiles: string[];
@@ -953,6 +955,7 @@ export default function Chat(p: {
           workingSince: p.workingSince,
           liveTokens: p.liveTokens ?? null,
           liveNote: p.liveNote ?? null,
+          liveThinkingChunks: p.liveThinkingChunks ?? null,
           phase: turnViewModels[turnViewModels.length - 1]?.phase ?? "idle",
         }}
         rev={{ review, reviewMin, setReviewMin, setReview, barOpen, setBarOpen, fixing, setFixing, reviewOpen, setReviewOpen }}

@@ -35,6 +35,9 @@ type AgentEventBody =
   | { kind: "text"; text: string; ts?: number }
   | { kind: "delta"; text: string; ts?: number }
   | { kind: "thinking_delta"; text: string; ts?: number }
+  /** progression de réflexion quand le CLI caviarde le texte (headless ≥2.1.8) :
+   * seul le COMPTE de segments avance — éphémère, jamais journalisé */
+  | { kind: "thinking_progress"; count: number; ts?: number }
   | { kind: "thinking"; text: string; ts?: number }
   | { kind: "thinking_live"; text: string; ts?: number }
   | { kind: "permission"; requestId: string; toolName: string; input?: Record<string, unknown>; answered: boolean | null; ts?: number }

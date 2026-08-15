@@ -506,6 +506,7 @@ export default function App() {
   const [liveTokens, setLiveTokens] = useState<Record<string, number | null>>({});
   // note d'avancement du tour (démarrage MCP Grok) — affichée sous le spinner
   const [liveNotes, setLiveNotes] = useState<Record<string, string | null>>({});
+  const [liveThinkingChunks, setLiveThinkingChunks] = useState<Record<string, number | null>>({});
   const [usageByThread, setUsageByThread] = useState<
     Record<string, { context: number; output: number; cost: number | null; turns: number | null; window?: number | null }>
   >({});
@@ -1386,6 +1387,16 @@ export default function App() {
           }
           return;
         }
+        if (msg.event.kind === "thinking_progress") {
+          // réflexion caviardée par le CLI : seul le compte de segments prouve
+          // que ça avance — même cycle de vie que le ticker tokens
+          setWorkingSince((p) => ({ ...p, [msg.threadId]: p[msg.threadId] ?? Date.now() }));
+          const count = msg.event.count;
+          if (typeof count === "number") {
+            setLiveThinkingChunks((p) => ({ ...p, [msg.threadId]: count }));
+          }
+          return;
+        }
         if (msg.event.kind === "usage") {
           if (msg.event.usage) setUsageByThread((p) => ({ ...p, [msg.threadId]: msg.event.usage }));
           return;
@@ -1406,6 +1417,7 @@ export default function App() {
           // le ticker du tour ne survit pas au tour
           setLiveTokens((p) => (p[msg.threadId] == null ? p : { ...p, [msg.threadId]: null }));
           setLiveNotes((p) => (p[msg.threadId] == null ? p : { ...p, [msg.threadId]: null }));
+          setLiveThinkingChunks((p) => (p[msg.threadId] == null ? p : { ...p, [msg.threadId]: null }));
         }
         // tour AUTONOME (goal poursuivi par le serveur, aucun submit local) :
         // le spinner démarre sur le started du provider — sans écraser un
@@ -3547,6 +3559,7 @@ export default function App() {
           workingSince={activeId ? (workingSince[activeId] ?? null) : null}
           liveTokens={activeId ? (liveTokens[activeId] ?? null) : null}
           liveNote={activeId ? (liveNotes[activeId] ?? null) : null}
+          liveThinkingChunks={activeId ? (liveThinkingChunks[activeId] ?? null) : null}
           usage={activeId ? (usageByThread[activeId] ?? null) : null}
           commands={commands}
           files={files}

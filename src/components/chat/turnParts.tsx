@@ -451,7 +451,12 @@ export function ThinkingShimmer({ text = t("chat.thinking") }: { text?: string }
   return <span className="thinking-shimmer">{text}</span>;
 }
 
-export function LiveThinking({ thought }: { thought?: string | null } = {}) {
+export function LiveThinking({ thought, progress }: {
+  thought?: string | null;
+  /** segments de réflexion reçus quand le CLI caviarde le texte (headless
+   * ≥2.1.8) : le compte qui monte est la seule preuve visible que ça avance */
+  progress?: number | null;
+} = {}) {
   // La pensée se DÉROULE pendant le travail : une fenêtre de quelques lignes
   // calée sur la fin, plutôt que les 120 derniers caractères sur une ligne.
   // Bornée en hauteur — Grok émet des centaines de morceaux et le fil ne doit
@@ -462,12 +467,14 @@ export function LiveThinking({ thought }: { thought?: string | null } = {}) {
     const el = flux.current;
     if (el) el.scrollTop = el.scrollHeight;
   }, [texte]);
+  const compte = !texte && progress != null && progress > 0 ? progress : null;
   return (
-    <div className="thinking-live-indicator" role="status" aria-live="polite">
+    <div className="thinking-live-indicator" role="status" aria-live="polite"
+      title={compte != null ? t("chat.thinking-progress-hint") : undefined}>
       <BrainCircuitIcon className="thinking-icon" aria-hidden="true" />
       {texte
         ? <div ref={flux} className="thinking-live-stream">{texte}</div>
-        : <ThinkingShimmer />}
+        : <ThinkingShimmer text={compte != null ? t("chat.thinking-progress", { n: compte }) : undefined} />}
     </div>
   );
 }

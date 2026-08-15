@@ -269,31 +269,61 @@ function useKbCiteSources(text: string) {
   return sources;
 }
 
-/** Lisse la cadence du flux : les deltas arrivent en rafales irrégulières
- * (réseau, provider) ; on les regroupe par fenêtres de ~90 ms pour que le
- * texte avance à un rythme régulier — et pour ne re-parser le markdown qu'au
- * plus ~11 fois/s au lieu d'une fois par token. Fin de tour (working=false) :
- * tout s'affiche immédiatement, rien n'est jamais perdu (le flush lit
- * toujours la dernière valeur reçue). */
-function useSmoothedStream(text: string, working: boolean): string {
-  const [shown, setShown] = useState(text);
-  const latest = useRef(text);
-  const timer = useRef<number | null>(null);
-  latest.current = text;
+/** Typewriter : le CLI Claude livre le texte par morceaux à l'échelle de la
+ * phrase (mesuré : ~6 text_delta pour 5 phrases, même avec
+ * --include-partial-messages) — affichés bruts, ils donnent une impression de
+ * sauts, pas de streaming. On découple donc le rythme réseau du rythme visuel
+ * (même principe que smoothStream du Vercel AI SDK) : le texte cible
+ * s'accumule, une boucle rAF (~30 Hz) révèle une fraction du retard à chaque
+ * tick — drainage proportionnel (~12 %/tick, min 2 caractères), donc un gros
+ * morceau se déroule en ~1 s quelle que soit sa taille, sans jamais traîner
+ * loin derrière le flux réel. Fin de tour : flush immédiat. Au montage, le
+ * texte déjà présent s'affiche sans replay (reprise de fil). Sous
+ * prefers-reduced-motion, aucun typewriter : le texte brut passe tel quel. */
+export function useSmoothedStream(text: string, working: boolean): string {
+  const reduceMotion = typeof matchMedia === "function"
+    && matchMedia("(prefers-reduced-motion: reduce)").matches;
+  const revealed = useRef(text.length);
+  const target = useRef(text);
+  const frame = useRef<number | null>(null);
+  const lastTick = useRef(0);
+  const [, force] = useState(0);
+  target.current = text;
+
   useEffect(() => {
+    if (reduceMotion) return;
+    const cancel = () => {
+      if (frame.current != null) { cancelAnimationFrame(frame.current); frame.current = null; }
+    };
     if (!working) {
-      if (timer.current != null) { window.clearTimeout(timer.current); timer.current = null; }
-      setShown(latest.current);
-      return;
+      cancel();
+      if (revealed.current !== target.current.length) {
+        revealed.current = target.current.length;
+        force((n) => n + 1);
+      }
+      return cancel;
     }
-    if (timer.current != null) return; // flush déjà programmé — le delta sera inclus
-    timer.current = window.setTimeout(() => {
-      timer.current = null;
-      setShown(latest.current);
-    }, 90);
-  }, [text, working]);
-  useEffect(() => () => { if (timer.current != null) window.clearTimeout(timer.current); }, []);
-  return working ? shown : text;
+    const tick = (time: number) => {
+      frame.current = null;
+      const total = target.current.length;
+      if (revealed.current < total && time - lastTick.current >= 33) {
+        lastTick.current = time;
+        const backlog = total - revealed.current;
+        revealed.current += Math.min(backlog, Math.max(2, Math.round(backlog * 0.12)));
+        force((n) => n + 1);
+      }
+      if (revealed.current < target.current.length) {
+        frame.current = requestAnimationFrame(tick);
+      }
+    };
+    if (frame.current == null && revealed.current < target.current.length) {
+      frame.current = requestAnimationFrame(tick);
+    }
+    return cancel;
+  }, [text, working, reduceMotion]);
+
+  if (reduceMotion || !working) return text;
+  return text.slice(0, Math.min(revealed.current, text.length));
 }
 
 export function StreamingText(p: { text: string; working: boolean }) {
@@ -315,7 +345,9 @@ export function StreamingText(p: { text: string; working: boolean }) {
         >
           {decorateKbCites(normalizeMathDelimiters(hardenPartialMarkdown(text)), kbCiteSources)}
         </ReactMarkdown>
-        {p.working && <span key={text.length} className="stream-caret" />}
+        {/* keyé sur le texte CIBLE (pas révélé) : le caret « respire » à
+            l'arrivée des données, pas à chaque tick du typewriter. */}
+        {p.working && <span key={p.text.length} className="stream-caret" />}
       </BubbleContent>
       </Bubble>
     </MessageContent>
@@ -552,6 +584,8 @@ export function ActiveTurnTail(p: {
   onStop: () => void;
   plugins?: PluginCatalogEntry[];
   renderToolLine: (action: ToolAction, key: React.Key) => ReactNode;
+  /** segments de réflexion reçus quand le CLI caviarde le texte */
+  thinkingProgress?: number | null;
 }) {
   const state = p.turn.activeState;
   const activeGroups = p.turn.activeActionGroups;
@@ -579,7 +613,7 @@ export function ActiveTurnTail(p: {
         // Grok, qui clôt chaque bloc — dans le dernier `thinking` durable :
         // le live y est remplacé par le final, et l'état retombe sur
         // `thinking`, muet.
-        <LiveThinking thought={currentThought(p.turn, p.events)} />
+        <LiveThinking thought={currentThought(p.turn, p.events)} progress={p.thinkingProgress} />
       ) : (
         <ActivityDisclosure
           open={p.open}
