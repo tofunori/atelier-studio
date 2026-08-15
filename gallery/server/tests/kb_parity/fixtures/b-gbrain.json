@@ -1,0 +1,78 @@
+{
+  "description": "Commandes qui parlent à gbrain (add --kind gbrain, gbrain-search, gbrain-page, promote-page). ATELIER_TEST_GBRAIN pointe vers fake-gbrain.mjs (jamais le NAS réel — voir README.md). appdir + store dédiés.",
+  "env": { "appdir": "b-gbrain", "gbrain": true },
+  "setup": [
+    { "id": "seed-page", "kind": "seed-gbrain", "slug": "atelier/page-fixture", "fromInput": "seed-gbrain-page.md" }
+  ],
+  "steps": [
+    {
+      "id": "add-gbrain-existing",
+      "notes": "id déterministe = sha256('gbrain\\n<slug>') — dépend du SLUG, jamais du contenu de la page ni d'un chemin local : portable tel quel.",
+      "args": ["add", "--kind", "gbrain", "--origin", "atelier/page-fixture"],
+      "expect": {
+        "exitCode": 0,
+        "stdout": { "ok": true, "source": { "id": "1bc52baf", "kind": "gbrain", "title": "Page NAS test", "origin": "atelier/page-fixture", "chars": 68, "addedAt": "<ISO>", "updatedAt": "<ISO>", "meta": { "slug": "atelier/page-fixture", "syncedAt": "<ISO>" }, "collections": [], "archived": false }, "refreshed": false }
+      }
+    },
+    {
+      "id": "add-gbrain-missing",
+      "args": ["add", "--kind", "gbrain", "--origin", "atelier/absent-xyz"],
+      "expect": { "exitCode": 1, "stderr": "Page gbrain introuvable: atelier/absent-xyz" }
+    },
+    {
+      "id": "gbrain-search-no-match",
+      "args": ["gbrain-search", "--query", "inexistant"],
+      "expect": { "exitCode": 0, "stdout": { "ok": true, "query": "inexistant", "count": 0, "results": [] } }
+    },
+    {
+      "id": "gbrain-search-match",
+      "args": ["gbrain-search", "--query", "NAS"],
+      "expect": { "exitCode": 0, "stdout": { "ok": true, "query": "NAS", "count": 1, "results": [{ "slug": "atelier/page-fixture", "snippet": "Contenu de la page NAS pour fixture." }] } }
+    },
+    {
+      "id": "gbrain-search-missing-query",
+      "args": ["gbrain-search"],
+      "expect": { "exitCode": 1, "stderr": "Argument requis: --query" }
+    },
+    {
+      "id": "gbrain-page-found",
+      "args": ["gbrain-page", "--slug", "atelier/page-fixture"],
+      "expect": { "exitCode": 0, "stdout": { "ok": true, "slug": "atelier/page-fixture", "chars": 68, "markdown": "---\ntitle: \"Page NAS test\"\n---\n\nContenu de la page NAS pour fixture." } }
+    },
+    {
+      "id": "gbrain-page-not-found",
+      "args": ["gbrain-page", "--slug", "atelier/absent-xyz"],
+      "expect": { "exitCode": 1, "stderr": "Page gbrain introuvable: atelier/absent-xyz" }
+    },
+    {
+      "id": "promote-page-preview",
+      "notes": "Sans --write : sonde l'existence du slug cible (défaut atelier/<slugifyTitle(title)>) et rend un aperçu. Ici la source promue EST elle-même une page gbrain (kind=gbrain) — cas volontairement auto-référentiel, valide : promote-page ne discrimine pas le kind.",
+      "args": ["promote-page", "--id", "1bc52baf"],
+      "expect": {
+        "exitCode": 0,
+        "stdout": { "ok": true, "id": "1bc52baf", "slug": "atelier/page-nas-test", "exists": false, "title": "Page NAS test", "chars": 68, "preview": "---\ntitle: \"Page NAS test\"\norigin: \"atelier/page-fixture\"\ncaptured: <DATE>\nfrom: atelier\n---\n\n---\ntitle: \"Page NAS test\"\n---\n\nContenu de la page NAS pour fixture.\n" }
+      }
+    },
+    {
+      "id": "promote-page-write",
+      "args": ["promote-page", "--id", "1bc52baf", "--slug", "atelier/page-fixture-promue", "--write"],
+      "expect": { "exitCode": 0, "stdout": { "ok": true, "id": "1bc52baf", "slug": "atelier/page-fixture-promue", "written": true, "updated": false } }
+    },
+    {
+      "id": "promote-page-write-again-updates",
+      "notes": "Re-write sur le même slug : `updated` bascule à true — la sonde gbrain get précède toujours le put, jamais d'écrasement muet.",
+      "args": ["promote-page", "--id", "1bc52baf", "--slug", "atelier/page-fixture-promue", "--write"],
+      "expect": { "exitCode": 0, "stdout": { "ok": true, "id": "1bc52baf", "slug": "atelier/page-fixture-promue", "written": true, "updated": true } }
+    },
+    {
+      "id": "promote-page-unknown-id",
+      "args": ["promote-page", "--id", "deadbeef"],
+      "expect": { "exitCode": 1, "stderr": "Source inconnue: deadbeef" }
+    },
+    {
+      "id": "promote-page-missing-id",
+      "args": ["promote-page"],
+      "expect": { "exitCode": 1, "stderr": "Argument requis: --id" }
+    }
+  ]
+}

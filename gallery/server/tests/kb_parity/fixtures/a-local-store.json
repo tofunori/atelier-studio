@@ -1,0 +1,235 @@
+{
+  "description": "Store local pur : add(note/file/csv/folder/pdf/web-stdin), collection, tag, archive, list, search, kb-text, remove, erreurs d'arguments. Aucun réseau, aucun spawn gbrain — appdir et FAKE_GBRAIN_STORE dédiés, isolés du NAS réel.",
+  "env": { "appdir": "a-local-store" },
+  "steps": [
+    {
+      "id": "add-note",
+      "args": ["add", "--kind", "note", "--title", "Note fixture", "--text", "Ceci est une note de test pour les fixtures de parite KB."],
+      "capture": { "noteId": "source.id" },
+      "expect": {
+        "exitCode": 0,
+        "stdout": { "ok": true, "source": { "id": "6746246a", "kind": "note", "title": "Note fixture", "origin": null, "chars": 57, "addedAt": "<ISO>", "updatedAt": "<ISO>", "meta": {}, "collections": [], "archived": false }, "refreshed": false }
+      }
+    },
+    {
+      "id": "add-file-md",
+      "args": ["add", "--kind", "file", "--origin", "{{INPUTS}}/notes.md"],
+      "capture": { "fileId": "source.id" },
+      "expect": {
+        "exitCode": 0,
+        "stdout": { "ok": true, "source": { "id": "<ID>", "kind": "file", "title": "notes.md", "origin": "<INPUTS>/notes.md", "chars": 47, "addedAt": "<ISO>", "updatedAt": "<ISO>", "meta": { "mtimeMs": "<NUM>", "size": 48 }, "collections": [], "archived": false }, "refreshed": false }
+      }
+    },
+    {
+      "id": "add-csv-small",
+      "notes": "Sous CSV_FULL_MAX (40000 car.) : passthrough intégral, pas de profilage.",
+      "args": ["add", "--kind", "file", "--origin", "{{INPUTS}}/small.csv"],
+      "capture": { "csvSmallId": "source.id" },
+      "expect": {
+        "exitCode": 0,
+        "stdout": { "ok": true, "source": { "id": "<ID>", "kind": "file", "title": "small.csv", "origin": "<INPUTS>/small.csv", "chars": 127, "addedAt": "<ISO>", "updatedAt": "<ISO>", "meta": { "mtimeMs": "<NUM>", "size": 59, "table": true }, "collections": [], "archived": false }, "refreshed": false }
+      }
+    },
+    {
+      "id": "add-csv-large",
+      "notes": "Au-dessus de CSV_FULL_MAX : csv_digest profile (colonnes/types/étendues) au lieu de déverser les 3000 lignes. RNG seedé (42) dans inputs/large.csv → chars=1299 est un invariant exact du profilage, pas une coïncidence.",
+      "args": ["add", "--kind", "file", "--origin", "{{INPUTS}}/large.csv"],
+      "capture": { "csvLargeId": "source.id" },
+      "expect": {
+        "exitCode": 0,
+        "stdout": { "ok": true, "source": { "id": "<ID>", "kind": "file", "title": "large.csv", "origin": "<INPUTS>/large.csv", "chars": 1299, "addedAt": "<ISO>", "updatedAt": "<ISO>", "meta": { "mtimeMs": "<NUM>", "size": 69693, "table": true }, "collections": [], "archived": false }, "refreshed": false }
+      }
+    },
+    {
+      "id": "add-folder",
+      "args": ["add", "--kind", "folder", "--origin", "{{INPUTS}}/vault"],
+      "capture": { "folderId": "source.id" },
+      "expect": {
+        "exitCode": 0,
+        "stdout": { "ok": true, "source": { "id": "<ID>", "kind": "folder", "title": "vault", "origin": "<INPUTS>/vault", "chars": 58, "addedAt": "<ISO>", "updatedAt": "<ISO>", "meta": { "files": 2 }, "collections": [], "archived": false }, "refreshed": false }
+      }
+    },
+    {
+      "id": "add-pdf",
+      "args": ["add", "--kind", "pdf", "--origin", "{{INPUTS}}/sample.pdf", "--title", "Article fixture PDF"],
+      "capture": { "pdfId": "source.id" },
+      "expect": {
+        "exitCode": 0,
+        "stdout": { "ok": true, "source": { "id": "<ID>", "kind": "pdf", "title": "Article fixture PDF", "origin": "<INPUTS>/sample.pdf", "chars": 497, "addedAt": "<ISO>", "updatedAt": "<ISO>", "meta": { "pages": 1, "mtimeMs": "<NUM>", "size": 34407 }, "collections": [], "archived": false }, "refreshed": false }
+      }
+    },
+    {
+      "id": "add-web-stdin",
+      "notes": "--text - lit stdin : le fetch réel n'est jamais déclenché. id portable (clé = URL canonique, pas un chemin local).",
+      "args": ["add", "--kind", "web", "--origin", "https://example.org/fixture", "--title", "Page capturee", "--text", "-"],
+      "stdin": "Texte capture depuis le navigateur, pour la fixture.",
+      "capture": { "webId": "source.id" },
+      "expect": {
+        "exitCode": 0,
+        "stdout": { "ok": true, "source": { "id": "08e91a5c", "kind": "web", "title": "Page capturee", "origin": "https://example.org/fixture", "chars": 52, "addedAt": "<ISO>", "updatedAt": "<ISO>", "meta": {}, "collections": [], "archived": false }, "refreshed": false }
+      }
+    },
+    {
+      "id": "collection-add-glaciologie",
+      "args": ["collection", "--add", "Glaciologie"],
+      "expect": { "exitCode": 0, "stdout": { "ok": true, "slug": "glaciologie", "collections": [{ "slug": "glaciologie", "title": "Glaciologie" }] } }
+    },
+    {
+      "id": "collection-add-meteo",
+      "notes": "Accents/esperluette : collectionSlug translittère NFKD, minuscule, [^a-z0-9]+→-. Ajout en tête de liste (le plus récent en premier).",
+      "args": ["collection", "--add", "Météo & Climat"],
+      "expect": { "exitCode": 0, "stdout": { "ok": true, "slug": "meteo-climat", "collections": [{ "slug": "meteo-climat", "title": "Météo & Climat" }, { "slug": "glaciologie", "title": "Glaciologie" }] } }
+    },
+    {
+      "id": "list-all",
+      "notes": "Tri updatedAt décroissant = ordre inverse des add (web ajouté en dernier apparaît en premier).",
+      "args": ["list"],
+      "expect": {
+        "exitCode": 0,
+        "stdout": {
+          "ok": true, "count": 7,
+          "sources": [
+            { "id": "08e91a5c", "kind": "web", "title": "Page capturee", "origin": "https://example.org/fixture", "chars": 52, "addedAt": "<ISO>", "updatedAt": "<ISO>", "meta": {}, "collections": [], "archived": false },
+            { "id": "<ID>", "kind": "pdf", "title": "Article fixture PDF", "origin": "<INPUTS>/sample.pdf", "chars": 497, "addedAt": "<ISO>", "updatedAt": "<ISO>", "meta": { "pages": 1, "mtimeMs": "<NUM>", "size": 34407 }, "collections": [], "archived": false },
+            { "id": "<ID>", "kind": "folder", "title": "vault", "origin": "<INPUTS>/vault", "chars": 58, "addedAt": "<ISO>", "updatedAt": "<ISO>", "meta": { "files": 2 }, "collections": [], "archived": false },
+            { "id": "<ID>", "kind": "file", "title": "large.csv", "origin": "<INPUTS>/large.csv", "chars": 1299, "addedAt": "<ISO>", "updatedAt": "<ISO>", "meta": { "mtimeMs": "<NUM>", "size": 69693, "table": true }, "collections": [], "archived": false },
+            { "id": "<ID>", "kind": "file", "title": "small.csv", "origin": "<INPUTS>/small.csv", "chars": 127, "addedAt": "<ISO>", "updatedAt": "<ISO>", "meta": { "mtimeMs": "<NUM>", "size": 59, "table": true }, "collections": [], "archived": false },
+            { "id": "<ID>", "kind": "file", "title": "notes.md", "origin": "<INPUTS>/notes.md", "chars": 47, "addedAt": "<ISO>", "updatedAt": "<ISO>", "meta": { "mtimeMs": "<NUM>", "size": 48 }, "collections": [], "archived": false },
+            { "id": "6746246a", "kind": "note", "title": "Note fixture", "origin": null, "chars": 57, "addedAt": "<ISO>", "updatedAt": "<ISO>", "meta": {}, "collections": [], "archived": false }
+          ],
+          "collections": [{ "slug": "meteo-climat", "title": "Météo & Climat" }, { "slug": "glaciologie", "title": "Glaciologie" }],
+          "archivedCount": 0, "archivedSources": []
+        }
+      }
+    },
+    {
+      "id": "tag-note",
+      "args": ["tag", "--id", "{{noteId}}", "--collection", "glaciologie"],
+      "expect": { "exitCode": 0, "stdout": { "ok": true, "source": { "id": "6746246a", "kind": "note", "title": "Note fixture", "origin": null, "chars": 57, "addedAt": "<ISO>", "updatedAt": "<ISO>", "meta": {}, "collections": ["glaciologie"], "archived": false } } }
+    },
+    {
+      "id": "tag-unknown-collection",
+      "args": ["tag", "--id", "{{noteId}}", "--collection", "inconnue"],
+      "expect": { "exitCode": 1, "stderr": "Collection inconnue: inconnue" }
+    },
+    {
+      "id": "list-filtered-by-collection",
+      "args": ["list", "--collection", "glaciologie"],
+      "expect": {
+        "exitCode": 0,
+        "stdout": {
+          "ok": true, "count": 1,
+          "sources": [{ "id": "6746246a", "kind": "note", "title": "Note fixture", "origin": null, "chars": 57, "addedAt": "<ISO>", "updatedAt": "<ISO>", "meta": {}, "collections": ["glaciologie"], "archived": false }],
+          "collections": [{ "slug": "meteo-climat", "title": "Météo & Climat" }, { "slug": "glaciologie", "title": "Glaciologie" }],
+          "archivedCount": 0, "archivedSources": []
+        }
+      }
+    },
+    {
+      "id": "archive-note",
+      "notes": "updatedAt N'EST PAS touché par archive (comme tag) — piège volontaire de la spec, à vérifier côté Rust : seul `archived` change.",
+      "args": ["archive", "--id", "{{noteId}}"],
+      "expect": { "exitCode": 0, "stdout": { "ok": true, "source": { "id": "6746246a", "kind": "note", "title": "Note fixture", "origin": null, "chars": 57, "addedAt": "<ISO>", "updatedAt": "<ISO>", "meta": {}, "collections": ["glaciologie"], "archived": true } } }
+    },
+    {
+      "id": "list-excludes-archived-by-default",
+      "args": ["list"],
+      "expect": {
+        "exitCode": 0,
+        "stdout": {
+          "ok": true, "count": 6,
+          "sources": [
+            { "id": "08e91a5c", "kind": "web", "title": "Page capturee", "origin": "https://example.org/fixture", "chars": 52, "addedAt": "<ISO>", "updatedAt": "<ISO>", "meta": {}, "collections": [], "archived": false },
+            { "id": "<ID>", "kind": "pdf", "title": "Article fixture PDF", "origin": "<INPUTS>/sample.pdf", "chars": 497, "addedAt": "<ISO>", "updatedAt": "<ISO>", "meta": { "pages": 1, "mtimeMs": "<NUM>", "size": 34407 }, "collections": [], "archived": false },
+            { "id": "<ID>", "kind": "folder", "title": "vault", "origin": "<INPUTS>/vault", "chars": 58, "addedAt": "<ISO>", "updatedAt": "<ISO>", "meta": { "files": 2 }, "collections": [], "archived": false },
+            { "id": "<ID>", "kind": "file", "title": "large.csv", "origin": "<INPUTS>/large.csv", "chars": 1299, "addedAt": "<ISO>", "updatedAt": "<ISO>", "meta": { "mtimeMs": "<NUM>", "size": 69693, "table": true }, "collections": [], "archived": false },
+            { "id": "<ID>", "kind": "file", "title": "small.csv", "origin": "<INPUTS>/small.csv", "chars": 127, "addedAt": "<ISO>", "updatedAt": "<ISO>", "meta": { "mtimeMs": "<NUM>", "size": 59, "table": true }, "collections": [], "archived": false },
+            { "id": "<ID>", "kind": "file", "title": "notes.md", "origin": "<INPUTS>/notes.md", "chars": 47, "addedAt": "<ISO>", "updatedAt": "<ISO>", "meta": { "mtimeMs": "<NUM>", "size": 48 }, "collections": [], "archived": false }
+          ],
+          "collections": [{ "slug": "meteo-climat", "title": "Météo & Climat" }, { "slug": "glaciologie", "title": "Glaciologie" }],
+          "archivedCount": 1,
+          "archivedSources": [{ "id": "6746246a", "kind": "note", "title": "Note fixture", "origin": null, "chars": 57, "addedAt": "<ISO>", "updatedAt": "<ISO>", "meta": {}, "collections": ["glaciologie"], "archived": true }]
+        }
+      }
+    },
+    {
+      "id": "list-archived-only",
+      "args": ["list", "--archived"],
+      "expect": {
+        "exitCode": 0,
+        "stdout": {
+          "ok": true, "count": 1,
+          "sources": [{ "id": "6746246a", "kind": "note", "title": "Note fixture", "origin": null, "chars": 57, "addedAt": "<ISO>", "updatedAt": "<ISO>", "meta": {}, "collections": ["glaciologie"], "archived": true }],
+          "collections": [{ "slug": "meteo-climat", "title": "Météo & Climat" }, { "slug": "glaciologie", "title": "Glaciologie" }],
+          "archivedCount": 1,
+          "archivedSources": [{ "id": "6746246a", "kind": "note", "title": "Note fixture", "origin": null, "chars": 57, "addedAt": "<ISO>", "updatedAt": "<ISO>", "meta": {}, "collections": ["glaciologie"], "archived": true }]
+        }
+      }
+    },
+    {
+      "id": "archive-off",
+      "args": ["archive", "--id", "{{noteId}}", "--off"],
+      "expect": { "exitCode": 0, "stdout": { "ok": true, "source": { "id": "6746246a", "kind": "note", "title": "Note fixture", "origin": null, "chars": 57, "addedAt": "<ISO>", "updatedAt": "<ISO>", "meta": {}, "collections": ["glaciologie"], "archived": false } } }
+    },
+    {
+      "id": "search-note",
+      "notes": "Le texte de la note (57 car.) est trop court pour franchir le seuil de score de searchPassages (score>=7, chunk<70 car. rejeté) : 0 passage est le comportement RÉEL, pas un bug de fixture.",
+      "args": ["search", "--id", "{{noteId}}", "--query", "fixture"],
+      "expect": { "exitCode": 0, "stdout": { "ok": true, "source": { "id": "6746246a", "title": "Note fixture", "kind": "note", "origin": null, "meta": {} }, "query": "fixture", "count": 0, "passages": [] } }
+    },
+    {
+      "id": "search-unknown-id",
+      "args": ["search", "--id", "deadbeef", "--query", "x"],
+      "expect": { "exitCode": 1, "stderr": "Source inconnue: deadbeef" }
+    },
+    {
+      "id": "kb-text-note",
+      "args": ["kb-text", "--id", "{{noteId}}"],
+      "expect": { "exitCode": 0, "stdout": { "ok": true, "id": "6746246a", "kind": "note", "title": "Note fixture", "origin": "", "chars": 57, "text": "Ceci est une note de test pour les fixtures de parite KB." } }
+    },
+    {
+      "id": "kb-text-folder",
+      "notes": "Un dossier rend `files` (liste + taille), jamais le texte concaténé — kb_cli.mjs commente : « 103 000 caractères collés bout à bout ne se lisent pas ».",
+      "args": ["kb-text", "--id", "{{folderId}}"],
+      "expect": { "exitCode": 0, "stdout": { "ok": true, "id": "<ID>", "kind": "folder", "title": "vault", "origin": "<INPUTS>/vault", "chars": 58, "files": [{ "rel": "a.md", "chars": 34 }, { "rel": "nested/b.txt", "chars": 24 }], "text": "" } }
+    },
+    {
+      "id": "collection-rename",
+      "args": ["collection", "--rename", "glaciologie", "--title", "Glaciologie (renomme)"],
+      "expect": { "exitCode": 0, "stdout": { "ok": true, "slug": "glaciologie", "collections": [{ "slug": "meteo-climat", "title": "Météo & Climat" }, { "slug": "glaciologie", "title": "Glaciologie (renomme)" }] } }
+    },
+    {
+      "id": "collection-remove",
+      "args": ["collection", "--remove", "meteo-climat"],
+      "expect": { "exitCode": 0, "stdout": { "ok": true, "removed": "meteo-climat", "collections": [{ "slug": "glaciologie", "title": "Glaciologie (renomme)" }] } }
+    },
+    {
+      "id": "remove-file",
+      "args": ["remove", "--id", "{{fileId}}"],
+      "expect": { "exitCode": 0, "stdout": { "ok": true, "removed": "{{fileId}}" } }
+    },
+    {
+      "id": "remove-unknown-id",
+      "args": ["remove", "--id", "deadbeef"],
+      "expect": { "exitCode": 1, "stderr": "Source inconnue: deadbeef" }
+    },
+    {
+      "id": "error-missing-command",
+      "args": [],
+      "expect": {
+        "exitCode": 1,
+        "stderr": "Usage: atelier-kb <add|list|remove|search|gbrain-search|promote-page|article-import|article-write> [options]\n  add    --kind file|pdf|web|youtube|note|folder|gbrain [--origin <chemin|url|slug>] [--title <t>] [--text <t>]\n         (--text - lit le texte sur stdin — gros contenus, capture browser)\n  list\n  remove --id <id>\n  search --id <id> --query <question> [--limit 5]\n  gbrain-search --query <mots-clés> [--limit 12]   (corpus NAS)\n  gbrain-page --slug <articles/…>                  (markdown d'une page, lecture seule)\n  kb-text --id <id>                                (texte stocké d'une source, lecture seule)\n  promote-page --id <id> [--slug atelier/…] [--write]   (page directe gbrain)\n  article-import --path <article.pdf>              (PDF → markdown + fiche, sans écriture)\n  article-draft --draft <id>                       (texte complet du brouillon)\n  article-list [--limit 20]                        (articles du corpus, récents d'abord)\n  article-doi --doi 10.xxxx/yyy                    (fiche de référence Crossref, sans PDF)\n  article-write --draft <id> --slug <articles/…> [--title/--authors/--year/--journal/--doi]\n                [--origin <pdf>] [--converter <mineru|local>] [--ragdoc]\n  collection --add <titre> | --rename <slug> --title <t> | --remove <slug>\n  tag (--id <id> | --ids a,b,c) --collection <slug> [--off]\n  archive (--id <id> | --ids a,b,c) [--off]\nOption commune: --dir <répertoire> (défaut: <APPDIR>/knowledge)"
+      }
+    },
+    {
+      "id": "error-unknown-kind",
+      "args": ["add", "--kind", "bogus", "--origin", "x"],
+      "expect": { "exitCode": 1, "stderr": "Kind non pris en charge (v1: file, pdf, web, note, folder, youtube, gbrain, zotero) : bogus" }
+    },
+    {
+      "id": "error-search-missing-query",
+      "args": ["search", "--id", "{{noteId}}"],
+      "expect": { "exitCode": 1, "stderr": "Argument requis: --query" }
+    }
+  ]
+}
