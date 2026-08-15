@@ -3647,3 +3647,38 @@ button.ctx-ring-wrap { border: none; font: inherit; color: inherit;
 .kb-full.on { color: var(--accent); }
 .kb-foot { display: flex; justify-content: space-between; font-size: var(--fs-s);
   color: var(--text-muted); padding-top: 6px; border-top: 1px solid var(--border); }
+
+/* ── Lecteur de page gbrain ────────────────────────────────────────────
+   Lecture seule d'une page du dépôt. Le corps s'écarte du chrome : plus
+   grand, plus aéré — on ne lit pas un article comme on lit une interface. */
+.gbr { display: flex; flex-direction: column; min-height: 0; height: 100%; }
+.gbr-bar { display: flex; align-items: center; gap: 8px; min-height: var(--surface-header-height);
+  box-sizing: border-box; padding: 4px 0; }
+.gbr-back { display: inline-flex; align-items: center; gap: 6px; font-size: var(--fs-s); }
+.gbr-slug { font-family: var(--mono, ui-monospace, monospace); font-size: var(--fs-xs);
+  color: var(--text-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.gbr-spacer { flex: 1; }
+.gbr-seg { display: inline-flex; align-items: center; gap: 2px; padding: 3px;
+  background: var(--bg-sunken, var(--bg-ctl)); border-radius: var(--radius-pill); }
+.gbr-seg-tab { height: 20px; padding: 0 10px; border-radius: var(--radius-pill); background: transparent;
+  color: var(--text-muted); font-size: var(--fs-xs); font-weight: 500;
+  transition: background var(--ease), color var(--ease); }
+.gbr-seg-tab.on { background: var(--bg-panel, var(--bg-ctl)); color: var(--accent);
+  box-shadow: var(--elevation-overlay, 0 1px 3px rgb(0 0 0 / 35%)); }
+/* Fiche d'en-tête : le front matter lisible, pas du YAML à l'écran. */
+.gbr-meta { padding: 4px 0 12px; border-bottom: 1px solid var(--border-subtle); }
+.gbr-title { margin: 0 0 8px; font-size: var(--fs-xl); font-weight: 600;
+  letter-spacing: -0.01em; line-height: 1.3; color: var(--text); }
+.gbr-authors { margin-bottom: 8px; font-size: var(--fs-m); color: var(--text-secondary); }
+.gbr-facts { display: flex; flex-wrap: wrap; gap: 6px; }
+.gbr-fact { display: inline-flex; align-items: center; gap: 5px; height: 20px; padding: 0 8px;
+  border-radius: var(--radius-pill); background: var(--bg-ctl); color: var(--text-muted);
+  font-size: var(--fs-xs); font-variant-numeric: tabular-nums; }
+.gbr-fact b { color: var(--text); font-weight: 500; }
+.gbr-fact.on { color: var(--accent); }
+.gbr-doc { flex: 1; min-height: 0; overflow-y: auto; padding: 16px 0 24px; }
+.gbr-md { max-width: 66ch; font-size: var(--fs-l); line-height: 1.65; }
+.gbr-md :is(table) { font-variant-numeric: tabular-nums; }
+.gbr-src { margin: 0; font-family: var(--mono, ui-monospace, monospace); font-size: var(--fs-s);
+  line-height: 1.7; color: var(--text-secondary); white-space: pre-wrap; word-break: break-word; }
+.gbr-empty { padding: 24px 0; color: var(--text-muted); font-size: var(--fs-m); }
