@@ -84,12 +84,66 @@ export function toolInputView(value: unknown): { lang: string; text: string } | 
   return { lang: "json", text: toolPayloadText(value) };
 }
 
+// Séquences d'échappement ANSI (SGR/curseur, ex: \x1b[31m, \x1b[2K) et OSC
+// (ex: titre de fenêtre \x1b]0;...\x07, hyperliens \x1b]8;;url\x1b\) : les
+// providers CLI streament parfois de la sortie brute avec ces codes.
+export function stripAnsi(text: string): string {
+  return text
+    .replace(/\x1b\][^\x07]*(\x07|\x1b\\)/g, "")
+    .replace(/\x1b\[[0-9;?]*[A-Za-z]/g, "");
+}
+
+// Troncature tête+queue : au lieu de couper aveuglément la fin (perdant le
+// début — souvent le contexte le plus utile), on garde ~1500 premiers
+// caractères (étendus jusqu'à la fin de ligne) et ~4500 derniers (démarrant
+// à un début de ligne), avec un marqueur i18n entre les deux indiquant le
+// nombre de lignes complètes omises.
+export function truncateToolOutput(raw: string): string {
+  if (raw.length <= 6000) return raw;
+  const HEAD = 1500;
+  const TAIL = 4500;
+
+  const headBreak = raw.indexOf("\n", HEAD);
+  const headEnd = headBreak === -1 ? raw.length : headBreak + 1;
+
+  let tailStart = raw.length - TAIL;
+  const tailBreak = raw.indexOf("\n", tailStart);
+  if (tailBreak !== -1) {
+    tailStart = tailBreak + 1;
+  } else {
+    const priorBreak = raw.lastIndexOf("\n", tailStart);
+    tailStart = priorBreak === -1 ? tailStart : priorBreak + 1;
+  }
+  if (tailStart < headEnd) tailStart = headEnd;
+
+  const head = raw.slice(0, headEnd);
+  const omitted = raw.slice(headEnd, tailStart);
+  const tail = raw.slice(tailStart);
+  const n = (omitted.match(/\n/g) ?? []).length;
+  const headPart = head && !head.endsWith("\n") ? `${head}\n` : head;
+  return `${headPart}${t("chat.output-omitted", { n })}\n${tail}`;
+}
+
+function isJsonText(text: string): boolean {
+  try {
+    JSON.parse(text);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 export function ToolOutputLine({ event }: { event: Extract<AgentEvent, { kind: "tool_update" }> }) {
-  const output = event.output.length > 6000 ? "[...]\n" + event.output.slice(-6000) : event.output;
+  const cleanOutput = stripAnsi(event.output);
+  const output = truncateToolOutput(cleanOutput);
   const inputView = toolInputView(event.input);
   const failed = Boolean(event.exitCode && event.exitCode !== 0) || event.status === "failed";
   const [open, setOpen] = useState(failed);
   const summary = event.detail || toolOutputSummary(output) || (inputView ? "input" : "");
+  const trimmedOutput = output.trim();
+  const isJsonOutput = cleanOutput.length <= 6000
+    && (trimmedOutput.startsWith("{") || trimmedOutput.startsWith("["))
+    && isJsonText(trimmedOutput);
   return (
     <div className={`tool-output ${open ? "open" : "collapsed"} ${failed ? "failed" : ""}`}>
       <RowButton className="tool-output-head" onClick={() => setOpen((v) => !v)}>
