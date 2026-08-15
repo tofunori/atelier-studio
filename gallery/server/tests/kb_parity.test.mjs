@@ -1,10 +1,18 @@
 // Harnais de parité KB (plan 065 C2) — rejoue contre le CLI Node RÉEL
 // (sidecar/kb_cli.mjs, un vrai spawn `node`, pas un import direct) les
 // fixtures figées dans kb_parity/fixtures/*.json. C'est le contrat que le
-// futur port Rust (065 phase C3) devra satisfaire à l'identique.
+// port Rust (065 phase C3+) doit satisfaire à l'identique.
 //
 //   node --test gallery/server/tests/kb_parity.test.mjs
 //   node gallery/server/tests/kb_parity.test.mjs        (équivalent)
+//
+// Mode binaire arbitraire (065 vague 1, C4) : `KB_PARITY_BIN=<chemin>` rejoue
+// les mêmes fixtures contre un binaire quelconque acceptant le même contrat
+// argv/stdin -> stdout JSON (ex. `atelier-kb-rs`), à la place de
+// `node sidecar/kb_cli.mjs`. Comportement par défaut (Node) inchangé quand la
+// variable est absente. Un groupe de fixtures non encore couvert par le
+// binaire (voir RUST_BIN_SUPPORTED_GROUPS) est sauté proprement (t.skip),
+// jamais exécuté à l'aveugle contre un binaire qui ne le supporte pas.
 //
 // Design (voir kb_parity/README.md pour le détail) :
 //  - gbrain est TOUJOURS simulé (fake-gbrain.mjs via ATELIER_TEST_GBRAIN) —
@@ -13,9 +21,10 @@
 //    inexistant) — jamais d'appel payant réel au cloud MinerU.
 //  - Deux fixtures (groupe D) font un VRAI appel réseau (fetch example.com,
 //    Crossref) : marquées `network`, sautées proprement si hors-ligne.
-//  - Chaque commande est un spawn réel de `node sidecar/kb_cli.mjs …` —
-//    aucun import direct des modules, pour que ce harnais teste exactement
-//    ce que `kb_cli_run`/`kb_cli_stream` (ws_router.rs) invoquent.
+//  - Chaque commande est un spawn réel de `node sidecar/kb_cli.mjs …` (ou du
+//    binaire `KB_PARITY_BIN`) — aucun import direct des modules, pour que ce
+//    harnais teste exactement ce que `kb_cli_run`/`kb_cli_stream`
+//    (ws_router.rs) invoquent.
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { spawnSync } from "node:child_process";
@@ -32,6 +41,14 @@ const FAKE_GBRAIN = path.join(KB_PARITY_DIR, "fake-gbrain.mjs");
 const REPO = path.resolve(HERE, "..", "..", "..");
 const CLI = path.join(REPO, "sidecar", "kb_cli.mjs");
 const NODE = process.execPath;
+
+// Binaire arbitraire à tester à la place de `node kb_cli.mjs` — voir
+// l'en-tête ci-dessus. Vide/absent = comportement par défaut (Node).
+const KB_PARITY_BIN = process.env.KB_PARITY_BIN || "";
+
+// Groupes déjà couverts par le moteur Rust (mis à jour vague par vague — plan
+// 065). Vague 1 (C4) : store local uniquement.
+const RUST_BIN_SUPPORTED_GROUPS = new Set(["a-local-store.json"]);
 
 const ISO_EXACT = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/;
 const ISO_GLOBAL = /\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z/g;
@@ -97,7 +114,8 @@ function deletePath(obj, dotPath) {
 }
 
 function runCli(args, { stdin, env } = {}) {
-  const res = spawnSync(NODE, [CLI, ...args], {
+  const [bin, ...binArgs] = KB_PARITY_BIN ? [KB_PARITY_BIN, ...args] : [NODE, CLI, ...args];
+  const res = spawnSync(bin, binArgs, {
     encoding: "utf8",
     input: stdin,
     env: { ...process.env, ...env },
@@ -221,6 +239,10 @@ function setupGroup(workRoot, fixture) {
 }
 
 async function runGroup(t, fileName) {
+  if (KB_PARITY_BIN && !RUST_BIN_SUPPORTED_GROUPS.has(fileName)) {
+    t.skip(`KB_PARITY_BIN: groupe ${fileName} pas encore porté (voir RUST_BIN_SUPPORTED_GROUPS)`);
+    return;
+  }
   const fixture = loadFixture(fileName);
   const workRoot = fs.mkdtempSync(path.join(os.tmpdir(), "kb-parity-"));
   try {
