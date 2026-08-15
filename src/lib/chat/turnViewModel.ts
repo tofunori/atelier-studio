@@ -108,6 +108,11 @@ function reasoningText(event: AgentEvent): string | null {
 
 function isToolAction(event: AgentEvent): event is ToolAction {
   if (event.kind === "tool_update") return true;
+  // compat : nom historique du marqueur d'attente (émis 2026-08-13→15 avant
+  // `__waiting`) — comme lui, une annotation, pas du travail : il ne doit pas
+  // retirer à la réponse finale son statut détaché (elle disparaissait dans
+  // le repli du tour).
+  if (event.kind === "tool" && event.name.startsWith("en attente : ")) return false;
   return event.kind === "tool" && (
     event.name === "__compacted" || event.name.startsWith("__edits:") || !event.name.startsWith("__")
   );

@@ -10,7 +10,7 @@ import { Button, IconButton } from "./ui";
 import { ProviderInfo, providerAllowsCommand } from "../lib/providers";
 import { sortEffortLevels } from "../lib/effortOrder";
 import { ImageViewPreview } from "./chat/ImageViewPreview";
-import { ToolOutputLine, imagePathsForActions, isSummarizableTool, Tick, toolCategory } from "./chat/toolPresentation";
+import { ToolOutputLine, ToolGlyph, imagePathsForActions, isSummarizableTool, Tick, toolCategory } from "./chat/toolPresentation";
 import { ChatTimeline } from "./chat/ChatTimeline";
 import { ChatHeader } from "./chat/ChatHeader";
 import type { ResearchHomeBundle } from "./ResearchHome";
@@ -917,6 +917,16 @@ export default function Chat(p: {
   function renderToolLine(e: Extract<AgentEvent, { kind: "tool" | "tool_update" }>, key: React.Key) {
     const imagePaths = imagePathsForActions([e]);
     if (imagePaths.length > 0) return <ImageViewPreview key={key} paths={imagePaths} />;
+    // Annotation de fin de tour « bloqué » : Claude attend une précision. Le
+    // détail (sa question) est déjà la fin de la réponse visible au-dessus —
+    // on ne le répète pas, il reste en tooltip.
+    if (e.kind === "tool" && e.name === "__waiting") {
+      return (
+        <div key={key} className="tool" title={e.detail || undefined}>
+          <ToolGlyph icon={{ cat: "permission" }} /> {t("chat.activity-awaiting")}
+        </div>
+      );
+    }
     if (e.kind === "tool") {
       return (
         <div key={key} className="tool">
