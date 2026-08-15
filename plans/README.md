@@ -476,7 +476,7 @@ distribution, premier lancement, langue, échecs silencieux, sécurité.
 
 | Plan | Title | Priority | Effort | Depends on | Status |
 |------|-------|----------|--------|------------|--------|
-| 064 | Lot pré-signature (identifier, notes release, README, rev-pin) | P1 | M | — | DONE (branche `advisor/064-pre-signature`, 3 commits, non mergée — revue APPROUVÉE 2026-08-15 ; reste : smoke app buildée post-merge) |
+| 064 | Lot pré-signature (identifier, notes release, README, rev-pin) | P1 | M | — | DONE (branche `advisor/064-pre-signature`, 3 commits, non mergée — revue APPROUVÉE 2026-08-15, round 1 : miroir 4 clés + fix persistance disque=vérité, 4 commits ; reste : smoke app buildée post-merge) |
 | 062 | Surface réseau gateway + jetons (SEC-01/02/03/08) | P1 | S-M | — | TODO |
 | 063 | Défauts de permission sûrs (SEC-05/06/07) | P1 | S-M | — | TODO |
 | 061 | Node embarqué pour le backend Rust (PORTA-01/02/04) | P1 | S | — | TODO |
