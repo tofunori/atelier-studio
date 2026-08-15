@@ -2223,6 +2223,21 @@ fn handle_pin_passage(state: &AppState, msg: &Value) -> Vec<String> {
         Ok(p) => p,
         Err(e) => return evidence_pins_error(project_root, format!("pinPassage: pin invalide: {e}")),
     };
+    // Schéma actuel (Zotero seulement) : quote/zoteroKey/pdfKey/pdfFile/citeLabel/page
+    // requis — sinon l'épingle est inutilisable pour la citation. La tâche 6
+    // assouplira ceci par source (gbrain) ; ne pas anticiper ici (YAGNI).
+    if input.quote.is_empty()
+        || input.zotero_key.is_empty()
+        || input.pdf_key.is_empty()
+        || input.pdf_file.is_empty()
+        || input.cite_label.is_empty()
+        || input.page == 0
+    {
+        return evidence_pins_error(
+            project_root,
+            "pinPassage: quote/zoteroKey/pdfKey/pdfFile/citeLabel/page requis",
+        );
+    }
     let supports = input.supports.or_else(|| evidence::fig_selection_supports(900));
     let pin = evidence::EvidencePin {
         id: String::new(),
@@ -4034,6 +4049,26 @@ mod tests {
         let unpin = format!(r#"{{"type":"unpinPassage","projectRoot":"/proj/a","pinId":"{id}"}}"#);
         let uv: Value = serde_json::from_str(&route_ws(&s, &unpin).await[0]).unwrap();
         assert!(uv["pins"].as_array().unwrap().is_empty());
+    }
+
+    #[tokio::test]
+    async fn evidence_pin_passage_rejects_missing_citation_metadata() {
+        let dir = tempdir().unwrap();
+        let s = state(dir.path());
+        // quote seul : zoteroKey/pdfKey/pdfFile/citeLabel manquants, page absente (0).
+        let incomplete = r#"{"type":"pinPassage","projectRoot":"/proj/a","pin":{"quote":"q"}}"#;
+        let out = route_ws(&s, incomplete).await;
+        let v: Value = serde_json::from_str(&out[0]).unwrap();
+        assert_eq!(v["type"], "evidencePins");
+        assert!(v["error"].as_str().is_some(), "attendu une erreur: {v}");
+        assert!(v["pins"].as_array().unwrap().is_empty());
+
+        let list = route_ws(&s, r#"{"type":"listPins","projectRoot":"/proj/a"}"#).await;
+        let lv: Value = serde_json::from_str(&list[0]).unwrap();
+        assert!(
+            lv["pins"].as_array().unwrap().is_empty(),
+            "le store ne doit pas persister l'épingle incomplète: {lv}"
+        );
     }
 
     #[tokio::test]
