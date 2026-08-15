@@ -2161,7 +2161,7 @@ body.dragging iframe { pointer-events: none; }
   .atelier-skeleton-grid [data-slot="skeleton"], .qa-minidot,
   .active-activity-transition,
   .ui-activity-detail, .tool-output-body, .thinking-body, .turn-diff-body,
-  .turn-diff-files, .reasoning-trace-body, .review-detail,
+  .turn-diff-files, .reasoning-trace-body, .review-detail, .passage-card.open,
   .msg.is-streaming > *, .msg.is-streaming > .stream-caret { animation: none; }
 }
 
@@ -2620,7 +2620,7 @@ button.ctx-ring-wrap { border: none; font: inherit; color: inherit;
    aucune boucle, donc compatible §9. La fermeture reste immédiate — c'est
    l'ouverture qui porte la sensation de réponse. */
 .ui-activity-detail, .tool-output-body, .thinking-body, .turn-diff-body,
-.turn-diff-files, .reasoning-trace-body, .review-detail {
+.turn-diff-files, .reasoning-trace-body, .review-detail, .passage-card.open {
   animation: disclose-in 140ms ease-out;
 }
 @keyframes disclose-in {

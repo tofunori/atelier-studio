@@ -1,9 +1,10 @@
 // Surface Connaissances refondue (plan 054) : une liste, une barre, un bouton.
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { act, cleanup, fireEvent, screen } from "@testing-library/react";
+import { act, cleanup, fireEvent, screen, waitFor } from "@testing-library/react";
 import { renderUi, resetTestState } from "../../test/render";
 import { setLanguage } from "../../lib/i18n";
 import type { KbSource } from "../../lib/kbSources";
+import { consumePendingPassageOpen, resetPendingPassageOpenForTests, setPendingPassageOpen } from "../../lib/pendingPassageOpen";
 // L'état des imports vit dans un store module : on le pilote depuis les tests
 // plutôt que de simuler tout le cycle websocket.
 const articleState: { jobs: unknown[]; focused: string | null; open: boolean } = {
@@ -69,11 +70,15 @@ function props(over: Partial<Parameters<typeof KbSurface>[0]> = {}) {
   };
 }
 
-beforeEach(() => setLanguage("fr"));
+beforeEach(() => {
+  setLanguage("fr");
+  resetPendingPassageOpenForTests();
+});
 afterEach(() => {
   articleState.jobs = [];
   cleanup();
   resetTestState?.();
+  resetPendingPassageOpenForTests();
   vi.clearAllMocks();
 });
 
@@ -341,5 +346,58 @@ describe("KbSurface", () => {
     expect(screen.queryByText("Cuffey & Paterson ch. 5")).toBeNull();
     expect(screen.getByTitle("articles/aoki-2011-snow-albedo")).toBeTruthy();
     expect(screen.getByText("Lecture de la page…")).toBeTruthy();
+  });
+
+  // Revue finale de branche, finding 1 : kb-open-gbrain-passage part de façon
+  // SYNCHRONE (md.tsx) au moment même où App.tsx bascule la surface — mais
+  // KbSurface ne monte qu'au rendu SUIVANT, donc son listener n'existe pas
+  // encore quand l'event part (premier clic perdu). L'émetteur pose une
+  // entrée dans pendingPassageOpen AVANT le dispatch ; au montage, KbSurface
+  // doit la consommer et ouvrir le lecteur comme s'il avait reçu l'événement
+  // — highlightQuote inclus (surlignage vérifié via le mark posé une fois le
+  // contenu chargé, même mécanique que SourceReader.test.tsx).
+  it("un passage gbrain pending (event perdu avant montage) rouvre le lecteur au montage, avec le highlight", async () => {
+    setPendingPassageOpen({
+      kind: "gbrain",
+      detail: { slug: "articles/aoki-2011-snow-albedo", quote: "physically based snow albedo" },
+      ts: Date.now(),
+    });
+    renderUi(<KbSurface {...props()} />);
+    // la liste a laissé place au lecteur, sans qu'aucun événement n'ait été
+    // dispatché après le montage
+    expect(screen.queryByText("Cuffey & Paterson ch. 5")).toBeNull();
+    expect(screen.getByTitle("articles/aoki-2011-snow-albedo")).toBeTruthy();
+    act(() => {
+      window.dispatchEvent(new CustomEvent("gbrain-page", {
+        detail: {
+          slug: "articles/aoki-2011-snow-albedo",
+          markdown: "Ceci décrit un modèle physically based snow albedo utile au terrain.",
+          chars: 60,
+        },
+      }));
+    });
+    await waitFor(() => expect(document.querySelector("mark.reader-quote")).toBeTruthy());
+  });
+
+  // Revue finale de branche, finding 1 (test c) : un événement reçu par un
+  // listener DÉJÀ monté doit effacer l'entrée pending — sinon un remontage
+  // ultérieur sans rapport (ex. bascule de surface, retour) la rejouerait à
+  // tort et rouvrirait un passage déjà traité.
+  it("un événement live reçu par un listener déjà monté efface l'entrée pending (pas de rejeu au remontage)", () => {
+    renderUi(<KbSurface {...props()} />);
+    act(() => {
+      // même séquence que openGbrainPassage (md.tsx) : pending posé AVANT le
+      // dispatch, ici simulée directement puisque le listener est déjà là.
+      setPendingPassageOpen({
+        kind: "gbrain",
+        detail: { slug: "articles/aoki-2011-snow-albedo", quote: "physically based snow albedo" },
+        ts: Date.now(),
+      });
+      window.dispatchEvent(new CustomEvent("kb-open-gbrain-passage", {
+        detail: { slug: "articles/aoki-2011-snow-albedo", quote: "physically based snow albedo" },
+      }));
+    });
+    expect(screen.getByTitle("articles/aoki-2011-snow-albedo")).toBeTruthy();
+    expect(consumePendingPassageOpen()).toBeNull();
   });
 });

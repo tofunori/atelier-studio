@@ -12,6 +12,7 @@ import {
   stageLabel, startDoiImport, subscribeArticleImport, type ArticleJob,
 } from "../../lib/articleImports";
 import { KindIcon, type ArticleRow, type GbrainSectionProps } from "./KbPicker";
+import { clearPendingPassageOpen, consumePendingPassageOpen } from "../../lib/pendingPassageOpen";
 import { LazyDropdownMenu, type LazyDropdownMenuItem } from "../ui/LazyDropdownMenu";
 import { Button } from "../ui/Button";
 import { IconButton } from "../ui/IconButton";
@@ -177,13 +178,29 @@ export default function KbSurface(p: {
   // Ouverture depuis une carte passage gbrain du chat (md.tsx,
   // openGbrainPassage) — même schéma découplé que chat-open-zotero-passage/
   // BiblioSurface : App.tsx bascule la surface, ce listener ouvre le lecteur.
+  //
+  // Premier clic perdu (revue finale de branche, finding 1) : l'événement
+  // part de façon SYNCHRONE au moment même où App.tsx bascule la surface —
+  // mais ce composant ne monte qu'au rendu SUIVANT, donc ce listener n'existe
+  // pas encore quand l'event arrive. openGbrainPassage pose une entrée dans
+  // pendingPassageOpen AVANT le dispatch ; au montage, on la consomme et on
+  // la traite comme si l'événement venait d'arriver. Un événement reçu en
+  // direct (listener déjà monté) efface l'entrée — sinon un remontage futur
+  // sans rapport la rejouerait à tort.
   useEffect(() => {
-    const onOpenGbrainPassage = (e: Event) => {
-      const detail = (e as CustomEvent).detail as { slug?: string; quote?: string } | undefined;
+    const handleGbrainPassage = (detail: { slug?: string; quote?: string } | undefined) => {
       if (!detail?.slug) return;
       openLecture({ kind: "gbrain", slug: detail.slug }, detail.quote || null);
     };
+    const onOpenGbrainPassage = (e: Event) => {
+      clearPendingPassageOpen();
+      handleGbrainPassage((e as CustomEvent).detail);
+    };
     window.addEventListener("kb-open-gbrain-passage", onOpenGbrainPassage);
+    const pending = consumePendingPassageOpen();
+    if (pending?.kind === "gbrain") {
+      handleGbrainPassage(pending.detail as { slug?: string; quote?: string } | undefined);
+    }
     return () => window.removeEventListener("kb-open-gbrain-passage", onOpenGbrainPassage);
   }, []);
   // imports en vol : rangées vivantes en tête de liste (plan 054)

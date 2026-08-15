@@ -128,9 +128,10 @@ export default function EvidenceSurface({ projectRoot }: { projectRoot: string |
           <div key={group.key ?? "sans-ancrage"} className="evidence-group" data-testid="evidence-group">
             <div className="evidence-group-title">
               <span className="evidence-group-quote">{group.key ?? t("preuves.sans-ancrage")}</span>
-              {group.key !== null && group.pins[0].supports && (
+              {group.key !== null && group.pins[0].supports
+                && (group.pins[0].supports.file || group.pins[0].supports.lines) && (
                 <span className="evidence-group-loc">
-                  {group.pins[0].supports.file} · {group.pins[0].supports.lines}
+                  {[group.pins[0].supports.file, group.pins[0].supports.lines].filter(Boolean).join(" · ")}
                 </span>
               )}
             </div>

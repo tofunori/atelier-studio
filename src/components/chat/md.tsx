@@ -13,6 +13,7 @@ import { CopyIcon } from "../icons";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { IconButton, RowButton } from "../ui";
 import { PassageCard } from "./PassageCard";
+import { setPendingPassageOpen } from "../../lib/pendingPassageOpen";
 
 hljs.registerLanguage("julia", julia);
 hljs.registerLanguage("latex", latex);
@@ -62,6 +63,9 @@ export function parseZoteroPassageRef(href: string): ZoteroPassageRef | null {
 }
 
 export function openZoteroPassage(ref: ZoteroPassageRef) {
+  // Filet de rattrapage du premier clic perdu (revue finale de branche,
+  // finding 1) : posé AVANT le dispatch — cf. src/lib/pendingPassageOpen.ts.
+  setPendingPassageOpen({ kind: "zotero", detail: ref, ts: Date.now() });
   window.dispatchEvent(new CustomEvent("chat-open-zotero-passage", { detail: ref }));
 }
 
@@ -110,9 +114,11 @@ export function parseGbrainPassageRef(href: string): GbrainPassageRef | null {
  * KbSurface.tsx (ouverture du lecteur), même schéma que
  * chat-open-zotero-passage / BiblioSurface. */
 export function openGbrainPassage(ref: GbrainPassageRef) {
-  window.dispatchEvent(new CustomEvent("kb-open-gbrain-passage", {
-    detail: { slug: ref.slug, quote: ref.quote },
-  }));
+  // Filet de rattrapage du premier clic perdu (revue finale de branche,
+  // finding 1) : posé AVANT le dispatch — cf. src/lib/pendingPassageOpen.ts.
+  const detail = { slug: ref.slug, quote: ref.quote };
+  setPendingPassageOpen({ kind: "gbrain", detail, ts: Date.now() });
+  window.dispatchEvent(new CustomEvent("kb-open-gbrain-passage", { detail }));
 }
 
 /** « williamson-2021-fire-aerosol » → « Williamson 2021 Fire Aerosol » —

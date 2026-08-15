@@ -6,7 +6,9 @@
 import { showError } from "../components/ui/toast";
 import { wsSend } from "./wsBus";
 
-export type EvidenceSupports = { text: string; file: string; lines: string } | null;
+// file/lines : Option côté Rust (fig_selection_supports peut ne fournir que
+// l'un des deux) — revue finale de branche, finding 2.
+export type EvidenceSupports = { text: string; file: string | null; lines: string | null } | null;
 
 export type EvidencePin = {
   id: string;

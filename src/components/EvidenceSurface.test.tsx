@@ -82,6 +82,26 @@ describe("EvidenceSurface", () => {
     expect(screen.getByText(/Aucun passage épinglé|No pinned passages/)).toBeTruthy();
   });
 
+  // Revue finale de branche, finding 2 : file/lines sont Option côté Rust
+  // (l'un peut être absent sans l'autre) — la légende de groupe ne doit
+  // jamais afficher un « · » pendouillant entre un segment présent et un
+  // segment absent.
+  it("légende de groupe : file sans lines → « intro.tex » sans séparateur pendouillant", () => {
+    const pin = makePin({ supports: { text: "Phrase B", file: "intro.tex", lines: null } });
+    seedEvidencePins([pin]);
+    const { container } = render(<EvidenceSurface projectRoot="/proj" />);
+    const loc = container.querySelector(".evidence-group-loc");
+    expect(loc?.textContent).toBe("intro.tex");
+  });
+
+  it("légende de groupe : lines sans file → « L42 » sans séparateur pendouillant", () => {
+    const pin = makePin({ supports: { text: "Phrase C", file: null, lines: "L42" } });
+    seedEvidencePins([pin]);
+    const { container } = render(<EvidenceSurface projectRoot="/proj" />);
+    const loc = container.querySelector(".evidence-group-loc");
+    expect(loc?.textContent).toBe("L42");
+  });
+
   it("groupes triés par ajout desc — le groupe le plus récemment complété passe en premier", () => {
     const older = pinWithSupports("Phrase ancienne");
     const newer = pinWithSupports("Phrase récente");

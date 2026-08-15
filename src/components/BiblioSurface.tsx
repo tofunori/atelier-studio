@@ -7,6 +7,7 @@ import { Select } from "./Select";
 import { Input } from "./shadcn/input";
 import { Spinner } from "./shadcn/spinner";
 import { Button, IconButton, RowButton } from "./ui";
+import { clearPendingPassageOpen, consumePendingPassageOpen } from "../lib/pendingPassageOpen";
 
 type ZoteroItem = {
   key: string;
@@ -202,6 +203,39 @@ export default function BiblioSurface({
     });
   }
 
+  // Ouvre le lecteur sur un passage précis — factorisé pour être appelé à la
+  // fois par le listener chat-open-zotero-passage EN DIRECT et, au montage,
+  // par le rattrapage d'une entrée pendingPassageOpen (finding 1, revue
+  // finale de branche) : même traitement, deux déclencheurs.
+  function applyPassageTarget(detail: PassageTarget) {
+    setSearch("");
+    setQuery("");
+    setFilter("all");
+    setCollectionId(null);
+    setSelectedKey(detail.key);
+    setPassageTarget(detail);
+    if (!readerOpen) {
+      localStorage.setItem("atelier-studio.biblio.reader", "1");
+      setReaderOpen(true);
+    }
+  }
+
+  // Premier clic perdu (revue finale de branche, finding 1) : openZoteroPassage
+  // (md.tsx) dispatche chat-open-zotero-passage de façon SYNCHRONE au moment
+  // même où App.tsx bascule la surface — mais BiblioSurface ne monte qu'au
+  // rendu SUIVANT, donc le listener ci-dessous n'existe pas encore quand
+  // l'événement part. openZoteroPassage pose l'entrée dans pendingPassageOpen
+  // AVANT le dispatch ; ici, au montage (une seule fois), on la consomme et
+  // on la traite comme si l'événement venait d'arriver.
+  useEffect(() => {
+    const pending = consumePendingPassageOpen();
+    if (pending?.kind !== "zotero") return;
+    const detail = pending.detail as PassageTarget | undefined;
+    if (!detail || typeof detail.key !== "string" || !Number.isInteger(detail.page)) return;
+    applyPassageTarget(detail);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- montage seul, cf. commentaire
+  }, []);
+
   useEffect(() => {
     const timer = window.setTimeout(() => setQuery(search.trim()), 200);
     return () => window.clearTimeout(timer);
@@ -243,18 +277,13 @@ export default function BiblioSurface({
       }
     };
     const onOpenPassage = (e: Event) => {
+      // reçu en direct (listener déjà monté) : efface une éventuelle entrée
+      // pending pour qu'elle ne soit pas rejouée à un remontage futur sans
+      // rapport (finding 1, revue finale de branche).
+      clearPendingPassageOpen();
       const detail = (e as CustomEvent<PassageTarget>).detail;
       if (!detail || typeof detail.key !== "string" || !Number.isInteger(detail.page)) return;
-      setSearch("");
-      setQuery("");
-      setFilter("all");
-      setCollectionId(null);
-      setSelectedKey(detail.key);
-      setPassageTarget(detail);
-      if (!readerOpen) {
-        localStorage.setItem("atelier-studio.biblio.reader", "1");
-        setReaderOpen(true);
-      }
+      applyPassageTarget(detail);
     };
     window.addEventListener("zotero-changed", onChanged);
     window.addEventListener("zotero-items", onItems);
