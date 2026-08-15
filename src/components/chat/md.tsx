@@ -12,6 +12,7 @@ import { MermaidBlock } from "../MermaidBlock";
 import { CopyIcon } from "../icons";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { IconButton, RowButton } from "../ui";
+import { PassageCard } from "./PassageCard";
 
 hljs.registerLanguage("julia", julia);
 hljs.registerLanguage("latex", latex);
@@ -61,6 +62,27 @@ export function parseZoteroPassageRef(href: string): ZoteroPassageRef | null {
 
 export function openZoteroPassage(ref: ZoteroPassageRef) {
   window.dispatchEvent(new CustomEvent("chat-open-zotero-passage", { detail: ref }));
+}
+
+// Carte passage (tâche 5) : un paragraphe dont l'UNIQUE enfant significatif
+// est un lien passage se rend en carte repliable plutôt qu'en <p> + pilule
+// inline. `children` ici sont les descripteurs React NON ENCORE rendus que
+// react-markdown passe au composant `p` (react/jsx-runtime crée l'élément
+// mais n'appelle `a()` que plus tard, pendant le rendu de `p`) : `.props.href`
+// porte donc encore le href original du lien, avant toute transformation par
+// MD_COMPONENTS.a. Espaces (texte blanc) tolérés autour du lien.
+export function lonePassageRef(children: any): ZoteroPassageRef | null {
+  const list = Array.isArray(children) ? children : [children];
+  const meaningful = list.filter((child) => {
+    if (child == null || child === false) return false;
+    if (typeof child === "string" || typeof child === "number") return String(child).trim() !== "";
+    return true;
+  });
+  if (meaningful.length !== 1) return null;
+  const only = meaningful[0];
+  if (typeof only !== "object" || !only.props) return null;
+  const href = only.props.href;
+  return typeof href === "string" ? parseZoteroPassageRef(href) : null;
 }
 
 // texte complet des enfants markdown (string, tableau, éléments imbriqués)
@@ -210,6 +232,10 @@ export const MD_COMPONENTS = {
   table: (props: any) => (
     <div className="md-table"><table>{props.children}</table></div>
   ),
+  p: (props: any) => {
+    const ref = lonePassageRef(props.children);
+    return ref ? <PassageCard refData={ref} /> : <p>{props.children}</p>;
+  },
   a: (props: any) => {
     const label = mdText(props.children);
     const href = String(props.href ?? "");

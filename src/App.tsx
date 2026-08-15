@@ -52,6 +52,7 @@ import { ProviderInfo } from "./lib/providers";
 import { THEME_PRESETS, presetById } from "./lib/themes";
 import { setLanguage, t } from "./lib/i18n";
 import { kbSourcesSnapshot, requestKbSources } from "./lib/kbSources";
+import { pushEvidencePins } from "./lib/evidencePins";
 import { openFileRef } from "./components/chat/md";
 import { openPath } from "@tauri-apps/plugin-opener";
 import { buildItems } from "./lib/palette";
@@ -1432,6 +1433,9 @@ export default function App() {
       }
       if (msg.type === "highlights") {
         setHighlights(Array.isArray(msg.highlights) ? msg.highlights : []);
+      }
+      if (msg.type === "evidencePins") {
+        pushEvidencePins(msg);
       }
       if (msg.type === "galleryCommand" && msg.command) {
         window.dispatchEvent(new CustomEvent("atelier-gallery-command", { detail: msg.command }));

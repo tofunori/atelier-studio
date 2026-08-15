@@ -3481,6 +3481,24 @@ button.ctx-ring-wrap { border: none; font: inherit; color: inherit;
   max-width: 320px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .kb-cite:hover { color: var(--accent); border-color: color-mix(in srgb, var(--accent) 30%, transparent); }
 .kb-cite svg { flex: none; color: var(--accent); }
+/* carte passage Zotero dans le chat (Preuves, tâche 5) : un lien
+   #atelier-zotero-passage SEUL dans son paragraphe (cf. lonePassageRef,
+   md.tsx) se rend ici — repliée : une ligne (RowButton pleine largeur) +
+   épingle en sibling ; dépliée : citation complète + actions */
+.passage-card { display: flex; align-items: center; gap: 8px; max-width: 540px;
+  background: var(--bg-card); border: 1px solid var(--border2); border-radius: var(--r-m);
+  padding: 8px 12px; }
+.passage-card.open { flex-direction: column; align-items: stretch; gap: 8px; }
+.passage-card-row { flex: 1; min-width: 0; display: flex; align-items: center; gap: 8px; }
+.passage-card-quote { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis;
+  white-space: nowrap; font-style: italic; font-size: var(--fs-l); color: var(--text-primary); }
+.passage-card-meta { flex: none; font-size: var(--fs-s); color: var(--text-muted);
+  font-variant-numeric: tabular-nums; }
+.passage-card-quote-full { font-style: italic; font-size: var(--fs-l); line-height: 1.5;
+  color: var(--text-primary); margin: 0; }
+.passage-card-actions { display: flex; align-items: center; gap: 8px; }
+.passage-card-actions .passage-card-collapse { margin-left: auto; }
+.passage-card .is-pinned { color: var(--accent); }
 
 
 
