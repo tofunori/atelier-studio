@@ -331,15 +331,18 @@ mod tests {
         assert_eq!(csv_digest("   \n  ", "x.csv", CSV_FULL_MAX).unwrap_err(), "Fichier CSV vide");
     }
 
+    /// Capture réelle de `sidecar/csv_digest.mjs::csvDigest` sur
+    /// `gallery/server/tests/kb_parity/inputs/large.csv` (node -e, 2026-08-15)
+    /// — embarquée en dur pour que le test reste autonome (pas de dépendance
+    /// à Node à l'exécution de `cargo test`). Vérifie notamment l'arrondi
+    /// flottant (`moy. 2012`, `moy. 0.5034`) octet pour octet.
+    const LARGE_CSV_EXPECTED: &str = "large.csv — 3000 lignes × 4 colonnes (séparateur : virgule)\n\n## Colonnes\n\n| colonne | type | remplissage | étendue / valeurs |\n| --- | --- | --- | --- |\n| year | nombre | complète | 2000 → 2024 (moy. 2012) |\n| site | texte | complète | 7 valeurs · site-0, site-1, site-2 |\n| albedo | nombre | complète | 0.1 → 0.9 (moy. 0.5034) |\n| flag | booléen | complète |  |\n\n## 15 premières lignes\n\n| year | site | albedo | flag |\n| --- | --- | --- | --- |\n| 2000 | site-0 | 0.612 | FALSE |\n| 2001 | site-1 | 0.12 | TRUE |\n| 2002 | site-2 | 0.32 | TRUE |\n| 2003 | site-3 | 0.279 | FALSE |\n| 2004 | site-4 | 0.689 | TRUE |\n| 2005 | site-5 | 0.641 | TRUE |\n| 2006 | site-6 | 0.814 | FALSE |\n| 2007 | site-0 | 0.17 | TRUE |\n| 2008 | site-1 | 0.438 | TRUE |\n| 2009 | site-2 | 0.124 | FALSE |\n| 2010 | site-3 | 0.275 | TRUE |\n| 2011 | site-4 | 0.504 | TRUE |\n| 2012 | site-5 | 0.121 | FALSE |\n| 2013 | site-6 | 0.259 | TRUE |\n| 2014 | site-0 | 0.62 | TRUE |\n\n## 5 dernières lignes\n\n| year | site | albedo | flag |\n| --- | --- | --- | --- |\n| 2020 | site-6 | 0.494 | TRUE |\n| 2021 | site-0 | 0.403 | TRUE |\n| 2022 | site-1 | 0.537 | FALSE |\n| 2023 | site-2 | 0.181 | TRUE |\n| 2024 | site-3 | 0.484 | TRUE |\n\n> Aperçu : 20 des 3000 lignes sont montrées. Le fichier complet est sur disque, à l'origine de cette source.";
+
     #[test]
     fn large_csv_matches_node_capture() {
         let raw = std::fs::read_to_string("../../../gallery/server/tests/kb_parity/inputs/large.csv").unwrap();
         let out = csv_digest(&raw, "large.csv", CSV_FULL_MAX).unwrap();
-        let expected = std::fs::read_to_string(
-            "/private/tmp/claude-501/-Users-tofunori-Documents-atelier-studio/838e9f5d-a68a-4ae4-896a-d0126c92edaa/scratchpad/large_csv_expected.txt",
-        )
-        .unwrap();
-        assert_eq!(out, expected);
+        assert_eq!(out, LARGE_CSV_EXPECTED);
         assert_eq!(js_len(&out), 1299);
     }
 }
