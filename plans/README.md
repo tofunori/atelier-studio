@@ -483,6 +483,7 @@ distribution, premier lancement, langue, échecs silencieux, sécurité.
 | 060 | Sonde d'environnement + toolchain-missing (PORTA-03/05/06/12/13) | P1 | M | — | TODO |
 | 059 | Canal de diagnostic (SILENT-09) | P1 | M | — | TODO |
 | 042 | Keychain mobile (SEC-04) — plan existant, toujours TODO | P1 | M | — | TODO |
+| 065 | Retrait complet de Node — Rust seul (4 phases) | P2 | L | 047, soak galerie | TODO (après v1 signée) |
 
 Dépendances : 064 précède toute signature Developer ID (DIST-01/02, à
 planifier). Le futur lot « échecs muets » (SILENT-01…08/10) dépend de 059.

@@ -107,6 +107,19 @@ inverse.
 
 ---
 
+## Phase 6 — Retrait de Node (chantier 1.x, après la v1 signée)
+
+Décision 2026-08-15 : cible Rust seul au runtime. Le terminal est déjà Rust
+(portable-pty) ; il ne reste que la chaîne KB (~2 500 lignes de .mjs derrière
+`kb_cli.mjs`/`kb_prompt.mjs`). Gains : −108 Mo de bundle, entitlements de
+notarisation simplifiés (plus de JIT), surface CVE npm runtime à zéro, fin de
+la taxe « porter en double ». Quatre phases livrables séparément — voir
+**plan 065** : A) acter le soak 047 et retirer le sidecar chat ; B) contrat de
+soak galerie puis retrait Node/Python (PORTA-14) ; C) port KB en crate Rust
+derrière des fixtures de parité gelées AVANT le code ; D) retrait du
+node-runtime du bundle et allègement des entitlements. Ne bloque PAS la
+signature v1 — c'est le premier grand chantier d'après-vente.
+
 ## Ce que l'audit a vérifié comme SAIN (à dire à un acheteur)
 
 - Aucun secret committé (balayage complet des fichiers suivis).
