@@ -2153,7 +2153,10 @@ body.dragging iframe { pointer-events: none; }
    d'activité (transform, à neutraliser ici). */
 @media (prefers-reduced-motion: reduce) {
   .atelier-skeleton-grid [data-slot="skeleton"], .qa-minidot,
-  .active-activity-transition { animation: none; }
+  .active-activity-transition,
+  .ui-activity-detail, .tool-output-body, .thinking-body, .turn-diff-body,
+  .turn-diff-files, .reasoning-trace-body, .review-detail,
+  .msg.is-streaming > *, .msg.is-streaming > .stream-caret { animation: none; }
 }
 
 /* focus visible sur les champs qui neutralisaient l'outline sans remplacement */
@@ -2604,6 +2607,36 @@ button.ctx-ring-wrap { border: none; font: inherit; color: inherit;
 @keyframes active-activity-enter {
   from { opacity: 0; transform: translateY(2px); }
   to { opacity: 1; transform: translateY(0); }
+}
+
+/* ===== motion des dépliages (système : 120-150ms, opacity/transform) =====
+   Une seule passe au MONTAGE du contenu (les corps sont démontés repliés) :
+   aucune boucle, donc compatible §9. La fermeture reste immédiate — c'est
+   l'ouverture qui porte la sensation de réponse. */
+.ui-activity-detail, .tool-output-body, .thinking-body, .turn-diff-body,
+.turn-diff-files, .reasoning-trace-body, .review-detail {
+  animation: disclose-in 140ms ease-out;
+}
+@keyframes disclose-in {
+  from { opacity: 0; transform: translateY(-2px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+/* streaming : chaque NOUVEAU bloc (paragraphe, liste, bloc de code…) entre en
+   fondu une seule fois à son montage ; les blocs déjà rendus sont mis à jour
+   en place par React et ne rejouent jamais l'animation. Pas de boucle (§9). */
+.msg.is-streaming > * { animation: chunk-in 180ms ease-out; }
+@keyframes chunk-in {
+  from { opacity: 0; transform: translateY(2px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+/* caret : remonté à chaque lot de texte reçu (key côté React) — il « respire »
+   au rythme du flux puis se pose quand le flux s'arrête. Piloté par les
+   événements, jamais par une horloge : ce n'est pas une boucle (§9). */
+.msg.is-streaming > .stream-caret { animation: caret-live 400ms ease-out both; }
+@keyframes caret-live {
+  from { opacity: 0.95; }
+  to { opacity: 0.55; }
 }
 /* ===== carte permission (mode Ask) ===== */
 .perm-card { border: 1px solid var(--border2); border-left: 2.5px solid var(--accent);

@@ -128,17 +128,27 @@ export function highlightCode(raw: string, lang: string): string {
   return result;
 }
 
+/** Langage explicitement résolu par hljs — pour éviter highlightAuto (le seul
+ * chemin réellement coûteux) sur du code encore en cours de streaming. */
+export function hasRegisteredLanguage(lang: string): boolean {
+  const normalized = LANG_ALIAS[lang.toLowerCase()] ?? lang.toLowerCase();
+  return Boolean(normalized && hljs.getLanguage(normalized));
+}
+
 // chrome commun (barre, langue, bouton copie) partagé par la variante colorée
-// et la variante streaming — seule la coloration (highlight vs texte brut)
-// diffère entre les deux.
-export function renderCodeBlock(props: any, highlight: boolean) {
+// et la variante streaming — seule la politique de coloration diffère :
+// allowAuto=false colore quand même les langages explicites (```python…),
+// il n'exclut que la détection automatique sur les blocs sans langue.
+export function renderCodeBlock(props: any, allowAuto: boolean) {
   const [copied, setCopied] = useState(false);
   const child = props.children?.props ?? {};
   const lang = /language-([\w-]+)/.exec(String(child.className ?? ""))?.[1] ?? "";
   const raw = mdText(child.children);
   const label = lang || "text";
   const languageClass = label.replace(/[^\w-]/g, "");
-  const highlighted = highlight ? highlightCode(raw, lang) : escapeHtml(raw);
+  const highlighted = allowAuto || hasRegisteredLanguage(lang)
+    ? highlightCode(raw, lang)
+    : escapeHtml(raw);
   return (
     <div className="codeblock not-typeset">
       <div className="codeblock-bar">
@@ -171,8 +181,9 @@ export function MarkdownCodeBlock(props: any) {
   return renderCodeBlock(props, true);
 }
 
-// variante streaming : même chrome, sans coloration — évite highlightAuto (le
-// plus coûteux) sur du code encore incomplet à chaque token reçu.
+// variante streaming : même chrome, coloration dès le stream quand la fence
+// porte un langage connu (le cas de loin le plus courant) — plus de « flash »
+// gris→couleur en fin de tour. Seul highlightAuto reste réservé au rendu final.
 export function MarkdownCodeBlockStreaming(props: any) {
   return renderCodeBlock(props, false);
 }
