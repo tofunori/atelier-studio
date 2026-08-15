@@ -89,7 +89,7 @@ export function toolInputView(value: unknown): { lang: string; text: string } | 
 // providers CLI streament parfois de la sortie brute avec ces codes.
 export function stripAnsi(text: string): string {
   return text
-    .replace(/\x1b\][^\x07]*(\x07|\x1b\\)/g, "")
+    .replace(/\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)?/g, "")
     .replace(/\x1b\[[0-9;?]*[A-Za-z]/g, "");
 }
 

@@ -269,22 +269,53 @@ function useKbCiteSources(text: string) {
   return sources;
 }
 
+/** Lisse la cadence du flux : les deltas arrivent en rafales irrégulières
+ * (réseau, provider) ; on les regroupe par fenêtres de ~90 ms pour que le
+ * texte avance à un rythme régulier — et pour ne re-parser le markdown qu'au
+ * plus ~11 fois/s au lieu d'une fois par token. Fin de tour (working=false) :
+ * tout s'affiche immédiatement, rien n'est jamais perdu (le flush lit
+ * toujours la dernière valeur reçue). */
+function useSmoothedStream(text: string, working: boolean): string {
+  const [shown, setShown] = useState(text);
+  const latest = useRef(text);
+  const timer = useRef<number | null>(null);
+  latest.current = text;
+  useEffect(() => {
+    if (!working) {
+      if (timer.current != null) { window.clearTimeout(timer.current); timer.current = null; }
+      setShown(latest.current);
+      return;
+    }
+    if (timer.current != null) return; // flush déjà programmé — le delta sera inclus
+    timer.current = window.setTimeout(() => {
+      timer.current = null;
+      setShown(latest.current);
+    }, 90);
+  }, [text, working]);
+  useEffect(() => () => { if (timer.current != null) window.clearTimeout(timer.current); }, []);
+  return working ? shown : text;
+}
+
 export function StreamingText(p: { text: string; working: boolean }) {
   const plugins = useMdPlugins();
-  const kbCiteSources = useKbCiteSources(p.text);
+  const text = useSmoothedStream(p.text, p.working);
+  const kbCiteSources = useKbCiteSources(text);
   return (
     <Message align="start" className="chat-message assistant-message">
     <MessageContent className="msg-wrap">
       <Bubble variant="ghost" className="tw:w-full">
-      <BubbleContent className="msg typeset typeset-chat tw:w-full">
+      {/* is-streaming : fondu d'entrée des nouveaux blocs (chunk-in) ; le
+          caret est re-monté à chaque lot (key) pour « respirer » au rythme
+          du flux — one-shot par événement, pas de boucle (§9). */}
+      <BubbleContent className="msg typeset typeset-chat is-streaming tw:w-full">
         <ReactMarkdown
           remarkPlugins={plugins.remark}
           rehypePlugins={plugins.rehype}
           components={MD_COMPONENTS_STREAMING as any}
         >
-          {decorateKbCites(normalizeMathDelimiters(hardenPartialMarkdown(p.text)), kbCiteSources)}
+          {decorateKbCites(normalizeMathDelimiters(hardenPartialMarkdown(text)), kbCiteSources)}
         </ReactMarkdown>
-        {p.working && <span className="stream-caret" />}
+        {p.working && <span key={text.length} className="stream-caret" />}
       </BubbleContent>
       </Bubble>
     </MessageContent>

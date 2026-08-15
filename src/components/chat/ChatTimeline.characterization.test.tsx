@@ -61,7 +61,7 @@ afterEach(() => {
 });
 
 describe("timeline Chat — caractérisation avant extraction", () => {
-  it("texte streamé : un seul bloc, jamais dupliqué, caret pendant le run", () => {
+  it("texte streamé : un seul bloc, jamais dupliqué, caret pendant le run", async () => {
     const { rerender } = renderUi(
       <Chat {...chatProps({
         workingSince: FIXED_TS,
@@ -84,7 +84,9 @@ describe("timeline Chat — caractérisation avant extraction", () => {
       })} />,
     );
     expect(streamBlocks()).toHaveLength(1);
-    expect(streamBlocks()[0].textContent).toContain("données d'albédo");
+    // la cadence est lissée (~90 ms, useSmoothedStream) : le delta s'affiche
+    // au prochain flush, pas au re-render — d'où l'attente.
+    await waitFor(() => expect(streamBlocks()[0].textContent).toContain("données d'albédo"));
   });
 
   it("compose la timeline virtualisée LegendList avec des lignes stables", () => {

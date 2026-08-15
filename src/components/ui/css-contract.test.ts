@@ -331,12 +331,15 @@ describe("contrat Quiet Instrument (sources CSS)", () => {
       selector: m[1].trim().replace(/\s+/g, " "),
       body: m[2],
     }));
+    // .stream-caret est sorti de cette liste : il porte une animation ONE-SHOT
+    // re-déclenchée par chaque lot de texte reçu (key React) — pilotée par les
+    // événements, pas par une horloge. §9 vise les boucles : le garde-fou
+    // `infinite` ci-dessous continue de couvrir le caret comme tout le fil.
     for (const selector of [
       ".thinking.live .thinking-label",
       ".thinking.live .thinking-icon",
       ".activity-step.running .activity-step-dot",
       ".ui-activity-label.is-shimmering",
-      ".stream-caret",
       ".review-badge.v-running",
     ]) {
       const animated = rules.filter(
