@@ -61,7 +61,10 @@ harnais de test des ASSETS, pas du serveur ; vérifier leurs imports avant.
 2. **Fixtures de parité D'ABORD** : geler pour chaque commande de `kb_cli.mjs`
    des paires entrée→sortie réelles (motif : `gallery/server/tests/parity.mjs`
    et `033-parity-matrix.md`). C'est le contrat ; le port ne commence pas sans.
-3. **Crate `atelier-kb`** : porter commande par commande —
+3. **Sauvegarde du store KB** avant toute activation du moteur rust :
+   copie datée du répertoire de données KB, vérifiée, conservée jusqu'à la fin
+   du soak (décision opérateur 2026-08-15, question des risques).
+4. **Crate `atelier-kb`** : porter commande par commande —
    `rusqlite`/serde_json pour le store, `reqwest` (déjà en arbre) pour
    MinerU/Crossref, spawns inchangés (pdftotext, gbrain restent des binaires
    externes). `kb_cli_run`/`kb_cli_stream` (`ws_router.rs`) basculent vers un
