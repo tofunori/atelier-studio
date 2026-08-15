@@ -38,7 +38,10 @@ function createHarness({search = "", hash = "", stored = {}} = {}) {
 }
 
 test("token runtime authenticates same-origin requests exactly once", async () => {
-  const harness = createHarness({search: "?path=paper.tex&token=secret"});
+  // Plan 062 étape 5 : le jeton arrive par le fragment (jamais la query de la
+  // navigation initiale), et n'est réinjecté en query que pour les requêtes
+  // internes same-origin de la page (compromis documenté).
+  const harness = createHarness({search: "?path=paper.tex", hash: "#atelier_token=secret"});
   harness.runtime.bootstrap({tokenFetch: true});
   harness.runtime.bootstrap({tokenFetch: true});
   await harness.window.fetch("/code?path=paper.tex");
@@ -47,6 +50,17 @@ test("token runtime authenticates same-origin requests exactly once", async () =
   assert.equal(harness.window.__tokq, "&token=secret");
   assert.equal(harness.fetchCalls[0].input, "/code?path=paper.tex&token=secret");
   assert.equal(harness.fetchCalls[1].input, "https://example.org/code?path=paper.tex");
+});
+
+test("token runtime never reads a token from the query string", async () => {
+  // Régression SEC-08 : si un ancien lien porte encore ?token=… (transition),
+  // il ne doit pas être consommé par erreur — seul le fragment fait foi.
+  const harness = createHarness({search: "?path=paper.tex&token=leaked-in-url"});
+  harness.runtime.bootstrap({tokenFetch: true});
+  await harness.window.fetch("/code?path=paper.tex");
+
+  assert.equal(harness.window.__tokq, "");
+  assert.equal(harness.fetchCalls[0].input, "/code?path=paper.tex");
 });
 
 test("host bridge persists the iframe nonce and adds it to every message", () => {

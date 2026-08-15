@@ -99,15 +99,24 @@ export function safePath(input) {
 const TOKEN_FILE = path.join(os.homedir(), ".atelier-studio", "gallery_token");
 let TOKEN_CACHE = null;
 
+// SEC-08 : un jeton lu du disque entièrement à zéro trahit l'ancien échec
+// d'entropie silencieux côté Rust (`/dev/urandom` inaccessible → bytes
+// laissés à 0) — jamais réutilisé, toujours régénéré.
+export function isZeroedToken(tok) {
+  return typeof tok === "string" && tok.length > 0 && /^0+$/.test(tok);
+}
+
 export function galleryToken() {
-  if (TOKEN_CACHE) return TOKEN_CACHE;
+  if (TOKEN_CACHE && !isZeroedToken(TOKEN_CACHE)) return TOKEN_CACHE;
   try {
     const tok = fs.readFileSync(TOKEN_FILE, "utf8").trim();
-    if (tok) {
+    if (tok && !isZeroedToken(tok)) {
       TOKEN_CACHE = tok;
       return tok;
     }
   } catch {}
+  // crypto.randomBytes lève déjà si l'entropie système est indisponible —
+  // aucun repli silencieux à ajouter ici (contrairement à l'ancien code Rust).
   const fresh = crypto.randomBytes(32).toString("hex");
   try {
     fs.mkdirSync(path.dirname(TOKEN_FILE), { recursive: true, mode: 0o700 });
@@ -115,7 +124,15 @@ export function galleryToken() {
     TOKEN_CACHE = fresh;
   } catch {
     try {
-      TOKEN_CACHE = fs.readFileSync(TOKEN_FILE, "utf8").trim() || null;
+      const existing = fs.readFileSync(TOKEN_FILE, "utf8").trim();
+      if (existing && isZeroedToken(existing)) {
+        // Une autre exécution a gagné la course "wx" avec un jeton nul
+        // (pré-correctif) : on écrase explicitement plutôt que le réutiliser.
+        fs.writeFileSync(TOKEN_FILE, fresh, { encoding: "utf8", mode: 0o600 });
+        TOKEN_CACHE = fresh;
+      } else {
+        TOKEN_CACHE = existing || null;
+      }
     } catch {
       TOKEN_CACHE = null;
     }
