@@ -149,9 +149,10 @@ describe("KbSurface", () => {
     // onglet gbrain : le dépôt, et rien de la base
     expect(screen.getByText("Physically based snow albedo model")).toBeTruthy();
     expect(screen.queryByText("Cuffey & Paterson ch. 5")).toBeNull();
-    // le pont est explicite
+    // cliquer OUVRE la page ; entrer dans la base reste un geste distinct
     fireEvent.click(screen.getByText("Physically based snow albedo model"));
-    expect(onPin).toHaveBeenCalledWith("articles/aoki-2011-snow-albedo");
+    expect(screen.getByText("Dépôt")).toBeTruthy();
+    expect(onPin).not.toHaveBeenCalled();
   });
 
   it("les types filtrent au lieu de replier des groupes", () => {
@@ -209,9 +210,12 @@ describe("KbSurface", () => {
         onQueryChange: vi.fn(), onSearch: vi.fn(), onPin,
       },
     })} />);
+    // depuis le lecteur, « Épingler » fait entrer la page dans la base
     fireEvent.click(screen.getByRole("tab", { name: /gbrain/ }));
     fireEvent.click(screen.getByText("Physically based snow albedo model"));
+    fireEvent.click(screen.getByText("Épingler"));
     expect(onPin).toHaveBeenCalledWith("articles/aoki-2011-snow-albedo");
+    fireEvent.click(screen.getByText("Dépôt"));
 
     fireEvent.click(screen.getByRole("tab", { name: /Base/ }));
     fireEvent.change(screen.getByPlaceholderText(/Chercher, ou coller une URL/), {
