@@ -54,7 +54,7 @@ export const DEFAULT_SETTINGS: Settings = {
   defaultProvider: "claude",
   defaultModel: { claude: "claude-opus-5[1m]", codex: "gpt-5.6-sol" },
   defaultEffort: { claude: "xhigh", codex: "medium", grok: "high" },
-  defaultPermissionMode: "bypassPermissions",
+  defaultPermissionMode: "acceptEdits",
   threadOrder: "recent",
   chatFontSize: 13.5,
   chatWidth: 760,
@@ -127,6 +127,17 @@ const DEFAULT_MIGRATIONS: { id: string; promote: (stored: Partial<Settings>) => 
     // toujours et le nouveau défaut reste invisible.
     id: "2026-08-13.chat-font-13_5",
     promote: (stored) => (stored.chatFontSize === 15 ? { chatFontSize: 13.5 } : {}),
+  },
+  {
+    // 2026-08-15 (plan 063, finding SEC-05) : le défaut de mode de permission
+    // passe de bypassPermissions (aucune barrière) à acceptEdits. Un profil
+    // dont la valeur stockée vaut encore l'ancien défaut ne l'a jamais changé
+    // volontairement (le sélecteur n'offre pas d'autre moyen de revenir à
+    // bypassPermissions que de le choisir explicitement après cette promotion) ;
+    // on le fait suivre. Un choix explicite ultérieur de bypassPermissions
+    // reste possible et sera respecté (promotion ponctuelle, jamais rejouée).
+    id: "2026-08-15.default-permission-mode-accept-edits",
+    promote: (stored) => (stored.defaultPermissionMode === "bypassPermissions" ? { defaultPermissionMode: "acceptEdits" } : {}),
   },
 ];
 

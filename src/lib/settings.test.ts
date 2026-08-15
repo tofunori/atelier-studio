@@ -85,6 +85,30 @@ describe("settings defaults", () => {
       .toContain("2026-08-13.chat-font-13_5");
   });
 
+  it("un profil neuf reçoit acceptEdits par défaut (fin du bypassPermissions d'usine)", () => {
+    expect(DEFAULT_SETTINGS.defaultPermissionMode).toBe("acceptEdits");
+    expect(loadSettings().defaultPermissionMode).toBe("acceptEdits");
+  });
+
+  it("promeut l'ancien défaut bypassPermissions vers acceptEdits", () => {
+    // profil créé avant ce plan : il porte l'ancien défaut hérité, jamais choisi
+    localStorage.setItem("atelier-studio.settings", JSON.stringify({ defaultPermissionMode: "bypassPermissions" }));
+    expect(loadSettings().defaultPermissionMode).toBe("acceptEdits");
+  });
+
+  it("ne rejoue pas la promotion : un retour explicite à bypassPermissions après coup est un choix", () => {
+    localStorage.setItem("atelier-studio.settings", JSON.stringify({ defaultPermissionMode: "bypassPermissions" }));
+    expect(loadSettings().defaultPermissionMode).toBe("acceptEdits");
+    // l'utilisateur remet bypassPermissions délibérément — le prochain démarrage doit le garder
+    localStorage.setItem("atelier-studio.settings", JSON.stringify({ defaultPermissionMode: "bypassPermissions" }));
+    expect(loadSettings().defaultPermissionMode).toBe("bypassPermissions");
+  });
+
+  it("ne touche pas un mode de permission déjà personnalisé", () => {
+    localStorage.setItem("atelier-studio.settings", JSON.stringify({ defaultPermissionMode: "plan" }));
+    expect(loadSettings().defaultPermissionMode).toBe("plan");
+  });
+
   it("migre les anciens favoris de modèles vers les réglages par provider", () => {
     localStorage.setItem("atelier-studio.favModels", JSON.stringify([
       "opencode:opencode/glm-5.2",
