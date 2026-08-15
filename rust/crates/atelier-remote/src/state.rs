@@ -23,9 +23,9 @@ pub struct GatewayConfig {
     /// Optional loopback sidecar base URL for proxy (e.g. http://127.0.0.1:18790).
     pub sidecar_base: Option<String>,
     pub sidecar_token: Option<String>,
-    /// Optional bundled companion web app, served on the Tailscale address.
+    /// Optional bundled companion web app, served as a fallback on the main
+    /// gateway bind — never a second unauthenticated listener (SEC-02).
     pub mobile_dir: Option<PathBuf>,
-    pub mobile_bind: Option<std::net::SocketAddr>,
     /// When true, refuse binding 0.0.0.0 unless ATELIER_REMOTE_ALLOW_ANY_BIND=1.
     pub require_explicit_any_bind: bool,
     /// Max JSON body bytes.
@@ -51,7 +51,6 @@ impl Default for GatewayConfig {
             sidecar_base: None,
             sidecar_token: None,
             mobile_dir: None,
-            mobile_bind: None,
             require_explicit_any_bind: true,
             max_body_bytes: 256 * 1024,
             min_retained_sequence: 0,

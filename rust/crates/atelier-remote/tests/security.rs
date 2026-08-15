@@ -17,7 +17,6 @@ fn test_config(tmp: &std::path::Path) -> GatewayConfig {
         sidecar_base: None,
         sidecar_token: None,
         mobile_dir: None,
-        mobile_bind: None,
         require_explicit_any_bind: true,
         max_body_bytes: 64 * 1024,
         min_retained_sequence: 0,
@@ -105,6 +104,53 @@ async fn health_public_no_token() {
     let v: Value = res.json().await.unwrap();
     assert_eq!(v["ok"], true);
     assert_eq!(v["protocolVersion"], 1);
+    h.shutdown().await;
+}
+
+#[tokio::test]
+async fn health_degrades_without_device_token() {
+    // SEC-08 : sans jeton, /remote/health confirme la disponibilité mais ne
+    // doit divulguer ni le nombre d'appareils appairés ni l'heure de démarrage.
+    let (h, admin, host) = boot().await;
+    let base = h.base_url();
+    let c = client();
+
+    let anon = c
+        .get(format!("{base}/remote/health"))
+        .header("host", &host)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(anon.status(), 200);
+    let anon_body: Value = anon.json().await.unwrap();
+    assert_eq!(anon_body["ok"], true);
+    assert!(anon_body.get("devices").is_none(), "{anon_body}");
+    assert!(anon_body.get("startedAt").is_none(), "{anon_body}");
+
+    let (_id, tok) = pair_device(&base, &admin, &host, "health-probe").await;
+    let authed = c
+        .get(format!("{base}/remote/health"))
+        .header("host", &host)
+        .header("x-atelier-device-token", &tok)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(authed.status(), 200);
+    let authed_body: Value = authed.json().await.unwrap();
+    assert!(authed_body.get("devices").is_some(), "{authed_body}");
+    assert!(authed_body.get("startedAt").is_some(), "{authed_body}");
+
+    // Un jeton invalide ne doit pas non plus débloquer le payload complet.
+    let bad = c
+        .get(format!("{base}/remote/health"))
+        .header("host", &host)
+        .header("x-atelier-device-token", "deadbeef")
+        .send()
+        .await
+        .unwrap();
+    let bad_body: Value = bad.json().await.unwrap();
+    assert!(bad_body.get("devices").is_none(), "{bad_body}");
+
     h.shutdown().await;
 }
 
@@ -687,7 +733,6 @@ async fn refuse_any_bind_without_env() {
         sidecar_base: None,
         sidecar_token: None,
         mobile_dir: None,
-        mobile_bind: None,
         require_explicit_any_bind: true,
         max_body_bytes: 1024,
         min_retained_sequence: 0,

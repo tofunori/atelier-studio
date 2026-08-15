@@ -120,9 +120,26 @@ async fn relay_sidecar(
     Ok(true)
 }
 
-async fn health(State(state): State<GatewayState>) -> Json<Value> {
-    let g = state.inner.lock().await;
-    Json(json!({
+/// `/remote/health` doit rester joignable sans authentification (sonde de
+/// disponibilité avant appairage), mais un appelant non authentifié ne doit
+/// pas apprendre le nombre d'appareils appairés ni l'heure de démarrage du
+/// gateway (SEC-08 : Host/Origin seuls, sans jeton, sont falsifiables).
+async fn health(
+    State(state): State<GatewayState>,
+    headers: HeaderMap,
+) -> ApiResult<Json<Value>> {
+    guard_headers(&state, &headers).await?;
+    let mut g = state.inner.lock().await;
+    let authenticated = extract_bearer(&headers)
+        .is_some_and(|token| g.auth.authenticate_token(&token).is_some());
+    if !authenticated {
+        return Ok(Json(json!({
+            "ok": true,
+            "service": "atelier-remote-gateway",
+            "protocolVersion": PROTOCOL_VERSION,
+        })));
+    }
+    Ok(Json(json!({
         "ok": true,
         "service": "atelier-remote-gateway",
         "protocolVersion": PROTOCOL_VERSION,
@@ -130,7 +147,7 @@ async fn health(State(state): State<GatewayState>) -> Json<Value> {
         "maxProtocolVersion": MAX_PROTOCOL_VERSION,
         "startedAt": g.started_at,
         "devices": g.auth.list_devices().iter().filter(|d| d.revoked_at.is_none()).count(),
-    }))
+    })))
 }
 
 async fn guard_headers(state: &GatewayState, headers: &HeaderMap) -> ApiResult<()> {

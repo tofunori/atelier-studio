@@ -32,8 +32,6 @@ pub struct GatewayHandle {
     pub admin_token: Option<String>,
     shutdown: Option<oneshot::Sender<()>>,
     join: Option<tokio::task::JoinHandle<()>>,
-    mobile_shutdown: Option<oneshot::Sender<()>>,
-    mobile_join: Option<tokio::task::JoinHandle<()>>,
 }
 
 impl GatewayHandle {
@@ -42,12 +40,6 @@ impl GatewayHandle {
             let _ = tx.send(());
         }
         if let Some(join) = self.join.take() {
-            let _ = join.await;
-        }
-        if let Some(tx) = self.mobile_shutdown.take() {
-            let _ = tx.send(());
-        }
-        if let Some(join) = self.mobile_join.take() {
             let _ = join.await;
         }
     }
@@ -122,29 +114,6 @@ pub async fn serve(
             .ok();
     });
 
-    let (mobile_shutdown, mobile_join) =
-        if let (Some(dir), Some(bind)) = (config.mobile_dir.as_ref(), config.mobile_bind) {
-            let index = dir.join("index.html");
-            if !index.is_file() {
-                return Err(format!("interface mobile introuvable: {}", index.display()).into());
-            }
-            let mobile_listener = TcpListener::bind(bind).await?;
-            let mobile_app =
-                Router::new().fallback_service(ServeDir::new(dir).fallback(ServeFile::new(index)));
-            let (mobile_tx, mobile_rx) = oneshot::channel::<()>();
-            let mobile_task = tokio::spawn(async move {
-                axum::serve(mobile_listener, mobile_app)
-                    .with_graceful_shutdown(async {
-                        let _ = mobile_rx.await;
-                    })
-                    .await
-                    .ok();
-            });
-            (Some(mobile_tx), Some(mobile_task))
-        } else {
-            (None, None)
-        };
-
     Ok(GatewayHandle {
         port,
         addr,
@@ -152,8 +121,6 @@ pub async fn serve(
         admin_token,
         shutdown: Some(tx),
         join: Some(join),
-        mobile_shutdown,
-        mobile_join,
     })
 }
 
@@ -205,9 +172,6 @@ pub fn config_from_env() -> GatewayConfig {
     }
     if let Ok(dir) = std::env::var("ATELIER_MOBILE_DIR") {
         c.mobile_dir = Some(dir.into());
-    }
-    if let Ok(bind) = std::env::var("ATELIER_MOBILE_BIND") {
-        c.mobile_bind = bind.parse().ok();
     }
     c
 }
