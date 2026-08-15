@@ -5,6 +5,7 @@
 // panneau historique (KbPickerPanel) — c'est la table de travail qui change.
 import { useEffect, useMemo, useState, useSyncExternalStore } from "react";
 import { t } from "../../lib/i18n";
+import GbrainReader from "./GbrainReader";
 import type { KbSource } from "../../lib/kbSources";
 import {
   articleImportSnapshot, dismissArticleImport, fileName, openArticleDialog, openGbrainPage,
@@ -139,6 +140,8 @@ export default function KbSurface(p: {
   onAddNote: (title: string, text: string) => void;
   onAddUrl: (url: string) => void;
   onAddArticle?: () => void;
+  /** Ouvre le PDF d'origine d'une page du dépôt (chemin du front matter). */
+  onOpenOrigin?: (path: string) => void;
   onBatchAttach?: (ids: string[]) => void;
   onBatchArchive?: (ids: string[]) => void;
   gbrain?: GbrainSectionProps;
@@ -159,6 +162,9 @@ export default function KbSurface(p: {
   // « gbrain » est le dépôt qui s'accumule et où les PDF entrent. Ils n'ont pas
   // la même vie ; les mélanger faisait grossir la base à chaque ingestion.
   const [tab, setTab] = useState<"base" | "brain">("base");
+  // Page du dépôt ouverte en lecture : le lecteur remplace la liste, avec un
+  // retour. Pas de modale — une lecture d'article dure.
+  const [lecture, setLecture] = useState<string | null>(null);
   // imports en vol : rangées vivantes en tête de liste (plan 054)
   const imports = useSyncExternalStore(subscribeArticleImport, articleImportSnapshot);
   const [now, setNow] = useState(() => Date.now());
@@ -324,12 +330,16 @@ export default function KbSurface(p: {
       });
       return items;
     }
-    // page du dépôt : y entrer dans la base, ou l'ouvrir si elle y est déjà
-    return [{
-      key: "pin",
-      label: t(row.pinned ? "kbs.menu-open-page" : "kbs.menu-pin"),
-      onSelect: () => p.gbrain?.onPin(row.slug ?? ""),
-    }];
+    // page du dépôt : la lire, ou la faire entrer dans la base
+    return [
+      { key: "read", label: t("kbs.menu-read"), onSelect: () => setLecture(row.slug ?? "") },
+      {
+        key: "pin",
+        separatorBefore: true,
+        label: t(row.pinned ? "kbs.menu-resync" : "kbs.menu-pin"),
+        onSelect: () => p.gbrain?.onPin(row.slug ?? ""),
+      },
+    ];
   }
 
   function renderRow(row: Row) {
@@ -347,7 +357,7 @@ export default function KbSurface(p: {
           onClick={() => {
             if (selectMode && source) toggleSelected(source.id);
             else if (source) p.onToggle(source.id);
-            else if (!row.pinned) p.gbrain?.onPin(row.slug ?? "");
+            else setLecture(row.slug ?? "");
           }}
         >
           {!corpus && (
@@ -359,10 +369,8 @@ export default function KbSurface(p: {
           <span className="kb-kind"><KindIcon kind={row.kind} /></span>
           <span className="kb-name">{row.title}</span>
           {full && <span className="kbs-flag">{t("kbs.flag-full")}</span>}
-          {corpus && (
-            <span className="kbs-flag kbs-flag-quiet">
-              {t(row.pinned ? "kbs.flag-in-base" : "kbs.flag-pin")}
-            </span>
+          {corpus && row.pinned && (
+            <span className="kbs-flag kbs-flag-quiet">{t("kbs.flag-in-base")}</span>
           )}
           <span className="kb-meta">{row.meta}</span>
         </RowButton>
@@ -382,6 +390,19 @@ export default function KbSurface(p: {
             items={rowMenu(row)}
           />
         </span>
+      </div>
+    );
+  }
+
+  if (lecture) {
+    return (
+      <div className="kb-panel kb-panel-surface kbs">
+        <GbrainReader
+          slug={lecture}
+          onClose={() => setLecture(null)}
+          onPin={(slug) => p.gbrain?.onPin(slug)}
+          onOpenOrigin={p.onOpenOrigin}
+        />
       </div>
     );
   }

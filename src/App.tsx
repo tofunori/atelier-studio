@@ -1572,6 +1572,10 @@ export default function App() {
       if (msg.type === "articleListed") {
         window.dispatchEvent(new CustomEvent("article-listed", { detail: msg }));
       }
+      if (msg.type === "gbrainPage") {
+        // lecture seule d'une page du dépôt : le lecteur corrèle par slug
+        window.dispatchEvent(new CustomEvent("gbrain-page", { detail: msg }));
+      }
       if (msg.type === "gbrainResults") {
         // recherche du corpus NAS (plan 050 P3) — consommée par la surface
         // Connaissances ; l'échec voyage dans detail.error, en place

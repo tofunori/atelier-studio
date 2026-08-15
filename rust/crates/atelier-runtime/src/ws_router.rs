@@ -61,6 +61,7 @@ pub const ALL_MESSAGE_TYPES: &[&str] = &[
     "clearPasted",
     "saveImage",
     "kbAdd",
+    "kbGbrainPage",
     "kbList",
     "kbCollection",
     "kbTag",
@@ -618,6 +619,7 @@ pub async fn route_ws(state: &AppState, text: &str) -> Vec<String> {
             }
         }
         "kbAdd" => handle_kb_add(state, &msg),
+        "kbGbrainPage" => handle_kb_gbrain_page(state, &msg),
         "kbList" => handle_kb_list(state),
         "kbCollection" | "kbTag" | "kbArchive" => handle_kb_organize(state, msg_type, &msg),
         "kbRemove" => handle_kb_remove(state, &msg).await,
@@ -2113,6 +2115,29 @@ async fn handle_article_write(state: &AppState, msg: &Value) -> Vec<String> {
             "ragdoc": v.get("ragdoc").cloned().unwrap_or(Value::Null),
         }))],
         Err(e) => article_error(&request_id, e),
+    }
+}
+
+/// Lecture seule d'une page du dépôt gbrain. Rien n'entre dans la base au
+/// passage : épingler reste un geste distinct, côté interface.
+fn handle_kb_gbrain_page(state: &AppState, msg: &Value) -> Vec<String> {
+    let slug = msg.get("slug").and_then(|v| v.as_str()).unwrap_or("");
+    if slug.is_empty() {
+        return vec![json_msg(json!({
+            "type": "gbrainPage", "slug": "", "markdown": "",
+            "error": "kbGbrainPage: slug requis",
+        }))];
+    }
+    match kb_cli_run(state.server_dir(), state.app_dir(), &["gbrain-page", "--slug", slug], "") {
+        Ok(v) => vec![json_msg(json!({
+            "type": "gbrainPage",
+            "slug": v.get("slug").cloned().unwrap_or(json!(slug)),
+            "chars": v.get("chars").cloned().unwrap_or(Value::Null),
+            "markdown": v.get("markdown").cloned().unwrap_or(json!("")),
+        }))],
+        Err(e) => vec![json_msg(json!({
+            "type": "gbrainPage", "slug": slug, "markdown": "", "error": e,
+        }))],
     }
 }
 

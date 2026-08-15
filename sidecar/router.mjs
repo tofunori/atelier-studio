@@ -1362,6 +1362,23 @@ export async function route(msg, ctx) {
       }
       break;
     }
+    case "kbGbrainPage": {
+      // Lecture seule d'une page du dépôt : rien n'entre dans la base au
+      // passage — épingler reste un geste distinct.
+      try {
+        const out = await runKbCommand(
+          ["gbrain-page", "--slug", String(msg.slug ?? "")],
+          ctx.kbDeps ?? {},
+        );
+        ctx.send({ type: "gbrainPage", slug: out.slug, chars: out.chars, markdown: out.markdown });
+      } catch (error) {
+        ctx.send({
+          type: "gbrainPage", slug: String(msg.slug ?? ""), markdown: "",
+          error: error instanceof Error ? error.message : String(error),
+        });
+      }
+      break;
+    }
     case "gbrainSearch": {
       // recherche du corpus NAS (plan 050 P3) — relais du CLI. Échec (NAS
       // coupé, binaire absent) = gbrainResults avec `error`, en place.
