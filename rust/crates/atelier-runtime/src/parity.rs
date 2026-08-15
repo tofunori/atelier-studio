@@ -256,6 +256,9 @@ mod tests {
             if matches!(*t, "upsertThread") {
                 continue; // rust convenience alias
             }
+            if matches!(*t, "pinPassage" | "listPins" | "unpinPassage") {
+                continue; // preuves (panneau) : contrat Rust seulement, pas de pendant Node
+            }
             assert!(
                 node_cases.contains(&format!("case \"{t}\"")),
                 "ALL_MESSAGE_TYPES entry {t} missing from Node router.mjs"
