@@ -536,7 +536,7 @@ describe("capsule résultat — honnêteté et actions", () => {
     const capsule = document.querySelector(".result-capsule.warn") as HTMLElement;
     expect(capsule).toBeTruthy();
     expect(capsule.textContent).toContain(t("chat.turn-interrupted"));
-    expect(capsule.querySelector(".capsule-status.warn")?.textContent).toContain("✗");
+    expect(capsule.querySelector(".capsule-status.warn svg")).toBeTruthy();
   });
 
   it("« Annuler le tour » appelle onRevert avec le message user du tour", () => {

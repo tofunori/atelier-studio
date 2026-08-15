@@ -1,15 +1,17 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import type { AgentEvent } from "../../lib/ws";
 import type { PluginCatalogEntry } from "../../lib/plugins";
-import { setLanguage } from "../../lib/i18n";
+import { setLanguage, t } from "../../lib/i18n";
 import {
   activeToolLabel,
   activityIconForAction,
   distinctToolActions,
   imagePathsForActions,
   isSummarizableTool,
+  stripAnsi,
   summarizeActivity,
   toolCategory,
+  truncateToolOutput,
 } from "./toolPresentation";
 
 type ToolAction = Extract<AgentEvent, { kind: "tool" | "tool_update" }>;
@@ -147,5 +149,54 @@ describe("Codex-style activity presentation", () => {
       imageUrl: "https://example.test/drive.svg",
       label: "Google Drive",
     });
+  });
+});
+
+describe("truncateToolOutput", () => {
+  it("laisse la sortie intacte quand elle fait 6000 caractères ou moins", () => {
+    const short = "a".repeat(6000);
+    expect(truncateToolOutput(short)).toBe(short);
+    expect(truncateToolOutput("")).toBe("");
+    expect(truncateToolOutput("petite sortie")).toBe("petite sortie");
+  });
+
+  it("garde tête et queue alignées sur des lignes avec un marqueur i18n indiquant le nombre de lignes omises", () => {
+    const line = "a".repeat(9); // + "\n" = 10 caractères par ligne
+    const raw = Array.from({ length: 1000 }, () => `${line}\n`).join("");
+    expect(raw.length).toBe(10000);
+
+    const head = raw.slice(0, 1510); // 151 lignes complètes (0..150), tête étendue à la fin de ligne
+    const tail = raw.slice(5510); // lignes 551..999 (449 lignes), queue démarrant à un début de ligne
+
+    const result = truncateToolOutput(raw);
+    expect(result).toBe(`${head}${t("chat.output-omitted", { n: 400 })}\n${tail}`);
+    expect(result.startsWith(head)).toBe(true);
+    expect(result.endsWith(tail)).toBe(true);
+    expect(result).toContain("400 lines omitted");
+  });
+
+  it("traduit le marqueur selon la langue active", () => {
+    const raw = "x".repeat(7000);
+    setLanguage("fr");
+    expect(truncateToolOutput(raw)).toContain("lignes omises");
+    setLanguage("en");
+    expect(truncateToolOutput(raw)).toContain("lines omitted");
+  });
+});
+
+describe("stripAnsi", () => {
+  it("retire les séquences SGR/curseur", () => {
+    expect(stripAnsi("\x1b[31mrouge\x1b[0m normal")).toBe("rouge normal");
+    expect(stripAnsi("\x1b[2K\x1b[1Gligne")).toBe("ligne");
+    expect(stripAnsi("\x1b[?25lcache\x1b[?25h")).toBe("cache");
+  });
+
+  it("retire les séquences OSC (titre de fenêtre, hyperliens)", () => {
+    expect(stripAnsi("\x1b]0;titre\x07reste")).toBe("reste");
+    expect(stripAnsi("avant\x1b]8;;http://example.com\x1b\\après")).toBe("avantaprès");
+  });
+
+  it("laisse le texte sans séquences ANSI inchangé", () => {
+    expect(stripAnsi("texte normal\nsur deux lignes")).toBe("texte normal\nsur deux lignes");
   });
 });

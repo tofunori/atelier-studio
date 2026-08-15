@@ -14,7 +14,7 @@ import { decorateKbCites } from "./kbCite";
 import { kbSourcesSnapshot, requestKbSources, subscribeKbSources } from "../../lib/kbSources";
 import { CopyIcon, ForkIcon, ResumeIcon } from "../icons";
 import { MD_COMPONENTS, MD_COMPONENTS_STREAMING, useMdPlugins } from "./md";
-import { DoneDiffToggle, fmtTime, PinBtn, LiveThinking, ThinkingShimmer, Working, reasoningSummary } from "./turnParts";
+import { DoneDiffToggle, fmtTime, PencilIcon, PinBtn, LiveThinking, ThinkingShimmer, Working, reasoningSummary } from "./turnParts";
 import {
   activeToolLabel, activityIconForAction, activityIconForPhase,
   distinctToolActions, summarizeActivity,
@@ -242,10 +242,13 @@ export const UserTurn = memo(function UserTurn(p: {
         )}
         <CopyMessageAction text={e.text} />
         <MessageAction label={t("action.edit-resend")} onClick={() => p.onEditingChange(e.text)}>
-          <span aria-hidden="true">✎</span>
+          <PencilIcon />
         </MessageAction>
         <MessageAction label={t("chat.revert-title")} onClick={() => p.onRevert(i, e.text, false)}>
-          <span aria-hidden="true">↩</span>
+          <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+            <path d="M9.5 3.5 5 8l4.5 4.5" />
+            <path d="M5 8h5a3 3 0 0 1 0 6H8.5" />
+          </svg>
         </MessageAction>
         <PinBtn pinned={p.pinned} onClick={() => p.onTogglePin(i, e.text.slice(0, 44))} />
       </MessageFooter>}
@@ -361,7 +364,9 @@ export function ResultCapsule(p: {
           <span className="sr-only">{t("chat.turn-done")}</span>
         ) : (
           <span className="capsule-status warn" title={t("chat.turn-interrupted")}>
-            ✗
+            <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" aria-hidden="true">
+              <path d="M4 4l8 8M12 4l-8 8" />
+            </svg>
             <span className="sr-only">{t("chat.turn-interrupted")}</span>
           </span>
         )}

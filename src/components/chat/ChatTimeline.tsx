@@ -20,6 +20,7 @@ import {
 } from "./turns";
 import { ResearchHome, type ResearchHomeBundle } from "../ResearchHome";
 import { ThinkingBlock, EditLine, ActivityCard, LiveThinking, Working, formatPermInput } from "./turnParts";
+import { highlightCode } from "./md";
 import { HarnessInteraction } from "./HarnessInteraction";
 import { ProposedPlanCard } from "./ProposedPlanCard";
 import { Button, IconButton, RowButton, ScrollToBottomButton } from "../ui";
@@ -601,7 +602,14 @@ export function ChatTimeline(p: {
                   <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"><path d="M8 1.8l5 2v4c0 3.2-2.2 5.4-5 6.4-2.8-1-5-3.2-5-6.4v-4z"/></svg>
                   <span>{t("perm.ask", { tool: e.toolName })}</span>
                 </div>
-                {e.input ? <pre className="perm-input">{formatPermInput(e.toolName, e.input)}</pre> : null}
+                {e.input ? (() => {
+                  const { lang, text } = formatPermInput(e.toolName, e.input);
+                  return lang ? (
+                    <pre className="perm-input"><code className="hljs" dangerouslySetInnerHTML={{ __html: highlightCode(text, lang) }} /></pre>
+                  ) : (
+                    <pre className="perm-input">{text}</pre>
+                  );
+                })() : null}
                 {e.answered == null ? (
                   <div className="perm-actions">
                     <Button variant="primary" className="perm-allow" onClick={() => window.dispatchEvent(new CustomEvent("permission-answer", { detail: { threadId: threadId, requestId: e.requestId, allow: true } }))}>{t("perm.allow")}</Button>
@@ -623,7 +631,11 @@ export function ChatTimeline(p: {
               <div key={i} className="todos">
                 {e.items.map((todo, idx) => (
                   <div key={idx} className={todo.completed ? "todo done" : todo.active ? "todo active" : "todo"}>
-                    <span className="todo-box">{todo.completed ? "✓" : ""}</span>
+                    <span className="todo-box">{todo.completed ? (
+                      <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                        <path d="m3.5 8.5 3 3 6-7" />
+                      </svg>
+                    ) : null}</span>
                     <span>{todo.text}</span>
                   </div>
                 ))}
@@ -635,7 +647,11 @@ export function ChatTimeline(p: {
           if (e.kind === "error")
             return (
               <div key={i} className="error">
-                ⚠ {e.message}
+                <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                  <path d="M8 2.2 14.5 13.5H1.5z" />
+                  <path d="M8 6.5v3.2M8 11.9v.1" />
+                </svg>{" "}
+                {e.message}
               </div>
             );
           if (e.kind === "done") {

@@ -9,6 +9,16 @@ import { t } from "../../lib/i18n";
 import { diffLineClass, openFileRef } from "./md";
 import { Tick } from "./toolPresentation";
 import { ActivityDisclosure, Button, IconButton, RowButton, Tooltip } from "../ui";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "../shadcn/alert-dialog";
 
 const AtelierDiffView = lazy(() => import("../AtelierDiffView"));
 type ChatDiffPayload = { diff: string; before?: string; after?: string; binary?: boolean };
@@ -19,6 +29,7 @@ export function DoneDiffToggle({ event, threadId }: {
 }) {
   const files = event.filesChanged ?? [];
   const [open, setOpen] = useState(false);
+  const [confirmOpen, setConfirmOpen] = useState(false);
   const [loading, setLoading] = useState<Set<string>>(new Set());
   const [diffs, setDiffs] = useState<Record<string, ChatDiffPayload>>({});
 
@@ -45,6 +56,7 @@ export function DoneDiffToggle({ event, threadId }: {
 
   if (!files.length) return null;
   return (
+    <>
     <div className="turn-diff">
       <RowButton
         className="turn-diff-toggle"
@@ -82,16 +94,7 @@ export function DoneDiffToggle({ event, threadId }: {
           variant="danger"
           className="turn-diff-undo"
           title={t("checkpoint.files-title")}
-          onClick={() => {
-            if (!window.confirm(t("checkpoint.files-confirm"))) return;
-            wsSend({
-              type: "revert",
-              scope: "files",
-              threadId,
-              turnId: "meta" in event && event.meta && "turnId" in event.meta ? event.meta.turnId : undefined,
-              snapshotSha: event.checkpoint?.snapshotSha,
-            });
-          }}
+          onClick={() => setConfirmOpen(true)}
         >
           {t("checkpoint.undo-files")}
         </Button>
@@ -104,7 +107,7 @@ export function DoneDiffToggle({ event, threadId }: {
             {loading.has(path) && !payload ? (
               <div className="turn-diff-body"><span className="muted">{t("common.loading")}</span></div>
             ) : payload?.binary ? (
-              <div className="turn-diff-body"><span className="muted">Binary file changed</span></div>
+              <div className="turn-diff-body"><span className="muted">{t("git.binary-changed")}</span></div>
             ) : payload && payload.before !== undefined && payload.after !== undefined ? (
               <Suspense fallback={<div className="turn-diff-body"><span className="muted">{t("common.loading")}</span></div>}>
                 <AtelierDiffView before={payload.before} after={payload.after} path={path} compact />
@@ -120,6 +123,33 @@ export function DoneDiffToggle({ event, threadId }: {
         })}
       </div>}
     </div>
+    <AlertDialog open={confirmOpen} onOpenChange={setConfirmOpen}>
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>{t("checkpoint.files-title")}</AlertDialogTitle>
+          <AlertDialogDescription>{t("checkpoint.files-confirm")}</AlertDialogDescription>
+        </AlertDialogHeader>
+        <AlertDialogFooter>
+          <AlertDialogCancel>{t("action.cancel")}</AlertDialogCancel>
+          <AlertDialogAction
+            variant="destructive"
+            onClick={() => {
+              wsSend({
+                type: "revert",
+                scope: "files",
+                threadId,
+                turnId: "meta" in event && event.meta && "turnId" in event.meta ? event.meta.turnId : undefined,
+                snapshotSha: event.checkpoint?.snapshotSha,
+              });
+              setConfirmOpen(false);
+            }}
+          >
+            {t("checkpoint.undo-files")}
+          </AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
+    </>
   );
 }
 
@@ -233,7 +263,7 @@ export function EditLine({ event, threadId }: {
                 ) : error ? (
                   <span className="muted">{error}</span>
                 ) : diff?.binary ? (
-                  <span className="muted">Binary file changed</span>
+                  <span className="muted">{t("git.binary-changed")}</span>
                 ) : diff && diff.before !== undefined && diff.after !== undefined ? (
                   <Suspense fallback={<span className="muted">{t("common.loading")}</span>}>
                     <AtelierDiffView before={diff.before} after={diff.after} path={f.path} compact />
@@ -280,12 +310,12 @@ export function citeLabel(name: string): string {
   return base.length > 34 ? base.slice(0, 33) + "…" : base;
 }
 
-export function formatPermInput(tool: string, input: Record<string, unknown>): string {
+export function formatPermInput(tool: string, input: Record<string, unknown>): { lang: string; text: string } {
   const one = (v: unknown) => String(v ?? "").slice(0, 400);
-  if (tool === "Bash") return one((input as any).command);
-  if ((input as any).file_path) return one((input as any).file_path);
+  if (tool === "Bash") return { lang: "bash", text: one((input as any).command) };
+  if ((input as any).file_path) return { lang: "", text: one((input as any).file_path) };
   const s = JSON.stringify(input, null, 1);
-  return s.length > 400 ? s.slice(0, 400) + "…" : s;
+  return { lang: "json", text: s.length > 400 ? s.slice(0, 400) + "…" : s };
 }
 
 export function ThinkingBlock({ text, live }: { text: string; live: boolean }) {

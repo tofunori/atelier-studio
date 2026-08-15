@@ -173,7 +173,14 @@ export function ToolOutputLine({ event }: { event: Extract<AgentEvent, { kind: "
           {output.trim() && (
             <div className="tool-payload">
               <div className="tool-payload-label">output</div>
-              <pre>{output}</pre>
+              {isJsonOutput ? (
+                <pre><code
+                  className="hljs"
+                  dangerouslySetInnerHTML={{ __html: highlightCode(output, "json") }}
+                /></pre>
+              ) : (
+                <pre>{output}</pre>
+              )}
             </div>
           )}
         </div>
