@@ -46,7 +46,7 @@ fn with_zotero_passage_instruction(prompt: String, server_dir: &str) -> String {
     }
     let tool = std::path::Path::new(server_dir).join("atelier-zotero-passages");
     format!(
-        "{prompt}\n\n<atelier-zotero-passages>\nWhen the user asks for important or relevant passages from an attached Zotero article, use the exact PDF metadata inside <zotero-reference> and call the terminal tool exactly once:\n{} search --pdf <absolute-pdf-path> --zotero-key <zotero-key> --pdf-key <pdf-key> --pdf-file <pdf-file> --query <user-question> --limit 5\nRead its JSON stdout. For every passage you cite, reproduce its markdownLink exactly so the user can open the PDF at that page with automatic highlighting. The displayed verbatim excerpt immediately associated with that link MUST be exactly the result's quote field: do not shorten, translate, normalize, or replace it with another sentence from context. You may explain it separately. Never invent a passage or link. If the article has no attached local PDF metadata, ask the user to attach it from Zotero. Do not call this tool for ordinary bibliography or metadata questions.\n</atelier-zotero-passages>",
+        "{prompt}\n\n<atelier-zotero-passages>\nWhen the user asks for important or relevant passages from an attached Zotero article, use the exact PDF metadata inside <zotero-reference> and call the terminal tool exactly once:\n{} search --pdf <absolute-pdf-path> --zotero-key <zotero-key> --pdf-key <pdf-key> --pdf-file <pdf-file> --query <user-question> --limit 5\nRead its JSON stdout. For every passage you cite, reproduce its markdownLink exactly so the user can open the PDF at that page with automatic highlighting. The displayed verbatim excerpt immediately associated with that link MUST be exactly the result's quote field: do not shorten, translate, normalize, or replace it with another sentence from context. You may explain it separately. Never invent a passage or link. If the article has no attached local PDF metadata, ask the user to attach it from Zotero. Do not call this tool for ordinary bibliography or metadata questions.\n\nWhen the user asks for a reference or supporting evidence for a sentence they are writing (no specific article attached), call the tool once with `search --corpus --query <the-claim> --limit 5` instead. When you present a found passage as the answer, put its markdownLink ALONE in its own paragraph (blank line before and after) so the app renders it as a passage card; keep your explanation in separate paragraphs.\n</atelier-zotero-passages>",
         serde_json::to_string(&tool.to_string_lossy()).unwrap_or_default(),
     )
 }
@@ -1823,6 +1823,14 @@ mod tests {
         assert!(enriched.starts_with("montre les passages importants"));
         assert!(enriched.contains("/app/Resources/rust-server/atelier-zotero-passages"));
         assert!(enriched.contains("reproduce its markdownLink exactly"));
+    }
+
+    #[test]
+    fn zotero_instruction_couvre_le_flux_reference() {
+        let out = with_zotero_passage_instruction("p".into(), "/srv");
+        assert!(out.contains("--corpus"));
+        assert!(out.contains("its own paragraph"));
+        assert!(out.contains("Never invent a passage"));
     }
 
     #[test]
