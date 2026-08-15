@@ -1,7 +1,9 @@
 import { ChevronLeftIcon } from "lucide-react";
+import ReactMarkdown from "react-markdown";
 import type { AgentEvent } from "../../lib/ws";
 import { t } from "../../lib/i18n";
 import { cn } from "../../lib/utils";
+import { normalizeMathDelimiters, hardenPartialMarkdown } from "../../lib/markdown";
 import { Badge } from "../shadcn/badge";
 import { Bubble, BubbleContent } from "../shadcn/bubble";
 import { Button } from "../shadcn/button";
@@ -9,6 +11,7 @@ import { Message, MessageContent, MessageGroup } from "../shadcn/message";
 import { ScrollArea } from "../shadcn/scroll-area";
 import { Separator } from "../shadcn/separator";
 import { RowButton } from "../ui";
+import { MD_COMPONENTS, MD_COMPONENTS_STREAMING, useMdPlugins } from "./md";
 
 export type AgentToolAction = Extract<AgentEvent, { kind: "tool_update" }> & {
   agentActivity: NonNullable<Extract<AgentEvent, { kind: "tool_update" }>["agentActivity"]>;
@@ -207,6 +210,7 @@ export function AgentDetailPanel({
     || event.kind === "thinking_live"
     || event.kind === "error",
   );
+  const plugins = useMdPlugins();
   return (
     <aside className={cn("agent-detail-panel", embedded && "agent-detail-embedded")} aria-label={agent.displayName}>
       <header className="agent-detail-header">
