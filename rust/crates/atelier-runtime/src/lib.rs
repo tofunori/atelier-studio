@@ -6,6 +6,7 @@ pub mod agent_mcp;
 pub mod atomic;
 pub mod automations;
 mod codex_history;
+pub mod evidence;
 mod grok_history;
 pub mod instance;
 pub mod kb_block;
