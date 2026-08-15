@@ -220,7 +220,7 @@ export default function Chat(p: {
   // Niveau de service Codex : Standard par défaut, Fast (service_tier
   // `priority`) choisi par conversation. Orthogonal au modèle et à l'effort.
   const [fastMode, setFastMode] = useState(false);
-  const [permissionMode, setPermissionMode] = useState("bypassPermissions");
+  const [permissionMode, setPermissionMode] = useState("acceptEdits");
 
   function providerInfo(pv = provider) {
     return (p.providers ?? []).find((pr) => pr.id === pv);

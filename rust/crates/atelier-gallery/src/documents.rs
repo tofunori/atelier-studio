@@ -62,6 +62,27 @@ fn json_error(status: StatusCode, message: impl Into<String>) -> axum::response:
     (status, Json(json!({"error": message.into()}))).into_response()
 }
 
+/// Neutralise l'injection d'options argv pour latexmk/tectonic (plan 063,
+/// finding SEC-07) : un nom de fichier commençant par `-` (ex. `-evil.tex`)
+/// serait interprété comme une option par les deux outils plutôt qu'un nom
+/// de fichier. `current_dir` est déjà posé sur `cwd` ; préfixer `./` suffit à
+/// lever l'ambiguïté pour n'importe quel basename, y compris hostile.
+fn prefix_argv_basename(basename: &str) -> String {
+    format!("./{basename}")
+}
+
+/// Ceinture-bretelles au-dessus de `prefix_argv_basename` (qui suffirait déjà
+/// seul à neutraliser l'injection) : refuse explicitement, avec un message
+/// clair, tout basename commençant par `-` avant même de construire l'argv.
+fn safe_argv_basename(basename: &str) -> Result<String, String> {
+    if basename.starts_with('-') {
+        return Err(format!(
+            "nom de fichier invalide (commence par '-'): {basename}"
+        ));
+    }
+    Ok(prefix_argv_basename(basename))
+}
+
 fn project_rel(root: &Path, full: &Path) -> String {
     full.strip_prefix(root)
         .unwrap_or(full)
@@ -96,10 +117,16 @@ pub async fn compile(
         p
     };
     let cwd = root.parent().unwrap_or_else(|| Path::new("."));
-    let basename = root
+    let raw_basename = root
         .file_name()
         .and_then(|n| n.to_str())
         .unwrap_or("main.tex");
+    let basename = match safe_argv_basename(raw_basename) {
+        Ok(b) => b,
+        Err(err) => {
+            return (StatusCode::OK, Json(json!({"ok": false, "error": err}))).into_response();
+        }
+    };
 
     // 1) latexmk (parité Python) 2) tectonic
     if let Some(latexmk) = latexmk_bin() {
@@ -110,7 +137,7 @@ pub async fn compile(
             "-g",
             "-interaction=nonstopmode",
             "-halt-on-error",
-            basename,
+            basename.as_str(),
         ])
         .current_dir(cwd)
         .stdout(Stdio::piped())
@@ -165,7 +192,7 @@ pub async fn compile(
 
     if let Some(tectonic) = tectonic_bin() {
         let mut cmd = Command::new(&tectonic);
-        cmd.args(["-X", "compile", basename])
+        cmd.args(["-X", "compile", basename.as_str()])
             .current_dir(cwd)
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
@@ -671,5 +698,25 @@ mod tests {
         let _ = latexmk_bin();
         let _ = tectonic_bin();
         let _ = synctex_bin();
+    }
+
+    #[test]
+    fn prefix_argv_basename_neutralizes_dash_prefixed_names() {
+        // plan 063, SEC-07 : ./ seul suffit déjà à lever l'ambiguïté argv,
+        // même pour un nom hostile qui commencerait par '-'.
+        assert_eq!(prefix_argv_basename("-evil.tex"), "./-evil.tex");
+    }
+
+    #[test]
+    fn safe_argv_basename_prefixes_dot_slash() {
+        assert_eq!(safe_argv_basename("main.tex").unwrap(), "./main.tex");
+    }
+
+    #[test]
+    fn safe_argv_basename_refuses_dash_prefixed_name_upfront() {
+        // Ceinture-bretelles : refus explicite en amont, avec message clair,
+        // même si `./` seul lèverait déjà l'ambiguïté.
+        let err = safe_argv_basename("-evil.tex").unwrap_err();
+        assert!(err.contains("-evil.tex"));
     }
 }

@@ -4,6 +4,7 @@ mod files;
 mod gallery;
 mod git;
 mod host;
+mod openable;
 mod suggest;
 mod workspace;
 mod zotero;
