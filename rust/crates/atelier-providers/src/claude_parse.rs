@@ -127,7 +127,12 @@ pub fn parse_message(state: &mut ClaudeStreamState, msg: &Value) -> Vec<Value> {
                     .and_then(|v| v.as_str())
                     .filter(|texte| !texte.is_empty())
                 {
-                    out.push(json!({"kind":"tool", "name": format!("en attente : {attendu}")}));
+                    // Pseudo-outil `__waiting` (convention `__` = annotation,
+                    // pas du travail) : un nom d'outil ordinaire APRÈS le texte
+                    // final retirait à la réponse son statut de réponse détachée
+                    // (terminalAssistantIndex) — elle disparaissait dans le
+                    // repli « A travaillé pendant Ns » (régression vécue 2026-08-15).
+                    out.push(json!({"kind":"tool", "name": "__waiting", "detail": attendu}));
                 }
             }
         }
@@ -707,7 +712,10 @@ mod tests {
                 "needs_action":"clarify the task: what would you like me to do?"}),
         );
         assert_eq!(bloque[0]["kind"], "tool");
-        assert!(bloque[0]["name"].as_str().unwrap().contains("clarify the task"));
+        // Nom d'annotation `__waiting` : un nom ordinaire faisait disparaître
+        // la réponse finale dans le repli du tour (cf. terminalAssistantIndex).
+        assert_eq!(bloque[0]["name"], "__waiting");
+        assert!(bloque[0]["detail"].as_str().unwrap().contains("clarify the task"));
 
         // Un tour normal ne doit rien ajouter au transcript.
         let normal = parse_message(

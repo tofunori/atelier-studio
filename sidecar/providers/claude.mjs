@@ -487,6 +487,17 @@ export function send({
         if (msg.type === "system" && msg.subtype === "compact_boundary") {
           emit({ kind: "tool", name: "__compacted" });
         }
+        // Claude classe lui-même son tour (post_turn_summary) : un tour
+        // « bloqué » qui attend une précision se terminait sans rien dire.
+        // Pseudo-outil `__waiting` (convention `__` = annotation, pas du
+        // travail) : un nom ordinaire APRÈS le texte final retirait à la
+        // réponse son statut de réponse détachée (terminalAssistantIndex) et
+        // elle disparaissait dans le repli du tour. Miroir de claude_parse.rs.
+        if (msg.type === "system" && msg.subtype === "post_turn_summary"
+          && (msg.status_category === "blocked" || msg.status_category === "failed")) {
+          const attendu = msg.needs_action || msg.status_detail || "";
+          if (attendu) emit({ kind: "tool", name: "__waiting", detail: attendu });
+        }
         if (msg.type === "result") {
           flushPendingTools();
           turnOutputTokens = 0; // le ticker repart à zéro au prochain tour
