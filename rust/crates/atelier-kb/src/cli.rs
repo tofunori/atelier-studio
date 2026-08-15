@@ -1,7 +1,11 @@
 //! Dispatch des commandes — miroir de `runKbCommand`/`parseArgs` dans
-//! `sidecar/kb_cli.mjs`. Groupe local-store (plan 065, vague 1) implémenté
-//! complet ; les autres commandes (gbrain/article/*) restent reconnues
-//! (mêmes messages d'usage) mais renvoient une erreur "hors périmètre".
+//! `sidecar/kb_cli.mjs`. Vague 1 (plan 065, groupe a « store local ») et
+//! vague 2 (groupes b « gbrain » et c « article-local ») implémentées
+//! complet. MinerU réel (API cloud) et `article-doi` en réseau restent hors
+//! périmètre au sens strict des fixtures groupe c/d — `article-doi` est tout
+//! de même câblé (réutilise `crossref_meta`) car non coûteux, seulement non
+//! vérifié par une fixture de parité dédiée (groupe d, réseau réel, skippé
+//! contre ce binaire).
 
 use crate::search::Passage;
 use crate::store::{default_knowledge_dir, flag, KnowledgeStore};
@@ -250,13 +254,86 @@ pub fn run(argv: &[String]) -> Result<Value, String> {
             let (source, refreshed) = store.add(&kind, origin.as_deref(), title.as_deref(), text.as_deref())?;
             Ok(flag(json!({"ok": true, "source": source, "refreshed": refreshed}), &store.warning))
         }
-        // Hors périmètre vague 1 (groupes b/c/d de la parité) : reconnues
-        // syntaxiquement (mêmes messages d'usage) mais pas encore portées.
-        "gbrain-search" | "gbrain-page" | "promote-page" | "article-import" | "article-write"
-        | "article-draft" | "article-list" | "article-doi" => Err(format!(
-            "{}: hors périmètre du moteur rust vague 1 (store local uniquement — plan 065 C4)",
-            parsed.command
-        )),
+        // --- gbrain (plan 065, vague 2, groupe b) — wrappers fins autour de
+        // `runGbrain` ; jamais wrappés par `flag()` (Node ne le fait pas non
+        // plus pour ces commandes).
+        "gbrain-search" => {
+            let query = opt_str(&parsed.options, "query").ok_or("Argument requis: --query".to_string())?;
+            let limit_raw = opt_str(&parsed.options, "limit").and_then(|s| s.parse::<i64>().ok()).unwrap_or(12);
+            let limit = limit_raw.clamp(1, 25) as usize;
+            let raw = crate::gbrain::run_gbrain(&["search", query], None)?;
+            let results: Vec<Value> = crate::gbrain::parse_gbrain_search(&raw)
+                .into_iter()
+                .take(limit)
+                .map(|h| json!({"slug": h.slug, "snippet": h.snippet}))
+                .collect();
+            Ok(json!({"ok": true, "query": query, "count": results.len(), "results": results}))
+        }
+        "gbrain-page" => {
+            let slug = opt_str(&parsed.options, "slug").ok_or("Argument requis: --slug".to_string())?;
+            let markdown = crate::gbrain::run_gbrain(&["get", slug], None)?.trim().to_string();
+            if markdown.is_empty() || crate::gbrain::gbrain_not_found(&markdown) {
+                return Err(format!("Page gbrain introuvable: {slug}"));
+            }
+            Ok(json!({"ok": true, "slug": slug, "chars": markdown.chars().count(), "markdown": markdown}))
+        }
+        "promote-page" => {
+            let id = opt_str(&parsed.options, "id").ok_or("Argument requis: --id".to_string())?;
+            let entry = store.get(id).cloned().ok_or_else(|| format!("Source inconnue: {id}"))?;
+            let full_text = store.full_text(id)?;
+            let slug = opt_str(&parsed.options, "slug");
+            let write = opt_bool(&parsed.options, "write");
+            crate::gbrain::promote_page(&entry, &full_text, slug, write)
+        }
+        // --- article-* (plan 065, vague 2, groupe c) — MinerU réel hors
+        // périmètre, repli local (pdftotext) systématique.
+        "article-import" => {
+            let path = opt_str(&parsed.options, "path").unwrap_or("").to_string();
+            let progress = opt_bool(&parsed.options, "progress");
+            let pdf_cache_dir = store.pdf_cache_dir().to_path_buf();
+            if progress {
+                let mut cb = |stage: &str| {
+                    let line = json!({"progress": {"stage": stage}});
+                    println!("{}", serde_json::to_string(&line).unwrap());
+                };
+                crate::article::import_article(&path, &store.dir, &pdf_cache_dir, Some(&mut cb))
+            } else {
+                crate::article::import_article(&path, &store.dir, &pdf_cache_dir, None)
+            }
+        }
+        "article-doi" => {
+            let doi = opt_str(&parsed.options, "doi").unwrap_or("");
+            crate::article::import_doi(doi, &store.dir)
+        }
+        "article-list" => {
+            let limit = opt_str(&parsed.options, "limit").and_then(|s| s.parse::<i64>().ok()).unwrap_or(20);
+            let articles = crate::article::list_articles(limit)?;
+            let arr: Vec<Value> = articles
+                .into_iter()
+                .map(|a| json!({"slug": a.slug, "type": a.kind, "date": a.date, "title": a.title}))
+                .collect();
+            Ok(json!({"ok": true, "count": arr.len(), "articles": arr}))
+        }
+        "article-draft" => {
+            let draft = opt_str(&parsed.options, "draft").ok_or("Argument requis: --draft".to_string())?;
+            let markdown = crate::article::read_draft(&store.dir, draft)?;
+            Ok(json!({"ok": true, "draftId": draft, "chars": markdown.chars().count(), "markdown": markdown}))
+        }
+        "article-write" => {
+            let draft = opt_str(&parsed.options, "draft").ok_or("Argument requis: --draft".to_string())?;
+            let slug = opt_str(&parsed.options, "slug");
+            let meta = crate::article::ArticleMeta {
+                title: opt_str(&parsed.options, "title").unwrap_or("").to_string(),
+                authors: opt_str(&parsed.options, "authors").unwrap_or("").to_string(),
+                journal: opt_str(&parsed.options, "journal").unwrap_or("").to_string(),
+                doi: opt_str(&parsed.options, "doi").unwrap_or("").to_string(),
+                year: opt_str(&parsed.options, "year").and_then(|s| s.parse::<i64>().ok()),
+            };
+            let origin = opt_str(&parsed.options, "origin").unwrap_or("");
+            let converter = opt_str(&parsed.options, "converter").unwrap_or("");
+            let ragdoc = opt_bool(&parsed.options, "ragdoc");
+            crate::article::write_article(&store.dir, draft, slug, &meta, origin, converter, ragdoc)
+        }
         other => Err(format!("commande inconnue: {other}\n{}", usage())),
     }
 }

@@ -247,6 +247,14 @@ impl KnowledgeStore {
         self.sources.get(id)
     }
 
+    /// Cache d'extraction PDF namespacé sous `<dir>/pdf-cache` — réutilisé
+    /// par `article-import` (vague 2) pour l'extraction locale, isolé par
+    /// `ATELIER_APP_DIR` (contrairement au cache Node par défaut de
+    /// `article.mjs::convertPdf`, non namespacé — voir la note dans cli.rs).
+    pub fn pdf_cache_dir(&self) -> &Path {
+        &self.pdf_cache_dir
+    }
+
     fn persist(&self) -> Result<(), String> {
         let payload = json!({
             "version": REGISTRY_VERSION,
@@ -553,10 +561,10 @@ impl KnowledgeStore {
         })
     }
 
-    /// `add` — kinds locaux uniquement (note/file/folder/pdf/web-avec-texte).
-    /// `youtube`/`gbrain`/`zotero`/`web` (fetch réseau) sont hors périmètre
-    /// vague 1 : validés par `KB_KINDS` (même message d'erreur que Node) mais
-    /// non implémentés — erreur explicite si vraiment invoqués.
+    /// `add` — kinds locaux + gbrain (vague 2). `youtube`/`zotero`/`web`
+    /// (fetch réseau) restent hors périmètre : validés par `KB_KINDS` (même
+    /// message d'erreur que Node) mais non implémentés — erreur explicite si
+    /// vraiment invoqués.
     pub fn add(
         &mut self,
         kind: &str,
@@ -585,10 +593,33 @@ impl KnowledgeStore {
             "folder" => self.add_folder(origin, title),
             "pdf" => self.add_pdf(origin, title),
             "web" => self.add_web_stdin(origin, title, text),
+            "gbrain" => self.add_gbrain(origin, title),
             other => Err(format!(
-                "kind '{other}' non pris en charge par ce moteur (vague 1 : store local — note/file/folder/pdf/web avec texte fourni)"
+                "kind '{other}' non pris en charge par ce moteur (vague 2 : store local + gbrain — note/file/folder/pdf/web avec texte fourni/gbrain ; youtube/zotero hors périmètre)"
             )),
         }
+    }
+
+    /// `add --kind gbrain` — miroir de la branche `gbrain` de
+    /// `KnowledgeStore.add` (`knowledge.mjs`) : lecture seule (`gbrain get`),
+    /// jamais d'écriture au passage.
+    fn add_gbrain(&mut self, origin: Option<&str>, title: Option<&str>) -> Result<(Value, bool), String> {
+        let slug = origin.unwrap_or("").trim().to_string();
+        if slug.is_empty() || slug.chars().any(char::is_whitespace) {
+            return Err("Slug gbrain requis (--origin <slug>, sans espace)".to_string());
+        }
+        let markdown = crate::gbrain::run_gbrain(&["get", &slug], None)?.trim().to_string();
+        if markdown.is_empty() || crate::gbrain::gbrain_not_found(&markdown) {
+            return Err(format!("Page gbrain introuvable: {slug}"));
+        }
+        let final_title = title
+            .filter(|t| !t.is_empty())
+            .map(|s| s.to_string())
+            .unwrap_or_else(|| crate::gbrain::gbrain_title(&markdown, &slug));
+        let id = source_id("gbrain", &slug);
+        let pages = pages_from_text(&markdown);
+        let meta = json!({ "slug": slug, "syncedAt": now_iso() });
+        self.upsert_entry(&id, "gbrain", Some(&final_title), Some(&slug), pages, meta)
     }
 
     fn add_file(&mut self, origin: Option<&str>, title: Option<&str>) -> Result<(Value, bool), String> {
