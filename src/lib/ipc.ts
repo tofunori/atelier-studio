@@ -206,6 +206,19 @@ export function withAtelierNonce(rawUrl: string, nonce: string): string {
   return url.toString();
 }
 
+// Jeton galerie (accès hors-projet) transporté par le fragment plutôt que la
+// query : jamais envoyé au serveur dans la requête de navigation initiale,
+// jamais dans les logs d'accès ni l'historique du navigateur — récupéré
+// côté page comme le nonce l'est déjà (voir studio_runtime.bundle.js /
+// atelier_theme.js). Voir plan 062 étape 5.
+export function withAtelierToken(rawUrl: string, token: string): string {
+  const url = new URL(rawUrl);
+  const params = new URLSearchParams(url.hash.startsWith("#") ? url.hash.slice(1) : url.hash);
+  params.set("atelier_token", token);
+  url.hash = params.toString();
+  return url.toString();
+}
+
 export function atelierTargetOrigin(rawUrl: string): string | null {
   try {
     return new URL(rawUrl).origin;

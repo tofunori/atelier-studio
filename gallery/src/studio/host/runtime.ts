@@ -25,8 +25,24 @@ function searchParam(win: Window, name: string): string | null {
   }
 }
 
+// Jeton galerie (accès hors-projet) : transporté par le fragment de l'URL
+// d'ouverture — jamais par la query — pour ne jamais atteindre le serveur
+// dans la requête de navigation initiale, ni les logs d'accès, ni
+// l'historique du navigateur (plan 062 étape 5). Lu ici comme le nonce
+// (readNonce ci-dessous) puis réinjecté en query pour les requêtes internes
+// same-origin de la page : ce second saut reste local à ce Mac (dev server
+// loopback / Tailscale) — c'est le compromis documenté par le plan.
+function hashToken(win: Window): string | null {
+  try {
+    const match = win.location.hash.match(/atelier_token=([^&]+)/);
+    return match?.[1] ? decodeURIComponent(match[1]) : null;
+  } catch {
+    return null;
+  }
+}
+
 export function installTokenFetch(win: Window = window): void {
-  const token = searchParam(win, "token");
+  const token = hashToken(win);
   win.__tokq = token ? `&token=${encodeURIComponent(token)}` : "";
   if (!token || win.__atelierTokenFetchInstalled) return;
 

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { isTrustedAtelierMessage } from "./ipc";
+import { isTrustedAtelierMessage, withAtelierToken } from "./ipc";
 
 // isTrustedAtelierMessage garde le postMessage galerie→app : origine loopback
 // dans la plage de ports atelier, nonce exact, payload borné aux clés connues.
@@ -82,5 +82,25 @@ describe("isTrustedAtelierMessage", () => {
     expect(isTrustedAtelierMessage(msg("http://127.0.0.1:19000", {
       ...valid, action: "delete",
     }), nonce)).toBe(false);
+  });
+});
+
+// plan 062 étape 5 : le jeton galerie (accès hors-projet) transite par le
+// fragment de l'URL de navigation, jamais par la query — jamais envoyé au
+// serveur dans la requête initiale, jamais dans les logs/l'historique.
+describe("withAtelierToken", () => {
+  it("place le jeton dans le fragment, jamais dans la query", () => {
+    const url = withAtelierToken("http://127.0.0.1:19000/.fig_thumbs/latex_studio.html?path=x", "sekret");
+    const parsed = new URL(url);
+    expect(parsed.search).toBe("?path=x");
+    expect(parsed.searchParams.has("token")).toBe(false);
+    expect(parsed.hash).toContain("atelier_token=sekret");
+  });
+
+  it("coexiste avec un nonce déjà posé dans le fragment", () => {
+    const url = withAtelierToken("http://127.0.0.1:19000/x.html#atelier_nonce=abc", "sekret");
+    const params = new URLSearchParams(url.split("#")[1]);
+    expect(params.get("atelier_nonce")).toBe("abc");
+    expect(params.get("atelier_token")).toBe("sekret");
   });
 });

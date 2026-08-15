@@ -8,11 +8,12 @@
 <link rel="stylesheet" href="/.fig_thumbs/toastui/toastui-editor-dark.min.css">
 <script>(function(){
   /* Jeton hors projet (Atelier Studio) : si l'app a ouvert cette page avec
-     ?token=…, le propager à toutes les requêtes same-origin de la page —
+     #atelier_token=… (fragment — jamais la query de navigation, plan 062
+     étape 5), le propager à toutes les requêtes same-origin de la page —
      y compris celles de diff_versions.js. Sans jeton : comportement inchangé. */
   var tok = null;
   window.__tokq = ""; /* suffixe "&token=…" pour les URLs hors fetch (pdf.js) */
-  try{ tok = new URLSearchParams(location.search).get("token"); }catch(e){}
+  try{ var m = (location.hash||"").match(/atelier_token=([^&]+)/); tok = m ? decodeURIComponent(m[1]) : null; }catch(e){}
   if(!tok) return;
   window.__tokq = "&token=" + encodeURIComponent(tok);
   var orig = window.fetch.bind(window);

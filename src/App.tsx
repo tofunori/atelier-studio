@@ -62,6 +62,7 @@ import {
   atelierTargetOrigin,
   isTrustedAtelierMessage,
   withAtelierNonce,
+  withAtelierToken,
   type AtelierGalleryResultMessage,
   type AtelierOutboundMessage,
 } from "./lib/ipc";
@@ -2129,21 +2130,28 @@ export default function App() {
       }
       if (data.type === "atelier-open-tab" || data.type === "atelier-open-pdf") {
         let openUrl: string;
+        let needsGalleryToken = false;
         if (data.type === "atelier-open-pdf") {
           // « PDF ↗ » du studio LaTeX : viewer PDF complet (annotations) relié
           // en synctex quand le PDF est dans le projet ; hors projet, le statique
-          // reste sandboxé → repli sur le studio en mode=pdf (jeton via ?path=)
+          // reste sandboxé → repli sur le studio en mode=pdf (jeton via fragment,
+          // jamais en query — voir withAtelierToken)
           const root = activeProjectRef.current;
           const rootSlash = root ? (root.endsWith("/") ? root : root + "/") : null;
           const pdfAbs = typeof data.pdf === "string" ? data.pdf : "";
           const texAbs = typeof data.tex === "string" ? data.tex : "";
-          openUrl = rootSlash && pdfAbs.startsWith(rootSlash)
-            ? `/.fig_thumbs/pdf_viewer.html?file=${encodeURIComponent(pdfAbs.slice(rootSlash.length))}&tex=${encodeURIComponent(texAbs)}&texpdf=${encodeURIComponent(pdfAbs)}`
-            : `/.fig_thumbs/latex_studio.html?path=${encodeURIComponent(texAbs)}&mode=pdf${galleryTokenRef.current ? `&token=${encodeURIComponent(galleryTokenRef.current)}` : ""}`;
+          const inProject = Boolean(rootSlash) && pdfAbs.startsWith(rootSlash as string);
+          needsGalleryToken = !inProject;
+          openUrl = inProject
+            ? `/.fig_thumbs/pdf_viewer.html?file=${encodeURIComponent(pdfAbs.slice((rootSlash as string).length))}&tex=${encodeURIComponent(texAbs)}&texpdf=${encodeURIComponent(pdfAbs)}`
+            : `/.fig_thumbs/latex_studio.html?path=${encodeURIComponent(texAbs)}&mode=pdf`;
         } else {
           openUrl = data.url;
         }
-        const abs = withAtelierNonce(openUrl.startsWith("http") ? openUrl : e.origin + openUrl, atelierNonce);
+        let abs = withAtelierNonce(openUrl.startsWith("http") ? openUrl : e.origin + openUrl, atelierNonce);
+        if (needsGalleryToken && galleryTokenRef.current) {
+          abs = withAtelierToken(abs, galleryTokenRef.current);
+        }
         // pas de setState imbriqué (StrictMode double-exécute les updaters) :
         // on lit l'état courant via la ref pour décider, puis on commit les deux.
         const existing = atelierTabsRef.current.find((t) => t.url === abs);
@@ -2227,12 +2235,13 @@ export default function App() {
     let url: string;
     if (outside) {
       // binaires hors projet : le statique du serveur reste sandboxé projet —
-      // seuls les fichiers texte s'ouvrent dans l'éditeur intégré
+      // seuls les fichiers texte s'ouvrent dans l'éditeur intégré. Jeton
+      // transporté par le fragment (withAtelierToken ci-dessous), jamais en
+      // query — la navigation initiale ne doit pas le porter.
       if (["pdf", "png", "jpg", "jpeg", "gif", "webp"].includes(ext)) return;
-      const tokenQ = `&token=${encodeURIComponent(galleryTokenRef.current ?? "")}`;
       url = ext === "md" && !options.diff
-        ? `${origin}/.fig_thumbs/md_studio.html?path=${encodeURIComponent(outside)}${tokenQ}`
-        : `${origin}/.fig_thumbs/${ext === "md" ? "code_editor" : "latex_studio"}.html?path=${encodeURIComponent(outside)}${lineQ}${diffQ}${baseQ}${tokenQ}`;
+        ? `${origin}/.fig_thumbs/md_studio.html?path=${encodeURIComponent(outside)}`
+        : `${origin}/.fig_thumbs/${ext === "md" ? "code_editor" : "latex_studio"}.html?path=${encodeURIComponent(outside)}${lineQ}${diffQ}${baseQ}`;
     } else if (ext === "pdf") {
       url = `${origin}/.fig_thumbs/pdf_viewer.html?file=${encodeURIComponent(rel)}`;
     } else if (ext === "svg") {
@@ -2250,6 +2259,9 @@ export default function App() {
       url = `${origin}/.fig_thumbs/${editor}.html?path=${encodeURIComponent(`${activeProject}/${rel}`)}${lineQ}${diffQ}${baseQ}`;
     }
     url = withAtelierNonce(url, atelierNonce);
+    if (outside && galleryTokenRef.current) {
+      url = withAtelierToken(url, galleryTokenRef.current);
+    }
     const tabIdentity = (raw: string) => {
       const parsed = new URL(raw);
       for (const key of ["line", "diff", "base"]) parsed.searchParams.delete(key);

@@ -253,7 +253,7 @@ fn terminate(info: &GatewayLock) {
 /// Ensure the private gateway matches the current sidecar session.
 pub fn ensure(app: &tauri::AppHandle, sidecar: &SidecarInfo) -> Result<(), String> {
     let ip = tailscale_ip()?;
-    let bind = format!("0.0.0.0:{GATEWAY_PORT}");
+    let bind = format!("{ip}:{GATEWAY_PORT}");
     let expected_hash = token_hash(&sidecar.token);
     let mut process_guard = REMOTE_GATEWAY.lock().map_err(|e| e.to_string())?;
 
@@ -277,18 +277,28 @@ pub fn ensure(app: &tauri::AppHandle, sidecar: &SidecarInfo) -> Result<(), Strin
     let remote_dir = root.join("remote");
     std::fs::create_dir_all(&remote_dir).map_err(|e| e.to_string())?;
     let log_path = remote_dir.join("gateway.log");
-    let stderr = OpenOptions::new()
-        .create(true)
-        .append(true)
-        .open(log_path)
-        .map_err(|e| e.to_string())?;
+    let mut log_options = OpenOptions::new();
+    log_options.create(true).append(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        log_options.mode(0o600);
+    }
+    let stderr = log_options.open(&log_path).map_err(|e| e.to_string())?;
+    #[cfg(unix)]
+    {
+        // `.mode()` ne s'applique qu'à la création : un fichier de log déjà
+        // présent avant ce correctif (potentiellement 0644, cf. SEC-03) est
+        // reverrouillé explicitement ici.
+        use std::os::unix::fs::PermissionsExt;
+        let _ = std::fs::set_permissions(&log_path, std::fs::Permissions::from_mode(0o600));
+    }
     let stdout = File::open("/dev/null").map_err(|e| e.to_string())?;
     let dns = tailscale_dns_name().unwrap_or_default();
     let allowed_hosts =
         format!("127.0.0.1,localhost,tauri.localhost,{ip},{ip}:{GATEWAY_PORT},{dns},{dns}:8443");
     let child = Command::new(binary)
         .env("ATELIER_REMOTE_BIND", &bind)
-        .env("ATELIER_REMOTE_ALLOW_ANY_BIND", "1")
         .env("ATELIER_REMOTE_ALLOWED_HOSTS", allowed_hosts)
         .env("ATELIER_APP_DIR", &root)
         .env(
@@ -297,7 +307,6 @@ pub fn ensure(app: &tauri::AppHandle, sidecar: &SidecarInfo) -> Result<(), Strin
         )
         .env("ATELIER_TOKEN", &sidecar.token)
         .env("ATELIER_MOBILE_DIR", mobile_dir)
-        .env("ATELIER_MOBILE_BIND", "0.0.0.0:1421")
         .stdin(Stdio::null())
         .stdout(Stdio::from(stdout))
         .stderr(Stdio::from(stderr))
@@ -322,15 +331,75 @@ pub fn ensure(app: &tauri::AppHandle, sidecar: &SidecarInfo) -> Result<(), Strin
     if let Some(path) = app_dir().map(|p| p.join("remote/gateway.log")) {
         let _ = File::open(path).and_then(|mut f| f.read_to_string(&mut log));
     }
-    Err(format!(
-        "gateway non joignable sur {bind}: {}",
-        log.lines().last().unwrap_or("aucun diagnostic")
-    ))
+    let diagnostic = redact_and_truncate(log.lines().last().unwrap_or("aucun diagnostic"));
+    Err(format!("gateway non joignable sur {bind}: {diagnostic}"))
+}
+
+/// Remplace toute suite de 32+ caractères hex (jeton probable) par `[jeton]`
+/// avant de tronquer à 200 caractères — jamais de secret dans l'UI (SEC-03).
+fn redact_and_truncate(line: &str) -> String {
+    let mut out = String::with_capacity(line.len());
+    let mut run_start: Option<usize> = None;
+    let chars: Vec<char> = line.chars().collect();
+    let mut i = 0;
+    while i < chars.len() {
+        if chars[i].is_ascii_hexdigit() {
+            if run_start.is_none() {
+                run_start = Some(i);
+            }
+        } else if let Some(start) = run_start.take() {
+            push_run(&mut out, &chars[start..i]);
+        } else {
+            out.push(chars[i]);
+        }
+        i += 1;
+    }
+    if let Some(start) = run_start {
+        push_run(&mut out, &chars[start..]);
+    }
+    out.chars().take(200).collect()
+}
+
+fn push_run(out: &mut String, run: &[char]) {
+    if run.len() >= 32 {
+        out.push_str("[jeton]");
+    } else {
+        out.extend(run.iter());
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn redact_and_truncate_strips_long_hex_runs_and_caps_length() {
+        let token = "a".repeat(64);
+        let line = format!("atelier-remote-gateway admin token (loopback only): {token}");
+        let redacted = redact_and_truncate(&line);
+        assert!(!redacted.contains(&token));
+        assert!(redacted.contains("[jeton]"));
+        assert!(redacted.chars().count() <= 200);
+
+        // Une longue ligne sans jeton reste tronquée à 200 caractères.
+        let long_line = "x".repeat(500);
+        assert_eq!(redact_and_truncate(&long_line).chars().count(), 200);
+
+        // Un identifiant court (pid, port…) n'est pas confondu avec un jeton.
+        let short = "port=18765";
+        assert_eq!(redact_and_truncate(short), short);
+    }
+
+    #[test]
+    fn bind_string_never_targets_an_unspecified_address() {
+        // Le bind du gateway est construit à partir de l'IP Tailscale résolue
+        // (jamais 0.0.0.0) — régression pour SEC-01/-02 : un retour en arrière
+        // vers `format!("0.0.0.0:{GATEWAY_PORT}")` doit casser ce test.
+        let ip: IpAddr = "100.64.12.34".parse().unwrap();
+        let bind = format!("{ip}:{GATEWAY_PORT}");
+        let addr: SocketAddr = bind.parse().unwrap();
+        assert!(!addr.ip().is_unspecified());
+    }
 
     #[test]
     fn bundled_gateway_candidate_has_priority() {

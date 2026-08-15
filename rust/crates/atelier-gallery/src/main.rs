@@ -1807,6 +1807,12 @@ async fn start_watcher(state: AppState) -> Result<(), String> {
 }
 
 /// Studio local editor token — mirrors `gallery/server/shared.mjs` galleryToken().
+///
+/// SEC-08 : la génération doit échouer bruyamment plutôt que dégénérer en
+/// jeton constant. Un `File::open("/dev/urandom")` raté était auparavant
+/// ignoré silencieusement (`if let Ok` + `bytes` restait `[0u8; 32]`), ce qui
+/// autorisait la sortie du sandbox projet (`editorPath`, `gallery/server/
+/// shared.mjs`) avec un jeton connu de tous.
 fn ensure_gallery_token() {
     let Some(home) = std::env::var_os("HOME").map(PathBuf::from) else {
         return;
@@ -1814,7 +1820,18 @@ fn ensure_gallery_token() {
     let dir = home.join(".atelier-studio");
     let file = dir.join("gallery_token");
     if file.is_file() {
-        return;
+        // Un jeton existant entièrement à zéro trahit l'ancien échec
+        // silencieux d'entropie : on le régénère au lieu de lui faire
+        // confiance, et on journalise l'événement (jamais la valeur).
+        let is_zeroed = fs::read_to_string(&file)
+            .map(|s| is_zeroed_token(&s))
+            .unwrap_or(false);
+        if !is_zeroed {
+            return;
+        }
+        eprintln!(
+            "atelier-gallery: gallery_token existant était constant (0×32, échec d'entropie pré-correctif) — régénération (SEC-08)"
+        );
     }
     let _ = fs::create_dir_all(&dir);
     #[cfg(unix)]
@@ -1823,24 +1840,66 @@ fn ensure_gallery_token() {
         let _ = fs::set_permissions(&dir, fs::Permissions::from_mode(0o700));
     }
     use std::io::Write;
-    let mut bytes = [0u8; 32];
-    if let Ok(mut f) = fs::File::open("/dev/urandom") {
-        use std::io::Read;
-        let _ = f.read_exact(&mut bytes);
-    }
-    let tok = hex::encode(bytes);
-    // wx: first process wins
-    if let Ok(mut out) = fs::OpenOptions::new()
+    let tok = generate_gallery_token();
+    // wx pour une première création (le premier process gagne) ; sinon on
+    // écrase explicitement le jeton nul détecté ci-dessus.
+    let opened = fs::OpenOptions::new()
         .write(true)
         .create_new(true)
         .open(&file)
-    {
+        .or_else(|_| fs::OpenOptions::new().write(true).truncate(true).open(&file));
+    if let Ok(mut out) = opened {
         let _ = out.write_all(tok.as_bytes());
         #[cfg(unix)]
         {
             use std::os::unix::fs::PermissionsExt;
             let _ = fs::set_permissions(&file, fs::Permissions::from_mode(0o600));
         }
+    }
+}
+
+/// Vrai si `text` (une fois trim) n'est composé que de `'0'` — signature d'un
+/// jeton hex constant issu de l'ancien échec silencieux d'entropie.
+fn is_zeroed_token(text: &str) -> bool {
+    let s = text.trim();
+    !s.is_empty() && s.bytes().all(|b| b == b'0')
+}
+
+/// 32 octets d'entropie système encodés en hex. Jamais de repli silencieux :
+/// sans RNG système fiable, on panique plutôt que produire un jeton faible ou
+/// constant (SEC-08).
+fn generate_gallery_token() -> String {
+    use rand::RngCore;
+    let mut bytes = [0u8; 32];
+    rand::rngs::OsRng
+        .try_fill_bytes(&mut bytes)
+        .expect("entropie système indisponible — refus de générer un jeton galerie");
+    hex::encode(bytes)
+}
+
+#[cfg(test)]
+mod gallery_token_tests {
+    use super::{generate_gallery_token, is_zeroed_token};
+
+    #[test]
+    fn detects_all_zero_token_as_leftover_entropy_failure() {
+        assert!(is_zeroed_token(&"0".repeat(64)));
+        assert!(is_zeroed_token("0000\n"));
+        assert!(!is_zeroed_token(""));
+        assert!(!is_zeroed_token("   "));
+        assert!(!is_zeroed_token(
+            "0a1b2c3d4e5f00000000000000000000000000000000000000000000000000"
+        ));
+    }
+
+    #[test]
+    fn generated_token_is_64_hex_chars_and_not_constant() {
+        let a = generate_gallery_token();
+        let b = generate_gallery_token();
+        assert_eq!(a.len(), 64);
+        assert!(a.chars().all(|c| c.is_ascii_hexdigit()));
+        assert!(!is_zeroed_token(&a));
+        assert_ne!(a, b, "deux tirages ne doivent pas coïncider");
     }
 }
 
