@@ -1,7 +1,11 @@
-// Lecteur d'une page du dépôt gbrain. LECTURE SEULE : ouvrir une page ne la
-// fait pas entrer dans la base — épingler reste un geste distinct, à côté.
-// Deux vues, parce qu'on n'ouvre pas une page pour la même raison : lire
-// l'article (Rendu) ou vérifier ce que le convertisseur en a fait (Source).
+// Lecteur d'une source. LECTURE SEULE : ouvrir ne fait entrer rien nulle part —
+// épingler (dépôt) et attacher (base) restent des gestes distincts, à côté.
+//
+// Deux cibles, une seule vue : une page du dépôt gbrain (par slug) ou une
+// source de la base (par id). Ce qu'il montre est le texte STOCKÉ, celui qui
+// part réellement dans le contexte — pas le fichier sur le disque. L'écart
+// entre les deux est la raison d'être de ce lecteur : un CSV de 68 ko y entre
+// sous forme de profil de 2 ko, et rien d'autre ne le dit.
 import { useEffect, useMemo, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import { MD_COMPONENTS, useMdPlugins } from "./md";
@@ -12,42 +16,64 @@ import { IconButton } from "../ui/IconButton";
 import { RowButton } from "../ui/RowButton";
 import { wsSend } from "../../lib/wsBus";
 
-export type GbrainReaderProps = {
-  slug: string;
+/** Page du dépôt, ou source de la base. */
+export type ReaderTarget =
+  | { kind: "gbrain"; slug: string }
+  | { kind: "source"; id: string };
+
+export type FolderFile = { rel: string; chars: number };
+
+export type SourceReaderProps = {
+  target: ReaderTarget;
   onClose(): void;
-  onPin(slug: string): void;
-  onOpenOrigin?(path: string): void;
+  /** Dépôt : faire entrer la page dans la base. */
+  onPin?(slug: string): void;
+  /** Base : bascule « contenu complet » de cette source. */
+  onToggleFull?(id: string): void;
+  full?: boolean;
 };
 
 type Etat =
   | { phase: "chargement" }
   | { phase: "erreur"; message: string }
-  | { phase: "prete"; markdown: string; chars: number };
+  | { phase: "prete"; markdown: string; chars: number; title?: string; kind?: string;
+      origin?: string; files?: FolderFile[] };
 
-export default function GbrainReader(p: GbrainReaderProps) {
+const nb = (n: number) => n.toLocaleString("fr-CA");
+
+export default function SourceReader(p: SourceReaderProps) {
   const [etat, setEtat] = useState<Etat>({ phase: "chargement" });
   const [vue, setVue] = useState<"rendu" | "source">("rendu");
   const plugins = useMdPlugins();
+  const cible = p.target;
+  const clef = cible.kind === "gbrain" ? cible.slug : cible.id;
 
   useEffect(() => {
     setEtat({ phase: "chargement" });
     setVue("rendu");
-    const onPage = (event: Event) => {
-      const detail = (event as CustomEvent).detail as
-        | { slug?: string; markdown?: string; chars?: number; error?: string }
-        | undefined;
-      if (!detail || detail.slug !== p.slug) return;
-      if (detail.error) { setEtat({ phase: "erreur", message: detail.error }); return; }
+    const attendu = cible.kind === "gbrain" ? "gbrain-page" : "source-text";
+    const onReponse = (event: Event) => {
+      const d = (event as CustomEvent).detail as Record<string, unknown> | undefined;
+      if (!d) return;
+      const recu = String(cible.kind === "gbrain" ? d.slug ?? "" : d.id ?? "");
+      if (recu !== clef) return;
+      if (d.error) { setEtat({ phase: "erreur", message: String(d.error) }); return; }
       setEtat({
         phase: "prete",
-        markdown: String(detail.markdown ?? ""),
-        chars: Number(detail.chars ?? 0),
+        markdown: String(d.markdown ?? d.text ?? ""),
+        chars: Number(d.chars ?? 0),
+        title: d.title ? String(d.title) : undefined,
+        kind: d.kind ? String(d.kind) : undefined,
+        origin: d.origin ? String(d.origin) : undefined,
+        files: Array.isArray(d.files) ? (d.files as FolderFile[]) : undefined,
       });
     };
-    window.addEventListener("gbrain-page", onPage);
-    wsSend({ type: "kbGbrainPage", slug: p.slug });
-    return () => window.removeEventListener("gbrain-page", onPage);
-  }, [p.slug]);
+    window.addEventListener(attendu, onReponse);
+    wsSend(cible.kind === "gbrain"
+      ? { type: "kbGbrainPage", slug: cible.slug }
+      : { type: "kbSourceText", id: cible.id });
+    return () => window.removeEventListener(attendu, onReponse);
+  }, [cible.kind, clef]);
 
   const page = useMemo(() => {
     if (etat.phase !== "prete") return null;
@@ -55,8 +81,12 @@ export default function GbrainReader(p: GbrainReaderProps) {
     return { meta, body, rendu: mineruTablesToMarkdown(body) };
   }, [etat]);
 
-  const origine = page?.meta.origin ?? "";
+  const dossier = etat.phase === "prete" && etat.kind === "folder" ? etat.files ?? [] : null;
+  const origine = page?.meta.origin ?? (etat.phase === "prete" ? etat.origin ?? "" : "");
   const nomFichier = origine.split("/").pop() ?? "";
+  const titre = page?.meta.title
+    || (etat.phase === "prete" ? etat.title : undefined)
+    || clef;
 
   return (
     <div className="gbr">
@@ -66,11 +96,12 @@ export default function GbrainReader(p: GbrainReaderProps) {
             strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
             <path d="M15 5l-7 7 7 7" />
           </svg>
-          {t("gbr.back")}
+          {t(cible.kind === "gbrain" ? "gbr.back" : "gbr.back-base")}
         </RowButton>
-        <span className="gbr-slug" title={p.slug}>{p.slug}</span>
+        <span className="gbr-slug" title={clef}>{clef}</span>
         <span className="gbr-spacer" />
-        {page && (
+        {/* Un dossier n'a pas de « source » à montrer : il a des fichiers. */}
+        {page && !dossier && (
           <span className="gbr-seg" role="tablist" aria-label={t("gbr.views")}>
             {(["rendu", "source"] as const).map((cle) => (
               <RowButton
@@ -85,19 +116,24 @@ export default function GbrainReader(p: GbrainReaderProps) {
             ))}
           </span>
         )}
-        <Button type="button" variant="ghost" className="ghost" onClick={() => p.onPin(p.slug)}>
-          {t("gbr.pin")}
-        </Button>
-        {origine && p.onOpenOrigin && (
+        {cible.kind === "gbrain" && p.onPin && (
           <Button type="button" variant="ghost" className="ghost"
-            title={origine} onClick={() => p.onOpenOrigin?.(origine)}>
-            {t("gbr.open-origin")}
+            onClick={() => p.onPin?.(cible.slug)}>
+            {t("gbr.pin")}
           </Button>
         )}
-        {page && (
+        {/* Le réglage qui décide combien de la source entre dans le contexte se
+            règle ici, en la lisant — pas dans un menu à trois niveaux. */}
+        {cible.kind === "source" && p.onToggleFull && (
+          <Button type="button" variant="ghost" className={`ghost ${p.full ? "on" : ""}`}
+            onClick={() => p.onToggleFull?.(cible.id)}>
+            {t(p.full ? "gbr.full-on" : "gbr.full-off")}
+          </Button>
+        )}
+        {etat.phase === "prete" && (
           <IconButton
             size="s" className="ghost" label={t("gbr.copy")} title={t("gbr.copy")}
-            onClick={() => { void navigator.clipboard?.writeText(etat.phase === "prete" ? etat.markdown : ""); }}
+            onClick={() => { void navigator.clipboard?.writeText(etat.markdown); }}
           >
             <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor"
               strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
@@ -108,40 +144,52 @@ export default function GbrainReader(p: GbrainReaderProps) {
       </div>
 
       {etat.phase === "chargement" && <div className="gbr-empty">{t("gbr.loading")}</div>}
-      {etat.phase === "erreur" && <div className="kb-error"><span className="kb-error-text">{etat.message}</span></div>}
+      {etat.phase === "erreur" && (
+        <div className="kb-error"><span className="kb-error-text">{etat.message}</span></div>
+      )}
 
-      {page && (
+      {etat.phase === "prete" && (
         <>
-          {/* Le front matter devient une fiche : ouvrir un article sur douze
-              lignes de YAML, c'est commencer par la plomberie. */}
           <div className="gbr-meta">
-            <h2 className="gbr-title">{page.meta.title || p.slug}</h2>
-            {page.meta.authors && <div className="gbr-authors">{page.meta.authors}</div>}
+            <h2 className="gbr-title">{titre}</h2>
+            {page?.meta.authors && <div className="gbr-authors">{page.meta.authors}</div>}
             <div className="gbr-facts">
-              {page.meta.year ? <span className="gbr-fact"><b>{page.meta.year}</b></span> : null}
-              {page.meta.journal && <span className="gbr-fact">{page.meta.journal}</span>}
-              {page.meta.doi && <span className="gbr-fact">doi <b>{page.meta.doi}</b></span>}
-              {page.meta.converter && (
+              {page?.meta.year ? <span className="gbr-fact"><b>{page.meta.year}</b></span> : null}
+              {page?.meta.journal && <span className="gbr-fact">{page.meta.journal}</span>}
+              {page?.meta.doi && <span className="gbr-fact">doi <b>{page.meta.doi}</b></span>}
+              {page?.meta.converter && (
                 <span className="gbr-fact on">{t("gbr.converted-by", { c: page.meta.converter })}</span>
               )}
-              <span className="gbr-fact"><b>{etat.phase === "prete" ? etat.chars.toLocaleString("fr-CA") : 0}</b> {t("gbr.chars")}</span>
+              {dossier && <span className="gbr-fact"><b>{nb(dossier.length)}</b> {t("gbr.files")}</span>}
+              <span className="gbr-fact"><b>{nb(etat.chars)}</b> {t("gbr.chars-context")}</span>
               {nomFichier && <span className="gbr-fact" title={origine}>{nomFichier}</span>}
             </div>
           </div>
 
           <div className="gbr-doc">
-            {vue === "rendu" ? (
+            {dossier ? (
+              // 103 000 caractères collés bout à bout ne se lisent pas : un
+              // dossier se parcourt par ses fichiers.
+              <div className="gbr-files">
+                {dossier.map((file) => (
+                  <div className="gbr-file" key={file.rel}>
+                    <span className="gbr-file-p" title={file.rel}>{file.rel}</span>
+                    <span className="gbr-file-s">{nb(file.chars)} {t("gbr.chars")}</span>
+                  </div>
+                ))}
+              </div>
+            ) : vue === "rendu" ? (
               <div className="gbr-md msg typeset">
                 <ReactMarkdown
                   remarkPlugins={plugins.remark}
                   rehypePlugins={plugins.rehype}
                   components={MD_COMPONENTS as never}
                 >
-                  {page.rendu}
+                  {page?.rendu ?? ""}
                 </ReactMarkdown>
               </div>
             ) : (
-              <pre className="gbr-src">{etat.phase === "prete" ? etat.markdown : ""}</pre>
+              <pre className="gbr-src">{etat.markdown}</pre>
             )}
           </div>
         </>

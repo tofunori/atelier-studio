@@ -225,11 +225,21 @@ describe("KbSurface", () => {
     expect(onPin).toHaveBeenCalledWith("papers/aubry-wake-2022");
   });
 
-  it("attache une source au clic, et le compteur filtre sur les attachées", () => {
+  // Le cercle attache, la rangée ouvre : le clic n'est plus dépensé pour
+  // l'attachement, sinon rien n'ouvre jamais la source.
+  it("attache par le cercle, ouvre par la rangée, et filtre sur les attachées", () => {
     const onToggle = vi.fn();
-    renderUi(<KbSurface {...props({ attached: ["bbbb2222"], onToggle })} />);
-    fireEvent.click(screen.getByText("Cuffey & Paterson ch. 5"));
+    const { container } = renderUi(<KbSurface {...props({ attached: ["bbbb2222"], onToggle })} />);
+
+    fireEvent.click(container.querySelectorAll(".kb-check-btn")[0]);
     expect(onToggle).toHaveBeenCalledWith("aaaa1111");
+
+    // la rangée ouvre le lecteur, sans rien attacher de plus
+    onToggle.mockClear();
+    fireEvent.click(screen.getByText("Cuffey & Paterson ch. 5"));
+    expect(onToggle).not.toHaveBeenCalled();
+    expect(screen.getByText("Base")).toBeTruthy();
+    fireEvent.click(screen.getByText("Base"));
 
     fireEvent.click(screen.getByText("1 attachée(s)"));
     expect(screen.getByText("Albedo feedbacks review")).toBeTruthy();

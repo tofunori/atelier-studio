@@ -5,7 +5,7 @@
 // panneau historique (KbPickerPanel) — c'est la table de travail qui change.
 import { useEffect, useMemo, useState, useSyncExternalStore } from "react";
 import { t } from "../../lib/i18n";
-import GbrainReader from "./GbrainReader";
+import SourceReader, { type ReaderTarget } from "./SourceReader";
 import type { KbSource } from "../../lib/kbSources";
 import {
   articleImportSnapshot, dismissArticleImport, fileName, openArticleDialog, openGbrainPage,
@@ -164,7 +164,7 @@ export default function KbSurface(p: {
   const [tab, setTab] = useState<"base" | "brain">("base");
   // Page du dépôt ouverte en lecture : le lecteur remplace la liste, avec un
   // retour. Pas de modale — une lecture d'article dure.
-  const [lecture, setLecture] = useState<string | null>(null);
+  const [lecture, setLecture] = useState<ReaderTarget | null>(null);
   // imports en vol : rangées vivantes en tête de liste (plan 054)
   const imports = useSyncExternalStore(subscribeArticleImport, articleImportSnapshot);
   const [now, setNow] = useState(() => Date.now());
@@ -332,7 +332,7 @@ export default function KbSurface(p: {
     }
     // page du dépôt : la lire, ou la faire entrer dans la base
     return [
-      { key: "read", label: t("kbs.menu-read"), onSelect: () => setLecture(row.slug ?? "") },
+      { key: "read", label: t("kbs.menu-read"), onSelect: () => setLecture({ kind: "gbrain", slug: row.slug ?? "" }) },
       {
         key: "pin",
         separatorBefore: true,
@@ -351,21 +351,29 @@ export default function KbSurface(p: {
     const corpus = !source;
     return (
       <div className={`kb-row ${on ? "on" : ""}`} key={row.key}>
+        {/* Le cercle porte l'attachement, la rangée ouvre. Le clic était
+            dépensé pour attacher et rien n'ouvrait la source ; le cercle, lui,
+            ne faisait que refléter l'état. Même grammaire dans les deux
+            onglets : cliquer ouvre, un geste distinct engage. */}
+        {!corpus && source && (
+          <RowButton
+            className={`kb-check-btn ${selectMode ? (selected.has(source.id) ? "on" : "") : on ? "on" : ""}`}
+            aria-pressed={selectMode ? selected.has(source.id) : on}
+            title={t(selectMode ? "kbs.select" : on ? "kbs.detach" : "kbs.attach")}
+            onClick={() => (selectMode ? toggleSelected(source.id) : p.onToggle(source.id))}
+          >
+            <span className="kb-check" aria-hidden />
+          </RowButton>
+        )}
         <RowButton
           className="kb-row-main"
           title={source?.origin ?? row.slug ?? row.title}
           onClick={() => {
             if (selectMode && source) toggleSelected(source.id);
-            else if (source) p.onToggle(source.id);
-            else setLecture(row.slug ?? "");
+            else if (source) setLecture({ kind: "source", id: source.id });
+            else setLecture({ kind: "gbrain", slug: row.slug ?? "" });
           }}
         >
-          {!corpus && (
-            <span
-              className={`kb-check ${selectMode ? (source && selected.has(source.id) ? "on" : "") : on ? "on" : ""}`}
-              aria-hidden
-            />
-          )}
           <span className="kb-kind"><KindIcon kind={row.kind} /></span>
           <span className="kb-name">{row.title}</span>
           {full && <span className="kbs-flag">{t("kbs.flag-full")}</span>}
@@ -397,11 +405,12 @@ export default function KbSurface(p: {
   if (lecture) {
     return (
       <div className="kb-panel kb-panel-surface kbs">
-        <GbrainReader
-          slug={lecture}
+        <SourceReader
+          target={lecture}
           onClose={() => setLecture(null)}
           onPin={(slug) => p.gbrain?.onPin(slug)}
-          onOpenOrigin={p.onOpenOrigin}
+          onToggleFull={p.onToggleFull}
+          full={lecture.kind === "source" && p.fullContent.includes(lecture.id)}
         />
       </div>
     );

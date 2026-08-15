@@ -3715,3 +3715,16 @@ button.ctx-ring-wrap { border: none; font: inherit; color: inherit;
 .gbr-src { margin: 0; font-family: var(--mono, ui-monospace, monospace); font-size: var(--fs-s);
   line-height: 1.7; color: var(--text-secondary); white-space: pre-wrap; word-break: break-word; }
 .gbr-empty { padding: 24px 0; color: var(--text-muted); font-size: var(--fs-m); }
+/* Le cercle porte l'attachement : il devient une cible cliquable à part
+   entière, et la rangée se libère pour ouvrir la source. */
+.kb-check-btn { display: inline-flex; align-items: center; justify-content: center;
+  width: 20px; height: 20px; flex: none; padding: 0; border-radius: var(--radius-control);
+  background: transparent; }
+.kb-check-btn:hover { background: var(--bg-ctl); }
+.gbr-files { display: flex; flex-direction: column; gap: 1px; }
+.gbr-file { display: flex; align-items: center; gap: 9px; height: 26px; padding: 0 8px;
+  border-radius: var(--radius-control); font-size: var(--fs-m); color: var(--text); }
+.gbr-file:hover { background: var(--bg-ctl); }
+.gbr-file-p { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.gbr-file-s { color: var(--text-muted); font-size: var(--fs-xs);
+  font-variant-numeric: tabular-nums; }
