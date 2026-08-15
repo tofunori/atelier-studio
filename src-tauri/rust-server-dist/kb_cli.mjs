@@ -5,7 +5,7 @@ import { importArticle, importDoi, listArticles, readDraft, writeArticle } from 
 import { GBRAIN_NOT_FOUND, KnowledgeStore, defaultKnowledgeDir, parseGbrainSearch, promotePage, runGbrain } from "./knowledge.mjs";
 import { passageLink } from "./zotero_passages.mjs";
 
-const COMMANDS = new Set(["add", "list", "remove", "search", "gbrain-search", "gbrain-page", "promote-page", "collection", "tag", "archive", "article-import", "article-write", "article-draft", "article-list", "article-doi"]);
+const COMMANDS = new Set(["add", "list", "remove", "search", "gbrain-search", "gbrain-page", "kb-text", "promote-page", "collection", "tag", "archive", "article-import", "article-write", "article-draft", "article-list", "article-doi"]);
 const USAGE = [
   "Usage: atelier-kb <add|list|remove|search|gbrain-search|promote-page|article-import|article-write> [options]",
   "  add    --kind file|pdf|web|youtube|note|folder|gbrain [--origin <chemin|url|slug>] [--title <t>] [--text <t>]",
@@ -15,6 +15,7 @@ const USAGE = [
   "  search --id <id> --query <question> [--limit 5]",
   "  gbrain-search --query <mots-clés> [--limit 12]   (corpus NAS)",
   "  gbrain-page --slug <articles/…>                  (markdown d'une page, lecture seule)",
+  "  kb-text --id <id>                                (texte stocké d'une source, lecture seule)",
   "  promote-page --id <id> [--slug atelier/…] [--write]   (page directe gbrain)",
   "  article-import --path <article.pdf>              (PDF → markdown + fiche, sans écriture)",
   "  article-draft --draft <id>                       (texte complet du brouillon)",
@@ -210,6 +211,24 @@ export async function runKbCommand(argv, deps = {}) {
       ragdoc: options.ragdoc === true,
       dir: options.dir || undefined,
     }, deps);
+  }
+  if (command === "kb-text") {
+    // Ce que l'agent lit vraiment : le texte STOCKÉ, pas le fichier sur disque.
+    // Un dossier rend la liste de ses fichiers — 103 000 caractères collés bout
+    // à bout ne se lisent pas, et ce n'est pas ainsi qu'on le cherche.
+    if (!options.id) throw new Error("Argument requis: --id");
+    const entry = store.sources.get(options.id);
+    if (!entry) throw new Error(`Source inconnue: ${options.id}`);
+    const base = { ok: true, id: entry.id, kind: entry.kind, title: entry.title,
+      origin: entry.origin ?? "", chars: entry.chars ?? 0 };
+    if (entry.kind === "folder") {
+      const files = store.folderFilesFor(entry.id).map((file) => ({
+        rel: file.rel,
+        chars: file.pages.reduce((sum, page) => sum + page.text.length, 0),
+      }));
+      return { ...base, files, text: "" };
+    }
+    return { ...base, text: store.fullText(entry.id) };
   }
   if (command === "gbrain-page") {
     // Lecture seule : voir ce qui a VRAIMENT été ingéré. Rien n'entre dans la
