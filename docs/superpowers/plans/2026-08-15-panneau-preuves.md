@@ -228,7 +228,45 @@ it("lien passage SEUL dans un paragraphe → carte ; inline → pilule", () => {
 - [ ] **Step 4 : vert** — `npx vitest run src/components/chat` + `npx tsc --noEmit`.
 - [ ] **Step 5 : commit** — `git commit -m "feat(preuves): carte passage — une ligne repliée, épingle WS"`
 
-### Task 6: Surface Preuves
+### Task 6: Carte passage gbrain + lecteur surligné
+
+**Files:**
+- Modify: `src/components/chat/md.tsx` (nouveau `parseGbrainPassageRef`, détection dans `lonePassageRef` et pilule inline gbrain)
+- Modify: `src/components/chat/PassageCard.tsx` (les deux sources)
+- Modify: `src/components/chat/SourceReader.tsx` (prop `highlightQuote?: string` — défilement + surlignage)
+- Modify: `src/App.tsx` + hôte du SourceReader (`grep -n "SourceReader" src/components/chat/KbSurface.tsx src/App.tsx` et refléter le chemin d'ouverture existant en y ajoutant `highlightQuote`)
+- Modify: `rust/crates/atelier-runtime/src/send.rs` (instruction : bloc gbrain, Task 4 déjà en place)
+- Modify: `rust/crates/atelier-runtime/src/evidence.rs` + `ws_router.rs` (champ `source: "zotero"|"gbrain"` + `gbrainSlug` optionnel — champs zotero optionnels)
+- Test: `src/components/chat/PassageCard.test.tsx`, `src/components/chat/SourceReader.test.tsx`, tests Rust existants étendus
+
+**Interfaces:**
+- Consumes: `SourceReader` (`ReaderTarget {kind:"gbrain", slug}` existant, WS `kbGbrainPage`), Custom Highlight API (pattern `::highlight(chat-hl)`, App.css ~l.1606).
+- Produces: `parseGbrainPassageRef(href) -> { slug, quote } | null` (préfixe `#atelier-gbrain-passage?`, slug `[A-Za-z0-9_-]{1,120}`, quote ≤ 900 non vide) ; `EvidencePin.source` (défaut `"zotero"` à la désérialisation pour les épingles v1 existantes).
+
+- [ ] **Step 1 : tests qui échouent** :
+
+```tsx
+it("lien gbrain seul → carte ; ouverture = lecteur avec citation", () => {
+  const md = `[« q »](#atelier-gbrain-passage?slug=williamson-2021-fire-aerosol&quote=Fire%20aerosol)`;
+  render(<ReactMarkdown components={MD_COMPONENTS as any}>{md}</ReactMarkdown>);
+  expect(document.querySelectorAll(".passage-card")).toHaveLength(1);
+});
+// SourceReader.test.tsx : highlightQuote pose un CSS highlight + scrolle
+it("highlightQuote surligne la première occurrence du texte rendu", async () => {
+  render(<SourceReader target={{ kind: "gbrain", slug: "s" }} onClose={() => {}} highlightQuote="aerosol deposition" />);
+  dispatchGbrainPage({ slug: "s", markdown: "Le fire aerosol deposition réduit l'albédo." });
+  await waitFor(() => expect(CSS.highlights?.has?.("reader-quote") || document.querySelector("mark.reader-quote")).toBeTruthy());
+});
+```
+
+(jsdom n'a pas la Custom Highlight API : implémentation = Highlight API si `CSS.highlights` existe, sinon repli `<mark class="reader-quote">` — le test couvre le repli.)
+
+- [ ] **Step 2 : échec** — parse absent, prop absente.
+- [ ] **Step 3 : implémentation** — `parseGbrainPassageRef` (validation stricte comme `parseZoteroPassageRef`) ; `PassageCard` accepte `refData: ZoteroPassageRef | GbrainPassageRef` (discriminant `kind`), libellé source = slug humanisé (tirets→espaces, capitalisé) sans `p. N`, action ouvrir → événement `CustomEvent("kb-open-gbrain-passage", { detail: { slug, quote } })` → App bascule sur la surface Connaissances et ouvre le SourceReader avec `highlightQuote` ; normalisation du match : NFKD, minuscules, espaces réduits, premiers ~80 caractères de la citation ; `scrollIntoView({ block: "center" })` ; style `::highlight(reader-quote)` + `mark.reader-quote` via `--accent` en fond translucide (mix 32% comme `chat-hl`). Rust : `source` (serde default `"zotero"`), `gbrainSlug: Option<String>`, champs zotero en `Option` ; dédup gbrain sur `(gbrain_slug, quote)`. Instruction : ajout du bloc gbrain (Task 4 test étendu : `assert!(out.contains("atelier-gbrain-passage"))`).
+- [ ] **Step 4 : vert** — `npx vitest run src/components/chat` + `cargo test -p atelier-runtime` + `npx tsc --noEmit`.
+- [ ] **Step 5 : commit** — `git commit -m "feat(preuves): passages gbrain — carte, lecteur défilé/surligné, épingle typée"`
+
+### Task 7: Surface Preuves
 
 **Files:**
 - Create: `src/components/EvidenceSurface.tsx`
@@ -261,11 +299,11 @@ it("rangée : clic ouvre le PDF, action retire l'épingle", () => {
 ```
 
 - [ ] **Step 2 : échec** — composant absent.
-- [ ] **Step 3 : implémentation** — en-tête `SurfaceHeader` existant (titre `t("atelier.preuves")`), groupes triés par ajout desc (`Map` sur `supports?.text ?? null`), rangée = `RowButton` (citation italique ellipsée + `citeLabel · p. N`) → `openZoteroPassage`, `IconButton` retirer → `wsSend({type:"unpinPassage",...})`, action « copier `\autocite{zoteroKey}` » (`navigator.clipboard`, toast succès existant). Vide → `EmptyState` (`t("preuves.empty")` fr « Aucun passage épinglé — demande une référence dans le chat. » / en « No pinned passages yet — ask the chat for a reference. »). i18n : `atelier.preuves` « Preuves »/« Evidence », `preuves.sans-ancrage` « Sans ancrage »/« No anchor », `preuves.copy-cite` « Copier \autocite »/« Copy \autocite », `preuves.empty` ci-dessus. CSS : réutiliser les patterns de panneau existants, tokens seulement.
+- [ ] **Step 3 : implémentation** — en-tête `SurfaceHeader` existant (titre `t("atelier.preuves")`), groupes triés par ajout desc (`Map` sur `supports?.text ?? null`), rangée = `RowButton` (citation italique ellipsée + `citeLabel · p. N` pour zotero, slug humanisé pour gbrain) → `openZoteroPassage` si `pin.source === "zotero"`, sinon `CustomEvent("kb-open-gbrain-passage", { detail: { slug: pin.gbrainSlug, quote: pin.quote } })` (Task 6) ; `IconButton` retirer → `wsSend({type:"unpinPassage",...})` ; action « copier `\autocite{zoteroKey}` » pour zotero SEULEMENT (`navigator.clipboard`, toast succès existant), « copier la citation » pour gbrain. Vide → `EmptyState` (`t("preuves.empty")` fr « Aucun passage épinglé — demande une référence dans le chat. » / en « No pinned passages yet — ask the chat for a reference. »). i18n : `atelier.preuves` « Preuves »/« Evidence », `preuves.sans-ancrage` « Sans ancrage »/« No anchor », `preuves.copy-cite` « Copier \autocite »/« Copy \autocite », `preuves.empty` ci-dessus. CSS : réutiliser les patterns de panneau existants, tokens seulement.
 - [ ] **Step 4 : vert** — `npx vitest run src/components` + `npx tsc --noEmit` + `npx vite build`.
 - [ ] **Step 5 : commit** — `git commit -m "feat(preuves): surface Preuves — groupée par phrase appuyée"`
 
-### Task 7: Vérification de bout en bout + relance
+### Task 8: Vérification de bout en bout + relance
 
 **Files:** aucun nouveau — vérification.
 
