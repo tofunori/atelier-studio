@@ -11,7 +11,7 @@
   <img alt="Rust-first runtime" src="https://img.shields.io/badge/runtime-Rust--first-e8823a?style=flat-square&logo=rust&logoColor=white">
   <img alt="Tauri 2" src="https://img.shields.io/badge/Tauri-2-242a32?style=flat-square&logo=tauri&logoColor=white">
   <img alt="React 19" src="https://img.shields.io/badge/React-19-242a32?style=flat-square&logo=react&logoColor=79a7ff">
-  <img alt="Release 1.3.6" src="https://img.shields.io/badge/release-1.3.6-2f6f4e?style=flat-square">
+  <a href="https://github.com/tofunori/atelier-studio/releases/latest"><img alt="Latest release" src="https://img.shields.io/github/v/release/tofunori/atelier-studio?style=flat-square&label=release&color=2f6f4e"></a>
 </p>
 
 Atelier Studio keeps the working memory of a research project in one native macOS environment: agent conversations, papers, figures, code, terminals, annotations, project files, and verification state. Instead of moving fragments between unrelated tools, you can ask, inspect, organize, and produce inside the same project context.
@@ -107,22 +107,32 @@ The desktop backend is Rust-first. The packaged app also embeds a pinned Node 22
 
 ## Install
 
-1. Download `Atelier_1.3.6_aarch64.dmg` from the [latest release](https://github.com/tofunori/atelier-studio/releases).
+1. Download the `aarch64.dmg` from the [latest release](https://github.com/tofunori/atelier-studio/releases/latest).
 2. Drag **Atelier** into **Applications**.
 3. Launch it and select a research project folder.
 
-If Gatekeeper blocks the development-signed build:
+The build is development-signed, not yet notarized. This is a **temporary**
+step until Developer ID notarization ships — until then, macOS Gatekeeper
+will block the first launch unless you clear the quarantine flag:
 
 ```bash
 xattr -cr /Applications/Atelier.app
 open /Applications/Atelier.app
 ```
 
-### Requirements
+### Prerequisites
 
-- macOS on Apple Silicon.
-- Signed-in Claude Code CLI for Claude sessions.
-- Signed-in Codex CLI for Codex sessions.
+- macOS on Apple Silicon, 12.3 or newer.
+- [Claude Code CLI](https://github.com/anthropics/claude-code) 2.1.139 or newer, signed in — required for Claude sessions.
+- [Codex CLI](https://github.com/openai/codex), signed in — optional, only needed for Codex sessions.
+- `pdftotext` (part of `poppler`, e.g. `brew install poppler`) — needed for PDF text extraction features.
+- MacTeX or TeX Live — needed to compile LaTeX documents in the scientific IDE.
+
+The packaged app is self-contained for its own runtime: it embeds Node.js 22
+and the gallery runtime, so you do not need to install Node or Python
+yourself. Claude Code and Codex remain external CLIs so their existing
+sign-ins and permissions are reused — the app does not manage those
+installs or credentials.
 
 <details>
 <summary><strong>Development and architecture</strong></summary>
