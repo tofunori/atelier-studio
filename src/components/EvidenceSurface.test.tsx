@@ -151,8 +151,16 @@ describe("EvidenceSurface", () => {
     expect(screen.queryByRole("button", { name: /autocite/i })).toBeNull();
   });
 
-  it("montage : redemande les épingles du projet courant (listPins)", () => {
-    render(<EvidenceSurface projectRoot="/proj-mount" />);
-    expect(send).toHaveBeenCalledWith({ type: "listPins", projectRoot: "/proj-mount" });
+  // Fix revue T7 : AtelierPane est monté avec key={activeProject} — un
+  // changement de projet le remonte EN ENTIER, y compris un onglet Preuves
+  // déjà ouvert. Si le composant redemandait lui-même listPins au montage,
+  // ça ferait DEUX sends pour un seul changement de projet (App.tsx en
+  // envoie déjà un). Le composant ne doit donc jamais envoyer listPins
+  // lui-même — seul App.tsx en est responsable.
+  it("bascule de projet avec onglet Preuves déjà ouvert (remontage) : le composant n'envoie jamais lui-même listPins", () => {
+    const first = render(<EvidenceSurface projectRoot="/proj-a" />);
+    first.unmount();
+    render(<EvidenceSurface projectRoot="/proj-b" />);
+    expect(send).not.toHaveBeenCalledWith(expect.objectContaining({ type: "listPins" }));
   });
 });

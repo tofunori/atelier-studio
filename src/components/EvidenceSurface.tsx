@@ -8,15 +8,10 @@
 // défilé/surligné) ; icône → retire l'épingle (unpinPassage) ; bouton →
 // copie une citation prête à coller (\autocite{key} pour Zotero, citation
 // brute pour gbrain).
-import { useEffect, useMemo, useSyncExternalStore } from "react";
+import { useMemo, useSyncExternalStore } from "react";
 import { t } from "../lib/i18n";
 import { wsSend } from "../lib/wsBus";
-import {
-  evidencePinsSnapshot,
-  requestEvidencePins,
-  subscribeEvidencePins,
-  type EvidencePin,
-} from "../lib/evidencePins";
+import { evidencePinsSnapshot, subscribeEvidencePins, type EvidencePin } from "../lib/evidencePins";
 import { openGbrainPassage, openZoteroPassage } from "./chat/md";
 import { Button, EmptyState, IconButton, RowButton, SurfaceHeader } from "./ui";
 import { showSuccess } from "./ui/toast";
@@ -112,15 +107,13 @@ export default function EvidenceSurface({ projectRoot }: { projectRoot: string |
   const store = useSyncExternalStore(subscribeEvidencePins, evidencePinsSnapshot);
   const groups = useMemo(() => groupPins(store.pins), [store.pins]);
 
-  // Redemande à l'ouverture de la surface — défensif : App.tsx redemande déjà
-  // au changement de projet actif (tâche 7), mais la surface peut monter sur
-  // un projet déjà actif (WS pas encore prêt à ce moment-là, ou navigation
-  // directe vers Preuves) sans qu'aucun changement de dépendance ne se
-  // reproduise ailleurs.
-  useEffect(() => {
-    if (projectRoot) requestEvidencePins(projectRoot);
-  }, [projectRoot]);
-
+  // Pas de requestEvidencePins ici (fix revue T7) : AtelierPane est monté
+  // avec `key={activeProject}` — un changement de projet le remonte EN
+  // ENTIER, donc un effet de montage ici tirerait un `listPins` en plus de
+  // celui déjà déclenché par App.tsx sur ce même changement (double-fetch
+  // constaté en revue). Seul App.tsx (câblage sur activeProject/wsReady)
+  // redemande les épingles ; ce composant ne fait que lire le store déjà
+  // tenu à jour par le flux `evidencePins` (push WS) + ce câblage.
   function unpin(pin: EvidencePin) {
     if (!projectRoot) return;
     wsSend({ type: "unpinPassage", projectRoot, pinId: pin.id });
