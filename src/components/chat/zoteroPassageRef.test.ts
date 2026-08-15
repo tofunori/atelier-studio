@@ -32,13 +32,46 @@ describe("lien de passage gbrain dans le chat (tâche 6)", () => {
     });
   });
 
-  it("rejette un slug hors de l'alphabet autorisé", () => {
-    expect(parseGbrainPassageRef(href.replace("williamson-2021-fire-aerosol", "a/b"))).toBeNull();
+  it("rejette un slug hors de l'alphabet autorisé (segment)", () => {
+    expect(parseGbrainPassageRef(href.replace("williamson-2021-fire-aerosol", "a b"))).toBeNull();
+    expect(parseGbrainPassageRef(href.replace("williamson-2021-fire-aerosol", "a@b"))).toBeNull();
   });
 
-  it("rejette un slug vide ou trop long (>120)", () => {
+  it("rejette un slug vide ou trop long (>200 au total)", () => {
     expect(parseGbrainPassageRef(href.replace("williamson-2021-fire-aerosol", ""))).toBeNull();
-    expect(parseGbrainPassageRef(href.replace("williamson-2021-fire-aerosol", "a".repeat(121)))).toBeNull();
+    expect(parseGbrainPassageRef(href.replace("williamson-2021-fire-aerosol", "a".repeat(201)))).toBeNull();
+  });
+
+  // Arbitrage contrôleur (post-revue) : les vrais slugs gbrain sont
+  // hiérarchiques (papers/acp-19-1393-2019) et contiennent des points
+  // (bair-e.-h.-stillinger…) — segments [A-Za-z0-9._-]+ séparés par "/",
+  // sans slash de tête/queue, aucun segment vide ou "."/".." (anti-traversée).
+  it("accepte un slug hiérarchique (segments avec points, tirets, chiffres)", () => {
+    expect(parseGbrainPassageRef(href.replace("williamson-2021-fire-aerosol", "papers/acp-19-1393-2019"))).toEqual({
+      kind: "gbrain", slug: "papers/acp-19-1393-2019", quote: "resultat important",
+    });
+    expect(parseGbrainPassageRef(href.replace(
+      "williamson-2021-fire-aerosol",
+      "articles/bair-e.-h.-stillinger",
+    ))?.slug).toBe("articles/bair-e.-h.-stillinger");
+  });
+
+  it("rejette une remontée de répertoire (segment . ou ..)", () => {
+    expect(parseGbrainPassageRef(href.replace("williamson-2021-fire-aerosol", "a/../b"))).toBeNull();
+    expect(parseGbrainPassageRef(href.replace("williamson-2021-fire-aerosol", "a/./b"))).toBeNull();
+    expect(parseGbrainPassageRef(href.replace("williamson-2021-fire-aerosol", ".."))).toBeNull();
+  });
+
+  it("rejette un slash de tête", () => {
+    expect(parseGbrainPassageRef(href.replace("williamson-2021-fire-aerosol", "/tete"))).toBeNull();
+  });
+
+  it("rejette un slash de queue", () => {
+    expect(parseGbrainPassageRef(href.replace("williamson-2021-fire-aerosol", "fin/"))).toBeNull();
+  });
+
+  it("rejette un segment vide (double slash)", () => {
+    expect(parseGbrainPassageRef(href.replace("williamson-2021-fire-aerosol", "a//b"))).toBeNull();
   });
 
   it("rejette une citation vide, tronque au-delà de 900 caractères", () => {

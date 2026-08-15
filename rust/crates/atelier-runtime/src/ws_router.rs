@@ -2234,7 +2234,10 @@ fn handle_pin_passage(state: &AppState, msg: &Value) -> Vec<String> {
     // les champs zotero absents sont tolérés (défaut vide côté struct).
     let is_gbrain = input.source == "gbrain";
     if is_gbrain {
-        let slug_ok = input.gbrain_slug.as_deref().is_some_and(|s| !s.is_empty());
+        // Même règle que parseGbrainPassageRef côté TypeScript (md.tsx) : le
+        // backend n'accepte jamais un slug que le frontend refuserait — pas
+        // seulement "non vide", mais bien FORME valide (garde anti-traversée).
+        let slug_ok = input.gbrain_slug.as_deref().is_some_and(evidence::is_valid_gbrain_slug);
         if input.quote.is_empty() || !slug_ok || input.cite_label.is_empty() {
             return evidence_pins_error(
                 project_root,
@@ -4124,6 +4127,28 @@ mod tests {
         let out_ok = route_ws(&s, ok).await;
         let v_ok: Value = serde_json::from_str(&out_ok[0]).unwrap();
         assert!(v_ok["error"].is_null(), "gbrain ne doit pas exiger les champs zotero: {v_ok}");
+    }
+
+    // Arbitrage contrôleur (post-revue tâche 6) : le backend ne doit pas
+    // accepter un gbrainSlug que le frontend refuse (parseGbrainPassageRef,
+    // md.tsx) — même validation : segments [A-Za-z0-9._-]+ séparés par "/",
+    // sans slash de tête/queue, aucun segment vide ou "."/".." (anti-traversée).
+    #[tokio::test]
+    async fn evidence_pin_passage_gbrain_rejects_path_traversal_in_slug() {
+        let dir = tempdir().unwrap();
+        let s = state(dir.path());
+        let traversal = r#"{"type":"pinPassage","projectRoot":"/proj/a","pin":{"source":"gbrain","gbrainSlug":"a/../b","quote":"q","citeLabel":"C"}}"#;
+        let out = route_ws(&s, traversal).await;
+        let v: Value = serde_json::from_str(&out[0]).unwrap();
+        assert!(v["error"].as_str().is_some(), "attendu une erreur (slug ..): {v}");
+        assert!(v["pins"].as_array().unwrap().is_empty());
+
+        // un slug hiérarchique légitime, lui, doit passer
+        let hierarchical = r#"{"type":"pinPassage","projectRoot":"/proj/a","pin":{"source":"gbrain","gbrainSlug":"papers/acp-19-1393-2019","quote":"q","citeLabel":"C"}}"#;
+        let out2 = route_ws(&s, hierarchical).await;
+        let v2: Value = serde_json::from_str(&out2[0]).unwrap();
+        assert!(v2["error"].is_null(), "slug hiérarchique légitime rejeté à tort: {v2}");
+        assert_eq!(v2["pins"][0]["gbrainSlug"], "papers/acp-19-1393-2019");
     }
 
     #[tokio::test]

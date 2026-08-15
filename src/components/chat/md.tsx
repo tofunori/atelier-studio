@@ -79,13 +79,28 @@ export type GbrainPassageRef = {
 
 export type PassageRef = ZoteroPassageRef | GbrainPassageRef;
 
+const GBRAIN_SLUG_SEGMENT = /^[A-Za-z0-9._-]+$/;
+
+/** Slug de page gbrain, TEL QU'IL EXISTE réellement dans le dépôt : hiérarchique
+ * (`papers/acp-19-1393-2019`) et parfois riche en points (`articles/bair-e.-h.-
+ * stillinger`) — pas le simple identifiant plat d'une clé Zotero. Segments
+ * `[A-Za-z0-9._-]+` séparés par `/`, sans slash de tête ni de queue, aucun
+ * segment vide, aucun segment `.`/`..` (garde anti-traversée — ce store
+ * n'ouvre jamais un chemin, mais un backend Rust identique valide le même
+ * champ, cf. ws_router::handle_pin_passage), longueur totale ≤ 200. */
+function isValidGbrainSlug(slug: string): boolean {
+  if (!slug || slug.length > 200) return false;
+  if (slug.startsWith("/") || slug.endsWith("/")) return false;
+  return slug.split("/").every((seg) => seg !== "." && seg !== ".." && GBRAIN_SLUG_SEGMENT.test(seg));
+}
+
 export function parseGbrainPassageRef(href: string): GbrainPassageRef | null {
   const prefix = "#atelier-gbrain-passage?";
   if (!href.startsWith(prefix)) return null;
   const params = new URLSearchParams(href.slice(prefix.length));
   const slug = params.get("slug") ?? "";
   const quote = (params.get("quote") ?? "").slice(0, 900);
-  if (!/^[A-Za-z0-9_-]{1,120}$/.test(slug)) return null;
+  if (!isValidGbrainSlug(slug)) return null;
   if (!quote.trim()) return null;
   return { kind: "gbrain", slug, quote };
 }

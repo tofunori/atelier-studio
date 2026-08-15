@@ -142,6 +142,13 @@ describe("PassageCard", () => {
     expect(document.querySelectorAll(".gbrain-passage-ref")).toHaveLength(1);
   });
 
+  // Arbitrage contrôleur (post-revue) : slug hiérarchique réel (papers/…)
+  it("lien gbrain à slug hiérarchique (papers/acp-19-1393-2019) → carte rendue", () => {
+    const md = `[« q »](#atelier-gbrain-passage?slug=papers%2Facp-19-1393-2019&quote=q)`;
+    render(<ReactMarkdown components={MD_COMPONENTS as any}>{md}</ReactMarkdown>);
+    expect(document.querySelectorAll(".passage-card")).toHaveLength(1);
+  });
+
   it("carte gbrain repliée : libellé = slug humanisé, pas de « p. N »", () => {
     render(<PassageCard refData={GBRAIN_REF} />);
     expect(screen.getByText("Williamson 2021 Fire Aerosol")).toBeTruthy();

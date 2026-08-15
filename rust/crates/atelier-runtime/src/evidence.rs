@@ -50,6 +50,28 @@ pub fn default_source() -> String {
     "zotero".to_string()
 }
 
+/// Valide un `gbrain_slug` — MÊME RÈGLE que `parseGbrainPassageRef` côté
+/// TypeScript (`src/components/chat/md.tsx`) : le backend ne doit jamais
+/// accepter ce que le frontend refuse. Les slugs gbrain réels sont
+/// hiérarchiques (`papers/acp-19-1393-2019`) et parfois riches en points
+/// (`articles/bair-e.-h.-stillinger`) — segments `[A-Za-z0-9._-]+` séparés
+/// par `/`, sans slash de tête ni de queue, aucun segment vide, aucun
+/// segment `.`/`..` (garde anti-traversée), longueur totale ≤ 200.
+pub fn is_valid_gbrain_slug(slug: &str) -> bool {
+    if slug.is_empty() || slug.len() > 200 {
+        return false;
+    }
+    if slug.starts_with('/') || slug.ends_with('/') {
+        return false;
+    }
+    slug.split('/').all(|seg| {
+        seg != "."
+            && seg != ".."
+            && !seg.is_empty()
+            && seg.chars().all(|c| c.is_ascii_alphanumeric() || c == '.' || c == '_' || c == '-')
+    })
+}
+
 /// Extrait de contexte (sélection Lecture/éditeur) appuyant l'épingle.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
@@ -256,6 +278,26 @@ mod tests {
         assert_eq!(pin.source, "zotero");
         assert_eq!(pin.gbrain_slug, None);
         assert_eq!(pin.zotero_key, "Z");
+    }
+
+    #[test]
+    fn is_valid_gbrain_slug_accepts_real_hierarchical_slugs() {
+        assert!(is_valid_gbrain_slug("papers/acp-19-1393-2019"));
+        assert!(is_valid_gbrain_slug("articles/bair-e.-h.-stillinger"));
+        assert!(is_valid_gbrain_slug("williamson-2021-fire-aerosol"));
+    }
+
+    #[test]
+    fn is_valid_gbrain_slug_rejects_path_traversal_and_malformed_input() {
+        assert!(!is_valid_gbrain_slug(""));
+        assert!(!is_valid_gbrain_slug("a/../b"), "remontée de répertoire");
+        assert!(!is_valid_gbrain_slug("a/./b"), "segment .");
+        assert!(!is_valid_gbrain_slug(".."));
+        assert!(!is_valid_gbrain_slug("/tete"), "slash de tête");
+        assert!(!is_valid_gbrain_slug("fin/"), "slash de queue");
+        assert!(!is_valid_gbrain_slug("a//b"), "segment vide");
+        assert!(!is_valid_gbrain_slug("a b"), "espace hors alphabet");
+        assert!(!is_valid_gbrain_slug(&"a".repeat(201)), "> 200 caractères");
     }
 
     #[test]
