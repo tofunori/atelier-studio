@@ -84,8 +84,10 @@ phrase du manuscrit qu'il appuie. Fonctionne avec tous les providers (Claude, Gr
 
 ### Capture de l'ancrage
 
-Au clic « Épingler », le frontend envoie le `supports` porté par la carte ; si absent,
-le backend lit `fig-selection.json` en secours SEULEMENT si `ts` < 15 min. Sinon `supports: null`.
+v1 : au clic « Épingler », le backend lit `fig-selection.json` et joint `supports`
+SEULEMENT si `ts` < 15 min ; sinon `supports: null`. Le paramètre d'URL `supports`
+porté par la carte (ajouté par l'agent) passe **hors périmètre v1** — la sélection
+en direct au moment d'épingler est la source unique, plus simple et plus fiable.
 
 ## Erreurs
 
