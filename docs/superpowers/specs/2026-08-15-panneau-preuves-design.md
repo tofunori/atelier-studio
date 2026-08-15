@@ -56,7 +56,8 @@ phrase du manuscrit qu'il appuie. Fonctionne avec tous les providers (Claude, Gr
 
 1. **Rendu carte** (`md.tsx`) : détection au niveau du composant `p` — paragraphe dont l'unique
    enfant est un lien passage → `<PassageCard>`. Composant dans `src/components/chat/`.
-2. **Messages WS** (backends Rust **et** Node, sémantique identique, tests des deux côtés) :
+2. **Messages WS** (backend **Rust seulement** — décision Thierry 2026-08-15 : pas de
+   portage Node ; le soak `ATELIER_BACKEND=node` n'aura pas les Preuves) :
    - `pinPassage { projectRoot, pin }` → ack `{ type:"evidencePins", pins }`
    - `listPins { projectRoot }` → `{ type:"evidencePins", pins }`
    - `unpinPassage { projectRoot, pinId }` → `{ type:"evidencePins", pins }`
@@ -74,10 +75,12 @@ phrase du manuscrit qu'il appuie. Fonctionne avec tous les providers (Claude, Gr
    ```
 4. **Surface Preuves** : onglet du rail (même mécanique que les surfaces existantes),
    composant `src/components/EvidenceSurface.tsx`, i18n fr/en complet.
-5. **Instruction renforcée** (`zotero_passage_prompt.mjs` + équivalent Rust) : demande de
-   référence + sélection récente → chercher via l'outil, répondre avec le lien-carte seul
-   dans son paragraphe, joindre `supports` depuis la sélection. Jamais de citation inventée :
-   uniquement les passages retournés par l'outil.
+5. **Instruction renforcée** — côté Rust : localiser le point d'injection de l'instruction
+   passages du backend Rust (miroir de `zotero_passage_prompt.mjs` ; il existe forcément,
+   les pilules fonctionnent avec `backend:"rust"`) et y ajouter : demande de référence +
+   sélection récente → chercher via l'outil, répondre avec le lien-carte seul dans son
+   paragraphe, joindre `supports` depuis la sélection. Jamais de citation inventée :
+   uniquement les passages retournés par l'outil. Le `.mjs` reste inchangé.
 
 ### Capture de l'ancrage
 
@@ -93,12 +96,13 @@ le backend lit `fig-selection.json` en secours SEULEMENT si `ts` < 15 min. Sinon
 ## Tests
 
 - `md.tsx` : détection paragraphe-seul (carte) vs inline (pilule) ; quote vide → pilule.
-- Store épingles : ajout/liste/retrait + atomicité (Rust `cargo test`, Node vitest, parité).
+- Store épingles : ajout/liste/retrait + atomicité (`cargo test`, Rust seulement).
 - `EvidenceSurface` : groupement par `supports`, groupe « Sans ancrage », actions.
-- Instruction : test d'injection (les deux backends émettent la même instruction).
+- Instruction : test d'injection côté Rust.
 - Sonde WS de bout en bout après relance (pattern des sondes de cette session).
 
 ## Hors périmètre (YAGNI)
 
 Intégration KB/gbrain, export BibTeX massif, surlignage persistant dans le PDF,
-synchronisation multi-machines, re-ranking sémantique de l'index.
+synchronisation multi-machines, re-ranking sémantique de l'index, **portage Node du
+contrat Preuves** (décision explicite : Rust seulement).
