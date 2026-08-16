@@ -449,8 +449,21 @@ export function ChatTimeline(p: {
           }
           const item = row.item;
           const messageId = item.type === "event" ? `message-${item.index}` : `message-${row.key}`;
+          // plan 066, L3 : la bulle en streaming change de hauteur à chaque
+          // chunk — overflow-anchor:none dessus évite que le navigateur
+          // recorrige scrollTop en concurrence avec le suivi du bas de
+          // LegendList (maintainScrollAtEnd/maintainVisibleContentPosition,
+          // qui gère déjà lui-même l'ancrage). Classe posée par React, JAMAIS
+          // un sélecteur de position (:last-child) : les lignes défilent en
+          // continu pendant le stream, un tel sélecteur romprait le budget de
+          // style récursif — même discipline que typeset.contract.test.ts.
+          const isLiveStream = item.type === "event" && item.event.kind === "streaming";
           return (
-          <div className="timeline-virtual-row" id={messageId} data-message-id={messageId}>
+          <div
+            className={`timeline-virtual-row${isLiveStream ? " is-live-stream" : ""}`}
+            id={messageId}
+            data-message-id={messageId}
+          >
           {(() => {
           if (item.type === "fold") {
             const { fold, open } = item;

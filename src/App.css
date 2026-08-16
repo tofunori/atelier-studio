@@ -126,6 +126,21 @@ html, body, #root, .app { height: 100vh; overflow: hidden;
 .messages [data-index]:has(+ [data-index] > .timeline-virtual-row .active-turn-tail) > .timeline-virtual-row {
   padding-bottom: 2px;
 }
+/* Géométrie verrouillée du fil (plan 066, L3). LegendList positionne déjà
+   chaque ligne en `position: absolute` avec `contain: paint layout style`
+   (@legendapp/list/react.js) et gère lui-même l'ancrage au bas
+   (maintainScrollAtEnd/maintainVisibleContentPosition) : content-visibility
+   n'est PAS ajouté ici — il masquerait à son propre ResizeObserver la
+   hauteur réelle d'une ligne hors-écran (positionnée en absolute, donc hors
+   flux) et pourrait corrompre son calcul de scroll ; ni ce harnais ni les
+   tests jsdom ne peuvent vérifier un scroll réel en toute sécurité (repli
+   documenté, cf. plan 066 note (3)). overflow-anchor reste un geste sûr et
+   bon marché : `auto` sur le scroller (comportement natif), `none`
+   uniquement sur la bulle en streaming (.is-live-stream, posée par
+   ChatTimeline — jamais un sélecteur de position type :last-child, cf.
+   commentaire ci-dessus). */
+.messages { overflow-anchor: auto; }
+.timeline-virtual-row.is-live-stream { overflow-anchor: none; }
 .agent-activity-group { display: flex; min-width: 0; align-items: center; flex-wrap: wrap;
   gap: 6px; color: var(--text-muted); font-size: var(--fs-l); line-height: 28px; }
 .agent-chip { display: inline-flex; height: 28px; max-width: 192px; min-width: 0;
