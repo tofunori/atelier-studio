@@ -39,6 +39,27 @@ porté les .mjs (ils y vivent).
 **Done**: l'app buildée ne contient plus `Resources/sidecar` ; protocole de
 relance vert ; `ATELIER_BACKEND=node` documenté comme retiré.
 
+**FAIT le 2026-08-16** (exécution + revue pilote). Écart assumé par rapport au
+texte ci-dessus : `Resources/sidecar` n'est PAS supprimé mais **aminci de 47 Mo
+à 140 Ko / 10 fichiers** — la chaîne KB `.mjs` (zéro dépendance npm, mesurée)
+reste stagée pour préserver le repli `ATELIER_KB_ENGINE=node` SANS rebuild
+pendant le soak de la phase C, qui venait de commencer le matin même.
+`stage-sidecar.sh` reste donc dans `beforeBuildCommand`. Ce qui est retiré :
+`node_modules` (45 Mo), `providers/`, `index.mjs`, `router.mjs`,
+`terminal.mjs`, les `*.test.mjs`, et les wrappers `atelier-kb` /
+`atelier-zotero-passages` (plus résolus par aucun code Rust depuis la bascule
+`-rs`). `BackendKind::Node` et `ATELIER_BACKEND` sont supprimés de
+`sidecar/sidecar.rs`. Soak acté : `docs/soak/033-COMPLETE.md` (défaut Rust
+depuis le commit `8389719d`, 2026-07-11 — 36 jours ; NOTER : le 2026-07-16
+souvent cité est la bascule de la GALERIE, pas du chat).
+
+**CONSTAT à retenir pour la phase D** : le repli KB en production ne résout PAS
+`kb_cli.mjs` depuis `Resources/sidecar` mais depuis `state.server_dir()` =
+`Resources/rust-server`, peuplé par `scripts/stage-rust-server.sh` (qui copie
+déjà la même chaîne KB). C'est donc `stage-rust-server.sh` qui compte pour la
+correction du repli, pas `stage-sidecar.sh`. Vérifier les deux avant de
+supprimer quoi que ce soit.
+
 ## Phase B — Retirer les serveurs galerie Node et Python (S-M)
 
 Motif PORTA-14 : reproduire le contrat de soak du chat pour la galerie
