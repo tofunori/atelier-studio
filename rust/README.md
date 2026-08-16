@@ -16,12 +16,13 @@ Migration à **parité fonctionnelle** du sidecar Node + serveur galerie Node ve
 | **R8** | Grok legacy CLI, OpenCode, API OpenAI-compat, images Seedream | Node défaut |
 | **R9** | Routeur WS exhaustif + corpus/compare lecture seule | (transition) |
 | **R10** | **Rust défaut** dans Tauri + binaire bundlé | Rust défaut |
-| **R11** (actuel) | Soak tooling + policy CI ; **retrait Node bloqué** | Rust défaut ; Node fallback jusqu'à COMPLETE |
+| **R11** | Soak tooling + policy CI | Rust défaut ; Node fallback jusqu'à COMPLETE |
+| **plan 065 phase A** (actuel) | Retrait du repli chat Node (`ATELIER_BACKEND=node`) après soak, `docs/soak/033-COMPLETE.md` | **Rust seul**, sans sélecteur |
 
 ### Providers réels (R6–R8)
 
 ```bash
-export ATELIER_BACKEND=rust
+# ATELIER_BACKEND n'existe plus (Rust est le seul backend chat, plan 065 phase A)
 which claude   # ATELIER_CLAUDE_BIN=…
 which codex    # ATELIER_CODEX_BIN=…
 which grok     # ATELIER_GROK_BIN=…
@@ -81,20 +82,20 @@ node sidecar/scripts/parity_ws_compare.mjs \
 ## Via Tauri (R10)
 
 ```bash
-# Chat : Rust est le DÉFAUT (plus besoin de ATELIER_BACKEND=rust)
+# Chat : Rust est le SEUL backend (plan 065 phase A — ATELIER_BACKEND retiré)
 cargo build -p atelier-server --release --manifest-path rust/Cargo.toml
 # ou stage pour le bundle :
 bash scripts/stage-rust-server.sh
-
-# Soak / secours Node pendant la période de transition :
-export ATELIER_BACKEND=node
 
 # Galerie : toujours Node par défaut (opt-in Rust)
 export ATELIER_GALLERY_BACKEND=rust   # optionnel
 cargo build -p atelier-gallery --manifest-path rust/Cargo.toml
 ```
 
-**Important** : Node sidecar reste **staged** jusqu'à `docs/soak/033-COMPLETE.md`.  
+**Important** : le sidecar chat Node (`sidecar/index.mjs`) n'est plus staged —
+voir `docs/soak/033-COMPLETE.md`. `scripts/stage-sidecar.sh` ne stage plus
+que la chaîne CLI base de connaissances (repli `ATELIER_KB_ENGINE=node`, soak
+séparé et actif — plan 065 phase C) et le wrapper agent `atelier-gallery-tool`.  
 Galerie Node par défaut (`ATELIER_GALLERY_BACKEND`).  
 Soak : `docs/SOAK_033_RUST_BACKEND.md` · `npm run soak:sidecar` · `npm run check:backend-policy`.
 

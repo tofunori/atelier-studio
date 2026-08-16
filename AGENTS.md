@@ -11,8 +11,9 @@ du vieux code et font croire que le fix « ne marche pas ».
 - L'app buildée = `src-tauri/target/release/bundle/macos/Atelier.app`.
   Son process s'appelle **`tauri-app`** (PAS « Atelier ») → `pkill -x Atelier` ne matche jamais.
 - 3 familles de process : l'app (`tauri-app`), le **sidecar chat**
-  (défaut R10 : `Resources/rust-server/atelier-studio-server` ; soak Node :
-  `Resources/sidecar/index.mjs` si `ATELIER_BACKEND=node`), les **serveurs galerie**
+  (Rust seul depuis plan 065 phase A : `Resources/rust-server/atelier-studio-server` ;
+  l'ancien repli `ATELIER_BACKEND=node` est retiré, voir `docs/soak/033-COMPLETE.md`),
+  les **serveurs galerie**
   (`node …/server/main.mjs`, un par projet ouvert — ils SURVIVENT aux relances et
   l'app les réutilise → zombies = vieux code servi).
 - `npm run tauri dev` ne survit PAS lancé par un agent (reaping du harness).

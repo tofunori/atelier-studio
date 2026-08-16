@@ -10,8 +10,9 @@ du vieux code et font croire que le fix « ne marche pas ».
 
 - L'app buildée = `src-tauri/target/release/bundle/macos/Atelier.app`.
   Son process s'appelle **`tauri-app`** (PAS « Atelier ») → `pkill -x Atelier` ne matche jamais.
-- 3 familles de process : l'app (`tauri-app`), le **sidecar chat** (défaut R10+ :
-  `Resources/rust-server/atelier-studio-server` ; soak Node si `ATELIER_BACKEND=node`),
+- 3 familles de process : l'app (`tauri-app`), le **sidecar chat** (Rust seul
+  depuis plan 065 phase A : `Resources/rust-server/atelier-studio-server` ; l'ancien
+  repli `ATELIER_BACKEND=node` est retiré, voir `docs/soak/033-COMPLETE.md`),
   les **serveurs galerie** (défaut 2026-07-16 : `atelier-gallery-server` Rust, un par
   projet ; soak Node `node …/server/main.mjs` si `ATELIER_GALLERY_BACKEND=node` —
   zombies si non tués, dans les DEUX variantes).

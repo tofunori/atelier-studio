@@ -8,8 +8,7 @@
 | Bundle path | `Atelier.app/Contents/Resources/rust-server/atelier-studio-server` |
 | Lock | `~/Library/Application Support/atelier-studio/sidecar.lock` |
 | PID | `~/Library/Application Support/atelier-studio/sidecar.pid` |
-| Défaut | Rust (Porte 10) |
-| Fallback soak | `ATELIER_BACKEND=node` |
+| Backend | Rust seul (Porte 10 ; repli `ATELIER_BACKEND=node` retiré, plan 065 phase A — voir `docs/soak/033-COMPLETE.md`) |
 
 ## Health rapide
 
@@ -34,14 +33,6 @@ curl -s -m 5 -H "x-atelier-token: $TOKEN" "http://127.0.0.1:$PORT/health" | pyth
 4. Vérifier que le binaire n'écrit **pas** dans le `.app` au chargement
    (même règle que le sidecar Node historique).
 
-### Mauvais backend (Node alors qu'on veut Rust)
-
-```bash
-echo "ATELIER_BACKEND=${ATELIER_BACKEND:-<unset=rust>}"
-# si node forcé par erreur :
-unset ATELIER_BACKEND
-```
-
 ### Lock pourri / PID mort
 
 ```bash
@@ -60,12 +51,10 @@ pkill -9 -f atelier-studio-server
 rm -f "$HOME/Library/Application Support/atelier-studio/sidecar."{lock,pid}
 ```
 
-### Fallback soak (dernier recours)
-
-```bash
-export ATELIER_BACKEND=node
-# rebuild/relance app ; noter l'incident dans docs/SOAK_033_RUST_BACKEND.md
-```
+> Historique : jusqu'au 2026-08-16, un repli `ATELIER_BACKEND=node` existait
+> ici en dernier recours. Il a été retiré (plan 065 phase A, soak clos —
+> `docs/soak/033-COMPLETE.md`) : Rust est désormais le seul backend chat, et
+> positionner cette variable n'a plus aucun effet.
 
 ## Logs utiles
 

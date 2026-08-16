@@ -1,6 +1,6 @@
 # Atelier Studio — règles pour agents
 
-App macOS Tauri 2 : chat multi-agents (Claude Agent SDK + Codex SDK via sidecar Node) + atelier scientifique (galerie, éditeurs, PDF, browser, terminal). Utilisateur : Thierry (MSc glaciologie).
+App macOS Tauri 2 : chat multi-agents (CLIs claude/codex/grok/opencode/kimi via backend Rust `atelier-studio-server` — le sidecar chat Node est retiré, plan 065 phase A) + atelier scientifique (galerie, éditeurs, PDF, browser, terminal). Utilisateur : Thierry (MSc glaciologie).
 
 ## Système de design — CONTRAIGNANT
 

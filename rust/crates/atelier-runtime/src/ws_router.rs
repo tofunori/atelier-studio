@@ -3577,7 +3577,7 @@ async fn handle_generate_image(state: &AppState, msg: &Value) -> Vec<String> {
             "type": "imageGenerated",
             "projectRoot": root,
             "path": null,
-            "error": "engine=codex (gpt-image) non encore porté en Rust — utilisez engine=seedream ou ATELIER_BACKEND=node",
+            "error": "engine=codex (gpt-image) non disponible (chemin Node retiré, plan 065 phase A) — utilisez engine=seedream",
         }));
         state.publish(out.clone());
         return vec![out];
