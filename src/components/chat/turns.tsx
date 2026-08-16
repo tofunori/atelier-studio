@@ -268,17 +268,61 @@ function useKbCiteSources(text: string) {
   return sources;
 }
 
-/** Typewriter : le lissage de cadence vit maintenant EN AMONT, à la source
- * (App.tsx, TextStreamSmoother — lot 066-bis) : le texte de la bulle
- * streaming grandit déjà mot par mot à cadence régulière AVANT d'atteindre
- * ce composant. Cette fonction reste un simple passthrough — un second
- * lissage ICI, par TRONÇONS DE CARACTÈRES, recouperait des mots déjà
- * révélés entiers en amont (contrat « jamais couper un mot », lot 066-bis
- * §1) et empilerait un délai supplémentaire par-dessus celui déjà borné en
- * amont. Le paramètre `working` est conservé pour la signature (appelants
- * historiques) mais n'influence plus le résultat. */
-export function useSmoothedStream(text: string, _working: boolean): string {
-  return text;
+/** Typewriter : le CLI Claude livre le texte par morceaux à l'échelle de la
+ * phrase (mesuré : ~6 text_delta pour 5 phrases, même avec
+ * --include-partial-messages) — affichés bruts, ils donnent une impression de
+ * sauts, pas de streaming. On découple donc le rythme réseau du rythme visuel
+ * (même principe que smoothStream du Vercel AI SDK) : le texte cible
+ * s'accumule, une boucle rAF (~30 Hz) révèle une fraction du retard à chaque
+ * tick — drainage proportionnel (~12 %/tick, min 2 caractères), donc un gros
+ * morceau se déroule en ~1 s quelle que soit sa taille, sans jamais traîner
+ * loin derrière le flux réel. Fin de tour : flush immédiat. Au montage, le
+ * texte déjà présent s'affiche sans replay (reprise de fil). Sous
+ * prefers-reduced-motion, aucun typewriter : le texte brut passe tel quel. */
+export function useSmoothedStream(text: string, working: boolean): string {
+  const reduceMotion = typeof matchMedia === "function"
+    && matchMedia("(prefers-reduced-motion: reduce)").matches;
+  const revealed = useRef(text.length);
+  const target = useRef(text);
+  const frame = useRef<number | null>(null);
+  const lastTick = useRef(0);
+  const [, force] = useState(0);
+  target.current = text;
+
+  useEffect(() => {
+    if (reduceMotion) return;
+    const cancel = () => {
+      if (frame.current != null) { cancelAnimationFrame(frame.current); frame.current = null; }
+    };
+    if (!working) {
+      cancel();
+      if (revealed.current !== target.current.length) {
+        revealed.current = target.current.length;
+        force((n) => n + 1);
+      }
+      return cancel;
+    }
+    const tick = (time: number) => {
+      frame.current = null;
+      const total = target.current.length;
+      if (revealed.current < total && time - lastTick.current >= 33) {
+        lastTick.current = time;
+        const backlog = total - revealed.current;
+        revealed.current += Math.min(backlog, Math.max(2, Math.round(backlog * 0.12)));
+        force((n) => n + 1);
+      }
+      if (revealed.current < target.current.length) {
+        frame.current = requestAnimationFrame(tick);
+      }
+    };
+    if (frame.current == null && revealed.current < target.current.length) {
+      frame.current = requestAnimationFrame(tick);
+    }
+    return cancel;
+  }, [text, working, reduceMotion]);
+
+  if (reduceMotion || !working) return text;
+  return text.slice(0, Math.min(revealed.current, text.length));
 }
 
 export function StreamingText(p: { text: string; working: boolean }) {

@@ -1138,43 +1138,4 @@ describe("orchestration App — caractérisation", () => {
       .slice(-1)[0];
     expect(unlink).toEqual({ type: "unlinkThread", threadId: child.id });
   });
-
-  // Round 1 (post-revert) : le lot 066-bis (lissage de cadence, TextStreamSmoother)
-  // avait cassé le streaming de TOUS les providers en app réelle — aucun texte
-  // n'apparaissait jamais. La suite de tests existante (y compris "changer de
-  // thread pendant un tour" plus haut, qui utilise déjà events.delta()) ne
-  // l'attrapait pas : ce test-ci reproduit précisément le scénario réel — un
-  // "delta" qui arrive APRÈS plusieurs rendus/mises à jour d'état (pour
-  // matérialiser une éventuelle closure périmée capturée à un rendu antérieur),
-  // avec une frame de la boucle de lissage effectivement écoulée, et vérifie
-  // que le texte est visible dans le DOM AVANT tout "done".
-  it("un delta après plusieurs rendus apparaît dans le DOM avant tout done (lot 066-bis, round 1)", async () => {
-    const { sock } = await mountApp();
-    await pushThreads(sock, [THREAD_A, THREAD_B]);
-    await selectThread(sock, "Fil A — albédo");
-    // plusieurs rendus/mises à jour d'état AVANT le premier delta — le
-    // scénario réel rapporté (rien n'apparaît jamais) suppose que l'app a
-    // déjà tourné un moment avant qu'un tour ne commence à streamer.
-    await selectThread(sock, "Fil B — manuscrit");
-    await selectThread(sock, "Fil A — albédo");
-    await push(sock, { type: "threads", threads: [THREAD_A, THREAD_B] });
-
-    await push(sock, { type: "event", threadId: "thread-A", event: events.started() });
-    await push(sock, { type: "event", threadId: "thread-A", event: events.delta("Bonjour, voici l'analyse ") });
-
-    // avant qu'une frame de la boucle de lissage ne s'écoule, le texte n'est
-    // PAS encore visible — confirme que ce test exerce bien le chemin
-    // asynchrone (buffer TextStreamSmoother) et non un affichage synchrone
-    // par un autre canal, qui rendrait l'assertion finale un faux positif.
-    expect(screen.queryByText(/Bonjour/)).toBeNull();
-
-    // laisse la boucle de lissage tourner (rAF/backup) SANS envoyer de done —
-    // le texte doit apparaître de lui-même, pas seulement à la finalisation.
-    await act(async () => {
-      await vi.advanceTimersByTimeAsync(200);
-      await flushMicrotasks(10);
-    });
-
-    expect(screen.queryByText(/Bonjour/)).toBeTruthy();
-  });
 });

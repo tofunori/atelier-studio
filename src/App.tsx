@@ -12,7 +12,6 @@ import {
   Command,
 } from "./lib/ws";
 import { materializeHarnessHistory, mergeHarnessHistory, reduceHarnessEvent } from "./lib/harnessEvents";
-import { TextStreamSmoother } from "./lib/textStreamSmoothing";
 import { rebuildReplayQuotePastes } from "./lib/replayQuotes";
 import { buildForkThreadPayload } from "./lib/forkThread";
 import { useSidecarConnection, type SidecarStatus } from "./hooks/useSidecarConnection";
@@ -508,35 +507,16 @@ export default function App() {
   const [events, setEvents] = useState<Record<string, AgentEvent[]>>({});
   const eventsRef = useRef<Record<string, AgentEvent[]>>({});
   eventsRef.current = events;
-  // Lissage réseau (plan 066, L1) : un événement "streaming" (rattrapage de
-  // reconnexion — instantané déjà matérialisé du texte en cours, PAS le flux
-  // live des providers, cf. lot 066-bis) applique plusieurs paquets de la
-  // même frame réseau via un seul setState au prochain rAF, plutôt qu'un
-  // setState par paquet.
+  // Lissage réseau (plan 066, L1) : plusieurs deltas "streaming" du même fil
+  // arrivent souvent dans la même frame réseau — on ne garde que le DERNIER
+  // et on l'applique via un seul setState au prochain rAF, plutôt qu'un
+  // setState par delta (c'est ce ré-rendu répété qui faisait « respirer » le
+  // séparateur Working pendant le stream, cf. plan 066 §Why). Tout AUTRE
+  // type d'événement force d'abord le flush du delta en attente — l'ordre
+  // d'arrivée reste donc préservé — puis s'applique immédiatement, jamais
+  // retardé (§STOP : pas de réordonnancement thinking/texte).
   const pendingStreamEvents = useRef<Map<string, AgentEvent>>(new Map());
   const streamFrames = useRef<Map<string, number>>(new Map());
-  // Lissage de CADENCE (lot 066-bis) : le flux live des providers arrive en
-  // événements "delta" (append) ou "stream_set" (snapshot cumulatif, Codex)
-  // — c'est LÀ que le réseau saute par paquets. TextStreamSmoother les
-  // bufferise par fil et les libère mot par mot à cadence régulière (voir
-  // lib/textStreamSmoothing.ts). Tout événement non textuel force d'abord le
-  // flush du buffer du fil — l'ordre d'arrivée reste la loi, ce lissage ne
-  // fait que RETARDER l'affichage du texte déjà reçu, jamais le réordonner.
-  // round 1 (revue) : le smoother est construit UNE fois (ref-initializer),
-  // donc son `apply` ne doit JAMAIS capturer applyThreadEvent directement —
-  // même si applyThreadEvent ne dépend que du setter setEvents (stable
-  // d'un render à l'autre, donc une capture à la première invocation reste
-  // fonctionnellement correcte, vérifié par test), on passe par un ref
-  // rafraîchi à CHAQUE render pour éliminer toute ambiguïté sur ce point.
-  const applyThreadEventRef = useRef<(threadId: string, event: AgentEvent) => void>(() => {});
-  applyThreadEventRef.current = applyThreadEvent;
-  const textStreamSmoother = useRef<TextStreamSmoother | null>(null);
-  if (!textStreamSmoother.current) {
-    textStreamSmoother.current = new TextStreamSmoother({
-      apply: (threadId, text) =>
-        applyThreadEventRef.current(threadId, { kind: "delta", text } as AgentEvent),
-    });
-  }
   const [workingSince, setWorkingSince] = useState<Record<string, number | null>>({});
   const workingSinceRef = useRef<Record<string, number | null>>({});
   workingSinceRef.current = workingSince;
@@ -1543,15 +1523,10 @@ export default function App() {
         // identités (turnId, itemId)…) vit dans lib/harnessEvents : le MÊME code
         // rejoue les historiques (plan 025, step 8) — seuls les side-effects
         // (workingSince, usage, notifications…) restent ici.
-        // "delta"/"stream_set" (texte LIVE des providers) sont lissés mot par
-        // mot à cadence régulière par TextStreamSmoother (lot 066-bis).
-        // "streaming" (rattrapage de reconnexion, instantané déjà matérialisé)
-        // reste coalescé au rAF comme avant (plan 066, L1) ET réinitialise le
-        // suivi du smoother sur ce texte — sans quoi un stream_set Codex
-        // ultérieur re-diffuserait tout le texte déjà affiché (duplication).
-        // Tout AUTRE événement flushe d'abord les deux buffers en attente —
-        // l'ordre d'arrivée réseau reste la loi, ce lissage ne fait que
-        // RETARDER l'affichage du texte déjà reçu, jamais le réordonner.
+        // "streaming" (texte de la bulle en cours) est lissé au rAF (plan 066,
+        // L1, un seul setState par frame et par fil) ; tout le reste flush
+        // d'abord ce delta en attente puis s'applique tout de suite, sans
+        // jamais changer l'ordre d'arrivée.
         if (msg.event.kind === "streaming") {
           pendingStreamEvents.current.set(msg.threadId, msg.event);
           if (!streamFrames.current.has(msg.threadId)) {
@@ -1561,22 +1536,11 @@ export default function App() {
               if (!pending) return;
               pendingStreamEvents.current.delete(msg.threadId);
               applyThreadEvent(msg.threadId, pending);
-              const pendingText = "text" in pending ? pending.text : "";
-              textStreamSmoother.current?.resetTo(msg.threadId, pendingText ?? "");
             });
             streamFrames.current.set(msg.threadId, frame);
           }
-        } else if (msg.event.kind === "delta") {
-          flushStreamEvent(msg.threadId);
-          textStreamSmoother.current?.pushDelta(msg.threadId, msg.event.text);
-        } else if (msg.event.kind === "stream_set") {
-          flushStreamEvent(msg.threadId);
-          textStreamSmoother.current?.pushStreamSet(msg.threadId, msg.event.text);
         } else {
           flushStreamEvent(msg.threadId);
-          textStreamSmoother.current?.flush(msg.threadId, {
-            endTurn: msg.event.kind === "done" || msg.event.kind === "error",
-          });
           applyThreadEvent(msg.threadId, msg.event);
         }
         if (msg.event.kind === "done" && msg.event.usage) {
