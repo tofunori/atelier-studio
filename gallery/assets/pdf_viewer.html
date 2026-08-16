@@ -138,6 +138,17 @@
   #annPane .it .m{color:#7d838d;font-size:11.5px;margin-top:3px;font-variant-numeric:tabular-nums}
   #annPane .it .n{color:#9aa2ad;font-size:12px;margin-top:3px;font-style:italic}
   #annPane .empty{color:#6d7480;padding:22px 14px;text-align:center;line-height:1.5}
+  /* Capture de zone (« select area » de Zotero) : un rectangle sur une figure
+     ou un tableau. L'annotation ne stocke QUE le rectangle — l'image est
+     redécoupée du canvas à la demande, donc le sidecar JSON reste léger. */
+  .pdfarea{position:absolute;border:1.5px solid rgba(255,170,60,.95);border-radius:3px;
+    background:rgba(255,170,60,.10);cursor:pointer}
+  .pdfarea .cap{position:absolute;top:-9px;left:6px;background:#1b1f26;color:#e0b74a;
+    font-size:10px;letter-spacing:.04em;padding:0 4px;border-radius:4px;border:1px solid #333a45}
+  .areasel{position:absolute;border:1.5px dashed rgba(255,170,60,.95);
+    background:rgba(255,170,60,.12);pointer-events:none;z-index:60}
+  body.area-mode .pg{cursor:crosshair}
+  body.area-mode .textLayer{pointer-events:none}
 </style>
 <script>
 function __ct(){try{return JSON.parse(localStorage.getItem('claudeTargetV1')||'null')}catch(e){return null}}(function(){var T={'Encre':{bg:'#1a1917',card:'#232220',card2:'#121110',txt:'#e8e5db',muted:'#948f85',accent:'#cc785c',border:'#332f2a'},'Profond':{bg:'#1e1d1b',card:'#292724',card2:'#161513',txt:'#ece9e1',muted:'#9a968c',accent:'#d97757',border:'#37342e'},'Charbon':{bg:'#211f1c',card:'#2b2926',card2:'#1a1815',txt:'#eae7de',muted:'#9d988d',accent:'#e08a63',border:'#38352f'},'Neutre chaud':{bg:'#1c1c1a',card:'#272623',card2:'#151513',txt:'#e9e7df',muted:'#98958c',accent:'#d97757',border:'#34322d'},'Très foncé':{bg:'#171614',card:'#201f1c',card2:'#100f0d',txt:'#e6e3d9',muted:'#8f8b81',accent:'#d97757',border:'#2e2b26'},'Default':{bg:'#202024',card:'#27272a',card2:'#1f1f23',txt:'#dbdfe5',muted:'#a1a1aa',accent:'#5b9dff',border:'#3f3f46'},'Codex':{bg:'#282c34',card:'#2f343f',card2:'#21252b',txt:'#abb2bf',muted:'#7f848e',accent:'#4d78cc',border:'#3e4451'},'Dracula':{bg:'#282a36',card:'#343746',card2:'#21222c',txt:'#f8f8f2',muted:'#9aa0b3',accent:'#bd93f9',border:'#44475a'},'Nord':{bg:'#2e3440',card:'#3b4252',card2:'#272c36',txt:'#e5e9f0',muted:'#9aa3b2',accent:'#88c0d0',border:'#434c5e'}};var t;try{t=T[localStorage.getItem('figTheme')];}catch(e){}t=t||T['Default'];var r=document.documentElement.style;for(var k in t)r.setProperty('--'+k,t[k]);})();</script>
@@ -820,15 +831,17 @@ function loadAnnots(attempt){
 }
 loadAnnots(0);
 function saveAnnots(){
+  annPane.refresh();   // la liste suit chaque ajout/suppression/changement de couleur
   if(!ANNOTS_LOADED) return;  // le store contient peut-être des annots pas encore chargées
   fetch("/pdfannot", {method:"POST", headers:{"Content-Type":"application/json"},
     body: JSON.stringify({rel, annots: PDF_ANNOTS})}).catch(()=>{});
 }
 function drawAnnots(pgDiv, n){
-  pgDiv.querySelectorAll(".pdfhl, .pdfnote").forEach(el => el.remove());
+  pgDiv.querySelectorAll(".pdfhl, .pdfnote, .pdfarea").forEach(el => el.remove());
   for(const a of PDF_ANNOTS){
     if(+a.page !== +n) continue;
-    for(const rc of a.rects){
+    // une zone a son propre cadre (plus bas) : surtout pas de fond de surlignage
+    for(const rc of (a.kind === "area" ? [] : a.rects)){
       const el = document.createElement("div");
       el.className = "pdfhl";
       el.style.left = (rc[0]*100)+"%"; el.style.top = (rc[1]*100)+"%";
@@ -842,6 +855,18 @@ function drawAnnots(pgDiv, n){
       if(a.note) el.title = a.note;
       el.onclick = (e) => { e.stopPropagation(); annotMenu(a, e.clientX, e.clientY); };
       pgDiv.appendChild(el);
+    }
+    if(a.kind === "area" && a.rects && a.rects[0]){
+      const rc = a.rects[0];
+      const box = document.createElement("div");
+      box.className = "pdfarea";
+      box.style.left = (rc[0]*100)+"%"; box.style.top = (rc[1]*100)+"%";
+      box.style.width = (rc[2]*100)+"%"; box.style.height = (rc[3]*100)+"%";
+      const cap = document.createElement("span");
+      cap.className = "cap"; cap.textContent = a.note ? a.note.slice(0, 28) : "zone";
+      box.appendChild(cap);
+      box.onclick = (e) => { e.stopPropagation(); annotMenu(a, e.clientX, e.clientY); };
+      pgDiv.appendChild(box);
     }
     if(a.kind === "note" && a.pin){
       const pin = document.createElement("div");
@@ -923,6 +948,22 @@ function citeRef(){
   if (m) return m[1] + " " + m[2];
   return base.length > 34 ? base.slice(0, 33) + "…" : base;
 }
+/** Image d'une zone capturée : redécoupée du canvas de la page à la demande
+ *  (le sidecar JSON ne garde que le rectangle, jamais des pixels). */
+function areaDataUrl(a){
+  const pg = document.querySelector('.pg[data-page="' + a.page + '"]');
+  const src = pg && pg.querySelector("canvas");
+  const rc = a.rects && a.rects[0];
+  if (!src || !rc) return null;
+  const sx = Math.round(rc[0] * src.width), sy = Math.round(rc[1] * src.height);
+  const sw = Math.max(1, Math.round(rc[2] * src.width)), sh = Math.max(1, Math.round(rc[3] * src.height));
+  const out = document.createElement("canvas");
+  out.width = sw; out.height = sh;
+  try {
+    out.getContext("2d").drawImage(src, sx, sy, sw, sh, 0, 0, sw, sh);
+    return out.toDataURL("image/png");
+  } catch(e){ return null; }
+}
 /** Presse-papier : la citation exacte suivie de sa référence, prête à coller
  *  dans le manuscrit — l'équivalent du « copier avec citation » de Zotero. */
 function copyWithCitation(a){
@@ -959,6 +1000,18 @@ function annotMenu(a, x, y){
   });
   annotPop.querySelector(".cpy").onclick = () => copyWithCitation(a);
   annotPop.querySelector(".send2").onclick = () => {
+    // Une ZONE n'a pas de texte : on redécoupe l'image du canvas de la page
+    // au moment de l'envoi (rien de lourd n'est stocké dans le sidecar).
+    if (a.kind === "area") {
+      const dataUrl = areaDataUrl(a);
+      annotPop.style.display = "none";
+      if (dataUrl && window.self !== window.top) {
+        __atelierPost({ type: "atelier-add-to-chat", text:
+          "Figure de « " + citeRef() + " » (p. " + a.page + ")" + (a.note ? " — " + a.note : ""),
+          imageDataUrl: dataUrl });
+      }
+      return;
+    }
     const payload = {rel, page: String(a.page), text: a.text, comment: a.note || "", direct: true, embed: true};
     fetch("/quote", {method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify(payload)})
       .then(r=>r.json())
@@ -992,7 +1045,8 @@ if(window.self !== window.top){
     // la note reste accessible dans le menu qui suit chaque création.
     // Seule la note LIBRE reste un mode : elle se pose en cliquant une zone
     // vide de la page, aucune sélection ne peut donc la déclencher.
-    '<button id="paneBtn" title="Toutes les annotations de l\'article"><svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"><path d="M2.5 3.5h11M2.5 8h11M2.5 12.5h7"/></svg></button>'
+    '<button id="areaBtn" title="Capturer une zone (figure, tableau)"><svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"><path d="M2 5.2V3.4c0-.8.6-1.4 1.4-1.4h1.8M10.8 2h1.8c.8 0 1.4.6 1.4 1.4v1.8M14 10.8v1.8c0 .8-.6 1.4-1.4 1.4h-1.8M5.2 14H3.4c-.8 0-1.4-.6-1.4-1.4v-1.8"/></svg></button>'
+    + '<button id="paneBtn" title="Toutes les annotations de l\'article"><svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"><path d="M2.5 3.5h11M2.5 8h11M2.5 12.5h7"/></svg></button>'
     + '<span style="width:6px"></span>'
     + '<button data-t="note" title="Note : clique ensuite sur la page"><svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><path d="M3 2.5h10v8H8l-3 3v-3H3v-8z"/></svg></button>'
     + '<span style="width:6px"></span>'
@@ -1025,6 +1079,58 @@ if(window.self !== window.top){
   const prevB = tools.querySelector("#annPrev"), nextB = tools.querySelector("#annNext");
   if (prevB) prevB.onclick = (e) => { e.stopPropagation(); gotoAnn(-1); };
   if (nextB) nextB.onclick = (e) => { e.stopPropagation(); gotoAnn(1); };
+  // ---- capture de zone : glisser un rectangle sur une page ----------------
+  const areaB = tools.querySelector("#areaBtn");
+  let AREA_MODE = false, dragFrom = null, dragBox = null, dragPg = null;
+  function setArea(on){
+    AREA_MODE = on;
+    document.body.classList.toggle("area-mode", on);
+    if (areaB) areaB.classList.toggle("ton", on);
+    if (!on && dragBox) { dragBox.remove(); dragBox = null; dragFrom = null; dragPg = null; }
+  }
+  if (areaB) areaB.onclick = (e) => { e.stopPropagation(); setArea(!AREA_MODE); };
+  document.addEventListener("mousedown", (e) => {
+    if (!AREA_MODE) return;
+    const pg = e.target.closest(".pg");
+    if (!pg) return;
+    e.preventDefault();
+    dragPg = pg;
+    const pr = pg.getBoundingClientRect();
+    dragFrom = { x: e.clientX - pr.left, y: e.clientY - pr.top };
+    dragBox = document.createElement("div");
+    dragBox.className = "areasel";
+    pg.appendChild(dragBox);
+  });
+  document.addEventListener("mousemove", (e) => {
+    if (!AREA_MODE || !dragFrom || !dragPg) return;
+    const pr = dragPg.getBoundingClientRect();
+    const x = Math.max(0, Math.min(e.clientX - pr.left, pr.width));
+    const y = Math.max(0, Math.min(e.clientY - pr.top, pr.height));
+    dragBox.style.left = Math.min(x, dragFrom.x) + "px";
+    dragBox.style.top = Math.min(y, dragFrom.y) + "px";
+    dragBox.style.width = Math.abs(x - dragFrom.x) + "px";
+    dragBox.style.height = Math.abs(y - dragFrom.y) + "px";
+  });
+  document.addEventListener("mouseup", (e) => {
+    if (!AREA_MODE || !dragFrom || !dragPg) return;
+    const pr = dragPg.getBoundingClientRect();
+    const x = Math.max(0, Math.min(e.clientX - pr.left, pr.width));
+    const y = Math.max(0, Math.min(e.clientY - pr.top, pr.height));
+    const w = Math.abs(x - dragFrom.x), h = Math.abs(y - dragFrom.y);
+    const left = Math.min(x, dragFrom.x), top = Math.min(y, dragFrom.y);
+    if (dragBox) dragBox.remove();
+    dragBox = null;
+    const pg = dragPg; dragFrom = null; dragPg = null;
+    if (w < 12 || h < 12) return;   // clic parasite : pas de zone minuscule
+    const a = { id: Date.now() + "-area-" + pg.dataset.page, page: +pg.dataset.page,
+      rects: [[left / pr.width, top / pr.height, w / pr.width, h / pr.height]],
+      text: "", kind: "area", color: "rgba(255,170,60,.40)", note: "" };
+    PDF_ANNOTS.push(a);
+    drawAnnots(pg, +pg.dataset.page);
+    saveAnnots();
+    setArea(false);   // une capture à la fois : on revient au mode lecture
+    annotMenu(a, e.clientX, e.clientY);
+  });
   const paneB = tools.querySelector("#paneBtn");
   if (paneB) paneB.onclick = (e) => {
     e.stopPropagation();
