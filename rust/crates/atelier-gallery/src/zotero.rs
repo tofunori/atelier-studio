@@ -629,6 +629,30 @@ pub async fn kb_pdf(axum::extract::Path(id): axum::extract::Path<String>) -> imp
     }
 }
 
+/// Chemin réel d'un PDF servi sous `zotero/<clé>/<fichier>` — mêmes gardes
+/// que `zotero_pdf` (clé de 8 alphanumériques, .pdf, pas de séparateur, chemin
+/// canonique confiné au stockage Zotero). `None` si ce n'est pas une réf
+/// Zotero valide : l'appelant retombe alors sur la résolution projet.
+pub fn zotero_pdf_path(rel: &str) -> Option<std::path::PathBuf> {
+    let rest = rel.strip_prefix("zotero/")?;
+    let mut parts = rest.splitn(2, '/');
+    let key = parts.next()?;
+    let fname = parts.next()?;
+    if key.len() != 8 || !key.chars().all(|c| c.is_ascii_alphanumeric()) {
+        return None;
+    }
+    if !fname.to_ascii_lowercase().ends_with(".pdf") || fname.contains('/') || fname.contains('\\')
+    {
+        return None;
+    }
+    let zroot = fs::canonicalize(zotero_dir().join("storage")).ok()?;
+    let rp = fs::canonicalize(zroot.join(key).join(fname)).ok()?;
+    if !rp.starts_with(&zroot) || !rp.is_file() {
+        return None;
+    }
+    Some(rp)
+}
+
 pub async fn zotero_pdf(
     axum::extract::Path((key, fname)): axum::extract::Path<(String, String)>,
 ) -> impl IntoResponse {

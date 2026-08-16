@@ -130,8 +130,15 @@
   #annPane .fdot{width:15px;height:15px;border-radius:999px;cursor:pointer;opacity:.42}
   #annPane .fdot.on{opacity:1;box-shadow:0 0 0 2px #1b1e24,0 0 0 3.5px #dbdfe5}
   #annPane .list{flex:1;overflow-y:auto;padding:6px}
-  #annPane .it{display:grid;grid-template-columns:4px 1fr;gap:9px;padding:9px 10px;border-radius:8px;
+  #annPane .it{display:grid;grid-template-columns:4px 1fr auto;gap:9px;padding:9px 10px;border-radius:8px;
     cursor:pointer;align-items:start}
+  #annPane .acts{display:flex;flex-direction:column;gap:2px;opacity:0;transition:opacity 130ms ease-out}
+  #annPane .it:hover .acts,#annPane .it:focus-within .acts{opacity:1}
+  #annPane .act{background:none;border:none;color:#8b929e;cursor:pointer;width:24px;height:24px;
+    border-radius:6px;display:inline-flex;align-items:center;justify-content:center;padding:0}
+  #annPane .act:hover{color:#dbdfe5;background:#2c313a}
+  #annPane .act.danger:hover{color:#ff8a8a}
+  @media (prefers-reduced-motion: reduce){ #annPane .acts{transition:none} }
   #annPane .it:hover{background:#232730}
   #annPane .it .bar{width:4px;border-radius:999px;align-self:stretch;min-height:26px}
   #annPane .it .q{color:#cfd3da;line-height:1.45;display:-webkit-box;-webkit-line-clamp:3;
@@ -751,7 +758,18 @@ const annPane = (function(){
         n.className = "n"; n.textContent = a.note;
         body.appendChild(n);
       }
-      it.appendChild(bar); it.appendChild(body);
+      const acts = document.createElement("div");
+      acts.className = "acts";
+      const chat = document.createElement("button");
+      chat.className = "act"; chat.title = "Envoyer au chat";
+      chat.innerHTML = '<svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"><path d="M14 8c0 3-2.7 5.2-6 5.2-.8 0-1.6-.1-2.3-.4L2.5 14l1-2.6C2.6 10.5 2 9.3 2 8c0-3 2.7-5.2 6-5.2S14 5 14 8z"/></svg>';
+      chat.onclick = (e) => { e.stopPropagation(); sendAnnot(a); };
+      const del = document.createElement("button");
+      del.className = "act danger"; del.title = "Supprimer";
+      del.innerHTML = '<svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"><path d="M2.5 4h11M6 4V2.6h4V4M4 4l.6 9.2h6.8L12 4M6.6 6.4v4.4M9.4 6.4v4.4"/></svg>';
+      del.onclick = (e) => { e.stopPropagation(); removeAnnot(a); };
+      acts.appendChild(chat); acts.appendChild(del);
+      it.appendChild(bar); it.appendChild(body); it.appendChild(acts);
       it.onclick = () => jump(a);
       list.appendChild(it);
     }
@@ -990,6 +1008,49 @@ function copyWithCitation(a){
   }
 }
 const annotPop = document.getElementById("annotPop");
+/** Suppression d'une annotation — partagée par le menu et le panneau. */
+function removeAnnot(a){
+  PDF_ANNOTS = PDF_ANNOTS.filter(x => x.id !== a.id);
+  saveAnnots();   // rafraîchit aussi la liste du panneau
+  document.querySelectorAll(".pg").forEach(pg => drawAnnots(pg, +pg.dataset.page));
+  annotPop.style.display = "none";
+}
+/** Envoi au chat — partagé par le menu et le panneau. Une ZONE part en image
+ *  via /save (seul chemin que l'app hôte sait attacher) ; un passage de texte
+ *  part en citation via /quote. `onFail` reçoit la raison quand ça échoue. */
+function sendAnnot(a, onFail){
+  const fail = onFail || sendFail;
+  const target = (window.SelPill && window.SelPill.target) ? window.SelPill.target() : undefined;
+  if (a.kind === "area") {
+    const dataUrl = areaDataUrl(a);
+    if (!dataUrl) { fail("capture impossible (page non rendue ?)"); return; }
+    const stem = (rel ? rel.split("/").pop().replace(/\.pdf$/i, "") : "pdf");
+    fetch("/save", {method:"POST", headers:{"Content-Type":"application/json"},
+      body: JSON.stringify({ name: stem + "-p" + a.page + "-zone", dataURL: dataUrl,
+        direct: true, embed: true, target: target,
+        notes: a.note ? [{n: 1, text: a.note}] : [] })})
+      .then(r=>r.json())
+      .then(j => {
+        if (j && j.message && window.self !== window.top) {
+          __atelierPost({type:"atelier-add-to-chat", text:j.message});
+          annotPop.style.display = "none";
+        } else fail((j && j.error) || "réponse vide");
+      })
+      .catch(e => fail(String(e && e.message || e)));
+    return;
+  }
+  fetch("/quote", {method:"POST", headers:{"Content-Type":"application/json"},
+    body: JSON.stringify({rel, page: String(a.page), text: a.text, comment: a.note || "",
+      direct: true, embed: true, target: target})})
+    .then(r=>r.json())
+    .then(j => {
+      if(j && j.message && window.self !== window.top){
+        __atelierPost({type:"atelier-add-to-chat", text:j.message});
+        annotPop.style.display = "none";
+      } else fail((j && j.error) || "réponse vide");
+    })
+    .catch(e => fail(String(e && e.message || e)));
+}
 /** Un envoi au chat qui échoue ne doit JAMAIS être muet : la raison s'affiche
  *  dans le menu (le .catch silencieux d'avant cachait « file not found »). */
 function sendFail(why){
@@ -1019,50 +1080,8 @@ function annotMenu(a, x, y){
     document.querySelectorAll(".pg").forEach(pg => drawAnnots(pg, +pg.dataset.page));
   });
   annotPop.querySelector(".cpy").onclick = () => copyWithCitation(a);
-  annotPop.querySelector(".send2").onclick = () => {
-    // Une ZONE n'a pas de texte : on redécoupe l'image du canvas de la page
-    // au moment de l'envoi (rien de lourd n'est stocké dans le sidecar).
-    // L'app hôte n'attache une IMAGE que via /save (elle renvoie un message
-    // qui porte le fichier enregistré) — un dataURL passé en direct dans le
-    // postMessage était ignoré, l'envoi paraissait muet. Même mécanisme que
-    // l'ancien outil de dessin.
-    const target = (window.SelPill && window.SelPill.target) ? window.SelPill.target() : undefined;
-    if (a.kind === "area") {
-      const dataUrl = areaDataUrl(a);
-      if (!dataUrl) { sendFail("capture impossible"); return; }
-      const stem = (rel ? rel.split("/").pop().replace(/\.pdf$/i, "") : "pdf");
-      fetch("/save", {method:"POST", headers:{"Content-Type":"application/json"},
-        body: JSON.stringify({ name: stem + "-p" + a.page + "-zone", dataURL: dataUrl,
-          direct: true, embed: true, target: target,
-          notes: a.note ? [{n: 1, text: a.note}] : [] })})
-        .then(r=>r.json())
-        .then(j => {
-          if (j && j.message && window.self !== window.top) {
-            __atelierPost({type:"atelier-add-to-chat", text:j.message});
-            annotPop.style.display = "none";
-          } else sendFail((j && j.error) || "réponse vide");
-        })
-        .catch(e => sendFail(String(e && e.message || e)));
-      return;
-    }
-    const payload = {rel, page: String(a.page), text: a.text, comment: a.note || "",
-      direct: true, embed: true, target: target};
-    fetch("/quote", {method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify(payload)})
-      .then(r=>r.json())
-      .then(j => {
-        if(j && j.message && window.self !== window.top){
-          __atelierPost({type:"atelier-add-to-chat", text:j.message});
-          annotPop.style.display = "none";
-        } else sendFail((j && j.error) || "réponse vide");
-      })
-      .catch(e => sendFail(String(e && e.message || e)));
-  };
-  annotPop.querySelector(".del").onclick = () => {
-    PDF_ANNOTS = PDF_ANNOTS.filter(x => x.id !== a.id);
-    saveAnnots();
-    document.querySelectorAll(".pg").forEach(pg => drawAnnots(pg, +pg.dataset.page));
-    annotPop.style.display = "none";
-  };
+  annotPop.querySelector(".send2").onclick = () => sendAnnot(a);
+  annotPop.querySelector(".del").onclick = () => removeAnnot(a);
 }
 document.addEventListener("click", (e) => {
   if(!annotPop.contains(e.target) && !e.target.classList.contains("pdfhl"))

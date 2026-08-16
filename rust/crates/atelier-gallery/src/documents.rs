@@ -385,7 +385,27 @@ pub struct PdfAnnotQuery {
     rel: Option<String>,
 }
 
+/// Emplacement du store d'annotations PDF.
+///
+/// Les annotations appartiennent au DOCUMENT, pas au projet : un PDF Zotero
+/// (`rel` = `zotero/<clé>/<fichier>`, identité déjà stable) doit garder ses
+/// surlignages quel que soit le projet ouvert. On écrit donc dans le dossier
+/// applicatif quand il est connu (`ATELIER_APP_DIR`, déjà utilisé par
+/// zotero.rs) ; sinon on retombe sur le projet — mode autonome sans app.
 fn pdf_annots_path(root: &Path) -> PathBuf {
+    if let Some(dir) = std::env::var_os("ATELIER_APP_DIR") {
+        let dir = PathBuf::from(dir);
+        if !dir.as_os_str().is_empty() {
+            return dir.join("pdf_annots.json");
+        }
+    }
+    root.join(".fig_thumbs").join("pdf_annots.json")
+}
+
+/// Ancien emplacement (par projet) : lu en secours pour ne pas perdre les
+/// annotations posées avant le passage au store partagé. La première
+/// écriture les recopie dans le store partagé.
+fn legacy_pdf_annots_path(root: &Path) -> PathBuf {
     root.join(".fig_thumbs").join("pdf_annots.json")
 }
 
@@ -401,8 +421,21 @@ pub async fn get_pdfannot(
     Query(query): Query<PdfAnnotQuery>,
 ) -> impl IntoResponse {
     let rel = query.rel.unwrap_or_default();
-    let store = read_pdf_store(&pdf_annots_path(&state.root));
-    let annots = store.get(&rel).cloned().unwrap_or_else(|| json!([]));
+    let shared = pdf_annots_path(&state.root);
+    let store = read_pdf_store(&shared);
+    let mut annots = store.get(&rel).cloned().unwrap_or_else(|| json!([]));
+    // rien dans le store partagé : reprendre l'ancien store du projet
+    let empty = annots.as_array().map(|a| a.is_empty()).unwrap_or(true);
+    if empty {
+        let legacy = legacy_pdf_annots_path(&state.root);
+        if legacy != shared {
+            if let Some(old) = read_pdf_store(&legacy).get(&rel).cloned() {
+                if old.as_array().map(|a| !a.is_empty()).unwrap_or(false) {
+                    annots = old;
+                }
+            }
+        }
+    }
     (StatusCode::OK, Json(json!({"annots": annots}))).into_response()
 }
 

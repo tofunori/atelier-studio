@@ -970,7 +970,15 @@ async fn quote(
         )
             .into_response();
     };
-    let Ok(full) = atelier_core::safe_project_path(&state.root, raw_rel.trim()) else {
+    // Un PDF Zotero est servi sous `zotero/<clé>/<fichier>` : ce chemin
+    // n'existe PAS dans le projet, et le résoudre comme tel faisait échouer
+    // tout envoi au chat depuis un article de la bibliothèque (vécu
+    // 2026-08-16 : « file not found », silencieux côté lecteur).
+    let trimmed = raw_rel.trim();
+    let zotero_full = zotero::zotero_pdf_path(trimmed);
+    let Some(full) = zotero_full
+        .or_else(|| atelier_core::safe_project_path(&state.root, trimmed).ok())
+    else {
         return (
             StatusCode::NOT_FOUND,
             Json(json!({"error":"file not found"})),
