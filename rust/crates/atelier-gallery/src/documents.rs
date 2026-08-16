@@ -439,6 +439,30 @@ pub async fn get_pdfannot(
     (StatusCode::OK, Json(json!({"annots": annots}))).into_response()
 }
 
+/// GET /pdfannot-all — le store COMMUN entier (+ les rels de l'ancien store
+/// du projet courant qui n'y sont pas encore), pour la portée « Bibliothèque »
+/// du panneau : toutes les annotations de tous les PDF, quelques Ko de JSON.
+pub async fn get_pdfannot_all(State(state): State<AppState>) -> impl IntoResponse {
+    let mut store = read_pdf_store(&pdf_annots_path(&state.root));
+    let legacy_path = legacy_pdf_annots_path(&state.root);
+    if legacy_path != pdf_annots_path(&state.root)
+        && let Value::Object(ref mut shared) = store
+        && let Value::Object(legacy) = read_pdf_store(&legacy_path)
+    {
+        for (rel, annots) in legacy {
+            let missing = shared
+                .get(&rel)
+                .and_then(|v| v.as_array())
+                .map(|a| a.is_empty())
+                .unwrap_or(true);
+            if missing && annots.as_array().map(|a| !a.is_empty()).unwrap_or(false) {
+                shared.insert(rel, annots);
+            }
+        }
+    }
+    (StatusCode::OK, Json(json!({"annots": store}))).into_response()
+}
+
 pub async fn post_pdfannot(
     State(state): State<AppState>,
     headers: HeaderMap,

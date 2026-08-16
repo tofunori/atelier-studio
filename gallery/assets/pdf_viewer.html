@@ -148,6 +148,26 @@
     border-radius:6px;display:inline-flex;align-items:center;justify-content:center;padding:0;
     margin-right:-6px}  /* la croix s'aligne optiquement sur la gouttière */
   #annPane .hd button:hover{color:#dbdfe5;background:#262a32}
+  /* Portées : Article (document ouvert) | Bibliothèque (tous les articles
+     annotés du store commun) — choix retenu d'une session à l'autre. */
+  #annPane .scope{display:flex;padding:8px 16px;border-bottom:1px solid #2a2e36}
+  #annPane .scope button{background:none;border:1px solid #343842;color:#7d838d;cursor:pointer;
+    font-size:12px;font-family:inherit;padding:4px 12px;line-height:1.4}
+  #annPane .scope button:first-child{border-radius:6px 0 0 6px}
+  #annPane .scope button:last-child{border-radius:0 6px 6px 0;border-left:none}
+  #annPane .scope button.on{background:#2c313a;color:#dbdfe5}
+  /* section d'article (portée Bibliothèque) */
+  #annPane .art{display:flex;align-items:center;gap:8px;padding:8px;border-radius:8px;cursor:pointer;width:100%;
+    background:none;border:none;color:inherit;font-family:inherit;text-align:left}
+  #annPane .art:hover{background:#232730}
+  #annPane .art .tick{color:#7d838d;flex:none;display:inline-flex}
+  #annPane .art .ttl{flex:1;color:#dbdfe5;font-size:13px;font-weight:500;overflow:hidden;
+    text-overflow:ellipsis;white-space:nowrap;min-width:0}
+  #annPane .art .cnt{color:#7d838d;font-size:11px;font-variant-numeric:tabular-nums;flex:none}
+  #annPane .lib-row{padding-left:28px}
+  #annPane .zone-ph{display:inline-flex;align-items:center;gap:6px;color:#9aa2ad;font-size:12px}
+  /* clignotement d'arrivée après navigation croisée */
+  .pdfhl.flash,.pdfarea.flash{outline:2px solid #5b9dff;outline-offset:2px}
   #annPane .filters{display:flex;gap:8px;padding:8px 16px;border-bottom:1px solid #2a2e36}
   #annPane .fdot{width:14px;height:14px;border-radius:999px;cursor:pointer;opacity:.42}
   #annPane .fdot.on{opacity:1;box-shadow:0 0 0 2px #1b1e24,0 0 0 3.5px #dbdfe5}
@@ -206,7 +226,7 @@ function __ct(){try{return JSON.parse(localStorage.getItem('claudeTargetV1')||'n
 <div id="pages"></div>
 <button id="sendBtn">➜ Claude</button>
 <div id="selPill"><span class="nb">&#128172;</span><textarea rows="1" placeholder="Ajouter une annotation&hellip;"></textarea><button class="del" title="Annuler la sélection (&Eacute;chap)"><svg viewBox="0 0 14 14"><path d="M2 3.5h10M5.5 3.5V2.2c0-.4.3-.7.7-.7h1.6c.4 0 .7.3.7.7v1.3M3.5 3.5l.6 8.1c0 .5.4.9.9.9h4c.5 0 .9-.4.9-.9l.6-8.1M5.8 6v4M8.2 6v4"/></svg></button><button class="tgt" title="Choisir la session Claude cible">&#9678;</button><span class="hlbar"><span class="sw" data-i="0"></span><span class="sw" data-i="1"></span><span class="sw" data-i="2"></span><span class="sw" data-i="3"></span><span class="hsep"></span><button class="ulb" title="Souligner"><svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M4 2.5v5.5a4 4 0 008 0V2.5M3.5 13.5h9"/></svg></button></span><button class="go" title="Envoyer la sélection à la session Claude (Entr&eacute;e)">&#8593;</button></div>
-<div id="annPane"><div class="grip" title="Ajuster la largeur"></div><div class="hd"><span class="ttl">Annotations</span><span class="cn"></span><button class="pclose" title="Fermer"><svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M4 4l8 8M12 4l-8 8"/></svg></button></div><div class="doc"></div><div class="filters"></div><div class="list"></div></div>
+<div id="annPane"><div class="grip" title="Ajuster la largeur"></div><div class="hd"><span class="ttl">Annotations</span><span class="cn"></span><button class="pclose" title="Fermer"><svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M4 4l8 8M12 4l-8 8"/></svg></button></div><div class="doc"></div><div class="scope"><button data-s="doc">Article</button><button data-s="lib">Biblioth&egrave;que</button></div><div class="filters"></div><div class="list"></div></div>
 <div id="findBar"><input type="text" placeholder="Rechercher dans le document&hellip;" spellcheck="false"><span class="cnt"></span><button class="fprev" title="Précédent (Maj+Entrée)"><svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M4 10l4-4 4 4"/></svg></button><button class="fnext" title="Suivant (Entrée)"><svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6l4 4 4-4"/></svg></button><button class="fclose" title="Fermer (Échap)"><svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M4 4l8 8M12 4l-8 8"/></svg></button></div>
 <div id="annotPop"></div>
 <div id="tgMenu"></div>
@@ -790,41 +810,53 @@ const annPane = (function(){
     const sc = document.scrollingElement || document.documentElement;
     sc.scrollTo({ top: pg.offsetTop + y * pg.offsetHeight - 90, behavior: "smooth" });
   }
-  function refresh(){
-    if (pane.style.display !== "flex") return;
-    const all = sorted();
-    const shown = only ? all.filter(a => a.color === only) : all;
-    cn.textContent = shown.length + (only ? " / " + all.length : "");
-    filters.innerHTML = "";
-    HL_COLORS.forEach(c => {
-      const d = document.createElement("span");
-      d.className = "fdot" + (only === c ? " on" : "");
-      d.style.background = c.replace(",.40", ",.85");
-      d.title = "N'afficher que cette couleur";
-      d.onclick = () => { only = (only === c) ? null : c; refresh(); };
-      filters.appendChild(d);
-    });
-    list.innerHTML = "";
-    if (!shown.length) {
-      const e = document.createElement("div");
-      e.className = "empty";
-      e.textContent = only ? "Aucune annotation de cette couleur."
-        : "Aucune annotation. Sélectionne du texte et choisis une couleur.";
-      list.appendChild(e);
-      return;
+  // portée : "doc" = l'article ouvert ; "lib" = toute la bibliothèque
+  let scope = localStorage.getItem("pdfv_pane_scope") === "lib" ? "lib" : "doc";
+  let LIB = null;                       // rel → annots (store commun, via /pdfannot-all)
+  const expanded = new Set([rel]);      // sections dépliées (l'ouvert par défaut)
+  function loadLib(){
+    fetch("/pdfannot-all").then(r => r.json()).then(j => {
+      LIB = (j && j.annots && typeof j.annots === "object") ? j.annots : {};
+      refresh();
+    }).catch(() => { LIB = {}; refresh(); });
+  }
+  function maxTs(list){
+    let best = 0;
+    for (const a of list) { const t = parseInt(a.id, 10); if (t > best) best = t; }
+    return best;
+  }
+  function gotoAnnot(relX, a){
+    if (!relX || relX === rel) { jump(a); return; }
+    // navigation croisée : même viewer, autre document, hash (nonce) préservé
+    const u = new URL(location.href);
+    u.searchParams.set("file", relX);
+    if (relX.startsWith("zotero/")) {
+      u.searchParams.set("path", location.origin + "/" + relX.split("/").map(encodeURIComponent).join("/"));
+    } else {
+      u.searchParams.delete("path");
     }
-    for (const a of shown) {
-      const it = document.createElement("div");
-      it.className = "it";
-      const bar = document.createElement("span");
-      bar.className = "bar";
-      bar.style.background = (a.color || HL_COLORS[0]).replace(",.40", ",.9");
-      const body = document.createElement("div");
-      // LE CONTENU EST L'ÉTIQUETTE (refonte 2026-08-16) : une capture montre
-      // son image, une citation ses guillemets, une note son italique —
-      // aucun libellé de type (« Zone capturée » a vécu).
-      const text = (a.text || "").replace(/\s+/g, " ").trim();
-      if (a.kind === "area") {
+    u.searchParams.delete("page"); u.searchParams.delete("quote");
+    u.searchParams.set("annot", String(a.id));
+    location.href = u.toString();
+  }
+  function filtered(list){
+    return only ? list.filter(a => a.color === only) : list;
+  }
+  // rangée d'annotation — partagée par les deux portées. Hors article ouvert :
+  // pas de vignette possible (le canvas n'existe pas), une zone s'affiche en
+  // ligne sobre « zone · note » ; l'envoi d'image exige d'ouvrir l'article.
+  function buildRow(a, relX){
+    const here = relX === rel;
+    const it = document.createElement("div");
+    it.className = "it" + (here ? "" : " lib-row");
+    const bar = document.createElement("span");
+    bar.className = "bar";
+    bar.style.background = (a.color || HL_COLORS[0]).replace(",.40", ",.9");
+    const body = document.createElement("div");
+    const text = (a.text || "").replace(/\s+/g, " ").trim();
+    if (a.kind === "area") {
+      let shown = false;
+      if (here) {
         let src = thumbs.get(a.id);
         if (!src) { src = areaDataUrl(a); if (src) thumbs.set(a.id, src); }
         if (src) {
@@ -834,60 +866,158 @@ const annPane = (function(){
           img.src = src; img.alt = "";
           box.appendChild(img);
           body.appendChild(box);
-        }
-        if (a.note) {
-          const n = document.createElement("div");
-          n.className = "note"; n.textContent = a.note;
-          body.appendChild(n);
-        }
-      } else if (a.kind === "note") {
-        const q = document.createElement("div");
-        q.className = "q is-note";
-        q.textContent = a.note || text || "…";
-        body.appendChild(q);
-      } else {
-        const q = document.createElement("div");
-        q.className = "q";
-        const o1 = document.createElement("span"); o1.className = "oq"; o1.textContent = "\u00ab\u2009";
-        const o2 = document.createElement("span"); o2.className = "oq"; o2.textContent = "\u2009\u00bb";
-        q.appendChild(o1); q.appendChild(document.createTextNode(text)); q.appendChild(o2);
-        body.appendChild(q);
-        if (a.note) {
-          const n = document.createElement("div");
-          n.className = "note"; n.textContent = a.note;
-          body.appendChild(n);
+          shown = true;
         }
       }
-      // pied unique : page (+ mention note), puis les actions au survol
-      const foot = document.createElement("div");
-      foot.className = "foot";
-      const pg = document.createElement("span");
-      pg.className = "pg";
-      pg.textContent = "p. " + a.page + (a.kind === "note" ? " \u00b7 note" : "");
-      const sp = document.createElement("span");
-      sp.className = "sp";
-      foot.appendChild(pg); foot.appendChild(sp);
-      const mkAct = (cls, title, svg, fn) => {
-        const b = document.createElement("button");
-        b.className = "act" + (cls ? " " + cls : ""); b.title = title; b.innerHTML = svg;
-        b.onclick = (e) => { e.stopPropagation(); fn(); };
-        foot.appendChild(b);
+      if (!shown) {
+        const ph = document.createElement("span");
+        ph.className = "zone-ph";
+        ph.innerHTML = '<svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"><path d="M2 5.2V3.4c0-.8.6-1.4 1.4-1.4h1.8M10.8 2h1.8c.8 0 1.4.6 1.4 1.4v1.8M14 10.8v1.8c0 .8-.6 1.4-1.4 1.4h-1.8M5.2 14H3.4c-.8 0-1.4-.6-1.4-1.4v-1.8"/></svg>';
+        ph.appendChild(document.createTextNode("zone" + (a.note ? " \u00b7 " + a.note : "")));
+        body.appendChild(ph);
+      }
+      if (shown && a.note) {
+        const n = document.createElement("div");
+        n.className = "note"; n.textContent = a.note;
+        body.appendChild(n);
+      }
+    } else if (a.kind === "note") {
+      const q = document.createElement("div");
+      q.className = "q is-note";
+      q.textContent = a.note || text || "\u2026";
+      body.appendChild(q);
+    } else {
+      const q = document.createElement("div");
+      q.className = "q";
+      const o1 = document.createElement("span"); o1.className = "oq"; o1.textContent = "\u00ab\u2009";
+      const o2 = document.createElement("span"); o2.className = "oq"; o2.textContent = "\u2009\u00bb";
+      q.appendChild(o1); q.appendChild(document.createTextNode(text)); q.appendChild(o2);
+      body.appendChild(q);
+      if (a.note) {
+        const n = document.createElement("div");
+        n.className = "note"; n.textContent = a.note;
+        body.appendChild(n);
+      }
+    }
+    const foot = document.createElement("div");
+    foot.className = "foot";
+    const pg = document.createElement("span");
+    pg.className = "pg";
+    pg.textContent = "p. " + a.page + (a.kind === "note" ? " \u00b7 note" : "");
+    const sp = document.createElement("span");
+    sp.className = "sp";
+    foot.appendChild(pg); foot.appendChild(sp);
+    const mkAct = (cls, title, svg, fn) => {
+      const b = document.createElement("button");
+      b.className = "act" + (cls ? " " + cls : ""); b.title = title; b.innerHTML = svg;
+      b.onclick = (e) => { e.stopPropagation(); fn(); };
+      foot.appendChild(b);
+    };
+    if (!(a.kind === "area" && !here)) mkAct("", "Envoyer au chat",
+      '<svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"><path d="M14 8c0 3-2.7 5.2-6 5.2-.8 0-1.6-.1-2.3-.4L2.5 14l1-2.6C2.6 10.5 2 9.3 2 8c0-3 2.7-5.2 6-5.2S14 5 14 8z"/></svg>',
+      () => sendAnnot(a, null, relX));
+    if (a.kind !== "area") mkAct("", "Copier la citation et sa r\u00e9f\u00e9rence",
+      '<svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"><rect x="5.2" y="5.2" width="8.3" height="8.3" rx="1.6"/><path d="M10.8 5.2V3.6A1.6 1.6 0 0 0 9.2 2H3.6A1.6 1.6 0 0 0 2 3.6v5.6a1.6 1.6 0 0 0 1.6 1.6h1.6"/></svg>',
+      () => copyWithCitation(a, relX));
+    mkAct("danger", "Supprimer",
+      '<svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"><path d="M2.5 4h11M6 4V2.6h4V4M4 4l.6 9.2h6.8L12 4M6.6 6.4v4.4M9.4 6.4v4.4"/></svg>',
+      () => removeAnnotIn(relX, a));
+    body.appendChild(foot);
+    it.appendChild(bar); it.appendChild(body);
+    it.onclick = () => gotoAnnot(relX, a);
+    return it;
+  }
+  function removeAnnotIn(relX, a){
+    if (!relX || relX === rel) { removeAnnot(a); return; }
+    if (!LIB || !Array.isArray(LIB[relX])) return;
+    LIB[relX] = LIB[relX].filter(x => x.id !== a.id);
+    fetch("/pdfannot", {method:"POST", headers:{"Content-Type":"application/json"},
+      body: JSON.stringify({rel: relX, annots: LIB[relX]})}).catch(()=>{});
+    refresh();
+  }
+  function renderDoc(){
+    const all = sorted();
+    const shown = filtered(all);
+    cn.textContent = shown.length + (only ? " / " + all.length : "");
+    if (!shown.length) {
+      const e = document.createElement("div");
+      e.className = "empty";
+      e.textContent = only ? "Aucune annotation de cette couleur."
+        : "Aucune annotation. S\u00e9lectionne du texte et choisis une couleur.";
+      list.appendChild(e);
+      return;
+    }
+    for (const a of shown) list.appendChild(buildRow(a, rel));
+  }
+  function renderLib(){
+    if (LIB === null) {
+      const e = document.createElement("div");
+      e.className = "empty"; e.textContent = "Chargement\u2026";
+      list.appendChild(e);
+      return;
+    }
+    const lib = Object.assign({}, LIB);
+    if (rel) lib[rel] = PDF_ANNOTS;   // l'article ouvert : toujours l'état vivant
+    const arts = Object.entries(lib)
+      .map(([r, l]) => ({ rel: r, rows: filtered((Array.isArray(l) ? l : []).slice()
+        .sort((a, b) => (+a.page - +b.page) || 0)) }))
+      .filter(e => e.rows.length)
+      .sort((x, y) => ((y.rel === rel) - (x.rel === rel)) || (maxTs(y.rows) - maxTs(x.rows)));
+    cn.textContent = String(arts.reduce((s, e) => s + e.rows.length, 0));
+    if (!arts.length) {
+      const e = document.createElement("div");
+      e.className = "empty";
+      e.textContent = "Aucune annotation dans la biblioth\u00e8que.";
+      list.appendChild(e);
+      return;
+    }
+    for (const art of arts) {
+      const open = expanded.has(art.rel);
+      const hd2 = document.createElement("button");
+      hd2.className = "art";
+      hd2.setAttribute("aria-expanded", open ? "true" : "false");
+      const tick = document.createElement("span");
+      tick.className = "tick";
+      tick.innerHTML = open
+        ? '<svg width="10" height="10" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M3.5 6l4.5 4.5L12.5 6"/></svg>'
+        : '<svg width="10" height="10" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M6 3.5l4.5 4.5L6 12.5"/></svg>';
+      const ttl = document.createElement("span");
+      ttl.className = "ttl";
+      ttl.textContent = citeRefFor(art.rel);
+      ttl.title = art.rel;
+      const cnt = document.createElement("span");
+      cnt.className = "cnt";
+      cnt.textContent = String(art.rows.length);
+      hd2.appendChild(tick); hd2.appendChild(ttl); hd2.appendChild(cnt);
+      hd2.onclick = () => {
+        if (expanded.has(art.rel)) expanded.delete(art.rel); else expanded.add(art.rel);
+        refresh();
       };
-      mkAct("", "Envoyer au chat",
-        '<svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"><path d="M14 8c0 3-2.7 5.2-6 5.2-.8 0-1.6-.1-2.3-.4L2.5 14l1-2.6C2.6 10.5 2 9.3 2 8c0-3 2.7-5.2 6-5.2S14 5 14 8z"/></svg>',
-        () => sendAnnot(a));
-      if (a.kind !== "area") mkAct("", "Copier la citation et sa r\u00e9f\u00e9rence",
-        '<svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"><rect x="5.2" y="5.2" width="8.3" height="8.3" rx="1.6"/><path d="M10.8 5.2V3.6A1.6 1.6 0 0 0 9.2 2H3.6A1.6 1.6 0 0 0 2 3.6v5.6a1.6 1.6 0 0 0 1.6 1.6h1.6"/></svg>',
-        () => copyWithCitation(a));
-      mkAct("danger", "Supprimer",
-        '<svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"><path d="M2.5 4h11M6 4V2.6h4V4M4 4l.6 9.2h6.8L12 4M6.6 6.4v4.4M9.4 6.4v4.4"/></svg>',
-        () => removeAnnot(a));
-      body.appendChild(foot);
-      it.appendChild(bar); it.appendChild(body);
-      it.onclick = () => jump(a);
-      list.appendChild(it);
+      list.appendChild(hd2);
+      if (open) for (const a of art.rows) list.appendChild(buildRow(a, art.rel));
     }
   }
+  function refresh(){
+    if (pane.style.display !== "flex") return;
+    filters.innerHTML = "";
+    HL_COLORS.forEach(c => {
+      const d = document.createElement("span");
+      d.className = "fdot" + (only === c ? " on" : "");
+      d.style.background = c.replace(",.40", ",.85");
+      d.title = "N'afficher que cette couleur";
+      d.onclick = () => { only = (only === c) ? null : c; refresh(); };
+      filters.appendChild(d);
+    });
+    pane.querySelectorAll(".scope button").forEach(b => b.classList.toggle("on", b.dataset.s === scope));
+    list.innerHTML = "";
+    if (scope === "lib") renderLib(); else renderDoc();
+  }
+  pane.querySelectorAll(".scope button").forEach(b => b.onclick = () => {
+    scope = b.dataset.s === "lib" ? "lib" : "doc";
+    try { localStorage.setItem("pdfv_pane_scope", scope); } catch(e){}
+    if (scope === "lib" && LIB === null) loadLib();
+    refresh();
+  });
   function toggle(){
     const on = pane.style.display !== "flex";
     pane.style.display = on ? "flex" : "none";
@@ -1008,10 +1138,29 @@ function loadAnnots(attempt){
   fetch("/pdfannot?rel=" + encodeURIComponent(rel)).then(r=>r.json())
     .then(j => { PDF_ANNOTS = j.annots || []; ANNOTS_LOADED = true;
       document.querySelectorAll(".pg").forEach(pg => drawAnnots(pg, +pg.dataset.page));
-      annPane.refresh(); })
+      annPane.refresh();
+      revealTargetAnnot(); })
     .catch(()=>{ if((attempt||0) < 10) setTimeout(()=>loadAnnots((attempt||0)+1), 2000); });
 }
 loadAnnots(0);
+// Arrivée d'une navigation croisée (portée Bibliothèque) : ?annot=<id> —
+// défiler jusqu'à l'annotation et la faire clignoter brièvement. Une seule
+// fois : le paramètre est consommé pour survivre aux rechargements en place.
+let __annotTarget = new URLSearchParams(location.search).get("annot");
+function revealTargetAnnot(){
+  if (!__annotTarget) return;
+  const a = PDF_ANNOTS.find(x => String(x.id) === __annotTarget);
+  __annotTarget = null;
+  if (!a) return;
+  const pg = document.querySelector('.pg[data-page="' + a.page + '"]');
+  if (!pg) return;
+  const y = (a.rects && a.rects[0] && a.rects[0][1]) || (a.pin && a.pin[1]) || 0;
+  const sc = document.scrollingElement || document.documentElement;
+  sc.scrollTo({ top: pg.offsetTop + y * pg.offsetHeight - 90 });
+  const els = [...pg.querySelectorAll(".pdfhl, .pdfarea")].filter(el => el.dataset.aid === String(a.id));
+  els.forEach(el => el.classList.add("flash"));
+  setTimeout(() => els.forEach(el => el.classList.remove("flash")), 1600);
+}
 function saveAnnots(){
   annPane.refresh();   // la liste suit chaque ajout/suppression/changement de couleur
   if(!ANNOTS_LOADED) return;  // le store contient peut-être des annots pas encore chargées
@@ -1026,6 +1175,7 @@ function drawAnnots(pgDiv, n){
     for(const rc of (a.kind === "area" ? [] : a.rects)){
       const el = document.createElement("div");
       el.className = "pdfhl";
+      el.dataset.aid = String(a.id);
       el.style.left = (rc[0]*100)+"%"; el.style.top = (rc[1]*100)+"%";
       el.style.width = (rc[2]*100)+"%"; el.style.height = (rc[3]*100)+"%";
       const col = a.color || "rgba(255,213,74,.4)";
@@ -1042,6 +1192,7 @@ function drawAnnots(pgDiv, n){
       const rc = a.rects[0];
       const box = document.createElement("div");
       box.className = "pdfarea";
+      box.dataset.aid = String(a.id);
       box.style.left = (rc[0]*100)+"%"; box.style.top = (rc[1]*100)+"%";
       box.style.width = (rc[2]*100)+"%"; box.style.height = (rc[3]*100)+"%";
       const cap = document.createElement("span");
@@ -1124,12 +1275,13 @@ let LAST_COLOR = HL_COLORS[0];
 // métadonnées Zotero (ni auteur ni année structurés). Même règle que les
 // cartes du chat : « Williamson et al. - 2025 - Titre.pdf » → « Williamson
 // et al. 2025 » ; sinon le nom nettoyé, tronqué.
-function citeRef(){
-  const base = (rel || "").split("/").pop().replace(/\.[a-z0-9]+$/i, "");
+function citeRefFor(relX){
+  const base = (relX || "").split("/").pop().replace(/\.[a-z0-9]+$/i, "");
   const m = /^(.{2,60}?)\s+-\s+(\d{4})\s+-\s+/.exec(base);
   if (m) return m[1] + " " + m[2];
   return base.length > 34 ? base.slice(0, 33) + "…" : base;
 }
+function citeRef(){ return citeRefFor(rel); }
 /** Image d'une zone capturée : redécoupée du canvas de la page à la demande
  *  (le sidecar JSON ne garde que le rectangle, jamais des pixels). */
 function areaDataUrl(a){
@@ -1147,10 +1299,12 @@ function areaDataUrl(a){
   } catch(e){ return null; }
 }
 /** Presse-papier : la citation exacte suivie de sa référence, prête à coller
- *  dans le manuscrit — l'équivalent du « copier avec citation » de Zotero. */
-function copyWithCitation(a){
+ *  dans le manuscrit — l'équivalent du « copier avec citation » de Zotero.
+ *  `relOverride` : depuis la portée Bibliothèque, l'annotation peut venir
+ *  d'un AUTRE article que celui qui est ouvert. */
+function copyWithCitation(a, relOverride){
   const quote = String(a.text || "").replace(/\s+/g, " ").trim();
-  const ref = citeRef() + (a.page ? ", p. " + a.page : "");
+  const ref = citeRefFor(relOverride || rel) + (a.page ? ", p. " + a.page : "");
   const out = quote ? "« " + quote + " » (" + ref + ")" : "(" + ref + ")";
   const done = () => { const el = annotPop.querySelector(".cpy"); if (el) el.classList.add("ok"); };
   if (navigator.clipboard && navigator.clipboard.writeText) {
@@ -1173,13 +1327,15 @@ function removeAnnot(a){
 /** Envoi au chat — partagé par le menu et le panneau. Une ZONE part en image
  *  via /save (seul chemin que l'app hôte sait attacher) ; un passage de texte
  *  part en citation via /quote. `onFail` reçoit la raison quand ça échoue. */
-function sendAnnot(a, onFail){
+function sendAnnot(a, onFail, relOverride){
   const fail = onFail || sendFail;
+  const r = relOverride || rel;
   const target = (window.SelPill && window.SelPill.target) ? window.SelPill.target() : undefined;
   if (a.kind === "area") {
+    if (relOverride && relOverride !== rel) { fail("ouvre l'article pour envoyer sa zone"); return; }
     const dataUrl = areaDataUrl(a);
     if (!dataUrl) { fail("capture impossible (page non rendue ?)"); return; }
-    const stem = (rel ? rel.split("/").pop().replace(/\.pdf$/i, "") : "pdf");
+    const stem = (r ? r.split("/").pop().replace(/\.pdf$/i, "") : "pdf");
     fetch("/save", {method:"POST", headers:{"Content-Type":"application/json"},
       body: JSON.stringify({ name: stem + "-p" + a.page + "-zone", dataURL: dataUrl,
         direct: true, embed: true, target: target,
@@ -1195,7 +1351,7 @@ function sendAnnot(a, onFail){
     return;
   }
   fetch("/quote", {method:"POST", headers:{"Content-Type":"application/json"},
-    body: JSON.stringify({rel, page: String(a.page), text: a.text, comment: a.note || "",
+    body: JSON.stringify({rel: r, page: String(a.page), text: a.text, comment: a.note || "",
       direct: true, embed: true, target: target})})
     .then(r=>r.json())
     .then(j => {

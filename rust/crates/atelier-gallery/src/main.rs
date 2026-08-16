@@ -2115,6 +2115,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             "/pdfannot",
             get(documents::get_pdfannot).post(documents::post_pdfannot),
         )
+        .route(
+            "/pdfannot-all",
+            get(documents::get_pdfannot_all),
+        )
         .route("/export-png", post(documents::export_png))
         .route("/lint", get(documents::lint))
         // Phase 5 — notes + whiteboard
