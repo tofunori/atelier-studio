@@ -11,7 +11,7 @@ import { LazyDropdownMenu } from "./ui/LazyDropdownMenu";
 import { IconButton } from "./ui/IconButton";
 
 /** Cible de la barre : une surface de l'atelier, l'IDE, ou l'explorateur. */
-export type TargetId = Surface | "ide" | "explorer";
+export type TargetId = Surface | "ide" | "explorer" | "annots";
 
 const PIN_KEY = "atelier-studio.topbar-surfaces";
 /** Plafond large : c'est la fenêtre qui décide vraiment (règle CSS de repli),
@@ -22,7 +22,7 @@ export const MAX_PINNED = 10;
  *  onglet à quelques pixels de sa propre icône : les épingles ne sont qu'un
  *  lanceur, pas un indicateur d'état. Le menu donne accès à toutes, et
  *  ré-épingler reste un clic. */
-export const DEFAULT_PINNED: TargetId[] = ["explorer", "ide", "connaissances"];
+export const DEFAULT_PINNED: TargetId[] = ["explorer", "ide", "connaissances", "annots"];
 /** Migration une-fois vers le lanceur court : les listes persistées d'avant le
  *  lot 068 en comptent sept, qui reprendraient la largeur rendue aux onglets.
  *  On garde les trois PREMIÈRES de SA liste — donc son ordre à lui — une seule
@@ -33,6 +33,10 @@ const TRIM_MIGRATION_KEY = "atelier-studio.topbar-surfaces.trim-v1";
  * introuvables (vécu : Thierry les cherchait dans Connaissances). On insère
  * après Connaissances UNE seule fois ; s'il la retire ensuite, on respecte. */
 const PREUVES_MIGRATION_KEY = "atelier-studio.topbar-surfaces.preuves-v1";
+/** Migration une-fois : le panneau Annotations (jumeau large de l'Explorateur,
+ * demande explicite 2026-08-17) s'épingle après Connaissances. Retiré ensuite
+ * par l'utilisateur = respecté. */
+const ANNOTS_MIGRATION_KEY = "atelier-studio.topbar-surfaces.annots-v1";
 
 export function readPinned(): TargetId[] {
   try {
@@ -48,6 +52,7 @@ export function readPinned(): TargetId[] {
       try {
         localStorage.setItem(TRIM_MIGRATION_KEY, "1");
         localStorage.setItem(PREUVES_MIGRATION_KEY, "1");
+        localStorage.setItem(ANNOTS_MIGRATION_KEY, "1");
       } catch { /* stockage indisponible */ }
       return DEFAULT_PINNED;
     }
@@ -59,6 +64,14 @@ export function readPinned(): TargetId[] {
       if (list.length < MAX_PINNED) {
         const at = list.indexOf("connaissances");
         list.splice(at >= 0 ? at + 1 : list.length, 0, "preuves");
+        localStorage.setItem(PIN_KEY, JSON.stringify(list));
+      }
+    }
+    if (!list.includes("annots") && !localStorage.getItem(ANNOTS_MIGRATION_KEY)) {
+      localStorage.setItem(ANNOTS_MIGRATION_KEY, "1");
+      if (list.length < MAX_PINNED) {
+        const at = list.indexOf("connaissances");
+        list.splice(at >= 0 ? at + 1 : list.length, 0, "annots");
         localStorage.setItem(PIN_KEY, JSON.stringify(list));
       }
     }
@@ -101,6 +114,11 @@ const EXPLORER_ICON = (
     <path d="M1.8 4.2c0-.7.5-1.2 1.2-1.2h3l1.4 1.6h5.6c.7 0 1.2.5 1.2 1.2v6c0 .7-.5 1.2-1.2 1.2H3c-.7 0-1.2-.5-1.2-1.2v-7.6z" />
   </svg>
 );
+const ANNOTS_ICON = (
+  <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M2.5 3h3v3h-3zM7.5 3.8h6M7.5 5.2h4M2.5 9h3v3h-3zM7.5 9.8h6M7.5 11.2h4" />
+  </svg>
+);
 const IDE_ICON = (
   <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round">
     <path d="M5.5 5 3 8l2.5 3M10.5 5 13 8l-2.5 3M8.8 3.5 7.2 12.5" />
@@ -122,9 +140,11 @@ export function buildTargets(p: {
   showAtelier: boolean;
   ideActive: boolean;
   showExplorer: boolean;
+  showAnnots: boolean;
   onSelectSurface: (surface: Surface) => void;
   onSelectIde: () => void;
   onToggleExplorer: () => void;
+  onToggleAnnots: () => void;
 }): TopBarTarget[] {
   return [
     {
@@ -133,6 +153,14 @@ export function buildTargets(p: {
       icon: EXPLORER_ICON,
       active: p.showExplorer,
       onSelect: p.onToggleExplorer,
+      surface: null,
+    },
+    {
+      id: "annots",
+      label: t("atelier.annotations"),
+      icon: ANNOTS_ICON,
+      active: p.showAnnots,
+      onSelect: p.onToggleAnnots,
       surface: null,
     },
     {
@@ -161,9 +189,11 @@ export default function TopBarSurfaces(p: {
   showAtelier: boolean;
   ideActive: boolean;
   showExplorer: boolean;
+  showAnnots: boolean;
   onSelectSurface: (surface: Surface) => void;
   onSelectIde: () => void;
   onToggleExplorer: () => void;
+  onToggleAnnots: () => void;
 }) {
   const [pinned, setPinned] = useState<TargetId[]>(readPinned);
   const [menuOpen, setMenuOpen] = useState(false);

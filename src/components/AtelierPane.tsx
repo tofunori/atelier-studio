@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { EllipsisIcon, GripVerticalIcon } from "lucide-react";
 import Explorer from "./Explorer";
+import AnnotationsPanel from "./AnnotationsPanel";
 const BrowserTab = lazyWithRetry(() => import("./BrowserTab"));
 const KnowledgeSurface = lazyWithRetry(() => import("./KnowledgeSurface"));
 const GitSurface = lazyWithRetry(() => import("./GitSurface"));
@@ -144,6 +145,9 @@ export default function AtelierPane({
   onActiveSurfaceChange = NOOP_SURFACE_CHANGE,
   reloadKey,
   showExplorer,
+  showAnnots,
+  onOpenAnnot,
+  onQuoteAnnot,
   layout,
   onToggleExpand,
   recentFiles,
@@ -166,6 +170,9 @@ export default function AtelierPane({
   onActiveSurfaceChange?: (surface: Surface) => void;
   reloadKey: number;
   showExplorer: boolean;
+  showAnnots: boolean;
+  onOpenAnnot: (rel: string, annotId: string) => void;
+  onQuoteAnnot: (text: string) => void;
   files: string[];
   recentFiles: string[];
   onOpenExplorer: () => void;
@@ -1018,6 +1025,13 @@ export default function AtelierPane({
           )}
         </div>
         {showExplorer && <Explorer files={files} onOpen={onOpenFile} />}
+        {showAnnots && (
+          <AnnotationsPanel
+            galleryOrigin={url ? new URL(url).origin : null}
+            onOpenAnnot={onOpenAnnot}
+            onQuote={onQuoteAnnot}
+          />
+        )}
       </div>
     </div>
   );

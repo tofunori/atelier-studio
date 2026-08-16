@@ -1291,6 +1291,7 @@ export default function App() {
   // le bouton reflète son état actif). Fermé par défaut à chaque démarrage —
   // pas de persistance : il ne se rouvre plus tout seul, on l'ouvre au besoin.
   const [showExplorer, setShowExplorer] = useState(false);
+  const [showAnnots, setShowAnnots] = useState(false);
 
   function ensureThreadForContext(title: string): string {
     const existing = activeIdRef.current;
@@ -2368,6 +2369,45 @@ export default function App() {
     // l'onglet vit dans la surface Atelier : y basculer si on est ailleurs
     switchToSurface("atelier");
   }
+  /** Panneau Annotations : ouvrir le PDF de `rel` défilé sur l'annotation.
+   * Zotero → URL viewer avec `path` (stockage servi) ; fichier de projet →
+   * URL viewer simple. Même identité d'onglet que openFileTab. */
+  function openAnnotationTarget(rel: string, annotId: string) {
+    const origin = atelierUrl ? new URL(atelierUrl).origin : null;
+    if (!origin) {
+      hardReloadAtelier();
+      showError(t("annots.load-error"));
+      return;
+    }
+    const params = new URLSearchParams();
+    params.set("file", rel);
+    if (rel.startsWith("zotero/")) {
+      params.set("path", `${origin}/${rel.split("/").map(encodeURIComponent).join("/")}`);
+    }
+    params.set("annot", annotId);
+    let url = withAtelierNonce(`${origin}/.fig_thumbs/pdf_viewer.html?${params.toString()}`, atelierNonce);
+    if (galleryTokenRef.current) url = withAtelierToken(url, galleryTokenRef.current);
+    const name = rel.split("/").pop() ?? rel;
+    const tabIdentity = (raw: string) => {
+      const parsed = new URL(raw);
+      for (const key of ["line", "diff", "base", "annot"]) parsed.searchParams.delete(key);
+      return parsed.toString();
+    };
+    const baseUrl = tabIdentity(url);
+    const newId = crypto.randomUUID();
+    let focusId: string = newId;
+    setAtelierTabs((tabs) => {
+      const existing = tabs.find((t) => tabIdentity(t.url) === baseUrl);
+      if (existing) {
+        focusId = existing.id;
+        return tabs.map((t) => (t.id === existing.id ? { ...t, url } : t));
+      }
+      return [...tabs, { id: newId, url, title: name, projectRoot: activeProject ?? undefined }];
+    });
+    setActiveTab(focusId);
+    switchToSurface("atelier");
+  }
+
   const openFileTabRef = useRef(openFileTab);
   openFileTabRef.current = openFileTab;
   const filesRef = useRef(files);
@@ -3509,6 +3549,11 @@ export default function App() {
       activeSurface={activeSurface}
       showAtelier={showAtelier}
       showExplorer={showExplorer}
+      showAnnots={showAnnots}
+      onToggleAnnots={() => {
+        setLayout((l) => (l === "chat" ? "split" : l));
+        setShowAnnots((v) => !v);
+      }}
       onToggleExplorer={() => {
         // toggle seul : ne change PAS la surface active (sinon fermer
         // l'explorateur depuis browser/terminal te ramènerait à la galerie).
@@ -4104,6 +4149,9 @@ export default function App() {
               onCloseTab={closeAtelierTab}
               reloadKey={atelierReload}
               showExplorer={showExplorer}
+              showAnnots={showAnnots}
+              onOpenAnnot={openAnnotationTarget}
+              onQuoteAnnot={(text) => attachContextToChat(text)}
               recentFiles={recentFiles.filter((f) => files.includes(f)).slice(0, 8)}
               onOpenExplorer={() => setShowExplorer(true)}
               projectName={null /* le crumb TopBar porte déjà le projet — pas de duplication */}
