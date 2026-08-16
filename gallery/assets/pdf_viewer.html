@@ -374,7 +374,20 @@ async function main(){
     const first = onScreen.length ? onScreen : slots.slice(0, 2);
     for (const s of first) { await paint(s); if (gen !== _renderGen) return; }
     if (onVisibleReady) onVisibleReady();
-    for (const s of slots) { await paint(s); if (gen !== _renderGen) return; }
+    // Peinture de fond : CÉDER LA MAIN entre chaque page. Sans ça, les 40+
+    // pages d'un article monopolisent le fil et un clic (ouvrir le panneau,
+    // tirer la poignée) attendait ~2 s avant d'être pris en compte —
+    // « le PDF ne s'ajuste pas » (vécu 2026-08-16).
+    const yieldToUi = () => new Promise((r) => {
+      if (window.requestIdleCallback) window.requestIdleCallback(() => r(), { timeout: 60 });
+      else setTimeout(r, 0);
+    });
+    for (const s of slots) {
+      await paint(s);
+      if (gen !== _renderGen) return;
+      await yieldToUi();
+      if (gen !== _renderGen) return;
+    }
     // les couches texte sont reconstruites : la recherche ouverte doit
     // reposer ses marques (elles vivaient sur les anciens spans)
     try { window.dispatchEvent(new CustomEvent("pdf-rendered")); } catch(e){}
