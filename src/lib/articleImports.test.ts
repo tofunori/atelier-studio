@@ -40,10 +40,12 @@ describe("étapes de conversion", () => {
     expect(stageLabel(jobs()[0])).toBe("Conversion chez MinerU — 42 s");
   });
 
-  it("dit chaque étape en clair, et retombe sur le compteur avant la première", () => {
+  it("dit chaque étape en clair, et l'attente est nommée avant la première", () => {
     startArticleImport("/tmp/aoki.pdf");
     const job = jobs()[0];
-    expect(stageLabel({ ...job, startedAt: Date.now() - 8000 })).toMatch(/Conversion en cours — [78] s/);
+    // avant toute étape reçue, « conversion en cours » serait un mensonge :
+    // le travail n'a pas commencé (file, spawn) — fix 2026-08-16
+    expect(stageLabel({ ...job, startedAt: Date.now() - 8000 })).toMatch(/En attente de la conversion — [78] s/);
     expect(stageLabel({ ...job, stage: "upload" })).toBe("Envoi du PDF…");
     expect(stageLabel({ ...job, stage: "meta" })).toBe("Métadonnées (Zotero, Crossref)…");
     expect(stageLabel({ ...job, stage: "duplicates" })).toBe("Recherche de doublons…");
