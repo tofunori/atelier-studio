@@ -162,14 +162,7 @@ export default function AnnotationsPanel(p: {
             {t("annots.count", { n: total, m: articles.length })}
           </span>
         )}
-      </div>
-      <input
-        className="exp-search"
-        placeholder={t("annots.search")}
-        value={search}
-        onChange={(e) => setSearch(e.target.value)}
-      />
-      <div className="annots-filters">
+        <span className="annots-hspace" />
         {HL_COLORS.map((c) => (
           <RowButton
             key={c}
@@ -181,6 +174,12 @@ export default function AnnotationsPanel(p: {
           />
         ))}
       </div>
+      <input
+        className="annots-search"
+        placeholder={t("annots.search")}
+        value={search}
+        onChange={(e) => setSearch(e.target.value)}
+      />
       <div className="annots-list">
         {error && <div className="annots-empty">{error}</div>}
         {!error && lib === null && <div className="annots-empty">{t("common.loading")}</div>}
