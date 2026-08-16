@@ -200,7 +200,14 @@ async function main(){
   // État de rendu déclaré AVANT la boucle de suivi : sa première frame les
   // lit, et un `let` plus bas la ferait mourir en zone morte temporelle
   // (page blanche, régression vécue le 2026-08-16). Ne pas redescendre.
-  let RENDER_W = window.innerWidth;
+  // Largeur RÉELLEMENT disponible pour les pages : la colonne d'annotations
+  // est en position fixe, elle ne réduit pas window.innerWidth — sans ça les
+  // pages gardaient leur taille et passaient SOUS le panneau (vécu 2026-08-16).
+  const PANE_W = 296;
+  function availW(){
+    return window.innerWidth - (document.body.classList.contains("pane-on") ? PANE_W : 0);
+  }
+  let RENDER_W = availW();
   let ZOOM = 1; // 1 = ajusté à la largeur ; +/- multiplient
   let RENDER_Z = 1;
   // resize du panneau, façon vraie app :
@@ -214,7 +221,7 @@ async function main(){
     // à 60 fps ; l'interval ne garde que la détection de stabilité.
     (function follow(){
       if (!rendering) {
-        const w = window.innerWidth;
+        const w = availW();
         const k = ((w - 28) / Math.max(1, RENDER_W - 28)) * (ZOOM / RENDER_Z);
         if (Math.abs(w - RENDER_W) < 8 && Math.abs(ZOOM - RENDER_Z) < 0.01) {
           wrap.style.transform = "";
@@ -236,7 +243,7 @@ async function main(){
       } catch(e){}
     }
     setInterval(async function(){
-      const w = window.innerWidth;
+      const w = availW();   // suit aussi l'ouverture/fermeture du panneau
       if (w !== lastW || ZOOM !== lastZ) { lastW = w; lastZ = ZOOM; lastChangeAt = performance.now(); }
       if (rendering) return;
       if (Math.abs(w - RENDER_W) < 8 && Math.abs(ZOOM - RENDER_Z) < 0.01) return;
@@ -266,9 +273,9 @@ async function main(){
     clearHl();
     selHide();
     const gen = ++_renderGen;
-    RENDER_W = window.innerWidth;
+    RENDER_W = availW();
     RENDER_Z = ZOOM;
-    const scale = Math.max(0.3, ((window.innerWidth - 28) / 612) * ZOOM);
+    const scale = Math.max(0.3, ((RENDER_W - 28) / 612) * ZOOM);
     wrap.innerHTML = "";
     // 1) squelette : chaque page à sa taille finale, sans canvas. La hauteur
     //    totale est juste immédiatement (le scroll ne saute pas) et le rendu
@@ -732,7 +739,8 @@ const annPane = (function(){
       const body = document.createElement("div");
       const q = document.createElement("div");
       q.className = "q";
-      q.textContent = (a.text || "").replace(/\s+/g, " ").trim() || (a.kind === "note" ? "Note" : "—");
+      q.textContent = (a.text || "").replace(/\s+/g, " ").trim()
+        || (a.kind === "area" ? "Zone capturée" : a.kind === "note" ? "Note" : "Surlignage");
       const m = document.createElement("div");
       m.className = "m";
       m.textContent = "p. " + a.page;
