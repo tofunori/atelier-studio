@@ -29,7 +29,7 @@ jobs:
           sudo apt-get install -y \
             libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf \
             libxdo-dev libssl-dev build-essential curl wget file \
-            xvfb imagemagick x11-utils xdotool
+            xvfb imagemagick x11-utils xdotool ghostscript fonts-dejavu-core
           echo "webkit2gtk: $(pkg-config --modversion webkit2gtk-4.1)" | tee -a "$GITHUB_STEP_SUMMARY"
 
       - uses: actions/setup-node@v4
@@ -100,7 +100,11 @@ jobs:
       # montré que la coquille sur « No project open » : la galerie, l'éditeur
       # LaTeX et le visualiseur PDF n'avaient rien à rendre — or ce sont eux
       # qui font vraiment travailler WebKitGTK.
+      # `continue-on-error` comme les autres : au run 31969575456, l'échec de
+      # cette étape (politique PDF d'ImageMagick) a fait SAUTER le lancement et
+      # perdu tout le run. Une fixture imparfaite doit dégrader, pas annuler.
       - name: projet fictif + état pré-ouvert
+        continue-on-error: true
         run: |
           FIX="$HOME/projet-spike"
           mkdir -p "$FIX/figures"
@@ -108,11 +112,19 @@ jobs:
           # deux PNG réels pour que la galerie ait des vignettes à produire
           convert -size 640x400 gradient:navy-white "$FIX/figures/fig1_albedo.png"
           convert -size 800x600 plasma:fractal "$FIX/figures/fig2_hypso.png"
-          # un PDF réel : c'est la seule façon d'exercer le visualiseur
-          convert -size 800x1000 xc:white -pointsize 42 -fill black \
-            -annotate +70+150 'Albedo Modis — spike' \
-            -annotate +70+230 'Figure 3 : hypsometrie' "$FIX/figures/fig3_rapport.pdf"
+
+          # PDF : Ubuntu livre ImageMagick avec une politique qui INTERDIT
+          # l'écriture de PDF (« not allowed by the security policy `PDF' »,
+          # run 31969575456) et sans police helvetica. On desserre la politique
+          # pour ce runner jetable et on nomme une police réellement présente.
+          sudo sed -i 's/rights="none" pattern="PDF"/rights="read|write" pattern="PDF"/' \
+            /etc/ImageMagick-6/policy.xml || true
+          convert -size 800x1000 xc:white -font DejaVu-Sans -pointsize 40 -fill black \
+            -annotate +70+150 'Albedo Modis - spike' \
+            -annotate +70+230 'Figure 3 : hypsometrie' "$FIX/figures/fig3_rapport.pdf" \
+            || echo "PDF non généré — le visualiseur PDF restera non testé"
           ls -la "$FIX" "$FIX/figures"
+          file "$FIX/figures/fig3_rapport.pdf" 2>/dev/null || true
 
           # `AppPaths::default_mac()` code ce chemin en dur : sur Linux il est
           # créé tel quel dans le home. C'est un des points à corriger, mais
