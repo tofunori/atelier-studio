@@ -5,7 +5,7 @@
 //! restent hors périmètre et lèvent une erreur explicite si invoqués.
 
 use crate::csv_digest::{csv_digest, js_len, CSV_FULL_MAX};
-use crate::folder::{scan_folder, FolderFile};
+use crate::folder::{folder_fingerprint, scan_folder, FolderFile};
 use crate::pdf::extract_pdf_pages;
 use crate::search::{search_passages, Page};
 use serde_json::{json, Map, Value};
@@ -96,6 +96,18 @@ fn write_atomic(path: &Path, data: &[u8]) -> Result<(), String> {
     Ok(())
 }
 
+/// Garde RAII du verrou mkdir de `with_lock` — libère `.lock` même si la
+/// fermeture protégée panique (unwind), voir `with_lock`.
+struct LockGuard {
+    lock_dir: PathBuf,
+}
+
+impl Drop for LockGuard {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_dir_all(&self.lock_dir);
+    }
+}
+
 pub struct KnowledgeStore {
     pub dir: PathBuf,
     registry_path: PathBuf,
@@ -182,6 +194,10 @@ impl KnowledgeStore {
     /// Verrou mkdir inter-processus. Un seul appel par invocation CLI, donc
     /// pas de ré-entrance à gérer (contrairement au sidecar Node qui peut
     /// vivre plusieurs commandes dans le même process via `runKbCommand`).
+    /// Libéré via `LockGuard` (RAII, `Drop`) plutôt qu'un retrait manuel
+    /// après l'appel — B5 (plans/065-revue-findings.md, KBC-29) : un panic
+    /// dans `f` laissait le répertoire `.lock` en place, bloquant toute
+    /// invocation suivante jusqu'au délai `LOCK_STALE` (10 s).
     fn with_lock<T>(&mut self, f: impl FnOnce(&mut Self) -> Result<T, String>) -> Result<T, String> {
         std::fs::create_dir_all(&self.dir).map_err(|e| e.to_string())?;
         let deadline = std::time::Instant::now() + LOCK_TIMEOUT;
@@ -204,9 +220,8 @@ impl KnowledgeStore {
                 }
             }
         }
-        let result = f(self);
-        let _ = std::fs::remove_dir_all(&self.lock_dir);
-        result
+        let _guard = LockGuard { lock_dir: self.lock_dir.clone() };
+        f(self)
     }
 
     fn ordered_sources(&self) -> Vec<&Value> {
@@ -655,7 +670,7 @@ impl KnowledgeStore {
         let file_title = title
             .filter(|t| !t.is_empty())
             .map(|s| s.to_string())
-            .unwrap_or_else(|| path.file_name().unwrap().to_string_lossy().into_owned());
+            .unwrap_or_else(|| basename(&path));
         let mut meta = json!({ "mtimeMs": stat.modified_ms(), "size": stat.len() });
         if table {
             meta["table"] = json!(true);
@@ -687,7 +702,7 @@ impl KnowledgeStore {
         let folder_title = title
             .filter(|t| !t.is_empty())
             .map(|s| s.to_string())
-            .unwrap_or_else(|| path.file_name().unwrap().to_string_lossy().into_owned());
+            .unwrap_or_else(|| basename(&path));
         let cache_payload = json!({
             "files": files.iter().map(|f| json!({
                 "rel": f.rel, "mtimeMs": f.mtime_ms, "size": f.size, "chars": f.chars,
@@ -758,11 +773,118 @@ impl KnowledgeStore {
         self.upsert_entry(&id, "web", Some(&page_title), Some(&url), pages_from_text(&body), meta)
     }
 
+    /// Re-lit les sources locales périmées (mtime/size) avant usage —
+    /// fichiers texte ET PDF (un PDF remplacé au même chemin est
+    /// ré-extrait), dossier par empreinte (fingerprint des rel/mtime/size).
+    /// Miroir de `ensureFresh` (`sidecar/knowledge.mjs:871-938`) — B2
+    /// (plans/065-revue-findings.md) : jamais porté jusqu'ici, texte périmé
+    /// servi sans signal, erreur dure sur cache absent alors que Node se
+    /// répare seul en reconstruisant depuis l'origine quand elle existe
+    /// encore sur disque.
+    fn ensure_fresh(&mut self, id: &str) -> Result<Value, String> {
+        let entry = self.sources.get(id).cloned().ok_or_else(|| format!("Source inconnue: {id}"))?;
+        let kind = entry.get("kind").and_then(Value::as_str).unwrap_or("").to_string();
+        let origin = entry.get("origin").and_then(Value::as_str).map(str::to_string);
+        let title = entry.get("title").and_then(Value::as_str).map(str::to_string);
+        let meta_mtime = entry.get("meta").and_then(|m| m.get("mtimeMs")).and_then(Value::as_f64);
+        let meta_size = entry.get("meta").and_then(|m| m.get("size")).and_then(Value::as_u64);
+
+        if kind == "file" {
+            if let Some(origin) = origin.as_deref() {
+                let path = Path::new(origin);
+                if path.exists() {
+                    if let Ok(stat) = std::fs::metadata(path) {
+                        let stale = Some(stat.modified_ms()) != meta_mtime || Some(stat.len()) != meta_size;
+                        if stale {
+                            if let Ok(raw) = std::fs::read_to_string(path) {
+                                let pages = pages_from_text(&raw);
+                                if !pages.is_empty() {
+                                    let meta = json!({"mtimeMs": stat.modified_ms(), "size": stat.len()});
+                                    self.upsert_entry(id, "file", title.as_deref(), Some(origin), pages, meta)?;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        } else if kind == "pdf" || kind == "zotero" {
+            if let Some(origin) = origin.as_deref() {
+                let path = Path::new(origin);
+                if path.exists() {
+                    if let Ok(stat) = std::fs::metadata(path) {
+                        let stale = Some(stat.modified_ms()) != meta_mtime || Some(stat.len()) != meta_size;
+                        if stale || self.read_pages_cache(id).is_none() {
+                            let extracted = extract_pdf_pages(path, &self.pdf_cache_dir)?;
+                            let mut meta = entry.get("meta").cloned().unwrap_or_else(|| json!({}));
+                            if let Some(obj) = meta.as_object_mut() {
+                                obj.insert("pages".into(), json!(extracted.pages.len()));
+                                obj.insert("mtimeMs".into(), json!(stat.modified_ms()));
+                                obj.insert("size".into(), json!(stat.len()));
+                            }
+                            self.upsert_entry(id, &kind, title.as_deref(), Some(origin), extracted.pages, meta)?;
+                        }
+                    }
+                }
+            }
+        } else if kind == "folder" {
+            if let Some(origin) = origin.as_deref() {
+                let path = Path::new(origin);
+                if path.is_dir() {
+                    let previous = self.read_folder_cache(id).unwrap_or_default();
+                    let (files, skipped) = scan_folder(path, &previous);
+                    if folder_fingerprint(&previous) != folder_fingerprint(&files) {
+                        let chars: u64 = files.iter().map(|f| f.chars as u64).sum();
+                        let mut meta = json!({"files": files.len()});
+                        if skipped > 0 {
+                            meta["skipped"] = json!(skipped);
+                        }
+                        let cache_payload = json!({
+                            "files": files.iter().map(|f| json!({
+                                "rel": f.rel, "mtimeMs": f.mtime_ms, "size": f.size, "chars": f.chars,
+                                "pages": f.pages.iter().map(|p| json!({"page": p.page, "text": p.text})).collect::<Vec<_>>(),
+                            })).collect::<Vec<_>>(),
+                        });
+                        self.upsert_raw(id, "folder", title.as_deref(), Some(origin), chars, meta, cache_payload)?;
+                    }
+                }
+            }
+        }
+        Ok(self.sources.get(id).cloned().unwrap_or(entry))
+    }
+
+    /// Pages d'une source, cache reconstruit depuis l'origine quand elle
+    /// existe encore. Miroir de `pagesFor` (`sidecar/knowledge.mjs:922-938`).
+    fn pages_for(&mut self, id: &str) -> Result<Vec<Page>, String> {
+        let entry = self.ensure_fresh(id)?;
+        if let Some(pages) = self.read_pages_cache(id) {
+            return Ok(pages);
+        }
+        if entry.get("kind").and_then(Value::as_str) == Some("file") {
+            if let Some(origin) = entry.get("origin").and_then(Value::as_str) {
+                let path = Path::new(origin);
+                if path.exists() {
+                    if let Ok(stat) = std::fs::metadata(path) {
+                        if let Ok(raw) = std::fs::read_to_string(path) {
+                            let pages = pages_from_text(&raw);
+                            if !pages.is_empty() {
+                                let title = entry.get("title").and_then(Value::as_str).map(str::to_string);
+                                let meta = json!({"mtimeMs": stat.modified_ms(), "size": stat.len()});
+                                self.upsert_entry(id, "file", title.as_deref(), Some(origin), pages.clone(), meta)?;
+                                return Ok(pages);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        Err(format!("Cache absent pour {id} — ré-épingler la source"))
+    }
+
     /// Texte stocké tel quel (registre + cache, pas le fichier disque).
-    pub fn full_text(&self, id: &str) -> Result<String, String> {
-        let entry = self.sources.get(id).ok_or_else(|| format!("Source inconnue: {id}"))?;
+    pub fn full_text(&mut self, id: &str) -> Result<String, String> {
+        let entry = self.sources.get(id).cloned().ok_or_else(|| format!("Source inconnue: {id}"))?;
         if entry.get("kind").and_then(Value::as_str) == Some("folder") {
-            let files = self.read_folder_cache(id).ok_or_else(|| format!("Cache absent pour {id} — ré-épingler la source"))?;
+            let files = self.folder_files_for(id)?;
             return Ok(files
                 .iter()
                 .map(|f| {
@@ -772,11 +894,14 @@ impl KnowledgeStore {
                 .collect::<Vec<_>>()
                 .join("\n\n"));
         }
-        let pages = self.read_pages_cache(id).ok_or_else(|| format!("Cache absent pour {id} — ré-épingler la source"))?;
+        let pages = self.pages_for(id)?;
         Ok(pages.iter().map(|p| p.text.as_str()).collect::<Vec<_>>().join("\n\n"))
     }
 
-    pub fn folder_files_for(&self, id: &str) -> Result<Vec<FolderFile>, String> {
+    /// Fichiers d'un dossier, cache reconstruit quand l'origine le permet
+    /// (`ensureFresh` avant lecture — B2).
+    pub fn folder_files_for(&mut self, id: &str) -> Result<Vec<FolderFile>, String> {
+        self.ensure_fresh(id)?;
         self.read_folder_cache(id).ok_or_else(|| format!("Cache absent pour {id} — ré-épingler la source"))
     }
 
@@ -785,7 +910,7 @@ impl KnowledgeStore {
     /// n'est renseigné que pour une source `folder` (miroir de
     /// `passage.file` côté Node, utilisé par `decoratePassage`).
     pub fn search(
-        &self,
+        &mut self,
         id: &str,
         query: &str,
         limit: usize,
@@ -812,7 +937,7 @@ impl KnowledgeStore {
             merged.truncate(capped);
             return Ok((summary, merged));
         }
-        let pages = self.read_pages_cache(id).ok_or_else(|| format!("Cache absent pour {id} — ré-épingler la source"))?;
+        let pages = self.pages_for(id)?;
         let passages = search_passages(&pages, query, limit);
         Ok((summary, passages.into_iter().map(|p| (p, None)).collect()))
     }
@@ -847,6 +972,14 @@ fn updated_at(v: &Value) -> String {
 
 fn ext_lower(path: &Path) -> String {
     path.extension().map(|e| format!(".{}", e.to_string_lossy().to_lowercase())).unwrap_or_default()
+}
+
+/// Miroir de `basename(path)` (Node) : `Path::file_name` retourne `None`
+/// pour un chemin racine ("/") — Node répond "" dans ce cas plutôt que de
+/// paniquer. B5 (plans/065-revue-findings.md, KBS-01) : `add --kind folder
+/// --origin /` sans `--title` faisait paniquer le process en `.unwrap()`.
+fn basename(path: &Path) -> String {
+    path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default()
 }
 
 fn resolve_path(origin: &str) -> PathBuf {
@@ -999,5 +1132,99 @@ mod tests {
             .filter(|e| e.file_name().to_string_lossy().starts_with("knowledge.json.corrupt-"))
             .collect();
         assert_eq!(backups.len(), 1);
+    }
+
+    // --- B2 (plans/065-revue-findings.md) : ensureFresh — revalidation
+    // mtime/size, reconstruction du cache absent, folder_fingerprint. ---
+
+    #[test]
+    fn ensure_fresh_relit_un_fichier_perime_mtime_size() {
+        let dir = tempdir().unwrap();
+        let mut store = KnowledgeStore::open(dir.path().to_path_buf());
+        let file_path = dir.path().join("note.md");
+        std::fs::write(&file_path, "Version initiale du texte source.").unwrap();
+        let (source, _) = store.add("file", Some(file_path.to_str().unwrap()), None, None).unwrap();
+        let id = source["id"].as_str().unwrap().to_string();
+        assert!(store.full_text(&id).unwrap().contains("Version initiale"));
+
+        // Taille ET mtime changent forcément (contenu plus long) — la
+        // staleness ne dépend donc pas de la résolution du système de
+        // fichiers pour l'horodatage.
+        std::fs::write(&file_path, "Version mise a jour, notablement plus longue que l'originale.").unwrap();
+
+        let text2 = store.full_text(&id).unwrap();
+        assert!(text2.contains("mise a jour"), "ensureFresh doit relire le fichier périmé (B2)");
+        assert!(!text2.contains("Version initiale"));
+    }
+
+    #[test]
+    fn ensure_fresh_reconstruit_le_cache_absent_pour_un_fichier() {
+        let dir = tempdir().unwrap();
+        let mut store = KnowledgeStore::open(dir.path().to_path_buf());
+        let file_path = dir.path().join("note.md");
+        std::fs::write(&file_path, "Texte a retrouver apres suppression du cache.").unwrap();
+        let (source, _) = store.add("file", Some(file_path.to_str().unwrap()), None, None).unwrap();
+        let id = source["id"].as_str().unwrap().to_string();
+
+        // Supprime le cache d'extraction sans toucher le registre ni le
+        // fichier source (mtime/size inchangés -> pas "stale" au sens strict,
+        // mais le cache est absent : Node se répare seul, jamais d'erreur).
+        let cache_path = dir.path().join("cache").join(format!("{id}.json"));
+        assert!(cache_path.exists());
+        std::fs::remove_file(&cache_path).unwrap();
+
+        let text = store.full_text(&id).unwrap();
+        assert!(
+            text.contains("Texte a retrouver"),
+            "cache absent doit être reconstruit depuis l'origine (B2), pas une erreur dure"
+        );
+        assert!(cache_path.exists(), "le cache doit être régénéré après reconstruction");
+    }
+
+    #[test]
+    fn ensure_fresh_detecte_un_nouveau_fichier_dans_un_dossier_deja_epingle() {
+        let dir = tempdir().unwrap();
+        let mut store = KnowledgeStore::open(dir.path().to_path_buf());
+        let folder = dir.path().join("docs");
+        std::fs::create_dir_all(&folder).unwrap();
+        std::fs::write(folder.join("a.md"), "Premier fichier du dossier.").unwrap();
+        let (source, _) = store.add("folder", Some(folder.to_str().unwrap()), None, None).unwrap();
+        let id = source["id"].as_str().unwrap().to_string();
+        assert_eq!(source["meta"]["files"], json!(1));
+
+        std::fs::write(folder.join("b.md"), "Deuxieme fichier ajoute apres l'epinglage initial.").unwrap();
+        let text = store.full_text(&id).unwrap();
+        assert!(
+            text.contains("Deuxieme fichier"),
+            "ensureFresh doit détecter le nouveau fichier via folder_fingerprint (B2)"
+        );
+        let refreshed = store.get(&id).unwrap();
+        assert_eq!(refreshed["meta"]["files"], json!(2));
+    }
+
+    // --- B5 (plans/065-revue-findings.md, KBS-01/KBC-29) : plus de panic
+    // in-process sur dossier racine, verrou libéré même si la fermeture
+    // protégée panique. ---
+
+    #[test]
+    fn basename_ne_panique_pas_sur_la_racine() {
+        assert_eq!(basename(Path::new("/")), "");
+        assert_eq!(basename(Path::new("/foo/bar")), "bar");
+        assert_eq!(basename(Path::new("/foo/")), "foo");
+    }
+
+    #[test]
+    fn with_lock_libere_le_verrou_meme_si_la_fermeture_panique() {
+        let dir = tempdir().unwrap();
+        let mut store = KnowledgeStore::open(dir.path().to_path_buf());
+        let lock_dir = store.lock_dir.clone();
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            store.with_lock(|_| -> Result<(), String> { panic!("boom (test RAII, B5/KBC-29)") })
+        }));
+        assert!(result.is_err());
+        assert!(
+            !lock_dir.exists(),
+            "le verrou .lock doit être libéré même après un panic dans la fermeture protégée (B5/KBC-29)"
+        );
     }
 }
