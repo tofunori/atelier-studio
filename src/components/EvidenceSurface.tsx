@@ -13,7 +13,8 @@ import { t } from "../lib/i18n";
 import { wsSend } from "../lib/wsBus";
 import { evidencePinsSnapshot, subscribeEvidencePins, type EvidencePin } from "../lib/evidencePins";
 import { openGbrainPassage, openZoteroPassage } from "./chat/md";
-import { Button, EmptyState, IconButton, RowButton, SurfaceHeader } from "./ui";
+import { CopyIcon } from "./icons";
+import { EmptyState, IconButton, RowButton, SurfaceHeader } from "./ui";
 import { showSuccess } from "./ui/toast";
 
 type EvidenceGroup = { key: string | null; pins: EvidencePin[] };
@@ -77,28 +78,38 @@ function copyCitation(pin: EvidencePin) {
 
 function EvidenceRow({ pin, onUnpin }: { pin: EvidencePin; onUnpin: (pin: EvidencePin) => void }) {
   const isGbrain = pin.source === "gbrain";
-  const meta = isGbrain ? pin.citeLabel : `${pin.citeLabel} · p. ${pin.page}`;
+  const hasQuote = Boolean(pin.quote.trim());
   return (
     <div className="evidence-row">
       <RowButton className="evidence-row-main" onClick={() => openPin(pin)}>
-        <span className="evidence-row-quote">{pin.quote}</span>
-        <span className="evidence-row-meta">{meta}</span>
+        <span className={hasQuote ? "evidence-row-quote" : "evidence-row-quote is-absent"}>
+          {hasQuote ? pin.quote : t("preuves.open-source", { source: pin.citeLabel })}
+        </span>
+        <span className="evidence-row-meta">
+          <span
+            className={isGbrain ? "evidence-meta-kind is-gbrain" : "evidence-meta-kind"}
+            aria-hidden="true"
+          />
+          <span className="evidence-meta-src">{pin.citeLabel}</span>
+          {!isGbrain && <span className="evidence-meta-page">p. {pin.page}</span>}
+        </span>
       </RowButton>
-      <Button
-        variant="ghost"
-        size="sm"
-        className="evidence-copy"
-        onClick={() => copyCitation(pin)}
-      >
-        {t(isGbrain ? "preuves.copy-quote" : "preuves.copy-cite")}
-      </Button>
-      <IconButton
-        className="evidence-unpin"
-        label={t("passage.unpin")}
-        onClick={() => onUnpin(pin)}
-      >
-        <PinIcon />
-      </IconButton>
+      <span className="evidence-actions">
+        <IconButton
+          className="evidence-copy"
+          label={t(isGbrain ? "preuves.copy-quote" : "preuves.copy-cite")}
+          onClick={() => copyCitation(pin)}
+        >
+          <CopyIcon size={12} />
+        </IconButton>
+        <IconButton
+          className="evidence-unpin"
+          label={t("passage.unpin")}
+          onClick={() => onUnpin(pin)}
+        >
+          <PinIcon />
+        </IconButton>
+      </span>
     </div>
   );
 }
