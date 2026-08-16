@@ -162,54 +162,100 @@ async function main(){
       }
       requestAnimationFrame(follow);
     })();
+    // Fin de geste connue À L'INSTANT MÊME : ResizeObserver horodate chaque
+    // changement de taille ; on rend net 160 ms après le DERNIER. L'ancien
+    // comptage de ticks (3 × 150 ms) ajoutait jusqu'à 450 ms d'attente.
+    let lastChangeAt = 0, lastZ = ZOOM;
+    if (window.ResizeObserver) {
+      try {
+        new ResizeObserver(function(){ lastChangeAt = performance.now(); })
+          .observe(document.documentElement);
+      } catch(e){}
+    }
     setInterval(async function(){
       const w = window.innerWidth;
-      if (w !== lastW) { lastW = w; stableTicks = 0; }
-      else stableTicks++;
+      if (w !== lastW || ZOOM !== lastZ) { lastW = w; lastZ = ZOOM; lastChangeAt = performance.now(); }
       if (rendering) return;
       if (Math.abs(w - RENDER_W) < 8 && Math.abs(ZOOM - RENDER_Z) < 0.01) return;
-      // stabilisé (≈450 ms sans changement) → re-rendu net
-      if (stableTicks >= 3 || (Math.abs(ZOOM - RENDER_Z) >= 0.01 && stableTicks >= 2)) {
-        rendering = true;
-        const el = document.scrollingElement || document.documentElement;
-        const ratio = el.scrollTop / Math.max(1, el.scrollHeight);
-        try { await renderAll(); } catch(e){}
-        wrap.style.transform = "";
-        el.scrollTop = ratio * el.scrollHeight;
-        rendering = false; stableTicks = 0;
-      }
-    }, 150);
+      if (performance.now() - lastChangeAt < 160) return;   // le geste continue
+      rendering = true;
+      const el = document.scrollingElement || document.documentElement;
+      const ratio = el.scrollTop / Math.max(1, el.scrollHeight);
+      try {
+        // le transform tombe dès que les pages À L'ÉCRAN sont nettes ;
+        // le reste se peint derrière (cf. renderAll)
+        await renderAll(function(){
+          wrap.style.transform = "";
+          el.scrollTop = ratio * el.scrollHeight;
+          rendering = false;   // un nouveau geste peut reprendre la main
+        });
+      } catch(e){}
+      wrap.style.transform = "";
+      rendering = false;
+    }, 60);
   })();
-  async function renderAll(){
+  // Génération de rendu : un geste plus récent annule la peinture en cours
+  // (sinon des canvas à l'ancienne échelle atterriraient dans la nouvelle mise
+  // en page). `onVisibleReady` est appelé dès que les pages À L'ÉCRAN sont
+  // nettes — c'est là que l'appelant peut retirer le transform de suivi.
+  let _renderGen = 0;
+  async function renderAll(onVisibleReady){
     clearHl();
     selHide();
+    const gen = ++_renderGen;
     RENDER_W = window.innerWidth;
     RENDER_Z = ZOOM;
     const scale = Math.max(0.3, ((window.innerWidth - 28) / 612) * ZOOM);
     wrap.innerHTML = "";
+    // 1) squelette : chaque page à sa taille finale, sans canvas. La hauteur
+    //    totale est juste immédiatement (le scroll ne saute pas) et le rendu
+    //    peut commencer par ce qui est SOUS LES YEUX.
+    const slots = [];
     for(let n = 1; n <= pdf.numPages; n++){
-    const page = await pdf.getPage(n);
-    const vp = page.getViewport({scale});
-    const div = document.createElement("div");
-    div.className = "pg"; div.dataset.page = n;
-    div.dataset.vscale = vp.scale;  // px CSS par unité PDF — requis par le synctex
-    div.style.width = vp.width + "px"; div.style.height = vp.height + "px";
-    const cv = document.createElement("canvas");
-    cv.width = vp.width * devicePixelRatio; cv.height = vp.height * devicePixelRatio;
-    cv.style.width = vp.width + "px"; cv.style.height = vp.height + "px";
-    div.appendChild(cv);
-    const tl = document.createElement("div");
-    tl.className = "textLayer";
-    div.appendChild(tl);
-    wrap.appendChild(div);
-    const ctx = cv.getContext("2d");
-    ctx.scale(devicePixelRatio, devicePixelRatio);
-    await page.render({canvasContext: ctx, viewport: vp, intent: "print"}).promise;
-    const tc = await page.getTextContent();
-    buildTextLayer(tc, tl, vp);
-    tl._order = readingOrder(tl, vp.width);
-    drawAnnots(div, n);
+      const page = await pdf.getPage(n);
+      if (gen !== _renderGen) return;   // un geste plus récent a repris la main
+      const vp = page.getViewport({scale});
+      const div = document.createElement("div");
+      div.className = "pg"; div.dataset.page = n;
+      div.dataset.vscale = vp.scale;  // px CSS par unité PDF — requis par le synctex
+      div.style.width = vp.width + "px"; div.style.height = vp.height + "px";
+      wrap.appendChild(div);
+      slots.push({ n: n, page: page, vp: vp, div: div, painted: false });
     }
+    // 2) peinture d'une page : canvas + couche texte + annotations
+    const paint = async function(slot){
+      if (slot.painted || gen !== _renderGen) return;
+      slot.painted = true;
+      const vp = slot.vp;
+      const cv = document.createElement("canvas");
+      cv.width = vp.width * devicePixelRatio; cv.height = vp.height * devicePixelRatio;
+      cv.style.width = vp.width + "px"; cv.style.height = vp.height + "px";
+      slot.div.appendChild(cv);
+      const tl = document.createElement("div");
+      tl.className = "textLayer";
+      slot.div.appendChild(tl);
+      const ctx = cv.getContext("2d");
+      ctx.scale(devicePixelRatio, devicePixelRatio);
+      await slot.page.render({canvasContext: ctx, viewport: vp, intent: "print"}).promise;
+      if (gen !== _renderGen) return;
+      const tc = await slot.page.getTextContent();
+      buildTextLayer(tc, tl, vp);
+      tl._order = readingOrder(tl, vp.width);
+      drawAnnots(slot.div, slot.n);
+    };
+    // 3) l'écran d'abord (avec une hauteur de marge de part et d'autre), le
+    //    reste ensuite : le net revient sans attendre les pages hors vue.
+    const sc = document.scrollingElement || document.documentElement;
+    const from = sc.scrollTop - window.innerHeight;
+    const to = sc.scrollTop + window.innerHeight * 2;
+    const onScreen = slots.filter(function(s){
+      const y = s.div.offsetTop;
+      return y + s.vp.height >= from && y <= to;
+    });
+    const first = onScreen.length ? onScreen : slots.slice(0, 2);
+    for (const s of first) { await paint(s); if (gen !== _renderGen) return; }
+    if (onVisibleReady) onVisibleReady();
+    for (const s of slots) { await paint(s); if (gen !== _renderGen) return; }
     revealLinkedPassage(!targetRevealed);
   }
   function setZoom(z){
