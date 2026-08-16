@@ -70,6 +70,14 @@ fn is_combining_diacritic(c: char) -> bool {
     ('\u{0300}'..='\u{036f}').contains(&c)
 }
 
+/// Jetons de requête dédoublonnés (miroir de `[...new Set(tokens(query))]`) —
+/// exposé pour `zotero::search_corpus`/`best_page_paragraph`, qui calculent
+/// ces jetons UNE fois avant de scorer chaque page (même motif que
+/// `search_passages` ci-dessous).
+pub(crate) fn query_tokens(query: &str) -> Vec<String> {
+    dedup_preserve_order(tokens(query))
+}
+
 fn tokens(value: &str) -> Vec<String> {
     normalize_search_text(value)
         .split(' ')
@@ -142,17 +150,26 @@ fn collapse_single_newlines(text: &str) -> String {
     out
 }
 
+static MULTI_NL: Lazy<Regex> = Lazy::new(|| Regex::new(r"\n{3,}").unwrap());
+static WS: Lazy<Regex> = Lazy::new(|| Regex::new(r"\s+").unwrap());
+
+/// Miroir de `splitParagraphs` (`zotero_passages.mjs`) : un saut de ligne
+/// seul devient un espace, 3+ deviennent une frontière `\n\n`, puis split sur
+/// cette frontière. Partagé par `passage_chunks` (ci-dessous) et
+/// `zotero::best_page_paragraph` (recherche corpus, hors chunking).
+pub(crate) fn split_paragraphs(text: &str) -> Vec<String> {
+    let collapsed = MULTI_NL.replace_all(&collapse_single_newlines(text), "\n\n").to_string();
+    collapsed
+        .split("\n\n")
+        .map(|p| WS.replace_all(p.trim(), " ").trim().to_string())
+        .filter(|p| !p.is_empty())
+        .collect()
+}
+
 fn passage_chunks(pages: &[Page], target: usize, overlap: usize) -> Vec<Chunk> {
-    let multi_nl = Regex::new(r"\n{3,}").unwrap();
-    let ws = Regex::new(r"\s+").unwrap();
     let mut chunks = Vec::new();
     for entry in pages {
-        let text = multi_nl.replace_all(&collapse_single_newlines(&entry.text), "\n\n").to_string();
-        let paragraphs: Vec<String> = text
-            .split("\n\n")
-            .map(|p| ws.replace_all(p.trim(), " ").trim().to_string())
-            .filter(|p| !p.is_empty())
-            .collect();
+        let paragraphs = split_paragraphs(&entry.text);
         for paragraph in paragraphs {
             let chars: Vec<char> = paragraph.chars().collect();
             if chars.len() <= target {
@@ -227,6 +244,41 @@ static RMSE: Lazy<Regex> = Lazy::new(|| Regex::new(r"(?i)root-mean-square").unwr
 static SIGNIFICANT: Lazy<Regex> = Lazy::new(|| {
     Regex::new(r"(?i)significant|increase|decrease|difference|correction|applicable|limitation").unwrap()
 });
+
+/// Miroir de `scoreCandidateText` — partagé par `search_passages`
+/// (ci-dessous, sur des chunks) et `zotero::search_corpus`/
+/// `best_page_paragraph` (sur des pages/paragraphes entiers).
+pub(crate) fn score_candidate_text(text: &str, query_tokens: &[String], normalized_query: &str, generic: bool) -> f64 {
+    let normalized = normalize_search_text(text);
+    let mut matched = 0f64;
+    let mut occurrences = 0f64;
+    for token in query_tokens {
+        let re = word_regex(token);
+        let count = count_matches(&re, &normalized);
+        if count > 0 {
+            matched += 1.0;
+        }
+        occurrences += count.min(4) as f64;
+    }
+    let mut score = matched * 7.0 + occurrences * 1.5;
+    if query_tokens.len() > 1 {
+        score += (matched / query_tokens.len() as f64) * 8.0;
+    }
+    if normalized_query.chars().count() > 12 && normalized.contains(normalized_query) {
+        score += 14.0;
+    }
+    if SECTION_BONUS.is_match(text) {
+        score += if generic { 8.0 } else { 2.0 };
+    }
+    if STRONG_CLAIM_SHORT.is_match(text) {
+        score += 3.0;
+    }
+    if NUM_UNIT.is_match(text) {
+        score += 1.5;
+    }
+    score += (text.chars().count().min(800) as f64) / 1600.0;
+    score
+}
 
 fn sentence_list(text: &str) -> Vec<String> {
     let ws = Regex::new(r"\s+").unwrap();
@@ -316,7 +368,7 @@ fn take_chars(s: &str, max: usize) -> String {
 /// Recherche par passages sur un ensemble de pages — miroir de
 /// `searchPassages` (chunking + score + dédoublonnage par page/préfixe).
 pub fn search_passages(pages: &[Page], query: &str, limit: usize) -> Vec<Passage> {
-    let query_tokens = dedup_preserve_order(tokens(query));
+    let query_tokens = query_tokens(query);
     let normalized_query = normalize_search_text(query);
     let generic = query_tokens.is_empty();
     let chunks = passage_chunks(pages, 760, 150);
@@ -329,34 +381,7 @@ pub fn search_passages(pages: &[Page], query: &str, limit: usize) -> Vec<Passage
     }
     let mut ranked: Vec<Ranked> = Vec::new();
     for (index, chunk) in chunks.iter().enumerate() {
-        let normalized = normalize_search_text(&chunk.text);
-        let mut matched = 0f64;
-        let mut occurrences = 0f64;
-        for token in &query_tokens {
-            let re = word_regex(token);
-            let count = count_matches(&re, &normalized);
-            if count > 0 {
-                matched += 1.0;
-            }
-            occurrences += count.min(4) as f64;
-        }
-        let mut score = matched * 7.0 + occurrences * 1.5;
-        if query_tokens.len() > 1 {
-            score += (matched / query_tokens.len() as f64) * 8.0;
-        }
-        if normalized_query.chars().count() > 12 && normalized.contains(&normalized_query) {
-            score += 14.0;
-        }
-        if SECTION_BONUS.is_match(&chunk.text) {
-            score += if generic { 8.0 } else { 2.0 };
-        }
-        if STRONG_CLAIM_SHORT.is_match(&chunk.text) {
-            score += 3.0;
-        }
-        if NUM_UNIT.is_match(&chunk.text) {
-            score += 1.5;
-        }
-        score += (chunk.text.chars().count().min(800) as f64) / 1600.0;
+        let score = score_candidate_text(&chunk.text, &query_tokens, &normalized_query, generic);
         if generic || score >= 7.0 {
             ranked.push(Ranked { page: chunk.page, text: chunk.text.clone(), score, index });
         }

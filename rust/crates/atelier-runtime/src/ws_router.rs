@@ -1620,10 +1620,27 @@ pub(crate) fn err(message: impl Into<String>) -> String {
     ok(ErrorMessage::new(message))
 }
 
-/// Base de connaissances (plan 049 T2) : l'écriture passe par le CLI Node
-/// `kb_cli.mjs` stagé dans server_dir — une seule implémentation du store
-/// (verrou inter-processus, registre, extraction) au lieu d'un portage double.
-/// Le texte transite par stdin (`--text -`) pour éviter la limite ARG_MAX.
+/// Base de connaissances (plan 049 T2, puis 065 vague 3) : deux moteurs
+/// derrière le même contrat argv/stdin -> JSON — `node` (CLI `kb_cli.mjs`
+/// stagé dans server_dir, spawn de process, comportement historique inchangé
+/// octet pour octet) ou `rust` (crate `atelier-kb` appelée IN-PROCESS, aucun
+/// spawn). Sélection par `ATELIER_KB_ENGINE` (`node` par défaut pendant le
+/// soak — voir plan 065 phase C). Le texte transite par stdin (`--text -`)
+/// côté Node pour éviter la limite ARG_MAX ; côté Rust in-process cette
+/// limite n'existe pas, le texte est substitué directement dans les args.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum KbEngine {
+    Node,
+    Rust,
+}
+
+fn kb_engine() -> KbEngine {
+    match std::env::var("ATELIER_KB_ENGINE").ok().as_deref() {
+        Some("rust") => KbEngine::Rust,
+        _ => KbEngine::Node,
+    }
+}
+
 fn kb_node_bin() -> Option<std::path::PathBuf> {
     if let Ok(p) = std::env::var("ATELIER_TEST_NODE") {
         let pb = std::path::PathBuf::from(p);
@@ -1648,10 +1665,58 @@ fn kb_node_bin() -> Option<std::path::PathBuf> {
     None
 }
 
+/// Exécute une commande du CLI kb — dispatch selon `ATELIER_KB_ENGINE`.
+/// `stdin_text` non vide correspond à un `--text -` ajouté par l'appelant.
+fn kb_cli_run(
+    server_dir: &str,
+    app_dir: &std::path::Path,
+    args: &[&str],
+    stdin_text: &str,
+) -> Result<Value, String> {
+    kb_cli_run_engine(kb_engine(), server_dir, app_dir, args, stdin_text)
+}
+
+fn kb_cli_run_engine(
+    engine: KbEngine,
+    server_dir: &str,
+    app_dir: &std::path::Path,
+    args: &[&str],
+    stdin_text: &str,
+) -> Result<Value, String> {
+    match engine {
+        KbEngine::Rust => kb_cli_run_rust(app_dir, args, stdin_text),
+        KbEngine::Node => kb_cli_run_node(server_dir, app_dir, args, stdin_text),
+    }
+}
+
+/// Moteur `rust` : appel in-process de `atelier_kb::cli::run`, aucun spawn.
+/// `--dir` est ajouté explicitement (miroir de `defaultKnowledgeDir()` côté
+/// Node : `$ATELIER_APP_DIR/knowledge`) plutôt que de muter une variable
+/// d'environnement globale du process serveur. `--text -` est remplacé par
+/// le texte réel : la limite ARG_MAX ne s'applique pas à un appel in-process.
+fn kb_cli_run_rust(app_dir: &std::path::Path, args: &[&str], stdin_text: &str) -> Result<Value, String> {
+    let owned = kb_rust_args(app_dir, args, stdin_text);
+    atelier_kb::cli::run(&owned)
+}
+
+fn kb_rust_args(app_dir: &std::path::Path, args: &[&str], stdin_text: &str) -> Vec<String> {
+    let mut owned: Vec<String> = args.iter().map(|s| s.to_string()).collect();
+    if !stdin_text.is_empty() {
+        if let Some(pos) = owned.iter().position(|a| a == "--text") {
+            if owned.get(pos + 1).map(String::as_str) == Some("-") {
+                owned[pos + 1] = stdin_text.to_string();
+            }
+        }
+    }
+    owned.push("--dir".to_string());
+    owned.push(app_dir.join("knowledge").to_string_lossy().into_owned());
+    owned
+}
+
 /// Exécute une commande du CLI kb (`kb_cli.mjs` stagé dans server_dir) et
 /// parse sa sortie JSON. `stdin_text` non vide est transmis via `--text -`
 /// ajouté par l'appelant ; l'APP_DIR du serveur est propagé au CLI.
-fn kb_cli_run(
+fn kb_cli_run_node(
     server_dir: &str,
     app_dir: &std::path::Path,
     args: &[&str],
@@ -1695,11 +1760,58 @@ fn kb_cli_run(
         .map_err(|e| format!("sortie atelier-kb invalide: {e}"))
 }
 
+/// Variante bavarde de `kb_cli_run` — dispatch selon `ATELIER_KB_ENGINE`
+/// (voir `kb_cli_run`). Seul appelant réel : `article-import --progress`
+/// (`handle_article_import`).
+fn kb_cli_stream(
+    server_dir: &str,
+    app_dir: &std::path::Path,
+    args: &[&str],
+    on_progress: impl FnMut(Value),
+) -> Result<Value, String> {
+    kb_cli_stream_engine(kb_engine(), server_dir, app_dir, args, on_progress)
+}
+
+fn kb_cli_stream_engine(
+    engine: KbEngine,
+    server_dir: &str,
+    app_dir: &std::path::Path,
+    args: &[&str],
+    on_progress: impl FnMut(Value),
+) -> Result<Value, String> {
+    match engine {
+        KbEngine::Rust => kb_cli_stream_rust(app_dir, args, on_progress),
+        KbEngine::Node => kb_cli_stream_node(server_dir, app_dir, args, on_progress),
+    }
+}
+
+/// Moteur `rust` : appelle `atelier_kb::article::import_article` directement
+/// (plutôt que `atelier_kb::cli::run`, dont le relais de progression imprime
+/// sur le VRAI stdout du process serveur — inutilisable ici) pour que chaque
+/// étape arrive sur `on_progress` sans jamais toucher stdout. Seule commande
+/// couverte : `article-import --path <p> [--progress]`, l'unique usage réel
+/// de `kb_cli_stream`.
+fn kb_cli_stream_rust(app_dir: &std::path::Path, args: &[&str], mut on_progress: impl FnMut(Value)) -> Result<Value, String> {
+    if args.first() != Some(&"article-import") {
+        return Err(format!("kb_cli_stream (moteur rust): commande non supportée: {args:?}"));
+    }
+    let path = args
+        .windows(2)
+        .find(|w| w[0] == "--path")
+        .map(|w| w[1])
+        .ok_or("article-import: --path requis")?;
+    let dir = app_dir.join("knowledge");
+    let store = atelier_kb::store::KnowledgeStore::open(dir);
+    let pdf_cache_dir = store.pdf_cache_dir().to_path_buf();
+    let mut cb = |stage: &str| on_progress(json!({"stage": stage}));
+    atelier_kb::article::import_article(path, &store.dir, &pdf_cache_dir, Some(&mut cb))
+}
+
 /// Variante bavarde de `kb_cli_run` : lit la sortie ligne à ligne et remonte
 /// chaque `{"progress":…}` PENDANT que la commande tourne. La dernière ligne
 /// qui n'est pas un progrès est le résultat. Sans ça, une conversion MinerU de
 /// plusieurs minutes ne dit rien jusqu'à son terme et l'interface reste muette.
-fn kb_cli_stream(
+fn kb_cli_stream_node(
     server_dir: &str,
     app_dir: &std::path::Path,
     args: &[&str],
@@ -3933,6 +4045,53 @@ mod tests {
             .expect("thread présent");
         assert_eq!(thread["kbSourceIds"], json!(["autre"]));
         assert_eq!(thread["kbFullContent"], json!([]));
+    }
+
+    /// Plan 065 phase C (flag moteur) : `kb_cli_run_engine` relit le MÊME
+    /// store sur disque via les deux moteurs (`node` = spawn `kb_cli.mjs`,
+    /// `rust` = appel in-process `atelier_kb::cli::run`) et doit produire une
+    /// sortie JSON strictement identique, sur une commande d'écriture
+    /// (`add`) puis deux commandes de lecture (`list`, `kb-text`).
+    #[test]
+    fn kb_cli_run_engine_node_et_rust_produisent_le_meme_json() {
+        // Gated : sans node/kb_cli.mjs réels on ne peut pas exercer le moteur
+        // node (même garde que kb_add_reel_via_cli_node_stdin).
+        if kb_node_bin().is_none() {
+            return;
+        }
+        let sidecar = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../sidecar");
+        if !sidecar.join("kb_cli.mjs").is_file() {
+            return;
+        }
+        let dir = tempdir().unwrap();
+        let app_dir = dir.path();
+        let server_dir = sidecar.to_string_lossy().into_owned();
+
+        // seed via le moteur rust (in-process, aucune dépendance externe) —
+        // les deux moteurs liront ensuite EXACTEMENT le même knowledge.json.
+        let added = kb_cli_run_engine(
+            KbEngine::Rust,
+            &server_dir,
+            app_dir,
+            &["add", "--kind", "note", "--title", "Parité moteur", "--text", "Contenu de test pour comparer les deux moteurs."],
+            "",
+        )
+        .expect("add (rust)");
+        assert_eq!(added["ok"], true, "add (rust): {added}");
+
+        // list : sortie JSON strictement identique entre les deux moteurs.
+        let via_node = kb_cli_run_engine(KbEngine::Node, &server_dir, app_dir, &["list"], "").expect("list (node)");
+        let via_rust = kb_cli_run_engine(KbEngine::Rust, &server_dir, app_dir, &["list"], "").expect("list (rust)");
+        assert_eq!(via_node, via_rust, "list: node != rust ({via_node} vs {via_rust})");
+        assert_eq!(via_node["count"], 1);
+        assert_eq!(via_node["sources"][0]["title"], "Parité moteur");
+
+        // kb-text : même exercice sur une deuxième commande de lecture.
+        let id = via_node["sources"][0]["id"].as_str().unwrap().to_string();
+        let text_node = kb_cli_run_engine(KbEngine::Node, &server_dir, app_dir, &["kb-text", "--id", &id], "").expect("kb-text (node)");
+        let text_rust = kb_cli_run_engine(KbEngine::Rust, &server_dir, app_dir, &["kb-text", "--id", &id], "").expect("kb-text (rust)");
+        assert_eq!(text_node, text_rust, "kb-text: node != rust ({text_node} vs {text_rust})");
+        assert_eq!(text_node["text"], "Contenu de test pour comparer les deux moteurs.");
     }
 
     #[tokio::test]

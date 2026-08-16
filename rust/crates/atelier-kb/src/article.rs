@@ -591,8 +591,13 @@ pub fn import_doi(doi: &str, dir: &Path) -> Result<Value, String> {
         return Err(format!("DOI invalide: {doi}"));
     }
     let shaped = crate::article_meta::crossref_meta(&clean).ok_or_else(|| format!("DOI introuvable chez Crossref (ou hors ligne) : {clean}"))?;
+    // `meta` renvoyé au call site porte le résumé BRUT (JATS non nettoyé) —
+    // miroir de Node (`importDoi` renvoie directement l'objet `shapeWork`,
+    // qui inclut `abstract`) ; seul le corps du brouillon utilise la version
+    // nettoyée (`abstractText`).
+    let raw_abstract = shaped.abstract_text.clone();
     let meta = ArticleMeta { title: shaped.title, authors: shaped.authors, journal: shaped.journal, doi: shaped.doi, year: shaped.year };
-    let abstract_text = crate::article_meta::abstract_text(&shaped.abstract_text);
+    let abstract_text = crate::article_meta::abstract_text(&raw_abstract);
     let body = if abstract_text.is_empty() {
         "_Fiche de référence — aucun texte intégral. Déposer le PDF pour l'ajouter._\n".to_string()
     } else {
@@ -617,7 +622,7 @@ pub fn import_doi(doi: &str, dir: &Path) -> Result<Value, String> {
         "ok": true,
         "draftId": draft_id,
         "path": format!("doi:{clean}"),
-        "meta": { "title": meta.title, "authors": meta.authors, "journal": meta.journal, "doi": meta.doi, "year": meta.year },
+        "meta": { "title": meta.title, "authors": meta.authors, "journal": meta.journal, "doi": meta.doi, "year": meta.year, "abstract": raw_abstract },
         "slug": slug,
         "exists": exists,
         "converter": "crossref",
