@@ -328,7 +328,7 @@ pub fn focus_passage_quote(text: &str, query: &str) -> String {
         let collapsed = ws.replace_all(text, " ").trim().to_string();
         return take_chars(&collapsed, 500);
     }
-    let mut ranked: Vec<(usize, usize, f64)> = Vec::new(); // (index, _, score) sentence idx into candidates
+    let mut ranked: Vec<(usize, f64, f64)> = Vec::new(); // (index dans candidates, score, matched)
     for (index, sentence) in candidates.iter().enumerate() {
         let normalized = normalize_search_text(sentence);
         let mut matched = 0f64;
@@ -355,10 +355,23 @@ pub fn focus_passage_quote(text: &str, query: &str) -> String {
         } else if SIGNIFICANT.is_match(sentence) {
             score += 2.0;
         }
-        ranked.push((index, 0, score));
+        ranked.push((index, score, matched));
     }
-    ranked.sort_by(|a, b| b.2.partial_cmp(&a.2).unwrap().then(a.0.cmp(&b.0)));
-    take_chars(&candidates[ranked[0].0], 500)
+    ranked.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap().then(a.0.cmp(&b.0)));
+    // Garde (B6, plans/065-revue-findings.md ; miroir de
+    // sidecar/zotero_passages.mjs:113-122) : une phrase qui ne contient
+    // AUCUN token de la requête ne doit jamais l'emporter sur une phrase
+    // pertinente uniquement grâce à ses bonus structurels (« we show »,
+    // motif numérique, root-mean-square…) — sinon un fragment hors sujet
+    // mais à fort bonus devient la citation affichée. Repli sur le
+    // meilleur score brut seulement si aucune phrase n'a de token, ou si
+    // la requête est générique (aucun token exploitable).
+    let chosen = if !query_tokens.is_empty() {
+        ranked.iter().find(|(_, _, matched)| *matched > 0.0).unwrap_or(&ranked[0])
+    } else {
+        &ranked[0]
+    };
+    take_chars(&candidates[chosen.0], 500)
 }
 
 fn take_chars(s: &str, max: usize) -> String {
@@ -462,5 +475,29 @@ mod tests {
         assert!(!out.is_empty(), "un passage pertinent devrait être trouvé");
         assert_eq!(out[0].page, 3);
         assert!(out[0].context.to_lowercase().contains("albedo"));
+    }
+
+    // --- B6 (plans/065-revue-findings.md, KBC-03) : le garde « jamais une
+    // citation sans token » — miroir des deux mêmes cas de
+    // sidecar/zotero_passages.test.mjs (« focalise le lien… » /
+    // « une phrase sans aucun token… »). ---
+
+    #[test]
+    fn focus_passage_quote_focalise_sur_une_phrase_exacte_plutot_que_le_paragraphe() {
+        let paragraph = "Reference context before the result. These equations describe measurements with root-mean-square differences of 0.016. More discussion follows.";
+        assert_eq!(
+            focus_passage_quote(paragraph, "main results root mean square"),
+            "These equations describe measurements with root-mean-square differences of 0.016."
+        );
+    }
+
+    #[test]
+    fn focus_passage_quote_ne_laisse_jamais_un_bonus_structurel_seul_lemporter() {
+        // "root-mean-square" (bonus +7) apparaît dans la DEUXIÈME phrase, qui
+        // ne contient aucun token de la requête ("albedo") — sans le garde
+        // matched>0, elle l'emporterait sur la première phrase, pertinente
+        // mais sans bonus structurel. C'est exactement le bug B6/KBC-03.
+        let text = "Fire aerosol deposition reduced summer albedo. We show root-mean-square differences of 0.016 for the calibration set.";
+        assert_eq!(focus_passage_quote(text, "albedo"), "Fire aerosol deposition reduced summer albedo.");
     }
 }
