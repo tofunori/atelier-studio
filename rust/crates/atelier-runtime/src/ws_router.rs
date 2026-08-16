@@ -1847,8 +1847,11 @@ fn kb_cli_stream_rust(app_dir: &std::path::Path, args: &[&str], mut on_progress:
     let dir = app_dir.join("knowledge");
     let store = atelier_kb::store::KnowledgeStore::open(dir);
     let pdf_cache_dir = store.pdf_cache_dir().to_path_buf();
-    let mut cb = |stage: &str| on_progress(json!({"stage": stage}));
-    atelier_kb::article::import_article(path, &store.dir, &pdf_cache_dir, Some(&mut cb))
+    // B4 (plans/065-revue-findings.md) : convert_pdf émet désormais les
+    // étapes MinerU (upload/converting/download/figures/ocr) en plus des
+    // étapes meta/duplicates d'import_article — même callback JSON riche
+    // qu'onProgress côté Node, plus besoin d'un wrapper stage: &str ici.
+    atelier_kb::article::import_article(path, &store.dir, &pdf_cache_dir, Some(&mut on_progress))
 }
 
 /// Variante bavarde de `kb_cli_run` : lit la sortie ligne à ligne et remonte

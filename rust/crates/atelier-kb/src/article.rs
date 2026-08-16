@@ -1,10 +1,12 @@
-//! Port de `sidecar/article.mjs` (plan 065, vague 2, groupe c) : import
-//! d'article PDF → brouillon + fiche vérifiable → page gbrain. MinerU réel
-//! (API cloud) est HORS PÉRIMÈTRE de cette vague — `resolve_mineru` détecte
-//! juste son absence (comme sur toute machine sans jeton configuré) et le
-//! moteur retombe TOUJOURS sur l'extraction locale (`pdftotext`, motif
-//! "spawns inchangés"), exactement le chemin fixturé par
-//! `kb_parity/fixtures/c-article-local.json`.
+//! Port de `sidecar/article.mjs` (plan 065, vague 2 groupe c, puis vague 4
+//! B4) : import d'article PDF → brouillon + fiche vérifiable → page gbrain.
+//! MinerU réel (API cloud) est maintenant spawné quand `resolve_mineru` le
+//! fournit (script + jeton présents) — miroir de `convertPdf`
+//! (`sidecar/article.mjs:142-191`), stages `--progress` compris. Sur toute
+//! machine sans jeton configuré (dont le harnais de fixtures, MinerU
+//! toujours désactivé via `ATELIER_MINERU_SCRIPT`), le moteur retombe sur
+//! l'extraction locale (`pdftotext`) — chemin fixturé par
+//! `kb_parity/fixtures/c-article-local.json`, inchangé par B4.
 
 use crate::gbrain::{self, SpawnOutcome};
 use once_cell::sync::Lazy;
@@ -12,8 +14,10 @@ use regex::Regex;
 use serde_json::{json, Value};
 use sha1::{Digest, Sha1};
 use std::collections::HashSet;
+use std::io::{BufRead, Read};
 use std::path::{Path, PathBuf};
-use std::time::{Duration, SystemTime};
+use std::sync::mpsc;
+use std::time::{Duration, Instant, SystemTime};
 
 pub use crate::article_meta::ArticleMeta;
 
@@ -22,6 +26,10 @@ const ARTICLE_PAGE_MAX: usize = 400_000;
 const ARTICLE_PREVIEW_MAX: usize = 4000;
 const DRAFT_TTL_MS: u128 = 7 * 24 * 3600 * 1000;
 pub const DUPLICATE_OVERLAP: f64 = 0.6;
+// MinerU passe par l'API cloud : upload + conversion + téléchargement. Le
+// script python plafonne son propre polling à 600 s ; on garde de la marge
+// (miroir de MINERU_TIMEOUT_MS, sidecar/article.mjs:18).
+const MINERU_TIMEOUT_MS: u64 = 900_000;
 const RAGDOC_TIMEOUT_MS: u64 = 120_000;
 const RAGDOC_DIR: &str = "/volume1/Services/mcp/ragdoc";
 const RAGDOC_PYTHON: &str = "/volume1/Services/mcp/ragdoc/ragdoc-env-new/bin/python";
@@ -37,10 +45,10 @@ pub struct MineruResolution {
     pub reason: Option<String>,
 }
 
-/// Miroir de `resolveMineru` : détecte seulement l'absence du script/jeton
-/// (comme sur toute machine sans MinerU configuré). Ne spawn JAMAIS le
-/// script Python — la conversion cloud réelle reste hors périmètre (voir
-/// l'en-tête du module).
+/// Miroir de `resolveMineru` : script python du skill `mineru-pdf` (API
+/// cloud, jeton dans `~/.mineru_token`). Absent ou sans jeton : `script`
+/// reste `None`, `convert_pdf` retombe sur l'extraction locale — un article
+/// lisible vaut mieux qu'un dialogue vide.
 pub fn resolve_mineru() -> MineruResolution {
     let home = std::env::var("HOME").unwrap_or_else(|_| "/".to_string());
     let script = std::env::var("ATELIER_MINERU_SCRIPT")
@@ -62,9 +70,200 @@ pub struct ConvertResult {
     pub warning: Option<String>,
 }
 
-/// PDF → markdown, miroir de la branche locale de `convertPdf` (le repli
-/// utilisé dès que MinerU est indisponible — TOUJOURS le cas ici).
-pub fn convert_pdf(path: &Path, pdf_cache_dir: &Path) -> Result<ConvertResult, String> {
+// --- MinerU : progression, spawn bavard, résolution d'échec ---------------
+
+// Le script MinerU raconte ce qu'il fait sur stdout ; chaque ligne connue
+// devient une étape nommée — miroir de MINERU_STAGES/mineruStage
+// (sidecar/article.mjs:47-64). Table vérifiée DANS CET ORDRE (premier match
+// gagne), comme le tableau Node.
+static MINERU_UPLOADING_RE: Lazy<Regex> = Lazy::new(|| Regex::new(r"(?i)^Uploading\b").unwrap());
+static MINERU_UPLOAD_COMPLETE_RE: Lazy<Regex> = Lazy::new(|| Regex::new(r"(?i)^Upload complete").unwrap());
+static MINERU_PROCESSING_RE: Lazy<Regex> = Lazy::new(|| Regex::new(r"(?i)^Processing\.\.\.\s*\((\d+)s\)").unwrap());
+static MINERU_CONVERSION_COMPLETE_RE: Lazy<Regex> = Lazy::new(|| Regex::new(r"(?i)^Conversion complete").unwrap());
+static MINERU_DOWNLOADING_RE: Lazy<Regex> = Lazy::new(|| Regex::new(r"(?i)^Downloading result").unwrap());
+static MINERU_FIGURES_RE: Lazy<Regex> = Lazy::new(|| Regex::new(r"(?i)^Extracted (\d+) figures?").unwrap());
+static MINERU_OCR_RE: Lazy<Regex> = Lazy::new(|| Regex::new(r"(?i)^Couche texte:.*is_ocr=(\w+)").unwrap());
+
+pub fn mineru_stage(line: &str) -> Option<Value> {
+    let text = line.trim();
+    if MINERU_UPLOADING_RE.is_match(text) {
+        return Some(json!({"stage": "upload"}));
+    }
+    if MINERU_UPLOAD_COMPLETE_RE.is_match(text) {
+        return Some(json!({"stage": "converting"}));
+    }
+    if let Some(c) = MINERU_PROCESSING_RE.captures(text) {
+        let seconds: i64 = c[1].parse().unwrap_or(0);
+        return Some(json!({"stage": "converting", "seconds": seconds}));
+    }
+    if MINERU_CONVERSION_COMPLETE_RE.is_match(text) {
+        return Some(json!({"stage": "download"}));
+    }
+    if MINERU_DOWNLOADING_RE.is_match(text) {
+        return Some(json!({"stage": "download"}));
+    }
+    if let Some(c) = MINERU_FIGURES_RE.captures(text) {
+        let count: i64 = c[1].parse().unwrap_or(0);
+        return Some(json!({"stage": "figures", "count": count}));
+    }
+    if let Some(c) = MINERU_OCR_RE.captures(text) {
+        return Some(json!({"stage": "ocr", "ocr": &c[1] == "True"}));
+    }
+    None
+}
+
+/// Nom de sortie déterministe — miroir de `outputName`
+/// (`sidecar/article.mjs:118-122`) : slug tronqué à 40 + 6 caractères de
+/// hash sha1 du chemin (désambiguïse deux PDF au même nom de fichier).
+pub fn output_name(path: &Path) -> String {
+    static PDF_EXT_RE: Lazy<Regex> = Lazy::new(|| Regex::new(r"(?i)\.pdf$").unwrap());
+    let base = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+    let without_ext = PDF_EXT_RE.replace(&base, "").into_owned();
+    let stem: String = gbrain::slugify_title(&without_ext).chars().take(40).collect();
+    let mut hasher = Sha1::new();
+    hasher.update(path.to_string_lossy().as_bytes());
+    let hash = hex::encode(hasher.finalize())[..6].to_string();
+    let stem = if stem.is_empty() { "article".to_string() } else { stem };
+    format!("atelier-{stem}-{hash}")
+}
+
+/// Résultat d'un `run_streaming` — même forme que `spawnSync`
+/// ({status, stdout, stderr, error}), miroir de `runStreaming`
+/// (`sidecar/article.mjs:69-116`).
+pub(crate) struct StreamedRun {
+    pub status: Option<i32>,
+    pub stdout: String,
+    pub stderr: String,
+    pub timed_out: bool,
+    pub spawn_error: Option<String>,
+}
+
+/// Spawn bavard, ligne par ligne — `on_line` est appelé pour CHAQUE ligne de
+/// stdout dès qu'elle est disponible (MinerU écrit sa progression au fil de
+/// l'eau), pas seulement à la fin comme `gbrain::spawn_with_timeout`.
+pub(crate) fn run_streaming(bin: &str, args: &[&str], timeout: Duration, mut on_line: impl FnMut(&str)) -> StreamedRun {
+    let mut cmd = std::process::Command::new(bin);
+    cmd.args(args);
+    cmd.stdin(std::process::Stdio::null());
+    cmd.stdout(std::process::Stdio::piped());
+    cmd.stderr(std::process::Stdio::piped());
+    let mut child = match cmd.spawn() {
+        Ok(c) => c,
+        Err(e) => {
+            return StreamedRun {
+                status: None,
+                stdout: String::new(),
+                stderr: String::new(),
+                timed_out: false,
+                spawn_error: Some(e.to_string()),
+            }
+        }
+    };
+    let stdout_pipe = child.stdout.take();
+    let stderr_pipe = child.stderr.take();
+    let (tx, rx) = mpsc::channel::<String>();
+    let stdout_thread = std::thread::spawn(move || {
+        let mut full = String::new();
+        if let Some(pipe) = stdout_pipe {
+            for line in std::io::BufReader::new(pipe).lines().map_while(Result::ok) {
+                full.push_str(&line);
+                full.push('\n');
+                let _ = tx.send(line);
+            }
+        }
+        full
+    });
+    let stderr_thread = std::thread::spawn(move || {
+        let mut buf = Vec::new();
+        if let Some(mut s) = stderr_pipe {
+            let _ = s.read_to_end(&mut buf);
+        }
+        buf
+    });
+
+    let start = Instant::now();
+    let mut timed_out = false;
+    loop {
+        match rx.recv_timeout(Duration::from_millis(50)) {
+            Ok(line) => {
+                on_line(&line);
+                if start.elapsed() > timeout {
+                    let _ = child.kill();
+                    timed_out = true;
+                    break;
+                }
+            }
+            Err(mpsc::RecvTimeoutError::Timeout) => {
+                if start.elapsed() > timeout {
+                    let _ = child.kill();
+                    timed_out = true;
+                    break;
+                }
+            }
+            Err(mpsc::RecvTimeoutError::Disconnected) => break,
+        }
+    }
+    while let Ok(line) = rx.try_recv() {
+        on_line(&line);
+    }
+    let status = child.wait().ok().and_then(|s| s.code());
+    let stdout = stdout_thread.join().unwrap_or_default();
+    let stderr = String::from_utf8_lossy(&stderr_thread.join().unwrap_or_default()).into_owned();
+    StreamedRun { status, stdout, stderr, timed_out, spawn_error: None }
+}
+
+/// Raison d'échec lisible — miroir de `mineruFailure`
+/// (`sidecar/article.mjs:126-138`). Surtout PAS la dernière ligne de
+/// stdout : le script finit par « ✓ Figures: … », ce qui donnerait des
+/// messages d'échec triomphants.
+pub(crate) fn mineru_failure(run: &StreamedRun) -> String {
+    if run.timed_out {
+        return "délai dépassé".to_string();
+    }
+    static ERR_RE_STDERR: Lazy<Regex> = Lazy::new(|| Regex::new(r"(?i)error|exception|traceback|refus|denied|quota").unwrap());
+    static ERR_RE_STDOUT: Lazy<Regex> = Lazy::new(|| Regex::new(r"(?i)error|échec|failed|quota").unwrap());
+    let stderr_lines: Vec<&str> = run.stderr.trim().split('\n').filter(|l| !l.is_empty()).collect();
+    let spoken: Option<&str> = stderr_lines
+        .iter()
+        .rev()
+        .find(|l| ERR_RE_STDERR.is_match(l))
+        .copied()
+        .or_else(|| stderr_lines.last().copied())
+        .or_else(|| {
+            let stdout_lines: Vec<&str> = run.stdout.trim().split('\n').filter(|l| !l.is_empty()).collect();
+            stdout_lines.iter().rev().find(|l| ERR_RE_STDOUT.is_match(l)).copied()
+        });
+    if let Some(s) = spoken {
+        return s.trim().chars().take(160).collect();
+    }
+    if let Some(err) = &run.spawn_error {
+        return err.chars().take(160).collect();
+    }
+    match run.status {
+        Some(code) if code != 0 => format!("code {code}"),
+        _ => "markdown introuvable en sortie".to_string(),
+    }
+}
+
+/// PDF → markdown — miroir de `convertPdf` (`sidecar/article.mjs:142-191`).
+/// Spawn réel du script MinerU quand `mineru.script` est fourni (B4,
+/// plans/065-revue-findings.md) ; repli sur l'extraction locale
+/// (`pdftotext`) inchangé, que MinerU soit indisponible OU qu'il échoue.
+pub fn convert_pdf(
+    path: &Path,
+    pdf_cache_dir: &Path,
+    on_progress: &mut dyn FnMut(Value),
+) -> Result<ConvertResult, String> {
+    convert_pdf_with(path, pdf_cache_dir, resolve_mineru(), "python3", on_progress)
+}
+
+pub(crate) fn convert_pdf_with(
+    path: &Path,
+    pdf_cache_dir: &Path,
+    mineru: MineruResolution,
+    python: &str,
+    on_progress: &mut dyn FnMut(Value),
+) -> Result<ConvertResult, String> {
     if !path.exists() {
         return Err(format!("PDF introuvable: {}", path.display()));
     }
@@ -72,10 +271,36 @@ pub fn convert_pdf(path: &Path, pdf_cache_dir: &Path) -> Result<ConvertResult, S
     if !PDF_EXT_RE.is_match(&path.to_string_lossy()) {
         return Err(format!("Un PDF est attendu: {}", path.display()));
     }
-    let mineru = resolve_mineru();
-    let warning = Some(mineru.reason.clone().unwrap_or_else(|| {
-        "MinerU non pris en charge par ce moteur (vague 2, plan 065) — extraction locale".to_string()
-    }));
+    let mut warning = mineru.reason.clone();
+    if let Some(script) = mineru.script.as_deref() {
+        let name = output_name(path);
+        let path_str = path.to_string_lossy().into_owned();
+        let run = run_streaming(python, &[script, &path_str, &name], Duration::from_millis(MINERU_TIMEOUT_MS), |line| {
+            if let Some(stage) = mineru_stage(line) {
+                on_progress(stage);
+            }
+        });
+        // PIÈGE (vécu côté Node) : le script du skill écrit en dur dans
+        // /tmp/<nom>.md, alors que le tmpdir système vaut autre chose sur
+        // macOS (/var/folders/…). Chercher au seul tmpdir ferait passer
+        // TOUTE conversion réussie pour un échec.
+        let produced = [PathBuf::from("/tmp"), std::env::temp_dir()]
+            .into_iter()
+            .map(|root| root.join(format!("{name}.md")))
+            .find(|file| file.exists());
+        if run.spawn_error.is_none() && !run.timed_out {
+            if let Some(file) = &produced {
+                if let Ok(markdown) = std::fs::read_to_string(file) {
+                    let trimmed = markdown.trim().to_string();
+                    if !trimmed.is_empty() {
+                        let _ = std::fs::remove_file(file);
+                        return Ok(ConvertResult { markdown: trimmed, converter: "mineru".to_string(), warning: None });
+                    }
+                }
+            }
+        }
+        warning = Some(format!("MinerU a échoué ({}) — texte extrait localement", mineru_failure(&run)));
+    }
     let extracted = crate::pdf::extract_pdf_pages(path, pdf_cache_dir)?;
     let markdown = extracted
         .pages
@@ -539,15 +764,27 @@ pub fn find_duplicates(meta: &ArticleMeta, slug: &str, limit: usize) -> Vec<Valu
 /// Étape 1 : PDF → brouillon + fiche — miroir de `importArticle`. Aucune
 /// écriture gbrain, seulement la sonde d'existence du slug proposé et la
 /// recherche de doublons.
-pub fn import_article(path: &str, dir: &Path, pdf_cache_dir: &Path, mut on_progress: Option<&mut dyn FnMut(&str)>) -> Result<Value, String> {
+pub fn import_article(
+    path: &str,
+    dir: &Path,
+    pdf_cache_dir: &Path,
+    on_progress: Option<&mut dyn FnMut(Value)>,
+) -> Result<Value, String> {
     if path.is_empty() {
         return Err("Argument requis: --path".to_string());
     }
-    let convert = convert_pdf(Path::new(path), pdf_cache_dir)?;
+    // Miroir de `const step = typeof deps.onProgress === "function" ?
+    // deps.onProgress : () => {};` (sidecar/article.mjs:467) : un seul
+    // callback non-Option en interne, normalisé ici — un abonné aux étapes
+    // ne change rien au résultat, seulement à ce que l'interface en sait.
+    let mut noop = |_v: Value| {};
+    let step: &mut dyn FnMut(Value) = match on_progress {
+        Some(cb) => cb,
+        None => &mut noop,
+    };
+    let convert = convert_pdf(Path::new(path), pdf_cache_dir, step)?;
     let guessed = parse_article_meta(&convert.markdown, path);
-    if let Some(cb) = on_progress.as_deref_mut() {
-        cb("meta");
-    }
+    step(json!({"stage": "meta"}));
     let (meta, meta_source) = crate::article_meta::resolve_article_meta(path, &guessed);
     let slug = article_slug(&meta);
     let draft_id = save_draft(dir, &convert.markdown)?;
@@ -557,9 +794,7 @@ pub fn import_article(path: &str, dir: &Path, pdf_cache_dir: &Path, mut on_progr
     } else {
         page
     };
-    if let Some(cb) = on_progress.as_deref_mut() {
-        cb("duplicates");
-    }
+    step(json!({"stage": "duplicates"}));
     let (exists, probe_error) = match probe_exists(&slug) {
         Ok(e) => (e, None),
         Err(msg) => (false, Some(msg)),
@@ -709,6 +944,167 @@ mod tests {
             year: Some(2022),
         };
         assert_eq!(article_slug(&meta), "articles/aoki-2022-melting-alpine-glaciers-under");
+    }
+
+    // --- B4 (plans/065-revue-findings.md) : spawn MinerU réel — stages,
+    // nom de sortie, résolution d'échec, spawn bavard avec timeout. ---
+
+    #[test]
+    fn mineru_stage_reconnait_les_lignes_connues_dans_lordre() {
+        assert_eq!(mineru_stage("Uploading document.pdf"), Some(json!({"stage": "upload"})));
+        assert_eq!(mineru_stage("Upload complete"), Some(json!({"stage": "converting"})));
+        assert_eq!(mineru_stage("Processing... (42s)"), Some(json!({"stage": "converting", "seconds": 42})));
+        assert_eq!(mineru_stage("Conversion complete"), Some(json!({"stage": "download"})));
+        assert_eq!(mineru_stage("Downloading result archive"), Some(json!({"stage": "download"})));
+        assert_eq!(mineru_stage("Extracted 3 figures"), Some(json!({"stage": "figures", "count": 3})));
+        assert_eq!(mineru_stage("Extracted 1 figure"), Some(json!({"stage": "figures", "count": 1})));
+        assert_eq!(mineru_stage("Couche texte: is_ocr=True"), Some(json!({"stage": "ocr", "ocr": true})));
+        assert_eq!(mineru_stage("Couche texte: is_ocr=False"), Some(json!({"stage": "ocr", "ocr": false})));
+        assert_eq!(mineru_stage("✓ Figures: 3 extraites"), None);
+        assert_eq!(mineru_stage(""), None);
+    }
+
+    #[test]
+    fn output_name_est_deterministe_et_borne_le_stem() {
+        let a = output_name(Path::new("/tmp/Article Long Titre Avec Beaucoup De Mots En Trop.pdf"));
+        let b = output_name(Path::new("/tmp/Article Long Titre Avec Beaucoup De Mots En Trop.pdf"));
+        assert_eq!(a, b, "même chemin -> même nom (hash déterministe)");
+        assert!(a.starts_with("atelier-"));
+        // stem <= 40 caractères + "atelier-" (8) + "-" (1) + hash (6)
+        assert!(a.len() <= 8 + 40 + 1 + 6, "nom trop long: {a}");
+        let other = output_name(Path::new("/tmp/autre.pdf"));
+        assert_ne!(a, other, "chemins différents -> hash différent");
+    }
+
+    #[test]
+    fn mineru_failure_prefere_une_ligne_stderr_parlante_a_la_derniere_ligne_stdout() {
+        let run = StreamedRun {
+            status: Some(1),
+            stdout: "Uploading\n✓ Figures: 3 extraites (triomphant malgré l'échec)\n".to_string(),
+            stderr: "warming up\nError: quota dépassé\ntrailer sans intérêt\n".to_string(),
+            timed_out: false,
+            spawn_error: None,
+        };
+        assert_eq!(mineru_failure(&run), "Error: quota dépassé");
+    }
+
+    #[test]
+    fn mineru_failure_replie_sur_la_derniere_ligne_stderr_sans_motif() {
+        let run = StreamedRun {
+            status: Some(1),
+            stdout: String::new(),
+            stderr: "premiere ligne\nderniere ligne sans motif reconnu\n".to_string(),
+            timed_out: false,
+            spawn_error: None,
+        };
+        assert_eq!(mineru_failure(&run), "derniere ligne sans motif reconnu");
+    }
+
+    #[test]
+    fn mineru_failure_delai_dépasse_prioritaire() {
+        let run = StreamedRun { status: None, stdout: String::new(), stderr: "Error: peu importe".to_string(), timed_out: true, spawn_error: None };
+        assert_eq!(mineru_failure(&run), "délai dépassé");
+    }
+
+    #[test]
+    fn mineru_failure_replie_sur_le_code_de_sortie_sans_aucune_ligne() {
+        let run = StreamedRun { status: Some(2), stdout: String::new(), stderr: String::new(), timed_out: false, spawn_error: None };
+        assert_eq!(mineru_failure(&run), "code 2");
+        let run_ok_vide = StreamedRun { status: Some(0), stdout: String::new(), stderr: String::new(), timed_out: false, spawn_error: None };
+        assert_eq!(mineru_failure(&run_ok_vide), "markdown introuvable en sortie");
+    }
+
+    #[test]
+    fn run_streaming_appelle_on_line_au_fil_de_leau_et_capture_stdout() {
+        let mut seen = Vec::new();
+        let run = run_streaming(
+            "/bin/sh",
+            &["-c", "echo Uploading; echo 'Upload complete'; echo 'Conversion complete' 1>&2"],
+            Duration::from_secs(5),
+            |line| seen.push(line.to_string()),
+        );
+        assert_eq!(run.spawn_error, None);
+        assert!(!run.timed_out);
+        assert_eq!(run.status, Some(0));
+        assert_eq!(seen, vec!["Uploading".to_string(), "Upload complete".to_string()]);
+        assert!(run.stdout.contains("Uploading"));
+        assert!(run.stderr.contains("Conversion complete"));
+    }
+
+    #[test]
+    fn run_streaming_tue_le_process_et_signale_timed_out_au_dela_du_delai() {
+        let run = run_streaming("/bin/sh", &["-c", "sleep 5"], Duration::from_millis(100), |_| {});
+        assert!(run.timed_out, "le process qui dort 5 s doit être tué après 100 ms");
+        assert_eq!(run.spawn_error, None);
+    }
+
+    #[test]
+    fn convert_pdf_with_spawne_reellement_un_faux_script_mineru_et_transmet_les_etapes() {
+        let tmp = tempfile::tempdir().unwrap();
+        // Un vrai PDF minimal n'est pas nécessaire : la branche MinerU ne lit
+        // jamais le contenu du fichier, seulement son chemin (passé en argv).
+        let pdf_path = tmp.path().join("mon-article.pdf");
+        std::fs::write(&pdf_path, b"%PDF-1.4 fixture").unwrap();
+        let out_name = output_name(&pdf_path);
+        // Écrit dans le tmpdir système plutôt que /tmp en dur : les deux sont
+        // vérifiés par convert_pdf_with (voir le piège documenté dans le
+        // code), le tmpdir système évite de polluer /tmp pendant les tests.
+        let target_md = std::env::temp_dir().join(format!("{out_name}.md"));
+        let script_path = tmp.path().join("fake_mineru.sh");
+        std::fs::write(
+            &script_path,
+            format!(
+                "#!/bin/sh\necho Uploading\necho 'Upload complete'\necho 'Processing... (3s)'\necho 'Conversion complete'\nprintf 'Texte converti par MinerU (fixture de test).' > '{}'\n",
+                target_md.display()
+            ),
+        )
+        .unwrap();
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mut perms = std::fs::metadata(&script_path).unwrap().permissions();
+            perms.set_mode(0o755);
+            std::fs::set_permissions(&script_path, perms).unwrap();
+        }
+
+        let mineru = MineruResolution { script: Some(script_path.to_string_lossy().into_owned()), reason: None };
+        let mut stages: Vec<Value> = Vec::new();
+        let result = convert_pdf_with(&pdf_path, tmp.path(), mineru, "/bin/sh", &mut |v| stages.push(v)).unwrap();
+
+        assert_eq!(result.converter, "mineru");
+        assert_eq!(result.markdown, "Texte converti par MinerU (fixture de test).");
+        assert_eq!(result.warning, None);
+        assert!(stages.contains(&json!({"stage": "upload"})), "stages: {stages:?}");
+        assert!(stages.contains(&json!({"stage": "converting"})), "stages: {stages:?}");
+        assert!(stages.contains(&json!({"stage": "converting", "seconds": 3})), "stages: {stages:?}");
+        assert!(stages.contains(&json!({"stage": "download"})), "stages: {stages:?}");
+        // Le fichier produit est consommé (supprimé) par convert_pdf_with au
+        // passage — sinon le tmpdir système ramasse des .md orphelins.
+        assert!(!target_md.exists());
+    }
+
+    #[test]
+    fn convert_pdf_with_replie_sur_lextraction_locale_quand_mineru_echoue() {
+        let tmp = tempfile::tempdir().unwrap();
+        let script_path = tmp.path().join("fake_mineru_echec.sh");
+        std::fs::write(&script_path, "#!/bin/sh\necho 'Uploading'\n>&2 echo 'Error: quota dépassé'\nexit 1\n").unwrap();
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mut perms = std::fs::metadata(&script_path).unwrap().permissions();
+            perms.set_mode(0o755);
+            std::fs::set_permissions(&script_path, perms).unwrap();
+        }
+        let mineru = MineruResolution { script: Some(script_path.to_string_lossy().into_owned()), reason: None };
+        // PDF réel (fixture de parité) : la conversion locale doit réussir
+        // ensuite, avec le warning MinerU qui documente la tentative ratée —
+        // même contrat que Node (repli, jamais un échec sec).
+        let pdf_path = PathBuf::from("../../../gallery/server/tests/kb_parity/inputs/sample.pdf");
+        assert!(pdf_path.exists(), "fixture PDF introuvable: {}", pdf_path.display());
+        let convert = convert_pdf_with(&pdf_path, tmp.path(), mineru, "/bin/sh", &mut |_| {}).unwrap();
+        assert_eq!(convert.converter, "local");
+        assert!(!convert.markdown.is_empty());
+        let warning = convert.warning.expect("un échec MinerU doit produire un warning");
+        assert!(warning.starts_with("MinerU a échoué (Error: quota dépassé)"), "warning: {warning}");
+        assert!(warning.ends_with("— texte extrait localement"), "warning: {warning}");
     }
 
     #[test]

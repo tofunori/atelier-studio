@@ -331,15 +331,16 @@ pub fn run(argv: &[String]) -> Result<Value, String> {
             let write = opt_bool(&parsed.options, "write");
             crate::gbrain::promote_page(&entry, &full_text, slug, write)
         }
-        // --- article-* (plan 065, vague 2, groupe c) — MinerU réel hors
-        // périmètre, repli local (pdftotext) systématique.
+        // --- article-* (plan 065, vague 2 groupe c, puis vague 4 B4) — MinerU
+        // réel spawné quand resolve_mineru() le fournit, repli local
+        // (pdftotext) inchangé sinon ou en cas d'échec.
         "article-import" => {
             let path = opt_str(&parsed.options, "path").unwrap_or("").to_string();
             let progress = opt_bool(&parsed.options, "progress");
             let pdf_cache_dir = store.pdf_cache_dir().to_path_buf();
             if progress {
-                let mut cb = |stage: &str| {
-                    let line = json!({"progress": {"stage": stage}});
+                let mut cb = |stage: Value| {
+                    let line = json!({"progress": stage});
                     println!("{}", serde_json::to_string(&line).unwrap());
                 };
                 crate::article::import_article(&path, &store.dir, &pdf_cache_dir, Some(&mut cb))
