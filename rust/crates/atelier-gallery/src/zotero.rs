@@ -710,4 +710,17 @@ mod tests {
         assert_eq!(key.len(), 8);
         assert!(key.chars().all(|c| c.is_ascii_alphanumeric()));
     }
+
+    #[test]
+    fn zotero_pdf_path_rejette_ce_qui_nest_pas_une_ref_zotero_valide() {
+        // pas le préfixe : la résolution projet doit reprendre la main
+        assert!(zotero_pdf_path("era5_pipeline/toposcale.py").is_none());
+        assert!(zotero_pdf_path("").is_none());
+        // clé mal formée (longueur, caractères)
+        assert!(zotero_pdf_path("zotero/ABC/x.pdf").is_none());
+        assert!(zotero_pdf_path("zotero/ABCD12-4/x.pdf").is_none());
+        // pas un PDF, ou séparateur dans le nom (tentative d'évasion)
+        assert!(zotero_pdf_path("zotero/ABCD1234/notes.txt").is_none());
+        assert!(zotero_pdf_path("zotero/ABCD1234/../../secret.pdf").is_none());
+    }
 }
