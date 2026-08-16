@@ -238,3 +238,16 @@ jobs:
           path: |
             /tmp/*.log
             /tmp/shots/
+
+      # Les paquets eux-mêmes, pour un essai sur une VRAIE machine — c'est la
+      # seule façon de juger ce qu'un runner headless ne peut pas : la
+      # fluidité (Xvfb fait du rendu logiciel), les polices, Wayland.
+      - name: paquets installables (.deb + AppImage)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: atelier-linux-paquets
+          if-no-files-found: warn
+          path: |
+            src-tauri/target/release/bundle/deb/*.deb
+            src-tauri/target/release/bundle/appimage/*.AppImage
